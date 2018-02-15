@@ -4,4 +4,4 @@ metadata:
   name: my-mongodb-replicaset
 spec:
   members: 3
-  name: some-replica-set
+  name: container-hostname-change-as-needed

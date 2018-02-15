@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Remove, rebuild and reinstall needed objects
+# Use this to rebuild and reinstall the operator
 
 kubectl delete mongodbreplicaset my-mongodb-replicaset
 kubectl delete clusterrole om-operator

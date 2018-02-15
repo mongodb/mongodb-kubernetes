@@ -1,6 +1,3 @@
-// TODO: Add license
-
-// Package v1alpha1 for a sample crd
 package v1alpha1
 
 import (
