@@ -21,10 +21,12 @@ The operator needs 2 different container images:
   agent when mongodb is deployed.
 
 
-    $ eval $(minikube docker-env)
-    $ docker build -t operator:0.1 .
-    $ docker build automation-agent -t ops-manager-agent -f
-    automation-agent/Dockerfile
+```
+$ eval $(minikube docker-env)
+$ docker build -t operator:0.1 .
+$ docker build automation-agent -t ops-manager-agent -f automation-agent/Dockerfile
+
+```
 
 ### Operator Installation ###
 
