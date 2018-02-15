@@ -1,4 +1,3 @@
-// Package main for a sample operator
 package main
 
 import (
@@ -16,6 +15,10 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
+const labelApp = "pm-controller"
+const labelController = "pm-controller"
+
+
 type MongoDbController struct {
 	context          *opkit.Context
 	mongodbClientset mongodbclient.MongodbV1alpha1Interface
@@ -32,8 +35,8 @@ func newMongoDbController(context *opkit.Context, mongodbClientset mongodbclient
 
 func newDeployment(obj *mongodb.MongoDbReplicaSet) *appsv1beta2.Deployment {
 	labels := map[string]string{
-		"app":        "om-controller",
-		"controller": "om-controller",
+		"app":        labelApp,
+		"controller": labelController,
 	}
 	fmt.Printf("Getting something to newDeployment (members) '%d'", obj.Spec.Members)
 
@@ -81,7 +84,6 @@ func newDeployment(obj *mongodb.MongoDbReplicaSet) *appsv1beta2.Deployment {
 	}
 }
 
-// Watch watches for instances of MongoDbReplicaSet custom resources and acts on them
 func (c *MongoDbController) StartWatch(namespace string, stopCh chan struct{}) error {
 
 	resourceHandlers := cache.ResourceEventHandlerFuncs{
@@ -101,17 +103,14 @@ func (c *MongoDbController) StartWatch(namespace string, stopCh chan struct{}) e
 func (c *MongoDbController) onAdd(obj interface{}) {
 	s := obj.(*mongodb.MongoDbReplicaSet).DeepCopy()
 
-	fmt.Println("So we got to onAdd... let's see if we can create some resource")
-
 	deployment, err := c.context.Clientset.Apps().Deployments(s.Namespace).Create(newDeployment(s))
 	if err != nil {
 		fmt.Printf("Error while creating the deployment\n")
 		fmt.Println(err)
-	} else {
-		fmt.Printf("Created deployment with %d replicas", *deployment.Spec.Replicas)
+		return
 	}
 
-	// fmt.Printf("Added MongoDbReplicaSet '%s' with members=%d\n", s.Name, s.Spec.Members)
+	fmt.Printf("Created deployment with %d replicas", *deployment.Spec.Replicas)
 }
 
 func (c *MongoDbController) onUpdate(oldObj, newObj interface{}) {
