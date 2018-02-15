@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# TODO: This code has to be moved to the actual Operator
+
+
 # put this into background and hopefully it will run after
 # the automation agent.
 if [[ $(hostname | grep '\-0$') ]]; then

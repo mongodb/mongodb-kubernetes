@@ -1,5 +1,3 @@
-# This is the docker file for an automation agent.
-
 FROM ubuntu
 
 RUN apt-get -qq update && apt-get -y -qq install libsasl2-2 curl supervisor
