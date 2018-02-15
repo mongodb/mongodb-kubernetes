@@ -23,7 +23,7 @@ The operator needs 2 different container images:
 
 ```
 $ eval $(minikube docker-env)
-$ docker build -t operator:0.1 .
+$ docker build -t om-operator:0.1 .
 $ docker build automation-agent -t ops-manager-agent -f automation-agent/Dockerfile
 
 ```
