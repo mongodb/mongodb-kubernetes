@@ -1,0 +1,7 @@
+apiVersion: mongodb.com/v1alpha1
+kind: MongoDbReplicaSet
+metadata:
+  name: my-mongodb-replicaset
+spec:
+  members: 3
+  name: some-replica-set

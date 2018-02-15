@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ops-manager-config
+  namespace: default
+data:
+  PUBLIC_API_KEY: f774bcc8-e7f6-4f08-85ac-e8b8e2854c81
+  AGENT_API_KEY: 5a8464face36655c84ad21a2a17219f52c7816be3ed22b031d685fe4
+  GROUP_ID: 5a846487ce36655c84ad2137
+  BASE_URL: http://ec2-34-228-113-118.compute-1.amazonaws.com:8080
+  EMAIL: rodrigo.valin@10gen.com
+  MONGOD_VERSION: 3.6.2

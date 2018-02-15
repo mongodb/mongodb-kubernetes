@@ -1,0 +1,202 @@
+{
+    "auth": {
+        "authoritativeSet": false,
+        "disabled": true,
+        "usersDeleted": [],
+        "usersWanted": []
+    },
+    "backupVersions": [],
+    "indexConfigs": [],
+    "mongoDbVersions": [
+        {
+            "builds": [
+                {
+                    "architecture": "amd64",
+                    "bits": 64,
+                    "gitVersion": "489d177dbd0f0420a8ca04d39fd78d0a2c539420",
+                    "platform": "linux",
+                    "url": "https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-3.6.2.tgz"
+                },
+                {
+                    "architecture": "amd64",
+                    "bits": 64,
+                    "flavor": "ubuntu",
+                    "gitVersion": "489d177dbd0f0420a8ca04d39fd78d0a2c539420",
+                    "maxOsVersion": "13.04",
+                    "minOsVersion": "12.04",
+                    "platform": "linux",
+                    "url": "https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu1204-3.6.2.tgz"
+                },
+                {
+                    "architecture": "amd64",
+                    "bits": 64,
+                    "flavor": "ubuntu",
+                    "gitVersion": "489d177dbd0f0420a8ca04d39fd78d0a2c539420",
+                    "maxOsVersion": "15.04",
+                    "minOsVersion": "14.04",
+                    "platform": "linux",
+                    "url": "https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu1404-3.6.2.tgz"
+                },
+                {
+                    "architecture": "amd64",
+                    "bits": 64,
+                    "flavor": "ubuntu",
+                    "gitVersion": "489d177dbd0f0420a8ca04d39fd78d0a2c539420",
+                    "maxOsVersion": "17.04",
+                    "minOsVersion": "16.04",
+                    "platform": "linux",
+                    "url": "https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu1604-3.6.2.tgz"
+                }
+            ],
+            "name": "3.6.2"
+        }
+    ],
+    "mongosqlds": [],
+    "monitoringVersions": [
+        {
+            "baseUrl": null,
+            "hostname": ":HOSTNAME0:",
+            "name": "6.1.2.402-1"
+        },
+        {
+            "baseUrl": null,
+            "hostname": ":HOSTNAME1:",
+            "name": "6.1.2.402-1"
+        },
+        {
+            "baseUrl": null,
+            "hostname": ":HOSTNAME2:",
+            "name": "6.1.2.402-1"
+        }
+    ],
+    "options": {
+        "downloadBase": "/var/lib/mongodb-mms-automation",
+        "downloadBaseWindows": "%SystemDrive%\\MMSAutomation\\versions"
+    },
+    "processes": [
+        {
+            "args2_6": {
+                "net": {
+                    "port": 27017
+                },
+                "replication": {
+                    "replSetName": "replica"
+                },
+                "storage": {
+                    "dbPath": "/data/replica_0"
+                },
+                "systemLog": {
+                    "destination": "file",
+                    "path": "/data/replica_0/mongodb.log"
+                }
+            },
+            "authSchemaVersion": 5,
+            "featureCompatibilityVersion": "3.6",
+            "hostname": ":HOSTNAME0:",
+            "logRotate": {
+                "sizeThresholdMB": 1000.0,
+                "timeThresholdHrs": 24
+            },
+            "name": "replica_0",
+            "processType": "mongod",
+            "version": ":MONGOD_VERSION:"
+        },
+        {
+            "args2_6": {
+                "net": {
+                    "port": 27017
+                },
+                "replication": {
+                    "replSetName": "replica"
+                },
+                "storage": {
+                    "dbPath": "/data/replica_1"
+                },
+                "systemLog": {
+                    "destination": "file",
+                    "path": "/data/replica_1/mongodb.log"
+                }
+            },
+            "authSchemaVersion": 5,
+            "featureCompatibilityVersion": "3.6",
+            "hostname": ":HOSTNAME1:",
+            "logRotate": {
+                "sizeThresholdMB": 1000.0,
+                "timeThresholdHrs": 24
+            },
+            "name": "replica_1",
+            "processType": "mongod",
+            "version": ":MONGOD_VERSION:"
+        },
+        {
+            "args2_6": {
+                "net": {
+                    "port": 27017
+                },
+                "replication": {
+                    "replSetName": "replica"
+                },
+                "storage": {
+                    "dbPath": "/data/replica_2"
+                },
+                "systemLog": {
+                    "destination": "file",
+                    "path": "/data/replica_2/mongodb.log"
+                }
+            },
+            "authSchemaVersion": 5,
+            "featureCompatibilityVersion": "3.6",
+            "hostname": ":HOSTNAME2:",
+            "logRotate": {
+                "sizeThresholdMB": 1000.0,
+                "timeThresholdHrs": 24
+            },
+            "name": "replica_2",
+            "processType": "mongod",
+            "version": ":MONGOD_VERSION:"
+        }
+    ],
+    "replicaSets": [
+        {
+            "_id": "replica",
+            "members": [
+                {
+                    "_id": 0,
+                    "arbiterOnly": false,
+                    "buildIndexes": true,
+                    "hidden": false,
+                    "host": "replica_0",
+                    "priority": 1.0,
+                    "slaveDelay": 0,
+                    "votes": 1
+                },
+                {
+                    "_id": 1,
+                    "arbiterOnly": false,
+                    "buildIndexes": true,
+                    "hidden": false,
+                    "host": "replica_1",
+                    "priority": 1.0,
+                    "slaveDelay": 0,
+                    "votes": 1
+                },
+                {
+                    "_id": 2,
+                    "arbiterOnly": false,
+                    "buildIndexes": true,
+                    "hidden": false,
+                    "host": "replica_2",
+                    "priority": 1.0,
+                    "slaveDelay": 0,
+                    "votes": 1
+                }
+            ],
+            "settings": {
+            }
+        }
+    ],
+    "roles": [],
+    "sharding": [],
+    "uiBaseUrl": null,
+    "version": 1
+}
