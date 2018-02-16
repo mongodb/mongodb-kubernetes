@@ -224,9 +224,11 @@
   revision = "d670f9405373e636a5a2765eea47fac0c9bc91a4"
 
 [[projects]]
+  branch = "release-1.9"
   name = "k8s.io/api"
   packages = [
     "admissionregistration/v1alpha1",
+    "apps/v1",
     "apps/v1beta1",
     "apps/v1beta2",
     "authentication/v1",
@@ -251,8 +253,7 @@
     "storage/v1",
     "storage/v1beta1"
   ]
-  revision = "4df58c811fe2e65feb879227b2b245e4dc26e7ad"
-  version = "kubernetes-1.8.2"
+  revision = "acf347b865f29325eb61f4cd2df11e86e073a5ee"
 
 [[projects]]
   name = "k8s.io/apiextensions-apiserver"
@@ -263,13 +264,13 @@
     "pkg/client/clientset/clientset/scheme",
     "pkg/client/clientset/clientset/typed/apiextensions/v1beta1"
   ]
-  revision = "e509bb64fe1116e12a32273a2032426aa1a5fd26"
-  version = "kubernetes-1.8.2"
+  revision = "f1425805c0335c1f5b23e70f0154747b3df5a16a"
+  version = "kubernetes-1.9.3"
 
 [[projects]]
+  branch = "release-1.9"
   name = "k8s.io/apimachinery"
   packages = [
-    "pkg/api/equality",
     "pkg/api/errors",
     "pkg/api/meta",
     "pkg/api/resource",
@@ -279,7 +280,6 @@
     "pkg/apis/meta/v1alpha1",
     "pkg/conversion",
     "pkg/conversion/queryparams",
-    "pkg/conversion/unstructured",
     "pkg/fields",
     "pkg/labels",
     "pkg/runtime",
@@ -310,12 +310,13 @@
     "pkg/watch",
     "third_party/forked/golang/reflect"
   ]
-  revision = "019ae5ada31de202164b118aee88ee2d14075c31"
+  revision = "19e3f5aa3adca672c153d324e6b7d82ff8935f03"
 
 [[projects]]
   name = "k8s.io/client-go"
   packages = [
     "discovery",
+    "discovery/fake",
     "kubernetes",
     "kubernetes/scheme",
     "kubernetes/typed/admissionregistration/v1alpha1",
@@ -345,6 +346,7 @@
     "pkg/version",
     "rest",
     "rest/watch",
+    "testing",
     "tools/cache",
     "tools/clientcmd/api",
     "tools/metrics",
@@ -373,6 +375,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "8d763ebfe4f32b9f0fdfd042c157a57329cdc53cd586058b4379faac028beb2c"
+  inputs-digest = "4ac997a53ba9ed94ba054968c80b0898fee872a5c7e1bc4a723ab5cb94a9179b"
   solver-name = "gps-cdcl"
   solver-version = 1
