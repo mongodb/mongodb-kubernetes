@@ -1,12 +1,11 @@
 #!/bin/bash -e
 
-if [ ! -d ./vendor ]; then
-    echo "There's no vendor directory. Did you run 'dep ensure'?"
-    exit
-fi
+# if [ ! -d ./vendor ]; then
+#     echo "There's no vendor directory. Did you run 'dep ensure'?"
+#     exit
+# fi
 
 if [ ! -d ./vendor/k8s.io/code-generator ]; then
-    mkdir -p vendor/github.com/kubernetes
     git clone https://github.com/kubernetes/code-generator.git vendor/k8s.io/code-generator
 fi
 

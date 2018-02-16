@@ -28,6 +28,15 @@ var MongoDbReplicaSetResource = opkit.CustomResource{
 	Kind:    reflect.TypeOf(MongoDbReplicaSet{}).Name(),
 }
 
+var MongoDbStandaloneResource = opkit.CustomResource{
+	Name:    "mongodbreplicaset",
+	Plural:  "mongodbreplicasets",
+	Group:   "mongodb.com",
+	Version: "v1alpha1",
+	Scope:   apiextensionsv1beta1.NamespaceScoped,
+	Kind:    reflect.TypeOf(MongoDbStandalone{}).Name(),
+}
+
 func init() {
 	// We only register manually written functions here. The registration of the
 	// generated functions takes place in the generated files. The separation
@@ -45,6 +54,8 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 	scheme.AddKnownTypes(SchemeGroupVersion,
 		&MongoDbReplicaSet{},
 		&MongoDbReplicaSetList{},
+		&MongoDbStandalone{},
+		&MongoDbStandaloneList{},
 	)
 	metav1.AddToGroupVersion(scheme, SchemeGroupVersion)
 	return nil

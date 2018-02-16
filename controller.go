@@ -7,17 +7,13 @@ import (
 	mongodbscheme "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/scheme"
 	mongodbclient "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/typed/mongodb.com/v1alpha1"
 	opkit "github.com/rook/operator-kit"
-	appsv1beta2 "k8s.io/api/apps/v1beta2"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
+	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/cache"
 )
 
-const labelApp = "pm-controller"
-const labelController = "pm-controller"
-
+const LabelApp = "om-controller"
+const LabelController = "om-controller"
 
 type MongoDbController struct {
 	context          *opkit.Context
@@ -33,84 +29,71 @@ func newMongoDbController(context *opkit.Context, mongodbClientset mongodbclient
 	}
 }
 
-func newDeployment(obj *mongodb.MongoDbReplicaSet) *appsv1beta2.Deployment {
-	labels := map[string]string{
-		"app":        labelApp,
-		"controller": labelController,
-	}
+func newDeployment(obj *mongodb.MongoDbReplicaSet) *appsv1.StatefulSet {
 	fmt.Printf("Getting something to newDeployment (members) '%d'", obj.Spec.Members)
 
-	return &appsv1beta2.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      obj.Spec.Name,
-			Namespace: obj.Namespace,
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(obj, schema.GroupVersionKind{
-					Group:   mongodb.SchemeGroupVersion.Group,
-					Version: mongodb.SchemeGroupVersion.Version,
-					Kind:    "MongoDbReplicaSet",
-				}),
-			},
-		},
-		Spec: appsv1beta2.DeploymentSpec{
-			Replicas: obj.Spec.Members,
-			Selector: &metav1.LabelSelector{
-				MatchLabels: labels,
-			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
-				},
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name:            "ops-manager-agent",
-							Image:           "ops-manager-agent",
-							ImagePullPolicy: "Never",
-							EnvFrom: []corev1.EnvFromSource{
-								{
-									ConfigMapRef: &corev1.ConfigMapEnvSource{
-										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "ops-manager-config",
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
+	return NewReplicaSet(obj)
 }
 
-func (c *MongoDbController) StartWatch(namespace string, stopCh chan struct{}) error {
-
+func (c *MongoDbController) StartWatchReplicaSets(namespace string, stopCh chan struct{}) error {
 	resourceHandlers := cache.ResourceEventHandlerFuncs{
-		AddFunc:    c.onAdd,
+		AddFunc:    c.onAddReplicaSet,
+		UpdateFunc: c.onUpdate,
+		DeleteFunc: c.onDelete,
+	}
+	restClient := c.mongodbClientset.RESTClient()
+	replicaSetWatcher := opkit.NewWatcher(mongodb.MongoDbReplicaSetResource, namespace, resourceHandlers, restClient)
+	go replicaSetWatcher.Watch(&mongodb.MongoDbReplicaSet{}, stopCh)
+
+	return nil
+}
+
+func (c *MongoDbController) StartWatchStandalone(namespace string, stopCh chan struct{}) error {
+	resourceHandlers := cache.ResourceEventHandlerFuncs{
+		AddFunc:    c.onAddStandalone,
 		UpdateFunc: c.onUpdate,
 		DeleteFunc: c.onDelete,
 	}
 	restClient := c.mongodbClientset.RESTClient()
 
 	// mongodb.MongoDbReplicaSetResource -> in v1alpha1/register.go
-	watcher := opkit.NewWatcher(mongodb.MongoDbReplicaSetResource, namespace, resourceHandlers, restClient)
+	replicaSetWatcher := opkit.NewWatcher(mongodb.MongoDbReplicaSetResource, namespace, resourceHandlers, restClient)
+	standaloneWatcher := opkit.NewWatcher(mongodb.MongoDbStandaloneResource, namespace, resourceHandlers, restClient)
 
-	go watcher.Watch(&mongodb.MongoDbReplicaSet{}, stopCh)
+	go replicaSetWatcher.Watch(&mongodb.MongoDbReplicaSet{}, stopCh)
+	go standaloneWatcher.Watch(&mongodb.MongoDbStandalone{}, stopCh)
 	return nil
 }
 
-func (c *MongoDbController) onAdd(obj interface{}) {
+func (c *MongoDbController) StartWatch(namespace string, stopCh chan struct{}) error {
+	c.StartWatchStandalone(namespace, stopCh)
+	c.StartWatchReplicaSets(namespace, stopCh)
+
+	return nil
+}
+
+func (c *MongoDbController) onAddReplicaSet(obj interface{}) {
 	s := obj.(*mongodb.MongoDbReplicaSet).DeepCopy()
 
-	deployment, err := c.context.Clientset.Apps().Deployments(s.Namespace).Create(newDeployment(s))
+	fmt.Println("MongoDb ReplicaSet Added")
+
+	// TODO: here we are combining 2 APIs, Kubernetes and Mongo and we have confusing terms, like
+	// the creation of a StatefulSet from a function that creates a replicaset? This is confusing and
+	// this schema needs to be improved.
+	deployment, err := c.context.Clientset.AppsV1().StatefulSets(s.Namespace).Create(NewReplicaSet(s))
 	if err != nil {
-		fmt.Printf("Error while creating the deployment\n")
+		fmt.Printf("Error while creating the StatefulSet\n")
 		fmt.Println(err)
 		return
 	}
 
-	fmt.Printf("Created deployment with %d replicas", *deployment.Spec.Replicas)
+	fmt.Printf("Created StatefulSet with %d replicas", *deployment.Spec.Replicas)
+}
+
+func (c *MongoDbController) onAddStandalone(obj interface{}) {
+	// s := obj.(*mongodb.MongoDbReplicaSet).DeepCopy()
+
+	fmt.Println("Not actually creating any standalone")
 }
 
 func (c *MongoDbController) onUpdate(oldObj, newObj interface{}) {

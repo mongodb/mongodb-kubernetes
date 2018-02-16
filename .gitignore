@@ -1,0 +1,5 @@
+vendor/
+om-operator
+.dir-locals.el
+pkg/client
+pkg/apis/zz_generated.deepcopy.go
