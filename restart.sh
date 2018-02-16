@@ -9,7 +9,7 @@ kubectl delete clusterrolebinding om-operator
 kubectl delete deployment om-operator
 
 eval $(minikube docker-env)
-docker build -t operator:0.1 .
+docker build -t om-operator:0.1 .
 
 kubectl apply -f om-operator.yaml
 kubectl apply -f om-resource-sample.yaml

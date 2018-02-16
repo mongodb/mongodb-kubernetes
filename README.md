@@ -9,8 +9,11 @@ Ops Manager installation.
 
 ### Compile Operator ###
 
-    $ dep ensure
-    $ ./codegen.sh
+```
+dep ensure
+./codegen.sh
+CGO_ENABLED=0 GOOS=linux go build -o om-operator
+```
 
 ### Create Required Container Images ###
 
