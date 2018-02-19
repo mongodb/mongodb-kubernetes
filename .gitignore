@@ -3,3 +3,5 @@ om-operator
 .dir-locals.el
 pkg/client
 pkg/apis/mongodb.com/v1alpha1/zz_generated.deepcopy.go
+.idea/
+ops-manager-kubernetes.iml

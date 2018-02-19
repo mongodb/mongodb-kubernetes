@@ -29,21 +29,21 @@
   branch = "master"
   name = "github.com/rook/operator-kit"
 
-[[constraint]]
+[[override]]
   name = "k8s.io/api"
-  version = "kubernetes-1.8.2"
+  version = "kubernetes-1.9.3"
 
-[[constraint]]
+[[override]]
   name = "k8s.io/apiextensions-apiserver"
-  version = "kubernetes-1.8.2"
+  version = "kubernetes-1.9.3"
 
-[[constraint]]
+[[override]]
   name = "k8s.io/apimachinery"
-  version = "kubernetes-1.8.0"
+  version = "kubernetes-1.9.3"
 
-[[constraint]]
+[[override]]
   name = "k8s.io/client-go"
-  version = "5.0.1"
+  version = "kubernetes-1.9.3"
 
 [prune]
   go-tests = true
