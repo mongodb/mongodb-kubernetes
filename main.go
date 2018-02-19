@@ -26,7 +26,10 @@ func main() {
 
 	// Create and wait for CRD resources
 	fmt.Println("Registering the sample resource")
-	resources := []opkit.CustomResource{mongodb.MongoDbReplicaSetResource, mongodb.MongoDbStandaloneResource}
+	resources := []opkit.CustomResource{
+		mongodb.MongoDbReplicaSetResource,
+		mongodb.MongoDbStandaloneResource,
+		mongodb.MongoDbShardedClusterResource}
 	err = opkit.CreateCustomResources(*context, resources)
 	if err != nil {
 		fmt.Printf("failed to create custom resource. %+v\n", err)

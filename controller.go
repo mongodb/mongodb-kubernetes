@@ -7,7 +7,6 @@ import (
 	mongodbscheme "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/scheme"
 	mongodbclient "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/typed/mongodb.com/v1alpha1"
 	opkit "github.com/rook/operator-kit"
-	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/cache"
 )
@@ -29,82 +28,59 @@ func newMongoDbController(context *opkit.Context, mongodbClientset mongodbclient
 	}
 }
 
-func newDeployment(obj *mongodb.MongoDbReplicaSet) *appsv1.StatefulSet {
-	fmt.Printf("Getting something to newDeployment (members) '%d'", obj.Spec.Members)
-
-	return NewReplicaSet(obj)
-}
-
-func (c *MongoDbController) StartWatchReplicaSets(namespace string, stopCh chan struct{}) error {
-	resourceHandlers := cache.ResourceEventHandlerFuncs{
-		AddFunc:    c.onAddReplicaSet,
-		UpdateFunc: c.onUpdate,
-		DeleteFunc: c.onDelete,
-	}
-	restClient := c.mongodbClientset.RESTClient()
-	replicaSetWatcher := opkit.NewWatcher(mongodb.MongoDbReplicaSetResource, namespace, resourceHandlers, restClient)
-	go replicaSetWatcher.Watch(&mongodb.MongoDbReplicaSet{}, stopCh)
-
-	return nil
-}
-
-func (c *MongoDbController) StartWatchStandalone(namespace string, stopCh chan struct{}) error {
-	resourceHandlers := cache.ResourceEventHandlerFuncs{
-		AddFunc:    c.onAddStandalone,
-		UpdateFunc: c.onUpdate,
-		DeleteFunc: c.onDelete,
-	}
-	restClient := c.mongodbClientset.RESTClient()
-
-	// mongodb.MongoDbReplicaSetResource -> in v1alpha1/register.go
-	replicaSetWatcher := opkit.NewWatcher(mongodb.MongoDbReplicaSetResource, namespace, resourceHandlers, restClient)
-	standaloneWatcher := opkit.NewWatcher(mongodb.MongoDbStandaloneResource, namespace, resourceHandlers, restClient)
-
-	go replicaSetWatcher.Watch(&mongodb.MongoDbReplicaSet{}, stopCh)
-	go standaloneWatcher.Watch(&mongodb.MongoDbStandalone{}, stopCh)
-	return nil
-}
-
 func (c *MongoDbController) StartWatch(namespace string, stopCh chan struct{}) error {
-	c.StartWatchStandalone(namespace, stopCh)
-	c.StartWatchReplicaSets(namespace, stopCh)
+	resourceHandlers := cache.ResourceEventHandlerFuncs{
+		AddFunc:    c.onAdd,
+		UpdateFunc: c.onUpdate,
+		DeleteFunc: c.onDelete,
+	}
+	restClient := c.mongodbClientset.RESTClient()
+
+	replicaSetWatcher := opkit.NewWatcher(mongodb.MongoDbReplicaSetResource, namespace, resourceHandlers, restClient)
+	go replicaSetWatcher.Watch(&mongodb.MongoDbReplicaSet{}, stopCh)
 
 	return nil
 }
 
-func (c *MongoDbController) onAddReplicaSet(obj interface{}) {
-	s := obj.(*mongodb.MongoDbReplicaSet).DeepCopy()
+func (c *MongoDbController) onAdd(obj interface{}) {
+	fmt.Println("onAddReplicaSet has been called")
 
-	fmt.Println("MongoDb ReplicaSet Added")
+	s := obj.(*mongodb.MongoDbReplicaSet).DeepCopy()
 
 	// TODO: here we are combining 2 APIs, Kubernetes and Mongo and we have confusing terms, like
 	// the creation of a StatefulSet from a function that creates a replicaset? This is confusing and
 	// this schema needs to be improved.
-	deployment, err := c.context.Clientset.AppsV1().StatefulSets(s.Namespace).Create(NewReplicaSet(s))
+	deployment, err := c.context.Clientset.AppsV1().StatefulSets(s.Namespace).Create(NewMongoDbReplicaSet(s))
 	if err != nil {
 		fmt.Printf("Error while creating the StatefulSet\n")
 		fmt.Println(err)
 		return
 	}
 
-	fmt.Printf("Created StatefulSet with %d replicas", *deployment.Spec.Replicas)
-}
-
-func (c *MongoDbController) onAddStandalone(obj interface{}) {
-	// s := obj.(*mongodb.MongoDbReplicaSet).DeepCopy()
-
-	fmt.Println("Not actually creating any standalone")
+	fmt.Printf("Created StatefulSet with %d replicas\n", *deployment.Spec.Replicas)
 }
 
 func (c *MongoDbController) onUpdate(oldObj, newObj interface{}) {
 	oldRes := oldObj.(*mongodb.MongoDbReplicaSet).DeepCopy()
 	newRes := newObj.(*mongodb.MongoDbReplicaSet).DeepCopy()
 
-	fmt.Printf("Updated MongoDbReplicaSet '%s' from %d to %d\n", newRes.Name, oldRes.Spec.Members, newRes.Spec.Members)
+	fmt.Printf("Updated MongoDbReplicaSet '%s' from %d to %d\n", newRes.Name, *oldRes.Spec.Members, *newRes.Spec.Members)
+
+	if newRes.Namespace != oldRes.Namespace {
+		panic("Two different namespaces?? whaaat?")
+	}
+	deployment, err := c.context.Clientset.AppsV1().StatefulSets(newRes.Namespace).Update(NewMongoDbReplicaSet(newRes))
+	if err != nil {
+		fmt.Printf("Error while creating the StatefulSet\n")
+		fmt.Println(err)
+		return
+	}
+
+	fmt.Printf("Updated StatefulSet '%s' with %d replicas\n", deployment.Name, *deployment.Spec.Replicas)
 }
 
 func (c *MongoDbController) onDelete(obj interface{}) {
 	s := obj.(*mongodb.MongoDbReplicaSet).DeepCopy()
 
-	fmt.Printf("Deleted MongoDbReplicaSet '%s' with Members=%d\n", s.Name, s.Spec.Members)
+	fmt.Printf("Deleted MongoDbReplicaSet '%s' with Members=%d\n", s.Name, *s.Spec.Members)
 }

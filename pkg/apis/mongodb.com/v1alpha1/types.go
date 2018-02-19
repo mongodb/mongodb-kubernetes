@@ -46,3 +46,26 @@ type MongoDbStandaloneList struct {
 	metav1.ListMeta `json:"metadata"`
 	Items           []MongoDbStandalone `json:"items"`
 }
+
+// +genclient
+// +genclient:noStatus
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+type MongoDbShardedCluster struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata"`
+	Spec              MongoDbShardedClusterSpec `json:"spec"`
+}
+
+type MongoDbShardedClusterSpec struct {
+	Name   string
+	Shards *int32
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+type MongoDbShardedClusterList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata"`
+	Items           []MongoDbShardedCluster `json:"items"`
+}

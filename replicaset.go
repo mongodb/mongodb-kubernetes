@@ -8,8 +8,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-// NewReplicaSet will return a StatefulSet definition, built on top of Pods, from `NewStandalone`.
-func NewReplicaSet(obj *mongodb.MongoDbReplicaSet) *appsv1.StatefulSet {
+// NewReplicaSet will return a StatefulSet definition, built on top of Pods.
+func NewMongoDbReplicaSet(obj *mongodb.MongoDbReplicaSet) *appsv1.StatefulSet {
 	labels := map[string]string{
 		"app":        LabelApp,
 		"controller": LabelController,

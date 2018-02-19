@@ -19,6 +19,15 @@ var (
 // schemeGroupVersion is group version used to register these objects
 var SchemeGroupVersion = schema.GroupVersion{Group: "mongodb.com", Version: "v1alpha1"}
 
+var MongoDbStandaloneResource = opkit.CustomResource{
+	Name:    "mongodbstandalone",
+	Plural:  "mongodbstandalones",
+	Group:   "mongodb.com",
+	Version: "v1alpha1",
+	Scope:   apiextensionsv1beta1.NamespaceScoped,
+	Kind:    reflect.TypeOf(MongoDbStandalone{}).Name(),
+}
+
 var MongoDbReplicaSetResource = opkit.CustomResource{
 	Name:    "mongodbreplicaset",
 	Plural:  "mongodbreplicasets",
@@ -28,13 +37,13 @@ var MongoDbReplicaSetResource = opkit.CustomResource{
 	Kind:    reflect.TypeOf(MongoDbReplicaSet{}).Name(),
 }
 
-var MongoDbStandaloneResource = opkit.CustomResource{
-	Name:    "mongodbreplicaset",
-	Plural:  "mongodbreplicasets",
+var MongoDbShardedClusterResource = opkit.CustomResource{
+	Name:    "mongodbshardedcluster",
+	Plural:  "mongodbshardedclusters",
 	Group:   "mongodb.com",
 	Version: "v1alpha1",
 	Scope:   apiextensionsv1beta1.NamespaceScoped,
-	Kind:    reflect.TypeOf(MongoDbStandalone{}).Name(),
+	Kind:    reflect.TypeOf(MongoDbShardedCluster{}).Name(),
 }
 
 func init() {
@@ -56,6 +65,8 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&MongoDbReplicaSetList{},
 		&MongoDbStandalone{},
 		&MongoDbStandaloneList{},
+		&MongoDbShardedCluster{},
+		&MongoDbShardedClusterList{},
 	)
 	metav1.AddToGroupVersion(scheme, SchemeGroupVersion)
 	return nil
