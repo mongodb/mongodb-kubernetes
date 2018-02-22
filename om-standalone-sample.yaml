@@ -1,0 +1,6 @@
+apiVersion: mongodb.com/v1alpha1
+kind: MongoDbStandalone
+metadata:
+  name: my-mongodb-standalone
+spec:
+  hostname: this-is-my-standalone-000

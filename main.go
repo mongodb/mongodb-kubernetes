@@ -25,7 +25,7 @@ func main() {
 	}
 
 	// Create and wait for CRD resources
-	fmt.Println("Registering the sample resource")
+	fmt.Printf("Registering %s resource\n", ResourceName)
 	resources := []opkit.CustomResource{
 		mongodb.MongoDbReplicaSetResource,
 		mongodb.MongoDbStandaloneResource,
@@ -42,7 +42,7 @@ func main() {
 	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
 
 	// start watching the sample resource
-	fmt.Println("Watching the sample resource")
+	fmt.Printf("Watching %s resource\n", ResourceName)
 	controller := newMongoDbController(context, mongodbClientset)
 	controller.StartWatch(v1.NamespaceAll, stopChan)
 
@@ -74,7 +74,7 @@ func createContext() (*opkit.Context, mongodbclient.MongodbV1alpha1Interface, er
 
 	mongodbClientset, err := mongodbclient.NewForConfig(config)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create sample clientset. %+v", err)
+		return nil, nil, fmt.Errorf("failed to create clientset. %+v", err)
 	}
 
 	context := &opkit.Context{
