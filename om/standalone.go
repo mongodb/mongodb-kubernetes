@@ -62,5 +62,7 @@ func (self *standalone) mergeInto(otherProcess *state.ProcessConfig) {
 	otherProcess.Name = self.Process.Name
 	otherProcess.Version = self.Process.Version
 	otherProcess.Hostname = self.Process.Hostname
+	otherProcess.Args["systemLog"] = self.Process.Args["systemLog"]
+	otherProcess.Args["storage"] = self.Process.Args["storage"]
 	// todo other fields
 }
