@@ -33,10 +33,14 @@ func BaseEnvFrom() []corev1.EnvFromSource {
 	}
 }
 
+// MakeInReference is required to return a *int32, which can't be declared as a literal.
 func MakeIntReference(i int32) *int32 {
 	return &i
 }
 
+// AttributeUpdate is just a mock of how a attribute can be declared as updated from an
+// old value to a new value. The values should be interfaces and we'll have to reflect on them.
+// Or hard-code the names and types of expected values in a very go idiomatic way.
 type AttributeUpdate struct {
 	AttributeName string
 	OldValue      interface{}
