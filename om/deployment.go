@@ -3,6 +3,7 @@ package om
 import (
 	"com.tengen/cm/config"
 	"k8s.io/apimachinery/pkg/util/json"
+	"com.tengen/cm/util"
 )
 
 type Deployment config.ClusterConfig
@@ -27,8 +28,8 @@ func newDeployment(version string) *Deployment {
 }
 
 // methods for config:
-// merge standalone. If we found the process with the same name - update some fields there. Otherwise add the new one
-func (self *Deployment) mergeStandalone(standaloneMongo *standalone) {
+// merge Standalone. If we found the process with the same name - update some fields there. Otherwise add the new one
+func (self *Deployment) mergeStandalone(standaloneMongo *Standalone) {
 	for _, pr := range self.Processes {
 		if pr.Name == standaloneMongo.Process.Name {
 			standaloneMongo.mergeInto(pr)
@@ -36,7 +37,7 @@ func (self *Deployment) mergeStandalone(standaloneMongo *standalone) {
 			return
 		}
 	}
-	self.Processes = append(self.Processes, standaloneMongo.Process)
+	self.Processes = append(self.Processes, standaloneMongo.Process.DeepCopy(util.NewAtmContext()))
 }
 
 // merge replicaset

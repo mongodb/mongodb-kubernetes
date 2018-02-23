@@ -17,6 +17,8 @@ func TestSerialize(t *testing.T) {
 	fmt.Printf("%s", string(data))
 }
 
+// First time merge adds the new standalone
+// second invocation doesn't add new node as the existing standalone is found (by name) and the data is merged
 func TestMergeStandalone(t *testing.T) {
 	deployment := newDeployment("3.6.3")
 	standalone := (NewStandalone("3.6.3")).HostPort("mongo1.some.host").Name("merchantsStandalone").

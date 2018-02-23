@@ -7,12 +7,12 @@ import (
 	"com.tengen/cm/state/processargs"
 )
 
-type standalone struct {
+type Standalone struct {
 	Process *state.ProcessConfig
 }
 
-func NewStandalone(ProcessVersion string) *standalone {
-	ans := &standalone{}
+func NewStandalone(ProcessVersion string) *Standalone {
+	ans := &Standalone{}
 	process := &state.ProcessConfig{}
 	ans.Process = process
 
@@ -28,41 +28,41 @@ func NewStandalone(ProcessVersion string) *standalone {
 	return ans
 }
 
-func (self *standalone) Name(ProcessName string) *standalone {
-	self.Process.Name = ProcessName
-	return self;
+func (s *Standalone) Name(ProcessName string) *Standalone {
+	s.Process.Name = ProcessName
+	return s;
 }
-func (self *standalone) HostPort(ProcessHostname string) *standalone {
-	self.Process.Hostname = hosts.Host(ProcessHostname)
-	return self;
+func (s *Standalone) HostPort(ProcessHostname string) *Standalone {
+	s.Process.Hostname = hosts.Host(ProcessHostname)
+	return s;
 }
-func (self *standalone) DbPath(dbPath string) *standalone {
-	self.Process.Args["storage"] = map[string]string{"dbPath": dbPath}
-	return self;
+func (s *Standalone) DbPath(dbPath string) *Standalone {
+	s.Process.Args["storage"] = map[string]string{"dbPath": dbPath}
+	return s;
 }
-func (self *standalone) LogPath(logPath string) *standalone {
-	self.Process.Args["systemLog"] = map[string]string{"destination": "file", "path": logPath}
-	return self;
+func (s *Standalone) LogPath(logPath string) *Standalone {
+	s.Process.Args["systemLog"] = map[string]string{"destination": "file", "path": logPath}
+	return s;
 }
-func (self *standalone) SslCAFilePath(ProcessSslCAFilePath string) *standalone {
+func (s *Standalone) SslCAFilePath(ProcessSslCAFilePath string) *Standalone {
 	// todo
-	//map[string](self.process.Args["net"])["ssl"]["CAFilePath"] = ProcessSslCAFilePath
-	return self;
+	//map[string](s.process.Args["net"])["ssl"]["CAFilePath"] = ProcessSslCAFilePath
+	return s;
 }
-func (self *standalone) SslPemKeyFilePath(ProcessSslPemKeyFilePath string) *standalone {
-	//map[string](self.process.Args["net"])["ssl"]["autoPEMKeyFilePath"] = ProcessSslCAFilePath
-	return self;
+func (s *Standalone) SslPemKeyFilePath(ProcessSslPemKeyFilePath string) *Standalone {
+	//map[string](s.process.Args["net"])["ssl"]["autoPEMKeyFilePath"] = ProcessSslCAFilePath
+	return s;
 }
-func (self *standalone) ClientCertificateMode(ProcessClientCertificateMode bool) *standalone {
-	//map[string](self.process.Args["net"])["ssl"]["clientCertificateMode"] = ProcessClientCertificateMode
-	return self;
+func (s *Standalone) ClientCertificateMode(ProcessClientCertificateMode bool) *Standalone {
+	//map[string](s.process.Args["net"])["ssl"]["clientCertificateMode"] = ProcessClientCertificateMode
+	return s;
 }
 
-func (self *standalone) mergeInto(otherProcess *state.ProcessConfig) {
-	otherProcess.Name = self.Process.Name
-	otherProcess.Version = self.Process.Version
-	otherProcess.Hostname = self.Process.Hostname
-	otherProcess.Args["systemLog"] = self.Process.Args["systemLog"]
-	otherProcess.Args["storage"] = self.Process.Args["storage"]
+func (s *Standalone) mergeInto(otherProcess *state.ProcessConfig) {
+	otherProcess.Name = s.Process.Name
+	otherProcess.Version = s.Process.Version
+	otherProcess.Hostname = s.Process.Hostname
+	otherProcess.Args["systemLog"] = s.Process.Args["systemLog"]
+	otherProcess.Args["storage"] = s.Process.Args["storage"]
 	// todo other fields
 }
