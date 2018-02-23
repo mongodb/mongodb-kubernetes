@@ -10,7 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-func NewStandalone(obj *mongodb.MongoDbStandalone) *appsv1.StatefulSet {
+func BuildStandalone(obj *mongodb.MongoDbStandalone) *appsv1.StatefulSet {
 	labels := map[string]string{
 		"app":        LabelApp,
 		"controller": LabelController,
@@ -46,32 +46,41 @@ func NewStandalone(obj *mongodb.MongoDbStandalone) *appsv1.StatefulSet {
 func (c *MongoDbController) onAddStandalone(obj interface{}) {
 	s := obj.(*mongodb.MongoDbStandalone).DeepCopy()
 
-	standaloneObject := NewStandalone(s)
+	standaloneObject := BuildStandalone(s)
 	statefulSet, err := c.context.Clientset.AppsV1().StatefulSets(s.Namespace).Create(standaloneObject)
 
 	if err != nil {
-		fmt.Printf("Error while creating StatefulSet\n")
 		fmt.Println(err)
 		return
 	}
 
 	// wait until the pods are ready and then contact OM to create the new object
+	// om.CreateStandalone(standaloneObject)
 
 	fmt.Printf("Created Standalone: '%s'\n", statefulSet.ObjectMeta.Name)
 }
 
 func (c *MongoDbController) onUpdateStandalone(oldObj, newObj interface{}) {
-	oldRes := oldObj.(*mongodb.MongoDbStandalone).DeepCopy()
+	//oldRes := oldObj.(*mongodb.MongoDbStandalone).DeepCopy()
 	newRes := newObj.(*mongodb.MongoDbStandalone).DeepCopy()
+	standaloneObject := BuildStandalone(newRes)
+	statefulSet, err := c.context.Clientset.AppsV1().StatefulSets(newRes.Namespace).Update(standaloneObject)
 
-	if newRes.Namespace != oldRes.Namespace {
-		panic("Two different namespaces?? whaaat?")
+	if err != nil {
+		fmt.Printf("Error. Could not update object '%s'\n", statefulSet.ObjectMeta.Name)
+		fmt.Println(err)
 	}
+
+	// wait until pods are ready (they have been restarted and registered into OM)
+	// get differences and update OM with differences
+	// om.UpdateStandalone(newRes.Name, diff)
 	fmt.Printf("Updated Standalone\n")
 }
 
 func (c *MongoDbController) onDeleteStandalone(obj interface{}) {
 	s := obj.(*mongodb.MongoDbStandalone).DeepCopy()
 
+	deleteOptions := metav1.NewDeleteOptions(0)
+	c.context.Clientset.AppsV1().StatefulSets(s.Namespace).Delete(s.Name, deleteOptions)
 	fmt.Printf("Deleted MongoDbStandalone '%s'\n", s.Name)
 }

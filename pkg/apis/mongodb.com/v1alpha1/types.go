@@ -37,6 +37,7 @@ type MongoDbStandalone struct {
 
 type MongoDbStandaloneSpec struct {
 	HostName string `json:"hostname"`
+	Version  string `json:"mongodb_version"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
