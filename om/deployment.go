@@ -8,10 +8,9 @@ import (
 
 type Deployment config.ClusterConfig
 
-// build object from string
-func BuildClusterConfigFromString(Json string) (ans *Deployment, err error) {
+func BuildDeploymentFromBytes(jsonBytes []byte) (ans *Deployment, err error) {
 	cc := &Deployment{}
-	if err := json.Unmarshal([]byte(Json), &cc); err != nil {
+	if err := json.Unmarshal(jsonBytes, &cc); err != nil {
 		return nil, err
 	}
 	return cc, nil
