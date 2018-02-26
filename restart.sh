@@ -19,7 +19,14 @@ kubectl delete serviceaccount om-operator
 kubectl delete clusterrolebinding om-operator
 
 echo "-- Compiling and building new container image"
-CGO_ENABLED=0 GOOS=linux go build -o om-operator
+if [ -z $BUILD_LOCALLY ]; then
+    echo "-- Building om-operator on Linux machine"
+    ssh kuberator 'source ~/.profile ; cd workspace/go/src/github.com/10gen/ops-manager-kubernetes/ ; go build -o om-operator'
+else
+    echo "-- Cross compiling om-operator"
+    CGO_ENABLED=0 GOOS=linux go build -o om-operator
+fi
+
 eval $(minikube docker-env)
 docker build -t om-operator:0.1 .
 

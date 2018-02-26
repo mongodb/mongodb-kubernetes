@@ -9,7 +9,7 @@
 # $ docker build -t om-operator:0.1 .
 #
 #
-FROM scratch
+FROM ubuntu:14.04
 MAINTAINER Ops Manager Team <mms@10gen.com>
 
 ADD om-operator /usr/local/bin/

@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"reflect"
 
+	omconfig "com.tengen/cm/config"
+	omhost "com.tengen/cm/hosts"
+	omstate "com.tengen/cm/state"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -60,4 +63,28 @@ func GetResourceUpdates(oldObj, newObj interface{}) ([]AttributeUpdate, error) {
 	}
 
 	return []AttributeUpdate{}, nil
+}
+
+func testProcessConfiguration(hostname, name, version string) omstate.ProcessConfig {
+	host := omhost.Host(hostname)
+
+	return omstate.ProcessConfig{
+		Name:                        name,
+		Version:                     version,
+		AuthSchemaVersion:           5,
+		FeatureCompatibilityVersion: "3.6",
+		Hostname:                    host,
+		ProcessType:                 "mongod",
+	}
+}
+
+func testClusterConfiguration() *omconfig.ClusterConfig {
+	proc0 := testProcessConfiguration("standalone0", "test-process-name", "3.6.3")
+	proc1 := testProcessConfiguration("standalone1", "test-process-name-another", "3.4.8")
+
+	cluster := omconfig.DefaultClusterConfig()
+	cluster.Processes = append(cluster.Processes, &proc0)
+	cluster.Processes = append(cluster.Processes, &proc1)
+
+	return cluster
 }
