@@ -73,7 +73,7 @@ func BuildStandalone(obj *mongodb.MongoDbStandalone) *appsv1.StatefulSet {
 
 	return &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      obj.Spec.HostName,
+			Name:      obj.Spec.HostnamePrefix,
 			Namespace: obj.Namespace,
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(obj, schema.GroupVersionKind{
