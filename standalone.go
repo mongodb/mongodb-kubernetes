@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -11,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	omconfig "com.tengen/cm/config"
+	"github.com/10gen/ops-manager-kubernetes/om"
 )
 
 func (c *MongoDbController) onAddStandalone(obj interface{}) {
@@ -19,14 +21,55 @@ func (c *MongoDbController) onAddStandalone(obj interface{}) {
 	// standaloneObject is represented by a StatefulSet in Kubernetes
 	standaloneObject := BuildStandalone(s)
 	statefulSet, err := c.context.Clientset.AppsV1().StatefulSets(s.Namespace).Create(standaloneObject)
+	omConfig := GetOpsManagerConfig()
+
+	fmt.Println("this is what we have in omConfig")
+	fmt.Printf("%+v\n", omConfig)
 
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 
-	// wait until the pods are ready and then contact OM to create the new object
-	// om.CreateStandalone(standaloneObject)
+	agentsOk := false
+	for count := 0; count < 3; count++ {
+		time.Sleep(3 * time.Second)
+
+		fmt.Println("Will try to get something from the OM API.")
+		path := fmt.Sprintf(OpsManagerAgentsResource, omConfig.GroupId)
+		agentResponse, err := om.Get(omConfig.BaseUrl, path, omConfig.User, omConfig.PublicApiKey)
+		if err != nil {
+			fmt.Println("Unable to read from OM API, waiting...")
+			fmt.Println(err)
+
+		}
+
+		fmt.Println("Checking if the agent have registered yet")
+		fmt.Printf("Checked %s against response\n", s.Spec.HostnamePrefix)
+		if CheckAgentExists(s.Spec.HostnamePrefix, agentResponse) {
+			fmt.Println("Found agents have already registered!")
+			agentsOk = true
+			break
+		}
+		fmt.Println("Agents have not registered with OM, waiting...")
+	}
+	if !agentsOk {
+		fmt.Println("Agents never registered! not creating standalone in OM!")
+		return
+	}
+
+	currentDeployment, err := om.ReadDeployment(omConfig.BaseUrl, omConfig.GroupId, omConfig.User, omConfig.PublicApiKey)
+	if err != nil {
+		fmt.Println("Could not read deployment from OM. Not creating standalone in OM!")
+		return
+	}
+	standaloneOmObject := om.NewStandalone(s.Spec.Version)
+	currentDeployment.MergeStandalone(standaloneOmObject)
+	_, err = om.ApplyDeployment(omConfig.BaseUrl, omConfig.GroupId, currentDeployment, omConfig.User, omConfig.PublicApiKey)
+	if err != nil {
+		fmt.Println("Error while trying to push another deployment.")
+		fmt.Println(err)
+	}
 
 	fmt.Printf("Created Standalone: '%s'\n", statefulSet.ObjectMeta.Name)
 }

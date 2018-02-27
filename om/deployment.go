@@ -2,8 +2,8 @@ package om
 
 import (
 	"com.tengen/cm/config"
-	"k8s.io/apimachinery/pkg/util/json"
 	"com.tengen/cm/util"
+	"k8s.io/apimachinery/pkg/util/json"
 )
 
 type Deployment config.ClusterConfig
@@ -28,7 +28,7 @@ func newDeployment(version string) *Deployment {
 
 // methods for config:
 // merge Standalone. If we found the process with the same name - update some fields there. Otherwise add the new one
-func (self *Deployment) mergeStandalone(standaloneMongo *Standalone) {
+func (self *Deployment) MergeStandalone(standaloneMongo *Standalone) {
 	for _, pr := range self.Processes {
 		if pr.Name == standaloneMongo.Process.Name {
 			standaloneMongo.mergeInto(pr)

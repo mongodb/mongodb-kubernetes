@@ -11,7 +11,8 @@ const (
 	MongoDbReplicaSet     = "MongoDbReplicaSet"
 	MongoDbShardedCluster = "MongoDbShardedCluster"
 
-	ResourceName = "MongoDB"
-
+	ResourceName      = "MongoDB"
 	StandaloneMembers = 1
+
+	OpsManagerAgentsResource = "/api/public/v1.0/groups/%s/agents/AUTOMATION"
 )

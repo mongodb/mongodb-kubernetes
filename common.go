@@ -1,9 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
+	"strings"
 
 	omconfig "com.tengen/cm/config"
 	omhost "com.tengen/cm/hosts"
@@ -39,6 +42,22 @@ func BaseEnvFrom() []corev1.EnvFromSource {
 // MakeInReference is required to return a *int32, which can't be declared as a literal.
 func MakeIntReference(i int32) *int32 {
 	return &i
+}
+
+type OpsManagerConfig struct {
+	BaseUrl      string
+	PublicApiKey string
+	User         string
+	GroupId      string
+}
+
+func GetOpsManagerConfig() OpsManagerConfig {
+	return OpsManagerConfig{
+		BaseUrl:      os.Getenv("BASE_URL"),
+		PublicApiKey: os.Getenv("PUBLIC_API_KEY"),
+		User:         os.Getenv("EMAIL"),
+		GroupId:      os.Getenv("GROUP_ID"),
+	}
 }
 
 // AttributeUpdate is just a mock of how a attribute can be declared as updated from an

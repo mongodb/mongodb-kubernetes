@@ -2,18 +2,17 @@ package om
 
 import (
 	"bytes"
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
-	"github.com/10gen/ops-manager-kubernetes/util"
 	ioutil "com.tengen/cm/util"
-	"strings"
 	"crypto/md5"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"github.com/10gen/ops-manager-kubernetes/util"
+	"io"
+	"net/http"
+	"strings"
 )
-
 
 func ApplyDeployment(hostname string, group string, v *Deployment, user string, token string) (response []byte, err error) {
 	return Put(hostname, fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", group), v, user, token)
@@ -25,7 +24,6 @@ func ReadDeployment(hostname string, group string, user string, token string) (r
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println(string(ans))
 	return BuildDeploymentFromBytes(ans)
 }
 
@@ -51,6 +49,10 @@ func Get(hostname string, path string, user string, token string) (response []by
 func request(method string, hostname string, path string, reader io.Reader, user string, token string, contentType string) (response []byte, err error) {
 	url := hostname + path
 	req, err := http.NewRequest(method, url, reader)
+	if err != nil {
+		return nil, err
+	}
+
 	req.Header.Add("Content-Type", contentType)
 
 	resp, err := util.DefaultHttpClient.Do(req)

@@ -1,16 +1,16 @@
 package om
 
 import (
-	"testing"
-	"fmt"
 	"encoding/json"
+	"fmt"
+	"testing"
 )
 
 func TestSerialize(t *testing.T) {
 	deployment := newDeployment("3.6.3")
 	standalone := (NewStandalone("3.6.3")).HostPort("mongo1.some.host").Name("merchantsStandalone").
 		DbPath("/data/mongodb").LogPath("/data/mongodb/mongodb.log")
-	deployment.mergeStandalone(standalone)
+	deployment.MergeStandalone(standalone)
 
 	data, _ := json.Marshal(deployment)
 	// todo check against serialized content
@@ -23,7 +23,7 @@ func TestMergeStandalone(t *testing.T) {
 	deployment := newDeployment("3.6.3")
 	standalone := (NewStandalone("3.6.3")).HostPort("mongo1.some.host").Name("merchantsStandalone").
 		DbPath("/data/mongodb").LogPath("/data/mongodb/mongodb.log")
-	deployment.mergeStandalone(standalone)
+	deployment.MergeStandalone(standalone)
 
 	if len(deployment.Processes) != 1 {
 		t.Error("One process is expected to be added after the first merge")
@@ -33,7 +33,7 @@ func TestMergeStandalone(t *testing.T) {
 	deployment.Processes[0].Alias = "alias"
 	deployment.Processes[0].Hostname = "foo"
 
-	deployment.mergeStandalone(standalone)
+	deployment.MergeStandalone(standalone)
 
 	if len(deployment.Processes) != 1 {
 		t.Error("Second merge is expected to update existing process")
@@ -45,6 +45,5 @@ func TestMergeStandalone(t *testing.T) {
 	if deployment.Processes[0].Alias != "alias" || deployment.Version != 5 {
 		t.Error("Merge is not expected to update other fields (like alias or version)")
 	}
-
 
 }
