@@ -1,5 +1,11 @@
 package main
 
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+)
+
 // Checks if the agents have registered.
 
 type AgentState struct {

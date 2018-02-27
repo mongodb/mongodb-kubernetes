@@ -1,12 +1,10 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"reflect"
-	"strings"
 
 	omconfig "com.tengen/cm/config"
 	omhost "com.tengen/cm/hosts"
