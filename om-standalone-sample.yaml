@@ -1,0 +1,7 @@
+apiVersion: mongodb.com/v1alpha1
+kind: MongoDbStandalone
+metadata:
+  name: test-process-name
+spec:
+  hostname: this-is-my-standalone
+  mongodb_version: 3.4.8

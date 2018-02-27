@@ -13,8 +13,8 @@ type MongoDbReplicaSet struct {
 }
 
 type MongoDbReplicaSetSpec struct {
-	Members *int32 `json:"members"`
-	Name    string
+	Members  *int32 `json:"members"`
+	HostName string `json:"hostname"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -36,7 +36,8 @@ type MongoDbStandalone struct {
 }
 
 type MongoDbStandaloneSpec struct {
-	Name string
+	HostnamePrefix string `json:"hostname_prefix"`
+	Version        string `json:"mongodb_version"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -58,8 +59,8 @@ type MongoDbShardedCluster struct {
 }
 
 type MongoDbShardedClusterSpec struct {
-	Name   string
-	Shards *int32
+	HostName string `json:"hostname"`
+	Shards   *int32
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
