@@ -11,7 +11,7 @@ func TestReal(t *testing.T) {
 		DbPath("/data").LogPath("/data/mongodb.log")
 	deployment.mergeStandalone(standalone)
 
-	response, err := CreateDeployment("http://ec2-184-73-133-183.compute-1.amazonaws.com:8080", "5a9411cf1aeca45c674a27cf",
+	response, err := ApplyDeployment("http://ec2-184-73-133-183.compute-1.amazonaws.com:8080", "5a9411cf1aeca45c674a27cf",
 		deployment, "alisovenko@gmail.com", "cb989e41-2804-4642-ae93-8e00004e3007")
 
 	if (err != nil) {

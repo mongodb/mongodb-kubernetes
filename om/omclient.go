@@ -15,7 +15,7 @@ import (
 )
 
 
-func CreateDeployment(hostname string, group string, v *Deployment, user string, token string) (response []byte, err error) {
+func ApplyDeployment(hostname string, group string, v *Deployment, user string, token string) (response []byte, err error) {
 	return Put(hostname, fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", group), v, user, token)
 }
 
