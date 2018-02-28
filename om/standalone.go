@@ -34,29 +34,41 @@ func (s *Standalone) Name(ProcessName string) *Standalone {
 	s.Process.Name = ProcessName
 	return s
 }
+
 func (s *Standalone) HostPort(ProcessHostname string) *Standalone {
 	s.Process.Hostname = hosts.Host(ProcessHostname)
 	return s
 }
+
 func (s *Standalone) DbPath(dbPath string) *Standalone {
 	s.Process.Args["storage"] = map[string]string{"dbPath": dbPath}
 	return s
 }
+
 func (s *Standalone) LogPath(logPath string) *Standalone {
 	s.Process.Args["systemLog"] = map[string]string{"destination": "file", "path": logPath}
 	return s
 }
+
 func (s *Standalone) SslCAFilePath(ProcessSslCAFilePath string) *Standalone {
 	// todo
 	//map[string](s.process.Args["net"])["ssl"]["CAFilePath"] = ProcessSslCAFilePath
 	return s
 }
+
 func (s *Standalone) SslPemKeyFilePath(ProcessSslPemKeyFilePath string) *Standalone {
 	//map[string](s.process.Args["net"])["ssl"]["autoPEMKeyFilePath"] = ProcessSslCAFilePath
 	return s
 }
+
 func (s *Standalone) ClientCertificateMode(ProcessClientCertificateMode bool) *Standalone {
 	//map[string](s.process.Args["net"])["ssl"]["clientCertificateMode"] = ProcessClientCertificateMode
+	return s
+}
+
+func (s *Standalone) ReplicaSetName(replset string) *Standalone {
+	s.Process.Args["replication"] = map[string]string{"replSetName": replset}
+
 	return s
 }
 

@@ -1,7 +1,8 @@
 apiVersion: mongodb.com/v1alpha1
 kind: MongoDbReplicaSet
 metadata:
-  name: my-mongodb-replicaset
+  name: ops-manager-staging-master-001
 spec:
   members: 3
-  name: container-hostname-change-as-needed
+  hostname_prefix: my-replica-set
+  mongodb_version: 3.6.3
