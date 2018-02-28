@@ -17,7 +17,6 @@ func NewStandalone(ProcessVersion string) *Standalone {
 	ans.Process = process
 
 	process.AuthSchemaVersion = 5 // TODO calculate it based on mongo version
-	process.FeatureCompatibilityVersion = "3.6"
 	process.Version = ProcessVersion
 	// todo calcualte feature compatibility version from the version (leave only two digits)
 	process.FeatureCompatibilityVersion = "3.6"
