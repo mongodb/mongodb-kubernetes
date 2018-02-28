@@ -1,7 +1,6 @@
 package main
 
 import (
-	"com.tengen/cm/util"
 	"errors"
 	"fmt"
 	"time"
@@ -12,7 +11,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
-	"com.tengen/cm/state"
 	"github.com/10gen/ops-manager-kubernetes/om"
 )
 
@@ -68,15 +66,15 @@ func (c *MongoDbController) onAddStandalone(obj interface{}) {
 	// 	return
 	// }
 
+	hostname := fmt.Sprintf("%s-0", s.Spec.HostnamePrefix)
 	standaloneOmObject := om.NewStandalone(s.Spec.Version).
 		Name(s.Name).
-		HostPort(fmt.Sprintf("%s-0", s.Spec.HostnamePrefix)).
+		HostPort(hostname).
 		DbPath("/data").
 		LogPath("/data/mongodb.log")
 
 	deployment := om.NewDeployment("3.6.3")
-	deployment.Processes = make([]*state.ProcessConfig, 0)
-	deployment.Processes = append(deployment.Processes, standaloneOmObject.Process.DeepCopy(util.NewAtmContext()))
+	deployment.AddStandaloneProcess(standaloneOmObject.Process)
 
 	_, err = omConnection.ApplyDeployment(deployment)
 	if err != nil {

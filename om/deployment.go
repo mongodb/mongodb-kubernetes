@@ -3,6 +3,7 @@ package om
 import (
 	"com.tengen/cm/config"
 	"com.tengen/cm/core"
+	"com.tengen/cm/state"
 	"com.tengen/cm/util"
 	"k8s.io/apimachinery/pkg/util/json"
 )
@@ -35,7 +36,20 @@ func NewDeployment(version string) *Deployment {
 	ans.Sharding = make([]*core.ShConfig, 0)
 	// not sure why this one is mandatory - it's necessary only for BI connector
 	ans.Mongosqlds = make([]*config.Mongosqld, 0)
+	ans.Processes = make([]*state.ProcessConfig, 0)
+
 	return ans
+}
+
+func (d *Deployment) AddStandaloneProcess(sa *state.ProcessConfig) {
+	d.Processes = append(d.Processes, sa.DeepCopy(util.NewAtmContext()))
+	d.MonitoringVersions = []*config.AgentVersion{
+		{
+			BaseUrl:  "",
+			Hostname: string(sa.Hostname),
+			Name:     "6.1.2.402-1",
+		},
+	}
 }
 
 // methods for config:
