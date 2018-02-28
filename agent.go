@@ -8,12 +8,15 @@ import (
 
 // Checks if the agents have registered.
 
+// AgentState represents the json document returned by the agents API.
 type AgentState struct {
 	Links      string         `json:"-"`
 	Results    []ResultStruct `json:"results,omitempty"`
 	TotalCount int            `json:"totalCount"`
 }
 
+// ResultStruct represents the json document pointed by the "results" key
+// in the agents API response.
 type ResultStruct struct {
 	ConfCount int    `json:"confCount"`
 	Hostname  string `json:"hostname"`

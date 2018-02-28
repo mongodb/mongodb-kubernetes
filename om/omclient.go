@@ -2,23 +2,54 @@ package om
 
 import (
 	"bytes"
-	ioutil "com.tengen/cm/util"
 	"crypto/md5"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/10gen/ops-manager-kubernetes/util"
 	"io"
 	"net/http"
 	"strings"
+
+	ioutil "com.tengen/cm/util"
+	"github.com/10gen/ops-manager-kubernetes/util"
 )
 
-func ApplyDeployment(hostname string, group string, v *Deployment, user string, token string) (response []byte, err error) {
+type OmConnection struct {
+	BaseUrl      string
+	GroupId      string
+	User         string
+	PublicApiKey string
+}
+
+// NewOpsManagerConnection stores OpsManger api endpoint and authentication credentials.
+// It makes it easy to call the API without having to explicitly provide connection details.
+func NewOpsManagerConnection(baseUrl, groupId, user, publicApiKey string) *OmConnection {
+	return &OmConnection{
+		BaseUrl:      baseUrl,
+		GroupId:      groupId,
+		User:         user,
+		PublicApiKey: publicApiKey,
+	}
+}
+
+func (oc *OmConnection) ApplyDeployment(cluster *Deployment) ([]byte, error) {
+	return BaseApplyDeployment(oc.BaseUrl, oc.GroupId, oc.User, oc.PublicApiKey, cluster)
+}
+
+func (oc *OmConnection) ReadDeployment() (*Deployment, error) {
+	return BaseReadDeployment(oc.BaseUrl, oc.GroupId, oc.User, oc.PublicApiKey)
+}
+
+func (oc *OmConnection) Get(path string) ([]byte, error) {
+	return request("GET", oc.BaseUrl, path, nil, oc.User, oc.PublicApiKey, "application/json; charset=UTF-8")
+}
+
+func BaseApplyDeployment(hostname string, group string, user string, token string, v *Deployment) (response []byte, err error) {
 	return Put(hostname, fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", group), v, user, token)
 }
 
-func ReadDeployment(hostname string, group string, user string, token string) (response *Deployment, err error) {
+func BaseReadDeployment(hostname string, group string, user string, token string) (response *Deployment, err error) {
 	ans, err := Get(hostname, fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", group), user, token)
 
 	if err != nil {
@@ -48,7 +79,7 @@ func Get(hostname string, path string, user string, token string) (response []by
 
 func request(method string, hostname string, path string, reader io.Reader, user string, token string, contentType string) (response []byte, err error) {
 	url := hostname + path
-	req, err := http.NewRequest(method, url, reader)
+	req, err := http.NewRequest(method, url, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -69,6 +100,7 @@ func request(method string, hostname string, path string, reader io.Reader, user
 	digestParts := digestParts(resp)
 
 	req, err = http.NewRequest(method, url, reader)
+
 	req.Header.Set("Authorization", getDigestAuthorization(digestParts, method, path, user, token))
 	req.Header.Add("Content-Type", contentType)
 
@@ -116,6 +148,7 @@ func digestParts(resp *http.Response) map[string]string {
 	}
 	return result
 }
+
 func getMD5(text string) string {
 	hasher := md5.New()
 	hasher.Write([]byte(text))
