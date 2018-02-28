@@ -13,6 +13,8 @@ func TestReal(t *testing.T) {
 
 	response, err := ApplyDeployment("http://ec2-184-73-133-183.compute-1.amazonaws.com:8080", "5a9411cf1aeca45c674a27cf",
 		deployment, "alisovenko@gmail.com", "cb989e41-2804-4642-ae93-8e00004e3007")
+	//response, err := ApplyDeployment("http://localhost:8080", "5a95d1ed327e415757c6592a",
+	//	deployment, "alisovenko@gmail.com", "bdfd84c5-5518-4c26-b25d-8e89201e0ad1")
 
 	if (err != nil) {
 		fmt.Println(err)
