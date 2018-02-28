@@ -24,7 +24,7 @@ func BuildDeploymentFromBytes(jsonBytes []byte) (ans *Deployment, err error) {
 	return cc, nil
 }
 
-func newDeployment(version string) *Deployment {
+func NewDeployment(version string) *Deployment {
 	ans := &Deployment{ClusterConfig: &config.ClusterConfig{}}
 	ans.Options = make(map[string]interface{})
 	// TODO this must be a global constant

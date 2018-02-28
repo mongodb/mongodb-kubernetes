@@ -1,6 +1,7 @@
 package main
 
 import (
+	"com.tengen/cm/util"
 	"errors"
 	"fmt"
 	"time"
@@ -11,7 +12,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
-	omconfig "com.tengen/cm/config"
+	"com.tengen/cm/state"
 	"github.com/10gen/ops-manager-kubernetes/om"
 )
 
@@ -22,6 +23,7 @@ func (c *MongoDbController) onAddStandalone(obj interface{}) {
 	standaloneObject := BuildStandalone(s)
 	statefulSet, err := c.context.Clientset.AppsV1().StatefulSets(s.Namespace).Create(standaloneObject)
 	omConfig := GetOpsManagerConfig()
+	omConnection := om.NewOpsManagerConnection(omConfig.BaseUrl, omConfig.GroupId, omConfig.User, omConfig.PublicApiKey)
 
 	fmt.Println("this is what we have in omConfig")
 	fmt.Printf("%+v\n", omConfig)
@@ -32,16 +34,17 @@ func (c *MongoDbController) onAddStandalone(obj interface{}) {
 	}
 
 	agentsOk := false
+	// TODO: exponential backoff
 	for count := 0; count < 3; count++ {
 		time.Sleep(3 * time.Second)
 
 		fmt.Println("Will try to get something from the OM API.")
 		path := fmt.Sprintf(OpsManagerAgentsResource, omConfig.GroupId)
-		agentResponse, err := om.Get(omConfig.BaseUrl, path, omConfig.User, omConfig.PublicApiKey)
+		agentResponse, err := omConnection.Get(path)
 		if err != nil {
 			fmt.Println("Unable to read from OM API, waiting...")
 			fmt.Println(err)
-
+			continue
 		}
 
 		fmt.Println("Checking if the agent have registered yet")
@@ -58,14 +61,24 @@ func (c *MongoDbController) onAddStandalone(obj interface{}) {
 		return
 	}
 
-	currentDeployment, err := om.ReadDeployment(omConfig.BaseUrl, omConfig.GroupId, omConfig.User, omConfig.PublicApiKey)
-	if err != nil {
-		fmt.Println("Could not read deployment from OM. Not creating standalone in OM!")
-		return
-	}
-	standaloneOmObject := om.NewStandalone(s.Spec.Version)
-	currentDeployment.MergeStandalone(standaloneOmObject)
-	_, err = om.ApplyDeployment(omConfig.BaseUrl, omConfig.GroupId, currentDeployment, omConfig.User, omConfig.PublicApiKey)
+	// TODO: this is on-hold until we fix the read/modify/update cycle
+	// currentDeployment, err := omConnection.ReadDeployment()
+	// if err != nil {
+	// 	fmt.Println("Could not read deployment from OM. Not creating standalone in OM!")
+	// 	return
+	// }
+
+	standaloneOmObject := om.NewStandalone(s.Spec.Version).
+		Name(s.Name).
+		HostPort(fmt.Sprintf("%s-0", s.Spec.HostnamePrefix)).
+		DbPath("/data").
+		LogPath("/data/mongodb.log")
+
+	deployment := om.NewDeployment("3.6.3")
+	deployment.Processes = make([]*state.ProcessConfig, 0)
+	deployment.Processes = append(deployment.Processes, standaloneOmObject.Process.DeepCopy(util.NewAtmContext()))
+
+	_, err = omConnection.ApplyDeployment(deployment)
 	if err != nil {
 		fmt.Println("Error while trying to push another deployment.")
 		fmt.Println(err)
@@ -147,9 +160,14 @@ func BuildStandalone(obj *mongodb.MongoDbStandalone) *appsv1.StatefulSet {
 // + mongodb version
 // This is a very imperative kind of programming in line with go principles.
 func UpdateStandalone(new, old *mongodb.MongoDbStandalone) error {
-	// TODO: This is a mock implementation
-	omCurrentConfig := testClusterConfiguration()
-	updatedAttributes := make([]string, 0)
+	omConfig := GetOpsManagerConfig()
+	omConnection := om.NewOpsManagerConnection(omConfig.BaseUrl, omConfig.GroupId, omConfig.User, omConfig.PublicApiKey)
+	omCurrentConfig, err := omConnection.ReadDeployment()
+	if err != nil {
+		return err
+	}
+
+	var updatedAttributes []string
 
 	processVersion := getProcessVersionForStandalone(new.Name, omCurrentConfig)
 	if processVersion == "" {
@@ -181,7 +199,7 @@ func UpdateStandalone(new, old *mongodb.MongoDbStandalone) error {
 
 // getProcessVersionForStandalone will traverse the clusterConfig.Processes looking for the
 // mongod version of the process we want to update.
-func getProcessVersionForStandalone(name string, clusterConfig *omconfig.ClusterConfig) string {
+func getProcessVersionForStandalone(name string, clusterConfig *om.Deployment) string {
 	for _, process := range clusterConfig.Processes {
 		if process.Name == name {
 			return process.Version

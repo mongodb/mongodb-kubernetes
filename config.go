@@ -14,7 +14,5 @@ const (
 	ResourceName      = "MongoDB"
 	StandaloneMembers = 1
 
-	MongoDbPort = 27017
-
 	OpsManagerAgentsResource = "/api/public/v1.0/groups/%s/agents/AUTOMATION"
 )
