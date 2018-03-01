@@ -101,7 +101,7 @@ func (c *MongoDbController) onAddReplicaSet(obj interface{}) {
 	deployment.MongoDbVersions[0] = &config.MongoDbVersionConfig{Name: s.Spec.Version}
 	// END
 
-	members := CreateStandalonesForReplica(s.Spec.HostnamePrefix, s.Spec.Name, s.Spec.Version, *s.Spec.Members)
+	members := CreateStandalonesForReplica(s.Spec.HostnamePrefix, s.Spec.Name, s.Spec.Service, s.Spec.Version, *s.Spec.Members)
 	for _, member := range members {
 		deployment.MergeStandalone(member)
 	}
@@ -144,12 +144,12 @@ func (c *MongoDbController) onDeleteReplicaSet(obj interface{}) {
 }
 
 // CreateStandaloneForReplica returns a list of om.Standalones
-func CreateStandalonesForReplica(hostnamePrefix, replicaSetName, version string, memberQty int32) []*om.Standalone {
+func CreateStandalonesForReplica(hostnamePrefix, replicaSetName, service, version string, memberQty int32) []*om.Standalone {
 	collection := make([]*om.Standalone, memberQty)
 	qty := int(memberQty)
 
 	for i := 0; i < qty; i++ {
-		suffix := "my-service.default.svc.cluster.local"
+		suffix := fmt.Sprintf("%s.default.svc.cluster.local", service)
 		hostname := fmt.Sprintf("%s-%d.%s", hostnamePrefix, i, suffix)
 		name := fmt.Sprintf("%s_%d", replicaSetName, i)
 		member := om.NewStandalone(version).
