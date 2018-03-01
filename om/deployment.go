@@ -1,6 +1,9 @@
 package om
 
 import (
+	"fmt"
+	"reflect"
+
 	"com.tengen/cm/config"
 	"com.tengen/cm/core"
 	"com.tengen/cm/state"
@@ -22,7 +25,7 @@ type ReplicaSets struct {
 type Deployment struct {
 	Version            int64                          `json:"version"`
 	MonitoringVersions []*config.AgentVersion         `json:"monitoringVersions"`
-	Processes          []*state.ProcessConfig         `json:"processes"`
+	Processes          []*ProcessConfigMask           `json:"processes"`
 	ReplicaSets        []*ReplicaSets                 `json:"replicaSets"`
 	MongoDbVersions    []*config.MongoDbVersionConfig `json:"mongoDbVersions,omitempty"`
 	Options            map[string]interface{}         `json:"options"`
@@ -30,6 +33,19 @@ type Deployment struct {
 
 	// masking this field - it will not be serialized
 	Edition bool `json:"Edition,omitempty"`
+}
+
+type ProcessConfigMask struct {
+	*state.ProcessConfig
+
+	LogRotate *LogRotateConfigMask `json:"logRotate,omitempty"`
+}
+
+type LogRotateConfigMask struct {
+	SizeThresholdMB    float64 `json:"sizeThresholdMB"`
+	TimeThresholdHrs   int     `json:"timeThresholdHrs"`
+	NumUncompressed    int     `json:"numUncompressed,omitempty"`
+	PercentOfDiskspace float64 `json:"percentOfDiskspace,omitempty"`
 }
 
 func BuildDeploymentFromBytes(jsonBytes []byte) (ans *Deployment, err error) {
@@ -51,7 +67,7 @@ func NewDeployment(version string) *Deployment {
 	// ans.Sharding = make([]*core.ShConfig, 0)
 	// not sure why this one is mandatory - it's necessary only for BI connector
 	// ans.Mongosqlds = make([]*config.Mongosqld, 0)
-	ans.Processes = make([]*state.ProcessConfig, 0)
+	// ans.Processes = make([]*state.ProcessConfig, 0)
 	ans.MonitoringVersions = make([]*config.AgentVersion, 0)
 
 	return ans
@@ -71,7 +87,23 @@ func (self *Deployment) MergeStandalone(standaloneMongo *Standalone) {
 			return
 		}
 	}
-	self.Processes = append(self.Processes, standaloneMongo.Process.DeepCopy(util.NewAtmContext()))
+	self.Processes = append(self.Processes, util.DeepCopy(reflect.ValueOf(standaloneMongo.Process), util.NewAtmContext()).Interface().(*ProcessConfigMask))
+}
+
+func (d *Deployment) MergeReplicaSet(rs *ReplicaSets) {
+	found := false
+	for _, replica := range d.ReplicaSets {
+		if replica.Id == rs.Id {
+			found = true
+			fmt.Println("Existing replica, only modifying members")
+			replica.Members = rs.Members
+		}
+	}
+
+	if !found {
+		fmt.Println("This is a new replica, adding it.")
+		d.ReplicaSets = append(d.ReplicaSets, rs)
+	}
 }
 
 // merge replicaset

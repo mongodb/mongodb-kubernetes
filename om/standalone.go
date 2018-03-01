@@ -8,12 +8,13 @@ import (
 )
 
 type Standalone struct {
-	Process *state.ProcessConfig
+	Process *ProcessConfigMask
 }
 
 func NewStandalone(ProcessVersion string) *Standalone {
 	ans := &Standalone{}
-	process := &state.ProcessConfig{}
+	process := &ProcessConfigMask{ProcessConfig: &state.ProcessConfig{}}
+	// process := &state.ProcessConfig{}
 	ans.Process = process
 
 	process.AuthSchemaVersion = 5 // TODO calculate it based on mongo version
@@ -72,7 +73,7 @@ func (s *Standalone) ReplicaSetName(replset string) *Standalone {
 	return s
 }
 
-func (s *Standalone) mergeInto(otherProcess *state.ProcessConfig) {
+func (s *Standalone) mergeInto(otherProcess *ProcessConfigMask) {
 	otherProcess.Name = s.Process.Name
 	otherProcess.Version = s.Process.Version
 	otherProcess.Hostname = s.Process.Hostname

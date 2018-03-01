@@ -128,14 +128,98 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 	if newRes.Namespace != oldRes.Namespace {
 		panic("Namespaces mismatch")
 	}
-	deployment, err := c.context.Clientset.AppsV1().StatefulSets(newRes.Namespace).Update(BuildReplicaSet(newRes))
+	statefulset, err := c.context.Clientset.AppsV1().StatefulSets(newRes.Namespace).Update(BuildReplicaSet(newRes))
 	if err != nil {
 		fmt.Printf("Error while creating the StatefulSet\n")
 		fmt.Println(err)
 		return
 	}
 
-	fmt.Printf("Updated MongoDbReplicaSet '%s' with %d replicas\n", deployment.Name, *deployment.Spec.Replicas)
+	omConfig := GetOpsManagerConfig()
+	omConnection := om.NewOpsManagerConnection(omConfig.BaseUrl, omConfig.GroupId, omConfig.User, omConfig.PublicApiKey)
+
+	action := "Scaling UP"
+	if newRes.Spec.Members != oldRes.Spec.Members {
+		// Scaling!
+		if *newRes.Spec.Members < *oldRes.Spec.Members {
+			fmt.Println("Scale Down!")
+			action = "Scaling DOWN"
+			// Scaling Down.
+			// First, contact the API and remove the hosts from the RS
+			// Then remove the hosts
+		} else if *newRes.Spec.Members > *oldRes.Spec.Members {
+			fmt.Println("Scale UP!")
+			// Scaling UP.
+			// First, create the hosts and then add them to replica
+		}
+	}
+
+	agentsOk := false
+	for count := 0; count < 3; count++ {
+		time.Sleep(3 * time.Second)
+
+		path := fmt.Sprintf(OpsManagerAgentsResource, omConfig.GroupId)
+		agentResponse, err := omConnection.Get(path)
+		if err != nil {
+			fmt.Println("Unable to read from OM API, waiting...")
+			fmt.Println(err)
+			continue
+		}
+
+		fmt.Println("Checking if the agent have registered yet")
+		fmt.Printf("Checked %s against response\n", newRes.Spec.HostnamePrefix)
+		if CheckAgentExists(newRes.Spec.HostnamePrefix, agentResponse) {
+			fmt.Println("Found agents have already registered!")
+			agentsOk = true
+			break
+		}
+		fmt.Println("Agents have not registered with OM, waiting...")
+	}
+	if !agentsOk {
+		fmt.Println("Agents never registered! not creating standalone in OM!")
+		return
+	}
+
+	fmt.Printf("Waiting 4 seconds before %s\n", action)
+	time.Sleep(4 * time.Second)
+
+	deployment, err := omConnection.ReadDeployment()
+	if err != nil {
+		fmt.Println(err)
+		return
+	} else {
+		fmt.Println("Got something from ReadDeployment")
+	}
+
+	// TODO: This is to fix the error with UpperCase attribute names
+	deployment.MongoDbVersions = make([]*config.MongoDbVersionConfig, 1)
+	deployment.MongoDbVersions[0] = &config.MongoDbVersionConfig{Name: newRes.Spec.Version}
+	// END
+
+	members := CreateStandalonesForReplica(newRes.Spec.HostnamePrefix, newRes.Spec.Name, newRes.Spec.Service, newRes.Spec.Version, *newRes.Spec.Members)
+	for _, member := range members {
+		member.Process.LogRotate = nil
+		deployment.MergeStandalone(member)
+	}
+
+	fmt.Printf("At this point we have %d 'standalones'\n", len(deployment.Processes))
+
+	fmt.Printf("About to update replicaset with members: %d to %d\n", *oldRes.Spec.Members, *newRes.Spec.Members)
+	replica := NewReplicaSet(newRes.Spec.Name, members)
+
+	deployment.MergeReplicaSet(&replica)
+	// deployment.AddReplicaSet(&replica)
+	deployment.AddMonitoring()
+
+	fmt.Println("We'll update the Deployment in 4 seconds")
+	time.Sleep(4 * time.Second)
+	_, err = omConnection.ApplyDeployment(deployment)
+	if err != nil {
+		fmt.Println("Error while trying to push another deployment.")
+		fmt.Println(err)
+	}
+
+	fmt.Printf("Updated MongoDbReplicaSet '%s' with %d replicas\n", statefulset.Name, *statefulset.Spec.Replicas)
 }
 
 func (c *MongoDbController) onDeleteReplicaSet(obj interface{}) {
