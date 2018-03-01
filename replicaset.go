@@ -108,6 +108,7 @@ func (c *MongoDbController) onAddReplicaSet(obj interface{}) {
 	replica := NewReplicaSet(s.Spec.Name, members)
 
 	deployment.AddReplicaSet(&replica)
+	deployment.AddMonitoring()
 
 	_, err = omConnection.ApplyDeployment(deployment)
 	if err != nil {

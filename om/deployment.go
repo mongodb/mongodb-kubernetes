@@ -76,3 +76,26 @@ func (self *Deployment) MergeStandalone(standaloneMongo *Standalone) {
 
 // merge replicaset
 // merge sharded cluster
+
+func (d *Deployment) AddMonitoring() {
+	newVersions := make([]*config.AgentVersion, 0)
+	for _, pr := range d.Processes {
+		found := false
+		for _, mv := range d.MonitoringVersions {
+			if string(pr.Hostname) == mv.Hostname {
+				found = true
+			}
+		}
+		if !found {
+			mon := &config.AgentVersion{
+				Hostname: string(pr.Hostname),
+				Name:     "6.1.2.402-1",
+			}
+			newVersions = append(newVersions, mon)
+		}
+	}
+
+	for _, v := range newVersions {
+		d.MonitoringVersions = append(d.MonitoringVersions, v)
+	}
+}
