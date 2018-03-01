@@ -19,7 +19,7 @@ import (
 // BuildReplicaSet will return a StatefulSet definition, built on top of Pods.
 func BuildReplicaSet(obj *mongodb.MongoDbReplicaSet) *appsv1.StatefulSet {
 	labels := map[string]string{
-		"app":        "my-service",
+		"app":        obj.Spec.Service,
 		"controller": LabelController,
 	}
 
@@ -36,7 +36,7 @@ func BuildReplicaSet(obj *mongodb.MongoDbReplicaSet) *appsv1.StatefulSet {
 			},
 		},
 		Spec: appsv1.StatefulSetSpec{
-			ServiceName: "my-service",
+			ServiceName: obj.Spec.Service,
 			Replicas:    obj.Spec.Members,
 			Selector: &metav1.LabelSelector{
 				MatchLabels: labels,
@@ -45,7 +45,7 @@ func BuildReplicaSet(obj *mongodb.MongoDbReplicaSet) *appsv1.StatefulSet {
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
 				},
-				Spec: BaseContainer(),
+				Spec: BaseContainer(obj.Spec.HostnamePrefix),
 			},
 		},
 	}

@@ -8,7 +8,7 @@ metadata:
 spec:
   ports:
   - port: 27017
-    name: my-replica-set
+    name: replica
   clusterIP: None
   selector:
     app: my-service
@@ -17,9 +17,10 @@ spec:
 apiVersion: mongodb.com/v1alpha1
 kind: MongoDbReplicaSet
 metadata:
-  name: my-replica-set
+  name: replica
 spec:
   members: 3
-  hostname_prefix: my-replica-set
+  hostname_prefix: replica
   mongodb_version: 3.6.3
   name: replica
+  service: my-service

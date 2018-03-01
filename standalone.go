@@ -143,7 +143,7 @@ func BuildStandalone(obj *mongodb.MongoDbStandalone) *appsv1.StatefulSet {
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
 				},
-				Spec: BaseContainer(),
+				Spec: BaseContainer(obj.Name),
 			},
 		},
 	}
