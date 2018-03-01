@@ -13,6 +13,7 @@ type MongoDbReplicaSet struct {
 }
 
 type MongoDbReplicaSetSpec struct {
+	Name           string `json:"name"`
 	Members        *int32 `json:"members"`
 	HostnamePrefix string `json:"hostname_prefix"`
 	Version        string `json:"mongodb_version"`

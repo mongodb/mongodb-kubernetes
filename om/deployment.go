@@ -11,7 +11,7 @@ import (
 type ReplicaSets struct {
 	*core.ReplSetConfig
 
-	// Mask version, not expected by OM
+	// Masked attributes, not wanted
 	Version      bool `json:"version,omitempty"`
 	WriteConcern bool `json:"writeConcernMajorityJournalDefault,omitempty"`
 	Force        bool `json:"force,omitempty"`
@@ -65,6 +65,12 @@ func (d *Deployment) AddStandaloneProcess(sa *state.ProcessConfig) {
 		Name:     "6.1.2.402-1",
 	}
 	d.MonitoringVersions = append(d.MonitoringVersions, newVersion)
+}
+
+func (d *Deployment) AddStandaloneProcesses(sa []*Standalone) {
+	for _, process := range sa {
+		d.AddStandaloneProcess(process.Process)
+	}
 }
 
 func (d *Deployment) AddReplicaSet(rs *ReplicaSets) {

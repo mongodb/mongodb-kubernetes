@@ -20,6 +20,12 @@ func BaseContainer() corev1.PodSpec {
 				Image:           ContainerImage,
 				ImagePullPolicy: ContainerImagePullPolicy,
 				EnvFrom:         BaseEnvFrom(),
+				Ports: []corev1.ContainerPort{
+					{
+						ContainerPort: 27017,
+						Name:          "my-replica-set",
+					},
+				},
 			},
 		},
 	}

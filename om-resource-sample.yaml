@@ -1,8 +1,25 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+  labels:
+    app: my-service
+spec:
+  ports:
+  - port: 27017
+    name: my-replica-set
+  clusterIP: None
+  selector:
+    app: my-service
+
+---
 apiVersion: mongodb.com/v1alpha1
 kind: MongoDbReplicaSet
 metadata:
-  name: ops-manager-staging-master-001
+  name: my-replica-set
 spec:
   members: 3
   hostname_prefix: my-replica-set
   mongodb_version: 3.6.3
+  name: replica

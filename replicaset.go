@@ -18,8 +18,8 @@ import (
 // BuildReplicaSet will return a StatefulSet definition, built on top of Pods.
 func BuildReplicaSet(obj *mongodb.MongoDbReplicaSet) *appsv1.StatefulSet {
 	labels := map[string]string{
-		"app":   LabelApp,
-		"hosts": obj.Spec.HostnamePrefix,
+		"app":        "my-service",
+		"controller": LabelController,
 	}
 
 	return &appsv1.StatefulSet{
@@ -35,7 +35,8 @@ func BuildReplicaSet(obj *mongodb.MongoDbReplicaSet) *appsv1.StatefulSet {
 			},
 		},
 		Spec: appsv1.StatefulSetSpec{
-			Replicas: obj.Spec.Members,
+			ServiceName: "my-service",
+			Replicas:    obj.Spec.Members,
 			Selector: &metav1.LabelSelector{
 				MatchLabels: labels,
 			},
@@ -88,39 +89,10 @@ func (c *MongoDbController) onAddReplicaSet(obj interface{}) {
 		return
 	}
 
-	name_prefix := "replica"
-	hostname0 := fmt.Sprintf("%s-0", s.Spec.HostnamePrefix)
-	hostname1 := fmt.Sprintf("%s-1", s.Spec.HostnamePrefix)
-	hostname2 := fmt.Sprintf("%s-2", s.Spec.HostnamePrefix)
-	name0 := fmt.Sprintf("%s_0", name_prefix)
-	name1 := fmt.Sprintf("%s_1", name_prefix)
-	name2 := fmt.Sprintf("%s_2", name_prefix)
-	member0 := om.NewStandalone(s.Spec.Version).
-		Name(name0).
-		HostPort(hostname0).
-		DbPath("/data").
-		LogPath("/data/mongodb.log").
-		ReplicaSetName("rs01")
-	member1 := om.NewStandalone(s.Spec.Version).
-		Name(name1).
-		HostPort(hostname1).
-		DbPath("/data").
-		LogPath("/data/mongodb.log").
-		ReplicaSetName("rs01")
-	member2 := om.NewStandalone(s.Spec.Version).
-		Name(name2).
-		HostPort(hostname2).
-		DbPath("/data").
-		LogPath("/data/mongodb.log").
-		ReplicaSetName("rs01")
-
-	deployment := om.NewDeployment("3.6.3")
-	deployment.AddStandaloneProcess(member0.Process)
-	deployment.AddStandaloneProcess(member1.Process)
-	deployment.AddStandaloneProcess(member2.Process)
-
-	members := []*om.Standalone{member0, member1, member2}
-	replica := NewReplicaSet("rs01", members)
+	deployment := om.NewDeployment(s.Spec.Version)
+	members := CreateStandalonesForReplica(s.Spec.HostnamePrefix, s.Spec.Name, s.Spec.Version, *s.Spec.Members)
+	deployment.AddStandaloneProcesses(members)
+	replica := NewReplicaSet(s.Spec.Name, members)
 
 	deployment.AddReplicaSet(&replica)
 
@@ -156,6 +128,27 @@ func (c *MongoDbController) onDeleteReplicaSet(obj interface{}) {
 	s := obj.(*mongodb.MongoDbReplicaSet).DeepCopy()
 
 	fmt.Printf("Deleted MongoDbReplicaSet '%s' with Members=%d\n", s.Name, *s.Spec.Members)
+}
+
+// CreateStandaloneForReplica returns a list of om.Standalones
+func CreateStandalonesForReplica(hostnamePrefix, replicaSetName, version string, memberQty int32) []*om.Standalone {
+	collection := make([]*om.Standalone, memberQty)
+	qty := int(memberQty)
+
+	for i := 0; i < qty; i++ {
+		suffix := "my-service.default.svc.cluster.local"
+		hostname := fmt.Sprintf("%s-%d.%s", hostnamePrefix, i, suffix)
+		name := fmt.Sprintf("%s_%d", replicaSetName, i)
+		member := om.NewStandalone(version).
+			Name(name).
+			HostPort(hostname).
+			DbPath("/data").
+			LogPath("/data/mongodb.log").
+			ReplicaSetName(replicaSetName)
+		collection[i] = member
+	}
+
+	return collection
 }
 
 func NewReplicaSet(id string, standalones []*om.Standalone) om.ReplicaSets {
