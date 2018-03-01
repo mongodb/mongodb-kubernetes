@@ -57,22 +57,6 @@ func NewDeployment(version string) *Deployment {
 	return ans
 }
 
-func (d *Deployment) AddStandaloneProcess(sa *state.ProcessConfig) {
-	d.Processes = append(d.Processes, sa.DeepCopy(util.NewAtmContext()))
-	newVersion := &config.AgentVersion{
-		BaseUrl:  "",
-		Hostname: string(sa.Hostname),
-		Name:     "6.1.2.402-1",
-	}
-	d.MonitoringVersions = append(d.MonitoringVersions, newVersion)
-}
-
-func (d *Deployment) AddStandaloneProcesses(sa []*Standalone) {
-	for _, process := range sa {
-		d.AddStandaloneProcess(process.Process)
-	}
-}
-
 func (d *Deployment) AddReplicaSet(rs *ReplicaSets) {
 	d.ReplicaSets = append(d.ReplicaSets, rs)
 }

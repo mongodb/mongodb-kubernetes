@@ -71,7 +71,7 @@ func (c *MongoDbController) onAddStandalone(obj interface{}) {
 		LogPath("/data/mongodb.log")
 
 	deployment := om.NewDeployment("3.6.3")
-	deployment.AddStandaloneProcess(standaloneOmObject.Process)
+	deployment.MergeStandalone(standaloneOmObject)
 
 	_, err = omConnection.ApplyDeployment(deployment)
 	if err != nil {

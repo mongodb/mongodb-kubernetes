@@ -10,6 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
+	"com.tengen/cm/config"
 	"com.tengen/cm/core"
 	"com.tengen/cm/hosts"
 	om "github.com/10gen/ops-manager-kubernetes/om"
@@ -89,9 +90,21 @@ func (c *MongoDbController) onAddReplicaSet(obj interface{}) {
 		return
 	}
 
-	deployment := om.NewDeployment(s.Spec.Version)
+	deployment, err := omConnection.ReadDeployment()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	// TODO: This is to fix the error with UpperCase attribute names
+	deployment.MongoDbVersions = make([]*config.MongoDbVersionConfig, 1)
+	deployment.MongoDbVersions[0] = &config.MongoDbVersionConfig{Name: s.Spec.Version}
+	// END
+
 	members := CreateStandalonesForReplica(s.Spec.HostnamePrefix, s.Spec.Name, s.Spec.Version, *s.Spec.Members)
-	deployment.AddStandaloneProcesses(members)
+	for _, member := range members {
+		deployment.MergeStandalone(member)
+	}
 	replica := NewReplicaSet(s.Spec.Name, members)
 
 	deployment.AddReplicaSet(&replica)
