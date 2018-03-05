@@ -14,14 +14,23 @@ kubectl delete crd mongodbstandalones.mongodb.com
 
 echo "-- Removing kubernetes objects and operator"
 kubectl delete deployment om-operator
+kubectl delete statefulsets --all
 kubectl delete clusterrole om-operator
 kubectl delete serviceaccount om-operator
 kubectl delete clusterrolebinding om-operator
 
 echo "-- Compiling and building new container image"
+
 if [ -z $BUILD_LOCALLY ]; then
-    echo "-- Building om-operator on Linux machine"
-    ssh kuberator 'source ~/.profile ; cd workspace/go/src/github.com/10gen/ops-manager-kubernetes/ ; go build -o om-operator'
+    if ifconfig en0 | grep -e "inet\s" | awk '{ print $2}' | grep "192.168" > /dev/null; then
+        # i'm at home, connect to local vm
+        connect_to=build
+    else
+        # i'm at the office, i presume, connect to kuberator physical machine
+        connect_to=kuberator
+    fi
+    echo "-- Building om-operator on Linux machine ($connect_to)"
+    ssh $connect_to 'source ~/.profile ; cd go/src/github.com/10gen/ops-manager-kubernetes/ ; go build -o om-operator'
 else
     echo "-- Cross compiling om-operator"
     CGO_ENABLED=0 GOOS=linux go build -o om-operator

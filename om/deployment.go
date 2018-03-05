@@ -2,9 +2,10 @@ package om
 
 import (
 	"com.tengen/cm/config"
-	"k8s.io/apimachinery/pkg/util/json"
-	"com.tengen/cm/util"
 	"com.tengen/cm/core"
+	"com.tengen/cm/state"
+	"com.tengen/cm/util"
+	"k8s.io/apimachinery/pkg/util/json"
 )
 
 // We cannot use ClusterConfig for serialization directly. We "embed" it instead and mask some of the fields (not
@@ -24,7 +25,7 @@ func BuildDeploymentFromBytes(jsonBytes []byte) (ans *Deployment, err error) {
 	return cc, nil
 }
 
-func newDeployment(version string) *Deployment {
+func NewDeployment(version string) *Deployment {
 	ans := &Deployment{ClusterConfig: &config.ClusterConfig{}}
 	ans.Options = make(map[string]interface{})
 	// TODO this must be a global constant
@@ -35,12 +36,25 @@ func newDeployment(version string) *Deployment {
 	ans.Sharding = make([]*core.ShConfig, 0)
 	// not sure why this one is mandatory - it's necessary only for BI connector
 	ans.Mongosqlds = make([]*config.Mongosqld, 0)
+	ans.Processes = make([]*state.ProcessConfig, 0)
+
 	return ans
+}
+
+func (d *Deployment) AddStandaloneProcess(sa *state.ProcessConfig) {
+	d.Processes = append(d.Processes, sa.DeepCopy(util.NewAtmContext()))
+	d.MonitoringVersions = []*config.AgentVersion{
+		{
+			BaseUrl:  "",
+			Hostname: string(sa.Hostname),
+			Name:     "6.1.2.402-1",
+		},
+	}
 }
 
 // methods for config:
 // merge Standalone. If we found the process with the same name - update some fields there. Otherwise add the new one
-func (self *Deployment) mergeStandalone(standaloneMongo *Standalone) {
+func (self *Deployment) MergeStandalone(standaloneMongo *Standalone) {
 	for _, pr := range self.Processes {
 		if pr.Name == standaloneMongo.Process.Name {
 			standaloneMongo.mergeInto(pr)
