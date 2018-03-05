@@ -112,22 +112,12 @@ func (d *Deployment) MergeReplicaSet(rs *ReplicaSets) {
 func (d *Deployment) AddMonitoring() {
 	newVersions := make([]*config.AgentVersion, 0)
 	for _, pr := range d.Processes {
-		found := false
-		for _, mv := range d.MonitoringVersions {
-			if string(pr.Hostname) == mv.Hostname {
-				found = true
-			}
+		mon := &config.AgentVersion{
+			Hostname: string(pr.Hostname),
+			Name:     "6.1.2.402-1",
 		}
-		if !found {
-			mon := &config.AgentVersion{
-				Hostname: string(pr.Hostname),
-				Name:     "6.1.2.402-1",
-			}
-			newVersions = append(newVersions, mon)
-		}
+		newVersions = append(newVersions, mon)
 	}
 
-	for _, v := range newVersions {
-		d.MonitoringVersions = append(d.MonitoringVersions, v)
-	}
+	d.MonitoringVersions = newVersions
 }

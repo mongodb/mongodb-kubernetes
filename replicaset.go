@@ -154,29 +154,14 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 		}
 	}
 
-	agentsOk := false
-	for count := 0; count < 3; count++ {
-		time.Sleep(3 * time.Second)
-
-		path := fmt.Sprintf(OpsManagerAgentsResource, omConfig.GroupId)
-		agentResponse, err := omConnection.Get(path)
-		if err != nil {
-			fmt.Println("Unable to read from OM API, waiting...")
-			fmt.Println(err)
-			continue
-		}
-
-		fmt.Println("Checking if the agent have registered yet")
-		fmt.Printf("Checked %s against response\n", newRes.Spec.HostnamePrefix)
-		if CheckAgentExists(newRes.Spec.HostnamePrefix, agentResponse) {
-			fmt.Println("Found agents have already registered!")
-			agentsOk = true
-			break
-		}
-		fmt.Println("Agents have not registered with OM, waiting...")
+	agentHostnames := make([]string, int(*newRes.Spec.Members))
+	memberQty := int(*newRes.Spec.Members)
+	for i := 0; i < memberQty; i++ {
+		agentHostnames[i] = fmt.Sprintf("%s-%d.%s", newRes.Spec.HostnamePrefix, i, newRes.Spec.Service)
 	}
-	if !agentsOk {
-		fmt.Println("Agents never registered! not creating standalone in OM!")
+
+	if !WaitUntilAgentsHaveRegistered(omConnection, agentHostnames) {
+		fmt.Println("Agents never registered! not creating replicaset in OM!")
 		return
 	}
 
@@ -200,6 +185,13 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 	for _, member := range members {
 		member.Process.LogRotate = nil
 		deployment.MergeStandalone(member)
+	}
+
+	if *newRes.Spec.Members < *oldRes.Spec.Members {
+		// Scaling down, Replica argument needs to be removed from old processes
+		// from := int(*oldRes.Spec.Members)
+		to := int(*newRes.Spec.Members)
+		deployment.Processes = deployment.Processes[0:to]
 	}
 
 	fmt.Printf("At this point we have %d 'standalones'\n", len(deployment.Processes))

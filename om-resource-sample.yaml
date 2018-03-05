@@ -8,7 +8,7 @@ metadata:
 spec:
   ports:
   - port: 27017
-    name: replica-a
+    name: liffey
   clusterIP: None
   selector:
     app: alpha-service
@@ -17,10 +17,10 @@ spec:
 apiVersion: mongodb.com/v1alpha1
 kind: MongoDbReplicaSet
 metadata:
-  name: replica-a
+  name: liffey
 spec:
-  members: 5
-  hostname_prefix: replica-a
+  members: 3
+  hostname_prefix: liffey
   mongodb_version: 3.6.3
-  name: replica-a
+  name: liffey
   service: alpha-service
