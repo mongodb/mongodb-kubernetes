@@ -1,20 +1,12 @@
 package om
 
 import (
-	"com.tengen/cm/config"
 	"k8s.io/apimachinery/pkg/util/json"
-	"com.tengen/cm/util"
-	"com.tengen/cm/core"
+	"reflect"
+	"fmt"
 )
 
-// We cannot use ClusterConfig for serialization directly. We "embed" it instead and mask some of the fields (not
-// beautiful but seems this is the easiest solution)
-type Deployment struct {
-	*config.ClusterConfig
-
-	// masking this field - it will not be serialized
-	Edition bool `json:"Edition,omitempty"`
-}
+type Deployment map[string]interface{}
 
 func BuildDeploymentFromBytes(jsonBytes []byte) (ans *Deployment, err error) {
 	cc := &Deployment{}
@@ -24,32 +16,84 @@ func BuildDeploymentFromBytes(jsonBytes []byte) (ans *Deployment, err error) {
 	return cc, nil
 }
 
-func newDeployment(version string) *Deployment {
-	ans := &Deployment{ClusterConfig: &config.ClusterConfig{}}
-	ans.Options = make(map[string]interface{})
-	// TODO this must be a global constant
-	ans.Options["downloadBase"] = "/var/lib/mongodb-mms-automation"
-	ans.MongoDbVersions = make([]*config.MongoDbVersionConfig, 1)
-	ans.MongoDbVersions[0] = &config.MongoDbVersionConfig{Name: version}
-	ans.ReplicaSets = make([]*core.ReplSetConfig, 0)
-	ans.Sharding = make([]*core.ShConfig, 0)
-	// not sure why this one is mandatory - it's necessary only for BI connector
-	ans.Mongosqlds = make([]*config.Mongosqld, 0)
+func NewDeployment() Deployment {
+	ans := Deployment{}
+	ans.setProcesses(make([]Process, 0))
+	ans.setReplicaSets(make([]ReplicaSet, 0))
 	return ans
 }
 
-// methods for config:
 // merge Standalone. If we found the process with the same name - update some fields there. Otherwise add the new one
-func (self *Deployment) mergeStandalone(standaloneMongo *Standalone) {
-	for _, pr := range self.Processes {
-		if pr.Name == standaloneMongo.Process.Name {
-			standaloneMongo.mergeInto(pr)
-			// todo logging
+func (d Deployment) MergeStandalone(standaloneMongo Process) {
+	// merging process in case exists, otherwise adding it
+	for _, pr := range d.getProcesses() {
+		if pr.Name() == standaloneMongo.Name() {
+			pr.MergeFrom(standaloneMongo)
 			return
 		}
 	}
-	self.Processes = append(self.Processes, standaloneMongo.Process.DeepCopy(util.NewAtmContext()))
+	d.setProcesses(append(d.getProcesses(), standaloneMongo))
 }
 
-// merge replicaset
+// Merges the replica set and its members to the deployment. Note that if "wrong" RS members are removed after merge -
+// corresponding processes are not removed.
+// So far we don't configure anything for RS except it's name (though the API supports many other parameters
+// and we may change this in future)
+func (d Deployment) MergeReplicaSet(rsName string, processes []Process) {
+	rs := NewReplicaSet(rsName)
+	for _, p := range processes {
+		p.setReplicaSetName(rsName)
+		d.MergeStandalone(p)
+		rs.addMember(p)
+	}
+
+	// merging replicaset in case it exists, otherwise adding it
+	for _, r := range d.getReplicaSets() {
+		if r.Name() == rsName {
+			r.MergeFrom(rs)
+			return
+		}
+	}
+	d.setReplicaSets(append(d.getReplicaSets(), rs))
+}
+
+func (d Deployment) getProcesses() []Process {
+	switch v := d["processes"].(type) {
+	case []Process:
+		return v
+	case [] interface{}:
+		// seems we cannot directly cast the array of interfaces to array of Processes - have to manually copy references
+		ans := make([]Process, len(v))
+		for i, val := range v {
+			ans[i] = NewProcessFromInterface(val)
+		}
+		return ans
+	default:
+		panic("Unexpected type of processes variable")
+	}
+}
+
+func (d Deployment) setProcesses(processes []Process) {
+	d["processes"] = processes
+}
+
+func (d Deployment) getReplicaSets() []ReplicaSet {
+	switch v := d["replicaSets"].(type) {
+	case []ReplicaSet:
+		return v
+	case [] interface{}:
+		ans := make([]ReplicaSet, len(v))
+		for i, val := range v {
+			ans[i] = NewReplicaSetFromInterface(val)
+		}
+		return ans
+	default:
+		panic(fmt.Sprintf("Unexpected type of replicasets variable: %s", reflect.TypeOf(v)))
+	}
+}
+
+func (d Deployment) setReplicaSets(replicaSets []ReplicaSet) {
+	d["replicaSets"] = replicaSets
+}
+
 // merge sharded cluster
