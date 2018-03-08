@@ -2,7 +2,6 @@ package om
 
 import (
 	"k8s.io/apimachinery/pkg/util/json"
-	"reflect"
 	"fmt"
 )
 
@@ -69,7 +68,7 @@ func (d Deployment) getProcesses() []Process {
 		}
 		return ans
 	default:
-		panic("Unexpected type of processes variable")
+		panic(fmt.Sprintf("Unexpected type of processes variable: %T", v))
 	}
 }
 
@@ -88,7 +87,7 @@ func (d Deployment) getReplicaSets() []ReplicaSet {
 		}
 		return ans
 	default:
-		panic(fmt.Sprintf("Unexpected type of replicasets variable: %s", reflect.TypeOf(v)))
+		panic(fmt.Sprintf("Unexpected type of replicasets variable: %T", v))
 	}
 }
 
