@@ -76,7 +76,7 @@ func (c *MongoDbController) onAddStandalone(obj interface{}) {
 	deployment := om.NewDeployment("3.6.3")
 	deployment.AddStandaloneProcess(standaloneOmObject.Process)
 
-	_, err = omConnection.ApplyDeployment(deployment)
+	_, err = omConnection.UpdateDeployment(deployment)
 	if err != nil {
 		fmt.Println("Error while trying to push another deployment.")
 		fmt.Println(err)

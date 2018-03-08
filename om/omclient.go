@@ -11,8 +11,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"strings"
-
-	ioutil "com.tengen/cm/util"
 	"github.com/10gen/ops-manager-kubernetes/util"
 )
 
@@ -34,24 +32,12 @@ func NewOpsManagerConnection(baseUrl, groupId, user, publicApiKey string) *OmCon
 	}
 }
 
-func (oc *OmConnection) ApplyDeployment(cluster *Deployment) ([]byte, error) {
-	return BaseApplyDeployment(oc.BaseUrl, oc.GroupId, oc.User, oc.PublicApiKey, cluster)
+func (oc *OmConnection) UpdateDeployment(deployment *Deployment) ([]byte, error) {
+	return oc.put(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", oc.GroupId), deployment)
 }
 
 func (oc *OmConnection) ReadDeployment() (*Deployment, error) {
-	return BaseReadDeployment(oc.BaseUrl, oc.GroupId, oc.User, oc.PublicApiKey)
-}
-
-func (oc *OmConnection) Get(path string) ([]byte, error) {
-	return request("GET", oc.BaseUrl, path, nil, oc.User, oc.PublicApiKey, "application/json; charset=UTF-8")
-}
-
-func BaseApplyDeployment(hostname string, group string, user string, token string, v *Deployment) (response []byte, err error) {
-	return Put(hostname, fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", group), v, user, token)
-}
-
-func BaseReadDeployment(hostname string, group string, user string, token string) (response *Deployment, err error) {
-	ans, err := Get(hostname, fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", group), user, token)
+	ans, err := oc.Get(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", oc.GroupId))
 
 	if err != nil {
 		return nil, err
@@ -60,23 +46,49 @@ func BaseReadDeployment(hostname string, group string, user string, token string
 	return BuildDeploymentFromBytes(ans)
 }
 
-func Post(hostname string, path string, v interface{}, user string, token string) (response []byte, err error) {
-	postBytes, err := json.Marshal(v)
+func(oc *OmConnection) GenerateAgentKey() (string, error) {
+	data := map[string]string{"desc": "Agent key for Kubernetes"}
+	ans, err := oc.post(fmt.Sprintf("/api/public/v1.0/groups/%s/agentapikeys", oc.GroupId), data)
+
 	if err != nil {
-		return nil, fmt.Errorf("Error while encoding to json: %v", err)
+		return "", err
 	}
-	return request("POST", hostname, path, bytes.NewBuffer(postBytes), user, token, "application/json; charset=UTF-8")
-}
-func Put(hostname string, path string, v interface{}, user string, token string) (response []byte, err error) {
-	postBytes, err := json.Marshal(v)
-	if err != nil {
-		return nil, fmt.Errorf("Error while encoding to json: %v", err)
+
+	fmt.Println(string(ans))
+
+	var keyInfo map[string]interface{}
+	if err := json.Unmarshal(ans, &keyInfo); err != nil {
+		return "", err
 	}
-	return request("PUT", hostname, path, bytes.NewBuffer(postBytes), user, token, "application/json; charset=UTF-8")
+	return keyInfo["key"].(string), nil
 }
 
-func Get(hostname string, path string, user string, token string) (response []byte, err error) {
-	return request("GET", hostname, path, nil, user, token, "application/json; charset=UTF-8")
+// TODO uncomment code to read agents here
+/*func (oc *OmConnection) ReadAutomationAgents() (*AgentState, error) {
+	return request("GET", oc.BaseUrl, path, nil, oc.User, oc.PublicApiKey, "application/json; charset=UTF-8")
+}*/
+
+// TODO make Get method private (refactor agents code for this)
+func (oc *OmConnection) Get(path string) ([]byte, error) {
+	return request("GET", oc.BaseUrl, path, nil, oc.User, oc.PublicApiKey, "application/json; charset=UTF-8")
+}
+
+//********************************** Private methods *******************************************************************
+
+func (oc *OmConnection) post(path string, v interface{}) (response []byte, err error) {
+	postBytes, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("Error while encoding to json: %v", err)
+	}
+	return request("POST", oc.BaseUrl, path, bytes.NewBuffer(postBytes), oc.User, oc.PublicApiKey, "application/json; charset=UTF-8")
+}
+
+func (oc *OmConnection) put(path string, v interface{}) (response []byte, err error) {
+	postBytes, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("Error while encoding to json: %v", err)
+	}
+	return request("PUT", oc.BaseUrl, path, bytes.NewBuffer(postBytes), oc.User, oc.PublicApiKey, "application/json; charset=UTF-8")
 }
 
 func request(method string, hostname string, path string, reader io.Reader, user string, token string, contentType string) (response []byte, err error) {
@@ -118,7 +130,7 @@ func request(method string, hostname string, path string, reader io.Reader, user
 		if resp.Body != nil {
 			defer resp.Body.Close()
 			// limit size of response body read to 16MB
-			body, err = ioutil.ReadAtMost(resp.Body, 16*1024*1024)
+			body, err = util.ReadAtMost(resp.Body, 16*1024*1024)
 			if err != nil {
 				return nil, fmt.Errorf("Error reading response body from %s to %v status=%v", method, url, resp.StatusCode)
 			}
