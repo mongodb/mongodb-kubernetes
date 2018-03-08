@@ -70,3 +70,6 @@ spec:
       containers:
       - name: om-operator
         image: om-operator:0.1
+        envFrom:
+        - configMapRef:
+            name: ops-manager-config
