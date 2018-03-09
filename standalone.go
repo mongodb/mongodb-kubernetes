@@ -20,16 +20,13 @@ func (c *MongoDbController) onAddStandalone(obj interface{}) {
 	// standaloneObject is represented by a StatefulSet in Kubernetes
 	standaloneObject := BuildStandalone(s)
 	statefulSet, err := c.context.Clientset.AppsV1().StatefulSets(s.Namespace).Create(standaloneObject)
-	omConfig := GetOpsManagerConfig()
-	omConnection := om.NewOpsManagerConnection(omConfig.BaseUrl, omConfig.GroupId, omConfig.User, omConfig.PublicApiKey)
-
-	fmt.Println("this is what we have in omConfig")
-	fmt.Printf("%+v\n", omConfig)
-
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
+
+	omConfig := GetOpsManagerConfig()
+	omConnection := om.NewOpsManagerConnection(omConfig.BaseUrl, omConfig.GroupId, omConfig.User, omConfig.PublicApiKey)
 
 	agentsOk := false
 	// TODO: exponential backoff
@@ -74,7 +71,7 @@ func (c *MongoDbController) onAddStandalone(obj interface{}) {
 		LogPath("/data/mongodb.log")
 
 	deployment := om.NewDeployment("3.6.3")
-	deployment.AddStandaloneProcess(standaloneOmObject.Process)
+	deployment.MergeStandalone(standaloneOmObject)
 
 	_, err = omConnection.ApplyDeployment(deployment)
 	if err != nil {
@@ -146,7 +143,7 @@ func BuildStandalone(obj *mongodb.MongoDbStandalone) *appsv1.StatefulSet {
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
 				},
-				Spec: BaseContainer(),
+				Spec: BaseContainer(obj.Name),
 			},
 		},
 	}
