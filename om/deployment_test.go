@@ -102,7 +102,7 @@ func createStandalone() Process {
 func createReplicaSetProcesses() []Process {
 	rsMembers := make([]Process, 3)
 
-	for i := 0; i < 3; i = i + 1 {
+	for i := 0; i < 3; i++ {
 		idx := strconv.Itoa(i)
 		rsMembers[i] = NewProcess("3.6.3").SetHostName("mongo" + idx + ".some.host").SetName("merchantsStandalone" + idx).
 			SetDbPath("/data").SetLogPath("/data/mongodb.log")
