@@ -12,7 +12,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-func BaseContainer() corev1.PodSpec {
+func BaseContainer(name string) corev1.PodSpec {
 	return corev1.PodSpec{
 		Containers: []corev1.Container{
 			{
@@ -20,6 +20,12 @@ func BaseContainer() corev1.PodSpec {
 				Image:           ContainerImage,
 				ImagePullPolicy: ContainerImagePullPolicy,
 				EnvFrom:         BaseEnvFrom(),
+				Ports: []corev1.ContainerPort{
+					{
+						ContainerPort: 27017,
+						Name:          name,
+					},
+				},
 			},
 		},
 	}
