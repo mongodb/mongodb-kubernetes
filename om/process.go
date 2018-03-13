@@ -1,5 +1,6 @@
 package om
 
+
 /*
 This corresponds to
 {
@@ -118,6 +119,13 @@ func (s Process) MergeFrom(otherProcess Process) {
 	initDefault(otherProcess.Version(), s)
 	// todo other fields
 }
+
+/*
+
+func (p Process) String() string {
+	return fmt.Sprintf("\"%s\" (hostname: %s)", p.Name(), p.HostName())
+}
+*/
 
 // ****************** These ones are private methods not exposed to other packages *************************************
 

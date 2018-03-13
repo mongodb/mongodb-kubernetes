@@ -96,18 +96,9 @@ func (c *MongoDbController) onAddReplicaSet(obj interface{}) {
 		return
 	}
 
-	// TODO: This is to fix the error with UpperCase attribute names
-	deployment.MongoDbVersions = make([]*config.MongoDbVersionConfig, 1)
-	deployment.MongoDbVersions[0] = &config.MongoDbVersionConfig{Name: s.Spec.Version}
-	// END
-
 	members := CreateStandalonesForReplica(s.Spec.HostnamePrefix, s.Spec.Name, s.Spec.Service, s.Spec.Version, *s.Spec.Members)
-	for _, member := range members {
-		deployment.MergeStandalone(member)
-	}
-	replica := NewReplicaSet(s.Spec.Name, members)
+	deployment.MergeReplicaSet(s.Spec.Name, members)
 
-	deployment.AddReplicaSet(&replica)
 	deployment.AddMonitoring()
 
 	_, err = omConnection.ApplyDeployment(deployment)
@@ -176,31 +167,11 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 		fmt.Println("Got something from ReadDeployment")
 	}
 
-	// TODO: This is to fix the error with UpperCase attribute names
-	deployment.MongoDbVersions = make([]*config.MongoDbVersionConfig, 1)
-	deployment.MongoDbVersions[0] = &config.MongoDbVersionConfig{Name: newRes.Spec.Version}
-	// END
+	fmt.Printf("About to update replicaset with members: %d to %d\n", *oldRes.Spec.Members, *newRes.Spec.Members)
 
 	members := CreateStandalonesForReplica(newRes.Spec.HostnamePrefix, newRes.Spec.Name, newRes.Spec.Service, newRes.Spec.Version, *newRes.Spec.Members)
-	for _, member := range members {
-		member.Process.LogRotate = nil
-		deployment.MergeStandalone(member)
-	}
+	deployment.MergeReplicaSet(newRes.Spec.Name, members)
 
-	if *newRes.Spec.Members < *oldRes.Spec.Members {
-		// Scaling down, Replica argument needs to be removed from old processes
-		// from := int(*oldRes.Spec.Members)
-		to := int(*newRes.Spec.Members)
-		deployment.Processes = deployment.Processes[0:to]
-	}
-
-	fmt.Printf("At this point we have %d 'standalones'\n", len(deployment.Processes))
-
-	fmt.Printf("About to update replicaset with members: %d to %d\n", *oldRes.Spec.Members, *newRes.Spec.Members)
-	replica := NewReplicaSet(newRes.Spec.Name, members)
-
-	deployment.MergeReplicaSet(&replica)
-	// deployment.AddReplicaSet(&replica)
 	deployment.AddMonitoring()
 
 	fmt.Println("We'll update the Deployment in 4 seconds")
@@ -217,40 +188,27 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 func (c *MongoDbController) onDeleteReplicaSet(obj interface{}) {
 	s := obj.(*mongodb.MongoDbReplicaSet).DeepCopy()
 
+	// TODO
+
 	fmt.Printf("Deleted MongoDbReplicaSet '%s' with Members=%d\n", s.Name, *s.Spec.Members)
 }
 
 // CreateStandaloneForReplica returns a list of om.Standalones
-func CreateStandalonesForReplica(hostnamePrefix, replicaSetName, service, version string, memberQty int32) []*om.Standalone {
-	collection := make([]*om.Standalone, memberQty)
+func CreateStandalonesForReplica(hostnamePrefix, replicaSetName, service, version string, memberQty int32) []om.Process {
+	collection := make([]om.Process, memberQty)
 	qty := int(memberQty)
 
 	for i := 0; i < qty; i++ {
 		suffix := fmt.Sprintf("%s.default.svc.cluster.local", service)
 		hostname := fmt.Sprintf("%s-%d.%s", hostnamePrefix, i, suffix)
 		name := fmt.Sprintf("%s_%d", replicaSetName, i)
-		member := om.NewStandalone(version).
-			Name(name).
-			HostPort(hostname).
-			DbPath("/data").
-			LogPath("/data/mongodb.log").
-			ReplicaSetName(replicaSetName)
+		member := om.NewProcess(version).
+			SetName(name).
+			SetHostName(hostname).
+			SetDbPath("/data").
+			SetLogPath("/data/mongodb.log")
 		collection[i] = member
 	}
 
 	return collection
-}
-
-func NewReplicaSet(id string, standalones []*om.Standalone) om.ReplicaSets {
-	rs := om.ReplicaSets{ReplSetConfig: &core.ReplSetConfig{}}
-	members := make([]core.Member, len(standalones))
-
-	for idx, member := range standalones {
-		// hostport := hosts.BuildHostPort(member.Process.Hostname, 27017)
-		members[idx] = core.NewMemberWithDefaults(idx, hosts.HostPort(member.Process.Name))
-	}
-
-	rs.Id = id
-	rs.Members = members
-	return rs
 }

@@ -1,8 +1,8 @@
 package om
 
 import (
-	"k8s.io/apimachinery/pkg/util/json"
 	"fmt"
+	"encoding/json"
 )
 
 type Deployment map[string]interface{}
@@ -49,10 +49,21 @@ func (d Deployment) MergeReplicaSet(rsName string, processes []Process) {
 	// merging replicaset in case it exists, otherwise adding it
 	for _, r := range d.getReplicaSets() {
 		if r.Name() == rsName {
-			r.MergeFrom(rs)
+			processesToRemove := r.MergeFrom(rs)
+
+			// TODO replace with proper logging library
+			fmt.Printf("Merged replica set %s with existing one\n", rs)
+
+			if len(processesToRemove) > 0 {
+				d.removeProcesses(processesToRemove)
+
+				fmt.Printf("Removed processes %s as they were removed from replica set\n", processesToRemove)
+			}
 			return
 		}
 	}
+
+	fmt.Printf("Adding replica set %s as current OM deployment doesn't have it\n", rs)
 	d.setReplicaSets(append(d.getReplicaSets(), rs))
 }
 
@@ -76,6 +87,24 @@ func (d Deployment) setProcesses(processes []Process) {
 	d["processes"] = processes
 }
 
+func (d Deployment) removeProcesses(processNames []string) {
+	processes := make([]Process, 0)
+
+	for _, p := range d.getProcesses() {
+		found := false
+		for _, p2 := range processNames {
+			if p.Name() == p2 {
+				found = true
+			}
+		}
+		if !found {
+			processes = append(processes, p)
+		}
+	}
+
+	d.setProcesses(processes)
+}
+
 func (d Deployment) getReplicaSets() []ReplicaSet {
 	switch v := d["replicaSets"].(type) {
 	case []ReplicaSet:
@@ -93,6 +122,16 @@ func (d Deployment) getReplicaSets() []ReplicaSet {
 
 func (d Deployment) setReplicaSets(replicaSets []ReplicaSet) {
 	d["replicaSets"] = replicaSets
+}
+
+// This is a temporary logic: adding only one monitoring agent on the same host as the first process in the list
+// must be called after processes are added
+func (d Deployment) AddMonitoring() {
+	monitoringVersions := d["monitoringVersions"].([]interface{})
+
+	if len(monitoringVersions) == 0 {
+		monitoringVersions[0] = map[string]string{"hostname": d.getProcesses()[0].HostName(), "name": "6.1.2.402-1"}
+	}
 }
 
 // merge sharded cluster
