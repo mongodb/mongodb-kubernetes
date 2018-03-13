@@ -1,12 +1,10 @@
-package main
+package om
 
 import (
 	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/10gen/ops-manager-kubernetes/om"
 )
 
 // Checks if the agents have registered.
@@ -28,18 +26,19 @@ type ResultStruct struct {
 	TypeName  string `json:"typeName"`
 }
 
+func BuildAgentStateFromBytes(jsonBytes []byte) (ans *AgentState, err error) {
+	cc := &AgentState{}
+	if err := json.Unmarshal(jsonBytes, &cc); err != nil {
+		return nil, err
+	}
+	return cc, nil
+}
+
 // CheckAgentExists will return true if any of the agents in the json document
 // has `hostname_prefix` as prefix.
 // This is needed to check if given agent has registered.
-func CheckAgentExists(hostname_prefix string, j []byte) bool {
-	var agentState AgentState
-
-	if err := json.Unmarshal(j, &agentState); err != nil {
-		fmt.Println("Unable to unmarshal")
-		return false
-	}
-
-	fmt.Printf("%d agents registerd total\n", agentState.TotalCount)
+func CheckAgentExists(hostname_prefix string, agentState *AgentState) bool {
+	fmt.Printf("%d agents registered in total\n", agentState.TotalCount)
 	for _, result := range agentState.Results {
 		fmt.Printf("Checking prefix for agent: %s\n", result.Hostname)
 		if strings.HasPrefix(result.Hostname, hostname_prefix) {
@@ -50,18 +49,17 @@ func CheckAgentExists(hostname_prefix string, j []byte) bool {
 	return false
 }
 
-// WaitUntilAgentsHaveRegistered will stop the execution with time.Sleep until the
+// WaitUntilAgentsHaveRegistered will stop the execution with time. Sleep until the
 // agents have registered in the omConnection. Or enough time has passed in which
 // case it will return false.
-func WaitUntilAgentsHaveRegistered(omConnection *om.OmConnection, agentHostnames []string) bool {
+func WaitUntilAgentsHaveRegistered(omConnection *OmConnection, agentHostnames ...string) bool {
 	agentsOk := false
 
 	// TODO: Implement exponential backoff
 	for count := 0; count < 3; count++ {
 		time.Sleep(3 * time.Second)
 
-		path := fmt.Sprintf(OpsManagerAgentsResource, omConnection.GroupId)
-		agentResponse, err := omConnection.Get(path)
+		agentResponse, err := omConnection.ReadAutomationAgents()
 		if err != nil {
 			fmt.Println("Unable to read from OM API, waiting...")
 			fmt.Println(err)

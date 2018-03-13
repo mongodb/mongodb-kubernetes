@@ -1,4 +1,4 @@
-package main
+package operator
 
 import (
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1alpha1"
@@ -7,6 +7,7 @@ import (
 	opkit "github.com/rook/operator-kit"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/kubernetes/typed/apps/v1"
 )
 
 const LabelApp = "om-controller"
@@ -17,7 +18,7 @@ type MongoDbController struct {
 	mongodbClientset mongodbclient.MongodbV1alpha1Interface
 }
 
-func newMongoDbController(context *opkit.Context, mongodbClientset mongodbclient.MongodbV1alpha1Interface) *MongoDbController {
+func NewMongoDbController(context *opkit.Context, mongodbClientset mongodbclient.MongodbV1alpha1Interface) *MongoDbController {
 	mongodbscheme.AddToScheme(scheme.Scheme)
 
 	return &MongoDbController{
@@ -37,6 +38,10 @@ func (c *MongoDbController) StartWatch(namespace string, stopCh chan struct{}) e
 	}
 
 	return nil
+}
+
+func (c *MongoDbController) StatefulSetApi(namespace string) v1.StatefulSetInterface {
+	return c.context.Clientset.AppsV1().StatefulSets(namespace)
 }
 
 func (c *MongoDbController) startWatchReplicaSet(namespace string, stopCh chan struct{}) error {

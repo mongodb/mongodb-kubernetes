@@ -58,7 +58,9 @@ func (r ReplicaSet) Name() string {
  or we are scaling down)
 
  Example:
+
  Current RS:
+
  "members": [
 		{
 			"_id": 0,
@@ -69,7 +71,9 @@ func (r ReplicaSet) Name() string {
 			"_id": 1,
 			"host": "blue_1"
 		}]
+
  Other RS:
+
  "members": [
 		{
 			"_id": 0,
@@ -79,7 +83,9 @@ func (r ReplicaSet) Name() string {
 			"_id": 2,
 			"host": "green_2"
 		}]
+
  Merge result:
+
  "members": [
 		{
 			"_id": 0,

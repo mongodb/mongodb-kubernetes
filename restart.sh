@@ -13,11 +13,8 @@ kubectl delete crd mongodbshardedclusters.mongodb.com
 kubectl delete crd mongodbstandalones.mongodb.com
 
 echo "-- Removing kubernetes objects and operator"
-kubectl delete deployment om-operator
-kubectl delete statefulsets --all
-kubectl delete clusterrole om-operator
-kubectl delete serviceaccount om-operator
-kubectl delete clusterrolebinding om-operator
+#kubectl delete statefulsets --all
+kubectl delete -f om-operator.yaml
 
 echo "-- Compiling and building new container image"
 

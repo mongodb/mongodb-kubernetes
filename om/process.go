@@ -3,32 +3,33 @@ package om
 
 /*
 This corresponds to
-{
-	"args2_6": {
-		"net": {
-			"port": 28002
+
+	{
+		"args2_6": {
+			"net": {
+				"port": 28002
+			},
+			"replication": {
+				"replSetName": "blue"
+			},
+			"storage": {
+				"dbPath": "/data/blue_2"
+			},
+			"systemLog": {
+				"destination": "file",
+				"path": "/data/blue_2/mongodb.log"
+			}
 		},
-		"replication": {
-			"replSetName": "blue"
+		"hostname": "AGENT_HOSTNAME",
+		"logRotate": {
+			"sizeThresholdMB": 1000,
+			"timeThresholdHrs": 24
 		},
-		"storage": {
-			"dbPath": "/data/blue_2"
-		},
-		"systemLog": {
-			"destination": "file",
-			"path": "/data/blue_2/mongodb.log"
-		}
-	},
-	"hostname": "AGENT_HOSTNAME",
-	"logRotate": {
-		"sizeThresholdMB": 1000,
-		"timeThresholdHrs": 24
-	},
-	"name": "blue_2",
-	"processType": "mongod",
-	"version": "3.0.1",
-	"authSchemaVersion": 3
-}
+		"name": "blue_2",
+		"processType": "mongod",
+		"version": "3.0.1",
+		"authSchemaVersion": 3
+	}
 */
 type Process map[string]interface{}
 
