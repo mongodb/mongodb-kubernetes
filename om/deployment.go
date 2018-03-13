@@ -2,51 +2,10 @@ package om
 
 import (
 	"fmt"
-	"reflect"
-
-	"com.tengen/cm/config"
-	"com.tengen/cm/core"
-	"com.tengen/cm/state"
-	"com.tengen/cm/util"
-	"k8s.io/apimachinery/pkg/util/json"
+	"encoding/json"
 )
 
-type ReplicaSets struct {
-	*core.ReplSetConfig
-
-	// Masked attributes, not wanted
-	Version      bool `json:"version,omitempty"`
-	WriteConcern bool `json:"writeConcernMajorityJournalDefault,omitempty"`
-	Force        bool `json:"force,omitempty"`
-}
-
-// We cannot use ClusterConfig for serialization directly. We "embed" it instead and mask some of the fields (not
-// beautiful but seems this is the easiest solution)
-type Deployment struct {
-	Version            int64                          `json:"version"`
-	MonitoringVersions []*config.AgentVersion         `json:"monitoringVersions"`
-	Processes          []*ProcessConfigMask           `json:"processes"`
-	ReplicaSets        []*ReplicaSets                 `json:"replicaSets"`
-	MongoDbVersions    []*config.MongoDbVersionConfig `json:"mongoDbVersions,omitempty"`
-	Options            map[string]interface{}         `json:"options"`
-	// Sharding           []*core.ShConfig               `json:"sharding,omitempty"`
-
-	// masking this field - it will not be serialized
-	Edition bool `json:"Edition,omitempty"`
-}
-
-type ProcessConfigMask struct {
-	*state.ProcessConfig
-
-	LogRotate *LogRotateConfigMask `json:"logRotate,omitempty"`
-}
-
-type LogRotateConfigMask struct {
-	SizeThresholdMB    float64 `json:"sizeThresholdMB"`
-	TimeThresholdHrs   int     `json:"timeThresholdHrs"`
-	NumUncompressed    int     `json:"numUncompressed,omitempty"`
-	PercentOfDiskspace float64 `json:"percentOfDiskspace,omitempty"`
-}
+type Deployment map[string]interface{}
 
 func BuildDeploymentFromBytes(jsonBytes []byte) (ans *Deployment, err error) {
 	cc := &Deployment{}
@@ -56,68 +15,123 @@ func BuildDeploymentFromBytes(jsonBytes []byte) (ans *Deployment, err error) {
 	return cc, nil
 }
 
-func NewDeployment(version string) *Deployment {
-	ans := &Deployment{}
-	ans.Options = make(map[string]interface{})
-	// TODO this must be a global constant
-	ans.Options["downloadBase"] = "/var/lib/mongodb-mms-automation"
-	ans.MongoDbVersions = make([]*config.MongoDbVersionConfig, 1)
-	ans.MongoDbVersions[0] = &config.MongoDbVersionConfig{Name: version}
-	ans.ReplicaSets = make([]*ReplicaSets, 0)
-	// ans.Sharding = make([]*core.ShConfig, 0)
-	// not sure why this one is mandatory - it's necessary only for BI connector
-	// ans.Mongosqlds = make([]*config.Mongosqld, 0)
-	// ans.Processes = make([]*state.ProcessConfig, 0)
-	ans.MonitoringVersions = make([]*config.AgentVersion, 0)
-
+func NewDeployment() Deployment {
+	ans := Deployment{}
+	ans.setProcesses(make([]Process, 0))
+	ans.setReplicaSets(make([]ReplicaSet, 0))
 	return ans
 }
 
-func (d *Deployment) AddReplicaSet(rs *ReplicaSets) {
-	d.ReplicaSets = append(d.ReplicaSets, rs)
-}
-
-// methods for config:
 // merge Standalone. If we found the process with the same name - update some fields there. Otherwise add the new one
-func (self *Deployment) MergeStandalone(standaloneMongo *Standalone) {
-	for _, pr := range self.Processes {
-		if pr.Name == standaloneMongo.Process.Name {
-			standaloneMongo.mergeInto(pr)
-			// todo logging
+func (d Deployment) MergeStandalone(standaloneMongo Process) {
+	// merging process in case exists, otherwise adding it
+	for _, pr := range d.getProcesses() {
+		if pr.Name() == standaloneMongo.Name() {
+			pr.MergeFrom(standaloneMongo)
 			return
 		}
 	}
-	self.Processes = append(self.Processes, util.DeepCopy(reflect.ValueOf(standaloneMongo.Process), util.NewAtmContext()).Interface().(*ProcessConfigMask))
+	d.setProcesses(append(d.getProcesses(), standaloneMongo))
 }
 
-func (d *Deployment) MergeReplicaSet(rs *ReplicaSets) {
-	found := false
-	for _, replica := range d.ReplicaSets {
-		if replica.Id == rs.Id {
-			found = true
-			fmt.Println("Existing replica, only modifying members")
-			replica.Members = rs.Members
+// Merges the replica set and its members to the deployment. Note that if "wrong" RS members are removed after merge -
+// corresponding processes are not removed.
+// So far we don't configure anything for RS except it's name (though the API supports many other parameters
+// and we may change this in future)
+func (d Deployment) MergeReplicaSet(rsName string, processes []Process) {
+	rs := NewReplicaSet(rsName)
+	for _, p := range processes {
+		p.setReplicaSetName(rsName)
+		d.MergeStandalone(p)
+		rs.addMember(p)
+	}
+
+	// merging replicaset in case it exists, otherwise adding it
+	for _, r := range d.getReplicaSets() {
+		if r.Name() == rsName {
+			processesToRemove := r.MergeFrom(rs)
+
+			// TODO replace with proper logging library
+			fmt.Printf("Merged replica set %s with existing one\n", rs)
+
+			if len(processesToRemove) > 0 {
+				d.removeProcesses(processesToRemove)
+
+				fmt.Printf("Removed processes %s as they were removed from replica set\n", processesToRemove)
+			}
+			return
 		}
 	}
 
-	if !found {
-		fmt.Println("This is a new replica, adding it.")
-		d.ReplicaSets = append(d.ReplicaSets, rs)
+	fmt.Printf("Adding replica set %s as current OM deployment doesn't have it\n", rs)
+	d.setReplicaSets(append(d.getReplicaSets(), rs))
+}
+
+func (d Deployment) getProcesses() []Process {
+	switch v := d["processes"].(type) {
+	case []Process:
+		return v
+	case [] interface{}:
+		// seems we cannot directly cast the array of interfaces to array of Processes - have to manually copy references
+		ans := make([]Process, len(v))
+		for i, val := range v {
+			ans[i] = NewProcessFromInterface(val)
+		}
+		return ans
+	default:
+		panic(fmt.Sprintf("Unexpected type of processes variable: %T", v))
 	}
 }
 
-// merge replicaset
+func (d Deployment) setProcesses(processes []Process) {
+	d["processes"] = processes
+}
+
+func (d Deployment) removeProcesses(processNames []string) {
+	processes := make([]Process, 0)
+
+	for _, p := range d.getProcesses() {
+		found := false
+		for _, p2 := range processNames {
+			if p.Name() == p2 {
+				found = true
+			}
+		}
+		if !found {
+			processes = append(processes, p)
+		}
+	}
+
+	d.setProcesses(processes)
+}
+
+func (d Deployment) getReplicaSets() []ReplicaSet {
+	switch v := d["replicaSets"].(type) {
+	case []ReplicaSet:
+		return v
+	case [] interface{}:
+		ans := make([]ReplicaSet, len(v))
+		for i, val := range v {
+			ans[i] = NewReplicaSetFromInterface(val)
+		}
+		return ans
+	default:
+		panic(fmt.Sprintf("Unexpected type of replicasets variable: %T", v))
+	}
+}
+
+func (d Deployment) setReplicaSets(replicaSets []ReplicaSet) {
+	d["replicaSets"] = replicaSets
+}
+
+// This is a temporary logic: adding only one monitoring agent on the same host as the first process in the list
+// must be called after processes are added
+func (d Deployment) AddMonitoring() {
+	monitoringVersions := d["monitoringVersions"].([]interface{})
+
+	if len(monitoringVersions) == 0 {
+		monitoringVersions[0] = map[string]string{"hostname": d.getProcesses()[0].HostName(), "name": "6.1.2.402-1"}
+	}
+}
+
 // merge sharded cluster
-
-func (d *Deployment) AddMonitoring() {
-	newVersions := make([]*config.AgentVersion, 0)
-	for _, pr := range d.Processes {
-		mon := &config.AgentVersion{
-			Hostname: string(pr.Hostname),
-			Name:     "6.1.2.402-1",
-		}
-		newVersions = append(newVersions, mon)
-	}
-
-	d.MonitoringVersions = newVersions
-}

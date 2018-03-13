@@ -56,6 +56,7 @@ func BaseReadDeployment(hostname string, group string, user string, token string
 	if err != nil {
 		return nil, err
 	}
+	fmt.Println(string(ans))
 	return BuildDeploymentFromBytes(ans)
 }
 
@@ -64,7 +65,6 @@ func Post(hostname string, path string, v interface{}, user string, token string
 	if err != nil {
 		return nil, fmt.Errorf("Error while encoding to json: %v", err)
 	}
-	//postBytes := []byte(`{"version":0,"monitoringVersions":null,"backupVersions":null,"mongosqlds":[],"processes":[{"name":"merchantsStandalone","processType":"mongod","version":"3.6.3","fullVersion":null,"disabled":false,"manualMode":false,"numCores":0,"cpuAffinity":null,"lastResync":"0001-01-01T00:00:00Z","lastCompact":"0001-01-01T00:00:00Z","lastChangeRsConfForRestore":"0001-01-01T00:00:00Z","lastKmipMasterKeyRotation":"0001-01-01T00:00:00Z","lastRestart":"0001-01-01T00:00:00Z","hostname":"ip-172-31-27-139.ec2.internal","authSchemaVersion":5,"kerberos":null,"args2_6":{"net":{"port":27017},"storage":{"dbPath":"/data"},"systemLog":{"destination":"file","path":"/data/mongodb.log"}},"backupRestoreSourceGroupId":"","repair":null,"realtimeConfig":null,"dataExplorerConfig":null}],"replicaSets":null,"options":{"downloadBase":"/var/lib/mongodb-mms-automation"},"mongoDbVersions":[{"name":"3.6.3"}],"uiBaseUrl":""}`)
 	return request("POST", hostname, path, bytes.NewBuffer(postBytes), user, token, "application/json; charset=UTF-8")
 }
 func Put(hostname string, path string, v interface{}, user string, token string) (response []byte, err error) {
@@ -72,8 +72,6 @@ func Put(hostname string, path string, v interface{}, user string, token string)
 	if err != nil {
 		return nil, fmt.Errorf("Error while encoding to json: %v", err)
 	}
-
-	fmt.Println(string(postBytes))
 	return request("PUT", hostname, path, bytes.NewBuffer(postBytes), user, token, "application/json; charset=UTF-8")
 }
 

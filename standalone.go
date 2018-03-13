@@ -56,24 +56,20 @@ func (c *MongoDbController) onAddStandalone(obj interface{}) {
 		return
 	}
 
-	// TODO: this is on-hold until we fix the read/modify/update cycle
-	// currentDeployment, err := omConnection.ReadDeployment()
-	// if err != nil {
-	// 	fmt.Println("Could not read deployment from OM. Not creating standalone in OM!")
-	// 	return
-	// }
+	 currentDeployment, err := omConnection.ReadDeployment()
+	 if err != nil {
+	 	fmt.Println("Could not read deployment from OM. Not creating standalone in OM!")
+	 	return
+	 }
 
 	hostname := fmt.Sprintf("%s-0", s.Spec.HostnamePrefix)
-	standaloneOmObject := om.NewStandalone(s.Spec.Version).
-		Name(s.Name).
-		HostPort(hostname).
-		DbPath("/data").
-		LogPath("/data/mongodb.log")
+	standaloneOmObject := om.NewProcess(s.Spec.Version).
+		SetName(s.Name).
+		SetHostName(hostname)
 
-	deployment := om.NewDeployment("3.6.3")
-	deployment.MergeStandalone(standaloneOmObject)
+	currentDeployment.MergeStandalone(standaloneOmObject)
 
-	_, err = omConnection.ApplyDeployment(deployment)
+	_, err = omConnection.ApplyDeployment(currentDeployment)
 	if err != nil {
 		fmt.Println("Error while trying to push another deployment.")
 		fmt.Println(err)
@@ -157,49 +153,21 @@ func BuildStandalone(obj *mongodb.MongoDbStandalone) *appsv1.StatefulSet {
 func UpdateStandalone(new, old *mongodb.MongoDbStandalone) error {
 	omConfig := GetOpsManagerConfig()
 	omConnection := om.NewOpsManagerConnection(omConfig.BaseUrl, omConfig.GroupId, omConfig.User, omConfig.PublicApiKey)
-	omCurrentConfig, err := omConnection.ReadDeployment()
+	currentDeployment, err := omConnection.ReadDeployment()
 	if err != nil {
 		return err
 	}
 
-	var updatedAttributes []string
+	// TODO change the statefulset for the standalone
 
-	processVersion := getProcessVersionForStandalone(new.Name, omCurrentConfig)
-	if processVersion == "" {
-		return errors.New("Error updating cluster")
-	}
+	hostname := fmt.Sprintf("%s-0", new.Spec.HostnamePrefix)
+	standaloneOmObject := om.NewProcess(new.Spec.Version).
+		SetName(new.Name).
+		SetHostName(hostname)
 
-	// Check if version has been changed
-	if new.Spec.Version != old.Spec.Version {
-		if processVersion != old.Spec.Version {
-			fmt.Printf("Warning: OM and Kuberentes have different version configured for '%s' process\n", old.Name)
-		}
+	currentDeployment.MergeStandalone(standaloneOmObject)
 
-		for _, el := range omCurrentConfig.Processes {
-			if el.Name == new.Name {
-				updatedAttributes = append(updatedAttributes, "mongodb_version")
-				el.Version = processVersion
-				break
-			}
-		}
-	}
-
-	if len(updatedAttributes) > 0 {
-		// TODO: Update OM with process & new version
-		fmt.Printf("Updating Process '%s' with attributes: %v\n", new.Name, updatedAttributes)
-	}
+	omConnection.ApplyDeployment(currentDeployment)
 
 	return nil
-}
-
-// getProcessVersionForStandalone will traverse the clusterConfig.Processes looking for the
-// mongod version of the process we want to update.
-func getProcessVersionForStandalone(name string, clusterConfig *om.Deployment) string {
-	for _, process := range clusterConfig.Processes {
-		if process.Name == name {
-			return process.Version
-		}
-	}
-
-	return ""
 }

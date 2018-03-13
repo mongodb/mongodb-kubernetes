@@ -1,22 +1,35 @@
 package om
 
 import (
-	"fmt"
 	"testing"
+	"fmt"
 )
+var conn = OmConnection{
+	BaseUrl:      "http://ec2-52-91-170-83.compute-1.amazonaws.com:8080",
+	PublicApiKey: "bf5ed778-153f-4e85-8f0f-f6320338f7bf",
+	User:         "alisovenko@gmail.com",
+	GroupId:      "5aa1097f5030a75c8d886a3a"}
 
-func TestReal(t *testing.T) {
-	deployment := newDeployment("3.6.3")
-	standalone := (NewStandalone("3.6.3")).HostPort("ip-172-31-27-139.ec2.internal").Name("merchantsStandalone").
-		DbPath("/data").LogPath("/data/mongodb.log")
-	deployment.MergeStandalone(standalone)
+func TestRealStandalone(t *testing.T) {
+	standalone := (NewProcess("3.6.3")).SetHostName("ip-172-31-27-139.ec2.internal").SetName("merchantsStandalone").
+		SetDbPath("/data").SetLogPath("/data/mongodb.log")
+	//deployment.mergeStandalone(standalone)
 
-	response, err := ApplyDeployment("http://ec2-184-73-133-183.compute-1.amazonaws.com:8080", "5a9411cf1aeca45c674a27cf",
-		deployment, "alisovenko@gmail.com", "cb989e41-2804-4642-ae93-8e00004e3007")
-	//response, err := ApplyDeployment("http://localhost:8080", "5a95d1ed327e415757c6592a",
-	//	deployment, "alisovenko@gmail.com", "bdfd84c5-5518-4c26-b25d-8e89201e0ad1")
+	deployment, err := conn.ReadDeployment()
+
+	//deployment, err := ReadDeployment("http://localhost:8080", "5a97ee01423de74ad13c3a3a",
+	//	"alisovenko@gmail.com", "74ca5b58-7a58-4f2b-bbbb-b396005bd7b8")
 
 	if err != nil {
+		panic(err)
+	}
+	deployment.MergeStandalone(standalone)
+
+	response, err := conn.ApplyDeployment(deployment)
+	//response, err := ApplyDeployment("http://localhost:8080", "5a97ee01423de74ad13c3a3a",
+	//	deployment, "alisovenko@gmail.com", "74ca5b58-7a58-4f2b-bbbb-b396005bd7b8")
+
+	if (err != nil) {
 		fmt.Println(err)
 	}
 
@@ -24,3 +37,26 @@ func TestReal(t *testing.T) {
 
 	fmt.Println(response)
 }
+
+func TestRealReplicaSet(t *testing.T) {
+	d, err := conn.ReadDeployment()
+
+	if err != nil {
+		panic(err)
+	}
+
+	d.MergeReplicaSet("fooRs", createReplicaSetProcesses())
+
+	response, err := conn.ApplyDeployment(d)
+	//response, err := ApplyDeployment("http://localhost:8080", "5a97ee01423de74ad13c3a3a",
+	//	deployment, "alisovenko@gmail.com", "74ca5b58-7a58-4f2b-bbbb-b396005bd7b8")
+
+	if (err != nil) {
+		fmt.Println(err)
+	}
+
+	fmt.Println("-----------------------")
+
+	fmt.Println(response)
+}
+
