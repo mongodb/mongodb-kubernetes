@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"time"
 
@@ -69,7 +68,7 @@ func (c *MongoDbController) onAddStandalone(obj interface{}) {
 
 	currentDeployment.MergeStandalone(standaloneOmObject)
 
-	_, err = omConnection.ApplyDeployment(currentDeployment)
+	_, err = omConnection.UpdateDeployment(currentDeployment)
 	if err != nil {
 		fmt.Println("Error while trying to push another deployment.")
 		fmt.Println(err)
@@ -167,7 +166,7 @@ func UpdateStandalone(new, old *mongodb.MongoDbStandalone) error {
 
 	currentDeployment.MergeStandalone(standaloneOmObject)
 
-	omConnection.ApplyDeployment(currentDeployment)
+	omConnection.UpdateDeployment(currentDeployment)
 
 	return nil
 }

@@ -9,10 +9,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-
-	"com.tengen/cm/config"
-	"com.tengen/cm/core"
-	"com.tengen/cm/hosts"
 	om "github.com/10gen/ops-manager-kubernetes/om"
 )
 
@@ -101,7 +97,7 @@ func (c *MongoDbController) onAddReplicaSet(obj interface{}) {
 
 	deployment.AddMonitoring()
 
-	_, err = omConnection.ApplyDeployment(deployment)
+	_, err = omConnection.UpdateDeployment(deployment)
 	if err != nil {
 		fmt.Println("Error while trying to push another deployment.")
 		fmt.Println(err)
@@ -176,7 +172,7 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 
 	fmt.Println("We'll update the Deployment in 4 seconds")
 	time.Sleep(4 * time.Second)
-	_, err = omConnection.ApplyDeployment(deployment)
+	_, err = omConnection.UpdateDeployment(deployment)
 	if err != nil {
 		fmt.Println("Error while trying to push another deployment.")
 		fmt.Println(err)
