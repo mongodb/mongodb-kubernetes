@@ -13,8 +13,11 @@ type MongoDbReplicaSet struct {
 }
 
 type MongoDbReplicaSetSpec struct {
-	Members  *int32 `json:"members"`
-	HostName string `json:"hostname"`
+	Name           string `json:"name"`
+	Members        *int32 `json:"members"`
+	HostnamePrefix string `json:"hostname_prefix"`
+	Version        string `json:"mongodb_version"`
+	Service        string `json:"service"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

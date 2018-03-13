@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
+
+	"github.com/10gen/ops-manager-kubernetes/om"
 )
 
 // Checks if the agents have registered.
@@ -45,4 +48,40 @@ func CheckAgentExists(hostname_prefix string, j []byte) bool {
 	}
 
 	return false
+}
+
+// WaitUntilAgentsHaveRegistered will stop the execution with time.Sleep until the
+// agents have registered in the omConnection. Or enough time has passed in which
+// case it will return false.
+func WaitUntilAgentsHaveRegistered(omConnection *om.OmConnection, agentHostnames []string) bool {
+	agentsOk := false
+
+	// TODO: Implement exponential backoff
+	for count := 0; count < 3; count++ {
+		time.Sleep(3 * time.Second)
+
+		path := fmt.Sprintf(OpsManagerAgentsResource, omConnection.GroupId)
+		agentResponse, err := omConnection.Get(path)
+		if err != nil {
+			fmt.Println("Unable to read from OM API, waiting...")
+			fmt.Println(err)
+			continue
+		}
+
+		fmt.Println("Checking if the agent have registered yet")
+		agentsOk = true
+		for _, hostname := range agentHostnames {
+			if !CheckAgentExists(hostname, agentResponse) {
+				agentsOk = false
+				break
+			}
+		}
+
+		if agentsOk {
+			break
+		}
+		fmt.Println("Agents have not registered with OM, waiting...")
+	}
+
+	return agentsOk
 }

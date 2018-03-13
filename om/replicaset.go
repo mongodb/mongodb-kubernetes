@@ -1,6 +1,6 @@
 package om
 
-import "fmt"
+import "sort"
 
 /* This corresponds to:
  {
@@ -52,42 +52,10 @@ func (r ReplicaSet) Name() string {
 	return r["_id"].(string)
 }
 
-// Adding a member to the replicaset. The _id for the new member is calculated based on last existing member in the RS.
-// Note that any other configuration (arbiterOnly/priority etc) can be passed as the argument to the function if needed
-func (r ReplicaSet) addMember(process Process) {
-	members := r.members()
-	lastIndex := -1
-	if len(members) > 0 {
-		lastIndex = members[len(members)-1]["_id"].(int)
-	}
-
-	rsMember := ReplicaSetMember{}
-	rsMember["_id"] = lastIndex + 1
-	rsMember["host"] = process.Name()
-	r.setMembers(append(members, rsMember))
-}
-
-func (r ReplicaSet) members() []ReplicaSetMember {
-	switch v := r["members"].(type) {
-	case []ReplicaSetMember:
-		return v
-	case [] interface{}:
-		ans := make([]ReplicaSetMember, len(v))
-		for i, val := range v {
-			ans[i] = NewReplicaSetMemberFromInterface(val)
-		}
-		return ans
-	default:
-		panic("Unexpected type of members variable")
-	}
-}
-
-func (r ReplicaSet) setMembers(members []ReplicaSetMember) {
-	r["members"] = members
-}
-
 /* Merges the other replica set to the current one. "otherRs" members have higher priority (as they are supposed
- to be RS members managed by Kubernetes)
+ to be RS members managed by Kubernetes).
+ Returns the list of names of members which were removed as the result of merge (either they were added by mistake in OM
+ or we are scaling down)
 
  Example:
  Current RS:
@@ -123,7 +91,7 @@ func (r ReplicaSet) setMembers(members []ReplicaSetMember) {
 			"host": "green_2"
 		}]
 },*/
-func (r ReplicaSet) MergeFrom(otherRs ReplicaSet) {
+func (r ReplicaSet) MergeFrom(otherRs ReplicaSet) []string {
 	// technically we use "otherMap" as the target map which will be used to update the members for the 'r' object
 	currentMap := buildMapOfRsNodes(r)
 	otherMap := buildMapOfRsNodes(otherRs)
@@ -136,11 +104,9 @@ func (r ReplicaSet) MergeFrom(otherRs ReplicaSet) {
 		}
 	}
 
-	// add new members (uncomment if we decide that OM can add replicas on its own)
-	//newMembers := findDifference(currentMap, otherMap)
-	//for _, m := range newMembers {
-	//	otherMap[m] = currentMap[m]
-	//}
+	// find OM members that will be removed from RS. This can be either the result of scaling down or just OM added
+	// some members on its own
+	removedMembers := findDifference(currentMap, otherMap)
 
 	// update replicaset back
 	replicas := make([]ReplicaSetMember, len(otherMap))
@@ -149,7 +115,52 @@ func (r ReplicaSet) MergeFrom(otherRs ReplicaSet) {
 		replicas[i] = v
 		i++
 	}
+	sort.Slice(replicas, func(i, j int) bool {
+		return replicas[i]["_id"].(int) < replicas[j]["_id"].(int)
+	})
 	r.setMembers(replicas)
+
+	return removedMembers
+}
+
+/*func (r ReplicaSet) String() string {
+	return fmt.Sprintf("\"%s\" (%d members)", r.Name(), len(r.members()))
+}*/
+
+// ***************************************** Private methods ***********************************************************
+
+// Adding a member to the replicaset. The _id for the new member is calculated based on last existing member in the RS.
+// Note that any other configuration (arbiterOnly/priority etc) can be passed as the argument to the function if needed
+func (r ReplicaSet) addMember(process Process) {
+	members := r.members()
+	lastIndex := -1
+	if len(members) > 0 {
+		lastIndex = members[len(members)-1]["_id"].(int)
+	}
+
+	rsMember := ReplicaSetMember{}
+	rsMember["_id"] = lastIndex + 1
+	rsMember["host"] = process.Name()
+	r.setMembers(append(members, rsMember))
+}
+
+func (r ReplicaSet) members() []ReplicaSetMember {
+	switch v := r["members"].(type) {
+	case []ReplicaSetMember:
+		return v
+	case [] interface{}:
+		ans := make([]ReplicaSetMember, len(v))
+		for i, val := range v {
+			ans[i] = NewReplicaSetMemberFromInterface(val)
+		}
+		return ans
+	default:
+		panic("Unexpected type of members variable")
+	}
+}
+
+func (r ReplicaSet) setMembers(members []ReplicaSetMember) {
+	r["members"] = members
 }
 
 // Returns keys that exist in leftMap but don't exist in right one
@@ -163,19 +174,11 @@ func findDifference(leftMap map[string]ReplicaSetMember, rightMap map[string]Rep
 	return ans
 }
 
-// Builds the map[<id of replica>]<replica set member>. This makes intersection easier
-func buildMapOfRsNodes(rs ReplicaSet) map[int]ReplicaSetMember {
-	ans := make(map[int]ReplicaSetMember)
+// Builds the map[<process name>]<replica set member>. This makes intersection easier
+func buildMapOfRsNodes(rs ReplicaSet) map[string]ReplicaSetMember {
+	ans := make(map[string]ReplicaSetMember)
 	for _, r := range rs.members() {
-		// this is strange thing that when reading the RS returned by API its member ids have the type float64 instead of int
-		switch v := r["_id"].(type) {
-		case int:
-			ans[v] = r
-		case float64:
-			ans[int(v)] = r
-		default:
-			panic(fmt.Sprintf("Unexpected type of replicaset member _id variable: %T", v))
-		}
+		ans[r["host"].(string)] = r
 	}
 	return ans
 }

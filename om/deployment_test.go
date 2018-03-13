@@ -2,11 +2,7 @@ package om
 
 import (
 	"testing"
-	"github.com/corbym/gocrest/then"
-	"github.com/corbym/gocrest/is"
-	"github.com/corbym/gocrest/has"
-	//"fmt"
-	//"encoding/json"
+	"github.com/stretchr/testify/assert"
 	"strconv"
 	"fmt"
 )
@@ -29,7 +25,7 @@ func TestMergeStandalone(t *testing.T) {
 	standalone := createStandalone()
 	d.MergeStandalone(standalone)
 
-	then.AssertThat(t, d.getProcesses(), has.Length(1))
+	assert.Len(t, d.getProcesses(), 1)
 
 	d["version"] = 5
 	d.getProcesses()[0]["alias"] = "alias"
@@ -37,14 +33,14 @@ func TestMergeStandalone(t *testing.T) {
 
 	d.MergeStandalone(createStandalone())
 
-	then.AssertThat(t, d.getProcesses(), has.Length(1))
+	assert.Len(t, d.getProcesses(), 1)
 
 	// fields which are owned by OM-Kube should be overriden
-	then.AssertThat(t, d.getProcesses()[0].HostName(), is.EqualTo("mongo1.some.host"))
+	assert.Equal(t, d.getProcesses()[0].HostName(), "mongo1.some.host")
 
 	// fields which are not owned by OM-Kube should be left unchanged
-	then.AssertThat(t, d.getProcesses()[0]["alias"], is.EqualTo("alias"))
-	then.AssertThat(t, d["version"], is.EqualTo(5))
+	assert.Equal(t, d.getProcesses()[0]["alias"], "alias")
+	assert.Equal(t, d["version"], 5)
 }
 
 // First merge results in just adding the ReplicaSet
@@ -55,31 +51,54 @@ func TestMergeReplicaSet(t *testing.T) {
 	d.MergeReplicaSet("fooRs", createReplicaSetProcesses())
 	expectedRs := buildRsByProcesses("fooRs", createReplicaSetProcesses())
 
-	then.AssertThat(t, d.getProcesses(), has.Length(3))
-	then.AssertThat(t, d.getReplicaSets(), has.Length(1))
-	then.AssertThat(t, d.getReplicaSets()[0].members(), has.Length(3))
-	then.AssertThat(t, d.getReplicaSets()[0], is.EqualTo(expectedRs))
+	assert.Len(t, d.getProcesses(), 3)
+	assert.Len(t, d.getReplicaSets(), 1)
+	assert.Len(t, d.getReplicaSets()[0].members(), 3)
+	assert.Equal(t, d.getReplicaSets()[0], expectedRs)
 
 	// Now the deployment "gets updated" from external - new node is added and one is removed - this should be fixed
 	// by merge
-	d.getProcesses()[0]["processType"] = "mongos" // this will be overriden
+	d.getProcesses()[0]["processType"] = "mongos"                                             // this will be overriden
 	d.getProcesses()[1].Args()["net"].(map[string]interface{})["maxIncomingConnections"] = 20 // this will be left as-is
-	d.getReplicaSets()[0].setMembers(d.getReplicaSets()[0].members()[0:2]) // "removing" the last node in replicaset
-	d.getReplicaSets()[0].addMember(NewProcess("4.0.0").SetHostName("foo").SetName("bar")) // "adding" some new node
-	d.getReplicaSets()[0].members()[0]["arbiterOnly"] = true // changing data for first node
+	d.getReplicaSets()[0].setMembers(d.getReplicaSets()[0].members()[0:2])                    // "removing" the last node in replicaset
+	d.getReplicaSets()[0].addMember(NewProcess("4.0.0").SetHostName("foo").SetName("bar"))    // "adding" some new node
+	d.getReplicaSets()[0].members()[0]["arbiterOnly"] = true                                  // changing data for first node
 
 	d.MergeReplicaSet("fooRs", createReplicaSetProcesses())
 
-	then.AssertThat(t, d.getProcesses(), has.Length(3))
-	then.AssertThat(t, d.getReplicaSets(), has.Length(1))
-	then.AssertThat(t, d.getProcesses()[0]["processType"], is.EqualTo("mongod"))
-	then.AssertThat(t, d.getProcesses()[1].Args()["net"].(map[string]interface{})["maxIncomingConnections"], is.EqualTo(20))
-	then.AssertThat(t, d.getReplicaSets()[0].members(), has.Length(3))
+	assert.Len(t, d.getProcesses(), 3)
+	assert.Len(t, d.getReplicaSets(), 1)
+	assert.Equal(t, d.getProcesses()[0]["processType"], "mongod")
+	assert.Equal(t, d.getProcesses()[1].Args()["net"].(map[string]interface{})["maxIncomingConnections"], 20)
+	assert.Len(t, d.getReplicaSets()[0].members(), 3)
 
 	expectedRs = buildRsByProcesses("fooRs", createReplicaSetProcesses())
 	expectedRs.members()[0]["arbiterOnly"] = true
-	fmt.Print(d.getReplicaSets()[0])
-	then.AssertThat(t, d.getReplicaSets()[0], is.EqualTo(expectedRs))
+	fmt.Println(d.getReplicaSets()[0])
+	fmt.Println(expectedRs)
+	assert.Equal(t, d.getReplicaSets()[0], expectedRs)
+}
+
+// Checking that on scale down the old processes are removed
+func TestMergeReplicaSetScaleDown(t *testing.T) {
+	d := NewDeployment()
+
+	d.MergeReplicaSet("someRs", createReplicaSetProcesses())
+	assert.Len(t, d.getProcesses(), 3)
+	assert.Len(t, d.getReplicaSets()[0].members(), 3)
+
+	// "scale down"
+	scaledDownRsProcesses := createReplicaSetProcesses()[0:2]
+	d.MergeReplicaSet("someRs", scaledDownRsProcesses)
+
+	assert.Len(t, d.getProcesses(), 2)
+	assert.Len(t, d.getReplicaSets()[0].members(), 2)
+
+	// checking that the last member was removed
+	rsProcesses := createReplicaSetProcessesWithRsName("someRs")
+	assert.Contains(t, d.getProcesses(), rsProcesses[0])
+	assert.Contains(t, d.getProcesses(), rsProcesses[1])
+	assert.NotContains(t, d.getProcesses(), rsProcesses[2])
 }
 
 func buildRsByProcesses(rsName string, processes []Process) ReplicaSet {
@@ -100,12 +119,20 @@ func createStandalone() Process {
 }
 
 func createReplicaSetProcesses() []Process {
+	return createReplicaSetProcessesWithRsName("")
+}
+
+func createReplicaSetProcessesWithRsName(rsName string) []Process {
 	rsMembers := make([]Process, 3)
 
-	for i := 0; i < 3; i = i + 1 {
+	for i := 0; i < 3; i++ {
 		idx := strconv.Itoa(i)
 		rsMembers[i] = NewProcess("3.6.3").SetHostName("mongo" + idx + ".some.host").SetName("merchantsStandalone" + idx).
 			SetDbPath("/data").SetLogPath("/data/mongodb.log")
+		// We add replicaset member to check that replicaset name field was initialized during merge
+		if rsName != "" {
+			rsMembers[i].setReplicaSetName(rsName)
+		}
 	}
 	return rsMembers
 }
