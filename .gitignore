@@ -4,3 +4,4 @@ om-operator
 pkg/client
 .idea/
 ops-manager-kubernetes.iml
+/samples/my-*
