@@ -58,7 +58,7 @@ func (c *MongoDbController) onDeleteStandalone(obj interface{}) {
 }
 
 func updateOmDeployment(s *mongodb.MongoDbStandalone) bool {
-	omConnection := om.NewOpsManagerConnectionFromEnv()
+	omConnection := NewOpsManagerConnectionFromEnv()
 
 	if !om.WaitUntilAgentsHaveRegistered(omConnection, s.Spec.HostnamePrefix) {
 		fmt.Println("Agents never registered! Not creating standalone in OM!")
