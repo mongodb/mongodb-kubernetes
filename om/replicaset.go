@@ -1,6 +1,9 @@
 package om
 
-import "sort"
+import (
+	"sort"
+	"fmt"
+)
 
 /* This corresponds to:
  {
@@ -50,6 +53,14 @@ func NewReplicaSet(name string) ReplicaSet {
 
 func (r ReplicaSet) Name() string {
 	return r["_id"].(string)
+}
+
+func (r ReplicaSetMember) Name() string {
+	return r["host"].(string)
+}
+
+func (r ReplicaSetMember) Id() int {
+	return r["_id"].(int)
 }
 
 /* Merges the other replica set to the current one. "otherRs" members have higher priority (as they are supposed
@@ -122,16 +133,20 @@ func (r ReplicaSet) MergeFrom(otherRs ReplicaSet) []string {
 		i++
 	}
 	sort.Slice(replicas, func(i, j int) bool {
-		return replicas[i]["_id"].(int) < replicas[j]["_id"].(int)
+		return replicas[i].Id() < replicas[j].Id()
 	})
 	r.setMembers(replicas)
 
 	return removedMembers
 }
 
-/*func (r ReplicaSet) String() string {
-	return fmt.Sprintf("\"%s\" (%d members)", r.Name(), len(r.members()))
-}*/
+func (r ReplicaSet) String() string {
+	return fmt.Sprintf("\"%s\" (members: %v)", r.Name(), r.members())
+}
+
+func (r ReplicaSetMember) String() string {
+	return fmt.Sprintf("[id: %v, host: %v]", r.Name(), r.Id())
+}
 
 // ***************************************** Private methods ***********************************************************
 
@@ -184,7 +199,7 @@ func findDifference(leftMap map[string]ReplicaSetMember, rightMap map[string]Rep
 func buildMapOfRsNodes(rs ReplicaSet) map[string]ReplicaSetMember {
 	ans := make(map[string]ReplicaSetMember)
 	for _, r := range rs.members() {
-		ans[r["host"].(string)] = r
+		ans[r.Name()] = r
 	}
 	return ans
 }

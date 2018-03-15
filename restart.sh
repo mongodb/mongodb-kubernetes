@@ -15,6 +15,7 @@ kubectl delete crd mongodbstandalones.mongodb.com
 echo "-- Removing kubernetes objects and operator"
 kubectl delete pv --all
 kubectl delete statefulsets --all
+kubectl delete configmaps --all
 kubectl delete -f om-operator.yaml
 
 echo "-- Compiling and building new container image"
@@ -31,13 +32,14 @@ if [ -z $BUILD_LOCALLY ]; then
     ssh $connect_to 'source ~/.profile ; cd go/src/github.com/10gen/ops-manager-kubernetes/ ; go build -o om-operator'
 else
     echo "-- Cross compiling om-operator"
-    CGO_ENABLED=0 GOOS=linux go build -o om-operator
+    CGO_ENABLED=0 GOOS=linux go build -o om-operator || exit 1
 fi
 
 eval $(minikube docker-env)
 docker build -t om-operator:0.1 .
 
 echo "-- Deploying new operator"
+kubectl apply -f samples/my-config-map.yaml # TODO om-operator requires the 'ops-manager-config' config map for now
 kubectl apply -f om-operator.yaml
 
 

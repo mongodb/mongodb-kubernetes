@@ -38,10 +38,9 @@ func BuildAgentStateFromBytes(jsonBytes []byte) (ans *AgentState, err error) {
 // has `hostname_prefix` as prefix.
 // This is needed to check if given agent has registered.
 func CheckAgentExists(hostname_prefix string, agentState *AgentState) bool {
-	fmt.Printf("%d agents registered in total\n", agentState.TotalCount)
 	for _, result := range agentState.Results {
-		fmt.Printf("Checking prefix for agent: %s\n", result.Hostname)
 		if strings.HasPrefix(result.Hostname, hostname_prefix) {
+			fmt.Printf("Agent %s is already registered\n", result.Hostname)
 			return true
 		}
 	}
@@ -53,33 +52,31 @@ func CheckAgentExists(hostname_prefix string, agentState *AgentState) bool {
 // agents have registered in the omConnection. Or enough time has passed in which
 // case it will return false.
 func WaitUntilAgentsHaveRegistered(omConnection *OmConnection, agentHostnames ...string) bool {
-	agentsOk := false
-
 	// TODO: Implement exponential backoff
 	for count := 0; count < 3; count++ {
-		time.Sleep(3 * time.Second)
+		waitDuration := time.Duration(3)
+		fmt.Printf("Waiting for %d seconds before checking if agents have registered in OM\n", waitDuration)
+		time.Sleep(waitDuration * time.Second)
 
 		agentResponse, err := omConnection.ReadAutomationAgents()
 		if err != nil {
-			fmt.Println("Unable to read from OM API, waiting...")
+			fmt.Println("Unable to read from OM API")
 			fmt.Println(err)
 			continue
 		}
 
-		fmt.Println("Checking if the agent have registered yet")
-		agentsOk = true
+		registeredCount := 0
 		for _, hostname := range agentHostnames {
-			if !CheckAgentExists(hostname, agentResponse) {
-				agentsOk = false
-				break
+			if CheckAgentExists(hostname, agentResponse) {
+				registeredCount++
 			}
 		}
 
-		if agentsOk {
-			break
+		if registeredCount == len(agentHostnames) {
+			return true;
 		}
-		fmt.Println("Agents have not registered with OM, waiting...")
+		fmt.Printf("Only %d of %d agents have registered with OM\n", registeredCount, len(agentHostnames))
 	}
 
-	return agentsOk
+	return false
 }

@@ -14,7 +14,7 @@ type MongoDbReplicaSet struct {
 
 type MongoDbReplicaSetSpec struct {
 	Name           string `json:"name"`
-	Members        *int32 `json:"members"`
+	Members        int32 `json:"members"`
 	HostnamePrefix string `json:"hostname_prefix"`
 	Version        string `json:"mongodb_version"`
 	Service        string `json:"service"`
@@ -63,7 +63,7 @@ type MongoDbShardedCluster struct {
 
 type MongoDbShardedClusterSpec struct {
 	HostName string `json:"hostname"`
-	Shards   *int32
+	Shards   int32
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

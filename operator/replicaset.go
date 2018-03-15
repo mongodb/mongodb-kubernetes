@@ -10,17 +10,28 @@ import (
 func (c *MongoDbController) onAddReplicaSet(obj interface{}) {
 	s := obj.(*mongodb.MongoDbReplicaSet).DeepCopy()
 
+	fmt.Printf("Creating Replica set %s with the following config: %+v\n", s.Name, s.Spec)
+
+/*
+	TODO this returns some strange empty statefulset...
+	if s, _ := c.StatefulSetApi(s.Namespace).Get(s.Name, v1.GetOptions{}); s != nil {
+		fmt.Println(s)
+		fmt.Printf("Error! Statefulset %s already exists (it was supposed to be removed when MongoDbReplicaSet is removed)\n", s.Name)
+		return
+	}*/
+
 	replicaSetObject := buildReplicaSet(s)
 	statefulSet, err := c.StatefulSetApi(s.Namespace).Create(replicaSetObject)
 	if err != nil {
 		fmt.Println("Error trying to create a new ReplicaSet")
+		fmt.Println(err)
 		return
 	}
 
 	omConnection := NewOpsManagerConnectionFromEnv()
 
 	if !waitUntilAllAgentsAreReady(s, omConnection) {
-		fmt.Println("Agents never registered! Not creating replicaset in OM!")
+		fmt.Println("Some of the agents failed to register! Not creating replicaset in OM!")
 		return
 	}
 
@@ -30,7 +41,7 @@ func (c *MongoDbController) onAddReplicaSet(obj interface{}) {
 		return
 	}
 
-	members := createStandalonesForReplica(s.Spec.HostnamePrefix, s.Spec.Name, s.Spec.Service, s.Spec.Version, *s.Spec.Members)
+	members := createStandalonesForReplica(s.Spec.HostnamePrefix, s.Spec.Name, s.Spec.Service, s.Spec.Version, s.Spec.Members)
 	deployment.MergeReplicaSet(s.Spec.Name, members)
 
 	deployment.AddMonitoring()
@@ -39,6 +50,7 @@ func (c *MongoDbController) onAddReplicaSet(obj interface{}) {
 	if err != nil {
 		fmt.Println("Error while trying to push another deployment.")
 		fmt.Println(err)
+		return
 	}
 
 	fmt.Printf("Created Replica Set: '%s'\n", statefulSet.ObjectMeta.Name)
@@ -50,7 +62,7 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 
 	validateUpdate(oldRes, newRes)
 
-	fmt.Printf("Updating MongoDbReplicaSet '%s' from %d to %d\n", newRes.Name, *oldRes.Spec.Members, *newRes.Spec.Members)
+	fmt.Printf("Updating MongoDbReplicaSet '%s' from %d to %d\n", newRes.Name, oldRes.Spec.Members, newRes.Spec.Members)
 
 	// TODO seems it will be great here to log the diff of the objects - can it be made general way through reflection?
 	// (to be used by Standalone/ReplicaSet/ShardedCluster
@@ -66,7 +78,7 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 	omConnection := om.NewOpsManagerConnection(omConfig.BaseUrl, omConfig.GroupId, omConfig.User, omConfig.PublicApiKey)
 
 	if !waitUntilAllAgentsAreReady(newRes, omConnection) {
-		fmt.Println("Agents never registered! Not updating replicaset in OM!")
+		fmt.Println("Some of the agents failed to register! Not creating replicaset in OM!")
 		return
 	}
 
@@ -78,9 +90,9 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 		return
 	}
 
-	fmt.Printf("About to update replicaset with members: %d to %d\n", *oldRes.Spec.Members, *newRes.Spec.Members)
+	fmt.Printf("About to update replicaset with members: %d to %d\n", oldRes.Spec.Members, newRes.Spec.Members)
 
-	members := createStandalonesForReplica(newRes.Spec.HostnamePrefix, newRes.Spec.Name, newRes.Spec.Service, newRes.Spec.Version, *newRes.Spec.Members)
+	members := createStandalonesForReplica(newRes.Spec.HostnamePrefix, newRes.Spec.Name, newRes.Spec.Service, newRes.Spec.Version, newRes.Spec.Members)
 	deployment.MergeReplicaSet(newRes.Spec.Name, members)
 
 	deployment.AddMonitoring()
@@ -101,7 +113,7 @@ func (c *MongoDbController) onDeleteReplicaSet(obj interface{}) {
 
 	// TODO
 
-	fmt.Printf("Deleted MongoDbReplicaSet '%s' with Members=%d\n", s.Name, *s.Spec.Members)
+	fmt.Printf("Deleted MongoDbReplicaSet '%s' with Members=%d\n", s.Name, s.Spec.Members)
 }
 
 func validateUpdate(oldSpec, newSpec *mongodb.MongoDbReplicaSet) {
@@ -111,14 +123,14 @@ func validateUpdate(oldSpec, newSpec *mongodb.MongoDbReplicaSet) {
 }
 
 func waitUntilAllAgentsAreReady(newRes *mongodb.MongoDbReplicaSet, omConnection *om.OmConnection) bool {
-	agentHostnames := make([]string, int(*newRes.Spec.Members))
-	memberQty := int(*newRes.Spec.Members)
+	agentHostnames := make([]string, int(newRes.Spec.Members))
+	memberQty := int(newRes.Spec.Members)
 	for i := 0; i < memberQty; i++ {
 		agentHostnames[i] = fmt.Sprintf("%s-%d.%s", newRes.Spec.HostnamePrefix, i, newRes.Spec.Service)
 	}
 
 	if !om.WaitUntilAgentsHaveRegistered(omConnection, agentHostnames...) {
-		fmt.Println("Agents never registered! not creating replicaset in OM!")
+		fmt.Println("(A) Agents never registered! not creating replicaset in OM!")
 		return false
 	}
 	return true

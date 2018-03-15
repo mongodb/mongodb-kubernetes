@@ -74,7 +74,9 @@ func (d Deployment) AddMonitoring() {
 	monitoringVersions := d["monitoringVersions"].([]interface{})
 
 	if len(monitoringVersions) == 0 {
-		monitoringVersions[0] = map[string]string{"hostname": d.getProcesses()[0].HostName(), "name": "6.1.2.402-1"}
+		monitoringVersions = append(monitoringVersions,
+			map[string]string{"hostname": d.getProcesses()[0].HostName(), "name": "6.1.2.402-1"})
+		d["monitoringVersions"] = monitoringVersions
 	}
 }
 

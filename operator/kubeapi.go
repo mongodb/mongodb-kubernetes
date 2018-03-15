@@ -55,7 +55,7 @@ func buildReplicaSet(obj *mongodb.MongoDbReplicaSet) *appsv1.StatefulSet {
 
 	return &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      obj.Spec.HostnamePrefix,
+			Name:      obj.Spec.Name,
 			Namespace: obj.Namespace,
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(obj, schema.GroupVersionKind{
@@ -67,7 +67,7 @@ func buildReplicaSet(obj *mongodb.MongoDbReplicaSet) *appsv1.StatefulSet {
 		},
 		Spec: appsv1.StatefulSetSpec{
 			ServiceName: obj.Spec.Service,
-			Replicas:    obj.Spec.Members,
+			Replicas:    &obj.Spec.Members,
 			Selector: &metav1.LabelSelector{
 				MatchLabels: labels,
 			},
