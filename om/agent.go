@@ -1,12 +1,10 @@
-package main
+package om
 
 import (
 	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/10gen/ops-manager-kubernetes/om"
 )
 
 // Checks if the agents have registered.
@@ -28,21 +26,21 @@ type ResultStruct struct {
 	TypeName  string `json:"typeName"`
 }
 
+func BuildAgentStateFromBytes(jsonBytes []byte) (*AgentState, error) {
+	cc := &AgentState{}
+	if err := json.Unmarshal(jsonBytes, &cc); err != nil {
+		return nil, err
+	}
+	return cc, nil
+}
+
 // CheckAgentExists will return true if any of the agents in the json document
 // has `hostname_prefix` as prefix.
 // This is needed to check if given agent has registered.
-func CheckAgentExists(hostname_prefix string, j []byte) bool {
-	var agentState AgentState
-
-	if err := json.Unmarshal(j, &agentState); err != nil {
-		fmt.Println("Unable to unmarshal")
-		return false
-	}
-
-	fmt.Printf("%d agents registerd total\n", agentState.TotalCount)
+func CheckAgentExists(hostname_prefix string, agentState *AgentState) bool {
 	for _, result := range agentState.Results {
-		fmt.Printf("Checking prefix for agent: %s\n", result.Hostname)
 		if strings.HasPrefix(result.Hostname, hostname_prefix) {
+			fmt.Printf("Agent %s is already registered\n", result.Hostname)
 			return true
 		}
 	}
@@ -50,38 +48,35 @@ func CheckAgentExists(hostname_prefix string, j []byte) bool {
 	return false
 }
 
-// WaitUntilAgentsHaveRegistered will stop the execution with time.Sleep until the
+// WaitUntilAgentsHaveRegistered will stop the execution with time. Sleep until the
 // agents have registered in the omConnection. Or enough time has passed in which
 // case it will return false.
-func WaitUntilAgentsHaveRegistered(omConnection *om.OmConnection, agentHostnames []string) bool {
-	agentsOk := false
-
+func WaitUntilAgentsHaveRegistered(omConnection *OmConnection, agentHostnames ...string) bool {
 	// TODO: Implement exponential backoff
 	for count := 0; count < 3; count++ {
-		time.Sleep(3 * time.Second)
+		waitDuration := time.Duration(3)
+		fmt.Printf("Waiting for %d seconds before checking if agents have registered in OM\n", waitDuration)
+		time.Sleep(waitDuration * time.Second)
 
-		path := fmt.Sprintf(OpsManagerAgentsResource, omConnection.GroupId)
-		agentResponse, err := omConnection.Get(path)
+		agentResponse, err := omConnection.ReadAutomationAgents()
 		if err != nil {
-			fmt.Println("Unable to read from OM API, waiting...")
+			fmt.Println("Unable to read from OM API")
 			fmt.Println(err)
 			continue
 		}
 
-		fmt.Println("Checking if the agent have registered yet")
-		agentsOk = true
+		registeredCount := 0
 		for _, hostname := range agentHostnames {
-			if !CheckAgentExists(hostname, agentResponse) {
-				agentsOk = false
-				break
+			if CheckAgentExists(hostname, agentResponse) {
+				registeredCount++
 			}
 		}
 
-		if agentsOk {
-			break
+		if registeredCount == len(agentHostnames) {
+			return true;
 		}
-		fmt.Println("Agents have not registered with OM, waiting...")
+		fmt.Printf("Only %d of %d agents have registered with OM\n", registeredCount, len(agentHostnames))
 	}
 
-	return agentsOk
+	return false
 }

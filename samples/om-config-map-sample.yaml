@@ -8,5 +8,4 @@ data:
   AGENT_API_KEY: <your-agent-api-key>
   GROUP_ID: <your-group-id>
   BASE_URL: <your-base-url>
-  EMAIL: <your-email>
-  MONGOD_VERSION: 3.6.2
+  USER_LOGIN: <your-email>

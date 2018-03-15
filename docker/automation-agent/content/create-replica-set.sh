@@ -20,5 +20,5 @@ if [[ $(hostname | grep '\-0$') ]]; then
 
 
     echo "Configuring replica set in OM for $hostname"
-    curl -u "$EMAIL:$PUBLIC_API_KEY" -H "Content-Type: application/json" "$BASE_URL/api/public/v1.0/groups/$GROUP_ID/automationConfig" --digest -i -X PUT --data-binary "@/mongodb-automation/payload.json"
+    curl -u "$USER_LOGIN:$PUBLIC_API_KEY" -H "Content-Type: application/json" "$BASE_URL/api/public/v1.0/groups/$GROUP_ID/automationConfig" --digest -i -X PUT --data-binary "@/mongodb-automation/payload.json"
 fi

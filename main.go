@@ -14,6 +14,7 @@ import (
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"github.com/10gen/ops-manager-kubernetes/operator"
 )
 
 func main() {
@@ -25,7 +26,7 @@ func main() {
 	}
 
 	// Create and wait for CRD resources
-	fmt.Printf("Registering %s resource\n", ResourceName)
+	fmt.Printf("Registering %s resource\n", operator.ResourceName)
 	resources := []opkit.CustomResource{
 		mongodb.MongoDbReplicaSetResource,
 		mongodb.MongoDbStandaloneResource,
@@ -42,8 +43,8 @@ func main() {
 	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
 
 	// start watching the sample resource
-	fmt.Printf("Watching %s resource\n", ResourceName)
-	controller := newMongoDbController(context, mongodbClientset)
+	fmt.Printf("Watching %s resource\n", operator.ResourceName)
+	controller := operator.NewMongoDbController(context, mongodbClientset)
 	controller.StartWatch(v1.NamespaceAll, stopChan)
 
 	for {

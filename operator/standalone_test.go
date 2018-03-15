@@ -1,7 +1,6 @@
-package main
+package operator
 
 import (
-	"fmt"
 	"testing"
 )
 

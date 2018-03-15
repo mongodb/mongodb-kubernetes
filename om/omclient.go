@@ -37,11 +37,12 @@ func (oc *OmConnection) UpdateDeployment(deployment *Deployment) ([]byte, error)
 }
 
 func (oc *OmConnection) ReadDeployment() (*Deployment, error) {
-	ans, err := oc.Get(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", oc.GroupId))
+	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", oc.GroupId))
 
 	if err != nil {
 		return nil, err
 	}
+	// TODO replace all loggings in this file with log.debug()
 	fmt.Println(string(ans))
 	return BuildDeploymentFromBytes(ans)
 }
@@ -63,17 +64,20 @@ func(oc *OmConnection) GenerateAgentKey() (string, error) {
 	return keyInfo["key"].(string), nil
 }
 
-// TODO uncomment code to read agents here
-/*func (oc *OmConnection) ReadAutomationAgents() (*AgentState, error) {
-	return request("GET", oc.BaseUrl, path, nil, oc.User, oc.PublicApiKey, "application/json; charset=UTF-8")
-}*/
-
-// TODO make Get method private (refactor agents code for this)
-func (oc *OmConnection) Get(path string) ([]byte, error) {
-	return request("GET", oc.BaseUrl, path, nil, oc.User, oc.PublicApiKey, "application/json; charset=UTF-8")
+func (oc *OmConnection) ReadAutomationAgents() (*AgentState, error) {
+	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/agents/AUTOMATION", oc.GroupId))
+	if err != nil {
+		return nil, err
+	}
+	fmt.Println(string(ans))
+	return BuildAgentStateFromBytes(ans)
 }
 
 //********************************** Private methods *******************************************************************
+
+func (oc *OmConnection) get(path string) ([]byte, error) {
+	return request("GET", oc.BaseUrl, path, nil, oc.User, oc.PublicApiKey, "application/json; charset=UTF-8")
+}
 
 func (oc *OmConnection) post(path string, v interface{}) (response []byte, err error) {
 	postBytes, err := json.Marshal(v)
