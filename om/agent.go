@@ -26,7 +26,7 @@ type ResultStruct struct {
 	TypeName  string `json:"typeName"`
 }
 
-func BuildAgentStateFromBytes(jsonBytes []byte) (ans *AgentState, err error) {
+func BuildAgentStateFromBytes(jsonBytes []byte) (*AgentState, error) {
 	cc := &AgentState{}
 	if err := json.Unmarshal(jsonBytes, &cc); err != nil {
 		return nil, err
