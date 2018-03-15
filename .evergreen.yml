@@ -2,14 +2,6 @@
 stepback: true
 
 variables:
-- &paths
-  chrome_path: "/opt/google/chrome/chrome"
-- &software_versions
-  mongodb_version: "3.4.10"
-  chromedriver_version: "2.35"
-  nodejs_version: "8.9.3"
-  mongomirror_version: "0.2.8"
-- &build_versions
   ops_manager_version: "3.7.0"
 
 functions:
@@ -21,7 +13,8 @@ functions:
     script: |
       dep ensure
       ./codegen.sh
-      CGO_ENABLED=0 GOOS=linux go build -o om-operator
+      patch -d vendor/github.com/rook/operator-kit/ < op-kit-patch.diff
+      go build -o om-operator
 
 tasks:
 
@@ -29,10 +22,6 @@ tasks:
   tags: ["setup"]
   commands:
     - func: "setup"
-      vars:
-        testGroup: "nds"
-        cloudProvider: "AWS"
-        cucumberOptions: "--tags @tenant"
 
 post:
   - command: shell.exec
