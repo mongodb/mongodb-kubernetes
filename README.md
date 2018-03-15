@@ -5,7 +5,7 @@ with Ops Manager and Kubernetes clusters. It allows to easily add new
 MongoDB deployments (standalones, replica sets, sharded clusters) to your Kubernetes cluster, configure them (modify, scale up/down, remove) and to manage them from your
 Ops Manager installation. This provides combined power of Kubernetes (native scheduling of applications to nodes, scaling, fault tolerance etc) with Ops Manager capabilities (monitoring, backup, upgrades etc)
 
-##The high-level picture
+## High-level
 
 The high-level picturefor the process of installing Mongodb deployment into Kubernetes cluster is as follows:
 * admin creates the `om-operator` Kubernetes Deployment which contains the operator application. This is a one-time operation.
