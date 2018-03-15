@@ -67,6 +67,19 @@ func (d Deployment) MergeReplicaSet(rsName string, processes []Process) {
 	d.setReplicaSets(append(d.getReplicaSets(), rs))
 }
 
+// AddMonitoring adds only one monitoring agent on the same host as the first process in the list if no monitoring
+// agents are configured. Must be called after processes are added
+// This is a temporary logic
+func (d Deployment) AddMonitoring() {
+	monitoringVersions := d["monitoringVersions"].([]interface{})
+
+	if len(monitoringVersions) == 0 {
+		monitoringVersions = append(monitoringVersions,
+			map[string]string{"hostname": d.getProcesses()[0].HostName(), "name": "6.1.2.402-1"})
+		d["monitoringVersions"] = monitoringVersions
+	}
+}
+
 func (d Deployment) getProcesses() []Process {
 	switch v := d["processes"].(type) {
 	case []Process:
@@ -124,14 +137,3 @@ func (d Deployment) setReplicaSets(replicaSets []ReplicaSet) {
 	d["replicaSets"] = replicaSets
 }
 
-// This is a temporary logic: adding only one monitoring agent on the same host as the first process in the list
-// must be called after processes are added
-func (d Deployment) AddMonitoring() {
-	monitoringVersions := d["monitoringVersions"].([]interface{})
-
-	if len(monitoringVersions) == 0 {
-		monitoringVersions[0] = map[string]string{"hostname": d.getProcesses()[0].HostName(), "name": "6.1.2.402-1"}
-	}
-}
-
-// merge sharded cluster

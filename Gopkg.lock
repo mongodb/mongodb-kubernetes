@@ -160,6 +160,12 @@
   version = "v2.0.1"
 
 [[projects]]
+  name = "github.com/pmezard/go-difflib"
+  packages = ["difflib"]
+  revision = "792786c7400a136282c1664665ae0a8db921c6c2"
+  version = "v1.0.0"
+
+[[projects]]
   branch = "master"
   name = "github.com/rook/operator-kit"
   packages = ["."]
@@ -170,6 +176,12 @@
   packages = ["."]
   revision = "e57e3eeb33f795204c1ca35f56c44f83227c6e66"
   version = "v1.0.0"
+
+[[projects]]
+  name = "github.com/stretchr/testify"
+  packages = ["assert"]
+  revision = "12b6f73e6084dad08a7c6e575284b177ecafbc71"
+  version = "v1.2.1"
 
 [[projects]]
   branch = "master"
@@ -377,6 +389,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "3e9532cbd30076f70b0ed0720e1e866121cb17a152c71712906c429d3a2a0918"
+  inputs-digest = "ea797b3a7206ec16d3a2d54218a88374e73c2a9cd2f0d4fba63f0295ec831e4c"
   solver-name = "gps-cdcl"
   solver-version = 1
