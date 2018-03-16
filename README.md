@@ -97,10 +97,9 @@ After new deployment is created it's always good to check whether it works corre
     ....
     Successfully tagged node-mongo-app:0.1
     
-Now change the `DATABASE_URL` property in `samples/node-mongo-app.yaml` and create deployment in Kubernetes:
+Now change the `DATABASE_URL` property in `samples/node-mongo-app.yaml` and create a job in Kubernetes (it will run once and terminate):
 
     $ cd samples/
-    $ kubectl delete -f node-mongo-app.yaml
     $ kubectl apply -f node-mongo-app.yaml
     deployment "test-mongo-app" configured
     $ kubectl logs -l "app=test-mongo-app"
