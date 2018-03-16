@@ -100,12 +100,14 @@ After new deployment is created it's always good to check whether it works corre
 Now change the `DATABASE_URL` property in `samples/node-mongo-app.yaml` and create a job in Kubernetes (it will run once and terminate):
 
     $ cd samples/
+    $ kubectl delete -f node-mongo-app.yaml
     $ kubectl apply -f node-mongo-app.yaml
     deployment "test-mongo-app" configured
-    $ kubectl logs -l "app=test-mongo-app"
+    $ kubectl logs -l app=test-mongo-app
     Connected successfully to server
+    Collection deleted
     Inserted 3 documents into the collection
     Found the following records
-    [ { _id: 5aaba1c8db6ea0c2dcfa2ee6, a: 1 },
-      { _id: 5aaba1c8db6ea0d46cfa2ee7, a: 2 },
-      { _id: 5aaba1c8db6ea0986efa2ee8, a: 3 }]
+    [ { _id: 5aabda6c9398583e26bf211a, a: 1 },
+      { _id: 5aabda6c9398586118bf211b, a: 2 },
+      { _id: 5aabda6c939858c046bf211c, a: 3 } ]
