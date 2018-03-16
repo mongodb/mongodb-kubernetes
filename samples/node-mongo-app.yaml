@@ -1,0 +1,18 @@
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: test-mongo-app
+  namespace: default
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: test-mongo-app
+    spec:
+      containers:
+      - name: node-mongo-app
+        image: node-mongo-app:0.1
+        env:
+        - name: DATABASE_URL
+          value: mongodb://liffey-0.alpha-service:27017,liffey-1.alpha-service:27017,liffey-2.alpha-service:27017/?replicaSet=liffey
