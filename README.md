@@ -13,8 +13,8 @@ The high-level picturefor the process of installing Mongodb deployment into Kube
 * `om-operator` watches these changes and applies them to different participants:
   * creates the Kubernetes StatefulSet containing containers with automation agent binaries. They will be responsible for installation and managing local mongod process.
   * applies changes to the OpsManager automation config using public API. So the deployment object (OM replica set for example) will be created. These changes will be propagated back to the automation agents sitting in the pods and they will do all dirty work of downloading and launching MongoDB binaries locally in the same container
-  
-The update process follows the same approach in general except for no new objects are created in Kubernetes and OpsManager but current existing ones are updated. The example of such modification is scaling down/up of a replica set which will remove/add pods to the StatefulSet and remove/add members to the replica set in Ops Manager   
+
+The update process follows the same approach in general except for no new objects are created in Kubernetes and OpsManager but current existing ones are updated. The example of such modification is scaling down/up of a replica set which will remove/add pods to the StatefulSet and remove/add members to the replica set in Ops Manager
 
 
 ## Installation ##
@@ -29,7 +29,6 @@ dep ensure
 ./codegen.sh
 CGO_ENABLED=0 GOOS=linux go build -o om-operator
 ```
-> Note that currently compilation is failing as there is version mismatch in kubernetes API version used by operator-kit library and ops-manager kubernetes. This can be fixed by manual editing of resource.go file (see `op-kit-patch.diff` file in the root of the project)
 
 ### Create Required Container Images ###
 
@@ -57,7 +56,7 @@ following:
     clusterrolebinding "om-operator" created
     deployment "om-operator" created
 
-This will create 4 new resources in Kubernetes. The `om-operator` application will watch the creation/modification of any new MongoDB Kubernetes objects (standalones, replica sets, sharded clusters) and reflect this in managed Kubernetes pods and OpsManager deployment configuration.   
+This will create 4 new resources in Kubernetes. The `om-operator` application will watch the creation/modification of any new MongoDB Kubernetes objects (standalones, replica sets, sharded clusters) and reflect this in managed Kubernetes pods and OpsManager deployment configuration.
 
 ## Create your first managed MongoDB ReplicaSet ##
 
@@ -96,8 +95,8 @@ After new deployment is created it's always good to check whether it works corre
     $ docker build -t node-mongo-app:0.1 .
     ....
     Successfully tagged node-mongo-app:0.1
-    
-Now change the `DATABASE_URL` property in `samples/node-mongo-app.yaml` to target the mongodb deployment. 
+
+Now change the `DATABASE_URL` property in `samples/node-mongo-app.yaml` to target the mongodb deployment.
 This can be a single url (for standalone) or a list of replicas/mongos instances (e.g. `mongodb://liffey-0.alpha-service:27017,liffey-1.alpha-service:27017,liffey-2.alpha-service:27017/?replicaSet=liffey`).
 Hostnames can be receieved form OM deployment page and have the form of `<pod-name>.<service-name>`
 After this create a job in Kubernetes (it will run once and terminate):
