@@ -166,12 +166,6 @@
   version = "v1.0.0"
 
 [[projects]]
-  branch = "master"
-  name = "github.com/rook/operator-kit"
-  packages = ["."]
-  revision = "5a120bf0e2c84282319591baacaff5f5f891865a"
-
-[[projects]]
   name = "github.com/spf13/pflag"
   packages = ["."]
   revision = "e57e3eeb33f795204c1ca35f56c44f83227c6e66"
@@ -380,15 +374,9 @@
   packages = ["pkg/common"]
   revision = "275e2ce91dec4c05a4094a7b1daee5560b555ac9"
 
-[[projects]]
-  name = "k8s.io/kubernetes"
-  packages = ["pkg/util/version"]
-  revision = "bdaeafa71f6c7c04636251031f93464384d54963"
-  version = "v1.8.2"
-
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "ea797b3a7206ec16d3a2d54218a88374e73c2a9cd2f0d4fba63f0295ec831e4c"
+  inputs-digest = "a77a8e1852e98ffe8fd92012a974bdad188661247246652a628fb38f87a383dd"
   solver-name = "gps-cdcl"
   solver-version = 1

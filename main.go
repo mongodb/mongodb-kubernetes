@@ -7,14 +7,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/operator"
+	crd "github.com/10gen/ops-manager-kubernetes/operator/crd"
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1alpha1"
 	mongodbclient "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/typed/mongodb.com/v1alpha1"
-	opkit "github.com/rook/operator-kit"
 	"k8s.io/api/core/v1"
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"github.com/10gen/ops-manager-kubernetes/operator"
 )
 
 func main() {
@@ -27,11 +27,11 @@ func main() {
 
 	// Create and wait for CRD resources
 	fmt.Printf("Registering %s resource\n", operator.ResourceName)
-	resources := []opkit.CustomResource{
+	resources := []crd.CustomResource{
 		mongodb.MongoDbReplicaSetResource,
 		mongodb.MongoDbStandaloneResource,
 		mongodb.MongoDbShardedClusterResource}
-	err = opkit.CreateCustomResources(*context, resources)
+	err = crd.BuildCustomResources(*context, resources)
 	if err != nil {
 		fmt.Printf("failed to create custom resource. %+v\n", err)
 		os.Exit(1)
@@ -57,7 +57,7 @@ func main() {
 	}
 }
 
-func createContext() (*opkit.Context, mongodbclient.MongodbV1alpha1Interface, error) {
+func createContext() (*crd.Context, mongodbclient.MongodbV1alpha1Interface, error) {
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get k8s config. %+v", err)
@@ -78,7 +78,7 @@ func createContext() (*opkit.Context, mongodbclient.MongodbV1alpha1Interface, er
 		return nil, nil, fmt.Errorf("failed to create clientset. %+v", err)
 	}
 
-	context := &opkit.Context{
+	context := &crd.Context{
 		Clientset:             clientset,
 		APIExtensionClientset: apiExtClientset,
 		Interval:              500 * time.Millisecond,

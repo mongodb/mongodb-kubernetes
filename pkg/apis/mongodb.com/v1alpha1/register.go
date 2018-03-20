@@ -3,7 +3,7 @@ package v1alpha1
 import (
 	"reflect"
 
-	opkit "github.com/rook/operator-kit"
+	crd "github.com/10gen/ops-manager-kubernetes/operator/crd"
 	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -19,7 +19,7 @@ var (
 // schemeGroupVersion is group version used to register these objects
 var SchemeGroupVersion = schema.GroupVersion{Group: "mongodb.com", Version: "v1alpha1"}
 
-var MongoDbStandaloneResource = opkit.CustomResource{
+var MongoDbStandaloneResource = crd.CustomResource{
 	Name:    "mongodbstandalone",
 	Plural:  "mongodbstandalones",
 	Group:   "mongodb.com",
@@ -28,7 +28,7 @@ var MongoDbStandaloneResource = opkit.CustomResource{
 	Kind:    reflect.TypeOf(MongoDbStandalone{}).Name(),
 }
 
-var MongoDbReplicaSetResource = opkit.CustomResource{
+var MongoDbReplicaSetResource = crd.CustomResource{
 	Name:    "mongodbreplicaset",
 	Plural:  "mongodbreplicasets",
 	Group:   "mongodb.com",
@@ -37,7 +37,7 @@ var MongoDbReplicaSetResource = opkit.CustomResource{
 	Kind:    reflect.TypeOf(MongoDbReplicaSet{}).Name(),
 }
 
-var MongoDbShardedClusterResource = opkit.CustomResource{
+var MongoDbShardedClusterResource = crd.CustomResource{
 	Name:    "mongodbshardedcluster",
 	Plural:  "mongodbshardedclusters",
 	Group:   "mongodb.com",
