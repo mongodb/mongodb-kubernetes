@@ -59,10 +59,9 @@ following:
 
 This will create 4 new resources in Kubernetes. The `om-operator` application will watch the creation/modification of any new MongoDB Kubernetes objects (standalones, replica sets, sharded clusters) and reflect this in managed Kubernetes pods and OpsManager deployment configuration.   
 
-## Create your First Managed MongoDB ReplicaSet ##
+## Create your first managed MongoDB ReplicaSet ##
 
-You will only need a working Ops Manager installation (you can use [mci](https://mci.mms-build.10gen.cc) to provision an OpsManager instance). After having
-installed Ops Manager please get the following data and configuration
+You will only need a working Ops Manager installation (you can use [mci](https://mci.mms-build.10gen.cc) to provision an OpsManager instance). Get the following data and configuration
 parameters from it:
 
 * User login with sufficient privileges
@@ -73,10 +72,10 @@ parameters from it:
 
 > Note that in addition to public API key generation you need to whitelist the Kubernetes cluster IP in OpsManager
 
-Now with this data, copy the `samples/om-config-map-sample.yaml` to `samples/my-om-config-map.yaml` and edit it.
-Copy the `samples/om-replica-set-sample.yaml` file to `samples/my-replica-set-sample.yaml` and edit it.
+Now with this data, copy the `samples/om-config-map-sample.yaml` to `samples/my-om-config-map.yaml`,
+ `samples/om-replica-set-sample.yaml` to `samples/my-replica-set-sample.yaml` and edit them.
 
-> files with path `samples/my-` are ignored by git
+> files with path `samples/my-` are ignored by git so you can modify them locally at any time
 
 Create the config-map and replica set objects in Kubernetes:
 
@@ -87,3 +86,30 @@ Create the config-map and replica set objects in Kubernetes:
     mongodbreplicaset "liffey" created
 
 After executing this command you should have a working replica set that you can manage from Ops Manager.
+
+## Check database connectivity
+
+After new deployment is created it's always good to check whether it works correctly. To do this you can deploy a small `node.js` application into Kubernetes cluster which will try to connect to database, create 3 records there and read all existing ones:
+
+    $ eval $(minikube docker-env)
+    $ cd docker/node-mongo-app/
+    $ docker build -t node-mongo-app:0.1 .
+    ....
+    Successfully tagged node-mongo-app:0.1
+    
+Now change the `DATABASE_URL` property in `samples/node-mongo-app.yaml` to target the mongodb deployment. 
+This can be a single url (for standalone) or a list of replicas/mongos instances (e.g. `mongodb://liffey-0.alpha-service:27017,liffey-1.alpha-service:27017,liffey-2.alpha-service:27017/?replicaSet=liffey`).
+Hostnames can be receieved form OM deployment page and have the form of `<pod-name>.<service-name>`
+After this create a job in Kubernetes (it will run once and terminate):
+
+    $ cd samples/
+    $ kubectl delete -f node-mongo-app.yaml; kubectl apply -f node-mongo-app.yaml
+    deployment "test-mongo-app" configured
+    $ kubectl logs -l app=test-mongo-app
+    Connected successfully to server
+    Collection deleted
+    Inserted 3 documents into the collection
+    Found the following records
+    [ { _id: 5aabda6c9398583e26bf211a, a: 1 },
+      { _id: 5aabda6c9398586118bf211b, a: 2 },
+      { _id: 5aabda6c939858c046bf211c, a: 3 } ]
