@@ -12,4 +12,6 @@ const (
 	MongoDbShardedCluster = "MongoDbShardedCluster"
 
 	ResourceName = "MongoDB"
+
+	AgentKey = "AGENT_API_KEY"
 )

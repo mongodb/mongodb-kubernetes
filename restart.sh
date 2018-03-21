@@ -41,7 +41,3 @@ docker build -t om-operator:0.1 .
 echo "-- Deploying new operator"
 kubectl apply -f samples/my-config-map.yaml # TODO om-operator requires the 'ops-manager-config' config map for now
 kubectl apply -f om-operator.yaml
-
-
-# kubectl apply -f om-resource-sample.yaml
-#

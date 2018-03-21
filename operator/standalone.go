@@ -10,8 +10,16 @@ import (
 func (c *MongoDbController) onAddStandalone(obj interface{}) {
 	s := obj.(*mongodb.MongoDbStandalone).DeepCopy()
 
+	agentKeySecretName, err := c.EnsureAgentKeySecretExists(s.Namespace, NewOpsManagerConnectionFromEnv())
+
+	if err != nil {
+		fmt.Println("Failed to generate/get agent key")
+		fmt.Println(err)
+		return;
+	}
+
 	// standaloneObject is represented by a StatefulSet in Kubernetes
-	standaloneObject := buildStandalone(s)
+	standaloneObject := buildStandaloneStatefulSet(s, agentKeySecretName)
 
 	// TODO we need to query for statefulset first in case previous create process failed on OM communication and
 	// statefulset was indeed created to make process idempotent
@@ -33,7 +41,15 @@ func (c *MongoDbController) onAddStandalone(obj interface{}) {
 func (c *MongoDbController) onUpdateStandalone(oldObj, newObj interface{}) {
 	newRes := newObj.(*mongodb.MongoDbStandalone).DeepCopy()
 
-	standaloneObject := buildStandalone(newRes)
+	agentKeySecretName, err := c.EnsureAgentKeySecretExists(newRes.Namespace, NewOpsManagerConnectionFromEnv())
+
+	if err != nil {
+		fmt.Println("Failed to generate/get agent key")
+		fmt.Println(err)
+		return;
+	}
+
+	standaloneObject := buildStandaloneStatefulSet(newRes, agentKeySecretName)
 	statefulSet, err := c.StatefulSetApi(newRes.Namespace).Update(standaloneObject)
 
 	if err != nil {

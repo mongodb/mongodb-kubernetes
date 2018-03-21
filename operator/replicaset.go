@@ -2,9 +2,9 @@ package operator
 
 import (
 	"fmt"
-	"time"
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1alpha1"
 	"github.com/10gen/ops-manager-kubernetes/om"
+	"errors"
 )
 
 func (c *MongoDbController) onAddReplicaSet(obj interface{}) {
@@ -20,35 +20,25 @@ func (c *MongoDbController) onAddReplicaSet(obj interface{}) {
 		return
 	}*/
 
-	replicaSetObject := buildReplicaSet(s)
+
+	agentKeySecretName, err := c.EnsureAgentKeySecretExists(s.Namespace, NewOpsManagerConnectionFromEnv())
+
+	if err != nil {
+		fmt.Println("Failed to generate/get agent key")
+		fmt.Println(err)
+		return;
+	}
+
+	replicaSetObject := buildReplicaSetStatefulSet(s, agentKeySecretName)
 	statefulSet, err := c.StatefulSetApi(s.Namespace).Create(replicaSetObject)
 	if err != nil {
 		fmt.Println("Error trying to create a new ReplicaSet")
 		fmt.Println(err)
 		return
 	}
+	fmt.Println("Created statefulset for replicaset")
 
-	omConnection := NewOpsManagerConnectionFromEnv()
-
-	if !waitUntilAllAgentsAreReady(s, omConnection) {
-		fmt.Println("Some of the agents failed to register! Not creating replicaset in OM!")
-		return
-	}
-
-	deployment, err := omConnection.ReadDeployment()
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	members := createStandalonesForReplica(s.Spec.HostnamePrefix, s.Spec.Name, s.Spec.Service, s.Spec.Version, s.Spec.Members)
-	deployment.MergeReplicaSet(s.Spec.Name, members)
-
-	deployment.AddMonitoring()
-
-	_, err = omConnection.UpdateDeployment(deployment)
-	if err != nil {
-		fmt.Println("Error while trying to push another deployment.")
+	if err := c.updateOmDeploymentRs(nil, s); err != nil {
 		fmt.Println(err)
 		return
 	}
@@ -67,42 +57,26 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 	// TODO seems it will be great here to log the diff of the objects - can it be made general way through reflection?
 	// (to be used by Standalone/ReplicaSet/ShardedCluster
 
-	statefulset, err := c.StatefulSetApi(newRes.Namespace).Update(buildReplicaSet(newRes))
+	agentKeySecretName, err := c.EnsureAgentKeySecretExists(newRes.Namespace, NewOpsManagerConnectionFromEnv())
+
+	if err != nil {
+		fmt.Println("Failed to generate/get agent key")
+		fmt.Println(err)
+		return;
+	}
+
+	replicaSetObject := buildReplicaSetStatefulSet(newRes, agentKeySecretName)
+	statefulset, err := c.StatefulSetApi(newRes.Namespace).Update(replicaSetObject)
 	if err != nil {
 		fmt.Printf("Error while updating the StatefulSet\n")
 		fmt.Println(err)
 		return
 	}
+	fmt.Println("Updated statefulset for replicaset")
 
-	omConfig := GetOpsManagerConfig()
-	omConnection := om.NewOpsManagerConnection(omConfig.BaseUrl, omConfig.GroupId, omConfig.User, omConfig.PublicApiKey)
-
-	if !waitUntilAllAgentsAreReady(newRes, omConnection) {
-		fmt.Println("Some of the agents failed to register! Not creating replicaset in OM!")
-		return
-	}
-
-	time.Sleep(4 * time.Second)
-
-	deployment, err := omConnection.ReadDeployment()
-	if err != nil {
+	if err := c.updateOmDeploymentRs(nil, newRes); err != nil {
 		fmt.Println(err)
 		return
-	}
-
-	fmt.Printf("About to update replicaset with members: %d to %d\n", oldRes.Spec.Members, newRes.Spec.Members)
-
-	members := createStandalonesForReplica(newRes.Spec.HostnamePrefix, newRes.Spec.Name, newRes.Spec.Service, newRes.Spec.Version, newRes.Spec.Members)
-	deployment.MergeReplicaSet(newRes.Spec.Name, members)
-
-	deployment.AddMonitoring()
-
-	fmt.Println("We'll update the Deployment in 4 seconds")
-	time.Sleep(4 * time.Second)
-	_, err = omConnection.UpdateDeployment(deployment)
-	if err != nil {
-		fmt.Println("Error while trying to push another deployment.")
-		fmt.Println(err)
 	}
 
 	fmt.Printf("Updated MongoDbReplicaSet '%s' with %d replicas\n", statefulset.Name, *statefulset.Spec.Replicas)
@@ -114,6 +88,35 @@ func (c *MongoDbController) onDeleteReplicaSet(obj interface{}) {
 	// TODO
 
 	fmt.Printf("Deleted MongoDbReplicaSet '%s' with Members=%d\n", s.Name, s.Spec.Members)
+}
+
+// updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
+// to automation agents in containers
+func (c *MongoDbController) updateOmDeploymentRs(old, new *mongodb.MongoDbReplicaSet) error {
+	omConnection := NewOpsManagerConnectionFromEnv()
+
+	if !waitUntilAllAgentsAreReady(new, omConnection) {
+		return errors.New("Some of the agents failed to register! Not creating replicaset in OM!")
+	}
+
+	deployment, err := omConnection.ReadDeployment()
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
+
+	members := createStandalonesForReplica(new.Spec.HostnamePrefix, new.Spec.Name, new.Spec.Service, new.Spec.Version, new.Spec.Members)
+	deployment.MergeReplicaSet(new.Spec.Name, members)
+
+	deployment.AddMonitoring()
+
+	_, err = omConnection.UpdateDeployment(deployment)
+	if err != nil {
+		fmt.Println("Error while trying to push another deployment.")
+		fmt.Println(err)
+		return err
+	}
+	return nil
 }
 
 func validateUpdate(oldSpec, newSpec *mongodb.MongoDbReplicaSet) {

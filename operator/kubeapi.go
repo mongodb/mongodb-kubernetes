@@ -8,12 +8,12 @@ import (
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"fmt"
 )
 
-
-// buildStandalone returns a StatefulSet which is how MongoDB Standalone objects
+// buildStandaloneStatefulSet returns a StatefulSet which is how MongoDB Standalone objects
 // are mapped into Kubernetes objects.
-func buildStandalone(obj *mongodb.MongoDbStandalone) *appsv1.StatefulSet {
+func buildStandaloneStatefulSet(obj *mongodb.MongoDbStandalone, agentKeySecretName string) *appsv1.StatefulSet {
 	labels := map[string]string{
 		"app":        LabelApp,
 		"controller": LabelController,
@@ -40,14 +40,14 @@ func buildStandalone(obj *mongodb.MongoDbStandalone) *appsv1.StatefulSet {
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
 				},
-				Spec: baseContainer(obj.Name),
+				Spec: baseContainer(obj.Name, agentKeySecretName),
 			},
 		},
 	}
 }
 
-// buildReplicaSet will return a StatefulSet definition, built on top of Pods.
-func buildReplicaSet(obj *mongodb.MongoDbReplicaSet) *appsv1.StatefulSet {
+// buildReplicaSetStatefulSet will return a StatefulSet definition, built on top of Pods.
+func buildReplicaSetStatefulSet(obj *mongodb.MongoDbReplicaSet, agentKeySecretName string) *appsv1.StatefulSet {
 	labels := map[string]string{
 		"app":        obj.Spec.Service,
 		"controller": LabelController,
@@ -75,21 +75,29 @@ func buildReplicaSet(obj *mongodb.MongoDbReplicaSet) *appsv1.StatefulSet {
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
 				},
-				Spec: baseContainer(obj.Spec.HostnamePrefix),
+				Spec: baseContainer(obj.Spec.HostnamePrefix, agentKeySecretName),
 			},
 		},
 	}
 }
 
+func buildSecret(groupId string, nameSpace string, agentKey string) *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      groupId,
+			Namespace: nameSpace,
+		},
+		StringData: map[string]string{AgentKey: agentKey}}
+}
 
-func baseContainer(name string) corev1.PodSpec {
+func baseContainer(name string, agentKeySecretName string) corev1.PodSpec {
 	return corev1.PodSpec{
 		Containers: []corev1.Container{
 			{
 				Name:            ContainerName,
 				Image:           ContainerImage,
 				ImagePullPolicy: ContainerImagePullPolicy,
-				EnvFrom:         baseEnvFrom(),
+				EnvFrom:         baseEnvFrom(agentKeySecretName),
 				Ports: []corev1.ContainerPort{
 					{
 						ContainerPort: 27017,
@@ -101,12 +109,19 @@ func baseContainer(name string) corev1.PodSpec {
 	}
 }
 
-func baseEnvFrom() []corev1.EnvFromSource {
+func baseEnvFrom(agentSecretName string) []corev1.EnvFromSource {
 	return []corev1.EnvFromSource{
 		{
 			ConfigMapRef: &corev1.ConfigMapEnvSource{
 				LocalObjectReference: corev1.LocalObjectReference{
 					Name: ContainerConfigMapName,
+				},
+			},
+		},
+		{
+			SecretRef: &corev1.SecretEnvSource {
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: agentSecretName,
 				},
 			},
 		},
