@@ -10,11 +10,8 @@ functions:
     type: system
     params:
       directory: ops-manager-kubernetes
-    script: |
-      dep ensure
-      ./codegen.sh
-      patch -d vendor/github.com/rook/operator-kit/ < op-kit-patch.diff
-      go build -o om-operator
+
+
 
 tasks:
 
@@ -23,27 +20,14 @@ tasks:
   commands:
     - func: "setup"
 
-post:
-  - command: shell.exec
-    params:
-      shell: bash
-      script: |
-        set -x
-        JUNIT_PATH="mms/server/build/test-reports"
-        if [[ -e $JUNIT_PATH/cukes.xml ]]; then
-          # for all E2E tests, remove JUNIT results but leave cukes.xml
-          rm $JUNIT_PATH/TEST*.xml
-        fi;
 
 buildvariants:
 
-- name: one
+- name: one_teo
   display_name: 1.
   run_on:
     - rhel70-small
   batchtime: 1440 # 1 day
   stepback: false
-  expansions:
-    <<: *setup
   tasks:
     - ".setup"
