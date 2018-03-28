@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"strings"
+
 	"github.com/10gen/ops-manager-kubernetes/util"
 )
 
@@ -43,11 +44,11 @@ func (oc *OmConnection) ReadDeployment() (*Deployment, error) {
 		return nil, err
 	}
 	// TODO replace all loggings in this file with log.debug()
-	fmt.Println(string(ans))
+	//fmt.Println(string(ans))
 	return BuildDeploymentFromBytes(ans)
 }
 
-func(oc *OmConnection) GenerateAgentKey() (string, error) {
+func (oc *OmConnection) GenerateAgentKey() (string, error) {
 	data := map[string]string{"desc": "Agent key for Kubernetes"}
 	ans, err := oc.post(fmt.Sprintf("/api/public/v1.0/groups/%s/agentapikeys", oc.GroupId), data)
 
@@ -125,7 +126,7 @@ func request(method string, hostname string, path string, reader io.Reader, user
 	req.Header.Set("Authorization", getDigestAuthorization(digestParts, method, path, user, token))
 	req.Header.Add("Content-Type", contentType)
 
-	request, _ := httputil.DumpRequest(req, true)
+	request, _ := httputil.DumpRequest(req, false)
 	fmt.Printf("Request: %s\n", request)
 
 	resp, err = util.DefaultHttpClient.Do(req)

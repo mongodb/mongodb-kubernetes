@@ -41,7 +41,7 @@ The operator needs 2 different container images:
 ```
 $ eval $(minikube docker-env)
 $ docker build -t om-operator:0.1 .
-$ docker build automation-agent -t ops-manager-agent -f automation-agent/Dockerfile
+$ docker build docker/automation-agent -t ops-manager-agent -f docker/automation-agent/Dockerfile
 
 ```
 
@@ -90,20 +90,22 @@ After executing this command you should have a working replica set that you can 
 
 After new deployment is created it's always good to check whether it works correctly. To do this you can deploy a small `node.js` application into Kubernetes cluster which will try to connect to database, create 3 records there and read all existing ones:
 
-    $ eval $(minikube docker-env)
-    $ cd docker/node-mongo-app/
-    $ docker build -t node-mongo-app:0.1 .
+    $ eval $(minikube docker-env)    
+    $ docker build -t node-mongo-app:0.1 docker/node-mongo-app -f docker/node-mongo-app/Dockerfile
     ....
     Successfully tagged node-mongo-app:0.1
 
 Now change the `DATABASE_URL` property in `samples/node-mongo-app.yaml` to target the mongodb deployment.
 This can be a single url (for standalone) or a list of replicas/mongos instances (e.g. `mongodb://liffey-0.alpha-service:27017,liffey-1.alpha-service:27017,liffey-2.alpha-service:27017/?replicaSet=liffey`).
-Hostnames can be receieved form OM deployment page and have the form of `<pod-name>.<service-name>`
+Hostnames can be received form OM deployment page and have the form of `<pod-name>.<service-name>`
 After this create a job in Kubernetes (it will run once and terminate):
 
     $ cd samples/
     $ kubectl delete -f node-mongo-app.yaml; kubectl apply -f node-mongo-app.yaml
     deployment "test-mongo-app" configured
+    
+Reading logs:
+
     $ kubectl logs -l app=test-mongo-app
     Connected successfully to server
     Collection deleted

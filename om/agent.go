@@ -52,7 +52,7 @@ func CheckAgentExists(hostname_prefix string, agentState *AgentState) bool {
 // agents have registered in the omConnection. Or enough time has passed in which
 // case it will return false.
 func WaitUntilAgentsHaveRegistered(omConnection *OmConnection, agentHostnames ...string) bool {
-	// TODO: Implement exponential backoff
+	// TODO: seems kube Wait.Poll() function would be better here
 	for count := 0; count < 3; count++ {
 		waitDuration := time.Duration(3)
 		fmt.Printf("Waiting for %d seconds before checking if agents have registered in OM\n", waitDuration)
@@ -73,7 +73,7 @@ func WaitUntilAgentsHaveRegistered(omConnection *OmConnection, agentHostnames ..
 		}
 
 		if registeredCount == len(agentHostnames) {
-			return true;
+			return true
 		}
 		fmt.Printf("Only %d of %d agents have registered with OM\n", registeredCount, len(agentHostnames))
 	}

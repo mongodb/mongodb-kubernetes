@@ -2,9 +2,10 @@ package operator
 
 import (
 	"fmt"
+
+	"github.com/10gen/ops-manager-kubernetes/om"
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"github.com/10gen/ops-manager-kubernetes/om"
 )
 
 func (c *MongoDbController) onAddStandalone(obj interface{}) {
@@ -15,7 +16,7 @@ func (c *MongoDbController) onAddStandalone(obj interface{}) {
 	if err != nil {
 		fmt.Println("Failed to generate/get agent key")
 		fmt.Println(err)
-		return;
+		return
 	}
 
 	// standaloneObject is represented by a StatefulSet in Kubernetes
@@ -23,9 +24,9 @@ func (c *MongoDbController) onAddStandalone(obj interface{}) {
 
 	// TODO we need to query for statefulset first in case previous create process failed on OM communication and
 	// statefulset was indeed created to make process idempotent
-	statefulSet, err := c.StatefulSetApi(s.Namespace).Create(standaloneObject)
+	_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(s.Spec.Service, 27017, s.Namespace, true, standaloneObject)
 	if err != nil {
-		fmt.Printf("Error. Failed to create object '%s'\n", statefulSet.ObjectMeta.Name)
+		fmt.Printf("Error. Failed to create statefulset '%s'\n", s.Name)
 		fmt.Println(err)
 		return
 	}
@@ -35,7 +36,7 @@ func (c *MongoDbController) onAddStandalone(obj interface{}) {
 		return
 	}
 
-	fmt.Printf("Created Standalone: '%s'\n", statefulSet.ObjectMeta.Name)
+	fmt.Printf("Created Standalone: '%s'\n", s.Name)
 }
 
 func (c *MongoDbController) onUpdateStandalone(oldObj, newObj interface{}) {
@@ -46,14 +47,14 @@ func (c *MongoDbController) onUpdateStandalone(oldObj, newObj interface{}) {
 	if err != nil {
 		fmt.Println("Failed to generate/get agent key")
 		fmt.Println(err)
-		return;
+		return
 	}
 
 	standaloneObject := buildStandaloneStatefulSet(newRes, agentKeySecretName)
-	statefulSet, err := c.StatefulSetApi(newRes.Namespace).Update(standaloneObject)
+	_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(newRes.Spec.Service, 27017, newRes.Namespace, true, standaloneObject)
 
 	if err != nil {
-		fmt.Printf("Error. Failed to update object '%s'\n", statefulSet.ObjectMeta.Name)
+		fmt.Printf("Error. Failed to create/update statefulset '%s'\n", newRes.Name)
 		fmt.Println(err)
 	}
 
@@ -62,7 +63,7 @@ func (c *MongoDbController) onUpdateStandalone(oldObj, newObj interface{}) {
 		return
 	}
 
-	fmt.Printf("Updated Standalone: '%s'\n", statefulSet.ObjectMeta.Name)
+	fmt.Printf("Updated Standalone: '%s'\n", newRes.Name)
 }
 
 func (c *MongoDbController) onDeleteStandalone(obj interface{}) {
@@ -76,7 +77,7 @@ func (c *MongoDbController) onDeleteStandalone(obj interface{}) {
 func updateOmDeployment(s *mongodb.MongoDbStandalone) bool {
 	omConnection := NewOpsManagerConnectionFromEnv()
 
-	if !om.WaitUntilAgentsHaveRegistered(omConnection, s.Spec.HostnamePrefix) {
+	if !om.WaitUntilAgentsHaveRegistered(omConnection, s.Name) {
 		fmt.Println("Agents never registered! Not creating standalone in OM!")
 		return false
 	}
@@ -87,7 +88,9 @@ func updateOmDeployment(s *mongodb.MongoDbStandalone) bool {
 		return false
 	}
 
-	hostname := fmt.Sprintf("%s-0", s.Spec.HostnamePrefix)
+	// TODO fix hostnames in CLOUDP-28316
+	serviceName := getOrFormatServiceName(s.Spec.Service, s.Name)
+	hostname := fmt.Sprintf("%s-0.%s.default.svc.cluster.local", s.Name, serviceName)
 	standaloneOmObject := om.NewProcess(s.Spec.Version).
 		SetName(s.Name).
 		SetHostName(hostname)

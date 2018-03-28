@@ -3,17 +3,17 @@ package operator
 import (
 	"fmt"
 
-	"github.com/10gen/ops-manager-kubernetes/operator/crd"
 	"github.com/10gen/ops-manager-kubernetes/om"
+	"github.com/10gen/ops-manager-kubernetes/operator/crd"
 
-	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/tools/cache"
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1alpha1"
 	mongodbscheme "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/scheme"
 	mongodbclient "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/typed/mongodb.com/v1alpha1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/scheme"
 	appsV1 "k8s.io/client-go/kubernetes/typed/apps/v1"
 	coreV1 "k8s.io/client-go/kubernetes/typed/core/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/cache"
 )
 
 const LabelApp = "om-controller"
@@ -22,6 +22,7 @@ const LabelController = "om-controller"
 type MongoDbController struct {
 	context          *crd.Context
 	mongodbClientset mongodbclient.MongodbV1alpha1Interface
+	kubeHelper       KubeHelper
 }
 
 func NewMongoDbController(context *crd.Context, mongodbClientset mongodbclient.MongodbV1alpha1Interface) *MongoDbController {
@@ -30,6 +31,7 @@ func NewMongoDbController(context *crd.Context, mongodbClientset mongodbclient.M
 	return &MongoDbController{
 		context:          context,
 		mongodbClientset: mongodbClientset,
+		kubeHelper:       KubeHelper{context.Clientset},
 	}
 }
 

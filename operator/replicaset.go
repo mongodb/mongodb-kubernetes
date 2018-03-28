@@ -1,10 +1,11 @@
 package operator
 
 import (
-	"fmt"
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1alpha1"
-	"github.com/10gen/ops-manager-kubernetes/om"
 	"errors"
+	"fmt"
+
+	"github.com/10gen/ops-manager-kubernetes/om"
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1alpha1"
 )
 
 func (c *MongoDbController) onAddReplicaSet(obj interface{}) {
@@ -12,38 +13,36 @@ func (c *MongoDbController) onAddReplicaSet(obj interface{}) {
 
 	fmt.Printf("Creating Replica set %s with the following config: %+v\n", s.Name, s.Spec)
 
-/*
-	TODO this returns some strange empty statefulset...
-	if s, _ := c.StatefulSetApi(s.Namespace).Get(s.Name, v1.GetOptions{}); s != nil {
-		fmt.Println(s)
-		fmt.Printf("Error! Statefulset %s already exists (it was supposed to be removed when MongoDbReplicaSet is removed)\n", s.Name)
-		return
-	}*/
-
+	/*
+		TODO this returns some strange empty statefulset...
+		if s, _ := c.StatefulSetApi(s.Namespace).Get(s.Name, v1.GetOptions{}); s != nil {
+			fmt.Println(s)
+			fmt.Printf("Error! Statefulset %s already exists (it was supposed to be removed when MongoDbReplicaSet is removed)\n", s.Name)
+			return
+		}*/
 
 	agentKeySecretName, err := c.EnsureAgentKeySecretExists(s.Namespace, NewOpsManagerConnectionFromEnv())
 
 	if err != nil {
 		fmt.Println("Failed to generate/get agent key")
 		fmt.Println(err)
-		return;
+		return
 	}
 
 	replicaSetObject := buildReplicaSetStatefulSet(s, agentKeySecretName)
-	statefulSet, err := c.StatefulSetApi(s.Namespace).Create(replicaSetObject)
+	_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(s.Spec.Service, 27017, s.Namespace, true, replicaSetObject)
 	if err != nil {
-		fmt.Println("Error trying to create a new ReplicaSet")
+		fmt.Println("Error trying to create a new statefulset and service for ReplicaSet")
 		fmt.Println(err)
 		return
 	}
-	fmt.Println("Created statefulset for replicaset")
 
 	if err := c.updateOmDeploymentRs(nil, s); err != nil {
 		fmt.Println(err)
 		return
 	}
 
-	fmt.Printf("Created Replica Set: '%s'\n", statefulSet.ObjectMeta.Name)
+	fmt.Printf("Created Replica Set: '%s'\n", s.Name)
 }
 
 func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
@@ -62,16 +61,17 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 	if err != nil {
 		fmt.Println("Failed to generate/get agent key")
 		fmt.Println(err)
-		return;
+		return
 	}
 
 	replicaSetObject := buildReplicaSetStatefulSet(newRes, agentKeySecretName)
-	statefulset, err := c.StatefulSetApi(newRes.Namespace).Update(replicaSetObject)
+	_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(newRes.Spec.Service, 27017, newRes.Namespace, true, replicaSetObject)
 	if err != nil {
 		fmt.Printf("Error while updating the StatefulSet\n")
 		fmt.Println(err)
 		return
 	}
+
 	fmt.Println("Updated statefulset for replicaset")
 
 	if err := c.updateOmDeploymentRs(nil, newRes); err != nil {
@@ -79,7 +79,7 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 		return
 	}
 
-	fmt.Printf("Updated MongoDbReplicaSet '%s' with %d replicas\n", statefulset.Name, *statefulset.Spec.Replicas)
+	fmt.Printf("Updated MongoDbReplicaSet '%s' with %d replicas\n", newRes.Name, newRes.Spec.Members)
 }
 
 func (c *MongoDbController) onDeleteReplicaSet(obj interface{}) {
@@ -105,8 +105,8 @@ func (c *MongoDbController) updateOmDeploymentRs(old, new *mongodb.MongoDbReplic
 		return err
 	}
 
-	members := createStandalonesForReplica(new.Spec.HostnamePrefix, new.Spec.Name, new.Spec.Service, new.Spec.Version, new.Spec.Members)
-	deployment.MergeReplicaSet(new.Spec.Name, members)
+	members := createStandalonesForReplica(new.Name, new.Spec.Version, new.Spec.Service, new.Spec.Members)
+	deployment.MergeReplicaSet(new.Name, members)
 
 	deployment.AddMonitoring()
 
@@ -128,8 +128,10 @@ func validateUpdate(oldSpec, newSpec *mongodb.MongoDbReplicaSet) {
 func waitUntilAllAgentsAreReady(newRes *mongodb.MongoDbReplicaSet, omConnection *om.OmConnection) bool {
 	agentHostnames := make([]string, int(newRes.Spec.Members))
 	memberQty := int(newRes.Spec.Members)
+	// TODO names of pods must be fetched from Kube api
+	serviceName := getOrFormatServiceName(newRes.Spec.Service, newRes.Name)
 	for i := 0; i < memberQty; i++ {
-		agentHostnames[i] = fmt.Sprintf("%s-%d.%s", newRes.Spec.HostnamePrefix, i, newRes.Spec.Service)
+		agentHostnames[i] = fmt.Sprintf("%s-%d.%s", newRes.Name, i, serviceName)
 	}
 
 	if !om.WaitUntilAgentsHaveRegistered(omConnection, agentHostnames...) {
@@ -140,13 +142,16 @@ func waitUntilAllAgentsAreReady(newRes *mongodb.MongoDbReplicaSet, omConnection 
 }
 
 // createStandalonesForReplica returns a list of om.Process with specified prefixes
-func createStandalonesForReplica(hostnamePrefix, replicaSetName, service, version string, memberQty int32) []om.Process {
+func createStandalonesForReplica(replicaSetName, version string, service *string, memberQty int32) []om.Process {
 	collection := make([]om.Process, memberQty)
 	qty := int(memberQty)
 
+	sName := getOrFormatServiceName(service, replicaSetName)
+
 	for i := 0; i < qty; i++ {
-		suffix := fmt.Sprintf("%s.default.svc.cluster.local", service)
-		hostname := fmt.Sprintf("%s-%d.%s", hostnamePrefix, i, suffix)
+		// TODO names of pods must be fetched from Kube api
+		suffix := fmt.Sprintf("%s.default.svc.cluster.local", sName)
+		hostname := fmt.Sprintf("%s-%d.%s", replicaSetName, i, suffix)
 		name := fmt.Sprintf("%s_%d", replicaSetName, i)
 		member := om.NewProcess(version).
 			SetName(name).

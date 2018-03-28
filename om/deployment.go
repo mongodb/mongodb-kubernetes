@@ -1,8 +1,8 @@
 package om
 
 import (
-	"fmt"
 	"encoding/json"
+	"fmt"
 )
 
 type Deployment map[string]interface{}
@@ -28,10 +28,12 @@ func (d Deployment) MergeStandalone(standaloneMongo Process) {
 	for _, pr := range d.getProcesses() {
 		if pr.Name() == standaloneMongo.Name() {
 			pr.MergeFrom(standaloneMongo)
+			fmt.Printf("Merged process %s into existing one\n", standaloneMongo)
 			return
 		}
 	}
 	d.setProcesses(append(d.getProcesses(), standaloneMongo))
+	fmt.Printf("Added process %s as current OM deployment didn't have it\n", standaloneMongo)
 }
 
 // Merges the replica set and its members to the deployment. Note that if "wrong" RS members are removed after merge -
@@ -52,7 +54,7 @@ func (d Deployment) MergeReplicaSet(rsName string, processes []Process) {
 			processesToRemove := r.MergeFrom(rs)
 
 			// TODO replace with proper logging library
-			fmt.Printf("Merged replica set %s with existing one\n", rs)
+			fmt.Printf("Merged replica set %s into existing one\n", rs)
 
 			if len(processesToRemove) > 0 {
 				d.removeProcesses(processesToRemove)
@@ -63,8 +65,8 @@ func (d Deployment) MergeReplicaSet(rsName string, processes []Process) {
 		}
 	}
 
-	fmt.Printf("Adding replica set %s as current OM deployment doesn't have it\n", rs)
 	d.setReplicaSets(append(d.getReplicaSets(), rs))
+	fmt.Printf("Added replica set %s as current OM deployment didn't have it\n", rs)
 }
 
 // AddMonitoring adds only one monitoring agent on the same host as the first process in the list if no monitoring
@@ -84,7 +86,7 @@ func (d Deployment) getProcesses() []Process {
 	switch v := d["processes"].(type) {
 	case []Process:
 		return v
-	case [] interface{}:
+	case []interface{}:
 		// seems we cannot directly cast the array of interfaces to array of Processes - have to manually copy references
 		ans := make([]Process, len(v))
 		for i, val := range v {
@@ -122,7 +124,7 @@ func (d Deployment) getReplicaSets() []ReplicaSet {
 	switch v := d["replicaSets"].(type) {
 	case []ReplicaSet:
 		return v
-	case [] interface{}:
+	case []interface{}:
 		ans := make([]ReplicaSet, len(v))
 		for i, val := range v {
 			ans[i] = NewReplicaSetFromInterface(val)
@@ -136,4 +138,3 @@ func (d Deployment) getReplicaSets() []ReplicaSet {
 func (d Deployment) setReplicaSets(replicaSets []ReplicaSet) {
 	d["replicaSets"] = replicaSets
 }
-

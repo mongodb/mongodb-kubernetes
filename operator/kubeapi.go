@@ -3,25 +3,25 @@ package operator
 // This is a collection of functions building different Kubernetes API objects (statefulset, templates etc) from operator
 // custom objects
 import (
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"fmt"
 )
 
 // buildStandaloneStatefulSet returns a StatefulSet which is how MongoDB Standalone objects
 // are mapped into Kubernetes objects.
 func buildStandaloneStatefulSet(obj *mongodb.MongoDbStandalone, agentKeySecretName string) *appsv1.StatefulSet {
+	serviceName := getOrFormatServiceName(obj.Spec.Service, obj.Name)
 	labels := map[string]string{
-		"app":        LabelApp,
+		"app":        serviceName,
 		"controller": LabelController,
 	}
 
 	return &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      obj.Spec.HostnamePrefix,
+			Name:      obj.Name,
 			Namespace: obj.Namespace,
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(obj, schema.GroupVersionKind{
@@ -32,7 +32,8 @@ func buildStandaloneStatefulSet(obj *mongodb.MongoDbStandalone, agentKeySecretNa
 			},
 		},
 		Spec: appsv1.StatefulSetSpec{
-			Replicas: MakeIntReference(1),
+			ServiceName: serviceName,
+			Replicas:    MakeIntReference(1),
 			Selector: &metav1.LabelSelector{
 				MatchLabels: labels,
 			},
@@ -48,14 +49,15 @@ func buildStandaloneStatefulSet(obj *mongodb.MongoDbStandalone, agentKeySecretNa
 
 // buildReplicaSetStatefulSet will return a StatefulSet definition, built on top of Pods.
 func buildReplicaSetStatefulSet(obj *mongodb.MongoDbReplicaSet, agentKeySecretName string) *appsv1.StatefulSet {
+	serviceName := getOrFormatServiceName(obj.Spec.Service, obj.Name)
 	labels := map[string]string{
-		"app":        obj.Spec.Service,
+		"app":        serviceName,
 		"controller": LabelController,
 	}
 
 	return &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      obj.Spec.Name,
+			Name:      obj.Name,
 			Namespace: obj.Namespace,
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(obj, schema.GroupVersionKind{
@@ -66,7 +68,7 @@ func buildReplicaSetStatefulSet(obj *mongodb.MongoDbReplicaSet, agentKeySecretNa
 			},
 		},
 		Spec: appsv1.StatefulSetSpec{
-			ServiceName: obj.Spec.Service,
+			ServiceName: serviceName,
 			Replicas:    &obj.Spec.Members,
 			Selector: &metav1.LabelSelector{
 				MatchLabels: labels,
@@ -75,12 +77,13 @@ func buildReplicaSetStatefulSet(obj *mongodb.MongoDbReplicaSet, agentKeySecretNa
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
 				},
-				Spec: baseContainer(obj.Spec.HostnamePrefix, agentKeySecretName),
+				Spec: baseContainer(obj.Name, agentKeySecretName),
 			},
 		},
 	}
 }
 
+// buildSecret creates the secret object to store agent key. This secret is read directly by Automation Agent containers
 func buildSecret(groupId string, nameSpace string, agentKey string) *corev1.Secret {
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -88,6 +91,34 @@ func buildSecret(groupId string, nameSpace string, agentKey string) *corev1.Secr
 			Namespace: nameSpace,
 		},
 		StringData: map[string]string{AgentKey: agentKey}}
+}
+
+// buildService creates the Kube Service. If it should be seen externally it makes it of type NodePort that will assign
+// some random port in the range 30000-32767
+// Note that itself service has no dedicated IP by default ("clusterIP: None") as all mongo entities should be directly
+// addressable
+func buildService(name string, label string, nameSpace string, port int32, exposeExternally bool) *corev1.Service {
+	serviceType := corev1.ServiceTypeClusterIP
+	clusterIp := "None"
+	if exposeExternally {
+		serviceType = corev1.ServiceTypeNodePort
+		clusterIp = ""
+	}
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: nameSpace,
+			Labels:    map[string]string{"app": label},
+			// We mark the service as created by Om Operator to distinct from the services made by the user
+			Annotations: map[string]string{CreatedByOperator: "true"},
+		},
+		Spec: corev1.ServiceSpec{
+			Selector:  map[string]string{"app": label},
+			Type:      serviceType,
+			ClusterIP: clusterIp,
+			Ports:     []corev1.ServicePort{{Port: port}},
+		},
+	}
 }
 
 func baseContainer(name string, agentKeySecretName string) corev1.PodSpec {
@@ -119,11 +150,18 @@ func baseEnvFrom(agentSecretName string) []corev1.EnvFromSource {
 			},
 		},
 		{
-			SecretRef: &corev1.SecretEnvSource {
+			SecretRef: &corev1.SecretEnvSource{
 				LocalObjectReference: corev1.LocalObjectReference{
 					Name: agentSecretName,
 				},
 			},
 		},
 	}
+}
+
+func getOrFormatServiceName(service *string, objName string) string {
+	if service == nil {
+		return objName + "-service"
+	}
+	return *service
 }

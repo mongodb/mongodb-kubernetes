@@ -3,5 +3,4 @@ kind: MongoDbStandalone
 metadata:
   name: test-process-name
 spec:
-  hostname_prefix: this-is-a-new-test
   mongodb_version: 3.6.3

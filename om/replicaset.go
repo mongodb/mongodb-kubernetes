@@ -3,6 +3,7 @@ package om
 import (
 	"sort"
 	"fmt"
+	"github.com/spf13/cast"
 )
 
 /* This corresponds to:
@@ -60,7 +61,8 @@ func (r ReplicaSetMember) Name() string {
 }
 
 func (r ReplicaSetMember) Id() int {
-	return r["_id"].(int)
+	// Practice shows that the type of unmarshalled data can be even float64 (no floating point though) or int32..
+	return cast.ToInt(r["_id"])
 }
 
 /* Merges the other replica set to the current one. "otherRs" members have higher priority (as they are supposed

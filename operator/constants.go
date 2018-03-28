@@ -4,6 +4,7 @@ const (
 	ContainerName            = "ops-manager-agent"
 	ContainerImage           = "ops-manager-agent"
 	ContainerImagePullPolicy = "Never"
+	CreatedByOperator        = "CreatedByOmOperator"
 
 	ContainerConfigMapName = "ops-manager-config"
 

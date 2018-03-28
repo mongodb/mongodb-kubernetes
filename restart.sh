@@ -16,6 +16,8 @@ echo "-- Removing kubernetes objects and operator"
 kubectl delete pv --all
 kubectl delete statefulsets --all
 kubectl delete configmaps --all
+kubectl delete services --all
+kubectl delete secrets --all
 kubectl delete -f om-operator.yaml
 
 echo "-- Compiling and building new container image"
@@ -41,3 +43,6 @@ docker build -t om-operator:0.1 .
 echo "-- Deploying new operator"
 kubectl apply -f samples/my-config-map.yaml # TODO om-operator requires the 'ops-manager-config' config map for now
 kubectl apply -f om-operator.yaml
+sleep 2
+kubectl apply -f samples/my-replica-set.yaml
+kubectl apply -f samples/my-standalone.yaml

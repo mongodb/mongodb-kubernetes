@@ -13,11 +13,10 @@ type MongoDbReplicaSet struct {
 }
 
 type MongoDbReplicaSetSpec struct {
-	Name           string `json:"name"`
-	Members        int32 `json:"members"`
-	HostnamePrefix string `json:"hostname_prefix"`
-	Version        string `json:"mongodb_version"`
-	Service        string `json:"service"`
+	Members int32  `json:"members"`
+	Version string `json:"mongodb_version"`
+	// this is an optional service, it will get the name "<rsName>-service" in case not provided
+	Service *string `json:"service, omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -39,8 +38,9 @@ type MongoDbStandalone struct {
 }
 
 type MongoDbStandaloneSpec struct {
-	HostnamePrefix string `json:"hostname_prefix"`
-	Version        string `json:"mongodb_version"`
+	Version string `json:"mongodb_version"`
+	// this is an optional service, it will get the name "<standaloneName>-service" in case not provided
+	Service *string `json:"service, omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

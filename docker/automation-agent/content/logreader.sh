@@ -10,6 +10,7 @@ else
         -mmsGroupId $GROUP_ID \
         -mmsApiKey $AGENT_API_KEY \
         -pidfilepath $mms_home/mongodb-mms-automation-agent.pid \
+        -logLevel DEBUG \
         -logFile $mms_home/automation-agent.log &
 fi
 

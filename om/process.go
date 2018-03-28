@@ -1,5 +1,6 @@
 package om
 
+import "fmt"
 
 /*
 This corresponds to
@@ -51,7 +52,7 @@ func NewProcess(processVersion string) Process {
 
 func (s Process) SetName(processName string) Process {
 	s["name"] = processName
-	return s;
+	return s
 }
 
 func (s Process) Name() string {
@@ -60,7 +61,7 @@ func (s Process) Name() string {
 
 func (s Process) SetHostName(processHostname string) Process {
 	s["hostname"] = processHostname
-	return s;
+	return s
 }
 
 func (s Process) HostName() string {
@@ -69,7 +70,7 @@ func (s Process) HostName() string {
 
 func (s Process) SetDbPath(dbPath string) Process {
 	s.Args()["storage"] = map[string]string{"dbPath": dbPath}
-	return s;
+	return s
 }
 
 func (s Process) DbPath() string {
@@ -78,7 +79,7 @@ func (s Process) DbPath() string {
 
 func (s Process) SetLogPath(logPath string) Process {
 	s.Args()["systemLog"] = map[string]string{"destination": "file", "path": logPath}
-	return s;
+	return s
 }
 
 func (s Process) LogPath() string {
@@ -88,15 +89,15 @@ func (s Process) LogPath() string {
 func (s Process) SslCAFilePath(ProcessSslCAFilePath string) Process {
 	// todo
 	//map[string](s.process.Args["net"])["ssl"]["CAFilePath"] = ProcessSslCAFilePath
-	return s;
+	return s
 }
 func (s Process) SslPemKeyFilePath(ProcessSslPemKeyFilePath string) Process {
 	//map[string](s.process.Args["net"])["ssl"]["autoPEMKeyFilePath"] = ProcessSslCAFilePath
-	return s;
+	return s
 }
 func (s Process) ClientCertificateMode(ProcessClientCertificateMode bool) Process {
 	//map[string](s.process.Args["net"])["ssl"]["clientCertificateMode"] = ProcessClientCertificateMode
-	return s;
+	return s
 }
 func (s Process) Args() map[string]interface{} {
 	if args, ok := s["args2_6"].(map[string]interface{}); ok {
@@ -104,7 +105,7 @@ func (s Process) Args() map[string]interface{} {
 	}
 	args := make(map[string]interface{})
 	s["args2_6"] = args
-	return args;
+	return args
 }
 
 func (s Process) Version() string {
@@ -119,6 +120,10 @@ func (s Process) MergeFrom(otherProcess Process) {
 
 	initDefault(otherProcess.Version(), s)
 	// todo other fields
+}
+
+func (s Process) String() string {
+	return fmt.Sprintf("\"%s\" (hostName: %s, version: %s, args: %s)", s.Name(), s.HostName(), s.Version(), s.Args())
 }
 
 /*
@@ -147,4 +152,7 @@ func initDefault(processVersion string, process Process) {
 func (s Process) setReplicaSetName(rsName string) Process {
 	s.Args()["replication"] = map[string]string{"replSetName": rsName}
 	return s
+}
+func (s Process) replicaSetName() string {
+	return s.Args()["replication"].(map[string]string)["replSetName"]
 }
