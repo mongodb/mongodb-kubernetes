@@ -1,14 +1,13 @@
 package operator
 
 import (
-	"fmt"
-
 	"github.com/10gen/ops-manager-kubernetes/om"
 	"github.com/10gen/ops-manager-kubernetes/operator/crd"
 
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1alpha1"
 	mongodbscheme "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/scheme"
 	mongodbclient "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/typed/mongodb.com/v1alpha1"
+	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	appsV1 "k8s.io/client-go/kubernetes/typed/apps/v1"
@@ -60,20 +59,21 @@ func (c *MongoDbController) SecretsApi(namespace string) coreV1.SecretInterface 
 // generate agent key using OM public API and create Secret containing this key
 func (c *MongoDbController) EnsureAgentKeySecretExists(nameSpace string, omConnection *om.OmConnection) (string, error) {
 	secretName := omConnection.GroupId
+	log := zap.S().With("secret", secretName)
 	_, err := c.SecretsApi(nameSpace).Get(secretName, v1.GetOptions{})
 	if err != nil {
-		fmt.Printf("Error finding Secret with name %s, generating agent key to create the new one\n", secretName)
+		log.Info("Failed to find the Secret, generating agent key to create the new one")
 
 		key, err := omConnection.GenerateAgentKey()
 		if err != nil {
-			fmt.Println("Failed to generate agent Key")
+			log.Error("Failed to generate agent Key")
 			return "", err
 		}
 		if _, err := c.SecretsApi(nameSpace).Create(buildSecret(secretName, nameSpace, key)); err != nil {
-			fmt.Printf("Failed to create Secret with name %s\n", secretName)
+			log.Error("Failed to create Secret")
 			return "", err
 		}
-		fmt.Printf("New Ops Manager agent Key for group %s generated and saved in Kubernetes for later usage\n", secretName)
+		log.Info("New Ops Manager agent Key is generated and saved in Kubernetes Secret for later usage")
 	}
 	return secretName, nil
 }

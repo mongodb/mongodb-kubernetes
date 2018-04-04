@@ -3,6 +3,8 @@ package om
 import (
 	"encoding/json"
 	"fmt"
+
+	"go.uber.org/zap"
 )
 
 type Deployment map[string]interface{}
@@ -24,16 +26,18 @@ func NewDeployment() Deployment {
 
 // merge Standalone. If we found the process with the same name - update some fields there. Otherwise add the new one
 func (d Deployment) MergeStandalone(standaloneMongo Process) {
+	log := zap.S().With("process", standaloneMongo)
+
 	// merging process in case exists, otherwise adding it
 	for _, pr := range d.getProcesses() {
 		if pr.Name() == standaloneMongo.Name() {
 			pr.MergeFrom(standaloneMongo)
-			fmt.Printf("Merged process %s into existing one\n", standaloneMongo)
+			log.Debug("Merged process into existing one")
 			return
 		}
 	}
 	d.setProcesses(append(d.getProcesses(), standaloneMongo))
-	fmt.Printf("Added process %s as current OM deployment didn't have it\n", standaloneMongo)
+	log.Debug("Added process as current OM deployment didn't have it")
 }
 
 // Merges the replica set and its members to the deployment. Note that if "wrong" RS members are removed after merge -
@@ -41,6 +45,7 @@ func (d Deployment) MergeStandalone(standaloneMongo Process) {
 // So far we don't configure anything for RS except it's name (though the API supports many other parameters
 // and we may change this in future)
 func (d Deployment) MergeReplicaSet(rsName string, processes []Process) {
+	log := zap.S().With("replicaSet", rsName)
 	rs := NewReplicaSet(rsName)
 	for _, p := range processes {
 		p.setReplicaSetName(rsName)
@@ -53,20 +58,19 @@ func (d Deployment) MergeReplicaSet(rsName string, processes []Process) {
 		if r.Name() == rsName {
 			processesToRemove := r.MergeFrom(rs)
 
-			// TODO replace with proper logging library
-			fmt.Printf("Merged replica set %s into existing one\n", rs)
+			log.Debugw("Merged replica set into existing one")
 
 			if len(processesToRemove) > 0 {
 				d.removeProcesses(processesToRemove)
 
-				fmt.Printf("Removed processes %s as they were removed from replica set\n", processesToRemove)
+				log.Debugw("Removed processes as they were removed from replica set", "processesToRemove", processesToRemove)
 			}
 			return
 		}
 	}
 
 	d.setReplicaSets(append(d.getReplicaSets(), rs))
-	fmt.Printf("Added replica set %s as current OM deployment didn't have it\n", rs)
+	log.Debugw("Added replica set as current OM deployment didn't have it")
 }
 
 // AddMonitoring adds only one monitoring agent on the same host as the first process in the list if no monitoring

@@ -27,7 +27,7 @@ The update process follows the same approach in general except for no new object
 ```
 dep ensure
 ./codegen.sh
-CGO_ENABLED=0 GOOS=linux go build -o om-operator
+CGO_ENABLED=0 GOOS=linux go build -i -o om-operator
 ```
 
 ### Create Required Container Images ###

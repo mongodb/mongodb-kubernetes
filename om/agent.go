@@ -2,9 +2,10 @@ package om
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 // Checks if the agents have registered.
@@ -40,7 +41,7 @@ func BuildAgentStateFromBytes(jsonBytes []byte) (*AgentState, error) {
 func CheckAgentExists(hostname_prefix string, agentState *AgentState) bool {
 	for _, result := range agentState.Results {
 		if strings.HasPrefix(result.Hostname, hostname_prefix) {
-			fmt.Printf("Agent %s is already registered\n", result.Hostname)
+			zap.S().Debugw("Agent is already registered", "hostname", result.Hostname)
 			return true
 		}
 	}
@@ -55,13 +56,12 @@ func WaitUntilAgentsHaveRegistered(omConnection *OmConnection, agentHostnames ..
 	// TODO: seems kube Wait.Poll() function would be better here
 	for count := 0; count < 3; count++ {
 		waitDuration := time.Duration(3)
-		fmt.Printf("Waiting for %d seconds before checking if agents have registered in OM\n", waitDuration)
+		zap.S().Debugf("Waiting for %d seconds before checking if agents have registered in OM", waitDuration)
 		time.Sleep(waitDuration * time.Second)
 
 		agentResponse, err := omConnection.ReadAutomationAgents()
 		if err != nil {
-			fmt.Println("Unable to read from OM API")
-			fmt.Println(err)
+			zap.S().Error("Unable to read from OM API: ", err)
 			continue
 		}
 
@@ -75,7 +75,7 @@ func WaitUntilAgentsHaveRegistered(omConnection *OmConnection, agentHostnames ..
 		if registeredCount == len(agentHostnames) {
 			return true
 		}
-		fmt.Printf("Only %d of %d agents have registered with OM\n", registeredCount, len(agentHostnames))
+		zap.S().Infof("Only %d of %d agents have registered with OM\n", registeredCount, len(agentHostnames))
 	}
 
 	return false

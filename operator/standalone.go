@@ -5,17 +5,20 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/om"
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1alpha1"
+	"github.com/pkg/errors"
+	"go.uber.org/zap"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func (c *MongoDbController) onAddStandalone(obj interface{}) {
 	s := obj.(*mongodb.MongoDbStandalone).DeepCopy()
 
+	log := zap.S().With("standalone", s.Name)
+
 	agentKeySecretName, err := c.EnsureAgentKeySecretExists(s.Namespace, NewOpsManagerConnectionFromEnv())
 
 	if err != nil {
-		fmt.Println("Failed to generate/get agent key")
-		fmt.Println(err)
+		log.Error("Failed to generate/get agent key: ", err)
 		return
 	}
 
@@ -26,27 +29,26 @@ func (c *MongoDbController) onAddStandalone(obj interface{}) {
 	// statefulset was indeed created to make process idempotent
 	_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(s.Spec.Service, 27017, s.Namespace, true, standaloneObject)
 	if err != nil {
-		fmt.Printf("Error. Failed to create statefulset '%s'\n", s.Name)
-		fmt.Println(err)
+		log.Error("Failed to create statefulset: ", err)
 		return
 	}
 
-	if !updateOmDeployment(s) {
-		fmt.Println("Failed to create standalone in OM")
+	if err := updateOmDeployment(s); err != nil {
+		log.Error("Failed to create standalone in OM: ", err)
 		return
 	}
 
-	fmt.Printf("Created Standalone: '%s'\n", s.Name)
+	log.Info("Created Standalone!")
 }
 
 func (c *MongoDbController) onUpdateStandalone(oldObj, newObj interface{}) {
 	newRes := newObj.(*mongodb.MongoDbStandalone).DeepCopy()
+	log := zap.S().With("standalone", newRes.Name)
 
 	agentKeySecretName, err := c.EnsureAgentKeySecretExists(newRes.Namespace, NewOpsManagerConnectionFromEnv())
 
 	if err != nil {
-		fmt.Println("Failed to generate/get agent key")
-		fmt.Println(err)
+		log.Error("Failed to generate/get agent key: ", err)
 		return
 	}
 
@@ -54,16 +56,16 @@ func (c *MongoDbController) onUpdateStandalone(oldObj, newObj interface{}) {
 	_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(newRes.Spec.Service, 27017, newRes.Namespace, true, standaloneObject)
 
 	if err != nil {
-		fmt.Printf("Error. Failed to create/update statefulset '%s'\n", newRes.Name)
-		fmt.Println(err)
-	}
-
-	if !updateOmDeployment(newRes) {
-		fmt.Println("Failed to update standalone in OM")
+		log.Error("Failed to create/update statefulset: ", newRes.Name)
 		return
 	}
 
-	fmt.Printf("Updated Standalone: '%s'\n", newRes.Name)
+	if err := updateOmDeployment(newRes); err != nil {
+		log.Error("Failed to update standalone in OM: ", err)
+		return
+	}
+
+	log.Info("Updated Standalone!")
 }
 
 func (c *MongoDbController) onDeleteStandalone(obj interface{}) {
@@ -71,21 +73,19 @@ func (c *MongoDbController) onDeleteStandalone(obj interface{}) {
 
 	deleteOptions := metav1.NewDeleteOptions(0)
 	c.context.Clientset.AppsV1().StatefulSets(s.Namespace).Delete(s.Name, deleteOptions)
-	fmt.Printf("Deleted MongoDbStandalone '%s'\n", s.Name)
+	zap.S().Info("Deleted MongoDbStandalone ", s.Name)
 }
 
-func updateOmDeployment(s *mongodb.MongoDbStandalone) bool {
+func updateOmDeployment(s *mongodb.MongoDbStandalone) error {
 	omConnection := NewOpsManagerConnectionFromEnv()
 
 	if !om.WaitUntilAgentsHaveRegistered(omConnection, s.Name) {
-		fmt.Println("Agents never registered! Not creating standalone in OM!")
-		return false
+		return errors.New("Agents never registered! Not creating standalone in OM!")
 	}
 
 	currentDeployment, err := omConnection.ReadDeployment()
 	if err != nil {
-		fmt.Println("Could not read deployment from OM. Not creating standalone in OM!")
-		return false
+		return errors.New("Could not read deployment from OM. Not creating standalone in OM!")
 	}
 
 	// TODO fix hostnames in CLOUDP-28316
@@ -99,9 +99,7 @@ func updateOmDeployment(s *mongodb.MongoDbStandalone) bool {
 
 	_, err = omConnection.UpdateDeployment(currentDeployment)
 	if err != nil {
-		fmt.Println("Error while trying to push another deployment.")
-		fmt.Println(err)
-		return false
+		return errors.New("Error while trying to push another deployment.")
 	}
-	return true
+	return nil
 }

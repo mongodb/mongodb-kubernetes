@@ -2,7 +2,7 @@
 #
 # To build the actual operator:
 #
-# $ CGO_ENABLED=0 GOOS=linux go build -o om-operator
+# $ CGO_ENABLED=0 GOOS=linux go build -i -o om-operator
 #
 # And then build the image:
 #
@@ -14,4 +14,4 @@ MAINTAINER Ops Manager Team <mms@10gen.com>
 
 ADD om-operator /usr/local/bin/
 
-ENTRYPOINT ["/usr/local/bin/om-operator"]
+ENTRYPOINT exec /usr/local/bin/om-operator -env=$ENVIRONMENT

@@ -6,12 +6,15 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/om"
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1alpha1"
+	"go.uber.org/zap"
 )
 
 func (c *MongoDbController) onAddReplicaSet(obj interface{}) {
 	s := obj.(*mongodb.MongoDbReplicaSet).DeepCopy()
 
-	fmt.Printf("Creating Replica set %s with the following config: %+v\n", s.Name, s.Spec)
+	log := zap.S().With("replicaSet", s.Name)
+
+	log.Infow("Creating Replica set", "config", s.Spec)
 
 	/*
 		TODO this returns some strange empty statefulset...
@@ -24,62 +27,59 @@ func (c *MongoDbController) onAddReplicaSet(obj interface{}) {
 	agentKeySecretName, err := c.EnsureAgentKeySecretExists(s.Namespace, NewOpsManagerConnectionFromEnv())
 
 	if err != nil {
-		fmt.Println("Failed to generate/get agent key")
-		fmt.Println(err)
+		log.Error("Failed to generate/get agent key: ", err)
 		return
 	}
 
 	replicaSetObject := buildReplicaSetStatefulSet(s, agentKeySecretName)
 	_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(s.Spec.Service, 27017, s.Namespace, true, replicaSetObject)
 	if err != nil {
-		fmt.Println("Error trying to create a new statefulset and service for ReplicaSet")
-		fmt.Println(err)
+		log.Error("Error trying to create a new statefulset and services for ReplicaSet: ", err)
 		return
 	}
 
 	if err := c.updateOmDeploymentRs(nil, s); err != nil {
-		fmt.Println(err)
+		log.Error("Failed to update OpsManager automation config: ", err)
 		return
 	}
 
-	fmt.Printf("Created Replica Set: '%s'\n", s.Name)
+	log.Info("Created Replica Set!")
 }
 
 func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 	oldRes := oldObj.(*mongodb.MongoDbReplicaSet).DeepCopy()
 	newRes := newObj.(*mongodb.MongoDbReplicaSet).DeepCopy()
+	log := zap.S().With("replicaSet", newRes.Name)
 
-	validateUpdate(oldRes, newRes)
+	if err := validateUpdate(oldRes, newRes); err != nil {
+		log.Error(err)
+		return
+	}
 
-	fmt.Printf("Updating MongoDbReplicaSet '%s' from %d to %d\n", newRes.Name, oldRes.Spec.Members, newRes.Spec.Members)
-
-	// TODO seems it will be great here to log the diff of the objects - can it be made general way through reflection?
-	// (to be used by Standalone/ReplicaSet/ShardedCluster
+	log.Infow("Updating MongoDbReplicaSet", "oldConfig", oldRes.Spec, "newConfig", newRes.Spec.Members)
 
 	agentKeySecretName, err := c.EnsureAgentKeySecretExists(newRes.Namespace, NewOpsManagerConnectionFromEnv())
 
 	if err != nil {
-		fmt.Println("Failed to generate/get agent key")
-		fmt.Println(err)
+		log.Error("Failed to generate/get agent key: ", err)
 		return
 	}
 
 	replicaSetObject := buildReplicaSetStatefulSet(newRes, agentKeySecretName)
 	_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(newRes.Spec.Service, 27017, newRes.Namespace, true, replicaSetObject)
 	if err != nil {
-		fmt.Printf("Error while updating the StatefulSet\n")
-		fmt.Println(err)
+		log.Error("Error while updating the StatefulSet: ", err)
 		return
 	}
 
-	fmt.Println("Updated statefulset for replicaset")
+	log.Info("Updated statefulset for replicaset")
 
 	if err := c.updateOmDeploymentRs(nil, newRes); err != nil {
-		fmt.Println(err)
+		log.Error("Failed to update OpsManager automation config: ", err)
 		return
 	}
 
-	fmt.Printf("Updated MongoDbReplicaSet '%s' with %d replicas\n", newRes.Name, newRes.Spec.Members)
+	log.Info("Updated Replica Set!")
 }
 
 func (c *MongoDbController) onDeleteReplicaSet(obj interface{}) {
@@ -101,7 +101,6 @@ func (c *MongoDbController) updateOmDeploymentRs(old, new *mongodb.MongoDbReplic
 
 	deployment, err := omConnection.ReadDeployment()
 	if err != nil {
-		fmt.Println(err)
 		return err
 	}
 
@@ -112,17 +111,16 @@ func (c *MongoDbController) updateOmDeploymentRs(old, new *mongodb.MongoDbReplic
 
 	_, err = omConnection.UpdateDeployment(deployment)
 	if err != nil {
-		fmt.Println("Error while trying to push another deployment.")
-		fmt.Println(err)
 		return err
 	}
 	return nil
 }
 
-func validateUpdate(oldSpec, newSpec *mongodb.MongoDbReplicaSet) {
+func validateUpdate(oldSpec, newSpec *mongodb.MongoDbReplicaSet) error {
 	if newSpec.Namespace != oldSpec.Namespace {
-		panic("Namespaces mismatch")
+		return errors.New("Namespaces mismatch")
 	}
+	return nil
 }
 
 func waitUntilAllAgentsAreReady(newRes *mongodb.MongoDbReplicaSet, omConnection *om.OmConnection) bool {
@@ -135,7 +133,6 @@ func waitUntilAllAgentsAreReady(newRes *mongodb.MongoDbReplicaSet, omConnection 
 	}
 
 	if !om.WaitUntilAgentsHaveRegistered(omConnection, agentHostnames...) {
-		fmt.Println("(A) Agents never registered! not creating replicaset in OM!")
 		return false
 	}
 	return true

@@ -34,7 +34,7 @@ if [ -z $BUILD_LOCALLY ]; then
     ssh $connect_to 'source ~/.profile ; cd go/src/github.com/10gen/ops-manager-kubernetes/ ; go build -o om-operator'
 else
     echo "-- Cross compiling om-operator"
-    CGO_ENABLED=0 GOOS=linux go build -o om-operator || exit 1
+    CGO_ENABLED=0 GOOS=linux go build -i -o om-operator || exit 1
 fi
 
 eval $(minikube docker-env)
@@ -45,4 +45,4 @@ kubectl apply -f samples/my-config-map.yaml # TODO om-operator requires the 'ops
 kubectl apply -f om-operator.yaml
 sleep 2
 kubectl apply -f samples/my-replica-set.yaml
-kubectl apply -f samples/my-standalone.yaml
+#kubectl apply -f samples/my-standalone.yaml

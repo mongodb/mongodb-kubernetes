@@ -73,3 +73,6 @@ spec:
         envFrom:
         - configMapRef:
             name: ops-manager-config
+        env:
+        - name: ENVIRONMENT
+          value: "dev"

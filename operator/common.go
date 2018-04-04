@@ -4,6 +4,7 @@ package operator
 
 import (
 	"os"
+
 	"github.com/10gen/ops-manager-kubernetes/om"
 )
 

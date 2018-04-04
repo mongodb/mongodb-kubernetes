@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,16 +33,18 @@ func (k *KubeHelper) createOrUpdateStatefulsetsWithService(serviceName *string, 
 	}
 
 	for _, s := range statefulsets {
+		log := zap.S().With("statefulset", s.Name)
+
 		if _, err := k.kubeApi.AppsV1().StatefulSets(nameSpace).Get(s.Name, v1.GetOptions{}); err != nil {
 			if _, err := k.kubeApi.AppsV1().StatefulSets(nameSpace).Create(s); err != nil {
 				return nil, err
 			}
-			fmt.Printf("Created statefulset %s\n", s.Name)
+			log.Infow("Created statefulset")
 		} else {
 			if _, err := k.kubeApi.AppsV1().StatefulSets(nameSpace).Update(s); err != nil {
 				return nil, err
 			}
-			fmt.Printf("Updated statefulset %s\n", s.Name)
+			log.Infow("Updated statefulset")
 		}
 	}
 
@@ -78,18 +81,19 @@ func (k *KubeHelper) ensureServicesExist(serviceName *string, servicePort int32,
 
 func (k *KubeHelper) readOrCreateService(serviceName string, label string, servicePort int32, nameSpace string,
 	exposeExternally bool) (*corev1.Service, error) {
+	log := zap.S().With("service", serviceName)
 
 	service, err := k.kubeApi.CoreV1().Services(nameSpace).Get(serviceName, v1.GetOptions{})
 
 	if err != nil {
-		fmt.Printf("Service with name %s doesn't exist - creating it\n", serviceName)
+		log.Info("Service doesn't exist - creating it")
 		service, err = k.createService(serviceName, label, servicePort, nameSpace, exposeExternally)
 		if err != nil {
 			return nil, err
 		}
-		fmt.Printf("Created service %s (type: %s, port: %+v)\n", serviceName, service.Spec.Type, service.Spec.Ports[0])
+		log.Infow("Created service", "type", service.Spec.Type, "port", service.Spec.Ports[0])
 	} else {
-		fmt.Printf("Service %s already exists!\n", serviceName)
+		log.Info("Service already exists!")
 		if err := validateExistingService(label, service); err != nil {
 			return nil, err
 		}
@@ -108,7 +112,7 @@ func discoverServicePort(service *corev1.Service) (*int32, error) {
 
 	if service.Spec.Type == corev1.ServiceTypeNodePort {
 		nodePort := MakeIntReference(service.Spec.Ports[0].NodePort)
-		fmt.Printf(">> The node port for external connections is %d!\n", *nodePort)
+		zap.S().Infof(">> The node port for external connections is %d!", *nodePort)
 		return nodePort, nil
 	}
 	return MakeIntReference(service.Spec.Ports[0].Port), nil

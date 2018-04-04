@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/util"
+	"go.uber.org/zap"
 )
 
 type OmConnection struct {
@@ -43,7 +44,6 @@ func (oc *OmConnection) ReadDeployment() (*Deployment, error) {
 	if err != nil {
 		return nil, err
 	}
-	// TODO replace all loggings in this file with log.debug()
 	//fmt.Println(string(ans))
 	return BuildDeploymentFromBytes(ans)
 }
@@ -56,7 +56,7 @@ func (oc *OmConnection) GenerateAgentKey() (string, error) {
 		return "", err
 	}
 
-	fmt.Println(string(ans))
+	zap.S().Debug(string(ans))
 
 	var keyInfo map[string]interface{}
 	if err := json.Unmarshal(ans, &keyInfo); err != nil {
@@ -70,7 +70,7 @@ func (oc *OmConnection) ReadAutomationAgents() (*AgentState, error) {
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println(string(ans))
+	zap.S().Debug(string(ans))
 	return BuildAgentStateFromBytes(ans)
 }
 
@@ -127,7 +127,7 @@ func request(method string, hostname string, path string, reader io.Reader, user
 	req.Header.Add("Content-Type", contentType)
 
 	request, _ := httputil.DumpRequest(req, false)
-	fmt.Printf("Request: %s\n", request)
+	zap.S().Debugw("Request sending", "request", request)
 
 	resp, err = util.DefaultHttpClient.Do(req)
 
