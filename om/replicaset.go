@@ -1,8 +1,9 @@
 package om
 
 import (
-	"sort"
 	"fmt"
+	"sort"
+
 	"github.com/spf13/cast"
 )
 
@@ -110,8 +111,10 @@ func (r ReplicaSetMember) Id() int {
 			"host": "green_2"
 		}]
 },*/
+
 func (r ReplicaSet) MergeFrom(otherRs ReplicaSet) []string {
-	// technically we use "otherMap" as the target map which will be used to update the members for the 'r' object
+	// technically we use "otherMap" as the target map which will be used to update the members
+	// for the 'r' object
 	currentMap := buildMapOfRsNodes(r)
 	otherMap := buildMapOfRsNodes(otherRs)
 
@@ -123,8 +126,8 @@ func (r ReplicaSet) MergeFrom(otherRs ReplicaSet) []string {
 		}
 	}
 
-	// find OM members that will be removed from RS. This can be either the result of scaling down or just OM added
-	// some members on its own
+	// find OM members that will be removed from RS. This can be either the result of scaling
+	// down or just OM added some members on its own
 	removedMembers := findDifference(currentMap, otherMap)
 
 	// update replicaset back
@@ -171,7 +174,7 @@ func (r ReplicaSet) members() []ReplicaSetMember {
 	switch v := r["members"].(type) {
 	case []ReplicaSetMember:
 		return v
-	case [] interface{}:
+	case []interface{}:
 		ans := make([]ReplicaSetMember, len(v))
 		for i, val := range v {
 			ans[i] = NewReplicaSetMemberFromInterface(val)
@@ -184,6 +187,29 @@ func (r ReplicaSet) members() []ReplicaSetMember {
 
 func (r ReplicaSet) setMembers(members []ReplicaSetMember) {
 	r["members"] = members
+}
+
+func (r ReplicaSet) FindMemberByName(name string) *ReplicaSetMember {
+	members := r.members()
+	for _, m := range members {
+		if m.Name() == name {
+			return &m
+		}
+	}
+
+	return nil
+}
+
+func (r ReplicaSetMember) SetVotes(votes int) ReplicaSetMember {
+	r["votes"] = votes
+
+	return r
+}
+
+func (r ReplicaSetMember) SetPriority(priority int) ReplicaSetMember {
+	r["priority"] = priority
+
+	return r
 }
 
 // Returns keys that exist in leftMap but don't exist in right one

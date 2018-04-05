@@ -3,7 +3,6 @@ package om
 import (
 	"encoding/json"
 	"strings"
-	"time"
 
 	"go.uber.org/zap"
 )
@@ -53,12 +52,12 @@ func CheckAgentExists(hostname_prefix string, agentState *AgentState) bool {
 // agents have registered in the omConnection. Or enough time has passed in which
 // case it will return false.
 func WaitUntilAgentsHaveRegistered(omConnection *OmConnection, agentHostnames ...string) bool {
-	// TODO: seems kube Wait.Poll() function would be better here
-	for count := 0; count < 3; count++ {
-		waitDuration := time.Duration(3)
-		zap.S().Debugf("Waiting for %d seconds before checking if agents have registered in OM", waitDuration)
-		time.Sleep(waitDuration * time.Second)
-
+	wait := WaitFunction(10, 10)
+	for {
+		if !wait() {
+			break
+		}
+		zap.S().Debug("Waiting for agents to register with OM")
 		agentResponse, err := omConnection.ReadAutomationAgents()
 		if err != nil {
 			zap.S().Error("Unable to read from OM API: ", err)

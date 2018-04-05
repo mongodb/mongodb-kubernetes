@@ -53,24 +53,20 @@ func (d Deployment) MergeReplicaSet(rsName string, processes []Process) {
 		rs.addMember(p)
 	}
 
-	// merging replicaset in case it exists, otherwise adding it
-	for _, r := range d.getReplicaSets() {
-		if r.Name() == rsName {
-			processesToRemove := r.MergeFrom(rs)
+	r := d.GetReplicaSetByName(rsName)
+	if r == nil {
+		// Adding a new Replicaset
+		d.setReplicaSets(append(d.getReplicaSets(), rs))
+		log.Debugw("Added replica set as current OM deployment didn't have it")
+	} else {
+		processesToRemove := r.MergeFrom(rs)
+		log.Debugw("Merged replica set %s into existing one")
 
-			log.Debugw("Merged replica set into existing one")
-
-			if len(processesToRemove) > 0 {
-				d.removeProcesses(processesToRemove)
-
-				log.Debugw("Removed processes as they were removed from replica set", "processesToRemove", processesToRemove)
-			}
-			return
+		if len(processesToRemove) > 0 {
+			d.removeProcesses(processesToRemove)
+			log.Debugw("Removed processes as they were removed from replica set", "processesToRemove", processesToRemove)
 		}
 	}
-
-	d.setReplicaSets(append(d.getReplicaSets(), rs))
-	log.Debugw("Added replica set as current OM deployment didn't have it")
 }
 
 // AddMonitoring adds only one monitoring agent on the same host as the first process in the list if no monitoring
@@ -137,6 +133,26 @@ func (d Deployment) getReplicaSets() []ReplicaSet {
 	default:
 		panic(fmt.Sprintf("Unexpected type of replicasets variable: %T", v))
 	}
+}
+
+func (d Deployment) GetProcessByName(name string) *Process {
+	for _, el := range d.getProcesses() {
+		if el.Name() == name {
+			return &el
+		}
+	}
+
+	return nil
+}
+
+func (d Deployment) GetReplicaSetByName(name string) *ReplicaSet {
+	for _, r := range d.getReplicaSets() {
+		if r.Name() == name {
+			return &r
+		}
+	}
+
+	return nil
 }
 
 func (d Deployment) setReplicaSets(replicaSets []ReplicaSet) {

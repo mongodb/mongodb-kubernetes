@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"strings"
+	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/util"
 	"go.uber.org/zap"
@@ -27,7 +28,7 @@ type OmConnection struct {
 // It makes it easy to call the API without having to explicitly provide connection details.
 func NewOpsManagerConnection(baseUrl, groupId, user, publicApiKey string) *OmConnection {
 	return &OmConnection{
-		BaseUrl:      baseUrl,
+		BaseUrl:      strings.TrimSuffix(baseUrl, "/"),
 		GroupId:      groupId,
 		User:         user,
 		PublicApiKey: publicApiKey,
@@ -74,26 +75,68 @@ func (oc *OmConnection) ReadAutomationAgents() (*AgentState, error) {
 	return BuildAgentStateFromBytes(ans)
 }
 
+func (oc *OmConnection) ReadAutomationStatus() (*AutomationStatus, error) {
+	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/automationStatus", oc.GroupId))
+	if err != nil {
+		return nil, err
+	}
+
+	return buildAutomationStatusFromBytes(ans)
+}
+
+func (oc *OmConnection) GetHosts() (*Host, error) {
+	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/hosts/", oc.GroupId)
+	res, err := oc.get(mPath)
+	if err != nil {
+		return nil, err
+	}
+
+	hosts := &Host{}
+	if err := json.Unmarshal(res, hosts); err != nil {
+		return nil, err
+	}
+
+	return hosts, nil
+}
+
+func (oc *OmConnection) RemoveHost(hostId string) error {
+	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/hosts/%s", oc.GroupId, hostId)
+	return oc.delete(mPath)
+}
+
 //********************************** Private methods *******************************************************************
 
 func (oc *OmConnection) get(path string) ([]byte, error) {
-	return request("GET", oc.BaseUrl, path, nil, oc.User, oc.PublicApiKey, "application/json; charset=UTF-8")
+	return oc.httpVerb("GET", path, nil)
 }
 
-func (oc *OmConnection) post(path string, v interface{}) (response []byte, err error) {
-	postBytes, err := json.Marshal(v)
-	if err != nil {
-		return nil, fmt.Errorf("Error while encoding to json: %v", err)
-	}
-	return request("POST", oc.BaseUrl, path, bytes.NewBuffer(postBytes), oc.User, oc.PublicApiKey, "application/json; charset=UTF-8")
+func (oc *OmConnection) post(path string, v interface{}) ([]byte, error) {
+	return oc.httpVerb("POST", path, v)
 }
 
-func (oc *OmConnection) put(path string, v interface{}) (response []byte, err error) {
-	postBytes, err := json.Marshal(v)
+func (oc *OmConnection) put(path string, v interface{}) ([]byte, error) {
+	return oc.httpVerb("PUT", path, v)
+}
+
+func (oc *OmConnection) delete(path string) error {
+	res, err := oc.httpVerb("DELETE", path, nil)
 	if err != nil {
-		return nil, fmt.Errorf("Error while encoding to json: %v", err)
+		zap.S().Debugf(string(res))
 	}
-	return request("PUT", oc.BaseUrl, path, bytes.NewBuffer(postBytes), oc.User, oc.PublicApiKey, "application/json; charset=UTF-8")
+	return err
+}
+
+func (oc *OmConnection) httpVerb(method, path string, v interface{}) ([]byte, error) {
+	var buffer io.Reader
+	if v != nil {
+		b, err := json.Marshal(v)
+		if err != nil {
+			return nil, err
+		}
+		buffer = bytes.NewBuffer(b)
+	}
+
+	return request(method, oc.BaseUrl, path, buffer, oc.User, oc.PublicApiKey, "application/json; charset=UTF-8")
 }
 
 func request(method string, hostname string, path string, reader io.Reader, user string, token string, contentType string) (response []byte, err error) {
@@ -196,4 +239,16 @@ func getDigestAuthorization(digestParts map[string]string, method string, url st
 	authorization := fmt.Sprintf(`Digest username="%s", realm="%s", nonce="%s", uri="%s", cnonce="%s", nc=%v, qop=%s, response="%s", algorithm="MD5"`,
 		user, d["realm"], d["nonce"], url, cnonce, nonceCount, d["qop"], response)
 	return authorization
+}
+
+func WaitFunction(count, interval int) func() bool {
+	// return 10 * time.Second
+	return func() bool {
+		count--
+		if count <= 0 {
+			return false
+		}
+		time.Sleep(time.Duration(interval) * time.Second)
+		return true
+	}
 }

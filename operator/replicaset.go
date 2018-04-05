@@ -16,14 +16,6 @@ func (c *MongoDbController) onAddReplicaSet(obj interface{}) {
 
 	log.Infow("Creating Replica set", "config", s.Spec)
 
-	/*
-		TODO this returns some strange empty statefulset...
-		if s, _ := c.StatefulSetApi(s.Namespace).Get(s.Name, v1.GetOptions{}); s != nil {
-			fmt.Println(s)
-			fmt.Printf("Error! Statefulset %s already exists (it was supposed to be removed when MongoDbReplicaSet is removed)\n", s.Name)
-			return
-		}*/
-
 	agentKeySecretName, err := c.EnsureAgentKeySecretExists(s.Namespace, NewOpsManagerConnectionFromEnv())
 
 	if err != nil {
@@ -56,7 +48,7 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 		return
 	}
 
-	log.Infow("Updating MongoDbReplicaSet", "oldConfig", oldRes.Spec, "newConfig", newRes.Spec.Members)
+	log.Infow("Updating MongoDbReplicaSet", "oldConfig", oldRes.Spec, "newConfig", newRes.Spec)
 
 	agentKeySecretName, err := c.EnsureAgentKeySecretExists(newRes.Namespace, NewOpsManagerConnectionFromEnv())
 
@@ -65,29 +57,99 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 		return
 	}
 
+	scaleDown := newRes.Spec.Members < oldRes.Spec.Members
+
+	if scaleDown {
+		if err := prepareScaleDownReplicaSet(oldRes, newRes, agentKeySecretName); err != nil {
+			log.Error(err)
+			return
+		}
+	}
+
 	replicaSetObject := buildReplicaSetStatefulSet(newRes, agentKeySecretName)
 	_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(newRes.Spec.Service, 27017, newRes.Namespace, true, replicaSetObject)
 	if err != nil {
-		log.Error("Error while updating the StatefulSet: ", err)
+		log.Error("Error trying to create a new statefulset and services for ReplicaSet: ", err)
 		return
 	}
 
-	log.Info("Updated statefulset for replicaset")
-
-	if err := c.updateOmDeploymentRs(nil, newRes); err != nil {
-		log.Error("Failed to update OpsManager automation config: ", err)
+	if err := c.updateOmDeploymentRs(oldRes, newRes); err != nil {
+		log.Error(err)
 		return
 	}
 
-	log.Info("Updated Replica Set!")
+	if scaleDown {
+		hostsToRemove := calculateHostsToRemove(oldRes, newRes)
+		log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
+		if err := om.StopMonitoring(NewOpsManagerConnectionFromEnv(), hostsToRemove); err != nil {
+			log.Error(err)
+			return
+		}
+	}
+
+	log.Info("Updated")
+}
+
+func prepareScaleDownReplicaSet(old, new *mongodb.MongoDbReplicaSet, secret string) error {
+	log := zap.S().With("replicaSet", new.Name)
+
+	omClient := NewOpsManagerConnectionFromEnv()
+
+	toUpdate := int(old.Spec.Members - new.Spec.Members)
+	membersToUpdate := make([]string, toUpdate)
+	for i := 0; i < toUpdate; i++ {
+		membersToUpdate[i] = fmt.Sprintf("%s-%d", old.Name, i+toUpdate)
+	}
+
+	// Stage 1. Set Votes and Priority to 0
+	deployment, err := omClient.ReadDeployment()
+	if err != nil {
+		return err
+	}
+
+	rs := deployment.GetReplicaSetByName(new.Name)
+	for i := new.Spec.Members; i < old.Spec.Members; i++ {
+		name := fmt.Sprintf("%s_%d", new.Name, i)
+		rs.FindMemberByName(name).SetVotes(0).SetPriority(0)
+	}
+	_, err = omClient.UpdateDeployment(deployment)
+	if err != nil {
+		log.Debugw("Unable to set votes, priority to 0", "hosts", membersToUpdate)
+		return err
+	}
+
+	// Wait until agents reach Goal state
+	if !om.WaitUntilGoalState(omClient) {
+		return errors.New(fmt.Sprintf("Process didn't reach goal state. Setting votes, priority to 0. Hosts: %v", membersToUpdate))
+	}
+
+	// Stage 2. Set disabled to true
+	deployment, err = omClient.ReadDeployment()
+	if err != nil {
+		return err
+	}
+	for i := new.Spec.Members; i < old.Spec.Members; i++ {
+		name := fmt.Sprintf("%s_%d", new.Name, i)
+		deployment.GetProcessByName(name).SetDisabled(true)
+	}
+
+	_, err = omClient.UpdateDeployment(deployment)
+	if err != nil {
+		log.Debugw("Unable to set disabled to true", "hosts", membersToUpdate)
+		return err
+	}
+	// Wait until agents reach Goal state
+	if !om.WaitUntilGoalState(omClient) {
+		return errors.New(fmt.Sprintf("Process didn't reach Goal state. Setting disabled=true. Hosts: %v", membersToUpdate))
+	}
+
+	return nil
 }
 
 func (c *MongoDbController) onDeleteReplicaSet(obj interface{}) {
 	s := obj.(*mongodb.MongoDbReplicaSet).DeepCopy()
 
-	// TODO
-
-	fmt.Printf("Deleted MongoDbReplicaSet '%s' with Members=%d\n", s.Name, s.Spec.Members)
+	zap.S().Info("Deleted MongoDbReplicaSet", "replSetName", s.Name)
 }
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
@@ -96,7 +158,7 @@ func (c *MongoDbController) updateOmDeploymentRs(old, new *mongodb.MongoDbReplic
 	omConnection := NewOpsManagerConnectionFromEnv()
 
 	if !waitUntilAllAgentsAreReady(new, omConnection) {
-		return errors.New("Some of the agents failed to register! Not creating replicaset in OM!")
+		return errors.New("Some agents failed to register.")
 	}
 
 	deployment, err := omConnection.ReadDeployment()
@@ -113,6 +175,7 @@ func (c *MongoDbController) updateOmDeploymentRs(old, new *mongodb.MongoDbReplic
 	if err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -157,4 +220,28 @@ func createStandalonesForReplica(replicaSetName, version string, service *string
 	}
 
 	return collection
+}
+
+func fqdnForHost(rsName, service string, idx int) string {
+	suffix := fmt.Sprintf("%s.default.svc.cluster.local", service)
+	return fmt.Sprintf("%s-%d.%s", rsName, idx, suffix)
+}
+
+func nameForProcess(rsName string, idx int) string {
+	return fmt.Sprintf("%s_%d", rsName, idx)
+}
+
+func calculateHostsToRemove(old, new *mongodb.MongoDbReplicaSet) []string {
+	if new.Spec.Members > old.Spec.Members {
+		return make([]string, 0)
+	}
+
+	service := getOrFormatServiceName(old.Spec.Service, old.Name)
+	qtyToDelete := int(old.Spec.Members - new.Spec.Members)
+	result := make([]string, qtyToDelete)
+	for i := 0; i < qtyToDelete; i++ {
+		result[i] = fqdnForHost(old.Name, service, i+int(new.Spec.Members))
+	}
+
+	return result
 }

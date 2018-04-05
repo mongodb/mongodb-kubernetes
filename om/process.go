@@ -112,6 +112,14 @@ func (s Process) Version() string {
 	return s["version"].(string)
 }
 
+func (s Process) Disabled() bool {
+	return s["disabled"].(bool)
+}
+
+func (s Process) SetDisabled(bool) {
+	s["disabled"] = true
+}
+
 func (s Process) MergeFrom(otherProcess Process) {
 	s.SetName(otherProcess.Name())
 	s.SetHostName(otherProcess.HostName())
