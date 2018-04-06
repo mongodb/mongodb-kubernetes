@@ -72,7 +72,7 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 	scaleDown := newRes.Spec.Members < oldRes.Spec.Members
 
 	if scaleDown {
-		if err := prepareScaleDownReplicaSet(oldRes, newRes, agentKeySecretName); err != nil {
+		if err := prepareScaleDownReplicaSet(conn, oldRes, newRes, agentKeySecretName); err != nil {
 			log.Error("Failed to prepare OpsManager for scaling down: ", err)
 			return
 		}

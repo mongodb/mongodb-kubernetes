@@ -14,4 +14,4 @@ MAINTAINER Ops Manager Team <mms@10gen.com>
 
 ADD om-operator /usr/local/bin/
 
-ENTRYPOINT exec /usr/local/bin/om-operator -env=$ENVIRONMENT
+ENTRYPOINT exec /usr/local/bin/om-operator -env=$OM_OPERATOR_ENV

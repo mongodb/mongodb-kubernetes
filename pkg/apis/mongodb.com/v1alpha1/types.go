@@ -44,7 +44,7 @@ type MongoDbStandaloneSpec struct {
 	// this is an optional service, it will get the name "<standaloneName>-service" in case not provided
 	Service *string `json:"service, omitempty"`
 	// this is the name of config map containing information about OpsManager connection parameters
-	OmConfigName string `json:"ops_manager_config_map"`
+	OmConfigName string `json:"ops_manager_config"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

@@ -60,7 +60,7 @@ func (d Deployment) MergeReplicaSet(rsName string, processes []Process) {
 		log.Debugw("Added replica set as current OM deployment didn't have it")
 	} else {
 		processesToRemove := r.MergeFrom(rs)
-		log.Debugw("Merged replica set %s into existing one")
+		log.Debugw("Merged replica set into existing one")
 
 		if len(processesToRemove) > 0 {
 			d.removeProcesses(processesToRemove)

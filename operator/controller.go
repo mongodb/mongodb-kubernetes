@@ -48,7 +48,7 @@ func (c *MongoDbController) StartWatch(namespace string, stopCh chan struct{}) e
 
 func (c *MongoDbController) getOmConnection(namespace string, omConfigMapName string) (*om.OmConnection, error) {
 	if omConfigMapName == "" {
-		return nil, errors.New("ops_manager_config_map spec parameter must be specified!")
+		return nil, errors.New("ops_manager_config spec parameter must be specified!")
 	}
 	data, e := c.kubeHelper.readConfigMap(namespace, omConfigMapName)
 	if e != nil {
