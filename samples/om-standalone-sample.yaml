@@ -4,3 +4,4 @@ metadata:
   name: test-process-name
 spec:
   mongodb_version: 3.6.3
+  ops_manager_config: global-om-config

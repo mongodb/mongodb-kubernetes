@@ -105,6 +105,14 @@ func (k *KubeHelper) createService(name string, label string, port int32, ns str
 	return k.kubeApi.CoreV1().Services(ns).Create(buildService(name, label, ns, port, exposeExternally))
 }
 
+func (k *KubeHelper) readConfigMap(ns string, name string) (map[string]string, error) {
+	configMap, e := k.kubeApi.CoreV1().ConfigMaps(ns).Get(name, v1.GetOptions{})
+	if e != nil {
+		return nil, e
+	}
+	return configMap.Data, nil
+}
+
 func discoverServicePort(service *corev1.Service) (*int32, error) {
 	if l := len(service.Spec.Ports); l != 1 {
 		return nil, errors.New(fmt.Sprintf("Only one port is expected for the service but found %d!", l))

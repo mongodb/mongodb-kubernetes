@@ -16,7 +16,13 @@ func (c *MongoDbController) onAddReplicaSet(obj interface{}) {
 
 	log.Infow("Creating Replica set", "config", s.Spec)
 
-	agentKeySecretName, err := c.EnsureAgentKeySecretExists(s.Namespace, NewOpsManagerConnectionFromEnv())
+	conn, err := c.getOmConnection(s.Namespace, s.Spec.OmConfigName)
+	if err != nil {
+		log.Errorf("Failed to read OpsManager config map %s: %s", s.Spec.OmConfigName, err)
+		return
+	}
+
+	agentKeySecretName, err := c.EnsureAgentKeySecretExists(conn, s.Namespace)
 
 	if err != nil {
 		log.Error("Failed to generate/get agent key: ", err)
@@ -30,7 +36,7 @@ func (c *MongoDbController) onAddReplicaSet(obj interface{}) {
 		return
 	}
 
-	if err := c.updateOmDeploymentRs(nil, s); err != nil {
+	if err := c.updateOmDeploymentRs(conn, nil, s); err != nil {
 		log.Error("Failed to update OpsManager automation config: ", err)
 		return
 	}
@@ -50,7 +56,13 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 
 	log.Infow("Updating MongoDbReplicaSet", "oldConfig", oldRes.Spec, "newConfig", newRes.Spec)
 
-	agentKeySecretName, err := c.EnsureAgentKeySecretExists(newRes.Namespace, NewOpsManagerConnectionFromEnv())
+	conn, err := c.getOmConnection(newRes.Namespace, newRes.Spec.OmConfigName)
+	if err != nil {
+		log.Errorf("Failed to read OpsManager config map %s: %s", newRes.Spec.OmConfigName, err)
+		return
+	}
+
+	agentKeySecretName, err := c.EnsureAgentKeySecretExists(conn, newRes.Namespace)
 
 	if err != nil {
 		log.Error("Failed to generate/get agent key: ", err)
@@ -61,7 +73,7 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 
 	if scaleDown {
 		if err := prepareScaleDownReplicaSet(oldRes, newRes, agentKeySecretName); err != nil {
-			log.Error(err)
+			log.Error("Failed to prepare OpsManager for scaling down: ", err)
 			return
 		}
 	}
@@ -69,31 +81,30 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 	replicaSetObject := buildReplicaSetStatefulSet(newRes, agentKeySecretName)
 	_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(newRes.Spec.Service, 27017, newRes.Namespace, true, replicaSetObject)
 	if err != nil {
-		log.Error("Error trying to create a new statefulset and services for ReplicaSet: ", err)
+		log.Error("Failed to update the StatefulSet: ", err)
 		return
 	}
 
-	if err := c.updateOmDeploymentRs(oldRes, newRes); err != nil {
-		log.Error(err)
+	log.Info("Updated statefulset for replicaset")
+
+	if err := c.updateOmDeploymentRs(conn, nil, newRes); err != nil {
+		log.Error("Failed to update OpsManager automation config: ", err)
 		return
 	}
 
 	if scaleDown {
 		hostsToRemove := calculateHostsToRemove(oldRes, newRes)
 		log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
-		if err := om.StopMonitoring(NewOpsManagerConnectionFromEnv(), hostsToRemove); err != nil {
-			log.Error(err)
+		if err := om.StopMonitoring(conn, hostsToRemove); err != nil {
+			log.Errorf("Failed to stop monitoring on hosts %s: %s", hostsToRemove, err)
 			return
 		}
 	}
-
-	log.Info("Updated")
+	log.Info("Updated Replica Set!")
 }
 
-func prepareScaleDownReplicaSet(old, new *mongodb.MongoDbReplicaSet, secret string) error {
+func prepareScaleDownReplicaSet(omClient *om.OmConnection, old, new *mongodb.MongoDbReplicaSet, secret string) error {
 	log := zap.S().With("replicaSet", new.Name)
-
-	omClient := NewOpsManagerConnectionFromEnv()
 
 	toUpdate := int(old.Spec.Members - new.Spec.Members)
 	membersToUpdate := make([]string, toUpdate)
@@ -154,9 +165,7 @@ func (c *MongoDbController) onDeleteReplicaSet(obj interface{}) {
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
-func (c *MongoDbController) updateOmDeploymentRs(old, new *mongodb.MongoDbReplicaSet) error {
-	omConnection := NewOpsManagerConnectionFromEnv()
-
+func (c *MongoDbController) updateOmDeploymentRs(omConnection *om.OmConnection, old, new *mongodb.MongoDbReplicaSet) error {
 	if !waitUntilAllAgentsAreReady(new, omConnection) {
 		return errors.New("Some agents failed to register.")
 	}

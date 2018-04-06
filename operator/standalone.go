@@ -15,7 +15,13 @@ func (c *MongoDbController) onAddStandalone(obj interface{}) {
 
 	log := zap.S().With("standalone", s.Name)
 
-	agentKeySecretName, err := c.EnsureAgentKeySecretExists(s.Namespace, NewOpsManagerConnectionFromEnv())
+	conn, err := c.getOmConnection(s.Namespace, s.Spec.OmConfigName)
+	if err != nil {
+		log.Errorf("Failed to read OpsManager config map %s: %s", s.Spec.OmConfigName, err)
+		return
+	}
+
+	agentKeySecretName, err := c.EnsureAgentKeySecretExists(conn, s.Namespace)
 
 	if err != nil {
 		log.Error("Failed to generate/get agent key: ", err)
@@ -25,15 +31,13 @@ func (c *MongoDbController) onAddStandalone(obj interface{}) {
 	// standaloneObject is represented by a StatefulSet in Kubernetes
 	standaloneObject := buildStandaloneStatefulSet(s, agentKeySecretName)
 
-	// TODO we need to query for statefulset first in case previous create process failed on OM communication and
-	// statefulset was indeed created to make process idempotent
 	_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(s.Spec.Service, 27017, s.Namespace, true, standaloneObject)
 	if err != nil {
 		log.Error("Failed to create statefulset: ", err)
 		return
 	}
 
-	if err := updateOmDeployment(s); err != nil {
+	if err := updateOmDeployment(conn, s); err != nil {
 		log.Error("Failed to create standalone in OM: ", err)
 		return
 	}
@@ -45,7 +49,13 @@ func (c *MongoDbController) onUpdateStandalone(oldObj, newObj interface{}) {
 	newRes := newObj.(*mongodb.MongoDbStandalone).DeepCopy()
 	log := zap.S().With("standalone", newRes.Name)
 
-	agentKeySecretName, err := c.EnsureAgentKeySecretExists(newRes.Namespace, NewOpsManagerConnectionFromEnv())
+	conn, err := c.getOmConnection(newRes.Namespace, newRes.Spec.OmConfigName)
+	if err != nil {
+		log.Errorf("Failed to read OpsManager config map %s: %s", newRes.Spec.OmConfigName, err)
+		return
+	}
+
+	agentKeySecretName, err := c.EnsureAgentKeySecretExists(conn, newRes.Namespace)
 
 	if err != nil {
 		log.Error("Failed to generate/get agent key: ", err)
@@ -60,7 +70,7 @@ func (c *MongoDbController) onUpdateStandalone(oldObj, newObj interface{}) {
 		return
 	}
 
-	if err := updateOmDeployment(newRes); err != nil {
+	if err := updateOmDeployment(conn, newRes); err != nil {
 		log.Error("Failed to update standalone in OM: ", err)
 		return
 	}
@@ -76,9 +86,7 @@ func (c *MongoDbController) onDeleteStandalone(obj interface{}) {
 	zap.S().Info("Deleted MongoDbStandalone ", s.Name)
 }
 
-func updateOmDeployment(s *mongodb.MongoDbStandalone) error {
-	omConnection := NewOpsManagerConnectionFromEnv()
-
+func updateOmDeployment(omConnection *om.OmConnection, s *mongodb.MongoDbStandalone) error {
 	if !om.WaitUntilAgentsHaveRegistered(omConnection, s.Name) {
 		return errors.New("Agents never registered! Not creating standalone in OM!")
 	}

@@ -41,7 +41,7 @@ func buildStandaloneStatefulSet(obj *mongodb.MongoDbStandalone, agentKeySecretNa
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
 				},
-				Spec: baseContainer(obj.Name, agentKeySecretName),
+				Spec: basePod(obj.Spec.OmConfigName, agentKeySecretName),
 			},
 		},
 	}
@@ -77,7 +77,7 @@ func buildReplicaSetStatefulSet(obj *mongodb.MongoDbReplicaSet, agentKeySecretNa
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
 				},
-				Spec: baseContainer(obj.Name, agentKeySecretName),
+				Spec: basePod(obj.Spec.OmConfigName, agentKeySecretName),
 			},
 		},
 	}
@@ -121,31 +121,28 @@ func buildService(name string, label string, nameSpace string, port int32, expos
 	}
 }
 
-func baseContainer(name string, agentKeySecretName string) corev1.PodSpec {
+// basePod creates the standard pod definition which uses the automation agent container for managing mongod/mongos
+// instances. Configuration data is read from the config map named "omConfigMapName" value
+func basePod(omConfigMapName, agentKeySecretName string) corev1.PodSpec {
 	return corev1.PodSpec{
 		Containers: []corev1.Container{
 			{
 				Name:            ContainerName,
 				Image:           ContainerImage,
 				ImagePullPolicy: ContainerImagePullPolicy,
-				EnvFrom:         baseEnvFrom(agentKeySecretName),
-				Ports: []corev1.ContainerPort{
-					{
-						ContainerPort: 27017,
-						Name:          name,
-					},
-				},
+				EnvFrom:         baseEnvFrom(omConfigMapName, agentKeySecretName),
+				Ports:           []corev1.ContainerPort{{ContainerPort: 27017}},
 			},
 		},
 	}
 }
 
-func baseEnvFrom(agentSecretName string) []corev1.EnvFromSource {
+func baseEnvFrom(omConfigMapName, agentSecretName string) []corev1.EnvFromSource {
 	return []corev1.EnvFromSource{
 		{
 			ConfigMapRef: &corev1.ConfigMapEnvSource{
 				LocalObjectReference: corev1.LocalObjectReference{
-					Name: ContainerConfigMapName,
+					Name: omConfigMapName,
 				},
 			},
 		},

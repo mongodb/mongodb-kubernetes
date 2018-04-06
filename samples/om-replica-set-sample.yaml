@@ -1,4 +1,3 @@
----
 apiVersion: mongodb.com/v1alpha1
 kind: MongoDbReplicaSet
 metadata:
@@ -6,3 +5,4 @@ metadata:
 spec:
   members: 3
   mongodb_version: 3.6.3
+  ops_manager_config: global-om-config

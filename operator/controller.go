@@ -7,15 +7,14 @@ import (
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1alpha1"
 	mongodbscheme "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/scheme"
 	mongodbclient "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/typed/mongodb.com/v1alpha1"
+	"github.com/pkg/errors"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
-	appsV1 "k8s.io/client-go/kubernetes/typed/apps/v1"
 	coreV1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/cache"
 )
 
-const LabelApp = "om-controller"
 const LabelController = "om-controller"
 
 type MongoDbController struct {
@@ -47,8 +46,23 @@ func (c *MongoDbController) StartWatch(namespace string, stopCh chan struct{}) e
 	return nil
 }
 
-func (c *MongoDbController) StatefulSetApi(namespace string) appsV1.StatefulSetInterface {
-	return c.context.Clientset.AppsV1().StatefulSets(namespace)
+func (c *MongoDbController) getOmConnection(namespace string, omConfigMapName string) (*om.OmConnection, error) {
+	if omConfigMapName == "" {
+		return nil, errors.New("ops_manager_config_map spec parameter must be specified!")
+	}
+	data, e := c.kubeHelper.readConfigMap(namespace, omConfigMapName)
+	if e != nil {
+		return nil, e
+	}
+
+	return &om.OmConnection{
+			GroupId:      data[OmGroupId],
+			User:         data[OmUserName],
+			PublicApiKey: data[OmPublicKey],
+			BaseUrl:      data[OmBaseUrl],
+		},
+		nil
+
 }
 
 func (c *MongoDbController) SecretsApi(namespace string) coreV1.SecretInterface {
@@ -57,7 +71,7 @@ func (c *MongoDbController) SecretsApi(namespace string) coreV1.SecretInterface 
 
 // EnsureAgentKeySecretExists checks if the Secret with specified name (equal to group id) exists, otherwise tries to
 // generate agent key using OM public API and create Secret containing this key
-func (c *MongoDbController) EnsureAgentKeySecretExists(nameSpace string, omConnection *om.OmConnection) (string, error) {
+func (c *MongoDbController) EnsureAgentKeySecretExists(omConnection *om.OmConnection, nameSpace string) (string, error) {
 	secretName := omConnection.GroupId
 	log := zap.S().With("secret", secretName)
 	_, err := c.SecretsApi(nameSpace).Get(secretName, v1.GetOptions{})

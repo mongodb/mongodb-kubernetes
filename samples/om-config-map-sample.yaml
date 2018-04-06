@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ops-manager-config
+  name: global-om-config
   namespace: default
 data:
   PUBLIC_API_KEY: <your-public-api-key>
