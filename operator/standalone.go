@@ -1,8 +1,6 @@
 package operator
 
 import (
-	"fmt"
-
 	"github.com/10gen/ops-manager-kubernetes/om"
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1alpha1"
 	"github.com/pkg/errors"
@@ -37,7 +35,7 @@ func (c *MongoDbController) onAddStandalone(obj interface{}) {
 		return
 	}
 
-	if err := updateOmDeployment(conn, s); err != nil {
+	if err := c.updateOmDeployment(conn, s); err != nil {
 		log.Error("Failed to create standalone in OM: ", err)
 		return
 	}
@@ -70,7 +68,7 @@ func (c *MongoDbController) onUpdateStandalone(oldObj, newObj interface{}) {
 		return
 	}
 
-	if err := updateOmDeployment(conn, newRes); err != nil {
+	if err := c.updateOmDeployment(conn, newRes); err != nil {
 		log.Error("Failed to update standalone in OM: ", err)
 		return
 	}
@@ -86,7 +84,7 @@ func (c *MongoDbController) onDeleteStandalone(obj interface{}) {
 	zap.S().Info("Deleted MongoDbStandalone ", s.Name)
 }
 
-func updateOmDeployment(omConnection *om.OmConnection, s *mongodb.MongoDbStandalone) error {
+func (c *MongoDbController) updateOmDeployment(omConnection *om.OmConnection, s *mongodb.MongoDbStandalone) error {
 	if !om.WaitUntilAgentsHaveRegistered(omConnection, s.Name) {
 		return errors.New("Agents never registered! Not creating standalone in OM!")
 	}
@@ -96,12 +94,13 @@ func updateOmDeployment(omConnection *om.OmConnection, s *mongodb.MongoDbStandal
 		return errors.New("Could not read deployment from OM. Not creating standalone in OM!")
 	}
 
-	// TODO fix hostnames in CLOUDP-28316
-	serviceName := getOrFormatServiceName(s.Spec.Service, s.Name)
-	hostname := fmt.Sprintf("%s-0.%s.default.svc.cluster.local", s.Name, serviceName)
+	hostnames, err := c.kubeHelper.GetPodNames(s.Name, s.Namespace, s.Spec.ClusterName)
+	if err != nil {
+		return err
+	}
 	standaloneOmObject := om.NewProcess(s.Spec.Version).
 		SetName(s.Name).
-		SetHostName(hostname)
+		SetHostName(hostnames[0])
 
 	currentDeployment.MergeStandalone(standaloneOmObject)
 

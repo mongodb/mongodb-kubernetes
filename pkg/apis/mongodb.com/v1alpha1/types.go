@@ -13,10 +13,11 @@ type MongoDbReplicaSet struct {
 }
 
 type MongoDbReplicaSetSpec struct {
-	Members int32  `json:"members"`
+	Members int    `json:"members"`
 	Version string `json:"mongodb_version"`
 	// this is an optional service, it will get the name "<rsName>-service" in case not provided
-	Service *string `json:"service, omitempty"`
+	Service     string `json:"service, omitempty"`
+	ClusterName string `json:"cluster_name, omitempty"`
 	// this is the name of config map containing information about OpsManager connection parameters
 	OmConfigName string `json:"ops_manager_config"`
 }
@@ -42,7 +43,8 @@ type MongoDbStandalone struct {
 type MongoDbStandaloneSpec struct {
 	Version string `json:"mongodb_version"`
 	// this is an optional service, it will get the name "<standaloneName>-service" in case not provided
-	Service *string `json:"service, omitempty"`
+	Service     string `json:"service, omitempty"`
+	ClusterName string `json:"cluster_name, omitempty"`
 	// this is the name of config map containing information about OpsManager connection parameters
 	OmConfigName string `json:"ops_manager_config"`
 }

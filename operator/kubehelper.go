@@ -23,7 +23,7 @@ type KubeHelper struct {
 // will be allocated by Kubernetes) otherwise the type of service is default one ("ClusterIP") and it won't be connectible
 // from external (unless pods in statefulset expose themselves to outside using "hostNetwork: true")
 // Function returns the service port number assigned
-func (k *KubeHelper) createOrUpdateStatefulsetsWithService(serviceName *string, servicePort int32,
+func (k *KubeHelper) createOrUpdateStatefulsetsWithService(serviceName string, servicePort int32,
 	nameSpace string, exposeExternally bool, statefulsets ...*appsv1.StatefulSet) (*int32, error) {
 
 	service, err := k.ensureServicesExist(serviceName, servicePort, nameSpace, exposeExternally, statefulsets...)
@@ -54,7 +54,7 @@ func (k *KubeHelper) createOrUpdateStatefulsetsWithService(serviceName *string, 
 // ensureServicesExist checks if the necessary services exist and creates them if not. If the service name is not
 // provided - creates it based on the first replicaset name provided
 // TODO it must remove the external service in case it's no more needed
-func (k *KubeHelper) ensureServicesExist(serviceName *string, servicePort int32, nameSpace string,
+func (k *KubeHelper) ensureServicesExist(serviceName string, servicePort int32, nameSpace string,
 	exposeExternally bool, statefulsets ...*appsv1.StatefulSet) (*corev1.Service, error) {
 
 	sName := getOrFormatServiceName(serviceName, statefulsets[0].Name)
@@ -105,6 +105,15 @@ func (k *KubeHelper) createService(name string, label string, port int32, ns str
 	return k.kubeApi.CoreV1().Services(ns).Create(buildService(name, label, ns, port, exposeExternally))
 }
 
+func (k *KubeHelper) GetPodNames(setName, namespace, clusterName string) ([]string, error) {
+	s, err := k.kubeApi.AppsV1().StatefulSets(namespace).Get(setName, v1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	return GetDnsForStatefulSet(s, clusterName), nil
+}
+
 func (k *KubeHelper) readConfigMap(ns string, name string) (map[string]string, error) {
 	configMap, e := k.kubeApi.CoreV1().ConfigMaps(ns).Get(name, v1.GetOptions{})
 	if e != nil {
@@ -119,11 +128,11 @@ func discoverServicePort(service *corev1.Service) (*int32, error) {
 	}
 
 	if service.Spec.Type == corev1.ServiceTypeNodePort {
-		nodePort := MakeIntReference(service.Spec.Ports[0].NodePort)
+		nodePort := Int32Ref(service.Spec.Ports[0].NodePort)
 		zap.S().Infof(">> The node port for external connections is %d!", *nodePort)
 		return nodePort, nil
 	}
-	return MakeIntReference(service.Spec.Ports[0].Port), nil
+	return Int32Ref(service.Spec.Ports[0].Port), nil
 }
 
 // ensureStatefulsetsHaveServiceLabel makes sure all the statefulsets contain the correct label (to be mapped on service)

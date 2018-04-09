@@ -33,7 +33,7 @@ func buildStandaloneStatefulSet(obj *mongodb.MongoDbStandalone, agentKeySecretNa
 		},
 		Spec: appsv1.StatefulSetSpec{
 			ServiceName: serviceName,
-			Replicas:    MakeIntReference(1),
+			Replicas:    Int32Ref(1),
 			Selector: &metav1.LabelSelector{
 				MatchLabels: labels,
 			},
@@ -69,7 +69,7 @@ func buildReplicaSetStatefulSet(obj *mongodb.MongoDbReplicaSet, agentKeySecretNa
 		},
 		Spec: appsv1.StatefulSetSpec{
 			ServiceName: serviceName,
-			Replicas:    &obj.Spec.Members,
+			Replicas:    Int32Ref(int32(obj.Spec.Members)),
 			Selector: &metav1.LabelSelector{
 				MatchLabels: labels,
 			},
@@ -156,9 +156,9 @@ func baseEnvFrom(omConfigMapName, agentSecretName string) []corev1.EnvFromSource
 	}
 }
 
-func getOrFormatServiceName(service *string, objName string) string {
-	if service == nil {
+func getOrFormatServiceName(service, objName string) string {
+	if service == "" {
 		return objName + "-service"
 	}
-	return *service
+	return service
 }

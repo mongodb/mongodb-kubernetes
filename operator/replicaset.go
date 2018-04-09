@@ -106,10 +106,10 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 func prepareScaleDownReplicaSet(omClient *om.OmConnection, old, new *mongodb.MongoDbReplicaSet, secret string) error {
 	log := zap.S().With("replicaSet", new.Name)
 
-	toUpdate := int(old.Spec.Members - new.Spec.Members)
+	toUpdate := old.Spec.Members - new.Spec.Members
 	membersToUpdate := make([]string, toUpdate)
 	for i := 0; i < toUpdate; i++ {
-		membersToUpdate[i] = fmt.Sprintf("%s-%d", old.Name, i+toUpdate)
+		membersToUpdate[i] = GetPodName(old.Name, i+toUpdate)
 	}
 
 	// Stage 1. Set Votes and Priority to 0
@@ -120,7 +120,7 @@ func prepareScaleDownReplicaSet(omClient *om.OmConnection, old, new *mongodb.Mon
 
 	rs := deployment.GetReplicaSetByName(new.Name)
 	for i := new.Spec.Members; i < old.Spec.Members; i++ {
-		name := fmt.Sprintf("%s_%d", new.Name, i)
+		name := GetPodName(new.Name, i)
 		rs.FindMemberByName(name).SetVotes(0).SetPriority(0)
 	}
 	_, err = omClient.UpdateDeployment(deployment)
@@ -140,7 +140,7 @@ func prepareScaleDownReplicaSet(omClient *om.OmConnection, old, new *mongodb.Mon
 		return err
 	}
 	for i := new.Spec.Members; i < old.Spec.Members; i++ {
-		name := fmt.Sprintf("%s_%d", new.Name, i)
+		name := GetPodName(new.Name, i)
 		deployment.GetProcessByName(name).SetDisabled(true)
 	}
 
@@ -175,7 +175,11 @@ func (c *MongoDbController) updateOmDeploymentRs(omConnection *om.OmConnection, 
 		return err
 	}
 
-	members := createStandalonesForReplica(new.Name, new.Spec.Version, new.Spec.Service, new.Spec.Members)
+	hostnames, err := c.kubeHelper.GetPodNames(new.Name, new.Namespace, new.Spec.ClusterName)
+	if err != nil {
+		return err
+	}
+	members := createStandalonesForReplica(new.Name, new.Spec.Version, hostnames)
 	deployment.MergeReplicaSet(new.Name, members)
 
 	deployment.AddMonitoring()
@@ -192,16 +196,22 @@ func validateUpdate(oldSpec, newSpec *mongodb.MongoDbReplicaSet) error {
 	if newSpec.Namespace != oldSpec.Namespace {
 		return errors.New("Namespaces mismatch")
 	}
+
+	if newSpec.Spec.ClusterName != oldSpec.Spec.ClusterName {
+		return errors.New("Cluster Names mismatch")
+	}
+
 	return nil
 }
 
 func waitUntilAllAgentsAreReady(newRes *mongodb.MongoDbReplicaSet, omConnection *om.OmConnection) bool {
-	agentHostnames := make([]string, int(newRes.Spec.Members))
-	memberQty := int(newRes.Spec.Members)
+	agentHostnames := make([]string, newRes.Spec.Members)
+	memberQty := newRes.Spec.Members
 	// TODO names of pods must be fetched from Kube api
 	serviceName := getOrFormatServiceName(newRes.Spec.Service, newRes.Name)
 	for i := 0; i < memberQty; i++ {
-		agentHostnames[i] = fmt.Sprintf("%s-%d.%s", newRes.Name, i, serviceName)
+		name := GetPodName(newRes.Name, i)
+		agentHostnames[i] = fmt.Sprintf("%s.%s", name, serviceName)
 	}
 
 	if !om.WaitUntilAgentsHaveRegistered(omConnection, agentHostnames...) {
@@ -210,34 +220,16 @@ func waitUntilAllAgentsAreReady(newRes *mongodb.MongoDbReplicaSet, omConnection 
 	return true
 }
 
-// createStandalonesForReplica returns a list of om.Process with specified prefixes
-func createStandalonesForReplica(replicaSetName, version string, service *string, memberQty int32) []om.Process {
-	collection := make([]om.Process, memberQty)
-	qty := int(memberQty)
+func createStandalonesForReplica(name, version string, hostnames []string) []om.Process {
+	processes := make([]om.Process, len(hostnames))
 
-	sName := getOrFormatServiceName(service, replicaSetName)
-
-	for i := 0; i < qty; i++ {
-		// TODO names of pods must be fetched from Kube api
-		suffix := fmt.Sprintf("%s.default.svc.cluster.local", sName)
-		hostname := fmt.Sprintf("%s-%d.%s", replicaSetName, i, suffix)
-		name := fmt.Sprintf("%s_%d", replicaSetName, i)
-		member := om.NewProcess(version).
-			SetName(name).
+	for idx, hostname := range hostnames {
+		processes[idx] = om.NewProcess(version).
+			SetName(GetPodName(name, idx)).
 			SetHostName(hostname)
-		collection[i] = member
 	}
 
-	return collection
-}
-
-func fqdnForHost(rsName, service string, idx int) string {
-	suffix := fmt.Sprintf("%s.default.svc.cluster.local", service)
-	return fmt.Sprintf("%s-%d.%s", rsName, idx, suffix)
-}
-
-func nameForProcess(rsName string, idx int) string {
-	return fmt.Sprintf("%s_%d", rsName, idx)
+	return processes
 }
 
 func calculateHostsToRemove(old, new *mongodb.MongoDbReplicaSet) []string {
@@ -246,10 +238,10 @@ func calculateHostsToRemove(old, new *mongodb.MongoDbReplicaSet) []string {
 	}
 
 	service := getOrFormatServiceName(old.Spec.Service, old.Name)
-	qtyToDelete := int(old.Spec.Members - new.Spec.Members)
+	qtyToDelete := old.Spec.Members - new.Spec.Members
 	result := make([]string, qtyToDelete)
 	for i := 0; i < qtyToDelete; i++ {
-		result[i] = fqdnForHost(old.Name, service, i+int(new.Spec.Members))
+		result[i] = GetDnsNameFor(new.Name, service, new.Namespace, new.Spec.ClusterName, i+new.Spec.Members)
 	}
 
 	return result
