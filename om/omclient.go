@@ -170,7 +170,7 @@ func request(method string, hostname string, path string, reader io.Reader, user
 	req.Header.Add("Content-Type", contentType)
 
 	request, _ := httputil.DumpRequest(req, false)
-	zap.S().Debugw("Request sending", "request", request)
+	zap.S().Debugf("Request sending: \n %s", string(request))
 
 	resp, err = util.DefaultHttpClient.Do(req)
 

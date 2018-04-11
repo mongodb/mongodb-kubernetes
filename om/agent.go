@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 
+	"time"
+
 	"go.uber.org/zap"
 )
 
@@ -39,7 +41,19 @@ func BuildAgentStateFromBytes(jsonBytes []byte) (*AgentState, error) {
 // This is needed to check if given agent has registered.
 func CheckAgentExists(hostname_prefix string, agentState *AgentState) bool {
 	for _, result := range agentState.Results {
+		lastPing, err := time.Parse(time.RFC3339, result.LastConf)
+		if err != nil {
+			zap.S().Error("Wrong format for lastConf field: expected UTC format but the value is " + result.LastConf)
+			return false
+		}
 		if strings.HasPrefix(result.Hostname, hostname_prefix) {
+			// Any pings earlier than 1 minute ago are signs that agents are in trouble, so we cannot consider them as
+			// registered (may be we should decrease this to ~5-10 seconds?)
+			if lastPing.Add(time.Minute).Before(time.Now()) {
+				zap.S().Debugw("Agent is registered but its last ping was more than 1 minute ago", "ping",
+					lastPing, "hostname", result.Hostname)
+				return false
+			}
 			zap.S().Debugw("Agent is already registered", "hostname", result.Hostname)
 			return true
 		}

@@ -42,7 +42,7 @@ docker build -t om-operator:0.1 .
 
 echo "-- Deploying new operator"
 kubectl apply -f om-operator.yaml
-sleep 2
+sleep 3
 kubectl apply -f samples/my-config-map.yaml
 kubectl apply -f samples/my-replica-set.yaml
 #kubectl apply -f samples/my-standalone.yaml

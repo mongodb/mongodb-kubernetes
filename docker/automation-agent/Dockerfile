@@ -1,17 +1,23 @@
-FROM ubuntu
+FROM debian:jessie-slim
 
-RUN apt-get -qq update && apt-get -y -qq install libsasl2-2 curl supervisor
+RUN groupadd -r mongodb && useradd -r -g mongodb mongodb
+
+RUN apt-get -qq update \
+    && apt-get -y -qq install libsasl2-2 curl supervisor \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY content/ /mongodb-automation/
-RUN mkdir -p /var/log/mongodb-mms-automation
+RUN mkdir -p /var/log/mongodb-mms-automation \
+    && mkdir -p /var/lib/mongodb-mms-automation \
+    && mkdir -p /data \
+    && chown mongodb /var/log/mongodb-mms-automation \
+    && chown mongodb /var/lib/mongodb-mms-automation \
+    && chown mongodb /data \
+    && chown mongodb /mongodb-automation
 
-# CMD /mongodb-automation/agent.sh
 CMD supervisord -c /mongodb-automation/supervisor.conf
 
 # To build: docker build . -t ops-manager-agent
 
-# To run normally:
-# docker run -t ops-manager-agent -e BASE_URL="base_url" -e GROUP_ID="group_id" -e AGENT_API_KEY="your-key"
-
-# To run with server pools:
-# docker run -t ops-manager-agent -e BASE_URL="base_url" -e SERVER_POOL_KEY="server_pool_key"
+# To run normally (should specify env variables first):
+# docker run -it ops-manager-agent
