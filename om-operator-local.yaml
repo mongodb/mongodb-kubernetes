@@ -69,7 +69,7 @@ spec:
       serviceAccountName: om-operator
       containers:
       - name: om-operator
-        image: quay.io/rodrigo_valin/om-operator
+        image: om-operator:0.1
         env:
         - name: OM_OPERATOR_ENV
-          value: "dev"
+          value: "local"

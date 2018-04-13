@@ -7,6 +7,8 @@ import (
 	"syscall"
 	"time"
 
+	"flag"
+
 	"github.com/10gen/ops-manager-kubernetes/operator"
 	"github.com/10gen/ops-manager-kubernetes/operator/crd"
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1alpha1"
@@ -16,9 +18,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
-	"flag"
-	"strings"
-
+	"github.com/spf13/viper"
 	"go.uber.org/zap"
 )
 
@@ -72,30 +72,68 @@ func main() {
 }
 
 func initializeEnvironment() {
-	envPtr := flag.String("env", "prod", "Name of environment used. Must be one of [\"dev\", \"prod\"]")
+	envPtr := flag.String("env", "prod", "Name of environment used. Must be one of [\"prod\", \"dev\", \"local\"]")
 
 	flag.Parse()
 
 	env := *envPtr
-	var logger *zap.Logger
-	var e error
-	if strings.EqualFold(env, "prod") {
-		logger, e = zap.NewProduction()
-	} else if strings.EqualFold(env, "dev") {
-		logger, e = zap.NewDevelopment()
-	} else {
-		zap.S().Error("Wrong environment specified", "env", env)
-		flag.Usage()
+
+	validateEnv(env)
+
+	initLogger(env)
+
+	initConfiguration(env)
+
+	log.Info("Operator environment: ", env)
+}
+
+func validateEnv(env string) {
+	switch env {
+	case "prod", "dev", "local":
+		return
+	}
+	zap.S().Error("Wrong environment specified", "env", env)
+	flag.Usage()
+	os.Exit(1)
+}
+
+func initConfiguration(env string) {
+	switch env {
+	case "prod":
+		viper.SetConfigFile("config/prod.properties")
+	case "dev":
+		viper.SetConfigFile("config/dev.properties")
+	case "local":
+		viper.SetConfigFile("config/local.properties")
+	}
+
+	viper.SetConfigName("config")
+	viper.SetConfigType("props")
+	err := viper.ReadInConfig()
+	if err != nil {
+		log.Error("Failed to read configuration file", "config file", viper.ConfigFileUsed())
 		os.Exit(1)
 	}
+	viper.Set(operator.Mode, env)
+}
+
+func initLogger(env string) {
+	var logger *zap.Logger
+	var e error
+
+	switch env {
+	case "prod":
+		logger, e = zap.NewProduction()
+	case "dev", "local":
+		logger, e = zap.NewDevelopment()
+	}
+
 	if e != nil {
 		fmt.Println("Failed to create logger, will use the default one")
 		fmt.Println(e)
 	}
 	zap.ReplaceGlobals(logger)
 	log = zap.S()
-
-	log.Info("Operator environment: ", env)
 }
 
 func createContext() (*crd.Context, mongodbclient.MongodbV1alpha1Interface, error) {

@@ -10,9 +10,7 @@ const (
 	// Variable for agent key stored in the Secret
 	AgentKey = "AGENT_API_KEY"
 
-	ContainerName            = "ops-manager-agent"
-	ContainerImage           = "quay.io/rodrigo_valin/automation-agent:latest"
-	ContainerImagePullPolicy = "Always"
+	ContainerName = "ops-manager-agent"
 
 	CreatedByOperator = "CreatedByOmOperator"
 
@@ -23,4 +21,9 @@ const (
 	MongoDbDefaultPort = 27017
 
 	ResourceName = "MongoDB"
+
+	// Configuration keys (must match the properties in files in config directory)
+	Mode                           = "mode"
+	AutomationAgentImageUrl        = "automation.agent.image.url"
+	AutomationAgentImagePullPolicy = "automation.agent.image.pull.policy"
 )

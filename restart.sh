@@ -41,7 +41,7 @@ eval $(minikube docker-env)
 docker build -t om-operator:0.1 .
 
 echo "-- Deploying new operator"
-kubectl apply -f om-operator.yaml
+kubectl apply -f om-operator-local.yaml
 sleep 3
 kubectl apply -f samples/my-config-map.yaml
 kubectl apply -f samples/my-replica-set.yaml
