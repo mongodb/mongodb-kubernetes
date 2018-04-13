@@ -42,7 +42,7 @@ func buildStandaloneStatefulSet(obj *mongodb.MongoDbStandalone, agentKeySecretNa
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
 				},
-				Spec: basePod(obj.Spec.OmConfigName, agentKeySecretName),
+				Spec: basePodSpec(obj.Spec.OmConfigName, agentKeySecretName),
 			},
 		},
 	}
@@ -78,7 +78,7 @@ func buildReplicaSetStatefulSet(obj *mongodb.MongoDbReplicaSet, agentKeySecretNa
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
 				},
-				Spec: basePod(obj.Spec.OmConfigName, agentKeySecretName),
+				Spec: basePodSpec(obj.Spec.OmConfigName, agentKeySecretName),
 			},
 		},
 	}
@@ -122,9 +122,9 @@ func buildService(name string, label string, nameSpace string, port int32, expos
 	}
 }
 
-// basePod creates the standard pod definition which uses the automation agent container for managing mongod/mongos
+// basePodSpec creates the standard pod definition which uses the automation agent container for managing mongod/mongos
 // instances. Configuration data is read from the config map named "omConfigMapName" value
-func basePod(omConfigMapName, agentKeySecretName string) corev1.PodSpec {
+func basePodSpec(omConfigMapName, agentKeySecretName string) corev1.PodSpec {
 	return corev1.PodSpec{
 		Containers: []corev1.Container{
 			{

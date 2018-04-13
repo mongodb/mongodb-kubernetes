@@ -1,7 +1,9 @@
+---
 apiVersion: mongodb.com/v1alpha1
 kind: MongoDbReplicaSet
 metadata:
   name: liffey
+  namespace: mongodb
 spec:
   members: 3
   mongodb_version: 3.6.3
