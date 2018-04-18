@@ -8,10 +8,13 @@
 #
 # $ docker build -t om-operator:0.1 .
 #
+# To run:
+# $ docker run -e OM_OPERATOR_ENV=local om-operator:0.1
 #
 FROM ubuntu:14.04
 MAINTAINER Ops Manager Team <mms@10gen.com>
 
+COPY config /etc/om-operator/
 ADD om-operator /usr/local/bin/
 
 ENTRYPOINT exec /usr/local/bin/om-operator -env=$OM_OPERATOR_ENV

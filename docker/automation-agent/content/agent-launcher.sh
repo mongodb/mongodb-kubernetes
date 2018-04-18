@@ -14,6 +14,7 @@ else
         echo "-mmsApiKey (not specified)"
     else
         echo "-mmsApiKey <hidden>"
+    fi
 
     $mms_home/mongodb-mms-automation-agent \
         -mmsBaseUrl $BASE_URL \

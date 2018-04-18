@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -xeuo pipefail
+
 # Use this to rebuild and reinstall the operator
 
 echo "-- Removing objects managed by the operator"

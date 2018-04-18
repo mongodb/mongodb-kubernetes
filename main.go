@@ -72,6 +72,8 @@ func main() {
 }
 
 func initializeEnvironment() {
+	// TODO if 'env' parameter is provided but it's empty - then usage is printed and program shuts down.
+	// this is bad for running in container as in Dockerfile we always pass the env variable (but it can have empty value)
 	envPtr := flag.String("env", "prod", "Name of environment used. Must be one of [\"prod\", \"dev\", \"local\"]")
 
 	flag.Parse()
@@ -100,18 +102,17 @@ func validateEnv(env string) {
 func initConfiguration(env string) {
 	switch env {
 	case "prod":
-		viper.SetConfigFile("config/prod.properties")
+		viper.SetConfigFile("/etc/om-operator/prod.properties")
 	case "dev":
-		viper.SetConfigFile("config/dev.properties")
+		viper.SetConfigFile("/etc/om-operator/dev.properties")
 	case "local":
-		viper.SetConfigFile("config/local.properties")
+		viper.SetConfigFile("/etc/om-operator/local.properties")
 	}
 
-	viper.SetConfigName("config")
 	viper.SetConfigType("props")
 	err := viper.ReadInConfig()
 	if err != nil {
-		log.Error("Failed to read configuration file", "config file", viper.ConfigFileUsed())
+		log.Errorw("Failed to read configuration file", "config file", viper.ConfigFileUsed(), "error", err)
 		os.Exit(1)
 	}
 	viper.Set(operator.Mode, env)
