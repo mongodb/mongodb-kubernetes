@@ -7,8 +7,8 @@ Ops Manager installation. This provides combined power of Kubernetes (native sch
 
 ## High-level
 
-The high-level picturefor the process of installing Mongodb deployment into Kubernetes cluster is as follows:
-* admin creates the `om-operator` Kubernetes Deployment which contains the operator application. This is a one-time operation.
+The high-level picture for the process of installing Mongodb deployment into Kubernetes cluster is as follows:
+* admin creates the `om-operator` Kubernetes Deployment which contains the operator application from config `om-operator.yaml`. This is a one-time operation.
 * admin creates custom MongoDB objects in Kubernetes (`MongoDbStandalone`, `MongoDbReplicaSet`, `MongoDbShardedCluster`). For example is `kubectl apply -f my-replicaset.yaml`
 * `om-operator` watches these changes and applies them to different participants:
   * creates the Kubernetes StatefulSet containing containers with automation agent binaries. They will be responsible for installation and managing local mongod process.
@@ -74,7 +74,7 @@ parameters from it:
 Now with this data, copy the `samples/om-config-map-sample.yaml` to `samples/my-om-config-map.yaml`,
  `samples/om-replica-set-sample.yaml` to `samples/my-replica-set-sample.yaml` and edit them.
 
-> files with path `samples/my-` are ignored by git so you can modify them locally at any time
+> All files in the project starting with `my-` prefix are ignored by git so you can modify them locally at any time
 
 Create the config-map and replica set objects in Kubernetes:
 
