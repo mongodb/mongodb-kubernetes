@@ -65,7 +65,7 @@ spec:
       serviceAccountName: om-operator
       containers:
       - name: om-operator
-        image: quay.io/rodrigo_valin/om-operator
+        image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/om-operator
         env:
         - name: OM_OPERATOR_ENV
           value: "dev"

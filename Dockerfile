@@ -11,7 +11,7 @@
 # To run:
 # $ docker run -e OM_OPERATOR_ENV=local om-operator:0.1
 #
-FROM ubuntu:14.04
+FROM debian:jessie-slim
 MAINTAINER Ops Manager Team <mms@10gen.com>
 
 COPY config /etc/om-operator/

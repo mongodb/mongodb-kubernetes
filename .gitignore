@@ -4,5 +4,6 @@ om-operator
 pkg/client
 .idea/
 ops-manager-kubernetes.iml
-/samples/my-*
+my-*
+config/my-*
 /docker/node-mongo-app/node_modules/

@@ -114,3 +114,19 @@ Reading logs:
     [ { _id: 5aabda6c9398583e26bf211a, a: 1 },
       { _id: 5aabda6c9398586118bf211b, a: 2 },
       { _id: 5aabda6c939858c046bf211c, a: 3 } ]
+      
+## Development Process
+### Dev Clusters
+We use `kops` utility to provision and manage Kubernetes clusters. We have one shared environment for development `dev.mongokubernetes.com` and each developer can create their own clusters. Usual practice is start from 3 EC2 nodes and extend them to bigger number only if necessary.
+
+More on working with `kops` is [here](docs/aws_kops.md)
+
+### Docker Registry
+Docker images are published to Elastic Container Registry `268558157000.dkr.ecr.us-east-1.amazonaws.com` where a specific repository is created for each of namespace/application combinations. For example `dev` versions of agent and operator reside in `268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/ops-manager-agent` and `268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/om-operator`.
+
+More on how to work with ECR is [here](docs/aws_docker_registry.md) 
+
+For public images we plan to use `quay.io`
+
+### Workflow
+The development workflow is not quite settled yet, there is no easy way of quick changing/redeploying environments using standard scripts, also we plan to use `Helm` for packaging of Kubernetes artifacts configurations. There is a general script for cleaning Kubernetes objects and deploying om-operator there (`restart.sh`) - you can create a copy with prefix `my-` and accomodate it for your purposes - it will be ignored by Git.
