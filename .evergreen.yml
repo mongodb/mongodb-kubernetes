@@ -1,33 +1,57 @@
-# Evergreen configuration for MongoDB Cloud, Atlas and OpsManager
 stepback: true
 
 variables:
   ops_manager_version: "3.7.0"
 
 functions:
-  "setup": &setup
-    command: git.get_project
-    type: system
-    params:
-      directory: ops-manager-kubernetes
+  "clone":
+    - command: shell.exec
+      params:
+        script: |
+          mkdir -p src/github.com/10gen
 
+    - command: git.get_project
+      type: system
+      params:
+        directory: src/github.com/10gen/ops-manager-kubernetes
 
+  "build":
+    - command: shell.exec
+      type: system
+      params:
+        script: |
+          src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build
+    - command: s3.put
+      params:
+        aws_key: ${mms_build_s3_aws_access_key}
+        aws_secret: ${mms_build_s3_aws_secret}
+        local_file: om-operator
+        remote_file: ops-manager-operator/${revision}/om-operator
+        bucket: ops-manager-kubernetes-build
+        permissions: public-read
+        content_type: application/octet-stream
 
 tasks:
 
-- name: SETUP
-  tags: ["setup"]
+- name: build_operator
+  tags: ["build_operator"]
   commands:
-    - func: "setup"
+    - func: "clone"
+    - func: "build"
 
+post:
+  - command: gotest.parse_files
+    params:
+      files: ["*.suite", "src/**/*.suite"]
 
 buildvariants:
 
-- name: one_teo
+- name: default
   display_name: 1.
   run_on:
-    - rhel70-small
+#    - rhel70-small
+     - ubuntu1404-build
   batchtime: 1440 # 1 day
   stepback: false
   tasks:
-    - ".setup"
+    - ".build_operator"

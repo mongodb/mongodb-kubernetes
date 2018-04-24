@@ -1,10 +1,11 @@
 package om
 
 import (
-	"testing"
-	"github.com/stretchr/testify/assert"
-	"strconv"
 	"fmt"
+	"strconv"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestSerialize(t *testing.T) {

@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+
+set -xeuo pipefail
+
+export GOROOT=/opt/golang/go1.9.5
+export GOPATH="$(pwd)"
+export GOBIN="${GOPATH}/bin"
+export PATH="${GOBIN}:$GOROOT/bin:${PATH}"
+
+## Install `dep`
+mkdir -p "${GOBIN}" # needed for the install of dep
+curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
+
+## Run `dep`
+cd "${GOPATH}/src/github.com/10gen/ops-manager-kubernetes"
+dep ensure -v
+
+## Generate code
+./codegen.sh
+
+##
+go version
+
+## Unit Test (note, that we combine testing and compiling in one file as they need the same
+# preliminary actions (dep, codegen)). Local tests using real OM are excluded
+go test -v  $(go list ./... | grep -v '/\(pkg\|local\)') > $GOPATH/ops-manager-kubernetes.suite
+
+if grep -q "FAIL" $GOPATH/ops-manager-kubernetes.suite
+then
+    echo "Some tests failed!"
+    exit 1
+fi
+
+## Compile!
+CGO_ENABLED=0 GOOS=linux go build -o om-operator
+
+mv om-operator $GOPATH
