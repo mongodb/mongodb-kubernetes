@@ -4,12 +4,28 @@ kind: Namespace
 metadata:
   name: mongodb
 
+
 ---
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1beta1
 metadata:
   name: om-operator
+  namespace: mongodb
 rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - secrets
+  - services
+  verbs:
+  - get
+  - create
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets
+  verbs: ["*"]
 - apiGroups:
   - apiextensions.k8s.io
   resources:
@@ -48,6 +64,21 @@ subjects:
 - kind: ServiceAccount
   name: om-operator
   namespace: mongodb
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: admin-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: om-operator
+  namespace: mongodb
+
 
 ---
 apiVersion: apps/v1beta1
