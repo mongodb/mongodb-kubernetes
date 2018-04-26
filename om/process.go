@@ -2,8 +2,20 @@ package om
 
 import "fmt"
 
+type MongoType string
+
+const (
+	ProcessTypeMongos MongoType = "mongos"
+	ProcessTypeMongod MongoType = "mongod"
+)
+
 /*
-This corresponds to
+This is a class for all types of processes.
+Note, that mongos types of processes don't have some fields (replication, storage etc) but it's impossible to use a
+separate types for different processes (mongos, mongod) with different methods due to limitation of Go embedding model.
+So the code using this type must be careful and make sure the state is consistent.
+
+The resulting json for this type:
 
 	{
 		"args2_6": {
@@ -38,10 +50,21 @@ func NewProcessFromInterface(i interface{}) Process {
 	return i.(map[string]interface{})
 }
 
-func NewProcess(processVersion string) Process {
+func NewMongosProcess(name, hostName, processVersion string) Process {
 	ans := Process{}
 
-	initDefault(processVersion, ans)
+	initDefault(name, hostName, processVersion, ProcessTypeMongos, ans)
+
+	// default values for configurable values
+	ans.SetLogPath("/data/mongodb.log")
+
+	return ans
+}
+
+func NewMongodProcess(name, hostName, processVersion string) Process {
+	ans := Process{}
+
+	initDefault(name, hostName, processVersion, ProcessTypeMongod, ans)
 
 	// default values for configurable values
 	ans.SetDbPath("/data")
@@ -50,18 +73,8 @@ func NewProcess(processVersion string) Process {
 	return ans
 }
 
-func (s Process) SetName(processName string) Process {
-	s["name"] = processName
-	return s
-}
-
 func (s Process) Name() string {
 	return s["name"].(string)
-}
-
-func (s Process) SetHostName(processHostname string) Process {
-	s["hostname"] = processHostname
-	return s
 }
 
 func (s Process) HostName() string {
@@ -69,21 +82,23 @@ func (s Process) HostName() string {
 }
 
 func (s Process) SetDbPath(dbPath string) Process {
-	s.Args()["storage"] = map[string]string{"dbPath": dbPath}
+	readOrCreateMap(s.Args(), "storage")["dbPath"] = dbPath
 	return s
 }
 
 func (s Process) DbPath() string {
-	return s.Args()["storage"].(map[string]string)["dbPath"]
+	return readMapValueAsString(s.Args(), "storage", "dbPath")
 }
 
 func (s Process) SetLogPath(logPath string) Process {
-	s.Args()["systemLog"] = map[string]string{"destination": "file", "path": logPath}
+	sysLogMap := readOrCreateMap(s.Args(), "systemLog")
+	sysLogMap["destination"] = "file"
+	sysLogMap["path"] = logPath
 	return s
 }
 
 func (s Process) LogPath() string {
-	return s.Args()["systemLog"].(map[string]string)["path"]
+	return readMapValueAsString(s.Args(), "systemLog", "path")
 }
 
 func (s Process) SslCAFilePath(ProcessSslCAFilePath string) Process {
@@ -100,67 +115,103 @@ func (s Process) ClientCertificateMode(ProcessClientCertificateMode bool) Proces
 	return s
 }
 func (s Process) Args() map[string]interface{} {
-	if args, ok := s["args2_6"].(map[string]interface{}); ok {
-		return args
+	if _, ok := s["args2_6"]; !ok {
+		s["args2_6"] = make(map[string]interface{}, 0)
 	}
-	args := make(map[string]interface{})
-	s["args2_6"] = args
-	return args
+	return s["args2_6"].(map[string]interface{})
 }
 
 func (s Process) Version() string {
 	return s["version"].(string)
 }
 
+func (s Process) ProcessType() MongoType {
+	return s["processType"].(MongoType)
+}
+
 func (s Process) Disabled() bool {
 	return s["disabled"].(bool)
 }
 
-func (s Process) SetDisabled(bool) {
-	s["disabled"] = true
-}
-
-func (s Process) MergeFrom(otherProcess Process) {
-	s.SetName(otherProcess.Name())
-	s.SetHostName(otherProcess.HostName())
-	s.SetDbPath(otherProcess.DbPath())
-	s.SetLogPath(otherProcess.LogPath())
-
-	initDefault(otherProcess.Version(), s)
-	// todo other fields
+func (s Process) SetDisabled(disabled bool) {
+	s["disabled"] = disabled
 }
 
 func (s Process) String() string {
 	return fmt.Sprintf("\"%s\" (hostName: %s, version: %s, args: %s)", s.Name(), s.HostName(), s.Version(), s.Args())
 }
 
-/*
-
-func (p Process) String() string {
-	return fmt.Sprintf("\"%s\" (hostname: %s)", p.Name(), p.HostName())
-}
-*/
-
-// ****************** These ones are private methods not exposed to other packages *************************************
-
-func initDefault(processVersion string, process Process) {
+func initDefault(name, hostName, processVersion string, processType MongoType, process Process) {
 	process["version"] = processVersion
 	process["authSchemaVersion"] = 5 // TODO calculate it based on mongo version
 	// todo calcualte feature compatibility version from the version (leave only two digits)
 	process["featureCompatibilityVersion"] = "3.6"
-	process["processType"] = "mongod"
+	process["processType"] = processType
+	process["name"] = name
+	process["hostname"] = hostName
 
+	// Implementation note: seems we can easily use the default port for any process (mongos/configSrv/mongod) as all
+	// processes are run in isolated containers and no conflicts can happen
 	if _, ok := process.Args()["net"]; !ok {
 		process.Args()["net"] = make(map[string]interface{}, 0)
 	}
 	process.Args()["net"].(map[string]interface{})["port"] = 27017
 }
 
+// ****************** These ones are private methods not exposed to other packages *************************************
+
+// mergeFrom merges the Kubernetes version of process (otherProcess) into OM one.
+// Considers the type of process and rewrites only relevant fields
+func (s Process) mergeFrom(otherProcess Process) {
+	s.SetLogPath(otherProcess.LogPath())
+
+	if otherProcess.ProcessType() == ProcessTypeMongod {
+		s.SetDbPath(otherProcess.DbPath())
+		s.setReplicaSetName(otherProcess.replicaSetName())
+	} else {
+		s.setCluster(otherProcess.Cluster())
+	}
+
+	initDefault(otherProcess.Name(), otherProcess.HostName(), otherProcess.Version(), otherProcess.ProcessType(), s)
+}
+
+func readOrCreateMap(m map[string]interface{}, key string) map[string]interface{} {
+	if _, ok := m[key]; !ok {
+		m[key] = make(map[string]interface{}, 0)
+	}
+	return m[key].(map[string]interface{})
+}
+
+func readMapValueAsString(m map[string]interface{}, key, secondKey string) string {
+	if _, ok := m[key]; !ok {
+		return ""
+	}
+	secondMap := m[key].(map[string]interface{})
+
+	if _, ok := secondMap[secondKey]; !ok {
+		return ""
+	}
+	return secondMap[secondKey].(string)
+}
+
+// These methods are ONLY FOR REPLICA SET members!
 // external packages are not supposed to call this method directly as it should be called during replica set building
 func (s Process) setReplicaSetName(rsName string) Process {
-	s.Args()["replication"] = map[string]string{"replSetName": rsName}
+	readOrCreateMap(s.Args(), "replication")["replSetName"] = rsName
 	return s
 }
+
 func (s Process) replicaSetName() string {
-	return s.Args()["replication"].(map[string]string)["replSetName"]
+	return readMapValueAsString(s.Args(), "replication", "replSetName")
+}
+
+// These methods are ONLY FOR MONGOS types!
+// external packages are not supposed to call this method directly as it should be called during sharded cluster building
+func (s Process) setCluster(clusterName string) Process {
+	s["cluster"] = clusterName
+	return s
+}
+
+func (s Process) Cluster() string {
+	return s["cluster"].(string)
 }

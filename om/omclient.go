@@ -169,7 +169,7 @@ func request(method string, hostname string, path string, reader io.Reader, user
 	req.Header.Set("Authorization", getDigestAuthorization(digestParts, method, path, user, token))
 	req.Header.Add("Content-Type", contentType)
 
-	request, _ := httputil.DumpRequest(req, false)
+	request, _ := httputil.DumpRequest(req, true)
 	zap.S().Debugf("Request sending: \n %s", string(request))
 
 	resp, err = util.DefaultHttpClient.Do(req)

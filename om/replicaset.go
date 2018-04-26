@@ -48,7 +48,7 @@ func NewReplicaSetMemberFromInterface(i interface{}) ReplicaSetMember {
 
 func NewReplicaSet(name string) ReplicaSet {
 	ans := ReplicaSet{}
-	ans["_id"] = name
+	ans.setName(name)
 	ans["members"] = make([]ReplicaSetMember, 0)
 	return ans
 }
@@ -112,16 +112,44 @@ func (r ReplicaSetMember) Id() int {
 		}]
 },*/
 
-func (r ReplicaSet) MergeFrom(otherRs ReplicaSet) []string {
+func (r ReplicaSet) String() string {
+	return fmt.Sprintf("\"%s\" (members: %v)", r.Name(), r.members())
+}
+
+func (r ReplicaSetMember) String() string {
+	return fmt.Sprintf("[id: %v, host: %v]", r.Name(), r.Id())
+}
+
+// ***************************************** Private methods ***********************************************************
+
+// Adding a member to the replicaset. The _id for the new member is calculated based on last existing member in the RS.
+// Note that any other configuration (arbiterOnly/priority etc) can be passed as the argument to the function if needed
+func (r ReplicaSet) addMember(process Process) {
+	members := r.members()
+	lastIndex := -1
+	if len(members) > 0 {
+		lastIndex = members[len(members)-1].Id()
+	}
+
+	rsMember := ReplicaSetMember{}
+	rsMember["_id"] = lastIndex + 1
+	rsMember["host"] = process.Name()
+	r.setMembers(append(members, rsMember))
+}
+
+func (r ReplicaSet) mergeFrom(otherRs ReplicaSet) []string {
+	r.setName(otherRs.Name())
+
 	// technically we use "otherMap" as the target map which will be used to update the members
 	// for the 'r' object
 	currentMap := buildMapOfRsNodes(r)
 	otherMap := buildMapOfRsNodes(otherRs)
 
-	// merge overlapping members to the otherMap (overriding 'host' field and then )
+	// merge overlapping members to the otherMap (overriding 'host' and '_id" fields)
 	for k, currentValue := range currentMap {
 		if otherValue, ok := otherMap[k]; ok {
-			currentValue["host"] = otherValue["host"]
+			currentValue["host"] = otherValue.Name()
+			currentValue["_id"] = otherValue.Id()
 			otherMap[k] = currentValue
 		}
 	}
@@ -145,31 +173,6 @@ func (r ReplicaSet) MergeFrom(otherRs ReplicaSet) []string {
 	return removedMembers
 }
 
-func (r ReplicaSet) String() string {
-	return fmt.Sprintf("\"%s\" (members: %v)", r.Name(), r.members())
-}
-
-func (r ReplicaSetMember) String() string {
-	return fmt.Sprintf("[id: %v, host: %v]", r.Name(), r.Id())
-}
-
-// ***************************************** Private methods ***********************************************************
-
-// Adding a member to the replicaset. The _id for the new member is calculated based on last existing member in the RS.
-// Note that any other configuration (arbiterOnly/priority etc) can be passed as the argument to the function if needed
-func (r ReplicaSet) addMember(process Process) {
-	members := r.members()
-	lastIndex := -1
-	if len(members) > 0 {
-		lastIndex = members[len(members)-1]["_id"].(int)
-	}
-
-	rsMember := ReplicaSetMember{}
-	rsMember["_id"] = lastIndex + 1
-	rsMember["host"] = process.Name()
-	r.setMembers(append(members, rsMember))
-}
-
 func (r ReplicaSet) members() []ReplicaSetMember {
 	switch v := r["members"].(type) {
 	case []ReplicaSetMember:
@@ -185,11 +188,19 @@ func (r ReplicaSet) members() []ReplicaSetMember {
 	}
 }
 
+func (r ReplicaSet) setName(name string) {
+	r["_id"] = name
+}
+
 func (r ReplicaSet) setMembers(members []ReplicaSetMember) {
 	r["members"] = members
 }
 
-func (r ReplicaSet) FindMemberByName(name string) *ReplicaSetMember {
+func (r ReplicaSet) clearMembers() {
+	r["members"] = make([]ReplicaSetMember, 0)
+}
+
+func (r ReplicaSet) findMemberByName(name string) *ReplicaSetMember {
 	members := r.members()
 	for _, m := range members {
 		if m.Name() == name {
@@ -200,13 +211,13 @@ func (r ReplicaSet) FindMemberByName(name string) *ReplicaSetMember {
 	return nil
 }
 
-func (r ReplicaSetMember) SetVotes(votes int) ReplicaSetMember {
+func (r ReplicaSetMember) setVotes(votes int) ReplicaSetMember {
 	r["votes"] = votes
 
 	return r
 }
 
-func (r ReplicaSetMember) SetPriority(priority int) ReplicaSetMember {
+func (r ReplicaSetMember) setPriority(priority int) ReplicaSetMember {
 	r["priority"] = priority
 
 	return r

@@ -68,8 +68,12 @@ type MongoDbShardedCluster struct {
 }
 
 type MongoDbShardedClusterSpec struct {
-	HostName string `json:"hostname"`
-	Shards   int32
+	ShardNamePrefix   string `json:"shardNamePrefix"`
+	ShardsCount       int    `json:"shards_count"`
+	ShardMongodsCount int    `json:"shard_mongods_count"`
+	Version           string `json:"mongodb_version"`
+	MongosCount       int    `json:"mongos_count"`
+	ConfigServerCount int    `json:"config_server_count"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

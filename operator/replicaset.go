@@ -115,9 +115,8 @@ func prepareScaleDownReplicaSet(omClient *om.OmConnection, old, new *mongodb.Mon
 		return err
 	}
 
-	rs := deployment.GetReplicaSetByName(new.Name)
 	for _, el := range membersToUpdate {
-		rs.FindMemberByName(el).SetVotes(0).SetPriority(0)
+		deployment.MarkRsMemberUnvoted(new.Name, el)
 	}
 
 	_, err = omClient.UpdateDeployment(deployment)
@@ -138,7 +137,7 @@ func prepareScaleDownReplicaSet(omClient *om.OmConnection, old, new *mongodb.Mon
 	}
 
 	for _, el := range membersToUpdate {
-		deployment.GetProcessByName(el).SetDisabled(true)
+		deployment.DisableProcess(el)
 	}
 
 	_, err = omClient.UpdateDeployment(deployment)
@@ -210,7 +209,8 @@ func (c *MongoDbController) updateOmDeploymentRs(omConnection *om.OmConnection, 
 		return err
 	}
 	members := createStandalonesForReplica(new.Name, new.Spec.Version, hostnames)
-	deployment.MergeReplicaSet(new.Name, members)
+	replicaSet := om.NewReplicaSetWithProcesses(om.NewReplicaSet(new.Name), members)
+	deployment.MergeReplicaSet(replicaSet)
 
 	deployment.AddMonitoring()
 
@@ -254,9 +254,7 @@ func createStandalonesForReplica(name, version string, hostnames []string) []om.
 	processes := make([]om.Process, len(hostnames))
 
 	for idx, hostname := range hostnames {
-		processes[idx] = om.NewProcess(version).
-			SetName(GetPodName(name, idx)).
-			SetHostName(hostname)
+		processes[idx] = om.NewMongodProcess(GetPodName(name, idx), hostname, version)
 	}
 
 	return processes
