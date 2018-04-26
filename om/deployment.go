@@ -2,6 +2,7 @@ package om
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"go.uber.org/zap"
@@ -74,6 +75,10 @@ func (d Deployment) MergeReplicaSet(rsName string, processes []Process) {
 // This is a temporary logic
 func (d Deployment) AddMonitoring() {
 	monitoringVersions := d["monitoringVersions"].([]interface{})
+
+	if len(d.getProcesses()) == 0 {
+		return
+	}
 
 	if len(monitoringVersions) == 0 {
 		monitoringVersions = append(monitoringVersions,
@@ -155,6 +160,53 @@ func (d Deployment) GetReplicaSetByName(name string) *ReplicaSet {
 	return nil
 }
 
+func (d Deployment) RemoveProcessByName(name string) error {
+	s := d.GetProcessByName(name)
+	if s == nil {
+		return errors.New(fmt.Sprintf("Standalone %s does not exist", name))
+	}
+
+	d.removeProcesses([]string{s.Name()})
+
+	return nil
+}
+
+func (d Deployment) RemoveReplicaSetByName(name string) error {
+	rs := d.GetReplicaSetByName(name)
+	if rs == nil {
+		return errors.New("ReplicaSet does not exist")
+	}
+
+	currentRs := d.getReplicaSets()
+	toKeep := make([]ReplicaSet, len(currentRs)-1)
+	i := 0
+	for _, el := range currentRs {
+		if el.Name() != name {
+			toKeep[i] = el
+			i++
+		}
+	}
+
+	d.setReplicaSets(toKeep)
+
+	members := rs.members()
+	processNames := make([]string, len(members))
+	for _, el := range members {
+		processNames = append(processNames, el.Name())
+	}
+	d.removeProcesses(processNames)
+
+	return nil
+}
+
 func (d Deployment) setReplicaSets(replicaSets []ReplicaSet) {
 	d["replicaSets"] = replicaSets
+}
+
+func (d Deployment) Debug() {
+	b, err := json.MarshalIndent(d, "", "  ")
+	if err != nil {
+		fmt.Println("error:", err)
+	}
+	fmt.Print(string(b))
 }

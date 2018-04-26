@@ -105,6 +105,31 @@ func (k *KubeHelper) createService(name string, label string, port int32, ns str
 	return k.kubeApi.CoreV1().Services(ns).Create(buildService(name, label, ns, port, exposeExternally))
 }
 
+func (k *KubeHelper) deleteService(name string, ns string) error {
+	serviceName := getOrFormatServiceName("", name)
+	log := zap.S().With("service", serviceName)
+	externalServiceName := fmt.Sprintf("%s-external", serviceName)
+
+	service, err := k.kubeApi.CoreV1().Services(ns).Get(serviceName, v1.GetOptions{})
+	if err != nil {
+		return err
+	}
+	if _, ok := service.ObjectMeta.Annotations[CreatedByOperator]; !ok {
+		log.Info("Service was not created by operator, not deleting.")
+		return nil
+	}
+
+	if err := k.kubeApi.CoreV1().Services(ns).Delete(externalServiceName, &v1.DeleteOptions{}); err != nil {
+		log.Info("Not Exposed externally.")
+	}
+
+	if err := k.kubeApi.CoreV1().Services(ns).Delete(serviceName, &v1.DeleteOptions{}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (k *KubeHelper) GetPodNames(setName, namespace, clusterName string) ([]string, error) {
 	s, err := k.kubeApi.AppsV1().StatefulSets(namespace).Get(setName, v1.GetOptions{})
 	if err != nil {

@@ -23,7 +23,6 @@ func (c *MongoDbController) onAddReplicaSet(obj interface{}) {
 	}
 
 	agentKeySecretName, err := c.EnsureAgentKeySecretExists(conn, s.Namespace)
-
 	if err != nil {
 		log.Error("Failed to generate/get agent key: ", err)
 		return
@@ -63,7 +62,6 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 	}
 
 	agentKeySecretName, err := c.EnsureAgentKeySecretExists(conn, newRes.Namespace)
-
 	if err != nil {
 		log.Error("Failed to generate/get agent key: ", err)
 		return
@@ -106,10 +104,9 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 func prepareScaleDownReplicaSet(omClient *om.OmConnection, old, new *mongodb.MongoDbReplicaSet, secret string) error {
 	log := zap.S().With("replicaSet", new.Name)
 
-	toUpdate := old.Spec.Members - new.Spec.Members
-	membersToUpdate := make([]string, toUpdate)
-	for i := 0; i < toUpdate; i++ {
-		membersToUpdate[i] = GetPodName(old.Name, i+toUpdate)
+	membersToUpdate := make([]string, 0)
+	for i := new.Spec.Members; i < old.Spec.Members; i++ {
+		membersToUpdate = append(membersToUpdate, GetPodName(old.Name, i))
 	}
 
 	// Stage 1. Set Votes and Priority to 0
@@ -119,10 +116,10 @@ func prepareScaleDownReplicaSet(omClient *om.OmConnection, old, new *mongodb.Mon
 	}
 
 	rs := deployment.GetReplicaSetByName(new.Name)
-	for i := new.Spec.Members; i < old.Spec.Members; i++ {
-		name := GetPodName(new.Name, i)
-		rs.FindMemberByName(name).SetVotes(0).SetPriority(0)
+	for _, el := range membersToUpdate {
+		rs.FindMemberByName(el).SetVotes(0).SetPriority(0)
 	}
+
 	_, err = omClient.UpdateDeployment(deployment)
 	if err != nil {
 		log.Debugw("Unable to set votes, priority to 0", "hosts", membersToUpdate)
@@ -139,9 +136,9 @@ func prepareScaleDownReplicaSet(omClient *om.OmConnection, old, new *mongodb.Mon
 	if err != nil {
 		return err
 	}
-	for i := new.Spec.Members; i < old.Spec.Members; i++ {
-		name := GetPodName(new.Name, i)
-		deployment.GetProcessByName(name).SetDisabled(true)
+
+	for _, el := range membersToUpdate {
+		deployment.GetProcessByName(el).SetDisabled(true)
 	}
 
 	_, err = omClient.UpdateDeployment(deployment)
@@ -158,9 +155,42 @@ func prepareScaleDownReplicaSet(omClient *om.OmConnection, old, new *mongodb.Mon
 }
 
 func (c *MongoDbController) onDeleteReplicaSet(obj interface{}) {
-	s := obj.(*mongodb.MongoDbReplicaSet).DeepCopy()
+	new := obj.(*mongodb.MongoDbReplicaSet).DeepCopy()
+	log := zap.S().With("replicaSet", new.Name)
 
-	zap.S().Info("Deleted MongoDbReplicaSet", "replSetName", s.Name)
+	c.kubeHelper.deleteService(new.Name, new.Namespace)
+
+	conn, err := c.getOmConnection(new.Namespace, new.Spec.OmConfigName)
+	if err != nil {
+		log.Errorf("Failed to read OpsManager config map %s: %s", new.Spec.OmConfigName, err)
+		return
+	}
+
+	deployment, err := conn.ReadDeployment()
+	if err != nil {
+		log.Errorf("Failed to read deployment: %s", err)
+		return
+	}
+
+	if err = deployment.RemoveReplicaSetByName(new.Name); err != nil {
+		log.Errorf("Failed to remove replica set. %s", err)
+		return
+	}
+
+	_, err = conn.UpdateDeployment(deployment)
+	if err != nil {
+		log.Errorf("Failed to update RS: %s", err)
+		return
+	}
+
+	hostsToRemove := hostsToRemove(new.Spec.Members, 0, new.Name, new.Namespace, new.Spec.Service, new.Spec.ClusterName)
+	log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
+	if err := om.StopMonitoring(conn, hostsToRemove); err != nil {
+		log.Errorf("Failed to stop monitoring on hosts %s: %s", hostsToRemove, err)
+		return
+	}
+
+	log.Info("Removed!")
 }
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
@@ -233,16 +263,21 @@ func createStandalonesForReplica(name, version string, hostnames []string) []om.
 }
 
 func calculateHostsToRemove(old, new *mongodb.MongoDbReplicaSet) []string {
-	if new.Spec.Members > old.Spec.Members {
+	return hostsToRemove(old.Spec.Members, new.Spec.Members, new.Name, new.Namespace, new.Spec.Service, new.Spec.ClusterName)
+}
+
+func hostsToRemove(oldMembers, newMembers int, name, namespace, service, clusterName string) []string {
+	if newMembers > oldMembers {
 		return make([]string, 0)
 	}
 
-	service := getOrFormatServiceName(old.Spec.Service, old.Name)
-	qtyToDelete := old.Spec.Members - new.Spec.Members
+	service = getOrFormatServiceName(service, name)
+	qtyToDelete := oldMembers - newMembers
 	result := make([]string, qtyToDelete)
 	for i := 0; i < qtyToDelete; i++ {
-		result[i] = GetDnsNameFor(new.Name, service, new.Namespace, new.Spec.ClusterName, i+new.Spec.Members)
+		result[i] = GetDnsNameFor(name, service, namespace, clusterName, i+newMembers)
 	}
 
 	return result
+
 }

@@ -5,7 +5,6 @@ import (
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1alpha1"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func (c *MongoDbController) onAddStandalone(obj interface{}) {
@@ -20,7 +19,6 @@ func (c *MongoDbController) onAddStandalone(obj interface{}) {
 	}
 
 	agentKeySecretName, err := c.EnsureAgentKeySecretExists(conn, s.Namespace)
-
 	if err != nil {
 		log.Error("Failed to generate/get agent key: ", err)
 		return
@@ -28,7 +26,6 @@ func (c *MongoDbController) onAddStandalone(obj interface{}) {
 
 	// standaloneObject is represented by a StatefulSet in Kubernetes
 	standaloneObject := buildStandaloneStatefulSet(s, agentKeySecretName)
-
 	_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(s.Spec.Service, 27017, s.Namespace, true, standaloneObject)
 	if err != nil {
 		log.Error("Failed to create statefulset: ", err)
@@ -78,10 +75,40 @@ func (c *MongoDbController) onUpdateStandalone(oldObj, newObj interface{}) {
 
 func (c *MongoDbController) onDeleteStandalone(obj interface{}) {
 	s := obj.(*mongodb.MongoDbStandalone).DeepCopy()
+	log := zap.S().With("Standalone", s.Name)
 
-	deleteOptions := metav1.NewDeleteOptions(0)
-	c.context.Clientset.AppsV1().StatefulSets(s.Namespace).Delete(s.Name, deleteOptions)
-	zap.S().Info("Deleted MongoDbStandalone ", s.Name)
+	c.kubeHelper.deleteService(s.Name, s.Namespace)
+
+	conn, err := c.getOmConnection(s.Namespace, s.Spec.OmConfigName)
+	if err != nil {
+		log.Errorf("Failed to read OpsManager config map %s: %s", s.Spec.OmConfigName, err)
+		return
+	}
+
+	deployment, err := conn.ReadDeployment()
+	if err != nil {
+		log.Errorf("Failed to read deployment: %s", err)
+		return
+	}
+
+	if err = deployment.RemoveProcessByName(s.Name); err != nil {
+		log.Error(err)
+	}
+
+	_, err = conn.UpdateDeployment(deployment)
+	if err != nil {
+		log.Errorf("Failed to update Standalone: %s", err)
+		return
+	}
+
+	hostsToRemove := hostsToRemove(1, 0, s.Name, s.Namespace, s.Spec.Service, s.Spec.ClusterName)
+	log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
+	if err := om.StopMonitoring(conn, hostsToRemove); err != nil {
+		log.Errorf("Failed to stop monitoring on hosts %s: %s", hostsToRemove, err)
+		return
+	}
+
+	log.Info("Removed!")
 }
 
 func (c *MongoDbController) updateOmDeployment(omConnection *om.OmConnection, s *mongodb.MongoDbStandalone) error {
@@ -103,6 +130,7 @@ func (c *MongoDbController) updateOmDeployment(omConnection *om.OmConnection, s 
 		SetHostName(hostnames[0])
 
 	currentDeployment.MergeStandalone(standaloneOmObject)
+	currentDeployment.AddMonitoring()
 
 	_, err = omConnection.UpdateDeployment(currentDeployment)
 	if err != nil {
