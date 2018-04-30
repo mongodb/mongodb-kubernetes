@@ -128,7 +128,7 @@ func (c *MongoDbController) updateOmDeployment(omConnection *om.OmConnection, s 
 	standaloneOmObject := om.NewMongodProcess(s.Name, s.Spec.Version, hostnames[0])
 
 	currentDeployment.MergeStandalone(standaloneOmObject)
-	currentDeployment.AddMonitoring()
+	currentDeployment.AddMonitoringAndBackup()
 
 	_, err = omConnection.UpdateDeployment(currentDeployment)
 	if err != nil {

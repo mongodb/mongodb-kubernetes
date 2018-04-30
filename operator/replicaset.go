@@ -212,7 +212,7 @@ func (c *MongoDbController) updateOmDeploymentRs(omConnection *om.OmConnection, 
 	replicaSet := om.NewReplicaSetWithProcesses(om.NewReplicaSet(new.Name), members)
 	deployment.MergeReplicaSet(replicaSet)
 
-	deployment.AddMonitoring()
+	deployment.AddMonitoringAndBackup()
 
 	_, err = omConnection.UpdateDeployment(deployment)
 	if err != nil {

@@ -84,21 +84,19 @@ func (d Deployment) MergeShardedCluster(name string, mongosProcesses []Process, 
 	return nil
 }
 
-// AddMonitoring adds only one monitoring agent on the same host as the first process in the list if no monitoring
+// AddMonitoringAndBackup adds only one monitoring agent on the same host as the first process in the list if no monitoring
 // agents are configured. Must be called after processes are added
-// This is a temporary logic
-func (d Deployment) AddMonitoring() {
-	monitoringVersions := d["monitoringVersions"].([]interface{})
+// Also the backup agent is added to each server
+// Note, that these two are deliberately combined together as all clients (standalone, rs etc) need both backup and monitoring
+// together
+func (d Deployment) AddMonitoringAndBackup() {
 
 	if len(d.getProcesses()) == 0 {
 		return
 	}
 
-	if len(monitoringVersions) == 0 {
-		monitoringVersions = append(monitoringVersions,
-			map[string]string{"hostname": d.getProcesses()[0].HostName(), "name": "6.1.2.402-1"})
-		d["monitoringVersions"] = monitoringVersions
-	}
+	d.addMonitoring()
+	d.addBackup()
 }
 
 func (d Deployment) DisableProcess(name string) {
@@ -329,4 +327,39 @@ func (d Deployment) setShardedClusters(shardedClusters []ShardedCluster) {
 
 func (d Deployment) addShardedCluster(shardedCluster ShardedCluster) {
 	d.setShardedClusters(append(d.getShardedClusters(), shardedCluster))
+}
+
+// addMonitoring adds one single monitoring agent. Note that automation agent will update the monitoring agent to the
+// latest version
+func (d Deployment) addMonitoring() {
+	monitoringVersions := d["monitoringVersions"].([]interface{})
+	if len(monitoringVersions) == 0 {
+		monitoringVersions = append(monitoringVersions,
+			map[string]string{"hostname": d.getProcesses()[0].HostName(), "name": "6.1.2.402-1"})
+		d["monitoringVersions"] = monitoringVersions
+
+		zap.S().Debugw("Added monitoring agent configuration", "host", d.getProcesses()[0].HostName())
+	}
+}
+
+// addBackup adds backup agent configuration for each of the processes of deployment
+func (d Deployment) addBackup() {
+	backupVersions := d["backupVersions"].([]interface{})
+	for _, p := range d.getProcesses() {
+		found := false
+		for _, b := range backupVersions {
+			backup := b.(map[string]interface{})
+			if backup["hostname"] == p.HostName() {
+				found = true
+				break
+			}
+		}
+		if !found {
+			backupVersions = append(backupVersions,
+				map[string]interface{}{"hostname": p.HostName(), "name": "6.6.1.965"})
+			d["backupVersions"] = backupVersions
+
+			zap.S().Debugw("Added backup agent configuration", "host", p.HostName())
+		}
+	}
 }
