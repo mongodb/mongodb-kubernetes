@@ -19,7 +19,7 @@ The update process follows the same approach in general except for no new object
 
 ## Installation ##
 ### Prerequisites
-* Make sure to checkout this project into the `src` folder in the `$GOPATH` directory as described [here](https://golang.org/doc/code.html). So if your `$GOPATH` variable points to `/home/user/go` then the project must be checked out into `/Users/user/go/src/github.com/10gen/ops-manager-kubernetes`
+* Make sure to checkout this project into the `src/github.com/10gen` folder in the `$GOPATH` directory as described [here](https://golang.org/doc/code.html). So if your `$GOPATH` variable points to `/home/user/go` then the project must be checked out into `/Users/user/go/src/github.com/10gen/ops-manager-kubernetes`
 * Prepare the Kubernetes environment (Install [Minikube](https://kubernetes.io/docs/getting-started-guides/minikube/) for quick start)
 * [Install Go](https://golang.org/doc/install) (we use the latest current version which is `1.9.4`)
 ### Compile Operator ###
@@ -29,6 +29,8 @@ dep ensure
 ./codegen.sh
 CGO_ENABLED=0 GOOS=linux go build -i -o om-operator
 ```
+
+Note, if your ssh key is protected by passphrase `dep ensure` won't show any prompt and it will just [hang](https://github.com/golang/dep/issues/1726). In order to cache the git credential you can follow this [tutorial](https://help.github.com/articles/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent/#adding-your-ssh-key-to-the-ssh-agent).
 
 ### Create Required Container Images ###
 
@@ -41,7 +43,7 @@ The operator needs 2 different container images:
 ```
 $ eval $(minikube docker-env)
 $ docker build -t om-operator:0.1 .
-$ docker build docker/automation-agent -t ops-manager-agent -f docker/automation-agent/Dockerfile
+$ docker build docker/automation-agent -t automation-agent -f docker/automation-agent/Dockerfile
 
 ```
 
