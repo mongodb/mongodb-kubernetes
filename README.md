@@ -124,7 +124,7 @@ We use `kops` utility to provision and manage Kubernetes clusters. We have one s
 More on working with `kops` is [here](docs/aws_kops.md)
 
 ### Docker Registry
-Docker images are published to Elastic Container Registry `268558157000.dkr.ecr.us-east-1.amazonaws.com` where a specific repository is created for each of namespace/application combinations. For example `dev` versions of agent and operator reside in `268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/ops-manager-agent` and `268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/om-operator`.
+Docker images are published to Elastic Container Registry `268558157000.dkr.ecr.us-east-1.amazonaws.com` where a specific repository is created for each of namespace/application combinations. For example `dev` versions of agent and operator reside in `268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/automation-agent` and `268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/om-operator`.
 
 More on how to work with ECR is [here](docs/aws_docker_registry.md) 
 

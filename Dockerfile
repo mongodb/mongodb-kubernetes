@@ -15,7 +15,7 @@ FROM debian:jessie-slim
 MAINTAINER Ops Manager Team <mms@10gen.com>
 
 # Add certificate in order to make the operator work with Cloud Manager
-RUN apt-get update && apt-get install -y ca-certificates
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
 COPY config /etc/om-operator/
 ADD om-operator /usr/local/bin/

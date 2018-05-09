@@ -10,7 +10,7 @@ const (
 	// Variable for agent key stored in the Secret
 	AgentKey = "AGENT_API_KEY"
 
-	ContainerName = "ops-manager-agent"
+	ContainerName = "automation-agent"
 
 	CreatedByOperator = "CreatedByOmOperator"
 
