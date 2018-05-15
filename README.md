@@ -19,9 +19,12 @@ The update process follows the same approach in general except for no new object
 
 ## Installation ##
 ### Prerequisites
+
 * Make sure to checkout this project into the `src/github.com/10gen` folder in the `$GOPATH` directory as described [here](https://golang.org/doc/code.html). So if your `$GOPATH` variable points to `/home/user/go` then the project must be checked out into `/Users/user/go/src/github.com/10gen/ops-manager-kubernetes`
-* Prepare the Kubernetes environment (Install [Minikube](https://kubernetes.io/docs/getting-started-guides/minikube/) for quick start)
-* [Install Go](https://golang.org/doc/install) (we use the latest current version which is `1.9.4`)
+* [Minikube](https://kubernetes.io/docs/getting-started-guides/minikube/): Easy to install Kubernetes cluster.
+* [Go](https://golang.org/doc/install): Go programming language (we use the latest current version which is `1.9.4`)
+* [dep](https://github.com/golang/dep): Go dependency tool
+
 ### Compile Operator ###
 
 ```
@@ -41,9 +44,8 @@ The operator needs 2 different container images:
 
 
 ```
-$ eval $(minikube docker-env)
-$ docker build -t om-operator:0.1 .
-$ docker build docker/automation-agent -t automation-agent -f docker/automation-agent/Dockerfile
+./rebuild-operator.sh
+./rebuild-agent.sh
 
 ```
 
@@ -52,7 +54,7 @@ $ docker build docker/automation-agent -t automation-agent -f docker/automation-
 To install the ops-manager operator you'll only need to execute the
 following:
 
-    $ kubectl create -f om-operator.yaml
+    $ kubectl create -f om-operator-local.yaml
     clusterrole "om-operator" created
     serviceaccount "om-operator" created
     clusterrolebinding "om-operator" created
@@ -68,7 +70,6 @@ parameters from it:
 * User login with sufficient privileges
 * Public API Key
 * Group ID
-* Agent API Key
 * Base URL
 
 > Note that in addition to public API key generation you need to whitelist the Kubernetes cluster IP in OpsManager
@@ -92,7 +93,7 @@ After executing this command you should have a working replica set that you can 
 
 After new deployment is created it's always good to check whether it works correctly. To do this you can deploy a small `node.js` application into Kubernetes cluster which will try to connect to database, create 3 records there and read all existing ones:
 
-    $ eval $(minikube docker-env)    
+    $ eval $(minikube docker-env)
     $ docker build -t node-mongo-app:0.1 docker/node-mongo-app -f docker/node-mongo-app/Dockerfile
     ....
     Successfully tagged node-mongo-app:0.1
@@ -105,7 +106,7 @@ After this create a job in Kubernetes (it will run once and terminate):
     $ cd samples/
     $ kubectl delete -f node-mongo-app.yaml; kubectl apply -f node-mongo-app.yaml
     deployment "test-mongo-app" configured
-    
+
 Reading logs:
 
     $ kubectl logs -l app=test-mongo-app
@@ -116,7 +117,7 @@ Reading logs:
     [ { _id: 5aabda6c9398583e26bf211a, a: 1 },
       { _id: 5aabda6c9398586118bf211b, a: 2 },
       { _id: 5aabda6c939858c046bf211c, a: 3 } ]
-      
+
 ## Development Process
 ### Dev Clusters
 We use `kops` utility to provision and manage Kubernetes clusters. We have one shared environment for development `dev.mongokubernetes.com` and each developer can create their own clusters. Usual practice is start from 3 EC2 nodes and extend them to bigger number only if necessary.
@@ -126,7 +127,7 @@ More on working with `kops` is [here](docs/aws_kops.md)
 ### Docker Registry
 Docker images are published to Elastic Container Registry `268558157000.dkr.ecr.us-east-1.amazonaws.com` where a specific repository is created for each of namespace/application combinations. For example `dev` versions of agent and operator reside in `268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/automation-agent` and `268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/om-operator`.
 
-More on how to work with ECR is [here](docs/aws_docker_registry.md) 
+More on how to work with ECR is [here](docs/aws_docker_registry.md)
 
 For public images we plan to use `quay.io`
 

@@ -96,7 +96,8 @@ spec:
       serviceAccountName: om-operator
       containers:
       - name: om-operator
-        image: om-operator:0.1
+        image: om-operator
+        imagePullPolicy: Never
         env:
         - name: OM_OPERATOR_ENV
           value: "local"
