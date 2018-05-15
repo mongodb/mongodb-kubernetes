@@ -1,0 +1,29 @@
+---
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: {{ .Values.name }}
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.name }}
+    spec:
+      serviceAccountName: {{ .Values.name }}
+      containers:
+      - name: {{ .Values.name }}
+        image: {{ .Values.operator.image }}
+        imagePullPolicy: {{ .Values.operator.pullPolicy }}
+        env:
+        - name: OM_OPERATOR_ENV
+          value: {{ .Values.env }}
+        - name: AUTOMATION_AGENT_IMAGE
+          value: {{ .Values.database.image }}
+        - name: AUTOMATION_AGENT_PULL_POLICY
+          value: {{ .Values.database.pullPolicy }}
+        - name: AUTOMATION_AGENT_PULL_SECRETS
+          value: {{ .Values.imagePullSecrets }}
+      imagePullSecrets:
+      - name: {{ .Values.imagePullSecrets }}

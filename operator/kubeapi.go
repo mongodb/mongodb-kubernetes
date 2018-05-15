@@ -3,8 +3,9 @@ package operator
 // This is a collection of functions building different Kubernetes API objects (statefulset, templates etc) from operator
 // custom objects
 import (
+	"os"
+
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1alpha1"
-	"github.com/spf13/viper"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -129,12 +130,15 @@ func basePodSpec(omConfigMapName, agentKeySecretName string) corev1.PodSpec {
 		Containers: []corev1.Container{
 			{
 				Name:            ContainerName,
-				Image:           viper.GetString(AutomationAgentImageUrl),
-				ImagePullPolicy: corev1.PullPolicy(viper.GetString(AutomationAgentImagePullPolicy)),
+				Image:           os.Getenv(AutomationAgentImageUrl),
+				ImagePullPolicy: corev1.PullPolicy(os.Getenv(AutomationAgentImagePullPolicy)),
 				EnvFrom:         baseEnvFrom(omConfigMapName, agentKeySecretName),
 				Ports:           []corev1.ContainerPort{{ContainerPort: 27017}},
 			},
 		},
+		ImagePullSecrets: []corev1.LocalObjectReference{{
+			Name: os.Getenv(AutomationAgentPullSecrets),
+		}},
 	}
 }
 

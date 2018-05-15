@@ -1,0 +1,11 @@
+namespace: mongodb
+name: mongodb-enterprise-operator
+
+env: prod
+operator:
+  image: quay.io/mongodb-enterprise-private/mongodb-enterprise-operator:0.2
+  pullPolicy: Always
+database:
+  image: quay.io/mongodb-enterprise-private/mongodb-enterprise-database:0.2
+  pullPolicy: Always
+imagePullSecrets: change-this

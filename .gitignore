@@ -8,4 +8,6 @@ my-*
 config/my-*
 /docker/node-mongo-app/node_modules/
 /pkg/apis/mongodb.com/v1alpha1/zz_generated.deepcopy.go
+
 build/
+release.sh

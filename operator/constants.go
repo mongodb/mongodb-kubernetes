@@ -24,6 +24,7 @@ const (
 
 	// Configuration keys (must match the properties in files in config directory)
 	Mode                           = "mode"
-	AutomationAgentImageUrl        = "automation.agent.image.url"
-	AutomationAgentImagePullPolicy = "automation.agent.image.pull.policy"
+	AutomationAgentImageUrl        = "AUTOMATION_AGENT_IMAGE"
+	AutomationAgentImagePullPolicy = "AUTOMATION_AGENT_PULL_POLICY"
+	AutomationAgentPullSecrets     = "AUTOMATION_AGENT_PULL_SECRETS"
 )

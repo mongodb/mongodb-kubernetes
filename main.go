@@ -18,7 +18,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
-	"github.com/spf13/viper"
 	"go.uber.org/zap"
 )
 
@@ -74,17 +73,14 @@ func main() {
 func initializeEnvironment() {
 	// TODO if 'env' parameter is provided but it's empty - then usage is printed and program shuts down.
 	// this is bad for running in container as in Dockerfile we always pass the env variable (but it can have empty value)
-	envPtr := flag.String("env", "prod", "Name of environment used. Must be one of [\"prod\", \"dev\", \"local\"]")
-
+	envP := flag.String("env", "prod", `Name of environment used. Must be one of ["prod", "dev", "local"]`)
 	flag.Parse()
 
-	env := *envPtr
+	env := *envP
 
 	validateEnv(env)
 
 	initLogger(env)
-
-	initConfiguration(env)
 
 	log.Info("Operator environment: ", env)
 }
@@ -97,25 +93,6 @@ func validateEnv(env string) {
 	zap.S().Error("Wrong environment specified", "env", env)
 	flag.Usage()
 	os.Exit(1)
-}
-
-func initConfiguration(env string) {
-	switch env {
-	case "prod":
-		viper.SetConfigFile("/etc/om-operator/prod.properties")
-	case "dev":
-		viper.SetConfigFile("/etc/om-operator/dev.properties")
-	case "local":
-		viper.SetConfigFile("/etc/om-operator/local.properties")
-	}
-
-	viper.SetConfigType("props")
-	err := viper.ReadInConfig()
-	if err != nil {
-		log.Errorw("Failed to read configuration file", "config file", viper.ConfigFileUsed(), "error", err)
-		os.Exit(1)
-	}
-	viper.Set(operator.Mode, env)
 }
 
 func initLogger(env string) {
