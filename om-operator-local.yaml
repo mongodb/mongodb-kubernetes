@@ -101,3 +101,9 @@ spec:
         env:
         - name: OM_OPERATOR_ENV
           value: "local"
+        - name: AUTOMATION_AGENT_IMAGE
+          value: automation-agent
+        - name: AUTOMATION_AGENT_PULL_POLICY
+          value: Never
+        - name: AUTOMATION_AGENT_PULL_SECRETS
+          value: ""
