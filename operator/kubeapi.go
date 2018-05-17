@@ -126,6 +126,9 @@ func buildService(name string, label string, nameSpace string, port int32, expos
 // basePodSpec creates the standard pod definition which uses the automation agent container for managing mongod/mongos
 // instances. Configuration data is read from the config map named "omConfigMapName" value
 func basePodSpec(omConfigMapName, agentKeySecretName string) corev1.PodSpec {
+	boolP := func(v bool) *bool {
+		return &v
+	}
 	return corev1.PodSpec{
 		Containers: []corev1.Container{
 			{
@@ -134,6 +137,10 @@ func basePodSpec(omConfigMapName, agentKeySecretName string) corev1.PodSpec {
 				ImagePullPolicy: corev1.PullPolicy(os.Getenv(AutomationAgentImagePullPolicy)),
 				EnvFrom:         baseEnvFrom(omConfigMapName, agentKeySecretName),
 				Ports:           []corev1.ContainerPort{{ContainerPort: 27017}},
+				SecurityContext: &corev1.SecurityContext{
+					Privileged:   boolP(false),
+					RunAsNonRoot: boolP(true),
+				},
 			},
 		},
 		ImagePullSecrets: []corev1.LocalObjectReference{{

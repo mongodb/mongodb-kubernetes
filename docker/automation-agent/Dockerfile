@@ -1,23 +1,22 @@
 FROM debian:jessie-slim
 
-RUN groupadd -r mongodb && useradd -r -g mongodb mongodb
+RUN useradd -r -g root -u 1007 mongodb
 
 RUN apt-get -qq update \
     && apt-get -y -qq install libsasl2-2 curl supervisor ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY content/ /mongodb-automation/
-RUN mkdir -p /var/log/mongodb-mms-automation \
-    && mkdir -p /var/lib/mongodb-mms-automation \
-    && mkdir -p /data \
-    && chown mongodb /var/log/mongodb-mms-automation \
-    && chown mongodb /var/lib/mongodb-mms-automation \
-    && chown mongodb /data \
-    && chown mongodb /mongodb-automation
+COPY content/ /mongodb-automation/files/
 
-CMD supervisord -c /mongodb-automation/supervisor.conf
+RUN \
+    mkdir -p /var/log/mongodb-mms-automation && \
+    mkdir -p /var/lib/mongodb-mms-automation && \
+    mkdir -p /data && \
+    chmod g+w /data && \
+    chmod -R g+w /mongodb-automation && \
+    chmod g+w /var/lib/mongodb-mms-automation && \
+    chmod g+w /var/log/mongodb-mms-automation && \
+    chmod g+w /etc/passwd
 
-# To build: docker build . -t automation-agent 
-
-# To run normally (should specify env variables first):
-# docker run -it automation-agent
+USER 1007
+CMD supervisord -c /mongodb-automation/files/supervisor.conf
