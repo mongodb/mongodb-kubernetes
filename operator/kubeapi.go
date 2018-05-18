@@ -43,8 +43,20 @@ func buildStandaloneStatefulSet(obj *mongodb.MongoDbStandalone, agentKeySecretNa
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
 				},
-				Spec: basePodSpec(obj.Spec.OmConfigName, agentKeySecretName),
+				Spec: basePodSpec(obj.Spec.OmConfigName, agentKeySecretName, obj.Spec.ResourceRequirements),
 			},
+			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: PersistentVolumeClaimName,
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+					StorageClassName: &obj.Spec.ResourceRequirements.StorageClass,
+					Resources: corev1.ResourceRequirements{
+						Requests: buildStorageRequirements(obj.Spec.ResourceRequirements),
+					},
+				},
+			}},
 		},
 	}
 }
@@ -79,8 +91,20 @@ func buildReplicaSetStatefulSet(obj *mongodb.MongoDbReplicaSet, agentKeySecretNa
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
 				},
-				Spec: basePodSpec(obj.Spec.OmConfigName, agentKeySecretName),
+				Spec: basePodSpec(obj.Spec.OmConfigName, agentKeySecretName, obj.Spec.ResourceRequirements),
 			},
+			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: PersistentVolumeClaimName,
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+					StorageClassName: &obj.Spec.ResourceRequirements.StorageClass,
+					Resources: corev1.ResourceRequirements{
+						Requests: buildStorageRequirements(obj.Spec.ResourceRequirements),
+					},
+				},
+			}},
 		},
 	}
 }
@@ -125,7 +149,7 @@ func buildService(name string, label string, nameSpace string, port int32, expos
 
 // basePodSpec creates the standard pod definition which uses the automation agent container for managing mongod/mongos
 // instances. Configuration data is read from the config map named "omConfigMapName" value
-func basePodSpec(omConfigMapName, agentKeySecretName string) corev1.PodSpec {
+func basePodSpec(omConfigMapName, agentKeySecretName string, reqs mongodb.MongoDbRequirements) corev1.PodSpec {
 	boolP := func(v bool) *bool {
 		return &v
 	}
@@ -137,6 +161,13 @@ func basePodSpec(omConfigMapName, agentKeySecretName string) corev1.PodSpec {
 				ImagePullPolicy: corev1.PullPolicy(os.Getenv(AutomationAgentImagePullPolicy)),
 				EnvFrom:         baseEnvFrom(omConfigMapName, agentKeySecretName),
 				Ports:           []corev1.ContainerPort{{ContainerPort: 27017}},
+				VolumeMounts: []corev1.VolumeMount{{
+					Name:      PersistentVolumeClaimName,
+					MountPath: PersistentVolumePath,
+				}},
+				Resources: corev1.ResourceRequirements{
+					Requests: buildRequirements(reqs),
+				},
 				SecurityContext: &corev1.SecurityContext{
 					Privileged:   boolP(false),
 					RunAsNonRoot: boolP(true),

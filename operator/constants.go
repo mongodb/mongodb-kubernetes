@@ -24,6 +24,10 @@ const (
 
 	// Configuration keys (must match the properties in files in config directory)
 	Mode                           = "mode"
+
+	PersistentVolumeClaimName = "data"
+	PersistentVolumePath      = "/data"
+
 	AutomationAgentImageUrl        = "AUTOMATION_AGENT_IMAGE"
 	AutomationAgentImagePullPolicy = "AUTOMATION_AGENT_PULL_POLICY"
 	AutomationAgentPullSecrets     = "AUTOMATION_AGENT_PULL_SECRETS"

@@ -6,5 +6,13 @@ metadata:
   namespace: mongodb
 spec:
   members: 3
-  mongodb_version: 3.6.3
+  mongodb_version: 3.6.4
+  service: liffey
+
   ops_manager_config: global-om-config
+
+  resources:
+    cpu: '0.25'
+    memory: 512M
+    storage: 12G
+    storage_class: standard

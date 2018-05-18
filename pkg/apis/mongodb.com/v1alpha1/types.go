@@ -16,10 +16,11 @@ type MongoDbReplicaSetSpec struct {
 	Members int    `json:"members"`
 	Version string `json:"mongodb_version"`
 	// this is an optional service, it will get the name "<rsName>-service" in case not provided
-	Service     string `json:"service, omitempty"`
-	ClusterName string `json:"cluster_name, omitempty"`
+	Service     string `json:"service,omitempty"`
+	ClusterName string `json:"cluster_name,omitempty"`
 	// this is the name of config map containing information about OpsManager connection parameters
-	OmConfigName string `json:"ops_manager_config"`
+	OmConfigName         string              `json:"ops_manager_config"`
+	ResourceRequirements MongoDbRequirements `json:"resources"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -43,10 +44,11 @@ type MongoDbStandalone struct {
 type MongoDbStandaloneSpec struct {
 	Version string `json:"mongodb_version"`
 	// this is an optional service, it will get the name "<standaloneName>-service" in case not provided
-	Service     string `json:"service, omitempty"`
-	ClusterName string `json:"cluster_name, omitempty"`
+	Service     string `json:"service,omitempty"`
+	ClusterName string `json:"cluster_name,omitempty"`
 	// this is the name of config map containing information about OpsManager connection parameters
-	OmConfigName string `json:"ops_manager_config"`
+	OmConfigName         string              `json:"ops_manager_config"`
+	ResourceRequirements MongoDbRequirements `json:"resources"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -82,4 +84,11 @@ type MongoDbShardedClusterList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata"`
 	Items           []MongoDbShardedCluster `json:"items"`
+}
+
+type MongoDbRequirements struct {
+	Cpu          string `json:"cpu,omitempty"`
+	Memory       string `json:"memory,omitempty"`
+	Storage      string `json:"storage,omitempty"`
+	StorageClass string `json:"storage_class,omitempty"`
 }
