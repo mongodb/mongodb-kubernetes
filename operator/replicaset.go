@@ -7,36 +7,18 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/om"
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1alpha1"
 	"go.uber.org/zap"
+	appsv1 "k8s.io/api/apps/v1"
 )
 
 func (c *MongoDbController) onAddReplicaSet(obj interface{}) {
-	s := obj.(*mongodb.MongoDbReplicaSet).DeepCopy()
+	s := obj.(*mongodb.MongoDbReplicaSet)
 
-	log := zap.S().With("replicaSet", s.Name)
+	log := zap.S().With("replica set", s.Name)
 
 	log.Infow("Creating Replica set", "config", s.Spec)
 
-	conn, err := c.getOmConnection(s.Namespace, s.Spec.OmConfigName)
-	if err != nil {
-		log.Errorf("Failed to read OpsManager config map %s: %s", s.Spec.OmConfigName, err)
-		return
-	}
-
-	agentKeySecretName, err := c.EnsureAgentKeySecretExists(conn, s.Namespace)
-	if err != nil {
-		log.Error("Failed to generate/get agent key: ", err)
-		return
-	}
-
-	replicaSetObject := buildReplicaSetStatefulSet(s, agentKeySecretName)
-	_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(s.Spec.Service, 27017, s.Namespace, true, replicaSetObject)
-	if err != nil {
-		log.Error("Error trying to create a new statefulset and services for ReplicaSet: ", err)
-		return
-	}
-
-	if err := c.updateOmDeploymentRs(conn, nil, s); err != nil {
-		log.Error("Failed to update OpsManager automation config: ", err)
+	if err := c.doRsProcessing(nil, s, log); err != nil {
+		log.Error(err)
 		return
 	}
 
@@ -44,66 +26,67 @@ func (c *MongoDbController) onAddReplicaSet(obj interface{}) {
 }
 
 func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
-	oldRes := oldObj.(*mongodb.MongoDbReplicaSet).DeepCopy()
-	newRes := newObj.(*mongodb.MongoDbReplicaSet).DeepCopy()
-	log := zap.S().With("replicaSet", newRes.Name)
+	o := oldObj.(*mongodb.MongoDbReplicaSet)
+	n := newObj.(*mongodb.MongoDbReplicaSet)
+	log := zap.S().With("replica set", n.Name)
 
-	if err := validateUpdate(oldRes, newRes); err != nil {
+	log.Infow("Updating MongoDbReplicaSet", "oldConfig", o.Spec, "newConfig", n.Spec)
+
+	if err := validateReplicaSetUpdate(o, n); err != nil {
 		log.Error(err)
 		return
 	}
 
-	log.Infow("Updating MongoDbReplicaSet", "oldConfig", oldRes.Spec, "newConfig", newRes.Spec)
-
-	conn, err := c.getOmConnection(newRes.Namespace, newRes.Spec.OmConfigName)
-	if err != nil {
-		log.Errorf("Failed to read OpsManager config map %s: %s", newRes.Spec.OmConfigName, err)
+	if err := c.doRsProcessing(o, n, log); err != nil {
+		log.Error(err)
 		return
 	}
 
-	agentKeySecretName, err := c.EnsureAgentKeySecretExists(conn, newRes.Namespace)
+	log.Info("Updated Replica Set!")
+}
+
+func (c *MongoDbController) doRsProcessing(o, n *mongodb.MongoDbReplicaSet, log *zap.SugaredLogger) error {
+	conn, err := c.getOmConnection(n.Namespace, n.Spec.OmConfigName)
 	if err != nil {
-		log.Error("Failed to generate/get agent key: ", err)
-		return
+		return errors.New(fmt.Sprintf("Failed to read Ops Manager config map %s: %s", n.Spec.OmConfigName, err))
 	}
 
-	scaleDown := newRes.Spec.Members < oldRes.Spec.Members
+	agentKeySecretName, err := c.EnsureAgentKeySecretExists(conn, n.Namespace)
+	if err != nil {
+		return errors.New(fmt.Sprintf("Failed to generate/get agent key: %s", err))
+	}
+
+	scaleDown := o != nil && n.Spec.Members < o.Spec.Members
 
 	if scaleDown {
-		if err := prepareScaleDownReplicaSet(conn, oldRes, newRes, agentKeySecretName); err != nil {
-			log.Error("Failed to prepare OpsManager for scaling down: ", err)
-			return
+		if err := prepareScaleDownReplicaSet(conn, o, n, log); err != nil {
+			return errors.New(fmt.Sprintf("Failed to prepare Ops Manager for scaling down: %s", err))
 		}
 	}
 
-	replicaSetObject := buildReplicaSetStatefulSet(newRes, agentKeySecretName)
-	_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(newRes.Spec.Service, 27017, newRes.Namespace, true, replicaSetObject)
+	replicaSetObject := buildStatefulSet(n, n.Name, n.ServiceName(), n.Namespace, n.Spec.OmConfigName, agentKeySecretName, n.Spec.Members, n.Spec.ResourceRequirements)
+	_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(n, MongoDbDefaultPort, n.Namespace, true, log, replicaSetObject)
 	if err != nil {
-		log.Error("Failed to update the StatefulSet: ", err)
-		return
+		return errors.New(fmt.Sprintf("Failed to create/update the StatefulSet: %s", err))
 	}
 
 	log.Info("Updated statefulset for replicaset")
 
-	if err := c.updateOmDeploymentRs(conn, nil, newRes); err != nil {
-		log.Error("Failed to update OpsManager automation config: ", err)
-		return
+	if err := c.updateOmDeploymentRs(conn, nil, n, replicaSetObject, log); err != nil {
+		return errors.New(fmt.Sprintf("Failed to update Ops Manager automation config: %s", err))
 	}
 
 	if scaleDown {
-		hostsToRemove := calculateHostsToRemove(oldRes, newRes)
+		hostsToRemove := calculateHostsToRemove(o, n, replicaSetObject)
 		log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
 		if err := om.StopMonitoring(conn, hostsToRemove); err != nil {
-			log.Errorf("Failed to stop monitoring on hosts %s: %s", hostsToRemove, err)
-			return
+			return errors.New(fmt.Sprintf("Failed to stop monitoring on hosts %s: %s", hostsToRemove, err))
 		}
 	}
-	log.Info("Updated Replica Set!")
+	return nil
 }
 
-func prepareScaleDownReplicaSet(omClient *om.OmConnection, old, new *mongodb.MongoDbReplicaSet, secret string) error {
-	log := zap.S().With("replicaSet", new.Name)
-
+func prepareScaleDownReplicaSet(omClient *om.OmConnection, old, new *mongodb.MongoDbReplicaSet, log *zap.SugaredLogger) error {
 	membersToUpdate := make([]string, 0)
 	for i := new.Spec.Members; i < old.Spec.Members; i++ {
 		membersToUpdate = append(membersToUpdate, GetPodName(old.Name, i))
@@ -154,14 +137,12 @@ func prepareScaleDownReplicaSet(omClient *om.OmConnection, old, new *mongodb.Mon
 }
 
 func (c *MongoDbController) onDeleteReplicaSet(obj interface{}) {
-	new := obj.(*mongodb.MongoDbReplicaSet).DeepCopy()
-	log := zap.S().With("replicaSet", new.Name)
+	rs := obj.(*mongodb.MongoDbReplicaSet)
+	log := zap.S().With("replicaSet", rs.Name)
 
-	c.kubeHelper.deleteService(new.Name, new.Namespace)
-
-	conn, err := c.getOmConnection(new.Namespace, new.Spec.OmConfigName)
+	conn, err := c.getOmConnection(rs.Namespace, rs.Spec.OmConfigName)
 	if err != nil {
-		log.Errorf("Failed to read OpsManager config map %s: %s", new.Spec.OmConfigName, err)
+		log.Errorf("Failed to read OpsManager config map %s: %s", rs.Spec.OmConfigName, err)
 		return
 	}
 
@@ -171,18 +152,25 @@ func (c *MongoDbController) onDeleteReplicaSet(obj interface{}) {
 		return
 	}
 
-	if err = deployment.RemoveReplicaSetByName(new.Name); err != nil {
+	if err = deployment.RemoveReplicaSetByName(rs.Name); err != nil {
 		log.Errorf("Failed to remove replica set. %s", err)
 		return
 	}
 
 	_, err = conn.UpdateDeployment(deployment)
 	if err != nil {
-		log.Errorf("Failed to update RS: %s", err)
+		log.Errorf("Failed to update replica set: %s", err)
 		return
 	}
 
-	hostsToRemove := hostsToRemove(new.Spec.Members, 0, new.Name, new.Namespace, new.Spec.Service, new.Spec.ClusterName)
+	rsStatefulSet, err := c.kubeHelper.readStatefulSet(rs.Namespace, rs.Name)
+
+	if err != nil {
+		log.Errorf("Failed to read stateful set %s: %s", rs.Name, err)
+		return
+	}
+
+	hostsToRemove, _ := GetDnsForStatefulSet(rsStatefulSet, rs.Spec.ClusterName)
 	log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
 	if err := om.StopMonitoring(conn, hostsToRemove); err != nil {
 		log.Errorf("Failed to stop monitoring on hosts %s: %s", hostsToRemove, err)
@@ -194,9 +182,12 @@ func (c *MongoDbController) onDeleteReplicaSet(obj interface{}) {
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
-func (c *MongoDbController) updateOmDeploymentRs(omConnection *om.OmConnection, old, new *mongodb.MongoDbReplicaSet) error {
-	if !waitUntilAllAgentsAreReady(new, omConnection) {
-		return errors.New("Some agents failed to register.")
+func (c *MongoDbController) updateOmDeploymentRs(omConnection *om.OmConnection, old, new *mongodb.MongoDbReplicaSet,
+	set *appsv1.StatefulSet, log *zap.SugaredLogger) error {
+
+	err := waitForRsAgentsToRegister(set, new.Spec.ClusterName, omConnection, log)
+	if err != nil {
+		return err
 	}
 
 	deployment, err := omConnection.ReadDeployment()
@@ -204,15 +195,10 @@ func (c *MongoDbController) updateOmDeploymentRs(omConnection *om.OmConnection, 
 		return err
 	}
 
-	hostnames, err := c.kubeHelper.GetPodNames(new.Name, new.Namespace, new.Spec.ClusterName)
-	if err != nil {
-		return err
-	}
-	members := createStandalonesForReplica(new.Name, new.Spec.Version, hostnames)
-	replicaSet := om.NewReplicaSetWithProcesses(om.NewReplicaSet(new.Name), members)
-	deployment.MergeReplicaSet(replicaSet)
+	replicaSet := buildReplicaSetFromStatefulSet(set, new.Spec.ClusterName, new.Spec.Version)
+	deployment.MergeReplicaSet(replicaSet, nil)
 
-	deployment.AddMonitoringAndBackup()
+	deployment.AddMonitoringAndBackup(replicaSet.Processes[0].HostName(), log)
 
 	_, err = omConnection.UpdateDeployment(deployment)
 	if err != nil {
@@ -222,60 +208,24 @@ func (c *MongoDbController) updateOmDeploymentRs(omConnection *om.OmConnection, 
 	return nil
 }
 
-func validateUpdate(oldSpec, newSpec *mongodb.MongoDbReplicaSet) error {
+func validateReplicaSetUpdate(oldSpec, newSpec *mongodb.MongoDbReplicaSet) error {
 	if newSpec.Namespace != oldSpec.Namespace {
-		return errors.New("Namespaces mismatch")
+		return errors.New("Namespace cannot change for existing object")
 	}
 
 	if newSpec.Spec.ClusterName != oldSpec.Spec.ClusterName {
-		return errors.New("Cluster Names mismatch")
+		return errors.New("Cluster name cannot change for existing object")
 	}
 
 	return nil
 }
 
-func waitUntilAllAgentsAreReady(newRes *mongodb.MongoDbReplicaSet, omConnection *om.OmConnection) bool {
-	agentHostnames := make([]string, newRes.Spec.Members)
-	memberQty := newRes.Spec.Members
-	// TODO names of pods must be fetched from Kube api
-	serviceName := getOrFormatServiceName(newRes.Spec.Service, newRes.Name)
-	for i := 0; i < memberQty; i++ {
-		name := GetPodName(newRes.Name, i)
-		agentHostnames[i] = fmt.Sprintf("%s.%s", name, serviceName)
+func calculateHostsToRemove(old, new *mongodb.MongoDbReplicaSet, set *appsv1.StatefulSet) []string {
+	hostnames, _ := GetDnsForStatefulSet(set, new.Spec.ClusterName)
+	result := make([]string, 0)
+	for i := new.Spec.Members; i < old.Spec.Members; i++ {
+		result = append(result, hostnames[i])
 	}
-
-	if !om.WaitUntilAgentsHaveRegistered(omConnection, agentHostnames...) {
-		return false
-	}
-	return true
-}
-
-func createStandalonesForReplica(name, version string, hostnames []string) []om.Process {
-	processes := make([]om.Process, len(hostnames))
-
-	for idx, hostname := range hostnames {
-		processes[idx] = om.NewMongodProcess(GetPodName(name, idx), hostname, version)
-	}
-
-	return processes
-}
-
-func calculateHostsToRemove(old, new *mongodb.MongoDbReplicaSet) []string {
-	return hostsToRemove(old.Spec.Members, new.Spec.Members, new.Name, new.Namespace, new.Spec.Service, new.Spec.ClusterName)
-}
-
-func hostsToRemove(oldMembers, newMembers int, name, namespace, service, clusterName string) []string {
-	if newMembers > oldMembers {
-		return make([]string, 0)
-	}
-
-	service = getOrFormatServiceName(service, name)
-	qtyToDelete := oldMembers - newMembers
-	result := make([]string, qtyToDelete)
-	for i := 0; i < qtyToDelete; i++ {
-		result[i] = GetDnsNameFor(name, service, namespace, clusterName, i+newMembers)
-	}
-
 	return result
 
 }

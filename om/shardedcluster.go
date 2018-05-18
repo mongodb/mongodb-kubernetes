@@ -69,7 +69,7 @@ func NewShardedCluster(name, configRsName string, replicaSets []ReplicaSetWithPr
 
 	shards := make([]Shard, len(replicaSets))
 	for k, v := range replicaSets {
-		s := newShard(v.rs.Name())
+		s := newShard(v.Rs.Name())
 		shards[k] = s
 	}
 	ans.setShards(shards)

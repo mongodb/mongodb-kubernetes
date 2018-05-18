@@ -1,0 +1,188 @@
+package operator
+
+import (
+	"errors"
+
+	"fmt"
+
+	"github.com/10gen/ops-manager-kubernetes/om"
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1alpha1"
+	"go.uber.org/zap"
+	appsv1 "k8s.io/api/apps/v1"
+)
+
+type KubeState struct {
+	mongosSet    *appsv1.StatefulSet
+	configSrvSet *appsv1.StatefulSet
+	shardsSets   []*appsv1.StatefulSet
+}
+
+func (c *MongoDbController) onAddShardedCluster(obj interface{}) {
+	s := obj.(*mongodb.MongoDbShardedCluster)
+
+	log := zap.S().With("sharded cluster", s.Name)
+
+	log.Infow("Creating MongoDbShardedCluster", "config", s.Spec)
+
+	if err := c.doShardedClusterProcessing(nil, s, log); err != nil {
+		log.Error(err)
+		return
+	}
+
+	log.Info("Created!")
+}
+
+func (c *MongoDbController) onUpdateShardedCluster(oldObj, newObj interface{}) {
+	oldS := oldObj.(*mongodb.MongoDbShardedCluster)
+	newS := newObj.(*mongodb.MongoDbShardedCluster)
+	log := zap.S().With("sharded cluster", newS.Name)
+
+	if err := validateUpdateShardedCluster(oldS, newS); err != nil {
+		log.Error(err)
+		return
+	}
+
+	log.Infow("Updating MongoDbShardedCluster", "oldConfig", oldS.Spec, "newConfig", newS.Spec)
+
+	if err := c.doShardedClusterProcessing(oldS, newS, log); err != nil {
+		log.Error(err)
+		return
+	}
+
+	log.Info("Updated!")
+}
+
+func (c *MongoDbController) doShardedClusterProcessing(o, n *mongodb.MongoDbShardedCluster, log *zap.SugaredLogger) error {
+	conn, err := c.getOmConnection(n.Namespace, n.Spec.OmConfigName)
+	if err != nil {
+		return errors.New(fmt.Sprintf("Failed to read OpsManager config map %s: %s", n.Spec.OmConfigName, err))
+	}
+
+	agentKeySecretName, err := c.EnsureAgentKeySecretExists(conn, n.Namespace)
+	if err != nil {
+		return errors.New(fmt.Sprintf("Failed to generate/get agent key: %s", err))
+	}
+
+	kubeState, err := c.buildKubeObjectsForShardedCluster(n, agentKeySecretName, log)
+
+	if err != nil {
+		return errors.New(fmt.Sprintf("Error creating Kubernetes objects for sharded cluster: %s", err))
+	}
+	log.Infow("All Kubernetes objects are created/updated, adding the deployment to Ops Manager")
+
+	if err := c.updateOmDeploymentShardedCluster(conn, nil, n, kubeState, log); err != nil {
+		return errors.New(fmt.Sprintf("Failed to update OpsManager automation config: %s", err))
+	}
+	log.Infow("Ops Manager deployment updated successfully")
+
+	return nil
+}
+
+func (c *MongoDbController) buildKubeObjectsForShardedCluster(s *mongodb.MongoDbShardedCluster, agentKeySecretName string,
+	log *zap.SugaredLogger) (*KubeState, error) {
+	spec := s.Spec
+
+	mongosSet := buildStatefulSet(s, s.MongosRsName(), s.MongosServiceName(), s.Namespace, spec.OmConfigName,
+		agentKeySecretName, spec.MongosCount, spec.ResourceRequirements)
+	_, err := c.kubeHelper.createOrUpdateStatefulsetsWithService(s, MongoDbDefaultPort, s.Namespace, true, log, mongosSet)
+	if err != nil {
+		return nil, errors.New(fmt.Sprintf("Failed to create Mongos Stateful Set: %s", err))
+	}
+
+	log.Infow("Created StatefulSet for mongos servers", "name", mongosSet.Name, "servers count", mongosSet.Spec.Replicas)
+
+	configSrvSet := buildStatefulSet(s, s.ConfigRsName(), s.ConfigSrvServiceName(), s.Namespace, spec.OmConfigName,
+		agentKeySecretName, spec.ConfigServerCount, spec.ResourceRequirements)
+	_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(s, MongoDbDefaultPort, s.Namespace, false, log, configSrvSet)
+	if err != nil {
+		return nil, errors.New(fmt.Sprintf("Failed to create Config Server Stateful Set: %s", err))
+	}
+
+	log.Infow("Created StatefulSet for config servers", "name", configSrvSet.Name, "servers count", configSrvSet.Spec.Replicas)
+
+	shardsSets := make([]*appsv1.StatefulSet, s.Spec.ShardsCount)
+	shardsNames := make([]string, s.Spec.ShardsCount)
+
+	for i := 0; i < s.Spec.ShardsCount; i++ {
+		shardsNames[i] = s.ShardRsName(i)
+		shardsSets[i] = buildStatefulSet(s, s.ShardRsName(i), s.ShardServiceName(), s.Namespace, spec.OmConfigName,
+			agentKeySecretName, spec.ShardMongodsCount, spec.ResourceRequirements)
+		_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(s, MongoDbDefaultPort, s.Namespace, false, log, shardsSets[i])
+		if err != nil {
+			return nil, errors.New(fmt.Sprintf("Failed to create Stateful Set for shard %s: %s", s.ShardRsName(i), err))
+		}
+	}
+	log.Infow("Created StatefulSets for shards", "shards", shardsNames)
+	return &KubeState{mongosSet: mongosSet, configSrvSet: configSrvSet, shardsSets: shardsSets}, nil
+}
+
+// updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
+// to automation agents in containers
+func (c *MongoDbController) updateOmDeploymentShardedCluster(omConnection *om.OmConnection, old,
+	new *mongodb.MongoDbShardedCluster, state *KubeState, log *zap.SugaredLogger) error {
+	err := waitForAgentsToRegister(new, state, omConnection, log)
+	if err != nil {
+		return err
+	}
+
+	deployment, err := omConnection.ReadDeployment()
+	if err != nil {
+		return err
+	}
+
+	mongosProcesses := createProcesses(state.mongosSet, new.Spec.ClusterName, new.Spec.Version, om.ProcessTypeMongos)
+	configRs := buildReplicaSetFromStatefulSet(state.configSrvSet, new.Spec.ClusterName, new.Spec.Version)
+	shards := make([]om.ReplicaSetWithProcesses, len(state.shardsSets))
+	for i, s := range state.shardsSets {
+		shards[i] = buildReplicaSetFromStatefulSet(s, new.Spec.ClusterName, new.Spec.Version)
+	}
+
+	if err := deployment.MergeShardedCluster(new.Name, mongosProcesses, configRs, shards); err != nil {
+		return err
+	}
+	deployment.AddMonitoringAndBackup(mongosProcesses[0].HostName(), log)
+
+	_, err = omConnection.UpdateDeployment(deployment)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (c *MongoDbController) onDeleteShardedCluster(obj interface{}) {
+	new := obj.(*mongodb.MongoDbShardedCluster)
+	log := zap.S().With("sharded cluster", new.Name)
+
+	// todo
+	log.Info("Removed!")
+}
+
+func validateUpdateShardedCluster(oldSpec, newSpec *mongodb.MongoDbShardedCluster) error {
+	if newSpec.Namespace != oldSpec.Namespace {
+		return errors.New("Namespace cannot change for existing object")
+	}
+
+	if newSpec.Spec.ClusterName != oldSpec.Spec.ClusterName {
+		return errors.New("Cluster Name cannot change for existing object")
+	}
+
+	return nil
+}
+
+func waitForAgentsToRegister(cluster *mongodb.MongoDbShardedCluster, state *KubeState, omConnection *om.OmConnection,
+	log *zap.SugaredLogger) error {
+	if err := waitForRsAgentsToRegister(state.mongosSet, cluster.Spec.ClusterName, omConnection, log); err != nil {
+		return err
+	}
+	if err := waitForRsAgentsToRegister(state.configSrvSet, cluster.Spec.ClusterName, omConnection, log); err != nil {
+		return err
+	}
+
+	for _, s := range state.shardsSets {
+		if err := waitForRsAgentsToRegister(s, cluster.Spec.ClusterName, omConnection, log); err != nil {
+			return err
+		}
+	}
+	return nil
+}

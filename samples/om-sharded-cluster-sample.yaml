@@ -1,0 +1,13 @@
+---
+apiVersion: mongodb.com/v1alpha1
+kind: MongoDbShardedCluster
+metadata:
+  name: shannon
+  namespace: mongodb
+spec:
+  shards_count: 2
+  shard_mongods_count: 3
+  mongos_count: 2
+  config_server_count: 3
+  mongodb_version: 3.6.3
+  ops_manager_config: global-om-config

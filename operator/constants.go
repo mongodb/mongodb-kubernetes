@@ -10,9 +10,8 @@ const (
 	// Variable for agent key stored in the Secret
 	AgentKey = "AGENT_API_KEY"
 
-	ContainerName = "automation-agent"
-
-	CreatedByOperator = "CreatedByOmOperator"
+	ContainerName     = "automation-agent"
+	OmControllerLabel = "om-controller"
 
 	MongoDbStandalone     = "MongoDbStandalone"
 	MongoDbReplicaSet     = "MongoDbReplicaSet"

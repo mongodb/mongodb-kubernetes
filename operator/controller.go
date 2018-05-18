@@ -15,8 +15,6 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
-const LabelController = "om-controller"
-
 type MongoDbController struct {
 	context          *crd.Context
 	mongodbClientset mongodbclient.MongodbV1alpha1Interface
@@ -39,6 +37,10 @@ func (c *MongoDbController) StartWatch(namespace string, stopCh chan struct{}) e
 		return err
 	}
 	err = c.startWatchStandalone(namespace, stopCh)
+	if err != nil {
+		return err
+	}
+	err = c.startWatchShardedCluster(namespace, stopCh)
 	if err != nil {
 		return err
 	}
@@ -102,6 +104,20 @@ func (c *MongoDbController) startWatchReplicaSet(namespace string, stopCh chan s
 
 	replicaSetWatcher := crd.NewWatcher(mongodb.MongoDbReplicaSetResource, namespace, resourceHandlers, restClient)
 	go replicaSetWatcher.Watch(&mongodb.MongoDbReplicaSet{}, stopCh)
+
+	return nil
+}
+
+func (c *MongoDbController) startWatchShardedCluster(namespace string, stopCh chan struct{}) error {
+	resourceHandlers := cache.ResourceEventHandlerFuncs{
+		AddFunc:    c.onAddShardedCluster,
+		UpdateFunc: c.onUpdateShardedCluster,
+		DeleteFunc: c.onDeleteShardedCluster,
+	}
+	restClient := c.mongodbClientset.RESTClient()
+
+	replicaSetWatcher := crd.NewWatcher(mongodb.MongoDbShardedClusterResource, namespace, resourceHandlers, restClient)
+	go replicaSetWatcher.Watch(&mongodb.MongoDbShardedCluster{}, stopCh)
 
 	return nil
 }

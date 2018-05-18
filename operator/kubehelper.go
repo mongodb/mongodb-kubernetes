@@ -8,6 +8,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -23,25 +24,26 @@ type KubeHelper struct {
 // will be allocated by Kubernetes) otherwise the type of service is default one ("ClusterIP") and it won't be connectible
 // from external (unless pods in statefulset expose themselves to outside using "hostNetwork: true")
 // Function returns the service port number assigned
-func (k *KubeHelper) createOrUpdateStatefulsetsWithService(serviceName string, servicePort int32,
-	nameSpace string, exposeExternally bool, statefulsets ...*appsv1.StatefulSet) (*int32, error) {
+func (k *KubeHelper) createOrUpdateStatefulsetsWithService(owner metav1.Object, servicePort int32,
+	namespace string, exposeExternally bool, log *zap.SugaredLogger, statefulsets ...*appsv1.StatefulSet) (*int32, error) {
 
-	service, err := k.ensureServicesExist(serviceName, servicePort, nameSpace, exposeExternally, statefulsets...)
+	service, err := k.ensureServicesExist(owner, statefulsets[0].Spec.ServiceName, servicePort, namespace,
+		exposeExternally, log, statefulsets...)
 
 	if err != nil {
 		return nil, err
 	}
 
 	for _, s := range statefulsets {
-		log := zap.S().With("statefulset", s.Name)
+		log = log.With("statefulset", s.Name)
 
-		if _, err := k.kubeApi.AppsV1().StatefulSets(nameSpace).Get(s.Name, v1.GetOptions{}); err != nil {
-			if _, err := k.kubeApi.AppsV1().StatefulSets(nameSpace).Create(s); err != nil {
+		if _, err := k.kubeApi.AppsV1().StatefulSets(namespace).Get(s.Name, v1.GetOptions{}); err != nil {
+			if _, err := k.kubeApi.AppsV1().StatefulSets(namespace).Create(s); err != nil {
 				return nil, err
 			}
 			log.Infow("Created statefulset")
 		} else {
-			if _, err := k.kubeApi.AppsV1().StatefulSets(nameSpace).Update(s); err != nil {
+			if _, err := k.kubeApi.AppsV1().StatefulSets(namespace).Update(s); err != nil {
 				return nil, err
 			}
 			log.Infow("Updated statefulset")
@@ -54,15 +56,13 @@ func (k *KubeHelper) createOrUpdateStatefulsetsWithService(serviceName string, s
 // ensureServicesExist checks if the necessary services exist and creates them if not. If the service name is not
 // provided - creates it based on the first replicaset name provided
 // TODO it must remove the external service in case it's no more needed
-func (k *KubeHelper) ensureServicesExist(serviceName string, servicePort int32, nameSpace string,
-	exposeExternally bool, statefulsets ...*appsv1.StatefulSet) (*corev1.Service, error) {
+func (k *KubeHelper) ensureServicesExist(owner metav1.Object, serviceName string, servicePort int32, nameSpace string,
+	exposeExternally bool, log *zap.SugaredLogger, statefulsets ...*appsv1.StatefulSet) (*corev1.Service, error) {
 
-	sName := getOrFormatServiceName(serviceName, statefulsets[0].Name)
-
-	ensureStatefulsetsHaveServiceLabel(sName, statefulsets)
+	ensureStatefulsetsHaveServiceLabel(serviceName, statefulsets)
 
 	// we always create the headless service to achieve Kubernetes internal connectivity
-	service, err := k.readOrCreateService(sName, sName, servicePort, nameSpace, false)
+	service, err := k.readOrCreateService(owner, serviceName, serviceName, servicePort, nameSpace, false, log)
 
 	if err != nil {
 		return nil, err
@@ -70,7 +70,7 @@ func (k *KubeHelper) ensureServicesExist(serviceName string, servicePort int32, 
 
 	if exposeExternally {
 		// for providing external connectivity we need the NodePort service
-		service, err = k.readOrCreateService(sName+"-external", sName, servicePort, nameSpace, true)
+		service, err = k.readOrCreateService(owner, serviceName+"-external", serviceName, servicePort, nameSpace, true, log)
 
 		if err != nil {
 			return nil, err
@@ -79,15 +79,15 @@ func (k *KubeHelper) ensureServicesExist(serviceName string, servicePort int32, 
 	return service, nil
 }
 
-func (k *KubeHelper) readOrCreateService(serviceName string, label string, servicePort int32, nameSpace string,
-	exposeExternally bool) (*corev1.Service, error) {
-	log := zap.S().With("service", serviceName)
+func (k *KubeHelper) readOrCreateService(owner metav1.Object, serviceName string, label string, servicePort int32, nameSpace string,
+	exposeExternally bool, log *zap.SugaredLogger) (*corev1.Service, error) {
+	log = log.With("service", serviceName)
 
 	service, err := k.kubeApi.CoreV1().Services(nameSpace).Get(serviceName, v1.GetOptions{})
 
 	if err != nil {
 		log.Info("Service doesn't exist - creating it")
-		service, err = k.createService(serviceName, label, servicePort, nameSpace, exposeExternally)
+		service, err = k.createService(owner, serviceName, label, servicePort, nameSpace, exposeExternally)
 		if err != nil {
 			return nil, err
 		}
@@ -101,42 +101,8 @@ func (k *KubeHelper) readOrCreateService(serviceName string, label string, servi
 	return service, nil
 }
 
-func (k *KubeHelper) createService(name string, label string, port int32, ns string, exposeExternally bool) (*corev1.Service, error) {
-	return k.kubeApi.CoreV1().Services(ns).Create(buildService(name, label, ns, port, exposeExternally))
-}
-
-func (k *KubeHelper) deleteService(name string, ns string) error {
-	serviceName := getOrFormatServiceName("", name)
-	log := zap.S().With("service", serviceName)
-	externalServiceName := fmt.Sprintf("%s-external", serviceName)
-
-	service, err := k.kubeApi.CoreV1().Services(ns).Get(serviceName, v1.GetOptions{})
-	if err != nil {
-		return err
-	}
-	if _, ok := service.ObjectMeta.Annotations[CreatedByOperator]; !ok {
-		log.Info("Service was not created by operator, not deleting.")
-		return nil
-	}
-
-	if err := k.kubeApi.CoreV1().Services(ns).Delete(externalServiceName, &v1.DeleteOptions{}); err != nil {
-		log.Info("Not Exposed externally.")
-	}
-
-	if err := k.kubeApi.CoreV1().Services(ns).Delete(serviceName, &v1.DeleteOptions{}); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (k *KubeHelper) GetPodNames(setName, namespace, clusterName string) ([]string, error) {
-	s, err := k.kubeApi.AppsV1().StatefulSets(namespace).Get(setName, v1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	return GetDnsForStatefulSet(s, clusterName), nil
+func (k *KubeHelper) createService(owner metav1.Object, name string, label string, port int32, ns string, exposeExternally bool) (*corev1.Service, error) {
+	return k.kubeApi.CoreV1().Services(ns).Create(buildService(owner, name, label, ns, port, exposeExternally))
 }
 
 func (k *KubeHelper) readConfigMap(ns string, name string) (map[string]string, error) {
@@ -145,6 +111,14 @@ func (k *KubeHelper) readConfigMap(ns string, name string) (map[string]string, e
 		return nil, e
 	}
 	return configMap.Data, nil
+}
+
+func (k *KubeHelper) readStatefulSet(ns string, name string) (*appsv1.StatefulSet, error) {
+	set, e := k.kubeApi.AppsV1().StatefulSets(ns).Get(name, v1.GetOptions{})
+	if e != nil {
+		return nil, e
+	}
+	return set, nil
 }
 
 func discoverServicePort(service *corev1.Service) (*int32, error) {

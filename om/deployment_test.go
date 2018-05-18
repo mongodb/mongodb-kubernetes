@@ -32,7 +32,7 @@ func TestSerialize(t *testing.T) {
 func TestMergeStandalone(t *testing.T) {
 	d := NewDeployment()
 	standalone := createStandalone()
-	d.MergeStandalone(standalone)
+	d.MergeStandalone(standalone, nil)
 
 	assert.Len(t, d.getProcesses(), 1)
 
@@ -40,7 +40,7 @@ func TestMergeStandalone(t *testing.T) {
 	d.getProcesses()[0]["alias"] = "alias"
 	d.getProcesses()[0]["hostname"] = "foo"
 
-	d.MergeStandalone(createStandalone())
+	d.MergeStandalone(createStandalone(), nil)
 
 	assert.Len(t, d.getProcesses(), 1)
 
@@ -57,7 +57,7 @@ func TestMergeStandalone(t *testing.T) {
 func TestMergeReplicaSet(t *testing.T) {
 	d := NewDeployment()
 
-	d.MergeReplicaSet(NewReplicaSetWithProcesses(NewReplicaSet("fooRs"), createReplicaSetProcesses("fooRs")))
+	d.MergeReplicaSet(NewReplicaSetWithProcesses(NewReplicaSet("fooRs"), createReplicaSetProcesses("fooRs")), nil)
 	expectedRs := buildRsByProcesses("fooRs", createReplicaSetProcesses("fooRs"))
 
 	assert.Len(t, d.getProcesses(), 3)
@@ -73,7 +73,7 @@ func TestMergeReplicaSet(t *testing.T) {
 	d.getReplicaSets()[0].addMember(NewMongodProcess("foo", "bar", "4.0.0"))                  // "adding" some new node
 	d.getReplicaSets()[0].members()[0]["arbiterOnly"] = true                                  // changing data for first node
 
-	d.MergeReplicaSet(NewReplicaSetWithProcesses(NewReplicaSet("fooRs"), createReplicaSetProcesses("fooRs")))
+	d.MergeReplicaSet(NewReplicaSetWithProcesses(NewReplicaSet("fooRs"), createReplicaSetProcesses("fooRs")), nil)
 
 	assert.Len(t, d.getProcesses(), 3)
 	assert.Len(t, d.getReplicaSets(), 1)
@@ -90,13 +90,13 @@ func TestMergeReplicaSet(t *testing.T) {
 func TestMergeReplicaSetScaleDown(t *testing.T) {
 	d := NewDeployment()
 
-	d.MergeReplicaSet(NewReplicaSetWithProcesses(NewReplicaSet("someRs"), createReplicaSetProcesses("someRs")))
+	d.MergeReplicaSet(NewReplicaSetWithProcesses(NewReplicaSet("someRs"), createReplicaSetProcesses("someRs")), nil)
 	assert.Len(t, d.getProcesses(), 3)
 	assert.Len(t, d.getReplicaSets()[0].members(), 3)
 
 	// "scale down"
 	scaledDownRsProcesses := createReplicaSetProcesses("someRs")[0:2]
-	d.MergeReplicaSet(NewReplicaSetWithProcesses(NewReplicaSet("someRs"), scaledDownRsProcesses))
+	d.MergeReplicaSet(NewReplicaSetWithProcesses(NewReplicaSet("someRs"), scaledDownRsProcesses), nil)
 
 	assert.Len(t, d.getProcesses(), 2)
 	assert.Len(t, d.getReplicaSets()[0].members(), 2)
@@ -112,7 +112,7 @@ func TestMergeReplicaSetScaleDown(t *testing.T) {
 func TestMergeShardedCluster_New(t *testing.T) {
 	d := NewDeployment()
 
-	configRs := NewReplicaSetWithProcesses(NewReplicaSet("configSrv"), createReplicaSetProcesses("configSrv"))
+	configRs := createConfigSrvRs("configSrv", false)
 	shards := createShards("myShard", false)
 
 	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, shards)
@@ -123,49 +123,46 @@ func TestMergeShardedCluster_New(t *testing.T) {
 		require.Len(t, d.getReplicaSets()[i].members(), 3)
 	}
 	checkMongoSProcesses(t, d.getProcesses(), createMongosProcesses(3, "pretty", "cluster"))
-	checkReplicaSet(t, d, configRs)
-	checkShardedCluster(t, d, NewShardedCluster("cluster", configRs.rs.Name(), shards), createShards("myShard", true))
+	checkReplicaSet(t, d, createConfigSrvRs("configSrv", true))
+	checkShardedCluster(t, d, NewShardedCluster("cluster", configRs.Rs.Name(), shards), createShards("myShard", true))
 }
 
 func TestMergeShardedCluster_ProcessesModified(t *testing.T) {
 	d := NewDeployment()
 
-	configRs := NewReplicaSetWithProcesses(NewReplicaSet("configSrv"), createReplicaSetProcesses("configSrv"))
 	shards := createShards("myShard", false)
 
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, shards)
+	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), createConfigSrvRs("configSrv", false), shards)
 
 	// OM "made" some changes (should not be overriden)
-	(*d.getProcessByName("configSrv1")).Args()["sharding"] = map[string]string{"clusterRole": "configsvr"}
 	(*d.getProcessByName("pretty0"))["logRotate"] = map[string]int{"sizeThresholdMB": 1000, "timeThresholdHrs": 24}
 
 	// These OM changes must be overriden
+	(*d.getProcessByName("configSrv1")).Args()["sharding"] = map[string]interface{}{"clusterRole": "shardsrv", "archiveMovedChunks": true}
 	(*d.getProcessByName("myShard11"))["hostname"] = "rubbish"
 	(*d.getProcessByName("pretty2")).SetLogPath("/doesnt/exist")
 
 	// Final check - we create the expected configuration, add there correct OM changes and check for equality with merge
 	// result
-	configRs = NewReplicaSetWithProcesses(NewReplicaSet("configSrv"), createReplicaSetProcesses("configSrv"))
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard", false))
+	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), createConfigSrvRs("configSrv", false), createShards("myShard", false))
 
 	expectedMongosProcesses := createMongosProcesses(3, "pretty", "cluster")
 	expectedMongosProcesses[0]["logRotate"] = map[string]int{"sizeThresholdMB": 1000, "timeThresholdHrs": 24}
-	expectedConfigrs := NewReplicaSetWithProcesses(NewReplicaSet("configSrv"), createReplicaSetProcesses("configSrv"))
-	expectedConfigrs.processes[1].Args()["sharding"] = map[string]string{"clusterRole": "configsvr"}
+	expectedConfigrs := createConfigSrvRs("configSrv", true)
+	expectedConfigrs.Processes[1].Args()["sharding"] = map[string]interface{}{"clusterRole": "configsvr", "archiveMovedChunks": true}
 
 	require.Len(t, d.getProcesses(), 15)
 	checkMongoSProcesses(t, d.getProcesses(), expectedMongosProcesses)
 	checkReplicaSet(t, d, expectedConfigrs)
-	checkShardedCluster(t, d, NewShardedCluster("cluster", configRs.rs.Name(), shards), createShards("myShard", false))
+	checkShardedCluster(t, d, NewShardedCluster("cluster", expectedConfigrs.Rs.Name(), shards), createShards("myShard", false))
 }
 
 func TestMergeShardedCluster_ReplicaSetsModified(t *testing.T) {
 	d := NewDeployment()
 
-	configRs := NewReplicaSetWithProcesses(NewReplicaSet("configSrv"), createReplicaSetProcesses("configSrv"))
 	shards := createShards("myShard", false)
 
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, shards)
+	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), createConfigSrvRs("configSrv", false), shards)
 
 	// OM "made" some changes (should not be overriden)
 	(*d.getReplicaSetByName("myShard0"))["protocolVersion"] = 1
@@ -176,11 +173,11 @@ func TestMergeShardedCluster_ReplicaSetsModified(t *testing.T) {
 
 	// Final check - we create the expected configuration, add there correct OM changes and check for equality with merge
 	// result
-	configRs = NewReplicaSetWithProcesses(NewReplicaSet("configSrv"), createReplicaSetProcesses("configSrv"))
+	configRs := createConfigSrvRs("configSrv", false)
 	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard", false))
 
 	expectedShards := createShards("myShard", false)
-	expectedShards[0].rs["protocolVersion"] = 1
+	expectedShards[0].Rs["protocolVersion"] = 1
 
 	require.Len(t, d.getProcesses(), 15)
 	require.Len(t, d.getReplicaSets(), 4)
@@ -188,14 +185,14 @@ func TestMergeShardedCluster_ReplicaSetsModified(t *testing.T) {
 		require.Len(t, d.getReplicaSets()[i].members(), 3)
 	}
 	checkMongoSProcesses(t, d.getProcesses(), createMongosProcesses(3, "pretty", "cluster"))
-	checkReplicaSet(t, d, NewReplicaSetWithProcesses(NewReplicaSet("configSrv"), createReplicaSetProcesses("configSrv")))
-	checkShardedCluster(t, d, NewShardedCluster("cluster", configRs.rs.Name(), shards), expectedShards)
+	checkReplicaSet(t, d, createConfigSrvRs("configSrv", true))
+	checkShardedCluster(t, d, NewShardedCluster("cluster", configRs.Rs.Name(), shards), expectedShards)
 }
 
 func TestMergeShardedCluster_ShardedClusterModified(t *testing.T) {
 	d := NewDeployment()
 
-	configRs := NewReplicaSetWithProcesses(NewReplicaSet("configSrv"), createReplicaSetProcesses("configSrv"))
+	configRs := createConfigSrvRs("configSrv", false)
 	shards := createShards("myShard", false)
 
 	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, shards)
@@ -208,16 +205,16 @@ func TestMergeShardedCluster_ShardedClusterModified(t *testing.T) {
 	(*d.getShardedClusterByName("cluster")).setConfigServerRsName("fake")
 	(*d.getShardedClusterByName("cluster")).setShards(d.getShardedClusterByName("cluster").shards()[0:2])
 	(*d.getShardedClusterByName("cluster")).setShards(append(d.getShardedClusterByName("cluster").shards(), newShard("fakeShard")))
-	d.MergeReplicaSet(NewReplicaSetWithProcesses(NewReplicaSet("fakeShard"), createReplicaSetProcesses("fakeShard")))
+	d.MergeReplicaSet(NewReplicaSetWithProcesses(NewReplicaSet("fakeShard"), createReplicaSetProcesses("fakeShard")), nil)
 
 	require.Len(t, d.getReplicaSets(), 5)
 
 	// Final check - we create the expected configuration, add there correct OM changes and check for equality with merge
 	// result
-	configRs = NewReplicaSetWithProcesses(NewReplicaSet("configSrv"), createReplicaSetProcesses("configSrv"))
+	configRs = createConfigSrvRs("configSrv", false)
 	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard", false))
 
-	expectedCluster := NewShardedCluster("cluster", configRs.rs.Name(), shards)
+	expectedCluster := NewShardedCluster("cluster", configRs.Rs.Name(), shards)
 	expectedCluster["managedSharding"] = true
 	expectedCluster["collections"] = []map[string]interface{}{{"_id": "some", "unique": true}}
 
@@ -227,7 +224,7 @@ func TestMergeShardedCluster_ShardedClusterModified(t *testing.T) {
 		require.Len(t, d.getReplicaSets()[i].members(), 3)
 	}
 	checkMongoSProcesses(t, d.getProcesses(), createMongosProcesses(3, "pretty", "cluster"))
-	checkReplicaSet(t, d, NewReplicaSetWithProcesses(NewReplicaSet("configSrv"), createReplicaSetProcesses("configSrv")))
+	checkReplicaSet(t, d, createConfigSrvRs("configSrv", true))
 	checkShardedCluster(t, d, expectedCluster, createShards("myShard", false))
 }
 
@@ -235,24 +232,24 @@ func TestMergeShardedCluster_ShardedClusterModified(t *testing.T) {
 func TestMergeShardedCluster_ShardCountChanged(t *testing.T) {
 	d := NewDeployment()
 
-	configRs := NewReplicaSetWithProcesses(NewReplicaSet("configSrv"), createReplicaSetProcesses("configSrv"))
+	configRs := createConfigSrvRs("configSrv", false)
 	shards := createShards("myShard", false)
 	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, shards)
 
 	shards = createSpecificNumberOfShards(5, "myShard", false)
 	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, shards)
-	checkShardedCluster(t, d, NewShardedCluster("cluster", configRs.rs.Name(), shards), shards)
+	checkShardedCluster(t, d, NewShardedCluster("cluster", configRs.Rs.Name(), shards), shards)
 
 	shards = createSpecificNumberOfShards(2, "myShard", false)
 	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, shards)
-	checkShardedCluster(t, d, NewShardedCluster("cluster", configRs.rs.Name(), shards), shards)
+	checkShardedCluster(t, d, NewShardedCluster("cluster", configRs.Rs.Name(), shards), shards)
 }
 
 // TestMergeShardedCluster_MongosCountChanged checks the scenario of incrementing and decrementing the number of mongos
 func TestMergeShardedCluster_MongosCountChanged(t *testing.T) {
 	d := NewDeployment()
 
-	configRs := NewReplicaSetWithProcesses(NewReplicaSet("configSrv"), createReplicaSetProcesses("configSrv"))
+	configRs := createConfigSrvRs("configSrv", false)
 	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard", false))
 	checkMongoSProcesses(t, d.getProcesses(), createMongosProcesses(3, "pretty", "cluster"))
 
@@ -268,17 +265,17 @@ func TestMergeShardedCluster_MongosCountChanged(t *testing.T) {
 func TestMergeShardedCluster_ConfigSrvCountChanged(t *testing.T) {
 	d := NewDeployment()
 
-	configRs := NewReplicaSetWithProcesses(NewReplicaSet("configSrv"), createReplicaSetProcesses("configSrv"))
+	configRs := createConfigSrvRs("configSrv", false)
 	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard", false))
-	checkReplicaSet(t, d, NewReplicaSetWithProcesses(NewReplicaSet("configSrv"), createReplicaSetProcesses("configSrv")))
+	checkReplicaSet(t, d, createConfigSrvRs("configSrv", true))
 
-	configRs = NewReplicaSetWithProcesses(NewReplicaSet("configSrv"), createReplicaSetProcessesCount(6, "configSrv"))
+	configRs = createConfigSrvRsCount(6, "configSrv", false)
 	d.MergeShardedCluster("cluster", createMongosProcesses(4, "pretty", ""), configRs, createShards("myShard", false))
-	checkReplicaSet(t, d, NewReplicaSetWithProcesses(NewReplicaSet("configSrv"), createReplicaSetProcessesCount(6, "configSrv")))
+	checkReplicaSet(t, d, createConfigSrvRsCount(6, "configSrv", true))
 
-	configRs = NewReplicaSetWithProcesses(NewReplicaSet("configSrv"), createReplicaSetProcessesCount(2, "configSrv"))
+	configRs = createConfigSrvRsCount(2, "configSrv", false)
 	d.MergeShardedCluster("cluster", createMongosProcesses(4, "pretty", ""), configRs, createShards("myShard", false))
-	checkReplicaSet(t, d, NewReplicaSetWithProcesses(NewReplicaSet("configSrv"), createReplicaSetProcessesCount(2, "configSrv")))
+	checkReplicaSet(t, d, createConfigSrvRsCount(2, "configSrv", true))
 }
 
 // Methods for checking deployment units
@@ -293,7 +290,7 @@ func checkShardedCluster(t *testing.T, d Deployment, expectedCluster ShardedClus
 	checkReplicaSets(t, d, replicaSetWithProcesses)
 
 	// checking that no previous replica sets are left. For this we take the name of first shard and remove the last digit
-	firstShardName := replicaSetWithProcesses[0].rs.Name()
+	firstShardName := replicaSetWithProcesses[0].Rs.Name()
 	i := 0
 	for _, r := range d.getReplicaSets() {
 		if strings.HasPrefix(r.Name(), firstShardName[0:len(firstShardName)-1]) {
@@ -310,17 +307,17 @@ func checkReplicaSets(t *testing.T, d Deployment, replicaSetWithProcesses []Repl
 }
 
 func checkReplicaSet(t *testing.T, d Deployment, replicaSetWithProcesses ReplicaSetWithProcesses) {
-	rs := d.getReplicaSetByName(replicaSetWithProcesses.rs.Name())
+	rs := d.getReplicaSetByName(replicaSetWithProcesses.Rs.Name())
 
 	require.NotNil(t, rs)
 
-	assert.Equal(t, replicaSetWithProcesses.rs, *rs)
-	rsPrefix := replicaSetWithProcesses.rs.Name()
+	assert.Equal(t, replicaSetWithProcesses.Rs, *rs)
+	rsPrefix := replicaSetWithProcesses.Rs.Name()
 
 	found := 0
 	totalMongods := 0
 	for _, p := range d.getProcesses() {
-		for _, e := range replicaSetWithProcesses.processes {
+		for _, e := range replicaSetWithProcesses.Processes {
 			if p.ProcessType() == ProcessTypeMongod && p.Name() == e.Name() {
 				assert.Equal(t, e, p)
 				found++
@@ -330,8 +327,8 @@ func checkReplicaSet(t *testing.T, d Deployment, replicaSetWithProcesses Replica
 			totalMongods++
 		}
 	}
-	assert.Equalf(t, len(replicaSetWithProcesses.processes), found, "Not all  %s replicaSet processes are found!", replicaSetWithProcesses.rs.Name())
-	assert.Equalf(t, len(replicaSetWithProcesses.processes), totalMongods, "Some excessive mongod processes are found for %s replicaSet!", replicaSetWithProcesses.rs.Name())
+	assert.Equalf(t, len(replicaSetWithProcesses.Processes), found, "Not all  %s replicaSet processes are found!", replicaSetWithProcesses.Rs.Name())
+	assert.Equalf(t, len(replicaSetWithProcesses.Processes), totalMongods, "Some excessive mongod processes are found for %s replicaSet!", replicaSetWithProcesses.Rs.Name())
 }
 
 func checkMongoSProcesses(t *testing.T, processes []Process, expectedMongosProcesses []Process) {
@@ -428,4 +425,25 @@ func createReplicaSetProcessesCheckCount(count int, rsName string, check bool) [
 		}
 	}
 	return rsMembers
+}
+
+func createConfigSrvRs(name string, check bool) ReplicaSetWithProcesses {
+	replicaSetWithProcesses := NewReplicaSetWithProcesses(NewReplicaSet(name), createReplicaSetProcesses(name))
+
+	if check {
+		for _, p := range replicaSetWithProcesses.Processes {
+			p.setClusterRoleConfigSrv()
+		}
+	}
+	return replicaSetWithProcesses
+}
+func createConfigSrvRsCount(count int, name string, check bool) ReplicaSetWithProcesses {
+	replicaSetWithProcesses := NewReplicaSetWithProcesses(NewReplicaSet(name), createReplicaSetProcessesCount(count, name))
+
+	if check {
+		for _, p := range replicaSetWithProcesses.Processes {
+			p.setClusterRoleConfigSrv()
+		}
+	}
+	return replicaSetWithProcesses
 }

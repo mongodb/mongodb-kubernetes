@@ -13,30 +13,29 @@ This will allow to use `docker push` to publish changes
 ### Create new repository
 
 ```bash
-aws ecr create-repository --repository-name dev2/om-operator
+aws ecr create-repository --repository-name dev/om-operator
 ```
 
-This will create a new repository named `dev2/om-operator`. You can delete it easily using `aws ecr` commands
+This will create a new repository named `dev/om-operator`. You can delete it easily using `aws ecr` commands
 
 
 ### Push the build to ECR repository
 
-1. Build the image locally
+Build the image locally, tag it and push:
+
+(for operator)
 
 ```bash
-docker build -t dev2/om-operator .
+docker build -t dev/mongodb-enterprise-operator . &&
+docker tag dev/mongodb-enterprise-operator 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-operator &&
+docker push 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-operator 
 ```
 
-2. Tag it
+(for automation agent)
 
 ```bash
-docker tag dev2/om-operator 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev2/om-operator
+cd docker/automation-agent/ &&
+docker build -t dev/mongodb-enterprise-database . &&
+docker tag dev/mongodb-enterprise-database 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-database &&
+docker push 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-database 
 ```
-
-3. Push
-
-```bash
-docker push 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev2/om-operator 
-```
-
-It's possible to push the same image again with different tag

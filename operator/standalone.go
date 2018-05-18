@@ -1,83 +1,53 @@
 package operator
 
 import (
+	"fmt"
+
 	"github.com/10gen/ops-manager-kubernetes/om"
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1alpha1"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
+	appsv1 "k8s.io/api/apps/v1"
 )
 
 func (c *MongoDbController) onAddStandalone(obj interface{}) {
-	s := obj.(*mongodb.MongoDbStandalone).DeepCopy()
+	s := obj.(*mongodb.MongoDbStandalone)
 
 	log := zap.S().With("standalone", s.Name)
 
-	conn, err := c.getOmConnection(s.Namespace, s.Spec.OmConfigName)
-	if err != nil {
-		log.Errorf("Failed to read OpsManager config map %s: %s", s.Spec.OmConfigName, err)
+	log.Infow("Creating MongoDbStandalone", "config", s.Spec)
+
+	if err := c.doStandaloneProcessing(nil, s, log); err != nil {
+		log.Error(err)
 		return
 	}
 
-	agentKeySecretName, err := c.EnsureAgentKeySecretExists(conn, s.Namespace)
-	if err != nil {
-		log.Error("Failed to generate/get agent key: ", err)
-		return
-	}
-
-	// standaloneObject is represented by a StatefulSet in Kubernetes
-	standaloneObject := buildStandaloneStatefulSet(s, agentKeySecretName)
-	_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(s.Spec.Service, 27017, s.Namespace, true, standaloneObject)
-	if err != nil {
-		log.Error("Failed to create statefulset: ", err)
-		return
-	}
-
-	if err := c.updateOmDeployment(conn, s); err != nil {
-		log.Error("Failed to create standalone in OM: ", err)
-		return
-	}
-
-	log.Info("Created Standalone!")
+	log.Info("Created!")
 }
 
 func (c *MongoDbController) onUpdateStandalone(oldObj, newObj interface{}) {
-	newRes := newObj.(*mongodb.MongoDbStandalone).DeepCopy()
-	log := zap.S().With("standalone", newRes.Name)
+	o := newObj.(*mongodb.MongoDbStandalone)
+	n := newObj.(*mongodb.MongoDbStandalone)
+	log := zap.S().With("standalone", n.Name)
 
-	conn, err := c.getOmConnection(newRes.Namespace, newRes.Spec.OmConfigName)
-	if err != nil {
-		log.Errorf("Failed to read OpsManager config map %s: %s", newRes.Spec.OmConfigName, err)
+	log.Infow("Updating MongoDbStandalone", "oldConfig", o.Spec, "newConfig", n.Spec)
+
+	if err := validateUpdateStandalone(o, n); err != nil {
+		log.Error(err)
 		return
 	}
 
-	agentKeySecretName, err := c.EnsureAgentKeySecretExists(conn, newRes.Namespace)
-
-	if err != nil {
-		log.Error("Failed to generate/get agent key: ", err)
+	if err := c.doStandaloneProcessing(o, n, log); err != nil {
+		log.Error(err)
 		return
 	}
 
-	standaloneObject := buildStandaloneStatefulSet(newRes, agentKeySecretName)
-	_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(newRes.Spec.Service, 27017, newRes.Namespace, true, standaloneObject)
-
-	if err != nil {
-		log.Error("Failed to create/update statefulset: ", newRes.Name)
-		return
-	}
-
-	if err := c.updateOmDeployment(conn, newRes); err != nil {
-		log.Error("Failed to update standalone in OM: ", err)
-		return
-	}
-
-	log.Info("Updated Standalone!")
+	log.Info("Updated!")
 }
 
 func (c *MongoDbController) onDeleteStandalone(obj interface{}) {
-	s := obj.(*mongodb.MongoDbStandalone).DeepCopy()
+	s := obj.(*mongodb.MongoDbStandalone)
 	log := zap.S().With("Standalone", s.Name)
-
-	c.kubeHelper.deleteService(s.Name, s.Namespace)
 
 	conn, err := c.getOmConnection(s.Namespace, s.Spec.OmConfigName)
 	if err != nil {
@@ -101,7 +71,15 @@ func (c *MongoDbController) onDeleteStandalone(obj interface{}) {
 		return
 	}
 
-	hostsToRemove := hostsToRemove(1, 0, s.Name, s.Namespace, s.Spec.Service, s.Spec.ClusterName)
+	rsStatefulSet, err := c.kubeHelper.readStatefulSet(s.Namespace, s.Name)
+
+	if err != nil {
+		log.Errorf("Failed to read stateful set %s: %s", s.Name, err)
+		return
+	}
+
+	hostsToRemove, _ := GetDnsForStatefulSet(rsStatefulSet, s.Spec.ClusterName)
+
 	log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
 	if err := om.StopMonitoring(conn, hostsToRemove); err != nil {
 		log.Errorf("Failed to stop monitoring on hosts %s: %s", hostsToRemove, err)
@@ -111,9 +89,34 @@ func (c *MongoDbController) onDeleteStandalone(obj interface{}) {
 	log.Info("Removed!")
 }
 
-func (c *MongoDbController) updateOmDeployment(omConnection *om.OmConnection, s *mongodb.MongoDbStandalone) error {
-	if !om.WaitUntilAgentsHaveRegistered(omConnection, s.Name) {
-		return errors.New("Agents never registered! Not creating standalone in OM!")
+func (c *MongoDbController) doStandaloneProcessing(o, n *mongodb.MongoDbStandalone, log *zap.SugaredLogger) error {
+	conn, err := c.getOmConnection(n.Namespace, n.Spec.OmConfigName)
+	if err != nil {
+		return errors.New(fmt.Sprintf("Failed to read OpsManager config map %s: %s", n.Spec.OmConfigName, err))
+	}
+
+	agentKeySecretName, err := c.EnsureAgentKeySecretExists(conn, n.Namespace)
+	if err != nil {
+		return errors.New(fmt.Sprintf("Failed to generate/get agent key: %s", err))
+	}
+
+	// standaloneSet is represented by a StatefulSet in Kubernetes
+	standaloneSet := buildStatefulSet(n, n.Name, n.ServiceName(), n.Namespace, n.Spec.OmConfigName, agentKeySecretName, 1, n.Spec.ResourceRequirements)
+	_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(n, MongoDbDefaultPort, n.Namespace, true, log, standaloneSet)
+	if err != nil {
+		return errors.New(fmt.Sprintf("Failed to create statefulset: %s", err))
+	}
+
+	if err := c.updateOmDeployment(conn, n, standaloneSet, log); err != nil {
+		return errors.New(fmt.Sprintf("Failed to create standalone in OM: %s", err))
+	}
+	return nil
+}
+
+func (c *MongoDbController) updateOmDeployment(omConnection *om.OmConnection, s *mongodb.MongoDbStandalone,
+	set *appsv1.StatefulSet, log *zap.SugaredLogger) error {
+	if err := waitForRsAgentsToRegister(set, s.Spec.ClusterName, omConnection, log); err != nil {
+		return err
 	}
 
 	currentDeployment, err := omConnection.ReadDeployment()
@@ -121,18 +124,26 @@ func (c *MongoDbController) updateOmDeployment(omConnection *om.OmConnection, s 
 		return errors.New("Could not read deployment from OM. Not creating standalone in OM!")
 	}
 
-	hostnames, err := c.kubeHelper.GetPodNames(s.Name, s.Namespace, s.Spec.ClusterName)
-	if err != nil {
-		return err
-	}
-	standaloneOmObject := om.NewMongodProcess(s.Name, s.Spec.Version, hostnames[0])
+	standaloneOmObject := createProcesses(set, s.Spec.ClusterName, s.Spec.Version, om.ProcessTypeMongod)
 
-	currentDeployment.MergeStandalone(standaloneOmObject)
-	currentDeployment.AddMonitoringAndBackup()
+	currentDeployment.MergeStandalone(standaloneOmObject[0], nil)
+	currentDeployment.AddMonitoringAndBackup(standaloneOmObject[0].HostName(), log)
 
 	_, err = omConnection.UpdateDeployment(currentDeployment)
 	if err != nil {
 		return errors.New("Error while trying to push another deployment.")
 	}
+	return nil
+}
+
+func validateUpdateStandalone(oldSpec, newSpec *mongodb.MongoDbStandalone) error {
+	if newSpec.Namespace != oldSpec.Namespace {
+		return errors.New("Namespace cannot change for existing object")
+	}
+
+	if newSpec.Spec.ClusterName != oldSpec.Spec.ClusterName {
+		return errors.New("Cluster Name cannot change for existing object")
+	}
+
 	return nil
 }

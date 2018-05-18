@@ -126,7 +126,14 @@ func (s Process) Version() string {
 }
 
 func (s Process) ProcessType() MongoType {
-	return s["processType"].(MongoType)
+	switch v := s["processType"].(type) {
+	case string:
+		return MongoType(v)
+	case MongoType:
+		return v
+	default:
+		panic(fmt.Sprintf("Unexpected type of processType variable: %T", v))
+	}
 }
 
 func (s Process) Disabled() bool {
@@ -168,6 +175,10 @@ func (s Process) mergeFrom(otherProcess Process) {
 	if otherProcess.ProcessType() == ProcessTypeMongod {
 		s.SetDbPath(otherProcess.DbPath())
 		s.setReplicaSetName(otherProcess.replicaSetName())
+		// we override clusterRole only if it is set to "configsvr" - otherwise we leave the OM value
+		if otherProcess.isClusterRoleConfigSrvSet() {
+			s.setClusterRoleConfigSrv()
+		}
 	} else {
 		s.setCluster(otherProcess.Cluster())
 	}
@@ -203,6 +214,17 @@ func (s Process) setReplicaSetName(rsName string) Process {
 
 func (s Process) replicaSetName() string {
 	return readMapValueAsString(s.Args(), "replication", "replSetName")
+}
+
+// These methods are ONLY FOR CONFIG SERVER REPLICA SET members!
+// external packages are not supposed to call this method directly as it should be called during sharded cluster merge
+func (s Process) setClusterRoleConfigSrv() Process {
+	readOrCreateMap(s.Args(), "sharding")["clusterRole"] = "configsvr"
+	return s
+}
+
+func (s Process) isClusterRoleConfigSrvSet() bool {
+	return readMapValueAsString(s.Args(), "sharding", "clusterRole") == "configsvr"
 }
 
 // These methods are ONLY FOR MONGOS types!

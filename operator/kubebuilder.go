@@ -12,30 +12,23 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-// buildStandaloneStatefulSet returns a StatefulSet which is how MongoDB Standalone objects
-// are mapped into Kubernetes objects.
-func buildStandaloneStatefulSet(obj *mongodb.MongoDbStandalone, agentKeySecretName string) *appsv1.StatefulSet {
-	serviceName := getOrFormatServiceName(obj.Spec.Service, obj.Name)
+// buildStatefulSet builds the statefulset of pods containing agent containers. It's a general function used by
+// all the types of mongodb deployment resources
+func buildStatefulSet(owner metav1.Object, name, serviceName, ns, configName, agentKeySecretName string, replicas int, requirements mongodb.MongoDbRequirements) *appsv1.StatefulSet {
 	labels := map[string]string{
 		"app":        serviceName,
-		"controller": LabelController,
+		"controller": OmControllerLabel,
 	}
 
 	return &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      obj.Name,
-			Namespace: obj.Namespace,
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(obj, schema.GroupVersionKind{
-					Group:   mongodb.SchemeGroupVersion.Group,
-					Version: mongodb.SchemeGroupVersion.Version,
-					Kind:    MongoDbStandalone,
-				}),
-			},
+			Name:            name,
+			Namespace:       ns,
+			OwnerReferences: baseOwnerReference(owner),
 		},
 		Spec: appsv1.StatefulSetSpec{
 			ServiceName: serviceName,
-			Replicas:    Int32Ref(1),
+			Replicas:    Int32Ref(int32(replicas)),
 			Selector: &metav1.LabelSelector{
 				MatchLabels: labels,
 			},
@@ -43,7 +36,7 @@ func buildStandaloneStatefulSet(obj *mongodb.MongoDbStandalone, agentKeySecretNa
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
 				},
-				Spec: basePodSpec(obj.Spec.OmConfigName, agentKeySecretName, obj.Spec.ResourceRequirements),
+				Spec: basePodSpec(configName, agentKeySecretName, requirements),
 			},
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{{
 				ObjectMeta: metav1.ObjectMeta{
@@ -51,57 +44,9 @@ func buildStandaloneStatefulSet(obj *mongodb.MongoDbStandalone, agentKeySecretNa
 				},
 				Spec: corev1.PersistentVolumeClaimSpec{
 					AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-					StorageClassName: &obj.Spec.ResourceRequirements.StorageClass,
+					StorageClassName: &requirements.StorageClass,
 					Resources: corev1.ResourceRequirements{
-						Requests: buildStorageRequirements(obj.Spec.ResourceRequirements),
-					},
-				},
-			}},
-		},
-	}
-}
-
-// buildReplicaSetStatefulSet will return a StatefulSet definition, built on top of Pods.
-func buildReplicaSetStatefulSet(obj *mongodb.MongoDbReplicaSet, agentKeySecretName string) *appsv1.StatefulSet {
-	serviceName := getOrFormatServiceName(obj.Spec.Service, obj.Name)
-	labels := map[string]string{
-		"app":        serviceName,
-		"controller": LabelController,
-	}
-
-	return &appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      obj.Name,
-			Namespace: obj.Namespace,
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(obj, schema.GroupVersionKind{
-					Group:   mongodb.SchemeGroupVersion.Group,
-					Version: mongodb.SchemeGroupVersion.Version,
-					Kind:    MongoDbReplicaSet,
-				}),
-			},
-		},
-		Spec: appsv1.StatefulSetSpec{
-			ServiceName: serviceName,
-			Replicas:    Int32Ref(int32(obj.Spec.Members)),
-			Selector: &metav1.LabelSelector{
-				MatchLabels: labels,
-			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
-				},
-				Spec: basePodSpec(obj.Spec.OmConfigName, agentKeySecretName, obj.Spec.ResourceRequirements),
-			},
-			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: PersistentVolumeClaimName,
-				},
-				Spec: corev1.PersistentVolumeClaimSpec{
-					AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-					StorageClassName: &obj.Spec.ResourceRequirements.StorageClass,
-					Resources: corev1.ResourceRequirements{
-						Requests: buildStorageRequirements(obj.Spec.ResourceRequirements),
+						Requests: buildStorageRequirements(requirements),
 					},
 				},
 			}},
@@ -123,7 +68,7 @@ func buildSecret(groupId string, nameSpace string, agentKey string) *corev1.Secr
 // some random port in the range 30000-32767
 // Note that itself service has no dedicated IP by default ("clusterIP: None") as all mongo entities should be directly
 // addressable
-func buildService(name string, label string, nameSpace string, port int32, exposeExternally bool) *corev1.Service {
+func buildService(owner metav1.Object, name string, label string, namespace string, port int32, exposeExternally bool) *corev1.Service {
 	serviceType := corev1.ServiceTypeClusterIP
 	clusterIp := "None"
 	if exposeExternally {
@@ -132,11 +77,10 @@ func buildService(name string, label string, nameSpace string, port int32, expos
 	}
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: nameSpace,
-			Labels:    map[string]string{"app": label},
-			// We mark the service as created by Om Operator to distinct from the services made by the user
-			Annotations: map[string]string{CreatedByOperator: "true"},
+			Name:            name,
+			Namespace:       namespace,
+			Labels:          map[string]string{"app": label},
+			OwnerReferences: baseOwnerReference(owner),
 		},
 		Spec: corev1.ServiceSpec{
 			Selector:  map[string]string{"app": label},
@@ -144,6 +88,30 @@ func buildService(name string, label string, nameSpace string, port int32, expos
 			ClusterIP: clusterIp,
 			Ports:     []corev1.ServicePort{{Port: port}},
 		},
+	}
+}
+
+func baseOwnerReference(owner metav1.Object) []metav1.OwnerReference {
+	reflectType := ""
+	switch owner.(type) {
+	case *mongodb.MongoDbStandalone:
+		reflectType = "MongoDbStandalone"
+	case *mongodb.MongoDbReplicaSet:
+		reflectType = "MongoDbReplicaSet"
+	case *mongodb.MongoDbShardedCluster:
+		reflectType = "MongoDbShardedCluster"
+	}
+	return []metav1.OwnerReference{
+		*metav1.NewControllerRef(owner, schema.GroupVersionKind{
+			Group:   mongodb.SchemeGroupVersion.Group,
+			Version: mongodb.SchemeGroupVersion.Version,
+			// TODO please fix this: for some reasons this statement returns empty string (it returns fine if we
+			// take the initial object itself (n *mongodb.MongoDbStandalone for example) and get the type from it using
+			// reflect.TypeOf(*n).Name(). I've no idea why we can pass *mongodb.MongoDbStandalone to the method accepting
+			// owner metav1.Object (not owner *metav1.Object)
+			//Kind:    reflect.TypeOf(owner).Name(),
+			Kind: reflectType,
+		}),
 	}
 }
 
@@ -199,9 +167,9 @@ func baseEnvFrom(omConfigMapName, agentSecretName string) []corev1.EnvFromSource
 	}
 }
 
-func getOrFormatServiceName(service, objName string) string {
+/*func getOrFormatServiceName(service, objName string) string {
 	if service == "" {
 		return objName + "-service"
 	}
 	return service
-}
+}*/

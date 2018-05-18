@@ -7,16 +7,18 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 )
 
-func GetDnsForStatefulSet(set *appsv1.StatefulSet, clusterName string) []string {
+func GetDnsForStatefulSet(set *appsv1.StatefulSet, clusterName string) (hostnames []string, names []string) {
 	mName := getDnsTemplateFor(set.Name, set.Spec.ServiceName, set.Namespace, clusterName)
 	replicas := int(*set.Spec.Replicas)
-	names := make([]string, replicas)
+	hostnames = make([]string, replicas)
+	names = make([]string, replicas)
 
 	for i := 0; i < replicas; i++ {
-		names[i] = fmt.Sprintf(mName, i)
+		hostnames[i] = fmt.Sprintf(mName, i)
+		names[i] = GetPodName(set.Name, i)
 	}
 
-	return names
+	return
 }
 
 // getDnsTemplateFor returns a template-FQDN for a StatefulSet. This
