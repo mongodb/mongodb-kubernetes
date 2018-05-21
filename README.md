@@ -5,10 +5,16 @@ with Ops Manager and Kubernetes clusters. It allows to easily add new
 MongoDB deployments (standalones, replica sets, sharded clusters) to your Kubernetes cluster, configure them (modify, scale up/down, remove) and to manage them from your
 Ops Manager installation. This provides combined power of Kubernetes (native scheduling of applications to nodes, scaling, fault tolerance etc) with Ops Manager capabilities (monitoring, backup, upgrades etc)
 
+## For Users only
+If you want just to **run** the Ops Manager Kubernetes operator built from `master` - you don't need to compile/build artifacts and you can follow the [Helm instructions](/helm/README.md) to install the existing operator image to your Kubernetes cluster.
+You can create a local Kubernetes cluster easily using [Minikube](https://kubernetes.io/docs/getting-started-guides/minikube/)
+ 
+Otherwise follow the next instructions to find out how to build and compile artifacts and deploy them to Kubernetes
+    
 ## High-level
 
 The high-level picture for the process of installing Mongodb deployment into Kubernetes cluster is as follows:
-* admin creates the `om-operator` Kubernetes Deployment which contains the operator application from config `om-operator.yaml`. This is a one-time operation.
+* admin creates the `mongodb-enterprise-operator` Kubernetes Deployment which contains the operator application from config `om-operator.yaml`. This is a one-time operation.
 * admin creates custom MongoDB objects in Kubernetes (`MongoDbStandalone`, `MongoDbReplicaSet`, `MongoDbShardedCluster`). For example is `kubectl apply -f my-replicaset.yaml`
 * `om-operator` watches these changes and applies them to different participants:
   * creates the Kubernetes StatefulSet containing containers with automation agent binaries. They will be responsible for installation and managing local mongod process.
@@ -42,8 +48,8 @@ Note, if your ssh key is protected by passphrase `dep ensure` won't show any pro
 
 The operator needs 2 different container images:
 
-* om-operator: which is the actual operator running in a Pod
-* automation-agent: which is the container running automation-agent binary on each of the Kubernetes pods. It is responsible for managing mongod process locally
+* mongodb-enterprise-operator: which is the actual operator running in a Pod
+* mongodb-enterprise-database: which is the container running automation-agent binary on each of the Kubernetes pods. It is responsible for managing mongod process locally
 
 
 ```
@@ -133,7 +139,7 @@ We use `kops` utility to provision and manage Kubernetes clusters. We have one s
 More on working with `kops` is [here](docs/aws_kops.md)
 
 ### Docker Registry
-Docker images are published to Elastic Container Registry `268558157000.dkr.ecr.us-east-1.amazonaws.com` where a specific repository is created for each of namespace/application combinations. For example `dev` versions of agent and operator reside in `268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/automation-agent` and `268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/om-operator`.
+Docker images are published to Elastic Container Registry `268558157000.dkr.ecr.us-east-1.amazonaws.com` where a specific repository is created for each of namespace/application combinations. For example `dev` versions of agent and operator reside in `268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-database` and `268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-operator`.
 
 More on how to work with ECR is [here](docs/aws_docker_registry.md)
 

@@ -4,23 +4,22 @@ variables:
   ops_manager_version: "3.7.0"
 
 functions:
+
   "clone":
     - command: shell.exec
       params:
         script: |
           mkdir -p src/github.com/10gen
-
     - command: git.get_project
       type: system
       params:
         directory: src/github.com/10gen/ops-manager-kubernetes
-
-  "build":
+  "build-operator":
     - command: shell.exec
       type: system
       params:
         script: |
-          src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build
+          src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build-operator
     - command: s3.put
       params:
         aws_key: ${mms_build_s3_aws_access_key}
@@ -30,14 +29,45 @@ functions:
         bucket: ops-manager-kubernetes-build
         permissions: public-read
         content_type: application/octet-stream
-
+  "setup-aws":
+    - command: shell.exec
+      params:
+        shell: bash
+        script: |
+            src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/setup_aws
+  "setup-docker":
+    - command: shell.exec
+      params:
+          shell: bash
+          script: |
+            src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/setup_docker
+  "publish-operator":
+    - command: shell.exec
+      params:
+          script: |
+            export AWS_ACCESS_KEY_ID=${mms_eng_test_aws_access_key}
+            export AWS_SECRET_ACCESS_KEY=${mms_eng_test_aws_secret}
+            export QUAY_ROBOT_TOKEN=${quay_robot_token}
+            src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/upload_operator_image
+  "publish-database":
+    - command: shell.exec
+      params:
+          script: |
+            export AWS_ACCESS_KEY_ID=${mms_eng_test_aws_access_key}
+            export AWS_SECRET_ACCESS_KEY=${mms_eng_test_aws_secret}
+            export QUAY_ROBOT_TOKEN=${quay_robot_token}
+            src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/upload_database_image
 tasks:
 
-- name: build_operator
-  tags: ["build_operator"]
+- name: build_and_publish
+  tags: ["build_and_publish"]
   commands:
     - func: "clone"
-    - func: "build"
+    - func: "build-operator"
+    - func: "setup-aws"
+    - func: "setup-docker"
+    - func: "publish-operator"
+    - func: "publish-database"
 
 post:
   - command: gotest.parse_files
@@ -49,9 +79,11 @@ buildvariants:
 - name: default
   display_name: 1.
   run_on:
-#    - rhel70-small
-     - ubuntu1404-build
+    # docker is not supported for rhel and has troubles in ubuntu1404,
+    # for ubuntu1604 apt-get is run in parallel during docker installation which results in sporadic locking problems
+    # so far ubuntu1804 works the best
+     - ubuntu1804-build
   batchtime: 1440 # 1 day
   stepback: false
   tasks:
-    - ".build_operator"
+    - ".build_and_publish"

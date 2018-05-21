@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+set -xeuo pipefail
+
+echo "Installing docker repository and client...."
+
+curl -fsSL get.docker.com -o get-docker.sh
+
+# this prevents some noisy warnings from debconf
+echo 'debconf debconf/frontend select Noninteractive' | sudo debconf-set-selections
+
+sudo sh get-docker.sh
+
+echo "Docker is installed"

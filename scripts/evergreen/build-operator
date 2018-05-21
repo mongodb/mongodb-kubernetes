@@ -7,6 +7,8 @@ export GOPATH="$(pwd)"
 export GOBIN="${GOPATH}/bin"
 export PATH="${GOBIN}:$GOROOT/bin:${PATH}"
 
+echo "Building OM Operator..."
+
 ## Install `dep`
 mkdir -p "${GOBIN}" # needed for the install of dep
 curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
@@ -18,8 +20,13 @@ dep ensure -v
 ## Generate code
 ./codegen.sh
 
-##
-go version
+go_version=$(go version)
+
+if `echo "$go_version" | grep -qv 1.9.5 `
+then
+    echo "Wrong version of go installed! Expected 1.9.4 but got $go_version"
+    exit 1
+fi
 
 ## Unit Test (note, that we combine testing and compiling in one file as they need the same
 # preliminary actions (dep, codegen)). Local tests using real OM are excluded
@@ -34,4 +41,7 @@ fi
 ## Compile!
 CGO_ENABLED=0 GOOS=linux go build -o om-operator
 
-mv om-operator $GOPATH
+## Copying build file for s3.put operation
+cp om-operator $GOPATH
+
+echo "OM Operator is built successfully"

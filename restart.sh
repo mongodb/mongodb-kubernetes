@@ -38,7 +38,7 @@ else
 fi
 
 eval $(minikube docker-env)
-docker build -t om-operator:0.1 .
+docker build -t mongodb-enterprise-operator:0.1 .
 
 echo "-- Deploying new operator"
 kubectl apply -f om-operator-local.yaml
