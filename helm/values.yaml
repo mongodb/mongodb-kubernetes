@@ -1,11 +1,15 @@
+# use this file to deploy images built from master locally or remotely (you need to create a image pull secret first)
+#
+# ops-manager-kubernetes$ helm install helm --set imagePullSecrets=<secret-name>
+#
 namespace: mongodb
 name: mongodb-enterprise-operator
 
-env: prod
+env: dev
 operator:
-  image: quay.io/mongodb-enterprise-private/mongodb-enterprise-operator:0.2
+  image: quay.io/mongodb-enterprise-private/mongodb-enterprise-operator:latest
   pullPolicy: Always
 database:
-  image: quay.io/mongodb-enterprise-private/mongodb-enterprise-database:0.2
+  image: quay.io/mongodb-enterprise-private/mongodb-enterprise-database:latest
   pullPolicy: Always
 imagePullSecrets: change-this

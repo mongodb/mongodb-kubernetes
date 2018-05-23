@@ -1,0 +1,9 @@
+# use this file to deploy images built from master to Kubernetes cluster in AWS for account mms_eng_test (so no secrets are needed)
+#
+# ops-manager-kubernetes$ helm install helm -f helm/env/values-dev.yaml
+#
+env: dev
+operator:
+  image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-operator
+database:
+  image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-database
