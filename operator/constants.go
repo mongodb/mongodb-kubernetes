@@ -30,4 +30,6 @@ const (
 	AutomationAgentImageUrl        = "AUTOMATION_AGENT_IMAGE"
 	AutomationAgentImagePullPolicy = "AUTOMATION_AGENT_PULL_POLICY"
 	AutomationAgentPullSecrets     = "AUTOMATION_AGENT_PULL_SECRETS"
+
+	LivenessProbe = "/mongodb-automation/files/probe.sh"
 )

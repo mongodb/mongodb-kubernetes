@@ -140,11 +140,25 @@ func basePodSpec(omConfigMapName, agentKeySecretName string, reqs mongodb.MongoD
 					Privileged:   boolP(false),
 					RunAsNonRoot: boolP(true),
 				},
+				LivenessProbe: baseLivenessProbe(),
 			},
 		},
 		ImagePullSecrets: []corev1.LocalObjectReference{{
 			Name: os.Getenv(AutomationAgentPullSecrets),
 		}},
+	}
+}
+
+func baseLivenessProbe() *corev1.Probe {
+	return &corev1.Probe{
+		Handler: corev1.Handler{
+			Exec: &corev1.ExecAction{[]string{LivenessProbe}},
+		},
+		InitialDelaySeconds: 60,
+		TimeoutSeconds:      30,
+		PeriodSeconds:       30,
+		SuccessThreshold:    1,
+		FailureThreshold:    6,
 	}
 }
 

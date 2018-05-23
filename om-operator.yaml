@@ -9,7 +9,22 @@ kind: Role
 apiVersion: rbac.authorization.k8s.io/v1beta1
 metadata:
   name: mongodb-enterprise-operator
+  namespace: mongodb
 rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - secrets
+  - services
+  verbs:
+  - get
+  - create
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets
+  verbs: ["*"]
 - apiGroups:
   - apiextensions.k8s.io
   resources:
@@ -50,6 +65,20 @@ subjects:
   namespace: mongodb
 
 ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: admin-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: mongodb-enterprise-operator
+  namespace: mongodb
+
+---
 apiVersion: apps/v1beta1
 kind: Deployment
 metadata:
@@ -69,3 +98,9 @@ spec:
         env:
         - name: OM_OPERATOR_ENV
           value: "dev"
+        - name: AUTOMATION_AGENT_IMAGE
+          value: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-database
+        - name: AUTOMATION_AGENT_PULL_POLICY
+          value: Never
+        - name: AUTOMATION_AGENT_PULL_SECRETS
+          value: "change-me"
