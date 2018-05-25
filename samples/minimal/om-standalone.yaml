@@ -1,4 +1,4 @@
-apiVersion: mongodb.com/v1alpha1
+apiVersion: mongodb.com/v1beta1
 kind: MongoDbStandalone
 metadata:
   name: my-standalone
@@ -6,3 +6,4 @@ metadata:
 spec:
   mongodb_version: 3.6.3
   ops_manager_config: global-om-config
+  persistent: false

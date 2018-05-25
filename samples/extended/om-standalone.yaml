@@ -1,0 +1,35 @@
+apiVersion: mongodb.com/v1beta1
+kind: MongoDbStandalone
+metadata:
+  name: my-standalone
+  namespace: mongodb
+spec:
+  # see more information about these configuration parameters in "extended/om-replica-set.yaml"
+  mongodb_version: 3.6.3
+  service: liffey
+  cluster_name: mycompany.net
+  ops_manager_config: global-om-config
+  persistent: true
+  podSpec:
+    cpu: '0.25'
+    memory: 512M
+    storage: 12G
+    storageClass: standard
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: security
+            operator: In
+            values:
+            - S1
+        topologyKey: failure-domain.beta.kubernetes.io/zone
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: kubernetes.io/e2e-az-name
+            operator: In
+            values:
+            - e2e-az1
+            - e2e-az2

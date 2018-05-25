@@ -37,4 +37,7 @@ else
              2>> $mms_log_dir/automation-agent-stderr.log &
 fi
 
-tail -F $mms_log_dir/automation-agent.log $mms_log_dir/automation-agent-stderr.log
+# Waiting for some time until log file appears
+sleep 5
+
+tail -n 1000 -F $mms_log_dir/automation-agent.log $mms_log_dir/automation-agent-stderr.log

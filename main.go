@@ -7,12 +7,10 @@ import (
 	"syscall"
 	"time"
 
-	"flag"
-
 	"github.com/10gen/ops-manager-kubernetes/operator"
 	"github.com/10gen/ops-manager-kubernetes/operator/crd"
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1alpha1"
-	mongodbclient "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/typed/mongodb.com/v1alpha1"
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1beta1"
+	mongodbclient "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/typed/mongodb.com/v1beta1"
 	"k8s.io/api/core/v1"
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/client-go/kubernetes"
@@ -71,12 +69,7 @@ func main() {
 }
 
 func initializeEnvironment() {
-	// TODO if 'env' parameter is provided but it's empty - then usage is printed and program shuts down.
-	// this is bad for running in container as in Dockerfile we always pass the env variable (but it can have empty value)
-	envP := flag.String("env", "prod", `Name of environment used. Must be one of ["prod", "dev", "local"]`)
-	flag.Parse()
-
-	env := *envP
+	env := os.Getenv(operator.OmOperatorEnv)
 
 	validateEnv(env)
 
@@ -91,7 +84,6 @@ func validateEnv(env string) {
 		return
 	}
 	zap.S().Error("Wrong environment specified", "env", env)
-	flag.Usage()
 	os.Exit(1)
 }
 
@@ -114,7 +106,7 @@ func initLogger(env string) {
 	log = zap.S()
 }
 
-func createContext() (*crd.Context, mongodbclient.MongodbV1alpha1Interface, error) {
+func createContext() (*crd.Context, mongodbclient.MongodbV1beta1Interface, error) {
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get k8s config. %+v", err)

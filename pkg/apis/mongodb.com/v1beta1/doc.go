@@ -2,4 +2,4 @@
 
 // Package v1 is the v1 version of the API.
 // +groupName=mongodb.com
-package v1alpha1
+package v1beta1

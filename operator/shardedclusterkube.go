@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/10gen/ops-manager-kubernetes/om"
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1alpha1"
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1beta1"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 )
@@ -58,7 +58,7 @@ func (c *MongoDbController) doShardedClusterProcessing(o, n *mongodb.MongoDbShar
 		return errors.New(fmt.Sprintf("Failed to read OpsManager config map %s: %s", n.Spec.OmConfigName, err))
 	}
 
-	agentKeySecretName, err := c.EnsureAgentKeySecretExists(conn, n.Namespace)
+	agentKeySecretName, err := c.EnsureAgentKeySecretExists(conn, n.Namespace, log)
 	if err != nil {
 		return errors.New(fmt.Sprintf("Failed to generate/get agent key: %s", err))
 	}
@@ -82,8 +82,9 @@ func (c *MongoDbController) buildKubeObjectsForShardedCluster(s *mongodb.MongoDb
 	log *zap.SugaredLogger) (*KubeState, error) {
 	spec := s.Spec
 
+	// note, that mongos statefulset doesn't have state so no PersistentVolumeClaim is created
 	mongosSet := buildStatefulSet(s, s.MongosRsName(), s.MongosServiceName(), s.Namespace, spec.OmConfigName,
-		agentKeySecretName, spec.MongosCount, spec.ResourceRequirements)
+		agentKeySecretName, spec.MongosCount, BooleanRef(false), mongodb.PodSpecWrapper{spec.MongosPodSpec, NewDefaultPodSpec()})
 	_, err := c.kubeHelper.createOrUpdateStatefulsetsWithService(s, MongoDbDefaultPort, s.Namespace, true, log, mongosSet)
 	if err != nil {
 		return nil, errors.New(fmt.Sprintf("Failed to create Mongos Stateful Set: %s", err))
@@ -91,8 +92,11 @@ func (c *MongoDbController) buildKubeObjectsForShardedCluster(s *mongodb.MongoDb
 
 	log.Infow("Created StatefulSet for mongos servers", "name", mongosSet.Name, "servers count", mongosSet.Spec.Replicas)
 
+	defaultConfigSrvSpec := NewDefaultPodSpec()
+	defaultConfigSrvSpec.Storage = DefaultConfigSrvStorageSize
+	podSpec := mongodb.PodSpecWrapper{spec.ConfigSrvPodSpec, defaultConfigSrvSpec}
 	configSrvSet := buildStatefulSet(s, s.ConfigRsName(), s.ConfigSrvServiceName(), s.Namespace, spec.OmConfigName,
-		agentKeySecretName, spec.ConfigServerCount, spec.ResourceRequirements)
+		agentKeySecretName, spec.ConfigServerCount, spec.Persistent, podSpec)
 	_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(s, MongoDbDefaultPort, s.Namespace, false, log, configSrvSet)
 	if err != nil {
 		return nil, errors.New(fmt.Sprintf("Failed to create Config Server Stateful Set: %s", err))
@@ -106,7 +110,7 @@ func (c *MongoDbController) buildKubeObjectsForShardedCluster(s *mongodb.MongoDb
 	for i := 0; i < s.Spec.ShardsCount; i++ {
 		shardsNames[i] = s.ShardRsName(i)
 		shardsSets[i] = buildStatefulSet(s, s.ShardRsName(i), s.ShardServiceName(), s.Namespace, spec.OmConfigName,
-			agentKeySecretName, spec.ShardMongodsCount, spec.ResourceRequirements)
+			agentKeySecretName, spec.ShardMongodsCount, spec.Persistent, mongodb.PodSpecWrapper{spec.ShardPodSpec, NewDefaultPodSpec()})
 		_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(s, MongoDbDefaultPort, s.Namespace, false, log, shardsSets[i])
 		if err != nil {
 			return nil, errors.New(fmt.Sprintf("Failed to create Stateful Set for shard %s: %s", s.ShardRsName(i), err))

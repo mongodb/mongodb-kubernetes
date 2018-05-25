@@ -159,7 +159,7 @@ func request(method string, hostname string, path string, reader io.Reader, user
 		defer resp.Body.Close()
 	}
 	if resp.StatusCode != http.StatusUnauthorized {
-		return nil, fmt.Errorf("Recieved status code '%v' but expected the '%d'", resp.StatusCode, http.StatusUnauthorized)
+		return nil, fmt.Errorf("Recieved status code '%v' (%v) but expected the '%d', requested url: %v", resp.StatusCode, resp.Status, http.StatusUnauthorized, req.URL)
 	}
 	digestParts := digestParts(resp)
 

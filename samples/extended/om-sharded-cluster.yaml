@@ -1,0 +1,56 @@
+---
+apiVersion: mongodb.com/v1beta1
+kind: MongoDbShardedCluster
+metadata:
+  name: shannon
+  namespace: mongodb
+spec:
+  shards_count: 2
+  shard_mongods_count: 3
+  mongos_count: 2
+  config_server_count: 3
+  mongodb_version: 3.6.3
+  service: ireland
+  cluster_name: mycompany.net
+  ops_manager_config: global-om-config
+  persistent: true
+  configSrvPodSpec:
+    cpu: '0.5'
+    memory: 512M
+    storage: 5G
+    storageClass: fast
+    podAntiAffinityTopologyKey: kubernetes.io/hostname
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: security
+            operator: In
+            values:
+            - S1
+        topologyKey: failure-domain.beta.kubernetes.io/zone
+  mongosPodSpec:
+    cpu: '0.8'
+    memory: 1G
+    podAntiAffinityTopologyKey: rackId
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 1
+        preference:
+          matchExpressions:
+          - key: another-node-label-key
+            operator: In
+            values:
+            - another-node-label-value
+  shardPodSpec:
+    cpu: '0.6'
+    memory: 3G
+    storage: 25G
+    storageClass: standard
+    podAntiAffinityTopologyKey: kubernetes.io/hostname
+
+
+
+
+
+

@@ -1,8 +1,9 @@
-package v1alpha1
+package v1beta1
 
 import (
 	"fmt"
 
+	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -23,8 +24,9 @@ type MongoDbReplicaSetSpec struct {
 	Service     string `json:"service,omitempty"`
 	ClusterName string `json:"cluster_name,omitempty"`
 	// this is the name of config map containing information about OpsManager connection parameters
-	OmConfigName         string              `json:"ops_manager_config"`
-	ResourceRequirements MongoDbRequirements `json:"resources"`
+	OmConfigName string         `json:"ops_manager_config"`
+	Persistent   *bool          `json:"persistent,omitempty"`
+	PodSpec      MongoDbPodSpec `json:"podSpec,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -51,8 +53,9 @@ type MongoDbStandaloneSpec struct {
 	Service     string `json:"service,omitempty"`
 	ClusterName string `json:"cluster_name,omitempty"`
 	// this is the name of config map containing information about OpsManager connection parameters
-	OmConfigName         string              `json:"ops_manager_config"`
-	ResourceRequirements MongoDbRequirements `json:"resources"`
+	OmConfigName string                   `json:"ops_manager_config"`
+	Persistent   *bool                    `json:"persistent,omitempty"`
+	PodSpec      MongoDbPodSpecStandalone `json:"podSpec,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -84,8 +87,11 @@ type MongoDbShardedClusterSpec struct {
 	// this is an optional service that will be mapped to mongos pods, it will get the name "<clusterName>-svc" in case not provided
 	Service string `json:"service, omitempty"`
 	// this is the name of config map containing information about OpsManager connection parameters
-	OmConfigName         string              `json:"ops_manager_config"`
-	ResourceRequirements MongoDbRequirements `json:"resources"`
+	OmConfigName     string         `json:"ops_manager_config"`
+	Persistent       *bool          `json:"persistent,omitempty"`
+	ConfigSrvPodSpec MongoDbPodSpec `json:"configSrvPodSpec,omitempty"`
+	MongosPodSpec    MongoDbPodSpec `json:"mongosPodSpec,omitempty"`
+	ShardPodSpec     MongoDbPodSpec `json:"shardPodSpec,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -96,19 +102,38 @@ type MongoDbShardedClusterList struct {
 	Items           []MongoDbShardedCluster `json:"items"`
 }
 
-type MongoDbRequirements struct {
-	Cpu          string `json:"cpu,omitempty"`
-	Memory       string `json:"memory,omitempty"`
-	Storage      string `json:"storage,omitempty"`
-	StorageClass string `json:"storage_class,omitempty"`
+// This is a struct providing the opportunity to customize the pod created under the hood. If it grows it may make sense
+// to separate properties further (e.g. resources/affinity etc) but now it seems to look nice as a flat structure
+// It naturally delegates to inner object and provides some defaults that can be overriden in each specific case
+type PodSpecWrapper struct {
+	MongoDbPodSpec
+	// These are the default values, unfortunately Golang doesn't provide the possibility to inline default values into
+	// structs so use the operator.NewDefaultPodSpec constructor for this
+	Default MongoDbPodSpec
+}
+
+type MongoDbPodSpecStandalone struct {
+	Cpu          string           `json:"cpu,omitempty"`
+	Memory       string           `json:"memory,omitempty"`
+	Storage      string           `json:"storage,omitempty"`
+	StorageClass string           `json:"storageClass,omitempty"`
+	NodeAffinity *v1.NodeAffinity `json:"nodeAffinity,omitempty"`
+	PodAffinity  *v1.PodAffinity  `json:"podAffinity,omitempty"`
+}
+
+// Note that we make topologyKey a required attribute as it is a mandatory attribute to create a pod anti affinity rule
+// (used only for replicated stateful sets, so not applicable for standalones)
+type MongoDbPodSpec struct {
+	MongoDbPodSpecStandalone
+	PodAntiAffinityTopologyKey string `json:"podAntiAffinityTopologyKey"`
 }
 
 // These are some methods for mongodb objects that calculate some names
 
-// Example hostnames:
+// Example hostnames for sharded cluster:
 // * electron-mongos-1.electron-svc.mongodb.svc.cluster.local
 // * electron-config-1.electron-cs.mongodb.svc.cluster.local
-// * electron_1-1.electron-sh.mongodb.svc.cluster.local
+// * electron-1-1.electron-sh.mongodb.svc.cluster.local
 
 func (c *MongoDbShardedCluster) MongosServiceName() string {
 	return getServiceOrDefault(c.Spec.Service, c.Name, "-svc")
@@ -149,4 +174,29 @@ func getServiceOrDefault(service, objectName, suffix string) string {
 		return objectName + suffix
 	}
 	return service
+}
+
+func (p PodSpecWrapper) GetStorageOrDefault() string {
+	if p.Storage == "" {
+		return p.Default.Storage
+	}
+	return p.Storage
+}
+func (p PodSpecWrapper) GetCpuOrDefault() string {
+	if p.Cpu == "" {
+		return p.Default.Cpu
+	}
+	return p.Cpu
+}
+func (p PodSpecWrapper) GetMemoryOrDefault() string {
+	if p.Memory == "" {
+		return p.Default.Memory
+	}
+	return p.Memory
+}
+func (p PodSpecWrapper) GetTopologyKeyOrDefault() string {
+	if p.PodAntiAffinityTopologyKey == "" {
+		return p.Default.PodAntiAffinityTopologyKey
+	}
+	return p.PodAntiAffinityTopologyKey
 }

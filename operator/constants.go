@@ -17,19 +17,19 @@ const (
 	MongoDbReplicaSet     = "MongoDbReplicaSet"
 	MongoDbShardedCluster = "MongoDbShardedCluster"
 
-	MongoDbDefaultPort = 27017
-
 	ResourceName = "MongoDB"
+	LivenessProbe = "/mongodb-automation/files/probe.sh"
 
-	// Configuration keys (must match the properties in files in config directory)
-	Mode = "mode"
-
-	PersistentVolumeClaimName = "data"
-	PersistentVolumePath      = "/data"
-
+	// Env configuration properties
 	AutomationAgentImageUrl        = "AUTOMATION_AGENT_IMAGE"
 	AutomationAgentImagePullPolicy = "AUTOMATION_AGENT_PULL_POLICY"
 	AutomationAgentPullSecrets     = "AUTOMATION_AGENT_PULL_SECRETS"
+	OmOperatorEnv                  = "OM_OPERATOR_ENV"
 
-	LivenessProbe = "/mongodb-automation/files/probe.sh"
+	// Different default configuration values
+	DefaultMongodStorageSize    = "16G"
+	DefaultConfigSrvStorageSize = "5G"
+	MongoDbDefaultPort          = 27017
+	PersistentVolumeClaimName   = "data"
+	PersistentVolumePath        = "/data"
 )

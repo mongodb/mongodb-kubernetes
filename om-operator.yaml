@@ -79,13 +79,16 @@ subjects:
   namespace: mongodb
 
 ---
-apiVersion: apps/v1beta1
+apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: mongodb-enterprise-operator
   namespace: mongodb
 spec:
   replicas: 1
+  selector:
+    matchLabels:
+      app: mongodb-enterprise-operator
   template:
     metadata:
       labels:

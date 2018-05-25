@@ -113,6 +113,20 @@ func (k *KubeHelper) readConfigMap(ns string, name string) (map[string]string, e
 	return configMap.Data, nil
 }
 
+func (k *KubeHelper) updateConfigMap(ns string, name string, data map[string]string) error {
+	configMap, e := k.kubeApi.CoreV1().ConfigMaps(ns).Get(name, v1.GetOptions{})
+	if e != nil {
+		return e
+	}
+	configMap.Data = data
+
+	_, e = k.kubeApi.CoreV1().ConfigMaps(ns).Update(configMap)
+	if e != nil {
+		return e
+	}
+	return nil
+}
+
 func (k *KubeHelper) readStatefulSet(ns string, name string) (*appsv1.StatefulSet, error) {
 	set, e := k.kubeApi.AppsV1().StatefulSets(ns).Get(name, v1.GetOptions{})
 	if e != nil {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/10gen/ops-manager-kubernetes/om"
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1alpha1"
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1beta1"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 )
@@ -46,17 +46,18 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 }
 
 func (c *MongoDbController) doRsProcessing(o, n *mongodb.MongoDbReplicaSet, log *zap.SugaredLogger) error {
-	conn, err := c.getOmConnection(n.Namespace, n.Spec.OmConfigName)
+	spec := n.Spec
+	conn, err := c.getOmConnection(n.Namespace, spec.OmConfigName)
 	if err != nil {
-		return errors.New(fmt.Sprintf("Failed to read Ops Manager config map %s: %s", n.Spec.OmConfigName, err))
+		return errors.New(fmt.Sprintf("Failed to read Ops Manager config map %s: %s", spec.OmConfigName, err))
 	}
 
-	agentKeySecretName, err := c.EnsureAgentKeySecretExists(conn, n.Namespace)
+	agentKeySecretName, err := c.EnsureAgentKeySecretExists(conn, n.Namespace, log)
 	if err != nil {
 		return errors.New(fmt.Sprintf("Failed to generate/get agent key: %s", err))
 	}
 
-	scaleDown := o != nil && n.Spec.Members < o.Spec.Members
+	scaleDown := o != nil && spec.Members < o.Spec.Members
 
 	if scaleDown {
 		if err := prepareScaleDownReplicaSet(conn, o, n, log); err != nil {
@@ -64,7 +65,8 @@ func (c *MongoDbController) doRsProcessing(o, n *mongodb.MongoDbReplicaSet, log 
 		}
 	}
 
-	replicaSetObject := buildStatefulSet(n, n.Name, n.ServiceName(), n.Namespace, n.Spec.OmConfigName, agentKeySecretName, n.Spec.Members, n.Spec.ResourceRequirements)
+	replicaSetObject := buildStatefulSet(n, n.Name, n.ServiceName(), n.Namespace, spec.OmConfigName, agentKeySecretName,
+		spec.Members, spec.Persistent, mongodb.PodSpecWrapper{spec.PodSpec, NewDefaultPodSpec()})
 	_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(n, MongoDbDefaultPort, n.Namespace, true, log, replicaSetObject)
 	if err != nil {
 		return errors.New(fmt.Sprintf("Failed to create/update the StatefulSet: %s", err))

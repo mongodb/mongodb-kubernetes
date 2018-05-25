@@ -15,4 +15,4 @@ cd ${scriptdir}/vendor/k8s.io/code-generator && ./generate-groups.sh \
   all \
   github.com/10gen/ops-manager-kubernetes/pkg/client \
   github.com/10gen/ops-manager-kubernetes/pkg/apis \
-  "mongodb.com:v1alpha1" \
+  "mongodb.com:v1beta1 " \

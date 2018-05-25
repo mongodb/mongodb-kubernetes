@@ -1,5 +1,5 @@
 ---
-apiVersion: mongodb.com/v1alpha1
+apiVersion: mongodb.com/v1beta1
 kind: MongoDbShardedCluster
 metadata:
   name: shannon
@@ -11,3 +11,10 @@ spec:
   config_server_count: 3
   mongodb_version: 3.6.3
   ops_manager_config: global-om-config
+  persistent: false
+
+
+
+
+
+

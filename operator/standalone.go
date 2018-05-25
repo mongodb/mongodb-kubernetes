@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/10gen/ops-manager-kubernetes/om"
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1alpha1"
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1beta1"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
@@ -90,18 +90,21 @@ func (c *MongoDbController) onDeleteStandalone(obj interface{}) {
 }
 
 func (c *MongoDbController) doStandaloneProcessing(o, n *mongodb.MongoDbStandalone, log *zap.SugaredLogger) error {
-	conn, err := c.getOmConnection(n.Namespace, n.Spec.OmConfigName)
+	spec := n.Spec
+	conn, err := c.getOmConnection(n.Namespace, spec.OmConfigName)
 	if err != nil {
-		return errors.New(fmt.Sprintf("Failed to read OpsManager config map %s: %s", n.Spec.OmConfigName, err))
+		return errors.New(fmt.Sprintf("Failed to read OpsManager config map %s: %s", spec.OmConfigName, err))
 	}
 
-	agentKeySecretName, err := c.EnsureAgentKeySecretExists(conn, n.Namespace)
+	agentKeySecretName, err := c.EnsureAgentKeySecretExists(conn, n.Namespace, log)
 	if err != nil {
 		return errors.New(fmt.Sprintf("Failed to generate/get agent key: %s", err))
 	}
 
 	// standaloneSet is represented by a StatefulSet in Kubernetes
-	standaloneSet := buildStatefulSet(n, n.Name, n.ServiceName(), n.Namespace, n.Spec.OmConfigName, agentKeySecretName, 1, n.Spec.ResourceRequirements)
+	podSpec := mongodb.PodSpecWrapper{mongodb.MongoDbPodSpec{MongoDbPodSpecStandalone: spec.PodSpec}, NewDefaultPodSpec()}
+	standaloneSet := buildStatefulSet(n, n.Name, n.ServiceName(), n.Namespace, spec.OmConfigName, agentKeySecretName,
+		1, spec.Persistent, podSpec)
 	_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(n, MongoDbDefaultPort, n.Namespace, true, log, standaloneSet)
 	if err != nil {
 		return errors.New(fmt.Sprintf("Failed to create statefulset: %s", err))

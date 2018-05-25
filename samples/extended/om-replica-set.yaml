@@ -1,0 +1,40 @@
+---
+apiVersion: mongodb.com/v1beta1
+kind: MongoDbReplicaSet
+metadata:
+  name: liffey
+  namespace: mongodb
+spec:
+  members: 3
+  mongodb_version: 3.6.4
+  # service allows to override the name of Kubernetes service that is created for stateful set
+  service: ireland
+  # by default DNS names for pods have "cluster.local" domain otherwise the correct cluster name must be specified here
+  cluster_name: mycompany.net
+  ops_manager_config: global-om-config
+  persistent: true
+  podSpec:
+    cpu: '0.25'
+    memory: 512M
+    storage: 12G
+    storageClass: standard
+    podAntiAffinityTopologyKey: nodeId
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: security
+            operator: In
+            values:
+            - S1
+        topologyKey: failure-domain.beta.kubernetes.io/zone
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: kubernetes.io/e2e-az-name
+            operator: In
+            values:
+            - e2e-az1
+            - e2e-az2
+

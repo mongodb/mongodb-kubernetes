@@ -17,9 +17,17 @@ instructions [here](https://github.com/kubernetes/helm#install) on how
 to do it. Please read [this document](https://blog.openshift.com/getting-started-helm-openshift/)
 if you want to install `Helm` in RedHat Openshift.
 
-Please review the **"Additional Notes"** section at the end of the
-document if you find troubles installing `Helm` or if you install Helm on the cluster with **RBAC enabled** (e.g. 
-the cluster created by `kops` or `OpenShift` cluster have RBAC support by default)
+Running Helm on `minikube` v1.10 cluster or on cluster with RBAC enabled (`kops`, `OpenShift`) will 
+result in **permission errors** (for example when `Helm` tries to create a Kubernetes `Role`). 
+To avoid that you should use the following install instructions instead to create a service account for `Helm Tiller`
+and assign `cluster-admin` role to him:
+
+``` bash
+kubectl create serviceaccount --namespace kube-system tiller
+kubectl create clusterrolebinding tiller-cluster-rule --clusterrole=cluster-admin --serviceaccount=kube-system:tiller
+helm init --service-account tiller
+```
+
 
 ## Creating a Mongodb Namespace ##
 
@@ -106,16 +114,3 @@ ops-manager-kubernetes$ helm delete --purge om-operator; helm install helm -f he
 ```
 
 As always it's possible to create a custom configuration file starting with `my-` - it won't be tracked by Git.
-
-
-### Additional Notes ###
-
-Running Helm on `minikube` v1.10 cluster or on cluster with RBAC enabled (`kops`, `OpenShift`) will 
-sometimes give you permission errors (for example when Helm tries to create a Kubernetes `Role`). 
-To avoid that you can use the following install instructions instead to create a service account for `Helm Tiller`:
-
-``` bash
-kubectl create serviceaccount --namespace kube-system tiller
-kubectl create clusterrolebinding tiller-cluster-rule --clusterrole=cluster-admin --serviceaccount=kube-system:tiller
-helm init --service-account tiller
-```

@@ -4,9 +4,11 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/om"
 	"github.com/10gen/ops-manager-kubernetes/operator/crd"
 
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1alpha1"
+	"strings"
+
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1beta1"
 	mongodbscheme "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/scheme"
-	mongodbclient "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/typed/mongodb.com/v1alpha1"
+	mongodbclient "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/typed/mongodb.com/v1beta1"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -17,11 +19,11 @@ import (
 
 type MongoDbController struct {
 	context          *crd.Context
-	mongodbClientset mongodbclient.MongodbV1alpha1Interface
+	mongodbClientset mongodbclient.MongodbV1beta1Interface
 	kubeHelper       KubeHelper
 }
 
-func NewMongoDbController(context *crd.Context, mongodbClientset mongodbclient.MongodbV1alpha1Interface) *MongoDbController {
+func NewMongoDbController(context *crd.Context, mongodbClientset mongodbclient.MongodbV1beta1Interface) *MongoDbController {
 	mongodbscheme.AddToScheme(scheme.Scheme)
 
 	return &MongoDbController{
@@ -57,14 +59,16 @@ func (c *MongoDbController) getOmConnection(namespace string, omConfigMapName st
 		return nil, e
 	}
 
-	return &om.OmConnection{
-			GroupId:      data[OmGroupId],
-			User:         data[OmUserName],
-			PublicApiKey: data[OmPublicKey],
-			BaseUrl:      data[OmBaseUrl],
-		},
-		nil
+	// if config map has some broken data - we need to fix them for automation agents
+	if strings.HasSuffix(data[OmBaseUrl], "/") {
+		oldUrl := data[OmBaseUrl]
+		data[OmBaseUrl] = strings.TrimSuffix(oldUrl, "/")
+		c.kubeHelper.updateConfigMap(namespace, omConfigMapName, data)
 
+		zap.S().Infow("Config Map had incorrect OpsManager url, it's updated now", "configMap", omConfigMapName, "old url", oldUrl, "new url", data[OmBaseUrl])
+	}
+
+	return om.NewOpsManagerConnection(data[OmBaseUrl], data[OmGroupId], data[OmUserName], data[OmPublicKey]), nil
 }
 
 func (c *MongoDbController) SecretsApi(namespace string) coreV1.SecretInterface {
@@ -73,9 +77,9 @@ func (c *MongoDbController) SecretsApi(namespace string) coreV1.SecretInterface 
 
 // EnsureAgentKeySecretExists checks if the Secret with specified name (equal to group id) exists, otherwise tries to
 // generate agent key using OM public API and create Secret containing this key
-func (c *MongoDbController) EnsureAgentKeySecretExists(omConnection *om.OmConnection, nameSpace string) (string, error) {
+func (c *MongoDbController) EnsureAgentKeySecretExists(omConnection *om.OmConnection, nameSpace string, log *zap.SugaredLogger) (string, error) {
 	secretName := omConnection.GroupId
-	log := zap.S().With("secret", secretName)
+	log = log.With("secret", secretName)
 	_, err := c.SecretsApi(nameSpace).Get(secretName, v1.GetOptions{})
 	if err != nil {
 		log.Info("Failed to find the Secret, generating agent key to create the new one")

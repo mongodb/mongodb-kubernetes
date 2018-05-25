@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/om"
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1beta1"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
@@ -11,9 +12,14 @@ import (
 
 // This is a collection of some utility/common methods that may be shared by other go source code
 
-// MakeInReference is required to return a *int32, which can't be declared as a literal.
+// Int32Ref is required to return a *int32, which can't be declared as a literal.
 func Int32Ref(i int32) *int32 {
 	return &i
+}
+
+// BooleanRef is required to return a *bool, which can't be declared as a literal.
+func BooleanRef(b bool) *bool {
+	return &b
 }
 
 // DoAndRetry performs the task 'f' until it returns true or 'count' retrials are executed. Sleeps for 'interval' seconds
@@ -30,6 +36,13 @@ func DoAndRetry(f func() bool, log *zap.SugaredLogger, count, interval int) bool
 		}
 	}
 	return false
+}
+
+// NewDefaultPodSpec creates default pod spec, seems we shouldn't set CPU and Memory if they are not provided by user
+func NewDefaultPodSpec() mongodb.MongoDbPodSpec {
+	return mongodb.MongoDbPodSpec{
+		MongoDbPodSpecStandalone:   mongodb.MongoDbPodSpecStandalone{Storage: DefaultMongodStorageSize},
+		PodAntiAffinityTopologyKey: "kubernetes.io/hostname"}
 }
 
 func buildReplicaSetFromStatefulSet(set *appsv1.StatefulSet, clusterName, version string) om.ReplicaSetWithProcesses {
@@ -86,7 +99,11 @@ func waitUntilAgentsHaveRegistered(omConnection *om.OmConnection, log *zap.Sugar
 		if registeredCount == len(agentHostnames) {
 			return true
 		}
-		log.Infof("Only %d of %d agents have registered with OM", registeredCount, len(agentHostnames))
+		if registeredCount == 0 {
+			log.Infof("None of %d agents has registered with OM", len(agentHostnames))
+		} else {
+			log.Infof("Only %d of %d agents have registered with OM", registeredCount, len(agentHostnames))
+		}
 		return false
 	}
 

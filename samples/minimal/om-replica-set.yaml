@@ -1,0 +1,12 @@
+---
+apiVersion: mongodb.com/v1beta1
+kind: MongoDbReplicaSet
+metadata:
+  name: liffey
+  namespace: mongodb
+spec:
+  members: 3
+  mongodb_version: 3.6.4
+  ops_manager_config: global-om-config
+  # persistent: false will create stateful set pods without persistent volumes - it's convenient for testing. true by default
+  persistent: false

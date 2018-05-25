@@ -9,7 +9,7 @@
 # $ docker build -t om-operator:0.1 .
 #
 # To run:
-# $ docker run -e OM_OPERATOR_ENV=local om-operator:0.1
+# $ docker run -e OM_OPERATOR_ENV=local -e AUTOMATION_AGENT_IMAGE=mongodb-enterprise-database -e AUTOMATION_AGENT_PULL_POLICY=Never om-operator:0.1
 #
 FROM debian:jessie-slim
 MAINTAINER Ops Manager Team <mms@10gen.com>
@@ -19,4 +19,4 @@ RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/
 
 ADD om-operator /usr/local/bin/
 
-ENTRYPOINT exec /usr/local/bin/om-operator -env=$OM_OPERATOR_ENV
+ENTRYPOINT exec /usr/local/bin/om-operator

@@ -1,4 +1,4 @@
-package v1alpha1
+package v1beta1
 
 import (
 	"reflect"
@@ -17,13 +17,13 @@ var (
 )
 
 // schemeGroupVersion is group version used to register these objects
-var SchemeGroupVersion = schema.GroupVersion{Group: "mongodb.com", Version: "v1alpha1"}
+var SchemeGroupVersion = schema.GroupVersion{Group: "mongodb.com", Version: "v1beta1"}
 
 var MongoDbStandaloneResource = crd.CustomResource{
 	Name:    "mongodbstandalone",
 	Plural:  "mongodbstandalones",
 	Group:   "mongodb.com",
-	Version: "v1alpha1",
+	Version: "v1beta1",
 	Scope:   apiextensionsv1beta1.NamespaceScoped,
 	Kind:    reflect.TypeOf(MongoDbStandalone{}).Name(),
 }
@@ -32,7 +32,7 @@ var MongoDbReplicaSetResource = crd.CustomResource{
 	Name:    "mongodbreplicaset",
 	Plural:  "mongodbreplicasets",
 	Group:   "mongodb.com",
-	Version: "v1alpha1",
+	Version: "v1beta1",
 	Scope:   apiextensionsv1beta1.NamespaceScoped,
 	Kind:    reflect.TypeOf(MongoDbReplicaSet{}).Name(),
 }
@@ -41,7 +41,7 @@ var MongoDbShardedClusterResource = crd.CustomResource{
 	Name:    "mongodbshardedcluster",
 	Plural:  "mongodbshardedclusters",
 	Group:   "mongodb.com",
-	Version: "v1alpha1",
+	Version: "v1beta1",
 	Scope:   apiextensionsv1beta1.NamespaceScoped,
 	Kind:    reflect.TypeOf(MongoDbShardedCluster{}).Name(),
 }

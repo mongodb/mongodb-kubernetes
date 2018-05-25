@@ -17,15 +17,20 @@ ssh-keygen -f ~/.ssh/id_aws_rsa && ssh-add ~/.ssh/id_aws_rsa
 ``` 
 2. Create the cluster configuration for the cluster named `dev.kube.mmscloudteam.com` (note, that real cluster won't be created, use `--yes` flag if you want to create it right away. You can use `--dry-run --output=yaml` flags to just show the config generated)
 ```bash
-kops create cluster --node-count 3 --zones us-east-1a,us-east-1b,us-east-1c --node-size t2.small --master-size=t2.small  --kubernetes-version=v1.10.0 --ssh-public-key=~/.ssh/id_aws_rsa.pub $CLUSTER
+kops create cluster --node-count 3 --zones us-east-1a,us-east-1b,us-east-1c --node-size t2.small --master-size=t2.small  --kubernetes-version=v1.10.0 --ssh-public-key=~/.ssh/id_aws_rsa.pub --authorization RBAC $CLUSTER
 ``` 
 3. (Optionally) Create kops secret with just generated public key (this allows to replace public keys easily for the cluster later)
 ```bash
 kops create secret --name $CLUSTER sshpublickey admin -i ~/.ssh/id_aws_rsa.pub
 ```
-4. (Optionally) Edit the config created
+4. Edit the config created. As the `kops` cluster is created with RBAC enabled - we need to make the admin a superuser:
 ```bash
 kops edit cluster $CLUSTER
+```
+Add the following block anywhere to yaml:
+```yaml
+  kubeAPIServer:
+    authorizationRbacSuperUser: admin
 ```
 5. Real creation of all the resources
 ```bash
