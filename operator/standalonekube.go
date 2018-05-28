@@ -71,14 +71,7 @@ func (c *MongoDbController) onDeleteStandalone(obj interface{}) {
 		return
 	}
 
-	rsStatefulSet, err := c.kubeHelper.readStatefulSet(s.Namespace, s.Name)
-
-	if err != nil {
-		log.Errorf("Failed to read stateful set %s: %s", s.Name, err)
-		return
-	}
-
-	hostsToRemove, _ := GetDnsForStatefulSet(rsStatefulSet, s.Spec.ClusterName)
+	hostsToRemove, _ := GetDnsNames(s.Name, s.ServiceName(), s.Namespace, s.Spec.ClusterName, 1)
 
 	log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
 	if err := om.StopMonitoring(conn, hostsToRemove); err != nil {

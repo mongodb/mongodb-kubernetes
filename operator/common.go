@@ -70,6 +70,8 @@ func createProcesses(set *appsv1.StatefulSet, clusterName, version string, mongo
 }
 
 func waitForRsAgentsToRegister(set *appsv1.StatefulSet, clusterName string, omConnection *om.OmConnection, log *zap.SugaredLogger) error {
+	log = log.With("replica set", set.Name)
+
 	hostnames, _ := GetDnsForStatefulSet(set, clusterName)
 	if !waitUntilAgentsHaveRegistered(omConnection, log, hostnames...) {
 		return errors.New("Some agents failed to register.")

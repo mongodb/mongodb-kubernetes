@@ -136,6 +136,67 @@ func (d Deployment) RemoveProcessByName(name string) error {
 	return nil
 }
 
+func (d Deployment) RemoveReplicaSetByName(name string) error {
+	rs := d.getReplicaSetByName(name)
+	if rs == nil {
+		return errors.New("ReplicaSet does not exist")
+	}
+
+	currentRs := d.getReplicaSets()
+	toKeep := make([]ReplicaSet, len(currentRs)-1)
+	i := 0
+	for _, el := range currentRs {
+		if el.Name() != name {
+			toKeep[i] = el
+			i++
+		}
+	}
+
+	d.setReplicaSets(toKeep)
+
+	members := rs.members()
+	processNames := make([]string, len(members))
+	for _, el := range members {
+		processNames = append(processNames, el.Name())
+	}
+	d.removeProcesses(processNames)
+
+	return nil
+}
+
+func (d Deployment) RemoveShardedClusterByName(clusterName string) error {
+	sc := d.getShardedClusterByName(clusterName)
+	if sc == nil {
+		return errors.New("Sharded Cluster does not exist")
+	}
+
+	// 1. Remove the sharded cluster
+	toKeep := make([]ShardedCluster, 0)
+	for _, el := range d.getShardedClusters() {
+		if el.Name() != clusterName {
+			toKeep = append(toKeep, el)
+		}
+	}
+
+	d.setShardedClusters(toKeep)
+
+	// 2. Remove all replicasets and their processes for shards
+	shards := sc.shards()
+	shardNames := make([]string, len(shards))
+	for _, el := range shards {
+		shardNames = append(shardNames, el.id())
+	}
+	d.removeReplicaSets(shardNames)
+
+	// 3. Remove config server replicaset
+	d.RemoveReplicaSetByName(sc.ConfigServerRsName())
+
+	// 4. Remove mongos processes for cluster
+	d.removeProcesses(d.getMongosProcessesNames(clusterName))
+
+	return nil
+}
+
 func (d Deployment) Debug() {
 	b, err := json.MarshalIndent(d, "", "  ")
 	if err != nil {
@@ -148,19 +209,17 @@ func (d Deployment) Debug() {
 
 func (d Deployment) mergeMongosProcesses(clusterName string, mongosProcesses []Process, log *zap.SugaredLogger) error {
 	// First removing old mongos processes
-	for _, p := range d.getProcesses() {
-		if p.ProcessType() == ProcessTypeMongos && p.Cluster() == clusterName {
-			found := false
-			for _, v := range mongosProcesses {
-				if p.Name() == v.Name() {
-					found = true
-					break
-				}
+	for _, p := range d.getMongosProcessesNames(clusterName) {
+		found := false
+		for _, v := range mongosProcesses {
+			if p == v.Name() {
+				found = true
+				break
 			}
-			if !found {
-				d.removeProcesses([]string{p.Name()})
-				log.Debugw("Removed redundant mongos process", "name", p.Name())
-			}
+		}
+		if !found {
+			d.removeProcesses([]string{p})
+			log.Debugw("Removed redundant mongos process", "name", p)
 		}
 	}
 	// Then merging mongos processes with existing ones
@@ -172,6 +231,16 @@ func (d Deployment) mergeMongosProcesses(clusterName string, mongosProcesses []P
 		d.MergeStandalone(p, log)
 	}
 	return nil
+}
+
+func (d Deployment) getMongosProcessesNames(clusterName string) []string {
+	processNames := make([]string, 0)
+	for _, p := range d.getProcesses() {
+		if p.ProcessType() == ProcessTypeMongos && p.Cluster() == clusterName {
+			processNames = append(processNames, p.Name())
+		}
+	}
+	return processNames
 }
 
 func (d Deployment) mergeConfigReplicaSet(replicaSet ReplicaSetWithProcesses, l *zap.SugaredLogger) {
@@ -244,34 +313,6 @@ func (d Deployment) removeProcesses(processNames []string) {
 	}
 
 	d.setProcesses(processes)
-}
-
-func (d Deployment) RemoveReplicaSetByName(name string) error {
-	rs := d.getReplicaSetByName(name)
-	if rs == nil {
-		return errors.New("ReplicaSet does not exist")
-	}
-
-	currentRs := d.getReplicaSets()
-	toKeep := make([]ReplicaSet, len(currentRs)-1)
-	i := 0
-	for _, el := range currentRs {
-		if el.Name() != name {
-			toKeep[i] = el
-			i++
-		}
-	}
-
-	d.setReplicaSets(toKeep)
-
-	members := rs.members()
-	processNames := make([]string, len(members))
-	for _, el := range members {
-		processNames = append(processNames, el.Name())
-	}
-	d.removeProcesses(processNames)
-
-	return nil
 }
 
 func (d Deployment) removeReplicaSets(replicaSets []string) {

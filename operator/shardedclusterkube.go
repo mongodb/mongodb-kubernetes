@@ -155,10 +155,40 @@ func (c *MongoDbController) updateOmDeploymentShardedCluster(omConnection *om.Om
 }
 
 func (c *MongoDbController) onDeleteShardedCluster(obj interface{}) {
-	new := obj.(*mongodb.MongoDbShardedCluster)
-	log := zap.S().With("sharded cluster", new.Name)
+	sc := obj.(*mongodb.MongoDbShardedCluster)
+	log := zap.S().With("sharded cluster", sc.Name)
 
-	// todo
+	hostsToRemove := getAllHosts(sc)
+
+	conn, err := c.getOmConnection(sc.Namespace, sc.Spec.OmConfigName)
+	if err != nil {
+		log.Errorf("Failed to read OpsManager config map %s: %s", sc.Spec.OmConfigName, err)
+		return
+	}
+
+	deployment, err := conn.ReadDeployment()
+	if err != nil {
+		log.Errorf("Failed to read deployment: %s", err)
+		return
+	}
+
+	if err = deployment.RemoveShardedClusterByName(sc.Name); err != nil {
+		log.Errorf("Failed to remove sharded cluster from Ops Manager deployment. %s", err)
+		return
+	}
+
+	_, err = conn.UpdateDeployment(deployment)
+	if err != nil {
+		log.Errorf("Failed to push updated deployment to Ops Manager: %s", err)
+		return
+	}
+
+	log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
+	if err := om.StopMonitoring(conn, hostsToRemove); err != nil {
+		log.Errorf("Failed to stop monitoring on hosts %s: %s", hostsToRemove, err)
+		return
+	}
+
 	log.Info("Removed!")
 }
 
@@ -172,6 +202,21 @@ func validateUpdateShardedCluster(oldSpec, newSpec *mongodb.MongoDbShardedCluste
 	}
 
 	return nil
+}
+
+func getAllHosts(c *mongodb.MongoDbShardedCluster) []string {
+	ans := make([]string, 0)
+
+	hosts, _ := GetDnsNames(c.MongosRsName(), c.MongosServiceName(), c.Namespace, c.Spec.ClusterName, c.Spec.MongosCount)
+	ans = append(ans, hosts...)
+	hosts, _ = GetDnsNames(c.ConfigRsName(), c.ConfigSrvServiceName(), c.Namespace, c.Spec.ClusterName, c.Spec.ConfigServerCount)
+	ans = append(ans, hosts...)
+
+	for i := 0; i < c.Spec.ShardsCount; i++ {
+		hosts, _ = GetDnsNames(c.ShardRsName(i), c.ShardServiceName(), c.Namespace, c.Spec.ClusterName, c.Spec.ShardMongodsCount)
+		ans = append(ans, hosts...)
+	}
+	return ans
 }
 
 func waitForAgentsToRegister(cluster *mongodb.MongoDbShardedCluster, state *KubeState, omConnection *om.OmConnection,

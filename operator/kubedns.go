@@ -7,15 +7,23 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 )
 
+// GetDnsForStatefulSet returns hostnames and names of pods in stateful set "set". This is a preferred way of getting hostnames
+// it must be always used if it's possible to read the stateful set from Kubernetes
 func GetDnsForStatefulSet(set *appsv1.StatefulSet, clusterName string) (hostnames []string, names []string) {
-	mName := getDnsTemplateFor(set.Name, set.Spec.ServiceName, set.Namespace, clusterName)
-	replicas := int(*set.Spec.Replicas)
+	return GetDnsNames(set.Name, set.Spec.ServiceName, set.Namespace, clusterName, int(*set.Spec.Replicas))
+}
+
+// GetDnsNames returns hostnames and names of pods in stateful set, it's less preferable than "GetDnsForStatefulSet" and
+// should be used only in situations when statefulset doesn't exist any more (the main example is when the mongodb custom
+// resource is being deleted - then the dependant statefulsets cannot be read any more as they get into Terminated state)
+func GetDnsNames(statefulSetName, service, namespace, clusterName string, replicas int) (hostnames []string, names []string) {
+	mName := getDnsTemplateFor(statefulSetName, service, namespace, clusterName)
 	hostnames = make([]string, replicas)
 	names = make([]string, replicas)
 
 	for i := 0; i < replicas; i++ {
 		hostnames[i] = fmt.Sprintf(mName, i)
-		names[i] = GetPodName(set.Name, i)
+		names[i] = GetPodName(statefulSetName, i)
 	}
 
 	return

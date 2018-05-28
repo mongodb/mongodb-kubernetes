@@ -278,6 +278,35 @@ func TestMergeShardedCluster_ConfigSrvCountChanged(t *testing.T) {
 	checkReplicaSet(t, d, createConfigSrvRsCount(2, "configSrv", true))
 }
 
+// TestRemoveShardedClusterByName checks that sharded cluster and all linked artifacts are removed - but existing objects
+// should stay untouched
+func TestRemoveShardedClusterByName(t *testing.T) {
+	d := NewDeployment()
+	configRs := createConfigSrvRs("configSrv", false)
+	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard", false))
+
+	configRs2 := createConfigSrvRs("otherConfigSrv", false)
+	d.MergeShardedCluster("otherCluster", createMongosProcesses(3, "ugly", ""), configRs2, createShards("otherShard", false))
+
+	d.MergeStandalone(createStandalone(), nil)
+	rs := NewReplicaSetWithProcesses(NewReplicaSet("fooRs"), createReplicaSetProcesses("fooRs"))
+	d.MergeReplicaSet(rs, nil)
+
+	d.RemoveShardedClusterByName("otherCluster")
+
+	// First check that all other entities stay untouched
+	checkProcess(t, d, createStandalone())
+	checkReplicaSet(t, d, rs)
+	checkMongoSProcesses(t, d.getProcesses(), createMongosProcesses(3, "pretty", "cluster"))
+	checkReplicaSet(t, d, createConfigSrvRs("configSrv", true))
+	shards := createShards("myShard", false)
+	checkShardedCluster(t, d, NewShardedCluster("cluster", configRs.Rs.Name(), shards), shards)
+
+	// Then check that the sharded cluster and all replica sets were removed
+	shards2 := createShards("otherShard", false)
+	checkShardedClusterRemoved(t, d, NewShardedCluster("otherCluster", configRs2.Rs.Name(), shards2), createConfigSrvRs("otherConfigSrv", false), shards2)
+}
+
 // Methods for checking deployment units
 
 func checkShardedCluster(t *testing.T, d Deployment, expectedCluster ShardedCluster, replicaSetWithProcesses []ReplicaSetWithProcesses) {
@@ -331,6 +360,17 @@ func checkReplicaSet(t *testing.T, d Deployment, replicaSetWithProcesses Replica
 	assert.Equalf(t, len(replicaSetWithProcesses.Processes), totalMongods, "Some excessive mongod processes are found for %s replicaSet!", replicaSetWithProcesses.Rs.Name())
 }
 
+func checkProcess(t *testing.T, d Deployment, expectedProcess Process) {
+	assert.NotNil(t, d.getProcessByName(expectedProcess.Name()))
+
+	for _, p := range d.getProcesses() {
+		if p.Name() == expectedProcess.Name() {
+			assert.Equal(t, expectedProcess, p)
+			break
+		}
+	}
+}
+
 func checkMongoSProcesses(t *testing.T, processes []Process, expectedMongosProcesses []Process) {
 	found := 0
 	totalMongoses := 0
@@ -350,6 +390,30 @@ func checkMongoSProcesses(t *testing.T, processes []Process, expectedMongosProce
 	}
 	assert.Equal(t, len(expectedMongosProcesses), found, "Not all mongos processes are found!")
 	assert.Equal(t, len(expectedMongosProcesses), totalMongoses, "Some excessive mongos processes are found!")
+}
+
+func checkShardedClusterRemoved(t *testing.T, d Deployment, sc ShardedCluster, configRs ReplicaSetWithProcesses, shards []ReplicaSetWithProcesses) {
+	assert.Nil(t, d.getShardedClusterByName(sc.Name()))
+
+	checkReplicaSetRemoved(t, d, configRs)
+
+	for _, s := range shards {
+		checkReplicaSetRemoved(t, d, s)
+	}
+
+	assert.Len(t, d.getMongosProcessesNames(sc.Name()), 0)
+}
+
+func checkReplicaSetRemoved(t *testing.T, d Deployment, rs ReplicaSetWithProcesses) {
+	assert.Nil(t, d.getReplicaSetByName(rs.Rs.Name()))
+
+	for _, p := range rs.Processes {
+		checkProcessRemoved(t, d, p.Name())
+	}
+}
+
+func checkProcessRemoved(t *testing.T, d Deployment, p string) {
+	assert.Nil(t, d.getProcessByName(p))
 }
 
 // Methods for creating deployment units

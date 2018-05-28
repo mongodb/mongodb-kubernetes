@@ -155,24 +155,17 @@ func (c *MongoDbController) onDeleteReplicaSet(obj interface{}) {
 	}
 
 	if err = deployment.RemoveReplicaSetByName(rs.Name); err != nil {
-		log.Errorf("Failed to remove replica set. %s", err)
+		log.Errorf("Failed to remove replica set from Ops Manager deployment. %s", err)
 		return
 	}
 
 	_, err = conn.UpdateDeployment(deployment)
 	if err != nil {
-		log.Errorf("Failed to update replica set: %s", err)
+		log.Errorf("Failed to update replica set in Ops Manager: %s", err)
 		return
 	}
 
-	rsStatefulSet, err := c.kubeHelper.readStatefulSet(rs.Namespace, rs.Name)
-
-	if err != nil {
-		log.Errorf("Failed to read stateful set %s: %s", rs.Name, err)
-		return
-	}
-
-	hostsToRemove, _ := GetDnsForStatefulSet(rsStatefulSet, rs.Spec.ClusterName)
+	hostsToRemove, _ := GetDnsNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.ClusterName, rs.Spec.Members)
 	log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
 	if err := om.StopMonitoring(conn, hostsToRemove); err != nil {
 		log.Errorf("Failed to stop monitoring on hosts %s: %s", hostsToRemove, err)
