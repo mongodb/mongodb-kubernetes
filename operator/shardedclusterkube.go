@@ -104,13 +104,13 @@ func (c *MongoDbController) buildKubeObjectsForShardedCluster(s *mongodb.MongoDb
 
 	log.Infow("Created StatefulSet for config servers", "name", configSrvSet.Name, "servers count", configSrvSet.Spec.Replicas)
 
-	shardsSets := make([]*appsv1.StatefulSet, s.Spec.ShardsCount)
-	shardsNames := make([]string, s.Spec.ShardsCount)
+	shardsSets := make([]*appsv1.StatefulSet, s.Spec.ShardCount)
+	shardsNames := make([]string, s.Spec.ShardCount)
 
-	for i := 0; i < s.Spec.ShardsCount; i++ {
+	for i := 0; i < s.Spec.ShardCount; i++ {
 		shardsNames[i] = s.ShardRsName(i)
 		shardsSets[i] = buildStatefulSet(s, s.ShardRsName(i), s.ShardServiceName(), s.Namespace, spec.OmConfigName,
-			agentKeySecretName, spec.ShardMongodsCount, spec.Persistent, mongodb.PodSpecWrapper{spec.ShardPodSpec, NewDefaultPodSpec()})
+			agentKeySecretName, spec.MongodsPerShardCount, spec.Persistent, mongodb.PodSpecWrapper{spec.ShardPodSpec, NewDefaultPodSpec()})
 		_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(s, MongoDbDefaultPort, s.Namespace, false, log, shardsSets[i])
 		if err != nil {
 			return nil, errors.New(fmt.Sprintf("Failed to create Stateful Set for shard %s: %s", s.ShardRsName(i), err))

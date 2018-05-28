@@ -77,8 +77,8 @@ type MongoDbShardedCluster struct {
 }
 
 type MongoDbShardedClusterSpec struct {
-	ShardsCount       int    `json:"shards_count"`
-	ShardMongodsCount int    `json:"shard_mongods_count"`
+	ShardCount       int    `json:"shardCount"`
+	MongodsPerShardCount int    `json:"mongodsPerShardCount"`
 	MongosCount       int    `json:"mongos_count"`
 	ConfigServerCount int    `json:"config_server_count"`
 	Version           string `json:"mongodb_version"`
