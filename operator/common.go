@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/om"
@@ -43,6 +44,20 @@ func NewDefaultPodSpec() mongodb.MongoDbPodSpec {
 	return mongodb.MongoDbPodSpec{
 		MongoDbPodSpecStandalone:   mongodb.MongoDbPodSpecStandalone{Storage: DefaultMongodStorageSize},
 		PodAntiAffinityTopologyKey: "kubernetes.io/hostname"}
+}
+
+func NewDefaultPodSpecWrapper(podSpec mongodb.MongoDbPodSpec) mongodb.PodSpecWrapper {
+	return mongodb.PodSpecWrapper{
+		MongoDbPodSpec: podSpec,
+		Default:        NewDefaultPodSpec(),
+	}
+}
+
+func NewDefaultStandalonePodSpecWrapper(podSpec mongodb.MongoDbPodSpecStandalone) mongodb.PodSpecWrapper {
+	return mongodb.PodSpecWrapper{
+		MongoDbPodSpec: mongodb.MongoDbPodSpec{MongoDbPodSpecStandalone: podSpec},
+		Default:        NewDefaultPodSpec(),
+	}
 }
 
 func buildReplicaSetFromStatefulSet(set *appsv1.StatefulSet, clusterName, version string) om.ReplicaSetWithProcesses {
@@ -110,4 +125,10 @@ func waitUntilAgentsHaveRegistered(omConnection *om.OmConnection, log *zap.Sugar
 	}
 
 	return DoAndRetry(agentsCheckFunc, log, 20, 3)
+}
+
+// agentApiKeySecretName for a given ProjectID (`project`) returns the name of
+// the secret associated with it.
+func agentApiKeySecretName(project string) string {
+	return fmt.Sprintf("%s-group-secret", project)
 }

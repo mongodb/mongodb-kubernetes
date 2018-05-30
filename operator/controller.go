@@ -4,12 +4,9 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/om"
 	"github.com/10gen/ops-manager-kubernetes/operator/crd"
 
-	"strings"
-
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1beta1"
 	mongodbscheme "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/scheme"
 	mongodbclient "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/typed/mongodb.com/v1beta1"
-	"github.com/pkg/errors"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -50,25 +47,42 @@ func (c *MongoDbController) StartWatch(namespace string, stopCh chan struct{}) e
 	return nil
 }
 
-func (c *MongoDbController) getOmConnection(namespace string, omConfigMapName string) (*om.OmConnection, error) {
-	if omConfigMapName == "" {
-		return nil, errors.New("ops_manager_config spec parameter must be specified!")
+func (c *MongoDbController) getOmConnection(namespace, project, credentials string) (*om.OmConnection, error) {
+	projectConfig, e := c.kubeHelper.readProjectConfig(namespace, project)
+	if e != nil {
+		return nil, e
 	}
-	data, e := c.kubeHelper.readConfigMap(namespace, omConfigMapName)
+	credsConfig, e := c.kubeHelper.readCredentials(namespace, credentials)
 	if e != nil {
 		return nil, e
 	}
 
-	// if config map has some broken data - we need to fix them for automation agents
-	if strings.HasSuffix(data[OmBaseUrl], "/") {
-		oldUrl := data[OmBaseUrl]
-		data[OmBaseUrl] = strings.TrimSuffix(oldUrl, "/")
-		c.kubeHelper.updateConfigMap(namespace, omConfigMapName, data)
+	return om.NewOpsManagerConnection(projectConfig.BaseUrl, projectConfig.ProjectId,
+		credsConfig.User, credsConfig.PublicApiKey), nil
+}
 
-		zap.S().Infow("Config Map had incorrect OpsManager url, it's updated now", "configMap", omConfigMapName, "old url", oldUrl, "new url", data[OmBaseUrl])
+func (c *MongoDbController) buildPodVars(namespace, project, credentials, agent string) (*PodVars, error) {
+	projectConfig, e := c.kubeHelper.readProjectConfig(namespace, project)
+	if e != nil {
+		return nil, e
 	}
 
-	return om.NewOpsManagerConnection(data[OmBaseUrl], data[OmGroupId], data[OmUserName], data[OmPublicKey]), nil
+	credsConfig, e := c.kubeHelper.readCredentials(namespace, credentials)
+	if e != nil {
+		return nil, e
+	}
+
+	agentSecret, e := c.kubeHelper.readAgentApiKeyForProject(namespace, agent)
+	if e != nil {
+		return nil, e
+	}
+
+	return &PodVars{
+		BaseUrl:     projectConfig.BaseUrl,
+		ProjectId:   projectConfig.ProjectId,
+		AgentApiKey: agentSecret,
+		User:        credsConfig.User,
+	}, nil
 }
 
 func (c *MongoDbController) SecretsApi(namespace string) coreV1.SecretInterface {
@@ -78,7 +92,7 @@ func (c *MongoDbController) SecretsApi(namespace string) coreV1.SecretInterface 
 // EnsureAgentKeySecretExists checks if the Secret with specified name (equal to group id) exists, otherwise tries to
 // generate agent key using OM public API and create Secret containing this key
 func (c *MongoDbController) EnsureAgentKeySecretExists(omConnection *om.OmConnection, nameSpace string, log *zap.SugaredLogger) (string, error) {
-	secretName := omConnection.GroupId
+	secretName := agentApiKeySecretName(omConnection.GroupId)
 	log = log.With("secret", secretName)
 	_, err := c.SecretsApi(nameSpace).Get(secretName, v1.GetOptions{})
 	if err != nil {

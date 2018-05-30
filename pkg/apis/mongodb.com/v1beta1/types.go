@@ -19,14 +19,15 @@ type MongoDbReplicaSet struct {
 
 type MongoDbReplicaSetSpec struct {
 	Members int    `json:"members"`
-	Version string `json:"mongodb_version"`
+	Version string `json:"version"`
 	// this is an optional service, it will get the name "<rsName>-service" in case not provided
-	Service     string `json:"service,omitempty"`
-	ClusterName string `json:"cluster_name,omitempty"`
-	// this is the name of config map containing information about OpsManager connection parameters
-	OmConfigName string         `json:"ops_manager_config"`
-	Persistent   *bool          `json:"persistent,omitempty"`
-	PodSpec      MongoDbPodSpec `json:"podSpec,omitempty"`
+	Service     string         `json:"service,omitempty"`
+	ClusterName string         `json:"cluster_name,omitempty"`
+	Persistent  *bool          `json:"persistent,omitempty"`
+	PodSpec     MongoDbPodSpec `json:"podSpec,omitempty"`
+
+	Project     string `json:"project"`
+	Credentials string `json:"credentials"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -48,14 +49,14 @@ type MongoDbStandalone struct {
 }
 
 type MongoDbStandaloneSpec struct {
-	Version string `json:"mongodb_version"`
+	Version string `json:"version"`
 	// this is an optional service, it will get the name "<standaloneName>-service" in case not provided
-	Service     string `json:"service,omitempty"`
-	ClusterName string `json:"cluster_name,omitempty"`
-	// this is the name of config map containing information about OpsManager connection parameters
-	OmConfigName string                   `json:"ops_manager_config"`
-	Persistent   *bool                    `json:"persistent,omitempty"`
-	PodSpec      MongoDbPodSpecStandalone `json:"podSpec,omitempty"`
+	Service     string                   `json:"service,omitempty"`
+	ClusterName string                   `json:"cluster_name,omitempty"`
+	Persistent  *bool                    `json:"persistent,omitempty"`
+	PodSpec     MongoDbPodSpecStandalone `json:"podSpec,omitempty"`
+	Project     string                   `json:"project"`
+	Credentials string                   `json:"credentials"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -77,21 +78,27 @@ type MongoDbShardedCluster struct {
 }
 
 type MongoDbShardedClusterSpec struct {
-	ShardCount       int    `json:"shardCount"`
+	ShardCount           int    `json:"shardCount"`
 	MongodsPerShardCount int    `json:"mongodsPerShardCount"`
-	MongosCount       int    `json:"mongos_count"`
-	ConfigServerCount int    `json:"config_server_count"`
-	Version           string `json:"mongodb_version"`
+	MongosCount          int    `json:"mongos_count"`
+	ConfigServerCount    int    `json:"config_server_count"`
+	Version              string `json:"version"`
 	// TODO seems the ObjectMeta contains the field for ClusterName - may be we should use it instead
-	ClusterName string `json:"cluster_name, omitempty"`
+	ClusterName string `json:"cluster_name,omitempty"`
 	// this is an optional service that will be mapped to mongos pods, it will get the name "<clusterName>-svc" in case not provided
-	Service string `json:"service, omitempty"`
-	// this is the name of config map containing information about OpsManager connection parameters
-	OmConfigName     string         `json:"ops_manager_config"`
+	Service string `json:"service,omitempty"`
+
 	Persistent       *bool          `json:"persistent,omitempty"`
 	ConfigSrvPodSpec MongoDbPodSpec `json:"configSrvPodSpec,omitempty"`
 	MongosPodSpec    MongoDbPodSpec `json:"mongosPodSpec,omitempty"`
 	ShardPodSpec     MongoDbPodSpec `json:"shardPodSpec,omitempty"`
+
+	// Project is a grouping mechanism that is related to the concept of
+	// a project in Ops Manager.
+	Project string `json:"project"`
+
+	// Credentials is a Secret object containing Ops/Cloud Manager API credentials (User and Public API Key).
+	Credentials string `json:"credentials"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

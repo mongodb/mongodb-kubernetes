@@ -47,9 +47,9 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 
 func (c *MongoDbController) doRsProcessing(o, n *mongodb.MongoDbReplicaSet, log *zap.SugaredLogger) error {
 	spec := n.Spec
-	conn, err := c.getOmConnection(n.Namespace, spec.OmConfigName)
+	conn, err := c.getOmConnection(n.Namespace, spec.Project, spec.Credentials)
 	if err != nil {
-		return errors.New(fmt.Sprintf("Failed to read Ops Manager config map %s: %s", spec.OmConfigName, err))
+		return err
 	}
 
 	agentKeySecretName, err := c.EnsureAgentKeySecretExists(conn, n.Namespace, log)
@@ -65,9 +65,27 @@ func (c *MongoDbController) doRsProcessing(o, n *mongodb.MongoDbReplicaSet, log 
 		}
 	}
 
-	replicaSetObject := buildStatefulSet(n, n.Name, n.ServiceName(), n.Namespace, spec.OmConfigName, agentKeySecretName,
-		spec.Members, spec.Persistent, mongodb.PodSpecWrapper{spec.PodSpec, NewDefaultPodSpec()})
-	_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(n, MongoDbDefaultPort, n.Namespace, true, log, replicaSetObject)
+	podVars, err := c.buildPodVars(n.Namespace, n.Spec.Project, n.Spec.Credentials, agentKeySecretName)
+	if err != nil {
+		return err
+	}
+
+	replicaBuilder := c.kubeHelper.NewStatefulSetHelper(n).
+		SetService(n.ServiceName()).
+		SetReplicas(n.Spec.Members).
+		SetPersistence(n.Spec.Persistent).
+		SetPodSpec(NewDefaultPodSpecWrapper(n.Spec.PodSpec)).
+		SetPodVars(podVars).
+		SetExposedExternally(true).
+		SetLogger(log)
+
+	// do whatever you want with the statefulset
+	err = replicaBuilder.CreateOrUpdateInKubernetes()
+	if err != nil {
+		return err
+	}
+
+	replicaSetObject := replicaBuilder.BuildStatefulSet()
 	if err != nil {
 		return errors.New(fmt.Sprintf("Failed to create/update the StatefulSet: %s", err))
 	}
@@ -142,9 +160,8 @@ func (c *MongoDbController) onDeleteReplicaSet(obj interface{}) {
 	rs := obj.(*mongodb.MongoDbReplicaSet)
 	log := zap.S().With("replicaSet", rs.Name)
 
-	conn, err := c.getOmConnection(rs.Namespace, rs.Spec.OmConfigName)
+	conn, err := c.getOmConnection(rs.Namespace, rs.Spec.Project, rs.Spec.Credentials)
 	if err != nil {
-		log.Errorf("Failed to read OpsManager config map %s: %s", rs.Spec.OmConfigName, err)
 		return
 	}
 

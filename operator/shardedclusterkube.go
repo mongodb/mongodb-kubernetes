@@ -53,9 +53,9 @@ func (c *MongoDbController) onUpdateShardedCluster(oldObj, newObj interface{}) {
 }
 
 func (c *MongoDbController) doShardedClusterProcessing(o, n *mongodb.MongoDbShardedCluster, log *zap.SugaredLogger) error {
-	conn, err := c.getOmConnection(n.Namespace, n.Spec.OmConfigName)
+	conn, err := c.getOmConnection(n.Namespace, n.Spec.Project, n.Spec.Credentials)
 	if err != nil {
-		return errors.New(fmt.Sprintf("Failed to read OpsManager config map %s: %s", n.Spec.OmConfigName, err))
+		return err
 	}
 
 	agentKeySecretName, err := c.EnsureAgentKeySecretExists(conn, n.Namespace, log)
@@ -82,10 +82,24 @@ func (c *MongoDbController) buildKubeObjectsForShardedCluster(s *mongodb.MongoDb
 	log *zap.SugaredLogger) (*KubeState, error) {
 	spec := s.Spec
 
+	podVars, err := c.buildPodVars(s.Namespace, spec.Project, spec.Credentials, agentKeySecretName)
+	if err != nil {
+		return nil, err
+	}
+
 	// note, that mongos statefulset doesn't have state so no PersistentVolumeClaim is created
-	mongosSet := buildStatefulSet(s, s.MongosRsName(), s.MongosServiceName(), s.Namespace, spec.OmConfigName,
-		agentKeySecretName, spec.MongosCount, BooleanRef(false), mongodb.PodSpecWrapper{spec.MongosPodSpec, NewDefaultPodSpec()})
-	_, err := c.kubeHelper.createOrUpdateStatefulsetsWithService(s, MongoDbDefaultPort, s.Namespace, true, log, mongosSet)
+	mongosBuilder := c.kubeHelper.NewStatefulSetHelper(s).
+		SetName(s.MongosRsName()).
+		SetService(s.MongosServiceName()).
+		SetReplicas(s.Spec.MongosCount).
+		SetPodSpec(NewDefaultPodSpecWrapper(s.Spec.MongosPodSpec)).
+		SetPodVars(podVars).
+		SetLogger(log).
+		SetExposedExternally(true)
+
+	mongosSet := mongosBuilder.BuildStatefulSet()
+
+	err = mongosBuilder.CreateOrUpdateInKubernetes()
 	if err != nil {
 		return nil, errors.New(fmt.Sprintf("Failed to create Mongos Stateful Set: %s", err))
 	}
@@ -94,10 +108,22 @@ func (c *MongoDbController) buildKubeObjectsForShardedCluster(s *mongodb.MongoDb
 
 	defaultConfigSrvSpec := NewDefaultPodSpec()
 	defaultConfigSrvSpec.Storage = DefaultConfigSrvStorageSize
-	podSpec := mongodb.PodSpecWrapper{spec.ConfigSrvPodSpec, defaultConfigSrvSpec}
-	configSrvSet := buildStatefulSet(s, s.ConfigRsName(), s.ConfigSrvServiceName(), s.Namespace, spec.OmConfigName,
-		agentKeySecretName, spec.ConfigServerCount, spec.Persistent, podSpec)
-	_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(s, MongoDbDefaultPort, s.Namespace, false, log, configSrvSet)
+	podSpec := mongodb.PodSpecWrapper{
+		MongoDbPodSpec: spec.ConfigSrvPodSpec,
+		Default:        defaultConfigSrvSpec,
+	}
+	configBuilder := c.kubeHelper.NewStatefulSetHelper(s).
+		SetName(s.MongosRsName()).
+		SetService(s.ConfigSrvServiceName()).
+		SetReplicas(s.Spec.ConfigServerCount).
+		SetPersistence(s.Spec.Persistent).
+		SetPodSpec(podSpec).
+		SetPodVars(podVars).
+		SetLogger(log).
+		SetExposedExternally(false)
+
+	configSrvSet := configBuilder.BuildStatefulSet()
+	configBuilder.CreateOrUpdateInKubernetes()
 	if err != nil {
 		return nil, errors.New(fmt.Sprintf("Failed to create Config Server Stateful Set: %s", err))
 	}
@@ -108,13 +134,21 @@ func (c *MongoDbController) buildKubeObjectsForShardedCluster(s *mongodb.MongoDb
 	shardsNames := make([]string, s.Spec.ShardCount)
 
 	for i := 0; i < s.Spec.ShardCount; i++ {
-		shardsNames[i] = s.ShardRsName(i)
-		shardsSets[i] = buildStatefulSet(s, s.ShardRsName(i), s.ShardServiceName(), s.Namespace, spec.OmConfigName,
-			agentKeySecretName, spec.MongodsPerShardCount, spec.Persistent, mongodb.PodSpecWrapper{spec.ShardPodSpec, NewDefaultPodSpec()})
-		_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(s, MongoDbDefaultPort, s.Namespace, false, log, shardsSets[i])
+		shardBuilder := c.kubeHelper.NewStatefulSetHelper(s).
+			SetName(s.ShardRsName(i)).
+			SetService(s.ShardServiceName()).
+			SetReplicas(s.Spec.MongodsPerShardCount).
+			SetPersistence(s.Spec.Persistent).
+			SetPodSpec(NewDefaultPodSpecWrapper(spec.ShardPodSpec)).
+			SetPodVars(podVars).
+			SetLogger(log)
+		shard := shardBuilder.BuildStatefulSet()
+		shardBuilder.CreateOrUpdateInKubernetes()
 		if err != nil {
 			return nil, errors.New(fmt.Sprintf("Failed to create Stateful Set for shard %s: %s", s.ShardRsName(i), err))
 		}
+
+		shardsSets[i] = shard
 	}
 	log.Infow("Created StatefulSets for shards", "shards", shardsNames)
 	return &KubeState{mongosSet: mongosSet, configSrvSet: configSrvSet, shardsSets: shardsSets}, nil
@@ -160,9 +194,9 @@ func (c *MongoDbController) onDeleteShardedCluster(obj interface{}) {
 
 	hostsToRemove := getAllHosts(sc)
 
-	conn, err := c.getOmConnection(sc.Namespace, sc.Spec.OmConfigName)
+	conn, err := c.getOmConnection(sc.Namespace, sc.Spec.Project, sc.Spec.Credentials)
 	if err != nil {
-		log.Errorf("Failed to read OpsManager config map %s: %s", sc.Spec.OmConfigName, err)
+		log.Error(err)
 		return
 	}
 
@@ -212,8 +246,8 @@ func getAllHosts(c *mongodb.MongoDbShardedCluster) []string {
 	hosts, _ = GetDnsNames(c.ConfigRsName(), c.ConfigSrvServiceName(), c.Namespace, c.Spec.ClusterName, c.Spec.ConfigServerCount)
 	ans = append(ans, hosts...)
 
-	for i := 0; i < c.Spec.ShardsCount; i++ {
-		hosts, _ = GetDnsNames(c.ShardRsName(i), c.ShardServiceName(), c.Namespace, c.Spec.ClusterName, c.Spec.ShardMongodsCount)
+	for i := 0; i < c.Spec.ShardCount; i++ {
+		hosts, _ = GetDnsNames(c.ShardRsName(i), c.ShardServiceName(), c.Namespace, c.Spec.ClusterName, c.Spec.MongodsPerShardCount)
 		ans = append(ans, hosts...)
 	}
 	return ans

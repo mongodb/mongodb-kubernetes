@@ -3,7 +3,9 @@ package operator
 import (
 	"errors"
 	"fmt"
+	"strings"
 
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1beta1"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -14,6 +16,127 @@ import (
 
 type KubeHelper struct {
 	kubeApi kubernetes.Interface
+}
+
+type ProjectConfig struct {
+	BaseUrl   string
+	ProjectId string
+}
+
+type Credentials struct {
+	User         string
+	PublicApiKey string
+}
+
+// StatefulSetBuildingParams is a struct that holds different attributes needed to build
+// a StatefulSet. It is used as a convenient way of passing many different parameters in one
+// struct, instead of multiple parameters.
+type StatefulSetHelper struct {
+	// Attributes that are part of StatefulSet
+	Owner      metav1.Object
+	Name       string
+	Service    string
+	Namespace  string
+	Replicas   int
+	Persistent *bool
+	PodSpec    mongodb.PodSpecWrapper
+	PodVars    *PodVars
+
+	// Not part of StatefulSet object
+	Helper            *KubeHelper
+	ExposedExternally bool
+	ServicePort       int32
+	Logger            *zap.SugaredLogger
+}
+
+// NewStatefulSet returns a default `StatefulSetHelper`. The defauls are as follows:
+//
+// * Name: Same as the Name of the owner
+// * Namespace: Same as the Namespace of the owner
+// * Replicas: 1
+// * ExposedExternally: false
+// * ServicePort: `MongoDbDefaultPort` (27017)
+//
+func (k *KubeHelper) NewStatefulSetHelper(obj metav1.Object) *StatefulSetHelper {
+	return &StatefulSetHelper{
+		Owner:      obj,
+		Name:       obj.GetName(),
+		Namespace:  obj.GetNamespace(),
+		Replicas:   1,
+		Persistent: BooleanRef(true),
+
+		ExposedExternally: false,
+		ServicePort:       MongoDbDefaultPort,
+		Helper:            k,
+	}
+}
+
+// SetName can override the value of `StatefulSetHelper.Name` which is set to
+// `owner.GetName()` initially.
+func (s *StatefulSetHelper) SetName(name string) *StatefulSetHelper {
+	s.Name = name
+	return s
+}
+
+func (s *StatefulSetHelper) SetService(service string) *StatefulSetHelper {
+	s.Service = service
+	return s
+}
+
+func (s *StatefulSetHelper) SetReplicas(replicas int) *StatefulSetHelper {
+	s.Replicas = replicas
+	return s
+}
+
+func (s *StatefulSetHelper) SetPersistence(persistent *bool) *StatefulSetHelper {
+	s.Persistent = persistent
+	return s
+}
+
+func (s *StatefulSetHelper) SetPodSpec(podSpec mongodb.PodSpecWrapper) *StatefulSetHelper {
+	s.PodSpec = podSpec
+	return s
+}
+
+func (s *StatefulSetHelper) SetPodVars(podVars *PodVars) *StatefulSetHelper {
+	s.PodVars = podVars
+	return s
+}
+
+func (s *StatefulSetHelper) SetExposedExternally(exposed bool) *StatefulSetHelper {
+	s.ExposedExternally = exposed
+	return s
+}
+
+func (s *StatefulSetHelper) SetServicePort(port int32) *StatefulSetHelper {
+	s.ServicePort = port
+	return s
+}
+
+func (s *StatefulSetHelper) SetLogger(log *zap.SugaredLogger) *StatefulSetHelper {
+	s.Logger = log
+	return s
+}
+
+func (s *StatefulSetHelper) BuildStatefulSet() *appsv1.StatefulSet {
+	return buildStatefulSet(*s)
+}
+
+func (s *StatefulSetHelper) CreateOrUpdateInKubernetes() error {
+	sets := s.BuildStatefulSet()
+	_, err := s.Helper.createOrUpdateStatefulsetsWithService(
+		s.Owner,
+		s.ServicePort,
+		s.Namespace,
+		s.ExposedExternally,
+		s.Logger,
+		sets,
+	)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // createOrUpdateStatefulsetsWithService creates or updates the set of statefulsets in Kubernetes mapped to the service with name "serviceName"
@@ -105,7 +228,72 @@ func (k *KubeHelper) createService(owner metav1.Object, name string, label strin
 	return k.kubeApi.CoreV1().Services(ns).Create(buildService(owner, name, label, ns, port, exposeExternally))
 }
 
-func (k *KubeHelper) readConfigMap(ns string, name string) (map[string]string, error) {
+// readProjectConfig returns a config map
+func (k *KubeHelper) readProjectConfig(namespace, name string) (*ProjectConfig, error) {
+	cmap, err := k.readConfigMap(namespace, name)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, ok := cmap[OmBaseUrl]
+	if !ok {
+		return nil, errors.New(fmt.Sprintf("Error getting %s from `project`", OmBaseUrl))
+	}
+	projectId, ok := cmap[OmProjectId]
+	if !ok {
+		return nil, errors.New(fmt.Sprintf("Error getting %s from `project`", OmProjectId))
+	}
+
+	if strings.HasSuffix(baseUrl, "/") {
+		cmap[OmBaseUrl] = strings.TrimSuffix(baseUrl, "/")
+		if err = k.updateConfigMap(namespace, name, cmap); err == nil {
+			zap.S().Infow("`baseUrl` has been corrected to not include a trailing 'slash' character.")
+		}
+	}
+
+	return &ProjectConfig{
+		BaseUrl:   baseUrl,
+		ProjectId: projectId,
+	}, nil
+}
+
+func (k *KubeHelper) readCredentials(namespace, name string) (*Credentials, error) {
+	secret, err := k.readSecret(namespace, name)
+	if err != nil {
+		return nil, err
+	}
+
+	publicApiKey, ok := secret[OmPublicApiKey]
+	if !ok {
+		return nil, errors.New(fmt.Sprintf("Missing '%s' attribute from 'credentials'", OmPublicApiKey))
+	}
+	user, ok := secret[OmUser]
+	if !ok {
+		return nil, errors.New(fmt.Sprintf("Missing '%s' attribute from 'credentials'", OmUser))
+	}
+
+	return &Credentials{
+		User:         user,
+		PublicApiKey: publicApiKey,
+	}, nil
+}
+
+func (k *KubeHelper) readAgentApiKeyForProject(namespace, name string) (string, error) {
+	secretName := agentApiKeySecretName(name)
+	secret, err := k.readSecret(namespace, secretName)
+	if err != nil {
+		return "", err
+	}
+
+	api, ok := secret[OmAgentApiKey]
+	if !ok {
+		return "", errors.New(fmt.Sprintf("Could not find Agent API Key for project '%s'", name))
+	}
+
+	return api, nil
+}
+
+func (k *KubeHelper) readConfigMap(ns, name string) (map[string]string, error) {
 	configMap, e := k.kubeApi.CoreV1().ConfigMaps(ns).Get(name, v1.GetOptions{})
 	if e != nil {
 		return nil, e
@@ -113,22 +301,35 @@ func (k *KubeHelper) readConfigMap(ns string, name string) (map[string]string, e
 	return configMap.Data, nil
 }
 
-func (k *KubeHelper) updateConfigMap(ns string, name string, data map[string]string) error {
-	configMap, e := k.kubeApi.CoreV1().ConfigMaps(ns).Get(name, v1.GetOptions{})
+func (k *KubeHelper) readSecret(namespace, name string) (map[string]string, error) {
+	secret, e := k.kubeApi.CoreV1().Secrets(namespace).Get(name, v1.GetOptions{})
+	if e != nil {
+		return nil, e
+	}
+
+	secrets := make(map[string]string)
+	for k, v := range secret.Data {
+		secrets[k] = strings.TrimSuffix(string(v[:]), "\n")
+	}
+	return secrets, nil
+}
+
+func (k *KubeHelper) updateConfigMap(namespace, name string, data map[string]string) error {
+	configMap, e := k.kubeApi.CoreV1().ConfigMaps(namespace).Get(name, v1.GetOptions{})
 	if e != nil {
 		return e
 	}
 	configMap.Data = data
 
-	_, e = k.kubeApi.CoreV1().ConfigMaps(ns).Update(configMap)
+	_, e = k.kubeApi.CoreV1().ConfigMaps(namespace).Update(configMap)
 	if e != nil {
 		return e
 	}
 	return nil
 }
 
-func (k *KubeHelper) readStatefulSet(ns string, name string) (*appsv1.StatefulSet, error) {
-	set, e := k.kubeApi.AppsV1().StatefulSets(ns).Get(name, v1.GetOptions{})
+func (k *KubeHelper) readStatefulSet(namespace, name string) (*appsv1.StatefulSet, error) {
+	set, e := k.kubeApi.AppsV1().StatefulSets(namespace).Get(name, v1.GetOptions{})
 	if e != nil {
 		return nil, e
 	}

@@ -16,24 +16,34 @@ const (
 	APP_LABEL_KEY = "app"
 )
 
+// PodVars is a convenience struct to pass environment variables to Pods as needed.
+// They are used by the automation agent to connect to Ops/Cloud Manager.
+type PodVars struct {
+	BaseUrl     string
+	ProjectId   string
+	User        string
+	AgentApiKey string
+}
+
 // buildStatefulSet builds the statefulset of pods containing agent containers. It's a general function used by
-// all the types of mongodb deployment resources
-func buildStatefulSet(owner metav1.Object, name, serviceName, ns, configName, agentKeySecretName string, replicas int,
-	persistent *bool, podSpec mongodb.PodSpecWrapper) *appsv1.StatefulSet {
+// all the types of mongodb deployment resources.
+// This is a convenience method to pass all attributes inside a "parameters" object which is easier to
+// build in client code and avoid passing too many different parameters to `buildStatefulSet`.
+func buildStatefulSet(p StatefulSetHelper) *appsv1.StatefulSet {
 	labels := map[string]string{
-		APP_LABEL_KEY: serviceName,
+		APP_LABEL_KEY: p.Service,
 		"controller":  OmControllerLabel,
 	}
 
 	set := appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:            name,
-			Namespace:       ns,
-			OwnerReferences: baseOwnerReference(owner),
+			Name:            p.Name,
+			Namespace:       p.Namespace,
+			OwnerReferences: baseOwnerReference(p.Owner),
 		},
 		Spec: appsv1.StatefulSetSpec{
-			ServiceName: serviceName,
-			Replicas:    Int32Ref(int32(replicas)),
+			ServiceName: p.Service,
+			Replicas:    Int32Ref(int32(p.Replicas)),
 			Selector: &metav1.LabelSelector{
 				MatchLabels: labels,
 			},
@@ -41,21 +51,21 @@ func buildStatefulSet(owner metav1.Object, name, serviceName, ns, configName, ag
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
 				},
-				Spec: basePodSpec(serviceName, configName, agentKeySecretName, persistent, podSpec),
+				Spec: basePodSpec(p.Service, p.Persistent, p.PodSpec, p.PodVars),
 			},
 		},
 	}
 	// If 'persistent' flag is not set - we consider it to be true
-	if persistent == nil || *persistent {
+	if p.Persistent == nil || *p.Persistent {
 		set.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: PersistentVolumeClaimName,
 			},
 			Spec: corev1.PersistentVolumeClaimSpec{
 				AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-				StorageClassName: &podSpec.StorageClass,
+				StorageClassName: &p.PodSpec.StorageClass,
 				Resources: corev1.ResourceRequirements{
-					Requests: buildStorageRequirements(podSpec),
+					Requests: buildStorageRequirements(p.PodSpec),
 				},
 			},
 		}}
@@ -70,7 +80,7 @@ func buildSecret(groupId string, namespace string, agentKey string) *corev1.Secr
 			Name:      groupId,
 			Namespace: namespace,
 		},
-		StringData: map[string]string{AgentKey: agentKey}}
+		StringData: map[string]string{OmAgentApiKey: agentKey}}
 }
 
 // buildService creates the Kube Service. If it should be seen externally it makes it of type NodePort that will assign
@@ -124,16 +134,17 @@ func baseOwnerReference(owner metav1.Object) []metav1.OwnerReference {
 	}
 }
 
-// basePodSpec creates the standard pod definition which uses the automation agent container for managing mongod/mongos
-// instances. Configuration data is read from the config map named "omConfigMapName" value
-func basePodSpec(serviceName, omConfigMapName, agentKeySecretName string, persistent *bool, reqs mongodb.PodSpecWrapper) corev1.PodSpec {
+// basePodSpec creates the standard Pod definition which uses the database container for managing mongod/mongos
+// instances. Parameters to the container will be passed as environment variables whose values are contained
+// in the PodVars structure.
+func basePodSpec(serviceName string, persistent *bool, reqs mongodb.PodSpecWrapper, podVars *PodVars) corev1.PodSpec {
 	spec := corev1.PodSpec{
 		Containers: []corev1.Container{
 			{
 				Name:            ContainerName,
 				Image:           os.Getenv(AutomationAgentImageUrl),
 				ImagePullPolicy: corev1.PullPolicy(os.Getenv(AutomationAgentImagePullPolicy)),
-				EnvFrom:         baseEnvFrom(omConfigMapName, agentKeySecretName),
+				Env:             baseEnvFrom(podVars),
 				Ports:           []corev1.ContainerPort{{ContainerPort: MongoDbDefaultPort}},
 				Resources: corev1.ResourceRequirements{
 					Requests: buildRequirements(reqs),
@@ -187,21 +198,23 @@ func baseLivenessProbe() *corev1.Probe {
 	}
 }
 
-func baseEnvFrom(omConfigMapName, agentSecretName string) []corev1.EnvFromSource {
-	return []corev1.EnvFromSource{
+func baseEnvFrom(podVars *PodVars) []corev1.EnvVar {
+	return []corev1.EnvVar{
 		{
-			ConfigMapRef: &corev1.ConfigMapEnvSource{
-				LocalObjectReference: corev1.LocalObjectReference{
-					Name: omConfigMapName,
-				},
-			},
+			Name:  ENV_VAR_BASE_URL,
+			Value: podVars.BaseUrl,
 		},
 		{
-			SecretRef: &corev1.SecretEnvSource{
-				LocalObjectReference: corev1.LocalObjectReference{
-					Name: agentSecretName,
-				},
-			},
+			Name:  ENV_VAR_PROJECT_ID,
+			Value: podVars.ProjectId,
+		},
+		{
+			Name:  ENV_VAR_USER,
+			Value: podVars.User,
+		},
+		{
+			Name:  ENV_VAR_AGENT_API_KEY,
+			Value: podVars.AgentApiKey,
 		},
 	}
 }

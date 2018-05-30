@@ -2,13 +2,16 @@ package operator
 
 const (
 	// Ops manager config map variables
-	OmBaseUrl   = "BASE_URL"
-	OmPublicKey = "PUBLIC_API_KEY"
-	OmUserName  = "USER_LOGIN"
-	OmGroupId   = "GROUP_ID"
+	OmBaseUrl      = "baseUrl"
+	OmProjectId    = "projectId"
+	OmUser         = "user"
+	OmPublicApiKey = "publicApiKey"
+	OmAgentApiKey  = "agentApiKey"
 
-	// Variable for agent key stored in the Secret
-	AgentKey = "AGENT_API_KEY"
+	ENV_VAR_BASE_URL      = "BASE_URL"
+	ENV_VAR_PROJECT_ID    = "GROUP_ID"
+	ENV_VAR_USER          = "USER_LOGIN"
+	ENV_VAR_AGENT_API_KEY = "AGENT_API_KEY"
 
 	ContainerName     = "mongodb-enterprise-database"
 	OmControllerLabel = "mongodb-enterprise-operator"
@@ -17,7 +20,7 @@ const (
 	MongoDbReplicaSet     = "MongoDbReplicaSet"
 	MongoDbShardedCluster = "MongoDbShardedCluster"
 
-	ResourceName = "MongoDB"
+	ResourceName  = "MongoDB"
 	LivenessProbe = "/mongodb-automation/files/probe.sh"
 
 	// Env configuration properties

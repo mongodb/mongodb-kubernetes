@@ -49,9 +49,9 @@ func (c *MongoDbController) onDeleteStandalone(obj interface{}) {
 	s := obj.(*mongodb.MongoDbStandalone)
 	log := zap.S().With("Standalone", s.Name)
 
-	conn, err := c.getOmConnection(s.Namespace, s.Spec.OmConfigName)
+	conn, err := c.getOmConnection(s.Namespace, s.Spec.Project, s.Spec.Credentials)
 	if err != nil {
-		log.Errorf("Failed to read OpsManager config map %s: %s", s.Spec.OmConfigName, err)
+		log.Error(err)
 		return
 	}
 
@@ -72,7 +72,6 @@ func (c *MongoDbController) onDeleteStandalone(obj interface{}) {
 	}
 
 	hostsToRemove, _ := GetDnsNames(s.Name, s.ServiceName(), s.Namespace, s.Spec.ClusterName, 1)
-
 	log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
 	if err := om.StopMonitoring(conn, hostsToRemove); err != nil {
 		log.Errorf("Failed to stop monitoring on hosts %s: %s", hostsToRemove, err)
@@ -84,9 +83,9 @@ func (c *MongoDbController) onDeleteStandalone(obj interface{}) {
 
 func (c *MongoDbController) doStandaloneProcessing(o, n *mongodb.MongoDbStandalone, log *zap.SugaredLogger) error {
 	spec := n.Spec
-	conn, err := c.getOmConnection(n.Namespace, spec.OmConfigName)
+	conn, err := c.getOmConnection(n.Namespace, spec.Project, spec.Credentials)
 	if err != nil {
-		return errors.New(fmt.Sprintf("Failed to read OpsManager config map %s: %s", spec.OmConfigName, err))
+		return err
 	}
 
 	agentKeySecretName, err := c.EnsureAgentKeySecretExists(conn, n.Namespace, log)
@@ -94,16 +93,25 @@ func (c *MongoDbController) doStandaloneProcessing(o, n *mongodb.MongoDbStandalo
 		return errors.New(fmt.Sprintf("Failed to generate/get agent key: %s", err))
 	}
 
-	// standaloneSet is represented by a StatefulSet in Kubernetes
-	podSpec := mongodb.PodSpecWrapper{mongodb.MongoDbPodSpec{MongoDbPodSpecStandalone: spec.PodSpec}, NewDefaultPodSpec()}
-	standaloneSet := buildStatefulSet(n, n.Name, n.ServiceName(), n.Namespace, spec.OmConfigName, agentKeySecretName,
-		1, spec.Persistent, podSpec)
-	_, err = c.kubeHelper.createOrUpdateStatefulsetsWithService(n, MongoDbDefaultPort, n.Namespace, true, log, standaloneSet)
+	podVars, err := c.buildPodVars(n.Namespace, n.Spec.Project, n.Spec.Credentials, agentKeySecretName)
+	if err != nil {
+		return err
+	}
+
+	standaloneBuilder := c.kubeHelper.NewStatefulSetHelper(n).
+		SetService(n.ServiceName()).
+		SetPersistence(n.Spec.Persistent).
+		SetPodSpec(NewDefaultStandalonePodSpecWrapper(n.Spec.PodSpec)).
+		SetPodVars(podVars).
+		SetExposedExternally(true).
+		SetLogger(log)
+
+	err = standaloneBuilder.CreateOrUpdateInKubernetes()
 	if err != nil {
 		return errors.New(fmt.Sprintf("Failed to create statefulset: %s", err))
 	}
 
-	if err := c.updateOmDeployment(conn, n, standaloneSet, log); err != nil {
+	if err := c.updateOmDeployment(conn, n, standaloneBuilder.BuildStatefulSet(), log); err != nil {
 		return errors.New(fmt.Sprintf("Failed to create standalone in OM: %s", err))
 	}
 	return nil
