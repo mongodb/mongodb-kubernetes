@@ -4,6 +4,9 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/om"
 	"github.com/10gen/ops-manager-kubernetes/operator/crd"
 
+	"errors"
+	"fmt"
+
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1beta1"
 	mongodbscheme "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/scheme"
 	mongodbclient "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/typed/mongodb.com/v1beta1"
@@ -47,7 +50,7 @@ func (c *MongoDbController) StartWatch(namespace string, stopCh chan struct{}) e
 	return nil
 }
 
-func (c *MongoDbController) getOmConnection(namespace, project, credentials string) (*om.OmConnection, error) {
+func (c *MongoDbController) getOmConnection(namespace, project, credentials string) (om.OmConnection, error) {
 	projectConfig, e := c.kubeHelper.readProjectConfig(namespace, project)
 	if e != nil {
 		return nil, e
@@ -91,8 +94,8 @@ func (c *MongoDbController) SecretsApi(namespace string) coreV1.SecretInterface 
 
 // EnsureAgentKeySecretExists checks if the Secret with specified name (equal to group id) exists, otherwise tries to
 // generate agent key using OM public API and create Secret containing this key
-func (c *MongoDbController) EnsureAgentKeySecretExists(omConnection *om.OmConnection, nameSpace string, log *zap.SugaredLogger) (string, error) {
-	secretName := agentApiKeySecretName(omConnection.GroupId)
+func (c *MongoDbController) EnsureAgentKeySecretExists(omConnection om.OmConnection, nameSpace string, log *zap.SugaredLogger) (string, error) {
+	secretName := agentApiKeySecretName(omConnection.GroupId())
 	log = log.With("secret", secretName)
 	_, err := c.SecretsApi(nameSpace).Get(secretName, v1.GetOptions{})
 	if err != nil {
@@ -100,12 +103,10 @@ func (c *MongoDbController) EnsureAgentKeySecretExists(omConnection *om.OmConnec
 
 		key, err := omConnection.GenerateAgentKey()
 		if err != nil {
-			log.Error("Failed to generate agent Key")
-			return "", err
+			return "", errors.New(fmt.Sprintf("Failed to generate agent Key in OM: %s", err))
 		}
 		if _, err := c.SecretsApi(nameSpace).Create(buildSecret(secretName, nameSpace, key)); err != nil {
-			log.Error("Failed to create Secret")
-			return "", err
+			return "", errors.New(fmt.Sprintf("Failed to create Secret: %s", err))
 		}
 		log.Info("New Ops Manager agent Key is generated and saved in Kubernetes Secret for later usage")
 	}

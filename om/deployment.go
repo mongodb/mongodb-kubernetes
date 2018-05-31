@@ -16,8 +16,8 @@ const (
 
 type Deployment map[string]interface{}
 
-func BuildDeploymentFromBytes(jsonBytes []byte) (ans *Deployment, err error) {
-	cc := &Deployment{}
+func BuildDeploymentFromBytes(jsonBytes []byte) (ans Deployment, err error) {
+	cc := Deployment{}
 	if err := json.Unmarshal(jsonBytes, &cc); err != nil {
 		return nil, err
 	}
@@ -29,6 +29,8 @@ func NewDeployment() Deployment {
 	ans.setProcesses(make([]Process, 0))
 	ans.setReplicaSets(make([]ReplicaSet, 0))
 	ans.setShardedClusters(make([]ShardedCluster, 0))
+	ans.setMonitoringVersions(make([]interface{}, 0))
+	ans.setBackupVersions(make([]interface{}, 0))
 	return ans
 }
 
@@ -113,16 +115,16 @@ func (d Deployment) AddMonitoringAndBackup(hostName string, log *zap.SugaredLogg
 	d.addBackup(log)
 }
 
-func (d Deployment) DisableProcess(name string) {
-	for _, el := range d.getProcesses() {
-		if el.Name() == name {
-			el.SetDisabled(true)
-		}
+func (d Deployment) DisableProcesses(processNames []string) {
+	for _, p := range processNames {
+		d.getProcessByName(p).SetDisabled(true)
 	}
 }
 
-func (d Deployment) MarkRsMemberUnvoted(rsName, rsMemberName string) {
-	d.getReplicaSetByName(rsName).findMemberByName(rsMemberName).setVotes(0).setPriority(0)
+func (d Deployment) MarkRsMembersUnvoted(rsName string, rsMembers []string) {
+	for _, m := range rsMembers {
+		d.getReplicaSetByName(rsName).findMemberByName(m).setVotes(0).setPriority(0)
+	}
 }
 
 func (d Deployment) RemoveProcessByName(name string) error {
@@ -393,6 +395,14 @@ func (d Deployment) addShardedCluster(shardedCluster ShardedCluster) {
 	d.setShardedClusters(append(d.getShardedClusters(), shardedCluster))
 }
 
+func (d Deployment) setMonitoringVersions(monitoring []interface{}) {
+	d["monitoringVersions"] = monitoring
+}
+
+func (d Deployment) setBackupVersions(monitoring []interface{}) {
+	d["backupVersions"] = monitoring
+}
+
 // addMonitoring adds one single monitoring agent for specified host name.
 // Note that automation agent will update the monitoring agent to the latest version automatically
 func (d Deployment) addMonitoring(hostName string, log *zap.SugaredLogger) {
@@ -408,7 +418,7 @@ func (d Deployment) addMonitoring(hostName string, log *zap.SugaredLogger) {
 	if !found {
 		monitoringVersions = append(monitoringVersions,
 			map[string]interface{}{"hostname": hostName, "name": MonitoringAgentDefaultVersion})
-		d["monitoringVersions"] = monitoringVersions
+		d.setMonitoringVersions(monitoringVersions)
 
 		log.Debugw("Added monitoring agent configuration", "host", hostName)
 	}
@@ -429,7 +439,7 @@ func (d Deployment) addBackup(log *zap.SugaredLogger) {
 		if !found {
 			backupVersions = append(backupVersions,
 				map[string]interface{}{"hostname": p.HostName(), "name": BackupAgentDefaultVersion})
-			d["backupVersions"] = backupVersions
+			d.setBackupVersions(backupVersions)
 
 			log.Debugw("Added backup agent configuration", "host", p.HostName())
 		}

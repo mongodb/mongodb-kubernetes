@@ -30,9 +30,10 @@ const (
 	OmOperatorEnv                  = "OM_OPERATOR_ENV"
 
 	// Different default configuration values
-	DefaultMongodStorageSize    = "16G"
-	DefaultConfigSrvStorageSize = "5G"
-	MongoDbDefaultPort          = 27017
-	PersistentVolumeClaimName   = "data"
-	PersistentVolumePath        = "/data"
+	DefaultMongodStorageSize       = "16G"
+	DefaultConfigSrvStorageSize    = "5G"
+	DefaultAntiAffinityTopologyKey = "kubernetes.io/hostname"
+	MongoDbDefaultPort             = 27017
+	PersistentVolumeClaimName      = "data"
+	PersistentVolumePath           = "/data"
 )

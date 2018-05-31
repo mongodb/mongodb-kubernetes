@@ -13,6 +13,12 @@ func GetDnsForStatefulSet(set *appsv1.StatefulSet, clusterName string) (hostname
 	return GetDnsNames(set.Name, set.Spec.ServiceName, set.Namespace, clusterName, int(*set.Spec.Replicas))
 }
 
+// GetDnsForStatefulSetReplicasSpecified is similar to GetDnsForStatefulSet but expects the number of replicas to be specified
+// (important for scale-down operations to support hostnames for old statefulset)
+func GetDnsForStatefulSetReplicasSpecified(set *appsv1.StatefulSet, clusterName string, replicas int) (hostnames []string, names []string) {
+	return GetDnsNames(set.Name, set.Spec.ServiceName, set.Namespace, clusterName, replicas)
+}
+
 // GetDnsNames returns hostnames and names of pods in stateful set, it's less preferable than "GetDnsForStatefulSet" and
 // should be used only in situations when statefulset doesn't exist any more (the main example is when the mongodb custom
 // resource is being deleted - then the dependant statefulsets cannot be read any more as they get into Terminated state)
@@ -47,10 +53,6 @@ func getDnsTemplateFor(name, service, namespace, cluster string) string {
 	}
 	dnsTemplate := fmt.Sprintf("%s-{}.%s.%s.svc.%s", name, service, namespace, cluster)
 	return strings.Replace(dnsTemplate, "{}", "%d", 1)
-}
-
-func GetDnsNameFor(name, service, namespace, cluster string, idx int) string {
-	return fmt.Sprintf(getDnsTemplateFor(name, service, namespace, cluster), idx)
 }
 
 func GetPodName(name string, idx int) string {

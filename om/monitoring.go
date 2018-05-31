@@ -16,7 +16,11 @@ type HostList struct {
 
 // StopMonitoring will stop OM monitoring of hosts, which will then
 // will make OM stop displaying old hosts from Processes view.
-func StopMonitoring(omClient *OmConnection, hostnames []string) error {
+func StopMonitoring(omClient OmConnection, hostnames []string) error {
+	if len(hostnames) == 0 {
+		return nil
+	}
+
 	hosts, err := omClient.GetHosts()
 	if err != nil {
 		return err

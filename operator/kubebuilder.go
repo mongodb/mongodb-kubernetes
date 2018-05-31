@@ -6,6 +6,7 @@ import (
 	"os"
 
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1beta1"
+	"github.com/10gen/ops-manager-kubernetes/util"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -43,7 +44,7 @@ func buildStatefulSet(p StatefulSetHelper) *appsv1.StatefulSet {
 		},
 		Spec: appsv1.StatefulSetSpec{
 			ServiceName: p.Service,
-			Replicas:    Int32Ref(int32(p.Replicas)),
+			Replicas:    util.Int32Ref(int32(p.Replicas)),
 			Selector: &metav1.LabelSelector{
 				MatchLabels: labels,
 			},
@@ -150,8 +151,8 @@ func basePodSpec(serviceName string, persistent *bool, reqs mongodb.PodSpecWrapp
 					Requests: buildRequirements(reqs),
 				},
 				SecurityContext: &corev1.SecurityContext{
-					Privileged:   BooleanRef(false),
-					RunAsNonRoot: BooleanRef(true),
+					Privileged:   util.BooleanRef(false),
+					RunAsNonRoot: util.BooleanRef(true),
 				},
 				LivenessProbe: baseLivenessProbe(),
 			},

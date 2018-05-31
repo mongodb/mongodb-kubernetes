@@ -117,7 +117,7 @@ func (c *MongoDbController) doStandaloneProcessing(o, n *mongodb.MongoDbStandalo
 	return nil
 }
 
-func (c *MongoDbController) updateOmDeployment(omConnection *om.OmConnection, s *mongodb.MongoDbStandalone,
+func (c *MongoDbController) updateOmDeployment(omConnection om.OmConnection, s *mongodb.MongoDbStandalone,
 	set *appsv1.StatefulSet, log *zap.SugaredLogger) error {
 	if err := waitForRsAgentsToRegister(set, s.Spec.ClusterName, omConnection, log); err != nil {
 		return err

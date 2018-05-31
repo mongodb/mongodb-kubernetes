@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1beta1"
+	"github.com/10gen/ops-manager-kubernetes/util"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -49,7 +50,7 @@ type StatefulSetHelper struct {
 	Logger            *zap.SugaredLogger
 }
 
-// NewStatefulSet returns a default `StatefulSetHelper`. The defauls are as follows:
+// NewStatefulSet returns a default `StatefulSetHelper`. The defaults are as follows:
 //
 // * Name: Same as the Name of the owner
 // * Namespace: Same as the Namespace of the owner
@@ -63,7 +64,7 @@ func (k *KubeHelper) NewStatefulSetHelper(obj metav1.Object) *StatefulSetHelper 
 		Name:       obj.GetName(),
 		Namespace:  obj.GetNamespace(),
 		Replicas:   1,
-		Persistent: BooleanRef(true),
+		Persistent: util.BooleanRef(true),
 
 		ExposedExternally: false,
 		ServicePort:       MongoDbDefaultPort,
@@ -124,7 +125,7 @@ func (s *StatefulSetHelper) BuildStatefulSet() *appsv1.StatefulSet {
 
 func (s *StatefulSetHelper) CreateOrUpdateInKubernetes() error {
 	sets := s.BuildStatefulSet()
-	_, err := s.Helper.createOrUpdateStatefulsetsWithService(
+	_, err := s.Helper.createOrUpdateStatefulsetWithService(
 		s.Owner,
 		s.ServicePort,
 		s.Namespace,
@@ -139,38 +140,35 @@ func (s *StatefulSetHelper) CreateOrUpdateInKubernetes() error {
 	return nil
 }
 
-// createOrUpdateStatefulsetsWithService creates or updates the set of statefulsets in Kubernetes mapped to the service with name "serviceName"
+// createOrUpdateStatefulsetWithService creates or updates the set of statefulsets in Kubernetes mapped to the service with name "serviceName"
 // The method has to be flexible (create/update) as there are cases when custom resource is created but statefulset - not
 // Service named "serviceName" is created optionally (it may already exist - created by either user or by operator before)
-// the vararg for statefulsets will be needed for sharded cluster (seems all replicasets there will share the same service..)
-// Note the logic for "servicePort" parameter: if it is nil then the type of service created is "NodePort" (the random port
-// will be allocated by Kubernetes) otherwise the type of service is default one ("ClusterIP") and it won't be connectible
-// from external (unless pods in statefulset expose themselves to outside using "hostNetwork: true")
+// Note the logic for "exposeExternally" parameter: if it is true then the second service is created of type "NodePort"
+// (the random port will be allocated by Kubernetes) otherwise only one service of type "ClusterIP" is created and it
+// won't be connectible from external (unless pods in statefulset expose themselves to outside using "hostNetwork: true")
 // Function returns the service port number assigned
-func (k *KubeHelper) createOrUpdateStatefulsetsWithService(owner metav1.Object, servicePort int32,
-	namespace string, exposeExternally bool, log *zap.SugaredLogger, statefulsets ...*appsv1.StatefulSet) (*int32, error) {
+func (k *KubeHelper) createOrUpdateStatefulsetWithService(owner metav1.Object, servicePort int32,
+	namespace string, exposeExternally bool, log *zap.SugaredLogger, statefulset *appsv1.StatefulSet) (*int32, error) {
 
-	service, err := k.ensureServicesExist(owner, statefulsets[0].Spec.ServiceName, servicePort, namespace,
-		exposeExternally, log, statefulsets...)
+	service, err := k.ensureServicesExist(owner, statefulset.Spec.ServiceName, servicePort, namespace,
+		exposeExternally, log, statefulset)
 
 	if err != nil {
 		return nil, err
 	}
 
-	for _, s := range statefulsets {
-		log = log.With("statefulset", s.Name)
+	log = log.With("statefulset", statefulset.Name)
 
-		if _, err := k.kubeApi.AppsV1().StatefulSets(namespace).Get(s.Name, v1.GetOptions{}); err != nil {
-			if _, err := k.kubeApi.AppsV1().StatefulSets(namespace).Create(s); err != nil {
-				return nil, err
-			}
-			log.Infow("Created statefulset")
-		} else {
-			if _, err := k.kubeApi.AppsV1().StatefulSets(namespace).Update(s); err != nil {
-				return nil, err
-			}
-			log.Infow("Updated statefulset")
+	if _, err := k.readStatefulSet(namespace, statefulset.Name); err != nil {
+		if _, err := k.kubeApi.AppsV1().StatefulSets(namespace).Create(statefulset); err != nil {
+			return nil, err
 		}
+		log.Infow("Created statefulset")
+	} else {
+		if _, err := k.kubeApi.AppsV1().StatefulSets(namespace).Update(statefulset); err != nil {
+			return nil, err
+		}
+		log.Infow("Updated statefulset")
 	}
 
 	return discoverServicePort(service)
@@ -180,9 +178,9 @@ func (k *KubeHelper) createOrUpdateStatefulsetsWithService(owner metav1.Object, 
 // provided - creates it based on the first replicaset name provided
 // TODO it must remove the external service in case it's no more needed
 func (k *KubeHelper) ensureServicesExist(owner metav1.Object, serviceName string, servicePort int32, nameSpace string,
-	exposeExternally bool, log *zap.SugaredLogger, statefulsets ...*appsv1.StatefulSet) (*corev1.Service, error) {
+	exposeExternally bool, log *zap.SugaredLogger, statefulset *appsv1.StatefulSet) (*corev1.Service, error) {
 
-	ensureStatefulsetsHaveServiceLabel(serviceName, statefulsets)
+	ensureStatefulsetsHaveServiceLabel(serviceName, statefulset)
 
 	// we always create the headless service to achieve Kubernetes internal connectivity
 	service, err := k.readOrCreateService(owner, serviceName, serviceName, servicePort, nameSpace, false, log)
@@ -278,15 +276,15 @@ func (k *KubeHelper) readCredentials(namespace, name string) (*Credentials, erro
 	}, nil
 }
 
-func (k *KubeHelper) readAgentApiKeyForProject(namespace, name string) (string, error) {
-	secret, err := k.readSecret(namespace, name)
+func (k *KubeHelper) readAgentApiKeyForProject(namespace, agentKeyName string) (string, error) {
+	secret, err := k.readSecret(namespace, agentKeyName)
 	if err != nil {
 		return "", err
 	}
 
 	api, ok := secret[OmAgentApiKey]
 	if !ok {
-		return "", errors.New(fmt.Sprintf("Could not find Agent API Key for project '%s'", name))
+		return "", errors.New(fmt.Sprintf("Could not find Agent API Key '%s'", agentKeyName))
 	}
 
 	return api, nil
@@ -341,21 +339,18 @@ func discoverServicePort(service *corev1.Service) (*int32, error) {
 	}
 
 	if service.Spec.Type == corev1.ServiceTypeNodePort {
-		nodePort := Int32Ref(service.Spec.Ports[0].NodePort)
-		zap.S().Infof(">> The node port for external connections is %d!", *nodePort)
+		nodePort := util.Int32Ref(service.Spec.Ports[0].NodePort)
 		return nodePort, nil
 	}
-	return Int32Ref(service.Spec.Ports[0].Port), nil
+	return util.Int32Ref(service.Spec.Ports[0].Port), nil
 }
 
 // ensureStatefulsetsHaveServiceLabel makes sure all the statefulsets contain the correct label (to be mapped on service)
-func ensureStatefulsetsHaveServiceLabel(serviceName string, sets []*appsv1.StatefulSet) {
-	for _, s := range sets {
-		if len(s.ObjectMeta.Labels) == 0 {
-			s.ObjectMeta.Labels = make(map[string]string)
-		}
-		s.ObjectMeta.Labels["app"] = serviceName
+func ensureStatefulsetsHaveServiceLabel(serviceName string, set *appsv1.StatefulSet) {
+	if len(set.ObjectMeta.Labels) == 0 {
+		set.ObjectMeta.Labels = make(map[string]string)
 	}
+	set.ObjectMeta.Labels["app"] = serviceName
 }
 
 // validateExistingService checks if the existing service is created correctly. This means it must contain correct labels

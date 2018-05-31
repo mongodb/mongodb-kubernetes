@@ -44,9 +44,9 @@ func checkAutomationStatusIsGoal(as *AutomationStatus) bool {
 
 // WaitUntilGoalState will return after all automations agents
 // have reported to reach Goal state.
-func WaitUntilGoalState(om *OmConnection) bool {
+func WaitUntilGoalState(om OmConnection) bool {
 	var lastErr error
-	wait := WaitFunction(10, 10)
+	wait := WaitFunction(30, 3)
 
 	for {
 		if !wait() {

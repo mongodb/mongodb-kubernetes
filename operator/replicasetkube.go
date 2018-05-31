@@ -59,12 +59,6 @@ func (c *MongoDbController) doRsProcessing(o, n *mongodb.MongoDbReplicaSet, log 
 
 	scaleDown := o != nil && spec.Members < o.Spec.Members
 
-	if scaleDown {
-		if err := prepareScaleDownReplicaSet(conn, o, n, log); err != nil {
-			return errors.New(fmt.Sprintf("Failed to prepare Ops Manager for scaling down: %s", err))
-		}
-	}
-
 	podVars, err := c.buildPodVars(n.Namespace, n.Spec.Project, n.Spec.Credentials, agentKeySecretName)
 	if err != nil {
 		return err
@@ -78,82 +72,35 @@ func (c *MongoDbController) doRsProcessing(o, n *mongodb.MongoDbReplicaSet, log 
 		SetPodVars(podVars).
 		SetExposedExternally(true).
 		SetLogger(log)
+	replicaSetObject := replicaBuilder.BuildStatefulSet()
 
-	// do whatever you want with the statefulset
-	err = replicaBuilder.CreateOrUpdateInKubernetes()
-	if err != nil {
-		return err
+	if scaleDown {
+		if err := prepareScaleDownReplicaSet(conn, replicaSetObject, o, n, log); err != nil {
+			return errors.New(fmt.Sprintf("Failed to prepare Ops Manager for scaling down: %s", err))
+		}
 	}
 
-	replicaSetObject := replicaBuilder.BuildStatefulSet()
+	err = replicaBuilder.CreateOrUpdateInKubernetes()
 	if err != nil {
 		return errors.New(fmt.Sprintf("Failed to create/update the StatefulSet: %s", err))
 	}
 
 	log.Info("Updated statefulset for replicaset")
 
-	if err := c.updateOmDeploymentRs(conn, nil, n, replicaSetObject, log); err != nil {
+	if err := c.updateOmDeploymentRs(conn, o, n, replicaSetObject, log); err != nil {
 		return errors.New(fmt.Sprintf("Failed to update Ops Manager automation config: %s", err))
 	}
 
-	if scaleDown {
-		hostsToRemove := calculateHostsToRemove(o, n, replicaSetObject)
-		log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
-		if err := om.StopMonitoring(conn, hostsToRemove); err != nil {
-			return errors.New(fmt.Sprintf("Failed to stop monitoring on hosts %s: %s", hostsToRemove, err))
-		}
-	}
 	return nil
 }
 
-func prepareScaleDownReplicaSet(omClient *om.OmConnection, old, new *mongodb.MongoDbReplicaSet, log *zap.SugaredLogger) error {
-	membersToUpdate := make([]string, 0)
-	for i := new.Spec.Members; i < old.Spec.Members; i++ {
-		membersToUpdate = append(membersToUpdate, GetPodName(old.Name, i))
-	}
+func prepareScaleDownReplicaSet(omClient om.OmConnection, statefulSet *appsv1.StatefulSet, old, new *mongodb.MongoDbReplicaSet,
+	log *zap.SugaredLogger) error {
+	hostNames, podNames := GetDnsForStatefulSetReplicasSpecified(statefulSet, new.Spec.ClusterName, old.Spec.Members)
+	podNames = podNames[new.Spec.Members:old.Spec.Members]
+	hostNames = hostNames[new.Spec.Members:old.Spec.Members]
 
-	// Stage 1. Set Votes and Priority to 0
-	deployment, err := omClient.ReadDeployment()
-	if err != nil {
-		return err
-	}
-
-	for _, el := range membersToUpdate {
-		deployment.MarkRsMemberUnvoted(new.Name, el)
-	}
-
-	_, err = omClient.UpdateDeployment(deployment)
-	if err != nil {
-		log.Debugw("Unable to set votes, priority to 0", "hosts", membersToUpdate)
-		return err
-	}
-
-	// Wait until agents reach Goal state
-	if !om.WaitUntilGoalState(omClient) {
-		return errors.New(fmt.Sprintf("Process didn't reach goal state. Setting votes, priority to 0. Hosts: %v", membersToUpdate))
-	}
-
-	// Stage 2. Set disabled to true
-	deployment, err = omClient.ReadDeployment()
-	if err != nil {
-		return err
-	}
-
-	for _, el := range membersToUpdate {
-		deployment.DisableProcess(el)
-	}
-
-	_, err = omClient.UpdateDeployment(deployment)
-	if err != nil {
-		log.Debugw("Unable to set disabled to true", "hosts", membersToUpdate)
-		return err
-	}
-	// Wait until agents reach Goal state
-	if !om.WaitUntilGoalState(omClient) {
-		return errors.New(fmt.Sprintf("Process didn't reach Goal state. Setting disabled=true. Hosts: %v", membersToUpdate))
-	}
-
-	return nil
+	return prepareScaleDown(omClient, map[string][]string{new.Name: podNames}, log)
 }
 
 func (c *MongoDbController) onDeleteReplicaSet(obj interface{}) {
@@ -194,26 +141,28 @@ func (c *MongoDbController) onDeleteReplicaSet(obj interface{}) {
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
-func (c *MongoDbController) updateOmDeploymentRs(omConnection *om.OmConnection, old, new *mongodb.MongoDbReplicaSet,
+func (c *MongoDbController) updateOmDeploymentRs(omConnection om.OmConnection, old, new *mongodb.MongoDbReplicaSet,
 	set *appsv1.StatefulSet, log *zap.SugaredLogger) error {
 
 	err := waitForRsAgentsToRegister(set, new.Spec.ClusterName, omConnection, log)
 	if err != nil {
 		return err
 	}
+	replicaSet := buildReplicaSetFromStatefulSet(set, new.Spec.ClusterName, new.Spec.Version)
 
-	deployment, err := omConnection.ReadDeployment()
+	err = omConnection.ReadUpdateDeployment(false,
+		func(d om.Deployment) error {
+			d.MergeReplicaSet(replicaSet, nil)
+
+			d.AddMonitoringAndBackup(replicaSet.Processes[0].HostName(), log)
+			return nil
+		},
+	)
 	if err != nil {
 		return err
 	}
 
-	replicaSet := buildReplicaSetFromStatefulSet(set, new.Spec.ClusterName, new.Spec.Version)
-	deployment.MergeReplicaSet(replicaSet, nil)
-
-	deployment.AddMonitoringAndBackup(replicaSet.Processes[0].HostName(), log)
-
-	_, err = omConnection.UpdateDeployment(deployment)
-	if err != nil {
+	if err := deleteHostnamesFromMonitoring(omConnection, getAllHostsRs(set, old), getAllHostsRs(set, old), log); err != nil {
 		return err
 	}
 
@@ -232,12 +181,10 @@ func validateReplicaSetUpdate(oldSpec, newSpec *mongodb.MongoDbReplicaSet) error
 	return nil
 }
 
-func calculateHostsToRemove(old, new *mongodb.MongoDbReplicaSet, set *appsv1.StatefulSet) []string {
-	hostnames, _ := GetDnsForStatefulSet(set, new.Spec.ClusterName)
-	result := make([]string, 0)
-	for i := new.Spec.Members; i < old.Spec.Members; i++ {
-		result = append(result, hostnames[i])
+func getAllHostsRs(set *appsv1.StatefulSet, rs *mongodb.MongoDbReplicaSet) []string {
+	if rs == nil {
+		return []string{}
 	}
-	return result
-
+	hostnames, _ := GetDnsForStatefulSetReplicasSpecified(set, rs.Spec.ClusterName, rs.Spec.Members)
+	return hostnames
 }

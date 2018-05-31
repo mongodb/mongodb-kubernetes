@@ -4,21 +4,23 @@ import (
 	"testing"
 
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1beta1"
+	"github.com/10gen/ops-manager-kubernetes/util"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestBuildStatefulSet_PersistentFlag(t *testing.T) {
-	set := buildStatefulSet(&mongodb.MongoDbStandalone{}, "s", "p", "ns", "c", "a", 1, nil, podSpec())
+	set := defaultSetHelper().SetPersistence(nil).BuildStatefulSet()
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
 	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 1)
 
-	set = buildStatefulSet(&mongodb.MongoDbStandalone{}, "s", "p", "ns", "c", "a", 1, BooleanRef(true), podSpec())
+	set = defaultSetHelper().SetPersistence(util.BooleanRef(true)).BuildStatefulSet()
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
 	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 1)
 
-	set = buildStatefulSet(&mongodb.MongoDbStandalone{}, "s", "p", "ns", "c", "a", 1, BooleanRef(false), podSpec())
+	set = defaultSetHelper().SetPersistence(util.BooleanRef(false)).BuildStatefulSet()
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 0)
 	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 0)
 }
@@ -28,7 +30,7 @@ func TestBuildStatefulSet_PersistentVolumeClaim(t *testing.T) {
 		mongodb.MongoDbPodSpec{
 			mongodb.MongoDbPodSpecStandalone{StorageClass: "fast", Storage: "5G"}, ""},
 		NewDefaultPodSpec()}
-	set := buildStatefulSet(&mongodb.MongoDbStandalone{}, "s", "p", "ns", "c", "a", 1, nil, podSpec)
+	set := defaultSetHelper().SetPodSpec(podSpec).BuildStatefulSet()
 
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
 	claim := set.Spec.VolumeClaimTemplates[0]
@@ -73,7 +75,7 @@ func TestBasePodSpec_Affinity(t *testing.T) {
 		},
 		Default: NewDefaultPodSpec()}
 
-	spec := basePodSpec("s", "c", "k", BooleanRef(false), podSpec)
+	spec := basePodSpec("s", util.BooleanRef(false), podSpec, defaultPodVars())
 
 	assert.Equal(t, nodeAffinity, *spec.Affinity.NodeAffinity)
 	assert.Equal(t, podAffinity, *spec.Affinity.PodAffinity)
@@ -85,13 +87,31 @@ func TestBasePodSpec_Affinity(t *testing.T) {
 	assert.Equal(t, "nodeId", term.PodAffinityTerm.TopologyKey)
 }
 
-// TestBasePodSpec_AntiAffinitySkipped checks that pod anti affinity rule is not created if topology key is not provided
-func TestBasePodSpec_AntiAffinitySkipped(t *testing.T) {
+// TestBasePodSpec_AntiAffinityDefaultTopology checks that the default topology key is created if the topology key is
+// not specified
+func TestBasePodSpec_AntiAffinityDefaultTopology(t *testing.T) {
 	podSpec := mongodb.PodSpecWrapper{mongodb.MongoDbPodSpec{}, NewDefaultPodSpec()}
-	spec := basePodSpec("s", "c", "k", BooleanRef(false), podSpec)
-	assert.Nil(t, spec.Affinity.PodAntiAffinity)
+	spec := basePodSpec("s", util.BooleanRef(false), podSpec, defaultPodVars())
+
+	term := spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0]
+	assert.Equal(t, int32(100), term.Weight)
+	assert.Equal(t, map[string]string{APP_LABEL_KEY: "s"}, term.PodAffinityTerm.LabelSelector.MatchLabels)
+	assert.Equal(t, DefaultAntiAffinityTopologyKey, term.PodAffinityTerm.TopologyKey)
 }
 
-func podSpec() mongodb.PodSpecWrapper {
+func baseSetHelper() *StatefulSetHelper {
+	standalone := mongodb.MongoDbStandalone{ObjectMeta: metav1.ObjectMeta{Name: "testStandalone", Namespace: "mongodb"}}
+	return (&KubeHelper{}).NewStatefulSetHelper(&standalone)
+}
+
+func defaultPodSpec() mongodb.PodSpecWrapper {
 	return mongodb.PodSpecWrapper{mongodb.MongoDbPodSpec{PodAntiAffinityTopologyKey: "nodeId"}, NewDefaultPodSpec()}
+}
+
+func defaultSetHelper() *StatefulSetHelper {
+	return baseSetHelper().SetLogger(zap.S()).SetPodSpec(defaultPodSpec()).SetPodVars(defaultPodVars())
+}
+
+func defaultPodVars() *PodVars {
+	return &PodVars{AgentApiKey: "a", BaseUrl: "http://localhost:8080", ProjectId: "myProject", User: "user@some.com"}
 }
