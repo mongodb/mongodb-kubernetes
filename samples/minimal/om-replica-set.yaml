@@ -6,7 +6,13 @@ metadata:
   namespace: mongodb
 spec:
   members: 3
-  mongodb_version: 3.6.4
-  ops_manager_config: global-om-config
+  version: 3.6.5
   # persistent: false will create stateful set pods without persistent volumes - it's convenient for testing. true by default
   persistent: false
+
+
+  # Before you create this object, you'll need a project and credentials created.
+  # Please read https://github.com/10gen/ops-manager-kubernetes/blob/master/docs/using-credentials.md
+  # about how to do this.
+  project: project-01
+  credentials: alice-credentials

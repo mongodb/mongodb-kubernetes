@@ -11,3 +11,4 @@ om-operator-local.yaml
 
 build/
 release.sh
+release/*

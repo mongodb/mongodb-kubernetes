@@ -9,12 +9,12 @@ spec:
   mongodsPerShardCount: 3
   mongos_count: 2
   config_server_count: 3
-  mongodb_version: 3.6.3
-  ops_manager_config: global-om-config
+  version: 3.6.3
+
   persistent: false
 
-
-
-
-
-
+  # Before you create this object, you'll need a project and credentials created.
+  # Please read https://github.com/10gen/ops-manager-kubernetes/blob/master/docs/using-credentials.md
+  # about how to do this.
+  project: my-project
+  credentials: my-credentials

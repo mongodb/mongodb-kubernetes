@@ -279,8 +279,7 @@ func (k *KubeHelper) readCredentials(namespace, name string) (*Credentials, erro
 }
 
 func (k *KubeHelper) readAgentApiKeyForProject(namespace, name string) (string, error) {
-	secretName := agentApiKeySecretName(name)
-	secret, err := k.readSecret(namespace, secretName)
+	secret, err := k.readSecret(namespace, name)
 	if err != nil {
 		return "", err
 	}

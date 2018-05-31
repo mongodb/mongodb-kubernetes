@@ -1,4 +1,4 @@
-# Using Credentials #
+# Projects And Credentials #
 
 In Ops/Cloud Manager there's the concept of credentials: a pair of
 username + public-api-key that is used to act, on behalf of the user,
@@ -88,12 +88,8 @@ spec:
   project: project-01
   credentials: alice-credentials
 
-  podSpec:
-    cpu: '0.25'
-    memory: 512M
-    storage: 12G
-    storageClass: standard
-
+  persistent: false # Please note: this indicates there will be no Persistent
+                    # Volumes attached to this deployment.
 ```
 
 When applying the changes in this yaml file, Kubernetes will create a

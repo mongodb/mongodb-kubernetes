@@ -8,9 +8,9 @@ Ops Manager installation. This provides combined power of Kubernetes (native sch
 ## For Users only
 If you want just to **run** the Ops Manager Kubernetes operator built from `master` - you don't need to compile/build artifacts and you can follow the [Helm instructions](/helm/README.md) to install the existing operator image to your Kubernetes cluster.
 You can create a local Kubernetes cluster easily using [Minikube](https://kubernetes.io/docs/getting-started-guides/minikube/)
- 
+
 Otherwise follow the next instructions to find out how to build and compile artifacts and deploy them to Kubernetes
-    
+
 ## High-level
 
 The high-level picture for the process of installing Mongodb deployment into Kubernetes cluster is as follows:
@@ -71,7 +71,7 @@ following:
 
 This will create 4 new resources in Kubernetes. The `om-operator` application will watch the creation/modification of any new MongoDB Kubernetes objects (standalones, replica sets, sharded clusters) and reflect this in managed Kubernetes pods and OpsManager deployment configuration.
 
-## Create your first managed MongoDB ReplicaSet ##
+## Create your first managed MongoDB Object ##
 
 You will only need a working Ops Manager installation (you can use [mci](https://mci.mms-build.10gen.cc) to provision an OpsManager instance). Get the following data and configuration
 parameters from it:
@@ -83,24 +83,17 @@ parameters from it:
 
 > Note that in addition to public API key generation you need to whitelist the Kubernetes cluster IP in OpsManager
 
-Now with this data, copy the `samples/om-config-map-sample.yaml` to `samples/my-om-config-map.yaml`,
- `samples/om-replica-set-sample.yaml` to `samples/my-replica-set-sample.yaml` and edit them.
+With this you will need to create two objects: a `Project`, which is a logical
+agrupation of MongoDB objects in Ops/Cloud Manager, and `Credentials`,
+which contain information about the users API Keys needed to perform
+actions in Ops/Cloud Manager.
 
-> All files in the project starting with `my-` prefix are ignored by git so you can modify them locally at any time
-
-Create the config-map and replica set objects in Kubernetes:
-
-    $ kubectl apply -f my-om-config-map.yaml
-    configmap "ops-manager-config" configured
-    $ kubectl apply -f my-replica-set.yaml
-    service "alpha-service" created
-    mongodbreplicaset "liffey" created
-
-After executing this command you should have a working replica set that you can manage from Ops Manager.
+Please refer to [this link](docs/using-credentials.md) for complete
+documentation on how to do this.
 
 ## Check database connectivity
 
-After new deployment is created it's always good to check whether it works correctly. To do this you can deploy a small 
+After new deployment is created it's always good to check whether it works correctly. To do this you can deploy a small
 `node.js` application into Kubernetes cluster which will try to connect to database, create 3 records there and read all existing ones:
 
     $ eval $(minikube docker-env)
@@ -108,13 +101,13 @@ After new deployment is created it's always good to check whether it works corre
     ....
     Successfully tagged node-mongo-app:0.1
 
-Now copy `samples/node-mongo-app.yaml` to `samples/my-node-mongo-app.yaml` and change the `DATABASE_URL` property in 
+Now copy `samples/node-mongo-app.yaml` to `samples/my-node-mongo-app.yaml` and change the `DATABASE_URL` property in
 `samples/node-mongo-app.yaml` to target the mongodb deployment.
-This can be a single url (for standalone) or a list of replicas/mongos instances (e.g. 
+This can be a single url (for standalone) or a list of replicas/mongos instances (e.g.
 `mongodb://liffey-0.alpha-service:27017,liffey-1.alpha-service:27017,liffey-2.alpha-service:27017/?replicaSet=liffey` for replica set or
  `mongodb://shannon-mongos-0.shannon-svc.mongodb.svc.cluster.local:27017,shannon-mongos-1.shannon-svc.mongodb.svc.cluster.local:27017`
  for sharded cluster).
-Hostnames can be received form OM deployment page and have the short form `<pod-name>.<service-name>` or full version 
+Hostnames can be received form OM deployment page and have the short form `<pod-name>.<service-name>` or full version
 `<pod-name>.<service-name>.mongodb.svc.cluster.local`
 After this create a job in Kubernetes (it will run once and terminate):
 
