@@ -1,9 +1,6 @@
-# use this file to deploy images built from master locally or remotely (you need to create a image pull secret first)
-#
-# ops-manager-kubernetes$ helm install helm --set imagePullSecrets=<secret-name>
-#
 namespace: mongodb
 name: mongodb-enterprise-operator
+clusterAdminRole: cluster-admin
 
 env: dev
 operator:
