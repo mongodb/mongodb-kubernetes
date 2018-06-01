@@ -69,6 +69,12 @@ tasks:
     - func: "publish-operator"
     - func: "publish-database"
 
+- name: test
+  tags: ["test"]
+  commands:
+    - func: "clone"
+    - func: "build-operator"
+
 post:
   - command: gotest.parse_files
     params:
@@ -76,8 +82,7 @@ post:
 
 buildvariants:
 
-- name: default
-  display_name: 1.
+- name: build_and_publish
   run_on:
     # docker is not supported for rhel and has troubles in ubuntu1404,
     # for ubuntu1604 apt-get is run in parallel during docker installation which results in sporadic locking problems
@@ -87,3 +92,14 @@ buildvariants:
   stepback: false
   tasks:
     - ".build_and_publish"
+
+- name: test
+  run_on:
+    # docker is not supported for rhel and has troubles in ubuntu1404,
+    # for ubuntu1604 apt-get is run in parallel during docker installation which results in sporadic locking problems
+    # so far ubuntu1804 works the best
+     - ubuntu1804-build
+  batchtime: 1440 # 1 day
+  stepback: false
+  tasks:
+    - ".test"
