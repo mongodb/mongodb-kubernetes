@@ -97,16 +97,14 @@ spec:
       serviceAccountName: mongodb-enterprise-operator
       containers:
       - name: mongodb-enterprise-operator
-        image: quay.io/mongodb-enterprise-private/mongodb-enterprise-operator:latest
+        image: quay.io/mongodb/mongodb-enterprise-operator:latest
         imagePullPolicy: Always
         env:
         - name: OPERATOR_ENV
           value: "local"
         - name: MONGODB_ENTERPRISE_DATABASE_IMAGE
-          value: quay.io/mongodb-enterprise-private/mongodb-enterprise-database:latest
+          value: quay.io/mongodb/mongodb-enterprise-database:latest
         - name: IMAGE_PULL_POLICY
           value: Always
         - name: IMAGE_PULL_SECRETS
-          value: "change-me"
-      imagePullSecrets:
-      - name: "change-me"
+          value: ""

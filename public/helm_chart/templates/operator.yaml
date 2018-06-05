@@ -28,5 +28,3 @@ spec:
           value: {{ .Values.database.pullPolicy }}
         - name: IMAGE_PULL_SECRETS
           value: {{ .Values.imagePullSecrets }}
-      imagePullSecrets:
-      - name: {{ .Values.imagePullSecrets }}

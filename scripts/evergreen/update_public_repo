@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+
+set -xeou pipefail
+
+PUBLIC_REPO="$1"
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+pushd "${DIR}" &> /dev/null
+cd "$(../gitroot)" || exit 1
+
+rsync -avP --delete public/ "${PUBLIC_REPO}" \
+  --filter 'protect .git'
+
+cd "${PUBLIC_REPO}"
+
+git add .
+
+STATUS=$(git status --porcelain)
+
+if ! [ z"${STATUS}" = z ] ; then
+  git commit -m "$(date +%FT%H%m): update public repo contents"
+fi
