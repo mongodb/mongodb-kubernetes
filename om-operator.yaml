@@ -99,11 +99,11 @@ spec:
       - name: mongodb-enterprise-operator
         image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-operator
         env:
-        - name: OM_OPERATOR_ENV
+        - name: OPERATOR_ENV
           value: "dev"
-        - name: AUTOMATION_AGENT_IMAGE
+        - name: MONGODB_ENTERPRISE_DATABASE_IMAGE
           value: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-database
-        - name: AUTOMATION_AGENT_PULL_POLICY
+        - name: IMAGE_PULL_POLICY
           value: Never
-        - name: AUTOMATION_AGENT_PULL_SECRETS
+        - name: IMAGE_PULL_SECRETS
           value: "change-me"

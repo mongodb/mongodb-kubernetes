@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+#
+# A script for both devs and Evergreen to compile the Operator
+# Any dev or evergreen specifics should go into the dev or evergreen scripts folders
+#
+set -xeuo pipefail
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+pushd "${DIR}" &> /dev/null
+cd "$(../gitroot)" || exit 1
+echo $(pwd)
+echo "Building Operator..."
+
+## Run `dep`
+cd "${GOPATH}/src/github.com/10gen/ops-manager-kubernetes"
+dep ensure -v
+
+## Generate code
+./scripts/build/codegen.sh
+
+go version
+
+## Unit Test (note, that we combine testing and compiling in one file as they need the same
+# preliminary actions (dep, codegen)). Local tests using real OM are excluded
+IFS=" " read -r -a GO_PACKAGES <<< $(go list ./... | grep -v '/\(pkg\|local\)')
+
+go test -v "${GO_PACKAGES[@]}" | tee "${GOPATH}/ops-manager-kubernetes.suite"
+
+if grep "FAIL" "${GOPATH}/ops-manager-kubernetes.suite" ; then
+    echo "Some tests failed!"
+    exit 1
+fi
+
+## Compile!
+CGO_ENABLED=0 GOOS=linux go build -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator
+
+echo "The Operator was built successfully"

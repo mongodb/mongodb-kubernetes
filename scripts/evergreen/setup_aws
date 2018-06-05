@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
+#
+# This script should be run from the root evergreen work dir
 
 set -xeuo pipefail
 
-echo "Installing the aws-cli...."
+echo "Installing aws-cli...."
+
+INSTALL_LOCATION="$(pwd)/bin/aws"
 
 curl "https://s3.amazonaws.com/aws-cli/awscli-bundle.zip" -o "awscli-bundle.zip"
 unzip awscli-bundle.zip
-./awscli-bundle/install -b ~/aws
+./awscli-bundle/install -b "${INSTALL_LOCATION}"
 
-echo "Aws-cli is installed"
-
+echo "aws-cli is installed in ${INSTALL_LOCATION}"

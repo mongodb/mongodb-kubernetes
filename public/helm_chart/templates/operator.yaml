@@ -20,13 +20,13 @@ spec:
         image: {{ .Values.operator.image }}
         imagePullPolicy: {{ .Values.operator.pullPolicy }}
         env:
-        - name: OM_OPERATOR_ENV
+        - name: OPERATOR_ENV
           value: {{ .Values.env }}
-        - name: AUTOMATION_AGENT_IMAGE
+        - name: MONGODB_ENTERPRISE_DATABASE_IMAGE
           value: {{ .Values.database.image }}
-        - name: AUTOMATION_AGENT_PULL_POLICY
+        - name: IMAGE_PULL_POLICY
           value: {{ .Values.database.pullPolicy }}
-        - name: AUTOMATION_AGENT_PULL_SECRETS
+        - name: IMAGE_PULL_SECRETS
           value: {{ .Values.imagePullSecrets }}
       imagePullSecrets:
       - name: {{ .Values.imagePullSecrets }}

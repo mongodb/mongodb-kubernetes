@@ -1,10 +1,6 @@
 stepback: true
 
-variables:
-  ops_manager_version: "3.7.0"
-
 functions:
-
   "clone":
     - command: shell.exec
       params:
@@ -14,91 +10,100 @@ functions:
       type: system
       params:
         directory: src/github.com/10gen/ops-manager-kubernetes
-  "build-operator":
+  "build_operator":
     - command: shell.exec
       type: system
       params:
         script: |
-          src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build-operator
+          src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_operator
     - command: s3.put
       params:
         aws_key: ${mms_build_s3_aws_access_key}
         aws_secret: ${mms_build_s3_aws_secret}
-        local_file: om-operator
-        remote_file: ops-manager-operator/${revision}/om-operator
+        local_file: src/github.com/10gen/ops-manager-kubernetes/docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator
+        remote_file: ops-manager-operator/${revision}/mongodb-enterprise-operator
         bucket: ops-manager-kubernetes-build
         permissions: public-read
         content_type: application/octet-stream
-  "setup-aws":
+  "setup_aws":
     - command: shell.exec
       params:
         shell: bash
         script: |
             src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/setup_aws
-  "setup-docker":
+  "setup_docker":
     - command: shell.exec
       params:
           shell: bash
           script: |
             src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/setup_docker
-  "publish-operator":
+  "build_images":
+    - command: shell.exec
+      params:
+          shell: bash
+          script: |
+            src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_docker_image mongodb-enterprise-database
+            src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_docker_image mongodb-enterprise-operator
+
+  "upload_images":
     - command: shell.exec
       params:
           script: |
             export AWS_ACCESS_KEY_ID=${mms_eng_test_aws_access_key}
             export AWS_SECRET_ACCESS_KEY=${mms_eng_test_aws_secret}
             export QUAY_ROBOT_TOKEN=${quay_robot_token}
-            src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/upload_operator_image
-  "publish-database":
-    - command: shell.exec
+
+            if [ "${is_patch}" = "true" ]; then
+              echo "Not uploading - this is a patch build"
+              exit 0
+            else
+              echo "Uploading - this is not a patch build"
+            fi
+            src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/upload_docker_image mongodb-enterprise-database
+            src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/upload_docker_image mongodb-enterprise-operator
+
+  "gotest_parse_files":
+    - command: gotest.parse_files
       params:
-          script: |
-            export AWS_ACCESS_KEY_ID=${mms_eng_test_aws_access_key}
-            export AWS_SECRET_ACCESS_KEY=${mms_eng_test_aws_secret}
-            export QUAY_ROBOT_TOKEN=${quay_robot_token}
-            src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/upload_database_image
+        files: ["*.suite", "src/**/*.suite"]
+
+
 tasks:
 
-- name: build_and_publish
-  tags: ["build_and_publish"]
+- name: build_and_upload
+  tags: ["build_and_upload"]
   commands:
     - func: "clone"
-    - func: "build-operator"
-    - func: "setup-aws"
-    - func: "setup-docker"
-    - func: "publish-operator"
-    - func: "publish-database"
+    - func: "build_operator"
+    - func: "setup_aws"
+    - func: "setup_docker"
+    - func: "build_images"
+    - func: "upload_images"
 
 - name: test
   tags: ["test"]
   commands:
     - func: "clone"
-    - func: "build-operator"
+    - func: "build_operator"
+    - func: "gotest_parse_files"
 
-post:
-  - command: gotest.parse_files
-    params:
-      files: ["*.suite", "src/**/*.suite"]
+
 
 buildvariants:
 
-- name: build_and_publish
+- name: build_and_upload
   run_on:
-    # docker is not supported for rhel and has troubles in ubuntu1404,
-    # for ubuntu1604 apt-get is run in parallel during docker installation which results in sporadic locking problems
-    # so far ubuntu1804 works the best
-     - ubuntu1804-build
+    # Until https://jira.mongodb.org/browse/MCI-2851, the Evergreen team requested that we use this
+    # distro to avoid our installation of docker affecting Server performance tests unpredictably
+     - archlinux-test
   batchtime: 1440 # 1 day
   stepback: false
   tasks:
-    - ".build_and_publish"
+    - ".build_and_upload"
 
 - name: test
   run_on:
-    # docker is not supported for rhel and has troubles in ubuntu1404,
-    # for ubuntu1604 apt-get is run in parallel during docker installation which results in sporadic locking problems
-    # so far ubuntu1804 works the best
-     - ubuntu1804-build
+     - archlinux-test
   batchtime: 1440 # 1 day
   stepback: false
   tasks:

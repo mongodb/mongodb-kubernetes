@@ -6,7 +6,7 @@ MongoDB deployments (standalones, replica sets, sharded clusters) to your Kubern
 Ops Manager installation. This provides combined power of Kubernetes (native scheduling of applications to nodes, scaling, fault tolerance etc) with Ops Manager capabilities (monitoring, backup, upgrades etc)
 
 ## For Users only
-If you want just to **run** the Ops Manager Kubernetes operator built from `master` - you don't need to compile/build artifacts and you can follow the [Helm instructions](/helm/README.md) to install the existing operator image to your Kubernetes cluster.
+If you want just to **run** the Ops Manager Kubernetes operator built from `master` - you don't need to compile/build artifacts and you can follow the [Helm instructions](/docs/helm.md) to install the existing operator image to your Kubernetes cluster.
 You can create a local Kubernetes cluster easily using [Minikube](https://kubernetes.io/docs/getting-started-guides/minikube/)
 
 Otherwise follow the next instructions to find out how to build and compile artifacts and deploy them to Kubernetes
@@ -14,9 +14,9 @@ Otherwise follow the next instructions to find out how to build and compile arti
 ## High-level
 
 The high-level picture for the process of installing Mongodb deployment into Kubernetes cluster is as follows:
-* admin creates the `mongodb-enterprise-operator` Kubernetes Deployment which contains the operator application from config `om-operator.yaml`. This is a one-time operation.
+* admin creates the `mongodb-enterprise-operator` Kubernetes Deployment which contains the operator application from config `mongodb-enterprise-operator.yaml`. This is a one-time operation.
 * admin creates custom MongoDB objects in Kubernetes (`MongoDbStandalone`, `MongoDbReplicaSet`, `MongoDbShardedCluster`). For example is `kubectl apply -f my-replicaset.yaml`
-* `om-operator` watches these changes and applies them to different participants:
+* `mongodb-enterprise-operator` watches these changes and applies them to different participants:
   * creates the Kubernetes StatefulSet containing containers with automation agent binaries. They will be responsible for installation and managing local mongod process.
   * applies changes to the OpsManager automation config using public API. So the deployment object (OM replica set for example) will be created. These changes will be propagated back to the automation agents sitting in the pods and they will do all dirty work of downloading and launching MongoDB binaries locally in the same container
 
@@ -39,7 +39,7 @@ this all `kubectl` commands will work for the resources in this namespace by def
 ```
 dep ensure
 ./codegen.sh
-CGO_ENABLED=0 GOOS=linux go build -i -o om-operator
+CGO_ENABLED=0 GOOS=linux go build -i -o mongodb-enterprise-operator
 ```
 
 Note, if your ssh key is protected by passphrase `dep ensure` won't show any prompt and it will just [hang](https://github.com/golang/dep/issues/1726). In order to cache the git credential you can follow this [tutorial](https://help.github.com/articles/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent/#adding-your-ssh-key-to-the-ssh-agent).
@@ -63,13 +63,13 @@ The operator needs 2 different container images:
 To install the ops-manager operator you'll only need to execute the
 following:
 
-    $ kubectl create -f om-operator-local.yaml
-    clusterrole "om-operator" created
-    serviceaccount "om-operator" created
-    clusterrolebinding "om-operator" created
-    deployment "om-operator" created
+    $ kubectl create -f mongodb-enterprise-operator-local.yaml
+    clusterrole "mongodb-enterprise-operator" created
+    serviceaccount "mongodb-enterprise-operator" created
+    clusterrolebinding "mongodb-enterprise-operator" created
+    deployment "mongodb-enterprise-operator" created
 
-This will create 4 new resources in Kubernetes. The `om-operator` application will watch the creation/modification of any new MongoDB Kubernetes objects (standalones, replica sets, sharded clusters) and reflect this in managed Kubernetes pods and OpsManager deployment configuration.
+This will create 4 new resources in Kubernetes. The `mongodb-enterprise-operator` application will watch the creation/modification of any new MongoDB Kubernetes objects (standalones, replica sets, sharded clusters) and reflect this in managed Kubernetes pods and OpsManager deployment configuration.
 
 ## Create your first managed MongoDB Object ##
 
@@ -139,4 +139,4 @@ More on how to work with ECR is [here](docs/aws_docker_registry.md)
 For public images we plan to use `quay.io`
 
 ### Workflow
-The development workflow is not quite settled yet, there is no easy way of quick changing/redeploying environments using standard scripts, also we plan to use `Helm` for packaging of Kubernetes artifacts configurations. There is a general script for cleaning Kubernetes objects and deploying om-operator there (`restart.sh`) - you can create a copy with prefix `my-` and accomodate it for your purposes - it will be ignored by Git.
+The development workflow is not quite settled yet, there is no easy way of quick changing/redeploying environments using standard scripts, also we plan to use `Helm` for packaging of Kubernetes artifacts configurations. There is a general script for cleaning Kubernetes objects and deploying mongodb-enterprise-operator there (`restart.sh`) - you can create a copy with prefix `my-` and accomodate it for your purposes - it will be ignored by Git.

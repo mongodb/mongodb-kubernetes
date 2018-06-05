@@ -17,8 +17,8 @@ instructions [here](https://github.com/kubernetes/helm#install) on how
 to do it. Please read [this document](https://blog.openshift.com/getting-started-helm-openshift/)
 if you want to install `Helm` in RedHat Openshift.
 
-Running Helm on `minikube` v1.10 cluster or on cluster with RBAC enabled (`kops`, `OpenShift`) will 
-result in **permission errors** (for example when `Helm` tries to create a Kubernetes `Role`). 
+Running Helm on `minikube` v1.10 cluster or on cluster with RBAC enabled (`kops`, `OpenShift`) will
+result in **permission errors** (for example when `Helm` tries to create a Kubernetes `Role`).
 To avoid that you should use the following install instructions instead to create a service account for `Helm Tiller`
 and assign `cluster-admin` role to him:
 
@@ -80,7 +80,7 @@ will use it in the next step.
 
 ``` bash
 $ git clone git@github.com:10gen/ops-manager-kubernetes.git
-$ helm install ops-manager-kubernetes/helm --set imagePullSecrets=<user>-pull-secret
+$ helm install ops-manager-kubernetes/public/mongodb-enterprise.yaml --set imagePullSecrets=<user>-pull-secret --name mongodb-enterprise
 ```
 
 In that last line you will set the `imagePullSecrets` to the value you
@@ -105,12 +105,13 @@ process. Follow the instructions again or ask in
 
 ## Development Hints
 
-Use the following form to drop/create the Helm release with one command (otherwise Helm will generate new release each time). 
+Use the following form to drop/create the Helm release with one command (otherwise Helm will generate new release each time).
 Also providing additional configuration using `-f` flag will allow to override default settings provided by `values.yaml`
 
 ```bash
 # This will install the operator and database local images
-ops-manager-kubernetes$ helm delete --purge om-operator; helm install helm -f helm/env/values-local.yaml --name om-operator
+$ helm delete --purge mongodb-enterprise
+$ helm install helm -f helm/env/values-local.yaml --name mongodb-enterprise
 ```
 
 As always it's possible to create a custom configuration file starting with `my-` - it won't be tracked by Git.

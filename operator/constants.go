@@ -24,10 +24,10 @@ const (
 	LivenessProbe = "/mongodb-automation/files/probe.sh"
 
 	// Env configuration properties
-	AutomationAgentImageUrl        = "AUTOMATION_AGENT_IMAGE"
-	AutomationAgentImagePullPolicy = "AUTOMATION_AGENT_PULL_POLICY"
-	AutomationAgentPullSecrets     = "AUTOMATION_AGENT_PULL_SECRETS"
-	OmOperatorEnv                  = "OM_OPERATOR_ENV"
+	AutomationAgentImageUrl        = "MONGODB_ENTERPRISE_DATABASE_IMAGE"
+	AutomationAgentImagePullPolicy = "IMAGE_PULL_POLICY"
+	AutomationAgentPullSecrets     = "IMAGE_PULL_SECRETS"
+	OmOperatorEnv                  = "OPERATOR_ENV"
 
 	// Different default configuration values
 	DefaultMongodStorageSize       = "16G"

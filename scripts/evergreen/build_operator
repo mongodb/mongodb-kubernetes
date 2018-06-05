@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+#
+# A script which Evergreen should use to compile the Operator
+#
+# This should be executed from root of the evergreen build dir
+
+set -xeuo pipefail
+
+GOROOT="/usr/lib/go"
+GOPATH="$(pwd)"
+GOBIN="${GOPATH}/bin"
+PATH="${GOBIN}:${PATH}"
+
+export GOROOT
+export GOPATH
+export GOBIN
+export PATH
+
+## Install `dep`
+mkdir -p "${GOBIN}" # needed for the install of dep
+curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
+
+# Go to the dir containing this script
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+pushd "${DIR}" &> /dev/null
+
+../build/build_operator

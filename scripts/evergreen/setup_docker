@@ -4,11 +4,19 @@ set -xeuo pipefail
 
 echo "Installing docker repository and client...."
 
-curl -fsSL get.docker.com -o get-docker.sh
+export PATH="$PATH:/usr/sbin"
 
-# this prevents some noisy warnings from debconf
-echo 'debconf debconf/frontend select Noninteractive' | sudo debconf-set-selections
+# avoid problems where docker is already installed
+if ! type docker &> /dev/null ; then
+  if [ -f /var/lib/pacman/db.lck ] ; then
+    echo "sleeping for 10s to avoid pacman lockfile"
+    sleep 10
+  fi
+  sudo pacman --refresh --noconfirm -S community/docker
+fi
 
-sudo sh get-docker.sh
+type docker
 
-echo "Docker is installed"
+systemctl start docker.service
+
+docker version --format '{{.Server.Version}}'

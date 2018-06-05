@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+set -xeuo pipefail
+
+IMAGE="$1"
+
+cd "src/github.com/10gen/ops-manager-kubernetes"
+
+echo "Building the ${IMAGE} image..."
+
+docker build "docker/${IMAGE}" -t "dev/${IMAGE}" -f "docker/${IMAGE}/Dockerfile"
