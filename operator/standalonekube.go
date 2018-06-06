@@ -123,20 +123,19 @@ func (c *MongoDbController) updateOmDeployment(omConnection om.OmConnection, s *
 		return err
 	}
 
-	currentDeployment, err := omConnection.ReadDeployment()
-	if err != nil {
-		return errors.New("Could not read deployment from OM. Not creating standalone in OM!")
-	}
-
 	standaloneOmObject := createProcesses(set, s.Spec.ClusterName, s.Spec.Version, om.ProcessTypeMongod)
+	err := omConnection.ReadUpdateDeployment(false,
+		func(d om.Deployment) error {
+			d.MergeStandalone(standaloneOmObject[0], nil)
+			d.AddMonitoringAndBackup(standaloneOmObject[0].HostName(), log)
 
-	currentDeployment.MergeStandalone(standaloneOmObject[0], nil)
-	currentDeployment.AddMonitoringAndBackup(standaloneOmObject[0].HostName(), log)
-
-	_, err = omConnection.UpdateDeployment(currentDeployment)
+			return nil
+		},
+	)
 	if err != nil {
-		return errors.New("Error while trying to push another deployment.")
+		return err
 	}
+
 	return nil
 }
 

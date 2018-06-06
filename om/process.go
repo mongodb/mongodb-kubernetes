@@ -1,6 +1,12 @@
 package om
 
-import "fmt"
+import (
+	"fmt"
+
+	"encoding/json"
+
+	"github.com/10gen/ops-manager-kubernetes/util"
+)
 
 type MongoType string
 
@@ -71,6 +77,10 @@ func NewMongodProcess(name, hostName, processVersion string) Process {
 	ans.SetLogPath("/data/mongodb.log")
 
 	return ans
+}
+
+func (s Process) DeepCopy() (Process, error) {
+	return util.MapDeepCopy(s)
 }
 
 func (s Process) Name() string {
@@ -148,6 +158,8 @@ func (s Process) String() string {
 	return fmt.Sprintf("\"%s\" (hostName: %s, version: %s, args: %s)", s.Name(), s.HostName(), s.Version(), s.Args())
 }
 
+// ****************** These ones are private methods not exposed to other packages *************************************
+
 func initDefault(name, hostName, processVersion string, processType MongoType, process Process) {
 	process["version"] = processVersion
 	process["authSchemaVersion"] = 5 // TODO calculate it based on mongo version
@@ -165,8 +177,6 @@ func initDefault(name, hostName, processVersion string, processType MongoType, p
 	process.Args()["net"].(map[string]interface{})["port"] = 27017
 }
 
-// ****************** These ones are private methods not exposed to other packages *************************************
-
 // mergeFrom merges the Kubernetes version of process (otherProcess) into OM one.
 // Considers the type of process and rewrites only relevant fields
 func (s Process) mergeFrom(otherProcess Process) {
@@ -180,7 +190,7 @@ func (s Process) mergeFrom(otherProcess Process) {
 			s.setClusterRoleConfigSrv()
 		}
 	} else {
-		s.setCluster(otherProcess.Cluster())
+		s.setCluster(otherProcess.cluster())
 	}
 
 	initDefault(otherProcess.Name(), otherProcess.HostName(), otherProcess.Version(), otherProcess.ProcessType(), s)
@@ -203,6 +213,11 @@ func readMapValueAsString(m map[string]interface{}, key, secondKey string) strin
 		return ""
 	}
 	return secondMap[secondKey].(string)
+}
+
+func (s Process) setName(name string) Process {
+	s["name"] = name
+	return s
 }
 
 // These methods are ONLY FOR REPLICA SET members!
@@ -234,6 +249,14 @@ func (s Process) setCluster(clusterName string) Process {
 	return s
 }
 
-func (s Process) Cluster() string {
+func (s Process) cluster() string {
 	return s["cluster"].(string)
+}
+
+func (s Process) json() string {
+	b, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		fmt.Println("error:", err)
+	}
+	return string(b)
 }

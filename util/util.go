@@ -3,6 +3,9 @@ package util
 import (
 	"time"
 
+	"bytes"
+	"encoding/gob"
+
 	"go.uber.org/zap"
 )
 
@@ -51,4 +54,23 @@ func DoAndRetry(f func() bool, log *zap.SugaredLogger, count, interval int) bool
 		}
 	}
 	return false
+}
+
+// MapDeepCopy is a quick implementation of deep copy mechanism for any Go structures, it uses Go serialization and
+// deserialization mechanisms so will always be slower than any manual copy
+// https://rosettacode.org/wiki/Deepcopy#Go
+func MapDeepCopy(m map[string]interface{}) (map[string]interface{}, error) {
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+	dec := gob.NewDecoder(&buf)
+	err := enc.Encode(m)
+	if err != nil {
+		return nil, err
+	}
+	var copy map[string]interface{}
+	err = dec.Decode(&copy)
+	if err != nil {
+		return nil, err
+	}
+	return copy, nil
 }

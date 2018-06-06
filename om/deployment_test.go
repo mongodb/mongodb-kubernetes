@@ -31,8 +31,7 @@ func TestSerialize(t *testing.T) {
 // second invocation doesn't add new node as the existing standalone is found (by name) and the data is merged
 func TestMergeStandalone(t *testing.T) {
 	d := NewDeployment()
-	standalone := createStandalone()
-	d.MergeStandalone(standalone, nil)
+	mergeStandalone(d, createStandalone())
 
 	assert.Len(t, d.getProcesses(), 1)
 
@@ -40,7 +39,7 @@ func TestMergeStandalone(t *testing.T) {
 	d.getProcesses()[0]["alias"] = "alias"
 	d.getProcesses()[0]["hostname"] = "foo"
 
-	d.MergeStandalone(createStandalone(), nil)
+	mergeStandalone(d, createStandalone())
 
 	assert.Len(t, d.getProcesses(), 1)
 
@@ -57,13 +56,14 @@ func TestMergeStandalone(t *testing.T) {
 func TestMergeReplicaSet(t *testing.T) {
 	d := NewDeployment()
 
-	d.MergeReplicaSet(NewReplicaSetWithProcesses(NewReplicaSet("fooRs"), createReplicaSetProcesses("fooRs")), nil)
+	mergeReplicaSet(d, "fooRs", createReplicaSetProcesses("fooRs"))
+
 	expectedRs := buildRsByProcesses("fooRs", createReplicaSetProcesses("fooRs"))
 
 	assert.Len(t, d.getProcesses(), 3)
 	assert.Len(t, d.getReplicaSets(), 1)
 	assert.Len(t, d.getReplicaSets()[0].members(), 3)
-	assert.Equal(t, d.getReplicaSets()[0], expectedRs)
+	assert.Equal(t, d.getReplicaSets()[0], expectedRs.Rs)
 
 	// Now the deployment "gets updated" from external - new node is added and one is removed - this should be fixed
 	// by merge
@@ -73,241 +73,75 @@ func TestMergeReplicaSet(t *testing.T) {
 	d.getReplicaSets()[0].addMember(NewMongodProcess("foo", "bar", "4.0.0"))                  // "adding" some new node
 	d.getReplicaSets()[0].members()[0]["arbiterOnly"] = true                                  // changing data for first node
 
-	d.MergeReplicaSet(NewReplicaSetWithProcesses(NewReplicaSet("fooRs"), createReplicaSetProcesses("fooRs")), nil)
+	mergeReplicaSet(d, "fooRs", createReplicaSetProcesses("fooRs"))
 
 	assert.Len(t, d.getProcesses(), 3)
 	assert.Len(t, d.getReplicaSets(), 1)
-	assert.Equal(t, d.getProcesses()[0]["processType"], ProcessTypeMongod)
-	assert.Equal(t, d.getProcesses()[1].Args()["net"].(map[string]interface{})["maxIncomingConnections"], 20)
-	assert.Len(t, d.getReplicaSets()[0].members(), 3)
 
 	expectedRs = buildRsByProcesses("fooRs", createReplicaSetProcesses("fooRs"))
-	expectedRs.members()[0]["arbiterOnly"] = true
-	assert.Equal(t, d.getReplicaSets()[0], expectedRs)
+	expectedRs.Rs.members()[0]["arbiterOnly"] = true
+	expectedRs.Processes[1].Args()["net"].(map[string]interface{})["maxIncomingConnections"] = 20
+	checkReplicaSet(t, d, expectedRs)
 }
 
 // Checking that on scale down the old processes are removed
-func TestMergeReplicaSetScaleDown(t *testing.T) {
+func TestMergeReplica_ScaleDown(t *testing.T) {
 	d := NewDeployment()
 
-	d.MergeReplicaSet(NewReplicaSetWithProcesses(NewReplicaSet("someRs"), createReplicaSetProcesses("someRs")), nil)
+	mergeReplicaSet(d, "someRs", createReplicaSetProcesses("someRs"))
 	assert.Len(t, d.getProcesses(), 3)
 	assert.Len(t, d.getReplicaSets()[0].members(), 3)
 
 	// "scale down"
 	scaledDownRsProcesses := createReplicaSetProcesses("someRs")[0:2]
-	d.MergeReplicaSet(NewReplicaSetWithProcesses(NewReplicaSet("someRs"), scaledDownRsProcesses), nil)
+	mergeReplicaSet(d, "someRs", scaledDownRsProcesses)
 
 	assert.Len(t, d.getProcesses(), 2)
 	assert.Len(t, d.getReplicaSets()[0].members(), 2)
 
 	// checking that the last member was removed
-	rsProcesses := createReplicaSetProcessesCheck("someRs", true)
+	rsProcesses := buildRsByProcesses("someRs", createReplicaSetProcesses("someRs")).Processes
 	assert.Contains(t, d.getProcesses(), rsProcesses[0])
 	assert.Contains(t, d.getProcesses(), rsProcesses[1])
 	assert.NotContains(t, d.getProcesses(), rsProcesses[2])
 }
 
-// TestMergeShardedClusterNoExisting that just merges the Sharded cluster into an empty deployment
-func TestMergeShardedCluster_New(t *testing.T) {
+// TestMergeReplicaSet_MergeFirstProcess checks that if the replica set is scaled up - then all OM changes to existing
+// processes (more precisely - to the first member) are copied to new members
+func TestMergeReplicaSet_MergeFirstProcess(t *testing.T) {
 	d := NewDeployment()
 
-	configRs := createConfigSrvRs("configSrv", false)
-	shards := createShards("myShard", false)
+	mergeReplicaSet(d, "fooRs", createReplicaSetProcesses("fooRs"))
+	mergeReplicaSet(d, "anotherRs", createReplicaSetProcesses("anotherRs"))
 
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, shards)
+	// Now the first process (and usually all others in practice) are changed by OM
+	d.getProcesses()[0].Args()["net"].(map[string]interface{})["maxIncomingConnections"] = 20
+	d.getProcesses()[0]["backupRestoreUrl"] = "http://localhost:7890"
+	d.getProcesses()[0]["logRotate"] = map[string]int{"sizeThresholdMB": 3000, "timeThresholdHrs": 12}
+	d.getProcesses()[0]["kerberos"] = map[string]string{"keytab": "123456"}
 
-	require.Len(t, d.getProcesses(), 15)
-	require.Len(t, d.getReplicaSets(), 4)
-	for i := 0; i < 4; i++ {
-		require.Len(t, d.getReplicaSets()[i].members(), 3)
+	// Now we merged the scaled up RS
+	mergeReplicaSet(d, "fooRs", createReplicaSetProcessesCount(5, "fooRs"))
+
+	assert.Len(t, d.getProcesses(), 8)
+	assert.Len(t, d.getReplicaSets(), 2)
+
+	expectedRs := buildRsByProcesses("fooRs", createReplicaSetProcessesCount(5, "fooRs"))
+
+	// Verifying that the first process was merged with new ones
+	for _, i := range []int{0, 3, 4} {
+		expectedRs.Processes[i].Args()["net"].(map[string]interface{})["maxIncomingConnections"] = 20
+		expectedRs.Processes[i]["backupRestoreUrl"] = "http://localhost:7890"
+		expectedRs.Processes[i]["logRotate"] = map[string]int{"sizeThresholdMB": 3000, "timeThresholdHrs": 12}
+		expectedRs.Processes[i]["kerberos"] = map[string]string{"keytab": "123456"}
 	}
-	checkMongoSProcesses(t, d.getProcesses(), createMongosProcesses(3, "pretty", "cluster"))
-	checkReplicaSet(t, d, createConfigSrvRs("configSrv", true))
-	checkShardedCluster(t, d, NewShardedCluster("cluster", configRs.Rs.Name(), shards), createShards("myShard", true))
+
+	// The other replica set must be the same
+	checkReplicaSet(t, d, buildRsByProcesses("anotherRs", createReplicaSetProcesses("anotherRs")))
+	checkReplicaSet(t, d, expectedRs)
 }
 
-func TestMergeShardedCluster_ProcessesModified(t *testing.T) {
-	d := NewDeployment()
-
-	shards := createShards("myShard", false)
-
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), createConfigSrvRs("configSrv", false), shards)
-
-	// OM "made" some changes (should not be overriden)
-	(*d.getProcessByName("pretty0"))["logRotate"] = map[string]int{"sizeThresholdMB": 1000, "timeThresholdHrs": 24}
-
-	// These OM changes must be overriden
-	(*d.getProcessByName("configSrv1")).Args()["sharding"] = map[string]interface{}{"clusterRole": "shardsrv", "archiveMovedChunks": true}
-	(*d.getProcessByName("myShard11"))["hostname"] = "rubbish"
-	(*d.getProcessByName("pretty2")).SetLogPath("/doesnt/exist")
-
-	// Final check - we create the expected configuration, add there correct OM changes and check for equality with merge
-	// result
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), createConfigSrvRs("configSrv", false), createShards("myShard", false))
-
-	expectedMongosProcesses := createMongosProcesses(3, "pretty", "cluster")
-	expectedMongosProcesses[0]["logRotate"] = map[string]int{"sizeThresholdMB": 1000, "timeThresholdHrs": 24}
-	expectedConfigrs := createConfigSrvRs("configSrv", true)
-	expectedConfigrs.Processes[1].Args()["sharding"] = map[string]interface{}{"clusterRole": "configsvr", "archiveMovedChunks": true}
-
-	require.Len(t, d.getProcesses(), 15)
-	checkMongoSProcesses(t, d.getProcesses(), expectedMongosProcesses)
-	checkReplicaSet(t, d, expectedConfigrs)
-	checkShardedCluster(t, d, NewShardedCluster("cluster", expectedConfigrs.Rs.Name(), shards), createShards("myShard", false))
-}
-
-func TestMergeShardedCluster_ReplicaSetsModified(t *testing.T) {
-	d := NewDeployment()
-
-	shards := createShards("myShard", false)
-
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), createConfigSrvRs("configSrv", false), shards)
-
-	// OM "made" some changes (should not be overriden)
-	(*d.getReplicaSetByName("myShard0"))["protocolVersion"] = 1
-
-	// These OM changes must be overriden
-	(*d.getReplicaSetByName("configSrv")).addMember(NewMongodProcess("foo", "bar", "4.0.0"))
-	(*d.getReplicaSetByName("myShard2")).setMembers(d.getReplicaSetByName("myShard2").members()[0:2])
-
-	// Final check - we create the expected configuration, add there correct OM changes and check for equality with merge
-	// result
-	configRs := createConfigSrvRs("configSrv", false)
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard", false))
-
-	expectedShards := createShards("myShard", false)
-	expectedShards[0].Rs["protocolVersion"] = 1
-
-	require.Len(t, d.getProcesses(), 15)
-	require.Len(t, d.getReplicaSets(), 4)
-	for i := 0; i < 4; i++ {
-		require.Len(t, d.getReplicaSets()[i].members(), 3)
-	}
-	checkMongoSProcesses(t, d.getProcesses(), createMongosProcesses(3, "pretty", "cluster"))
-	checkReplicaSet(t, d, createConfigSrvRs("configSrv", true))
-	checkShardedCluster(t, d, NewShardedCluster("cluster", configRs.Rs.Name(), shards), expectedShards)
-}
-
-func TestMergeShardedCluster_ShardedClusterModified(t *testing.T) {
-	d := NewDeployment()
-
-	configRs := createConfigSrvRs("configSrv", false)
-	shards := createShards("myShard", false)
-
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, shards)
-
-	// OM "made" some changes (should not be overriden)
-	(*d.getShardedClusterByName("cluster"))["managedSharding"] = true
-	(*d.getShardedClusterByName("cluster"))["collections"] = []map[string]interface{}{{"_id": "some", "unique": true}}
-
-	// These OM changes must be overriden
-	(*d.getShardedClusterByName("cluster")).setConfigServerRsName("fake")
-	(*d.getShardedClusterByName("cluster")).setShards(d.getShardedClusterByName("cluster").shards()[0:2])
-	(*d.getShardedClusterByName("cluster")).setShards(append(d.getShardedClusterByName("cluster").shards(), newShard("fakeShard")))
-	d.MergeReplicaSet(NewReplicaSetWithProcesses(NewReplicaSet("fakeShard"), createReplicaSetProcesses("fakeShard")), nil)
-
-	require.Len(t, d.getReplicaSets(), 5)
-
-	// Final check - we create the expected configuration, add there correct OM changes and check for equality with merge
-	// result
-	configRs = createConfigSrvRs("configSrv", false)
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard", false))
-
-	expectedCluster := NewShardedCluster("cluster", configRs.Rs.Name(), shards)
-	expectedCluster["managedSharding"] = true
-	expectedCluster["collections"] = []map[string]interface{}{{"_id": "some", "unique": true}}
-
-	require.Len(t, d.getProcesses(), 15)
-	require.Len(t, d.getReplicaSets(), 4)
-	for i := 0; i < 4; i++ {
-		require.Len(t, d.getReplicaSets()[i].members(), 3)
-	}
-	checkMongoSProcesses(t, d.getProcesses(), createMongosProcesses(3, "pretty", "cluster"))
-	checkReplicaSet(t, d, createConfigSrvRs("configSrv", true))
-	checkShardedCluster(t, d, expectedCluster, createShards("myShard", false))
-}
-
-// TestMergeShardedCluster_ShardAdded checks the scenario of incrementing and decrementing the number of shards
-func TestMergeShardedCluster_ShardCountChanged(t *testing.T) {
-	d := NewDeployment()
-
-	configRs := createConfigSrvRs("configSrv", false)
-	shards := createShards("myShard", false)
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, shards)
-
-	shards = createSpecificNumberOfShards(5, "myShard", false)
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, shards)
-	checkShardedCluster(t, d, NewShardedCluster("cluster", configRs.Rs.Name(), shards), shards)
-
-	shards = createSpecificNumberOfShards(2, "myShard", false)
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, shards)
-	checkShardedCluster(t, d, NewShardedCluster("cluster", configRs.Rs.Name(), shards), shards)
-}
-
-// TestMergeShardedCluster_MongosCountChanged checks the scenario of incrementing and decrementing the number of mongos
-func TestMergeShardedCluster_MongosCountChanged(t *testing.T) {
-	d := NewDeployment()
-
-	configRs := createConfigSrvRs("configSrv", false)
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard", false))
-	checkMongoSProcesses(t, d.getProcesses(), createMongosProcesses(3, "pretty", "cluster"))
-
-	d.MergeShardedCluster("cluster", createMongosProcesses(4, "pretty", ""), configRs, createShards("myShard", false))
-	checkMongoSProcesses(t, d.getProcesses(), createMongosProcesses(4, "pretty", "cluster"))
-
-	d.MergeShardedCluster("cluster", createMongosProcesses(2, "pretty", ""), configRs, createShards("myShard", false))
-	checkMongoSProcesses(t, d.getProcesses(), createMongosProcesses(2, "pretty", "cluster"))
-}
-
-// TestMergeShardedCluster_MongosCountChanged checks the scenario of incrementing and decrementing the number of replicas
-// in config server
-func TestMergeShardedCluster_ConfigSrvCountChanged(t *testing.T) {
-	d := NewDeployment()
-
-	configRs := createConfigSrvRs("configSrv", false)
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard", false))
-	checkReplicaSet(t, d, createConfigSrvRs("configSrv", true))
-
-	configRs = createConfigSrvRsCount(6, "configSrv", false)
-	d.MergeShardedCluster("cluster", createMongosProcesses(4, "pretty", ""), configRs, createShards("myShard", false))
-	checkReplicaSet(t, d, createConfigSrvRsCount(6, "configSrv", true))
-
-	configRs = createConfigSrvRsCount(2, "configSrv", false)
-	d.MergeShardedCluster("cluster", createMongosProcesses(4, "pretty", ""), configRs, createShards("myShard", false))
-	checkReplicaSet(t, d, createConfigSrvRsCount(2, "configSrv", true))
-}
-
-// TestRemoveShardedClusterByName checks that sharded cluster and all linked artifacts are removed - but existing objects
-// should stay untouched
-func TestRemoveShardedClusterByName(t *testing.T) {
-	d := NewDeployment()
-	configRs := createConfigSrvRs("configSrv", false)
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard", false))
-
-	configRs2 := createConfigSrvRs("otherConfigSrv", false)
-	d.MergeShardedCluster("otherCluster", createMongosProcesses(3, "ugly", ""), configRs2, createShards("otherShard", false))
-
-	d.MergeStandalone(createStandalone(), nil)
-	rs := NewReplicaSetWithProcesses(NewReplicaSet("fooRs"), createReplicaSetProcesses("fooRs"))
-	d.MergeReplicaSet(rs, nil)
-
-	d.RemoveShardedClusterByName("otherCluster")
-
-	// First check that all other entities stay untouched
-	checkProcess(t, d, createStandalone())
-	checkReplicaSet(t, d, rs)
-	checkMongoSProcesses(t, d.getProcesses(), createMongosProcesses(3, "pretty", "cluster"))
-	checkReplicaSet(t, d, createConfigSrvRs("configSrv", true))
-	shards := createShards("myShard", false)
-	checkShardedCluster(t, d, NewShardedCluster("cluster", configRs.Rs.Name(), shards), shards)
-
-	// Then check that the sharded cluster and all replica sets were removed
-	shards2 := createShards("otherShard", false)
-	checkShardedClusterRemoved(t, d, NewShardedCluster("otherCluster", configRs2.Rs.Name(), shards2), createConfigSrvRs("otherConfigSrv", false), shards2)
-}
-
-// Methods for checking deployment units
+// ************************   Methods for checking deployment units
 
 func checkShardedCluster(t *testing.T, d Deployment, expectedCluster ShardedCluster, replicaSetWithProcesses []ReplicaSetWithProcesses) {
 	cluster := d.getShardedClusterByName(expectedCluster.Name())
@@ -346,9 +180,9 @@ func checkReplicaSet(t *testing.T, d Deployment, replicaSetWithProcesses Replica
 	found := 0
 	totalMongods := 0
 	for _, p := range d.getProcesses() {
-		for _, e := range replicaSetWithProcesses.Processes {
+		for i, e := range replicaSetWithProcesses.Processes {
 			if p.ProcessType() == ProcessTypeMongod && p.Name() == e.Name() {
-				assert.Equal(t, e, p)
+				assert.Equal(t, e, p, "Process %d (%s) doesn't match! \nExpected: %v, \nReal: %v", i, p.Name(), e.json(), p.json())
 				found++
 			}
 		}
@@ -371,16 +205,16 @@ func checkProcess(t *testing.T, d Deployment, expectedProcess Process) {
 	}
 }
 
-func checkMongoSProcesses(t *testing.T, processes []Process, expectedMongosProcesses []Process) {
+func checkMongoSProcesses(t *testing.T, allProcesses []Process, expectedMongosProcesses []Process) {
 	found := 0
 	totalMongoses := 0
 
 	mongosPrefix := expectedMongosProcesses[0].Name()[0 : len(expectedMongosProcesses[0].Name())-1]
 
-	for _, p := range processes {
+	for _, p := range allProcesses {
 		for _, e := range expectedMongosProcesses {
 			if p.ProcessType() == ProcessTypeMongos && p.Name() == e.Name() {
-				assert.Equal(t, e, p)
+				assert.Equal(t, e, p, "Actual: %v\n, Expected: %v", p.json(), e.json())
 				found++
 			}
 		}
@@ -416,35 +250,31 @@ func checkProcessRemoved(t *testing.T, d Deployment, p string) {
 	assert.Nil(t, d.getProcessByName(p))
 }
 
-// Methods for creating deployment units
-
-func createShards(name string, check bool) []ReplicaSetWithProcesses {
-	return createSpecificNumberOfShards(3, name, check)
+func createShards(name string) []ReplicaSetWithProcesses {
+	return createSpecificNumberOfShards(3, name)
 }
 
-func createSpecificNumberOfShards(count int, name string, check bool) []ReplicaSetWithProcesses {
-	shards := make([]ReplicaSetWithProcesses, count)
-	for i := 0; i < count; i++ {
+// ********************************   Methods for creating deployment units
+
+func createSpecificNumberOfShards(count int, name string) []ReplicaSetWithProcesses {
+	return createSpecificNumberOfShardsAndMongods(count, 3, name)
+}
+
+func createShardsSpecificNumberOfMongods(count int, name string) []ReplicaSetWithProcesses {
+	return createSpecificNumberOfShardsAndMongods(3, count, name)
+}
+
+func createSpecificNumberOfShardsAndMongods(countShards, countMongods int, name string) []ReplicaSetWithProcesses {
+	shards := make([]ReplicaSetWithProcesses, countShards)
+	for i := 0; i < countShards; i++ {
 		idx := strconv.Itoa(i)
-		if check {
-			shards[i] = NewReplicaSetWithProcesses(NewReplicaSet(name+idx), createReplicaSetProcessesCheck(name+idx, check))
-		} else {
-			shards[i] = NewReplicaSetWithProcesses(NewReplicaSet(name+idx), createReplicaSetProcesses(name+idx))
-		}
+		shards[i] = NewReplicaSetWithProcesses(NewReplicaSet(name+idx), createReplicaSetProcessesCount(countMongods, name+idx))
 	}
 	return shards
 }
 
-func buildRsByProcesses(rsName string, processes []Process) ReplicaSet {
-	rs := NewReplicaSet(rsName)
-	members := make([]ReplicaSetMember, len(processes))
-	for i, v := range processes {
-		members[i] = ReplicaSetMember{}
-		members[i]["host"] = v.Name()
-		members[i]["_id"] = i
-	}
-	rs.setMembers(members)
-	return rs
+func buildRsByProcesses(rsName string, processes []Process) ReplicaSetWithProcesses {
+	return NewReplicaSetWithProcesses(NewReplicaSet(rsName), processes)
 }
 
 func createStandalone() Process {
@@ -470,23 +300,12 @@ func createReplicaSetProcesses(rsName string) []Process {
 }
 
 func createReplicaSetProcessesCount(count int, rsName string) []Process {
-	return createReplicaSetProcessesCheckCount(count, rsName, false)
-}
-
-func createReplicaSetProcessesCheck(rsName string, check bool) []Process {
-	return createReplicaSetProcessesCheckCount(3, rsName, check)
-}
-
-func createReplicaSetProcessesCheckCount(count int, rsName string, check bool) []Process {
 	rsMembers := make([]Process, count)
 
 	for i := 0; i < count; i++ {
 		idx := strconv.Itoa(i)
 		rsMembers[i] = NewMongodProcess(rsName+idx, rsName+idx+".some.host", "3.6.3")
-		// We add replicaset member to check that replicaset name field was initialized during merge
-		if check {
-			rsMembers[i].setReplicaSetName(rsName)
-		}
+		// Note that we don't specify the replicaset config for process
 	}
 	return rsMembers
 }
@@ -501,6 +320,7 @@ func createConfigSrvRs(name string, check bool) ReplicaSetWithProcesses {
 	}
 	return replicaSetWithProcesses
 }
+
 func createConfigSrvRsCount(count int, name string, check bool) ReplicaSetWithProcesses {
 	replicaSetWithProcesses := NewReplicaSetWithProcesses(NewReplicaSet(name), createReplicaSetProcessesCount(count, name))
 
@@ -510,4 +330,15 @@ func createConfigSrvRsCount(count int, name string, check bool) ReplicaSetWithPr
 		}
 	}
 	return replicaSetWithProcesses
+}
+
+func mergeReplicaSet(d Deployment, rsName string, rsProcesses []Process) ReplicaSetWithProcesses {
+	rs := buildRsByProcesses(rsName, rsProcesses)
+	d.MergeReplicaSet(rs, zap.S())
+	return rs
+}
+
+func mergeStandalone(d Deployment, s Process) Process {
+	d.MergeStandalone(s, zap.S())
+	return s
 }
