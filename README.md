@@ -5,6 +5,8 @@ with Ops Manager and Kubernetes clusters. It allows to easily add new
 MongoDB deployments (standalones, replica sets, sharded clusters) to your Kubernetes cluster, configure them (modify, scale up/down, remove) and to manage them from your
 Ops Manager installation. This provides combined power of Kubernetes (native scheduling of applications to nodes, scaling, fault tolerance etc) with Ops Manager capabilities (monitoring, backup, upgrades etc)
 
+Please note that the Operator is currently in public beta. Please do not use it in production yet. Your feedback is welcome! Please discuss on our mailing list: [mongodb-enterprise-kubernetes](https://groups.google.com/a/10gen.com/forum/#!forum/mongodb-enterprise-kubernetes)
+
 ## For Users only
 If you want just to **run** the Ops Manager Kubernetes operator built from `master` - you don't need to compile/build artifacts and you can follow the [Helm instructions](/docs/helm.md) to install the existing operator image to your Kubernetes cluster.
 You can create a local Kubernetes cluster easily using [Minikube](https://kubernetes.io/docs/getting-started-guides/minikube/)

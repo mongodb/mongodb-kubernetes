@@ -19,4 +19,5 @@ STATUS=$(git status --porcelain)
 
 if ! [ z"${STATUS}" = z ] ; then
   git commit -m "$(date +%FT%H%m): update public repo contents"
+  git push
 fi
