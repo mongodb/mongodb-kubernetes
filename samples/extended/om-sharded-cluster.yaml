@@ -7,12 +7,15 @@ metadata:
 spec:
   shardCount: 2
   mongodsPerShardCount: 3
-  mongos_count: 2
-  config_server_count: 3
-  mongodb_version: 3.6.3
+  mongosCount: 2
+  configServerCount: 3
+  version: 3.6.3
   service: ireland
-  cluster_name: mycompany.net
-  ops_manager_config: global-om-config
+  clusterName: mycompany.net
+
+  project: my-project
+  credentials: my-credentials
+
   persistent: true
   configSrvPodSpec:
     cpu: '0.5'
@@ -48,9 +51,3 @@ spec:
     storage: 25G
     storageClass: standard
     podAntiAffinityTopologyKey: kubernetes.io/hostname
-
-
-
-
-
-

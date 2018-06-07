@@ -28,7 +28,7 @@ will have the following structure:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: project-01
+  name: my-project
   namespace: mongodb
 data:
   projectId: my-project-id
@@ -44,15 +44,15 @@ Ops/Cloud Manager administrator). The secrets can be created easily
 with the following command:
 
 ``` bash
-kubectl -n mongodb create secret generic alice-credentials --from-literal=user=alice@example.com --from-literal=publicApiKey=my-public-api-key
+kubectl -n mongodb create secret generic my-credentials --from-literal=user=alice@example.com --from-literal=publicApiKey=my-public-api-key
 ```
 
-In this example, a `Secret` object with the name `alice-credentials`
+In this example, a `Secret` object with the name `my-credentials`
 was created. The contents of this `Secret` object is the `user` and
 `publicApiKey` attribute. You can see this secret with a command like:
 
 ``` bash
-Name:         alice-credentials
+Name:         my-credentials
 Namespace:    mongodb
 Labels:       <none>
 Annotations:  <none>
@@ -85,8 +85,8 @@ spec:
   members: 3
   version: 3.6.5
 
-  project: project-01
-  credentials: alice-credentials
+  project: my-project
+  credentials: my-credentials
 
   persistent: false # Please note: this indicates there will be no Persistent
                     # Volumes attached to this deployment.

@@ -6,12 +6,15 @@ metadata:
   namespace: mongodb
 spec:
   members: 3
-  mongodb_version: 3.6.4
+  version: 3.6.4
   # service allows to override the name of Kubernetes service that is created for stateful set
   service: ireland
   # by default DNS names for pods have "cluster.local" domain otherwise the correct cluster name must be specified here
-  cluster_name: mycompany.net
-  ops_manager_config: global-om-config
+  clusterName: mycompany.net
+
+  project: my-project
+  credentials: my-credentials
+
   persistent: true
   podSpec:
     cpu: '0.25'
@@ -37,4 +40,3 @@ spec:
             values:
             - e2e-az1
             - e2e-az2
-

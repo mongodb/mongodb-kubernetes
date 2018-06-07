@@ -22,7 +22,7 @@ type MongoDbReplicaSetSpec struct {
 	Version string `json:"version"`
 	// this is an optional service, it will get the name "<rsName>-service" in case not provided
 	Service     string         `json:"service,omitempty"`
-	ClusterName string         `json:"cluster_name,omitempty"`
+	ClusterName string         `json:"clusterName,omitempty"`
 	Persistent  *bool          `json:"persistent,omitempty"`
 	PodSpec     MongoDbPodSpec `json:"podSpec,omitempty"`
 
@@ -52,7 +52,7 @@ type MongoDbStandaloneSpec struct {
 	Version string `json:"version"`
 	// this is an optional service, it will get the name "<standaloneName>-service" in case not provided
 	Service     string                   `json:"service,omitempty"`
-	ClusterName string                   `json:"cluster_name,omitempty"`
+	ClusterName string                   `json:"clusterName,omitempty"`
 	Persistent  *bool                    `json:"persistent,omitempty"`
 	PodSpec     MongoDbPodSpecStandalone `json:"podSpec,omitempty"`
 	Project     string                   `json:"project"`
@@ -80,11 +80,11 @@ type MongoDbShardedCluster struct {
 type MongoDbShardedClusterSpec struct {
 	ShardCount           int    `json:"shardCount"`
 	MongodsPerShardCount int    `json:"mongodsPerShardCount"`
-	MongosCount          int    `json:"mongos_count"`
-	ConfigServerCount    int    `json:"config_server_count"`
+	MongosCount          int    `json:"mongosCount"`
+	ConfigServerCount    int    `json:"configServerCount"`
 	Version              string `json:"version"`
 	// TODO seems the ObjectMeta contains the field for ClusterName - may be we should use it instead
-	ClusterName string `json:"cluster_name,omitempty"`
+	ClusterName string `json:"clusterName,omitempty"`
 	// this is an optional service that will be mapped to mongos pods, it will get the name "<clusterName>-svc" in case not provided
 	Service string `json:"service,omitempty"`
 
