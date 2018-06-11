@@ -41,7 +41,9 @@ For the Operator to work, you will need the following information:
 A `Project` object is a Kubernetes `ConfigMap` that points to an Ops Manager installation and a `Project`. This `ConfigMap` has the following structure:
 
 
-``` yaml
+```
+
+$ cat my-project.yaml
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -51,8 +53,11 @@ metadata:
 data:
   projectId: my-project-id
   baseUrl: https://my-ops-cloud-manager-url
-
 ```
+
+Apply this file to create the new `Project`:
+
+    kubectl apply -f my-project.yaml
 
 ### Credentials ###
 
@@ -65,7 +70,7 @@ $ kubectl -n mongodb create secret generic my-credentials --from-literal="user=s
 In this example, a `Secret` object with the name `my-credentials` was created. The contents of this `Secret` object is the `user` and `publicApiKey` attribute. You can see this secret with a command like:
 
 ``` bash
-$ kubectl get secret my-credentials
+$ kubectl describe secrets/my-credentials -n mongodb
 
 Name:         my-credentials
 Namespace:    mongodb
