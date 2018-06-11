@@ -8,3 +8,4 @@ operator:
 database:
   image: quay.io/mongodb/mongodb-enterprise-database:latest
   pullPolicy: Always
+createNamespace: true

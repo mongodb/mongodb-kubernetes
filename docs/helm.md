@@ -1,7 +1,8 @@
-# MongoDB Operator Helm Chart #
+# MongoDB Operator Helm Chart (dev builds) #
 
 This repository will allow you to install the MongoDB Kubernetes
-Operator in your cluster by using [Helm](https://github.com/kubernetes/helm).
+Operator in your cluster by using [Helm](https://github.com/kubernetes/helm) from private `quay.io` repository
+which is used for storing images built from master branch.
 
 ## Requirements ##
 
@@ -19,7 +20,7 @@ if you want to install `Helm` in RedHat Openshift.
 
 Running Helm on `minikube` v1.10 cluster or on cluster with RBAC enabled (`kops`, `OpenShift`) will
 result in **permission errors** (for example when `Helm` tries to create a Kubernetes `Role`).
-To avoid that you should use the following install instructions instead to create a service account for `Helm Tiller`
+To avoid that you should use the following installation instructions instead to create a service account for `Helm Tiller`
 and assign `cluster-admin` role to him:
 
 ``` bash
@@ -61,7 +62,7 @@ Now you need to get the name of the `Secrets` object that was created
 for you:
 
 ``` bash
-$ kubectl get secrets --namespace=mongodb
+$ kubectl get secrets -n mongodb
 NAME                                      TYPE                                  DATA      AGE
 default-token-pzdsp                       kubernetes.io/service-account-token   3         1m
 mongodb-enterprise-operator-token-7l78b   kubernetes.io/service-account-token   3         1m
@@ -76,42 +77,70 @@ will use it in the next step.
 
 ## Install Chart ##
 
-(Don't forget to follow the "Install Helm" instructions first!)
+(Don't forget to follow the "Helm Install" instructions first!)
 
 ``` bash
 $ git clone git@github.com:10gen/ops-manager-kubernetes.git
-$ helm install ops-manager-kubernetes/public/mongodb-enterprise.yaml --set imagePullSecrets=<user>-pull-secret --name mongodb-enterprise
+$ cd ops-manager-kubernetes
+$ helm install public/helm_chart -f config/helm/values-quay.yaml --set imagePullSecrets=<user>-pull-secret --name mongodb-enterprise
 ```
 
+This will create a helm release named `mongodb-enterprise` in Kubernetes.
 In that last line you will set the `imagePullSecrets` to the value you
 got in the last section; something like `<user>-pull-secret` changing
 `<user>` to your own name.
+
+To remove the helm release use the following instruction:
+
+``` bash
+$ helm del --purge mongodb-enterprise
+```
 
 ## Confirm everything is working ##
 
 You can check with the following command:
 
 ``` bash
-kubectl get pods --namespace mongodb
+kubectl get pods -n mongodb
 NAME                                           READY     STATUS    RESTARTS   AGE
 mongodb-enterprise-operator-85594475fb-jjj9v   1/1       Running   0          11s
 ```
 
 It might take a few seconds for `STATUS` to change from
-`ContainerCreating` to `Running`. If instead the status is
-`ImageErrPull` it means we have made some mistake in the
-process. Follow the instructions again or ask in
-`#opsmanager-kubernetes` Slack channel.
+`ContainerCreating` to `Running`. 
+
+If container is in `Running` status then additionally it may be useful to check logs:
+
+``` bash
+kubectl logs -f deployment/mongodb-enterprise-operator -n mongodb
+```
+
+The good output should look similar to following:
+
+```
+2018-06-07T21:32:22.856Z	INFO	ops-manager-kubernetes/main.go:78	Operator environment: dev
+2018-06-07T21:32:22.859Z	INFO	ops-manager-kubernetes/main.go:44	Ensuring the Custom Resource Definitions exist	{"crds": ["mongodbreplicaset", "mongodbstandalone", "mongodbshardedcluster"]}
+2018-06-07T21:32:24.410Z	INFO	ops-manager-kubernetes/main.go:57	Starting watching resources for CRDs just created
+``` 
+
+## Troubleshooting ##
+
+If pod doesn't have `Running` status the first action should be to check the detailed status of pod
+ 
+``` bash
+kubectl describe pod mongodb-enterprise-operator-85594475fb-jjj9v -n mongodb
+```
+Check the `Events` block to see detailed description of the error. Verify the urls of Operator image 
+(`Containers.mongodb-enterprise-operator.Image`) and Database image (`MONGODB_ENTERPRISE_DATABASE_IMAGE`). 
+Check that `IMAGE_PULL_SECRETS` has the correct secret name.
+
+If you still have problems, please ask in `#opsmanager-kubernetes` Slack channel.
 
 ## Development Hints
 
-Use the following form to drop/create the Helm release with one command (otherwise Helm will generate new release each time).
-Also providing additional configuration using `-f` flag will allow to override default settings provided by `values.yaml`
+Use other `values-*` files in `config/helm` directory to use images from other locations. `values-dev.yaml` points to
+development version in AWS ECR repository and can be used if the cluster is deployed to AWS (as no image pull secret is required)
 
-```bash
-# This will install the operator and database local images
-$ helm delete --purge mongodb-enterprise
-$ helm install helm -f helm/env/values-local.yaml --name mongodb-enterprise
-```
+Use `values-local.yaml` file to use local Minikube Docker registry. 
 
 As always it's possible to create a custom configuration file starting with `my-` - it won't be tracked by Git.

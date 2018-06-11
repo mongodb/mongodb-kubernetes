@@ -1,0 +1,12 @@
+# use this file to deploy images from quay.io built from master. Note, that this requires creating secrets for quay
+# tokens and setting them using "--set" instruction
+#
+# helm install ops-manager-kubernetes/public/helm_chart -f config/helm/values-quay.yaml --set imagePullSecrets=<user>-pull-secret
+#
+env: dev
+createNamespace: false
+operator:
+  image: quay.io/mongodb-enterprise-private/mongodb-enterprise-operator:latest
+database:
+  image: quay.io/mongodb-enterprise-private/mongodb-enterprise-database:latest
+

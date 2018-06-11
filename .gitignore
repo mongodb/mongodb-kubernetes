@@ -5,5 +5,5 @@
 /pkg/client
 /vendor/
 docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator
-my-*yaml
+my-*
 ops-manager-kubernetes.iml
