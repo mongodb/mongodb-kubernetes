@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/10gen/ops-manager-kubernetes/om"
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1beta1"
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
@@ -15,7 +15,7 @@ func (c *MongoDbController) onAddStandalone(obj interface{}) {
 
 	log := zap.S().With("standalone", s.Name)
 
-	log.Infow("Creating MongoDbStandalone", "config", s.Spec)
+	log.Infow(">> Creating MongoDbStandalone", "config", s.Spec)
 
 	if err := c.doStandaloneProcessing(nil, s, log); err != nil {
 		log.Error(err)
@@ -26,11 +26,11 @@ func (c *MongoDbController) onAddStandalone(obj interface{}) {
 }
 
 func (c *MongoDbController) onUpdateStandalone(oldObj, newObj interface{}) {
-	o := newObj.(*mongodb.MongoDbStandalone)
+	o := oldObj.(*mongodb.MongoDbStandalone)
 	n := newObj.(*mongodb.MongoDbStandalone)
 	log := zap.S().With("standalone", n.Name)
 
-	log.Infow("Updating MongoDbStandalone", "oldConfig", o.Spec, "newConfig", n.Spec)
+	log.Infow(">> Updating MongoDbStandalone", "oldConfig", o.Spec, "newConfig", n.Spec)
 
 	if err := validateUpdateStandalone(o, n); err != nil {
 		log.Error(err)
@@ -48,6 +48,8 @@ func (c *MongoDbController) onUpdateStandalone(oldObj, newObj interface{}) {
 func (c *MongoDbController) onDeleteStandalone(obj interface{}) {
 	s := obj.(*mongodb.MongoDbStandalone)
 	log := zap.S().With("Standalone", s.Name)
+
+	log.Infow(">> Deleting MongoDbStandalone", "config", s.Spec)
 
 	conn, err := c.getOmConnection(s.Namespace, s.Spec.Project, s.Spec.Credentials)
 	if err != nil {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/10gen/ops-manager-kubernetes/om"
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1beta1"
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 )
@@ -15,7 +15,7 @@ func (c *MongoDbController) onAddReplicaSet(obj interface{}) {
 
 	log := zap.S().With("replica set", s.Name)
 
-	log.Infow("Creating Replica set", "config", s.Spec)
+	log.Infow(">> Creating Replica set", "config", s.Spec)
 
 	if err := c.doRsProcessing(nil, s, log); err != nil {
 		log.Error(err)
@@ -30,7 +30,7 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 	n := newObj.(*mongodb.MongoDbReplicaSet)
 	log := zap.S().With("replica set", n.Name)
 
-	log.Infow("Updating MongoDbReplicaSet", "oldConfig", o.Spec, "newConfig", n.Spec)
+	log.Infow(">> Updating MongoDbReplicaSet", "oldConfig", o.Spec, "newConfig", n.Spec)
 
 	if err := validateReplicaSetUpdate(o, n); err != nil {
 		log.Error(err)
@@ -106,6 +106,8 @@ func prepareScaleDownReplicaSet(omClient om.OmConnection, statefulSet *appsv1.St
 func (c *MongoDbController) onDeleteReplicaSet(obj interface{}) {
 	rs := obj.(*mongodb.MongoDbReplicaSet)
 	log := zap.S().With("replicaSet", rs.Name)
+
+	log.Infow(">> Deleting Replica set", "config", rs.Spec)
 
 	conn, err := c.getOmConnection(rs.Namespace, rs.Spec.Project, rs.Spec.Credentials)
 	if err != nil {

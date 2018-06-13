@@ -3,7 +3,7 @@ package operator
 import (
 	"testing"
 
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1beta1"
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/util"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"

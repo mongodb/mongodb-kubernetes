@@ -1,7 +1,7 @@
 .dir-locals.el
 .idea/
 /docker/node-mongo-app/node_modules/
-/pkg/apis/mongodb.com/v1beta1/zz_generated.deepcopy.go
+/pkg/apis/mongodb.com/v1/zz_generated.deepcopy.go
 /pkg/client
 /vendor/
 docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator

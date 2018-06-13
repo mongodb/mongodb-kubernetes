@@ -99,7 +99,7 @@ specific repository is created for each of namespace/application combinations. F
 operator reside in `268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-database` and 
 `268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-operator`.
 
-More on how to work with ECR is [here](docs/aws_docker_registry.md)
+More on how to work with ECR is [here](docs/dev/aws_docker_registry.md)
 
 We also use `quay.io` private and public repositories
 

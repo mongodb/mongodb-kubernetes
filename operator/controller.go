@@ -7,9 +7,9 @@ import (
 	"errors"
 	"fmt"
 
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1beta1"
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	mongodbscheme "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/scheme"
-	mongodbclient "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/typed/mongodb.com/v1beta1"
+	mongodbclient "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/typed/mongodb.com/v1"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -19,11 +19,11 @@ import (
 
 type MongoDbController struct {
 	context          *crd.Context
-	mongodbClientset mongodbclient.MongodbV1beta1Interface
+	mongodbClientset mongodbclient.MongodbV1Interface
 	kubeHelper       KubeHelper
 }
 
-func NewMongoDbController(context *crd.Context, mongodbClientset mongodbclient.MongodbV1beta1Interface) *MongoDbController {
+func NewMongoDbController(context *crd.Context, mongodbClientset mongodbclient.MongodbV1Interface) *MongoDbController {
 	mongodbscheme.AddToScheme(scheme.Scheme)
 
 	return &MongoDbController{

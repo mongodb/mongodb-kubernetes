@@ -1,4 +1,4 @@
-apiVersion: mongodb.com/v1beta1
+apiVersion: mongodb.com/v1
 kind: MongoDbStandalone
 metadata:
   name: my-standalone

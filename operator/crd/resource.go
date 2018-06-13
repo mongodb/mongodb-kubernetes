@@ -18,12 +18,13 @@ import (
 )
 
 type CustomResource struct {
-	Name    string
-	Plural  string
-	Group   string
-	Version string
-	Scope   apiextensionsv1beta1.ResourceScope
-	Kind    string
+	Name      string
+	Plural    string
+	Group     string
+	Version   string
+	Scope     apiextensionsv1beta1.ResourceScope
+	Kind      string
+	ShortName string
 }
 
 type ResourceWatcher struct {
@@ -93,9 +94,10 @@ func BuildCustomResource(context Context, resource CustomResource) error {
 			Version: resource.Version,
 			Scope:   resource.Scope,
 			Names: apiextensionsv1beta1.CustomResourceDefinitionNames{
-				Singular: resource.Name,
-				Plural:   resource.Plural,
-				Kind:     resource.Kind,
+				Singular:   resource.Name,
+				Plural:     resource.Plural,
+				Kind:       resource.Kind,
+				ShortNames: []string{resource.ShortName},
 			},
 		},
 	}

@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/10gen/ops-manager-kubernetes/om"
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1beta1"
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/util"
 	"go.uber.org/zap"
 )
@@ -22,7 +22,7 @@ func (c *MongoDbController) onAddShardedCluster(obj interface{}) {
 
 	log := zap.S().With("sharded cluster", s.Name)
 
-	log.Infow("Creating MongoDbShardedCluster", "config", s.Spec)
+	log.Infow(">> Creating MongoDbShardedCluster", "config", s.Spec)
 
 	if err := c.doShardedClusterProcessing(nil, s, log); err != nil {
 		log.Error(err)
@@ -42,7 +42,7 @@ func (c *MongoDbController) onUpdateShardedCluster(oldObj, newObj interface{}) {
 		return
 	}
 
-	log.Infow("Updating MongoDbShardedCluster", "oldConfig", oldS.Spec, "newConfig", newS.Spec)
+	log.Infow(">> Updating MongoDbShardedCluster", "oldConfig", oldS.Spec, "newConfig", newS.Spec)
 
 	if err := c.doShardedClusterProcessing(oldS, newS, log); err != nil {
 		log.Error(err)
@@ -204,6 +204,8 @@ func updateOmDeploymentShardedCluster(omConnection om.OmConnection, old,
 func (c *MongoDbController) onDeleteShardedCluster(obj interface{}) {
 	sc := obj.(*mongodb.MongoDbShardedCluster)
 	log := zap.S().With("sharded cluster", sc.Name)
+
+	log.Infow(">> Deleting MongoDbShardedCluster", "config", sc.Spec)
 
 	hostsToRemove := getAllHosts(sc)
 

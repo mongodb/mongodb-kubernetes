@@ -6,7 +6,7 @@ import (
 	"reflect"
 
 	"github.com/10gen/ops-manager-kubernetes/om"
-	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1beta1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"go.uber.org/zap"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -81,7 +81,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 	})
 }
 
-func createDeploymentFromResource(sh *v1beta1.MongoDbShardedCluster) om.Deployment {
+func createDeploymentFromResource(sh *v1.MongoDbShardedCluster) om.Deployment {
 	state := createStateFromResource(sh)
 	mongosProcesses := createProcesses(state.mongosSetHelper.BuildStatefulSet(), sh.Spec.ClusterName, sh.Spec.Version, om.ProcessTypeMongos)
 	configRs := buildReplicaSetFromStatefulSet(state.configSrvSetHelper.BuildStatefulSet(), sh.Spec.ClusterName, sh.Spec.Version)
@@ -95,7 +95,7 @@ func createDeploymentFromResource(sh *v1beta1.MongoDbShardedCluster) om.Deployme
 	return d
 }
 
-func createStateFromResource(sh *v1beta1.MongoDbShardedCluster) KubeState {
+func createStateFromResource(sh *v1.MongoDbShardedCluster) KubeState {
 	return KubeState{
 		mongosSetHelper:    defaultSetHelper().SetName(sh.MongosRsName()).SetService(sh.MongosServiceName()).SetReplicas(sh.Spec.MongosCount),
 		configSrvSetHelper: defaultSetHelper().SetName(sh.ConfigRsName()).SetService(sh.ConfigSrvServiceName()).SetReplicas(sh.Spec.ConfigServerCount),
@@ -104,17 +104,17 @@ func createStateFromResource(sh *v1beta1.MongoDbShardedCluster) KubeState {
 }
 
 type ClusterBuilder struct {
-	*v1beta1.MongoDbShardedCluster
+	*v1.MongoDbShardedCluster
 }
 
 func DefaultClusterBuilder() *ClusterBuilder {
-	spec := &v1beta1.MongoDbShardedClusterSpec{
+	spec := &v1.MongoDbShardedClusterSpec{
 		ShardCount:           2,
 		MongodsPerShardCount: 3,
 		ConfigServerCount:    3,
 		MongosCount:          4,
 		Version:              "3.6.4"}
-	cluster := &v1beta1.MongoDbShardedCluster{
+	cluster := &v1.MongoDbShardedCluster{
 		ObjectMeta: metav1.ObjectMeta{Name: "slaney", Namespace: "mongodb"},
 		Spec:       *spec}
 	return &ClusterBuilder{cluster}
@@ -140,6 +140,6 @@ func (b *ClusterBuilder) SetMongosCount(count int) *ClusterBuilder {
 	b.Spec.MongosCount = count
 	return b
 }
-func (b *ClusterBuilder) Build() *v1beta1.MongoDbShardedCluster {
+func (b *ClusterBuilder) Build() *v1.MongoDbShardedCluster {
 	return b.MongoDbShardedCluster
 }

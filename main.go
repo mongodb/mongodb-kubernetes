@@ -9,8 +9,8 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/operator"
 	"github.com/10gen/ops-manager-kubernetes/operator/crd"
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1beta1"
-	mongodbclient "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/typed/mongodb.com/v1beta1"
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mongodbclient "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/typed/mongodb.com/v1"
 	"k8s.io/api/core/v1"
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/client-go/kubernetes"
@@ -106,7 +106,7 @@ func initLogger(env string) {
 	log = zap.S()
 }
 
-func createContext() (*crd.Context, mongodbclient.MongodbV1beta1Interface, error) {
+func createContext() (*crd.Context, mongodbclient.MongodbV1Interface, error) {
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get k8s config. %+v", err)

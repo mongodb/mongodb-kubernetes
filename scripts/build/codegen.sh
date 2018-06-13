@@ -19,4 +19,4 @@ git clean -fdx
 git fetch
 git checkout "${CODE_GENERATOR_GITSHA}"
 
-./generate-groups.sh all github.com/10gen/ops-manager-kubernetes/pkg/client github.com/10gen/ops-manager-kubernetes/pkg/apis "mongodb.com:v1beta1"
+./generate-groups.sh all github.com/10gen/ops-manager-kubernetes/pkg/client github.com/10gen/ops-manager-kubernetes/pkg/apis "mongodb.com:v1"

@@ -76,7 +76,7 @@ following example:
 
 ``` yaml
 ---
-apiVersion: mongodb.com/v1beta1
+apiVersion: mongodb.com/v1
 kind: MongoDbReplicaSet
 metadata:
   name: my-replica-set

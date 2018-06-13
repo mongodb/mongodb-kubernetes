@@ -1,4 +1,4 @@
-package v1beta1
+package v1
 
 import (
 	"reflect"
@@ -17,33 +17,36 @@ var (
 )
 
 // schemeGroupVersion is group version used to register these objects
-var SchemeGroupVersion = schema.GroupVersion{Group: "mongodb.com", Version: "v1beta1"}
+var SchemeGroupVersion = schema.GroupVersion{Group: "mongodb.com", Version: "v1"}
 
 var MongoDbStandaloneResource = crd.CustomResource{
-	Name:    "mongodbstandalone",
-	Plural:  "mongodbstandalones",
-	Group:   "mongodb.com",
-	Version: "v1beta1",
-	Scope:   apiextensionsv1beta1.NamespaceScoped,
-	Kind:    reflect.TypeOf(MongoDbStandalone{}).Name(),
+	Name:      "mongodbstandalone",
+	Plural:    "mongodbstandalones",
+	ShortName: "mst",
+	Group:     "mongodb.com",
+	Version:   "v1",
+	Scope:     apiextensionsv1beta1.NamespaceScoped,
+	Kind:      reflect.TypeOf(MongoDbStandalone{}).Name(),
 }
 
 var MongoDbReplicaSetResource = crd.CustomResource{
-	Name:    "mongodbreplicaset",
-	Plural:  "mongodbreplicasets",
-	Group:   "mongodb.com",
-	Version: "v1beta1",
-	Scope:   apiextensionsv1beta1.NamespaceScoped,
-	Kind:    reflect.TypeOf(MongoDbReplicaSet{}).Name(),
+	Name:      "mongodbreplicaset",
+	Plural:    "mongodbreplicasets",
+	ShortName: "mrs",
+	Group:     "mongodb.com",
+	Version:   "v1",
+	Scope:     apiextensionsv1beta1.NamespaceScoped,
+	Kind:      reflect.TypeOf(MongoDbReplicaSet{}).Name(),
 }
 
 var MongoDbShardedClusterResource = crd.CustomResource{
-	Name:    "mongodbshardedcluster",
-	Plural:  "mongodbshardedclusters",
-	Group:   "mongodb.com",
-	Version: "v1beta1",
-	Scope:   apiextensionsv1beta1.NamespaceScoped,
-	Kind:    reflect.TypeOf(MongoDbShardedCluster{}).Name(),
+	Name:      "mongodbshardedcluster",
+	Plural:    "mongodbshardedclusters",
+	ShortName: "msc",
+	Group:     "mongodb.com",
+	Version:   "v1",
+	Scope:     apiextensionsv1beta1.NamespaceScoped,
+	Kind:      reflect.TypeOf(MongoDbShardedCluster{}).Name(),
 }
 
 func init() {
