@@ -11,7 +11,12 @@ spec:
   configServerCount: 3
   version: 3.6.3
   service: ireland
-  clusterName: mycompany.net
+
+  ## Please Note: Kubernetes cluster default name is `cluster.local`.
+  ## If your cluster has been configured with another name, you can specify
+  ## it with the `clusterName` attribute.
+  #
+  # clusterName: mycompany.net
 
   project: my-project
   credentials: my-credentials

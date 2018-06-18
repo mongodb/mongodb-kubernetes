@@ -9,8 +9,12 @@ spec:
   version: 3.6.4
   # service allows to override the name of Kubernetes service that is created for stateful set
   service: ireland
-  # by default DNS names for pods have "cluster.local" domain otherwise the correct cluster name must be specified here
-  clusterName: mycompany.net
+
+  ## Please Note: Kubernetes cluster default name is `cluster.local`.
+  ## If your cluster has been configured with another name, you can specify
+  ## it with the `clusterName` attribute.
+  #
+  # clusterName: mycompany.net
 
   project: my-project
   credentials: my-credentials
