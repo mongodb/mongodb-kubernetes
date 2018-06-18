@@ -110,6 +110,7 @@ tasks:
 - name: release
   tags: ["release"]
   commands:
+    - func: "clone"
     - func: "release"
 
 
