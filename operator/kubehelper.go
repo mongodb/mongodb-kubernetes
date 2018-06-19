@@ -242,13 +242,6 @@ func (k *KubeHelper) readProjectConfig(namespace, name string) (*ProjectConfig, 
 		return nil, errors.New(fmt.Sprintf("Error getting %s from `project`", OmProjectId))
 	}
 
-	if strings.HasSuffix(baseUrl, "/") {
-		cmap[OmBaseUrl] = strings.TrimSuffix(baseUrl, "/")
-		if err = k.updateConfigMap(namespace, name, cmap); err == nil {
-			zap.S().Infow("`baseUrl` has been corrected to not include a trailing 'slash' character.")
-		}
-	}
-
 	return &ProjectConfig{
 		BaseUrl:   baseUrl,
 		ProjectId: projectId,
