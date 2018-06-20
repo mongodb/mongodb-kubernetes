@@ -2,23 +2,15 @@ package operator
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
-func TestFindVersion(t *testing.T) {
-	/*clusterConfig := testClusterConfiguration()
+func TestCreateOmProcess(t *testing.T) {
+	process := createProcess(defaultSetHelper().BuildStatefulSet(), baseStandalone())
 
-	processVersion := getProcessVersionForStandalone("test-process-name", clusterConfig)
-	if processVersion != "3.6.3" {
-		t.Error(fmt.Sprintf("Did not find 3.6.3 process version, instead found '%s'", processVersion))
-	}
-
-	processVersion = getProcessVersionForStandalone("test-process-name-another", clusterConfig)
-	if processVersion != "3.4.8" {
-		t.Error(fmt.Sprintf("Did not find 3.4.8 process version, instead found '%s'", processVersion))
-	}
-
-	processVersion = getProcessVersionForStandalone("non-existent-process", clusterConfig)
-	if processVersion != "" {
-		t.Error(fmt.Sprintf("Did not find empty (\"\") process version, instead found '%s'", processVersion))
-	}*/
+	// Note, that for standalone the name of process is the name of statefulset - not the pod inside it.
+	assert.Equal(t, "testStandalone", process.Name())
+	assert.Equal(t, "testStandalone-0.test-service.mongodb.svc.cluster.local", process.HostName())
+	assert.Equal(t, "4.0", process.Version())
 }

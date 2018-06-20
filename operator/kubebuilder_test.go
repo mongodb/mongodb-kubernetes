@@ -109,7 +109,7 @@ func defaultPodSpec() mongodb.PodSpecWrapper {
 }
 
 func defaultSetHelper() *StatefulSetHelper {
-	return baseSetHelper().SetLogger(zap.S()).SetPodSpec(defaultPodSpec()).SetPodVars(defaultPodVars())
+	return baseSetHelper().SetLogger(zap.S()).SetPodSpec(defaultPodSpec()).SetPodVars(defaultPodVars()).SetService("test-service")
 }
 
 func defaultPodVars() *PodVars {
