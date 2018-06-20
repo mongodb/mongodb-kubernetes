@@ -177,7 +177,7 @@ func initDefault(name, hostName, processVersion string, processType MongoType, p
 	process.Args()["net"].(map[string]interface{})["port"] = 27017
 }
 
-// mergeFrom merges the Kubernetes version of process (otherProcess) into OM one.
+// mergeFrom merges the Kubernetes version of process ("otherProcess") into OM one ("s").
 // Considers the type of process and rewrites only relevant fields
 func (s Process) mergeFrom(otherProcess Process) {
 	s.SetLogPath(otherProcess.LogPath())

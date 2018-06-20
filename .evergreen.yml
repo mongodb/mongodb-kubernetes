@@ -67,6 +67,26 @@ functions:
       params:
         files: ["*.suite", "src/**/*.suite"]
 
+  "release":
+    - command: shell.exec
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        script: |
+          # skip if patch
+          if [ "${is_patch}" = "true" ]; then
+            echo "Releasing only on `patch` stage."
+            exit 0
+          else
+            echo "Not releasing during normal run ${tag}"
+            exit 0
+          fi
+
+          # src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/init_virtualenv.sh ${working_dir}
+          # VIRTUAL_ENV_DISABLE_PROMPT=true source ./venv-activate
+          # pip install -r src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/requirements.txt
+          # tag=$(cat src/github.com/10gen/ops-manager-kubernetes/.release.yaml | grep currentVersion | awk '{ print $2 }')
+          # src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py --image operator --tag ${tag}
+          # src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py --image database --tag ${tag}
 
 tasks:
 
@@ -87,6 +107,11 @@ tasks:
     - func: "build_operator"
     - func: "gotest_parse_files"
 
+- name: release
+  tags: ["release"]
+  commands:
+    - func: "clone"
+    - func: "release"
 
 
 buildvariants:
@@ -108,3 +133,9 @@ buildvariants:
   stepback: false
   tasks:
     - ".test"
+
+- name: release
+  run_on:
+    - archlinux-test
+  tasks:
+    - ".release"

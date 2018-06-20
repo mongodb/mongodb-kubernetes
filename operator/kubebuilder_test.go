@@ -99,9 +99,14 @@ func TestBasePodSpec_AntiAffinityDefaultTopology(t *testing.T) {
 	assert.Equal(t, DefaultAntiAffinityTopologyKey, term.PodAffinityTerm.TopologyKey)
 }
 
+func baseStandalone() *mongodb.MongoDbStandalone {
+	return &mongodb.MongoDbStandalone{
+		ObjectMeta: metav1.ObjectMeta{Name: "testStandalone", Namespace: "mongodb"},
+		Spec:       mongodb.MongoDbStandaloneSpec{Version: "4.0", Persistent: util.BooleanRef(false), Project: "my-project", Credentials: "my-credentials"}}
+}
+
 func baseSetHelper() *StatefulSetHelper {
-	standalone := mongodb.MongoDbStandalone{ObjectMeta: metav1.ObjectMeta{Name: "testStandalone", Namespace: "mongodb"}}
-	return (&KubeHelper{}).NewStatefulSetHelper(&standalone)
+	return (&KubeHelper{}).NewStatefulSetHelper(baseStandalone())
 }
 
 func defaultPodSpec() mongodb.PodSpecWrapper {

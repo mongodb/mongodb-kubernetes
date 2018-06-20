@@ -65,6 +65,7 @@ func (c *MongoDbController) onDeleteStandalone(obj interface{}) {
 
 	if err = deployment.RemoveProcessByName(s.Name); err != nil {
 		log.Error(err)
+		return
 	}
 
 	_, err = conn.UpdateDeployment(deployment)
@@ -125,11 +126,11 @@ func (c *MongoDbController) updateOmDeployment(omConnection om.OmConnection, s *
 		return err
 	}
 
-	standaloneOmObject := createProcesses(set, s.Spec.ClusterName, s.Spec.Version, om.ProcessTypeMongod)
+	standaloneOmObject := createProcess(set, s)
 	err := omConnection.ReadUpdateDeployment(false,
 		func(d om.Deployment) error {
-			d.MergeStandalone(standaloneOmObject[0], nil)
-			d.AddMonitoringAndBackup(standaloneOmObject[0].HostName(), log)
+			d.MergeStandalone(standaloneOmObject, nil)
+			d.AddMonitoringAndBackup(standaloneOmObject.HostName(), log)
 
 			return nil
 		},
@@ -151,4 +152,9 @@ func validateUpdateStandalone(oldSpec, newSpec *mongodb.MongoDbStandalone) error
 	}
 
 	return nil
+}
+
+func createProcess(set *appsv1.StatefulSet, s *mongodb.MongoDbStandalone) om.Process {
+	hostnames, _ := GetDnsForStatefulSet(set, s.Spec.ClusterName)
+	return om.NewMongodProcess(s.Name, hostnames[0], s.Spec.Version)
 }
