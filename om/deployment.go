@@ -43,7 +43,8 @@ func NewDeployment() Deployment {
 	return ans
 }
 
-// merge Standalone. If we found the process with the same name - update some fields there. Otherwise add the new one
+// MergeStandalone merges "operator" standalone to "OM" deployment ("d"). If we found the process with the same name - update
+// some fields there. Otherwise add the new one
 func (d Deployment) MergeStandalone(standaloneMongo Process, l *zap.SugaredLogger) {
 	if l == nil {
 		l = zap.S()
@@ -62,10 +63,8 @@ func (d Deployment) MergeStandalone(standaloneMongo Process, l *zap.SugaredLogge
 	log.Debug("Added process as current OM deployment didn't have it")
 }
 
-// MergeReplicaSet merges the replica set and its members to the deployment. If "alien" RS members are removed after merge -
-// corresponding processes are removed as well.
-// So far we don't configure anything for RS except it's name (though the API supports many other parameters
-// and we may change this in future)
+// MergeReplicaSet merges the "operator" replica set and its members to the "OM" deployment ("d"). If "alien" RS members are
+// removed after merge - corresponding processes are removed as well.
 func (d Deployment) MergeReplicaSet(replicaSet ReplicaSetWithProcesses, l *zap.SugaredLogger) {
 	if l == nil {
 		l = zap.S()
@@ -106,6 +105,8 @@ func (d Deployment) MergeReplicaSet(replicaSet ReplicaSetWithProcesses, l *zap.S
 	}
 }
 
+// MergeShardedCluster merges "operator" sharded cluster into "OM" deployment ("d"). Mongos, config servers and all shards
+// are all merged one by one
 func (d Deployment) MergeShardedCluster(name string, mongosProcesses []Process, configServerRs ReplicaSetWithProcesses,
 	shards []ReplicaSetWithProcesses) error {
 	log := zap.S().With("sharded cluster", name)

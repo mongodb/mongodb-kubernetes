@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/10gen/ops-manager-kubernetes/util"
 	"github.com/spf13/cast"
 )
 
@@ -46,10 +47,19 @@ func NewReplicaSetMemberFromInterface(i interface{}) ReplicaSetMember {
 	return i.(map[string]interface{})
 }
 
-func NewReplicaSet(name string) ReplicaSet {
+func NewReplicaSet(name, version string) ReplicaSet {
 	ans := ReplicaSet{}
-	ans.setName(name)
 	ans["members"] = make([]ReplicaSetMember, 0)
+
+	// "protocolVersion" was a new field in 3.2+ Mongodb
+	var protocolVersion *int32
+	v, e := util.ParseMongodbMinorVersion(version)
+	if e == nil && v >= float32(3.2) {
+		protocolVersion = util.Int32Ref(1)
+	}
+
+	initDefaultRs(ans, name, protocolVersion)
+
 	return ans
 }
 
@@ -122,6 +132,13 @@ func (r ReplicaSetMember) String() string {
 
 // ***************************************** Private methods ***********************************************************
 
+func initDefaultRs(set ReplicaSet, name string, protocolVersion *int32) {
+	if protocolVersion != nil {
+		set["protocolVersion"] = protocolVersion
+	}
+	set.setName(name)
+}
+
 // Adding a member to the replicaset. The _id for the new member is calculated based on last existing member in the RS.
 // Note that any other configuration (arbiterOnly/priority etc) can be passed as the argument to the function if needed
 func (r ReplicaSet) addMember(process Process) {
@@ -137,8 +154,9 @@ func (r ReplicaSet) addMember(process Process) {
 	r.setMembers(append(members, rsMember))
 }
 
+// mergeFrom merges "operator" "otherRs" into "OM" one
 func (r ReplicaSet) mergeFrom(otherRs ReplicaSet) []string {
-	r.setName(otherRs.Name())
+	initDefaultRs(r, otherRs.Name(), otherRs.protocolVersion())
 
 	// technically we use "otherMap" as the target map which will be used to update the members
 	// for the 'r' object
@@ -209,6 +227,10 @@ func (r ReplicaSet) findMemberByName(name string) *ReplicaSetMember {
 	}
 
 	return nil
+}
+
+func (r ReplicaSet) protocolVersion() *int32 {
+	return r["protocolVersion"].(*int32)
 }
 
 func (r ReplicaSetMember) setVotes(votes int) ReplicaSetMember {

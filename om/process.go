@@ -5,6 +5,8 @@ import (
 
 	"encoding/json"
 
+	"strconv"
+
 	"github.com/10gen/ops-manager-kubernetes/util"
 )
 
@@ -162,9 +164,10 @@ func (s Process) String() string {
 
 func initDefault(name, hostName, processVersion string, processType MongoType, process Process) {
 	process["version"] = processVersion
-	process["authSchemaVersion"] = 5 // TODO calculate it based on mongo version
-	// todo calcualte feature compatibility version from the version (leave only two digits)
-	process["featureCompatibilityVersion"] = "3.6"
+	process["authSchemaVersion"] = calculateAuthSchemaVersion(processVersion)
+	if compatibilityVersion := calculateFeatureCompatibilityVersion(processVersion); compatibilityVersion != "" {
+		process["featureCompatibilityVersion"] = compatibilityVersion
+	}
 	process["processType"] = processType
 	process["name"] = name
 	process["hostname"] = hostName
@@ -177,6 +180,25 @@ func initDefault(name, hostName, processVersion string, processType MongoType, p
 	process.Args()["net"].(map[string]interface{})["port"] = 27017
 }
 
+func calculateFeatureCompatibilityVersion(version string) string {
+	v, err := util.ParseMongodbMinorVersion(version)
+	// if there was error parsing - returning empty compatibility version
+	if err != nil || v < 3.2 {
+		return ""
+	}
+	// feature compatibility version has only two numbers, so we cannot just return the version
+	return strconv.FormatFloat(float64(v), 'f', 1, 64)
+}
+
+func calculateAuthSchemaVersion(version string) int {
+	v, err := util.ParseMongodbMinorVersion(version)
+	// if there was error parsing - returning 5 as default
+	if err != nil || v > 2.6 {
+		return 5
+	}
+	return 3
+}
+
 // mergeFrom merges the Kubernetes version of process ("otherProcess") into OM one ("s").
 // Considers the type of process and rewrites only relevant fields
 func (s Process) mergeFrom(otherProcess Process) {
@@ -184,7 +206,9 @@ func (s Process) mergeFrom(otherProcess Process) {
 
 	if otherProcess.ProcessType() == ProcessTypeMongod {
 		s.SetDbPath(otherProcess.DbPath())
-		s.setReplicaSetName(otherProcess.replicaSetName())
+		if otherProcess.replicaSetName() != "" {
+			s.setReplicaSetName(otherProcess.replicaSetName())
+		}
 		// we override clusterRole only if it is set to "configsvr" - otherwise we leave the OM value
 		if otherProcess.isClusterRoleConfigSrvSet() {
 			s.setClusterRoleConfigSrv()
@@ -218,6 +242,17 @@ func readMapValueAsString(m map[string]interface{}, key, secondKey string) strin
 func (s Process) setName(name string) Process {
 	s["name"] = name
 	return s
+}
+
+func (s Process) authSchemaVersion() int {
+	return s["authSchemaVersion"].(int)
+}
+
+func (s Process) featureCompatibilityVersion() string {
+	if s["featureCompatibilityVersion"] == nil {
+		return ""
+	}
+	return s["featureCompatibilityVersion"].(string)
 }
 
 // These methods are ONLY FOR REPLICA SET members!

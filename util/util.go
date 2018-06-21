@@ -6,6 +6,12 @@ import (
 	"bytes"
 	"encoding/gob"
 
+	"strconv"
+
+	"fmt"
+	"strings"
+
+	"github.com/pkg/errors"
 	"go.uber.org/zap"
 )
 
@@ -73,4 +79,28 @@ func MapDeepCopy(m map[string]interface{}) (map[string]interface{}, error) {
 		return nil, err
 	}
 	return copy, nil
+}
+
+// ParseMongodbMinorVersion returns the mongodb version as major + minor parts that can be represented as float.
+// So the result can be used for direct comparison
+// Note, that this method doesn't perform deep validation of the format (negative, big numbers etc)
+// There should be a separate method for that that will be invoked during validation of user-provided version
+// May be when it's added - it should be invoked here as well
+// TODO use https://github.com/blang/semver to do proper versioning
+func ParseMongodbMinorVersion(version string) (float32, error) {
+	s := strings.FieldsFunc(version, func(c rune) bool { return c == '.' })
+
+	if len(s) < 2 || len(s) > 3 {
+		return -1, errors.New(fmt.Sprintf("Wrong format of version: %s is expected to have either 2 or 3 parts separated by '.'"))
+	}
+	// if we have 3 parts - we need to parse only two of them
+	if len(s) == 3 {
+		version = strings.Join(s[:2], ".")
+	}
+	v, err := strconv.ParseFloat(version, 32)
+
+	if err != nil {
+		return -1, err
+	}
+	return float32(v), nil
 }

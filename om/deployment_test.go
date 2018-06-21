@@ -38,17 +38,20 @@ func TestMergeStandalone(t *testing.T) {
 	d["version"] = 5
 	d.getProcesses()[0]["alias"] = "alias"
 	d.getProcesses()[0]["hostname"] = "foo"
+	d.getProcesses()[0]["authSchemaVersion"] = 10
+	d.getProcesses()[0]["featureCompatibilityVersion"] = "bla"
 
 	mergeStandalone(d, createStandalone())
 
 	assert.Len(t, d.getProcesses(), 1)
 
-	// fields which are owned by OM-Kube should be overriden back
-	assert.Equal(t, d.getProcesses()[0].HostName(), "mongo1.some.host")
+	expected := createStandalone()
 
 	// fields which are not owned by OM-Kube should be left unchanged
-	assert.Equal(t, d.getProcesses()[0]["alias"], "alias")
 	assert.Equal(t, d["version"], 5)
+	expected["alias"] = "alias"
+
+	assert.Equal(t, &expected, d.getProcessByName(expected.Name()))
 }
 
 // First merge results in just adding the ReplicaSet
@@ -69,6 +72,7 @@ func TestMergeReplicaSet(t *testing.T) {
 	// by merge
 	d.getProcesses()[0]["processType"] = "mongos"                                             // this will be overriden
 	d.getProcesses()[1].Args()["net"].(map[string]interface{})["maxIncomingConnections"] = 20 // this will be left as-is
+	d.getReplicaSets()[0]["protocolVersion"] = 10                                             // this field will be overriden by Operator
 	d.getReplicaSets()[0].setMembers(d.getReplicaSets()[0].members()[0:2])                    // "removing" the last node in replicaset
 	d.getReplicaSets()[0].addMember(NewMongodProcess("foo", "bar", "4.0.0"))                  // "adding" some new node
 	d.getReplicaSets()[0].members()[0]["arbiterOnly"] = true                                  // changing data for first node
@@ -268,13 +272,13 @@ func createSpecificNumberOfShardsAndMongods(countShards, countMongods int, name 
 	shards := make([]ReplicaSetWithProcesses, countShards)
 	for i := 0; i < countShards; i++ {
 		idx := strconv.Itoa(i)
-		shards[i] = NewReplicaSetWithProcesses(NewReplicaSet(name+idx), createReplicaSetProcessesCount(countMongods, name+idx))
+		shards[i] = NewReplicaSetWithProcesses(NewReplicaSet(name+idx, "3.6.3"), createReplicaSetProcessesCount(countMongods, name+idx))
 	}
 	return shards
 }
 
 func buildRsByProcesses(rsName string, processes []Process) ReplicaSetWithProcesses {
-	return NewReplicaSetWithProcesses(NewReplicaSet(rsName), processes)
+	return NewReplicaSetWithProcesses(NewReplicaSet(rsName, "3.6.3"), processes)
 }
 
 func createStandalone() Process {
@@ -311,7 +315,7 @@ func createReplicaSetProcessesCount(count int, rsName string) []Process {
 }
 
 func createConfigSrvRs(name string, check bool) ReplicaSetWithProcesses {
-	replicaSetWithProcesses := NewReplicaSetWithProcesses(NewReplicaSet(name), createReplicaSetProcesses(name))
+	replicaSetWithProcesses := NewReplicaSetWithProcesses(NewReplicaSet(name, "3.6.3"), createReplicaSetProcesses(name))
 
 	if check {
 		for _, p := range replicaSetWithProcesses.Processes {
@@ -322,7 +326,7 @@ func createConfigSrvRs(name string, check bool) ReplicaSetWithProcesses {
 }
 
 func createConfigSrvRsCount(count int, name string, check bool) ReplicaSetWithProcesses {
-	replicaSetWithProcesses := NewReplicaSetWithProcesses(NewReplicaSet(name), createReplicaSetProcessesCount(count, name))
+	replicaSetWithProcesses := NewReplicaSetWithProcesses(NewReplicaSet(name, "3.6.3"), createReplicaSetProcessesCount(count, name))
 
 	if check {
 		for _, p := range replicaSetWithProcesses.Processes {

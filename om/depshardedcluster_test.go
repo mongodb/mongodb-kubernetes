@@ -3,6 +3,7 @@ package om
 import (
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -64,9 +65,10 @@ func TestMergeShardedCluster_ReplicaSetsModified(t *testing.T) {
 	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), createConfigSrvRs("configSrv", false), shards)
 
 	// OM "made" some changes (should not be overriden)
-	(*d.getReplicaSetByName("myShard0"))["protocolVersion"] = 1
+	(*d.getReplicaSetByName("myShard0"))["writeConcernMajorityJournalDefault"] = true
 
 	// These OM changes must be overriden
+	(*d.getReplicaSetByName("myShard0"))["protocolVersion"] = util.Int32Ref(2)
 	(*d.getReplicaSetByName("configSrv")).addMember(NewMongodProcess("foo", "bar", "4.0.0"))
 	(*d.getReplicaSetByName("myShard2")).setMembers(d.getReplicaSetByName("myShard2").members()[0:2])
 
@@ -76,7 +78,7 @@ func TestMergeShardedCluster_ReplicaSetsModified(t *testing.T) {
 	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard"))
 
 	expectedShards := createShards("myShard")
-	expectedShards[0].Rs["protocolVersion"] = 1
+	expectedShards[0].Rs["writeConcernMajorityJournalDefault"] = true
 
 	require.Len(t, d.getProcesses(), 15)
 	require.Len(t, d.getReplicaSets(), 4)

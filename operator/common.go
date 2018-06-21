@@ -36,7 +36,7 @@ func NewDefaultStandalonePodSpecWrapper(podSpec mongodb.MongoDbPodSpecStandalone
 
 func buildReplicaSetFromStatefulSet(set *appsv1.StatefulSet, clusterName, version string) om.ReplicaSetWithProcesses {
 	members := createProcesses(set, clusterName, version, om.ProcessTypeMongod)
-	rsWithProcesses := om.NewReplicaSetWithProcesses(om.NewReplicaSet(set.Name), members)
+	rsWithProcesses := om.NewReplicaSetWithProcesses(om.NewReplicaSet(set.Name, version), members)
 	return rsWithProcesses
 }
 
