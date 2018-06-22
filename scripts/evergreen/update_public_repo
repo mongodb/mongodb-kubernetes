@@ -8,6 +8,8 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 pushd "${DIR}" &> /dev/null
 cd "$(../gitroot)" || exit 1
 
+GITHASH="$(git rev-parse HEAD)"
+
 rsync -avP --delete public/ "${PUBLIC_REPO}" \
   --filter 'protect .git'
 
@@ -18,6 +20,6 @@ git add .
 STATUS=$(git status --porcelain)
 
 if ! [ z"${STATUS}" = z ] ; then
-  git commit -m "$(date +%FT%H%m): update public repo contents"
+  git commit -m "${GITHASH}: update public repo contents"
   git push
 fi
