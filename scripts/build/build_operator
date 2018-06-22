@@ -22,7 +22,8 @@ go version
 
 ## Unit Test (note, that we combine testing and compiling in one file as they need the same
 # preliminary actions (dep, codegen)). Local tests using real OM are excluded
-go test -v  $(go list ./... | grep -v '/\(pkg\|local\)') | tee "${GOPATH}/ops-manager-kubernetes.suite"
+# TODO remove the exclusion for 'util' in CLOUDP-31476
+go test -v  $(go list ./... | grep -v '/\(pkg\|local\|util\)') | tee "${GOPATH}/ops-manager-kubernetes.suite"
 
 if grep "FAIL" "${GOPATH}/ops-manager-kubernetes.suite" ; then
     echo "Some tests failed!"
