@@ -22,9 +22,13 @@ If you have an Helm installation in your Kubernetes cluster, you can run:
 
 ## Non-Helm install ##
 
-This operator can also be installed using yaml files, in case you are not using Helm.
+This operator can also be installed using yaml files, in case you are not using Helm. You may either clone this repo, and apply the file
 
     kubectl apply -f mongodb-enterprise.yaml
+
+or apply it directly from github
+
+    kubectl apply -f https://raw.githubusercontent.com/mongodb/mongodb-enterprise-kubernetes/master/mongodb-enterprise.yaml
 
 
 ## Adding Ops Manager Credentials ##
