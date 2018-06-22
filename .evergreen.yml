@@ -203,8 +203,7 @@ buildvariants:
 - name: test
   run_on:
      - archlinux-test
-  batchtime: 1440 # 1 day
-  stepback: false
+  stepback: true
   tasks:
     - ".test"
 
