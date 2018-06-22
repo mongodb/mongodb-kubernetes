@@ -37,68 +37,128 @@ functions:
           shell: bash
           script: |
             src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/setup_docker
-  "build_images":
-    - command: shell.exec
-      params:
-          shell: bash
-          script: |
-            src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_docker_image mongodb-enterprise-database
-            src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_docker_image mongodb-enterprise-operator
-
-  "upload_images":
-    - command: shell.exec
-      params:
-          script: |
-            export AWS_ACCESS_KEY_ID=${mms_eng_test_aws_access_key}
-            export AWS_SECRET_ACCESS_KEY=${mms_eng_test_aws_secret}
-            export QUAY_ROBOT_TOKEN=${quay_robot_token}
-
-            if [ "${is_patch}" = "true" ]; then
-              echo "Not uploading - this is a patch build"
-              exit 0
-            else
-              echo "Uploading - this is not a patch build"
-            fi
-            src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/upload_docker_image mongodb-enterprise-database
-            src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/upload_docker_image mongodb-enterprise-operator
 
   "gotest_parse_files":
     - command: gotest.parse_files
       params:
         files: ["*.suite", "src/**/*.suite"]
 
-  "release":
+  "build_images":
     - command: shell.exec
       params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        shell: bash
         script: |
-          # skip if patch
+          # Installing requirements
+          python3 -m venv venv
+          source venv/bin/activate
+          python3 -m pip install -r src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/requirements.txt
+
+          src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py build \
+              --image mongodb-enterprise-operator \
+              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/.release.yaml
+
+          src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py build \
+              --image mongodb-enterprise-database \
+              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/.release.yaml
+
+
+  "push_images_production":
+    - command: shell.exec
+      params:
+        script: |
+          # Do not execute during normal runs, only during _patch_.
           if [ "${is_patch}" = "true" ]; then
-            echo "Releasing only on `patch` stage."
-            exit 0
+            echo "This is _patch_. Proceeding with release."
           else
-            echo "Not releasing during normal run ${tag}"
+            echo "Not releasing during normal run"
             exit 0
           fi
 
-          # src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/init_virtualenv.sh ${working_dir}
-          # VIRTUAL_ENV_DISABLE_PROMPT=true source ./venv-activate
-          # pip install -r src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/requirements.txt
-          # tag=$(cat src/github.com/10gen/ops-manager-kubernetes/.release.yaml | grep currentVersion | awk '{ print $2 }')
-          # src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py --image operator --tag ${tag}
-          # src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py --image database --tag ${tag}
+          export QUAY_PROD_USER=${quay_prod_username}
+          export QUAY_PROD_PASSWORD=${quay_prod_robot_token}
+
+          # Installing requirements
+          python3 -m venv venv
+          source venv/bin/activate
+          python3 -m pip install -r src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/requirements.txt
+
+          # Build & release Operator Image
+          src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py push \
+              --image mongodb-enterprise-operator \
+              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/.release.yaml \
+              --registry production
+
+          # Build & release Database Image
+          src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py push \
+              --image mongodb-enterprise-database \
+              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/.release.yaml \
+              --registry production
+
+  "push_images_staging":
+    - command: shell.exec
+      params:
+        script: |
+          if [ "${is_patch}" = "true" ]; then
+            echo "This is _patch_. Proceeding with release."
+          else
+            echo "Not releasing during normal run"
+            exit 0
+          fi
+
+          export QUAY_STAGING_USER=mongodb-enterprise-private+build_robot
+          export QUAY_STAGING_PASSWORD=${quay_robot_token}
+
+          # Installing requirements
+          python3 -m venv venv
+          source venv/bin/activate
+          python3 -m pip install -r src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/requirements.txt
+
+          # Build & release Operator Image
+          src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py push \
+              --image mongodb-enterprise-operator \
+              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/.release.yaml \
+              --registry staging
+
+          # Build & release Database Image
+          src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py push \
+              --image mongodb-enterprise-database \
+              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/.release.yaml \
+              --registry staging
+
+  "push_images_development":
+    - command: shell.exec
+      params:
+        script: |
+          # Do not execute during normal runs, only during _patch_.
+          if [ "${is_patch}" = "true" ]; then
+            echo "This is _patch_. Proceeding with release."
+          else
+            echo "Not releasing during normal run"
+            exit 0
+          fi
+
+          # AWS creds
+          export AWS_ACCESS_KEY_ID=${mms_eng_test_aws_access_key}
+          export AWS_SECRET_ACCESS_KEY=${mms_eng_test_aws_secret}
+
+          # Installing requirements
+          python3 -m venv venv
+          source venv/bin/activate
+          python3 -m pip install -r src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/requirements.txt
+
+          # Build & release Operator Image
+          src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py push \
+              --image mongodb-enterprise-operator \
+              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/.release.yaml \
+              --registry development
+
+          # Build & release Database Image
+          src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py push \
+              --image mongodb-enterprise-database \
+              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/.release.yaml \
+              --registry development
 
 tasks:
-
-- name: build_and_upload
-  tags: ["build_and_upload"]
-  commands:
-    - func: "clone"
-    - func: "build_operator"
-    - func: "setup_aws"
-    - func: "setup_docker"
-    - func: "build_images"
-    - func: "upload_images"
 
 - name: test
   tags: ["test"]
@@ -111,20 +171,34 @@ tasks:
   tags: ["release"]
   commands:
     - func: "clone"
-    - func: "release"
+    - func: "build_operator"
+    - func: "setup_docker"
+    - func: "setup_aws"
+    - func: "build_images"
+    - func: "push_images_production"
+
+- name: push_images_to_development
+  tags: ["push_images_to_development"]
+  commands:
+    - func: "clone"
+    - func: "build_operator"
+    - func: "setup_docker"
+    - func: "setup_aws"
+    - func: "build_images"
+    - func: "push_images_development"
+
+- name: push_images_to_staging
+  tags: ["push_images_to_staging"]
+  commands:
+    - func: "clone"
+    - func: "build_operator"
+    - func: "setup_docker"
+    - func: "setup_aws"
+    - func: "build_images"
+    - func: "push_images_staging"
 
 
 buildvariants:
-
-- name: build_and_upload
-  run_on:
-    # Until https://jira.mongodb.org/browse/MCI-2851, the Evergreen team requested that we use this
-    # distro to avoid our installation of docker affecting Server performance tests unpredictably
-     - archlinux-test
-  batchtime: 1440 # 1 day
-  stepback: false
-  tasks:
-    - ".build_and_upload"
 
 - name: test
   run_on:
@@ -139,3 +213,17 @@ buildvariants:
     - archlinux-test
   tasks:
     - ".release"
+
+- name: push_images_to_staging
+  run_on:
+    - archlinux-test
+  tasks:
+    - ".push_images_to_staging"
+
+- name: push_images_to_development
+  run_on:
+    - archlinux-test
+  batchtime: 1440
+  stepback: false
+  tasks:
+    - ".push_images_to_development"
