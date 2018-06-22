@@ -41,6 +41,31 @@ func TestPrepareScaleDownShardedCluster(t *testing.T) {
 	mockedOmConnection.CheckMonitoredHosts(t, []string{})
 }
 
+// TestPrepareScaleDownShardedCluster_ShardsUpMongodsDown checks the situation when shards count increases and mongods
+// count per shard is decreased - scale down operation is expected to be called only for existing shards
+func TestPrepareScaleDownShardedCluster_ShardsUpMongodsDown(t *testing.T) {
+	old := DefaultClusterBuilder().SetShardCount(2).SetMongodsPerShardCount(4).Build()
+	new := DefaultClusterBuilder().SetShardCount(4).SetMongodsPerShardCount(3).Build()
+	newState := createStateFromResource(new)
+
+	oldDeployment := createDeploymentFromResource(old)
+	mockedOmConnection := om.NewMockedOmConnection(oldDeployment)
+	prepareScaleDownShardedCluster(mockedOmConnection, newState, old, new, zap.S())
+
+	// expected change of state: rs members are marked unvoted only for two shards (old state)
+	expectedDeployment := createDeploymentFromResource(old)
+	firstShard := new.ShardRsName(0) + "-3"
+	secondShard := new.ShardRsName(1) + "-3"
+
+	expectedDeployment.MarkRsMembersUnvoted(new.ShardRsName(0), []string{firstShard})
+	expectedDeployment.MarkRsMembersUnvoted(new.ShardRsName(1), []string{secondShard})
+
+	mockedOmConnection.CheckNumberOfRequests(t, 1)
+	mockedOmConnection.CheckDeployment(t, expectedDeployment)
+	// we don't remove hosts from monitoring at this stage
+	mockedOmConnection.CheckMonitoredHosts(t, []string{})
+}
+
 // TestPrepareScaleDownShardedCluster_OnlyMongos checks that if only mongos processes are scaled down - then no preliminary
 // actions are done
 func TestPrepareScaleDownShardedCluster_OnlyMongos(t *testing.T) {
@@ -96,11 +121,14 @@ func createDeploymentFromResource(sh *v1.MongoDbShardedCluster) om.Deployment {
 }
 
 func createStateFromResource(sh *v1.MongoDbShardedCluster) KubeState {
+	shardHelpers := make([]*StatefulSetHelper, sh.Spec.ShardCount)
+	for i := 0; i < sh.Spec.ShardCount; i++ {
+		shardHelpers[i] = defaultSetHelper().SetName(sh.ShardRsName(i)).SetService(sh.ShardServiceName()).SetReplicas(sh.Spec.MongodsPerShardCount)
+	}
 	return KubeState{
 		mongosSetHelper:    defaultSetHelper().SetName(sh.MongosRsName()).SetService(sh.MongosServiceName()).SetReplicas(sh.Spec.MongosCount),
 		configSrvSetHelper: defaultSetHelper().SetName(sh.ConfigRsName()).SetService(sh.ConfigSrvServiceName()).SetReplicas(sh.Spec.ConfigServerCount),
-		shardsSetsHelpers: []*StatefulSetHelper{defaultSetHelper().SetName(sh.ShardRsName(0)).SetService(sh.ShardServiceName()).SetReplicas(sh.Spec.MongodsPerShardCount),
-			defaultSetHelper().SetName(sh.ShardRsName(1)).SetService(sh.ShardServiceName()).SetReplicas(sh.Spec.MongodsPerShardCount)}}
+		shardsSetsHelpers:  shardHelpers}
 }
 
 type ClusterBuilder struct {

@@ -96,9 +96,8 @@ func (c *MongoDbController) doRsProcessing(o, n *mongodb.MongoDbReplicaSet, log 
 
 func prepareScaleDownReplicaSet(omClient om.OmConnection, statefulSet *appsv1.StatefulSet, old, new *mongodb.MongoDbReplicaSet,
 	log *zap.SugaredLogger) error {
-	hostNames, podNames := GetDnsForStatefulSetReplicasSpecified(statefulSet, new.Spec.ClusterName, old.Spec.Members)
+	_, podNames := GetDnsForStatefulSetReplicasSpecified(statefulSet, new.Spec.ClusterName, old.Spec.Members)
 	podNames = podNames[new.Spec.Members:old.Spec.Members]
-	hostNames = hostNames[new.Spec.Members:old.Spec.Members]
 
 	return prepareScaleDown(omClient, map[string][]string{new.Name: podNames}, log)
 }

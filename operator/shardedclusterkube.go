@@ -255,7 +255,7 @@ func prepareScaleDownShardedCluster(omClient om.OmConnection, state KubeState, o
 	}
 
 	if new.Spec.MongodsPerShardCount < old.Spec.MongodsPerShardCount {
-		for _, s := range state.shardsSetsHelpers {
+		for _, s := range state.shardsSetsHelpers[:old.Spec.ShardCount] {
 			_, podNames := GetDnsForStatefulSetReplicasSpecified(s.BuildStatefulSet(), clusterName, old.Spec.MongodsPerShardCount)
 			membersToScaleDown[s.Name] = podNames[new.Spec.MongodsPerShardCount:old.Spec.MongodsPerShardCount]
 		}

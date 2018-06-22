@@ -117,14 +117,16 @@ func prepareScaleDown(omClient om.OmConnection, rsMembers map[string][]string, l
 		err := omClient.ReadUpdateDeployment(true,
 			func(d om.Deployment) error {
 				for k, v := range rsMembers {
-					d.MarkRsMembersUnvoted(k, v)
+					if err := d.MarkRsMembersUnvoted(k, v); err != nil {
+						log.Errorf("Problems scaling down some replica sets (were they changed in Ops Manager directly?): %s", err)
+					}
 				}
 				return nil
 			},
 		)
 
 		if err != nil {
-			return errors.New(fmt.Sprintf("Unable to set votes, priority to 0, hosts: %v, err: %s", allProcesses, err))
+			return errors.New(fmt.Sprintf("Unable to set votes, priority to 0 in Ops Manager, hosts: %v, err: %s", allProcesses, err))
 		}
 
 		log.Debugw("Marked replica set members as non-voting", "replica set with members", rsMembers)

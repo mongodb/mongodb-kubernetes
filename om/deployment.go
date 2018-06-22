@@ -146,10 +146,25 @@ func (d Deployment) DisableProcesses(processNames []string) {
 	}
 }
 
-func (d Deployment) MarkRsMembersUnvoted(rsName string, rsMembers []string) {
-	for _, m := range rsMembers {
-		d.getReplicaSetByName(rsName).findMemberByName(m).setVotes(0).setPriority(0)
+func (d Deployment) MarkRsMembersUnvoted(rsName string, rsMembers []string) error {
+	rs := d.getReplicaSetByName(rsName)
+	if rs == nil {
+		return errors.New("Failed to find Replica Set " + rsName)
 	}
+
+	failedMembers := ""
+	for _, m := range rsMembers {
+		rsMember := rs.findMemberByName(m)
+		if rsMember == nil {
+			failedMembers += m
+		} else {
+			rsMember.setVotes(0).setPriority(0)
+		}
+	}
+	if failedMembers != "" {
+		return errors.New(fmt.Sprintf("Failed to find the following members of Replica Set %s: %v", rsName, failedMembers))
+	}
+	return nil
 }
 
 func (d Deployment) RemoveProcessByName(name string) error {
