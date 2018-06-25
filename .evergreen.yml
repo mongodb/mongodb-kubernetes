@@ -55,11 +55,11 @@ functions:
 
           src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py build \
               --image mongodb-enterprise-operator \
-              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/.release.yaml
+              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/release.yaml
 
           src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py build \
               --image mongodb-enterprise-database \
-              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/.release.yaml
+              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/release.yaml
 
 
   "push_images_production":
@@ -85,13 +85,13 @@ functions:
           # Build & release Operator Image
           src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py push \
               --image mongodb-enterprise-operator \
-              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/.release.yaml \
+              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/release.yaml \
               --registry production
 
           # Build & release Database Image
           src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py push \
               --image mongodb-enterprise-database \
-              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/.release.yaml \
+              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/release.yaml \
               --registry production
 
   "push_images_staging":
@@ -116,13 +116,13 @@ functions:
           # Build & release Operator Image
           src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py push \
               --image mongodb-enterprise-operator \
-              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/.release.yaml \
+              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/release.yaml \
               --registry staging
 
           # Build & release Database Image
           src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py push \
               --image mongodb-enterprise-database \
-              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/.release.yaml \
+              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/release.yaml \
               --registry staging
 
   "push_images_development":
@@ -149,13 +149,13 @@ functions:
           # Build & release Operator Image
           src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py push \
               --image mongodb-enterprise-operator \
-              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/.release.yaml \
+              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/release.yaml \
               --registry development
 
           # Build & release Database Image
           src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py push \
               --image mongodb-enterprise-database \
-              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/.release.yaml \
+              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/release.yaml \
               --registry development
 
 tasks:

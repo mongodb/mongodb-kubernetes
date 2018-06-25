@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-'''Applies release version from `.release.yaml` file to relevant files.'''
+'''Applies release version from `release.yaml` file to relevant files.'''
 
 import re
 from build_and_release import read_release_from_file
@@ -23,7 +23,7 @@ def replace_image_from_file_contents(contents, release):
     return contents
 
 if __name__ == '__main__':
-    release = read_release_from_file('.release.yaml')
+    release = read_release_from_file('release.yaml')
 
     for fname in files:
         with open(fname, 'r') as fd:
