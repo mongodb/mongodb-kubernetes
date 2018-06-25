@@ -41,6 +41,11 @@ func Int32Ref(i int32) *int32 {
 	return &i
 }
 
+// Float64Ref is required to return a *float64, which can't be declared as a literal.
+func Float64Ref(i float64) *float64 {
+	return &i
+}
+
 // BooleanRef is required to return a *bool, which can't be declared as a literal.
 func BooleanRef(b bool) *bool {
 	return &b

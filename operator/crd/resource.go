@@ -18,13 +18,14 @@ import (
 )
 
 type CustomResource struct {
-	Name      string
-	Plural    string
-	Group     string
-	Version   string
-	Scope     apiextensionsv1beta1.ResourceScope
-	Kind      string
-	ShortName string
+	Name       string
+	Plural     string
+	Group      string
+	Version    string
+	Scope      apiextensionsv1beta1.ResourceScope
+	Kind       string
+	ShortName  string
+	Validation *apiextensionsv1beta1.JSONSchemaProps
 }
 
 type ResourceWatcher struct {
@@ -100,6 +101,9 @@ func BuildCustomResource(context Context, resource CustomResource) error {
 				ShortNames: []string{resource.ShortName},
 			},
 		},
+	}
+	if resource.Validation != nil {
+		crd.Spec.Validation = &apiextensionsv1beta1.CustomResourceValidation{OpenAPIV3Schema: resource.Validation}
 	}
 
 	_, err := context.APIExtensionClientset.ApiextensionsV1beta1().CustomResourceDefinitions().Create(crd)
