@@ -107,3 +107,17 @@ We also use `quay.io` private and public repositories
 The development workflow is not quite settled yet, there is no easy way of switching between local and remote environments.
 `Helm` gives some flexibility for choosing the images used for deploying to Kubernetes (local/quay/ECR) but building 
 and pushing of local/remote images is still not done generic way. Any scripts starting with `my-` will be ignored by Git.
+
+
+# Release process
+
+```
+# Release to public quay.io repo
+evergreen patch -t release -v release -p ops-manager-kubernetes -f -y
+
+# Release to private quay.io repo
+evergreen patch -t push_images_to_staging -v push_images_to_staging -p ops-manager-kubernetes -f -y
+
+# Release to Amazon ECR
+evergreen patch -t push_images_to_development -v push_images_to_development -p ops-manager-kubernetes -f -y
+```
