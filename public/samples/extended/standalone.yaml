@@ -1,19 +1,15 @@
----
 apiVersion: mongodb.com/v1
-kind: MongoDbReplicaSet
+kind: MongoDbStandalone
 metadata:
-  name: liffey
+  name: my-standalone
   namespace: mongodb
 spec:
-  members: 3
-  version: 3.6.4
-  # service allows to override the name of Kubernetes service that is created for stateful set
-  service: ireland
+  version: 4.0.0
+  service: my-service
 
-  ## Please Note: Kubernetes cluster default name is `cluster.local`.
+  ## Please Note: The default Kubernetes cluster name is `cluster.local`.
   ## If your cluster has been configured with another name, you can specify
   ## it with the `clusterName` attribute.
-  #
   # clusterName: mycompany.net
 
   project: my-project
@@ -25,7 +21,6 @@ spec:
     memory: 512M
     storage: 12G
     storageClass: standard
-    podAntiAffinityTopologyKey: nodeId
     podAffinity:
       requiredDuringSchedulingIgnoredDuringExecution:
       - labelSelector:

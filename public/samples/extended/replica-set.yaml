@@ -1,17 +1,17 @@
+---
 apiVersion: mongodb.com/v1
-kind: MongoDbStandalone
+kind: MongoDbReplicaSet
 metadata:
-  name: my-standalone
+  name: my-replica-set
   namespace: mongodb
 spec:
-  # see more information about these configuration parameters in "extended/om-replica-set.yaml"
-  version: 3.6.3
-  service: liffey
+  members: 3
+  version: 4.0.0
+  service: my-service
 
-  ## Please Note: Kubernetes cluster default name is `cluster.local`.
+  ## Please Note: The default Kubernetes cluster name is `cluster.local`.
   ## If your cluster has been configured with another name, you can specify
   ## it with the `clusterName` attribute.
-  #
   # clusterName: mycompany.net
 
   project: my-project
@@ -23,6 +23,7 @@ spec:
     memory: 512M
     storage: 12G
     storageClass: standard
+    podAntiAffinityTopologyKey: nodeId
     podAffinity:
       requiredDuringSchedulingIgnoredDuringExecution:
       - labelSelector:

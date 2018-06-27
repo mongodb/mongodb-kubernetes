@@ -2,20 +2,19 @@
 apiVersion: mongodb.com/v1
 kind: MongoDbShardedCluster
 metadata:
-  name: shannon
+  name: my-sharded-cluster
   namespace: mongodb
 spec:
   shardCount: 2
   mongodsPerShardCount: 3
   mongosCount: 2
   configServerCount: 3
-  version: 3.6.3
-  service: ireland
+  version: 4.0.0
+  service: my-service
 
-  ## Please Note: Kubernetes cluster default name is `cluster.local`.
+  ## Please Note: The default Kubernetes cluster name is `cluster.local`.
   ## If your cluster has been configured with another name, you can specify
   ## it with the `clusterName` attribute.
-  #
   # clusterName: mycompany.net
 
   project: my-project
