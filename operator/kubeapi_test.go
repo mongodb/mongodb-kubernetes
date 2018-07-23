@@ -1,0 +1,149 @@
+package operator
+
+import (
+	"runtime"
+
+	b64 "encoding/base64"
+	"reflect"
+
+	"fmt"
+
+	"github.com/pkg/errors"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+const (
+	ProjectConfigMapName  = "my-project"
+	CredentialsSecretName = "my-credentials"
+	Namespace             = "my-namespace"
+)
+
+type MockedKubeApi struct {
+	sets       map[string]*appsv1.StatefulSet
+	services   map[string]*corev1.Service
+	configMaps map[string]*corev1.ConfigMap
+	secrets    map[string]*corev1.Secret
+	// mocked client keeps track of all implemented functions called - uses reflection Func for this to enable type-safety
+	// and make function names rename easier
+	history []*runtime.Func
+}
+
+func newMockedKubeApi() *MockedKubeApi {
+	api := MockedKubeApi{}
+	api.sets = make(map[string]*appsv1.StatefulSet)
+	api.services = make(map[string]*corev1.Service)
+	api.configMaps = make(map[string]*corev1.ConfigMap)
+	api.secrets = make(map[string]*corev1.Secret)
+
+	// initialize config map and secret to emulate user preparing environment
+	project := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: ProjectConfigMapName, Namespace: Namespace},
+		Data:       map[string]string{OmBaseUrl: "http://mycompany.com:8080", OmProjectId: "5b310aa0790b5830343208c9"}}
+	api.createConfigMap(Namespace, project)
+
+	credentials := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: CredentialsSecretName, Namespace: Namespace},
+		StringData: map[string]string{OmUser: "test@mycompany.com", OmPublicApiKey: "36lj245asg06s0h70245dstgft"}}
+	api.createSecret(Namespace, credentials)
+
+	return &api
+}
+
+func (k *MockedKubeApi) getStatefulSet(ns, name string) (*appsv1.StatefulSet, error) {
+	k.addToHistory(reflect.ValueOf(k.getStatefulSet))
+	if _, exists := k.sets[ns+name]; !exists {
+		return nil, errors.New(fmt.Sprintf("Statefulset %s doesn't exists!", name))
+	}
+	return k.sets[ns+name], nil
+}
+
+func (k *MockedKubeApi) createStatefulSet(ns string, set *appsv1.StatefulSet) (*appsv1.StatefulSet, error) {
+	k.addToHistory(reflect.ValueOf(k.createStatefulSet))
+	if _, err := k.getStatefulSet(ns, set.Name); err == nil {
+		return nil, errors.New(fmt.Sprintf("Statefulset %s already exists!", set.Name))
+	}
+	k.doUpdateStatefulset(ns, set)
+	return set, nil
+}
+
+func (k *MockedKubeApi) updateStatefulSet(ns string, set *appsv1.StatefulSet) (*appsv1.StatefulSet, error) {
+	k.addToHistory(reflect.ValueOf(k.updateStatefulSet))
+	if _, err := k.getStatefulSet(ns, set.Name); err != nil {
+		return nil, err
+	}
+
+	k.doUpdateStatefulset(ns, set)
+	return set, nil
+}
+
+func (k *MockedKubeApi) doUpdateStatefulset(ns string, set *appsv1.StatefulSet) {
+	k.sets[ns+set.Name] = set
+}
+
+func (k *MockedKubeApi) getService(ns, name string) (*corev1.Service, error) {
+	k.addToHistory(reflect.ValueOf(k.getService))
+	if _, exists := k.services[ns+name]; !exists {
+		return nil, errors.New(fmt.Sprintf("Service %s doesn't exists!", name))
+	}
+	return k.services[ns+name], nil
+}
+
+func (k *MockedKubeApi) createService(ns string, service *corev1.Service) (*corev1.Service, error) {
+	k.addToHistory(reflect.ValueOf(k.createService))
+	if _, err := k.getService(ns, service.Name); err == nil {
+		return nil, errors.New(fmt.Sprintf("Service %s already exists!", service.Name))
+	}
+	k.services[ns+service.Name] = service
+	return service, nil
+}
+
+func (k *MockedKubeApi) getConfigMap(ns, name string) (*corev1.ConfigMap, error) {
+	k.addToHistory(reflect.ValueOf(k.getConfigMap))
+	if _, exists := k.configMaps[ns+name]; !exists {
+		return nil, errors.New(fmt.Sprintf("ConfigMap %s doesn't exists!", name))
+	}
+	return k.configMaps[ns+name], nil
+}
+
+// internal method, used to initialize environment
+func (k *MockedKubeApi) createConfigMap(ns string, configMap *corev1.ConfigMap) {
+	k.configMaps[ns+configMap.Name] = configMap
+}
+
+func (k *MockedKubeApi) updateConfigMap(ns string, configMap *corev1.ConfigMap) (*corev1.ConfigMap, error) {
+	k.addToHistory(reflect.ValueOf(k.updateConfigMap))
+	if _, err := k.getConfigMap(ns, configMap.Name); err != nil {
+		return nil, err
+	}
+	k.configMaps[ns+configMap.Name] = configMap
+	return configMap, nil
+}
+
+func (k *MockedKubeApi) getSecret(ns, name string) (*corev1.Secret, error) {
+	k.addToHistory(reflect.ValueOf(k.getSecret))
+	if _, exists := k.secrets[ns+name]; !exists {
+		return nil, errors.New(fmt.Sprintf("Secret %s doesn't exists!", name))
+	}
+	return k.secrets[ns+name], nil
+}
+func (k *MockedKubeApi) createSecret(ns string, secret *corev1.Secret) (*corev1.Secret, error) {
+	k.addToHistory(reflect.ValueOf(k.createSecret))
+	if _, err := k.getSecret(ns, secret.Name); err == nil {
+		return nil, errors.New(fmt.Sprintf("Secret %s already exists!", secret.Name))
+	}
+	if secret.Data == nil {
+		secret.Data = make(map[string][]byte)
+	}
+	for k, v := range secret.StringData {
+		sDec, _ := b64.StdEncoding.DecodeString(v)
+		secret.Data[k] = sDec
+	}
+	k.secrets[ns+secret.Name] = secret
+	return secret, nil
+}
+
+func (oc *MockedKubeApi) addToHistory(value reflect.Value) {
+	oc.history = append(oc.history, runtime.FuncForPC(value.Pointer()))
+}

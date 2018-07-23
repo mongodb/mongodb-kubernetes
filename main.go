@@ -16,6 +16,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
+	"github.com/10gen/ops-manager-kubernetes/om"
 	"go.uber.org/zap"
 )
 
@@ -55,7 +56,8 @@ func main() {
 
 	// start watching the sample resources
 	log.Info("Starting watching resources for CRDs just created")
-	controller := operator.NewMongoDbController(context, mongodbClientset)
+	api := operator.RestKubeApi{KubeApi: context.Clientset}
+	controller := operator.NewMongoDbController(&api, mongodbClientset, om.NewOpsManagerConnection)
 	controller.StartWatch(v1.NamespaceAll, stopChan)
 
 	for {

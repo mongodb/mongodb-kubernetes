@@ -35,10 +35,10 @@ func TestPrepareScaleDownShardedCluster(t *testing.T) {
 	expectedDeployment.MarkRsMembersUnvoted(new.ShardRsName(0), []string{firstShard})
 	expectedDeployment.MarkRsMembersUnvoted(new.ShardRsName(1), []string{secondShard})
 
-	mockedOmConnection.CheckNumberOfRequests(t, 1)
+	mockedOmConnection.CheckNumberOfUpdateRequests(t, 1)
 	mockedOmConnection.CheckDeployment(t, expectedDeployment)
 	// we don't remove hosts from monitoring at this stage
-	mockedOmConnection.CheckMonitoredHosts(t, []string{})
+	mockedOmConnection.CheckMonitoredHostsRemoved(t, []string{})
 }
 
 // TestPrepareScaleDownShardedCluster_ShardsUpMongodsDown checks the situation when shards count increases and mongods
@@ -60,10 +60,10 @@ func TestPrepareScaleDownShardedCluster_ShardsUpMongodsDown(t *testing.T) {
 	expectedDeployment.MarkRsMembersUnvoted(new.ShardRsName(0), []string{firstShard})
 	expectedDeployment.MarkRsMembersUnvoted(new.ShardRsName(1), []string{secondShard})
 
-	mockedOmConnection.CheckNumberOfRequests(t, 1)
+	mockedOmConnection.CheckNumberOfUpdateRequests(t, 1)
 	mockedOmConnection.CheckDeployment(t, expectedDeployment)
 	// we don't remove hosts from monitoring at this stage
-	mockedOmConnection.CheckMonitoredHosts(t, []string{})
+	mockedOmConnection.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedOmConnection.RemoveHost))
 }
 
 // TestPrepareScaleDownShardedCluster_OnlyMongos checks that if only mongos processes are scaled down - then no preliminary
@@ -78,9 +78,9 @@ func TestPrepareScaleDownShardedCluster_OnlyMongos(t *testing.T) {
 	mockedOmConnection := om.NewMockedOmConnection(oldDeployment)
 	prepareScaleDownShardedCluster(mockedOmConnection, newState, old, new, zap.S())
 
-	mockedOmConnection.CheckNumberOfRequests(t, 0)
+	mockedOmConnection.CheckNumberOfUpdateRequests(t, 0)
 	mockedOmConnection.CheckDeployment(t, createDeploymentFromResource(old))
-	mockedOmConnection.CheckMonitoredHosts(t, []string{})
+	mockedOmConnection.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedOmConnection.RemoveHost))
 }
 
 func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.T) {
@@ -99,7 +99,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 	firstMongos := new.MongosRsName() + "-1"
 	secondMongos := new.MongosRsName() + "-2"
 
-	mockOm.CheckMonitoredHosts(t, []string{
+	mockOm.CheckMonitoredHostsRemoved(t, []string{
 		firstConfig + ".slaney-cs.mongodb.svc.cluster.local",
 		firstMongos + ".slaney-svc.mongodb.svc.cluster.local",
 		secondMongos + ".slaney-svc.mongodb.svc.cluster.local",
@@ -143,7 +143,7 @@ func DefaultClusterBuilder() *ClusterBuilder {
 		MongosCount:          4,
 		Version:              "3.6.4"}
 	cluster := &v1.MongoDbShardedCluster{
-		ObjectMeta: metav1.ObjectMeta{Name: "slaney", Namespace: "mongodb"},
+		ObjectMeta: metav1.ObjectMeta{Name: "slaney", Namespace: Namespace},
 		Spec:       *spec}
 	return &ClusterBuilder{cluster}
 }

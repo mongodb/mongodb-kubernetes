@@ -53,12 +53,12 @@ func (c *MongoDbController) onUpdateShardedCluster(oldObj, newObj interface{}) {
 }
 
 func (c *MongoDbController) doShardedClusterProcessing(o, n *mongodb.MongoDbShardedCluster, log *zap.SugaredLogger) error {
-	conn, err := c.getOmConnection(n.Namespace, n.Spec.Project, n.Spec.Credentials)
+	conn, err := c.createOmConnection(n.Namespace, n.Spec.Project, n.Spec.Credentials)
 	if err != nil {
 		return err
 	}
 
-	agentKeySecretName, err := c.EnsureAgentKeySecretExists(conn, n.Namespace, log)
+	agentKeySecretName, err := c.ensureAgentKeySecretExists(conn, n.Namespace, log)
 	if err != nil {
 		return errors.New(fmt.Sprintf("Failed to generate/get agent key: %s", err))
 	}
@@ -209,7 +209,7 @@ func (c *MongoDbController) onDeleteShardedCluster(obj interface{}) {
 
 	hostsToRemove := getAllHosts(sc)
 
-	conn, err := c.getOmConnection(sc.Namespace, sc.Spec.Project, sc.Spec.Credentials)
+	conn, err := c.createOmConnection(sc.Namespace, sc.Spec.Project, sc.Spec.Credentials)
 	if err != nil {
 		log.Error(err)
 		return

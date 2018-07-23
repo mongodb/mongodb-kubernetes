@@ -10,13 +10,11 @@ import (
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
 )
 
 type KubeHelper struct {
-	kubeApi kubernetes.Interface
+	kubeApi KubeApi
 }
 
 type ProjectConfig struct {
@@ -148,9 +146,9 @@ func (s *StatefulSetHelper) CreateOrUpdateInKubernetes() error {
 // won't be connectible from external (unless pods in statefulset expose themselves to outside using "hostNetwork: true")
 // Function returns the service port number assigned
 func (k *KubeHelper) createOrUpdateStatefulsetWithService(owner metav1.Object, servicePort int32,
-	namespace string, exposeExternally bool, log *zap.SugaredLogger, statefulset *appsv1.StatefulSet) (*int32, error) {
+	ns string, exposeExternally bool, log *zap.SugaredLogger, statefulset *appsv1.StatefulSet) (*int32, error) {
 
-	service, err := k.ensureServicesExist(owner, statefulset.Spec.ServiceName, servicePort, namespace,
+	service, err := k.ensureServicesExist(owner, statefulset.Spec.ServiceName, servicePort, ns,
 		exposeExternally, log, statefulset)
 
 	if err != nil {
@@ -159,13 +157,13 @@ func (k *KubeHelper) createOrUpdateStatefulsetWithService(owner metav1.Object, s
 
 	log = log.With("statefulset", statefulset.Name)
 
-	if _, err := k.readStatefulSet(namespace, statefulset.Name); err != nil {
-		if _, err := k.kubeApi.AppsV1().StatefulSets(namespace).Create(statefulset); err != nil {
+	if _, err := k.kubeApi.getStatefulSet(ns, statefulset.Name); err != nil {
+		if _, err := k.kubeApi.createStatefulSet(ns, statefulset); err != nil {
 			return nil, err
 		}
 		log.Infow("Created statefulset")
 	} else {
-		if _, err := k.kubeApi.AppsV1().StatefulSets(namespace).Update(statefulset); err != nil {
+		if _, err := k.kubeApi.updateStatefulSet(ns, statefulset); err != nil {
 			return nil, err
 		}
 		log.Infow("Updated statefulset")
@@ -200,15 +198,15 @@ func (k *KubeHelper) ensureServicesExist(owner metav1.Object, serviceName string
 	return service, nil
 }
 
-func (k *KubeHelper) readOrCreateService(owner metav1.Object, serviceName string, label string, servicePort int32, nameSpace string,
+func (k *KubeHelper) readOrCreateService(owner metav1.Object, serviceName string, label string, servicePort int32, ns string,
 	exposeExternally bool, log *zap.SugaredLogger) (*corev1.Service, error) {
 	log = log.With("service", serviceName)
 
-	service, err := k.kubeApi.CoreV1().Services(nameSpace).Get(serviceName, v1.GetOptions{})
+	service, err := k.kubeApi.getService(ns, serviceName)
 
 	if err != nil {
 		log.Info("Service doesn't exist - creating it")
-		service, err = k.createService(owner, serviceName, label, servicePort, nameSpace, exposeExternally)
+		service, err = k.kubeApi.createService(ns, buildService(owner, serviceName, label, ns, servicePort, exposeExternally))
 		if err != nil {
 			return nil, err
 		}
@@ -222,22 +220,20 @@ func (k *KubeHelper) readOrCreateService(owner metav1.Object, serviceName string
 	return service, nil
 }
 
-func (k *KubeHelper) createService(owner metav1.Object, name string, label string, port int32, ns string, exposeExternally bool) (*corev1.Service, error) {
-	return k.kubeApi.CoreV1().Services(ns).Create(buildService(owner, name, label, ns, port, exposeExternally))
-}
-
 // readProjectConfig returns a config map
-func (k *KubeHelper) readProjectConfig(namespace, name string) (*ProjectConfig, error) {
-	cmap, err := k.readConfigMap(namespace, name)
+func (k *KubeHelper) readProjectConfig(ns, name string) (*ProjectConfig, error) {
+	cmap, err := k.kubeApi.getConfigMap(ns, name)
 	if err != nil {
 		return nil, err
 	}
 
-	baseUrl, ok := cmap[OmBaseUrl]
+	data := cmap.Data
+
+	baseUrl, ok := data[OmBaseUrl]
 	if !ok {
 		return nil, errors.New(fmt.Sprintf("Error getting %s from `project`", OmBaseUrl))
 	}
-	projectId, ok := cmap[OmProjectId]
+	projectId, ok := data[OmProjectId]
 	if !ok {
 		return nil, errors.New(fmt.Sprintf("Error getting %s from `project`", OmProjectId))
 	}
@@ -283,16 +279,8 @@ func (k *KubeHelper) readAgentApiKeyForProject(namespace, agentKeyName string) (
 	return api, nil
 }
 
-func (k *KubeHelper) readConfigMap(ns, name string) (map[string]string, error) {
-	configMap, e := k.kubeApi.CoreV1().ConfigMaps(ns).Get(name, v1.GetOptions{})
-	if e != nil {
-		return nil, e
-	}
-	return configMap.Data, nil
-}
-
 func (k *KubeHelper) readSecret(namespace, name string) (map[string]string, error) {
-	secret, e := k.kubeApi.CoreV1().Secrets(namespace).Get(name, v1.GetOptions{})
+	secret, e := k.kubeApi.getSecret(namespace, name)
 	if e != nil {
 		return nil, e
 	}
@@ -305,25 +293,17 @@ func (k *KubeHelper) readSecret(namespace, name string) (map[string]string, erro
 }
 
 func (k *KubeHelper) updateConfigMap(namespace, name string, data map[string]string) error {
-	configMap, e := k.kubeApi.CoreV1().ConfigMaps(namespace).Get(name, v1.GetOptions{})
+	configMap, e := k.kubeApi.getConfigMap(namespace, name)
 	if e != nil {
 		return e
 	}
 	configMap.Data = data
 
-	_, e = k.kubeApi.CoreV1().ConfigMaps(namespace).Update(configMap)
+	_, e = k.kubeApi.updateConfigMap(namespace, configMap)
 	if e != nil {
 		return e
 	}
 	return nil
-}
-
-func (k *KubeHelper) readStatefulSet(namespace, name string) (*appsv1.StatefulSet, error) {
-	set, e := k.kubeApi.AppsV1().StatefulSets(namespace).Get(name, v1.GetOptions{})
-	if e != nil {
-		return nil, e
-	}
-	return set, nil
 }
 
 func discoverServicePort(service *corev1.Service) (*int32, error) {

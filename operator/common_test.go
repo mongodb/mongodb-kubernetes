@@ -24,6 +24,6 @@ func TestPrepareScaleDown_OpsManagerRemovedMember(t *testing.T) {
 
 	expectedDeployment.MarkRsMembersUnvoted("bam", []string{"bam-1"})
 
-	mockedOmConnection.CheckNumberOfRequests(t, 1)
+	mockedOmConnection.CheckNumberOfUpdateRequests(t, 1)
 	mockedOmConnection.CheckDeployment(t, expectedDeployment)
 }

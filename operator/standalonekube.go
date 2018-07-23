@@ -51,7 +51,7 @@ func (c *MongoDbController) onDeleteStandalone(obj interface{}) {
 
 	log.Infow(">> Deleting MongoDbStandalone", "config", s.Spec)
 
-	conn, err := c.getOmConnection(s.Namespace, s.Spec.Project, s.Spec.Credentials)
+	conn, err := c.createOmConnection(s.Namespace, s.Spec.Project, s.Spec.Credentials)
 	if err != nil {
 		log.Error(err)
 		return
@@ -86,12 +86,12 @@ func (c *MongoDbController) onDeleteStandalone(obj interface{}) {
 
 func (c *MongoDbController) doStandaloneProcessing(o, n *mongodb.MongoDbStandalone, log *zap.SugaredLogger) error {
 	spec := n.Spec
-	conn, err := c.getOmConnection(n.Namespace, spec.Project, spec.Credentials)
+	conn, err := c.createOmConnection(n.Namespace, spec.Project, spec.Credentials)
 	if err != nil {
 		return err
 	}
 
-	agentKeySecretName, err := c.EnsureAgentKeySecretExists(conn, n.Namespace, log)
+	agentKeySecretName, err := c.ensureAgentKeySecretExists(conn, n.Namespace, log)
 	if err != nil {
 		return errors.New(fmt.Sprintf("Failed to generate/get agent key: %s", err))
 	}

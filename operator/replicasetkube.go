@@ -47,12 +47,12 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 
 func (c *MongoDbController) doRsProcessing(o, n *mongodb.MongoDbReplicaSet, log *zap.SugaredLogger) error {
 	spec := n.Spec
-	conn, err := c.getOmConnection(n.Namespace, spec.Project, spec.Credentials)
+	conn, err := c.createOmConnection(n.Namespace, spec.Project, spec.Credentials)
 	if err != nil {
 		return err
 	}
 
-	agentKeySecretName, err := c.EnsureAgentKeySecretExists(conn, n.Namespace, log)
+	agentKeySecretName, err := c.ensureAgentKeySecretExists(conn, n.Namespace, log)
 	if err != nil {
 		return errors.New(fmt.Sprintf("Failed to generate/get agent key: %s", err))
 	}
@@ -108,7 +108,7 @@ func (c *MongoDbController) onDeleteReplicaSet(obj interface{}) {
 
 	log.Infow(">> Deleting Replica set", "config", rs.Spec)
 
-	conn, err := c.getOmConnection(rs.Namespace, rs.Spec.Project, rs.Spec.Credentials)
+	conn, err := c.createOmConnection(rs.Namespace, rs.Spec.Project, rs.Spec.Credentials)
 	if err != nil {
 		return
 	}

@@ -11,25 +11,28 @@ import (
 	mongodbscheme "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/scheme"
 	mongodbclient "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/typed/mongodb.com/v1"
 	"go.uber.org/zap"
-	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
-	coreV1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/cache"
 )
 
 type MongoDbController struct {
-	context          *crd.Context
 	mongodbClientset mongodbclient.MongodbV1Interface
 	kubeHelper       KubeHelper
+	omConnectionFunc func(baseUrl, groupId, user, publicApiKey string) om.OmConnection
+	// the connection object created by the function above. Production code hardly needs it but it's convenient for testing
+	omConnection om.OmConnection
 }
 
-func NewMongoDbController(context *crd.Context, mongodbClientset mongodbclient.MongodbV1Interface) *MongoDbController {
+// NewMongoDbController creates the controller class that reacts on events for mongodb resources
+// Passing "KubeApi" and "omConnectionFunc" parameters allows inject the custom behavior and is convenient for testing
+func NewMongoDbController(kubeApi KubeApi, mongodbClientset mongodbclient.MongodbV1Interface,
+	omConnectionFunc func(baseUrl, groupId, user, publicApiKey string) om.OmConnection) *MongoDbController {
 	mongodbscheme.AddToScheme(scheme.Scheme)
 
 	return &MongoDbController{
-		context:          context,
 		mongodbClientset: mongodbClientset,
-		kubeHelper:       KubeHelper{context.Clientset},
+		kubeHelper:       KubeHelper{kubeApi: kubeApi},
+		omConnectionFunc: omConnectionFunc,
 	}
 }
 
@@ -50,7 +53,7 @@ func (c *MongoDbController) StartWatch(namespace string, stopCh chan struct{}) e
 	return nil
 }
 
-func (c *MongoDbController) getOmConnection(namespace, project, credentials string) (om.OmConnection, error) {
+func (c *MongoDbController) createOmConnection(namespace, project, credentials string) (om.OmConnection, error) {
 	projectConfig, e := c.kubeHelper.readProjectConfig(namespace, project)
 	if e != nil {
 		return nil, e
@@ -60,8 +63,9 @@ func (c *MongoDbController) getOmConnection(namespace, project, credentials stri
 		return nil, e
 	}
 
-	return om.NewOpsManagerConnection(projectConfig.BaseUrl, projectConfig.ProjectId,
-		credsConfig.User, credsConfig.PublicApiKey), nil
+	c.omConnection = c.omConnectionFunc(projectConfig.BaseUrl, projectConfig.ProjectId,
+		credsConfig.User, credsConfig.PublicApiKey)
+	return c.omConnection, nil
 }
 
 func (c *MongoDbController) buildPodVars(namespace, project, credentials, agent string) (*PodVars, error) {
@@ -88,16 +92,12 @@ func (c *MongoDbController) buildPodVars(namespace, project, credentials, agent 
 	}, nil
 }
 
-func (c *MongoDbController) SecretsApi(namespace string) coreV1.SecretInterface {
-	return c.context.Clientset.CoreV1().Secrets(namespace)
-}
-
-// EnsureAgentKeySecretExists checks if the Secret with specified name (equal to group id) exists, otherwise tries to
+// ensureAgentKeySecretExists checks if the Secret with specified name (equal to group id) exists, otherwise tries to
 // generate agent key using OM public API and create Secret containing this key
-func (c *MongoDbController) EnsureAgentKeySecretExists(omConnection om.OmConnection, nameSpace string, log *zap.SugaredLogger) (string, error) {
+func (c *MongoDbController) ensureAgentKeySecretExists(omConnection om.OmConnection, nameSpace string, log *zap.SugaredLogger) (string, error) {
 	secretName := agentApiKeySecretName(omConnection.GroupId())
 	log = log.With("secret", secretName)
-	_, err := c.SecretsApi(nameSpace).Get(secretName, v1.GetOptions{})
+	_, err := c.kubeHelper.kubeApi.getSecret(nameSpace, secretName)
 	if err != nil {
 		log.Info("Failed to find the Secret, generating agent key to create the new one")
 
@@ -105,7 +105,7 @@ func (c *MongoDbController) EnsureAgentKeySecretExists(omConnection om.OmConnect
 		if err != nil {
 			return "", errors.New(fmt.Sprintf("Failed to generate agent Key in OM: %s", err))
 		}
-		if _, err := c.SecretsApi(nameSpace).Create(buildSecret(secretName, nameSpace, key)); err != nil {
+		if _, err := c.kubeHelper.kubeApi.createSecret(nameSpace, buildSecret(secretName, nameSpace, key)); err != nil {
 			return "", errors.New(fmt.Sprintf("Failed to create Secret: %s", err))
 		}
 		log.Info("New Ops Manager agent Key is generated and saved in Kubernetes Secret for later usage")

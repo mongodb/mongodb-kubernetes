@@ -75,10 +75,10 @@ func buildStatefulSet(p StatefulSetHelper) *appsv1.StatefulSet {
 }
 
 // buildSecret creates the secret object to store agent key. This secret is read directly by Automation Agent containers
-func buildSecret(groupId string, namespace string, agentKey string) *corev1.Secret {
+func buildSecret(secretName string, namespace string, agentKey string) *corev1.Secret {
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      groupId,
+			Name:      secretName,
 			Namespace: namespace,
 		},
 		StringData: map[string]string{OmAgentApiKey: agentKey}}
