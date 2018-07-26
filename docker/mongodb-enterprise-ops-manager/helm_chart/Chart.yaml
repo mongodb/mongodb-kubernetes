@@ -1,0 +1,13 @@
+name: mongodb-enterprise-ops-manager
+description: MongoDB Kubernetes Enterprise Ops Manager
+version: 0.1
+kubeVersion: ">=1.9"
+keywords:
+  - mongodb
+  - ops
+  - manager
+  - database
+  - nosql
+home: https://github.com/mongodb/mongodb-enterprise-kubernetes
+maintainers:
+  - name: Cloud Team

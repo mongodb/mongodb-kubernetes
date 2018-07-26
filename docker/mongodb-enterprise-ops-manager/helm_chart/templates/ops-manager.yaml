@@ -1,0 +1,75 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ops-manager
+  namespace: {{ .Values.namespace }}
+spec:
+  type: NodePort
+  selector:
+    app: {{ .Values.opsManager.name }}
+  ports:
+  - protocol: TCP
+    port: 8080
+    targetPort: 8080
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app: {{ .Values.opsManager.name }}
+  name: {{ .Values.opsManager.name }}
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: 1
+  serviceName: ops-manager
+  selector:
+    matchLabels:
+      app: {{ .Values.opsManager.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.opsManager.name }}
+    spec:
+      securityContext:
+        fsGroup: 1000080000
+        supplementalGroups: [0, 1000080000]
+      containers:
+      - name: {{ .Values.opsManager.name }}
+        image: {{ .Values.registry.repository }}/mongodb-enterprise-ops-manager:{{ .Values.opsManager.version }}
+        imagePullPolicy: {{ .Values.registry.pullPolicy }}
+        readinessProbe:
+          httpGet:
+            port: 8080
+            path: /
+          initialDelaySeconds: 30
+          timeoutSeconds: 1
+        env:
+        - name: OM_HOST
+          value: ops-manager.mongodb.svc.cluster.local
+        volumeMounts:
+        - name: mongodb-mms-data
+          mountPath: /data
+        - name: mongodb-mms-config
+          mountPath: /etc/mongodb-mms
+        resources:
+          requests:
+            memory: "4Gi"
+      imagePullSecrets: 
+      - name: {{ .Values.registry.imagePullSecret }}
+  volumeClaimTemplates:
+  - metadata:
+      name: mongodb-mms-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 20Gi
+  - metadata:
+      name: mongodb-mms-config
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 10Mi

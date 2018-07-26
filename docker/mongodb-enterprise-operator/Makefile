@@ -1,33 +1,33 @@
-IMAGE = mongodb-enterprise-database
+IMAGE = mongodb-enterprise-operator
 IMAGE_VERSION = 0.1
 AWS_IMAGE_REPO = 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
 AWS_REGION = us-east-1
 
 usage:
-	@ echo "MongoDB Enterprise Database - Docker image builder"
+	@ echo "MongoDB Enterprise Kubernetes Operator - Docker image builder"
+	@ echo "NOTE: This Dockerfile can only be used in a Kubernetes cluster!"
 	@ echo
 	@ echo "Usage:"
 	@ echo "  delete_container:	stops and deletes the container"
 	@ echo "  clean: 	        deletes the image and any running containers"
 	@ echo "  build: 	        builds the Docker image"
 	@ echo "  clean-build:      rebuilds the Docker image from scratch (no-cache), stopping any running containers and deleting all intermediate containers"
-	@ echo "  all: 		        shorthand for 'clean build run'"
 	@ echo
 	@ echo "  pull: 		    pulls the image from the configured Docker registry"
 	@ echo "  push: 		    pushes the image to the configured Docker registry"
 	@ echo
-	@ echo "  run: 		        runs the image in a new container"
-	@ echo "  status:	        shows all the containers created using this image"
 	@ echo "  version:	        prints the image's version string (IMAGE_VERSION)"
 	@ echo
+
 
 delete_container:
 	- docker ps -a | tail -n +2 | grep '$(IMAGE)' | awk '{print $$1}' | xargs docker rm -f
 
-clean:
+clean: delete_container
 	- docker rmi $(IMAGE):$(IMAGE_VERSION)
 
 build:
+	../../scripts/build/build_operator
 	docker build $(EXTRA_PARAM) -t $(IMAGE):$(IMAGE_VERSION) .
 
 clean-build:
@@ -43,27 +43,6 @@ pull: aws_login
 push: build aws_login
 	docker tag $(IMAGE):$(IMAGE_VERSION) $(AWS_IMAGE_REPO)/$(IMAGE):$(IMAGE_VERSION)
 	docker push $(AWS_IMAGE_REPO)/$(IMAGE):$(IMAGE_VERSION)
-
-check-ops-manager-env:
-ifndef BASE_URL
-	$(error Environment variable BASE_URL is not set)
-endif
-ifndef GROUP_ID
-	$(error Environment variable GROUP_ID is not set)
-endif
-ifndef AGENT_API_KEY
-	$(error Environment variable AGENT_API_KEY is not set)
-endif
-
-run: check-ops-manager-env
-	docker run -e BASE_URL -e GROUP_ID -e AGENT_API_KEY -t $(IMAGE):$(IMAGE_VERSION)
-
-all:
-	@ $(MAKE) clean build run
-
-status:
-	@ docker ps -a | head -1
-	@ docker ps -a | tail -n +2 | grep '$(IMAGE)'
 
 version:
 	@ echo $(IMAGE_VERSION)

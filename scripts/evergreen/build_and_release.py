@@ -5,6 +5,7 @@ Builds and pushes operator & database image to Quay.io.
 
 Usage:
     build_and_release.py (build|push) --image IMAGE --tag-from-file RELEASE_FILE [--registry REGISTRY]
+    build_and_release.py (build|push) --image IMAGE --tag TAG [--registry REGISTRY]
 
 '''
 
@@ -116,7 +117,10 @@ def read_release_from_file(fname):
 
 def get_release_tag(args):
     'Helper function to read TAG from command line or from file.'
-    return read_release_from_file(args['RELEASE_FILE'])
+    try:
+        return args['TAG']
+    except KeyError:
+        return read_release_from_file(args['RELEASE_FILE'])
 
 
 def tag_and_push(image, tag, repo, creds):

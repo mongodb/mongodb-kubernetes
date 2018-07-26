@@ -96,3 +96,5 @@ spec:
           value: Always
         - name: IMAGE_PULL_SECRETS
           value: ""
+      imagePullSecrets:
+      - name: ""

@@ -1,6 +1,9 @@
 ## Using the ECR (Amazon Container Registry)
 
-*Due to Docker approach "repository = application" the only way to isolate different namespaces is to inject them into names of application. So instead of `mongodb-enterprise-operator` the image and the repository will get the name `dev/mongodb-enterprise-operator` or `alis/mongodb-enterprise-operator`.* 
+*Due to Docker approach "repository = application" the only way to isolate different namespaces is to inject them into names of application. 
+So instead of `mongodb-enterprise-operator` the image and the repository will get the name `dev/mongodb-enterprise-operator` or `alis/mongodb-enterprise-operator`.* 
+
+
 ### Integrate Docker with registry
 
 We have the ECR registry ready for use: `268558157000.dkr.ecr.us-east-1.amazonaws.com`. To get access to it through Docker you need to use `docker login` command. Run the following command (more information [here](https://docs.aws.amazon.com/AmazonECR/latest/userguide/Registries.html#registry_auth)):
@@ -9,6 +12,9 @@ We have the ECR registry ready for use: `268558157000.dkr.ecr.us-east-1.amazonaw
 eval $(aws ecr get-login --no-include-email --region us-east-1) # aws ecr get-login creates the text for 'docker login' command
 ```
 This will allow to use `docker push` to publish changes 
+
+Note the AWS account id is: `2685-5815-7000`
+
 
 ### Create new repository
 

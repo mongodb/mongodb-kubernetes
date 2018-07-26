@@ -16,7 +16,8 @@ they will be used when handling both dynamic and persistent volumes.
 
 A simple `StorageClass` can be defined like:
 
-```yaml
+```bash
+cat <<EOF | kubectl apply -f -
 ---
 kind: StorageClass
 apiVersion: storage.k8s.io/v1
@@ -24,6 +25,7 @@ metadata:
   name: basic
   namespace: mongodb
 provisioner: kubernetes.io/no-provisioner
+EOF
 
 ```
 
@@ -41,12 +43,13 @@ After our `StorageClass` is created, we will create
 `PersistentVolumes` that will belong to this class, like in this
 example:
 
-```yaml
+```bash
+cat <<EOF | kubectl apply -f -
 ---
 kind: PersistentVolume
 apiVersion: v1
 metadata:
-  name: pv0001
+  name: mdb001
   namespace: mongodb
   labels:
     type: local
@@ -64,7 +67,7 @@ spec:
 kind: PersistentVolume
 apiVersion: v1
 metadata:
-  name: pv0002
+  name: mdb002
   namespace: mongodb
   labels:
     type: local
@@ -82,7 +85,7 @@ spec:
 kind: PersistentVolume
 apiVersion: v1
 metadata:
-  name: pv0003
+  name: mdb003
   namespace: mongodb
   labels:
     type: local
@@ -100,7 +103,7 @@ spec:
 kind: PersistentVolume
 apiVersion: v1
 metadata:
-  name: pv0004
+  name: mdb004
   namespace: mongodb
   labels:
     type: local
@@ -113,6 +116,7 @@ spec:
     - ReadWriteOnce
   hostPath:
     path: "/tmp/data04"
+EOF
 
 ```
 
@@ -125,10 +129,10 @@ Check that the `PersistentVolume`s have been created with:
 ```
 $ oc get pv
 NAME      CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS      CLAIM     STORAGECLASS   REASON    AGE
-pv0001    20Gi       RWO            Delete           Available             basic                    1s
-pv0002    20Gi       RWO            Delete           Available             basic                    1s
-pv0003    20Gi       RWO            Delete           Available             basic                    1s
-pv0004    20Gi       RWO            Delete           Available             basic                    1s
+mdb001    20Gi       RWO            Delete           Available             basic                    2m
+mdb002    20Gi       RWO            Delete           Available             basic                    2m
+mdb003    20Gi       RWO            Delete           Available             basic                    2m
+mdb004    20Gi       RWO            Delete           Available             basic                    2m
 ```
 
 You can see that the PVs were created and they are in `Available`

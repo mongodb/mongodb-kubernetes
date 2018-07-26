@@ -9,3 +9,4 @@ docker/mongodb-enterprise-database/content/mongodb-mms-automation-agent-version.
 my-*
 ops-manager-kubernetes.iml
 .vscode
+data

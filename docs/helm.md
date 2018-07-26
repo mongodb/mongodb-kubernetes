@@ -80,9 +80,21 @@ will use it in the next step.
 (Don't forget to follow the "Helm Install" instructions first!)
 
 ``` bash
-$ git clone git@github.com:10gen/ops-manager-kubernetes.git
-$ cd ops-manager-kubernetes
-$ helm install public/helm_chart -f config/helm/values-quay.yaml --set imagePullSecrets=<user>-pull-secret --name mongodb-enterprise
+git clone git@github.com:10gen/ops-manager-kubernetes.git
+cd ops-manager-kubernetes
+helm install --tiller-namespace "tiller" --name mongodb-enterprise \
+    public/helm_chart -f public/helm_chart/values.yaml \
+    --set registry.repository="mongodb-enterprise-private" \
+    --set registry.imagePullSecrets="<user>-pull-secret"
+
+# Alternative:
+# TODO(mihaibojin): test both the above and this commands in OpenShift, MiniKube, AWS and see if they work (also try --namespace kube-system)
+helm install --tiller-namespace "tiller" --namespace "mongodb" --name mongodb-enterprise \
+    public/helm_chart -f public/helm_chart/values.yaml \
+    --set createNamespace="false" \
+    --set registry.repository="mongodb-enterprise-private" \
+    --set registry.imagePullSecrets="<user>-pull-secret"
+
 ```
 
 This will create a helm release named `mongodb-enterprise` in Kubernetes.
@@ -93,7 +105,7 @@ got in the last section; something like `<user>-pull-secret` changing
 To remove the helm release use the following instruction:
 
 ``` bash
-$ helm del --purge mongodb-enterprise
+helm del --purge mongodb-enterprise
 ```
 
 ## Confirm everything is working ##
@@ -138,9 +150,53 @@ If you still have problems, please ask in `#opsmanager-kubernetes` Slack channel
 
 ## Development Hints
 
-Use other `values-*` files in `config/helm` directory to use images from other locations. `values-dev.yaml` points to
-development version in AWS ECR repository and can be used if the cluster is deployed to AWS (as no image pull secret is required)
+Use CLI arguments to change the default repositories.
 
-Use `values-local.yaml` file to use local Minikube Docker registry. 
+For example, the following config points to a development AWS ECR repository and can be used 
+if the cluster is deployed to AWS (as no image pull secret is required).
 
-As always it's possible to create a custom configuration file starting with `my-` - it won't be tracked by Git.
+```
+helm install --tiller-namespace "tiller" --namespace "mongodb" --name mongodb-enterprise \
+    public/helm_chart -f public/helm_chart/values.yaml \
+    --set registry.repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev" \
+    --set operator.version="latest"
+```
+
+# Summarized operator deployment steps (using Helm)
+
+### Public quay.io (default)
+
+```bash
+helm del --tiller-namespace tiller --purge mongodb-enterprise >/dev/null 2>&1
+helm install --namespace mongodb --name mongodb-enterprise public/helm_chart -f public/helm_chart/values.yaml
+```
+
+### Local Docker cache
+
+```bash
+export operator_repo="mongodb"
+export operator_version="$(cd ../docker/mongodb-enterprise-ops-manager && make version)"
+docker pull "quay.io/${operator_repo}/mongodb-enterprise-operator:${operator_version}"
+docker pull "quay.io/${operator_repo}/mongodb-enterprise-database:${operator_version}"
+helm del --tiller-namespace tiller --purge mongodb-enterprise >/dev/null 2>&1
+helm install --namespace mongodb --name mongodb-enterprise public/helm_chart -f public/helm_chart/values.yaml --set registry.repository="${operator_repo}" --set operator.version="${operator_version}" --set registry.pullPolicy="Never"
+```
+
+### Private Quay.io repository
+
+**Prerequisites (required only once):**
+1. Start by creating a connection secret in [quay.io](https://quay.io/) -> CLI Password -> Kubernetes Secret
+2. Download the file and rename it to `quay-pull-secret.yaml`
+3. Move it to `${HOME}/.kube/quay-secret.yml`
+4. Edit it and set `name: quay-pull-secret`
+
+The alternative to steps 3 and 4 are to use the file that _quay.io_ generates by default, which names the secret: `<user>-pull-secret` (where `<user>` is your own username) 
+and then always remember to run the command below using `--set registry.imagePullSecrets="<user>-pull-secret"` instead of `--set registry.imagePullSecrets="quay-pull-secret"`.
+
+```bash
+kubectl --namespace=mongodb create -f "${HOME}/.kube/quay-secret.yml" # load the quay.io credentials
+export operator_repo="mongodb-enterprise-private"
+export operator_version="latest"
+helm del --tiller-namespace tiller --purge mongodb-enterprise >/dev/null 2>&1
+helm install --namespace mongodb --name mongodb-enterprise public/helm_chart -f public/helm_chart/values.yaml --set registry.repository="${operator_repo}" --set operator.version="${operator_version}" --set registry.imagePullSecrets="quay-pull-secret"
+```

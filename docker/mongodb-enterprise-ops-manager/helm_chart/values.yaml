@@ -1,10 +1,8 @@
 namespace: mongodb
-createNamespace: true
 registry:
   repository: quay.io/mongodb
   pullPolicy: Always
   imagePullSecrets:
-operator:
-  name: mongodb-enterprise-operator
-  version: 0.1
-  env: dev
+opsManager:
+  name: mongodb-enterprise-ops-manager
+  version: 4.0.0.49984.20180625T1427Z-1

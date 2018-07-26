@@ -43,8 +43,11 @@ caveats of installing helm to cluster with RBAC enabled. Skip all sections start
 Use the following commands to drop/deploy Operator to Minikube:
 
 ``` bash
-$ helm del --purge mongodb-enterprise;
-$ helm install public/helm_chart -f config/helm/values-local.yaml --name mongodb-enterprise
+helm del --purge mongodb-enterprise
+helm install --tiller-namespace "tiller" --namespace "mongodb" --name mongodb-enterprise \
+    public/helm_chart -f public/helm_chart/values.yaml \
+    --set operator.version="latest" \
+    --set registry.pullPolicy="Never"
 ``` 
 
 This will create 4 new resources in Kubernetes. The `mongodb-enterprise-operator` application will watch the 

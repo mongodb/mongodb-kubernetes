@@ -31,7 +31,7 @@ The update process follows the same approach in general except for no new object
  this all `kubectl` commands will work for the resources in this namespace by default unless you override it using `-n <other_namespace>` syntax
  
 * Ops Manager / Cloud Manager. To spin up Ops Manager you can use [mci](https://mci.mms-build.10gen.cc). Check more detailed
-[instructions](docs/ops_manager.md) about how to enable public API access to Ops Manager.
+[instructions](docs/ops-manager.md) about how to enable public API access to Ops Manager.
 
 ### Installing Operator from Docker repositories ###
 
