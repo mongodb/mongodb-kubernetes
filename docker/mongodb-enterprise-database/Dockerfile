@@ -6,7 +6,7 @@ RUN useradd -r -g root -u 1007 mongodb
 
 # The Automation Agent needs lsb-release on the CLI to determine the current distro
 RUN apt-get -qq update && \
-  apt-get -y -qq install libsasl2-2 curl supervisor ca-certificates lsb-release && \
+  apt-get -y -qq install libsasl2-2 curl supervisor ca-certificates lsb-release snmp && \
   apt-get upgrade -y -qq && \
   apt-get dist-upgrade -y -qq && \
   rm -rf /var/lib/apt/lists/*
