@@ -3,10 +3,13 @@ package operator
 import (
 	"fmt"
 
+	"math"
+
 	"github.com/10gen/ops-manager-kubernetes/om"
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/util"
 	"github.com/pkg/errors"
+	"github.com/spf13/cast"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 )
@@ -43,11 +46,15 @@ func buildReplicaSetFromStatefulSet(set *appsv1.StatefulSet, clusterName, versio
 func createProcesses(set *appsv1.StatefulSet, clusterName, version string, mongoType om.MongoType) []om.Process {
 	hostnames, names := GetDnsForStatefulSet(set, clusterName)
 	processes := make([]om.Process, len(hostnames))
+	wiredTigerCache := calculateWiredTigerCache(set)
 
 	for idx, hostname := range hostnames {
 		switch mongoType {
 		case om.ProcessTypeMongod:
 			processes[idx] = om.NewMongodProcess(names[idx], hostname, version)
+			if wiredTigerCache != nil {
+				processes[idx].SetWiredTigerCache(*wiredTigerCache)
+			}
 		case om.ProcessTypeMongos:
 			processes[idx] = om.NewMongosProcess(names[idx], hostname, version)
 		default:
@@ -56,6 +63,22 @@ func createProcesses(set *appsv1.StatefulSet, clusterName, version string, mongo
 	}
 
 	return processes
+}
+
+// calculateWiredTigerCache returns the cache that needs to be dedicated to mongodb engine. May be we won't need this manual
+// setting any more when SERVER-16571 is fixed
+func calculateWiredTigerCache(set *appsv1.StatefulSet) *float32 {
+	// Note, that if the limit is 0 then it's not specified in fact (unbounded)
+	if memory := set.Spec.Template.Spec.Containers[0].Resources.Limits.Memory(); memory != nil && (*memory).Value() != 0 {
+		// Value() returns size in bytes so we need to transform to Gigabytes
+		wt := cast.ToFloat64((*memory).Value()) / 1000000000
+		// https://docs.mongodb.com/manual/core/wiredtiger/#memory-use
+		wt = math.Max((wt-1)*0.5, 0.256)
+		// rounding fractional part to 3 digits
+		rounded := float32(math.Floor(wt*1000) / 1000)
+		return &rounded
+	}
+	return nil
 }
 
 func waitForRsAgentsToRegister(set *appsv1.StatefulSet, clusterName string, omConnection om.OmConnection, log *zap.SugaredLogger) error {

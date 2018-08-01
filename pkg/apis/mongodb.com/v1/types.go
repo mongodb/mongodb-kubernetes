@@ -207,3 +207,19 @@ func (p PodSpecWrapper) GetTopologyKeyOrDefault() string {
 	}
 	return p.PodAntiAffinityTopologyKey
 }
+func (p PodSpecWrapper) SetStorage(storage string) PodSpecWrapper {
+	p.Storage = storage
+	return p
+}
+func (p PodSpecWrapper) SetCpu(cpu string) PodSpecWrapper {
+	p.Cpu = cpu
+	return p
+}
+func (p PodSpecWrapper) SetMemory(memory string) PodSpecWrapper {
+	p.Memory = memory
+	return p
+}
+func (p PodSpecWrapper) SetTopology(topology string) PodSpecWrapper {
+	p.PodAntiAffinityTopologyKey = topology
+	return p
+}

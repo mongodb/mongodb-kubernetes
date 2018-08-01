@@ -156,5 +156,11 @@ func validateUpdateStandalone(oldSpec, newSpec *mongodb.MongoDbStandalone) error
 
 func createProcess(set *appsv1.StatefulSet, s *mongodb.MongoDbStandalone) om.Process {
 	hostnames, _ := GetDnsForStatefulSet(set, s.Spec.ClusterName)
-	return om.NewMongodProcess(s.Name, hostnames[0], s.Spec.Version)
+	wiredTigerCache := calculateWiredTigerCache(set)
+
+	process := om.NewMongodProcess(s.Name, hostnames[0], s.Spec.Version)
+	if wiredTigerCache != nil {
+		process.SetWiredTigerCache(*wiredTigerCache)
+	}
+	return process
 }

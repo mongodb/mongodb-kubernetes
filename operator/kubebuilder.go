@@ -148,7 +148,12 @@ func basePodSpec(serviceName string, persistent *bool, reqs mongodb.PodSpecWrapp
 				Env:             baseEnvFrom(podVars),
 				Ports:           []corev1.ContainerPort{{ContainerPort: MongoDbDefaultPort}},
 				Resources: corev1.ResourceRequirements{
-					Requests: buildRequirements(reqs),
+					// Setting limits only sets "requests" to the same value (but not vice versa)
+					// This seems as a fair trade off as having these values different may result in incorrect wiredtiger
+					// cache (e.g too small: it was configured for "request" memory size and then container
+					// memory grew to "limit", too big: wired tiger cache was configured by "limit" by the real memory for
+					// container is at "resource" values)
+					Limits: buildRequirements(reqs),
 				},
 				SecurityContext: &corev1.SecurityContext{
 					Privileged:   util.BooleanRef(false),

@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/10gen/ops-manager-kubernetes/util"
+	"github.com/spf13/cast"
 )
 
 type MongoType string
@@ -34,7 +35,12 @@ The resulting json for this type:
 				"replSetName": "blue"
 			},
 			"storage": {
-				"dbPath": "/data/blue_2"
+				"dbPath": "/data/blue_2",
+				"wiredTiger": {
+					"engineConfig": {
+						"cacheSizeGB": 0.3
+					}
+				}
 			},
 			"systemLog": {
 				"destination": "file",
@@ -102,6 +108,28 @@ func (s Process) DbPath() string {
 	return readMapValueAsString(s.Args(), "storage", "dbPath")
 }
 
+func (s Process) SetWiredTigerCache(cacheSizeGb float32) Process {
+	if s.ProcessType() != ProcessTypeMongod {
+		// WiredTigerCache can be set only for mongod processes
+		return s
+	}
+	storageMap := readOrCreateMap(s.Args(), "storage")
+	wiredTigerMap := readOrCreateMap(storageMap, "wiredTiger")
+	engineConfigMap := readOrCreateMap(wiredTigerMap, "engineConfig")
+	engineConfigMap["cacheSizeGB"] = cacheSizeGb
+	return s
+}
+
+// WiredTigerCache returns wired tiger cache as pointer as it may be absent
+func (s Process) WiredTigerCache() *float32 {
+	value := readMapValueAsInterface(s.Args(), "storage", "wiredTiger", "engineConfig", "cacheSizeGB")
+	if value == nil {
+		return nil
+	}
+	f := cast.ToFloat32(value)
+	return &f
+}
+
 func (s Process) SetLogPath(logPath string) Process {
 	sysLogMap := readOrCreateMap(s.Args(), "systemLog")
 	sysLogMap["destination"] = "file"
@@ -126,6 +154,7 @@ func (s Process) ClientCertificateMode(ProcessClientCertificateMode bool) Proces
 	//map[string](s.process.Args["net"])["ssl"]["clientCertificateMode"] = ProcessClientCertificateMode
 	return s
 }
+
 func (s Process) Args() map[string]interface{} {
 	if _, ok := s["args2_6"]; !ok {
 		s["args2_6"] = make(map[string]interface{}, 0)
@@ -213,6 +242,12 @@ func (s Process) mergeFrom(otherProcess Process) {
 		if otherProcess.isClusterRoleConfigSrvSet() {
 			s.setClusterRoleConfigSrv()
 		}
+		// This one is controversial. From some point users may want to change this through UI. From the other - if the
+		// kube mongodb resource memory is increased - wired tiger cache must be increased as well automatically, so merge
+		// must happen. This controversity will be gone when SERVER-16571 is fixed
+		if otherProcess.WiredTigerCache() != nil {
+			s.SetWiredTigerCache(*otherProcess.WiredTigerCache())
+		}
 	} else {
 		s.setCluster(otherProcess.cluster())
 	}
@@ -227,8 +262,19 @@ func readOrCreateMap(m map[string]interface{}, key string) map[string]interface{
 	return m[key].(map[string]interface{})
 }
 
-func readMapValueAsString(m map[string]interface{}, key, secondKey string) string {
-	if _, ok := m[key]; !ok {
+func readMapValueAsInterface(m map[string]interface{}, keys ...string) interface{} {
+	currentMap := m
+	for i, k := range keys {
+		if _, ok := currentMap[k]; !ok {
+			return nil
+		}
+		if i == len(keys)-1 {
+			return currentMap[k]
+		}
+		currentMap = currentMap[k].(map[string]interface{})
+	}
+	return nil
+	/*if _, ok := m[key]; !ok {
 		return ""
 	}
 	secondMap := m[key].(map[string]interface{})
@@ -236,7 +282,16 @@ func readMapValueAsString(m map[string]interface{}, key, secondKey string) strin
 	if _, ok := secondMap[secondKey]; !ok {
 		return ""
 	}
-	return secondMap[secondKey].(string)
+	return secondMap[secondKey].(string)*/
+}
+
+func readMapValueAsString(m map[string]interface{}, keys ...string) string {
+	res := readMapValueAsInterface(m, keys...)
+
+	if res == nil {
+		return ""
+	}
+	return res.(string)
 }
 
 func (s Process) setName(name string) Process {

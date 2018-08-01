@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/om"
+	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 )
 
@@ -26,4 +27,51 @@ func TestPrepareScaleDown_OpsManagerRemovedMember(t *testing.T) {
 
 	mockedOmConnection.CheckNumberOfUpdateRequests(t, 1)
 	mockedOmConnection.CheckDeployment(t, expectedDeployment)
+}
+
+func TestCreateProcessesWiredTigerCache(t *testing.T) {
+	setHelper := defaultSetHelper().SetReplicas(3)
+	set := setHelper.BuildStatefulSet()
+	processes := createProcesses(set, "", "4.0.0", om.ProcessTypeMongod)
+
+	assert.Len(t, processes, 3)
+	for _, p := range processes {
+		// We don't expect wired tiger cache to be set if memory requirements are absent
+		assert.Nil(t, p.WiredTigerCache())
+	}
+
+	setHelper.SetPodSpec(defaultPodSpec().SetMemory("3G"))
+
+	set = setHelper.BuildStatefulSet()
+	processes = createProcesses(set, "", "4.0.0", om.ProcessTypeMongod)
+
+	assert.Len(t, processes, 3)
+	for _, p := range processes {
+		// Now wired tiger cache must be set to 50% of total memory - 1G
+		assert.Equal(t, float32(1.0), *p.WiredTigerCache())
+	}
+}
+
+func TestWiredTigerCacheConversion(t *testing.T) {
+	set := defaultSetHelper().SetPodSpec(defaultPodSpec().SetMemory("1800M")).BuildStatefulSet()
+	assert.Equal(t, float32(0.4), *calculateWiredTigerCache(set))
+
+	set = defaultSetHelper().SetPodSpec(defaultPodSpec().SetMemory("2900M")).BuildStatefulSet()
+	assert.Equal(t, float32(0.95), *calculateWiredTigerCache(set))
+
+	set = defaultSetHelper().SetPodSpec(defaultPodSpec().SetMemory("32G")).BuildStatefulSet()
+	assert.Equal(t, float32(15.5), *calculateWiredTigerCache(set))
+
+	set = defaultSetHelper().SetPodSpec(defaultPodSpec().SetMemory("55.832G")).BuildStatefulSet()
+	assert.Equal(t, float32(27.416), *calculateWiredTigerCache(set))
+
+	set = defaultSetHelper().SetPodSpec(defaultPodSpec().SetMemory("181G")).BuildStatefulSet()
+	assert.Equal(t, float32(90.0), *calculateWiredTigerCache(set))
+
+	// We round fractional part to two digits, here 256M were rounded to 0.26G
+	set = defaultSetHelper().SetPodSpec(defaultPodSpec().SetMemory("300.65Mi")).BuildStatefulSet()
+	assert.Equal(t, float32(0.256), *calculateWiredTigerCache(set))
+
+	set = defaultSetHelper().SetPodSpec(defaultPodSpec().SetMemory("0G")).BuildStatefulSet()
+	assert.Nil(t, calculateWiredTigerCache(set))
 }
