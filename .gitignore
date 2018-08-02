@@ -10,3 +10,5 @@ my-*
 ops-manager-kubernetes.iml
 .vscode
 data
+**/__pycache__
+**/myenv

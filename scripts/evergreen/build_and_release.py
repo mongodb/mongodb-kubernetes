@@ -117,10 +117,10 @@ def read_release_from_file(fname):
 
 def get_release_tag(args):
     'Helper function to read TAG from command line or from file.'
-    try:
+    if 'TAG' in args and args['TAG'] is not None:
         return args['TAG']
-    except KeyError:
-        return read_release_from_file(args['RELEASE_FILE'])
+
+    return read_release_from_file(args['RELEASE_FILE'])
 
 
 def tag_and_push(image, tag, repo, creds):
@@ -143,11 +143,9 @@ def main(args):
         registry = args.get('REGISTRY', 'development')
         repo = get_registry(registry)
 
-        tagged_image = name_for_image(image, tag)
-        image_location = '{}/{}'.format(repo, tagged_image)
-
         creds = get_credentials(registry)
 
+        print('Pushing: {}/{}:{}'.format(repo, image, tag))
         tag_and_push(image, tag, repo, creds)
 
 

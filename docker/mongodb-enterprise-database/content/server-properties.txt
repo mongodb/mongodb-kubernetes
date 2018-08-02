@@ -1,2 +1,0 @@
-cpu=fast
-region=west

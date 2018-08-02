@@ -30,7 +30,7 @@ This Operator requires Ops Manager or Cloud Manager. In this document, when we r
 
 
 
-## Installation install ##
+## Installation ##
 
 This operator can also be installed using yaml files, in case you are not using Helm. You may apply the config directly from github clone this repo, and apply the file
 
