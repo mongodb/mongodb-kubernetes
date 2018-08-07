@@ -36,7 +36,12 @@ delete_container:
 clean: delete_container
 	- docker rmi $(IMAGE):$(IMAGE_VERSION)
 
-build:
+cache_binaries:
+	@ mkdir -p cache
+	@ [ -f "cache/mongodb-mms_${IMAGE_VERSION}_x86_64.deb" ] || curl -o "cache/mongodb-mms_${IMAGE_VERSION}_x86_64.deb" https://downloads.mongodb.com/on-prem-mms/deb/mongodb-mms_${IMAGE_VERSION}_x86_64.deb?utm_source=docker
+	@ [ -f "cache/mongodb-linux-x86_64-debian92-${MONGODB_VERSION}.tgz" ] || curl -o "cache/mongodb-linux-x86_64-debian92-${MONGODB_VERSION}.tgz" https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-debian92-${MONGODB_VERSION}.tgz?utm_source=docker
+
+build: cache_binaries
 	docker build $(EXTRA_PARAM) \
 		-t $(IMAGE):$(IMAGE_VERSION) \
 		--build-arg MONGODB_VERSION=$(MONGODB_VERSION) \
@@ -44,6 +49,7 @@ build:
 		.
 
 clean-build:
+	@ rm -rf cache/*
 	@ $(MAKE) EXTRA_PARAM="--no-cache --force-rm --rm" clean build
 
 all:

@@ -20,18 +20,33 @@ RUN echo "deb http://ftp.de.debian.org/debian testing main" >> /etc/apt/sources.
     && echo 'APT::Default-Release "stable";' >> /etc/apt/apt.conf.d/00local
 
 # Install system depedencies
+# Structured according to: https://docs.docker.com/develop/develop-images/dockerfile_best-practices/#run
 RUN apt-get -qq update \
-    && apt-get -y -qq install apt-utils libsasl2-2 curl ca-certificates procps net-tools sudo netcat \
-    && apt-get -qq -yt testing install python3.6 python3-venv \
+    && apt-get -y -qq install \
+        apt-utils \
+        ca-certificates \
+        curl \
+        libsasl2-2 \
+        net-tools \
+        netcat \
+        procps \
+        sudo \
+    && apt-get -qq -yt testing install \
+        python3-venv \
+        python3.6 \
     && apt-get upgrade -y -qq \
     && apt-get dist-upgrade -y -qq \
     && rm -rf /var/lib/apt/lists/*
 
+# Copy pre-downloaded Ops Manager / MongoD resources
+COPY *README.md cache/* /opt/
+
 # Download and install Ops Manager, set apropriate permissions
 WORKDIR /opt
-RUN curl -o mms.deb https://downloads.mongodb.com/on-prem-mms/deb/mongodb-mms_${OPS_MANAGER_VERSION}_x86_64.deb?utm_source=docker \
-    && dpkg -i mms.deb \
-    && rm mms.deb \
+ENV ops_manager_deb mongodb-mms_${OPS_MANAGER_VERSION}_x86_64.deb
+RUN ( [ -f "${ops_manager_deb}" ] || curl -o "${ops_manager_deb}" https://downloads.mongodb.com/on-prem-mms/deb/${ops_manager_deb}?utm_source=docker ) \
+    && dpkg -i "${ops_manager_deb}" \
+    && rm "${ops_manager_deb}" \
     && chown -R mongodb-mms:mongodb-mms /opt/mongodb/mms \
     && chmod -R 0775 /opt/mongodb/mms
 
@@ -47,10 +62,11 @@ RUN echo "mms.ignoreInitialUiSetup=true"                            >> ${mms_pro
 
 # Download MongoDB
 WORKDIR /opt
-RUN curl -o mongodb.tgz https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-debian92-${MONGODB_VERSION}.tgz?utm_source=docker \
-    && tar xzf mongodb.tgz \
-    && rm mongodb.tgz \
-    && mv mongodb-linux-x86_64-debian92-${MONGODB_VERSION}/* mongodb/ \
+ENV mongodb_name mongodb-linux-x86_64-debian92-${MONGODB_VERSION}
+RUN ( [ -f "${mongodb_name}.tgz" ] || curl -o "${mongodb_name}.tgz" https://fastdl.mongodb.org/linux/${mongodb_name}.tgz?utm_source=docker ) \
+    && tar xzf "${mongodb_name}.tgz" \
+    && rm "${mongodb_name}.tgz" \
+    && mv "${mongodb_name}"/* mongodb/ \
     && chown -R mongodb-mms:mongodb-mms ${mongodb} \
     && chmod -R 0775 ${mongodb}
 
