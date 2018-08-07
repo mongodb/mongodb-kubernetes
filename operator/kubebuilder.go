@@ -169,6 +169,9 @@ func basePodSpec(serviceName string, persistent *bool, reqs mongodb.PodSpecWrapp
 			NodeAffinity: reqs.NodeAffinity,
 			PodAffinity:  reqs.PodAffinity,
 		},
+		SecurityContext: &corev1.PodSecurityContext{
+			FSGroup: util.Int64Ref(UserGroupId),
+		},
 	}
 	if persistent == nil || *persistent {
 		spec.Containers[0].VolumeMounts = []corev1.VolumeMount{{

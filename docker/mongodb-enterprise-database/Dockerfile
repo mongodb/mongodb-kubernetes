@@ -2,7 +2,9 @@
 #
 FROM debian:jessie-slim
 
-RUN useradd -r -g root -u 1007 mongodb
+# see docs/dev/openshift_scc.md for more details
+RUN groupadd -g 1000080000 mongodb
+RUN useradd -r -g mongodb -G root -u 1007 mongodb
 
 # The Automation Agent needs lsb-release on the CLI to determine the current distro
 RUN apt-get -qq update && \

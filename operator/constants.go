@@ -36,4 +36,5 @@ const (
 	MongoDbDefaultPort             = 27017
 	PersistentVolumeClaimName      = "data"
 	PersistentVolumePath           = "/data"
+	UserGroupId                    = 1000080000 // see docs/dev/openshift_scc.md for more details
 )

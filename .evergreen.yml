@@ -10,6 +10,12 @@ functions:
       type: system
       params:
         directory: src/github.com/10gen/ops-manager-kubernetes
+  "test_operator":
+    - command: shell.exec
+      type: system
+      params:
+        script: |
+          src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_operator 0
   "build_operator":
     - command: shell.exec
       type: system
@@ -164,7 +170,7 @@ tasks:
   tags: ["test"]
   commands:
     - func: "clone"
-    - func: "build_operator"
+    - func: "test_operator"
     - func: "gotest_parse_files"
 
 - name: release

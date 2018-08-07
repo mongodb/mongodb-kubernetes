@@ -41,6 +41,11 @@ func Int32Ref(i int32) *int32 {
 	return &i
 }
 
+// Int64Ref is required to return a *int64, which can't be declared as a literal.
+func Int64Ref(i int64) *int64 {
+	return &i
+}
+
 // Float64Ref is required to return a *float64, which can't be declared as a literal.
 func Float64Ref(i float64) *float64 {
 	return &i

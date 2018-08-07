@@ -24,4 +24,4 @@ curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 pushd "${DIR}" &> /dev/null
 
-../build/build_operator
+../build/build_operator "$*"
