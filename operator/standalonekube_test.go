@@ -5,6 +5,8 @@ import (
 
 	"time"
 
+	"os"
+
 	"github.com/10gen/ops-manager-kubernetes/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/util"
@@ -12,11 +14,6 @@ import (
 	"go.uber.org/zap"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
-
-func init() {
-	logger, _ := zap.NewDevelopment()
-	zap.ReplaceGlobals(logger)
-}
 
 func TestCreateOmProcess(t *testing.T) {
 	process := createProcess(defaultSetHelper().BuildStatefulSet(), DefaultStandaloneBuilder().Build())
@@ -32,8 +29,8 @@ func TestOnAddStandalone(t *testing.T) {
 
 	api := newMockedKubeApi()
 	controller := NewMongoDbController(api, nil, om.NewEmptyMockedOmConnection)
-	//  We need to "register" automation agents containers in OM soon after controller creates standalones
-	// and waits for agents to be registered
+	//  We need to "start" statefulset pods and  "register" automation agents containers in OM soon after controller
+	// creates standalones and waits for agents to be registered
 	go registerAgents(t, controller, api, st)
 
 	controller.onAddStandalone(st)
@@ -44,17 +41,32 @@ func TestOnAddStandalone(t *testing.T) {
 	omConn.CheckNumberOfUpdateRequests(t, 1)
 }
 
-func registerAgents(t *testing.T, controller *MongoDbController, kubeApi *MockedKubeApi, st *v1.MongoDbStandalone) {
-	time.Sleep(300 * time.Millisecond)
+func TestStandaloneEventMethodsHandlePanic(t *testing.T) {
+	// nullifying env variable will result in panic exception raised
+	os.Setenv(AutomationAgentImageUrl, "")
+	st := DefaultStandaloneBuilder().Build()
 
-	// At this stage we expect the code to be "waiting until agents are registered"
-	zap.S().Info("Emulating agents are registered in OM")
+	NewMongoDbController(newMockedKubeApi(), nil, om.NewEmptyMockedOmConnection).onAddStandalone(st)
+	NewMongoDbController(newMockedKubeApi(), nil, om.NewEmptyMockedOmConnection).onUpdateStandalone(st, st)
+
+	// restoring
+	InitDefaultEnvVariables()
+}
+
+func registerAgents(t *testing.T, controller *MongoDbController, kubeApi *MockedKubeApi, st *v1.MongoDbStandalone) {
+	time.Sleep(200 * time.Millisecond)
+
+	// At this stage we expect the code to be "waiting until statefulset is started"
+	zap.S().Info("Emulating pods start and agents registered in OM")
 	assert.NotNil(t, controller.omConnection)
 
-	// todo more kube checks incapsulated into kube api
+	// seems we don't need very deep checks here as there should be smaller tests specially for those methods
 	assert.Len(t, kubeApi.services, 2)
 	assert.Len(t, kubeApi.sets, 1)
 	assert.Len(t, kubeApi.secrets, 2)
+
+	// making statefulset "ready"
+	kubeApi.startStatefulsets()
 
 	// "registering" agents
 	hostnames, _ := GetDnsNames(st.Name, st.ServiceName(), st.Namespace, st.Spec.ClusterName, 1)

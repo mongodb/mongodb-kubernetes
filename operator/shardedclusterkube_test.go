@@ -5,15 +5,24 @@ import (
 
 	"reflect"
 
+	"os"
+
 	"github.com/10gen/ops-manager-kubernetes/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"go.uber.org/zap"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func init() {
-	logger, _ := zap.NewDevelopment()
-	zap.ReplaceGlobals(logger)
+func TestShardedClusterEventMethodsHandlePanic(t *testing.T) {
+	// nullifying env variable will result in panic exception raised
+	os.Setenv(AutomationAgentImageUrl, "")
+	st := DefaultClusterBuilder().Build()
+
+	NewMongoDbController(newMockedKubeApi(), nil, om.NewEmptyMockedOmConnection).onAddShardedCluster(st)
+	NewMongoDbController(newMockedKubeApi(), nil, om.NewEmptyMockedOmConnection).onUpdateShardedCluster(st, st)
+
+	// restoring
+	InitDefaultEnvVariables()
 }
 
 func TestPrepareScaleDownShardedCluster(t *testing.T) {

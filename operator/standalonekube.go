@@ -15,20 +15,25 @@ func (c *MongoDbController) onAddStandalone(obj interface{}) {
 
 	log := zap.S().With("standalone", s.Name)
 
-	log.Infow(">> Creating MongoDbStandalone", "config", s.Spec)
+	defer exceptionHandling("Failed to create Mongodb Standalone", log)
 
-	if err := c.doStandaloneProcessing(nil, s, log); err != nil {
+	log.Infow(">> Creating Mongodb Standalone", "config", s.Spec)
+
+	conn, err := c.doStandaloneProcessing(nil, s, log)
+	if err != nil {
 		log.Error(err)
 		return
 	}
 
-	log.Info("Created!")
+	log.Infof("Created MongoDb Standalone! %s", completionMessage(conn.BaseUrl(), conn.GroupId()))
 }
 
 func (c *MongoDbController) onUpdateStandalone(oldObj, newObj interface{}) {
 	o := oldObj.(*mongodb.MongoDbStandalone)
 	n := newObj.(*mongodb.MongoDbStandalone)
 	log := zap.S().With("standalone", n.Name)
+
+	defer exceptionHandling("Failed to update Mongodb Standalone", log)
 
 	log.Infow(">> Updating MongoDbStandalone", "oldConfig", o.Spec, "newConfig", n.Spec)
 
@@ -37,17 +42,20 @@ func (c *MongoDbController) onUpdateStandalone(oldObj, newObj interface{}) {
 		return
 	}
 
-	if err := c.doStandaloneProcessing(o, n, log); err != nil {
+	conn, err := c.doStandaloneProcessing(nil, n, log)
+	if err != nil {
 		log.Error(err)
 		return
 	}
 
-	log.Info("Updated!")
+	log.Infof("Updated MongoDbStandalone! %s", completionMessage(conn.BaseUrl(), conn.GroupId()))
 }
 
 func (c *MongoDbController) onDeleteStandalone(obj interface{}) {
 	s := obj.(*mongodb.MongoDbStandalone)
 	log := zap.S().With("Standalone", s.Name)
+
+	defer exceptionHandling("Failed to delete Mongodb Standalone", log)
 
 	log.Infow(">> Deleting MongoDbStandalone", "config", s.Spec)
 
@@ -84,21 +92,21 @@ func (c *MongoDbController) onDeleteStandalone(obj interface{}) {
 	log.Info("Removed!")
 }
 
-func (c *MongoDbController) doStandaloneProcessing(o, n *mongodb.MongoDbStandalone, log *zap.SugaredLogger) error {
+func (c *MongoDbController) doStandaloneProcessing(o, n *mongodb.MongoDbStandalone, log *zap.SugaredLogger) (om.OmConnection, error) {
 	spec := n.Spec
 	conn, err := c.createOmConnection(n.Namespace, spec.Project, spec.Credentials)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	agentKeySecretName, err := c.ensureAgentKeySecretExists(conn, n.Namespace, log)
 	if err != nil {
-		return errors.New(fmt.Sprintf("Failed to generate/get agent key: %s", err))
+		return nil, errors.New(fmt.Sprintf("Failed to generate/get agent key: %s", err))
 	}
 
 	podVars, err := c.buildPodVars(n.Namespace, n.Spec.Project, n.Spec.Credentials, agentKeySecretName)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	standaloneBuilder := c.kubeHelper.NewStatefulSetHelper(n).
@@ -111,13 +119,13 @@ func (c *MongoDbController) doStandaloneProcessing(o, n *mongodb.MongoDbStandalo
 
 	err = standaloneBuilder.CreateOrUpdateInKubernetes()
 	if err != nil {
-		return errors.New(fmt.Sprintf("Failed to create statefulset: %s", err))
+		return nil, errors.New(fmt.Sprintf("Failed to create statefulset: %s", err))
 	}
 
 	if err := c.updateOmDeployment(conn, n, standaloneBuilder.BuildStatefulSet(), log); err != nil {
-		return errors.New(fmt.Sprintf("Failed to create standalone in OM: %s", err))
+		return nil, errors.New(fmt.Sprintf("Failed to create standalone in OM: %s", err))
 	}
-	return nil
+	return conn, nil
 }
 
 func (c *MongoDbController) updateOmDeployment(omConnection om.OmConnection, s *mongodb.MongoDbStandalone,

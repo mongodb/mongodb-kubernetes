@@ -96,11 +96,13 @@ func waitForRsAgentsToRegister(set *appsv1.StatefulSet, clusterName string, omCo
 // registered
 func waitUntilAgentsHaveRegistered(omConnection om.OmConnection, log *zap.SugaredLogger, agentHostnames ...string) bool {
 	log.Infow("Waiting for agents to register with OM", "agent hosts", agentHostnames)
-	agentsCheckFunc := func() bool {
+	waitSeconds := util.ReadEnvVarOrPanicInt(StatefulSetWaitSecondsEnv)
+	retrials := util.ReadEnvVarOrPanicInt(StatefulSetWaitRetrialsEnv)
+
+	agentsCheckFunc := func() (string, bool) {
 		agentResponse, err := omConnection.ReadAutomationAgents()
 		if err != nil {
-			log.Error("Unable to read from OM API: ", err)
-			return false
+			return fmt.Sprintf("Unable to read from OM API: %s", err), false
 		}
 
 		registeredCount := 0
@@ -111,17 +113,18 @@ func waitUntilAgentsHaveRegistered(omConnection om.OmConnection, log *zap.Sugare
 		}
 
 		if registeredCount == len(agentHostnames) {
-			return true
+			return "", true
 		}
+		var msg string
 		if registeredCount == 0 {
-			log.Infof("None of %d agents has registered with OM", len(agentHostnames))
+			msg = fmt.Sprintf("None of %d agents has registered with OM", len(agentHostnames))
 		} else {
-			log.Infof("Only %d of %d agents have registered with OM", registeredCount, len(agentHostnames))
+			msg = fmt.Sprintf("Only %d of %d agents have registered with OM", registeredCount, len(agentHostnames))
 		}
-		return false
+		return msg, false
 	}
 
-	return util.DoAndRetry(agentsCheckFunc, log, 20, 3)
+	return util.DoAndRetry(agentsCheckFunc, log, retrials, waitSeconds)
 }
 
 // prepareScaleDown performs additional steps necessary to make sure removed members are not primary (so no
@@ -195,4 +198,15 @@ func deleteHostnamesFromMonitoring(omClient om.OmConnection, hostsBefore, hostsA
 // the secret associated with it.
 func agentApiKeySecretName(project string) string {
 	return fmt.Sprintf("%s-group-secret", project)
+}
+
+// completionMessage is just a general message printed in the logs after mongodb resource is created/updated
+func completionMessage(url, groupId string) string {
+	return fmt.Sprintf("Please check the link %s/v2/%s to see the status of deployment", url, groupId)
+}
+
+func exceptionHandling(msg string, log *zap.SugaredLogger) {
+	if r := recover(); r != nil {
+		log.Errorf("%s: %s", msg, r)
+	}
 }

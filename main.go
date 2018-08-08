@@ -77,7 +77,22 @@ func initializeEnvironment() {
 
 	initLogger(env)
 
+	initEnvVariables(env)
+
 	log.Info("Operator environment: ", env)
+}
+
+func initEnvVariables(env string) {
+	// So far we just hardcode parameters as it seems user doesn't need to configure this but may be at some stage
+	// we change our decision
+	switch env {
+	case "prod":
+		os.Setenv(operator.StatefulSetWaitSecondsEnv, operator.DefaultWaitSecondsProd)
+		os.Setenv(operator.StatefulSetWaitRetrialsEnv, operator.DefaultWaitRetrialsProd) // 2 minutes for production
+	case "dev", "local":
+		os.Setenv(operator.StatefulSetWaitSecondsEnv, operator.DefaultWaitSecondsDev)
+		os.Setenv(operator.StatefulSetWaitRetrialsEnv, operator.DefaultWaitRetrialsDev) // 1 minute otherwise
+	}
 }
 
 func validateEnv(env string) {

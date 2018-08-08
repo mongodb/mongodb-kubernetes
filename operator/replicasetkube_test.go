@@ -1,6 +1,9 @@
 package operator
 
 import (
+	"os"
+	"testing"
+
 	"github.com/10gen/ops-manager-kubernetes/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/util"
@@ -9,6 +12,18 @@ import (
 
 type ReplicaSetBuilder struct {
 	*v1.MongoDbReplicaSet
+}
+
+func TestReplicaSetEventMethodsHandlePanic(t *testing.T) {
+	// nullifying env variable will result in panic exception raised
+	os.Setenv(AutomationAgentImageUrl, "")
+	st := DefaultReplicaSetBuilder().Build()
+
+	NewMongoDbController(newMockedKubeApi(), nil, om.NewEmptyMockedOmConnection).onAddReplicaSet(st)
+	NewMongoDbController(newMockedKubeApi(), nil, om.NewEmptyMockedOmConnection).onUpdateReplicaSet(st, st)
+
+	// restoring
+	InitDefaultEnvVariables()
 }
 
 func DefaultReplicaSetBuilder() *ReplicaSetBuilder {

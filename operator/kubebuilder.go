@@ -136,15 +136,15 @@ func baseOwnerReference(owner metav1.Object) []metav1.OwnerReference {
 }
 
 // basePodSpec creates the standard Pod definition which uses the database container for managing mongod/mongos
-// instances. Parameters to the container will be passed as environment variables whose values are contained
+// instances. Parameters to the container will be passed as environment variables which values are contained
 // in the PodVars structure.
 func basePodSpec(serviceName string, persistent *bool, reqs mongodb.PodSpecWrapper, podVars *PodVars) corev1.PodSpec {
 	spec := corev1.PodSpec{
 		Containers: []corev1.Container{
 			{
 				Name:            ContainerName,
-				Image:           os.Getenv(AutomationAgentImageUrl),
-				ImagePullPolicy: corev1.PullPolicy(os.Getenv(AutomationAgentImagePullPolicy)),
+				Image:           util.ReadEnvVarOrPanic(AutomationAgentImageUrl),
+				ImagePullPolicy: corev1.PullPolicy(util.ReadEnvVarOrPanic(AutomationAgentImagePullPolicy)),
 				Env:             baseEnvFrom(podVars),
 				Ports:           []corev1.ContainerPort{{ContainerPort: MongoDbDefaultPort}},
 				Resources: corev1.ResourceRequirements{

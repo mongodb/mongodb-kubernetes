@@ -28,6 +28,8 @@ const (
 	AutomationAgentImagePullPolicy = "IMAGE_PULL_POLICY"
 	AutomationAgentPullSecrets     = "IMAGE_PULL_SECRETS"
 	OmOperatorEnv                  = "OPERATOR_ENV"
+	StatefulSetWaitSecondsEnv      = "STS_WAIT_SEC"
+	StatefulSetWaitRetrialsEnv     = "STS_WAIT_RETRIALS"
 
 	// Different default configuration values
 	DefaultMongodStorageSize       = "16G"
@@ -37,4 +39,8 @@ const (
 	PersistentVolumeClaimName      = "data"
 	PersistentVolumePath           = "/data"
 	UserGroupId                    = 1000080000 // see docs/dev/openshift_scc.md for more details
+	DefaultWaitSecondsProd         = "5"
+	DefaultWaitSecondsDev          = "3"
+	DefaultWaitRetrialsProd        = "180" // 180 * 5 = 900 seconds = 15 min (Azure launch time is approximately 10 min)
+	DefaultWaitRetrialsDev         = "20"
 )

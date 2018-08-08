@@ -15,14 +15,17 @@ func (c *MongoDbController) onAddReplicaSet(obj interface{}) {
 
 	log := zap.S().With("replica set", s.Name)
 
-	log.Infow(">> Creating Replica set", "config", s.Spec)
+	defer exceptionHandling("Failed to create Mongodb Replica Set", log)
 
-	if err := c.doRsProcessing(nil, s, log); err != nil {
+	log.Infow(">> Creating MongoDb Replica Set", "config", s.Spec)
+
+	conn, err := c.doRsProcessing(nil, s, log)
+	if err != nil {
 		log.Error(err)
 		return
 	}
 
-	log.Info("Created Replica Set!")
+	log.Infof("Created MongoDb Replica Set! %s", completionMessage(conn.BaseUrl(), conn.GroupId()))
 }
 
 func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
@@ -30,38 +33,41 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 	n := newObj.(*mongodb.MongoDbReplicaSet)
 	log := zap.S().With("replica set", n.Name)
 
-	log.Infow(">> Updating MongoDbReplicaSet", "oldConfig", o.Spec, "newConfig", n.Spec)
+	defer exceptionHandling("Failed to update Mongodb Replica Set", log)
+
+	log.Infow(">> Updating MongoDb Replica Set", "oldConfig", o.Spec, "newConfig", n.Spec)
 
 	if err := validateReplicaSetUpdate(o, n); err != nil {
 		log.Error(err)
 		return
 	}
 
-	if err := c.doRsProcessing(o, n, log); err != nil {
+	conn, err := c.doRsProcessing(o, n, log)
+	if err != nil {
 		log.Error(err)
 		return
 	}
 
-	log.Info("Updated Replica Set!")
+	log.Infof("Updated MongoDb Replica Set! %s", completionMessage(conn.BaseUrl(), conn.GroupId()))
 }
 
-func (c *MongoDbController) doRsProcessing(o, n *mongodb.MongoDbReplicaSet, log *zap.SugaredLogger) error {
+func (c *MongoDbController) doRsProcessing(o, n *mongodb.MongoDbReplicaSet, log *zap.SugaredLogger) (om.OmConnection, error) {
 	spec := n.Spec
 	conn, err := c.createOmConnection(n.Namespace, spec.Project, spec.Credentials)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	agentKeySecretName, err := c.ensureAgentKeySecretExists(conn, n.Namespace, log)
 	if err != nil {
-		return errors.New(fmt.Sprintf("Failed to generate/get agent key: %s", err))
+		return nil, errors.New(fmt.Sprintf("Failed to generate/get agent key: %s", err))
 	}
 
 	scaleDown := o != nil && spec.Members < o.Spec.Members
 
 	podVars, err := c.buildPodVars(n.Namespace, n.Spec.Project, n.Spec.Credentials, agentKeySecretName)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	replicaBuilder := c.kubeHelper.NewStatefulSetHelper(n).
@@ -76,22 +82,22 @@ func (c *MongoDbController) doRsProcessing(o, n *mongodb.MongoDbReplicaSet, log 
 
 	if scaleDown {
 		if err := prepareScaleDownReplicaSet(conn, replicaSetObject, o, n, log); err != nil {
-			return errors.New(fmt.Sprintf("Failed to prepare Ops Manager for scaling down: %s", err))
+			return nil, errors.New(fmt.Sprintf("Failed to prepare Ops Manager for scaling down: %s", err))
 		}
 	}
 
 	err = replicaBuilder.CreateOrUpdateInKubernetes()
 	if err != nil {
-		return errors.New(fmt.Sprintf("Failed to create/update the StatefulSet: %s", err))
+		return nil, errors.New(fmt.Sprintf("Failed to create/update the StatefulSet: %s", err))
 	}
 
 	log.Info("Updated statefulset for replicaset")
 
 	if err := c.updateOmDeploymentRs(conn, o, n, replicaSetObject, log); err != nil {
-		return errors.New(fmt.Sprintf("Failed to update Ops Manager automation config: %s", err))
+		return nil, errors.New(fmt.Sprintf("Failed to update Ops Manager automation config: %s", err))
 	}
 
-	return nil
+	return conn, nil
 }
 
 func prepareScaleDownReplicaSet(omClient om.OmConnection, statefulSet *appsv1.StatefulSet, old, new *mongodb.MongoDbReplicaSet,
@@ -106,7 +112,9 @@ func (c *MongoDbController) onDeleteReplicaSet(obj interface{}) {
 	rs := obj.(*mongodb.MongoDbReplicaSet)
 	log := zap.S().With("replicaSet", rs.Name)
 
-	log.Infow(">> Deleting Replica set", "config", rs.Spec)
+	defer exceptionHandling("Failed to delete Mongodb Replica Set", log)
+
+	log.Infow(">> Deleting MongoDb Replica Set", "config", rs.Spec)
 
 	conn, err := c.createOmConnection(rs.Namespace, rs.Spec.Project, rs.Spec.Credentials)
 	if err != nil {
@@ -137,7 +145,7 @@ func (c *MongoDbController) onDeleteReplicaSet(obj interface{}) {
 		return
 	}
 
-	log.Info("Removed!")
+	log.Info("Removed MongoDb Replica Set!")
 }
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated

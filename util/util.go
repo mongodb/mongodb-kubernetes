@@ -11,7 +11,10 @@ import (
 	"fmt"
 	"strings"
 
+	"os"
+
 	"github.com/pkg/errors"
+	"github.com/spf13/cast"
 	"go.uber.org/zap"
 )
 
@@ -58,16 +61,17 @@ func BooleanRef(b bool) *bool {
 
 // DoAndRetry performs the task 'f' until it returns true or 'count' retrials are executed. Sleeps for 'interval' seconds
 // between retries
-func DoAndRetry(f func() bool, log *zap.SugaredLogger, count, interval int) bool {
+func DoAndRetry(f func() (string, bool), log *zap.SugaredLogger, count, interval int) bool {
 	for i := 0; i < count; i++ {
-		if f() {
+		msg, ok := f()
+		if ok {
 			return true
 		}
-		// if we are on the last iteration - returning as there's no need to wait and retry again
-		if i != count-1 {
-			log.Debugf("Retrial attempt %d of %d (waiting for %d more seconds)", i+2, count, interval)
-			time.Sleep(time.Duration(interval) * time.Second)
+		if msg != "" {
+			msg += "."
 		}
+		log.Debugf("%s Retrial attempt %d of %d (waiting for %d more seconds)", msg, i+1, count, interval)
+		time.Sleep(time.Duration(interval) * time.Second)
 	}
 	return false
 }
@@ -113,4 +117,21 @@ func ParseMongodbMinorVersion(version string) (float32, error) {
 		return -1, err
 	}
 	return float32(v), nil
+}
+
+func ReadEnvVarOrPanic(key string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		panic(fmt.Sprintf("%s environment variable is not set!", key))
+	}
+	return value
+}
+
+func ReadEnvVarOrPanicInt(key string) int {
+	value := os.Getenv(key)
+	i, e := cast.ToIntE(value)
+	if e != nil {
+		panic(fmt.Sprintf("%s env variable is supposed to be of type int but the value is %s", key, value))
+	}
+	return i
 }

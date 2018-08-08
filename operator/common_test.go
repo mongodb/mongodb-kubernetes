@@ -3,10 +3,18 @@ package operator
 import (
 	"testing"
 
+	"os"
+
 	"github.com/10gen/ops-manager-kubernetes/om"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 )
+
+func init() {
+	logger, _ := zap.NewDevelopment()
+	zap.ReplaceGlobals(logger)
+	InitDefaultEnvVariables()
+}
 
 // TestPrepareScaleDown_OpsManagerRemovedMember tests the situation when during scale down some replica set member doesn't
 // exist (this can happen when for example the member was removed from Ops Manager manually). The exception is handled
@@ -27,6 +35,14 @@ func TestPrepareScaleDown_OpsManagerRemovedMember(t *testing.T) {
 
 	mockedOmConnection.CheckNumberOfUpdateRequests(t, 1)
 	mockedOmConnection.CheckDeployment(t, expectedDeployment)
+}
+
+func InitDefaultEnvVariables() {
+	os.Setenv(AutomationAgentImageUrl, "mongodb-enterprise-database")
+	os.Setenv(AutomationAgentImagePullPolicy, "Never")
+	os.Setenv(OmOperatorEnv, "test")
+	os.Setenv(StatefulSetWaitSecondsEnv, "1")
+	os.Setenv(StatefulSetWaitRetrialsEnv, "2")
 }
 
 func TestCreateProcessesWiredTigerCache(t *testing.T) {

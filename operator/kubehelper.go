@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"time"
+
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/util"
 	"go.uber.org/zap"
@@ -146,30 +148,56 @@ func (s *StatefulSetHelper) CreateOrUpdateInKubernetes() error {
 // won't be connectible from external (unless pods in statefulset expose themselves to outside using "hostNetwork: true")
 // Function returns the service port number assigned
 func (k *KubeHelper) createOrUpdateStatefulsetWithService(owner metav1.Object, servicePort int32,
-	ns string, exposeExternally bool, log *zap.SugaredLogger, statefulset *appsv1.StatefulSet) (*int32, error) {
+	ns string, exposeExternally bool, log *zap.SugaredLogger, set *appsv1.StatefulSet) (*int32, error) {
 
-	service, err := k.ensureServicesExist(owner, statefulset.Spec.ServiceName, servicePort, ns,
-		exposeExternally, log, statefulset)
+	start := time.Now()
+
+	service, err := k.ensureServicesExist(owner, set.Spec.ServiceName, servicePort, ns,
+		exposeExternally, log, set)
 
 	if err != nil {
 		return nil, err
 	}
 
-	log = log.With("statefulset", statefulset.Name)
-
-	if _, err := k.kubeApi.getStatefulSet(ns, statefulset.Name); err != nil {
-		if _, err := k.kubeApi.createStatefulSet(ns, statefulset); err != nil {
+	log = log.With("statefulset", set.Name)
+	event := "Created"
+	if _, err := k.kubeApi.getStatefulSet(ns, set.Name); err != nil {
+		if _, err := k.kubeApi.createStatefulSet(ns, set); err != nil {
 			return nil, err
 		}
-		log.Infow("Created statefulset")
 	} else {
-		if _, err := k.kubeApi.updateStatefulSet(ns, statefulset); err != nil {
+		if _, err := k.kubeApi.updateStatefulSet(ns, set); err != nil {
 			return nil, err
 		}
-		log.Infow("Updated statefulset")
+		event = "Updated"
 	}
 
+	log.Infow("Waiting until statefulset and its pods reach READY state...")
+
+	if !k.waitForStatefulsetAndPods(ns, set.Name, log) {
+		// we don't pass cluster name as we are not interested in full DNS names
+		_, names := GetDnsForStatefulSet(set, "")
+
+		// Unfortunately Kube api for events is too weak and doesn't allow to filter by object so we cannot show
+		// the real pod event message to user
+		return nil, errors.New(fmt.Sprintf("Statefulset or its pods failed to reach READY state. Check the events for "+
+			"statefulset and pods: kubectl describe sts %s -n %s; kubectl describe po %s -n %s;...", set.Name,
+			set.Namespace, names[0], set.Namespace))
+	}
+	log.Infow(event+" statefulset", "time", time.Since(start))
+
 	return discoverServicePort(service)
+}
+
+func (k *KubeHelper) waitForStatefulsetAndPods(ns, stsName string, log *zap.SugaredLogger) bool {
+	waitSeconds := util.ReadEnvVarOrPanicInt(StatefulSetWaitSecondsEnv)
+	retrials := util.ReadEnvVarOrPanicInt(StatefulSetWaitRetrialsEnv)
+
+	return util.DoAndRetry(func() (string, bool) {
+		set, _ := k.kubeApi.getStatefulSet(ns, stsName)
+		msg := fmt.Sprintf("%d of %d replicas are ready", set.Status.ReadyReplicas, *set.Spec.Replicas)
+		return msg, set.Status.ReadyReplicas == *set.Spec.Replicas
+	}, log, retrials, waitSeconds)
 }
 
 // ensureServicesExist checks if the necessary services exist and creates them if not. If the service name is not

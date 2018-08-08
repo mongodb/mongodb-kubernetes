@@ -147,3 +147,9 @@ func (k *MockedKubeApi) createSecret(ns string, secret *corev1.Secret) (*corev1.
 func (oc *MockedKubeApi) addToHistory(value reflect.Value) {
 	oc.history = append(oc.history, runtime.FuncForPC(value.Pointer()))
 }
+
+func (oc *MockedKubeApi) startStatefulsets() {
+	for _, s := range oc.sets {
+		s.Status.ReadyReplicas = *s.Spec.Replicas
+	}
+}

@@ -22,14 +22,17 @@ func (c *MongoDbController) onAddShardedCluster(obj interface{}) {
 
 	log := zap.S().With("sharded cluster", s.Name)
 
-	log.Infow(">> Creating MongoDbShardedCluster", "config", s.Spec)
+	defer exceptionHandling("Failed to create Mongodb Sharded Cluster", log)
 
-	if err := c.doShardedClusterProcessing(nil, s, log); err != nil {
+	log.Infow(">> Creating MongoDb Sharded Cluster", "config", s.Spec)
+
+	conn, err := c.doShardedClusterProcessing(nil, s, log)
+	if err != nil {
 		log.Error(err)
 		return
 	}
 
-	log.Info("Created!")
+	log.Infof("Created MongoDb Sharded Cluster! %s", completionMessage(conn.BaseUrl(), conn.GroupId()))
 }
 
 func (c *MongoDbController) onUpdateShardedCluster(oldObj, newObj interface{}) {
@@ -37,52 +40,55 @@ func (c *MongoDbController) onUpdateShardedCluster(oldObj, newObj interface{}) {
 	newS := newObj.(*mongodb.MongoDbShardedCluster)
 	log := zap.S().With("sharded cluster", newS.Name)
 
+	defer exceptionHandling("Failed to update Mongodb Sharded Cluster", log)
+
 	if err := validateUpdateShardedCluster(oldS, newS); err != nil {
 		log.Error(err)
 		return
 	}
 
-	log.Infow(">> Updating MongoDbShardedCluster", "oldConfig", oldS.Spec, "newConfig", newS.Spec)
+	log.Infow(">> Updating MongoDb Sharded Cluster", "oldConfig", oldS.Spec, "newConfig", newS.Spec)
 
-	if err := c.doShardedClusterProcessing(oldS, newS, log); err != nil {
+	conn, err := c.doShardedClusterProcessing(oldS, newS, log)
+	if err != nil {
 		log.Error(err)
 		return
 	}
 
-	log.Info("Updated!")
+	log.Infof("Created MongoDb Sharded Cluster! %s", completionMessage(conn.BaseUrl(), conn.GroupId()))
 }
 
-func (c *MongoDbController) doShardedClusterProcessing(o, n *mongodb.MongoDbShardedCluster, log *zap.SugaredLogger) error {
+func (c *MongoDbController) doShardedClusterProcessing(o, n *mongodb.MongoDbShardedCluster, log *zap.SugaredLogger) (om.OmConnection, error) {
 	conn, err := c.createOmConnection(n.Namespace, n.Spec.Project, n.Spec.Credentials)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	agentKeySecretName, err := c.ensureAgentKeySecretExists(conn, n.Namespace, log)
 	if err != nil {
-		return errors.New(fmt.Sprintf("Failed to generate/get agent key: %s", err))
+		return nil, errors.New(fmt.Sprintf("Failed to generate/get agent key: %s", err))
 	}
 
 	kubeState, err := c.buildKubeObjectsForShardedCluster(n, agentKeySecretName, log)
 	if err != nil {
-		return errors.New(fmt.Sprintf("Failed to build Kubernetes objects: %s", err))
+		return nil, errors.New(fmt.Sprintf("Failed to build Kubernetes objects: %s", err))
 	}
 
 	if err = prepareScaleDownShardedCluster(conn, kubeState, o, n, log); err != nil {
-		return errors.New(fmt.Sprintf("Failed to perform scale down preliminary actions: %s", err))
+		return nil, errors.New(fmt.Sprintf("Failed to perform scale down preliminary actions: %s", err))
 	}
 
 	if err = c.createKubernetesResources(n, kubeState, log); err != nil {
-		return errors.New(fmt.Sprintf("Failed to create/update resources in Kubernetes for sharded cluster: %s", err))
+		return nil, errors.New(fmt.Sprintf("Failed to create/update resources in Kubernetes for sharded cluster: %s", err))
 	}
 	log.Infow("All Kubernetes objects are created/updated, adding the deployment to Ops Manager")
 
 	if err := updateOmDeploymentShardedCluster(conn, o, n, kubeState, log); err != nil {
-		return errors.New(fmt.Sprintf("Failed to update OpsManager automation config: %s", err))
+		return nil, errors.New(fmt.Sprintf("Failed to update OpsManager automation config: %s", err))
 	}
 	log.Infow("Ops Manager deployment updated successfully")
 
-	return nil
+	return conn, nil
 }
 
 func (c *MongoDbController) buildKubeObjectsForShardedCluster(s *mongodb.MongoDbShardedCluster, agentKeySecretName string,
@@ -205,7 +211,9 @@ func (c *MongoDbController) onDeleteShardedCluster(obj interface{}) {
 	sc := obj.(*mongodb.MongoDbShardedCluster)
 	log := zap.S().With("sharded cluster", sc.Name)
 
-	log.Infow(">> Deleting MongoDbShardedCluster", "config", sc.Spec)
+	defer exceptionHandling("Failed to delete Mongodb Sharded Cluster", log)
+
+	log.Infow(">> Deleting MongoDb Sharded Cluster", "config", sc.Spec)
 
 	hostsToRemove := getAllHosts(sc)
 
@@ -238,7 +246,7 @@ func (c *MongoDbController) onDeleteShardedCluster(obj interface{}) {
 		return
 	}
 
-	log.Info("Removed!")
+	log.Info("Removed MongoDb Sharded Cluster!")
 }
 
 func prepareScaleDownShardedCluster(omClient om.OmConnection, state KubeState, old, new *mongodb.MongoDbShardedCluster,

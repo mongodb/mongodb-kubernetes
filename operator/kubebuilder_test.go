@@ -110,7 +110,7 @@ func TestBasePodSpec_FsGroup(t *testing.T) {
 }
 
 func baseSetHelper() *StatefulSetHelper {
-	return (&KubeHelper{}).NewStatefulSetHelper(DefaultStandaloneBuilder().Build())
+	return (&KubeHelper{newMockedKubeApi()}).NewStatefulSetHelper(DefaultStandaloneBuilder().Build())
 }
 
 func defaultPodSpec() mongodb.PodSpecWrapper {
