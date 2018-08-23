@@ -199,12 +199,10 @@ func request(method string, hostname string, path string, reader io.Reader, user
 	url := hostname + path
 
 	// First request is to get authorization information - we are not sending the body
-	req, err := http.NewRequest(method, url, nil)
+	req, err := createHttpRequest(method, url, nil, contentType)
 	if err != nil {
 		return nil, err
 	}
-
-	req.Header.Add("Content-Type", contentType)
 
 	resp, err := util.DefaultHttpClient.Do(req)
 	var body []byte
@@ -219,11 +217,13 @@ func request(method string, hostname string, path string, reader io.Reader, user
 	}
 	digestParts := digestParts(resp)
 
-	// Second request is the real one - we send bosy as well as digest authorization header
-	req, err = http.NewRequest(method, url, reader)
+	// Second request is the real one - we send body as well as digest authorization header
+	req, err = createHttpRequest(method, url, reader, contentType)
+	if err != nil {
+		return nil, err
+	}
 
 	req.Header.Set("Authorization", getDigestAuthorization(digestParts, method, path, user, token))
-	req.Header.Add("Content-Type", contentType)
 
 	request, _ := httputil.DumpRequest(req, false)
 	zap.S().Debugf("Request sending: \n %s", string(request))
@@ -254,6 +254,18 @@ func request(method string, hostname string, path string, reader io.Reader, user
 	}
 
 	return body, nil
+}
+
+func createHttpRequest(method string, url string, reader io.Reader, contentType string) (*http.Request, error) {
+	req, err := http.NewRequest(method, url, reader)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+	req.Header.Add("Provider", "KUBERNETES")
+
+	return req, nil
 }
 
 func digestParts(resp *http.Response) map[string]string {
