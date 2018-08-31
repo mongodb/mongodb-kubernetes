@@ -1,6 +1,6 @@
 # MongoDB Enterprise Database
 
-This directory hosts a Dockerfile that can be run locally for development purposes (see below) or 
+This directory hosts a Dockerfile that can be run locally for development purposes (see below) or
 as part of a Kubernetes deployment, using the [MongoDB Enterprise Kubernetes Operator](../mongodb-enterprise-operator).
 
 ### Running locally
@@ -23,3 +23,13 @@ for img in $(docker ps -a -f 'ancestor=dev/mongodb-enterprise-database' | tail -
 ```bash
 docker exec -it $(docker ps -a -f 'ancestor=dev/mongodb-enterprise-database' | tail -n +2 | awk '{print $1}') /bin/bash
 ```
+
+## RHEL based Images
+
+We have provided a second Dockerfile (`Dockerfile_rhel`) based on RHEL7 instead of the `jessie-slim` that the
+normal image is based on. The purpose of this second image is to be uploaded to RedHat Container Catalog to be used
+in OpenShift with the MongoDb ClusterServiceVersion. See the `openshift` directory in this repo.
+
+This image can't be built in any host, because it will require the use of a subscription service with Redhat. A RHEL
+host, with subscription service enabled, is required. That's the reason behind using the Redhat build service to build
+this images with.

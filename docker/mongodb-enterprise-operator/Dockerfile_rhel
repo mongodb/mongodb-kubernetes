@@ -1,0 +1,27 @@
+FROM golang:1.10.3 as build
+
+WORKDIR /go/src/github.com/10gen/ops-manager-kubernetes
+
+RUN go get -u github.com/golang/dep/cmd/dep
+
+COPY . .
+
+RUN dep ensure && \
+    ./scripts/build/codegen.sh && \
+    CGO_ENABLED=0 GOOS=linux go build -o mongodb-enterprise-operator
+
+
+FROM registry.access.redhat.com/rhel7-minimal
+LABEL name="MongoDB Enterprise Operator" \
+      maintainer="enterprise-engineering-services@mongodb.com" \
+      vendor="MongoDB" \
+      version="0.3.0" \
+      release="1" \
+      summary="MongoDB Enterprise Operator Image" \
+      description="MongoDB Enterprise Operator Image"
+
+COPY --from=build /go/src/github.com/10gen/ops-manager-kubernetes/mongodb-enterprise-operator /usr/local/bin/mongodb-enterprise-operator
+
+COPY licenses /licenses
+
+ENTRYPOINT exec /usr/local/bin/mongodb-enterprise-operator

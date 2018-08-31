@@ -32,6 +32,16 @@ This Operator requires Ops Manager or Cloud Manager. In this document, when we r
 
 ## Installation ##
 
+### Create CustomResourceDefinitions
+
+The `CustomResourceDefinition` (or `crds`) should be installed before installing the operator into your Kubernetes cluster. To do this, make sure you have logged into your Kubernetes cluster and that you can perform Cluster level operations:
+
+    kubectl apply -f https://raw.githubusercontent.com/mongodb/mongodb-enterprise-kubernetes/master/crds.yaml
+
+This will create three new `crds` in your cluster, `MongoDbStandalone`, `MongoDbReplicaSet` and `MongoDbShardedCluster`. These new objects will be the ones used by the operator to perform the MongoDb operations needed to prepare each one of the different MongoDb types of deployments.
+
+### Operator Installation
+
 This operator can also be installed using yaml files, in case you are not using Helm. You may apply the config directly from github clone this repo, and apply the file
 
     kubectl apply -f https://raw.githubusercontent.com/mongodb/mongodb-enterprise-kubernetes/master/mongodb-enterprise.yaml

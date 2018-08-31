@@ -22,6 +22,10 @@ spec:
         env:
         - name: OPERATOR_ENV
           value: {{ .Values.operator.env }}
+        - name: WATCH_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
         - name: MONGODB_ENTERPRISE_DATABASE_IMAGE
           value: {{ .Values.registry.repository }}/mongodb-enterprise-database:{{ .Values.operator.version }}
         - name: IMAGE_PULL_POLICY

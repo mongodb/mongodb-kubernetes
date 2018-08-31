@@ -99,16 +99,6 @@ func TestBasePodSpec_AntiAffinityDefaultTopology(t *testing.T) {
 	assert.Equal(t, DefaultAntiAffinityTopologyKey, term.PodAffinityTerm.TopologyKey)
 }
 
-// See docs/dev/openshift_scc.md for more details why we set the FSGroup
-func TestBasePodSpec_FsGroup(t *testing.T) {
-	spec := basePodSpec("s", util.BooleanRef(false), defaultPodSpec(), defaultPodVars())
-
-	assert.Len(t, spec.InitContainers, 0)
-	assert.NotNil(t, spec.SecurityContext)
-	assert.NotNil(t, spec.SecurityContext.FSGroup)
-	assert.Equal(t, util.Int64Ref(UserGroupId), spec.SecurityContext.FSGroup)
-}
-
 func baseSetHelper() *StatefulSetHelper {
 	return (&KubeHelper{newMockedKubeApi()}).NewStatefulSetHelper(DefaultStandaloneBuilder().Build())
 }

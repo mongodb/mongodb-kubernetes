@@ -1,10 +1,11 @@
-namespace: mongodb
+createCrds: true
 createNamespace: true
-registry:
-  repository: quay.io/mongodb
-  pullPolicy: Always
-  imagePullSecrets:
+namespace: mongodb
 operator:
+  env: dev
   name: mongodb-enterprise-operator
   version: 0.2
-  env: dev
+registry:
+  imagePullSecrets: null
+  pullPolicy: Always
+  repository: quay.io/mongodb

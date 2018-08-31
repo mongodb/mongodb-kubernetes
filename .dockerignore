@@ -1,0 +1,5 @@
+vendor/**
+pkg/client/**
+docker/*
+samples/*
+public/*

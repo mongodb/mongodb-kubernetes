@@ -91,3 +91,16 @@ Just run
 
 This will copy the contents of the `public` directory in the `10gen/ops-manager-kubernetes` into
 the root of the `mongodb/mongodb-enterprise-kubernetes`, the public repo.
+
+This script will also generate YAML files that can be used to install
+the operator in clusters with no Helm installed. These yaml files will
+be copied into the public repo, they will not exist in the private
+repo, and they should not be checked into the private repo either. You
+can generate the public repo, without commiting to it, with:
+
+    GENERATE_ONLY=oui ./scripts/evergreen/update_public_repo some_temp_dir
+
+Where `some_temp_dir` is a temporary directory you want to use to test
+the output of your yaml files generation. `GENERATE_ONLY` is a
+variable that, when set, will not try to commit and push these
+changes.

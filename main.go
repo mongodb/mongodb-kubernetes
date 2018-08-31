@@ -9,7 +9,6 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/operator"
 	"github.com/10gen/ops-manager-kubernetes/operator/crd"
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	mongodbclient "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/typed/mongodb.com/v1"
 	"k8s.io/api/core/v1"
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
@@ -32,33 +31,21 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create and wait for CRD resources
-	resources := []crd.CustomResource{
-		mongodb.MongoDbReplicaSetResource,
-		mongodb.MongoDbStandaloneResource,
-		mongodb.MongoDbShardedClusterResource}
-
-	resourceNames := make([]string, len(resources))
-	for i, r := range resources {
-		resourceNames[i] = r.Name
-	}
-	log.Infow("Ensuring the Custom Resource Definitions exist", "crds", resourceNames)
-	err = crd.BuildCustomResources(*context, resources)
-	if err != nil {
-		log.Error("failed to create custom resource: ", err)
-		os.Exit(1)
-	}
-
 	// create signals to stop watching the resources
 	signalChan := make(chan os.Signal, 1)
 	stopChan := make(chan struct{})
 	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
 
 	// start watching the sample resources
-	log.Info("Starting watching resources for CRDs just created")
+	log.Info("Starting watching resources for CRDs")
 	api := operator.RestKubeApi{KubeApi: context.Clientset}
 	controller := operator.NewMongoDbController(&api, mongodbClientset, om.NewOpsManagerConnection)
-	controller.StartWatch(v1.NamespaceAll, stopChan)
+
+	namespaceToWatch := os.Getenv("WATCH_NAMESPACE")
+	if namespaceToWatch == "" {
+		namespaceToWatch = v1.NamespaceAll
+	}
+	controller.StartWatch(namespaceToWatch, stopChan)
 
 	for {
 		select {

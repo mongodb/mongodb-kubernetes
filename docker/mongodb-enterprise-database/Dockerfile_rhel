@@ -1,0 +1,39 @@
+FROM registry.access.redhat.com/rhel7-minimal
+
+LABEL name="MongoDB Enterprise Database" \
+      maintainer="enterprise-engineering-services@mongodb.com" \
+      vendor="MongoDB" \
+      version="0.3.0" \
+      release="1" \
+      summary="MongoDB Enterprise Database Docker Image" \
+      description="MongoDB Enterprise Database Docker Image"
+
+COPY licenses /licenses
+
+COPY content/epel.repo /etc/yum.repos.d/epel.repo
+COPY content/RPM-GPG-KEY-EPEL-7 /etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-7
+
+RUN microdnf --enablerepo=rhel-7-server-rpms --enablerepo=epel \
+        install cyrus-sasl cyrus-sasl-gssapi cyrus-sasl-lib cyrus-sasl-md5 cyrus-sasl-plain cyrus-sasl-scram \
+                net-snmp net-snmp-libs net-snmp-utils \
+                supervisor \
+                --nodocs ; \
+    microdnf clean all
+
+RUN ln -s /usr/lib64/libsasl2.so.3 /usr/lib64/libsasl2.so.2
+
+# see docs/dev/openshift_scc.md for more details
+RUN groupadd -g 1000080000 mongodb
+RUN useradd -r -g mongodb -G root -u 1007 mongodb
+
+COPY content/ /mongodb-automation/files/
+
+RUN \
+    mkdir -p -m 0775 /var/log/mongodb-mms-automation && \
+    mkdir -p -m 0775 /var/lib/mongodb-mms-automation && \
+    mkdir -p -m 0775 /data && \
+    chmod -R g+w /mongodb-automation && \
+    chmod g+w /etc/passwd
+
+USER 1007
+CMD supervisord -c /mongodb-automation/files/supervisor.conf
