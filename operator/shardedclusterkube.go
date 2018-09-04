@@ -59,17 +59,12 @@ func (c *MongoDbController) onUpdateShardedCluster(oldObj, newObj interface{}) {
 }
 
 func (c *MongoDbController) doShardedClusterProcessing(o, n *mongodb.MongoDbShardedCluster, log *zap.SugaredLogger) (om.OmConnection, error) {
-	conn, err := c.createOmConnection(n.Namespace, n.Spec.Project, n.Spec.Credentials)
+	conn, podVars, err := c.prepareOmConnection(n.Namespace, n.Spec.Project, n.Spec.Credentials, log)
 	if err != nil {
 		return nil, err
 	}
 
-	agentKeySecretName, err := c.ensureAgentKeySecretExists(conn, n.Namespace, log)
-	if err != nil {
-		return nil, errors.New(fmt.Sprintf("Failed to generate/get agent key: %s", err))
-	}
-
-	kubeState, err := c.buildKubeObjectsForShardedCluster(n, agentKeySecretName, log)
+	kubeState, err := c.buildKubeObjectsForShardedCluster(n, podVars, log)
 	if err != nil {
 		return nil, errors.New(fmt.Sprintf("Failed to build Kubernetes objects: %s", err))
 	}
@@ -91,14 +86,9 @@ func (c *MongoDbController) doShardedClusterProcessing(o, n *mongodb.MongoDbShar
 	return conn, nil
 }
 
-func (c *MongoDbController) buildKubeObjectsForShardedCluster(s *mongodb.MongoDbShardedCluster, agentKeySecretName string,
+func (c *MongoDbController) buildKubeObjectsForShardedCluster(s *mongodb.MongoDbShardedCluster, podVars *PodVars,
 	log *zap.SugaredLogger) (KubeState, error) {
 	spec := s.Spec
-
-	podVars, err := c.buildPodVars(s.Namespace, spec.Project, spec.Credentials, agentKeySecretName)
-	if err != nil {
-		return KubeState{}, err
-	}
 
 	// note, that mongos statefulset doesn't have state so no PersistentVolumeClaim is created
 	mongosBuilder := c.kubeHelper.NewStatefulSetHelper(s).
@@ -217,27 +207,23 @@ func (c *MongoDbController) onDeleteShardedCluster(obj interface{}) {
 
 	hostsToRemove := getAllHosts(sc)
 
-	conn, err := c.createOmConnection(sc.Namespace, sc.Spec.Project, sc.Spec.Credentials)
+	conn, _, err := c.prepareOmConnection(sc.Namespace, sc.Spec.Project, sc.Spec.Credentials, log)
 	if err != nil {
 		log.Error(err)
 		return
 	}
 
-	deployment, err := conn.ReadDeployment()
-	if err != nil {
-		log.Errorf("Failed to read deployment: %s", err)
-		return
-	}
+	err = conn.ReadUpdateDeployment(false,
+		func(d om.Deployment) error {
+			if err = d.RemoveShardedClusterByName(sc.Name); err != nil {
+				return err
+			}
 
-	if err = deployment.RemoveShardedClusterByName(sc.Name); err != nil {
-		log.Errorf("Failed to remove sharded cluster from Ops Manager deployment. %s", err)
-		return
-	}
-
-	_, err = conn.UpdateDeployment(deployment)
+			return nil
+		},
+	)
 	if err != nil {
-		log.Errorf("Failed to push updated deployment to Ops Manager: %s", err)
-		return
+		log.Errorf("Failed to update Ops Manager automation config: %s", err)
 	}
 
 	log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)

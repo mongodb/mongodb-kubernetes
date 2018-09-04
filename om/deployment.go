@@ -25,7 +25,7 @@ func init() {
 
 type Deployment map[string]interface{}
 
-func BuildDeploymentFromBytes(jsonBytes []byte) (ans Deployment, err error) {
+func BuildDeploymentFromBytes(jsonBytes []byte) (Deployment, error) {
 	cc := Deployment{}
 	if err := json.Unmarshal(jsonBytes, &cc); err != nil {
 		return nil, err

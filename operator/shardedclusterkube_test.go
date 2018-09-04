@@ -152,7 +152,7 @@ func DefaultClusterBuilder() *ClusterBuilder {
 		MongosCount:          4,
 		Version:              "3.6.4"}
 	cluster := &v1.MongoDbShardedCluster{
-		ObjectMeta: metav1.ObjectMeta{Name: "slaney", Namespace: Namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: "slaney", Namespace: TestNamespace},
 		Spec:       *spec}
 	return &ClusterBuilder{cluster}
 }

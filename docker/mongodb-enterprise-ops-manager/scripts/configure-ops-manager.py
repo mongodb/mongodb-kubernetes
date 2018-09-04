@@ -82,22 +82,15 @@ if __name__ == '__main__':
     # Retrieve API key
     api_key = user_data['apiKey']
 
-    # Create first project
-    project_data = post(url + '/api/public/v1.0/groups', {
-        'name': 'Openshift'
-    }, DEFAULT_ADMIN, api_key)
-
     # Store env variables
     with open(args['ENV_FILE'], 'w') as f:
         om_user = 'export OM_USER={}'.format(DEFAULT_ADMIN)
         om_pass = 'export OM_PASSWORD={}'.format(DEFAULT_PASS)
         om_api_key = 'export OM_API_KEY={}'.format(api_key)
-        om_project_id = 'export OM_PROJECT_ID={}'.format(project_data['id'])
         f.write(om_host + '\n')
         f.write(om_user + '\n')
         f.write(om_pass + '\n')
         f.write(om_api_key + '\n')
-        f.write(om_project_id + '\n')
 
         # Also print them for immediate usage
         print()

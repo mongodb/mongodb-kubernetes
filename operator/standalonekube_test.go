@@ -35,7 +35,7 @@ func TestOnAddStandalone(t *testing.T) {
 
 	controller.onAddStandalone(st)
 
-	omConn := controller.omConnection.(*om.MockedOmConnection)
+	omConn := om.CurrMockedConnection
 
 	omConn.CheckDeployment(t, createDeploymentFromStandalone(st))
 	omConn.CheckNumberOfUpdateRequests(t, 1)
@@ -58,7 +58,7 @@ func registerAgents(t *testing.T, controller *MongoDbController, kubeApi *Mocked
 
 	// At this stage we expect the code to be "waiting until statefulset is started"
 	zap.S().Info("Emulating pods start and agents registered in OM")
-	assert.NotNil(t, controller.omConnection)
+	assert.NotNil(t, om.CurrMockedConnection)
 
 	// seems we don't need very deep checks here as there should be smaller tests specially for those methods
 	assert.Len(t, kubeApi.services, 2)
@@ -70,8 +70,7 @@ func registerAgents(t *testing.T, controller *MongoDbController, kubeApi *Mocked
 
 	// "registering" agents
 	hostnames, _ := GetDnsNames(st.Name, st.ServiceName(), st.Namespace, st.Spec.ClusterName, 1)
-	omConn := controller.omConnection.(*om.MockedOmConnection)
-	omConn.SetHosts(hostnames)
+	om.CurrMockedConnection.SetHosts(hostnames)
 }
 
 type StandaloneBuilder struct {
@@ -82,11 +81,11 @@ func DefaultStandaloneBuilder() *StandaloneBuilder {
 	spec := &v1.MongoDbStandaloneSpec{
 		Version:     "4.0.0",
 		Persistent:  util.BooleanRef(false),
-		Project:     ProjectConfigMapName,
-		Credentials: CredentialsSecretName,
+		Project:     TestProjectConfigMapName,
+		Credentials: TestCredentialsSecretName,
 	}
 	standalone := &v1.MongoDbStandalone{
-		ObjectMeta: metav1.ObjectMeta{Name: "dublin", Namespace: Namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: "dublin", Namespace: TestNamespace},
 		Spec:       *spec}
 	return &StandaloneBuilder{standalone}
 }

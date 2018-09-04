@@ -65,7 +65,9 @@ If you have an Helm installation in your Kubernetes cluster, you can run:
 For the Operator to work, you will need the following information:
 
 * Base Url - the url of an Ops Manager instance
-* Project Id - the id of a Project which MongoDBs will be deployed into.
+* Project Name - the name of an Ops Manager Project where MongoDBs will be deployed into. It will be created by Operator
+ if it doesn't exist (and this is the recommended way instead of reusing the project created in OpsManager directly)
+* (optionally) Organization Id - the id of organization to which Project belongs
 * User - an Ops Manager username
 * Public API Key - an Ops Manager Public API Key. Note that you must whitelist the IP range of your Kubernetes cluster so that the Operator may make requests to Ops Manager using this API Key.
 
@@ -85,10 +87,13 @@ metadata:
   name: my-project
   namespace: mongodb
 data:
-  projectId: my-project-id # get this from Ops Manager
+  projectName: myProjectName
+  orgId: 5b890e0feacf0b76ff3e7183 # this is an optional parameter
   baseUrl: https://my-ops-manager-or-cloud-manager-url
 ```
-
+> Note, that if `orgId` is skipped then the new organization named `projectName` will be automatically created and new 
+project will be added there.
+ 
 Apply this file to create the new `Project`:
 
     kubectl apply -f my-project.yaml

@@ -24,17 +24,36 @@ will have the following structure:
 
 
 ``` yaml
----
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: my-project
   namespace: mongodb
 data:
-  projectId: my-project-id
+  projectName: testProject
+  orgId: 5b890e0feacf0b76ff3e7183 # this is an optional parameter
   baseUrl: https://my-ops-cloud-manager-url
-
+  
 ```
+
+Note, that we don't support the single `projectId` parameter any more and request two configuration parameters `projectName`
+and `orgId` instead. The former is the name of the group to be created/used and latter is the id of organization in which
+the project is to be created. If `orgId` is skipped then Ops Manager will create a new organization with name `projectName` 
+and will create a `project` in it. Note that to be able to create new project in the organization the user must have 
+`ORG_GROUP_CREATOR` role.
+
+### Projects and Tags ###
+
+All the groups in Ops Manager may have tags. They are usually quite 
+internal (so group owners will not see them in the Ops Manager UI). When Operator creates the group it marks it with special
+tag `EXTERNALLY_MANAGED_BY_KUBERNETES` that allows to perform some additional validation logic for group deployments in 
+Ops Manager (for example to forbid Ops Manager users to change some parameters for existing mongodb deployments that were
+created by Kubernetes Operator to avoid configuration diverge). 
+
+Current Operator logic tries to fix the group tags if they are missing in current group (if for example the group
+wasn't created by Kubernetes Operator but from Ops Manager directly) but this behavior may change in future and Operator
+may throw the error instead. So it's recommended to always let Operator create the group instead of reusing the existing one
+that wasn't created by it.
 
 ## Credentials ##
 

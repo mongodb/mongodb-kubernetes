@@ -20,8 +20,9 @@ type KubeHelper struct {
 }
 
 type ProjectConfig struct {
-	BaseUrl   string
-	ProjectId string
+	BaseUrl     string
+	ProjectName string
+	OrgId       string
 }
 
 type Credentials struct {
@@ -249,8 +250,8 @@ func (k *KubeHelper) readOrCreateService(owner metav1.Object, serviceName string
 }
 
 // readProjectConfig returns a config map
-func (k *KubeHelper) readProjectConfig(ns, name string) (*ProjectConfig, error) {
-	cmap, err := k.kubeApi.getConfigMap(ns, name)
+func (k *KubeHelper) readProjectConfig(ns, configMapName string) (*ProjectConfig, error) {
+	cmap, err := k.kubeApi.getConfigMap(ns, configMapName)
 	if err != nil {
 		return nil, err
 	}
@@ -259,16 +260,18 @@ func (k *KubeHelper) readProjectConfig(ns, name string) (*ProjectConfig, error) 
 
 	baseUrl, ok := data[OmBaseUrl]
 	if !ok {
-		return nil, errors.New(fmt.Sprintf("Error getting %s from `project`", OmBaseUrl))
+		return nil, errors.New(fmt.Sprintf("Property \"%s\" is not specified in config map %s", OmBaseUrl, configMapName))
 	}
-	projectId, ok := data[OmProjectId]
+	projectName, ok := data[OmProjectName]
 	if !ok {
-		return nil, errors.New(fmt.Sprintf("Error getting %s from `project`", OmProjectId))
+		return nil, errors.New(fmt.Sprintf("Property \"%s\" is not specified in config map %s ", OmProjectName, configMapName))
 	}
+	orgId := data[OmOrgId]
 
 	return &ProjectConfig{
-		BaseUrl:   baseUrl,
-		ProjectId: projectId,
+		BaseUrl:     baseUrl,
+		ProjectName: projectName,
+		OrgId:       orgId,
 	}, nil
 }
 
@@ -293,18 +296,18 @@ func (k *KubeHelper) readCredentials(namespace, name string) (*Credentials, erro
 	}, nil
 }
 
-func (k *KubeHelper) readAgentApiKeyForProject(namespace, agentKeyName string) (string, error) {
-	secret, err := k.readSecret(namespace, agentKeyName)
+func (k *KubeHelper) readAgentApiKeyForProject(namespace, agentKeySecretName string) (string, error) {
+	secret, err := k.readSecret(namespace, agentKeySecretName)
 	if err != nil {
 		return "", err
 	}
 
-	api, ok := secret[OmAgentApiKey]
+	key, ok := secret[OmAgentApiKey]
 	if !ok {
-		return "", errors.New(fmt.Sprintf("Could not find Agent API Key '%s'", agentKeyName))
+		return "", fmt.Errorf("Could not find key \"%s\" in secret %s", OmAgentApiKey, agentKeySecretName)
 	}
 
-	return api, nil
+	return strings.TrimSuffix(string(key), "\n"), nil
 }
 
 func (k *KubeHelper) readSecret(namespace, name string) (map[string]string, error) {

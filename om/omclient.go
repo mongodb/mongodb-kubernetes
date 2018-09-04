@@ -19,6 +19,9 @@ import (
 	"go.uber.org/zap"
 )
 
+// OmConnection is a client interacting with OpsManager API. Note, that all methods returning 'error' return the
+// '*OmApiError' in fact but it's error-prone to declare method as returning specific implementation of error
+// (see https://golang.org/doc/faq#nil_error)
 type OmConnection interface {
 	UpdateDeployment(deployment Deployment) ([]byte, error)
 	ReadDeployment() (Deployment, error)
@@ -28,6 +31,10 @@ type OmConnection interface {
 	ReadAutomationAgents() (*AgentState, error)
 	GetHosts() (*Host, error)
 	RemoveHost(hostId string) error
+	ReadGroup(name string) (*Group, error)
+	CreateGroup(group *Group) (*Group, error)
+	UpdateGroup(group *Group) (*Group, error)
+
 	BaseUrl() string
 	GroupId() string
 	User() string
@@ -39,6 +46,51 @@ type HttpOmConnection struct {
 	groupId      string
 	user         string
 	publicApiKey string
+}
+
+// OmApiError is the error extension that contains the details of OM error if OM returned the error. This allows the
+// code using OmConnection methods to do more fine-grained exception handling depending on exact error that happened.
+// The class has to encapsulate the usual error (non-OM one) as well as the error may happen at any stage before/after
+// OM request (failing to (de)serialize json object for example) so in this case all fields except for 'Detail' will be
+// empty
+type OmApiError struct {
+	Status    *int   `json:"error"`
+	Reason    string `json:"reason"`
+	Detail    string `json:"detail"`
+	ErrorCode string `json:"errorCode"`
+}
+
+func NewApiError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &OmApiError{Detail: err.Error()}
+}
+
+func (e *OmApiError) Error() string {
+	if e.Status != nil {
+		msg := fmt.Sprintf("Status: %d", *e.Status)
+		if e.Reason != "" {
+			msg += fmt.Sprintf(" (%s)", e.Reason)
+		}
+		if e.ErrorCode != "" {
+			msg += fmt.Sprintf(", ErrorCode: %s", e.ErrorCode)
+		}
+		if e.Detail != "" {
+			msg += fmt.Sprintf(", Detail: %s", e.Detail)
+		}
+		return msg
+	}
+	return e.Detail
+}
+
+func (e *OmApiError) ErrorCodeIn(errorCodes ...string) bool {
+	for _, c := range errorCodes {
+		if e.ErrorCode == c {
+			return true
+		}
+	}
+	return false
 }
 
 // NewOpsManagerConnection stores OpsManger api endpoint and authentication credentials.
@@ -79,7 +131,8 @@ func (oc *HttpOmConnection) ReadDeployment() (Deployment, error) {
 		return nil, err
 	}
 	//fmt.Println(string(ans))
-	return BuildDeploymentFromBytes(ans)
+	d, e := BuildDeploymentFromBytes(ans)
+	return d, NewApiError(e)
 }
 
 // ReadUpdateDeployment performs the "read-modify-update" operation on OpsManager Deployment. It will wait for
@@ -91,7 +144,7 @@ func (oc *HttpOmConnection) ReadUpdateDeployment(wait bool, depFunc func(Deploym
 	}
 
 	if err := depFunc(deployment); err != nil {
-		return err
+		return NewApiError(err)
 	}
 
 	_, err = oc.UpdateDeployment(deployment)
@@ -100,7 +153,7 @@ func (oc *HttpOmConnection) ReadUpdateDeployment(wait bool, depFunc func(Deploym
 	}
 
 	if wait && !WaitUntilGoalState(oc) {
-		return errors.New(fmt.Sprintf("Process didn't reach goal state"))
+		return NewApiError(errors.New(fmt.Sprintf("Process didn't reach goal state")))
 	}
 	return nil
 }
@@ -113,11 +166,9 @@ func (oc *HttpOmConnection) GenerateAgentKey() (string, error) {
 		return "", err
 	}
 
-	zap.S().Debug(string(ans))
-
 	var keyInfo map[string]interface{}
 	if err := json.Unmarshal(ans, &keyInfo); err != nil {
-		return "", err
+		return "", NewApiError(err)
 	}
 	return keyInfo["key"].(string), nil
 }
@@ -128,7 +179,8 @@ func (oc *HttpOmConnection) ReadAutomationAgents() (*AgentState, error) {
 		return nil, err
 	}
 	zap.S().Debug(string(ans))
-	return BuildAgentStateFromBytes(ans)
+	state, e := BuildAgentStateFromBytes(ans)
+	return state, NewApiError(e)
 }
 
 func (oc *HttpOmConnection) ReadAutomationStatus() (*AutomationStatus, error) {
@@ -137,7 +189,8 @@ func (oc *HttpOmConnection) ReadAutomationStatus() (*AutomationStatus, error) {
 		return nil, err
 	}
 
-	return buildAutomationStatusFromBytes(ans)
+	status, e := buildAutomationStatusFromBytes(ans)
+	return status, NewApiError(e)
 }
 
 func (oc *HttpOmConnection) GetHosts() (*Host, error) {
@@ -149,7 +202,7 @@ func (oc *HttpOmConnection) GetHosts() (*Host, error) {
 
 	hosts := &Host{}
 	if err := json.Unmarshal(res, hosts); err != nil {
-		return nil, err
+		return nil, NewApiError(err)
 	}
 
 	return hosts, nil
@@ -158,6 +211,52 @@ func (oc *HttpOmConnection) GetHosts() (*Host, error) {
 func (oc *HttpOmConnection) RemoveHost(hostId string) error {
 	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/hosts/%s", oc.GroupId(), hostId)
 	return oc.delete(mPath)
+}
+
+func (oc *HttpOmConnection) ReadGroup(name string) (*Group, error) {
+	mPath := fmt.Sprintf("/api/public/v1.0/groups/byName/%s", name)
+	res, err := oc.get(mPath)
+	if err != nil {
+		return nil, err
+	}
+
+	zap.S().Info(string(res))
+	group := &Group{}
+	if err := json.Unmarshal(res, group); err != nil {
+		return nil, NewApiError(err)
+	}
+
+	return group, nil
+}
+func (oc *HttpOmConnection) CreateGroup(group *Group) (*Group, error) {
+	res, err := oc.post("/api/public/v1.0/groups", group)
+
+	if err != nil {
+		return nil, err
+	}
+
+	g := &Group{}
+	if err := json.Unmarshal(res, g); err != nil {
+		return nil, NewApiError(err)
+	}
+
+	return g, nil
+}
+
+func (oc *HttpOmConnection) UpdateGroup(group *Group) (*Group, error) {
+	path := fmt.Sprintf("/api/public/v1.0/groups/%s", group.Id)
+	res, err := oc.patch(path, group)
+
+	if err != nil {
+		return nil, err
+	}
+
+	g := &Group{}
+	if err := json.Unmarshal(res, g); err != nil {
+		return nil, NewApiError(err)
+	}
+
+	return group, nil
 }
 
 //********************************** Private methods *******************************************************************
@@ -174,58 +273,53 @@ func (oc *HttpOmConnection) put(path string, v interface{}) ([]byte, error) {
 	return oc.httpVerb("PUT", path, v)
 }
 
+func (oc *HttpOmConnection) patch(path string, v interface{}) ([]byte, error) {
+	return oc.httpVerb("PATCH", path, v)
+}
+
 func (oc *HttpOmConnection) delete(path string) error {
-	res, err := oc.httpVerb("DELETE", path, nil)
-	if err != nil {
-		zap.S().Debugf(string(res))
-	}
+	_, err := oc.httpVerb("DELETE", path, nil)
 	return err
 }
 
 func (oc *HttpOmConnection) httpVerb(method, path string, v interface{}) ([]byte, error) {
-	var buffer io.Reader
-	if v != nil {
-		b, err := json.Marshal(v)
-		if err != nil {
-			return nil, err
-		}
-		buffer = bytes.NewBuffer(b)
-	}
-
-	return request(method, oc.BaseUrl(), path, buffer, oc.User(), oc.PublicApiKey(), "application/json; charset=UTF-8")
+	response, err := request(method, oc.BaseUrl(), path, v, oc.User(), oc.PublicApiKey())
+	return response, err
 }
 
-func request(method string, hostname string, path string, reader io.Reader, user string, token string, contentType string) (response []byte, err error) {
+func request(method, hostname, path string, v interface{}, user string, token string) ([]byte, error) {
 	url := hostname + path
 
-	// First request is to get authorization information - we are not sending the body
-	req, err := createHttpRequest(method, url, nil, contentType)
+	buffer, err := serialize(v)
 	if err != nil {
-		return nil, err
+		return nil, NewApiError(err)
+	}
+
+	// First request is to get authorization information - we are not sending the body
+	req, err := createHttpRequest(method, url, nil)
+	if err != nil {
+		return nil, NewApiError(err)
 	}
 
 	resp, err := util.DefaultHttpClient.Do(req)
 	var body []byte
 	if err != nil {
-		return nil, err
+		return nil, NewApiError(err)
 	}
 	if resp != nil && resp.Body != nil {
 		defer resp.Body.Close()
 	}
 	if resp.StatusCode != http.StatusUnauthorized {
-		return nil, fmt.Errorf("Recieved status code '%v' (%v) but expected the '%d', requested url: %v", resp.StatusCode, resp.Status, http.StatusUnauthorized, req.URL)
+		return nil, NewApiError(fmt.Errorf("Recieved status code '%v' (%v) but expected the '%d', requested url: %v", resp.StatusCode, resp.Status, http.StatusUnauthorized, req.URL))
 	}
 	digestParts := digestParts(resp)
 
 	// Second request is the real one - we send body as well as digest authorization header
-	req, err = createHttpRequest(method, url, reader, contentType)
-	if err != nil {
-		return nil, err
-	}
+	req, err = createHttpRequest(method, url, buffer)
 
 	req.Header.Set("Authorization", getDigestAuthorization(digestParts, method, path, user, token))
 
-	request, _ := httputil.DumpRequest(req, false)
+	request, _ := httputil.DumpRequest(req, false) // DEV: change this to true to see the request body sent
 	zap.S().Debugf("Request sending: \n %s", string(request))
 
 	resp, err = util.DefaultHttpClient.Do(req)
@@ -236,36 +330,66 @@ func request(method string, hostname string, path string, reader io.Reader, user
 			// limit size of response body read to 16MB
 			body, err = util.ReadAtMost(resp.Body, 16*1024*1024)
 			if err != nil {
-				return nil, fmt.Errorf("Error reading response body from %s to %v status=%v", method, url, resp.StatusCode)
+				return nil, NewApiError(fmt.Errorf("Error reading response body from %s to %v status=%v", method, url, resp.StatusCode))
 			}
 		}
 
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			if resp.Body == nil {
-				return nil, fmt.Errorf("%s %v failed with status %d with no response body", method, url, resp.StatusCode)
-			} else {
-				return nil, fmt.Errorf("%s %v failed with status %d with response body:\n%s", method, url, resp.StatusCode, string(body))
-			}
+			apiError := parseApiError(resp.StatusCode, method, url, body)
+			return nil, apiError
 		}
 	}
 
 	if err != nil {
-		return body, fmt.Errorf("Error sending %s request to %s: %v", method, url, err)
+		return body, NewApiError(fmt.Errorf("Error sending %s request to %s: %v", method, url, err))
 	}
 
 	return body, nil
 }
 
-func createHttpRequest(method string, url string, reader io.Reader, contentType string) (*http.Request, error) {
+func createHttpRequest(method string, url string, reader io.Reader) (*http.Request, error) {
 	req, err := http.NewRequest(method, url, reader)
 	if err != nil {
 		return nil, err
 	}
 
-	req.Header.Add("Content-Type", contentType)
+	req.Header.Add("Content-Type", "application/json; charset=UTF-8")
 	req.Header.Add("Provider", "KUBERNETES")
 
 	return req, nil
+}
+
+func parseApiError(statusCode int, method, url string, body []byte) *OmApiError {
+	// If no body - returning the error object with only HTTP status
+	if body == nil {
+		return &OmApiError{
+			Status: &statusCode,
+			Detail: fmt.Sprintf("%s %v failed with status %d with no response body", method, url, statusCode),
+		}
+	}
+	// If response body exists - trying to parse it
+	errorObject := &OmApiError{}
+	if err := json.Unmarshal(body, errorObject); err != nil {
+		// If parsing has failed - returning just the general error with status code
+		return &OmApiError{
+			Status: &statusCode,
+			Detail: fmt.Sprintf("%s %v failed with status %d with response body: %s", method, url, statusCode, string(body)),
+		}
+	}
+
+	return errorObject
+}
+
+func serialize(v interface{}) (io.Reader, error) {
+	var buffer io.Reader
+	if v != nil {
+		b, err := json.Marshal(v)
+		if err != nil {
+			return nil, err
+		}
+		buffer = bytes.NewBuffer(b)
+	}
+	return buffer, nil
 }
 
 func digestParts(resp *http.Response) map[string]string {

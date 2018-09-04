@@ -4,8 +4,9 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/om"
 	"github.com/10gen/ops-manager-kubernetes/operator/crd"
 
-	"errors"
 	"fmt"
+
+	"strings"
 
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	mongodbscheme "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/scheme"
@@ -19,8 +20,6 @@ type MongoDbController struct {
 	mongodbClientset mongodbclient.MongodbV1Interface
 	kubeHelper       KubeHelper
 	omConnectionFunc func(baseUrl, groupId, user, publicApiKey string) om.OmConnection
-	// the connection object created by the function above. Production code hardly needs it but it's convenient for testing
-	omConnection om.OmConnection
 }
 
 // NewMongoDbController creates the controller class that reacts on events for mongodb resources
@@ -53,64 +52,64 @@ func (c *MongoDbController) StartWatch(namespace string, stopCh chan struct{}) e
 	return nil
 }
 
-func (c *MongoDbController) createOmConnection(namespace, project, credentials string) (om.OmConnection, error) {
+func (c *MongoDbController) prepareOmConnection(namespace, project, credentials string, log *zap.SugaredLogger) (om.OmConnection, *PodVars, error) {
 	projectConfig, e := c.kubeHelper.readProjectConfig(namespace, project)
 	if e != nil {
-		return nil, e
+		return nil, nil, e
 	}
 	credsConfig, e := c.kubeHelper.readCredentials(namespace, credentials)
 	if e != nil {
-		return nil, e
+		return nil, nil, e
 	}
 
-	c.omConnection = c.omConnectionFunc(projectConfig.BaseUrl, projectConfig.ProjectId,
-		credsConfig.User, credsConfig.PublicApiKey)
-	return c.omConnection, nil
-}
-
-func (c *MongoDbController) buildPodVars(namespace, project, credentials, agent string) (*PodVars, error) {
-	projectConfig, e := c.kubeHelper.readProjectConfig(namespace, project)
+	group, e := c.readOrCreateGroup(projectConfig, credsConfig, log)
 	if e != nil {
-		return nil, e
+		return nil, nil, e
 	}
 
-	credsConfig, e := c.kubeHelper.readCredentials(namespace, credentials)
+	omConnection := c.omConnectionFunc(projectConfig.BaseUrl, group.Id, credsConfig.User, credsConfig.PublicApiKey)
+
+	agentKey, e := c.ensureAgentKeySecretExists(omConnection, namespace, group.AgentApiKey, log)
+
 	if e != nil {
-		return nil, e
+		return nil, nil, e
 	}
-
-	agentSecret, e := c.kubeHelper.readAgentApiKeyForProject(namespace, agent)
-	if e != nil {
-		return nil, e
-	}
-
-	return &PodVars{
+	vars := &PodVars{
 		BaseUrl:     projectConfig.BaseUrl,
-		ProjectId:   projectConfig.ProjectId,
-		AgentApiKey: agentSecret,
+		ProjectId:   group.Id,
+		AgentApiKey: agentKey,
 		User:        credsConfig.User,
-	}, nil
+	}
+	return omConnection, vars, nil
 }
 
-// ensureAgentKeySecretExists checks if the Secret with specified name (equal to group id) exists, otherwise tries to
-// generate agent key using OM public API and create Secret containing this key
-func (c *MongoDbController) ensureAgentKeySecretExists(omConnection om.OmConnection, nameSpace string, log *zap.SugaredLogger) (string, error) {
+// ensureAgentKeySecretExists checks if the Secret with specified name (<groupId>-group-secret) exists, otherwise tries to
+// generate agent key using OM public API and create Secret containing this key. Generation of a key is expected to be
+// a rare operation as the group creation api generates agent key already (so the only possible situation is when the group
+// was created externally and agent key wasn't generated before)
+// Returns the api key existing/generated
+func (c *MongoDbController) ensureAgentKeySecretExists(omConnection om.OmConnection, nameSpace, agentKey string, log *zap.SugaredLogger) (string, error) {
 	secretName := agentApiKeySecretName(omConnection.GroupId())
 	log = log.With("secret", secretName)
-	_, err := c.kubeHelper.kubeApi.getSecret(nameSpace, secretName)
+	secret, err := c.kubeHelper.kubeApi.getSecret(nameSpace, secretName)
 	if err != nil {
-		log.Info("Failed to find the Secret, generating agent key to create the new one")
+		if agentKey == "" {
+			log.Info("Generating agent key as current group doesn't have it")
 
-		key, err := omConnection.GenerateAgentKey()
-		if err != nil {
-			return "", errors.New(fmt.Sprintf("Failed to generate agent Key in OM: %s", err))
+			agentKey, err = omConnection.GenerateAgentKey()
+			if err != nil {
+				return "", fmt.Errorf("Failed to generate agent key in OM: %s", err)
+			}
+			log.Info("Agent key was successfully generated")
 		}
-		if _, err := c.kubeHelper.kubeApi.createSecret(nameSpace, buildSecret(secretName, nameSpace, key)); err != nil {
-			return "", errors.New(fmt.Sprintf("Failed to create Secret: %s", err))
+
+		if secret, err = c.kubeHelper.kubeApi.createSecret(nameSpace, buildSecret(secretName, nameSpace, agentKey)); err != nil {
+			return "", fmt.Errorf("Failed to create Secret: %s", err)
 		}
-		log.Info("New Ops Manager agent Key is generated and saved in Kubernetes Secret for later usage")
+		log.Info("Group agent key is saved in Kubernetes Secret for later usage")
 	}
-	return secretName, nil
+
+	return strings.TrimSuffix(string(secret.Data[OmAgentApiKey]), "\n"), nil
 }
 
 func (c *MongoDbController) startWatchReplicaSet(namespace string, stopCh chan struct{}) error {
@@ -153,4 +152,88 @@ func (c *MongoDbController) startWatchStandalone(namespace string, stopCh chan s
 	go replicaSetWatcher.Watch(&mongodb.MongoDbStandalone{}, stopCh)
 
 	return nil
+}
+
+func (c *MongoDbController) readOrCreateGroup(config *ProjectConfig, credentials *Credentials, log *zap.SugaredLogger) (*om.Group, error) {
+	log = log.With("project", config.ProjectName)
+
+	// we need to create a temporary connection object without group id
+	conn := c.omConnectionFunc(config.BaseUrl, "", credentials.User, credentials.PublicApiKey)
+	group, err := conn.ReadGroup(config.ProjectName)
+
+	if err != nil {
+		if (err.(*om.OmApiError)).ErrorCodeIn("GROUP_NAME_NOT_FOUND", "NOT_IN_GROUP") {
+			group, err = tryCreateGroup(config, conn, log)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, fmt.Errorf("Error reading group \"%s\" in Ops Manager: %s", config.ProjectName, err)
+		}
+	} else {
+		log.Debugf("Group already exists")
+	}
+
+	// ensure the group has necessary tag
+	for _, t := range group.Tags {
+		if t == OmGroupExternallyManagedTag {
+			return group, nil
+		}
+	}
+
+	// So the group doesn't have necessary tag - let's fix it (this is a temporary solution and we must throw the
+	// exception by 1.0)
+	// return nil, fmt.Errorf("Group \"%s\" doesn't have the tag %s", config.ProjectName, OmGroupExternallyManagedTag)
+	log.Infow("Seems group doesn't have necessary tag " + OmGroupExternallyManagedTag + " - updating it")
+
+	groupWithTags := &om.Group{
+		Name:  group.Name,
+		OrgId: group.OrgId,
+		Id:    group.Id,
+		Tags:  append(group.Tags, OmGroupExternallyManagedTag),
+	}
+	g, err := conn.UpdateGroup(groupWithTags)
+	if err != nil {
+		log.Warnf("Failed to update tags for group: %s", err)
+	} else {
+		log.Infow("Group tags are fixed")
+		group = g
+	}
+
+	return group, nil
+}
+
+func tryCreateGroup(config *ProjectConfig, conn om.OmConnection, log *zap.SugaredLogger) (*om.Group, error) {
+	// Creating the group as it doesn't exist
+	log.Infow("Creating the project as it doesn't exist", "orgId", config.OrgId)
+	if config.OrgId == "" {
+		log.Infof("Note that as the orgId is not specified the organization with name \"%s\" will be created "+
+			"automatically by Ops Manager", config.ProjectName)
+	}
+	group := &om.Group{
+		Name:  config.ProjectName,
+		OrgId: config.OrgId,
+		Tags:  []string{OmGroupExternallyManagedTag},
+	}
+	ans, err := conn.CreateGroup(group)
+
+	if err != nil {
+		apiError := err.(*om.OmApiError)
+		if apiError.ErrorCodeIn("INVALID_ATTRIBUTE") && strings.Contains(apiError.Detail, "tags") {
+			// Fallback logic: seems that OM version is < 4.0.2 (as it allows to edit group
+			// tags only for GLOBAL_OWNER users), let's try to create group without tags
+			group.Tags = []string{}
+			ans, err = conn.CreateGroup(group)
+
+			if err != nil {
+				return nil, fmt.Errorf("Error creating group \"%s\" in Ops Manager: %s", group, err)
+			}
+			log.Infow("Created group without tags as current version of Ops Manager forbids tags modification")
+		} else {
+			return nil, fmt.Errorf("Error creating group \"%s\" in Ops Manager: %s", group, err)
+		}
+	}
+	log.Infow("Project successfully created", "id", ans.Id)
+
+	return ans, nil
 }

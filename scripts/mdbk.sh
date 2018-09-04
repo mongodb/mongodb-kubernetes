@@ -153,7 +153,7 @@ configure_project() {
     # retrieve the environment vars
     eval "$(kubectl --namespace "${PROJECT_NAMESPACE}" exec mongodb-enterprise-ops-manager-0 cat /opt/mongodb/mms/.ops-manager-env)"
 
-    # Configure the Kubernetes project
+    # Configure the Kubernetes project (note that new project "MyProject" and organization with the same name will be created)
     cat <<EOF | kubectl --namespace "${PROJECT_NAMESPACE}" apply -f -
 ---
 apiVersion: v1
@@ -162,7 +162,7 @@ metadata:
     name: my-project
     namespace: ${PROJECT_NAMESPACE}
 data:
-    projectId: ${OM_PROJECT_ID}
+    projectName: MyProject
     baseUrl: ${OM_HOST}
 EOF
 

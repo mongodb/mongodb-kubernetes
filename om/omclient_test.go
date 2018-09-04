@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func Test_createHttpRequest(t *testing.T) {
-	httpRequest, e := createHttpRequest("POST", "http://some.com", nil, "application/json; charset=UTF-8")
+func TestCreateHttpRequest(t *testing.T) {
+	httpRequest, e := createHttpRequest("POST", "http://some.com", nil)
 	u, _ := url.Parse("http://some.com")
 
 	assert.NoError(t, e)

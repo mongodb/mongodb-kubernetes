@@ -21,7 +21,7 @@ func (c *MongoDbController) onAddStandalone(obj interface{}) {
 
 	conn, err := c.doStandaloneProcessing(nil, s, log)
 	if err != nil {
-		log.Error(err)
+		log.Errorf("Failed to create Mongodb Standalone: %s", err)
 		return
 	}
 
@@ -44,7 +44,7 @@ func (c *MongoDbController) onUpdateStandalone(oldObj, newObj interface{}) {
 
 	conn, err := c.doStandaloneProcessing(nil, n, log)
 	if err != nil {
-		log.Error(err)
+		log.Errorf("Failed to update Mongodb Standalone: %s", err)
 		return
 	}
 
@@ -59,27 +59,23 @@ func (c *MongoDbController) onDeleteStandalone(obj interface{}) {
 
 	log.Infow(">> Deleting MongoDbStandalone", "config", s.Spec)
 
-	conn, err := c.createOmConnection(s.Namespace, s.Spec.Project, s.Spec.Credentials)
+	conn, _, err := c.prepareOmConnection(s.Namespace, s.Spec.Project, s.Spec.Credentials, log)
 	if err != nil {
 		log.Error(err)
 		return
 	}
 
-	deployment, err := conn.ReadDeployment()
-	if err != nil {
-		log.Errorf("Failed to read deployment: %s", err)
-		return
-	}
+	err = conn.ReadUpdateDeployment(false,
+		func(d om.Deployment) error {
+			if err = d.RemoveProcessByName(s.Name); err != nil {
+				return err
+			}
 
-	if err = deployment.RemoveProcessByName(s.Name); err != nil {
-		log.Error(err)
-		return
-	}
-
-	_, err = conn.UpdateDeployment(deployment)
+			return nil
+		},
+	)
 	if err != nil {
-		log.Errorf("Failed to update Standalone: %s", err)
-		return
+		log.Errorf("Failed to update Ops Manager automation config: %s", err)
 	}
 
 	hostsToRemove, _ := GetDnsNames(s.Name, s.ServiceName(), s.Namespace, s.Spec.ClusterName, 1)
@@ -94,17 +90,7 @@ func (c *MongoDbController) onDeleteStandalone(obj interface{}) {
 
 func (c *MongoDbController) doStandaloneProcessing(o, n *mongodb.MongoDbStandalone, log *zap.SugaredLogger) (om.OmConnection, error) {
 	spec := n.Spec
-	conn, err := c.createOmConnection(n.Namespace, spec.Project, spec.Credentials)
-	if err != nil {
-		return nil, err
-	}
-
-	agentKeySecretName, err := c.ensureAgentKeySecretExists(conn, n.Namespace, log)
-	if err != nil {
-		return nil, errors.New(fmt.Sprintf("Failed to generate/get agent key: %s", err))
-	}
-
-	podVars, err := c.buildPodVars(n.Namespace, n.Spec.Project, n.Spec.Credentials, agentKeySecretName)
+	conn, podVars, err := c.prepareOmConnection(n.Namespace, spec.Project, spec.Credentials, log)
 	if err != nil {
 		return nil, err
 	}
@@ -119,16 +105,16 @@ func (c *MongoDbController) doStandaloneProcessing(o, n *mongodb.MongoDbStandalo
 
 	err = standaloneBuilder.CreateOrUpdateInKubernetes()
 	if err != nil {
-		return nil, errors.New(fmt.Sprintf("Failed to create statefulset: %s", err))
+		return nil, fmt.Errorf("Failed to create statefulset: %s", err)
 	}
 
-	if err := c.updateOmDeployment(conn, n, standaloneBuilder.BuildStatefulSet(), log); err != nil {
-		return nil, errors.New(fmt.Sprintf("Failed to create standalone in OM: %s", err))
+	if err := updateOmDeployment(conn, n, standaloneBuilder.BuildStatefulSet(), log); err != nil {
+		return nil, fmt.Errorf("Failed to create standalone in Ops Manager: %s", err)
 	}
 	return conn, nil
 }
 
-func (c *MongoDbController) updateOmDeployment(omConnection om.OmConnection, s *mongodb.MongoDbStandalone,
+func updateOmDeployment(omConnection om.OmConnection, s *mongodb.MongoDbStandalone,
 	set *appsv1.StatefulSet, log *zap.SugaredLogger) error {
 	if err := waitForRsAgentsToRegister(set, s.Spec.ClusterName, omConnection, log); err != nil {
 		return err

@@ -52,10 +52,11 @@ from source code.
 The following data from Ops Manager is necessary to configure Kubernetes Operator to communicate with Ops Manager 
 * User login with sufficient privileges
 * Public API Key
-* Group ID
+* Group Name
+* Org ID (Optional)
 * Base URL
 
-With this you will need to create two objects: a `Project`, which is a logical
+With this you will need to create two Kubernetes objects: a `Project`, which is a logical
 agrupation of MongoDB objects in Ops/Cloud Manager, and `Credentials`,
 which contain information about the users API Keys needed to perform
 actions in Ops/Cloud Manager.

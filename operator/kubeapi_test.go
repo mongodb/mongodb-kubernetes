@@ -2,8 +2,10 @@ package operator
 
 import (
 	"runtime"
+	"testing"
 
-	b64 "encoding/base64"
+	"github.com/stretchr/testify/assert"
+
 	"reflect"
 
 	"fmt"
@@ -15,9 +17,9 @@ import (
 )
 
 const (
-	ProjectConfigMapName  = "my-project"
-	CredentialsSecretName = "my-credentials"
-	Namespace             = "my-namespace"
+	TestProjectConfigMapName  = "my-project"
+	TestCredentialsSecretName = "my-credentials"
+	TestNamespace             = "my-namespace"
 )
 
 type MockedKubeApi struct {
@@ -39,14 +41,14 @@ func newMockedKubeApi() *MockedKubeApi {
 
 	// initialize config map and secret to emulate user preparing environment
 	project := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: ProjectConfigMapName, Namespace: Namespace},
-		Data:       map[string]string{OmBaseUrl: "http://mycompany.com:8080", OmProjectId: "5b310aa0790b5830343208c9"}}
-	api.createConfigMap(Namespace, project)
+		ObjectMeta: metav1.ObjectMeta{Name: TestProjectConfigMapName, Namespace: TestNamespace},
+		Data:       map[string]string{OmBaseUrl: "http://mycompany.com:8080", OmProjectName: "my-project"}}
+	api.createConfigMap(TestNamespace, project)
 
 	credentials := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: CredentialsSecretName, Namespace: Namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: TestCredentialsSecretName, Namespace: TestNamespace},
 		StringData: map[string]string{OmUser: "test@mycompany.com", OmPublicApiKey: "36lj245asg06s0h70245dstgft"}}
-	api.createSecret(Namespace, credentials)
+	api.createSecret(TestNamespace, credentials)
 
 	return &api
 }
@@ -137,8 +139,9 @@ func (k *MockedKubeApi) createSecret(ns string, secret *corev1.Secret) (*corev1.
 		secret.Data = make(map[string][]byte)
 	}
 	for k, v := range secret.StringData {
-		sDec, _ := b64.StdEncoding.DecodeString(v)
-		secret.Data[k] = sDec
+		// seems the in-memory bytes are already
+		//sDec, _ := b64.StdEncoding.DecodeString(v)
+		secret.Data[k] = []byte(v)
 	}
 	k.secrets[ns+secret.Name] = secret
 	return secret, nil
@@ -151,5 +154,30 @@ func (oc *MockedKubeApi) addToHistory(value reflect.Value) {
 func (oc *MockedKubeApi) startStatefulsets() {
 	for _, s := range oc.sets {
 		s.Status.ReadyReplicas = *s.Spec.Replicas
+	}
+}
+
+// ************************************ Mocked Kube API private methods are here ***************************************
+
+func (oc *MockedKubeApi) CheckOrderOfOperations(t *testing.T, value ...reflect.Value) {
+	j := 0
+	matched := ""
+	for _, h := range oc.history {
+		if h.Name() == runtime.FuncForPC(value[j].Pointer()).Name() {
+			matched += h.Name() + " "
+			j++
+		}
+		if j == len(value) {
+			break
+		}
+	}
+	assert.Equal(t, len(value), j, "Only %d of %d expected operations happened in expected order (%s)", j, len(value), matched)
+}
+
+func (oc *MockedKubeApi) CheckOperationsDidntHappen(t *testing.T, value ...reflect.Value) {
+	for _, h := range oc.history {
+		for _, o := range value {
+			assert.NotEqual(t, o, h, "Operation %v is not expected to happen", h)
+		}
 	}
 }

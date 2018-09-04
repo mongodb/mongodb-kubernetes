@@ -21,7 +21,7 @@ func (c *MongoDbController) onAddReplicaSet(obj interface{}) {
 
 	conn, err := c.doRsProcessing(nil, s, log)
 	if err != nil {
-		log.Error(err)
+		log.Errorf("Failed to create Mongodb Replica Set: %s", err)
 		return
 	}
 
@@ -44,7 +44,7 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 
 	conn, err := c.doRsProcessing(o, n, log)
 	if err != nil {
-		log.Error(err)
+		log.Errorf("Failed to update Mongodb Replica Set: %s", err)
 		return
 	}
 
@@ -53,22 +53,12 @@ func (c *MongoDbController) onUpdateReplicaSet(oldObj, newObj interface{}) {
 
 func (c *MongoDbController) doRsProcessing(o, n *mongodb.MongoDbReplicaSet, log *zap.SugaredLogger) (om.OmConnection, error) {
 	spec := n.Spec
-	conn, err := c.createOmConnection(n.Namespace, spec.Project, spec.Credentials)
+	conn, podVars, err := c.prepareOmConnection(n.Namespace, spec.Project, spec.Credentials, log)
 	if err != nil {
 		return nil, err
-	}
-
-	agentKeySecretName, err := c.ensureAgentKeySecretExists(conn, n.Namespace, log)
-	if err != nil {
-		return nil, errors.New(fmt.Sprintf("Failed to generate/get agent key: %s", err))
 	}
 
 	scaleDown := o != nil && spec.Members < o.Spec.Members
-
-	podVars, err := c.buildPodVars(n.Namespace, n.Spec.Project, n.Spec.Credentials, agentKeySecretName)
-	if err != nil {
-		return nil, err
-	}
 
 	replicaBuilder := c.kubeHelper.NewStatefulSetHelper(n).
 		SetService(n.ServiceName()).
@@ -88,7 +78,7 @@ func (c *MongoDbController) doRsProcessing(o, n *mongodb.MongoDbReplicaSet, log 
 
 	err = replicaBuilder.CreateOrUpdateInKubernetes()
 	if err != nil {
-		return nil, errors.New(fmt.Sprintf("Failed to create/update the StatefulSet: %s", err))
+		return nil, fmt.Errorf("Failed to create/update the StatefulSet: %s", err)
 	}
 
 	log.Info("Updated statefulset for replicaset")
@@ -116,25 +106,20 @@ func (c *MongoDbController) onDeleteReplicaSet(obj interface{}) {
 
 	log.Infow(">> Deleting MongoDb Replica Set", "config", rs.Spec)
 
-	conn, err := c.createOmConnection(rs.Namespace, rs.Spec.Project, rs.Spec.Credentials)
+	conn, _, err := c.prepareOmConnection(rs.Namespace, rs.Spec.Project, rs.Spec.Credentials, log)
 	if err != nil {
 		return
 	}
-
-	deployment, err := conn.ReadDeployment()
+	err = conn.ReadUpdateDeployment(false,
+		func(d om.Deployment) error {
+			if err = d.RemoveReplicaSetByName(rs.Name); err != nil {
+				return errors.New(fmt.Sprintf("Failed to remove replica set from Ops Manager deployment. %s", err))
+			}
+			return nil
+		},
+	)
 	if err != nil {
-		log.Errorf("Failed to read deployment: %s", err)
-		return
-	}
-
-	if err = deployment.RemoveReplicaSetByName(rs.Name); err != nil {
-		log.Errorf("Failed to remove replica set from Ops Manager deployment. %s", err)
-		return
-	}
-
-	_, err = conn.UpdateDeployment(deployment)
-	if err != nil {
-		log.Errorf("Failed to update replica set in Ops Manager: %s", err)
+		log.Errorf("Failed to update Ops Manager automation config: %s", err)
 		return
 	}
 
