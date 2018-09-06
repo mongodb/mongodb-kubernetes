@@ -51,12 +51,12 @@ type MongoDbStandalone struct {
 type MongoDbStandaloneSpec struct {
 	Version string `json:"version"`
 	// this is an optional service, it will get the name "<standaloneName>-service" in case not provided
-	Service     string                   `json:"service,omitempty"`
-	ClusterName string                   `json:"clusterName,omitempty"`
-	Persistent  *bool                    `json:"persistent,omitempty"`
-	PodSpec     MongoDbPodSpecStandalone `json:"podSpec,omitempty"`
-	Project     string                   `json:"project"`
-	Credentials string                   `json:"credentials"`
+	Service     string                 `json:"service,omitempty"`
+	ClusterName string                 `json:"clusterName,omitempty"`
+	Persistent  *bool                  `json:"persistent,omitempty"`
+	PodSpec     MongoDbPodSpecStandard `json:"podSpec,omitempty"`
+	Project     string                 `json:"project"`
+	Credentials string                 `json:"credentials"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -83,6 +83,7 @@ type MongoDbShardedClusterSpec struct {
 	MongosCount          int    `json:"mongosCount"`
 	ConfigServerCount    int    `json:"configServerCount"`
 	Version              string `json:"version"`
+
 	// TODO seems the ObjectMeta contains the field for ClusterName - may be we should use it instead
 	ClusterName string `json:"clusterName,omitempty"`
 	// this is an optional service that will be mapped to mongos pods, it will get the name "<clusterName>-svc" in case not provided
@@ -119,19 +120,20 @@ type PodSpecWrapper struct {
 	Default MongoDbPodSpec
 }
 
-type MongoDbPodSpecStandalone struct {
-	Cpu          string           `json:"cpu,omitempty"`
-	Memory       string           `json:"memory,omitempty"`
-	Storage      string           `json:"storage,omitempty"`
-	StorageClass string           `json:"storageClass,omitempty"`
-	NodeAffinity *v1.NodeAffinity `json:"nodeAffinity,omitempty"`
-	PodAffinity  *v1.PodAffinity  `json:"podAffinity,omitempty"`
+type MongoDbPodSpecStandard struct {
+	Cpu             string                 `json:"cpu,omitempty"`
+	Memory          string                 `json:"memory,omitempty"`
+	Storage         string                 `json:"storage,omitempty"`
+	StorageClass    string                 `json:"storageClass,omitempty"`
+	NodeAffinity    *v1.NodeAffinity       `json:"nodeAffinity,omitempty"`
+	PodAffinity     *v1.PodAffinity        `json:"podAffinity,omitempty"`
+	SecurityContext *v1.PodSecurityContext `json:"securityContext,omitempty"`
 }
 
 // Note that we make topologyKey a required attribute as it is a mandatory attribute to create a pod anti affinity rule
 // (used only for replicated stateful sets, so not applicable for standalones)
 type MongoDbPodSpec struct {
-	MongoDbPodSpecStandalone
+	MongoDbPodSpecStandard
 	PodAntiAffinityTopologyKey string `json:"podAntiAffinityTopologyKey"`
 }
 
@@ -189,36 +191,43 @@ func (p PodSpecWrapper) GetStorageOrDefault() string {
 	}
 	return p.Storage
 }
+
 func (p PodSpecWrapper) GetCpuOrDefault() string {
 	if p.Cpu == "" {
 		return p.Default.Cpu
 	}
 	return p.Cpu
 }
+
 func (p PodSpecWrapper) GetMemoryOrDefault() string {
 	if p.Memory == "" {
 		return p.Default.Memory
 	}
 	return p.Memory
 }
+
 func (p PodSpecWrapper) GetTopologyKeyOrDefault() string {
 	if p.PodAntiAffinityTopologyKey == "" {
 		return p.Default.PodAntiAffinityTopologyKey
 	}
 	return p.PodAntiAffinityTopologyKey
 }
+
 func (p PodSpecWrapper) SetStorage(storage string) PodSpecWrapper {
 	p.Storage = storage
 	return p
 }
+
 func (p PodSpecWrapper) SetCpu(cpu string) PodSpecWrapper {
 	p.Cpu = cpu
 	return p
 }
+
 func (p PodSpecWrapper) SetMemory(memory string) PodSpecWrapper {
 	p.Memory = memory
 	return p
 }
+
 func (p PodSpecWrapper) SetTopology(topology string) PodSpecWrapper {
 	p.PodAntiAffinityTopologyKey = topology
 	return p

@@ -24,4 +24,5 @@ COPY --from=build /go/src/github.com/10gen/ops-manager-kubernetes/mongodb-enterp
 
 COPY licenses /licenses
 
+ENV MANAGED_SECURITY_CONTEXT=true
 ENTRYPOINT exec /usr/local/bin/mongodb-enterprise-operator

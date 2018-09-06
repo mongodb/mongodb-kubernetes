@@ -19,8 +19,9 @@ import (
 // NewDefaultPodSpec creates default pod spec, seems we shouldn't set CPU and Memory if they are not provided by user
 func NewDefaultPodSpec() mongodb.MongoDbPodSpec {
 	return mongodb.MongoDbPodSpec{
-		MongoDbPodSpecStandalone:   mongodb.MongoDbPodSpecStandalone{Storage: DefaultMongodStorageSize},
-		PodAntiAffinityTopologyKey: DefaultAntiAffinityTopologyKey}
+		MongoDbPodSpecStandard:     mongodb.MongoDbPodSpecStandard{Storage: DefaultMongodStorageSize},
+		PodAntiAffinityTopologyKey: DefaultAntiAffinityTopologyKey,
+	}
 }
 
 func NewDefaultPodSpecWrapper(podSpec mongodb.MongoDbPodSpec) mongodb.PodSpecWrapper {
@@ -30,9 +31,9 @@ func NewDefaultPodSpecWrapper(podSpec mongodb.MongoDbPodSpec) mongodb.PodSpecWra
 	}
 }
 
-func NewDefaultStandalonePodSpecWrapper(podSpec mongodb.MongoDbPodSpecStandalone) mongodb.PodSpecWrapper {
+func NewDefaultStandalonePodSpecWrapper(podSpec mongodb.MongoDbPodSpecStandard) mongodb.PodSpecWrapper {
 	return mongodb.PodSpecWrapper{
-		MongoDbPodSpec: mongodb.MongoDbPodSpec{MongoDbPodSpecStandalone: podSpec},
+		MongoDbPodSpec: mongodb.MongoDbPodSpec{MongoDbPodSpecStandard: podSpec},
 		Default:        NewDefaultPodSpec(),
 	}
 }

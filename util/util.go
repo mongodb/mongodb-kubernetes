@@ -135,3 +135,7 @@ func ReadEnvVarOrPanicInt(key string) int {
 	}
 	return i
 }
+
+func ReadEnv(env string) (string, bool) {
+	return os.LookupEnv(env)
+}

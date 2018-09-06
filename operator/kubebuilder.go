@@ -155,10 +155,6 @@ func basePodSpec(serviceName string, persistent *bool, reqs mongodb.PodSpecWrapp
 					// container is at "resource" values)
 					Limits: buildRequirements(reqs),
 				},
-				SecurityContext: &corev1.SecurityContext{
-					Privileged:   util.BooleanRef(false),
-					RunAsNonRoot: util.BooleanRef(true),
-				},
 				LivenessProbe: baseLivenessProbe(),
 			},
 		},
@@ -170,6 +166,23 @@ func basePodSpec(serviceName string, persistent *bool, reqs mongodb.PodSpecWrapp
 			PodAffinity:  reqs.PodAffinity,
 		},
 	}
+
+	_, managedSecurityContext := util.ReadEnv(ManagedSecurityContextEnv)
+	if !managedSecurityContext {
+		if reqs.SecurityContext != nil {
+			spec.SecurityContext = reqs.SecurityContext
+		} else {
+			spec.SecurityContext = &corev1.PodSecurityContext{
+				// By default, containers will never run as root.
+				// unless `MANAGED_SECURITY_CONTEXT` env variable is set, in which case the SecurityContext
+				// should be managed by Kubernetes (this is the default in OpenShift)
+				RunAsUser:    util.Int64Ref(RunAsUser),
+				FSGroup:      util.Int64Ref(FsGroup),
+				RunAsNonRoot: util.BooleanRef(true),
+			}
+		}
+	}
+
 	if persistent == nil || *persistent {
 		spec.Containers[0].VolumeMounts = []corev1.VolumeMount{{
 			Name:      PersistentVolumeClaimName,
@@ -188,6 +201,7 @@ func basePodSpec(serviceName string, persistent *bool, reqs mongodb.PodSpecWrapp
 			},
 		}},
 	}
+
 	return spec
 }
 

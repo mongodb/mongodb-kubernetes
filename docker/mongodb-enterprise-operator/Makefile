@@ -1,5 +1,5 @@
 IMAGE = mongodb-enterprise-operator
-IMAGE_VERSION = 0.2
+IMAGE_VERSION = 0.3
 AWS_IMAGE_REPO = 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
 AWS_REGION = us-east-1
 

@@ -28,7 +28,7 @@ func TestBuildStatefulSet_PersistentFlag(t *testing.T) {
 func TestBuildStatefulSet_PersistentVolumeClaim(t *testing.T) {
 	podSpec := mongodb.PodSpecWrapper{
 		mongodb.MongoDbPodSpec{
-			mongodb.MongoDbPodSpecStandalone{StorageClass: "fast", Storage: "5G"}, ""},
+			mongodb.MongoDbPodSpecStandard{StorageClass: "fast", Storage: "5G"}, ""},
 		NewDefaultPodSpec()}
 	set := defaultSetHelper().SetPodSpec(podSpec).BuildStatefulSet()
 
@@ -67,7 +67,7 @@ func TestBasePodSpec_Affinity(t *testing.T) {
 		}}}
 	podSpec := mongodb.PodSpecWrapper{
 		MongoDbPodSpec: mongodb.MongoDbPodSpec{
-			MongoDbPodSpecStandalone: mongodb.MongoDbPodSpecStandalone{
+			MongoDbPodSpecStandard: mongodb.MongoDbPodSpecStandard{
 				NodeAffinity: &nodeAffinity,
 				PodAffinity:  &podAffinity,
 			},

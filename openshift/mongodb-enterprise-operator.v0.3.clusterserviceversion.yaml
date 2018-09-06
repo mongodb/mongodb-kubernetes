@@ -99,6 +99,8 @@ spec:
                   value: Always
                 - name: IMAGE_PULL_SECRETS
                   value: ""
+                - name: MANAGED_SECURITY_CONTEXT
+                  value: 'true'
                 resources:
                   limits:
                     cpu: 200m

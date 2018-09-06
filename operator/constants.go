@@ -27,6 +27,7 @@ const (
 	OmOperatorEnv                  = "OPERATOR_ENV"
 	StatefulSetWaitSecondsEnv      = "STS_WAIT_SEC"
 	StatefulSetWaitRetrialsEnv     = "STS_WAIT_RETRIALS"
+	ManagedSecurityContextEnv      = "MANAGED_SECURITY_CONTEXT"
 
 	// Different default configuration values
 	DefaultMongodStorageSize       = "16G"
@@ -35,11 +36,14 @@ const (
 	MongoDbDefaultPort             = 27017
 	PersistentVolumeClaimName      = "data"
 	PersistentVolumePath           = "/data"
-	UserGroupId                    = 1000080000 // see docs/dev/openshift_scc.md for more details
 	DefaultWaitSecondsProd         = "5"
 	DefaultWaitSecondsDev          = "3"
 	DefaultWaitRetrialsProd        = "180" // 180 * 5 = 900 seconds = 15 min (Azure launch time is approximately 10 min)
 	DefaultWaitRetrialsDev         = "20"
+
+	// SecurityContext
+	RunAsUser = 2000
+	FsGroup   = 2000
 
 	// All others
 	OmGroupExternallyManagedTag = "EXTERNALLY_MANAGED_BY_KUBERNETES"

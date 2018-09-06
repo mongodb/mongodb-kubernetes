@@ -18,7 +18,7 @@ spec:
       containers:
       - name: {{ .Values.operator.name }}
         image: {{ .Values.registry.repository }}/mongodb-enterprise-operator:{{ .Values.operator.version }}
-        imagePullPolicy: {{ .Values.operator.pullPolicy }}
+        imagePullPolicy: {{ .Values.registry.pullPolicy }}
         env:
         - name: OPERATOR_ENV
           value: {{ .Values.operator.env }}

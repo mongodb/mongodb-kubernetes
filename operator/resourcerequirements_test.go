@@ -17,8 +17,8 @@ func init() {
 func TestStorageRequirements(t *testing.T) {
 	// value is provided - the default is ignored
 	podSpec := mongodb.PodSpecWrapper{
-		mongodb.MongoDbPodSpec{mongodb.MongoDbPodSpecStandalone{Storage: "40G"}, ""},
-		mongodb.MongoDbPodSpec{mongodb.MongoDbPodSpecStandalone{Storage: "15G"}, ""}}
+		mongodb.MongoDbPodSpec{mongodb.MongoDbPodSpecStandard{Storage: "40G"}, ""},
+		mongodb.MongoDbPodSpec{mongodb.MongoDbPodSpecStandard{Storage: "15G"}, ""}}
 	req := buildStorageRequirements(podSpec)
 
 	assert.Len(t, req, 1)
@@ -28,7 +28,7 @@ func TestStorageRequirements(t *testing.T) {
 	// value is not provided - the default is used
 	podSpec = mongodb.PodSpecWrapper{
 		mongodb.MongoDbPodSpec{},
-		mongodb.MongoDbPodSpec{mongodb.MongoDbPodSpecStandalone{Storage: "5G"}, ""}}
+		mongodb.MongoDbPodSpec{mongodb.MongoDbPodSpecStandard{Storage: "5G"}, ""}}
 	req = buildStorageRequirements(podSpec)
 
 	assert.Len(t, req, 1)
@@ -45,8 +45,8 @@ func TestStorageRequirements(t *testing.T) {
 func TestPodRequirements(t *testing.T) {
 	// values are provided - the defaults are ignored
 	podSpec := mongodb.PodSpecWrapper{
-		mongodb.MongoDbPodSpec{mongodb.MongoDbPodSpecStandalone{Cpu: "0.1", Memory: "512M"}, ""},
-		mongodb.MongoDbPodSpec{mongodb.MongoDbPodSpecStandalone{Cpu: "0.5", Memory: "1G"}, ""}}
+		mongodb.MongoDbPodSpec{mongodb.MongoDbPodSpecStandard{Cpu: "0.1", Memory: "512M"}, ""},
+		mongodb.MongoDbPodSpec{mongodb.MongoDbPodSpecStandard{Cpu: "0.5", Memory: "1G"}, ""}}
 	req := buildRequirements(podSpec)
 
 	assert.Len(t, req, 2)
@@ -58,7 +58,7 @@ func TestPodRequirements(t *testing.T) {
 	// values are not provided - the defaults are used
 	podSpec = mongodb.PodSpecWrapper{
 		mongodb.MongoDbPodSpec{},
-		mongodb.MongoDbPodSpec{mongodb.MongoDbPodSpecStandalone{Cpu: "0.8", Memory: "10G"}, ""}}
+		mongodb.MongoDbPodSpec{mongodb.MongoDbPodSpecStandard{Cpu: "0.8", Memory: "10G"}, ""}}
 	req = buildRequirements(podSpec)
 
 	assert.Len(t, req, 2)

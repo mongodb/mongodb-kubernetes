@@ -4,14 +4,15 @@ set -o errexit
 set -o pipefail
 
 
-# Assuring assigned uid has an entry in /etc/passwd
-# This was taken from https://blog.openshift.com/jupyter-on-openshift-part-6-running-as-an-assigned-user-id/
-# to avoid uids with no name (issue present in OpenShift).
-if [ "$(id -u)" -ge 10000 ]; then
+current_uid=$(id -u)
+if ! grep -q "${current_uid}" /etc/passwd ; then
+    # User does not have a name in /etc/passwd. Adding it here to avoid panics by the automation agent.
     sed -e "s/^mongodb:/builder:/" /etc/passwd > /tmp/passwd
     echo "mongodb:x:$(id -u):$(id -g):,,,:/mongodb-automation:/bin/bash" >> /tmp/passwd
     cat /tmp/passwd > /etc/passwd
     rm /tmp/passwd
+
+    echo "Added ${current_uid} to /etc/passwd"
 fi
 
 mms_home=/mongodb-automation
