@@ -113,12 +113,9 @@ and pushing of local/remote images is still not done generic way. Any scripts st
 # Release process
 
 ```
-# Release to public quay.io repo
-evergreen patch -t release -v release -p ops-manager-kubernetes -f -y
-
-# Release to private quay.io repo
-evergreen patch -t push_images_to_staging -v push_images_to_staging -p ops-manager-kubernetes -f -y
-
 # Release to Amazon ECR
-evergreen patch -t push_images_to_development -v push_images_to_development -p ops-manager-kubernetes -f -y
+evergreen patch -p ops-manager-kubernetes -t push_images_to_development -v push_images_to_development -f -y
+
+# Release to public quay.io repo
+evergreen patch -p ops-manager-kubernetes -t release -v release -f -y
 ```

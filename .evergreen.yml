@@ -100,37 +100,6 @@ functions:
               --tag-from-file src/github.com/10gen/ops-manager-kubernetes/release.yaml \
               --registry production
 
-  "push_images_staging":
-    - command: shell.exec
-      params:
-        script: |
-          if [ "${is_patch}" = "true" ]; then
-            echo "This is _patch_. Proceeding with release."
-          else
-            echo "Not releasing during normal run"
-            exit 0
-          fi
-
-          export QUAY_STAGING_USER=mongodb-enterprise-private+build_robot
-          export QUAY_STAGING_PASSWORD=${quay_robot_token}
-
-          # Installing requirements
-          python3 -m venv venv
-          source venv/bin/activate
-          python3 -m pip install -r src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/requirements.txt
-
-          # Build & release Operator Image
-          src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py push \
-              --image mongodb-enterprise-operator \
-              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/release.yaml \
-              --registry staging
-
-          # Build & release Database Image
-          src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py push \
-              --image mongodb-enterprise-database \
-              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/release.yaml \
-              --registry staging
-
   "push_images_development":
     - command: shell.exec
       params:
@@ -193,16 +162,6 @@ tasks:
     - func: "build_images"
     - func: "push_images_development"
 
-- name: push_images_to_staging
-  tags: ["push_images_to_staging"]
-  commands:
-    - func: "clone"
-    - func: "build_operator"
-    - func: "setup_docker"
-    - func: "setup_aws"
-    - func: "build_images"
-    - func: "push_images_staging"
-
 
 buildvariants:
 
@@ -218,12 +177,6 @@ buildvariants:
     - archlinux-test
   tasks:
     - ".release"
-
-- name: push_images_to_staging
-  run_on:
-    - archlinux-test
-  tasks:
-    - ".push_images_to_staging"
 
 - name: push_images_to_development
   run_on:

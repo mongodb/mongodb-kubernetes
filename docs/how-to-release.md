@@ -43,20 +43,18 @@ This will modify some files that are meant to be distributed in the
 Create a new branch with the name of the release ticket and push your changes
 there.
 
-## Build and Push images to "development" and "staging" repos
+## Build and Push images to "development" registry
 
-There are 2 additional repos to where to push the image, called "development" and "staging".
-To push the new image into this repo, do the following:
+
+Build the operator and database images and push them to the "development" registry (Amazon ECR).
 
 ``` bash
 evg patch -p ops-manager-kubernetes -v push_images_to_development -t push_images_to_development -f
-evg patch -p ops-manager-kubernetes -v push_images_to_staging -t push_images_to_staging -f
 ```
 
 This will result in two tasks being executed in `evergreen` that will push the images to:
 
 * **ECR**: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
-* **Private Quay**: quay.io/repository/mongodb-enterprise-private
 
 ## Build the images and push to Quay Public Docker repo
 
@@ -73,11 +71,16 @@ repo. The images will be tagged with whatever is on the `release.yaml` file.
 **Caution**: The current tagged images will be overwritten by
 `evergreen` if they have the same tag as any old images.
 
-**TODO**: Have some kind of git-tagging?
-
 ## QA Plan
 
-**TODO: Super Important**
+Perform a sanity check with your Kops cluster. This cluster should
+have access to the ECR images, as they are all hosted in AWS.
+
+We still don't have a good QA plan so you should do several tests
+involving at least, the 3 different types of objects. Standalones,
+ReplicaSets and ShardedCluster. Make sure you use PersistentVolumes
+and try a few updates to the custom objects (like updating the mongod
+version).
 
 ## Merge to Master
 
@@ -104,3 +107,11 @@ Where `some_temp_dir` is a temporary directory you want to use to test
 the output of your yaml files generation. `GENERATE_ONLY` is a
 variable that, when set, will not try to commit and push these
 changes.
+
+## Tag This Release
+
+Create a tag for this particular release with the format `release-<tag>`. Use something like the following command:
+
+    git tag "release-$(grep release release.yaml | awk ' -F ":" { print $2 } ')"
+    git push --tags
+

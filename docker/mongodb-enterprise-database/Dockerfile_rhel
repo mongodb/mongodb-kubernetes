@@ -22,10 +22,6 @@ RUN microdnf --enablerepo=rhel-7-server-rpms --enablerepo=epel \
 
 RUN ln -s /usr/lib64/libsasl2.so.3 /usr/lib64/libsasl2.so.2
 
-# see docs/dev/openshift_scc.md for more details
-RUN groupadd -g 1000080000 mongodb
-RUN useradd -r -g mongodb -G root -u 1007 mongodb
-
 COPY content/ /mongodb-automation/files/
 
 RUN \
@@ -35,5 +31,9 @@ RUN \
     chmod -R g+w /mongodb-automation && \
     chmod g+w /etc/passwd
 
-USER 1007
+# USER needs to be set for this image to pass RedHat verification.
+# It does not matter what number it is, as long as it is set to something.
+# However, OpenShift will run the container as a random user,
+# and the number in this configuration is not relevant.
+USER 2000
 CMD supervisord -c /mongodb-automation/files/supervisor.conf
