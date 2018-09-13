@@ -10,12 +10,14 @@ functions:
       type: system
       params:
         directory: src/github.com/10gen/ops-manager-kubernetes
+
   "test_operator":
     - command: shell.exec
       type: system
       params:
         script: |
           src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_operator 0
+
   "build_operator":
     - command: shell.exec
       type: system
@@ -31,12 +33,14 @@ functions:
         bucket: ops-manager-kubernetes-build
         permissions: public-read
         content_type: application/octet-stream
+
   "setup_aws":
     - command: shell.exec
       params:
         shell: bash
         script: |
             src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/setup_aws
+
   "setup_docker":
     - command: shell.exec
       params:
@@ -49,28 +53,100 @@ functions:
       params:
         files: ["*.suite", "src/**/*.suite"]
 
+  "check_evergreen_health":
+    - command: shell.exec
+      params:
+        script: |
+          echo "Checking Evergreen Host Health"
+          REVISION=${revision}
+          echo "REVISION is $REVISION"
+
+          echo "IS_PATCH: ${is_patch}"
+          echo "AUTHOR: ${author}"
+          echo "TASK_ID: ${task_id}"
+          echo "TASK_NAME: ${task_name}"
+          echo "EXECUTION: ${execution}"
+          echo "BUILD_ID: ${build_id}"
+          echo "BUILD_VARIANT: ${build_variant}"
+          echo "VERSION_ID: ${version_id}"
+          echo "WORKDIR: ${workdir}"
+          echo "REVISION: ${revision}"
+          echo "PROJECT: ${project}"
+          echo "BRANCH_NAME: ${branch_name}"
+          echo "DISTRO_ID: ${distro_id}"
+          echo "CREATED_AT: ${created_at}"
+          echo "REVISION_ORDER_ID: ${revision_order_id}"
+          echo "GITHUB_PR_NUMBER: ${github_pr_number}"
+          echo "GITHUB_ORG: ${github_org}"
+          echo "GITHUB_REPO: ${github_repo}"
+          echo "GITHUB_AUTHOR: ${github_author}"
+          echo "HOME: ${HOME}"
+
+
+          MAX_PERCENT_USED=80
+          ROOT_DISK_USED=$(df / | tail -1 | awk ' { print $5 } ' | cut -d"%" -f 1)
+          if [ "$ROOT_DISK_USED" -gt "$MAX_PERCENT_USED" ]; then
+              printf "More than %s%% used in root partition. Currently used disk %s%%\\n" $MAX_PERCENT_USED $ROOT_DISK_USED
+              df /
+              exit 1
+          fi
+
+          MCI_DIR=/data/mci
+          if [ -d $MCI_DIR ]; then
+              DATA_DISK_USED=$(df $MCI_DIR | tail -1 | awk ' { print $5 } ' | cut -d"%" -f 1)
+              if [ "$DATA_DISK_USED" -gt "$MAX_PERCENT_USED" ]; then
+                  printf "Less than %s%% in %s. Currently used disk %s%%\\n" $MAX_PERCENT_USED $MCI_DIR $DATA_DISK_USED
+                  df $MCI_DIR
+                  exit 1
+              fi
+          else
+              echo "$MCI_DIR does not exists"
+              exit
+          fi
+
   "build_images":
     - command: shell.exec
       params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
         shell: bash
         script: |
-          # Installing requirements
           python3 -m venv venv
           source venv/bin/activate
-          python3 -m pip install -r src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/requirements.txt
+          python3 -m pip install -r scripts/evergreen/requirements.txt
 
-          src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py build \
+          ./scripts/evergreen/build_and_release.py build \
               --image mongodb-enterprise-operator \
-              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/release.yaml
+              --tag-from-file release.yaml
 
-          src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py build \
+          ./scripts/evergreen/build_and_release.py build \
               --image mongodb-enterprise-database \
-              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/release.yaml
+              --tag-from-file release.yaml
 
+  "build_images_development":
+    - command: shell.exec
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        shell: bash
+        script: |
+          export REVISION=$(git rev-parse HEAD)
+          echo "Building Development Image: $REVISION"
+
+          python3 -m venv venv
+          source venv/bin/activate
+          python3 -m pip install -r scripts/evergreen/requirements.txt
+
+          ./scripts/evergreen/build_and_release.py build \
+              --image mongodb-enterprise-operator \
+              --tag "$REVISION"
+
+          ./scripts/evergreen/build_and_release.py build \
+              --image mongodb-enterprise-database \
+              --tag "$REVISION"
 
   "push_images_production":
     - command: shell.exec
       params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
         script: |
           # Do not execute during normal runs, only during _patch_.
           if [ "${is_patch}" = "true" ]; then
@@ -83,64 +159,140 @@ functions:
           export QUAY_PROD_USER=${quay_prod_username}
           export QUAY_PROD_PASSWORD=${quay_prod_robot_token}
 
-          # Installing requirements
           python3 -m venv venv
           source venv/bin/activate
-          python3 -m pip install -r src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/requirements.txt
+          python3 -m pip install -r scripts/evergreen/requirements.txt
 
           # Build & release Operator Image
-          src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py push \
+          ./scripts/evergreen/build_and_release.py push \
               --image mongodb-enterprise-operator \
-              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/release.yaml \
+              --tag-from-file release.yaml \
               --registry production
 
           # Build & release Database Image
-          src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py push \
+          ./scripts/evergreen/build_and_release.py push \
               --image mongodb-enterprise-database \
-              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/release.yaml \
+              --tag-from-file release.yaml \
               --registry production
 
   "push_images_development":
     - command: shell.exec
       params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
         script: |
-          # Do not execute during normal runs, only during _patch_.
-          if [ "${is_patch}" = "true" ]; then
-            echo "This is _patch_. Proceeding with release."
-          else
-            echo "Not releasing during normal run"
-            exit 0
-          fi
+          export REVISION=$(git rev-parse HEAD)
+          echo "Pushing Development Images: $REVISION"
 
           # AWS creds
           export AWS_ACCESS_KEY_ID=${mms_eng_test_aws_access_key}
           export AWS_SECRET_ACCESS_KEY=${mms_eng_test_aws_secret}
 
-          # Installing requirements
           python3 -m venv venv
           source venv/bin/activate
-          python3 -m pip install -r src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/requirements.txt
+          python3 -m pip install -r scripts/evergreen/requirements.txt
 
           # Build & release Operator Image
-          src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py push \
+          ./scripts/evergreen/build_and_release.py push \
               --image mongodb-enterprise-operator \
-              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/release.yaml \
+              --tag "$REVISION" \
               --registry development
 
           # Build & release Database Image
-          src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_and_release.py push \
+          ./scripts/evergreen/build_and_release.py push \
               --image mongodb-enterprise-database \
-              --tag-from-file src/github.com/10gen/ops-manager-kubernetes/release.yaml \
+              --tag "$REVISION" \
               --registry development
 
-tasks:
+  "build_and_push_test_images":
+    - command: shell.exec
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        script: |
+          export REVISION=$(git rev-parse HEAD)
 
+          export AWS_ACCESS_KEY_ID=${mms_eng_test_aws_access_key}
+          export AWS_SECRET_ACCESS_KEY=${mms_eng_test_aws_secret}
+
+          python3 -m venv venv
+          source venv/bin/activate
+          python3 -m pip install -r scripts/evergreen/requirements.txt
+
+          ./scripts/evergreen/build_and_release.py build \
+              --image mongodb-enterprise-tests \
+              --tag "$REVISION" \
+              --registry development
+
+          ./scripts/evergreen/build_and_release.py push \
+              --image mongodb-enterprise-tests \
+              --tag "$REVISION" \
+              --registry development
+
+          # remove image after pushing
+
+  "e2e_tests":
+    - command: shell.exec
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen
+        script: |
+          export IS_EVERGREEN=${is_patch}
+          export REVISION=$(git rev-parse HEAD)
+
+          export BINDIR="$(pwd)/bin" ; mkdir -p $BINDIR
+          export PATH=$BINDIR:$PATH
+
+          # AWS creds
+          export AWS_ACCESS_KEY_ID=${mms_eng_test_aws_access_key}
+          export AWS_SECRET_ACCESS_KEY=${mms_eng_test_aws_secret}
+          export AWS_REGION=${mms_eng_test_aws_region}
+
+          # 2 sets of tests will run. A complete environment is set each time.
+          ./e2e_tests.sh test-stage-replica-set-base
+          ./e2e_tests.sh test-stage-replica-set-pv
+
+  "check_disk_avail":
+    - command: shell.exec
+      params:
+        script: |
+          echo "Current working directory: $(pwd)"
+          echo "Disk free:"
+          df
+          # echo "Data usage in /data/mci"
+          # du -ch /data/mci
+
+  "post_task":
+  - command: shell.exec
+    params:
+      script: |
+        echo "Removing all docker images in this machine"
+        docker rmi -f $(docker images -a -q) &> /dev/null || true
+
+        echo "Are there any remaining Docker images in this host?"
+        docker images
+
+post:
+   - func: "post_task"
+
+tasks:
 - name: test
   tags: ["test"]
   commands:
     - func: "clone"
     - func: "test_operator"
     - func: "gotest_parse_files"
+
+- name: e2e_tests
+  tags: ["test", "e2e"]
+  commands:
+    - func: "check_evergreen_health"
+    - func: "clone"
+    - func: "check_disk_avail"
+    - func: "setup_aws"
+    - func: "setup_docker"
+    - func: "build_operator"
+    - func: "build_images_development"
+    - func: "push_images_development"
+    - func: "build_and_push_test_images"
+    - func: "e2e_tests"
 
 - name: release
   tags: ["release"]

@@ -16,7 +16,7 @@ export GOPATH
 export GOBIN
 export PATH
 
-## Install `dep`
+echo "Installing dep"
 mkdir -p "${GOBIN}" # needed for the install of dep
 curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
 

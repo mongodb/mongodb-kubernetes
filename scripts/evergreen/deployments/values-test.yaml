@@ -1,0 +1,15 @@
+namespace: ${PROJECT_NAMESPACE}
+createNamespace: true
+registry:
+  repository: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
+  pullPolicy: Always
+  imagePullSecrets:
+operator:
+  name: mongodb-enterprise-operator
+  version: ${REVISION}
+env: dev
+
+apiKey: omApiKey
+projectId: omProjectId
+tag:
+testStage: ${TEST_STAGE}

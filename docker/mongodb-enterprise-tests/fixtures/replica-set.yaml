@@ -1,0 +1,13 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDbReplicaSet
+metadata:
+  name: my-replica-set
+spec:
+  members: 3
+  version: 4.0.0
+
+  project: my-project
+  credentials: my-credentials
+
+  persistent: false

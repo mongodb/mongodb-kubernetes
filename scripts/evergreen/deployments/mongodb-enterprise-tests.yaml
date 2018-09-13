@@ -1,0 +1,80 @@
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: operator-tests-role
+  namespace: {{ .Values.namespace }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - "*"
+  verbs:
+  - "*"
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets
+  verbs: ["*"]
+- apiGroups:
+  - apiextensions.k8s.io
+  resources:
+  - customresourcedefinitions
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - delete
+- apiGroups:
+  - mongodb.com
+  resources:
+  - "*"
+  verbs:
+  - "*"
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: operator-tests-service-account
+
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: operator-tests-role-binding
+  namespace: {{ .Values.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: operator-tests-role
+subjects:
+- kind: ServiceAccount
+  name: operator-tests-service-account
+  namespace: {{ .Values.namespace }}
+
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mongodb-enterprise-operator-tests
+  namespace: {{ .Values.namespace }}
+spec:
+  serviceAccountName: operator-tests-service-account
+  restartPolicy: Never
+  containers:
+  - name: mongodb-enterprise-operator-tests
+    image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-tests:{{ .Values.tag }}
+    imagePullPolicy: Always
+    env:
+    - name: OM_HOST
+      value: http://ops-manager-internal:8080
+    - name: OM_API_KEY
+      value: {{ .Values.apiKey }}
+    - name: OM_USER
+      value: admin
+    - name: PROJECT_NAMESPACE
+      value: {{ .Values.namespace }}
+    - name: TEST_STAGE
+      value: {{ .Values.testStage }}

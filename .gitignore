@@ -13,3 +13,7 @@ data
 cache
 **/__pycache__
 **/myenv
+**/venv/
+*.bak
+**pytest_cache/
+bin/*

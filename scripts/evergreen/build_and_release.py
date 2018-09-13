@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 '''
 Builds and pushes operator & database image to Quay.io.
@@ -17,21 +17,21 @@ import yaml
 
 
 registries = {
-    'staging': 'quay.io/mongodb-enterprise-private',
     'production': 'quay.io/mongodb',
     'development': '268558157000.dkr.ecr.us-east-1.amazonaws.com/dev'
 }
 
 
 def get_registry(name):
-    return registries[name]
+    return registries.get(name, 'development')
 
 
 def image_directories(image):
     if os.getcwd().split('/')[-1] == 'ops-manager-kubernetes':
         return 'docker/{}'.format(image)
 
-    return 'src/github.com/10gen/ops-manager-kubernetes/docker/{}'.format(image)
+    raise ValueError('Should be run from root of repo.')
+    # return 'src/github.com/10gen/ops-manager-kubernetes/docker/{}'.format(image)
 
 
 def get_client():
@@ -56,12 +56,21 @@ def parse_password_from_docker_login(cmd):
     parts = cmd.split()
     return parts[parts.index('-p') + 1]
 
+def get_bin_dir():
+    'Returns the bin directory where `aws` client was installed.'
+    # TODO: return if not in evergreen
+
+    mci_dir = '/'.join(os.getcwd().split('/')[:4])
+    return os.path.join(mci_dir, 'bin')
+
 
 def get_password_from_aws_cli():
     'Returns a password from the output of aws-cli erc login'
-    cli_cmd = 'bin/aws ecr get-login --no-include-email --region us-east-1'.split()
 
-    result = subprocess.run(cli_cmd, stdout=subprocess.PIPE)
+    aws_client = os.path.join(get_bin_dir(), 'aws')
+    cli_cmd = '{} ecr get-login --no-include-email --region us-east-1'.format(aws_client)
+
+    result = subprocess.run(cli_cmd.split(), stdout=subprocess.PIPE)
     return parse_password_from_docker_login(result.stdout)
 
 

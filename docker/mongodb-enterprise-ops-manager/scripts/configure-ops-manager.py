@@ -62,7 +62,7 @@ if __name__ == '__main__':
         for line in fileinput.input(filename, inplace=True):
             # Replace the OM_HOST value, if changed
             if "OM_HOST" in line and line != om_host:
-                line = om_host
+                line = om_host + '\n'
             sys.stdout.write(line)
             output += line
         fileinput.close()

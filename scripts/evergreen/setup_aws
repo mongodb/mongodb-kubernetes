@@ -6,10 +6,11 @@ set -xeuo pipefail
 
 echo "Installing aws-cli...."
 
-INSTALL_LOCATION="$(pwd)/bin/aws"
+INSTALL_DIR="$(pwd)/.local/lib/aws"
+BIN_LOCATION="$(pwd)/bin/aws"
 
 curl "https://s3.amazonaws.com/aws-cli/awscli-bundle.zip" -o "awscli-bundle.zip"
 unzip awscli-bundle.zip
-./awscli-bundle/install -b "${INSTALL_LOCATION}"
+./awscli-bundle/install --bin-location "${BIN_LOCATION}" --install-dir "${INSTALL_DIR}"
 
-echo "aws-cli is installed in ${INSTALL_LOCATION}"
+echo "aws-cli is installed in ${INSTALL_DIR}"

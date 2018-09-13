@@ -1,0 +1,16 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDbReplicaSet
+metadata:
+  name: rs001-pv
+spec:
+  members: 3
+  version: 4.0.1
+
+  project: my-project
+  credentials: my-credentials
+
+  persistent: true
+  podSpec:
+    storage: 4G
+    storageClass: gp2
