@@ -9,6 +9,10 @@ import (
 	"go.uber.org/zap"
 )
 
+func NewMockedMongoDbController() *MongoDbController {
+	return NewMongoDbController(newMockedKubeApi(), nil, om.NewEmptyMockedOmConnection)
+}
+
 // TestPrepareOmConnection_CreateGroup checks that if the group doesn't exist in OM - it is created
 func TestPrepareOmConnection_CreateGroup(t *testing.T) {
 	mockedOmConnection := omConnWithoutGroup()

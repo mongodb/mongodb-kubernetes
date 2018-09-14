@@ -15,6 +15,10 @@ import (
 
 const (
 	APP_LABEL_KEY = "app"
+	// The label that defines the anti affinity rule label. The main rule is to spread entities inside one statefulset
+	// (aka replicaset) to different locations, so pods having the same label shouldn't coexist on the node that has
+	// the same topology key
+	POD_ANTI_AFFINITY_LABEL_KEY = "pod-anti-affinity"
 )
 
 // PodVars is a convenience struct to pass environment variables to Pods as needed.
@@ -32,8 +36,9 @@ type PodVars struct {
 // build in client code and avoid passing too many different parameters to `buildStatefulSet`.
 func buildStatefulSet(p StatefulSetHelper) *appsv1.StatefulSet {
 	labels := map[string]string{
-		APP_LABEL_KEY: p.Service,
-		"controller":  OmControllerLabel,
+		APP_LABEL_KEY:               p.Service,
+		"controller":                OmControllerLabel,
+		POD_ANTI_AFFINITY_LABEL_KEY: p.Name,
 	}
 
 	set := appsv1.StatefulSet{
@@ -52,7 +57,7 @@ func buildStatefulSet(p StatefulSetHelper) *appsv1.StatefulSet {
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
 				},
-				Spec: basePodSpec(p.Service, p.Persistent, p.PodSpec, p.PodVars),
+				Spec: basePodSpec(p.Name, p.Persistent, p.PodSpec, p.PodVars),
 			},
 		},
 	}
@@ -138,7 +143,7 @@ func baseOwnerReference(owner metav1.Object) []metav1.OwnerReference {
 // basePodSpec creates the standard Pod definition which uses the database container for managing mongod/mongos
 // instances. Parameters to the container will be passed as environment variables which values are contained
 // in the PodVars structure.
-func basePodSpec(serviceName string, persistent *bool, reqs mongodb.PodSpecWrapper, podVars *PodVars) corev1.PodSpec {
+func basePodSpec(statefulSetName string, persistent *bool, reqs mongodb.PodSpecWrapper, podVars *PodVars) corev1.PodSpec {
 	spec := corev1.PodSpec{
 		Containers: []corev1.Container{
 			{
@@ -195,7 +200,7 @@ func basePodSpec(serviceName string, persistent *bool, reqs mongodb.PodSpecWrapp
 			// it to 100
 			Weight: 100,
 			PodAffinityTerm: corev1.PodAffinityTerm{
-				LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{APP_LABEL_KEY: serviceName}},
+				LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{POD_ANTI_AFFINITY_LABEL_KEY: statefulSetName}},
 				// If PodAntiAffinityTopologyKey config property is empty - then it's ok to use some default (even for standalones)
 				TopologyKey: reqs.GetTopologyKeyOrDefault(),
 			},

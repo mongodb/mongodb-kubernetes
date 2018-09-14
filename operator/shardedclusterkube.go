@@ -55,7 +55,7 @@ func (c *MongoDbController) onUpdateShardedCluster(oldObj, newObj interface{}) {
 		return
 	}
 
-	log.Infof("Created MongoDb Sharded Cluster! %s", completionMessage(conn.BaseUrl(), conn.GroupId()))
+	log.Infof("Updated MongoDb Sharded Cluster! %s", completionMessage(conn.BaseUrl(), conn.GroupId()))
 }
 
 func (c *MongoDbController) doShardedClusterProcessing(o, n *mongodb.MongoDbShardedCluster, log *zap.SugaredLogger) (om.OmConnection, error) {

@@ -83,7 +83,7 @@ func TestBasePodSpec_Affinity(t *testing.T) {
 	assert.Len(t, spec.Affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution, 0)
 	term := spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0]
 	assert.Equal(t, int32(100), term.Weight)
-	assert.Equal(t, map[string]string{APP_LABEL_KEY: "s"}, term.PodAffinityTerm.LabelSelector.MatchLabels)
+	assert.Equal(t, map[string]string{POD_ANTI_AFFINITY_LABEL_KEY: "s"}, term.PodAffinityTerm.LabelSelector.MatchLabels)
 	assert.Equal(t, "nodeId", term.PodAffinityTerm.TopologyKey)
 }
 
@@ -95,7 +95,7 @@ func TestBasePodSpec_AntiAffinityDefaultTopology(t *testing.T) {
 
 	term := spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0]
 	assert.Equal(t, int32(100), term.Weight)
-	assert.Equal(t, map[string]string{APP_LABEL_KEY: "s"}, term.PodAffinityTerm.LabelSelector.MatchLabels)
+	assert.Equal(t, map[string]string{POD_ANTI_AFFINITY_LABEL_KEY: "s"}, term.PodAffinityTerm.LabelSelector.MatchLabels)
 	assert.Equal(t, DefaultAntiAffinityTopologyKey, term.PodAffinityTerm.TopologyKey)
 }
 

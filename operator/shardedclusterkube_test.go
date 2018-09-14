@@ -3,6 +3,8 @@ package operator
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"reflect"
 
 	"os"
@@ -113,6 +115,31 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 		firstMongos + ".slaney-svc.mongodb.svc.cluster.local",
 		secondMongos + ".slaney-svc.mongodb.svc.cluster.local",
 	})
+}
+
+// CLOUDP-32765: checks that pod anti affinity rule spreads mongods inside one shard, not inside all shards
+func TestPodAntiaffinity_MongodsInsideShardAreSpread(t *testing.T) {
+	sc := DefaultClusterBuilder().Build()
+
+	state, e := NewMockedMongoDbController().buildKubeObjectsForShardedCluster(sc, defaultPodVars(), zap.S())
+
+	assert.NoError(t, e)
+
+	shardHelpers := state.shardsSetsHelpers
+
+	assert.Len(t, shardHelpers, 2)
+
+	firstShardSet := shardHelpers[0].BuildStatefulSet()
+	secondShardSet := shardHelpers[1].BuildStatefulSet()
+
+	assert.Equal(t, sc.ShardRsName(0), firstShardSet.Spec.Selector.MatchLabels[POD_ANTI_AFFINITY_LABEL_KEY])
+	assert.Equal(t, sc.ShardRsName(1), secondShardSet.Spec.Selector.MatchLabels[POD_ANTI_AFFINITY_LABEL_KEY])
+
+	firstShartPodAffinityTerm := firstShardSet.Spec.Template.Spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0].PodAffinityTerm
+	assert.Equal(t, firstShartPodAffinityTerm.LabelSelector.MatchLabels[POD_ANTI_AFFINITY_LABEL_KEY], sc.ShardRsName(0))
+
+	secondShartPodAffinityTerm := secondShardSet.Spec.Template.Spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0].PodAffinityTerm
+	assert.Equal(t, secondShartPodAffinityTerm.LabelSelector.MatchLabels[POD_ANTI_AFFINITY_LABEL_KEY], sc.ShardRsName(1))
 }
 
 func createDeploymentFromResource(sh *v1.MongoDbShardedCluster) om.Deployment {

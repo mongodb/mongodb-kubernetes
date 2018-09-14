@@ -23,11 +23,11 @@ The update process follows the same approach in general except for no new object
 
 ### Prerequisites ###
 
-* Kubernetes cluster. The easiest way is to install [Minikube](https://kubernetes.io/docs/getting-started-guides/minikube/) locally.
+* Kubernetes cluster. The easiest way is to install [Minikube](docs/minikube.md) locally.
  Another way is to use [Kops](docs/aws_kops.md) to deploy cluster in AWS
  
  *Hint:* as all Kubernetes objects are created in `mongodb` namespace it makes sense to set this namespace as the default one
- in minikube using the command `kubectl config set-context $(kubectl config current-context) --namespace=mongodb`. After
+ using the command `kubectl config set-context $(kubectl config current-context) --namespace=mongodb`. After
  this all `kubectl` commands will work for the resources in this namespace by default unless you override it using `-n <other_namespace>` syntax
  
 * Ops Manager / Cloud Manager. To spin up Ops Manager you can use [mci](https://mci.mms-build.10gen.cc). Check more detailed
