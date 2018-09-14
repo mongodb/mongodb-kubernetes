@@ -105,7 +105,7 @@ func ParseMongodbMinorVersion(version string) (float32, error) {
 	s := strings.FieldsFunc(version, func(c rune) bool { return c == '.' })
 
 	if len(s) < 2 || len(s) > 3 {
-		return -1, errors.New(fmt.Sprintf("Wrong format of version: %s is expected to have either 2 or 3 parts separated by '.'"))
+		return -1, errors.New(fmt.Sprintf("Wrong format of version: %s is expected to have either 2 or 3 parts separated by '.'", version))
 	}
 	// if we have 3 parts - we need to parse only two of them
 	if len(s) == 3 {
