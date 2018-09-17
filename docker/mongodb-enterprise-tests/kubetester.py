@@ -117,7 +117,7 @@ class KubernetesTester(object):
         return response.json()["id"]
 
     def om_vars(self):
-        group_name = "operator-tests"
+        group_name = getenv('PROJECT_NAMESPACE').rstrip()
         om_vars = {
             "base_url": getenv("OM_HOST").rstrip(),
             "public_api_key": getenv("OM_API_KEY").rstrip(),

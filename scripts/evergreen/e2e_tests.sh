@@ -23,22 +23,31 @@ contains() {
 }
 
 spawn_om_kops() {
-    echo "Starting Ops Manager Installation: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-    # Install the operator
-    kubectl --namespace "${PROJECT_NAMESPACE}" apply -f deployments/mongodb-enterprise-ops-manager.yaml
+    OPERATOR_TESTING_FRAMEWORK_NS=operator-testing
+    if ! kubectl get namespace/${OPERATOR_TESTING_FRAMEWORK_NS} &> /dev/null; then
+        echo "Ops Manager is not installed in this cluster. Doing it now."
+        # If Ops Manager is not running, run it first!
+        # Need to install Ops Manager
+        kubectl create namespace "${OPERATOR_TESTING_FRAMEWORK_NS}"
+        echo "Starting Ops Manager Installation: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+        # Install the operator
+        kubectl --namespace "${OPERATOR_TESTING_FRAMEWORK_NS}" apply -f deployments/mongodb-enterprise-ops-manager.yaml
 
-    echo "* Waiting until Ops Manager is running..."
-    while ! kubectl --namespace "${PROJECT_NAMESPACE}" get pods | grep 'mongodb-enterprise-ops-manager' | grep 'Running' >/dev/null; do sleep 1; done
+        echo "* Waiting until Ops Manager is running..."
+        while ! kubectl --namespace "${OPERATOR_TESTING_FRAMEWORK_NS}" get pods/mongodb-enterprise-ops-manager | grep -q 'Running'; do sleep 4; done
 
-    # wait for ops manager to really start
-    echo "Ops Manager container is in Running state, waiting for Ops Manager to start."
-
-    # We can't communicate with Ops Manager if it is inside Kubernetes, so we just
-    # wait for this command to succeed.
-    while ! kubectl --namespace "${PROJECT_NAMESPACE}" logs mongodb-enterprise-ops-manager-0 | grep 'Ops Manager ready' >/dev/null; do sleep 10; done
+        # wait for ops manager to really start
+        echo "Ops Manager container is in Running state, waiting for Ops Manager to start."
+        # We can't communicate with Ops Manager if it is inside Kubernetes, so we just
+        # wait for this command to succeed.
+        while ! kubectl --namespace "${OPERATOR_TESTING_FRAMEWORK_NS}" get pods/mongodb-enterprise-ops-manager-0 -o jsonpath="{.status.containerStatuses[0].ready}" | grep -q "true"; do sleep 4; done
+    else
+        echo "Ops Manager is already installed in this cluster. Will reuse it now."
+        echo "If you want to start with a fresh Ops Manager installation, please delete the ${OPERATOR_TESTING_FRAMEWORK_NS} namespace."
+    fi
 
     # Get the environment from the ops-manager container
-    eval $(kubectl -n "${PROJECT_NAMESPACE}" exec mongodb-enterprise-ops-manager-0 cat /opt/mongodb/mms/.ops-manager-env)
+    eval $(kubectl -n "${OPERATOR_TESTING_FRAMEWORK_NS}" exec mongodb-enterprise-ops-manager-0 cat /opt/mongodb/mms/.ops-manager-env)
     echo "Finished Ops Manager Installation: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 }
 
@@ -57,15 +66,12 @@ install_operator() {
          --set operator.version="${REVISION}" \
          -f deployments/values-test.yaml ../../public/helm_chart --output-dir "${outdir}"
 
-    ls -l "${outdir}"
-    cat "${outdir}"/*
-
-    if [ ! $(kubectl get ns | grep -q "${PROJECT_NAMESPACE}") ]; then
+    if ! kubectl get ns | grep -q "${PROJECT_NAMESPACE}"; then
         kubectl create ns "${PROJECT_NAMESPACE}"
         echo "Created namespace ${PROJECT_NAMESPACE} as it didn't exist"
     fi
 
-    for file in crds roles serviceaccount operator
+    for file in roles serviceaccount operator
     do
         kubectl apply -f "helm_out/mongodb-enterprise-operator/templates/${file}.yaml"
     done
@@ -93,12 +99,15 @@ configure_om() {
     # delete `my-project` if it exists
     ! kubectl --namespace "${PROJECT_NAMESPACE}" get configmaps | grep -q my-project || kubectl --namespace "${PROJECT_NAMESPACE}" delete configmap my-project
     # Configuring project
-    kubectl --namespace "${PROJECT_NAMESPACE}" create configmap my-project --from-literal=projectName="operator-tests" --from-literal=baseUrl="${OM_HOST}"
+    kubectl --namespace "${PROJECT_NAMESPACE}" create configmap my-project --from-literal=projectName="${PROJECT_NAMESPACE}" --from-literal=baseUrl="http://ops-manager-internal.operator-testing.svc.cluster.local:8080"
 
     # delete `my-credentials` if it exists
     ! kubectl --namespace "${PROJECT_NAMESPACE}" get secrets | grep -q my-credentials || kubectl --namespace "${PROJECT_NAMESPACE}" delete secret my-credentials
     # Configure the Kubernetes credentials for Ops Manager
     kubectl --namespace "${PROJECT_NAMESPACE}" create secret generic my-credentials --from-literal=user="${OM_USER}" --from-literal=publicApiKey="${OM_API_KEY}"
+
+    kubectl --namespace "${PROJECT_NAMESPACE}" get configmap/my-project -o yaml
+    kubectl --namespace "${PROJECT_NAMESPACE}" get secret/my-credentials -o yaml
 }
 
 configure_kubectl() {
@@ -157,8 +166,6 @@ setup_kubectl_environment() {
 teardown() {
     printf "Removing namespace: %s\\n" "${PROJECT_NAMESPACE}."
     kubectl delete "namespace/${PROJECT_NAMESPACE}"
-    echo "Removing Custom Resource Definitions."
-    kubectl delete crd/mongodbreplicasets.mongodb.com crd/mongodbshardedclusters.mongodb.com crd/mongodbstandalones.mongodb.com
 }
 
 rebuild_test_image() {

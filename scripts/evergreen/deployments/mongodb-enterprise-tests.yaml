@@ -69,7 +69,7 @@ spec:
     imagePullPolicy: Always
     env:
     - name: OM_HOST
-      value: http://ops-manager-internal:8080
+      value: http://ops-manager-internal.operator-testing.svc.cluster.local:8080
     - name: OM_API_KEY
       value: {{ .Values.apiKey }}
     - name: OM_USER

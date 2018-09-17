@@ -1,5 +1,5 @@
 IMAGE = mongodb-enterprise-ops-manager
-IMAGE_VERSION = 4.0.0.49984.20180625T1427Z-1
+IMAGE_VERSION = 4.0.2.50187.20180905T1427Z-1
 CONTAINER = ops_manager
 MONGODB_VERSION = 4.0.0
 AWS_IMAGE_HOST = 268558157000.dkr.ecr.us-east-1.amazonaws.com
