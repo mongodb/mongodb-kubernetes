@@ -60,7 +60,12 @@ install_operator() {
     ls -l "${outdir}"
     cat "${outdir}"/*
 
-    for file in crds namespace roles serviceaccount operator
+    if [ ! $(kubectl get ns | grep -q "${PROJECT_NAMESPACE}") ]; then
+        kubectl create ns "${PROJECT_NAMESPACE}"
+        echo "Created namespace ${PROJECT_NAMESPACE} as it didn't exist"
+    fi
+
+    for file in crds roles serviceaccount operator
     do
         kubectl apply -f "helm_out/mongodb-enterprise-operator/templates/${file}.yaml"
     done

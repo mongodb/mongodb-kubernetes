@@ -71,9 +71,7 @@ install_helm() {
     #else
 }
 purge_operator() {
-    if helm list --tiller-namespace "${TILLER_NAMESPACE}" mongodb-enterprise | grep -q 'mongodb-enterprise' >/dev/null 2>&1; then
-        helm del --tiller-namespace "${TILLER_NAMESPACE}" --purge mongodb-enterprise
-    fi
+    helm del --namespace "${TILLER_NAMESPACE}" --purge mongodb-enterprise
 }
 install_operator() {
     purge_operator
@@ -81,11 +79,11 @@ install_operator() {
 
     # Allow installs using a custom AWS ECS repository
     if [[ ! -z "${AWS_IMAGE_REPO+set_if_undef}" ]] && [[ ! -z "${CLUSTER_NAME+set_if_undef}" ]]; then
-        helm install  --tiller-namespace "${TILLER_NAMESPACE}" --namespace "${PROJECT_NAMESPACE}" --name mongodb-enterprise "${DIR}/../public/helm_chart" -f "${DIR}/../public/helm_chart/values.yaml" \
+        helm install  --namespace "${TILLER_NAMESPACE}" --name mongodb-enterprise "${DIR}/../public/helm_chart" -f "${DIR}/../public/helm_chart/values.yaml" \
             --set registry.host="${AWS_IMAGE_REPO}" \
             --set registry.repo="${CLUSTER_NAME}"
     else
-        helm install --tiller-namespace "${TILLER_NAMESPACE}" --namespace "${PROJECT_NAMESPACE}" --name mongodb-enterprise "${DIR}/../public/helm_chart" -f "${DIR}/../public/helm_chart/values.yaml"
+        helm install --namespace "${TILLER_NAMESPACE}" --name mongodb-enterprise "${DIR}/../public/helm_chart" -f "${DIR}/../public/helm_chart/values.yaml"
     fi
 
     # Print pod status
