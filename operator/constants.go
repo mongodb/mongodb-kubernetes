@@ -39,7 +39,7 @@ const (
 	DefaultWaitSecondsProd         = "5"
 	DefaultWaitSecondsDev          = "3"
 	DefaultWaitRetrialsProd        = "180" // 180 * 5 = 900 seconds = 15 min (Azure launch time is approximately 10 min)
-	DefaultWaitRetrialsDev         = "20"
+	DefaultWaitRetrialsDev         = "40"
 
 	// SecurityContext
 	RunAsUser = 2000

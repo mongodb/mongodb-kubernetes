@@ -68,13 +68,15 @@ func buildStatefulSet(p StatefulSetHelper) *appsv1.StatefulSet {
 				Name: PersistentVolumeClaimName,
 			},
 			Spec: corev1.PersistentVolumeClaimSpec{
-				AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-				StorageClassName: &p.PodSpec.StorageClass,
+				AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 				Resources: corev1.ResourceRequirements{
 					Requests: buildStorageRequirements(p.PodSpec),
 				},
 			},
 		}}
+		if p.PodSpec.StorageClass != "" {
+			set.Spec.VolumeClaimTemplates[0].Spec.StorageClassName = &p.PodSpec.StorageClass
+		}
 	}
 	return &set
 }
