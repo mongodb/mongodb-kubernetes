@@ -22,7 +22,6 @@ if __name__ == '__main__':
 
         # Make sure we are writing a valid values.yaml file.
         assert 'createCrds' in doc
-        assert 'createNamespace' in doc
         assert 'operator' in doc
         assert 'registry' in doc
 

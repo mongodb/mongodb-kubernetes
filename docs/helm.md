@@ -82,7 +82,7 @@ will use it in the next step.
 ``` bash
 git clone git@github.com:10gen/ops-manager-kubernetes.git
 cd ops-manager-kubernetes
-helm install --tiller-namespace "tiller" --name mongodb-enterprise \
+helm install --namespace kube-system --name mongodb-enterprise \
     public/helm_chart -f public/helm_chart/values.yaml \
     --set registry.repository="mongodb-enterprise-private" \
     --set registry.imagePullSecrets="<user>-pull-secret"
@@ -91,7 +91,6 @@ helm install --tiller-namespace "tiller" --name mongodb-enterprise \
 # TODO(mihaibojin): test both the above and this commands in OpenShift, MiniKube, AWS and see if they work (also try --namespace kube-system)
 helm install --tiller-namespace "tiller" --namespace "mongodb" --name mongodb-enterprise \
     public/helm_chart -f public/helm_chart/values.yaml \
-    --set createNamespace="false" \
     --set registry.repository="mongodb-enterprise-private" \
     --set registry.imagePullSecrets="<user>-pull-secret"
 
