@@ -12,7 +12,7 @@ generate_standalone_yaml() {
 
     helm template -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}"
 
-    cat "${charttmpdir}"/mongodb-enterprise-operator/templates/{namespace.yaml,roles.yaml,serviceaccount.yaml,operator.yaml} > mongodb-enterprise.yaml
+    cat "${charttmpdir}"/mongodb-enterprise-operator/templates/{roles.yaml,serviceaccount.yaml,operator.yaml} > mongodb-enterprise.yaml
     cp "${charttmpdir}"/mongodb-enterprise-operator/templates/crds.yaml crds.yaml
 }
 
