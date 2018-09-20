@@ -34,13 +34,17 @@ spawn_om_kops() {
         kubectl --namespace "${OPERATOR_TESTING_FRAMEWORK_NS}" apply -f deployments/mongodb-enterprise-ops-manager.yaml
 
         echo "* Waiting until Ops Manager is running..."
-        while ! kubectl --namespace "${OPERATOR_TESTING_FRAMEWORK_NS}" get pods/mongodb-enterprise-ops-manager | grep -q 'Running'; do sleep 4; done
+        while ! kubectl --namespace "${OPERATOR_TESTING_FRAMEWORK_NS}" get pods/mongodb-enterprise-ops-manager-0 | grep -q 'Running'; do sleep 4; done
 
         # wait for ops manager to really start
         echo "Ops Manager container is in Running state, waiting for Ops Manager to start."
         # We can't communicate with Ops Manager if it is inside Kubernetes, so we just
         # wait for this command to succeed.
         while ! kubectl --namespace "${OPERATOR_TESTING_FRAMEWORK_NS}" get pods/mongodb-enterprise-ops-manager-0 -o jsonpath="{.status.containerStatuses[0].ready}" | grep -q "true"; do sleep 4; done
+
+        echo "Ops Manager is installed in this cluster. A new user will be added for automated tests to run."
+        sleep 10 # sleep for a few seconds so the user has time to be created.
+
     else
         echo "Ops Manager is already installed in this cluster. Will reuse it now."
         echo "If you want to start with a fresh Ops Manager installation, please delete the ${OPERATOR_TESTING_FRAMEWORK_NS} namespace."
@@ -75,24 +79,6 @@ install_operator() {
     do
         kubectl apply -f "helm_out/mongodb-enterprise-operator/templates/${file}.yaml"
     done
-}
-
-start_om_mci() {
-    if [ ! -f omenv ]; then
-        latest_vanilla=$(mci distros | grep vanilla | tail -n 1 | awk '{ print $3}')
-        mci spawn "${latest_vanilla}"
-
-        printf "Starting mci and giving it a few minutes to start."
-        sleep 200
-        OM_HOST="http://$(mci list | tail -n 1 | awk '{print $3}' | cut -d@ -f 2):8080"
-
-        while ! curl -sL -m 2 -w "%{http_code}" "${OM_HOST}/user" -o /dev/null | grep -q 200; do printf "."; sleep 10; done
-        echo
-
-        printf "Configuring Ops Manager\\n"
-        ../docker/mongodb-enterprise-ops-manager/scripts/configure-ops-manager.py "${OM_HOST}" omenv
-    fi
-    source omenv
 }
 
 configure_om() {
@@ -302,6 +288,13 @@ fi
 if contains "test-stage-replica-set-pv" "$@"; then
     echo "Running Replica Set with Persistent Volume tests."
     run_tests "with_pv"
+    TESTS_OK=$?
+    echo "Results of tests execution: ${TESTS_OK}"
+fi
+
+if contains "test-stage-replica-set-ent" "$@"; then
+    echo "Running Replica Set with Enterprise MongoDB."
+    run_tests "with_ent"
     TESTS_OK=$?
     echo "Results of tests execution: ${TESTS_OK}"
 fi

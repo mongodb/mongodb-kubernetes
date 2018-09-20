@@ -1,27 +1,27 @@
 #!/usr/bin/env bash
 #
-# A script which Evergreen should use to compile the Operator
+# A script Evergreen will use to compile the Operator
 #
 # This should be executed from root of the evergreen build dir
+#
 
-set -xeuo pipefail
-
-GOROOT="/usr/lib/go"
-GOPATH="$(pwd)"
-GOBIN="${GOPATH}/bin"
-PATH="${GOBIN}:${PATH}"
-
-export GOROOT
+# ${WORKDIR} refers to the MCI working directory
+GOPATH="${WORKDIR}"
 export GOPATH
-export GOBIN
-export PATH
 
-echo "Installing dep"
-mkdir -p "${GOBIN}" # needed for the install of dep
+export GOROOT="/usr/lib/go"
+export GOBIN="${GOPATH}/bin"
+export PATH="${GOBIN}:${PATH}"
+
+mkdir -p "${GOBIN}"
 curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
 
-# Go to the dir containing this script
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-pushd "${DIR}" &> /dev/null
+./scripts/build/prepare_build_environment
+# This skips the regeneration of code + download of dependencies if this step was
+# taken care of by the test_operator script.
+export BUILD_ENVIRONMENT_READY=true
 
-../build/build_operator "$*"
+if [ -z "${SKIP_TESTING}" ]; then
+    ./scripts/build/test_operator "$*"
+fi
+./scripts/build/build_operator "$*"

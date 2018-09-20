@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+# Only installs 'dep' if not already installed
+if [ ! "$(which dep)" ]; then
+    mkdir -p "${GOBIN}"
+    curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
+fi
+
+cd "${GOPATH}/src/github.com/10gen/ops-manager-kubernetes" || (echo "ops-manager-kubernetes does not seems to be cloned" && exit 1)
+dep ensure -v
+
+## Generate code
+./scripts/build/codegen.sh
+
+go version

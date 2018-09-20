@@ -1,4 +1,5 @@
 import pytest
+
 from kubetester import KubernetesTester
 from kubernetes import client
 
@@ -8,11 +9,12 @@ from kubernetes import client
 class TestReplicaSetCreation(KubernetesTester):
     '''
     name: Replica Set Creation
+    tags: replica-set, creation
     description: |
       Creates a Replica set and checks everything is created as expected.
     create:
       file: fixtures/replica-set.yaml
-      wait_for: 60
+      wait_until: sts/my-replica-set -> status.ready_replicas == 3
     '''
 
     def test_replica_set_sts_exists(self):
@@ -85,7 +87,12 @@ class TestReplicaSetCreation(KubernetesTester):
             pod = self.corev1.read_namespaced_pod(podname, self.namespace)
             c0 = pod.spec.containers[0]
             for envvar in c0.env:
-                assert envvar.name in ['BASE_URL', 'GROUP_ID', 'USER_LOGIN', 'AGENT_API_KEY']
+                assert envvar.name in [
+                    'BASE_URL',
+                    'GROUP_ID',
+                    'USER_LOGIN',
+                    'AGENT_API_KEY',
+                ]
                 assert envvar.value is not None
 
     def test_service_is_created(self):
@@ -113,7 +120,11 @@ class TestReplicaSetCreation(KubernetesTester):
         assert p0['version'] == '4.0.0'
         assert p0['authSchemaVersion'] == 5
         assert p0['featureCompatibilityVersion'] == '4.0'
-        assert p0['hostname'] == 'my-replica-set-0.my-replica-set-svc.{}.svc.cluster.local'.format(self.namespace)
+        assert p0[
+            'hostname'
+        ] == 'my-replica-set-0.my-replica-set-svc.{}.svc.cluster.local'.format(
+            self.namespace
+        )
         assert p0['args2_6']['net']['port'] == 27017
         assert p0['args2_6']['replication']['replSetName'] == 'my-replica-set'
         assert p0['args2_6']['storage']['dbPath'] == '/data'
@@ -128,7 +139,11 @@ class TestReplicaSetCreation(KubernetesTester):
         assert p1['version'] == '4.0.0'
         assert p1['authSchemaVersion'] == 5
         assert p1['featureCompatibilityVersion'] == '4.0'
-        assert p1['hostname'] == 'my-replica-set-1.my-replica-set-svc.{}.svc.cluster.local'.format(self.namespace)
+        assert p1[
+            'hostname'
+        ] == 'my-replica-set-1.my-replica-set-svc.{}.svc.cluster.local'.format(
+            self.namespace
+        )
         assert p1['args2_6']['net']['port'] == 27017
         assert p1['args2_6']['replication']['replSetName'] == 'my-replica-set'
         assert p1['args2_6']['storage']['dbPath'] == '/data'
@@ -143,7 +158,11 @@ class TestReplicaSetCreation(KubernetesTester):
         assert p2['version'] == '4.0.0'
         assert p2['authSchemaVersion'] == 5
         assert p2['featureCompatibilityVersion'] == '4.0'
-        assert p2['hostname'] == 'my-replica-set-2.my-replica-set-svc.{}.svc.cluster.local'.format(self.namespace)
+        assert p2[
+            'hostname'
+        ] == 'my-replica-set-2.my-replica-set-svc.{}.svc.cluster.local'.format(
+            self.namespace
+        )
         assert p2['args2_6']['net']['port'] == 27017
         assert p2['args2_6']['replication']['replSetName'] == 'my-replica-set'
         assert p2['args2_6']['storage']['dbPath'] == '/data'
@@ -195,7 +214,9 @@ class TestReplicaSetCreation(KubernetesTester):
         mv = config['monitoringVersions']
         assert mv[0]['baseUrl'] is None
         # Monitoring agent is installed in first host
-        hostname = 'my-replica-set-0.my-replica-set-svc.{}.svc.cluster.local'.format(self.namespace)
+        hostname = 'my-replica-set-0.my-replica-set-svc.{}.svc.cluster.local'.format(
+            self.namespace
+        )
         assert mv[0]['hostname'] == hostname
 
         # TODO: from where should we get this version?
@@ -209,16 +230,36 @@ class TestReplicaSetCreation(KubernetesTester):
 
         # TODO: from where should we get this version?
         assert bkp[0]['name'] == '6.6.0.959-1'
-        hostname = 'my-replica-set-0.my-replica-set-svc.{}.svc.cluster.local'.format(self.namespace)
+        hostname = 'my-replica-set-0.my-replica-set-svc.{}.svc.cluster.local'.format(
+            self.namespace
+        )
         assert bkp[0]['hostname'] == hostname
 
         assert bkp[1]['name'] == '6.6.0.959-1'
-        hostname = 'my-replica-set-1.my-replica-set-svc.{}.svc.cluster.local'.format(self.namespace)
+        hostname = 'my-replica-set-1.my-replica-set-svc.{}.svc.cluster.local'.format(
+            self.namespace
+        )
         assert bkp[1]['hostname'] == hostname
 
         assert bkp[2]['name'] == '6.6.0.959-1'
-        hostname = 'my-replica-set-2.my-replica-set-svc.{}.svc.cluster.local'.format(self.namespace)
+        hostname = 'my-replica-set-2.my-replica-set-svc.{}.svc.cluster.local'.format(
+            self.namespace
+        )
         assert bkp[2]['hostname'] == hostname
+
+    def test_replica_set_was_configured(self):
+        'Should connect to one of the mongods and check the replica set was correctly configured.'
+        hosts = [
+            "my-replica-set-{}.my-replica-set-svc.{}.svc.cluster.local:27017".format(
+                i, self.namespace
+            )
+            for i in range(3)
+        ]
+
+        primary, secondaries = self.wait_for_rs_is_ready(hosts)
+
+        assert primary is not None
+        assert len(secondaries) == 2
 
 
 @pytest.mark.replica_set
@@ -226,13 +267,15 @@ class TestReplicaSetCreation(KubernetesTester):
 class TestReplicaSetUpdate(KubernetesTester):
     '''
     name: Replica Set Updates
+    tags: replica-set, scale, update
     description: |
       Updates a Replica Set to 5 members.
     update:
       file: fixtures/replica-set.yaml
       patch: '[{"op":"replace","path":"/spec/members","value":5}]'
-      wait_for: 60
+      wait_until: sts/my-replica-set -> status.ready_replicas == 5
     '''
+
     def test_replica_set_sts_should_exist(self):
         sts = self.appsv1.read_namespaced_stateful_set('my-replica-set', self.namespace)
         assert sts
@@ -293,7 +336,12 @@ class TestReplicaSetUpdate(KubernetesTester):
             pod = self.corev1.read_namespaced_pod(podname, self.namespace)
             c0 = pod.spec.containers[0]
             for envvar in c0.env:
-                assert envvar.name in ['BASE_URL', 'GROUP_ID', 'USER_LOGIN', 'AGENT_API_KEY']
+                assert envvar.name in [
+                    'BASE_URL',
+                    'GROUP_ID',
+                    'USER_LOGIN',
+                    'AGENT_API_KEY',
+                ]
                 assert envvar.value is not None
 
     def test_service_is_created(self):
@@ -323,7 +371,11 @@ class TestReplicaSetUpdate(KubernetesTester):
         assert p0['version'] == '4.0.0'
         assert p0['authSchemaVersion'] == 5
         assert p0['featureCompatibilityVersion'] == '4.0'
-        assert p0['hostname'] == 'my-replica-set-0.my-replica-set-svc.{}.svc.cluster.local'.format(self.namespace)
+        assert p0[
+            'hostname'
+        ] == 'my-replica-set-0.my-replica-set-svc.{}.svc.cluster.local'.format(
+            self.namespace
+        )
         assert p0['args2_6']['net']['port'] == 27017
         assert p0['args2_6']['replication']['replSetName'] == 'my-replica-set'
         assert p0['args2_6']['storage']['dbPath'] == '/data'
@@ -338,7 +390,11 @@ class TestReplicaSetUpdate(KubernetesTester):
         assert p1['version'] == '4.0.0'
         assert p1['authSchemaVersion'] == 5
         assert p1['featureCompatibilityVersion'] == '4.0'
-        assert p1['hostname'] == 'my-replica-set-1.my-replica-set-svc.{}.svc.cluster.local'.format(self.namespace)
+        assert p1[
+            'hostname'
+        ] == 'my-replica-set-1.my-replica-set-svc.{}.svc.cluster.local'.format(
+            self.namespace
+        )
         assert p1['args2_6']['net']['port'] == 27017
         assert p1['args2_6']['replication']['replSetName'] == 'my-replica-set'
         assert p1['args2_6']['storage']['dbPath'] == '/data'
@@ -353,7 +409,11 @@ class TestReplicaSetUpdate(KubernetesTester):
         assert p2['version'] == '4.0.0'
         assert p2['authSchemaVersion'] == 5
         assert p2['featureCompatibilityVersion'] == '4.0'
-        assert p2['hostname'] == 'my-replica-set-2.my-replica-set-svc.{}.svc.cluster.local'.format(self.namespace)
+        assert p2[
+            'hostname'
+        ] == 'my-replica-set-2.my-replica-set-svc.{}.svc.cluster.local'.format(
+            self.namespace
+        )
         assert p2['args2_6']['net']['port'] == 27017
         assert p2['args2_6']['replication']['replSetName'] == 'my-replica-set'
         assert p2['args2_6']['storage']['dbPath'] == '/data'
@@ -368,7 +428,11 @@ class TestReplicaSetUpdate(KubernetesTester):
         assert p3['version'] == '4.0.0'
         assert p3['authSchemaVersion'] == 5
         assert p3['featureCompatibilityVersion'] == '4.0'
-        assert p3['hostname'] == 'my-replica-set-3.my-replica-set-svc.{}.svc.cluster.local'.format(self.namespace)
+        assert p3[
+            'hostname'
+        ] == 'my-replica-set-3.my-replica-set-svc.{}.svc.cluster.local'.format(
+            self.namespace
+        )
         assert p3['args2_6']['net']['port'] == 27017
         assert p3['args2_6']['replication']['replSetName'] == 'my-replica-set'
         assert p3['args2_6']['storage']['dbPath'] == '/data'
@@ -383,7 +447,11 @@ class TestReplicaSetUpdate(KubernetesTester):
         assert p4['version'] == '4.0.0'
         assert p4['authSchemaVersion'] == 5
         assert p4['featureCompatibilityVersion'] == '4.0'
-        assert p4['hostname'] == 'my-replica-set-4.my-replica-set-svc.{}.svc.cluster.local'.format(self.namespace)
+        assert p4[
+            'hostname'
+        ] == 'my-replica-set-4.my-replica-set-svc.{}.svc.cluster.local'.format(
+            self.namespace
+        )
         assert p4['args2_6']['net']['port'] == 27017
         assert p4['args2_6']['replication']['replSetName'] == 'my-replica-set'
         assert p4['args2_6']['storage']['dbPath'] == '/data'
@@ -457,7 +525,11 @@ class TestReplicaSetUpdate(KubernetesTester):
         mv = config['monitoringVersions']
         assert mv[0]['baseUrl'] is None
         # Monitoring agent is installed in first host
-        assert mv[0]['hostname'] == 'my-replica-set-0.my-replica-set-svc.{}.svc.cluster.local'.format(self.namespace)
+        assert mv[0][
+            'hostname'
+        ] == 'my-replica-set-0.my-replica-set-svc.{}.svc.cluster.local'.format(
+            self.namespace
+        )
 
         # TODO: from where should we get this version?
         assert mv[0]['name'] == '6.4.0.433-1'
@@ -470,19 +542,39 @@ class TestReplicaSetUpdate(KubernetesTester):
 
         # TODO: from where should we get this version?
         assert bkp[0]['name'] == '6.6.0.959-1'
-        assert bkp[0]['hostname'] == 'my-replica-set-0.my-replica-set-svc.{}.svc.cluster.local'.format(self.namespace)
+        assert bkp[0][
+            'hostname'
+        ] == 'my-replica-set-0.my-replica-set-svc.{}.svc.cluster.local'.format(
+            self.namespace
+        )
 
         assert bkp[1]['name'] == '6.6.0.959-1'
-        assert bkp[1]['hostname'] == 'my-replica-set-1.my-replica-set-svc.{}.svc.cluster.local'.format(self.namespace)
+        assert bkp[1][
+            'hostname'
+        ] == 'my-replica-set-1.my-replica-set-svc.{}.svc.cluster.local'.format(
+            self.namespace
+        )
 
         assert bkp[2]['name'] == '6.6.0.959-1'
-        assert bkp[2]['hostname'] == 'my-replica-set-2.my-replica-set-svc.{}.svc.cluster.local'.format(self.namespace)
+        assert bkp[2][
+            'hostname'
+        ] == 'my-replica-set-2.my-replica-set-svc.{}.svc.cluster.local'.format(
+            self.namespace
+        )
 
         assert bkp[3]['name'] == '6.6.0.959-1'
-        assert bkp[3]['hostname'] == 'my-replica-set-3.my-replica-set-svc.{}.svc.cluster.local'.format(self.namespace)
+        assert bkp[3][
+            'hostname'
+        ] == 'my-replica-set-3.my-replica-set-svc.{}.svc.cluster.local'.format(
+            self.namespace
+        )
 
         assert bkp[4]['name'] == '6.6.0.959-1'
-        assert bkp[4]['hostname'] == 'my-replica-set-4.my-replica-set-svc.{}.svc.cluster.local'.format(self.namespace)
+        assert bkp[4][
+            'hostname'
+        ] == 'my-replica-set-4.my-replica-set-svc.{}.svc.cluster.local'.format(
+            self.namespace
+        )
 
 
 @pytest.mark.replica_set
@@ -490,12 +582,14 @@ class TestReplicaSetUpdate(KubernetesTester):
 class TestReplicaSetDelete(KubernetesTester):
     '''
     name: Replica Set Deletion
+    tags: replica-set, removal
     description: |
       Deletes a Replica Set.
     delete:
       file: fixtures/replica-set.yaml
-      wait_for: 120
+      wait_for: 30
     '''
+
     def test_replica_set_sts_doesnt_exist(self):
         'StatefulSet should not exist'
         with pytest.raises(client.rest.ApiException):

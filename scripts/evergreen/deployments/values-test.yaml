@@ -6,6 +6,12 @@ registry:
 operator:
   name: mongodb-enterprise-operator
   version: ${REVISION}
+
+opsmanager:
+  name: mongodb-enterprise-ops-manager
+  version: 4.0.2.50187.20180905T1427Z-1
+  pullPolicy: IfNotPresent
+
 env: dev
 
 apiKey: omApiKey

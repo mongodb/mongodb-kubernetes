@@ -35,8 +35,8 @@ spec:
         supplementalGroups: [0, 1000080000]
       containers:
       - name: mongodb-enterprise-ops-manager
-        image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager:4.0.0.49984.20180625T1427Z-1
-        imagePullPolicy: Always
+        image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager:4.0.2.50187.20180905T1427Z-1
+        imagePullPolicy: IfNotPresent
         readinessProbe:
           httpGet:
             port: 8080

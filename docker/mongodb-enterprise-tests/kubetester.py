@@ -1,11 +1,14 @@
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
+
 import time
 import yaml
 from os import getenv
+
 import requests
 from requests.auth import HTTPDigestAuth
 import jsonpatch
+import pymongo
 
 
 class KubernetesTester(object):
@@ -49,18 +52,19 @@ class KubernetesTester(object):
 
     @staticmethod
     def prepare(test_setup, namespace):
-        wait_for = 0
-        if "create" in test_setup:
-            wait_for = test_setup["create"]["wait_for"]
-            KubernetesTester.create(test_setup["create"], namespace)
-        elif "update" in test_setup:
-            wait_for = test_setup["update"]["wait_for"]
-            KubernetesTester.patch(test_setup["update"], namespace)
-        elif "delete" in test_setup:
-            wait_for = test_setup["delete"]["wait_for"]
-            KubernetesTester.delete(test_setup["delete"], namespace)
+        allowed_actions = ["create", "update", "delete"]
 
-        KubernetesTester.wait_for(wait_for)
+        # gets type of action
+        action = [action for action in allowed_actions if action in test_setup][0]
+        rules = test_setup[action]
+
+        KubernetesTester.execute(action, rules, namespace)
+        KubernetesTester.wait_condition(rules)
+
+    @staticmethod
+    def execute(action, rules, namespace):
+        "Execute function with name `action` with arguments `rules` and `namespace`"
+        getattr(KubernetesTester, action)(rules, namespace)
 
     @staticmethod
     def wait_for(seconds):
@@ -78,7 +82,44 @@ class KubernetesTester(object):
         )
 
     @staticmethod
-    def patch(section, namespace):
+    def wait_condition(action):
+        if "wait_until" in action:
+            print("Waiting until {}".format(action["wait_until"]))
+            KubernetesTester.wait_until(action["wait_until"])
+        elif "wait_for" in action:
+            print("Waiting for {}".format(action["wait_for"]))
+            KubernetesTester.wait_for(action["wait_for"])
+
+    @staticmethod
+    def wait_until(condition):
+        """Waits for a given condition from the cluster
+        Example:
+        1. statefulset/my-replica-set -> status.current_replicas == 5
+        """
+        type_, name, test, expected = parse_condition_str(condition)
+        appsv1 = KubernetesTester.clients("appsv1")
+        namespace = KubernetesTester.get_namespace()
+        ready_to_go = False
+
+        if type_ in ["sts", "statefulset"]:
+            while True:
+                try:
+                    sts = appsv1.read_namespaced_stateful_set(name, namespace)
+                except ApiException as e:
+                    pass
+                else:
+                    if get_nested_attribute(sts, test) == expected:
+                        ready_to_go = True
+
+                if ready_to_go:
+                    break
+
+                time.sleep(10)
+        else:
+            raise NotImplemented("Only StatefulSets can be tested for now")
+
+    @staticmethod
+    def update(section, namespace):
         "patches custom object"
         resource = yaml.safe_load(open(section["file"]))
         name, kind, group, version = get_crd_meta(resource)
@@ -117,7 +158,7 @@ class KubernetesTester(object):
         return response.json()["id"]
 
     def om_vars(self):
-        group_name = getenv('PROJECT_NAMESPACE').rstrip()
+        group_name = getenv("PROJECT_NAMESPACE").rstrip()
         om_vars = {
             "base_url": getenv("OM_HOST").rstrip(),
             "public_api_key": getenv("OM_API_KEY").rstrip(),
@@ -130,9 +171,7 @@ class KubernetesTester(object):
         return HTTPDigestAuth(user, api_key)
 
     def build_om_group_byname_endpoint(self, name, om_vars):
-        return "{}/api/public/v1.0/groups/byName/{}".format(
-            om_vars["base_url"], name
-        )
+        return "{}/api/public/v1.0/groups/byName/{}".format(om_vars["base_url"], name)
 
     def build_automation_config_endpoint(self, om_vars):
         return "{}/api/public/v1.0/groups/{}/automationConfig".format(
@@ -147,6 +186,21 @@ class KubernetesTester(object):
         response = requests.get(endpoint, auth=auth, headers=headers)
 
         return response.json()
+
+    def build_mongodb_uri_for_rs(self, hosts):
+        return "mongodb://{}".format(",".join(hosts))
+
+    def wait_for_rs_is_ready(self, hosts, wait_for=60, check_every=5):
+        "Connects to a given replicaset and wait a while for a primary and secondaries."
+        mongodburi = self.build_mongodb_uri_for_rs(hosts)
+        client = pymongo.MongoClient(mongodburi)
+
+        check_times = wait_for / check_every
+        while client.primary is None and check_times >= 0:
+            time.sleep(check_every)
+            check_times -= 1
+
+        return client.primary, client.secondaries
 
 
 def get_group(doc):
@@ -171,3 +225,43 @@ def get_crd_meta(doc):
 
 def plural(name):
     return "{}s".format(name.lower())
+
+
+def parse_condition_str(condition):
+    """Returns a condition into constituent parts:
+    >>> parse_condition_str('sts/my-replica-set -> status.current_replicas == 3')
+    >>> 'sts', 'my-replica-set', '{.status.currentReplicas}', '3'
+    """
+    type_name, condition = condition.split("->")
+    type_, name = type_name.split("/")
+    type_ = type_.strip()
+    name = name.strip()
+
+    test, expected = condition.split("==")
+    test = test.strip()
+    expected = expected.strip()
+    if expected.isdigit():
+        expected = int(expected)
+
+    return type_, name, test, expected
+
+
+def get_nested_attribute(obj, attrs):
+    """Returns the `attrs` attribute descending into this object following the . notation.
+    Assume you have a class Some() and:
+    >>> class Some: pass
+    >>> a = Some()
+    >>> b = Some()
+    >>> c = Some()
+    >>> a.b = b
+    >>> b.c = c
+    >>> c.my_string = 'hello!'
+    >>> get_nested_attribute(a, 'b.c.my_string')
+    'hola'
+    """
+
+    attrs = list(reversed(attrs.split(".")))
+    while attrs:
+        obj = getattr(obj, attrs.pop())
+
+    return obj

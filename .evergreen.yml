@@ -15,15 +15,20 @@ functions:
     - command: shell.exec
       type: system
       params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
         script: |
-          src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_operator 0
+          export WORKDIR=${workdir}
+          ./scripts/evergreen/build_operator 0
 
   "build_operator":
     - command: shell.exec
       type: system
       params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
         script: |
-          src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/build_operator
+          export WORKDIR=${workdir}
+          SKIP_TESTING=true ./scripts/evergreen/build_operator
+
     - command: s3.put
       params:
         aws_key: ${mms_build_s3_aws_access_key}
@@ -56,6 +61,7 @@ functions:
   "check_evergreen_health":
     - command: shell.exec
       params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
         script: |
           echo "Checking Evergreen Host Health"
           REVISION=${revision}
@@ -248,21 +254,17 @@ functions:
           # 2 sets of tests will run. A complete environment is set each time.
           ./e2e_tests.sh test-stage-replica-set-base
           ./e2e_tests.sh test-stage-replica-set-pv
-
-  "check_disk_avail":
-    - command: shell.exec
-      params:
-        script: |
-          echo "Current working directory: $(pwd)"
-          echo "Disk free:"
-          df
-          # echo "Data usage in /data/mci"
-          # du -ch /data/mci
+          ./e2e_tests.sh test-stage-replica-set-ent
 
   "post_task":
   - command: shell.exec
     params:
       script: |
+        if [ ! "$(which docker)" ]; then
+          # if not docker present, no images either.
+          exit 0
+        fi
+
         echo "Removing all docker images in this machine"
         docker rmi -f $(docker images -a -q) &> /dev/null || true
 
@@ -283,9 +285,8 @@ tasks:
 - name: e2e_tests
   tags: ["test", "e2e"]
   commands:
-    - func: "check_evergreen_health"
     - func: "clone"
-    - func: "check_disk_avail"
+    - func: "check_evergreen_health"
     - func: "setup_aws"
     - func: "setup_docker"
     - func: "build_operator"
