@@ -240,7 +240,8 @@ functions:
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen
         script: |
-          export IS_EVERGREEN=${is_patch}
+          # revision is only supposed to be set in evergreen
+          export IS_EVERGREEN=${revision}
           export REVISION=$(git rev-parse HEAD)
 
           export BINDIR="$(pwd)/bin" ; mkdir -p $BINDIR

@@ -101,22 +101,20 @@ class KubernetesTester(object):
         namespace = KubernetesTester.get_namespace()
         ready_to_go = False
 
-        if type_ in ["sts", "statefulset"]:
-            while True:
-                try:
-                    sts = appsv1.read_namespaced_stateful_set(name, namespace)
-                except ApiException as e:
-                    pass
-                else:
-                    if get_nested_attribute(sts, test) == expected:
-                        ready_to_go = True
+        if type_ not in ['sts', 'statefulset']:
+            raise NotImplemented('Only StatefulSets can be tested for now')
 
-                if ready_to_go:
-                    break
+        while not ready_to_go:
+            try:
+                sts = appsv1.read_namespaced_stateful_set(name, namespace)
+                ready_to_go = get_nested_attribute(sts, test) == expected
+            except ApiException:
+                pass
 
-                time.sleep(10)
-        else:
-            raise NotImplemented("Only StatefulSets can be tested for now")
+            if ready_to_go:
+                break
+
+            time.sleep(10)
 
     @staticmethod
     def update(section, namespace):
