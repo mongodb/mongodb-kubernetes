@@ -8,6 +8,10 @@ The components are:
 - [mongodb-enteprise-ops-manager](mongodb-enteprise-ops-manager): a MongoDB Ops Manager 4.0 container
 - [node-mongo-app](node-mongo-app): a simple app used to test connectivity to a provided database
 
+## RHEL Based Images for OpenShift ##
+
+To build the images based in RHEL go [here](https://github.com/10gen/kubernetes-rhel-images).
+
 # Installation
 
 While the images provided above should run in most Kubernetes flavours, we support automated installation in the following environments (using the [mdbk.sh](./mdbk.sh) script).
@@ -131,7 +135,7 @@ After it has started, its URL will be printed and a new browser window pointing 
 
 First, configure your `kubectl` context and ensure you have an available Kubernetes cluster.
 
-If you haven't previously set one up, perform all the steps in the next section. 
+If you haven't previously set one up, perform all the steps in the next section.
 
 Finally, run the following command to deploy the operator and Ops Manager containers:
 
