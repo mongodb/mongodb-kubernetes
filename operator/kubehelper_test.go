@@ -4,6 +4,10 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/zap"
+
+	"github.com/10gen/ops-manager-kubernetes/util"
+
 	"os"
 
 	"github.com/stretchr/testify/assert"
@@ -12,7 +16,6 @@ import (
 func TestStatefulsetCreationSuccessful(t *testing.T) {
 	start := time.Now()
 	helper := defaultSetHelper()
-	go startStatefulset(helper.Helper.kubeApi.(*MockedKubeApi))
 
 	err := helper.CreateOrUpdateInKubernetes()
 	assert.Nil(t, err)
@@ -21,30 +24,26 @@ func TestStatefulsetCreationSuccessful(t *testing.T) {
 
 func TestStatefulsetCreationWaitsForCompletion(t *testing.T) {
 	start := time.Now()
-	err := defaultSetHelper().CreateOrUpdateInKubernetes()
+	helper := baseSetHelperDelayed(5000).SetLogger(zap.S()).SetPodSpec(defaultPodSpec()).SetPodVars(defaultPodVars()).SetService("test-service")
+	err := helper.CreateOrUpdateInKubernetes()
 	assert.Errorf(t, err, "failed to reach READY state")
 	assert.True(t, time.Now().Sub(start) >= time.Second*2) // we have two retrials each waiting for one second
 }
 
 func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
-	os.Setenv(AutomationAgentImageUrl, "")
+	os.Setenv(util.AutomationAgentImageUrl, "")
 	assert.Panics(t, func() { defaultSetHelper().CreateOrUpdateInKubernetes() })
 	InitDefaultEnvVariables()
 
-	os.Setenv(AutomationAgentImagePullPolicy, "")
+	os.Setenv(util.AutomationAgentImagePullPolicy, "")
 	assert.Panics(t, func() { defaultSetHelper().CreateOrUpdateInKubernetes() })
 	InitDefaultEnvVariables()
 
-	os.Setenv(StatefulSetWaitSecondsEnv, "")
+	os.Setenv(util.StatefulSetWaitSecondsEnv, "")
 	assert.Panics(t, func() { defaultSetHelper().CreateOrUpdateInKubernetes() })
 	InitDefaultEnvVariables()
 
-	os.Setenv(StatefulSetWaitRetrialsEnv, "")
+	os.Setenv(util.StatefulSetWaitRetriesEnv, "")
 	assert.Panics(t, func() { defaultSetHelper().CreateOrUpdateInKubernetes() })
 	InitDefaultEnvVariables()
-}
-
-func startStatefulset(api *MockedKubeApi) {
-	time.Sleep(200 * time.Millisecond)
-	api.startStatefulsets()
 }

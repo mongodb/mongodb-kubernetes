@@ -3,6 +3,7 @@ package operator
 import (
 	"github.com/10gen/ops-manager-kubernetes/om"
 	"github.com/10gen/ops-manager-kubernetes/operator/crd"
+	"github.com/10gen/ops-manager-kubernetes/util"
 
 	"fmt"
 
@@ -109,7 +110,7 @@ func (c *MongoDbController) ensureAgentKeySecretExists(omConnection om.OmConnect
 		log.Info("Group agent key is saved in Kubernetes Secret for later usage")
 	}
 
-	return strings.TrimSuffix(string(secret.Data[OmAgentApiKey]), "\n"), nil
+	return strings.TrimSuffix(string(secret.Data[util.OmAgentApiKey]), "\n"), nil
 }
 
 func (c *MongoDbController) startWatchReplicaSet(namespace string, stopCh chan struct{}) error {
@@ -176,7 +177,7 @@ func (c *MongoDbController) readOrCreateGroup(config *ProjectConfig, credentials
 
 	// ensure the group has necessary tag
 	for _, t := range group.Tags {
-		if t == OmGroupExternallyManagedTag {
+		if t == util.OmGroupExternallyManagedTag {
 			return group, nil
 		}
 	}
@@ -184,13 +185,13 @@ func (c *MongoDbController) readOrCreateGroup(config *ProjectConfig, credentials
 	// So the group doesn't have necessary tag - let's fix it (this is a temporary solution and we must throw the
 	// exception by 1.0)
 	// return nil, fmt.Errorf("Group \"%s\" doesn't have the tag %s", config.ProjectName, OmGroupExternallyManagedTag)
-	log.Infow("Seems group doesn't have necessary tag " + OmGroupExternallyManagedTag + " - updating it")
+	log.Infow("Seems group doesn't have necessary tag " + util.OmGroupExternallyManagedTag + " - updating it")
 
 	groupWithTags := &om.Group{
 		Name:  group.Name,
 		OrgId: group.OrgId,
 		Id:    group.Id,
-		Tags:  append(group.Tags, OmGroupExternallyManagedTag),
+		Tags:  append(group.Tags, util.OmGroupExternallyManagedTag),
 	}
 	g, err := conn.UpdateGroup(groupWithTags)
 	if err != nil {
@@ -213,7 +214,7 @@ func tryCreateGroup(config *ProjectConfig, conn om.OmConnection, log *zap.Sugare
 	group := &om.Group{
 		Name:  config.ProjectName,
 		OrgId: config.OrgId,
-		Tags:  []string{OmGroupExternallyManagedTag},
+		Tags:  []string{util.OmGroupExternallyManagedTag},
 	}
 	ans, err := conn.CreateGroup(group)
 

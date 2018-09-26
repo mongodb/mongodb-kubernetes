@@ -34,6 +34,12 @@ type OmConnection interface {
 	ReadGroup(name string) (*Group, error)
 	CreateGroup(group *Group) (*Group, error)
 	UpdateGroup(group *Group) (*Group, error)
+	// ReadBackupConfigs returns all host clusters registered in OM. If there's no backup enabled the status is supposed
+	// to be Inactive
+	ReadBackupConfigs() (*BackupConfigsResponse, error)
+	ReadBackupConfig(clusterId string) (*BackupConfig, error)
+	ReadHostCluster(clusterId string) (*HostCluster, error)
+	UpdateBackupStatus(clusterId string, status BackupStatus) error
 
 	BaseUrl() string
 	GroupId() string
@@ -178,7 +184,6 @@ func (oc *HttpOmConnection) ReadAutomationAgents() (*AgentState, error) {
 	if err != nil {
 		return nil, err
 	}
-	zap.S().Debug(string(ans))
 	state, e := BuildAgentStateFromBytes(ans)
 	return state, NewApiError(e)
 }
@@ -220,7 +225,6 @@ func (oc *HttpOmConnection) ReadGroup(name string) (*Group, error) {
 		return nil, err
 	}
 
-	zap.S().Info(string(res))
 	group := &Group{}
 	if err := json.Unmarshal(res, group); err != nil {
 		return nil, NewApiError(err)
@@ -257,6 +261,61 @@ func (oc *HttpOmConnection) UpdateGroup(group *Group) (*Group, error) {
 	}
 
 	return group, nil
+}
+func (oc *HttpOmConnection) ReadBackupConfigs() (*BackupConfigsResponse, error) {
+	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/backupConfigs", oc.GroupId())
+	res, err := oc.get(mPath)
+	if err != nil {
+		return nil, err
+	}
+
+	response := &BackupConfigsResponse{}
+	if err := json.Unmarshal(res, response); err != nil {
+		return nil, NewApiError(err)
+	}
+
+	return response, nil
+}
+
+func (oc *HttpOmConnection) ReadBackupConfig(clusterId string) (*BackupConfig, error) {
+	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/backupConfigs/%s", oc.GroupId(), clusterId)
+	res, err := oc.get(mPath)
+	if err != nil {
+		return nil, err
+	}
+
+	response := &BackupConfig{}
+	if err := json.Unmarshal(res, response); err != nil {
+		return nil, NewApiError(err)
+	}
+
+	return response, nil
+}
+
+func (oc *HttpOmConnection) ReadHostCluster(clusterId string) (*HostCluster, error) {
+	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/clusters/%s", oc.GroupId(), clusterId)
+	res, err := oc.get(mPath)
+	if err != nil {
+		return nil, err
+	}
+
+	cluster := &HostCluster{}
+	if err := json.Unmarshal(res, cluster); err != nil {
+		return nil, NewApiError(err)
+	}
+
+	return cluster, nil
+}
+func (oc *HttpOmConnection) UpdateBackupStatus(clusterId string, status BackupStatus) error {
+	path := fmt.Sprintf("/api/public/v1.0/groups/%s/backupConfigs/%s", oc.GroupId(), clusterId)
+
+	_, err := oc.patch(path, map[string]interface{}{"statusName": status})
+
+	if err != nil {
+		return NewApiError(err)
+	}
+
+	return nil
 }
 
 //********************************** Private methods *******************************************************************

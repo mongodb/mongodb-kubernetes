@@ -80,7 +80,7 @@ func (c *MongoDbController) onDeleteStandalone(obj interface{}) {
 
 	hostsToRemove, _ := GetDnsNames(s.Name, s.ServiceName(), s.Namespace, s.Spec.ClusterName, 1)
 	log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
-	if err := om.StopMonitoring(conn, hostsToRemove); err != nil {
+	if err := om.StopMonitoring(conn, hostsToRemove, log); err != nil {
 		log.Errorf("Failed to stop monitoring on hosts %s: %s", hostsToRemove, err)
 		return
 	}

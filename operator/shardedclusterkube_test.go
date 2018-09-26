@@ -3,6 +3,8 @@ package operator
 import (
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/util"
+
 	"github.com/stretchr/testify/assert"
 
 	"reflect"
@@ -17,7 +19,7 @@ import (
 
 func TestShardedClusterEventMethodsHandlePanic(t *testing.T) {
 	// nullifying env variable will result in panic exception raised
-	os.Setenv(AutomationAgentImageUrl, "")
+	os.Setenv(util.AutomationAgentImageUrl, "")
 	st := DefaultClusterBuilder().Build()
 
 	NewMongoDbController(newMockedKubeApi(), nil, om.NewEmptyMockedOmConnection).onAddShardedCluster(st)
@@ -27,17 +29,56 @@ func TestShardedClusterEventMethodsHandlePanic(t *testing.T) {
 	InitDefaultEnvVariables()
 }
 
+func TestOnAddShardedCluster(t *testing.T) {
+	sc := DefaultClusterBuilder().Build()
+
+	api := newMockedKubeApi()
+	controller := NewMongoDbController(api, nil, om.NewEmptyMockedOmConnection)
+
+	// TODO unfortunately we have no way to check exceptions now - seems it would be good to return err from this method
+	controller.onAddShardedCluster(sc)
+
+	assert.Len(t, api.secrets, 2)
+	assert.Len(t, api.services, 4)
+	assert.Len(t, api.sets, 4)
+	assert.Equal(t, *api.sets[sc.Namespace+sc.ConfigRsName()].Spec.Replicas, int32(sc.Spec.ConfigServerCount))
+	assert.Equal(t, *api.sets[sc.Namespace+sc.MongosRsName()].Spec.Replicas, int32(sc.Spec.MongosCount))
+	assert.Equal(t, *api.sets[sc.Namespace+sc.ShardRsName(0)].Spec.Replicas, int32(sc.Spec.MongodsPerShardCount))
+	assert.Equal(t, *api.sets[sc.Namespace+sc.ShardRsName(1)].Spec.Replicas, int32(sc.Spec.MongodsPerShardCount))
+
+	connection := om.CurrMockedConnection
+	connection.CheckDeployment(t, createDeploymentFromShardedCluster(sc))
+	connection.CheckNumberOfUpdateRequests(t, 1)
+}
+
+func TestDeleteShardedCluster(t *testing.T) {
+	sc := DefaultClusterBuilder().Build()
+
+	controller := NewMongoDbController(newMockedKubeApi(), nil, om.NewEmptyMockedOmConnection)
+
+	// create first
+	controller.onAddShardedCluster(sc)
+
+	// "enabling" backup
+	currConnection := om.CurrMockedConnection
+	currConnection.EnableBackup(sc.Name, om.ShardedClusterType)
+
+	// then delete
+	controller.onDeleteShardedCluster(sc)
+	currConnection.CheckResourcesDeleted(t, sc.Name, true)
+}
+
 func TestPrepareScaleDownShardedCluster(t *testing.T) {
 	old := DefaultClusterBuilder().SetConfigServerCount(3).SetMongodsPerShardCount(4).Build()
 	new := DefaultClusterBuilder().SetConfigServerCount(2).SetMongodsPerShardCount(3).Build()
 	newState := createStateFromResource(new)
 
-	oldDeployment := createDeploymentFromResource(old)
+	oldDeployment := createDeploymentFromShardedCluster(old)
 	mockedOmConnection := om.NewMockedOmConnection(oldDeployment)
 	prepareScaleDownShardedCluster(mockedOmConnection, newState, old, new, zap.S())
 
 	// expected change of state: rs members are marked unvoted
-	expectedDeployment := createDeploymentFromResource(old)
+	expectedDeployment := createDeploymentFromShardedCluster(old)
 	firstConfig := new.ConfigRsName() + "-2"
 	firstShard := new.ShardRsName(0) + "-3"
 	secondShard := new.ShardRsName(1) + "-3"
@@ -59,12 +100,12 @@ func TestPrepareScaleDownShardedCluster_ShardsUpMongodsDown(t *testing.T) {
 	new := DefaultClusterBuilder().SetShardCount(4).SetMongodsPerShardCount(3).Build()
 	newState := createStateFromResource(new)
 
-	oldDeployment := createDeploymentFromResource(old)
+	oldDeployment := createDeploymentFromShardedCluster(old)
 	mockedOmConnection := om.NewMockedOmConnection(oldDeployment)
 	prepareScaleDownShardedCluster(mockedOmConnection, newState, old, new, zap.S())
 
 	// expected change of state: rs members are marked unvoted only for two shards (old state)
-	expectedDeployment := createDeploymentFromResource(old)
+	expectedDeployment := createDeploymentFromShardedCluster(old)
 	firstShard := new.ShardRsName(0) + "-3"
 	secondShard := new.ShardRsName(1) + "-3"
 
@@ -85,12 +126,12 @@ func TestPrepareScaleDownShardedCluster_OnlyMongos(t *testing.T) {
 
 	newState := createStateFromResource(new)
 
-	oldDeployment := createDeploymentFromResource(old)
+	oldDeployment := createDeploymentFromShardedCluster(old)
 	mockedOmConnection := om.NewMockedOmConnection(oldDeployment)
 	prepareScaleDownShardedCluster(mockedOmConnection, newState, old, new, zap.S())
 
 	mockedOmConnection.CheckNumberOfUpdateRequests(t, 0)
-	mockedOmConnection.CheckDeployment(t, createDeploymentFromResource(old))
+	mockedOmConnection.CheckDeployment(t, createDeploymentFromShardedCluster(old))
 	mockedOmConnection.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedOmConnection.RemoveHost))
 }
 
@@ -100,7 +141,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 
 	newState := createStateFromResource(new)
 
-	mockOm := om.NewMockedOmConnection(createDeploymentFromResource(old))
+	mockOm := om.NewMockedOmConnection(createDeploymentFromShardedCluster(old))
 	updateOmDeploymentShardedCluster(mockOm, old, new, newState, zap.S())
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadUpdateDeployment), reflect.ValueOf(mockOm.RemoveHost))
@@ -142,7 +183,7 @@ func TestPodAntiaffinity_MongodsInsideShardAreSpread(t *testing.T) {
 	assert.Equal(t, secondShartPodAffinityTerm.LabelSelector.MatchLabels[POD_ANTI_AFFINITY_LABEL_KEY], sc.ShardRsName(1))
 }
 
-func createDeploymentFromResource(sh *v1.MongoDbShardedCluster) om.Deployment {
+func createDeploymentFromShardedCluster(sh *v1.MongoDbShardedCluster) om.Deployment {
 	state := createStateFromResource(sh)
 	mongosProcesses := createProcesses(state.mongosSetHelper.BuildStatefulSet(), sh.Spec.ClusterName, sh.Spec.Version, om.ProcessTypeMongos)
 	configRs := buildReplicaSetFromStatefulSet(state.configSrvSetHelper.BuildStatefulSet(), sh.Spec.ClusterName, sh.Spec.Version)
@@ -153,6 +194,7 @@ func createDeploymentFromResource(sh *v1.MongoDbShardedCluster) om.Deployment {
 
 	d := om.NewDeployment()
 	d.MergeShardedCluster(sh.Name, mongosProcesses, configRs, shards)
+	d.AddMonitoringAndBackup(mongosProcesses[0].HostName(), zap.S())
 	return d
 }
 
@@ -177,7 +219,10 @@ func DefaultClusterBuilder() *ClusterBuilder {
 		MongodsPerShardCount: 3,
 		ConfigServerCount:    3,
 		MongosCount:          4,
-		Version:              "3.6.4"}
+		Version:              "3.6.4",
+		Persistent:           util.BooleanRef(false),
+		Project:              TestProjectConfigMapName,
+		Credentials:          TestCredentialsSecretName}
 	cluster := &v1.MongoDbShardedCluster{
 		ObjectMeta: metav1.ObjectMeta{Name: "slaney", Namespace: TestNamespace},
 		Spec:       *spec}

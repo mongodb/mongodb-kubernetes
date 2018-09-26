@@ -19,8 +19,8 @@ import (
 // NewDefaultPodSpec creates default pod spec, seems we shouldn't set CPU and Memory if they are not provided by user
 func NewDefaultPodSpec() mongodb.MongoDbPodSpec {
 	return mongodb.MongoDbPodSpec{
-		MongoDbPodSpecStandard:     mongodb.MongoDbPodSpecStandard{Storage: DefaultMongodStorageSize},
-		PodAntiAffinityTopologyKey: DefaultAntiAffinityTopologyKey,
+		MongoDbPodSpecStandard:     mongodb.MongoDbPodSpecStandard{Storage: util.DefaultMongodStorageSize},
+		PodAntiAffinityTopologyKey: util.DefaultAntiAffinityTopologyKey,
 	}
 }
 
@@ -92,13 +92,12 @@ func waitForRsAgentsToRegister(set *appsv1.StatefulSet, clusterName string, omCo
 	return nil
 }
 
-// waitUntilAgentsHaveRegistered waits until all agents with 'agentHostnames' are registered in OM. It waits for 1 minute
-// and retries eac 3 seconds. Note, that wait happens after retrial - this allows skip waiting in case agents are already
-// registered
+// waitUntilAgentsHaveRegistered waits until all agents with 'agentHostnames' are registered in OM. Note, that wait
+// happens after retrial - this allows to skip waiting in case agents are already registered
 func waitUntilAgentsHaveRegistered(omConnection om.OmConnection, log *zap.SugaredLogger, agentHostnames ...string) bool {
 	log.Infow("Waiting for agents to register with OM", "agent hosts", agentHostnames)
-	waitSeconds := util.ReadEnvVarOrPanicInt(StatefulSetWaitSecondsEnv)
-	retrials := util.ReadEnvVarOrPanicInt(StatefulSetWaitRetrialsEnv)
+	waitSeconds := util.ReadEnvVarOrPanicInt(util.StatefulSetWaitSecondsEnv)
+	retrials := util.ReadEnvVarOrPanicInt(util.StatefulSetWaitRetriesEnv)
 
 	agentsCheckFunc := func() (string, bool) {
 		agentResponse, err := omConnection.ReadAutomationAgents()
@@ -187,10 +186,9 @@ func deleteHostnamesFromMonitoring(omClient om.OmConnection, hostsBefore, hostsA
 	diff := util.FindLeftDifference(hostsBefore, hostsAfter)
 
 	if len(diff) > 0 {
-		if err := om.StopMonitoring(omClient, diff); err != nil {
+		if err := om.StopMonitoring(omClient, diff, log); err != nil {
 			return errors.New(fmt.Sprintf("Failed to stop monitoring on hosts %s: %s", diff, err))
 		}
-		log.Infow("Removed hosts from monitoring in Ops Manager", "hosts", diff)
 	}
 	return nil
 }

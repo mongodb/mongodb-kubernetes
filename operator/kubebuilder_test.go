@@ -2,6 +2,7 @@ package operator
 
 import (
 	"testing"
+	"time"
 
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/util"
@@ -35,7 +36,7 @@ func TestBuildStatefulSet_PersistentVolumeClaim(t *testing.T) {
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
 	claim := set.Spec.VolumeClaimTemplates[0]
 
-	assert.Equal(t, PersistentVolumeClaimName, claim.ObjectMeta.Name)
+	assert.Equal(t, util.PersistentVolumeClaimName, claim.ObjectMeta.Name)
 	assert.Equal(t, []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}, claim.Spec.AccessModes)
 	assert.Equal(t, "fast", *claim.Spec.StorageClassName)
 	assert.Len(t, claim.Spec.Resources.Requests, 1)
@@ -96,7 +97,7 @@ func TestBasePodSpec_AntiAffinityDefaultTopology(t *testing.T) {
 	term := spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0]
 	assert.Equal(t, int32(100), term.Weight)
 	assert.Equal(t, map[string]string{POD_ANTI_AFFINITY_LABEL_KEY: "s"}, term.PodAffinityTerm.LabelSelector.MatchLabels)
-	assert.Equal(t, DefaultAntiAffinityTopologyKey, term.PodAffinityTerm.TopologyKey)
+	assert.Equal(t, util.DefaultAntiAffinityTopologyKey, term.PodAffinityTerm.TopologyKey)
 }
 
 // // See docs/dev/openshift_scc.md for more details why we set the FSGroup
@@ -111,6 +112,12 @@ func TestBasePodSpec_AntiAffinityDefaultTopology(t *testing.T) {
 
 func baseSetHelper() *StatefulSetHelper {
 	return (&KubeHelper{newMockedKubeApi()}).NewStatefulSetHelper(DefaultStandaloneBuilder().Build())
+}
+
+func baseSetHelperDelayed(delayMillis time.Duration) *StatefulSetHelper {
+	api := newMockedKubeApi()
+	api.StsCreationDelayMillis = delayMillis
+	return (&KubeHelper{api}).NewStatefulSetHelper(DefaultStandaloneBuilder().Build())
 }
 
 func defaultPodSpec() mongodb.PodSpecWrapper {

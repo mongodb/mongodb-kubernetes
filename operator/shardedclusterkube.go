@@ -102,7 +102,7 @@ func (c *MongoDbController) buildKubeObjectsForShardedCluster(s *mongodb.MongoDb
 		SetExposedExternally(true)
 
 	defaultConfigSrvSpec := NewDefaultPodSpec()
-	defaultConfigSrvSpec.Storage = DefaultConfigSrvStorageSize
+	defaultConfigSrvSpec.Storage = util.DefaultConfigSrvStorageSize
 	podSpec := mongodb.PodSpecWrapper{
 		MongoDbPodSpec: spec.ConfigSrvPodSpec,
 		Default:        defaultConfigSrvSpec,
@@ -226,8 +226,13 @@ func (c *MongoDbController) onDeleteShardedCluster(obj interface{}) {
 		log.Errorf("Failed to update Ops Manager automation config: %s", err)
 	}
 
+	err = om.StopBackupIfEnabled(conn, sc.Name, om.ShardedClusterType, log)
+	if err != nil {
+		log.Errorf("Failed to disable backup for sharded cluster: %s", err)
+	}
+
 	log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
-	if err := om.StopMonitoring(conn, hostsToRemove); err != nil {
+	if err := om.StopMonitoring(conn, hostsToRemove, log); err != nil {
 		log.Errorf("Failed to stop monitoring on hosts %s: %s", hostsToRemove, err)
 		return
 	}

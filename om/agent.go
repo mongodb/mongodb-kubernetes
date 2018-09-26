@@ -13,9 +13,7 @@ import (
 
 // AgentState represents the json document returned by the agents API.
 type AgentState struct {
-	Links      string         `json:"-"`
-	Results    []ResultStruct `json:"results,omitempty"`
-	TotalCount int            `json:"totalCount"`
+	Results []ResultStruct `json:"results,omitempty"`
 }
 
 // ResultStruct represents the json document pointed by the "results" key

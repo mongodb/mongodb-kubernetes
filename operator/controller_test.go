@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/util"
+
 	"github.com/10gen/ops-manager-kubernetes/om"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
@@ -15,7 +17,7 @@ func NewMockedMongoDbController() *MongoDbController {
 
 // TestPrepareOmConnection_CreateGroup checks that if the group doesn't exist in OM - it is created
 func TestPrepareOmConnection_CreateGroup(t *testing.T) {
-	mockedOmConnection := omConnWithoutGroup()
+	mockedOmConnection := om.NewEmptyMockedOmConnectionNoGroup
 
 	controller := NewMongoDbController(newMockedKubeApi(), nil, mockedOmConnection)
 
@@ -24,7 +26,7 @@ func TestPrepareOmConnection_CreateGroup(t *testing.T) {
 	assert.Equal(t, om.TestGroupId, vars.ProjectId)
 	assert.Equal(t, om.TestGroupId, mockOm.GroupId())
 	assert.Equal(t, TestProjectConfigMapName, mockOm.Group.Name)
-	assert.Contains(t, mockOm.Group.Tags, OmGroupExternallyManagedTag)
+	assert.Contains(t, mockOm.Group.Tags, util.OmGroupExternallyManagedTag)
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadGroup), reflect.ValueOf(mockOm.CreateGroup))
 	mockOm.CheckOperationsDidntHappen(t, reflect.ValueOf(mockOm.UpdateGroup))
@@ -54,7 +56,7 @@ func TestPrepareOmConnection_CreateGroupFixTags(t *testing.T) {
 	controller := NewMongoDbController(newMockedKubeApi(), nil, mockedOmConnection)
 
 	mockOm, _ := prepareConnection(controller, t)
-	assert.Contains(t, mockOm.Group.Tags, OmGroupExternallyManagedTag)
+	assert.Contains(t, mockOm.Group.Tags, util.OmGroupExternallyManagedTag)
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadGroup), reflect.ValueOf(mockOm.UpdateGroup))
 }
@@ -85,23 +87,14 @@ func prepareConnection(controller *MongoDbController, t *testing.T) (*om.MockedO
 	return mockOm, vars
 }
 
-func omConnWithoutGroup() func(url, g, user, k string) om.OmConnection {
-	return func(url, g, user, k string) om.OmConnection {
-		c := om.NewEmptyMockedOmConnection(url, g, user, k).(*om.MockedOmConnection)
-		// Emulating "GROUP NOT FOUND" exception
-		c.ReadGroupFunc = func(n string) (*om.Group, error) {
-			return nil, &om.OmApiError{ErrorCode: "GROUP_NAME_NOT_FOUND"}
-		}
-		return c
-	}
-}
 func omConnGroupWithoutTags() func(url, g, user, k string) om.OmConnection {
 	return func(url, g, user, k string) om.OmConnection {
-		c := om.NewEmptyMockedOmConnection(url, g, user, k).(*om.MockedOmConnection)
-		// returning group without tags
-		c.ReadGroupFunc = func(n string) (*om.Group, error) {
-			return &om.Group{Name: n, Id: "123", AgentApiKey: "12345abcd"}, nil
+		c := om.NewEmptyMockedOmConnectionNoGroup(url, g, user, k).(*om.MockedOmConnection)
+		if c.Group == nil {
+			// initially OM contains the group without tags
+			c.CreateGroup(&om.Group{Name: om.TestGroupName, Id: "123", AgentApiKey: "12345abcd"})
 		}
+
 		return c
 	}
 }
@@ -109,11 +102,7 @@ func omConnGroupWithoutTags() func(url, g, user, k string) om.OmConnection {
 func omConnOldVersion() func(url, g, user, k string) om.OmConnection {
 	cnt := 1
 	return func(url, g, user, k string) om.OmConnection {
-		c := om.NewEmptyMockedOmConnection(url, g, user, k).(*om.MockedOmConnection)
-		// Emulating "GROUP NOT FOUND" exception
-		c.ReadGroupFunc = func(n string) (*om.Group, error) {
-			return nil, &om.OmApiError{ErrorCode: "GROUP_NAME_NOT_FOUND"}
-		}
+		c := om.NewEmptyMockedOmConnectionNoGroup(url, g, user, k).(*om.MockedOmConnection)
 		c.CreateGroupFunc = func(g *om.Group) (*om.Group, error) {
 			// first call
 			if cnt == 1 {

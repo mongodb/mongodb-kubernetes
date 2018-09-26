@@ -123,9 +123,14 @@ func (c *MongoDbController) onDeleteReplicaSet(obj interface{}) {
 		return
 	}
 
+	err = om.StopBackupIfEnabled(conn, rs.Name, om.ReplicaSetType, log)
+	if err != nil {
+		log.Errorf("Failed to disable backup for replica set: %s", err)
+	}
+
 	hostsToRemove, _ := GetDnsNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.ClusterName, rs.Spec.Members)
 	log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
-	if err := om.StopMonitoring(conn, hostsToRemove); err != nil {
+	if err := om.StopMonitoring(conn, hostsToRemove, log); err != nil {
 		log.Errorf("Failed to stop monitoring on hosts %s: %s", hostsToRemove, err)
 		return
 	}

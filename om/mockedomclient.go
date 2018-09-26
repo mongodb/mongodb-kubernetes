@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/pkg/errors"
+
 	"reflect"
 	"runtime"
 
@@ -11,6 +13,7 @@ import (
 
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -18,53 +21,67 @@ import (
 var CurrMockedConnection *MockedOmConnection
 
 const (
-	TestGroupId  = "abcd1234"
-	TestAgentKey = "qwerty9876"
+	TestGroupId   = "abcd1234"
+	TestGroupName = "my-project"
+	TestAgentKey  = "qwerty9876"
 )
 
 type MockedOmConnection struct {
 	HttpOmConnection
 	deployment Deployment
-	// hosts are necessary for emulating "agents" are ready behavior as operator checks for hosts for agents to exist
-	hosts           *Host
-	numRequestsSent int
-	AgentApiKey     string
-	Group           *Group
-	ReadGroupFunc   func(name string) (*Group, error)
-	CreateGroupFunc func(group *Group) (*Group, error)
-	UpdateGroupFunc func(group *Group) (*Group, error)
+	// hosts are used for both automation agents and monitoring endpoints.
+	// They are necessary for emulating "agents" are ready behavior as operator checks for hosts for agents to exist
+	hosts                  *Host
+	numRequestsSent        int
+	AgentApiKey            string
+	Group                  *Group
+	CreateGroupFunc        func(group *Group) (*Group, error)
+	UpdateGroupFunc        func(group *Group) (*Group, error)
+	BackupConfigs          map[*BackupConfig]*HostCluster
+	UpdateBackupStatusFunc func(clusterId string, status BackupStatus) error
 	// mocked client keeps track of all implemented functions called - uses reflection Func for this to enable type-safety
 	// and make function names rename easier
 	history []*runtime.Func
 }
 
-func NewEmptyMockedOmConnection(baseUrl, groupId, user, publicApiKey string) OmConnection {
-	connection := NewMockedOmConnection(nil)
+func NewEmptyMockedOmConnectionNoGroup(baseUrl, groupId, user, publicApiKey string) OmConnection {
+	var connection *MockedOmConnection
+	// That's how we can "survive" multiple calls to this function: so we can create groups or add/delete entities
+	// Note, that the global connection variable is cleaned before each test (see kubeapi_test.newMockedKubeApi)
+	if CurrMockedConnection != nil {
+		connection = CurrMockedConnection
+	} else {
+		connection = NewMockedOmConnection(nil)
+	}
 	connection.HttpOmConnection = HttpOmConnection{
 		baseUrl:      strings.TrimSuffix(baseUrl, "/"),
 		groupId:      groupId,
 		user:         user,
 		publicApiKey: publicApiKey,
 	}
-	// saving the object to global variable for using in the test (seems we don't need paralleling tests so far)
-	if CurrMockedConnection != nil {
-		// hacky: as we call func for creating connection twice - we may override previous connection - lets'
-		// save group field for tests
-		connection.Group = CurrMockedConnection.Group
-		connection.history = CurrMockedConnection.history
-	}
 	CurrMockedConnection = connection
-
-	// by default each connection just "reuses" "already created" group with agent keys existing
-	connection.ReadGroupFunc = func(name string) (*Group, error) {
-		return &Group{Name: name, Id: TestGroupId, Tags: []string{"EXTERNALLY_MANAGED_BY_KUBERNETES"}, AgentApiKey: TestAgentKey}, nil
-	}
 
 	return connection
 }
+
+// NewEmptyMockedOmConnection is the standard function for creating mocked connections that is usually used for testing
+// "full cycle" mocked controller. It has group created already
+func NewEmptyMockedOmConnection(baseUrl, groupId, user, publicApiKey string) OmConnection {
+	conn := NewEmptyMockedOmConnectionNoGroup(baseUrl, groupId, user, publicApiKey)
+
+	// by default each connection just "reuses" "already created" group with agent keys existing
+	conn.CreateGroup(&Group{Name: TestGroupName, Id: TestGroupId, Tags: []string{"EXTERNALLY_MANAGED_BY_KUBERNETES"}, AgentApiKey: TestAgentKey})
+
+	return conn
+}
+
+// NewMockedOmConnection is the simplified connection wrapping some deployment that already exists. Should be used for
+// partial functionality (not the "full cycle" controller)
 func NewMockedOmConnection(d Deployment) *MockedOmConnection {
 	connection := MockedOmConnection{deployment: d}
 	connection.hosts = buildHostsFromDeployment(d)
+	connection.BackupConfigs = make(map[*BackupConfig]*HostCluster)
+
 	return &connection
 }
 
@@ -133,8 +150,8 @@ func (oc *MockedOmConnection) RemoveHost(hostId string) error {
 func (oc *MockedOmConnection) ReadGroup(name string) (*Group, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadGroup))
 
-	if oc.ReadGroupFunc != nil {
-		return oc.ReadGroupFunc(name)
+	if oc.Group == nil {
+		return nil, &OmApiError{ErrorCode: "GROUP_NAME_NOT_FOUND"}
 	}
 	return oc.Group, nil
 }
@@ -157,12 +174,66 @@ func (oc *MockedOmConnection) UpdateGroup(group *Group) (*Group, error) {
 	return group, nil
 }
 
-// ************* These are native methods of Mocked client (not implementation of OmConnection)
+func (oc *MockedOmConnection) ReadBackupConfigs() (*BackupConfigsResponse, error) {
+	oc.addToHistory(reflect.ValueOf(oc.ReadBackupConfigs))
+
+	keys := make([]*BackupConfig, 0, len(oc.BackupConfigs))
+	for k := range oc.BackupConfigs {
+		keys = append(keys, k)
+	}
+	return &BackupConfigsResponse{Configs: keys}, nil
+}
+func (oc *MockedOmConnection) ReadBackupConfig(clusterId string) (*BackupConfig, error) {
+	oc.addToHistory(reflect.ValueOf(oc.ReadBackupConfig))
+
+	for k := range oc.BackupConfigs {
+		if k.ClusterId == clusterId {
+			return k, nil
+		}
+	}
+	return nil, NewApiError(errors.New("Failed to find backup config"))
+}
+
+func (oc *MockedOmConnection) ReadHostCluster(clusterId string) (*HostCluster, error) {
+	oc.addToHistory(reflect.ValueOf(oc.ReadHostCluster))
+
+	for k := range oc.BackupConfigs {
+		if k.ClusterId == clusterId {
+			return oc.BackupConfigs[k], nil
+		}
+	}
+	return nil, NewApiError(errors.New("Failed to find host cluster"))
+}
+
+func (oc *MockedOmConnection) UpdateBackupStatus(clusterId string, newStatus BackupStatus) error {
+	oc.addToHistory(reflect.ValueOf(oc.UpdateBackupStatus))
+
+	if oc.UpdateBackupStatusFunc != nil {
+		return oc.UpdateBackupStatusFunc(clusterId, newStatus)
+	}
+
+	oc.doUpdateBackupStatus(clusterId, newStatus)
+	return nil
+}
 
 func (oc *MockedOmConnection) CheckMonitoredHostsRemoved(t *testing.T, removedHosts []string) {
 	for _, v := range oc.hosts.Results {
 		for _, e := range removedHosts {
 			assert.NotEqual(t, e, v.Hostname, "Host %s is expected to be removed from monitored", e)
+		}
+	}
+}
+
+// ************* These are native methods of Mocked client (not implementation of OmConnection)
+
+func (oc *MockedOmConnection) doUpdateBackupStatus(clusterId string, newStatus BackupStatus) {
+	for k := range oc.BackupConfigs {
+		if k.ClusterId == clusterId {
+			if newStatus == "TERMINATING" {
+				k.Status = "INACTIVE"
+			} else {
+				k.Status = newStatus
+			}
 		}
 	}
 }
@@ -173,6 +244,34 @@ func (oc *MockedOmConnection) CheckNumberOfUpdateRequests(t *testing.T, expected
 
 func (oc *MockedOmConnection) CheckDeployment(t *testing.T, expected Deployment) {
 	assert.Equal(t, expected, oc.deployment)
+}
+
+// CheckResourcesDeleted verifies the results of "delete" operations in OM: the deployment and monitoring must be empty,
+// backup - inactive (note, that in real life backup config will disappear together with monitoring hosts, but we
+// ignore this for the sake of testing)
+func (oc *MockedOmConnection) CheckResourcesDeleted(t *testing.T, resourceName string, checkBackups bool) {
+	// This can be improved for some more complicated scenarios when we have different resources in parallel - so far
+	// just checking if deployment
+	assert.Empty(t, oc.deployment.getProcesses())
+	assert.Empty(t, oc.deployment.getReplicaSets())
+	assert.Empty(t, oc.deployment.getShardedClusters())
+	assert.Empty(t, oc.hosts.Results)
+
+	if checkBackups {
+		assert.NotEmpty(t, oc.BackupConfigs)
+
+		found := false
+		for k, v := range oc.BackupConfigs {
+			if v.ClusterName == resourceName {
+				assert.Equal(t, BackupStatus("INACTIVE"), k.Status)
+				found = true
+			}
+		}
+		assert.True(t, found)
+
+		oc.CheckOrderOfOperations(t, reflect.ValueOf(oc.ReadBackupConfigs), reflect.ValueOf(oc.ReadHostCluster),
+			reflect.ValueOf(oc.UpdateBackupStatus))
+	}
 }
 
 // CheckOrderOfOperations verifies the mocked client operations were called in specified order
@@ -200,12 +299,33 @@ func (oc *MockedOmConnection) CheckOperationsDidntHappen(t *testing.T, value ...
 }
 
 // this is internal method only for testing
-func (oc *MockedOmConnection) SetHosts(hostnames []string) {
-	hosts := make([]HostList, len(hostnames))
+func (oc *MockedOmConnection) AddHosts(hostnames []string) {
 	for i, p := range hostnames {
-		hosts[i] = HostList{Id: strconv.Itoa(i), Hostname: p}
+		oc.hosts.Results = append(oc.hosts.Results, HostList{Id: strconv.Itoa(i), Hostname: p})
 	}
-	oc.hosts = &Host{Results: hosts}
+}
+
+func (oc *MockedOmConnection) EnableBackup(resourceName string, resourceType MongoDbResourceType) {
+	if resourceType == ReplicaSetType {
+		config := BackupConfig{ClusterId: uuid.New().String(), Status: Started}
+		cluster := HostCluster{TypeName: "REPLICA_SET", ClusterName: resourceName, ReplicaSetName: resourceName}
+		oc.BackupConfigs[&config] = &cluster
+	} else {
+		config := BackupConfig{ClusterId: uuid.New().String(), Status: Started}
+		cluster := HostCluster{TypeName: "SHARDED_REPLICA_SET", ClusterName: resourceName, ShardName: resourceName}
+		oc.BackupConfigs[&config] = &cluster
+
+		// adding some host clusters for one shard and one config server - we don't care about relevance as they are
+		// expected top be ignored by Operator
+
+		config1 := BackupConfig{ClusterId: uuid.New().String(), Status: Inactive}
+		cluster1 := HostCluster{TypeName: "REPLICA_SET", ClusterName: resourceName, ShardName: resourceName + "-0"}
+		oc.BackupConfigs[&config1] = &cluster1
+
+		config2 := BackupConfig{ClusterId: uuid.New().String(), Status: Inactive}
+		cluster2 := HostCluster{TypeName: "REPLICA_SET", ClusterName: resourceName, ShardName: resourceName + "-config-rs-0"}
+		oc.BackupConfigs[&config2] = &cluster2
+	}
 }
 
 func (oc *MockedOmConnection) addToHistory(value reflect.Value) {

@@ -5,6 +5,8 @@ package operator
 import (
 	"os"
 
+	"go.uber.org/zap"
+
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/util"
 	appsv1 "k8s.io/api/apps/v1"
@@ -37,7 +39,7 @@ type PodVars struct {
 func buildStatefulSet(p StatefulSetHelper) *appsv1.StatefulSet {
 	labels := map[string]string{
 		APP_LABEL_KEY:               p.Service,
-		"controller":                OmControllerLabel,
+		"controller":                util.OmControllerLabel,
 		POD_ANTI_AFFINITY_LABEL_KEY: p.Name,
 	}
 
@@ -65,7 +67,7 @@ func buildStatefulSet(p StatefulSetHelper) *appsv1.StatefulSet {
 	if p.Persistent == nil || *p.Persistent {
 		set.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: PersistentVolumeClaimName,
+				Name: util.PersistentVolumeClaimName,
 			},
 			Spec: corev1.PersistentVolumeClaimSpec{
 				AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
@@ -74,6 +76,7 @@ func buildStatefulSet(p StatefulSetHelper) *appsv1.StatefulSet {
 				},
 			},
 		}}
+		zap.S().Infof("!!! Storage class: %s", p.PodSpec.StorageClass)
 		if p.PodSpec.StorageClass != "" {
 			set.Spec.VolumeClaimTemplates[0].Spec.StorageClassName = &p.PodSpec.StorageClass
 		}
@@ -88,7 +91,7 @@ func buildSecret(secretName string, namespace string, agentKey string) *corev1.S
 			Name:      secretName,
 			Namespace: namespace,
 		},
-		StringData: map[string]string{OmAgentApiKey: agentKey}}
+		StringData: map[string]string{util.OmAgentApiKey: agentKey}}
 }
 
 // buildService creates the Kube Service. If it should be seen externally it makes it of type NodePort that will assign
@@ -149,11 +152,11 @@ func basePodSpec(statefulSetName string, persistent *bool, reqs mongodb.PodSpecW
 	spec := corev1.PodSpec{
 		Containers: []corev1.Container{
 			{
-				Name:            ContainerName,
-				Image:           util.ReadEnvVarOrPanic(AutomationAgentImageUrl),
-				ImagePullPolicy: corev1.PullPolicy(util.ReadEnvVarOrPanic(AutomationAgentImagePullPolicy)),
+				Name:            util.ContainerName,
+				Image:           util.ReadEnvVarOrPanic(util.AutomationAgentImageUrl),
+				ImagePullPolicy: corev1.PullPolicy(util.ReadEnvVarOrPanic(util.AutomationAgentImagePullPolicy)),
 				Env:             baseEnvFrom(podVars),
-				Ports:           []corev1.ContainerPort{{ContainerPort: MongoDbDefaultPort}},
+				Ports:           []corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort}},
 				Resources: corev1.ResourceRequirements{
 					// Setting limits only sets "requests" to the same value (but not vice versa)
 					// This seems as a fair trade off as having these values different may result in incorrect wiredtiger
@@ -166,7 +169,7 @@ func basePodSpec(statefulSetName string, persistent *bool, reqs mongodb.PodSpecW
 			},
 		},
 		ImagePullSecrets: []corev1.LocalObjectReference{{
-			Name: os.Getenv(AutomationAgentPullSecrets),
+			Name: os.Getenv(util.AutomationAgentPullSecrets),
 		}},
 		Affinity: &corev1.Affinity{
 			NodeAffinity: reqs.NodeAffinity,
@@ -174,7 +177,7 @@ func basePodSpec(statefulSetName string, persistent *bool, reqs mongodb.PodSpecW
 		},
 	}
 
-	_, managedSecurityContext := util.ReadEnv(ManagedSecurityContextEnv)
+	_, managedSecurityContext := util.ReadEnv(util.ManagedSecurityContextEnv)
 	if !managedSecurityContext {
 		if reqs.SecurityContext != nil {
 			spec.SecurityContext = reqs.SecurityContext
@@ -183,8 +186,8 @@ func basePodSpec(statefulSetName string, persistent *bool, reqs mongodb.PodSpecW
 				// By default, containers will never run as root.
 				// unless `MANAGED_SECURITY_CONTEXT` env variable is set, in which case the SecurityContext
 				// should be managed by Kubernetes (this is the default in OpenShift)
-				RunAsUser:    util.Int64Ref(RunAsUser),
-				FSGroup:      util.Int64Ref(FsGroup),
+				RunAsUser:    util.Int64Ref(util.RunAsUser),
+				FSGroup:      util.Int64Ref(util.FsGroup),
 				RunAsNonRoot: util.BooleanRef(true),
 			}
 		}
@@ -192,8 +195,8 @@ func basePodSpec(statefulSetName string, persistent *bool, reqs mongodb.PodSpecW
 
 	if persistent == nil || *persistent {
 		spec.Containers[0].VolumeMounts = []corev1.VolumeMount{{
-			Name:      PersistentVolumeClaimName,
-			MountPath: PersistentVolumePath,
+			Name:      util.PersistentVolumeClaimName,
+			MountPath: util.PersistentVolumePath,
 		}}
 	}
 	spec.Affinity.PodAntiAffinity = &corev1.PodAntiAffinity{
@@ -215,7 +218,7 @@ func basePodSpec(statefulSetName string, persistent *bool, reqs mongodb.PodSpecW
 func baseLivenessProbe() *corev1.Probe {
 	return &corev1.Probe{
 		Handler: corev1.Handler{
-			Exec: &corev1.ExecAction{[]string{LivenessProbe}},
+			Exec: &corev1.ExecAction{[]string{util.LivenessProbe}},
 		},
 		InitialDelaySeconds: 60,
 		TimeoutSeconds:      30,
@@ -228,19 +231,19 @@ func baseLivenessProbe() *corev1.Probe {
 func baseEnvFrom(podVars *PodVars) []corev1.EnvVar {
 	return []corev1.EnvVar{
 		{
-			Name:  ENV_VAR_BASE_URL,
+			Name:  util.ENV_VAR_BASE_URL,
 			Value: podVars.BaseUrl,
 		},
 		{
-			Name:  ENV_VAR_PROJECT_ID,
+			Name:  util.ENV_VAR_PROJECT_ID,
 			Value: podVars.ProjectId,
 		},
 		{
-			Name:  ENV_VAR_USER,
+			Name:  util.ENV_VAR_USER,
 			Value: podVars.User,
 		},
 		{
-			Name:  ENV_VAR_AGENT_API_KEY,
+			Name:  util.ENV_VAR_AGENT_API_KEY,
 			Value: podVars.AgentApiKey,
 		},
 	}

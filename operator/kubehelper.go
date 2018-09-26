@@ -68,7 +68,7 @@ func (k *KubeHelper) NewStatefulSetHelper(obj metav1.Object) *StatefulSetHelper 
 		Persistent: util.BooleanRef(true),
 
 		ExposedExternally: false,
-		ServicePort:       MongoDbDefaultPort,
+		ServicePort:       util.MongoDbDefaultPort,
 		Helper:            k,
 	}
 }
@@ -191,8 +191,8 @@ func (k *KubeHelper) createOrUpdateStatefulsetWithService(owner metav1.Object, s
 }
 
 func (k *KubeHelper) waitForStatefulsetAndPods(ns, stsName string, log *zap.SugaredLogger) bool {
-	waitSeconds := util.ReadEnvVarOrPanicInt(StatefulSetWaitSecondsEnv)
-	retrials := util.ReadEnvVarOrPanicInt(StatefulSetWaitRetrialsEnv)
+	waitSeconds := util.ReadEnvVarOrPanicInt(util.StatefulSetWaitSecondsEnv)
+	retrials := util.ReadEnvVarOrPanicInt(util.StatefulSetWaitRetriesEnv)
 
 	return util.DoAndRetry(func() (string, bool) {
 		set, _ := k.kubeApi.getStatefulSet(ns, stsName)
@@ -258,15 +258,15 @@ func (k *KubeHelper) readProjectConfig(ns, configMapName string) (*ProjectConfig
 
 	data := cmap.Data
 
-	baseUrl, ok := data[OmBaseUrl]
+	baseUrl, ok := data[util.OmBaseUrl]
 	if !ok {
-		return nil, errors.New(fmt.Sprintf("Property \"%s\" is not specified in config map %s", OmBaseUrl, configMapName))
+		return nil, errors.New(fmt.Sprintf("Property \"%s\" is not specified in config map %s", util.OmBaseUrl, configMapName))
 	}
-	projectName, ok := data[OmProjectName]
+	projectName, ok := data[util.OmProjectName]
 	if !ok {
-		return nil, errors.New(fmt.Sprintf("Property \"%s\" is not specified in config map %s ", OmProjectName, configMapName))
+		return nil, errors.New(fmt.Sprintf("Property \"%s\" is not specified in config map %s ", util.OmProjectName, configMapName))
 	}
-	orgId := data[OmOrgId]
+	orgId := data[util.OmOrgId]
 
 	return &ProjectConfig{
 		BaseUrl:     baseUrl,
@@ -281,13 +281,13 @@ func (k *KubeHelper) readCredentials(namespace, name string) (*Credentials, erro
 		return nil, err
 	}
 
-	publicApiKey, ok := secret[OmPublicApiKey]
+	publicApiKey, ok := secret[util.OmPublicApiKey]
 	if !ok {
-		return nil, errors.New(fmt.Sprintf("Missing '%s' attribute from 'credentials'", OmPublicApiKey))
+		return nil, errors.New(fmt.Sprintf("Missing '%s' attribute from 'credentials'", util.OmPublicApiKey))
 	}
-	user, ok := secret[OmUser]
+	user, ok := secret[util.OmUser]
 	if !ok {
-		return nil, errors.New(fmt.Sprintf("Missing '%s' attribute from 'credentials'", OmUser))
+		return nil, errors.New(fmt.Sprintf("Missing '%s' attribute from 'credentials'", util.OmUser))
 	}
 
 	return &Credentials{
@@ -302,9 +302,9 @@ func (k *KubeHelper) readAgentApiKeyForProject(namespace, agentKeySecretName str
 		return "", err
 	}
 
-	key, ok := secret[OmAgentApiKey]
+	key, ok := secret[util.OmAgentApiKey]
 	if !ok {
-		return "", fmt.Errorf("Could not find key \"%s\" in secret %s", OmAgentApiKey, agentKeySecretName)
+		return "", fmt.Errorf("Could not find key \"%s\" in secret %s", util.OmAgentApiKey, agentKeySecretName)
 	}
 
 	return strings.TrimSuffix(string(key), "\n"), nil

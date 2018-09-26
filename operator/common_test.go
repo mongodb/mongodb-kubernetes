@@ -3,6 +3,8 @@ package operator
 import (
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/util"
+
 	"os"
 
 	"github.com/10gen/ops-manager-kubernetes/om"
@@ -38,11 +40,13 @@ func TestPrepareScaleDown_OpsManagerRemovedMember(t *testing.T) {
 }
 
 func InitDefaultEnvVariables() {
-	os.Setenv(AutomationAgentImageUrl, "mongodb-enterprise-database")
-	os.Setenv(AutomationAgentImagePullPolicy, "Never")
-	os.Setenv(OmOperatorEnv, "test")
-	os.Setenv(StatefulSetWaitSecondsEnv, "1")
-	os.Setenv(StatefulSetWaitRetrialsEnv, "2")
+	os.Setenv(util.AutomationAgentImageUrl, "mongodb-enterprise-database")
+	os.Setenv(util.AutomationAgentImagePullPolicy, "Never")
+	os.Setenv(util.OmOperatorEnv, "test")
+	os.Setenv(util.StatefulSetWaitSecondsEnv, "1")
+	os.Setenv(util.StatefulSetWaitRetriesEnv, "2")
+	os.Setenv(util.BackupDisableWaitSecondsEnv, "1")
+	os.Setenv(util.BackupDisableWaitRetriesEnv, "3")
 }
 
 func TestCreateProcessesWiredTigerCache(t *testing.T) {

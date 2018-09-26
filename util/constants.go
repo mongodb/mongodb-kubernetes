@@ -1,4 +1,4 @@
-package operator
+package util
 
 const (
 	// Ops manager config map and secret variables
@@ -26,20 +26,24 @@ const (
 	AutomationAgentPullSecrets     = "IMAGE_PULL_SECRETS"
 	OmOperatorEnv                  = "OPERATOR_ENV"
 	StatefulSetWaitSecondsEnv      = "STS_WAIT_SEC"
-	StatefulSetWaitRetrialsEnv     = "STS_WAIT_RETRIALS"
+	StatefulSetWaitRetriesEnv      = "STS_WAIT_RETRIES"
+	BackupDisableWaitSecondsEnv    = "BACKUP_WAIT_SEC"
+	BackupDisableWaitRetriesEnv    = "BACKUP_WAIT_RETRIES"
 	ManagedSecurityContextEnv      = "MANAGED_SECURITY_CONTEXT"
 
 	// Different default configuration values
-	DefaultMongodStorageSize       = "16G"
-	DefaultConfigSrvStorageSize    = "5G"
-	DefaultAntiAffinityTopologyKey = "kubernetes.io/hostname"
-	MongoDbDefaultPort             = 27017
-	PersistentVolumeClaimName      = "data"
-	PersistentVolumePath           = "/data"
-	DefaultWaitSecondsProd         = "5"
-	DefaultWaitSecondsDev          = "3"
-	DefaultWaitRetrialsProd        = "180" // 180 * 5 = 900 seconds = 15 min (Azure launch time is approximately 10 min)
-	DefaultWaitRetrialsDev         = "40"
+	DefaultMongodStorageSize           = "16G"
+	DefaultConfigSrvStorageSize        = "5G"
+	DefaultAntiAffinityTopologyKey     = "kubernetes.io/hostname"
+	MongoDbDefaultPort                 = 27017
+	PersistentVolumeClaimName          = "data"
+	PersistentVolumePath               = "/data"
+	DefaultStatefulSetWaitSecondsProd  = "5"
+	DefaultStatefulSetWaitSecondsDev   = "3"
+	DefaultStatefulSetWaitRetrialsProd = "180" // 180 * 5 = 900 seconds = 15 min (Azure launch time is approximately 10 min)
+	DefaultStatefulSetWaitRetrialsDev  = "40"
+	DefaultBackupDisableWaitRetrials   = "30" // 30 * 3 = 90 seconds, should be ok for backup job to terminate
+	DefaultBackupDisableWaitSeconds    = "3"
 
 	// SecurityContext
 	RunAsUser = 2000

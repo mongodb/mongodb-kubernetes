@@ -37,7 +37,7 @@ if ! [ z"${STATUS}" = z ]; then
         echo "Commiting and pushing"
         git add .
         git commit -m "${GITHASH}: update public repo contents"
-        git push
+#        git push
     else
         echo "Not commiting nor pushing"
     fi

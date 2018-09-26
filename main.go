@@ -7,6 +7,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/util"
+
 	"github.com/10gen/ops-manager-kubernetes/operator"
 	"github.com/10gen/ops-manager-kubernetes/operator/crd"
 	mongodbclient "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/typed/mongodb.com/v1"
@@ -58,7 +60,7 @@ func main() {
 }
 
 func initializeEnvironment() {
-	env := os.Getenv(operator.OmOperatorEnv)
+	env := os.Getenv(util.OmOperatorEnv)
 
 	validateEnv(env)
 
@@ -69,17 +71,21 @@ func initializeEnvironment() {
 	log.Info("Operator environment: ", env)
 }
 
+// initEnvVariables is the central place in application to initialize default configuration for the application (using
+// env variables). It should be preferred to inplace defaults in code as increases manageability and transparency of the application
 func initEnvVariables(env string) {
 	// So far we just hardcode parameters as it seems user doesn't need to configure this but may be at some stage
 	// we change our decision
 	switch env {
 	case "prod":
-		os.Setenv(operator.StatefulSetWaitSecondsEnv, operator.DefaultWaitSecondsProd)
-		os.Setenv(operator.StatefulSetWaitRetrialsEnv, operator.DefaultWaitRetrialsProd) // 2 minutes for production
+		os.Setenv(util.StatefulSetWaitSecondsEnv, util.DefaultStatefulSetWaitSecondsProd)
+		os.Setenv(util.StatefulSetWaitRetriesEnv, util.DefaultStatefulSetWaitRetrialsProd)
 	case "dev", "local":
-		os.Setenv(operator.StatefulSetWaitSecondsEnv, operator.DefaultWaitSecondsDev)
-		os.Setenv(operator.StatefulSetWaitRetrialsEnv, operator.DefaultWaitRetrialsDev) // 1 minute otherwise
+		os.Setenv(util.StatefulSetWaitSecondsEnv, util.DefaultStatefulSetWaitSecondsDev)
+		os.Setenv(util.StatefulSetWaitRetriesEnv, util.DefaultStatefulSetWaitRetrialsDev)
 	}
+	os.Setenv(util.BackupDisableWaitSecondsEnv, util.DefaultBackupDisableWaitSeconds)
+	os.Setenv(util.BackupDisableWaitRetriesEnv, util.DefaultBackupDisableWaitRetrials)
 }
 
 func validateEnv(env string) {

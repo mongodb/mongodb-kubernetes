@@ -3,8 +3,6 @@ package operator
 import (
 	"testing"
 
-	"time"
-
 	"os"
 
 	"github.com/10gen/ops-manager-kubernetes/om"
@@ -28,14 +26,18 @@ func TestOnAddStandalone(t *testing.T) {
 	st := DefaultStandaloneBuilder().SetVersion("4.1.0").SetService("mysvc").Build()
 
 	api := newMockedKubeApi()
+	api.StsCreationDelayMillis = 200
 	controller := NewMongoDbController(api, nil, om.NewEmptyMockedOmConnection)
-	//  We need to "start" statefulset pods and  "register" automation agents containers in OM soon after controller
-	// creates standalones and waits for agents to be registered
-	go registerAgents(t, controller, api, st)
 
 	controller.onAddStandalone(st)
 
 	omConn := om.CurrMockedConnection
+
+	// seems we don't need very deep checks here as there should be smaller tests specially for those methods
+	assert.Len(t, api.services, 2)
+	assert.Len(t, api.sets, 1)
+	assert.Equal(t, *api.sets[st.Namespace+st.Name].Spec.Replicas, int32(1))
+	assert.Len(t, api.secrets, 2)
 
 	omConn.CheckDeployment(t, createDeploymentFromStandalone(st))
 	omConn.CheckNumberOfUpdateRequests(t, 1)
@@ -43,7 +45,7 @@ func TestOnAddStandalone(t *testing.T) {
 
 func TestStandaloneEventMethodsHandlePanic(t *testing.T) {
 	// nullifying env variable will result in panic exception raised
-	os.Setenv(AutomationAgentImageUrl, "")
+	os.Setenv(util.AutomationAgentImageUrl, "")
 	st := DefaultStandaloneBuilder().Build()
 
 	NewMongoDbController(newMockedKubeApi(), nil, om.NewEmptyMockedOmConnection).onAddStandalone(st)
@@ -51,26 +53,6 @@ func TestStandaloneEventMethodsHandlePanic(t *testing.T) {
 
 	// restoring
 	InitDefaultEnvVariables()
-}
-
-func registerAgents(t *testing.T, controller *MongoDbController, kubeApi *MockedKubeApi, st *v1.MongoDbStandalone) {
-	time.Sleep(200 * time.Millisecond)
-
-	// At this stage we expect the code to be "waiting until statefulset is started"
-	zap.S().Info("Emulating pods start and agents registered in OM")
-	assert.NotNil(t, om.CurrMockedConnection)
-
-	// seems we don't need very deep checks here as there should be smaller tests specially for those methods
-	assert.Len(t, kubeApi.services, 2)
-	assert.Len(t, kubeApi.sets, 1)
-	assert.Len(t, kubeApi.secrets, 2)
-
-	// making statefulset "ready"
-	kubeApi.startStatefulsets()
-
-	// "registering" agents
-	hostnames, _ := GetDnsNames(st.Name, st.ServiceName(), st.Namespace, st.Spec.ClusterName, 1)
-	om.CurrMockedConnection.SetHosts(hostnames)
 }
 
 type StandaloneBuilder struct {
