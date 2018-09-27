@@ -96,19 +96,6 @@ configure_om() {
     kubectl --namespace "${PROJECT_NAMESPACE}" get secret/my-credentials -o yaml
 }
 
-configure_kubectl() {
-    # this is the current cluster we are using for tests
-    # it should be easy to have a list of clusters to use and to pick
-    # one that's available.
-
-    # aws client should be setup already for this to work.
-    export KOPS_STATE_STORE=s3://dev02-mongokubernetes-com-state-store
-    export CLUSTER=dev02.mongokubernetes.com
-
-    echo "Exporting cluster configuration into kubectl"
-    kops export kubecfg "${CLUSTER}"
-}
-
 test_locally() {
     setup_locally
 
@@ -135,20 +122,6 @@ init_kops_cluster() {
     kops update cluster $CLUSTER --yes
 }
 
-setup_kubectl_environment() {
-    # Install kubectl
-    curl -LO https://storage.googleapis.com/kubernetes-release/release/v1.10.0/bin/linux/amd64/kubectl
-    chmod +x kubectl
-    mv kubectl "${BINDIR}"
-
-    # Install kops
-    curl -L https://github.com/kubernetes/kops/releases/download/1.9.1/kops-linux-amd64 -o kops
-    chmod +x kops
-    sudo mv kops "${BINDIR}"
-
-    configure_kubectl
-}
-
 teardown() {
     printf "Removing namespace: %s\\n" "${PROJECT_NAMESPACE}."
     kubectl delete "namespace/${PROJECT_NAMESPACE}"
@@ -173,17 +146,6 @@ rebuild_test_image() {
     popd
 }
 
-install_helm() {
-    # Installs helm if not previously installed
-    if [ ! "$(which helm)" ]; then
-        HELM=helm.tgz
-        curl https://storage.googleapis.com/kubernetes-helm/helm-v2.10.0-linux-amd64.tar.gz --output ${HELM}
-        tar xfz ${HELM}
-        mv linux-amd64/helm "${BINDIR}"
-        rm ${HELM}
-    fi
-}
-
 run_tests() {
     test_stage="$1"
 
@@ -205,6 +167,9 @@ run_tests() {
          --set tag="${TEST_IMAGE_TAG}" > mongodb-enterprise-tests.yaml
 
     # Run the test container
+    echo "TESTS ---"
+    cat mongodb-enterprise-tests.yaml
+    echo "TESTS ---"
     kubectl --namespace "${PROJECT_NAMESPACE}" apply -f mongodb-enterprise-tests.yaml
 
     sleep 10
@@ -225,8 +190,9 @@ run_tests() {
     # make sure there are not processes running in the background.
     kill $KILLPID0 $KILLPID1 &> /dev/null
 
-    # After the pod has died check if it completed the tests successfuly.
-    grep -q "ALL_TESTS_OK" "${output_filename}"
+    cp "${output_filename}" "${WORKDIR}/${TEST_STAGE}.xml"
+
+    [ "$(kubectl -n ${PROJECT_NAMESPACE} get pods/mongodb-enterprise-operator-tests -o jsonpath='{.status.phase}')" = "Succeeded" ]
 }
 
 ## Script options meant to run locally
@@ -257,17 +223,6 @@ if contains "setup-locally" "$@"; then
     exit
 fi
 
-## Normal run of script, to run tests, either locally or in Evergreen.
-if [ ! -z "${IS_EVERGREEN}" ]; then
-    # kubectl is needed to control the Kubernetes cluster.
-    # it only needs to be installed in evergreen hosts, as the tool & config might not be there.
-    echo "Setting up Kubectl environment."
-    setup_kubectl_environment
-
-    echo "Installing helm."
-    install_helm
-fi
-
 echo "Installing Operator."
 install_operator
 
@@ -277,27 +232,13 @@ spawn_om_kops
 echo "Configuring Ops Manager."
 configure_om
 
-TESTS_OK=1
-if contains "test-stage-replica-set-base" "$@"; then
-    echo "Running Replica Set tests."
-    run_tests "base"
-    TESTS_OK=$?
-    echo "Results of tests execution: ${TESTS_OK}"
+if [ -z "${TEST_STAGE}" ]; then
+    echo "TEST_STAGE needs to be defined"
 fi
 
-if contains "test-stage-replica-set-pv" "$@"; then
-    echo "Running Replica Set with Persistent Volume tests."
-    run_tests "with_pv"
-    TESTS_OK=$?
-    echo "Results of tests execution: ${TESTS_OK}"
-fi
-
-if contains "test-stage-replica-set-ent" "$@"; then
-    echo "Running Replica Set with Enterprise MongoDB."
-    run_tests "with_ent"
-    TESTS_OK=$?
-    echo "Results of tests execution: ${TESTS_OK}"
-fi
+run_tests "${TEST_STAGE}"
+TESTS_OK=$?
+echo "Results of tests execution: ${TESTS_OK}"
 
 echo "Removing namespace"
 teardown

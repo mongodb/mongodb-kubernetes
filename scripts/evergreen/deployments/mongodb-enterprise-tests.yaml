@@ -65,8 +65,6 @@ spec:
   restartPolicy: Never
   containers:
   - name: mongodb-enterprise-operator-tests
-    image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-tests:{{ .Values.tag }}
-    imagePullPolicy: Always
     env:
     - name: OM_HOST
       value: http://ops-manager-internal.operator-testing.svc.cluster.local:8080
@@ -76,5 +74,7 @@ spec:
       value: admin
     - name: PROJECT_NAMESPACE
       value: {{ .Values.namespace }}
-    - name: TEST_STAGE
-      value: {{ .Values.testStage }}
+    image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-tests:{{ .Values.tag }}
+    command: ["pytest"]
+    args: ["-m", "{{ .Values.testStage }}", "-v"]
+    imagePullPolicy: Always

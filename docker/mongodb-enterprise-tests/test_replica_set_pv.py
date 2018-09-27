@@ -4,9 +4,8 @@ from kubetester import KubernetesTester
 from kubernetes import client
 
 
-@pytest.mark.replica_set
-@pytest.mark.create
-class TestReplicaSetCreation(KubernetesTester):
+@pytest.mark.replica_set_pv
+class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
     """
     name: Replica Set Creation with PersistentVolumes
     tags: replica-set, persistent-volumes, creation
@@ -146,9 +145,8 @@ class TestReplicaSetCreation(KubernetesTester):
         assert len(secondaries) == 2
 
 
-@pytest.mark.replica_set
-@pytest.mark.delete
-class TestReplicaSetDelete(KubernetesTester):
+@pytest.mark.replica_set_pv
+class TestReplicaSetPersistentVolumeDelete(KubernetesTester):
     """
     name: Replica Set Deletion
     tags: replica-set, persistent-volumes, removal

@@ -4,8 +4,7 @@ from kubetester import KubernetesTester
 from kubernetes import client
 
 
-@pytest.mark.replica_set
-@pytest.mark.create
+@pytest.mark.replica_set_base
 class TestReplicaSetCreation(KubernetesTester):
     '''
     name: Replica Set Creation
@@ -262,8 +261,7 @@ class TestReplicaSetCreation(KubernetesTester):
         assert len(secondaries) == 2
 
 
-@pytest.mark.replica_set
-@pytest.mark.update
+@pytest.mark.replica_set_base
 class TestReplicaSetUpdate(KubernetesTester):
     '''
     name: Replica Set Updates
@@ -577,8 +575,7 @@ class TestReplicaSetUpdate(KubernetesTester):
         )
 
 
-@pytest.mark.replica_set
-@pytest.mark.delete
+@pytest.mark.replica_set_base
 class TestReplicaSetDelete(KubernetesTester):
     '''
     name: Replica Set Deletion

@@ -4,9 +4,8 @@ from kubetester import KubernetesTester
 from kubernetes import client
 
 
-@pytest.mark.replica_set
-@pytest.mark.create
-class TestReplicaSetCreation(KubernetesTester):
+@pytest.mark.replica_set_ent
+class TestReplicaSetEnterpriseCreation(KubernetesTester):
     """
     name: Replica Set Creation with Mongo Enterprise Edition
     tags: replica-set, enterprise, creation
@@ -69,9 +68,8 @@ class TestReplicaSetCreation(KubernetesTester):
         assert len(secondaries) == 2
 
 
-@pytest.mark.replica_set
-@pytest.mark.delete
-class TestReplicaSetDelete(KubernetesTester):
+@pytest.mark.replica_set_ent
+class TestReplicaSetEnterpriseDelete(KubernetesTester):
     """
     name: Replica Set
     tags: replica-set, enterprise, removal

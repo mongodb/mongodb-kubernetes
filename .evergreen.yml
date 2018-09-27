@@ -53,6 +53,40 @@ functions:
           script: |
             src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/setup_docker
 
+  "setup_kubectl":
+    - command: shell.exec
+      params:
+        shell: bash
+        script: |
+          export WORKDIR=${workdir}
+          export BINDIR=$WORKDIR/bin ; mkdir -p $BINDIR
+          export PATH=$BINDIR:$PATH
+
+          # AWS creds
+          export AWS_ACCESS_KEY_ID=${mms_eng_test_aws_access_key}
+          export AWS_SECRET_ACCESS_KEY=${mms_eng_test_aws_secret}
+          export AWS_REGION=${mms_eng_test_aws_region}
+          export KOPS_STATE_STORE=s3://dev02-mongokubernetes-com-state-store
+          export CLUSTER=dev02.mongokubernetes.com
+
+          echo "Downloading kubectl"
+          curl -LO https://storage.googleapis.com/kubernetes-release/release/v1.10.0/bin/linux/amd64/kubectl
+          chmod +x kubectl
+          mv kubectl $BINDIR
+
+          echo "Downloading kops"
+          curl -L https://github.com/kubernetes/kops/releases/download/1.9.1/kops-linux-amd64 -o kops
+          chmod +x kops
+          mv kops $BINDIR
+          kops export kubecfg $CLUSTER
+
+          echo "Downloading helm"
+          HELM=helm.tgz
+          curl https://storage.googleapis.com/kubernetes-helm/helm-v2.10.0-linux-amd64.tar.gz --output $HELM
+          tar xfz $HELM
+          mv linux-amd64/helm $BINDIR
+          rm $HELM
+
   "gotest_parse_files":
     - command: gotest.parse_files
       params:
@@ -241,21 +275,16 @@ functions:
         working_dir: src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen
         script: |
           # revision is only supposed to be set in evergreen
+          export WORKDIR=${workdir}
           export IS_EVERGREEN=${revision}
           export REVISION=$(git rev-parse HEAD)
 
-          export BINDIR="$(pwd)/bin" ; mkdir -p $BINDIR
-          export PATH=$BINDIR:$PATH
-
-          # AWS creds
-          export AWS_ACCESS_KEY_ID=${mms_eng_test_aws_access_key}
-          export AWS_SECRET_ACCESS_KEY=${mms_eng_test_aws_secret}
-          export AWS_REGION=${mms_eng_test_aws_region}
+          export PATH=${workdir}/bin:$PATH
 
           # 2 sets of tests will run. A complete environment is set each time.
-          ./e2e_tests.sh test-stage-replica-set-base
-          ./e2e_tests.sh test-stage-replica-set-pv
-          ./e2e_tests.sh test-stage-replica-set-ent
+          TEST_STAGE=replica_set_base ./e2e_tests.sh
+          TEST_STAGE=replica_set_pv ./e2e_tests.sh
+          TEST_STAGE=replica_set_ent ./e2e_tests.sh
 
   "post_task":
   - command: shell.exec
@@ -294,6 +323,7 @@ tasks:
     - func: "build_images_development"
     - func: "push_images_development"
     - func: "build_and_push_test_images"
+    - func: "setup_kubectl"
     - func: "e2e_tests"
 
 - name: release
