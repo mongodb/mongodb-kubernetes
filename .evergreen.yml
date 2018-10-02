@@ -281,10 +281,11 @@ functions:
 
           export PATH=${workdir}/bin:$PATH
 
-          # 2 sets of tests will run. A complete environment is set each time.
+          # A complete environment is set each time.
           TEST_STAGE=replica_set_base ./e2e_tests.sh
-          TEST_STAGE=replica_set_pv ./e2e_tests.sh
           TEST_STAGE=replica_set_ent ./e2e_tests.sh
+          TEST_STAGE=replica_set_pv ./e2e_tests.sh
+          TEST_STAGE=replica_set_pv_multiple ./e2e_tests.sh
 
   "post_task":
   - command: shell.exec

@@ -1,8 +1,15 @@
 package operator
 
 import (
+	"os"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"k8s.io/api/apps/v1"
+
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/util"
@@ -15,37 +22,108 @@ import (
 func TestBuildStatefulSet_PersistentFlag(t *testing.T) {
 	set := defaultSetHelper().SetPersistence(nil).BuildStatefulSet()
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
-	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 1)
+	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 3)
 
 	set = defaultSetHelper().SetPersistence(util.BooleanRef(true)).BuildStatefulSet()
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
-	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 1)
+	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 3)
 
 	set = defaultSetHelper().SetPersistence(util.BooleanRef(false)).BuildStatefulSet()
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 0)
 	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 0)
 }
 
-func TestBuildStatefulSet_PersistentVolumeClaim(t *testing.T) {
+// Test for backward compatibility, works the same as TestBuildStatefulSet_PersistentVolumeClaimSingle except for
+// absent label selector
+func TestBuildStatefulSet_PersistentVolumeClaimDeprecated(t *testing.T) {
 	podSpec := mongodb.PodSpecWrapper{
 		mongodb.MongoDbPodSpec{
 			mongodb.MongoDbPodSpecStandard{StorageClass: "fast", Storage: "5G"}, ""},
 		NewDefaultPodSpec()}
 	set := defaultSetHelper().SetPodSpec(podSpec).BuildStatefulSet()
 
-	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
-	claim := set.Spec.VolumeClaimTemplates[0]
+	checkPvClaims(t, set, []*corev1.PersistentVolumeClaim{pvClaim(util.PvcNameData, "5G", util.StringRef("fast"), nil)})
 
-	assert.Equal(t, util.PersistentVolumeClaimName, claim.ObjectMeta.Name)
-	assert.Equal(t, []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}, claim.Spec.AccessModes)
-	assert.Equal(t, "fast", *claim.Spec.StorageClassName)
-	assert.Len(t, claim.Spec.Resources.Requests, 1)
-	quantity := claim.Spec.Resources.Requests[corev1.ResourceStorage]
-	assert.Equal(t, int64(5000000000), (&quantity).Value())
+	checkMounts(t, set, []*corev1.VolumeMount{
+		volMount(util.PvcNameData, util.PvcMountPathData, util.PvcNameData),
+		volMount(util.PvcNameData, util.PvcMountPathJournal, util.PvcNameJournal),
+		volMount(util.PvcNameData, util.PvcMountPathLogs, util.PvcNameLogs),
+	})
+}
 
-	assert.Nil(t, claim.Spec.Selector)
-	assert.Nil(t, claim.Spec.VolumeMode)
-	assert.Equal(t, "", claim.Spec.VolumeName)
+// TestBuildStatefulSet_PersistentVolumeClaimSingle checks that one persistent volume claim is created that is mounted by
+// 3 points
+func TestBuildStatefulSet_PersistentVolumeClaimSingle(t *testing.T) {
+	selector := &metav1.LabelSelector{MatchLabels: map[string]string{"app": "foo"}}
+	// todo add builders to avoid cumbersome structs
+	podSpec := mongodb.PodSpecWrapper{
+		mongodb.MongoDbPodSpec{mongodb.MongoDbPodSpecStandard{
+			Persistence: &mongodb.Persistence{SingleConfig: &mongodb.PersistenceConfig{Storage: "40G", StorageClass: util.StringRef("fast"), LabelSelector: selector}}}, ""},
+		NewDefaultPodSpec()}
+	set := defaultSetHelper().SetPodSpec(podSpec).BuildStatefulSet()
+
+	checkPvClaims(t, set, []*corev1.PersistentVolumeClaim{pvClaim(util.PvcNameData, "40G", util.StringRef("fast"), selector)})
+
+	checkMounts(t, set, []*corev1.VolumeMount{
+		volMount(util.PvcNameData, util.PvcMountPathData, util.PvcNameData),
+		volMount(util.PvcNameData, util.PvcMountPathJournal, util.PvcNameJournal),
+		volMount(util.PvcNameData, util.PvcMountPathLogs, util.PvcNameLogs),
+	})
+}
+
+// TestBuildStatefulSet_PersistentVolumeClaimMultiple checks multiple volumes for multiple mounts. Note, that subpaths
+// for mount points are not created (unlike in single mode)
+func TestBuildStatefulSet_PersistentVolumeClaimMultiple(t *testing.T) {
+	selector := &metav1.LabelSelector{MatchLabels: map[string]string{"app": "bar"}}
+	selector2 := &metav1.LabelSelector{MatchLabels: map[string]string{"app": "foo"}}
+	// todo add builders to avoid cumbersome structs
+	podSpec := mongodb.PodSpecWrapper{
+		mongodb.MongoDbPodSpec{mongodb.MongoDbPodSpecStandard{
+			Persistence: &mongodb.Persistence{MultipleConfig: &mongodb.MultiplePersistenceConfig{
+				Data:    &mongodb.PersistenceConfig{Storage: "40G", StorageClass: util.StringRef("fast")},
+				Logs:    &mongodb.PersistenceConfig{Storage: "3G", StorageClass: util.StringRef("slow"), LabelSelector: selector},
+				Journal: &mongodb.PersistenceConfig{Storage: "500M", StorageClass: util.StringRef("fast"), LabelSelector: selector2},
+			}}}, ""},
+
+		NewDefaultPodSpec()}
+	set := defaultSetHelper().SetPodSpec(podSpec).BuildStatefulSet()
+
+	checkPvClaims(t, set, []*corev1.PersistentVolumeClaim{
+		pvClaim(util.PvcNameData, "40G", util.StringRef("fast"), nil),
+		pvClaim(util.PvcNameJournal, "500M", util.StringRef("fast"), selector2),
+		pvClaim(util.PvcNameLogs, "3G", util.StringRef("slow"), selector),
+	})
+
+	checkMounts(t, set, []*corev1.VolumeMount{
+		volMount(util.PvcNameData, util.PvcMountPathData, ""),
+		volMount(util.PvcNameJournal, util.PvcMountPathJournal, ""),
+		volMount(util.PvcNameLogs, util.PvcMountPathLogs, ""),
+	})
+}
+
+// TestBuildStatefulSet_PersistentVolumeClaimMultipleDefaults checks the scenario when storage is provided only for one
+// mount point. Default values are expected to be used for two others
+func TestBuildStatefulSet_PersistentVolumeClaimMultipleDefaults(t *testing.T) {
+	podSpec := mongodb.PodSpecWrapper{
+		mongodb.MongoDbPodSpec{mongodb.MongoDbPodSpecStandard{
+			Persistence: &mongodb.Persistence{MultipleConfig: &mongodb.MultiplePersistenceConfig{
+				Data: &mongodb.PersistenceConfig{Storage: "40G", StorageClass: util.StringRef("fast")},
+			}}}, ""},
+
+		NewDefaultPodSpec()}
+	set := defaultSetHelper().SetPodSpec(podSpec).BuildStatefulSet()
+
+	checkPvClaims(t, set, []*corev1.PersistentVolumeClaim{
+		pvClaim(util.PvcNameData, "40G", util.StringRef("fast"), nil),
+		pvClaim(util.PvcNameJournal, util.DefaultJournalStorageSize, nil, nil),
+		pvClaim(util.PvcNameLogs, util.DefaultLogsStorageSize, nil, nil),
+	})
+
+	checkMounts(t, set, []*corev1.VolumeMount{
+		volMount(util.PvcNameData, util.PvcMountPathData, ""),
+		volMount(util.PvcNameJournal, util.PvcMountPathJournal, ""),
+		volMount(util.PvcNameLogs, util.PvcMountPathLogs, ""),
+	})
 }
 
 func TestBasePodSpec_Affinity(t *testing.T) {
@@ -76,7 +154,7 @@ func TestBasePodSpec_Affinity(t *testing.T) {
 		},
 		Default: NewDefaultPodSpec()}
 
-	spec := basePodSpec("s", util.BooleanRef(false), podSpec, defaultPodVars())
+	spec := basePodSpec("s", podSpec, defaultPodVars())
 
 	assert.Equal(t, nodeAffinity, *spec.Affinity.NodeAffinity)
 	assert.Equal(t, podAffinity, *spec.Affinity.PodAffinity)
@@ -92,7 +170,7 @@ func TestBasePodSpec_Affinity(t *testing.T) {
 // not specified
 func TestBasePodSpec_AntiAffinityDefaultTopology(t *testing.T) {
 	podSpec := mongodb.PodSpecWrapper{mongodb.MongoDbPodSpec{}, NewDefaultPodSpec()}
-	spec := basePodSpec("s", util.BooleanRef(false), podSpec, defaultPodVars())
+	spec := basePodSpec("s", podSpec, defaultPodVars())
 
 	term := spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0]
 	assert.Equal(t, int32(100), term.Weight)
@@ -100,15 +178,57 @@ func TestBasePodSpec_AntiAffinityDefaultTopology(t *testing.T) {
 	assert.Equal(t, util.DefaultAntiAffinityTopologyKey, term.PodAffinityTerm.TopologyKey)
 }
 
-// // See docs/dev/openshift_scc.md for more details why we set the FSGroup
-// func TestBasePodSpec_FsGroup(t *testing.T) {
-// 	spec := basePodSpec("s", util.BooleanRef(false), defaultPodSpec(), defaultPodVars())
+func checkPvClaims(t *testing.T, set *v1.StatefulSet, expectedClaims []*corev1.PersistentVolumeClaim) {
+	assert.Len(t, set.Spec.VolumeClaimTemplates, len(expectedClaims))
 
-// 	assert.Len(t, spec.InitContainers, 0)
-// 	assert.NotNil(t, spec.SecurityContext)
-// 	assert.NotNil(t, spec.SecurityContext.FSGroup)
-// 	assert.Equal(t, util.Int64Ref(UserGroupId), spec.SecurityContext.FSGroup)
-// }
+	for i, c := range expectedClaims {
+		assert.Equal(t, c, &set.Spec.VolumeClaimTemplates[i])
+	}
+}
+func checkMounts(t *testing.T, set *v1.StatefulSet, expectedMounts []*corev1.VolumeMount) {
+	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, len(expectedMounts))
+
+	for i, c := range expectedMounts {
+		assert.Equal(t, c, &set.Spec.Template.Spec.Containers[0].VolumeMounts[i])
+	}
+}
+
+func pvClaim(pvName, size string, storageClass *string, selector *metav1.LabelSelector) *corev1.PersistentVolumeClaim {
+	quantity, _ := resource.ParseQuantity(size)
+	expectedClaim := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: pvName,
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceStorage: quantity},
+			},
+			StorageClassName: storageClass,
+			Selector:         selector,
+		}}
+	return expectedClaim
+}
+
+func volMount(pvName, mountPath, subPath string) *corev1.VolumeMount {
+	return &corev1.VolumeMount{Name: pvName, MountPath: mountPath, SubPath: subPath}
+}
+
+func TestBasePodSpec_FsGroup(t *testing.T) {
+	spec := basePodSpec("s", defaultPodSpec(), defaultPodVars())
+
+	assert.Len(t, spec.InitContainers, 0)
+	require.NotNil(t, spec.SecurityContext)
+	assert.Equal(t, util.Int64Ref(util.FsGroup), spec.SecurityContext.FSGroup)
+	assert.Equal(t, util.Int64Ref(util.RunAsUser), spec.SecurityContext.RunAsUser)
+
+	os.Setenv(util.ManagedSecurityContextEnv, "true")
+	spec = basePodSpec("s", defaultPodSpec(), defaultPodVars())
+	require.Nil(t, spec.SecurityContext)
+
+	// restoring
+	InitDefaultEnvVariables()
+}
 
 func baseSetHelper() *StatefulSetHelper {
 	return (&KubeHelper{newMockedKubeApi()}).NewStatefulSetHelper(DefaultStandaloneBuilder().Build())

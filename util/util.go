@@ -59,6 +59,10 @@ func BooleanRef(b bool) *bool {
 	return &b
 }
 
+func StringRef(s string) *string {
+	return &s
+}
+
 // DoAndRetry performs the task 'f' until it returns true or 'count' retrials are executed. Sleeps for 'interval' seconds
 // between retries. String return parameter contains the fail message that is printed in case of failure.
 func DoAndRetry(f func() (string, bool), log *zap.SugaredLogger, count, interval int) bool {

@@ -17,9 +17,11 @@ func init() {
 func TestStorageRequirements(t *testing.T) {
 	// value is provided - the default is ignored
 	podSpec := mongodb.PodSpecWrapper{
-		mongodb.MongoDbPodSpec{mongodb.MongoDbPodSpecStandard{Storage: "40G"}, ""},
-		mongodb.MongoDbPodSpec{mongodb.MongoDbPodSpecStandard{Storage: "15G"}, ""}}
-	req := buildStorageRequirements(podSpec)
+		mongodb.MongoDbPodSpec{mongodb.MongoDbPodSpecStandard{
+			Persistence: &mongodb.Persistence{SingleConfig: &mongodb.PersistenceConfig{Storage: "40G"}}}, ""},
+		mongodb.MongoDbPodSpec{mongodb.MongoDbPodSpecStandard{
+			Persistence: &mongodb.Persistence{SingleConfig: &mongodb.PersistenceConfig{Storage: "12G"}}}, ""}}
+	req := buildStorageRequirements(podSpec.Persistence.SingleConfig, podSpec.Default.Persistence.SingleConfig)
 
 	assert.Len(t, req, 1)
 	quantity := req[corev1.ResourceStorage]
@@ -27,17 +29,22 @@ func TestStorageRequirements(t *testing.T) {
 
 	// value is not provided - the default is used
 	podSpec = mongodb.PodSpecWrapper{
-		mongodb.MongoDbPodSpec{},
-		mongodb.MongoDbPodSpec{mongodb.MongoDbPodSpecStandard{Storage: "5G"}, ""}}
-	req = buildStorageRequirements(podSpec)
+		mongodb.MongoDbPodSpec{mongodb.MongoDbPodSpecStandard{
+			Persistence: &mongodb.Persistence{SingleConfig: &mongodb.PersistenceConfig{}}}, ""},
+		mongodb.MongoDbPodSpec{mongodb.MongoDbPodSpecStandard{
+			Persistence: &mongodb.Persistence{SingleConfig: &mongodb.PersistenceConfig{Storage: "5G"}}}, ""}}
+	req = buildStorageRequirements(podSpec.Persistence.SingleConfig, podSpec.Default.Persistence.SingleConfig)
 
 	assert.Len(t, req, 1)
 	quantity = req[corev1.ResourceStorage]
 	assert.Equal(t, int64(5000000000), (&quantity).Value())
 
 	// value is not provided and default is empty - the parameter must not be set at all
-	podSpec = mongodb.PodSpecWrapper{mongodb.MongoDbPodSpec{}, mongodb.MongoDbPodSpec{}}
-	req = buildStorageRequirements(podSpec)
+	podSpec = mongodb.PodSpecWrapper{mongodb.MongoDbPodSpec{mongodb.MongoDbPodSpecStandard{
+		Persistence: &mongodb.Persistence{SingleConfig: &mongodb.PersistenceConfig{}}}, ""},
+		mongodb.MongoDbPodSpec{mongodb.MongoDbPodSpecStandard{
+			Persistence: &mongodb.Persistence{SingleConfig: &mongodb.PersistenceConfig{}}}, ""}}
+	req = buildStorageRequirements(podSpec.Persistence.SingleConfig, podSpec.Default.Persistence.SingleConfig)
 
 	assert.Len(t, req, 0)
 }

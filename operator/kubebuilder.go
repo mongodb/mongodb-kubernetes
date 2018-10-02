@@ -5,8 +5,6 @@ package operator
 import (
 	"os"
 
-	"go.uber.org/zap"
-
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/util"
 	appsv1 "k8s.io/api/apps/v1"
@@ -43,7 +41,7 @@ func buildStatefulSet(p StatefulSetHelper) *appsv1.StatefulSet {
 		POD_ANTI_AFFINITY_LABEL_KEY: p.Name,
 	}
 
-	set := appsv1.StatefulSet{
+	set := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            p.Name,
 			Namespace:       p.Namespace,
@@ -59,29 +57,41 @@ func buildStatefulSet(p StatefulSetHelper) *appsv1.StatefulSet {
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
 				},
-				Spec: basePodSpec(p.Name, p.Persistent, p.PodSpec, p.PodVars),
+				Spec: basePodSpec(p.Name, p.PodSpec, p.PodVars),
 			},
 		},
 	}
 	// If 'persistent' flag is not set - we consider it to be true
 	if p.Persistent == nil || *p.Persistent {
-		set.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: util.PersistentVolumeClaimName,
-			},
-			Spec: corev1.PersistentVolumeClaimSpec{
-				AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-				Resources: corev1.ResourceRequirements{
-					Requests: buildStorageRequirements(p.PodSpec),
-				},
-			},
-		}}
-		zap.S().Infof("!!! Storage class: %s", p.PodSpec.StorageClass)
-		if p.PodSpec.StorageClass != "" {
-			set.Spec.VolumeClaimTemplates[0].Spec.StorageClassName = &p.PodSpec.StorageClass
-		}
+		buildPersistentVolumeClaims(set, p)
 	}
-	return &set
+	return set
+}
+
+func buildPersistentVolumeClaims(set *appsv1.StatefulSet, p StatefulSetHelper) {
+	var claims []corev1.PersistentVolumeClaim
+	var mounts []corev1.VolumeMount
+
+	// if persistence not set or if single one is set
+	if p.PodSpec.Persistence == nil || (p.PodSpec.Persistence.SingleConfig == nil && p.PodSpec.Persistence.MultipleConfig == nil) ||
+		p.PodSpec.Persistence.SingleConfig != nil {
+		var config *mongodb.PersistenceConfig
+		if p.PodSpec.Persistence == nil || p.PodSpec.Persistence.SingleConfig == nil {
+			config = createBackwordCompatibleConfig(p)
+		} else {
+			config = p.PodSpec.Persistence.SingleConfig
+		}
+		// Single claim, multiple mounts using this claim. Note, that we use "subpaths" in the volume to mount to different
+		// physical folders
+		claims, mounts = createClaimsAndMountsSingleMode(config, p)
+	} else if p.PodSpec.Persistence.MultipleConfig != nil {
+		defaultConfig := p.PodSpec.Default.Persistence.MultipleConfig
+
+		// Multiple claims, multiple mounts. No subpaths are used and everything is mounted to the root of directory
+		claims, mounts = createClaimsAndMontsMultiMode(p, defaultConfig)
+	}
+	set.Spec.VolumeClaimTemplates = claims
+	set.Spec.Template.Spec.Containers[0].VolumeMounts = mounts
 }
 
 // buildSecret creates the secret object to store agent key. This secret is read directly by Automation Agent containers
@@ -148,7 +158,7 @@ func baseOwnerReference(owner metav1.Object) []metav1.OwnerReference {
 // basePodSpec creates the standard Pod definition which uses the database container for managing mongod/mongos
 // instances. Parameters to the container will be passed as environment variables which values are contained
 // in the PodVars structure.
-func basePodSpec(statefulSetName string, persistent *bool, reqs mongodb.PodSpecWrapper, podVars *PodVars) corev1.PodSpec {
+func basePodSpec(statefulSetName string, reqs mongodb.PodSpecWrapper, podVars *PodVars) corev1.PodSpec {
 	spec := corev1.PodSpec{
 		Containers: []corev1.Container{
 			{
@@ -193,12 +203,6 @@ func basePodSpec(statefulSetName string, persistent *bool, reqs mongodb.PodSpecW
 		}
 	}
 
-	if persistent == nil || *persistent {
-		spec.Containers[0].VolumeMounts = []corev1.VolumeMount{{
-			Name:      util.PersistentVolumeClaimName,
-			MountPath: util.PersistentVolumePath,
-		}}
-	}
 	spec.Affinity.PodAntiAffinity = &corev1.PodAntiAffinity{
 		PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{{
 			// Weight thoughts - seems no other affinity rule should be stronger than anti affinity one so putting
@@ -247,4 +251,66 @@ func baseEnvFrom(podVars *PodVars) []corev1.EnvVar {
 			Value: podVars.AgentApiKey,
 		},
 	}
+}
+
+func createClaimsAndMontsMultiMode(p StatefulSetHelper, defaultConfig *mongodb.MultiplePersistenceConfig) ([]corev1.PersistentVolumeClaim, []corev1.VolumeMount) {
+	claims := []corev1.PersistentVolumeClaim{
+		*pvc(util.PvcNameData, p.PodSpec.Persistence.MultipleConfig.Data, defaultConfig.Data),
+		*pvc(util.PvcNameJournal, p.PodSpec.Persistence.MultipleConfig.Journal, defaultConfig.Journal),
+		*pvc(util.PvcNameLogs, p.PodSpec.Persistence.MultipleConfig.Logs, defaultConfig.Logs),
+	}
+	mounts := []corev1.VolumeMount{
+		*mount(util.PvcNameData, util.PvcMountPathData, ""),
+		*mount(util.PvcNameJournal, util.PvcMountPathJournal, ""),
+		*mount(util.PvcNameLogs, util.PvcMountPathLogs, ""),
+	}
+	return claims, mounts
+}
+
+func createClaimsAndMountsSingleMode(config *mongodb.PersistenceConfig, p StatefulSetHelper) ([]corev1.PersistentVolumeClaim, []corev1.VolumeMount) {
+	claims := []corev1.PersistentVolumeClaim{*pvc(util.PvcNameData, config, p.PodSpec.Default.Persistence.SingleConfig)}
+	mounts := []corev1.VolumeMount{
+		*mount(util.PvcNameData, util.PvcMountPathData, util.PvcNameData),
+		*mount(util.PvcNameData, util.PvcMountPathJournal, util.PvcNameJournal),
+		*mount(util.PvcNameData, util.PvcMountPathLogs, util.PvcNameLogs),
+	}
+	return claims, mounts
+}
+
+func createBackwordCompatibleConfig(p StatefulSetHelper) *mongodb.PersistenceConfig {
+	// backward compatibility: take storage and class values from old properties (if they are specified)
+	if p.PodSpec.StorageClass == "" {
+		return &mongodb.PersistenceConfig{Storage: p.PodSpec.Storage}
+	} else {
+		return &mongodb.PersistenceConfig{Storage: p.PodSpec.Storage, StorageClass: &p.PodSpec.StorageClass}
+	}
+}
+
+func pvc(name string, config, defaultConfig *mongodb.PersistenceConfig) *corev1.PersistentVolumeClaim {
+	claim := corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources: corev1.ResourceRequirements{
+				Requests: buildStorageRequirements(config, defaultConfig),
+			},
+		}}
+	if config != nil {
+		claim.Spec.Selector = config.LabelSelector
+		claim.Spec.StorageClassName = config.StorageClass
+	}
+	return &claim
+}
+
+func mount(name, path, subpath string) *corev1.VolumeMount {
+	volumeMount := &corev1.VolumeMount{
+		Name:      name,
+		MountPath: path,
+	}
+	if subpath != "" {
+		volumeMount.SubPath = subpath
+	}
+	return volumeMount
 }

@@ -18,8 +18,18 @@ import (
 
 // NewDefaultPodSpec creates default pod spec, seems we shouldn't set CPU and Memory if they are not provided by user
 func NewDefaultPodSpec() mongodb.MongoDbPodSpec {
+	defaultPodSpec := mongodb.MongoDbPodSpecStandard{}
+	defaultPodSpec.Persistence = &mongodb.Persistence{
+		SingleConfig: &mongodb.PersistenceConfig{Storage: util.DefaultMongodStorageSize},
+		MultipleConfig: &mongodb.MultiplePersistenceConfig{
+			Data:    &mongodb.PersistenceConfig{Storage: util.DefaultMongodStorageSize},
+			Journal: &mongodb.PersistenceConfig{Storage: util.DefaultJournalStorageSize},
+			Logs:    &mongodb.PersistenceConfig{Storage: util.DefaultLogsStorageSize},
+		},
+	}
+
 	return mongodb.MongoDbPodSpec{
-		MongoDbPodSpecStandard:     mongodb.MongoDbPodSpecStandard{Storage: util.DefaultMongodStorageSize},
+		MongoDbPodSpecStandard:     defaultPodSpec,
 		PodAntiAffinityTopologyKey: util.DefaultAntiAffinityTopologyKey,
 	}
 }

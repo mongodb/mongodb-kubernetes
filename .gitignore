@@ -7,7 +7,6 @@
 docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator
 docker/mongodb-enterprise-database/content/mongodb-mms-automation-agent-version.properties
 my-*
-ops-manager-kubernetes.iml
 .vscode
 data
 cache
@@ -17,3 +16,4 @@ cache
 *.bak
 **pytest_cache/
 bin/*
+**/*.iml

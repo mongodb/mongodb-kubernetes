@@ -3,6 +3,19 @@
 ##
 ## Starts Ops Manager and setups environment for tests to run.
 ##
+## To launch e2e scripts locally on predefined OM and operator initialize necessary env variables and launch the script
+## providing test name:
+##
+## export ORG_ID="5bab96c432774481a41a4e67"
+## export OM_BASE_URL="http://alisovenko.ngrok.io"
+## export OM_API_KEY="f7f1d943-64b5-4557-90fa-f0250ec36d70"
+## export OM_USER="alisovenko@gmail.com"
+## TEST_STAGE=replica_set_pv_multiple e2e_tests.sh skip-ns-removal skip-installations rebuild-test-image
+##
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+pushd $DIR
+pwd
 
 # Will generate a random namespace to use each time
 if [ -z "${PROJECT_NAMESPACE}" ]; then
@@ -13,6 +26,13 @@ if [ -z "${PROJECT_NAMESPACE}" ]; then
 else
     printf "Using %s namespace\\n" "${PROJECT_NAMESPACE}"
 fi
+
+# Create namespace if it doesn't exist yet
+if ! kubectl get ns | grep -q "${PROJECT_NAMESPACE}"; then
+    kubectl create ns "${PROJECT_NAMESPACE}"
+    echo "Created namespace ${PROJECT_NAMESPACE} as it didn't exist"
+fi
+
 
 # Array contains string; based on https://stackoverflow.com/questions/3685970/check-if-a-bash-array-contains-a-value
 contains() {
@@ -69,11 +89,6 @@ install_operator() {
          --set namespace="${PROJECT_NAMESPACE}" \
          --set operator.version="${REVISION}" \
          -f deployments/values-test.yaml ../../public/helm_chart --output-dir "${outdir}"
-
-    if ! kubectl get ns | grep -q "${PROJECT_NAMESPACE}"; then
-        kubectl create ns "${PROJECT_NAMESPACE}"
-        echo "Created namespace ${PROJECT_NAMESPACE} as it didn't exist"
-    fi
 
     for file in roles serviceaccount operator
     do
@@ -141,7 +156,7 @@ rebuild_test_image() {
 
     echo "Pushing Tag: ${REMOTE_IMAGE}"
     docker push "${REMOTE_IMAGE}"
-    echo "Image pushed to ECR."
+    echo "mongodb-enterprise-tests image pushed to ECR."
 
     popd
 }
@@ -154,14 +169,15 @@ run_tests() {
     # create dummy helm chart
     charttmpdir=$(mktemp -d 2>/dev/null || mktemp -d -t 'charttmpdir')
     charttmpdir=${charttmpdir}/chart
-    cp -R ../../public/helm_chart/ "${charttmpdir}"
+    cp -R "${DIR}/../../public/helm_chart/" "${charttmpdir}"
 
     cp deployments/mongodb-enterprise-tests.yaml "${charttmpdir}/templates"
     # apply the correct configuration of the running OM instance
     helm template "${charttmpdir}" \
          -x templates/mongodb-enterprise-tests.yaml \
+         --set baseUrl="${OM_BASE_URL:=http://ops-manager-internal.operator-testing.svc.cluster.local:8080}" \
          --set apiKey="${OM_API_KEY}" \
-         --set projectId="${OM_PROJECT_ID}" \
+         --set apiUser="${OM_USER:=admin}" \
          --set namespace="${PROJECT_NAMESPACE}" \
          --set testStage="${test_stage}" \
          --set tag="${TEST_IMAGE_TAG}" > mongodb-enterprise-tests.yaml
@@ -173,7 +189,7 @@ run_tests() {
     kubectl --namespace "${PROJECT_NAMESPACE}" apply -f mongodb-enterprise-tests.yaml
 
     sleep 10
-    PODNAME=$(kubectl --namespace "${PROJECT_NAMESPACE}" get pods | grep mongodb-enterprise-operator-tests | head -n 1 | awk ' { print $1 } ')
+    PODNAME=mongodb-enterprise-operator-tests
     printf "Getting logs for %s.\\n" "${PODNAME}"
 
     output_filename="test_${PROJECT_NAMESPACE}_output.text"
@@ -204,7 +220,6 @@ fi
 
 if contains "rebuild-test-image" "$@"; then
     rebuild_test_image
-    exit
 fi
 
 if contains "teardown" "$@"; then
@@ -223,11 +238,15 @@ if contains "setup-locally" "$@"; then
     exit
 fi
 
-echo "Installing Operator."
-install_operator
+if ! contains "skip-installations" "$@"; then
+    echo "Installing Operator."
+    install_operator
+fi
 
-echo "Installing Ops Manager."
-spawn_om_kops
+if ! contains "skip-installations" "$@"; then
+    echo "Installing Ops Manager."
+    spawn_om_kops
+fi
 
 echo "Configuring Ops Manager."
 configure_om
@@ -240,8 +259,13 @@ run_tests "${TEST_STAGE}"
 TESTS_OK=$?
 echo "Results of tests execution: ${TESTS_OK}"
 
-echo "Removing namespace"
-teardown
+if contains "skip-ns-removal" "$@"  && [ "${TESTS_OK}" -eq 0 ]; then
+    echo "Removing namespace"
+    teardown
+else
+    # todo check if this is convenient in practice and drawbacks of manual removal don't overload better visibility
+    echo "Not removing namespace ${PROJECT_NAMESPACE} - you can check the state of Kubernetes and remove it manually"
+fi
 
 if [ -z "${IS_EVERGREEN}" ]; then
     # During local runs, you might want to inspect the kubernetes cluster state

@@ -102,7 +102,7 @@ func (c *MongoDbController) buildKubeObjectsForShardedCluster(s *mongodb.MongoDb
 		SetExposedExternally(true)
 
 	defaultConfigSrvSpec := NewDefaultPodSpec()
-	defaultConfigSrvSpec.Storage = util.DefaultConfigSrvStorageSize
+	defaultConfigSrvSpec.Persistence.SingleConfig.Storage = util.DefaultConfigSrvStorageSize
 	podSpec := mongodb.PodSpecWrapper{
 		MongoDbPodSpec: spec.ConfigSrvPodSpec,
 		Default:        defaultConfigSrvSpec,

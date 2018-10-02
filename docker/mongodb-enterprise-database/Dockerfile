@@ -15,7 +15,9 @@ RUN \
     mkdir -p /var/log/mongodb-mms-automation && \
     mkdir -p /var/lib/mongodb-mms-automation && \
     mkdir -p /data && \
+    mkdir -p /journal && \
     chmod g+w /data && \
+    chmod g+w /journal && \
     chmod -R g+w /mongodb-automation && \
     chmod g+w /var/lib/mongodb-mms-automation && \
     chmod g+w /var/log/mongodb-mms-automation && \

@@ -79,13 +79,13 @@ func initEnvVariables(env string) {
 	switch env {
 	case "prod":
 		os.Setenv(util.StatefulSetWaitSecondsEnv, util.DefaultStatefulSetWaitSecondsProd)
-		os.Setenv(util.StatefulSetWaitRetriesEnv, util.DefaultStatefulSetWaitRetrialsProd)
+		os.Setenv(util.StatefulSetWaitRetriesEnv, util.DefaultStatefulSetWaitRetriesProd)
 	case "dev", "local":
 		os.Setenv(util.StatefulSetWaitSecondsEnv, util.DefaultStatefulSetWaitSecondsDev)
-		os.Setenv(util.StatefulSetWaitRetriesEnv, util.DefaultStatefulSetWaitRetrialsDev)
+		os.Setenv(util.StatefulSetWaitRetriesEnv, util.DefaultStatefulSetWaitRetriesDev)
 	}
 	os.Setenv(util.BackupDisableWaitSecondsEnv, util.DefaultBackupDisableWaitSeconds)
-	os.Setenv(util.BackupDisableWaitRetriesEnv, util.DefaultBackupDisableWaitRetrials)
+	os.Setenv(util.BackupDisableWaitRetriesEnv, util.DefaultBackupDisableWaitRetries)
 }
 
 func validateEnv(env string) {

@@ -47,6 +47,7 @@ func InitDefaultEnvVariables() {
 	os.Setenv(util.StatefulSetWaitRetriesEnv, "2")
 	os.Setenv(util.BackupDisableWaitSecondsEnv, "1")
 	os.Setenv(util.BackupDisableWaitRetriesEnv, "3")
+	os.Unsetenv(util.ManagedSecurityContextEnv)
 }
 
 func TestCreateProcessesWiredTigerCache(t *testing.T) {

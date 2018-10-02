@@ -18,6 +18,10 @@ fi
 mms_home=/mongodb-automation
 mms_log_dir=/var/log/mongodb-mms-automation
 
+# we create symlink here to make sure it happens after volumes mounting
+ln -s /journal /data/journal
+echo "Created symlink: /data/journal -> $(readlink -f /data/journal)"
+
 #shellcheck disable=SC2153
 base_url="${BASE_URL%/}" # Remove any accidentally defined trailing slashes
 

@@ -9,10 +9,10 @@ import (
 
 // buildStorageRequirements returns a corev1.ResourceList definition for storage requirements.
 // This is used by the StatefulSet PersistentVolumeClaimTemplate.
-func buildStorageRequirements(reqs mongodb.PodSpecWrapper) corev1.ResourceList {
+func buildStorageRequirements(persistenceConfig, defaultConfig *mongodb.PersistenceConfig) corev1.ResourceList {
 	res := corev1.ResourceList{}
 
-	if q := parseQuantityOrZero(reqs.GetStorageOrDefault()); !q.IsZero() {
+	if q := parseQuantityOrZero(mongodb.GetStorageOrDefault(persistenceConfig, defaultConfig)); !q.IsZero() {
 		res[corev1.ResourceStorage] = q
 	}
 

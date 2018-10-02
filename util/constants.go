@@ -15,10 +15,18 @@ const (
 	ENV_VAR_USER          = "USER_LOGIN"
 	ENV_VAR_AGENT_API_KEY = "AGENT_API_KEY"
 
-	// Pod specific constants
-	ContainerName     = "mongodb-enterprise-database"
-	OmControllerLabel = "mongodb-enterprise-operator"
-	LivenessProbe     = "/mongodb-automation/files/probe.sh"
+	// Pod/StatefulSet specific constants
+	ContainerName       = "mongodb-enterprise-database"
+	OmControllerLabel   = "mongodb-enterprise-operator"
+	LivenessProbe       = "/mongodb-automation/files/probe.sh"
+	PvcNameData         = "data"
+	PvcMountPathData    = "/data"
+	PvcNameJournal      = "journal"
+	PvcMountPathJournal = "/journal"
+	PvcNameLogs         = "logs"
+	PvcMountPathLogs    = "/var/log/mongodb-mms-automation"
+	RunAsUser           = 2000
+	FsGroup             = 2000
 
 	// Operator Env configuration properties
 	AutomationAgentImageUrl        = "MONGODB_ENTERPRISE_DATABASE_IMAGE"
@@ -32,22 +40,18 @@ const (
 	ManagedSecurityContextEnv      = "MANAGED_SECURITY_CONTEXT"
 
 	// Different default configuration values
-	DefaultMongodStorageSize           = "16G"
-	DefaultConfigSrvStorageSize        = "5G"
-	DefaultAntiAffinityTopologyKey     = "kubernetes.io/hostname"
-	MongoDbDefaultPort                 = 27017
-	PersistentVolumeClaimName          = "data"
-	PersistentVolumePath               = "/data"
-	DefaultStatefulSetWaitSecondsProd  = "5"
-	DefaultStatefulSetWaitSecondsDev   = "3"
-	DefaultStatefulSetWaitRetrialsProd = "180" // 180 * 5 = 900 seconds = 15 min (Azure launch time is approximately 10 min)
-	DefaultStatefulSetWaitRetrialsDev  = "40"
-	DefaultBackupDisableWaitRetrials   = "30" // 30 * 3 = 90 seconds, should be ok for backup job to terminate
-	DefaultBackupDisableWaitSeconds    = "3"
-
-	// SecurityContext
-	RunAsUser = 2000
-	FsGroup   = 2000
+	DefaultMongodStorageSize          = "16G"
+	DefaultConfigSrvStorageSize       = "5G"
+	DefaultJournalStorageSize         = "1G" // maximum size for single journal file is 100Mb, journal files are removed soon after checkpoints
+	DefaultLogsStorageSize            = "3G"
+	DefaultAntiAffinityTopologyKey    = "kubernetes.io/hostname"
+	MongoDbDefaultPort                = 27017
+	DefaultStatefulSetWaitSecondsProd = "5"
+	DefaultStatefulSetWaitRetriesProd = "180" // 180 * 5 = 900 seconds = 15 min (Azure launch time is approximately 10 min)
+	DefaultStatefulSetWaitSecondsDev  = "3"
+	DefaultStatefulSetWaitRetriesDev  = "60" // This needs to be bigger for the extreme case when 3 PVs are mounted
+	DefaultBackupDisableWaitSeconds   = "3"
+	DefaultBackupDisableWaitRetries   = "30" // 30 * 3 = 90 seconds, should be ok for backup job to terminate
 
 	// All others
 	OmGroupExternallyManagedTag = "EXTERNALLY_MANAGED_BY_KUBERNETES"

@@ -13,7 +13,7 @@ func TestCreateMongodProcess(t *testing.T) {
 	assert.Equal(t, "trinity-0.trinity-svc.svc.cluster.local", process.HostName())
 	assert.Equal(t, "3.6.4", process.Version())
 	assert.Equal(t, "/data", process.DbPath())
-	assert.Equal(t, "/data/mongodb.log", process.LogPath())
+	assert.Equal(t, "/var/log/mongodb-mms-automation/mongodb.log", process.LogPath())
 	assert.Equal(t, 5, process.authSchemaVersion())
 	assert.Equal(t, "3.6", process.featureCompatibilityVersion())
 	assert.Equal(t, "", process.replicaSetName())

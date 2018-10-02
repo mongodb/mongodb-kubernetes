@@ -110,8 +110,7 @@ type MongoDbShardedClusterList struct {
 	Items           []MongoDbShardedCluster `json:"items"`
 }
 
-// This is a struct providing the opportunity to customize the pod created under the hood. If it grows it may make sense
-// to separate properties further (e.g. resources/affinity etc) but now it seems to look nice as a flat structure
+// This is a struct providing the opportunity to customize the pod created under the hood.
 // It naturally delegates to inner object and provides some defaults that can be overriden in each specific case
 type PodSpecWrapper struct {
 	MongoDbPodSpec
@@ -123,18 +122,38 @@ type PodSpecWrapper struct {
 type MongoDbPodSpecStandard struct {
 	Cpu             string                 `json:"cpu,omitempty"`
 	Memory          string                 `json:"memory,omitempty"`
-	Storage         string                 `json:"storage,omitempty"`
-	StorageClass    string                 `json:"storageClass,omitempty"`
-	NodeAffinity    *v1.NodeAffinity       `json:"nodeAffinity,omitempty"`
 	PodAffinity     *v1.PodAffinity        `json:"podAffinity,omitempty"`
+	NodeAffinity    *v1.NodeAffinity       `json:"nodeAffinity,omitempty"`
 	SecurityContext *v1.PodSecurityContext `json:"securityContext,omitempty"`
+	Persistence     *Persistence           `json:"persistence,omitempty"`
+
+	// Deprecated: deprecated as of 0.4 and will be removed eventually in next releases. Use Persistence struct instead
+	Storage string `json:"storage,omitempty"`
+	// Deprecated: deprecated as of 0.4 and will be removed eventually in next releases. Use Persistence struct instead
+	StorageClass string `json:"storageClass,omitempty"`
 }
 
-// Note that we make topologyKey a required attribute as it is a mandatory attribute to create a pod anti affinity rule
-// (used only for replicated stateful sets, so not applicable for standalones)
+// TopologyKey is not used for standalones so we have to separate different spec schemas
 type MongoDbPodSpec struct {
 	MongoDbPodSpecStandard
 	PodAntiAffinityTopologyKey string `json:"podAntiAffinityTopologyKey"`
+}
+
+type Persistence struct {
+	SingleConfig   *PersistenceConfig         `json:"single,omitempty"`
+	MultipleConfig *MultiplePersistenceConfig `json:"multiple,omitempty"`
+}
+
+type MultiplePersistenceConfig struct {
+	Data    *PersistenceConfig `json:"data,omitempty"`
+	Journal *PersistenceConfig `json:"journal,omitempty"`
+	Logs    *PersistenceConfig `json:"logs,omitempty"`
+}
+
+type PersistenceConfig struct {
+	Storage       string                `json:"storage,omitempty"`
+	StorageClass  *string               `json:"storageClass,omitempty"`
+	LabelSelector *metav1.LabelSelector `json:"labelSelector,omitempty"`
 }
 
 // These are some methods for mongodb objects that calculate some names
@@ -185,11 +204,11 @@ func getServiceOrDefault(service, objectName, suffix string) string {
 	return service
 }
 
-func (p PodSpecWrapper) GetStorageOrDefault() string {
-	if p.Storage == "" {
-		return p.Default.Storage
+func GetStorageOrDefault(config, defaultConfig *PersistenceConfig) string {
+	if config == nil || config.Storage == "" {
+		return defaultConfig.Storage
 	}
-	return p.Storage
+	return config.Storage
 }
 
 func (p PodSpecWrapper) GetCpuOrDefault() string {
@@ -211,11 +230,6 @@ func (p PodSpecWrapper) GetTopologyKeyOrDefault() string {
 		return p.Default.PodAntiAffinityTopologyKey
 	}
 	return p.PodAntiAffinityTopologyKey
-}
-
-func (p PodSpecWrapper) SetStorage(storage string) PodSpecWrapper {
-	p.Storage = storage
-	return p
 }
 
 func (p PodSpecWrapper) SetCpu(cpu string) PodSpecWrapper {

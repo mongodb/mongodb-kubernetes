@@ -67,11 +67,11 @@ spec:
   - name: mongodb-enterprise-operator-tests
     env:
     - name: OM_HOST
-      value: http://ops-manager-internal.operator-testing.svc.cluster.local:8080
+      value: {{ .Values.baseUrl}}
     - name: OM_API_KEY
       value: {{ .Values.apiKey }}
     - name: OM_USER
-      value: admin
+      value: {{ .Values.apiUser }}
     - name: PROJECT_NAMESPACE
       value: {{ .Values.namespace }}
     image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-tests:{{ .Values.tag }}

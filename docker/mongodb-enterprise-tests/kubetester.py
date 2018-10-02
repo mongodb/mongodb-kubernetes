@@ -200,6 +200,9 @@ class KubernetesTester(object):
 
         return client.primary, client.secondaries
 
+    def _get_pods(self, podname, qty=3):
+        return [podname.format(i) for i in range(qty)]
+
 
 def get_group(doc):
     return doc["apiVersion"].split("/")[0]

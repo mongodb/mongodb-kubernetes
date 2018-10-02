@@ -2,6 +2,7 @@ package om
 
 import (
 	"fmt"
+	"path"
 
 	"encoding/json"
 
@@ -70,7 +71,7 @@ func NewMongosProcess(name, hostName, processVersion string) Process {
 	initDefault(name, hostName, processVersion, ProcessTypeMongos, ans)
 
 	// default values for configurable values
-	ans.SetLogPath("/data/mongodb.log")
+	ans.SetLogPath(path.Join(util.PvcMountPathLogs, "/mongodb.log"))
 
 	return ans
 }
@@ -82,7 +83,9 @@ func NewMongodProcess(name, hostName, processVersion string) Process {
 
 	// default values for configurable values
 	ans.SetDbPath("/data")
-	ans.SetLogPath("/data/mongodb.log")
+	// CLOUDP-33467: we put mongod logs to the same directory as AA/Monitoring/Backup ones to provide single mount point
+	// for all types of logs
+	ans.SetLogPath(path.Join(util.PvcMountPathLogs, "mongodb.log"))
 
 	return ans
 }
