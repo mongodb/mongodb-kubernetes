@@ -3,8 +3,8 @@
 '''Applies release version from `release.yaml` file to relevant files.'''
 
 import re
-import yaml
 from build_and_release import read_release_from_file
+import ruamel.yaml
 
 '''The only file with the release is `values.yaml` from the helm chart.'''
 files = (
@@ -15,6 +15,7 @@ if __name__ == '__main__':
     release = read_release_from_file('release.yaml')
 
     for fname in files:
+        yaml = ruamel.yaml.YAML()
         with open(fname, 'r') as fd:
             doc = yaml.load(fd)
             
@@ -26,4 +27,4 @@ if __name__ == '__main__':
         assert 'registry' in doc
 
         with open(fname, 'w') as fd:
-            yaml.dump(doc, fd, default_flow_style=False)
+            yaml.dump(doc, fd)

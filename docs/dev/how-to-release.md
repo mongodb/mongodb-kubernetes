@@ -4,13 +4,23 @@ The Kubernetes Operator is based in 2 different images: Operator and Database im
 They follow a simple versioning schema (0.1, 0.2... 0.10... 1.0). The release
 process is documented here:
 
-## We don't have release branches (yet)
+## Prepare the release notes in public Github repository (one day before)
 
-This means that the builds will come out from the `master` branch (this is
-what we consider stable). Make sure every relevant PR has been merged, and
-that you have the latest master locally.
+Describe the release notes using link 
+[https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/new](https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/new) save as draft.
 
-## Pick up a new version
+You can use the filter [https://jira.mongodb.org/issues/?filter=26375](https://jira.mongodb.org/issues/?filter=26375) 
+to find resolved tickets for version
+
+Create a DOCSP ticket with the same content (ideally this should be done at least one day before the real release) and
+link it to the release ticket
+
+## Create a branch for release ticket
+
+Make sure every relevant PR has been merged to master, and that you have the latest version locally.
+Create a branch named after release ticket. 
+
+## Increase version in release.yaml
 
 You will find the latest version in the `release.yaml` file in the root
 directory of the project. Just increase the minor version in 1 unit:
@@ -38,10 +48,7 @@ scripts/evergreen/update_release_version.py
 This will modify some files that are meant to be distributed in the
 `public` repo.
 
-## Push these changes to a PR
-
-Create a new branch with the name of the release ticket and push your changes
-there.
+Push the PR changes
 
 ## Build and Push images to "development" registry
 
@@ -49,27 +56,12 @@ there.
 Build the operator and database images and push them to the "development" registry (Amazon ECR).
 
 ``` bash
-evg patch -p ops-manager-kubernetes -v push_images_to_development -t push_images_to_development -f
+evergreen patch -p ops-manager-kubernetes -v build_and_push_images_development -f
 ```
 
-This will result in two tasks being executed in `evergreen` that will push the images to:
+This will result in a single task being executed in `evergreen` that will push the images to:
 
 * **ECR**: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
-
-## Build the images and push to Quay Public Docker repo
-
-This should be done using `evergreen` with one of the provided tasks:
-
-``` yaml
-evg patch -p ops-manager-kubernetes -v release -t release
-```
-
-This will build the `mongodb-enterprise-operator` and
-`mongodb-enterprise-database` images and push to the `quay.io` public
-repo. The images will be tagged with whatever is on the `release.yaml` file.
-
-**Caution**: The current tagged images will be overwritten by
-`evergreen` if they have the same tag as any old images.
 
 ## QA Plan
 
@@ -81,6 +73,22 @@ involving at least, the 3 different types of objects. Standalones,
 ReplicaSets and ShardedCluster. Make sure you use PersistentVolumes
 and try a few updates to the custom objects (like updating the mongod
 version).
+
+
+## Build the images and push to Quay Public Docker repo
+
+This should be done using `evergreen` with one of the provided tasks:
+
+``` yaml
+evergreen patch -p ops-manager-kubernetes -v release -f
+```
+
+This will build the `mongodb-enterprise-operator` and
+`mongodb-enterprise-database` images and push to the `quay.io` public
+repo. The images will be tagged with whatever is on the `release.yaml` file.
+
+**Caution**: The current tagged images will be overwritten by
+`evergreen` if they have the same tag as any old images.
 
 ## Merge to Master
 
@@ -114,4 +122,9 @@ Create a tag for this particular release with the format `release-<tag>`. Use so
 
     git tag "release-$(grep release release.yaml | awk ' -F ":" { print $2 } ')"
     git push --tags
+    
+## Release in Github 
+
+Publish release in our public Github repository 
+[https://github.com/mongodb/mongodb-enterprise-kubernetes/releases](https://github.com/mongodb/mongodb-enterprise-kubernetes/releases)
 

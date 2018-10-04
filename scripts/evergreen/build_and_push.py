@@ -4,8 +4,8 @@
 Builds and pushes operator & database image to Quay.io.
 
 Usage:
-    build_and_release.py (build|push) --image IMAGE --tag-from-file RELEASE_FILE [--registry REGISTRY]
-    build_and_release.py (build|push) --image IMAGE --tag TAG [--registry REGISTRY]
+    build_and_push.py --image IMAGE --tag-from-file RELEASE_FILE [--registry REGISTRY]
+    build_and_push.py --image IMAGE --tag TAG [--registry REGISTRY]
 
 '''
 
@@ -91,7 +91,8 @@ def get_credentials(registry):
 
 
 def name_for_image(image, tag):
-    return '{}:{}'.format(image, tag)
+    tag_colon = '' if tag is None or tag == "" else ':' + str(tag)
+    return '{}{}'.format(image, tag_colon)
 
 
 def build_image(image, tag):
@@ -125,17 +126,11 @@ def read_release_from_file(fname):
 
 
 def get_release_tag(args):
-    'Helper function to read TAG from command line or from file.'
+    """Helper function to read TAG from command line or from file."""
     if 'TAG' in args and args['TAG'] is not None:
         return args['TAG']
 
     return read_release_from_file(args['RELEASE_FILE'])
-
-
-def tag_and_push(image, tag, repo, creds):
-    print('Pushing {}'.format(image))
-    tag_image(image, tag, repo)
-    print(push_image(image, tag, repo, creds))
 
 
 def main(args):
@@ -143,19 +138,21 @@ def main(args):
 
     tag = get_release_tag(args)
 
-    if args['build']:
+    registry = args.get('REGISTRY', 'development')
+    repo = get_registry(registry)
 
-        print('Building {}'.format(image))
-        build_image(image, tag)
+    creds = get_credentials(registry)
 
-    elif args['push']:
-        registry = args.get('REGISTRY', 'development')
-        repo = get_registry(registry)
+    image_with_tag = name_for_image(image, tag)
 
-        creds = get_credentials(registry)
+    print('Building: {}'.format(image_with_tag))
+    build_image(image, tag)
 
-        print('Pushing: {}/{}:{}'.format(repo, image, tag))
-        tag_and_push(image, tag, repo, creds)
+    print('Tagging: {}/{}'.format(repo, image_with_tag))
+    tag_image(image, tag, repo)
+
+    print('Pushing: {}/{}'.format(repo, image_with_tag))
+    print(push_image(image, tag, repo, creds))
 
 
 if __name__ == '__main__':

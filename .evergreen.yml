@@ -143,47 +143,8 @@ functions:
               echo "$MCI_DIR does not exists"
               exit
           fi
-
-  "build_images":
-    - command: shell.exec
-      params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
-        shell: bash
-        script: |
-          python3 -m venv venv
-          source venv/bin/activate
-          python3 -m pip install -r scripts/evergreen/requirements.txt
-
-          ./scripts/evergreen/build_and_release.py build \
-              --image mongodb-enterprise-operator \
-              --tag-from-file release.yaml
-
-          ./scripts/evergreen/build_and_release.py build \
-              --image mongodb-enterprise-database \
-              --tag-from-file release.yaml
-
-  "build_images_development":
-    - command: shell.exec
-      params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
-        shell: bash
-        script: |
-          export REVISION=$(git rev-parse HEAD)
-          echo "Building Development Image: $REVISION"
-
-          python3 -m venv venv
-          source venv/bin/activate
-          python3 -m pip install -r scripts/evergreen/requirements.txt
-
-          ./scripts/evergreen/build_and_release.py build \
-              --image mongodb-enterprise-operator \
-              --tag "$REVISION"
-
-          ./scripts/evergreen/build_and_release.py build \
-              --image mongodb-enterprise-database \
-              --tag "$REVISION"
-
-  "push_images_production":
+ 
+  "build_and_push_images_production":
     - command: shell.exec
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
@@ -203,19 +164,19 @@ functions:
           source venv/bin/activate
           python3 -m pip install -r scripts/evergreen/requirements.txt
 
-          # Build & release Operator Image
-          ./scripts/evergreen/build_and_release.py push \
+          # Build & push Operator Image
+          ./scripts/evergreen/build_and_push.py \
               --image mongodb-enterprise-operator \
               --tag-from-file release.yaml \
               --registry production
 
-          # Build & release Database Image
-          ./scripts/evergreen/build_and_release.py push \
+          # Build & push Database Image
+          ./scripts/evergreen/build_and_push.py \
               --image mongodb-enterprise-database \
               --tag-from-file release.yaml \
               --registry production
 
-  "push_images_development":
+  "build_and_push_images_development":
     - command: shell.exec
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
@@ -231,16 +192,16 @@ functions:
           source venv/bin/activate
           python3 -m pip install -r scripts/evergreen/requirements.txt
 
-          # Build & release Operator Image
-          ./scripts/evergreen/build_and_release.py push \
+          # Build & push Operator Image
+          ./scripts/evergreen/build_and_push.py \
               --image mongodb-enterprise-operator \
-              --tag "$REVISION" \
+              --tag "${createGitShaTags:+REVISION}" \
               --registry development
 
-          # Build & release Database Image
-          ./scripts/evergreen/build_and_release.py push \
+          # Build & push Database Image
+          ./scripts/evergreen/build_and_push.py \
               --image mongodb-enterprise-database \
-              --tag "$REVISION" \
+              --tag "${createGitShaTags:+REVISION}" \
               --registry development
 
   "build_and_push_test_images":
@@ -257,12 +218,7 @@ functions:
           source venv/bin/activate
           python3 -m pip install -r scripts/evergreen/requirements.txt
 
-          ./scripts/evergreen/build_and_release.py build \
-              --image mongodb-enterprise-tests \
-              --tag "$REVISION" \
-              --registry development
-
-          ./scripts/evergreen/build_and_release.py push \
+          ./scripts/evergreen/build_and_push.py \
               --image mongodb-enterprise-tests \
               --tag "$REVISION" \
               --registry development
@@ -321,8 +277,9 @@ tasks:
     - func: "setup_aws"
     - func: "setup_docker"
     - func: "build_operator"
-    - func: "build_images_development"
-    - func: "push_images_development"
+    - func: "build_and_push_images_development"
+      vars:
+        createGitShaTags: "true"
     - func: "build_and_push_test_images"
     - func: "setup_kubectl"
     - func: "e2e_tests"
@@ -334,18 +291,16 @@ tasks:
     - func: "build_operator"
     - func: "setup_docker"
     - func: "setup_aws"
-    - func: "build_images"
-    - func: "push_images_production"
+    - func: "build_and_push_images_production"
 
-- name: push_images_to_development
-  tags: ["push_images_to_development"]
+- name: build_and_push_images_development
+  tags: ["build_and_push_images_development"]
   commands:
     - func: "clone"
     - func: "build_operator"
     - func: "setup_docker"
     - func: "setup_aws"
-    - func: "build_images"
-    - func: "push_images_development"
+    - func: "build_and_push_images_development"
 
 
 buildvariants:
@@ -363,10 +318,10 @@ buildvariants:
   tasks:
     - ".release"
 
-- name: push_images_to_development
+- name: build_and_push_images_development
   run_on:
     - archlinux-test
   batchtime: 1440
   stepback: false
   tasks:
-    - ".push_images_to_development"
+    - ".build_and_push_images_development"
