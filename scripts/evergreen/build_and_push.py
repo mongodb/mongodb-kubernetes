@@ -2,10 +2,12 @@
 
 '''
 Builds and pushes operator & database image to Quay.io.
+If docker file is not located in the directory named the same as image specify the path to it using "--path" parameter
+(the location must be relative to "docker" directory)
+Docker arguments are passed as string in format "key1=val1,key2=val2"
 
 Usage:
-    build_and_push.py --image IMAGE --tag-from-file RELEASE_FILE [--registry REGISTRY]
-    build_and_push.py --image IMAGE --tag TAG [--registry REGISTRY]
+    build_and_push.py --image IMAGE --tag TAG [--registry REGISTRY  --path PATH --docker-args DOCKER_ARGS]
 
 '''
 
@@ -13,8 +15,6 @@ import docker
 import docopt
 import os
 import subprocess
-import yaml
-
 
 registries = {
     'production': 'quay.io/mongodb',
@@ -26,9 +26,9 @@ def get_registry(name):
     return registries.get(name, 'development')
 
 
-def image_directories(image):
+def image_directories(path):
     if os.getcwd().split('/')[-1] == 'ops-manager-kubernetes':
-        return 'docker/{}'.format(image)
+        return os.path.join('docker', path)
 
     raise ValueError('Should be run from root of repo.')
     # return 'src/github.com/10gen/ops-manager-kubernetes/docker/{}'.format(image)
@@ -36,11 +36,6 @@ def image_directories(image):
 
 def get_client():
     return docker.from_env()
-
-
-def get_quay_private_creds():
-    # Private repo (mongodb-enterprise-private) is staging
-    return os.getenv('QUAY_STAGING_USER'), os.getenv('QUAY_STAGING_PASSWORD')
 
 
 def get_quay_public_creds():
@@ -55,6 +50,7 @@ def parse_password_from_docker_login(cmd):
 
     parts = cmd.split()
     return parts[parts.index('-p') + 1]
+
 
 def get_bin_dir():
     'Returns the bin directory where `aws` client was installed.'
@@ -80,9 +76,7 @@ def get_aws_creds():
 
 
 def get_credentials(registry):
-    if registry == 'staging':
-        return get_quay_private_creds()
-    elif registry == 'production':
+    if registry == 'production':
         return get_quay_public_creds()
     elif registry == 'development':
         return get_aws_creds()
@@ -95,10 +89,19 @@ def name_for_image(image, tag):
     return '{}{}'.format(image, tag_colon)
 
 
-def build_image(image, tag):
+def parse_docker_args(docker_args):
+    if not docker_args:
+        return {}
+    return {(k.strip(), v.strip()) for k,v in
+                  (item.split('=') for item in docker_args.split(','))}
+
+
+def build_image(image, tag, path_to_image, docker_args):
     client = get_client()
     tagged_image = name_for_image(image, tag)
-    client.images.build(path=image_directories(image), tag=tagged_image)
+    if path_to_image == "":
+        path_to_image = image
+    client.images.build(path=image_directories(path_to_image), tag=tagged_image, buildargs=parse_docker_args(docker_args))
 
 
 def tag_image(image, tag, repo):
@@ -118,27 +121,18 @@ def push_image(image, tag, repo, creds):
     return client.images.push(repo, tag=tag, auth_config=creds)
 
 
-def read_release_from_file(fname):
-    with open(fname, 'r') as fd:
-        release_doc = yaml.safe_load(fd)
-
-    return release_doc['releaseTag']
-
-
-def get_release_tag(args):
-    """Helper function to read TAG from command line or from file."""
-    if 'TAG' in args and args['TAG'] is not None:
-        return args['TAG']
-
-    return read_release_from_file(args['RELEASE_FILE'])
-
-
 def main(args):
     image = args['IMAGE']
-
-    tag = get_release_tag(args)
+    path = args['PATH']
+    tag = args['TAG']
+    docker_args = args['DOCKER_ARGS']
+    print(os.getenv("QUAY_PROD_USER"))
+    print(os.getenv("QUAY_PROD_PASSWORD"))
 
     registry = args.get('REGISTRY', 'development')
+
+    print('Script arguments: {}'.format(args))
+
     repo = get_registry(registry)
 
     creds = get_credentials(registry)
@@ -146,13 +140,23 @@ def main(args):
     image_with_tag = name_for_image(image, tag)
 
     print('Building: {}'.format(image_with_tag))
-    build_image(image, tag)
+    build_image(image, tag, path, docker_args)
 
     print('Tagging: {}/{}'.format(repo, image_with_tag))
     tag_image(image, tag, repo)
 
     print('Pushing: {}/{}'.format(repo, image_with_tag))
-    print(push_image(image, tag, repo, creds))
+
+    output = push_image(image, tag, repo, creds)
+
+    print(output)
+
+    # For some reasons push_image doesn't through the error but only returns it in the format
+    # {"errorDetail":{"message":"name unknown: The repository with name 'dev/mongodb-enterprise' does not exist in the
+    # registry with id '268558157000'"}...
+    if "errorDetail" in output:
+        raise RuntimeError("There was error pushing image")
+
 
 
 if __name__ == '__main__':

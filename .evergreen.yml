@@ -18,7 +18,7 @@ functions:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         script: |
           export WORKDIR=${workdir}
-          ./scripts/evergreen/build_operator 0
+          CONTINUE=true ./scripts/evergreen/build_operator
 
   "build_operator":
     - command: shell.exec
@@ -143,87 +143,54 @@ functions:
               echo "$MCI_DIR does not exists"
               exit
           fi
- 
-  "build_and_push_images_production":
+
+  "build_and_push_image":
     - command: shell.exec
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         script: |
-          # Do not execute during normal runs, only during _patch_.
-          if [ "${is_patch}" = "true" ]; then
-            echo "This is _patch_. Proceeding with release."
-          else
-            echo "Not releasing during normal run"
+          set +x
+          # Releases are performed only for patches
+          if [ -n "${release_object:-}" ] && [ "${is_patch}" != "true" ]; then
+            echo "Releasing is done only from patches"
             exit 0
           fi
-
-          export QUAY_PROD_USER=${quay_prod_username}
-          export QUAY_PROD_PASSWORD=${quay_prod_robot_token}
-
-          python3 -m venv venv
-          source venv/bin/activate
-          python3 -m pip install -r scripts/evergreen/requirements.txt
-
-          # Build & push Operator Image
-          ./scripts/evergreen/build_and_push.py \
-              --image mongodb-enterprise-operator \
-              --tag-from-file release.yaml \
-              --registry production
-
-          # Build & push Database Image
-          ./scripts/evergreen/build_and_push.py \
-              --image mongodb-enterprise-database \
-              --tag-from-file release.yaml \
-              --registry production
-
-  "build_and_push_images_development":
-    - command: shell.exec
-      params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
-        script: |
-          export REVISION=$(git rev-parse HEAD)
-          echo "Pushing Development Images: $REVISION"
 
           # AWS creds
           export AWS_ACCESS_KEY_ID=${mms_eng_test_aws_access_key}
           export AWS_SECRET_ACCESS_KEY=${mms_eng_test_aws_secret}
 
-          python3 -m venv venv
-          source venv/bin/activate
-          python3 -m pip install -r scripts/evergreen/requirements.txt
+          # Quay prod creds
+          export QUAY_PROD_USER=${quay_prod_username}
+          export QUAY_PROD_PASSWORD=${quay_prod_robot_token}
 
-          # Build & push Operator Image
-          ./scripts/evergreen/build_and_push.py \
-              --image mongodb-enterprise-operator \
-              --tag "${createGitShaTags:+REVISION}" \
-              --registry development
-
-          # Build & push Database Image
-          ./scripts/evergreen/build_and_push.py \
-              --image mongodb-enterprise-database \
-              --tag "${createGitShaTags:+REVISION}" \
-              --registry development
-
-  "build_and_push_test_images":
-    - command: shell.exec
-      params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
-        script: |
-          export REVISION=$(git rev-parse HEAD)
-
-          export AWS_ACCESS_KEY_ID=${mms_eng_test_aws_access_key}
-          export AWS_SECRET_ACCESS_KEY=${mms_eng_test_aws_secret}
+          if [ "${create_git_sha_tags}" = "true" ]; then
+            export REVISION=$(git rev-parse HEAD)
+          fi
 
           python3 -m venv venv
           source venv/bin/activate
           python3 -m pip install -r scripts/evergreen/requirements.txt
 
+          # Always consider the caveat of "${var} vs $var" in evergreen!!
+          docker_args="${docker_args}"
+
+          # Releases override REVISION from predefined tags
+          if [ -n "${release_object}" ]; then
+            export REVISION=$(./scripts/evergreen/read_release_version.py --release-app ${release_object})
+
+            # When releasing mongodb enterprise the docker tag and version of MongoDB are the same
+            if [ "${release_object}" = "mongodbEnterprise" ]; then
+              export docker_args="MONGO_VERSION=$REVISION"
+            fi
+          fi
+
           ./scripts/evergreen/build_and_push.py \
-              --image mongodb-enterprise-tests \
+              --image ${image_name} \
               --tag "$REVISION" \
-              --registry development
-
-          # remove image after pushing
+              --registry "${env}" \
+              --path "${path}" \
+              --docker-args "$docker_args"
 
   "e2e_tests":
     - command: shell.exec
@@ -277,21 +244,53 @@ tasks:
     - func: "setup_aws"
     - func: "setup_docker"
     - func: "build_operator"
-    - func: "build_and_push_images_development"
+    - func: "build_and_push_image"
       vars:
-        createGitShaTags: "true"
-    - func: "build_and_push_test_images"
+        env: development
+        image_name: mongodb-enterprise-operator
+        create_git_sha_tags: "true"
+    - func: "build_and_push_image"
+      vars:
+        env: development
+        image_name: mongodb-enterprise-database
+        create_git_sha_tags: "true"
+    - func: "build_and_push_image"
+      vars:
+        env: development
+        image_name: mongodb-enterprise-tests
+        create_git_sha_tags: "true"
     - func: "setup_kubectl"
     - func: "e2e_tests"
 
-- name: release
-  tags: ["release"]
+- name: release_operator
+  tags: ["release_operator"]
   commands:
     - func: "clone"
     - func: "build_operator"
     - func: "setup_docker"
-    - func: "setup_aws"
-    - func: "build_and_push_images_production"
+    - func: "build_and_push_image"
+      vars:
+        release_object: "mongodbOperator"
+        env: production
+        image_name: mongodb-enterprise-operator
+    - func: "build_and_push_image"
+      vars:
+        release_object: "mongodbOperator"
+        env: production
+        image_name: mongodb-enterprise-database
+
+# Note that this task doesn't work so far as it needs different quay account and token
+- name: release_mongodb_enterprise
+  tags: ["release_mongodb_enterprise"]
+  commands:
+    - func: "clone"
+    - func: "setup_docker"
+    - func: "build_and_push_image"
+      vars:
+        release_object: "mongodbEnterprise"
+        env: production
+        image_name: mongodb-enterprise
+        path: mongodb-enterprise/4.0
 
 - name: build_and_push_images_development
   tags: ["build_and_push_images_development"]
@@ -300,7 +299,22 @@ tasks:
     - func: "build_operator"
     - func: "setup_docker"
     - func: "setup_aws"
-    - func: "build_and_push_images_development"
+    - func: "build_and_push_image"
+      vars:
+        env: development
+        image_name: mongodb-enterprise-operator
+        create_git_sha_tags: "true"
+    - func: "build_and_push_image"
+      vars:
+        env: development
+        image_name: mongodb-enterprise-database
+        create_git_sha_tags: "true"
+    - func: "build_and_push_image"
+      vars:
+        env: development
+        image_name: mongodb-enterprise
+        path: mongodb-enterprise/4.0
+        docker_args: MONGO_VERSION=4.0.3
 
 
 buildvariants:
@@ -312,11 +326,17 @@ buildvariants:
   tasks:
     - ".test"
 
-- name: release
+- name: release_operator
   run_on:
     - archlinux-test
   tasks:
-    - ".release"
+    - ".release_operator"
+
+- name: release_mongodb_enterprise
+  run_on:
+    - archlinux-test
+  tasks:
+    - ".release_mongodb_enterprise"
 
 - name: build_and_push_images_development
   run_on:

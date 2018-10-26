@@ -6,18 +6,11 @@
 
 set -xeuo pipefail
 
-failfast=$1
-
-if [ -z "${failfast}" ]; then
-    failfast=1
-fi
-
-# TODO remove the exclusion for 'util' in CLOUDP-31476
 go test -v  $(go list ./... | grep -v '/\(pkg\|local\)') | tee "${GOPATH}/ops-manager-kubernetes.suite" || echo "Some tests failed!"
 
 if grep "FAIL" "${GOPATH}/ops-manager-kubernetes.suite" ; then
     # In some cases we don't need to exit the program (if we want to parse test results later)
-    if [ $failfast -eq 1 ]; then
+    if [ -z "${CONTINUE}" ]; then
         echo "Exiting program"
         exit 1
     fi

@@ -8,7 +8,7 @@ echo "Building and pushing Docker images:"
 echo "${REPOS}"
 echo
 echo "Note: This script is using the CLUSTER_NAME and AWS_IMAGE_REPO environment variables; if undefined, it will fail!"
-echo "      If you want to push to the default ECS repository (dev), use \"\$( make push )\" in each image's directory!"
+echo "      If you want to push to the default ECR repository (dev), use \"\$( make push )\" in each image's directory!"
 echo
 
 echo "Building and pushing images to '${AWS_IMAGE_REPO}/${CLUSTER_NAME}/'"

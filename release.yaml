@@ -1,3 +1,4 @@
 ---
-releaseTag: 0.4
+mongodbOperator: 0.4
+mongodbEnterprise: 4.0.3
 automation.agent.version: 5.4.7.5469-1
