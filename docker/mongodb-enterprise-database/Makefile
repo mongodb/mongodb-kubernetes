@@ -10,11 +10,11 @@ usage:
 	@ echo "  delete_container:	stops and deletes the container"
 	@ echo "  clean: 	        deletes the image and any running containers"
 	@ echo "  build: 	        builds the Docker image"
-	@ echo "  clean-build:      rebuilds the Docker image from scratch (no-cache), stopping any running containers and deleting all intermediate containers"
+	@ echo "  clean-build:		rebuilds the Docker image from scratch (no-cache), stopping any running containers and deleting all intermediate containers"
 	@ echo "  all: 		        shorthand for 'clean build run'"
 	@ echo
-	@ echo "  pull: 		    pulls the image from the configured Docker registry"
-	@ echo "  push: 		    pushes the image to the configured Docker registry"
+	@ echo "  pull:			pulls the image from the configured Docker registry"
+	@ echo "  push:			pushes the image to the configured Docker registry"
 	@ echo
 	@ echo "  run: 		        runs the image in a new container"
 	@ echo "  status:	        shows all the containers created using this image"
@@ -24,7 +24,7 @@ usage:
 delete_container:
 	- docker ps -a | tail -n +2 | grep '$(IMAGE)' | awk '{print $$1}' | xargs docker rm -f
 
-clean:
+clean: delete_container
 	- docker rmi $(IMAGE):$(IMAGE_VERSION)
 
 build:
@@ -56,7 +56,7 @@ ifndef AGENT_API_KEY
 endif
 
 run: check-ops-manager-env
-	docker run -e BASE_URL -e GROUP_ID -e AGENT_API_KEY -t $(IMAGE):$(IMAGE_VERSION)
+	docker run -e BASE_URL -e GROUP_ID -e AGENT_API_KEY -e HTTP_PROXY -t $(IMAGE):$(IMAGE_VERSION)
 
 all:
 	@ $(MAKE) clean build run
@@ -67,3 +67,4 @@ status:
 
 version:
 	@ echo $(IMAGE_VERSION)
+

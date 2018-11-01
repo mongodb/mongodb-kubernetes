@@ -1,26 +1,37 @@
-# This is the Docker file for Ops Manager Database
+# This is the Docker file for the Ops Manager (Enterprise) Database
 #
-FROM debian:jessie-slim
+FROM debian:9.5-slim
+
+ENV MMS_HOME /mongodb-automation
+ENV MMS_LOG_DIR /var/log/mongodb-mms-automation
 
 # The Automation Agent needs lsb-release on the CLI to determine the current distro
-RUN apt-get -qq update && \
-  apt-get -y -qq install libsasl2-2 curl supervisor ca-certificates lsb-release snmp && \
-  apt-get upgrade -y -qq && \
-  apt-get dist-upgrade -y -qq && \
-  rm -rf /var/lib/apt/lists/*
+RUN apt-get -qq update \
+    && apt-get -y -qq install \
+      ca-certificates \
+      curl \
+      libsasl2-2 \
+      lsb-release \
+      procps \
+      snmp \
+      supervisor \
+    && apt-get upgrade -y -qq \
+    && apt-get dist-upgrade -y -qq \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY content/ /mongodb-automation/files/
+# Deploy the contents
+COPY content/ ${MMS_HOME}/files
 
-RUN \
-    mkdir -p /var/log/mongodb-mms-automation && \
-    mkdir -p /var/lib/mongodb-mms-automation && \
-    mkdir -p /data && \
-    mkdir -p /journal && \
-    chmod g+w /data && \
-    chmod g+w /journal && \
-    chmod -R g+w /mongodb-automation && \
-    chmod g+w /var/lib/mongodb-mms-automation && \
-    chmod g+w /var/log/mongodb-mms-automation && \
-    chmod g+w /etc/passwd
+# Set the required perms
+RUN    mkdir -p ${MMS_LOG_DIR} \
+    && chmod 0775 ${MMS_LOG_DIR} \
+    && mkdir -p /var/lib/mongodb-mms-automation \
+    && chmod 0775 /var/lib/mongodb-mms-automation \
+    && mkdir -p /data \
+    && chmod 0775 /data \
+    && mkdir -p /journal \    
+    && chmod 0775 /journal \
+    && chmod -R 0775 ${MMS_HOME} \
+    && chmod 0664 /etc/passwd
 
-CMD supervisord -c /mongodb-automation/files/supervisor.conf
+CMD supervisord -c ${MMS_HOME}/files/supervisor.conf
