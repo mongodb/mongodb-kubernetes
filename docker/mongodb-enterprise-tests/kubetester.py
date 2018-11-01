@@ -83,10 +83,15 @@ class KubernetesTester(object):
 
     @staticmethod
     def wait_condition(action):
+        """Waits for a condition to occur before proceeding,
+        or for some amount of time, both can appear in the file,
+        will always wait for the condition and then for some amount of time.
+        """
         if "wait_until" in action:
             print("Waiting until {}".format(action["wait_until"]))
             KubernetesTester.wait_until(action["wait_until"])
-        elif "wait_for" in action:
+
+        if "wait_for" in action:
             print("Waiting for {}".format(action["wait_for"]))
             KubernetesTester.wait_for(action["wait_for"])
 

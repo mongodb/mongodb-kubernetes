@@ -148,7 +148,8 @@ start() {
     fi
     echo
 
-    start_daemon
+    # Pod keeps crashing and I suspect it is the backup daemon.
+    # start_daemon
 }
 
 preFlightCheck_daemon() {

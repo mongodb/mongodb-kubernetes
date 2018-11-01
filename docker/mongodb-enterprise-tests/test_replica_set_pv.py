@@ -14,7 +14,7 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
     create:
       file: fixtures/replica-set-pv.yaml
       wait_until: sts/rs001-pv -> status.ready_replicas == 3
-      wait_for: 120
+      wait_for: 10
     """
 
     def test_replica_set_sts_exists(self):
@@ -92,7 +92,7 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
         assert p0["args2_6"]["replication"]["replSetName"] == "rs001-pv"
         assert p0["args2_6"]["storage"]["dbPath"] == "/data"
         assert p0["args2_6"]["systemLog"]["destination"] == "file"
-        assert p0["args2_6"]["systemLog"]["path"] == "/data/mongodb.log"
+        assert p0["args2_6"]["systemLog"]["path"] == "/var/log/mongodb-mms-automation/mongodb.log"
         assert p0["logRotate"]["sizeThresholdMB"] == 1000
         assert p0["logRotate"]["timeThresholdHrs"] == 24
 
@@ -109,7 +109,7 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
         assert p1["args2_6"]["replication"]["replSetName"] == "rs001-pv"
         assert p1["args2_6"]["storage"]["dbPath"] == "/data"
         assert p1["args2_6"]["systemLog"]["destination"] == "file"
-        assert p1["args2_6"]["systemLog"]["path"] == "/data/mongodb.log"
+        assert p1["args2_6"]["systemLog"]["path"] == "/var/log/mongodb-mms-automation/mongodb.log"
         assert p1["logRotate"]["sizeThresholdMB"] == 1000
         assert p1["logRotate"]["timeThresholdHrs"] == 24
 
@@ -126,7 +126,7 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
         assert p2["args2_6"]["replication"]["replSetName"] == "rs001-pv"
         assert p2["args2_6"]["storage"]["dbPath"] == "/data"
         assert p2["args2_6"]["systemLog"]["destination"] == "file"
-        assert p2["args2_6"]["systemLog"]["path"] == "/data/mongodb.log"
+        assert p2["args2_6"]["systemLog"]["path"] == "/var/log/mongodb-mms-automation/mongodb.log"
         assert p2["logRotate"]["sizeThresholdMB"] == 1000
         assert p2["logRotate"]["timeThresholdHrs"] == 24
 

@@ -1,0 +1,9 @@
+# copy this file into `secrets.do` and complete the missing values.
+
+export AWS_ACCESS_KEY_ID=
+export AWS_SECRET_ACCESS_KEY=
+export REDHAT_CONNECT_ADMIN_PASSWORD=
+export REDHAT_CONNECT_ADMIN_USER=
+export ECR_PASSWORD=
+export OPENSHIFT_ADMIN_PASSWORD=
+export OPENSHIFT_ADMIN_USER=

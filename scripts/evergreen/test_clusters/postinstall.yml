@@ -1,0 +1,11 @@
+---
+- hosts: masters
+  gather_facts: no
+
+  tasks:
+
+  - name: configure admin with cluster-admin role
+    run_once: true
+    shell: |
+      oc login -u system:admin  # login as system:admin (needs to be done at the master)
+      oc adm policy add-cluster-role-to-user cluster-admin admin

@@ -14,6 +14,7 @@ class TestReplicaSetCreation(KubernetesTester):
     create:
       file: fixtures/replica-set.yaml
       wait_until: sts/my-replica-set -> status.ready_replicas == 3
+      wait_for: 10
     '''
 
     def test_replica_set_sts_exists(self):
@@ -128,7 +129,7 @@ class TestReplicaSetCreation(KubernetesTester):
         assert p0['args2_6']['replication']['replSetName'] == 'my-replica-set'
         assert p0['args2_6']['storage']['dbPath'] == '/data'
         assert p0['args2_6']['systemLog']['destination'] == 'file'
-        assert p0['args2_6']['systemLog']['path'] == '/data/mongodb.log'
+        assert p0['args2_6']['systemLog']['path'] == '/var/log/mongodb-mms-automation/mongodb.log'
         assert p0['logRotate']['sizeThresholdMB'] == 1000
         assert p0['logRotate']['timeThresholdHrs'] == 24
 
@@ -147,7 +148,7 @@ class TestReplicaSetCreation(KubernetesTester):
         assert p1['args2_6']['replication']['replSetName'] == 'my-replica-set'
         assert p1['args2_6']['storage']['dbPath'] == '/data'
         assert p1['args2_6']['systemLog']['destination'] == 'file'
-        assert p1['args2_6']['systemLog']['path'] == '/data/mongodb.log'
+        assert p1['args2_6']['systemLog']['path'] == '/var/log/mongodb-mms-automation/mongodb.log'
         assert p1['logRotate']['sizeThresholdMB'] == 1000
         assert p1['logRotate']['timeThresholdHrs'] == 24
 
@@ -166,7 +167,7 @@ class TestReplicaSetCreation(KubernetesTester):
         assert p2['args2_6']['replication']['replSetName'] == 'my-replica-set'
         assert p2['args2_6']['storage']['dbPath'] == '/data'
         assert p2['args2_6']['systemLog']['destination'] == 'file'
-        assert p2['args2_6']['systemLog']['path'] == '/data/mongodb.log'
+        assert p2['args2_6']['systemLog']['path'] == '/var/log/mongodb-mms-automation/mongodb.log'
         assert p2['logRotate']['sizeThresholdMB'] == 1000
         assert p2['logRotate']['timeThresholdHrs'] == 24
 
@@ -272,6 +273,7 @@ class TestReplicaSetUpdate(KubernetesTester):
       file: fixtures/replica-set.yaml
       patch: '[{"op":"replace","path":"/spec/members","value":5}]'
       wait_until: sts/my-replica-set -> status.ready_replicas == 5
+      wait_for: 20
     '''
 
     def test_replica_set_sts_should_exist(self):
@@ -378,7 +380,7 @@ class TestReplicaSetUpdate(KubernetesTester):
         assert p0['args2_6']['replication']['replSetName'] == 'my-replica-set'
         assert p0['args2_6']['storage']['dbPath'] == '/data'
         assert p0['args2_6']['systemLog']['destination'] == 'file'
-        assert p0['args2_6']['systemLog']['path'] == '/data/mongodb.log'
+        assert p0['args2_6']['systemLog']['path'] == '/var/log/mongodb-mms-automation/mongodb.log'
         assert p0['logRotate']['sizeThresholdMB'] == 1000
         assert p0['logRotate']['timeThresholdHrs'] == 24
 
@@ -397,7 +399,7 @@ class TestReplicaSetUpdate(KubernetesTester):
         assert p1['args2_6']['replication']['replSetName'] == 'my-replica-set'
         assert p1['args2_6']['storage']['dbPath'] == '/data'
         assert p1['args2_6']['systemLog']['destination'] == 'file'
-        assert p1['args2_6']['systemLog']['path'] == '/data/mongodb.log'
+        assert p1['args2_6']['systemLog']['path'] == '/var/log/mongodb-mms-automation/mongodb.log'
         assert p1['logRotate']['sizeThresholdMB'] == 1000
         assert p1['logRotate']['timeThresholdHrs'] == 24
 
@@ -416,7 +418,7 @@ class TestReplicaSetUpdate(KubernetesTester):
         assert p2['args2_6']['replication']['replSetName'] == 'my-replica-set'
         assert p2['args2_6']['storage']['dbPath'] == '/data'
         assert p2['args2_6']['systemLog']['destination'] == 'file'
-        assert p2['args2_6']['systemLog']['path'] == '/data/mongodb.log'
+        assert p2['args2_6']['systemLog']['path'] == '/var/log/mongodb-mms-automation/mongodb.log'
         assert p2['logRotate']['sizeThresholdMB'] == 1000
         assert p2['logRotate']['timeThresholdHrs'] == 24
 
@@ -435,7 +437,7 @@ class TestReplicaSetUpdate(KubernetesTester):
         assert p3['args2_6']['replication']['replSetName'] == 'my-replica-set'
         assert p3['args2_6']['storage']['dbPath'] == '/data'
         assert p3['args2_6']['systemLog']['destination'] == 'file'
-        assert p3['args2_6']['systemLog']['path'] == '/data/mongodb.log'
+        assert p3['args2_6']['systemLog']['path'] == '/var/log/mongodb-mms-automation/mongodb.log'
         assert p3['logRotate']['sizeThresholdMB'] == 1000
         assert p3['logRotate']['timeThresholdHrs'] == 24
 
@@ -454,7 +456,7 @@ class TestReplicaSetUpdate(KubernetesTester):
         assert p4['args2_6']['replication']['replSetName'] == 'my-replica-set'
         assert p4['args2_6']['storage']['dbPath'] == '/data'
         assert p4['args2_6']['systemLog']['destination'] == 'file'
-        assert p4['args2_6']['systemLog']['path'] == '/data/mongodb.log'
+        assert p4['args2_6']['systemLog']['path'] == '/var/log/mongodb-mms-automation/mongodb.log'
         assert p4['logRotate']['sizeThresholdMB'] == 1000
         assert p4['logRotate']['timeThresholdHrs'] == 24
 

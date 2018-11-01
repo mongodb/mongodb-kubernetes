@@ -1,0 +1,15 @@
+[masters]
+{master}
+
+[etcd]
+{master}
+
+[nodes]
+{master} openshift_schedulable=True openshift_node_group_name=node-config-master-infra
+{node1} openshift_schedulable=True openshift_node_group_name=node-config-compute
+{node2} openshift_schedulable=True openshift_node_group_name=node-config-compute
+
+[control]
+{control} ansible_user=centos
+
+

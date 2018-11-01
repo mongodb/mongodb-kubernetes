@@ -1,0 +1,64 @@
+---
+- hosts: nodes
+  gather_facts: no
+
+  tasks:
+
+  - name: install network manager
+    yum: state=latest name={{ item }}
+    with_items:
+    - NetworkManager
+    tags: ['nodes']
+
+  - name: enable network-manager
+    shell: systemctl enable NetworkManager && systemctl start NetworkManager
+    tags: ['nodes']
+
+
+- hosts: control
+  gather_facts: no
+
+  tasks:
+  - name: install dependencies
+    yum: state=latest name={{ item }}
+    with_items:
+    - "epel-release"
+    - "git"
+    - "screen"
+    become: yes
+    become_user: root
+
+  - name: install python36
+    yum: state=installed name=python36
+    become: yes
+    become_user: root
+
+  - name: install pip
+    shell: curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py && python36 get-pip.py || true
+    become: yes
+    become_user: root
+
+  - name: install ansible
+    shell: python36 -m pip install ansible==2.6.5 --user
+
+  - name: ssh config
+    shell: |
+      echo "Host *.compute-1.amazonaws.com" > ~/.ssh/config
+      echo "  StrictHostKeyChecking no"     >> ~/.ssh/config
+      chmod g-w ~/.ssh/config
+
+  - name: clone openshift-ansible
+    git:
+      repo: https://github.com/openshift/openshift-ansible.git
+      dest: ~/openshift-ansible
+      version: release-3.11
+
+  - name: copy inventory files
+    copy:
+      src: hosts.certification
+      dest: ~/hosts.certification
+
+  - name: copy exports file
+    copy:
+      src: exports.do
+      dest: ~/exports.do

@@ -1,7 +1,6 @@
 import pytest
 
 from kubetester import KubernetesTester
-from kubernetes import client
 
 
 @pytest.mark.replica_set_pv_multiple
@@ -14,7 +13,7 @@ class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
     create:
       file: fixtures/replica-set-pv-multiple.yaml
       wait_until: sts/rs001-pv-multiple -> status.ready_replicas == 2
-      wait_for: 160
+      wait_for: 20
     """
     RESOURCE_NAME = "rs001-pv-multiple"
 
@@ -28,7 +27,6 @@ class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
 
     def test_pvc_are_created_and_bound(self):
         """3 mount points must be mounted to 3 pvc."""
-        bound_pvc_names = []
         for idx, podname in enumerate(self._get_pods(self.RESOURCE_NAME + '-{}', 2)):
             pod = self.corev1.read_namespaced_pod(podname, self.namespace)
             self.check_pvc_for_pod(idx, pod)
@@ -54,7 +52,7 @@ class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
         if storage_class is not None:
             assert pvc.spec.storage_class_name == storage_class
         else:
-            assert getattr(pvc.spec, "storage_class_name") is  None
+            assert getattr(pvc.spec, "storage_class_name") is None
 
 
 @pytest.mark.replica_set_pv_multiple

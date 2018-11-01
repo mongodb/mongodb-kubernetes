@@ -14,6 +14,7 @@ class TestReplicaSetEnterpriseCreation(KubernetesTester):
     create:
       file: fixtures/replica-set-ent.yaml
       wait_until: sts/rs001-ent -> status.ready_replicas == 3
+      wait_for: 10
     """
 
     def test_replica_set_sts_exists(self):

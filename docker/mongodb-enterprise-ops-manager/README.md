@@ -12,7 +12,7 @@ You can pull the image using `docker pull quay.io/mongodb/mongodb-enterprise-ops
 After pulling the image (around 1GB so be patient), you can run it with `docker run -t mongodb/mongodb-enterprise-ops-manager:4.0.0.49984.20180625T1427Z-1`.
 
 ```bash
-# First determine your network IP: 127.0.0.1 or localhost cannot be used since other containers running in Docker 
+# First determine your network IP: 127.0.0.1 or localhost cannot be used since other containers running in Docker
 # would not be able to access this host, as each would have its own meaning of localhost
 read -ra LOCAL_IPS <<< "$(/sbin/ifconfig | grep -E 'inet[^0-9]+' | sed -E 's/.*inet[^0-9]+([0-9\.]+).*/\1/g' | grep -v 127.0.0.1)"
 export OM_HOST="${LOCAL_IPS[0]}"
@@ -25,6 +25,16 @@ docker run --name ops_manager \
     -p 8080:8080 \
     -e OM_HOST
 ```
+
+### Cache Downloads of MMS & MongoDb
+
+The dockerfile expects a few mms and mongodb builds to be downloadable
+from your hosts computer, as rapidly iterating with the Docker
+environment can get really slow with the 800M mms images.
+
+To help on this, you need to execute `make start_cache_server` before you
+build the images. Make this script run in a second terminal, the
+relevant images will be downloaded and used by docker build.
 
 
 ### Auto-configuration

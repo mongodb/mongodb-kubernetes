@@ -30,27 +30,22 @@ spec:
       labels:
         app: mongodb-enterprise-ops-manager
     spec:
-      securityContext:
-        fsGroup: 1000080000
-        supplementalGroups: [0, 1000080000]
       containers:
       - name: mongodb-enterprise-ops-manager
-        image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager:4.0.2.50187.20180905T1427Z-1
-        imagePullPolicy: IfNotPresent
-        readinessProbe:
-          httpGet:
-            port: 8080
-            path: /
-          initialDelaySeconds: 30
-          timeoutSeconds: 1
+        image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager:4.0.2.50187.20180905T1427Z-1_test
+        imagePullPolicy: Always
         env:
         - name: OM_HOST
-          value: ops-manager-internal
+          value: ops-manager-internal.operator-testing.svc.cluster.local
         volumeMounts:
         - name: mongodb-mms-data
           mountPath: /data
         - name: mongodb-mms-config
           mountPath: /etc/mongodb-mms
+        - name: mongodb-mms-logs
+          mountPath: /opt/mongodb/mms/logs
+        - name: mongodb-mms-env
+          mountPath: /opt/mongodb/mms/env
         resources:
           requests:
             memory: "4Gi"
@@ -63,9 +58,23 @@ spec:
         requests:
           storage: 20Gi
   - metadata:
+      name: mongodb-mms-logs
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 2Gi
+  - metadata:
       name: mongodb-mms-config
     spec:
       accessModes: [ "ReadWriteOnce" ]
       resources:
         requests:
-          storage: 10Mi
+          storage: 1Gi
+  - metadata:
+      name: mongodb-mms-env
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 1Gi

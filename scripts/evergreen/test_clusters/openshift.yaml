@@ -1,0 +1,260 @@
+##
+#
+# CloudFormation template for creating an OpenShift cluster.
+#
+# Obtained from here: https://gist.github.com/mateobur/9435b803b912f3e980aacfb0151670b6
+# with a few local modifications.
+#
+# In the future should use instructions in here:
+#   - https://aws.amazon.com/quickstart/architecture/openshift/
+#
+##
+
+AWSTemplateFormatVersion: '2010-09-09'
+Metadata: {}
+
+Parameters:
+###########
+  KeyName:
+    Description: The EC2 Key Pair to allow SSH access to the instance
+    Type: 'AWS::EC2::KeyPair::KeyName'
+  AvailabilityZone:
+    Description: Availability zone to deploy
+    Type: AWS::EC2::AvailabilityZone::Name
+  PersistentVolumeTag:
+    Type: String
+    Description: A Tag to assign for PersistentVolumes
+    Default: kubernetes.io/cluster/operator-tests
+
+Mappings:
+#########
+  RegionMap:
+    us-east-1:
+      CentOS7: "ami-9887c6e7"
+    us-east-2:
+      CentOS7: "ami-9cbf9bf9"
+
+Resources:
+##########
+  openshiftvpc:
+    Type: "AWS::EC2::VPC"
+    Properties:
+      CidrBlock: 10.0.0.0/28
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: openshift-cf-vpc
+
+  internetgatewayos:
+    Type: AWS::EC2::InternetGateway
+
+  gatewayattachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref internetgatewayos
+      VpcId: !Ref openshiftvpc
+
+  subnet:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref openshiftvpc
+      CidrBlock: 10.0.0.0/28
+      AvailabilityZone: !Ref AvailabilityZone
+
+  routetable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref openshiftvpc
+
+  subnetroutetableasoc:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+     RouteTableId: !Ref routetable
+     SubnetId: !Ref subnet
+
+  route:
+    Type: "AWS::EC2::Route"
+    Properties:
+      RouteTableId: !Ref routetable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref internetgatewayos
+
+  openshiftcontrol:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      Tags:
+      - Key: Name
+        Value: openshift-control
+      InstanceType: t2.micro
+      KeyName: !Ref KeyName
+      AvailabilityZone: !Ref AvailabilityZone
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          SubnetId: !Ref subnet
+          GroupSet:
+             - !Ref mastersecgroup
+      ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", CentOS7]
+
+  openshiftmaster:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      Tags:
+      - Key: Name
+        Value: openshift-master
+      - Key: !Ref PersistentVolumeTag
+        Value: owned
+      InstanceType: t2.xlarge
+      KeyName: !Ref KeyName
+      AvailabilityZone: !Ref AvailabilityZone
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          SubnetId: !Ref subnet
+          GroupSet:
+             - !Ref mastersecgroup
+      ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", CentOS7]
+
+  openshiftworker1:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      Tags:
+      - Key: Name
+        Value: openshift-worker1
+      - Key: !Ref PersistentVolumeTag
+        Value: owned
+      InstanceType: t2.xlarge
+      KeyName: !Ref KeyName
+      AvailabilityZone: !Ref AvailabilityZone
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          SubnetId: !Ref subnet
+          GroupSet:
+             - !Ref workersecgroup
+      ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", CentOS7]
+
+  openshiftworker2:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      Tags:
+      - Key: Name
+        Value: openshift-worker2
+      - Key: !Ref PersistentVolumeTag
+        Value: owned
+      InstanceType: t2.xlarge
+      KeyName: !Ref KeyName
+      AvailabilityZone: !Ref AvailabilityZone
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          SubnetId: !Ref subnet
+          GroupSet:
+           - !Ref workersecgroup
+      ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", CentOS7]
+
+  volume1:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      Tags:
+      - Key: !Ref PersistentVolumeTag
+        Value: owned
+      AvailabilityZone: !GetAtt openshiftmaster.AvailabilityZone
+      Size: 50
+    DeletionPolicy: Delete
+
+  volat1:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      Device: '/dev/xvdb'
+      VolumeId: !Ref volume1
+      InstanceId: !Ref openshiftmaster
+
+  volume2:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      Tags:
+      - Key: !Ref PersistentVolumeTag
+        Value: owned
+      AvailabilityZone: !GetAtt openshiftworker1.AvailabilityZone
+      Size: 50
+    DeletionPolicy: Delete
+
+  volat2:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      Device: '/dev/xvdb'
+      VolumeId: !Ref volume2
+      InstanceId: !Ref openshiftworker1
+
+  volume3:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      Tags:
+      - Key: !Ref PersistentVolumeTag
+        Value: owned
+      AvailabilityZone: !GetAtt openshiftworker2.AvailabilityZone
+      Size: 50
+    DeletionPolicy: Delete
+
+  volat3:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      Device: '/dev/xvdb'
+      VolumeId: !Ref volume3
+      InstanceId: !Ref openshiftworker2
+
+  pvolume01: # this is for the persistent volumes to live on
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      Tags:
+      - Key: !Ref PersistentVolumeTag
+        Value: owned
+      AvailabilityZone: !GetAtt openshiftmaster.AvailabilityZone
+      Size: 200
+    DeletionPolicy: Delete
+
+  workersecgroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      Tags:
+      - Key: !Ref PersistentVolumeTag
+        Value: owned
+      VpcId: !Ref openshiftvpc
+      GroupDescription: Security group for the worker Kubernetes nodes
+      SecurityGroupIngress:
+      - IpProtocol: -1
+        FromPort: -1
+        ToPort: -1
+        CidrIp: 10.0.0.0/28
+      - IpProtocol: tcp
+        FromPort: '22'
+        ToPort: '22'
+        CidrIp: 0.0.0.0/0
+
+  mastersecgroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      Tags:
+      - Key: !Ref PersistentVolumeTag
+        Value: owned
+      VpcId: !Ref openshiftvpc
+      GroupDescription: Security group for the master Kubernetes node
+      SecurityGroupIngress:
+      - IpProtocol: -1
+        FromPort: -1
+        ToPort: -1
+        CidrIp: 10.0.0.0/28
+      - IpProtocol: tcp
+        FromPort: '22'
+        ToPort: '22'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '8443'
+        ToPort: '8443'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '10250'
+        ToPort: '10250'
+        CidrIp: 0.0.0.0/0
