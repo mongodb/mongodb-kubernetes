@@ -50,6 +50,8 @@ read_om_env() {
 }
 
 spawn_om_kops() {
+    echo "##### Installing Ops Manager..."
+
     OPERATOR_TESTING_FRAMEWORK_NS=operator-testing
     if ! kubectl get namespace/${OPERATOR_TESTING_FRAMEWORK_NS} &> /dev/null; then
         echo "Ops Manager is not installed in this cluster. Doing it now."
@@ -89,6 +91,7 @@ spawn_om_kops() {
 }
 
 install_operator() {
+    echo "##### Installing Operator..."
     outdir='helm_out'
 
     if [ -z "${REVISION}" ]; then
@@ -102,7 +105,7 @@ install_operator() {
          --set namespace="${PROJECT_NAMESPACE}" \
          --set operator.version="${REVISION}" \
          --set managedSecurityContext="${MANAGED_SECURITY_CONTEXT}" \
-         -f deployments/values-test.yaml ../../public/helm_chart --output-dir "${outdir}"
+         -f deployments/values-test.yaml ../../public/helm_chart --output-dir "${outdir}" || exit 1
 
     for file in roles serviceaccount operator
     do
@@ -114,9 +117,29 @@ install_operator() {
         echo "Installing CRDs."
         kubectl apply -f "helm_out/mongodb-enterprise-operator/templates/crds.yaml"
     fi
+
+    echo "Waiting until Operator gets to Running state..."
+    i=0
+    maxWait=15
+    while [ "$(kubectl -n ${PROJECT_NAMESPACE} get pods -l app=mongodb-enterprise-operator -o jsonpath='{.items[0].status.phase}')" != "Running" ] && \
+        [ ${i} -lt ${maxWait} ]; do
+        sleep 1;
+        i=$[$i+1]
+    done
+
+    if [ ${i} -eq ${maxWait} ]; then
+        echo "(!!) Operator hasn't reached RUNNING state after ${maxWait} seconds. The full yaml configuration for pod:"
+        echo "------------------------------------------------------"
+        kubectl -n ${PROJECT_NAMESPACE} get pods -l app=mongodb-enterprise-operator -o yaml
+
+        exit 1
+    fi
+
+    echo "##### Operator installed successfully"
 }
 
 configure_operator() {
+    echo "##### Creating project and credentials Kubernetes object..."
     BASE_URL="${OM_BASE_URL:=http://ops-manager-internal.operator-testing.svc.cluster.local:8080}"
 
     # delete `my-project` if it exists
@@ -133,8 +156,16 @@ configure_operator() {
     kubectl --namespace "${PROJECT_NAMESPACE}" create secret generic my-credentials \
             --from-literal=user="${OM_USER:=admin}" --from-literal=publicApiKey="${OM_API_KEY}"
 
+    echo "Project ConfigMap:"
+    echo "------------------------------------------------------"
     kubectl --namespace "${PROJECT_NAMESPACE}" get configmap/my-project -o yaml
+
+    echo "Credentials Secret:"
+    echo "------------------------------------------------------"
     kubectl --namespace "${PROJECT_NAMESPACE}" get secret/my-credentials -o yaml
+
+    echo "##### ConfigMap and Secret are created"
+
 }
 
 test_locally() {
@@ -192,6 +223,10 @@ run_tests() {
 
     TEST_IMAGE_TAG=$(git rev-parse HEAD)
 
+    echo "-----------> Running test ${test_stage} \(tag: ${TEST_IMAGE_TAG}\)"
+
+    echo "##### Deploying test application..."
+
     # create dummy helm chart
     charttmpdir=$(mktemp -d 2>/dev/null || mktemp -d -t 'charttmpdir')
     charttmpdir=${charttmpdir}/chart
@@ -206,13 +241,15 @@ run_tests() {
          --set apiUser="${OM_USER:=admin}" \
          --set namespace="${PROJECT_NAMESPACE}" \
          --set testStage="${test_stage}" \
-         --set tag="${TEST_IMAGE_TAG}" > mongodb-enterprise-tests.yaml
+         --set tag="${TEST_IMAGE_TAG}" > mongodb-enterprise-tests.yaml || exit 1
 
     # Run the test container
     echo "TESTS ---"
     cat mongodb-enterprise-tests.yaml
     echo "TESTS ---"
     kubectl --namespace "${PROJECT_NAMESPACE}" apply -f mongodb-enterprise-tests.yaml
+
+    echo "##### Test application deployed"
 
     sleep 10
     PODNAME=mongodb-enterprise-operator-tests
@@ -223,18 +260,21 @@ run_tests() {
     printf "Getting logs for %s.\\n" "${PODNAME}"
 
     output_filename="test_${PROJECT_NAMESPACE}_output.text"
-    # Eventually this Pod will die after tests have completed
+    operator_filename="operator_${PROJECT_NAMESPACE}_output.text"
+    # Eventually this Pod will die (after run.sh has completed running), and this command will finish.
     kubectl --namespace "${PROJECT_NAMESPACE}" logs "${PODNAME}" -f > "${output_filename}" &
     KILLPID0=$!
-    # Print the logs from the test container with a background tail.
-    tail -f "${output_filename}" &
+    kubectl --namespace "${PROJECT_NAMESPACE}" logs "deployment/mongodb-enterprise-operator" -f > "${operator_filename}" &
     KILLPID1=$!
+    # Print the logs from the test container with a background tail.
+    tail -f "${output_filename}" "${operator_filename}" &
+    KILLPID2=$!
 
     # Wait for as long as this Pod is Running.
     while kubectl --namespace "${PROJECT_NAMESPACE}" get "pod/${PODNAME}" | grep -q 'Running' ; do sleep 1; done
 
     # make sure there are not processes running in the background.
-    kill $KILLPID0 $KILLPID1 &> /dev/null
+    kill $KILLPID0 $KILLPID1 $KILLPID2 &> /dev/null
 
     cp "${output_filename}" "${WORKDIR}/${TEST_STAGE}.xml"
 
@@ -269,12 +309,10 @@ if contains "setup-locally" "$@"; then
 fi
 
 if ! contains "skip-installations" "$@"; then
-    echo "Installing Operator."
     install_operator
 fi
 
 if ! contains "skip-installations" "$@"; then
-    echo "Installing Ops Manager."
     spawn_om_kops
 fi
 
@@ -287,7 +325,7 @@ fi
 
 run_tests "${TEST_STAGE}"
 TESTS_OK=$?
-echo "Results of tests execution: ${TESTS_OK}"
+echo "Tests have finished with the following exit code: ${TESTS_OK}"
 
 if contains "skip-ns-removal" "$@" && [ "${TESTS_OK}" -eq 0 ]; then
     # remove namespace if tests pass
@@ -295,7 +333,7 @@ if contains "skip-ns-removal" "$@" && [ "${TESTS_OK}" -eq 0 ]; then
     teardown
 else
     # todo check if this is convenient in practice and drawbacks of manual removal don't overload better visibility
-    echo "Not removing namespace ${PROJECT_NAMESPACE} - you can check the state of Kubernetes and remove it manually"
+    echo "Not removing namespace ${PROJECT_NAMESPACE} as there were test failures - you can check the state of Kubernetes and remove it manually"
 fi
 
 if [ -z "${IS_EVERGREEN}" ]; then

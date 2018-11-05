@@ -1,6 +1,8 @@
 package om
 
 import (
+	"fmt"
+	"math/rand"
 	"strconv"
 	"testing"
 
@@ -23,6 +25,7 @@ var CurrMockedConnection *MockedOmConnection
 const (
 	TestGroupId   = "abcd1234"
 	TestGroupName = "my-project"
+	TestOrgId     = "xyz9876"
 	TestAgentKey  = "qwerty9876"
 )
 
@@ -34,7 +37,8 @@ type MockedOmConnection struct {
 	hosts                  *Host
 	numRequestsSent        int
 	AgentApiKey            string
-	Group                  *Group
+	AllGroups              []*Group
+	AllOrganizations       []*Organization
 	CreateGroupFunc        func(group *Group) (*Group, error)
 	UpdateGroupFunc        func(group *Group) (*Group, error)
 	BackupConfigs          map[*BackupConfig]*HostCluster
@@ -44,33 +48,20 @@ type MockedOmConnection struct {
 	history []*runtime.Func
 }
 
-func NewEmptyMockedOmConnectionNoGroup(baseUrl, groupId, user, publicApiKey string) OmConnection {
-	var connection *MockedOmConnection
-	// That's how we can "survive" multiple calls to this function: so we can create groups or add/delete entities
-	// Note, that the global connection variable is cleaned before each test (see kubeapi_test.newMockedKubeApi)
-	if CurrMockedConnection != nil {
-		connection = CurrMockedConnection
-	} else {
-		connection = NewMockedOmConnection(nil)
-	}
-	connection.HttpOmConnection = HttpOmConnection{
-		baseUrl:      strings.TrimSuffix(baseUrl, "/"),
-		groupId:      groupId,
-		user:         user,
-		publicApiKey: publicApiKey,
-	}
-	CurrMockedConnection = connection
-
-	return connection
-}
-
 // NewEmptyMockedOmConnection is the standard function for creating mocked connections that is usually used for testing
 // "full cycle" mocked controller. It has group created already
 func NewEmptyMockedOmConnection(baseUrl, groupId, user, publicApiKey string) OmConnection {
 	conn := NewEmptyMockedOmConnectionNoGroup(baseUrl, groupId, user, publicApiKey)
 
 	// by default each connection just "reuses" "already created" group with agent keys existing
-	conn.CreateGroup(&Group{Name: TestGroupName, Id: TestGroupId, Tags: []string{"EXTERNALLY_MANAGED_BY_KUBERNETES"}, AgentApiKey: TestAgentKey})
+	conn.(*MockedOmConnection).AllGroups = []*Group{{
+		Name:        TestGroupName,
+		Id:          TestGroupId,
+		Tags:        []string{"EXTERNALLY_MANAGED_BY_KUBERNETES"},
+		AgentApiKey: TestAgentKey,
+		OrgId:       TestOrgId,
+	}}
+	conn.(*MockedOmConnection).AllOrganizations = []*Organization{{Id: TestOrgId, Name: TestGroupName}}
 
 	return conn
 }
@@ -83,6 +74,28 @@ func NewMockedOmConnection(d Deployment) *MockedOmConnection {
 	connection.BackupConfigs = make(map[*BackupConfig]*HostCluster)
 
 	return &connection
+}
+
+func NewEmptyMockedOmConnectionNoGroup(baseUrl, groupId, user, publicApiKey string) OmConnection {
+	var connection *MockedOmConnection
+	// That's how we can "survive" multiple calls to this function: so we can create groups or add/delete entities
+	// Note, that the global connection variable is cleaned before each test (see kubeapi_test.newMockedKubeApi)
+	if CurrMockedConnection != nil {
+		connection = CurrMockedConnection
+	} else {
+		connection = NewMockedOmConnection(nil)
+		connection.AllGroups = make([]*Group, 0)
+		connection.AllOrganizations = make([]*Organization, 0)
+	}
+	connection.HttpOmConnection = HttpOmConnection{
+		baseUrl:      strings.TrimSuffix(baseUrl, "/"),
+		groupId:      groupId,
+		user:         user,
+		publicApiKey: publicApiKey,
+	}
+	CurrMockedConnection = connection
+
+	return connection
 }
 
 func (oc *MockedOmConnection) UpdateDeployment(d Deployment) ([]byte, error) {
@@ -147,13 +160,15 @@ func (oc *MockedOmConnection) RemoveHost(hostId string) error {
 	oc.hosts = &Host{toKeep}
 	return nil
 }
-func (oc *MockedOmConnection) ReadGroup(name string) (*Group, error) {
-	oc.addToHistory(reflect.ValueOf(oc.ReadGroup))
 
-	if oc.Group == nil {
-		return nil, &OmApiError{ErrorCode: "GROUP_NAME_NOT_FOUND"}
-	}
-	return oc.Group, nil
+func (oc *MockedOmConnection) ReadOrganizations() ([]*Organization, error) {
+	oc.addToHistory(reflect.ValueOf(oc.ReadOrganizations))
+	return oc.AllOrganizations, nil
+}
+
+func (oc *MockedOmConnection) ReadGroups() ([]*Group, error) {
+	oc.addToHistory(reflect.ValueOf(oc.ReadGroups))
+	return oc.AllGroups, nil
 }
 
 func (oc *MockedOmConnection) CreateGroup(group *Group) (*Group, error) {
@@ -161,17 +176,25 @@ func (oc *MockedOmConnection) CreateGroup(group *Group) (*Group, error) {
 	if oc.CreateGroupFunc != nil {
 		return oc.CreateGroupFunc(group)
 	}
-	oc.Group = group
-	oc.Group.Id = TestGroupId
-	return oc.Group, nil
+	group.Id = TestGroupId
+	oc.AllGroups = append(oc.AllGroups, group)
+
+	// We emulate the behavior of Ops Manager: we create the organization with random id and the name matching the group
+	oc.AllOrganizations = append(oc.AllOrganizations, &Organization{Id: string(rand.Int()), Name: group.Name})
+	return group, nil
 }
 func (oc *MockedOmConnection) UpdateGroup(group *Group) (*Group, error) {
 	oc.addToHistory(reflect.ValueOf(oc.UpdateGroup))
 	if oc.UpdateGroupFunc != nil {
 		return oc.UpdateGroupFunc(group)
 	}
-	oc.Group.Tags = group.Tags
-	return group, nil
+	for k, g := range oc.AllGroups {
+		if g.Name == group.Name {
+			oc.AllGroups[k] = group
+			return group, nil
+		}
+	}
+	return nil, fmt.Errorf("Failed to find group")
 }
 
 func (oc *MockedOmConnection) ReadBackupConfigs() (*BackupConfigsResponse, error) {
@@ -340,4 +363,13 @@ func buildHostsFromDeployment(d Deployment) *Host {
 		}
 	}
 	return &Host{Results: hosts}
+}
+
+func (oc *MockedOmConnection) FindGroup(name string) *Group {
+	for _, g := range oc.AllGroups {
+		if g.Name == name {
+			return g
+		}
+	}
+	return nil
 }

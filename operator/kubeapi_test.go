@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	TestProjectConfigMapName  = "my-project"
+	TestProjectConfigMapName  = om.TestGroupName
 	TestCredentialsSecretName = "my-credentials"
 	TestNamespace             = "my-namespace"
 )
@@ -40,6 +40,10 @@ type MockedKubeApi struct {
 }
 
 func newMockedKubeApi() *MockedKubeApi {
+	return newMockedKubeApiDetailed(om.TestGroupName, "")
+}
+
+func newMockedKubeApiDetailed(projectName, organizationId string) *MockedKubeApi {
 	api := MockedKubeApi{}
 	api.sets = make(map[string]*appsv1.StatefulSet)
 	api.services = make(map[string]*corev1.Service)
@@ -49,7 +53,7 @@ func newMockedKubeApi() *MockedKubeApi {
 	// initialize config map and secret to emulate user preparing environment
 	project := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: TestProjectConfigMapName, Namespace: TestNamespace},
-		Data:       map[string]string{util.OmBaseUrl: "http://mycompany.com:8080", util.OmProjectName: "my-project"}}
+		Data:       map[string]string{util.OmBaseUrl: "http://mycompany.com:8080", util.OmProjectName: projectName, util.OmOrgId: organizationId}}
 	api.createConfigMap(TestNamespace, project)
 
 	credentials := &corev1.Secret{
@@ -60,7 +64,7 @@ func newMockedKubeApi() *MockedKubeApi {
 	// no delay in creation by default
 	api.StsCreationDelayMillis = 0
 
-	// ugly but seems the only way to clean om global variable for current connection (as go doesnt' have setup()/teardown()
+	// ugly but seems the only way to clean om global variable for current connection (as golang doesnt' have setup()/teardown()
 	// methods for testing
 	om.CurrMockedConnection = nil
 

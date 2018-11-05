@@ -31,7 +31,8 @@ type OmConnection interface {
 	ReadAutomationAgents() (*AgentState, error)
 	GetHosts() (*Host, error)
 	RemoveHost(hostId string) error
-	ReadGroup(name string) (*Group, error)
+	ReadOrganizations() ([]*Organization, error)
+	ReadGroups() ([]*Group, error)
 	CreateGroup(group *Group) (*Group, error)
 	UpdateGroup(group *Group) (*Group, error)
 	// ReadBackupConfigs returns all host clusters registered in OM. If there's no backup enabled the status is supposed
@@ -218,19 +219,34 @@ func (oc *HttpOmConnection) RemoveHost(hostId string) error {
 	return oc.delete(mPath)
 }
 
-func (oc *HttpOmConnection) ReadGroup(name string) (*Group, error) {
-	mPath := fmt.Sprintf("/api/public/v1.0/groups/byName/%s", name)
+func (oc *HttpOmConnection) ReadOrganizations() ([]*Organization, error) {
+	mPath := fmt.Sprintf("/api/public/v1.0/orgs?itemsPerPage=1000")
 	res, err := oc.get(mPath)
 	if err != nil {
 		return nil, err
 	}
 
-	group := &Group{}
-	if err := json.Unmarshal(res, group); err != nil {
+	orgsResponse := &OrganizationsResponse{}
+	if err := json.Unmarshal(res, orgsResponse); err != nil {
 		return nil, NewApiError(err)
 	}
 
-	return group, nil
+	return orgsResponse.Organizations, nil
+}
+
+func (oc *HttpOmConnection) ReadGroups() ([]*Group, error) {
+	mPath := fmt.Sprintf("/api/public/v1.0/groups?itemsPerPage=1000")
+	res, err := oc.get(mPath)
+	if err != nil {
+		return nil, err
+	}
+
+	groupsResponse := &GroupsResponse{}
+	if err := json.Unmarshal(res, groupsResponse); err != nil {
+		return nil, NewApiError(err)
+	}
+
+	return groupsResponse.Groups, nil
 }
 func (oc *HttpOmConnection) CreateGroup(group *Group) (*Group, error) {
 	res, err := oc.post("/api/public/v1.0/groups", group)

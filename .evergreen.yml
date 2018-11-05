@@ -328,13 +328,6 @@ tasks:
         env: development
         image_name: mongodb-enterprise-database
         create_git_sha_tags: "true"
-    - func: "build_and_push_image"
-      vars:
-        env: development
-        image_name: mongodb-enterprise
-        path: mongodb-enterprise/4.0
-        docker_args: MONGO_VERSION=4.0.3
-
 
 buildvariants:
 

@@ -1,5 +1,9 @@
 package om
 
+type GroupsResponse struct {
+	Groups []*Group `json:"results"`
+}
+
 type Group struct {
 	Id          string   `json:"id,omitempty"`
 	Name        string   `json:"name"`

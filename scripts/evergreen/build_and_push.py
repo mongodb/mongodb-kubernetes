@@ -92,8 +92,8 @@ def name_for_image(image, tag):
 def parse_docker_args(docker_args):
     if not docker_args:
         return {}
-    return {(k.strip(), v.strip()) for k,v in
-                  (item.split('=') for item in docker_args.split(','))}
+    return {k.strip(): v.strip() for k, v in
+            [option.split("=") for option in docker_args.split(",")]}
 
 
 def build_image(image, tag, path_to_image, docker_args):
@@ -101,7 +101,8 @@ def build_image(image, tag, path_to_image, docker_args):
     tagged_image = name_for_image(image, tag)
     if path_to_image == "":
         path_to_image = image
-    client.images.build(path=image_directories(path_to_image), tag=tagged_image, buildargs=parse_docker_args(docker_args))
+    client.images.build(path=image_directories(path_to_image), tag=tagged_image,
+                        buildargs=parse_docker_args(docker_args))
 
 
 def tag_image(image, tag, repo):
@@ -156,7 +157,6 @@ def main(args):
     # registry with id '268558157000'"}...
     if "errorDetail" in output:
         raise RuntimeError("There was error pushing image")
-
 
 
 if __name__ == '__main__':
