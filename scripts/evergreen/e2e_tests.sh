@@ -83,7 +83,7 @@ spawn_om_kops() {
     echo "Getting credentials from Ops Manager"
 
     # Gets the om-environment from one of the possible locations of the environment file
-    read_om_env "/opt/mongodb/mms/env/.ops-manager-env" || read_om_env "/opt/mongodb/mms/.ops-manager-env"
+    read_om_env "/opt/mongodb/mms/env/.ops-manager-env" || read_om_env "/opt/mongodb/mms/.ops-manager-env" || exit 1
 
     echo "OM_USER: ${OM_USER}"
     echo "OM_PASSWORD: ${OM_PASSWORD}"

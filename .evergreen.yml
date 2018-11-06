@@ -199,7 +199,7 @@ functions:
               --path "${path}" \
               --docker-args "$docker_args"
 
-  "e2e_tests":
+  "e2e_test":
     - command: shell.exec
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen
@@ -224,10 +224,7 @@ functions:
           fi
 
           # A complete environment is set each time.
-          TEST_STAGE=replica_set_base ./e2e_tests.sh
-          TEST_STAGE=replica_set_ent ./e2e_tests.sh
-          TEST_STAGE=replica_set_pv ./e2e_tests.sh
-          TEST_STAGE=replica_set_pv_multiple ./e2e_tests.sh
+          TEST_STAGE=${test_name} ./e2e_tests.sh
 
   "post_task":
   - command: shell.exec
@@ -254,32 +251,6 @@ tasks:
     - func: "clone"
     - func: "test_operator"
     - func: "gotest_parse_files"
-
-- name: e2e_tests
-  tags: ["e2e"]
-  commands:
-    - func: "clone"
-    - func: "check_evergreen_health"
-    - func: "setup_aws"
-    - func: "setup_docker"
-    - func: "build_operator"
-    - func: "build_and_push_image"
-      vars:
-        env: development
-        image_name: mongodb-enterprise-operator
-        create_git_sha_tags: "true"
-    - func: "build_and_push_image"
-      vars:
-        env: development
-        image_name: mongodb-enterprise-database
-        create_git_sha_tags: "true"
-    - func: "build_and_push_image"
-      vars:
-        env: development
-        image_name: mongodb-enterprise-tests
-        create_git_sha_tags: "true"
-    - func: "setup_kubectl"
-    - func: "e2e_tests"
 
 - name: release_operator
   tags: ["release_operator"]
@@ -328,6 +299,60 @@ tasks:
         env: development
         image_name: mongodb-enterprise-database
         create_git_sha_tags: "true"
+- name: setup_e2e
+  commands:
+    - func: "clone"
+    - func: "check_evergreen_health"
+    - func: "setup_aws"
+    - func: "setup_docker"
+    - func: "build_operator"
+    - func: "build_and_push_image"
+      vars:
+        env: development
+        image_name: mongodb-enterprise-operator
+        create_git_sha_tags: "true"
+    - func: "build_and_push_image"
+      vars:
+        env: development
+        image_name: mongodb-enterprise-database
+        create_git_sha_tags: "true"
+    - func: "build_and_push_image"
+      vars:
+        env: development
+        image_name: mongodb-enterprise-tests
+        create_git_sha_tags: "true"
+- name: e2e_rs_base
+  commands:
+    - func: "e2e_test"
+      vars:
+        test_name: replica_set_base
+- name: e2e_rs_ent
+  commands:
+    - func: "e2e_test"
+      vars:
+        test_name: replica_set_ent
+- name: e2e_rs_pv
+  commands:
+    - func: "e2e_test"
+      vars:
+        test_name: replica_set_pv
+- name: e2e_rs_pv_multiple
+  commands:
+    - func: "e2e_test"
+      vars:
+        test_name: replica_set_pv_multiple
+
+task_groups:
+- name: e2e_task_group
+  max_hosts: 100
+  setup_group:
+    - func: "clone"
+    - func: "setup_kubectl"
+  tasks:
+    - e2e_rs_base
+    - e2e_rs_ent
+    - e2e_rs_pv
+    - e2e_rs_pv_multiple
 
 buildvariants:
 
@@ -344,12 +369,6 @@ buildvariants:
   tasks:
     - ".release_operator"
 
-- name: release_mongodb_enterprise
-  run_on:
-    - archlinux-test
-  tasks:
-    - ".release_mongodb_enterprise"
-
 - name: build_and_push_images_development
   run_on:
     - archlinux-test
@@ -364,7 +383,10 @@ buildvariants:
   batchtime: 1440
   setpback: false
   tasks:
-  - ".e2e"
+  - name: "setup_e2e"
+  - name: "e2e_task_group"
+    depends_on:
+    - name: setup_e2e
 
 - name: e2e_openshift_origin_v3.11
   run_on:
@@ -372,4 +394,7 @@ buildvariants:
   batchtime: 1440
   setpback: false
   tasks:
-  - ".e2e"
+   - name: "setup_e2e"
+   - name: "e2e_task_group"
+     depends_on:
+     - name: setup_e2e
