@@ -3,8 +3,8 @@ package v1
 import (
 	"reflect"
 
-	crd "github.com/10gen/ops-manager-kubernetes/operator/crd"
-	"github.com/10gen/ops-manager-kubernetes/util"
+	crd "github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/crd"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"

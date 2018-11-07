@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/10gen/ops-manager-kubernetes/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 
 	"go.uber.org/zap"
 )

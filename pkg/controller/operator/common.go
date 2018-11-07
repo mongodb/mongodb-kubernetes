@@ -5,9 +5,9 @@ import (
 
 	"math"
 
-	"github.com/10gen/ops-manager-kubernetes/om"
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
-	"github.com/10gen/ops-manager-kubernetes/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/pkg/errors"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"

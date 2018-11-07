@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/10gen/ops-manager-kubernetes/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/spf13/cast"
 )
 

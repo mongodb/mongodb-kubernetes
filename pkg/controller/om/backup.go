@@ -3,7 +3,7 @@ package om
 import (
 	"fmt"
 
-	"github.com/10gen/ops-manager-kubernetes/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 )

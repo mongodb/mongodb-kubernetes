@@ -7,17 +7,17 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/10gen/ops-manager-kubernetes/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 
-	"github.com/10gen/ops-manager-kubernetes/operator"
-	"github.com/10gen/ops-manager-kubernetes/operator/crd"
 	mongodbclient "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/typed/mongodb.com/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/crd"
 	"k8s.io/api/core/v1"
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
-	"github.com/10gen/ops-manager-kubernetes/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"go.uber.org/zap"
 )
 

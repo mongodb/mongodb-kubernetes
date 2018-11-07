@@ -1,9 +1,9 @@
 package operator
 
 import (
-	"github.com/10gen/ops-manager-kubernetes/om"
-	"github.com/10gen/ops-manager-kubernetes/operator/crd"
-	"github.com/10gen/ops-manager-kubernetes/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/crd"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 
 	"fmt"
 

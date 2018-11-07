@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/10gen/ops-manager-kubernetes/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 
-	"github.com/10gen/ops-manager-kubernetes/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 
 	"github.com/stretchr/testify/assert"
 

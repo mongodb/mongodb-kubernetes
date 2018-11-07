@@ -3,11 +3,11 @@ package operator
 import (
 	"testing"
 
-	"github.com/10gen/ops-manager-kubernetes/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 
 	"os"
 
-	"github.com/10gen/ops-manager-kubernetes/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 )

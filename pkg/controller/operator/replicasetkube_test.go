@@ -8,9 +8,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/10gen/ops-manager-kubernetes/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
-	"github.com/10gen/ops-manager-kubernetes/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
