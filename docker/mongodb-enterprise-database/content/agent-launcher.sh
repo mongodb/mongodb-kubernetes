@@ -16,8 +16,8 @@ if ! grep -q "${current_uid}" /etc/passwd ; then
     echo "Added ${current_uid} to /etc/passwd"
 fi
 
-# Create a symlink to make sure it happens after the volumes have been mounted
-ln -s /journal /data/journal
+# Create a symlink, after the volumes have been mounted
+ln -sf /journal /data/
 echo "Created symlink: /data/journal -> $(readlink -f /data/journal)"
 
 base_url="${BASE_URL-}" # If unassigned, set to empty string to avoid set-u errors
@@ -29,7 +29,7 @@ if [ ! -e "${MMS_HOME}/files/mongodb-mms-automation-agent" ]; then
     echo "Downloading an Automation Agent from ${base_url}"
     echo
     pushd /tmp >/dev/null
-    curl --silent --retry 3 --fail -o automation-agent.tar.gz "${base_url}/download/agent/automation/mongodb-mms-automation-agent-latest.linux_x86_64.tar.gz"
+    curl --location --silent --retry 3 --fail -o automation-agent.tar.gz "${base_url}/download/agent/automation/mongodb-mms-automation-agent-latest.linux_x86_64.tar.gz"
     tar -xzf automation-agent.tar.gz
     mv mongodb-mms-automation-agent-*/mongodb-mms-automation-agent "${MMS_HOME}/files/"
     chmod +x "${MMS_HOME}/files/mongodb-mms-automation-agent"
