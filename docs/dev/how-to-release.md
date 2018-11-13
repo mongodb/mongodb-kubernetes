@@ -80,7 +80,7 @@ version).
 This should be done using `evergreen` with one of the provided tasks:
 
 ``` yaml
-evergreen patch -p ops-manager-kubernetes -v release -f
+evergreen patch -p ops-manager-kubernetes -v release_operator -f
 ```
 
 This will build the `mongodb-enterprise-operator` and

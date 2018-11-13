@@ -158,7 +158,7 @@ functions:
         script: |
           set +x
           # Releases are performed only for patches
-          if [ -n "${release_object:-}" ] && [ "${is_patch}" != "true" ]; then
+          if [ -n "${release_object}" ] && [ "${is_patch}" != "true" ]; then
             echo "Releasing is done only from patches"
             exit 0
           fi
