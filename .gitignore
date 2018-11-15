@@ -14,6 +14,6 @@ cache
 **/myenv
 **/venv/
 *.bak
-**pytest_cache/
+**/pytest_cache/
 bin/*
 **/*.iml
