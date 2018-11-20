@@ -19,8 +19,9 @@ pwd
 
 # Will generate a random namespace to use each time
 if [ -z "${PROJECT_NAMESPACE}" ]; then
-    random_namespace=$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 13)
-    PROJECT_NAMESPACE="test-${random_namespace}-ab"
+    random_namespace=$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 20)
+    doy=$(date +'%j')
+    PROJECT_NAMESPACE="a-${doy}-${random_namespace}z"
     export PROJECT_NAMESPACE
     printf "Project Namespace is: %s\\n" "${PROJECT_NAMESPACE}"
 else

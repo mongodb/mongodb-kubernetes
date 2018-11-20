@@ -32,7 +32,7 @@ spec:
     spec:
       containers:
       - name: mongodb-enterprise-ops-manager
-        image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager:4.0.2.50187.20180905T1427Z-1_test
+        image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager:4.0.5.50245.20181031T0042Z-1_test
         imagePullPolicy: Always
         env:
         - name: OM_HOST
@@ -49,6 +49,13 @@ spec:
         resources:
           requests:
             memory: "4Gi"
+        readinessProbe:
+          httpGet:
+            port: 8080
+            path: /
+          initialDelaySeconds: 30
+          timeoutSeconds: 1
+
   volumeClaimTemplates:
   - metadata:
       name: mongodb-mms-data

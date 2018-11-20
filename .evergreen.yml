@@ -39,6 +39,33 @@ functions:
         permissions: public-read
         content_type: application/octet-stream
 
+  # push the latest build of the operator to s3 for the RH build-service to be able to build the RHEL image.
+  "push_operator_binary_for_rhel":
+    - command: s3.put
+      params:
+        aws_key: ${mms_build_s3_aws_access_key}
+        aws_secret: ${mms_build_s3_aws_secret}
+        local_file: src/github.com/10gen/ops-manager-kubernetes/docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator
+        remote_file: ops-manager-operator/latest/mongodb-enterprise-operator
+        bucket: ops-manager-kubernetes-build
+        permissions: public-read
+        content_type: application/octet-stream
+
+  "build_rhel_images":
+    - command: shell.exec
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        script: |
+          if [ "${is_patch}" != "true" ]; then
+            echo "Releasing is done only from patches"
+            exit 0
+          fi
+
+          release="$(grep mongodbOperator release.yaml | awk '{ print $2 }' | tr -d '\n')"
+
+          scripts/evergreen/build_operator_rhel.sh $release ${rhc_operator_pid}
+          scripts/evergreen/build_operator_rhel.sh $release ${rhc_database_pid}
+
   "setup_aws":
     - command: shell.exec
       params:
@@ -269,6 +296,14 @@ tasks:
         env: production
         image_name: mongodb-enterprise-database
 
+- name: release_operator_rhel_connect
+  tags: ["release_operator_rhel"]
+  commands:
+    - func: "clone"
+    - func: "build_operator"
+    - func: "push_operator_binary_for_rhel"
+    - func: "build_rhel_images"
+
 # Note that this task doesn't work so far as it needs different quay account and token
 - name: release_mongodb_enterprise
   tags: ["release_mongodb_enterprise"]
@@ -299,6 +334,7 @@ tasks:
         env: development
         image_name: mongodb-enterprise-database
         create_git_sha_tags: "true"
+
 - name: setup_e2e
   commands:
     - func: "clone"
@@ -321,6 +357,7 @@ tasks:
         env: development
         image_name: mongodb-enterprise-tests
         create_git_sha_tags: "true"
+
 - name: e2e_rs_base
   commands:
     - func: "e2e_test"
@@ -368,6 +405,12 @@ buildvariants:
     - archlinux-test
   tasks:
     - ".release_operator"
+
+- name: release_operator_rhel
+  run_on:
+    - archlinux-test
+  tasks:
+    - ".release_operator_rhel"
 
 - name: build_and_push_images_development
   run_on:

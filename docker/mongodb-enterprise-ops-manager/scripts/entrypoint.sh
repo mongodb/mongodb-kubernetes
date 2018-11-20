@@ -50,6 +50,8 @@ echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')]: Started Ops Manager..."
 
 # Configure Ops Manager (register a global owner, create a project, define a 0/0 whitelist for the public API and retrieve the public API key)
 if [ ! -z "${OM_HOST}" ] &&  [ -z "${SKIP_OPS_MANAGER_REGISTRATION}" ]; then
+    # wait a few seconds for Ops Manager to be ready to handle http connections
+    sleep 20
     echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')]: Configuring Ops Manager / registering a Global Owner..."
     . /opt/venv/bin/activate
     # if we fail here it might be because we already initialized this image, no need to do it again.
