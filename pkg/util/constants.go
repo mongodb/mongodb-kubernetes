@@ -1,6 +1,11 @@
 package util
 
 const (
+	// Controllers names
+	MongoDbStandaloneController     = "mongodbstandalone-controller"
+	MongoDbReplicaSetController     = "mongodbreplicaset-controller"
+	MongoDbShardedClusterController = "mongodbshardedcluster-controller"
+
 	// Ops manager config map and secret variables
 	OmBaseUrl      = "baseUrl"
 	OmOrgId        = "orgId"
@@ -55,4 +60,5 @@ const (
 
 	// All others
 	OmGroupExternallyManagedTag = "EXTERNALLY_MANAGED_BY_KUBERNETES"
+	MongodbResourceFinalizer    = "resource.finalizer.mongodb.com"
 )

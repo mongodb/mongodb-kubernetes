@@ -1,59 +1,38 @@
 package operator
 
 import (
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/crd"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-
+	"context"
 	"fmt"
-
 	"strings"
+	"time"
 
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
-	mongodbscheme "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/scheme"
-	mongodbclient "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/typed/mongodb.com/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"github.com/pkg/errors"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
-	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/tools/cache"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type MongoDbController struct {
-	mongodbClientset mongodbclient.MongodbV1Interface
+// TODO rename the file to "common_controller.go" later
+
+// ReconcileCommonController is the "parent" controller that is included into each specific controller and allows
+// to reuse the common functionality
+type ReconcileCommonController struct {
+	// This client, initialized using mgr.Client() above, is a split client
+	// that reads objects from the cache and writes to the apiserver
+	client           client.Client
+	scheme           *runtime.Scheme
 	kubeHelper       KubeHelper
 	omConnectionFunc func(baseUrl, groupId, user, publicApiKey string) om.OmConnection
 }
 
-// NewMongoDbController creates the controller class that reacts on events for mongodb resources
-// Passing "KubeApi" and "omConnectionFunc" parameters allows inject the custom behavior and is convenient for testing
-func NewMongoDbController(kubeApi KubeApi, mongodbClientset mongodbclient.MongodbV1Interface,
-	omConnectionFunc func(baseUrl, groupId, user, publicApiKey string) om.OmConnection) *MongoDbController {
-	mongodbscheme.AddToScheme(scheme.Scheme)
-
-	return &MongoDbController{
-		mongodbClientset: mongodbClientset,
-		kubeHelper:       KubeHelper{kubeApi: kubeApi},
-		omConnectionFunc: omConnectionFunc,
-	}
-}
-
-func (c *MongoDbController) StartWatch(namespace string, stopCh chan struct{}) error {
-	err := c.startWatchReplicaSet(namespace, stopCh)
-	if err != nil {
-		return err
-	}
-	err = c.startWatchStandalone(namespace, stopCh)
-	if err != nil {
-		return err
-	}
-	err = c.startWatchShardedCluster(namespace, stopCh)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (c *MongoDbController) prepareOmConnection(namespace, project, credentials string, log *zap.SugaredLogger) (om.OmConnection, *PodVars, error) {
+func (c *ReconcileCommonController) prepareOmConnection(namespace, project, credentials string, log *zap.SugaredLogger) (om.OmConnection, *PodVars, error) {
 	projectConfig, e := c.kubeHelper.readProjectConfig(namespace, project)
 	if e != nil {
 		return nil, nil, e
@@ -89,7 +68,7 @@ func (c *MongoDbController) prepareOmConnection(namespace, project, credentials 
 // a rare operation as the group creation api generates agent key already (so the only possible situation is when the group
 // was created externally and agent key wasn't generated before)
 // Returns the api key existing/generated
-func (c *MongoDbController) ensureAgentKeySecretExists(omConnection om.OmConnection, nameSpace, agentKey string, log *zap.SugaredLogger) (string, error) {
+func (c *ReconcileCommonController) ensureAgentKeySecretExists(omConnection om.OmConnection, nameSpace, agentKey string, log *zap.SugaredLogger) (string, error) {
 	secretName := agentApiKeySecretName(omConnection.GroupId())
 	log = log.With("secret", secretName)
 	secret, err := c.kubeHelper.kubeApi.getSecret(nameSpace, secretName)
@@ -113,44 +92,77 @@ func (c *MongoDbController) ensureAgentKeySecretExists(omConnection om.OmConnect
 	return strings.TrimSuffix(string(secret.Data[util.OmAgentApiKey]), "\n"), nil
 }
 
-func (c *MongoDbController) startWatchReplicaSet(namespace string, stopCh chan struct{}) error {
-	resourceHandlers := cache.ResourceEventHandlerFuncs{
-		AddFunc:    c.onAddReplicaSet,
-		UpdateFunc: c.onUpdateReplicaSet,
-		DeleteFunc: c.onDeleteReplicaSet,
+func (c *ReconcileCommonController) updateStatusSuccessful(resource v1.StatusUpdater, log *zap.SugaredLogger) {
+	resource.UpdateSuccessful()
+	// Dev note: "c.client.Status().Update()" doesn't work for some reasons and the examples from Operator SDK use the
+	// normal resource update - so we use the same
+	err := c.client.Update(context.TODO(), resource)
+	if err != nil {
+		log.Errorf("Failed to update status for resource to successful: %s", err)
 	}
-	restClient := c.mongodbClientset.RESTClient()
+}
 
-	replicaSetWatcher := crd.NewWatcher(mongodb.MongoDbReplicaSetResource, namespace, resourceHandlers, restClient)
-	go replicaSetWatcher.Watch(&mongodb.MongoDbReplicaSet{}, stopCh)
+func (c *ReconcileCommonController) updateStatusFailed(resource v1.StatusUpdater, errorMessage string, log *zap.SugaredLogger) (reconcile.Result, error) {
+	log.Error(errorMessage)
+	resource.UpdateError(errorMessage)
+	err := c.client.Update(context.TODO(), resource)
+	if err != nil {
+		log.Errorf("Failed to update resource status: %s", err)
+	}
+	return reconcile.Result{RequeueAfter: 10 * time.Second}, errors.New(errorMessage)
+}
 
+// reconcileDeletion checks the headers and if 'util.MongodbResourceFinalizer' header is present - tries to cleanup Ops Manager
+// through calling 'cleanupFunc'. Cleanup is requeued in case of any troubles. Otherwise the header is removed from custom
+// resource
+func (c *ReconcileCommonController) reconcileDeletion(cleanupFunc func(obj interface{}, log *zap.SugaredLogger) error,
+	res interface{}, objectMeta *metav1.ObjectMeta, log *zap.SugaredLogger) (reconcile.Result, error) {
+	// Object is being removed - let's check for finalizers left
+	if util.ContainsString(objectMeta.Finalizers, util.MongodbResourceFinalizer) {
+		if err := cleanupFunc(res, log); err != nil {
+			// Retrying cleanup
+			return reconcile.Result{}, err
+		}
+
+		// remove our finalizer from the list and update it.
+		objectMeta.Finalizers = util.RemoveString(objectMeta.Finalizers, util.MongodbResourceFinalizer)
+		if err := c.client.Update(context.Background(), res.(runtime.Object)); err != nil {
+			return reconcile.Result{}, err
+		}
+		log.Debug("Removed finalizer header")
+	}
+
+	// Our finalizer has finished, so the reconciler can do nothing.
+	return reconcile.Result{}, nil
+}
+
+// ensureFinalizerHeaders adds the finalizer header to custom resource if it doesn't exist
+// see https://book.kubebuilder.io/beyond_basics/using_finalizers.html
+func (c *ReconcileCommonController) ensureFinalizerHeaders(res runtime.Object, objectMeta *metav1.ObjectMeta, log *zap.SugaredLogger) error {
+	if !util.ContainsString(objectMeta.Finalizers, util.MongodbResourceFinalizer) {
+		objectMeta.Finalizers = append(objectMeta.Finalizers, util.MongodbResourceFinalizer)
+		if err := c.client.Update(context.Background(), res); err != nil {
+			return err
+		}
+		log.Debug("Added finalizer header")
+	}
 	return nil
 }
 
-func (c *MongoDbController) startWatchShardedCluster(namespace string, stopCh chan struct{}) error {
-	resourceHandlers := cache.ResourceEventHandlerFuncs{
-		AddFunc:    c.onAddShardedCluster,
-		UpdateFunc: c.onUpdateShardedCluster,
-		DeleteFunc: c.onDeleteShardedCluster,
+// fetchResource finds the object being reconciled. Returns 'true' indicating if the main logic should proceed
+func (c *ReconcileCommonController) fetchResource(request reconcile.Request, object runtime.Object, log *zap.SugaredLogger) (bool, error) {
+	err := c.client.Get(context.TODO(), request.NamespacedName, object)
+	if err != nil {
+		if apiErrors.IsNotFound(err) {
+			// Request object not found, could have been deleted after reconcile request.
+			// Return and don't requeue
+			// TODO for some reasons the reconciliation is triggered twice after the object has been deleted
+			log.Debugf("Object %s doesn't exist, was it deleted after reconcile request?", request.NamespacedName)
+			return false, nil
+		}
+		// Error reading the object - requeue the request.
+		log.Errorf("Failed to query object %s: %s", request.NamespacedName, err)
+		return false, err
 	}
-	restClient := c.mongodbClientset.RESTClient()
-
-	replicaSetWatcher := crd.NewWatcher(mongodb.MongoDbShardedClusterResource, namespace, resourceHandlers, restClient)
-	go replicaSetWatcher.Watch(&mongodb.MongoDbShardedCluster{}, stopCh)
-
-	return nil
-}
-
-func (c *MongoDbController) startWatchStandalone(namespace string, stopCh chan struct{}) error {
-	resourceHandlers := cache.ResourceEventHandlerFuncs{
-		AddFunc:    c.onAddStandalone,
-		UpdateFunc: c.onUpdateStandalone,
-		DeleteFunc: c.onDeleteStandalone,
-	}
-	restClient := c.mongodbClientset.RESTClient()
-
-	replicaSetWatcher := crd.NewWatcher(mongodb.MongoDbStandaloneResource, namespace, resourceHandlers, restClient)
-	go replicaSetWatcher.Watch(&mongodb.MongoDbStandalone{}, stopCh)
-
-	return nil
+	return true, nil
 }

@@ -195,8 +195,12 @@ func (k *KubeHelper) waitForStatefulsetAndPods(ns, stsName string, log *zap.Suga
 	retrials := util.ReadEnvVarOrPanicInt(util.StatefulSetWaitRetriesEnv)
 
 	return util.DoAndRetry(func() (string, bool) {
-		set, _ := k.kubeApi.getStatefulSet(ns, stsName)
-		msg := fmt.Sprintf("%d of %d replicas are ready", set.Status.ReadyReplicas, *set.Spec.Replicas)
+		set, err := k.kubeApi.getStatefulSet(ns, stsName)
+		if err != nil {
+			// Should we retry these errors?...
+			return fmt.Sprintf("Error reading statefulset %s: %s", nsName(ns, stsName), err), false
+		}
+		msg := fmt.Sprintf("Replicas count: expected %d, current %d", *set.Spec.Replicas, set.Status.ReadyReplicas)
 		return msg, set.Status.ReadyReplicas == *set.Spec.Replicas
 	}, log, retrials, waitSeconds)
 }

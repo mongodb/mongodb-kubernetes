@@ -3,6 +3,8 @@ package operator
 import (
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/types"
+
 	"math"
 
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
@@ -159,6 +161,7 @@ func prepareScaleDown(omClient om.OmConnection, rsMembers map[string][]string, l
 				}
 				return nil
 			},
+			log,
 		)
 
 		if err != nil {
@@ -218,4 +221,8 @@ func exceptionHandling(msg string, log *zap.SugaredLogger) {
 	if r := recover(); r != nil {
 		log.Errorf("%s: %s", msg, r)
 	}
+}
+
+func nsName(ns, name string) types.NamespacedName {
+	return types.NamespacedName{Namespace: ns, Name: name}
 }

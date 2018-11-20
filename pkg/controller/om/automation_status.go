@@ -2,8 +2,6 @@ package om
 
 import (
 	"encoding/json"
-
-	"go.uber.org/zap"
 )
 
 type AutomationStatus struct {
@@ -31,43 +29,10 @@ func buildAutomationStatusFromBytes(b []byte) (*AutomationStatus, error) {
 // state.
 func checkAutomationStatusIsGoal(as *AutomationStatus) bool {
 	for _, p := range as.Processes {
-		zap.S().Infow("Waiting to reach goal state",
-			"currentState", p.LastGoalVersionAchieved,
-			"goalState", as.GoalVersion)
 		if p.LastGoalVersionAchieved != as.GoalVersion {
 			return false
 		}
 	}
 
 	return true
-}
-
-// WaitUntilGoalState will return after all automations agents
-// have reported to reach Goal state.
-func WaitUntilGoalState(om OmConnection) bool {
-	var lastErr error
-	wait := WaitFunction(30, 3)
-
-	for {
-		if !wait() {
-			break
-		}
-
-		zap.S().Debug("Waiting for automation agents to reach Goal state")
-
-		as, lastErr := om.ReadAutomationStatus()
-		if lastErr != nil {
-			continue
-		}
-
-		if checkAutomationStatusIsGoal(as) {
-			return true
-		}
-	}
-
-	if lastErr != nil {
-		zap.S().Error(lastErr)
-	}
-
-	return false
 }

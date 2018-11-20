@@ -18,7 +18,7 @@ organization name is the same as the projects one and that's what Operator is do
 project with name "A" and no org id and there is already project in Ops manager named "A" in organization with name"B"
 then Operator won't find it as the names don't match.
 */
-func (c *MongoDbController) readOrCreateGroup(config *ProjectConfig, credentials *Credentials, log *zap.SugaredLogger) (*om.Group, error) {
+func (c *ReconcileCommonController) readOrCreateGroup(config *ProjectConfig, credentials *Credentials, log *zap.SugaredLogger) (*om.Group, error) {
 	log = log.With("project", config.ProjectName)
 
 	// we need to create a temporary connection object without group id

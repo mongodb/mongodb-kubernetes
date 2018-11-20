@@ -64,7 +64,7 @@ class TestReplicaSetMultiplePersistentVolumeDelete(KubernetesTester):
       Deletes a Replica Set.
     delete:
       file: fixtures/replica-set-pv-multiple.yaml
-      wait_for: 40
+      wait_for: 90
     """
 
     def test_pvc_are_unbound(self):

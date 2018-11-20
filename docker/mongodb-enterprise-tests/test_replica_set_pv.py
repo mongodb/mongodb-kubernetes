@@ -154,7 +154,7 @@ class TestReplicaSetPersistentVolumeDelete(KubernetesTester):
       Deletes a Replica Set.
     delete:
       file: fixtures/replica-set-pv.yaml
-      wait_for: 40
+      wait_for: 90
     """
 
     def test_replica_set_sts_doesnt_exist(self):

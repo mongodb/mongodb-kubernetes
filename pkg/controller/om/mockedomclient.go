@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"testing"
 
+	"go.uber.org/zap"
+
 	"github.com/pkg/errors"
 
 	"reflect"
@@ -113,7 +115,7 @@ func (oc *MockedOmConnection) ReadDeployment() (Deployment, error) {
 	}
 	return oc.deployment, nil
 }
-func (oc *MockedOmConnection) ReadUpdateDeployment(wait bool, depFunc func(Deployment) error) error {
+func (oc *MockedOmConnection) ReadUpdateDeployment(wait bool, depFunc func(Deployment) error, log *zap.SugaredLogger) error {
 	oc.addToHistory(reflect.ValueOf(oc.ReadUpdateDeployment))
 	if oc.deployment == nil {
 		oc.deployment = NewDeployment()

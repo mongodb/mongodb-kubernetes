@@ -13,8 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"errors"
-
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 )
@@ -25,7 +23,7 @@ import (
 type OmConnection interface {
 	UpdateDeployment(deployment Deployment) ([]byte, error)
 	ReadDeployment() (Deployment, error)
-	ReadUpdateDeployment(wait bool, depFunc func(Deployment) error) error
+	ReadUpdateDeployment(wait bool, depFunc func(Deployment) error, log *zap.SugaredLogger) error
 	GenerateAgentKey() (string, error)
 	ReadAutomationStatus() (*AutomationStatus, error)
 	ReadAutomationAgents() (*AgentState, error)
@@ -144,7 +142,7 @@ func (oc *HttpOmConnection) ReadDeployment() (Deployment, error) {
 
 // ReadUpdateDeployment performs the "read-modify-update" operation on OpsManager Deployment. It will wait for
 // Automation agents to apply results if "wait" is set to true.
-func (oc *HttpOmConnection) ReadUpdateDeployment(wait bool, depFunc func(Deployment) error) error {
+func (oc *HttpOmConnection) ReadUpdateDeployment(wait bool, depFunc func(Deployment) error, log *zap.SugaredLogger) error {
 	deployment, err := oc.ReadDeployment()
 	if err != nil {
 		return err
@@ -159,9 +157,30 @@ func (oc *HttpOmConnection) ReadUpdateDeployment(wait bool, depFunc func(Deploym
 		return err
 	}
 
-	if wait && !WaitUntilGoalState(oc) {
-		return NewApiError(errors.New(fmt.Sprintf("Process didn't reach goal state")))
+	log.Info("Waiting for automation config to be applied by Automation Agents...")
+	reachStateFunc := func() (string, bool) {
+
+		as, lastErr := oc.ReadAutomationStatus()
+		if lastErr != nil {
+			return fmt.Sprintf("Error reading Automation Agents status: %s", lastErr), false
+		}
+
+		if checkAutomationStatusIsGoal(as) {
+			return "Automation agents haven't reached READY state", true
+		}
+
+		return "Automation agents haven't reached READY state", false
 	}
+
+	// todo make the interval configurable
+	if wait && !util.DoAndRetry(reachStateFunc, log, 30, 3) {
+		return NewApiError(fmt.Errorf("Failed to start databases during defined interval"))
+	}
+	msg := "Automation config has been successfully updated in Ops Manager"
+	if wait {
+		msg = msg + " and Automation Agents reached READY state"
+	}
+	log.Info(msg)
 	return nil
 }
 

@@ -170,7 +170,7 @@ func (d Deployment) MarkRsMembersUnvoted(rsName string, rsMembers []string) erro
 func (d Deployment) RemoveProcessByName(name string) error {
 	s := d.getProcessByName(name)
 	if s == nil {
-		return errors.New(fmt.Sprintf("Standalone %s does not exist", name))
+		return fmt.Errorf("Standalone %s does not exist", name)
 	}
 
 	d.removeProcesses([]string{s.Name()})

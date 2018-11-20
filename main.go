@@ -3,21 +3,17 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/signal"
-	"syscall"
-	"time"
+	"runtime"
+
+	apis "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller"
+	"github.com/operator-framework/operator-sdk/pkg/k8sutil"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/runtime/signals"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 
-	mongodbclient "github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned/typed/mongodb.com/v1"
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator"
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/crd"
-	"k8s.io/api/core/v1"
-	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"go.uber.org/zap"
 )
 
@@ -27,36 +23,39 @@ func main() {
 
 	initializeEnvironment()
 
-	context, mongodbClientset, err := createContext()
+	namespace, err := k8sutil.GetWatchNamespace()
 	if err != nil {
-		log.Error("Failed to create context: ", err)
-		os.Exit(1)
+		log.Fatalf("Failed to get watch namespace: %v", err)
 	}
 
-	// create signals to stop watching the resources
-	signalChan := make(chan os.Signal, 1)
-	stopChan := make(chan struct{})
-	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
-
-	// start watching the sample resources
-	log.Info("Starting watching resources for CRDs")
-	api := operator.RestKubeApi{KubeApi: context.Clientset}
-	controller := operator.NewMongoDbController(&api, mongodbClientset, om.NewOpsManagerConnection)
-
-	namespaceToWatch := os.Getenv("WATCH_NAMESPACE")
-	if namespaceToWatch == "" {
-		namespaceToWatch = v1.NamespaceAll
+	// Get a config to talk to the apiserver
+	cfg, err := config.GetConfig()
+	if err != nil {
+		log.Fatal(err)
 	}
-	controller.StartWatch(namespaceToWatch, stopChan)
 
-	for {
-		select {
-		case <-signalChan:
-			log.Warn("shutdown signal received, exiting...")
-			close(stopChan)
-			return
-		}
+	// Create a new Cmd to provide shared dependencies and start components
+	mgr, err := manager.New(cfg, manager.Options{Namespace: namespace})
+	if err != nil {
+		log.Fatal(err)
 	}
+
+	log.Info("Registering Components.")
+
+	// Setup Scheme for all resources
+	if err := apis.AddToScheme(mgr.GetScheme()); err != nil {
+		log.Fatal(err)
+	}
+
+	// Setup all Controllers
+	if err := controller.AddToManager(mgr); err != nil {
+		log.Fatal(err)
+	}
+
+	log.Info("Starting the Cmd.")
+
+	// Start the Manager
+	log.Fatal(mgr.Start(signals.SetupSignalHandler()))
 }
 
 func initializeEnvironment() {
@@ -69,6 +68,8 @@ func initializeEnvironment() {
 	initEnvVariables(env)
 
 	log.Info("Operator environment: ", env)
+	log.Infof("Go Version: %s", runtime.Version())
+	log.Infof("Go OS/Arch: %s/%s", runtime.GOOS, runtime.GOARCH)
 }
 
 // initEnvVariables is the central place in application to initialize default configuration for the application (using
@@ -114,35 +115,4 @@ func initLogger(env string) {
 	}
 	zap.ReplaceGlobals(logger)
 	log = zap.S()
-}
-
-func createContext() (*crd.Context, mongodbclient.MongodbV1Interface, error) {
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get k8s config. %+v", err)
-	}
-
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get k8s client. %+v", err)
-	}
-
-	apiExtClientset, err := apiextensionsclient.NewForConfig(config)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create k8s API extension clientset. %+v", err)
-	}
-
-	mongodbClientset, err := mongodbclient.NewForConfig(config)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create clientset. %+v", err)
-	}
-
-	context := &crd.Context{
-		Clientset:             clientset,
-		APIExtensionClientset: apiExtClientset,
-		Interval:              500 * time.Millisecond,
-		Timeout:               60 * time.Second,
-	}
-	return context, mongodbClientset, nil
-
 }
