@@ -50,7 +50,7 @@ read_om_env() {
         eval $(kubectl -n "${OPERATOR_TESTING_FRAMEWORK_NS}" exec mongodb-enterprise-ops-manager-0 cat "$1")
 }
 
-spawn_om_kops() {
+spawn_om_kubernetes() {
     echo "##### Installing Ops Manager..."
 
     OPERATOR_TESTING_FRAMEWORK_NS=operator-testing
@@ -74,7 +74,6 @@ spawn_om_kops() {
 
         echo "Ops Manager is installed in this cluster. A new user will be added for automated tests to run."
         sleep 10 # sleep for a few seconds so the user has time to be created.
-
     else
         echo "Ops Manager is already installed in this cluster. Will reuse it now."
         echo "If you want to start with a fresh Ops Manager installation, please delete the ${OPERATOR_TESTING_FRAMEWORK_NS} namespace."
@@ -105,7 +104,7 @@ install_operator() {
     helm template \
          --set namespace="${PROJECT_NAMESPACE}" \
          --set operator.version="${REVISION}" \
-         --set managedSecurityContext="${MANAGED_SECURITY_CONTEXT}" \
+         --set managedSecurityContext="${MANAGED_SECURITY_CONTEXT:-false}" \
          -f deployments/values-test.yaml ../../public/helm_chart --output-dir "${outdir}" || exit 1
 
     for file in roles serviceaccount operator
@@ -120,21 +119,21 @@ install_operator() {
     fi
 
     echo "Waiting until Operator gets to Running state..."
-    i=0
-    maxWait=15
-    while [ "$(kubectl -n ${PROJECT_NAMESPACE} get pods -l app=mongodb-enterprise-operator -o jsonpath='{.items[0].status.phase}')" != "Running" ] && \
-        [ ${i} -lt ${maxWait} ]; do
-        sleep 1;
-        i=$[$i+1]
+    max_wait=30
+    # In parallel scenarios, when multiple tests are running at the same time, the operator can take more than a few seconds to be ready.
+    # I'm increasing this value to 30 to see how it reacts from now on.
+    while ! kubectl -n "${PROJECT_NAMESPACE}" get pods -l app=mongodb-enterprise-operator -o jsonpath='{.items[0].status.phase}' | grep -q "Running" ; do
+        sleep 1
+        max_wait=$((max_wait - 1))
+        if [ $max_wait -eq 0 ]; then
+            echo "(!!) Operator hasn't reached RUNNING state. The full yaml configuration for the pod is:"
+            echo "------------------------------------------------------"
+            kubectl -n "${PROJECT_NAMESPACE}" get pods -l app=mongodb-enterprise-operator -o yaml
+
+            # Exit and signal an error, the operator should not take more than 30 seconds to start
+            exit 1
+        fi
     done
-
-    if [ ${i} -eq ${maxWait} ]; then
-        echo "(!!) Operator hasn't reached RUNNING state after ${maxWait} seconds. The full yaml configuration for pod:"
-        echo "------------------------------------------------------"
-        kubectl -n ${PROJECT_NAMESPACE} get pods -l app=mongodb-enterprise-operator -o yaml
-
-        exit 1
-    fi
 
     echo "##### Operator installed successfully"
 }
@@ -169,25 +168,6 @@ configure_operator() {
 
 }
 
-test_locally() {
-    setup_locally
-
-    echo "Running tests"
-    ./run.sh
-
-    kubectl delete "ns/${PROJECT_NAMESPACE}"
-}
-
-setup_locally() {
-    # This will spawn a new MCI OM instance and configure the env
-    # First create mci instance
-    start_om_mci
-
-    # Install the operator in the currently configured context
-    install_operator
-    configure_om
-}
-
 init_kops_cluster() {
     export KOPS_STATE_STORE=s3://dev02-mongokubernetes-com-state-store
     export CLUSTER=dev02.mongokubernetes.com
@@ -196,7 +176,7 @@ init_kops_cluster() {
 }
 
 teardown() {
-    printf "Removing namespace: %s\\n" "${PROJECT_NAMESPACE}."
+    printf "Removing Namespace: %s\\n" "${PROJECT_NAMESPACE}."
     kubectl delete "namespace/${PROJECT_NAMESPACE}"
 }
 
@@ -244,41 +224,23 @@ run_tests() {
          --set testStage="${test_stage}" \
          --set tag="${TEST_IMAGE_TAG}" > mongodb-enterprise-tests.yaml || exit 1
 
-    # Run the test container
-    echo "TESTS ---"
-    cat mongodb-enterprise-tests.yaml
-    echo "TESTS ---"
     kubectl --namespace "${PROJECT_NAMESPACE}" apply -f mongodb-enterprise-tests.yaml
-
-    echo "##### Test application deployed"
-
     sleep 10
+
     PODNAME=mongodb-enterprise-operator-tests
-    # Do wait while the Pod is not yet running.
-    kubectl --namespace "${PROJECT_NAMESPACE}" get "pod/${PODNAME}"
-    while kubectl --namespace "${PROJECT_NAMESPACE}" get "pod/${PODNAME}" | grep -q 'Pending' ; do sleep 1; done
+    # Do wait while the Pod is not yet running (can be in Pending or ContainerCreating state)
+    while ! kubectl --namespace "${PROJECT_NAMESPACE}" get "pod/${PODNAME}" | grep -q 'Running' ; do sleep 1; done
 
-    printf "Getting logs for %s.\\n" "${PODNAME}"
+    # Eventually this Pod will finish, and this command will finish as well.
+    kubectl --namespace "${PROJECT_NAMESPACE}" logs "${PODNAME}" -f
 
-    output_filename="test_${PROJECT_NAMESPACE}_output.text"
-    operator_filename="operator_${PROJECT_NAMESPACE}_output.text"
-    # Eventually this Pod will die (after run.sh has completed running), and this command will finish.
-    kubectl --namespace "${PROJECT_NAMESPACE}" logs "${PODNAME}" -f > "${output_filename}" &
-    KILLPID0=$!
-    kubectl --namespace "${PROJECT_NAMESPACE}" logs "deployment/mongodb-enterprise-operator" -f > "${operator_filename}" &
-    KILLPID1=$!
-    # Print the logs from the test container with a background tail.
-    tail -f "${output_filename}" "${operator_filename}" &
-    KILLPID2=$!
+    # Get the output of the operator this time.
+    echo "==== OPERATOR LOGS START ===="
+    kubectl --namespace "${PROJECT_NAMESPACE}" logs "deployment/mongodb-enterprise-operator"
+    echo "==== OPERATOR LOGS END ======"
 
-    # Wait for as long as this Pod is Running.
+    # The tests Pod might not be finish right away, so I wait until it is not in Running state anymore
     while kubectl --namespace "${PROJECT_NAMESPACE}" get "pod/${PODNAME}" | grep -q 'Running' ; do sleep 1; done
-
-    # make sure there are not processes running in the background.
-    kill $KILLPID0 $KILLPID1 $KILLPID2 &> /dev/null
-
-    cp "${output_filename}" "${WORKDIR}/${TEST_STAGE}.xml"
-
     [ "$(kubectl -n ${PROJECT_NAMESPACE} get pods/${PODNAME} -o jsonpath='{.status.phase}')" = "Succeeded" ]
 }
 
@@ -293,28 +255,12 @@ if contains "rebuild-test-image" "$@"; then
     rebuild_test_image
 fi
 
-if contains "teardown" "$@"; then
-    teardown
-    exit
-fi
-
-if contains "test-locally" "$@"; then
-    ## Test locally with Ops Manager in MCI
-    test_locally
-    exit
-fi
-
-if contains "setup-locally" "$@"; then
-    setup_locally
-    exit
-fi
-
 if ! contains "skip-installations" "$@"; then
     install_operator
 fi
 
 if ! contains "skip-installations" "$@"; then
-    spawn_om_kops
+    spawn_om_kubernetes
 fi
 
 echo "Creating Operator Configuration for Ops Manager Test Instance."
@@ -328,13 +274,8 @@ run_tests "${TEST_STAGE}"
 TESTS_OK=$?
 echo "Tests have finished with the following exit code: ${TESTS_OK}"
 
-if contains "skip-ns-removal" "$@" && [ "${TESTS_OK}" -eq 0 ]; then
-    # remove namespace if tests pass
-    echo "Removing Namespacec ${PROJECT_NAMESPACE}"
+if [ "${TESTS_OK}" -eq 0 ] && ! contains "skip-ns-removal" "$@"; then
     teardown
-else
-    # todo check if this is convenient in practice and drawbacks of manual removal don't overload better visibility
-    echo "Not removing namespace ${PROJECT_NAMESPACE} as there were test failures - you can check the state of Kubernetes and remove it manually"
 fi
 
 if [ -z "${IS_EVERGREEN}" ]; then

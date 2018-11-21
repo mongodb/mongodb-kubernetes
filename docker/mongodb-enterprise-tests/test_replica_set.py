@@ -4,6 +4,20 @@ from kubetester import KubernetesTester
 from kubernetes import client
 
 
+@pytest.mark.replica_set_base_noop
+class TestReplicaSetNoop(KubernetesTester):
+    '''
+    name: Replica Set Noop
+    tags: replica-set, noop
+    description: |
+      Does not do absolutely nothing
+    noop:
+      wait_for: 2
+    '''
+    def test_some(self):
+        assert True
+
+
 @pytest.mark.replica_set_base
 class TestReplicaSetCreation(KubernetesTester):
     '''
@@ -590,12 +604,10 @@ class TestReplicaSetDelete(KubernetesTester):
     '''
 
     def test_replica_set_sts_doesnt_exist(self):
-        'StatefulSet should not exist'
         with pytest.raises(client.rest.ApiException):
             self.appsv1.read_namespaced_stateful_set('my-replica-set', self.namespace)
 
     def test_service_does_not_exist(self):
-        'Services should not exist'
         with pytest.raises(client.rest.ApiException):
             self.corev1.read_namespaced_service('my-replica-set-svc', self.namespace)
 

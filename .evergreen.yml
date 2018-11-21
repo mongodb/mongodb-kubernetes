@@ -378,6 +378,16 @@ tasks:
     - func: "e2e_test"
       vars:
         test_name: replica_set_pv_multiple
+- name: e2e_sharded_cluster_base
+  commands:
+    - func: "e2e_test"
+      vars:
+        test_name: sharded_cluster_base
+- name: e2e_sharded_cluster_pv
+  commands:
+    - func: "e2e_test"
+      vars:
+        test_name: sharded_cluster_pv
 
 task_groups:
 - name: e2e_task_group
@@ -390,6 +400,8 @@ task_groups:
     - e2e_rs_ent
     - e2e_rs_pv
     - e2e_rs_pv_multiple
+    - e2e_sharded_cluster_base
+    - e2e_sharded_cluster_pv
 
 buildvariants:
 

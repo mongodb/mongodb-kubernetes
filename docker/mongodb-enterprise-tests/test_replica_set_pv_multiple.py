@@ -2,6 +2,8 @@ import pytest
 
 from kubetester import KubernetesTester
 
+from operator import attrgetter
+
 
 @pytest.mark.replica_set_pv_multiple
 class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
@@ -32,27 +34,16 @@ class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
             self.check_pvc_for_pod(idx, pod)
 
     def check_pvc_for_pod(self, idx, pod):
-        claims = list(filter(lambda v: getattr(v, "persistent_volume_claim") is not None, pod.spec.volumes))
+        claims = [volume for volume in pod.spec.volumes if getattr(volume, "persistent_volume_claim")]
         assert len(claims) == 3
-        claims.sort(key=lambda claim: claim.name)
+
+        claims.sort(key=attrgetter('name'))
+
         self.check_single_pvc(claims[0], "data", 'data-{}-{}'.format(self.RESOURCE_NAME, idx), "2Gi", "gp2")
 
         # Note that PVC gets the default storage class for cluster even if it wasn't requested initially
         self.check_single_pvc(claims[1], "journal", 'journal-{}-{}'.format(self.RESOURCE_NAME, idx), "1Gi", "gp2")
         self.check_single_pvc(claims[2], "logs", 'logs-{}-{}'.format(self.RESOURCE_NAME, idx), "1G", "gp2")
-
-    def check_single_pvc(self, volume, expected_name, expected_claim_name, expected_size,
-                         storage_class=None):
-        assert volume.name == expected_name
-        assert volume.persistent_volume_claim.claim_name == expected_claim_name
-
-        pvc = self.corev1.read_namespaced_persistent_volume_claim(expected_claim_name, self.namespace)
-        assert pvc.status.phase == 'Bound'
-        assert pvc.spec.resources.requests["storage"] == expected_size
-        if storage_class is not None:
-            assert pvc.spec.storage_class_name == storage_class
-        else:
-            assert getattr(pvc.spec, "storage_class_name") is None
 
 
 @pytest.mark.replica_set_pv_multiple
@@ -66,10 +57,15 @@ class TestReplicaSetMultiplePersistentVolumeDelete(KubernetesTester):
       file: fixtures/replica-set-pv-multiple.yaml
       wait_for: 90
     """
+    def test_sharded_cluster_doesnt_exist(self):
+        # There should be no statefulsets in this namespace
+        sts = self.appsv1.list_namespaced_stateful_set(self.namespace)
+        assert len(sts.items) == 0
 
-    def test_pvc_are_unbound(self):
+    def test_pvc_are_bound(self):
         "Should check the used PVC are still there in the Bound status."
         all_claims = self.corev1.list_namespaced_persistent_volume_claim(self.namespace)
         assert len(all_claims.items) == 6
+
         for claim in all_claims.items:
             assert claim.status.phase == 'Bound'

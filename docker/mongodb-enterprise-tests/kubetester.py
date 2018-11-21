@@ -52,7 +52,7 @@ class KubernetesTester(object):
 
     @staticmethod
     def prepare(test_setup, namespace):
-        allowed_actions = ["create", "update", "delete"]
+        allowed_actions = ["create", "update", "delete", "noop"]
 
         # gets type of action
         action = [action for action in allowed_actions if action in test_setup][0]
@@ -82,6 +82,34 @@ class KubernetesTester(object):
         )
 
     @staticmethod
+    def update(section, namespace):
+        "patches custom object"
+        resource = yaml.safe_load(open(section["file"]))
+        name, kind, group, version = get_crd_meta(resource)
+        patch = jsonpatch.JsonPatch.from_string(section["patch"])
+        patched = patch.apply(resource)
+
+        KubernetesTester.clients("customv1").patch_namespaced_custom_object(
+            group, version, namespace, plural(kind), name, patched
+        )
+
+    @staticmethod
+    def delete(section, namespace):
+        "delete custom object"
+        resource = yaml.safe_load(open(section["file"]))
+        name, kind, group, version = get_crd_meta(resource)
+        del_options = KubernetesTester.clients("client").V1DeleteOptions()
+
+        KubernetesTester.clients("customv1").delete_namespaced_custom_object(
+            group, version, namespace, plural(kind), name, del_options
+        )
+
+    @staticmethod
+    def noop(section, namespace):
+        "noop action"
+        pass
+
+    @staticmethod
     def wait_condition(action):
         """Waits for a condition to occur before proceeding,
         or for some amount of time, both can appear in the file,
@@ -106,8 +134,8 @@ class KubernetesTester(object):
         namespace = KubernetesTester.get_namespace()
         ready_to_go = False
 
-        if type_ not in ['sts', 'statefulset']:
-            raise NotImplemented('Only StatefulSets can be tested for now')
+        if type_ not in ["sts", "statefulset"]:
+            raise NotImplemented("Only StatefulSets can be tested for now")
 
         while not ready_to_go:
             try:
@@ -121,29 +149,6 @@ class KubernetesTester(object):
 
             time.sleep(10)
 
-    @staticmethod
-    def update(section, namespace):
-        "patches custom object"
-        resource = yaml.safe_load(open(section["file"]))
-        name, kind, group, version = get_crd_meta(resource)
-        patch = jsonpatch.JsonPatch.from_string(section["patch"])
-        patched = patch.apply(resource)
-
-        KubernetesTester.clients("customv1").patch_namespaced_custom_object(
-            group, version, namespace, plural(kind), name, patched
-        )
-
-    @staticmethod
-    def delete(section, namespace):
-        "delete custom object"
-        resource = yaml.safe_load(open(section["file"]))
-        name, kind, group, version = get_crd_meta(resource)
-        del_options = KubernetesTester.clients("client").V1DeleteOptions()
-
-        KubernetesTester.clients("customv1").delete_namespaced_custom_object(
-            group, version, namespace, plural(kind), name, del_options
-        )
-
     def setup_method(self):
         self.client = client
         self.corev1 = client.CoreV1Api()
@@ -156,7 +161,18 @@ class KubernetesTester(object):
         headers = {"Content-Type": "application/json"}
         endpoint = self.build_om_group_byname_endpoint(name, om_vars)
         auth = self.build_auth(om_vars["user"], om_vars["public_api_key"])
-        response = requests.get(endpoint, auth=auth, headers=headers)
+
+        session = requests.Session()
+
+        adapter = requests.adapters.HTTPAdapter(max_retries=3)
+        session.mount(om_vars["base_url"], adapter)
+        response = session.get(endpoint, auth=auth, headers=headers)
+        if response.status_code >= 300:
+            raise Exception(
+                "Error obtaining ID from Ops Manager API. {} {}".format(
+                    response.status_code, response.text
+                )
+            )
 
         return response.json()["id"]
 
@@ -193,6 +209,12 @@ class KubernetesTester(object):
     def build_mongodb_uri_for_rs(self, hosts):
         return "mongodb://{}".format(",".join(hosts))
 
+    def build_mongodb_uri_for_sh(self, hosts):
+        return "mongodb://{}".format(",".join(hosts))
+
+    def build_mongodb_uri_for_mongos(self, host):
+        return "mongodb://{}".format(host)
+
     def wait_for_rs_is_ready(self, hosts, wait_for=60, check_every=5):
         "Connects to a given replicaset and wait a while for a primary and secondaries."
         mongodburi = self.build_mongodb_uri_for_rs(hosts)
@@ -205,8 +227,33 @@ class KubernetesTester(object):
 
         return client.primary, client.secondaries
 
+    def check_mongos_is_ready(self, host):
+        mongodburi = self.build_mongodb_uri_for_mongos(host)
+        client = pymongo.MongoClient(mongodburi)
+        try:
+            # The ismaster command is cheap and does not require auth.
+            return client.admin.command("ismaster")
+        except ConnectionFailure:
+            raise Exception(
+                "Checking if {} `ismaster` failed. No connectivity to this host was possible.".format(
+                    mongodburi
+                )
+            )
+
     def _get_pods(self, podname, qty=3):
         return [podname.format(i) for i in range(qty)]
+
+    def check_single_pvc(self, volume, expected_name, expected_claim_name, expected_size, storage_class=None):
+        assert volume.name == expected_name
+        assert volume.persistent_volume_claim.claim_name == expected_claim_name
+
+        pvc = self.corev1.read_namespaced_persistent_volume_claim(
+            expected_claim_name, self.namespace
+        )
+        assert pvc.status.phase == "Bound"
+        assert pvc.spec.resources.requests["storage"] == expected_size
+
+        assert getattr(pvc.spec, "storage_class_name") == storage_class
 
 
 def get_group(doc):
@@ -234,7 +281,8 @@ def plural(name):
 
 
 def parse_condition_str(condition):
-    """Returns a condition into constituent parts:
+    """
+    Returns a condition into constituent parts:
     >>> parse_condition_str('sts/my-replica-set -> status.current_replicas == 3')
     >>> 'sts', 'my-replica-set', '{.status.currentReplicas}', '3'
     """
@@ -263,7 +311,7 @@ def get_nested_attribute(obj, attrs):
     >>> b.c = c
     >>> c.my_string = 'hello!'
     >>> get_nested_attribute(a, 'b.c.my_string')
-    'hola'
+    'hello!'
     """
 
     attrs = list(reversed(attrs.split(".")))
