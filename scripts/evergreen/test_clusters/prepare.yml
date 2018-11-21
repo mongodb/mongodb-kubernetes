@@ -14,6 +14,12 @@
     shell: systemctl enable NetworkManager && systemctl start NetworkManager
     tags: ['nodes']
 
+  - name: mount volume
+    shell: |
+      mkdir -p /var/lib/docker
+      mkfs -t xfs /dev/xvdb
+      echo "/dev/xvdb       /var/lib/docker   xfs    defaults,nofail 0       2" >> /etc/fstab
+      mount -a
 
 - hosts: control
   gather_facts: no
