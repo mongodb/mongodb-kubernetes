@@ -24,7 +24,7 @@ import (
 // and Start it when the Manager is Started.
 func AddStandaloneController(mgr manager.Manager) error {
 	// Create a new controller
-	c, err := controller.New(util.MongoDbStandaloneController, mgr, controller.Options{Reconciler: newStandaloneReconciler(mgr)})
+	c, err := controller.New(util.MongoDbStandaloneController, mgr, controller.Options{Reconciler: newStandaloneReconciler(mgr, om.NewOpsManagerConnection)})
 	if err != nil {
 		return err
 	}
@@ -50,37 +50,31 @@ func AddStandaloneController(mgr manager.Manager) error {
 	return nil
 }
 
-func newStandaloneReconciler(mgr manager.Manager) reconcile.Reconciler {
-	api := NewKubeApi{Client: mgr.GetClient()}
-
-	// TODO support for tests with Manager (pass the om connection as a function?)
-	standalone := &ReconcileMongoDbStandalone{ReconcileCommonController{
-		client:           mgr.GetClient(),
-		scheme:           mgr.GetScheme(),
-		kubeHelper:       KubeHelper{&api},
-		omConnectionFunc: om.NewOpsManagerConnection,
-	}}
-	return standalone
+func newStandaloneReconciler(mgr manager.Manager, omFunc func(baseUrl, groupId, user, publicApiKey string) om.OmConnection) reconcile.Reconciler {
+	return &ReconcileMongoDbStandalone{newReconcileCommonController(mgr, omFunc)}
 }
 
 var _ reconcile.Reconciler = &ReconcileMongoDbStandalone{}
 
 // ReconcileMongoDbStandalone reconciles a MongoDbStandalone object
 type ReconcileMongoDbStandalone struct {
-	ReconcileCommonController
+	*ReconcileCommonController
 }
 
 // Reconcile reads that state of the cluster for a MongoDbStandalone object and makes changes based on the state read
 // and what is in the MongoDbStandalone.Spec
-func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (reconcile.Result, error) {
+func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
 	log := zap.S().With("standalone", request.NamespacedName)
 
-	defer exceptionHandling("Failed to reconcile Mongodb Standalone", log)
+	s := &mongodb.MongoDbStandalone{}
+	defer exceptionHandling(
+		func() (reconcile.Result, error) { return r.updateStatusFailed(s, "Failed to reconcile Mongodb Standalone", log) },
+		func(result reconcile.Result, err error) { res = result; e = err },
+	)
 
 	log.Info(">> Reconciling MongoDbStandalone")
 
 	// Fetch the MongoDbStandalone instance
-	s := &mongodb.MongoDbStandalone{}
 	ok, err := r.fetchResource(request, s, log)
 	if !ok {
 		return reconcile.Result{}, err
@@ -152,8 +146,6 @@ func updateOmDeployment(omConnection om.OmConnection, s *mongodb.MongoDbStandalo
 
 func (r *ReconcileMongoDbStandalone) onDeleteStandalone(obj interface{}, log *zap.SugaredLogger) error {
 	s := obj.(*mongodb.MongoDbStandalone)
-
-	defer exceptionHandling("Failed to cleanup Ops Manager state", log)
 
 	log.Infow("Removing standalone from Ops Manager", "config", s.Spec)
 

@@ -1,9 +1,20 @@
 package operator
 
 import (
+	"context"
+	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/record"
 	"runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission/types"
 	"testing"
 	"time"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 
@@ -15,11 +26,13 @@ import (
 
 	"fmt"
 
-	"github.com/pkg/errors"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apiruntime "k8s.io/apimachinery/pkg/runtime"
 )
+
+// todo rename the file to client_test.go later
 
 const (
 	TestProjectConfigMapName  = om.TestGroupName
@@ -27,11 +40,18 @@ const (
 	TestNamespace             = "my-namespace"
 )
 
-type MockedKubeApi struct {
-	sets       map[string]*appsv1.StatefulSet
-	services   map[string]*corev1.Service
-	configMaps map[string]*corev1.ConfigMap
-	secrets    map[string]*corev1.Secret
+// MockedClient is the mocked implementation of client.Client from controller-runtime library
+type MockedClient struct {
+	// Note that we have to specify 'apiruntime.Object' as values for maps to make 'getMapForObject()' method work
+	// (poor polymorphism in Go... )
+	// so please make sure that you put correct data to maps
+	sets            map[client.ObjectKey]apiruntime.Object
+	services        map[client.ObjectKey]apiruntime.Object
+	configMaps      map[client.ObjectKey]apiruntime.Object
+	secrets         map[client.ObjectKey]apiruntime.Object
+	standalones     map[client.ObjectKey]apiruntime.Object
+	replicaSets     map[client.ObjectKey]apiruntime.Object
+	shardedClusters map[client.ObjectKey]apiruntime.Object
 	// mocked client keeps track of all implemented functions called - uses reflection Func for this to enable type-safety
 	// and make function names rename easier
 	history []*runtime.Func
@@ -39,27 +59,44 @@ type MockedKubeApi struct {
 	StsCreationDelayMillis time.Duration
 }
 
-func newMockedKubeApi() *MockedKubeApi {
-	return newMockedKubeApiDetailed(om.TestGroupName, "")
+
+func newMockedClient(object apiruntime.Object) *MockedClient {
+	return newMockedClientDetailed(object, om.TestGroupName, "")
 }
 
-func newMockedKubeApiDetailed(projectName, organizationId string) *MockedKubeApi {
-	api := MockedKubeApi{}
-	api.sets = make(map[string]*appsv1.StatefulSet)
-	api.services = make(map[string]*corev1.Service)
-	api.configMaps = make(map[string]*corev1.ConfigMap)
-	api.secrets = make(map[string]*corev1.Secret)
+// newMockedClientDelayed creates the kube client that emulates delay in statefulset creation
+func newMockedClientDelayed(object apiruntime.Object, delayMillis time.Duration) *MockedClient {
+	mockedClient := newMockedClient(object)
+	mockedClient.StsCreationDelayMillis = delayMillis
+	return mockedClient
+}
+
+// newMockedClientDetailed creates mocked Kubernetes client adding the kubernetes 'object' in parallel. This is necessary
+// as in new controller-runtime library reconciliation code fetches the existing object so it should be added beforehand
+func newMockedClientDetailed(object apiruntime.Object, projectName, organizationId string) *MockedClient {
+	api := MockedClient{}
+	api.sets = make(map[client.ObjectKey]apiruntime.Object)
+	api.services = make(map[client.ObjectKey]apiruntime.Object)
+	api.configMaps = make(map[client.ObjectKey]apiruntime.Object)
+	api.secrets = make(map[client.ObjectKey]apiruntime.Object)
+	api.standalones = make(map[client.ObjectKey]apiruntime.Object)
+	api.replicaSets = make(map[client.ObjectKey]apiruntime.Object)
+	api.shardedClusters = make(map[client.ObjectKey]apiruntime.Object)
 
 	// initialize config map and secret to emulate user preparing environment
 	project := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: TestProjectConfigMapName, Namespace: TestNamespace},
 		Data:       map[string]string{util.OmBaseUrl: "http://mycompany.com:8080", util.OmProjectName: projectName, util.OmOrgId: organizationId}}
-	api.createConfigMap(TestNamespace, project)
+	api.Create(context.TODO(), project)
 
 	credentials := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: TestCredentialsSecretName, Namespace: TestNamespace},
 		StringData: map[string]string{util.OmUser: "test@mycompany.com", util.OmPublicApiKey: "36lj245asg06s0h70245dstgft"}}
-	api.createSecret(TestNamespace, credentials)
+	api.Create(context.TODO(), credentials)
+
+	if object != nil {
+		api.Create(context.TODO(), object)
+	}
 
 	// no delay in creation by default
 	api.StsCreationDelayMillis = 0
@@ -71,37 +108,94 @@ func newMockedKubeApiDetailed(projectName, organizationId string) *MockedKubeApi
 	return &api
 }
 
-func (k *MockedKubeApi) getStatefulSet(ns, name string) (*appsv1.StatefulSet, error) {
-	k.addToHistory(reflect.ValueOf(k.getStatefulSet))
-	if _, exists := k.sets[ns+name]; !exists {
-		return nil, errors.New(fmt.Sprintf("Statefulset %s doesn't exists!", name))
+// Get retrieves an obj for the given object key from the Kubernetes Cluster.
+// obj must be a struct pointer so that obj can be updated with the response
+// returned by the Server.
+func (k *MockedClient) Get(ctx context.Context, key client.ObjectKey, obj apiruntime.Object) (e error) {
+	resMap := k.getMapForObject(obj)
+	// todo
+	//k.addToHistory(reflect.ValueOf(k.getStatefulSet))
+	if _, exists := resMap[key]; !exists {
+		return fmt.Errorf("%T %s doesn't exists!", obj, key)
 	}
-	return k.sets[ns+name], nil
+	// Golang cannot update pointers if they are declared as interfaces... Have to use reflection
+	//*obj = *(resMap[key])
+	v := reflect.ValueOf(obj).Elem()
+	v.Set(reflect.ValueOf(resMap[key]).Elem())
+	return nil
 }
 
-func (k *MockedKubeApi) createStatefulSet(ns string, set *appsv1.StatefulSet) (*appsv1.StatefulSet, error) {
-	k.addToHistory(reflect.ValueOf(k.createStatefulSet))
-	if _, err := k.getStatefulSet(ns, set.Name); err == nil {
-		return nil, errors.New(fmt.Sprintf("Statefulset %s already exists!", set.Name))
-	}
-	k.doUpdateStatefulset(ns, set)
-	return set, nil
+// List retrieves list of objects for a given namespace and list options. On a
+// successful call, Items field in the list will be populated with the
+// result returned from the server.
+func (k *MockedClient) List(ctx context.Context, opts *client.ListOptions, list apiruntime.Object) error {
+	// we don't need this
+	return nil
 }
 
-func (k *MockedKubeApi) updateStatefulSet(ns string, set *appsv1.StatefulSet) (*appsv1.StatefulSet, error) {
-	k.addToHistory(reflect.ValueOf(k.updateStatefulSet))
-	if _, err := k.getStatefulSet(ns, set.Name); err != nil {
-		return nil, err
+// Create saves the object obj in the Kubernetes cluster.
+func (k *MockedClient) Create(ctx context.Context, obj apiruntime.Object) error {
+	key := objectKeyFromApiObject(obj)
+	resMap := k.getMapForObject(obj)
+	//k.addToHistory(reflect.ValueOf(k.createStatefulSet))
+	if err := k.Get(ctx, key, obj); err == nil {
+		return fmt.Errorf("%T %s already exists!", obj, key)
 	}
 
-	k.doUpdateStatefulset(ns, set)
-	return set, nil
+	// for secrets we perform some additional manipulation with data - copying it from string field to binary one
+	switch s := obj.(type) {
+	case *corev1.Secret:
+		{
+			if s.Data == nil {
+				s.Data = make(map[string][]byte)
+			}
+			for k, v := range s.StringData {
+				// seems the in-memory bytes are already decoded
+				//sDec, _ := b64.StdEncoding.DecodeString(v)
+				s.Data[k] = []byte(v)
+			}
+		}
+	}
+
+	resMap[key] = obj
+
+	switch v := obj.(type) {
+	case *appsv1.StatefulSet:
+		k.onStatefulsetUpdate(v)
+	}
+
+	return nil
 }
 
-// doUpdateStatefulset emulates statefulsets reaching their desired state, also OM automation agents get "registered"
-func (k *MockedKubeApi) doUpdateStatefulset(ns string, set *appsv1.StatefulSet) {
-	k.sets[ns+set.Name] = set
+// Update updates the given obj in the Kubernetes cluster. obj must be a
+// struct pointer so that obj can be updated with the content returned by the Server.
+func (k *MockedClient) Update(ctx context.Context, obj apiruntime.Object) error {
+	key := objectKeyFromApiObject(obj)
+	//k.addToHistory(reflect.ValueOf(k.createStatefulSet))
 
+	resMap := k.getMapForObject(obj)
+	resMap[key] = obj
+
+	switch v := obj.(type) {
+	case *appsv1.StatefulSet:
+		k.onStatefulsetUpdate(v)
+	}
+	return nil
+}
+
+// Delete deletes the given obj from Kubernetes cluster.
+func (k *MockedClient) Delete(ctx context.Context, obj apiruntime.Object, opts ...client.DeleteOptionFunc) error {
+	// we don't need this implementation
+	return nil
+}
+
+func (k *MockedClient) Status() client.StatusWriter {
+	// we don't need this implementation
+	return nil
+}
+
+// onStatefulsetUpdate emulates statefulsets reaching their desired state, also OM automation agents get "registered"
+func (k *MockedClient) onStatefulsetUpdate(set *appsv1.StatefulSet) {
 	if k.StsCreationDelayMillis == 0 {
 		markStatefulSetsReady(set)
 	} else {
@@ -110,7 +204,6 @@ func (k *MockedKubeApi) doUpdateStatefulset(ns string, set *appsv1.StatefulSet) 
 			markStatefulSetsReady(set)
 		}()
 	}
-
 }
 
 func markStatefulSetsReady(set *appsv1.StatefulSet) {
@@ -125,74 +218,31 @@ func markStatefulSetsReady(set *appsv1.StatefulSet) {
 	}
 }
 
-func (k *MockedKubeApi) getService(ns, name string) (*corev1.Service, error) {
-	k.addToHistory(reflect.ValueOf(k.getService))
-	if _, exists := k.services[ns+name]; !exists {
-		return nil, errors.New(fmt.Sprintf("Service \"%s\" doesn't exists!", name))
-	}
-	return k.services[ns+name], nil
-}
-
-func (k *MockedKubeApi) createService(ns string, service *corev1.Service) (*corev1.Service, error) {
-	k.addToHistory(reflect.ValueOf(k.createService))
-	if _, err := k.getService(ns, service.Name); err == nil {
-		return nil, errors.New(fmt.Sprintf("Service \"%s\" already exists!", service.Name))
-	}
-	k.services[ns+service.Name] = service
-	return service, nil
-}
-
-func (k *MockedKubeApi) getConfigMap(ns, name string) (*corev1.ConfigMap, error) {
-	k.addToHistory(reflect.ValueOf(k.getConfigMap))
-	if _, exists := k.configMaps[ns+name]; !exists {
-		return nil, errors.New(fmt.Sprintf("ConfigMap \"%s\" doesn't exists!", name))
-	}
-	return k.configMaps[ns+name], nil
-}
-
-// internal method, used to initialize environment
-func (k *MockedKubeApi) createConfigMap(ns string, configMap *corev1.ConfigMap) {
-	k.configMaps[ns+configMap.Name] = configMap
-}
-
-func (k *MockedKubeApi) updateConfigMap(ns string, configMap *corev1.ConfigMap) (*corev1.ConfigMap, error) {
-	k.addToHistory(reflect.ValueOf(k.updateConfigMap))
-	if _, err := k.getConfigMap(ns, configMap.Name); err != nil {
-		return nil, err
-	}
-	k.configMaps[ns+configMap.Name] = configMap
-	return configMap, nil
-}
-
-func (k *MockedKubeApi) getSecret(ns, name string) (*corev1.Secret, error) {
-	k.addToHistory(reflect.ValueOf(k.getSecret))
-	if _, exists := k.secrets[ns+name]; !exists {
-		return nil, errors.New(fmt.Sprintf("Secret \"%s\" doesn't exists!", name))
-	}
-	return k.secrets[ns+name], nil
-}
-func (k *MockedKubeApi) createSecret(ns string, secret *corev1.Secret) (*corev1.Secret, error) {
-	k.addToHistory(reflect.ValueOf(k.createSecret))
-	if _, err := k.getSecret(ns, secret.Name); err == nil {
-		return nil, errors.New(fmt.Sprintf("Secret \"%s\" already exists!", secret.Name))
-	}
-	if secret.Data == nil {
-		secret.Data = make(map[string][]byte)
-	}
-	for k, v := range secret.StringData {
-		// seems the in-memory bytes are already
-		//sDec, _ := b64.StdEncoding.DecodeString(v)
-		secret.Data[k] = []byte(v)
-	}
-	k.secrets[ns+secret.Name] = secret
-	return secret, nil
-}
-
-func (oc *MockedKubeApi) addToHistory(value reflect.Value) {
+func (oc *MockedClient) addToHistory(value reflect.Value) {
 	oc.history = append(oc.history, runtime.FuncForPC(value.Pointer()))
 }
 
-func (oc *MockedKubeApi) CheckOrderOfOperations(t *testing.T, value ...reflect.Value) {
+func (oc *MockedClient) getMapForObject(obj apiruntime.Object) map[client.ObjectKey]apiruntime.Object {
+	switch obj.(type) {
+	case *appsv1.StatefulSet:
+		return oc.sets
+	case *corev1.Secret:
+		return oc.secrets
+	case *corev1.ConfigMap:
+		return oc.configMaps
+	case *corev1.Service:
+		return oc.services
+	case *v1.MongoDbStandalone:
+		return oc.standalones
+	case *v1.MongoDbReplicaSet:
+		return oc.replicaSets
+	case *v1.MongoDbShardedCluster:
+		return oc.shardedClusters
+	}
+	return nil
+}
+
+func (oc *MockedClient) CheckOrderOfOperations(t *testing.T, value ...reflect.Value) {
 	j := 0
 	matched := ""
 	for _, h := range oc.history {
@@ -207,10 +257,84 @@ func (oc *MockedKubeApi) CheckOrderOfOperations(t *testing.T, value ...reflect.V
 	assert.Equal(t, len(value), j, "Only %d of %d expected operations happened in expected order (%s)", j, len(value), matched)
 }
 
-func (oc *MockedKubeApi) CheckOperationsDidntHappen(t *testing.T, value ...reflect.Value) {
+func (oc *MockedClient) CheckOperationsDidntHappen(t *testing.T, value ...reflect.Value) {
 	for _, h := range oc.history {
 		for _, o := range value {
 			assert.NotEqual(t, o, h, "Operation %v is not expected to happen", h)
 		}
 	}
 }
+
+// MockedManager is the mock implementation of `Manager` from controller-runtime library. The only interesting method though
+// is `getClient`
+type MockedManager struct {
+	client *MockedClient
+}
+
+func newMockedManager(object apiruntime.Object) *MockedManager {
+	return &MockedManager{client:newMockedClient(object)}
+}
+func newMockedManagerDetailed(object apiruntime.Object, projectName, organizationId string) *MockedManager {
+	return &MockedManager{client:newMockedClientDetailed(object, projectName, organizationId)}
+}
+
+func newMockedManagerSpecificClient(c *MockedClient) *MockedManager {
+	return &MockedManager{client: c}
+}
+
+func (m *MockedManager) Add(runnable manager.Runnable) error {
+	return nil
+}
+
+// SetFields will set any dependencies on an object for which the object has implemented the inject
+// interface - e.g. inject.Client.
+func (m *MockedManager) SetFields(interface{}) error{
+	return nil
+}
+
+// Start starts all registered Controllers and blocks until the Stop channel is closed.
+// Returns an error if there is an error starting any controller.
+func (m *MockedManager) Start(<-chan struct{}) error{
+	return nil
+}
+
+// GetConfig returns an initialized Config
+func (m *MockedManager) GetConfig() *rest.Config{
+	return nil
+}
+
+// GetScheme returns and initialized Scheme
+func (m *MockedManager) GetScheme() *apiruntime.Scheme{
+	return nil
+}
+
+// GetAdmissionDecoder returns the runtime.Decoder based on the scheme.
+func (m *MockedManager) GetAdmissionDecoder() types.Decoder{
+	return nil
+}
+
+// GetClient returns a client configured with the Config
+func (m *MockedManager) GetClient() client.Client{
+	return m.client
+}
+
+// GetFieldIndexer returns a client.FieldIndexer configured with the client
+func (m *MockedManager) GetFieldIndexer() client.FieldIndexer{
+	return nil
+}
+
+// GetCache returns a cache.Cache
+func (m *MockedManager) GetCache() cache.Cache{
+	return nil
+}
+
+// GetRecorder returns a new EventRecorder for the provided name
+func (m *MockedManager) GetRecorder(name string) record.EventRecorder{
+	return nil
+}
+
+// GetRESTMapper returns a RESTMapper
+func (m *MockedManager) GetRESTMapper() meta.RESTMapper{
+	return nil
+}
+

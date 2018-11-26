@@ -20,13 +20,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
-// TODO rename the file to mongodbreplicaset_controller.go (haven't done this to keep the history for major refactoring)
-
 // AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
 func AddReplicaSetController(mgr manager.Manager) error {
 	// Create a new controller
-	c, err := controller.New(util.MongoDbReplicaSetController, mgr, controller.Options{Reconciler: newReplicaSetReconciler(mgr)})
+	c, err := controller.New(util.MongoDbReplicaSetController, mgr, controller.Options{Reconciler: newReplicaSetReconciler(mgr, om.NewOpsManagerConnection)})
 	if err != nil {
 		return err
 	}
@@ -52,38 +50,31 @@ func AddReplicaSetController(mgr manager.Manager) error {
 	return nil
 }
 
-func newReplicaSetReconciler(mgr manager.Manager) reconcile.Reconciler {
-	api := NewKubeApi{Client: mgr.GetClient()}
-
-	// TODO support for tests with Manager (pass the om connection as a function?)
-	standalone := &ReconcileMongoDbReplicaSet{ReconcileCommonController{
-		client:           mgr.GetClient(),
-		scheme:           mgr.GetScheme(),
-		kubeHelper:       KubeHelper{&api},
-		omConnectionFunc: om.NewOpsManagerConnection,
-	}}
-	return standalone
+func newReplicaSetReconciler(mgr manager.Manager, omFunc func(baseUrl, groupId, user, publicApiKey string) om.OmConnection) reconcile.Reconciler {
+	return &ReconcileMongoDbReplicaSet{newReconcileCommonController(mgr, omFunc)}
 }
 
 var _ reconcile.Reconciler = &ReconcileMongoDbStandalone{}
 
 // ReconcileMongoDbReplicaSet reconciles a MongoDbReplicaSet object
 type ReconcileMongoDbReplicaSet struct {
-	ReconcileCommonController
+	*ReconcileCommonController
 }
 
 // Reconcile reads that state of the cluster for a MongoDbReplicaSet object and makes changes based on the state read
 // and what is in the MongoDbReplicaSet.Spec
-// TODO add support for status update
-func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (reconcile.Result, error) {
+func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
 	log := zap.S().With("replica set", request.NamespacedName)
 
-	defer exceptionHandling("Failed to reconcile Mongodb Replica Set", log)
+	rs := &mongodb.MongoDbReplicaSet{}
+	defer exceptionHandling(
+		func() (reconcile.Result, error) { return r.updateStatusFailed(rs, "Failed to reconcile Mongodb Replica Set", log) },
+		func(result reconcile.Result, err error) { res = result; e = err },
+	)
 
 	log.Info(">> Reconciling MongoDbReplicaSet")
 
 	// Fetch the MongoDbReplicaSet instance
-	rs := &mongodb.MongoDbReplicaSet{}
 
 	ok, err := r.fetchResource(request, rs, log)
 	if !ok {
@@ -182,8 +173,6 @@ func (c *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(omConnection om.OmConn
 
 func (c *ReconcileMongoDbReplicaSet) onDeleteReplicaSet(obj interface{}, log *zap.SugaredLogger) error {
 	rs := obj.(*mongodb.MongoDbReplicaSet)
-
-	defer exceptionHandling("Failed to cleanup Ops Manager state", log)
 
 	log.Infow("Removing replica set from Ops Manager", "config", rs.Spec)
 

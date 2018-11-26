@@ -4,6 +4,7 @@ import (
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // TODO rename the file to "common_types.go" later
@@ -13,11 +14,17 @@ type StatusUpdater interface {
 	runtime.Object
 	UpdateSuccessful()
 	UpdateError(errorMessage string)
+	// TODO replace return result with some enum
+	GetStatus() string
 }
 
 type Meta struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
+}
+
+func (m *Meta) ObjectKey() client.ObjectKey {
+	return client.ObjectKey{Name:m.Name, Namespace:m.Namespace}
 }
 
 type MongoDbPodSpec struct {

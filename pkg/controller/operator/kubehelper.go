@@ -1,9 +1,12 @@
 package operator
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
+
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"time"
 
@@ -15,8 +18,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// KubeHelper is the helper for dealing with Kubernetes. If any Kubernetes logic requires more than some trivial operation
+// - it should be put here
 type KubeHelper struct {
-	kubeApi KubeApi
+	client client.Client
 }
 
 type ProjectConfig struct {
@@ -162,12 +167,12 @@ func (k *KubeHelper) createOrUpdateStatefulsetWithService(owner metav1.Object, s
 
 	log = log.With("statefulset", set.Name)
 	event := "Created"
-	if _, err := k.kubeApi.getStatefulSet(ns, set.Name); err != nil {
-		if _, err := k.kubeApi.createStatefulSet(ns, set); err != nil {
+	if err := k.client.Get(context.TODO(), objectKey(ns, set.Name), set); err != nil {
+		if err := k.client.Create(context.TODO(), set); err != nil {
 			return nil, err
 		}
 	} else {
-		if _, err := k.kubeApi.updateStatefulSet(ns, set); err != nil {
+		if err := k.client.Update(context.TODO(), set); err != nil {
 			return nil, err
 		}
 		event = "Updated"
@@ -195,10 +200,11 @@ func (k *KubeHelper) waitForStatefulsetAndPods(ns, stsName string, log *zap.Suga
 	retrials := util.ReadEnvVarOrPanicInt(util.StatefulSetWaitRetriesEnv)
 
 	return util.DoAndRetry(func() (string, bool) {
-		set, err := k.kubeApi.getStatefulSet(ns, stsName)
+		set := &appsv1.StatefulSet{}
+		err := k.client.Get(context.TODO(), objectKey(ns, stsName), set)
 		if err != nil {
 			// Should we retry these errors?...
-			return fmt.Sprintf("Error reading statefulset %s: %s", nsName(ns, stsName), err), false
+			return fmt.Sprintf("Error reading statefulset %s: %s", objectKey(ns, stsName), err), false
 		}
 		msg := fmt.Sprintf("Replicas count: expected %d, current %d", *set.Spec.Replicas, set.Status.ReadyReplicas)
 		return msg, set.Status.ReadyReplicas == *set.Spec.Replicas
@@ -235,11 +241,13 @@ func (k *KubeHelper) readOrCreateService(owner metav1.Object, serviceName string
 	exposeExternally bool, log *zap.SugaredLogger) (*corev1.Service, error) {
 	log = log.With("service", serviceName)
 
-	service, err := k.kubeApi.getService(ns, serviceName)
+	service := &corev1.Service{}
+	err := k.client.Get(context.TODO(), objectKey(ns, serviceName), service)
 
 	if err != nil {
 		log.Info("Service doesn't exist - creating it")
-		service, err = k.kubeApi.createService(ns, buildService(owner, serviceName, label, ns, servicePort, exposeExternally))
+		service = buildService(owner, serviceName, label, ns, servicePort, exposeExternally)
+		err = k.client.Create(context.TODO(), service)
 		if err != nil {
 			return nil, err
 		}
@@ -255,7 +263,8 @@ func (k *KubeHelper) readOrCreateService(owner metav1.Object, serviceName string
 
 // readProjectConfig returns a config map
 func (k *KubeHelper) readProjectConfig(ns, configMapName string) (*ProjectConfig, error) {
-	cmap, err := k.kubeApi.getConfigMap(ns, configMapName)
+	cmap := &corev1.ConfigMap{}
+	err := k.client.Get(context.TODO(), objectKey(ns, configMapName), cmap)
 	if err != nil {
 		return nil, err
 	}
@@ -315,7 +324,8 @@ func (k *KubeHelper) readAgentApiKeyForProject(namespace, agentKeySecretName str
 }
 
 func (k *KubeHelper) readSecret(namespace, name string) (map[string]string, error) {
-	secret, e := k.kubeApi.getSecret(namespace, name)
+	secret := &corev1.Secret{}
+	e := k.client.Get(context.TODO(), objectKey(namespace, name), secret)
 	if e != nil {
 		return nil, e
 	}
@@ -328,13 +338,14 @@ func (k *KubeHelper) readSecret(namespace, name string) (map[string]string, erro
 }
 
 func (k *KubeHelper) updateConfigMap(namespace, name string, data map[string]string) error {
-	configMap, e := k.kubeApi.getConfigMap(namespace, name)
+	configMap := &corev1.ConfigMap{}
+	e := k.client.Get(context.TODO(), objectKey(namespace, name), configMap)
 	if e != nil {
 		return e
 	}
 	configMap.Data = data
 
-	_, e = k.kubeApi.updateConfigMap(namespace, configMap)
+	e = k.client.Update(context.TODO(), configMap)
 	if e != nil {
 		return e
 	}

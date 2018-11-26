@@ -68,3 +68,7 @@ func (c *MongoDbStandalone) UpdateError(errorMessage string) {
 	// TODO proper implement
 	c.Status.State = "Failed"
 }
+
+func (c *MongoDbStandalone) GetStatus() string {
+	return c.Status.State
+}

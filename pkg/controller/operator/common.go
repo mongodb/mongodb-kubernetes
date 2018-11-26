@@ -2,6 +2,9 @@ package operator
 
 import (
 	"fmt"
+	"reflect"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"k8s.io/apimachinery/pkg/types"
 
@@ -217,12 +220,25 @@ func completionMessage(url, groupId string) string {
 	return fmt.Sprintf("Please check the link %s/v2/%s to see the status of deployment", url, groupId)
 }
 
-func exceptionHandling(msg string, log *zap.SugaredLogger) {
+// exceptionHandling is the basic panic handling function that recovers from panic, logs the error, updates the resource status and updates the
+// reconcile result and error parameters (as reconcile logic will return it later)
+// passing result and error as an argument and updating the pointer of it didn't work (thanks Go), had to use ugly function
+func exceptionHandling(errHandlingFunc func() (reconcile.Result, error), errUpdateFunc func(res reconcile.Result, err error)) {
 	if r := recover(); r != nil {
-		log.Errorf("%s: %s", msg, r)
+		result, e := errHandlingFunc()
+
+		errUpdateFunc(result, e)
 	}
 }
 
-func nsName(ns, name string) types.NamespacedName {
+// objectKey creates the 'client.ObjectKey' object from namespace and name of the resource. It's the object used in
+// some of 'client.Client' calls
+func objectKey(ns, name string) client.ObjectKey {
 	return types.NamespacedName{Namespace: ns, Name: name}
+}
+
+func objectKeyFromApiObject(obj interface{}) client.ObjectKey {
+	ns := reflect.ValueOf(obj).Elem().FieldByName("Namespace").String()
+	name := reflect.ValueOf(obj).Elem().FieldByName("Name").String()
+	return objectKey(ns, name)
 }

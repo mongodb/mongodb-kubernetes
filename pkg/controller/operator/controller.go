@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
+	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -30,6 +32,15 @@ type ReconcileCommonController struct {
 	scheme           *runtime.Scheme
 	kubeHelper       KubeHelper
 	omConnectionFunc func(baseUrl, groupId, user, publicApiKey string) om.OmConnection
+}
+
+func newReconcileCommonController(mgr manager.Manager, omFunc func(baseUrl, groupId, user, publicApiKey string) om.OmConnection) *ReconcileCommonController {
+	return &ReconcileCommonController{
+		client:           mgr.GetClient(),
+		scheme:           mgr.GetScheme(),
+		kubeHelper:       KubeHelper{mgr.GetClient()},
+		omConnectionFunc: omFunc,
+	}
 }
 
 func (c *ReconcileCommonController) prepareOmConnection(namespace, project, credentials string, log *zap.SugaredLogger) (om.OmConnection, *PodVars, error) {
@@ -71,7 +82,8 @@ func (c *ReconcileCommonController) prepareOmConnection(namespace, project, cred
 func (c *ReconcileCommonController) ensureAgentKeySecretExists(omConnection om.OmConnection, nameSpace, agentKey string, log *zap.SugaredLogger) (string, error) {
 	secretName := agentApiKeySecretName(omConnection.GroupId())
 	log = log.With("secret", secretName)
-	secret, err := c.kubeHelper.kubeApi.getSecret(nameSpace, secretName)
+	secret := &corev1.Secret{}
+	err := c.client.Get(context.TODO(), objectKey(nameSpace, secretName), secret)
 	if err != nil {
 		if agentKey == "" {
 			log.Info("Generating agent key as current group doesn't have it")
@@ -83,7 +95,8 @@ func (c *ReconcileCommonController) ensureAgentKeySecretExists(omConnection om.O
 			log.Info("Agent key was successfully generated")
 		}
 
-		if secret, err = c.kubeHelper.kubeApi.createSecret(nameSpace, buildSecret(secretName, nameSpace, agentKey)); err != nil {
+		secret := buildSecret(secretName, nameSpace, agentKey)
+		if err = c.client.Create(context.TODO(), secret); err != nil {
 			return "", fmt.Errorf("Failed to create Secret: %s", err)
 		}
 		log.Info("Group agent key is saved in Kubernetes Secret for later usage")
@@ -94,6 +107,11 @@ func (c *ReconcileCommonController) ensureAgentKeySecretExists(omConnection om.O
 
 func (c *ReconcileCommonController) updateStatusSuccessful(resource v1.StatusUpdater, log *zap.SugaredLogger) {
 	resource.UpdateSuccessful()
+	// Sometimes we get the "Operation cannot be fulfilled on mongodbstandalones.mongodb.com "dublin": the object has
+	// been modified; please apply your changes to the latest version and try again" error - so let's fetch the latest
+	// object before updating it
+	c.client.Get(context.TODO(), objectKeyFromApiObject(resource), resource)
+
 	// Dev note: "c.client.Status().Update()" doesn't work for some reasons and the examples from Operator SDK use the
 	// normal resource update - so we use the same
 	err := c.client.Update(context.TODO(), resource)
@@ -104,10 +122,14 @@ func (c *ReconcileCommonController) updateStatusSuccessful(resource v1.StatusUpd
 
 func (c *ReconcileCommonController) updateStatusFailed(resource v1.StatusUpdater, errorMessage string, log *zap.SugaredLogger) (reconcile.Result, error) {
 	log.Error(errorMessage)
-	resource.UpdateError(errorMessage)
-	err := c.client.Update(context.TODO(), resource)
-	if err != nil {
-		log.Errorf("Failed to update resource status: %s", err)
+	// Resource may be nil if the reconciliation failed very early (on fetching the resource) and panic handling function
+	// took over
+	if resource != nil {
+		resource.UpdateError(errorMessage)
+		err := c.client.Update(context.TODO(), resource)
+		if err != nil {
+			log.Errorf("Failed to update resource status: %s", err)
+		}
 	}
 	return reconcile.Result{RequeueAfter: 10 * time.Second}, errors.New(errorMessage)
 }

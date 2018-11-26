@@ -231,13 +231,13 @@ func TestBasePodSpec_FsGroup(t *testing.T) {
 }
 
 func baseSetHelper() *StatefulSetHelper {
-	return (&KubeHelper{newMockedKubeApi()}).NewStatefulSetHelper(DefaultStandaloneBuilder().Build())
+	st := DefaultStandaloneBuilder().Build()
+	return (&KubeHelper{newMockedClient(st)}).NewStatefulSetHelper(st)
 }
 
 func baseSetHelperDelayed(delayMillis time.Duration) *StatefulSetHelper {
-	api := newMockedKubeApi()
-	api.StsCreationDelayMillis = delayMillis
-	return (&KubeHelper{api}).NewStatefulSetHelper(DefaultStandaloneBuilder().Build())
+	st := DefaultStandaloneBuilder().Build()
+	return (&KubeHelper{newMockedClientDelayed(st, delayMillis)}).NewStatefulSetHelper(st)
 }
 
 func defaultPodSpec() mongodb.PodSpecWrapper {

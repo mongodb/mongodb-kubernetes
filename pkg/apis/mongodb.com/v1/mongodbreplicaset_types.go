@@ -61,3 +61,9 @@ func (c *MongoDbReplicaSet) UpdateError(errorMessage string) {
 	// TODO proper implement
 	c.Status.State = "Failed"
 }
+
+
+func (c *MongoDbReplicaSet) GetStatus() string {
+	// TODO proper implement
+	return c.Status.State
+}

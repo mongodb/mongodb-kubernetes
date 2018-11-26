@@ -6,12 +6,14 @@
 
 set -xeuo pipefail
 
-go test -v  $(go list ./... | grep -v '/\(pkg\|local\)') | tee "${GOPATH}/ops-manager-kubernetes.suite" || echo "Some tests failed!"
+go test -v  $(go list ./... | grep -v '/\(local\)') | tee "${GOPATH}/ops-manager-kubernetes.suite"
 
 if grep "FAIL" "${GOPATH}/ops-manager-kubernetes.suite" ; then
     # In some cases we don't need to exit the program (if we want to parse test results later)
     if [ -z "${CONTINUE}" ]; then
-        echo "Exiting program"
+        echo "Exiting program as some tests have failed"
         exit 1
+    else
+        echo "Some tests have failed but the script doesn't exit as \"CONTINUE\" flag is specified"
     fi
 fi

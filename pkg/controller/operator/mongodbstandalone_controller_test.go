@@ -10,6 +10,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
+	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -25,19 +26,19 @@ func TestCreateOmProcess(t *testing.T) {
 func TestOnAddStandalone(t *testing.T) {
 	st := DefaultStandaloneBuilder().SetVersion("4.1.0").SetService("mysvc").Build()
 
-	api := newMockedKubeApi()
-	api.StsCreationDelayMillis = 200
-	controller := NewMongoDbController(api, nil, om.NewEmptyMockedOmConnection)
+	client := newMockedClient(st)
+	client.StsCreationDelayMillis = 200
+	reconciler := newStandaloneReconciler(newMockedManagerSpecificClient(client), om.NewEmptyMockedOmConnection)
 
-	controller.onAddStandalone(st)
+	checkReconcileSuccessful(t, reconciler, st, client)
 
 	omConn := om.CurrMockedConnection
 
 	// seems we don't need very deep checks here as there should be smaller tests specially for those methods
-	assert.Len(t, api.services, 2)
-	assert.Len(t, api.sets, 1)
-	assert.Equal(t, *api.sets[st.Namespace+st.Name].Spec.Replicas, int32(1))
-	assert.Len(t, api.secrets, 2)
+	assert.Len(t, client.services, 2)
+	assert.Len(t, client.sets, 1)
+	assert.Equal(t, *client.sets[st.ObjectKey()].(*appsv1.StatefulSet).Spec.Replicas, int32(1))
+	assert.Len(t, client.secrets, 2)
 
 	omConn.CheckDeployment(t, createDeploymentFromStandalone(st))
 	omConn.CheckNumberOfUpdateRequests(t, 1)
@@ -48,8 +49,8 @@ func TestStandaloneEventMethodsHandlePanic(t *testing.T) {
 	os.Setenv(util.AutomationAgentImageUrl, "")
 	st := DefaultStandaloneBuilder().Build()
 
-	NewMongoDbController(newMockedKubeApi(), nil, om.NewEmptyMockedOmConnection).onAddStandalone(st)
-	NewMongoDbController(newMockedKubeApi(), nil, om.NewEmptyMockedOmConnection).onUpdateStandalone(st, st)
+	manager := newMockedManager(st)
+	checkReconcileFailed(t, newStandaloneReconciler(manager, om.NewEmptyMockedOmConnection), st, "Failed to reconcile Mongodb Standalone", manager.client)
 
 	// restoring
 	InitDefaultEnvVariables()
@@ -67,8 +68,8 @@ func DefaultStandaloneBuilder() *StandaloneBuilder {
 		Credentials: TestCredentialsSecretName,
 	}
 	standalone := &v1.MongoDbStandalone{
-		ObjectMeta: metav1.ObjectMeta{Name: "dublin", Namespace: TestNamespace},
-		Spec:       *spec}
+		Meta: v1.Meta{ObjectMeta: metav1.ObjectMeta{Name: "dublin", Namespace: TestNamespace}},
+		Spec: *spec}
 	return &StandaloneBuilder{standalone}
 }
 

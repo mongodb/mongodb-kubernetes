@@ -1,5 +1,5 @@
 package operator
-
+/*
 import (
 	"testing"
 
@@ -252,3 +252,5 @@ func (b *ClusterBuilder) SetMongosCount(count int) *ClusterBuilder {
 func (b *ClusterBuilder) Build() *v1.MongoDbShardedCluster {
 	return b.MongoDbShardedCluster
 }
+
+*/
