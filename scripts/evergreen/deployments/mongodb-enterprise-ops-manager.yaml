@@ -21,7 +21,7 @@ metadata:
   name: mongodb-enterprise-ops-manager
 spec:
   replicas: 1
-  serviceName: ops-manager
+  serviceName: ops-manager-internal
   selector:
     matchLabels:
       app: mongodb-enterprise-ops-manager
@@ -32,11 +32,11 @@ spec:
     spec:
       containers:
       - name: mongodb-enterprise-ops-manager
-        image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager:4.0.5.50245.20181031T0042Z-1_test
-        imagePullPolicy: Always
+        image: mongodb-enterprise-ops-manager:4.0.5.50245.20181031T0042Z-1_test
+        imagePullPolicy: IfNotPresent
         env:
         - name: OM_HOST
-          value: ops-manager-internal.operator-testing.svc.cluster.local
+          value: mongodb-enterprise-ops-manager-0.ops-manager-internal.operator-testing.svc.cluster.local
         volumeMounts:
         - name: mongodb-mms-data
           mountPath: /data

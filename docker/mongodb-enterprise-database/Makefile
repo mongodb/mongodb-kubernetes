@@ -1,6 +1,7 @@
 IMAGE = mongodb-enterprise-database
-IMAGE_VERSION = 0.3
-AWS_IMAGE_REPO = 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
+IMAGE_VERSION = latest
+IMAGE_DIR = dev
+AWS_IMAGE_REPO = 268558157000.dkr.ecr.us-east-1.amazonaws.com
 AWS_REGION = us-east-1
 
 usage:
@@ -25,10 +26,10 @@ delete_container:
 	- docker ps -a | tail -n +2 | grep '$(IMAGE)' | awk '{print $$1}' | xargs docker rm -f
 
 clean: delete_container
-	- docker rmi $(IMAGE):$(IMAGE_VERSION)
+	- docker rmi $(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)
 
 build:
-	docker build $(EXTRA_PARAM) -t $(IMAGE):$(IMAGE_VERSION) .
+	docker build $(EXTRA_PARAM) -t $(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION) .
 
 clean-build:
 	@ $(MAKE) EXTRA_PARAM="--no-cache --force-rm --rm" clean build
@@ -37,12 +38,12 @@ aws_login:
 	@ eval "$(shell aws ecr get-login --no-include-email --region $(AWS_REGION))"
 
 pull: aws_login
-	docker pull $(AWS_IMAGE_REPO)/$(IMAGE):$(IMAGE_VERSION)
-	docker tag $(AWS_IMAGE_REPO)/$(IMAGE):$(IMAGE_VERSION) $(IMAGE):$(IMAGE_VERSION)
+	docker pull $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)
+	docker tag $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION) $(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)
 
 push: build aws_login
-	docker tag $(IMAGE):$(IMAGE_VERSION) $(AWS_IMAGE_REPO)/$(IMAGE):$(IMAGE_VERSION)
-	docker push $(AWS_IMAGE_REPO)/$(IMAGE):$(IMAGE_VERSION)
+	docker tag $(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION) $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)
+	docker push $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)
 
 check-ops-manager-env:
 ifndef BASE_URL
@@ -56,7 +57,7 @@ ifndef AGENT_API_KEY
 endif
 
 run: check-ops-manager-env
-	docker run -e BASE_URL -e GROUP_ID -e AGENT_API_KEY -e HTTP_PROXY -t $(IMAGE):$(IMAGE_VERSION)
+	docker run -e BASE_URL -e GROUP_ID -e AGENT_API_KEY -e HTTP_PROXY -t  $(IMAGE):$(IMAGE_VERSION)
 
 all:
 	@ $(MAKE) clean build run
@@ -67,4 +68,3 @@ status:
 
 version:
 	@ echo $(IMAGE_VERSION)
-

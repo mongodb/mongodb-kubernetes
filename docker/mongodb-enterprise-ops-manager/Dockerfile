@@ -1,5 +1,5 @@
 # This is a Docker file for Ops Manager 4.0
-FROM debian:9.4-slim
+FROM debian:9.5-slim
 
 # Environment declaration
 ENV OM_PORT 8080

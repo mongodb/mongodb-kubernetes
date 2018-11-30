@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
 #
 
+
+cd "$(git rev-parse --show-toplevel)"
+
 CGO_ENABLED=0 GOOS=linux go build -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator

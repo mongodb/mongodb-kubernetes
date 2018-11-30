@@ -17,3 +17,5 @@ cache
 **/pytest_cache/
 bin/*
 **/*.iml
+helm_out
+.redo-last-namespace
