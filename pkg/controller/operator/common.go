@@ -3,6 +3,7 @@ package operator
 import (
 	"fmt"
 	"reflect"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -197,7 +198,8 @@ func prepareScaleDown(omClient om.OmConnection, rsMembers map[string][]string, l
 }
 
 // deleteHostnamesFromMonitoring checks the array of hosts before change to Deployment and after and if some hosts
-// were removed from Kubernetes/OM Deployment - then we need to explicitly remove these hosts from OM monitoring
+// were removed from Kubernetes/OM Deployment (scale down) - then we need to explicitly remove these hosts from OM
+// monitoring
 func deleteHostnamesFromMonitoring(omClient om.OmConnection, hostsBefore, hostsAfter []string, log *zap.SugaredLogger) error {
 	diff := util.FindLeftDifference(hostsBefore, hostsAfter)
 
