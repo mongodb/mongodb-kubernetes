@@ -3,6 +3,7 @@ from kubernetes.client.rest import ApiException
 
 import time
 import yaml
+import sys
 from os import getenv
 
 import requests
@@ -30,6 +31,7 @@ class KubernetesTester(object):
         KubernetesTester.load_configuration()
         # will this take the subclass doc?
         test_setup = yaml.safe_load(cls.__doc__)
+        print()
         KubernetesTester.prepare(test_setup, KubernetesTester.get_namespace())
 
     @staticmethod
@@ -77,9 +79,12 @@ class KubernetesTester(object):
         resource = yaml.safe_load(open(section["file"]))
         name, kind, group, version = get_crd_meta(resource)
 
+        print('Creating resource {} {}'.format(kind, name), flush=True)
+
         KubernetesTester.clients("customv1").create_namespaced_custom_object(
             group, version, namespace, plural(kind), resource
         )
+        print('Created resource {} {}'.format(kind, name), flush=True)
 
     @staticmethod
     def update(section, namespace):
@@ -89,9 +94,12 @@ class KubernetesTester(object):
         patch = jsonpatch.JsonPatch.from_string(section["patch"])
         patched = patch.apply(resource)
 
+        print('Updating resource {} {} ({})'.format(kind, name, patch), flush=True)
+
         KubernetesTester.clients("customv1").patch_namespaced_custom_object(
             group, version, namespace, plural(kind), name, patched
         )
+        print('Updated resource {} {}'.format(kind, name), flush=True)
 
     @staticmethod
     def delete(section, namespace):
@@ -100,9 +108,12 @@ class KubernetesTester(object):
         name, kind, group, version = get_crd_meta(resource)
         del_options = KubernetesTester.clients("client").V1DeleteOptions()
 
+        print('Deleting resource {} {} ({})'.format(kind, name, del_options), flush=True)
+
         KubernetesTester.clients("customv1").delete_namespaced_custom_object(
             group, version, namespace, plural(kind), name, del_options
         )
+        print('Deleted resource {} {}'.format(kind, name), flush=True)
 
     @staticmethod
     def noop(section, namespace):
@@ -115,12 +126,15 @@ class KubernetesTester(object):
         or for some amount of time, both can appear in the file,
         will always wait for the condition and then for some amount of time.
         """
+        print('Waiting for the condition: {}'.format(action), flush=True)
+        sys.stdout.flush()
+
         if "wait_until" in action:
-            print("Waiting until {}".format(action["wait_until"]))
+            print("Waiting until {}".format(action["wait_until"]), flush=True)
             KubernetesTester.wait_until(action["wait_until"])
 
         if "wait_for" in action:
-            print("Waiting for {}".format(action["wait_for"]))
+            print("Waiting for {}".format(action["wait_for"]), flush=True)
             KubernetesTester.wait_for(action["wait_for"])
 
     @staticmethod

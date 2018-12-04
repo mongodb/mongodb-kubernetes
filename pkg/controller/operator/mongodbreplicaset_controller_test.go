@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"context"
 	"os"
 	"testing"
 
@@ -11,8 +12,8 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	appsv1 "k8s.io/api/apps/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type ReplicaSetBuilder struct {
@@ -21,7 +22,7 @@ type ReplicaSetBuilder struct {
 
 func TestReplicaSetEventMethodsHandlePanic(t *testing.T) {
 	// nullifying env variable will result in panic exception raised
-	os.Setenv(util.AutomationAgentImageUrl, "")
+	_ = os.Setenv(util.AutomationAgentImageUrl, "")
 	rs := DefaultReplicaSetBuilder().Build()
 
 	manager := newMockedManager(rs)
@@ -51,6 +52,37 @@ func TestOnAddReplicaSet(t *testing.T) {
 	connection.CheckNumberOfUpdateRequests(t, 1)
 }
 
+// TestScaleUpReplicaSet verifies scaling up for replica set. Statefulset and OM Deployment must be changed accordingly
+func TestScaleUpReplicaSet(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().SetMembers(3).Build()
+
+	manager := newMockedManager(rs)
+	client := manager.client
+
+	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
+
+	checkReconcileSuccessful(t, reconciler, rs, client)
+	set := &appsv1.StatefulSet{}
+	_ = client.Get(context.TODO(), objectKeyFromApiObject(rs), set)
+
+	// Now scale up to 5 nodes
+	rs = DefaultReplicaSetBuilder().SetMembers(5).Build()
+	_ = client.Update(context.TODO(), rs)
+
+	checkReconcileSuccessful(t, reconciler, rs, client)
+
+	updatedSet := &appsv1.StatefulSet{}
+	_ = client.Get(context.TODO(), objectKeyFromApiObject(rs), updatedSet)
+
+	// Statefulset is expected to be the same - only number of replicas changed
+	set.Spec.Replicas = util.Int32Ref(int32(5))
+	assert.Equal(t, set.Spec, updatedSet.Spec)
+
+	connection := om.CurrMockedConnection
+	connection.CheckDeployment(t, createDeploymentFromReplicaSet(rs))
+	connection.CheckNumberOfUpdateRequests(t, 2)
+}
+
 func TestOnDeleteReplicaSet(t *testing.T) {
 	// TODO
 	/*st := DefaultReplicaSetBuilder().Build()
@@ -78,7 +110,7 @@ func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
 	}
 	rs := &v1.MongoDbReplicaSet{
 		Meta: v1.Meta{ObjectMeta: metav1.ObjectMeta{Name: "temple", Namespace: TestNamespace}},
-		Spec:       *spec}
+		Spec: *spec}
 	return &ReplicaSetBuilder{rs}
 }
 

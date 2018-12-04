@@ -59,6 +59,7 @@ if [ ! -z "${OM_HOST}" ] &&  [ -z "${SKIP_OPS_MANAGER_REGISTRATION}" ]; then
     # like a PersistentVolume, or this file won't be found
     OM_ENV_FILE="/opt/mongodb/mms/env/.ops-manager-env"
     echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')]: Credentials to be stored in ${OM_ENV_FILE}"
+
     /opt/scripts/configure-ops-manager.py "http://${OM_HOST}:${OM_PORT}" "${OM_ENV_FILE}" || true
     # keep going if a user has registered already, we'll assume it is us.
 fi

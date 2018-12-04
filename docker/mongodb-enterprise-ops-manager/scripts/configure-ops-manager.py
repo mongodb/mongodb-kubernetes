@@ -15,7 +15,8 @@ import fileinput
 import json
 import urllib
 from urllib import request
-from os.path import basename, exists
+from os.path import basename, exists, dirname
+import os
 import sys
 
 import docopt
@@ -42,6 +43,7 @@ def post(om_url, data, username=None, token=None):
         opener = urllib.request.build_opener(handler)
         urllib.request.install_opener(opener)
 
+    print('Ops Manager request: url: {}'.format(om_url))
     resp = request.urlopen(req)
     return json.loads(resp.read().decode('utf-8'))
 
@@ -81,6 +83,10 @@ if __name__ == '__main__':
 
     # Retrieve API key
     api_key = user_data['apiKey']
+
+    dir = dirname(args['ENV_FILE'])
+    if not os.path.exists(dir):
+        os.makedirs(dir)
 
     # Store env variables
     with open(args['ENV_FILE'], 'w') as f:

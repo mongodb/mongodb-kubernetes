@@ -14,7 +14,7 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
     create:
       file: fixtures/replica-set-pv.yaml
       wait_until: sts/rs001-pv -> status.ready_replicas == 3
-      wait_for: 10
+      wait_for: 30
     """
 
     def test_replica_set_sts_exists(self):

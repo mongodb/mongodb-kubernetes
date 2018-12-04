@@ -130,14 +130,14 @@ func (s *StatefulSetHelper) BuildStatefulSet() *appsv1.StatefulSet {
 }
 
 func (s *StatefulSetHelper) CreateOrUpdateInKubernetes() error {
-	sets := s.BuildStatefulSet()
+	set := s.BuildStatefulSet()
 	_, err := s.Helper.createOrUpdateStatefulsetWithService(
 		s.Owner,
 		s.ServicePort,
 		s.Namespace,
 		s.ExposedExternally,
 		s.Logger,
-		sets,
+		set,
 	)
 	if err != nil {
 		return err
@@ -167,12 +167,12 @@ func (k *KubeHelper) createOrUpdateStatefulsetWithService(owner metav1.Object, s
 
 	log = log.With("statefulset", set.Name)
 	event := "Created"
-	if err := k.client.Get(context.TODO(), objectKey(ns, set.Name), set); err != nil {
-		if err := k.client.Create(context.TODO(), set); err != nil {
+	if err = k.client.Get(context.TODO(), objectKey(ns, set.Name), &appsv1.StatefulSet{}); err != nil {
+		if err = k.client.Create(context.TODO(), set); err != nil {
 			return nil, err
 		}
 	} else {
-		if err := k.client.Update(context.TODO(), set); err != nil {
+		if err = k.client.Update(context.TODO(), set); err != nil {
 			return nil, err
 		}
 		event = "Updated"

@@ -1,4 +1,5 @@
 stepback: true
+exec_timeout_secs: 1800 # 30 minutes is the longest we'll ever run
 
 functions:
   "clone":
@@ -96,16 +97,16 @@ functions:
           export KOPS_STATE_STORE=s3://dev02-mongokubernetes-com-state-store
           export CLUSTER=dev02.mongokubernetes.com
 
-          echo "Downloading kubectl"
-          curl -LO https://storage.googleapis.com/kubernetes-release/release/v1.10.0/bin/linux/amd64/kubectl
-          chmod +x kubectl
-          mv kubectl $BINDIR
-
           echo "Downloading kops"
           curl -L https://github.com/kubernetes/kops/releases/download/1.9.1/kops-linux-amd64 -o kops
           chmod +x kops
           mv kops $BINDIR
           kops export kubecfg $CLUSTER
+
+          echo "Downloading kubectl"
+          curl -LO https://storage.googleapis.com/kubernetes-release/release/v1.10.0/bin/linux/amd64/kubectl
+          chmod +x kubectl
+          mv kubectl $BINDIR
 
           echo "Downloading helm"
           HELM=helm.tgz
@@ -119,6 +120,13 @@ functions:
           curl -L https://github.com/openshift/origin/releases/download/v3.11.0/openshift-origin-client-tools-v3.11.0-0cbc58b-linux-64bit.tar.gz --output $OC_PKG
           tar xfz $OC_PKG
           mv openshift-origin-client-tools-v3.11.0-0cbc58b-linux-64bit/oc $BINDIR
+
+          if [ "${build_variant}" = "e2e_openshift_origin_v3.11" ]; then
+            echo "Setting up OpenShift variant"
+            echo "Token: ${openshift_cluster_token}"
+            oc login ${openshift_cluster_url} --token=${openshift_cluster_token} --insecure-skip-tls-verify
+            kubectl config use-context default/master-openshift-cluster-mongokubernetes-com:8443/admin
+          fi
 
 
   "gotest_parse_files":
@@ -241,17 +249,22 @@ functions:
           echo "Build Variant: ${build_variant}"
           set -e # fail on first failed test
 
-          if [ "${build_variant}" = "e2e_kube_vanilla_v1.10" ]; then
-            echo "Nothing to setup for this variant"
-          elif [ "${build_variant}" = "e2e_openshift_origin_v3.11" ]; then
+          if [ "${build_variant}" = "e2e_openshift_origin_v3.11" ]; then
             echo "Setting up OpenShift variant"
-            oc login ${openshift_cluster_url} --token=${openshift_cluster_token} --insecure-skip-tls-verify
-            kubectl config use-context default/master-openshift-cluster-mongokubernetes-com:8443/admin
             export MANAGED_SECURITY_CONTEXT="true"
           fi
 
           # A complete environment is set each time.
           TEST_STAGE=${test_name} ./e2e_tests.sh
+
+  "prepare_test_env":
+    - command: shell.exec
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen
+        script: |
+          export PATH=${workdir}/bin:$PATH
+
+          ./prepare_test_env
 
   "post_task":
   - command: shell.exec
@@ -281,6 +294,7 @@ tasks:
 
 - name: release_operator
   tags: ["release_operator"]
+  patch_only: true
   commands:
     - func: "clone"
     - func: "build_operator"
@@ -298,6 +312,7 @@ tasks:
 
 - name: release_operator_rhel_connect
   tags: ["release_operator_rhel"]
+  patch_only: true
   commands:
     - func: "clone"
     - func: "build_operator"
@@ -307,6 +322,7 @@ tasks:
 # Note that this task doesn't work so far as it needs different quay account and token
 - name: release_mongodb_enterprise
   tags: ["release_mongodb_enterprise"]
+  patch_only: true
   commands:
     - func: "clone"
     - func: "setup_docker"
@@ -336,6 +352,7 @@ tasks:
         create_git_sha_tags: "true"
 
 - name: setup_e2e
+  exec_timeout_secs: 900 # 15 minutes max
   commands:
     - func: "clone"
     - func: "check_evergreen_health"
@@ -357,33 +374,41 @@ tasks:
         env: development
         image_name: mongodb-enterprise-tests
         create_git_sha_tags: "true"
+    - func: "setup_kubectl"
+    - func: "prepare_test_env"
 
 - name: e2e_rs_base
+  exec_timeout_secs: 600 # 10 minutes max
   commands:
     - func: "e2e_test"
       vars:
         test_name: replica_set_base
 - name: e2e_rs_ent
+  exec_timeout_secs: 600
   commands:
     - func: "e2e_test"
       vars:
         test_name: replica_set_ent
 - name: e2e_rs_pv
+  exec_timeout_secs: 600
   commands:
     - func: "e2e_test"
       vars:
         test_name: replica_set_pv
 - name: e2e_rs_pv_multiple
+  exec_timeout_secs: 600
   commands:
     - func: "e2e_test"
       vars:
         test_name: replica_set_pv_multiple
 - name: e2e_sharded_cluster_base
+  exec_timeout_secs: 600
   commands:
     - func: "e2e_test"
       vars:
         test_name: sharded_cluster_base
 - name: e2e_sharded_cluster_pv
+  exec_timeout_secs: 600
   commands:
     - func: "e2e_test"
       vars:
@@ -436,7 +461,7 @@ buildvariants:
   run_on:
   - archlinux-test
   batchtime: 1440
-  setpback: false
+  stepback: false
   tasks:
   - name: "setup_e2e"
   - name: "e2e_task_group"
@@ -447,7 +472,7 @@ buildvariants:
   run_on:
   - archlinux-test
   batchtime: 1440
-  setpback: false
+  stepback: false
   tasks:
    - name: "setup_e2e"
    - name: "e2e_task_group"

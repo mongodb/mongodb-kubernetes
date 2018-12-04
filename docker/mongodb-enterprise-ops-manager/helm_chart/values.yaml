@@ -6,3 +6,5 @@ registry:
 opsManager:
   name: mongodb-enterprise-ops-manager
   version: 4.0.0.49984.20180625T1427Z-1
+  # todo remove om host at all
+  host: ops-manager.mongodb.svc.cluster.local

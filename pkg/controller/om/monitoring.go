@@ -1,6 +1,8 @@
 package om
 
 import (
+	"fmt"
+
 	"go.uber.org/zap"
 )
 
@@ -32,7 +34,7 @@ func StopMonitoring(omClient OmConnection, hostnames []string, log *zap.SugaredL
 				found = true
 				err := omClient.RemoveHost(host.Id)
 				if err != nil {
-					log.Errorf("Failed to remove host %s from monitoring in Ops Manager: %s", host.Hostname, err)
+					return fmt.Errorf("Failed to remove host %s from monitoring in Ops Manager: %s", host.Hostname, err)
 				} else {
 					log.Debugf("Removed the host %s from monitoring in Ops Manager", host.Hostname)
 				}
@@ -40,7 +42,7 @@ func StopMonitoring(omClient OmConnection, hostnames []string, log *zap.SugaredL
 			}
 		}
 		if !found {
-			log.Errorf("Unable to remove monitoring on host %s as it was not found", hostname)
+			log.Warnf("Unable to remove monitoring on host %s as it was not found", hostname)
 		}
 	}
 

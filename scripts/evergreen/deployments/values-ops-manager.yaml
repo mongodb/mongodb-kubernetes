@@ -1,0 +1,9 @@
+namespace: operator-testing
+registry:
+  repository: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
+  pullPolicy: Always
+  imagePullSecrets:
+opsManager:
+  name: mongodb-enterprise-ops-manager
+  version: 4.0.5.50245.20181031T0042Z-1_test
+  host: ops-manager.operator-testing.svc.cluster.local

@@ -34,7 +34,6 @@ if ! kubectl get ns | grep -q "${PROJECT_NAMESPACE}"; then
     echo "Created namespace ${PROJECT_NAMESPACE} as it didn't exist"
 fi
 
-
 # Array contains string; based on https://stackoverflow.com/questions/3685970/check-if-a-bash-array-contains-a-value
 contains() {
     local e match=$1
@@ -50,33 +49,16 @@ read_om_env() {
         eval $(kubectl -n "${OPERATOR_TESTING_FRAMEWORK_NS}" exec mongodb-enterprise-ops-manager-0 cat "$1")
 }
 
-spawn_om_kubernetes() {
-    echo "##### Installing Ops Manager..."
+fetch_om_information() {
+    echo "##### Reading Ops Manager environment variables..."
 
     OPERATOR_TESTING_FRAMEWORK_NS=operator-testing
     if ! kubectl get namespace/${OPERATOR_TESTING_FRAMEWORK_NS} &> /dev/null; then
-        echo "Ops Manager is not installed in this cluster. Doing it now."
-        # If Ops Manager is not running, run it first!
-        # Need to install Ops Manager
-        kubectl create namespace "${OPERATOR_TESTING_FRAMEWORK_NS}"
-        echo "Starting Ops Manager Installation: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-        # Install the operator
-        kubectl --namespace "${OPERATOR_TESTING_FRAMEWORK_NS}" apply -f deployments/mongodb-enterprise-ops-manager.yaml
+        echo "Ops Manager is not installed in this cluster. Make sure the Ops Manager installation script is called beforehand. Exiting..."
 
-        echo "* Waiting until Ops Manager is running..."
-        while ! kubectl --namespace "${OPERATOR_TESTING_FRAMEWORK_NS}" get pods/mongodb-enterprise-ops-manager-0 | grep -q 'Running'; do sleep 4; done
-
-        # wait for ops manager to really start
-        echo "Ops Manager container is in Running state, waiting for Ops Manager to start."
-        # We can't communicate with Ops Manager if it is inside Kubernetes, so we just
-        # wait for this command to succeed.
-        while ! kubectl --namespace "${OPERATOR_TESTING_FRAMEWORK_NS}" get pods/mongodb-enterprise-ops-manager-0 -o jsonpath="{.status.containerStatuses[0].ready}" | grep -q "true"; do sleep 4; done
-
-        echo "Ops Manager is installed in this cluster. A new user will be added for automated tests to run."
-        sleep 10 # sleep for a few seconds so the user has time to be created.
+        exit 1
     else
         echo "Ops Manager is already installed in this cluster. Will reuse it now."
-        echo "If you want to start with a fresh Ops Manager installation, please delete the ${OPERATOR_TESTING_FRAMEWORK_NS} namespace."
     fi
 
     # Get the environment from the ops-manager container
@@ -119,18 +101,18 @@ install_operator() {
     fi
 
     echo "Waiting until Operator gets to Running state..."
-    max_wait=30
-    # In parallel scenarios, when multiple tests are running at the same time, the operator can take more than a few seconds to be ready.
-    # I'm increasing this value to 30 to see how it reacts from now on.
+
+    # Practice shows Openshift is sometimes REALLY slow to start Operator...
+    max_wait=120
     while ! kubectl -n "${PROJECT_NAMESPACE}" get pods -l app=mongodb-enterprise-operator -o jsonpath='{.items[0].status.phase}' | grep -q "Running" ; do
         sleep 1
         max_wait=$((max_wait - 1))
         if [ $max_wait -eq 0 ]; then
-            echo "(!!) Operator hasn't reached RUNNING state. The full yaml configuration for the pod is:"
+            echo "(!!) Operator hasn't reached RUNNING state after 120 seconds. The full yaml configuration for the pod is:"
             echo "------------------------------------------------------"
             kubectl -n "${PROJECT_NAMESPACE}" get pods -l app=mongodb-enterprise-operator -o yaml
 
-            # Exit and signal an error, the operator should not take more than 30 seconds to start
+            # Exit and signal an error, the operator should not take more than 120 seconds to start
             exit 1
         fi
     done
@@ -140,7 +122,7 @@ install_operator() {
 
 configure_operator() {
     echo "##### Creating project and credentials Kubernetes object..."
-    BASE_URL="${OM_BASE_URL:=http://ops-manager-internal.operator-testing.svc.cluster.local:8080}"
+    BASE_URL="${OM_BASE_URL:=http://ops-manager.operator-testing.svc.cluster.local:8080}"
 
     # delete `my-project` if it exists
     ! kubectl --namespace "${PROJECT_NAMESPACE}" get configmaps | grep -q my-project \
@@ -156,10 +138,12 @@ configure_operator() {
     kubectl --namespace "${PROJECT_NAMESPACE}" create secret generic my-credentials \
             --from-literal=user="${OM_USER:=admin}" --from-literal=publicApiKey="${OM_API_KEY}"
 
+    echo "------------------------------------------------------"
     echo "Project ConfigMap:"
     echo "------------------------------------------------------"
     kubectl --namespace "${PROJECT_NAMESPACE}" get configmap/my-project -o yaml
 
+    echo "------------------------------------------------------"
     echo "Credentials Secret:"
     echo "------------------------------------------------------"
     kubectl --namespace "${PROJECT_NAMESPACE}" get secret/my-credentials -o yaml
@@ -214,10 +198,11 @@ run_tests() {
     cp -R "${DIR}/../../public/helm_chart/" "${charttmpdir}"
 
     cp deployments/mongodb-enterprise-tests.yaml "${charttmpdir}/templates"
+
     # apply the correct configuration of the running OM instance
     helm template "${charttmpdir}" \
          -x templates/mongodb-enterprise-tests.yaml \
-         --set baseUrl="${OM_BASE_URL:=http://ops-manager-internal.operator-testing.svc.cluster.local:8080}" \
+         --set baseUrl="${OM_BASE_URL:=http://ops-manager.operator-testing.svc.cluster.local:8080}" \
          --set apiKey="${OM_API_KEY}" \
          --set apiUser="${OM_USER:=admin}" \
          --set namespace="${PROJECT_NAMESPACE}" \
@@ -225,23 +210,43 @@ run_tests() {
          --set tag="${TEST_IMAGE_TAG}" > mongodb-enterprise-tests.yaml || exit 1
 
     kubectl --namespace "${PROJECT_NAMESPACE}" apply -f mongodb-enterprise-tests.yaml
+
+
+
+    echo "##### Deployed test application"
     sleep 10
 
-    PODNAME=mongodb-enterprise-operator-tests
+    TEST_APP_PODNAME=mongodb-enterprise-operator-tests
     # Do wait while the Pod is not yet running (can be in Pending or ContainerCreating state)
-    while ! kubectl --namespace "${PROJECT_NAMESPACE}" get "pod/${PODNAME}" | grep -q 'Running' ; do sleep 1; done
+    while ! kubectl --namespace "${PROJECT_NAMESPACE}" get "pod/${TEST_APP_PODNAME}" | grep -q 'Running' ; do sleep 1; done
 
-    # Eventually this Pod will finish, and this command will finish as well.
-    kubectl --namespace "${PROJECT_NAMESPACE}" logs "${PODNAME}" -f
+    output_filename="test_app_output.text"
+    operator_filename="operator_output.text"
+    # Eventually this Pod will die (after run.sh has completed running), and this command will finish.
+    kubectl --namespace "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" -f > "${output_filename}" &
+    KILLPID0=$!
+    kubectl --namespace "${PROJECT_NAMESPACE}" logs "deployment/mongodb-enterprise-operator" -f > "${operator_filename}" &
+    KILLPID1=$!
+    # Print the logs from the test container with a background tail.
+    tail -f "${output_filename}" "${operator_filename}" &
+    KILLPID2=$!
 
-    # Get the output of the operator this time.
-    echo "==== OPERATOR LOGS START ===="
-    kubectl --namespace "${PROJECT_NAMESPACE}" logs "deployment/mongodb-enterprise-operator"
-    echo "==== OPERATOR LOGS END ======"
+    # Wait for as long as this Pod is Running.
+    while kubectl --namespace "${PROJECT_NAMESPACE}" get "pod/${TEST_APP_PODNAME}" | grep -q 'Running' ; do sleep 1; done
 
-    # The tests Pod might not be finish right away, so I wait until it is not in Running state anymore
-    while kubectl --namespace "${PROJECT_NAMESPACE}" get "pod/${PODNAME}" | grep -q 'Running' ; do sleep 1; done
-    [ "$(kubectl -n ${PROJECT_NAMESPACE} get pods/${PODNAME} -o jsonpath='{.status.phase}')" = "Succeeded" ]
+    # make sure there are not processes running in the background.
+    kill $KILLPID0 $KILLPID1 $KILLPID2 &> /dev/null
+    [ "$(kubectl -n ${PROJECT_NAMESPACE} get pods/${TEST_APP_PODNAME} -o jsonpath='{.status.phase}')" = "Succeeded" ]
+}
+
+# sometimes in kops cluster some nodes get this taint that makes nodes non-schedulable. Just going over all nodes and
+# trying to remove the taint is supposed to help
+# (very view materials about this taint - this one https://github.com/kubernetes/kubernetes/blob/master/pkg/cloudprovider/providers/aws/aws.go#L204
+# indicates that there are some problems with PVs, but removing PVs didn't help...)
+fix_taints() {
+    for n in $(kubectl get nodes -o name); do
+        kubectl taint nodes ${n} NodeWithImpairedVolumes:NoSchedule- 2> /dev/nul || true
+    done
 }
 
 ## Script options meant to run locally
@@ -259,9 +264,7 @@ if ! contains "skip-installations" "$@"; then
     install_operator
 fi
 
-if ! contains "skip-installations" "$@"; then
-    spawn_om_kubernetes
-fi
+fetch_om_information
 
 echo "Creating Operator Configuration for Ops Manager Test Instance."
 configure_operator
@@ -269,6 +272,8 @@ configure_operator
 if [ -z "${TEST_STAGE}" ]; then
     echo "TEST_STAGE needs to be defined"
 fi
+
+fix_taints
 
 run_tests "${TEST_STAGE}"
 TESTS_OK=$?

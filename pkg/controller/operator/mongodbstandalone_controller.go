@@ -68,7 +68,9 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 
 	s := &mongodb.MongoDbStandalone{}
 	defer exceptionHandling(
-		func() (reconcile.Result, error) { return r.updateStatusFailed(s, "Failed to reconcile Mongodb Standalone", log) },
+		func() (reconcile.Result, error) {
+			return r.updateStatusFailed(s, "Failed to reconcile Mongodb Standalone", log)
+		},
 		func(result reconcile.Result, err error) { res = result; e = err },
 	)
 
@@ -80,7 +82,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		return reconcile.Result{}, err
 	}
 
-	log.Debugf("Spec for MongoDbStandalone: %v\n", s.Spec)
+	log.Debugf("Spec for MongoDbStandalone: %+v\n", s.Spec)
 
 	// 'ObjectMeta.DeletionTimestamp' field is non zero if the object is being deleted
 	if s.ObjectMeta.DeletionTimestamp.IsZero() {

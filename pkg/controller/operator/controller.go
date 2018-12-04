@@ -3,9 +3,10 @@ package operator
 import (
 	"context"
 	"fmt"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"strings"
 	"time"
+
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/pkg/errors"
@@ -95,7 +96,7 @@ func (c *ReconcileCommonController) ensureAgentKeySecretExists(omConnection om.O
 			log.Info("Agent key was successfully generated")
 		}
 
-		secret := buildSecret(secretName, nameSpace, agentKey)
+		secret = buildSecret(secretName, nameSpace, agentKey)
 		if err = c.client.Create(context.TODO(), secret); err != nil {
 			return "", fmt.Errorf("Failed to create Secret: %s", err)
 		}
@@ -138,18 +139,20 @@ func (c *ReconcileCommonController) updateStatusFailed(resource v1.StatusUpdater
 // through calling 'cleanupFunc'. Cleanup is requeued in case of any troubles. Otherwise the header is removed from custom
 // resource
 func (c *ReconcileCommonController) reconcileDeletion(cleanupFunc func(obj interface{}, log *zap.SugaredLogger) error,
-	res interface{}, objectMeta *metav1.ObjectMeta, log *zap.SugaredLogger) (reconcile.Result, error) {
+	res v1.StatusUpdater, objectMeta *metav1.ObjectMeta, log *zap.SugaredLogger) (reconcile.Result, error) {
 	// Object is being removed - let's check for finalizers left
 	if util.ContainsString(objectMeta.Finalizers, util.MongodbResourceFinalizer) {
 		if err := cleanupFunc(res, log); err != nil {
-			// Retrying cleanup
-			return reconcile.Result{}, err
+			// Important: we are not retrying cleanup as there can be situations when this will block deletion forever (examples:
+			// config map changed/removed, Ops Manager deleted etc)
+			// TODO Ideally we should retry for N times though
+			log.Errorf("Failed to cleanup Ops Manager state, proceeding anyway: %s", err)
 		}
 
 		// remove our finalizer from the list and update it.
 		objectMeta.Finalizers = util.RemoveString(objectMeta.Finalizers, util.MongodbResourceFinalizer)
 		if err := c.client.Update(context.Background(), res.(runtime.Object)); err != nil {
-			return reconcile.Result{}, err
+			return c.updateStatusFailed(res, fmt.Sprintf("Failed to update object finalizer headers: %s", err), log)
 		}
 		log.Debug("Removed finalizer header")
 	}

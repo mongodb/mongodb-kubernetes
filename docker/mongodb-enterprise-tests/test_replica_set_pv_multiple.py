@@ -57,7 +57,7 @@ class TestReplicaSetMultiplePersistentVolumeDelete(KubernetesTester):
       file: fixtures/replica-set-pv-multiple.yaml
       wait_for: 90
     """
-    def test_sharded_cluster_doesnt_exist(self):
+    def test_no_statefulset_exists(self):
         # There should be no statefulsets in this namespace
         sts = self.appsv1.list_namespaced_stateful_set(self.namespace)
         assert len(sts.items) == 0

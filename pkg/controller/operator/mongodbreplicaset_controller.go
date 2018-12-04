@@ -67,8 +67,11 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 	log := zap.S().With("replica set", request.NamespacedName)
 
 	rs := &mongodb.MongoDbReplicaSet{}
+
 	defer exceptionHandling(
-		func() (reconcile.Result, error) { return r.updateStatusFailed(rs, "Failed to reconcile Mongodb Replica Set", log) },
+		func() (reconcile.Result, error) {
+			return r.updateStatusFailed(rs, "Failed to reconcile Mongodb Replica Set", log)
+		},
 		func(result reconcile.Result, err error) { res = result; e = err },
 	)
 
@@ -81,7 +84,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		return reconcile.Result{}, err
 	}
 
-	log.Debugf("Spec for MongoDbReplicaSet: %v\n", rs.Spec)
+	log.Debugf("Spec for MongoDbReplicaSet: %+v\n", rs.Spec)
 
 	// 'ObjectMeta.DeletionTimestamp' field is non zero if the object is being deleted
 	if rs.ObjectMeta.DeletionTimestamp.IsZero() {
@@ -184,7 +187,9 @@ func (c *ReconcileMongoDbReplicaSet) onDeleteReplicaSet(obj interface{}, log *za
 		func(d om.Deployment) error {
 			// error means that replica set is not in the deployment - it's ok and we can proceed (could happen if
 			// deletion cleanup happened twice and the first one cleaned OM state already)
-			d.RemoveReplicaSetByName(rs.Name)
+			if e := d.RemoveReplicaSetByName(rs.Name); e != nil {
+				log.Warnf("Failed to remove replica set from automation config: %s", e)
+			}
 			return nil
 		},
 		log,
@@ -200,7 +205,7 @@ func (c *ReconcileMongoDbReplicaSet) onDeleteReplicaSet(obj interface{}, log *za
 
 	hostsToRemove, _ := GetDnsNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.ClusterName, rs.Spec.Members)
 	log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
-	if err := om.StopMonitoring(conn, hostsToRemove, log); err != nil {
+	if err = om.StopMonitoring(conn, hostsToRemove, log); err != nil {
 		return fmt.Errorf("Failed to stop monitoring on hosts %s: %s", hostsToRemove, err)
 	}
 
