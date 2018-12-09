@@ -219,7 +219,7 @@ func agentApiKeySecretName(project string) string {
 
 // completionMessage is just a general message printed in the logs after mongodb resource is created/updated
 func completionMessage(url, groupId string) string {
-	return fmt.Sprintf("Please check the link %s/v2/%s to see the status of deployment", url, groupId)
+	return fmt.Sprintf("Please check the link %s/v2/%s to see the status of the deployment", url, groupId)
 }
 
 // exceptionHandling is the basic panic handling function that recovers from panic, logs the error, updates the resource status and updates the

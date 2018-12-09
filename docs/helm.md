@@ -118,9 +118,9 @@ mongodb-enterprise-operator-85594475fb-jjj9v   1/1       Running   0          11
 ```
 
 It might take a few seconds for `STATUS` to change from
-`ContainerCreating` to `Running`. 
+`ContainerCreating` to `Running`.
 
-If container is in `Running` status then additionally it may be useful to check logs:
+If the container is `Running`, you may also check the logs with:
 
 ``` bash
 kubectl logs -f deployment/mongodb-enterprise-operator -n mongodb
@@ -132,17 +132,17 @@ The good output should look similar to following:
 2018-06-07T21:32:22.856Z	INFO	ops-manager-kubernetes/main.go:78	Operator environment: dev
 2018-06-07T21:32:22.859Z	INFO	ops-manager-kubernetes/main.go:44	Ensuring the Custom Resource Definitions exist	{"crds": ["mongodbreplicaset", "mongodbstandalone", "mongodbshardedcluster"]}
 2018-06-07T21:32:24.410Z	INFO	ops-manager-kubernetes/main.go:57	Starting watching resources for CRDs just created
-``` 
+```
 
 ## Troubleshooting ##
 
-If pod doesn't have `Running` status the first action should be to check the detailed status of pod
- 
+If pod doesn't have `Running` status the first action should be to check the detailed status of the pod
+
 ``` bash
 kubectl describe pod mongodb-enterprise-operator-85594475fb-jjj9v -n mongodb
 ```
-Check the `Events` block to see detailed description of the error. Verify the urls of Operator image 
-(`Containers.mongodb-enterprise-operator.Image`) and Database image (`MONGODB_ENTERPRISE_DATABASE_IMAGE`). 
+Check the `Events` block to see detailed description of the error. Verify the urls of Operator image
+(`Containers.mongodb-enterprise-operator.Image`) and Database image (`MONGODB_ENTERPRISE_DATABASE_IMAGE`).
 Check that `IMAGE_PULL_SECRETS` has the correct secret name.
 
 If you still have problems, please ask in `#opsmanager-kubernetes` Slack channel.
@@ -151,7 +151,7 @@ If you still have problems, please ask in `#opsmanager-kubernetes` Slack channel
 
 Use CLI arguments to change the default repositories.
 
-For example, the following config points to a development AWS ECR repository and can be used 
+For example, the following config points to a development AWS ECR repository and can be used
 if the cluster is deployed to AWS (as no image pull secret is required).
 
 ```
@@ -189,7 +189,7 @@ helm install --namespace mongodb --name mongodb-enterprise public/helm_chart -f 
 3. Move it to `${HOME}/.kube/quay-secret.yml`
 4. Edit it and set `name: quay-pull-secret`
 
-The alternative to steps 3 and 4 are to use the file that _quay.io_ generates by default, which names the secret: `<user>-pull-secret` (where `<user>` is your own username) 
+The alternative to steps 3 and 4 are to use the file that _quay.io_ generates by default, which names the secret: `<user>-pull-secret` (where `<user>` is your own username)
 and then always remember to run the command below using `--set registry.imagePullSecrets="<user>-pull-secret"` instead of `--set registry.imagePullSecrets="quay-pull-secret"`.
 
 ```bash
