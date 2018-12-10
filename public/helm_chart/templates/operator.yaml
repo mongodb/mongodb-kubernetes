@@ -38,5 +38,13 @@ spec:
           value: {{ .Values.registry.pullPolicy }}
         - name: IMAGE_PULL_SECRETS
           value: {{ .Values.registry.imagePullSecrets }}
+{{ if .Values.operator.podWaitSeconds }}
+        - name: POD_WAIT_SEC
+          value: {{ quote .Values.operator.podWaitSeconds }}
+{{ end }}
+{{ if .Values.operator.podSetWaitRetries }}
+        - name: POD_WAIT_RETRIES
+          value: {{ quote .Values.operator.podSetWaitRetries }}
+{{ end }}
       imagePullSecrets:
       - name: {{ .Values.registry.imagePullSecrets }}

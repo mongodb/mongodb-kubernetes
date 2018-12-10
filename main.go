@@ -67,26 +67,26 @@ func initializeEnvironment() {
 
 	initEnvVariables(env)
 
-	log.Info("Operator environment: ", env)
+	log.Infof("Operator environment: %s", env)
 	log.Infof("Go Version: %s", runtime.Version())
 	log.Infof("Go OS/Arch: %s/%s", runtime.GOOS, runtime.GOARCH)
+	util.PrintEnvVars()
 }
 
 // initEnvVariables is the central place in application to initialize default configuration for the application (using
-// env variables). It should be preferred to inplace defaults in code as increases manageability and transparency of the application
+// env variables). Having the central place to manage defaults increases manageability and transparency of the application
+// Method initializes variables only in case they are not specified already.
 func initEnvVariables(env string) {
-	// So far we just hardcode parameters as it seems user doesn't need to configure this but may be at some stage
-	// we change our decision
 	switch env {
 	case "prod":
-		os.Setenv(util.StatefulSetWaitSecondsEnv, util.DefaultStatefulSetWaitSecondsProd)
-		os.Setenv(util.StatefulSetWaitRetriesEnv, util.DefaultStatefulSetWaitRetriesProd)
+		util.EnsureEnvVar(util.PodWaitSecondsEnv, util.DefaultPodWaitSecondsProd)
+		util.EnsureEnvVar(util.PodWaitRetriesEnv, util.DefaultPodWaitRetriesProd)
 	case "dev", "local":
-		os.Setenv(util.StatefulSetWaitSecondsEnv, util.DefaultStatefulSetWaitSecondsDev)
-		os.Setenv(util.StatefulSetWaitRetriesEnv, util.DefaultStatefulSetWaitRetriesDev)
+		util.EnsureEnvVar(util.PodWaitSecondsEnv, util.DefaultPodWaitSecondsDev)
+		util.EnsureEnvVar(util.PodWaitRetriesEnv, util.DefaultPodWaitRetriesDev)
 	}
-	os.Setenv(util.BackupDisableWaitSecondsEnv, util.DefaultBackupDisableWaitSeconds)
-	os.Setenv(util.BackupDisableWaitRetriesEnv, util.DefaultBackupDisableWaitRetries)
+	util.EnsureEnvVar(util.BackupDisableWaitSecondsEnv, util.DefaultBackupDisableWaitSeconds)
+	util.EnsureEnvVar(util.BackupDisableWaitRetriesEnv, util.DefaultBackupDisableWaitRetries)
 }
 
 func validateEnv(env string) {

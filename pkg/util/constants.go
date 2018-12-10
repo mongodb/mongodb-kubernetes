@@ -38,25 +38,25 @@ const (
 	AutomationAgentImagePullPolicy = "IMAGE_PULL_POLICY"
 	AutomationAgentPullSecrets     = "IMAGE_PULL_SECRETS"
 	OmOperatorEnv                  = "OPERATOR_ENV"
-	StatefulSetWaitSecondsEnv      = "STS_WAIT_SEC"
-	StatefulSetWaitRetriesEnv      = "STS_WAIT_RETRIES"
+	PodWaitSecondsEnv              = "POD_WAIT_SEC"
+	PodWaitRetriesEnv              = "POD_WAIT_RETRIES"
 	BackupDisableWaitSecondsEnv    = "BACKUP_WAIT_SEC"
 	BackupDisableWaitRetriesEnv    = "BACKUP_WAIT_RETRIES"
 	ManagedSecurityContextEnv      = "MANAGED_SECURITY_CONTEXT"
 
 	// Different default configuration values
-	DefaultMongodStorageSize          = "16G"
-	DefaultConfigSrvStorageSize       = "5G"
-	DefaultJournalStorageSize         = "1G" // maximum size for single journal file is 100Mb, journal files are removed soon after checkpoints
-	DefaultLogsStorageSize            = "3G"
-	DefaultAntiAffinityTopologyKey    = "kubernetes.io/hostname"
-	MongoDbDefaultPort                = 27017
-	DefaultStatefulSetWaitSecondsProd = "5"
-	DefaultStatefulSetWaitRetriesProd = "180" // 180 * 5 = 900 seconds = 15 min (Azure launch time is approximately 10 min)
-	DefaultStatefulSetWaitSecondsDev  = "3"
-	DefaultStatefulSetWaitRetriesDev  = "60" // This needs to be bigger for the extreme case when 3 PVs are mounted
-	DefaultBackupDisableWaitSeconds   = "3"
-	DefaultBackupDisableWaitRetries   = "30" // 30 * 3 = 90 seconds, should be ok for backup job to terminate
+	DefaultMongodStorageSize        = "16G"
+	DefaultConfigSrvStorageSize     = "5G"
+	DefaultJournalStorageSize       = "1G" // maximum size for single journal file is 100Mb, journal files are removed soon after checkpoints
+	DefaultLogsStorageSize          = "3G"
+	DefaultAntiAffinityTopologyKey  = "kubernetes.io/hostname"
+	MongoDbDefaultPort              = 27017
+	DefaultPodWaitSecondsProd       = "5"
+	DefaultPodWaitRetriesProd       = "180" // 180 * 5 = 900 seconds = 15 min (Azure launch time is approximately 10 min)
+	DefaultPodWaitSecondsDev        = "3"
+	DefaultPodWaitRetriesDev        = "60" // This needs to be bigger for the extreme case when 3 PVs are mounted
+	DefaultBackupDisableWaitSeconds = "3"
+	DefaultBackupDisableWaitRetries = "30" // 30 * 3 = 90 seconds, should be ok for backup job to terminate
 
 	// All others
 	OmGroupExternallyManagedTag = "EXTERNALLY_MANAGED_BY_KUBERNETES"

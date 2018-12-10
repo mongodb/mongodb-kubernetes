@@ -112,8 +112,8 @@ func waitForRsAgentsToRegister(set *appsv1.StatefulSet, clusterName string, omCo
 // happens after retrial - this allows to skip waiting in case agents are already registered
 func waitUntilAgentsHaveRegistered(omConnection om.OmConnection, log *zap.SugaredLogger, agentHostnames ...string) bool {
 	log.Infow("Waiting for agents to register with OM", "agent hosts", agentHostnames)
-	waitSeconds := util.ReadEnvVarOrPanicInt(util.StatefulSetWaitSecondsEnv)
-	retrials := util.ReadEnvVarOrPanicInt(util.StatefulSetWaitRetriesEnv)
+	waitSeconds := util.ReadEnvVarOrPanicInt(util.PodWaitSecondsEnv)
+	retrials := util.ReadEnvVarOrPanicInt(util.PodWaitRetriesEnv)
 
 	agentsCheckFunc := func() (string, bool) {
 		agentResponse, err := omConnection.ReadAutomationAgents()

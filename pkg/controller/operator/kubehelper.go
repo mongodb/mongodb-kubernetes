@@ -196,8 +196,8 @@ func (k *KubeHelper) createOrUpdateStatefulsetWithService(owner metav1.Object, s
 }
 
 func (k *KubeHelper) waitForStatefulsetAndPods(ns, stsName string, log *zap.SugaredLogger) bool {
-	waitSeconds := util.ReadEnvVarOrPanicInt(util.StatefulSetWaitSecondsEnv)
-	retrials := util.ReadEnvVarOrPanicInt(util.StatefulSetWaitRetriesEnv)
+	waitSeconds := util.ReadEnvVarOrPanicInt(util.PodWaitSecondsEnv)
+	retrials := util.ReadEnvVarOrPanicInt(util.PodWaitRetriesEnv)
 
 	return util.DoAndRetry(func() (string, bool) {
 		set := &appsv1.StatefulSet{}

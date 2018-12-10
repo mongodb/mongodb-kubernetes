@@ -39,11 +39,11 @@ func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
 	assert.Panics(t, func() { defaultSetHelper().CreateOrUpdateInKubernetes() })
 	InitDefaultEnvVariables()
 
-	os.Setenv(util.StatefulSetWaitSecondsEnv, "")
+	os.Setenv(util.PodWaitSecondsEnv, "")
 	assert.Panics(t, func() { defaultSetHelper().CreateOrUpdateInKubernetes() })
 	InitDefaultEnvVariables()
 
-	os.Setenv(util.StatefulSetWaitRetriesEnv, "")
+	os.Setenv(util.PodWaitRetriesEnv, "")
 	assert.Panics(t, func() { defaultSetHelper().CreateOrUpdateInKubernetes() })
 	InitDefaultEnvVariables()
 }

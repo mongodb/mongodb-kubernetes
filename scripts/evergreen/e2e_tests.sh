@@ -245,7 +245,7 @@ run_tests() {
 # indicates that there are some problems with PVs, but removing PVs didn't help...)
 fix_taints() {
     for n in $(kubectl get nodes -o name); do
-        kubectl taint nodes ${n} NodeWithImpairedVolumes:NoSchedule- 2> /dev/nul || true
+        kubectl taint nodes ${n} NodeWithImpairedVolumes:NoSchedule- || true
     done
 }
 

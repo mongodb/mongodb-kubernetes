@@ -1,6 +1,7 @@
 package util
 
 import (
+	"sort"
 	"time"
 
 	"bytes"
@@ -123,6 +124,8 @@ func ParseMongodbMinorVersion(version string) (float32, error) {
 	return float32(v), nil
 }
 
+// ************ Different functions to work with environment variables **************
+
 func ReadEnvVarOrPanic(key string) string {
 	value := os.Getenv(key)
 	if value == "" {
@@ -144,6 +147,26 @@ func ReadEnv(env string) (string, bool) {
 	return os.LookupEnv(env)
 }
 
+// EnsureEnvVar tests the env variable and sets it if it doesn't exist. We tolerate any errors setting env variable and
+// just log the warning
+func EnsureEnvVar(key, value string) {
+	if _, exist := ReadEnv(key); !exist {
+		if err := os.Setenv(key, value); err != nil {
+			zap.S().Warnf("Failed to set environment variable \"%s\" to \"%s\": %s", key, value, err)
+		}
+	}
+}
+
+func PrintEnvVars() {
+	zap.S().Info("Environment variables:")
+	envVariables := os.Environ()
+	sort.Strings(envVariables)
+	for _, e := range envVariables {
+		zap.S().Infof("\t%s", e)
+	}
+}
+
+// ************ Different string/array functions **************
 //
 // Helper functions to check and remove string from a slice of strings.
 //
