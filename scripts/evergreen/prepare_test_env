@@ -8,14 +8,18 @@
 
 # cleanup_env removes old namespaces and Ops Manager if there are too many of them
 cleanup_env() {
-    MAX_NS_COUNT=70
-    ns_count=$(kubectl get ns -o name | grep ^a- --count)
+    MAX_NS_COUNT=50
+    ns_count=$(kubectl get ns -o name | grep a- --count)
     echo "Current number of test namespaces: $ns_count"
 
     if [[ ns_count -gt ${MAX_NS_COUNT} ]]; then
         echo "##### Cleaning namespaces and Ops Manager as number of namespaces exceeds $MAX_NS_COUNT"
 
-        for f in $(kubectl get ns -o name | grep ^a-); do
+        for f in $(kubectl get ns -o name | grep -E "^namespaces/a-"); do
+            # temp until CLOUDP-35555 is resolved
+            for m in $(kubectl get mrs -n ${f} -o name); do
+                kubectl patch  ${m}  --type json   -p='[{"op": "remove", "path": "/metadata/finalizers"}]' -n ${f}
+            done
             kubectl delete ${f};
         done
 
@@ -23,8 +27,35 @@ cleanup_env() {
 
         echo "##### Removed old namespaces and Ops Manager one"
     fi
+
+    echo "##### Removing FAILED Persistent Volumes if any"
+    # Note, that these volumes will be removed from EBS eventually (during a couple of hours), most of all they are stuck
+    # in attaching - this results in nodes getting taints "NoSchedule"
+    for v in $(kubectl get pv -o=custom-columns=NAME:.metadata.name,status:.status.phase | grep Failed | awk '{ print $1 }'); do
+        kubectl delete pv ${v}
+    done
+
+    echo "##### Detaching the EBS Volumes that are stuck"
+    for v in $(aws ec2 describe-volumes --filters Name=attachment.status,Values=attaching | grep VolumeId | cut -d "\"" -f 4); do
+        set -v
+        aws ec2 detach-volume --volume-id ${v} --force || true
+        set +v
+    done
+
+    echo "##### Removing ESB volumes which are not used any more"
+    # Seems Openshift (sometimes?) doesn't remove the volumes but marks them as available - we need to clean these volumes
+    # manually
+    for v in $(aws ec2 describe-volumes --filters Name=status,Values=available | grep VolumeId | cut -d "\"" -f 4); do
+        set -v
+        aws ec2 delete-volume --volume-id ${v} || true
+        set +v
+    done
+
 }
 
+# Update: taints are supposed not to appear as "cleanup_env" function is supposed to remove failed PVs, but let's keep
+# this function for some time here
+#
 # sometimes in kops cluster some nodes get this taint that makes nodes non-schedulable. Just going over all nodes and
 # trying to remove the taint is supposed to help
 fix_taints() {
@@ -80,6 +111,5 @@ ensure_ops_manager() {
 
 cleanup_env
 
-fix_taints
 
 ensure_ops_manager

@@ -94,6 +94,7 @@ functions:
           export AWS_ACCESS_KEY_ID=${mms_eng_test_aws_access_key}
           export AWS_SECRET_ACCESS_KEY=${mms_eng_test_aws_secret}
           export AWS_REGION=${mms_eng_test_aws_region}
+          export AWS_DEFAULT_REGION=${mms_eng_test_aws_region}
           export KOPS_STATE_STORE=s3://dev02-mongokubernetes-com-state-store
           export CLUSTER=dev02.mongokubernetes.com
 

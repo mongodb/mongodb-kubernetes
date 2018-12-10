@@ -36,14 +36,15 @@ required = [
   revision = "1f13a808da65775f22cbf47862c4e5898d8f4ca1"
 
 [[override]]
+  # version that uses "kubernetes-1.11.2"
   name = "sigs.k8s.io/controller-runtime"
-  version = "v0.1.4"
+  version = "=v0.1.4"
 
 [[constraint]]
   name = "github.com/operator-framework/operator-sdk"
   # The version rule is used for a specific release and the master branch for in between releases.
-  branch = "master" #osdk_branch_annotation
-  # version = "=v0.1.1" #osdk_version_annotation
+#  branch = "master" #osdk_branch_annotation
+   version = "=v0.2.0" #osdk_version_annotation
 
 [prune]
   go-tests = true
