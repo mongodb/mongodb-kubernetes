@@ -2,15 +2,16 @@ package operator
 
 import (
 	"context"
+	"runtime"
+	"testing"
+	"time"
+
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
-	"runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission/types"
-	"testing"
-	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 
@@ -54,11 +55,10 @@ type MockedClient struct {
 	shardedClusters map[client.ObjectKey]apiruntime.Object
 	// mocked client keeps track of all implemented functions called - uses reflection Func for this to enable type-safety
 	// and make function names rename easier
-	history []*runtime.Func
+	history []*HistoryItem
 	// the delay for statefulsets "creation"
 	StsCreationDelayMillis time.Duration
 }
-
 
 func newMockedClient(object apiruntime.Object) *MockedClient {
 	return newMockedClientDetailed(object, om.TestGroupName, "")
@@ -113,8 +113,7 @@ func newMockedClientDetailed(object apiruntime.Object, projectName, organization
 // returned by the Server.
 func (k *MockedClient) Get(ctx context.Context, key client.ObjectKey, obj apiruntime.Object) (e error) {
 	resMap := k.getMapForObject(obj)
-	// todo
-	//k.addToHistory(reflect.ValueOf(k.getStatefulSet))
+	k.addToHistory(reflect.ValueOf(k.Get), obj)
 	if _, exists := resMap[key]; !exists {
 		return fmt.Errorf("%T %s doesn't exists!", obj, key)
 	}
@@ -137,7 +136,8 @@ func (k *MockedClient) List(ctx context.Context, opts *client.ListOptions, list 
 func (k *MockedClient) Create(ctx context.Context, obj apiruntime.Object) error {
 	key := objectKeyFromApiObject(obj)
 	resMap := k.getMapForObject(obj)
-	//k.addToHistory(reflect.ValueOf(k.createStatefulSet))
+	k.addToHistory(reflect.ValueOf(k.Create), obj)
+
 	if err := k.Get(ctx, key, obj); err == nil {
 		return fmt.Errorf("%T %s already exists!", obj, key)
 	}
@@ -171,7 +171,7 @@ func (k *MockedClient) Create(ctx context.Context, obj apiruntime.Object) error 
 // struct pointer so that obj can be updated with the content returned by the Server.
 func (k *MockedClient) Update(ctx context.Context, obj apiruntime.Object) error {
 	key := objectKeyFromApiObject(obj)
-	//k.addToHistory(reflect.ValueOf(k.createStatefulSet))
+	k.addToHistory(reflect.ValueOf(k.Update), obj)
 
 	resMap := k.getMapForObject(obj)
 	resMap[key] = obj
@@ -185,11 +185,13 @@ func (k *MockedClient) Update(ctx context.Context, obj apiruntime.Object) error 
 
 // Delete deletes the given obj from Kubernetes cluster.
 func (k *MockedClient) Delete(ctx context.Context, obj apiruntime.Object, opts ...client.DeleteOptionFunc) error {
+	k.addToHistory(reflect.ValueOf(k.Delete), obj)
 	// we don't need this implementation
 	return nil
 }
 
 func (k *MockedClient) Status() client.StatusWriter {
+	k.addToHistory(reflect.ValueOf(k.Status()), nil)
 	// we don't need this implementation
 	return nil
 }
@@ -218,8 +220,8 @@ func markStatefulSetsReady(set *appsv1.StatefulSet) {
 	}
 }
 
-func (oc *MockedClient) addToHistory(value reflect.Value) {
-	oc.history = append(oc.history, runtime.FuncForPC(value.Pointer()))
+func (oc *MockedClient) addToHistory(value reflect.Value, obj apiruntime.Object) {
+	oc.history = append(oc.history, HItem(value, obj))
 }
 
 func (oc *MockedClient) getMapForObject(obj apiruntime.Object) map[client.ObjectKey]apiruntime.Object {
@@ -242,12 +244,12 @@ func (oc *MockedClient) getMapForObject(obj apiruntime.Object) map[client.Object
 	return nil
 }
 
-func (oc *MockedClient) CheckOrderOfOperations(t *testing.T, value ...reflect.Value) {
+func (oc *MockedClient) CheckOrderOfOperations(t *testing.T, value ...*HistoryItem) {
 	j := 0
 	matched := ""
 	for _, h := range oc.history {
-		if h.Name() == runtime.FuncForPC(value[j].Pointer()).Name() {
-			matched += h.Name() + " "
+		if *h == *value[j] {
+			matched += fmt.Sprintf("%s ", h.String())
 			j++
 		}
 		if j == len(value) {
@@ -257,12 +259,26 @@ func (oc *MockedClient) CheckOrderOfOperations(t *testing.T, value ...reflect.Va
 	assert.Equal(t, len(value), j, "Only %d of %d expected operations happened in expected order (%s)", j, len(value), matched)
 }
 
-func (oc *MockedClient) CheckOperationsDidntHappen(t *testing.T, value ...reflect.Value) {
+func (oc *MockedClient) CheckOperationsDidntHappen(t *testing.T, value ...*HistoryItem) {
 	for _, h := range oc.history {
 		for _, o := range value {
 			assert.NotEqual(t, o, h, "Operation %v is not expected to happen", h)
 		}
 	}
+}
+
+// HistoryItem is an item that describe the invocation of 'client.client' method.
+type HistoryItem struct {
+	function     *runtime.Func
+	resourceType reflect.Type
+}
+
+func HItem(value reflect.Value, obj apiruntime.Object) *HistoryItem {
+	return &HistoryItem{function: runtime.FuncForPC(value.Pointer()), resourceType: reflect.ValueOf(obj).Type()}
+}
+
+func (h HistoryItem) String() string {
+	return fmt.Sprintf("%s-%s", h.function.Name(), h.resourceType.String())
 }
 
 // MockedManager is the mock implementation of `Manager` from controller-runtime library. The only interesting method though
@@ -272,10 +288,10 @@ type MockedManager struct {
 }
 
 func newMockedManager(object apiruntime.Object) *MockedManager {
-	return &MockedManager{client:newMockedClient(object)}
+	return &MockedManager{client: newMockedClient(object)}
 }
 func newMockedManagerDetailed(object apiruntime.Object, projectName, organizationId string) *MockedManager {
-	return &MockedManager{client:newMockedClientDetailed(object, projectName, organizationId)}
+	return &MockedManager{client: newMockedClientDetailed(object, projectName, organizationId)}
 }
 
 func newMockedManagerSpecificClient(c *MockedClient) *MockedManager {
@@ -288,53 +304,52 @@ func (m *MockedManager) Add(runnable manager.Runnable) error {
 
 // SetFields will set any dependencies on an object for which the object has implemented the inject
 // interface - e.g. inject.Client.
-func (m *MockedManager) SetFields(interface{}) error{
+func (m *MockedManager) SetFields(interface{}) error {
 	return nil
 }
 
 // Start starts all registered Controllers and blocks until the Stop channel is closed.
 // Returns an error if there is an error starting any controller.
-func (m *MockedManager) Start(<-chan struct{}) error{
+func (m *MockedManager) Start(<-chan struct{}) error {
 	return nil
 }
 
 // GetConfig returns an initialized Config
-func (m *MockedManager) GetConfig() *rest.Config{
+func (m *MockedManager) GetConfig() *rest.Config {
 	return nil
 }
 
 // GetScheme returns and initialized Scheme
-func (m *MockedManager) GetScheme() *apiruntime.Scheme{
+func (m *MockedManager) GetScheme() *apiruntime.Scheme {
 	return nil
 }
 
 // GetAdmissionDecoder returns the runtime.Decoder based on the scheme.
-func (m *MockedManager) GetAdmissionDecoder() types.Decoder{
+func (m *MockedManager) GetAdmissionDecoder() types.Decoder {
 	return nil
 }
 
 // GetClient returns a client configured with the Config
-func (m *MockedManager) GetClient() client.Client{
+func (m *MockedManager) GetClient() client.Client {
 	return m.client
 }
 
 // GetFieldIndexer returns a client.FieldIndexer configured with the client
-func (m *MockedManager) GetFieldIndexer() client.FieldIndexer{
+func (m *MockedManager) GetFieldIndexer() client.FieldIndexer {
 	return nil
 }
 
 // GetCache returns a cache.Cache
-func (m *MockedManager) GetCache() cache.Cache{
+func (m *MockedManager) GetCache() cache.Cache {
 	return nil
 }
 
 // GetRecorder returns a new EventRecorder for the provided name
-func (m *MockedManager) GetRecorder(name string) record.EventRecorder{
+func (m *MockedManager) GetRecorder(name string) record.EventRecorder {
 	return nil
 }
 
 // GetRESTMapper returns a RESTMapper
-func (m *MockedManager) GetRESTMapper() meta.RESTMapper{
+func (m *MockedManager) GetRESTMapper() meta.RESTMapper {
 	return nil
 }
-

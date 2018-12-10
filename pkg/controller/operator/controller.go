@@ -111,7 +111,7 @@ func (c *ReconcileCommonController) updateStatusSuccessful(resource v1.StatusUpd
 	// Sometimes we get the "Operation cannot be fulfilled on mongodbstandalones.mongodb.com "dublin": the object has
 	// been modified; please apply your changes to the latest version and try again" error - so let's fetch the latest
 	// object before updating it
-	c.client.Get(context.TODO(), objectKeyFromApiObject(resource), resource)
+	_ = c.client.Get(context.TODO(), objectKeyFromApiObject(resource), resource)
 
 	// Dev note: "c.client.Status().Update()" doesn't work for some reasons and the examples from Operator SDK use the
 	// normal resource update - so we use the same
@@ -150,11 +150,15 @@ func (c *ReconcileCommonController) reconcileDeletion(cleanupFunc func(obj inter
 		}
 
 		// remove our finalizer from the list and update it.
+		// (Sometimes we get the "the object has been modified" error - so let's fetch the latest object before updating it)
+		_ = c.client.Get(context.TODO(), objectKeyFromApiObject(res), res)
 		objectMeta.Finalizers = util.RemoveString(objectMeta.Finalizers, util.MongodbResourceFinalizer)
 		if err := c.client.Update(context.Background(), res.(runtime.Object)); err != nil {
 			return c.updateStatusFailed(res, fmt.Sprintf("Failed to update object finalizer headers: %s", err), log)
 		}
 		log.Debug("Removed finalizer header")
+	} else {
+		log.Warnf("Why was reconcileDeletion() function called but there is no %s header?", util.MongodbResourceFinalizer)
 	}
 
 	// Our finalizer has finished, so the reconciler can do nothing.
