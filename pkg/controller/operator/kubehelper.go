@@ -261,12 +261,33 @@ func (k *KubeHelper) readOrCreateService(owner metav1.Object, serviceName string
 	return service, nil
 }
 
+func getNamespaceAndNameForResource(resource, defaultNamespace string) (string, string, error) {
+	s := strings.Split(resource, "/")
+	if len(s) > 2 {
+		return "", "", fmt.Errorf("Resource identifier must be of the form 'resoureName' or 'resourceNamespace/resourceName'")
+	}
+	var namespace, name string
+	if len(s) == 2 {
+		namespace, name = s[0], s[1]
+	} else {
+		namespace, name = defaultNamespace, s[0]
+	}
+	if namespace == "" || name == "" {
+		return "", "", fmt.Errorf("Namespace and name and name must both be non-empty")
+	}
+	return namespace, name, nil
+}
+
 // readProjectConfig returns a config map
-func (k *KubeHelper) readProjectConfig(ns, configMapName string) (*ProjectConfig, error) {
-	cmap := &corev1.ConfigMap{}
-	err := k.client.Get(context.TODO(), objectKey(ns, configMapName), cmap)
+func (k *KubeHelper) readProjectConfig(defaultNamespace, name string) (*ProjectConfig, error) {
+	configMapNamespace, configMapName, err := getNamespaceAndNameForResource(name, defaultNamespace)
 	if err != nil {
 		return nil, err
+	}
+
+	cmap := &corev1.ConfigMap{}
+	if err = k.client.Get(context.TODO(), objectKey(configMapNamespace, configMapName), cmap); err != nil {
+		return nil, fmt.Errorf("Error getting config map %s/%s: %s", configMapNamespace, configMapName, err)
 	}
 
 	data := cmap.Data
@@ -288,8 +309,13 @@ func (k *KubeHelper) readProjectConfig(ns, configMapName string) (*ProjectConfig
 	}, nil
 }
 
-func (k *KubeHelper) readCredentials(namespace, name string) (*Credentials, error) {
-	secret, err := k.readSecret(namespace, name)
+func (k *KubeHelper) readCredentials(defaultNamespace, name string) (*Credentials, error) {
+	credentialsNamespace, credentialsName, err := getNamespaceAndNameForResource(name, defaultNamespace)
+	if err != nil {
+		return nil, err
+	}
+
+	secret, err := k.readSecret(credentialsNamespace, credentialsName)
 	if err != nil {
 		return nil, err
 	}
@@ -327,7 +353,7 @@ func (k *KubeHelper) readSecret(namespace, name string) (map[string]string, erro
 	secret := &corev1.Secret{}
 	e := k.client.Get(context.TODO(), objectKey(namespace, name), secret)
 	if e != nil {
-		return nil, e
+		return nil, fmt.Errorf("Error getting secret %s/%s: %s", namespace, secret, e)
 	}
 
 	secrets := make(map[string]string)

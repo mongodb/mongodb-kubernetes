@@ -47,7 +47,7 @@ func newReconcileCommonController(mgr manager.Manager, omFunc func(baseUrl, grou
 func (c *ReconcileCommonController) prepareOmConnection(namespace, project, credentials string, log *zap.SugaredLogger) (om.OmConnection, *PodVars, error) {
 	projectConfig, e := c.kubeHelper.readProjectConfig(namespace, project)
 	if e != nil {
-		return nil, nil, e
+		return nil, nil, fmt.Errorf("Error reading Project Config: %s", e)
 	}
 	credsConfig, e := c.kubeHelper.readCredentials(namespace, credentials)
 	if e != nil {
