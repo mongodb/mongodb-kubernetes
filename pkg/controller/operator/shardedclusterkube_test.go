@@ -1,4 +1,5 @@
 package operator
+
 /*
 import (
 	"testing"
