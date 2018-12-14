@@ -23,9 +23,13 @@ func main() {
 
 	initializeEnvironment()
 
-	namespace, err := k8sutil.GetWatchNamespace()
-	if err != nil {
-		log.Fatalf("Failed to get watch namespace: %v", err)
+	// get watch namespace from environment variable
+	namespace, namespaceSet := os.LookupEnv(k8sutil.WatchNamespaceEnvVar)
+
+	// if namespace is set to the wildcard then use the empty string to represent all namespaces
+	if namespace == "*" || !namespaceSet {
+		log.Info("Monitoring all namespaces")
+		namespace = ""
 	}
 
 	// Get a config to talk to the apiserver
