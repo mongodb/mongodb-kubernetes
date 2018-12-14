@@ -337,7 +337,7 @@ func getAllHosts(c *mongodb.MongoDbShardedCluster, sizes mongodb.MongodbShardedC
 	hosts, _ = GetDnsNames(c.ConfigRsName(), c.ConfigSrvServiceName(), c.Namespace, c.Spec.ClusterName, sizes.ConfigServerCount)
 	ans = append(ans, hosts...)
 
-	for i := 0; i < c.Status.ShardCount; i++ {
+	for i := 0; i < sizes.ShardCount; i++ {
 		hosts, _ = GetDnsNames(c.ShardRsName(i), c.ShardServiceName(), c.Namespace, c.Spec.ClusterName, sizes.MongodsPerShardCount)
 		ans = append(ans, hosts...)
 	}
