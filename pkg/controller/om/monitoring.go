@@ -17,7 +17,7 @@ type HostList struct {
 
 // StopMonitoring will stop OM monitoring of hosts, which will then
 // will make OM stop displaying old hosts from Processes view.
-func StopMonitoring(omClient OmConnection, hostnames []string, log *zap.SugaredLogger) error {
+func StopMonitoring(omClient Connection, hostnames []string, log *zap.SugaredLogger) error {
 	if len(hostnames) == 0 {
 		return nil
 	}

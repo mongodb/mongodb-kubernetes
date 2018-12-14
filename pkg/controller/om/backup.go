@@ -86,7 +86,7 @@ type HostCluster struct {
 
 // StopBackupIfEnabled tries to find backup configuration for specified resource (can be Replica Set or Sharded Cluster -
 // Ops Manager doesn't backup Standalones) and disable it.
-func StopBackupIfEnabled(omClient OmConnection, name string, resourceType MongoDbResourceType, log *zap.SugaredLogger) error {
+func StopBackupIfEnabled(omClient Connection, name string, resourceType MongoDbResourceType, log *zap.SugaredLogger) error {
 	response, err := omClient.ReadBackupConfigs()
 	if err != nil {
 		return err
@@ -120,7 +120,7 @@ func StopBackupIfEnabled(omClient OmConnection, name string, resourceType MongoD
 	return nil
 }
 
-func disableBackup(omClient OmConnection, backupConfig *BackupConfig, log *zap.SugaredLogger) error {
+func disableBackup(omClient Connection, backupConfig *BackupConfig, log *zap.SugaredLogger) error {
 	if backupConfig.Status == Started {
 		err := omClient.UpdateBackupStatus(backupConfig.ClusterId, Stopped)
 		if err != nil {
@@ -144,7 +144,7 @@ func disableBackup(omClient OmConnection, backupConfig *BackupConfig, log *zap.S
 	return nil
 }
 
-func waitUntilBackupReachesStatus(omClient OmConnection, backupConfig *BackupConfig, status BackupStatus, log *zap.SugaredLogger) bool {
+func waitUntilBackupReachesStatus(omClient Connection, backupConfig *BackupConfig, status BackupStatus, log *zap.SugaredLogger) bool {
 	waitSeconds := util.ReadEnvVarOrPanicInt(util.BackupDisableWaitSecondsEnv)
 	retries := util.ReadEnvVarOrPanicInt(util.BackupDisableWaitRetriesEnv)
 

@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 )
 
+// AutomationStatus represents the status of automation agents registered with Ops Manager
 type AutomationStatus struct {
 	GoalVersion int             `json:"goalVersion"`
 	Processes   []ProcessStatus `json:"processes"`
 }
 
+// ProcessStatus status of the process and what's the last version achieved
 type ProcessStatus struct {
 	Hostname                string   `json:"hostname"`
 	Name                    string   `json:"name"`

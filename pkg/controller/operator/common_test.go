@@ -29,11 +29,11 @@ func TestPrepareScaleDown_OpsManagerRemovedMember(t *testing.T) {
 
 	// We try to prepare two members for scale down, but one of them will fail (bam-2)
 	rsWithThreeMembers := map[string][]string{"bam": {"bam-1", "bam-2"}}
-	prepareScaleDown(mockedOmConnection, rsWithThreeMembers, zap.S())
+	assert.NoError(t, prepareScaleDown(mockedOmConnection, rsWithThreeMembers, zap.S()))
 
 	expectedDeployment := createDeploymentFromReplicaSet(rs)
 
-	expectedDeployment.MarkRsMembersUnvoted("bam", []string{"bam-1"})
+	assert.NoError(t, expectedDeployment.MarkRsMembersUnvoted("bam", []string{"bam-1"}))
 
 	mockedOmConnection.CheckNumberOfUpdateRequests(t, 1)
 	mockedOmConnection.CheckDeployment(t, expectedDeployment)

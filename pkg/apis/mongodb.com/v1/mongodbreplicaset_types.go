@@ -1,6 +1,8 @@
 package v1
 
-import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
 
 func init() {
 	SchemeBuilder.Register(&MongoDbReplicaSet{}, &MongoDbReplicaSetList{})
@@ -26,6 +28,7 @@ type MongoDbReplicaSetStatus struct {
 	// Important: Run "operator-sdk generate k8s" to regenerate code after modifying this file
 
 	Version string `json:"version"`
+
 	// TODO
 	State   string `json:"state"`
 	Members int    `json:"members"`
@@ -47,15 +50,22 @@ func (c *MongoDbReplicaSet) UpdateSuccessful() {
 	c.Status.Members = c.Spec.Members
 
 	// TODO proper implement
-	c.Status.State = "Running"
+	c.Status.State = StateRunning
 }
 
-func (c *MongoDbReplicaSet) UpdateError(errorMessage string) {
+func (c *MongoDbReplicaSet) UpdateError(_ string) {
 	// TODO proper implement
-	c.Status.State = "Failed"
+	c.Status.State = StateFailed
 }
 
 func (c *MongoDbReplicaSet) GetStatus() string {
 	// TODO proper implement
 	return c.Status.State
+}
+
+func (c *MongoDbReplicaSet) IsEmpty() bool {
+	return c.Spec.Members == 0 &&
+		c.Spec.Version == "" &&
+		c.Spec.Project == "" &&
+		c.Spec.Credentials == ""
 }

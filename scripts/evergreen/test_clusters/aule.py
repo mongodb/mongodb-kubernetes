@@ -27,9 +27,7 @@ CLOUD_FORMATION_TEMPLATE = "https://s3.amazonaws.com/om-kubernetes-conf/openshif
 
 
 def upload_cloud_formation_definition(filename):
-    return s3client.Bucket("om-kubernetes-conf").upload_file(
-        filename, filename
-    )
+    return s3client.Bucket("om-kubernetes-conf").upload_file(filename, filename)
 
 
 def create_stack(name, aws_key, availability_zone="us-east-1a"):
@@ -148,14 +146,14 @@ def write_inventory_file(instances):
                 master=instances["master"]["PublicDnsName"],
                 node1=instances["node1"]["PublicDnsName"],
                 node2=instances["node2"]["PublicDnsName"],
-                control=instances["control"]["PublicDnsName"]
+                control=instances["control"]["PublicDnsName"],
             )
         )
         fd.write(hosts)
 
 
 def config_kubectl_context(name):
-    'Gets the kubectl context configuration for the new cluster'
+    "Gets the kubectl context configuration for the new cluster"
     pass
 
 
@@ -169,7 +167,7 @@ def create_exports_file(exports, filename="exports.do"):
 def create_stack_full(args):
     stack_name = args["<cluster_name>"]
     print("Uploading Cloud Formation Cluster definition.")
-    upload_cloud_formation_definition('openshift.yaml')
+    upload_cloud_formation_definition("openshift.yaml")
 
     stack = create_stack(stack_name, args["<aws_key>"])
     print("Created stack with Id: {}".format(stack["StackId"]))
@@ -184,16 +182,16 @@ def create_stack_full(args):
         control=get_stack_resources_by_name(stack_name, "openshiftcontrol"),
     )
 
-    print("master: {}".format(resources['master']['PhysicalResourceId']))
-    print("node1: {}".format(resources['node1']['PhysicalResourceId']))
-    print("node2: {}".format(resources['node2']['PhysicalResourceId']))
-    print("control: {}".format(resources['control']['PhysicalResourceId']))
+    print("master: {}".format(resources["master"]["PhysicalResourceId"]))
+    print("node1: {}".format(resources["node1"]["PhysicalResourceId"]))
+    print("node2: {}".format(resources["node2"]["PhysicalResourceId"]))
+    print("control: {}".format(resources["control"]["PhysicalResourceId"]))
 
     instances = dict(
-        master=get_instance_from_ec2(resources["master"]['PhysicalResourceId']),
-        node1=get_instance_from_ec2(resources["node1"]['PhysicalResourceId']),
-        node2=get_instance_from_ec2(resources["node2"]['PhysicalResourceId']),
-        control=get_instance_from_ec2(resources["control"]['PhysicalResourceId']),
+        master=get_instance_from_ec2(resources["master"]["PhysicalResourceId"]),
+        node1=get_instance_from_ec2(resources["node1"]["PhysicalResourceId"]),
+        node2=get_instance_from_ec2(resources["node2"]["PhysicalResourceId"]),
+        control=get_instance_from_ec2(resources["control"]["PhysicalResourceId"]),
     )
 
     update_dns(instances["master"]["PublicIpAddress"])
@@ -215,10 +213,7 @@ def create_stack_full(args):
 
     write_inventory_file(instances)
 
-    playbooks = (
-        "prerequisites.yml",
-        "deploy_cluster.yml"
-    )
+    playbooks = ("prerequisites.yml", "deploy_cluster.yml")
     playbooks_dir = "openshift-ansible/playbooks"
     ansible_path = ".local/bin/ansible-playbook"
     source_exports = "source exports.do"
@@ -228,7 +223,10 @@ def create_stack_full(args):
         ansible_cmd = "ssh centos@{} '{} && {}'".format(
             instances["control"]["PublicDnsName"],
             source_exports,
-            get_ansible_execution_path(ansible_path, "hosts.certification", playbooks_dir, playbook))
+            get_ansible_execution_path(
+                ansible_path, "hosts.certification", playbooks_dir, playbook
+            ),
+        )
         further_actions.append(ansible_cmd)
 
     further_actions.append("ansible-playbook -i hosts.certification postinstall.yml")
@@ -236,7 +234,9 @@ def create_stack_full(args):
     further_actions = "\n".join(further_actions)
 
     if args["--save-manual-steps"]:
-        message = "Plase execute 'sh complete_installation.sh' to finish your installation"
+        message = (
+            "Plase execute 'sh complete_installation.sh' to finish your installation"
+        )
         with open("complete_installation.sh", "w") as fd:
             fd.write("#!/usr/bin/env bash\n")
             fd.write("set -e\n\n")  # fail on errors
@@ -247,6 +247,14 @@ def create_stack_full(args):
 
     print(message)
 
+    print("""# TODO:
+# The authorization tokens will expire after a day, to fix this, change the `accessTokenMaxAgeSeconds`
+# in the /etc/origin/master/master-config.yaml file to 8640000 (100 days) and then run:
+#
+# `/usr/local/bin/master-restart api`
+#
+""")
+
 
 def get_ansible_execution_path(ansible_path, inventory, playbooks_dir, playbook):
     return f"{ansible_path} -i {inventory} {playbooks_dir}/{playbook}"
@@ -255,15 +263,15 @@ def get_ansible_execution_path(ansible_path, inventory, playbooks_dir, playbook)
 def main(args):
     stack_name = args["<cluster_name>"]
 
-    if args.get('delete-cluster', False):
+    if args.get("delete-cluster", False):
         delete_stack(stack_name)
 
         if args["--no-wait"] is False:
-            print('Stack is being deleted')
+            print("Stack is being deleted")
             wait_stack_is_deleted(stack_name)
-        print('Cluster deleted')
+        print("Cluster deleted")
 
-    elif 'create-cluster' in args:
+    elif "create-cluster" in args:
         create_stack_full(args)
 
 

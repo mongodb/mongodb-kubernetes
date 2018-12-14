@@ -105,9 +105,9 @@ func TestReadProjectConfig_InDifferentNamespace(t *testing.T) {
 	helper := KubeHelper{client: client}
 	actualProjectConfig, err := helper.readProjectConfig("irrelevant", project.ObjectMeta.Namespace+"/"+project.ObjectMeta.Name)
 	assert.NoError(t, err)
-	assert.Equal(t, expectedBaseUrl, actualProjectConfig.BaseUrl)
+	assert.Equal(t, expectedBaseUrl, actualProjectConfig.BaseURL)
 	assert.Equal(t, expectedProjectName, actualProjectConfig.ProjectName)
-	assert.Equal(t, expectedOrgId, actualProjectConfig.OrgId)
+	assert.Equal(t, expectedOrgId, actualProjectConfig.OrgID)
 }
 
 func TestReadCredentials_WithInvalidNamespace(t *testing.T) {
@@ -130,5 +130,5 @@ func TestReadCredentials_InDifferentNamespace(t *testing.T) {
 	actualCredentials, err := helper.readCredentials("irrelevant", credentials.ObjectMeta.Namespace+"/"+credentials.ObjectMeta.Name)
 	assert.NoError(t, err)
 	assert.Equal(t, expectedUser, actualCredentials.User)
-	assert.Equal(t, expectedApiKey, actualCredentials.PublicApiKey)
+	assert.Equal(t, expectedApiKey, actualCredentials.PublicAPIKey)
 }

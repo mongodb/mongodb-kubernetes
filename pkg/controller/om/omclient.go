@@ -17,10 +17,10 @@ import (
 	"go.uber.org/zap"
 )
 
-// OmConnection is a client interacting with OpsManager API. Note, that all methods returning 'error' return the
-// '*OmApiError' in fact but it's error-prone to declare method as returning specific implementation of error
+// Connection is a client interacting with OpsManager API. Note, that all methods returning 'error' return the
+// '*APIError' in fact but it's error-prone to declare method as returning specific implementation of error
 // (see https://golang.org/doc/faq#nil_error)
-type OmConnection interface {
+type Connection interface {
 	UpdateDeployment(deployment Deployment) ([]byte, error)
 	ReadDeployment() (Deployment, error)
 	ReadUpdateDeployment(wait bool, depFunc func(Deployment) error, log *zap.SugaredLogger) error
@@ -28,7 +28,7 @@ type OmConnection interface {
 	ReadAutomationStatus() (*AutomationStatus, error)
 	ReadAutomationAgents() (*AgentState, error)
 	GetHosts() (*Host, error)
-	RemoveHost(hostId string) error
+	RemoveHost(hostID string) error
 	ReadOrganizations() ([]*Organization, error)
 	ReadGroups() ([]*Group, error)
 	CreateGroup(group *Group) (*Group, error)
@@ -36,43 +36,49 @@ type OmConnection interface {
 	// ReadBackupConfigs returns all host clusters registered in OM. If there's no backup enabled the status is supposed
 	// to be Inactive
 	ReadBackupConfigs() (*BackupConfigsResponse, error)
-	ReadBackupConfig(clusterId string) (*BackupConfig, error)
-	ReadHostCluster(clusterId string) (*HostCluster, error)
-	UpdateBackupStatus(clusterId string, status BackupStatus) error
+	ReadBackupConfig(clusterID string) (*BackupConfig, error)
+	ReadHostCluster(clusterID string) (*HostCluster, error)
+	UpdateBackupStatus(clusterID string, status BackupStatus) error
 
-	BaseUrl() string
-	GroupId() string
+	BaseURL() string
+	GroupID() string
 	User() string
-	PublicApiKey() string
+	PublicAPIKey() string
 }
 
-type HttpOmConnection struct {
-	baseUrl      string
-	groupId      string
+// ConnectionFunc type defines a connection to Ops Manager API
+type ConnectionFunc func(baseUrl, groupId, user, publicApiKey string) Connection
+
+// HTTPOmConnection
+type HTTPOmConnection struct {
+	baseURL      string
+	groupID      string
 	user         string
-	publicApiKey string
+	publicAPIKey string
 }
 
-// OmApiError is the error extension that contains the details of OM error if OM returned the error. This allows the
-// code using OmConnection methods to do more fine-grained exception handling depending on exact error that happened.
+// APIError is the error extension that contains the details of OM error if OM returned the error. This allows the
+// code using Connection methods to do more fine-grained exception handling depending on exact error that happened.
 // The class has to encapsulate the usual error (non-OM one) as well as the error may happen at any stage before/after
 // OM request (failing to (de)serialize json object for example) so in this case all fields except for 'Detail' will be
 // empty
-type OmApiError struct {
+type APIError struct {
 	Status    *int   `json:"error"`
 	Reason    string `json:"reason"`
 	Detail    string `json:"detail"`
 	ErrorCode string `json:"errorCode"`
 }
 
-func NewApiError(err error) error {
+// NewAPIError
+func NewAPIError(err error) error {
 	if err == nil {
 		return nil
 	}
-	return &OmApiError{Detail: err.Error()}
+	return &APIError{Detail: err.Error()}
 }
 
-func (e *OmApiError) Error() string {
+// Error
+func (e *APIError) Error() string {
 	if e.Status != nil {
 		msg := fmt.Sprintf("Status: %d", *e.Status)
 		if e.Reason != "" {
@@ -89,7 +95,8 @@ func (e *OmApiError) Error() string {
 	return e.Detail
 }
 
-func (e *OmApiError) ErrorCodeIn(errorCodes ...string) bool {
+// ErrorCodeIn
+func (e *APIError) ErrorCodeIn(errorCodes ...string) bool {
 	for _, c := range errorCodes {
 		if e.ErrorCode == c {
 			return true
@@ -100,56 +107,62 @@ func (e *OmApiError) ErrorCodeIn(errorCodes ...string) bool {
 
 // NewOpsManagerConnection stores OpsManger api endpoint and authentication credentials.
 // It makes it easy to call the API without having to explicitly provide connection details.
-func NewOpsManagerConnection(baseUrl, groupId, user, publicApiKey string) OmConnection {
-	return &HttpOmConnection{
-		baseUrl:      strings.TrimSuffix(baseUrl, "/"),
-		groupId:      groupId,
+func NewOpsManagerConnection(baseURL, groupID, user, publicAPIKey string) Connection {
+	return &HTTPOmConnection{
+		baseURL:      strings.TrimSuffix(baseURL, "/"),
+		groupID:      groupID,
 		user:         user,
-		publicApiKey: publicApiKey,
+		publicAPIKey: publicAPIKey,
 	}
 }
 
-func (oc *HttpOmConnection) BaseUrl() string {
-	return oc.baseUrl
+// BaseURL returns BaseURL of HTTPOmConnection
+func (oc *HTTPOmConnection) BaseURL() string {
+	return oc.baseURL
 }
 
-func (oc *HttpOmConnection) GroupId() string {
-	return oc.groupId
+// GroupID returns GroupID of HTTPOmConnection
+func (oc *HTTPOmConnection) GroupID() string {
+	return oc.groupID
 }
 
-func (oc *HttpOmConnection) User() string {
+// User returns User of HTTPOmConnection
+func (oc *HTTPOmConnection) User() string {
 	return oc.user
+
 }
 
-func (oc *HttpOmConnection) PublicApiKey() string {
-	return oc.publicApiKey
+// PublicAPIKey returns PublicAPIKey of HTTPOmConnection
+func (oc *HTTPOmConnection) PublicAPIKey() string {
+	return oc.publicAPIKey
 }
 
-func (oc *HttpOmConnection) UpdateDeployment(deployment Deployment) ([]byte, error) {
-	return oc.put(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", oc.GroupId()), deployment)
+// UpdateDeployment updates a given deployment to the new deployment object passed as parameter.
+func (oc *HTTPOmConnection) UpdateDeployment(deployment Deployment) ([]byte, error) {
+	return oc.put(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", oc.GroupID()), deployment)
 }
 
-func (oc *HttpOmConnection) ReadDeployment() (Deployment, error) {
-	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", oc.GroupId()))
+// ReadDeployment returns a Deployment object for this group
+func (oc *HTTPOmConnection) ReadDeployment() (Deployment, error) {
+	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", oc.GroupID()))
 
 	if err != nil {
 		return nil, err
 	}
-	//fmt.Println(string(ans))
 	d, e := BuildDeploymentFromBytes(ans)
-	return d, NewApiError(e)
+	return d, NewAPIError(e)
 }
 
 // ReadUpdateDeployment performs the "read-modify-update" operation on OpsManager Deployment. It will wait for
 // Automation agents to apply results if "wait" is set to true.
-func (oc *HttpOmConnection) ReadUpdateDeployment(wait bool, depFunc func(Deployment) error, log *zap.SugaredLogger) error {
+func (oc *HTTPOmConnection) ReadUpdateDeployment(wait bool, depFunc func(Deployment) error, log *zap.SugaredLogger) error {
 	deployment, err := oc.ReadDeployment()
 	if err != nil {
 		return err
 	}
 
 	if err := depFunc(deployment); err != nil {
-		return NewApiError(err)
+		return NewAPIError(err)
 	}
 
 	_, err = oc.UpdateDeployment(deployment)
@@ -174,7 +187,7 @@ func (oc *HttpOmConnection) ReadUpdateDeployment(wait bool, depFunc func(Deploym
 
 	// todo make the interval configurable
 	if wait && !util.DoAndRetry(reachStateFunc, log, 30, 3) {
-		return NewApiError(fmt.Errorf("Failed to start databases during defined interval"))
+		return NewAPIError(fmt.Errorf("Failed to start databases during defined interval"))
 	}
 	msg := "Automation config has been successfully updated in Ops Manager"
 	if wait {
@@ -184,9 +197,10 @@ func (oc *HttpOmConnection) ReadUpdateDeployment(wait bool, depFunc func(Deploym
 	return nil
 }
 
-func (oc *HttpOmConnection) GenerateAgentKey() (string, error) {
+// GenerateAgentKey
+func (oc *HTTPOmConnection) GenerateAgentKey() (string, error) {
 	data := map[string]string{"desc": "Agent key for Kubernetes"}
-	ans, err := oc.post(fmt.Sprintf("/api/public/v1.0/groups/%s/agentapikeys", oc.GroupId()), data)
+	ans, err := oc.post(fmt.Sprintf("/api/public/v1.0/groups/%s/agentapikeys", oc.GroupID()), data)
 
 	if err != nil {
 		return "", err
@@ -194,32 +208,36 @@ func (oc *HttpOmConnection) GenerateAgentKey() (string, error) {
 
 	var keyInfo map[string]interface{}
 	if err := json.Unmarshal(ans, &keyInfo); err != nil {
-		return "", NewApiError(err)
+		return "", NewAPIError(err)
 	}
 	return keyInfo["key"].(string), nil
 }
 
-func (oc *HttpOmConnection) ReadAutomationAgents() (*AgentState, error) {
-	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/agents/AUTOMATION", oc.GroupId()))
+// ReadAutomationAgents returns the state of the automation agents registered in Ops Manager
+func (oc *HTTPOmConnection) ReadAutomationAgents() (*AgentState, error) {
+	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/agents/AUTOMATION", oc.GroupID()))
 	if err != nil {
 		return nil, err
 	}
 	state, e := BuildAgentStateFromBytes(ans)
-	return state, NewApiError(e)
+	return state, NewAPIError(e)
 }
 
-func (oc *HttpOmConnection) ReadAutomationStatus() (*AutomationStatus, error) {
-	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/automationStatus", oc.GroupId()))
+// ReadAutomationStatus returns the state of the automation status, this includes if the agents
+// have reached goal state.
+func (oc *HTTPOmConnection) ReadAutomationStatus() (*AutomationStatus, error) {
+	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/automationStatus", oc.GroupID()))
 	if err != nil {
 		return nil, err
 	}
 
 	status, e := buildAutomationStatusFromBytes(ans)
-	return status, NewApiError(e)
+	return status, NewAPIError(e)
 }
 
-func (oc *HttpOmConnection) GetHosts() (*Host, error) {
-	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/hosts/", oc.GroupId())
+// GetHosts return the hosts in this group
+func (oc *HTTPOmConnection) GetHosts() (*Host, error) {
+	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/hosts/", oc.GroupID())
 	res, err := oc.get(mPath)
 	if err != nil {
 		return nil, err
@@ -227,18 +245,20 @@ func (oc *HttpOmConnection) GetHosts() (*Host, error) {
 
 	hosts := &Host{}
 	if err := json.Unmarshal(res, hosts); err != nil {
-		return nil, NewApiError(err)
+		return nil, NewAPIError(err)
 	}
 
 	return hosts, nil
 }
 
-func (oc *HttpOmConnection) RemoveHost(hostId string) error {
-	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/hosts/%s", oc.GroupId(), hostId)
+// RemoveHost will remove host, identified by hostID from group
+func (oc *HTTPOmConnection) RemoveHost(hostID string) error {
+	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/hosts/%s", oc.GroupID(), hostID)
 	return oc.delete(mPath)
 }
 
-func (oc *HttpOmConnection) ReadOrganizations() ([]*Organization, error) {
+// ReadOrganizations
+func (oc *HTTPOmConnection) ReadOrganizations() ([]*Organization, error) {
 	mPath := fmt.Sprintf("/api/public/v1.0/orgs?itemsPerPage=1000")
 	res, err := oc.get(mPath)
 	if err != nil {
@@ -247,13 +267,14 @@ func (oc *HttpOmConnection) ReadOrganizations() ([]*Organization, error) {
 
 	orgsResponse := &OrganizationsResponse{}
 	if err := json.Unmarshal(res, orgsResponse); err != nil {
-		return nil, NewApiError(err)
+		return nil, NewAPIError(err)
 	}
 
 	return orgsResponse.Organizations, nil
 }
 
-func (oc *HttpOmConnection) ReadGroups() ([]*Group, error) {
+// ReadGroups
+func (oc *HTTPOmConnection) ReadGroups() ([]*Group, error) {
 	mPath := fmt.Sprintf("/api/public/v1.0/groups?itemsPerPage=1000")
 	res, err := oc.get(mPath)
 	if err != nil {
@@ -262,12 +283,14 @@ func (oc *HttpOmConnection) ReadGroups() ([]*Group, error) {
 
 	groupsResponse := &GroupsResponse{}
 	if err := json.Unmarshal(res, groupsResponse); err != nil {
-		return nil, NewApiError(err)
+		return nil, NewAPIError(err)
 	}
 
 	return groupsResponse.Groups, nil
 }
-func (oc *HttpOmConnection) CreateGroup(group *Group) (*Group, error) {
+
+// CreateGroup
+func (oc *HTTPOmConnection) CreateGroup(group *Group) (*Group, error) {
 	res, err := oc.post("/api/public/v1.0/groups", group)
 
 	if err != nil {
@@ -276,14 +299,15 @@ func (oc *HttpOmConnection) CreateGroup(group *Group) (*Group, error) {
 
 	g := &Group{}
 	if err := json.Unmarshal(res, g); err != nil {
-		return nil, NewApiError(err)
+		return nil, NewAPIError(err)
 	}
 
 	return g, nil
 }
 
-func (oc *HttpOmConnection) UpdateGroup(group *Group) (*Group, error) {
-	path := fmt.Sprintf("/api/public/v1.0/groups/%s", group.Id)
+// UpdateGroup
+func (oc *HTTPOmConnection) UpdateGroup(group *Group) (*Group, error) {
+	path := fmt.Sprintf("/api/public/v1.0/groups/%s", group.ID)
 	res, err := oc.patch(path, group)
 
 	if err != nil {
@@ -292,13 +316,15 @@ func (oc *HttpOmConnection) UpdateGroup(group *Group) (*Group, error) {
 
 	g := &Group{}
 	if err := json.Unmarshal(res, g); err != nil {
-		return nil, NewApiError(err)
+		return nil, NewAPIError(err)
 	}
 
 	return group, nil
 }
-func (oc *HttpOmConnection) ReadBackupConfigs() (*BackupConfigsResponse, error) {
-	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/backupConfigs", oc.GroupId())
+
+// ReadBackupConfigs
+func (oc *HTTPOmConnection) ReadBackupConfigs() (*BackupConfigsResponse, error) {
+	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/backupConfigs", oc.GroupID())
 	res, err := oc.get(mPath)
 	if err != nil {
 		return nil, err
@@ -306,14 +332,15 @@ func (oc *HttpOmConnection) ReadBackupConfigs() (*BackupConfigsResponse, error) 
 
 	response := &BackupConfigsResponse{}
 	if err := json.Unmarshal(res, response); err != nil {
-		return nil, NewApiError(err)
+		return nil, NewAPIError(err)
 	}
 
 	return response, nil
 }
 
-func (oc *HttpOmConnection) ReadBackupConfig(clusterId string) (*BackupConfig, error) {
-	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/backupConfigs/%s", oc.GroupId(), clusterId)
+// ReadBackupConfig
+func (oc *HTTPOmConnection) ReadBackupConfig(clusterID string) (*BackupConfig, error) {
+	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/backupConfigs/%s", oc.GroupID(), clusterID)
 	res, err := oc.get(mPath)
 	if err != nil {
 		return nil, err
@@ -321,14 +348,15 @@ func (oc *HttpOmConnection) ReadBackupConfig(clusterId string) (*BackupConfig, e
 
 	response := &BackupConfig{}
 	if err := json.Unmarshal(res, response); err != nil {
-		return nil, NewApiError(err)
+		return nil, NewAPIError(err)
 	}
 
 	return response, nil
 }
 
-func (oc *HttpOmConnection) ReadHostCluster(clusterId string) (*HostCluster, error) {
-	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/clusters/%s", oc.GroupId(), clusterId)
+// ReadHostCluster
+func (oc *HTTPOmConnection) ReadHostCluster(clusterID string) (*HostCluster, error) {
+	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/clusters/%s", oc.GroupID(), clusterID)
 	res, err := oc.get(mPath)
 	if err != nil {
 		return nil, err
@@ -336,18 +364,20 @@ func (oc *HttpOmConnection) ReadHostCluster(clusterId string) (*HostCluster, err
 
 	cluster := &HostCluster{}
 	if err := json.Unmarshal(res, cluster); err != nil {
-		return nil, NewApiError(err)
+		return nil, NewAPIError(err)
 	}
 
 	return cluster, nil
 }
-func (oc *HttpOmConnection) UpdateBackupStatus(clusterId string, status BackupStatus) error {
-	path := fmt.Sprintf("/api/public/v1.0/groups/%s/backupConfigs/%s", oc.GroupId(), clusterId)
+
+// UpdateBackupStatus
+func (oc *HTTPOmConnection) UpdateBackupStatus(clusterID string, status BackupStatus) error {
+	path := fmt.Sprintf("/api/public/v1.0/groups/%s/backupConfigs/%s", oc.GroupID(), clusterID)
 
 	_, err := oc.patch(path, map[string]interface{}{"statusName": status})
 
 	if err != nil {
-		return NewApiError(err)
+		return NewAPIError(err)
 	}
 
 	return nil
@@ -355,29 +385,29 @@ func (oc *HttpOmConnection) UpdateBackupStatus(clusterId string, status BackupSt
 
 //********************************** Private methods *******************************************************************
 
-func (oc *HttpOmConnection) get(path string) ([]byte, error) {
+func (oc *HTTPOmConnection) get(path string) ([]byte, error) {
 	return oc.httpVerb("GET", path, nil)
 }
 
-func (oc *HttpOmConnection) post(path string, v interface{}) ([]byte, error) {
+func (oc *HTTPOmConnection) post(path string, v interface{}) ([]byte, error) {
 	return oc.httpVerb("POST", path, v)
 }
 
-func (oc *HttpOmConnection) put(path string, v interface{}) ([]byte, error) {
+func (oc *HTTPOmConnection) put(path string, v interface{}) ([]byte, error) {
 	return oc.httpVerb("PUT", path, v)
 }
 
-func (oc *HttpOmConnection) patch(path string, v interface{}) ([]byte, error) {
+func (oc *HTTPOmConnection) patch(path string, v interface{}) ([]byte, error) {
 	return oc.httpVerb("PATCH", path, v)
 }
 
-func (oc *HttpOmConnection) delete(path string) error {
+func (oc *HTTPOmConnection) delete(path string) error {
 	_, err := oc.httpVerb("DELETE", path, nil)
 	return err
 }
 
-func (oc *HttpOmConnection) httpVerb(method, path string, v interface{}) ([]byte, error) {
-	response, err := request(method, oc.BaseUrl(), path, v, oc.User(), oc.PublicApiKey())
+func (oc *HTTPOmConnection) httpVerb(method, path string, v interface{}) ([]byte, error) {
+	response, err := request(method, oc.BaseURL(), path, v, oc.User(), oc.PublicAPIKey())
 	return response, err
 }
 
@@ -386,30 +416,30 @@ func request(method, hostname, path string, v interface{}, user string, token st
 
 	buffer, err := serialize(v)
 	if err != nil {
-		return nil, NewApiError(err)
+		return nil, NewAPIError(err)
 	}
 
 	// First request is to get authorization information - we are not sending the body
-	req, err := createHttpRequest(method, url, nil)
+	req, err := createHTTPRequest(method, url, nil)
 	if err != nil {
-		return nil, NewApiError(err)
+		return nil, NewAPIError(err)
 	}
 
 	resp, err := util.DefaultHttpClient.Do(req)
 	var body []byte
 	if err != nil {
-		return nil, NewApiError(err)
+		return nil, NewAPIError(err)
 	}
 	if resp != nil && resp.Body != nil {
 		defer resp.Body.Close()
 	}
 	if resp.StatusCode != http.StatusUnauthorized {
-		return nil, NewApiError(fmt.Errorf("Recieved status code '%v' (%v) but expected the '%d', requested url: %v", resp.StatusCode, resp.Status, http.StatusUnauthorized, req.URL))
+		return nil, NewAPIError(fmt.Errorf("Recieved status code '%v' (%v) but expected the '%d', requested url: %v", resp.StatusCode, resp.Status, http.StatusUnauthorized, req.URL))
 	}
 	digestParts := digestParts(resp)
 
 	// Second request is the real one - we send body as well as digest authorization header
-	req, err = createHttpRequest(method, url, buffer)
+	req, err = createHTTPRequest(method, url, buffer)
 
 	req.Header.Set("Authorization", getDigestAuthorization(digestParts, method, path, user, token))
 
@@ -424,24 +454,25 @@ func request(method, hostname, path string, v interface{}, user string, token st
 			// limit size of response body read to 16MB
 			body, err = util.ReadAtMost(resp.Body, 16*1024*1024)
 			if err != nil {
-				return nil, NewApiError(fmt.Errorf("Error reading response body from %s to %v status=%v", method, url, resp.StatusCode))
+				return nil, NewAPIError(fmt.Errorf("Error reading response body from %s to %v status=%v", method, url, resp.StatusCode))
 			}
 		}
 
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			apiError := parseApiError(resp.StatusCode, method, url, body)
+			apiError := parseAPIError(resp.StatusCode, method, url, body)
 			return nil, apiError
 		}
 	}
 
 	if err != nil {
-		return body, NewApiError(fmt.Errorf("Error sending %s request to %s: %v", method, url, err))
+		return body, NewAPIError(fmt.Errorf("Error sending %s request to %s: %v", method, url, err))
 	}
 
 	return body, nil
 }
 
-func createHttpRequest(method string, url string, reader io.Reader) (*http.Request, error) {
+// createHTTPRequest
+func createHTTPRequest(method string, url string, reader io.Reader) (*http.Request, error) {
 	req, err := http.NewRequest(method, url, reader)
 	if err != nil {
 		return nil, err
@@ -453,19 +484,20 @@ func createHttpRequest(method string, url string, reader io.Reader) (*http.Reque
 	return req, nil
 }
 
-func parseApiError(statusCode int, method, url string, body []byte) *OmApiError {
+// parseAPIError
+func parseAPIError(statusCode int, method, url string, body []byte) *APIError {
 	// If no body - returning the error object with only HTTP status
 	if body == nil {
-		return &OmApiError{
+		return &APIError{
 			Status: &statusCode,
 			Detail: fmt.Sprintf("%s %v failed with status %d with no response body", method, url, statusCode),
 		}
 	}
 	// If response body exists - trying to parse it
-	errorObject := &OmApiError{}
+	errorObject := &APIError{}
 	if err := json.Unmarshal(body, errorObject); err != nil {
 		// If parsing has failed - returning just the general error with status code
-		return &OmApiError{
+		return &APIError{
 			Status: &statusCode,
 			Detail: fmt.Sprintf("%s %v failed with status %d with response body: %s", method, url, statusCode, string(body)),
 		}
@@ -527,6 +559,7 @@ func getDigestAuthorization(digestParts map[string]string, method string, url st
 	return authorization
 }
 
+// WaitFunction
 func WaitFunction(count, interval int) func() bool {
 	// return 10 * time.Second
 	return func() bool {

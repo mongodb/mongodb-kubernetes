@@ -25,10 +25,10 @@ const (
 // PodVars is a convenience struct to pass environment variables to Pods as needed.
 // They are used by the automation agent to connect to Ops/Cloud Manager.
 type PodVars struct {
-	BaseUrl     string
-	ProjectId   string
+	BaseURL     string
+	ProjectID   string
 	User        string
-	AgentApiKey string
+	AgentAPIKey string
 	LogLevel    mongodb.LogLevel
 }
 
@@ -238,11 +238,11 @@ func baseEnvFrom(podVars *PodVars) []corev1.EnvVar {
 	return []corev1.EnvVar{
 		{
 			Name:  util.ENV_VAR_BASE_URL,
-			Value: podVars.BaseUrl,
+			Value: podVars.BaseURL,
 		},
 		{
 			Name:  util.ENV_VAR_PROJECT_ID,
-			Value: podVars.ProjectId,
+			Value: podVars.ProjectID,
 		},
 		{
 			Name:  util.ENV_VAR_USER,
@@ -250,7 +250,7 @@ func baseEnvFrom(podVars *PodVars) []corev1.EnvVar {
 		},
 		{
 			Name:  util.ENV_VAR_AGENT_API_KEY,
-			Value: podVars.AgentApiKey,
+			Value: podVars.AgentAPIKey,
 		},
 		{
 			Name:  util.ENV_VAR_LOG_LEVEL,
@@ -301,9 +301,9 @@ func createBackwordCompatibleConfig(p StatefulSetHelper) *mongodb.PersistenceCon
 	// backward compatibility: take storage and class values from old properties (if they are specified)
 	if p.PodSpec.StorageClass == "" {
 		return &mongodb.PersistenceConfig{Storage: p.PodSpec.Storage}
-	} else {
-		return &mongodb.PersistenceConfig{Storage: p.PodSpec.Storage, StorageClass: &p.PodSpec.StorageClass}
 	}
+
+	return &mongodb.PersistenceConfig{Storage: p.PodSpec.Storage, StorageClass: &p.PodSpec.StorageClass}
 }
 
 func pvc(name string, config, defaultConfig *mongodb.PersistenceConfig) *corev1.PersistentVolumeClaim {

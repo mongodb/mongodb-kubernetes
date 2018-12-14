@@ -1,7 +1,6 @@
 package operator
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -19,6 +18,94 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
+
+// ReconcileMongoDbReplicaSet reconciles a MongoDbReplicaSet object
+type ReconcileMongoDbReplicaSet struct {
+	*ReconcileCommonController
+}
+
+var _ reconcile.Reconciler = &ReconcileMongoDbReplicaSet{}
+
+func newReplicaSetReconciler(mgr manager.Manager, omFunc om.ConnectionFunc) reconcile.Reconciler {
+	return &ReconcileMongoDbReplicaSet{newReconcileCommonController(mgr, omFunc)}
+}
+
+// Reconcile reads that state of the cluster for a MongoDbReplicaSet object and makes changes based on the state read
+// and what is in the MongoDbReplicaSet.Spec
+func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
+	log := zap.S().With("ReplicaSet", request.NamespacedName)
+	log.Info(">> ReplicaSet.Reconcile")
+
+	rs := &mongodb.MongoDbReplicaSet{}
+
+	defer exceptionHandling(
+		func() (reconcile.Result, error) {
+			return r.updateStatusFailed(rs, "Failed to reconcile Mongodb Replica Set", log)
+		},
+		func(result reconcile.Result, err error) { res = result; e = err },
+	)
+
+	reconcileResult, err := r.fetchResource(request, rs, log)
+	if reconcileResult != nil {
+		return *reconcileResult, err
+	}
+	log.Infof("ReplicaSet.Spec: %+v", rs.Spec)
+	log.Infof("ReplicaSet.Status: %+v", rs.Status)
+
+	if needsDeletion(rs.Meta) {
+		log.Info("ReplicaSet.Delete")
+		return r.reconcileDeletion(r.delete, rs, &rs.ObjectMeta, log)
+	}
+
+	if err = r.ensureFinalizerHeaders(rs, &rs.ObjectMeta, log); err != nil {
+		return r.updateStatusFailed(rs, fmt.Sprintf("Failed to update finalizer header: %s", err), log)
+	}
+
+	// TODO seems the validation for changes must be performed using controller runtime events interception
+	/*if err := validateReplicaSetUpdate(o, n); err != nil {
+		log.Error(err)
+		return
+	}*/
+
+	spec := rs.Spec
+	podVars := &PodVars{}
+	conn, err := r.prepareConnection(rs.Namespace, spec.CommonSpec, podVars, log)
+	if err != nil {
+		return r.updateStatusFailed(rs, fmt.Sprintf("Failed to prepare Ops Manager connection: %s", err), log)
+	}
+
+	replicaBuilder := r.kubeHelper.NewStatefulSetHelper(rs).
+		SetService(rs.ServiceName()).
+		SetReplicas(rs.Spec.Members).
+		SetPersistence(rs.Spec.Persistent).
+		SetPodSpec(NewDefaultPodSpecWrapper(rs.Spec.PodSpec)).
+		SetPodVars(podVars).
+		SetExposedExternally(true).
+		SetLogger(log)
+	replicaSetObject := replicaBuilder.BuildStatefulSet()
+
+	// In case of scaling down, we need to prepare the hosts in Ops Manager first
+	if spec.Members < rs.Status.Members {
+		if err := prepareScaleDownReplicaSet(conn, replicaSetObject, rs.Status.Members, rs, log); err != nil {
+			return r.updateStatusFailed(rs, fmt.Sprintf("Failed to prepare Replica Set for scaling down using Ops Manager: %s", err), log)
+		}
+	}
+
+	err = replicaBuilder.CreateOrUpdateInKubernetes()
+	if err != nil {
+		return r.updateStatusFailed(rs, fmt.Sprintf("Failed to create/update the StatefulSet: %s", err), log)
+	}
+
+	log.Info("Updated statefulset for replica set")
+
+	if err := r.updateOmDeploymentRs(conn, rs.Status.Members, rs, replicaSetObject, log); err != nil {
+		return r.updateStatusFailed(rs, fmt.Sprintf("Failed to create/update replica set in Ops Manager: %s", err), log)
+	}
+
+	r.updateStatusSuccessful(rs, log)
+	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
+	return reconcile.Result{}, nil
+}
 
 // AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
@@ -50,102 +137,9 @@ func AddReplicaSetController(mgr manager.Manager) error {
 	return nil
 }
 
-func newReplicaSetReconciler(mgr manager.Manager, omFunc func(baseUrl, groupId, user, publicApiKey string) om.OmConnection) reconcile.Reconciler {
-	return &ReconcileMongoDbReplicaSet{newReconcileCommonController(mgr, omFunc)}
-}
-
-var _ reconcile.Reconciler = &ReconcileMongoDbStandalone{}
-
-// ReconcileMongoDbReplicaSet reconciles a MongoDbReplicaSet object
-type ReconcileMongoDbReplicaSet struct {
-	*ReconcileCommonController
-}
-
-// Reconcile reads that state of the cluster for a MongoDbReplicaSet object and makes changes based on the state read
-// and what is in the MongoDbReplicaSet.Spec
-func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
-	log := zap.S().With("replica set", request.NamespacedName)
-
-	rs := &mongodb.MongoDbReplicaSet{}
-
-	defer exceptionHandling(
-		func() (reconcile.Result, error) {
-			return r.updateStatusFailed(rs, "Failed to reconcile Mongodb Replica Set", log)
-		},
-		func(result reconcile.Result, err error) { res = result; e = err },
-	)
-
-	log.Info(">> Reconciling MongoDbReplicaSet")
-
-	// Fetch the MongoDbReplicaSet instance
-
-	ok, err := r.fetchResource(request, rs, log)
-	if !ok {
-		return reconcile.Result{}, err
-	}
-
-	log.Debugf("Spec for MongoDbReplicaSet: %+v\n", rs.Spec)
-
-	// 'ObjectMeta.DeletionTimestamp' field is non zero if the object is being deleted
-	if rs.ObjectMeta.DeletionTimestamp.IsZero() {
-		if err = r.ensureFinalizerHeaders(rs, &rs.ObjectMeta, log); err != nil {
-			return r.updateStatusFailed(rs, fmt.Sprintf("Failed to update finalizer header: %s", err), log)
-		}
-	} else {
-		return r.reconcileDeletion(r.onDeleteReplicaSet, rs, &rs.ObjectMeta, log)
-	}
-
-	// TODO seems the validation for changes must be performed using controller runtime events interception
-	/*if err := validateReplicaSetUpdate(o, n); err != nil {
-		log.Error(err)
-		return
-	}*/
-
-	spec := rs.Spec
-	conn, podVars, err := r.prepareOmConnection(rs.Namespace, spec.CommonSpec, log)
-	if err != nil {
-		return r.updateStatusFailed(rs, fmt.Sprintf("Failed to prepare Ops Manager connection: %s", err), log)
-	}
-
-	currentMembersCount := rs.Status.Members
-
-	scaleDown := spec.Members < currentMembersCount
-
-	replicaBuilder := r.kubeHelper.NewStatefulSetHelper(rs).
-		SetService(rs.ServiceName()).
-		SetReplicas(rs.Spec.Members).
-		SetPersistence(rs.Spec.Persistent).
-		SetPodSpec(NewDefaultPodSpecWrapper(rs.Spec.PodSpec)).
-		SetPodVars(podVars).
-		SetExposedExternally(true).
-		SetLogger(log)
-	replicaSetObject := replicaBuilder.BuildStatefulSet()
-
-	if scaleDown {
-		if err := prepareScaleDownReplicaSet(conn, replicaSetObject, currentMembersCount, rs, log); err != nil {
-			return r.updateStatusFailed(rs, fmt.Sprintf("Failed to prepare Replica Set for scaling down using Ops Manager: %s", err), log)
-		}
-	}
-
-	err = replicaBuilder.CreateOrUpdateInKubernetes()
-	if err != nil {
-		return r.updateStatusFailed(rs, fmt.Sprintf("Failed to create/update the StatefulSet: %s", err), log)
-	}
-
-	log.Info("Updated statefulset for replica set")
-
-	if err := r.updateOmDeploymentRs(conn, currentMembersCount, rs, replicaSetObject, log); err != nil {
-		return r.updateStatusFailed(rs, fmt.Sprintf("Failed to create/update replica set in Ops Manager: %s", err), log)
-	}
-
-	r.updateStatusSuccessful(rs, log)
-	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseUrl(), conn.GroupId()))
-	return reconcile.Result{}, nil
-}
-
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
-func (c *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(omConnection om.OmConnection, membersNumberBefore int, new *mongodb.MongoDbReplicaSet,
+func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(omConnection om.Connection, membersNumberBefore int, new *mongodb.MongoDbReplicaSet,
 	set *appsv1.StatefulSet, log *zap.SugaredLogger) error {
 
 	err := waitForRsAgentsToRegister(set, new.Spec.ClusterName, omConnection, log)
@@ -167,19 +161,20 @@ func (c *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(omConnection om.OmConn
 		return err
 	}
 
-	if err := deleteHostnamesFromMonitoring(omConnection, getAllHostsRs(set, new, membersNumberBefore), getAllHostsRs(set, new, new.Spec.Members), log); err != nil {
+	err = calculateDiffAndStopMonitoringHosts(omConnection, getAllHostsRs(set, new, membersNumberBefore), getAllHostsRs(set, new, new.Spec.Members), log)
+	if err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (c *ReconcileMongoDbReplicaSet) onDeleteReplicaSet(obj interface{}, log *zap.SugaredLogger) error {
+func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLogger) error {
 	rs := obj.(*mongodb.MongoDbReplicaSet)
 
 	log.Infow("Removing replica set from Ops Manager", "config", rs.Spec)
 
-	conn, _, err := c.prepareOmConnection(rs.Namespace, rs.Spec.CommonSpec, log)
+	conn, err := r.prepareConnection(rs.Namespace, rs.Spec.CommonSpec, nil, log)
 	if err != nil {
 		return err
 	}
@@ -195,38 +190,25 @@ func (c *ReconcileMongoDbReplicaSet) onDeleteReplicaSet(obj interface{}, log *za
 		log,
 	)
 	if err != nil {
-		return fmt.Errorf("Failed to update Ops Manager automation config: %s.", err)
+		return err
 	}
 
 	err = om.StopBackupIfEnabled(conn, rs.Name, om.ReplicaSetType, log)
 	if err != nil {
-		return fmt.Errorf("Failed to disable backup for replica set: %s", err)
+		return err
 	}
 
-	hostsToRemove, _ := GetDnsNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.ClusterName, rs.Spec.Members)
-	log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
+	hostsToRemove, _ := GetDnsNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.ClusterName, rs.Status.Members)
+	log.Infow("Stop monitoring removed hosts in Ops Manager", "removedHosts", hostsToRemove)
 	if err = om.StopMonitoring(conn, hostsToRemove, log); err != nil {
-		return fmt.Errorf("Failed to stop monitoring on hosts %s: %s", hostsToRemove, err)
+		return err
 	}
 
 	log.Info("Removed replica set from Ops Manager!")
 	return nil
 }
 
-func validateReplicaSetUpdate(oldSpec, newSpec *mongodb.MongoDbReplicaSet) error {
-	if newSpec.Namespace != oldSpec.Namespace {
-		return errors.New("Namespace cannot change for existing object")
-	}
-
-	if newSpec.Spec.ClusterName != oldSpec.Spec.ClusterName {
-		return errors.New("Cluster name cannot change for existing object")
-	}
-
-	return nil
-}
-
-func prepareScaleDownReplicaSet(omClient om.OmConnection, statefulSet *appsv1.StatefulSet, oldMembersCount int, new *mongodb.MongoDbReplicaSet,
-	log *zap.SugaredLogger) error {
+func prepareScaleDownReplicaSet(omClient om.Connection, statefulSet *appsv1.StatefulSet, oldMembersCount int, new *mongodb.MongoDbReplicaSet, log *zap.SugaredLogger) error {
 	_, podNames := GetDnsForStatefulSetReplicasSpecified(statefulSet, new.Spec.ClusterName, oldMembersCount)
 	podNames = podNames[new.Spec.Members:oldMembersCount]
 
@@ -237,6 +219,7 @@ func getAllHostsRs(set *appsv1.StatefulSet, rs *mongodb.MongoDbReplicaSet, membe
 	if rs == nil {
 		return []string{}
 	}
+
 	hostnames, _ := GetDnsForStatefulSetReplicasSpecified(set, rs.Spec.ClusterName, membersCount)
 	return hostnames
 }

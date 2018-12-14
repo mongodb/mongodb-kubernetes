@@ -249,5 +249,5 @@ func defaultSetHelper() *StatefulSetHelper {
 }
 
 func defaultPodVars() *PodVars {
-	return &PodVars{AgentApiKey: "a", BaseUrl: "http://localhost:8080", ProjectId: "myProject", User: "user@some.com"}
+	return &PodVars{AgentAPIKey: "a", BaseURL: "http://localhost:8080", ProjectID: "myProject", User: "user@some.com"}
 }

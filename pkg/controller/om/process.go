@@ -12,10 +12,14 @@ import (
 	"github.com/spf13/cast"
 )
 
+// MongoType
 type MongoType string
 
 const (
+	// ProcessTypeMongos defines a constant for the mongos process type
 	ProcessTypeMongos MongoType = "mongos"
+
+	// ProcessTypeMongod defines a constant for the mongod process type.
 	ProcessTypeMongod MongoType = "mongod"
 )
 
@@ -59,12 +63,16 @@ The resulting json for this type:
 		"authSchemaVersion": 3
 	}
 */
+
+// Process
 type Process map[string]interface{}
 
+// NewProcessFromInterface
 func NewProcessFromInterface(i interface{}) Process {
 	return i.(map[string]interface{})
 }
 
+// NewMongosProcess
 func NewMongosProcess(name, hostName, processVersion string) Process {
 	ans := Process{}
 
@@ -76,6 +84,7 @@ func NewMongosProcess(name, hostName, processVersion string) Process {
 	return ans
 }
 
+// NewMongodProcess
 func NewMongodProcess(name, hostName, processVersion string) Process {
 	ans := Process{}
 
@@ -90,27 +99,33 @@ func NewMongodProcess(name, hostName, processVersion string) Process {
 	return ans
 }
 
+// DeepCopy
 func (s Process) DeepCopy() (Process, error) {
 	return util.MapDeepCopy(s)
 }
 
+// Name
 func (s Process) Name() string {
 	return s["name"].(string)
 }
 
+// HostName
 func (s Process) HostName() string {
 	return s["hostname"].(string)
 }
 
+// SetDbPath
 func (s Process) SetDbPath(dbPath string) Process {
 	readOrCreateMap(s.Args(), "storage")["dbPath"] = dbPath
 	return s
 }
 
+// DbPath
 func (s Process) DbPath() string {
 	return readMapValueAsString(s.Args(), "storage", "dbPath")
 }
 
+// SetWiredTigerCache
 func (s Process) SetWiredTigerCache(cacheSizeGb float32) Process {
 	if s.ProcessType() != ProcessTypeMongod {
 		// WiredTigerCache can be set only for mongod processes
@@ -133,6 +148,7 @@ func (s Process) WiredTigerCache() *float32 {
 	return &f
 }
 
+// SetLogPath
 func (s Process) SetLogPath(logPath string) Process {
 	sysLogMap := readOrCreateMap(s.Args(), "systemLog")
 	sysLogMap["destination"] = "file"
@@ -140,24 +156,31 @@ func (s Process) SetLogPath(logPath string) Process {
 	return s
 }
 
+// LogPath
 func (s Process) LogPath() string {
 	return readMapValueAsString(s.Args(), "systemLog", "path")
 }
 
+// SslCAFilePath
 func (s Process) SslCAFilePath(ProcessSslCAFilePath string) Process {
 	// todo
 	//map[string](s.process.Args["net"])["ssl"]["CAFilePath"] = ProcessSslCAFilePath
 	return s
 }
+
+// SslPemKeyFilePath
 func (s Process) SslPemKeyFilePath(ProcessSslPemKeyFilePath string) Process {
 	//map[string](s.process.Args["net"])["ssl"]["autoPEMKeyFilePath"] = ProcessSslCAFilePath
 	return s
 }
+
+// ClientCertificateMode
 func (s Process) ClientCertificateMode(ProcessClientCertificateMode bool) Process {
 	//map[string](s.process.Args["net"])["ssl"]["clientCertificateMode"] = ProcessClientCertificateMode
 	return s
 }
 
+// Args
 func (s Process) Args() map[string]interface{} {
 	if _, ok := s["args2_6"]; !ok {
 		s["args2_6"] = make(map[string]interface{}, 0)
@@ -165,10 +188,12 @@ func (s Process) Args() map[string]interface{} {
 	return s["args2_6"].(map[string]interface{})
 }
 
+// Version
 func (s Process) Version() string {
 	return s["version"].(string)
 }
 
+// ProcessType
 func (s Process) ProcessType() MongoType {
 	switch v := s["processType"].(type) {
 	case string:
@@ -180,20 +205,24 @@ func (s Process) ProcessType() MongoType {
 	}
 }
 
-func (s Process) Disabled() bool {
+// IsDisabled
+func (s Process) IsDisabled() bool {
 	return s["disabled"].(bool)
 }
 
+// SetDisabled
 func (s Process) SetDisabled(disabled bool) {
 	s["disabled"] = disabled
 }
 
+// String
 func (s Process) String() string {
 	return fmt.Sprintf("\"%s\" (hostName: %s, version: %s, args: %s)", s.Name(), s.HostName(), s.Version(), s.Args())
 }
 
 // ****************** These ones are private methods not exposed to other packages *************************************
 
+// initDefault
 func initDefault(name, hostName, processVersion string, processType MongoType, process Process) {
 	process["version"] = processVersion
 	process["authSchemaVersion"] = calculateAuthSchemaVersion(processVersion)

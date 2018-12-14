@@ -18,8 +18,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
-// TODO rename the file to mongodbstandalone_controller.go (haven't done this to keep the history for major refactoring)
-
 // AddStandaloneController creates a new MongoDbStandalone Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
 func AddStandaloneController(mgr manager.Manager) error {
@@ -50,7 +48,7 @@ func AddStandaloneController(mgr manager.Manager) error {
 	return nil
 }
 
-func newStandaloneReconciler(mgr manager.Manager, omFunc func(baseUrl, groupId, user, publicApiKey string) om.OmConnection) reconcile.Reconciler {
+func newStandaloneReconciler(mgr manager.Manager, omFunc om.ConnectionFunc) reconcile.Reconciler {
 	return &ReconcileMongoDbStandalone{newReconcileCommonController(mgr, omFunc)}
 }
 
@@ -74,27 +72,27 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		func(result reconcile.Result, err error) { res = result; e = err },
 	)
 
-	log.Info(">> Reconciling MongoDbStandalone")
+	log.Info(">> Standalone.Reconcile")
 
-	// Fetch the MongoDbStandalone instance
-	ok, err := r.fetchResource(request, s, log)
-	if !ok {
-		return reconcile.Result{}, err
+	reconcileResult, err := r.fetchResource(request, s, log)
+	if reconcileResult != nil {
+		return *reconcileResult, err
 	}
 
-	log.Debugf("Spec for MongoDbStandalone: %+v\n", s.Spec)
+	log.Debugf("Standalone.Spec[current]: %+v", s.Spec)
 
-	// 'ObjectMeta.DeletionTimestamp' field is non zero if the object is being deleted
-	if s.ObjectMeta.DeletionTimestamp.IsZero() {
-		if err = r.ensureFinalizerHeaders(s, &s.ObjectMeta, log); err != nil {
-			return r.updateStatusFailed(s, fmt.Sprintf("Failed to update finalizer header: %s", err), log)
-		}
-	} else {
-		return r.reconcileDeletion(r.onDeleteStandalone, s, &s.ObjectMeta, log)
+	if needsDeletion(s.Meta) {
+		log.Info("ReplicaSet.Delete")
+		return r.reconcileDeletion(r.delete, s, &s.ObjectMeta, log)
+	}
+
+	if err = r.ensureFinalizerHeaders(s, &s.ObjectMeta, log); err != nil {
+		return r.updateStatusFailed(s, fmt.Sprintf("Failed to update finalizer header: %s", err), log)
 	}
 
 	spec := s.Spec
-	conn, podVars, err := r.prepareOmConnection(s.Namespace, spec.CommonSpec, log)
+	podVars := &PodVars{}
+	conn, err := r.prepareConnection(s.Namespace, spec.CommonSpec, podVars, log)
 	if err != nil {
 		return r.updateStatusFailed(s, fmt.Sprintf("Failed to prepare Ops Manager connection: %s", err), log)
 	}
@@ -119,11 +117,11 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 	}
 
 	r.updateStatusSuccessful(s, log)
-	log.Infof("Finished reconciliation for MongoDbStandalone! %s", completionMessage(conn.BaseUrl(), conn.GroupId()))
+	log.Infof("Finished reconciliation for MongoDbStandalone! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	return reconcile.Result{}, nil
 }
 
-func updateOmDeployment(omConnection om.OmConnection, s *mongodb.MongoDbStandalone,
+func updateOmDeployment(omConnection om.Connection, s *mongodb.MongoDbStandalone,
 	set *appsv1.StatefulSet, log *zap.SugaredLogger) error {
 	if err := waitForRsAgentsToRegister(set, s.Spec.ClusterName, omConnection, log); err != nil {
 		return err
@@ -146,12 +144,12 @@ func updateOmDeployment(omConnection om.OmConnection, s *mongodb.MongoDbStandalo
 	return nil
 }
 
-func (r *ReconcileMongoDbStandalone) onDeleteStandalone(obj interface{}, log *zap.SugaredLogger) error {
+func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLogger) error {
 	s := obj.(*mongodb.MongoDbStandalone)
 
 	log.Infow("Removing standalone from Ops Manager", "config", s.Spec)
 
-	conn, _, err := r.prepareOmConnection(s.Namespace, s.Spec.CommonSpec, log)
+	conn, err := r.prepareConnection(s.Namespace, s.Spec.CommonSpec, nil, log)
 	if err != nil {
 		return err
 	}
@@ -166,7 +164,7 @@ func (r *ReconcileMongoDbStandalone) onDeleteStandalone(obj interface{}, log *za
 		log,
 	)
 	if err != nil {
-		return fmt.Errorf("Failed to update Ops Manager automation config: %s.", err)
+		return fmt.Errorf("Failed to update Ops Manager automation config: %s", err)
 	}
 
 	hostsToRemove, _ := GetDnsNames(s.Name, s.ServiceName(), s.Namespace, s.Spec.ClusterName, 1)

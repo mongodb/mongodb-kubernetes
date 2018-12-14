@@ -12,8 +12,12 @@ import (
 
 const (
 	// Note that these two constants shouldn't be changed often as AutomationAgent upgrades both other agents automatically
+
+	// MonitoringAgentDefaultVersion
 	MonitoringAgentDefaultVersion = "6.4.0.433-1"
-	BackupAgentDefaultVersion     = "6.6.0.959-1"
+
+	// BackupAgentDefaultVersion
+	BackupAgentDefaultVersion = "6.6.0.959-1"
 )
 
 func init() {
@@ -23,8 +27,10 @@ func init() {
 	gob.Register(ProcessTypeMongos)
 }
 
+// Deployment
 type Deployment map[string]interface{}
 
+// BuildDeploymentFromBytes
 func BuildDeploymentFromBytes(jsonBytes []byte) (Deployment, error) {
 	cc := Deployment{}
 	if err := json.Unmarshal(jsonBytes, &cc); err != nil {
@@ -33,6 +39,7 @@ func BuildDeploymentFromBytes(jsonBytes []byte) (Deployment, error) {
 	return cc, nil
 }
 
+// NewDeployment
 func NewDeployment() Deployment {
 	ans := Deployment{}
 	ans.setProcesses(make([]Process, 0))
@@ -140,12 +147,14 @@ func (d Deployment) AddMonitoringAndBackup(hostName string, log *zap.SugaredLogg
 	d.addBackup(log)
 }
 
+// DisableProcesses
 func (d Deployment) DisableProcesses(processNames []string) {
 	for _, p := range processNames {
 		d.getProcessByName(p).SetDisabled(true)
 	}
 }
 
+// MarkRsMembersUnvoted
 func (d Deployment) MarkRsMembersUnvoted(rsName string, rsMembers []string) error {
 	rs := d.getReplicaSetByName(rsName)
 	if rs == nil {
@@ -162,11 +171,12 @@ func (d Deployment) MarkRsMembersUnvoted(rsName string, rsMembers []string) erro
 		}
 	}
 	if failedMembers != "" {
-		return errors.New(fmt.Sprintf("Failed to find the following members of Replica Set %s: %v", rsName, failedMembers))
+		return fmt.Errorf("Failed to find the following members of Replica Set %s: %v", rsName, failedMembers)
 	}
 	return nil
 }
 
+// RemoveProcessByName
 func (d Deployment) RemoveProcessByName(name string) error {
 	s := d.getProcessByName(name)
 	if s == nil {
@@ -178,6 +188,7 @@ func (d Deployment) RemoveProcessByName(name string) error {
 	return nil
 }
 
+// RemoveReplicaSetByName
 func (d Deployment) RemoveReplicaSetByName(name string) error {
 	rs := d.getReplicaSetByName(name)
 	if rs == nil {
@@ -206,6 +217,7 @@ func (d Deployment) RemoveReplicaSetByName(name string) error {
 	return nil
 }
 
+// RemoveShardedClusterByName
 func (d Deployment) RemoveShardedClusterByName(clusterName string) error {
 	sc := d.getShardedClusterByName(clusterName)
 	if sc == nil {
@@ -239,6 +251,7 @@ func (d Deployment) RemoveShardedClusterByName(clusterName string) error {
 	return nil
 }
 
+// Debug
 func (d Deployment) Debug() {
 	b, err := json.MarshalIndent(d, "", "  ")
 	if err != nil {
@@ -276,7 +289,7 @@ func (d Deployment) mergeMongosProcesses(clusterName string, mongosProcesses []P
 	// Then merging mongos processes with existing ones
 	for _, p := range mongosProcesses {
 		if p.ProcessType() != ProcessTypeMongos {
-			return errors.New("All mongos processes must have processType=\"mongos\"!")
+			return errors.New(`All mongos processes must have processType="mongos"`)
 		}
 		p.setCluster(clusterName)
 		d.MergeStandalone(p, log)
@@ -542,7 +555,7 @@ func (d Deployment) copyFirstProcessToNewPositions(processes []Process, idxOfFir
 	for _, p := range newProcesses {
 		sampleProcessCopy, err := sampleProcess.DeepCopy()
 		if err != nil {
-			return errors.New(fmt.Sprintf("Failed to make a copy of Process %s: %s", sampleProcess.Name(), err))
+			return fmt.Errorf("Failed to make a copy of Process %s: %s", sampleProcess.Name(), err)
 		}
 		sampleProcessCopy.setName(p.Name())
 

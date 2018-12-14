@@ -426,8 +426,8 @@ task_groups:
     - e2e_rs_ent
     - e2e_rs_pv
     - e2e_rs_pv_multiple
-#    - e2e_sharded_cluster_base
-#    - e2e_sharded_cluster_pv
+    - e2e_sharded_cluster_base
+    - e2e_sharded_cluster_pv
 
 buildvariants:
 

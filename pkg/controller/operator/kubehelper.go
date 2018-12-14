@@ -24,18 +24,20 @@ type KubeHelper struct {
 	client client.Client
 }
 
+// ProjectConfig
 type ProjectConfig struct {
-	BaseUrl     string
+	BaseURL     string
 	ProjectName string
-	OrgId       string
+	OrgID       string
 }
 
+// Credentials
 type Credentials struct {
 	User         string
-	PublicApiKey string
+	PublicAPIKey string
 }
 
-// StatefulSetBuildingParams is a struct that holds different attributes needed to build
+// StatefulSetHelper is a struct that holds different attributes needed to build
 // a StatefulSet. It is used as a convenient way of passing many different parameters in one
 // struct, instead of multiple parameters.
 type StatefulSetHelper struct {
@@ -56,7 +58,18 @@ type StatefulSetHelper struct {
 	Logger            *zap.SugaredLogger
 }
 
-// NewStatefulSet returns a default `StatefulSetHelper`. The defaults are as follows:
+// ShardedClusterKubeState holds the Kubernetes configuration for the set of StatefulSets composing
+// our ShardedCluster:
+// 1 StatefulSet holding Mongos (TODO: this might need to be changed to Deployments or Kubernetes ReplicaSets)
+// 1 StatefulSet holding ConfigServers
+// N StatefulSets holding each a different shard
+type ShardedClusterKubeState struct {
+	mongosSetHelper    *StatefulSetHelper
+	configSrvSetHelper *StatefulSetHelper
+	shardsSetsHelpers  []*StatefulSetHelper
+}
+
+// NewStatefulSetHelper returns a default `StatefulSetHelper`. The defaults are as follows:
 //
 // * Name: Same as the Name of the owner
 // * Namespace: Same as the Namespace of the owner
@@ -186,9 +199,9 @@ func (k *KubeHelper) createOrUpdateStatefulsetWithService(owner metav1.Object, s
 
 		// Unfortunately Kube api for events is too weak and doesn't allow to filter by object so we cannot show
 		// the real pod event message to user
-		return nil, errors.New(fmt.Sprintf("Statefulset or its pods failed to reach READY state. Check the events for "+
+		return nil, fmt.Errorf("Statefulset or its pods failed to reach READY state. Check the events for "+
 			"statefulset and pods: kubectl describe sts %s -n %s; kubectl describe po %s -n %s;...", set.Name,
-			set.Namespace, names[0], set.Namespace))
+			set.Namespace, names[0], set.Namespace)
 	}
 	log.Infow(event+" statefulset", "time", time.Since(start))
 
@@ -292,20 +305,20 @@ func (k *KubeHelper) readProjectConfig(defaultNamespace, name string) (*ProjectC
 
 	data := cmap.Data
 
-	baseUrl, ok := data[util.OmBaseUrl]
+	baseURL, ok := data[util.OmBaseUrl]
 	if !ok {
-		return nil, errors.New(fmt.Sprintf("Property \"%s\" is not specified in config map %s", util.OmBaseUrl, configMapName))
+		return nil, fmt.Errorf("Property \"%s\" is not specified in config map %s", util.OmBaseUrl, configMapName)
 	}
 	projectName, ok := data[util.OmProjectName]
 	if !ok {
-		return nil, errors.New(fmt.Sprintf("Property \"%s\" is not specified in config map %s ", util.OmProjectName, configMapName))
+		return nil, fmt.Errorf("Property \"%s\" is not specified in config map %s ", util.OmProjectName, configMapName)
 	}
-	orgId := data[util.OmOrgId]
+	orgID := data[util.OmOrgId]
 
 	return &ProjectConfig{
-		BaseUrl:     baseUrl,
+		BaseURL:     baseURL,
 		ProjectName: projectName,
-		OrgId:       orgId,
+		OrgID:       orgID,
 	}, nil
 }
 
@@ -320,18 +333,18 @@ func (k *KubeHelper) readCredentials(defaultNamespace, name string) (*Credential
 		return nil, err
 	}
 
-	publicApiKey, ok := secret[util.OmPublicApiKey]
+	publicAPIKey, ok := secret[util.OmPublicApiKey]
 	if !ok {
-		return nil, errors.New(fmt.Sprintf("Missing '%s' attribute from 'credentials'", util.OmPublicApiKey))
+		return nil, fmt.Errorf("Missing '%s' attribute from 'credentials'", util.OmPublicApiKey)
 	}
 	user, ok := secret[util.OmUser]
 	if !ok {
-		return nil, errors.New(fmt.Sprintf("Missing '%s' attribute from 'credentials'", util.OmUser))
+		return nil, fmt.Errorf("Missing '%s' attribute from 'credentials'", util.OmUser)
 	}
 
 	return &Credentials{
 		User:         user,
-		PublicApiKey: publicApiKey,
+		PublicAPIKey: publicAPIKey,
 	}, nil
 }
 

@@ -23,14 +23,14 @@ import (
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
 )
 
-// TestPrepareOmConnection_FindExistingGroup finds existing group when org id is specified
+// TestPrepareOmConnection_FindExistingGroup finds existing group when org ID is specified
 func TestPrepareOmConnection_FindExistingGroup(t *testing.T) {
 	mockedOmConnection := omConnGroupInOrganizationWithDifferentName()
 
-	reconciler := newReconcileCommonController(newMockedManagerDetailed(nil, om.TestGroupName, om.TestOrgId), mockedOmConnection)
+	reconciler := newReconcileCommonController(newMockedManagerDetailed(nil, om.TestGroupName, om.TestOrgID), mockedOmConnection)
 
 	mockOm, _ := prepareConnection(reconciler, t)
-	assert.Equal(t, "existingGroupId", mockOm.GroupId())
+	assert.Equal(t, "existingGroupId", mockOm.GroupID())
 	// No new group was created
 	assert.Len(t, mockOm.AllGroups, 1)
 	assert.Len(t, mockOm.AllOrganizations, 1)
@@ -45,11 +45,11 @@ func TestPrepareOmConnection_DuplicatedGroups(t *testing.T) {
 	mockedOmConnection := omConnGroupInOrganizationWithDifferentName()
 
 	// The only difference from TestPrepareOmConnection_FindExistingGroup^ is that the config map contains only project name
-	// but no org id (see newMockedKubeApi())
+	// but no org ID (see newMockedKubeApi())
 	controller := newReconcileCommonController(newMockedManager(nil), mockedOmConnection)
 
 	mockOm, _ := prepareConnection(controller, t)
-	assert.Equal(t, om.TestGroupId, mockOm.GroupId())
+	assert.Equal(t, om.TestGroupID, mockOm.GroupID())
 	assert.NotNil(t, mockOm.FindGroup(om.TestGroupName))
 	// New group and organization will be created in addition to existing ones
 	assert.Len(t, mockOm.AllGroups, 2)
@@ -66,8 +66,8 @@ func TestPrepareOmConnection_CreateGroup(t *testing.T) {
 
 	mockOm, vars := prepareConnection(controller, t)
 
-	assert.Equal(t, om.TestGroupId, vars.ProjectId)
-	assert.Equal(t, om.TestGroupId, mockOm.GroupId())
+	assert.Equal(t, om.TestGroupID, vars.ProjectID)
+	assert.Equal(t, om.TestGroupID, mockOm.GroupID())
 	require.NotNil(t, mockOm.FindGroup(om.TestGroupName))
 	assert.Contains(t, mockOm.FindGroup(om.TestGroupName).Tags, util.OmGroupExternallyManagedTag)
 
@@ -84,8 +84,8 @@ func TestPrepareOmConnection_CreateGroupFallback(t *testing.T) {
 
 	mockOm, vars := prepareConnection(controller, t)
 
-	assert.Equal(t, om.TestGroupId, vars.ProjectId)
-	assert.Equal(t, om.TestGroupId, mockOm.GroupId())
+	assert.Equal(t, om.TestGroupID, vars.ProjectID)
+	assert.Equal(t, om.TestGroupID, mockOm.GroupID())
 	assert.NotNil(t, mockOm.FindGroup(om.TestGroupName))
 	assert.Empty(t, mockOm.FindGroup(om.TestGroupName).Tags)
 
@@ -111,7 +111,7 @@ func TestPrepareOmConnection_PrepareAgentKeys(t *testing.T) {
 
 	prepareConnection(controller, t)
 
-	key, e := controller.kubeHelper.readAgentApiKeyForProject(TestNamespace, agentApiKeySecretName(om.TestGroupId))
+	key, e := controller.kubeHelper.readAgentApiKeyForProject(TestNamespace, agentApiKeySecretName(om.TestGroupID))
 
 	assert.NoError(t, e)
 	// Unfortunately the key read is not equal to om.TestAgentKey - it's just some set of bytes.
@@ -183,60 +183,61 @@ func doReconcileDeletion(t *testing.T, f func() error) {
 }
 
 func prepareConnection(controller *ReconcileCommonController, t *testing.T) (*om.MockedOmConnection, *PodVars) {
+	vars := &PodVars{}
 	spec := v1.CommonSpec{Project: TestProjectConfigMapName, Credentials: TestCredentialsSecretName, LogLevel: v1.Warn}
-	conn, vars, e := controller.prepareOmConnection(TestNamespace, spec, zap.S())
+	conn, e := controller.prepareConnection(TestNamespace, spec, vars, zap.S())
 	mockOm := conn.(*om.MockedOmConnection)
 	assert.NoError(t, e)
 	return mockOm, vars
 }
 
-func omConnGroupWithoutTags() func(url, g, user, k string) om.OmConnection {
-	return func(url, g, user, k string) om.OmConnection {
+func omConnGroupWithoutTags() func(url, g, user, k string) om.Connection {
+	return func(url, g, user, k string) om.Connection {
 		c := om.NewEmptyMockedOmConnectionNoGroup(url, g, user, k).(*om.MockedOmConnection)
 		if len(c.AllGroups) == 0 {
 			// initially OM contains the group without tags
-			c.AllGroups = []*om.Group{{Name: om.TestGroupName, Id: "123", AgentApiKey: "12345abcd", OrgId: om.TestOrgId}}
-			c.AllOrganizations = []*om.Organization{{Id: om.TestOrgId, Name: om.TestGroupName}}
+			c.AllGroups = []*om.Group{{Name: om.TestGroupName, ID: "123", AgentAPIKey: "12345abcd", OrgID: om.TestOrgID}}
+			c.AllOrganizations = []*om.Organization{{ID: om.TestOrgID, Name: om.TestGroupName}}
 		}
 
 		return c
 	}
 }
 
-func omConnGroupInOrganizationWithDifferentName() func(url, g, user, k string) om.OmConnection {
-	return func(url, g, user, k string) om.OmConnection {
+func omConnGroupInOrganizationWithDifferentName() func(url, g, user, k string) om.Connection {
+	return func(url, g, user, k string) om.Connection {
 		c := om.NewEmptyMockedOmConnectionNoGroup(url, g, user, k).(*om.MockedOmConnection)
 		if len(c.AllGroups) == 0 {
 			// Important: the organization for the group has a different name ("foo") then group (om.TestGroupName).
 			// So it won't work for cases when the group "was created before" by Operator
-			c.AllGroups = []*om.Group{{Name: om.TestGroupName, Id: "existingGroupId", OrgId: om.TestOrgId}}
-			c.AllOrganizations = []*om.Organization{{Id: om.TestOrgId, Name: "foo"}}
+			c.AllGroups = []*om.Group{{Name: om.TestGroupName, ID: "existingGroupId", OrgID: om.TestOrgID}}
+			c.AllOrganizations = []*om.Organization{{ID: om.TestOrgID, Name: "foo"}}
 		}
 
 		return c
 	}
 }
 
-func omConnOldVersion() func(url, g, user, k string) om.OmConnection {
+func omConnOldVersion() func(url, g, user, k string) om.Connection {
 	cnt := 1
-	return func(url, g, user, k string) om.OmConnection {
+	return func(url, g, user, k string) om.Connection {
 		c := om.NewEmptyMockedOmConnectionNoGroup(url, g, user, k).(*om.MockedOmConnection)
 		c.CreateGroupFunc = func(g *om.Group) (*om.Group, error) {
 			// first call
 			if cnt == 1 {
 				cnt++
-				return nil, &om.OmApiError{ErrorCode: "INVALID_ATTRIBUTE", Detail: "Invalid attribute tags specified."}
+				return nil, &om.APIError{ErrorCode: "INVALID_ATTRIBUTE", Detail: "Invalid attribute tags specified."}
 			}
 			// second call (fallback)
-			g.Id = om.TestGroupId
+			g.ID = om.TestGroupID
 			c.AllGroups = append(c.AllGroups, g)
-			c.AllOrganizations = append(c.AllOrganizations, &om.Organization{Id: string(rand.Int()), Name: g.Name})
+			c.AllOrganizations = append(c.AllOrganizations, &om.Organization{ID: string(rand.Int()), Name: g.Name})
 			return g, nil
 		}
 		// If creating tags is not allowed - then neither the update
 		c.UpdateGroupFunc = func(g *om.Group) (*om.Group, error) {
 			if len(g.Tags) > 0 {
-				return nil, &om.OmApiError{ErrorCode: "INVALID_ATTRIBUTE", Detail: "Invalid attribute tags specified."}
+				return nil, &om.APIError{ErrorCode: "INVALID_ATTRIBUTE", Detail: "Invalid attribute tags specified."}
 			}
 			return g, nil
 		}
@@ -255,7 +256,27 @@ func checkReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, obj
 
 	// also need to make sure the object status is updated to successful
 	assert.NoError(t, client.Get(context.TODO(), objectKeyFromApiObject(object), object))
-	assert.Equal(t, "Running", object.GetStatus())
+	assert.Equal(t, v1.StateRunning, object.GetStatus())
+
+	switch s := object.(type) {
+	case *v1.MongoDbStandalone:
+		{
+			assert.Equal(t, s.Spec.Version, s.Status.Version)
+		}
+	case *v1.MongoDbReplicaSet:
+		{
+			assert.Equal(t, s.Spec.Members, s.Status.Members)
+			assert.Equal(t, s.Spec.Version, s.Status.Version)
+		}
+	case *v1.MongoDbShardedCluster:
+		{
+			assert.Equal(t, s.Spec.ConfigServerCount, s.Status.ConfigServerCount)
+			assert.Equal(t, s.Spec.MongosCount, s.Status.MongosCount)
+			assert.Equal(t, s.Spec.MongodsPerShardCount, s.Status.MongodsPerShardCount)
+			assert.Equal(t, s.Spec.ShardCount, s.Status.ShardCount)
+			assert.Equal(t, s.Spec.Version, s.Status.Version)
+		}
+	}
 }
 
 func checkReconcileFailed(t *testing.T, reconciler reconcile.Reconciler, object v1.StatusUpdater, errorPart string, client *MockedClient) {
@@ -265,5 +286,5 @@ func checkReconcileFailed(t *testing.T, reconciler reconcile.Reconciler, object 
 
 	// also need to make sure the object status is updated to failed
 	assert.NoError(t, client.Get(context.TODO(), objectKeyFromApiObject(object), object))
-	assert.Equal(t, "Failed", object.GetStatus())
+	assert.Equal(t, v1.StateFailed, object.GetStatus())
 }

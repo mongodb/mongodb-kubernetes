@@ -26,6 +26,7 @@ type ResultStruct struct {
 	TypeName  string `json:"typeName"`
 }
 
+// BuildAgentStateFromBytes
 func BuildAgentStateFromBytes(jsonBytes []byte) (*AgentState, error) {
 	cc := &AgentState{}
 	if err := json.Unmarshal(jsonBytes, &cc); err != nil {
@@ -37,14 +38,14 @@ func BuildAgentStateFromBytes(jsonBytes []byte) (*AgentState, error) {
 // CheckAgentExists will return true if any of the agents in the json document
 // has `hostname_prefix` as prefix.
 // This is needed to check if given agent has registered.
-func CheckAgentExists(hostname_prefix string, agentState *AgentState, log *zap.SugaredLogger) bool {
+func CheckAgentExists(hostnamePrefix string, agentState *AgentState, log *zap.SugaredLogger) bool {
 	for _, result := range agentState.Results {
 		lastPing, err := time.Parse(time.RFC3339, result.LastConf)
 		if err != nil {
 			log.Error("Wrong format for lastConf field: expected UTC format but the value is " + result.LastConf)
 			return false
 		}
-		if strings.HasPrefix(result.Hostname, hostname_prefix) {
+		if strings.HasPrefix(result.Hostname, hostnamePrefix) {
 			// Any pings earlier than 1 minute ago are signs that agents are in trouble, so we cannot consider them as
 			// registered (may be we should decrease this to ~5-10 seconds?)
 			if lastPing.Add(time.Minute).Before(time.Now()) {

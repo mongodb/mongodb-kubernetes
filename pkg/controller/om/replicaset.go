@@ -28,6 +28,8 @@ import (
 			}
 		]
 }*/
+
+// ReplicaSet
 type ReplicaSet map[string]interface{}
 
 /* This corresponds to:
@@ -37,16 +39,21 @@ type ReplicaSet map[string]interface{}
  		"priority": 0,
  		"slaveDelay": 0
  }*/
+
+// ReplicaSetMember
 type ReplicaSetMember map[string]interface{}
 
+// NewReplicaSetFromInterface
 func NewReplicaSetFromInterface(i interface{}) ReplicaSet {
 	return i.(map[string]interface{})
 }
 
+// NewReplicaSetMemberFromInterface
 func NewReplicaSetMemberFromInterface(i interface{}) ReplicaSetMember {
 	return i.(map[string]interface{})
 }
 
+// NewReplicaSet
 func NewReplicaSet(name, version string) ReplicaSet {
 	ans := ReplicaSet{}
 	ans["members"] = make([]ReplicaSetMember, 0)

@@ -40,6 +40,7 @@ func NewDefaultPodSpec() mongodb.MongoDbPodSpec {
 	}
 }
 
+// NewDefaultPodSpecWrapper
 func NewDefaultPodSpecWrapper(podSpec mongodb.MongoDbPodSpec) mongodb.PodSpecWrapper {
 	return mongodb.PodSpecWrapper{
 		MongoDbPodSpec: podSpec,
@@ -47,6 +48,7 @@ func NewDefaultPodSpecWrapper(podSpec mongodb.MongoDbPodSpec) mongodb.PodSpecWra
 	}
 }
 
+// NewDefaultStandalonePodSpecWrapper
 func NewDefaultStandalonePodSpecWrapper(podSpec mongodb.MongoDbPodSpecStandard) mongodb.PodSpecWrapper {
 	return mongodb.PodSpecWrapper{
 		MongoDbPodSpec: mongodb.MongoDbPodSpec{MongoDbPodSpecStandard: podSpec},
@@ -98,19 +100,19 @@ func calculateWiredTigerCache(set *appsv1.StatefulSet) *float32 {
 	return nil
 }
 
-func waitForRsAgentsToRegister(set *appsv1.StatefulSet, clusterName string, omConnection om.OmConnection, log *zap.SugaredLogger) error {
+func waitForRsAgentsToRegister(set *appsv1.StatefulSet, clusterName string, omConnection om.Connection, log *zap.SugaredLogger) error {
 	hostnames, _ := GetDnsForStatefulSet(set, clusterName)
 	log = log.With("statefulset", set.Name)
 
 	if !waitUntilAgentsHaveRegistered(omConnection, log, hostnames...) {
-		return errors.New("Some agents failed to register.")
+		return errors.New("Some agents failed to register")
 	}
 	return nil
 }
 
 // waitUntilAgentsHaveRegistered waits until all agents with 'agentHostnames' are registered in OM. Note, that wait
 // happens after retrial - this allows to skip waiting in case agents are already registered
-func waitUntilAgentsHaveRegistered(omConnection om.OmConnection, log *zap.SugaredLogger, agentHostnames ...string) bool {
+func waitUntilAgentsHaveRegistered(omConnection om.Connection, log *zap.SugaredLogger, agentHostnames ...string) bool {
 	log.Infow("Waiting for agents to register with OM", "agent hosts", agentHostnames)
 	waitSeconds := util.ReadEnvVarOrPanicInt(util.PodWaitSecondsEnv)
 	retrials := util.ReadEnvVarOrPanicInt(util.PodWaitRetriesEnv)
@@ -148,10 +150,10 @@ func waitUntilAgentsHaveRegistered(omConnection om.OmConnection, log *zap.Sugare
 // https://jira.mongodb.org/browse/HELP-3818?focusedCommentId=1548348 for more details)
 // Note, that we are skipping setting nodes as "disabled" (but the code is commented to be able to revert this if
 // needed)
-func prepareScaleDown(omClient om.OmConnection, rsMembers map[string][]string, log *zap.SugaredLogger) error {
-	allProcesses := make([]string, 0)
+func prepareScaleDown(omClient om.Connection, rsMembers map[string][]string, log *zap.SugaredLogger) error {
+	processes := make([]string, 0)
 	for _, v := range rsMembers {
-		allProcesses = append(allProcesses, v...)
+		processes = append(processes, v...)
 	}
 
 	// Stage 1. Set Votes and Priority to 0
@@ -169,7 +171,7 @@ func prepareScaleDown(omClient om.OmConnection, rsMembers map[string][]string, l
 		)
 
 		if err != nil {
-			return errors.New(fmt.Sprintf("Unable to set votes, priority to 0 in Ops Manager, hosts: %v, err: %s", allProcesses, err))
+			return fmt.Errorf("Unable to set votes, priority to 0 in Ops Manager, hosts: %v, err: %s", processes, err)
 		}
 
 		log.Debugw("Marked replica set members as non-voting", "replica set with members", rsMembers)
@@ -192,23 +194,28 @@ func prepareScaleDown(omClient om.OmConnection, rsMembers map[string][]string, l
 	//}
 	//log.Debugw("Disabled processes", "processes", allProcesses)
 
-	log.Infow("Performed some preliminary steps to support scale down", "hosts", allProcesses)
+	log.Infow("Performed some preliminary steps to support scale down", "hosts", processes)
 
 	return nil
 }
 
-// deleteHostnamesFromMonitoring checks the array of hosts before change to Deployment and after and if some hosts
-// were removed from Kubernetes/OM Deployment (scale down) - then we need to explicitly remove these hosts from OM
-// monitoring
-func deleteHostnamesFromMonitoring(omClient om.OmConnection, hostsBefore, hostsAfter []string, log *zap.SugaredLogger) error {
-	diff := util.FindLeftDifference(hostsBefore, hostsAfter)
-
-	if len(diff) > 0 {
-		if err := om.StopMonitoring(omClient, diff, log); err != nil {
-			return errors.New(fmt.Sprintf("Failed to stop monitoring on hosts %s: %s", diff, err))
-		}
+// stopMonitoringHosts removes monitoring for this list of hosts from Ops Manager.
+func stopMonitoringHosts(conn om.Connection, hosts []string, log *zap.SugaredLogger) error {
+	if len(hosts) == 0 {
+		return nil
 	}
+
+	if err := om.StopMonitoring(conn, hosts, log); err != nil {
+		return fmt.Errorf("Failed to stop monitoring on hosts %s: %s", hosts, err)
+	}
+
 	return nil
+}
+
+// calculateDiffAndStopMonitoringHosts checks hosts that are present in hostsBefore but not hostsAfter, and removes
+// monitoring from them.
+func calculateDiffAndStopMonitoringHosts(conn om.Connection, hostsBefore, hostsAfter []string, log *zap.SugaredLogger) error {
+	return stopMonitoringHosts(conn, util.FindLeftDifference(hostsBefore, hostsAfter), log)
 }
 
 // agentApiKeySecretName for a given ProjectID (`project`) returns the name of
@@ -218,8 +225,8 @@ func agentApiKeySecretName(project string) string {
 }
 
 // completionMessage is just a general message printed in the logs after mongodb resource is created/updated
-func completionMessage(url, groupId string) string {
-	return fmt.Sprintf("Please check the link %s/v2/%s to see the status of the deployment", url, groupId)
+func completionMessage(url, groupID string) string {
+	return fmt.Sprintf("Please check the link %s/v2/%s to see the status of the deployment", url, groupID)
 }
 
 // exceptionHandling is the basic panic handling function that recovers from panic, logs the error, updates the resource status and updates the
@@ -242,5 +249,6 @@ func objectKey(ns, name string) client.ObjectKey {
 func objectKeyFromApiObject(obj interface{}) client.ObjectKey {
 	ns := reflect.ValueOf(obj).Elem().FieldByName("Namespace").String()
 	name := reflect.ValueOf(obj).Elem().FieldByName("Name").String()
+
 	return objectKey(ns, name)
 }

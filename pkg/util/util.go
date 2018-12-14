@@ -14,7 +14,6 @@ import (
 
 	"os"
 
-	"github.com/pkg/errors"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
 )
@@ -26,14 +25,7 @@ import (
 func FindLeftDifference(left, right []string) []string {
 	ans := make([]string, 0)
 	for _, v := range left {
-		skip := false
-		for _, p := range right {
-			if p == v {
-				skip = true
-				break
-			}
-		}
-		if !skip {
+		if !ContainsString(right, v) {
 			ans = append(ans, v)
 		}
 	}
@@ -75,7 +67,7 @@ func DoAndRetry(f func() (string, bool), log *zap.SugaredLogger, count, interval
 		if msg != "" {
 			msg += "."
 		}
-		log.Debugf("%s Retrial attempt %d of %d (waiting for %d more seconds)", msg, i+1, count, interval)
+		log.Debugf("%s Retrying %d/%d (waiting for %d more seconds)", msg, i+1, count, interval)
 		time.Sleep(time.Duration(interval) * time.Second)
 	}
 	return false
@@ -110,7 +102,7 @@ func ParseMongodbMinorVersion(version string) (float32, error) {
 	s := strings.FieldsFunc(version, func(c rune) bool { return c == '.' })
 
 	if len(s) < 2 || len(s) > 3 {
-		return -1, errors.New(fmt.Sprintf("Wrong format of version: %s is expected to have either 2 or 3 parts separated by '.'", version))
+		return -1, fmt.Errorf("Wrong format of version: %s is expected to have either 2 or 3 parts separated by '.'", version)
 	}
 	// if we have 3 parts - we need to parse only two of them
 	if len(s) == 3 {

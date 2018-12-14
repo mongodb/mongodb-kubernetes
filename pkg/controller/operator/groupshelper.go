@@ -22,7 +22,7 @@ func (c *ReconcileCommonController) readOrCreateGroup(config *ProjectConfig, cre
 	log = log.With("project", config.ProjectName)
 
 	// we need to create a temporary connection object without group id
-	conn := c.omConnectionFunc(config.BaseUrl, "", credentials.User, credentials.PublicApiKey)
+	conn := c.omConnectionFunc(config.BaseURL, "", credentials.User, credentials.PublicAPIKey)
 	groups, err := conn.ReadGroups()
 
 	if err != nil {
@@ -58,8 +58,8 @@ func (c *ReconcileCommonController) readOrCreateGroup(config *ProjectConfig, cre
 
 	groupWithTags := &om.Group{
 		Name:  group.Name,
-		OrgId: group.OrgId,
-		Id:    group.Id,
+		OrgID: group.OrgID,
+		ID:    group.ID,
 		Tags:  append(group.Tags, util.OmGroupExternallyManagedTag),
 	}
 	g, err := conn.UpdateGroup(groupWithTags)
@@ -73,13 +73,13 @@ func (c *ReconcileCommonController) readOrCreateGroup(config *ProjectConfig, cre
 	return group, nil
 }
 
-func findExistingGroup(groups []*om.Group, config *ProjectConfig, conn om.OmConnection) (*om.Group, error) {
+func findExistingGroup(groups []*om.Group, config *ProjectConfig, conn om.Connection) (*om.Group, error) {
 	if len(groups) == 0 {
 		return nil, nil
 	}
-	if config.OrgId != "" {
+	if config.OrgID != "" {
 		for _, g := range groups {
-			if g.OrgId == config.OrgId && g.Name == config.ProjectName {
+			if g.OrgID == config.OrgID && g.Name == config.ProjectName {
 				return g, nil
 			}
 		}
@@ -95,7 +95,7 @@ func findExistingGroup(groups []*om.Group, config *ProjectConfig, conn om.OmConn
 	// organization - we skip it
 	for _, org := range organizations {
 		for _, group := range groups {
-			if group.Name == config.ProjectName && group.OrgId == org.Id && org.Name == config.ProjectName {
+			if group.Name == config.ProjectName && group.OrgID == org.ID && org.Name == config.ProjectName {
 				return group, nil
 			}
 		}
@@ -104,22 +104,22 @@ func findExistingGroup(groups []*om.Group, config *ProjectConfig, conn om.OmConn
 	return nil, nil
 }
 
-func tryCreateGroup(config *ProjectConfig, conn om.OmConnection, log *zap.SugaredLogger) (*om.Group, error) {
+func tryCreateGroup(config *ProjectConfig, conn om.Connection, log *zap.SugaredLogger) (*om.Group, error) {
 	// Creating the group as it doesn't exist
-	log.Infow("Creating the project as it doesn't exist", "orgId", config.OrgId)
-	if config.OrgId == "" {
+	log.Infow("Creating the project as it doesn't exist", "orgId", config.OrgID)
+	if config.OrgID == "" {
 		log.Infof("Note that as the orgId is not specified the organization with name \"%s\" will be created "+
 			"automatically by Ops Manager", config.ProjectName)
 	}
 	group := &om.Group{
 		Name:  config.ProjectName,
-		OrgId: config.OrgId,
+		OrgID: config.OrgID,
 		Tags:  []string{util.OmGroupExternallyManagedTag},
 	}
 	ans, err := conn.CreateGroup(group)
 
 	if err != nil {
-		apiError := err.(*om.OmApiError)
+		apiError := err.(*om.APIError)
 		if apiError.ErrorCodeIn("INVALID_ATTRIBUTE") && strings.Contains(apiError.Detail, "tags") {
 			// Fallback logic: seems that OM version is < 4.0.2 (as it allows to edit group
 			// tags only for GLOBAL_OWNER users), let's try to create group without tags
@@ -134,7 +134,7 @@ func tryCreateGroup(config *ProjectConfig, conn om.OmConnection, log *zap.Sugare
 			return nil, fmt.Errorf("Error creating group \"%s\" in Ops Manager: %s", group, err)
 		}
 	}
-	log.Infow("Project successfully created", "id", ans.Id)
+	log.Infow("Project successfully created", "id", ans.ID)
 
 	return ans, nil
 }

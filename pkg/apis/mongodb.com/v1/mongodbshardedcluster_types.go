@@ -15,15 +15,23 @@ func init() {
 type MongoDbShardedCluster struct {
 	Meta
 	Spec   MongoDbShardedClusterSpec   `json:"spec"`
-	Status MongoDbShardedClusterStatus `json:"status"`
+	Status MongoDbShardedClusterStatus `json:"status,omitempty"`
 }
 
-type MongoDbShardedClusterSpec struct {
-	CommonSpec
+// MongodbShardedClusterSizeConfig describes the numbers and sizes of replica sets inside
+// sharded cluster
+type MongodbShardedClusterSizeConfig struct {
 	ShardCount           int `json:"shardCount"`
 	MongodsPerShardCount int `json:"mongodsPerShardCount"`
 	MongosCount          int `json:"mongosCount"`
 	ConfigServerCount    int `json:"configServerCount"`
+}
+
+// MongoDbShardedClusterSpec desired status of MongoDB Sharded Cluster
+type MongoDbShardedClusterSpec struct {
+	CommonSpec
+	MongodbShardedClusterSizeConfig
+	Version string `json:"version"`
 
 	ConfigSrvPodSpec MongoDbPodSpec `json:"configSrvPodSpec,omitempty"`
 	MongosPodSpec    MongoDbPodSpec `json:"mongosPodSpec,omitempty"`
@@ -32,19 +40,14 @@ type MongoDbShardedClusterSpec struct {
 
 // MongoDbShardedClusterStatus defines the observed state of MongoDbShardedCluster
 type MongoDbShardedClusterStatus struct {
-	// Important: Run "operator-sdk generate k8s" to regenerate code after modifying this file
-
+	MongodbShardedClusterSizeConfig
 	Version string `json:"version"`
+
 	// TODO
-	State                string `json:"state"`
-	ShardCount           int    `json:"shardCount"`
-	MongodsPerShardCount int    `json:"mongodsPerShardCount"`
-	MongosCount          int    `json:"mongosCount"`
-	ConfigServerCount    int    `json:"configServerCount"`
+	State string `json:"state"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
-
 type MongoDbShardedClusterList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata"`
@@ -82,4 +85,34 @@ func (c *MongoDbShardedCluster) ShardRsName(i int) string {
 	// Unfortunately the pattern used by OM (name_idx) doesn't work as Kubernetes doesn't create the stateful set with an
 	// exception: "a DNS-1123 subdomain must consist of lower case alphanumeric characters, '-' or '.'"
 	return fmt.Sprintf("%s-%d", c.Name, i)
+}
+
+// UpdateSuccessful
+func (c *MongoDbShardedCluster) UpdateSuccessful() {
+	c.Status.Version = c.Spec.Version
+
+	c.Status.MongosCount = c.Spec.MongosCount
+	c.Status.MongodsPerShardCount = c.Spec.MongodsPerShardCount
+	c.Status.ConfigServerCount = c.Spec.ConfigServerCount
+	c.Status.ShardCount = c.Spec.ShardCount
+
+	c.Status.State = StateRunning
+}
+
+// UpdateError
+func (c *MongoDbShardedCluster) UpdateError(msg string) {
+	c.Status.State = StateFailed
+}
+
+// GetStatus
+func (c *MongoDbShardedCluster) GetStatus() string {
+	return c.Status.State
+}
+
+// IsEmpty will check this is an "Empty" object
+func (c *MongoDbShardedCluster) IsEmpty() bool {
+	return c.Spec.ShardCount == 0 &&
+		c.Spec.MongosCount == 0 &&
+		c.Spec.MongodsPerShardCount == 0 &&
+		c.Spec.ConfigServerCount == 0
 }

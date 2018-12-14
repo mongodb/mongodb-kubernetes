@@ -17,6 +17,12 @@ const (
 	Warn  LogLevel = "WARN"
 	Error LogLevel = "ERROR"
 	Fatal LogLevel = "FATAL"
+
+	// StateRunning means Pod is in running state
+	StateRunning = "Running"
+
+	// StateFailed meands Pod is in failed state
+	StateFailed = "Failed"
 )
 
 // Seems this should be removed as soon as CLOUDP-35934 is resolved

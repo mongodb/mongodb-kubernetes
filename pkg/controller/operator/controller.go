@@ -32,10 +32,10 @@ type ReconcileCommonController struct {
 	client           client.Client
 	scheme           *runtime.Scheme
 	kubeHelper       KubeHelper
-	omConnectionFunc func(baseUrl, groupId, user, publicApiKey string) om.OmConnection
+	omConnectionFunc om.ConnectionFunc
 }
 
-func newReconcileCommonController(mgr manager.Manager, omFunc func(baseUrl, groupId, user, publicApiKey string) om.OmConnection) *ReconcileCommonController {
+func newReconcileCommonController(mgr manager.Manager, omFunc om.ConnectionFunc) *ReconcileCommonController {
 	return &ReconcileCommonController{
 		client:           mgr.GetClient(),
 		scheme:           mgr.GetScheme(),
@@ -44,36 +44,36 @@ func newReconcileCommonController(mgr manager.Manager, omFunc func(baseUrl, grou
 	}
 }
 
-func (c *ReconcileCommonController) prepareOmConnection(namespace string, spec v1.CommonSpec, log *zap.SugaredLogger) (om.OmConnection, *PodVars, error) {
-	projectConfig, e := c.kubeHelper.readProjectConfig(namespace, spec.Project)
-	if e != nil {
-		return nil, nil, fmt.Errorf("Error reading Project Config: %s", e)
+func (c *ReconcileCommonController) prepareConnection(namespace string, spec v1.CommonSpec, podVars *PodVars, log *zap.SugaredLogger) (om.Connection, error) {
+	projectConfig, err := c.kubeHelper.readProjectConfig(namespace, spec.Project)
+	if err != nil {
+		return nil, fmt.Errorf("Error reading Project Config: %s", err)
 	}
-	credsConfig, e := c.kubeHelper.readCredentials(namespace, spec.Credentials)
-	if e != nil {
-		return nil, nil, e
-	}
-
-	group, e := c.readOrCreateGroup(projectConfig, credsConfig, log)
-	if e != nil {
-		return nil, nil, e
+	credsConfig, err := c.kubeHelper.readCredentials(namespace, spec.Credentials)
+	if err != nil {
+		return nil, fmt.Errorf("Error reading Credentials secret: %s", err)
 	}
 
-	omConnection := c.omConnectionFunc(projectConfig.BaseUrl, group.Id, credsConfig.User, credsConfig.PublicApiKey)
-
-	agentKey, e := c.ensureAgentKeySecretExists(omConnection, namespace, group.AgentApiKey, log)
-
-	if e != nil {
-		return nil, nil, e
+	group, err := c.readOrCreateGroup(projectConfig, credsConfig, log)
+	if err != nil {
+		return nil, fmt.Errorf("Error reading or creating project in Ops Manager: %s", err)
 	}
-	vars := &PodVars{
-		BaseUrl:     projectConfig.BaseUrl,
-		ProjectId:   group.Id,
-		AgentApiKey: agentKey,
-		User:        credsConfig.User,
-		LogLevel:    spec.LogLevel,
+
+	conn := c.omConnectionFunc(projectConfig.BaseURL, group.ID, credsConfig.User, credsConfig.PublicAPIKey)
+	agentAPIKey, err := c.ensureAgentKeySecretExists(conn, namespace, group.AgentAPIKey, log)
+	if err != nil {
+		return nil, err
 	}
-	return omConnection, vars, nil
+
+	if podVars != nil {
+		// Register podVars if user passed a valid reference to a PodVars object
+		podVars.BaseURL = conn.BaseURL()
+		podVars.ProjectID = conn.GroupID()
+		podVars.User = conn.User()
+		podVars.AgentAPIKey = agentAPIKey
+		podVars.LogLevel = spec.LogLevel
+	}
+	return conn, nil
 }
 
 // ensureAgentKeySecretExists checks if the Secret with specified name (<groupId>-group-secret) exists, otherwise tries to
@@ -81,16 +81,18 @@ func (c *ReconcileCommonController) prepareOmConnection(namespace string, spec v
 // a rare operation as the group creation api generates agent key already (so the only possible situation is when the group
 // was created externally and agent key wasn't generated before)
 // Returns the api key existing/generated
-func (c *ReconcileCommonController) ensureAgentKeySecretExists(omConnection om.OmConnection, nameSpace, agentKey string, log *zap.SugaredLogger) (string, error) {
-	secretName := agentApiKeySecretName(omConnection.GroupId())
+func (c *ReconcileCommonController) ensureAgentKeySecretExists(conn om.Connection, nameSpace, agentKey string, log *zap.SugaredLogger) (string, error) {
+	secretName := agentApiKeySecretName(conn.GroupID())
 	log = log.With("secret", secretName)
 	secret := &corev1.Secret{}
-	err := c.client.Get(context.TODO(), objectKey(nameSpace, secretName), secret)
+	err := c.client.Get(context.TODO(),
+		objectKey(nameSpace, secretName),
+		secret)
 	if err != nil {
 		if agentKey == "" {
 			log.Info("Generating agent key as current group doesn't have it")
 
-			agentKey, err = omConnection.GenerateAgentKey()
+			agentKey, err = conn.GenerateAgentKey()
 			if err != nil {
 				return "", fmt.Errorf("Failed to generate agent key in OM: %s", err)
 			}
@@ -101,39 +103,47 @@ func (c *ReconcileCommonController) ensureAgentKeySecretExists(omConnection om.O
 		if err = c.client.Create(context.TODO(), secret); err != nil {
 			return "", fmt.Errorf("Failed to create Secret: %s", err)
 		}
-		log.Info("Group agent key is saved in Kubernetes Secret for later usage")
+		log.Infof("Group agent key is saved in Kubernetes Secret for later usage")
 	}
 
 	return strings.TrimSuffix(string(secret.Data[util.OmAgentApiKey]), "\n"), nil
 }
 
 func (c *ReconcileCommonController) updateStatusSuccessful(resource v1.StatusUpdater, log *zap.SugaredLogger) {
-	resource.UpdateSuccessful()
-	// Sometimes we get the "Operation cannot be fulfilled on mongodbstandalones.mongodb.com "dublin": the object has
+	// Sometimes we get the "Operation cannot be fulfilled on mongodbstandalones.mongodb.com : the object has
 	// been modified; please apply your changes to the latest version and try again" error - so let's fetch the latest
 	// object before updating it
 	_ = c.client.Get(context.TODO(), objectKeyFromApiObject(resource), resource)
 
+	resource.UpdateSuccessful()
+
 	// Dev note: "c.client.Status().Update()" doesn't work for some reasons and the examples from Operator SDK use the
 	// normal resource update - so we use the same
+	// None of the following seems to work!
+	// err := c.client.Status().Update(context.TODO(), resource)
 	err := c.client.Update(context.TODO(), resource)
 	if err != nil {
 		log.Errorf("Failed to update status for resource to successful: %s", err)
 	}
 }
 
-func (c *ReconcileCommonController) updateStatusFailed(resource v1.StatusUpdater, errorMessage string, log *zap.SugaredLogger) (reconcile.Result, error) {
-	log.Error(errorMessage)
+func (c *ReconcileCommonController) updateStatusFailed(resource v1.StatusUpdater, msg string, log *zap.SugaredLogger) (reconcile.Result, error) {
+	log.Error(msg)
 	// Resource may be nil if the reconciliation failed very early (on fetching the resource) and panic handling function
 	// took over
 	if resource != nil {
-		resource.UpdateError(errorMessage)
+		resource.UpdateError(msg)
 		err := c.client.Update(context.TODO(), resource)
 		if err != nil {
 			log.Errorf("Failed to update resource status: %s", err)
+			return reconcile.Result{RequeueAfter: 10 * time.Second}, err
 		}
 	}
-	return reconcile.Result{RequeueAfter: 10 * time.Second}, errors.New(errorMessage)
+	return reconcile.Result{RequeueAfter: 10 * time.Second}, errors.New(msg)
+}
+
+func needsDeletion(meta v1.Meta) bool {
+	return !meta.DeletionTimestamp.IsZero()
 }
 
 // reconcileDeletion checks the headers and if 'util.MongodbResourceFinalizer' header is present - tries to cleanup Ops Manager
@@ -179,20 +189,21 @@ func (c *ReconcileCommonController) ensureFinalizerHeaders(res runtime.Object, o
 	return nil
 }
 
-// fetchResource finds the object being reconciled. Returns 'true' indicating if the main logic should proceed
-func (c *ReconcileCommonController) fetchResource(request reconcile.Request, object runtime.Object, log *zap.SugaredLogger) (bool, error) {
+// fetchResource finds the object being reconciled. Returns pointer to 'reconcile.Result' and error.
+// If the 'reconcile.Result' pointer is not nil - the client is expected to finish processing
+func (c *ReconcileCommonController) fetchResource(request reconcile.Request, object runtime.Object, log *zap.SugaredLogger) (*reconcile.Result, error) {
 	err := c.client.Get(context.TODO(), request.NamespacedName, object)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			// Request object not found, could have been deleted after reconcile request.
 			// Return and don't requeue
-			// TODO for some reasons the reconciliation is triggered twice after the object has been deleted
+			// Note: for some reasons the reconciliation is triggered twice after the object has been deleted
 			log.Debugf("Object %s doesn't exist, was it deleted after reconcile request?", request.NamespacedName)
-			return false, nil
+			return &reconcile.Result{}, nil
 		}
 		// Error reading the object - requeue the request.
 		log.Errorf("Failed to query object %s: %s", request.NamespacedName, err)
-		return false, err
+		return &reconcile.Result{RequeueAfter: 10 * time.Second}, err
 	}
-	return true, nil
+	return nil, nil
 }

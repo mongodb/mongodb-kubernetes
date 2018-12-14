@@ -9,3 +9,12 @@
     shell: |
       oc login -u system:admin  # login as system:admin (needs to be done at the master)
       oc adm policy add-cluster-role-to-user cluster-admin admin
+
+      oc login -u system:christian
+      oc adm policy add-cluster-role-to-user cluster-admin admin
+
+      oc login -u system:rodrigo
+      oc adm policy add-cluster-role-to-user cluster-admin admin
+
+      oc login -u system:anton
+      oc adm policy add-cluster-role-to-user cluster-admin admin

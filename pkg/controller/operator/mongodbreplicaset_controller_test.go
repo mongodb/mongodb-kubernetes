@@ -44,7 +44,7 @@ func TestOnAddReplicaSet(t *testing.T) {
 
 	assert.Len(t, client.services, 2)
 	assert.Len(t, client.sets, 1)
-	assert.Equal(t, *client.sets[rs.ObjectKey()].(*appsv1.StatefulSet).Spec.Replicas, int32(3))
+	assert.Equal(t, *client.getSet(rs.ObjectKey()).Spec.Replicas, int32(3))
 	assert.Len(t, client.secrets, 2)
 
 	connection := om.CurrMockedConnection
@@ -83,9 +83,10 @@ func TestScaleUpReplicaSet(t *testing.T) {
 	connection.CheckNumberOfUpdateRequests(t, 2)
 }
 
+// TODO
+/*
 func TestOnDeleteReplicaSet(t *testing.T) {
-	// TODO
-	/*st := DefaultReplicaSetBuilder().Build()
+	st := DefaultReplicaSetBuilder().Build()
 
 	controller := NewMongoDbController(newMockedKubeApi(), nil, om.NewEmptyMockedOmConnection)
 
@@ -96,9 +97,10 @@ func TestOnDeleteReplicaSet(t *testing.T) {
 	om.CurrMockedConnection.EnableBackup(st.Name, om.ReplicaSetType)
 
 	// then delete
-	controller.onDeleteReplicaSet(st)
-	om.CurrMockedConnection.CheckResourcesDeleted(t, st.Name, true)*/
+	controller.delete(st)
+	om.CurrMockedConnection.CheckResourcesDeleted(t, st.Name, true)
 }
+*/
 
 func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
 	spec := &v1.MongoDbReplicaSetSpec{

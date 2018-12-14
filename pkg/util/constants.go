@@ -1,9 +1,13 @@
 package util
 
 const (
-	// Controllers names
-	MongoDbStandaloneController     = "mongodbstandalone-controller"
-	MongoDbReplicaSetController     = "mongodbreplicaset-controller"
+	// MongoDbStandaloneController name of the Standalone controller
+	MongoDbStandaloneController = "mongodbstandalone-controller"
+
+	// MongoDbReplicaSetController name of the ReplicaSet controller
+	MongoDbReplicaSetController = "mongodbreplicaset-controller"
+
+	// MongoDbShardedClusterController name of the ShardedCluster controller
 	MongoDbShardedClusterController = "mongodbshardedcluster-controller"
 
 	// Ops manager config map and secret variables

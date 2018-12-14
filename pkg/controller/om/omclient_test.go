@@ -9,7 +9,7 @@ import (
 )
 
 func TestCreateHttpRequest(t *testing.T) {
-	httpRequest, e := createHttpRequest("POST", "http://some.com", nil)
+	httpRequest, e := createHTTPRequest("POST", "http://some.com", nil)
 	u, _ := url.Parse("http://some.com")
 
 	assert.NoError(t, e)

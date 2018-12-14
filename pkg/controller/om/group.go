@@ -1,13 +1,15 @@
 package om
 
+// GroupsResponse
 type GroupsResponse struct {
 	Groups []*Group `json:"results"`
 }
 
+// Group
 type Group struct {
-	Id          string   `json:"id,omitempty"`
+	ID          string   `json:"id,omitempty"`
 	Name        string   `json:"name"`
-	OrgId       string   `json:"orgId,omitempty"`
+	OrgID       string   `json:"orgId,omitempty"`
 	Tags        []string `json:"tags,omitempty"`
-	AgentApiKey string   `json:"agentApiKey,omitempty"`
+	AgentAPIKey string   `json:"agentApiKey,omitempty"`
 }

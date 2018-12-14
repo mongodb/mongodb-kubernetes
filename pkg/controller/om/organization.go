@@ -1,10 +1,12 @@
 package om
 
+// OrganizationsResponse
 type OrganizationsResponse struct {
 	Organizations []*Organization `json:"results"`
 }
 
+// Organizations
 type Organization struct {
-	Id   string `json:"id,omitempty"`
+	ID   string `json:"id,omitempty"`
 	Name string `json:"name"`
 }

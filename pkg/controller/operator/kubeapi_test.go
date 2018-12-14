@@ -267,6 +267,10 @@ func (oc *MockedClient) CheckOperationsDidntHappen(t *testing.T, value ...*Histo
 	}
 }
 
+func (oc *MockedClient) getSet(key client.ObjectKey) *appsv1.StatefulSet {
+	return oc.sets[key].(*appsv1.StatefulSet)
+}
+
 // HistoryItem is an item that describe the invocation of 'client.client' method.
 type HistoryItem struct {
 	function     *runtime.Func
