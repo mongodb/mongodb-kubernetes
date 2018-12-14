@@ -62,10 +62,12 @@ type StandaloneBuilder struct {
 
 func DefaultStandaloneBuilder() *StandaloneBuilder {
 	spec := &v1.MongoDbStandaloneSpec{
-		Version:     "4.0.0",
-		Persistent:  util.BooleanRef(false),
-		Project:     TestProjectConfigMapName,
-		Credentials: TestCredentialsSecretName,
+		CommonSpec: v1.CommonSpec{
+			Version:     "4.0.0",
+			Persistent:  util.BooleanRef(false),
+			Project:     TestProjectConfigMapName,
+			Credentials: TestCredentialsSecretName,
+		},
 	}
 	standalone := &v1.MongoDbStandalone{
 		Meta: v1.Meta{ObjectMeta: metav1.ObjectMeta{Name: "dublin", Namespace: TestNamespace}},

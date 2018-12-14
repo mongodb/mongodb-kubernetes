@@ -23,16 +23,8 @@ type MongoDbStandalone struct {
 
 // MongoDbStandaloneSpec defines the desired state of MongoDbStandalone
 type MongoDbStandaloneSpec struct {
-	// Important: Run "operator-sdk generate k8s" to regenerate code after modifying this file
-
-	Version string `json:"version"`
-	// this is an optional service, it will get the name "<standaloneName>-service" in case not provided
-	Service     string                 `json:"service,omitempty"`
-	ClusterName string                 `json:"clusterName,omitempty"`
-	Persistent  *bool                  `json:"persistent,omitempty"`
-	PodSpec     MongoDbPodSpecStandard `json:"podSpec,omitempty"`
-	Project     string                 `json:"project"`
-	Credentials string                 `json:"credentials"`
+	CommonSpec
+	PodSpec MongoDbPodSpecStandard `json:"podSpec,omitempty"`
 }
 
 // MongoDbStandaloneStatus defines the observed state of MongoDbStandalone

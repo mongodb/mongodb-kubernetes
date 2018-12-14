@@ -102,11 +102,14 @@ func TestOnDeleteReplicaSet(t *testing.T) {
 
 func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
 	spec := &v1.MongoDbReplicaSetSpec{
-		Version:     "4.0.0",
-		Persistent:  util.BooleanRef(false),
-		Project:     TestProjectConfigMapName,
-		Credentials: TestCredentialsSecretName,
-		Members:     3,
+		CommonSpec: v1.CommonSpec{
+			Version:     "4.0.0",
+			Persistent:  util.BooleanRef(false),
+			Project:     TestProjectConfigMapName,
+			Credentials: TestCredentialsSecretName,
+		},
+
+		Members: 3,
 	}
 	rs := &v1.MongoDbReplicaSet{
 		Meta: v1.Meta{ObjectMeta: metav1.ObjectMeta{Name: "temple", Namespace: TestNamespace}},

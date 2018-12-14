@@ -183,7 +183,8 @@ func doReconcileDeletion(t *testing.T, f func() error) {
 }
 
 func prepareConnection(controller *ReconcileCommonController, t *testing.T) (*om.MockedOmConnection, *PodVars) {
-	conn, vars, e := controller.prepareOmConnection(TestNamespace, TestProjectConfigMapName, TestCredentialsSecretName, zap.S())
+	spec := v1.CommonSpec{Project: TestProjectConfigMapName, Credentials: TestCredentialsSecretName, LogLevel: v1.Warn}
+	conn, vars, e := controller.prepareOmConnection(TestNamespace, spec, zap.S())
 	mockOm := conn.(*om.MockedOmConnection)
 	assert.NoError(t, e)
 	return mockOm, vars

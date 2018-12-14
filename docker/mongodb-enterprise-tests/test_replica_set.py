@@ -106,6 +106,7 @@ class TestReplicaSetCreation(KubernetesTester):
                     'GROUP_ID',
                     'USER_LOGIN',
                     'AGENT_API_KEY',
+                    'LOG_LEVEL'
                 ]
                 assert envvar.value is not None
 
@@ -355,6 +356,7 @@ class TestReplicaSetUpdate(KubernetesTester):
                     'GROUP_ID',
                     'USER_LOGIN',
                     'AGENT_API_KEY',
+                    'LOG_LEVEL'
                 ]
                 assert envvar.value is not None
 

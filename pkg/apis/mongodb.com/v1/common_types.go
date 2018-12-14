@@ -9,6 +9,19 @@ import (
 
 // TODO rename the file to "common_types.go" later
 
+type LogLevel string
+
+const (
+	Debug LogLevel = "DEBUG"
+	Info  LogLevel = "INFO"
+	Warn  LogLevel = "WARN"
+	Error LogLevel = "ERROR"
+	Fatal LogLevel = "FATAL"
+)
+
+// Seems this should be removed as soon as CLOUDP-35934 is resolved
+var AllLogLevels = []LogLevel{Debug, Info, Warn, Error, Fatal}
+
 // StatusUpdater is the interface that knows how to update status in case of success and in case of failure
 type StatusUpdater interface {
 	runtime.Object
@@ -24,7 +37,20 @@ type Meta struct {
 }
 
 func (m *Meta) ObjectKey() client.ObjectKey {
-	return client.ObjectKey{Name:m.Name, Namespace:m.Namespace}
+	return client.ObjectKey{Name: m.Name, Namespace: m.Namespace}
+}
+
+// CommonSpec includes fields common for all Mongodb types
+type CommonSpec struct {
+	Version string `json:"version"`
+	// this is an optional service, it will get the name "<rsName>-service" in case not provided
+	Service string `json:"service,omitempty"`
+	// TODO seems the ObjectMeta contains the field for ClusterName - may be we should use it instead
+	ClusterName string   `json:"clusterName,omitempty"`
+	Persistent  *bool    `json:"persistent,omitempty"`
+	LogLevel    LogLevel `json:"logLevel,omitempty"`
+	Project     string   `json:"project"`
+	Credentials string   `json:"credentials"`
 }
 
 type MongoDbPodSpec struct {

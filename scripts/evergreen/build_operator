@@ -5,6 +5,8 @@
 # This should be executed from root of the evergreen build dir
 #
 
+set -xeo pipefail
+
 # ${WORKDIR} refers to the MCI working directory
 GOPATH="${WORKDIR}"
 export GOPATH

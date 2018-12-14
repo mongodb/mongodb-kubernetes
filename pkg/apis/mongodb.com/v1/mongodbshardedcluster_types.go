@@ -19,28 +19,15 @@ type MongoDbShardedCluster struct {
 }
 
 type MongoDbShardedClusterSpec struct {
-	ShardCount           int    `json:"shardCount"`
-	MongodsPerShardCount int    `json:"mongodsPerShardCount"`
-	MongosCount          int    `json:"mongosCount"`
-	ConfigServerCount    int    `json:"configServerCount"`
-	Version              string `json:"version"`
+	CommonSpec
+	ShardCount           int `json:"shardCount"`
+	MongodsPerShardCount int `json:"mongodsPerShardCount"`
+	MongosCount          int `json:"mongosCount"`
+	ConfigServerCount    int `json:"configServerCount"`
 
-	// TODO seems the ObjectMeta contains the field for ClusterName - may be we should use it instead
-	ClusterName string `json:"clusterName,omitempty"`
-	// this is an optional service that will be mapped to mongos pods, it will get the name "<clusterName>-svc" in case not provided
-	Service string `json:"service,omitempty"`
-
-	Persistent       *bool          `json:"persistent,omitempty"`
 	ConfigSrvPodSpec MongoDbPodSpec `json:"configSrvPodSpec,omitempty"`
 	MongosPodSpec    MongoDbPodSpec `json:"mongosPodSpec,omitempty"`
 	ShardPodSpec     MongoDbPodSpec `json:"shardPodSpec,omitempty"`
-
-	// Project is a grouping mechanism that is related to the concept of
-	// a project in Ops Manager.
-	Project string `json:"project"`
-
-	// Credentials is a Secret object containing Ops/Cloud Manager API credentials (User and Public API Key).
-	Credentials string `json:"credentials"`
 }
 
 // MongoDbShardedClusterStatus defines the observed state of MongoDbShardedCluster

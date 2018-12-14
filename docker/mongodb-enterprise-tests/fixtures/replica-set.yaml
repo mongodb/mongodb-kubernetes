@@ -9,5 +9,5 @@ spec:
 
   project: my-project
   credentials: my-credentials
-
+  logLevel: debug
   persistent: false

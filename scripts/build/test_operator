@@ -4,14 +4,21 @@
 # Any dev or evergreen specifics should go into the dev or evergreen scripts folders
 #
 
-set -xeuo pipefail
+set -x
 
 go test -v  $(go list ./... | grep -v '/\(local\)') | tee "${GOPATH}/ops-manager-kubernetes.suite"
 
+
 if grep "FAIL" "${GOPATH}/ops-manager-kubernetes.suite" ; then
+    # edge case: if the tests stopped compiling - then the whole package will fail and tests parser won't catch this.
+    # we should fail right away
+    if grep "[build failed]" "${GOPATH}/ops-manager-kubernetes.suite" ; then
+        >&2  echo "Some test files failed to compile - exiting"
+        exit 1
+    fi
     # In some cases we don't need to exit the program (if we want to parse test results later)
     if [ -z "${CONTINUE}" ]; then
-        echo "Exiting program as some tests have failed"
+        >&2 echo "Exiting program as some tests have failed"
         exit 1
     else
         echo "Some tests have failed but the script doesn't exit as \"CONTINUE\" flag is specified"

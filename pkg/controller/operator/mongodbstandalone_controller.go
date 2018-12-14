@@ -94,7 +94,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 	}
 
 	spec := s.Spec
-	conn, podVars, err := r.prepareOmConnection(s.Namespace, spec.Project, spec.Credentials, log)
+	conn, podVars, err := r.prepareOmConnection(s.Namespace, spec.CommonSpec, log)
 	if err != nil {
 		return r.updateStatusFailed(s, fmt.Sprintf("Failed to prepare Ops Manager connection: %s", err), log)
 	}
@@ -151,7 +151,7 @@ func (r *ReconcileMongoDbStandalone) onDeleteStandalone(obj interface{}, log *za
 
 	log.Infow("Removing standalone from Ops Manager", "config", s.Spec)
 
-	conn, _, err := r.prepareOmConnection(s.Namespace, s.Spec.Project, s.Spec.Credentials, log)
+	conn, _, err := r.prepareOmConnection(s.Namespace, s.Spec.CommonSpec, log)
 	if err != nil {
 		return err
 	}

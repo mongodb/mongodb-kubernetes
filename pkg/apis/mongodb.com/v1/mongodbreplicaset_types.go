@@ -16,16 +16,9 @@ type MongoDbReplicaSet struct {
 
 // MongoDbReplicaSetSpec defines the desired state of MongoDbReplicaSet
 type MongoDbReplicaSetSpec struct {
-	Members int    `json:"members"`
-	Version string `json:"version"`
-	// this is an optional service, it will get the name "<rsName>-service" in case not provided
-	Service     string         `json:"service,omitempty"`
-	ClusterName string         `json:"clusterName,omitempty"`
-	Persistent  *bool          `json:"persistent,omitempty"`
-	PodSpec     MongoDbPodSpec `json:"podSpec,omitempty"`
-
-	Project     string `json:"project"`
-	Credentials string `json:"credentials"`
+	CommonSpec
+	Members int            `json:"members"`
+	PodSpec MongoDbPodSpec `json:"podSpec,omitempty"`
 }
 
 // MongoDbReplicaSetStatus defines the observed state of MongoDbReplicaSet
@@ -61,7 +54,6 @@ func (c *MongoDbReplicaSet) UpdateError(errorMessage string) {
 	// TODO proper implement
 	c.Status.State = "Failed"
 }
-
 
 func (c *MongoDbReplicaSet) GetStatus() string {
 	// TODO proper implement

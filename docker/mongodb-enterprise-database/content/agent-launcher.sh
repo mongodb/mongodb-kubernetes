@@ -27,9 +27,10 @@ declare -r base_url
 # Download the Automation Agent from Ops Manager
 if [ ! -e "${MMS_HOME}/files/mongodb-mms-automation-agent" ]; then
     echo "Downloading an Automation Agent from ${base_url}"
-    echo
     pushd /tmp >/dev/null
     curl --location --silent --retry 3 --fail -o automation-agent.tar.gz "${base_url}/download/agent/automation/mongodb-mms-automation-agent-latest.linux_x86_64.tar.gz"
+
+    echo "The Automation Agent binary downloaded, unpacking"
     tar -xzf automation-agent.tar.gz
     mv mongodb-mms-automation-agent-*/mongodb-mms-automation-agent "${MMS_HOME}/files/"
     chmod +x "${MMS_HOME}/files/mongodb-mms-automation-agent"
@@ -51,6 +52,7 @@ else
     echo "-- Launching automation agent with following arguments:"
     echo "    -mmsBaseUrl '${base_url}'"
     echo "    -mmsGroupId '${GROUP_ID-}'"
+    echo "    -logLevel '${LOG_LEVEL:-INFO}'"
     echo "    -mmsApiKey '${AGENT_API_KEY+<hidden>}'" # Do not display AGENT_API_KEY
 
     agentOpts=(
@@ -58,7 +60,8 @@ else
         "-mmsGroupId" "${GROUP_ID-}"
         "-mmsApiKey" "${AGENT_API_KEY-}"
         "-pidfilepath" "${MMS_HOME}/mongodb-mms-automation-agent.pid"
-        "-logLevel" "DEBUG"
+        "-maxLogFileDurationHrs" "24"
+        "-logLevel" "${LOG_LEVEL:-INFO}"
         "-logFile" "${MMS_LOG_DIR}/automation-agent.log"
     )
     if [ ! -z "${HTTP_PROXY-}" ]; then
@@ -76,4 +79,8 @@ done
 
 echo
 echo "Automation Agent logs:"
-tail -n 1000 -F "${MMS_LOG_DIR}/automation-agent.log" "${MMS_LOG_DIR}/automation-agent-stderr.log" 2>/dev/null
+
+# Note that we don't care about orphan processes as they will die together with container in case of any troubles
+tail -F ${MMS_LOG_DIR}/automation-agent-verbose.log | sed -u -E 's,(^.+$),automation-agent-verbose.log: \1,g'  &
+tail -F ${MMS_LOG_DIR}/automation-agent-stderr.log | sed -u -E 's,(^.+$),automation-agent-stderr.log:   \1,g'  &
+tail -F ${MMS_LOG_DIR}/mongodb.log | sed -u -E 's,(^.+$),mongodb.log:   \1,g'

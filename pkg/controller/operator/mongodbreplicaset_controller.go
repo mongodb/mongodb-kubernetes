@@ -102,7 +102,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 	}*/
 
 	spec := rs.Spec
-	conn, podVars, err := r.prepareOmConnection(rs.Namespace, spec.Project, spec.Credentials, log)
+	conn, podVars, err := r.prepareOmConnection(rs.Namespace, spec.CommonSpec, log)
 	if err != nil {
 		return r.updateStatusFailed(rs, fmt.Sprintf("Failed to prepare Ops Manager connection: %s", err), log)
 	}
@@ -179,7 +179,7 @@ func (c *ReconcileMongoDbReplicaSet) onDeleteReplicaSet(obj interface{}, log *za
 
 	log.Infow("Removing replica set from Ops Manager", "config", rs.Spec)
 
-	conn, _, err := c.prepareOmConnection(rs.Namespace, rs.Spec.Project, rs.Spec.Credentials, log)
+	conn, _, err := c.prepareOmConnection(rs.Namespace, rs.Spec.CommonSpec, log)
 	if err != nil {
 		return err
 	}
