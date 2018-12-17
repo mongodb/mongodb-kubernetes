@@ -1,34 +1,43 @@
-# General upgrade procedure to check upgrade works fine #
+# General upgrade procedure BEFORE release to check upgrade works fine #
 
-These are the steps we can follow on each release to make sure that upgrade works fine. Note, that OM instance and Kube cluster must be running and ready
+These are the steps we can follow before each release to make sure that upgrading an existing cluster works fine. Note, that an OM instance and Kube cluster must be running and ready.
+Ideally this should be automated eventually
 
-> Some code can be removed (e.g. recreation of config map)
 
 ### Install and initialize environment for old version
 
 ```bash
 
 kubectl delete ns mongodb
+kubectl delete crds --all 
 
 # go to the public repo
 cd mongodb-enterprise-kubernetes
 
-# checkout the release tag
-git checkout 0.2
+# checkout the previous release tag
+git checkout release-0.5
+
+# create namespace again
+kubectl create ns mongodb
 
 # install the operator  
-helm delete --purge mongodb-enterprise; helm install helm_chart --namespace kube-system --name mongodb-enterprise
+# ... (for versions before 0.6)
+helm delete --purge mongodb-enterprise; helm install public/helm_chart --namespace kube-system --name mongodb-enterprise
+# ... (for versions after or equal 0.6 as our instructions have changed)
+helm template public/helm_chart | kubectl apply -
 
-# create secret (get data from OM)
-kubectl -n mongodb create secret generic my-credentials --from-literal=user=alisovenko@gmail.com --from-literal=publicApiKey=af4d3f6a-6e0f-446b-8288-8a8da09cf092
-
-# create config map (old style  < 0.3 version)
-kubectl create configmap my-project --from-literal projectId="5b9a2284a957713d7f6faa5a" --from-literal baseUrl=http://ec2-34-204-8-104.compute-1.amazonaws.com:8080
-
+# create secret and config map (get data from OM). Just replace exported variables values 
+export ORG_ID="5c001d70c759e649e83fb87d"
+export OM_BASE_URL="http://ec2-18-212-223-58.compute-1.amazonaws.com:8080"
+export OM_API_KEY="27da2f10-3bb8-4059-b918-427c3b2de1eb"
+export OM_USER="alisovenko@gmail.com"
+kubectl -n mongodb create secret generic my-credentials --from-literal=user=${OM_USER} --from-literal=publicApiKey=${OM_API_KEY}
+kubectl create configmap my-project --from-literal projectName="FooProject" --from-literal baseUrl=${OM_BASE_URL} -n mongodb
+        
 # create mongodb resources
-kubectl apply -f samples/minimal/standalone.yaml
-kubectl apply -f samples/minimal/replica-set.yaml
-kubectl apply -f samples/minimal/sharded-cluster.yaml
+kubectl apply -f public/samples/minimal/standalone.yaml
+kubectl apply -f public/samples/minimal/replica-set.yaml
+kubectl apply -f public/samples/minimal/sharded-cluster.yaml
 
 # ... wait until OM goes green
 
@@ -36,32 +45,20 @@ kubectl apply -f samples/minimal/sharded-cluster.yaml
 
 ### Perform the upgrade ###
 
-> Note, that when performing upgrade 0.2 -> 0.3 and 0.3 -> 0.4 we cannot use "helm del" as it will remove the namespace.
+Note, that this is a very basic upgrade procedure. If there's something special (config map/secret format has changed)
+then these steps must be added and tested just for this specific release.
+
 
 ```bash
 
 # checkout the new release
-git checkout 0.3
+git checkout master
 
-# delete old resources manually (aka helm delete --purge mongodb-enterprise). 
-# this instruction is relevant only for 0.2! 0.3 will contain "role" instead of "clusterrole"
-
-kubectl delete deployment mongodb-enterprise-operator
-kubectl delete clusterrole mongodb-enterprise-operator
-kubectl delete serviceaccount mongodb-enterprise-operator
-
-# Update om connection config map (only for upgrading to 0.3)
-kubectl delete configmap my-project
-kubectl create configmap my-project --from-literal projectName="Project 0" --from-literal orgId="5b9a2284a957713d7f6faa57" --from-literal baseUrl=http://ec2-34-204-8-104.compute-1.amazonaws.com:8080 -n mongodb
-
-# install new helm chart is impossible without removing old one (but we don't want to delete previous namespace)
-# as it will give the error "Error: a release named mongodb-enterprise already exists."
-
-# so we install operator from yaml files instead
-
-kubectl apply -f crds.yaml
-kubectl apply -f mongodb-enterprise.yaml
-
+# generate yaml file - specify the tag of latest dev image built by Evergreen
+helm template public/helm_chart \
+  --set registry.repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev" \
+  --set operator.version="b56d20a949830c3b2530a396594817a991a3ea9b" | kubectl apply -
+  
 # verify that all mongodb resources were restarted in new containers
 
 

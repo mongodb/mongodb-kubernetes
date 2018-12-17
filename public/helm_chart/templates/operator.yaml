@@ -21,6 +21,10 @@ spec:
       - name: {{ .Values.operator.name }}
         image: {{ .Values.registry.repository }}/mongodb-enterprise-operator:{{ .Values.operator.version }}
         imagePullPolicy: {{ .Values.registry.pullPolicy }}
+{{ if .Values.registry.imagePullSecrets}}
+        imagePullSecrets:
+        - name: {{ .Values.registry.imagePullSecrets }}
+{{ end }}
         env:
         - name: OPERATOR_ENV
           value: {{ .Values.operator.env }}
@@ -40,8 +44,10 @@ spec:
           value: {{ .Values.registry.repository }}/mongodb-enterprise-database:{{ .Values.operator.version }}
         - name: IMAGE_PULL_POLICY
           value: {{ .Values.registry.pullPolicy }}
+{{ if .Values.registry.imagePullSecrets }}
         - name: IMAGE_PULL_SECRETS
           value: {{ .Values.registry.imagePullSecrets }}
+{{ end }}
 {{ if .Values.operator.podWaitSeconds }}
         - name: POD_WAIT_SEC
           value: {{ quote .Values.operator.podWaitSeconds }}
@@ -50,5 +56,3 @@ spec:
         - name: POD_WAIT_RETRIES
           value: {{ quote .Values.operator.podSetWaitRetries }}
 {{ end }}
-      imagePullSecrets:
-      - name: {{ .Values.registry.imagePullSecrets }}
