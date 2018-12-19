@@ -432,6 +432,7 @@ task_groups:
 buildvariants:
 
 - name: test
+  display_name: "test"
   run_on:
      - archlinux-test
   stepback: true
@@ -439,18 +440,21 @@ buildvariants:
     - ".test"
 
 - name: release_operator
+  display_name: "release_operator"
   run_on:
     - archlinux-test
   tasks:
     - ".release_operator"
 
 - name: release_operator_rhel
+  display_name: "release_operator_rhel"
   run_on:
     - archlinux-test
   tasks:
     - ".release_operator_rhel"
 
 - name: build_and_push_images_development
+  display_name: "build_and_push_images_development"
   run_on:
     - archlinux-test
   batchtime: 1440
@@ -459,6 +463,7 @@ buildvariants:
     - ".build_and_push_images_development"
 
 - name: e2e_kube_vanilla_v1.10
+  display_name: "e2e_kube_vanilla_v1.10"
   run_on:
   - archlinux-test
   batchtime: 1440
@@ -470,6 +475,7 @@ buildvariants:
     - name: setup_e2e
 
 - name: e2e_openshift_origin_v3.11
+  display_name: "e2e_openshift_origin_v3.11"
   run_on:
   - archlinux-test
   batchtime: 1440
