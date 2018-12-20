@@ -1,10 +1,8 @@
 #!/usr/bin/env python
 
-'''Applies release version from `release.yaml` file to relevant files.'''
+'''Applies release version from `release.json` file to relevant files.'''
 
-import re
 import ruamel.yaml
-
 from read_release_version import read_release_from_file
 
 '''The only file with the release is `values.yaml` from the helm chart.'''
@@ -13,13 +11,13 @@ files = (
 )
 
 if __name__ == '__main__':
-    release = read_release_from_file('release.yaml', 'mongodbOperator')
+    release = read_release_from_file('release.json', 'mongodbOperator')
 
     for fname in files:
         yaml = ruamel.yaml.YAML()
         with open(fname, 'r') as fd:
             doc = yaml.load(fd)
-            
+
         doc['operator']['version'] = release
 
         # Make sure we are writing a valid values.yaml file.

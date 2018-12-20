@@ -6,7 +6,7 @@ if [ "$#" -ne 2 ]; then
     exit 1
 fi
 
-if [ ! -f "release.yaml" ]; then
+if [ ! -f "release.json" ]; then
     echo "This needs to be run from operator root directory"
     exit 1
 fi

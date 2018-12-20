@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 #
 
+set -o nounset
+set -o errexit
+set -o pipefail
 
-cd "$(git rev-parse --show-toplevel)"
+# exit in case cd fails
+cd "$(git rev-parse --show-toplevel)" || exit 1
 
-CGO_ENABLED=0 GOOS=linux go build -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator
+# cut to remove the prefixed 'release-' from the tag
+# --dirty to flag changes to your working tree
+RELEASE_VERSION=$(git describe --dirty)
+
+CGO_ENABLED=0 GOOS=linux go build -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator -ldflags="-X main.operatorVersion=$RELEASE_VERSION"
