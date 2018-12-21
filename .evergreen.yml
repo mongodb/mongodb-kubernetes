@@ -95,8 +95,8 @@ functions:
           export AWS_SECRET_ACCESS_KEY=${mms_eng_test_aws_secret}
           export AWS_REGION=${mms_eng_test_aws_region}
           export AWS_DEFAULT_REGION=${mms_eng_test_aws_region}
-          export KOPS_STATE_STORE=s3://dev02-mongokubernetes-com-state-store
-          export CLUSTER=dev02.mongokubernetes.com
+          export KOPS_STATE_STORE=s3://kube-om-state-store
+          export CLUSTER=e2e.mongokubernetes.com
 
           echo "Downloading kops"
           curl -L https://github.com/kubernetes/kops/releases/download/1.9.1/kops-linux-amd64 -o kops
@@ -264,6 +264,11 @@ functions:
         working_dir: src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen
         script: |
           export PATH=${workdir}/bin:$PATH
+          # AWS creds
+          export AWS_ACCESS_KEY_ID=${mms_eng_test_aws_access_key}
+          export AWS_SECRET_ACCESS_KEY=${mms_eng_test_aws_secret}
+          export AWS_REGION=${mms_eng_test_aws_region}
+          export AWS_DEFAULT_REGION=${mms_eng_test_aws_region}
 
           ./prepare_test_env
 

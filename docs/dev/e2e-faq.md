@@ -7,25 +7,69 @@ Each test creates a new K8s namespace and the new group in Ops Manager with the 
 The namespace is left unremoved if the test fails so it was easier to check problems
 
 ## FAQ
-#### How to use Openshift cluster and check its state?
+#### How to connect to Openshift e2e cluster?
 
 1. login here https://master.openshift-cluster.mongokubernetes.com:8443   
 1. user is "admin", password is "asdqwe1"
 1. get a login token from the "admin" panel top-right
 1. paste it in command line and use `oc` CMD app to query Openshift cluster
 
+#### How to connect to kops e2e cluster?
+```bash
+export KOPS_STATE_STORE=s3://kube-om-state-store
+kops export kubecfg e2e.mongokubernetes.com
+#(later when you need to switch to this cluster) 
+kubectl config use-context e2e.mongokubernetes.com
+```
+
+### How to recreate e2e kops cluster?
+
+```bash
+CLUSTER=e2e.mongokubernetes.com
+
+# wait until the cluster is removed
+kubectl delete cluster $CLUSTER --yes
+
+# generate keys if necessary
+ssh-keygen -f ~/.ssh/id_aws_rsa && ssh-add ~/.ssh/id_aws_rsa
+
+kops create cluster --node-count 3 \
+    --zones us-east-1a,us-east-1b,us-east-1c \
+    --node-size t2.large \
+    --node-volume-size 32 \
+    --master-size=t2.medium \
+    --master-volume-size 16  \
+    --kubernetes-version=v1.10.11 \
+    --ssh-public-key=~/.ssh/id_aws_rsa.pub \
+    --authorization RBAC \
+    $CLUSTER
+    
+kops create secret --name $CLUSTER sshpublickey admin -i ~/.ssh/id_aws_rsa.pub
+
+# edit and add the following record to the spec:
+#  kubeAPIServer:
+#    authorizationRbacSuperUser: admin
+kops edit cluster $CLUSTER
+
+kops update cluster $CLUSTER --yes
+
+```
+Follow up:
+* Add all team members public keys to `.ssh/authorized_keys` file on each node
+* Configure firewall rules for Ops Manager (see below)
+
+
 #### If the test has failed - how to check what happened there?
 * Check logs in Evergreen
 * Check the state of existing objects in namespace using `kubectl`/`oc` (if they were not deleted)
-* Check the state of project in Ops Manager (for kops cluster it's `http://54.160.170.171:30039`). To find out the external ip of Ops Manager pod run the following command:
+* Check the state of project in Ops Manager. To find out the external ip of Ops Manager pod run the following command:
 ```bash
-k get nodes -o wide | grep "$(k get pods/mongodb-enterprise-ops-manager-0 -n operator-testing -o wide | awk '{print $NF}')" | awk '{print $6}'
+kubectl get nodes -o wide | grep "$(k get pods/mongodb-enterprise-ops-manager-0 -n operator-testing -o wide | awk '{print $NF}')" | awk '{print $6}'
 ``` 
-
 
 Note, that you need to open ports for Ops Manager instance first time:
     * login to `https://console.aws.amazon.com` using account `2685-5815-7000` and 
-    * in `Security Groups` find the relevant group starting with `nodes.` prefix (e.g. `nodes.dev02.mongokubernetes.com`) 
+    * in `Security Groups` find the relevant group starting with `nodes.` prefix (e.g. `nodes.e2e.mongokubernetes.com`) 
     for Kops cluster or `openshift-test-workersecgroup-` for OpenShift  
     * add the following 'inbound' rule (opens the port `30039` for any client): 
 ```
@@ -34,11 +78,7 @@ Custom TCP Rule     TCP     30039   0.0.0.0/0, ::/0
 
 #### Cleaning the old namespaces manually
 ```bash
-for f in $(kubectl get ns -o name | grep a-); do kubectl delete $f --force; done
-
-# removing Ops Manager (will be created automatically before next test run)
-kubectl delete operator-testing --force
-
+./scripts/evergreen/prepare_test_env
 ```
 
 #### Problems with EBS volumes
@@ -62,6 +102,38 @@ If the volumes hacks don't help and volumes keep getting stuck the best option i
 means do not validate the cluster):
 
 ```bash
-kops rolling-update cluster dev02.mongokubernetes.com --yes  --cloudonly --force
+kops rolling-update cluster e2e.mongokubernetes.com --yes  --cloudonly --force
 ```
 
+#### Error terminating Ops Manager instance
+
+This is something new and very rare. The first symptom of big problems is not being able to connect to the container:
+```bash
+kubectl -n "operator-testing" exec mongodb-enterprise-ops-manager-0 bash
+rpc error: code = 14 desc = grpc: the connection is unavailable
+command terminated with exit code 126
+```
+
+(Although the pod is in healthy state and `kubectl logs` return new logs all the time)
+
+Trying to remove the namespace leaves the pod in `Terminating` state:
+```bash
+kubectl get all -n operator-testing -o wide
+NAME                                  READY     STATUS        RESTARTS   AGE       IP             NODE
+po/mongodb-enterprise-ops-manager-0   0/1       Terminating   0          3h        100.96.2.107   ip-172-20-96-41.ec2.internal
+```
+
+One possible inspection is to check the `kubelet` logs on the node but this requires `ssh` access to the node
+Trying to detach/remove OM volumes in AWS console didn't succeed so only complete recreation of kops cluster helped 
+
+#### SSH access to nodes
+
+* If there's someone who has the ssh access to the node then you should ask to add your public key to the 
+`.ssh/authorized_keys` on the node
+* If the access is lost then it makes sense to use a new key pair (from https://github.com/kubernetes/kops/blob/master/docs/security.md#ssh-access)
+```bash
+kops delete secret --name e2e.mongokubernetes.com sshpublickey admin
+kops create secret --name e2e.mongokubernetes.com sshpublickey admin -i ~/.ssh/newkey.pub
+kops update cluster --yes
+kops rolling-update cluster --yes
+``` 

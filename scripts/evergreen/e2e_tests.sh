@@ -152,13 +152,6 @@ configure_operator() {
 
 }
 
-init_kops_cluster() {
-    export KOPS_STATE_STORE=s3://dev02-mongokubernetes-com-state-store
-    export CLUSTER=dev02.mongokubernetes.com
-    kops create cluster --node-count 3 --zones us-east-1a,us-east-1b,us-east-1c --node-size t2.large --master-size=t2.small  --kubernetes-version=v1.10.0 --ssh-public-key=~/.ssh/id_aws_rsa.pub --authorization RBAC $CLUSTER
-    kops update cluster $CLUSTER --yes
-}
-
 teardown() {
     printf "Removing Namespace: %s\\n" "${PROJECT_NAMESPACE}."
     kubectl delete "namespace/${PROJECT_NAMESPACE}"
@@ -260,6 +253,8 @@ if contains "rebuild-test-image" "$@"; then
     rebuild_test_image
 fi
 
+fix_taints
+
 if ! contains "skip-installations" "$@"; then
     install_operator
 fi
@@ -273,7 +268,6 @@ if [ -z "${TEST_STAGE}" ]; then
     echo "TEST_STAGE needs to be defined"
 fi
 
-fix_taints
 
 run_tests "${TEST_STAGE}"
 TESTS_OK=$?

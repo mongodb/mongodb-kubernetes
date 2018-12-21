@@ -15,7 +15,7 @@ cleanup_env() {
     if [[ ns_count -gt ${MAX_NS_COUNT} ]]; then
         echo "##### Cleaning namespaces and Ops Manager as number of namespaces exceeds $MAX_NS_COUNT"
 
-        for f in $(kubectl get ns -o name | grep -E "^namespaces/a-"); do
+        for f in $(kubectl get ns -o name | grep a-); do
             # temp until CLOUDP-35555 is resolved
             for m in $(kubectl get mrs -n ${f} -o name); do
                 kubectl patch  ${m}  --type json   -p='[{"op": "remove", "path": "/metadata/finalizers"}]' -n ${f}
@@ -23,7 +23,12 @@ cleanup_env() {
             kubectl delete ${f};
         done
 
-        kubectl delete operator-testing
+        kubectl delete ns operator-testing
+
+        echo "Waiting until operator-testing namespace is deleted..."
+        while [ $(kubectl get namespace/operator-testing -o name 2> /dev/null)  ]; do
+            sleep 1
+        done
 
         echo "##### Removed old namespaces and Ops Manager one"
     fi
@@ -110,6 +115,5 @@ ensure_ops_manager() {
 }
 
 cleanup_env
-
 
 ensure_ops_manager

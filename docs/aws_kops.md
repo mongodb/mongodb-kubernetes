@@ -38,10 +38,12 @@ To set up kops on a new AWS account, some extra [configuration](#aws_configurati
 ```
 ssh-keygen -f ~/.ssh/id_aws_rsa && ssh-add ~/.ssh/id_aws_rsa
 ```
-2. Create the cluster configuration for the cluster named `dev.kube.mmscloudteam.com` (note, that real cluster won't be created, use `--yes` flag if you want to create it right away. You can use `--dry-run --output=yaml` flags to just show the config generated)
+2. Create the cluster configuration (note, that real cluster won't be created, use `--yes` flag if you want to create it right away. You can use `--dry-run --output=yaml` flags to just show the config generated)
 ```bash
-kops create cluster --node-count 3 --zones us-east-1a,us-east-1b,us-east-1c --node-size t2.small --node-volume-size 16 --master-size=t2.small --master-volume-size 16  --kubernetes-version=v1.11.0 --ssh-public-key=~/.ssh/id_aws_rsa.pub --authorization RBAC $CLUSTER
+kops create cluster --node-count 3 --zones us-east-1a,us-east-1b,us-east-1c --node-size t2.small --node-volume-size 16 --master-size=t2.small --master-volume-size 16  --kubernetes-version=v1.10.11 --ssh-public-key=~/.ssh/id_aws_rsa.pub --authorization RBAC $CLUSTER
 ```
+Note, that kops `1.10` supports only Kubernetes up to `1.10+` versions
+ 
 3. (Optionally) Create kops secret with just generated public key (this allows to replace public keys easily for the cluster later)
 ```bash
 kops create secret --name $CLUSTER sshpublickey admin -i ~/.ssh/id_aws_rsa.pub
