@@ -21,6 +21,15 @@
       echo "/dev/xvdb       /var/lib/docker   xfs    defaults,nofail 0       2" >> /etc/fstab
       mount -a
 
+  - name: downgrade to a sane docker version
+    yum: allow_downgrade=yes state=installed name=docker-1.13.1-75.git8633870.el7.centos
+    tags: ['nodes']
+
+  - name: start docker
+    shell: |
+      service docker start
+      systemctl enable docker
+
 - hosts: control
   gather_facts: no
 

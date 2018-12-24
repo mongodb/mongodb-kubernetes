@@ -8,6 +8,9 @@ nodes
 etcd
 
 [OSEv3:vars]
+# Enable Operator Lifecycle Management
+openshift_enable_olm=true
+
 # Combine infra and masters
 #openshift_node_groups=[{'name': 'node-config-master-infra', 'labels': ['node-role.kubernetes.io/master=true', 'node-role.kubernetes.io/infra=true'], 'name': 'node-config-compute', 'labels': ['node-role.kubernetes.io/compute=true']}]
 

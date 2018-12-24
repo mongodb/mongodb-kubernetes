@@ -105,7 +105,7 @@ Resources:
         Value: openshift-master
       - Key: !Ref PersistentVolumeTag
         Value: owned
-      InstanceType: t2.xlarge
+      InstanceType: t2.2xlarge
       KeyName: !Ref KeyName
       AvailabilityZone: !Ref AvailabilityZone
       NetworkInterfaces:
@@ -253,6 +253,10 @@ Resources:
       - IpProtocol: tcp
         FromPort: '8443'
         ToPort: '8443'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '443'
+        ToPort: '443'
         CidrIp: 0.0.0.0/0
       - IpProtocol: tcp
         FromPort: '10250'
