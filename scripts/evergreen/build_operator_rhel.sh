@@ -14,7 +14,6 @@ fi
 release=$1
 rh_project_id=$2
 
-echo "Sending Operator Image to RedHat build service: $release"
 build_result=$(\
     curl -X POST "https://connect.redhat.com/api/v2/projects/${rh_project_id}/build" \
          -d '{"tag":"'$release'"}' \
