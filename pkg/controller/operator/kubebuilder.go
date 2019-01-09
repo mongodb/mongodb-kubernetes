@@ -117,6 +117,12 @@ func buildService(owner metav1.Object, name string, label string, namespace stri
 		serviceType = corev1.ServiceTypeNodePort
 		clusterIp = ""
 	}
+
+	servicePort := corev1.ServicePort{Port: port}
+	if !exposeExternally {
+		servicePort.Name = "mongodb"
+	}
+
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            name,
@@ -128,7 +134,7 @@ func buildService(owner metav1.Object, name string, label string, namespace stri
 			Selector:  map[string]string{APP_LABEL_KEY: label},
 			Type:      serviceType,
 			ClusterIP: clusterIp,
-			Ports:     []corev1.ServicePort{{Port: port}},
+			Ports:     []corev1.ServicePort{servicePort},
 		},
 	}
 }
