@@ -247,14 +247,6 @@ def create_stack_full(args):
 
     print(message)
 
-    print("""# TODO:
-# The authorization tokens will expire after a day, to fix this, change the `accessTokenMaxAgeSeconds`
-# in the /etc/origin/master/master-config.yaml file to 8640000 (100 days) and then run:
-#
-# `/usr/local/bin/master-restart api`
-#
-""")
-
 
 def get_ansible_execution_path(ansible_path, inventory, playbooks_dir, playbook):
     return f"{ansible_path} -i {inventory} {playbooks_dir}/{playbook}"

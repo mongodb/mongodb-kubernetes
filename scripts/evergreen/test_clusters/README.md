@@ -13,7 +13,6 @@ will be also created, from where you can execute the rest of the
 commands. These commands are Ansible playbooks (provided by RedHat) to
 deploy a full OpenShift cluster.
 
-
 ## Configuration
 
 There are a few configuration options you'll have to have ready for
@@ -60,6 +59,12 @@ For Evergreen to be able to run test in your new cluster, the following variable
   value you need is the value of the `<openshift_cluster_token>`. A
   token will be something like
   `HAh_04jcJ5_9mmwIsxPj1b1becaa8KUNapExp5jHw8Gw`.
+
+### Token Expiration
+
+As part of the cluster install process, we set the expiration time of
+the cluster tokens to 100 days (from the default of 1 day). Please
+make sure your tokens are updated before they reach EOL.
 
 ## Origin of the Name
 

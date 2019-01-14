@@ -18,3 +18,14 @@
 
       oc login -u system:anton
       oc adm policy add-cluster-role-to-user cluster-admin admin
+
+  - name: configure long lasting tokens
+    run_once: true
+    lineinfile:
+      path: /etc/origin/master/master-config.yaml
+      regexp: 'accessTokenMaxAgeSeconds: \d+$'
+      line: '    accessTokenMaxAgeSeconds: 8640000'
+
+  - name: restart openshift API
+    run_once: true
+    shell: /usr/local/bin/master-restart api
