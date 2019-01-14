@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
+
+source scripts/dev/read_context
+
+ensure_namespace "${NAMESPACE}"
+
+title "Configuring config map and secret for the Operator"
+
+if [[ ! -f ${OPERATOR_DIR}/om ]]; then
+	echo "Ops Manager env file not ready - prepare it manually or call 'make om'/'make om-evg' to spawn new Ops Manager"
+	echo "Example configuration:"
+	echo "export OM_HOST=http://ops-manager.operator-testing.svc.cluster.local:8080"
+	echo "export OM_USER=admin"
+	echo "export OM_API_KEY=b290babc-bf1a-4e20-9d25-72e1fae82178"
+	exit 1
+fi
+
+source ${OPERATOR_DIR}/om
+
+secret_name="my-credentials"
+config_map_name="my-project"
+kubectl create secret generic ${secret_name}  --from-literal=user=${OM_USER} --from-literal=publicApiKey=${OM_API_KEY} -n ${NAMESPACE}
+kubectl create configmap ${config_map_name} --from-literal projectName=${NAMESPACE}  --from-literal baseUrl=${OM_HOST} -n ${NAMESPACE}
+
+title "Config map '${config_map_name}' and secret '${secret_name} for the Operator are configured"

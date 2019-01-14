@@ -1,0 +1,23 @@
+# This is a configuration file for working with Operator locally using Minikube.
+# The docker builds are added to the Minikube docker registry.
+# Usually this file doesn't need any changes
+#
+# Parameters:
+# - CLUSTER_TYPE: the type of Kubernetes cluster. Possible values are "kops", "minikube", "openshift"
+# - CLUSTER_NAME: the name of kubectl context. Will be created as soon as relevant kubernetes cluster is created
+# - REPO_URL: the url of docker registry used to store docker images
+# - NAMESPACE: (optional) the name of Kubernetes namespace that will be created. Note, that the group name
+#              in Ops Manager will have the same name. It's recommended to have different namespace names for different
+#              contexts to avoid Ops Manager clashing. "mongodb" by default
+#              If you change Namespace for existing configuration - make sure you delete the previous namespace!
+# - OPERATOR_VERSION: (optional) the version of images to be downloaded. Must be specified only if official image
+#              registry is used (quay.io)
+# - YAML_RESOURCES: (optional) the list of yaml config files that will be applied automatically after each "make full"
+#               run. For example "YAML_RESOURCES="rs.yaml; rs2.yaml"
+# - KOPS_ZONES: (optional, only if CLUSTER_TYPE is set to 'kops'). Overrides default zones for kops cluster. May be
+#              necessary if the default region (us-east) has engaged all VPCs up to the limit (5 by default)
+
+export CLUSTER_TYPE=minikube
+export CLUSTER_NAME=minikube
+export REPO_URL=local
+

@@ -28,7 +28,7 @@ clean: delete_container
 	- docker rmi $(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)
 
 build:
-	../../scripts/build/build_operator
+	@ ../../scripts/build/build_operator
 	docker build $(EXTRA_PARAM) -t $(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION) .
 
 clean-build:

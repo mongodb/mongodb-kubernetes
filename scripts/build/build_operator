@@ -5,11 +5,15 @@ set -o nounset
 set -o errexit
 set -o pipefail
 
-# exit in case cd fails
-cd "$(git rev-parse --show-toplevel)" || exit 1
+cd "$(git rev-parse --show-toplevel)"
 
-# cut to remove the prefixed 'release-' from the tag
+source scripts/funcs
+
 # --dirty to flag changes to your working tree
 RELEASE_VERSION=$(git describe --dirty)
 
-CGO_ENABLED=0 GOOS=linux go build -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator -ldflags="-X main.operatorVersion=$RELEASE_VERSION"
+echo "Building Operator binary..."
+
+CGO_ENABLED=0 GOOS=linux go build -i -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator -ldflags="-X main.operatorVersion=$RELEASE_VERSION"
+
+echo "Operator successfully built (version ${RELEASE_VERSION})"

@@ -44,8 +44,7 @@ repository containing helm charts and yaml files to install official version of 
 
 ### Building and Installing Operator from source code ###
 
-Check the [link](docs/compile_and_build_operator.md) to learn how to build and install a local Docker image for Operator
-from source code. 
+Check the [link](docs/dev/dev-start-guide.md) to learn the development workflow for the Operator.
 
 ## Create your first managed MongoDB Object ##
 

@@ -64,46 +64,8 @@ spec:
         env:
         - name: OM_HOST
           value: {{ .Values.opsManager.host }}
-        volumeMounts:
-        - name: mongodb-mms-data
-          mountPath: /data
-        - name: mongodb-mms-config
-          mountPath: /etc/mongodb-mms
-        - name: mongodb-mms-logs
-          mountPath: /opt/mongodb/mms/logs
-        - name: mongodb-mms-env
-          mountPath: /opt/mongodb/mms/env
         resources:
           requests:
-            memory: "4Gi"
+            memory: "3Gi"
       imagePullSecrets: 
       - name: {{ .Values.registry.imagePullSecret }}
-  volumeClaimTemplates:
-  - metadata:
-      name: mongodb-mms-data
-    spec:
-      accessModes: [ "ReadWriteOnce" ]
-      resources:
-        requests:
-          storage: 20Gi
-  - metadata:
-      name: mongodb-mms-logs
-    spec:
-      accessModes: [ "ReadWriteOnce" ]
-      resources:
-        requests:
-          storage: 2Gi
-  - metadata:
-      name: mongodb-mms-config
-    spec:
-      accessModes: [ "ReadWriteOnce" ]
-      resources:
-        requests:
-          storage: 1Gi
-  - metadata:
-      name: mongodb-mms-env
-    spec:
-      accessModes: [ "ReadWriteOnce" ]
-      resources:
-        requests:
-          storage: 1Gi

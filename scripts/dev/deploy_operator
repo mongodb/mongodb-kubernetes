@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
+
+source scripts/dev/read_context
+
+title "Deploying the Operator to Kubernetes cluster..."
+
+# checking the status of k8s cluster
+if [[ ${CLUSTER_TYPE} = "minikube" ]]; then
+	ensure_minikube
+elif [[ ${CLUSTER_TYPE} = "kops" && $(kops validate cluster "${CLUSTER_NAME}" | grep -q "not found") ]]; then
+	fatal "kops cluster is not running, call \"make\" to create it"
+fi
+
+# making sure the namespace is created
+ensure_namespace "${NAMESPACE}"
+
+#installing the operator
+pull_policy="Always"
+if [[ ${REPO_TYPE} = "local" ]]; then
+	pull_policy="Never"
+fi
+redeploy_operator ${REPO_URL} ${OPERATOR_VERSION:-latest} ${NAMESPACE:-mongodb} ${pull_policy}
+
+title "Operator deployed"

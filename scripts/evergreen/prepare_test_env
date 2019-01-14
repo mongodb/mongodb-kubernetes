@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$(${DIR}/../gitroot)"
+
+source scripts/funcs
+
 ##
 ## Does some preliminary actions to prepare testing environment:
 ## - prunes namespaces
@@ -69,51 +74,6 @@ fix_taints() {
     done
 }
 
-# ensure_ops_manager installs Ops Manager if it's not installed already
-ensure_ops_manager() {
-    echo "##### Installing Ops Manager..."
-
-    OPERATOR_TESTING_FRAMEWORK_NS=operator-testing
-    if ! kubectl get namespace/${OPERATOR_TESTING_FRAMEWORK_NS} &> /dev/null; then
-        echo "Ops Manager is not installed in this cluster. Doing it now."
-        # If Ops Manager is not running, run it first!
-        kubectl create namespace "${OPERATOR_TESTING_FRAMEWORK_NS}"
-
-        # Install Ops Manager
-        helm template -f deployments/values-ops-manager.yaml \
-            ../../docker/mongodb-enterprise-ops-manager/helm_chart > mongodb-enterprise-ops-manager.yaml || exit 1
-
-        echo "------------------------------------------------------"
-        echo "Ops Manager objects to be created:"
-        echo "------------------------------------------------------"
-        cat mongodb-enterprise-ops-manager.yaml
-
-        kubectl apply -f mongodb-enterprise-ops-manager.yaml  || exit 1
-
-        echo "Waiting until Ops Manager is running..."
-
-        # Just checking for 'running' may show false positive:
-        # kubectl --namespace operator-testing get pods/mongodb-enterprise-ops-manager-0
-        # NAME                               READY     STATUS    RESTARTS   AGE
-        # mongodb-enterprise-ops-manager-0   0/1       Running   117        14h
-        while ! kubectl --namespace "${OPERATOR_TESTING_FRAMEWORK_NS}" get pods/mongodb-enterprise-ops-manager-0 | grep -q '0/1'; do sleep 4; done
-
-        # wait for ops manager to really start
-        echo "Ops Manager container is in Running state, waiting for Ops Manager to start."
-        # We can't communicate with Ops Manager if it is inside Kubernetes, so we just
-        # wait for this command to succeed.
-        while ! kubectl --namespace "${OPERATOR_TESTING_FRAMEWORK_NS}" get pods/mongodb-enterprise-ops-manager-0 -o jsonpath="{.status.containerStatuses[0].ready}" | grep -q "true"; do sleep 4; done
-
-        echo "Ops Manager is installed in this cluster. A new user will be added for automated tests to run."
-        sleep 10 # sleep for a few seconds so the user has time to be created.
-    else
-        echo "Ops Manager is already installed in this cluster."
-        echo "If you want to start with a fresh Ops Manager installation, please delete the ${OPERATOR_TESTING_FRAMEWORK_NS} namespace."
-    fi
-
-    echo "##### Ops Manager is ready"
-}
-
 cleanup_env
 
-ensure_ops_manager
+ensure_ops_manager_k8s

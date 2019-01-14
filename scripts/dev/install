@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
+
+source scripts/funcs
+
+title "The following tools will be installed: kubectl, minikube, kops, aws-cli"
+echo "Note, that you must download 'go' and 'dep' by yourself"
+
+# dep
+brew install dep
+
+# kubectl
+brew install kubernetes-cli
+
+# minikube
+brew cask install minikube
+
+# kops
+brew install kops
+echo "Make sure you add \"export KOPS_STATE_STORE=s3://kube-om-state-store\" to your ~/.bashrc"
+
+# aws-cli
+brew install awscli
+aws configure
+
+# helm
+brew install kubernetes-helm
+
+title "Tools are installed"

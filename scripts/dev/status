@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
+
+source scripts/dev/read_context
+
+# todo plenty of things can be done here (images version, mainly checking for errors etc)
+
+echo "Current context"
+echo
+printf "\t%-20s: %-20s\n" "Operator context" "${CURRENT_CONTEXT}"
+printf "\t%-20s: %-20s\n" "Kubectl context" "$(kubectl config current-context)"
+printf "\t%-20s: %-20s\n" "Namespace" "${NAMESPACE}"
+printf "\t%-20s: %-20s\n" "Image registry" "${REPO_URL}"
+
+echo
+echo "Current state in Kubernetes cluster:"
+echo
+kubectl get all

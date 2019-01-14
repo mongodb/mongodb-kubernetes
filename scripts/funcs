@@ -1,0 +1,199 @@
+#!/usr/bin/env bash
+
+# Set of common functions used by different scripts (evergreen, dev, build)
+# Important: all the locations in the functions are relative to the root of the project so the calling
+# script must make sure to cd there
+
+fatal() {
+	error $1
+	exit 1
+}
+
+error() {
+	2> echo "$1"
+	return
+}
+
+title() {
+	echo "=> $1"
+}
+
+check_env_var() {
+	var_name="$1"
+	msg="$2"
+	set +u
+	if [[ -z "${!var_name}" ]]; then
+        echo "${msg}"
+		exit 1
+    fi
+}
+
+check_app() {
+	var="$1"
+	msg="$2"
+	if ! which "${var}" > /dev/null; then
+		echo "${msg}"
+		exit 1        
+    fi
+}
+
+ensure_namespace() {
+	ns="$1"
+	if [[ -z "$(kubectl get ns | grep ${ns})" ]]; then
+        kubectl create ns "${ns}"
+    fi
+}
+# the function installs Ops Manager into Kubernetes cluster if it's not installed already
+# Note, that this requires the k8s node with 4 Gb of free memory
+ensure_ops_manager_k8s() {
+	echo "##### Installing Ops Manager into Kubernetes..."
+
+	if kubectl get namespace/operator-testing &> /dev/null; then
+		echo "Ops Manager is already installed in this cluster."
+		echo "If you want to start with a fresh Ops Manager installation, please delete the operator-testing namespace."
+	else
+		echo "Ops Manager is not installed in this cluster. Doing it now."
+		echo "Run \"make -C docker/mongodb-enterprise-ops-manager IMAGE_VERSION=<version> push\" to update Ops Manager image in ECR"
+		echo "Also you'll need to update \"opsManager.version\" in scripts/evergreen/deployments/values-ops-manager.yaml"
+
+		# Building Ops Manager image if we want to run it in local Kubernetes cluster
+		if ${REPO_TYPE:-ecr} = "local"; then
+			make -C docker/mongodb-enterprise-ops-manager build
+		fi
+		# If Ops Manager is not running, run it first!
+		kubectl create namespace operator-testing
+
+		# Install Ops Manager
+		helm template -f scripts/evergreen/deployments/values-ops-manager.yaml \
+			docker/mongodb-enterprise-ops-manager/helm_chart > mongodb-enterprise-ops-manager.yaml
+
+		echo "------------------------------------------------------"
+		echo "Ops Manager objects to be created:"
+		echo "------------------------------------------------------"
+		cat mongodb-enterprise-ops-manager.yaml
+
+		kubectl apply -f mongodb-enterprise-ops-manager.yaml
+
+		rm mongodb-enterprise-ops-manager.yaml
+
+		echo "Waiting until Statefulset for Ops Manager is running..."
+
+		while kubectl --namespace operator-testing get statefulsets/mongodb-enterprise-ops-manager -o jsonpath="{.status.currentReplicas}" != "1"; do sleep 1; done
+
+		echo "Statefulset is ready, waiting for the pod to start..."
+		# Just checking for 'running' may show false positive:
+		# kubectl --namespace operator-testing get pods/mongodb-enterprise-ops-manager-0
+		# NAME                               READY     STATUS    RESTARTS   AGE
+		# mongodb-enterprise-ops-manager-0   0/1       Running   117        14h
+		# TODO check the state of deployment (may be stuck in waiting for resources)
+		# TODO add timeout everywhere
+		while kubectl --namespace operator-testing get pods/mongodb-enterprise-ops-manager-0 | grep -q '0/1'; do sleep 2; done
+
+		# wait for ops manager to really start
+		echo "Ops Manager container is in Running state, waiting for Ops Manager to start..."
+		# We can't communicate with Ops Manager if it is inside Kubernetes, so we just
+		# wait for this command to succeed.
+		# TODO add timeout everywhere
+		while ! kubectl --namespace operator-testing get pods/mongodb-enterprise-ops-manager-0 -o jsonpath="{.status.containerStatuses[0].ready}" | grep -q "true"; do sleep 4; done
+
+		echo "Ops Manager is installed in this cluster. A new user will be added for automated tests to run."
+	#	sleep 10 # sleep for a few seconds so the user has time to be created.
+	fi
+
+	echo "##### Ops Manager is ready"
+
+	# TODO open the ports for external access (can aws do it?)
+}
+
+# the function installs Ops Manager into Evergreen host via ego
+ensure_ops_manager_evg() {
+	title "Installing Ops Manager into Evergreen using ego"
+
+	check_app "evg" \
+				"evg script is not installed or you need to switch virtual environment, follow instruction at https://wiki.corp.mongodb.com/display/MMS/Ops+Manager+Release+setup+guide#OpsManagerReleasesetupguide-First-timeonly to make it work";
+
+	# TODO this check can definitely be improved (walk through ubuntu1804-build hosts and find installed OMs)
+	if evg list | grep "ubuntu1804-build" | grep -qi "running"; then
+    	export OPS_MANAGER_HOST=$(evg list | grep "ubuntu1804-build" | grep -i "running" | head -n 1 | awk ' {print $3} ' | cut -d "@" -f 2)
+		echo "There is Evergreen instance (${OPS_MANAGER_HOST}) running already - skipping ego installaton"
+		return
+	fi
+
+	# download ego script
+	check_env_var "GITHUB_TOKEN" "To download ego you need to specify the 'GITHUB_TOKEN' environment variable (https://github.com/settings/tokens/new) with 'repo' scope"
+
+	echo "Downloading ego script"
+    curl -L "https://${GITHUB_TOKEN}@raw.githubusercontent.com/10gen/mms/master/scripts/ops_manager/ego" -o ego && chmod +x ego
+
+    # provision evergreen host
+    echo "Spawning new VM in Evergreen..."
+
+    evg spawn ubuntu1804-build
+
+    while ! evg list | grep "ubuntu1804-build"  | grep -qi "running"; do printf .; sleep 3; done
+
+    host=$(evg list | awk ' {print $3} ' | cut -d "@" -f 2)
+
+    ./ego seed "ubuntu@${host}"
+
+    echo "Deploying Ops Manager"
+
+    # todo move version to some configuration
+    om_package="https://s3.amazonaws.com/mongodb-mms-build-onprem/c78b383d0ea57690d7a15d4ab0099820e1c3b35f/mongodb-mms_4.0.6.50308.20181204T1611Z-1_x86_64.deb"
+    ./ego nohup "ubuntu@${host}" ego scenario_install_package_from_link "${om_package}" "http://${host}:9080"
+
+	./ego tail "ubuntu@${host}"
+
+    export OPS_MANAGER_HOST=${host}
+
+    rm ego
+
+	title "Ops Manager is ready! Hostname: ${OPS_MANAGER_HOST}"
+}
+
+# Generates kube yaml configuration for the Operator from helm chart and deletes + installs the Operator to the Kubernetes cluster
+redeploy_operator() {
+	url="$1"
+	version="$2"
+	ns="$3"
+	pull_policy="$4"
+
+	echo "Installing the Operator (registry url: ${url}, version: ${version}, namespace: ${ns}) to ${CLUSTER_NAME}..."
+
+	check_app "helm" "helm is not installed, run 'make prerequisites' to install all necessary software"
+	check_app "timeout" "coreutils is not installed, call \"brew install coreutils\""
+
+	helm template public/helm_chart \
+			--set registry.repository=${url}  \
+			--set registry.pullPolicy=${pull_policy} \
+			--set operator.env=dev  \
+			--set operator.version=${version}  \
+			--set namespace=${ns}  \
+			> my-operator.yaml
+
+	# note that we don't remove all objects from file as it contains CRDs as well (and they will be blocked if there are
+	# existing mongodb resources)
+	kubectl delete deployment mongodb-enterprise-operator || true
+	kubectl apply -f my-operator.yaml
+	rm my-operator.yaml
+
+	echo "Waiting until the Operator gets to Running state..."
+
+    timeout "1m" bash -c 'while ! kubectl -n "${NAMESPACE}" get pods -l app=mongodb-enterprise-operator -o jsonpath="{.items[0].status.phase}" | grep -q "Running" ; do printf .; sleep 1; done'
+
+	title "The Operator successfully installed to the Kubernetes cluster"
+}
+
+# Checks minikube and starts if necessary
+# (If any of "host", "kubelet" or "apiserver" are "Stopped" or "Error" or there is no "Running")
+ensure_minikube() {
+	if [[ ! $(minikube status) \
+		|| $(minikube status | grep -q "Stopped") \
+		|| $(minikube status | grep -q "Error") \
+		|| ! $(minikube status | grep "Running") ]]; then
+
+		echo "Starting minikube (Kubernetes version 1.11.0) as it's not started..."
+		# todo minikube parameters to configuration
+		minikube start --kubernetes-version v1.11.0 --memory 5120
+	fi
+}
