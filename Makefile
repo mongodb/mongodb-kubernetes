@@ -17,11 +17,15 @@ usage:
 	@ echo "  full:             ('make' is an alias for this command) ensures K8s cluster is up, cleans Kubernetes"
 	@ echo "                    resources, build-push-deploy operator, push-deploy database, create secrets, "
 	@ echo "                    config map, resources etc"
-	@ echo "  om:               install Ops Manager into Kubernetes if it's not installed yet"
-	@ echo "  om-evg:           install Ops Manager into Evergreen if it's not installed yet"
+	@ echo "  om:               install Ops Manager into Kubernetes if it's not installed yet. Initializes the connection"
+	@ echo "                    parameters in ~/operator-dev/om""
+	@ echo "  om-evg:           install Ops Manager into Evergreen if it's not installed yet. Initializes the connection"
+	@ echo "                    parameters in ~/operator-dev/om"
 	@ echo "  reset:            cleans all Operator related state from Kubernetes and Ops Manager"
+	@ echo "  e2e:              runs the e2e test, e.g. `make e2e test=sharded_cluster_pv`. The Operator is redeployed before"
+	@ echo "                    the test, the namespace is cleaned"
 	@ echo "  log:              reads the Operator log"
-	@ echo "  status:           prints current status and the state of Kubernetes cluster"
+	@ echo "  status:           prints the current context and the state of Kubernetes cluster"
 
 # install all necessary software, must be run only once
 prerequisites:
@@ -73,9 +77,14 @@ log:
 	@ . scripts/dev/read_context
 	@ kubectl logs -f deployment/mongodb-enterprise-operator --tail=1000
 
-# runs the e2e test: make e2e test=sharded_cluster_pv
+# runs the e2e test: make e2e test=sharded_cluster_pv. The Operator is redeployed before the test, the namespace is cleaned
+# note, that this may be not perfectly the same what is done in evergreen e2e tests as the OM instance may be external
+# (in Evergreen)
 e2e:
-
+	@ $(MAKE) reset
+	@ $(MAKE) operator
+	@ scripts/dev/configure_operator
+	@ scripts/dev/launch_e2e $(test)
 
 # clean all kubernetes cluster resources and OM state
 reset:

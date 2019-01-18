@@ -65,6 +65,7 @@ metadata:
 spec:
   serviceAccountName: operator-tests-service-account
   restartPolicy: Never
+  terminationGracePeriodSeconds: 0
   containers:
   - name: mongodb-enterprise-operator-tests
     env:

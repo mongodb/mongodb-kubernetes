@@ -115,7 +115,7 @@ ensure_ops_manager_evg() {
 	# TODO this check can definitely be improved (walk through ubuntu1804-build hosts and find installed OMs)
 	if evg list | grep "ubuntu1804-build" | grep -qi "running"; then
     	export OPS_MANAGER_HOST=$(evg list | grep "ubuntu1804-build" | grep -i "running" | head -n 1 | awk ' {print $3} ' | cut -d "@" -f 2)
-		echo "There is Evergreen instance (${OPS_MANAGER_HOST}) running already - skipping ego installaton"
+		echo "There is an Evergreen instance (${OPS_MANAGER_HOST}) running already - skipping ego installaton"
 		return
 	fi
 
@@ -180,6 +180,8 @@ redeploy_operator() {
 	echo "Waiting until the Operator gets to Running state..."
 
     timeout "1m" bash -c 'while ! kubectl -n "${NAMESPACE}" get pods -l app=mongodb-enterprise-operator -o jsonpath="{.items[0].status.phase}" | grep -q "Running" ; do printf .; sleep 1; done'
+
+    echo ""
 
 	title "The Operator successfully installed to the Kubernetes cluster"
 }

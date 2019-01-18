@@ -145,3 +145,7 @@ changes.
 Publish release in our public Github repository
 [https://github.com/mongodb/mongodb-enterprise-kubernetes/releases](https://github.com/mongodb/mongodb-enterprise-kubernetes/releases)
 
+## Release in Jira
+
+Ask your manager (Crystal/James) to "release" the version in Jira and create next ones
+

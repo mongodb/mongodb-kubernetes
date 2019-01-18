@@ -66,6 +66,6 @@ spec:
           value: {{ .Values.opsManager.host }}
         resources:
           requests:
-            memory: "3Gi"
+            memory: "6Gi"
       imagePullSecrets: 
       - name: {{ .Values.registry.imagePullSecret }}

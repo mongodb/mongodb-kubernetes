@@ -47,3 +47,5 @@ kubectl config use-context ${CLUSTER_NAME} &>/dev/null || echo "Warning: failed 
 
 # Setting the default namespace for current context
 kubectl config set-context "$(kubectl config current-context)" --namespace=${NAMESPACE} &>/dev/null
+
+echo "Current context: ${CURRENT_CONTEXT} (kubectl context: ${CLUSTER_NAME})"

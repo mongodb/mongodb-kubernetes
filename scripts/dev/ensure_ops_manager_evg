@@ -28,13 +28,15 @@ if ! ssh "ubuntu@${OPS_MANAGER_HOST}" cat "~/om" &> /dev/null; then
 	echo "Ops Manager Environment:"
 	cat ~/.operator-dev/om
 
-	scp ~/.operator-dev/om "ubuntu@${OPS_MANAGER_HOST}:om"
+	yes | scp ~/.operator-dev/om "ubuntu@${OPS_MANAGER_HOST}:om"
 else
-	echo "There is already env file on ${OPS_MANAGER_HOST} - reusing it"
+	echo "There is already an env file on ${OPS_MANAGER_HOST} - reusing it"
 fi
 
 # copying the env data back to the local context to overwrite previous one
-scp "ubuntu@${OPS_MANAGER_HOST}:om" ~/.operator-dev/om
+scp "ubuntu@${OPS_MANAGER_HOST}:om" ~/.operator-dev/om > /dev/null
 chmod +x ~/.operator-dev/om
 
-eval "$(cat ~/.operator-dev/om)"
+source "$HOME/.operator-dev/om"
+
+echo "Your Ops Manager is installed on $OM_HOST - don't forget to extend its expiration manually in Evergreen."

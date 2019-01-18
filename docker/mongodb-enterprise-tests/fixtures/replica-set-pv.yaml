@@ -12,5 +12,5 @@ spec:
 
   persistent: true
   podSpec:
-    storage: 4G
+    storage: 2G
     storageClass: gp2

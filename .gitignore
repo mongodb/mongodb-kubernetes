@@ -19,3 +19,4 @@ bin/*
 **/*.iml
 helm_out
 .redo-last-namespace
+exports.do

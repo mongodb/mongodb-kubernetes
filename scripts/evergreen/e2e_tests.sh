@@ -176,6 +176,7 @@ rebuild_test_image() {
     popd
 }
 
+
 run_tests() {
     test_stage="$1"
 
@@ -202,16 +203,19 @@ run_tests() {
          --set testStage="${test_stage}" \
          --set tag="${TEST_IMAGE_TAG}" > mongodb-enterprise-tests.yaml || exit 1
 
+    kubectl --namespace "${PROJECT_NAMESPACE}" delete -f mongodb-enterprise-tests.yaml || true
+
     kubectl --namespace "${PROJECT_NAMESPACE}" apply -f mongodb-enterprise-tests.yaml
 
-
-
-    echo "##### Deployed test application"
+    echo "##### Deployed test application, waiting until it gets ready..."
     sleep 10
 
     TEST_APP_PODNAME=mongodb-enterprise-operator-tests
+
     # Do wait while the Pod is not yet running (can be in Pending or ContainerCreating state)
-    while ! kubectl --namespace "${PROJECT_NAMESPACE}" get "pod/${TEST_APP_PODNAME}" | grep -q 'Running' ; do sleep 1; done
+    timeout "1m" bash -c 'while ! kubectl --namespace "${PROJECT_NAMESPACE}" get pod ${TEST_APP_PODNAME} | grep -q "Running" ; do sleep 1; done'
+
+    echo "##### Test application is ready, waiting until the test ends..."
 
     output_filename="test_app_output.text"
     operator_filename="operator_output.text"
@@ -224,11 +228,15 @@ run_tests() {
     tail -f "${output_filename}" "${operator_filename}" &
     KILLPID2=$!
 
+    trap "kill $KILLPID0 $KILLPID1 $KILLPID2  &> /dev/null || true"  SIGINT SIGTERM SIGQUIT
+
     # Wait for as long as this Pod is Running.
     while kubectl --namespace "${PROJECT_NAMESPACE}" get "pod/${TEST_APP_PODNAME}" | grep -q 'Running' ; do sleep 1; done
 
     # make sure there are not processes running in the background.
     kill $KILLPID0 $KILLPID1 $KILLPID2 &> /dev/null
+
+
     [ "$(kubectl -n ${PROJECT_NAMESPACE} get pods/${TEST_APP_PODNAME} -o jsonpath='{.status.phase}')" = "Succeeded" ]
 }
 
@@ -253,16 +261,14 @@ if contains "rebuild-test-image" "$@"; then
     rebuild_test_image
 fi
 
-fix_taints
-
 if ! contains "skip-installations" "$@"; then
     install_operator
+
+	fetch_om_information
+
+	echo "Creating Operator Configuration for Ops Manager Test Instance."
+	configure_operator
 fi
-
-fetch_om_information
-
-echo "Creating Operator Configuration for Ops Manager Test Instance."
-configure_operator
 
 if [ -z "${TEST_STAGE}" ]; then
     echo "TEST_STAGE needs to be defined"

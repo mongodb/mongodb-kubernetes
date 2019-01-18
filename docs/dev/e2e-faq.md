@@ -28,7 +28,10 @@ kubectl config use-context e2e.mongokubernetes.com
 CLUSTER=e2e.mongokubernetes.com
 
 # wait until the cluster is removed
-kubectl delete cluster $CLUSTER --yes
+kops delete cluster $CLUSTER --yes
+
+# make sure you run the version >= 1.11.0
+kops version
 
 # generate keys if necessary
 ssh-keygen -f ~/.ssh/id_aws_rsa && ssh-add ~/.ssh/id_aws_rsa
@@ -39,7 +42,7 @@ kops create cluster --node-count 3 \
     --node-volume-size 32 \
     --master-size=t2.medium \
     --master-volume-size 16  \
-    --kubernetes-version=v1.10.11 \
+    --kubernetes-version=v1.11.6 \
     --ssh-public-key=~/.ssh/id_aws_rsa.pub \
     --authorization RBAC \
     $CLUSTER
@@ -58,19 +61,33 @@ Follow up:
 * Add all team members public keys to `.ssh/authorized_keys` file on each node
 * Configure firewall rules for Ops Manager (see below)
 
+### How to recreate e2e Openshift cluster?
+
+1. Install `ansible`: `sudo easy_install pip && sudo pip install ansible`
+1. Create `scripts/evergreen/test_clusters/exports.do` following the instructions in `scripts/evergreen/test_clusters/README.md`
+    * specify `export OPENSHIFT_ADMIN_USER=admin` and `export OPENSHIFT_ADMIN_PASSWORD='$apr1$qoY/N094$ohaRogbdoWWz.W1gFhfYk/'` to get `asdqwe1` password
+1. Generate AWS key pair if necessary: https://console.aws.amazon.com/ec2/v2/home?region=us-east-1#KeyPairs:sort=keyName. 
+Don't do it if you already have a private key in `~/.ssh` for some AWS key pair - then you can reuse it. Ideally both kops
+and openshift clusters should be created with the same ssh keys
+1. Delete the cluster: `python3 scripts/evergreen/test_clusters/aule.py delete-cluster --name openshift-test`
+1. Create a new cluster: `cd scripts/evergreen/test_clusters/; python3 aule.py create-cluster --name openshift-test --aws-key <your_aws_key_pair_name>`
+   * `--aws-key` is the name of ssh key pair
+
 
 #### If the test has failed - how to check what happened there?
 * Check logs in Evergreen
 * Check the state of existing objects in namespace using `kubectl`/`oc` (if they were not deleted)
-* Check the state of project in Ops Manager. To find out the external ip of Ops Manager pod run the following command:
+* Check the state of project in Ops Manager. 
+    * To find out the external ip of Ops Manager pod run the following command:
 ```bash
 kubectl get nodes -o wide | grep "$(k get pods/mongodb-enterprise-ops-manager-0 -n operator-testing -o wide | awk '{print $NF}')" | awk '{print $6}'
 ``` 
+    * Use `admin/admin12345%` to login
 
 Note, that you need to open ports for Ops Manager instance first time:
     * login to `https://console.aws.amazon.com` using account `2685-5815-7000` and 
-    * in `Security Groups` find the relevant group starting with `nodes.` prefix (e.g. `nodes.e2e.mongokubernetes.com`) 
-    for Kops cluster or `openshift-test-workersecgroup-` for OpenShift  
+    * in `Security Groups` find the relevant group ([e2e](https://console.aws.amazon.com/ec2/v2/home?region=us-east-1#SecurityGroups:search=nodes.e2e;sort=groupName) 
+    or [openshift](https://console.aws.amazon.com/ec2/v2/home?region=us-east-1#SecurityGroups:search=openshift-test-workersecgroup-;sort=groupName))    
     * add the following 'inbound' rule (opens the port `30039` for any client): 
 ```
 Custom TCP Rule     TCP     30039   0.0.0.0/0, ::/0 
