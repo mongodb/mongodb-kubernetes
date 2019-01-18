@@ -216,7 +216,6 @@ func volMount(pvName, mountPath, subPath string) *corev1.VolumeMount {
 
 func TestBasePodSpec_FsGroup(t *testing.T) {
 	spec := basePodSpec("s", defaultPodSpec(), defaultPodVars())
-
 	assert.Len(t, spec.InitContainers, 0)
 	require.NotNil(t, spec.SecurityContext)
 	assert.Equal(t, util.Int64Ref(util.FsGroup), spec.SecurityContext.FSGroup)

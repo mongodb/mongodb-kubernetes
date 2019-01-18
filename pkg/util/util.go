@@ -139,6 +139,15 @@ func ReadEnv(env string) (string, bool) {
 	return os.LookupEnv(env)
 }
 
+func ReadBoolEnv(env string) (valueAsBool bool, isPresent bool) {
+	value, isPresent := ReadEnv(env)
+	if !isPresent {
+		return false, false
+	}
+	boolValue, err := strconv.ParseBool(value)
+	return boolValue, err == nil
+}
+
 // EnsureEnvVar tests the env variable and sets it if it doesn't exist. We tolerate any errors setting env variable and
 // just log the warning
 func EnsureEnvVar(key, value string) {

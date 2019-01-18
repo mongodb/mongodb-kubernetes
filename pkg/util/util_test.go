@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"os"
 )
 
 func TestParseMongodbMinorVersionCorrect(t *testing.T) {
@@ -54,4 +55,31 @@ func TestParseMongodbMinorVersionWrong(t *testing.T) {
 	_, e = ParseMongodbMinorVersion("5.@")
 	assert.NotNil(t, e)
 
+}
+
+func TestReadBoolEnv(t *testing.T) {
+	os.Setenv("ENV_1", "true")
+	os.Setenv("ENV_2", "false")
+	os.Setenv("ENV_3", "TRUE")
+	os.Setenv("NOT_BOOL", "not-true")
+
+	result, present := ReadBoolEnv("ENV_1")
+	assert.True(t, present)
+	assert.True(t, result)
+
+	result, present = ReadBoolEnv("ENV_2")
+	assert.True(t, present)
+	assert.False(t, result)
+
+	result, present = ReadBoolEnv("ENV_3")
+	assert.True(t, present)
+	assert.True(t, result)
+
+	result, present = ReadBoolEnv("NOT_BOOL")
+	assert.False(t, present)
+	assert.False(t, result)
+
+	result, present = ReadBoolEnv("NOT_HERE")
+	assert.False(t, present)
+	assert.False(t, result)
 }

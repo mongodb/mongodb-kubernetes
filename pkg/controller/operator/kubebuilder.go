@@ -195,7 +195,7 @@ func basePodSpec(statefulSetName string, reqs mongodb.PodSpecWrapper, podVars *P
 		},
 	}
 
-	_, managedSecurityContext := util.ReadEnv(util.ManagedSecurityContextEnv)
+	managedSecurityContext, _ := util.ReadBoolEnv(util.ManagedSecurityContextEnv)
 	if !managedSecurityContext {
 		if reqs.SecurityContext != nil {
 			spec.SecurityContext = reqs.SecurityContext
