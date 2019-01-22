@@ -85,7 +85,11 @@ page for steps that should be taken to diagnose the problem.
 Read this [page](docs/check_database.md) to see how to build and deploy a small nodejjs application to check connectivity 
 for created database
 
-## Development Process
+## Development
+
+### Getting started
+Please see the [starting guide](docs/dev/dev-start-guide.md).
+
 ### Dev Clusters
 We use `kops` utility to provision and manage Kubernetes clusters. We have one shared environment for development 
 `dev.mongokubernetes.com` and each developer can create their own clusters. Usual practice is start from 3 EC2 nodes 
@@ -102,11 +106,6 @@ operator reside in `268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-ent
 More on how to work with ECR is [here](docs/dev/aws_docker_registry.md)
 
 We also use `quay.io` private and public repositories
-
-### Workflow
-The development workflow is not quite settled yet, there is no easy way of switching between local and remote environments.
-`Helm` gives some flexibility for choosing the images used for deploying to Kubernetes (local/quay/ECR) but building 
-and pushing of local/remote images is still not done generic way. Any scripts starting with `my-` will be ignored by Git.
 
 
 # Release process
