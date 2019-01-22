@@ -18,7 +18,7 @@ usage:
 	@ echo "                    resources, build-push-deploy operator, push-deploy database, create secrets, "
 	@ echo "                    config map, resources etc"
 	@ echo "  om:               install Ops Manager into Kubernetes if it's not installed yet. Initializes the connection"
-	@ echo "                    parameters in ~/operator-dev/om""
+	@ echo "                    parameters in ~/operator-dev/om"
 	@ echo "  om-evg:           install Ops Manager into Evergreen if it's not installed yet. Initializes the connection"
 	@ echo "                    parameters in ~/operator-dev/om"
 	@ echo "  reset:            cleans all Operator related state from Kubernetes and Ops Manager"
