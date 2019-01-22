@@ -163,7 +163,7 @@ func PrintEnvVars() {
 	envVariables := os.Environ()
 	sort.Strings(envVariables)
 	for _, e := range envVariables {
-		zap.S().Infof("\t%s", e)
+		zap.S().Infof("%s", e)
 	}
 }
 
