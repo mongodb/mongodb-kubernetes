@@ -11,6 +11,8 @@ import (
 
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -22,7 +24,8 @@ import (
 // and Start it when the Manager is Started.
 func AddStandaloneController(mgr manager.Manager) error {
 	// Create a new controller
-	c, err := controller.New(util.MongoDbStandaloneController, mgr, controller.Options{Reconciler: newStandaloneReconciler(mgr, om.NewOpsManagerConnection)})
+	reconciler := newStandaloneReconciler(mgr, om.NewOpsManagerConnection)
+	c, err := controller.New(util.MongoDbStandaloneController, mgr, controller.Options{Reconciler: reconciler})
 	if err != nil {
 		return err
 	}
@@ -43,12 +46,24 @@ func AddStandaloneController(mgr manager.Manager) error {
 		return err
 	}
 
+	err = c.Watch(&source.Kind{Type: &corev1.ConfigMap{}},
+		&ConfigMapAndSecretHandler{resourceType: ConfigMap, trackedResources: reconciler.watchedResources})
+	if err != nil {
+		return err
+	}
+
+	err = c.Watch(&source.Kind{Type: &corev1.Secret{}},
+		&ConfigMapAndSecretHandler{resourceType: Secret, trackedResources: reconciler.watchedResources})
+	if err != nil {
+		return err
+	}
+
 	zap.S().Infof("Registered controller %s", util.MongoDbStandaloneController)
 
 	return nil
 }
 
-func newStandaloneReconciler(mgr manager.Manager, omFunc om.ConnectionFunc) reconcile.Reconciler {
+func newStandaloneReconciler(mgr manager.Manager, omFunc om.ConnectionFunc) *ReconcileMongoDbStandalone {
 	return &ReconcileMongoDbStandalone{newReconcileCommonController(mgr, omFunc)}
 }
 
@@ -72,7 +87,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		func(result reconcile.Result, err error) { res = result; e = err },
 	)
 
-	log.Info(">> Standalone.Reconcile")
+	log.Info("-> Standalone.Reconcile")
 
 	reconcileResult, err := r.fetchResource(request, s, log)
 	if reconcileResult != nil {
@@ -92,7 +107,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 
 	spec := s.Spec
 	podVars := &PodVars{}
-	conn, err := r.prepareConnection(s.Namespace, spec.CommonSpec, podVars, log)
+	conn, err := r.prepareConnection(request.NamespacedName, spec.CommonSpec, podVars, log)
 	if err != nil {
 		return r.updateStatusFailed(s, fmt.Sprintf("Failed to prepare Ops Manager connection: %s", err), log)
 	}
@@ -149,7 +164,7 @@ func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLog
 
 	log.Infow("Removing standalone from Ops Manager", "config", s.Spec)
 
-	conn, err := r.prepareConnection(s.Namespace, s.Spec.CommonSpec, nil, log)
+	conn, err := r.prepareConnection(objectKey(s.Namespace, s.Name), s.Spec.CommonSpec, nil, log)
 	if err != nil {
 		return err
 	}

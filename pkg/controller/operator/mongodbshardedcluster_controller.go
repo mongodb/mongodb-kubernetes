@@ -7,6 +7,8 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -19,14 +21,14 @@ type ReconcileMongoDbShardedCluster struct {
 	*ReconcileCommonController
 }
 
-func newShardedClusterReconciler(mgr manager.Manager, omFunc om.ConnectionFunc) reconcile.Reconciler {
+func newShardedClusterReconciler(mgr manager.Manager, omFunc om.ConnectionFunc) *ReconcileMongoDbShardedCluster {
 	return &ReconcileMongoDbShardedCluster{newReconcileCommonController(mgr, omFunc)}
 }
 
 // Reconcile
 func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
 	log := zap.S().With("ShardedCluster", request.NamespacedName)
-	log.Info(">> ShardedCluster.Reconcile")
+	log.Info("-> ShardedCluster.Reconcile")
 
 	sc := &mongodb.MongoDbShardedCluster{}
 	defer exceptionHandling(
@@ -68,7 +70,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 	log.Info("ShardedCluster.doShardedClusterProcessing")
 	sc := obj.(*mongodb.MongoDbShardedCluster)
 	podVars := &PodVars{}
-	conn, err := r.prepareConnection(sc.Namespace, sc.Spec.CommonSpec, podVars, log)
+	conn, err := r.prepareConnection(objectKey(sc.Namespace, sc.Name), sc.Spec.CommonSpec, podVars, log)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +179,7 @@ func (r *ReconcileMongoDbShardedCluster) delete(obj interface{}, log *zap.Sugare
 	// TODO: find a standard & consistent way of logging these events
 	sc := obj.(*mongodb.MongoDbShardedCluster)
 
-	conn, err := r.prepareConnection(sc.Namespace, sc.Spec.CommonSpec, nil, log)
+	conn, err := r.prepareConnection(objectKey(sc.Namespace, sc.Name), sc.Spec.CommonSpec, nil, log)
 	if err != nil {
 		return err
 	}
@@ -211,7 +213,8 @@ func (r *ReconcileMongoDbShardedCluster) delete(obj interface{}, log *zap.Sugare
 
 // AddShardedClusterController
 func AddShardedClusterController(mgr manager.Manager) error {
-	options := controller.Options{Reconciler: newShardedClusterReconciler(mgr, om.NewOpsManagerConnection)}
+	reconciler := newShardedClusterReconciler(mgr, om.NewOpsManagerConnection)
+	options := controller.Options{Reconciler: reconciler}
 	c, err := controller.New(util.MongoDbShardedClusterController, mgr, options)
 	if err != nil {
 		return err
@@ -222,14 +225,25 @@ func AddShardedClusterController(mgr manager.Manager) error {
 		return err
 	}
 
-	// TODO
-	// err = c.Watch(&source.Kind{Type: &appsv1.StatefulSet{}}, &handler.EnqueueRequestForOwner{
-	// 	IsController: true,
-	// 	OwnerType:    &mongodb.MongoDbShardedCluster{},
-	// })
-	// if err != nil {
-	// 	return err
-	// }
+	err = c.Watch(&source.Kind{Type: &appsv1.StatefulSet{}}, &handler.EnqueueRequestForOwner{
+		IsController: true,
+		OwnerType:    &mongodb.MongoDbShardedCluster{},
+	})
+	if err != nil {
+		return err
+	}
+
+	err = c.Watch(&source.Kind{Type: &corev1.ConfigMap{}},
+		&ConfigMapAndSecretHandler{resourceType: ConfigMap, trackedResources: reconciler.watchedResources})
+	if err != nil {
+		return err
+	}
+
+	err = c.Watch(&source.Kind{Type: &corev1.Secret{}},
+		&ConfigMapAndSecretHandler{resourceType: Secret, trackedResources: reconciler.watchedResources})
+	if err != nil {
+		return err
+	}
 
 	zap.S().Infof("Registered controller %s", util.MongoDbShardedClusterController)
 

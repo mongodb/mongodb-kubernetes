@@ -6,7 +6,6 @@ if [ ! "$(which dep)" ]; then
     curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
 fi
 
-cd "${GOPATH}/src/github.com/10gen/ops-manager-kubernetes" || (echo "ops-manager-kubernetes does not seems to be cloned" && exit 1)
 dep ensure -v
 
 ## Generate code

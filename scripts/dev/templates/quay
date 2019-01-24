@@ -12,8 +12,8 @@
 #              If you change Namespace for existing configuration - make sure you delete the previous namespace!
 # - OPERATOR_VERSION: (optional) the version of images to be downloaded. Must be specified only if official image
 #              registry is used (quay.io)
-# - YAML_RESOURCES: (optional) the list of yaml config files that will be applied automatically after each "make full"
-#               run. For example "YAML_RESOURCES="rs.yaml; rs2.yaml"
+# - MONGODB_RESOURCES: (optional) the list of yaml config files that will be applied automatically after each "make full"
+#               run. For example "MONGODB_RESOURCES="rs.yaml; rs2.yaml"
 # - KOPS_ZONES: (optional, only if CLUSTER_TYPE is set to 'kops'). Overrides default zones for kops cluster. May be
 #              necessary if the default region (us-east) has engaged all VPCs up to the limit (5 by default)
 

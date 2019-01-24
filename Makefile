@@ -8,7 +8,7 @@ usage:
 	@ echo "Usage:"
 	@ echo "  prerequisites:    installs the command line applications necessary for working with this tool."
 	@ echo "  init:             prepares operator environment. Switches to 'minikube' context."
-	@ echo "  switch:           switch current dev context, e.g `make switch context=minikube`. Note, that it switches"
+	@ echo "  switch:           switch current dev context, e.g 'make switch context=minikube'. Note, that it switches"
 	@ echo "                    kubectl context as well and sets the current namespace to the one configured as the default"
 	@ echo "                    one"
 	@ echo "  contexts:         list all available contexts"
@@ -22,7 +22,7 @@ usage:
 	@ echo "  om-evg:           install Ops Manager into Evergreen if it's not installed yet. Initializes the connection"
 	@ echo "                    parameters in ~/operator-dev/om"
 	@ echo "  reset:            cleans all Operator related state from Kubernetes and Ops Manager"
-	@ echo "  e2e:              runs the e2e test, e.g. `make e2e test=sharded_cluster_pv`. The Operator is redeployed before"
+	@ echo "  e2e:              runs the e2e test, e.g. 'make e2e test=sharded_cluster_pv'. The Operator is redeployed before"
 	@ echo "                    the test, the namespace is cleaned"
 	@ echo "  log:              reads the Operator log"
 	@ echo "  status:           prints the current context and the state of Kubernetes cluster"
@@ -64,6 +64,7 @@ full:
 	@ $(MAKE) operator
 	@ $(MAKE) database
 	@ scripts/dev/configure_operator
+	@ scripts/dev/apply_resources
 
 # install OM in Kubernetes if it's not running
 om:

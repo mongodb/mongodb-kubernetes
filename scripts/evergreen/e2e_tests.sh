@@ -274,6 +274,7 @@ if [ -z "${TEST_STAGE}" ]; then
     echo "TEST_STAGE needs to be defined"
 fi
 
+fix_taints
 
 run_tests "${TEST_STAGE}"
 TESTS_OK=$?

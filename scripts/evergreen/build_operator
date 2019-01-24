@@ -15,9 +15,6 @@ export GOROOT="/usr/lib/go"
 export GOBIN="${GOPATH}/bin"
 export PATH="${GOBIN}:${PATH}"
 
-mkdir -p "${GOBIN}"
-curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
-
 ./scripts/build/prepare_build_environment
 # This skips the regeneration of code + download of dependencies if this step was
 # taken care of by the test_operator script.

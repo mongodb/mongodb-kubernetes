@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"sigs.k8s.io/controller-runtime/pkg/manager"
-
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/pkg/errors"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
@@ -33,6 +33,9 @@ type ReconcileCommonController struct {
 	scheme           *runtime.Scheme
 	kubeHelper       KubeHelper
 	omConnectionFunc om.ConnectionFunc
+	// internal multimap mapping watched resources to mongodb resources they are used in
+	// (example: config map 'c1' is used in 2 mongodb replica sets 'm1', 'm2', so the map will be [c1]->[m1, m2])
+	watchedResources map[watchedObject][]types.NamespacedName
 }
 
 func newReconcileCommonController(mgr manager.Manager, omFunc om.ConnectionFunc) *ReconcileCommonController {
@@ -41,18 +44,23 @@ func newReconcileCommonController(mgr manager.Manager, omFunc om.ConnectionFunc)
 		scheme:           mgr.GetScheme(),
 		kubeHelper:       KubeHelper{mgr.GetClient()},
 		omConnectionFunc: omFunc,
+		watchedResources: map[watchedObject][]types.NamespacedName{},
 	}
 }
 
-func (c *ReconcileCommonController) prepareConnection(namespace string, spec v1.CommonSpec, podVars *PodVars, log *zap.SugaredLogger) (om.Connection, error) {
-	projectConfig, err := c.kubeHelper.readProjectConfig(namespace, spec.Project)
+// prepareConnection reads project config map and credential secrets and uses these values to communicate with Ops Manager:
+// create or read the group and optionally request an agent key (it could have been returned by group api call)
+func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedName, spec v1.CommonSpec, podVars *PodVars, log *zap.SugaredLogger) (om.Connection, error) {
+	projectConfig, err := c.kubeHelper.readProjectConfig(nsName.Namespace, spec.Project)
 	if err != nil {
 		return nil, fmt.Errorf("Error reading Project Config: %s", err)
 	}
-	credsConfig, err := c.kubeHelper.readCredentials(namespace, spec.Credentials)
+	credsConfig, err := c.kubeHelper.readCredentials(nsName.Namespace, spec.Credentials)
 	if err != nil {
 		return nil, fmt.Errorf("Error reading Credentials secret: %s", err)
 	}
+
+	c.registerWatchedResources(nsName, spec.Project, spec.Credentials)
 
 	group, err := c.readOrCreateGroup(projectConfig, credsConfig, log)
 	if err != nil {
@@ -60,7 +68,7 @@ func (c *ReconcileCommonController) prepareConnection(namespace string, spec v1.
 	}
 
 	conn := c.omConnectionFunc(projectConfig.BaseURL, group.ID, credsConfig.User, credsConfig.PublicAPIKey)
-	agentAPIKey, err := c.ensureAgentKeySecretExists(conn, namespace, group.AgentAPIKey, log)
+	agentAPIKey, err := c.ensureAgentKeySecretExists(conn, nsName.Namespace, group.AgentAPIKey, log)
 	if err != nil {
 		return nil, err
 	}
@@ -206,4 +214,36 @@ func (c *ReconcileCommonController) fetchResource(request reconcile.Request, obj
 		return &reconcile.Result{RequeueAfter: 10 * time.Second}, err
 	}
 	return nil, nil
+}
+
+// registerWatchedResources adds the secret/configMap -> mongodb resource pair to internal reconciler map. This allows
+// to start watching for the events for this secret/configMap and trigger reconciliation for all depending mongodb resources
+func (c *ReconcileCommonController) registerWatchedResources(mongodbResourceNsName types.NamespacedName, configMap string, secret string) {
+	defaultNamespace := mongodbResourceNsName.Namespace
+
+	c.addWatchedResourceIfNotAdded(configMap, defaultNamespace, ConfigMap, mongodbResourceNsName)
+	c.addWatchedResourceIfNotAdded(secret, defaultNamespace, Secret, mongodbResourceNsName)
+}
+
+func (c *ReconcileCommonController) addWatchedResourceIfNotAdded(watchedResourceFullName, watchedResourceDefaultNamespace string,
+	wType watchedType, dependentResourceNsName types.NamespacedName) {
+	watchedNamespacedName, err := getNamespaceAndNameForResource(watchedResourceFullName, dependentResourceNsName.Namespace)
+	if err != nil {
+		// note, that we don't propagate an error in case the full name has formatting errors
+		return
+	}
+	key := watchedObject{resourceType: wType, resource: watchedNamespacedName}
+	if _, ok := c.watchedResources[key]; !ok {
+		c.watchedResources[key] = make([]types.NamespacedName, 0)
+	}
+	found := false
+	for _, v := range c.watchedResources[key] {
+		if v == dependentResourceNsName {
+			found = true
+		}
+	}
+	if !found {
+		c.watchedResources[key] = append(c.watchedResources[key], dependentResourceNsName)
+		zap.S().Debugf("Watching %s to trigger reconciliation for %s", key, dependentResourceNsName)
+	}
 }

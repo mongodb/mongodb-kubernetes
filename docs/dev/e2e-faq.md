@@ -72,6 +72,16 @@ and openshift clusters should be created with the same ssh keys
 1. Delete the cluster: `python3 scripts/evergreen/test_clusters/aule.py delete-cluster --name openshift-test`
 1. Create a new cluster: `cd scripts/evergreen/test_clusters/; python3 aule.py create-cluster --name openshift-test --aws-key <your_aws_key_pair_name>`
    * `--aws-key` is the name of ssh key pair
+1. The script will output the sequence of commands to call - invoke them
+   * caveat 1: you'll have to accept the identity for the hosts manually to allow ssh-ing there
+   * caveat 2: you need to enable the `ForwardAgent` for the control host where you'll run ansible scripts:
+   ```
+   # ~/.ssh/config
+   Host ec2-54-164-91-238.compute-1.amazonaws.com
+       ForwardAgent yes
+   ```  
+   * if some of the parameters in `exports.do` have changed - you need to copy the file to the remote host manually 
+   before running `ssh ... 'source exports.do ...' ` again
 
 
 #### If the test has failed - how to check what happened there?
@@ -112,6 +122,10 @@ which happens after successful test or during namespaces cleanup). Dynamic remov
 * Seems there are problems cleaning volumes for Openshift (sometimes?). Volumes tend to stay in AWS but get status `available`:
  ![available-volumes](available-volumes.png)
  These volumes are removed manually in `scripts/evergreen/prepare_test_env` script
+* One quite common and annoying thing is taint `NodeWithImpairedVolumes` that is sometimes added to the Kubernetes nodes.
+It means that there are some stuck volumes. The fixes above try to fix all stuck volumes (though the taint is not removed automatically).
+Also the taint is removed in `prepare_test_env`. This doesn't mean that the problem is solved completely (AWS is quite 
+unpredictable) but may help sometimes avoid complete rebuilds of the cluster
  
  #### How to restart kops cluster (creating new nodes)
  

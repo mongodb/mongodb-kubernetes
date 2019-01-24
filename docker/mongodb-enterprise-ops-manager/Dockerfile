@@ -34,7 +34,8 @@ RUN apt-get -qq update \
         procps \
         sudo \
     && apt-get -qq -yt testing install \
-        python3-venv \
+        python3-pip \
+        python3.6-venv \
         python3.6 \
     && apt-get upgrade -y -qq \
     && apt-get dist-upgrade -y -qq \
@@ -88,6 +89,9 @@ RUN python3.6 -m venv /opt/venv \
 
 RUN chown mongodb-mms:root /etc/mongodb-mms \
     && chmod 0770 /etc/mongodb-mms
+
+RUN mkdir -p /data \
+	&& chmod 775 /data
 
 # Openshift: allow the root group to update users and groups at runtime
 RUN chmod g+w /etc/passwd /etc/group

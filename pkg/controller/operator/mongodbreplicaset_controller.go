@@ -4,19 +4,20 @@ import (
 	"fmt"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"go.uber.org/zap"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 
-	"go.uber.org/zap"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 
-	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
 // ReconcileMongoDbReplicaSet reconciles a MongoDbReplicaSet object
@@ -26,15 +27,58 @@ type ReconcileMongoDbReplicaSet struct {
 
 var _ reconcile.Reconciler = &ReconcileMongoDbReplicaSet{}
 
-func newReplicaSetReconciler(mgr manager.Manager, omFunc om.ConnectionFunc) reconcile.Reconciler {
+func newReplicaSetReconciler(mgr manager.Manager, omFunc om.ConnectionFunc) *ReconcileMongoDbReplicaSet {
 	return &ReconcileMongoDbReplicaSet{newReconcileCommonController(mgr, omFunc)}
+}
+
+// AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
+// and Start it when the Manager is Started.
+func AddReplicaSetController(mgr manager.Manager) error {
+	// Create a new controller
+	reconciler := newReplicaSetReconciler(mgr, om.NewOpsManagerConnection)
+	c, err := controller.New(util.MongoDbReplicaSetController, mgr, controller.Options{Reconciler: reconciler})
+	if err != nil {
+		return err
+	}
+
+	// Watch for changes to primary resource MongoDbReplicaSet
+	err = c.Watch(&source.Kind{Type: &mongodb.MongoDbReplicaSet{}}, &handler.EnqueueRequestForObject{})
+	if err != nil {
+		return err
+	}
+
+	// Watch for changes to secondary resource Statefulsets and requeue the owner MongoDbStandalone
+	// TODO pods are owned by Statefulset - we need to check if their changes are reconciled as well
+	err = c.Watch(&source.Kind{Type: &appsv1.StatefulSet{}}, &handler.EnqueueRequestForOwner{
+		IsController: true,
+		OwnerType:    &mongodb.MongoDbReplicaSet{},
+	})
+	if err != nil {
+		return err
+	}
+
+	err = c.Watch(&source.Kind{Type: &corev1.ConfigMap{}},
+		&ConfigMapAndSecretHandler{resourceType: ConfigMap, trackedResources: reconciler.watchedResources})
+	if err != nil {
+		return err
+	}
+
+	err = c.Watch(&source.Kind{Type: &corev1.Secret{}},
+		&ConfigMapAndSecretHandler{resourceType: Secret, trackedResources: reconciler.watchedResources})
+	if err != nil {
+		return err
+	}
+
+	zap.S().Infof("Registered controller %s", util.MongoDbReplicaSetController)
+
+	return nil
 }
 
 // Reconcile reads that state of the cluster for a MongoDbReplicaSet object and makes changes based on the state read
 // and what is in the MongoDbReplicaSet.Spec
 func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
 	log := zap.S().With("ReplicaSet", request.NamespacedName)
-	log.Info(">> ReplicaSet.Reconcile")
+	log.Info("-> ReplicaSet.Reconcile")
 
 	rs := &mongodb.MongoDbReplicaSet{}
 
@@ -61,15 +105,9 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		return r.updateStatusFailed(rs, fmt.Sprintf("Failed to update finalizer header: %s", err), log)
 	}
 
-	// TODO seems the validation for changes must be performed using controller runtime events interception
-	/*if err := validateReplicaSetUpdate(o, n); err != nil {
-		log.Error(err)
-		return
-	}*/
-
 	spec := rs.Spec
 	podVars := &PodVars{}
-	conn, err := r.prepareConnection(rs.Namespace, spec.CommonSpec, podVars, log)
+	conn, err := r.prepareConnection(request.NamespacedName, spec.CommonSpec, podVars, log)
 	if err != nil {
 		return r.updateStatusFailed(rs, fmt.Sprintf("Failed to prepare Ops Manager connection: %s", err), log)
 	}
@@ -105,36 +143,6 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 	r.updateStatusSuccessful(rs, log)
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	return reconcile.Result{}, nil
-}
-
-// AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
-// and Start it when the Manager is Started.
-func AddReplicaSetController(mgr manager.Manager) error {
-	// Create a new controller
-	c, err := controller.New(util.MongoDbReplicaSetController, mgr, controller.Options{Reconciler: newReplicaSetReconciler(mgr, om.NewOpsManagerConnection)})
-	if err != nil {
-		return err
-	}
-
-	// Watch for changes to primary resource MongoDbReplicaSet
-	err = c.Watch(&source.Kind{Type: &mongodb.MongoDbReplicaSet{}}, &handler.EnqueueRequestForObject{})
-	if err != nil {
-		return err
-	}
-
-	// Watch for changes to secondary resource Statefulsets and requeue the owner MongoDbStandalone
-	// TODO pods are owned by Statefulset - we need to check if their changes are reconciled as well
-	err = c.Watch(&source.Kind{Type: &appsv1.StatefulSet{}}, &handler.EnqueueRequestForOwner{
-		IsController: true,
-		OwnerType:    &mongodb.MongoDbReplicaSet{},
-	})
-	if err != nil {
-		return err
-	}
-
-	zap.S().Infof("Registered controller %s", util.MongoDbReplicaSetController)
-
-	return nil
 }
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
@@ -174,7 +182,7 @@ func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLog
 
 	log.Infow("Removing replica set from Ops Manager", "config", rs.Spec)
 
-	conn, err := r.prepareConnection(rs.Namespace, rs.Spec.CommonSpec, nil, log)
+	conn, err := r.prepareConnection(objectKey(rs.Namespace, rs.Name), rs.Spec.CommonSpec, nil, log)
 	if err != nil {
 		return err
 	}

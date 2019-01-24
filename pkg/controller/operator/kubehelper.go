@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/types"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"time"
@@ -274,10 +276,10 @@ func (k *KubeHelper) readOrCreateService(owner metav1.Object, serviceName string
 	return service, nil
 }
 
-func getNamespaceAndNameForResource(resource, defaultNamespace string) (string, string, error) {
+func getNamespaceAndNameForResource(resource, defaultNamespace string) (types.NamespacedName, error) {
 	s := strings.Split(resource, "/")
 	if len(s) > 2 {
-		return "", "", fmt.Errorf("Resource identifier must be of the form 'resoureName' or 'resourceNamespace/resourceName'")
+		return types.NamespacedName{}, fmt.Errorf("Resource identifier must be of the form 'resoureName' or 'resourceNamespace/resourceName'")
 	}
 	var namespace, name string
 	if len(s) == 2 {
@@ -286,32 +288,32 @@ func getNamespaceAndNameForResource(resource, defaultNamespace string) (string, 
 		namespace, name = defaultNamespace, s[0]
 	}
 	if namespace == "" || name == "" {
-		return "", "", fmt.Errorf("Namespace and name and name must both be non-empty")
+		return types.NamespacedName{}, fmt.Errorf("Namespace and name and name must both be non-empty")
 	}
-	return namespace, name, nil
+	return objectKey(namespace, name), nil
 }
 
 // readProjectConfig returns a config map
 func (k *KubeHelper) readProjectConfig(defaultNamespace, name string) (*ProjectConfig, error) {
-	configMapNamespace, configMapName, err := getNamespaceAndNameForResource(name, defaultNamespace)
+	configMapNamespacedName, err := getNamespaceAndNameForResource(name, defaultNamespace)
 	if err != nil {
 		return nil, err
 	}
 
 	cmap := &corev1.ConfigMap{}
-	if err = k.client.Get(context.TODO(), objectKey(configMapNamespace, configMapName), cmap); err != nil {
-		return nil, fmt.Errorf("Error getting config map %s/%s: %s", configMapNamespace, configMapName, err)
+	if err = k.client.Get(context.TODO(), configMapNamespacedName, cmap); err != nil {
+		return nil, fmt.Errorf("Error getting config map %s: %s", configMapNamespacedName, err)
 	}
 
 	data := cmap.Data
 
 	baseURL, ok := data[util.OmBaseUrl]
 	if !ok {
-		return nil, fmt.Errorf("Property \"%s\" is not specified in config map %s", util.OmBaseUrl, configMapName)
+		return nil, fmt.Errorf("Property \"%s\" is not specified in config map %s", util.OmBaseUrl, configMapNamespacedName)
 	}
 	projectName, ok := data[util.OmProjectName]
 	if !ok {
-		return nil, fmt.Errorf("Property \"%s\" is not specified in config map %s ", util.OmProjectName, configMapName)
+		return nil, fmt.Errorf("Property \"%s\" is not specified in config map %s ", util.OmProjectName, configMapNamespacedName)
 	}
 	orgID := data[util.OmOrgId]
 
@@ -323,23 +325,23 @@ func (k *KubeHelper) readProjectConfig(defaultNamespace, name string) (*ProjectC
 }
 
 func (k *KubeHelper) readCredentials(defaultNamespace, name string) (*Credentials, error) {
-	credentialsNamespace, credentialsName, err := getNamespaceAndNameForResource(name, defaultNamespace)
+	secretNamespacedName, err := getNamespaceAndNameForResource(name, defaultNamespace)
 	if err != nil {
 		return nil, err
 	}
 
-	secret, err := k.readSecret(credentialsNamespace, credentialsName)
+	secret, err := k.readSecret(secretNamespacedName)
 	if err != nil {
 		return nil, err
 	}
 
 	publicAPIKey, ok := secret[util.OmPublicApiKey]
 	if !ok {
-		return nil, fmt.Errorf("Missing '%s' attribute from 'credentials'", util.OmPublicApiKey)
+		return nil, fmt.Errorf("Property \"%s\" is not specified in secret %s", util.OmPublicApiKey, secretNamespacedName)
 	}
 	user, ok := secret[util.OmUser]
 	if !ok {
-		return nil, fmt.Errorf("Missing '%s' attribute from 'credentials'", util.OmUser)
+		return nil, fmt.Errorf("Property \"%s\" is not specified in secret %s", util.OmUser, secretNamespacedName)
 	}
 
 	return &Credentials{
@@ -349,7 +351,7 @@ func (k *KubeHelper) readCredentials(defaultNamespace, name string) (*Credential
 }
 
 func (k *KubeHelper) readAgentApiKeyForProject(namespace, agentKeySecretName string) (string, error) {
-	secret, err := k.readSecret(namespace, agentKeySecretName)
+	secret, err := k.readSecret(objectKey(namespace, agentKeySecretName))
 	if err != nil {
 		return "", err
 	}
@@ -362,11 +364,11 @@ func (k *KubeHelper) readAgentApiKeyForProject(namespace, agentKeySecretName str
 	return strings.TrimSuffix(string(key), "\n"), nil
 }
 
-func (k *KubeHelper) readSecret(namespace, name string) (map[string]string, error) {
+func (k *KubeHelper) readSecret(nsName client.ObjectKey) (map[string]string, error) {
 	secret := &corev1.Secret{}
-	e := k.client.Get(context.TODO(), objectKey(namespace, name), secret)
+	e := k.client.Get(context.TODO(), nsName, secret)
 	if e != nil {
-		return nil, fmt.Errorf("Error getting secret %s/%s: %s", namespace, secret, e)
+		return nil, fmt.Errorf("Error getting secret %s: %s", nsName, e)
 	}
 
 	secrets := make(map[string]string)

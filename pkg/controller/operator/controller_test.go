@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/apimachinery/pkg/types"
+
 	"github.com/pkg/errors"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
@@ -20,6 +22,8 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -125,6 +129,39 @@ func TestPrepareOmConnection_PrepareAgentKeys(t *testing.T) {
 		HItem(reflect.ValueOf(manager.client.Create), &v12.Secret{}))
 }
 
+// TestPrepareOmConnection_ConfigMapAndSecretWatched verifies that config map and secret are added to the internal
+// map that allows to watch them for changes
+func TestPrepareOmConnection_ConfigMapAndSecretWatched(t *testing.T) {
+	manager := newMockedManager(nil)
+	reconciler := newReconcileCommonController(manager, om.NewEmptyMockedOmConnection)
+
+	// "create" a secret (config map already exists)
+	credentials := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "mySecret", Namespace: "otherNs"},
+		StringData: map[string]string{util.OmUser: "bla@mycompany.com", util.OmPublicApiKey: "2423423gdfgsdf23423sdfds"}}
+	_ = manager.client.Create(context.TODO(), credentials)
+
+	// Here we create two replica sets both referencing the same project and credentials
+	vars := &PodVars{}
+	spec := v1.CommonSpec{Project: TestProjectConfigMapName, Credentials: "otherNs/mySecret", LogLevel: v1.Warn}
+	_, e := reconciler.prepareConnection(objectKey(TestNamespace, "ReplicaSetOne"), spec, vars, zap.S())
+	assert.NoError(t, e)
+	_, e = reconciler.prepareConnection(objectKey(TestNamespace, "ReplicaSetTwo"), spec, vars, zap.S())
+	assert.NoError(t, e)
+
+	// This one must not affect the map any way as everything is already registered
+	_, e = reconciler.prepareConnection(objectKey(TestNamespace, "ReplicaSetTwo"), spec, vars, zap.S())
+	assert.NoError(t, e)
+
+	// we expect to have two entries in the map - each value has length of 2 meaning both replica sets are "registered"
+	// to be reconciled as soon as config map or secret changes
+	expected := map[watchedObject][]types.NamespacedName{
+		watchedObject{resourceType: ConfigMap, resource: objectKey(TestNamespace, TestProjectConfigMapName)}: {objectKey(TestNamespace, "ReplicaSetOne"), objectKey(TestNamespace, "ReplicaSetTwo")},
+		watchedObject{resourceType: Secret, resource: objectKey("otherNs", "mySecret")}:                      {objectKey(TestNamespace, "ReplicaSetOne"), objectKey(TestNamespace, "ReplicaSetTwo")},
+	}
+	assert.Equal(t, expected, reconciler.watchedResources)
+}
+
 // TestEnsureFinalizerHeaders checks that 'ensureFinalizerHeaders' function adds the finalizer header and updates the
 // custom resource in K8s
 func TestEnsureFinalizerHeaders(t *testing.T) {
@@ -185,7 +222,7 @@ func doReconcileDeletion(t *testing.T, f func() error) {
 func prepareConnection(controller *ReconcileCommonController, t *testing.T) (*om.MockedOmConnection, *PodVars) {
 	vars := &PodVars{}
 	spec := v1.CommonSpec{Project: TestProjectConfigMapName, Credentials: TestCredentialsSecretName, LogLevel: v1.Warn}
-	conn, e := controller.prepareConnection(TestNamespace, spec, vars, zap.S())
+	conn, e := controller.prepareConnection(objectKey(TestNamespace, ""), spec, vars, zap.S())
 	mockOm := conn.(*om.MockedOmConnection)
 	assert.NoError(t, e)
 	return mockOm, vars

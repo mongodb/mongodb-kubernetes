@@ -61,6 +61,11 @@ cleanup_env() {
         set +v
     done
 
+    echo "##### Cleaning ECR repositories if necessary"
+    check_and_clean_repo "dev/mongodb-enterprise-database"
+    check_and_clean_repo "dev/mongodb-enterprise-operator"
+    check_and_clean_repo "dev/mongodb-enterprise-tests"
+
 }
 
 # Update: taints are supposed not to appear as "cleanup_env" function is supposed to remove failed PVs, but let's keep
@@ -72,6 +77,18 @@ fix_taints() {
     for n in $(kubectl get nodes -o name); do
         kubectl taint nodes ${n} NodeWithImpairedVolumes:NoSchedule- 2> /dev/null || true
     done
+}
+
+# The functions checks the size for the ECR repository and recreates it if necessary
+# This may affect some parallel running tests, so should be called quite rarely - when the size exceeds 500
+# (note, that 'aws ecr list-images' for some reasons returns the ~700+ images when in fact there are 1000 of them -
+# so we choose 500 as a some representative number)
+check_and_clean_repo() {
+	if [[ $(aws ecr list-images --repository-name "$1" | jq '.[] | length') -gt 500 ]]; then
+    	echo "Recreating the \"$1\" repo"
+    	aws ecr delete-repository --repository-name "$1" --force
+    	aws ecr create-repository --repository-name "$1"
+    fi
 }
 
 cleanup_env

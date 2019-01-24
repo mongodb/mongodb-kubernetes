@@ -32,7 +32,7 @@ elif [[ ${CLUSTER_TYPE} = "kops" ]] && ! kops validate cluster "${CLUSTER_NAME}"
 	echo "Make sure you use the latest version of kops (>= 1.11.0): 'brew upgrade kops'"
 
 	kops create cluster \
-		--node-count 1 \
+		--node-count 2 \
 		--zones "${KOPS_ZONES:-us-east-1a,us-east-1b,us-east-1c}" \
 		--node-size t2.small \
 		--node-volume-size 16 \

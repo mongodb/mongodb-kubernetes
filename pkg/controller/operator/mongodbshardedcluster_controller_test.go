@@ -184,7 +184,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 func TestPodAntiaffinity_MongodsInsideShardAreSpread(t *testing.T) {
 	sc := DefaultClusterBuilder().Build()
 
-	reconciler := newShardedClusterReconciler(newMockedManager(sc), om.NewEmptyMockedOmConnection).(*ReconcileMongoDbShardedCluster)
+	reconciler := newShardedClusterReconciler(newMockedManager(sc), om.NewEmptyMockedOmConnection)
 	state := reconciler.buildKubeObjectsForShardedCluster(sc, defaultPodVars(), zap.S())
 
 	shardHelpers := state.shardsSetsHelpers

@@ -50,35 +50,35 @@ func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
 
 func TestGetNamespaceAndNameForResource_WithNameAndNamespace(t *testing.T) {
 	expectedNamespace, expectedName := "mytestnamespace", "mytestname"
-	namespace, name, err := getNamespaceAndNameForResource(expectedName, expectedNamespace)
+	nsName, err := getNamespaceAndNameForResource(expectedName, expectedNamespace)
 	assert.NoError(t, err)
-	assert.Equal(t, expectedNamespace, namespace)
-	assert.Equal(t, expectedName, name)
+	assert.Equal(t, expectedNamespace, nsName.Namespace)
+	assert.Equal(t, expectedName, nsName.Name)
 }
 
 func TestGetNamespaceAndNameForResource_WithNamespacedName(t *testing.T) {
 	expectedNamespace, expectedName := "mytestnamespace", "mytestname"
-	namespace, name, err := getNamespaceAndNameForResource(expectedNamespace+"/"+expectedName, "irrelevant")
+	nsName, err := getNamespaceAndNameForResource(expectedNamespace+"/"+expectedName, "irrelevant")
 	assert.NoError(t, err)
-	assert.Equal(t, expectedNamespace, namespace)
-	assert.Equal(t, expectedName, name)
+	assert.Equal(t, expectedNamespace, nsName.Namespace)
+	assert.Equal(t, expectedName, nsName.Name)
 }
 
 func TestGetNamespaceAndNameForResource_WithMultipleNamespaces(t *testing.T) {
 	expectedNamespace, expectedName := "mytestnamespace", "mytestname"
-	_, _, err := getNamespaceAndNameForResource(expectedNamespace+"/"+expectedNamespace+"/"+expectedName, "irrelevant")
+	_, err := getNamespaceAndNameForResource(expectedNamespace+"/"+expectedNamespace+"/"+expectedName, "irrelevant")
 	assert.Error(t, err)
 }
 
 func TestGetNamespaceAndNameForResource_WithEmptyNamespace(t *testing.T) {
 	expectedNamespace, expectedName := "", "mytestname"
-	_, _, err := getNamespaceAndNameForResource(expectedNamespace+"/"+expectedName, "irrelevant")
+	_, err := getNamespaceAndNameForResource(expectedNamespace+"/"+expectedName, "irrelevant")
 	assert.Error(t, err)
 }
 
 func TestGetNamespaceAndNameForResource_WithEmptyName(t *testing.T) {
 	expectedNamespace, expectedName := "mytestnamespace", ""
-	_, _, err := getNamespaceAndNameForResource(expectedNamespace+"/"+expectedName, "irrelevant")
+	_, err := getNamespaceAndNameForResource(expectedNamespace+"/"+expectedName, "irrelevant")
 	assert.Error(t, err)
 }
 
