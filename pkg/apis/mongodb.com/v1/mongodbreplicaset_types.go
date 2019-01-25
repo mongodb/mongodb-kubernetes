@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -25,13 +26,8 @@ type MongoDbReplicaSetSpec struct {
 
 // MongoDbReplicaSetStatus defines the observed state of MongoDbReplicaSet
 type MongoDbReplicaSetStatus struct {
-	// Important: Run "operator-sdk generate k8s" to regenerate code after modifying this file
-
-	Version string `json:"version"`
-
-	// TODO
-	State   string `json:"state"`
-	Members int    `json:"members"`
+	CommonStatus
+	Members int `json:"members"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -45,22 +41,26 @@ func (c *MongoDbReplicaSet) ServiceName() string {
 	return getServiceOrDefault(c.Spec.Service, c.Name, "-svc")
 }
 
-func (c *MongoDbReplicaSet) UpdateSuccessful() {
-	c.Status.Version = c.Spec.Version
-	c.Status.Members = c.Spec.Members
-
-	// TODO proper implement
-	c.Status.State = StateRunning
+func (c *MongoDbReplicaSet) UpdateSuccessful(deploymentLink string, reconciledResource MongoDbResource) {
+	spec := reconciledResource.(*MongoDbReplicaSet).Spec
+	specHash, err := util.Hash(spec)
+	if err != nil { // invalid specHash will cause infinite Reconcile loop
+		panic(err)
+	}
+	c.Status.Version = spec.Version
+	c.Status.Members = spec.Members
+	c.Status.Message = ""
+	c.Status.Link = deploymentLink
+	c.Status.LastTransition = util.Now()
+	c.Status.SpecHash = specHash
+	c.Status.OperatorVersion = util.OperatorVersion
+	c.Status.Phase = PhaseRunning
 }
 
-func (c *MongoDbReplicaSet) UpdateError(_ string) {
-	// TODO proper implement
-	c.Status.State = StateFailed
-}
-
-func (c *MongoDbReplicaSet) GetStatus() string {
-	// TODO proper implement
-	return c.Status.State
+func (c *MongoDbReplicaSet) UpdateError(msg string) {
+	c.Status.Message = msg
+	c.Status.LastTransition = util.Now()
+	c.Status.Phase = PhaseFailed
 }
 
 func (c *MongoDbReplicaSet) IsEmpty() bool {
@@ -68,4 +68,16 @@ func (c *MongoDbReplicaSet) IsEmpty() bool {
 		c.Spec.Version == "" &&
 		c.Spec.Project == "" &&
 		c.Spec.Credentials == ""
+}
+
+func (c *MongoDbReplicaSet) ComputeSpecHash() (uint64, error) {
+	return util.Hash(c.Spec)
+}
+
+func (c *MongoDbReplicaSet) GetCommonStatus() *CommonStatus {
+	return &c.Status.CommonStatus
+}
+
+func (c *MongoDbReplicaSet) GetMeta() *Meta {
+	return &c.Meta
 }

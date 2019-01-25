@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -30,10 +31,7 @@ type MongoDbStandaloneSpec struct {
 // MongoDbStandaloneStatus defines the observed state of MongoDbStandalone
 type MongoDbStandaloneStatus struct {
 	// Important: Run "operator-sdk generate k8s" to regenerate code after modifying this file
-
-	Version string `json:"version"`
-	// TODO
-	State string `json:"state"`
+	CommonStatus
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -49,18 +47,35 @@ func (c *MongoDbStandalone) ServiceName() string {
 	return getServiceOrDefault(c.Spec.Service, c.Name, "-svc")
 }
 
-func (c *MongoDbStandalone) UpdateSuccessful() {
-	c.Status.Version = c.Spec.Version
-
-	// TODO proper implement
-	c.Status.State = "Running"
+func (c *MongoDbStandalone) UpdateSuccessful(deploymentLink string, reconciledResource MongoDbResource) {
+	spec := reconciledResource.(*MongoDbStandalone).Spec
+	specHash, err := util.Hash(spec)
+	if err != nil { // invalid specHash will cause infinite Reconcile loop
+		panic(err)
+	}
+	c.Status.Version = spec.Version
+	c.Status.Message = ""
+	c.Status.Link = deploymentLink
+	c.Status.LastTransition = util.Now()
+	c.Status.SpecHash = specHash
+	c.Status.OperatorVersion = util.OperatorVersion
+	c.Status.Phase = PhaseRunning
 }
 
 func (c *MongoDbStandalone) UpdateError(errorMessage string) {
-	// TODO proper implement
-	c.Status.State = "Failed"
+	c.Status.Message = errorMessage
+	c.Status.LastTransition = util.Now()
+	c.Status.Phase = PhaseFailed
 }
 
-func (c *MongoDbStandalone) GetStatus() string {
-	return c.Status.State
+func (c *MongoDbStandalone) ComputeSpecHash() (uint64, error) {
+	return util.Hash(c.Spec)
+}
+
+func (c *MongoDbStandalone) GetCommonStatus() *CommonStatus {
+	return &c.Status.CommonStatus
+}
+
+func (c *MongoDbStandalone) GetMeta() *Meta {
+	return &c.Meta
 }

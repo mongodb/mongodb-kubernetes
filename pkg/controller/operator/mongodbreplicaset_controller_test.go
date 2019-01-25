@@ -9,7 +9,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"reflect"
+
+	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	appsv1 "k8s.io/api/apps/v1"
@@ -50,6 +52,9 @@ func TestOnAddReplicaSet(t *testing.T) {
 	connection := om.CurrMockedConnection
 	connection.CheckDeployment(t, createDeploymentFromReplicaSet(rs))
 	connection.CheckNumberOfUpdateRequests(t, 1)
+
+	// Status is updated twice when adding a replica set
+	client.CheckNumberOfOperations(t, HItem(reflect.ValueOf(manager.client.Status), nil), 2)
 }
 
 // TestScaleUpReplicaSet verifies scaling up for replica set. Statefulset and OM Deployment must be changed accordingly

@@ -11,11 +11,13 @@ import (
 
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	appsv1 "k8s.io/api/apps/v1"
+	"reflect"
 	corev1 "k8s.io/api/core/v1"
-
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
@@ -31,7 +33,18 @@ func AddStandaloneController(mgr manager.Manager) error {
 	}
 
 	// Watch for changes to primary resource MongoDbStandalone
-	err = c.Watch(&source.Kind{Type: &mongodb.MongoDbStandalone{}}, &handler.EnqueueRequestForObject{})
+	err = c.Watch(&source.Kind{Type: &mongodb.MongoDbStandalone{}}, &handler.EnqueueRequestForObject{}, predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldResource := e.ObjectOld.(*mongodb.MongoDbStandalone)
+			newResource := e.ObjectNew.(*mongodb.MongoDbStandalone)
+			// We never reconcile on statuses changes - only on spec/metadata ones
+			// Note, that in case of failure (when the Reconciler returns (retry, nil)) there is no watch event - so
+			// we are safe not to lose retrials. This watch is ONLY for changes done to Mongodb Resource
+			if !reflect.DeepEqual(oldResource.GetCommonStatus(), newResource.GetCommonStatus()) {
+				return false
+			}
+			return shouldReconcile(newResource)
+		}})
 	if err != nil {
 		return err
 	}
@@ -41,7 +54,14 @@ func AddStandaloneController(mgr manager.Manager) error {
 	err = c.Watch(&source.Kind{Type: &appsv1.StatefulSet{}}, &handler.EnqueueRequestForOwner{
 		IsController: true,
 		OwnerType:    &mongodb.MongoDbStandalone{},
-	})
+	}, predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			// The controller must watch only for changes in spec made by users, we don't care about status changes
+			if !reflect.DeepEqual(e.ObjectOld.(*appsv1.StatefulSet).Spec, e.ObjectNew.(*appsv1.StatefulSet).Spec) {
+				return true
+			}
+			return false
+		}})
 	if err != nil {
 		return err
 	}
@@ -87,16 +107,15 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		func(result reconcile.Result, err error) { res = result; e = err },
 	)
 
-	log.Info("-> Standalone.Reconcile")
-
-	reconcileResult, err := r.fetchResource(request, s, log)
+	reconcileResult, err := r.prepareResourceForReconciliation(request, s, log)
 	if reconcileResult != nil {
 		return *reconcileResult, err
 	}
 
+	log.Info("-> Standalone.Reconcile")
 	log.Debugf("Standalone.Spec[current]: %+v", s.Spec)
 
-	if needsDeletion(s.Meta) {
+	if s.Meta.NeedsDeletion() {
 		log.Info("ReplicaSet.Delete")
 		return r.reconcileDeletion(r.delete, s, &s.ObjectMeta, log)
 	}
@@ -131,7 +150,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		return r.updateStatusFailed(s, fmt.Sprintf("Failed to create/update standalone in Ops Manager: %s", err), log)
 	}
 
-	r.updateStatusSuccessful(s, log)
+	r.updateStatusSuccessful(s, log, conn.BaseURL(), conn.GroupID())
 	log.Infof("Finished reconciliation for MongoDbStandalone! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	return reconcile.Result{}, nil
 }

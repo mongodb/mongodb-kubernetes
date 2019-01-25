@@ -29,6 +29,7 @@ const (
 	TestGroupName = "my-project"
 	TestOrgID     = "xyz9876"
 	TestAgentKey  = "qwerty9876"
+	TestURL       = "http://mycompany.com:8080"
 )
 
 type MockedOmConnection struct {

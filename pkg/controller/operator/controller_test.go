@@ -11,7 +11,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	v12 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -26,6 +26,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
 )
+
+func init() {
+	util.OperatorVersion = "testVersion"
+}
 
 // TestPrepareOmConnection_FindExistingGroup finds existing group when org ID is specified
 func TestPrepareOmConnection_FindExistingGroup(t *testing.T) {
@@ -283,45 +287,68 @@ func omConnOldVersion() func(url, g, user, k string) om.Connection {
 }
 
 func requestFromObject(object apiruntime.Object) reconcile.Request {
-	return reconcile.Request{objectKeyFromApiObject(object)}
+	return reconcile.Request{NamespacedName: objectKeyFromApiObject(object)}
 }
 
-func checkReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, object v1.StatusUpdater, client *MockedClient) {
+func checkReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, object v1.MongoDbResource, client *MockedClient) {
 	result, e := reconciler.Reconcile(requestFromObject(object))
 	assert.NoError(t, e)
 	assert.Equal(t, reconcile.Result{}, result)
 
 	// also need to make sure the object status is updated to successful
 	assert.NoError(t, client.Get(context.TODO(), objectKeyFromApiObject(object), object))
-	assert.Equal(t, v1.StateRunning, object.GetStatus())
+	assert.Equal(t, v1.PhaseRunning, object.GetCommonStatus().Phase)
 
+	expectedLink := DeploymentLink(om.TestURL, om.TestGroupID)
+	expectedVersion := util.OperatorVersion
 	switch s := object.(type) {
 	case *v1.MongoDbStandalone:
 		{
+			hashedSpec, _ := util.Hash(s.Spec)
 			assert.Equal(t, s.Spec.Version, s.Status.Version)
+			assert.Equal(t, hashedSpec, s.Status.SpecHash)
+			assert.NotNil(t, s.Status.LastTransition)
+			assert.NotEqual(t, s.Status.LastTransition, "")
+			assert.Equal(t, expectedLink, s.Status.Link)
+			assert.Equal(t, expectedVersion, s.Status.OperatorVersion)
+
 		}
 	case *v1.MongoDbReplicaSet:
 		{
+			hashedSpec, _ := util.Hash(s.Spec)
 			assert.Equal(t, s.Spec.Members, s.Status.Members)
 			assert.Equal(t, s.Spec.Version, s.Status.Version)
+			assert.Equal(t, hashedSpec, s.Status.SpecHash)
+			assert.NotNil(t, s.Status.LastTransition)
+			assert.NotEqual(t, s.Status.LastTransition, "")
+			assert.Equal(t, expectedLink, s.Status.Link)
+			assert.Equal(t, expectedVersion, s.Status.OperatorVersion)
 		}
 	case *v1.MongoDbShardedCluster:
 		{
+			hashedSpec, _ := util.Hash(s.Spec)
 			assert.Equal(t, s.Spec.ConfigServerCount, s.Status.ConfigServerCount)
 			assert.Equal(t, s.Spec.MongosCount, s.Status.MongosCount)
 			assert.Equal(t, s.Spec.MongodsPerShardCount, s.Status.MongodsPerShardCount)
 			assert.Equal(t, s.Spec.ShardCount, s.Status.ShardCount)
 			assert.Equal(t, s.Spec.Version, s.Status.Version)
+			assert.Equal(t, hashedSpec, s.Status.SpecHash)
+			assert.NotNil(t, s.Status.LastTransition)
+			assert.NotEqual(t, s.Status.LastTransition, "")
+			assert.Equal(t, expectedLink, s.Status.Link)
+			assert.Equal(t, expectedVersion, s.Status.OperatorVersion)
 		}
 	}
 }
 
-func checkReconcileFailed(t *testing.T, reconciler reconcile.Reconciler, object v1.StatusUpdater, errorPart string, client *MockedClient) {
+func checkReconcileFailed(t *testing.T, reconciler reconcile.Reconciler, object v1.MongoDbResource, expectedErrorMessage string, client *MockedClient) {
+	failedResult := reconcile.Result{RequeueAfter: 10 * time.Second}
 	result, e := reconciler.Reconcile(requestFromObject(object))
-	assert.Contains(t, e.Error(), errorPart)
-	assert.Equal(t, reconcile.Result{RequeueAfter: 10 * time.Second}, result)
+	assert.Nil(t, e, "When retrying, error should be nil")
+	assert.Equal(t, failedResult, result)
 
 	// also need to make sure the object status is updated to failed
 	assert.NoError(t, client.Get(context.TODO(), objectKeyFromApiObject(object), object))
-	assert.Equal(t, v1.StateFailed, object.GetStatus())
+	assert.Equal(t, v1.PhaseFailed, object.GetCommonStatus().Phase)
+	assert.Equal(t, expectedErrorMessage, object.GetCommonStatus().Message)
 }

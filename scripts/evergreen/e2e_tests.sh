@@ -94,11 +94,8 @@ install_operator() {
         kubectl apply -f "helm_out/mongodb-enterprise-operator/templates/${file}.yaml"
     done
 
-    # The CRD might not exist in a new cluster install.
-    if ! kubectl get crd/mongodbreplicasets.mongodb.com > /dev/null ; then
-        echo "Installing CRDs."
-        kubectl apply -f "helm_out/mongodb-enterprise-operator/templates/crds.yaml"
-    fi
+    # crds may exist - then the creation may fail which is fine
+    kubectl apply -f "helm_out/mongodb-enterprise-operator/templates/crds.yaml" || true
 
     echo "Waiting until Operator gets to Running state..."
 

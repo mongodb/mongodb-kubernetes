@@ -3,6 +3,7 @@ package v1
 import (
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -40,11 +41,8 @@ type MongoDbShardedClusterSpec struct {
 
 // MongoDbShardedClusterStatus defines the observed state of MongoDbShardedCluster
 type MongoDbShardedClusterStatus struct {
+	CommonStatus
 	MongodbShardedClusterSizeConfig
-	Version string `json:"version"`
-
-	// TODO
-	State string `json:"state"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -88,31 +86,48 @@ func (c *MongoDbShardedCluster) ShardRsName(i int) string {
 }
 
 // UpdateSuccessful
-func (c *MongoDbShardedCluster) UpdateSuccessful() {
-	c.Status.Version = c.Spec.Version
-
-	c.Status.MongosCount = c.Spec.MongosCount
-	c.Status.MongodsPerShardCount = c.Spec.MongodsPerShardCount
-	c.Status.ConfigServerCount = c.Spec.ConfigServerCount
-	c.Status.ShardCount = c.Spec.ShardCount
-
-	c.Status.State = StateRunning
+func (c *MongoDbShardedCluster) UpdateSuccessful(deploymentLink string, reconciledResource MongoDbResource) {
+	spec := reconciledResource.(*MongoDbShardedCluster).Spec
+	specHash, err := util.Hash(spec)
+	if err != nil { // invalid specHash will cause infinite Reconcile loop
+		panic(err)
+	}
+	c.Status.Version = spec.Version
+	c.Status.MongosCount = spec.MongosCount
+	c.Status.MongodsPerShardCount = spec.MongodsPerShardCount
+	c.Status.ConfigServerCount = spec.ConfigServerCount
+	c.Status.ShardCount = spec.ShardCount
+	c.Status.Message = ""
+	c.Status.Link = deploymentLink
+	c.Status.LastTransition = util.Now()
+	c.Status.SpecHash = specHash
+	c.Status.OperatorVersion = util.OperatorVersion
+	c.Status.Phase = PhaseRunning
 }
 
 // UpdateError
 func (c *MongoDbShardedCluster) UpdateError(msg string) {
-	c.Status.State = StateFailed
+	c.Status.Message = msg
+	c.Status.LastTransition = util.Now()
+	c.Status.Phase = PhaseFailed
 }
 
-// GetStatus
-func (c *MongoDbShardedCluster) GetStatus() string {
-	return c.Status.State
-}
-
-// IsEmpty will check this is an "Empty" object
+// IsEmpty will check this is an "Create" object
 func (c *MongoDbShardedCluster) IsEmpty() bool {
 	return c.Spec.ShardCount == 0 &&
 		c.Spec.MongosCount == 0 &&
 		c.Spec.MongodsPerShardCount == 0 &&
 		c.Spec.ConfigServerCount == 0
+}
+
+func (c *MongoDbShardedCluster) ComputeSpecHash() (uint64, error) {
+	return util.Hash(c.Spec)
+}
+
+func (c *MongoDbShardedCluster) GetCommonStatus() *CommonStatus {
+	return &c.Status.CommonStatus
+}
+
+func (c *MongoDbShardedCluster) GetMeta() *Meta {
+	return &c.Meta
 }

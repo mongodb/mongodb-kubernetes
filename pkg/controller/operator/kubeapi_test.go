@@ -191,9 +191,9 @@ func (k *MockedClient) Delete(ctx context.Context, obj apiruntime.Object, opts .
 }
 
 func (k *MockedClient) Status() client.StatusWriter {
-	k.addToHistory(reflect.ValueOf(k.Status()), nil)
-	// we don't need this implementation
-	return nil
+	// MockedClient also implements StatusWriter and the Update function does what we need
+	k.addToHistory(reflect.ValueOf(k.Status), nil)
+	return k
 }
 
 // onStatefulsetUpdate emulates statefulsets reaching their desired state, also OM automation agents get "registered"
@@ -259,6 +259,16 @@ func (oc *MockedClient) CheckOrderOfOperations(t *testing.T, value ...*HistoryIt
 	assert.Equal(t, len(value), j, "Only %d of %d expected operations happened in expected order (%s)", j, len(value), matched)
 }
 
+func (oc *MockedClient) CheckNumberOfOperations(t *testing.T, value *HistoryItem, expected int) {
+	count := 0
+	for _, h := range oc.history {
+		if *h == *value {
+			count++
+		}
+	}
+	assert.Equal(t, expected, count, "Expected to have been %d %s operations but there were %d", expected, value.function.Name(), count)
+}
+
 func (oc *MockedClient) CheckOperationsDidntHappen(t *testing.T, value ...*HistoryItem) {
 	for _, h := range oc.history {
 		for _, o := range value {
@@ -278,11 +288,21 @@ type HistoryItem struct {
 }
 
 func HItem(value reflect.Value, obj apiruntime.Object) *HistoryItem {
-	return &HistoryItem{function: runtime.FuncForPC(value.Pointer()), resourceType: reflect.ValueOf(obj).Type()}
+	historyItem := &HistoryItem{function: runtime.FuncForPC(value.Pointer())}
+	if obj != nil {
+		historyItem.resourceType = reflect.ValueOf(obj).Type()
+	} else {
+		historyItem.resourceType = nil
+	}
+	return historyItem
 }
 
 func (h HistoryItem) String() string {
-	return fmt.Sprintf("%s-%s", h.function.Name(), h.resourceType.String())
+	resourceTypeStr := "nil"
+	if h.resourceType != nil {
+		resourceTypeStr = h.resourceType.String()
+	}
+	return fmt.Sprintf("%s-%s", h.function.Name(), resourceTypeStr)
 }
 
 // MockedManager is the mock implementation of `Manager` from controller-runtime library. The only interesting method though

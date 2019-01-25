@@ -56,6 +56,10 @@ func NewDefaultStandalonePodSpecWrapper(podSpec mongodb.MongoDbPodSpecStandard) 
 	}
 }
 
+func DeploymentLink(url, groupId string) string {
+	return fmt.Sprintf("%s/v2/%s", url, groupId)
+}
+
 func buildReplicaSetFromStatefulSet(set *appsv1.StatefulSet, clusterName, version string) om.ReplicaSetWithProcesses {
 	members := createProcesses(set, clusterName, version, om.ProcessTypeMongod)
 	rsWithProcesses := om.NewReplicaSetWithProcesses(om.NewReplicaSet(set.Name, version), members)
@@ -235,7 +239,6 @@ func completionMessage(url, groupID string) string {
 func exceptionHandling(errHandlingFunc func() (reconcile.Result, error), errUpdateFunc func(res reconcile.Result, err error)) {
 	if r := recover(); r != nil {
 		result, e := errHandlingFunc()
-
 		errUpdateFunc(result, e)
 	}
 }

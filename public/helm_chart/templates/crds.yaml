@@ -6,6 +6,8 @@ kind: CustomResourceDefinition
 metadata:
   name: mongodbstandalones.mongodb.com
 spec:
+  subresources:
+    status: {}
   group: mongodb.com
   version: v1
   scope: Namespaced
@@ -41,6 +43,8 @@ kind: CustomResourceDefinition
 metadata:
   name: mongodbreplicasets.mongodb.com
 spec:
+  subresources:
+    status: {}
   group: mongodb.com
   version: v1
   scope: Namespaced
@@ -81,6 +85,8 @@ kind: CustomResourceDefinition
 metadata:
   name: mongodbshardedclusters.mongodb.com
 spec:
+  subresources:
+    status: {}
   group: mongodb.com
   version: v1
   scope: Namespaced

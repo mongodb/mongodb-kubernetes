@@ -11,7 +11,7 @@ import (
 
 	"os"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"go.uber.org/zap"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -254,8 +254,10 @@ func DefaultClusterBuilder() *ClusterBuilder {
 	}
 	status := &v1.MongoDbShardedClusterStatus{
 		MongodbShardedClusterSizeConfig: sizeConfig,
-		State:   v1.StateRunning,
-		Version: "3.6.4",
+		CommonStatus: v1.CommonStatus{
+			Phase:   v1.PhaseRunning,
+			Version: "3.6.4",
+		},
 	}
 	cluster := &v1.MongoDbShardedCluster{
 		Meta:   v1.Meta{ObjectMeta: metav1.ObjectMeta{Name: "slaney", Namespace: TestNamespace}},

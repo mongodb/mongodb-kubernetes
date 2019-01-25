@@ -57,7 +57,7 @@ ensure_ops_manager_k8s() {
 		echo "Also you'll need to update \"opsManager.version\" in scripts/evergreen/deployments/values-ops-manager.yaml"
 
 		# Building Ops Manager image if we want to run it in local Kubernetes cluster
-		if ${REPO_TYPE:-ecr} = "local"; then
+		if ${REPO_TYPE:-"ecr"} = "local"; then
 			make -C docker/mongodb-enterprise-ops-manager build
 		fi
 		# If Ops Manager is not running, run it first!

@@ -14,6 +14,9 @@ import (
 
 	"os"
 
+	"crypto/sha1"
+	"encoding/json"
+	"errors"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
 )
@@ -165,6 +168,28 @@ func PrintEnvVars() {
 	for _, e := range envVariables {
 		zap.S().Infof("%s", e)
 	}
+}
+
+func Hash(item interface{}) (uint64, error) {
+	// json package always orders keys in the order defined in the struct
+	// so we don't need to worry about different orders causing inconsistencies
+	// https://stackoverflow.com/questions/18668652/how-to-produce-json-with-sorted-keys-in-go
+	jsonBytes, err := json.Marshal(item)
+	if err != nil {
+		return 0, errors.New(fmt.Sprintf("Failed to hash %s", item))
+	}
+	hash := sha1.New()
+	hash.Write(jsonBytes)
+	hashBytes := hash.Sum(nil)
+	sum := uint64(0)
+	for _, b := range hashBytes {
+		sum += uint64(b)
+	}
+	return sum, nil
+}
+
+func Now() string {
+	return time.Now().Format(time.RFC3339)
 }
 
 // ************ Different string/array functions **************

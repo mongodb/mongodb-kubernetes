@@ -67,3 +67,6 @@ const (
 	OmGroupExternallyManagedTag = "EXTERNALLY_MANAGED_BY_KUBERNETES"
 	MongodbResourceFinalizer    = "resource.finalizer.mongodb.com"
 )
+
+// this is set at compile time
+var OperatorVersion string

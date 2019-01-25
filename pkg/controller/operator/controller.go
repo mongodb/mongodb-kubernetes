@@ -6,8 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
-	"github.com/pkg/errors"
+	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -117,48 +116,40 @@ func (c *ReconcileCommonController) ensureAgentKeySecretExists(conn om.Connectio
 	return strings.TrimSuffix(string(secret.Data[util.OmAgentApiKey]), "\n"), nil
 }
 
-func (c *ReconcileCommonController) updateStatusSuccessful(resource v1.StatusUpdater, log *zap.SugaredLogger) {
-	// Sometimes we get the "Operation cannot be fulfilled on mongodbstandalones.mongodb.com : the object has
-	// been modified; please apply your changes to the latest version and try again" error - so let's fetch the latest
-	// object before updating it
-	_ = c.client.Get(context.TODO(), objectKeyFromApiObject(resource), resource)
-
-	resource.UpdateSuccessful()
-
-	// Dev note: "c.client.Status().Update()" doesn't work for some reasons and the examples from Operator SDK use the
-	// normal resource update - so we use the same
-	// None of the following seems to work!
-	// err := c.client.Status().Update(context.TODO(), resource)
-	err := c.client.Update(context.TODO(), resource)
+func (c *ReconcileCommonController) updateStatusSuccessful(reconciledResource v1.MongoDbResource, log *zap.SugaredLogger, url, groupId string) {
+	old := reconciledResource.DeepCopyObject()
+	err := c.updateStatus(reconciledResource, func(fresh v1.MongoDbResource) {
+		// we need to update the MongoDbResource based on the Spec of the reconciled resource
+		// if there has been a change to the spec since, we don't want to change the state
+		// subresource to match an incorrect spec
+		fresh.UpdateSuccessful(DeploymentLink(url, groupId), old.(v1.MongoDbResource))
+	})
 	if err != nil {
 		log.Errorf("Failed to update status for resource to successful: %s", err)
 	}
 }
 
-func (c *ReconcileCommonController) updateStatusFailed(resource v1.StatusUpdater, msg string, log *zap.SugaredLogger) (reconcile.Result, error) {
+func (c *ReconcileCommonController) updateStatusFailed(resource v1.MongoDbResource, msg string, log *zap.SugaredLogger) (reconcile.Result, error) {
 	log.Error(msg)
 	// Resource may be nil if the reconciliation failed very early (on fetching the resource) and panic handling function
 	// took over
 	if resource != nil {
-		resource.UpdateError(msg)
-		err := c.client.Update(context.TODO(), resource)
+		err := c.updateStatus(resource, func(fresh v1.MongoDbResource) {
+			fresh.UpdateError(msg)
+		})
 		if err != nil {
 			log.Errorf("Failed to update resource status: %s", err)
-			return reconcile.Result{RequeueAfter: 10 * time.Second}, err
+			return reconcile.Result{RequeueAfter: 10 * time.Second}, nil
 		}
 	}
-	return reconcile.Result{RequeueAfter: 10 * time.Second}, errors.New(msg)
-}
-
-func needsDeletion(meta v1.Meta) bool {
-	return !meta.DeletionTimestamp.IsZero()
+	return reconcile.Result{RequeueAfter: 10 * time.Second}, nil
 }
 
 // reconcileDeletion checks the headers and if 'util.MongodbResourceFinalizer' header is present - tries to cleanup Ops Manager
 // through calling 'cleanupFunc'. Cleanup is requeued in case of any troubles. Otherwise the header is removed from custom
 // resource
 func (c *ReconcileCommonController) reconcileDeletion(cleanupFunc func(obj interface{}, log *zap.SugaredLogger) error,
-	res v1.StatusUpdater, objectMeta *metav1.ObjectMeta, log *zap.SugaredLogger) (reconcile.Result, error) {
+	res v1.MongoDbResource, objectMeta *metav1.ObjectMeta, log *zap.SugaredLogger) (reconcile.Result, error) {
 	// Object is being removed - let's check for finalizers left
 	if util.ContainsString(objectMeta.Finalizers, util.MongodbResourceFinalizer) {
 		if err := cleanupFunc(res, log); err != nil {
@@ -197,10 +188,63 @@ func (c *ReconcileCommonController) ensureFinalizerHeaders(res runtime.Object, o
 	return nil
 }
 
-// fetchResource finds the object being reconciled. Returns pointer to 'reconcile.Result' and error.
+// if the resource is updated externally during an update, it's possible that we get concurrent modification errors
+// when trying to update.
+// E.g: "Operation cannot be fulfilled on mongodbstandalones.mongodb.com : the object has
+// been modified; please apply your changes to the latest version and try again" error - so let's fetch the latest
+// object before updating it.
+// We fetch a fresh version in case any modifications have been made.
+func (c *ReconcileCommonController) updateStatus(reconciledResource v1.MongoDbResource, updateFunc func(fresh v1.MongoDbResource)) error {
+	var err error
+	for i := 0; i < 3; i++ {
+		err = c.client.Get(context.TODO(), objectKeyFromApiObject(reconciledResource), reconciledResource)
+		if err == nil {
+			updateFunc(reconciledResource)
+			err = c.client.Status().Update(context.TODO(), reconciledResource)
+			if err == nil {
+				return nil
+			}
+			// we want to try again if there's a conflict, possible concurrent modification
+			if apiErrors.IsConflict(err) {
+				continue
+			}
+			// otherwise we've got a different error
+			return err
+		}
+	}
+	return err
+}
+
+func (c *ReconcileCommonController) updatePending(reconciledResource v1.MongoDbResource) error {
+	return c.updateStatus(reconciledResource, func(fresh v1.MongoDbResource) {
+		fresh.GetCommonStatus().Phase = v1.PhasePending
+	})
+}
+
+// shouldReconcile checks if the resource must be reconciled.
+// Two edge cases:
+// 1) when the Operator has been redeployed and the reconciliation events are sent for all existing resources - their
+// state is ready  (spec.Hash == status.Hash) but we still need to proceed reconciliation
+// 2) if the object is being removed
+// 3) if it hasn't reached READY state
+func shouldReconcile(mdbResource v1.MongoDbResource) bool {
+	status := mdbResource.GetCommonStatus()
+	if status.OperatorVersion != util.OperatorVersion || mdbResource.GetMeta().NeedsDeletion() {
+		return true
+	}
+	specHash, hashErr := mdbResource.ComputeSpecHash()
+	if hashErr != nil {
+		zap.S().Warnf("Error computing hash of Spec, proceeding reconciliation: %s", hashErr)
+		return true
+	}
+	return status.SpecHash != specHash
+}
+
+// prepareResourceForReconciliation finds the object being reconciled. Returns pointer to 'reconcile.Result', error and the hashSpec for the resource.
 // If the 'reconcile.Result' pointer is not nil - the client is expected to finish processing
-func (c *ReconcileCommonController) fetchResource(request reconcile.Request, object runtime.Object, log *zap.SugaredLogger) (*reconcile.Result, error) {
-	err := c.client.Get(context.TODO(), request.NamespacedName, object)
+func (c *ReconcileCommonController) prepareResourceForReconciliation(
+	request reconcile.Request, mdbResource v1.MongoDbResource, log *zap.SugaredLogger) (*reconcile.Result, error) {
+	err := c.client.Get(context.TODO(), request.NamespacedName, mdbResource)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			// Request object not found, could have been deleted after reconcile request.
@@ -213,6 +257,13 @@ func (c *ReconcileCommonController) fetchResource(request reconcile.Request, obj
 		log.Errorf("Failed to query object %s: %s", request.NamespacedName, err)
 		return &reconcile.Result{RequeueAfter: 10 * time.Second}, err
 	}
+
+	updateErr := c.updatePending(mdbResource)
+	if updateErr != nil {
+		log.Warnf("Error setting state to pending: %s", updateErr)
+		return &reconcile.Result{Requeue: true}, nil
+	}
+
 	return nil, nil
 }
 

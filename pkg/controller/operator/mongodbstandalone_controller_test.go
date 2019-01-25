@@ -5,7 +5,9 @@ import (
 
 	"os"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"reflect"
+
+	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
@@ -42,6 +44,8 @@ func TestOnAddStandalone(t *testing.T) {
 
 	omConn.CheckDeployment(t, createDeploymentFromStandalone(st))
 	omConn.CheckNumberOfUpdateRequests(t, 1)
+
+	client.CheckNumberOfOperations(t, HItem(reflect.ValueOf(client.Status), nil), 2)
 }
 
 func TestStandaloneEventMethodsHandlePanic(t *testing.T) {

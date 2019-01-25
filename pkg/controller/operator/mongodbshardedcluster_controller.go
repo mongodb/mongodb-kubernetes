@@ -7,11 +7,14 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
+	"reflect"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
@@ -28,9 +31,8 @@ func newShardedClusterReconciler(mgr manager.Manager, omFunc om.ConnectionFunc) 
 // Reconcile
 func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
 	log := zap.S().With("ShardedCluster", request.NamespacedName)
-	log.Info("-> ShardedCluster.Reconcile")
-
 	sc := &mongodb.MongoDbShardedCluster{}
+  
 	defer exceptionHandling(
 		func() (reconcile.Result, error) {
 			return r.updateStatusFailed(sc, "Failed to reconcile Sharded Cluster", log)
@@ -38,15 +40,16 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (r
 		func(result reconcile.Result, err error) { res = result; e = err },
 	)
 
-	reconcileResult, err := r.fetchResource(request, sc, log)
+	reconcileResult, err := r.prepareResourceForReconciliation(request, sc, log)
 	if reconcileResult != nil {
 		return *reconcileResult, err
 	}
 
+	log.Info("-> ShardedCluster.Reconcile")
 	log.Infof("ShardedCluster.Spec: %+v", sc.Spec)
 	log.Infof("ShardedCluster.Status: %+v", sc.Status)
 
-	if needsDeletion(sc.Meta) {
+	if sc.Meta.NeedsDeletion() {
 		log.Info("ShardedCluster.Delete")
 		return r.reconcileDeletion(r.delete, sc, &sc.ObjectMeta, log)
 	}
@@ -60,7 +63,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (r
 		return r.updateStatusFailed(sc, err.Error(), log)
 	}
 
-	r.updateStatusSuccessful(sc, log)
+	r.updateStatusSuccessful(sc, log, conn.BaseURL(), conn.GroupID())
 	log.Infof("Finished reconciliation for Sharded Cluster! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	return reconcile.Result{}, nil
 }
@@ -220,7 +223,18 @@ func AddShardedClusterController(mgr manager.Manager) error {
 		return err
 	}
 
-	err = c.Watch(&source.Kind{Type: &mongodb.MongoDbShardedCluster{}}, &handler.EnqueueRequestForObject{})
+	err = c.Watch(&source.Kind{Type: &mongodb.MongoDbShardedCluster{}}, &handler.EnqueueRequestForObject{}, predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldResource := e.ObjectOld.(*mongodb.MongoDbShardedCluster)
+			newResource := e.ObjectNew.(*mongodb.MongoDbShardedCluster)
+			// We never reconcile on statuses changes - only on spec/metadata ones
+			// Note, that in case of failure (when the Reconciler returns (retry, nil)) there is no watch event - so
+			// we are safe not to lose retrials. This watch is ONLY for changes done to Mongodb Resource
+			if !reflect.DeepEqual(oldResource.GetCommonStatus(), newResource.GetCommonStatus()) {
+				return false
+			}
+			return shouldReconcile(newResource)
+		}})
 	if err != nil {
 		return err
 	}

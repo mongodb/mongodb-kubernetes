@@ -20,12 +20,20 @@ cleanup_env() {
     if [[ ns_count -gt ${MAX_NS_COUNT} ]]; then
         echo "##### Cleaning namespaces and Ops Manager as number of namespaces exceeds $MAX_NS_COUNT"
 
-        for f in $(kubectl get ns -o name | grep a-); do
+        for f in $(kubectl get ns -o name | grep a- | sed 's/namespace\///'); do
+            echo "Removing all mongodb resources for namespace: ${f}"
+
             # temp until CLOUDP-35555 is resolved
             for m in $(kubectl get mrs -n ${f} -o name); do
                 kubectl patch  ${m}  --type json   -p='[{"op": "remove", "path": "/metadata/finalizers"}]' -n ${f}
             done
-            kubectl delete ${f};
+            for m in $(kubectl get msc -n ${f} -o name); do
+                kubectl patch  ${m}  --type json   -p='[{"op": "remove", "path": "/metadata/finalizers"}]' -n ${f}
+            done
+            for m in $(kubectl get mst -n ${f} -o name); do
+                kubectl patch  ${m}  --type json   -p='[{"op": "remove", "path": "/metadata/finalizers"}]' -n ${f}
+            done
+            kubectl delete ns ${f};
         done
 
         kubectl delete ns operator-testing
@@ -34,8 +42,6 @@ cleanup_env() {
         while [ $(kubectl get namespace/operator-testing -o name 2> /dev/null)  ]; do
             sleep 1
         done
-
-        echo "##### Removed old namespaces and Ops Manager one"
     fi
 
     echo "##### Removing FAILED Persistent Volumes if any"

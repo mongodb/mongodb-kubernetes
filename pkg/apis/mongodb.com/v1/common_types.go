@@ -1,7 +1,7 @@
 package v1
 
 import (
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -10,6 +10,7 @@ import (
 // TODO rename the file to "common_types.go" later
 
 type LogLevel string
+type Phase string
 
 const (
 	Debug LogLevel = "DEBUG"
@@ -18,23 +19,30 @@ const (
 	Error LogLevel = "ERROR"
 	Fatal LogLevel = "FATAL"
 
-	// StateRunning means Pod is in running state
-	StateRunning = "Running"
+	// PhasePending means the reconciliation has begun for the Mongodb Resource
+	PhasePending Phase = "Pending"
 
-	// StateFailed meands Pod is in failed state
-	StateFailed = "Failed"
+	// PhaseRunning means the Mongodb Resource is in a running state
+	PhaseRunning Phase = "Running"
+
+	// PhaseFailed means the Mongodb Resource is in a failed state
+	PhaseFailed Phase = "Failed"
 )
 
 // Seems this should be removed as soon as CLOUDP-35934 is resolved
 var AllLogLevels = []LogLevel{Debug, Info, Warn, Error, Fatal}
 
-// StatusUpdater is the interface that knows how to update status in case of success and in case of failure
-type StatusUpdater interface {
+// MongoDbResource is the interface that represents a MongoDB Resource. An implementation must provide
+// functions which determine if the resource needs to be reconciled or not.
+type MongoDbResource interface {
 	runtime.Object
-	UpdateSuccessful()
+	// we update with the reconciled resource not a freshly retrieved resource.
+	// we do this to prevent against concurrent modification bugs.
+	UpdateSuccessful(deploymentLink string, reconciledResource MongoDbResource)
 	UpdateError(errorMessage string)
-	// TODO replace return result with some enum
-	GetStatus() string
+	ComputeSpecHash() (uint64, error)
+	GetCommonStatus() *CommonStatus
+	GetMeta() *Meta
 }
 
 type Meta struct {
@@ -44,6 +52,10 @@ type Meta struct {
 
 func (m *Meta) ObjectKey() client.ObjectKey {
 	return client.ObjectKey{Name: m.Name, Namespace: m.Namespace}
+}
+
+func (m *Meta) NeedsDeletion() bool {
+	return !m.DeletionTimestamp.IsZero()
 }
 
 // CommonSpec includes fields common for all Mongodb types
@@ -57,6 +69,17 @@ type CommonSpec struct {
 	LogLevel    LogLevel `json:"logLevel,omitempty"`
 	Project     string   `json:"project"`
 	Credentials string   `json:"credentials"`
+}
+
+// CommonStatus includes fields common for all status types
+type CommonStatus struct {
+	Version         string `json:"version"`
+	Phase           Phase  `json:"phase"`
+	Message         string `json:"message,omitempty"`
+	Link            string `json:"link,omitempty"`
+	LastTransition  string `json:"lastTransition,omitempty"`
+	SpecHash        uint64 `json:"specHash"`
+	OperatorVersion string `json:"operatorVersion"`
 }
 
 type MongoDbPodSpec struct {

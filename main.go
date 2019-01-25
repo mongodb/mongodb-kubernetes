@@ -19,9 +19,6 @@ import (
 
 var log *zap.SugaredLogger
 
-// this is set at compile time
-var operatorVersion string
-
 func main() {
 
 	initializeEnvironment()
@@ -75,7 +72,7 @@ func initializeEnvironment() {
 	initEnvVariables(env)
 
 	log.Infof("Operator environment: %s", env)
-	log.Infof("Operator version: %s", operatorVersion)
+	log.Infof("Operator version: %s", util.OperatorVersion)
 	log.Infof("Go Version: %s", runtime.Version())
 	log.Infof("Go OS/Arch: %s/%s", runtime.GOOS, runtime.GOARCH)
 	util.PrintEnvVars()
