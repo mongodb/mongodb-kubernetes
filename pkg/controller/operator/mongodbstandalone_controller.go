@@ -9,9 +9,10 @@ import (
 
 	"go.uber.org/zap"
 
+	"reflect"
+
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	appsv1 "k8s.io/api/apps/v1"
-	"reflect"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"

@@ -13,10 +13,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission/types"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
-
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"

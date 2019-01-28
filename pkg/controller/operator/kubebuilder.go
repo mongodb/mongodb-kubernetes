@@ -230,7 +230,7 @@ func basePodSpec(statefulSetName string, reqs mongodb.PodSpecWrapper, podVars *P
 func baseLivenessProbe() *corev1.Probe {
 	return &corev1.Probe{
 		Handler: corev1.Handler{
-			Exec: &corev1.ExecAction{[]string{util.LivenessProbe}},
+			Exec: &corev1.ExecAction{Command: []string{util.LivenessProbe}},
 		},
 		InitialDelaySeconds: 60,
 		TimeoutSeconds:      30,

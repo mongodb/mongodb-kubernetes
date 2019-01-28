@@ -1,0 +1,43 @@
+#!/bin/sh
+
+# pre-commit hook will go vet all the files being commited
+# and also format them with go imports
+
+
+if [[ -z $GOPATH ]]; then
+    echo "GOPATH is not configured"
+    exit 1
+fi
+
+mkdir -p "${GOPATH}/bin"
+
+if ! [[ -x "$(command -v goimports)" ]]; then
+    echo "installing goimports..."
+    go get golang.org/x/tools/cmd/goimports
+fi
+
+gofiles=$(git diff --cached --name-only --diff-filter=ACM | grep -v vendor | grep '.go$')
+
+[[ -z "$gofiles" ]] && exit 0
+
+failed=0
+for file in "$gofiles"; do
+    echo "Checking ${file}"
+    (go tool vet ${file} && echo "Ok.") || failed=1
+done
+
+if [[ ${failed} = 1 ]]; then
+    echo "ERROR: fix go vet warnings"
+    exit 1
+fi
+
+unformatted=$(goimports -l $gofiles)
+[[ -z "$unformatted" ]] && exit 0
+
+for fn in $unformatted; do
+        echo >&2 "formatting $PWD/$fn"
+        goimports -w $PWD/$fn
+        git add $PWD/$fn
+done
+
+exit 0

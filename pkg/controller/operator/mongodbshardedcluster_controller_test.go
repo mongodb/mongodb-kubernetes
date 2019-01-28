@@ -254,6 +254,7 @@ func DefaultClusterBuilder() *ClusterBuilder {
 	}
 	status := &v1.MongoDbShardedClusterStatus{
 		MongodbShardedClusterSizeConfig: sizeConfig,
+
 		CommonStatus: v1.CommonStatus{
 			Phase:   v1.PhaseRunning,
 			Version: "3.6.4",

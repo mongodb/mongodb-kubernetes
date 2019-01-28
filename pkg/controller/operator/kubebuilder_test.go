@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"k8s.io/api/apps/v1"
+	v1 "k8s.io/api/apps/v1"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 
@@ -37,9 +37,9 @@ func TestBuildStatefulSet_PersistentFlag(t *testing.T) {
 // absent label selector
 func TestBuildStatefulSet_PersistentVolumeClaimDeprecated(t *testing.T) {
 	podSpec := mongodb.PodSpecWrapper{
-		mongodb.MongoDbPodSpec{
-			mongodb.MongoDbPodSpecStandard{StorageClass: "fast", Storage: "5G"}, ""},
-		NewDefaultPodSpec()}
+		MongoDbPodSpec: mongodb.MongoDbPodSpec{
+			MongoDbPodSpecStandard: mongodb.MongoDbPodSpecStandard{StorageClass: "fast", Storage: "5G"}, PodAntiAffinityTopologyKey: ""},
+		Default: NewDefaultPodSpec()}
 	set := defaultSetHelper().SetPodSpec(podSpec).BuildStatefulSet()
 
 	checkPvClaims(t, set, []*corev1.PersistentVolumeClaim{pvClaim(util.PvcNameData, "5G", util.StringRef("fast"), nil)})
@@ -57,9 +57,9 @@ func TestBuildStatefulSet_PersistentVolumeClaimSingle(t *testing.T) {
 	selector := &metav1.LabelSelector{MatchLabels: map[string]string{"app": "foo"}}
 	// todo add builders to avoid cumbersome structs
 	podSpec := mongodb.PodSpecWrapper{
-		mongodb.MongoDbPodSpec{mongodb.MongoDbPodSpecStandard{
-			Persistence: &mongodb.Persistence{SingleConfig: &mongodb.PersistenceConfig{Storage: "40G", StorageClass: util.StringRef("fast"), LabelSelector: selector}}}, ""},
-		NewDefaultPodSpec()}
+		MongoDbPodSpec: mongodb.MongoDbPodSpec{MongoDbPodSpecStandard: mongodb.MongoDbPodSpecStandard{
+			Persistence: &mongodb.Persistence{SingleConfig: &mongodb.PersistenceConfig{Storage: "40G", StorageClass: util.StringRef("fast"), LabelSelector: selector}}}, PodAntiAffinityTopologyKey: ""},
+		Default: NewDefaultPodSpec()}
 	set := defaultSetHelper().SetPodSpec(podSpec).BuildStatefulSet()
 
 	checkPvClaims(t, set, []*corev1.PersistentVolumeClaim{pvClaim(util.PvcNameData, "40G", util.StringRef("fast"), selector)})
@@ -78,14 +78,13 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultiple(t *testing.T) {
 	selector2 := &metav1.LabelSelector{MatchLabels: map[string]string{"app": "foo"}}
 	// todo add builders to avoid cumbersome structs
 	podSpec := mongodb.PodSpecWrapper{
-		mongodb.MongoDbPodSpec{mongodb.MongoDbPodSpecStandard{
+		MongoDbPodSpec: mongodb.MongoDbPodSpec{MongoDbPodSpecStandard: mongodb.MongoDbPodSpecStandard{
 			Persistence: &mongodb.Persistence{MultipleConfig: &mongodb.MultiplePersistenceConfig{
 				Data:    &mongodb.PersistenceConfig{Storage: "40G", StorageClass: util.StringRef("fast")},
 				Logs:    &mongodb.PersistenceConfig{Storage: "3G", StorageClass: util.StringRef("slow"), LabelSelector: selector},
 				Journal: &mongodb.PersistenceConfig{Storage: "500M", StorageClass: util.StringRef("fast"), LabelSelector: selector2},
-			}}}, ""},
-
-		NewDefaultPodSpec()}
+			}}}, PodAntiAffinityTopologyKey: ""},
+		Default: NewDefaultPodSpec()}
 	set := defaultSetHelper().SetPodSpec(podSpec).BuildStatefulSet()
 
 	checkPvClaims(t, set, []*corev1.PersistentVolumeClaim{
@@ -105,12 +104,11 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultiple(t *testing.T) {
 // mount point. Default values are expected to be used for two others
 func TestBuildStatefulSet_PersistentVolumeClaimMultipleDefaults(t *testing.T) {
 	podSpec := mongodb.PodSpecWrapper{
-		mongodb.MongoDbPodSpec{mongodb.MongoDbPodSpecStandard{
+		MongoDbPodSpec: mongodb.MongoDbPodSpec{MongoDbPodSpecStandard: mongodb.MongoDbPodSpecStandard{
 			Persistence: &mongodb.Persistence{MultipleConfig: &mongodb.MultiplePersistenceConfig{
 				Data: &mongodb.PersistenceConfig{Storage: "40G", StorageClass: util.StringRef("fast")},
-			}}}, ""},
-
-		NewDefaultPodSpec()}
+			}}}, PodAntiAffinityTopologyKey: ""},
+		Default: NewDefaultPodSpec()}
 	set := defaultSetHelper().SetPodSpec(podSpec).BuildStatefulSet()
 
 	checkPvClaims(t, set, []*corev1.PersistentVolumeClaim{
@@ -169,7 +167,7 @@ func TestBasePodSpec_Affinity(t *testing.T) {
 // TestBasePodSpec_AntiAffinityDefaultTopology checks that the default topology key is created if the topology key is
 // not specified
 func TestBasePodSpec_AntiAffinityDefaultTopology(t *testing.T) {
-	podSpec := mongodb.PodSpecWrapper{mongodb.MongoDbPodSpec{}, NewDefaultPodSpec()}
+	podSpec := mongodb.PodSpecWrapper{MongoDbPodSpec: mongodb.MongoDbPodSpec{}, Default: NewDefaultPodSpec()}
 	spec := basePodSpec("s", podSpec, defaultPodVars())
 
 	term := spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0]
@@ -240,7 +238,7 @@ func baseSetHelperDelayed(delayMillis time.Duration) *StatefulSetHelper {
 }
 
 func defaultPodSpec() mongodb.PodSpecWrapper {
-	return mongodb.PodSpecWrapper{mongodb.MongoDbPodSpec{PodAntiAffinityTopologyKey: "nodeId"}, NewDefaultPodSpec()}
+	return mongodb.PodSpecWrapper{MongoDbPodSpec: mongodb.MongoDbPodSpec{PodAntiAffinityTopologyKey: "nodeId"}, Default: NewDefaultPodSpec()}
 }
 
 func defaultSetHelper() *StatefulSetHelper {

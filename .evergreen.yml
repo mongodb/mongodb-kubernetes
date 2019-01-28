@@ -2,6 +2,12 @@ stepback: true
 exec_timeout_secs: 1800 # 30 minutes is the longest we'll ever run
 
 functions:
+  "golint":
+    - command : shell.exec
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        script: |
+          WORKDIR=${workdir} ./scripts/evergreen/lint_code.sh
   "clone":
     - command: shell.exec
       params:
@@ -291,12 +297,16 @@ post:
    - func: "post_task"
 
 tasks:
-- name: test
-  tags: ["test"]
+- name: unit_tests
+  tags: ["unit_tests"]
   commands:
-    - func: "clone"
     - func: "test_operator"
     - func: "gotest_parse_files"
+
+- name: unit_tests_lint
+  tags: ["unit_tests_lint"]
+  commands:
+    - func: "golint"
 
 - name: release_operator
   tags: ["release_operator"]
@@ -421,6 +431,13 @@ tasks:
         test_name: sharded_cluster_pv
 
 task_groups:
+- name: unit_task_group
+  setup_group:
+    - func: "clone"
+  tasks:
+    - unit_tests
+    - unit_tests_lint
+
 - name: e2e_task_group
   max_hosts: 100
   setup_group:
@@ -435,14 +452,6 @@ task_groups:
     - e2e_sharded_cluster_pv
 
 buildvariants:
-
-- name: test
-  display_name: "test"
-  run_on:
-     - archlinux-test
-  stepback: true
-  tasks:
-    - ".test"
 
 - name: release_operator
   display_name: "release_operator"
@@ -490,3 +499,12 @@ buildvariants:
    - name: "e2e_task_group"
      depends_on:
      - name: setup_e2e
+
+- name: go_unit_tests
+  display_name: "go_unit_tests"
+  run_on:
+  - archlinux-test
+  batchtime: 1440
+  stepback: false
+  tasks:
+    - name: "unit_task_group"

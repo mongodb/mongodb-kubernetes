@@ -3,8 +3,9 @@ package util
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"os"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestParseMongodbMinorVersionCorrect(t *testing.T) {

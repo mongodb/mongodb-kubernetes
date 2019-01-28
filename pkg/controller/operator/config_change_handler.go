@@ -54,7 +54,7 @@ func (c *ConfigMapAndSecretHandler) doHandle(namespace, name string, q workqueue
 	}
 	for _, v := range c.trackedResources[configMapOrSecret] {
 		zap.S().Infof("%s has been modified -> triggering reconciliation for dependent resource %s", configMapOrSecret, v)
-		q.Add(reconcile.Request{v})
+		q.Add(reconcile.Request{NamespacedName: v})
 	}
 }
 

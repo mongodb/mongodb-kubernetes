@@ -3,11 +3,12 @@ package operator
 import (
 	"fmt"
 
+	"reflect"
+
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
-	"reflect"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -32,7 +33,7 @@ func newShardedClusterReconciler(mgr manager.Manager, omFunc om.ConnectionFunc) 
 func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
 	log := zap.S().With("ShardedCluster", request.NamespacedName)
 	sc := &mongodb.MongoDbShardedCluster{}
-  
+
 	defer exceptionHandling(
 		func() (reconcile.Result, error) {
 			return r.updateStatusFailed(sc, "Failed to reconcile Sharded Cluster", log)

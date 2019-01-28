@@ -6,7 +6,7 @@ usage:
 	@ echo "and call 'make' to start the Kubernetes cluster and the Operator"
 	@ echo
 	@ echo "Usage:"
-	@ echo "  prerequisites:    installs the command line applications necessary for working with this tool."
+	@ echo "  prerequisites:    installs the command line applications necessary for working with this tool and adds git pre-commit hook."
 	@ echo "  init:             prepares operator environment. Switches to 'minikube' context."
 	@ echo "  switch:           switch current dev context, e.g 'make switch context=minikube'. Note, that it switches"
 	@ echo "                    kubectl context as well and sets the current namespace to the one configured as the default"

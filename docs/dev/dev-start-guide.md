@@ -24,7 +24,6 @@ environment variable in `~/.bashrc`
 * Get the access to AWS account  "MMS Engineering Test" (268558157000)" - ask your collegues to add the user account there
 * Add the following environment variable export to your `~/.bashrc`: `export KOPS_STATE_STORE=s3://kube-om-state-store`
 
-
 ### Development workflow
 
 The development workflow is almost fully automated - just use `make` from the root of the project.
