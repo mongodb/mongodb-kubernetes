@@ -30,6 +30,6 @@ aws configure
 brew install kubernetes-helm
 
 echo "Adding git commit hooks"
-cp scripts/dev/commit_hooks/pre-commit .git/hooks/pre-commit
+ln --symbolic --force ../../scripts/dev/commit_hooks/pre-commit .git/hooks/pre-commit
 
 title "Tools are installed"

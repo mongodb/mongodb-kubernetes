@@ -1,6 +1,6 @@
-#!/bin/sh
+#!/bin/bash
 
-# pre-commit hook will go vet all the files being commited
+# pre-commit hook will go vet all the files being committed
 # and also format them with go imports
 
 
@@ -21,9 +21,9 @@ gofiles=$(git diff --cached --name-only --diff-filter=ACM | grep -v vendor | gre
 [[ -z "$gofiles" ]] && exit 0
 
 failed=0
-for file in "$gofiles"; do
+for file in $gofiles; do
     echo "Checking ${file}"
-    (go tool vet ${file} && echo "Ok.") || failed=1
+    (go tool vet "${file}" && echo "Ok.") || failed=1
 done
 
 if [[ ${failed} = 1 ]]; then
@@ -37,6 +37,7 @@ unformatted=$(goimports -l $gofiles)
 for fn in $unformatted; do
         echo >&2 "formatting $PWD/$fn"
         goimports -w $PWD/$fn
+        # FIXME: using git add in pre-commit hooks is temperamental
         git add $PWD/$fn
 done
 
