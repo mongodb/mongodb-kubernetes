@@ -114,7 +114,8 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 	}
 
 	log.Info("-> Standalone.Reconcile")
-	log.Debugf("Standalone.Spec[current]: %+v", s.Spec)
+	log.Infow("Standalone.Spec", "spec", s.Spec)
+	log.Infow("Standalone.Status", "status", s.Status)
 
 	if s.Meta.NeedsDeletion() {
 		log.Info("ReplicaSet.Delete")

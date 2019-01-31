@@ -48,6 +48,17 @@ func newReconcileCommonController(mgr manager.Manager, omFunc om.ConnectionFunc)
 	}
 }
 
+func logSpec(resource v1.MongoDbResource, log *zap.SugaredLogger) {
+	switch r := resource.(type) {
+	case *v1.MongoDbReplicaSet:
+		log.Infow("MongoDB resource successfully updated", "spec", r.Spec)
+	case *v1.MongoDbShardedCluster:
+		log.Infow("MongoDB resource successfully updated", "spec", r.Spec)
+	case *v1.MongoDbStandalone:
+		log.Infow("MongoDB resource successfully updated", "spec", r.Spec)
+	}
+}
+
 // prepareConnection reads project config map and credential secrets and uses these values to communicate with Ops Manager:
 // create or read the group and optionally request an agent key (it could have been returned by group api call)
 func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedName, spec v1.CommonSpec, podVars *PodVars, log *zap.SugaredLogger) (om.Connection, error) {
@@ -127,6 +138,8 @@ func (c *ReconcileCommonController) updateStatusSuccessful(reconciledResource v1
 	})
 	if err != nil {
 		log.Errorf("Failed to update status for resource to successful: %s", err)
+	} else {
+		logSpec(reconciledResource, log)
 	}
 }
 

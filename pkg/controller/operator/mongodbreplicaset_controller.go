@@ -54,8 +54,8 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 	}
 
 	log.Info("-> ReplicaSet.Reconcile")
-	log.Infof("ReplicaSet.Spec: %+v", rs.Spec)
-	log.Infof("ReplicaSet.Status: %+v", rs.Status)
+	log.Infow("ReplicaSet.Spec", "spec", rs.Spec)
+	log.Infow("ReplicaSet.Status", "status", rs.Status)
 
 	if rs.Meta.NeedsDeletion() {
 		log.Info("ReplicaSet.Delete")

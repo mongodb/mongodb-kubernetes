@@ -47,8 +47,8 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (r
 	}
 
 	log.Info("-> ShardedCluster.Reconcile")
-	log.Infof("ShardedCluster.Spec: %+v", sc.Spec)
-	log.Infof("ShardedCluster.Status: %+v", sc.Status)
+	log.Infow("ShardedCluster.Spec", "spec", sc.Spec)
+	log.Infow("ShardedCluster.Status", "status", sc.Status)
 
 	if sc.Meta.NeedsDeletion() {
 		log.Info("ShardedCluster.Delete")
