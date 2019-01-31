@@ -26,7 +26,7 @@ RUN apt-get -qq update \
       lsb-release \
       procps \
       \
-      supervisor \
+      jq \
     && apt-get upgrade -y -qq \
     && apt-get dist-upgrade -y -qq \
     && rm -rf /var/lib/apt/lists/*
@@ -46,4 +46,4 @@ RUN    mkdir -p ${MMS_LOG_DIR} \
     && chmod -R 0775 ${MMS_HOME} \
     && chmod 0664 /etc/passwd
 
-CMD supervisord -c ${MMS_HOME}/files/supervisor.conf
+CMD /mongodb-automation/files/agent-launcher.sh

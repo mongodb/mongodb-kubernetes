@@ -3,6 +3,16 @@ set -o nounset
 set -o errexit
 set -o pipefail
 
+# log stdout as structured json with given log type
+function json_log {
+  jq --unbuffered --null-input --raw-input "inputs | {\"logType\": \"$1\", \"contents\": .}"
+}
+
+# log a given message in json format
+function script_log {
+  echo "$1" | json_log 'agent-launcher-script'
+}
+
 # Ensure that the user has an entry in /etc/passwd
 current_uid=$(id -u)
 declare -r current_uid
@@ -13,12 +23,12 @@ if ! grep -q "${current_uid}" /etc/passwd ; then
     cat /tmp/passwd > /etc/passwd
     rm /tmp/passwd
 
-    echo "Added ${current_uid} to /etc/passwd"
+    script_log "Added ${current_uid} to /etc/passwd"
 fi
 
 # Create a symlink, after the volumes have been mounted
 ln -sf /journal /data/
-echo "Created symlink: /data/journal -> $(readlink -f /data/journal)"
+script_log "Created symlink: /data/journal -> $(readlink -f /data/journal)"
 
 base_url="${BASE_URL-}" # If unassigned, set to empty string to avoid set-u errors
 base_url="${base_url%/}" # Remove any accidentally defined trailing slashes
@@ -26,17 +36,16 @@ declare -r base_url
 
 # Download the Automation Agent from Ops Manager
 if [ ! -e "${MMS_HOME}/files/mongodb-mms-automation-agent" ]; then
-    echo "Downloading an Automation Agent from ${base_url}"
+    script_log "Downloading an Automation Agent from ${base_url}"
     pushd /tmp >/dev/null
     curl --location --silent --retry 3 --fail -o automation-agent.tar.gz "${base_url}/download/agent/automation/mongodb-mms-automation-agent-latest.linux_x86_64.tar.gz"
 
-    echo "The Automation Agent binary downloaded, unpacking"
+    script_log "The Automation Agent binary downloaded, unpacking"
     tar -xzf automation-agent.tar.gz
     mv mongodb-mms-automation-agent-*/mongodb-mms-automation-agent "${MMS_HOME}/files/"
     chmod +x "${MMS_HOME}/files/mongodb-mms-automation-agent"
     rm -rf automation-agent.tar.gz mongodb-mms-automation-agent-*.linux_x86_64
-    echo "The Automation Agent was deployed at ${MMS_HOME}/files/mongodb-mms-automation-agent"
-    echo
+    script_log "The Automation Agent was deployed at ${MMS_HOME}/files/mongodb-mms-automation-agent"
     popd >/dev/null
 fi
 
@@ -44,43 +53,30 @@ fi
 if [ -e "${MMS_HOME}/mongodb-mms-automation-agent.pid" ]; then
     # Already running
     pid=$(cat "${MMS_HOME}/mongodb-mms-automation-agent.pid")
-    echo
-    echo "-- The Automation Agent is already running on pid=${pid}!"
-    echo
+    script_log "The Automation Agent is already running on pid=${pid}!"
 else
     # Start the agent
-    echo "-- Launching automation agent with following arguments:"
-    echo "    -mmsBaseUrl '${base_url}'"
-    echo "    -mmsGroupId '${GROUP_ID-}'"
-    echo "    -logLevel '${LOG_LEVEL:-INFO}'"
-    echo "    -mmsApiKey '${AGENT_API_KEY+<hidden>}'" # Do not display AGENT_API_KEY
-
     agentOpts=(
         "-mmsBaseUrl" "${base_url}"
         "-mmsGroupId" "${GROUP_ID-}"
-        "-mmsApiKey" "${AGENT_API_KEY-}"
         "-pidfilepath" "${MMS_HOME}/mongodb-mms-automation-agent.pid"
         "-maxLogFileDurationHrs" "24"
         "-logLevel" "${LOG_LEVEL:-INFO}"
         "-logFile" "${MMS_LOG_DIR}/automation-agent.log"
     )
-    if [ ! -z "${HTTP_PROXY-}" ]; then
+    if [ -n "${HTTP_PROXY-}" ]; then
         agentOpts+=("-httpProxy" "${HTTP_PROXY}")
-        echo "    -httpProxy '${HTTP_PROXY}'"
     fi
-    "${MMS_HOME}/files/mongodb-mms-automation-agent" "${agentOpts[@]}" 2>> "${MMS_LOG_DIR}/automation-agent-stderr.log" &
+
+    script_log "Launching automation agent with following arguments: ${agentOpts[*]} -mmsApiKey ${AGENT_API_KEY+<hidden>}"
+
+    agentOpts+=("-mmsApiKey" "${AGENT_API_KEY-}")
+
+    "${MMS_HOME}/files/mongodb-mms-automation-agent" "${agentOpts[@]}" 2>> "${MMS_LOG_DIR}/automation-agent-stderr.log" | json_log "automation-agent-stdout" &
 fi
 
-echo
-echo "Waiting until logs are created..."
-while [ ! -f "${MMS_LOG_DIR}/automation-agent.log" ] && [ ! -f "${MMS_LOG_DIR}/automation-agent-stderr.log" ]; do
-    sleep 1
-done
-
-echo
-echo "Automation Agent logs:"
-
 # Note that we don't care about orphan processes as they will die together with container in case of any troubles
-tail -F ${MMS_LOG_DIR}/automation-agent-verbose.log | sed -u -E 's,(^.+$),automation-agent-verbose.log: \1,g'  &
-tail -F ${MMS_LOG_DIR}/automation-agent-stderr.log | sed -u -E 's,(^.+$),automation-agent-stderr.log:   \1,g'  &
-tail -F ${MMS_LOG_DIR}/mongodb.log | sed -u -E 's,(^.+$),mongodb.log:   \1,g'
+# tail's -F flag is equivalent to --follow=name --retry. Should we track log rotation events?
+tail -F "${MMS_LOG_DIR}/automation-agent-verbose.log" 2> /dev/null | json_log 'automation-agent-verbose' &
+tail -F "${MMS_LOG_DIR}/automation-agent-stderr.log" 2> /dev/null | json_log 'automation-agent-stderr' &
+tail -F "${MMS_LOG_DIR}/mongodb.log" 2> /dev/null | json_log 'mongodb'
