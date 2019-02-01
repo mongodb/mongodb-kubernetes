@@ -88,10 +88,6 @@ func (c *MongoDbShardedCluster) ShardRsName(i int) string {
 // UpdateSuccessful
 func (c *MongoDbShardedCluster) UpdateSuccessful(deploymentLink string, reconciledResource MongoDbResource) {
 	spec := reconciledResource.(*MongoDbShardedCluster).Spec
-	specHash, err := util.Hash(spec)
-	if err != nil { // invalid specHash will cause infinite Reconcile loop
-		panic(err)
-	}
 	c.Status.Version = spec.Version
 	c.Status.MongosCount = spec.MongosCount
 	c.Status.MongodsPerShardCount = spec.MongodsPerShardCount
@@ -100,8 +96,6 @@ func (c *MongoDbShardedCluster) UpdateSuccessful(deploymentLink string, reconcil
 	c.Status.Message = ""
 	c.Status.Link = deploymentLink
 	c.Status.LastTransition = util.Now()
-	c.Status.SpecHash = specHash
-	c.Status.OperatorVersion = util.OperatorVersion
 	c.Status.Phase = PhaseRunning
 }
 
@@ -118,10 +112,6 @@ func (c *MongoDbShardedCluster) IsEmpty() bool {
 		c.Spec.MongosCount == 0 &&
 		c.Spec.MongodsPerShardCount == 0 &&
 		c.Spec.ConfigServerCount == 0
-}
-
-func (c *MongoDbShardedCluster) ComputeSpecHash() (uint64, error) {
-	return util.Hash(c.Spec)
 }
 
 func (c *MongoDbShardedCluster) GetCommonStatus() *CommonStatus {

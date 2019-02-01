@@ -300,43 +300,33 @@ func checkReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, obj
 	assert.Equal(t, v1.PhaseRunning, object.GetCommonStatus().Phase)
 
 	expectedLink := DeploymentLink(om.TestURL, om.TestGroupID)
-	expectedVersion := util.OperatorVersion
 	switch s := object.(type) {
 	case *v1.MongoDbStandalone:
 		{
-			hashedSpec, _ := util.Hash(s.Spec)
 			assert.Equal(t, s.Spec.Version, s.Status.Version)
-			assert.Equal(t, hashedSpec, s.Status.SpecHash)
 			assert.NotNil(t, s.Status.LastTransition)
 			assert.NotEqual(t, s.Status.LastTransition, "")
 			assert.Equal(t, expectedLink, s.Status.Link)
-			assert.Equal(t, expectedVersion, s.Status.OperatorVersion)
 
 		}
 	case *v1.MongoDbReplicaSet:
 		{
-			hashedSpec, _ := util.Hash(s.Spec)
 			assert.Equal(t, s.Spec.Members, s.Status.Members)
 			assert.Equal(t, s.Spec.Version, s.Status.Version)
-			assert.Equal(t, hashedSpec, s.Status.SpecHash)
 			assert.NotNil(t, s.Status.LastTransition)
 			assert.NotEqual(t, s.Status.LastTransition, "")
 			assert.Equal(t, expectedLink, s.Status.Link)
-			assert.Equal(t, expectedVersion, s.Status.OperatorVersion)
 		}
 	case *v1.MongoDbShardedCluster:
 		{
-			hashedSpec, _ := util.Hash(s.Spec)
 			assert.Equal(t, s.Spec.ConfigServerCount, s.Status.ConfigServerCount)
 			assert.Equal(t, s.Spec.MongosCount, s.Status.MongosCount)
 			assert.Equal(t, s.Spec.MongodsPerShardCount, s.Status.MongodsPerShardCount)
 			assert.Equal(t, s.Spec.ShardCount, s.Status.ShardCount)
 			assert.Equal(t, s.Spec.Version, s.Status.Version)
-			assert.Equal(t, hashedSpec, s.Status.SpecHash)
 			assert.NotNil(t, s.Status.LastTransition)
 			assert.NotEqual(t, s.Status.LastTransition, "")
 			assert.Equal(t, expectedLink, s.Status.Link)
-			assert.Equal(t, expectedVersion, s.Status.OperatorVersion)
 		}
 	}
 }

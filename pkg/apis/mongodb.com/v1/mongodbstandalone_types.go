@@ -49,16 +49,10 @@ func (c *MongoDbStandalone) ServiceName() string {
 
 func (c *MongoDbStandalone) UpdateSuccessful(deploymentLink string, reconciledResource MongoDbResource) {
 	spec := reconciledResource.(*MongoDbStandalone).Spec
-	specHash, err := util.Hash(spec)
-	if err != nil { // invalid specHash will cause infinite Reconcile loop
-		panic(err)
-	}
 	c.Status.Version = spec.Version
 	c.Status.Message = ""
 	c.Status.Link = deploymentLink
 	c.Status.LastTransition = util.Now()
-	c.Status.SpecHash = specHash
-	c.Status.OperatorVersion = util.OperatorVersion
 	c.Status.Phase = PhaseRunning
 }
 
@@ -66,10 +60,6 @@ func (c *MongoDbStandalone) UpdateError(errorMessage string) {
 	c.Status.Message = errorMessage
 	c.Status.LastTransition = util.Now()
 	c.Status.Phase = PhaseFailed
-}
-
-func (c *MongoDbStandalone) ComputeSpecHash() (uint64, error) {
-	return util.Hash(c.Spec)
 }
 
 func (c *MongoDbStandalone) GetCommonStatus() *CommonStatus {

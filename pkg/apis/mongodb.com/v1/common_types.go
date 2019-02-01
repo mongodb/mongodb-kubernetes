@@ -40,7 +40,6 @@ type MongoDbResource interface {
 	// we do this to prevent against concurrent modification bugs.
 	UpdateSuccessful(deploymentLink string, reconciledResource MongoDbResource)
 	UpdateError(errorMessage string)
-	ComputeSpecHash() (uint64, error)
 	GetCommonStatus() *CommonStatus
 	GetMeta() *Meta
 }
@@ -73,13 +72,11 @@ type CommonSpec struct {
 
 // CommonStatus includes fields common for all status types
 type CommonStatus struct {
-	Version         string `json:"version"`
-	Phase           Phase  `json:"phase"`
-	Message         string `json:"message,omitempty"`
-	Link            string `json:"link,omitempty"`
-	LastTransition  string `json:"lastTransition,omitempty"`
-	SpecHash        uint64 `json:"specHash"`
-	OperatorVersion string `json:"operatorVersion"`
+	Version        string `json:"version"`
+	Phase          Phase  `json:"phase"`
+	Message        string `json:"message,omitempty"`
+	Link           string `json:"link,omitempty"`
+	LastTransition string `json:"lastTransition,omitempty"`
 }
 
 type MongoDbPodSpec struct {

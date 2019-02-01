@@ -2,7 +2,6 @@ package operator
 
 import (
 	"fmt"
-	"reflect"
 
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -119,23 +118,21 @@ func AddReplicaSetController(mgr manager.Manager) error {
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldResource := e.ObjectOld.(*mongodb.MongoDbReplicaSet)
 			newResource := e.ObjectNew.(*mongodb.MongoDbReplicaSet)
-			// We never reconcile on statuses changes - only on spec/metadata ones
-			// Note, that in case of failure (when the Reconciler returns (retry, nil)) there is no watch event - so
-			// we are safe not to lose retrials. This watch is ONLY for changes done to Mongodb Resource
-			if !reflect.DeepEqual(oldResource.GetCommonStatus(), newResource.GetCommonStatus()) {
-				return false
-			}
-			return shouldReconcile(newResource)
+			return shouldReconcile(oldResource, newResource)
 		}})
 	if err != nil {
 		return err
 	}
 
 	// Watch for changes to secondary resource Statefulsets and requeue the owner MongoDbStandalone
-	err = c.Watch(&source.Kind{Type: &appsv1.StatefulSet{}}, &handler.EnqueueRequestForOwner{
+	// TODO CLOUDP-35240
+	/*err = c.Watch(&source.Kind{Type: &appsv1.StatefulSet{}}, &handler.EnqueueRequestForOwner{
 		IsController: true,
 		OwnerType:    &mongodb.MongoDbReplicaSet{},
 	}, predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			return false
+		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			// The controller must watch only for changes in spec made by users, we don't care about status changes
 			if !reflect.DeepEqual(e.ObjectOld.(*appsv1.StatefulSet).Spec, e.ObjectNew.(*appsv1.StatefulSet).Spec) {
@@ -145,7 +142,7 @@ func AddReplicaSetController(mgr manager.Manager) error {
 		}})
 	if err != nil {
 		return err
-	}
+	}*/
 
 	err = c.Watch(&source.Kind{Type: &corev1.ConfigMap{}},
 		&ConfigMapAndSecretHandler{resourceType: ConfigMap, trackedResources: reconciler.watchedResources})

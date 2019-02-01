@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -208,13 +209,15 @@ func (c *ReconcileCommonController) ensureFinalizerHeaders(res runtime.Object, o
 // been modified; please apply your changes to the latest version and try again" error - so let's fetch the latest
 // object before updating it.
 // We fetch a fresh version in case any modifications have been made.
+// Note, that this method enforces update ONLY to the status, so the reconciliation events happening because of this
+// can be filtered out by 'controller.shouldReconcile'
 func (c *ReconcileCommonController) updateStatus(reconciledResource v1.MongoDbResource, updateFunc func(fresh v1.MongoDbResource)) error {
 	var err error
 	for i := 0; i < 3; i++ {
 		err = c.client.Get(context.TODO(), objectKeyFromApiObject(reconciledResource), reconciledResource)
 		if err == nil {
 			updateFunc(reconciledResource)
-			err = c.client.Status().Update(context.TODO(), reconciledResource)
+			err = c.client.Update(context.TODO(), reconciledResource)
 			if err == nil {
 				return nil
 			}
@@ -236,22 +239,23 @@ func (c *ReconcileCommonController) updatePending(reconciledResource v1.MongoDbR
 }
 
 // shouldReconcile checks if the resource must be reconciled.
-// Two edge cases:
-// 1) when the Operator has been redeployed and the reconciliation events are sent for all existing resources - their
-// state is ready  (spec.Hash == status.Hash) but we still need to proceed reconciliation
-// 2) if the object is being removed
-// 3) if it hasn't reached READY state
-func shouldReconcile(mdbResource v1.MongoDbResource) bool {
-	status := mdbResource.GetCommonStatus()
-	if status.OperatorVersion != util.OperatorVersion || mdbResource.GetMeta().NeedsDeletion() {
-		return true
+// Edge cases:
+// 1) Statuses changes - we never reconcile on them, only on spec/metadata ones
+// 2) Controller may add a finalizer or it may be removed by K8s - ignoring this
+//
+// Important notes about why we can just check statuses/finalizers and be sure that we don't miss the reconciliation:
+// - the watchers receive signals only about any changes to *CR*. If the reconciliation failed and a reconciler returned
+// "requeue after 10 seconds" - this doesn't get to watcher, so will never be filtered out.
+// - the only client making changes to status is the Operator itself and it makes sure that spec stays untouched
+func shouldReconcile(oldResource v1.MongoDbResource, newResource v1.MongoDbResource) bool {
+	newStatus := newResource.GetCommonStatus()
+	if !reflect.DeepEqual(oldResource.GetCommonStatus(), newStatus) {
+		return false
 	}
-	specHash, hashErr := mdbResource.ComputeSpecHash()
-	if hashErr != nil {
-		zap.S().Warnf("Error computing hash of Spec, proceeding reconciliation: %s", hashErr)
-		return true
+	if !reflect.DeepEqual(oldResource.GetMeta().Finalizers, newResource.GetMeta().Finalizers) {
+		return false
 	}
-	return status.SpecHash != specHash
+	return true
 }
 
 // prepareResourceForReconciliation finds the object being reconciled. Returns pointer to 'reconcile.Result', error and the hashSpec for the resource.

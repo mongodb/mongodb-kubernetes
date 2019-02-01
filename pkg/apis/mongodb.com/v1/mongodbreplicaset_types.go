@@ -43,17 +43,11 @@ func (c *MongoDbReplicaSet) ServiceName() string {
 
 func (c *MongoDbReplicaSet) UpdateSuccessful(deploymentLink string, reconciledResource MongoDbResource) {
 	spec := reconciledResource.(*MongoDbReplicaSet).Spec
-	specHash, err := util.Hash(spec)
-	if err != nil { // invalid specHash will cause infinite Reconcile loop
-		panic(err)
-	}
 	c.Status.Version = spec.Version
 	c.Status.Members = spec.Members
 	c.Status.Message = ""
 	c.Status.Link = deploymentLink
 	c.Status.LastTransition = util.Now()
-	c.Status.SpecHash = specHash
-	c.Status.OperatorVersion = util.OperatorVersion
 	c.Status.Phase = PhaseRunning
 }
 
@@ -68,10 +62,6 @@ func (c *MongoDbReplicaSet) IsEmpty() bool {
 		c.Spec.Version == "" &&
 		c.Spec.Project == "" &&
 		c.Spec.Credentials == ""
-}
-
-func (c *MongoDbReplicaSet) ComputeSpecHash() (uint64, error) {
-	return util.Hash(c.Spec)
 }
 
 func (c *MongoDbReplicaSet) GetCommonStatus() *CommonStatus {

@@ -9,8 +9,6 @@ import (
 
 	"go.uber.org/zap"
 
-	"reflect"
-
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -38,21 +36,15 @@ func AddStandaloneController(mgr manager.Manager) error {
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldResource := e.ObjectOld.(*mongodb.MongoDbStandalone)
 			newResource := e.ObjectNew.(*mongodb.MongoDbStandalone)
-			// We never reconcile on statuses changes - only on spec/metadata ones
-			// Note, that in case of failure (when the Reconciler returns (retry, nil)) there is no watch event - so
-			// we are safe not to lose retrials. This watch is ONLY for changes done to Mongodb Resource
-			if !reflect.DeepEqual(oldResource.GetCommonStatus(), newResource.GetCommonStatus()) {
-				return false
-			}
-			return shouldReconcile(newResource)
+			return shouldReconcile(oldResource, newResource)
 		}})
 	if err != nil {
 		return err
 	}
 
+	// TODO CLOUDP-35240
 	// Watch for changes to secondary resource Statefulsets and requeue the owner MongoDbStandalone
-	// TODO pods are owned by Statefulset - we need to check if their changes are reconciled
-	err = c.Watch(&source.Kind{Type: &appsv1.StatefulSet{}}, &handler.EnqueueRequestForOwner{
+	/*err = c.Watch(&source.Kind{Type: &appsv1.StatefulSet{}}, &handler.EnqueueRequestForOwner{
 		IsController: true,
 		OwnerType:    &mongodb.MongoDbStandalone{},
 	}, predicate.Funcs{
@@ -65,7 +57,7 @@ func AddStandaloneController(mgr manager.Manager) error {
 		}})
 	if err != nil {
 		return err
-	}
+	}*/
 
 	err = c.Watch(&source.Kind{Type: &corev1.ConfigMap{}},
 		&ConfigMapAndSecretHandler{resourceType: ConfigMap, trackedResources: reconciler.watchedResources})
