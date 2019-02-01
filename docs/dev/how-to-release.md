@@ -61,10 +61,6 @@ This will modify some files that are meant to be distributed in the
 
 Push the PR changes
 
-## Get the release PR approved
-
-Ask someone from the team to approve the PR.
-
 ## QA
 
 Ensure that your branch is up to date with master.
@@ -84,11 +80,11 @@ least the 3 different types of custom resource: Standalones, ReplicaSets and
 ShardedClusters. Make sure you use PersistentVolumes and try a few updates to
 the custom objects (like updating the mongod version).
 
-## Merge release branch to Master
+## Get the release PR approved and merge the branch to Master
 
-If everything is going well up to this point, merge your pull request into the
-master branch. If there have been changes to master since beginning QA,
-consider performing further QA after merging.
+Ask someone from the team to approve the PR.
+
+Merge the release branch to master
 
 ## Tag the commit for release
 
