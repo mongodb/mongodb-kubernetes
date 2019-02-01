@@ -205,11 +205,14 @@ func (r *ReconcileMongoDbShardedCluster) delete(obj interface{}, log *zap.Sugare
 		return err
 	}
 
-	hostsToRemove := getAllHosts(sc, sc.Status.MongodbShardedClusterSizeConfig)
+	sizeConfig := getMaxShardedClusterSizeConfig(sc.Spec.MongodbShardedClusterSizeConfig, sc.Status.MongodbShardedClusterSizeConfig)
+	hostsToRemove := getAllHosts(sc, sizeConfig)
 	log.Infow("Stop monitoring removed hosts in Ops Manager", "hostsToBeRemoved", hostsToRemove)
+
 	if err = om.StopMonitoring(conn, hostsToRemove, log); err != nil {
 		return err
 	}
+
 	log.Info("Removed sharded cluster from Ops Manager!")
 
 	return nil
@@ -356,18 +359,27 @@ func waitForAgentsToRegister(cluster *mongodb.MongoDbShardedCluster, state Shard
 	return nil
 }
 
+func getMaxShardedClusterSizeConfig(specConfig mongodb.MongodbShardedClusterSizeConfig, statusConfig mongodb.MongodbShardedClusterSizeConfig) mongodb.MongodbShardedClusterSizeConfig {
+	return mongodb.MongodbShardedClusterSizeConfig{
+		MongosCount:          util.MaxInt(specConfig.MongosCount, statusConfig.MongosCount),
+		ConfigServerCount:    util.MaxInt(specConfig.ConfigServerCount, statusConfig.ConfigServerCount),
+		MongodsPerShardCount: util.MaxInt(specConfig.MongodsPerShardCount, statusConfig.MongodsPerShardCount),
+		ShardCount:           util.MaxInt(specConfig.ShardCount, statusConfig.ShardCount),
+	}
+}
+
 // getAllHostsFromStatus calculates a list of hosts from the "Status" of the Sharded Cluster
-func getAllHosts(c *mongodb.MongoDbShardedCluster, sizes mongodb.MongodbShardedClusterSizeConfig) []string {
+func getAllHosts(c *mongodb.MongoDbShardedCluster, sizeConfig mongodb.MongodbShardedClusterSizeConfig) []string {
 	ans := make([]string, 0)
 
-	hosts, _ := GetDnsNames(c.MongosRsName(), c.MongosServiceName(), c.Namespace, c.Spec.ClusterName, sizes.MongosCount)
+	hosts, _ := GetDnsNames(c.MongosRsName(), c.MongosServiceName(), c.Namespace, c.Spec.ClusterName, sizeConfig.MongosCount)
 	ans = append(ans, hosts...)
 
-	hosts, _ = GetDnsNames(c.ConfigRsName(), c.ConfigSrvServiceName(), c.Namespace, c.Spec.ClusterName, sizes.ConfigServerCount)
+	hosts, _ = GetDnsNames(c.ConfigRsName(), c.ConfigSrvServiceName(), c.Namespace, c.Spec.ClusterName, sizeConfig.ConfigServerCount)
 	ans = append(ans, hosts...)
 
-	for i := 0; i < sizes.ShardCount; i++ {
-		hosts, _ = GetDnsNames(c.ShardRsName(i), c.ShardServiceName(), c.Namespace, c.Spec.ClusterName, sizes.MongodsPerShardCount)
+	for i := 0; i < sizeConfig.ShardCount; i++ {
+		hosts, _ = GetDnsNames(c.ShardRsName(i), c.ShardServiceName(), c.Namespace, c.Spec.ClusterName, sizeConfig.MongodsPerShardCount)
 		ans = append(ans, hosts...)
 	}
 	return ans

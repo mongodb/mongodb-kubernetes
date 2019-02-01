@@ -193,6 +193,13 @@ func Now() string {
 	return time.Now().Format(time.RFC3339)
 }
 
+func MaxInt(x, y int) int {
+	if x > y {
+		return x
+	}
+	return y
+}
+
 // ************ Different string/array functions **************
 //
 // Helper functions to check and remove string from a slice of strings.

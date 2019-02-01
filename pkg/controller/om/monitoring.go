@@ -1,8 +1,7 @@
 package om
 
 import (
-	"fmt"
-
+	"github.com/pkg/errors"
 	"go.uber.org/zap"
 )
 
@@ -16,7 +15,9 @@ type HostList struct {
 }
 
 // StopMonitoring will stop OM monitoring of hosts, which will then
-// will make OM stop displaying old hosts from Processes view.
+// make OM stop displaying old hosts from Processes view.
+// Note, that the method tries to delete as many hosts as possible and doesn't give up on errors, returns
+// the last error instead
 func StopMonitoring(omClient Connection, hostnames []string, log *zap.SugaredLogger) error {
 	if len(hostnames) == 0 {
 		return nil
@@ -26,15 +27,16 @@ func StopMonitoring(omClient Connection, hostnames []string, log *zap.SugaredLog
 	if err != nil {
 		return err
 	}
-
+	errorHappened := false
 	for _, hostname := range hostnames {
 		found := false
 		for _, host := range hosts.Results {
 			if host.Hostname == hostname {
 				found = true
-				err := omClient.RemoveHost(host.Id)
+				err = omClient.RemoveHost(host.Id)
 				if err != nil {
-					return fmt.Errorf("Failed to remove host %s from monitoring in Ops Manager: %s", host.Hostname, err)
+					log.Warnf("Failed to remove host %s from monitoring in Ops Manager: %s", host.Hostname, err)
+					errorHappened = true
 				} else {
 					log.Debugf("Removed the host %s from monitoring in Ops Manager", host.Hostname)
 				}
@@ -46,5 +48,8 @@ func StopMonitoring(omClient Connection, hostnames []string, log *zap.SugaredLog
 		}
 	}
 
+	if errorHappened {
+		return errors.New("Failed to remove some hosts from monitoring in Ops manager")
+	}
 	return nil
 }

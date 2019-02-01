@@ -205,10 +205,9 @@ func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLog
 
 	hostsToRemove, _ := GetDnsNames(s.Name, s.ServiceName(), s.Namespace, s.Spec.ClusterName, 1)
 	log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
-	if err := om.StopMonitoring(conn, hostsToRemove, log); err != nil {
-		return fmt.Errorf("Failed to stop monitoring on hosts %s: %s", hostsToRemove, err)
+	if err = om.StopMonitoring(conn, hostsToRemove, log); err != nil {
+		return err
 	}
-
 	log.Info("Removed standalone from Ops Manager!")
 	return nil
 }

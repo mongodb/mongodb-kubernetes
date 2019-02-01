@@ -225,8 +225,9 @@ func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLog
 		return err
 	}
 
-	hostsToRemove, _ := GetDnsNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.ClusterName, rs.Status.Members)
+	hostsToRemove, _ := GetDnsNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.ClusterName, util.MaxInt(rs.Status.Members, rs.Spec.Members))
 	log.Infow("Stop monitoring removed hosts in Ops Manager", "removedHosts", hostsToRemove)
+
 	if err = om.StopMonitoring(conn, hostsToRemove, log); err != nil {
 		return err
 	}
