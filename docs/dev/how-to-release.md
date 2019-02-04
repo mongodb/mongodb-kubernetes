@@ -97,7 +97,9 @@ git tag --annotate --sign $(jq --raw-output .mongodbOperator < release.json)
 git push origin $(jq --raw-output .mongodbOperator < release.json)
 ```
 
-## Build the images and push to Quay Public Docker repo
+## Build and push images
+
+### Debian based images (published to Quay)
 
 After successful QA publish images to public repo.
 
@@ -113,6 +115,26 @@ repo. The images will be tagged with whatever is on the `release.json` file.
 
 **Caution**: quay.io doesn't allow to block tags from overwriting, the current tagged images will be overwritten by
 `evergreen` if they have the same tag as any old images.
+
+### RHEL based images (published to Red Hat Connect)
+
+For RHEL based images we use Red Hat Connect service that will build images by itself eventually.
+To submit the job call the following:
+
+```bash
+evergreen patch -p ops-manager-kubernetes -v release_operator_rhel -f
+```
+
+Track the status of the jobs for operator and database using the following links:
+
+https://connect.redhat.com/project/850021/build-service
+https://connect.redhat.com/project/851701/build-service
+
+Note, that so far the build service is not reliable and some checks may fail - you need to trigger new builds on the 
+site manually specifying the new version (increase the patch part, e.g. `0.7.1`) and hopefully the build will succeed
+eventually.
+
+(more details about RHEL build process are in https://github.com/10gen/kubernetes-rhel-images)
 
 ## Publish public repo
 
@@ -132,9 +154,7 @@ can generate the public repo, without commiting to it, with:
     GENERATE_ONLY=oui ./scripts/evergreen/update_public_repo some_temp_dir
 
 Where `some_temp_dir` is a temporary directory you want to use to test
-the output of your yaml files generation. `GENERATE_ONLY` is a
-variable that, when set, will not try to commit and push these
-changes.
+the output of your yaml files generation.
 
 ## Release in Github
 

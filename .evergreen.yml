@@ -63,15 +63,32 @@ functions:
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         script: |
+          export PATH=${workdir}/bin:$PATH
+
           if [ "${is_patch}" != "true" ]; then
             echo "Releasing is done only from patches"
             exit 0
           fi
 
-          release="$(grep mongodbOperator release.yaml | awk '{ print $2 }' | tr -d '\n')"
+          set -euo
 
+          release="$(jq --raw-output .mongodbOperator < release.json)"
+
+          echo "Performing release $release!"
           scripts/evergreen/build_operator_rhel.sh $release ${rhc_operator_pid}
           scripts/evergreen/build_operator_rhel.sh $release ${rhc_database_pid}
+
+  "setup_jq":
+    - command : shell.exec
+      params:
+        shell: bash
+        script: |
+          echo "Downloading jq"
+          curl -L https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64 -o jq
+          chmod +x jq
+          mkdir -p ${workdir}/bin/
+          mv jq ${workdir}/bin/
+          echo "Installed jq to ${workdir}/bin/"
 
   "setup_aws":
     - command: shell.exec
@@ -83,8 +100,8 @@ functions:
   "setup_docker":
     - command: shell.exec
       params:
-          shell: bash
-          script: |
+        shell: bash
+        script: |
             src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/setup_docker
 
   "setup_kubectl":
@@ -331,6 +348,7 @@ tasks:
   patch_only: true
   commands:
     - func: "clone"
+    - func: "setup_jq"
     - func: "build_operator"
     - func: "push_operator_binary_for_rhel"
     - func: "build_rhel_images"
@@ -373,6 +391,7 @@ tasks:
     - func: "clone"
     - func: "check_evergreen_health"
     - func: "setup_aws"
+    - func: "setup_jq"
     - func: "setup_docker"
     - func: "build_operator"
     - func: "build_and_push_image"
@@ -471,7 +490,6 @@ buildvariants:
   display_name: "build_and_push_images_development"
   run_on:
     - archlinux-test
-  batchtime: 1440
   stepback: false
   tasks:
     - ".build_and_push_images_development"
@@ -480,7 +498,6 @@ buildvariants:
   display_name: "e2e_kube_vanilla_v1.10"
   run_on:
   - archlinux-test
-  batchtime: 1440
   stepback: false
   tasks:
   - name: "setup_e2e"
@@ -492,7 +509,6 @@ buildvariants:
   display_name: "e2e_openshift_origin_v3.11"
   run_on:
   - archlinux-test
-  batchtime: 1440
   stepback: false
   tasks:
    - name: "setup_e2e"
@@ -504,7 +520,6 @@ buildvariants:
   display_name: "go_unit_tests"
   run_on:
   - archlinux-test
-  batchtime: 1440
   stepback: false
   tasks:
     - name: "unit_task_group"
