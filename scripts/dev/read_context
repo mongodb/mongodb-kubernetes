@@ -2,44 +2,7 @@
 
 set -euo pipefail
 
-# script prepares environment variables relevant for the current context
-# TODO add the context overriding via parameter
-
-cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
-
-source scripts/funcs
-
-# Reading context file
-readonly root_dir="$HOME/.operator-dev"
-readonly context_file="$root_dir/current"
-
-if [[ ! -f ${context_file} ]]; then
-    fatal "File \"${context_file}\" not found! You must init development environment using \"make init\" first"
-fi
-
-context=$(cat ${context_file})
-
-if [[ ! -f ${root_dir}/contexts/${context} ]]; then
-    fatal "Configuration file \"${root_dir}/contexts/${context}\" not found!"
-fi
-
-eval "$(cat ${root_dir}/contexts/${context})"
-
-# guessing type of registry by url
-# regular expression matching (https://www.tldp.org/LDP/abs/html/string-manipulation.html)
-if [[ $(expr "${REPO_URL}" : '^local.*') -gt 0 ]]; then
-	export REPO_TYPE="local"
-elif [[ $(expr "${REPO_URL}" : '.*\.ecr\..*') -gt 0 ]]; then
-	export REPO_TYPE="ecr"
-elif [[ $(expr "${REPO_URL}" : '^quay.io.*') -gt 0 ]]; then
-	export REPO_TYPE="quay"
-else
-	fatal "Failed to guess repository type based on url \"${REPO_URL}\""
-fi
-
-export CURRENT_CONTEXT=${context}
-export NAMESPACE=${NAMESPACE:-mongodb}
-export OPERATOR_DIR=${root_dir}
+source ./scripts/dev/set_env_context
 
 # The convention: the cluster name must match the name of kubectl context
 # We expect this not to be true if kubernetes cluster is still to be created (minikube/kops)

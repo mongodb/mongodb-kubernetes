@@ -1,5 +1,7 @@
 all: full
 
+export MAKEFLAGS="-j 16" # enable parallelism
+
 usage:
 	@ echo "Development utility to work with Operator on daily basis. Just edit your configuration in '~/.operator-dev/contexts', "
 	@ echo "switch to it using 'make switch', make sure Ops Manager is running (use 'make om' or 'make om-evg') "
@@ -48,9 +50,8 @@ contexts:
 
 # builds the Operator binary file and docker image and pushes it to the remote registry if using a remote registry. Deploys it to
 # k8s cluster
-operator:
-	@ scripts/dev/build_push_operator_image
-	@ scripts/dev/deploy_operator
+operator: build-and-push-operator-image
+	@ $(MAKE) deploy-operator
 
 # build-push, (todo) restart database
 database:
@@ -58,12 +59,8 @@ database:
 
 # ensures cluster is up, cleans Kubernetes + OM, build-push-deploy operator,
 # push-deploy database, create secrets, config map, resources etc
-full:
-	@ scripts/dev/ensure_k8s
-	@ $(MAKE) reset
-	@ $(MAKE) operator
-	@ $(MAKE) database
-	@ scripts/dev/configure_operator
+full: reset build-and-push-images
+	@ $(MAKE) deploy-and-configure-operator
 	@ scripts/dev/apply_resources
 
 # install OM in Kubernetes if it's not running
@@ -88,8 +85,38 @@ e2e:
 	@ scripts/dev/launch_e2e $(test)
 
 # clean all kubernetes cluster resources and OM state
-reset:
+reset: ensure-k8s
 	@ scripts/dev/reset
 
 status:
 	@ scripts/dev/status
+
+
+###############################################################################
+# Internal Targets
+# These won't do anything bad if you call them, they just aren't the ones that
+# were designed to be helpful by themselves. Anything below won't be documented
+# in the usage target above.
+###############################################################################
+
+aws_login:
+	@ eval "$(shell aws ecr get-login --no-include-email --region us-east-1)"
+
+build-and-push-operator-image: aws_login
+	@ scripts/dev/build_push_operator_image
+
+build-and-push-database-image: aws_login
+	@ scripts/dev/build_push_database_image
+
+build-and-push-images: build-and-push-database-image build-and-push-operator-image
+
+deploy-operator:
+	@ scripts/dev/deploy_operator
+
+configure-operator:
+	@ scripts/dev/configure_operator
+
+deploy-and-configure-operator: deploy-operator configure-operator
+
+ensure-k8s:
+	@ scripts/dev/ensure_k8s
