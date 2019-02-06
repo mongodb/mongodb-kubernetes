@@ -3,24 +3,19 @@ package operator
 import (
 	"fmt"
 
-	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/source"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
-
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
+
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 // ReconcileMongoDbReplicaSet reconciles a MongoDbReplicaSet object
@@ -47,23 +42,13 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		func(result reconcile.Result, err error) { res = result; e = err },
 	)
 
-	reconcileResult, err := r.prepareResourceForReconciliation(request, rs, log)
-	if reconcileResult != nil {
+	if reconcileResult, err := r.prepareResourceForReconciliation(request, rs, log); reconcileResult != nil {
 		return *reconcileResult, err
 	}
 
 	log.Info("-> ReplicaSet.Reconcile")
 	log.Infow("ReplicaSet.Spec", "spec", rs.Spec)
 	log.Infow("ReplicaSet.Status", "status", rs.Status)
-
-	if rs.Meta.NeedsDeletion() {
-		log.Info("ReplicaSet.Delete")
-		return r.reconcileDeletion(r.delete, rs, &rs.ObjectMeta, log)
-	}
-
-	if err = r.ensureFinalizerHeaders(rs, &rs.ObjectMeta, log); err != nil {
-		return r.updateStatusFailed(rs, fmt.Sprintf("Failed to update finalizer header: %s", err), log)
-	}
 
 	spec := rs.Spec
 	podVars := &PodVars{}
@@ -113,8 +98,10 @@ func AddReplicaSetController(mgr manager.Manager) error {
 		return err
 	}
 
+	// watch for changes to replica set MongoDB resources
+	eventHandler := MongoDBResourceEventHandler{reconciler: reconciler}
 	// Watch for changes to primary resource MongoDbReplicaSet
-	err = c.Watch(&source.Kind{Type: &mongodb.MongoDbReplicaSet{}}, &handler.EnqueueRequestForObject{}, predicate.Funcs{
+	err = c.Watch(&source.Kind{Type: &mongodb.MongoDbReplicaSet{}}, &eventHandler, predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldResource := e.ObjectOld.(*mongodb.MongoDbReplicaSet)
 			newResource := e.ObjectNew.(*mongodb.MongoDbReplicaSet)

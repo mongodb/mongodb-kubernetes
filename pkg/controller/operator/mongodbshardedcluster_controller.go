@@ -3,18 +3,18 @@ package operator
 import (
 	"fmt"
 
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 // ReconcileMongoDbShardedCluster
@@ -46,15 +46,6 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (r
 	log.Info("-> ShardedCluster.Reconcile")
 	log.Infow("ShardedCluster.Spec", "spec", sc.Spec)
 	log.Infow("ShardedCluster.Status", "status", sc.Status)
-
-	if sc.Meta.NeedsDeletion() {
-		log.Info("ShardedCluster.Delete")
-		return r.reconcileDeletion(r.delete, sc, &sc.ObjectMeta, log)
-	}
-
-	if err = r.ensureFinalizerHeaders(sc, &sc.ObjectMeta, log); err != nil {
-		return r.updateStatusFailed(sc, fmt.Sprintf("Failed to update finalizer header: %s", err), log)
-	}
 
 	conn, err := r.doShardedClusterProcessing(sc, log)
 	if err != nil {
@@ -224,7 +215,9 @@ func AddShardedClusterController(mgr manager.Manager) error {
 		return err
 	}
 
-	err = c.Watch(&source.Kind{Type: &mongodb.MongoDbShardedCluster{}}, &handler.EnqueueRequestForObject{}, predicate.Funcs{
+	// watch for changes to sharded cluster MongoDB resources
+	eventHandler := MongoDBResourceEventHandler{reconciler: reconciler}
+	err = c.Watch(&source.Kind{Type: &mongodb.MongoDbShardedCluster{}}, &eventHandler, predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldResource := e.ObjectOld.(*mongodb.MongoDbShardedCluster)
 			newResource := e.ObjectNew.(*mongodb.MongoDbShardedCluster)

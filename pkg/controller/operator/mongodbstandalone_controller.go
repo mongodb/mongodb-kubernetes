@@ -3,22 +3,19 @@ package operator
 import (
 	"fmt"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
-
 	"go.uber.org/zap"
-
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 // AddStandaloneController creates a new MongoDbStandalone Controller and adds it to the Manager. The Manager will set fields on the Controller
@@ -31,8 +28,9 @@ func AddStandaloneController(mgr manager.Manager) error {
 		return err
 	}
 
-	// Watch for changes to primary resource MongoDbStandalone
-	err = c.Watch(&source.Kind{Type: &mongodb.MongoDbStandalone{}}, &handler.EnqueueRequestForObject{}, predicate.Funcs{
+	// watch for changes to standalone MongoDB resources
+	eventHandler := MongoDBResourceEventHandler{reconciler: reconciler}
+	err = c.Watch(&source.Kind{Type: &mongodb.MongoDbStandalone{}}, &eventHandler, predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldResource := e.ObjectOld.(*mongodb.MongoDbStandalone)
 			newResource := e.ObjectNew.(*mongodb.MongoDbStandalone)
@@ -108,15 +106,6 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 	log.Info("-> Standalone.Reconcile")
 	log.Infow("Standalone.Spec", "spec", s.Spec)
 	log.Infow("Standalone.Status", "status", s.Status)
-
-	if s.Meta.NeedsDeletion() {
-		log.Info("ReplicaSet.Delete")
-		return r.reconcileDeletion(r.delete, s, &s.ObjectMeta, log)
-	}
-
-	if err = r.ensureFinalizerHeaders(s, &s.ObjectMeta, log); err != nil {
-		return r.updateStatusFailed(s, fmt.Sprintf("Failed to update finalizer header: %s", err), log)
-	}
 
 	spec := s.Spec
 	podVars := &PodVars{}

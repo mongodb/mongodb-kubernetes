@@ -7,24 +7,19 @@ import (
 	"testing"
 	"time"
 
-	"k8s.io/apimachinery/pkg/types"
-
-	"github.com/pkg/errors"
-
-	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
-	v12 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	"github.com/stretchr/testify/require"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
+	v12 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 func init() {
@@ -164,63 +159,6 @@ func TestPrepareOmConnection_ConfigMapAndSecretWatched(t *testing.T) {
 		watchedObject{resourceType: Secret, resource: objectKey("otherNs", "mySecret")}:                      {objectKey(TestNamespace, "ReplicaSetOne"), objectKey(TestNamespace, "ReplicaSetTwo")},
 	}
 	assert.Equal(t, expected, reconciler.watchedResources)
-}
-
-// TestEnsureFinalizerHeaders checks that 'ensureFinalizerHeaders' function adds the finalizer header and updates the
-// custom resource in K8s
-func TestEnsureFinalizerHeaders(t *testing.T) {
-	resource := DefaultStandaloneBuilder().Build()
-	manager := newMockedManager(resource)
-	assert.NotContains(t, resource.ObjectMeta.Finalizers, util.MongodbResourceFinalizer)
-
-	controller := newReconcileCommonController(manager, om.NewEmptyMockedOmConnection)
-	assert.NoError(t, controller.ensureFinalizerHeaders(resource, &resource.ObjectMeta, zap.S()))
-
-	assert.Contains(t, resource.ObjectMeta.Finalizers, util.MongodbResourceFinalizer)
-
-	clientStandalone := &v1.MongoDbStandalone{}
-	assert.NoError(t, manager.client.Get(context.TODO(), resource.ObjectKey(), clientStandalone))
-	assert.Equal(t, resource, clientStandalone)
-
-	// Duplicated call to 'ensureFinalizerHeaders' changes nothing
-	assert.NoError(t, controller.ensureFinalizerHeaders(resource, &resource.ObjectMeta, zap.S()))
-	assert.Contains(t, resource.ObjectMeta.Finalizers, util.MongodbResourceFinalizer)
-}
-
-// TestReconcileDeletion_Successful makes sure 'reconcileDeletion' function calls the passed function and removes the
-// finalizer header
-func TestReconcileDeletion_Successful(t *testing.T) {
-	doReconcileDeletion(t, func() error { return nil })
-}
-
-// TestReconcileDeletion_Failed makes sure 'reconcileDeletion' function calls the passed function and removes the
-// finalizer header and ignores the error during cleanup
-func TestReconcileDeletion_Failed(t *testing.T) {
-	doReconcileDeletion(t, func() error { return errors.New("FOO!!") })
-}
-
-func doReconcileDeletion(t *testing.T, f func() error) {
-	resource := DefaultStandaloneBuilder().Build()
-	manager := newMockedManager(resource)
-	resource.ObjectMeta.Finalizers = append(resource.ObjectMeta.Finalizers, util.MongodbResourceFinalizer)
-
-	controller := newReconcileCommonController(manager, om.NewEmptyMockedOmConnection)
-	i := false
-	result, e := controller.reconcileDeletion(
-		func(obj interface{}, log *zap.SugaredLogger) error { i = true; return f() },
-		resource,
-		&resource.ObjectMeta,
-		zap.S())
-
-	assert.NoError(t, e)
-	assert.Equal(t, reconcile.Result{}, result)
-	assert.True(t, i) // cleanup function was called
-	assert.NotContains(t, resource.ObjectMeta.Finalizers, util.MongodbResourceFinalizer)
-
-	// Make sure client.client.Update was called for standalone and has no headers as well
-	clientStandalone := &v1.MongoDbStandalone{}
-	assert.NoError(t, manager.client.Get(context.TODO(), resource.ObjectKey(), clientStandalone))
-	assert.Equal(t, resource, clientStandalone)
 }
 
 func prepareConnection(controller *ReconcileCommonController, t *testing.T) (*om.MockedOmConnection, *PodVars) {

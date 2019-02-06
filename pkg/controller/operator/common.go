@@ -2,22 +2,23 @@ package operator
 
 import (
 	"fmt"
+	"math"
 	"reflect"
 
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	"k8s.io/apimachinery/pkg/types"
-
-	"math"
-
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/pkg/errors"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 // This is a collection of some common methods that may be shared by operator code
@@ -254,4 +255,22 @@ func objectKeyFromApiObject(obj interface{}) client.ObjectKey {
 	name := reflect.ValueOf(obj).Elem().FieldByName("Name").String()
 
 	return objectKey(ns, name)
+}
+
+// MongoDBResourceEventHandler is a custom event handler that extends the
+// handler.EnqueueRequestForObject event handler. It overrides the Delete
+// method used to clean up the mongodb resource when a deletion event happens.
+// This results in a single, synchronous attempt to clean up the resource
+// rather than an asynchronous one.
+type MongoDBResourceEventHandler struct {
+	*handler.EnqueueRequestForObject
+	reconciler interface {
+		delete(obj interface{}, log *zap.SugaredLogger) error
+	}
+}
+
+func (eh *MongoDBResourceEventHandler) Delete(e event.DeleteEvent, unused workqueue.RateLimitingInterface) {
+	logger := zap.S().With("resource", e.Meta)
+	logger.Infow("Cleaning up MongoDB resource")
+	eh.reconciler.delete(e.Object, logger)
 }

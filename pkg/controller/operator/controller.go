@@ -17,7 +17,6 @@ import (
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -160,49 +159,6 @@ func (c *ReconcileCommonController) updateStatusFailed(resource v1.MongoDbResour
 	return reconcile.Result{RequeueAfter: 10 * time.Second}, nil
 }
 
-// reconcileDeletion checks the headers and if 'util.MongodbResourceFinalizer' header is present - tries to cleanup Ops Manager
-// through calling 'cleanupFunc'. Cleanup is requeued in case of any troubles. Otherwise the header is removed from custom
-// resource
-func (c *ReconcileCommonController) reconcileDeletion(cleanupFunc func(obj interface{}, log *zap.SugaredLogger) error,
-	res v1.MongoDbResource, objectMeta *metav1.ObjectMeta, log *zap.SugaredLogger) (reconcile.Result, error) {
-	// Object is being removed - let's check for finalizers left
-	if util.ContainsString(objectMeta.Finalizers, util.MongodbResourceFinalizer) {
-		if err := cleanupFunc(res, log); err != nil {
-			// Important: we are not retrying cleanup as there can be situations when this will block deletion forever (examples:
-			// config map changed/removed, Ops Manager deleted etc)
-			// TODO Ideally we should retry for N times though
-			log.Errorf("Failed to cleanup Ops Manager state, proceeding anyway: %s", err)
-		}
-
-		// remove our finalizer from the list and update it.
-		// (Sometimes we get the "the object has been modified" error - so let's fetch the latest object before updating it)
-		_ = c.client.Get(context.TODO(), objectKeyFromApiObject(res), res)
-		objectMeta.Finalizers = util.RemoveString(objectMeta.Finalizers, util.MongodbResourceFinalizer)
-		if err := c.client.Update(context.Background(), res.(runtime.Object)); err != nil {
-			return c.updateStatusFailed(res, fmt.Sprintf("Failed to update object finalizer headers: %s", err), log)
-		}
-		log.Debug("Removed finalizer header")
-	} else {
-		log.Warnf("Why was reconcileDeletion() function called but there is no %s header?", util.MongodbResourceFinalizer)
-	}
-
-	// Our finalizer has finished, so the reconciler can do nothing.
-	return reconcile.Result{}, nil
-}
-
-// ensureFinalizerHeaders adds the finalizer header to custom resource if it doesn't exist
-// see https://book.kubebuilder.io/beyond_basics/using_finalizers.html
-func (c *ReconcileCommonController) ensureFinalizerHeaders(res runtime.Object, objectMeta *metav1.ObjectMeta, log *zap.SugaredLogger) error {
-	if !util.ContainsString(objectMeta.Finalizers, util.MongodbResourceFinalizer) {
-		objectMeta.Finalizers = append(objectMeta.Finalizers, util.MongodbResourceFinalizer)
-		if err := c.client.Update(context.Background(), res); err != nil {
-			return err
-		}
-		log.Debug("Added finalizer header")
-	}
-	return nil
-}
-
 // if the resource is updated externally during an update, it's possible that we get concurrent modification errors
 // when trying to update.
 // E.g: "Operation cannot be fulfilled on mongodbstandalones.mongodb.com : the object has
@@ -250,9 +206,6 @@ func (c *ReconcileCommonController) updatePending(reconciledResource v1.MongoDbR
 func shouldReconcile(oldResource v1.MongoDbResource, newResource v1.MongoDbResource) bool {
 	newStatus := newResource.GetCommonStatus()
 	if !reflect.DeepEqual(oldResource.GetCommonStatus(), newStatus) {
-		return false
-	}
-	if !reflect.DeepEqual(oldResource.GetMeta().Finalizers, newResource.GetMeta().Finalizers) {
 		return false
 	}
 	return true

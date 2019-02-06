@@ -53,10 +53,6 @@ func (m *Meta) ObjectKey() client.ObjectKey {
 	return client.ObjectKey{Name: m.Name, Namespace: m.Namespace}
 }
 
-func (m *Meta) NeedsDeletion() bool {
-	return !m.DeletionTimestamp.IsZero()
-}
-
 // CommonSpec includes fields common for all Mongodb types
 type CommonSpec struct {
 	Version string `json:"version"`
