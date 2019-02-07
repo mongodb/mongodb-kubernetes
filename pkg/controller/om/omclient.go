@@ -23,7 +23,8 @@ import (
 type Connection interface {
 	UpdateDeployment(deployment Deployment) ([]byte, error)
 	ReadDeployment() (Deployment, error)
-	ReadUpdateDeployment(wait bool, depFunc func(Deployment) error, log *zap.SugaredLogger) error
+	ReadUpdateDeployment(depFunc func(Deployment) error, log *zap.SugaredLogger) error
+	WaitForReadyState(processNames []string, log *zap.SugaredLogger) error
 	GenerateAgentKey() (string, error)
 	ReadAutomationStatus() (*AutomationStatus, error)
 	ReadAutomationAgents() (*AgentState, error)
@@ -153,9 +154,8 @@ func (oc *HTTPOmConnection) ReadDeployment() (Deployment, error) {
 	return d, NewAPIError(e)
 }
 
-// ReadUpdateDeployment performs the "read-modify-update" operation on OpsManager Deployment. It will wait for
-// Automation agents to apply results if "wait" is set to true.
-func (oc *HTTPOmConnection) ReadUpdateDeployment(wait bool, depFunc func(Deployment) error, log *zap.SugaredLogger) error {
+// ReadUpdateDeployment performs the "read-modify-update" operation on OpsManager Deployment.
+func (oc *HTTPOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error, log *zap.SugaredLogger) error {
 	deployment, err := oc.ReadDeployment()
 	if err != nil {
 		return err
@@ -166,11 +166,11 @@ func (oc *HTTPOmConnection) ReadUpdateDeployment(wait bool, depFunc func(Deploym
 	}
 
 	_, err = oc.UpdateDeployment(deployment)
-	if err != nil {
-		return err
-	}
+	return err
+}
 
-	log.Info("Waiting for automation config to be applied by Automation Agents...")
+func (oc *HTTPOmConnection) WaitForReadyState(processNames []string, log *zap.SugaredLogger) error {
+	log.Infow("Waiting for automation config to be applied by Automation Agents...", "processes", processNames)
 	reachStateFunc := func() (string, bool) {
 
 		as, lastErr := oc.ReadAutomationStatus()
@@ -178,22 +178,16 @@ func (oc *HTTPOmConnection) ReadUpdateDeployment(wait bool, depFunc func(Deploym
 			return fmt.Sprintf("Error reading Automation Agents status: %s", lastErr), false
 		}
 
-		if checkAutomationStatusIsGoal(as) {
+		if checkAutomationStatusIsGoal(as, processNames) {
 			return "Automation agents haven't reached READY state", true
 		}
 
 		return "Automation agents haven't reached READY state", false
 	}
-
-	// todo make the interval configurable
-	if wait && !util.DoAndRetry(reachStateFunc, log, 30, 3) {
+	if !util.DoAndRetry(reachStateFunc, log, 30, 3) {
 		return NewAPIError(fmt.Errorf("Failed to start databases during defined interval"))
 	}
-	msg := "Automation config has been successfully updated in Ops Manager"
-	if wait {
-		msg = msg + " and Automation Agents reached READY state"
-	}
-	log.Info(msg)
+	log.Info("Automation config has been successfully updated in Ops Manager and Automation Agents reached READY state")
 	return nil
 }
 
@@ -230,7 +224,6 @@ func (oc *HTTPOmConnection) ReadAutomationStatus() (*AutomationStatus, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	status, e := buildAutomationStatusFromBytes(ans)
 	return status, NewAPIError(e)
 }

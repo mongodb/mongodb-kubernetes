@@ -175,8 +175,10 @@ func (r *ReconcileMongoDbShardedCluster) delete(obj interface{}, log *zap.Sugare
 	if err != nil {
 		return err
 	}
-	err = conn.ReadUpdateDeployment(true,
+	processNames := make([]string, 0)
+	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
+			processNames = d.GetProcessNames(om.ShardedCluster{}, sc.Name)
 			if e := d.RemoveShardedClusterByName(sc.Name); e != nil {
 				log.Warnf("Failed to remove sharded cluster from automation config: %s", e)
 			}
@@ -185,6 +187,10 @@ func (r *ReconcileMongoDbShardedCluster) delete(obj interface{}, log *zap.Sugare
 		log,
 	)
 	if err != nil {
+		return err
+	}
+
+	if err := conn.WaitForReadyState(processNames, log); err != nil {
 		return err
 	}
 
@@ -302,12 +308,14 @@ func updateOmDeploymentShardedCluster(conn om.Connection, sc *mongodb.MongoDbSha
 		shards[i] = buildReplicaSetFromStatefulSet(s.BuildStatefulSet(), sc.Spec.ClusterName, sc.Spec.Version)
 	}
 
-	err = conn.ReadUpdateDeployment(true,
+	processNames := make([]string, 0)
+	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			if err := d.MergeShardedCluster(sc.Name, mongosProcesses, configRs, shards); err != nil {
 				return err
 			}
 			d.AddMonitoringAndBackup(mongosProcesses[0].HostName(), log)
+			processNames = d.GetProcessNames(om.ShardedCluster{}, sc.Name)
 			return nil
 		}, log,
 	)
@@ -315,15 +323,14 @@ func updateOmDeploymentShardedCluster(conn om.Connection, sc *mongodb.MongoDbSha
 		return err
 	}
 
-	currentHosts := getAllHosts(sc, sc.Status.MongodbShardedClusterSizeConfig)
-	wantedHosts := getAllHosts(sc, sc.Spec.MongodbShardedClusterSizeConfig)
-
-	err = calculateDiffAndStopMonitoringHosts(conn, currentHosts, wantedHosts, log)
-	if err != nil {
+	if err := conn.WaitForReadyState(processNames, log); err != nil {
 		return err
 	}
 
-	return nil
+	currentHosts := getAllHosts(sc, sc.Status.MongodbShardedClusterSizeConfig)
+	wantedHosts := getAllHosts(sc, sc.Spec.MongodbShardedClusterSizeConfig)
+
+	return calculateDiffAndStopMonitoringHosts(conn, currentHosts, wantedHosts, log)
 }
 
 func waitForAgentsToRegister(cluster *mongodb.MongoDbShardedCluster, state ShardedClusterKubeState, conn om.Connection,

@@ -10,6 +10,8 @@ import (
 	"go.uber.org/zap"
 )
 
+type DeploymentType int
+
 const (
 	// Note that these two constants shouldn't be changed often as AutomationAgent upgrades both other agents automatically
 
@@ -249,6 +251,44 @@ func (d Deployment) RemoveShardedClusterByName(clusterName string) error {
 	d.removeProcesses(d.getMongosProcessesNames(clusterName))
 
 	return nil
+}
+
+// returns an array of all the process names relevant to the given deployment
+// these processes are the only ones checked for goal state when updating the
+// deployment
+func (d Deployment) GetProcessNames(kind interface{}, name string) []string {
+	switch kind.(type) {
+	case ShardedCluster:
+		return d.getShardedClusterProcessNames(name)
+	case ReplicaSet:
+		return d.getReplicaSetProcessNames(name)
+	case Standalone:
+		return []string{name}
+	default:
+		panic(fmt.Errorf("unexpected kind: %v", kind))
+	}
+}
+
+func (d Deployment) getReplicaSetProcessNames(name string) []string {
+	processNames := make([]string, 0)
+	if rs := d.getReplicaSetByName(name); rs != nil {
+		for _, member := range rs.members() {
+			processNames = append(processNames, member.Name())
+		}
+	}
+	return processNames
+}
+
+func (d Deployment) getShardedClusterProcessNames(name string) []string {
+	processNames := make([]string, 0)
+	if sc := d.getShardedClusterByName(name); sc != nil {
+		for _, shard := range sc.shards() {
+			processNames = append(processNames, d.getReplicaSetProcessNames(shard.rs())...)
+		}
+		processNames = append(processNames, d.getReplicaSetProcessNames(sc.ConfigServerRsName())...)
+		processNames = append(processNames, d.getMongosProcessesNames(name)...)
+	}
+	return processNames
 }
 
 // Debug

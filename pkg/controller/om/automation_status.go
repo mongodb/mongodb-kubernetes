@@ -2,6 +2,8 @@ package om
 
 import (
 	"encoding/json"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 // AutomationStatus represents the status of automation agents registered with Ops Manager
@@ -27,14 +29,16 @@ func buildAutomationStatusFromBytes(b []byte) (*AutomationStatus, error) {
 	return as, nil
 }
 
-// CheckAutomationStatusIsGoal returns true if all the processes are in Goal
+// CheckAutomationStatusIsGoal returns true if all the relevant processes are in Goal
 // state.
-func checkAutomationStatusIsGoal(as *AutomationStatus) bool {
+func checkAutomationStatusIsGoal(as *AutomationStatus, relevantProcesses []string) bool {
 	for _, p := range as.Processes {
+		if !util.ContainsString(relevantProcesses, p.Name) {
+			continue
+		}
 		if p.LastGoalVersionAchieved != as.GoalVersion {
 			return false
 		}
 	}
-
 	return true
 }

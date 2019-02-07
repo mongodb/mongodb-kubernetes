@@ -116,13 +116,18 @@ func (oc *MockedOmConnection) ReadDeployment() (Deployment, error) {
 	}
 	return oc.deployment, nil
 }
-func (oc *MockedOmConnection) ReadUpdateDeployment(wait bool, depFunc func(Deployment) error, log *zap.SugaredLogger) error {
+func (oc *MockedOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error, log *zap.SugaredLogger) error {
 	oc.addToHistory(reflect.ValueOf(oc.ReadUpdateDeployment))
 	if oc.deployment == nil {
 		oc.deployment = NewDeployment()
 	}
 	depFunc(oc.deployment)
 	oc.numRequestsSent++
+	return nil
+}
+
+func (oc *MockedOmConnection) WaitForReadyState(processNames []string, log *zap.SugaredLogger) error {
+	oc.addToHistory(reflect.ValueOf(oc.WaitForReadyState))
 	return nil
 }
 

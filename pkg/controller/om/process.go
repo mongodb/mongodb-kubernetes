@@ -64,6 +64,9 @@ The resulting json for this type:
 	}
 */
 
+// used to indicate standalones when a type is used as an identifier
+type Standalone map[string]interface{}
+
 // Process
 type Process map[string]interface{}
 

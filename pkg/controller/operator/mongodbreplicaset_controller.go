@@ -159,11 +159,14 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(omConnection om.Connec
 	}
 	replicaSet := buildReplicaSetFromStatefulSet(set, new.Spec.ClusterName, new.Spec.Version)
 
-	err = omConnection.ReadUpdateDeployment(true,
+	processNames := make([]string, 0)
+	err = omConnection.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			d.MergeReplicaSet(replicaSet, nil)
 
 			d.AddMonitoringAndBackup(replicaSet.Processes[0].HostName(), log)
+
+			processNames = d.GetProcessNames(om.ReplicaSet{}, replicaSet.Rs.Name())
 			return nil
 		},
 		log,
@@ -172,25 +175,26 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(omConnection om.Connec
 		return err
 	}
 
-	err = calculateDiffAndStopMonitoringHosts(omConnection, getAllHostsRs(set, new, membersNumberBefore), getAllHostsRs(set, new, new.Spec.Members), log)
-	if err != nil {
+	if err := omConnection.WaitForReadyState(processNames, log); err != nil {
 		return err
 	}
 
-	return nil
+	return calculateDiffAndStopMonitoringHosts(omConnection, getAllHostsRs(set, new, membersNumberBefore), getAllHostsRs(set, new, new.Spec.Members), log)
+
 }
 
 func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLogger) error {
 	rs := obj.(*mongodb.MongoDbReplicaSet)
 
 	log.Infow("Removing replica set from Ops Manager", "config", rs.Spec)
-
 	conn, err := r.prepareConnection(objectKey(rs.Namespace, rs.Name), rs.Spec.CommonSpec, nil, log)
 	if err != nil {
 		return err
 	}
-	err = conn.ReadUpdateDeployment(true,
+	processNames := make([]string, 0)
+	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
+			processNames = d.GetProcessNames(om.ReplicaSet{}, rs.Name)
 			// error means that replica set is not in the deployment - it's ok and we can proceed (could happen if
 			// deletion cleanup happened twice and the first one cleaned OM state already)
 			if e := d.RemoveReplicaSetByName(rs.Name); e != nil {
@@ -204,8 +208,11 @@ func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLog
 		return err
 	}
 
-	err = om.StopBackupIfEnabled(conn, rs.Name, om.ReplicaSetType, log)
-	if err != nil {
+	if err := conn.WaitForReadyState(processNames, log); err != nil {
+		return err
+	}
+
+	if err := om.StopBackupIfEnabled(conn, rs.Name, om.ReplicaSetType, log); err != nil {
 		return err
 	}
 

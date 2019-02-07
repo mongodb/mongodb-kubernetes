@@ -144,21 +144,24 @@ func updateOmDeployment(omConnection om.Connection, s *mongodb.MongoDbStandalone
 		return err
 	}
 
+	processNames := make([]string, 0)
 	standaloneOmObject := createProcess(set, s)
-	err := omConnection.ReadUpdateDeployment(true,
+	err := omConnection.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			d.MergeStandalone(standaloneOmObject, nil)
 			d.AddMonitoringAndBackup(standaloneOmObject.HostName(), log)
-
+			processNames = d.GetProcessNames(om.Standalone{}, s.Name)
 			return nil
 		},
 		log,
 	)
+
 	if err != nil {
 		return err
 	}
 
-	return nil
+	return omConnection.WaitForReadyState(processNames, log)
+
 }
 
 func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLogger) error {
@@ -171,8 +174,10 @@ func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLog
 		return err
 	}
 
-	err = conn.ReadUpdateDeployment(true,
+	processNames := make([]string, 0)
+	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
+			processNames = d.GetProcessNames(om.Standalone{}, s.Name)
 			// error means that process is not in the deployment - it's ok and we can proceed (could happen if
 			// deletion cleanup happened twice and the first one cleaned OM state already)
 			d.RemoveProcessByName(s.Name)
@@ -182,6 +187,10 @@ func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLog
 	)
 	if err != nil {
 		return fmt.Errorf("Failed to update Ops Manager automation config: %s", err)
+	}
+
+	if err := conn.WaitForReadyState(processNames, log); err != nil {
+		return err
 	}
 
 	hostsToRemove, _ := GetDnsNames(s.Name, s.ServiceName(), s.Namespace, s.Spec.ClusterName, 1)

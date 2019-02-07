@@ -163,7 +163,7 @@ func prepareScaleDown(omClient om.Connection, rsMembers map[string][]string, log
 
 	// Stage 1. Set Votes and Priority to 0
 	if len(rsMembers) > 0 {
-		err := omClient.ReadUpdateDeployment(true,
+		err := omClient.ReadUpdateDeployment(
 			func(d om.Deployment) error {
 				for k, v := range rsMembers {
 					if err := d.MarkRsMembersUnvoted(k, v); err != nil {
@@ -179,6 +179,10 @@ func prepareScaleDown(omClient om.Connection, rsMembers map[string][]string, log
 			return fmt.Errorf("Unable to set votes, priority to 0 in Ops Manager, hosts: %v, err: %s", processes, err)
 		}
 
+		if err := omClient.WaitForReadyState(processes, log); err != nil {
+			return err
+		}
+
 		log.Debugw("Marked replica set members as non-voting", "replica set with members", rsMembers)
 	}
 
@@ -187,7 +191,7 @@ func prepareScaleDown(omClient om.Connection, rsMembers map[string][]string, log
 	// that everything works correctly without disabling
 
 	// Stage 2. Set disabled to true
-	//err = omClient.ReadUpdateDeployment(true,
+	//err = omClient.ReadUpdateDeployment(
 	//	func(d om.Deployment) error {
 	//		d.DisableProcesses(allProcesses)
 	//		return nil
