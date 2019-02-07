@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/httputil"
 	"strings"
 	"time"
 
@@ -436,8 +435,9 @@ func request(method, hostname, path string, v interface{}, user string, token st
 
 	req.Header.Set("Authorization", getDigestAuthorization(digestParts, method, path, user, token))
 
-	request, _ := httputil.DumpRequest(req, false) // DEV: change this to true to see the request body sent
-	zap.S().Debugf("Request sending: \n %s", string(request))
+	// DEV: uncomment this to see full http request. Set to 'true' to to see the request body
+	//zap.S().Debugf("Ops Manager request: \n %s", httputil.DumpRequest(req, false))
+	zap.S().Debugf("Ops Manager request: %s %s", method, url) // pass string(request) to see full http request
 
 	resp, err = util.DefaultHttpClient.Do(req)
 

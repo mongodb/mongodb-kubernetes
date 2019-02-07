@@ -1,21 +1,13 @@
 #!/usr/bin/env bash
 
 ##
-## Starts Ops Manager and setups environment for tests to run.
-##
-## To launch e2e scripts locally on predefined OM and operator initialize necessary env variables and launch the script
-## providing test name:
-##
-## export ORG_ID="5bab96c432774481a41a4e67"
-## export OM_BASE_URL="http://alisovenko.ngrok.io"
-## export OM_API_KEY="f7f1d943-64b5-4557-90fa-f0250ec36d70"
-## export OM_USER="alisovenko@gmail.com"
-## TEST_STAGE=replica_set_pv_multiple e2e_tests.sh skip-ns-removal skip-installations rebuild-test-image
+## Setups environment and runs e2e test
 ##
 
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-pushd $DIR
-pwd
+cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
+
+source scripts/funcs
+
 
 # Will generate a random namespace to use each time
 if [ -z "${PROJECT_NAMESPACE}" ]; then
@@ -42,15 +34,8 @@ contains() {
     return 1
 }
 
-read_om_env() {
-    OPERATOR_TESTING_FRAMEWORK_NS=operator-testing
-
-    kubectl -n "${OPERATOR_TESTING_FRAMEWORK_NS}" exec mongodb-enterprise-ops-manager-0 ls "$1" && \
-        eval $(kubectl -n "${OPERATOR_TESTING_FRAMEWORK_NS}" exec mongodb-enterprise-ops-manager-0 cat "$1")
-}
-
 fetch_om_information() {
-    echo "##### Reading Ops Manager environment variables..."
+    title "Reading Ops Manager environment variables..."
 
     OPERATOR_TESTING_FRAMEWORK_NS=operator-testing
     if ! kubectl get namespace/${OPERATOR_TESTING_FRAMEWORK_NS} &> /dev/null; then
@@ -64,61 +49,19 @@ fetch_om_information() {
     # Get the environment from the ops-manager container
     echo "Getting credentials from Ops Manager"
 
-    # Gets the om-environment from one of the possible locations of the environment file
-    read_om_env "/opt/mongodb/mms/env/.ops-manager-env" || read_om_env "/opt/mongodb/mms/.ops-manager-env" || exit 1
+    # Gets the om-environment
+    kubectl -n "${OPERATOR_TESTING_FRAMEWORK_NS}" exec mongodb-enterprise-ops-manager-0 ls "/opt/mongodb/mms/env/.ops-manager-env" && \
+        eval "$(kubectl -n "${OPERATOR_TESTING_FRAMEWORK_NS}" exec mongodb-enterprise-ops-manager-0 cat "/opt/mongodb/mms/env/.ops-manager-env")" || exit 1
 
     echo "OM_USER: ${OM_USER}"
     echo "OM_PASSWORD: ${OM_PASSWORD}"
     echo "OM_API_KEY: ${OM_API_KEY}"
-}
 
-install_operator() {
-    echo "##### Installing Operator..."
-    outdir='helm_out'
-
-    if [ -z "${REVISION}" ]; then
-        # In case there's no revision (running locally), then use latest operator & database
-        # The `latest` tag will only exist in development registry (ECR)
-        REVISION=latest
-    fi
-
-    mkdir -p ${outdir}
-    helm template \
-         --set namespace="${PROJECT_NAMESPACE}" \
-         --set operator.version="${REVISION}" \
-         --set managedSecurityContext="${MANAGED_SECURITY_CONTEXT:-false}" \
-         -f deployments/values-test.yaml ../../public/helm_chart --output-dir "${outdir}" || exit 1
-
-    for file in roles serviceaccount operator
-    do
-        kubectl apply -f "helm_out/mongodb-enterprise-operator/templates/${file}.yaml"
-    done
-
-    # crds may exist - then the creation may fail which is fine
-    kubectl apply -f "helm_out/mongodb-enterprise-operator/templates/crds.yaml" || true
-
-    echo "Waiting until Operator gets to Running state..."
-
-    # Practice shows Openshift is sometimes REALLY slow to start Operator...
-    max_wait=120
-    while ! kubectl -n "${PROJECT_NAMESPACE}" get pods -l app=mongodb-enterprise-operator -o jsonpath='{.items[0].status.phase}' | grep -q "Running" ; do
-        sleep 1
-        max_wait=$((max_wait - 1))
-        if [ $max_wait -eq 0 ]; then
-            echo "(!!) Operator hasn't reached RUNNING state after 120 seconds. The full yaml configuration for the pod is:"
-            echo "------------------------------------------------------"
-            kubectl -n "${PROJECT_NAMESPACE}" get pods -l app=mongodb-enterprise-operator -o yaml
-
-            # Exit and signal an error, the operator should not take more than 120 seconds to start
-            exit 1
-        fi
-    done
-
-    echo "##### Operator installed successfully"
+    title "Ops Manager environment is successfully read"
 }
 
 configure_operator() {
-    echo "##### Creating project and credentials Kubernetes object..."
+    title "Creating project and credentials Kubernetes object..."
     BASE_URL="${OM_BASE_URL:=http://ops-manager.operator-testing.svc.cluster.local:8080}"
 
     # delete `my-project` if it exists
@@ -145,7 +88,7 @@ configure_operator() {
     echo "------------------------------------------------------"
     kubectl --namespace "${PROJECT_NAMESPACE}" get secret/my-credentials -o yaml
 
-    echo "##### ConfigMap and Secret are created"
+    title "ConfigMap and Secret are created"
 
 }
 
@@ -155,9 +98,8 @@ teardown() {
 }
 
 rebuild_test_image() {
-    # Run this if necessary
-    # eval $(aws ecr get-login --no-include-email --region us-east-1)
-    pushd ../../docker/mongodb-enterprise-tests/
+    eval "$(aws ecr get-login --no-include-email --region us-east-1)" &> /dev/null
+
     TEST_IMAGE_TAG=$(git rev-parse HEAD)
     LOCAL_IMAGE="dev/mongodb-enterprise-tests:${TEST_IMAGE_TAG}"
     REMOTE_IMAGE="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-tests:${TEST_IMAGE_TAG}"
@@ -173,26 +115,20 @@ rebuild_test_image() {
     popd
 }
 
-
-run_tests() {
-    test_stage="$1"
-
-    TEST_IMAGE_TAG=$(git rev-parse HEAD)
-
-    echo "-----------> Running test ${test_stage} \(tag: ${TEST_IMAGE_TAG}\)"
-
-    echo "##### Deploying test application..."
+deploy_test_app() {
+    title "Deploying test application..."
 
     # create dummy helm chart
     charttmpdir=$(mktemp -d 2>/dev/null || mktemp -d -t 'charttmpdir')
     charttmpdir=${charttmpdir}/chart
-    cp -R "${DIR}/../../public/helm_chart/" "${charttmpdir}"
+    cp -R "public/helm_chart/" "${charttmpdir}"
 
-    cp deployments/mongodb-enterprise-tests.yaml "${charttmpdir}/templates"
+    cp scripts/evergreen/deployments/mongodb-enterprise-tests.yaml "${charttmpdir}/templates"
 
     # apply the correct configuration of the running OM instance
     helm template "${charttmpdir}" \
          -x templates/mongodb-enterprise-tests.yaml \
+         --set repo="${REPO_URL:=268558157000.dkr.ecr.us-east-1.amazonaws.com/dev}" \
          --set baseUrl="${OM_BASE_URL:=http://ops-manager.operator-testing.svc.cluster.local:8080}" \
          --set apiKey="${OM_API_KEY}" \
          --set apiUser="${OM_USER:=admin}" \
@@ -200,41 +136,119 @@ run_tests() {
          --set testStage="${test_stage}" \
          --set tag="${TEST_IMAGE_TAG}" > mongodb-enterprise-tests.yaml || exit 1
 
-    kubectl --namespace "${PROJECT_NAMESPACE}" delete -f mongodb-enterprise-tests.yaml || true
+    kubectl -n "${PROJECT_NAMESPACE}" delete -f mongodb-enterprise-tests.yaml || true
 
-    kubectl --namespace "${PROJECT_NAMESPACE}" apply -f mongodb-enterprise-tests.yaml
+    kubectl -n "${PROJECT_NAMESPACE}" apply -f mongodb-enterprise-tests.yaml
 
-    echo "##### Deployed test application, waiting until it gets ready..."
-    sleep 10
+    title "Deployed test application, waiting until it gets ready..."
+
+    # Do wait while the Pod is not yet running (can be in Pending or ContainerCreating state)
+    timeout "1m" bash -c \
+    	'while ! kubectl -n '"${PROJECT_NAMESPACE}"' get pod '"${TEST_APP_PODNAME}"' -o jsonpath="{.status.phase}" | grep -q "Running" ; do printf .; sleep 1; done; echo'
+
+    if ! kubectl -n "${PROJECT_NAMESPACE}" get pod ${TEST_APP_PODNAME} -o jsonpath="{.status.phase}" | grep -q "Running"; then
+    	error "Test application failed to reach Running state"
+    	echo
+    	echo "Output from \"kubectl describe ${TEST_APP_PODNAME}\":"
+    	kubectl -n "${PROJECT_NAMESPACE}" describe pod ${TEST_APP_PODNAME}
+
+		echo
+    	echo "Test application logs:"
+		kubectl -n "${PROJECT_NAMESPACE}" logs ${TEST_APP_PODNAME}
+
+		echo
+    	title "Test application didn't start, exiting..."
+    	exit 1
+    fi
+
+    title "Test application is ready"
+
+}
+
+# Deploys the test application and waits until it finishes. The test application runs the pytest with specific scenario
+# Note, that the script doesn't build the test docker image - it must be done by the client beforehand
+run_tests() {
+    test_stage="$1"
+    timeout="${2:-8m}"
+
+    TEST_IMAGE_TAG=$(git rev-parse HEAD)
+
+    echo "-----------> Running test ${test_stage} \(tag: ${TEST_IMAGE_TAG}\)"
 
     TEST_APP_PODNAME=mongodb-enterprise-operator-tests
 
-    # Do wait while the Pod is not yet running (can be in Pending or ContainerCreating state)
-    timeout "1m" bash -c 'while ! kubectl --namespace "${PROJECT_NAMESPACE}" get pod ${TEST_APP_PODNAME} | grep -q "Running" ; do sleep 1; done'
+	deploy_test_app
 
-    echo "##### Test application is ready, waiting until the test ends..."
+    output_filename="test_app.log"
+    operator_filename="operator.log"
 
-    output_filename="test_app_output.text"
-    operator_filename="operator_output.text"
     # Eventually this Pod will die (after run.sh has completed running), and this command will finish.
-    kubectl --namespace "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" -f > "${output_filename}" &
+    kubectl -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" -f > "${output_filename}" &
     KILLPID0=$!
-    kubectl --namespace "${PROJECT_NAMESPACE}" logs "deployment/mongodb-enterprise-operator" -f > "${operator_filename}" &
+    kubectl -n "${PROJECT_NAMESPACE}" logs "deployment/mongodb-enterprise-operator" -f > "${operator_filename}" &
     KILLPID1=$!
     # Print the logs from the test container with a background tail.
-    tail -f "${output_filename}" "${operator_filename}" &
+    tail -f "${output_filename}" &
     KILLPID2=$!
 
     trap "kill $KILLPID0 $KILLPID1 $KILLPID2  &> /dev/null || true"  SIGINT SIGTERM SIGQUIT
 
-    # Wait for as long as this Pod is Running.
-    while kubectl --namespace "${PROJECT_NAMESPACE}" get "pod/${TEST_APP_PODNAME}" | grep -q 'Running' ; do sleep 1; done
+    # Note, that we wait for 8 minutes maximum - this is less than the ultimate evergreen task timeout (10 minutes) as
+    # we want to dump diagnostic information in case of failure
+    timeout ${timeout} bash -c \
+     	'while kubectl -n '"${PROJECT_NAMESPACE}"' get pod '"${TEST_APP_PODNAME}"' -o jsonpath="{.status.phase}" | grep -q "Running" ; do sleep 1; done'
 
     # make sure there are not processes running in the background.
     kill $KILLPID0 $KILLPID1 $KILLPID2 &> /dev/null
 
+    if [[ "$(kubectl -n ${PROJECT_NAMESPACE} get pods/${TEST_APP_PODNAME} -o jsonpath='{.status.phase}')" != "Succeeded" ]]; then
+    	test_app_status="$(kubectl -n ${PROJECT_NAMESPACE} get pods/${TEST_APP_PODNAME} -o jsonpath='{.status.phase}')"
+    	error "Test application has status \"$test_app_status\" instead of \"Succeeded\""
+    	return 1
+    fi
+    return 0
+}
 
-    [ "$(kubectl -n ${PROJECT_NAMESPACE} get pods/${TEST_APP_PODNAME} -o jsonpath='{.status.phase}')" = "Succeeded" ]
+dump_agent_logs() {
+	agent_log_file="agent"
+	i=1
+
+	for st in $(kubectl get mst -n ${PROJECT_NAMESPACE} -o name | cut -d "/" -f 2); do
+		filename=${agent_log_file}${i}".log"
+		kubectl logs -n ${PROJECT_NAMESPACE} "${st}-0" > ${filename}
+
+		echo "Wrote ${st}-0 logs to file ${filename}"
+		((i++))
+	done
+
+	for rs in $(kubectl get mrs -n ${PROJECT_NAMESPACE} -o name | cut -d "/" -f 2); do
+		for pod in $(kubectl get pods -n ${PROJECT_NAMESPACE} -o name | grep "$rs" | cut -d "/" -f 2); do
+			filename=${agent_log_file}${i}".log"
+			kubectl logs -n ${PROJECT_NAMESPACE} ${pod} > ${filename}
+
+			echo "Wrote ${pod} logs to file ${filename}"
+			((i++))
+		done
+	done
+
+	# let's dump only shard logs
+	for sc in $(kubectl get msc -n ${PROJECT_NAMESPACE} -o name | cut -d "/" -f 2); do
+		for pod in $(kubectl get pods -n ${PROJECT_NAMESPACE} -o name | grep "$sc" \
+					| grep -v "$sc-config" | grep -v "$sc-mongos" | cut -d "/" -f 2); do
+			filename=${agent_log_file}${i}".log"
+			kubectl logs -n ${PROJECT_NAMESPACE} ${pod} > ${filename}
+
+			echo "Wrote ${pod} logs to file ${filename}"
+			((i++))
+		done
+	done
+
+}
+
+delete_mongodb_resources() {
+	kubectl delete mrs --all  -n ${PROJECT_NAMESPACE}
+	kubectl delete mst --all  -n ${PROJECT_NAMESPACE}
+	kubectl delete msc --all  -n ${PROJECT_NAMESPACE}
 }
 
 # sometimes in kops cluster some nodes get this taint that makes nodes non-schedulable. Just going over all nodes and
@@ -247,19 +261,12 @@ fix_taints() {
     done
 }
 
-## Script options meant to run locally
-if contains "init-cluster" "$@" ; then
-    # Helper function to be used manually (for now)
-    init_kops_cluster
-    exit
-fi
 
-if contains "rebuild-test-image" "$@"; then
-    rebuild_test_image
-fi
+if [[ "${MODE-}" != "dev" ]]; then
+	fix_taints
 
-if ! contains "skip-installations" "$@"; then
-    install_operator
+	redeploy_operator "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev" \
+			"${REVISION:-}" "${PROJECT_NAMESPACE}" "Always" "${MANAGED_SECURITY_CONTEXT:-}" "2m"
 
 	fetch_om_information
 
@@ -271,21 +278,23 @@ if [ -z "${TEST_STAGE}" ]; then
     echo "TEST_STAGE needs to be defined"
 fi
 
-fix_taints
 
-run_tests "${TEST_STAGE}"
+run_tests "${TEST_STAGE}" "${WAIT_TIMEOUT}"
+
 TESTS_OK=$?
 echo "Tests have finished with the following exit code: ${TESTS_OK}"
 
-if [ "${TESTS_OK}" -eq 0 ] && ! contains "skip-ns-removal" "$@"; then
-    teardown
+# In Evergreen we always clean namespaces if the test finished ok and dump diagnostic information otherwise.
+# We don't do it for local development (as 'make e2e' will clean the resources before launching test)
+if [[ "${MODE-}" != "dev" ]]; then
+    if [[ "${TESTS_OK}" -eq 0 ]]; then
+        teardown
+    else
+        # Dump diagnostic information
+        dump_diagnostic_information diagnostics.txt
+
+        dump_agent_logs
+    fi
 fi
 
-if [ -z "${IS_EVERGREEN}" ]; then
-    # During local runs, you might want to inspect the kubernetes cluster state
-    # before tearing it down.
-    printf "Tests have finished. Press ENTER to teardown test suite"
-    read -r
-fi
-
-[ "${TESTS_OK}" -eq 0 ]
+[[ "${TESTS_OK}" -eq 0 ]]

@@ -77,7 +77,7 @@ spec:
       value: {{ .Values.apiUser }}
     - name: PROJECT_NAMESPACE
       value: {{ .Values.namespace }}
-    image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-tests:{{ .Values.tag }}
+    image: {{ .Values.repo }}/mongodb-enterprise-tests:{{ .Values.tag }}
     command: ["pytest"]
     # -x is used to stop after the first failure, -s disables output capturing to see results of 'print()'
     args: ["-m", "{{ .Values.testStage }}", "-v", "-x", "-s"]

@@ -81,6 +81,9 @@ class TestReplicaSetEnterpriseDelete(KubernetesTester):
       wait_for: 60
     """
 
+    def test_om_state_deleted(self):
+        KubernetesTester.check_om_state_cleaned()
+
     def test_replica_set_sts_doesnt_exist(self):
         "StatefulSet should not exist"
         with pytest.raises(client.rest.ApiException):
@@ -91,10 +94,3 @@ class TestReplicaSetEnterpriseDelete(KubernetesTester):
         with pytest.raises(client.rest.ApiException):
             self.corev1.read_namespaced_service("rs001-ent-svc", self.namespace)
 
-    def test_om_replica_set_is_deleted(self):
-        config = self.get_automation_config()
-        assert len(config["replicaSets"]) == 0
-
-    def test_om_processes_are_deleted(self):
-        config = self.get_automation_config()
-        assert len(config["processes"]) == 0

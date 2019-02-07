@@ -19,10 +19,9 @@ fi
 ensure_namespace "${NAMESPACE}"
 
 #installing the operator
-pull_policy="Always"
 if [[ ${REPO_TYPE} = "local" ]]; then
 	pull_policy="Never"
 fi
 
-redeploy_operator ${REPO_URL} ${OPERATOR_VERSION:-latest} ${NAMESPACE:-mongodb} ${pull_policy}
+redeploy_operator "${REPO_URL}" "${OPERATOR_VERSION:-}" "${NAMESPACE:-mongodb}" "${pull_policy:-}"
 

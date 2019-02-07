@@ -28,7 +28,9 @@ if ! ssh "ubuntu@${OPS_MANAGER_HOST}" cat "~/om" &> /dev/null; then
 	echo "Ops Manager Environment:"
 	cat ~/.operator-dev/om
 
-	yes | scp ~/.operator-dev/om "ubuntu@${OPS_MANAGER_HOST}:om"
+    # todo seems the flag doesn't make any effect and the script still asks "Are you sure you want to continue
+    # connecting (yes/no)"
+	scp -o "StrictHostKeyChecking no" ~/.operator-dev/om "ubuntu@${OPS_MANAGER_HOST}:om"
 else
 	echo "There is already an env file on ${OPS_MANAGER_HOST} - reusing it"
 fi
@@ -39,4 +41,4 @@ chmod +x ~/.operator-dev/om
 
 source "$HOME/.operator-dev/om"
 
-echo "Your Ops Manager is installed on $OM_HOST - don't forget to extend its expiration manually in Evergreen."
+echo "Your Ops Manager is installed on $OM_HOST - don't forget to extend its expiration manually in Evergreen!"

@@ -13,7 +13,7 @@ source scripts/funcs
 
 # cleanup_env removes old namespaces and Ops Manager if there are too many of them
 cleanup_env() {
-    MAX_NS_COUNT=30
+    MAX_NS_COUNT="$1"
     ns_count=$(kubectl get ns -o name | grep a- --count)
     echo "Current number of test namespaces: $ns_count"
 
@@ -22,6 +22,7 @@ cleanup_env() {
 
         for f in $(kubectl get ns -o name | grep a- | sed 's/namespace\///'); do
             echo "Removing all mongodb resources for namespace: ${f}"
+
 
             # temp until CLOUDP-35555 is resolved
             for m in $(kubectl get mrs -n ${f} -o name); do
@@ -33,10 +34,15 @@ cleanup_env() {
             for m in $(kubectl get mst -n ${f} -o name); do
                 kubectl patch  ${m}  --type json   -p='[{"op": "remove", "path": "/metadata/finalizers"}]' -n ${f}
             done
-            kubectl delete ns ${f};
+
+			kubectl delete mrs --all -n ${f} || true
+			kubectl delete msc --all -n ${f} || true
+			kubectl delete mst --all -n ${f} || true
+			kubectl delete pvc --all -n ${f} --now || true
+            kubectl delete ns ${f} --now;
         done
 
-        kubectl delete ns operator-testing
+        kubectl delete ns operator-testing --now
 
         echo "Waiting until operator-testing namespace is deleted..."
         while [ $(kubectl get namespace/operator-testing -o name 2> /dev/null)  ]; do
@@ -97,6 +103,8 @@ check_and_clean_repo() {
     fi
 }
 
-cleanup_env
+fix_taints
+
+cleanup_env "$1"
 
 ensure_ops_manager_k8s

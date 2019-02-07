@@ -8,7 +8,7 @@ that works with Minikube and allows to do incremental Operator deployments (just
 * Make sure to checkout this project into the `src/github.com/10gen` folder in the `$GOPATH` directory as described
  [here](https://golang.org/doc/code.html). So if your `$GOPATH` variable points to `/home/user/go` then the project
  must be checked out into `/Users/user/go/src/github.com/10gen/ops-manager-kubernetes`
-* [Go](https://golang.org/doc/install): Go programming language (we use the latest current version which is `1.9.4`)
+* [Go](https://golang.org/doc/install): Go programming language (we use the latest current version which is `1.11.5`)
 * [Docker](https://docs.docker.com/docker-for-mac/install/)
 * (For Mac) Install `coreutils`:
 ```bash
@@ -16,12 +16,12 @@ brew install coreutils
 # add to ~/.bashrc
 PATH="/usr/local/opt/coreutils/libexec/gnubin:$PATH"
 ```
-* [evergreen](https://evergreen.mongodb.com/settings)
+* [Evergreen command line client](https://evergreen.mongodb.com/settings)
 * [mms-utils](https://wiki.corp.mongodb.com/display/MMS/Ops+Manager+Release+setup+guide#OpsManagerReleasesetupguide-First-timeonly)
-note, that you should switch to python virtual environment in most cases when you work with `make`
+note, that you should switch to python virtual environment in most cases when you work with `make` dev utility
 * [Generate a github token](https://github.com/settings/tokens/new) with "repo" permissions and set `GITHUB_TOKEN`
 environment variable in `~/.bashrc`
-* Get the access to AWS account  "MMS Engineering Test" (268558157000)" - ask your collegues to add the user account there
+* Get the access to AWS account  "MMS Engineering Test" (268558157000)" - ask your colleagues to add the user account
 * Add the following environment variable export to your `~/.bashrc`: `export KOPS_STATE_STORE=s3://kube-om-state-store`
 
 ### Development workflow
@@ -62,6 +62,12 @@ kubectl apply -f my-replica-set.yaml
 make status
 
 ```
+
+### Some tips
+
+* There is no need to fully rebuild the whole environment on each run - usually if you are just changing the Operator
+code - then calling `make operator` will rebuild and redeploy the new operator image without full cleanup. All existing
+MongoDB resources will get reconciled automatically right after Operator upgrade - you don't need to remove/create them again.
 
 ### Troubleshooting
 

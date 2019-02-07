@@ -111,10 +111,5 @@ class TestShardedClusterDeletion(KubernetesTester):
         with pytest.raises(client.rest.ApiException):
             self.corev1.read_namespaced_service("sh001-base-sh", self.namespace)
 
-    def test_om_sharded_cluster_is_deleted(self):
-        config = self.get_automation_config()
-        assert len(config["sharding"]) == 0
-
-    def test_om_processes_are_deleted(self):
-        config = self.get_automation_config()
-        assert len(config["processes"]) == 0
+    def test_om_state_deleted(self):
+        KubernetesTester.check_om_state_cleaned()

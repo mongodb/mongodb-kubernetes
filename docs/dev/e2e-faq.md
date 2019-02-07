@@ -22,46 +22,17 @@ kops export kubecfg e2e.mongokubernetes.com
 kubectl config use-context e2e.mongokubernetes.com
 ```
 
-### How to recreate e2e kops cluster?
+#### How to recreate e2e kops cluster?
 
 ```bash
-CLUSTER=e2e.mongokubernetes.com
-
-# wait until the cluster is removed
-kops delete cluster $CLUSTER --yes
-
-# make sure you run the version >= 1.11.0
-kops version
-
-# generate keys if necessary
-ssh-keygen -f ~/.ssh/id_aws_rsa && ssh-add ~/.ssh/id_aws_rsa
-
-kops create cluster --node-count 3 \
-    --zones us-east-1a,us-east-1b,us-east-1c \
-    --node-size t2.large \
-    --node-volume-size 32 \
-    --master-size=t2.medium \
-    --master-volume-size 16  \
-    --kubernetes-version=v1.11.6 \
-    --ssh-public-key=~/.ssh/id_aws_rsa.pub \
-    --authorization RBAC \
-    $CLUSTER
-    
-kops create secret --name $CLUSTER sshpublickey admin -i ~/.ssh/id_aws_rsa.pub
-
-# edit and add the following record to the spec:
-#  kubeAPIServer:
-#    authorizationRbacSuperUser: admin
-kops edit cluster $CLUSTER
-
-kops update cluster $CLUSTER --yes
-
+make recreate-e2e
 ```
+
 Follow up:
 * Add all team members public keys to `.ssh/authorized_keys` file on each node
 * Configure firewall rules for Ops Manager (see below)
 
-### How to recreate e2e Openshift cluster?
+#### How to recreate e2e Openshift cluster?
 
 1. Install `ansible`: `sudo easy_install pip && sudo pip install ansible`
 1. Create `scripts/evergreen/test_clusters/exports.do` following the instructions in `scripts/evergreen/test_clusters/README.md`
@@ -85,27 +56,23 @@ and openshift clusters should be created with the same ssh keys
 
 
 #### If the test has failed - how to check what happened there?
-* Check logs in Evergreen
-* Check the state of existing objects in namespace using `kubectl`/`oc` (if they were not deleted)
+* Check logs in Evergreen (they show the output from testing application)
+* Check the state of existing objects in namespace - check the files attached to Evergreen job:
+    * `diagnostics.txt` - contains the output from `kubectl get.. -o yaml` for the most interesting objects in the namespace
+    (if they exist): Persistent Volume Claims, Mongodb resources, pods
+    * `operator.log` - contains the log from the Operator
+    * `agent[1-6].log` - set of files containing logs from Mongodb resource pods (for sharded clusters this includes only shards)
 * Check the state of project in Ops Manager. 
-    * To find out the external ip of Ops Manager pod run the following command:
-```bash
-kubectl get nodes -o wide | grep "$(k get pods/mongodb-enterprise-ops-manager-0 -n operator-testing -o wide | awk '{print $NF}')" | awk '{print $6}'
-``` 
+    * To find out the external ip of Ops Manager check the output of "setup_e2e" task in Evergreen - it will contain
+    the following phrase: "Use the following address to access Ops Manager from the browser: http://3.87.239.164:30039"
     * Use `admin/admin12345%` to login
 
-Note, that you need to open ports for Ops Manager instance first time:
-    * login to `https://console.aws.amazon.com` using account `2685-5815-7000` and 
-    * in `Security Groups` find the relevant group ([e2e](https://console.aws.amazon.com/ec2/v2/home?region=us-east-1#SecurityGroups:search=nodes.e2e;sort=groupName) 
-    or [openshift](https://console.aws.amazon.com/ec2/v2/home?region=us-east-1#SecurityGroups:search=openshift-test-workersecgroup-;sort=groupName))    
-    * add the following 'inbound' rule (opens the port `30039` for any client): 
-```
-Custom TCP Rule     TCP     30039   0.0.0.0/0, ::/0 
-```
+Note, that the external ports are opened automatically by the setup script
 
 #### Cleaning the old namespaces manually
 ```bash
-./scripts/evergreen/prepare_test_env
+# passing 0 will result in cleaning all existing namespaces (Evergreen cleans only if it's more than 30)
+./scripts/evergreen/prepare_test_env 0
 ```
 
 #### Problems with EBS volumes
@@ -121,11 +88,13 @@ which happens after successful test or during namespaces cleanup). Dynamic remov
  and delete then 
 * Seems there are problems cleaning volumes for Openshift (sometimes?). Volumes tend to stay in AWS but get status `available`:
  ![available-volumes](available-volumes.png)
- These volumes are removed manually in `scripts/evergreen/prepare_test_env` script
+ These volumes are removed automatically in `scripts/evergreen/prepare_test_env` script
 * One quite common and annoying thing is taint `NodeWithImpairedVolumes` that is sometimes added to the Kubernetes nodes.
 It means that there are some stuck volumes. The fixes above try to fix all stuck volumes (though the taint is not removed automatically).
 Also the taint is removed in `prepare_test_env`. This doesn't mean that the problem is solved completely (AWS is quite 
 unpredictable) but may help sometimes avoid complete rebuilds of the cluster
+* Sometimes deleting of the PVC/PV may get stuck. Even more - "Force detach" for the Volume in AWS console may get stuck as well.
+Seems there are no well-knows ways of solving this except for recreating kops cluster...
  
  #### How to restart kops cluster (creating new nodes)
  

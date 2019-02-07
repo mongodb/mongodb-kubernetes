@@ -51,7 +51,9 @@ echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')]: Started Ops Manager..."
 # Configure Ops Manager (register a global owner, create a project, define a 0/0 whitelist for the public API and retrieve the public API key)
 if [ ! -z "${OM_HOST}" ] &&  [ -z "${SKIP_OPS_MANAGER_REGISTRATION}" ]; then
     # wait a few seconds for Ops Manager to be ready to handle http connections
-    sleep 20
+    # TODO check the port in the loop
+    # smth like while ! timeout 1 bash -c "echo > /dev/tcp/localhost/${OM_PORT}"; do  sleep 1; done
+    sleep 30
     echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')]: Configuring Ops Manager / registering a Global Owner..."
     . /opt/venv/bin/activate
     # if we fail here it might be because we already initialized this image, no need to do it again.
@@ -61,9 +63,14 @@ if [ ! -z "${OM_HOST}" ] &&  [ -z "${SKIP_OPS_MANAGER_REGISTRATION}" ]; then
     echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')]: Credentials to be stored in ${OM_ENV_FILE}"
 
     /opt/scripts/configure-ops-manager.py "http://${OM_HOST}:${OM_PORT}" "${OM_ENV_FILE}" || true
+
+    if [ ! -f "${OM_ENV_FILE}" ]; then
+    	echo "The env file ${OM_ENV_FILE} doesn't exist - exiting!"
+    	exit 1
+    fi
     # keep going if a user has registered already, we'll assume it is us.
 fi
 echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')]: Ops Manager ready..."
 
 # Tail all Ops Manager and MongoD log files
-tail -F "${log_dir}/mms0.log" "${log_dir}/mms0-startup.log" "${log_dir}/daemon.log" "${log_dir}/daemon-startup.log" "${log_dir}/mongod-appdb.log" "${log_dir}/mongod-backup.log"
+tail -F "${om_log_dir}/mms0.log" "${om_log_dir}/mms0-startup.log" "${log_dir}/daemon.log" "${log_dir}/daemon-startup.log" "${log_dir}/mongod-appdb.log" "${log_dir}/mongod-backup.log"

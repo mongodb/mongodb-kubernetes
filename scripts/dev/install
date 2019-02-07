@@ -12,8 +12,8 @@ echo "Note, that you must download 'go' and 'dep' by yourself"
 # dep
 brew install dep
 
-# kubectl
-brew install kubernetes-cli
+# kubectl 1.11.3
+brew install https://raw.githubusercontent.com/Homebrew/homebrew-core/41764e07727d9a86b0f8a077117dc7876ca294c4/Formula/kubernetes-cli.rb
 
 # minikube
 brew cask install minikube

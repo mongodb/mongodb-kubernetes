@@ -18,7 +18,9 @@ elif [[ ${REPO_TYPE} = "ecr" ]]; then
 		aws ecr create-repository --repository-name="${repo_name}/mongodb-enterprise-operator"
 	fi
 
-	make -C docker/mongodb-enterprise-operator build IMAGE_DIR="${repo_name}" || scripts/build/prepare_build_environment && make -C docker/mongodb-enterprise-operator build IMAGE_DIR="${repo_name}"
+	# we do "dep ensure" and codegen only if there were some troubles building the binary - some optimization to avoid expensive step
+	scripts/build/build_operator || (scripts/build/prepare_build_environment && /scripts/build/build_operator)
+	docker build -t "${repo_name}"/mongodb-enterprise-operator:latest docker/mongodb-enterprise-operator
 	docker tag "${repo_name}"/mongodb-enterprise-operator "${REPO_URL}"/mongodb-enterprise-operator
 	docker push "${REPO_URL}"/mongodb-enterprise-operator
 
@@ -26,4 +28,3 @@ elif [[ ${REPO_TYPE} = "ecr" ]]; then
 elif [[ ${REPO_TYPE} = "quay" ]]; then
 	title "Skipping build of the Operator as current Docker registry is quay.io"
 fi
-

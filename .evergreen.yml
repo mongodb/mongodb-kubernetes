@@ -35,7 +35,6 @@ functions:
         script: |
           export WORKDIR=${workdir}
           SKIP_TESTING=true ./scripts/evergreen/build_operator
-
     - command: s3.put
       params:
         aws_key: ${mms_build_s3_aws_access_key}
@@ -43,6 +42,80 @@ functions:
         local_file: src/github.com/10gen/ops-manager-kubernetes/docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator
         remote_file: ops-manager-operator/${revision}/mongodb-enterprise-operator
         bucket: ops-manager-kubernetes-build
+        permissions: public-read
+        content_type: application/octet-stream
+  "upload_e2e_artifacts":
+    # todo note, that the bucket is public so far - there was something with permissions that didn't allow uploads for the eng test acccount
+    - command: s3.put
+      params:
+        aws_key: ${mms_eng_test_aws_access_key}
+        aws_secret: ${mms_eng_test_aws_secret}
+        local_file: src/github.com/10gen/ops-manager-kubernetes/operator.log
+        remote_file: logs/${task_id}/operator.log
+        bucket: operator-e2e-artifacts
+        permissions: public-read
+        content_type: application/octet-stream
+    - command: s3.put
+      params:
+        aws_key: ${mms_eng_test_aws_access_key}
+        aws_secret: ${mms_eng_test_aws_secret}
+        local_file: src/github.com/10gen/ops-manager-kubernetes/diagnostics.txt
+        remote_file: logs/${task_id}/diagnostics.txt
+        bucket: operator-e2e-artifacts
+        permissions: public-read
+        content_type: application/octet-stream
+    - command: s3.put
+      params:
+        aws_key: ${mms_eng_test_aws_access_key}
+        aws_secret: ${mms_eng_test_aws_secret}
+        local_file: src/github.com/10gen/ops-manager-kubernetes/agent1.log
+        remote_file: logs/${task_id}/agent1.log
+        bucket: operator-e2e-artifacts
+        permissions: public-read
+        content_type: application/octet-stream
+    - command: s3.put
+      params:
+        aws_key: ${mms_eng_test_aws_access_key}
+        aws_secret: ${mms_eng_test_aws_secret}
+        local_file: src/github.com/10gen/ops-manager-kubernetes/agent2.log
+        remote_file: logs/${task_id}/agent2.log
+        bucket: operator-e2e-artifacts
+        permissions: public-read
+        content_type: application/octet-stream
+    - command: s3.put
+      params:
+        aws_key: ${mms_eng_test_aws_access_key}
+        aws_secret: ${mms_eng_test_aws_secret}
+        local_file: src/github.com/10gen/ops-manager-kubernetes/agent3.log
+        remote_file: logs/${task_id}/agent3.log
+        bucket: operator-e2e-artifacts
+        permissions: public-read
+        content_type: application/octet-stream
+    - command: s3.put
+      params:
+        aws_key: ${mms_eng_test_aws_access_key}
+        aws_secret: ${mms_eng_test_aws_secret}
+        local_file: src/github.com/10gen/ops-manager-kubernetes/agent4.log
+        remote_file: logs/${task_id}/agent4.log
+        bucket: operator-e2e-artifacts
+        permissions: public-read
+        content_type: application/octet-stream
+    - command: s3.put
+      params:
+        aws_key: ${mms_eng_test_aws_access_key}
+        aws_secret: ${mms_eng_test_aws_secret}
+        local_file: src/github.com/10gen/ops-manager-kubernetes/agent5.log
+        remote_file: logs/${task_id}/agent5.log
+        bucket: operator-e2e-artifacts
+        permissions: public-read
+        content_type: application/octet-stream
+    - command: s3.put
+      params:
+        aws_key: ${mms_eng_test_aws_access_key}
+        aws_secret: ${mms_eng_test_aws_secret}
+        local_file: src/github.com/10gen/ops-manager-kubernetes/agent6.log
+        remote_file: logs/${task_id}/agent6.log
+        bucket: operator-e2e-artifacts
         permissions: public-read
         content_type: application/octet-stream
 
@@ -128,7 +201,7 @@ functions:
           kops export kubecfg $CLUSTER
 
           echo "Downloading kubectl"
-          curl -LO https://storage.googleapis.com/kubernetes-release/release/v1.10.0/bin/linux/amd64/kubectl
+          curl -LO https://storage.googleapis.com/kubernetes-release/release/v1.11.3/bin/linux/amd64/kubectl
           chmod +x kubectl
           mv kubectl $BINDIR
 
@@ -261,7 +334,7 @@ functions:
   "e2e_test":
     - command: shell.exec
       params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
         script: |
           # revision is only supposed to be set in evergreen
           export WORKDIR=${workdir}
@@ -279,7 +352,7 @@ functions:
           fi
 
           # A complete environment is set each time.
-          TEST_STAGE=${test_name} ./e2e_tests.sh
+          TEST_STAGE=${test_name} ./scripts/evergreen/e2e_tests.sh
 
   "prepare_test_env":
     - command: shell.exec
@@ -293,7 +366,7 @@ functions:
           export AWS_REGION=${mms_eng_test_aws_region}
           export AWS_DEFAULT_REGION=${mms_eng_test_aws_region}
 
-          ./prepare_test_env
+          ./prepare_test_env 30
 
   "post_task":
   - command: shell.exec
@@ -412,36 +485,41 @@ tasks:
     - func: "setup_kubectl"
     - func: "prepare_test_env"
 
-- name: e2e_rs_base
+- name: e2e_replica_set_base
   exec_timeout_secs: 600 # 10 minutes max
   commands:
     - func: "e2e_test"
       vars:
         test_name: replica_set_base
-- name: e2e_rs_ent
+
+- name: e2e_replica_set_ent
   exec_timeout_secs: 600
   commands:
     - func: "e2e_test"
       vars:
         test_name: replica_set_ent
-- name: e2e_rs_pv
+
+- name: e2e_replica_set_pv
   exec_timeout_secs: 600
   commands:
     - func: "e2e_test"
       vars:
         test_name: replica_set_pv
-- name: e2e_rs_pv_multiple
+
+- name: e2e_replica_set_pv_multiple
   exec_timeout_secs: 600
   commands:
     - func: "e2e_test"
       vars:
         test_name: replica_set_pv_multiple
+
 - name: e2e_sharded_cluster_base
   exec_timeout_secs: 600
   commands:
     - func: "e2e_test"
       vars:
         test_name: sharded_cluster_base
+
 - name: e2e_sharded_cluster_pv
   exec_timeout_secs: 600
   commands:
@@ -463,12 +541,15 @@ task_groups:
     - func: "clone"
     - func: "setup_kubectl"
   tasks:
-    - e2e_rs_base
-    - e2e_rs_ent
-    - e2e_rs_pv
-    - e2e_rs_pv_multiple
+    # Weird, but if we name tasks without "e2e_" - evergreen doesn't run them...
+    - e2e_replica_set_base
+    - e2e_replica_set_ent
+    - e2e_replica_set_pv
+    - e2e_replica_set_pv_multiple
     - e2e_sharded_cluster_base
     - e2e_sharded_cluster_pv
+  teardown_task:
+    - func: "upload_e2e_artifacts"
 
 buildvariants:
 
@@ -494,8 +575,8 @@ buildvariants:
   tasks:
     - ".build_and_push_images_development"
 
-- name: e2e_kube_vanilla_v1.10
-  display_name: "e2e_kube_vanilla_v1.10"
+- name: e2e_kube_vanilla_v1.11
+  display_name: "e2e_kube_vanilla_v1.11"
   run_on:
   - archlinux-test
   stepback: false

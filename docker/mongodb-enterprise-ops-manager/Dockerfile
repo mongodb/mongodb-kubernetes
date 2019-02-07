@@ -6,6 +6,7 @@ ENV OM_PORT 8080
 EXPOSE ${OM_PORT}
 ENV mongodb /opt/mongodb/bin
 ENV log_dir /data/logs
+ENV om_log_dir /opt/mongodb/mms/logs
 ENV mms_prop_file /opt/mongodb/mms/conf/conf-mms.properties
 ENV mms_conf_file /opt/mongodb/mms/conf/mms.conf
 
@@ -35,6 +36,7 @@ RUN apt-get -qq update \
         sudo \
     && apt-get -qq -yt testing install \
         python3-pip \
+        # TODO seems the package is gone (Unable to locate package python3.6-venv) - need to try 3.7 version
         python3.6-venv \
         python3.6 \
     && apt-get upgrade -y -qq \

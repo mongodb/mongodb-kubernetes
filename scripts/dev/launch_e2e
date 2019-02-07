@@ -16,7 +16,7 @@ export OM_BASE_URL=${OM_HOST}
 
 title "Running the e2e test ${test}..."
 
-TEST_STAGE=${test} ./scripts/evergreen/e2e_tests.sh skip-installations
+TEST_STAGE=${test} WAIT_TIMEOUT="4m" MODE="dev" ./scripts/evergreen/e2e_tests.sh
 
 title "E2e test ${test} is finished"
 

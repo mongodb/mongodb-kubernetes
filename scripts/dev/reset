@@ -2,6 +2,8 @@
 
 set -euo pipefail
 
+ONLY_MDB="${1-}"
+
 cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
 source scripts/dev/set_env_context
@@ -9,14 +11,17 @@ source scripts/dev/set_env_context
 # Cleans the namespace. Note, that fine-grained cleanup is performed instead of just deleting the namespace as it takes
 # considerably less time
 
-title "Cleaning Kubernetes resources"
+title "Cleaning Kubernetes resources ${ONLY_MDB:+(only MongoDB resources)}"
 
 ensure_namespace "${NAMESPACE}"
 
 kubectl delete mst --all -n "${NAMESPACE}" || true
 kubectl delete mrs --all -n "${NAMESPACE}"  || true
 kubectl delete msc --all -n "${NAMESPACE}"  || true
-kubectl delete secrets --all -n "${NAMESPACE}"
-kubectl delete configmaps --all -n "${NAMESPACE}"
-kubectl delete pvc --all -n "${NAMESPACE}"
-kubectl delete crd --all
+
+if [[ -z $ONLY_MDB ]]; then
+	kubectl delete secrets --all -n "${NAMESPACE}"
+	kubectl delete configmaps --all -n "${NAMESPACE}"
+	kubectl delete pvc --all -n "${NAMESPACE}"
+	kubectl delete crd --all
+fi

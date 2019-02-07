@@ -9,6 +9,6 @@ source ./scripts/dev/set_env_context
 kubectl config use-context ${CLUSTER_NAME} &>/dev/null || echo "Warning: failed to switch kubectl context to \"${CLUSTER_NAME}\" - does the matching Kubernetes cluster exist?"
 
 # Setting the default namespace for current context
-kubectl config set-context "$(kubectl config current-context)" --namespace=${NAMESPACE} &>/dev/null
+kubectl config set-context "$(kubectl config current-context)" --namespace=${NAMESPACE} &>/dev/null || true
 
 echo "Current context: ${CURRENT_CONTEXT} (kubectl context: ${CLUSTER_NAME})"

@@ -274,7 +274,11 @@ type MongoDBResourceEventHandler struct {
 }
 
 func (eh *MongoDBResourceEventHandler) Delete(e event.DeleteEvent, unused workqueue.RateLimitingInterface) {
-	logger := zap.S().With("resource", e.Meta)
-	logger.Infow("Cleaning up MongoDB resource")
-	eh.reconciler.delete(e.Object, logger)
+	zap.S().Infow("Cleaning up MongoDB resource", "resource", e.Object)
+	logger := zap.S().With("resource", objectKey(e.Meta.GetName(), e.Meta.GetNamespace()))
+	if err := eh.reconciler.delete(e.Object, logger); err != nil {
+		logger.Errorf("MongoDB resource removed from Kubernetes, but failed to clean some state in Ops Manager: %s", err)
+		return
+	}
+	logger.Info("Removed MongoDB resource from Kubernetes and Ops Manager")
 }

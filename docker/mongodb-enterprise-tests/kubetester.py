@@ -1,3 +1,4 @@
+import pytest
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 
@@ -13,7 +14,15 @@ import pymongo
 
 
 class KubernetesTester(object):
-    """Tests a kubernetes object application."""
+    """
+    KubernetesTester is the base class for all python tests. It deliberately doesn't have object state
+    as it is not expected to have more than one concurrent instance running. All tests must be run in separate
+    Kubernetes namespaces and use separate Ops Manager groups.
+    The class provides some common utility methods used by all children and also performs some common
+    create/update/delete actions for Kubernetes objects based on the docstrings of subclasses
+    """
+
+    group_id = None
 
     @staticmethod
     def clients(name):
@@ -28,8 +37,18 @@ class KubernetesTester(object):
     @classmethod
     def setup_class(cls):
         "Will setup class (initialize kubernetes objects)"
+        # TODO uncomment when CLOUDP-37451 is done
+        # try:
+        #     # removing the group in OM if it existed before running the test (could happen if running locally using 'make e2e')
+        #     KubernetesTester.remove_group()
+        #     print('Removed group {} from Ops Manager'.format(KubernetesTester.get_om_group_id()), flush=True)
+        #
+        #     # Need to nulify the cached group_id as the new group will be created
+        #     KubernetesTester.group_id = None
+        # except:
+        #     pass
+
         KubernetesTester.load_configuration()
-        # will this take the subclass doc?
         test_setup = yaml.safe_load(cls.__doc__)
         print()
         KubernetesTester.prepare(test_setup, KubernetesTester.get_namespace())
@@ -44,13 +63,30 @@ class KubernetesTester(object):
 
     @staticmethod
     def get_namespace():
-        namespace = getenv("PROJECT_NAMESPACE")
-        if not namespace:
-            raise ValueError(
-                "Environment variable `PROJECT_NAMESPACE` needs to be set."
-            )
+        return get_env_var_or_fail("PROJECT_NAMESPACE")
 
-        return namespace
+    @staticmethod
+    def get_om_group_name():
+        return KubernetesTester.get_namespace()
+
+    @staticmethod
+    def get_om_base_url():
+        return get_env_var_or_fail("OM_HOST")
+
+    @staticmethod
+    def get_om_user():
+        return get_env_var_or_fail("OM_USER")
+
+    @staticmethod
+    def get_om_api_key():
+        return get_env_var_or_fail("OM_API_KEY")
+
+    @staticmethod
+    def get_om_group_id():
+        # doing some "caching" for the group id on the first invocation
+        if KubernetesTester.group_id is None:
+            KubernetesTester.group_id = KubernetesTester.query_group_id()
+        return KubernetesTester.group_id
 
     @staticmethod
     def prepare(test_setup, namespace):
@@ -81,9 +117,13 @@ class KubernetesTester(object):
 
         print('Creating resource {} {}'.format(kind, name), flush=True)
 
-        KubernetesTester.clients("customv1").create_namespaced_custom_object(
-            group, version, namespace, plural(kind), resource
-        )
+        try:
+            KubernetesTester.clients("customv1").create_namespaced_custom_object(
+                group, version, namespace, plural(kind), resource
+            )
+        except:
+            print("Failed to create a resource ({}): \n {}".format(sys.exc_info()[0], resource), flush=True)
+            raise
         print('Created resource {} {}'.format(kind, name), flush=True)
 
     @staticmethod
@@ -96,9 +136,13 @@ class KubernetesTester(object):
 
         print('Updating resource {} {} ({})'.format(kind, name, patch), flush=True)
 
-        KubernetesTester.clients("customv1").patch_namespaced_custom_object(
-            group, version, namespace, plural(kind), name, patched
-        )
+        try:
+            KubernetesTester.clients("customv1").patch_namespaced_custom_object(
+                group, version, namespace, plural(kind), name, patched
+            )
+        except:
+            print("Failed to update a resource ({}): \n {}".format(sys.exc_info()[0], patched), flush=True)
+            raise
         print('Updated resource {} {}'.format(kind, name), flush=True)
 
     @staticmethod
@@ -108,7 +152,7 @@ class KubernetesTester(object):
         name, kind, group, version = get_crd_meta(resource)
         del_options = KubernetesTester.clients("client").V1DeleteOptions()
 
-        print('Deleting resource {} {} ({})'.format(kind, name, del_options), flush=True)
+        print('Deleting resource {} {}'.format(kind, name), flush=True)
 
         KubernetesTester.clients("customv1").delete_namespaced_custom_object(
             group, version, namespace, plural(kind), name, del_options
@@ -170,17 +214,12 @@ class KubernetesTester(object):
         self.customv1 = client.CustomObjectsApi()
         self.namespace = KubernetesTester.get_namespace()
 
-    def get_group_id(self, name, om_vars):
-        "Obtains the group id from group name"
-        headers = {"Content-Type": "application/json"}
-        endpoint = self.build_om_group_byname_endpoint(name, om_vars)
-        auth = self.build_auth(om_vars["user"], om_vars["public_api_key"])
-
-        session = requests.Session()
-
-        adapter = requests.adapters.HTTPAdapter(max_retries=3)
-        session.mount(om_vars["base_url"], adapter)
-        response = session.get(endpoint, auth=auth, headers=headers)
+    @staticmethod
+    def query_group_id():
+        """Obtains the group id from group name"""
+        url = build_om_group_by_name_endpoint(KubernetesTester.get_om_base_url(),
+                                              KubernetesTester.get_om_group_name())
+        response = KubernetesTester.om_request("get", url)
         if response.status_code >= 300:
             raise Exception(
                 "Error obtaining ID from Ops Manager API. {} {}".format(
@@ -190,35 +229,49 @@ class KubernetesTester(object):
 
         return response.json()["id"]
 
-    def om_vars(self):
-        group_name = getenv("PROJECT_NAMESPACE").rstrip()
-        om_vars = {
-            "base_url": getenv("OM_HOST").rstrip(),
-            "public_api_key": getenv("OM_API_KEY").rstrip(),
-            "user": getenv("OM_USER").rstrip(),
-        }
-        om_vars["group_id"] = self.get_group_id(group_name, om_vars)
-        return om_vars
+    @staticmethod
+    def remove_group():
+        url = build_om_group_delete_endpoint(KubernetesTester.get_om_base_url(),
+                                             KubernetesTester.get_om_group_id())
+        KubernetesTester.om_request("delete", url)
+        # TODO is the exception thrown if request fails?
 
-    def build_auth(self, user, api_key):
-        return HTTPDigestAuth(user, api_key)
-
-    def build_om_group_byname_endpoint(self, name, om_vars):
-        return "{}/api/public/v1.0/groups/byName/{}".format(om_vars["base_url"], name)
-
-    def build_automation_config_endpoint(self, om_vars):
-        return "{}/api/public/v1.0/groups/{}/automationConfig".format(
-            om_vars["base_url"], om_vars["group_id"]
-        )
-
-    def get_automation_config(self):
-        om_vars = self.om_vars()
-        auth = self.build_auth(om_vars["user"], om_vars["public_api_key"])
-        endpoint = self.build_automation_config_endpoint(om_vars)
-        headers = {"Content-Type": "application/json"}
-        response = requests.get(endpoint, auth=auth, headers=headers)
+    @staticmethod
+    def get_automation_config():
+        url = build_automation_config_endpoint(KubernetesTester.get_om_base_url(),
+                                               KubernetesTester.get_om_group_id())
+        response = KubernetesTester.om_request("get", url)
 
         return response.json()
+
+    @staticmethod
+    def get_hosts():
+        url = build_hosts_endpoint(KubernetesTester.get_om_base_url(),
+                                   KubernetesTester.get_om_group_id())
+        response = KubernetesTester.om_request("get", url)
+
+        return response.json()
+
+    @staticmethod
+    def om_request(method, endpoint):
+        headers = {"Content-Type": "application/json"}
+        auth = build_auth(KubernetesTester.get_om_user(), KubernetesTester.get_om_api_key())
+
+        response = requests.request(method, endpoint, auth=auth, headers=headers)
+
+        return response
+
+    @staticmethod
+    def check_om_state_cleaned():
+        """Checks that OM state is cleaned: Automation config is empty, monitoring hosts are removed"""
+
+        config = KubernetesTester.get_automation_config()
+        assert len(config["replicaSets"]) == 0, "ReplicaSets not empty: {}".format(config["replicaSets"])
+        assert len(config["sharding"]) == 0, "Sharding not empty: {}".format(config["sharding"])
+        assert len(config["processes"]) == 0, "Processes not empty: {}".format(config["processes"])
+
+        hosts = KubernetesTester.get_hosts()
+        assert len(hosts["results"]) == 0, "Hosts not empty: {}".format(hosts["results"])
 
     def build_mongodb_uri_for_rs(self, hosts):
         return "mongodb://{}".format(",".join(hosts))
@@ -269,6 +322,9 @@ class KubernetesTester(object):
 
         assert getattr(pvc.spec, "storage_class_name") == storage_class
 
+
+
+# Some general functions go here
 
 def get_group(doc):
     return doc["apiVersion"].split("/")[0]
@@ -333,3 +389,30 @@ def get_nested_attribute(obj, attrs):
         obj = getattr(obj, attrs.pop())
 
     return obj
+
+
+def get_env_var_or_fail(var_name):
+    env_value = getenv(var_name)
+    if not env_value:
+        raise ValueError("Environment variable `{}` needs to be set.".format(var_name))
+    return env_value
+
+
+def build_auth(user, api_key):
+    return HTTPDigestAuth(user, api_key)
+
+
+def build_om_group_by_name_endpoint(base_url, name):
+    return "{}/api/public/v1.0/groups/byName/{}".format(base_url, name)
+
+
+def build_om_group_delete_endpoint(base_url, group_id):
+    return "{}/api/public/v1.0/groups/{}".format(base_url, group_id)
+
+
+def build_automation_config_endpoint(base_url, group_id):
+    return "{}/api/public/v1.0/groups/{}/automationConfig".format(base_url, group_id)
+
+
+def build_hosts_endpoint(base_url, group_id):
+    return "{}/api/public/v1.0/groups/{}/hosts".format(base_url, group_id)

@@ -231,8 +231,8 @@ func (c *ReconcileCommonController) prepareResourceForReconciliation(
 
 	updateErr := c.updatePending(mdbResource)
 	if updateErr != nil {
-		log.Warnf("Error setting state to pending: %s", updateErr)
-		return &reconcile.Result{Requeue: true}, nil
+		log.Errorf("Error setting state to pending: %s, the resource: %+v", updateErr, mdbResource)
+		return &reconcile.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
 	return nil, nil

@@ -171,10 +171,5 @@ class TestReplicaSetPersistentVolumeDelete(KubernetesTester):
         "Should check the used PVC are still there in the expected status."
         pass
 
-    def test_om_replica_set_is_deleted(self):
-        config = self.get_automation_config()
-        assert len(config["replicaSets"]) == 0
-
-    def test_om_processes_are_deleted(self):
-        config = self.get_automation_config()
-        assert len(config["processes"]) == 0
+    def test_om_state_deleted(self):
+        KubernetesTester.check_om_state_cleaned()

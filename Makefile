@@ -1,3 +1,5 @@
+SHELL := /bin/bash
+
 all: full
 
 export MAKEFLAGS="-j 16" # enable parallelism
@@ -23,9 +25,15 @@ usage:
 	@ echo "                    parameters in ~/operator-dev/om"
 	@ echo "  om-evg:           install Ops Manager into Evergreen if it's not installed yet. Initializes the connection"
 	@ echo "                    parameters in ~/operator-dev/om"
-	@ echo "  reset:            cleans all Operator related state from Kubernetes and Ops Manager"
+	@ echo "  reset:            cleans all Operator related state from Kubernetes and Ops Manager. Pass the 'light=true'"
+	@ echo "                    to perform a \"light\" cleanup - delete only Mongodb resources"
 	@ echo "  e2e:              runs the e2e test, e.g. 'make e2e test=sharded_cluster_pv'. The Operator is redeployed before"
-	@ echo "                    the test, the namespace is cleaned"
+	@ echo "                    the test, the namespace is cleaned. The e2e app image is built and pushed. Use a 'light=true'"
+	@ echo "                    in case you are developing tests and not changing the Operator code - this will allow to"
+	@ echo "                    avoid redeploying the Operator"
+	@ echo "  recreate-e2e:     deletes and creates an e2e cluster using kops. Pass the flag 'imsure=yes' to make it work."
+	@ echo "                    So far only kops (vanilla) cluster can be recreated this way, Openshift one should be"
+	@ echo "                    done manually using instructions from e2e-faq.md"
 	@ echo "  log:              reads the Operator log"
 	@ echo "  status:           prints the current context and the state of Kubernetes cluster"
 
@@ -59,7 +67,7 @@ database:
 
 # ensures cluster is up, cleans Kubernetes + OM, build-push-deploy operator,
 # push-deploy database, create secrets, config map, resources etc
-full: reset build-and-push-images
+full: ensure-k8s-and-reset build-and-push-images
 	@ $(MAKE) deploy-and-configure-operator
 	@ scripts/dev/apply_resources
 
@@ -75,18 +83,25 @@ log:
 	@ . scripts/dev/read_context
 	@ kubectl logs -f deployment/mongodb-enterprise-operator --tail=1000
 
-# runs the e2e test: make e2e test=sharded_cluster_pv. The Operator is redeployed before the test, the namespace is cleaned
-# note, that this may be not perfectly the same what is done in evergreen e2e tests as the OM instance may be external
+# runs the e2e test: make e2e test=sharded_cluster_pv. The Operator is redeployed before the test, the namespace is cleaned.
+# The e2e app image is built and pushed.
+# Use 'light=true' parameter to skip Operator rebuilding - use this mode when you are focused on e2e tests development only
+# Note, that this may be not perfectly the same what is done in evergreen e2e tests as the OM instance may be external
 # (in Evergreen)
-e2e:
-	@ $(MAKE) reset
-	@ $(MAKE) operator
-	@ scripts/dev/configure_operator
+e2e: reset build-and-push-test-image
+	@ if [[ -z "$(light)" ]]; then \
+		$(MAKE) operator; \
+		scripts/dev/configure_operator; \
+	fi
 	@ scripts/dev/launch_e2e $(test)
 
-# clean all kubernetes cluster resources and OM state
-reset: ensure-k8s
-	@ scripts/dev/reset
+# deletes and creates a kops e2e cluster
+recreate-e2e:
+	@ scripts/dev/recreate_e2e_kops $(imsure)
+
+# clean all kubernetes cluster resources and OM state. "light=true" to clean only Mongodb resources
+reset:
+	@ scripts/dev/reset $(light)
 
 status:
 	@ scripts/dev/status
@@ -108,6 +123,9 @@ build-and-push-operator-image: aws_login
 build-and-push-database-image: aws_login
 	@ scripts/dev/build_push_database_image
 
+build-and-push-test-image: aws_login
+	@ scripts/dev/build_push_tests_image
+
 build-and-push-images: build-and-push-database-image build-and-push-operator-image
 
 deploy-operator:
@@ -120,3 +138,6 @@ deploy-and-configure-operator: deploy-operator configure-operator
 
 ensure-k8s:
 	@ scripts/dev/ensure_k8s
+
+ensure-k8s-and-reset: ensure-k8s
+	@ $(MAKE) reset
