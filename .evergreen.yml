@@ -352,7 +352,7 @@ functions:
           fi
 
           # A complete environment is set each time.
-          TEST_STAGE=${test_name} ./scripts/evergreen/e2e_tests.sh
+          TEST_NAME=${test_name} ./scripts/evergreen/e2e_tests.sh
 
   "prepare_test_env":
     - command: shell.exec
@@ -459,7 +459,8 @@ tasks:
         create_git_sha_tags: "true"
 
 - name: setup_e2e
-  exec_timeout_secs: 900 # 15 minutes max
+  # 30 minutes max (sometimes cleanup procedure may take very long because of slow PVCs removal...)
+  exec_timeout_secs: 1800
   commands:
     - func: "clone"
     - func: "check_evergreen_health"
@@ -485,47 +486,47 @@ tasks:
     - func: "setup_kubectl"
     - func: "prepare_test_env"
 
-- name: e2e_replica_set_base
+- name: e2e_test_replica_set
   exec_timeout_secs: 600 # 10 minutes max
   commands:
     - func: "e2e_test"
       vars:
-        test_name: replica_set_base
+        test_name: test_replica_set
 
-- name: e2e_replica_set_ent
+- name: e2e_test_replica_set_ent
   exec_timeout_secs: 600
   commands:
     - func: "e2e_test"
       vars:
-        test_name: replica_set_ent
+        test_name: test_replica_set_ent
 
-- name: e2e_replica_set_pv
+- name: e2e_test_replica_set_pv
   exec_timeout_secs: 600
   commands:
     - func: "e2e_test"
       vars:
-        test_name: replica_set_pv
+        test_name: test_replica_set_pv
 
-- name: e2e_replica_set_pv_multiple
+- name: e2e_test_replica_set_pv_multiple
   exec_timeout_secs: 600
   commands:
     - func: "e2e_test"
       vars:
-        test_name: replica_set_pv_multiple
+        test_name: test_replica_set_pv_multiple
 
-- name: e2e_sharded_cluster_base
+- name: e2e_test_sharded_cluster
   exec_timeout_secs: 600
   commands:
     - func: "e2e_test"
       vars:
-        test_name: sharded_cluster_base
+        test_name: test_sharded_cluster
 
-- name: e2e_sharded_cluster_pv
+- name: e2e_test_sharded_cluster_pv
   exec_timeout_secs: 600
   commands:
     - func: "e2e_test"
       vars:
-        test_name: sharded_cluster_pv
+        test_name: test_sharded_cluster_pv
 
 task_groups:
 - name: unit_task_group
@@ -541,13 +542,13 @@ task_groups:
     - func: "clone"
     - func: "setup_kubectl"
   tasks:
-    # Weird, but if we name tasks without "e2e_" - evergreen doesn't run them...
-    - e2e_replica_set_base
-    - e2e_replica_set_ent
-    - e2e_replica_set_pv
-    - e2e_replica_set_pv_multiple
-    - e2e_sharded_cluster_base
-    - e2e_sharded_cluster_pv
+    # Weird, but if the name tasks without "e2e_" (so equal to 'test_name' param) - evergreen doesn't run them...
+    - e2e_test_replica_set
+    - e2e_test_replica_set_ent
+    - e2e_test_replica_set_pv
+    - e2e_test_replica_set_pv_multiple
+    - e2e_test_sharded_cluster
+    - e2e_test_sharded_cluster_pv
   teardown_task:
     - func: "upload_e2e_artifacts"
 

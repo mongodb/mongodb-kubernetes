@@ -17,4 +17,4 @@ opsmanager:
 apiKey: omApiKey
 projectId: omProjectId
 tag:
-testStage: ${TEST_STAGE}
+testPath: ${TEST_NAME}

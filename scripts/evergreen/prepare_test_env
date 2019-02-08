@@ -23,22 +23,12 @@ cleanup_env() {
         for f in $(kubectl get ns -o name | grep a- | sed 's/namespace\///'); do
             echo "Removing all mongodb resources for namespace: ${f}"
 
-
-            # temp until CLOUDP-35555 is resolved
-            for m in $(kubectl get mrs -n ${f} -o name); do
-                kubectl patch  ${m}  --type json   -p='[{"op": "remove", "path": "/metadata/finalizers"}]' -n ${f}
-            done
-            for m in $(kubectl get msc -n ${f} -o name); do
-                kubectl patch  ${m}  --type json   -p='[{"op": "remove", "path": "/metadata/finalizers"}]' -n ${f}
-            done
-            for m in $(kubectl get mst -n ${f} -o name); do
-                kubectl patch  ${m}  --type json   -p='[{"op": "remove", "path": "/metadata/finalizers"}]' -n ${f}
-            done
-
-			kubectl delete mrs --all -n ${f} || true
-			kubectl delete msc --all -n ${f} || true
-			kubectl delete mst --all -n ${f} || true
-			kubectl delete pvc --all -n ${f} --now || true
+            kubectl delete mrs --all -n ${f} || true
+            kubectl delete msc --all -n ${f} || true
+            kubectl delete mst --all -n ${f} || true
+            # todo seems when we try to remove PVCs - this may take too long... but I believe we shouldn't leave garbage here
+            # so far we are
+            kubectl delete pvc --all -n ${f} --now || true
             kubectl delete ns ${f} --now;
         done
 
@@ -96,10 +86,10 @@ fix_taints() {
 # (note, that 'aws ecr list-images' for some reasons returns the ~700+ images when in fact there are 1000 of them -
 # so we choose 500 as a some representative number)
 check_and_clean_repo() {
-	if [[ $(aws ecr list-images --repository-name "$1" | jq '.[] | length') -gt 500 ]]; then
-    	echo "Recreating the \"$1\" repo"
-    	aws ecr delete-repository --repository-name "$1" --force
-    	aws ecr create-repository --repository-name "$1"
+    if [[ $(aws ecr list-images --repository-name "$1" | jq '.[] | length') -gt 500 ]]; then
+        echo "Recreating the \"$1\" repo"
+        aws ecr delete-repository --repository-name "$1" --force
+        aws ecr create-repository --repository-name "$1"
     fi
 }
 

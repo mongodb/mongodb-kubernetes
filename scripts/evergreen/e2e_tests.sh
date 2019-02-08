@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -euo pipefail
+
 ##
 ## Setups environment and runs e2e test
 ##
@@ -10,8 +12,8 @@ source scripts/funcs
 
 
 # Will generate a random namespace to use each time
-if [ -z "${PROJECT_NAMESPACE}" ]; then
-    random_namespace=$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 20)
+if [ -z "${PROJECT_NAMESPACE-}" ]; then
+    random_namespace=$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 20) || true
     doy=$(date +'%j')
     PROJECT_NAMESPACE="a-${doy}-${random_namespace}z"
     export PROJECT_NAMESPACE
@@ -20,11 +22,7 @@ else
     printf "Using %s namespace\\n" "${PROJECT_NAMESPACE}"
 fi
 
-# Create namespace if it doesn't exist yet
-if ! kubectl get ns | grep -q "${PROJECT_NAMESPACE}"; then
-    kubectl create ns "${PROJECT_NAMESPACE}"
-    echo "Created namespace ${PROJECT_NAMESPACE} as it didn't exist"
-fi
+ensure_namespace "${PROJECT_NAMESPACE}"
 
 # Array contains string; based on https://stackoverflow.com/questions/3685970/check-if-a-bash-array-contains-a-value
 contains() {
@@ -78,14 +76,10 @@ configure_operator() {
     kubectl --namespace "${PROJECT_NAMESPACE}" create secret generic my-credentials \
             --from-literal=user="${OM_USER:=admin}" --from-literal=publicApiKey="${OM_API_KEY}"
 
-    echo "------------------------------------------------------"
-    echo "Project ConfigMap:"
-    echo "------------------------------------------------------"
+    header "Project ConfigMap:"
     kubectl --namespace "${PROJECT_NAMESPACE}" get configmap/my-project -o yaml
 
-    echo "------------------------------------------------------"
-    echo "Credentials Secret:"
-    echo "------------------------------------------------------"
+    header "Credentials Secret:"
     kubectl --namespace "${PROJECT_NAMESPACE}" get secret/my-credentials -o yaml
 
     title "ConfigMap and Secret are created"
@@ -95,24 +89,6 @@ configure_operator() {
 teardown() {
     printf "Removing Namespace: %s\\n" "${PROJECT_NAMESPACE}."
     kubectl delete "namespace/${PROJECT_NAMESPACE}"
-}
-
-rebuild_test_image() {
-    eval "$(aws ecr get-login --no-include-email --region us-east-1)" &> /dev/null
-
-    TEST_IMAGE_TAG=$(git rev-parse HEAD)
-    LOCAL_IMAGE="dev/mongodb-enterprise-tests:${TEST_IMAGE_TAG}"
-    REMOTE_IMAGE="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-tests:${TEST_IMAGE_TAG}"
-
-    echo "Rebuilding test image: ${LOCAL_IMAGE}"
-    docker build -t "${LOCAL_IMAGE}" .
-    docker tag "${LOCAL_IMAGE}" "${REMOTE_IMAGE}"
-
-    echo "Pushing Tag: ${REMOTE_IMAGE}"
-    docker push "${REMOTE_IMAGE}"
-    echo "mongodb-enterprise-tests image pushed to ECR."
-
-    popd
 }
 
 deploy_test_app() {
@@ -133,7 +109,7 @@ deploy_test_app() {
          --set apiKey="${OM_API_KEY}" \
          --set apiUser="${OM_USER:=admin}" \
          --set namespace="${PROJECT_NAMESPACE}" \
-         --set testStage="${test_stage}" \
+         --set testPath="${test_name}.py" \
          --set tag="${TEST_IMAGE_TAG}" > mongodb-enterprise-tests.yaml || exit 1
 
     kubectl -n "${PROJECT_NAMESPACE}" delete -f mongodb-enterprise-tests.yaml || true
@@ -143,22 +119,21 @@ deploy_test_app() {
     title "Deployed test application, waiting until it gets ready..."
 
     # Do wait while the Pod is not yet running (can be in Pending or ContainerCreating state)
-    timeout "1m" bash -c \
-    	'while ! kubectl -n '"${PROJECT_NAMESPACE}"' get pod '"${TEST_APP_PODNAME}"' -o jsonpath="{.status.phase}" | grep -q "Running" ; do printf .; sleep 1; done; echo'
+    timeout "10s" bash -c \
+        'while ! kubectl -n '"${PROJECT_NAMESPACE}"' get pod '"${TEST_APP_PODNAME}"' -o jsonpath="{.status.phase}" | grep -q "Running" ; do printf .; sleep 1; done; echo'
 
     if ! kubectl -n "${PROJECT_NAMESPACE}" get pod ${TEST_APP_PODNAME} -o jsonpath="{.status.phase}" | grep -q "Running"; then
-    	error "Test application failed to reach Running state"
-    	echo
-    	echo "Output from \"kubectl describe ${TEST_APP_PODNAME}\":"
-    	kubectl -n "${PROJECT_NAMESPACE}" describe pod ${TEST_APP_PODNAME}
+        error "Test application failed to reach Running state"
 
-		echo
-    	echo "Test application logs:"
-		kubectl -n "${PROJECT_NAMESPACE}" logs ${TEST_APP_PODNAME}
+        echo "Output from \"kubectl describe ${TEST_APP_PODNAME}\":"
+        kubectl -n "${PROJECT_NAMESPACE}" describe pod ${TEST_APP_PODNAME}
 
-		echo
-    	title "Test application didn't start, exiting..."
-    	exit 1
+        header "Test application logs:"
+        kubectl -n "${PROJECT_NAMESPACE}" logs ${TEST_APP_PODNAME}
+
+        echo
+        title "Test application didn't start, exiting..."
+        exit 1
     fi
 
     title "Test application is ready"
@@ -168,87 +143,98 @@ deploy_test_app() {
 # Deploys the test application and waits until it finishes. The test application runs the pytest with specific scenario
 # Note, that the script doesn't build the test docker image - it must be done by the client beforehand
 run_tests() {
-    test_stage="$1"
-    timeout="${2:-8m}"
+    test_name="$1"
+    timeout="$2"
 
     TEST_IMAGE_TAG=$(git rev-parse HEAD)
 
-    echo "-----------> Running test ${test_stage} \(tag: ${TEST_IMAGE_TAG}\)"
+    echo "-----------> Running test ${test_name}.py \(tag: ${TEST_IMAGE_TAG}\)"
 
     TEST_APP_PODNAME=mongodb-enterprise-operator-tests
 
-	deploy_test_app
+    deploy_test_app
 
-    output_filename="test_app.log"
-    operator_filename="operator.log"
+    # we don't output logs to file when running tests locally
+    if [[ "${MODE-}" == "dev" ]]; then
+        kubectl -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" -f &
+        KILLPID0=$!
 
-    # Eventually this Pod will die (after run.sh has completed running), and this command will finish.
-    kubectl -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" -f > "${output_filename}" &
-    KILLPID0=$!
-    kubectl -n "${PROJECT_NAMESPACE}" logs "deployment/mongodb-enterprise-operator" -f > "${operator_filename}" &
-    KILLPID1=$!
-    # Print the logs from the test container with a background tail.
-    tail -f "${output_filename}" &
-    KILLPID2=$!
+        trap "kill $KILLPID0 &> /dev/null || true"  SIGINT SIGTERM SIGQUIT
+    else
+        output_filename="test_app.log"
+        operator_filename="operator.log"
 
-    trap "kill $KILLPID0 $KILLPID1 $KILLPID2  &> /dev/null || true"  SIGINT SIGTERM SIGQUIT
+        # Eventually this Pod will die (after run.sh has completed running), and this command will finish.
+        kubectl -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" -f > "${output_filename}" &
+        KILLPID0=$!
+        kubectl -n "${PROJECT_NAMESPACE}" logs "deployment/mongodb-enterprise-operator" -f > "${operator_filename}" &
+        KILLPID1=$!
+        # Print the logs from the test container with a background tail.
+        tail -f "${output_filename}" &
+        KILLPID2=$!
+
+        trap "kill $KILLPID0 $KILLPID1 $KILLPID2  &> /dev/null || true"  SIGINT SIGTERM SIGQUIT
+    fi
 
     # Note, that we wait for 8 minutes maximum - this is less than the ultimate evergreen task timeout (10 minutes) as
     # we want to dump diagnostic information in case of failure
     timeout ${timeout} bash -c \
-     	'while kubectl -n '"${PROJECT_NAMESPACE}"' get pod '"${TEST_APP_PODNAME}"' -o jsonpath="{.status.phase}" | grep -q "Running" ; do sleep 1; done'
+        'while kubectl -n '"${PROJECT_NAMESPACE}"' get pod '"${TEST_APP_PODNAME}"' -o jsonpath="{.status.phase}" | grep -q "Running" ; do sleep 1; done'
 
     # make sure there are not processes running in the background.
-    kill $KILLPID0 $KILLPID1 $KILLPID2 &> /dev/null
+    kill $KILLPID0
+    if [[ "${MODE-}" != "dev" ]]; then
+        kill $KILLPID1 $KILLPID2 &> /dev/null
+    fi
 
     if [[ "$(kubectl -n ${PROJECT_NAMESPACE} get pods/${TEST_APP_PODNAME} -o jsonpath='{.status.phase}')" != "Succeeded" ]]; then
-    	test_app_status="$(kubectl -n ${PROJECT_NAMESPACE} get pods/${TEST_APP_PODNAME} -o jsonpath='{.status.phase}')"
-    	error "Test application has status \"$test_app_status\" instead of \"Succeeded\""
-    	return 1
+        test_app_status="$(kubectl -n ${PROJECT_NAMESPACE} get pods/${TEST_APP_PODNAME} -o jsonpath='{.status.phase}')"
+        error "Test application has status \"$test_app_status\" instead of \"Succeeded\""
+        return 1
     fi
     return 0
 }
 
 dump_agent_logs() {
-	agent_log_file="agent"
-	i=1
+    agent_log_file="agent"
+    i=1
 
-	for st in $(kubectl get mst -n ${PROJECT_NAMESPACE} -o name | cut -d "/" -f 2); do
-		filename=${agent_log_file}${i}".log"
-		kubectl logs -n ${PROJECT_NAMESPACE} "${st}-0" > ${filename}
+    for st in $(kubectl get mst -n ${PROJECT_NAMESPACE} -o name | cut -d "/" -f 2); do
+        filename=${agent_log_file}${i}".log"
+        kubectl logs -n ${PROJECT_NAMESPACE} "${st}-0" > ${filename}
 
-		echo "Wrote ${st}-0 logs to file ${filename}"
-		((i++))
-	done
+        echo "Wrote ${st}-0 logs to file ${filename}"
+        ((i++))
+    done
 
-	for rs in $(kubectl get mrs -n ${PROJECT_NAMESPACE} -o name | cut -d "/" -f 2); do
-		for pod in $(kubectl get pods -n ${PROJECT_NAMESPACE} -o name | grep "$rs" | cut -d "/" -f 2); do
-			filename=${agent_log_file}${i}".log"
-			kubectl logs -n ${PROJECT_NAMESPACE} ${pod} > ${filename}
+    for rs in $(kubectl get mrs -n ${PROJECT_NAMESPACE} -o name | cut -d "/" -f 2); do
+        for pod in $(kubectl get pods -n ${PROJECT_NAMESPACE} -o name | grep "$rs" | cut -d "/" -f 2); do
+            filename=${agent_log_file}${i}".log"
+            kubectl logs -n ${PROJECT_NAMESPACE} ${pod} > ${filename}
 
-			echo "Wrote ${pod} logs to file ${filename}"
-			((i++))
-		done
-	done
+            echo "Wrote ${pod} logs to file ${filename}"
+            ((i++))
+        done
+    done
 
-	# let's dump only shard logs
-	for sc in $(kubectl get msc -n ${PROJECT_NAMESPACE} -o name | cut -d "/" -f 2); do
-		for pod in $(kubectl get pods -n ${PROJECT_NAMESPACE} -o name | grep "$sc" \
-					| grep -v "$sc-config" | grep -v "$sc-mongos" | cut -d "/" -f 2); do
-			filename=${agent_log_file}${i}".log"
-			kubectl logs -n ${PROJECT_NAMESPACE} ${pod} > ${filename}
+    # let's dump only shard logs
+    for sc in $(kubectl get msc -n ${PROJECT_NAMESPACE} -o name | cut -d "/" -f 2); do
+        for pod in $(kubectl get pods -n ${PROJECT_NAMESPACE} -o name | grep "$sc" \
+                    | grep -v "$sc-config" | grep -v "$sc-mongos" | cut -d "/" -f 2); do
+            filename=${agent_log_file}${i}".log"
+            kubectl logs -n ${PROJECT_NAMESPACE} ${pod} > ${filename}
 
-			echo "Wrote ${pod} logs to file ${filename}"
-			((i++))
-		done
-	done
+            echo "Wrote ${pod} logs to file ${filename}"
+            ((i++))
+        done
+    done
 
 }
 
 delete_mongodb_resources() {
-	kubectl delete mrs --all  -n ${PROJECT_NAMESPACE}
-	kubectl delete mst --all  -n ${PROJECT_NAMESPACE}
-	kubectl delete msc --all  -n ${PROJECT_NAMESPACE}
+    kubectl delete mrs --all  -n ${PROJECT_NAMESPACE}
+    kubectl delete mst --all  -n ${PROJECT_NAMESPACE}
+    kubectl delete msc --all  -n ${PROJECT_NAMESPACE}
 }
 
 # sometimes in kops cluster some nodes get this taint that makes nodes non-schedulable. Just going over all nodes and
@@ -260,26 +246,25 @@ fix_taints() {
         kubectl taint nodes ${n} NodeWithImpairedVolumes:NoSchedule- || true
     done
 }
-
-
+# foo
 if [[ "${MODE-}" != "dev" ]]; then
-	fix_taints
+    fix_taints
 
-	redeploy_operator "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev" \
-			"${REVISION:-}" "${PROJECT_NAMESPACE}" "Always" "${MANAGED_SECURITY_CONTEXT:-}" "2m"
+    redeploy_operator "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev" \
+            "${REVISION:-}" "${PROJECT_NAMESPACE}" "Always" "${MANAGED_SECURITY_CONTEXT:-}" "2m"
 
-	fetch_om_information
+    fetch_om_information
 
-	echo "Creating Operator Configuration for Ops Manager Test Instance."
-	configure_operator
+    echo "Creating Operator Configuration for Ops Manager Test Instance."
+    configure_operator
 fi
 
-if [ -z "${TEST_STAGE}" ]; then
-    echo "TEST_STAGE needs to be defined"
+if [ -z "${TEST_NAME}" ]; then
+    echo "TEST_NAME needs to be defined"
 fi
 
 
-run_tests "${TEST_STAGE}" "${WAIT_TIMEOUT}"
+run_tests "${TEST_NAME}" "${WAIT_TIMEOUT:-8m}"
 
 TESTS_OK=$?
 echo "Tests have finished with the following exit code: ${TESTS_OK}"

@@ -47,6 +47,7 @@ ensure_namespace() {
     ns="$1"
     if [[ -z "$(kubectl get ns | grep ${ns})" ]]; then
         kubectl create ns "${ns}"
+        echo "Created namespace ${ns} as it didn't exist"
     fi
 }
 # the function installs Ops Manager into Kubernetes cluster if it's not installed already
@@ -204,7 +205,7 @@ redeploy_operator() {
     managed_security_context="${5:-false}"
     timeout="${6:-1m}"
 
-    echo "Installing the Operator (registry url: ${url}, version: ${version}, namespace: ${ns}) to ${CLUSTER_NAME}..."
+    echo "Installing the Operator (registry url: ${url}, version: ${version}, namespace: ${ns}) to ${CLUSTER_NAME:-'e2e cluster'}..."
 
     check_app "helm" "helm is not installed, run 'make prerequisites' to install all necessary software"
     check_app "timeout" "coreutils is not installed, call \"brew install coreutils\""

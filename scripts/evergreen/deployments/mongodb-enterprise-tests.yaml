@@ -80,5 +80,5 @@ spec:
     image: {{ .Values.repo }}/mongodb-enterprise-tests:{{ .Values.tag }}
     command: ["pytest"]
     # -x is used to stop after the first failure, -s disables output capturing to see results of 'print()'
-    args: ["-m", "{{ .Values.testStage }}", "-v", "-x", "-s"]
+    args: ["-v", "-x", "-s", "{{ .Values.testPath }}"]
     imagePullPolicy: Always
