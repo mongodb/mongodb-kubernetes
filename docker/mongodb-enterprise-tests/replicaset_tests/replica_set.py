@@ -12,7 +12,7 @@ class TestReplicaSetNoop(KubernetesTester):
     description: |
       Does not do absolutely nothing
     noop:
-      wait_for: 2
+      timeout: 2
     '''
     def test_some(self):
         assert True
@@ -27,8 +27,8 @@ class TestReplicaSetCreation(KubernetesTester):
       Creates a Replica set and checks everything is created as expected.
     create:
       file: fixtures/replica-set.yaml
-      wait_until: sts/my-replica-set -> status.ready_replicas == 3
-      wait_for: 10
+      wait_until: in_running_state
+      timeout: 120
     '''
 
     def test_replica_set_sts_exists(self):
@@ -287,8 +287,8 @@ class TestReplicaSetUpdate(KubernetesTester):
     update:
       file: fixtures/replica-set.yaml
       patch: '[{"op":"replace","path":"/spec/members","value":5}]'
-      wait_until: sts/my-replica-set -> status.ready_replicas == 5
-      wait_for: 20
+      wait_until: in_running_state
+      timeout: 90
     '''
 
     def test_replica_set_sts_should_exist(self):
@@ -602,7 +602,8 @@ class TestReplicaSetDelete(KubernetesTester):
       Deletes a Replica Set.
     delete:
       file: fixtures/replica-set.yaml
-      wait_for: 30
+      wait_until: mongo_resource_deleted
+      timeout: 120
     '''
 
     def test_replica_set_sts_doesnt_exist(self):
@@ -612,6 +613,3 @@ class TestReplicaSetDelete(KubernetesTester):
     def test_service_does_not_exist(self):
         with pytest.raises(client.rest.ApiException):
             self.corev1.read_namespaced_service('my-replica-set-svc', self.namespace)
-
-    def test_om_state_deleted(self):
-        KubernetesTester.check_om_state_cleaned()

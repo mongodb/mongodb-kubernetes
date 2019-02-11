@@ -14,8 +14,8 @@ class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
       Creates a Replica Set with multiple persistent volumes (one per each mount point)
     create:
       file: fixtures/replica-set-pv-multiple.yaml
-      wait_until: sts/rs001-pv-multiple -> status.ready_replicas == 2
-      wait_for: 20
+      wait_until: in_running_state
+      timeout: 180
     """
     RESOURCE_NAME = "rs001-pv-multiple"
 
@@ -55,7 +55,8 @@ class TestReplicaSetMultiplePersistentVolumeDelete(KubernetesTester):
       Deletes a Replica Set.
     delete:
       file: fixtures/replica-set-pv-multiple.yaml
-      wait_for: 90
+      wait_until: mongo_resource_deleted
+      timeout: 120
     """
     def test_no_statefulset_exists(self):
         # There should be no statefulsets in this namespace

@@ -1,4 +1,3 @@
-import pytest
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 
@@ -49,9 +48,10 @@ class KubernetesTester(object):
         #     pass
 
         KubernetesTester.load_configuration()
+        # Loads the subclass doc
         test_setup = yaml.safe_load(cls.__doc__)
         print()
-        KubernetesTester.prepare(test_setup, KubernetesTester.get_namespace())
+        cls.prepare(test_setup, KubernetesTester.get_namespace())
 
     @staticmethod
     def load_configuration():
@@ -88,8 +88,8 @@ class KubernetesTester(object):
             KubernetesTester.group_id = KubernetesTester.query_group_id()
         return KubernetesTester.group_id
 
-    @staticmethod
-    def prepare(test_setup, namespace):
+    @classmethod
+    def prepare(cls, test_setup, namespace):
         allowed_actions = ["create", "update", "delete", "noop"]
 
         # gets type of action
@@ -97,7 +97,8 @@ class KubernetesTester(object):
         rules = test_setup[action]
 
         KubernetesTester.execute(action, rules, namespace)
-        KubernetesTester.wait_condition(rules)
+        cls.wait_condition(rules)
+
 
     @staticmethod
     def execute(action, rules, namespace):
@@ -117,6 +118,12 @@ class KubernetesTester(object):
         if "patch" in section:
             patch = jsonpatch.JsonPatch.from_string(section["patch"])
             resource = patch.apply(resource)
+
+        KubernetesTester.name = name
+        KubernetesTester.kind = kind
+
+        KubernetesTester.name = name
+        KubernetesTester.kind = kind
 
         print('Creating resource {} {}'.format(kind, name), flush=True)
 
@@ -178,7 +185,39 @@ class KubernetesTester(object):
         pass
 
     @staticmethod
-    def wait_condition(action):
+    def get_namespaced_custom_object(name, kind, group="mongodb.com", version="v1"):
+        return KubernetesTester.clients("customv1").get_namespaced_custom_object(group, version, KubernetesTester.get_namespace(), plural(kind), name)
+
+    @staticmethod
+    def get_resource():
+        """Assumes a single resource in the test environment"""
+        return KubernetesTester.get_namespaced_custom_object(KubernetesTester.name, KubernetesTester.kind)
+
+    @staticmethod
+    def in_error_state():
+        return KubernetesTester._check_phase(KubernetesTester.kind, KubernetesTester.name, "Failed")
+
+    @staticmethod
+    def in_running_state():
+        return KubernetesTester._check_phase(KubernetesTester.kind, KubernetesTester.name, "Running")
+
+    @staticmethod
+    def is_deleted():
+        try:
+            KubernetesTester.get_namespaced_custom_object(KubernetesTester.name, KubernetesTester.kind)
+            return False
+        except ApiException: # ApiException is thrown when the object does not exist
+            return True
+
+    @staticmethod
+    def _check_phase(kind, name, phase):
+        resource = KubernetesTester.get_namespaced_custom_object(name, kind)
+        if 'status' not in resource:
+            return False
+        return resource['status']['phase'] == phase
+
+    @classmethod
+    def wait_condition(cls, action):
         """Waits for a condition to occur before proceeding,
         or for some amount of time, both can appear in the file,
         will always wait for the condition and then for some amount of time.
@@ -190,14 +229,17 @@ class KubernetesTester(object):
 
         if "wait_until" in action:
             print("Waiting until {}".format(action["wait_until"]), flush=True)
-            KubernetesTester.wait_until(action["wait_until"])
+            cls.wait_until(action["wait_until"], int(action.get("timeout", 60)))
+        else:
+            KubernetesTester.wait_for(action.get("timeout", 0))
 
-        if "wait_for" in action:
-            print("Waiting for {}".format(action["wait_for"]), flush=True)
-            KubernetesTester.wait_for(action["wait_for"])
+    @classmethod
+    def wait_until(cls, action, timeout):
+        func = getattr(cls, action)
+        return func_with_timeout(func, timeout)
 
-    @staticmethod
-    def wait_until(condition):
+    @classmethod
+    def wait_for_condition_string(cls, condition):
         """Waits for a given condition from the cluster
         Example:
         1. statefulset/my-replica-set -> status.current_replicas == 5
@@ -208,7 +250,7 @@ class KubernetesTester(object):
         ready_to_go = False
 
         if type_ not in ["sts", "statefulset"]:
-            raise NotImplemented("Only StatefulSets can be tested for now")
+            raise NotImplemented("Only StatefulSets can be tested with condition strings for now")
 
         while not ready_to_go:
             try:
@@ -218,7 +260,7 @@ class KubernetesTester(object):
                 pass
 
             if ready_to_go:
-                break
+                return True
 
             time.sleep(10)
 
@@ -228,6 +270,8 @@ class KubernetesTester(object):
         self.appsv1 = client.AppsV1Api()
         self.customv1 = client.CustomObjectsApi()
         self.namespace = KubernetesTester.get_namespace()
+        self.name = None
+        self.kind = None
 
     @staticmethod
     def query_group_id():
@@ -287,6 +331,10 @@ class KubernetesTester(object):
 
         hosts = KubernetesTester.get_hosts()
         assert len(hosts["results"]) == 0, "Hosts not empty: {}".format(hosts["results"])
+
+    @staticmethod
+    def mongo_resource_deleted():
+        return KubernetesTester.is_deleted() and func_with_assertions(KubernetesTester.check_om_state_cleaned)
 
     def build_mongodb_uri_for_rs(self, hosts):
         return "mongodb://{}".format(",".join(hosts))
@@ -405,6 +453,71 @@ def get_nested_attribute(obj, attrs):
 
     return obj
 
+def current_milliseconds():
+    return int(round(time.time() * 1000))
+
+
+def func_with_timeout(func, timeout=120, sleep_time=2):
+    """
+    >>> func_with_timeout(lambda: time.sleep(5), timeout=3, sleep_time=0)
+    False
+    >>> func_with_timeout(lambda: time.sleep(2), timeout=5, sleep_time=0)
+    True
+    """
+    start_time = current_milliseconds()
+    timeout_time = start_time + (timeout * 1000)
+    while True:
+        time_passed = current_milliseconds() - start_time
+        if time_passed + start_time >= timeout_time:
+            raise AssertionError("Timed out executing {} after {} seconds".format(func.__name__, timeout))
+        if func():
+            print('{} executed successfully after {} seconds'.format(func.__name__, time_passed / 1000))
+            return True
+        time.sleep(sleep_time)
+
+
+def func_with_assertions(func):
+    try:
+        func()
+        return True
+    except AssertionError as e:
+        # so we know which AssertionError was raised
+        print('There was an error executing {}. {}'.format(func.__name__, e))
+        return False
+
+
+def current_milliseconds():
+    return int(round(time.time() * 1000))
+
+
+def func_with_timeout(func, timeout=120, sleep_time=2):
+    """
+    >>> func_with_timeout(lambda: time.sleep(5), timeout=3, sleep_time=0)
+    False
+    >>> func_with_timeout(lambda: time.sleep(2), timeout=5, sleep_time=0)
+    True
+    """
+    start_time = current_milliseconds()
+    timeout_time = start_time + (timeout * 1000)
+    while True:
+        time_passed = current_milliseconds() - start_time
+        if time_passed + start_time >= timeout_time:
+            raise AssertionError("Timed out executing {} after {} seconds".format(func.__name__, timeout))
+        if func():
+            print('{} executed successfully after {} seconds'.format(func.__name__, time_passed / 1000))
+            return True
+        time.sleep(sleep_time)
+
+
+def func_with_assertions(func):
+    try:
+        func()
+        return True
+    except AssertionError as e:
+        # so we know which AssertionError was raised
+        print('There was an error executing {}. {}'.format(func.__name__, e))
+        return False
+
 
 def get_env_var_or_fail(var_name):
     env_value = getenv(var_name)
@@ -431,3 +544,24 @@ def build_automation_config_endpoint(base_url, group_id):
 
 def build_hosts_endpoint(base_url, group_id):
     return "{}/api/public/v1.0/groups/{}/hosts".format(base_url, group_id)
+
+def current_milliseconds():
+    return int(round(time.time() * 1000))
+
+def func_with_timeout(func, timeout=120, sleep_time=2):
+    """
+    >>> func_with_timeout(lambda: time.sleep(5), timeout=3, sleep_time=0)
+    False
+    >>> func_with_timeout(lambda: time.sleep(2), timeout=5, sleep_time=0)
+    True
+    """
+    start_time = current_milliseconds()
+    timeout_time = start_time + (timeout * 1000)
+    while True:
+        time_passed = current_milliseconds() - start_time
+        if time_passed + start_time >= timeout_time:
+            print("Timed out executing {} after {} seconds".format(func.__name__, timeout))
+            return False
+        if func():
+            return True
+        time.sleep(sleep_time)

@@ -13,10 +13,9 @@ class TestShardedClusterCreation(KubernetesTester):
       1 replica set as config server and basic PV
     create:
       file: fixtures/sharded-cluster-pv.yaml
-      wait_until: sts/sh001-pv-0 -> status.ready_replicas == 3
-      wait_for: 10
+      wait_until: in_running_state
+      timeout: 300
     """
-
     def test_sharded_cluster_sts(self):
         sts0 = self.appsv1.read_namespaced_stateful_set("sh001-pv-0", self.namespace)
         assert sts0
@@ -84,7 +83,8 @@ class TestShardedClusterDeletion(KubernetesTester):
       Removes a Sharded Cluster with PV
     delete:
       file: fixtures/sharded-cluster-pv.yaml
-      wait_for: 30
+      wait_until: mongo_resource_deleted
+      timeout: 180
     """
 
     def test_sharded_cluster_doesnt_exist(self):
@@ -95,5 +95,3 @@ class TestShardedClusterDeletion(KubernetesTester):
         with pytest.raises(client.rest.ApiException):
             self.corev1.read_namespaced_service("sh001-pv-sh", self.namespace)
 
-    def test_om_state_deleted(self):
-        KubernetesTester.check_om_state_cleaned()

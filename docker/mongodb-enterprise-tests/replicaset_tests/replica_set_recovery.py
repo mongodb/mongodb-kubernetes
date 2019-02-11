@@ -1,0 +1,42 @@
+import pytest
+
+from kubetester import KubernetesTester
+
+
+@pytest.mark.replica_set_recovery
+class TestReplicaSetBadStateCreation(KubernetesTester):
+    '''
+    name: Replica Set Bad State Creation
+    tags: replica-set, creation
+    description: |
+      Creates a Replica set with a bad configuration and ensures it enters a failed state
+    create:
+      file: fixtures/replica-set-invalid.yaml
+      wait_until: in_error_state
+    '''
+
+    def test_in_error_state(self):
+        mrs = KubernetesTester.get_resource()
+        assert mrs['status']['phase'] == 'Failed'
+        assert mrs['status']['message'] == 'Failed to create/update replica set in Ops Manager: Status: 400 (Bad Request), Detail: Something went wrong validating your Automation Config. Sorry!'
+
+@pytest.mark.replica_set_recovery
+class TestReplicaSetRecoversFromBadState(KubernetesTester):
+    '''
+    name: Replica Set Bade State Recovery
+    tags: replica-set, creation
+    description: |
+      Updates spec of replica set in a bad state and ensures it is updated to the running state correctly
+    update:
+      file: fixtures/replica-set-invalid.yaml
+      patch: '[{"op":"replace","path":"/spec/version","value":"4.0.0"}]'
+      wait_until: in_running_state
+      timeout: 120
+    '''
+
+    def test_in_running_state(self):
+        mrs = KubernetesTester.get_resource()
+        status = mrs['status']
+        assert status['phase'] == "Running"
+        assert status['version'] == '4.0.0'
+        assert "message" not in status

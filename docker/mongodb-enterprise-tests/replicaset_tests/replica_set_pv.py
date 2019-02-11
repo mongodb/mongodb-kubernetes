@@ -13,8 +13,8 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
       Creates a Replica Set and allocates a PersistentVolume to it.
     create:
       file: fixtures/replica-set-pv.yaml
-      wait_until: sts/rs001-pv -> status.ready_replicas == 3
-      wait_for: 30
+      wait_until: in_running_state
+      timeout: 180
     """
 
     def test_replica_set_sts_exists(self):
@@ -154,7 +154,8 @@ class TestReplicaSetPersistentVolumeDelete(KubernetesTester):
       Deletes a Replica Set.
     delete:
       file: fixtures/replica-set-pv.yaml
-      wait_for: 90
+      wait_until: mongo_resource_deleted
+      timeout: 120
     """
 
     def test_replica_set_sts_doesnt_exist(self):
@@ -170,6 +171,3 @@ class TestReplicaSetPersistentVolumeDelete(KubernetesTester):
     def test_pvc_are_unbound(self):
         "Should check the used PVC are still there in the expected status."
         pass
-
-    def test_om_state_deleted(self):
-        KubernetesTester.check_om_state_cleaned()

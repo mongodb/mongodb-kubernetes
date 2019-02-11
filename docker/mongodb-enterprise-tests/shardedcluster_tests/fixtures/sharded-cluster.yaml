@@ -9,7 +9,6 @@ spec:
   mongosCount: 2
   configServerCount: 3
   version: 4.0.3
-
   project: my-project
   credentials: my-credentials
 

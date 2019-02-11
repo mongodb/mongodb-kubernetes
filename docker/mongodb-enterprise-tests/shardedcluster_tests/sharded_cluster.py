@@ -12,7 +12,7 @@ class TestShardedClustgerNoop(KubernetesTester):
     description: |
       Does not do absolutely nothing
     noop:
-      wait_for: 2
+      timeout: 2
     """
 
     def test_some(self):
@@ -28,10 +28,9 @@ class TestShardedClusterCreation(KubernetesTester):
       1 replica set as config server and NO persistent volumes.
     create:
       file: fixtures/sharded-cluster.yaml
-      wait_until: sts/sh001-base-0 -> status.ready_replicas == 3
-      wait_for: 10
+      wait_until: in_running_state
+      timeout: 240
     """
-
     def test_sharded_cluster_sts(self):
         sts0 = self.appsv1.read_namespaced_stateful_set("sh001-base-0", self.namespace)
         assert sts0
@@ -74,10 +73,9 @@ class TestShardedClusterUpdate(KubernetesTester):
     update:
       file: fixtures/sharded-cluster.yaml
       patch: '[{"op":"replace","path":"/spec/shardCount","value":2}]'
-      wait_until: sts/sh001-base-1 -> status.ready_replicas == 3
-      wait_for: 10
+      wait_until: in_running_state
+      timeout: 120
     """
-
     def test_shard1_was_configured(self):
         hosts = [
             "sh001-base-1-{}.sh001-base-sh.{}.svc.cluster.local:27017".format(
@@ -99,7 +97,8 @@ class TestShardedClusterDeletion(KubernetesTester):
       Removes a Sharded Cluster
     delete:
       file: fixtures/sharded-cluster.yaml
-      wait_for: 30
+      wait_until: mongo_resource_deleted
+      timeout: 120
     """
 
     def test_sharded_cluster_doesnt_exist(self):
@@ -111,5 +110,3 @@ class TestShardedClusterDeletion(KubernetesTester):
         with pytest.raises(client.rest.ApiException):
             self.corev1.read_namespaced_service("sh001-base-sh", self.namespace)
 
-    def test_om_state_deleted(self):
-        KubernetesTester.check_om_state_cleaned()

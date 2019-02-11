@@ -13,8 +13,8 @@ class TestReplicaSetEnterpriseCreation(KubernetesTester):
       Creates a Replica Set with Mongo Enterprise Edition
     create:
       file: fixtures/replica-set-ent.yaml
-      wait_until: sts/rs001-ent -> status.ready_replicas == 3
-      wait_for: 10
+      wait_until: in_running_state
+      timeout: 180
     """
 
     def test_replica_set_sts_exists(self):
@@ -78,9 +78,10 @@ class TestReplicaSetEnterpriseDelete(KubernetesTester):
       Deletes a Replica Set.
     delete:
       file: fixtures/replica-set-ent.yaml
-      wait_for: 60
+      wait_until: mongo_resource_deleted
+      timeout: 120
     """
-
+    
     def test_om_state_deleted(self):
         KubernetesTester.check_om_state_cleaned()
 
