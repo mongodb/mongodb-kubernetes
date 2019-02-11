@@ -77,14 +77,16 @@ ensure_ops_manager_k8s() {
 
         echo "Waiting until Statefulset for Ops Manager is running..."
 
-        timeout "1m" bash -c 'while [[ $(kubectl -n operator-testing get statefulset mongodb-enterprise-ops-manager -o jsonpath="{.status.currentReplicas}") != "1" ]]; do sleep 1; done'
+        timeout "1m" bash -c \
+          'while [[ $(kubectl -n operator-testing get statefulset mongodb-enterprise-ops-manager -o jsonpath="{.status.currentReplicas}") != "1" ]]; do sleep 1; done'
 
         echo "Statefulset is ready, waiting for the Ops Manager to start..."
 
         # We can't communicate with Ops Manager if it is inside Kubernetes, so we just
         # wait for this command to succeed.
         # Note, that for OM check for "status.phase==Running" may not work - we need to check the container status
-        timeout "5m" bash -c 'while ! kubectl get pod/mongodb-enterprise-ops-manager-0 -o jsonpath="{.status.containerStatuses[0].ready}" -n operator-testing | grep -q "true"; do sleep 4; done'
+        timeout "5m" bash -c \
+          'while ! kubectl get pod/mongodb-enterprise-ops-manager-0 -o jsonpath="{.status.containerStatuses[0].ready}" -n operator-testing | grep -q "true"; do sleep 4; done' || true
 
         if ! kubectl get pod/mongodb-enterprise-ops-manager-0 -o jsonpath="{.status.containerStatuses[0].ready}" -n operator-testing | grep -q "true"; then
             error "Ops Manager hasn't started!"
@@ -95,7 +97,8 @@ ensure_ops_manager_k8s() {
         echo "Pod is ready, waiting for the admin to get registered..."
 
         # waiting until the om file is ready
-        timeout "4m" bash -c 'while ! kubectl -n operator-testing exec mongodb-enterprise-ops-manager-0 ls "/opt/mongodb/mms/env/.ops-manager-env" &>/dev/null; do sleep 2; done'
+        timeout "4m" bash -c \
+           'while ! kubectl -n operator-testing exec mongodb-enterprise-ops-manager-0 ls "/opt/mongodb/mms/env/.ops-manager-env" &>/dev/null; do sleep 2; done' || true
 
         if ! kubectl -n operator-testing exec mongodb-enterprise-ops-manager-0 ls "/opt/mongodb/mms/env/.ops-manager-env" &>/dev/null; then
             error "No env file found in Ops Manager!"
@@ -116,9 +119,16 @@ ensure_ops_manager_k8s() {
     fi
 
     echo "##### Ops Manager is ready"
-    external_ip="$(kubectl get nodes -o wide | grep $(kubectl get pods/mongodb-enterprise-ops-manager-0 -n operator-testing -o wide | tail -n 1 | awk '{print $7}') | awk '{print $7}')"
-    echo "Use the following address to access Ops Manager from the browser: http://${external_ip}:30039"
 
+    print_om_endpoint
+
+}
+
+print_om_endpoint() {
+    ns="${1:-'<undefined>'}"
+    external_ip="$(kubectl get nodes -o wide | grep $(kubectl get pods/mongodb-enterprise-ops-manager-0 -n operator-testing -o wide | tail -n 1 | awk '{print $7}') | awk '{print $7}')"
+
+    echo "Use the following address to access Ops Manager from the browser: http://${external_ip}:30039 (namespace: ${ns})"
 }
 
 ensure_vpc_rules() {
@@ -227,7 +237,8 @@ redeploy_operator() {
 
     echo "Waiting until the Operator gets to Running state..."
 
-    timeout ${timeout} bash -c 'while ! kubectl -n '"${ns}"' get pods -l app=mongodb-enterprise-operator -o jsonpath="{.items[0].status.phase}" | grep -q "Running" ; do printf .; sleep 1; done'
+    timeout ${timeout} bash -c \
+        'while ! kubectl -n '"${ns}"' get pods -l app=mongodb-enterprise-operator -o jsonpath="{.items[0].status.phase}" | grep -q "Running" ; do printf .; sleep 1; done' || true
 
     # In the end let's check again and print the state
     if ! kubectl -n "${ns}" get pods -l app=mongodb-enterprise-operator -o jsonpath="{.items[0].status.phase}" | grep -q "Running"; then
@@ -260,14 +271,6 @@ ensure_minikube() {
 dump_diagnostic_information() {
     dump_file=$1
 
-    header "All namespace objects" > $dump_file
-    kubectl get all -n ${PROJECT_NAMESPACE} >> $dump_file
-
-    if ! kubectl get pvc -n ${PROJECT_NAMESPACE} 2>&1 | grep -q "No resources found"; then
-        header "Persistent Volume Claims" >> $dump_file
-        kubectl get pvc -o yaml -n ${PROJECT_NAMESPACE}  >> $dump_file
-    fi
-
     if ! kubectl get mst -n ${PROJECT_NAMESPACE} 2>&1 | grep -q "No resources found"; then
         header "Mongodb Standalones" >> $dump_file
         kubectl get mst -o yaml -n ${PROJECT_NAMESPACE}  >> $dump_file
@@ -281,6 +284,14 @@ dump_diagnostic_information() {
     if ! kubectl get msc -n ${PROJECT_NAMESPACE} 2>&1 | grep -q "No resources found"; then
         header "Mongodb ShardedClusters" >> $dump_file
         kubectl get msc -o yaml -n ${PROJECT_NAMESPACE}  >> $dump_file
+    fi
+
+    header "All namespace objects" > $dump_file
+    kubectl get all -n ${PROJECT_NAMESPACE} >> $dump_file
+
+    if ! kubectl get pvc -n ${PROJECT_NAMESPACE} 2>&1 | grep -q "No resources found"; then
+        header "Persistent Volume Claims" >> $dump_file
+        kubectl get pvc -o yaml -n ${PROJECT_NAMESPACE}  >> $dump_file
     fi
 
     # we don't output pods for the operator and tests (they will be output if they didn't manage to start)

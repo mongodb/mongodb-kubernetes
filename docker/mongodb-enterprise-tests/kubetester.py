@@ -114,16 +114,29 @@ class KubernetesTester(object):
         "creates a custom object from filename"
         resource = yaml.safe_load(open(section["file"]))
         name, kind, group, version = get_crd_meta(resource)
+        if "patch" in section:
+            patch = jsonpatch.JsonPatch.from_string(section["patch"])
+            resource = patch.apply(resource)
 
         print('Creating resource {} {}'.format(kind, name), flush=True)
 
+        # todo move "wait for exception" logic to a generic function and reuse for create/update/delete
         try:
             KubernetesTester.clients("customv1").create_namespaced_custom_object(
                 group, version, namespace, plural(kind), resource
             )
-        except:
-            print("Failed to create a resource ({}): \n {}".format(sys.exc_info()[0], resource), flush=True)
-            raise
+            if "exception" in section:
+                raise AssertionError("Expected the ApiException, but create operation succeeded!")
+
+        except ApiException as e:
+            if "exception" in section:
+                assert e.reason == section["exception"], "Real exception is: {}".format(e.reason)
+                print('"{}" exception raised while creating the resource - this is expected!'.format(section["exception"]))
+                return
+            else:
+                print("Failed to create a resource ({}): \n {}".format(e, resource), flush=True)
+                raise
+
         print('Created resource {} {}'.format(kind, name), flush=True)
 
     @staticmethod
@@ -170,6 +183,8 @@ class KubernetesTester(object):
         or for some amount of time, both can appear in the file,
         will always wait for the condition and then for some amount of time.
         """
+        if "wait_until" not in action and "wait_for" not in action:
+            return
         print('Waiting for the condition: {}'.format(action), flush=True)
         sys.stdout.flush()
 

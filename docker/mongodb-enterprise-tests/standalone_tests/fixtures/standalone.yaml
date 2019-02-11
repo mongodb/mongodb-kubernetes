@@ -1,0 +1,10 @@
+apiVersion: mongodb.com/v1
+kind: MongoDbStandalone
+metadata:
+  name: dublin
+spec:
+  version: 4.0.0-ent
+  project: my-project
+  credentials: my-credentials
+  persistent: false
+  logLevel: DEBUG

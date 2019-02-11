@@ -36,8 +36,10 @@ cleanup_env() {
 
         echo "Waiting until operator-testing namespace is deleted..."
         while [ $(kubectl get namespace/operator-testing -o name 2> /dev/null)  ]; do
+            printf .
             sleep 1
         done
+        echo "Operator-testing namespace is deleted"
     fi
 
     echo "##### Removing FAILED Persistent Volumes if any"

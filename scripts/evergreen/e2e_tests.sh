@@ -120,19 +120,22 @@ deploy_test_app() {
 
     # Do wait while the Pod is not yet running (can be in Pending or ContainerCreating state)
     timeout "10s" bash -c \
-        'while ! kubectl -n '"${PROJECT_NAMESPACE}"' get pod '"${TEST_APP_PODNAME}"' -o jsonpath="{.status.phase}" | grep -q "Running" ; do printf .; sleep 1; done; echo'
+        'while ! kubectl -n '"${PROJECT_NAMESPACE}"' get pod '"${TEST_APP_PODNAME}"' -o jsonpath="{.status.phase}" | grep -q "Running" ; do printf .; sleep 1; done;' || true
+
+    echo
 
     if ! kubectl -n "${PROJECT_NAMESPACE}" get pod ${TEST_APP_PODNAME} -o jsonpath="{.status.phase}" | grep -q "Running"; then
+        status=$(kubectl -n "${PROJECT_NAMESPACE}" get pod ${TEST_APP_PODNAME} -o jsonpath="{.status.phase}")
         error "Test application failed to reach Running state"
 
-        echo "Output from \"kubectl describe ${TEST_APP_PODNAME}\":"
+        header "Output from \"kubectl describe ${TEST_APP_PODNAME}\":"
         kubectl -n "${PROJECT_NAMESPACE}" describe pod ${TEST_APP_PODNAME}
 
         header "Test application logs:"
         kubectl -n "${PROJECT_NAMESPACE}" logs ${TEST_APP_PODNAME}
 
         echo
-        title "Test application didn't start, exiting..."
+        title "Test application didn't start (status: $status), exiting..."
         exit 1
     fi
 
@@ -160,6 +163,9 @@ run_tests() {
         KILLPID0=$!
 
         trap "kill $KILLPID0 &> /dev/null || true"  SIGINT SIGTERM SIGQUIT
+
+        # sleeping so that in case of error manage to see the log
+        sleep 3
     else
         output_filename="test_app.log"
         operator_filename="operator.log"
@@ -179,10 +185,10 @@ run_tests() {
     # Note, that we wait for 8 minutes maximum - this is less than the ultimate evergreen task timeout (10 minutes) as
     # we want to dump diagnostic information in case of failure
     timeout ${timeout} bash -c \
-        'while kubectl -n '"${PROJECT_NAMESPACE}"' get pod '"${TEST_APP_PODNAME}"' -o jsonpath="{.status.phase}" | grep -q "Running" ; do sleep 1; done'
+        'while kubectl -n '"${PROJECT_NAMESPACE}"' get pod '"${TEST_APP_PODNAME}"' -o jsonpath="{.status.phase}" | grep -q "Running" ; do sleep 1; done' || true
 
     # make sure there are not processes running in the background.
-    kill $KILLPID0
+    kill $KILLPID0 2>/dev/null || true
     if [[ "${MODE-}" != "dev" ]]; then
         kill $KILLPID1 $KILLPID2 &> /dev/null
     fi
@@ -264,9 +270,10 @@ if [ -z "${TEST_NAME}" ]; then
 fi
 
 
-run_tests "${TEST_NAME}" "${WAIT_TIMEOUT:-8m}"
+TESTS_OK=0
 
-TESTS_OK=$?
+run_tests "${TEST_NAME}" "${WAIT_TIMEOUT:-8m}" || TESTS_OK=1
+
 echo "Tests have finished with the following exit code: ${TESTS_OK}"
 
 # In Evergreen we always clean namespaces if the test finished ok and dump diagnostic information otherwise.
@@ -279,6 +286,8 @@ if [[ "${MODE-}" != "dev" ]]; then
         dump_diagnostic_information diagnostics.txt
 
         dump_agent_logs
+
+        print_om_endpoint "${PROJECT_NAMESPACE}"
     fi
 fi
 
