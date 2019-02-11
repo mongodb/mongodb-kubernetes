@@ -57,6 +57,7 @@ type MockedClient struct {
 	history []*HistoryItem
 	// the delay for statefulsets "creation"
 	StsCreationDelayMillis time.Duration
+	UpdateFunc             func(ctx context.Context, obj apiruntime.Object) error
 }
 
 func newMockedClient(object apiruntime.Object) *MockedClient {
@@ -94,7 +95,7 @@ func newMockedClientDetailed(object apiruntime.Object, projectName, organization
 	api.Create(context.TODO(), credentials)
 
 	if object != nil {
-		api.Create(context.TODO(), object)
+		api.Create(context.TODO(), object.DeepCopyObject())
 	}
 
 	// no delay in creation by default
@@ -169,8 +170,15 @@ func (k *MockedClient) Create(ctx context.Context, obj apiruntime.Object) error 
 // Update updates the given obj in the Kubernetes cluster. obj must be a
 // struct pointer so that obj can be updated with the content returned by the Server.
 func (k *MockedClient) Update(ctx context.Context, obj apiruntime.Object) error {
-	key := objectKeyFromApiObject(obj)
 	k.addToHistory(reflect.ValueOf(k.Update), obj)
+	if k.UpdateFunc != nil {
+		return k.UpdateFunc(ctx, obj)
+	}
+	return k.doUpdate(ctx, obj)
+}
+
+func (k *MockedClient) doUpdate(ctx context.Context, obj apiruntime.Object) error {
+	key := objectKeyFromApiObject(obj)
 
 	resMap := k.getMapForObject(obj)
 	resMap[key] = obj

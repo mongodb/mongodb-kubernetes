@@ -7,19 +7,21 @@ import (
 	"testing"
 	"time"
 
+	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	v12 "k8s.io/api/core/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 func init() {
@@ -159,6 +161,49 @@ func TestPrepareOmConnection_ConfigMapAndSecretWatched(t *testing.T) {
 		watchedObject{resourceType: Secret, resource: objectKey("otherNs", "mySecret")}:                      {objectKey(TestNamespace, "ReplicaSetOne"), objectKey(TestNamespace, "ReplicaSetTwo")},
 	}
 	assert.Equal(t, expected, reconciler.watchedResources)
+}
+
+// TestResourcesAreUpdated_AfterConflictErrors makes sure that even after a conflict error
+// the resource eventually gets updated
+func TestResourcesAreUpdated_AfterConflictErrors(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().Build()
+	mockedClient := newMockedClient(rs)
+
+	mockedClient.UpdateFunc = func(ctx context.Context, obj apiruntime.Object) error {
+		mockedClient.UpdateFunc = nil // don't return another error
+		return apiErrors.NewConflict(schema.GroupResource{}, "foo", errors.New("Conflict error!"))
+	}
+
+	manager := newMockedManagerSpecificClient(mockedClient)
+	controller := newReconcileCommonController(manager, om.NewEmptyMockedOmConnection)
+
+	controller.updateStatus(rs, func(toChange v1.MongoDbResource) {
+		status := toChange.GetCommonStatus()
+		status.Version = "new-version"
+		status.Phase = v1.PhaseRunning
+	})
+
+	assert.Equal(t, v1.PhaseRunning, rs.Status.Phase, "The phase should have been updated even after one failure")
+	assert.Equal(t, "new-version", rs.Status.Version, "The version should have been updated even after one failure")
+	mockedClient.CheckNumberOfOperations(t, HItem(reflect.ValueOf(mockedClient.Update), rs), 2)
+}
+
+func TestShouldReconcile_DoesNotReconcileOnStatusOnlyChange(t *testing.T) {
+	rsOld := DefaultReplicaSetBuilder().Build()
+
+	rsNew := DefaultReplicaSetBuilder().Build()
+	rsNew.Status.Version = "123"
+
+	assert.False(t, shouldReconcile(rsOld, rsNew), "should not reconcile when only status changes")
+}
+
+func TestShouldReconcile_DoesReconcileOnSpecChange(t *testing.T) {
+	rsOld := DefaultReplicaSetBuilder().Build()
+
+	rsNew := DefaultReplicaSetBuilder().Build()
+	rsNew.Spec.Version = "123"
+
+	assert.True(t, shouldReconcile(rsOld, rsNew), "should reconcile when spec changes")
 }
 
 func prepareConnection(controller *ReconcileCommonController, t *testing.T) (*om.MockedOmConnection, *PodVars) {
