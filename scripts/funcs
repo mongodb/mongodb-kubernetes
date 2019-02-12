@@ -201,6 +201,9 @@ ensure_ops_manager_evg() {
 
     export OPS_MANAGER_HOST=${host}
 
+    # add ssh host key to known hosts
+    ssh-keyscan "$OPS_MANAGER_HOST" >> ~/.ssh/known_hosts
+
     rm ego
 
     title "Ops Manager is ready! Hostname: ${OPS_MANAGER_HOST}"

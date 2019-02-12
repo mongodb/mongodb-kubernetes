@@ -17,22 +17,20 @@ ensure_ops_manager_evg
 mkdir -p ~/.operator-dev
 
 if ! ssh "ubuntu@${OPS_MANAGER_HOST}" cat "~/om" &> /dev/null; then
-	# generate environment data on the first run
-	echo "Configuring host ${OPS_MANAGER_HOST}"
-	rm ~/.operator-dev/om || true
+  # generate environment data on the first run
+  echo "Configuring host ${OPS_MANAGER_HOST}"
+  rm ~/.operator-dev/om || true
 
-	# todo the script just creates a user - we need to create a test organization as well
-	docker/mongodb-enterprise-ops-manager/scripts/configure-ops-manager.py \
-		"http://${OPS_MANAGER_HOST}:9080" ~/.operator-dev/om
+  # todo the script just creates a user - we need to create a test organization as well
+  docker/mongodb-enterprise-ops-manager/scripts/configure-ops-manager.py \
+    "http://${OPS_MANAGER_HOST}:9080" ~/.operator-dev/om
 
-	echo "Ops Manager Environment:"
-	cat ~/.operator-dev/om
+  echo "Ops Manager Environment:"
+  cat ~/.operator-dev/om
 
-    # todo seems the flag doesn't make any effect and the script still asks "Are you sure you want to continue
-    # connecting (yes/no)"
-	scp -o "StrictHostKeyChecking no" ~/.operator-dev/om "ubuntu@${OPS_MANAGER_HOST}:om"
+  scp ~/.operator-dev/om "ubuntu@${OPS_MANAGER_HOST}:om"
 else
-	echo "There is already an env file on ${OPS_MANAGER_HOST} - reusing it"
+  echo "There is already an env file on ${OPS_MANAGER_HOST} - reusing it"
 fi
 
 # copying the env data back to the local context to overwrite previous one
