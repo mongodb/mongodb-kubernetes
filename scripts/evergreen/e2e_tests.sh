@@ -87,6 +87,9 @@ configure_operator() {
 }
 
 teardown() {
+    kubectl delete mrs --all -n ${PROJECT_NAMESPACE}
+    kubectl delete mst --all -n ${PROJECT_NAMESPACE}
+    kubectl delete msc --all -n ${PROJECT_NAMESPACE}
     printf "Removing Namespace: %s\\n" "${PROJECT_NAMESPACE}."
     kubectl delete "namespace/${PROJECT_NAMESPACE}"
 }

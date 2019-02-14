@@ -39,7 +39,7 @@ class KubernetesTester(object):
         # TODO uncomment when CLOUDP-37451 is done
         # try:
         #     # removing the group in OM if it existed before running the test (could happen if running locally using 'make e2e')
-        #     KubernetesTester.remove_group()
+        #     KubernetesTester.remove_group(KubernetesTester.get_om_group_id())
         #     print('Removed group {} from Ops Manager'.format(KubernetesTester.get_om_group_id()), flush=True)
         #
         #     # Need to nulify the cached group_id as the new group will be created
@@ -85,19 +85,20 @@ class KubernetesTester(object):
     def get_om_group_id():
         # doing some "caching" for the group id on the first invocation
         if KubernetesTester.group_id is None:
-            KubernetesTester.group_id = KubernetesTester.query_group_id()
+            KubernetesTester.group_id = KubernetesTester.query_group_id(KubernetesTester.get_om_group_name())
         return KubernetesTester.group_id
 
     @classmethod
     def prepare(cls, test_setup, namespace):
+
         allowed_actions = ["create", "update", "delete", "noop"]
 
         # gets type of action
-        action = [action for action in allowed_actions if action in test_setup][0]
-        rules = test_setup[action]
+        for action in [action for action in allowed_actions if action in test_setup]:
+            rules = test_setup[action]
 
-        KubernetesTester.execute(action, rules, namespace)
-        cls.wait_condition(rules)
+            KubernetesTester.execute(action, rules, namespace)
+            cls.wait_condition(rules)
 
 
     @staticmethod
@@ -274,10 +275,10 @@ class KubernetesTester(object):
         self.kind = None
 
     @staticmethod
-    def query_group_id():
+    def query_group_id(group_name):
         """Obtains the group id from group name"""
         url = build_om_group_by_name_endpoint(KubernetesTester.get_om_base_url(),
-                                              KubernetesTester.get_om_group_name())
+                                              group_name)
         response = KubernetesTester.om_request("get", url)
         if response.status_code >= 300:
             raise Exception(
@@ -289,7 +290,7 @@ class KubernetesTester(object):
         return response.json()["id"]
 
     @staticmethod
-    def remove_group():
+    def remove_group(group_id):
         url = build_om_group_delete_endpoint(KubernetesTester.get_om_base_url(),
                                              KubernetesTester.get_om_group_id())
         KubernetesTester.om_request("delete", url)
@@ -486,39 +487,6 @@ def func_with_assertions(func):
         return False
 
 
-def current_milliseconds():
-    return int(round(time.time() * 1000))
-
-
-def func_with_timeout(func, timeout=120, sleep_time=2):
-    """
-    >>> func_with_timeout(lambda: time.sleep(5), timeout=3, sleep_time=0)
-    False
-    >>> func_with_timeout(lambda: time.sleep(2), timeout=5, sleep_time=0)
-    True
-    """
-    start_time = current_milliseconds()
-    timeout_time = start_time + (timeout * 1000)
-    while True:
-        time_passed = current_milliseconds() - start_time
-        if time_passed + start_time >= timeout_time:
-            raise AssertionError("Timed out executing {} after {} seconds".format(func.__name__, timeout))
-        if func():
-            print('{} executed successfully after {} seconds'.format(func.__name__, time_passed / 1000))
-            return True
-        time.sleep(sleep_time)
-
-
-def func_with_assertions(func):
-    try:
-        func()
-        return True
-    except AssertionError as e:
-        # so we know which AssertionError was raised
-        print('There was an error executing {}. {}'.format(func.__name__, e))
-        return False
-
-
 def get_env_var_or_fail(var_name):
     env_value = getenv(var_name)
     if not env_value:
@@ -545,23 +513,3 @@ def build_automation_config_endpoint(base_url, group_id):
 def build_hosts_endpoint(base_url, group_id):
     return "{}/api/public/v1.0/groups/{}/hosts".format(base_url, group_id)
 
-def current_milliseconds():
-    return int(round(time.time() * 1000))
-
-def func_with_timeout(func, timeout=120, sleep_time=2):
-    """
-    >>> func_with_timeout(lambda: time.sleep(5), timeout=3, sleep_time=0)
-    False
-    >>> func_with_timeout(lambda: time.sleep(2), timeout=5, sleep_time=0)
-    True
-    """
-    start_time = current_milliseconds()
-    timeout_time = start_time + (timeout * 1000)
-    while True:
-        time_passed = current_milliseconds() - start_time
-        if time_passed + start_time >= timeout_time:
-            print("Timed out executing {} after {} seconds".format(func.__name__, timeout))
-            return False
-        if func():
-            return True
-        time.sleep(sleep_time)

@@ -83,6 +83,7 @@ func findExistingGroup(groups []*om.Group, config *ProjectConfig, conn om.Connec
 				return g, nil
 			}
 		}
+		return nil, fmt.Errorf("Failed to find group \"%s\" inside organization %s", config.ProjectName, config.OrgID)
 	}
 	// If org id is not specified - then the contract is that the organization for the project must have the same
 	// name as project has (as it was created automatically for the project)
