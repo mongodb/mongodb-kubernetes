@@ -63,12 +63,16 @@ and openshift clusters should be created with the same ssh keys
     * `operator.log` - contains the log from the Operator
     * `agent[1-6].log` - set of files containing logs from Mongodb resource pods (for sharded clusters this includes only shards)
 * Check the state of project in Ops Manager. 
-    * To find out the external ip of Ops Manager check the output of "setup_e2e" task in Evergreen - it will contain
-    the following phrase: "Use the following address to access Ops Manager from the browser: http://3.87.239.164:30039"
-    * Use `admin/admin12345%` to login
-
-Note, that the external ports are opened automatically by the setup script
-
+    * To find out the external ip of Ops Manager check the bottom of the output of a failed task in Evergreen - it will contain
+    the following phrase: 
+    "Use the following address to access Ops Manager from the browser: http://3.87.239.164:30039 (namespace: a-042-y6y9c31v8j5kt9vumeptz)"
+    * Use `admin/admin12345%` to login and search for the namespace
+    * Note, that the external ports are opened automatically by the setup script so you don't need to do this
+* If Ops Manager container is not running - the best way is to check its state using Kubernetes Dashboard:
+    * switch kubectl context to the necessary cluster (for `e2e.mongokubernetes.com` the dashboard is installed automatically,
+    for the openshift one you need to do this manually once)
+    * call `make dashboard` and enter the token that is copied to the clipboard
+        
 #### Cleaning the old namespaces manually
 ```bash
 # passing 0 will result in cleaning all existing namespaces (Evergreen cleans only if it's more than 30)

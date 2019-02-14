@@ -21,36 +21,10 @@ if [[ ${CLUSTER_TYPE} = "minikube" ]]; then
 elif [[ ${CLUSTER_TYPE} = "kops" ]] && ! kops validate cluster "${CLUSTER_NAME}" ; then
 	check_app "timeout" "coreutils is not installed, call \"brew install coreutils\""
 
-	echo "Creating kops cluster \"${CLUSTER_NAME}\" as it doesn't exist..."
+	echo "Kops cluster \"${CLUSTER_NAME}\" doesn't exist"
 
-	check_env_var "KOPS_STATE_STORE" "Make sure you add \"export KOPS_STATE_STORE=s3://kube-om-state-store\" to your ~/.bashrc"
+	create_kops_cluster ${CLUSTER_NAME} 2 16 "t2.small" "t2.small" "${KOPS_ZONES:-us-east-1a,us-east-1b,us-east-1c}"
 
-	if [[ ! -f "$HOME/.ssh/id_rsa" ]]; then
-		ssh-keygen -f ~/.ssh/id_rsa && ssh-add ~/.ssh/id_rsa
-	fi
-
-	echo "Make sure you use the latest version of kops (>= 1.11.0): 'brew upgrade kops'"
-
-	kops create cluster \
-		--node-count 2 \
-		--zones "${KOPS_ZONES:-us-east-1a,us-east-1b,us-east-1c}" \
-		--node-size t2.small \
-		--node-volume-size 16 \
-		--master-size=t2.small \
-		--master-volume-size 16  \
-		--kubernetes-version=v1.11.6 \
-		--ssh-public-key=~/.ssh/id_rsa.pub \
-		--authorization RBAC ${CLUSTER_NAME}
-
-	kops create secret --name ${CLUSTER_NAME} sshpublickey admin -i ~/.ssh/id_rsa.pub
-
-	kops update cluster ${CLUSTER_NAME} --yes
-
-	echo "Waiting until kops cluster gets ready..."
-
-	timeout "15m" bash -c 'while ! kops validate cluster &>/dev/null ; do printf .; sleep 5; done'
-
-	echo "Kops cluster is ready!"
 elif [[ ${CLUSTER_TYPE} = "openshift" ]]; then
 	echo "openshift is TODO"
 fi

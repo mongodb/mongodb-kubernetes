@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+
+# Opens Kubernetes dashboard
+# todo for some reasons the convenient way of accessing https://api.e2e.mongokubernetes.com/ui
+# as recommended in https://github.com/kubernetes/kops/blob/master/docs/addons.md#dashboard didn't work out...
+# so using 'kubectl proxy' approach
+
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
+
+
+if ! lsof -i -P -n | grep LISTEN | grep -q 8001; then
+    kubectl proxy  &
+fi
+
+kubectl get secret $(kubectl get serviceaccount dashboard -o jsonpath="{.secrets[0].name}") -o jsonpath="{.data.token}" | base64 --decode | pbcopy
+echo "The login token is copied to clipboard - use it to login to the dashboard"
+
+sleep 1
+
+open "http://localhost:8001/api/v1/namespaces/kube-system/services/https:kubernetes-dashboard:/proxy/"

@@ -36,6 +36,9 @@ usage:
 	@ echo "                    done manually using instructions from e2e-faq.md"
 	@ echo "  log:              reads the Operator log"
 	@ echo "  status:           prints the current context and the state of Kubernetes cluster"
+	@ echo "  dashboard:        opens the Kubernetes dashboard. Make sure the cluster was installed using current Makefile as"
+	@ echo "                    dashboard is not installed by default and the script ensures it's installed and permissions"
+	@ echo "                    are configured."
 
 # install all necessary software, must be run only once
 prerequisites:
@@ -105,6 +108,9 @@ reset:
 
 status:
 	@ scripts/dev/status
+
+dashboard:
+	@ scripts/dev/kube-dashboard
 
 
 ###############################################################################

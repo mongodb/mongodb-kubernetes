@@ -270,6 +270,58 @@ ensure_minikube() {
     fi
 }
 
+# Creates kops cluster and adds the support for dashboard
+create_kops_cluster() {
+    cluster_name="${1}"
+    node_count=${2}
+    node_volume_size=${3}
+    node_size="${4}"
+    master_size="${5}"
+    zones="${6}"
+
+    title "Creating kops cluster $cluster_name"
+
+    check_env_var "KOPS_STATE_STORE" "Make sure you add \"export KOPS_STATE_STORE=s3://kube-om-state-store\" to your ~/.bashrc"
+
+    [[ ! -f ~/.ssh/id_aws_rsa ]] && ssh-keygen -f ~/.ssh/id_aws_rsa && ssh-add ~/.ssh/id_aws_rsa
+
+	echo "Make sure you use the latest version of kops (>= 1.11.0): 'brew upgrade kops'"
+
+	kops create cluster \
+		--node-count $node_count \
+		--zones "${zones}" \
+		--node-size "${node_size}" \
+		--node-volume-size ${node_volume_size} \
+		--master-size="${master_size}" \
+		--master-volume-size 16  \
+		--kubernetes-version=v1.11.6 \
+		--ssh-public-key=~/.ssh/id_rsa.pub \
+		--authorization RBAC ${cluster_name}
+
+	kops create secret --name ${cluster_name} sshpublickey admin -i ~/.ssh/id_rsa.pub
+
+	kops update cluster ${cluster_name} --yes
+
+	echo "Waiting until kops cluster gets ready..."
+
+	timeout "20m" bash -c 'while ! kops validate cluster $cluster_name &>/dev/null ; do printf .; sleep 5; done'
+
+    title "Kops cluster $cluster_name is ready!"
+
+    # see https://codeandunicorns.com/kubernetes-dashboard-kops/
+    title "Adding support for Kubernetes dashboard"
+    kubectl create -f https://raw.githubusercontent.com/kubernetes/dashboard/master/aio/deploy/recommended/kubernetes-dashboard.yaml
+
+    #To create a service account with access to default namespace
+    kubectl create serviceaccount dashboard -n default
+
+    #To create a cluster role bind. Connecting service account and cluster level access
+    kubectl create clusterrolebinding dashboard-admin -n default \
+     --clusterrole=cluster-admin \
+     --serviceaccount=default:dashboard
+
+    title "Kubernetes dashboard is installed, use \"make dashboard\" to open it"
+}
 # gathers the information about K8s objects and writes it to the specified file handler (can be the stdout)
 dump_diagnostic_information() {
     dump_file=$1

@@ -4,8 +4,6 @@ set -euo pipefail
 
 source scripts/funcs
 
-# TODO seems we should move this to a function and reuse from "ensure_k8s" script
-
 recreate="${1-}"
 
 if [[ "${recreate}" != "yes" ]]; then
@@ -24,29 +22,8 @@ title "Deleting kops cluster $CLUSTER"
 # wait until the cluster is removed
 kops delete cluster $CLUSTER --yes
 
-title "Cluster deleted, creating a new one..."
+title "Cluster deleted"
 
-# generate keys if necessary
-[[ ! -f ~/.ssh/id_aws_rsa ]] && ssh-keygen -f ~/.ssh/id_aws_rsa && ssh-add ~/.ssh/id_aws_rsa
-
-kops create cluster --node-count 3 \
-    --zones us-east-1a,us-east-1b,us-east-1c \
-    --node-size t2.large \
-    --node-volume-size 32 \
-    --master-size=t2.medium \
-    --master-volume-size 16  \
-    --kubernetes-version=v1.11.6 \
-    --ssh-public-key=~/.ssh/id_aws_rsa.pub \
-    --authorization RBAC \
-    $CLUSTER
-
-kops create secret --name $CLUSTER sshpublickey admin -i ~/.ssh/id_aws_rsa.pub
-
-kops update cluster $CLUSTER --yes
-
-echo "Waiting until kops cluster gets ready..."
-
-timeout "15m" bash -c 'while ! kops validate cluster $CLUSTER &>/dev/null ; do printf .; sleep 5; done'
-
-title "Kops cluster $CLUSTER is ready!"
+# Note, that for e2e cluster we use us-east-2 region as us-east-1 most of all has reached max number of VPCs (5)
+create_kops_cluster ${CLUSTER} 3 32 "t2.large" "t2.medium" "us-east-2a,us-east-2b,us-east-2c"
 
