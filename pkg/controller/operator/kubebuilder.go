@@ -3,7 +3,6 @@ package operator
 // This is a collection of functions building different Kubernetes API objects (statefulset, templates etc) from operator
 // custom objects
 import (
-	"os"
 	"strings"
 
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
@@ -186,13 +185,16 @@ func basePodSpec(statefulSetName string, reqs mongodb.PodSpecWrapper, podVars *P
 				LivenessProbe: baseLivenessProbe(),
 			},
 		},
-		ImagePullSecrets: []corev1.LocalObjectReference{{
-			Name: os.Getenv(util.AutomationAgentPullSecrets),
-		}},
 		Affinity: &corev1.Affinity{
 			NodeAffinity: reqs.NodeAffinity,
 			PodAffinity:  reqs.PodAffinity,
 		},
+	}
+
+	if val, found := util.ReadEnv(util.AutomationAgentPullSecrets); found {
+		spec.ImagePullSecrets = []corev1.LocalObjectReference{{
+			Name: val,
+		}}
 	}
 
 	managedSecurityContext, _ := util.ReadBoolEnv(util.ManagedSecurityContextEnv)

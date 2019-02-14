@@ -176,6 +176,21 @@ func TestBasePodSpec_AntiAffinityDefaultTopology(t *testing.T) {
 	assert.Equal(t, util.DefaultAntiAffinityTopologyKey, term.PodAffinityTerm.TopologyKey)
 }
 
+// TestBasePodSpec_ImagePullSecrets verifies that 'spec.ImagePullSecrets' is created only if env variable
+// IMAGE_PULL_SECRETS is initialized
+func TestBasePodSpec_ImagePullSecrets(t *testing.T) {
+	podSpec := mongodb.PodSpecWrapper{MongoDbPodSpec: mongodb.MongoDbPodSpec{}, Default: NewDefaultPodSpec()}
+	spec := basePodSpec("s", podSpec, defaultPodVars())
+	assert.Nil(t, spec.ImagePullSecrets)
+
+	_ = os.Setenv(util.AutomationAgentPullSecrets, "foo")
+	spec = basePodSpec("s", podSpec, defaultPodVars())
+	assert.Equal(t, []corev1.LocalObjectReference{{Name: "foo"}}, spec.ImagePullSecrets)
+
+	// Cleaning the state (there is no tear down in go test :( )
+	InitDefaultEnvVariables()
+}
+
 func checkPvClaims(t *testing.T, set *v1.StatefulSet, expectedClaims []*corev1.PersistentVolumeClaim) {
 	assert.Len(t, set.Spec.VolumeClaimTemplates, len(expectedClaims))
 

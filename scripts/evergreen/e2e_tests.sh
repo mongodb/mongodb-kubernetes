@@ -119,7 +119,7 @@ deploy_test_app() {
     title "Deployed test application, waiting until it gets ready..."
 
     # Do wait while the Pod is not yet running (can be in Pending or ContainerCreating state)
-    timeout "10s" bash -c \
+    timeout "20s" bash -c \
         'while ! kubectl -n '"${PROJECT_NAMESPACE}"' get pod '"${TEST_APP_PODNAME}"' -o jsonpath="{.status.phase}" | grep -q "Running" ; do printf .; sleep 1; done;' || true
 
     echo
