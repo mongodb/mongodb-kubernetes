@@ -28,5 +28,5 @@ func TestBackupWaitsForTermination(t *testing.T) {
 	}
 	StopBackupIfEnabled(connection, "test", ReplicaSetType, zap.S())
 
-	connection.CheckResourcesDeleted(t, "test", true)
+	connection.CheckResourcesAndBackupDeleted(t, "test")
 }

@@ -21,6 +21,23 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// ********************************************************************************************************************
+// Dev notes:
+// * this is a mocked implementation of 'Connection' interface which mocks all communication with Ops Manager. It doesn't
+//   do anything sophisticated - just saves the state that OM is supposed to have after these invocations - for example
+//   the deployment pushed to it
+// * The usual place to start from is the 'NewEmptyMockedOmConnection' method that pre-creates the group - convenient
+//   in most cases. Should work fine for the "full" reconciliation testing
+// * The class tracks the functions called - some methods ('CheckOrderOfOperations', 'CheckOperationsDidntHappen' - more
+//   can be added) may help to check the communication happened
+// * Any overriding of default behavior can be done via functions (e.g. 'CreateGroupFunc', 'UpdateGroupFunc')
+// * To emulate the work of real OM it's possible to emulate the agents delay in "reaching" goal state. This can be
+//   configured using 'AgentsDelayCount' property
+// * There is a small trick with global variable 'CurrMockedConnection' that allows to "survive" separate calls to the
+//   om creation function and allows to test more complicated scenarios (create delete). The state is cleaned as soon as
+//   a new mocked api object is built (which usually occurs when the new reconciler is built)
+// ********************************************************************************************************************
+
 // Global variable for current OM connection object that was created by MongoDbController - just for tests
 var CurrMockedConnection *MockedOmConnection
 
@@ -46,6 +63,8 @@ type MockedOmConnection struct {
 	UpdateGroupFunc        func(group *Group) (*Group, error)
 	BackupConfigs          map[*BackupConfig]*HostCluster
 	UpdateBackupStatusFunc func(clusterId string, status BackupStatus) error
+	// AgentsDelayCount is the number of loops to wait until the agents reach the goal
+	AgentsDelayCount int
 	// mocked client keeps track of all implemented functions called - uses reflection Func for this to enable type-safety
 	// and make function names rename easier
 	history []*runtime.Func
@@ -69,16 +88,28 @@ func NewEmptyMockedOmConnection(baseURL, groupID, user, publicAPIKey string) Con
 	return conn
 }
 
+// NewEmptyMockedOmConnectionWithDelay is the function that builds the mocked connection with some "delay" for agents
+// to reach goal state
+func NewEmptyMockedOmConnectionWithDelay(baseURL, groupID, user, publicAPIKey string) Connection {
+	conn := NewEmptyMockedOmConnection(baseURL, groupID, user, publicAPIKey)
+	conn.(*MockedOmConnection).AgentsDelayCount = 1
+	return conn
+}
+
 // NewMockedConnection is the simplified connection wrapping some deployment that already exists. Should be used for
 // partial functionality (not the "full cycle" controller)
 func NewMockedOmConnection(d Deployment) *MockedOmConnection {
 	connection := MockedOmConnection{deployment: d}
 	connection.hosts = buildHostsFromDeployment(d)
 	connection.BackupConfigs = make(map[*BackupConfig]*HostCluster)
+	// By default we don't wait for agents to reach goal
+	connection.AgentsDelayCount = 0
 
 	return &connection
 }
 
+// NewEmptyMockedConnection is the standard function for creating mocked connections that is usually used for testing
+// "full cycle" mocked controller. It has group created already
 func NewEmptyMockedOmConnectionNoGroup(baseURL, groupID, user, publicAPIKey string) Connection {
 	var connection *MockedOmConnection
 	// That's how we can "survive" multiple calls to this function: so we can create groups or add/delete entities
@@ -126,11 +157,6 @@ func (oc *MockedOmConnection) ReadUpdateDeployment(depFunc func(Deployment) erro
 	return nil
 }
 
-func (oc *MockedOmConnection) WaitForReadyState(processNames []string, log *zap.SugaredLogger) error {
-	oc.addToHistory(reflect.ValueOf(oc.WaitForReadyState))
-	return nil
-}
-
 func (oc *MockedOmConnection) GenerateAgentKey() (string, error) {
 	oc.addToHistory(reflect.ValueOf(oc.GenerateAgentKey))
 
@@ -139,8 +165,15 @@ func (oc *MockedOmConnection) GenerateAgentKey() (string, error) {
 
 func (oc *MockedOmConnection) ReadAutomationStatus() (*AutomationStatus, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadAutomationStatus))
-	// todo
-	return nil, nil
+
+	if oc.AgentsDelayCount <= 0 {
+		// Emulating "agents reached goal state": returning the proper status for all the
+		// processes in the deployment
+		return oc.buildAutomationStatusFromDeployment(oc.deployment, true), nil
+	}
+	oc.AgentsDelayCount--
+
+	return oc.buildAutomationStatusFromDeployment(oc.deployment, false), nil
 }
 func (oc *MockedOmConnection) ReadAutomationAgents() (*AgentState, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadAutomationAgents))
@@ -247,6 +280,8 @@ func (oc *MockedOmConnection) UpdateBackupStatus(clusterId string, newStatus Bac
 	return nil
 }
 
+// ************* These are native methods of Mocked client (not implementation of OmConnection)
+
 func (oc *MockedOmConnection) CheckMonitoredHostsRemoved(t *testing.T, removedHosts []string) {
 	for _, v := range oc.hosts.Results {
 		for _, e := range removedHosts {
@@ -254,8 +289,6 @@ func (oc *MockedOmConnection) CheckMonitoredHostsRemoved(t *testing.T, removedHo
 		}
 	}
 }
-
-// ************* These are native methods of Mocked client (not implementation of OmConnection)
 
 func (oc *MockedOmConnection) doUpdateBackupStatus(clusterID string, newStatus BackupStatus) {
 	for k := range oc.BackupConfigs {
@@ -277,18 +310,24 @@ func (oc *MockedOmConnection) CheckDeployment(t *testing.T, expected Deployment)
 	assert.Equal(t, expected, oc.deployment)
 }
 
+func (oc *MockedOmConnection) CheckResourcesDeleted(t *testing.T) {
+	oc.CheckResourcesAndBackupDeleted(t, "")
+}
+
 // CheckResourcesDeleted verifies the results of "delete" operations in OM: the deployment and monitoring must be empty,
 // backup - inactive (note, that in real life backup config will disappear together with monitoring hosts, but we
 // ignore this for the sake of testing)
-func (oc *MockedOmConnection) CheckResourcesDeleted(t *testing.T, resourceName string, checkBackups bool) {
+func (oc *MockedOmConnection) CheckResourcesAndBackupDeleted(t *testing.T, resourceName string) {
 	// This can be improved for some more complicated scenarios when we have different resources in parallel - so far
 	// just checking if deployment
 	assert.Empty(t, oc.deployment.getProcesses())
 	assert.Empty(t, oc.deployment.getReplicaSets())
 	assert.Empty(t, oc.deployment.getShardedClusters())
+	assert.Empty(t, oc.deployment.getMonitoringVersions())
+	assert.Empty(t, oc.deployment.getBackupVersions())
 	assert.Empty(t, oc.hosts.Results)
 
-	if checkBackups {
+	if resourceName != "" {
 		assert.NotEmpty(t, oc.BackupConfigs)
 
 		found := false
@@ -303,6 +342,10 @@ func (oc *MockedOmConnection) CheckResourcesDeleted(t *testing.T, resourceName s
 		oc.CheckOrderOfOperations(t, reflect.ValueOf(oc.ReadBackupConfigs), reflect.ValueOf(oc.ReadHostCluster),
 			reflect.ValueOf(oc.UpdateBackupStatus))
 	}
+}
+
+func (oc *MockedOmConnection) CleanHistory() {
+	oc.history = make([]*runtime.Func, 0)
 }
 
 // CheckOrderOfOperations verifies the mocked client operations were called in specified order
@@ -329,7 +372,7 @@ func (oc *MockedOmConnection) CheckOperationsDidntHappen(t *testing.T, value ...
 	}
 }
 
-// this is internal method only for testing
+// this is internal method only for testing, used by kubernetes mocked client
 func (oc *MockedOmConnection) AddHosts(hostnames []string) {
 	for i, p := range hostnames {
 		oc.hosts.Results = append(oc.hosts.Results, HostList{Id: strconv.Itoa(i), Hostname: p})
@@ -380,4 +423,19 @@ func (oc *MockedOmConnection) FindGroup(name string) *Group {
 		}
 	}
 	return nil
+}
+
+func (oc *MockedOmConnection) buildAutomationStatusFromDeployment(d Deployment, reached bool) *AutomationStatus {
+	// edge case: if there are no processes - we think that
+	processStatuses := make([]ProcessStatus, 0)
+	if d != nil {
+		for _, p := range d.getProcesses() {
+			if reached {
+				processStatuses = append(processStatuses, ProcessStatus{Name: p.Name(), LastGoalVersionAchieved: 1})
+			} else {
+				processStatuses = append(processStatuses, ProcessStatus{Name: p.Name(), LastGoalVersionAchieved: 0})
+			}
+		}
+	}
+	return &AutomationStatus{GoalVersion: 1, Processes: processStatuses}
 }

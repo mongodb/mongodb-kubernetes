@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"os"
+	"reflect"
 	"testing"
 
 	"go.uber.org/zap"
@@ -83,25 +84,29 @@ func TestScaleUpReplicaSet(t *testing.T) {
 	connection.CheckNumberOfUpdateRequests(t, 2)
 }
 
-// TODO
-/*
-func TestOnDeleteReplicaSet(t *testing.T) {
+// TestAddDeleteReplicaSet checks that no state is left in OpsManager on removal of the replicaset
+func TestAddDeleteReplicaSet(t *testing.T) {
+	// First we need to create a replicaset
 	st := DefaultReplicaSetBuilder().Build()
 
-	controller := NewMongoDbController(newMockedKubeApi(), nil, om.NewEmptyMockedOmConnection)
+	kubeManager := newMockedManager(st)
+	reconciler := newReplicaSetReconciler(kubeManager, om.NewEmptyMockedOmConnectionWithDelay)
 
-	// create first
-	controller.onAddReplicaSet(st)
+	checkReconcileSuccessful(t, reconciler, st, kubeManager.client)
+	omConn := om.CurrMockedConnection
+	omConn.CleanHistory()
 
-	// "enabling" backup
-	om.CurrMockedConnection.EnableBackup(st.Name, om.ReplicaSetType)
+	// Now delete it
+	assert.NoError(t, reconciler.delete(st, zap.S()))
 
-	// then delete
-	controller.delete(st)
-	om.CurrMockedConnection.CheckResourcesDeleted(t, st.Name, true)
+	// Operator doesn't mutate K8s state, so we don't check its changes, only OM
+	omConn.CheckResourcesDeleted(t)
+
+	omConn.CheckOrderOfOperations(t,
+		reflect.ValueOf(omConn.ReadUpdateDeployment), reflect.ValueOf(omConn.ReadAutomationStatus),
+		reflect.ValueOf(omConn.ReadBackupConfigs), reflect.ValueOf(omConn.GetHosts), reflect.ValueOf(omConn.RemoveHost))
+
 }
-*/
-
 func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
 	spec := &v1.MongoDbReplicaSetSpec{
 		CommonSpec: v1.CommonSpec{

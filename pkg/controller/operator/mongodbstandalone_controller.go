@@ -160,7 +160,7 @@ func updateOmDeployment(omConnection om.Connection, s *mongodb.MongoDbStandalone
 		return err
 	}
 
-	return omConnection.WaitForReadyState(processNames, log)
+	return om.WaitForReadyState(omConnection, processNames, log)
 
 }
 
@@ -180,7 +180,9 @@ func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLog
 			processNames = d.GetProcessNames(om.Standalone{}, s.Name)
 			// error means that process is not in the deployment - it's ok and we can proceed (could happen if
 			// deletion cleanup happened twice and the first one cleaned OM state already)
-			d.RemoveProcessByName(s.Name)
+			if e := d.RemoveProcessByName(s.Name, log); e != nil {
+				log.Warnf("Failed to remove standalone from automation config: %s", e)
+			}
 			return nil
 		},
 		log,
@@ -189,7 +191,7 @@ func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLog
 		return fmt.Errorf("Failed to update Ops Manager automation config: %s", err)
 	}
 
-	if err := conn.WaitForReadyState(processNames, log); err != nil {
+	if err := om.WaitForReadyState(conn, processNames, log); err != nil {
 		return err
 	}
 

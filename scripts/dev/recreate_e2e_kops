@@ -7,7 +7,7 @@ source scripts/funcs
 recreate="${1-}"
 
 if [[ "${recreate}" != "yes" ]]; then
-	fatal "Exiting as \"yes\" parameter is not specified"
+	fatal "Exiting as \"imsure=yes\" parameter is not specified"
 fi
 
 # make sure kops version is >= 1.11.0
@@ -19,8 +19,8 @@ CLUSTER=e2e.mongokubernetes.com
 
 title "Deleting kops cluster $CLUSTER"
 
-# wait until the cluster is removed
-kops delete cluster $CLUSTER --yes
+# wait until the cluster is removed (could be removed already)
+kops delete cluster $CLUSTER --yes || true
 
 title "Cluster deleted"
 

@@ -7,6 +7,7 @@ import (
 
 	"encoding/gob"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 )
 
@@ -108,7 +109,7 @@ func (d Deployment) MergeReplicaSet(replicaSet ReplicaSetWithProcesses, l *zap.S
 		log.Debugw("Merged replica set into existing one")
 
 		if len(processesToRemove) > 0 {
-			d.removeProcesses(processesToRemove)
+			d.removeProcesses(processesToRemove, log)
 			log.Debugw("Removed processes as they were removed from replica set", "processesToRemove", processesToRemove)
 		}
 	}
@@ -149,6 +150,13 @@ func (d Deployment) AddMonitoringAndBackup(hostName string, log *zap.SugaredLogg
 	d.addBackup(log)
 }
 
+// RemoveMonitoringAndBackup removes both monitoring and backup agent configurations. This must be called when the
+// Mongodb resource is being removed, otherwise UI will show non-existing agents in the "servers" tab
+func (d Deployment) RemoveMonitoringAndBackup(names []string, log *zap.SugaredLogger) {
+	d.removeMonitoring(names)
+	d.removeBackup(names, log)
+}
+
 // DisableProcesses
 func (d Deployment) DisableProcesses(processNames []string) {
 	for _, p := range processNames {
@@ -178,20 +186,22 @@ func (d Deployment) MarkRsMembersUnvoted(rsName string, rsMembers []string) erro
 	return nil
 }
 
-// RemoveProcessByName
-func (d Deployment) RemoveProcessByName(name string) error {
+// RemoveProcessByName removes the process from deployment
+// Note, that the backup and monitoring configs are also cleaned up
+func (d Deployment) RemoveProcessByName(name string, log *zap.SugaredLogger) error {
 	s := d.getProcessByName(name)
 	if s == nil {
 		return fmt.Errorf("Standalone %s does not exist", name)
 	}
 
-	d.removeProcesses([]string{s.Name()})
+	d.removeProcesses([]string{s.Name()}, log)
 
 	return nil
 }
 
-// RemoveReplicaSetByName
-func (d Deployment) RemoveReplicaSetByName(name string) error {
+// RemoveReplicaSetByName removes replica set and all relevant processes from deployment
+// Note, that the backup and monitoring configs are also cleaned up
+func (d Deployment) RemoveReplicaSetByName(name string, log *zap.SugaredLogger) error {
 	rs := d.getReplicaSetByName(name)
 	if rs == nil {
 		return errors.New("ReplicaSet does not exist")
@@ -211,16 +221,17 @@ func (d Deployment) RemoveReplicaSetByName(name string) error {
 
 	members := rs.members()
 	processNames := make([]string, len(members))
-	for _, el := range members {
-		processNames = append(processNames, el.Name())
+	for i, el := range members {
+		processNames[i] = el.Name()
 	}
-	d.removeProcesses(processNames)
+	d.removeProcesses(processNames, log)
 
 	return nil
 }
 
-// RemoveShardedClusterByName
-func (d Deployment) RemoveShardedClusterByName(clusterName string) error {
+// RemoveShardedClusterByName removes the sharded cluster element, all relevant replica sets and all processes.
+// Note, that the backup and monitoring configs are also cleaned up
+func (d Deployment) RemoveShardedClusterByName(clusterName string, log *zap.SugaredLogger) error {
 	sc := d.getShardedClusterByName(clusterName)
 	if sc == nil {
 		return errors.New("Sharded Cluster does not exist")
@@ -242,13 +253,13 @@ func (d Deployment) RemoveShardedClusterByName(clusterName string) error {
 	for _, el := range shards {
 		shardNames = append(shardNames, el.id())
 	}
-	d.removeReplicaSets(shardNames)
+	d.removeReplicaSets(shardNames, log)
 
 	// 3. Remove config server replicaset
-	d.RemoveReplicaSetByName(sc.ConfigServerRsName())
+	d.RemoveReplicaSetByName(sc.ConfigServerRsName(), log)
 
 	// 4. Remove mongos processes for cluster
-	d.removeProcesses(d.getMongosProcessesNames(clusterName))
+	d.removeProcesses(d.getMongosProcessesNames(clusterName), log)
 
 	return nil
 }
@@ -313,7 +324,7 @@ func (d Deployment) mergeMongosProcesses(clusterName string, mongosProcesses []P
 			}
 		}
 		if !found {
-			d.removeProcesses([]string{p})
+			d.removeProcesses([]string{p}, log)
 			log.Debugw("Removed redundant mongos process", "name", p)
 		}
 	}
@@ -370,7 +381,7 @@ func (d Deployment) mergeShards(clusterName string, configServerRs ReplicaSetWit
 			log.Debug("Merged sharded cluster into existing one")
 
 			if len(replicaSetToRemove) > 0 {
-				d.removeReplicaSets(replicaSetToRemove)
+				d.removeReplicaSets(replicaSetToRemove, log)
 				log.Debugw("Removed replica sets as they were removed from sharded cluster", "replica sets", replicaSetToRemove)
 			}
 			return
@@ -397,6 +408,17 @@ func (d Deployment) getProcesses() []Process {
 	}
 }
 
+func (d Deployment) getProcessesHostNames(names []string) []string {
+	ans := make([]string, len(names))
+
+	for i, n := range names {
+		if p := d.getProcessByName(n); p != nil {
+			ans[i] = p.HostName()
+		}
+	}
+	return ans
+}
+
 func (d Deployment) setProcesses(processes []Process) {
 	d["processes"] = processes
 }
@@ -405,7 +427,14 @@ func (d Deployment) addProcess(p Process) {
 	d.setProcesses(append(d.getProcesses(), p))
 }
 
-func (d Deployment) removeProcesses(processNames []string) {
+func (d Deployment) removeProcesses(processNames []string, log *zap.SugaredLogger) {
+	// (CLOUDP-37709) implementation ideas: we remove agents for the processes if they are removed. Note, that
+	// processes removal happens also during merge operations - so hypothetically if OM added some processes that were
+	// removed by the Operator on merge - the agents will be removed from config as well. Seems this is quite safe and
+	// in the Operator-managed environment we'll never get the situation when some agents reside on the hosts which are
+	// not some processes.
+	d.RemoveMonitoringAndBackup(processNames, log)
+
 	processes := make([]Process, 0)
 
 	for _, p := range d.getProcesses() {
@@ -421,11 +450,12 @@ func (d Deployment) removeProcesses(processNames []string) {
 	}
 
 	d.setProcesses(processes)
+
 }
 
-func (d Deployment) removeReplicaSets(replicaSets []string) {
+func (d Deployment) removeReplicaSets(replicaSets []string, log *zap.SugaredLogger) {
 	for _, v := range replicaSets {
-		d.RemoveReplicaSetByName(v)
+		d.RemoveReplicaSetByName(v, log)
 	}
 }
 
@@ -505,18 +535,26 @@ func (d Deployment) addShardedCluster(shardedCluster ShardedCluster) {
 	d.setShardedClusters(append(d.getShardedClusters(), shardedCluster))
 }
 
+func (d Deployment) getMonitoringVersions() []interface{} {
+	return d["monitoringVersions"].([]interface{})
+}
+
+func (d Deployment) getBackupVersions() []interface{} {
+	return d["backupVersions"].([]interface{})
+}
+
 func (d Deployment) setMonitoringVersions(monitoring []interface{}) {
 	d["monitoringVersions"] = monitoring
 }
 
-func (d Deployment) setBackupVersions(monitoring []interface{}) {
-	d["backupVersions"] = monitoring
+func (d Deployment) setBackupVersions(backup []interface{}) {
+	d["backupVersions"] = backup
 }
 
-// addMonitoring adds one single monitoring agent for specified host name.
+// addMonitoring adds one single monitoring agent for the specified host name.
 // Note that automation agent will update the monitoring agent to the latest version automatically
 func (d Deployment) addMonitoring(hostName string, log *zap.SugaredLogger) {
-	monitoringVersions := d["monitoringVersions"].([]interface{})
+	monitoringVersions := d.getMonitoringVersions()
 	found := false
 	for _, b := range monitoringVersions {
 		monitoring := b.(map[string]interface{})
@@ -534,9 +572,31 @@ func (d Deployment) addMonitoring(hostName string, log *zap.SugaredLogger) {
 	}
 }
 
+// removeMonitoring removes the monitoring agent configuration that match any of processes hosts 'processNames' parameter
+// Note, that by contract there will be only one monitoring agent, but the method tries to be maximum safe and clean
+// all matches (may be someone "hacked" the automation config manually and added the monitoring agents there)
+// Note 2: it's ok if nothing was removed as the processes in the array may be from replica set from sharded cluster
+// which doesn't have a monitoring agents (one monitoring agent per cluster)
+func (d Deployment) removeMonitoring(processNames []string) {
+	monitoringVersions := d.getMonitoringVersions()
+	updatedMonitoringVersions := make([]interface{}, 0)
+	hostNames := d.getProcessesHostNames(processNames)
+	for _, m := range monitoringVersions {
+		monitoring := m.(map[string]interface{})
+		hostname := monitoring["hostname"].(string)
+		if !util.ContainsString(hostNames, hostname) {
+			updatedMonitoringVersions = append(updatedMonitoringVersions, m)
+		} else {
+			hostNames = util.RemoveString(hostNames, hostname)
+		}
+	}
+
+	d.setMonitoringVersions(updatedMonitoringVersions)
+}
+
 // addBackup adds backup agent configuration for each of the processes of deployment
 func (d Deployment) addBackup(log *zap.SugaredLogger) {
-	backupVersions := d["backupVersions"].([]interface{})
+	backupVersions := d.getBackupVersions()
 	for _, p := range d.getProcesses() {
 		found := false
 		for _, b := range backupVersions {
@@ -554,6 +614,33 @@ func (d Deployment) addBackup(log *zap.SugaredLogger) {
 			log.Debugw("Added backup agent configuration", "host", p.HostName())
 		}
 	}
+}
+
+// removeBackup removes the backup versions from Deployment that are in 'hosts' array parameter
+func (d Deployment) removeBackup(processNames []string, log *zap.SugaredLogger) {
+	backupVersions := d.getBackupVersions()
+	updatedBackupVersions := make([]interface{}, 0)
+	initialLength := len(processNames)
+	hostNames := d.getProcessesHostNames(processNames)
+	for _, b := range backupVersions {
+		backup := b.(map[string]interface{})
+		hostname := backup["hostname"].(string)
+		if !util.ContainsString(hostNames, hostname) {
+			updatedBackupVersions = append(updatedBackupVersions, b)
+		} else {
+			hostNames = util.RemoveString(hostNames, hostname)
+		}
+	}
+
+	if len(hostNames) != 0 {
+		// Note, that we don't error/warn here as there can be plenty of reasons why the config is not here (e.g. some
+		// process added to OM deployment manually that doesn't have corresponding backup config). Warn prints the
+		// stacktrace which looks quite scary
+		log.Infof("The following hosts were not removed from backup config as they were not found: %s", hostNames)
+	} else {
+		log.Debugf("Removed backup agent configuration for %d host(s)", initialLength)
+	}
+	d.setBackupVersions(updatedBackupVersions)
 }
 
 // copyFirstProcessToNewPositions is used when scaling up replica set / set of mongos processes. Its main goal is to clone

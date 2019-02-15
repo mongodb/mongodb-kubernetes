@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"reflect"
 	"testing"
 
 	"os"
@@ -23,6 +24,8 @@ func TestCreateOmProcess(t *testing.T) {
 	assert.Equal(t, "4.0.0", process.Version())
 }
 
+// TestOnAddStandalone checks the reconciliation on standalone creation. It emulates the kubernetes work on statefulset
+// creation ('StsCreationDelayMillis') and makes sure the operator waits for this to finish
 func TestOnAddStandalone(t *testing.T) {
 	st := DefaultStandaloneBuilder().SetVersion("4.1.0").SetService("mysvc").Build()
 
@@ -42,6 +45,30 @@ func TestOnAddStandalone(t *testing.T) {
 
 	omConn.CheckDeployment(t, createDeploymentFromStandalone(st))
 	omConn.CheckNumberOfUpdateRequests(t, 1)
+}
+
+// TestAddDeleteStandalone checks that no state is left in OpsManager on removal of the standalone
+func TestAddDeleteStandalone(t *testing.T) {
+	// First we need to create a standalone
+	st := DefaultStandaloneBuilder().SetVersion("4.0.0").Build()
+
+	kubeManager := newMockedManager(st)
+	reconciler := newStandaloneReconciler(kubeManager, om.NewEmptyMockedOmConnectionWithDelay)
+
+	checkReconcileSuccessful(t, reconciler, st, kubeManager.client)
+
+	// Now delete it
+	assert.NoError(t, reconciler.delete(st, zap.S()))
+
+	omConn := om.CurrMockedConnection
+	// Operator doesn't mutate K8s state, so we don't check its changes, only OM
+	omConn.CheckResourcesDeleted(t)
+
+	// Note, that 'omConn.ReadAutomationStatus' happened twice - because the connection emulates agents delay in reaching goal state
+	omConn.CheckOrderOfOperations(t,
+		reflect.ValueOf(omConn.ReadUpdateDeployment), reflect.ValueOf(omConn.ReadAutomationStatus),
+		reflect.ValueOf(omConn.ReadAutomationStatus), reflect.ValueOf(omConn.GetHosts), reflect.ValueOf(omConn.RemoveHost))
+
 }
 
 func TestStandaloneEventMethodsHandlePanic(t *testing.T) {

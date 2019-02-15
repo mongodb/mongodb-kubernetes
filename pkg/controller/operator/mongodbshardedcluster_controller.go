@@ -179,7 +179,7 @@ func (r *ReconcileMongoDbShardedCluster) delete(obj interface{}, log *zap.Sugare
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			processNames = d.GetProcessNames(om.ShardedCluster{}, sc.Name)
-			if e := d.RemoveShardedClusterByName(sc.Name); e != nil {
+			if e := d.RemoveShardedClusterByName(sc.Name, log); e != nil {
 				log.Warnf("Failed to remove sharded cluster from automation config: %s", e)
 			}
 			return nil
@@ -190,7 +190,7 @@ func (r *ReconcileMongoDbShardedCluster) delete(obj interface{}, log *zap.Sugare
 		return err
 	}
 
-	if err := conn.WaitForReadyState(processNames, log); err != nil {
+	if err := om.WaitForReadyState(conn, processNames, log); err != nil {
 		return err
 	}
 
@@ -323,7 +323,7 @@ func updateOmDeploymentShardedCluster(conn om.Connection, sc *mongodb.MongoDbSha
 		return err
 	}
 
-	if err := conn.WaitForReadyState(processNames, log); err != nil {
+	if err := om.WaitForReadyState(conn, processNames, log); err != nil {
 		return err
 	}
 

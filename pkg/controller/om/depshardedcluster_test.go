@@ -6,6 +6,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 // TestMergeShardedClusterNoExisting that just merges the Sharded cluster into an empty deployment
@@ -267,7 +268,7 @@ func TestRemoveShardedClusterByName(t *testing.T) {
 
 	rs := mergeReplicaSet(d, "fooRs", createReplicaSetProcesses("fooRs"))
 
-	d.RemoveShardedClusterByName("otherCluster")
+	d.RemoveShardedClusterByName("otherCluster", zap.S())
 
 	// First check that all other entities stay untouched
 	checkProcess(t, d, createStandalone())

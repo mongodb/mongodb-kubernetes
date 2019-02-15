@@ -1,15 +1,14 @@
-from kubernetes import client, config
-from kubernetes.client.rest import ApiException
-
-import time
-import yaml
 import sys
+import time
 from os import getenv
 
-import requests
-from requests.auth import HTTPDigestAuth
 import jsonpatch
 import pymongo
+import requests
+import yaml
+from kubernetes import client, config
+from kubernetes.client.rest import ApiException
+from requests.auth import HTTPDigestAuth
 
 
 class KubernetesTester(object):
@@ -119,9 +118,6 @@ class KubernetesTester(object):
         if "patch" in section:
             patch = jsonpatch.JsonPatch.from_string(section["patch"])
             resource = patch.apply(resource)
-
-        KubernetesTester.name = name
-        KubernetesTester.kind = kind
 
         KubernetesTester.name = name
         KubernetesTester.kind = kind
@@ -292,7 +288,7 @@ class KubernetesTester(object):
     @staticmethod
     def remove_group(group_id):
         url = build_om_group_delete_endpoint(KubernetesTester.get_om_base_url(),
-                                             KubernetesTester.get_om_group_id())
+                                             group_id)
         KubernetesTester.om_request("delete", url)
         # TODO is the exception thrown if request fails?
 
@@ -483,7 +479,7 @@ def func_with_assertions(func):
         return True
     except AssertionError as e:
         # so we know which AssertionError was raised
-        print('There was an error executing {}. {}'.format(func.__name__, e))
+        print("The check for {} hasn't passed yet. {}".format(func.__name__, e))
         return False
 
 
@@ -512,4 +508,3 @@ def build_automation_config_endpoint(base_url, group_id):
 
 def build_hosts_endpoint(base_url, group_id):
     return "{}/api/public/v1.0/groups/{}/hosts".format(base_url, group_id)
-

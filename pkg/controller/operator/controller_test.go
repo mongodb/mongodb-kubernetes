@@ -275,12 +275,12 @@ func requestFromObject(object apiruntime.Object) reconcile.Request {
 
 func checkReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, object v1.MongoDbResource, client *MockedClient) {
 	result, e := reconciler.Reconcile(requestFromObject(object))
-	assert.NoError(t, e)
-	assert.Equal(t, reconcile.Result{}, result)
+	require.NoError(t, e)
+	require.Equal(t, reconcile.Result{}, result)
 
 	// also need to make sure the object status is updated to successful
-	assert.NoError(t, client.Get(context.TODO(), objectKeyFromApiObject(object), object))
-	assert.Equal(t, v1.PhaseRunning, object.GetCommonStatus().Phase)
+	require.NoError(t, client.Get(context.TODO(), objectKeyFromApiObject(object), object))
+	require.Equal(t, v1.PhaseRunning, object.GetCommonStatus().Phase)
 
 	expectedLink := DeploymentLink(om.TestURL, om.TestGroupID)
 	switch s := object.(type) {

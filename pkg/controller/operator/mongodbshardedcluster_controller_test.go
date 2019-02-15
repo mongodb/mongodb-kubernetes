@@ -54,26 +54,29 @@ func TestReconcileCreateShardedCluster(t *testing.T) {
 	connection.CheckOperationsDidntHappen(t, reflect.ValueOf(connection.GetHosts), reflect.ValueOf(connection.RemoveHost))
 }
 
-// TODO
-/*
-func TestDeleteShardedCluster(t *testing.T) {
+// TestAddDeleteShardedCluster checks that no state is left in OpsManager on removal of the sharded cluster
+func TestAddDeleteShardedCluster(t *testing.T) {
+	// First we need to create a sharded cluster
 	sc := DefaultClusterBuilder().Build()
 
-	manager := newMockedManager(sc)
-	reconciler := newShardedClusterReconciler(manager, om.NewEmptyMockedOmConnection)
+	kubeManager := newMockedManager(sc)
+	reconciler := newShardedClusterReconciler(kubeManager, om.NewEmptyMockedOmConnectionWithDelay)
 
-	// create first
-	checkReconcileSuccessful(t, reconciler, sc, manager.client)
+	checkReconcileSuccessful(t, reconciler, sc, kubeManager.client)
+	omConn := om.CurrMockedConnection
+	omConn.CleanHistory()
 
-	// "enabling" backup
-	currConnection := om.CurrMockedConnection
-	currConnection.EnableBackup(sc.Name, om.ShardedClusterType)
+	// Now delete it
+	assert.NoError(t, reconciler.delete(sc, zap.S()))
 
-	// then delete
-	controller.onDeleteShardedCluster(sc)
-	currConnection.CheckResourcesDeleted(t, sc.Name, true)
+	// Operator doesn't mutate K8s state, so we don't check its changes, only OM
+	omConn.CheckResourcesDeleted(t)
+
+	omConn.CheckOrderOfOperations(t,
+		reflect.ValueOf(omConn.ReadUpdateDeployment), reflect.ValueOf(omConn.ReadAutomationStatus),
+		reflect.ValueOf(omConn.ReadBackupConfigs), reflect.ValueOf(omConn.GetHosts), reflect.ValueOf(omConn.RemoveHost))
+
 }
-*/
 
 // TestPrepareScaleDownShardedCluster tests the scale down operation for config servers and mongods per shard. It checks
 // that all members that will be removed are marked as unvoted

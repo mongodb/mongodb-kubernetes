@@ -23,7 +23,7 @@ type Connection interface {
 	UpdateDeployment(deployment Deployment) ([]byte, error)
 	ReadDeployment() (Deployment, error)
 	ReadUpdateDeployment(depFunc func(Deployment) error, log *zap.SugaredLogger) error
-	WaitForReadyState(processNames []string, log *zap.SugaredLogger) error
+	//WaitForReadyState(processNames []string, log *zap.SugaredLogger) error
 	GenerateAgentKey() (string, error)
 	ReadAutomationStatus() (*AutomationStatus, error)
 	ReadAutomationAgents() (*AgentState, error)
@@ -166,28 +166,6 @@ func (oc *HTTPOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error,
 
 	_, err = oc.UpdateDeployment(deployment)
 	return err
-}
-
-func (oc *HTTPOmConnection) WaitForReadyState(processNames []string, log *zap.SugaredLogger) error {
-	log.Infow("Waiting for automation config to be applied by Automation Agents...", "processes", processNames)
-	reachStateFunc := func() (string, bool) {
-
-		as, lastErr := oc.ReadAutomationStatus()
-		if lastErr != nil {
-			return fmt.Sprintf("Error reading Automation Agents status: %s", lastErr), false
-		}
-
-		if checkAutomationStatusIsGoal(as, processNames) {
-			return "Automation agents haven't reached READY state", true
-		}
-
-		return "Automation agents haven't reached READY state", false
-	}
-	if !util.DoAndRetry(reachStateFunc, log, 30, 3) {
-		return NewAPIError(fmt.Errorf("Failed to start databases during defined interval"))
-	}
-	log.Info("Automation config has been successfully updated in Ops Manager and Automation Agents reached READY state")
-	return nil
 }
 
 // GenerateAgentKey

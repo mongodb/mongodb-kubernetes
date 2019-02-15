@@ -174,7 +174,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(omConnection om.Connec
 		return err
 	}
 
-	if err := omConnection.WaitForReadyState(processNames, log); err != nil {
+	if err := om.WaitForReadyState(omConnection, processNames, log); err != nil {
 		return err
 	}
 
@@ -185,7 +185,6 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(omConnection om.Connec
 func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLogger) error {
 	rs := obj.(*mongodb.MongoDbReplicaSet)
 
-	log.Infow("Removing replica set from Ops Manager", "config", rs.Spec)
 	conn, err := r.prepareConnection(objectKey(rs.Namespace, rs.Name), rs.Spec.CommonSpec, nil, log)
 	if err != nil {
 		return err
@@ -196,9 +195,10 @@ func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLog
 			processNames = d.GetProcessNames(om.ReplicaSet{}, rs.Name)
 			// error means that replica set is not in the deployment - it's ok and we can proceed (could happen if
 			// deletion cleanup happened twice and the first one cleaned OM state already)
-			if e := d.RemoveReplicaSetByName(rs.Name); e != nil {
+			if e := d.RemoveReplicaSetByName(rs.Name, log); e != nil {
 				log.Warnf("Failed to remove replica set from automation config: %s", e)
 			}
+
 			return nil
 		},
 		log,
@@ -207,7 +207,7 @@ func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLog
 		return err
 	}
 
-	if err := conn.WaitForReadyState(processNames, log); err != nil {
+	if err := om.WaitForReadyState(conn, processNames, log); err != nil {
 		return err
 	}
 
