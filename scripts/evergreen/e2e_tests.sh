@@ -37,7 +37,7 @@ fetch_om_information() {
 
     OPERATOR_TESTING_FRAMEWORK_NS=operator-testing
     if ! kubectl get namespace/${OPERATOR_TESTING_FRAMEWORK_NS} &> /dev/null; then
-        echo "Ops Manager is not installed in this cluster. Make sure the Ops Manager installation script is called beforehand. Exiting..."
+        error "Ops Manager is not installed in this cluster. Make sure the Ops Manager installation script is called beforehand. Exiting..."
 
         exit 1
     else

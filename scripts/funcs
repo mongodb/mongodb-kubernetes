@@ -109,8 +109,8 @@ ensure_ops_manager_k8s() {
         fi
 
         # we try to open ports for both security groups - in kops and openshift clusters
-        ensure_vpc_rules "openshift-test-workersecgroup"
-        ensure_vpc_rules "nodes.e2e"
+        ensure_vpc_rules "us-east-1" "openshift-test-workersecgroup"
+        ensure_vpc_rules "us-east-2" "nodes.e2e"
 
         echo "Ops Manager is installed in this cluster. A new user will be added for automated tests to run."
     else
@@ -132,15 +132,16 @@ print_om_endpoint() {
 }
 
 ensure_vpc_rules() {
-    prefix="$1"
-    group_id=$(aws ec2 describe-security-groups | jq -r '.SecurityGroups[] | select(.GroupName | startswith( "'"$prefix"'")) | .GroupId')
+    region="$1"
+    prefix="$2"
+    group_id=$(aws ec2 describe-security-groups --region "${region}" | jq -r '.SecurityGroups[] | select(.GroupName | startswith( "'"$prefix"'")) | .GroupId')
 
     if [[ -z $group_id ]]; then
         echo "Failed to find group id for EC2 security group with prefix $prefix"
         return 1
     fi
     # note, that the attempt to add the same rule will result in "already exists" error - so we just ignore errors by now
-    aws ec2 authorize-security-group-ingress --group-id ${group_id} --protocol tcp --port 30039 --cidr "0.0.0.0/0" || true
+    aws ec2 authorize-security-group-ingress --region "${region}" --group-id ${group_id} --protocol tcp --port 30039 --cidr "0.0.0.0/0" 2>/dev/null || true
 
     echo "Opened port 30039 in AWS for the security group with prefix $prefix (group id: $group_id)"
 }

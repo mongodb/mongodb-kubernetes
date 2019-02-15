@@ -9,7 +9,7 @@ class TestReplicaSetBadStateCreation(KubernetesTester):
     name: Replica Set Bad State Creation
     tags: replica-set, creation
     description: |
-      Creates a Replica set with a bad configuration and ensures it enters a failed state
+      Creates a Replica set with a bad configuration (wrong mongodb version) and ensures it enters a failed state
     create:
       file: fixtures/replica-set-invalid.yaml
       wait_until: in_error_state

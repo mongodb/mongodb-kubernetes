@@ -25,7 +25,7 @@ class TestStandaloneListensConfigMap(KubernetesTester):
         # Sleeping for short to make sure the standalone has gone to Pending state
         time.sleep(5)
         assert KubernetesTester._check_phase(KubernetesTester.kind, KubernetesTester.name, "Pending")
-        KubernetesTester.wait_until('in_running_state', 60)
+        KubernetesTester.wait_until('in_running_state', 120)
 
         # Checking that the new group was created in OM
         new_group_id = KubernetesTester.query_group_id("newProjectForStandalone")

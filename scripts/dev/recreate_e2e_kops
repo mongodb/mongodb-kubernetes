@@ -25,5 +25,5 @@ kops delete cluster $CLUSTER --yes || true
 title "Cluster deleted"
 
 # Note, that for e2e cluster we use us-east-2 region as us-east-1 most of all has reached max number of VPCs (5)
-create_kops_cluster ${CLUSTER} 3 32 "t2.large" "t2.medium" "us-east-2a,us-east-2b,us-east-2c"
+create_kops_cluster ${CLUSTER} 3 32 "t2.xlarge" "t2.medium" "us-east-2a,us-east-2b,us-east-2c"
 

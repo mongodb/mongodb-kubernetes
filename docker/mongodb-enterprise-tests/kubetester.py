@@ -89,7 +89,6 @@ class KubernetesTester(object):
 
     @classmethod
     def prepare(cls, test_setup, namespace):
-
         allowed_actions = ["create", "update", "delete", "noop"]
 
         # gets type of action
@@ -468,7 +467,7 @@ def func_with_timeout(func, timeout=120, sleep_time=2):
         if time_passed + start_time >= timeout_time:
             raise AssertionError("Timed out executing {} after {} seconds".format(func.__name__, timeout))
         if func():
-            print('{} executed successfully after {} seconds'.format(func.__name__, time_passed / 1000))
+            print('{} executed successfully after {} seconds'.format(func.__name__, time_passed / 1000), flush=True)
             return True
         time.sleep(sleep_time)
 

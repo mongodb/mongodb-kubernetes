@@ -500,6 +500,13 @@ tasks:
       vars:
         test_name: standalone_config_map
 
+- name: e2e_standalone_recovery
+  exec_timeout_secs: 600 # 10 minutes max
+  commands:
+    - func: "e2e_test"
+      vars:
+        test_name: standalone_recovery
+
 - name: e2e_replica_set
   exec_timeout_secs: 600 # 10 minutes max
   commands:
@@ -556,6 +563,13 @@ tasks:
       vars:
         test_name: sharded_cluster_pv
 
+- name: e2e_sharded_cluster_recovery
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+      vars:
+        test_name: sharded_cluster_recovery
+
 - name: e2e_sharded_cluster_secret
   exec_timeout_secs: 600
   commands:
@@ -580,6 +594,7 @@ task_groups:
     # Weird, but if the name tasks without "e2e_" (so equal to 'test_name' param) - evergreen doesn't run them...
     - e2e_standalone_config_map
     - e2e_standalone_schema_validation
+    - e2e_standalone_recovery
     - e2e_replica_set
     - e2e_replica_set_config_map
     - e2e_replica_set_ent
@@ -588,6 +603,7 @@ task_groups:
     - e2e_replica_set_pv_multiple
     - e2e_sharded_cluster
     - e2e_sharded_cluster_pv
+    - e2e_sharded_cluster_recovery
     - e2e_sharded_cluster_secret
   teardown_task:
     - func: "upload_e2e_artifacts"
