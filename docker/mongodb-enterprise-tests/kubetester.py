@@ -22,6 +22,45 @@ class KubernetesTester(object):
 
     group_id = None
 
+    @classmethod
+    def setup_env(cls):
+        """Optionally override this in a test instance to create an appropriate test environment."""
+
+    @classmethod
+    def teardown_env(cls):
+        """Optionally override this in a test instance to destroy the test environment."""
+
+    @classmethod
+    def create_config_map(cls, namespace, name, data):
+        """Create a config map in a given namespace with the given name and data."""
+        config_map = cls.clients('client').V1ConfigMap(
+            metadata=cls.clients('client').V1ObjectMeta(name=name),
+            data=data
+        )
+        cls.clients('corev1').create_namespaced_config_map(namespace, config_map)
+
+    @classmethod
+    def create_secret(cls, namespace, name, data):
+        """Create a secret in a given namespace with the given name and data—handles base64 encoding."""
+        secret = cls.clients('client').V1Secret(
+            metadata=cls.clients('client').V1ObjectMeta(name=name),
+            string_data=data
+        )
+        cls.clients('corev1').create_namespaced_secret(namespace, secret)
+
+    @classmethod
+    def create_namespace(cls, namespace_name):
+        """Create a namespace with the given name."""
+        namespace = cls.clients('client').V1Namespace(
+            metadata=cls.clients('client').V1ObjectMeta(name=namespace_name)
+        )
+        cls.clients('corev1').create_namespace(namespace)
+
+    @classmethod
+    def delete_namespace(cls, name):
+        """Delete the specified namespace."""
+        cls.clients('corev1').delete_namespace(name, body=cls.clients("client").V1DeleteOptions())
+
     @staticmethod
     def clients(name):
         return {
@@ -31,6 +70,10 @@ class KubernetesTester(object):
             "customv1": client.CustomObjectsApi(),
             "namespace": KubernetesTester.get_namespace(),
         }[name]
+
+    @classmethod
+    def teardown_class(cls):
+        cls.teardown_env()
 
     @classmethod
     def setup_class(cls):
@@ -48,9 +91,11 @@ class KubernetesTester(object):
 
         KubernetesTester.load_configuration()
         # Loads the subclass doc
-        test_setup = yaml.safe_load(cls.__doc__)
-        print()
-        cls.prepare(test_setup, KubernetesTester.get_namespace())
+        if cls.__doc__:
+            test_setup = yaml.safe_load(cls.__doc__)
+            cls.prepare(test_setup, KubernetesTester.get_namespace())
+
+        cls.setup_env()
 
     @staticmethod
     def load_configuration():
@@ -91,13 +136,10 @@ class KubernetesTester(object):
     def prepare(cls, test_setup, namespace):
         allowed_actions = ["create", "update", "delete", "noop"]
 
-        # gets type of action
         for action in [action for action in allowed_actions if action in test_setup]:
             rules = test_setup[action]
-
             KubernetesTester.execute(action, rules, namespace)
             cls.wait_condition(rules)
-
 
     @staticmethod
     def execute(action, rules, namespace):
@@ -113,11 +155,22 @@ class KubernetesTester(object):
     def create(section, namespace):
         "creates a custom object from filename"
         resource = yaml.safe_load(open(section["file"]))
+
+        KubernetesTester.create_custom_resource_from_object(
+            namespace,
+            resource,
+            exception_reason=section.get("exception", None),
+            patch=section.get("patch", None),
+        )
+
+    @staticmethod
+    def create_custom_resource_from_object(namespace, resource, exception_reason=None, patch=None):
         name, kind, group, version = get_crd_meta(resource)
-        if "patch" in section:
-            patch = jsonpatch.JsonPatch.from_string(section["patch"])
+        if patch:
+            patch = jsonpatch.JsonPatch.from_string(patch)
             resource = patch.apply(resource)
 
+        KubernetesTester.namespace = namespace
         KubernetesTester.name = name
         KubernetesTester.kind = kind
 
@@ -128,13 +181,13 @@ class KubernetesTester(object):
             KubernetesTester.clients("customv1").create_namespaced_custom_object(
                 group, version, namespace, plural(kind), resource
             )
-            if "exception" in section:
+            if exception_reason:
                 raise AssertionError("Expected the ApiException, but create operation succeeded!")
 
         except ApiException as e:
-            if "exception" in section:
-                assert e.reason == section["exception"], "Real exception is: {}".format(e.reason)
-                print('"{}" exception raised while creating the resource - this is expected!'.format(section["exception"]))
+            if exception_reason:
+                assert e.reason == exception_reason, "Real exception is: {}".format(e.reason)
+                print('"{}" exception raised while creating the resource - this is expected!'.format(e.reason))
                 return
             else:
                 print("Failed to create a resource ({}): \n {}".format(e, resource), flush=True)
@@ -156,7 +209,7 @@ class KubernetesTester(object):
             KubernetesTester.clients("customv1").patch_namespaced_custom_object(
                 group, version, namespace, plural(kind), name, patched
             )
-        except:
+        except Exception:
             print("Failed to update a resource ({}): \n {}".format(sys.exc_info()[0], patched), flush=True)
             raise
         print('Updated resource {} {}'.format(kind, name), flush=True)
@@ -181,33 +234,57 @@ class KubernetesTester(object):
         pass
 
     @staticmethod
-    def get_namespaced_custom_object(name, kind, group="mongodb.com", version="v1"):
-        return KubernetesTester.clients("customv1").get_namespaced_custom_object(group, version, KubernetesTester.get_namespace(), plural(kind), name)
+    def get_namespaced_custom_object(namespace, name, kind, group="mongodb.com", version="v1"):
+        return KubernetesTester.clients("customv1").get_namespaced_custom_object(
+            group,
+            version,
+            namespace,
+            plural(kind),
+            name
+        )
 
     @staticmethod
     def get_resource():
         """Assumes a single resource in the test environment"""
-        return KubernetesTester.get_namespaced_custom_object(KubernetesTester.name, KubernetesTester.kind)
+        return KubernetesTester.get_namespaced_custom_object(
+            KubernetesTester.namespace,
+            KubernetesTester.name,
+            KubernetesTester.kind,
+        )
 
     @staticmethod
     def in_error_state():
-        return KubernetesTester._check_phase(KubernetesTester.kind, KubernetesTester.name, "Failed")
+        return KubernetesTester._check_phase(
+            KubernetesTester.namespace,
+            KubernetesTester.kind,
+            KubernetesTester.name,
+            "Failed"
+        )
 
     @staticmethod
     def in_running_state():
-        return KubernetesTester._check_phase(KubernetesTester.kind, KubernetesTester.name, "Running")
+        return KubernetesTester._check_phase(
+            KubernetesTester.namespace,
+            KubernetesTester.kind,
+            KubernetesTester.name,
+            "Running"
+        )
 
     @staticmethod
     def is_deleted():
         try:
-            KubernetesTester.get_namespaced_custom_object(KubernetesTester.name, KubernetesTester.kind)
+            KubernetesTester.get_namespaced_custom_object(
+                KubernetesTester.namespace,
+                KubernetesTester.name,
+                KubernetesTester.kind
+            )
             return False
-        except ApiException: # ApiException is thrown when the object does not exist
+        except ApiException:  # ApiException is thrown when the object does not exist
             return True
 
     @staticmethod
-    def _check_phase(kind, name, phase):
-        resource = KubernetesTester.get_namespaced_custom_object(name, kind)
+    def _check_phase(namespace, kind, name, phase):
+        resource = KubernetesTester.get_namespaced_custom_object(namespace, name, kind)
         if 'status' not in resource:
             return False
         return resource['status']['phase'] == phase
@@ -240,25 +317,29 @@ class KubernetesTester(object):
         Example:
         1. statefulset/my-replica-set -> status.current_replicas == 5
         """
-        type_, name, test, expected = parse_condition_str(condition)
+        type_, name, attribute, expected_value = parse_condition_str(condition)
+
+        if type_ not in ["sts", "statefulset"]:
+            raise NotImplementedError("Only StatefulSets can be tested with condition strings for now")
+
+        return cls.wait_for_condition_stateful_set(cls.get_namespace(), name, attribute, expected_value)
+
+    @classmethod
+    def wait_for_condition_stateful_set(cls, namespace, name, attribute, expected_value):
         appsv1 = KubernetesTester.clients("appsv1")
         namespace = KubernetesTester.get_namespace()
         ready_to_go = False
-
-        if type_ not in ["sts", "statefulset"]:
-            raise NotImplemented("Only StatefulSets can be tested with condition strings for now")
-
         while not ready_to_go:
             try:
                 sts = appsv1.read_namespaced_stateful_set(name, namespace)
-                ready_to_go = get_nested_attribute(sts, test) == expected
+                ready_to_go = get_nested_attribute(sts, attribute) == expected_value
             except ApiException:
                 pass
 
             if ready_to_go:
-                return True
+                return
 
-            time.sleep(10)
+            time.sleep(0.5)
 
     def setup_method(self):
         self.client = client
@@ -359,7 +440,7 @@ class KubernetesTester(object):
         try:
             # The ismaster command is cheap and does not require auth.
             return client.admin.command("ismaster")
-        except ConnectionFailure:
+        except pymongo.ConnectionFailure:
             raise Exception(
                 "Checking if {} `ismaster` failed. No connectivity to this host was possible.".format(
                     mongodburi
@@ -380,7 +461,6 @@ class KubernetesTester(object):
         assert pvc.spec.resources.requests["storage"] == expected_size
 
         assert getattr(pvc.spec, "storage_class_name") == storage_class
-
 
 
 # Some general functions go here
@@ -448,6 +528,7 @@ def get_nested_attribute(obj, attrs):
         obj = getattr(obj, attrs.pop())
 
     return obj
+
 
 def current_milliseconds():
     return int(round(time.time() * 1000))

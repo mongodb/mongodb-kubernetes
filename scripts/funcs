@@ -215,9 +215,10 @@ redeploy_operator() {
     url="$1"
     version="${2:-latest}"
     ns="$3"
-    pull_policy="${4:-Always}"
-    managed_security_context="${5:-false}"
-    timeout="${6:-1m}"
+    watch_namespace="${4:-$ns}"
+    pull_policy="${5:-Always}"
+    managed_security_context="${6:-false}"
+    timeout="${7:-1m}"
 
     echo "Installing the Operator (registry url: ${url}, version: ${version}, namespace: ${ns}) to ${CLUSTER_NAME:-'e2e cluster'}..."
 
@@ -225,17 +226,19 @@ redeploy_operator() {
     check_app "timeout" "coreutils is not installed, call \"brew install coreutils\""
 
     helm template public/helm_chart \
-            --set registry.repository=${url}  \
-            --set registry.pullPolicy=${pull_policy} \
+            --set registry.repository="${url}"  \
+            --set registry.pullPolicy="${pull_policy}" \
             --set operator.env=dev  \
-            --set operator.version=${version}  \
-            --set namespace=${ns}  \
+            --set operator.version="${version}"  \
+            --set operator.watchNamespace="${watch_namespace}" \
+            --set namespace="${ns}"  \
             --set managedSecurityContext="${managed_security_context}" \
             > my-operator.yaml
 
     # note that we don't remove all objects from file as it contains CRDs as well (and they will be blocked if there are
     # existing mongodb resources)
     kubectl delete deployment mongodb-enterprise-operator || true
+
     kubectl apply -f my-operator.yaml
     rm my-operator.yaml
 

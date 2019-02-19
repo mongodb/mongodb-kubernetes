@@ -115,8 +115,10 @@ deploy_test_app() {
          --set testPath="${test_name}.py" \
          --set tag="${TEST_IMAGE_TAG}" > mongodb-enterprise-tests.yaml || exit 1
 
+    echo "Deleting old resources"
     kubectl -n "${PROJECT_NAMESPACE}" delete -f mongodb-enterprise-tests.yaml || true
 
+    echo "Creating new resources"
     kubectl -n "${PROJECT_NAMESPACE}" apply -f mongodb-enterprise-tests.yaml
 
     title "Deployed test application, waiting until it gets ready..."
@@ -260,7 +262,7 @@ if [[ "${MODE-}" != "dev" ]]; then
     fix_taints
 
     redeploy_operator "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev" \
-            "${REVISION:-}" "${PROJECT_NAMESPACE}" "Always" "${MANAGED_SECURITY_CONTEXT:-}" "2m"
+            "${REVISION:-}" "${PROJECT_NAMESPACE}" "${WATCH_NAMESPACE:-$PROJECT_NAMESPACE}" "Always" "${MANAGED_SECURITY_CONTEXT:-}" "2m"
 
     fetch_om_information
 

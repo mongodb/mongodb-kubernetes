@@ -352,7 +352,7 @@ functions:
           fi
 
           # A complete environment is set each time.
-          TEST_NAME=${test_name} ./scripts/evergreen/e2e_tests.sh
+          WATCH_NAMESPACE=${watch_namespace} TEST_NAME=${test_name} ./scripts/evergreen/e2e_tests.sh
 
   "prepare_test_env":
     - command: shell.exec
@@ -493,6 +493,14 @@ tasks:
       vars:
         test_name: standalone_schema_validation
 
+- name: e2e_replica_set_different_namespaces
+  exec_timeout_secs: 600 # 10 minutes max
+  commands:
+    - func: "e2e_test"
+      vars:
+        test_name: replica_set_different_namespaces
+        watch_namespace: "*"
+
 - name: e2e_standalone_config_map
   exec_timeout_secs: 600 # 10 minutes max
   commands:
@@ -601,6 +609,7 @@ task_groups:
     - e2e_replica_set_recovery
     - e2e_replica_set_pv
     - e2e_replica_set_pv_multiple
+    - e2e_replica_set_different_namespaces
     - e2e_sharded_cluster
     - e2e_sharded_cluster_pv
     - e2e_sharded_cluster_recovery

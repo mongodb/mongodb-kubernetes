@@ -17,6 +17,7 @@ usage:
 	@ echo "                    one"
 	@ echo "  contexts:         list all available contexts"
 	@ echo "  operator:         build and push Operator image, deploy it to the Kubernetes cluster"
+	@ echo "                    Use the 'watch_namespace' flag to specify a namespace to watch or leave empty to watch project namespace."
 	@ echo "  database:         build and push Database image"
 	@ echo "  full:             ('make' is an alias for this command) ensures K8s cluster is up, cleans Kubernetes"
 	@ echo "                    resources, build-push-deploy operator, push-deploy database, create secrets, "
