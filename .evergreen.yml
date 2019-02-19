@@ -515,6 +515,13 @@ tasks:
       vars:
         test_name: standalone_recovery
 
+- name: e2e_standalone_recovery_k8s
+  exec_timeout_secs: 600 # 10 minutes max
+  commands:
+    - func: "e2e_test"
+      vars:
+        test_name: standalone_recovery_k8s
+
 - name: e2e_replica_set
   exec_timeout_secs: 600 # 10 minutes max
   commands:
@@ -603,6 +610,7 @@ task_groups:
     - e2e_standalone_config_map
     - e2e_standalone_schema_validation
     - e2e_standalone_recovery
+    - e2e_standalone_recovery_k8s
     - e2e_replica_set
     - e2e_replica_set_config_map
     - e2e_replica_set_ent

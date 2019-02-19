@@ -1,3 +1,5 @@
+import random
+import string
 import sys
 import time
 from os import getenv
@@ -67,6 +69,7 @@ class KubernetesTester(object):
             "client": client,
             "corev1": client.CoreV1Api(),
             "appsv1": client.AppsV1Api(),
+            "storagev1": client.StorageV1Api(),
             "customv1": client.CustomObjectsApi(),
             "namespace": KubernetesTester.get_namespace(),
         }[name]
@@ -187,7 +190,7 @@ class KubernetesTester(object):
         except ApiException as e:
             if exception_reason:
                 assert e.reason == exception_reason, "Real exception is: {}".format(e.reason)
-                print('"{}" exception raised while creating the resource - this is expected!'.format(e.reason))
+                print('"{}" exception raised while creating the resource - this is expected!'.format(e.reason), flush=True)
                 return
             else:
                 print("Failed to create a resource ({}): \n {}".format(e, resource), flush=True)
@@ -422,6 +425,12 @@ class KubernetesTester(object):
     def build_mongodb_uri_for_mongos(self, host):
         return "mongodb://{}".format(host)
 
+    @staticmethod
+    def random_k8s_name():
+        return 'test-' + ''.join(
+            random.choice(string.ascii_lowercase) for _ in range(10)
+        )
+
     def wait_for_rs_is_ready(self, hosts, wait_for=60, check_every=5):
         "Connects to a given replicaset and wait a while for a primary and secondaries."
         mongodburi = self.build_mongodb_uri_for_rs(hosts)
@@ -559,7 +568,7 @@ def func_with_assertions(func):
         return True
     except AssertionError as e:
         # so we know which AssertionError was raised
-        print("The check for {} hasn't passed yet. {}".format(func.__name__, e))
+        print("The check for {} hasn't passed yet. {}".format(func.__name__, e), flush=True)
         return False
 
 

@@ -345,7 +345,7 @@ dump_diagnostic_information() {
         kubectl get msc -o yaml -n ${PROJECT_NAMESPACE}  >> $dump_file
     fi
 
-    header "All namespace objects" > $dump_file
+    header "All namespace objects" >> $dump_file
     kubectl get all -n ${PROJECT_NAMESPACE} >> $dump_file
 
     if ! kubectl get pvc -n ${PROJECT_NAMESPACE} 2>&1 | grep -q "No resources found"; then

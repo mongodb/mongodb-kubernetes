@@ -1,0 +1,46 @@
+import kubernetes
+import yaml
+
+from kubetester import KubernetesTester
+
+
+class TestStandaloneRecoversBadPvConfiguration(KubernetesTester):
+    '''
+    name: Standalone broken PV configuration
+    description: |
+      Creates a standalone with a PVC pointing to non-existent storage class and ensures it enters a failed state
+      Then the storage class is created and the standalone is expected to reach good state eventually.
+      Note that the timeout to reach error state is quite high as we have 3*60=180sec waiting time for Statefulset to reach its
+      state after which the controller gives up
+
+    '''
+    random_storage_name = None
+
+    @classmethod
+    def setup_env(cls):
+        resource = yaml.safe_load(open("fixtures/standalone_pv_invalid.yaml"))
+        cls.random_storage_name = KubernetesTester.random_k8s_name()
+        resource["spec"]["podSpec"]["persistence"]["single"]["storageClass"] = cls.random_storage_name
+        cls.create_custom_resource_from_object(cls.get_namespace(), resource)
+        KubernetesTester.wait_until('in_error_state', 210)
+
+        mrs = KubernetesTester.get_resource()
+        assert "Failed to create/update the StatefulSet" in mrs['status']['message']
+
+    def test_recovery(self):
+        resource = yaml.safe_load(open("fixtures/test_storage_class.yaml"))
+        resource["metadata"]["name"] = self.__class__.random_storage_name
+        KubernetesTester.clients("storagev1").create_storage_class(resource)
+
+        print('Created a storage class "{}", standalone is supposed to get fixed now.'.format(self.__class__.random_storage_name), flush=True)
+
+        KubernetesTester.wait_until('in_running_state', 120)
+
+    def teardown_class(cls):
+        print('\nRemoving storage class "{}" from Kubernetes'.format(cls.random_storage_name), flush=True)
+        KubernetesTester.clients("storagev1").delete_storage_class(
+            name = cls.random_storage_name, body = kubernetes.client.V1DeleteOptions())
+
+
+
+

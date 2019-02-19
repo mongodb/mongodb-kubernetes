@@ -293,6 +293,10 @@ if [[ "${MODE-}" != "dev" ]]; then
         dump_agent_logs
 
         print_om_endpoint "${PROJECT_NAMESPACE}"
+
+        # seems the removal of PVCs is the longest thing during later namespace cleanup in "prepare_test_env" - so let's
+        # remove them now
+        kubectl delete pvc --all -n "${PROJECT_NAMESPACE}" --now || true
     fi
 fi
 
