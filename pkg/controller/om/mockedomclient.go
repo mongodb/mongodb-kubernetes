@@ -54,15 +54,14 @@ type MockedOmConnection struct {
 	deployment Deployment
 	// hosts are used for both automation agents and monitoring endpoints.
 	// They are necessary for emulating "agents" are ready behavior as operator checks for hosts for agents to exist
-	hosts                  *Host
-	numRequestsSent        int
-	AgentAPIKey            string
-	AllGroups              []*Group
-	AllOrganizations       []*Organization
-	CreateGroupFunc        func(group *Group) (*Group, error)
-	UpdateGroupFunc        func(group *Group) (*Group, error)
-	BackupConfigs          map[*BackupConfig]*HostCluster
-	UpdateBackupStatusFunc func(clusterId string, status BackupStatus) error
+	hosts                   *Host
+	numRequestsSent         int
+	AgentAPIKey             string
+	OrganizationsWithGroups map[*Organization][]*Project
+	CreateGroupFunc         func(group *Project) (*Project, error)
+	UpdateGroupFunc         func(group *Project) (*Project, error)
+	BackupConfigs           map[*BackupConfig]*HostCluster
+	UpdateBackupStatusFunc  func(clusterId string, status BackupStatus) error
 	// AgentsDelayCount is the number of loops to wait until the agents reach the goal
 	AgentsDelayCount int
 	// mocked client keeps track of all implemented functions called - uses reflection Func for this to enable type-safety
@@ -76,14 +75,15 @@ func NewEmptyMockedOmConnection(baseURL, groupID, user, publicAPIKey string) Con
 	conn := NewEmptyMockedOmConnectionNoGroup(baseURL, groupID, user, publicAPIKey)
 
 	// by default each connection just "reuses" "already created" group with agent keys existing
-	conn.(*MockedOmConnection).AllGroups = []*Group{{
-		Name:        TestGroupName,
-		ID:          TestGroupID,
-		Tags:        []string{"EXTERNALLY_MANAGED_BY_KUBERNETES"},
-		AgentAPIKey: TestAgentKey,
-		OrgID:       TestOrgID,
-	}}
-	conn.(*MockedOmConnection).AllOrganizations = []*Organization{{ID: TestOrgID, Name: TestGroupName}}
+	conn.(*MockedOmConnection).OrganizationsWithGroups = map[*Organization][]*Project{
+		{ID: TestOrgID, Name: TestGroupName}: {{
+			Name:        TestGroupName,
+			ID:          TestGroupID,
+			Tags:        []string{"EXTERNALLY_MANAGED_BY_KUBERNETES"},
+			AgentAPIKey: TestAgentKey,
+			OrgID:       TestOrgID,
+		}},
+	}
 
 	return conn
 }
@@ -118,8 +118,7 @@ func NewEmptyMockedOmConnectionNoGroup(baseURL, groupID, user, publicAPIKey stri
 		connection = CurrMockedConnection
 	} else {
 		connection = NewMockedOmConnection(nil)
-		connection.AllGroups = make([]*Group, 0)
-		connection.AllOrganizations = make([]*Organization, 0)
+		connection.OrganizationsWithGroups = make(map[*Organization][]*Project, 0)
 	}
 	connection.HTTPOmConnection = HTTPOmConnection{
 		baseURL:      strings.TrimSuffix(baseURL, "/"),
@@ -202,40 +201,64 @@ func (oc *MockedOmConnection) RemoveHost(hostID string) error {
 	return nil
 }
 
-func (oc *MockedOmConnection) ReadOrganizations() ([]*Organization, error) {
+func (oc *MockedOmConnection) ReadOrganizations(page int) (Paginated, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadOrganizations))
-	return oc.AllOrganizations, nil
+	// We don't set Next field - so there should be no pagination
+	allOrgs := make([]*Organization, 0)
+	for k, _ := range oc.OrganizationsWithGroups {
+		allOrgs = append(allOrgs, k)
+	}
+	response := OrganizationsResponse{Organizations: allOrgs, OMPaginaged: OMPaginaged{TotalCount: len(oc.OrganizationsWithGroups)}}
+	return response, nil
 }
 
-func (oc *MockedOmConnection) ReadGroups() ([]*Group, error) {
-	oc.addToHistory(reflect.ValueOf(oc.ReadGroups))
-	return oc.AllGroups, nil
+func (oc *MockedOmConnection) ReadOrganization(orgID string) (*Organization, error) {
+	oc.addToHistory(reflect.ValueOf(oc.ReadOrganization))
+	return oc.findOrganization(orgID)
 }
 
-func (oc *MockedOmConnection) CreateGroup(group *Group) (*Group, error) {
-	oc.addToHistory(reflect.ValueOf(oc.CreateGroup))
+func (oc *MockedOmConnection) ReadProjectsInOrganization(orgID string, page int) (Paginated, error) {
+	oc.addToHistory(reflect.ValueOf(oc.ReadProjectsInOrganization))
+	org, err := oc.findOrganization(orgID)
+	if err != nil {
+		return nil, err
+	}
+	response := ProjectsResponse{Groups: oc.OrganizationsWithGroups[org], OMPaginaged: OMPaginaged{TotalCount: len(oc.OrganizationsWithGroups)}}
+	return response, nil
+}
+
+func (oc *MockedOmConnection) CreateProject(project *Project) (*Project, error) {
+	oc.addToHistory(reflect.ValueOf(oc.CreateProject))
 	if oc.CreateGroupFunc != nil {
-		return oc.CreateGroupFunc(group)
+		return oc.CreateGroupFunc(project)
 	}
-	group.ID = TestGroupID
-	oc.AllGroups = append(oc.AllGroups, group)
+	project.ID = TestGroupID
 
-	// We emulate the behavior of Ops Manager: we create the organization with random id and the name matching the group
-	oc.AllOrganizations = append(oc.AllOrganizations, &Organization{ID: string(rand.Int()), Name: group.Name})
-	return group, nil
-}
-func (oc *MockedOmConnection) UpdateGroup(group *Group) (*Group, error) {
-	oc.addToHistory(reflect.ValueOf(oc.UpdateGroup))
-	if oc.UpdateGroupFunc != nil {
-		return oc.UpdateGroupFunc(group)
+	// We emulate the behavior of Ops Manager: we create the organization with random id and the name matching the project
+	organization := &Organization{ID: string(rand.Int()), Name: project.Name}
+	if _, exists := oc.OrganizationsWithGroups[organization]; !exists {
+		oc.OrganizationsWithGroups[organization] = make([]*Project, 0)
 	}
-	for k, g := range oc.AllGroups {
-		if g.Name == group.Name {
-			oc.AllGroups[k] = group
-			return group, nil
+	project.OrgID = organization.ID
+	oc.OrganizationsWithGroups[organization] = append(oc.OrganizationsWithGroups[organization], project)
+	return project, nil
+}
+func (oc *MockedOmConnection) UpdateProject(project *Project) (*Project, error) {
+	oc.addToHistory(reflect.ValueOf(oc.UpdateProject))
+	if oc.UpdateGroupFunc != nil {
+		return oc.UpdateGroupFunc(project)
+	}
+	org, err := oc.findOrganization(project.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	for _, g := range oc.OrganizationsWithGroups[org] {
+		if g.Name == project.Name {
+			*g = *project
+			return project, nil
 		}
 	}
-	return nil, fmt.Errorf("Failed to find group")
+	return nil, fmt.Errorf("Failed to find project")
 }
 
 func (oc *MockedOmConnection) ReadBackupConfigs() (*BackupConfigsResponse, error) {
@@ -416,15 +439,6 @@ func buildHostsFromDeployment(d Deployment) *Host {
 	return &Host{Results: hosts}
 }
 
-func (oc *MockedOmConnection) FindGroup(name string) *Group {
-	for _, g := range oc.AllGroups {
-		if g.Name == name {
-			return g
-		}
-	}
-	return nil
-}
-
 func (oc *MockedOmConnection) buildAutomationStatusFromDeployment(d Deployment, reached bool) *AutomationStatus {
 	// edge case: if there are no processes - we think that
 	processStatuses := make([]ProcessStatus, 0)
@@ -438,4 +452,37 @@ func (oc *MockedOmConnection) buildAutomationStatusFromDeployment(d Deployment, 
 		}
 	}
 	return &AutomationStatus{GoalVersion: 1, Processes: processStatuses}
+}
+
+func (oc *MockedOmConnection) CheckGroupInOrganization(t *testing.T, orgName, groupName string) {
+	for k, v := range oc.OrganizationsWithGroups {
+		if k.Name == orgName {
+			for _, g := range v {
+				if g.Name == groupName {
+					return
+				}
+			}
+		}
+	}
+	assert.Fail(t, fmt.Sprintf("Project %s not found in organization %s", groupName, orgName))
+}
+
+func (oc *MockedOmConnection) FindGroup(groupName string) *Project {
+	for _, v := range oc.OrganizationsWithGroups {
+		for _, g := range v {
+			if g.Name == groupName {
+				return g
+			}
+		}
+	}
+	return nil
+}
+
+func (oc *MockedOmConnection) findOrganization(orgId string) (*Organization, error) {
+	for k, _ := range oc.OrganizationsWithGroups {
+		if k.ID == orgId {
+			return k, nil
+		}
+	}
+	return nil, NewAPIError(fmt.Errorf("Organization with id %s not found", orgId))
 }

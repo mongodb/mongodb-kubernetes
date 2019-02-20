@@ -56,24 +56,29 @@ and openshift clusters should be created with the same ssh keys
 
 
 #### If the test has failed - how to check what happened there?
-* Check logs in Evergreen (they show the output from testing application)
-* Check the state of existing objects in namespace - check the files attached to Evergreen job:
+* **Check logs in Evergreen** (they show the output from testing application)
+* Check the state of existing objects in the namespace - check the **files attached to the Evergreen job**:
     * `diagnostics.txt` - contains the output from `kubectl get.. -o yaml` for the most interesting objects in the namespace
     (if they exist): Persistent Volume Claims, Mongodb resources, pods
     * `operator.log` - contains the log from the Operator
     * `agent[1-6].log` - set of files containing logs from Mongodb resource pods (for sharded clusters this includes only shards)
-* Check the state of project in Ops Manager. 
+* If the files didn't provide enough information you can always use `kubectl` to query **more information for the Kubernetes cluster** 
+(`kubectl config use-context e2e.mongokubernetes.com/default/master-openshift-cluster-mongokubernetes-com:8443/admin`)
+* Check the state of project in **Ops Manager**. 
     * To find out the external ip of Ops Manager check the bottom of the output of a failed task in Evergreen - it will contain
     the following phrase: 
     "Use the following address to access Ops Manager from the browser: http://3.87.239.164:30039 (namespace: a-042-y6y9c31v8j5kt9vumeptz)"
     * Use `admin/admin12345%` to login and search for the namespace
     * Note, that the external ports are opened automatically by the setup script so you don't need to do this
-* If Ops Manager container is not running - the best way is to check its state using Kubernetes Dashboard:
+* If Ops Manager container is not running - the best way is to check its state using **Kubernetes Dashboard**:
     * switch kubectl context to the necessary cluster (for `e2e.mongokubernetes.com` the dashboard is installed automatically,
     for the openshift one you need to do this manually once)
     * call `make dashboard` and enter the token that is copied to the clipboard
         
 #### Cleaning the old namespaces manually
+
+Sometimes the cluster starts behaving poorly (scheduling/resources problems) - the best solution is to clean it up:
+
 ```bash
 # passing 0 will result in cleaning all existing namespaces (Evergreen cleans only if it's more than 30)
 ./scripts/evergreen/prepare_test_env 0
@@ -100,14 +105,6 @@ unpredictable) but may help sometimes avoid complete rebuilds of the cluster
 * Sometimes deleting of the PVC/PV may get stuck. Even more - "Force detach" for the Volume in AWS console may get stuck as well.
 Seems there are no well-knows ways of solving this except for recreating kops cluster...
  
- #### How to restart kops cluster (creating new nodes)
- 
-If the volumes hacks don't help and volumes keep getting stuck the best option is to rebuild kops cluster (cloudonly flag 
-means do not validate the cluster):
-
-```bash
-kops rolling-update cluster e2e.mongokubernetes.com --yes  --cloudonly --force
-```
 
 #### Error terminating Ops Manager instance
 

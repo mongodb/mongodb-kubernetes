@@ -60,7 +60,7 @@ func logSpec(resource v1.MongoDbResource, log *zap.SugaredLogger) {
 }
 
 // prepareConnection reads project config map and credential secrets and uses these values to communicate with Ops Manager:
-// create or read the group and optionally request an agent key (it could have been returned by group api call)
+// create or read the project and optionally request an agent key (it could have been returned by group api call)
 func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedName, spec v1.CommonSpec, podVars *PodVars, log *zap.SugaredLogger) (om.Connection, error) {
 	projectConfig, err := c.kubeHelper.readProjectConfig(nsName.Namespace, spec.Project)
 	if err != nil {
@@ -109,7 +109,7 @@ func (c *ReconcileCommonController) ensureAgentKeySecretExists(conn om.Connectio
 		secret)
 	if err != nil {
 		if agentKey == "" {
-			log.Info("Generating agent key as current group doesn't have it")
+			log.Info("Generating agent key as current project doesn't have it")
 
 			agentKey, err = conn.GenerateAgentKey()
 			if err != nil {
@@ -122,7 +122,7 @@ func (c *ReconcileCommonController) ensureAgentKeySecretExists(conn om.Connectio
 		if err = c.client.Create(context.TODO(), secret); err != nil {
 			return "", fmt.Errorf("Failed to create Secret: %s", err)
 		}
-		log.Infof("Group agent key is saved in Kubernetes Secret for later usage")
+		log.Infof("Project agent key is saved in Kubernetes Secret for later usage")
 	}
 
 	return strings.TrimSuffix(string(secret.Data[util.OmAgentApiKey]), "\n"), nil

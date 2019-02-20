@@ -29,10 +29,11 @@ type Connection interface {
 	ReadAutomationAgents() (*AgentState, error)
 	GetHosts() (*Host, error)
 	RemoveHost(hostID string) error
-	ReadOrganizations() ([]*Organization, error)
-	ReadGroups() ([]*Group, error)
-	CreateGroup(group *Group) (*Group, error)
-	UpdateGroup(group *Group) (*Group, error)
+	ReadOrganizations(page int) (Paginated, error)
+	ReadOrganization(orgID string) (*Organization, error)
+	ReadProjectsInOrganization(orgID string, page int) (Paginated, error)
+	CreateProject(project *Project) (*Project, error)
+	UpdateProject(project *Project) (*Project, error)
 	// ReadBackupConfigs returns all host clusters registered in OM. If there's no backup enabled the status is supposed
 	// to be Inactive
 	ReadBackupConfigs() (*BackupConfigsResponse, error)
@@ -228,8 +229,8 @@ func (oc *HTTPOmConnection) RemoveHost(hostID string) error {
 }
 
 // ReadOrganizations
-func (oc *HTTPOmConnection) ReadOrganizations() ([]*Organization, error) {
-	mPath := fmt.Sprintf("/api/public/v1.0/orgs?itemsPerPage=1000")
+func (oc *HTTPOmConnection) ReadOrganizations(page int) (Paginated, error) {
+	mPath := fmt.Sprintf("/api/public/v1.0/orgs?itemsPerPage=500&pageNum=%d", page)
 	res, err := oc.get(mPath)
 	if err != nil {
 		return nil, err
@@ -240,34 +241,47 @@ func (oc *HTTPOmConnection) ReadOrganizations() ([]*Organization, error) {
 		return nil, NewAPIError(err)
 	}
 
-	return orgsResponse.Organizations, nil
+	return orgsResponse, nil
 }
 
-// ReadGroups
-func (oc *HTTPOmConnection) ReadGroups() ([]*Group, error) {
-	mPath := fmt.Sprintf("/api/public/v1.0/groups?itemsPerPage=1000")
+func (oc *HTTPOmConnection) ReadOrganization(orgID string) (*Organization, error) {
+	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/orgs/%s", orgID))
+	if err != nil {
+		return nil, err
+	}
+	organization := &Organization{}
+	if err := json.Unmarshal(ans, organization); err != nil {
+		return nil, NewAPIError(err)
+	}
+
+	return organization, nil
+}
+
+// ReadProjectsInOrganization returns all projects inside organization
+func (oc *HTTPOmConnection) ReadProjectsInOrganization(orgID string, page int) (Paginated, error) {
+	mPath := fmt.Sprintf("/api/public/v1.0/orgs/%s/groups?itemsPerPage=500&pageNum=%d", orgID, page)
 	res, err := oc.get(mPath)
 	if err != nil {
 		return nil, err
 	}
 
-	groupsResponse := &GroupsResponse{}
+	groupsResponse := &ProjectsResponse{}
 	if err := json.Unmarshal(res, groupsResponse); err != nil {
 		return nil, NewAPIError(err)
 	}
 
-	return groupsResponse.Groups, nil
+	return groupsResponse, nil
 }
 
-// CreateGroup
-func (oc *HTTPOmConnection) CreateGroup(group *Group) (*Group, error) {
-	res, err := oc.post("/api/public/v1.0/groups", group)
+// CreateProject
+func (oc *HTTPOmConnection) CreateProject(project *Project) (*Project, error) {
+	res, err := oc.post("/api/public/v1.0/groups", project)
 
 	if err != nil {
 		return nil, err
 	}
 
-	g := &Group{}
+	g := &Project{}
 	if err := json.Unmarshal(res, g); err != nil {
 		return nil, NewAPIError(err)
 	}
@@ -275,21 +289,21 @@ func (oc *HTTPOmConnection) CreateGroup(group *Group) (*Group, error) {
 	return g, nil
 }
 
-// UpdateGroup
-func (oc *HTTPOmConnection) UpdateGroup(group *Group) (*Group, error) {
-	path := fmt.Sprintf("/api/public/v1.0/groups/%s", group.ID)
-	res, err := oc.patch(path, group)
+// UpdateProject
+func (oc *HTTPOmConnection) UpdateProject(project *Project) (*Project, error) {
+	path := fmt.Sprintf("/api/public/v1.0/groups/%s", project.ID)
+	res, err := oc.patch(path, project)
 
 	if err != nil {
 		return nil, err
 	}
 
-	g := &Group{}
+	g := &Project{}
 	if err := json.Unmarshal(res, g); err != nil {
 		return nil, NewAPIError(err)
 	}
 
-	return group, nil
+	return project, nil
 }
 
 // ReadBackupConfigs

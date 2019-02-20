@@ -2,7 +2,6 @@ package operator
 
 import (
 	"context"
-	"math/rand"
 	"reflect"
 	"testing"
 	"time"
@@ -28,7 +27,8 @@ func init() {
 	util.OperatorVersion = "testVersion"
 }
 
-// TestPrepareOmConnection_FindExistingGroup finds existing group when org ID is specified
+// TestPrepareOmConnection_FindExistingGroup finds existing group when org ID is specified, no new Project or Organization
+// is created
 func TestPrepareOmConnection_FindExistingGroup(t *testing.T) {
 	mockedOmConnection := omConnGroupInOrganizationWithDifferentName()
 
@@ -37,11 +37,10 @@ func TestPrepareOmConnection_FindExistingGroup(t *testing.T) {
 	mockOm, _ := prepareConnection(reconciler, t)
 	assert.Equal(t, "existingGroupId", mockOm.GroupID())
 	// No new group was created
-	assert.Len(t, mockOm.AllGroups, 1)
-	assert.Len(t, mockOm.AllOrganizations, 1)
+	assert.Len(t, mockOm.OrganizationsWithGroups, 1)
 
-	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadGroups))
-	mockOm.CheckOperationsDidntHappen(t, reflect.ValueOf(mockOm.CreateGroup))
+	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadOrganization), reflect.ValueOf(mockOm.ReadProjectsInOrganization))
+	mockOm.CheckOperationsDidntHappen(t, reflect.ValueOf(mockOm.CreateProject))
 }
 
 // TestPrepareOmConnection_DuplicatedGroups verifies that if there are groups with the same name but in different organization
@@ -49,18 +48,18 @@ func TestPrepareOmConnection_FindExistingGroup(t *testing.T) {
 func TestPrepareOmConnection_DuplicatedGroups(t *testing.T) {
 	mockedOmConnection := omConnGroupInOrganizationWithDifferentName()
 
-	// The only difference from TestPrepareOmConnection_FindExistingGroup^ is that the config map contains only project name
+	// The only difference from TestPrepareOmConnection_FindExistingGroup above is that the config map contains only project name
 	// but no org ID (see newMockedKubeApi())
 	controller := newReconcileCommonController(newMockedManager(nil), mockedOmConnection)
 
 	mockOm, _ := prepareConnection(controller, t)
 	assert.Equal(t, om.TestGroupID, mockOm.GroupID())
-	assert.NotNil(t, mockOm.FindGroup(om.TestGroupName))
+	mockOm.CheckGroupInOrganization(t, om.TestGroupName, om.TestGroupName)
 	// New group and organization will be created in addition to existing ones
-	assert.Len(t, mockOm.AllGroups, 2)
-	assert.Len(t, mockOm.AllOrganizations, 2)
+	assert.Len(t, mockOm.OrganizationsWithGroups, 2)
 
-	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadGroups), reflect.ValueOf(mockOm.ReadOrganizations), reflect.ValueOf(mockOm.CreateGroup))
+	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadOrganizations), reflect.ValueOf(mockOm.CreateProject))
+	mockOm.CheckOperationsDidntHappen(t, reflect.ValueOf(mockOm.ReadProjectsInOrganization))
 }
 
 // TestPrepareOmConnection_CreateGroup checks that if the group doesn't exist in OM - it is created
@@ -73,11 +72,12 @@ func TestPrepareOmConnection_CreateGroup(t *testing.T) {
 
 	assert.Equal(t, om.TestGroupID, vars.ProjectID)
 	assert.Equal(t, om.TestGroupID, mockOm.GroupID())
-	require.NotNil(t, mockOm.FindGroup(om.TestGroupName))
+	mockOm.CheckGroupInOrganization(t, om.TestGroupName, om.TestGroupName)
+	assert.Len(t, mockOm.OrganizationsWithGroups, 1)
 	assert.Contains(t, mockOm.FindGroup(om.TestGroupName).Tags, util.OmGroupExternallyManagedTag)
 
-	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadGroups), reflect.ValueOf(mockOm.CreateGroup))
-	mockOm.CheckOperationsDidntHappen(t, reflect.ValueOf(mockOm.UpdateGroup), reflect.ValueOf(mockOm.ReadOrganizations))
+	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadOrganizations), reflect.ValueOf(mockOm.CreateProject))
+	mockOm.CheckOperationsDidntHappen(t, reflect.ValueOf(mockOm.UpdateProject), reflect.ValueOf(mockOm.ReadProjectsInOrganization))
 }
 
 // TestPrepareOmConnection_CreateGroupFallback checks that if the group creation failed because tags editing is not allowed
@@ -94,7 +94,9 @@ func TestPrepareOmConnection_CreateGroupFallback(t *testing.T) {
 	assert.NotNil(t, mockOm.FindGroup(om.TestGroupName))
 	assert.Empty(t, mockOm.FindGroup(om.TestGroupName).Tags)
 
-	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadGroups), reflect.ValueOf(mockOm.CreateGroup), reflect.ValueOf(mockOm.CreateGroup))
+	// Creation happened twice
+	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.CreateProject), reflect.ValueOf(mockOm.CreateProject))
+	mockOm.CheckOperationsDidntHappen(t, reflect.ValueOf(mockOm.UpdateProject))
 }
 
 // TestPrepareOmConnection_CreateGroupFixTags fixes tags if they are not set for existing group
@@ -106,7 +108,7 @@ func TestPrepareOmConnection_CreateGroupFixTags(t *testing.T) {
 	mockOm, _ := prepareConnection(controller, t)
 	assert.Contains(t, mockOm.FindGroup(om.TestGroupName).Tags, util.OmGroupExternallyManagedTag)
 
-	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadGroups), reflect.ValueOf(mockOm.UpdateGroup))
+	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.UpdateProject))
 }
 
 // TestPrepareOmConnection_PrepareAgentKeys checks that agent key is generated and put to secret
@@ -218,12 +220,10 @@ func prepareConnection(controller *ReconcileCommonController, t *testing.T) (*om
 func omConnGroupWithoutTags() func(url, g, user, k string) om.Connection {
 	return func(url, g, user, k string) om.Connection {
 		c := om.NewEmptyMockedOmConnectionNoGroup(url, g, user, k).(*om.MockedOmConnection)
-		if len(c.AllGroups) == 0 {
+		if len(c.OrganizationsWithGroups) == 0 {
 			// initially OM contains the group without tags
-			c.AllGroups = []*om.Group{{Name: om.TestGroupName, ID: "123", AgentAPIKey: "12345abcd", OrgID: om.TestOrgID}}
-			c.AllOrganizations = []*om.Organization{{ID: om.TestOrgID, Name: om.TestGroupName}}
+			c.OrganizationsWithGroups = map[*om.Organization][]*om.Project{{ID: om.TestOrgID, Name: om.TestGroupName}: {{Name: om.TestGroupName, ID: "123", AgentAPIKey: "12345abcd", OrgID: om.TestOrgID}}}
 		}
-
 		return c
 	}
 }
@@ -231,11 +231,10 @@ func omConnGroupWithoutTags() func(url, g, user, k string) om.Connection {
 func omConnGroupInOrganizationWithDifferentName() func(url, g, user, k string) om.Connection {
 	return func(url, g, user, k string) om.Connection {
 		c := om.NewEmptyMockedOmConnectionNoGroup(url, g, user, k).(*om.MockedOmConnection)
-		if len(c.AllGroups) == 0 {
+		if len(c.OrganizationsWithGroups) == 0 {
 			// Important: the organization for the group has a different name ("foo") then group (om.TestGroupName).
 			// So it won't work for cases when the group "was created before" by Operator
-			c.AllGroups = []*om.Group{{Name: om.TestGroupName, ID: "existingGroupId", OrgID: om.TestOrgID}}
-			c.AllOrganizations = []*om.Organization{{ID: om.TestOrgID, Name: "foo"}}
+			c.OrganizationsWithGroups = map[*om.Organization][]*om.Project{{ID: om.TestOrgID, Name: "foo"}: {{Name: om.TestGroupName, ID: "existingGroupId", OrgID: om.TestOrgID}}}
 		}
 
 		return c
@@ -243,23 +242,16 @@ func omConnGroupInOrganizationWithDifferentName() func(url, g, user, k string) o
 }
 
 func omConnOldVersion() func(url, g, user, k string) om.Connection {
-	cnt := 1
 	return func(url, g, user, k string) om.Connection {
 		c := om.NewEmptyMockedOmConnectionNoGroup(url, g, user, k).(*om.MockedOmConnection)
-		c.CreateGroupFunc = func(g *om.Group) (*om.Group, error) {
-			// first call
-			if cnt == 1 {
-				cnt++
-				return nil, &om.APIError{ErrorCode: "INVALID_ATTRIBUTE", Detail: "Invalid attribute tags specified."}
-			}
-			// second call (fallback)
-			g.ID = om.TestGroupID
-			c.AllGroups = append(c.AllGroups, g)
-			c.AllOrganizations = append(c.AllOrganizations, &om.Organization{ID: string(rand.Int()), Name: g.Name})
-			return g, nil
+		c.CreateGroupFunc = func(g *om.Project) (*om.Project, error) {
+			// We remove the callback on the first call
+			// Second call will perform a standard creation
+			c.CreateGroupFunc = nil
+			return nil, &om.APIError{ErrorCode: "INVALID_ATTRIBUTE", Detail: "Invalid attribute tags specified."}
 		}
 		// If creating tags is not allowed - then neither the update
-		c.UpdateGroupFunc = func(g *om.Group) (*om.Group, error) {
+		c.UpdateGroupFunc = func(g *om.Project) (*om.Project, error) {
 			if len(g.Tags) > 0 {
 				return nil, &om.APIError{ErrorCode: "INVALID_ATTRIBUTE", Detail: "Invalid attribute tags specified."}
 			}

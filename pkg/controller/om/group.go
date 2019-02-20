@@ -1,12 +1,24 @@
 package om
 
-// GroupsResponse
-type GroupsResponse struct {
-	Groups []*Group `json:"results"`
+// ProjectsResponse
+type ProjectsResponse struct {
+	OMPaginaged
+	Groups     []*Project `json:"results"`
+	TotalCount int        `json:"totalCount"`
+	Next       int        `json:"next,omitempty"`
 }
 
-// Group
-type Group struct {
+func (o ProjectsResponse) Results() []interface{} {
+	// Lack of covariance in Go... :(
+	ans := make([]interface{}, len(o.Groups))
+	for i, org := range o.Groups {
+		ans[i] = org
+	}
+	return ans
+}
+
+// Project
+type Project struct {
 	ID          string   `json:"id,omitempty"`
 	Name        string   `json:"name"`
 	OrgID       string   `json:"orgId,omitempty"`
