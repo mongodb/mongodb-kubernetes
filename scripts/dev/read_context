@@ -6,7 +6,7 @@ source ./scripts/dev/set_env_context
 
 # The convention: the cluster name must match the name of kubectl context
 # We expect this not to be true if kubernetes cluster is still to be created (minikube/kops)
-kubectl config use-context ${CLUSTER_NAME} &>/dev/null || echo "Warning: failed to switch kubectl context to \"${CLUSTER_NAME}\" - does the matching Kubernetes cluster exist?"
+kubectl config use-context ${CLUSTER_NAME} || echo "Warning: failed to switch kubectl context to \"${CLUSTER_NAME}\" - does the matching Kubernetes cluster exist?"
 
 # Setting the default namespace for current context
 kubectl config set-context "$(kubectl config current-context)" --namespace=${NAMESPACE} &>/dev/null || true

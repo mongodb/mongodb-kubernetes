@@ -6,28 +6,54 @@ cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
 source scripts/funcs
 
-title "The following tools will be installed: kubectl, minikube, kops, aws-cli"
-echo "Note, that you must download 'go' and 'dep' by yourself"
+title "The following tools will be installed: dep, kubectl, minikube, kops, aws-cli, helm"
+echo "Note, that you must download 'go' by yourself"
 
-# dep
-brew install dep
+if [ $(uname) = "Darwin" ] ; then
+  # dep
+  brew install dep
 
-# kubectl 1.11.3
-brew install https://raw.githubusercontent.com/Homebrew/homebrew-core/41764e07727d9a86b0f8a077117dc7876ca294c4/Formula/kubernetes-cli.rb
+  # kubectl 1.11.3
+  brew install https://raw.githubusercontent.com/Homebrew/homebrew-core/41764e07727d9a86b0f8a077117dc7876ca294c4/Formula/kubernetes-cli.rb
 
-# minikube
-brew cask install minikube
+  # minikube
+  brew cask install minikube
 
-# kops
-brew install kops
-echo "Make sure you add \"export KOPS_STATE_STORE=s3://kube-om-state-store\" to your ~/.bashrc"
+  # kops
+  brew install kops
+  echo "export KOPS_STATE_STORE='s3://kube-om-state-store'" >> ~/.bashrc
 
-# aws-cli
-brew install awscli
-aws configure
+  # aws-cli
+  brew install awscli
+  aws configure
 
-# helm
-brew install kubernetes-helm
+  # helm
+  brew install kubernetes-helm
+
+elif [ $(uname) = "Linux" ] ; then # Ubuntu only
+  # dep
+  curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
+
+  sudo snap install kubectl --classic
+
+  curl -Lo minikube "https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64"
+  chmod +x minikube
+  mv minikube "${GOBIN}"
+
+  kops_version="$(curl -s https://api.github.com/repos/kubernetes/kops/releases/latest | grep tag_name | cut -d '"' -f 4)"
+  curl -Lo kops "https://github.com/kubernetes/kops/releases/download/${kops_version}/kops-linux-amd64"
+  echo "hi"
+  chmod +x kops
+  mv kops "${GOBIN}"
+
+  sudo apt install awscli
+
+  sudo snap install helm --classic
+
+else
+  echo "This only works on OSX & Ubuntu - please install the tools yourself. Sorry!"
+  exit 1
+fi
 
 echo "Adding git commit hooks"
 ln -s -f ../../scripts/dev/commit_hooks/pre-commit .git/hooks/pre-commit

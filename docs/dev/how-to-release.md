@@ -4,24 +4,17 @@ The Kubernetes Operator is composed of two different images: the Operator and
 the Database image. They follow a simple versioning schema (0.1, 0.2... 0.10...
 1.0). The release process is documented here:
 
-## Prepare the release notes in public Github repository (one day before)
+## Update Jira to reflect the patches in the release (Tuesday)
 
-Describe the release notes using link
-[https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/new](https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/new)
-save as draft.
+Update any finished tickets in [kube-next](https://jira.mongodb.org/issues/?jql=project%20%3D%20CLOUDP%20AND%20component%20%3D%20Kubernetes%20AND%20status%20in%20(Resolved%2C%20Closed)%20and%20fixVersion%3D%20kube-next%20) to have the version of the release you're doing (kube-x.y)
 
-You can find all resolved tickets ordered by resolve date using the following
-[filter](https://jira.mongodb.org/issues/?filter=26728) (put the correct
-`fixRelease` if it's not set).
+## Prepare Release Notes (Tuesday)
 
-Create a DOCSP ticket with the same content (ideally this should be done at
-least one day before the real release) and link it to the release ticket.
+Create a DOCSP ticket describing the tickets in the current [fixVersion](https://jira.mongodb.org/issues/?jql=project%20%3D%20CLOUDP%20AND%20component%20%3D%20Kubernetes%20AND%20status%20in%20(Resolved%2C%20Closed)%20and%20fixVersion%3D%20kube-next%20)
+
 
 ## Release ticket, branch and PR
 
-* Create a release ticket.
-* Make sure every relevant PR has been merged to master, and that you have the
-  latest version locally.
 * Create a branch named after release ticket.
 * Check that all samples and `README` in `public` folder are up-to-date -
   otherwise fix them and push changes.
@@ -130,7 +123,7 @@ Track the status of the jobs for operator and database using the following links
 https://connect.redhat.com/project/850021/build-service
 https://connect.redhat.com/project/851701/build-service
 
-Note, that so far the build service is not reliable and some checks may fail - you need to trigger new builds on the 
+Note, that so far the build service is not reliable and some checks may fail - you need to trigger new builds on the
 site manually specifying the new version (increase the patch part, e.g. `0.7.1`) and hopefully the build will succeed
 eventually.
 
@@ -156,12 +149,19 @@ can generate the public repo, without commiting to it, with:
 Where `some_temp_dir` is a temporary directory you want to use to test
 the output of your yaml files generation.
 
+## Create Release Notes on Github
+Copy the Release Notes from the DOCSP [into Github](https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/new)
+
+
 ## Release in Github
 
 Publish release in our public Github repository
 [https://github.com/mongodb/mongodb-enterprise-kubernetes/releases](https://github.com/mongodb/mongodb-enterprise-kubernetes/releases)
 
+## Create the next release ticket
+
+    make_jira_tickets kube_release 0.9
+
 ## Release in Jira
 
-Ask your manager (Crystal/James) to "release" the version in Jira and create next ones
-
+Ask someone with permission (Crystal/James/David/Rahul ) to "release" the version in Jira and create next ones
