@@ -131,6 +131,11 @@ print_om_endpoint() {
     echo "Use the following address to access Ops Manager from the browser: http://${external_ip}:30039 (namespace: ${ns})"
 }
 
+print_perpetual_om_endpoint() {
+    ns="${1:-'<undefined>'}"
+    echo "Use the following address to access Ops Manager from the browser: ${OM_BASE_URL} (namespace: ${ns})"
+}
+
 ensure_vpc_rules() {
     region="$1"
     prefix="$2"

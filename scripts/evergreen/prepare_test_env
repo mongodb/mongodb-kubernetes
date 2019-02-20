@@ -99,4 +99,7 @@ fix_taints
 
 cleanup_env "$1"
 
-ensure_ops_manager_k8s
+# Not required when running against the Ops Manager Kubernetes perpetual instance
+if [[ "${USE_PERPETUAL_OPS_MANAGER_INSTANCE:-}" != "true" ]]; then
+    ensure_ops_manager_k8s
+fi

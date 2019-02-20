@@ -331,7 +331,26 @@ functions:
               --path "${path}" \
               --docker-args "$docker_args"
 
+  # Populate the Ops Manager Kubernetes Perpetual instance, env vars
+  "omkp_setup": &omkp_setup
+    command: shell.exec
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      shell: bash
+      script: |
+        if [[ "${omkp_enabled}" == "true" ]]; then
+          echo "echo Using the Ops Manager Kubernetes Perpetual instance..."  > ${workdir}/.ops-manager-env
+          echo "export OM_BASE_URL=${omkp_host}"                             >> ${workdir}/.ops-manager-env
+          echo "export OM_USER=${omkp_user}"                                 >> ${workdir}/.ops-manager-env
+          echo "export OM_API_KEY=${omkp_api_key}"                           >> ${workdir}/.ops-manager-env
+          echo "export USE_PERPETUAL_OPS_MANAGER_INSTANCE=${omkp_enabled}"   >> ${workdir}/.ops-manager-env
+          echo "Using the Ops Manager Kubernetes Perpetual Instance, env stored at '${workdir}/.ops-manager-env')"
+        else
+          echo "Skipping the Ops Manager Kubernetes Perpetual config (omkp_enabled=${omkp_enabled})"
+        fi
+
   "e2e_test":
+    - *omkp_setup
     - command: shell.exec
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
@@ -351,10 +370,14 @@ functions:
             export MANAGED_SECURITY_CONTEXT="true"
           fi
 
+          # Ops Manager Perpetual Kubernetes env
+          test -f ${workdir}/.ops-manager-env && source ${workdir}/.ops-manager-env
+
           # A complete environment is set each time.
           WATCH_NAMESPACE=${watch_namespace} TEST_NAME=${test_name} ./scripts/evergreen/e2e_tests.sh
 
   "prepare_test_env":
+    - *omkp_setup
     - command: shell.exec
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen
@@ -365,6 +388,9 @@ functions:
           export AWS_SECRET_ACCESS_KEY=${mms_eng_test_aws_secret}
           export AWS_REGION=${mms_eng_test_aws_region}
           export AWS_DEFAULT_REGION=${mms_eng_test_aws_region}
+
+          # Ops Manager Perpetual Kubernetes env
+          test -f ${workdir}/.ops-manager-env && source ${workdir}/.ops-manager-env
 
           ./prepare_test_env 30
 

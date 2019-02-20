@@ -138,3 +138,45 @@ kops create secret --name e2e.mongokubernetes.com sshpublickey admin -i ~/.ssh/n
 kops update cluster --yes
 kops rolling-update cluster --yes
 ``` 
+
+#### Runnings tests against a specific (perpetual) Ops Manager instance
+
+The Evergreen project can be configured to either deploy an OM instance in Kubernetes for each test run, OR always direct traffic to a specific instance (named Ops Manager Kubernetes Perpetual, or `omkp` for short).
+
+The feature can be controlled via the [Evergreen project settings](https://evergreen.mongodb.com/projects##ops-manager-kubernetes), by the `omkp_enabled` variable.
+
+If the instance has been reaped, you will need to deploy a new one (see below) and perform minimal configurations.
+
+
+##### Install Ops Manager in AWS
+
+See the [Ops Manager deployment guide](./aws_ops_manager_deployment.md).
+
+##### Configure Evergreen
+- first, register a global owner on the Ops Manager instance
+- generate a `public API key` and set a whitelist of `0.0.0.0/0`
+- edit the following parameters in [EVG](https://evergreen.mongodb.com/projects##ops-manager-kubernetes):
+  - `omkp_host`
+  - `omkp_user`
+  - `omkp_api_key`
+
+##### Decide to use the perpetual instance, or deploy a new OM image in Kubernetes every time
+
+go to [EVG](https://evergreen.mongodb.com/projects##ops-manager-kubernetes) and set:
+  - `omkp_enabled=true` # Use the Perpetual instance
+  - `omkp_enabled=false` # any value != `true` will have the effect of NOT using the perpetual instance
+
+#### Testing a change against a specific (perpetual) Ops Manager instance
+
+If you want to test a local change or a PR against the perpetual instance, simply change the equality comparison in `.evergreen.yml`/`&omkp_setup`:
+```bash
+# from
+if [[ "${omkp_enabled}" == "true" ]]; then
+
+# to
+if [[ "${omkp_enabled}" != "true" ]]; then
+```
+
+Then submit an EVG patch (`evergreen patch -t ... -v ... -f -y -d ''`) or simply open a PR.
+
+**DO NOT forget to revert the change to the `omkp_setup` EVG function!**

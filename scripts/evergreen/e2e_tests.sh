@@ -264,7 +264,10 @@ if [[ "${MODE-}" != "dev" ]]; then
     redeploy_operator "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev" \
             "${REVISION:-}" "${PROJECT_NAMESPACE}" "${WATCH_NAMESPACE:-$PROJECT_NAMESPACE}" "Always" "${MANAGED_SECURITY_CONTEXT:-}" "2m"
 
-    fetch_om_information
+    # Not required when running against the Ops Manager Kubernetes perpetual instance
+    if [[ "${USE_PERPETUAL_OPS_MANAGER_INSTANCE:-}" != "true" ]]; then
+        fetch_om_information
+    fi
 
     echo "Creating Operator Configuration for Ops Manager Test Instance."
     configure_operator
@@ -292,7 +295,12 @@ if [[ "${MODE-}" != "dev" ]]; then
 
         dump_agent_logs
 
-        print_om_endpoint "${PROJECT_NAMESPACE}"
+        # Not required when running against the Ops Manager Kubernetes perpetual instance
+        if [[ "${USE_PERPETUAL_OPS_MANAGER_INSTANCE:-}" != "true" ]]; then
+            print_om_endpoint "${PROJECT_NAMESPACE}"
+        else
+            print_perpetual_om_endpoint "${PROJECT_NAMESPACE}"
+        fi
 
         # seems the removal of PVCs is the longest thing during later namespace cleanup in "prepare_test_env" - so let's
         # remove them now
