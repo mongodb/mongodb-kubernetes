@@ -643,7 +643,7 @@ task_groups:
     - e2e_replica_set_recovery
     - e2e_replica_set_pv
     - e2e_replica_set_pv_multiple
-    - e2e_replica_set_different_namespaces
+#    - e2e_replica_set_different_namespaces
     - e2e_sharded_cluster
     - e2e_sharded_cluster_pv
     - e2e_sharded_cluster_recovery

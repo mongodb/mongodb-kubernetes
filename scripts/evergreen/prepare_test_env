@@ -32,6 +32,11 @@ cleanup_env() {
             kubectl delete ns ${f} --now;
         done
 
+        for f in $(kubectl get ns -o name | grep test-ns- | sed 's/namespace\///'); do
+            echo "Removing the ns $f"
+            kubectl delete ns ${f} --now;
+        done
+
         kubectl delete ns operator-testing --now
 
         echo "Waiting until operator-testing namespace is deleted..."

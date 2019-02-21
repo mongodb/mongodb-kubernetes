@@ -24,7 +24,7 @@ type ReconcileMongoDbReplicaSet struct {
 
 var _ reconcile.Reconciler = &ReconcileMongoDbReplicaSet{}
 
-func newReplicaSetReconciler(mgr manager.Manager, omFunc om.ConnectionFunc) *ReconcileMongoDbReplicaSet {
+func newReplicaSetReconciler(mgr manager.Manager, omFunc om.ConnectionFactory) *ReconcileMongoDbReplicaSet {
 	return &ReconcileMongoDbReplicaSet{newReconcileCommonController(mgr, omFunc)}
 }
 
@@ -149,17 +149,17 @@ func AddReplicaSetController(mgr manager.Manager) error {
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
-func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(omConnection om.Connection, membersNumberBefore int, new *mongodb.MongoDbReplicaSet,
+func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, membersNumberBefore int, new *mongodb.MongoDbReplicaSet,
 	set *appsv1.StatefulSet, log *zap.SugaredLogger) error {
 
-	err := waitForRsAgentsToRegister(set, new.Spec.ClusterName, omConnection, log)
+	err := waitForRsAgentsToRegister(set, new.Spec.ClusterName, conn, log)
 	if err != nil {
 		return err
 	}
 	replicaSet := buildReplicaSetFromStatefulSet(set, new.Spec.ClusterName, new.Spec.Version)
 
 	processNames := make([]string, 0)
-	err = omConnection.ReadUpdateDeployment(
+	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			d.MergeReplicaSet(replicaSet, nil)
 
@@ -168,17 +168,18 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(omConnection om.Connec
 			processNames = d.GetProcessNames(om.ReplicaSet{}, replicaSet.Rs.Name())
 			return nil
 		},
+		getMutex(conn.GroupName(), conn.OrgID()),
 		log,
 	)
 	if err != nil {
 		return err
 	}
 
-	if err := om.WaitForReadyState(omConnection, processNames, log); err != nil {
+	if err := om.WaitForReadyState(conn, processNames, log); err != nil {
 		return err
 	}
 
-	return calculateDiffAndStopMonitoringHosts(omConnection, getAllHostsRs(set, new, membersNumberBefore), getAllHostsRs(set, new, new.Spec.Members), log)
+	return calculateDiffAndStopMonitoringHosts(conn, getAllHostsRs(set, new, membersNumberBefore), getAllHostsRs(set, new, new.Spec.Members), log)
 
 }
 
@@ -201,6 +202,7 @@ func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLog
 
 			return nil
 		},
+		getMutex(conn.GroupName(), conn.OrgID()),
 		log,
 	)
 	if err != nil {

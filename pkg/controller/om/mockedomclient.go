@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"strconv"
+	"sync"
 	"testing"
 
 	"go.uber.org/zap"
@@ -14,8 +15,6 @@ import (
 	"runtime"
 
 	"time"
-
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -70,9 +69,10 @@ type MockedOmConnection struct {
 }
 
 // NewEmptyMockedConnection is the standard function for creating mocked connections that is usually used for testing
-// "full cycle" mocked controller. It has group created already
-func NewEmptyMockedOmConnection(baseURL, groupID, user, publicAPIKey string) Connection {
-	conn := NewEmptyMockedOmConnectionNoGroup(baseURL, groupID, user, publicAPIKey)
+// "full cycle" mocked controller. It has group created already, but doesn't have the deployment. Also it "survives"
+// recreations (as this is what we do in 'ReconcileCommonController.prepareConnection')
+func NewEmptyMockedOmConnection(ctx *OMContext) Connection {
+	conn := NewEmptyMockedOmConnectionNoGroup(ctx)
 
 	// by default each connection just "reuses" "already created" group with agent keys existing
 	conn.(*MockedOmConnection).OrganizationsWithGroups = map[*Organization][]*Project{
@@ -89,28 +89,30 @@ func NewEmptyMockedOmConnection(baseURL, groupID, user, publicAPIKey string) Con
 }
 
 // NewEmptyMockedOmConnectionWithDelay is the function that builds the mocked connection with some "delay" for agents
-// to reach goal state
-func NewEmptyMockedOmConnectionWithDelay(baseURL, groupID, user, publicAPIKey string) Connection {
-	conn := NewEmptyMockedOmConnection(baseURL, groupID, user, publicAPIKey)
+// to reach goal state, apart of this it's the same as 'NewEmptyMockedOmConnection'
+func NewEmptyMockedOmConnectionWithDelay(ctx *OMContext) Connection {
+	conn := NewEmptyMockedOmConnection(ctx)
 	conn.(*MockedOmConnection).AgentsDelayCount = 1
 	return conn
 }
 
 // NewMockedConnection is the simplified connection wrapping some deployment that already exists. Should be used for
-// partial functionality (not the "full cycle" controller)
+// partial functionality (not the "full cycle" controller), for example read-update operation for the deployment
 func NewMockedOmConnection(d Deployment) *MockedOmConnection {
 	connection := MockedOmConnection{deployment: d}
 	connection.hosts = buildHostsFromDeployment(d)
 	connection.BackupConfigs = make(map[*BackupConfig]*HostCluster)
 	// By default we don't wait for agents to reach goal
 	connection.AgentsDelayCount = 0
+	// We use a simplified version of context as this is the only thing needed to get lock for the update
+	connection.context = &OMContext{GroupName: TestGroupName, OrgID: TestOrgID}
 
 	return &connection
 }
 
 // NewEmptyMockedConnection is the standard function for creating mocked connections that is usually used for testing
-// "full cycle" mocked controller. It has group created already
-func NewEmptyMockedOmConnectionNoGroup(baseURL, groupID, user, publicAPIKey string) Connection {
+// "full cycle" mocked controller. It doesn't have the group created.
+func NewEmptyMockedOmConnectionNoGroup(ctx *OMContext) Connection {
 	var connection *MockedOmConnection
 	// That's how we can "survive" multiple calls to this function: so we can create groups or add/delete entities
 	// Note, that the global connection variable is cleaned before each test (see kubeapi_test.newMockedKubeApi)
@@ -120,12 +122,8 @@ func NewEmptyMockedOmConnectionNoGroup(baseURL, groupID, user, publicAPIKey stri
 		connection = NewMockedOmConnection(nil)
 		connection.OrganizationsWithGroups = make(map[*Organization][]*Project, 0)
 	}
-	connection.HTTPOmConnection = HTTPOmConnection{
-		baseURL:      strings.TrimSuffix(baseURL, "/"),
-		groupID:      groupID,
-		user:         user,
-		publicAPIKey: publicAPIKey,
-	}
+
+	connection.HTTPOmConnection = HTTPOmConnection{ctx}
 	CurrMockedConnection = connection
 
 	return connection
@@ -146,7 +144,7 @@ func (oc *MockedOmConnection) ReadDeployment() (Deployment, error) {
 	}
 	return oc.deployment, nil
 }
-func (oc *MockedOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error, log *zap.SugaredLogger) error {
+func (oc *MockedOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error, mutex *sync.Mutex, log *zap.SugaredLogger) error {
 	oc.addToHistory(reflect.ValueOf(oc.ReadUpdateDeployment))
 	if oc.deployment == nil {
 		oc.deployment = NewDeployment()

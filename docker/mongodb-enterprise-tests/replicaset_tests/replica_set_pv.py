@@ -155,7 +155,7 @@ class TestReplicaSetPersistentVolumeDelete(KubernetesTester):
     delete:
       file: fixtures/replica-set-pv.yaml
       wait_until: mongo_resource_deleted
-      timeout: 120
+      timeout: 200
     """
 
     def test_replica_set_sts_doesnt_exist(self):

@@ -17,12 +17,29 @@ created with the same name as project. The only way to find out if the project e
 organization name is the same as the projects one and that's what Operator is doing. So if ConfigMap specifies the
 project with name "A" and no org id and there is already project in Ops manager named "A" in organization with name"B"
 then Operator won't find it as the names don't match.
+
+Note, that the method is performed holding the "groupName+orgId" mutex which allows to avoid race conditions and avoid
+duplicated groups/organizations creation. So if for example the standalone and the replica set which reference the same
+configMap are created in parallel - this function will be invoked sequantaly and the second caller will see the group
+created on the first call
 */
 func (c *ReconcileCommonController) readOrCreateGroup(config *ProjectConfig, credentials *Credentials, log *zap.SugaredLogger) (*om.Project, error) {
+	mutex := getMutex(config.ProjectName, config.OrgID)
+	mutex.Lock()
+	defer mutex.Unlock()
+
 	log = log.With("project", config.ProjectName)
 
 	// we need to create a temporary connection object without group id
-	conn := c.omConnectionFunc(config.BaseURL, "", credentials.User, credentials.PublicAPIKey)
+	omContext := om.OMContext{
+		GroupID:      "",
+		GroupName:    config.ProjectName,
+		OrgID:        config.OrgID,
+		BaseURL:      config.BaseURL,
+		PublicAPIKey: credentials.PublicAPIKey,
+		User:         credentials.User,
+	}
+	conn := c.omConnectionFactory(&omContext)
 
 	group, org, err := findExistingGroup(config, conn, log)
 

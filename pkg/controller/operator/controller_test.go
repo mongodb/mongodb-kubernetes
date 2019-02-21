@@ -217,9 +217,9 @@ func prepareConnection(controller *ReconcileCommonController, t *testing.T) (*om
 	return mockOm, vars
 }
 
-func omConnGroupWithoutTags() func(url, g, user, k string) om.Connection {
-	return func(url, g, user, k string) om.Connection {
-		c := om.NewEmptyMockedOmConnectionNoGroup(url, g, user, k).(*om.MockedOmConnection)
+func omConnGroupWithoutTags() om.ConnectionFactory {
+	return func(ctx *om.OMContext) om.Connection {
+		c := om.NewEmptyMockedOmConnectionNoGroup(ctx).(*om.MockedOmConnection)
 		if len(c.OrganizationsWithGroups) == 0 {
 			// initially OM contains the group without tags
 			c.OrganizationsWithGroups = map[*om.Organization][]*om.Project{{ID: om.TestOrgID, Name: om.TestGroupName}: {{Name: om.TestGroupName, ID: "123", AgentAPIKey: "12345abcd", OrgID: om.TestOrgID}}}
@@ -228,9 +228,9 @@ func omConnGroupWithoutTags() func(url, g, user, k string) om.Connection {
 	}
 }
 
-func omConnGroupInOrganizationWithDifferentName() func(url, g, user, k string) om.Connection {
-	return func(url, g, user, k string) om.Connection {
-		c := om.NewEmptyMockedOmConnectionNoGroup(url, g, user, k).(*om.MockedOmConnection)
+func omConnGroupInOrganizationWithDifferentName() om.ConnectionFactory {
+	return func(omContext *om.OMContext) om.Connection {
+		c := om.NewEmptyMockedOmConnectionNoGroup(omContext).(*om.MockedOmConnection)
 		if len(c.OrganizationsWithGroups) == 0 {
 			// Important: the organization for the group has a different name ("foo") then group (om.TestGroupName).
 			// So it won't work for cases when the group "was created before" by Operator
@@ -241,19 +241,23 @@ func omConnGroupInOrganizationWithDifferentName() func(url, g, user, k string) o
 	}
 }
 
-func omConnOldVersion() func(url, g, user, k string) om.Connection {
-	return func(url, g, user, k string) om.Connection {
-		c := om.NewEmptyMockedOmConnectionNoGroup(url, g, user, k).(*om.MockedOmConnection)
+func omConnOldVersion() om.ConnectionFactory {
+	return func(ctx *om.OMContext) om.Connection {
+		c := om.NewEmptyMockedOmConnectionNoGroup(ctx).(*om.MockedOmConnection)
 		c.CreateGroupFunc = func(g *om.Project) (*om.Project, error) {
 			// We remove the callback on the first call
 			// Second call will perform a standard creation
 			c.CreateGroupFunc = nil
-			return nil, &om.APIError{ErrorCode: "INVALID_ATTRIBUTE", Detail: "Invalid attribute tags specified."}
+			return nil, &om.APIError{
+				ErrorCode: "INVALID_ATTRIBUTE",
+				Detail:    "Invalid attribute tags specified. (This is an artificial error generated deliberately by the test suite)"}
 		}
 		// If creating tags is not allowed - then neither the update
 		c.UpdateGroupFunc = func(g *om.Project) (*om.Project, error) {
 			if len(g.Tags) > 0 {
-				return nil, &om.APIError{ErrorCode: "INVALID_ATTRIBUTE", Detail: "Invalid attribute tags specified."}
+				return nil, &om.APIError{
+					ErrorCode: "INVALID_ATTRIBUTE",
+					Detail:    "Invalid attribute tags specified. (This is an artificial error generated deliberately by the test suite)"}
 			}
 			return g, nil
 		}

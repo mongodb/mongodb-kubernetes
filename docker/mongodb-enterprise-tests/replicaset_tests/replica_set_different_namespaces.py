@@ -34,7 +34,7 @@ class TestReplicaSetWithSecretAndConfigMapInDifferentNamespace(KubernetesTester)
         resource["spec"]["project"] = "{}/{}".format(cls.other_namespace, project_name)
         resource["spec"]["credentials"] = "{}/{}".format(cls.other_namespace, creds_name)
         cls.create_custom_resource_from_object(cls.get_namespace(), resource)
-        cls.wait_until("in_running_state", 120)
+        cls.wait_until("in_running_state", 150)
 
     @classmethod
     def teardown_env(cls):

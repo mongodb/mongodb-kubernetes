@@ -22,7 +22,7 @@ type ReconcileMongoDbShardedCluster struct {
 	*ReconcileCommonController
 }
 
-func newShardedClusterReconciler(mgr manager.Manager, omFunc om.ConnectionFunc) *ReconcileMongoDbShardedCluster {
+func newShardedClusterReconciler(mgr manager.Manager, omFunc om.ConnectionFactory) *ReconcileMongoDbShardedCluster {
 	return &ReconcileMongoDbShardedCluster{newReconcileCommonController(mgr, omFunc)}
 }
 
@@ -184,6 +184,7 @@ func (r *ReconcileMongoDbShardedCluster) delete(obj interface{}, log *zap.Sugare
 			}
 			return nil
 		},
+		getMutex(conn.GroupName(), conn.OrgID()),
 		log,
 	)
 	if err != nil {
@@ -317,7 +318,9 @@ func updateOmDeploymentShardedCluster(conn om.Connection, sc *mongodb.MongoDbSha
 			d.AddMonitoringAndBackup(mongosProcesses[0].HostName(), log)
 			processNames = d.GetProcessNames(om.ShardedCluster{}, sc.Name)
 			return nil
-		}, log,
+		},
+		getMutex(conn.GroupName(), conn.OrgID()),
+		log,
 	)
 	if err != nil {
 		return err

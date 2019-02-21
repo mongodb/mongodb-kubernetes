@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/spf13/cast"
@@ -172,6 +173,7 @@ func prepareScaleDown(omClient om.Connection, rsMembers map[string][]string, log
 				}
 				return nil
 			},
+			&sync.Mutex{},
 			log,
 		)
 

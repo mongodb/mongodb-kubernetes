@@ -74,11 +74,9 @@ func AddStandaloneController(mgr manager.Manager) error {
 	return nil
 }
 
-func newStandaloneReconciler(mgr manager.Manager, omFunc om.ConnectionFunc) *ReconcileMongoDbStandalone {
+func newStandaloneReconciler(mgr manager.Manager, omFunc om.ConnectionFactory) *ReconcileMongoDbStandalone {
 	return &ReconcileMongoDbStandalone{newReconcileCommonController(mgr, omFunc)}
 }
-
-var _ reconcile.Reconciler = &ReconcileMongoDbStandalone{}
 
 // ReconcileMongoDbStandalone reconciles a MongoDbStandalone object
 type ReconcileMongoDbStandalone struct {
@@ -138,21 +136,22 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 	return reconcile.Result{}, nil
 }
 
-func updateOmDeployment(omConnection om.Connection, s *mongodb.MongoDbStandalone,
+func updateOmDeployment(conn om.Connection, s *mongodb.MongoDbStandalone,
 	set *appsv1.StatefulSet, log *zap.SugaredLogger) error {
-	if err := waitForRsAgentsToRegister(set, s.Spec.ClusterName, omConnection, log); err != nil {
+	if err := waitForRsAgentsToRegister(set, s.Spec.ClusterName, conn, log); err != nil {
 		return err
 	}
 
 	processNames := make([]string, 0)
 	standaloneOmObject := createProcess(set, s)
-	err := omConnection.ReadUpdateDeployment(
+	err := conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			d.MergeStandalone(standaloneOmObject, nil)
 			d.AddMonitoringAndBackup(standaloneOmObject.HostName(), log)
 			processNames = d.GetProcessNames(om.Standalone{}, s.Name)
 			return nil
 		},
+		getMutex(conn.GroupName(), conn.OrgID()),
 		log,
 	)
 
@@ -160,7 +159,7 @@ func updateOmDeployment(omConnection om.Connection, s *mongodb.MongoDbStandalone
 		return err
 	}
 
-	return om.WaitForReadyState(omConnection, processNames, log)
+	return om.WaitForReadyState(conn, processNames, log)
 
 }
 
@@ -185,6 +184,7 @@ func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLog
 			}
 			return nil
 		},
+		getMutex(conn.GroupName(), conn.OrgID()),
 		log,
 	)
 	if err != nil {

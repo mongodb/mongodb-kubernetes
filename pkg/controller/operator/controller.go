@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -24,27 +25,31 @@ import (
 
 // TODO rename the file to "common_controller.go" later
 
+// omMutexes is the synchronous map of mutexes that allow to get strict serializability for operations "read-modify-write"
+// for Ops Manager. Keys are (group_name + org_id) and values are mutexes.
+var omMutexes = sync.Map{}
+
 // ReconcileCommonController is the "parent" controller that is included into each specific controller and allows
 // to reuse the common functionality
 type ReconcileCommonController struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
-	client           client.Client
-	scheme           *runtime.Scheme
-	kubeHelper       KubeHelper
-	omConnectionFunc om.ConnectionFunc
+	client              client.Client
+	scheme              *runtime.Scheme
+	kubeHelper          KubeHelper
+	omConnectionFactory om.ConnectionFactory
 	// internal multimap mapping watched resources to mongodb resources they are used in
 	// (example: config map 'c1' is used in 2 mongodb replica sets 'm1', 'm2', so the map will be [c1]->[m1, m2])
 	watchedResources map[watchedObject][]types.NamespacedName
 }
 
-func newReconcileCommonController(mgr manager.Manager, omFunc om.ConnectionFunc) *ReconcileCommonController {
+func newReconcileCommonController(mgr manager.Manager, omFunc om.ConnectionFactory) *ReconcileCommonController {
 	return &ReconcileCommonController{
-		client:           mgr.GetClient(),
-		scheme:           mgr.GetScheme(),
-		kubeHelper:       KubeHelper{mgr.GetClient()},
-		omConnectionFunc: omFunc,
-		watchedResources: map[watchedObject][]types.NamespacedName{},
+		client:              mgr.GetClient(),
+		scheme:              mgr.GetScheme(),
+		kubeHelper:          KubeHelper{mgr.GetClient()},
+		omConnectionFactory: omFunc,
+		watchedResources:    map[watchedObject][]types.NamespacedName{},
 	}
 }
 
@@ -78,7 +83,15 @@ func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedNam
 		return nil, fmt.Errorf("Error reading or creating project in Ops Manager: %s", err)
 	}
 
-	conn := c.omConnectionFunc(projectConfig.BaseURL, group.ID, credsConfig.User, credsConfig.PublicAPIKey)
+	omContext := om.OMContext{
+		GroupID:      group.ID,
+		GroupName:    projectConfig.ProjectName,
+		OrgID:        projectConfig.OrgID,
+		BaseURL:      projectConfig.BaseURL,
+		PublicAPIKey: credsConfig.PublicAPIKey,
+		User:         credsConfig.User,
+	}
+	conn := c.omConnectionFactory(&omContext)
 	agentAPIKey, err := c.ensureAgentKeySecretExists(conn, nsName.Namespace, group.AgentAPIKey, log)
 	if err != nil {
 		return nil, err
@@ -126,6 +139,13 @@ func (c *ReconcileCommonController) ensureAgentKeySecretExists(conn om.Connectio
 	}
 
 	return strings.TrimSuffix(string(secret.Data[util.OmAgentApiKey]), "\n"), nil
+}
+
+// getMutex creates or reuses the relevant mutex for the group + org
+func getMutex(projectName, orgId string) *sync.Mutex {
+	lockName := projectName + orgId
+	mutex, _ := omMutexes.LoadOrStore(lockName, &sync.Mutex{})
+	return mutex.(*sync.Mutex)
 }
 
 func (c *ReconcileCommonController) updateStatusSuccessful(reconciledResource v1.MongoDbResource, log *zap.SugaredLogger, url, groupId string) {

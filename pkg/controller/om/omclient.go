@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -22,7 +23,10 @@ import (
 type Connection interface {
 	UpdateDeployment(deployment Deployment) ([]byte, error)
 	ReadDeployment() (Deployment, error)
-	ReadUpdateDeployment(depFunc func(Deployment) error, log *zap.SugaredLogger) error
+
+	// ReadUpdateDeployment reads Deployment from Ops Manager, applies the update function to it and pushes it back
+	// Note the mutex that must be passed to provide strict serializability for the read-write operations for the same group
+	ReadUpdateDeployment(depFunc func(Deployment) error, mutex *sync.Mutex, log *zap.SugaredLogger) error
 	//WaitForReadyState(processNames []string, log *zap.SugaredLogger) error
 	GenerateAgentKey() (string, error)
 	ReadAutomationStatus() (*AutomationStatus, error)
@@ -43,19 +47,26 @@ type Connection interface {
 
 	BaseURL() string
 	GroupID() string
+	GroupName() string
+	OrgID() string
 	User() string
 	PublicAPIKey() string
 }
 
-// ConnectionFunc type defines a connection to Ops Manager API
-type ConnectionFunc func(baseUrl, groupId, user, publicApiKey string) Connection
+// ConnectionFactory type defines a function to create a connection to Ops Manager API.
+// That's the way we implement some kind of Template Factory pattern to create connections using some incoming parameters
+// (groupId, api key etc - all encapsulated into 'context'). The reconciler later uses this factory to build real
+// connections and this allows us to mock out Ops Manager communication during unit testing
+type ConnectionFactory func(context *OMContext) Connection
+
+// OMContext is the convenient way of grouping all OM related information together
+type OMContext struct {
+	BaseURL, GroupID, GroupName, OrgID, User, PublicAPIKey string
+}
 
 // HTTPOmConnection
 type HTTPOmConnection struct {
-	baseURL      string
-	groupID      string
-	user         string
-	publicAPIKey string
+	context *OMContext
 }
 
 // APIError is the error extension that contains the details of OM error if OM returned the error. This allows the
@@ -108,34 +119,39 @@ func (e *APIError) ErrorCodeIn(errorCodes ...string) bool {
 
 // NewOpsManagerConnection stores OpsManger api endpoint and authentication credentials.
 // It makes it easy to call the API without having to explicitly provide connection details.
-func NewOpsManagerConnection(baseURL, groupID, user, publicAPIKey string) Connection {
-	return &HTTPOmConnection{
-		baseURL:      strings.TrimSuffix(baseURL, "/"),
-		groupID:      groupID,
-		user:         user,
-		publicAPIKey: publicAPIKey,
-	}
+func NewOpsManagerConnection(context *OMContext) Connection {
+	return &HTTPOmConnection{context: context}
 }
 
 // BaseURL returns BaseURL of HTTPOmConnection
 func (oc *HTTPOmConnection) BaseURL() string {
-	return oc.baseURL
+	return oc.context.BaseURL
 }
 
 // GroupID returns GroupID of HTTPOmConnection
 func (oc *HTTPOmConnection) GroupID() string {
-	return oc.groupID
+	return oc.context.GroupID
+}
+
+// GroupID returns GroupName of HTTPOmConnection
+func (oc *HTTPOmConnection) GroupName() string {
+	return oc.context.GroupName
+}
+
+// OrgID returns OrgID of HTTPOmConnection
+func (oc *HTTPOmConnection) OrgID() string {
+	return oc.context.OrgID
 }
 
 // User returns User of HTTPOmConnection
 func (oc *HTTPOmConnection) User() string {
-	return oc.user
+	return oc.context.User
 
 }
 
 // PublicAPIKey returns PublicAPIKey of HTTPOmConnection
 func (oc *HTTPOmConnection) PublicAPIKey() string {
-	return oc.publicAPIKey
+	return oc.context.PublicAPIKey
 }
 
 // UpdateDeployment updates a given deployment to the new deployment object passed as parameter.
@@ -155,7 +171,12 @@ func (oc *HTTPOmConnection) ReadDeployment() (Deployment, error) {
 }
 
 // ReadUpdateDeployment performs the "read-modify-update" operation on OpsManager Deployment.
-func (oc *HTTPOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error, log *zap.SugaredLogger) error {
+// Note, that the mutex locks infinitely (there is no built-in support for timeouts for locks in Go) which seems to be
+// ok as OM endpoints are not supposed to hang for long
+func (oc *HTTPOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error, mutex *sync.Mutex, log *zap.SugaredLogger) error {
+	mutex.Lock()
+	defer mutex.Unlock()
+
 	deployment, err := oc.ReadDeployment()
 	if err != nil {
 		return err
