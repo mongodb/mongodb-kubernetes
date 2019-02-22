@@ -10,7 +10,6 @@ cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
 source scripts/funcs
 
-
 # Will generate a random namespace to use each time
 if [ -z "${PROJECT_NAMESPACE-}" ]; then
     random_namespace=$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 20) || true
@@ -76,33 +75,38 @@ configure_operator() {
     kubectl --namespace "${PROJECT_NAMESPACE}" create secret generic my-credentials \
             --from-literal=user="${OM_USER:=admin}" --from-literal=publicApiKey="${OM_API_KEY}"
 
-    header "Project ConfigMap:"
-    kubectl --namespace "${PROJECT_NAMESPACE}" get configmap/my-project -o yaml
-
-    header "Credentials Secret:"
-    kubectl --namespace "${PROJECT_NAMESPACE}" get secret/my-credentials -o yaml
-
     title "ConfigMap and Secret are created"
-
 }
 
 teardown() {
-    kubectl delete mrs --all -n ${PROJECT_NAMESPACE}
-    kubectl delete mst --all -n ${PROJECT_NAMESPACE}
-    kubectl delete msc --all -n ${PROJECT_NAMESPACE}
-    printf "Removing Namespace: %s\\n" "${PROJECT_NAMESPACE}."
-    kubectl delete "namespace/${PROJECT_NAMESPACE}"
+    # Cluster maintenance should be the responsibility of other agent, not the test runner.
+    # TODO: Use CronJob to start a command every hour to check for resources and delete
+    # namespaces if needed
+    # Make sure that under no circumstances, this function fails.
+
+    kubectl delete mrs --all -n "${PROJECT_NAMESPACE}" || true
+    kubectl delete mst --all -n "${PROJECT_NAMESPACE}" || true
+    kubectl delete msc --all -n "${PROJECT_NAMESPACE}" || true
+    echo "Removing test namespace"
+    kubectl delete "namespace/${PROJECT_NAMESPACE}" || true
 }
 
 deploy_test_app() {
-    title "Deploying test application..."
+    title "Deploying test application"
 
-    # create dummy helm chart
+    TEST_IMAGE_TAG=$(git rev-parse HEAD)
+    JOB_NAME="job-e2e-tests"
+
     charttmpdir=$(mktemp -d 2>/dev/null || mktemp -d -t 'charttmpdir')
     charttmpdir=${charttmpdir}/chart
     cp -R "public/helm_chart/" "${charttmpdir}"
 
     cp scripts/evergreen/deployments/mongodb-enterprise-tests.yaml "${charttmpdir}/templates"
+
+    pytest_addopts=""
+    if [[ "${MODE-}" == "dev" ]]; then
+        pytest_addopts="-s"
+    fi
 
     # apply the correct configuration of the running OM instance
     helm template "${charttmpdir}" \
@@ -113,140 +117,118 @@ deploy_test_app() {
          --set apiUser="${OM_USER:=admin}" \
          --set namespace="${PROJECT_NAMESPACE}" \
          --set testPath="${test_name}.py" \
+         --set pytest.addopts="${pytest_addopts}" \
          --set tag="${TEST_IMAGE_TAG}" > mongodb-enterprise-tests.yaml || exit 1
 
-    echo "Deleting old resources"
-    kubectl -n "${PROJECT_NAMESPACE}" delete -f mongodb-enterprise-tests.yaml || true
-
-    echo "Creating new resources"
     kubectl -n "${PROJECT_NAMESPACE}" apply -f mongodb-enterprise-tests.yaml
-
-    title "Deployed test application, waiting until it gets ready..."
-
-    # Do wait while the Pod is not yet running (can be in Pending or ContainerCreating state)
-    timeout "20s" bash -c \
-        'while ! kubectl -n '"${PROJECT_NAMESPACE}"' get pod '"${TEST_APP_PODNAME}"' -o jsonpath="{.status.phase}" | grep -q "Running" ; do printf .; sleep 1; done;' || true
-
-    echo
-
-    if ! kubectl -n "${PROJECT_NAMESPACE}" get pod ${TEST_APP_PODNAME} -o jsonpath="{.status.phase}" | grep -q "Running"; then
-        status=$(kubectl -n "${PROJECT_NAMESPACE}" get pod ${TEST_APP_PODNAME} -o jsonpath="{.status.phase}")
-        error "Test application failed to reach Running state"
-
-        header "Output from \"kubectl describe ${TEST_APP_PODNAME}\":"
-        kubectl -n "${PROJECT_NAMESPACE}" describe pod ${TEST_APP_PODNAME}
-
-        header "Test application logs:"
-        kubectl -n "${PROJECT_NAMESPACE}" logs ${TEST_APP_PODNAME}
-
-        echo
-        title "Test application didn't start (status: $status), exiting..."
-        exit 1
-    fi
-
-    title "Test application is ready"
-
 }
 
-# Deploys the test application and waits until it finishes. The test application runs the pytest with specific scenario
-# Note, that the script doesn't build the test docker image - it must be done by the client beforehand
+wait_while_job_has_not_started() {
+    # If 'get pods' returns a No resources found, wait for a while
+    # This can take as long as it needs to take, in case of a busy cluster, we have seen the test pods taking a few minutes to start
+    while kubectl -n "${PROJECT_NAMESPACE}" get pods --selector=job-name=${JOB_NAME} 2>&1 | grep -q "No resources found" ; do sleep 3; done
+}
+
+wait_while_job_is_active() {
+    timeout=${1}
+    # .status.active is the state of the Job since it was created, before its Pod have reached completed state.
+    # It will leave this state when the Pod finish, be it successfully or not.
+
+    ( while [[ $(kubectl -n "${PROJECT_NAMESPACE}" get "jobs/${JOB_NAME}" -o jsonpath='{.status.active}') -eq 1 ]]; do sleep 3; done ) & pid=$!
+
+    echo "Waiting while jobs/${JOB_NAME} is in .status.active state"
+    wait_for_or_kill ${pid} "${timeout}"
+}
+
+# Will run the test application and wait for its completion.
 run_tests() {
-    test_name="$1"
-    timeout="$2"
-
-    TEST_IMAGE_TAG=$(git rev-parse HEAD)
-
-    echo "-----------> Running test ${test_name}.py \(tag: ${TEST_IMAGE_TAG}\)"
-
-    TEST_APP_PODNAME=mongodb-enterprise-operator-tests
+    test_name=${1}
+    timeout=${2}
 
     deploy_test_app
 
+    wait_while_job_has_not_started
+
+    echo "this is the pod we should get"
+    kubectl -n "${PROJECT_NAMESPACE}" get pods --selector=job-name="${JOB_NAME}" --output=jsonpath='{.items[*].metadata.name}'
+    # At this point we should have a running Pod with the tests.
+    TEST_APP_PODNAME=$(kubectl -n "${PROJECT_NAMESPACE}" get pods --selector=job-name="${JOB_NAME}" --output=jsonpath='{.items[*].metadata.name}')
+    title "${test_name}.py (tag: ${TEST_IMAGE_TAG})"
+
+    echo "We'll wait for jobs/${JOB_NAME} to complete"
+    # Wait for job to be active up to 120 seconds
+    if wait_while_job_is_active 120; then
+        echo "plop "
+    fi
+
     # we don't output logs to file when running tests locally
     if [[ "${MODE-}" == "dev" ]]; then
-        kubectl -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" -f &
-        KILLPID0=$!
-
-        trap "kill $KILLPID0 &> /dev/null || true"  SIGINT SIGTERM SIGQUIT
+        kubectl -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}"
 
         # sleeping so that in case of error manage to see the log
         sleep 3
     else
-        output_filename="test_app.log"
-        operator_filename="operator.log"
+        output_filename="logs/test_app.log"
+        operator_filename="logs/operator.log"
 
-        # Eventually this Pod will die (after run.sh has completed running), and this command will finish.
-        kubectl -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" -f > "${output_filename}" &
-        KILLPID0=$!
-        kubectl -n "${PROJECT_NAMESPACE}" logs "deployment/mongodb-enterprise-operator" -f > "${operator_filename}" &
-        KILLPID1=$!
-        # Print the logs from the test container with a background tail.
-        tail -f "${output_filename}" &
-        KILLPID2=$!
+        # At this time both ${TEST_APP_PODNAME} have finished running, so we don't follow (-f) it
+        # Similarly, the operator deployment has finished with our tests, so we print whatever we have
+        # until this moment and go continue with our lives
+        kubectl -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" > "${output_filename}"
+        kubectl -n "${PROJECT_NAMESPACE}" logs "deployment/mongodb-enterprise-operator" > "${operator_filename}"
 
-        trap "kill $KILLPID0 $KILLPID1 $KILLPID2  &> /dev/null || true"  SIGINT SIGTERM SIGQUIT
+        # logs are saved in files (so we can upload them to s3), but also displayed in the evergreen gui
+        cat "${output_filename}"
     fi
 
-    # Note, that we wait for 8 minutes maximum - this is less than the ultimate evergreen task timeout (10 minutes) as
-    # we want to dump diagnostic information in case of failure
-    timeout ${timeout} bash -c \
-        'while kubectl -n '"${PROJECT_NAMESPACE}"' get pod '"${TEST_APP_PODNAME}"' -o jsonpath="{.status.phase}" | grep -q "Running" ; do sleep 1; done' || true
-
-    # make sure there are not processes running in the background.
-    kill $KILLPID0 2>/dev/null || true
-    if [[ "${MODE-}" != "dev" ]]; then
-        kill $KILLPID1 $KILLPID2 &> /dev/null
-    fi
-
-    if [[ "$(kubectl -n ${PROJECT_NAMESPACE} get pods/${TEST_APP_PODNAME} -o jsonpath='{.status.phase}')" != "Succeeded" ]]; then
-        test_app_status="$(kubectl -n ${PROJECT_NAMESPACE} get pods/${TEST_APP_PODNAME} -o jsonpath='{.status.phase}')"
-        error "Test application has status \"$test_app_status\" instead of \"Succeeded\""
-        return 1
-    fi
-    return 0
+    [[ $(kubectl -n "${PROJECT_NAMESPACE}" get "jobs/${JOB_NAME}" --output=jsonpath='{.status.succeeded}') -eq 1 ]]
 }
 
 dump_agent_logs() {
-    agent_log_file="agent"
     i=1
 
-    for st in $(kubectl get mst -n ${PROJECT_NAMESPACE} -o name | cut -d "/" -f 2); do
-        filename=${agent_log_file}${i}".log"
-        kubectl logs -n ${PROJECT_NAMESPACE} "${st}-0" > ${filename}
-
-        echo "Wrote ${st}-0 logs to file ${filename}"
+    for st in $(kubectl get mst -n "${PROJECT_NAMESPACE}" -o name | cut -d "/" -f 2); do
+        obj="${st}-0"
+        kubectl logs -n "${PROJECT_NAMESPACE}" "${obj}" > "logs/${obj}.log"
         ((i++))
     done
 
-    for rs in $(kubectl get mrs -n ${PROJECT_NAMESPACE} -o name | cut -d "/" -f 2); do
-        for pod in $(kubectl get pods -n ${PROJECT_NAMESPACE} -o name | grep "$rs" | cut -d "/" -f 2); do
-            filename=${agent_log_file}${i}".log"
-            kubectl logs -n ${PROJECT_NAMESPACE} ${pod} > ${filename}
-
-            echo "Wrote ${pod} logs to file ${filename}"
+    for rs in $(kubectl get mrs -n "${PROJECT_NAMESPACE}" -o name | cut -d "/" -f 2); do
+        for pod in $(kubectl get pods -n "${PROJECT_NAMESPACE}" -o name | grep "$rs" | cut -d "/" -f 2); do
+            kubectl logs -n "${PROJECT_NAMESPACE}" "${pod}" > "logs/${pod}.log"
             ((i++))
         done
     done
 
     # let's dump only shard logs
-    for sc in $(kubectl get msc -n ${PROJECT_NAMESPACE} -o name | cut -d "/" -f 2); do
-        for pod in $(kubectl get pods -n ${PROJECT_NAMESPACE} -o name | grep "$sc" \
+    for sc in $(kubectl get msc -n "${PROJECT_NAMESPACE}" -o name | cut -d "/" -f 2); do
+        for pod in $(kubectl get pods -n "${PROJECT_NAMESPACE}" -o name | grep "$sc" \
                     | grep -v "$sc-config" | grep -v "$sc-mongos" | cut -d "/" -f 2); do
-            filename=${agent_log_file}${i}".log"
-            kubectl logs -n ${PROJECT_NAMESPACE} ${pod} > ${filename}
+            kubectl logs -n "${PROJECT_NAMESPACE}" "${pod}" > "logs/${pod}.log"
 
-            echo "Wrote ${pod} logs to file ${filename}"
             ((i++))
         done
     done
 
+    echo "${i} log files were written."
 }
 
-delete_mongodb_resources() {
-    kubectl delete mrs --all  -n ${PROJECT_NAMESPACE}
-    kubectl delete mst --all  -n ${PROJECT_NAMESPACE}
-    kubectl delete msc --all  -n ${PROJECT_NAMESPACE}
+initialize() {
+    # Generic function to initialize anything we might need
+
+    # Create a directory to store logs
+    # Everything under this directory will be pushed to S3
+    mkdir -p logs/
+
+    if [ "${BUILD_VARIANT}" = "e2e_openshift_origin_v3.11" ]; then
+        title "More info: https://master.openshift-cluster.mongokubernetes.com:8443/console/project/${PROJECT_NAMESPACE}"
+    fi
 }
+
+finalizer() {
+    echo "*** Finalizer called"
+}
+trap finalizer SIGHUP SIGTERM
 
 # sometimes in kops cluster some nodes get this taint that makes nodes non-schedulable. Just going over all nodes and
 # trying to remove the taint is supposed to help
@@ -254,10 +236,12 @@ delete_mongodb_resources() {
 # indicates that there are some problems with PVs, but removing PVs didn't help...)
 fix_taints() {
     for n in $(kubectl get nodes -o name); do
-        kubectl taint nodes ${n} NodeWithImpairedVolumes:NoSchedule- || true
+        kubectl taint nodes "${n}" NodeWithImpairedVolumes:NoSchedule- &> /dev/null || true
     done
 }
-# foo
+
+initialize
+
 if [[ "${MODE-}" != "dev" ]]; then
     fix_taints
 
@@ -277,10 +261,8 @@ if [ -z "${TEST_NAME}" ]; then
     echo "TEST_NAME needs to be defined"
 fi
 
-
 TESTS_OK=0
-
-run_tests "${TEST_NAME}" "${WAIT_TIMEOUT:-8m}" || TESTS_OK=1
+run_tests "${TEST_NAME}" "${WAIT_TIMEOUT:-400}" || TESTS_OK=1
 
 echo "Tests have finished with the following exit code: ${TESTS_OK}"
 
@@ -288,10 +270,12 @@ echo "Tests have finished with the following exit code: ${TESTS_OK}"
 # We don't do it for local development (as 'make e2e' will clean the resources before launching test)
 if [[ "${MODE-}" != "dev" ]]; then
     if [[ "${TESTS_OK}" -eq 0 ]]; then
+        kubectl label "namespace/${PROJECT_NAMESPACE}" "evg/state=pass"
+
         teardown
     else
         # Dump diagnostic information
-        dump_diagnostic_information diagnostics.txt
+        dump_diagnostic_information "logs/diagnostics.txt"
 
         dump_agent_logs
 
@@ -304,7 +288,14 @@ if [[ "${MODE-}" != "dev" ]]; then
 
         # seems the removal of PVCs is the longest thing during later namespace cleanup in "prepare_test_env" - so let's
         # remove them now
-        kubectl delete pvc --all -n "${PROJECT_NAMESPACE}" --now || true
+
+        # Removing PVC from a running namespace, probably with still running mongods, can make it
+        # difficult to debug problems, considering we are making even more noise with this removal.
+        # I'll skip this part for now, the maintenance of the cluster is not the responsibility of
+        # the test framework.
+        # kubectl delete pvc --all -n "${PROJECT_NAMESPACE}" --now || true
+
+        kubectl label "namespace/${PROJECT_NAMESPACE}" "evg/state=failed"
     fi
 fi
 

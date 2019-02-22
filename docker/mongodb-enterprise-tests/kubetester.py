@@ -100,6 +100,11 @@ class KubernetesTester(object):
 
         cls.setup_env()
 
+    @classmethod
+    def teardown_class(cls):
+        "Tears down testing class, make sure pytest ends after tests are run."
+        sys.stdout.flush()
+
     @staticmethod
     def load_configuration():
         "Loads kubernetes client configuration from kubectl config or incluster."
@@ -205,8 +210,6 @@ class KubernetesTester(object):
         name, kind, group, version = get_crd_meta(resource)
         patch = jsonpatch.JsonPatch.from_string(section["patch"])
         patched = patch.apply(resource)
-
-        print('Updating resource {} {} ({})'.format(kind, name, patch), flush=True)
 
         try:
             KubernetesTester.clients("customv1").patch_namespaced_custom_object(

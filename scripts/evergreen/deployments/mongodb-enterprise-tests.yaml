@@ -21,30 +21,39 @@ subjects:
   namespace: {{ .Values.namespace }}
 
 ---
-apiVersion: v1
-kind: Pod
+apiVersion: batch/v1
+kind: Job
 metadata:
-  name: mongodb-enterprise-operator-tests
+  name: job-e2e-tests
   namespace: {{ .Values.namespace }}
   labels:
     role: operator-tests
 spec:
-  serviceAccountName: operator-tests-service-account
-  restartPolicy: Never
-  terminationGracePeriodSeconds: 0
-  containers:
-  - name: mongodb-enterprise-operator-tests
-    env:
-    - name: OM_HOST
-      value: {{ .Values.baseUrl }}
-    - name: OM_API_KEY
-      value: {{ .Values.apiKey }}
-    - name: OM_USER
-      value: {{ .Values.apiUser }}
-    - name: PROJECT_NAMESPACE
-      value: {{ .Values.namespace }}
-    image: {{ .Values.repo }}/mongodb-enterprise-tests:{{ .Values.tag }}
-    command: ["pytest"]
-    # -x is used to stop after the first failure, -s disables output capturing to see results of 'print()'
-    args: ["-v", "-x", "-s", "{{ .Values.testPath }}"]
-    imagePullPolicy: Always
+  # fail at first failure
+  backoffLimit: 0
+  template:
+    spec:
+      serviceAccountName: operator-tests-service-account
+      restartPolicy: Never
+
+      containers:
+      - name: mongodb-enterprise-operator-tests
+        command: ["pytest"]
+        # -s  -- disable stdout capture: should be added to `PYTEST_ADDOPTS` if needed
+        # -x  -- stop after first failure
+        # -v  -- increase verbosity
+        args: ["-v", "-x", "{{ .Values.testPath }}"]
+        image: {{ .Values.repo }}/mongodb-enterprise-tests:{{ .Values.tag }}
+        imagePullPolicy: Always
+        env:
+        - name: OM_HOST
+          value: {{ .Values.baseUrl }}
+        - name: OM_API_KEY
+          value: {{ .Values.apiKey }}
+        - name: OM_USER
+          value: {{ .Values.apiUser }}
+        - name: PROJECT_NAMESPACE
+          value: {{ .Values.namespace }}
+          # We can pass additional options to pytest. For instance -s
+        - name: PYTEST_ADDOPTS
+          value: {{ .Values.pytest.addopts }}

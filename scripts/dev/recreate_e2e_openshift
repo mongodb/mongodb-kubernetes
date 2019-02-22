@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+recreate="${1-}"
+
+if [[ "${recreate}" != "yes" ]]; then
+    fatal "Exiting as \"imsure=yes\" parameter is not specified"
+fi
+
+# shellcheck disable=SC1091
+source scripts/funcs
+
+pushd scripts/evergreen/test_clusters/
+
+if [ ! -f "exports.do" ]; then
+    echo "You need to create a exports.do file!"
+    exit 1
+fi
+
+if [ ! -d "venv/" ]; then
+    echo "Virtualenv does not exists! Creating"
+    type deactivate &> /dev/null && deactivate
+    python3 -m venv venv
+    # shellcheck disable=SC1091
+    source venv/bin/activate
+    python3 -m pip install -r requirements.txt
+else
+    # shellcheck disable=SC1091
+    source venv/bin/activate
+fi
+
+cluster_name="openshift-test"
+
+# This is a private RSA key you should have installed to use
+# Ask your team mates for a copy
+cluster_key="openshift-test-cluster"
+
+# Gets a new password for aws ecr and pushes it to exports.do
+ecr_password=$(aws ecr get-login --no-include-email | cut -d "-" -f 3 | awk '{print $2}')
+sed '/^export ECR_PASSWORD/ d' < exports.do > exports.do.bak
+echo "export ECR_PASSWORD=${ecr_password}" >> exports.do.bak
+mv exports.do.bak exports.do
+
+echo "Destroying the CloudFormation stack"
+./aule.py delete-cluster --cluster-name="${cluster_name}"
+echo "Old stack was removed"
+
+echo "Recreating the cluster"
+./aule.py create-cluster --cluster-name="${cluster_name}" --aws-key="${cluster_key}" --save-manual-steps
+echo "CloudFormation stack has been created"
+
+echo "Deploying Openshift"
+sh ./complete_installation.sh
+echo "Openshift is now deployed, make sure you update Evergreen's project token to a new one"
+
+popd

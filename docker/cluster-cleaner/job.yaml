@@ -1,0 +1,77 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cluster-cleaner
+  namespace: operator-testing
+
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: cluster-cleaner
+  namespace: operator-testing
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: cluster-cleaner
+  namespace: operator-testing
+
+# First Job will clean namespaces every day at 2am
+---
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: cluster-cleaner-test-namespaces
+  namespace: operator-testing
+spec:
+  # run everyday at 2am
+  schedule: "* 2 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: cluster-cleaner
+
+          # Do not restart if failed, this should not fail!
+          restartPolicy: Never
+
+          containers:
+          - name: cluster-cleaner
+            image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cluster-cleaner:0.1
+
+          env:
+          - name: DELETE_OLDER_THAN_UNIT
+            value: hours
+          - name: DELETE_OLDER_THAN_AMOUNT
+            value: 12
+
+# Second Job will remove Ops Manager every Saturday
+---
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: cluster-cleaner-ops-manager
+  namespace: operator-testing
+spec:
+  # run every saturday
+  schedule: "* * * * 6"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: cluster-cleaner
+
+          restartPolicy: Never
+
+          containers:
+          - name: cluster-cleaner
+            image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cluster-cleaner:0.1
+
+          env:
+          # by passing DELETE_OPS_MANAGER we'll remove Ops Manager StatefulSet from 
+          - name: DELETE_OPS_MANAGER
+            value: true

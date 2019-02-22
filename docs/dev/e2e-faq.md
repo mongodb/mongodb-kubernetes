@@ -25,7 +25,7 @@ kubectl config use-context e2e.mongokubernetes.com
 #### How to recreate e2e kops cluster?
 
 ```bash
-make recreate-e2e
+make recreate-e2e-kops
 ```
 
 Follow up:
@@ -34,12 +34,25 @@ Follow up:
 
 #### How to recreate e2e Openshift cluster?
 
-1. Install `ansible`: `sudo easy_install pip && sudo pip install ansible`
+* Requirements
+  + `openshift-test-cluster` RSA key. Ask your team mates for it. Do not use a personal key!
+  + Make sure you have configured ssh client (`~/.ssh/config`) like:
+
+```
+Host *.compute-1.amazonaws.com
+   ForwardAgent yes
+   StrictHostKeyChecking no
+   IdentityFile ~/.ssh/id_aws_rsa
+```
+
+``` bash
+make recreate-e2e-openshift
+```
+
+#### Old instructions for Openshift cluster (might still be relevant)
+
 1. Create `scripts/evergreen/test_clusters/exports.do` following the instructions in `scripts/evergreen/test_clusters/README.md`
     * specify `export OPENSHIFT_ADMIN_USER=admin` and `export OPENSHIFT_ADMIN_PASSWORD='$apr1$qoY/N094$ohaRogbdoWWz.W1gFhfYk/'` to get `asdqwe1` password
-1. Generate AWS key pair if necessary: https://console.aws.amazon.com/ec2/v2/home?region=us-east-1#KeyPairs:sort=keyName. 
-Don't do it if you already have a private key in `~/.ssh` for some AWS key pair - then you can reuse it. Ideally both kops
-and openshift clusters should be created with the same ssh keys
 1. Delete the cluster: `python3 scripts/evergreen/test_clusters/aule.py delete-cluster --name openshift-test`
 1. Create a new cluster: `cd scripts/evergreen/test_clusters/; python3 aule.py create-cluster --name openshift-test --aws-key <your_aws_key_pair_name>`
    * `--aws-key` is the name of ssh key pair
@@ -61,7 +74,7 @@ and openshift clusters should be created with the same ssh keys
     * `diagnostics.txt` - contains the output from `kubectl get.. -o yaml` for the most interesting objects in the namespace
     (if they exist): Persistent Volume Claims, Mongodb resources, pods
     * `operator.log` - contains the log from the Operator
-    * `agent[1-6].log` - set of files containing logs from Mongodb resource pods (for sharded clusters this includes only shards)
+    * `*` - set of files containing logs from Mongodb resource pods (for sharded clusters this includes only shards)
 * If the files didn't provide enough information you can always use `kubectl` to query **more information for the Kubernetes cluster** 
 (`kubectl config use-context e2e.mongokubernetes.com/default/master-openshift-cluster-mongokubernetes-com:8443/admin`)
 * Check the state of project in **Ops Manager**. 
@@ -75,7 +88,14 @@ and openshift clusters should be created with the same ssh keys
     for the openshift one you need to do this manually once)
     * call `make dashboard` and enter the token that is copied to the clipboard
         
+#### Cleaning old namespaces via CronJob
+
+The `docker/cluster-cleaner/job.yaml` should be applied on each cluster. This file is a `CronJob` that runs every day
+at 2am. Every time this Pod runs, it will remove all the testing namespaces in the cluster that are older than 12 hours.
+
 #### Cleaning the old namespaces manually
+
+*This is a destructive measure that will killl all the test namespaces, including your team mates' tests runs!*
 
 Sometimes the cluster starts behaving poorly (scheduling/resources problems) - the best solution is to clean it up:
 

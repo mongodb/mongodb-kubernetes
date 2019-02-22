@@ -102,7 +102,7 @@ check_and_clean_repo() {
 
 fix_taints
 
-cleanup_env "$1"
+# cleanup_env "$1"
 
 # Not required when running against the Ops Manager Kubernetes perpetual instance
 if [[ "${USE_PERPETUAL_OPS_MANAGER_INSTANCE:-}" != "true" ]]; then

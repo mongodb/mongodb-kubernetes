@@ -50,71 +50,9 @@ functions:
       params:
         aws_key: ${mms_eng_test_aws_access_key}
         aws_secret: ${mms_eng_test_aws_secret}
-        local_file: src/github.com/10gen/ops-manager-kubernetes/operator.log
-        remote_file: logs/${task_id}/operator.log
-        bucket: operator-e2e-artifacts
-        permissions: public-read
-        content_type: application/octet-stream
-    - command: s3.put
-      params:
-        aws_key: ${mms_eng_test_aws_access_key}
-        aws_secret: ${mms_eng_test_aws_secret}
-        local_file: src/github.com/10gen/ops-manager-kubernetes/diagnostics.txt
-        remote_file: logs/${task_id}/diagnostics.txt
-        bucket: operator-e2e-artifacts
-        permissions: public-read
-        content_type: application/octet-stream
-    - command: s3.put
-      params:
-        aws_key: ${mms_eng_test_aws_access_key}
-        aws_secret: ${mms_eng_test_aws_secret}
-        local_file: src/github.com/10gen/ops-manager-kubernetes/agent1.log
-        remote_file: logs/${task_id}/agent1.log
-        bucket: operator-e2e-artifacts
-        permissions: public-read
-        content_type: application/octet-stream
-    - command: s3.put
-      params:
-        aws_key: ${mms_eng_test_aws_access_key}
-        aws_secret: ${mms_eng_test_aws_secret}
-        local_file: src/github.com/10gen/ops-manager-kubernetes/agent2.log
-        remote_file: logs/${task_id}/agent2.log
-        bucket: operator-e2e-artifacts
-        permissions: public-read
-        content_type: application/octet-stream
-    - command: s3.put
-      params:
-        aws_key: ${mms_eng_test_aws_access_key}
-        aws_secret: ${mms_eng_test_aws_secret}
-        local_file: src/github.com/10gen/ops-manager-kubernetes/agent3.log
-        remote_file: logs/${task_id}/agent3.log
-        bucket: operator-e2e-artifacts
-        permissions: public-read
-        content_type: application/octet-stream
-    - command: s3.put
-      params:
-        aws_key: ${mms_eng_test_aws_access_key}
-        aws_secret: ${mms_eng_test_aws_secret}
-        local_file: src/github.com/10gen/ops-manager-kubernetes/agent4.log
-        remote_file: logs/${task_id}/agent4.log
-        bucket: operator-e2e-artifacts
-        permissions: public-read
-        content_type: application/octet-stream
-    - command: s3.put
-      params:
-        aws_key: ${mms_eng_test_aws_access_key}
-        aws_secret: ${mms_eng_test_aws_secret}
-        local_file: src/github.com/10gen/ops-manager-kubernetes/agent5.log
-        remote_file: logs/${task_id}/agent5.log
-        bucket: operator-e2e-artifacts
-        permissions: public-read
-        content_type: application/octet-stream
-    - command: s3.put
-      params:
-        aws_key: ${mms_eng_test_aws_access_key}
-        aws_secret: ${mms_eng_test_aws_secret}
-        local_file: src/github.com/10gen/ops-manager-kubernetes/agent6.log
-        remote_file: logs/${task_id}/agent6.log
+        local_files_include_filter:
+          - src/github.com/10gen/ops-manager-kubernetes/logs/*
+        remote_file: logs/${task_id}/
         bucket: operator-e2e-artifacts
         permissions: public-read
         content_type: application/octet-stream
@@ -195,30 +133,31 @@ functions:
           export CLUSTER=e2e.mongokubernetes.com
 
           echo "Downloading kops"
-          curl -L https://github.com/kubernetes/kops/releases/download/1.9.1/kops-linux-amd64 -o kops
+          curl -s -L https://github.com/kubernetes/kops/releases/download/1.9.1/kops-linux-amd64 -o kops
           chmod +x kops
           mv kops $BINDIR
           kops export kubecfg $CLUSTER
 
           echo "Downloading kubectl"
-          curl -LO https://storage.googleapis.com/kubernetes-release/release/v1.11.3/bin/linux/amd64/kubectl
+          curl -s -LO https://storage.googleapis.com/kubernetes-release/release/v1.11.3/bin/linux/amd64/kubectl
           chmod +x kubectl
           mv kubectl $BINDIR
 
           echo "Downloading helm"
           HELM=helm.tgz
-          curl https://storage.googleapis.com/kubernetes-helm/helm-v2.10.0-linux-amd64.tar.gz --output $HELM
-          tar xfz $HELM
+          curl -s https://storage.googleapis.com/kubernetes-helm/helm-v2.10.0-linux-amd64.tar.gz --output $HELM
+          tar xfz $HELM &> /dev/null
           mv linux-amd64/helm $BINDIR
           rm $HELM
 
-          echo "Downloading OC"
-          OC_PKG=oc-linux.tar.gz
-          curl -L https://github.com/openshift/origin/releases/download/v3.11.0/openshift-origin-client-tools-v3.11.0-0cbc58b-linux-64bit.tar.gz --output $OC_PKG
-          tar xfz $OC_PKG
-          mv openshift-origin-client-tools-v3.11.0-0cbc58b-linux-64bit/oc $BINDIR
 
           if [ "${build_variant}" = "e2e_openshift_origin_v3.11" ]; then
+            echo "Downloading OC"
+            OC_PKG=oc-linux.tar.gz
+            curl -s -L https://github.com/openshift/origin/releases/download/v3.11.0/openshift-origin-client-tools-v3.11.0-0cbc58b-linux-64bit.tar.gz --output $OC_PKG
+            tar xfz $OC_PKG &> /dev/null
+            mv openshift-origin-client-tools-v3.11.0-0cbc58b-linux-64bit/oc $BINDIR
+
             echo "Setting up OpenShift variant"
             echo "Token: ${openshift_cluster_token}"
             oc login ${openshift_cluster_url} --token=${openshift_cluster_token} --insecure-skip-tls-verify
@@ -360,7 +299,11 @@ functions:
           export IS_EVERGREEN=${revision}
           export REVISION=$(git rev-parse HEAD)
           export PATH=${workdir}/bin:$PATH
+          export VERSION_ID=${version_id}
           export MANAGED_SECURITY_CONTEXT="false"
+          export BUILD_VARIANT=${build_variant}
+          export TASK_ID=${task_id}
+          export TASK_NAME=${task_name}
 
           echo "Build Variant: ${build_variant}"
           set -e # fail on first failed test
@@ -519,13 +462,16 @@ tasks:
       vars:
         test_name: standalone_schema_validation
 
-- name: e2e_replica_set_different_namespaces
-  exec_timeout_secs: 600 # 10 minutes max
-  commands:
-    - func: "e2e_test"
-      vars:
-        test_name: replica_set_different_namespaces
-        watch_namespace: "*"
+# Removing this test as it creates a cluster wide operator
+# that collides with every other operator running in the
+# cluster, breaking havoc
+# - name: e2e_replica_set_different_namespaces
+#   exec_timeout_secs: 600 # 10 minutes max
+#   commands:
+#     - func: "e2e_test"
+#       vars:
+#         test_name: replica_set_different_namespaces
+#         watch_namespace: "*"
 
 - name: e2e_standalone_config_map
   exec_timeout_secs: 600 # 10 minutes max
@@ -643,7 +589,7 @@ task_groups:
     - e2e_replica_set_recovery
     - e2e_replica_set_pv
     - e2e_replica_set_pv_multiple
-#    - e2e_replica_set_different_namespaces
+    # - e2e_replica_set_different_namespaces
     - e2e_sharded_cluster
     - e2e_sharded_cluster_pv
     - e2e_sharded_cluster_recovery

@@ -124,7 +124,7 @@ Resources:
         Value: openshift-worker1
       - Key: !Ref PersistentVolumeTag
         Value: owned
-      InstanceType: t2.xlarge
+      InstanceType: t2.2xlarge
       KeyName: !Ref KeyName
       AvailabilityZone: !Ref AvailabilityZone
       NetworkInterfaces:
@@ -143,7 +143,7 @@ Resources:
         Value: openshift-worker2
       - Key: !Ref PersistentVolumeTag
         Value: owned
-      InstanceType: t2.xlarge
+      InstanceType: t2.2xlarge
       KeyName: !Ref KeyName
       AvailabilityZone: !Ref AvailabilityZone
       NetworkInterfaces:

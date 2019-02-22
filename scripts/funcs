@@ -43,12 +43,39 @@ check_app() {
     fi
 }
 
-ensure_namespace() {
-    ns="$1"
-    if [[ -z "$(kubectl get ns | grep ${ns})" ]]; then
-        kubectl create ns "${ns}"
-        echo "Created namespace ${ns} as it didn't exist"
+# wait_for_or_kill
+# Waits for a given pid ${1} for a given amount of seconds ${2} to finish will
+# return true (success) if the process finished before the timeout, false otherwise.
+wait_for_or_kill() {
+    pid=${1}
+    timeout=${2}
+
+    ( sleep "${timeout}" && kill -HUP "${pid}" ) 2> /dev/null & watcher=$!
+    if wait "${pid}" 2> /dev/null; then
+        pkill -HUP -P $watcher
+        wait $watcher
+        return 0
     fi
+
+    return 1
+}
+
+ensure_namespace() {
+    namespace="${1}"
+    tmp_file=$(mktemp)
+    cat <<EOF > "${tmp_file}"
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${namespace}
+  labels:
+    evg/version-id: ${VERSION_ID}
+    evg/task-name: ${TASK_NAME}
+  annotations:
+    evg/url: "https://evergreen.mongodb.com/version/${VERSION_ID}"
+    evg/task-url: "https://evergreen.mongodb.com/task/${TASK_ID}"
+EOF
+    kubectl create -f "${tmp_file}"
 }
 # the function installs Ops Manager into Kubernetes cluster if it's not installed already
 # Note, that this requires the k8s node with 4 Gb of free memory
@@ -121,7 +148,6 @@ ensure_ops_manager_k8s() {
     echo "##### Ops Manager is ready"
 
     print_om_endpoint
-
 }
 
 print_om_endpoint() {
@@ -171,7 +197,8 @@ ensure_ops_manager_evg() {
 
     # TODO this check can definitely be improved (walk through ubuntu1804-build hosts and find installed OMs)
     if evg list | grep "ubuntu1804-build" | grep -qi "running"; then
-        export OPS_MANAGER_HOST=$(evg list | grep "ubuntu1804-build" | grep -i "running" | head -n 1 | awk ' {print $3} ' | cut -d "@" -f 2)
+        OPS_MANAGER_HOST=$(evg list | grep "ubuntu1804-build" | grep -i "running" | head -n 1 | awk ' {print $3} ' | cut -d "@" -f 2)
+        export OPS_MANAGER_HOST
         echo "There is an Evergreen instance (${OPS_MANAGER_HOST}) running already - skipping ego installaton"
         return
     fi
@@ -242,15 +269,20 @@ redeploy_operator() {
 
     # note that we don't remove all objects from file as it contains CRDs as well (and they will be blocked if there are
     # existing mongodb resources)
-    kubectl delete deployment mongodb-enterprise-operator || true
 
+    kubectl delete deployment mongodb-enterprise-operator &> /dev/null || true
     kubectl apply -f my-operator.yaml
+
     rm my-operator.yaml
 
     echo "Waiting until the Operator gets to Running state..."
-
-    timeout ${timeout} bash -c \
-        'while ! kubectl -n '"${ns}"' get pods -l app=mongodb-enterprise-operator -o jsonpath="{.items[0].status.phase}" | grep -q "Running" ; do printf .; sleep 1; done' || true
+    ( while ! kubectl -n "${ns}" get pods -l app=mongodb-enterprise-operator -o jsonpath="{.items[0].status.phase}" | grep -q "Running"; do printf .; sleep 1; done ) & pid=$!
+    if wait_for_or_kill $pid 120; then
+        echo "Operator started on time"
+        kubectl -n "${ns}" get pods -l app=mongodb-enterprise-operator -o jsonpath="{.items[0].status.phase}"
+    else
+        echo "Operator didn't start"
+    fi
 
     # In the end let's check again and print the state
     if ! kubectl -n "${ns}" get pods -l app=mongodb-enterprise-operator -o jsonpath="{.items[0].status.phase}" | grep -q "Running"; then
@@ -297,19 +329,19 @@ create_kops_cluster() {
 	echo "Make sure you use the latest version of kops (>= 1.11.0): 'brew upgrade kops'"
 
 	kops create cluster \
-		--node-count $node_count \
+		--node-count "$node_count" \
 		--zones "${zones}" \
 		--node-size "${node_size}" \
-		--node-volume-size ${node_volume_size} \
+		--node-volume-size "${node_volume_size}" \
 		--master-size="${master_size}" \
 		--master-volume-size 16  \
 		--kubernetes-version=v1.11.6 \
 		--ssh-public-key=~/.ssh/id_rsa.pub \
-		--authorization RBAC ${cluster_name}
+		--authorization RBAC "${cluster_name}"
 
-	kops create secret --name ${cluster_name} sshpublickey admin -i ~/.ssh/id_rsa.pub
+	kops create secret --name "${cluster_name}" sshpublickey admin -i ~/.ssh/id_rsa.pub
 
-	kops update cluster ${cluster_name} --yes
+	kops update cluster "${cluster_name}" --yes
 
 	echo "Waiting until kops cluster gets ready..."
 
@@ -335,33 +367,33 @@ create_kops_cluster() {
 dump_diagnostic_information() {
     dump_file=$1
 
-    if ! kubectl get mst -n ${PROJECT_NAMESPACE} 2>&1 | grep -q "No resources found"; then
-        header "Mongodb Standalones" >> $dump_file
-        kubectl get mst -o yaml -n ${PROJECT_NAMESPACE}  >> $dump_file
+    if ! kubectl get mst -n "${PROJECT_NAMESPACE}" 2>&1 | grep -q "No resources found"; then
+        header "Mongodb Standalones" >> "$dump_file"
+        kubectl get mst -o yaml -n "${PROJECT_NAMESPACE}"  >> "$dump_file"
     fi
 
-    if ! kubectl get mrs -n ${PROJECT_NAMESPACE} 2>&1 | grep -q "No resources found"; then
-        header "Mongodb ReplicaSets" >> $dump_file
-        kubectl get mrs -o yaml -n ${PROJECT_NAMESPACE}  >> $dump_file
+    if ! kubectl get mrs -n "${PROJECT_NAMESPACE}" 2>&1 | grep -q "No resources found"; then
+        header "Mongodb ReplicaSets" >> "$dump_file"
+        kubectl get mrs -o yaml -n "${PROJECT_NAMESPACE}"  >> "$dump_file"
     fi
 
-    if ! kubectl get msc -n ${PROJECT_NAMESPACE} 2>&1 | grep -q "No resources found"; then
-        header "Mongodb ShardedClusters" >> $dump_file
-        kubectl get msc -o yaml -n ${PROJECT_NAMESPACE}  >> $dump_file
+    if ! kubectl get msc -n "${PROJECT_NAMESPACE}" 2>&1 | grep -q "No resources found"; then
+        header "Mongodb ShardedClusters" >> "$dump_file"
+        kubectl get msc -o yaml -n "${PROJECT_NAMESPACE}"  >> "$dump_file"
     fi
 
-    header "All namespace objects" >> $dump_file
-    kubectl get all -n ${PROJECT_NAMESPACE} >> $dump_file
+    header "All namespace objects" >> "$dump_file"
+    kubectl get all -n "${PROJECT_NAMESPACE}" >> "$dump_file"
 
-    if ! kubectl get pvc -n ${PROJECT_NAMESPACE} 2>&1 | grep -q "No resources found"; then
-        header "Persistent Volume Claims" >> $dump_file
-        kubectl get pvc -o yaml -n ${PROJECT_NAMESPACE}  >> $dump_file
+    if ! kubectl get pvc -n "${PROJECT_NAMESPACE}" 2>&1 | grep -q "No resources found"; then
+        header "Persistent Volume Claims" >> "$dump_file"
+        kubectl get pvc -o yaml -n "${PROJECT_NAMESPACE}"  >> "$dump_file"
     fi
 
     # we don't output pods for the operator and tests (they will be output if they didn't manage to start)
-    for pod in $(kubectl get pods -n ${PROJECT_NAMESPACE} -o name | grep -v mongodb-enterprise-operator); do
-        header "$pod" >> $dump_file
+    for pod in $(kubectl get pods -n "${PROJECT_NAMESPACE}" -o name | grep -v mongodb-enterprise-operator); do
+        header "$pod" >> "$dump_file"
         # in general describe produces shorter output than "get -o yaml" and seems it is enough to diagnose the problem
-        kubectl describe ${pod} -n ${PROJECT_NAMESPACE}  >> $dump_file
+        kubectl describe "${pod}" -n "${PROJECT_NAMESPACE}"  >> "$dump_file"
     done
 }
