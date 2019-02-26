@@ -1,3 +1,4 @@
+import os
 import random
 import string
 import sys
@@ -42,6 +43,12 @@ class KubernetesTester(object):
         cls.clients('corev1').create_namespaced_config_map(namespace, config_map)
 
     @classmethod
+    def patch_config_map(cls, namespace, name, data):
+        """Patch a config map in a given namespace with the given name and data."""
+        config_map = cls.clients('client').V1ConfigMap(data=data)
+        cls.clients("corev1").patch_namespaced_config_map(name, namespace, config_map)
+
+    @classmethod
     def create_secret(cls, namespace, name, data):
         """Create a secret in a given namespace with the given name and data—handles base64 encoding."""
         secret = cls.clients('client').V1Secret(
@@ -76,22 +83,13 @@ class KubernetesTester(object):
 
     @classmethod
     def teardown_class(cls):
+        "Tears down testing class, make sure pytest ends after tests are run."
         cls.teardown_env()
+        sys.stdout.flush()
 
     @classmethod
     def setup_class(cls):
         "Will setup class (initialize kubernetes objects)"
-        # TODO uncomment when CLOUDP-37451 is done
-        # try:
-        #     # removing the group in OM if it existed before running the test (could happen if running locally using 'make e2e')
-        #     KubernetesTester.remove_group(KubernetesTester.get_om_group_id())
-        #     print('Removed group {} from Ops Manager'.format(KubernetesTester.get_om_group_id()), flush=True)
-        #
-        #     # Need to nulify the cached group_id as the new group will be created
-        #     KubernetesTester.group_id = None
-        # except:
-        #     pass
-
         KubernetesTester.load_configuration()
         # Loads the subclass doc
         if cls.__doc__:
@@ -99,11 +97,6 @@ class KubernetesTester(object):
             cls.prepare(test_setup, KubernetesTester.get_namespace())
 
         cls.setup_env()
-
-    @classmethod
-    def teardown_class(cls):
-        "Tears down testing class, make sure pytest ends after tests are run."
-        sys.stdout.flush()
 
     @staticmethod
     def load_configuration():
@@ -137,7 +130,7 @@ class KubernetesTester(object):
     def get_om_group_id():
         # doing some "caching" for the group id on the first invocation
         if KubernetesTester.group_id is None:
-            KubernetesTester.group_id = KubernetesTester.query_group_id(KubernetesTester.get_om_group_name())
+            KubernetesTester.group_id = KubernetesTester.query_group(KubernetesTester.get_om_group_name())["id"]
         return KubernetesTester.group_id
 
     @classmethod
@@ -172,6 +165,13 @@ class KubernetesTester(object):
         )
 
     @staticmethod
+    def create_custom_resource_from_file(namespace, file_path):
+        with open(file_path) as f:
+            resource = yaml.safe_load(f)
+
+        KubernetesTester.create_custom_resource_from_object(namespace, resource)
+
+    @staticmethod
     def create_custom_resource_from_object(namespace, resource, exception_reason=None, patch=None):
         name, kind, group, version = get_crd_meta(resource)
         if patch:
@@ -182,7 +182,7 @@ class KubernetesTester(object):
         KubernetesTester.name = name
         KubernetesTester.kind = kind
 
-        print('Creating resource {} {}'.format(kind, name), flush=True)
+        print('Creating resource {} {}'.format(kind, name), )
 
         # todo move "wait for exception" logic to a generic function and reuse for create/update/delete
         try:
@@ -195,13 +195,13 @@ class KubernetesTester(object):
         except ApiException as e:
             if exception_reason:
                 assert e.reason == exception_reason, "Real exception is: {}".format(e.reason)
-                print('"{}" exception raised while creating the resource - this is expected!'.format(e.reason), flush=True)
+                print('"{}" exception raised while creating the resource - this is expected!'.format(e.reason))
                 return
             else:
-                print("Failed to create a resource ({}): \n {}".format(e, resource), flush=True)
+                print("Failed to create a resource ({}): \n {}".format(e, resource))
                 raise
 
-        print('Created resource {} {}'.format(kind, name), flush=True)
+        print('Created resource {} {}'.format(kind, name))
 
     @staticmethod
     def update(section, namespace):
@@ -216,9 +216,9 @@ class KubernetesTester(object):
                 group, version, namespace, plural(kind), name, patched
             )
         except Exception:
-            print("Failed to update a resource ({}): \n {}".format(sys.exc_info()[0], patched), flush=True)
+            print("Failed to update a resource ({}): \n {}".format(sys.exc_info()[0], patched))
             raise
-        print('Updated resource {} {}'.format(kind, name), flush=True)
+        print('Updated resource {} {}'.format(kind, name))
 
     @staticmethod
     def delete(section, namespace):
@@ -227,12 +227,12 @@ class KubernetesTester(object):
         name, kind, group, version = get_crd_meta(resource)
         del_options = KubernetesTester.clients("client").V1DeleteOptions()
 
-        print('Deleting resource {} {}'.format(kind, name), flush=True)
+        print('Deleting resource {} {}'.format(kind, name))
 
         KubernetesTester.clients("customv1").delete_namespaced_custom_object(
             group, version, namespace, plural(kind), name, del_options
         )
-        print('Deleted resource {} {}'.format(kind, name), flush=True)
+        print('Deleted resource {} {}'.format(kind, name))
 
     @staticmethod
     def noop(section, namespace):
@@ -303,11 +303,11 @@ class KubernetesTester(object):
         """
         if "wait_until" not in action and "wait_for" not in action:
             return
-        print('Waiting for the condition: {}'.format(action), flush=True)
+        print('Waiting for the condition: {}'.format(action))
         sys.stdout.flush()
 
         if "wait_until" in action:
-            print("Waiting until {}".format(action["wait_until"]), flush=True)
+            print("Waiting until {}".format(action["wait_until"]))
             cls.wait_until(action["wait_until"], int(action.get("timeout", 60)))
         else:
             KubernetesTester.wait_for(action.get("timeout", 0))
@@ -357,26 +357,98 @@ class KubernetesTester(object):
         self.kind = None
 
     @staticmethod
-    def query_group_id(group_name):
+    def create_group(org_id, group_name):
+        """
+        Creates the group with specified name and organization id in Ops Manager, returns its ID
+        """
+        url = build_om_group_endpoint(KubernetesTester.get_om_base_url())
+        response = KubernetesTester.om_request("post", url, {'name': group_name, 'orgId': org_id})
+
+        return response.json()["id"]
+
+    @staticmethod
+    def query_group(group_name):
         """Obtains the group id from group name"""
         url = build_om_group_by_name_endpoint(KubernetesTester.get_om_base_url(),
                                               group_name)
         response = KubernetesTester.om_request("get", url)
-        if response.status_code >= 300:
-            raise Exception(
-                "Error obtaining ID from Ops Manager API. {} {}".format(
-                    response.status_code, response.text
-                )
-            )
 
-        return response.json()["id"]
+        return response.json()
 
     @staticmethod
     def remove_group(group_id):
         url = build_om_group_delete_endpoint(KubernetesTester.get_om_base_url(),
                                              group_id)
         KubernetesTester.om_request("delete", url)
-        # TODO is the exception thrown if request fails?
+
+    @staticmethod
+    def create_organization(org_name):
+        """
+        Creates the organization with specified name in Ops Manager, returns its ID
+        """
+        url = build_om_org_endpoint(KubernetesTester.get_om_base_url())
+        response = KubernetesTester.om_request("post", url, {'name': org_name})
+
+        return response.json()["id"]
+
+    @staticmethod
+    def find_organizations(org_name):
+        """
+        Finds all organization with specified name, iterates over max 200 pages to find all matching organizations
+        (aligned with 'ompaginator.TraversePages').
+        Returns the list of ids
+        """
+        ids = []
+        for i in range(1, 200):
+            url = build_om_org_list_endpoint(KubernetesTester.get_om_base_url(), i)
+            json = KubernetesTester.om_request("get", url).json()
+
+            # Add organization id if its name is the searched one
+            ids.extend([org["id"] for org in json["results"] if org["name"] == org_name])
+
+            if not any(link["rel"] == "next" for link in json["links"]):
+                break
+
+        return ids
+
+    @staticmethod
+    def remove_organization(org_id):
+        """
+        Removes the organization with specified id from Ops Manager
+        """
+        url = build_om_one_org_endpoint(KubernetesTester.get_om_base_url(), org_id)
+        KubernetesTester.om_request("delete", url)
+
+    @staticmethod
+    def get_groups_in_organization_first_page(org_id):
+        """
+        :return: the first page of groups  (100 items for OM 4.0 and 500 for OM 4.1)
+        """
+        url = build_om_groups_in_org_endpoint(KubernetesTester.get_om_base_url(), org_id, 1)
+        response = KubernetesTester.om_request("get", url)
+
+        return response.json()
+
+
+    @staticmethod
+    def find_groups_in_organization(org_id, group_name):
+        """
+        Finds all group with specified name, iterates over max 200 pages to find all matching groups inside the
+        organization (aligned with 'ompaginator.TraversePages')
+        Returns the list of ids.
+        """
+        ids = []
+        for i in range(1, 200):
+            url = build_om_groups_in_org_endpoint(KubernetesTester.get_om_base_url(), org_id, i)
+            json = KubernetesTester.om_request("get", url).json()
+
+            # Add group id if its name is the searched one
+            ids.extend([group["id"] for group in json["results"] if group["name"] == group_name])
+
+            if not any(link["rel"] == "next" for link in json["links"]):
+                break
+
+        return ids
 
     @staticmethod
     def get_automation_config():
@@ -395,11 +467,18 @@ class KubernetesTester(object):
         return response.json()
 
     @staticmethod
-    def om_request(method, endpoint):
+    def om_request(method, endpoint, json_object=None):
         headers = {"Content-Type": "application/json"}
         auth = build_auth(KubernetesTester.get_om_user(), KubernetesTester.get_om_api_key())
 
-        response = requests.request(method, endpoint, auth=auth, headers=headers)
+        response = requests.request(method, endpoint, auth=auth, headers=headers, json=json_object)
+
+        if response.status_code >= 300:
+            raise Exception(
+                "Error sending request to Ops Manager API. {} ({}).\n Request details: {} {} (data: {})".format(
+                    response.status_code, response.text, method, endpoint, json_object
+                )
+            )
 
         return response
 
@@ -413,7 +492,7 @@ class KubernetesTester(object):
         assert len(config["processes"]) == 0, "Processes not empty: {}".format(config["processes"])
 
         hosts = KubernetesTester.get_hosts()
-        assert len(hosts["results"]) == 0, "Hosts not empty: {}".format(hosts["results"])
+        assert len(hosts["results"]) == 0, "Hosts not empty: ({} hosts left)".format(len(hosts["results"]))
 
     @staticmethod
     def mongo_resource_deleted():
@@ -429,8 +508,8 @@ class KubernetesTester(object):
         return "mongodb://{}".format(host)
 
     @staticmethod
-    def random_k8s_name():
-        return 'test-' + ''.join(
+    def random_k8s_name(prefix='test-'):
+        return prefix + ''.join(
             random.choice(string.ascii_lowercase) for _ in range(10)
         )
 
@@ -560,7 +639,7 @@ def func_with_timeout(func, timeout=120, sleep_time=2):
         if time_passed + start_time >= timeout_time:
             raise AssertionError("Timed out executing {} after {} seconds".format(func.__name__, timeout))
         if func():
-            print('{} executed successfully after {} seconds'.format(func.__name__, time_passed / 1000), flush=True)
+            print('{} executed successfully after {} seconds'.format(func.__name__, time_passed / 1000))
             return True
         time.sleep(sleep_time)
 
@@ -571,7 +650,7 @@ def func_with_assertions(func):
         return True
     except AssertionError as e:
         # so we know which AssertionError was raised
-        print("The check for {} hasn't passed yet. {}".format(func.__name__, e), flush=True)
+        print("The check for {} hasn't passed yet. {}".format(func.__name__, e))
         return False
 
 
@@ -590,8 +669,28 @@ def build_om_group_by_name_endpoint(base_url, name):
     return "{}/api/public/v1.0/groups/byName/{}".format(base_url, name)
 
 
+def build_om_group_endpoint(base_url):
+    return "{}/api/public/v1.0/groups".format(base_url)
+
+
 def build_om_group_delete_endpoint(base_url, group_id):
     return "{}/api/public/v1.0/groups/{}".format(base_url, group_id)
+
+
+def build_om_org_endpoint(base_url):
+    return "{}/api/public/v1.0/orgs".format(base_url)
+
+
+def build_om_org_list_endpoint(base_url, page_num):
+    return "{}/api/public/v1.0/orgs?itemsPerPage=500&pageNum={}".format(base_url, page_num)
+
+
+def build_om_one_org_endpoint(base_url, org_id):
+    return "{}/api/public/v1.0/orgs/{}".format(base_url, org_id)
+
+
+def build_om_groups_in_org_endpoint(base_url, org_id, page_num):
+    return "{}/api/public/v1.0/orgs/{}/groups?itemsPerPage=500&pageNum={}".format(base_url, org_id, page_num)
 
 
 def build_automation_config_endpoint(base_url, group_id):

@@ -28,7 +28,7 @@ class TestReplicaSetCreation(KubernetesTester):
     create:
       file: fixtures/replica-set.yaml
       wait_until: in_running_state
-      timeout: 120
+      timeout: 150
     '''
 
     def test_replica_set_sts_exists(self):
@@ -288,7 +288,7 @@ class TestReplicaSetUpdate(KubernetesTester):
       file: fixtures/replica-set.yaml
       patch: '[{"op":"replace","path":"/spec/members","value":5}]'
       wait_until: in_running_state
-      timeout: 90
+      timeout: 150
     '''
 
     def test_replica_set_sts_should_exist(self):

@@ -21,7 +21,7 @@ class TestStandaloneListensConfigMap(KubernetesTester):
         config_map = V1ConfigMap(data={"projectName": projectName})
         self.clients("corev1").patch_namespaced_config_map("my-project", self.get_namespace(), config_map)
 
-        print('Patched the ConfigMap - changed group name to "{}"'.format(projectName), flush=True)
+        print('Patched the ConfigMap - changed group name to "{}"'.format(projectName))
 
         # Sleeping for short to make sure the standalone has gone to Pending state
         time.sleep(5)
@@ -34,8 +34,7 @@ class TestStandaloneListensConfigMap(KubernetesTester):
         KubernetesTester.wait_until('in_running_state', 120)
 
         # Checking that the new group was created in OM
-        new_group_id = KubernetesTester.query_group_id(projectName)
+        new_group_id = KubernetesTester.query_group(projectName)["id"]
         assert new_group_id is not None
 
-        # TODO uncomment when CLOUDP-37451 is done
-        # KubernetesTester.remove_group(new_group_id)
+        KubernetesTester.remove_group(new_group_id)

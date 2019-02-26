@@ -20,7 +20,7 @@ class TestShardedClusterListensSecret(KubernetesTester):
         secret = V1Secret(string_data={"publicApiKey": "wrongKey"})
         self.clients("corev1").patch_namespaced_secret("my-credentials", self.get_namespace(), secret )
 
-        print('Patched the Secret - changed publicApiKey to "wrongKey"', flush=True)
+        print('Patched the Secret - changed publicApiKey to "wrongKey"')
 
         KubernetesTester.wait_until('in_error_state', 20)
 

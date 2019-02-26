@@ -69,13 +69,13 @@ kind: Namespace
 metadata:
   name: ${namespace}
   labels:
-    evg/version-id: ${VERSION_ID}
-    evg/task-name: ${TASK_NAME}
+    evg/version-id: ${VERSION_ID:-'not-specified'}
+    evg/task-name: ${TASK_NAME:-'not-specified'}
   annotations:
-    evg/url: "https://evergreen.mongodb.com/version/${VERSION_ID}"
-    evg/task-url: "https://evergreen.mongodb.com/task/${TASK_ID}"
+    evg/url: "https://evergreen.mongodb.com/version/${VERSION_ID:-'not-specified'}"
+    evg/task-url: "https://evergreen.mongodb.com/task/${TASK_ID:-'not-specified'}"
 EOF
-    kubectl create -f "${tmp_file}"
+    kubectl create -f "${tmp_file}" 2>/dev/null || true
 }
 # the function installs Ops Manager into Kubernetes cluster if it's not installed already
 # Note, that this requires the k8s node with 4 Gb of free memory
@@ -151,10 +151,14 @@ ensure_ops_manager_k8s() {
 }
 
 print_om_endpoint() {
-    ns="${1:-'<undefined>'}"
+    ns="${1-}"
     external_ip="$(kubectl get nodes -o wide | grep $(kubectl get pods/mongodb-enterprise-ops-manager-0 -n operator-testing -o wide | tail -n 1 | awk '{print $7}') | awk '{print $7}')"
 
-    echo "Use the following address to access Ops Manager from the browser: http://${external_ip}:30039 (namespace: ${ns})"
+    if [[ -z "${ns}" ]]; then
+        echo "Use the following address to access Ops Manager from the browser: http://${external_ip}:30039"
+    else
+        echo "Use the following address to access Ops Manager from the browser: http://${external_ip}:30039/v2/${ns}"
+    fi
 }
 
 print_perpetual_om_endpoint() {

@@ -32,12 +32,13 @@ class TestStandaloneRecoversBadPvConfiguration(KubernetesTester):
         resource["metadata"]["name"] = self.__class__.random_storage_name
         KubernetesTester.clients("storagev1").create_storage_class(resource)
 
-        print('Created a storage class "{}", standalone is supposed to get fixed now.'.format(self.__class__.random_storage_name), flush=True)
+        print('Created a storage class "{}", standalone is supposed to get fixed now.'.format(self.__class__.random_storage_name))
 
         KubernetesTester.wait_until('in_running_state', 120)
 
-    def teardown_class(cls):
-        print('\nRemoving storage class "{}" from Kubernetes'.format(cls.random_storage_name), flush=True)
+    @classmethod
+    def teardown_env(cls):
+        print('\nRemoving storage class "{}" from Kubernetes'.format(cls.random_storage_name))
         KubernetesTester.clients("storagev1").delete_storage_class(
             name = cls.random_storage_name, body = kubernetes.client.V1DeleteOptions())
 

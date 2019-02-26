@@ -36,6 +36,10 @@ else
                     continue
                 fi
             fi
+            kubectl delete mrs --all -n "${namespace}"
+            kubectl delete msc --all -n "${namespace}"
+            kubectl delete mst --all -n "${namespace}"
+
             kubectl delete "namespace/${namespace}"
         done
     done

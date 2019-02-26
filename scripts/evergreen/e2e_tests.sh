@@ -99,7 +99,6 @@ deploy_test_app() {
     # If running in evergreen, prefer the VERSION_ID to avoid GIT_SHA collisions
     # when people is building images from same commit.
     TEST_IMAGE_TAG=${VERSION_ID:$GIT_SHA}
-    JOB_NAME="job-e2e-tests"
 
     charttmpdir=$(mktemp -d 2>/dev/null || mktemp -d -t 'charttmpdir')
     charttmpdir=${charttmpdir}/chart
@@ -124,24 +123,36 @@ deploy_test_app() {
          --set pytest.addopts="${pytest_addopts}" \
          --set tag="${TEST_IMAGE_TAG}" > mongodb-enterprise-tests.yaml || exit 1
 
+    kubectl -n "${PROJECT_NAMESPACE}" delete -f mongodb-enterprise-tests.yaml  || true
+
     kubectl -n "${PROJECT_NAMESPACE}" apply -f mongodb-enterprise-tests.yaml
+
+    delete mongodb-enterprise-tests.yaml
 }
 
-wait_while_job_has_not_started() {
-    # If 'get pods' returns a No resources found, wait for a while
-    # This can take as long as it needs to take, in case of a busy cluster, we have seen the test pods taking a few minutes to start
-    while kubectl -n "${PROJECT_NAMESPACE}" get pods --selector=job-name=${JOB_NAME} 2>&1 | grep -q "No resources found" ; do sleep 3; done
+wait_until_pod_is_running_or_failed_or_succeeded() {
+    # Do wait while the Pod is not yet running or failed (can be in Pending or ContainerCreating state)
+    # Note that the pod may jump to Failed/Completed state quickly - so we need to give up waiting on this as well
+    echo "Waiting until the test application gets to Running state..."
+
+    while ! test_app_running_or_ended; do printf .; sleep 1; done;
+    echo
 }
 
-wait_while_job_is_active() {
+test_app_running_or_ended() {
+    status="$(kubectl -n "${PROJECT_NAMESPACE}" get pod "${TEST_APP_PODNAME}" -o jsonpath="{.status.phase}")"
+    [[ "${status}" = "Running" || "${status}" = "Failed" || "${status}" = "Succeeded" ]]
+}
+
+test_app_ended() {
+    status="$(kubectl -n "${PROJECT_NAMESPACE}" get pod "${TEST_APP_PODNAME}" -o jsonpath="{.status.phase}")"
+    [[ "${status}" = "Failed" || "${status}" = "Succeeded" ]]
+}
+
+wait_while_pod_is_active() {
     timeout=${1}
-    # .status.active is the state of the Job since it was created, before its Pod have reached completed state.
-    # It will leave this state when the Pod finish, be it successfully or not.
-
-    ( while [[ $(kubectl -n "${PROJECT_NAMESPACE}" get "jobs/${JOB_NAME}" -o jsonpath='{.status.active}') -eq 1 ]]; do sleep 3; done ) & pid=$!
-
-    echo "Waiting while jobs/${JOB_NAME} is in .status.active state"
-    wait_for_or_kill ${pid} "${timeout}"
+    timeout ${timeout} bash -c \
+        'while kubectl -n '"${PROJECT_NAMESPACE}"' get pod '"${TEST_APP_PODNAME}"' -o jsonpath="{.status.phase}" | grep -q "Running" ; do sleep 1; done' || true
 }
 
 # Will run the test application and wait for its completion.
@@ -149,28 +160,17 @@ run_tests() {
     test_name=${1}
     timeout=${2}
 
+    TEST_APP_PODNAME=mongodb-enterprise-operator-tests
+
     deploy_test_app
 
-    wait_while_job_has_not_started
+    wait_until_pod_is_running_or_failed_or_succeeded
 
-    echo "this is the pod we should get"
-    kubectl -n "${PROJECT_NAMESPACE}" get pods --selector=job-name="${JOB_NAME}" --output=jsonpath='{.items[*].metadata.name}'
-    # At this point we should have a running Pod with the tests.
-    TEST_APP_PODNAME=$(kubectl -n "${PROJECT_NAMESPACE}" get pods --selector=job-name="${JOB_NAME}" --output=jsonpath='{.items[*].metadata.name}')
-    title "${test_name}.py (tag: ${TEST_IMAGE_TAG})"
-
-    echo "We'll wait for jobs/${JOB_NAME} to complete"
-    # Wait for job to be active up to 120 seconds
-    if wait_while_job_is_active 120; then
-        echo "plop "
-    fi
+    title "Running test ${test_name}.py (tag: ${TEST_IMAGE_TAG})"
 
     # we don't output logs to file when running tests locally
     if [[ "${MODE-}" == "dev" ]]; then
-        kubectl -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}"
-
-        # sleeping so that in case of error manage to see the log
-        sleep 3
+        kubectl -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" -f
     else
         output_filename="logs/test_app.log"
         operator_filename="logs/operator.log"
@@ -178,14 +178,16 @@ run_tests() {
         # At this time both ${TEST_APP_PODNAME} have finished running, so we don't follow (-f) it
         # Similarly, the operator deployment has finished with our tests, so we print whatever we have
         # until this moment and go continue with our lives
-        kubectl -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" > "${output_filename}"
+        kubectl -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" -f | tee "${output_filename}"
         kubectl -n "${PROJECT_NAMESPACE}" logs "deployment/mongodb-enterprise-operator" > "${operator_filename}"
 
-        # logs are saved in files (so we can upload them to s3), but also displayed in the evergreen gui
-        cat "${output_filename}"
     fi
 
-    [[ $(kubectl -n "${PROJECT_NAMESPACE}" get "jobs/${JOB_NAME}" --output=jsonpath='{.status.succeeded}') -eq 1 ]]
+    # Waiting a bit until the pod gets to some end
+    while ! test_app_ended; do printf .; sleep 1; done;
+    echo
+
+    [[ $(kubectl -n ${PROJECT_NAMESPACE} get pods/${TEST_APP_PODNAME} -o jsonpath='{.status.phase}') == "Succeeded" ]]
 }
 
 dump_agent_logs() {
@@ -224,7 +226,7 @@ initialize() {
     # Everything under this directory will be pushed to S3
     mkdir -p logs/
 
-    if [ "${BUILD_VARIANT}" = "e2e_openshift_origin_v3.11" ]; then
+    if [ "${BUILD_VARIANT-}" = "e2e_openshift_origin_v3.11" ]; then
         title "More info: https://master.openshift-cluster.mongokubernetes.com:8443/console/project/${PROJECT_NAMESPACE}"
     fi
 
