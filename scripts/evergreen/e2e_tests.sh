@@ -94,7 +94,11 @@ teardown() {
 deploy_test_app() {
     title "Deploying test application"
 
-    TEST_IMAGE_TAG=$(git rev-parse HEAD)
+    GIT_SHA=$(git rev-parse HEAD)
+
+    # If running in evergreen, prefer the VERSION_ID to avoid GIT_SHA collisions
+    # when people is building images from same commit.
+    TEST_IMAGE_TAG=${VERSION_ID:$GIT_SHA}
     JOB_NAME="job-e2e-tests"
 
     charttmpdir=$(mktemp -d 2>/dev/null || mktemp -d -t 'charttmpdir')
@@ -223,6 +227,10 @@ initialize() {
     if [ "${BUILD_VARIANT}" = "e2e_openshift_origin_v3.11" ]; then
         title "More info: https://master.openshift-cluster.mongokubernetes.com:8443/console/project/${PROJECT_NAMESPACE}"
     fi
+
+    # Make sure we use VERSION_ID if it is defined.
+    REVISION=${VERSION_ID:-$REVISION}
+    export REVISION
 }
 
 finalizer() {

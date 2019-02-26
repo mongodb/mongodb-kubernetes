@@ -242,8 +242,8 @@ functions:
           export QUAY_PROD_USER=${quay_prod_username}
           export QUAY_PROD_PASSWORD=${quay_prod_robot_token}
 
-          if [ "${create_git_sha_tags}" = "true" ]; then
-            export REVISION=$(git rev-parse HEAD)
+          if [ "${tag_images_with_version}" = "true" ]; then
+            export REVISION=${version_id}
           fi
 
           python3 -m venv venv
@@ -420,12 +420,12 @@ tasks:
       vars:
         env: development
         image_name: mongodb-enterprise-operator
-        create_git_sha_tags: "true"
+        tag_images_with_version: "true"
     - func: "build_and_push_image"
       vars:
         env: development
         image_name: mongodb-enterprise-database
-        create_git_sha_tags: "true"
+        tag_images_with_version: "true"
 
 - name: setup_e2e
   # 40 minutes max (sometimes cleanup procedure may take very long because of slow PVCs removal...)
@@ -441,17 +441,17 @@ tasks:
       vars:
         env: development
         image_name: mongodb-enterprise-operator
-        create_git_sha_tags: "true"
+        tag_images_with_version: "true"
     - func: "build_and_push_image"
       vars:
         env: development
         image_name: mongodb-enterprise-database
-        create_git_sha_tags: "true"
+        tag_images_with_version: "true"
     - func: "build_and_push_image"
       vars:
         env: development
         image_name: mongodb-enterprise-tests
-        create_git_sha_tags: "true"
+        tag_images_with_version: "true"
     - func: "setup_kubectl"
     - func: "prepare_test_env"
 
