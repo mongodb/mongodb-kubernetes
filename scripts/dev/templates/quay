@@ -21,5 +21,4 @@ export CLUSTER_TYPE=minikube
 export CLUSTER_NAME=minikube
 export REPO_URL=quay.io/mongodb
 export NAMESPACE=public
-export OPERATOR_VERSION=0.6
-
+export OPERATOR_VERSION=0.8

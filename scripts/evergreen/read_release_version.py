@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 
-'''
+"""
 Reads the release version for provided application from release.json file.
 RELEASE_OBJECT is the name of json key in the file.
+Note, that the script must be called from the root of the project
 
 Usage:
     read_release_version.py --release-app RELEASE_OBJECT
 
-'''
+"""
 
 import json
 import docopt

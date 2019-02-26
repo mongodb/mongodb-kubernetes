@@ -23,5 +23,4 @@ if [[ -z $ONLY_MDB ]]; then
 	kubectl delete secrets --all -n "${NAMESPACE}"
 	kubectl delete configmaps --all -n "${NAMESPACE}"
 	kubectl delete pvc --all -n "${NAMESPACE}"
-	kubectl delete crd --all
 fi

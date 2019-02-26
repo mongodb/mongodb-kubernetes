@@ -21,37 +21,10 @@ Create a DOCSP ticket describing the tickets in the current [fixVersion](https:/
 
 ## Increase release versions in relevant files
 
-Update the version in `release.json` appropriately. For instance, the following
-release manifest:
-
-```json
-{
-  "mongodbOperator": "0.5",
-  "mongodbEnterprise": "4.0.3",
-  "automation.agent.version": "5.4.7.5469-1"
-}
+```bash
+./scripts/evergreen/update_release_version.py <version>
 ```
-
-could be changed to:
-
-```json
-{
-  "mongodbOperator": "0.6",
-  "mongodbEnterprise": "4.0.3",
-  "automation.agent.version": "5.4.7.5469-1"
-}
-```
-
-Increase the version in all other files based on `release.json` one (`todo:
-teach update_release_version.py file update release.json as well`):
-
-```
-scripts/evergreen/update_release_version.py
-```
-
-This will modify some files that are meant to be distributed in the
-`public` repo.
-
+This will update all relevant files with a new version
 Push the PR changes
 
 ## QA
@@ -68,10 +41,8 @@ evergreen patch -p ops-manager-kubernetes -v build_and_push_images_development -
 Perform a sanity check with your Kops cluster using just built images. This
 cluster should have access to the ECR images, as they are all hosted in AWS.
 
-We still don't have a good QA plan so you should do several tests involving at
-least the 3 different types of custom resource: Standalones, ReplicaSets and
-ShardedClusters. Make sure you use PersistentVolumes and try a few updates to
-the custom objects (like updating the mongod version).
+Most of the standard operations with 3 MongoDB resources are covered by E2E tests, try to look 
+through the tickets that got into the release and check if any additional QA is necessary. 
 
 ## Get the release PR approved and merge the branch to Master
 
@@ -81,9 +52,7 @@ Merge the release branch to master
 
 ## Tag the commit for release
 
-Create a signed and annotated tag for this particular release. Use the same
-semantic version as you earlier defined in the release.json file for the tag
-name. Set the message contents to the release notes.
+Create a signed and annotated tag for this particular release. Set the message contents to the release notes.
 
 ```bash
 git tag --annotate --sign $(jq --raw-output .mongodbOperator < release.json)
@@ -94,7 +63,7 @@ git push origin $(jq --raw-output .mongodbOperator < release.json)
 
 ### Debian based images (published to Quay)
 
-After successful QA publish images to public repo.
+After successful QA publish images to the public repo.
 
 This should be done using `evergreen`:
 
@@ -133,7 +102,7 @@ eventually.
 
 Just run
 
-    scripts/evergreen/update_public_repo
+    scripts/evergreen/update_public_repo <path_to_public_repo_root>
 
 This will copy the contents of the `public` directory in the `10gen/ops-manager-kubernetes` into
 the root of the `mongodb/mongodb-enterprise-kubernetes`, the public repo.
@@ -151,7 +120,6 @@ the output of your yaml files generation.
 
 ## Create Release Notes on Github
 Copy the Release Notes from the DOCSP [into Github](https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/new)
-
 
 ## Release in Github
 
