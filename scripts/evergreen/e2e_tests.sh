@@ -98,7 +98,7 @@ deploy_test_app() {
 
     # If running in evergreen, prefer the VERSION_ID to avoid GIT_SHA collisions
     # when people is building images from same commit.
-    TEST_IMAGE_TAG=${VERSION_ID:$GIT_SHA}
+    TEST_IMAGE_TAG="${VERSION_ID:-$GIT_SHA}"
 
     charttmpdir=$(mktemp -d 2>/dev/null || mktemp -d -t 'charttmpdir')
     charttmpdir=${charttmpdir}/chart
