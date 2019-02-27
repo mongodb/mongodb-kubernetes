@@ -89,12 +89,16 @@ evergreen patch -p ops-manager-kubernetes -v release_operator_rhel -f
 
 Track the status of the jobs for operator and database using the following links:
 
-https://connect.redhat.com/project/850021/build-service
-https://connect.redhat.com/project/851701/build-service
+* https://connect.redhat.com/project/850021/build-service
+* https://connect.redhat.com/project/851701/build-service
 
 Note, that so far the build service is not reliable and some checks may fail - you need to trigger new builds on the
 site manually specifying the new version (increase the patch part, e.g. `0.7.1`) and hopefully the build will succeed
 eventually.
+
+Finally publish the images manually:
+* https://connect.redhat.com/project/850021/view (Operator)
+* https://connect.redhat.com/project/851701/view (Database)
 
 (more details about RHEL build process are in https://github.com/10gen/kubernetes-rhel-images)
 
@@ -105,18 +109,14 @@ Just run
     scripts/evergreen/update_public_repo <path_to_public_repo_root>
 
 This will copy the contents of the `public` directory in the `10gen/ops-manager-kubernetes` into
-the root of the `mongodb/mongodb-enterprise-kubernetes`, the public repo.
+the root of the `mongodb/mongodb-enterprise-kubernetes`, the public repo and will commit changes (not push!)
 
 This script will also generate YAML files that can be used to install
 the operator in clusters with no Helm installed. These yaml files will
 be copied into the public repo, they will not exist in the private
-repo, and they should not be checked into the private repo either. You
-can generate the public repo, without commiting to it, with:
+repo, and they should not be checked into the private repo either. 
 
-    GENERATE_ONLY=oui ./scripts/evergreen/update_public_repo some_temp_dir
-
-Where `some_temp_dir` is a temporary directory you want to use to test
-the output of your yaml files generation.
+Check the last commit in the public repo and if everything is ok - push it.
 
 ## Create Release Notes on Github
 Copy the Release Notes from the DOCSP [into Github](https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/new)
