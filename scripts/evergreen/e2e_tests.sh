@@ -123,11 +123,11 @@ deploy_test_app() {
          --set pytest.addopts="${pytest_addopts}" \
          --set tag="${TEST_IMAGE_TAG}" > mongodb-enterprise-tests.yaml || exit 1
 
-    kubectl -n "${PROJECT_NAMESPACE}" delete -f mongodb-enterprise-tests.yaml  || true
+    kubectl -n "${PROJECT_NAMESPACE}" delete -f mongodb-enterprise-tests.yaml 2>/dev/null  || true
 
     kubectl -n "${PROJECT_NAMESPACE}" apply -f mongodb-enterprise-tests.yaml
 
-    delete mongodb-enterprise-tests.yaml
+    rm mongodb-enterprise-tests.yaml
 }
 
 wait_until_pod_is_running_or_failed_or_succeeded() {
@@ -231,7 +231,9 @@ initialize() {
     fi
 
     # Make sure we use VERSION_ID if it is defined.
-    REVISION=${VERSION_ID:-$REVISION}
+    if [[ -n "${VERSION_ID-}" ]]; then
+        REVISION="${VERSION_ID}"
+    fi
     export REVISION
 }
 
@@ -295,15 +297,6 @@ if [[ "${MODE-}" != "dev" ]]; then
         else
             print_perpetual_om_endpoint "${PROJECT_NAMESPACE}"
         fi
-
-        # seems the removal of PVCs is the longest thing during later namespace cleanup in "prepare_test_env" - so let's
-        # remove them now
-
-        # Removing PVC from a running namespace, probably with still running mongods, can make it
-        # difficult to debug problems, considering we are making even more noise with this removal.
-        # I'll skip this part for now, the maintenance of the cluster is not the responsibility of
-        # the test framework.
-        # kubectl delete pvc --all -n "${PROJECT_NAMESPACE}" --now || true
 
         kubectl label "namespace/${PROJECT_NAMESPACE}" "evg/state=failed"
     fi

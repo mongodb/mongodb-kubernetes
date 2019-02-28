@@ -25,7 +25,7 @@ class TestStandaloneListensConfigMap(KubernetesTester):
 
         # Sleeping for short to make sure the standalone has gone to Pending state
         time.sleep(5)
-        assert KubernetesTester._check_phase(
+        assert KubernetesTester.check_phase(
             KubernetesTester.namespace,
             KubernetesTester.kind,
             KubernetesTester.name,

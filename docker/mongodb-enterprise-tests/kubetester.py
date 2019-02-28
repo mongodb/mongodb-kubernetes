@@ -225,9 +225,14 @@ class KubernetesTester(object):
         "delete custom object"
         resource = yaml.safe_load(open(section["file"]))
         name, kind, group, version = get_crd_meta(resource)
-        del_options = KubernetesTester.clients("client").V1DeleteOptions()
 
+        KubernetesTester.delete_custom_resource(namespace, name, kind, group, version)
+
+    @staticmethod
+    def delete_custom_resource(namespace, name, kind, group='mongodb.com', version='v1'):
         print('Deleting resource {} {}'.format(kind, name))
+
+        del_options = KubernetesTester.clients("client").V1DeleteOptions()
 
         KubernetesTester.clients("customv1").delete_namespaced_custom_object(
             group, version, namespace, plural(kind), name, del_options
@@ -260,7 +265,7 @@ class KubernetesTester(object):
 
     @staticmethod
     def in_error_state():
-        return KubernetesTester._check_phase(
+        return KubernetesTester.check_phase(
             KubernetesTester.namespace,
             KubernetesTester.kind,
             KubernetesTester.name,
@@ -269,7 +274,7 @@ class KubernetesTester(object):
 
     @staticmethod
     def in_running_state():
-        return KubernetesTester._check_phase(
+        return KubernetesTester.check_phase(
             KubernetesTester.namespace,
             KubernetesTester.kind,
             KubernetesTester.name,
@@ -277,19 +282,19 @@ class KubernetesTester(object):
         )
 
     @staticmethod
-    def is_deleted():
+    def is_deleted(namespace, name, kind):
         try:
             KubernetesTester.get_namespaced_custom_object(
-                KubernetesTester.namespace,
-                KubernetesTester.name,
-                KubernetesTester.kind
+                namespace,
+                name,
+                kind
             )
             return False
         except ApiException:  # ApiException is thrown when the object does not exist
             return True
 
     @staticmethod
-    def _check_phase(namespace, kind, name, phase):
+    def check_phase(namespace, kind, name, phase):
         resource = KubernetesTester.get_namespaced_custom_object(namespace, name, kind)
         if 'status' not in resource:
             return False
@@ -361,24 +366,38 @@ class KubernetesTester(object):
         """
         Creates the group with specified name and organization id in Ops Manager, returns its ID
         """
-        url = build_om_group_endpoint(KubernetesTester.get_om_base_url())
+        url = build_om_groups_endpoint(KubernetesTester.get_om_base_url())
         response = KubernetesTester.om_request("post", url, {'name': group_name, 'orgId': org_id})
 
         return response.json()["id"]
 
     @staticmethod
     def query_group(group_name):
-        """Obtains the group id from group name"""
-        url = build_om_group_by_name_endpoint(KubernetesTester.get_om_base_url(),
-                                              group_name)
+        """
+        Obtains the group id of the group with specified name.
+        Note, that the logic used imitates the logic used by the Operator, 'getByName' returns all groups in all
+        organizations which may be inconvenient for local development as may result in "may groups exist" exception
+        """
+        org_ids = KubernetesTester.find_organizations(group_name)
+        if len(org_ids) > 1 or len(org_ids) == 0:
+            raise Exception('{} organizations with name "{}" found instead of 1!'.format(len(org_ids), group_name))
+
+        group_ids = KubernetesTester.find_groups_in_organization(org_ids[0], group_name)
+        if len(group_ids) > 1 or len(group_ids) == 0:
+            raise Exception(
+                '{} groups with name "{}" found inside organization "{}" instead of 1!'.format(len(org_ids), org_ids[0],
+                                                                                               group_name))
+
+        url = build_om_group_endpoint(KubernetesTester.get_om_base_url(),
+                                      group_ids[0])
         response = KubernetesTester.om_request("get", url)
 
         return response.json()
 
     @staticmethod
     def remove_group(group_id):
-        url = build_om_group_delete_endpoint(KubernetesTester.get_om_base_url(),
-                                             group_id)
+        url = build_om_group_endpoint(KubernetesTester.get_om_base_url(),
+                                      group_id)
         KubernetesTester.om_request("delete", url)
 
     @staticmethod
@@ -428,7 +447,6 @@ class KubernetesTester(object):
         response = KubernetesTester.om_request("get", url)
 
         return response.json()
-
 
     @staticmethod
     def find_groups_in_organization(org_id, group_name):
@@ -496,7 +514,10 @@ class KubernetesTester(object):
 
     @staticmethod
     def mongo_resource_deleted():
-        return KubernetesTester.is_deleted() and func_with_assertions(KubernetesTester.check_om_state_cleaned)
+        return KubernetesTester.is_deleted(KubernetesTester.namespace,
+                                           KubernetesTester.name,
+                                           KubernetesTester.kind) \
+               and func_with_assertions(KubernetesTester.check_om_state_cleaned)
 
     def build_mongodb_uri_for_rs(self, hosts):
         return "mongodb://{}".format(",".join(hosts))
@@ -665,15 +686,11 @@ def build_auth(user, api_key):
     return HTTPDigestAuth(user, api_key)
 
 
-def build_om_group_by_name_endpoint(base_url, name):
-    return "{}/api/public/v1.0/groups/byName/{}".format(base_url, name)
-
-
-def build_om_group_endpoint(base_url):
+def build_om_groups_endpoint(base_url):
     return "{}/api/public/v1.0/groups".format(base_url)
 
 
-def build_om_group_delete_endpoint(base_url, group_id):
+def build_om_group_endpoint(base_url, group_id):
     return "{}/api/public/v1.0/groups/{}".format(base_url, group_id)
 
 

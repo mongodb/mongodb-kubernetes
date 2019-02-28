@@ -578,6 +578,13 @@ tasks:
       vars:
         test_name: sharded_cluster_secret
 
+- name: e2e_all_mongodb_resources_parallel
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+      vars:
+        test_name: all_mongodb_resources_parallel
+
 task_groups:
 - name: unit_task_group
   setup_group:
@@ -593,6 +600,7 @@ task_groups:
     - func: "setup_kubectl"
   tasks:
     # Weird, but if the name tasks without "e2e_" (so equal to 'test_name' param) - evergreen doesn't run them...
+    - e2e_all_mongodb_resources_parallel
     - e2e_standalone_config_map
     - e2e_standalone_groups
     - e2e_standalone_schema_validation
