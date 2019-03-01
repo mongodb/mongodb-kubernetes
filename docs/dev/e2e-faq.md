@@ -9,6 +9,7 @@ The namespace is left unremoved if the test fails so it was easier to check prob
 ## FAQ
 #### How to connect to Openshift e2e cluster?
 
+1. `brew install openshift-cli`
 1. login here https://master.openshift-cluster.mongokubernetes.com:8443   
 1. user is "admin", password is "asdqwe1"
 1. get a login token from the "admin" panel top-right

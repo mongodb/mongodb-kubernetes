@@ -298,6 +298,12 @@ redeploy_operator() {
     fi
     echo ""
 
+    if ! [[ $(kubectl -n "${ns}" get crds | grep mongodb.mongodb.com) ]]; then
+        echo "mongodb.mongodb.com not found"
+        kubectl get crd -n ${ns}
+        exit 1
+    fi
+
     title "The Operator successfully installed to the Kubernetes cluster"
 }
 
@@ -371,19 +377,9 @@ create_kops_cluster() {
 dump_diagnostic_information() {
     dump_file=$1
 
-    if ! kubectl get mst -n "${PROJECT_NAMESPACE}" 2>&1 | grep -q "No resources found"; then
-        header "Mongodb Standalones" >> "$dump_file"
-        kubectl get mst -o yaml -n "${PROJECT_NAMESPACE}"  >> "$dump_file"
-    fi
-
-    if ! kubectl get mrs -n "${PROJECT_NAMESPACE}" 2>&1 | grep -q "No resources found"; then
-        header "Mongodb ReplicaSets" >> "$dump_file"
-        kubectl get mrs -o yaml -n "${PROJECT_NAMESPACE}"  >> "$dump_file"
-    fi
-
-    if ! kubectl get msc -n "${PROJECT_NAMESPACE}" 2>&1 | grep -q "No resources found"; then
-        header "Mongodb ShardedClusters" >> "$dump_file"
-        kubectl get msc -o yaml -n "${PROJECT_NAMESPACE}"  >> "$dump_file"
+    if ! kubectl get mst -n ${PROJECT_NAMESPACE} 2>&1 | grep -q "No resources found"; then
+        header "Mongodb Resources" >> $dump_file
+        kubectl get mdb -o yaml -n ${PROJECT_NAMESPACE}  >> $dump_file
     fi
 
     header "All namespace objects" >> "$dump_file"

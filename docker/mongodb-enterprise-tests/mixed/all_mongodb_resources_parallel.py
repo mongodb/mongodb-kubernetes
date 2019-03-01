@@ -52,11 +52,11 @@ class TestRaceConditions(KubernetesTester):
 
     def test_all_resources_removed(self):
         t1 = threading.Thread(target=KubernetesTester.delete_custom_resource,
-                              args=(KubernetesTester.get_namespace(), "my-replica-set-single", "MongoDbReplicaSet"))
+                              args=(KubernetesTester.get_namespace(), "my-replica-set-single", "MongoDB"))
         t2 = threading.Thread(target=KubernetesTester.delete_custom_resource,
-                              args=(KubernetesTester.get_namespace(), "my-standalone", "MongoDbStandalone"))
+                              args=(KubernetesTester.get_namespace(), "my-standalone", "MongoDB"))
         t3 = threading.Thread(target=KubernetesTester.delete_custom_resource,
-                              args=(KubernetesTester.get_namespace(), "sh001-single", "MongoDbShardedCluster"))
+                              args=(KubernetesTester.get_namespace(), "sh001-single", "MongoDB"))
 
         t1.start()
         t2.start()
@@ -69,11 +69,11 @@ class TestRaceConditions(KubernetesTester):
 
     @staticmethod
     def all_resources_created():
-        rs_ready = KubernetesTester.check_phase(KubernetesTester.get_namespace(), "MongoDbReplicaSet",
+        rs_ready = KubernetesTester.check_phase(KubernetesTester.get_namespace(), "MongoDB",
                                                 "my-replica-set-single", "Running")
-        standalone_ready = KubernetesTester.check_phase(KubernetesTester.get_namespace(), "MongoDbStandalone",
+        standalone_ready = KubernetesTester.check_phase(KubernetesTester.get_namespace(), "MongoDB",
                                                         "my-standalone", "Running")
-        cluster_ready = KubernetesTester.check_phase(KubernetesTester.get_namespace(), "MongoDbShardedCluster",
+        cluster_ready = KubernetesTester.check_phase(KubernetesTester.get_namespace(), "MongoDB",
                                                      "sh001-single", "Running")
         print("Standalone ready: {}, replica set ready: {}, sharded cluster ready: {}".format(
             standalone_ready, rs_ready, cluster_ready))
@@ -81,12 +81,9 @@ class TestRaceConditions(KubernetesTester):
 
     @staticmethod
     def all_resources_removed():
-        rs_ready = KubernetesTester.is_deleted(KubernetesTester.get_namespace(), "MongoDbReplicaSet",
-                                               "my-replica-set-single")
-        standalone_ready = KubernetesTester.is_deleted(KubernetesTester.get_namespace(), "MongoDbStandalone",
-                                                       "my-standalone")
-        cluster_ready = KubernetesTester.is_deleted(KubernetesTester.get_namespace(), "MongoDbShardedCluster",
-                                                    "sh001-single")
+        rs_ready = KubernetesTester.is_deleted(KubernetesTester.get_namespace(), "my-replica-set-single")
+        standalone_ready = KubernetesTester.is_deleted(KubernetesTester.get_namespace(), "my-standalone")
+        cluster_ready = KubernetesTester.is_deleted(KubernetesTester.get_namespace(), "sh001-single")
         om_cleaned = func_with_assertions(KubernetesTester.check_om_state_cleaned)
         print("Standalone removed: {}, replica set removed: {}, sharded cluster removed: {}, Ops Manager cleaned: {}".
               format(standalone_ready, rs_ready, cluster_ready, om_cleaned))

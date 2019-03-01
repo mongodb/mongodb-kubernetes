@@ -2,10 +2,11 @@
 # cluster behaviour (e.g. listening to secrets changes), this will result in minimal running time and lowest resource
 # consumption
 apiVersion: mongodb.com/v1
-kind: MongoDbShardedCluster
+kind: MongoDB
 metadata:
   name: sh001-single
 spec:
+  type: ShardedCluster
   shardCount: 1
   mongodsPerShardCount: 1
   mongosCount: 1

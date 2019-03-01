@@ -462,6 +462,21 @@ tasks:
       vars:
         test_name: standalone_schema_validation
 
+- name: e2e_replica_set_schema_validation
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+      vars:
+        test_name: replica_set_schema_validation
+
+- name: e2e_sharded_cluster_schema_validation
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+      vars:
+        test_name: sharded_cluster_schema_validation
+
+
 # Removing this test as it creates a cluster wide operator
 # that collides with every other operator running in the
 # cluster, breaking havoc
@@ -578,6 +593,13 @@ tasks:
       vars:
         test_name: sharded_cluster_secret
 
+- name: e2e_standalone_type_change_recovery
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+      vars:
+        test_name: standalone_type_change_recovery
+
 - name: e2e_all_mongodb_resources_parallel
   exec_timeout_secs: 600
   commands:
@@ -604,6 +626,9 @@ task_groups:
     - e2e_standalone_config_map
     - e2e_standalone_groups
     - e2e_standalone_schema_validation
+    - e2e_standalone_type_change_recovery
+    - e2e_replica_set_schema_validation
+    - e2e_sharded_cluster_schema_validation
     - e2e_standalone_recovery
     - e2e_standalone_recovery_k8s
     - e2e_replica_set

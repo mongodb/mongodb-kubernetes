@@ -67,11 +67,12 @@ The steps to support this (this is reproduced in the branch
  
  ```
  apiVersion: mongodb.com.v1/v1
- kind: MongoDbReplicaSet
+ kind: MongoDB
  metadata:
    name: liffey
    namespace: mongodb
  spec:
+   type: ReplicaSet
    members: 2
    version: 3.6.4
    project: my-om-config
@@ -102,8 +103,8 @@ As soon as you remove the last CRD created - the statement starts working as exp
 
 ### Adding new (mandatory) attribute ###
 Support for mandatory is done through CRD validation. So:
-1. create the standalone 
-1. change the schema - add new field to `MongoDbStandaloneSpec` struct: `Auth string ``json:"auth"`` ` 
+1. create the resource
+1. change the schema - add new field to `MongoDbSpec` struct: `Auth string ``json:"auth"`` ` 
 to `types.go`. Call `codegen.sh`
 1. change validation rules, specify that the field is mandatory: 
 ```yaml
@@ -114,18 +115,19 @@ metadata:
 spec:
   group: mongodb.com
   names:
-    kind: MongoDbStandalone
-    listKind: MongoDbStandaloneList
-    plural: mongodbstandalones
-    singular: mongodbstandalone
+    kind: MongoDB
+    listKind: MongoDBList
+    plural: mongodb
+    singular: mongodb
   scope: Namespaced
   version: v1beta1
   validation:
     openAPIV3Schema:
-      properties:
-        spec:
+      oneOf: # remaining values omitted for brevity
+      - properties:
+         spec:
           required:
-            - auth
+          - auth
 ``` 
 1. apply the yaml configuration for standalone (change the version) and check that kubectl returned the error `.spec.auth in body is required`
 1. change config - add `auth: foo` there and apply. Changes got applied and the object got updated:

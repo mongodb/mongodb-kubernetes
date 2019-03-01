@@ -173,7 +173,7 @@ class KubernetesTester(object):
 
     @staticmethod
     def create_custom_resource_from_object(namespace, resource, exception_reason=None, patch=None):
-        name, kind, group, version = get_crd_meta(resource)
+        name, kind, group, version, res_type = get_crd_meta(resource)
         if patch:
             patch = jsonpatch.JsonPatch.from_string(patch)
             resource = patch.apply(resource)
@@ -182,7 +182,7 @@ class KubernetesTester(object):
         KubernetesTester.name = name
         KubernetesTester.kind = kind
 
-        print('Creating resource {} {}'.format(kind, name), )
+        print('Creating resource {} with type {} {}'.format(kind, res_type, name), )
 
         # todo move "wait for exception" logic to a generic function and reuse for create/update/delete
         try:
@@ -201,13 +201,13 @@ class KubernetesTester(object):
                 print("Failed to create a resource ({}): \n {}".format(e, resource))
                 raise
 
-        print('Created resource {} {}'.format(kind, name))
+        print('Created resource {} with type {} {}'.format(kind, res_type, name))
 
     @staticmethod
     def update(section, namespace):
         "patches custom object"
         resource = yaml.safe_load(open(section["file"]))
-        name, kind, group, version = get_crd_meta(resource)
+        name, kind, group, version, res_type = get_crd_meta(resource)
         patch = jsonpatch.JsonPatch.from_string(section["patch"])
         patched = patch.apply(resource)
 
@@ -218,13 +218,13 @@ class KubernetesTester(object):
         except Exception:
             print("Failed to update a resource ({}): \n {}".format(sys.exc_info()[0], patched))
             raise
-        print('Updated resource {} {}'.format(kind, name))
+        print('Updated resource {} with type {} {}'.format(kind, res_type, name))
 
     @staticmethod
     def delete(section, namespace):
         "delete custom object"
         resource = yaml.safe_load(open(section["file"]))
-        name, kind, group, version = get_crd_meta(resource)
+        name, kind, group, version, _ = get_crd_meta(resource)
 
         KubernetesTester.delete_custom_resource(namespace, name, kind, group, version)
 
@@ -282,7 +282,7 @@ class KubernetesTester(object):
         )
 
     @staticmethod
-    def is_deleted(namespace, name, kind):
+    def is_deleted(namespace, name, kind="MongoDB"):
         try:
             KubernetesTester.get_namespaced_custom_object(
                 namespace,
@@ -593,12 +593,16 @@ def get_name(doc):
     return doc["metadata"]["name"]
 
 
+def get_type(doc):
+    return doc['spec']['type']
+
+
 def get_crd_meta(doc):
-    return get_name(doc), get_kind(doc), get_group(doc), get_version(doc)
+    return get_name(doc), get_kind(doc), get_group(doc), get_version(doc), get_type(doc)
 
 
-def plural(name):
-    return "{}s".format(name.lower())
+def plural(name): # plural of mongodb is mongodb
+    return name.lower()
 
 
 def parse_condition_str(condition):

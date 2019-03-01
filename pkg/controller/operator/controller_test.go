@@ -146,7 +146,7 @@ func TestPrepareOmConnection_ConfigMapAndSecretWatched(t *testing.T) {
 
 	// Here we create two replica sets both referencing the same project and credentials
 	vars := &PodVars{}
-	spec := v1.CommonSpec{Project: TestProjectConfigMapName, Credentials: "otherNs/mySecret", LogLevel: v1.Warn}
+	spec := v1.MongoDbSpec{Project: TestProjectConfigMapName, Credentials: "otherNs/mySecret", LogLevel: v1.Warn}
 	_, e := reconciler.prepareConnection(objectKey(TestNamespace, "ReplicaSetOne"), spec, vars, zap.S())
 	assert.NoError(t, e)
 	_, e = reconciler.prepareConnection(objectKey(TestNamespace, "ReplicaSetTwo"), spec, vars, zap.S())
@@ -179,8 +179,8 @@ func TestResourcesAreUpdated_AfterConflictErrors(t *testing.T) {
 	manager := newMockedManagerSpecificClient(mockedClient)
 	controller := newReconcileCommonController(manager, om.NewEmptyMockedOmConnection)
 
-	controller.updateStatus(rs, func(toChange v1.MongoDbResource) {
-		status := toChange.GetCommonStatus()
+	controller.updateStatus(rs, func(toChange *v1.MongoDB) {
+		status := &toChange.Status
 		status.Version = "new-version"
 		status.Phase = v1.PhaseRunning
 	})
@@ -210,7 +210,7 @@ func TestShouldReconcile_DoesReconcileOnSpecChange(t *testing.T) {
 
 func prepareConnection(controller *ReconcileCommonController, t *testing.T) (*om.MockedOmConnection, *PodVars) {
 	vars := &PodVars{}
-	spec := v1.CommonSpec{Project: TestProjectConfigMapName, Credentials: TestCredentialsSecretName, LogLevel: v1.Warn}
+	spec := v1.MongoDbSpec{Project: TestProjectConfigMapName, Credentials: TestCredentialsSecretName, LogLevel: v1.Warn}
 	conn, e := controller.prepareConnection(objectKey(TestNamespace, ""), spec, vars, zap.S())
 	mockOm := conn.(*om.MockedOmConnection)
 	assert.NoError(t, e)
@@ -269,48 +269,35 @@ func requestFromObject(object apiruntime.Object) reconcile.Request {
 	return reconcile.Request{NamespacedName: objectKeyFromApiObject(object)}
 }
 
-func checkReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, object v1.MongoDbResource, client *MockedClient) {
+func checkReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, object *v1.MongoDB, client *MockedClient) {
 	result, e := reconciler.Reconcile(requestFromObject(object))
 	require.NoError(t, e)
 	require.Equal(t, reconcile.Result{}, result)
 
 	// also need to make sure the object status is updated to successful
-	require.NoError(t, client.Get(context.TODO(), objectKeyFromApiObject(object), object))
-	require.Equal(t, v1.PhaseRunning, object.GetCommonStatus().Phase)
+	assert.NoError(t, client.Get(context.TODO(), objectKeyFromApiObject(object), object))
+	assert.Equal(t, v1.PhaseRunning, object.Status.Phase)
 
 	expectedLink := DeploymentLink(om.TestURL, om.TestGroupID)
-	switch s := object.(type) {
-	case *v1.MongoDbStandalone:
-		{
-			assert.Equal(t, s.Spec.Version, s.Status.Version)
-			assert.NotNil(t, s.Status.LastTransition)
-			assert.NotEqual(t, s.Status.LastTransition, "")
-			assert.Equal(t, expectedLink, s.Status.Link)
 
-		}
-	case *v1.MongoDbReplicaSet:
-		{
-			assert.Equal(t, s.Spec.Members, s.Status.Members)
-			assert.Equal(t, s.Spec.Version, s.Status.Version)
-			assert.NotNil(t, s.Status.LastTransition)
-			assert.NotEqual(t, s.Status.LastTransition, "")
-			assert.Equal(t, expectedLink, s.Status.Link)
-		}
-	case *v1.MongoDbShardedCluster:
-		{
-			assert.Equal(t, s.Spec.ConfigServerCount, s.Status.ConfigServerCount)
-			assert.Equal(t, s.Spec.MongosCount, s.Status.MongosCount)
-			assert.Equal(t, s.Spec.MongodsPerShardCount, s.Status.MongodsPerShardCount)
-			assert.Equal(t, s.Spec.ShardCount, s.Status.ShardCount)
-			assert.Equal(t, s.Spec.Version, s.Status.Version)
-			assert.NotNil(t, s.Status.LastTransition)
-			assert.NotEqual(t, s.Status.LastTransition, "")
-			assert.Equal(t, expectedLink, s.Status.Link)
-		}
+	// fields common to all resource types
+	assert.Equal(t, object.Spec.Version, object.Status.Version)
+	assert.Equal(t, expectedLink, object.Status.Link)
+	assert.NotNil(t, object.Status.LastTransition)
+	assert.NotEqual(t, object.Status.LastTransition, "")
+
+	switch object.Spec.ResourceType {
+	case v1.ReplicaSet:
+		assert.Equal(t, object.Spec.Members, object.Status.Members)
+	case v1.ShardedCluster:
+		assert.Equal(t, object.Spec.ConfigServerCount, object.Status.ConfigServerCount)
+		assert.Equal(t, object.Spec.MongosCount, object.Status.MongosCount)
+		assert.Equal(t, object.Spec.MongodsPerShardCount, object.Status.MongodsPerShardCount)
+		assert.Equal(t, object.Spec.ShardCount, object.Status.ShardCount)
 	}
 }
 
-func checkReconcileFailed(t *testing.T, reconciler reconcile.Reconciler, object v1.MongoDbResource, expectedErrorMessage string, client *MockedClient) {
+func checkReconcileFailed(t *testing.T, reconciler reconcile.Reconciler, object *v1.MongoDB, expectedErrorMessage string, client *MockedClient) {
 	failedResult := reconcile.Result{RequeueAfter: 10 * time.Second}
 	result, e := reconciler.Reconcile(requestFromObject(object))
 	assert.Nil(t, e, "When retrying, error should be nil")
@@ -318,6 +305,6 @@ func checkReconcileFailed(t *testing.T, reconciler reconcile.Reconciler, object 
 
 	// also need to make sure the object status is updated to failed
 	assert.NoError(t, client.Get(context.TODO(), objectKeyFromApiObject(object), object))
-	assert.Equal(t, v1.PhaseFailed, object.GetCommonStatus().Phase)
-	assert.Equal(t, expectedErrorMessage, object.GetCommonStatus().Message)
+	assert.Equal(t, v1.PhaseFailed, object.Status.Phase)
+	assert.Equal(t, expectedErrorMessage, object.Status.Message)
 }

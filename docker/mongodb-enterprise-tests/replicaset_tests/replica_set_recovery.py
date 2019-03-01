@@ -23,7 +23,7 @@ class TestReplicaSetBadStateCreation(KubernetesTester):
 @pytest.mark.replica_set_recovery
 class TestReplicaSetRecoversFromBadState(KubernetesTester):
     '''
-    name: Replica Set Bade State Recovery
+    name: Replica Set Bad State Recovery
     tags: replica-set, creation
     description: |
       Updates spec of replica set in a bad state and ensures it is updated to the running state correctly
@@ -31,7 +31,7 @@ class TestReplicaSetRecoversFromBadState(KubernetesTester):
       file: fixtures/replica-set-invalid.yaml
       patch: '[{"op":"replace","path":"/spec/version","value":"4.0.0"}]'
       wait_until: in_running_state
-      timeout: 120
+      timeout: 180
     '''
 
     def test_in_running_state(self):

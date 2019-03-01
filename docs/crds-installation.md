@@ -30,11 +30,7 @@ applied as usual:
 
     kubectl apply -f crds.yaml
 
-This will create 3 `CustomResourceDefinition` objects:
-
-* MongoDbStandalone
-* MongoDbReplicaSet
-* MongoDbShardedCluster
+This will create 1 `CustomResourceDefinition` object, `MongoDbResource`
 
 Each one of them corresponds to one of the main deployment objects in
 Mongodb.

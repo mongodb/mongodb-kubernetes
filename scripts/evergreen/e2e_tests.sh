@@ -84,9 +84,7 @@ teardown() {
     # namespaces if needed
     # Make sure that under no circumstances, this function fails.
 
-    kubectl delete mrs --all -n "${PROJECT_NAMESPACE}" || true
-    kubectl delete mst --all -n "${PROJECT_NAMESPACE}" || true
-    kubectl delete msc --all -n "${PROJECT_NAMESPACE}" || true
+    kubectl delete mdb --all -n "${PROJECT_NAMESPACE}" || true
     echo "Removing test namespace"
     kubectl delete "namespace/${PROJECT_NAMESPACE}" || true
 }
@@ -192,31 +190,18 @@ run_tests() {
 
 dump_agent_logs() {
     i=1
-
-    for st in $(kubectl get mst -n "${PROJECT_NAMESPACE}" -o name | cut -d "/" -f 2); do
-        obj="${st}-0"
-        kubectl logs -n "${PROJECT_NAMESPACE}" "${obj}" > "logs/${obj}.log"
-        ((i++))
-    done
-
-    for rs in $(kubectl get mrs -n "${PROJECT_NAMESPACE}" -o name | cut -d "/" -f 2); do
-        for pod in $(kubectl get pods -n "${PROJECT_NAMESPACE}" -o name | grep "$rs" | cut -d "/" -f 2); do
-            kubectl logs -n "${PROJECT_NAMESPACE}" "${pod}" > "logs/${pod}.log"
+    for res in $(kubectl get mdb -n ${PROJECT_NAMESPACE} -o name | cut -d "/" -f 2); do
+        for pod in $(kubectl get pods -n ${PROJECT_NAMESPACE}  -o name | grep "$res" | cut -d "/" -f 2 \
+        | grep -v "$res-config" | grep -v "$res-mongos" | cut -d "/" -f 2); do # only dump shard logs if it's a sharded cluster
+            kubectl logs -n ${PROJECT_NAMESPACE} ${pod} > "logs/${pod}"
             ((i++))
         done
     done
-
-    # let's dump only shard logs
-    for sc in $(kubectl get msc -n "${PROJECT_NAMESPACE}" -o name | cut -d "/" -f 2); do
-        for pod in $(kubectl get pods -n "${PROJECT_NAMESPACE}" -o name | grep "$sc" \
-                    | grep -v "$sc-config" | grep -v "$sc-mongos" | cut -d "/" -f 2); do
-            kubectl logs -n "${PROJECT_NAMESPACE}" "${pod}" > "logs/${pod}.log"
-
-            ((i++))
-        done
-    done
-
     echo "${i} log files were written."
+}
+
+delete_mongodb_resources() {
+    kubectl delete mdb --all  -n ${PROJECT_NAMESPACE}
 }
 
 initialize() {

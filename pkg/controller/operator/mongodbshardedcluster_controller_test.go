@@ -207,7 +207,7 @@ func TestPodAntiaffinity_MongodsInsideShardAreSpread(t *testing.T) {
 	assert.Equal(t, secondShartPodAffinityTerm.LabelSelector.MatchLabels[POD_ANTI_AFFINITY_LABEL_KEY], sc.ShardRsName(1))
 }
 
-func createDeploymentFromShardedCluster(sh *v1.MongoDbShardedCluster) om.Deployment {
+func createDeploymentFromShardedCluster(sh *v1.MongoDB) om.Deployment {
 	state := createStateFromResource(sh)
 	mongosProcesses := createProcesses(state.mongosSetHelper.BuildStatefulSet(), sh.Spec.ClusterName, sh.Spec.Version, om.ProcessTypeMongos)
 	configRs := buildReplicaSetFromStatefulSet(state.configSrvSetHelper.BuildStatefulSet(), sh.Spec.ClusterName, sh.Spec.Version)
@@ -224,19 +224,19 @@ func createDeploymentFromShardedCluster(sh *v1.MongoDbShardedCluster) om.Deploym
 
 // createStateFromResource creates the kube state for the sharded cluster. Note, that it uses the `Status` of cluster
 // instead of `Spec` as it tries to reflect the CURRENT state
-func createStateFromResource(sh *v1.MongoDbShardedCluster) ShardedClusterKubeState {
+func createStateFromResource(sh *v1.MongoDB) ShardedClusterKubeState {
 	shardHelpers := make([]*StatefulSetHelper, sh.Status.ShardCount)
 	for i := 0; i < sh.Status.ShardCount; i++ {
 		shardHelpers[i] = defaultSetHelper().SetName(sh.ShardRsName(i)).SetService(sh.ShardServiceName()).SetReplicas(sh.Status.MongodsPerShardCount)
 	}
 	return ShardedClusterKubeState{
-		mongosSetHelper:    defaultSetHelper().SetName(sh.MongosRsName()).SetService(sh.MongosServiceName()).SetReplicas(sh.Status.MongosCount),
+		mongosSetHelper:    defaultSetHelper().SetName(sh.MongosRsName()).SetService(sh.ServiceName()).SetReplicas(sh.Status.MongosCount),
 		configSrvSetHelper: defaultSetHelper().SetName(sh.ConfigRsName()).SetService(sh.ConfigSrvServiceName()).SetReplicas(sh.Status.ConfigServerCount),
 		shardsSetsHelpers:  shardHelpers}
 }
 
 type ClusterBuilder struct {
-	*v1.MongoDbShardedCluster
+	*v1.MongoDB
 }
 
 func DefaultClusterBuilder() *ClusterBuilder {
@@ -246,29 +246,27 @@ func DefaultClusterBuilder() *ClusterBuilder {
 		ConfigServerCount:    3,
 		MongosCount:          4,
 	}
-	spec := &v1.MongoDbShardedClusterSpec{
-		MongodbShardedClusterSizeConfig: sizeConfig,
-		CommonSpec: v1.CommonSpec{
-			Persistent:  util.BooleanRef(false),
-			Project:     TestProjectConfigMapName,
-			Credentials: TestCredentialsSecretName,
-		},
-		Version: "3.6.4",
-	}
-	status := &v1.MongoDbShardedClusterStatus{
-		MongodbShardedClusterSizeConfig: sizeConfig,
 
-		CommonStatus: v1.CommonStatus{
-			Phase:   v1.PhaseRunning,
-			Version: "3.6.4",
-		},
+	status := v1.MongoDbStatus{
+		MongodbShardedClusterSizeConfig: sizeConfig,
 	}
-	cluster := &v1.MongoDbShardedCluster{
-		Meta:   v1.Meta{ObjectMeta: metav1.ObjectMeta{Name: "slaney", Namespace: TestNamespace}},
-		Spec:   *spec,
-		Status: *status,
+
+	spec := v1.MongoDbSpec{
+		Persistent:                      util.BooleanRef(false),
+		Project:                         TestProjectConfigMapName,
+		Credentials:                     TestCredentialsSecretName,
+		Version:                         "3.6.4",
+		ResourceType:                    v1.ShardedCluster,
+		MongodbShardedClusterSizeConfig: sizeConfig,
 	}
-	return &ClusterBuilder{cluster}
+
+	resource := &v1.MongoDB{
+		ObjectMeta: metav1.ObjectMeta{Name: "slaney", Namespace: TestNamespace},
+		Status:     status,
+		Spec:       spec,
+	}
+
+	return &ClusterBuilder{resource}
 }
 
 func (b *ClusterBuilder) SetName(name string) *ClusterBuilder {
@@ -307,6 +305,8 @@ func (b *ClusterBuilder) SetMongosCountStatus(count int) *ClusterBuilder {
 	b.Status.MongosCount = count
 	return b
 }
-func (b *ClusterBuilder) Build() *v1.MongoDbShardedCluster {
-	return b.MongoDbShardedCluster
+func (b *ClusterBuilder) Build() *v1.MongoDB {
+	b.Spec.ResourceType = v1.ShardedCluster
+	b.InitDefaults()
+	return b.MongoDB
 }

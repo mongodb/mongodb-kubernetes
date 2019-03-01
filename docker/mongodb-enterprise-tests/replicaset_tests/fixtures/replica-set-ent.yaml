@@ -1,12 +1,12 @@
 ---
 apiVersion: mongodb.com/v1
-kind: MongoDbReplicaSet
+kind: MongoDB
 metadata:
   name: rs001-ent
 spec:
   members: 3
   version: 4.0.2-ent
-
+  type: ReplicaSet
   project: my-project
   credentials: my-credentials
 

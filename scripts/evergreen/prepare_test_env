@@ -23,9 +23,7 @@ cleanup_env() {
         for f in $(kubectl get ns -o name | grep a- | sed 's/namespace\///'); do
             echo "Removing all mongodb resources for namespace: ${f}"
 
-            kubectl delete mrs --all -n ${f} || true
-            kubectl delete msc --all -n ${f} || true
-            kubectl delete mst --all -n ${f} || true
+            kubectl delete mdb --all -n ${f} || true
             # todo seems when we try to remove PVCs - this may take too long... but I believe we shouldn't leave garbage here
             # so far we are
             kubectl delete pvc --all -n ${f} --now || true

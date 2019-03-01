@@ -1,6 +1,6 @@
 ---
 apiVersion: mongodb.com/v1
-kind: MongoDbShardedCluster
+kind: MongoDB
 metadata:
   name: sh001-pv
 spec:
@@ -9,7 +9,7 @@ spec:
   mongosCount: 2
   configServerCount: 3
   version: 4.0.3
-
+  type: ShardedCluster
   project: my-project
   credentials: my-credentials
 

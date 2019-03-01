@@ -96,11 +96,12 @@ following example:
 ``` yaml
 ---
 apiVersion: mongodb.com/v1
-kind: MongoDbReplicaSet
+kind: MongoDB
 metadata:
   name: my-replica-set
   namespace: mongodb
 spec:
+  type: ReplicaSet
   members: 3
   version: 3.6.5
 
@@ -112,5 +113,5 @@ spec:
 ```
 
 When applying the changes in this yaml file, Kubernetes will create a
-new `MongoDbReplicaSet` in the `project` defined, using the
+new `MongoDB` replica set in the `project` defined, using the
 `credentials` provided in the configuration.

@@ -3,18 +3,15 @@ package operator
 import (
 	"fmt"
 
-	"go.uber.org/zap"
-	corev1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
-
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"go.uber.org/zap"
+	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
 // ReconcileMongoDbShardedCluster
@@ -26,10 +23,9 @@ func newShardedClusterReconciler(mgr manager.Manager, omFunc om.ConnectionFactor
 	return &ReconcileMongoDbShardedCluster{newReconcileCommonController(mgr, omFunc)}
 }
 
-// Reconcile
 func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
 	log := zap.S().With("ShardedCluster", request.NamespacedName)
-	sc := &mongodb.MongoDbShardedCluster{}
+	sc := &mongodb.MongoDB{}
 
 	defer exceptionHandling(
 		func() (reconcile.Result, error) {
@@ -60,9 +56,9 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (r
 // implements all the logic to do the sharded cluster thing
 func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interface{}, log *zap.SugaredLogger) (om.Connection, error) {
 	log.Info("ShardedCluster.doShardedClusterProcessing")
-	sc := obj.(*mongodb.MongoDbShardedCluster)
+	sc := obj.(*mongodb.MongoDB)
 	podVars := &PodVars{}
-	conn, err := r.prepareConnection(objectKey(sc.Namespace, sc.Name), sc.Spec.CommonSpec, podVars, log)
+	conn, err := r.prepareConnection(objectKey(sc.Namespace, sc.Name), sc.Spec, podVars, log)
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +83,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 
 }
 
-func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mongodb.MongoDbShardedCluster, state ShardedClusterKubeState, log *zap.SugaredLogger) error {
+func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mongodb.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger) error {
 	err := state.mongosSetHelper.CreateOrUpdateInKubernetes()
 	if err != nil {
 		return fmt.Errorf("Failed to create Mongos Stateful Set: %s", err)
@@ -116,13 +112,13 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mongodb.Mo
 	return nil
 }
 
-func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mongodb.MongoDbShardedCluster, podVars *PodVars, log *zap.SugaredLogger) ShardedClusterKubeState {
+func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mongodb.MongoDB, podVars *PodVars, log *zap.SugaredLogger) ShardedClusterKubeState {
 	// 1. Create the mongos StatefulSet
 	mongosBuilder := r.kubeHelper.NewStatefulSetHelper(s).
 		SetName(s.MongosRsName()).
-		SetService(s.MongosServiceName()).
+		SetService(s.ServiceName()).
 		SetReplicas(s.Spec.MongosCount).
-		SetPodSpec(NewDefaultPodSpecWrapper(s.Spec.MongosPodSpec)).
+		SetPodSpec(NewDefaultPodSpecWrapper(*s.Spec.MongosPodSpec)).
 		SetPodVars(podVars).
 		SetLogger(log).
 		SetPersistence(util.BooleanRef(false)).
@@ -132,7 +128,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mo
 	defaultConfigSrvSpec := NewDefaultPodSpec()
 	defaultConfigSrvSpec.Persistence.SingleConfig.Storage = util.DefaultConfigSrvStorageSize
 	podSpec := mongodb.PodSpecWrapper{
-		MongoDbPodSpec: s.Spec.ConfigSrvPodSpec,
+		MongoDbPodSpec: *s.Spec.ConfigSrvPodSpec,
 		Default:        defaultConfigSrvSpec,
 	}
 	configBuilder := r.kubeHelper.NewStatefulSetHelper(s).
@@ -153,7 +149,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mo
 			SetService(s.ShardServiceName()).
 			SetReplicas(s.Spec.MongodsPerShardCount).
 			SetPersistence(s.Spec.Persistent).
-			SetPodSpec(NewDefaultPodSpecWrapper(s.Spec.ShardPodSpec)).
+			SetPodSpec(NewDefaultPodSpecWrapper(*s.Spec.ShardPodSpec)).
 			SetPodVars(podVars).
 			SetLogger(log)
 	}
@@ -169,9 +165,9 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mo
 // delete tries to complete a Deletion reconciliation event
 func (r *ReconcileMongoDbShardedCluster) delete(obj interface{}, log *zap.SugaredLogger) error {
 	// TODO: find a standard & consistent way of logging these events
-	sc := obj.(*mongodb.MongoDbShardedCluster)
+	sc := obj.(*mongodb.MongoDB)
 
-	conn, err := r.prepareConnection(objectKey(sc.Namespace, sc.Name), sc.Spec.CommonSpec, nil, log)
+	conn, err := r.prepareConnection(objectKey(sc.Namespace, sc.Name), sc.Spec, nil, log)
 	if err != nil {
 		return err
 	}
@@ -213,7 +209,6 @@ func (r *ReconcileMongoDbShardedCluster) delete(obj interface{}, log *zap.Sugare
 	return nil
 }
 
-// AddShardedClusterController
 func AddShardedClusterController(mgr manager.Manager) error {
 	reconciler := newShardedClusterReconciler(mgr, om.NewOpsManagerConnection)
 	options := controller.Options{Reconciler: reconciler}
@@ -224,24 +219,19 @@ func AddShardedClusterController(mgr manager.Manager) error {
 
 	// watch for changes to sharded cluster MongoDB resources
 	eventHandler := MongoDBResourceEventHandler{reconciler: reconciler}
-	err = c.Watch(&source.Kind{Type: &mongodb.MongoDbShardedCluster{}}, &eventHandler, predicate.Funcs{
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			oldResource := e.ObjectOld.(*mongodb.MongoDbShardedCluster)
-			newResource := e.ObjectNew.(*mongodb.MongoDbShardedCluster)
-			return shouldReconcile(oldResource, newResource)
-		}})
+	err = c.Watch(&source.Kind{Type: &mongodb.MongoDB{}}, &eventHandler, predicatesFor(mongodb.ShardedCluster))
 	if err != nil {
 		return err
 	}
 
 	// TODO CLOUDP-35240
 	/*err = c.Watch(&source.Kind{Type: &appsv1.StatefulSet{}}, &handler.EnqueueRequestForOwner{
-		IsController: true,
-		OwnerType:    &mongodb.MongoDbShardedCluster{},
-	})
-	if err != nil {
-		return err
-	}*/
+	  	IsController: true,
+	  	OwnerType:    &mongodb.MongoDbShardedCluster{},
+	  })
+	  if err != nil {
+	  	return err
+	  }*/
 
 	err = c.Watch(&source.Kind{Type: &corev1.ConfigMap{}},
 		&ConfigMapAndSecretHandler{resourceType: ConfigMap, trackedResources: reconciler.watchedResources})
@@ -260,7 +250,7 @@ func AddShardedClusterController(mgr manager.Manager) error {
 	return nil
 }
 
-func prepareScaleDownShardedCluster(omClient om.Connection, state ShardedClusterKubeState, sc *mongodb.MongoDbShardedCluster, log *zap.SugaredLogger) error {
+func prepareScaleDownShardedCluster(omClient om.Connection, state ShardedClusterKubeState, sc *mongodb.MongoDB, log *zap.SugaredLogger) error {
 	membersToScaleDown := make(map[string][]string)
 	clusterName := sc.Spec.ClusterName
 
@@ -286,17 +276,17 @@ func prepareScaleDownShardedCluster(omClient om.Connection, state ShardedCluster
 	return nil
 }
 
-func isConfigServerScaleDown(sc *mongodb.MongoDbShardedCluster) bool {
+func isConfigServerScaleDown(sc *mongodb.MongoDB) bool {
 	return sc.Spec.ConfigServerCount < sc.Status.ConfigServerCount
 }
 
-func isShardsSizeScaleDown(sc *mongodb.MongoDbShardedCluster) bool {
+func isShardsSizeScaleDown(sc *mongodb.MongoDB) bool {
 	return sc.Spec.MongodsPerShardCount < sc.Status.MongodsPerShardCount
 }
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
-func updateOmDeploymentShardedCluster(conn om.Connection, sc *mongodb.MongoDbShardedCluster, state ShardedClusterKubeState, log *zap.SugaredLogger) error {
+func updateOmDeploymentShardedCluster(conn om.Connection, sc *mongodb.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger) error {
 	err := waitForAgentsToRegister(sc, state, conn, log)
 	if err != nil {
 		return err
@@ -336,7 +326,7 @@ func updateOmDeploymentShardedCluster(conn om.Connection, sc *mongodb.MongoDbSha
 	return calculateDiffAndStopMonitoringHosts(conn, currentHosts, wantedHosts, log)
 }
 
-func waitForAgentsToRegister(cluster *mongodb.MongoDbShardedCluster, state ShardedClusterKubeState, conn om.Connection,
+func waitForAgentsToRegister(cluster *mongodb.MongoDB, state ShardedClusterKubeState, conn om.Connection,
 	log *zap.SugaredLogger) error {
 	if err := waitForRsAgentsToRegister(state.mongosSetHelper.BuildStatefulSet(), cluster.Spec.ClusterName, conn, log); err != nil {
 		return err
@@ -364,10 +354,10 @@ func getMaxShardedClusterSizeConfig(specConfig mongodb.MongodbShardedClusterSize
 }
 
 // getAllHostsFromStatus calculates a list of hosts from the "Status" of the Sharded Cluster
-func getAllHosts(c *mongodb.MongoDbShardedCluster, sizeConfig mongodb.MongodbShardedClusterSizeConfig) []string {
+func getAllHosts(c *mongodb.MongoDB, sizeConfig mongodb.MongodbShardedClusterSizeConfig) []string {
 	ans := make([]string, 0)
 
-	hosts, _ := GetDnsNames(c.MongosRsName(), c.MongosServiceName(), c.Namespace, c.Spec.ClusterName, sizeConfig.MongosCount)
+	hosts, _ := GetDnsNames(c.MongosRsName(), c.ServiceName(), c.Namespace, c.Spec.ClusterName, sizeConfig.MongosCount)
 	ans = append(ans, hosts...)
 
 	hosts, _ = GetDnsNames(c.ConfigRsName(), c.ConfigSrvServiceName(), c.Namespace, c.Spec.ClusterName, sizeConfig.ConfigServerCount)

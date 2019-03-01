@@ -1,6 +1,6 @@
 ---
 apiVersion: mongodb.com/v1
-kind: MongoDbReplicaSet
+kind: MongoDB
 metadata:
   name: rs001-pv-multiple
 spec:
@@ -9,7 +9,7 @@ spec:
 
   project: my-project
   credentials: my-credentials
-
+  type: ReplicaSet
   persistent: true
   podSpec:
     persistence:

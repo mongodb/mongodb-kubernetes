@@ -2,13 +2,13 @@
 # behaviour (e.g. listening to configmaps changes), this will result in minimal running time and lowest resource
 # consumption
 apiVersion: mongodb.com/v1
-kind: MongoDbReplicaSet
+kind: MongoDB
 metadata:
   name: my-replica-set-single
 spec:
   members: 1
   version: 4.0.0
-
+  type: ReplicaSet
   project: my-project
   credentials: my-credentials
   persistent: false

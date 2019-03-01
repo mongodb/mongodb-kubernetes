@@ -6,19 +6,17 @@ import (
 	"reflect"
 	"testing"
 
-	"go.uber.org/zap"
-
-	"github.com/stretchr/testify/assert"
-
 	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type ReplicaSetBuilder struct {
-	*v1.MongoDbReplicaSet
+	*v1.MongoDB
 }
 
 func TestReplicaSetEventMethodsHandlePanic(t *testing.T) {
@@ -32,7 +30,6 @@ func TestReplicaSetEventMethodsHandlePanic(t *testing.T) {
 	// restoring
 	InitDefaultEnvVariables()
 }
-
 func TestOnAddReplicaSet(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().Build()
 
@@ -108,19 +105,15 @@ func TestAddDeleteReplicaSet(t *testing.T) {
 
 }
 func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
-	spec := &v1.MongoDbReplicaSetSpec{
-		CommonSpec: v1.CommonSpec{
-			Version:     "4.0.0",
-			Persistent:  util.BooleanRef(false),
-			Project:     TestProjectConfigMapName,
-			Credentials: TestCredentialsSecretName,
-		},
-
-		Members: 3,
+	spec := v1.MongoDbSpec{
+		Version:      "4.0.0",
+		Persistent:   util.BooleanRef(false),
+		Project:      TestProjectConfigMapName,
+		Credentials:  TestCredentialsSecretName,
+		ResourceType: v1.ReplicaSet,
+		Members:      3,
 	}
-	rs := &v1.MongoDbReplicaSet{
-		Meta: v1.Meta{ObjectMeta: metav1.ObjectMeta{Name: "temple", Namespace: TestNamespace}},
-		Spec: *spec}
+	rs := &v1.MongoDB{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "temple", Namespace: TestNamespace}}
 	return &ReplicaSetBuilder{rs}
 }
 
@@ -140,11 +133,13 @@ func (b *ReplicaSetBuilder) SetMembers(m int) *ReplicaSetBuilder {
 	b.Spec.Members = m
 	return b
 }
-func (b *ReplicaSetBuilder) Build() *v1.MongoDbReplicaSet {
-	return b.MongoDbReplicaSet
+func (b *ReplicaSetBuilder) Build() *v1.MongoDB {
+	b.Spec.ResourceType = v1.ReplicaSet
+	b.InitDefaults()
+	return b.MongoDB
 }
 
-func createDeploymentFromReplicaSet(rs *v1.MongoDbReplicaSet) om.Deployment {
+func createDeploymentFromReplicaSet(rs *v1.MongoDB) om.Deployment {
 	helper := createStatefulHelperFromReplicaSet(rs)
 
 	d := om.NewDeployment()
@@ -155,6 +150,6 @@ func createDeploymentFromReplicaSet(rs *v1.MongoDbReplicaSet) om.Deployment {
 	return d
 }
 
-func createStatefulHelperFromReplicaSet(sh *v1.MongoDbReplicaSet) *StatefulSetHelper {
+func createStatefulHelperFromReplicaSet(sh *v1.MongoDB) *StatefulSetHelper {
 	return defaultSetHelper().SetName(sh.Name).SetService(sh.ServiceName()).SetReplicas(sh.Spec.Members)
 }

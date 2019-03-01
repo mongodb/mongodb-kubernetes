@@ -53,20 +53,9 @@ func newReconcileCommonController(mgr manager.Manager, omFunc om.ConnectionFacto
 	}
 }
 
-func logSpec(resource v1.MongoDbResource, log *zap.SugaredLogger) {
-	switch r := resource.(type) {
-	case *v1.MongoDbReplicaSet:
-		log.Infow("MongoDB resource successfully updated", "spec", r.Spec)
-	case *v1.MongoDbShardedCluster:
-		log.Infow("MongoDB resource successfully updated", "spec", r.Spec)
-	case *v1.MongoDbStandalone:
-		log.Infow("MongoDB resource successfully updated", "spec", r.Spec)
-	}
-}
-
 // prepareConnection reads project config map and credential secrets and uses these values to communicate with Ops Manager:
 // create or read the project and optionally request an agent key (it could have been returned by group api call)
-func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedName, spec v1.CommonSpec, podVars *PodVars, log *zap.SugaredLogger) (om.Connection, error) {
+func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedName, spec v1.MongoDbSpec, podVars *PodVars, log *zap.SugaredLogger) (om.Connection, error) {
 	projectConfig, err := c.kubeHelper.readProjectConfig(nsName.Namespace, spec.Project)
 	if err != nil {
 		return nil, fmt.Errorf("Error reading Project Config: %s", err)
@@ -148,27 +137,27 @@ func getMutex(projectName, orgId string) *sync.Mutex {
 	return mutex.(*sync.Mutex)
 }
 
-func (c *ReconcileCommonController) updateStatusSuccessful(reconciledResource v1.MongoDbResource, log *zap.SugaredLogger, url, groupId string) {
+func (c *ReconcileCommonController) updateStatusSuccessful(reconciledResource *v1.MongoDB, log *zap.SugaredLogger, url, groupId string) {
 	old := reconciledResource.DeepCopyObject()
-	err := c.updateStatus(reconciledResource, func(fresh v1.MongoDbResource) {
-		// we need to update the MongoDbResource based on the Spec of the reconciled resource
+	err := c.updateStatus(reconciledResource, func(fresh *v1.MongoDB) {
+		// we need to update the MongoDB based on the Spec of the reconciled resource
 		// if there has been a change to the spec since, we don't want to change the state
 		// subresource to match an incorrect spec
-		fresh.UpdateSuccessful(DeploymentLink(url, groupId), old.(v1.MongoDbResource))
+		fresh.UpdateSuccessful(DeploymentLink(url, groupId), old.(*v1.MongoDB))
 	})
 	if err != nil {
 		log.Errorf("Failed to update status for resource to successful: %s", err)
 	} else {
-		logSpec(reconciledResource, log)
+		log.Infow("Successful update", "spec", reconciledResource.Spec)
 	}
 }
 
-func (c *ReconcileCommonController) updateStatusFailed(resource v1.MongoDbResource, msg string, log *zap.SugaredLogger) (reconcile.Result, error) {
+func (c *ReconcileCommonController) updateStatusFailed(resource *v1.MongoDB, msg string, log *zap.SugaredLogger) (reconcile.Result, error) {
 	log.Error(msg)
 	// Resource may be nil if the reconciliation failed very early (on fetching the resource) and panic handling function
 	// took over
 	if resource != nil {
-		err := c.updateStatus(resource, func(fresh v1.MongoDbResource) {
+		err := c.updateStatus(resource, func(fresh *v1.MongoDB) {
 			fresh.UpdateError(msg)
 		})
 		if err != nil {
@@ -187,7 +176,7 @@ func (c *ReconcileCommonController) updateStatusFailed(resource v1.MongoDbResour
 // We fetch a fresh version in case any modifications have been made.
 // Note, that this method enforces update ONLY to the status, so the reconciliation events happening because of this
 // can be filtered out by 'controller.shouldReconcile'
-func (c *ReconcileCommonController) updateStatus(reconciledResource v1.MongoDbResource, updateFunc func(fresh v1.MongoDbResource)) error {
+func (c *ReconcileCommonController) updateStatus(reconciledResource *v1.MongoDB, updateFunc func(fresh *v1.MongoDB)) error {
 	var err error
 	for i := 0; i < 3; i++ {
 		err = c.client.Get(context.TODO(), objectKeyFromApiObject(reconciledResource), reconciledResource)
@@ -208,9 +197,9 @@ func (c *ReconcileCommonController) updateStatus(reconciledResource v1.MongoDbRe
 	return err
 }
 
-func (c *ReconcileCommonController) updatePending(reconciledResource v1.MongoDbResource) error {
-	return c.updateStatus(reconciledResource, func(fresh v1.MongoDbResource) {
-		fresh.GetCommonStatus().Phase = v1.PhasePending
+func (c *ReconcileCommonController) updatePending(reconciledResource *v1.MongoDB) error {
+	return c.updateStatus(reconciledResource, func(fresh *v1.MongoDB) {
+		fresh.Status.Phase = v1.PhasePending
 	})
 }
 
@@ -223,9 +212,9 @@ func (c *ReconcileCommonController) updatePending(reconciledResource v1.MongoDbR
 // - the watchers receive signals only about any changes to *CR*. If the reconciliation failed and a reconciler returned
 // "requeue after 10 seconds" - this doesn't get to watcher, so will never be filtered out.
 // - the only client making changes to status is the Operator itself and it makes sure that spec stays untouched
-func shouldReconcile(oldResource v1.MongoDbResource, newResource v1.MongoDbResource) bool {
-	newStatus := newResource.GetCommonStatus()
-	if !reflect.DeepEqual(oldResource.GetCommonStatus(), newStatus) {
+func shouldReconcile(oldResource *v1.MongoDB, newResource *v1.MongoDB) bool {
+	newStatus := newResource.Status
+	if !reflect.DeepEqual(oldResource.Status, newStatus) {
 		return false
 	}
 	return true
@@ -234,7 +223,7 @@ func shouldReconcile(oldResource v1.MongoDbResource, newResource v1.MongoDbResou
 // prepareResourceForReconciliation finds the object being reconciled. Returns pointer to 'reconcile.Result', error and the hashSpec for the resource.
 // If the 'reconcile.Result' pointer is not nil - the client is expected to finish processing
 func (c *ReconcileCommonController) prepareResourceForReconciliation(
-	request reconcile.Request, mdbResource v1.MongoDbResource, log *zap.SugaredLogger) (*reconcile.Result, error) {
+	request reconcile.Request, mdbResource *v1.MongoDB, log *zap.SugaredLogger) (*reconcile.Result, error) {
 	err := c.client.Get(context.TODO(), request.NamespacedName, mdbResource)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
@@ -247,6 +236,15 @@ func (c *ReconcileCommonController) prepareResourceForReconciliation(
 		// Error reading the object - requeue the request.
 		log.Errorf("Failed to query object %s: %s", request.NamespacedName, err)
 		return &reconcile.Result{RequeueAfter: 10 * time.Second}, err
+	}
+
+	// this is a temporary measure to prevent changing type and getting the resource into a bad state
+	// this should be removed once we have the functionality in place to convert between resource types
+	spec := mdbResource.Spec
+	status := mdbResource.Status
+	if spec.ResourceType != status.ResourceType && status.ResourceType != "" {
+		c.updateStatusFailed(mdbResource, fmt.Sprintf("Changing type is not currently supported, please change the resource back to a %s", status.ResourceType), log)
+		return &reconcile.Result{}, nil
 	}
 
 	updateErr := c.updatePending(mdbResource)

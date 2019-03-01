@@ -150,11 +150,12 @@ these `ReplicaSet` objects is:
 ```yaml
 ---
 apiVersion: mongodb.com/v1alpha1
-kind: MongoDbReplicaSet
+kind: MongoDB
 metadata:
   name: dodder
   namespace: mongodb
 spec:
+  type: ReplicaSet
   members: 3
   mongodb_version: 3.6.4
 
@@ -168,12 +169,12 @@ spec:
 
 ```
 
-This `MongoDbReplicaset` is requesting 8G for each one of its
+This `MongoDB` replica set is requesting 8G for each one of its
 replicas. We have 4 PV with 20G each, so this request will be
 fullfilled by the existing PVs in the `StorageClass`. We also have to
 set the name of the `StorageClass` to use, in this case: `basic`.
 
-Go ahead and create this `MongoDbReplicaSet`. Let's see the state of
+Go ahead and create this `MongoDB` replica set. Let's see the state of
 the Volumes:
 
 ```

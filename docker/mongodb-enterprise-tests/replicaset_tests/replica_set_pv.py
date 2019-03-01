@@ -37,7 +37,7 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
         assert sts.metadata.namespace == self.namespace
         owner_ref0 = sts.metadata.owner_references[0]
         assert owner_ref0.api_version == "mongodb.com/v1"
-        assert owner_ref0.kind == "MongoDbReplicaSet"
+        assert owner_ref0.kind == "MongoDB"
         assert owner_ref0.name == "rs001-pv"
 
     def test_sts_replicas(self):

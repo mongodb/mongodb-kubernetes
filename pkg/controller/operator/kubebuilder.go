@@ -139,25 +139,11 @@ func buildService(owner metav1.Object, name string, label string, namespace stri
 }
 
 func baseOwnerReference(owner metav1.Object) []metav1.OwnerReference {
-	reflectType := ""
-	switch owner.(type) {
-	case *mongodb.MongoDbStandalone:
-		reflectType = "MongoDbStandalone"
-	case *mongodb.MongoDbReplicaSet:
-		reflectType = "MongoDbReplicaSet"
-	case *mongodb.MongoDbShardedCluster:
-		reflectType = "MongoDbShardedCluster"
-	}
 	return []metav1.OwnerReference{
 		*metav1.NewControllerRef(owner, schema.GroupVersionKind{
 			Group:   mongodb.SchemeGroupVersion.Group,
 			Version: mongodb.SchemeGroupVersion.Version,
-			// TODO please fix this: for some reasons this statement returns empty string (it returns fine if we
-			// take the initial object itself (n *mongodb.MongoDbStandalone for example) and get the type from it using
-			// reflect.TypeOf(*n).Name(). I've no idea why we can pass *mongodb.MongoDbStandalone to the method accepting
-			// owner metav1.Object (not owner *metav1.Object)
-			//Kind:    reflect.TypeOf(owner).Name(),
-			Kind: reflectType,
+			Kind:    "MongoDB",
 		}),
 	}
 }

@@ -10,14 +10,12 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
-// ReconcileMongoDbReplicaSet reconciles a MongoDbReplicaSet object
+// ReconcileMongoDbReplicaSet reconciles a MongoDB with a type of ReplicaSet
 type ReconcileMongoDbReplicaSet struct {
 	*ReconcileCommonController
 }
@@ -32,7 +30,7 @@ func newReplicaSetReconciler(mgr manager.Manager, omFunc om.ConnectionFactory) *
 // and what is in the MongoDbReplicaSet.Spec
 func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
 	log := zap.S().With("ReplicaSet", request.NamespacedName)
-	rs := &mongodb.MongoDbReplicaSet{}
+	rs := &mongodb.MongoDB{}
 
 	defer exceptionHandling(
 		func() (reconcile.Result, error) {
@@ -51,7 +49,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 
 	spec := rs.Spec
 	podVars := &PodVars{}
-	conn, err := r.prepareConnection(request.NamespacedName, spec.CommonSpec, podVars, log)
+	conn, err := r.prepareConnection(request.NamespacedName, spec, podVars, log)
 	if err != nil {
 		return r.updateStatusFailed(rs, fmt.Sprintf("Failed to prepare Ops Manager connection: %s", err), log)
 	}
@@ -60,11 +58,12 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		SetService(rs.ServiceName()).
 		SetReplicas(rs.Spec.Members).
 		SetPersistence(rs.Spec.Persistent).
-		SetPodSpec(NewDefaultPodSpecWrapper(rs.Spec.PodSpec)).
+		SetPodSpec(NewDefaultPodSpecWrapper(*rs.Spec.PodSpec)).
 		SetPodVars(podVars).
 		SetExposedExternally(true).
 		SetLogger(log)
 	replicaSetObject := replicaBuilder.BuildStatefulSet()
+
 	if spec.Members < rs.Status.Members {
 		if err := prepareScaleDownReplicaSet(conn, replicaSetObject, rs.Status.Members, rs, log); err != nil {
 			return r.updateStatusFailed(rs, fmt.Sprintf("Failed to prepare Replica Set for scaling down using Ops Manager: %s", err), log)
@@ -100,36 +99,32 @@ func AddReplicaSetController(mgr manager.Manager) error {
 	// watch for changes to replica set MongoDB resources
 	eventHandler := MongoDBResourceEventHandler{reconciler: reconciler}
 	// Watch for changes to primary resource MongoDbReplicaSet
-	err = c.Watch(&source.Kind{Type: &mongodb.MongoDbReplicaSet{}}, &eventHandler, predicate.Funcs{
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			oldResource := e.ObjectOld.(*mongodb.MongoDbReplicaSet)
-			newResource := e.ObjectNew.(*mongodb.MongoDbReplicaSet)
-			return shouldReconcile(oldResource, newResource)
-		}})
+	err = c.Watch(&source.Kind{Type: &mongodb.MongoDB{}}, &eventHandler, predicatesFor(mongodb.ReplicaSet))
+
 	if err != nil {
 		return err
 	}
 
-	// Watch for changes to secondary resource Statefulsets and requeue the owner MongoDbStandalone
-	// TODO CLOUDP-35240
-	/*err = c.Watch(&source.Kind{Type: &appsv1.StatefulSet{}}, &handler.EnqueueRequestForOwner{
-		IsController: true,
-		OwnerType:    &mongodb.MongoDbReplicaSet{},
-	}, predicate.Funcs{
-		CreateFunc: func(e event.CreateEvent) bool {
-			return false
-		},
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			// The controller must watch only for changes in spec made by users, we don't care about status changes
-			if !reflect.DeepEqual(e.ObjectOld.(*appsv1.StatefulSet).Spec, e.ObjectNew.(*appsv1.StatefulSet).Spec) {
-				return true
-			}
-			return false
-		}})
-	if err != nil {
-		return err
-	}*/
-
+	//	// Watch for changes to secondary resource Statefulsets and requeue the owner MongoDbStandalone
+	//	// TODO CLOUDP-35240
+	//	/*err = c.Watch(&source.Kind{Type: &appsv1.StatefulSet{}}, &handler.EnqueueRequestForOwner{
+	//		IsController: true,
+	//		OwnerType:    &mongodb.MongoDbReplicaSet{},
+	//	}, predicate.Funcs{
+	//		CreateFunc: func(e event.CreateEvent) bool {
+	//			return false
+	//		},
+	//		UpdateFunc: func(e event.UpdateEvent) bool {
+	//			// The controller must watch only for changes in spec made by users, we don't care about status changes
+	//			if !reflect.DeepEqual(e.ObjectOld.(*appsv1.StatefulSet).Spec, e.ObjectNew.(*appsv1.StatefulSet).Spec) {
+	//				return true
+	//			}
+	//			return false
+	//		}})
+	//	if err != nil {
+	//		return err
+	//	}*/
+	//
 	err = c.Watch(&source.Kind{Type: &corev1.ConfigMap{}},
 		&ConfigMapAndSecretHandler{resourceType: ConfigMap, trackedResources: reconciler.watchedResources})
 	if err != nil {
@@ -149,7 +144,7 @@ func AddReplicaSetController(mgr manager.Manager) error {
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
-func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, membersNumberBefore int, new *mongodb.MongoDbReplicaSet,
+func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, membersNumberBefore int, new *mongodb.MongoDB,
 	set *appsv1.StatefulSet, log *zap.SugaredLogger) error {
 
 	err := waitForRsAgentsToRegister(set, new.Spec.ClusterName, conn, log)
@@ -184,9 +179,10 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 }
 
 func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLogger) error {
-	rs := obj.(*mongodb.MongoDbReplicaSet)
+	rs := obj.(*mongodb.MongoDB)
 
-	conn, err := r.prepareConnection(objectKey(rs.Namespace, rs.Name), rs.Spec.CommonSpec, nil, log)
+	log.Infow("Removing replica set from Ops Manager", "config", rs.Spec)
+	conn, err := r.prepareConnection(objectKey(rs.Namespace, rs.Name), rs.Spec, nil, log)
 	if err != nil {
 		return err
 	}
@@ -228,14 +224,14 @@ func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLog
 	return nil
 }
 
-func prepareScaleDownReplicaSet(omClient om.Connection, statefulSet *appsv1.StatefulSet, oldMembersCount int, new *mongodb.MongoDbReplicaSet, log *zap.SugaredLogger) error {
+func prepareScaleDownReplicaSet(omClient om.Connection, statefulSet *appsv1.StatefulSet, oldMembersCount int, new *mongodb.MongoDB, log *zap.SugaredLogger) error {
 	_, podNames := GetDnsForStatefulSetReplicasSpecified(statefulSet, new.Spec.ClusterName, oldMembersCount)
 	podNames = podNames[new.Spec.Members:oldMembersCount]
 
 	return prepareScaleDown(omClient, map[string][]string{new.Name: podNames}, log)
 }
 
-func getAllHostsRs(set *appsv1.StatefulSet, rs *mongodb.MongoDbReplicaSet, membersCount int) []string {
+func getAllHostsRs(set *appsv1.StatefulSet, rs *mongodb.MongoDB, membersCount int) []string {
 	if rs == nil {
 		return []string{}
 	}

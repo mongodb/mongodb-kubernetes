@@ -1,9 +1,4 @@
-import pytest
-
 from kubetester import KubernetesTester
-
-from operator import attrgetter
-
 
 class TestStandaloneSchemaCredentialsMissing(KubernetesTester):
     """
@@ -35,6 +30,18 @@ class TestStandaloneSchemaVersionMissing(KubernetesTester):
     create:
       file: fixtures/standalone.yaml
       patch: '[{"op":"remove","path":"/spec/version"}]'
+      exception: 'Unprocessable Entity'
+    """
+
+    def test_validation_ok(self):
+        assert True
+
+class TestStandaloneSchemaInvalidType(KubernetesTester):
+    """
+    name: Validation for standalone (invalid type)
+    create:
+      file: fixtures/standalone.yaml
+      patch: '[{"op":"replace","path":"/spec/type","value":"InvalidStandaloneType"}]'
       exception: 'Unprocessable Entity'
     """
 

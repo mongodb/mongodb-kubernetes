@@ -45,13 +45,11 @@ type MockedClient struct {
 	// Note that we have to specify 'apiruntime.Object' as values for maps to make 'getMapForObject()' method work
 	// (poor polymorphism in Go... )
 	// so please make sure that you put correct data to maps
-	sets            map[client.ObjectKey]apiruntime.Object
-	services        map[client.ObjectKey]apiruntime.Object
-	configMaps      map[client.ObjectKey]apiruntime.Object
-	secrets         map[client.ObjectKey]apiruntime.Object
-	standalones     map[client.ObjectKey]apiruntime.Object
-	replicaSets     map[client.ObjectKey]apiruntime.Object
-	shardedClusters map[client.ObjectKey]apiruntime.Object
+	sets             map[client.ObjectKey]apiruntime.Object
+	services         map[client.ObjectKey]apiruntime.Object
+	configMaps       map[client.ObjectKey]apiruntime.Object
+	secrets          map[client.ObjectKey]apiruntime.Object
+	mongoDbResources map[client.ObjectKey]apiruntime.Object
 	// mocked client keeps track of all implemented functions called - uses reflection Func for this to enable type-safety
 	// and make function names rename easier
 	history []*HistoryItem
@@ -79,9 +77,7 @@ func newMockedClientDetailed(object apiruntime.Object, projectName, organization
 	api.services = make(map[client.ObjectKey]apiruntime.Object)
 	api.configMaps = make(map[client.ObjectKey]apiruntime.Object)
 	api.secrets = make(map[client.ObjectKey]apiruntime.Object)
-	api.standalones = make(map[client.ObjectKey]apiruntime.Object)
-	api.replicaSets = make(map[client.ObjectKey]apiruntime.Object)
-	api.shardedClusters = make(map[client.ObjectKey]apiruntime.Object)
+	api.mongoDbResources = make(map[client.ObjectKey]apiruntime.Object)
 
 	// initialize config map and secret to emulate user preparing environment
 	project := &corev1.ConfigMap{
@@ -241,12 +237,8 @@ func (oc *MockedClient) getMapForObject(obj apiruntime.Object) map[client.Object
 		return oc.configMaps
 	case *corev1.Service:
 		return oc.services
-	case *v1.MongoDbStandalone:
-		return oc.standalones
-	case *v1.MongoDbReplicaSet:
-		return oc.replicaSets
-	case *v1.MongoDbShardedCluster:
-		return oc.shardedClusters
+	case *v1.MongoDB:
+		return oc.mongoDbResources
 	}
 	return nil
 }

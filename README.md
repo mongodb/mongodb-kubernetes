@@ -11,7 +11,7 @@ Please note that the Operator is currently in public beta. Please do not use it 
 
 The high-level picture for the process of installing Mongodb deployment into Kubernetes cluster is as follows:
 * admin creates the `mongodb-enterprise-operator` Kubernetes Deployment which contains the operator application from config `mongodb-enterprise-operator.yaml`. This is a one-time operation.
-* admin creates custom MongoDB objects in Kubernetes (`MongoDbStandalone`, `MongoDbReplicaSet`, `MongoDbShardedCluster`). For example is `kubectl apply -f my-replicaset.yaml`
+* admin creates custom MongoDB objects in Kubernetes (`MongoDB`). For example is `kubectl apply -f my-replicaset.yaml`
 * `mongodb-enterprise-operator` watches these changes and applies them to different participants:
   * creates the Kubernetes StatefulSet(s) containing containers with automation agent binaries. They will be responsible for installation and managing local mongod process.
   * applies changes to the Ops Manager automation config using public API. So the deployment object (OM replica set for example) will be created and displayed in Ops Manager Deployment UI. 

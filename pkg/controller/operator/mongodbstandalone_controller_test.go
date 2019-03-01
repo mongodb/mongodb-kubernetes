@@ -17,7 +17,6 @@ import (
 
 func TestCreateOmProcess(t *testing.T) {
 	process := createProcess(defaultSetHelper().BuildStatefulSet(), DefaultStandaloneBuilder().Build())
-
 	// Note, that for standalone the name of process is the name of statefulset - not the pod inside it.
 	assert.Equal(t, "dublin", process.Name())
 	assert.Equal(t, "dublin-0.test-service.my-namespace.svc.cluster.local", process.HostName())
@@ -28,7 +27,6 @@ func TestCreateOmProcess(t *testing.T) {
 // creation ('StsCreationDelayMillis') and makes sure the operator waits for this to finish
 func TestOnAddStandalone(t *testing.T) {
 	st := DefaultStandaloneBuilder().SetVersion("4.1.0").SetService("mysvc").Build()
-
 	client := newMockedClient(st)
 	client.StsCreationDelayMillis = 200
 	reconciler := newStandaloneReconciler(newMockedManagerSpecificClient(client), om.NewEmptyMockedOmConnection)
@@ -84,22 +82,19 @@ func TestStandaloneEventMethodsHandlePanic(t *testing.T) {
 }
 
 type StandaloneBuilder struct {
-	*v1.MongoDbStandalone
+	*v1.MongoDB
 }
 
 func DefaultStandaloneBuilder() *StandaloneBuilder {
-	spec := &v1.MongoDbStandaloneSpec{
-		CommonSpec: v1.CommonSpec{
-			Version:     "4.0.0",
-			Persistent:  util.BooleanRef(false),
-			Project:     TestProjectConfigMapName,
-			Credentials: TestCredentialsSecretName,
-		},
+	spec := v1.MongoDbSpec{
+		Version:      "4.0.0",
+		Persistent:   util.BooleanRef(false),
+		Project:      TestProjectConfigMapName,
+		Credentials:  TestCredentialsSecretName,
+		ResourceType: v1.Standalone,
 	}
-	standalone := &v1.MongoDbStandalone{
-		Meta: v1.Meta{ObjectMeta: metav1.ObjectMeta{Name: "dublin", Namespace: TestNamespace}},
-		Spec: *spec}
-	return &StandaloneBuilder{standalone}
+	resource := &v1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "dublin", Namespace: TestNamespace}, Spec: spec}
+	return &StandaloneBuilder{resource}
 }
 
 func (b *StandaloneBuilder) SetName(name string) *StandaloneBuilder {
@@ -118,11 +113,13 @@ func (b *StandaloneBuilder) SetService(s string) *StandaloneBuilder {
 	b.Spec.Service = s
 	return b
 }
-func (b *StandaloneBuilder) Build() *v1.MongoDbStandalone {
-	return b.MongoDbStandalone
+func (b *StandaloneBuilder) Build() *v1.MongoDB {
+	b.Spec.ResourceType = v1.Standalone
+	b.InitDefaults()
+	return b.MongoDB
 }
 
-func createDeploymentFromStandalone(st *v1.MongoDbStandalone) om.Deployment {
+func createDeploymentFromStandalone(st *v1.MongoDB) om.Deployment {
 	helper := createStatefulHelperFromStandalone(st)
 
 	d := om.NewDeployment()
@@ -132,6 +129,6 @@ func createDeploymentFromStandalone(st *v1.MongoDbStandalone) om.Deployment {
 	return d
 }
 
-func createStatefulHelperFromStandalone(sh *v1.MongoDbStandalone) *StatefulSetHelper {
+func createStatefulHelperFromStandalone(sh *v1.MongoDB) *StatefulSetHelper {
 	return defaultSetHelper().SetName(sh.Name).SetService(sh.ServiceName()).SetReplicas(1)
 }

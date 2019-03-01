@@ -51,7 +51,7 @@ class TestReplicaSetCreation(KubernetesTester):
         assert sts.metadata.namespace == self.namespace
         owner_ref0 = sts.metadata.owner_references[0]
         assert owner_ref0.api_version == 'mongodb.com/v1'
-        assert owner_ref0.kind == 'MongoDbReplicaSet'
+        assert owner_ref0.kind == 'MongoDB'
         assert owner_ref0.name == 'my-replica-set'
 
     def test_sts_replicas(self):
@@ -91,10 +91,10 @@ class TestReplicaSetCreation(KubernetesTester):
         for podname in self._get_pods('my-replica-set-{}', 3):
             pod = self.corev1.read_namespaced_pod(podname, self.namespace)
             c0 = pod.spec.containers[0]
-            c0.ports[0].container_port == 27017
-            c0.ports[0].host_ip is None
-            c0.ports[0].host_port is None
-            c0.ports[0].protocol == 'TCP'
+            assert c0.ports[0].container_port == 27017
+            assert c0.ports[0].host_ip is None
+            assert c0.ports[0].host_port is None
+            assert c0.ports[0].protocol == 'TCP'
 
     def test_pods_container_envvars(self):
         for podname in self._get_pods('my-replica-set-{}', 3):
@@ -311,7 +311,7 @@ class TestReplicaSetUpdate(KubernetesTester):
         assert sts.metadata.namespace == self.namespace
         owner_ref0 = sts.metadata.owner_references[0]
         assert owner_ref0.api_version == 'mongodb.com/v1'
-        assert owner_ref0.kind == 'MongoDbReplicaSet'
+        assert owner_ref0.kind == 'MongoDB'
         assert owner_ref0.name == 'my-replica-set'
 
     def test_sts_replicas(self):
@@ -341,10 +341,10 @@ class TestReplicaSetUpdate(KubernetesTester):
         for podname in self._get_pods('my-replica-set-{}', 5):
             pod = self.corev1.read_namespaced_pod(podname, self.namespace)
             c0 = pod.spec.containers[0]
-            c0.ports[0].container_port == 27017
-            c0.ports[0].host_ip is None
-            c0.ports[0].host_port is None
-            c0.ports[0].protocol == 'TCP'
+            assert c0.ports[0].container_port == 27017
+            assert c0.ports[0].host_ip is None
+            assert c0.ports[0].host_port is None
+            assert c0.ports[0].protocol == 'TCP'
 
     def test_pods_container_envvars(self):
         for podname in self._get_pods('my-replica-set-{}', 5):

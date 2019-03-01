@@ -52,7 +52,7 @@ The `CustomResourceDefinition` (or `crds`) should be installed before installing
 
     kubectl apply -f https://raw.githubusercontent.com/mongodb/mongodb-enterprise-kubernetes/master/crds.yaml
 
-This will create three new `crds` in your cluster, `MongoDbStandalone`, `MongoDbReplicaSet` and `MongoDbShardedCluster`. These new objects will be the ones used by the operator to perform the MongoDb operations needed to prepare each one of the different MongoDb types of deployments.
+This will create a new `crd` in your cluster, `MongoDB`. This new object will be the one used by the operator to perform the MongoDb operations needed to prepare each one of the different MongoDb types of deployments.
 
 #### Operator Installation
 
@@ -127,7 +127,7 @@ $ kubectl -n mongodb create secret generic my-credentials --from-literal="user=s
 
 ### Creating a MongoDB Object ###
 
-A MongoDB object in Kubernetes can be a MongoDBStandalone, a MongoDBReplicaSet or a MongoDBShardedCluster (short names are `mst`, `mrs`, `msc`). We are going to create a replica set to test that everything is working as expected. There is a MongoDBReplicaSet yaml file in `samples/minimal/replicaset.yaml`.
+A MongoDB object in Kubernetes is a MongoDB (short name `mdb`). We are going to create a replica set to test that everything is working as expected. There is a MongoDB replica set yaml file in `samples/minimal/replicaset.yaml`.
 
 If you have a correctly created Project with the name `my-project` and Credentials stored in a secret called `my-credentials` then, after applying this file then everything should be running and a new Replica Set with 3 members should soon appear in Ops Manager UI.
 
@@ -142,9 +142,7 @@ These are the correct steps to remove any MongoDB Operator resources:
 
 ```bash
 # these three operations must be called first!
-kubectl delete mst --all -n <namespace>
-kubectl delete mrs --all -n <namespace>
-kubectl delete msc --all -n <namespace>
+kubectl delete mdb --all -n <namespace>
 
 # any of the following commands must be called after removing all existing mongodb resources
 kubectl delete namespace <namespace>
