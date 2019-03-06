@@ -43,23 +43,6 @@ check_app() {
     fi
 }
 
-# wait_for_or_kill
-# Waits for a given pid ${1} for a given amount of seconds ${2} to finish will
-# return true (success) if the process finished before the timeout, false otherwise.
-wait_for_or_kill() {
-    pid=${1}
-    timeout=${2}
-
-    ( sleep "${timeout}" && kill -HUP "${pid}" ) 2> /dev/null & watcher=$!
-    if wait "${pid}" 2> /dev/null; then
-        pkill -HUP -P $watcher
-        wait $watcher
-        return 0
-    fi
-
-    return 1
-}
-
 ensure_namespace() {
     namespace="${1}"
     tmp_file=$(mktemp)
@@ -280,13 +263,8 @@ redeploy_operator() {
     rm my-operator.yaml
 
     echo "Waiting until the Operator gets to Running state..."
-    ( while ! kubectl -n "${ns}" get pods -l app=mongodb-enterprise-operator -o jsonpath="{.items[0].status.phase}" | grep -q "Running"; do printf .; sleep 1; done ) & pid=$!
-    if wait_for_or_kill $pid 120; then
-        echo "Operator started on time"
-        kubectl -n "${ns}" get pods -l app=mongodb-enterprise-operator -o jsonpath="{.items[0].status.phase}"
-    else
-        echo "Operator didn't start"
-    fi
+    timeout ${timeout} bash -c \
+        'while ! kubectl -n '"${ns}"' get pods -l app=mongodb-enterprise-operator -o jsonpath="{.items[0].status.phase}" | grep -q "Running" ; do printf .; sleep 1; done' || true
 
     # In the end let's check again and print the state
     if ! kubectl -n "${ns}" get pods -l app=mongodb-enterprise-operator -o jsonpath="{.items[0].status.phase}" | grep -q "Running"; then
