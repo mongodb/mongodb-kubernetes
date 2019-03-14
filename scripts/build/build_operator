@@ -13,6 +13,8 @@ RELEASE_VERSION=$(git describe --dirty)
 
 echo "Building Operator binary..."
 
-CGO_ENABLED=0 GOOS=linux go build -i -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator -ldflags="-X github.com/10gen/ops-manager-kubernetes/pkg/util.OperatorVersion=$RELEASE_VERSION"
+# build stripped binary for linux with appropriate release version set
+CGO_ENABLED=0 GOOS=linux go build -i -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator \
+  -ldflags="-s -w -X github.com/10gen/ops-manager-kubernetes/pkg/util.OperatorVersion=$RELEASE_VERSION"
 
 echo "Operator successfully built (version ${RELEASE_VERSION})"
