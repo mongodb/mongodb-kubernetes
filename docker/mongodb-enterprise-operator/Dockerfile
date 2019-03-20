@@ -1,4 +1,4 @@
-FROM debian:jessie-slim
+FROM debian:stretch-slim
 
 # Add certificate in order to make the operator work with Cloud Manager
 RUN apt-get -qq update && \

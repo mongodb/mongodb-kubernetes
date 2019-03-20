@@ -1,6 +1,6 @@
 # This is the Docker file for the Ops Manager (Enterprise) Database
 #
-FROM debian:9.5-slim
+FROM debian:stretch-slim
 
 ENV MMS_HOME /mongodb-automation
 ENV MMS_LOG_DIR /var/log/mongodb-mms-automation
