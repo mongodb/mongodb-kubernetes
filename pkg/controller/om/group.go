@@ -3,9 +3,7 @@ package om
 // ProjectsResponse
 type ProjectsResponse struct {
 	OMPaginaged
-	Groups     []*Project `json:"results"`
-	TotalCount int        `json:"totalCount"`
-	Next       int        `json:"next,omitempty"`
+	Groups []*Project `json:"results"`
 }
 
 func (o ProjectsResponse) Results() []interface{} {

@@ -4,12 +4,12 @@ package om
 type Paginated interface {
 	HasNext() bool
 	Results() []interface{}
+	ItemsCount() int
 }
 
 type OMPaginaged struct {
 	TotalCount int     `json:"totalCount"`
 	Links      []*Link `json:"links,omitempty"`
-	Next       *int    `json:"next,omitempty"`
 }
 
 type Link struct {
@@ -26,6 +26,10 @@ func (o OMPaginaged) HasNext() bool {
 	return false
 }
 
+func (o OMPaginaged) ItemsCount() int {
+	return o.TotalCount
+}
+
 // PageReader is the function that reads a single page by its number
 type PageReader func(pageNum int) (Paginated, error)
 
@@ -38,9 +42,28 @@ type PageItemPredicate func(interface{}) bool
 // Note, that in OM 4.0 the max number of pages is 100, but in OM 4.1 and CM - 500.
 // So we'll traverse 100000 (200 pages 500 items on each) records in Cloud Manager and 20000 records in OM 4.0 - I believe it's ok
 // This won't be necessary if MMS-5638 is implemented or if we make 'orgId' configuration mandatory
-func TraversePages(apiFunc PageReader, predicate PageItemPredicate) (bool, error) {
-	for i := 1; i < 200; i++ {
-		paginated, e := apiFunc(i)
+func TraversePages(reader PageReader, predicate PageItemPredicate) (bool, error) {
+	// First we check the first page and get the number of items to calculate the max number of pages to traverse
+	paginated, e := reader(1)
+	if e != nil {
+		return false, e
+	}
+	for _, entity := range paginated.Results() {
+		if predicate(entity) {
+			return true, nil
+		}
+	}
+	if !paginated.HasNext() {
+		return false, nil
+	}
+
+	// We take 100 as the denuminator here assuming it's the OM 4.0. If it's OM 4.1 or CM - then we'll stop earlier
+	// thanks to '!paginated.HasNext()' as they support pages of size 500
+	pagesNum := (paginated.ItemsCount() / 100) + 1
+
+	// Note that we start from 2nd page as we've checked the 1st one above
+	for i := 2; i <= pagesNum; i++ {
+		paginated, e := reader(i)
 		if e != nil {
 			return false, e
 		}

@@ -418,8 +418,9 @@ class KubernetesTester(object):
         Returns the list of ids
         """
         ids = []
-        for i in range(1, 200):
-            url = build_om_org_list_endpoint(KubernetesTester.get_om_base_url(), i)
+        page = 1
+        while True:
+            url = build_om_org_list_endpoint(KubernetesTester.get_om_base_url(), page)
             json = KubernetesTester.om_request("get", url).json()
 
             # Add organization id if its name is the searched one
@@ -427,6 +428,7 @@ class KubernetesTester(object):
 
             if not any(link["rel"] == "next" for link in json["links"]):
                 break
+            page += 1
 
         return ids
 

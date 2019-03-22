@@ -36,7 +36,7 @@ class TestReplicaSetOrganizationsPagination(KubernetesTester):
         # Update the config map - change the group name, no orgId
         cls.patch_config_map(cls.get_namespace(), "my-project", {"projectName": cls.group_name, "orgId": ""})
 
-        print('Patched config map, now it has the projectName "{}'.format(cls.group_name))
+        print('Patched config map, now it has the projectName "{}"'.format(cls.group_name))
 
     def test_standalone_created_organization_found(self):
         groups_in_org = self.get_groups_in_organization_first_page(self.__class__.org_id)["totalCount"]
