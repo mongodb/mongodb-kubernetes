@@ -12,5 +12,5 @@ spec:
   version: 4.0.3
   project: my-project
   credentials: my-credentials
-
+  logLevel: WARN
   persistent: false

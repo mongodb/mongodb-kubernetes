@@ -47,3 +47,15 @@ class TestStandaloneSchemaInvalidType(KubernetesTester):
 
     def test_validation_ok(self):
         assert True
+
+class TestStandaloneSchemaInvalidLogLevel(KubernetesTester):
+    """
+    name: Validation for standalone (invalid logLevel)
+    create:
+      file: fixtures/standalone.yaml
+      patch: '[{"op":"replace","path":"/spec/logLevel","value":"NotINFO"}]'
+      exception: 'Unprocessable Entity'
+    """
+
+    def test_validation_ok(self):
+        assert True

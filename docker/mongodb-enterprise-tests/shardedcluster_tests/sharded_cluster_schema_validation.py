@@ -60,3 +60,15 @@ class TestShardedClusterValidationInvalidType(KubernetesTester):
 
     def test_validation_ok(self):
         assert True
+
+class TestShardedClusterValidationInvalidLogLevel(KubernetesTester):
+    """
+    name: Sharded Cluster Validation (invalid logLevel)
+    create:
+      file: fixtures/sharded-cluster.yaml
+      patch: '[{"op":"replace","path":"/spec/logLevel","value":"NotDEBUG"}]'
+      exception: 'Unprocessable Entity'
+    """
+
+    def test_validation_ok(self):
+        assert True

@@ -29,3 +29,18 @@ class TestReplicaSetInvalidType(KubernetesTester):
 
     def test_validation_ok(self):
         assert True
+
+class TestReplicaSetInvalidLogLevel(KubernetesTester):
+    """
+    name: Replica Set Validation (invalid type)
+    tags: replica-set
+    description: |
+      Creates a Replica Set with an invalid logLevel.
+    create:
+      file: fixtures/replica-set.yaml
+      patch: '[{"op":"replace","path":"/spec/logLevel","value":"NotWARNING"}]'
+      exception: 'Unprocessable Entity'
+    """
+
+    def test_validation_ok(self):
+        assert True

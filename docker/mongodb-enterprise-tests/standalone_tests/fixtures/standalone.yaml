@@ -8,3 +8,4 @@ spec:
   project: my-project
   credentials: my-credentials
   persistent: false
+  logLevel: INFO
