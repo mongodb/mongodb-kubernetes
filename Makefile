@@ -66,7 +66,7 @@ operator: build-and-push-operator-image
 	@ $(MAKE) deploy-operator
 
 # build-push, (todo) restart database
-database:
+database: aws_login
 	@ scripts/dev/build_push_database_image
 
 # ensures cluster is up, cleans Kubernetes + OM, build-push-deploy operator,

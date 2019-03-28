@@ -27,8 +27,25 @@ if ! grep -q "${current_uid}" /etc/passwd ; then
 fi
 
 # Create a symlink, after the volumes have been mounted
+# If the journal directory already exists (this could be the migration of the existing MongoDB database) - we need
+# to copy it to the correct location first and remove a directory
+if [[ -d /data/journal ]] && [[ ! -L /data/journal ]]; then
+    script_log "The journal directory /data/journal already exists - moving its content to /journal"
+    if [[ $(ls -1 /data/journal | wc -l) -gt 0 ]]; then
+        mv /data/journal/* /journal
+    fi
+    rm -rf /data/journal
+fi
+
 ln -sf /journal /data/
 script_log "Created symlink: /data/journal -> $(readlink -f /data/journal)"
+
+# If it is a migration of the existing MongoDB - then there could be a mongodb.log in a default location -
+# let's try to copy it to a new directory
+if [[ -f /data/mongodb.log ]] && [[ ! -f "${MMS_LOG_DIR}/mongodb.log" ]]; then
+    script_log "The mongodb log file /data/mongodb.log already exists - moving it to ${MMS_LOG_DIR}"
+    mv /data/mongodb.log ${MMS_LOG_DIR}
+fi
 
 base_url="${BASE_URL-}" # If unassigned, set to empty string to avoid set-u errors
 base_url="${base_url%/}" # Remove any accidentally defined trailing slashes
