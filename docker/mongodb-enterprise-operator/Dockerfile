@@ -1,4 +1,4 @@
-FROM debian:stretch-slim
+FROM ubuntu:16.04
 
 # Add certificate in order to make the operator work with Cloud Manager
 RUN apt-get -qq update && \

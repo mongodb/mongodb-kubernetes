@@ -12,6 +12,17 @@ Update any finished tickets in [kube-next](https://jira.mongodb.org/issues/?jql=
 
 Create a DOCSP ticket describing the tickets in the current [fixVersion](https://jira.mongodb.org/issues/?jql=project%20%3D%20CLOUDP%20AND%20component%20%3D%20Kubernetes%20AND%20status%20in%20(Resolved%2C%20Closed)%20and%20fixVersion%3D%20kube-next%20)
 
+Ensure there is a link to our quay.io tags, and if there are any Medium or higher CSVs **include a section in the release notes**
+
+```
+A list of the packages installed, and any security vulnerabilities detected in our build process, are outlined here
+
+For the MongoDB Enterprise Operator
+https://quay.io/repository/mongodb/mongodb-enterprise-operator?tab=tags
+
+And for the MongoDB Enterprise Database
+https://quay.io/repository/mongodb/mongodb-enterprise-database?tab=tags
+```
 
 ## Release ticket, branch and PR
 
@@ -20,6 +31,11 @@ Create a DOCSP ticket describing the tickets in the current [fixVersion](https:/
   otherwise fix them and push changes.
 
 ## Increase release versions in relevant files
+
+Ensure the required dependencies are installed 
+```bash
+pip3 install -r scripts/evergreen/requirements.txt
+```
 
 ```bash
 ./scripts/evergreen/update_release_version.py <version>

@@ -1,31 +1,25 @@
 # This is the Docker file for the Ops Manager (Enterprise) Database
 #
-FROM debian:stretch-slim
+FROM ubuntu:16.04
 
 ENV MMS_HOME /mongodb-automation
 ENV MMS_LOG_DIR /var/log/mongodb-mms-automation
 
 # The following list of dependencies was obtained from:
-# https://docs.mongodb.com/manual/tutorial/install-mongodb-enterprise-on-debian/#prerequisites
+# https://docs.mongodb.com/manual/tutorial/install-mongodb-enterprise-on-ubuntu/#prerequisites
 # Also, the Automation Agent needs lsb-release on the CLI to determine the current distro
 RUN apt-get -qq update \
       && apt-get -y -qq install \
       ca-certificates \
       curl \
-      \
       libcurl3 \
+      openssl \
       libgssapi-krb5-2 \
       libkrb5-dbg \
       libldap-2.4-2 \
       libpcap0.8 \
       libsasl2-2 \
       snmp \
-      openssl \
-      \
-      libsasl2-2 \
-      lsb-release \
-      procps \
-      \
       jq \
     && apt-get upgrade -y -qq \
     && apt-get dist-upgrade -y -qq \
