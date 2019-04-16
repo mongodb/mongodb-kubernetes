@@ -14,6 +14,23 @@ spec:
     shortNames:
     - mdb
     singular: mongodb
+  additionalPrinterColumns:
+    - name: Type
+      type: string
+      description: "The type of MongoDB deployment. One of 'ReplicaSet', 'ShardedCluster' and 'Standalone'."
+      JSONPath: .spec.type
+    - name: State
+      type: string
+      description: The current state of the MongoDB deployment.
+      JSONPath: .status.phase
+    - name: Version
+      type: string
+      description: The version of MongoDB.
+      JSONPath: .spec.version
+    - name: Age
+      type: date
+      description: The time since the MongoDB resource was created.
+      JSONPath: .metadata.creationTimestamp
   validation: # there are 3 possible schemas, ReplicaSet, ShardedCluster and Standalone
     openAPIV3Schema:
       oneOf:
