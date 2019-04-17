@@ -40,7 +40,7 @@ func TestReconcileCreateShardedCluster(t *testing.T) {
 	checkReconcileSuccessful(t, reconciler, sc, client)
 
 	assert.Len(t, client.secrets, 2)
-	assert.Len(t, client.services, 4)
+	assert.Len(t, client.services, 3)
 	assert.Len(t, client.sets, 4)
 	assert.Equal(t, *client.getSet(objectKey(sc.Namespace, sc.ConfigRsName())).Spec.Replicas, int32(sc.Spec.ConfigServerCount))
 	assert.Equal(t, *client.getSet(objectKey(sc.Namespace, sc.MongosRsName())).Spec.Replicas, int32(sc.Spec.MongosCount))

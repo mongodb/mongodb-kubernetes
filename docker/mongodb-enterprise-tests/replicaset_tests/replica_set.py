@@ -14,6 +14,7 @@ class TestReplicaSetNoop(KubernetesTester):
     noop:
       timeout: 2
     '''
+
     def test_some(self):
         assert True
 
@@ -113,6 +114,12 @@ class TestReplicaSetCreation(KubernetesTester):
     def test_service_is_created(self):
         svc = self.corev1.read_namespaced_service('my-replica-set-svc', self.namespace)
         assert svc
+
+    def test_nodeport_service_not_exists(self):
+        """Test that replica set is not exposed externally."""
+        services = self.clients("corev1").list_namespaced_service(self.get_namespace())
+        assert len(services.items) == 1
+        assert len([s for s in services.items if s.spec.type == "NodePort"]) == 0
 
     def test_om_processes_are_created(self):
         config = self.get_automation_config()

@@ -77,6 +77,10 @@ type MongoDbSpec struct {
 	Version string `json:"version"`
 	// this is an optional service, it will get the name "<rsName>-service" in case not provided
 	Service string `json:"service,omitempty"`
+
+	// ExposedExternally determines whether a NodePort service should be created for the deployment
+	ExposedExternally bool `json:"exposedExternally"`
+
 	// TODO seems the ObjectMeta contains the field for ClusterName - may be we should use it instead
 	ClusterName  string       `json:"clusterName,omitempty"`
 	Persistent   *bool        `json:"persistent,omitempty"`

@@ -40,7 +40,7 @@ func TestOnAddReplicaSet(t *testing.T) {
 
 	checkReconcileSuccessful(t, reconciler, rs, client)
 
-	assert.Len(t, client.services, 2)
+	assert.Len(t, client.services, 1)
 	assert.Len(t, client.sets, 1)
 	assert.Equal(t, *client.getSet(rs.ObjectKey()).Spec.Replicas, int32(3))
 	assert.Len(t, client.secrets, 2)

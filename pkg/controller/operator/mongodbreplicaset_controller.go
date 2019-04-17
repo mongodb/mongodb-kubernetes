@@ -60,7 +60,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		SetPersistence(rs.Spec.Persistent).
 		SetPodSpec(NewDefaultPodSpecWrapper(*rs.Spec.PodSpec)).
 		SetPodVars(podVars).
-		SetExposedExternally(true).
+		SetExposedExternally(rs.Spec.ExposedExternally).
 		SetLogger(log)
 	replicaSetObject := replicaBuilder.BuildStatefulSet()
 

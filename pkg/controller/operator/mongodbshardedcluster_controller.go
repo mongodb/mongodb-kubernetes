@@ -122,7 +122,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mo
 		SetPodVars(podVars).
 		SetLogger(log).
 		SetPersistence(util.BooleanRef(false)).
-		SetExposedExternally(true)
+		SetExposedExternally(s.Spec.ExposedExternally)
 
 	// 2. Create a Config Server StatefulSet
 	defaultConfigSrvSpec := NewDefaultPodSpec()

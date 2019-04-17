@@ -107,7 +107,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		SetPersistence(s.Spec.Persistent).
 		SetPodSpec(NewDefaultStandalonePodSpecWrapper(s.Spec.PodSpec.MongoDbPodSpecStandard)).
 		SetPodVars(podVars).
-		SetExposedExternally(true).
+		SetExposedExternally(s.Spec.ExposedExternally).
 		SetLogger(log)
 
 	err = standaloneBuilder.CreateOrUpdateInKubernetes()
