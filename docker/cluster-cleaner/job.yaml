@@ -20,16 +20,14 @@ subjects:
   name: cluster-cleaner
   namespace: operator-testing
 
-# First Job will clean namespaces every day at 2am
 ---
 apiVersion: batch/v1beta1
 kind: CronJob
 metadata:
-  name: cluster-cleaner-test-namespaces
+  name: cluster-cleaner-delete-each-hour
   namespace: operator-testing
 spec:
-  # run everyday at 2am
-  schedule: "* 2 * * *"
+  schedule: "16 * * * *"
   jobTemplate:
     spec:
       template:
@@ -43,13 +41,14 @@ spec:
           - name: cluster-cleaner
             image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cluster-cleaner:0.1
 
-          env:
-          - name: DELETE_OLDER_THAN_UNIT
-            value: hours
-          - name: DELETE_OLDER_THAN_AMOUNT
-            value: 12
+            env:
+            - name: DELETE_OLDER_THAN_UNIT
+              value: "hours"
+            - name: DELETE_OLDER_THAN_AMOUNT
+              value: "1"
 
-# Second Job will remove Ops Manager every Saturday
+# Second Job will kill Ops Manager Pod every Saturday
+# TODO: this should also delete the PVCs and have MongoDB start from scratch
 ---
 apiVersion: batch/v1beta1
 kind: CronJob
@@ -58,7 +57,7 @@ metadata:
   namespace: operator-testing
 spec:
   # run every saturday
-  schedule: "* * * * 6"
+  schedule: "10 2 * * 6"
   jobTemplate:
     spec:
       template:
@@ -71,7 +70,7 @@ spec:
           - name: cluster-cleaner
             image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cluster-cleaner:0.1
 
-          env:
-          # by passing DELETE_OPS_MANAGER we'll remove Ops Manager StatefulSet from 
-          - name: DELETE_OPS_MANAGER
-            value: true
+            env:
+            # by passing DELETE_OPS_MANAGER we'll remove Ops Manager StatefulSet from
+            - name: DELETE_OPS_MANAGER
+              value: "true"

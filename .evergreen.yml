@@ -133,7 +133,7 @@ functions:
           export CLUSTER=e2e.mongokubernetes.com
 
           echo "Downloading kops"
-          curl -s -L https://github.com/kubernetes/kops/releases/download/1.9.1/kops-linux-amd64 -o kops
+          curl -s -L https://github.com/kubernetes/kops/releases/download/1.11.1/kops-linux-amd64 -o kops
           chmod +x kops
           mv kops $BINDIR
           kops export kubecfg $CLUSTER
@@ -476,7 +476,6 @@ tasks:
       vars:
         test_name: sharded_cluster_schema_validation
 
-
 # Removing this test as it creates a cluster wide operator
 # that collides with every other operator running in the
 # cluster, breaking havoc
@@ -607,6 +606,63 @@ tasks:
       vars:
         test_name: all_mongodb_resources_parallel
 
+
+- name: e2e_standalone_no_tls_no_status_is_set
+  exec_timeout_secs: 600
+  commands:
+  - func: "e2e_test"
+    vars:
+      test_name: tls_no_status
+
+- name: e2e_replica_set_tls_allow
+  exec_timeout_secs: 600
+  commands:
+  - func: "e2e_test"
+    vars:
+      test_name: tls_allowssl
+
+- name: e2e_replica_set_tls_prefer
+  exec_timeout_secs: 600
+  commands:
+  - func: "e2e_test"
+    vars:
+      test_name: tls_preferssl
+
+- name: e2e_replica_set_tls_require
+  exec_timeout_secs: 600
+  commands:
+  - func: "e2e_test"
+    vars:
+      test_name: tls_requiressl
+
+- name: e2e_replica_set_tls_require_and_disable
+  exec_timeout_secs: 600
+  commands:
+  - func: "e2e_test"
+    vars:
+      test_name: tls_requiressl_and_disable
+
+- name: e2e_tls_multiple_different_ssl_configs
+  exec_timeout_secs: 600
+  commands:
+  - func: "e2e_test"
+    vars:
+      test_name: tls_multiple_different_ssl_configs
+
+- name: e2e_replica_set_tls_require_upgrade
+  exec_timeout_secs: 600
+  commands:
+  - func: "e2e_test"
+    vars:
+      test_name: tls_requiressl_upgrade
+
+- name: e2e_sharded_cluster_tls_require
+  exec_timeout_secs: 600
+  commands:
+  - func: "e2e_test"
+    vars:
+      test_name: tls_sc_requiressl
+
 task_groups:
 - name: unit_task_group
   setup_group:
@@ -643,6 +699,14 @@ task_groups:
     - e2e_sharded_cluster_pv
     - e2e_sharded_cluster_recovery
     - e2e_sharded_cluster_secret
+    - e2e_sharded_cluster_tls_require
+    - e2e_standalone_no_tls_no_status_is_set
+    - e2e_replica_set_tls_allow
+    - e2e_replica_set_tls_prefer
+    - e2e_replica_set_tls_require
+    - e2e_replica_set_tls_require_upgrade
+    - e2e_replica_set_tls_require_and_disable
+    - e2e_tls_multiple_different_ssl_configs
   teardown_task:
     - func: "upload_e2e_artifacts"
 

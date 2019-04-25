@@ -13,6 +13,7 @@ class TestReplicaSetBadStateCreation(KubernetesTester):
     create:
       file: fixtures/replica-set-invalid.yaml
       wait_until: in_error_state
+      timeout: 180
     '''
 
     def test_in_error_state(self):
@@ -31,7 +32,7 @@ class TestReplicaSetRecoversFromBadState(KubernetesTester):
       file: fixtures/replica-set-invalid.yaml
       patch: '[{"op":"replace","path":"/spec/version","value":"4.0.0"}]'
       wait_until: in_running_state
-      timeout: 180
+      timeout: 120
     '''
 
     def test_in_running_state(self):

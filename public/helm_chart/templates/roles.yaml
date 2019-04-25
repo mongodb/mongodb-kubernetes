@@ -50,3 +50,35 @@ subjects:
 {{ if .Values.namespace }}
   namespace: {{ .Values.namespace }}
 {{ end }}
+
+# This ClusterRole is needed if the user wants to use the Kubernetes CA
+# infrastructure to generate certificates.
+# TODO: Set the right resources and verbs in this yaml doc.
+{{ if .Values.needsCAInfrastructure }}
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ .Values.operator.name }}-{{ .Values.namespace }}-certs
+rules:
+- apiGroups:
+  - certificates.k8s.io
+  resources: ["*"]
+  verbs: ["*"]
+
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ .Values.operator.name }}-{{ .Values.namespace }}-certs-binding
+  namespace: {{ .Values.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Values.operator.name }}-{{ .Values.namespace }}-certs
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.operator.name }}
+  namespace: {{ .Values.namespace }}
+
+{{ end }}

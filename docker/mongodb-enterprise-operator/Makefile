@@ -1,7 +1,7 @@
 IMAGE = mongodb-enterprise-operator
 IMAGE_VERSION = latest
 IMAGE_DIR = dev
-AWS_IMAGE_REPO = 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
+AWS_IMAGE_REPO = 268558157000.dkr.ecr.us-east-1.amazonaws.com
 AWS_REGION = us-east-1
 
 usage:

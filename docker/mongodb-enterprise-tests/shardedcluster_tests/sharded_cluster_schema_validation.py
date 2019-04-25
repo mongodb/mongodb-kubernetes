@@ -72,3 +72,15 @@ class TestShardedClusterValidationInvalidLogLevel(KubernetesTester):
 
     def test_validation_ok(self):
         assert True
+
+class TestShardedClusterSchemaInvalidSSL(KubernetesTester):
+    """
+    name: Sharded Cluster Validation (invalid ssl mode)
+    create:
+      file: fixtures/standalone.yaml
+      patch: '[{"op":"add","path":"/spec","value":{"additionalMongodConfig":{"net":{"ssl":{"mode": "disabledSSL"}}}}}]'
+      exception: 'Unprocessable Entity'
+    """
+
+    def test_validation_ok(self):
+        assert True

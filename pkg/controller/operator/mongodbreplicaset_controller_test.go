@@ -144,7 +144,12 @@ func createDeploymentFromReplicaSet(rs *v1.MongoDB) om.Deployment {
 
 	d := om.NewDeployment()
 	hostnames, _ := GetDnsForStatefulSet(helper.BuildStatefulSet(), rs.Spec.ClusterName)
-	d.MergeReplicaSet(buildReplicaSetFromStatefulSet(helper.BuildStatefulSet(), rs.Spec.ClusterName, rs.Spec.Version), nil)
+	d.MergeReplicaSet(
+		buildReplicaSetFromStatefulSet(
+			helper.BuildStatefulSet(), rs.Spec.ClusterName, rs.Spec.Version, rs.Spec.GetAdditionalMongodConfig(), zap.S(),
+		),
+		nil,
+	)
 	d.AddMonitoringAndBackup(hostnames[0], zap.S())
 
 	return d

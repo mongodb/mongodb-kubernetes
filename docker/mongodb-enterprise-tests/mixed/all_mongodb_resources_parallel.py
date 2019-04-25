@@ -1,91 +1,114 @@
 import threading
+import pytest
 
-from kubetester import KubernetesTester, func_with_timeout, func_with_assertions
+import sys
+import os
+import os.path
+
+try:
+    from kubetester import KubernetesTester, run_periodically, fixture
+except ImportError:
+    # patching python import path so it finds kubetester
+    sys.path.append(os.path.dirname(os.getcwd()))
+    from kubetester import KubernetesTester, run_periodically, fixture
 
 
+mdb_resources = {
+    "my-standalone": fixture("standalone.yaml"),
+    "sh001-single": fixture("sharded-cluster-single.yaml"),
+    "my-replica-set-single": fixture("replica-set-single.yaml"),
+}
+
+
+@pytest.mark.race_conditions
 class TestRaceConditions(KubernetesTester):
-    '''
-    name: Test for no race conditions during creation of three mongodb resources in parallel
+    """
+    name: Test for no race conditions during creation of three mongodb resources in parallel.
     description: |
-        Makes sure no duplicated organizations/groups are created, also that the automation config doesn't miss entries
+        Makes sure no duplicated organizations/groups are created, while 3 mongodb resources
+        are created in parallel. Also the automation config doesn't miss entries.
+    """
 
-    '''
     random_storage_name = None
 
     @classmethod
     def setup_env(cls):
-        # note, that all fixture files in the container are located in one 'fixtures' directory
-        t1 = threading.Thread(target=cls.create_custom_resource_from_file,
-                              args=(cls.get_namespace(), "fixtures/standalone.yaml"))
-        t2 = threading.Thread(target=cls.create_custom_resource_from_file,
-                              args=(cls.get_namespace(), "fixtures/sharded-cluster-single.yaml"))
-        t3 = threading.Thread(target=cls.create_custom_resource_from_file,
-                              args=(cls.get_namespace(), "fixtures/replica-set-single.yaml"))
+        threads = []
+        for filename in mdb_resources.values():
+            args = (cls.get_namespace(), filename)
+            threads.append(
+                threading.Thread(target=cls.create_custom_resource_from_file, args=args)
+            )
 
-        t1.start()
-        t2.start()
-        t3.start()
-
-        t1.join()
-        t2.join()
-        t3.join()
+        [t.start() for t in threads]
+        [t.join() for t in threads]
 
         print("Waiting until all three resources get 'Running' state..")
-        func_with_timeout(TestRaceConditions.all_resources_created, 350, sleep_time=3)
+        run_periodically(TestRaceConditions.all_resources_created, timeout=360)
 
     def test_all_resources_created(self):
         # No duplicated organizations were created and automation config is consistent
-        organizations = KubernetesTester.find_organizations(KubernetesTester.get_om_group_name())
+        organizations = KubernetesTester.find_organizations(
+            KubernetesTester.get_om_group_name()
+        )
         assert len(organizations) == 1
-        groups = KubernetesTester.find_groups_in_organization(organizations[0], KubernetesTester.get_om_group_name())
+        groups = KubernetesTester.find_groups_in_organization(
+            organizations[0], KubernetesTester.get_om_group_name()
+        )
         assert len(groups) == 1
 
         config = KubernetesTester.get_automation_config()
 
         # 2 replica sets for the sharded cluster and 1 - for the replica set
-        assert len(config['replicaSets']) == 3
+        assert len(config["replicaSets"]) == 3
 
         # 1 standalone, 1 rs, 1 sharded cluster (each replica set contains single members)
-        assert len(config['processes']) == 5
+        assert len(config["processes"]) == 5
 
-        assert len(config['sharding']) == 1
+        assert len(config["sharding"]) == 1
 
     def test_all_resources_removed(self):
-        t1 = threading.Thread(target=KubernetesTester.delete_custom_resource,
-                              args=(KubernetesTester.get_namespace(), "my-replica-set-single", "MongoDB"))
-        t2 = threading.Thread(target=KubernetesTester.delete_custom_resource,
-                              args=(KubernetesTester.get_namespace(), "my-standalone", "MongoDB"))
-        t3 = threading.Thread(target=KubernetesTester.delete_custom_resource,
-                              args=(KubernetesTester.get_namespace(), "sh001-single", "MongoDB"))
+        threads = []
+        for resource in mdb_resources.keys():
+            args = (self.get_namespace(), resource, "MongoDB")
+            threads.append(
+                threading.Thread(
+                    target=KubernetesTester.delete_custom_resource, args=args
+                )
+            )
 
-        t1.start()
-        t2.start()
-        t3.start()
+        [t.start() for t in threads]
+        [t.join() for t in threads]
 
-        t1.join()
-        t2.join()
-        t3.join()
-        func_with_timeout(TestRaceConditions.all_resources_removed, 200)
+        run_periodically(TestRaceConditions.all_resources_removed, timeout=360)
 
     @staticmethod
     def all_resources_created():
-        rs_ready = KubernetesTester.check_phase(KubernetesTester.get_namespace(), "MongoDB",
-                                                "my-replica-set-single", "Running")
-        standalone_ready = KubernetesTester.check_phase(KubernetesTester.get_namespace(), "MongoDB",
-                                                        "my-standalone", "Running")
-        cluster_ready = KubernetesTester.check_phase(KubernetesTester.get_namespace(), "MongoDB",
-                                                     "sh001-single", "Running")
-        print("Standalone ready: {}, replica set ready: {}, sharded cluster ready: {}".format(
-            standalone_ready, rs_ready, cluster_ready))
-        return rs_ready and standalone_ready and cluster_ready
+        namespace = KubernetesTester.get_namespace()
+        results = [
+            KubernetesTester.check_phase(namespace, "MongoDB", resource, "Running")
+            for resource in mdb_resources.keys()
+        ]
+
+        print(
+            "Standalone ready: {}, replica set ready: {}, sharded cluster ready: {}".format(
+                *results
+            )
+        )
+        return all(results)
 
     @staticmethod
     def all_resources_removed():
-        rs_ready = KubernetesTester.is_deleted(KubernetesTester.get_namespace(), "my-replica-set-single")
-        standalone_ready = KubernetesTester.is_deleted(KubernetesTester.get_namespace(), "my-standalone")
-        cluster_ready = KubernetesTester.is_deleted(KubernetesTester.get_namespace(), "sh001-single")
-        om_cleaned = func_with_assertions(KubernetesTester.check_om_state_cleaned)
-        print("Standalone removed: {}, replica set removed: {}, sharded cluster removed: {}, Ops Manager cleaned: {}".
-              format(standalone_ready, rs_ready, cluster_ready, om_cleaned))
+        results = [
+            KubernetesTester.is_deleted(KubernetesTester.get_namespace(), r)
+            for r in mdb_resources.keys()
+        ]
 
-        return rs_ready and standalone_ready and cluster_ready and om_cleaned
+        results.append(KubernetesTester.is_om_state_cleaned())
+        print(
+            "Standalone removed: {}, replica set removed: {}, sharded cluster removed: {}, Ops Manager cleaned: {}".format(
+                *results
+            )
+        )
+
+        return all(results)

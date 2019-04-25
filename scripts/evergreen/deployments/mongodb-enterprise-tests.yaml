@@ -32,6 +32,7 @@ spec:
   serviceAccountName: operator-tests-service-account
   restartPolicy: Never
   terminationGracePeriodSeconds: 0
+
   containers:
   - name: mongodb-enterprise-operator-tests
     env:
@@ -48,6 +49,10 @@ spec:
       value: {{ .Values.pytest.addopts }}
     - name: PYTHONUNBUFFERED
       value: 'true'
+    - name: PYTHONWARNINGS
+      value: 'ignore:yaml.YAMLLoadWarning,ignore:urllib3.InsecureRequestWarning'
+    - name: POD_NAME
+      value: "mongodb-enterprise-operator-testing-pod"
     image: {{ .Values.repo }}/mongodb-enterprise-tests:{{ .Values.tag }}
     command: ["pytest"]
     # -s  -- disable stdout capture: should be added to `PYTEST_ADDOPTS` if needed

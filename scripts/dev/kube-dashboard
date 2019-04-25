@@ -14,9 +14,32 @@ if ! lsof -i -P -n | grep LISTEN | grep -q 8001; then
     kubectl proxy  &
 fi
 
-kubectl get secret $(kubectl get serviceaccount dashboard -o jsonpath="{.secrets[0].name}") -o jsonpath="{.data.token}" | base64 --decode | pbcopy
-echo "The login token is copied to clipboard - use it to login to the dashboard"
+open_web_location () {
+    location="${1}"
+
+    if [ "$(uname)" = "Linux" ]; then
+        xdg-open "${location}"
+    elif [ "$(uname)" = "Darwin" ]; then
+        open "${location}"
+    else
+        echo "Can't open URL location, your OS is not supported."
+    fi
+}
+
+secret=$(kubectl get secret $(kubectl get serviceaccount dashboard -o jsonpath="{.secrets[0].name}") -o jsonpath="{.data.token}" | base64 --decode)
+if [ "$(uname)" = "Linux" ]; then
+    if which xclip &> /dev/null; then
+        echo $secret | xclip -selection clipboard
+        echo "The login token is copied to clipboard - use it to login to the dashboard"
+    else
+        echo "Use this password to access the dashboard: $secret"
+    fi
+else
+    echo "$secret" | pbcopy
+    echo "The login token is copied to clipboard - use it to login to the dashboard"
+fi
+
 
 sleep 1
 
-open "http://localhost:8001/api/v1/namespaces/kube-system/services/https:kubernetes-dashboard:/proxy/"
+open_web_location "http://localhost:8001/api/v1/namespaces/kube-system/services/https:kubernetes-dashboard:/proxy/"

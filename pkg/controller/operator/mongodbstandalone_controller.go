@@ -77,8 +77,8 @@ type ReconcileMongoDbStandalone struct {
 
 func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
 	log := zap.S().With("Standalone", request.NamespacedName)
-
 	s := &mongodb.MongoDB{}
+
 	defer exceptionHandling(
 		func() (reconcile.Result, error) {
 			return r.updateStatusFailed(s, "Failed to reconcile Mongodb Standalone", log)
@@ -108,7 +108,13 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		SetPodSpec(NewDefaultStandalonePodSpecWrapper(s.Spec.PodSpec.MongoDbPodSpecStandard)).
 		SetPodVars(podVars).
 		SetExposedExternally(s.Spec.ExposedExternally).
-		SetLogger(log)
+		SetLogger(log).
+		SetTLS(s.Spec.GetTLSConfig()).
+		SetClusterName(s.Spec.ClusterName)
+
+	if err := r.kubeHelper.ensureSSLCertsForStatefulSet(standaloneBuilder, log); err != nil {
+		return r.updateStatusFailed(s, err.Error(), log)
+	}
 
 	err = standaloneBuilder.CreateOrUpdateInKubernetes()
 	if err != nil {
@@ -138,6 +144,8 @@ func updateOmDeployment(conn om.Connection, s *mongodb.MongoDB,
 		func(d om.Deployment) error {
 			d.MergeStandalone(standaloneOmObject, nil)
 			d.AddMonitoringAndBackup(standaloneOmObject.HostName(), log)
+			d.ConfigureTLS(s.Spec.GetTLSConfig())
+
 			processNames = d.GetProcessNames(om.Standalone{}, s.Name)
 			return nil
 		},
@@ -185,7 +193,7 @@ func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLog
 		return err
 	}
 
-	hostsToRemove, _ := GetDnsNames(s.Name, s.ServiceName(), s.Namespace, s.Spec.ClusterName, 1)
+	hostsToRemove, _ := GetDNSNames(s.Name, s.ServiceName(), s.Namespace, s.Spec.ClusterName, 1)
 	log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
 	if err = om.StopMonitoring(conn, hostsToRemove, log); err != nil {
 		return err
@@ -198,7 +206,9 @@ func createProcess(set *appsv1.StatefulSet, s *mongodb.MongoDB) om.Process {
 	hostnames, _ := GetDnsForStatefulSet(set, s.Spec.ClusterName)
 	wiredTigerCache := calculateWiredTigerCache(set)
 
-	process := om.NewMongodProcess(s.Name, hostnames[0], s.Spec.Version)
+	process := om.NewMongodProcess(
+		s.Name, hostnames[0], s.Spec.Version, s.Spec.GetAdditionalMongodConfig(),
+	)
 	if wiredTigerCache != nil {
 		process.SetWiredTigerCache(*wiredTigerCache)
 	}

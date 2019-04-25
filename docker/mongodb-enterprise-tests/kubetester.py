@@ -7,11 +7,29 @@ from os import getenv
 
 import jsonpatch
 import pymongo
+import pytest
 import requests
 import yaml
+from datetime import datetime, timezone
+
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 from requests.auth import HTTPDigestAuth
+
+
+TESTING_DIRS = ("replicaset_tests", "shardedcluster_tests", "standalone_tests", "")
+SSL_CA_CERT = "/var/run/secrets/kubernetes.io/serviceaccount/..data/ca.crt"
+ENVIRONMENT_FILES = ("~/.operator-dev/om", "~/.operator-dev/contexts/{}")
+ENVIRONMENT_FILE_CURRENT = os.path.expanduser("~/.operator-dev/current")
+
+
+def running_locally():
+    return os.getenv("POD_NAME", "local") == "local"
+
+
+skip_if_local = pytest.mark.skipif(running_locally(), reason="Only run in Kubernetes cluster")
+# time to sleep between retries
+SLEEP_TIME = 2
 
 
 class KubernetesTester(object):
@@ -28,10 +46,12 @@ class KubernetesTester(object):
     @classmethod
     def setup_env(cls):
         """Optionally override this in a test instance to create an appropriate test environment."""
+        pass
 
     @classmethod
     def teardown_env(cls):
         """Optionally override this in a test instance to destroy the test environment."""
+        pass
 
     @classmethod
     def create_config_map(cls, namespace, name, data):
@@ -78,6 +98,7 @@ class KubernetesTester(object):
             "appsv1": client.AppsV1Api(),
             "storagev1": client.StorageV1Api(),
             "customv1": client.CustomObjectsApi(),
+            "certificates": client.CertificatesV1beta1Api(),
             "namespace": KubernetesTester.get_namespace(),
         }[name]
 
@@ -135,12 +156,21 @@ class KubernetesTester(object):
 
     @classmethod
     def prepare(cls, test_setup, namespace):
-        allowed_actions = ["create", "update", "delete", "noop"]
+        allowed_actions = ["create", "update", "delete", "noop", "wait"]
 
         for action in [action for action in allowed_actions if action in test_setup]:
             rules = test_setup[action]
-            KubernetesTester.execute(action, rules, namespace)
-            cls.wait_condition(rules)
+
+            if not isinstance(rules, list):
+                rules = [rules]
+
+            for rule in rules:
+                KubernetesTester.execute(action, rule, namespace)
+
+                if "wait_for_condition" in rule:
+                    cls.wait_for_condition_string(rule["wait_for_condition"])
+                else:
+                    cls.wait_condition(rule)
 
     @staticmethod
     def execute(action, rules, namespace):
@@ -151,6 +181,11 @@ class KubernetesTester(object):
     def wait_for(seconds):
         "Will wait for a given amount of seconds."
         time.sleep(int(seconds))
+
+    @staticmethod
+    def wait(rules, namespace):
+        KubernetesTester.name = rules["resource"]
+        KubernetesTester.wait_until(rules["until"], rules.get("timeout", 0))
 
     @staticmethod
     def create(section, namespace):
@@ -190,7 +225,7 @@ class KubernetesTester(object):
                 group, version, namespace, plural(kind), resource
             )
             if exception_reason:
-                raise AssertionError("Expected the ApiException, but create operation succeeded!")
+                raise AssertionError("Expected ApiException, but create operation succeeded!")
 
         except ApiException as e:
             if exception_reason:
@@ -282,6 +317,15 @@ class KubernetesTester(object):
         )
 
     @staticmethod
+    def in_failed_state():
+        return KubernetesTester.check_phase(
+            KubernetesTester.namespace,
+            KubernetesTester.kind,
+            KubernetesTester.name,
+            "Failed"
+        )
+
+    @staticmethod
     def is_deleted(namespace, name, kind="MongoDB"):
         try:
             KubernetesTester.get_namespaced_custom_object(
@@ -306,21 +350,21 @@ class KubernetesTester(object):
         or for some amount of time, both can appear in the file,
         will always wait for the condition and then for some amount of time.
         """
-        if "wait_until" not in action and "wait_for" not in action:
+        if "wait_until" not in action:
             return
-        print('Waiting for the condition: {}'.format(action))
-        sys.stdout.flush()
 
-        if "wait_until" in action:
-            print("Waiting until {}".format(action["wait_until"]))
-            cls.wait_until(action["wait_until"], int(action.get("timeout", 60)))
-        else:
-            KubernetesTester.wait_for(action.get("timeout", 0))
+        print("Waiting until {}".format(action["wait_until"]))
+        wait_phases = [a.strip() for a in action["wait_until"].split(",") if a != ""]
+        for phase in wait_phases:
+            # Will wait for each action passed as a , separated list
+            # waiting on average the same amount of time for each phase
+            # totaling `timeout`
+            cls.wait_until(phase, int(action.get("timeout", 0)) / len(wait_phases))
 
     @classmethod
     def wait_until(cls, action, timeout):
         func = getattr(cls, action)
-        return func_with_timeout(func, timeout)
+        return run_periodically(func, timeout=timeout)
 
     @classmethod
     def wait_for_condition_string(cls, condition):
@@ -356,6 +400,7 @@ class KubernetesTester(object):
         self.client = client
         self.corev1 = client.CoreV1Api()
         self.appsv1 = client.AppsV1Api()
+        self.certificates = client.CertificatesV1beta1Api()
         self.customv1 = client.CustomObjectsApi()
         self.namespace = KubernetesTester.get_namespace()
         self.name = None
@@ -461,7 +506,6 @@ class KubernetesTester(object):
         for i in range(1, 200):
             url = build_om_groups_in_org_endpoint(KubernetesTester.get_om_base_url(), org_id, i)
             json = KubernetesTester.om_request("get", url).json()
-
             # Add group id if its name is the searched one
             ids.extend([group["id"] for group in json["results"] if group["name"] == group_name])
 
@@ -471,12 +515,42 @@ class KubernetesTester(object):
         return ids
 
     @staticmethod
-    def get_automation_config():
-        url = build_automation_config_endpoint(KubernetesTester.get_om_base_url(),
-                                               KubernetesTester.get_om_group_id())
+    def get_automation_config(group_id=None):
+        if group_id is None:
+            group_id = KubernetesTester.get_om_group_id()
+        url = build_automation_config_endpoint(KubernetesTester.get_om_base_url(), group_id)
         response = KubernetesTester.om_request("get", url)
 
         return response.json()
+
+
+    @staticmethod
+    def get_monitoring_config(group_id=None):
+        if group_id is None:
+            group_id = KubernetesTester.get_om_group_id()
+        url = build_monitoring_config_endpoint(KubernetesTester.get_om_base_url(), group_id)
+        response = KubernetesTester.om_request("get", url)
+
+        return response.json()
+
+    @staticmethod
+    def put_automation_config(config):
+        url = build_automation_config_endpoint(KubernetesTester.get_om_base_url(),
+                                               KubernetesTester.get_om_group_id())
+        response = KubernetesTester.om_request("put", url, config)
+
+        return response
+
+
+    @staticmethod
+    def put_monitoring_config(config, group_id=None):
+        if group_id is None:
+            group_id = KubernetesTester.get_om_group_id()
+        url = build_monitoring_config_endpoint(KubernetesTester.get_om_base_url(),
+                                               group_id)
+        response = KubernetesTester.om_request("put", url, config)
+
+        return response
 
     @staticmethod
     def get_hosts():
@@ -515,11 +589,27 @@ class KubernetesTester(object):
         assert len(hosts["results"]) == 0, "Hosts not empty: ({} hosts left)".format(len(hosts["results"]))
 
     @staticmethod
-    def mongo_resource_deleted():
-        return KubernetesTester.is_deleted(KubernetesTester.namespace,
-                                           KubernetesTester.name,
-                                           KubernetesTester.kind) \
-               and func_with_assertions(KubernetesTester.check_om_state_cleaned)
+    def is_om_state_cleaned():
+        config = KubernetesTester.get_automation_config()
+        hosts = KubernetesTester.get_hosts()
+
+        return len(config["replicaSets"]) == 0 and \
+            len(config["sharding"]) == 0 and \
+            len(config["processes"]) == 0 and \
+            len(hosts["results"]) == 0
+
+    @staticmethod
+    def mongo_resource_deleted(check_om_state=True):
+        return (
+            # First we check that the MDB resource is removed
+            KubernetesTester.is_deleted(KubernetesTester.namespace,
+                                        KubernetesTester.name,
+                                        KubernetesTester.kind)
+            and (
+                # Then we check that the resource was removed in Ops Manager
+                check_om_state and KubernetesTester.is_om_state_cleaned()
+            )
+        )
 
     def build_mongodb_uri_for_rs(self, hosts):
         return "mongodb://{}".format(",".join(hosts))
@@ -536,30 +626,52 @@ class KubernetesTester(object):
             random.choice(string.ascii_lowercase) for _ in range(10)
         )
 
-    def wait_for_rs_is_ready(self, hosts, wait_for=60, check_every=5):
+    def approve_certificate(self, name):
+        body = self.certificates.read_certificate_signing_request_status(name)
+        conditions = self.client.V1beta1CertificateSigningRequestCondition(
+            last_update_time=datetime.now(timezone.utc).astimezone(),
+            message='This certificate was approved by E2E testing framework',
+            reason='TestReplicaSetWithTLSCreationApproval',
+            type='Approved')
+
+        body.status.conditions = [conditions]
+        self.certificates.replace_certificate_signing_request_approval(name, body)
+
+    def wait_for_rs_is_ready(self, hosts, wait_for=60, check_every=5, ssl=False):
         "Connects to a given replicaset and wait a while for a primary and secondaries."
         mongodburi = self.build_mongodb_uri_for_rs(hosts)
-        client = pymongo.MongoClient(mongodburi)
+        options = {}
+        if ssl:
+            options = {
+                "ssl": True,
+                "ssl_ca_certs": SSL_CA_CERT
+            }
+        client = pymongo.MongoClient(mongodburi, **options)
 
         check_times = wait_for / check_every
-        while client.primary is None and check_times >= 0:
+
+        while (
+                (client.primary is None
+                or len(client.secondaries) < len(hosts) - 1)
+                and check_times >= 0
+        ):
             time.sleep(check_every)
             check_times -= 1
 
         return client.primary, client.secondaries
 
-    def check_mongos_is_ready(self, host):
+    def check_mongos_is_ready(self, host, ssl=False):
         mongodburi = self.build_mongodb_uri_for_mongos(host)
-        client = pymongo.MongoClient(mongodburi)
-        try:
-            # The ismaster command is cheap and does not require auth.
-            return client.admin.command("ismaster")
-        except pymongo.ConnectionFailure:
-            raise Exception(
-                "Checking if {} `ismaster` failed. No connectivity to this host was possible.".format(
-                    mongodburi
-                )
-            )
+        options = {}
+        if ssl:
+            options = {
+                "ssl": True,
+                "ssl_ca_certs": SSL_CA_CERT
+            }
+        client = pymongo.MongoClient(mongodburi, **options)
+
+        # The ismaster command is cheap and does not require auth.
+        return client.admin.command("ismaster")
 
     def _get_pods(self, podname, qty=3):
         return [podname.format(i) for i in range(qty)]
@@ -603,7 +715,8 @@ def get_crd_meta(doc):
     return get_name(doc), get_kind(doc), get_group(doc), get_version(doc), get_type(doc)
 
 
-def plural(name): # plural of mongodb is mongodb
+def plural(name):
+    """Returns the plural of the name, in the case of `mongodb` the plural is the same."""
     return name.lower()
 
 
@@ -652,40 +765,86 @@ def current_milliseconds():
     return int(round(time.time() * 1000))
 
 
-def func_with_timeout(func, timeout=120, sleep_time=2):
+def run_periodically(fn, *args, **kwargs):
+    sleep_time = kwargs.get("sleep_time", SLEEP_TIME)
+    timeout = kwargs.get("timeout", 0)
+
+    if timeout > 0:
+        return run_periodically_with_timeout(fn, timeout, sleep_time)
+
+    return run_periodically_forever(fn, sleep_time)
+
+
+def run_periodically_with_timeout(fn, timeout, sleep_time):
     """
-    >>> func_with_timeout(lambda: time.sleep(5), timeout=3, sleep_time=0)
+    Calls `func` until it succeeds or until the `timeout` is reached, every `sleep_time` seconds.
+    If `timeout` is negative or zero, it never times out.
+
+    >>> run_periodically_with_timeout(lambda: time.sleep(5), timeout=3, sleep_time=0)
     False
-    >>> func_with_timeout(lambda: time.sleep(2), timeout=5, sleep_time=0)
+    >>> run_periodically_with_timeout(lambda: time.sleep(2), timeout=5, sleep_time=0)
     True
     """
+
     start_time = current_milliseconds()
-    timeout_time = start_time + (timeout * 1000)
+    timeout = start_time + (timeout * 1000)
+    callable_name = fn.__name__
+
+    while current_milliseconds() < timeout:
+        if fn():
+            print('{} executed successfully after {} seconds'.format(
+                callable_name,
+                (current_milliseconds() - start_time) / 1000))
+            return True
+
+        time.sleep(sleep_time)
+
+    raise AssertionError("Timed out executing {} after {} seconds".format(
+        callable_name,
+        (timeout - start_time) / 1000))
+
+
+def run_periodically_forever(fn, sleep_time):
     while True:
-        time_passed = current_milliseconds() - start_time
-        if time_passed + start_time >= timeout_time:
-            raise AssertionError("Timed out executing {} after {} seconds".format(func.__name__, timeout))
-        if func():
-            print('{} executed successfully after {} seconds'.format(func.__name__, time_passed / 1000))
+        if fn():
             return True
         time.sleep(sleep_time)
 
 
-def func_with_assertions(func):
-    try:
-        func()
-        return True
-    except AssertionError as e:
-        # so we know which AssertionError was raised
-        print("The check for {} hasn't passed yet. {}".format(func.__name__, e))
-        return False
+def get_env_var_or_fail(name):
+    """Gets a configuration option from an Environment varialbe. If not found, will try to find
+    this option in one of the configuration files for the user.
+    """
+    value = getenv(name)
+
+    if not value and running_locally():
+        # If the environment variable is not found, and in local mode,
+        # look for it in any of the "environment" files
+        value = get_env_var_from_file(name)
+
+    if not value:
+        raise ValueError("Environment variable `{}` needs to be set.".format(name))
+
+    return value.strip()
 
 
-def get_env_var_or_fail(var_name):
-    env_value = getenv(var_name)
-    if not env_value:
-        raise ValueError("Environment variable `{}` needs to be set.".format(var_name))
-    return env_value
+def get_current_dev_context():
+    with open(ENVIRONMENT_FILE_CURRENT) as fd:
+        return fd.readline().strip()
+
+
+def get_env_var_from_file(var_name):
+    for env_file in ENVIRONMENT_FILES:
+        if "{}" in env_file:
+            env_file = env_file.format(get_current_dev_context())
+
+        with open(os.path.expanduser(env_file)) as fd:
+            for line in fd.readlines():
+                name, value = line.split("=")
+                if "export " in name:
+                    _, name = name.split("export ")
+                if name.strip() == var_name:
+                    return value
 
 
 def build_auth(user, api_key):
@@ -711,14 +870,54 @@ def build_om_org_list_endpoint(base_url, page_num):
 def build_om_one_org_endpoint(base_url, org_id):
     return "{}/api/public/v1.0/orgs/{}".format(base_url, org_id)
 
-
 def build_om_groups_in_org_endpoint(base_url, org_id, page_num):
     return "{}/api/public/v1.0/orgs/{}/groups?itemsPerPage=500&pageNum={}".format(base_url, org_id, page_num)
-
 
 def build_automation_config_endpoint(base_url, group_id):
     return "{}/api/public/v1.0/groups/{}/automationConfig".format(base_url, group_id)
 
+def build_monitoring_config_endpoint(base_url, group_id):
+    return "{}/api/public/v1.0/groups/{}/automationConfig/monitoringAgentConfig".format(base_url, group_id)
 
 def build_hosts_endpoint(base_url, group_id):
     return "{}/api/public/v1.0/groups/{}/hosts".format(base_url, group_id)
+
+
+def fixture(filename):
+    """Returns a relative path to a filename in one of the fixture's directories"""
+    module_path = os.path.dirname(__file__)
+    fixture_dirs = [
+        os.path.join(module_path, test_dir, "fixtures") for test_dir in TESTING_DIRS
+    ]
+
+    found = None
+    for _dir in fixture_dirs:
+        _file = os.path.join(_dir, filename)
+        if os.path.exists(_file) and os.path.isfile(_file):
+            if found is not None:
+                raise Exception("Fixtures found with same name")
+            found = _file
+
+    if found is None:
+        raise Exception("Fixture file {} not found".format(filename))
+    return found
+
+
+def build_list_of_hosts(mdb_resource, namespace, members, servicename=None):
+    if servicename is None:
+        servicename = "{}-svc".format(mdb_resource)
+
+    return [
+        build_host_fqdn(hostname(mdb_resource, idx), namespace, servicename)
+        for idx in range(members)
+    ]
+
+
+def build_host_fqdn(hostname, namespace, servicename):
+    return "{hostname}.{servicename}.{namespace}.svc.cluster.local:27017".format(
+        hostname=hostname, servicename=servicename, namespace=namespace
+    )
+
+
+def hostname(hostname, idx):
+    return "{}-{}".format(hostname, idx)

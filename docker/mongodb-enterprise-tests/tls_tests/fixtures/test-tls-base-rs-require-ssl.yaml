@@ -1,0 +1,17 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: test-tls-base-rs-require-ssl
+spec:
+  members: 3
+  version: 4.0.0
+  type: ReplicaSet
+  project: my-project
+  credentials: my-credentials
+  logLevel: DEBUG
+
+  persistent: false
+
+  tls:
+    enabled: true

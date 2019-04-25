@@ -18,6 +18,24 @@ const (
 	OmPublicApiKey = "publicApiKey"
 	OmAgentApiKey  = "agentApiKey"
 
+	// SSLRequireValidMMSServerCertificates points at the string name of the
+	// same name variable in OM configuration passed in the "Project" config
+	SSLRequireValidMMSServerCertificates = "sslRequireValidMMSServerCertificates"
+
+	// SSLTrustedMMSServerCertificate points at the string name of the
+	// same name variable in OM configuration passed in the "Project" config
+	SSLTrustedMMSServerCertificate = "sslTrustedMMSServerCertificate"
+
+	// SSLMMSCAConfigMap indicates the name of the ConfigMap that stores the
+	// CA certificate used to sign the MMS TLS certificate
+	SSLMMSCAConfigMap = "sslMMSCAConfigMap"
+
+	// SSLMMSCALocation Specifies where the CA certificate should be mounted.
+	SSLMMSCALocation = "/mongodb-automation/certs/ca.crt"
+
+	// KubernetesCALocation CA For Kubernetes CA
+	KubernetesCALocation = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+
 	// Env variables names for pods
 	ENV_VAR_BASE_URL      = "BASE_URL"
 	ENV_VAR_PROJECT_ID    = "GROUP_ID"
@@ -25,18 +43,26 @@ const (
 	ENV_VAR_AGENT_API_KEY = "AGENT_API_KEY"
 	ENV_VAR_LOG_LEVEL     = "LOG_LEVEL"
 
+	// EnvVarSSLRequireValidMMSCertificates bla bla
+	EnvVarSSLRequireValidMMSCertificates = "SSL_REQUIRE_VALID_MMS_CERTIFICATES"
+
+	// EnvVarSSLTrustedMMSServerCertificate env variable will point to where the CA cert is mounted.
+	EnvVarSSLTrustedMMSServerCertificate = "SSL_TRUSTED_MMS_SERVER_CERTIFICATE"
+
 	// Pod/StatefulSet specific constants
-	ContainerName       = "mongodb-enterprise-database"
-	OmControllerLabel   = "mongodb-enterprise-operator"
-	LivenessProbe       = "/mongodb-automation/files/probe.sh"
-	PvcNameData         = "data"
-	PvcMountPathData    = "/data"
-	PvcNameJournal      = "journal"
-	PvcMountPathJournal = "/journal"
-	PvcNameLogs         = "logs"
-	PvcMountPathLogs    = "/var/log/mongodb-mms-automation"
-	RunAsUser           = 2000
-	FsGroup             = 2000
+	ContainerName             = "mongodb-enterprise-database"
+	OmControllerLabel         = "mongodb-enterprise-operator"
+	LivenessProbe             = "/mongodb-automation/files/probe.sh"
+	PvcNameData               = "data"
+	PvcMountPathData          = "/data"
+	PvcNameJournal            = "journal"
+	PvcMountPathJournal       = "/journal"
+	PvcNameLogs               = "logs"
+	PvcMountPathLogs          = "/var/log/mongodb-mms-automation"
+	CAFilePathInContainer     = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+	PEMKeyFilePathInContainer = "/mongodb-automation/server.pem"
+	RunAsUser                 = 2000
+	FsGroup                   = 2000
 
 	// Operator Env configuration properties
 	AutomationAgentImageUrl        = "MONGODB_ENTERPRISE_DATABASE_IMAGE"
@@ -65,7 +91,6 @@ const (
 
 	// All others
 	OmGroupExternallyManagedTag = "EXTERNALLY_MANAGED_BY_KUBERNETES"
-	MongodbResourceFinalizer    = "resource.finalizer.mongodb.com"
 )
 
 // this is set at compile time

@@ -3,6 +3,10 @@ set -o nounset
 set -o errexit
 set -o pipefail
 
+secrets_dir="/var/lib/mongodb-automation/secrets"
+pod_secrets_dir="/mongodb-automation"
+
+
 # log stdout as structured json with given log type
 function json_log {
   jq --unbuffered --null-input --raw-input "inputs | {\"logType\": \"$1\", \"contents\": .}"
@@ -12,6 +16,17 @@ function json_log {
 function script_log {
   echo "$1" | json_log 'agent-launcher-script'
 }
+
+if [ -d "${secrets_dir}" ]; then
+    script_log "Found certificates in the host, will symlink to where the automation agent expects them to be"
+    podname=$(hostname)
+
+    if [ ! -f "${secrets_dir}/${podname}-pem" ]; then
+        script_log "PEM Certificate file does not exist in ${secrets_dir}/${podname}-pem. Check the Secret object with certificates is well formed."
+        exit 1
+    fi
+    ln -s "${secrets_dir}/${podname}-pem" "${pod_secrets_dir}/server.pem"
+fi
 
 # Ensure that the user has an entry in /etc/passwd
 current_uid=$(id -u)
@@ -55,7 +70,27 @@ declare -r base_url
 if [ ! -e "${MMS_HOME}/files/mongodb-mms-automation-agent" ]; then
     script_log "Downloading an Automation Agent from ${base_url}"
     pushd /tmp >/dev/null
-    curl --location --silent --retry 3 --fail -o automation-agent.tar.gz "${base_url}/download/agent/automation/mongodb-mms-automation-agent-latest.linux_x86_64.tar.gz"
+
+    curl_opts=(
+        "${base_url}/download/agent/automation/mongodb-mms-automation-agent-latest.linux_x86_64.tar.gz"
+        "--location" "--silent" "--retry" "3" "--fail"
+        "--output" "automation-agent.tar.gz"
+    )
+
+    if [ -n "${SSL_REQUIRE_VALID_MMS_CERTIFICATES-}" ] && [ "${SSL_REQUIRE_VALID_MMS_CERTIFICATES}" = "false" ]; then
+        # If we are not expecting valid certs, `curl` should be run with `--insecure` option.
+        # The default is NOT to accept insecure connections.
+        curl_opts+=("--insecure")
+    fi
+
+    if [ -n "${SSL_TRUSTED_MMS_SERVER_CERTIFICATE-}" ]; then
+        curl_opts+=("--cacert" "${SSL_TRUSTED_MMS_SERVER_CERTIFICATE}")
+    fi
+
+    if ! curl "${curl_opts[@]}" &> "${MMS_LOG_DIR}/agent-launcher-script.log"; then
+        script_log "Error while downloading the Automation agent"
+        exit 1
+    fi
 
     script_log "The Automation Agent binary downloaded, unpacking"
     tar -xzf automation-agent.tar.gz
@@ -83,6 +118,15 @@ else
     )
     if [ -n "${HTTP_PROXY-}" ]; then
         agentOpts+=("-httpProxy" "${HTTP_PROXY}")
+    fi
+
+    if [ -n "${SSL_TRUSTED_MMS_SERVER_CERTIFICATE-}" ]; then
+        agentOpts+=("-sslTrustedMMSServerCertificate" "${SSL_TRUSTED_MMS_SERVER_CERTIFICATE}")
+    fi
+
+    if [ -n "${SSL_REQUIRE_VALID_MMS_CERTIFICATES-}" ] && [ "${SSL_REQUIRE_VALID_MMS_CERTIFICATES}" = "true" ]; then
+        # Only set this option when valid certs are required. The default is false
+        agentOpts+=("-sslRequireValidMMSServerCertificates")
     fi
 
     script_log "Launching automation agent with following arguments: ${agentOpts[*]} -mmsApiKey ${AGENT_API_KEY+<hidden>}"

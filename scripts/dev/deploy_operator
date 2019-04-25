@@ -11,8 +11,16 @@ title "Deploying the Operator to Kubernetes cluster..."
 # checking the status of k8s cluster
 if [[ ${CLUSTER_TYPE} = "minikube" ]]; then
     ensure_minikube
-elif [[ ${CLUSTER_TYPE} = "kops" && $(kops validate cluster "${CLUSTER_NAME}" | grep -q "not found") ]]; then
-    fatal "kops cluster is not running, call \"make\" to create it"
+elif [[ ${CLUSTER_TYPE} = "kops" ]]; then
+    if kops validate cluster "${CLUSTER_NAME}" | grep -q "not found"; then
+        fatal "kops cluster is not running, call \"make\" to create it"
+    fi
+elif [[ ${CLUSTER_TYPE} = "openshift" ]]; then
+    if ! oc get nodes &> /dev/null; then
+        fatal "Could not communicate to Openshift cluster"
+    fi
+else
+    fatal "CLUSTER_TYPE=${CLUSTER_TYPE} not recognized"
 fi
 
 # making sure the namespace is created
@@ -23,4 +31,7 @@ if [[ ${REPO_TYPE} = "local" ]]; then
     pull_policy="Never"
 fi
 
-redeploy_operator "${REPO_URL}" "${OPERATOR_VERSION:-}" "${NAMESPACE:-mongodb}" "${watch_namespace:-$NAMESPACE}" "${pull_policy:-}"
+if [[ ${CLUSTER_TYPE} = "openshift" ]]; then
+    managed_security_context="true"
+fi
+redeploy_operator "${REPO_URL}" "${OPERATOR_VERSION:-}" "${NAMESPACE:-mongodb}" "${watch_namespace:-$NAMESPACE}" "${pull_policy:-}" "${managed_security_context:-}"

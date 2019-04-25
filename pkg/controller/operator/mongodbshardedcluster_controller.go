@@ -69,6 +69,10 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return nil, fmt.Errorf("Failed to perform scale down preliminary actions: %s", err)
 	}
 
+	if err = r.ensureSSLCertificates(sc, kubeState, log); err != nil {
+		return nil, err
+	}
+
 	if err = r.createKubernetesResources(sc, kubeState, log); err != nil {
 		return nil, fmt.Errorf("Failed to create/update resources in Kubernetes for sharded cluster: %s", err)
 	}
@@ -81,6 +85,37 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 
 	return conn, nil
 
+}
+
+func (r *ReconcileMongoDbShardedCluster) ensureSSLCertificates(s *mongodb.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger) error {
+	tlsConfig := s.Spec.GetTLSConfig()
+
+	if tlsConfig == nil || !s.Spec.GetTLSConfig().Enabled {
+		return nil
+	}
+
+	var lastErr error
+	errorHappened := false
+	if err := r.kubeHelper.ensureSSLCertsForStatefulSet(state.mongosSetHelper, log); err != nil {
+		errorHappened = true
+		lastErr = err
+	}
+	if err := r.kubeHelper.ensureSSLCertsForStatefulSet(state.configSrvSetHelper, log); err != nil {
+		errorHappened = true
+		lastErr = err
+	}
+	for _, s := range state.shardsSetsHelpers {
+		if err := r.kubeHelper.ensureSSLCertsForStatefulSet(s, log); err != nil {
+			errorHappened = true
+			lastErr = err
+		}
+	}
+
+	if errorHappened {
+		return lastErr
+	}
+
+	return nil
 }
 
 func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mongodb.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger) error {
@@ -122,7 +157,9 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mo
 		SetPodVars(podVars).
 		SetLogger(log).
 		SetPersistence(util.BooleanRef(false)).
-		SetExposedExternally(s.Spec.ExposedExternally)
+		SetExposedExternally(s.Spec.ExposedExternally).
+		SetTLS(s.Spec.GetTLSConfig()).
+		SetClusterName(s.Spec.ClusterName)
 
 	// 2. Create a Config Server StatefulSet
 	defaultConfigSrvSpec := NewDefaultPodSpec()
@@ -139,7 +176,9 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mo
 		SetPodSpec(podSpec).
 		SetPodVars(podVars).
 		SetLogger(log).
-		SetExposedExternally(false)
+		SetExposedExternally(false).
+		SetTLS(s.Spec.GetTLSConfig()).
+		SetClusterName(s.Spec.ClusterName)
 
 	// 3. Creates a StatefulSet for each shard in the cluster
 	shardsSetHelpers := make([]*StatefulSetHelper, s.Spec.ShardCount)
@@ -151,7 +190,9 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mo
 			SetPersistence(s.Spec.Persistent).
 			SetPodSpec(NewDefaultPodSpecWrapper(*s.Spec.ShardPodSpec)).
 			SetPodVars(podVars).
-			SetLogger(log)
+			SetLogger(log).
+			SetTLS(s.Spec.GetTLSConfig()).
+			SetClusterName(s.Spec.ClusterName)
 	}
 
 	return ShardedClusterKubeState{
@@ -292,11 +333,32 @@ func updateOmDeploymentShardedCluster(conn om.Connection, sc *mongodb.MongoDB, s
 		return err
 	}
 
-	mongosProcesses := createProcesses(state.mongosSetHelper.BuildStatefulSet(), sc.Spec.ClusterName, sc.Spec.Version, om.ProcessTypeMongos)
-	configRs := buildReplicaSetFromStatefulSet(state.configSrvSetHelper.BuildStatefulSet(), sc.Spec.ClusterName, sc.Spec.Version)
+	mongosProcesses := createProcesses(
+		state.mongosSetHelper.BuildStatefulSet(),
+		sc.Spec.ClusterName,
+		sc.Spec.Version,
+		om.ProcessTypeMongos,
+		sc.Spec.GetAdditionalMongodConfig(),
+		log,
+	)
+
+	configRs := buildReplicaSetFromStatefulSet(
+		state.configSrvSetHelper.BuildStatefulSet(),
+		sc.Spec.ClusterName,
+		sc.Spec.Version,
+		sc.Spec.GetAdditionalMongodConfig(),
+		log,
+	)
+
 	shards := make([]om.ReplicaSetWithProcesses, len(state.shardsSetsHelpers))
 	for i, s := range state.shardsSetsHelpers {
-		shards[i] = buildReplicaSetFromStatefulSet(s.BuildStatefulSet(), sc.Spec.ClusterName, sc.Spec.Version)
+		shards[i] = buildReplicaSetFromStatefulSet(
+			s.BuildStatefulSet(),
+			sc.Spec.ClusterName,
+			sc.Spec.Version,
+			sc.Spec.GetAdditionalMongodConfig(),
+			log,
+		)
 	}
 
 	processNames := make([]string, 0)
@@ -306,6 +368,8 @@ func updateOmDeploymentShardedCluster(conn om.Connection, sc *mongodb.MongoDB, s
 				return err
 			}
 			d.AddMonitoringAndBackup(mongosProcesses[0].HostName(), log)
+			d.ConfigureTLS(sc.Spec.GetTLSConfig())
+
 			processNames = d.GetProcessNames(om.ShardedCluster{}, sc.Name)
 			return nil
 		},
@@ -357,14 +421,14 @@ func getMaxShardedClusterSizeConfig(specConfig mongodb.MongodbShardedClusterSize
 func getAllHosts(c *mongodb.MongoDB, sizeConfig mongodb.MongodbShardedClusterSizeConfig) []string {
 	ans := make([]string, 0)
 
-	hosts, _ := GetDnsNames(c.MongosRsName(), c.ServiceName(), c.Namespace, c.Spec.ClusterName, sizeConfig.MongosCount)
+	hosts, _ := GetDNSNames(c.MongosRsName(), c.ServiceName(), c.Namespace, c.Spec.ClusterName, sizeConfig.MongosCount)
 	ans = append(ans, hosts...)
 
-	hosts, _ = GetDnsNames(c.ConfigRsName(), c.ConfigSrvServiceName(), c.Namespace, c.Spec.ClusterName, sizeConfig.ConfigServerCount)
+	hosts, _ = GetDNSNames(c.ConfigRsName(), c.ConfigSrvServiceName(), c.Namespace, c.Spec.ClusterName, sizeConfig.ConfigServerCount)
 	ans = append(ans, hosts...)
 
 	for i := 0; i < sizeConfig.ShardCount; i++ {
-		hosts, _ = GetDnsNames(c.ShardRsName(i), c.ShardServiceName(), c.Namespace, c.Spec.ClusterName, sizeConfig.MongodsPerShardCount)
+		hosts, _ = GetDNSNames(c.ShardRsName(i), c.ShardServiceName(), c.Namespace, c.Spec.ClusterName, sizeConfig.MongodsPerShardCount)
 		ans = append(ans, hosts...)
 	}
 	return ans

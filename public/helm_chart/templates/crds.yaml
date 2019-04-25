@@ -50,6 +50,15 @@ spec:
               type:
                 type: string
                 pattern: "^Standalone$"
+              additionalMongodConfig:
+                properties:
+                  net:
+                    properties:
+                      ssl:
+                        properties:
+                          mode:
+                            type: string
+                            enum: ["disabled", "allowSSL", "preferSSL", "requireSSL", "allowTLS", "preferTLS", "requireTLS"]
               exposedExternally:
                 type: boolean
             required:
@@ -77,6 +86,15 @@ spec:
               type:
                 type: string
                 pattern: "^ReplicaSet$"
+              additionalMongodConfig:
+                properties:
+                  net:
+                    properties:
+                      ssl:
+                        properties:
+                          mode:
+                            type: string
+                            enum: ["disabled", "allowSSL", "preferSSL", "requireSSL", "allowTLS", "preferTLS", "requireTLS"]
               exposedExternally:
                 type: boolean
             required:
@@ -115,6 +133,15 @@ spec:
               type:
                 type: string
                 pattern: "^ShardedCluster$"
+              additionalMongodConfig:
+                properties:
+                  net:
+                    properties:
+                      ssl:
+                        properties:
+                          mode:
+                            type: string
+                            enum: ["disabled", "allowSSL", "preferSSL", "requireSSL", "allowTLS", "preferTLS", "requireTLS"]
               exposedExternally:
                 type: boolean
             required:

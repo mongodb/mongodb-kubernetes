@@ -58,10 +58,6 @@ class TestReplicaSetMultiplePersistentVolumeDelete(KubernetesTester):
       wait_until: mongo_resource_deleted
       timeout: 120
     """
-    def test_no_statefulset_exists(self):
-        # There should be no statefulsets in this namespace
-        sts = self.appsv1.list_namespaced_stateful_set(self.namespace)
-        assert len(sts.items) == 0
 
     def test_pvc_are_bound(self):
         "Should check the used PVC are still there in the Bound status."

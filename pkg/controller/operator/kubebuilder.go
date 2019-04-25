@@ -3,6 +3,9 @@ package operator
 // This is a collection of functions building different Kubernetes API objects (statefulset, templates etc) from operator
 // custom objects
 import (
+	"fmt"
+	"path"
+	"strconv"
 	"strings"
 
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
@@ -19,6 +22,22 @@ const (
 	// (aka replicaset) to different locations, so pods having the same label shouldn't coexist on the node that has
 	// the same topology key
 	POD_ANTI_AFFINITY_LABEL_KEY = "pod-anti-affinity"
+
+	// SecretVolumeMountPath defines where in the Pod will be the secrets
+	// object mounted.
+	SecretVolumeMountPath = "/var/lib/mongodb-automation/secrets"
+
+	// SecretVolumeName is the name of the volume resource.
+	SecretVolumeName = "secret"
+
+	// CaCertMountPath defines where in the Pod will the ca cert be mounted.
+	CaCertMountPath = "/mongodb-automation/certs"
+
+	// CaCertMMS is the name of the CA file provided for MMS.
+	CaCertMMS = "mms-ca.crt"
+
+	// CaCertVolumeName is the name of the volume with the CA Cert
+	CaCertName = "ca-cert-volume"
 )
 
 // PodVars is a convenience struct to pass environment variables to Pods as needed.
@@ -29,6 +48,9 @@ type PodVars struct {
 	User        string
 	AgentAPIKey string
 	LogLevel    mongodb.LogLevel
+
+	// Related to MMS SSL configuration
+	SSLProjectConfig
 }
 
 // buildStatefulSet builds the statefulset of pods containing agent containers. It's a general function used by
@@ -66,6 +88,62 @@ func buildStatefulSet(p StatefulSetHelper) *appsv1.StatefulSet {
 	if p.Persistent == nil || *p.Persistent {
 		buildPersistentVolumeClaims(set, p)
 	}
+
+	// SSL is active
+	if p.TLSConfig != nil && p.TLSConfig.Enabled {
+		// TODO: Move into its own function
+		var secretName string
+		if p.TLSConfig.Secret != "" {
+			secretName = p.TLSConfig.Secret
+		} else {
+			secretName = fmt.Sprintf("%s-cert", p.Name)
+		}
+		// mount the secrets volume.
+		volMount := corev1.VolumeMount{
+			Name:      SecretVolumeName,
+			ReadOnly:  true,
+			MountPath: SecretVolumeMountPath,
+		}
+		vol := corev1.Volume{
+			Name: SecretVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: secretName,
+				},
+			},
+		}
+		set.Spec.Template.Spec.Containers[0].VolumeMounts =
+			append(set.Spec.Template.Spec.Containers[0].VolumeMounts,
+				volMount)
+		set.Spec.Template.Spec.Volumes =
+			append(set.Spec.Template.Spec.Volumes,
+				vol)
+	}
+
+	if p.PodVars.SSLMMSCAConfigMap != "" {
+		volMount := corev1.VolumeMount{
+			Name:      CaCertName,
+			ReadOnly:  true,
+			MountPath: CaCertMountPath,
+		}
+		vol := corev1.Volume{
+			Name: CaCertName,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: p.PodVars.SSLMMSCAConfigMap,
+					},
+				},
+			},
+		}
+
+		set.Spec.Template.Spec.Containers[0].VolumeMounts =
+			append(set.Spec.Template.Spec.Containers[0].VolumeMounts,
+				volMount)
+		set.Spec.Template.Spec.Volumes =
+			append(set.Spec.Template.Spec.Volumes,
+				vol)
+	}
 	return set
 }
 
@@ -74,7 +152,8 @@ func buildPersistentVolumeClaims(set *appsv1.StatefulSet, p StatefulSetHelper) {
 	var mounts []corev1.VolumeMount
 
 	// if persistence not set or if single one is set
-	if p.PodSpec.Persistence == nil || (p.PodSpec.Persistence.SingleConfig == nil && p.PodSpec.Persistence.MultipleConfig == nil) ||
+	if p.PodSpec.Persistence == nil ||
+		(p.PodSpec.Persistence.SingleConfig == nil && p.PodSpec.Persistence.MultipleConfig == nil) ||
 		p.PodSpec.Persistence.SingleConfig != nil {
 		var config *mongodb.PersistenceConfig
 		if p.PodSpec.Persistence == nil || p.PodSpec.Persistence.SingleConfig == nil {
@@ -91,12 +170,13 @@ func buildPersistentVolumeClaims(set *appsv1.StatefulSet, p StatefulSetHelper) {
 		// Multiple claims, multiple mounts. No subpaths are used and everything is mounted to the root of directory
 		claims, mounts = createClaimsAndMontsMultiMode(p, defaultConfig)
 	}
-	set.Spec.VolumeClaimTemplates = claims
-	set.Spec.Template.Spec.Containers[0].VolumeMounts = mounts
+
+	set.Spec.VolumeClaimTemplates = append(set.Spec.VolumeClaimTemplates, claims...)
+	set.Spec.Template.Spec.Containers[0].VolumeMounts = append(set.Spec.Template.Spec.Containers[0].VolumeMounts, mounts...)
 }
 
-// buildSecret creates the secret object to store agent key. This secret is read directly by Automation Agent containers
-func buildSecret(secretName string, namespace string, agentKey string) *corev1.Secret {
+// buildSecretForAgentKey creates the secret object to store agent key. This secret is read directly by Automation Agent containers
+func buildSecretForAgentKey(secretName, namespace string, agentKey string) *corev1.Secret {
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      secretName,
@@ -229,7 +309,7 @@ func baseLivenessProbe() *corev1.Probe {
 }
 
 func baseEnvFrom(podVars *PodVars) []corev1.EnvVar {
-	return []corev1.EnvVar{
+	vars := []corev1.EnvVar{
 		{
 			Name:  util.ENV_VAR_BASE_URL,
 			Value: podVars.BaseURL,
@@ -251,6 +331,46 @@ func baseEnvFrom(podVars *PodVars) []corev1.EnvVar {
 			Value: validateLogLevel(podVars.LogLevel),
 		},
 	}
+
+	trustedCACertLocation := ""
+	if podVars.SSLRequireValidMMSServerCertificates {
+		vars = append(vars,
+			corev1.EnvVar{
+				Name:  util.EnvVarSSLRequireValidMMSCertificates,
+				Value: strconv.FormatBool(podVars.SSLRequireValidMMSServerCertificates),
+			},
+		)
+	}
+
+	if podVars.SSLMMSCAConfigMap != "" {
+		// A custom CA has been provided, point the trusted CA to the location of custom CAs
+		// trustedCACertLocation = util.
+		trustedCACertLocation = path.Join(CaCertMountPath, CaCertMMS)
+
+		vars = append(vars,
+			corev1.EnvVar{
+				// This points to the location of the mms-ca.crt in the mounted volume
+				// It will be mounted during Pod creation.
+				Name:  util.EnvVarSSLTrustedMMSServerCertificate,
+				Value: util.SSLMMSCALocation,
+			},
+		)
+	}
+
+	if trustedCACertLocation != "" {
+		// The value of this variable depends on 2 things:
+		// If the user sets "require valid" we expect it to be based on the KubeCA
+		// If the user provides its own CA, it will be based on this CA.
+		vars = append(vars,
+			corev1.EnvVar{
+				Name:  util.EnvVarSSLTrustedMMSServerCertificate,
+				Value: trustedCACertLocation,
+			},
+		)
+
+	}
+
+	return vars
 }
 
 // TODO this is a temporary solution to make sure we don't get an incorrect value for log level, should be removed when

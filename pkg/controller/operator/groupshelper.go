@@ -38,6 +38,9 @@ func (c *ReconcileCommonController) readOrCreateGroup(config *ProjectConfig, cre
 		BaseURL:      config.BaseURL,
 		PublicAPIKey: credentials.PublicAPIKey,
 		User:         credentials.User,
+
+		AllowInvalidSSLCertificate: !config.SSLRequireValidMMSServerCertificates,
+		CACertificate:              config.SSLMMSCAConfigMapContents,
 	}
 	conn := c.omConnectionFactory(&omContext)
 

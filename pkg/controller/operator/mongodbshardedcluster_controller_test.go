@@ -209,11 +209,30 @@ func TestPodAntiaffinity_MongodsInsideShardAreSpread(t *testing.T) {
 
 func createDeploymentFromShardedCluster(sh *v1.MongoDB) om.Deployment {
 	state := createStateFromResource(sh)
-	mongosProcesses := createProcesses(state.mongosSetHelper.BuildStatefulSet(), sh.Spec.ClusterName, sh.Spec.Version, om.ProcessTypeMongos)
-	configRs := buildReplicaSetFromStatefulSet(state.configSrvSetHelper.BuildStatefulSet(), sh.Spec.ClusterName, sh.Spec.Version)
+	mongosProcesses := createProcesses(
+		state.mongosSetHelper.BuildStatefulSet(),
+		sh.Spec.ClusterName,
+		sh.Spec.Version,
+		om.ProcessTypeMongos,
+		sh.Spec.GetAdditionalMongodConfig(),
+		zap.S(),
+	)
+	configRs := buildReplicaSetFromStatefulSet(
+		state.configSrvSetHelper.BuildStatefulSet(),
+		sh.Spec.ClusterName,
+		sh.Spec.Version,
+		sh.Spec.GetAdditionalMongodConfig(),
+		zap.S(),
+	)
 	shards := make([]om.ReplicaSetWithProcesses, len(state.shardsSetsHelpers))
 	for i, s := range state.shardsSetsHelpers {
-		shards[i] = buildReplicaSetFromStatefulSet(s.BuildStatefulSet(), sh.Spec.ClusterName, sh.Spec.Version)
+		shards[i] = buildReplicaSetFromStatefulSet(
+			s.BuildStatefulSet(),
+			sh.Spec.ClusterName,
+			sh.Spec.Version,
+			sh.Spec.GetAdditionalMongodConfig(),
+			zap.S(),
+		)
 	}
 
 	d := om.NewDeployment()

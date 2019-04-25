@@ -62,13 +62,17 @@ func DeploymentLink(url, groupId string) string {
 	return fmt.Sprintf("%s/v2/%s", url, groupId)
 }
 
-func buildReplicaSetFromStatefulSet(set *appsv1.StatefulSet, clusterName, version string) om.ReplicaSetWithProcesses {
-	members := createProcesses(set, clusterName, version, om.ProcessTypeMongod)
+func buildReplicaSetFromStatefulSet(set *appsv1.StatefulSet, clusterName, version string,
+	additionalConfig *mongodb.AdditionalMongodConfig, log *zap.SugaredLogger) om.ReplicaSetWithProcesses {
+
+	members := createProcesses(set, clusterName, version, om.ProcessTypeMongod, additionalConfig, log)
 	rsWithProcesses := om.NewReplicaSetWithProcesses(om.NewReplicaSet(set.Name, version), members)
 	return rsWithProcesses
 }
 
-func createProcesses(set *appsv1.StatefulSet, clusterName, version string, mongoType om.MongoType) []om.Process {
+func createProcesses(set *appsv1.StatefulSet, clusterName, version string, mongoType om.MongoType,
+	additionalConfig *mongodb.AdditionalMongodConfig, log *zap.SugaredLogger) []om.Process {
+
 	hostnames, names := GetDnsForStatefulSet(set, clusterName)
 	processes := make([]om.Process, len(hostnames))
 	wiredTigerCache := calculateWiredTigerCache(set)
@@ -76,12 +80,13 @@ func createProcesses(set *appsv1.StatefulSet, clusterName, version string, mongo
 	for idx, hostname := range hostnames {
 		switch mongoType {
 		case om.ProcessTypeMongod:
-			processes[idx] = om.NewMongodProcess(names[idx], hostname, version)
+			processes[idx] = om.NewMongodProcess(names[idx], hostname, version, additionalConfig)
+
 			if wiredTigerCache != nil {
 				processes[idx].SetWiredTigerCache(*wiredTigerCache)
 			}
 		case om.ProcessTypeMongos:
-			processes[idx] = om.NewMongosProcess(names[idx], hostname, version)
+			processes[idx] = om.NewMongosProcess(names[idx], hostname, version, additionalConfig)
 		default:
 			panic("Dev error: Wrong process type passed!")
 		}
@@ -252,8 +257,8 @@ func exceptionHandling(errHandlingFunc func() (reconcile.Result, error), errUpda
 
 // objectKey creates the 'client.ObjectKey' object from namespace and name of the resource. It's the object used in
 // some of 'client.Client' calls
-func objectKey(ns, name string) client.ObjectKey {
-	return types.NamespacedName{Namespace: ns, Name: name}
+func objectKey(namespace, name string) client.ObjectKey {
+	return types.NamespacedName{Name: name, Namespace: namespace}
 }
 
 func objectKeyFromApiObject(obj interface{}) client.ObjectKey {
@@ -277,7 +282,7 @@ type MongoDBResourceEventHandler struct {
 
 func (eh *MongoDBResourceEventHandler) Delete(e event.DeleteEvent, unused workqueue.RateLimitingInterface) {
 	zap.S().Infow("Cleaning up MongoDB resource", "resource", e.Object)
-	logger := zap.S().With("resource", objectKey(e.Meta.GetName(), e.Meta.GetNamespace()))
+	logger := zap.S().With("resource", objectKey(e.Meta.GetNamespace(), e.Meta.GetName()))
 	if err := eh.reconciler.delete(e.Object, logger); err != nil {
 		logger.Errorf("MongoDB resource removed from Kubernetes, but failed to clean some state in Ops Manager: %s", err)
 		return

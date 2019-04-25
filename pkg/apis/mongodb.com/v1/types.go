@@ -22,6 +22,8 @@ type Phase string
 
 type ResourceType string
 
+type SSLMode string
+
 const (
 	Debug LogLevel = "DEBUG"
 	Info  LogLevel = "INFO"
@@ -41,6 +43,15 @@ const (
 	Standalone     ResourceType = "Standalone"
 	ReplicaSet     ResourceType = "ReplicaSet"
 	ShardedCluster ResourceType = "ShardedCluster"
+
+	RequireSSLMode  SSLMode = "requireSSL"
+	PreferSSLMode   SSLMode = "preferSSL"
+	AllowSSLMode    SSLMode = "allowSSL"
+	DisabledSSLMode SSLMode = "disabled"
+
+	RequireTLSMode SSLMode = "requireTLS"
+	PreferTLSMode  SSLMode = "preferTLS"
+	AllowTLSMode   SSLMode = "allowTLS"
 )
 
 // Seems this should be removed as soon as CLOUDP-35934 is resolved
@@ -97,6 +108,82 @@ type MongoDbSpec struct {
 	// replica set
 	Members int             `json:"members,omitempty"`
 	PodSpec *MongoDbPodSpec `json:"podSpec,omitempty"`
+
+	TLS *TLSConfig `json:"tls,omitempty"`
+
+	// AdditionalMongodConfig is additional configuration that can be passed to
+	// each data-bearing mongod at runtime. Uses the same structure as the mongod
+	// configuration file:
+	// https://docs.mongodb.com/manual/reference/configuration-options/
+	AdditionalMongodConfig *AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
+}
+
+type AdditionalMongodConfig struct {
+	Net NetSpec `json:"net"`
+}
+
+type NetSpec struct {
+	SSL SSLSpec `json:"ssl"`
+}
+
+type SSLSpec struct {
+	Mode SSLMode `json:"mode,omitempty"`
+
+	// Below are parameters that may be useful but that haven't been tested with
+	// the automation config so are commented out
+	//AllowInvalidCertificates bool   `json:"allowInvalidCertificates,omitempty"`
+	//AllowInvalidHostnames    bool   `json:"allowInvalidHostnames,omitempty"`
+	//DisabledProtocols        string `json:"disabledProtocols,omitempty"`
+	//FIPSMode                 bool   `json:"FIPSMode,omitempty"`
+
+	// allowConnectionsWithoutCertificates has been omitted as it is not
+	// respected by the automation agent.
+}
+
+type TLSConfig struct {
+	Enabled bool `json:"enabled"`
+
+	// SSLSecret is the name of the secret in which the SSL certificates and
+	// their respective keys are stored. If omitted, the certificates and their
+	// keys will be automatically generated and stored in a secret.
+	Secret string `json:"secret,omitempty"`
+}
+
+func (spec MongoDbSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
+	if spec.TLS == nil || !spec.TLS.Enabled {
+		return spec.AdditionalMongodConfig
+	}
+
+	mode := RequireTLSMode
+	if spec.AdditionalMongodConfig != nil && spec.AdditionalMongodConfig.Net.SSL.Mode != "" {
+		// Mode can be defined by `additionalMongodConfig`
+		mode = spec.AdditionalMongodConfig.Net.SSL.Mode
+	}
+
+	// Make sure that people can use `requireSSL` & `requireTLS` indistinctly
+	if mode == RequireTLSMode {
+		mode = RequireSSLMode
+	} else if mode == AllowTLSMode {
+		mode = AllowSSLMode
+	} else if mode == PreferTLSMode {
+		mode = PreferSSLMode
+	}
+
+	new := AdditionalMongodConfig(*spec.AdditionalMongodConfig)
+	new.Net.SSL.Mode = mode
+
+	return &new
+}
+
+func (spec MongoDbSpec) GetTLSConfig() *TLSConfig {
+	if spec.TLS == nil {
+		return nil
+	}
+
+	return &TLSConfig{
+		Enabled: spec.TLS.Enabled,
+		Secret:  spec.TLS.Secret,
+	}
 }
 
 // when we marshal a MongoDB, we don't want to marshal any "empty" fields
@@ -119,6 +206,15 @@ func (m *MongoDB) MarshalJSON() ([]byte, error) {
 			mdb.Spec.ShardPodSpec = nil
 		}
 	}
+
+	if reflect.DeepEqual(mdb.Spec.AdditionalMongodConfig, newAdditionalMongodConfig()) {
+		mdb.Spec.AdditionalMongodConfig = nil
+	}
+
+	if reflect.DeepEqual(mdb.Spec.TLS, newTLSConfig()) {
+		mdb.Spec.TLS = nil
+	}
+
 	return json.Marshal((MongoDBJSON)(*mdb))
 }
 
@@ -162,12 +258,27 @@ func (m *MongoDB) ShardRsName(i int) string {
 	return fmt.Sprintf("%s-%d", m.Name, i)
 }
 
+// UpdateError called when the CR object (MongoDB resource) needs to transition to
+// error state.
 func (m *MongoDB) UpdateError(msg string) {
 	m.Status.Message = msg
 	m.Status.LastTransition = util.Now()
 	m.Status.Phase = PhaseFailed
 }
 
+// UpdatePending called when the CR object (MongoDB resource) needs to transition to
+// pending state.
+func (m *MongoDB) UpdatePending(msg string) {
+	m.Status.Message = msg
+	if m.Status.Phase != PhasePending {
+		m.Status.LastTransition = util.Now()
+		m.Status.Phase = PhasePending
+	}
+}
+
+// UpdateSuccessful called when the CR object (MongoDB resource) needs to transition to
+// successful state. This means that the CR object and the underlying MongoDB deployment
+// are ready to work
 func (m *MongoDB) UpdateSuccessful(deploymentLink string, reconciledResource *MongoDB) {
 	spec := reconciledResource.Spec
 
@@ -197,6 +308,7 @@ func (m *MongoDB) InitDefaults() {
 	if m.Spec.PodSpec == nil {
 		m.Spec.PodSpec = newMongoDbPodSpec()
 	}
+
 	if m.Spec.ResourceType == ShardedCluster {
 		if m.Spec.ConfigSrvPodSpec == nil {
 			m.Spec.ConfigSrvPodSpec = newMongoDbPodSpec()
@@ -207,6 +319,15 @@ func (m *MongoDB) InitDefaults() {
 		if m.Spec.ShardPodSpec == nil {
 			m.Spec.ShardPodSpec = newMongoDbPodSpec()
 		}
+	}
+
+	if m.Spec.AdditionalMongodConfig == nil {
+		m.Spec.AdditionalMongodConfig = newAdditionalMongodConfig()
+	}
+
+	if m.Spec.TLS == nil {
+		tlsConfig := newTLSConfig()
+		m.Spec.TLS = &tlsConfig
 	}
 }
 
@@ -318,4 +439,16 @@ func newMongoDbPodSpec() *MongoDbPodSpec {
 	return &MongoDbPodSpec{
 		MongoDbPodSpecStandard: MongoDbPodSpecStandard{},
 	}
+}
+
+// Returns an empty `AdditionalMongodConfig` object for marshalling/unmarshalling
+// json representation of the MDB object.
+func newAdditionalMongodConfig() *AdditionalMongodConfig {
+	return &AdditionalMongodConfig{}
+}
+
+// Returns an empty `TLSMode` object for marshalling/unmarshalling
+// json representation of the MDB object.
+func newTLSConfig() TLSConfig {
+	return TLSConfig{}
 }

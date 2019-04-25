@@ -61,7 +61,21 @@ type ConnectionFactory func(context *OMContext) Connection
 
 // OMContext is the convenient way of grouping all OM related information together
 type OMContext struct {
-	BaseURL, GroupID, GroupName, OrgID, User, PublicAPIKey string
+	BaseURL      string
+	GroupID      string
+	GroupName    string
+	OrgID        string
+	User         string
+	PublicAPIKey string
+
+	// Will check that the SSL certificate provided by the Ops Manager Server is valid
+	// I've decided to use a "AllowInvalid" instead of "RequireValid" as the Zero value
+	// of bool is false.
+	AllowInvalidSSLCertificate bool
+
+	// CACertificate is the actual certificate as a string, as every "Project" could have
+	// its own certificate.
+	CACertificate string
 }
 
 // HTTPOmConnection
@@ -133,7 +147,7 @@ func (oc *HTTPOmConnection) GroupID() string {
 	return oc.context.GroupID
 }
 
-// GroupID returns GroupName of HTTPOmConnection
+// GroupName returns GroupName of HTTPOmConnection
 func (oc *HTTPOmConnection) GroupName() string {
 	return oc.context.GroupName
 }
@@ -412,11 +426,30 @@ func (oc *HTTPOmConnection) delete(path string) error {
 }
 
 func (oc *HTTPOmConnection) httpVerb(method, path string, v interface{}) ([]byte, error) {
-	response, err := request(method, oc.BaseURL(), path, v, oc.User(), oc.PublicAPIKey())
+	client, err := oc.getHTTPClient()
+	if err != nil {
+		return nil, err
+	}
+
+	response, err := request(method, oc.BaseURL(), path, v, oc.User(), oc.PublicAPIKey(), client)
 	return response, err
 }
 
-func request(method, hostname, path string, v interface{}, user string, token string) ([]byte, error) {
+func (oc *HTTPOmConnection) getHTTPClient() (*http.Client, error) {
+	if oc.context.CACertificate != "" {
+		zap.S().Debug("Using CA Certificate ")
+		return util.NewHTTPClient(util.OptionCAValidate(oc.context.CACertificate))
+	}
+
+	if oc.context.AllowInvalidSSLCertificate {
+		zap.S().Debug("Allowing insecure certs")
+		return util.NewHTTPClient(util.OptionSkipVerify)
+	}
+
+	return util.NewHTTPClient()
+}
+
+func request(method, hostname, path string, v interface{}, user string, token string, client *http.Client) ([]byte, error) {
 	url := hostname + path
 
 	buffer, err := serialize(v)
@@ -430,8 +463,9 @@ func request(method, hostname, path string, v interface{}, user string, token st
 		return nil, NewAPIError(err)
 	}
 
-	resp, err := util.DefaultHttpClient.Do(req)
 	var body []byte
+	// Change this to a more flexible solution, depending on the SSL configuration
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, NewAPIError(err)
 	}
@@ -439,7 +473,16 @@ func request(method, hostname, path string, v interface{}, user string, token st
 		defer resp.Body.Close()
 	}
 	if resp.StatusCode != http.StatusUnauthorized {
-		return nil, NewAPIError(fmt.Errorf("Recieved status code '%v' (%v) but expected the '%d', requested url: %v", resp.StatusCode, resp.Status, http.StatusUnauthorized, req.URL))
+		return nil, NewAPIError(
+			fmt.Errorf(
+				"Recieved status code '%v' (%v) but expected the '%d', requested url: %v",
+				resp.StatusCode,
+				resp.Status,
+				http.StatusUnauthorized,
+				req.URL,
+			),
+		)
+
 	}
 	digestParts := digestParts(resp)
 
@@ -452,7 +495,7 @@ func request(method, hostname, path string, v interface{}, user string, token st
 	//zap.S().Debugf("Ops Manager request: \n %s", httputil.DumpRequest(req, false))
 	zap.S().Debugf("Ops Manager request: %s %s", method, url) // pass string(request) to see full http request
 
-	resp, err = util.DefaultHttpClient.Do(req)
+	resp, err = client.Do(req)
 
 	if resp != nil {
 		if resp.Body != nil {

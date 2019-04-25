@@ -1,20 +1,22 @@
 package om
 
 import (
+	"encoding/gob"
 	"encoding/json"
 	"errors"
 	"fmt"
 
-	"encoding/gob"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
+
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 type DeploymentType int
 
 const (
-	// Note that these two constants shouldn't be changed often as AutomationAgent upgrades both other agents automatically
+	// Note that the default version constants shouldn't need to be changed often
+	// as the AutomationAgent upgrades both other agents automatically
 
 	// MonitoringAgentDefaultVersion
 	MonitoringAgentDefaultVersion = "6.4.0.433-1"
@@ -24,13 +26,31 @@ const (
 )
 
 func init() {
+	// gob is used to implement a deep copy internally. If a data type is part of
+	// a deep copy performed using util.MapDeepCopy—which includes anything used
+	// as part of a "process" object embedded within a deployment—then it must be
+	// registered below as otherwise the operator will successfully compile and
+	// run but be completely broken.
 	gob.Register(map[string]interface{}{})
 	gob.Register(map[string]int{})
 	gob.Register(map[string]string{})
 	gob.Register(ProcessTypeMongos)
+
+	gob.Register(mongodb.RequireSSLMode)
+	gob.Register(mongodb.PreferSSLMode)
+	gob.Register(mongodb.AllowSSLMode)
+	gob.Register(mongodb.DisabledSSLMode)
 }
 
-// Deployment
+// Deployment is a map representing the automation agent's cluster configuration.
+// For more information see the following documentation:
+// https://docs.opsmanager.mongodb.com/current/reference/cluster-configuration/
+// https://github.com/10gen/mms-automation/blob/master/go_planner/config_specs/clusterConfig_spec.md
+//
+// Dev note: it's important to keep to the following principle during development: we don't use structs for json
+// (de)serialization as we don't want to own the schema and synchronize it with the api one constantly. Also we don't
+// want to override any configuration provided by OM by accident. The Operator only sets the configuration it "owns" but
+// keeps the other one that was set by the user in Ops Manager if any
 type Deployment map[string]interface{}
 
 // BuildDeploymentFromBytes
@@ -53,8 +73,28 @@ func NewDeployment() Deployment {
 	return ans
 }
 
-// MergeStandalone merges "operator" standalone to "OM" deployment ("d"). If we found the process with the same name - update
-// some fields there. Otherwise add the new one
+// ConfigureTLS configures the deployment's TLS settings from the TLS
+// specification provided by the user in the mongodb resource spec.
+func (d Deployment) ConfigureTLS(tlsSpec *mongodb.TLSConfig) {
+	if tlsSpec == nil || !tlsSpec.Enabled {
+		// delete(d, "ssl") // unset SSL config
+		// Do not delete because this might not be the last deployment with TLS enabled in this Project
+		return
+	}
+
+	sslConfig := util.ReadOrCreateMap(d, "ssl")
+	// ClientCertificateMode detects if Ops Manager requires client certification - may be there will be no harm
+	// setting this to "REQUIRED" always (need to check). Otherwise this should be configurable
+	// see OM configurations that affects this setting from AA side:
+	// https://docs.opsmanager.mongodb.com/current/reference/configuration/#mms.https.ClientCertificateMode
+	//sslConfig["ClientCertificateMode"] = "OPTIONAL"
+	//sslConfig["AutoPEMKeyFilePath"] = util.PEMKeyFilePathInContainer
+
+	sslConfig["CAFilePath"] = util.CAFilePathInContainer
+}
+
+// MergeStandalone merges "operator" standalone ('standaloneMongo') to "OM" deployment ('d'). If we found the process
+// with the same name - update some fields there. Otherwise add the new one
 func (d Deployment) MergeStandalone(standaloneMongo Process, l *zap.SugaredLogger) {
 	if l == nil {
 		l = zap.S()

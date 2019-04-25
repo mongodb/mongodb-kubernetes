@@ -38,7 +38,6 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		},
 		func(result reconcile.Result, err error) { res = result; e = err },
 	)
-
 	if reconcileResult, err := r.prepareResourceForReconciliation(request, rs, log); reconcileResult != nil {
 		return *reconcileResult, err
 	}
@@ -61,7 +60,14 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		SetPodSpec(NewDefaultPodSpecWrapper(*rs.Spec.PodSpec)).
 		SetPodVars(podVars).
 		SetExposedExternally(rs.Spec.ExposedExternally).
-		SetLogger(log)
+		SetLogger(log).
+		SetTLS(rs.Spec.GetTLSConfig()).
+		SetClusterName(rs.Spec.ClusterName)
+
+	if err := r.kubeHelper.ensureSSLCertsForStatefulSet(replicaBuilder, log); err != nil {
+		return r.updateStatusFailed(rs, err.Error(), log)
+	}
+
 	replicaSetObject := replicaBuilder.BuildStatefulSet()
 
 	if spec.Members < rs.Status.Members {
@@ -151,14 +157,16 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 	if err != nil {
 		return err
 	}
-	replicaSet := buildReplicaSetFromStatefulSet(set, new.Spec.ClusterName, new.Spec.Version)
+	replicaSet := buildReplicaSetFromStatefulSet(
+		set, new.Spec.ClusterName, new.Spec.Version, new.Spec.GetAdditionalMongodConfig(), log,
+	)
 
 	processNames := make([]string, 0)
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			d.MergeReplicaSet(replicaSet, nil)
-
 			d.AddMonitoringAndBackup(replicaSet.Processes[0].HostName(), log)
+			d.ConfigureTLS(new.Spec.GetTLSConfig())
 
 			processNames = d.GetProcessNames(om.ReplicaSet{}, replicaSet.Rs.Name())
 			return nil
@@ -213,7 +221,7 @@ func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLog
 		return err
 	}
 
-	hostsToRemove, _ := GetDnsNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.ClusterName, util.MaxInt(rs.Status.Members, rs.Spec.Members))
+	hostsToRemove, _ := GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.ClusterName, util.MaxInt(rs.Status.Members, rs.Spec.Members))
 	log.Infow("Stop monitoring removed hosts in Ops Manager", "removedHosts", hostsToRemove)
 
 	if err = om.StopMonitoring(conn, hostsToRemove, log); err != nil {

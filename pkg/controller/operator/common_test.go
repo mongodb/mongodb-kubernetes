@@ -1,15 +1,15 @@
 package operator
 
 import (
+	"os"
 	"testing"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-
-	"os"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
+
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 func init() {
@@ -51,9 +51,11 @@ func InitDefaultEnvVariables() {
 }
 
 func TestCreateProcessesWiredTigerCache(t *testing.T) {
+	emptyConfig := &mongodb.AdditionalMongodConfig{}
+
 	setHelper := defaultSetHelper().SetReplicas(3)
 	set := setHelper.BuildStatefulSet()
-	processes := createProcesses(set, "", "4.0.0", om.ProcessTypeMongod)
+	processes := createProcesses(set, "", "4.0.0", om.ProcessTypeMongod, emptyConfig, zap.S())
 
 	assert.Len(t, processes, 3)
 	for _, p := range processes {
@@ -64,7 +66,7 @@ func TestCreateProcessesWiredTigerCache(t *testing.T) {
 	setHelper.SetPodSpec(defaultPodSpec().SetMemory("3G"))
 
 	set = setHelper.BuildStatefulSet()
-	processes = createProcesses(set, "", "4.0.0", om.ProcessTypeMongod)
+	processes = createProcesses(set, "", "4.0.0", om.ProcessTypeMongod, emptyConfig, zap.S())
 
 	assert.Len(t, processes, 3)
 	for _, p := range processes {

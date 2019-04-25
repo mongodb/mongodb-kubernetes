@@ -52,6 +52,7 @@ kind: Namespace
 metadata:
   name: ${namespace}
   labels:
+    evg: task
     evg/version-id: ${VERSION_ID:-'not-specified'}
     evg/task-name: ${TASK_NAME:-'not-specified'}
   annotations:

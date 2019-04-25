@@ -11,8 +11,11 @@ if [[ "${recreate}" != "yes" ]]; then
 fi
 
 # make sure kops version is >= 1.11.0
-if ! kops version | grep -q "1.11.0"; then
-	fatal "kops must be of version 1.11.0!"
+kops_version=$(kops version | awk '{ print $2 }')
+major=$(echo "$kops_version" | cut -d "." -f 1)
+minor=$(echo "$kops_version" | cut -d "." -f 2)
+if (( major != 1 || minor < 11 )); then
+        fatal "kops must be of version >= 1.11.0!"
 fi
 
 CLUSTER=e2e.mongokubernetes.com
@@ -26,4 +29,3 @@ title "Cluster deleted"
 
 # Note, that for e2e cluster we use us-east-2 region as us-east-1 most of all has reached max number of VPCs (5)
 create_kops_cluster ${CLUSTER} 3 32 "t2.xlarge" "t2.medium" "us-east-2a,us-east-2b,us-east-2c"
-

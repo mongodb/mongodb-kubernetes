@@ -96,6 +96,13 @@ func MapDeepCopy(m map[string]interface{}) (map[string]interface{}, error) {
 	return copy, nil
 }
 
+func ReadOrCreateMap(m map[string]interface{}, key string) map[string]interface{} {
+	if _, ok := m[key]; !ok {
+		m[key] = make(map[string]interface{}, 0)
+	}
+	return m[key].(map[string]interface{})
+}
+
 // ParseMongodbMinorVersion returns the mongodb version as major + minor parts that can be represented as float.
 // So the result can be used for direct comparison
 // Note, that this method doesn't perform deep validation of the format (negative, big numbers etc)

@@ -27,13 +27,19 @@
 from datetime import datetime, timedelta
 import sys
 
-if __name__ == "__main__":
-    # parses the date as first argument
-    date = datetime.strptime(sys.argv[1], '%Y-%m-%dT%H:%M:%SZ')
-
+def is_older_than(date, amount, unit):
+    """Checks if datetime is older than `amount` of `unit`"""
+    date = datetime.strptime(date, '%Y-%m-%dT%H:%M:%SZ')
     # gets the following options, same as we use to construct the timedelta object,
     # like 'minutes 6' -- it is expected in command line as '6 minutes'
-    delta_options = {sys.argv[3]: int(sys.argv[2])}
+    delta_options = {unit: amount}
     delta = timedelta(**delta_options)
 
-    sys.exit(datetime.now() - delta > date)
+    return date + delta > datetime.now()
+
+if __name__ == "__main__":
+    date = sys.argv[1]
+    amount = int(sys.argv[2])
+    unit = sys.argv[3]
+
+    sys.exit(is_older_than(date, amount, unit))

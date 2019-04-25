@@ -1,18 +1,18 @@
 package om
 
 import (
+	"encoding/json"
 	"fmt"
 	"path"
-
-	"encoding/json"
-
 	"strconv"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/spf13/cast"
+
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
-// MongoType
+// MongoType refers to the type of the Mongo process, `mongos` or `mongod`.
 type MongoType string
 
 const (
@@ -29,12 +29,24 @@ Note, that mongos types of processes don't have some fields (replication, storag
 separate types for different processes (mongos, mongod) with different methods due to limitation of Go embedding model.
 So the code using this type must be careful and make sure the state is consistent.
 
-The resulting json for this type:
+Dev notes:
+- any new configurations must be "mirrored" in 'mergeFrom' method which merges the "operator owned" fields into
+the process that was read from Ops Manager.
+- the main principle used everywhere in 'om' code: the Operator overrides only the configurations it "owns" but leaves
+the other properties unmodified. That's why structs are not used anywhere as they would result in possible overriding of
+the whole elements which we don't want. Deal with data as with maps, create convenience methods (setters, getters,
+ensuremap etc) and make sure not to override anything unrelated.
+
+The resulting json for this type (example):
 
 	{
 		"args2_6": {
 			"net": {
-				"port": 28002
+				"port": 28002,
+                "ssl": {
+					"mode": "requireSSL",
+					"PEMKeyFile": "/mongodb-automation/server.pem"
+				}
 			},
 			"replication": {
 				"replSetName": "blue"
@@ -76,7 +88,7 @@ func NewProcessFromInterface(i interface{}) Process {
 }
 
 // NewMongosProcess
-func NewMongosProcess(name, hostName, processVersion string) Process {
+func NewMongosProcess(name, hostName, processVersion string, additionalConfig *mongodb.AdditionalMongodConfig) Process {
 	ans := Process{}
 
 	initDefault(name, hostName, processVersion, ProcessTypeMongos, ans)
@@ -84,11 +96,13 @@ func NewMongosProcess(name, hostName, processVersion string) Process {
 	// default values for configurable values
 	ans.SetLogPath(path.Join(util.PvcMountPathLogs, "/mongodb.log"))
 
+	ans.configureAdditionalMongodConfig(additionalConfig)
+
 	return ans
 }
 
 // NewMongodProcess
-func NewMongodProcess(name, hostName, processVersion string) Process {
+func NewMongodProcess(name, hostName, processVersion string, additionalConfig *mongodb.AdditionalMongodConfig) Process {
 	ans := Process{}
 
 	initDefault(name, hostName, processVersion, ProcessTypeMongod, ans)
@@ -99,6 +113,8 @@ func NewMongodProcess(name, hostName, processVersion string) Process {
 	// for all types of logs
 	ans.SetLogPath(path.Join(util.PvcMountPathLogs, "mongodb.log"))
 
+	ans.configureAdditionalMongodConfig(additionalConfig)
+
 	return ans
 }
 
@@ -107,38 +123,38 @@ func (s Process) DeepCopy() (Process, error) {
 	return util.MapDeepCopy(s)
 }
 
-// Name
-func (s Process) Name() string {
-	return s["name"].(string)
+// Name returns the name of the process.
+func (p Process) Name() string {
+	return p["name"].(string)
 }
 
-// HostName
-func (s Process) HostName() string {
-	return s["hostname"].(string)
+// HostName returns the hostname for this process.
+func (p Process) HostName() string {
+	return p["hostname"].(string)
 }
 
-// SetDbPath
-func (s Process) SetDbPath(dbPath string) Process {
-	readOrCreateMap(s.Args(), "storage")["dbPath"] = dbPath
-	return s
+// SetDbPath sets the DbPath for this process.
+func (p Process) SetDbPath(dbPath string) Process {
+	util.ReadOrCreateMap(p.Args(), "storage")["dbPath"] = dbPath
+	return p
 }
 
-// DbPath
-func (s Process) DbPath() string {
-	return readMapValueAsString(s.Args(), "storage", "dbPath")
+// DbPath returns the DbPath for this process.
+func (p Process) DbPath() string {
+	return readMapValueAsString(p.Args(), "storage", "dbPath")
 }
 
 // SetWiredTigerCache
-func (s Process) SetWiredTigerCache(cacheSizeGb float32) Process {
-	if s.ProcessType() != ProcessTypeMongod {
+func (p Process) SetWiredTigerCache(cacheSizeGb float32) Process {
+	if p.ProcessType() != ProcessTypeMongod {
 		// WiredTigerCache can be set only for mongod processes
-		return s
+		return p
 	}
-	storageMap := readOrCreateMap(s.Args(), "storage")
-	wiredTigerMap := readOrCreateMap(storageMap, "wiredTiger")
-	engineConfigMap := readOrCreateMap(wiredTigerMap, "engineConfig")
+	storageMap := util.ReadOrCreateMap(p.Args(), "storage")
+	wiredTigerMap := util.ReadOrCreateMap(storageMap, "wiredTiger")
+	engineConfigMap := util.ReadOrCreateMap(wiredTigerMap, "engineConfig")
 	engineConfigMap["cacheSizeGB"] = cacheSizeGb
-	return s
+	return p
 }
 
 // WiredTigerCache returns wired tiger cache as pointer as it may be absent
@@ -153,7 +169,7 @@ func (s Process) WiredTigerCache() *float32 {
 
 // SetLogPath
 func (s Process) SetLogPath(logPath string) Process {
-	sysLogMap := readOrCreateMap(s.Args(), "systemLog")
+	sysLogMap := util.ReadOrCreateMap(s.Args(), "systemLog")
 	sysLogMap["destination"] = "file"
 	sysLogMap["path"] = logPath
 	return s
@@ -164,41 +180,20 @@ func (s Process) LogPath() string {
 	return readMapValueAsString(s.Args(), "systemLog", "path")
 }
 
-// SslCAFilePath
-func (s Process) SslCAFilePath(ProcessSslCAFilePath string) Process {
-	// todo
-	//map[string](s.process.Args["net"])["ssl"]["CAFilePath"] = ProcessSslCAFilePath
-	return s
+// Args returns the "args" attribute in the form of a map, creates if it doesn't exist
+func (p Process) Args() map[string]interface{} {
+	return util.ReadOrCreateMap(p, "args2_6")
 }
 
-// SslPemKeyFilePath
-func (s Process) SslPemKeyFilePath(ProcessSslPemKeyFilePath string) Process {
-	//map[string](s.process.Args["net"])["ssl"]["autoPEMKeyFilePath"] = ProcessSslCAFilePath
-	return s
+// Version of the process. This refers to the MongoDB server version.
+func (p Process) Version() string {
+	return p["version"].(string)
 }
 
-// ClientCertificateMode
-func (s Process) ClientCertificateMode(ProcessClientCertificateMode bool) Process {
-	//map[string](s.process.Args["net"])["ssl"]["clientCertificateMode"] = ProcessClientCertificateMode
-	return s
-}
-
-// Args
-func (s Process) Args() map[string]interface{} {
-	if _, ok := s["args2_6"]; !ok {
-		s["args2_6"] = make(map[string]interface{}, 0)
-	}
-	return s["args2_6"].(map[string]interface{})
-}
-
-// Version
-func (s Process) Version() string {
-	return s["version"].(string)
-}
-
-// ProcessType
-func (s Process) ProcessType() MongoType {
-	switch v := s["processType"].(type) {
+// ProcessType returs the type of process for the current process.
+// It can be `mongos` or `mongod`.
+func (p Process) ProcessType() MongoType {
+	switch v := p["processType"].(type) {
 	case string:
 		return MongoType(v)
 	case MongoType:
@@ -208,24 +203,45 @@ func (s Process) ProcessType() MongoType {
 	}
 }
 
-// IsDisabled
-func (s Process) IsDisabled() bool {
-	return s["disabled"].(bool)
+// IsDisabled returns the "disabled" attribute.
+func (p Process) IsDisabled() bool {
+	return p["disabled"].(bool)
 }
 
-// SetDisabled
-func (s Process) SetDisabled(disabled bool) {
-	s["disabled"] = disabled
+// SetDisabled sets the "disabled" attribute to `disabled`.
+func (p Process) SetDisabled(disabled bool) {
+	p["disabled"] = disabled
+}
+
+// EnsureNetConfig returns the Net configuration map ("net"), creates an empty map if it didn't exist
+func (p Process) EnsureNetConfig() map[string]interface{} {
+	return util.ReadOrCreateMap(p.Args(), "net")
+}
+
+// EnsureSSLConfig returns the SSL configuration map ("net.ssl"), creates an empty map if it didn't exist.
+// Use this method if you intend to make updates to the map returned
+func (p Process) EnsureSSLConfig() map[string]interface{} {
+	return util.ReadOrCreateMap(p.EnsureNetConfig(), "ssl")
+}
+
+// SSLConfig returns the SSL configuration map ("net.ssl") or an empty map if it doesn't exist.
+// Use this method only to read values, not update
+func (p Process) SSLConfig() map[string]interface{} {
+	netConfig := p.EnsureNetConfig()
+	if _, ok := netConfig["ssl"]; ok {
+		return netConfig["ssl"].(map[string]interface{})
+	}
+	return make(map[string]interface{}, 0)
 }
 
 // String
-func (s Process) String() string {
-	return fmt.Sprintf("\"%s\" (hostName: %s, version: %s, args: %s)", s.Name(), s.HostName(), s.Version(), s.Args())
+func (p Process) String() string {
+	return fmt.Sprintf("\"%s\" (hostName: %s, version: %s, args: %s)", p.Name(), p.HostName(), p.Version(), p.Args())
 }
 
 // ****************** These ones are private methods not exposed to other packages *************************************
 
-// initDefault
+// initDefault initializes a process.
 func initDefault(name, hostName, processVersion string, processType MongoType, process Process) {
 	process["version"] = processVersion
 	process["authSchemaVersion"] = calculateAuthSchemaVersion(processVersion)
@@ -238,10 +254,31 @@ func initDefault(name, hostName, processVersion string, processType MongoType, p
 
 	// Implementation note: seems we can easily use the default port for any process (mongos/configSrv/mongod) as all
 	// processes are run in isolated containers and no conflicts can happen
-	if _, ok := process.Args()["net"]; !ok {
-		process.Args()["net"] = make(map[string]interface{}, 0)
+	process.EnsureNetConfig()["port"] = util.MongoDbDefaultPort
+}
+
+// configureTLS sets the process's SSL configuration
+func (p Process) configureTLS(netConfig *mongodb.NetSpec) {
+	if netConfig == nil || netConfig.SSL.Mode == "" {
+		// SSL modes is flaged as "Enabled" when the `SSL.Mode` attribute is set to something
+		return
 	}
-	process.Args()["net"].(map[string]interface{})["port"] = 27017
+
+	// Initializing SSL configuration if it's necessary
+	sslConfig := p.EnsureSSLConfig()
+
+	sslConfig["mode"] = netConfig.SSL.Mode
+	sslConfig["PEMKeyFile"] = util.PEMKeyFilePathInContainer
+}
+
+// configureAdditionalMongodConfig will configure additional parameters passed in the `additionalMongodConfig`
+// document in the spec.
+// Supported so far:
+// + additionalConfig.Net.SSL.Mode
+func (p Process) configureAdditionalMongodConfig(additionalConfig *mongodb.AdditionalMongodConfig) {
+	if additionalConfig != nil {
+		p.configureTLS(&additionalConfig.Net)
+	}
 }
 
 func calculateFeatureCompatibilityVersion(version string) string {
@@ -263,38 +300,40 @@ func calculateAuthSchemaVersion(version string) int {
 	return 3
 }
 
-// mergeFrom merges the Kubernetes version of process ("otherProcess") into OM one ("s").
+// mergeFrom merges the Operator version of process ('operatorProcess') into OM one ('p').
 // Considers the type of process and rewrites only relevant fields
-func (s Process) mergeFrom(otherProcess Process) {
-	s.SetLogPath(otherProcess.LogPath())
+func (p Process) mergeFrom(operatorProcess Process) {
+	p.SetLogPath(operatorProcess.LogPath())
 
-	if otherProcess.ProcessType() == ProcessTypeMongod {
-		s.SetDbPath(otherProcess.DbPath())
-		if otherProcess.replicaSetName() != "" {
-			s.setReplicaSetName(otherProcess.replicaSetName())
+	if operatorProcess.ProcessType() == ProcessTypeMongod {
+		p.SetDbPath(operatorProcess.DbPath())
+		if operatorProcess.replicaSetName() != "" {
+			p.setReplicaSetName(operatorProcess.replicaSetName())
 		}
 		// we override clusterRole only if it is set to "configsvr" - otherwise we leave the OM value
-		if otherProcess.isClusterRoleConfigSrvSet() {
-			s.setClusterRoleConfigSrv()
+		if operatorProcess.isClusterRoleConfigSrvSet() {
+			p.setClusterRoleConfigSrv()
 		}
 		// This one is controversial. From some point users may want to change this through UI. From the other - if the
 		// kube mongodb resource memory is increased - wired tiger cache must be increased as well automatically, so merge
 		// must happen. This controversity will be gone when SERVER-16571 is fixed
-		if otherProcess.WiredTigerCache() != nil {
-			s.SetWiredTigerCache(*otherProcess.WiredTigerCache())
+		if operatorProcess.WiredTigerCache() != nil {
+			p.SetWiredTigerCache(*operatorProcess.WiredTigerCache())
 		}
 	} else {
-		s.setCluster(otherProcess.cluster())
+		p.setCluster(operatorProcess.cluster())
 	}
 
-	initDefault(otherProcess.Name(), otherProcess.HostName(), otherProcess.Version(), otherProcess.ProcessType(), s)
-}
+	initDefault(operatorProcess.Name(), operatorProcess.HostName(), operatorProcess.Version(), operatorProcess.ProcessType(), p)
 
-func readOrCreateMap(m map[string]interface{}, key string) map[string]interface{} {
-	if _, ok := m[key]; !ok {
-		m[key] = make(map[string]interface{}, 0)
+	// Merge SSL configuration (update if it's specified - delete otherwise)
+	if _, ok := operatorProcess.SSLConfig()["mode"]; ok {
+		for key, value := range operatorProcess.SSLConfig() {
+			p.EnsureSSLConfig()[key] = value
+		}
+	} else {
+		delete(p.EnsureNetConfig(), "ssl")
 	}
-	return m[key].(map[string]interface{})
 }
 
 func readMapValueAsInterface(m map[string]interface{}, keys ...string) interface{} {
@@ -348,7 +387,7 @@ func (s Process) featureCompatibilityVersion() string {
 // These methods are ONLY FOR REPLICA SET members!
 // external packages are not supposed to call this method directly as it should be called during replica set building
 func (s Process) setReplicaSetName(rsName string) Process {
-	readOrCreateMap(s.Args(), "replication")["replSetName"] = rsName
+	util.ReadOrCreateMap(s.Args(), "replication")["replSetName"] = rsName
 	return s
 }
 
@@ -359,7 +398,7 @@ func (s Process) replicaSetName() string {
 // These methods are ONLY FOR CONFIG SERVER REPLICA SET members!
 // external packages are not supposed to call this method directly as it should be called during sharded cluster merge
 func (s Process) setClusterRoleConfigSrv() Process {
-	readOrCreateMap(s.Args(), "sharding")["clusterRole"] = "configsvr"
+	util.ReadOrCreateMap(s.Args(), "sharding")["clusterRole"] = "configsvr"
 	return s
 }
 

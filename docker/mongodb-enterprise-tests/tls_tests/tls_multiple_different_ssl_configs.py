@@ -1,0 +1,121 @@
+import pytest
+
+import sys
+import os
+import os.path
+
+try:
+    from kubetester import KubernetesTester, skip_if_local, build_list_of_hosts
+except ImportError:
+    # patching python import path so it finds kubetester
+    sys.path.append(os.path.dirname(os.getcwd()))
+    from kubetester import KubernetesTester, skip_if_local, build_list_of_hosts
+
+from kubernetes import client
+
+
+mdb_resources = {
+    "ssl_enabled": "test-tls-base-rs-require-ssl",
+    "ssl_disabled": "test-no-tls-no-status"
+}
+
+
+def cert_names(namespace, members=3):
+    return ["{}-{}.{}".format(mdb_resources["ssl_enabled"], i, namespace) for i in range(members)]
+
+
+@pytest.mark.tls_multiple_different_ssl_configs
+class TestMultipleCreation(KubernetesTester):
+    """
+    name: 2 Replica Sets on same project with different SSL configurations
+    description: |
+      2 MDB/ReplicaSet object will be created, one of them will be have TLS enabled (required)
+      and the other one will not. Both of them should work, and listen on respective SSL/non SSL endpoints.
+    create:
+    - file: fixtures/test-tls-base-rs-require-ssl.yaml
+      wait_until: in_failed_state
+      timeout: 120
+
+    - file: fixtures/test-no-tls-no-status.yaml
+      wait_until: in_running_state
+      timeout: 120
+    """
+
+    def test_mdb_tls_resource_status_is_correct(self):
+        mdb = self.customv1.get_namespaced_custom_object(
+            "mongodb.com", "v1", self.namespace, "mongodb", mdb_resources["ssl_enabled"]
+        )
+        assert (
+            mdb["status"]["message"]
+            == "Not all certificates have been approved by Kubernetes CA"
+        )
+
+        mdb = self.customv1.get_namespaced_custom_object(
+            "mongodb.com", "v1", self.namespace, "mongodb", mdb_resources["ssl_disabled"]
+        )
+        assert (
+            mdb["status"]["phase"]
+            == "Running"
+        )
+
+
+@pytest.mark.tls_multiple_different_ssl_configs
+class TestMultipleApproval(KubernetesTester):
+    """
+    name: Approval of certificates
+    description: |
+      Approves the certificates in Kubernetes, the MongoDB resource should move to Successful state.
+    """
+
+    def setup(self):
+        [self.approve_certificate(cert) for cert in cert_names(self.namespace)]
+
+    def test_noop(self):
+        assert True
+
+
+@pytest.mark.tls_multiple_different_ssl_configs
+class TestMultipleRunning0(KubernetesTester):
+    """
+    name: Both MDB objects should be in running state.
+    wait:
+    - resource: test-tls-base-rs-require-ssl
+      until: in_running_state
+      timeout: 200
+    - resource: test-no-tls-no-status
+      until: in_running_state
+      timeout: 60
+    """
+    @skip_if_local()
+    @pytest.mark.xfail
+    def test_mdb_ssl_enabled_is_reachable_with_no_ssl(self):
+        hosts = build_list_of_hosts(mdb_resources["ssl_enabled"], self.namespace, 3)
+        primary, secondaries = self.wait_for_rs_is_ready(hosts, wait_for=40)
+
+        assert primary is not None
+        assert len(secondaries) == 2
+
+    @skip_if_local()
+    def test_mdb_ssl_enabled_is_reachable_with_ssl(self):
+        hosts = build_list_of_hosts(mdb_resources["ssl_enabled"], self.namespace, 3)
+        primary, secondaries = self.wait_for_rs_is_ready(hosts, wait_for=40, ssl=True)
+
+        assert primary is not None
+        assert len(secondaries) == 2
+
+    @skip_if_local()
+    def test_mdb_ssl_disabled_is_reachable_with_no_ssl(self):
+        hosts = build_list_of_hosts(mdb_resources["ssl_disabled"], self.namespace, 3)
+        primary, secondaries = self.wait_for_rs_is_ready(hosts, wait_for=40)
+
+        assert primary is not None
+        assert len(secondaries) == 2
+
+    @skip_if_local()
+    @pytest.mark.xfail
+    def test_mdb_ssl_disabled_is_reachable_with_ssl(self):
+        hosts = build_list_of_hosts(mdb_resources["ssl_disabled"], self.namespace, 3)
+        primary, secondaries = self.wait_for_rs_is_ready(hosts, wait_for=40, ssl=True)
+
+        assert primary is not None
+        assert len(secondaries) == 2

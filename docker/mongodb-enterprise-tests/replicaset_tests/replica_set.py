@@ -107,7 +107,9 @@ class TestReplicaSetCreation(KubernetesTester):
                     'GROUP_ID',
                     'USER_LOGIN',
                     'AGENT_API_KEY',
-                    'LOG_LEVEL'
+                    'LOG_LEVEL',
+                    'SSL_TRUSTED_MMS_SERVER_CERTIFICATE',
+                    'SSL_REQUIRE_VALID_MMS_CERTIFICATES',
                 ]
                 assert envvar.value is not None
 
@@ -363,7 +365,9 @@ class TestReplicaSetUpdate(KubernetesTester):
                     'GROUP_ID',
                     'USER_LOGIN',
                     'AGENT_API_KEY',
-                    'LOG_LEVEL'
+                    'LOG_LEVEL',
+                    'SSL_TRUSTED_MMS_SERVER_CERTIFICATE',
+                    'SSL_REQUIRE_VALID_MMS_CERTIFICATES',
                 ]
                 assert envvar.value is not None
 

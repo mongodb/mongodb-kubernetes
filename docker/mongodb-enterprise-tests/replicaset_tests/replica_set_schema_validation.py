@@ -44,3 +44,15 @@ class TestReplicaSetInvalidLogLevel(KubernetesTester):
 
     def test_validation_ok(self):
         assert True
+
+class TestReplicaSetSchemaInvalidSSL(KubernetesTester):
+    """
+    name: Replica Set Validation (invalid ssl mode)
+    create:
+      file: fixtures/standalone.yaml
+      patch: '[{"op":"add","path":"/spec","value":{"additionalMongodConfig":{"net":{"ssl":{"mode": "AllowDisallowSSL"}}}}}]'
+      exception: 'Unprocessable Entity'
+    """
+
+    def test_validation_ok(self):
+        assert True

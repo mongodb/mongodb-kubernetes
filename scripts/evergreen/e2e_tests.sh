@@ -75,7 +75,8 @@ configure_operator() {
     kubectl --namespace "${PROJECT_NAMESPACE}" create secret generic my-credentials \
             --from-literal=user="${OM_USER:=admin}" --from-literal=publicApiKey="${OM_API_KEY}"
 
-    title "ConfigMap and Secret are created"
+
+    title "Credentials, Project have been created"
 }
 
 teardown() {

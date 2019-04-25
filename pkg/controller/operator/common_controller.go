@@ -79,6 +79,14 @@ func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedNam
 		BaseURL:      projectConfig.BaseURL,
 		PublicAPIKey: credsConfig.PublicAPIKey,
 		User:         credsConfig.User,
+
+		// The OM Client expects the inverse of "Require valid cert" because in Go
+		// The "zero" value of bool is "False", hence this default.
+		AllowInvalidSSLCertificate: !projectConfig.SSLRequireValidMMSServerCertificates,
+
+		// The CA certificate passed to the OM client needs to be a actual certificate,
+		// and not a location in disk, because each "project" will have its own CA cert.
+		CACertificate: projectConfig.SSLMMSCAConfigMapContents,
 	}
 	conn := c.omConnectionFactory(&omContext)
 	agentAPIKey, err := c.ensureAgentKeySecretExists(conn, nsName.Namespace, group.AgentAPIKey, log)
@@ -93,6 +101,8 @@ func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedNam
 		podVars.User = conn.User()
 		podVars.AgentAPIKey = agentAPIKey
 		podVars.LogLevel = spec.LogLevel
+
+		podVars.SSLProjectConfig = projectConfig.SSLProjectConfig
 	}
 	return conn, nil
 }
@@ -120,7 +130,7 @@ func (c *ReconcileCommonController) ensureAgentKeySecretExists(conn om.Connectio
 			log.Info("Agent key was successfully generated")
 		}
 
-		secret = buildSecret(secretName, nameSpace, agentKey)
+		secret = buildSecretForAgentKey(secretName, nameSpace, agentKey)
 		if err = c.client.Create(context.TODO(), secret); err != nil {
 			return "", fmt.Errorf("Failed to create Secret: %s", err)
 		}
@@ -213,11 +223,7 @@ func (c *ReconcileCommonController) updatePending(reconciledResource *v1.MongoDB
 // "requeue after 10 seconds" - this doesn't get to watcher, so will never be filtered out.
 // - the only client making changes to status is the Operator itself and it makes sure that spec stays untouched
 func shouldReconcile(oldResource *v1.MongoDB, newResource *v1.MongoDB) bool {
-	newStatus := newResource.Status
-	if !reflect.DeepEqual(oldResource.Status, newStatus) {
-		return false
-	}
-	return true
+	return reflect.DeepEqual(oldResource.Status, newResource.Status)
 }
 
 // prepareResourceForReconciliation finds the object being reconciled. Returns pointer to 'reconcile.Result', error and the hashSpec for the resource.

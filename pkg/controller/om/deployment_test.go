@@ -2,13 +2,14 @@ package om
 
 import (
 	"strconv"
-	"testing"
-
 	"strings"
+	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 )
 
 func init() {
@@ -70,12 +71,13 @@ func TestMergeReplicaSet(t *testing.T) {
 
 	// Now the deployment "gets updated" from external - new node is added and one is removed - this should be fixed
 	// by merge
-	d.getProcesses()[0]["processType"] = "mongos"                                             // this will be overriden
-	d.getProcesses()[1].Args()["net"].(map[string]interface{})["maxIncomingConnections"] = 20 // this will be left as-is
-	d.getReplicaSets()[0]["protocolVersion"] = 10                                             // this field will be overriden by Operator
-	d.getReplicaSets()[0].setMembers(d.getReplicaSets()[0].members()[0:2])                    // "removing" the last node in replicaset
-	d.getReplicaSets()[0].addMember(NewMongodProcess("foo", "bar", "4.0.0"))                  // "adding" some new node
-	d.getReplicaSets()[0].members()[0]["arbiterOnly"] = true                                  // changing data for first node
+	additionalConfig := &mongodb.AdditionalMongodConfig{}
+	d.getProcesses()[0]["processType"] = "mongos"                                              // this will be overriden
+	d.getProcesses()[1].EnsureNetConfig()["MaxIncomingConnections"] = 20                       // this will be left as-is
+	d.getReplicaSets()[0]["protocolVersion"] = 10                                              // this field will be overriden by Operator
+	d.getReplicaSets()[0].setMembers(d.getReplicaSets()[0].members()[0:2])                     // "removing" the last node in replicaset
+	d.getReplicaSets()[0].addMember(NewMongodProcess("foo", "bar", "4.0.0", additionalConfig)) // "adding" some new node
+	d.getReplicaSets()[0].members()[0]["arbiterOnly"] = true                                   // changing data for first node
 
 	mergeReplicaSet(d, "fooRs", createReplicaSetProcesses("fooRs"))
 
@@ -84,7 +86,8 @@ func TestMergeReplicaSet(t *testing.T) {
 
 	expectedRs = buildRsByProcesses("fooRs", createReplicaSetProcesses("fooRs"))
 	expectedRs.Rs.members()[0]["arbiterOnly"] = true
-	expectedRs.Processes[1].Args()["net"].(map[string]interface{})["maxIncomingConnections"] = 20
+	expectedRs.Processes[1].EnsureNetConfig()["MaxIncomingConnections"] = 20
+
 	checkReplicaSet(t, d, expectedRs)
 }
 
@@ -119,7 +122,7 @@ func TestMergeReplicaSet_MergeFirstProcess(t *testing.T) {
 	mergeReplicaSet(d, "anotherRs", createReplicaSetProcesses("anotherRs"))
 
 	// Now the first process (and usually all others in practice) are changed by OM
-	d.getProcesses()[0].Args()["net"].(map[string]interface{})["maxIncomingConnections"] = 20
+	d.getProcesses()[0].EnsureNetConfig()["MaxIncomingConnections"] = 20
 	d.getProcesses()[0]["backupRestoreUrl"] = "http://localhost:7890"
 	d.getProcesses()[0]["logRotate"] = map[string]int{"sizeThresholdMB": 3000, "timeThresholdHrs": 12}
 	d.getProcesses()[0]["kerberos"] = map[string]string{"keytab": "123456"}
@@ -134,7 +137,7 @@ func TestMergeReplicaSet_MergeFirstProcess(t *testing.T) {
 
 	// Verifying that the first process was merged with new ones
 	for _, i := range []int{0, 3, 4} {
-		expectedRs.Processes[i].Args()["net"].(map[string]interface{})["maxIncomingConnections"] = 20
+		expectedRs.Processes[i].EnsureNetConfig()["MaxIncomingConnections"] = 20
 		expectedRs.Processes[i]["backupRestoreUrl"] = "http://localhost:7890"
 		expectedRs.Processes[i]["logRotate"] = map[string]int{"sizeThresholdMB": 3000, "timeThresholdHrs": 12}
 		expectedRs.Processes[i]["kerberos"] = map[string]string{"keytab": "123456"}
@@ -143,6 +146,18 @@ func TestMergeReplicaSet_MergeFirstProcess(t *testing.T) {
 	// The other replica set must be the same
 	checkReplicaSet(t, d, buildRsByProcesses("anotherRs", createReplicaSetProcesses("anotherRs")))
 	checkReplicaSet(t, d, expectedRs)
+}
+
+func TestConfigureSSL_Deployment(t *testing.T) {
+	d := Deployment{}
+	d.ConfigureTLS(&mongodb.TLSConfig{Enabled: true})
+	expectedSSLConfig := map[string]interface{}{
+		"CAFilePath": "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
+	}
+	assert.Equal(t, expectedSSLConfig, d["ssl"].(map[string]interface{}))
+
+	d.ConfigureTLS(&mongodb.TLSConfig{})
+	assert.NotEmpty(t, d["ssl"])
 }
 
 // ************************   Methods for checking deployment units
@@ -282,16 +297,18 @@ func buildRsByProcesses(rsName string, processes []Process) ReplicaSetWithProces
 }
 
 func createStandalone() Process {
-	return NewMongodProcess("merchantsStandalone", "mongo1.some.host", "3.6.3").
+	additionalConfig := &mongodb.AdditionalMongodConfig{}
+	return NewMongodProcess("merchantsStandalone", "mongo1.some.host", "3.6.3", additionalConfig).
 		SetDbPath("/data").SetLogPath("/data/mongodb.log")
 }
 
 func createMongosProcesses(num int, name, clusterName string) []Process {
+	additionalConfig := &mongodb.AdditionalMongodConfig{}
 	mongosProcesses := make([]Process, num)
 
 	for i := 0; i < num; i++ {
 		idx := strconv.Itoa(i)
-		mongosProcesses[i] = NewMongosProcess(name+idx, "mongoS"+idx+".some.host", "3.6.3")
+		mongosProcesses[i] = NewMongosProcess(name+idx, "mongoS"+idx+".some.host", "3.6.3", additionalConfig)
 		if clusterName != "" {
 			mongosProcesses[i].setCluster(clusterName)
 		}
@@ -304,11 +321,12 @@ func createReplicaSetProcesses(rsName string) []Process {
 }
 
 func createReplicaSetProcessesCount(count int, rsName string) []Process {
+	additionalConfig := &mongodb.AdditionalMongodConfig{}
 	rsMembers := make([]Process, count)
 
 	for i := 0; i < count; i++ {
 		idx := strconv.Itoa(i)
-		rsMembers[i] = NewMongodProcess(rsName+idx, rsName+idx+".some.host", "3.6.3")
+		rsMembers[i] = NewMongodProcess(rsName+idx, rsName+idx+".some.host", "3.6.3", additionalConfig)
 		// Note that we don't specify the replicaset config for process
 	}
 	return rsMembers
