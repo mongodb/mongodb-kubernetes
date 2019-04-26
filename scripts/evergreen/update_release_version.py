@@ -13,6 +13,7 @@ import sys
 import ruamel.yaml
 from read_release_version import read_release_from_file
 
+
 if __name__ == '__main__':
     new_release = sys.argv[1]
     print("Updating files to the version ", new_release)
@@ -31,6 +32,7 @@ if __name__ == '__main__':
 
     with open(release_json, 'w') as fd:
         json.dump(doc, fd, indent=2)
+        fd.write("\n")
 
     print('Updated "{}"'.format(release_json))
 
@@ -62,4 +64,3 @@ if __name__ == '__main__':
     with open(values_yaml, 'w') as fd:
         yaml.dump(doc, fd)
     print('Updated "{}"'.format(values_yaml))
-

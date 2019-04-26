@@ -32,7 +32,7 @@ https://quay.io/repository/mongodb/mongodb-enterprise-database?tab=tags
 
 ## Increase release versions in relevant files
 
-Ensure the required dependencies are installed 
+Ensure the required dependencies are installed
 ```bash
 pip3 install -r scripts/evergreen/requirements.txt
 ```
@@ -57,8 +57,8 @@ evergreen patch -p ops-manager-kubernetes -v build_and_push_images_development -
 Perform a sanity check with your Kops cluster using just built images. This
 cluster should have access to the ECR images, as they are all hosted in AWS.
 
-Most of the standard operations with 3 MongoDB resources are covered by E2E tests, try to look 
-through the tickets that got into the release and check if any additional QA is necessary. 
+Most of the standard operations with 3 MongoDB resources are covered by E2E tests, try to look
+through the tickets that got into the release and check if any additional QA is necessary.
 
 ## Get the release PR approved and merge the branch to Master
 
@@ -84,7 +84,7 @@ After successful QA publish images to the public repo.
 This should be done using `evergreen`:
 
 ```bash
-evergreen patch -p ops-manager-kubernetes -v release_operator -f
+evergreen patch -p ops-manager-kubernetes -v release_operator -t release_operator -f
 ```
 
 This will build the `mongodb-enterprise-operator` and
@@ -100,7 +100,7 @@ For RHEL based images we use Red Hat Connect service that will build images by i
 To submit the job call the following:
 
 ```bash
-evergreen patch -p ops-manager-kubernetes -v release_operator_rhel -f
+evergreen patch -p ops-manager-kubernetes -v release_operator_rhel -t release_operator_rhel_connect -f
 ```
 
 Track the status of the jobs for operator and database using the following links:
@@ -130,7 +130,7 @@ the root of the `mongodb/mongodb-enterprise-kubernetes`, the public repo and wil
 This script will also generate YAML files that can be used to install
 the operator in clusters with no Helm installed. These yaml files will
 be copied into the public repo, they will not exist in the private
-repo, and they should not be checked into the private repo either. 
+repo, and they should not be checked into the private repo either.
 
 Check the last commit in the public repo and if everything is ok - push it.
 
