@@ -22,7 +22,7 @@ class TestStandaloneWithNoTLS(KubernetesTester):
     create:
       file: fixtures/test-no-tls-no-status.yaml
       wait_until: in_running_state
-      timeout: 120
+      timeout: 180
     """
 
     def test_mdb_resource_status_is_correct(self):
@@ -32,6 +32,7 @@ class TestStandaloneWithNoTLS(KubernetesTester):
 
         assert mdb["status"]["phase"] == "Running"
         assert "additionalMongodConfig" not in mdb["status"]
+        assert "net" not in mdb
 
 
 @pytest.mark.tls_no_status
@@ -41,7 +42,7 @@ class TestStandaloneWithNoTLSDeletion(KubernetesTester):
     delete:
       file: fixtures/test-no-tls-no-status.yaml
       wait_until: mongo_resource_deleted
-      timeout: 120
+      timeout: 180
     """
 
     def test_deletion(self):

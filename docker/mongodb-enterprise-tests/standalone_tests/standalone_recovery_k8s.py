@@ -1,7 +1,15 @@
 import kubernetes
 import yaml
 
-from kubetester import KubernetesTester
+import sys
+import os
+
+try:
+    from kubetester import KubernetesTester, fixture
+except ImportError:
+    # patching python import path so it finds kubetester
+    sys.path.append(os.path.dirname(os.getcwd()))
+    from kubetester import KubernetesTester, fixture
 
 
 class TestStandaloneRecoversBadPvConfiguration(KubernetesTester):
@@ -18,30 +26,29 @@ class TestStandaloneRecoversBadPvConfiguration(KubernetesTester):
 
     @classmethod
     def setup_env(cls):
-        resource = yaml.safe_load(open("fixtures/standalone_pv_invalid.yaml"))
+        resource = yaml.safe_load(open(fixture("standalone_pv_invalid.yaml")))
+
         cls.random_storage_name = KubernetesTester.random_k8s_name()
         resource["spec"]["podSpec"]["persistence"]["single"]["storageClass"] = cls.random_storage_name
         cls.create_custom_resource_from_object(cls.get_namespace(), resource)
-        KubernetesTester.wait_until('in_error_state', 210)
+        KubernetesTester.wait_until('in_error_state', 300)
 
         mrs = KubernetesTester.get_resource()
         assert "Failed to create/update the StatefulSet" in mrs['status']['message']
 
     def test_recovery(self):
-        resource = yaml.safe_load(open("fixtures/test_storage_class.yaml"))
+        resource = yaml.safe_load(open(fixture("test_storage_class.yaml")))
         resource["metadata"]["name"] = self.__class__.random_storage_name
         KubernetesTester.clients("storagev1").create_storage_class(resource)
 
         print('Created a storage class "{}", standalone is supposed to get fixed now.'.format(self.__class__.random_storage_name))
 
-        KubernetesTester.wait_until('in_running_state', 120)
+        KubernetesTester.wait_until('in_running_state', 300)
 
     @classmethod
     def teardown_env(cls):
         print('\nRemoving storage class "{}" from Kubernetes'.format(cls.random_storage_name))
         KubernetesTester.clients("storagev1").delete_storage_class(
-            name = cls.random_storage_name, body = kubernetes.client.V1DeleteOptions())
-
-
-
-
+            name=cls.random_storage_name,
+            body=kubernetes.client.V1DeleteOptions()
+        )

@@ -24,13 +24,24 @@ rules:
   - apps
   resources:
   - statefulsets
-  verbs: ["*"]
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+  - delete
+  - update
 - apiGroups:
   - mongodb.com
   resources:
-  - "*"
+  - mongodb
+  - mongodb/finalizers
   verbs:
-  - "*"
+  - get
+  - list
+  - watch
+  - delete
+  - update
 
 ---
 kind: {{ if .Values.operator.watchNamespace }} {{ if (eq .Values.operator.watchNamespace "*") }} ClusterRoleBinding {{ else }} RoleBinding {{ end }} {{ else }} RoleBinding {{ end }}
@@ -53,7 +64,6 @@ subjects:
 
 # This ClusterRole is needed if the user wants to use the Kubernetes CA
 # infrastructure to generate certificates.
-# TODO: Set the right resources and verbs in this yaml doc.
 {{ if .Values.needsCAInfrastructure }}
 ---
 kind: ClusterRole
@@ -63,8 +73,12 @@ metadata:
 rules:
 - apiGroups:
   - certificates.k8s.io
-  resources: ["*"]
-  verbs: ["*"]
+  resources:
+  - certificatesigningrequests
+  verbs:
+  - get
+  - create
+  - list
 
 ---
 kind: ClusterRoleBinding

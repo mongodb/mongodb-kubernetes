@@ -56,7 +56,7 @@ class TestReplicaSetMultiplePersistentVolumeDelete(KubernetesTester):
     delete:
       file: fixtures/replica-set-pv-multiple.yaml
       wait_until: mongo_resource_deleted
-      timeout: 120
+      timeout: 240
     """
 
     def test_pvc_are_bound(self):
