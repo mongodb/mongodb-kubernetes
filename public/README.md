@@ -29,7 +29,7 @@ You can discuss this integration in our [Slack](https://community-slack.mongodb.
 The MongoDB Enterprise Operator is compatible with Kubernetes v1.11 and above. It has been tested against Openshift 3.11.
 
 This Operator requires [Ops Manager](https://docs.opsmanager.mongodb.com/current/) or [Cloud Manager](https://cloud.mongodb.com/user#/cloud/login). In this document, when we refer to "Ops Manager", you may substitute "Cloud Manager". The functionality is the same.
-> If this is your first time trying the Operator, Cloud Manager is easier to get started 
+> If this is your first time trying the Operator, Cloud Manager is easier to get started
 
 
 ## Installation
@@ -39,9 +39,9 @@ This Operator requires [Ops Manager](https://docs.opsmanager.mongodb.com/current
 The Mongodb Enterprise Operator is installed, by default, into the `mongodb` Namespace, but this Namespace is not created automatically. To create this Namespace you should execute:
 
     kubectl create namespace mongodb
-    
-If you plan on using any other Namespace, please make sure you update the yaml files' `metadata.namespace` attribute to 
-point to your preferred Namespace. If using `helm` you need to override the `namespace` attribute with `--set namespace=<..>` 
+
+If you plan on using any other Namespace, please make sure you update the yaml files' `metadata.namespace` attribute to
+point to your preferred Namespace. If using `helm` you need to override the `namespace` attribute with `--set namespace=<..>`
 during helm installation
 
 ### Installation using yaml files
@@ -68,13 +68,13 @@ Check the end of the page for instructions on how to remove the Operator.
 
 ### Installation using Helm Chart
 
-If you have installed the Helm client locally then you can run (note that `helm install` is a less preferred way as makes upgrades more complicated. 
+If you have installed the Helm client locally then you can run (note that `helm install` is a less preferred way as makes upgrades more complicated.
 `kubectl apply` is a much clearer way of installing/upgrading):
 
     helm template public/helm_chart > operator.yaml
     kubectl apply -f operator.yaml
 
-You can customize installation by simple overriding of helm variables, for example use `--set operator.env="dev"` to run the Operator in development mode 
+You can customize installation by simple overriding of helm variables, for example use `--set operator.env="dev"` to run the Operator in development mode
 (this will turn logging level to `Debug` and will make logging output as non-json)
 
 Check the end of the page for instructions on how to remove the Operator.
@@ -110,9 +110,9 @@ data:
   orgId: 5b890e0feacf0b76ff3e7183 # this is an optional parameter
   baseUrl: https://my-ops-manager-or-cloud-manager-url
 ```
-> Note, that if `orgId` is skipped then the new organization named `projectName` will be automatically created and new 
+> Note, that if `orgId` is skipped then the new organization named `projectName` will be automatically created and new
 project will be added there.
- 
+
 Apply this file to create the new `Project`:
 
     kubectl apply -f my-project.yaml
@@ -132,11 +132,11 @@ A MongoDB object in Kubernetes is a MongoDB (short name `mdb`). We are going to 
 If you have a correctly created Project with the name `my-project` and Credentials stored in a secret called `my-credentials` then, after applying this file then everything should be running and a new Replica Set with 3 members should soon appear in Ops Manager UI.
 
     kubectl apply -f samples/minimal/replicaset.yaml
-    
+
 ### Correct order of Operator/Namespace removal
 
 It's important to keep correct order or removal operations. The simple rule is: **never remove Operator before mongodb resources**!
-The reason is that the Operator cleans state in Ops Manager on deletion of the MongoDB resource in Kubernetes. 
+The reason is that the Operator cleans state in Ops Manager on deletion of the MongoDB resource in Kubernetes.
 
 These are the correct steps to remove any MongoDB Operator resources:
 
@@ -147,6 +147,5 @@ kubectl delete mdb --all -n <namespace>
 # any of the following commands must be called after removing all existing mongodb resources
 kubectl delete namespace <namespace>
 kubectl delete deployment mongodb-enterprise-operator -n <namespace>
-kubectl delete crd --all
+kubectl delete crd/mongodb.mongodb.com
 ```
-   
