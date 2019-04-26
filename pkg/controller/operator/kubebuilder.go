@@ -90,11 +90,12 @@ func buildStatefulSet(p StatefulSetHelper) *appsv1.StatefulSet {
 	}
 
 	// SSL is active
-	if p.TLSConfig != nil && p.TLSConfig.Enabled {
+	if p.Security != nil && p.Security.TLSConfig.Enabled {
 		// TODO: Move into its own function
+		tlsConfig := p.Security.TLSConfig
 		var secretName string
-		if p.TLSConfig.Secret != "" {
-			secretName = p.TLSConfig.Secret
+		if tlsConfig.Secret != "" {
+			secretName = tlsConfig.Secret
 		} else {
 			secretName = fmt.Sprintf("%s-cert", p.Name)
 		}

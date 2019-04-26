@@ -68,7 +68,7 @@ class TestReplicaSetWithTLSUpgradeSetRequireSSLMode(KubernetesTester):
       while still operational (we won't break the ReplicaSet for now, it will be just not upgraded).
     update:
       file: fixtures/test-tls-base-rs-require-ssl-upgrade.yaml
-      patch: '[{"op":"add","path":"/spec/tls","value": { "enabled": true }}]'
+      patch: '[{"op": "add", "path" : "/spec/security", "value": {}}, {"op":"add","path":"/spec/security/tls","value": { "enabled": true }}]'
       wait_until: in_failed_state
       timeout: 240
     """

@@ -109,7 +109,7 @@ type MongoDbSpec struct {
 	Members int             `json:"members,omitempty"`
 	PodSpec *MongoDbPodSpec `json:"podSpec,omitempty"`
 
-	TLS *TLSConfig `json:"tls,omitempty"`
+	Security *Security `json:"security,omitempty"`
 
 	// AdditionalMongodConfig is additional configuration that can be passed to
 	// each data-bearing mongod at runtime. Uses the same structure as the mongod
@@ -140,6 +140,11 @@ type SSLSpec struct {
 	// respected by the automation agent.
 }
 
+type Security struct {
+	TLSConfig       *TLSConfig `json:"tls,omitempty"`
+	ClusterAuthMode string     `json:"clusterAuthMode,omitempty"`
+}
+
 type TLSConfig struct {
 	Enabled bool `json:"enabled"`
 
@@ -150,7 +155,7 @@ type TLSConfig struct {
 }
 
 func (spec MongoDbSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
-	if spec.TLS == nil || !spec.TLS.Enabled {
+	if spec.Security == nil || spec.Security.TLSConfig == nil || !spec.Security.TLSConfig.Enabled {
 		return spec.AdditionalMongodConfig
 	}
 
@@ -169,20 +174,19 @@ func (spec MongoDbSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
 		mode = PreferSSLMode
 	}
 
-	new := AdditionalMongodConfig(*spec.AdditionalMongodConfig)
-	new.Net.SSL.Mode = mode
+	newConfig := AdditionalMongodConfig(*spec.AdditionalMongodConfig)
+	newConfig.Net.SSL.Mode = mode
 
-	return &new
+	return &newConfig
 }
 
 func (spec MongoDbSpec) GetTLSConfig() *TLSConfig {
-	if spec.TLS == nil {
+	if spec.Security == nil || spec.Security.TLSConfig == nil {
 		return nil
 	}
-
 	return &TLSConfig{
-		Enabled: spec.TLS.Enabled,
-		Secret:  spec.TLS.Secret,
+		Enabled: spec.Security.TLSConfig.Enabled,
+		Secret:  spec.Security.TLSConfig.Secret,
 	}
 }
 
@@ -211,8 +215,8 @@ func (m *MongoDB) MarshalJSON() ([]byte, error) {
 		mdb.Spec.AdditionalMongodConfig = nil
 	}
 
-	if reflect.DeepEqual(mdb.Spec.TLS, newTLSConfig()) {
-		mdb.Spec.TLS = nil
+	if reflect.DeepEqual(mdb.Spec.Security, newSecurity()) {
+		mdb.Spec.Security = nil
 	}
 
 	return json.Marshal((MongoDBJSON)(*mdb))
@@ -325,9 +329,9 @@ func (m *MongoDB) InitDefaults() {
 		m.Spec.AdditionalMongodConfig = newAdditionalMongodConfig()
 	}
 
-	if m.Spec.TLS == nil {
-		tlsConfig := newTLSConfig()
-		m.Spec.TLS = &tlsConfig
+	if m.Spec.Security == nil {
+		newSecurity := newSecurity()
+		m.Spec.Security = &newSecurity
 	}
 }
 
@@ -451,4 +455,8 @@ func newAdditionalMongodConfig() *AdditionalMongodConfig {
 // json representation of the MDB object.
 func newTLSConfig() TLSConfig {
 	return TLSConfig{}
+}
+
+func newSecurity() Security {
+	return Security{TLSConfig: &TLSConfig{}}
 }

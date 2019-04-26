@@ -13,8 +13,9 @@ spec:
 
   persistent: false
 
-  tls:
-    enabled: true
+  security:
+    tls:
+      enabled: true
 
   additionalMongodConfig:
     net:

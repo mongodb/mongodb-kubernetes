@@ -46,8 +46,12 @@ The resulting json for this type (example):
                 "ssl": {
 					"mode": "requireSSL",
 					"PEMKeyFile": "/mongodb-automation/server.pem"
+					"clusterAuthFile: "/mongodb-automation/clusterfile.pem"
 				}
 			},
+			"security" {
+				"clusterAuthMode":"x509"
+			}
 			"replication": {
 				"replSetName": "blue"
 			},
@@ -232,6 +236,20 @@ func (p Process) SSLConfig() map[string]interface{} {
 		return netConfig["ssl"].(map[string]interface{})
 	}
 	return make(map[string]interface{}, 0)
+}
+
+func (p Process) Security() map[string]interface{} {
+	return util.ReadOrCreateMap(p.Args(), "security")
+}
+
+func (p Process) SetClusterAuthMode(authMode string) Process {
+	p.Security()["clusterAuthMode"] = authMode
+	return p
+}
+
+func (p Process) SetClusterFile(filePath string) Process {
+	p.EnsureSSLConfig()["clusterFile"] = filePath
+	return p
 }
 
 // String

@@ -75,6 +75,15 @@ func TestConfigureSSL_Process(t *testing.T) {
 	assert.Empty(t, process.SSLConfig())
 }
 
+func TestConfigureX509_Process(t *testing.T) {
+	process := Process{}
+	process.SetClusterAuthMode("x509")
+	assert.Equal(t, "x509", process.Security()["clusterAuthMode"])
+
+	process.SetClusterFile("/mongodb-automation/clusterfile.pem")
+	assert.Equal(t, "/mongodb-automation/clusterfile.pem", process.EnsureSSLConfig()["clusterFile"])
+}
+
 func TestCreateMongodProcess_SSL(t *testing.T) {
 	additionalConfig := &mongodb.AdditionalMongodConfig{Net: mongodb.NetSpec{SSL: mongodb.SSLSpec{Mode: mongodb.PreferSSLMode}}}
 	process := NewMongodProcess(

@@ -86,7 +86,7 @@ type StatefulSetHelper struct {
 	ServicePort       int32
 	Logger            *zap.SugaredLogger
 
-	TLSConfig *mongodb.TLSConfig
+	Security *mongodb.Security
 }
 
 // ShardedClusterKubeState holds the Kubernetes configuration for the set of StatefulSets composing
@@ -170,7 +170,10 @@ func (s *StatefulSetHelper) SetLogger(log *zap.SugaredLogger) *StatefulSetHelper
 }
 
 func (s *StatefulSetHelper) SetTLS(tlsConfig *mongodb.TLSConfig) *StatefulSetHelper {
-	s.TLSConfig = tlsConfig
+	if s.Security == nil {
+		s.Security = &mongodb.Security{}
+	}
+	s.Security.TLSConfig = tlsConfig
 	return s
 }
 
@@ -518,7 +521,7 @@ func (k *KubeHelper) createOrUpdateSecret(name, namespace string, pemFiles *pemC
 
 // ensureSSLCertsForStatefulSet contains logic to create SSL certs for a StatefulSet object
 func (k *KubeHelper) ensureSSLCertsForStatefulSet(ss *StatefulSetHelper, log *zap.SugaredLogger) error {
-	if ss.TLSConfig == nil || !ss.TLSConfig.Enabled {
+	if ss.Security == nil || ss.Security.TLSConfig == nil || !ss.Security.TLSConfig.Enabled {
 		// if there's no SSL certs to generate, return
 		return nil
 	}
@@ -527,15 +530,15 @@ func (k *KubeHelper) ensureSSLCertsForStatefulSet(ss *StatefulSetHelper, log *za
 	certsNeedApproval := false
 	secretName := ss.Name + "-cert"
 
-	if ss.TLSConfig.Secret != "" {
+	if ss.Security.TLSConfig.Secret != "" {
 		// A "Certs" attribute has been provided
 		// This means that the customer has provided with a secret name they have
 		// already populated with the certs and keys for this deployment.
 		// Because of the async nature of Kubernetes, this object might not be ready yet,
 		// in which case, we'll keep reconciling until the object is created and is correct.
-		if notReadyCerts := k.verifyCertificatesForStatefulSet(ss, ss.TLSConfig.Secret); notReadyCerts > 0 {
+		if notReadyCerts := k.verifyCertificatesForStatefulSet(ss, ss.Security.TLSConfig.Secret); notReadyCerts > 0 {
 			return fmt.Errorf("The secret object '%s' does not contain all the certificates needed."+
-				"Required: %d, contains: %d", ss.TLSConfig.Secret,
+				"Required: %d, contains: %d", ss.Security.TLSConfig.Secret,
 				ss.Replicas,
 				ss.Replicas-notReadyCerts,
 			)
