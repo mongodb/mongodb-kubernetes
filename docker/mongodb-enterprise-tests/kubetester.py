@@ -600,16 +600,12 @@ class KubernetesTester(object):
 
     @staticmethod
     def mongo_resource_deleted(check_om_state=True):
-        return (
-            # First we check that the MDB resource is removed
-            KubernetesTester.is_deleted(KubernetesTester.namespace,
+        # First we check that the MDB resource is removed
+        deleted_in_k8 =  KubernetesTester.is_deleted(KubernetesTester.namespace,
                                         KubernetesTester.name,
                                         KubernetesTester.kind)
-            and (
-                # Then we check that the resource was removed in Ops Manager
-                check_om_state and KubernetesTester.is_om_state_cleaned()
-            )
-        )
+        # Then we check that the resource was removed in Ops Manager if specified
+        return deleted_in_k8 if not check_om_state else (deleted_in_k8 and KubernetesTester.is_om_state_cleaned())
 
     def build_mongodb_uri_for_rs(self, hosts):
         return "mongodb://{}".format(",".join(hosts))
