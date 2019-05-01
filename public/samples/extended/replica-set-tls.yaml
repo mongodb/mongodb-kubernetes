@@ -24,8 +24,9 @@ spec:
   #
   # https://kubernetes.io/docs/tasks/tls/managing-tls-in-a-cluster/
   #
-  tls:
-    enabled: true
+  security:
+    tls:
+      enabled: true
 
   # The default TLS mode is 'requireTLS' but it can be customized using the
   # the `additionalMongodConfig` structure. Please find more information here:
