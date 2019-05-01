@@ -1,3 +1,161 @@
+# TLS Documentation #
+
+This is a generic document on how to achieve several TLS related tasks, from testing to debugging.
+
+# Getting information about the Certificates #
+
+The certificates can be created automatically by Kubernetes CA. The
+certificate itself is mounted into a Pod with its private key file
+contained in the same `pem` file. Information about the certificate
+can be obtained by using the following command:
+
+    $ openssl x509 -in /mongodb-automation/server.pem -text
+
+This will result in something like the following output:
+
+```
+Certificate:
+    Data:
+        Version: 3 (0x2)
+        Serial Number:
+            4d:e6:be:fb:19:5c:ba:13:4d:ae:02:af:d4:3d:36:3e:ce:de:01:a2
+    Signature Algorithm: sha256WithRSAEncryption
+        Issuer: CN=openshift-signer@1551349538
+        Validity
+            Not Before: Apr 19 13:57:00 2019 GMT
+            Not After : Apr 18 13:57:00 2020 GMT
+        Subject: C=US, ST=NY, L=NY, O=mongodb, OU=MongoDB Kubernetes Operator, CN=<mdb-name>-<pod-index>
+        Subject Public Key Info:
+                Public Key Algorithm: rsaEncryption
+                Public-Key: (4096 bit)
+                Modulus:
+                    ...
+                    ...
+                    ...
+                Exponent: 65537 (0x10001)
+
+        X509v3 extensions:
+            X509v3 Key Usage: critical
+                Digital Signature, Key Encipherment
+            X509v3 Extended Key Usage:
+                TLS Web Server Authentication, TLS Web Client Authentication
+            X509v3 Basic Constraints: critical
+                CA:FALSE
+            X509v3 Subject Key Identifier:
+                9B:9D:CF:93:CA:FB:6A:52:E4:7C:B0:45:D1:E5:DD:79:5A:7D:B5:82
+            X509v3 Subject Alternative Name:
+                DNS:<mdb-name>-<pod-index>.<mdb-object-name>-svc.<namespace>.svc.cluster.local, DNS:<mdb-name>-<pod-index>
+    Signature Algorithm: sha256WithRSAEncryption
+         ...
+         ...
+         ...
+-----BEGIN CERTIFICATE-----
+### Acutal certificate
+-----END CERTIFICATE-----
+
+```
+
+> One of the most important things about this certificate is the
+`Public Key Algorithm`. It needs to be set to `rsaEncryption` or our
+database image will not be able to work with it as it uses OpenSSL
+1.0.2g, and patch level versions of OpenSSL (1.0.x). The complete
+investigation is in https://jira.mongodb.org/browse/CLOUDP-40599.
+
+Each certificate will be configured with the following attributes:
+
+* Common Name (CN): This is set to <mdb-name>-<pod-index>
+* Subject: C=US, ST=NY, L=NY, O=mongodb, OU=MongoDB Kubernetes Operator, CN=<mdb-name>-<pod-index>
+* Subject Alternative Names (2 entries): This list will contain two
+  entries; the internal FQDN of the Pod (includes service, namespace
+  and `svc.cluster.local`) and the Common Name.
+
+# TLS Certificates In Kubernetes #
+
+The operator will create the Certificates using Kube CA and they will
+be stored in a `Secret` object with a name like
+`<mdb-name>-certs`. This `Secret` will contain an entry for each `Pod`
+in the deployment.
+
+
+## Rotation of TLS Certificates ##
+
+**Note: this process involves restarting the MongoDB Pods**
+
+**Please note, use this documentation as a guide. If you are planning
+on rotating the certs for a Sharded Cluster, for each Shard in the
+cluster, the certs will have to be rotated (following these
+principles) and finally, the same process will have to be applied to
+the Mongos.**
+
+The operator does not support the rotation of certificates, but this
+can be triggered manually by removing the `Secret` object and
+triggering a reconciliation, which will cause the certificates to be
+reissued. After the certificates have been approved and issued,
+they will be mounted in the Pods again.
+
+### 1. Delete the Certificate Signing Request objects from Kubernetes ###
+
+* Note, I'm assuming there's an environment variable with name
+  `NAMESPACE` with the name of the namespace you are working
+  on. Also, the `MDB_NAME` is the name of the `MDB` object.
+
+These objects are useless without a Private Key (which is stored in
+the Secret object). The CSR objects are not namespaced, this means
+that you need to be careful about their removal. When the operator
+creates a CSR it will name it as `<mdb-name>-<index>.<namespace>`. To
+remove it you can use a script along the lines of:
+
+``` bash
+kubectl delete $(kubectl get csr -o name | grep "\.${NAMESPACE}\$")
+```
+
+### 2. Delete the Secret containing the Private Keys and Certs ###
+
+The operator creates a `Secret` object that contains the Private Keys
+and Certificate for each Pod, it will be named as
+`<mdb-name>-cert`. This `Secret` needs to be removed like:
+
+    kubectl -n $NAMESPACE delete "secret/${MDB_NAME}-cert"
+
+### 3. Wait for Reconciliation ###
+
+After next reconciliation, the Operator will realize that the `Secret`
+with the certificates is not there any more and will request the
+certificates again, a new set of `CSR` (`Certificate Signing Request`)
+will appear in the Kubernetes cluster, and will have to be approved.
+
+    kubectl certificate approve $(kubectl get csr -o name | grep "\.${NAMESPACE}\$")
+
+The operator will keep watching these certificates until they are
+approved and issued. When this happens, the `Secret` will be populated
+again with the new Certificates and Private Keys.
+
+Eventually, this `Secret`'s contents will be refreshed on each of the
+`Pod`s containing our MongoDB databases.
+
+### 4. Instruct the Automation Agent to Restart the MongoDBs ###
+
+We don't currently support rotating certificates with no downtime and
+this process needs to be done manually. I'm going to describe the
+easiest solution to do this, which involves restarting each one of the
+Pods manually.
+
+**Warning Number 2: This will delete each Pod, one by one, waiting 60
+seconds inbetween. MongoDB should be capable of maintaining the
+operativity of the cluster while this process run**
+
+``` bash
+members=$(kubectl get "mdb/${MDB_NAME}" -o jsonpath='{.spec.members}')
+members=$((members-1))
+for i in $(seq $members -1 0); do
+    kubectl -n $NAMESPACE delete "pods/${MDB_NAME}-$i"
+    sleep 60
+done
+```
+
+After all the `Pod`s have been restarted, they will be using the new
+just issued certificates.
+
 # How to Use SSL Issued Certificates Locally #
 
 The certs needed by `mongod` and `mongo` to be able to communicate are
