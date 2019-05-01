@@ -79,6 +79,7 @@ rules:
   - get
   - create
   - list
+  - watch
 
 ---
 kind: ClusterRoleBinding
