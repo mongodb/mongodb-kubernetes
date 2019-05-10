@@ -40,4 +40,4 @@ RUN    mkdir -p ${MMS_LOG_DIR} \
     && chmod -R 0775 ${MMS_HOME} \
     && chmod 0664 /etc/passwd
 
-CMD /mongodb-automation/files/agent-launcher.sh
+ENTRYPOINT ["/mongodb-automation/files/agent-launcher.sh"]

@@ -256,6 +256,7 @@ func basePodSpec(statefulSetName string, reqs mongodb.PodSpecWrapper, podVars *P
 			NodeAffinity: reqs.NodeAffinity,
 			PodAffinity:  reqs.PodAffinity,
 		},
+		TerminationGracePeriodSeconds: util.Int64Ref(util.DefaultPodTerminationPeriodSeconds),
 	}
 
 	if val, found := util.ReadEnv(util.AutomationAgentPullSecrets); found {

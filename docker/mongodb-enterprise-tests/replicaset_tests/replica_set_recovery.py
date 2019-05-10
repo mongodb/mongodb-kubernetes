@@ -19,7 +19,8 @@ class TestReplicaSetBadStateCreation(KubernetesTester):
     def test_in_error_state(self):
         mrs = KubernetesTester.get_resource()
         assert mrs['status']['phase'] == 'Failed'
-        assert mrs['status']['message'] == 'Failed to create/update replica set in Ops Manager: Status: 400 (Bad Request), Detail: Something went wrong validating your Automation Config. Sorry!'
+        assert mrs['status']['message'] in ('Failed to create/update replica set in Ops Manager: Status: 400 (Bad Request), Detail: Something went wrong validating your Automation Config. Sorry!',
+                                            'Failed to create/update replica set in Ops Manager: Status: 500 (Internal Server Error), ErrorCode: UNEXPECTED_ERROR, Detail: Unexpected error.')
 
 @pytest.mark.replica_set_recovery
 class TestReplicaSetRecoversFromBadState(KubernetesTester):

@@ -5,7 +5,7 @@ metadata:
   name: my-replica-set-vol-broken
 spec:
   type: Standalone
-  version: 4.0.2-ent
+  version: 4.0.7-ent
   project: my-project
   credentials: my-credentials
   persistent: true

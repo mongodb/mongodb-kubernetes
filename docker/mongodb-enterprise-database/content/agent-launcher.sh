@@ -5,17 +5,38 @@ set -o pipefail
 
 secrets_dir="/var/lib/mongodb-automation/secrets"
 pod_secrets_dir="/mongodb-automation"
-
+# Important! Keep this in sync with DefaultPodTerminationPeriodSeconds constant from constants.go
+termination_timeout_seconds=600
 
 # log stdout as structured json with given log type
-function json_log {
-  jq --unbuffered --null-input --raw-input "inputs | {\"logType\": \"$1\", \"contents\": .}"
-}
+function json_log {   jq --unbuffered --null-input -c --raw-input "inputs | {\"logType\": \"$1\", \"contents\": .}"; }
 
 # log a given message in json format
 function script_log {
   echo "$1" | json_log 'agent-launcher-script'
 }
+
+# the function reacting on SIGTERM command sent by the container on its shutdown. Makes sure all processes started (including
+# mongodb) receive the signal. For MongoDB this results in graceful shutdown of replication (starting from 4.0.9) which may
+# take some time. The script waits for all the processes to finish, otherwise the container would terminate as Kubernetes
+# waits only for the process with pid #1 to end
+function cleanup {
+  script_log "Caught SIGTERM signal. Passing the signal to the automation agent and the mongod processes."
+
+  kill -15 "$agentPid"
+  wait "$agentPid"
+
+  mongoPid="$(cat /data/mongod.lock)"
+  kill -15 "$mongoPid"
+
+  script_log "Waiting until mongod process is shutdown. Note, that if mongod process fails to shutdown in the time specified by the 'terminationGracePeriodSeconds' property (default $termination_timeout_seconds seconds) then the container will be killed by Kubernetes."
+
+  # dev note: we cannot use 'wait' for the external processes, seems the spinning loop is the best option
+  while [ -e "/proc/$mongoPid" ]; do sleep 0.1; done
+
+  script_log "Mongod and automation agent processes are shutdown"
+}
+
 
 if [ -d "${secrets_dir}" ]; then
     script_log "Found certificates in the host, will symlink to where the automation agent expects them to be"
@@ -133,11 +154,17 @@ else
 
     agentOpts+=("-mmsApiKey" "${AGENT_API_KEY-}")
 
-    "${MMS_HOME}/files/mongodb-mms-automation-agent" "${agentOpts[@]}" 2>> "${MMS_LOG_DIR}/automation-agent-stderr.log" | json_log "automation-agent-stdout" &
+    # Note, that we do logging in subshell - this allows us to save the сorrect PID to variable (not the logging one)
+    "${MMS_HOME}/files/mongodb-mms-automation-agent" "${agentOpts[@]}" 2>> "${MMS_LOG_DIR}/automation-agent-stderr.log" > >(json_log "automation-agent-stdout") &
+    agentPid=$!
+
+    trap cleanup SIGTERM
 fi
 
 # Note that we don't care about orphan processes as they will die together with container in case of any troubles
 # tail's -F flag is equivalent to --follow=name --retry. Should we track log rotation events?
 tail -F "${MMS_LOG_DIR}/automation-agent-verbose.log" 2> /dev/null | json_log 'automation-agent-verbose' &
 tail -F "${MMS_LOG_DIR}/automation-agent-stderr.log" 2> /dev/null | json_log 'automation-agent-stderr' &
-tail -F "${MMS_LOG_DIR}/mongodb.log" 2> /dev/null | json_log 'mongodb'
+tail -F "${MMS_LOG_DIR}/mongodb.log" 2> /dev/null | json_log 'mongodb' &
+
+wait

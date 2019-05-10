@@ -211,7 +211,8 @@ ensure_ops_manager_evg() {
     echo "Deploying Ops Manager"
 
     # todo move version to some configuration
-    om_package="https://s3.amazonaws.com/mongodb-mms-build-onprem/c78b383d0ea57690d7a15d4ab0099820e1c3b35f/mongodb-mms_4.0.6.50308.20181204T1611Z-1_x86_64.deb"
+    # note, that we use OM 4.1 for development to differ from e2e suites (they use 4.0+)
+    om_package="https://s3.amazonaws.com/mongodb-mms-build-onprem/6f88d1eaffb5eec31d627a1401e353c6bdedbae7/mongodb-mms_4.1.5.54067.20190416T1810Z-1_x86_64.deb"
     ./ego nohup "ubuntu@${host}" ego scenario_install_package_from_link "${om_package}" "http://${host}:9080"
 
     if ! ./ego tail "ubuntu@$host"; then

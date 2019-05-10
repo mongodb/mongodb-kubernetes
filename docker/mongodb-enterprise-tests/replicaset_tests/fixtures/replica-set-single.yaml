@@ -7,7 +7,7 @@ metadata:
   name: my-replica-set-single
 spec:
   members: 1
-  version: 4.0.0
+  version: 4.0.5
   type: ReplicaSet
   project: my-project
   credentials: my-credentials

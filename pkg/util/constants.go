@@ -76,18 +76,19 @@ const (
 	ManagedSecurityContextEnv      = "MANAGED_SECURITY_CONTEXT"
 
 	// Different default configuration values
-	DefaultMongodStorageSize        = "16G"
-	DefaultConfigSrvStorageSize     = "5G"
-	DefaultJournalStorageSize       = "1G" // maximum size for single journal file is 100Mb, journal files are removed soon after checkpoints
-	DefaultLogsStorageSize          = "3G"
-	DefaultAntiAffinityTopologyKey  = "kubernetes.io/hostname"
-	MongoDbDefaultPort              = 27017
-	DefaultPodWaitSecondsProd       = "5"
-	DefaultPodWaitRetriesProd       = "180" // 180 * 5 = 900 seconds = 15 min (Azure launch time is approximately 10 min)
-	DefaultPodWaitSecondsDev        = "3"
-	DefaultPodWaitRetriesDev        = "60" // This needs to be bigger for the extreme case when 3 PVs are mounted
-	DefaultBackupDisableWaitSeconds = "3"
-	DefaultBackupDisableWaitRetries = "30" // 30 * 3 = 90 seconds, should be ok for backup job to terminate
+	DefaultMongodStorageSize           = "16G"
+	DefaultConfigSrvStorageSize        = "5G"
+	DefaultJournalStorageSize          = "1G" // maximum size for single journal file is 100Mb, journal files are removed soon after checkpoints
+	DefaultLogsStorageSize             = "3G"
+	DefaultAntiAffinityTopologyKey     = "kubernetes.io/hostname"
+	MongoDbDefaultPort                 = 27017
+	DefaultPodWaitSecondsProd          = "5"
+	DefaultPodWaitRetriesProd          = "180" // 180 * 5 = 900 seconds = 15 min (Azure launch time is approximately 10 min)
+	DefaultPodWaitSecondsDev           = "3"
+	DefaultPodWaitRetriesDev           = "60" // This needs to be bigger for the extreme case when 3 PVs are mounted
+	DefaultBackupDisableWaitSeconds    = "3"
+	DefaultBackupDisableWaitRetries    = "30" // 30 * 3 = 90 seconds, should be ok for backup job to terminate
+	DefaultPodTerminationPeriodSeconds = 600  // 10 min
 
 	// All others
 	OmGroupExternallyManagedTag = "EXTERNALLY_MANAGED_BY_KUBERNETES"

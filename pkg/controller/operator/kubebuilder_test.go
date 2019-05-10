@@ -191,6 +191,13 @@ func TestBasePodSpec_ImagePullSecrets(t *testing.T) {
 	InitDefaultEnvVariables()
 }
 
+// TestBasePodSpec_TerminationGracePeriodSeconds verifies that the TerminationGracePeriodSeconds is set to 600 seconds
+func TestBasePodSpec_TerminationGracePeriodSeconds(t *testing.T) {
+	podSpec := mongodb.PodSpecWrapper{MongoDbPodSpec: mongodb.MongoDbPodSpec{}, Default: NewDefaultPodSpec()}
+	spec := basePodSpec("s", podSpec, defaultPodVars())
+	assert.Equal(t, util.Int64Ref(600), spec.TerminationGracePeriodSeconds)
+}
+
 func checkPvClaims(t *testing.T, set *v1.StatefulSet, expectedClaims []*corev1.PersistentVolumeClaim) {
 	assert.Len(t, set.Spec.VolumeClaimTemplates, len(expectedClaims))
 
