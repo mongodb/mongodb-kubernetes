@@ -14,6 +14,7 @@ source scripts/funcs
 # cleanup_env removes old namespaces and Ops Manager if there are too many of them
 cleanup_env() {
     MAX_NS_COUNT="$1"
+    OPS_MANAGER_NS="$2"
     ns_count=$(kubectl get ns -o name | grep a- --count)
     echo "Current number of test namespaces: $ns_count"
 
@@ -35,14 +36,14 @@ cleanup_env() {
             kubectl delete ns ${f} --now;
         done
 
-        kubectl delete ns operator-testing --now
+        kubectl delete ns ${OPS_MANAGER_NS} --now
 
-        echo "Waiting until operator-testing namespace is deleted..."
-        while [ $(kubectl get namespace/operator-testing -o name 2> /dev/null)  ]; do
+        echo "Waiting until ${OPS_MANAGER_NS} namespace is deleted..."
+        while [ $(kubectl get namespace/$OPS_MANAGER_NS -o name 2> /dev/null)  ]; do
             printf .
             sleep 1
         done
-        echo "Operator-testing namespace is deleted"
+        echo "${OPS_MANAGER_NS} namespace is deleted"
     fi
 
     echo "##### Removing FAILED Persistent Volumes if any"
@@ -100,9 +101,12 @@ check_and_clean_repo() {
 
 fix_taints
 
-# cleanup_env "$1"
+# cleanup_env "$1" "$2"
 
+ops_manager_namespace="${2}"
+ops_manager_version="${3}"
+node_port="${4}"
 # Not required when running against the Ops Manager Kubernetes perpetual instance
 if [[ "${USE_PERPETUAL_OPS_MANAGER_INSTANCE:-}" != "true" ]]; then
-    ensure_ops_manager_k8s
+    ensure_ops_manager_k8s ${ops_manager_namespace} ${ops_manager_version} ${node_port}
 fi

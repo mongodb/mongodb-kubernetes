@@ -36,9 +36,8 @@ RUN apt-get -qq update \
         sudo \
     && apt-get -qq -yt testing install \
         python3-pip \
-        # TODO seems the package is gone (Unable to locate package python3.6-venv) - need to try 3.7 version
-        python3.6-venv \
-        python3.6 \
+        python3.7-venv \
+        python3.7 \
     && apt-get upgrade -y -qq \
     && apt-get dist-upgrade -y -qq \
     && rm -rf /var/lib/apt/lists/*
@@ -82,7 +81,7 @@ RUN chown -R mongodb-mms:root /opt/scripts \
     && chmod -R 0775 /opt/scripts
 
 # Prepare a Python3 environment, for running the setup script (user registration, project, whitelist)
-RUN python3.6 -m venv /opt/venv \
+RUN python3.7 -m venv /opt/venv \
     && . /opt/venv/bin/activate \
     && python -m pip install --upgrade pip \
     && python -m pip install -r "/opt/scripts/requirements.txt" \

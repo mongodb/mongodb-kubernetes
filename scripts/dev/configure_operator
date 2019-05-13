@@ -13,7 +13,7 @@ title "Configuring config map and secret for the Operator"
 if [[ ! -f ${OPERATOR_DIR}/om ]]; then
 	echo "Ops Manager env file not ready - prepare it manually or call 'make om'/'make om-evg' to spawn new Ops Manager"
 	echo "Example configuration:"
-	echo "export OM_HOST=http://ops-manager.operator-testing.svc.cluster.local:8080"
+	echo "export OM_HOST=http://ops-manager.operator-testing-405.svc.cluster.local:8080"
 	echo "export OM_USER=admin"
 	echo "export OM_API_KEY=b290babc-bf1a-4e20-9d25-72e1fae82178"
 	exit 1

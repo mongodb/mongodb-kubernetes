@@ -74,7 +74,8 @@ if __name__ == '__main__':
         sys.exit(0)
 
     # Create first user (global owner)
-    user_data = post(url + "/api/public/v1.0/unauth/users?whitelist=0.0.0.0%2F0", {
+    # 100 for vanilla kubernetes, 10 for Openshift
+    user_data = post(url + "/api/public/v1.0/unauth/users?whitelist=100.0.0.0%2F8&whitelist=10.0.0.0%2F8", {
         "username": DEFAULT_ADMIN,
         "password": DEFAULT_PASS,
         "firstName": "Admin",

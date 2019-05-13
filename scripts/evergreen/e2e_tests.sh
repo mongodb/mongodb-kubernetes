@@ -34,7 +34,12 @@ contains() {
 fetch_om_information() {
     title "Reading Ops Manager environment variables..."
 
-    OPERATOR_TESTING_FRAMEWORK_NS=operator-testing
+    if [ -z $OPS_MANAGER_NAMESPACE ]; then
+        echo "OPS_MANAGER_NAMESPACE must be set!"
+        exit 1
+    fi
+
+    OPERATOR_TESTING_FRAMEWORK_NS=${OPS_MANAGER_NAMESPACE}
     if ! kubectl get namespace/${OPERATOR_TESTING_FRAMEWORK_NS} &> /dev/null; then
         error "Ops Manager is not installed in this cluster. Make sure the Ops Manager installation script is called beforehand. Exiting..."
 
@@ -59,7 +64,12 @@ fetch_om_information() {
 
 configure_operator() {
     title "Creating project and credentials Kubernetes object..."
-    BASE_URL="${OM_BASE_URL:=http://ops-manager.operator-testing.svc.cluster.local:8080}"
+
+    if [ ! -z "${OM_BASE_URL-}" ]; then
+      BASE_URL="${OM_BASE_URL}"
+    else
+      BASE_URL="http://ops-manager.${OPS_MANAGER_NAMESPACE:-}.svc.cluster.local:8080"
+    fi
 
     # delete `my-project` if it exists
     ! kubectl --namespace "${PROJECT_NAMESPACE}" get configmaps | grep -q my-project \
@@ -114,7 +124,7 @@ deploy_test_app() {
     helm template "${charttmpdir}" \
          -x templates/mongodb-enterprise-tests.yaml \
          --set repo="${REPO_URL:=268558157000.dkr.ecr.us-east-1.amazonaws.com/dev}" \
-         --set baseUrl="${OM_BASE_URL:=http://ops-manager.operator-testing.svc.cluster.local:8080}" \
+         --set baseUrl="${OM_BASE_URL:=http://ops-manager.${OPS_MANAGER_NAMESPACE}.svc.cluster.local:8080}" \
          --set apiKey="${OM_API_KEY}" \
          --set apiUser="${OM_USER:=admin}" \
          --set namespace="${PROJECT_NAMESPACE}" \
@@ -279,7 +289,7 @@ if [[ "${MODE-}" != "dev" ]]; then
 
         # Not required when running against the Ops Manager Kubernetes perpetual instance
         if [[ "${USE_PERPETUAL_OPS_MANAGER_INSTANCE:-}" != "true" ]]; then
-            print_om_endpoint "${PROJECT_NAMESPACE}"
+            print_om_endpoint "${PROJECT_NAMESPACE}" "${OPS_MANAGER_NAMESPACE}" "${NODE_PORT}"
         else
             print_perpetual_om_endpoint "${PROJECT_NAMESPACE}"
         fi

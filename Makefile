@@ -77,7 +77,7 @@ full: ensure-k8s-and-reset build-and-push-images
 
 # install OM in Kubernetes if it's not running
 om:
-	@ scripts/dev/ensure_ops_manager_k8s
+	@ scripts/dev/ensure_ops_manager_k8s $(namespace) $(version) $(node_port)
 
 # install OM in Evergreen
 om-evg:

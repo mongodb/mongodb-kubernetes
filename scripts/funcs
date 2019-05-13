@@ -66,22 +66,53 @@ EOF
 ensure_ops_manager_k8s() {
     echo "##### Installing Ops Manager into Kubernetes..."
 
-    if is_ops_manager_down; then
+    ops_manager_namespace="${1}"
+    ops_manager_version="${2}"
+    node_port="${3}"
+
+    if [ -z $ops_manager_namespace ]; then
+        echo "ops_manager_namespace must be set!"
+        exit 1
+    fi
+    if [ -z $ops_manager_version ]; then
+        echo "ops_manager_version must be set!"
+        exit 1
+    fi
+    if [ -z $node_port ]; then
+        echo "node_port must be set!"
+        exit 1
+    fi
+
+    if is_ops_manager_down ${ops_manager_namespace}; then
         echo "Ops Manager is not installed in this cluster. Doing it now."
-        echo "Run \"make -C docker/mongodb-enterprise-ops-manager IMAGE_VERSION=<version> push\" to update Ops Manager image in ECR if necessary"
-        echo "Also you'll need to update \"opsManager.version\" in scripts/evergreen/deployments/values-ops-manager.yaml"
+        echo "Run \"make -C docker/mongodb-enterprise-ops-manager IMAGE_VERSION=${ops_manager_version} push\" to update Ops Manager image in ECR if necessary"
 
         # Building Ops Manager image if we want to run it in local Kubernetes cluster
         if [[ ${REPO_TYPE:-'ecr'} = "local" ]]; then
-            make -C docker/mongodb-enterprise-ops-manager build
+            make -C docker/mongodb-enterprise-ops-manager IMAGE_VERSION=${ops_manager_version} build
         fi
-        kubectl create namespace operator-testing  || true
+        kubectl create namespace ${ops_manager_namespace}  || true
 
-        # Install Ops Manager
+        echo "installing cluster cleaner into namespace ${ops_manager_namespace}"
+
+        helm template docker/cluster-cleaner/job.yaml \
+            --set namespace=${ops_manager_namespace} > cluster-cleaner.yaml
+
+        kubectl delete -f cluster-cleaner.yaml || true
+        kubectl apply -f cluster-cleaner.yaml
+
+        rm cluster-cleaner.yaml
+
+        echo "Installing Ops Manager ${ops_manager_version}"
+
         helm template -f scripts/evergreen/deployments/values-ops-manager.yaml \
+            --set namespace=${ops_manager_namespace} \
+            --set opsManager.version=${ops_manager_version} \
+            --set opsManager.host="ops-manager.${ops_manager_namespace}.svc.cluster.local" \
+            --set opsManager.nodePort=${node_port} \
             docker/mongodb-enterprise-ops-manager/helm_chart > mongodb-enterprise-ops-manager.yaml
 
-        kubectl delete -f mongodb-enterprise-ops-manager.yaml
+        kubectl delete -f mongodb-enterprise-ops-manager.yaml || true
         kubectl apply -f mongodb-enterprise-ops-manager.yaml
 
         rm mongodb-enterprise-ops-manager.yaml
@@ -89,7 +120,7 @@ ensure_ops_manager_k8s() {
         echo "Waiting until Statefulset for Ops Manager is running..."
 
         timeout "1m" bash -c \
-          'while [[ $(kubectl -n operator-testing get statefulset mongodb-enterprise-ops-manager -o jsonpath="{.status.currentReplicas}") != "1" ]]; do sleep 1; done'
+          "while [[ $(kubectl -n ${ops_manager_namespace} get statefulset mongodb-enterprise-ops-manager -o jsonpath=\"{.status.currentReplicas}\") != \"1\" ]]; do sleep 1; done"
 
         echo "Statefulset is ready, waiting for the Ops Manager to start..."
 
@@ -97,21 +128,19 @@ ensure_ops_manager_k8s() {
         # wait for this command to succeed.
         # Note, that for OM check for "status.phase==Running" may not work - we need to check the container status
         timeout "5m" bash -c \
-          'while ! kubectl get pod/mongodb-enterprise-ops-manager-0 -o jsonpath="{.status.containerStatuses[0].ready}" -n operator-testing | grep -q "true"; do sleep 4; done' || true
+          "while ! kubectl get pod/mongodb-enterprise-ops-manager-0 -o jsonpath=\"{.status.containerStatuses[0].ready}\" -n ${ops_manager_namespace} | grep -q \"true\"; do sleep 4; done" || true
 
-        if ! kubectl get pod/mongodb-enterprise-ops-manager-0 -o jsonpath="{.status.containerStatuses[0].ready}" -n operator-testing | grep -q "true"; then
+        if ! kubectl get pod/mongodb-enterprise-ops-manager-0 -o jsonpath="{.status.containerStatuses[0].ready}" -n ${ops_manager_namespace} | grep -q "true"; then
             error "Ops Manager hasn't started!"
-            kubectl describe pod/mongodb-enterprise-ops-manager-0 -n operator-testing
-
+            kubectl describe pod/mongodb-enterprise-ops-manager-0 -n "${ops_manager_namespace}"
             exit 1
         fi
         echo "Pod is ready, waiting for the admin to get registered..."
 
-        # waiting until the om file is ready
         timeout "4m" bash -c \
-           'while ! kubectl -n operator-testing exec mongodb-enterprise-ops-manager-0 ls "/opt/mongodb/mms/env/.ops-manager-env" &>/dev/null; do sleep 2; done' || true
+           "while ! kubectl -n ${ops_manager_namespace} exec mongodb-enterprise-ops-manager-0 ls \"/opt/mongodb/mms/env/.ops-manager-env\" &>/dev/null; do sleep 2; done" || true
 
-        if ! kubectl -n operator-testing exec mongodb-enterprise-ops-manager-0 ls "/opt/mongodb/mms/env/.ops-manager-env" &>/dev/null; then
+        if ! kubectl -n "${ops_manager_namespace}" exec mongodb-enterprise-ops-manager-0 ls "/opt/mongodb/mms/env/.ops-manager-env" &>/dev/null; then
             error "No env file found in Ops Manager!"
             # todo print logs when OM image is fixed and rebuilt
             # kubectl logs  -n operator-testing mongodb-enterprise-ops-manager-0
@@ -126,28 +155,30 @@ ensure_ops_manager_k8s() {
         echo "Ops Manager is installed in this cluster. A new user will be added for automated tests to run."
     else
         echo "Ops Manager is already installed in this cluster."
-        echo "If you want to start with a fresh Ops Manager installation, please delete the \"operator-testing\" namespace."
+        echo "If you want to start with a fresh Ops Manager installation, please delete the \"${ops_manager_namespace}\" namespace."
     fi
 
     echo "##### Ops Manager is ready"
 
-    print_om_endpoint
+    print_om_endpoint "" ${ops_manager_namespace} ${node_port}
 }
 
 print_om_endpoint() {
-    ns="${1-}"
-    external_ip="$(kubectl get nodes -o wide | grep $(kubectl get pods/mongodb-enterprise-ops-manager-0 -n operator-testing -o wide | tail -n 1 | awk '{print $7}') | awk '{print $7}')"
+    test_namespace="${1-}"
+    ops_manager_namespace="${2}"
+    node_port="${3}"
+    external_ip="$(kubectl get nodes -o wide | grep $(kubectl get pods/mongodb-enterprise-ops-manager-0 -n ${ops_manager_namespace} -o wide | tail -n 1 | awk '{print $7}') | awk '{print $7}')"
 
-    if [[ -z "${ns}" ]]; then
-        echo "Use the following address to access Ops Manager from the browser: http://${external_ip}:30039"
+    if [[ -z "${test_namespace}" ]]; then
+        echo "Use the following address to access Ops Manager from the browser: http://${external_ip}:${node_port}"
     else
-        echo "Use the following address to access Ops Manager from the browser: http://${external_ip}:30039/v2/${ns}"
+        echo "Use the following address to access Ops Manager from the browser: http://${external_ip}:${node_port}/v2/${test_namespace}"
     fi
 }
 
 print_perpetual_om_endpoint() {
-    ns="${1:-'<undefined>'}"
-    echo "Use the following address to access Ops Manager from the browser: ${OM_BASE_URL} (namespace: ${ns})"
+    test_namespace="${1:-'<undefined>'}"
+    echo "Use the following address to access Ops Manager from the browser: ${OM_BASE_URL} (namespace: ${test_namespace})"
 }
 
 ensure_vpc_rules() {
@@ -160,9 +191,12 @@ ensure_vpc_rules() {
         return 1
     fi
     # note, that the attempt to add the same rule will result in "already exists" error - so we just ignore errors by now
-    aws ec2 authorize-security-group-ingress --region "${region}" --group-id ${group_id} --protocol tcp --port 30039 --cidr "0.0.0.0/0" 2>/dev/null || true
+    # open multiple node ports for different versions of Ops Manager
+    for i in $(seq 30039 30043); do
+        aws ec2 authorize-security-group-ingress --region "${region}" --group-id ${group_id} --protocol tcp --port ${i} --cidr "0.0.0.0/0" 2>/dev/null || true
+        echo "Opened port ${i} in AWS for the security group with prefix $prefix (group id: $group_id)"
+    done
 
-    echo "Opened port 30039 in AWS for the security group with prefix $prefix (group id: $group_id)"
 }
 # returns true if the namespace doesn't exist or if the OM pod is not running and this lasts for more than or equal to 1 hour.
 # This is supposed to work for concurrent builds when one of the builds is starting Ops Manager (ideally we need to check for 10 minutes
@@ -172,8 +206,8 @@ is_ops_manager_down() {
     # by another build
     # unfortunately "[[ $(kubectl get pod/mongodb-enterprise-ops-manager-0 -n operator-testing | tail -n 1 | awk '{ print $NF }' | sed 's/h//') -ge 1 ]])"
     # doesn't work here as time can be returned in hours and minutes ("2h" vs "57m")
- ! kubectl get namespace/operator-testing &> /dev/null || \
-    kubectl get pod/mongodb-enterprise-ops-manager-0 -o jsonpath="{.status.containerStatuses[0].ready}" -n operator-testing | grep -q "false"
+ ! kubectl get namespace/${1} &> /dev/null || \
+    kubectl get pod/mongodb-enterprise-ops-manager-0 -o jsonpath="{.status.containerStatuses[0].ready}" -n ${1} | grep -q "false"
 
 }
 # the function installs Ops Manager into Evergreen host via ego

@@ -23,7 +23,7 @@ metadata:
 spec:
   externalTrafficPolicy: Cluster
   ports:
-  - nodePort: 30039
+  - nodePort: {{ .Values.opsManager.nodePort }}
     port: 8080
     protocol: TCP
     targetPort: 8080
