@@ -24,8 +24,9 @@ import docopt
 # Replace current filename in docopt
 __doc__ = __doc__.format(filename=basename(__file__))
 
-DEFAULT_ADMIN='admin'
-DEFAULT_PASS='admin12345%'
+DEFAULT_ADMIN = 'admin'
+DEFAULT_PASS = 'admin12345%'
+
 
 def post(om_url, data, username=None, token=None):
     data = bytes(json.dumps(data), encoding='utf-8')
@@ -46,6 +47,7 @@ def post(om_url, data, username=None, token=None):
     print('Ops Manager request: url: {}'.format(om_url))
     resp = request.urlopen(req)
     return json.loads(resp.read().decode('utf-8'))
+
 
 if __name__ == '__main__':
     # Retrieve arguments
@@ -74,8 +76,8 @@ if __name__ == '__main__':
         sys.exit(0)
 
     # Create first user (global owner)
-    # 100 for vanilla kubernetes, 10 for Openshift
-    user_data = post(url + "/api/public/v1.0/unauth/users?whitelist=100.0.0.0%2F8&whitelist=10.0.0.0%2F8", {
+    # using 0.0.0.1/0 for whitelist as 0.0.0.0/0 is blacklisted in Ops Manager
+    user_data = post(url + "/api/public/v1.0/unauth/users?whitelist=0.0.0.1%2F0", {
         "username": DEFAULT_ADMIN,
         "password": DEFAULT_PASS,
         "firstName": "Admin",
