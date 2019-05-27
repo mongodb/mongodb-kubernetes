@@ -42,6 +42,8 @@ spec:
       value: {{ .Values.apiKey }}
     - name: OM_USER
       value: {{ .Values.apiUser }}
+    - name: OM_ORGID
+      value: {{ .Values.orgId }}
     - name: PROJECT_NAMESPACE
       value: {{ .Values.namespace }}
     # We can pass additional options to pytest. For instance -s
@@ -58,5 +60,5 @@ spec:
     # -s  -- disable stdout capture: should be added to `PYTEST_ADDOPTS` if needed
     # -x  -- stop after first failure
     # -v  -- increase verbosity
-    args: ["-v", "-x", "{{ .Values.testPath }}"]
+    args: ["-v", "-x", "-m", "{{ .Values.taskName }}"]
     imagePullPolicy: Always

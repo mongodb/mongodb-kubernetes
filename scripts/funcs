@@ -58,6 +58,7 @@ metadata:
   annotations:
     evg/url: "https://evergreen.mongodb.com/version/${VERSION_ID:-'not-specified'}"
     evg/task-url: "https://evergreen.mongodb.com/task/${TASK_ID:-'not-specified'}"
+    evg/mms-version: "${MMS_VERSION:-'not-specified'}"
 EOF
     kubectl create -f "${tmp_file}" 2>/dev/null || true
 }
@@ -350,26 +351,26 @@ create_kops_cluster() {
 
     [[ ! -f ~/.ssh/id_aws_rsa ]] && ssh-keygen -f ~/.ssh/id_aws_rsa && ssh-add ~/.ssh/id_aws_rsa
 
-	echo "Make sure you use the latest version of kops (>= 1.11.0): 'brew upgrade kops'"
+    echo "Make sure you use the latest version of kops (>= 1.11.0): 'brew upgrade kops'"
 
-	kops create cluster \
-		--node-count "$node_count" \
-		--zones "${zones}" \
-		--node-size "${node_size}" \
-		--node-volume-size "${node_volume_size}" \
-		--master-size="${master_size}" \
-		--master-volume-size 16  \
-		--kubernetes-version=v1.11.6 \
-		--ssh-public-key=~/.ssh/id_rsa.pub \
-		--authorization RBAC "${cluster_name}"
+    kops create cluster \
+         --node-count "$node_count" \
+         --zones "${zones}" \
+         --node-size "${node_size}" \
+         --node-volume-size "${node_volume_size}" \
+         --master-size="${master_size}" \
+         --master-volume-size 16  \
+         --kubernetes-version=v1.11.6 \
+         --ssh-public-key=~/.ssh/id_rsa.pub \
+         --authorization RBAC "${cluster_name}"
 
-	kops create secret --name "${cluster_name}" sshpublickey admin -i ~/.ssh/id_rsa.pub
+    kops create secret --name "${cluster_name}" sshpublickey admin -i ~/.ssh/id_rsa.pub
 
-	kops update cluster "${cluster_name}" --yes
+    kops update cluster "${cluster_name}" --yes
 
-	echo "Waiting until kops cluster gets ready..."
+    echo "Waiting until kops cluster gets ready..."
 
-	timeout "20m" bash -c 'while ! kops validate cluster $cluster_name &>/dev/null ; do printf .; sleep 5; done'
+    timeout "20m" bash -c 'while ! kops validate cluster $cluster_name &>/dev/null ; do printf .; sleep 5; done'
 
     title "Kops cluster $cluster_name is ready!"
 

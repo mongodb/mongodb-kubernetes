@@ -106,7 +106,8 @@ fix_taints
 ops_manager_namespace="${2}"
 ops_manager_version="${3}"
 node_port="${4}"
+
 # Not required when running against the Ops Manager Kubernetes perpetual instance
-if [[ "${USE_PERPETUAL_OPS_MANAGER_INSTANCE:-}" != "true" ]]; then
+if [[ "${OM_EXTERNALLY_CONFIGURED:-}" != "true" ]]; then
     ensure_ops_manager_k8s ${ops_manager_namespace} ${ops_manager_version} ${node_port}
 fi

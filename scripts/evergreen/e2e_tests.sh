@@ -34,13 +34,13 @@ contains() {
 fetch_om_information() {
     title "Reading Ops Manager environment variables..."
 
-    if [ -z $OPS_MANAGER_NAMESPACE ]; then
+    if [ -z "$OPS_MANAGER_NAMESPACE" ]; then
         echo "OPS_MANAGER_NAMESPACE must be set!"
         exit 1
     fi
 
     OPERATOR_TESTING_FRAMEWORK_NS=${OPS_MANAGER_NAMESPACE}
-    if ! kubectl get namespace/${OPERATOR_TESTING_FRAMEWORK_NS} &> /dev/null; then
+    if ! kubectl get "namespace/${OPERATOR_TESTING_FRAMEWORK_NS}" &> /dev/null; then
         error "Ops Manager is not installed in this cluster. Make sure the Ops Manager installation script is called beforehand. Exiting..."
 
         exit 1
@@ -76,7 +76,8 @@ configure_operator() {
         || kubectl --namespace "${PROJECT_NAMESPACE}" delete configmap my-project
     # Configuring project
     kubectl --namespace "${PROJECT_NAMESPACE}" create configmap my-project \
-            --from-literal=projectName="${PROJECT_NAMESPACE}" --from-literal=baseUrl="${BASE_URL}"
+            --from-literal=projectName="${PROJECT_NAMESPACE}" --from-literal=baseUrl="${BASE_URL}" \
+            --from-literal=orgId="${OM_ORGID:-}"
 
     # delete `my-credentials` if it exists
     ! kubectl --namespace "${PROJECT_NAMESPACE}" get secrets | grep -q my-credentials \
@@ -128,8 +129,9 @@ deploy_test_app() {
          --set apiKey="${OM_API_KEY}" \
          --set apiUser="${OM_USER:=admin}" \
          --set namespace="${PROJECT_NAMESPACE}" \
-         --set testPath="${test_name}.py" \
+         --set taskName="${task_name}" \
          --set pytest.addopts="${pytest_addopts}" \
+         --set orgId="${OM_ORGID:-}" \
          --set tag="${TEST_IMAGE_TAG}" > mongodb-enterprise-tests.yaml || exit 1
 
     kubectl -n "${PROJECT_NAMESPACE}" delete -f mongodb-enterprise-tests.yaml 2>/dev/null  || true
@@ -166,7 +168,7 @@ wait_while_pod_is_active() {
 
 # Will run the test application and wait for its completion.
 run_tests() {
-    test_name=${1}
+    task_name=${1}
     timeout=${2}
 
     TEST_APP_PODNAME=mongodb-enterprise-operator-tests
@@ -175,7 +177,7 @@ run_tests() {
 
     wait_until_pod_is_running_or_failed_or_succeeded
 
-    title "Running test ${test_name}.py (tag: ${TEST_IMAGE_TAG})"
+    title "Running test ${task_name} (tag: ${TEST_IMAGE_TAG})"
 
     # we don't output logs to file when running tests locally
     if [[ "${MODE-}" == "dev" ]]; then
@@ -196,7 +198,7 @@ run_tests() {
     while ! test_app_ended; do printf .; sleep 1; done;
     echo
 
-    [[ $(kubectl -n ${PROJECT_NAMESPACE} get pods/${TEST_APP_PODNAME} -o jsonpath='{.status.phase}') == "Succeeded" ]]
+    [[ $(kubectl -n "${PROJECT_NAMESPACE}" get pods/${TEST_APP_PODNAME} -o jsonpath='{.status.phase}') == "Succeeded" ]]
 }
 
 dump_agent_logs() {
@@ -257,7 +259,7 @@ if [[ "${MODE-}" != "dev" ]]; then
             "${REVISION:-}" "${PROJECT_NAMESPACE}" "${WATCH_NAMESPACE:-$PROJECT_NAMESPACE}" "Always" "${MANAGED_SECURITY_CONTEXT:-}" "2m"
 
     # Not required when running against the Ops Manager Kubernetes perpetual instance
-    if [[ "${USE_PERPETUAL_OPS_MANAGER_INSTANCE:-}" != "true" ]]; then
+    if [[ "${OM_EXTERNALLY_CONFIGURED:-}" != "true" ]]; then
         fetch_om_information
     fi
 
@@ -265,12 +267,12 @@ if [[ "${MODE-}" != "dev" ]]; then
     configure_operator
 fi
 
-if [ -z "${TEST_NAME}" ]; then
+if [ -z "${TEST_NAME-}" ] && [ -z "${TASK_NAME}" ]; then
     echo "TEST_NAME needs to be defined"
 fi
 
 TESTS_OK=0
-run_tests "${TEST_NAME}" "${WAIT_TIMEOUT:-400}" || TESTS_OK=1
+run_tests "${TASK_NAME}" "${WAIT_TIMEOUT:-400}" || TESTS_OK=1
 
 echo "Tests have finished with the following exit code: ${TESTS_OK}"
 
@@ -288,7 +290,7 @@ if [[ "${MODE-}" != "dev" ]]; then
         dump_agent_logs
 
         # Not required when running against the Ops Manager Kubernetes perpetual instance
-        if [[ "${USE_PERPETUAL_OPS_MANAGER_INSTANCE:-}" != "true" ]]; then
+        if [[ "${OM_EXTERNALLY_CONFIGURED:-}" != "true" ]]; then
             print_om_endpoint "${PROJECT_NAMESPACE}" "${OPS_MANAGER_NAMESPACE}" "${NODE_PORT}"
         else
             print_perpetual_om_endpoint "${PROJECT_NAMESPACE}"

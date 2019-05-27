@@ -1,0 +1,10 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: my-mdb-object-to-test
+spec:
+  version: 4.0.8
+  type: Standalone
+  project: my-project
+  credentials: my-credentials
+  persistent: false

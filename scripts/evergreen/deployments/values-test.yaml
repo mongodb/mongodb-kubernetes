@@ -15,9 +15,10 @@ opsmanager:
 
 
 apiKey: omApiKey
+orgId: ""
 projectId: omProjectId
 tag:
-testPath: ${TEST_NAME}
+taskName: ${TASK_NAME}
 
 pytest:
   addopts: ""
