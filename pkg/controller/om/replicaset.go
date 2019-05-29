@@ -6,6 +6,7 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/spf13/cast"
+	"go.uber.org/zap"
 )
 
 /* This corresponds to:
@@ -60,8 +61,10 @@ func NewReplicaSet(name, version string) ReplicaSet {
 
 	// "protocolVersion" was a new field in 3.2+ Mongodb
 	var protocolVersion *int32
-	v, e := util.ParseMongodbMinorVersion(version)
-	if e == nil && v >= float32(3.2) {
+	compare, err := util.CompareVersions(version, "3.2.0")
+	if err != nil {
+		zap.S().Warnf("Failed to parse version %s: %s", version, err)
+	} else if compare >= 0 {
 		protocolVersion = util.Int32Ref(1)
 	}
 

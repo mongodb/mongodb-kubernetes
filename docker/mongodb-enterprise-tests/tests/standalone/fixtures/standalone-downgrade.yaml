@@ -1,0 +1,10 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: my-standalone-downgrade
+spec:
+  version: 3.6.12
+  type: Standalone
+  project: my-project
+  credentials: my-credentials
+  persistent: false

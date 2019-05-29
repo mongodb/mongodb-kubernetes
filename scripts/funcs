@@ -170,11 +170,7 @@ print_om_endpoint() {
     node_port="${3}"
     external_ip="$(kubectl get nodes -o wide | grep $(kubectl get pods/mongodb-enterprise-ops-manager-0 -n ${ops_manager_namespace} -o wide | tail -n 1 | awk '{print $7}') | awk '{print $7}')"
 
-    if [[ -z "${test_namespace}" ]]; then
-        echo "Use the following address to access Ops Manager from the browser: http://${external_ip}:${node_port}"
-    else
-        echo "Use the following address to access Ops Manager from the browser: http://${external_ip}:${node_port}/v2/${test_namespace}"
-    fi
+    echo "Use the following address to access Ops Manager from the browser: http://${external_ip}:${node_port} (group: ${test_namespace})"
 }
 
 print_perpetual_om_endpoint() {

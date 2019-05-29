@@ -263,8 +263,10 @@ class KubernetesTester(object):
         "patches custom object"
         resource = yaml.safe_load(open(fixture(section["file"])))
         name, kind, group, version, res_type = get_crd_meta(resource)
-        patch = jsonpatch.JsonPatch.from_string(section["patch"])
-        patched = patch.apply(resource)
+        patched = resource
+        if "patch" in section:
+            patch = jsonpatch.JsonPatch.from_string(section["patch"])
+            patched = patch.apply(resource)
 
         try:
             KubernetesTester.clients("customv1").patch_namespaced_custom_object(
@@ -665,16 +667,18 @@ class KubernetesTester(object):
         body.status.conditions = [conditions]
         self.certificates.replace_certificate_signing_request_approval(name, body)
 
-    def wait_for_rs_is_ready(self, hosts, wait_for=60, check_every=5, ssl=False):
+    def check_replica_set_is_ready(self, mdb_resource_name, wait_for=60, check_every=5, ssl=False, replicas_count=3,
+                                   expected_version=None):
+        """Connect to the replica set and return a tuple of (has_primary, number_of_secondaries)."""
+        hosts = build_list_of_hosts(mdb_resource_name, self.namespace, replicas_count)
+        primary, secondaries = self.wait_for_rs_is_ready(hosts, wait_for, check_every, ssl, expected_version)
+
+        return primary is not None, len(secondaries) == replicas_count - 1
+
+
+    def wait_for_rs_is_ready(self, hosts, wait_for=60, check_every=5, ssl=False, expected_version=None):
         "Connects to a given replicaset and wait a while for a primary and secondaries."
-        mongodburi = self.build_mongodb_uri_for_rs(hosts)
-        options = {}
-        if ssl:
-            options = {
-                "ssl": True,
-                "ssl_ca_certs": SSL_CA_CERT
-            }
-        client = pymongo.MongoClient(mongodburi, **options)
+        client = self.check_hosts_are_ready(hosts, ssl, expected_version)
 
         check_times = wait_for / check_every
 
@@ -688,8 +692,17 @@ class KubernetesTester(object):
 
         return client.primary, client.secondaries
 
-    def check_mongos_is_ready(self, host, ssl=False):
-        mongodburi = self.build_mongodb_uri_for_mongos(host)
+    def check_standalone_is_ready(self, mdb_resource_name, ssl=False, expected_version=None):
+        hosts = build_list_of_hosts(mdb_resource_name, self.namespace, 1)
+        self.check_hosts_are_ready(hosts, ssl, expected_version)
+
+    def check_mongoses_are_ready(self, mdb_resource_name, ssl=False, expected_version=None, mongos_count=3):
+        hosts = build_list_of_hosts(
+            mdb_resource_name + "-mongos", self.namespace, mongos_count, servicename="{}-svc".format(mdb_resource_name))
+        self.check_hosts_are_ready(hosts, ssl, expected_version)
+
+    def check_hosts_are_ready(self, hosts, ssl=False, expected_version=None):
+        mongodburi = self.build_mongodb_uri_for_rs(hosts)
         options = {}
         if ssl:
             options = {
@@ -699,7 +712,12 @@ class KubernetesTester(object):
         client = pymongo.MongoClient(mongodburi, **options)
 
         # The ismaster command is cheap and does not require auth.
-        return client.admin.command("ismaster")
+        client.admin.command("ismaster")
+
+        if expected_version is not None:
+            assert client.admin.command("buildInfo")['version'] == expected_version
+
+        return client
 
     def _get_pods(self, podname, qty=3):
         return [podname.format(i) for i in range(qty)]

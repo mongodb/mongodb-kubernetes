@@ -204,11 +204,9 @@ func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLog
 
 func createProcess(set *appsv1.StatefulSet, s *mongodb.MongoDB) om.Process {
 	hostnames, _ := GetDnsForStatefulSet(set, s.Spec.ClusterName)
-	wiredTigerCache := calculateWiredTigerCache(set)
+	wiredTigerCache := calculateWiredTigerCache(set, s.Spec.Version)
 
-	process := om.NewMongodProcess(
-		s.Name, hostnames[0], s.Spec.Version, s.Spec.GetAdditionalMongodConfig(),
-	)
+	process := om.NewMongodProcess(s.Name, hostnames[0], s)
 	if wiredTigerCache != nil {
 		process.SetWiredTigerCache(*wiredTigerCache)
 	}

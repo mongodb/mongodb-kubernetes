@@ -13,38 +13,8 @@ source scripts/funcs
 
 # cleanup_env removes old namespaces and Ops Manager if there are too many of them
 cleanup_env() {
-    MAX_NS_COUNT="$1"
-    OPS_MANAGER_NS="$2"
     ns_count=$(kubectl get ns -o name | grep a- --count)
     echo "Current number of test namespaces: $ns_count"
-
-    if [[ ns_count -gt ${MAX_NS_COUNT} ]]; then
-        echo "##### Cleaning namespaces and Ops Manager as number of namespaces exceeds $MAX_NS_COUNT"
-
-        for f in $(kubectl get ns -o name | grep a- | sed 's/namespace\///'); do
-            echo "Removing all mongodb resources for namespace: ${f}"
-
-            kubectl delete mdb --all -n ${f} || true
-            # todo seems when we try to remove PVCs - this may take too long... but I believe we shouldn't leave garbage here
-            # so far we are
-            kubectl delete pvc --all -n ${f} --now || true
-            kubectl delete ns ${f} --now;
-        done
-
-        for f in $(kubectl get ns -o name | grep test-ns- | sed 's/namespace\///'); do
-            echo "Removing the ns $f"
-            kubectl delete ns ${f} --now;
-        done
-
-        kubectl delete ns ${OPS_MANAGER_NS} --now
-
-        echo "Waiting until ${OPS_MANAGER_NS} namespace is deleted..."
-        while [ $(kubectl get namespace/$OPS_MANAGER_NS -o name 2> /dev/null)  ]; do
-            printf .
-            sleep 1
-        done
-        echo "${OPS_MANAGER_NS} namespace is deleted"
-    fi
 
     echo "##### Removing FAILED Persistent Volumes if any"
     # Note, that these volumes will be removed from EBS eventually (during a couple of hours), most of all they are stuck
@@ -101,12 +71,11 @@ check_and_clean_repo() {
 
 fix_taints
 
-# cleanup_env "$1" "$2"
+cleanup_env
 
-ops_manager_namespace="${2}"
-ops_manager_version="${3}"
-node_port="${4}"
-
+ops_manager_namespace="${1}"
+ops_manager_version="${2}"
+node_port="${3}"
 # Not required when running against the Ops Manager Kubernetes perpetual instance
 if [[ "${OM_EXTERNALLY_CONFIGURED:-}" != "true" ]]; then
     ensure_ops_manager_k8s ${ops_manager_namespace} ${ops_manager_version} ${node_port}

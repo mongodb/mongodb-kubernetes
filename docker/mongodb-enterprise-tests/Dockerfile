@@ -9,8 +9,9 @@
 FROM python:3.6-slim
 
 RUN mkdir /tests
-
 WORKDIR /tests
-COPY . /tests
+COPY requirements.txt /tests/
 
 RUN python3 -m pip install -r requirements.txt
+
+COPY . /tests

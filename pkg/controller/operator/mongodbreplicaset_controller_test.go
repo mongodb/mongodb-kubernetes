@@ -30,7 +30,8 @@ func TestReplicaSetEventMethodsHandlePanic(t *testing.T) {
 	// restoring
 	InitDefaultEnvVariables()
 }
-func TestOnAddReplicaSet(t *testing.T) {
+
+func TestCreateReplicaSet(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().Build()
 
 	manager := newMockedManager(rs)
@@ -81,8 +82,36 @@ func TestScaleUpReplicaSet(t *testing.T) {
 	connection.CheckNumberOfUpdateRequests(t, 2)
 }
 
-// TestAddDeleteReplicaSet checks that no state is left in OpsManager on removal of the replicaset
-func TestAddDeleteReplicaSet(t *testing.T) {
+// TODO unfortunately this fails with "Failed to create CSR, exec: "cfssl": executable file not found in $PATH"
+// we should either mock out the cfssl generator or find the library instead of the process (?)
+
+//func TestCreateReplicaSet_TLS(t *testing.T) {
+//	rs := DefaultReplicaSetBuilder().SetMembers(3).EnableTLS().Build()
+//
+//	manager := newMockedManager(rs)
+//	client := manager.client
+//
+//	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
+//
+//	checkReconcileSuccessful(t, reconciler, rs, client)
+//
+//	processes := om.CurrMockedConnection.GetProcesses()
+//	assert.Len(t, processes, 3)
+//	for _, v := range processes {
+//		assert.NotNil(t, v.SSLConfig())
+//		assert.Len(t, v.SSLConfig(), 2)
+//		assert.Equal(t, "/mongodb-automation/server.pem", v.SSLConfig()["PEMKeyFile"])
+//		assert.Equal(t, "requireSSL", v.SSLConfig()["mode"])
+//	}
+//
+//	sslConfig := om.CurrMockedConnection.GetSSL()
+//	assert.Len(t, sslConfig, 3)
+//	assert.Equal(t, "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt", sslConfig["CAFilePath"])
+//	assert.Equal(t, "OPTIONAL", sslConfig["clientCertificateMode"])
+//}
+
+// TestCreateDeleteReplicaSet checks that no state is left in OpsManager on removal of the replicaset
+func TestCreateDeleteReplicaSet(t *testing.T) {
 	// First we need to create a replicaset
 	st := DefaultReplicaSetBuilder().Build()
 
@@ -112,6 +141,7 @@ func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
 		Credentials:  TestCredentialsSecretName,
 		ResourceType: v1.ReplicaSet,
 		Members:      3,
+		Security:     &v1.Security{TLSConfig: &v1.TLSConfig{}},
 	}
 	rs := &v1.MongoDB{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "temple", Namespace: TestNamespace}}
 	return &ReplicaSetBuilder{rs}
@@ -133,8 +163,13 @@ func (b *ReplicaSetBuilder) SetMembers(m int) *ReplicaSetBuilder {
 	b.Spec.Members = m
 	return b
 }
+
+func (b *ReplicaSetBuilder) EnableTLS() *ReplicaSetBuilder {
+	b.Spec.Security.TLSConfig.Enabled = true
+	return b
+}
+
 func (b *ReplicaSetBuilder) Build() *v1.MongoDB {
-	b.Spec.ResourceType = v1.ReplicaSet
 	b.InitDefaults()
 	return b.MongoDB
 }
@@ -145,9 +180,7 @@ func createDeploymentFromReplicaSet(rs *v1.MongoDB) om.Deployment {
 	d := om.NewDeployment()
 	hostnames, _ := GetDnsForStatefulSet(helper.BuildStatefulSet(), rs.Spec.ClusterName)
 	d.MergeReplicaSet(
-		buildReplicaSetFromStatefulSet(
-			helper.BuildStatefulSet(), rs.Spec.ClusterName, rs.Spec.Version, rs.Spec.GetAdditionalMongodConfig(), zap.S(),
-		),
+		buildReplicaSetFromStatefulSet(helper.BuildStatefulSet(), rs, zap.S()),
 		nil,
 	)
 	d.AddMonitoringAndBackup(hostnames[0], zap.S())

@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
-	"strconv"
 
 	"github.com/spf13/cast"
+	"go.uber.org/zap"
 
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -92,24 +92,24 @@ func NewProcessFromInterface(i interface{}) Process {
 }
 
 // NewMongosProcess
-func NewMongosProcess(name, hostName, processVersion string, additionalConfig *mongodb.AdditionalMongodConfig) Process {
+func NewMongosProcess(name, hostName string, resource *mongodb.MongoDB) Process {
 	ans := Process{}
 
-	initDefault(name, hostName, processVersion, ProcessTypeMongos, ans)
+	initDefault(name, hostName, resource.Spec.Version, resource.Spec.FeatureCompatibilityVersion, ProcessTypeMongos, ans)
 
 	// default values for configurable values
 	ans.SetLogPath(path.Join(util.PvcMountPathLogs, "/mongodb.log"))
 
-	ans.configureAdditionalMongodConfig(additionalConfig)
+	ans.configureAdditionalMongodConfig(resource.Spec.AdditionalMongodConfig)
 
 	return ans
 }
 
 // NewMongodProcess
-func NewMongodProcess(name, hostName, processVersion string, additionalConfig *mongodb.AdditionalMongodConfig) Process {
+func NewMongodProcess(name, hostName string, resource *mongodb.MongoDB) Process {
 	ans := Process{}
 
-	initDefault(name, hostName, processVersion, ProcessTypeMongod, ans)
+	initDefault(name, hostName, resource.Spec.Version, resource.Spec.FeatureCompatibilityVersion, ProcessTypeMongod, ans)
 
 	// default values for configurable values
 	ans.SetDbPath("/data")
@@ -117,7 +117,7 @@ func NewMongodProcess(name, hostName, processVersion string, additionalConfig *m
 	// for all types of logs
 	ans.SetLogPath(path.Join(util.PvcMountPathLogs, "mongodb.log"))
 
-	ans.configureAdditionalMongodConfig(additionalConfig)
+	ans.configureAdditionalMongodConfig(resource.Spec.AdditionalMongodConfig)
 
 	return ans
 }
@@ -259,13 +259,18 @@ func (p Process) String() string {
 
 // ****************** These ones are private methods not exposed to other packages *************************************
 
-// initDefault initializes a process.
-func initDefault(name, hostName, processVersion string, processType MongoType, process Process) {
+// initDefault initializes a process. It's called during "merge" process when the Operator view is merged with OM one -
+// it's supposed to override all the OM provided information. So the easiest way to ensure no fields are overriden by
+// OM is to set them in this method
+func initDefault(name, hostName, processVersion string, featureCompatibilityVersion *string, processType MongoType, process Process) {
 	process["version"] = processVersion
 	process["authSchemaVersion"] = calculateAuthSchemaVersion(processVersion)
-	if compatibilityVersion := calculateFeatureCompatibilityVersion(processVersion); compatibilityVersion != "" {
-		process["featureCompatibilityVersion"] = compatibilityVersion
+	if featureCompatibilityVersion == nil {
+		computedFcv := calculateFeatureCompatibilityVersion(processVersion)
+		featureCompatibilityVersion = &computedFcv
 	}
+
+	process["featureCompatibilityVersion"] = *featureCompatibilityVersion
 	process["processType"] = processType
 	process["name"] = name
 	process["hostname"] = hostName
@@ -300,22 +305,28 @@ func (p Process) configureAdditionalMongodConfig(additionalConfig *mongodb.Addit
 }
 
 func calculateFeatureCompatibilityVersion(version string) string {
-	v, err := util.ParseMongodbMinorVersion(version)
-	// if there was error parsing - returning empty compatibility version
-	if err != nil || v < 3.2 {
-		return ""
+	ans := ""
+	compare, err := util.CompareVersions(version, "3.2.0")
+	if err != nil {
+		zap.S().Warnf("Failed to parse version %s: %s", version, err)
+	} else if compare >= 0 {
+		// The error will always be empty as the version is already parseable as we got to this stage
+		ans, _ = util.MajorMinorVersion(version)
 	}
 	// feature compatibility version has only two numbers, so we cannot just return the version
-	return strconv.FormatFloat(float64(v), 'f', 1, 64)
+	return ans
 }
 
+// see https://github.com/10gen/ops-manager-kubernetes/pull/68#issuecomment-397247337
 func calculateAuthSchemaVersion(version string) int {
-	v, err := util.ParseMongodbMinorVersion(version)
-	// if there was error parsing - returning 5 as default
-	if err != nil || v > 2.6 {
-		return 5
+	compare, err := util.CompareVersions(version, "3.0.0")
+	ans := 5
+	if err != nil {
+		zap.S().Warnf("Failed to parse version %s: %s", version, err)
+	} else if compare < 0 {
+		ans = 3
 	}
-	return 3
+	return ans
 }
 
 // mergeFrom merges the Operator version of process ('operatorProcess') into OM one ('p').
@@ -334,7 +345,8 @@ func (p Process) mergeFrom(operatorProcess Process) {
 		}
 		// This one is controversial. From some point users may want to change this through UI. From the other - if the
 		// kube mongodb resource memory is increased - wired tiger cache must be increased as well automatically, so merge
-		// must happen. This controversity will be gone when SERVER-16571 is fixed
+		// must happen. We leave this even after SERVER-16571 is fixed as we should support manual setting of the cache
+		// for earlier versions of mongodb
 		if operatorProcess.WiredTigerCache() != nil {
 			p.SetWiredTigerCache(*operatorProcess.WiredTigerCache())
 		}
@@ -342,7 +354,15 @@ func (p Process) mergeFrom(operatorProcess Process) {
 		p.setCluster(operatorProcess.cluster())
 	}
 
-	initDefault(operatorProcess.Name(), operatorProcess.HostName(), operatorProcess.Version(), operatorProcess.ProcessType(), p)
+	fcv := operatorProcess.featureCompatibilityVersion()
+	initDefault(
+		operatorProcess.Name(),
+		operatorProcess.HostName(),
+		operatorProcess.Version(),
+		&fcv,
+		operatorProcess.ProcessType(),
+		p,
+	)
 
 	// Merge SSL configuration (update if it's specified - delete otherwise)
 	if _, ok := operatorProcess.SSLConfig()["mode"]; ok {

@@ -54,9 +54,6 @@ const (
 	AllowTLSMode   SSLMode = "allowTLS"
 )
 
-// Seems this should be removed as soon as CLOUDP-35934 is resolved
-var AllLogLevels = []LogLevel{Debug, Info, Warn, Error, Fatal}
-
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +k8s:openapi-gen=true
 type MongoDB struct {
@@ -85,7 +82,9 @@ type MongoDbStatus struct {
 }
 
 type MongoDbSpec struct {
-	Version string `json:"version"`
+	Version                     string  `json:"version"`
+	FeatureCompatibilityVersion *string `json:"featureCompatibilityVersion,omitempty"`
+
 	// this is an optional service, it will get the name "<rsName>-service" in case not provided
 	Service string `json:"service,omitempty"`
 
@@ -152,32 +151,6 @@ type TLSConfig struct {
 	// their respective keys are stored. If omitted, the certificates and their
 	// keys will be automatically generated and stored in a secret.
 	Secret string `json:"secret,omitempty"`
-}
-
-func (spec MongoDbSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
-	if spec.Security == nil || spec.Security.TLSConfig == nil || !spec.Security.TLSConfig.Enabled {
-		return spec.AdditionalMongodConfig
-	}
-
-	mode := RequireTLSMode
-	if spec.AdditionalMongodConfig != nil && spec.AdditionalMongodConfig.Net.SSL.Mode != "" {
-		// Mode can be defined by `additionalMongodConfig`
-		mode = spec.AdditionalMongodConfig.Net.SSL.Mode
-	}
-
-	// Make sure that people can use `requireSSL` & `requireTLS` indistinctly
-	if mode == RequireTLSMode {
-		mode = RequireSSLMode
-	} else if mode == AllowTLSMode {
-		mode = AllowSSLMode
-	} else if mode == PreferTLSMode {
-		mode = PreferSSLMode
-	}
-
-	newConfig := AdditionalMongodConfig(*spec.AdditionalMongodConfig)
-	newConfig.Net.SSL.Mode = mode
-
-	return &newConfig
 }
 
 func (spec MongoDbSpec) GetTLSConfig() *TLSConfig {
@@ -305,8 +278,11 @@ func (m *MongoDB) UpdateSuccessful(deploymentLink string, reconciledResource *Mo
 	}
 }
 
-// InitDefaults prevents any references from having nil values.
-// should not be called directly, used in tests and marshalling
+// InitDefaults makes sure the MongoDB resource has correct state after initialization:
+// - prevents any references from having nil values.
+// - makes sure the spec is in correct state
+//
+// should not be called directly, used in tests and unmarshalling
 func (m *MongoDB) InitDefaults() {
 	// al resources have a pod spec
 	if m.Spec.PodSpec == nil {
@@ -333,6 +309,8 @@ func (m *MongoDB) InitDefaults() {
 		newSecurity := newSecurity()
 		m.Spec.Security = &newSecurity
 	}
+
+	m.Spec.ensureAdditionalMongodConfig()
 }
 
 func (m *MongoDB) ObjectKey() client.ObjectKey {
@@ -445,16 +423,37 @@ func newMongoDbPodSpec() *MongoDbPodSpec {
 	}
 }
 
+// ensureAdditionalMongodConfig must be called during any MongoDB resource creation (either json demarshalling)
+// or direct creation
+// It makes sure the `AdditionalMongodConfig` contains correct state for TLS settings based on 'spec.Security.TLSConfig'
+func (spec MongoDbSpec) ensureAdditionalMongodConfig() {
+	if spec.Security == nil || spec.Security.TLSConfig == nil || !spec.Security.TLSConfig.Enabled {
+		return
+	}
+
+	// If we are at this stage this means that `spec.Security.TLSConfig.Enabled==true`
+	mode := RequireTLSMode
+	if spec.AdditionalMongodConfig != nil && spec.AdditionalMongodConfig.Net.SSL.Mode != "" {
+		// `additionalMongodConfig` overrides the 'spec.Security.TLSConfig.Enabled' if any
+		mode = spec.AdditionalMongodConfig.Net.SSL.Mode
+	}
+
+	// Make sure that people can use `requireSSL` & `requireTLS` indistinctly
+	if mode == RequireTLSMode {
+		mode = RequireSSLMode
+	} else if mode == AllowTLSMode {
+		mode = AllowSSLMode
+	} else if mode == PreferTLSMode {
+		mode = PreferSSLMode
+	}
+
+	spec.AdditionalMongodConfig.Net.SSL.Mode = mode
+}
+
 // Returns an empty `AdditionalMongodConfig` object for marshalling/unmarshalling
 // json representation of the MDB object.
 func newAdditionalMongodConfig() *AdditionalMongodConfig {
 	return &AdditionalMongodConfig{}
-}
-
-// Returns an empty `TLSMode` object for marshalling/unmarshalling
-// json representation of the MDB object.
-func newTLSConfig() TLSConfig {
-	return TLSConfig{}
 }
 
 func newSecurity() Security {

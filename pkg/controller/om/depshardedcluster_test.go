@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
@@ -71,9 +70,8 @@ func TestMergeShardedCluster_ReplicaSetsModified(t *testing.T) {
 	(*d.getReplicaSetByName("myShard0"))["writeConcernMajorityJournalDefault"] = true
 
 	// These OM changes must be overriden
-	additionalConfig := &mongodb.AdditionalMongodConfig{}
 	(*d.getReplicaSetByName("myShard0"))["protocolVersion"] = util.Int32Ref(2)
-	(*d.getReplicaSetByName("configSrv")).addMember(NewMongodProcess("foo", "bar", "4.0.0", additionalConfig))
+	(*d.getReplicaSetByName("configSrv")).addMember(NewMongodProcess("foo", "bar", DefaultMongoDB().Build()))
 	(*d.getReplicaSetByName("myShard2")).setMembers(d.getReplicaSetByName("myShard2").members()[0:2])
 
 	// Final check - we create the expected configuration, add there correct OM changes and check for equality with merge

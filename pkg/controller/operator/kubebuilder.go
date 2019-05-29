@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"path"
 	"strconv"
-	"strings"
 
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -330,7 +329,7 @@ func baseEnvFrom(podVars *PodVars) []corev1.EnvVar {
 		},
 		{
 			Name:  util.ENV_VAR_LOG_LEVEL,
-			Value: validateLogLevel(podVars.LogLevel),
+			Value: string(podVars.LogLevel),
 		},
 	}
 
@@ -373,20 +372,6 @@ func baseEnvFrom(podVars *PodVars) []corev1.EnvVar {
 	}
 
 	return vars
-}
-
-// TODO this is a temporary solution to make sure we don't get an incorrect value for log level, should be removed when
-// CLOUDP-35934 is fixed
-func validateLogLevel(level mongodb.LogLevel) string {
-	res := mongodb.Info
-	level = mongodb.LogLevel(strings.ToUpper(string(level)))
-	for _, v := range mongodb.AllLogLevels {
-		if v == level {
-			res = level
-			break
-		}
-	}
-	return string(res)
 }
 
 func createClaimsAndMontsMultiMode(p StatefulSetHelper, defaultConfig *mongodb.MultiplePersistenceConfig) ([]corev1.PersistentVolumeClaim, []corev1.VolumeMount) {

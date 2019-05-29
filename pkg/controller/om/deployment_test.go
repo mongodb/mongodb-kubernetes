@@ -5,27 +5,15 @@ import (
 	"strings"
 	"testing"
 
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 )
 
 func init() {
 	logger, _ := zap.NewDevelopment()
 	zap.ReplaceGlobals(logger)
-}
-
-func TestSerialize(t *testing.T) {
-	//deployment := newDeployment("3.6.3")
-	//standalone := (NewProcess("3.6.3")).HostPort("mongo1.some.host").Name("merchantsStandalone").
-	//	DbPath("/data/mongodb").LogPath("/data/mongodb/mongodb.log")
-	//deployment.mergeStandalone(standalone)
-	//
-	//data, _ := json.Marshal(deployment)
-	//// todo check against serialized content
-	//fmt.Printf("%s", string(data))
 }
 
 // First time merge adds the new standalone
@@ -71,13 +59,12 @@ func TestMergeReplicaSet(t *testing.T) {
 
 	// Now the deployment "gets updated" from external - new node is added and one is removed - this should be fixed
 	// by merge
-	additionalConfig := &mongodb.AdditionalMongodConfig{}
-	d.getProcesses()[0]["processType"] = "mongos"                                              // this will be overriden
-	d.getProcesses()[1].EnsureNetConfig()["MaxIncomingConnections"] = 20                       // this will be left as-is
-	d.getReplicaSets()[0]["protocolVersion"] = 10                                              // this field will be overriden by Operator
-	d.getReplicaSets()[0].setMembers(d.getReplicaSets()[0].members()[0:2])                     // "removing" the last node in replicaset
-	d.getReplicaSets()[0].addMember(NewMongodProcess("foo", "bar", "4.0.0", additionalConfig)) // "adding" some new node
-	d.getReplicaSets()[0].members()[0]["arbiterOnly"] = true                                   // changing data for first node
+	d.getProcesses()[0]["processType"] = "mongos"                                             // this will be overriden
+	d.getProcesses()[1].EnsureNetConfig()["MaxIncomingConnections"] = 20                      // this will be left as-is
+	d.getReplicaSets()[0]["protocolVersion"] = 10                                             // this field will be overriden by Operator
+	d.getReplicaSets()[0].setMembers(d.getReplicaSets()[0].members()[0:2])                    // "removing" the last node in replicaset
+	d.getReplicaSets()[0].addMember(NewMongodProcess("foo", "bar", DefaultMongoDB().Build())) // "adding" some new node
+	d.getReplicaSets()[0].members()[0]["arbiterOnly"] = true                                  // changing data for first node
 
 	mergeReplicaSet(d, "fooRs", createReplicaSetProcesses("fooRs"))
 
@@ -297,18 +284,15 @@ func buildRsByProcesses(rsName string, processes []Process) ReplicaSetWithProces
 }
 
 func createStandalone() Process {
-	additionalConfig := &mongodb.AdditionalMongodConfig{}
-	return NewMongodProcess("merchantsStandalone", "mongo1.some.host", "3.6.3", additionalConfig).
-		SetDbPath("/data").SetLogPath("/data/mongodb.log")
+	return NewMongodProcess("merchantsStandalone", "mongo1.some.host", DefaultMongoDBVersioned("3.6.3"))
 }
 
 func createMongosProcesses(num int, name, clusterName string) []Process {
-	additionalConfig := &mongodb.AdditionalMongodConfig{}
 	mongosProcesses := make([]Process, num)
 
 	for i := 0; i < num; i++ {
 		idx := strconv.Itoa(i)
-		mongosProcesses[i] = NewMongosProcess(name+idx, "mongoS"+idx+".some.host", "3.6.3", additionalConfig)
+		mongosProcesses[i] = NewMongosProcess(name+idx, "mongoS"+idx+".some.host", DefaultMongoDBVersioned("3.6.3"))
 		if clusterName != "" {
 			mongosProcesses[i].setCluster(clusterName)
 		}
@@ -321,12 +305,11 @@ func createReplicaSetProcesses(rsName string) []Process {
 }
 
 func createReplicaSetProcessesCount(count int, rsName string) []Process {
-	additionalConfig := &mongodb.AdditionalMongodConfig{}
 	rsMembers := make([]Process, count)
 
 	for i := 0; i < count; i++ {
 		idx := strconv.Itoa(i)
-		rsMembers[i] = NewMongodProcess(rsName+idx, rsName+idx+".some.host", "3.6.3", additionalConfig)
+		rsMembers[i] = NewMongodProcess(rsName+idx, rsName+idx+".some.host", DefaultMongoDBVersioned("3.6.3"))
 		// Note that we don't specify the replicaset config for process
 	}
 	return rsMembers
@@ -363,4 +346,46 @@ func mergeReplicaSet(d Deployment, rsName string, rsProcesses []Process) Replica
 func mergeStandalone(d Deployment, s Process) Process {
 	d.MergeStandalone(s, zap.S())
 	return s
+}
+
+// Convinience builder for Mongodb object
+type MongoDBBuilder struct {
+	*mongodb.MongoDB
+}
+
+func DefaultMongoDB() *MongoDBBuilder {
+	spec := mongodb.MongoDbSpec{
+		Version: "4.0.0",
+		Members: 3,
+	}
+	mdb := &mongodb.MongoDB{Spec: spec}
+	return &MongoDBBuilder{mdb}
+}
+
+func DefaultMongoDBVersioned(version string) *mongodb.MongoDB {
+	return DefaultMongoDB().SetVersion(version).Build()
+}
+
+func (b *MongoDBBuilder) SetVersion(version string) *MongoDBBuilder {
+	b.Spec.Version = version
+	return b
+}
+
+func (b *MongoDBBuilder) SetFCVersion(version string) *MongoDBBuilder {
+	b.Spec.FeatureCompatibilityVersion = &version
+	return b
+}
+
+func (b *MongoDBBuilder) SetMembers(m int) *MongoDBBuilder {
+	b.Spec.Members = m
+	return b
+}
+func (b *MongoDBBuilder) SetAdditionalConfig(c *mongodb.AdditionalMongodConfig) *MongoDBBuilder {
+	b.Spec.AdditionalMongodConfig = c
+	return b
+}
+
+func (b *MongoDBBuilder) Build() *mongodb.MongoDB {
+	b.InitDefaults()
+	return b.MongoDB
 }

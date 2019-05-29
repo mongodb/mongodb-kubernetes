@@ -10,14 +10,13 @@ import (
 	"strconv"
 
 	"fmt"
-	"strings"
-
 	"os"
 
 	"crypto/sha1"
 	"encoding/json"
 	"errors"
 
+	"github.com/blang/semver"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
 )
@@ -103,28 +102,36 @@ func ReadOrCreateMap(m map[string]interface{}, key string) map[string]interface{
 	return m[key].(map[string]interface{})
 }
 
-// ParseMongodbMinorVersion returns the mongodb version as major + minor parts that can be represented as float.
-// So the result can be used for direct comparison
-// Note, that this method doesn't perform deep validation of the format (negative, big numbers etc)
-// There should be a separate method for that that will be invoked during validation of user-provided version
-// May be when it's added - it should be invoked here as well
-// TODO use https://github.com/blang/semver to do proper versioning
-func ParseMongodbMinorVersion(version string) (float32, error) {
-	s := strings.FieldsFunc(version, func(c rune) bool { return c == '.' })
-
-	if len(s) < 2 || len(s) > 3 {
-		return -1, fmt.Errorf("Wrong format of version: %s is expected to have either 2 or 3 parts separated by '.'", version)
-	}
-	// if we have 3 parts - we need to parse only two of them
-	if len(s) == 3 {
-		version = strings.Join(s[:2], ".")
-	}
-	v, err := strconv.ParseFloat(version, 32)
-
+func CompareVersions(version1, version2 string) (int, error) {
+	v1, err := semver.Make(version1)
 	if err != nil {
-		return -1, err
+		return 0, err
 	}
-	return float32(v), nil
+	v2, err := semver.Make(version2)
+	if err != nil {
+		return 0, err
+	}
+	return v1.Compare(v2), nil
+}
+
+func VersionMatchesRange(version, vRange string) (bool, error) {
+	v, err := semver.Parse(version)
+	if err != nil {
+		return false, err
+	}
+	expectedRange, err := semver.ParseRange(vRange)
+	if err != nil {
+		return false, err
+	}
+	return expectedRange(v), nil
+}
+
+func MajorMinorVersion(version string) (string, error) {
+	v1, err := semver.Make(version)
+	if err != nil {
+		return "", nil
+	}
+	return fmt.Sprintf("%d.%d", v1.Major, v1.Minor), nil
 }
 
 // ************ Different functions to work with environment variables **************

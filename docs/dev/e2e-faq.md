@@ -94,17 +94,6 @@ make recreate-e2e-openshift
 The `docker/cluster-cleaner/job.yaml` should be applied on each cluster. This file is a `CronJob` that runs every day
 at 2am. Every time this Pod runs, it will remove all the testing namespaces in the cluster that are older than 12 hours.
 
-#### Cleaning the old namespaces manually
-
-*This is a destructive measure that will killl all the test namespaces, including your team mates' tests runs!*
-
-Sometimes the cluster starts behaving poorly (scheduling/resources problems) - the best solution is to clean it up:
-
-```bash
-# passing 0 will result in cleaning all existing namespaces (Evergreen cleans only if it's more than 30)
-./scripts/evergreen/prepare_test_env 0
-```
-
 #### Problems with EBS volumes
 These are some facts that we gathered while fighting with EBS problems for e2e tests:
 * Backing EBS volume (see `Volumes` in https://console.aws.amazon.com/ec2) are removed as soon as PVs are removed. We 

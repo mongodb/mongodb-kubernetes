@@ -157,9 +157,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 	if err != nil {
 		return err
 	}
-	replicaSet := buildReplicaSetFromStatefulSet(
-		set, new.Spec.ClusterName, new.Spec.Version, new.Spec.GetAdditionalMongodConfig(), log,
-	)
+	replicaSet := buildReplicaSetFromStatefulSet(set, new, log)
 
 	processNames := make([]string, 0)
 	err = conn.ReadUpdateDeployment(

@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
@@ -51,11 +50,11 @@ func InitDefaultEnvVariables() {
 }
 
 func TestCreateProcessesWiredTigerCache(t *testing.T) {
-	emptyConfig := &mongodb.AdditionalMongodConfig{}
+	st := DefaultStandaloneBuilder().SetVersion("4.0.0").Build()
 
 	setHelper := defaultSetHelper().SetReplicas(3)
 	set := setHelper.BuildStatefulSet()
-	processes := createProcesses(set, "", "4.0.0", om.ProcessTypeMongod, emptyConfig, zap.S())
+	processes := createProcesses(set, om.ProcessTypeMongod, st, zap.S())
 
 	assert.Len(t, processes, 3)
 	for _, p := range processes {
@@ -66,7 +65,7 @@ func TestCreateProcessesWiredTigerCache(t *testing.T) {
 	setHelper.SetPodSpec(defaultPodSpec().SetMemory("3G"))
 
 	set = setHelper.BuildStatefulSet()
-	processes = createProcesses(set, "", "4.0.0", om.ProcessTypeMongod, emptyConfig, zap.S())
+	processes = createProcesses(set, om.ProcessTypeMongod, st, zap.S())
 
 	assert.Len(t, processes, 3)
 	for _, p := range processes {
@@ -77,24 +76,34 @@ func TestCreateProcessesWiredTigerCache(t *testing.T) {
 
 func TestWiredTigerCacheConversion(t *testing.T) {
 	set := defaultSetHelper().SetPodSpec(defaultPodSpec().SetMemory("1800M")).BuildStatefulSet()
-	assert.Equal(t, float32(0.4), *calculateWiredTigerCache(set))
+	assert.Equal(t, float32(0.4), *calculateWiredTigerCache(set, "4.0.0"))
 
 	set = defaultSetHelper().SetPodSpec(defaultPodSpec().SetMemory("2900M")).BuildStatefulSet()
-	assert.Equal(t, float32(0.95), *calculateWiredTigerCache(set))
+	assert.Equal(t, float32(0.95), *calculateWiredTigerCache(set, "4.0.4"))
 
 	set = defaultSetHelper().SetPodSpec(defaultPodSpec().SetMemory("32G")).BuildStatefulSet()
-	assert.Equal(t, float32(15.5), *calculateWiredTigerCache(set))
+	assert.Equal(t, float32(15.5), *calculateWiredTigerCache(set, "3.6.5"))
 
 	set = defaultSetHelper().SetPodSpec(defaultPodSpec().SetMemory("55.832G")).BuildStatefulSet()
-	assert.Equal(t, float32(27.416), *calculateWiredTigerCache(set))
+	assert.Equal(t, float32(27.416), *calculateWiredTigerCache(set, "3.6.12"))
 
 	set = defaultSetHelper().SetPodSpec(defaultPodSpec().SetMemory("181G")).BuildStatefulSet()
-	assert.Equal(t, float32(90.0), *calculateWiredTigerCache(set))
+	assert.Equal(t, float32(90.0), *calculateWiredTigerCache(set, "3.4.10"))
 
 	// We round fractional part to two digits, here 256M were rounded to 0.26G
 	set = defaultSetHelper().SetPodSpec(defaultPodSpec().SetMemory("300.65Mi")).BuildStatefulSet()
-	assert.Equal(t, float32(0.256), *calculateWiredTigerCache(set))
+	assert.Equal(t, float32(0.256), *calculateWiredTigerCache(set, "4.0.8"))
 
 	set = defaultSetHelper().SetPodSpec(defaultPodSpec().SetMemory("0G")).BuildStatefulSet()
-	assert.Nil(t, calculateWiredTigerCache(set))
+	assert.Nil(t, calculateWiredTigerCache(set, "4.0.0"))
+
+	// We don't calculate wired tiger cache for latest versions of mongodb
+	set = defaultSetHelper().SetPodSpec(defaultPodSpec().SetMemory("32G")).BuildStatefulSet()
+	assert.Nil(t, calculateWiredTigerCache(set, "4.2.0"))
+
+	set = defaultSetHelper().SetPodSpec(defaultPodSpec().SetMemory("32G")).BuildStatefulSet()
+	assert.Nil(t, calculateWiredTigerCache(set, "4.0.9"))
+
+	set = defaultSetHelper().SetPodSpec(defaultPodSpec().SetMemory("32G")).BuildStatefulSet()
+	assert.Nil(t, calculateWiredTigerCache(set, "3.6.13"))
 }

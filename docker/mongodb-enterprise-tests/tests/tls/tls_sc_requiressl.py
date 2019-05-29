@@ -78,14 +78,7 @@ class TestClusterWithTLSCreationRunning(KubernetesTester):
 
     @skip_if_local
     def test_mongos_are_reachable_with_ssl(self):
-        service = "{}-svc".format(mdb_resource)
-        hosts = [
-            build_host_fqdn(host, self.namespace, service)
-            for host in host_groups()["mongos"]
-        ]
-
-        for host in hosts:
-            self.check_mongos_is_ready(host, ssl=True)
+        self.check_mongoses_are_ready("test-tls-base-sc-require-ssl", ssl=True, mongos_count=len(host_groups()["mongos"]))
 
 
 @pytest.mark.e2e_sharded_cluster_tls_require

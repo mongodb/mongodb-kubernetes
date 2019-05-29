@@ -8,54 +8,40 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestParseMongodbMinorVersionCorrect(t *testing.T) {
-	version, e := ParseMongodbMinorVersion("3.4.5")
-	assert.Nil(t, e)
-	assert.Equal(t, float32(3.4), version)
+func TestCompareVersions(t *testing.T) {
+	i, e := CompareVersions("4.0.5", "4.0.4")
+	assert.NoError(t, e)
+	assert.Equal(t, 1, i)
 
-	// we don't perform detailed validation of data (so numbers can be any)
-	version, e = ParseMongodbMinorVersion("3.48.55")
-	assert.Nil(t, e)
-	assert.Equal(t, float32(3.48), version)
+	i, e = CompareVersions("4.0.0", "4.0.0")
+	assert.NoError(t, e)
+	assert.Equal(t, 0, i)
 
-	version, e = ParseMongodbMinorVersion("-5.0.0")
-	assert.Nil(t, e)
-	assert.Equal(t, float32(-5.0), version)
+	i, e = CompareVersions("3.6.15", "4.1.0")
+	assert.NoError(t, e)
+	assert.Equal(t, -1, i)
 
-	version, e = ParseMongodbMinorVersion("4.0")
-	assert.Nil(t, e)
-	assert.Equal(t, float32(4.0), version)
+	i, e = CompareVersions("3.6.2", "3.6.12")
+	assert.NoError(t, e)
+	assert.Equal(t, -1, i)
 
-	version, e = ParseMongodbMinorVersion("20.30")
-	assert.Nil(t, e)
-	assert.Equal(t, float32(20.30), version)
-
-	// any incorrect symbols after first two numbers are fine
-	version, e = ParseMongodbMinorVersion("4.3.l")
-	assert.Nil(t, e)
-	assert.Equal(t, float32(4.3), version)
-
+	i, e = CompareVersions("4.0.2-ent", "4.0.1")
+	assert.NoError(t, e)
+	assert.Equal(t, 1, i)
 }
 
-func TestParseMongodbMinorVersionWrong(t *testing.T) {
-	_, e := ParseMongodbMinorVersion("1.")
-	assert.NotNil(t, e)
+func TestMajorMinorVersion(t *testing.T) {
+	s, e := MajorMinorVersion("3.6.12")
+	assert.NoError(t, e)
+	assert.Equal(t, "3.6", s)
 
-	_, e = ParseMongodbMinorVersion("10")
-	assert.NotNil(t, e)
+	s, e = MajorMinorVersion("4.0.0")
+	assert.NoError(t, e)
+	assert.Equal(t, "4.0", s)
 
-	_, e = ParseMongodbMinorVersion("3.5.8.10")
-	assert.NotNil(t, e)
-
-	_, e = ParseMongodbMinorVersion("4.a.8")
-	assert.NotNil(t, e)
-
-	_, e = ParseMongodbMinorVersion("a.9.8")
-	assert.NotNil(t, e)
-
-	_, e = ParseMongodbMinorVersion("5.@")
-	assert.NotNil(t, e)
-
+	s, e = MajorMinorVersion("4.2.12-ent")
+	assert.NoError(t, e)
+	assert.Equal(t, "4.2", s)
 }
 
 func TestHash(t *testing.T) {

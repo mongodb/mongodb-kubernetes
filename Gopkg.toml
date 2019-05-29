@@ -46,6 +46,11 @@ required = [
 #  branch = "master" #osdk_branch_annotation
    version = "=v0.2.0" #osdk_version_annotation
 
+# TODO can we use cfssl as a library?
+#[[override]]
+#  name = "github.com/cloudflare/cfssl"
+#  version = "=1.3.3"
+
 [prune]
   go-tests = true
   non-go = true

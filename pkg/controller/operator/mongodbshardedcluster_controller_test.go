@@ -211,28 +211,14 @@ func createDeploymentFromShardedCluster(sh *v1.MongoDB) om.Deployment {
 	state := createStateFromResource(sh)
 	mongosProcesses := createProcesses(
 		state.mongosSetHelper.BuildStatefulSet(),
-		sh.Spec.ClusterName,
-		sh.Spec.Version,
 		om.ProcessTypeMongos,
-		sh.Spec.GetAdditionalMongodConfig(),
+		sh,
 		zap.S(),
 	)
-	configRs := buildReplicaSetFromStatefulSet(
-		state.configSrvSetHelper.BuildStatefulSet(),
-		sh.Spec.ClusterName,
-		sh.Spec.Version,
-		sh.Spec.GetAdditionalMongodConfig(),
-		zap.S(),
-	)
+	configRs := buildReplicaSetFromStatefulSet(state.configSrvSetHelper.BuildStatefulSet(), sh, zap.S())
 	shards := make([]om.ReplicaSetWithProcesses, len(state.shardsSetsHelpers))
 	for i, s := range state.shardsSetsHelpers {
-		shards[i] = buildReplicaSetFromStatefulSet(
-			s.BuildStatefulSet(),
-			sh.Spec.ClusterName,
-			sh.Spec.Version,
-			sh.Spec.GetAdditionalMongodConfig(),
-			zap.S(),
-		)
+		shards[i] = buildReplicaSetFromStatefulSet(s.BuildStatefulSet(), sh, zap.S())
 	}
 
 	d := om.NewDeployment()

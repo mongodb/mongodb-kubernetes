@@ -373,7 +373,7 @@ functions:
           test -f ${workdir}/.ops-manager-env && source ${workdir}/.ops-manager-env
 
           echo "Preparing Ops/Cloud Manager Version: ${ops_manager_version} in namespace ${ops_manager_namespace} on node port ${node_port}"
-          ./prepare_test_env 30 ${ops_manager_namespace} ${ops_manager_version} ${node_port}
+          ./prepare_test_env ${ops_manager_namespace} ${ops_manager_version} ${node_port}
 
   "post_task":
   - command: shell.exec
@@ -611,6 +611,21 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_standalone_upgrade_downgrade
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_upgrade_downgrade
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_upgrade_downgrade
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_standalone_no_tls_no_status_is_set
   exec_timeout_secs: 600
   commands:
@@ -671,7 +686,7 @@ task_groups:
     - e2e_standalone_groups
     - e2e_standalone_schema_validation
     - e2e_standalone_type_change_recovery
-    - e2e_replica_set_schema_validation
+    - e2e_standalone_upgrade_downgrade
     - e2e_sharded_cluster_schema_validation
     - e2e_standalone_recovery
     - e2e_standalone_recovery_k8s
@@ -682,11 +697,14 @@ task_groups:
     - e2e_replica_set_recovery
     - e2e_replica_set_pv
     - e2e_replica_set_pv_multiple
+    - e2e_replica_set_schema_validation
+    - e2e_replica_set_upgrade_downgrade
     # - e2e_replica_set_different_namespaces
     - e2e_sharded_cluster
     - e2e_sharded_cluster_pv
     - e2e_sharded_cluster_recovery
     - e2e_sharded_cluster_secret
+    - e2e_sharded_cluster_upgrade_downgrade
   teardown_task:
     - func: "upload_e2e_artifacts"
 

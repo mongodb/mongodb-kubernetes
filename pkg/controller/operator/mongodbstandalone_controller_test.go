@@ -124,7 +124,7 @@ func createDeploymentFromStandalone(st *v1.MongoDB) om.Deployment {
 
 	d := om.NewDeployment()
 	hostnames, _ := GetDnsForStatefulSet(helper.BuildStatefulSet(), st.Spec.ClusterName)
-	process := om.NewMongodProcess(st.Name, hostnames[0], st.Spec.Version, &v1.AdditionalMongodConfig{})
+	process := om.NewMongodProcess(st.Name, hostnames[0], st)
 	d.MergeStandalone(process, nil)
 	d.AddMonitoringAndBackup(hostnames[0], zap.S())
 	return d

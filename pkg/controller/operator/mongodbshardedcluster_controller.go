@@ -335,30 +335,16 @@ func updateOmDeploymentShardedCluster(conn om.Connection, sc *mongodb.MongoDB, s
 
 	mongosProcesses := createProcesses(
 		state.mongosSetHelper.BuildStatefulSet(),
-		sc.Spec.ClusterName,
-		sc.Spec.Version,
 		om.ProcessTypeMongos,
-		sc.Spec.GetAdditionalMongodConfig(),
+		sc,
 		log,
 	)
 
-	configRs := buildReplicaSetFromStatefulSet(
-		state.configSrvSetHelper.BuildStatefulSet(),
-		sc.Spec.ClusterName,
-		sc.Spec.Version,
-		sc.Spec.GetAdditionalMongodConfig(),
-		log,
-	)
+	configRs := buildReplicaSetFromStatefulSet(state.configSrvSetHelper.BuildStatefulSet(), sc, log)
 
 	shards := make([]om.ReplicaSetWithProcesses, len(state.shardsSetsHelpers))
 	for i, s := range state.shardsSetsHelpers {
-		shards[i] = buildReplicaSetFromStatefulSet(
-			s.BuildStatefulSet(),
-			sc.Spec.ClusterName,
-			sc.Spec.Version,
-			sc.Spec.GetAdditionalMongodConfig(),
-			log,
-		)
+		shards[i] = buildReplicaSetFromStatefulSet(s.BuildStatefulSet(), sc, log)
 	}
 
 	processNames := make([]string, 0)

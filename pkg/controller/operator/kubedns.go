@@ -8,7 +8,7 @@ import (
 )
 
 // GetDnsForStatefulSet returns hostnames and names of pods in stateful set "set". This is a preferred way of getting hostnames
-// it must be always used if it's possible to read the stateful set from Kubernetes
+// it must be always used if it's possible to read the statefulset from Kubernetes
 func GetDnsForStatefulSet(set *appsv1.StatefulSet, clusterName string) (hostnames []string, names []string) {
 	return GetDNSNames(set.Name, set.Spec.ServiceName, set.Namespace, clusterName, int(*set.Spec.Replicas))
 }

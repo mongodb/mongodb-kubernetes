@@ -32,6 +32,8 @@ import (
 // * Any overriding of default behavior can be done via functions (e.g. 'CreateGroupFunc', 'UpdateGroupFunc')
 // * To emulate the work of real OM it's possible to emulate the agents delay in "reaching" goal state. This can be
 //   configured using 'AgentsDelayCount' property
+// * As Deployment has package access to most of its data to preserve encapsulation (processes, ssl etc) this class can
+//   be used as an access point to those fields for testing (see 'getProcesses' as an example)
 // * There is a small trick with global variable 'CurrMockedConnection' that allows to "survive" separate calls to the
 //   om creation function and allows to test more complicated scenarios (create delete). The state is cleaned as soon as
 //   a new mocked api object is built (which usually occurs when the new reconciler is built)
@@ -321,6 +323,14 @@ func (oc *MockedOmConnection) doUpdateBackupStatus(clusterID string, newStatus B
 			}
 		}
 	}
+}
+
+func (oc *MockedOmConnection) GetProcesses() []Process {
+	return oc.deployment.getProcesses()
+}
+
+func (oc *MockedOmConnection) GetSSL() map[string]interface{} {
+	return oc.deployment.getSSL()
 }
 
 func (oc *MockedOmConnection) CheckNumberOfUpdateRequests(t *testing.T, expected int) {

@@ -591,6 +591,10 @@ func (d Deployment) setBackupVersions(backup []interface{}) {
 	d["backupVersions"] = backup
 }
 
+func (d Deployment) getSSL() map[string]interface{} {
+	return util.ReadOrCreateMap(d, "ssl")
+}
+
 // addMonitoring adds one single monitoring agent for the specified host name.
 // Note that automation agent will update the monitoring agent to the latest version automatically
 func (d Deployment) addMonitoring(hostName string, log *zap.SugaredLogger) {

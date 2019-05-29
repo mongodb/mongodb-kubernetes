@@ -62,31 +62,29 @@ func DeploymentLink(url, groupId string) string {
 	return fmt.Sprintf("%s/v2/%s", url, groupId)
 }
 
-func buildReplicaSetFromStatefulSet(set *appsv1.StatefulSet, clusterName, version string,
-	additionalConfig *mongodb.AdditionalMongodConfig, log *zap.SugaredLogger) om.ReplicaSetWithProcesses {
-
-	members := createProcesses(set, clusterName, version, om.ProcessTypeMongod, additionalConfig, log)
-	rsWithProcesses := om.NewReplicaSetWithProcesses(om.NewReplicaSet(set.Name, version), members)
+func buildReplicaSetFromStatefulSet(set *appsv1.StatefulSet, mdb *mongodb.MongoDB, log *zap.SugaredLogger) om.ReplicaSetWithProcesses {
+	members := createProcesses(set, om.ProcessTypeMongod, mdb, log)
+	rsWithProcesses := om.NewReplicaSetWithProcesses(om.NewReplicaSet(set.Name, mdb.Spec.Version), members)
 	return rsWithProcesses
 }
 
-func createProcesses(set *appsv1.StatefulSet, clusterName, version string, mongoType om.MongoType,
-	additionalConfig *mongodb.AdditionalMongodConfig, log *zap.SugaredLogger) []om.Process {
+func createProcesses(set *appsv1.StatefulSet, mongoType om.MongoType,
+	mdb *mongodb.MongoDB, log *zap.SugaredLogger) []om.Process {
 
-	hostnames, names := GetDnsForStatefulSet(set, clusterName)
+	hostnames, names := GetDnsForStatefulSet(set, mdb.Spec.ClusterName)
 	processes := make([]om.Process, len(hostnames))
-	wiredTigerCache := calculateWiredTigerCache(set)
+	wiredTigerCache := calculateWiredTigerCache(set, mdb.Spec.Version)
 
 	for idx, hostname := range hostnames {
 		switch mongoType {
 		case om.ProcessTypeMongod:
-			processes[idx] = om.NewMongodProcess(names[idx], hostname, version, additionalConfig)
+			processes[idx] = om.NewMongodProcess(names[idx], hostname, mdb)
 
 			if wiredTigerCache != nil {
 				processes[idx].SetWiredTigerCache(*wiredTigerCache)
 			}
 		case om.ProcessTypeMongos:
-			processes[idx] = om.NewMongosProcess(names[idx], hostname, version, additionalConfig)
+			processes[idx] = om.NewMongosProcess(names[idx], hostname, mdb)
 		default:
 			panic("Dev error: Wrong process type passed!")
 		}
@@ -95,18 +93,22 @@ func createProcesses(set *appsv1.StatefulSet, clusterName, version string, mongo
 	return processes
 }
 
-// calculateWiredTigerCache returns the cache that needs to be dedicated to mongodb engine. May be we won't need this manual
-// setting any more when SERVER-16571 is fixed
-func calculateWiredTigerCache(set *appsv1.StatefulSet) *float32 {
-	// Note, that if the limit is 0 then it's not specified in fact (unbounded)
-	if memory := set.Spec.Template.Spec.Containers[0].Resources.Limits.Memory(); memory != nil && (*memory).Value() != 0 {
-		// Value() returns size in bytes so we need to transform to Gigabytes
-		wt := cast.ToFloat64((*memory).Value()) / 1000000000
-		// https://docs.mongodb.com/manual/core/wiredtiger/#memory-use
-		wt = math.Max((wt-1)*0.5, 0.256)
-		// rounding fractional part to 3 digits
-		rounded := float32(math.Floor(wt*1000) / 1000)
-		return &rounded
+// calculateWiredTigerCache returns the cache that needs to be dedicated to mongodb engine.
+// This was fixed in SERVER-16571 so we don't need to enable this for some latest version of mongodb (see the ticket)
+func calculateWiredTigerCache(set *appsv1.StatefulSet, version string) *float32 {
+	shouldCalculate, err := util.VersionMatchesRange(version, ">=4.0.0 <4.0.9 || <3.6.13")
+
+	if err != nil || shouldCalculate {
+		// Note, that if the limit is 0 then it's not specified in fact (unbounded)
+		if memory := set.Spec.Template.Spec.Containers[0].Resources.Limits.Memory(); memory != nil && (*memory).Value() != 0 {
+			// Value() returns size in bytes so we need to transform to Gigabytes
+			wt := cast.ToFloat64((*memory).Value()) / 1000000000
+			// https://docs.mongodb.com/manual/core/wiredtiger/#memory-use
+			wt = math.Max((wt-1)*0.5, 0.256)
+			// rounding fractional part to 3 digits
+			rounded := float32(math.Floor(wt*1000) / 1000)
+			return &rounded
+		}
 	}
 	return nil
 }
