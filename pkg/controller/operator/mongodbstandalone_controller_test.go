@@ -75,7 +75,9 @@ func TestStandaloneEventMethodsHandlePanic(t *testing.T) {
 	st := DefaultStandaloneBuilder().Build()
 
 	manager := newMockedManager(st)
-	checkReconcileFailed(t, newStandaloneReconciler(manager, om.NewEmptyMockedOmConnection), st, "Failed to reconcile Mongodb Standalone", manager.client)
+	checkReconcileFailed(t, newStandaloneReconciler(manager, om.NewEmptyMockedOmConnection), st,
+		"Failed to reconcile Mongodb Standalone: MONGODB_ENTERPRISE_DATABASE_IMAGE environment variable is not set!",
+		manager.client)
 
 	// restoring
 	InitDefaultEnvVariables()

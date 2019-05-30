@@ -25,7 +25,9 @@ func TestReplicaSetEventMethodsHandlePanic(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().Build()
 
 	manager := newMockedManager(rs)
-	checkReconcileFailed(t, newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection), rs, "Failed to reconcile Mongodb Replica Set", manager.client)
+	checkReconcileFailed(t, newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection), rs,
+		"Failed to reconcile Mongodb Replica Set: MONGODB_ENTERPRISE_DATABASE_IMAGE environment variable is not set!",
+		manager.client)
 
 	// restoring
 	InitDefaultEnvVariables()

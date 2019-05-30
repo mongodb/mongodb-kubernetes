@@ -86,6 +86,14 @@ func (r ReplicaSetMember) Id() int {
 	return cast.ToInt(r["_id"])
 }
 
+func (r ReplicaSetMember) Votes() int {
+	return cast.ToInt(r["votes"])
+}
+
+func (r ReplicaSetMember) Priority() int {
+	return cast.ToInt(r["priority"])
+}
+
 /* Merges the other replica set to the current one. "otherRs" members have higher priority (as they are supposed
  to be RS members managed by Kubernetes).
  Returns the list of names of members which were removed as the result of merge (either they were added by mistake in OM
@@ -136,10 +144,6 @@ func (r ReplicaSet) String() string {
 	return fmt.Sprintf("\"%s\" (members: %v)", r.Name(), r.members())
 }
 
-func (r ReplicaSetMember) String() string {
-	return fmt.Sprintf("[id: %v, host: %v]", r.Name(), r.Id())
-}
-
 // ***************************************** Private methods ***********************************************************
 
 func initDefaultRs(set ReplicaSet, name string, protocolVersion *int32) {
@@ -161,35 +165,38 @@ func (r ReplicaSet) addMember(process Process) {
 	rsMember := ReplicaSetMember{}
 	rsMember["_id"] = lastIndex + 1
 	rsMember["host"] = process.Name()
+	// We always set this member to have vote (it will be set anyway on creation of deployment in OM), though this can
+	// be overriden by OM during merge and corrected in the end (as rs can have only 7 voting members)
+	rsMember.setVotes(1).setPriority(1)
 	r.setMembers(append(members, rsMember))
 }
 
-// mergeFrom merges "operator" "otherRs" into "OM" one
-func (r ReplicaSet) mergeFrom(otherRs ReplicaSet) []string {
-	initDefaultRs(r, otherRs.Name(), otherRs.protocolVersion())
+// mergeFrom merges "operatorRs" into "OM" one
+func (r ReplicaSet) mergeFrom(operatorRs ReplicaSet) []string {
+	initDefaultRs(r, operatorRs.Name(), operatorRs.protocolVersion())
 
-	// technically we use "otherMap" as the target map which will be used to update the members
+	// technically we use "operatorMap" as the target map which will be used to update the members
 	// for the 'r' object
-	currentMap := buildMapOfRsNodes(r)
-	otherMap := buildMapOfRsNodes(otherRs)
+	omMap := buildMapOfRsNodes(r)
+	operatorMap := buildMapOfRsNodes(operatorRs)
 
-	// merge overlapping members to the otherMap (overriding 'host' and '_id" fields)
-	for k, currentValue := range currentMap {
-		if otherValue, ok := otherMap[k]; ok {
+	// merge overlapping members to the operatorMap (overriding 'host' and '_id" fields only)
+	for k, currentValue := range omMap {
+		if otherValue, ok := operatorMap[k]; ok {
 			currentValue["host"] = otherValue.Name()
 			currentValue["_id"] = otherValue.Id()
-			otherMap[k] = currentValue
+			operatorMap[k] = currentValue
 		}
 	}
 
 	// find OM members that will be removed from RS. This can be either the result of scaling
 	// down or just OM added some members on its own
-	removedMembers := findDifference(currentMap, otherMap)
+	removedMembers := findDifference(omMap, operatorMap)
 
 	// update replicaset back
-	replicas := make([]ReplicaSetMember, len(otherMap))
+	replicas := make([]ReplicaSetMember, len(operatorMap))
 	i := 0
-	for _, v := range otherMap {
+	for _, v := range operatorMap {
 		replicas[i] = v
 		i++
 	}
@@ -201,6 +208,9 @@ func (r ReplicaSet) mergeFrom(otherRs ReplicaSet) []string {
 	return removedMembers
 }
 
+// members returns all members of replica set. Note, that this should stay package-private as 'operator' package should
+// not have direct access to members.
+// The members returned are not copies and can be used direcly for mutations
 func (r ReplicaSet) members() []ReplicaSetMember {
 	switch v := r["members"].(type) {
 	case []ReplicaSetMember:
@@ -243,6 +253,7 @@ func (r ReplicaSet) protocolVersion() *int32 {
 	return r["protocolVersion"].(*int32)
 }
 
+// Note, that setting vote to 0 without setting priority to the same value is not correct
 func (r ReplicaSetMember) setVotes(votes int) ReplicaSetMember {
 	r["votes"] = votes
 

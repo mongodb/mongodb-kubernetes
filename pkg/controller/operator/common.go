@@ -250,9 +250,9 @@ func completionMessage(url, projectID string) string {
 // exceptionHandling is the basic panic handling function that recovers from panic, logs the error, updates the resource status and updates the
 // reconcile result and error parameters (as reconcile logic will return it later)
 // passing result and error as an argument and updating the pointer of it didn't work (thanks Go), had to use ugly function
-func exceptionHandling(errHandlingFunc func() (reconcile.Result, error), errUpdateFunc func(res reconcile.Result, err error)) {
+func exceptionHandling(errHandlingFunc func(err interface{}) (reconcile.Result, error), errUpdateFunc func(res reconcile.Result, err error)) {
 	if r := recover(); r != nil {
-		result, e := errHandlingFunc()
+		result, e := errHandlingFunc(r)
 		errUpdateFunc(result, e)
 	}
 }

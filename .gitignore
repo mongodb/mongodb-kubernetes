@@ -20,3 +20,4 @@ bin/*
 helm_out
 .redo-last-namespace
 exports.do
+/Gopkg.lock

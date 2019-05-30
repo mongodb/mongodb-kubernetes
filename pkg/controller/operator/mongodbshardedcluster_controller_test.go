@@ -23,7 +23,9 @@ func TestShardedClusterEventMethodsHandlePanic(t *testing.T) {
 	st := DefaultClusterBuilder().Build()
 
 	manager := newMockedManager(st)
-	checkReconcileFailed(t, newShardedClusterReconciler(manager, om.NewEmptyMockedOmConnection), st, "Failed to reconcile Sharded Cluster", manager.client)
+	checkReconcileFailed(t, newShardedClusterReconciler(manager, om.NewEmptyMockedOmConnection), st,
+		"Failed to reconcile Sharded Cluster: MONGODB_ENTERPRISE_DATABASE_IMAGE environment variable is not set!",
+		manager.client)
 
 	// restoring
 	InitDefaultEnvVariables()

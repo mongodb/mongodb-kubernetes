@@ -80,8 +80,8 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 	s := &mongodb.MongoDB{}
 
 	defer exceptionHandling(
-		func() (reconcile.Result, error) {
-			return r.updateStatusFailed(s, "Failed to reconcile Mongodb Standalone", log)
+		func(err interface{}) (reconcile.Result, error) {
+			return r.updateStatusFailed(s, fmt.Sprintf("Failed to reconcile Mongodb Standalone: %s", err), log)
 		},
 		func(result reconcile.Result, err error) { res = result; e = err },
 	)

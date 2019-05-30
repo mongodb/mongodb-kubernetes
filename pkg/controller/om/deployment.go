@@ -115,19 +115,19 @@ func (d Deployment) MergeStandalone(standaloneMongo Process, l *zap.SugaredLogge
 
 // MergeReplicaSet merges the "operator" replica set and its members to the "OM" deployment ("d"). If "alien" RS members are
 // removed after merge - corresponding processes are removed as well.
-func (d Deployment) MergeReplicaSet(replicaSet ReplicaSetWithProcesses, l *zap.SugaredLogger) {
+func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, l *zap.SugaredLogger) {
 	if l == nil {
 		l = zap.S()
 	}
-	log := l.With("replicaSet", replicaSet.Rs.Name())
+	log := l.With("replicaSet", operatorRs.Rs.Name())
 
-	r := d.getReplicaSetByName(replicaSet.Rs.Name())
+	r := d.getReplicaSetByName(operatorRs.Rs.Name())
 
 	// If the new replica set is bigger than old one - we need to copy first member to positions of new members so that
 	// they were merged with operator replica sets on next step
 	// (in case OM made any changes to existing processes - these changes must be propagated to new members).
-	if r != nil && len(replicaSet.Rs.members()) > len(r.members()) {
-		if err := d.copyFirstProcessToNewPositions(replicaSet.Processes, len(r.members()), l); err != nil {
+	if r != nil && len(operatorRs.Rs.members()) > len(r.members()) {
+		if err := d.copyFirstProcessToNewPositions(operatorRs.Processes, len(r.members()), l); err != nil {
 			// I guess this error is not so serious to fail the whole process - RS will be scaled up anyway
 			log.Error("Failed to copy first process (so new replica set processes may miss Ops Manager changes done to "+
 				"existing replica set processes): %s", err)
@@ -135,17 +135,17 @@ func (d Deployment) MergeReplicaSet(replicaSet ReplicaSetWithProcesses, l *zap.S
 	}
 
 	// Merging all RS processes
-	for _, p := range replicaSet.Processes {
+	for _, p := range operatorRs.Processes {
 		d.MergeStandalone(p, log)
 	}
 
 	if r == nil {
 		// Adding a new Replicaset
-		d.addReplicaSet(replicaSet.Rs)
+		d.addReplicaSet(operatorRs.Rs)
 		log.Debugw("Added replica set as current OM deployment didn't have it")
 	} else {
 
-		processesToRemove := r.mergeFrom(replicaSet.Rs)
+		processesToRemove := r.mergeFrom(operatorRs.Rs)
 		log.Debugw("Merged replica set into existing one")
 
 		if len(processesToRemove) > 0 {
@@ -153,6 +153,10 @@ func (d Deployment) MergeReplicaSet(replicaSet ReplicaSetWithProcesses, l *zap.S
 			log.Debugw("Removed processes as they were removed from replica set", "processesToRemove", processesToRemove)
 		}
 	}
+
+	// In both cases (the new replicaset was added to OM deployment or it was merged with OM one) we need to make sure
+	// there are no more than 7 voting members
+	d.limitVotingMembers(operatorRs.Rs.Name())
 }
 
 // MergeShardedCluster merges "operator" sharded cluster into "OM" deployment ("d"). Mongos, config servers and all shards
@@ -343,12 +347,18 @@ func (d Deployment) getShardedClusterProcessNames(name string) []string {
 }
 
 // Debug
-func (d Deployment) Debug() {
-	b, err := json.MarshalIndent(d, "", "  ")
+func (d Deployment) Debug(l *zap.SugaredLogger) {
+	dep := Deployment{}
+	for key, value := range d {
+		if key != "mongoDbVersions" {
+			dep[key] = value
+		}
+	}
+	b, err := json.MarshalIndent(dep, "", "  ")
 	if err != nil {
 		fmt.Println("error:", err)
 	}
-	fmt.Print(string(b))
+	l.Debug(">> Deployment: ", string(b))
 }
 
 // ***************************************** Private methods ***********************************************************
@@ -742,4 +752,18 @@ func (d Deployment) copyFirstProcessToNewPositions(processes []Process, idxOfFir
 		}
 	}
 	return nil
+}
+
+func (d Deployment) limitVotingMembers(rsName string) {
+	r := d.getReplicaSetByName(rsName)
+
+	numberOfVotingMembers := 0
+	for _, v := range r.members() {
+		if v.Votes() > 0 {
+			numberOfVotingMembers++
+		}
+		if numberOfVotingMembers > 7 {
+			v.setVotes(0).setPriority(0)
+		}
+	}
 }

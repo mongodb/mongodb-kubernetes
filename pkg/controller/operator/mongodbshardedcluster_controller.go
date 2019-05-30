@@ -28,8 +28,8 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (r
 	sc := &mongodb.MongoDB{}
 
 	defer exceptionHandling(
-		func() (reconcile.Result, error) {
-			return r.updateStatusFailed(sc, "Failed to reconcile Sharded Cluster", log)
+		func(err interface{}) (reconcile.Result, error) {
+			return r.updateStatusFailed(sc, fmt.Sprintf("Failed to reconcile Sharded Cluster: %s", err), log)
 		},
 		func(result reconcile.Result, err error) { res = result; e = err },
 	)

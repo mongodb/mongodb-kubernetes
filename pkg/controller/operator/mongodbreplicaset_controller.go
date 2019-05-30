@@ -33,8 +33,8 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 	rs := &mongodb.MongoDB{}
 
 	defer exceptionHandling(
-		func() (reconcile.Result, error) {
-			return r.updateStatusFailed(rs, "Failed to reconcile Mongodb Replica Set", log)
+		func(err interface{}) (reconcile.Result, error) {
+			return r.updateStatusFailed(rs, fmt.Sprintf("Failed to reconcile Mongodb Replica Set: %s", err), log)
 		},
 		func(result reconcile.Result, err error) { res = result; e = err },
 	)
