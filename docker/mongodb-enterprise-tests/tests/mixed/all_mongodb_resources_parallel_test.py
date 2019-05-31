@@ -1,5 +1,8 @@
 import threading
+import time
+
 import pytest
+
 
 from kubetester.kubetester import KubernetesTester, fixture, run_periodically
 
@@ -58,6 +61,16 @@ class TestRaceConditions(KubernetesTester):
         assert len(config["sharding"]) == 1
 
     def test_all_resources_removed(self):
+        #
+        # TODO: In 1 agent environments, if the Pods are removed before the agents reach a
+        # monitoring-is-initialized state, removal of backup will not be possible and will
+        # find errors like CANNOT_GET_BACKUP_CONFIG_INVALID_STATE or SERVER_ERROR
+        # from Ops/Cloud Manager.
+        #
+        print("Giving it 30 seconds for monitoring agent to complete initialization tasks.")
+        time.sleep(30)
+        print("Going forward with the deletion")
+
         threads = []
         for resource in mdb_resources.keys():
             args = (self.get_namespace(), resource, "MongoDB")

@@ -1,7 +1,6 @@
 import pytest
 
 from kubetester.kubetester import KubernetesTester
-from kubetester.omtester import skip_if_cloud_manager
 
 from operator import attrgetter
 
@@ -47,9 +46,6 @@ class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
         self.check_single_pvc(claims[2], "logs", 'logs-{}-{}'.format(self.RESOURCE_NAME, idx), "1G", "gp2")
 
 
-# TODO: Find the reason behind this error.
-# Details in here -> https://jira.mongodb.org/browse/CLOUDP-43066
-@skip_if_cloud_manager
 @pytest.mark.e2e_replica_set_pv_multiple
 class TestReplicaSetMultiplePersistentVolumeDelete(KubernetesTester):
     """

@@ -151,13 +151,14 @@ class KubernetesTester(object):
     def get_om_org_id():
         "Gets Organization ID. Makes sure to return None if it is not present"
 
+        org_id = None
         # Do not fail if OM_ORGID is not set
         try:
             org_id = get_env_var_or_fail("OM_ORGID")
         except ValueError:
             pass
 
-        if isinstance(org_id, str) and org_id == "":
+        if isinstance(org_id, str) and org_id.strip() == "":
             org_id = None
 
         return org_id
@@ -288,6 +289,10 @@ class KubernetesTester(object):
     @staticmethod
     def delete_custom_resource(namespace, name, kind, group='mongodb.com', version='v1'):
         print('Deleting resource {} {}'.format(kind, name))
+
+        KubernetesTester.namespace = namespace
+        KubernetesTester.name = name
+        KubernetesTester.kind = kind
 
         del_options = KubernetesTester.clients("client").V1DeleteOptions()
 
@@ -536,8 +541,10 @@ class KubernetesTester(object):
         organization (aligned with 'ompaginator.TraversePages')
         Returns the list of ids.
         """
+
+        max_pages = 200
         ids = []
-        for i in range(1, 200):
+        for i in range(1, max_pages):
             url = build_om_groups_in_org_endpoint(KubernetesTester.get_om_base_url(), org_id, i)
             json = KubernetesTester.om_request("get", url).json()
             # Add group id if its name is the searched one
@@ -545,6 +552,9 @@ class KubernetesTester(object):
 
             if not any(link["rel"] == "next" for link in json["links"]):
                 break
+
+        if len(ids) == 0:
+            print("Group name {} not found in organization with id {} (in {} pages)".format(group_name, org_id, max_pages))
 
         return ids
 
@@ -634,6 +644,12 @@ class KubernetesTester(object):
     @staticmethod
     def mongo_resource_deleted(check_om_state=True):
         # First we check that the MDB resource is removed
+
+        # This depends on global state set by "create_custom_resouce", this means
+        # that it can't be called independently, or, calling the remove function without
+        # calling the "create" function first.
+        # Should not depend in the global state of KubernetesTester
+        #
         deleted_in_k8 = KubernetesTester.is_deleted(KubernetesTester.namespace,
                                                     KubernetesTester.name,
                                                     KubernetesTester.kind)

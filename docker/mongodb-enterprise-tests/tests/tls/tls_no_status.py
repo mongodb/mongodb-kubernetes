@@ -1,7 +1,6 @@
 import pytest
 
 from kubetester.kubetester import KubernetesTester
-from kubetester.omtester import skip_if_cloud_manager
 
 mdb_resource = "test-no-tls-no-status"
 
@@ -26,9 +25,6 @@ class TestStandaloneWithNoTLS(KubernetesTester):
         assert "net" not in mdb
 
 
-# TODO: Find the reason behind this error.
-# Details in here -> https://jira.mongodb.org/browse/CLOUDP-43066
-@skip_if_cloud_manager
 @pytest.mark.e2e_standalone_no_tls_no_status_is_set
 class TestStandaloneWithNoTLSDeletion(KubernetesTester):
     """
