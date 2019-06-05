@@ -1,5 +1,7 @@
 import pytest
+
 from kubetester.kubetester import KubernetesTester, fixture
+from kubetester.omtester import skip_if_cloud_manager
 
 
 @pytest.mark.e2e_standalone_groups
@@ -29,22 +31,31 @@ class TestStandaloneOrganizationSpecified(KubernetesTester):
         # no group is created when organization is created
         assert groups_in_org == 0
 
+    def test_standalone_cr_is_created(self):
         # Create a standalone - the organization will be found and new group will be created
         self.create_custom_resource_from_file(self.get_namespace(), fixture("standalone.yaml"))
 
         KubernetesTester.wait_until('in_running_state', 150)
 
+    def test_standalone_organizations_are_found(self):
         # Making sure no more organizations were created but the group was created inside the organization
         assert len(self.find_organizations(self.__class__.org_name)) == 1
         print('Only one organization with name "{}" exists (as expected)'.format(self.__class__.org_name))
 
+    def test_standalone_get_groups_in_orgs(self):
         page = self.get_groups_in_organization_first_page(self.__class__.org_id)
         assert page["totalCount"] == 1
         group = page["results"][0]
         assert group is not None
         assert group["orgId"] == self.__class__.org_id
-        assert group["tags"] == ["EXTERNALLY_MANAGED_BY_KUBERNETES"]
 
         print('The group "{}" has been created by the Operator in organization "{}"'.format(self.get_om_group_name(),
                                                                                             self.__class__.org_name),
               )
+
+    @skip_if_cloud_manager()
+    def test_group_tag_was_set(self):
+        page = self.get_groups_in_organization_first_page(self.__class__.org_id)
+        group = page["results"][0]
+
+        assert group["tags"] == ["EXTERNALLY_MANAGED_BY_KUBERNETES"]
