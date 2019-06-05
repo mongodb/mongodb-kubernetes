@@ -1,0 +1,55 @@
+{
+  "auth": {
+    "usersWanted": [
+      {
+        "authenticationRestrictions": [],
+        "db": "testDb",
+        "user": "testUser",
+        "roles": [
+          {
+            "db": "admin",
+            "role": "backup"
+          },
+          {
+            "db": "admin",
+            "role": "monitor"
+          },
+          {
+            "db": "admin",
+            "role": "automation"
+          }
+        ],
+        "mechanisms": []
+      }
+    ],
+    "usersDeleted": [],
+    "disabled": true,
+    "authoritativeSet": false,
+    "autoAuthMechanisms": [],
+    "autoUser": "mms-automation",
+    "autoAuthRestrictions": []
+  },
+  "ldap": {},
+  "processes": [],
+  "replicaSets": [],
+  "roles": [],
+  "monitoringVersions": [],
+  "backupVersions": [],
+  "mongosqlds": [],
+  "balancer": {},
+  "indexConfigs": [],
+  "kerberos": {
+    "serviceName": "mongodb"
+  },
+  "options": {
+    "downloadBase": "/var/lib/mongodb-mms-automation",
+    "downloadBaseWindows": "%SystemDrive%\\MMSAutomation\\versions"
+  },
+  "ssl": {
+    "CAFilePath": null,
+    "CAFilePathWindows": null,
+    "clientCertificateMode": "OPTIONAL"
+  },
+  "version": null,
+  "sharding": []
+}

@@ -388,7 +388,12 @@ create_kops_cluster() {
 dump_diagnostic_information() {
     dump_file=$1
 
-    if ! kubectl get mst -n ${PROJECT_NAMESPACE} 2>&1 | grep -q "No resources found"; then
+    if ! kubectl get mdbu -n "${PROJECT_NAMESPACE}" 2>&1 | grep -q "No resources found"; then
+        header "MongoDBUser resources" >> "$dump_file"
+        kubectl get mdbu -o yaml -n "${PROJECT_NAMESPACE}"  >> "$dump_file"
+    fi
+
+    if ! kubectl get mdb -n ${PROJECT_NAMESPACE} 2>&1 | grep -q "No resources found"; then
         header "Mongodb Resources" >> $dump_file
         kubectl get mdb -o yaml -n ${PROJECT_NAMESPACE}  >> $dump_file
     fi

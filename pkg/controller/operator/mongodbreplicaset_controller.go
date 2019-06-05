@@ -48,9 +48,15 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 
 	spec := rs.Spec
 	podVars := &PodVars{}
-	conn, err := r.prepareConnection(request.NamespacedName, spec, podVars, log)
+	conn, err := r.prepareConnection(request.NamespacedName, spec.ConnectionSpec, podVars, log)
 	if err != nil {
 		return r.updateStatusFailed(rs, fmt.Sprintf("Failed to prepare Ops Manager connection: %s", err), log)
+	}
+
+	projectConfig, err := r.kubeHelper.readProjectConfig(request.Namespace, spec.Project)
+	if err != nil {
+		log.Infof("error reading project %s", err)
+		return retry()
 	}
 
 	replicaBuilder := r.kubeHelper.NewStatefulSetHelper(rs).
@@ -62,10 +68,32 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		SetExposedExternally(rs.Spec.ExposedExternally).
 		SetLogger(log).
 		SetTLS(rs.Spec.GetTLSConfig()).
-		SetClusterName(rs.Spec.ClusterName)
+		SetClusterName(rs.Spec.ClusterName).
+		SetProjectConfig(*projectConfig).
+		SetSecurity(rs.Spec.Security)
 
 	if err := r.kubeHelper.ensureSSLCertsForStatefulSet(replicaBuilder, log); err != nil {
 		return r.updateStatusFailed(rs, err.Error(), log)
+	}
+
+	if projectConfig.AuthMode == util.X509 {
+		if !spec.Security.TLSConfig.Enabled {
+			return r.updateStatusFailed(rs, "Authentication mode for project is x509 but this MDB resource is not TLS enabled", log)
+		} else if !r.doAgentX509CertsExist(request.Namespace) {
+			return r.updateStatusFailed(rs, "Agent x509 certs have not yet been created", log)
+		}
+
+		if spec.Security.ClusterAuthMode == util.X509 {
+			if err := r.ensureInternalClusterCerts(replicaBuilder, log); err != nil {
+				return r.updateStatusFailed(rs, fmt.Sprintf("Failed ensuring internal cluster authentication certs %s", err), log)
+			}
+		}
+	} else {
+		// this means the user has disabled x509 at the project level, but the resource is still configured to use x509 cluster authentication
+		// as we don't have a status on the ConfigMap, we can inform the user in the status of the resource.
+		if spec.Security.ClusterAuthMode == util.X509 {
+			return r.updateStatusFailed(rs, "This deployment has clusterAuthenticationMode set to x509, ensure the ConfigMap for this project is configured to enable x509", log)
+		}
 	}
 
 	replicaSetObject := replicaBuilder.BuildStatefulSet()
@@ -87,7 +115,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		return r.updateStatusFailed(rs, fmt.Sprintf("Failed to create/update replica set in Ops Manager: %s", err), log)
 	}
 
-	r.updateStatusSuccessful(rs, log, conn.BaseURL(), conn.GroupID())
+	r.updateStatusSuccessful(rs, log, DeploymentLink(conn.BaseURL(), conn.GroupID()))
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	return reconcile.Result{}, nil
 }
@@ -150,22 +178,25 @@ func AddReplicaSetController(mgr manager.Manager) error {
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
-func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, membersNumberBefore int, new *mongodb.MongoDB,
+func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, membersNumberBefore int, newResource *mongodb.MongoDB,
 	set *appsv1.StatefulSet, log *zap.SugaredLogger) error {
 
-	err := waitForRsAgentsToRegister(set, new.Spec.ClusterName, conn, log)
+	err := waitForRsAgentsToRegister(set, newResource.Spec.ClusterName, conn, log)
 	if err != nil {
 		return err
 	}
-	replicaSet := buildReplicaSetFromStatefulSet(set, new, log)
+	replicaSet := buildReplicaSetFromStatefulSet(set, newResource, log)
 
 	processNames := make([]string, 0)
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
+			// it is not possible to disable internal cluster authentication once enabled
+			if d.ExistingProcessesHaveInternalClusterAuthentication(replicaSet.Processes) && newResource.Spec.Security.ClusterAuthMode == "" {
+				return fmt.Errorf("cannot disable x509 internal cluster authentication")
+			}
 			d.MergeReplicaSet(replicaSet, nil)
 			d.AddMonitoringAndBackup(replicaSet.Processes[0].HostName(), log)
-			d.ConfigureTLS(new.Spec.GetTLSConfig())
-
+			d.ConfigureTLS(newResource.Spec.GetTLSConfig())
 			processNames = d.GetProcessNames(om.ReplicaSet{}, replicaSet.Rs.Name())
 			return nil
 		},
@@ -180,7 +211,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 		return err
 	}
 
-	return calculateDiffAndStopMonitoringHosts(conn, getAllHostsRs(set, new, membersNumberBefore), getAllHostsRs(set, new, new.Spec.Members), log)
+	return calculateDiffAndStopMonitoringHosts(conn, getAllHostsRs(set, newResource, membersNumberBefore), getAllHostsRs(set, newResource, newResource.Spec.Members), log)
 
 }
 
@@ -188,7 +219,7 @@ func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLog
 	rs := obj.(*mongodb.MongoDB)
 
 	log.Infow("Removing replica set from Ops Manager", "config", rs.Spec)
-	conn, err := r.prepareConnection(objectKey(rs.Namespace, rs.Name), rs.Spec, nil, log)
+	conn, err := r.prepareConnection(objectKey(rs.Namespace, rs.Name), rs.Spec.ConnectionSpec, nil, log)
 	if err != nil {
 		return err
 	}

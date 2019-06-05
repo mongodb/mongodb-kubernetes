@@ -16,11 +16,11 @@ title "Cleaning Kubernetes resources ${ONLY_MDB:+(only MongoDB resources)}"
 ensure_namespace "${NAMESPACE}"
 
 kubectl delete mdb --all -n "${NAMESPACE}" || true
-
+kubectl delete mdbu --all -n "${NAMESPACE}" || true
 kubectl delete csr --all
 
 if [[ -z $ONLY_MDB ]]; then
-	kubectl delete secrets --all -n "${NAMESPACE}"
-	kubectl delete configmaps --all -n "${NAMESPACE}"
-	kubectl delete pvc --all -n "${NAMESPACE}"
+  kubectl delete secrets --all -n "${NAMESPACE}"
+  kubectl delete configmaps --all -n "${NAMESPACE}"
+  kubectl delete pvc --all -n "${NAMESPACE}"
 fi

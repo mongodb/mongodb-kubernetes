@@ -20,7 +20,7 @@ class TestStandaloneRecoversBadOmConfiguration(KubernetesTester):
 
         resource = yaml.safe_load(open(fixture("standalone.yaml")))
 
-        cls.create_custom_resource_from_object(cls.get_namespace(), resource)
+        cls.create_mongodb_from_object(cls.get_namespace(), resource)
 
         KubernetesTester.wait_until('in_error_state', 20)
         mrs = KubernetesTester.get_resource()

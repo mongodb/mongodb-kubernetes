@@ -17,6 +17,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	"time"
+
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -65,6 +67,7 @@ func DeploymentLink(url, groupId string) string {
 func buildReplicaSetFromStatefulSet(set *appsv1.StatefulSet, mdb *mongodb.MongoDB, log *zap.SugaredLogger) om.ReplicaSetWithProcesses {
 	members := createProcesses(set, om.ProcessTypeMongod, mdb, log)
 	rsWithProcesses := om.NewReplicaSetWithProcesses(om.NewReplicaSet(set.Name, mdb.Spec.Version), members)
+	rsWithProcesses.ConfigureAuthenticationMode(mdb.Spec.Security.ClusterAuthMode)
 	return rsWithProcesses
 }
 
@@ -79,7 +82,6 @@ func createProcesses(set *appsv1.StatefulSet, mongoType om.MongoType,
 		switch mongoType {
 		case om.ProcessTypeMongod:
 			processes[idx] = om.NewMongodProcess(names[idx], hostname, mdb)
-
 			if wiredTigerCache != nil {
 				processes[idx].SetWiredTigerCache(*wiredTigerCache)
 			}
@@ -282,7 +284,7 @@ type MongoDBResourceEventHandler struct {
 	}
 }
 
-func (eh *MongoDBResourceEventHandler) Delete(e event.DeleteEvent, unused workqueue.RateLimitingInterface) {
+func (eh *MongoDBResourceEventHandler) Delete(e event.DeleteEvent, _ workqueue.RateLimitingInterface) {
 	zap.S().Infow("Cleaning up MongoDB resource", "resource", e.Object)
 	logger := zap.S().With("resource", objectKey(e.Meta.GetNamespace(), e.Meta.GetName()))
 	if err := eh.reconciler.delete(e.Object, logger); err != nil {
@@ -290,4 +292,33 @@ func (eh *MongoDBResourceEventHandler) Delete(e event.DeleteEvent, unused workqu
 		return
 	}
 	logger.Info("Removed MongoDB resource from Kubernetes and Ops Manager")
+}
+
+// Reconciliation results returned during reconciliation
+
+// success indicates we have successfully completed reconciliation
+func success() (reconcile.Result, error) {
+	return reconcile.Result{}, nil
+}
+
+// retry requeues the result after 10 seconds. If a non nil error is returned,
+// the time is not respected and the event is immediately requeued.
+func retry() (reconcile.Result, error) {
+	return reconcile.Result{RequeueAfter: time.Second * 10}, nil
+}
+
+// stop is functionally identical to success (we stop trying) but exists to show intent.
+func stop() (reconcile.Result, error) {
+	return success()
+}
+
+// fail fails with the given error
+func fail(err error) (reconcile.Result, error) {
+	return reconcile.Result{}, err
+}
+
+// toInternalClusterAuthName takes a hostname e.g. my-replica-set and converts
+// it into the name of the secret which will hold the internal clusterFile
+func toInternalClusterAuthName(name string) string {
+	return fmt.Sprintf("%s-%s", name, util.ClusterFileName)
 }

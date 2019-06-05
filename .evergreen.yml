@@ -508,6 +508,11 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_users_schema_validation
+  exec_timeout_secs: 600 # 10 minutes max
+  commands:
+    - func: "e2e_test"
+
 # Removing this test as it creates a cluster wide operator
 # that collides with every other operator running in the
 # cluster, breaking havoc
@@ -671,6 +676,22 @@ tasks:
   commands:
   - func: "e2e_test"
 
+- name: e2e_tls_x509_rs
+  # longer timeout than usual as this test tests recovery from bad states which can take some time
+  exec_timeout_secs: 900
+  commands:
+  - func: "e2e_test"
+
+- name: e2e_tls_x509_sc
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_tls_x509_user_connectivity
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+
 task_groups:
 - name: unit_task_group
   setup_group:
@@ -727,7 +748,19 @@ task_groups:
     - e2e_replica_set_tls_require
     - e2e_replica_set_tls_require_upgrade
     - e2e_replica_set_tls_require_and_disable
-    - e2e_tls_multiple_different_ssl_configs
+  teardown_task:
+    - func: "upload_e2e_artifacts"
+
+- name: e2e_x509_task_group
+  max_hosts: 100
+  setup_group:
+    - func: "clone"
+    - func: "setup_kubectl"
+  tasks:
+    - e2e_tls_x509_rs
+    - e2e_tls_x509_sc
+    - e2e_tls_x509_user_connectivity
+    - e2e_users_schema_validation
   teardown_task:
     - func: "upload_e2e_artifacts"
 
@@ -782,7 +815,10 @@ buildvariants:
   - name: "setup_e2e"
   - name: "e2e_tls_task_group"
     depends_on:
-    - name: setup_e2e
+      - name: setup_e2e
+  - name: "e2e_x509_task_group"
+    depends_on:
+      - name: setup_e2e
 
 - name: e2e_openshift_origin_v3.11_om_40_current
   display_name: "e2e_openshift_origin_v3.11_om_40_current"
@@ -799,6 +835,9 @@ buildvariants:
   - name: "e2e_tls_task_group"
     depends_on:
     - name: setup_e2e
+  - name: "e2e_x509_task_group"
+    depends_on:
+      - name: setup_e2e
 
 - name: e2e_openshift_cloud_qa
   display_name: "e2e_openshift_cloud_qa"
@@ -815,6 +854,9 @@ buildvariants:
   - name: "e2e_tls_task_group"
     depends_on:
     - name: setup_e2e
+  - name: "e2e_x509_task_group"
+    depends_on:
+      - name: setup_e2e
 
 - name: go_unit_tests
   display_name: "go_unit_tests"

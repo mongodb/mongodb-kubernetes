@@ -10,6 +10,12 @@ const (
 	// MongoDbShardedClusterController name of the ShardedCluster controller
 	MongoDbShardedClusterController = "mongodbshardedcluster-controller"
 
+	// MongoDbProjectController name of Project controller
+	MongoDbProjectController = "project-controller"
+
+	// MongoDbUserController name of the MongoDBUser controller
+	MongoDbUserController = "mongodbuser-controller"
+
 	// Ops manager config map and secret variables
 	OmBaseUrl      = "baseUrl"
 	OmOrgId        = "orgId"
@@ -17,6 +23,8 @@ const (
 	OmUser         = "user"
 	OmPublicApiKey = "publicApiKey"
 	OmAgentApiKey  = "agentApiKey"
+	OmCredentials  = "credentials"
+	OmAuthMode     = "authenticationMode"
 
 	// SSLRequireValidMMSServerCertificates points at the string name of the
 	// same name variable in OM configuration passed in the "Project" config
@@ -50,19 +58,54 @@ const (
 	EnvVarSSLTrustedMMSServerCertificate = "SSL_TRUSTED_MMS_SERVER_CERTIFICATE"
 
 	// Pod/StatefulSet specific constants
-	ContainerName             = "mongodb-enterprise-database"
-	OmControllerLabel         = "mongodb-enterprise-operator"
-	LivenessProbe             = "/mongodb-automation/files/probe.sh"
-	PvcNameData               = "data"
-	PvcMountPathData          = "/data"
-	PvcNameJournal            = "journal"
-	PvcMountPathJournal       = "/journal"
-	PvcNameLogs               = "logs"
-	PvcMountPathLogs          = "/var/log/mongodb-mms-automation"
-	CAFilePathInContainer     = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-	PEMKeyFilePathInContainer = "/mongodb-automation/server.pem"
-	RunAsUser                 = 2000
-	FsGroup                   = 2000
+	ContainerName              = "mongodb-enterprise-database"
+	OmControllerLabel          = "mongodb-enterprise-operator"
+	LivenessProbe              = "/mongodb-automation/files/probe.sh"
+	PvcNameData                = "data"
+	PvcMountPathData           = "/data"
+	PvcNameJournal             = "journal"
+	PvcMountPathJournal        = "/journal"
+	PvcNameLogs                = "logs"
+	PvcMountPathLogs           = "/var/log/mongodb-mms-automation"
+	CAFilePathInContainer      = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+	PEMKeyFilePathInContainer  = "/mongodb-automation/server.pem"
+	AutomationAgentName        = "mms-automation-agent"
+	AutomationAgentPemFileName = AutomationAgentName + "-pem"
+	MonitoringAgentName        = "mms-monitoring-agent"
+	MonitoringAgentPemFileName = MonitoringAgentName + "-pem"
+	BackupAgentName            = "mms-backup-agent"
+	BackupAgentUserPemFileName = BackupAgentName + "-pem"
+	AutomationAgentPemFilePath = "/mongodb-automation/" + AgentSecretName + "/" + AutomationAgentPemFileName
+	MonitoringAgentPemFilePath = "/mongodb-automation/" + AgentSecretName + "/" + MonitoringAgentPemFileName
+	BackupAgentPemFilePath     = "/mongodb-automation/" + AgentSecretName + "/" + BackupAgentUserPemFileName
+	RunAsUser                  = 2000
+	FsGroup                    = 2000
+
+	// x509 authentication
+	X509Db                         = "$external"
+	AutomationAgentSubject         = "CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US"
+	BackupAgentSubject             = "CN=mms-backup-agent,OU=MongoDB Kubernetes Operator,O=mms-backup-agent,L=NY,ST=NY,C=US"
+	MonitoringAgentSubject         = "CN=mms-monitoring-agent,OU=MongoDB Kubernetes Operator,O=mms-monitoring-agent,L=NY,ST=NY,C=US"
+	AgentSecretName                = "agent-certs"
+	AutomationConfigX509Option     = "MONGODB-X509"
+	AutomationAgentKeyFileContents = "DUMMYFILE"
+	DefaultAutomationAgentPassword = "D9XK2SfdR2obIevI9aKsYlVH"
+	AutomationAgentUserName        = "mms-automation-agent"
+	RequireClientCertificates      = "REQUIRE"
+	OptionalClientCertficates      = "OPTIONAL"
+	ClusterFileName                = "clusterfile"
+	InternalClusterAuthMountPath   = "/mongodb-automation/cluster-auth/"
+	X509                           = "x509"
+
+	// AutomationAgentWindowsKeyFilePath is the default path for the windows key file. This is never
+	// used, but we want to keep it the default value so it is is possible to add new users without modifying
+	// it. Ops Manager will attempt to reset this value to the default if new MongoDB users are added
+	// when x509 auth is enabled
+	AutomationAgentWindowsKeyFilePath = "%SystemDrive%\\MMSAutomation\\versions\\keyfile"
+
+	//AutomationAgentKeyFilePathInContainer is the default path of the keyfile and should be
+	// kept as is for the same reason as above
+	AutomationAgentKeyFilePathInContainer = "/var/lib/mongodb-mms-automation/keyfile"
 
 	// Operator Env configuration properties
 	AutomationAgentImageUrl        = "MONGODB_ENTERPRISE_DATABASE_IMAGE"

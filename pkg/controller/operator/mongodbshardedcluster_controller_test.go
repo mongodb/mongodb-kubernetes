@@ -11,9 +11,13 @@ import (
 
 	"os"
 
+	"fmt"
+
 	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"go.uber.org/zap"
+	certsv1 "k8s.io/api/certificates/v1beta1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -190,7 +194,7 @@ func TestPodAntiaffinity_MongodsInsideShardAreSpread(t *testing.T) {
 	sc := DefaultClusterBuilder().Build()
 
 	reconciler := newShardedClusterReconciler(newMockedManager(sc), om.NewEmptyMockedOmConnection)
-	state := reconciler.buildKubeObjectsForShardedCluster(sc, defaultPodVars(), zap.S())
+	state := reconciler.buildKubeObjectsForShardedCluster(sc, defaultPodVars(), &ProjectConfig{}, zap.S())
 
 	shardHelpers := state.shardsSetsHelpers
 
@@ -209,7 +213,48 @@ func TestPodAntiaffinity_MongodsInsideShardAreSpread(t *testing.T) {
 	assert.Equal(t, secondShartPodAffinityTerm.LabelSelector.MatchLabels[POD_ANTI_AFFINITY_LABEL_KEY], sc.ShardRsName(1))
 }
 
-func createDeploymentFromShardedCluster(sh *v1.MongoDB) om.Deployment {
+func TestShardedCluster_WithTLSEnabled_AndX509Enabled_Succeeds(t *testing.T) {
+	sc := DefaultClusterBuilder().
+		WithTLS().
+		Build()
+
+	manager := newMockedManager(sc)
+	client := manager.client
+
+	client.configMaps[objectKey("", om.TestGroupName)] = x509ConfigMap()
+
+	// create the secret the agent certs will exist in
+	client.secrets[objectKey("", util.AgentSecretName)] = &corev1.Secret{}
+
+	// create pre-approved TLS csrs for the sharded cluster
+	// TODO: why does this test pass with namespace="" but fails with namespace=TestNamespace?
+	client.csrs[objectKey("", fmt.Sprintf("%s-mongos-0.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
+	client.csrs[objectKey("", fmt.Sprintf("%s-mongos-1.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
+	client.csrs[objectKey("", fmt.Sprintf("%s-mongos-2.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
+	client.csrs[objectKey("", fmt.Sprintf("%s-mongos-3.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
+	client.csrs[objectKey("", fmt.Sprintf("%s-config-0.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
+	client.csrs[objectKey("", fmt.Sprintf("%s-config-1.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
+	client.csrs[objectKey("", fmt.Sprintf("%s-config-2.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
+	client.csrs[objectKey("", fmt.Sprintf("%s-0.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
+	client.csrs[objectKey("", fmt.Sprintf("%s-1.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
+	client.csrs[objectKey("", fmt.Sprintf("%s-2.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
+	client.csrs[objectKey("", fmt.Sprintf("%s-0-0.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
+	client.csrs[objectKey("", fmt.Sprintf("%s-0-1.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
+	client.csrs[objectKey("", fmt.Sprintf("%s-0-2.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
+	client.csrs[objectKey("", fmt.Sprintf("%s-1-0.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
+	client.csrs[objectKey("", fmt.Sprintf("%s-1-1.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
+	client.csrs[objectKey("", fmt.Sprintf("%s-1-2.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
+
+	reconciler := newShardedClusterReconciler(manager, om.NewEmptyMockedOmConnection)
+	actualResult, err := reconciler.Reconcile(requestFromObject(sc))
+	expectedResult, _ := success()
+
+	assert.Equal(t, expectedResult, actualResult)
+	assert.Nil(t, err)
+}
+
+func createDeploymentFromShardedCluster(updatable Updatable) om.Deployment {
+	sh := updatable.(*v1.MongoDB)
 	state := createStateFromResource(sh)
 	mongosProcesses := createProcesses(
 		state.mongosSetHelper.BuildStatefulSet(),
@@ -231,7 +276,8 @@ func createDeploymentFromShardedCluster(sh *v1.MongoDB) om.Deployment {
 
 // createStateFromResource creates the kube state for the sharded cluster. Note, that it uses the `Status` of cluster
 // instead of `Spec` as it tries to reflect the CURRENT state
-func createStateFromResource(sh *v1.MongoDB) ShardedClusterKubeState {
+func createStateFromResource(updatable Updatable) ShardedClusterKubeState {
+	sh := updatable.(*v1.MongoDB)
 	shardHelpers := make([]*StatefulSetHelper, sh.Status.ShardCount)
 	for i := 0; i < sh.Status.ShardCount; i++ {
 		shardHelpers[i] = defaultSetHelper().SetName(sh.ShardRsName(i)).SetService(sh.ShardServiceName()).SetReplicas(sh.Status.MongodsPerShardCount)
@@ -259,9 +305,9 @@ func DefaultClusterBuilder() *ClusterBuilder {
 	}
 
 	spec := v1.MongoDbSpec{
-		Persistent:                      util.BooleanRef(false),
-		Project:                         TestProjectConfigMapName,
-		Credentials:                     TestCredentialsSecretName,
+		Persistent: util.BooleanRef(false),
+		ConnectionSpec: v1.ConnectionSpec{Project: TestProjectConfigMapName,
+			Credentials: TestCredentialsSecretName},
 		Version:                         "3.6.4",
 		ResourceType:                    v1.ShardedCluster,
 		MongodbShardedClusterSizeConfig: sizeConfig,
@@ -310,6 +356,24 @@ func (b *ClusterBuilder) SetConfigServerCountStatus(count int) *ClusterBuilder {
 }
 func (b *ClusterBuilder) SetMongosCountStatus(count int) *ClusterBuilder {
 	b.Status.MongosCount = count
+	return b
+}
+
+func (b *ClusterBuilder) SetSecurity(security v1.Security) *ClusterBuilder {
+	b.Spec.Security = &security
+	return b
+}
+
+func (b *ClusterBuilder) WithTLS() *ClusterBuilder {
+	if b.Spec.Security == nil || b.Spec.Security.TLSConfig == nil {
+		return b.SetSecurity(v1.Security{TLSConfig: &v1.TLSConfig{Enabled: true}})
+	}
+	b.Spec.Security.TLSConfig.Enabled = true
+	return b
+}
+
+func (b *ClusterBuilder) SetClusterAuth(auth string) *ClusterBuilder {
+	b.Spec.Security.ClusterAuthMode = auth
 	return b
 }
 func (b *ClusterBuilder) Build() *v1.MongoDB {

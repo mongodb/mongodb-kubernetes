@@ -324,6 +324,38 @@ func (d Deployment) GetProcessNames(kind interface{}, name string) []string {
 	}
 }
 
+// allProcessesAreTLSEnabled ensures that every process in the given deployment is TLS enabled
+// it is not possible to enable x509 authentication at the project level if a single process
+// does not have TLS enabled.
+func (d Deployment) AllProcessesAreTLSEnabled() bool {
+	for _, p := range d.getProcesses() {
+		if !p.IsTLSEnabled() {
+			return false
+		}
+	}
+	return true
+}
+
+// anyProcessHasInternalClusterAuthentication determines if at least one process
+// has internal cluster authentication enabled. If this is true, it is impossible to disable
+// x509 authentication
+func (d Deployment) AnyProcessHasInternalClusterAuthentication() bool {
+	return d.processesHaveInternalClusterAuthentication(d.getProcesses())
+}
+
+func (d Deployment) ExistingProcessesHaveInternalClusterAuthentication(processes []Process) bool {
+	deploymentProcesses := make([]Process, 0)
+	for _, p := range processes {
+		deploymentProcess := d.getProcessByName(p.Name())
+		if deploymentProcess != nil {
+			deploymentProcesses = append(deploymentProcesses, *deploymentProcess)
+		}
+	}
+	return d.processesHaveInternalClusterAuthentication(deploymentProcesses)
+}
+
+// ***************************************** Private methods ***********************************************************
+
 func (d Deployment) getReplicaSetProcessNames(name string) []string {
 	processNames := make([]string, 0)
 	if rs := d.getReplicaSetByName(name); rs != nil {
@@ -754,6 +786,16 @@ func (d Deployment) copyFirstProcessToNewPositions(processes []Process, idxOfFir
 	return nil
 }
 
+func (d Deployment) processesHaveInternalClusterAuthentication(processes []Process) bool {
+	for _, p := range processes {
+		if p.IsInternalClusterAuthentication() {
+			return true
+		}
+	}
+	return false
+}
+
+// limitVotingMembers ensures that the given replica set has at most 7 votes
 func (d Deployment) limitVotingMembers(rsName string) {
 	r := d.getReplicaSetByName(rsName)
 

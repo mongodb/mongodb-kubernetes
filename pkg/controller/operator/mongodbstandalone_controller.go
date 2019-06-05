@@ -97,9 +97,15 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 
 	spec := s.Spec
 	podVars := &PodVars{}
-	conn, err := r.prepareConnection(request.NamespacedName, spec, podVars, log)
+	conn, err := r.prepareConnection(request.NamespacedName, spec.ConnectionSpec, podVars, log)
 	if err != nil {
 		return r.updateStatusFailed(s, fmt.Sprintf("Failed to prepare Ops Manager connection: %s", err), log)
+	}
+
+	projectConfig, err := r.kubeHelper.readProjectConfig(request.Namespace, spec.Project)
+	if err != nil {
+		log.Infof("error reading project %s", err)
+		return retry()
 	}
 
 	standaloneBuilder := r.kubeHelper.NewStatefulSetHelper(s).
@@ -110,10 +116,19 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		SetExposedExternally(s.Spec.ExposedExternally).
 		SetLogger(log).
 		SetTLS(s.Spec.GetTLSConfig()).
-		SetClusterName(s.Spec.ClusterName)
+		SetClusterName(s.Spec.ClusterName).
+		SetProjectConfig(*projectConfig)
 
 	if err := r.kubeHelper.ensureSSLCertsForStatefulSet(standaloneBuilder, log); err != nil {
 		return r.updateStatusFailed(s, err.Error(), log)
+	}
+
+	if projectConfig.AuthMode == util.X509 {
+		if !spec.Security.TLSConfig.Enabled {
+			return r.updateStatusFailed(s, "Authentication mode for project is x509 but this MDB resource is not TLS enabled", log)
+		} else if !r.doAgentX509CertsExist(request.Namespace) {
+			return r.updateStatusFailed(s, "agent x509 certs have not yet been created", log)
+		}
 	}
 
 	err = standaloneBuilder.CreateOrUpdateInKubernetes()
@@ -127,7 +142,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		return r.updateStatusFailed(s, fmt.Sprintf("Failed to create/update standalone in Ops Manager: %s", err), log)
 	}
 
-	r.updateStatusSuccessful(s, log, conn.BaseURL(), conn.GroupID())
+	r.updateStatusSuccessful(s, log, DeploymentLink(conn.BaseURL(), conn.GroupID()))
 	log.Infof("Finished reconciliation for MongoDbStandalone! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	return reconcile.Result{}, nil
 }
@@ -166,7 +181,7 @@ func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLog
 
 	log.Infow("Removing standalone from Ops Manager", "config", s.Spec)
 
-	conn, err := r.prepareConnection(objectKey(s.Namespace, s.Name), s.Spec, nil, log)
+	conn, err := r.prepareConnection(objectKey(s.Namespace, s.Name), s.Spec.ConnectionSpec, nil, log)
 	if err != nil {
 		return err
 	}

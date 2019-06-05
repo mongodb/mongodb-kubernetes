@@ -97,6 +97,7 @@ teardown() {
     # Make sure that under no circumstances, this function fails.
 
     kubectl delete mdb --all -n "${PROJECT_NAMESPACE}" || true
+    kubectl delete mdbu --all -n "${PROJECT_NAMESPACE}" || true
     echo "Removing test namespace"
     kubectl delete "namespace/${PROJECT_NAMESPACE}" || true
 }

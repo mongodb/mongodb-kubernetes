@@ -3,9 +3,10 @@ package operator
 // This is a collection of functions building different Kubernetes API objects (statefulset, templates etc) from operator
 // custom objects
 import (
-	"fmt"
 	"path"
 	"strconv"
+
+	"fmt"
 
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -29,8 +30,11 @@ const (
 	// SecretVolumeName is the name of the volume resource.
 	SecretVolumeName = "secret"
 
-	// CaCertMountPath defines where in the Pod will the ca cert be mounted.
+	// CaCertMountPath defines where in the Pod the ca cert will be mounted.
 	CaCertMountPath = "/mongodb-automation/certs"
+
+	// AgentCertMountPath defines where in the Pod the ca cert will be mounted.
+	AgentCertMountPath = "/mongodb-automation/" + util.AgentSecretName
 
 	// CaCertMMS is the name of the CA file provided for MMS.
 	CaCertMMS = "mms-ca.crt"
@@ -88,63 +92,114 @@ func buildStatefulSet(p StatefulSetHelper) *appsv1.StatefulSet {
 		buildPersistentVolumeClaims(set, p)
 	}
 
-	// SSL is active
-	if p.Security != nil && p.Security.TLSConfig.Enabled {
-		// TODO: Move into its own function
-		tlsConfig := p.Security.TLSConfig
-		var secretName string
-		if tlsConfig.Secret != "" {
-			secretName = tlsConfig.Secret
-		} else {
-			secretName = fmt.Sprintf("%s-cert", p.Name)
-		}
-		// mount the secrets volume.
-		volMount := corev1.VolumeMount{
-			Name:      SecretVolumeName,
-			ReadOnly:  true,
-			MountPath: SecretVolumeMountPath,
-		}
-		vol := corev1.Volume{
-			Name: SecretVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName: secretName,
-				},
-			},
-		}
-		set.Spec.Template.Spec.Containers[0].VolumeMounts =
-			append(set.Spec.Template.Spec.Containers[0].VolumeMounts,
-				volMount)
-		set.Spec.Template.Spec.Volumes =
-			append(set.Spec.Template.Spec.Volumes,
-				vol)
+	mountVolumes(set, p)
+
+	return set
+}
+
+// volumeMountData is a wrapper around all the fields required to
+// mount a volume
+type volumeMountData struct {
+	volumeMountName  string
+	volumeMountPath  string
+	volumeName       string
+	volumeSourceType interface{}
+	volumeSourceName string
+}
+
+func mountVolume(mountData volumeMountData, set *appsv1.StatefulSet) {
+	volMount := corev1.VolumeMount{
+		Name:      mountData.volumeMountName,
+		ReadOnly:  true,
+		MountPath: mountData.volumeMountPath,
 	}
 
-	if p.PodVars.SSLMMSCAConfigMap != "" {
-		volMount := corev1.VolumeMount{
-			Name:      CaCertName,
-			ReadOnly:  true,
-			MountPath: CaCertMountPath,
-		}
-		vol := corev1.Volume{
-			Name: CaCertName,
+	var vol corev1.Volume
+	switch mountData.volumeSourceType.(type) {
+	case corev1.ConfigMapVolumeSource:
+		vol = corev1.Volume{
+			Name: mountData.volumeName,
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
 					LocalObjectReference: corev1.LocalObjectReference{
-						Name: p.PodVars.SSLMMSCAConfigMap,
+						Name: mountData.volumeSourceName,
 					},
 				},
 			},
 		}
-
-		set.Spec.Template.Spec.Containers[0].VolumeMounts =
-			append(set.Spec.Template.Spec.Containers[0].VolumeMounts,
-				volMount)
-		set.Spec.Template.Spec.Volumes =
-			append(set.Spec.Template.Spec.Volumes,
-				vol)
+	case corev1.SecretVolumeSource:
+		vol = corev1.Volume{
+			Name: mountData.volumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: mountData.volumeSourceName,
+				},
+			},
+		}
+	default:
+		panic("unrecognized volumeSource type. Must be either ConfigMapVolumeSource or SecretVolumeSource")
 	}
-	return set
+
+	set.Spec.Template.Spec.Containers[0].VolumeMounts =
+		append(set.Spec.Template.Spec.Containers[0].VolumeMounts,
+			volMount)
+	set.Spec.Template.Spec.Volumes =
+		append(set.Spec.Template.Spec.Volumes,
+			vol)
+}
+
+func mountVolumes(set *appsv1.StatefulSet, helper StatefulSetHelper) {
+
+	// SSL is active
+	if helper.Security != nil && helper.Security.TLSConfig.Enabled {
+		tlsConfig := helper.Security.TLSConfig
+		var secretName string
+		if tlsConfig.Secret != "" {
+			secretName = tlsConfig.Secret
+		} else {
+			secretName = fmt.Sprintf("%s-cert", helper.Name)
+		}
+
+		mountVolume(volumeMountData{
+			volumeMountName:  SecretVolumeName,
+			volumeMountPath:  SecretVolumeMountPath,
+			volumeName:       SecretVolumeName,
+			volumeSourceType: corev1.SecretVolumeSource{},
+			volumeSourceName: secretName,
+		}, set)
+
+	}
+
+	if helper.PodVars.SSLMMSCAConfigMap != "" {
+		mountVolume(volumeMountData{
+			volumeMountName:  CaCertName,
+			volumeMountPath:  CaCertMountPath,
+			volumeName:       CaCertName,
+			volumeSourceType: corev1.ConfigMapVolumeSource{},
+			volumeSourceName: helper.PodVars.SSLMMSCAConfigMap,
+		}, set)
+	}
+
+	if helper.Project.AuthMode == util.X509 {
+		mountVolume(volumeMountData{
+			volumeMountName:  util.AgentSecretName,
+			volumeMountPath:  AgentCertMountPath,
+			volumeName:       util.AgentSecretName,
+			volumeSourceType: corev1.SecretVolumeSource{},
+			volumeSourceName: util.AgentSecretName,
+		}, set)
+
+		// add volume for x509 cert used in internal cluster authentication
+		if helper.Security.ClusterAuthMode == util.X509 {
+			mountVolume(volumeMountData{
+				volumeMountName:  util.ClusterFileName,
+				volumeMountPath:  util.InternalClusterAuthMountPath,
+				volumeName:       util.ClusterFileName,
+				volumeSourceType: corev1.SecretVolumeSource{},
+				volumeSourceName: toInternalClusterAuthName(helper.Name),
+			}, set)
+		}
+	}
 }
 
 func buildPersistentVolumeClaims(set *appsv1.StatefulSet, p StatefulSetHelper) {

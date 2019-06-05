@@ -24,7 +24,7 @@ class TestStandaloneRecoversBadPvConfiguration(KubernetesTester):
 
         cls.random_storage_name = KubernetesTester.random_k8s_name()
         resource["spec"]["podSpec"]["persistence"]["single"]["storageClass"] = cls.random_storage_name
-        cls.create_custom_resource_from_object(cls.get_namespace(), resource)
+        cls.create_mongodb_from_object(cls.get_namespace(), resource)
         KubernetesTester.wait_until('in_error_state', 300)
 
         mrs = KubernetesTester.get_resource()

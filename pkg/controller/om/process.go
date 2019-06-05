@@ -101,6 +101,7 @@ func NewMongosProcess(name, hostName string, resource *mongodb.MongoDB) Process 
 	ans.SetLogPath(path.Join(util.PvcMountPathLogs, "/mongodb.log"))
 
 	ans.configureAdditionalMongodConfig(resource.Spec.AdditionalMongodConfig)
+	ans.ConfigureClusterAuthMode(resource.Spec.Security.ClusterAuthMode)
 
 	return ans
 }
@@ -118,6 +119,7 @@ func NewMongodProcess(name, hostName string, resource *mongodb.MongoDB) Process 
 	ans.SetLogPath(path.Join(util.PvcMountPathLogs, "mongodb.log"))
 
 	ans.configureAdditionalMongodConfig(resource.Spec.AdditionalMongodConfig)
+	ans.ConfigureClusterAuthMode(resource.Spec.Security.ClusterAuthMode)
 
 	return ans
 }
@@ -238,18 +240,26 @@ func (p Process) SSLConfig() map[string]interface{} {
 	return make(map[string]interface{}, 0)
 }
 
-func (p Process) Security() map[string]interface{} {
+func (p Process) EnsureSecurity() map[string]interface{} {
 	return util.ReadOrCreateMap(p.Args(), "security")
 }
 
-func (p Process) SetClusterAuthMode(authMode string) Process {
-	p.Security()["clusterAuthMode"] = authMode
+func (p Process) ConfigureClusterAuthMode(clusterAuthMode string) Process {
+	if clusterAuthMode == util.X509 {
+		// the individual key per pod will be podname-pem e.g. my-replica-set-0-pem
+		p.setClusterAuthMode(clusterAuthMode)
+		p.setClusterFile(fmt.Sprintf("%s%s-pem", util.InternalClusterAuthMountPath, p.Name()))
+	}
 	return p
 }
 
-func (p Process) SetClusterFile(filePath string) Process {
-	p.EnsureSSLConfig()["clusterFile"] = filePath
-	return p
+func (p Process) IsTLSEnabled() bool {
+	_, ok := p.SSLConfig()["PEMKeyFile"]
+	return ok
+}
+
+func (p Process) IsInternalClusterAuthentication() bool {
+	return p.clusterAuthMode() != ""
 }
 
 // String
@@ -354,6 +364,9 @@ func (p Process) mergeFrom(operatorProcess Process) {
 		p.setCluster(operatorProcess.cluster())
 	}
 
+	// update authentication mode and clusterFile path for both process types
+	p.ConfigureClusterAuthMode(operatorProcess.clusterAuthMode())
+
 	fcv := operatorProcess.featureCompatibilityVersion()
 	initDefault(
 		operatorProcess.Name(),
@@ -411,6 +424,24 @@ func (s Process) setName(name string) Process {
 	return s
 }
 
+func (p Process) setClusterFile(filePath string) Process {
+	p.EnsureSSLConfig()["clusterFile"] = filePath
+	return p
+}
+
+func (p Process) getClusterFile() string {
+	ssl := p.SSLConfig()
+	if clusterFile, ok := ssl["clusterFile"]; ok {
+		return clusterFile.(string)
+	}
+	return ""
+}
+
+func (p Process) setClusterAuthMode(authMode string) Process {
+	p.EnsureSecurity()["clusterAuthMode"] = authMode
+	return p
+}
+
 func (s Process) authSchemaVersion() int {
 	return s["authSchemaVersion"].(int)
 }
@@ -431,6 +462,21 @@ func (s Process) setReplicaSetName(rsName string) Process {
 
 func (s Process) replicaSetName() string {
 	return readMapValueAsString(s.Args(), "replication", "replSetName")
+}
+
+func (p Process) security() map[string]interface{} {
+	args := p.Args()
+	if _, ok := args["security"]; ok {
+		return args["security"].(map[string]interface{})
+	}
+	return make(map[string]interface{}, 0)
+}
+
+func (p Process) clusterAuthMode() string {
+	if authMode, ok := p.security()["clusterAuthMode"]; ok {
+		return authMode.(string)
+	}
+	return ""
 }
 
 // These methods are ONLY FOR CONFIG SERVER REPLICA SET members!

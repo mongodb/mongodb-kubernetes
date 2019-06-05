@@ -1,6 +1,7 @@
 package om
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -64,12 +65,23 @@ func TestConfigureSSL_Process(t *testing.T) {
 }
 
 func TestConfigureX509_Process(t *testing.T) {
-	process := Process{}
-	process.SetClusterAuthMode("x509")
-	assert.Equal(t, "x509", process.Security()["clusterAuthMode"])
+	mdb := &mongodb.MongoDB{
+		Spec: mongodb.MongoDbSpec{
+			Version:  "3.6.4",
+			Security: &mongodb.Security{},
+		},
+	}
+	process := NewMongodProcess(
+		"trinity", "trinity-0.trinity-svc.svc.cluster.local", mdb,
+	)
 
-	process.SetClusterFile("/mongodb-automation/clusterfile.pem")
-	assert.Equal(t, "/mongodb-automation/clusterfile.pem", process.EnsureSSLConfig()["clusterFile"])
+	process.ConfigureClusterAuthMode("") // should not update fields
+	assert.NotContains(t, process.security(), "clusterAuthMode")
+	assert.NotContains(t, process.SSLConfig(), "clusterFile")
+
+	process.ConfigureClusterAuthMode(util.X509) // should update fields if specified as x509
+	assert.Equal(t, util.X509, process.security()["clusterAuthMode"])
+	assert.Equal(t, fmt.Sprintf("%s%s-pem", util.InternalClusterAuthMountPath, process.Name()), process.SSLConfig()["clusterFile"])
 }
 
 func TestCreateMongodProcess_SSL(t *testing.T) {

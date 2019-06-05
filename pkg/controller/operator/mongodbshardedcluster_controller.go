@@ -48,7 +48,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (r
 		return r.updateStatusFailed(sc, err.Error(), log)
 	}
 
-	r.updateStatusSuccessful(sc, log, conn.BaseURL(), conn.GroupID())
+	r.updateStatusSuccessful(sc, log, DeploymentLink(conn.BaseURL(), conn.GroupID()))
 	log.Infof("Finished reconciliation for Sharded Cluster! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	return reconcile.Result{}, nil
 }
@@ -58,12 +58,17 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 	log.Info("ShardedCluster.doShardedClusterProcessing")
 	sc := obj.(*mongodb.MongoDB)
 	podVars := &PodVars{}
-	conn, err := r.prepareConnection(objectKey(sc.Namespace, sc.Name), sc.Spec, podVars, log)
+	conn, err := r.prepareConnection(objectKey(sc.Namespace, sc.Name), sc.Spec.ConnectionSpec, podVars, log)
 	if err != nil {
 		return nil, err
 	}
 
-	kubeState := r.buildKubeObjectsForShardedCluster(sc, podVars, log)
+	projectConfig, err := r.kubeHelper.readProjectConfig(sc.Namespace, sc.Spec.Project)
+	if err != nil {
+		return nil, fmt.Errorf("error reading project %s", err)
+	}
+
+	kubeState := r.buildKubeObjectsForShardedCluster(sc, podVars, projectConfig, log)
 
 	if err = prepareScaleDownShardedCluster(conn, kubeState, sc, log); err != nil {
 		return nil, fmt.Errorf("Failed to perform scale down preliminary actions: %s", err)
@@ -71,6 +76,34 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 
 	if err = r.ensureSSLCertificates(sc, kubeState, log); err != nil {
 		return nil, err
+	}
+
+	if projectConfig.AuthMode == util.X509 {
+		if !sc.Spec.Security.TLSConfig.Enabled {
+			return nil, fmt.Errorf("authentication mode for project is x509 but this MDB resource is not TLS enabled")
+		} else if !r.doAgentX509CertsExist(sc.Namespace) {
+			return nil, fmt.Errorf("agent x509 certs have not yet been created %s", err)
+		}
+
+		if sc.Spec.Security.ClusterAuthMode == util.X509 {
+			errors := make([]error, 0)
+			for _, helper := range getAllStatefulSetHelpers(kubeState) {
+				if err := r.ensureInternalClusterCerts(helper, log); err != nil {
+					errors = append(errors, err)
+				}
+			}
+			// fail only after creating all CSRs
+			if len(errors) > 0 {
+				return nil, fmt.Errorf("failed ensuring internal cluster authentication certs %s", errors[0])
+			}
+		}
+
+	} else {
+		// this means the user has disabled x509 at the project level, but the resource is still configured to use x509 cluster authentication
+		// as we don't have a status on the ConfigMap, we can inform the user in the status of the resource.
+		if sc.Spec.Security.ClusterAuthMode == util.X509 {
+			return nil, fmt.Errorf("This deployment has clusterAuthenticationMode set to x509, ensure the ConfigMap for this project is configured to enable x509")
+		}
 	}
 
 	if err = r.createKubernetesResources(sc, kubeState, log); err != nil {
@@ -147,7 +180,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mongodb.Mo
 	return nil
 }
 
-func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mongodb.MongoDB, podVars *PodVars, log *zap.SugaredLogger) ShardedClusterKubeState {
+func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mongodb.MongoDB, podVars *PodVars, projectConfig *ProjectConfig, log *zap.SugaredLogger) ShardedClusterKubeState {
 	// 1. Create the mongos StatefulSet
 	mongosBuilder := r.kubeHelper.NewStatefulSetHelper(s).
 		SetName(s.MongosRsName()).
@@ -159,7 +192,9 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mo
 		SetPersistence(util.BooleanRef(false)).
 		SetExposedExternally(s.Spec.ExposedExternally).
 		SetTLS(s.Spec.GetTLSConfig()).
-		SetClusterName(s.Spec.ClusterName)
+		SetClusterName(s.Spec.ClusterName).
+		SetProjectConfig(*projectConfig).
+		SetSecurity(s.Spec.Security)
 
 	// 2. Create a Config Server StatefulSet
 	defaultConfigSrvSpec := NewDefaultPodSpec()
@@ -178,7 +213,9 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mo
 		SetLogger(log).
 		SetExposedExternally(false).
 		SetTLS(s.Spec.GetTLSConfig()).
-		SetClusterName(s.Spec.ClusterName)
+		SetClusterName(s.Spec.ClusterName).
+		SetProjectConfig(*projectConfig).
+		SetSecurity(s.Spec.Security)
 
 	// 3. Creates a StatefulSet for each shard in the cluster
 	shardsSetHelpers := make([]*StatefulSetHelper, s.Spec.ShardCount)
@@ -192,7 +229,9 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mo
 			SetPodVars(podVars).
 			SetLogger(log).
 			SetTLS(s.Spec.GetTLSConfig()).
-			SetClusterName(s.Spec.ClusterName)
+			SetClusterName(s.Spec.ClusterName).
+			SetProjectConfig(*projectConfig).
+			SetSecurity(s.Spec.Security)
 	}
 
 	return ShardedClusterKubeState{
@@ -208,7 +247,7 @@ func (r *ReconcileMongoDbShardedCluster) delete(obj interface{}, log *zap.Sugare
 	// TODO: find a standard & consistent way of logging these events
 	sc := obj.(*mongodb.MongoDB)
 
-	conn, err := r.prepareConnection(objectKey(sc.Namespace, sc.Name), sc.Spec, nil, log)
+	conn, err := r.prepareConnection(objectKey(sc.Namespace, sc.Name), sc.Spec.ConnectionSpec, nil, log)
 	if err != nil {
 		return err
 	}
@@ -350,6 +389,12 @@ func updateOmDeploymentShardedCluster(conn om.Connection, sc *mongodb.MongoDB, s
 	processNames := make([]string, 0)
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
+
+			// it is not possible to disable internal cluster authentication once enabled
+			allProcesses := getAllProcesses(shards, configRs, mongosProcesses)
+			if sc.Spec.Security.ClusterAuthMode == "" && d.ExistingProcessesHaveInternalClusterAuthentication(allProcesses) {
+				return fmt.Errorf("cannot disable x509 internal cluster authentication")
+			}
 			if err := d.MergeShardedCluster(sc.Name, mongosProcesses, configRs, shards); err != nil {
 				return err
 			}
@@ -374,6 +419,16 @@ func updateOmDeploymentShardedCluster(conn om.Connection, sc *mongodb.MongoDB, s
 	wantedHosts := getAllHosts(sc, sc.Spec.MongodbShardedClusterSizeConfig)
 
 	return calculateDiffAndStopMonitoringHosts(conn, currentHosts, wantedHosts, log)
+}
+
+func getAllProcesses(shards []om.ReplicaSetWithProcesses, configRs om.ReplicaSetWithProcesses, mongosProcesses []om.Process) []om.Process {
+	allProcesses := make([]om.Process, 0)
+	for _, shard := range shards {
+		allProcesses = append(allProcesses, shard.Processes...)
+	}
+	allProcesses = append(allProcesses, configRs.Processes...)
+	allProcesses = append(allProcesses, mongosProcesses...)
+	return allProcesses
 }
 
 func waitForAgentsToRegister(cluster *mongodb.MongoDB, state ShardedClusterKubeState, conn om.Connection,
@@ -418,4 +473,14 @@ func getAllHosts(c *mongodb.MongoDB, sizeConfig mongodb.MongodbShardedClusterSiz
 		ans = append(ans, hosts...)
 	}
 	return ans
+}
+
+// getAllStatefulSetHelpers returns a list of all StatefulSetHelpers that
+// make up a Sharded Cluster
+func getAllStatefulSetHelpers(kubeState ShardedClusterKubeState) []*StatefulSetHelper {
+	stsHelpers := make([]*StatefulSetHelper, 0)
+	stsHelpers = append(stsHelpers, kubeState.shardsSetsHelpers...)
+	stsHelpers = append(stsHelpers, kubeState.mongosSetHelper)
+	stsHelpers = append(stsHelpers, kubeState.configSrvSetHelper)
+	return stsHelpers
 }

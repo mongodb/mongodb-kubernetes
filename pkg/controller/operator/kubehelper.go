@@ -38,6 +38,12 @@ type SSLProjectConfig struct {
 	SSLMMSCAConfigMapContents string
 }
 
+type AuthMode string
+
+const (
+	NumAgents = 3
+)
+
 // ProjectConfig contains the configuration expected from the `project` (ConfigMap) attribute in
 // `.spec.project`.
 type ProjectConfig struct {
@@ -47,6 +53,10 @@ type ProjectConfig struct {
 	ProjectName string
 	// +optional
 	OrgID string
+	// +optional
+	Credentials string
+	// +optional
+	AuthMode string
 	// +optional
 	SSLProjectConfig
 }
@@ -85,6 +95,7 @@ type StatefulSetHelper struct {
 	ExposedExternally bool
 	ServicePort       int32
 	Logger            *zap.SugaredLogger
+	Project           ProjectConfig
 
 	Security *mongodb.Security
 }
@@ -159,6 +170,11 @@ func (s *StatefulSetHelper) SetExposedExternally(exposed bool) *StatefulSetHelpe
 	return s
 }
 
+func (s *StatefulSetHelper) SetProjectConfig(project ProjectConfig) *StatefulSetHelper {
+	s.Project = project
+	return s
+}
+
 func (s *StatefulSetHelper) SetServicePort(port int32) *StatefulSetHelper {
 	s.ServicePort = port
 	return s
@@ -186,6 +202,11 @@ func (s *StatefulSetHelper) SetClusterName(name string) *StatefulSetHelper {
 
 	return s
 }
+
+func (s StatefulSetHelper) IsTLSEnabled() bool {
+	return s.Security != nil && s.Security.TLSConfig != nil && s.Security.TLSConfig.Enabled
+}
+
 func (s *StatefulSetHelper) BuildStatefulSet() *appsv1.StatefulSet {
 	return buildStatefulSet(*s)
 }
@@ -217,6 +238,10 @@ func (s *StatefulSetHelper) getDNSNames() (fqdns []string, names []string) {
 	}
 
 	return GetDNSNames(s.Name, s.Service, s.Namespace, s.ClusterName, members)
+}
+func (s *StatefulSetHelper) SetSecurity(security *mongodb.Security) *StatefulSetHelper {
+	s.Security = security
+	return s
 }
 
 // createOrUpdateStatefulsetWithService creates or updates the set of statefulsets in Kubernetes mapped to the service with name "serviceName"
@@ -420,6 +445,9 @@ func (k *KubeHelper) readProjectConfig(defaultNamespace, name string) (*ProjectC
 			// Pod.
 			SSLMMSCAConfigMapContents: caFile,
 		},
+
+		AuthMode:    data[util.OmAuthMode],
+		Credentials: data[util.OmCredentials],
 	}, nil
 }
 
@@ -521,7 +549,7 @@ func (k *KubeHelper) createOrUpdateSecret(name, namespace string, pemFiles *pemC
 
 // ensureSSLCertsForStatefulSet contains logic to create SSL certs for a StatefulSet object
 func (k *KubeHelper) ensureSSLCertsForStatefulSet(ss *StatefulSetHelper, log *zap.SugaredLogger) error {
-	if ss.Security == nil || ss.Security.TLSConfig == nil || !ss.Security.TLSConfig.Enabled {
+	if !ss.IsTLSEnabled() {
 		// if there's no SSL certs to generate, return
 		return nil
 	}
@@ -575,8 +603,7 @@ func (k *KubeHelper) ensureSSLCertsForStatefulSet(ss *StatefulSetHelper, log *za
 				csr, err := k.readCSR(podnames[idx], ss.Namespace)
 				if err != nil {
 					certsNeedApproval = true
-
-					key, err := k.createCSR(podnames[idx], ss.Namespace, []string{host, podnames[idx]}, podnames[idx])
+					key, err := k.createTlsCsr(podnames[idx], ss.Namespace, []string{host, podnames[idx]}, podnames[idx])
 					if err != nil {
 						return fmt.Errorf("Failed to create CSR, %s", err)
 					}
@@ -643,6 +670,23 @@ func (k *KubeHelper) validateCertficate(name, namespace string, destroy bool) er
 	}
 
 	return nil
+}
+
+func (k *KubeHelper) verifyClientCertificatesForAgents(name, namespace string) int {
+	secret := &corev1.Secret{}
+	err := k.client.Get(context.TODO(), objectKey(namespace, name), secret)
+	if err != nil {
+		return NumAgents
+	}
+
+	certsNotReady := 0
+	for _, agent := range []string{util.AutomationAgentPemFileName, util.MonitoringAgentPemFileName, util.BackupAgentPemFilePath} {
+		if _, ok := secret.Data[agent]; !ok {
+			certsNotReady++
+		}
+	}
+
+	return certsNotReady
 }
 
 // verifyCertificatesForStatefulSet will return the number of certificates which are

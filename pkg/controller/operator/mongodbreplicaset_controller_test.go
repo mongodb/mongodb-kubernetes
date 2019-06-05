@@ -135,12 +135,13 @@ func TestCreateDeleteReplicaSet(t *testing.T) {
 		reflect.ValueOf(omConn.ReadBackupConfigs), reflect.ValueOf(omConn.GetHosts), reflect.ValueOf(omConn.RemoveHost))
 
 }
+
 func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
 	spec := v1.MongoDbSpec{
-		Version:      "4.0.0",
-		Persistent:   util.BooleanRef(false),
-		Project:      TestProjectConfigMapName,
-		Credentials:  TestCredentialsSecretName,
+		Version:    "4.0.0",
+		Persistent: util.BooleanRef(false),
+		ConnectionSpec: v1.ConnectionSpec{Project: TestProjectConfigMapName,
+			Credentials: TestCredentialsSecretName},
 		ResourceType: v1.ReplicaSet,
 		Members:      3,
 		Security:     &v1.Security{TLSConfig: &v1.TLSConfig{}},
@@ -149,6 +150,10 @@ func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
 	return &ReplicaSetBuilder{rs}
 }
 
+func (b *ReplicaSetBuilder) SetClusterAuth(auth string) *ReplicaSetBuilder {
+	b.Spec.Security.ClusterAuthMode = auth
+	return b
+}
 func (b *ReplicaSetBuilder) SetName(name string) *ReplicaSetBuilder {
 	b.Name = name
 	return b
@@ -166,8 +171,17 @@ func (b *ReplicaSetBuilder) SetMembers(m int) *ReplicaSetBuilder {
 	return b
 }
 
+func (b *ReplicaSetBuilder) SetSecurity(security v1.Security) *ReplicaSetBuilder {
+	b.Spec.Security = &security
+	return b
+}
+
 func (b *ReplicaSetBuilder) EnableTLS() *ReplicaSetBuilder {
+	if b.Spec.Security == nil || b.Spec.Security.TLSConfig == nil {
+		b.SetSecurity(v1.Security{TLSConfig: &v1.TLSConfig{}})
+	}
 	b.Spec.Security.TLSConfig.Enabled = true
+	b.Spec.Security.TLSConfig.Secret = TestCredentialsSecretName
 	return b
 }
 

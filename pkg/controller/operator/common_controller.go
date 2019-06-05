@@ -23,7 +23,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// TODO rename the file to "common_controller.go" later
+// Updatable is an interface representing any runtime.Objects that can have their
+// status updated
+type Updatable interface {
+	runtime.Object
+	UpdateSuccessful(object runtime.Object, args ...string)
+	UpdateError(msg string)
+	UpdatePending()
+}
+
+// ensure our types are all Updatable
+var _ Updatable = &v1.MongoDB{}
+var _ Updatable = &v1.MongoDBUser{}
 
 // omMutexes is the synchronous map of mutexes that allow to get strict serializability for operations "read-modify-write"
 // for Ops Manager. Keys are (group_name + org_id) and values are mutexes.
@@ -55,7 +66,7 @@ func newReconcileCommonController(mgr manager.Manager, omFunc om.ConnectionFacto
 
 // prepareConnection reads project config map and credential secrets and uses these values to communicate with Ops Manager:
 // create or read the project and optionally request an agent key (it could have been returned by group api call)
-func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedName, spec v1.MongoDbSpec, podVars *PodVars, log *zap.SugaredLogger) (om.Connection, error) {
+func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedName, spec v1.ConnectionSpec, podVars *PodVars, log *zap.SugaredLogger) (om.Connection, error) {
 	projectConfig, err := c.kubeHelper.readProjectConfig(nsName.Namespace, spec.Project)
 	if err != nil {
 		return nil, fmt.Errorf("Error reading Project Config: %s", err)
@@ -147,49 +158,45 @@ func getMutex(projectName, orgId string) *sync.Mutex {
 	return mutex.(*sync.Mutex)
 }
 
-func (c *ReconcileCommonController) updateStatusSuccessful(reconciledResource *v1.MongoDB, log *zap.SugaredLogger, url, groupId string) {
+func (c *ReconcileCommonController) updateStatusSuccessful(reconciledResource Updatable, log *zap.SugaredLogger, args ...string) {
 	old := reconciledResource.DeepCopyObject()
-	err := c.updateStatus(reconciledResource, func(fresh *v1.MongoDB) {
-		// we need to update the MongoDB based on the Spec of the reconciled resource
+	err := c.updateStatus(reconciledResource, func(fresh Updatable) {
+		// we need to update the Updatable based on the Spec of the reconciled resource
 		// if there has been a change to the spec since, we don't want to change the state
 		// subresource to match an incorrect spec
-		fresh.UpdateSuccessful(DeploymentLink(url, groupId), old.(*v1.MongoDB))
+		fresh.UpdateSuccessful(old, args...)
 	})
 	if err != nil {
 		log.Errorf("Failed to update status for resource to successful: %s", err)
 	} else {
-		log.Infow("Successful update", "spec", reconciledResource.Spec)
+		log.Infow("Successful update", "spec", getSpec(reconciledResource))
 	}
 }
 
-func (c *ReconcileCommonController) updateStatusFailed(resource *v1.MongoDB, msg string, log *zap.SugaredLogger) (reconcile.Result, error) {
+func (c *ReconcileCommonController) updateStatusPending(reconciledResource Updatable) error {
+	return c.updateStatus(reconciledResource, func(fresh Updatable) {
+		fresh.UpdatePending()
+	})
+}
+
+func (c *ReconcileCommonController) updateStatusFailed(resource Updatable, msg string, log *zap.SugaredLogger) (reconcile.Result, error) {
 	log.Error(msg)
 	// Resource may be nil if the reconciliation failed very early (on fetching the resource) and panic handling function
 	// took over
 	if resource != nil {
-		err := c.updateStatus(resource, func(fresh *v1.MongoDB) {
+		err := c.updateStatus(resource, func(fresh Updatable) {
 			fresh.UpdateError(msg)
 		})
 		if err != nil {
 			log.Errorf("Failed to update resource status: %s", err)
-			return reconcile.Result{RequeueAfter: 10 * time.Second}, nil
 		}
 	}
-	return reconcile.Result{RequeueAfter: 10 * time.Second}, nil
+	return retry()
 }
 
-// if the resource is updated externally during an update, it's possible that we get concurrent modification errors
-// when trying to update.
-// E.g: "Operation cannot be fulfilled on mongodbstandalones.mongodb.com : the object has
-// been modified; please apply your changes to the latest version and try again" error - so let's fetch the latest
-// object before updating it.
-// We fetch a fresh version in case any modifications have been made.
-// Note, that this method enforces update ONLY to the status, so the reconciliation events happening because of this
-// can be filtered out by 'controller.shouldReconcile'
-func (c *ReconcileCommonController) updateStatus(reconciledResource *v1.MongoDB, updateFunc func(fresh *v1.MongoDB)) error {
-	var err error
+func (c *ReconcileCommonController) updateStatus(reconciledResource Updatable, updateFunc func(fresh Updatable)) error {
 	for i := 0; i < 3; i++ {
-		err = c.client.Get(context.TODO(), objectKeyFromApiObject(reconciledResource), reconciledResource)
+		err := c.client.Get(context.TODO(), objectKeyFromApiObject(reconciledResource), reconciledResource)
 		if err == nil {
 			updateFunc(reconciledResource)
 			err = c.client.Update(context.TODO(), reconciledResource)
@@ -204,13 +211,7 @@ func (c *ReconcileCommonController) updateStatus(reconciledResource *v1.MongoDB,
 			return err
 		}
 	}
-	return err
-}
-
-func (c *ReconcileCommonController) updatePending(reconciledResource *v1.MongoDB) error {
-	return c.updateStatus(reconciledResource, func(fresh *v1.MongoDB) {
-		fresh.Status.Phase = v1.PhasePending
-	})
+	return nil
 }
 
 // shouldReconcile checks if the resource must be reconciled.
@@ -226,11 +227,9 @@ func shouldReconcile(oldResource *v1.MongoDB, newResource *v1.MongoDB) bool {
 	return reflect.DeepEqual(oldResource.Status, newResource.Status)
 }
 
-// prepareResourceForReconciliation finds the object being reconciled. Returns pointer to 'reconcile.Result', error and the hashSpec for the resource.
-// If the 'reconcile.Result' pointer is not nil - the client is expected to finish processing
-func (c *ReconcileCommonController) prepareResourceForReconciliation(
-	request reconcile.Request, mdbResource *v1.MongoDB, log *zap.SugaredLogger) (*reconcile.Result, error) {
-	err := c.client.Get(context.TODO(), request.NamespacedName, mdbResource)
+// getResource populates the provided runtime.Object with some additional error handling
+func (c *ReconcileCommonController) getResource(request reconcile.Request, resource runtime.Object, log *zap.SugaredLogger) (*reconcile.Result, error) {
+	err := c.client.Get(context.TODO(), request.NamespacedName, resource)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			// Request object not found, could have been deleted after reconcile request.
@@ -243,19 +242,31 @@ func (c *ReconcileCommonController) prepareResourceForReconciliation(
 		log.Errorf("Failed to query object %s: %s", request.NamespacedName, err)
 		return &reconcile.Result{RequeueAfter: 10 * time.Second}, err
 	}
+	return nil, nil
+}
 
+// prepareResourceForReconciliation finds the object being reconciled. Returns pointer to 'reconcile.Result' and error
+// If the 'reconcile.Result' pointer is not nil - the client is expected to finish processing
+func (c *ReconcileCommonController) prepareResourceForReconciliation(
+	request reconcile.Request, resource runtime.Object, log *zap.SugaredLogger) (*reconcile.Result, error) {
+	if result, err := c.getResource(request, resource, log); result != nil {
+		return result, err
+	}
 	// this is a temporary measure to prevent changing type and getting the resource into a bad state
 	// this should be removed once we have the functionality in place to convert between resource types
-	spec := mdbResource.Spec
-	status := mdbResource.Status
-	if spec.ResourceType != status.ResourceType && status.ResourceType != "" {
-		c.updateStatusFailed(mdbResource, fmt.Sprintf("Changing type is not currently supported, please change the resource back to a %s", status.ResourceType), log)
-		return &reconcile.Result{}, nil
-	}
+	switch res := resource.(type) {
+	case *v1.MongoDB:
+		spec := res.Spec
+		status := res.Status
+		if spec.ResourceType != status.ResourceType && status.ResourceType != "" {
+			c.updateStatusFailed(res, fmt.Sprintf("Changing type is not currently supported, please change the resource back to a %s", status.ResourceType), log)
+			return &reconcile.Result{}, nil
+		}
 
-	updateErr := c.updatePending(mdbResource)
+	}
+	updateErr := c.updateStatusPending(resource.(Updatable))
 	if updateErr != nil {
-		log.Errorf("Error setting state to pending: %s, the resource: %+v", updateErr, mdbResource)
+		log.Errorf("Error setting state to pending: %s, the resource: %+v", updateErr, resource)
 		return &reconcile.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
@@ -291,5 +302,121 @@ func (c *ReconcileCommonController) addWatchedResourceIfNotAdded(watchedResource
 	if !found {
 		c.watchedResources[key] = append(c.watchedResources[key], dependentResourceNsName)
 		zap.S().Debugf("Watching %s to trigger reconciliation for %s", key, dependentResourceNsName)
+	}
+}
+
+// doAgentX509CertsExist looks for the secret "agent-certs" to determine if we can continue with mounting the x509 volumes
+func (r *ReconcileCommonController) doAgentX509CertsExist(namespace string) bool {
+	secret := &corev1.Secret{}
+	err := r.kubeHelper.client.Get(context.TODO(), objectKey(namespace, util.AgentSecretName), secret)
+	if err != nil {
+		return false
+	}
+	return true
+}
+
+// ensureInternalClusterCerts ensures that all the x509 internal cluster certs exist.
+// TODO: this is almost the same as kubeHelper::ensureSSLCertsForStatefulSet, we should centralize the functionality
+func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHelper, log *zap.SugaredLogger) error {
+	k := r.kubeHelper
+	// Flag that's set to false if any of the certificates have not been approved yet.
+	certsNeedApproval := false
+	secretName := toInternalClusterAuthName(ss.Name) // my-replica-set-clusterfile
+
+	if ss.Security.TLSConfig.Secret != "" {
+		// A "Certs" attribute has been provided
+		// This means that the customer has provided with a secret name they have
+		// already populated with the certs and keys for this deployment.
+		// Because of the async nature of Kubernetes, this object might not be ready yet,
+		// in which case, we'll keep reconciling until the object is created and is correct.
+		if notReadyCerts := k.verifyCertificatesForStatefulSet(ss, ss.Security.TLSConfig.Secret); notReadyCerts > 0 {
+			return fmt.Errorf("The secret object '%s' does not contain all the certificates needed."+
+				"Required: %d, contains: %d", ss.Security.TLSConfig.Secret,
+				ss.Replicas,
+				ss.Replicas-notReadyCerts,
+			)
+		}
+
+		// Validates that the secret is valid
+		if err := k.validateCertficate(secretName, ss.Namespace, false); err != nil {
+			return err
+		}
+	} else {
+
+		// Validates that the secret is valid, and removes it if it is not
+		if err := k.validateCertficate(secretName, ss.Namespace, true); err != nil {
+			return err
+		}
+
+		if notReadyCerts := k.verifyCertificatesForStatefulSet(ss, secretName); notReadyCerts > 0 {
+			// If the Kube CA and the operator are responsible for the certificates to be
+			// ready and correctly stored in the secret object, and this secret is not "complete"
+			// we'll go through the process of creating the CSR, wait for certs approval and then
+			// creating a correct secret with the certificates and keys.
+
+			// For replica set we need to create rs.Spec.Replicas certificates, one per each Pod
+			fqdns, podnames := ss.getDNSNames()
+
+			// pemFiles will store every key (during the CSR creation phase) and certificate
+			// both can happen on different reconciliation stages (CSR and keys are created, then
+			// reconciliation, then certs are obtained from the CA). If this happens we need to
+			// store the keys in the final secret, that will be updated with the certs, once they
+			// are issued by the CA.
+			pemFiles := newPemCollection()
+
+			for idx, host := range fqdns {
+				csrName := toInternalClusterAuthName(podnames[idx])
+				csr, err := k.readCSR(csrName, ss.Namespace)
+				if err != nil {
+					certsNeedApproval = true
+					key, err := k.createInternalClusterAuthCSR(csrName, ss.Namespace, []string{host, podnames[idx]}, podnames[idx])
+					if err != nil {
+						return fmt.Errorf("Failed to create CSR, %s", err)
+					}
+
+					pemFiles.addPrivateKey(podnames[idx], string(key))
+				} else {
+					if checkCSRWasApproved(csr.Status.Conditions) {
+						log.Infof("Certificate for Pod %s -> Approved", host)
+						pemFiles.addCertificate(podnames[idx], string(csr.Status.Certificate))
+					} else {
+						log.Infof("Certificate for Pod %s -> Waiting for Approval", host)
+						certsNeedApproval = true
+					}
+				}
+			}
+
+			// once we are here we know we have built everything we needed
+			// This "secret" object corresponds to the certificates for this statefulset
+			labels := make(map[string]string)
+			labels["mongodb/secure"] = "certs"
+			labels["mongodb/operator"] = "certs." + secretName
+
+			err := k.createOrUpdateSecret(secretName, ss.Namespace, pemFiles, labels)
+			if err != nil {
+				// If we have an error creating or updating the secret, we might lose
+				// the keys, in which case we return an error, to make it clear what
+				// the error was to customers -- this should end up in the status
+				// message.
+				return fmt.Errorf("Failed to create or update the secret: %s", err)
+			}
+		}
+	}
+
+	if certsNeedApproval {
+		return fmt.Errorf("Not all certificates have been approved by Kubernetes CA")
+	}
+
+	return nil
+}
+
+func getSpec(resource Updatable) interface{} {
+	switch res := resource.(type) {
+	case *v1.MongoDB:
+		return res.Spec
+	case *v1.MongoDBUser:
+		return res.Spec
+	default:
+		panic("was unable to find spec. Expected values are MongoDB or MongoDBUser")
 	}
 }

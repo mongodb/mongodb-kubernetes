@@ -27,6 +27,6 @@ kubectl delete secret ${secret_name} 2>/dev/null || true
 kubectl delete configmap ${config_map_name} 2>/dev/null || true
 
 kubectl create secret generic ${secret_name}  --from-literal=user=${OM_USER} --from-literal=publicApiKey=${OM_API_KEY} -n ${NAMESPACE}
-kubectl create configmap ${config_map_name} --from-literal projectName=${NAMESPACE}  --from-literal baseUrl=${OM_HOST} -n ${NAMESPACE}
+kubectl create configmap ${config_map_name} --from-literal authenticationMode="" --from-literal credentials=${secret_name} --from-literal projectName=${NAMESPACE}  --from-literal baseUrl=${OM_HOST} -n ${NAMESPACE}
 
 title "Config map '${config_map_name}' and secret '${secret_name} for the Operator are configured"

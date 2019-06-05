@@ -27,6 +27,7 @@ import (
 	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
+	certsv1 "k8s.io/api/certificates/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
@@ -50,6 +51,7 @@ type MockedClient struct {
 	configMaps       map[client.ObjectKey]apiruntime.Object
 	secrets          map[client.ObjectKey]apiruntime.Object
 	mongoDbResources map[client.ObjectKey]apiruntime.Object
+	csrs             map[client.ObjectKey]apiruntime.Object
 	// mocked client keeps track of all implemented functions called - uses reflection Func for this to enable type-safety
 	// and make function names rename easier
 	history []*HistoryItem
@@ -78,19 +80,18 @@ func newMockedClientDetailed(object apiruntime.Object, projectName, organization
 	api.configMaps = make(map[client.ObjectKey]apiruntime.Object)
 	api.secrets = make(map[client.ObjectKey]apiruntime.Object)
 	api.mongoDbResources = make(map[client.ObjectKey]apiruntime.Object)
+	api.csrs = make(map[client.ObjectKey]apiruntime.Object)
 
-	// initialize config map and secret to emulate user preparing environment
-	project := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: TestProjectConfigMapName, Namespace: TestNamespace},
-		Data:       map[string]string{util.OmBaseUrl: "http://mycompany.com:8080", util.OmProjectName: projectName, util.OmOrgId: organizationId}}
-	api.Create(context.TODO(), project)
+	// initialize a either a default ConfigMap, or use the one passed directly to the mocked client
+	api.Create(context.TODO(), getProjectConfigMap(object, projectName, organizationId))
 
+	// initialize secret to emulate user preparing environment
 	credentials := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: TestCredentialsSecretName, Namespace: TestNamespace},
 		StringData: map[string]string{util.OmUser: "test@mycompany.com", util.OmPublicApiKey: "36lj245asg06s0h70245dstgft"}}
 	api.Create(context.TODO(), credentials)
 
-	if object != nil {
+	if object != nil && !isConfigMap(object) {
 		api.Create(context.TODO(), object.DeepCopyObject())
 	}
 
@@ -102,6 +103,24 @@ func newMockedClientDetailed(object apiruntime.Object, projectName, organization
 	om.CurrMockedConnection = nil
 
 	return &api
+}
+
+// isConfigMap determines if the given apiruntime.Object is an instance of corev1.ConfigMap
+func isConfigMap(object apiruntime.Object) bool {
+	return reflect.TypeOf(object) == reflect.TypeOf(&corev1.ConfigMap{})
+}
+
+// getProjectConfigMap creates the project's config map, if passed a config map, it will use that, otherwise a default
+func getProjectConfigMap(object apiruntime.Object, projectName, organizationId string) *corev1.ConfigMap {
+	// if we pass in a config map, this is the config map we want to use for our project
+	switch obj := object.(type) {
+	case *corev1.ConfigMap:
+		return obj
+	default:
+		return &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: TestProjectConfigMapName, Namespace: TestNamespace},
+			Data:       map[string]string{util.OmBaseUrl: "http://mycompany.com:8080", util.OmProjectName: projectName, util.OmOrgId: organizationId}}
+	}
 }
 
 // Get retrieves an obj for the given object key from the Kubernetes Cluster.
@@ -239,6 +258,8 @@ func (oc *MockedClient) getMapForObject(obj apiruntime.Object) map[client.Object
 		return oc.services
 	case *v1.MongoDB:
 		return oc.mongoDbResources
+	case *certsv1.CertificateSigningRequest:
+		return oc.csrs
 	}
 	return nil
 }

@@ -18,3 +18,10 @@ func NewReplicaSetWithProcesses(rs ReplicaSet, processes []Process) ReplicaSetWi
 	}
 	return ReplicaSetWithProcesses{rs, processes}
 }
+
+func (r ReplicaSetWithProcesses) ConfigureAuthenticationMode(clusterAuthMode string) ReplicaSetWithProcesses {
+	for _, process := range r.Processes {
+		process.ConfigureClusterAuthMode(clusterAuthMode)
+	}
+	return r
+}

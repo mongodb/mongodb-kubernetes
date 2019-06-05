@@ -33,7 +33,7 @@ class TestReplicaSetWithSecretAndConfigMapInDifferentNamespace(KubernetesTester)
             resource = yaml.safe_load(f)
         resource["spec"]["project"] = "{}/{}".format(cls.other_namespace, project_name)
         resource["spec"]["credentials"] = "{}/{}".format(cls.other_namespace, creds_name)
-        cls.create_custom_resource_from_object(cls.get_namespace(), resource)
+        cls.create_mongodb_from_object(cls.get_namespace(), resource)
         cls.wait_until("in_running_state", 150)
 
     @classmethod

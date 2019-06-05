@@ -3,8 +3,17 @@ set -o nounset
 set -o errexit
 set -o pipefail
 
+keyfile_dir="/var/lib/mongodb-mms-automation"
 secrets_dir="/var/lib/mongodb-automation/secrets"
 pod_secrets_dir="/mongodb-automation"
+
+# file required by Automation Agents of authentication is enabled.
+mkdir -p ${keyfile_dir}
+echo "DUMMYFILE" > "${keyfile_dir}/keyfile"
+
+# agent requires read/write privileges on keyfile
+chmod 600 "${keyfile_dir}/keyfile"
+
 # Important! Keep this in sync with DefaultPodTerminationPeriodSeconds constant from constants.go
 termination_timeout_seconds=600
 

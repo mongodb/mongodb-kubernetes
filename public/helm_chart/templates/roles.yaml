@@ -36,6 +36,7 @@ rules:
   resources:
   - mongodb
   - mongodb/finalizers
+  - mongodbusers
   verbs:
   - get
   - list

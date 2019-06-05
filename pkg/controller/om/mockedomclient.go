@@ -52,7 +52,10 @@ const (
 
 type MockedOmConnection struct {
 	HTTPOmConnection
-	deployment Deployment
+	deployment            Deployment
+	automationConfig      *AutomationConfig
+	backupAgentConfig     *BackupAgentConfig
+	monitoringAgentConfig *MonitoringAgentConfig
 	// hosts are used for both automation agents and monitoring endpoints.
 	// They are necessary for emulating "agents" are ready behavior as operator checks for hosts for agents to exist
 	hosts                   *Host
@@ -70,12 +73,13 @@ type MockedOmConnection struct {
 	history []*runtime.Func
 }
 
+var _ Connection = &MockedOmConnection{}
+
 // NewEmptyMockedConnection is the standard function for creating mocked connections that is usually used for testing
 // "full cycle" mocked controller. It has group created already, but doesn't have the deployment. Also it "survives"
 // recreations (as this is what we do in 'ReconcileCommonController.prepareConnection')
 func NewEmptyMockedOmConnection(ctx *OMContext) Connection {
 	conn := NewEmptyMockedOmConnectionNoGroup(ctx)
-
 	// by default each connection just "reuses" "already created" group with agent keys existing
 	conn.(*MockedOmConnection).OrganizationsWithGroups = map[*Organization][]*Project{
 		{ID: TestOrgID, Name: TestGroupName}: {{
@@ -154,6 +158,78 @@ func (oc *MockedOmConnection) ReadUpdateDeployment(depFunc func(Deployment) erro
 	depFunc(oc.deployment)
 	oc.numRequestsSent++
 	return nil
+}
+
+func (oc *MockedOmConnection) ReadUpdateMonitoringAgentConfig(matFunc func(*MonitoringAgentConfig) error, mutex *sync.Mutex, log *zap.SugaredLogger) error {
+	oc.addToHistory(reflect.ValueOf(oc.ReadUpdateMonitoringAgentConfig))
+	if oc.monitoringAgentConfig == nil {
+		oc.monitoringAgentConfig = &MonitoringAgentConfig{MonitoringAgentTemplate: &MonitoringAgentTemplate{}}
+	}
+	return matFunc(oc.monitoringAgentConfig)
+}
+
+func (oc *MockedOmConnection) UpdateAutomationConfig(ac *AutomationConfig) error {
+	oc.addToHistory(reflect.ValueOf(oc.UpdateAutomationConfig))
+	oc.automationConfig = ac
+	return nil
+}
+
+func (oc *MockedOmConnection) ReadAutomationConfig() (*AutomationConfig, error) {
+	oc.addToHistory(reflect.ValueOf(oc.ReadAutomationConfig))
+	if oc.automationConfig == nil {
+		if oc.deployment == nil {
+			oc.deployment = NewDeployment()
+		}
+		oc.automationConfig = NewAutomationConfig(oc.deployment)
+	}
+	return oc.automationConfig, nil
+}
+
+func (oc *MockedOmConnection) ReadUpdateAutomationConfig(acFunc func(ac *AutomationConfig) error, mutex *sync.Mutex, log *zap.SugaredLogger) error {
+	oc.addToHistory(reflect.ValueOf(oc.ReadUpdateAutomationConfig))
+	if oc.automationConfig == nil {
+		if oc.deployment == nil {
+			oc.deployment = NewDeployment()
+		}
+		oc.automationConfig = NewAutomationConfig(oc.deployment)
+	}
+	return acFunc(oc.automationConfig)
+}
+
+func (oc *MockedOmConnection) ReadBackupAgentConfig() (*BackupAgentConfig, error) {
+	oc.addToHistory(reflect.ValueOf(oc.ReadBackupAgentConfig))
+	if oc.backupAgentConfig == nil {
+		oc.backupAgentConfig = &BackupAgentConfig{BackupAgentTemplate: &BackupAgentTemplate{}}
+	}
+	return oc.backupAgentConfig, nil
+}
+
+func (oc *MockedOmConnection) UpdateBackupAgentConfig(bac *BackupAgentConfig) ([]byte, error) {
+	oc.addToHistory(reflect.ValueOf(oc.UpdateBackupAgentConfig))
+	oc.backupAgentConfig = bac
+	return nil, nil
+}
+
+func (oc *MockedOmConnection) ReadUpdateBackupAgentConfig(bacFunc func(*BackupAgentConfig) error, mutex *sync.Mutex, log *zap.SugaredLogger) error {
+	oc.addToHistory(reflect.ValueOf(oc.ReadUpdateBackupAgentConfig))
+	if oc.backupAgentConfig == nil {
+		oc.backupAgentConfig = &BackupAgentConfig{BackupAgentTemplate: &BackupAgentTemplate{}}
+	}
+	return bacFunc(oc.backupAgentConfig)
+}
+
+func (oc *MockedOmConnection) ReadMonitoringAgentConfig() (*MonitoringAgentConfig, error) {
+	oc.addToHistory(reflect.ValueOf(oc.ReadMonitoringAgentConfig))
+	if oc.monitoringAgentConfig == nil {
+		oc.monitoringAgentConfig = &MonitoringAgentConfig{MonitoringAgentTemplate: &MonitoringAgentTemplate{}}
+	}
+	return oc.monitoringAgentConfig, nil
+}
+
+func (oc *MockedOmConnection) UpdateMonitoringAgentConfig(mac *MonitoringAgentConfig) ([]byte, error) {
+	oc.addToHistory(reflect.ValueOf(oc.UpdateMonitoringAgentConfig))
+	oc.monitoringAgentConfig = mac
+	return nil, nil
 }
 
 func (oc *MockedOmConnection) GenerateAgentKey() (string, error) {

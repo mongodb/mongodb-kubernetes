@@ -27,6 +27,7 @@ type Connection interface {
 	// ReadUpdateDeployment reads Deployment from Ops Manager, applies the update function to it and pushes it back
 	// Note the mutex that must be passed to provide strict serializability for the read-write operations for the same group
 	ReadUpdateDeployment(depFunc func(Deployment) error, mutex *sync.Mutex, log *zap.SugaredLogger) error
+
 	//WaitForReadyState(processNames []string, log *zap.SugaredLogger) error
 	GenerateAgentKey() (string, error)
 	ReadAutomationStatus() (*AutomationStatus, error)
@@ -45,12 +46,35 @@ type Connection interface {
 	ReadHostCluster(clusterID string) (*HostCluster, error)
 	UpdateBackupStatus(clusterID string, status BackupStatus) error
 
+	AutomationConfigConnection
+	MonitoringConfigConnection
+	BackupConfigConnection
+
 	BaseURL() string
 	GroupID() string
 	GroupName() string
 	OrgID() string
 	User() string
 	PublicAPIKey() string
+}
+
+type MonitoringConfigConnection interface {
+	ReadMonitoringAgentConfig() (*MonitoringAgentConfig, error)
+	UpdateMonitoringAgentConfig(mat *MonitoringAgentConfig) ([]byte, error)
+	ReadUpdateMonitoringAgentConfig(matFunc func(*MonitoringAgentConfig) error, mutex *sync.Mutex, log *zap.SugaredLogger) error
+}
+
+type BackupConfigConnection interface {
+	ReadBackupAgentConfig() (*BackupAgentConfig, error)
+	UpdateBackupAgentConfig(mat *BackupAgentConfig) ([]byte, error)
+	ReadUpdateBackupAgentConfig(matFunc func(*BackupAgentConfig) error, mutex *sync.Mutex, log *zap.SugaredLogger) error
+}
+
+// AutomationConfigConnection is an interface that only deals with reading/updating of the AutomationConfig
+type AutomationConfigConnection interface {
+	UpdateAutomationConfig(ac *AutomationConfig) error
+	ReadAutomationConfig() (*AutomationConfig, error)
+	ReadUpdateAutomationConfig(acFunc func(ac *AutomationConfig) error, mutex *sync.Mutex, log *zap.SugaredLogger) error
 }
 
 // ConnectionFactory type defines a function to create a connection to Ops Manager API.
@@ -82,6 +106,8 @@ type OMContext struct {
 type HTTPOmConnection struct {
 	context *OMContext
 }
+
+var _ Connection = &HTTPOmConnection{}
 
 // APIError is the error extension that contains the details of OM error if OM returned the error. This allows the
 // code using Connection methods to do more fine-grained exception handling depending on exact error that happened.
@@ -184,6 +210,18 @@ func (oc *HTTPOmConnection) ReadDeployment() (Deployment, error) {
 	return d, NewAPIError(e)
 }
 
+func (oc *HTTPOmConnection) ReadAutomationConfig() (*AutomationConfig, error) {
+	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", oc.GroupID()))
+
+	if err != nil {
+		return nil, err
+	}
+
+	ac, err := BuildAutomationConfigFromBytes(ans)
+
+	return ac, NewAPIError(err)
+}
+
 // ReadUpdateDeployment performs the "read-modify-update" operation on OpsManager Deployment.
 // Note, that the mutex locks infinitely (there is no built-in support for timeouts for locks in Go) which seems to be
 // ok as OM endpoints are not supposed to hang for long
@@ -201,7 +239,44 @@ func (oc *HTTPOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error,
 	}
 
 	_, err = oc.UpdateDeployment(deployment)
-	return err
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (oc *HTTPOmConnection) UpdateAutomationConfig(ac *AutomationConfig) error {
+	err := ac.Apply()
+	if err != nil {
+		return err
+	}
+	_, err = oc.UpdateDeployment(ac.Deployment)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(acFunc func(ac *AutomationConfig) error, mutex *sync.Mutex, log *zap.SugaredLogger) error {
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	ac, err := oc.ReadAutomationConfig()
+	if err != nil {
+		log.Errorf("error reading automation config. %s", err)
+		return err
+	}
+
+	if err := acFunc(ac); err != nil {
+		return NewAPIError(err)
+	}
+
+	err = oc.UpdateAutomationConfig(ac)
+	if err != nil {
+		log.Errorf("error updating automation config. %s", err)
+		return NewAPIError(err)
+	}
+	return nil
 }
 
 // GenerateAgentKey
@@ -397,6 +472,92 @@ func (oc *HTTPOmConnection) UpdateBackupStatus(clusterID string, status BackupSt
 
 	if err != nil {
 		return NewAPIError(err)
+	}
+
+	return nil
+}
+
+func (oc *HTTPOmConnection) ReadMonitoringAgentConfig() (*MonitoringAgentConfig, error) {
+	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/monitoringAgentConfig", oc.GroupID()))
+	if err != nil {
+		return nil, err
+	}
+
+	mat, err := BuildMonitoringAgentConfigFromBytes(ans)
+
+	if err != nil {
+		return nil, err
+	}
+	return mat, nil
+}
+
+func (oc *HTTPOmConnection) UpdateMonitoringAgentConfig(mat *MonitoringAgentConfig) ([]byte, error) {
+	err := mat.Apply()
+	if err != nil {
+		return nil, err
+	}
+	return oc.put(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/monitoringAgentConfig", oc.GroupID()), mat.BackingMap)
+}
+
+func (oc *HTTPOmConnection) ReadUpdateMonitoringAgentConfig(matFunc func(*MonitoringAgentConfig) error, mutex *sync.Mutex, log *zap.SugaredLogger) error {
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	mat, err := oc.ReadMonitoringAgentConfig()
+	if err != nil {
+		return err
+	}
+
+	if err := matFunc(mat); err != nil {
+		return err
+	}
+
+	if _, err := oc.UpdateMonitoringAgentConfig(mat); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (oc *HTTPOmConnection) ReadBackupAgentConfig() (*BackupAgentConfig, error) {
+	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/backupAgentConfig", oc.GroupID()))
+	if err != nil {
+		return nil, err
+	}
+
+	backup, err := BuildBackupAgentConfigFromBytes(ans)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return backup, nil
+}
+
+func (oc *HTTPOmConnection) UpdateBackupAgentConfig(backup *BackupAgentConfig) ([]byte, error) {
+	err := backup.Apply()
+	if err != nil {
+		return nil, err
+	}
+	return oc.put(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/backupAgentConfig", oc.GroupID()), backup.BackingMap)
+
+}
+
+func (oc *HTTPOmConnection) ReadUpdateBackupAgentConfig(backupFunc func(*BackupAgentConfig) error, mutex *sync.Mutex, log *zap.SugaredLogger) error {
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	backup, err := oc.ReadBackupAgentConfig()
+	if err != nil {
+		return err
+	}
+
+	if err := backupFunc(backup); err != nil {
+		return err
+	}
+
+	if _, err := oc.UpdateBackupAgentConfig(backup); err != nil {
+		return err
 	}
 
 	return nil

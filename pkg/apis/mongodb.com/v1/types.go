@@ -10,6 +10,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -40,6 +41,9 @@ const (
 	// PhaseFailed means the Mongodb Resource is in a failed state
 	PhaseFailed Phase = "Failed"
 
+	// PhaseUpdated means a MongoDBUser was successfully updated
+	PhaseUpdated Phase = "Updated"
+
 	Standalone     ResourceType = "Standalone"
 	ReplicaSet     ResourceType = "ReplicaSet"
 	ShardedCluster ResourceType = "ShardedCluster"
@@ -52,6 +56,8 @@ const (
 	RequireTLSMode SSLMode = "requireTLS"
 	PreferTLSMode  SSLMode = "preferTLS"
 	AllowTLSMode   SSLMode = "allowTLS"
+
+	DeploymentLinkIndex = 0
 )
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -92,11 +98,9 @@ type MongoDbSpec struct {
 	ExposedExternally bool `json:"exposedExternally"`
 
 	// TODO seems the ObjectMeta contains the field for ClusterName - may be we should use it instead
-	ClusterName  string       `json:"clusterName,omitempty"`
+	ClusterName string `json:"clusterName,omitempty"`
+	ConnectionSpec
 	Persistent   *bool        `json:"persistent,omitempty"`
-	LogLevel     LogLevel     `json:"logLevel,omitempty"`
-	Project      string       `json:"project"`
-	Credentials  string       `json:"credentials"`
 	ResourceType ResourceType `json:"type"`
 	// sharded cluster
 	ConfigSrvPodSpec *MongoDbPodSpec `json:"configSrvPodSpec,omitempty"`
@@ -115,6 +119,14 @@ type MongoDbSpec struct {
 	// configuration file:
 	// https://docs.mongodb.com/manual/reference/configuration-options/
 	AdditionalMongodConfig *AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
+}
+
+// ConnectionSpec holds fields required to establish an Ops Manager connection
+type ConnectionSpec struct {
+	Project     string `json:"project"`
+	Credentials string `json:"credentials"`
+	// FIXME: LogLevel is not a required field for creating an Ops Manager connection, it should not be here.
+	LogLevel LogLevel `json:"logLevel,omitempty"`
 }
 
 type AdditionalMongodConfig struct {
@@ -141,7 +153,7 @@ type SSLSpec struct {
 
 type Security struct {
 	TLSConfig       *TLSConfig `json:"tls,omitempty"`
-	ClusterAuthMode string     `json:"clusterAuthMode,omitempty"`
+	ClusterAuthMode string     `json:"clusterAuthenticationMode,omitempty"`
 }
 
 type TLSConfig struct {
@@ -245,8 +257,7 @@ func (m *MongoDB) UpdateError(msg string) {
 
 // UpdatePending called when the CR object (MongoDB resource) needs to transition to
 // pending state.
-func (m *MongoDB) UpdatePending(msg string) {
-	m.Status.Message = msg
+func (m *MongoDB) UpdatePending() {
 	if m.Status.Phase != PhasePending {
 		m.Status.LastTransition = util.Now()
 		m.Status.Phase = PhasePending
@@ -256,13 +267,16 @@ func (m *MongoDB) UpdatePending(msg string) {
 // UpdateSuccessful called when the CR object (MongoDB resource) needs to transition to
 // successful state. This means that the CR object and the underlying MongoDB deployment
 // are ready to work
-func (m *MongoDB) UpdateSuccessful(deploymentLink string, reconciledResource *MongoDB) {
+func (m *MongoDB) UpdateSuccessful(object runtime.Object, args ...string) {
+	reconciledResource := object.(*MongoDB)
 	spec := reconciledResource.Spec
 
 	// assign all fields common to the different resource types
+	if len(args) >= DeploymentLinkIndex {
+		m.Status.Link = args[DeploymentLinkIndex]
+	}
 	m.Status.Version = spec.Version
 	m.Status.Message = ""
-	m.Status.Link = deploymentLink
 	m.Status.LastTransition = util.Now()
 	m.Status.Phase = PhaseRunning
 	m.Status.ResourceType = spec.ResourceType

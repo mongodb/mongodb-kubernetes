@@ -146,7 +146,7 @@ func TestPrepareOmConnection_ConfigMapAndSecretWatched(t *testing.T) {
 
 	// Here we create two replica sets both referencing the same project and credentials
 	vars := &PodVars{}
-	spec := v1.MongoDbSpec{Project: TestProjectConfigMapName, Credentials: "otherNs/mySecret", LogLevel: v1.Warn}
+	spec := v1.ConnectionSpec{Project: TestProjectConfigMapName, Credentials: "otherNs/mySecret", LogLevel: v1.Warn}
 	_, e := reconciler.prepareConnection(objectKey(TestNamespace, "ReplicaSetOne"), spec, vars, zap.S())
 	assert.NoError(t, e)
 	_, e = reconciler.prepareConnection(objectKey(TestNamespace, "ReplicaSetTwo"), spec, vars, zap.S())
@@ -179,7 +179,8 @@ func TestResourcesAreUpdated_AfterConflictErrors(t *testing.T) {
 	manager := newMockedManagerSpecificClient(mockedClient)
 	controller := newReconcileCommonController(manager, om.NewEmptyMockedOmConnection)
 
-	controller.updateStatus(rs, func(toChange *v1.MongoDB) {
+	controller.updateStatus(rs, func(updatable Updatable) {
+		toChange := updatable.(*v1.MongoDB)
 		status := &toChange.Status
 		status.Version = "new-version"
 		status.Phase = v1.PhaseRunning
@@ -210,7 +211,7 @@ func TestShouldReconcile_DoesReconcileOnSpecChange(t *testing.T) {
 
 func prepareConnection(controller *ReconcileCommonController, t *testing.T) (*om.MockedOmConnection, *PodVars) {
 	vars := &PodVars{}
-	spec := v1.MongoDbSpec{Project: TestProjectConfigMapName, Credentials: TestCredentialsSecretName, LogLevel: v1.Warn}
+	spec := v1.ConnectionSpec{Project: TestProjectConfigMapName, Credentials: TestCredentialsSecretName, LogLevel: v1.Warn}
 	conn, e := controller.prepareConnection(objectKey(TestNamespace, ""), spec, vars, zap.S())
 	mockOm := conn.(*om.MockedOmConnection)
 	assert.NoError(t, e)

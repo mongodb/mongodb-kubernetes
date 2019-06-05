@@ -73,6 +73,7 @@ fix_taints
 
 cleanup_env
 
+
 ops_manager_namespace="${1}"
 ops_manager_version="${2}"
 node_port="${3}"

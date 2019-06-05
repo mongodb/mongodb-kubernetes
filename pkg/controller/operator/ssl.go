@@ -17,6 +17,7 @@ import (
 )
 
 var keyUsages = []certsv1.KeyUsage{"digital signature", "key encipherment", "server auth", "client auth"}
+var clientKeyUsages = []certsv1.KeyUsage{"digital signature", "key encipherment", "client auth"}
 
 const (
 	PrivateKeyAlgo = "rsa"
@@ -182,24 +183,8 @@ func separatePemFile(data string) []string {
 // ssl.go provides a mechanism to obtain certificates programmatically.
 
 // NewCSR will create a CSR object (and server key).
-func newCSR(name string, hosts []string, commonName string) (*certificateSigningRequestFile, error) {
-	data := certificateData{
-		Hosts:      hosts,
-		CommonName: commonName,
-		Key: CertificateDataKey{
-			Algo: PrivateKeyAlgo,
-			Size: PrivateKeySize,
-		},
-		Names: []CertificateNames{{
-			Country:            CertificateNameCountry,
-			State:              CertificateNameState,
-			Location:           CertificateNameLocation,
-			Organization:       CertificateNameOrganization,
-			OrganizationalUnit: CertificateNameOrganizationalUnit,
-		}},
-	}
-
-	fileContents, err := json.Marshal(data)
+func newCSR(certificate certificateData) (*certificateSigningRequestFile, error) {
+	fileContents, err := json.Marshal(certificate)
 	if err != nil {
 		return nil, err
 	}
@@ -304,8 +289,26 @@ func (k *KubeHelper) readCSR(name, namespace string) (*certsv1.CertificateSignin
 }
 
 // CreateCSR will send a new CSR to the Kubernetes API
-func (k *KubeHelper) createCSR(name, namespace string, hosts []string, commonName string) ([]byte, error) {
-	serverCsr, err := newCSR(name, hosts, commonName)
+func (k *KubeHelper) createTlsCsr(name, namespace string, hosts []string, commonName string) ([]byte, error) {
+	return k.createCSR(certificateData{
+		Hosts:      hosts,
+		CommonName: commonName,
+		Key: CertificateDataKey{
+			Algo: PrivateKeyAlgo,
+			Size: PrivateKeySize,
+		},
+		Names: []CertificateNames{{
+			Country:            CertificateNameCountry,
+			State:              CertificateNameState,
+			Location:           CertificateNameLocation,
+			Organization:       CertificateNameOrganization,
+			OrganizationalUnit: CertificateNameOrganizationalUnit,
+		}},
+	}, keyUsages, name, namespace)
+}
+
+func (k *KubeHelper) createCSR(certificate certificateData, keyUsages []certsv1.KeyUsage, name, namespace string) ([]byte, error) {
+	serverCsr, err := newCSR(certificate)
 	if err != nil {
 		return nil, err
 	}
@@ -323,6 +326,42 @@ func (k *KubeHelper) createCSR(name, namespace string, hosts []string, commonNam
 
 	err = k.client.Create(context.TODO(), csr)
 	return serverCsr.Key, err
+}
+
+func (k *KubeHelper) createInternalClusterAuthCSR(name, namespace string, hosts []string, commonName string) ([]byte, error) {
+	return k.createCSR(certificateData{
+		Hosts:      hosts,
+		CommonName: commonName,
+		Key: CertificateDataKey{
+			Algo: PrivateKeyAlgo,
+			Size: PrivateKeySize,
+		},
+		Names: []CertificateNames{{
+			Country:            CertificateNameCountry,
+			State:              CertificateNameState,
+			Location:           CertificateNameLocation,
+			Organization:       CertificateNameOrganization,
+			OrganizationalUnit: CertificateNameOrganizationalUnit,
+		}},
+	}, clientKeyUsages, name, namespace)
+}
+
+func (k *KubeHelper) createAgentCSR(name, namespace string) ([]byte, error) {
+	return k.createCSR(certificateData{
+		Hosts:      []string{name},
+		CommonName: name,
+		Key: CertificateDataKey{
+			Algo: PrivateKeyAlgo,
+			Size: PrivateKeySize,
+		},
+		Names: []CertificateNames{{
+			Country:            CertificateNameCountry,
+			State:              CertificateNameState,
+			Location:           CertificateNameLocation,
+			OrganizationalUnit: CertificateNameOrganizationalUnit,
+			Organization:       name,
+		}},
+	}, clientKeyUsages, name, namespace)
 }
 
 func checkCSRWasApproved(conditions []certsv1.CertificateSigningRequestCondition) bool {

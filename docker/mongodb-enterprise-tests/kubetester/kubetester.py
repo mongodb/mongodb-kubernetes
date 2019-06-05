@@ -17,10 +17,16 @@ from kubernetes.client.rest import ApiException
 from requests.auth import HTTPDigestAuth
 
 
-TESTING_DIRS = ("replicaset", "shardedcluster", "standalone", "tls", "mixed")
+TESTING_DIRS = ("replicaset", "shardedcluster", "standalone", "tls", "mixed", "users")
 SSL_CA_CERT = "/var/run/secrets/kubernetes.io/serviceaccount/..data/ca.crt"
 ENVIRONMENT_FILES = ("~/.operator-dev/om", "~/.operator-dev/contexts/{}")
 ENVIRONMENT_FILE_CURRENT = os.path.expanduser("~/.operator-dev/current")
+
+
+plural_map = {
+    "MongoDB": "mongodb",
+    "MongoDBUser": "mongodbusers"
+}
 
 
 def running_locally():
@@ -214,18 +220,34 @@ class KubernetesTester(object):
     def create(section, namespace):
         "creates a custom object from filename"
         resource = yaml.safe_load(open(fixture(section["file"])))
-
-        KubernetesTester.create_custom_resource_from_object(
+        name, kind = KubernetesTester.create_custom_resource_from_object(
             namespace,
             resource,
             exception_reason=section.get("exception", None),
-            patch=section.get("patch", None),
-        )
+            patch=section.get("patch", None))
+
+    @staticmethod
+    def create_mongodb_from_file(namespace, file_path):
+        name, kind = KubernetesTester.create_custom_resource_from_file(namespace, file_path)
+        KubernetesTester.namespace = namespace
+        KubernetesTester.name = name
+        KubernetesTester.kind = kind
 
     @staticmethod
     def create_custom_resource_from_file(namespace, file_path):
-        resource = yaml.safe_load(open(file_path))
-        KubernetesTester.create_custom_resource_from_object(namespace, resource)
+        with open(file_path) as f:
+            resource = yaml.safe_load(f)
+        return KubernetesTester.create_custom_resource_from_object(namespace, resource)
+
+    @staticmethod
+    def create_mongodb_from_object(namespace, resource, exception_reason=None, patch=None):
+        name, kind = KubernetesTester.create_custom_resource_from_object(
+            namespace, resource, exception_reason, patch
+        )
+        KubernetesTester.namespace = namespace
+        KubernetesTester.name = name
+        KubernetesTester.kind = kind
+
 
     @staticmethod
     def create_custom_resource_from_object(namespace, resource, exception_reason=None, patch=None):
@@ -237,8 +259,8 @@ class KubernetesTester(object):
         KubernetesTester.namespace = namespace
         KubernetesTester.name = name
         KubernetesTester.kind = kind
-
-        print('Creating resource {} with type {} {}'.format(kind, res_type, name), )
+        
+        print('Creating resource {} with type {} {}'.format(kind, res_type, name))
 
         # todo move "wait for exception" logic to a generic function and reuse for create/update/delete
         try:
@@ -252,12 +274,13 @@ class KubernetesTester(object):
             if exception_reason:
                 assert e.reason == exception_reason, "Real exception is: {}".format(e.reason)
                 print('"{}" exception raised while creating the resource - this is expected!'.format(e.reason))
-                return
-            else:
-                print("Failed to create a resource ({}): \n {}".format(e, resource))
-                raise
+                return None, None
+
+            print("Failed to create a resource ({}): \n {}".format(e, resource))
+            raise
 
         print('Created resource {} with type {} {}'.format(kind, res_type, name))
+        return name, kind
 
     @staticmethod
     def update(section, namespace):
@@ -644,12 +667,11 @@ class KubernetesTester(object):
     @staticmethod
     def mongo_resource_deleted(check_om_state=True):
         # First we check that the MDB resource is removed
-
         # This depends on global state set by "create_custom_resouce", this means
         # that it can't be called independently, or, calling the remove function without
         # calling the "create" function first.
         # Should not depend in the global state of KubernetesTester
-        #
+
         deleted_in_k8 = KubernetesTester.is_deleted(KubernetesTester.namespace,
                                                     KubernetesTester.name,
                                                     KubernetesTester.kind)
@@ -682,6 +704,28 @@ class KubernetesTester(object):
 
         body.status.conditions = [conditions]
         self.certificates.replace_certificate_signing_request_approval(name, body)
+
+    def yield_existing_csrs(self, csr_names, timeout=300):
+        total_csrs = len(csr_names)
+        seen_csrs = 0
+        stop_time = time.time() + timeout
+
+        while time.time() < stop_time:
+            for idx, csr_name in enumerate(csr_names):
+                try:
+                    self.certificates.read_certificate_signing_request_status(csr_name)
+                    # The certificate exists
+                    seen_csrs += 1
+                    yield csr_names.pop(idx)
+                    if seen_csrs == total_csrs:
+                        return  # we are done yielding all results
+                    break
+
+                except ApiException:
+                    time.sleep(0.5)
+
+        # we didn't find all of the expected csrs after the timeout period
+        raise AssertionError(f"Expected to find {total_csrs} csrs, but only found {seen_csrs} after {timeout} seconds. Expected csrs {csr_names}")
 
     def check_replica_set_is_ready(self, mdb_resource_name, wait_for=60, check_every=5, ssl=False, replicas_count=3,
                                    expected_version=None):
@@ -770,7 +814,7 @@ def get_name(doc):
 
 
 def get_type(doc):
-    return doc['spec']['type']
+    return doc.get('spec', {}).get('type')
 
 
 def get_crd_meta(doc):
@@ -779,7 +823,7 @@ def get_crd_meta(doc):
 
 def plural(name):
     """Returns the plural of the name, in the case of `mongodb` the plural is the same."""
-    return name.lower()
+    return plural_map[name]
 
 
 def parse_condition_str(condition):
@@ -839,7 +883,7 @@ def run_periodically(fn, *args, **kwargs):
 
 def run_periodically_with_timeout(fn, timeout, sleep_time):
     """
-    Calls `func` until it succeeds or until the `timeout` is reached, every `sleep_time` seconds.
+    Calls `fn` until it succeeds or until the `timeout` is reached, every `sleep_time` seconds.
     If `timeout` is negative or zero, it never times out.
 
     >>> run_periodically_with_timeout(lambda: time.sleep(5), timeout=3, sleep_time=0)
