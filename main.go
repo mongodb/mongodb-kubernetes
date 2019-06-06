@@ -7,14 +7,12 @@ import (
 
 	apis "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/operator-framework/operator-sdk/pkg/k8sutil"
+	"go.uber.org/zap"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/runtime/signals"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-
-	"go.uber.org/zap"
 )
 
 var log *zap.SugaredLogger

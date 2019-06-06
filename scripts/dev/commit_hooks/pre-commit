@@ -16,21 +16,12 @@ if ! [[ -x "$(command -v goimports)" ]]; then
     go get golang.org/x/tools/cmd/goimports
 fi
 
-gofiles=$(git diff --cached --name-only --diff-filter=ACM | grep -v vendor | grep '.go$')
+# some directories are excluded from vetting as they are auto-generated
+vet_exclusions="github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1
+github.com/10gen/ops-manager-kubernetes/pkg/client/"
+go vet $(go list ./... | grep -Fv "$vet_exclusions") || exit 1
 
-[[ -z "$gofiles" ]] && exit 0
-
-failed=0
-for file in $gofiles; do
-    echo "Checking ${file}"
-    (go tool vet "${file}" && echo "Ok.") || failed=1
-done
-
-if [[ ${failed} = 1 ]]; then
-    echo "ERROR: fix go vet warnings"
-    exit 1
-fi
-
+gofiles=$(git ls-files | grep '.go$') 
 unformatted=$(goimports -l $gofiles)
 [[ -z "$unformatted" ]] && exit 0
 
