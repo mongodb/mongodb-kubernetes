@@ -15,7 +15,7 @@ class TestReplicaSetListensConfigMap(KubernetesTester):
     create:
       file: replica-set-single.yaml
       wait_until: in_running_state
-      timeout: 60
+      timeout: 120
     '''
 
     def test_patch_config_map(self):

@@ -16,7 +16,7 @@ class TestStandaloneListensConfigMap(KubernetesTester):
     create:
       file: standalone.yaml
       wait_until: in_running_state
-      timeout: 60
+      timeout: 120
     '''
 
     def test_patch_config_map(self):
@@ -50,7 +50,7 @@ class TestStandaloneListensConfigMapDelete(KubernetesTester):
     name: Standalone MDB resource is removed
     delete:
       file: standalone.yaml
-      wait_for: 60
+      wait_for: 120
     '''
     def test_replica_set_sts_doesnt_exist(self):
         with pytest.raises(client.rest.ApiException):
