@@ -1,6 +1,7 @@
 package om
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -178,46 +179,74 @@ func TestMergeDeployment_BigReplicaset(t *testing.T) {
 	assert.Equal(t, 0, omDeployment.getReplicaSets()[0].members()[4].Priority())
 }
 
+func TestIsShardOf(t *testing.T) {
+	clusterName := "my-shard"
+	assert.True(t, isShardOfShardedCluster(clusterName, "my-shard-0"))
+	assert.True(t, isShardOfShardedCluster(clusterName, "my-shard-3"))
+	assert.True(t, isShardOfShardedCluster(clusterName, "my-shard-9"))
+	assert.True(t, isShardOfShardedCluster(clusterName, "my-shard-10"))
+	assert.True(t, isShardOfShardedCluster(clusterName, "my-shard-23"))
+	assert.True(t, isShardOfShardedCluster(clusterName, "my-shard-452"))
+
+	assert.False(t, isShardOfShardedCluster(clusterName, "my-shard"))
+	assert.False(t, isShardOfShardedCluster(clusterName, "my-my-shard"))
+	assert.False(t, isShardOfShardedCluster(clusterName, "my-shard-s"))
+	assert.False(t, isShardOfShardedCluster(clusterName, "my-shard-1-0"))
+	assert.False(t, isShardOfShardedCluster(clusterName, "mmy-shard-1"))
+	assert.False(t, isShardOfShardedCluster(clusterName, "my-shard-1s"))
+}
+
 // ************************   Methods for checking deployment units
 
 func checkShardedCluster(t *testing.T, d Deployment, expectedCluster ShardedCluster, replicaSetWithProcesses []ReplicaSetWithProcesses) {
+	checkShardedClusterCheckExtraReplicaSets(t, d, expectedCluster, replicaSetWithProcesses, true)
+}
+
+func checkShardedClusterCheckExtraReplicaSets(t *testing.T, d Deployment, expectedCluster ShardedCluster,
+	expectedReplicaSets []ReplicaSetWithProcesses, checkExtraReplicaSets bool) {
 	cluster := d.getShardedClusterByName(expectedCluster.Name())
 
 	require.NotNil(t, cluster)
 
 	assert.Equal(t, expectedCluster, *cluster)
 
-	checkReplicaSets(t, d, replicaSetWithProcesses)
+	checkReplicaSets(t, d, expectedReplicaSets, checkExtraReplicaSets)
 
-	// checking that no previous replica sets are left. For this we take the name of first shard and remove the last digit
-	firstShardName := replicaSetWithProcesses[0].Rs.Name()
-	i := 0
-	for _, r := range d.getReplicaSets() {
-		if strings.HasPrefix(r.Name(), firstShardName[0:len(firstShardName)-1]) {
-			i++
+	if checkExtraReplicaSets {
+		// checking that no previous replica sets are left. For this we take the name of first shard and remove the last digit
+		firstShardName := expectedReplicaSets[0].Rs.Name()
+		i := 0
+		for _, r := range d.getReplicaSets() {
+			if strings.HasPrefix(r.Name(), firstShardName[0:len(firstShardName)-1]) {
+				i++
+			}
+		}
+		assert.Equal(t, len(expectedReplicaSets), i)
+	}
+}
+
+func checkReplicaSets(t *testing.T, d Deployment, replicaSetWithProcesses []ReplicaSetWithProcesses, checkExtraProcesses bool) {
+	for _, r := range replicaSetWithProcesses {
+		if checkExtraProcesses {
+			checkReplicaSet(t, d, r)
+		} else {
+			checkReplicaSetCheckExtraProcesses(t, d, r, false)
 		}
 	}
-	assert.Equal(t, len(replicaSetWithProcesses), i)
 }
 
-func checkReplicaSets(t *testing.T, d Deployment, replicaSetWithProcesses []ReplicaSetWithProcesses) {
-	for _, r := range replicaSetWithProcesses {
-		checkReplicaSet(t, d, r)
-	}
-}
-
-func checkReplicaSet(t *testing.T, d Deployment, replicaSetWithProcesses ReplicaSetWithProcesses) {
-	rs := d.getReplicaSetByName(replicaSetWithProcesses.Rs.Name())
+func checkReplicaSetCheckExtraProcesses(t *testing.T, d Deployment, expectedRs ReplicaSetWithProcesses, checkExtraProcesses bool) {
+	rs := d.getReplicaSetByName(expectedRs.Rs.Name())
 
 	require.NotNil(t, rs)
 
-	assert.Equal(t, replicaSetWithProcesses.Rs, *rs)
-	rsPrefix := replicaSetWithProcesses.Rs.Name()
+	assert.Equal(t, expectedRs.Rs, *rs)
+	rsPrefix := expectedRs.Rs.Name()
 
 	found := 0
 	totalMongods := 0
 	for _, p := range d.getProcesses() {
-		for i, e := range replicaSetWithProcesses.Processes {
+		for i, e := range expectedRs.Processes {
 			if p.ProcessType() == ProcessTypeMongod && p.Name() == e.Name() {
 				assert.Equal(t, e, p, "Process %d (%s) doesn't match! \nExpected: %v, \nReal: %v", i, p.Name(), e.json(), p.json())
 				found++
@@ -227,8 +256,14 @@ func checkReplicaSet(t *testing.T, d Deployment, replicaSetWithProcesses Replica
 			totalMongods++
 		}
 	}
-	assert.Equalf(t, len(replicaSetWithProcesses.Processes), found, "Not all  %s replicaSet processes are found!", replicaSetWithProcesses.Rs.Name())
-	assert.Equalf(t, len(replicaSetWithProcesses.Processes), totalMongods, "Some excessive mongod processes are found for %s replicaSet!", replicaSetWithProcesses.Rs.Name())
+	assert.Equalf(t, len(expectedRs.Processes), found, "Not all  %s replicaSet processes are found!", expectedRs.Rs.Name())
+	if checkExtraProcesses {
+		assert.Equalf(t, len(expectedRs.Processes), totalMongods, "Some excessive mongod processes are found for %s replicaSet!", expectedRs.Rs.Name())
+	}
+}
+
+func checkReplicaSet(t *testing.T, d Deployment, expectedRs ReplicaSetWithProcesses) {
+	checkReplicaSetCheckExtraProcesses(t, d, expectedRs, true)
 }
 
 func checkProcess(t *testing.T, d Deployment, expectedProcess Process) {
@@ -315,8 +350,8 @@ func createShardsSpecificNumberOfMongods(count int, name string) []ReplicaSetWit
 func createSpecificNumberOfShardsAndMongods(countShards, countMongods int, name string) []ReplicaSetWithProcesses {
 	shards := make([]ReplicaSetWithProcesses, countShards)
 	for i := 0; i < countShards; i++ {
-		idx := strconv.Itoa(i)
-		shards[i] = NewReplicaSetWithProcesses(NewReplicaSet(name+idx, "3.6.3"), createReplicaSetProcessesCount(countMongods, name+idx))
+		rsName := fmt.Sprintf("%s-%d", name, i)
+		shards[i] = NewReplicaSetWithProcesses(NewReplicaSet(rsName, "3.6.3"), createReplicaSetProcessesCount(countMongods, rsName))
 	}
 	return shards
 }
@@ -350,8 +385,7 @@ func createReplicaSetProcessesCount(count int, rsName string) []Process {
 	rsMembers := make([]Process, count)
 
 	for i := 0; i < count; i++ {
-		idx := strconv.Itoa(i)
-		rsMembers[i] = NewMongodProcess(rsName+idx, rsName+idx+".some.host", DefaultMongoDBVersioned("3.6.3"))
+		rsMembers[i] = NewMongodProcess(fmt.Sprintf("%s-%d", rsName, i), fmt.Sprintf("%s-%d.some.host", rsName, i), DefaultMongoDBVersioned("3.6.3"))
 		// Note that we don't specify the replicaset config for process
 	}
 	return rsMembers

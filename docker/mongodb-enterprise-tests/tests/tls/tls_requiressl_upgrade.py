@@ -2,6 +2,7 @@ import pytest
 
 from kubetester.kubetester import KubernetesTester, skip_if_local, build_list_of_hosts
 from kubernetes import client
+from kubetester.mongotester import ReplicaSetTester
 
 mdb_resource = "test-tls-upgrade"
 
@@ -40,11 +41,8 @@ class TestReplicaSetWithTLSUpgradeCreation(KubernetesTester):
 
     @skip_if_local()
     def test_mdb_is_reachable_with_no_ssl(self):
-        hosts = build_list_of_hosts(mdb_resource, self.namespace, 3)
-        primary, secondaries = self.wait_for_rs_is_ready(hosts, wait_for=120)
-
-        assert primary is not None
-        assert len(secondaries) == 2
+        mongo_tester = ReplicaSetTester(mdb_resource, 3)
+        mongo_tester.assert_connectivity()
 
 
 @pytest.mark.e2e_replica_set_tls_require_upgrade
@@ -72,11 +70,8 @@ class TestReplicaSetWithTLSUpgradeSetRequireSSLMode(KubernetesTester):
 
     @skip_if_local()
     def test_mdb_is_reachable_with_no_ssl(self):
-        hosts = build_list_of_hosts(mdb_resource, self.namespace, 3)
-        primary, secondaries = self.wait_for_rs_is_ready(hosts, wait_for=20)
-
-        assert primary is not None
-        assert len(secondaries) == 2
+        mongo_tester = ReplicaSetTester(mdb_resource, 3)
+        mongo_tester.assert_connectivity()
 
 
 @pytest.mark.e2e_replica_set_tls_require_upgrade
@@ -111,21 +106,14 @@ class TestReplicaSetWithTLSUpgradeRunning(KubernetesTester):
         assert mdb["status"]["phase"] == "Running"
 
     @skip_if_local()
-    @pytest.mark.xfail
     def test_mdb_is_reachable_with_no_ssl(self):
-        hosts = build_list_of_hosts(mdb_resource, self.namespace, 3)
-        primary, secondaries = self.wait_for_rs_is_ready(hosts, wait_for=20)
-
-        assert primary is not None
-        assert len(secondaries) == 2
+        mongo_tester = ReplicaSetTester(mdb_resource, 3)
+        mongo_tester.assert_no_connection()
 
     @skip_if_local()
     def test_mdb_is_reachable_with_ssl(self):
-        hosts = build_list_of_hosts(mdb_resource, self.namespace, 3)
-        primary, secondaries = self.wait_for_rs_is_ready(hosts, ssl=True)
-
-        assert primary is not None
-        assert len(secondaries) == 2
+        mongo_tester = ReplicaSetTester(mdb_resource, 3, ssl=True)
+        mongo_tester.assert_connectivity()
 
 
 @pytest.mark.e2e_replica_set_tls_require_upgrade

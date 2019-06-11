@@ -15,6 +15,8 @@
 #               run. For example "MONGODB_RESOURCES="rs.yaml; rs2.yaml"
 # - KOPS_ZONES: (optional, only if CLUSTER_TYPE is set to 'kops'). Overrides default zones for kops cluster. May be
 #              necessary if the default region (us-east) has engaged all VPCs up to the limit (5 by default)
+# - OPS_MANAGER_PACKAGE_URL: the url which is used to download Ops Manager debian package for 'make om-evg' task. If
+#              not specified some default one will be used (check 'ensure_ops_manager_evg' script).
 
 # IMPORTANT: this file is just an example, you need to change the values proper way
 

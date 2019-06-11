@@ -8,7 +8,7 @@ variables:
     ops_manager_namespace: "operator-testing-40-first"
     node_port: 30041
   - &ops_manager_40_current
-    ops_manager_version: "4.0.11.50485.20190502T1847Z-1"
+    ops_manager_version: "4.0.12.50517.20190605T1533Z-1_test"
     ops_manager_namespace: "operator-testing-40-current"
     node_port: 30040
 # TODO: CLOUDP-42158 there are some incompatibilities with the operator and 4.1.x Ops Managers
@@ -613,6 +613,11 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_sharded_cluster_scale_shards
+  exec_timeout_secs: 720
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_standalone_type_change_recovery
   exec_timeout_secs: 600
   commands:
@@ -703,12 +708,11 @@ task_groups:
     - unit_tests_lint
 
 - name: e2e_core_task_group
-  max_hosts: 100
+  max_hosts: 3
   setup_group:
     - func: "clone"
     - func: "setup_kubectl"
   tasks:
-    # Weird, but if the name tasks without "e2e_" (so equal to 'test_name' param) - evergreen doesn't run them...
     - e2e_all_mongodb_resources_parallel
     - e2e_standalone_config_map
     - e2e_standalone_groups
@@ -738,7 +742,7 @@ task_groups:
     - func: "upload_e2e_artifacts"
 
 - name: e2e_tls_task_group
-  max_hosts: 100
+  max_hosts: 3
   setup_group:
     - func: "clone"
     - func: "setup_kubectl"
@@ -753,8 +757,18 @@ task_groups:
   teardown_task:
     - func: "upload_e2e_artifacts"
 
+- name: e2e_core_others_task_group
+  max_hosts: 1
+  setup_group:
+    - func: "clone"
+    - func: "setup_kubectl"
+  tasks:
+    - e2e_sharded_cluster_scale_shards
+  teardown_task:
+    - func: "upload_e2e_artifacts"
+
 - name: e2e_x509_task_group
-  max_hosts: 100
+  max_hosts: 1
   setup_group:
     - func: "clone"
     - func: "setup_kubectl"
@@ -821,6 +835,9 @@ buildvariants:
   - name: "e2e_x509_task_group"
     depends_on:
       - name: setup_e2e
+  - name: "e2e_core_others_task_group"
+    depends_on:
+      - name: setup_e2e
 
 - name: e2e_openshift_origin_v3.11_om_40_current
   display_name: "e2e_openshift_origin_v3.11_om_40_current"
@@ -838,6 +855,9 @@ buildvariants:
     depends_on:
     - name: setup_e2e
   - name: "e2e_x509_task_group"
+    depends_on:
+      - name: setup_e2e
+  - name: "e2e_core_others_task_group"
     depends_on:
       - name: setup_e2e
 

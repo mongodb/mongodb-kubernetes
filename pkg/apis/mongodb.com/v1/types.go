@@ -32,7 +32,11 @@ const (
 	Error LogLevel = "ERROR"
 	Fatal LogLevel = "FATAL"
 
-	// PhasePending means the reconciliation has begun for the Mongodb Resource
+	// PhaseReconciling means the controller is in the middle of reconciliation process
+	PhaseReconciling Phase = "Reconciling"
+
+	// PhasePending means the reconciliation has finished but the resource is neither in Error nor Running state -
+	// most of all waiting for some event to happen (CSRs approved, shard rebalanced etc)
 	PhasePending Phase = "Pending"
 
 	// PhaseRunning means the Mongodb Resource is in a running state
@@ -94,8 +98,8 @@ type MongoDbSpec struct {
 	// this is an optional service, it will get the name "<rsName>-service" in case not provided
 	Service string `json:"service,omitempty"`
 
-	// ExposedExternally determines whether a NodePort service should be created for the deployment
-	ExposedExternally bool `json:"exposedExternally"`
+	// ExposedExternally determines whether a NodePort service should be created for the resource
+	ExposedExternally bool `json:"exposedExternally,omitempty"`
 
 	// TODO seems the ObjectMeta contains the field for ClusterName - may be we should use it instead
 	ClusterName string `json:"clusterName,omitempty"`
@@ -157,7 +161,7 @@ type Security struct {
 }
 
 type TLSConfig struct {
-	Enabled bool `json:"enabled"`
+	Enabled bool `json:"enabled,omitempty"`
 
 	// SSLSecret is the name of the secret in which the SSL certificates and
 	// their respective keys are stored. If omitted, the certificates and their
@@ -200,7 +204,7 @@ func (m *MongoDB) MarshalJSON() ([]byte, error) {
 		mdb.Spec.AdditionalMongodConfig = nil
 	}
 
-	if reflect.DeepEqual(mdb.Spec.Security, newSecurity()) {
+	if reflect.DeepEqual(*mdb.Spec.Security, newSecurity()) || reflect.DeepEqual(*mdb.Spec.Security, Security{}) {
 		mdb.Spec.Security = nil
 	}
 
@@ -262,6 +266,13 @@ func (m *MongoDB) UpdatePending() {
 		m.Status.LastTransition = util.Now()
 		m.Status.Phase = PhasePending
 	}
+}
+
+// UpdateReconciling called when the CR object (MongoDB resource) needs to transition to
+// reconciling state.
+func (m *MongoDB) UpdateReconciling() {
+	m.Status.LastTransition = util.Now()
+	m.Status.Phase = PhaseReconciling
 }
 
 // UpdateSuccessful called when the CR object (MongoDB resource) needs to transition to

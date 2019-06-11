@@ -309,6 +309,18 @@ func (k *KubeHelper) waitForStatefulsetAndPods(ns, stsName string, log *zap.Suga
 	}, log, retrials, waitSeconds)
 }
 
+func (k *KubeHelper) deleteStatefulSet(key client.ObjectKey) error {
+	set := &appsv1.StatefulSet{}
+	if err := k.client.Get(context.TODO(), key, set); err != nil {
+		return err
+	}
+
+	if err := k.client.Delete(context.TODO(), set); err != nil {
+		return err
+	}
+	return nil
+}
+
 // ensureServicesExist checks if the necessary services exist and creates them if not. If the service name is not
 // provided - creates it based on the first replicaset name provided
 // TODO it must remove the external service in case it's no more needed

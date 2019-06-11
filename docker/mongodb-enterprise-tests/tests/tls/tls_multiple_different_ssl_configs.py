@@ -1,6 +1,7 @@
 import pytest
 
 from kubetester.kubetester import KubernetesTester, skip_if_local, build_list_of_hosts
+from kubetester.mongotester import ReplicaSetTester
 
 mdb_resources = {
     "ssl_enabled": "test-tls-base-rs-require-ssl",
@@ -75,35 +76,21 @@ class TestMultipleRunning0(KubernetesTester):
       timeout: 60
     """
     @skip_if_local()
-    @pytest.mark.xfail
-    def test_mdb_ssl_enabled_is_reachable_with_no_ssl(self):
-        hosts = build_list_of_hosts(mdb_resources["ssl_enabled"], self.namespace, 3)
-        primary, secondaries = self.wait_for_rs_is_ready(hosts, wait_for=40)
-
-        assert primary is not None
-        assert len(secondaries) == 2
+    def test_mdb_ssl_enabled_is_not_reachable_with_no_ssl(self):
+        mongo_tester = ReplicaSetTester(mdb_resources["ssl_enabled"], 3)
+        mongo_tester.assert_no_connection()
 
     @skip_if_local()
     def test_mdb_ssl_enabled_is_reachable_with_ssl(self):
-        hosts = build_list_of_hosts(mdb_resources["ssl_enabled"], self.namespace, 3)
-        primary, secondaries = self.wait_for_rs_is_ready(hosts, wait_for=40, ssl=True)
-
-        assert primary is not None
-        assert len(secondaries) == 2
+        mongo_tester = ReplicaSetTester(mdb_resources["ssl_enabled"], 3, ssl=True)
+        mongo_tester.assert_connectivity()
 
     @skip_if_local()
     def test_mdb_ssl_disabled_is_reachable_with_no_ssl(self):
-        hosts = build_list_of_hosts(mdb_resources["ssl_disabled"], self.namespace, 3)
-        primary, secondaries = self.wait_for_rs_is_ready(hosts, wait_for=40)
-
-        assert primary is not None
-        assert len(secondaries) == 2
+        mongo_tester = ReplicaSetTester(mdb_resources["ssl_disabled"], 3)
+        mongo_tester.assert_connectivity()
 
     @skip_if_local()
-    @pytest.mark.xfail
-    def test_mdb_ssl_disabled_is_reachable_with_ssl(self):
-        hosts = build_list_of_hosts(mdb_resources["ssl_disabled"], self.namespace, 3)
-        primary, secondaries = self.wait_for_rs_is_ready(hosts, wait_for=40, ssl=True)
-
-        assert primary is not None
-        assert len(secondaries) == 2
+    def test_mdb_ssl_disabled_is_not_reachable_with_ssl(self):
+        mongo_tester = ReplicaSetTester(mdb_resources["ssl_disabled"], 3, ssl=True)
+        mongo_tester.assert_no_connection()

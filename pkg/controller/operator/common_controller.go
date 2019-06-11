@@ -30,6 +30,7 @@ type Updatable interface {
 	UpdateSuccessful(object runtime.Object, args ...string)
 	UpdateError(msg string)
 	UpdatePending()
+	UpdateReconciling()
 }
 
 // ensure our types are all Updatable
@@ -179,6 +180,12 @@ func (c *ReconcileCommonController) updateStatusPending(reconciledResource Updat
 	})
 }
 
+func (c *ReconcileCommonController) updateReconciling(reconciledResource Updatable) error {
+	return c.updateStatus(reconciledResource, func(fresh Updatable) {
+		fresh.UpdateReconciling()
+	})
+}
+
 func (c *ReconcileCommonController) updateStatusFailed(resource Updatable, msg string, log *zap.SugaredLogger) (reconcile.Result, error) {
 	log.Error(msg)
 	// Resource may be nil if the reconciliation failed very early (on fetching the resource) and panic handling function
@@ -194,6 +201,14 @@ func (c *ReconcileCommonController) updateStatusFailed(resource Updatable, msg s
 	return retry()
 }
 
+// if the resource is updated externally during an update, it's possible that we get concurrent modification errors
+// when trying to update.
+// E.g: "Operation cannot be fulfilled on mongodbstandalones.mongodb.com : the object has
+// been modified; please apply your changes to the latest version and try again" error - so let's fetch the latest
+// object before updating it.
+// We fetch a fresh version in case any modifications have been made.
+// Note, that this method enforces update ONLY to the status, so the reconciliation events happening because of this
+// can be filtered out by 'controller.shouldReconcile'
 func (c *ReconcileCommonController) updateStatus(reconciledResource Updatable, updateFunc func(fresh Updatable)) error {
 	for i := 0; i < 3; i++ {
 		err := c.client.Get(context.TODO(), objectKeyFromApiObject(reconciledResource), reconciledResource)
@@ -211,7 +226,7 @@ func (c *ReconcileCommonController) updateStatus(reconciledResource Updatable, u
 			return err
 		}
 	}
-	return nil
+	return fmt.Errorf("the resource is experiencing some intensive concurrent modifications")
 }
 
 // shouldReconcile checks if the resource must be reconciled.
@@ -262,9 +277,9 @@ func (c *ReconcileCommonController) prepareResourceForReconciliation(
 			c.updateStatusFailed(res, fmt.Sprintf("Changing type is not currently supported, please change the resource back to a %s", status.ResourceType), log)
 			return &reconcile.Result{}, nil
 		}
-
 	}
-	updateErr := c.updateStatusPending(resource.(Updatable))
+
+	updateErr := c.updateReconciling(resource.(Updatable))
 	if updateErr != nil {
 		log.Errorf("Error setting state to pending: %s, the resource: %+v", updateErr, resource)
 		return &reconcile.Result{RequeueAfter: 10 * time.Second}, nil

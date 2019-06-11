@@ -48,7 +48,7 @@ func WaitForReadyState(oc Connection, processNames []string, log *zap.SugaredLog
 		return "Automation agents haven't reached READY state", false
 	}
 	if !util.DoAndRetry(reachStateFunc, log, 30, 3) {
-		return NewAPIError(fmt.Errorf("Failed to start databases during defined interval"))
+		return NewAPIError(fmt.Errorf("automation agents haven't reached READY state during defined interval"))
 	}
 	log.Info("Automation config has been successfully updated in Ops Manager and Automation Agents reached READY state")
 	return nil

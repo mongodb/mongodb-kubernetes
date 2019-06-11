@@ -2,7 +2,7 @@ import pytest
 
 from kubetester.kubetester import KubernetesTester, skip_if_local, build_list_of_hosts
 from kubernetes import client
-
+from kubetester.mongotester import ReplicaSetTester
 
 mdb_resource = "test-tls-base-rs-require-ssl"
 
@@ -29,8 +29,8 @@ class TestReplicaSetWithTLSCreation(KubernetesTester):
             "mongodb.com", "v1", self.namespace, "mongodb", mdb_resource
         )
         assert (
-            mdb["status"]["message"]
-            == "Not all certificates have been approved by Kubernetes CA"
+                mdb["status"]["message"]
+                == "Not all certificates have been approved by Kubernetes CA"
         )
 
 
@@ -59,21 +59,14 @@ class TestReplicaSetWithTLSRunning(KubernetesTester):
     """
 
     @skip_if_local()
-    @pytest.mark.xfail
-    def test_mdb_is_reachable_with_no_ssl(self):
-        hosts = build_list_of_hosts(mdb_resource, self.namespace, 3)
-        primary, secondaries = self.wait_for_rs_is_ready(hosts, wait_for=20)
-
-        assert primary is not None
-        assert len(secondaries) == 2
+    def test_mdb_is_not_reachable_with_no_ssl(self):
+        mongo_tester = ReplicaSetTester(mdb_resource, 3)
+        mongo_tester.assert_no_connection()
 
     @skip_if_local()
     def test_mdb_is_reachable_with_ssl(self):
-        hosts = build_list_of_hosts(mdb_resource, self.namespace, 3)
-        primary, secondaries = self.wait_for_rs_is_ready(hosts, ssl=True)
-
-        assert primary is not None
-        assert len(secondaries) == 2
+        mongo_tester = ReplicaSetTester(mdb_resource, 3, ssl=True)
+        mongo_tester.assert_connectivity()
 
 
 @pytest.mark.e2e_replica_set_tls_require
@@ -86,6 +79,7 @@ class TestReplicaSetWithTLSScaling0Approval(KubernetesTester):
       wait_until: in_failed_state
       timeout: 200
     """
+
     def setup(self):
         [self.approve_certificate(cert) for cert in cert_names(self.namespace, 5)]
 
@@ -106,27 +100,20 @@ class TestReplicaSetWithTLSScaling0Running(KubernetesTester):
         assert True
 
     @skip_if_local()
-    @pytest.mark.xfail
-    def test_mdb_is_reachable_with_no_ssl(self):
-        hosts = build_list_of_hosts(mdb_resource, self.namespace, 5)
-        primary, secondaries = self.wait_for_rs_is_ready(hosts, wait_for=20)
-
-        assert primary is not None
-        assert len(secondaries) == 4
+    def test_mdb_is_not_reachable_with_no_ssl(self):
+        mongo_tester = ReplicaSetTester(mdb_resource, 5)
+        mongo_tester.assert_no_connection()
 
     @skip_if_local()
     def test_mdb_is_reachable_with_ssl(self):
-        hosts = build_list_of_hosts(mdb_resource, self.namespace, 5)
-        primary, secondaries = self.wait_for_rs_is_ready(hosts, ssl=True)
-
-        assert primary is not None
-        assert len(secondaries) == 4
+        mongo_tester = ReplicaSetTester(mdb_resource, 5, ssl=True)
+        mongo_tester.assert_connectivity()
 
 
 @pytest.mark.e2e_replica_set_tls_require
 class TestReplicaSetWithTLSScaling1(KubernetesTester):
     """
-    name: After scaling back to 5, the Replica Set works with no certs approval
+    name: After scaling back to 3, the Replica Set works with no certs approval
     update:
       patch: '[{"op":"replace","path":"/spec/members","value": 3}]'
       file: test-tls-base-rs-require-ssl.yaml
@@ -138,21 +125,14 @@ class TestReplicaSetWithTLSScaling1(KubernetesTester):
         assert True
 
     @skip_if_local()
-    @pytest.mark.xfail
     def test_mdb_is_reachable_with_no_ssl(self):
-        hosts = build_list_of_hosts(mdb_resource, self.namespace, 3)
-        primary, secondaries = self.wait_for_rs_is_ready(hosts, wait_for=20)
-
-        assert primary is not None
-        assert len(secondaries) == 2
+        mongo_tester = ReplicaSetTester(mdb_resource, 3)
+        mongo_tester.assert_no_connection()
 
     @skip_if_local()
     def test_mdb_is_reachable_with_ssl(self):
-        hosts = build_list_of_hosts(mdb_resource, self.namespace, 3)
-        primary, secondaries = self.wait_for_rs_is_ready(hosts, ssl=True)
-
-        assert primary is not None
-        assert len(secondaries) == 2
+        mongo_tester = ReplicaSetTester(mdb_resource, 3, ssl=True)
+        mongo_tester.assert_connectivity()
 
 
 @pytest.mark.e2e_replica_set_tls_require

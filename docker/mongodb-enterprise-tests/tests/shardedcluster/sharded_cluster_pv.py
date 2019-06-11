@@ -2,6 +2,7 @@ import pytest
 
 from kubetester.kubetester import KubernetesTester
 from kubernetes import client
+from kubetester.mongotester import ShardedClusterTester
 
 
 @pytest.mark.e2e_sharded_cluster_pv
@@ -67,7 +68,7 @@ class TestShardedClusterCreation(KubernetesTester):
             assert pvc.spec.resources.requests["storage"] == "1G"
 
     def test_mongos_are_reachable(self):
-        self.check_mongoses_are_ready("sh001-pv", mongos_count=2)
+        ShardedClusterTester("sh001-pv", 2)
 
 
 @pytest.mark.e2e_sharded_cluster_pv

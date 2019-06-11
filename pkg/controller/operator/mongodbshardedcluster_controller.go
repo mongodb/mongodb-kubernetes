@@ -114,10 +114,30 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 	if err := updateOmDeploymentShardedCluster(conn, sc, kubeState, log); err != nil {
 		return nil, fmt.Errorf("Failed to update OpsManager automation config: %s", err)
 	}
+
 	log.Infow("Ops Manager deployment updated successfully")
+
+	r.removeUnusedStatefulsets(sc, kubeState, log)
 
 	return conn, nil
 
+}
+
+func (r *ReconcileMongoDbShardedCluster) removeUnusedStatefulsets(sc *mongodb.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger) {
+	statefulsetsToRemove := sc.Status.MongodbShardedClusterSizeConfig.ShardCount - sc.Spec.MongodbShardedClusterSizeConfig.ShardCount
+	shardsCount := sc.Status.MongodbShardedClusterSizeConfig.ShardCount
+
+	// we iterate over last 'statefulsetsToRemove' shards if any
+	for i := shardsCount - statefulsetsToRemove; i < shardsCount; i++ {
+		key := objectKey(sc.Namespace, sc.ShardRsName(i))
+		err := r.kubeHelper.deleteStatefulSet(key)
+		if err != nil {
+			// Most of all the error won't be recoverable, also our sharded cluster is in good shape - we can just warn
+			// the error and leave the cleanup work for the admins
+			log.Warnf("Failed to delete the statefulset %s: %s", key, err)
+		}
+		log.Infof("Removed statefulset %s as it's was removed from sharded cluster", key)
+	}
 }
 
 func (r *ReconcileMongoDbShardedCluster) ensureSSLCertificates(s *mongodb.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger) error {
@@ -151,6 +171,8 @@ func (r *ReconcileMongoDbShardedCluster) ensureSSLCertificates(s *mongodb.MongoD
 	return nil
 }
 
+// createKubernetesResources creates all Kubernetes objects that are specified in 'state' parameter
+// Note, that it doesn't remove any existing shards - this will be done later
 func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mongodb.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger) error {
 	err := state.mongosSetHelper.CreateOrUpdateInKubernetes()
 	if err != nil {
@@ -211,7 +233,6 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mo
 		SetPodSpec(podSpec).
 		SetPodVars(podVars).
 		SetLogger(log).
-		SetExposedExternally(false).
 		SetTLS(s.Spec.GetTLSConfig()).
 		SetClusterName(s.Spec.ClusterName).
 		SetProjectConfig(*projectConfig).
@@ -244,7 +265,6 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mo
 
 // delete tries to complete a Deletion reconciliation event
 func (r *ReconcileMongoDbShardedCluster) delete(obj interface{}, log *zap.SugaredLogger) error {
-	// TODO: find a standard & consistent way of logging these events
 	sc := obj.(*mongodb.MongoDB)
 
 	conn, err := r.prepareConnection(objectKey(sc.Namespace, sc.Name), sc.Spec.ConnectionSpec, nil, log)
@@ -366,12 +386,53 @@ func isShardsSizeScaleDown(sc *mongodb.MongoDB) bool {
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
+// Note that the process may have two phases (if shards number is decreased):
+// phase 1: "drain" the shards: remove them from sharded cluster, put replica set names to "draining" array, not remove
+// replica sets and processes, wait for agents to reach the goal
+// phase 2: remove the "junk" replica sets and their processes, wait for agents to reach the goal.
+// The logic is designed to be idempotent: if the reconciliation is retried the controller will never skip the phase 1
+// until the agents have performed draining
 func updateOmDeploymentShardedCluster(conn om.Connection, sc *mongodb.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger) error {
 	err := waitForAgentsToRegister(sc, state, conn, log)
 	if err != nil {
 		return err
 	}
 
+	shardsRemoving := false
+	processNames := make([]string, 0)
+	err, shardsRemoving = publishDeployment(conn, sc, state, log, &processNames, false)
+	if err != nil {
+		return err
+	}
+
+	if err = om.WaitForReadyState(conn, processNames, log); err != nil {
+		if shardsRemoving {
+			// todo this should result in Pending status
+			return fmt.Errorf("automation agents haven't reached READY state: shards removal in progress")
+		}
+		return err
+	}
+
+	if shardsRemoving {
+		log.Infof("Some shards were removed from the sharded cluster, we need to remove them from the deployment completely")
+		err, shardsRemoving = publishDeployment(conn, sc, state, log, &processNames, true)
+		if err != nil {
+			return err
+		}
+
+		if err = om.WaitForReadyState(conn, processNames, log); err != nil {
+			return fmt.Errorf("automation agents haven't reached READY state while cleaning replica set and processes")
+		}
+	}
+
+	currentHosts := getAllHosts(sc, sc.Status.MongodbShardedClusterSizeConfig)
+	wantedHosts := getAllHosts(sc, sc.Spec.MongodbShardedClusterSizeConfig)
+
+	return calculateDiffAndStopMonitoringHosts(conn, currentHosts, wantedHosts, log)
+}
+
+func publishDeployment(conn om.Connection, sc *mongodb.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger,
+	processNames *[]string, finalizing bool) (error, bool) {
 	mongosProcesses := createProcesses(
 		state.mongosSetHelper.BuildStatefulSet(),
 		om.ProcessTypeMongos,
@@ -386,39 +447,29 @@ func updateOmDeploymentShardedCluster(conn om.Connection, sc *mongodb.MongoDB, s
 		shards[i] = buildReplicaSetFromStatefulSet(s.BuildStatefulSet(), sc, log)
 	}
 
-	processNames := make([]string, 0)
-	err = conn.ReadUpdateDeployment(
+	shardsRemoving := false
+	err := conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
-
 			// it is not possible to disable internal cluster authentication once enabled
 			allProcesses := getAllProcesses(shards, configRs, mongosProcesses)
 			if sc.Spec.Security.ClusterAuthMode == "" && d.ExistingProcessesHaveInternalClusterAuthentication(allProcesses) {
 				return fmt.Errorf("cannot disable x509 internal cluster authentication")
 			}
-			if err := d.MergeShardedCluster(sc.Name, mongosProcesses, configRs, shards); err != nil {
+			var err error
+			if shardsRemoving, err = d.MergeShardedCluster(sc.Name, mongosProcesses, configRs, shards, finalizing); err != nil {
 				return err
 			}
 			d.AddMonitoringAndBackup(mongosProcesses[0].HostName(), log)
 			d.ConfigureTLS(sc.Spec.GetTLSConfig())
 
-			processNames = d.GetProcessNames(om.ShardedCluster{}, sc.Name)
+			processes := d.GetProcessNames(om.ShardedCluster{}, sc.Name)
+			*processNames = processes
 			return nil
 		},
 		getMutex(conn.GroupName(), conn.OrgID()),
 		log,
 	)
-	if err != nil {
-		return err
-	}
-
-	if err := om.WaitForReadyState(conn, processNames, log); err != nil {
-		return err
-	}
-
-	currentHosts := getAllHosts(sc, sc.Status.MongodbShardedClusterSizeConfig)
-	wantedHosts := getAllHosts(sc, sc.Spec.MongodbShardedClusterSizeConfig)
-
-	return calculateDiffAndStopMonitoringHosts(conn, currentHosts, wantedHosts, log)
+	return err, shardsRemoving
 }
 
 func getAllProcesses(shards []om.ReplicaSetWithProcesses, configRs om.ReplicaSetWithProcesses, mongosProcesses []om.Process) []om.Process {

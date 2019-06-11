@@ -653,7 +653,8 @@ func request(method, hostname, path string, v interface{}, user string, token st
 	req.Header.Set("Authorization", getDigestAuthorization(digestParts, method, path, user, token))
 
 	// DEV: uncomment this to see full http request. Set to 'true' to to see the request body
-	//zap.S().Debugf("Ops Manager request: \n %s", httputil.DumpRequest(req, false))
+	//dumpRequest, _ := httputil.DumpRequest(req, false)
+	//zap.S().Debugf("Ops Manager request: \n %s", dumpRequest)
 	zap.S().Debugf("Ops Manager request: %s %s", method, url) // pass string(request) to see full http request
 
 	resp, err = client.Do(req)

@@ -4,24 +4,21 @@ import string
 import sys
 import time
 import warnings
+from datetime import datetime, timezone
 
 import jsonpatch
 import pymongo
 import pytest
 import requests
 import yaml
-from datetime import datetime, timezone
-
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 from requests.auth import HTTPDigestAuth
-
 
 TESTING_DIRS = ("replicaset", "shardedcluster", "standalone", "tls", "mixed", "users")
 SSL_CA_CERT = "/var/run/secrets/kubernetes.io/serviceaccount/..data/ca.crt"
 ENVIRONMENT_FILES = ("~/.operator-dev/om", "~/.operator-dev/contexts/{}")
 ENVIRONMENT_FILE_CURRENT = os.path.expanduser("~/.operator-dev/current")
-
 
 plural_map = {
     "MongoDB": "mongodb",
@@ -196,6 +193,12 @@ class KubernetesTester(object):
             for rule in rules:
                 KubernetesTester.execute(action, rule, namespace)
 
+                # We wait for some time until checking the condition. This is important for updates: the resource was
+                # in "running" state, it got updated and it gets to "reconciling" and to "running" again.
+                # TODO ideally we need to check for the sequence of phases, e.g. "reconciling" -> "running" and remove the
+                # timeout
+                time.sleep(5)
+
                 if "wait_for_condition" in rule:
                     cls.wait_for_condition_string(rule["wait_for_condition"])
                 else:
@@ -248,7 +251,6 @@ class KubernetesTester(object):
         KubernetesTester.name = name
         KubernetesTester.kind = kind
 
-
     @staticmethod
     def create_custom_resource_from_object(namespace, resource, exception_reason=None, patch=None):
         name, kind, group, version, res_type = get_crd_meta(resource)
@@ -259,7 +261,7 @@ class KubernetesTester(object):
         KubernetesTester.namespace = namespace
         KubernetesTester.name = name
         KubernetesTester.kind = kind
-        
+
         print('Creating resource {} with type {} {}'.format(kind, res_type, name))
 
         # todo move "wait for exception" logic to a generic function and reuse for create/update/delete
@@ -577,7 +579,8 @@ class KubernetesTester(object):
                 break
 
         if len(ids) == 0:
-            print("Group name {} not found in organization with id {} (in {} pages)".format(group_name, org_id, max_pages))
+            print("Group name {} not found in organization with id {} (in {} pages)".format(group_name, org_id,
+                                                                                            max_pages))
 
         return ids
 
@@ -660,9 +663,9 @@ class KubernetesTester(object):
         hosts = KubernetesTester.get_hosts()
 
         return len(config["replicaSets"]) == 0 and \
-            len(config["sharding"]) == 0 and \
-            len(config["processes"]) == 0 and \
-            len(hosts["results"]) == 0
+               len(config["sharding"]) == 0 and \
+               len(config["processes"]) == 0 and \
+               len(hosts["results"]) == 0
 
     @staticmethod
     def mongo_resource_deleted(check_om_state=True):
@@ -681,12 +684,6 @@ class KubernetesTester(object):
 
     def build_mongodb_uri_for_rs(self, hosts):
         return "mongodb://{}".format(",".join(hosts))
-
-    def build_mongodb_uri_for_sh(self, hosts):
-        return "mongodb://{}".format(",".join(hosts))
-
-    def build_mongodb_uri_for_mongos(self, host):
-        return "mongodb://{}".format(host)
 
     @staticmethod
     def random_k8s_name(prefix='test-'):
@@ -725,26 +722,19 @@ class KubernetesTester(object):
                     time.sleep(0.5)
 
         # we didn't find all of the expected csrs after the timeout period
-        raise AssertionError(f"Expected to find {total_csrs} csrs, but only found {seen_csrs} after {timeout} seconds. Expected csrs {csr_names}")
+        raise AssertionError(
+            f"Expected to find {total_csrs} csrs, but only found {seen_csrs} after {timeout} seconds. Expected csrs {csr_names}")
 
-    def check_replica_set_is_ready(self, mdb_resource_name, wait_for=60, check_every=5, ssl=False, replicas_count=3,
-                                   expected_version=None):
-        """Connect to the replica set and return a tuple of (has_primary, number_of_secondaries)."""
-        hosts = build_list_of_hosts(mdb_resource_name, self.namespace, replicas_count)
-        primary, secondaries = self.wait_for_rs_is_ready(hosts, wait_for, check_every, ssl, expected_version)
-
-        return primary is not None, len(secondaries) == replicas_count - 1
-
-
-    def wait_for_rs_is_ready(self, hosts, wait_for=60, check_every=5, ssl=False, expected_version=None):
+    # TODO eventually replace all usages of this function with "ReplicaSetTester(mdb_resource, 3).assert_connectivity()"
+    def wait_for_rs_is_ready(self, hosts, wait_for=60, check_every=5, ssl=False):
         "Connects to a given replicaset and wait a while for a primary and secondaries."
-        client = self.check_hosts_are_ready(hosts, ssl, expected_version)
+        client = self.check_hosts_are_ready(hosts, ssl)
 
         check_times = wait_for / check_every
 
         while (
                 (client.primary is None
-                or len(client.secondaries) < len(hosts) - 1)
+                 or len(client.secondaries) < len(hosts) - 1)
                 and check_times >= 0
         ):
             time.sleep(check_every)
@@ -752,16 +742,7 @@ class KubernetesTester(object):
 
         return client.primary, client.secondaries
 
-    def check_standalone_is_ready(self, mdb_resource_name, ssl=False, expected_version=None):
-        hosts = build_list_of_hosts(mdb_resource_name, self.namespace, 1)
-        self.check_hosts_are_ready(hosts, ssl, expected_version)
-
-    def check_mongoses_are_ready(self, mdb_resource_name, ssl=False, expected_version=None, mongos_count=3):
-        hosts = build_list_of_hosts(
-            mdb_resource_name + "-mongos", self.namespace, mongos_count, servicename="{}-svc".format(mdb_resource_name))
-        self.check_hosts_are_ready(hosts, ssl, expected_version)
-
-    def check_hosts_are_ready(self, hosts, ssl=False, expected_version=None):
+    def check_hosts_are_ready(self, hosts, ssl=False):
         mongodburi = self.build_mongodb_uri_for_rs(hosts)
         options = {}
         if ssl:
@@ -773,9 +754,6 @@ class KubernetesTester(object):
 
         # The ismaster command is cheap and does not require auth.
         client.admin.command("ismaster")
-
-        if expected_version is not None:
-            assert client.admin.command("buildInfo")['version'] == expected_version
 
         return client
 
@@ -886,9 +864,9 @@ def run_periodically_with_timeout(fn, timeout, sleep_time):
     Calls `fn` until it succeeds or until the `timeout` is reached, every `sleep_time` seconds.
     If `timeout` is negative or zero, it never times out.
 
-    >>> run_periodically_with_timeout(lambda: time.sleep(5), timeout=3, sleep_time=0)
+    >>> run_periodically_with_timeout(lambda: time.sleep(5), timeout=3, sleep_time=2)
     False
-    >>> run_periodically_with_timeout(lambda: time.sleep(2), timeout=5, sleep_time=0)
+    >>> run_periodically_with_timeout(lambda: time.sleep(2), timeout=5, sleep_time=2)
     True
     """
 

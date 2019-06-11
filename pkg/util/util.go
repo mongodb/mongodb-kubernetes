@@ -102,6 +102,13 @@ func ReadOrCreateMap(m map[string]interface{}, key string) map[string]interface{
 	return m[key].(map[string]interface{})
 }
 
+func ReadOrCreateStringArray(m map[string]interface{}, key string) []string {
+	if _, ok := m[key]; !ok {
+		m[key] = make([]string, 0)
+	}
+	return m[key].([]string)
+}
+
 func CompareVersions(version1, version2 string) (int, error) {
 	v1, err := semver.Make(version1)
 	if err != nil {

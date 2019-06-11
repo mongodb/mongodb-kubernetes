@@ -40,6 +40,5 @@ class TestReplicaSetRecoversFromBadState(KubernetesTester):
     def test_in_running_state(self):
         mrs = KubernetesTester.get_resource()
         status = mrs['status']
-        assert status['phase'] == "Running"
         assert status['version'] == '4.0.0'
         assert "message" not in status

@@ -1,6 +1,10 @@
 package om
 
-import "sort"
+import (
+	"sort"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+)
 
 // Representation of one element in "sharding" array in OM json deployment:
 /*
@@ -94,31 +98,30 @@ func newShard(name string) Shard {
 }
 
 // mergeFrom merges the other (Kuberenetes owned) cluster configuration into OM one
-func (s ShardedCluster) mergeFrom(otherCluster ShardedCluster) []string {
-	s.setName(otherCluster.Name())
-	s.setConfigServerRsName(otherCluster.ConfigServerRsName())
+func (s ShardedCluster) mergeFrom(operatorCluster ShardedCluster) []string {
+	s.setName(operatorCluster.Name())
+	s.setConfigServerRsName(operatorCluster.ConfigServerRsName())
 
-	currentMap := buildMapOfShards(s)
-	otherMap := buildMapOfShards(otherCluster)
+	omMap := buildMapOfShards(s)
+	operatorMap := buildMapOfShards(operatorCluster)
 
-	// merge overlapping members to the otherMap (overriding '_id' and 'rs" fields only)
-	for k, currentValue := range currentMap {
-		if otherValue, ok := otherMap[k]; ok {
-			currentValue.setId(otherValue.id())
-			currentValue.setRs(otherValue.rs())
+	// merge overlapping members to the operatorMap
+	for k, currentValue := range omMap {
+		if otherValue, ok := operatorMap[k]; ok {
+			currentValue.mergeFrom(otherValue)
 
-			otherMap[k] = currentValue
+			operatorMap[k] = currentValue
 		}
 	}
 
 	// find OM shards that will be removed from cluster. This can be either the result of shard cluster reconfiguration
 	// or just OM added some shards on its own
-	removedMembers := findDifferentKeys(currentMap, otherMap)
+	removedMembers := findDifferentKeys(omMap, operatorMap)
 
 	// update cluster shards back
-	shards := make([]Shard, len(otherMap))
+	shards := make([]Shard, len(operatorMap))
 	i := 0
-	for _, v := range otherMap {
+	for _, v := range operatorMap {
 		shards[i] = v
 		i++
 	}
@@ -128,7 +131,12 @@ func (s ShardedCluster) mergeFrom(otherCluster ShardedCluster) []string {
 	s.setShards(shards)
 
 	return removedMembers
+}
 
+// mergeFrom merges the operator shard into OM one. Only some fields are overriden, the others stay untouched
+func (omShard Shard) mergeFrom(operatorShard Shard) {
+	omShard.setId(operatorShard.id())
+	omShard.setRs(operatorShard.rs())
 }
 
 func (s ShardedCluster) shards() []Shard {
@@ -156,6 +164,48 @@ func (s ShardedCluster) setName(name string) {
 
 func (s ShardedCluster) setShards(shards []Shard) {
 	s["shards"] = shards
+}
+
+// draining returns the "draining" array which contains the names of replicasets for shards which are currently being
+// removed. This is necessary for the AutomationAgent to keep the knowledge about shards to survive restarts (it's
+// necessary to restart the mongod with the same 'shardSrv' option even if the shard is not in sharded cluster in
+// Automation Config any more)
+func (s ShardedCluster) draining() []string {
+	if _, ok := s["draining"]; !ok {
+		return make([]string, 0)
+	}
+	return s["draining"].([]string)
+}
+
+func (s ShardedCluster) setDraining(rsNames []string) {
+	s["draining"] = rsNames
+}
+
+func (s ShardedCluster) addToDraining(rsNames []string) {
+	// constructor is a better place to initialize the array but we aim a better backward compatibility with OM 4.0
+	// versions (which learnt about this field in 4.0.12) so doing lazy initialization
+	if _, ok := s["draining"]; !ok {
+		s.setDraining([]string{})
+	}
+	for _, r := range rsNames {
+		if !util.ContainsString(s.draining(), r) {
+			s["draining"] = append(s.draining(), r)
+		}
+	}
+}
+
+func (s ShardedCluster) removeDraining() {
+	delete(s, "draining")
+}
+
+// getAllReplicaSets returns all replica sets associated with sharded cluster
+func (s ShardedCluster) getAllReplicaSets() []string {
+	ans := []string{}
+	for _, s := range s.shards() {
+		ans = append(ans, s.rs())
+	}
+	ans = append(ans, s.ConfigServerRsName())
+	return ans
 }
 
 func (s Shard) id() string {

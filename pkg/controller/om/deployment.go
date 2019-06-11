@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 
 	"go.uber.org/zap"
 
@@ -160,21 +161,22 @@ func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, l *zap.S
 }
 
 // MergeShardedCluster merges "operator" sharded cluster into "OM" deployment ("d"). Mongos, config servers and all shards
-// are all merged one by one
+// are all merged one by one.
+// 'shardsToRemove' is an array containing names of shards which should be removed.
 func (d Deployment) MergeShardedCluster(name string, mongosProcesses []Process, configServerRs ReplicaSetWithProcesses,
-	shards []ReplicaSetWithProcesses) error {
+	shards []ReplicaSetWithProcesses, finalizing bool) (bool, error) {
 	log := zap.S().With("sharded cluster", name)
 
 	err := d.mergeMongosProcesses(name, mongosProcesses, log)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	d.mergeConfigReplicaSet(configServerRs, log)
 
-	d.mergeShards(name, configServerRs, shards, log)
+	shardsScheduledForRemoval := d.mergeShards(name, configServerRs, shards, finalizing, log)
 
-	return nil
+	return shardsScheduledForRemoval, nil
 }
 
 // AddMonitoringAndBackup adds only one monitoring agent on the specified hostname if it isn't configured yet.
@@ -448,8 +450,10 @@ func (d Deployment) mergeConfigReplicaSet(replicaSet ReplicaSetWithProcesses, l 
 	d.MergeReplicaSet(replicaSet, l)
 }
 
+// mergeShards does merge of replicasets for shards (which in turn merge each process) and merge or add the sharded cluster
+// element as well
 func (d Deployment) mergeShards(clusterName string, configServerRs ReplicaSetWithProcesses,
-	shards []ReplicaSetWithProcesses, log *zap.SugaredLogger) {
+	shards []ReplicaSetWithProcesses, finalizing bool, log *zap.SugaredLogger) bool {
 	// First merging the individual replica sets for each shard
 	for _, v := range shards {
 		d.MergeReplicaSet(v, log)
@@ -459,19 +463,47 @@ func (d Deployment) mergeShards(clusterName string, configServerRs ReplicaSetWit
 	// Merging "sharding" json value
 	for _, s := range d.getShardedClusters() {
 		if s.Name() == clusterName {
-			replicaSetToRemove := s.mergeFrom(cluster)
+			s.mergeFrom(cluster)
 			log.Debug("Merged sharded cluster into existing one")
 
-			if len(replicaSetToRemove) > 0 {
-				d.removeReplicaSets(replicaSetToRemove, log)
-				log.Debugw("Removed replica sets as they were removed from sharded cluster", "replica sets", replicaSetToRemove)
-			}
-			return
+			return d.handleShardsRemoval(finalizing, s, log)
 		}
 	}
 	// Adding the new sharded cluster
 	d.addShardedCluster(cluster)
 	log.Debug("Added sharded cluster as current OM deployment didn't have it")
+	return false
+}
+
+// handleShardsRemoval is a complicated method handling different scenarios.
+// - 'draining' array is empty and no extra shards were found in OM which should be removed - return
+// - if 'shardsRemoving' == true - this means that this is the 1st phase of the process - when the shards are due to be removed
+// or have already been removed and their replica sets are added/already sit in the 'draining' array. Note, that this
+// method can be called many times while in the 1st phase and 'draining' array is not empty - this means that the agent
+// is performing the shards rebalancing
+// - if 'shardsRemoving' == false - this means that this is the 2nd phase of the process - when the shards were removed
+// from the sharded cluster and their data was rebalanced to the rest of the shards. Now we can remove the replica sets
+// and their processes and clean the 'draining' array.
+func (d Deployment) handleShardsRemoval(finalizing bool, s ShardedCluster, log *zap.SugaredLogger) bool {
+	junkReplicaSets := d.findReplicaSetsRemovedFromShardedCluster(s.Name())
+
+	if len(junkReplicaSets) == 0 {
+		return false
+	}
+
+	if !finalizing {
+		if len(junkReplicaSets) > 0 {
+			s.addToDraining(junkReplicaSets)
+		}
+		log.Infof("The following shards are scheduled for removal: %s", s.draining())
+		return true
+	} else if len(junkReplicaSets) > 0 {
+		// Cleaning replica sets which used to be shards in past iterations.
+		s.removeDraining()
+		d.removeReplicaSets(junkReplicaSets, log)
+		log.Debugw("Removed replica sets as they were removed from sharded cluster", "replica sets", junkReplicaSets)
+	}
+	return false
 }
 
 func (d Deployment) getProcesses() []Process {
@@ -637,6 +669,27 @@ func (d Deployment) getSSL() map[string]interface{} {
 	return util.ReadOrCreateMap(d, "ssl")
 }
 
+// findReplicaSetsRemovedFromShardedCluster finds all replica sets which look like shards that have been removed from
+// the sharded cluster.
+// To make this method work correctly the shards MUST have the same prefix as a shard (which is true for the
+// Operator-created resource)
+func (d Deployment) findReplicaSetsRemovedFromShardedCluster(clusterName string) []string {
+	shardedCluster := d.getShardedClusterByName(clusterName)
+	clusterReplicaSets := shardedCluster.getAllReplicaSets()
+	ans := []string{}
+
+	for _, v := range d.getReplicaSets() {
+		if !util.ContainsString(clusterReplicaSets, v.Name()) && isShardOfShardedCluster(clusterName, v.Name()) {
+			ans = append(ans, v.Name())
+		}
+	}
+	return ans
+}
+
+func isShardOfShardedCluster(clusterName, rsName string) bool {
+	return regexp.MustCompile(`^` + clusterName + `-[0-9]+$`).MatchString(rsName)
+}
+
 // addMonitoring adds one single monitoring agent for the specified host name.
 // Note that automation agent will update the monitoring agent to the latest version automatically
 func (d Deployment) addMonitoring(hostName string, log *zap.SugaredLogger) {
@@ -795,7 +848,7 @@ func (d Deployment) processesHaveInternalClusterAuthentication(processes []Proce
 	return false
 }
 
-// limitVotingMembers ensures that the given replica set has at most 7 votes
+// limitVotingMembers ensures the number of voting members in the replica set is not more than 7 members
 func (d Deployment) limitVotingMembers(rsName string) {
 	r := d.getReplicaSetByName(rsName)
 

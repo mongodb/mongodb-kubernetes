@@ -2,9 +2,15 @@
 
 if [ -n "${DELETE_OPS_MANAGER}" ]; then
     echo "Restarting the Ops Manager Pod."
-    # Never delete the namespace "operator-testing" as it is there where
+    if [ -z "${OM_NAMESPACE}" ]; then
+        echo "OM_NAMESPACE env variable is not specified";
+        exit 1
+    fi
+    # Never delete the namespace as it is there where
     # this script should run. Instead remove resources from inside it.
-    kubectl --namespace operator-testing delete pod/mongodb-enterprise-ops-manager-0
+    kubectl --namespace ${OM_NAMESPACE} delete sts/mongodb-enterprise-ops-manager
+    kubectl --namespace ${OM_NAMESPACE} delete pvc --all
+    kubectl --namespace ${OM_NAMESPACE} delete pv --all
 else
 
     if [ -z ${DELETE_OLDER_THAN_AMOUNT+x} ] || [ -z ${DELETE_OLDER_THAN_UNIT+x} ]; then

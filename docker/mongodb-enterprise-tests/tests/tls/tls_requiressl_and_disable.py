@@ -2,7 +2,7 @@ import pytest
 
 from kubetester.kubetester import KubernetesTester, skip_if_local, build_list_of_hosts
 from kubernetes import client
-
+from kubetester.mongotester import ReplicaSetTester
 
 mdb_resource = "test-tls-base-rs-require-ssl"
 
@@ -29,8 +29,8 @@ class TestReplicaSetWithTLSCreation(KubernetesTester):
             "mongodb.com", "v1", self.namespace, "mongodb", mdb_resource
         )
         assert (
-            mdb["status"]["message"]
-            == "Not all certificates have been approved by Kubernetes CA"
+                mdb["status"]["message"]
+                == "Not all certificates have been approved by Kubernetes CA"
         )
 
 
@@ -59,21 +59,12 @@ class TestReplicaSetWithTLSRunning(KubernetesTester):
     """
 
     @skip_if_local()
-    @pytest.mark.xfail
-    def test_mdb_is_reachable_with_no_ssl(self):
-        hosts = build_list_of_hosts(mdb_resource, self.namespace, 3)
-        primary, secondaries = self.wait_for_rs_is_ready(hosts, wait_for=20)
-
-        assert primary is not None
-        assert len(secondaries) == 2
+    def test_mdb_is_not_reachable_with_no_ssl(self):
+        ReplicaSetTester(mdb_resource, 3).assert_no_connection()
 
     @skip_if_local()
     def test_mdb_is_reachable_with_ssl(self):
-        hosts = build_list_of_hosts(mdb_resource, self.namespace, 3)
-        primary, secondaries = self.wait_for_rs_is_ready(hosts, ssl=True)
-
-        assert primary is not None
-        assert len(secondaries) == 2
+        ReplicaSetTester(mdb_resource, 3, ssl=True).assert_connectivity()
 
 
 @pytest.mark.e2e_replica_set_tls_require_and_disable
@@ -86,22 +77,14 @@ class TestReplicaSetWithTLSPrefer(KubernetesTester):
       wait_until: in_running_state
       timeout: 200
     """
+
     @skip_if_local()
     def test_mdb_is_reachable_with_no_ssl(self):
-        hosts = build_list_of_hosts(mdb_resource, self.namespace, 3)
-        primary, secondaries = self.wait_for_rs_is_ready(hosts, wait_for=20)
-
-        assert primary is not None
-        assert len(secondaries) == 2
+        ReplicaSetTester(mdb_resource, 3).assert_connectivity()
 
     @skip_if_local()
     def test_mdb_is_reachable_with_ssl(self):
-        "This one needs to fails as the mongod should not be working with SSL"
-        hosts = build_list_of_hosts(mdb_resource, self.namespace, 3)
-        primary, secondaries = self.wait_for_rs_is_ready(hosts, ssl=True)
-
-        assert primary is not None
-        assert len(secondaries) == 2
+        ReplicaSetTester(mdb_resource, 3, ssl=True).assert_connectivity()
 
 
 @pytest.mark.e2e_replica_set_tls_require_and_disable
@@ -114,52 +97,35 @@ class TestReplicaSetWithTLSAllow(KubernetesTester):
       wait_until: in_running_state
       timeout: 200
     """
+
     @skip_if_local()
     def test_mdb_is_reachable_with_no_ssl(self):
-        hosts = build_list_of_hosts(mdb_resource, self.namespace, 3)
-        primary, secondaries = self.wait_for_rs_is_ready(hosts, wait_for=20)
-
-        assert primary is not None
-        assert len(secondaries) == 2
+        ReplicaSetTester(mdb_resource, 3).assert_connectivity()
 
     @skip_if_local()
     def test_mdb_is_reachable_with_ssl(self):
-        "This one needs to fails as the mongod should not be working with SSL"
-        hosts = build_list_of_hosts(mdb_resource, self.namespace, 3)
-        primary, secondaries = self.wait_for_rs_is_ready(hosts, ssl=True)
-
-        assert primary is not None
-        assert len(secondaries) == 2
+        ReplicaSetTester(mdb_resource, 3, ssl=True).assert_connectivity()
 
 
 @pytest.mark.e2e_replica_set_tls_require_and_disable
-class TestReplicaSetWithTLSDisabling(KubernetesTester):
-    """
-    name: check everything is in place
-    update:
-      patch: '[{"op":"add","path":"/spec/additionalMongodConfig","value": { "net": {"ssl": {"mode": "disabled"}} }}]'
-      file: test-tls-base-rs-require-ssl.yaml
-      wait_for: in_running_state
-      timeout: 200
-    """
-    @skip_if_local()
-    def test_mdb_is_reachable_with_no_ssl(self):
-        hosts = build_list_of_hosts(mdb_resource, self.namespace, 3)
-        primary, secondaries = self.wait_for_rs_is_ready(hosts, wait_for=120)
-
-        assert primary is not None
-        assert len(secondaries) == 2
-
-    @skip_if_local()
-    @pytest.mark.xfail
-    def test_mdb_is_reachable_with_ssl(self):
-        "This one needs to fails as the mongod should not be working with SSL"
-        hosts = build_list_of_hosts(mdb_resource, self.namespace, 3)
-        primary, secondaries = self.wait_for_rs_is_ready(hosts, ssl=True)
-
-        assert primary is not None
-        assert len(secondaries) == 2
-
+# TODO CLOUDP-44001
+# class TestReplicaSetWithTLSDisabling(KubernetesTester):
+#     """
+#     name: check everything is in place
+#     update:
+#       patch: '[{"op":"add","path":"/spec/additionalMongodConfig","value": { "net": {"ssl": {"mode": "disabled"}} }}]'
+#       file: test-tls-base-rs-require-ssl.yaml
+#       wait_until: in_running_state
+#       timeout: 200
+#     """
+#
+#     @skip_if_local()
+#     def test_mdb_is_reachable_with_no_ssl(self):
+#         ReplicaSetTester(mdb_resource, 3).assert_connectivity()
+#
+#     @skip_if_local()
+#     def test_mdb_is_not_reachable_with_ssl(self):
+#         ReplicaSetTester(mdb_resource, 3, ssl=True).assert_no_connection()
 
 @pytest.mark.e2e_replica_set_tls_require_and_disable
 class TestReplicaSetWithTLSRemove(KubernetesTester):
@@ -172,6 +138,7 @@ class TestReplicaSetWithTLSRemove(KubernetesTester):
       wait_until: mongo_resource_deleted
       timeout: 120
     """
+
     def setup(self):
         # Deletes the certificate
         body = client.V1DeleteOptions()

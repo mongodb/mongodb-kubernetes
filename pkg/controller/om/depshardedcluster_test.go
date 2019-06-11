@@ -17,7 +17,7 @@ func TestMergeShardedCluster_New(t *testing.T) {
 	configRs := createConfigSrvRs("configSrv", false)
 	shards := createShards("myShard")
 
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, shards)
+	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, shards, false)
 
 	require.Len(t, d.getProcesses(), 15)
 	require.Len(t, d.getReplicaSets(), 4)
@@ -32,21 +32,21 @@ func TestMergeShardedCluster_New(t *testing.T) {
 func TestMergeShardedCluster_ProcessesModified(t *testing.T) {
 	d := NewDeployment()
 
-	shards := createShards("myShard")
+	shards := createShards("cluster")
 
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), createConfigSrvRs("configSrv", false), shards)
+	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), createConfigSrvRs("configSrv", false), shards, false)
 
 	// OM "made" some changes (should not be overriden)
 	(*d.getProcessByName("pretty0"))["logRotate"] = map[string]int{"sizeThresholdMB": 1000, "timeThresholdHrs": 24}
 
 	// These OM changes must be overriden
-	(*d.getProcessByName("configSrv1")).Args()["sharding"] = map[string]interface{}{"clusterRole": "shardsrv", "archiveMovedChunks": true}
-	(*d.getProcessByName("myShard11"))["hostname"] = "rubbish"
+	(*d.getProcessByName("configSrv-1")).Args()["sharding"] = map[string]interface{}{"clusterRole": "shardsrv", "archiveMovedChunks": true}
+	(*d.getProcessByName("cluster-1-1"))["hostname"] = "rubbish"
 	(*d.getProcessByName("pretty2")).SetLogPath("/doesnt/exist")
 
 	// Final check - we create the expected configuration, add there correct OM changes and check for equality with merge
 	// result
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), createConfigSrvRs("configSrv", false), createShards("myShard"))
+	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), createConfigSrvRs("configSrv", false), createShards("cluster"), false)
 
 	expectedMongosProcesses := createMongosProcesses(3, "pretty", "cluster")
 	expectedMongosProcesses[0]["logRotate"] = map[string]int{"sizeThresholdMB": 1000, "timeThresholdHrs": 24}
@@ -56,30 +56,30 @@ func TestMergeShardedCluster_ProcessesModified(t *testing.T) {
 	require.Len(t, d.getProcesses(), 15)
 	checkMongoSProcesses(t, d.getProcesses(), expectedMongosProcesses)
 	checkReplicaSet(t, d, expectedConfigrs)
-	checkShardedCluster(t, d, NewShardedCluster("cluster", expectedConfigrs.Rs.Name(), shards), createShards("myShard"))
+	checkShardedCluster(t, d, NewShardedCluster("cluster", expectedConfigrs.Rs.Name(), shards), createShards("cluster"))
 }
 
 func TestMergeShardedCluster_ReplicaSetsModified(t *testing.T) {
 	d := NewDeployment()
 
-	shards := createShards("myShard")
+	shards := createShards("cluster")
 
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), createConfigSrvRs("configSrv", false), shards)
+	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), createConfigSrvRs("configSrv", false), shards, false)
 
 	// OM "made" some changes (should not be overriden)
-	(*d.getReplicaSetByName("myShard0"))["writeConcernMajorityJournalDefault"] = true
+	(*d.getReplicaSetByName("cluster-0"))["writeConcernMajorityJournalDefault"] = true
 
 	// These OM changes must be overriden
-	(*d.getReplicaSetByName("myShard0"))["protocolVersion"] = util.Int32Ref(2)
+	(*d.getReplicaSetByName("cluster-0"))["protocolVersion"] = util.Int32Ref(2)
 	(*d.getReplicaSetByName("configSrv")).addMember(NewMongodProcess("foo", "bar", DefaultMongoDB().Build()))
-	(*d.getReplicaSetByName("myShard2")).setMembers(d.getReplicaSetByName("myShard2").members()[0:2])
+	(*d.getReplicaSetByName("cluster-2")).setMembers(d.getReplicaSetByName("cluster-2").members()[0:2])
 
 	// Final check - we create the expected configuration, add there correct OM changes and check for equality with merge
 	// result
 	configRs := createConfigSrvRs("configSrv", false)
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard"))
+	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("cluster"), false)
 
-	expectedShards := createShards("myShard")
+	expectedShards := createShards("cluster")
 	expectedShards[0].Rs["writeConcernMajorityJournalDefault"] = true
 
 	require.Len(t, d.getProcesses(), 15)
@@ -98,7 +98,7 @@ func TestMergeShardedCluster_ShardedClusterModified(t *testing.T) {
 	configRs := createConfigSrvRs("configSrv", false)
 	shards := createShards("myShard")
 
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, shards)
+	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, shards, false)
 
 	// OM "made" some changes (should not be overriden)
 	(*d.getShardedClusterByName("cluster"))["managedSharding"] = true
@@ -116,14 +116,16 @@ func TestMergeShardedCluster_ShardedClusterModified(t *testing.T) {
 	// Final check - we create the expected configuration, add there correct OM changes and check for equality with merge
 	// result
 	configRs = createConfigSrvRs("configSrv", false)
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard"))
+	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard"), false)
 
 	expectedCluster := NewShardedCluster("cluster", configRs.Rs.Name(), shards)
 	expectedCluster["managedSharding"] = true
 	expectedCluster["collections"] = []map[string]interface{}{{"_id": "some", "unique": true}}
 
-	require.Len(t, d.getProcesses(), 15)
-	require.Len(t, d.getReplicaSets(), 4)
+	// Note, that fake replicaset and it's processes haven't disappeared as we passed 'false' to 'MergeShardedCluster'
+	// which results in "draining" for redundant shards but not physical removal of replica sets
+	require.Len(t, d.getProcesses(), 18)
+	require.Len(t, d.getReplicaSets(), 5)
 	for i := 0; i < 4; i++ {
 		require.Len(t, d.getReplicaSets()[i].members(), 3)
 	}
@@ -132,21 +134,40 @@ func TestMergeShardedCluster_ShardedClusterModified(t *testing.T) {
 	checkShardedCluster(t, d, expectedCluster, createShards("myShard"))
 }
 
-// TestMergeShardedCluster_ShardAdded checks the scenario of incrementing and decrementing the number of shards
-func TestMergeShardedCluster_ShardCountChanged(t *testing.T) {
+// TestMergeShardedCluster_ShardAdded checks the scenario of incrementing the number of shards
+func TestMergeShardedCluster_ShardsAdded(t *testing.T) {
 	d := NewDeployment()
 
 	configRs := createConfigSrvRs("configSrv", false)
-	shards := createShards("myShard")
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, shards)
+	shards := createShards("cluster")
+	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, shards, false)
 
-	shards = createSpecificNumberOfShards(5, "myShard")
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, shards)
+	shards = createSpecificNumberOfShards(5, "cluster")
+	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, shards, false)
 	checkShardedCluster(t, d, NewShardedCluster("cluster", configRs.Rs.Name(), shards), shards)
+}
 
-	shards = createSpecificNumberOfShards(2, "myShard")
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, shards)
-	checkShardedCluster(t, d, NewShardedCluster("cluster", configRs.Rs.Name(), shards), shards)
+// TestMergeShardedCluster_ShardRemoved checks the scenario of decrementing the number of shards
+// It creates a sharded cluster with 5 shards and scales down to 3
+func TestMergeShardedCluster_ShardsRemoved(t *testing.T) {
+	d := NewDeployment()
+
+	configRs := createConfigSrvRs("configSrv", false)
+	shards := createSpecificNumberOfShards(5, "cluster")
+	d.MergeShardedCluster("cluster", createMongosProcesses(5, "pretty", ""), configRs, shards, false)
+
+	// On first merge the redundant replica sets and processes are not removed, but 'draining' array is populated
+	shards = createSpecificNumberOfShards(3, "cluster")
+	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, shards, false)
+
+	expectedCluster := NewShardedCluster("cluster", configRs.Rs.Name(), shards)
+	expectedCluster.setDraining([]string{"cluster-3", "cluster-4"})
+	checkShardedClusterCheckExtraReplicaSets(t, d, expectedCluster, shards, false)
+
+	// On second merge the redundant rses and processes will be removed ('draining' array is gone as well)
+	shards = createSpecificNumberOfShards(3, "cluster")
+	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, shards, true)
+	checkShardedClusterCheckExtraReplicaSets(t, d, NewShardedCluster("cluster", configRs.Rs.Name(), shards), shards, true)
 }
 
 // TestMergeShardedCluster_MongosCountChanged checks the scenario of incrementing and decrementing the number of mongos
@@ -154,13 +175,13 @@ func TestMergeShardedCluster_MongosCountChanged(t *testing.T) {
 	d := NewDeployment()
 
 	configRs := createConfigSrvRs("configSrv", false)
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard"))
+	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard"), false)
 	checkMongoSProcesses(t, d.getProcesses(), createMongosProcesses(3, "pretty", "cluster"))
 
-	d.MergeShardedCluster("cluster", createMongosProcesses(4, "pretty", ""), configRs, createShards("myShard"))
+	d.MergeShardedCluster("cluster", createMongosProcesses(4, "pretty", ""), configRs, createShards("myShard"), false)
 	checkMongoSProcesses(t, d.getProcesses(), createMongosProcesses(4, "pretty", "cluster"))
 
-	d.MergeShardedCluster("cluster", createMongosProcesses(2, "pretty", ""), configRs, createShards("myShard"))
+	d.MergeShardedCluster("cluster", createMongosProcesses(2, "pretty", ""), configRs, createShards("myShard"), false)
 	checkMongoSProcesses(t, d.getProcesses(), createMongosProcesses(2, "pretty", "cluster"))
 }
 
@@ -170,15 +191,15 @@ func TestMergeShardedCluster_ConfigSrvCountChanged(t *testing.T) {
 	d := NewDeployment()
 
 	configRs := createConfigSrvRs("configSrv", false)
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard"))
+	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard"), false)
 	checkReplicaSet(t, d, createConfigSrvRs("configSrv", true))
 
 	configRs = createConfigSrvRsCount(6, "configSrv", false)
-	d.MergeShardedCluster("cluster", createMongosProcesses(4, "pretty", ""), configRs, createShards("myShard"))
+	d.MergeShardedCluster("cluster", createMongosProcesses(4, "pretty", ""), configRs, createShards("myShard"), false)
 	checkReplicaSet(t, d, createConfigSrvRsCount(6, "configSrv", true))
 
 	configRs = createConfigSrvRsCount(2, "configSrv", false)
-	d.MergeShardedCluster("cluster", createMongosProcesses(4, "pretty", ""), configRs, createShards("myShard"))
+	d.MergeShardedCluster("cluster", createMongosProcesses(4, "pretty", ""), configRs, createShards("myShard"), false)
 	checkReplicaSet(t, d, createConfigSrvRsCount(2, "configSrv", true))
 }
 
@@ -186,9 +207,9 @@ func TestMergeShardedCluster_ScaleUpShardMergeFirstProcess(t *testing.T) {
 	d := NewDeployment()
 
 	configRs := createConfigSrvRs("configSrv", false)
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard"))
+	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard"), false)
 	// creating other cluster to make sure no side effects occur
-	d.MergeShardedCluster("anotherCluster", createMongosProcesses(3, "anotherMongos", ""), configRs, createShards("anotherClusterSh"))
+	d.MergeShardedCluster("anotherCluster", createMongosProcesses(3, "anotherMongos", ""), configRs, createShards("anotherClusterSh"), false)
 
 	// Emulating changes to current shards by OM
 	for _, s := range d.getShardedClusters()[0].shards() {
@@ -202,7 +223,7 @@ func TestMergeShardedCluster_ScaleUpShardMergeFirstProcess(t *testing.T) {
 	// Now we "scale up" mongods from 3 to 4
 	shards := createShardsSpecificNumberOfMongods(4, "myShard")
 
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, shards)
+	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, shards, false)
 
 	expectedShards := createShardsSpecificNumberOfMongods(4, "myShard")
 
@@ -223,8 +244,8 @@ func TestMergeShardedCluster_ScaleUpMongosMergeFirstProcess(t *testing.T) {
 	d := NewDeployment()
 
 	configRs := createConfigSrvRs("configSrv", false)
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard"))
-	d.MergeShardedCluster("other", createMongosProcesses(3, "otherMongos", ""), configRs, createShards("otherSh"))
+	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard"), false)
+	d.MergeShardedCluster("other", createMongosProcesses(3, "otherMongos", ""), configRs, createShards("otherSh"), false)
 
 	// Emulating changes to current mongoses by OM
 	for _, m := range d.getMongosProcessesNames("cluster") {
@@ -234,7 +255,7 @@ func TestMergeShardedCluster_ScaleUpMongosMergeFirstProcess(t *testing.T) {
 
 	// Now we "scale up" mongoses from 3 to 5
 	mongoses := createMongosProcesses(5, "pretty", "")
-	d.MergeShardedCluster("cluster", mongoses, configRs, createShards("myShard"))
+	d.MergeShardedCluster("cluster", mongoses, configRs, createShards("myShard"), false)
 
 	expectedMongoses := createMongosProcesses(5, "pretty", "cluster")
 	for _, p := range expectedMongoses {
@@ -260,10 +281,10 @@ func TestMergeShardedCluster_ScaleUpMongosMergeFirstProcess(t *testing.T) {
 func TestRemoveShardedClusterByName(t *testing.T) {
 	d := NewDeployment()
 	configRs := createConfigSrvRs("configSrv", false)
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard"))
+	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard"), false)
 
 	configRs2 := createConfigSrvRs("otherConfigSrv", false)
-	d.MergeShardedCluster("otherCluster", createMongosProcesses(3, "ugly", ""), configRs2, createShards("otherShard"))
+	d.MergeShardedCluster("otherCluster", createMongosProcesses(3, "ugly", ""), configRs2, createShards("otherShard"), false)
 
 	mergeStandalone(d, createStandalone())
 

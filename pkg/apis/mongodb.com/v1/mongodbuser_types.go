@@ -65,3 +65,7 @@ func (u *MongoDBUser) UpdateSuccessful(other runtime.Object, _ ...string) {
 func (u *MongoDBUser) UpdatePending() {
 	u.Status.Phase = PhasePending
 }
+
+func (u *MongoDBUser) UpdateReconciling() {
+	u.Status.Phase = PhaseReconciling
+}

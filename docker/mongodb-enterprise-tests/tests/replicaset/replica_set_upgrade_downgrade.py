@@ -3,6 +3,9 @@ from kubetester.kubetester import KubernetesTester
 
 
 # TODO change 3.6 -> 4.0 upgrade to 4.0 -> 4.2 when mongodb is released
+from kubetester.mongotester import ReplicaSetTester
+
+
 @pytest.mark.e2e_replica_set_upgrade_downgrade
 class TestReplicaSetUpgradeDowngradeCreate(KubernetesTester):
     '''
@@ -17,10 +20,8 @@ class TestReplicaSetUpgradeDowngradeCreate(KubernetesTester):
 
 
     def test_db_connectable(self):
-        primary_available, secondaries_available = self.check_replica_set_is_ready("my-replica-set-downgrade", expected_version="3.6.0")
-
-        assert primary_available, "primary was not available"
-        assert secondaries_available, "secondaries not available"
+        mongod_tester = ReplicaSetTester("my-replica-set-downgrade", 3)
+        mongod_tester.assert_version("3.6.0")
 
 @pytest.mark.e2e_replica_set_upgrade_downgrade
 class TestReplicaSetUpgradeDowngradeUpdate(KubernetesTester):
@@ -36,10 +37,8 @@ class TestReplicaSetUpgradeDowngradeUpdate(KubernetesTester):
     '''
 
     def test_db_connectable(self):
-        primary_available, secondaries_available = self.check_replica_set_is_ready("my-replica-set-downgrade", expected_version="4.0.9")
-
-        assert primary_available, "primary was not available"
-        assert secondaries_available, "secondaries not available"
+        mongod_tester = ReplicaSetTester("my-replica-set-downgrade", 3)
+        mongod_tester.assert_version("4.0.9")
 
 @pytest.mark.e2e_replica_set_upgrade_downgrade
 class TestReplicaSetUpgradeDowngradeRevert(KubernetesTester):
@@ -54,7 +53,5 @@ class TestReplicaSetUpgradeDowngradeRevert(KubernetesTester):
     '''
 
     def test_db_connectable(self):
-        primary_available, secondaries_available = self.check_replica_set_is_ready("my-replica-set-downgrade", expected_version="3.6.0")
-
-        assert primary_available, "primary was not available"
-        assert secondaries_available, "secondaries not available"
+        mongod_tester = ReplicaSetTester("my-replica-set-downgrade", 3)
+        mongod_tester.assert_version("3.6.0")

@@ -25,7 +25,7 @@ usage:
 	@ echo "  om:                         install Ops Manager into Kubernetes if it's not installed yet. Initializes the connection"
 	@ echo "                              parameters in ~/operator-dev/om"
 	@ echo "  om-evg:                     install Ops Manager into Evergreen if it's not installed yet. Initializes the connection"
-	@ echo "                              parameters in ~/operator-dev/om"
+	@ echo "                              parameters in ~/operator-dev/om. You can pass custom Ubuntu Debian package url using 'url' parameter"
 	@ echo "  reset:                      cleans all Operator related state from Kubernetes and Ops Manager. Pass the 'light=true'"
 	@ echo "                              to perform a \"light\" cleanup - delete only Mongodb resources"
 	@ echo "  e2e:                        runs the e2e test, e.g. 'make e2e test=sharded_cluster_pv'. The Operator is redeployed before"
@@ -81,7 +81,7 @@ om:
 
 # install OM in Evergreen
 om-evg:
-	@ scripts/dev/ensure_ops_manager_evg
+	@ scripts/dev/ensure_ops_manager_evg $(url)
 
 log:
 	@ . scripts/dev/read_context

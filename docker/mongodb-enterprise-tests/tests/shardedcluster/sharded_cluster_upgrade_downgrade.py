@@ -1,5 +1,7 @@
 import pytest
 from kubetester.kubetester import KubernetesTester
+from kubetester.mongotester import ShardedClusterTester
+
 
 @pytest.mark.e2e_sharded_cluster_upgrade_downgrade
 class TestShardedClusterUpgradeDowngradeCreate(KubernetesTester):
@@ -14,7 +16,9 @@ class TestShardedClusterUpgradeDowngradeCreate(KubernetesTester):
     '''
 
     def test_db_connectable(self):
-        self.check_mongoses_are_ready("sh001-downgrade", expected_version="3.6.5", mongos_count=1)
+        mongod_tester = ShardedClusterTester("sh001-downgrade", 1)
+        mongod_tester.assert_connectivity()
+        mongod_tester.assert_version("3.6.5")
 
 @pytest.mark.e2e_sharded_cluster_upgrade_downgrade
 class TestShardedClusterUpgradeDowngradeUpdate(KubernetesTester):
@@ -30,7 +34,9 @@ class TestShardedClusterUpgradeDowngradeUpdate(KubernetesTester):
     '''
 
     def test_db_connectable(self):
-        self.check_mongoses_are_ready("sh001-downgrade", expected_version="4.0.7", mongos_count=1)
+        mongod_tester = ShardedClusterTester("sh001-downgrade", 1)
+        mongod_tester.assert_connectivity()
+        mongod_tester.assert_version("4.0.7")
 
 @pytest.mark.e2e_sharded_cluster_upgrade_downgrade
 class TestShardedClusterUpgradeDowngradeRevert(KubernetesTester):
@@ -45,4 +51,6 @@ class TestShardedClusterUpgradeDowngradeRevert(KubernetesTester):
     '''
 
     def test_db_connectable(self):
-        self.check_mongoses_are_ready("sh001-downgrade", expected_version="3.6.5", mongos_count=1)
+        mongod_tester = ShardedClusterTester("sh001-downgrade", 1)
+        mongod_tester.assert_connectivity()
+        mongod_tester.assert_version("3.6.5")

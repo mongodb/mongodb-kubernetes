@@ -60,5 +60,5 @@ spec:
     # -s  -- disable stdout capture: should be added to `PYTEST_ADDOPTS` if needed
     # -x  -- stop after first failure
     # -v  -- increase verbosity
-    args: ["-v", "-x", "-m", "{{ .Values.taskName }}"]
+    args: ["-v", "-x", "-s", "-m", "{{ .Values.taskName }}"]
     imagePullPolicy: Always

@@ -1,8 +1,8 @@
 import pytest
 
-
 from kubetester.kubetester import KubernetesTester, skip_if_local, build_list_of_hosts
 from kubernetes import client
+from kubetester.mongotester import ReplicaSetTester
 
 mdb_resource = "test-tls-base-rs-prefer-ssl"
 
@@ -29,8 +29,8 @@ class TestReplicaSetWithTLSCreation(KubernetesTester):
             "mongodb.com", "v1", self.namespace, "mongodb", mdb_resource
         )
         assert (
-            mdb["status"]["message"]
-            == "Not all certificates have been approved by Kubernetes CA"
+                mdb["status"]["message"]
+                == "Not all certificates have been approved by Kubernetes CA"
         )
 
 
@@ -66,19 +66,13 @@ class TestReplicaSetWithTLSCreationRunning(KubernetesTester):
 
     @skip_if_local()
     def test_mdb_is_reachable_with_no_ssl(self):
-        hosts = build_list_of_hosts(mdb_resource, self.namespace, 3)
-        primary, secondaries = self.wait_for_rs_is_ready(hosts, wait_for=120)
-
-        assert primary is not None
-        assert len(secondaries) == 2
+        mongo_tester = ReplicaSetTester(mdb_resource, 3)
+        mongo_tester.assert_connectivity()
 
     @skip_if_local()
     def test_mdb_is_reachable_with_ssl(self):
-        hosts = build_list_of_hosts(mdb_resource, self.namespace, 3)
-        primary, secondaries = self.wait_for_rs_is_ready(hosts, ssl=True)
-
-        assert primary is not None
-        assert len(secondaries) == 2
+        mongo_tester = ReplicaSetTester(mdb_resource, 3, ssl=True)
+        mongo_tester.assert_connectivity()
 
 
 @pytest.mark.e2e_replica_set_tls_prefer

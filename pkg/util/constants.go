@@ -119,14 +119,16 @@ const (
 	ManagedSecurityContextEnv      = "MANAGED_SECURITY_CONTEXT"
 
 	// Different default configuration values
-	DefaultMongodStorageSize           = "16G"
-	DefaultConfigSrvStorageSize        = "5G"
-	DefaultJournalStorageSize          = "1G" // maximum size for single journal file is 100Mb, journal files are removed soon after checkpoints
-	DefaultLogsStorageSize             = "3G"
-	DefaultAntiAffinityTopologyKey     = "kubernetes.io/hostname"
-	MongoDbDefaultPort                 = 27017
-	DefaultPodWaitSecondsProd          = "5"
-	DefaultPodWaitRetriesProd          = "180" // 180 * 5 = 900 seconds = 15 min (Azure launch time is approximately 10 min)
+	DefaultMongodStorageSize       = "16G"
+	DefaultConfigSrvStorageSize    = "5G"
+	DefaultJournalStorageSize      = "1G" // maximum size for single journal file is 100Mb, journal files are removed soon after checkpoints
+	DefaultLogsStorageSize         = "3G"
+	DefaultAntiAffinityTopologyKey = "kubernetes.io/hostname"
+	MongoDbDefaultPort             = 27017
+	// 60 * 3 = 180 seconds = 3 min - should be in general enough for a couple of PVCs to be bound but not too long to
+	// block waiting reconciliations
+	DefaultPodWaitSecondsProd          = "3"
+	DefaultPodWaitRetriesProd          = "60"
 	DefaultPodWaitSecondsDev           = "3"
 	DefaultPodWaitRetriesDev           = "60" // This needs to be bigger for the extreme case when 3 PVs are mounted
 	DefaultBackupDisableWaitSeconds    = "3"

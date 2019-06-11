@@ -208,7 +208,12 @@ func (k *MockedClient) doUpdate(ctx context.Context, obj apiruntime.Object) erro
 // Delete deletes the given obj from Kubernetes cluster.
 func (k *MockedClient) Delete(ctx context.Context, obj apiruntime.Object, opts ...client.DeleteOptionFunc) error {
 	k.addToHistory(reflect.ValueOf(k.Delete), obj)
-	// we don't need this implementation
+
+	key := objectKeyFromApiObject(obj)
+
+	resMap := k.getMapForObject(obj)
+	delete(resMap, key)
+
 	return nil
 }
 

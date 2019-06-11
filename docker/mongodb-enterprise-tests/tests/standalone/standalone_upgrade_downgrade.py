@@ -1,5 +1,7 @@
 import pytest
 from kubetester.kubetester import KubernetesTester
+from kubetester.mongotester import StandaloneTester
+
 
 @pytest.mark.e2e_standalone_upgrade_downgrade
 class TestStandaloneUpgradeDowngradeCreate(KubernetesTester):
@@ -15,7 +17,8 @@ class TestStandaloneUpgradeDowngradeCreate(KubernetesTester):
 
 
     def test_db_connectable(self):
-        self.check_standalone_is_ready("my-standalone-downgrade", expected_version="3.6.12")
+        mongod_tester = StandaloneTester("my-standalone-downgrade")
+        mongod_tester.assert_version("3.6.12")
 
 @pytest.mark.e2e_standalone_upgrade_downgrade
 class TestStandaloneUpgradeDowngradeUpdate(KubernetesTester):
@@ -31,7 +34,8 @@ class TestStandaloneUpgradeDowngradeUpdate(KubernetesTester):
     '''
 
     def test_db_connectable(self):
-        self.check_standalone_is_ready("my-standalone-downgrade", expected_version="4.0.3")
+        mongod_tester = StandaloneTester("my-standalone-downgrade")
+        mongod_tester.assert_version("4.0.3")
 
 @pytest.mark.e2e_standalone_upgrade_downgrade
 class TestStandaloneUpgradeDowngradeRevert(KubernetesTester):
@@ -46,4 +50,5 @@ class TestStandaloneUpgradeDowngradeRevert(KubernetesTester):
     '''
 
     def test_db_connectable(self):
-        self.check_standalone_is_ready("my-standalone-downgrade", expected_version="3.6.12")
+        mongod_tester = StandaloneTester("my-standalone-downgrade")
+        mongod_tester.assert_version("3.6.12")

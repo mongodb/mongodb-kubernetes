@@ -73,3 +73,5 @@ spec:
             # by passing DELETE_OPS_MANAGER we'll remove Ops Manager StatefulSet from
             - name: DELETE_OPS_MANAGER
               value: "true"
+            - name: OM_NAMESPACE
+              value: {{ .Values.namespace }}

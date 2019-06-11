@@ -1,5 +1,6 @@
 IMAGE = mongodb-enterprise-ops-manager
-IMAGE_VERSION = 4.0.5.50245.20181031T0042Z-1
+# Image version can be picked from the download url - just remove "mongodb-mms_" prefix and "_x86_64.deb" suffix
+IMAGE_VERSION = 4.0.12.50517.20190605T1533Z-1
 IMAGE_REVISION = _test
 CONTAINER = ops_manager
 MONGODB_VERSION = 4.0.0

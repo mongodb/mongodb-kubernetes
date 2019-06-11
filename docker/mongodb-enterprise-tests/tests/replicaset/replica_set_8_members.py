@@ -1,5 +1,7 @@
 import pytest
 from kubetester.kubetester import KubernetesTester
+from kubetester.mongotester import ReplicaSetTester
+
 
 @pytest.mark.e2e_replica_set_8_members
 class TestReplicaSetEightMembers(KubernetesTester):
@@ -14,7 +16,4 @@ class TestReplicaSetEightMembers(KubernetesTester):
     '''
 
     def test_rs_ready(self):
-        primary_available, secondaries_available = self.check_replica_set_is_ready("big-replica-set", replicas_count=8)
-
-        assert primary_available, "primary was not available"
-        assert secondaries_available, "secondaries not available"
+        ReplicaSetTester("big-replica-set", 8).assert_connectivity()

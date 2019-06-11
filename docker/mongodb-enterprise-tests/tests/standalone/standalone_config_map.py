@@ -32,7 +32,7 @@ class TestStandaloneListensConfigMap(KubernetesTester):
             KubernetesTester.namespace,
             KubernetesTester.kind,
             KubernetesTester.name,
-            "Pending"
+            "Reconciling"
         )
         KubernetesTester.wait_until('in_running_state', 120)
 

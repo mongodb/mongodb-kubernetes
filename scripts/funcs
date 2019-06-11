@@ -72,15 +72,15 @@ ensure_ops_manager_k8s() {
     node_port="${3}"
 
     if [ -z $ops_manager_namespace ]; then
-        echo "ops_manager_namespace must be set!"
+        error "ops_manager_namespace must be set!"
         exit 1
     fi
     if [ -z $ops_manager_version ]; then
-        echo "ops_manager_version must be set!"
+        error "ops_manager_version must be set!"
         exit 1
     fi
     if [ -z $node_port ]; then
-        echo "node_port must be set!"
+        error "node_port must be set!"
         exit 1
     fi
 
@@ -94,7 +94,7 @@ ensure_ops_manager_k8s() {
         fi
         kubectl create namespace ${ops_manager_namespace}  || true
 
-        echo "installing cluster cleaner into namespace ${ops_manager_namespace}"
+        echo "Installing cluster cleaner into namespace ${ops_manager_namespace}"
 
         helm template docker/cluster-cleaner/job.yaml \
             --set namespace=${ops_manager_namespace} > cluster-cleaner.yaml
@@ -112,6 +112,8 @@ ensure_ops_manager_k8s() {
             --set opsManager.host="ops-manager.${ops_manager_namespace}.svc.cluster.local" \
             --set opsManager.nodePort=${node_port} \
             docker/mongodb-enterprise-ops-manager/helm_chart > mongodb-enterprise-ops-manager.yaml
+
+        echo
 
         kubectl delete -f mongodb-enterprise-ops-manager.yaml || true
         kubectl apply -f mongodb-enterprise-ops-manager.yaml
@@ -199,17 +201,16 @@ ensure_vpc_rules() {
 # This is supposed to work for concurrent builds when one of the builds is starting Ops Manager (ideally we need to check for 10 minutes
 # but parsing dates in bash is hard :( )
 is_ops_manager_down() {
-    # todo ideally we need to check for how long OM was down - if less than 5 minutes - then it may seem that it's being started
-    # by another build
-    # unfortunately "[[ $(kubectl get pod/mongodb-enterprise-ops-manager-0 -n operator-testing | tail -n 1 | awk '{ print $NF }' | sed 's/h//') -ge 1 ]])"
-    # doesn't work here as time can be returned in hours and minutes ("2h" vs "57m")
- ! kubectl get namespace/${1} &> /dev/null || \
+    ! kubectl get namespace/${1} &> /dev/null || \
+    ! kubectl get pod/mongodb-enterprise-ops-manager-0 -n ${1} 2>/dev/null ||
     kubectl get pod/mongodb-enterprise-ops-manager-0 -o jsonpath="{.status.containerStatuses[0].ready}" -n ${1} | grep -q "false"
 
 }
 # the function installs Ops Manager into Evergreen host via ego
 ensure_ops_manager_evg() {
-    title "Installing Ops Manager into Evergreen using ego"
+    om_package="$1"
+
+    title "Installing Ops Manager into Evergreen using ego (from $om_package)"
 
     check_app "evg" \
                 "evg script is not installed or you need to switch virtual environment, follow instruction at https://wiki.corp.mongodb.com/display/MMS/Ops+Manager+Release+setup+guide#OpsManagerReleasesetupguide-First-timeonly to make it work";
@@ -239,11 +240,10 @@ ensure_ops_manager_evg() {
 
     ./ego seed "ubuntu@${host}"
 
-    echo "Deploying Ops Manager"
+    echo "Deploying Ops Manager from $om_package"
 
     # todo move version to some configuration
     # note, that we use OM 4.1 for development to differ from e2e suites (they use 4.0+)
-    om_package="https://s3.amazonaws.com/mongodb-mms-build-onprem/6f88d1eaffb5eec31d627a1401e353c6bdedbae7/mongodb-mms_4.1.5.54067.20190416T1810Z-1_x86_64.deb"
     ./ego nohup "ubuntu@${host}" ego scenario_install_package_from_link "${om_package}" "http://${host}:9080"
 
     if ! ./ego tail "ubuntu@$host"; then

@@ -1,7 +1,7 @@
 import pytest
-
-from kubetester.kubetester import KubernetesTester, skip_if_local, build_host_fqdn
 from kubernetes import client
+from kubetester.kubetester import KubernetesTester, skip_if_local
+from kubetester.mongotester import ShardedClusterTester
 
 mdb_resource = "test-tls-base-sc-require-ssl"
 
@@ -37,8 +37,8 @@ class TestClusterWithTLSCreation(KubernetesTester):
             "mongodb.com", "v1", self.namespace, "mongodb", mdb_resource
         )
         assert (
-            mdb["status"]["message"]
-            == "Not all certificates have been approved by Kubernetes CA"
+                mdb["status"]["message"]
+                == "Not all certificates have been approved by Kubernetes CA"
         )
 
 
@@ -78,7 +78,13 @@ class TestClusterWithTLSCreationRunning(KubernetesTester):
 
     @skip_if_local
     def test_mongos_are_reachable_with_ssl(self):
-        self.check_mongoses_are_ready("test-tls-base-sc-require-ssl", ssl=True, mongos_count=len(host_groups()["mongos"]))
+        mongo_tester = ShardedClusterTester("test-tls-base-sc-require-ssl", len(host_groups()["mongos"]), ssl=True)
+        mongo_tester.assert_connectivity()
+
+    @skip_if_local
+    def test_mongos_are_not_reachable_with_no_ssl(self):
+        mongo_tester = ShardedClusterTester("test-tls-base-sc-require-ssl", len(host_groups()["mongos"]))
+        mongo_tester.assert_no_connection()
 
 
 @pytest.mark.e2e_sharded_cluster_tls_require

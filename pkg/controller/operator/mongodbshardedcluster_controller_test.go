@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"context"
 	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -58,6 +59,37 @@ func TestReconcileCreateShardedCluster(t *testing.T) {
 	connection.CheckNumberOfUpdateRequests(t, 1)
 	// we don't remove hosts from monitoring if there is no scale down
 	connection.CheckOperationsDidntHappen(t, reflect.ValueOf(connection.GetHosts), reflect.ValueOf(connection.RemoveHost))
+}
+
+func TestReconcileCreateShardedCluster_ScaleDown(t *testing.T) {
+	// First creation
+	sc := DefaultClusterBuilder().SetShardCountSpec(4).Build()
+
+	manager := newMockedManager(sc)
+	client := manager.client
+
+	reconciler := newShardedClusterReconciler(manager, om.NewEmptyMockedOmConnection)
+
+	checkReconcileSuccessful(t, reconciler, sc, client)
+
+	connection := om.CurrMockedConnection
+	connection.CleanHistory()
+
+	// Scale down then
+	sc = DefaultClusterBuilder().SetShardCountSpec(2).SetShardCountStatus(4).Build()
+	_ = client.Update(context.TODO(), sc)
+
+	checkReconcileSuccessful(t, reconciler, sc, client)
+
+	// Two deployment modifications are expected
+	connection.CheckOrderOfOperations(t, reflect.ValueOf(connection.ReadUpdateDeployment), reflect.ValueOf(connection.ReadUpdateDeployment))
+
+	// todo ideally we need to check the "transitive" deployment that was created on first step, but let's check the
+	// final version at least
+	connection.CheckDeployment(t, createDeploymentFromShardedCluster(sc))
+
+	// One shard has gone
+	assert.Len(t, client.sets, 4)
 }
 
 // TestAddDeleteShardedCluster checks that no state is left in OpsManager on removal of the sharded cluster
@@ -269,7 +301,7 @@ func createDeploymentFromShardedCluster(updatable Updatable) om.Deployment {
 	}
 
 	d := om.NewDeployment()
-	d.MergeShardedCluster(sh.Name, mongosProcesses, configRs, shards)
+	d.MergeShardedCluster(sh.Name, mongosProcesses, configRs, shards, false)
 	d.AddMonitoringAndBackup(mongosProcesses[0].HostName(), zap.S())
 	return d
 }
