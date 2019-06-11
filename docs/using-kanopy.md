@@ -26,3 +26,8 @@ In order to make this easier to use you may want to set up a command alias like 
 alias ky='kubectl --context api.staging.corp.mongodb.com --namespace cloud-mdb-operator'
 
 ```
+
+Logs
+----
+Logs for the running operator can be viewed here:
+https://mongodb.splunkcloud.com/en-US/app/search/search?q=search%20index%3D%22mongodb-operator-staging%22&sid=1560188577.3328211&display.page.search.mode=smart&dispatch.sample_ratio=1&earliest=-30m%40m&latest=now
