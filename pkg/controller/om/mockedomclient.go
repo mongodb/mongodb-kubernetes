@@ -3,21 +3,19 @@ package om
 import (
 	"fmt"
 	"math/rand"
+	"reflect"
+	"runtime"
 	"strconv"
 	"sync"
 	"testing"
-
-	"go.uber.org/zap"
-
-	"github.com/pkg/errors"
-
-	"reflect"
-	"runtime"
-
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 // ********************************************************************************************************************
@@ -85,7 +83,7 @@ func NewEmptyMockedOmConnection(ctx *OMContext) Connection {
 		{ID: TestOrgID, Name: TestGroupName}: {{
 			Name:        TestGroupName,
 			ID:          TestGroupID,
-			Tags:        []string{"EXTERNALLY_MANAGED_BY_KUBERNETES"},
+			Tags:        []string{util.OmGroupExternallyManagedTag},
 			AgentAPIKey: TestAgentKey,
 			OrgID:       TestOrgID,
 		}},
