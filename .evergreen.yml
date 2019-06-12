@@ -23,7 +23,7 @@ variables:
 
 functions:
   "golint":
-    - command : shell.exec
+    - command: shell.exec
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         script: |
@@ -110,7 +110,7 @@ functions:
           scripts/evergreen/build_operator_rhel.sh $release ${rhc_database_pid}
 
   "setup_jq":
-    - command : shell.exec
+    - command: shell.exec
       params:
         shell: bash
         script: |
@@ -300,7 +300,8 @@ functions:
               --tag "$REVISION" \
               --registry "${env}" \
               --path "${path}" \
-              --docker-args "$docker_args"
+              --docker-args "$docker_args" \
+              $(if [ -n "${release_object}" ]; then echo '--with-latest-tag'; fi)
 
   # Populate the Ops Manager Kubernetes Perpetual instance, env vars
   "omkp_setup": &omkp_setup
@@ -410,7 +411,7 @@ functions:
 
 
 post:
-   - func: "post_task"
+  - func: "post_task"
 
 tasks:
 - name: unit_tests
