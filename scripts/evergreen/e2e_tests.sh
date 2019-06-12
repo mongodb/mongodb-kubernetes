@@ -11,7 +11,10 @@ cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 source scripts/funcs
 
 # Will generate a random namespace to use each time
-if [ -z "${PROJECT_NAMESPACE-}" ]; then
+
+if [ ! -z "${STATIC_NAMESPACE-}" ]; then
+    PROJECT_NAMESPACE=${STATIC_NAMESPACE}
+elif [ -z "${PROJECT_NAMESPACE-}" ]; then
     random_namespace=$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 20) || true
     doy=$(date +'%j')
     PROJECT_NAMESPACE="a-${doy}-${random_namespace}z"
@@ -19,6 +22,12 @@ if [ -z "${PROJECT_NAMESPACE-}" ]; then
     printf "Project Namespace is: %s\\n" "${PROJECT_NAMESPACE}"
 else
     printf "Using %s namespace\\n" "${PROJECT_NAMESPACE}"
+fi
+
+if [[ ! -z "${STATIC_NAMESPACE-}" ]]; then
+    echo "Waiting for static namespace ${STATIC_NAMESPACE} to be deleted before use"
+    wait_for_namespace_to_be_deleted ${STATIC_NAMESPACE}
+    echo "Namespace ${STATIC_NAMESPACE} is available for use"
 fi
 
 ensure_namespace "${PROJECT_NAMESPACE}"
@@ -298,6 +307,11 @@ if [[ "${MODE-}" != "dev" ]]; then
         fi
 
         kubectl label "namespace/${PROJECT_NAMESPACE}" "evg/state=failed"
+
+        # we want to teardown no matter what if it's a static namespace in order to let other tests run
+        if [[ ! -z ${STATIC_NAMESPACE} ]]; then
+            teardown
+        fi
     fi
 fi
 

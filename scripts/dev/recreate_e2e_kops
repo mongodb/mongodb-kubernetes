@@ -5,6 +5,7 @@ set -euo pipefail
 source scripts/funcs
 
 recreate="${1-}"
+CLUSTER="${2:-e2e.mongokubernetes.com}"
 
 if [[ "${recreate}" != "yes" ]]; then
 	fatal "Exiting as \"imsure=yes\" parameter is not specified"
@@ -18,8 +19,6 @@ if (( major != 1 || minor < 11 )); then
         fatal "kops must be of version >= 1.11.0!"
 fi
 
-CLUSTER=e2e.mongokubernetes.com
-
 title "Deleting kops cluster $CLUSTER"
 
 # wait until the cluster is removed (could be removed already)
@@ -28,4 +27,8 @@ kops delete cluster $CLUSTER --yes || true
 title "Cluster deleted"
 
 # Note, that for e2e cluster we use us-east-2 region as us-east-1 most of all has reached max number of VPCs (5)
-create_kops_cluster ${CLUSTER} 4 32 "t2.xlarge" "t2.medium" "us-east-2a,us-east-2b,us-east-2c"
+if [[ "${CLUSTER}" = "e2e.mongokubernetes.com" ]]; then
+    create_kops_cluster ${CLUSTER} 4 32 "t2.xlarge" "t2.medium" "us-east-2a,us-east-2b,us-east-2c"
+else # we're creating a smaller cluster for specific tests
+    create_kops_cluster ${CLUSTER} 2 16 "t2.medium" "t2.medium" "us-west-2a,us-west-2b,us-west-2c"
+fi

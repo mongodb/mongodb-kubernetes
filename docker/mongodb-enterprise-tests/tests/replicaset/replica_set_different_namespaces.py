@@ -1,9 +1,10 @@
+import pytest
 import string
 import random
 import yaml
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, fixture
 
-
+@pytest.mark.e2e_replica_set_different_namespaces
 class TestReplicaSetWithSecretAndConfigMapInDifferentNamespace(KubernetesTester):
     """
     name: Replica set creation with secret and configmap in different namespace
@@ -29,12 +30,12 @@ class TestReplicaSetWithSecretAndConfigMapInDifferentNamespace(KubernetesTester)
         })
 
         # create replica set and wait for it to be ready
-        with open("fixtures/replica-set.yaml", "r") as f:
+        with open(fixture("replica-set.yaml"), "r") as f:
             resource = yaml.safe_load(f)
         resource["spec"]["project"] = "{}/{}".format(cls.other_namespace, project_name)
         resource["spec"]["credentials"] = "{}/{}".format(cls.other_namespace, creds_name)
         cls.create_mongodb_from_object(cls.get_namespace(), resource)
-        cls.wait_until("in_running_state", 150)
+        cls.wait_until("in_running_state", 200)
 
     @classmethod
     def teardown_env(cls):
@@ -47,5 +48,6 @@ class TestReplicaSetWithSecretAndConfigMapInDifferentNamespace(KubernetesTester)
     def test_can_connect_to_repl_set(self):
         hosts = self.get_host_strings(self.get_namespace(), "my-replica-set", 3)
         primary, secondaries = self.wait_for_rs_is_ready(hosts)
-        if not primary:
-            raise Exception("no primary found")
+
+        assert primary is not None
+        assert len(secondaries) == 2

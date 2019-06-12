@@ -62,6 +62,12 @@ metadata:
 EOF
     kubectl create -f "${tmp_file}" 2>/dev/null || true
 }
+
+wait_for_namespace_to_be_deleted(){
+    namespace=${1}
+    while kubectl get ns | grep -q ${namespace} ; do printf .; sleep 1; done;
+}
+
 # the function installs Ops Manager into Kubernetes cluster if it's not installed already
 # Note, that this requires the k8s node with 4 Gb of free memory
 ensure_ops_manager_k8s() {
@@ -348,7 +354,6 @@ create_kops_cluster() {
     [[ ! -f ~/.ssh/id_aws_rsa ]] && ssh-keygen -f ~/.ssh/id_aws_rsa && ssh-add ~/.ssh/id_aws_rsa
 
     echo "Make sure you use the latest version of kops (>= 1.11.0): 'brew upgrade kops'"
-
     kops create cluster \
          --node-count "$node_count" \
          --zones "${zones}" \

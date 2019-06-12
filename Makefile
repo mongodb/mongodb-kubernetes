@@ -32,7 +32,7 @@ usage:
 	@ echo "                              the test, the namespace is cleaned. The e2e app image is built and pushed. Use a 'light=true'"
 	@ echo "                              in case you are developing tests and not changing the Operator code - this will allow to"
 	@ echo "                              avoid redeploying the Operator"
-	@ echo "  recreate-e2e-kops:          deletes and creates an e2e cluster using kops (note, that you don't need to switch to the correct"
+	@ echo "  recreate-e2e-kops:          deletes and creates a specified e2e cluster 'cluster' using kops (note, that you don't need to switch to the correct"
 	@ echo "                              kubectl context - the script will handle everything. Pass the flag 'imsure=yes' to make it work."
 	@ echo "  recreate-e2e-openshift:     deletes and creates an e2e Openshift cluster"
 	@ echo "  log:                        reads the Operator log"
@@ -101,7 +101,7 @@ e2e: build-and-push-test-image reset
 
 # deletes and creates a kops e2e cluster
 recreate-e2e-kops:
-	@ scripts/dev/recreate_e2e_kops $(imsure)
+	@ scripts/dev/recreate_e2e_kops $(imsure) $(cluster)
 
 # deletes and creates a openshift e2e cluster
 recreate-e2e-openshift:

@@ -1,7 +1,6 @@
 package operator
 
 import (
-	"context"
 	"fmt"
 
 	"strings"
@@ -12,7 +11,6 @@ import (
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -31,19 +29,12 @@ func newProjectReconciler(mgr manager.Manager, omFunc om.ConnectionFactory) *Pro
 	return &ProjectReconciler{newReconcileCommonController(mgr, omFunc)}
 }
 
-func getProjectConfig(namespacedName types.NamespacedName, client client.Client) (*ProjectConfig, error) {
-	cmap := &corev1.ConfigMap{}
-	if err := client.Get(context.TODO(), namespacedName, cmap); err != nil {
+func (r *ProjectReconciler) getProjectConfig(namespacedName types.NamespacedName) (*ProjectConfig, error) {
+	config, err := r.kubeHelper.readProjectConfig(namespacedName.Namespace, namespacedName.Name)
+	if err != nil {
 		return nil, err
 	}
-	data := cmap.Data
-	return &ProjectConfig{
-		BaseURL:     data[util.OmBaseUrl],
-		ProjectName: data[util.OmProjectName],
-		Credentials: data[util.OmCredentials],
-		OrgID:       data[util.OmOrgId],
-		AuthMode:    data[util.OmAuthMode],
-	}, nil
+	return config, nil
 }
 
 // ensureTLS makes sure that it is possible to enable TLS at the project level
@@ -76,7 +67,7 @@ func ensureTLS(conn om.Connection, log *zap.SugaredLogger) error {
 
 func (r *ProjectReconciler) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
 	log := zap.S().With("Project", request.NamespacedName)
-	projectConfig, err := getProjectConfig(request.NamespacedName, r.kubeHelper.client)
+	projectConfig, err := r.getProjectConfig(request.NamespacedName)
 	if err != nil {
 		log.Errorf("error getting config map %s", err)
 		return retry()
@@ -291,7 +282,7 @@ func AddProjectController(mgr manager.Manager) error {
 		return err
 	}
 
-	err = c.Watch(&source.Kind{Type: &corev1.ConfigMap{}}, &handler.EnqueueRequestForObject{})
+	err = c.Watch(&source.Kind{Type: &corev1.ConfigMap{}}, &handler.EnqueueRequestForObject{}, predicatesForProject())
 	if err != nil {
 		return err
 	}
