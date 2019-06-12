@@ -43,58 +43,78 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (r
 	log.Infow("ShardedCluster.Spec", "spec", sc.Spec)
 	log.Infow("ShardedCluster.Status", "status", sc.Status)
 
-	conn, err := r.doShardedClusterProcessing(sc, log)
-	if err != nil {
-		return r.updateStatusFailed(sc, err.Error(), log)
+	processingResult := r.doShardedClusterProcessing(sc, log)
+	if processingResult.isFailure {
+		return r.updateStatusFailed(sc, processingResult.msg, log)
+	} else if processingResult.shouldGoIntoPending {
+		log.Infof(processingResult.msg)
+		return r.updateStatusPending(sc, processingResult.msg)
 	}
+
+	conn := processingResult.connection
 
 	r.updateStatusSuccessful(sc, log, DeploymentLink(conn.BaseURL(), conn.GroupID()))
 	log.Infof("Finished reconciliation for Sharded Cluster! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	return reconcile.Result{}, nil
 }
 
+// processingResult contains all the fields required to determine the outcome
+// of the sharded cluster processing, and which state the resource should enter next
+type processingResult struct {
+	connection                     om.Connection
+	msg                            string
+	isFailure, shouldGoIntoPending bool
+}
+
 // implements all the logic to do the sharded cluster thing
-func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interface{}, log *zap.SugaredLogger) (om.Connection, error) {
+func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interface{}, log *zap.SugaredLogger) processingResult {
 	log.Info("ShardedCluster.doShardedClusterProcessing")
 	sc := obj.(*mongodb.MongoDB)
 	podVars := &PodVars{}
 	conn, err := r.prepareConnection(objectKey(sc.Namespace, sc.Name), sc.Spec.ConnectionSpec, podVars, log)
 	if err != nil {
-		return nil, err
+		return processingResult{isFailure: true, msg: err.Error()}
 	}
 
 	projectConfig, err := r.kubeHelper.readProjectConfig(sc.Namespace, sc.Spec.Project)
 	if err != nil {
-		return nil, fmt.Errorf("error reading project %s", err)
+		return processingResult{isFailure: true, msg: fmt.Sprintf("error reading project %s", err)}
 	}
 
 	kubeState := r.buildKubeObjectsForShardedCluster(sc, podVars, projectConfig, log)
 
 	if err = prepareScaleDownShardedCluster(conn, kubeState, sc, log); err != nil {
-		return nil, fmt.Errorf("Failed to perform scale down preliminary actions: %s", err)
+		return processingResult{isFailure: true, msg: fmt.Sprintf("Failed to perform scale down preliminary actions: %s", err)}
 	}
 
-	if err = r.ensureSSLCertificates(sc, kubeState, log); err != nil {
-		return nil, err
+	if wasSuccessful, err := r.ensureSSLCertificates(sc, kubeState, log); err != nil {
+		return processingResult{isFailure: true, msg: err.Error()}
+	} else if sc.Spec.GetTLSConfig().Enabled && !wasSuccessful {
+		return processingResult{isFailure: false, shouldGoIntoPending: true, msg: "Not all certificates have been approved by Kubernetes CA"}
 	}
 
 	if projectConfig.AuthMode == util.X509 {
 		if !sc.Spec.Security.TLSConfig.Enabled {
-			return nil, fmt.Errorf("authentication mode for project is x509 but this MDB resource is not TLS enabled")
+			return processingResult{isFailure: false, msg: "authentication mode for project is x509 but this MDB resource is not TLS enabled"}
 		} else if !r.doAgentX509CertsExist(sc.Namespace) {
-			return nil, fmt.Errorf("agent x509 certs have not yet been created %s", err)
+			return processingResult{isFailure: false, shouldGoIntoPending: true, msg: "Agent x509 certificates have not yet been created"}
 		}
 
 		if sc.Spec.Security.ClusterAuthMode == util.X509 {
 			errors := make([]error, 0)
+			allSuccessful := true
 			for _, helper := range getAllStatefulSetHelpers(kubeState) {
-				if err := r.ensureInternalClusterCerts(helper, log); err != nil {
+				if success, err := r.ensureInternalClusterCerts(helper, log); err != nil {
 					errors = append(errors, err)
+				} else if !success {
+					allSuccessful = false
 				}
 			}
 			// fail only after creating all CSRs
 			if len(errors) > 0 {
-				return nil, fmt.Errorf("failed ensuring internal cluster authentication certs %s", errors[0])
+				return processingResult{isFailure: true, msg: fmt.Sprintf("failed ensuring internal cluster authentication certs %s", errors[0])}
+			} else if !allSuccessful {
+				return processingResult{isFailure: false, shouldGoIntoPending: true, msg: "Not all internal cluster authentication certs have been approved by Kubernetes CA"}
 			}
 		}
 
@@ -102,24 +122,22 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		// this means the user has disabled x509 at the project level, but the resource is still configured to use x509 cluster authentication
 		// as we don't have a status on the ConfigMap, we can inform the user in the status of the resource.
 		if sc.Spec.Security.ClusterAuthMode == util.X509 {
-			return nil, fmt.Errorf("This deployment has clusterAuthenticationMode set to x509, ensure the ConfigMap for this project is configured to enable x509")
+			return processingResult{isFailure: true, msg: "This deployment has clusterAuthenticationMode set to x509, ensure the ConfigMap for this project is configured to enable x509"}
 		}
 	}
 
 	if err = r.createKubernetesResources(sc, kubeState, log); err != nil {
-		return nil, fmt.Errorf("Failed to create/update resources in Kubernetes for sharded cluster: %s", err)
+		return processingResult{isFailure: true, msg: fmt.Sprintf("Failed to create/update resources in Kubernetes for sharded cluster: %s", err)}
 	}
 	log.Infow("All Kubernetes objects are created/updated, adding the deployment to Ops Manager")
 
 	if err := updateOmDeploymentShardedCluster(conn, sc, kubeState, log); err != nil {
-		return nil, fmt.Errorf("Failed to update OpsManager automation config: %s", err)
+		return processingResult{isFailure: true, msg: fmt.Sprintf("Failed to update OpsManager automation config: %s", err)}
 	}
 
 	log.Infow("Ops Manager deployment updated successfully")
-
 	r.removeUnusedStatefulsets(sc, kubeState, log)
-
-	return conn, nil
+	return processingResult{connection: conn}
 
 }
 
@@ -140,35 +158,42 @@ func (r *ReconcileMongoDbShardedCluster) removeUnusedStatefulsets(sc *mongodb.Mo
 	}
 }
 
-func (r *ReconcileMongoDbShardedCluster) ensureSSLCertificates(s *mongodb.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger) error {
+func (r *ReconcileMongoDbShardedCluster) ensureSSLCertificates(s *mongodb.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger) (bool, error) {
 	tlsConfig := s.Spec.GetTLSConfig()
 
 	if tlsConfig == nil || !s.Spec.GetTLSConfig().Enabled {
-		return nil
+		return true, nil
 	}
 
 	var lastErr error
 	errorHappened := false
-	if err := r.kubeHelper.ensureSSLCertsForStatefulSet(state.mongosSetHelper, log); err != nil {
+	allSucceeded := true
+	if successful, err := r.kubeHelper.ensureSSLCertsForStatefulSet(state.mongosSetHelper, log); err != nil {
 		errorHappened = true
 		lastErr = err
+	} else if !successful {
+		allSucceeded = false
 	}
-	if err := r.kubeHelper.ensureSSLCertsForStatefulSet(state.configSrvSetHelper, log); err != nil {
+	if successful, err := r.kubeHelper.ensureSSLCertsForStatefulSet(state.configSrvSetHelper, log); err != nil {
 		errorHappened = true
 		lastErr = err
+	} else if !successful {
+		allSucceeded = false
 	}
 	for _, s := range state.shardsSetsHelpers {
-		if err := r.kubeHelper.ensureSSLCertsForStatefulSet(s, log); err != nil {
+		if successful, err := r.kubeHelper.ensureSSLCertsForStatefulSet(s, log); err != nil {
 			errorHappened = true
 			lastErr = err
+		} else if !successful {
+			allSucceeded = false
 		}
 	}
 
 	if errorHappened {
-		return lastErr
+		return false, lastErr
 	}
 
-	return nil
+	return allSucceeded, nil
 }
 
 // createKubernetesResources creates all Kubernetes objects that are specified in 'state' parameter

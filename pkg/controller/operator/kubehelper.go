@@ -560,10 +560,10 @@ func (k *KubeHelper) createOrUpdateSecret(name, namespace string, pemFiles *pemC
 }
 
 // ensureSSLCertsForStatefulSet contains logic to create SSL certs for a StatefulSet object
-func (k *KubeHelper) ensureSSLCertsForStatefulSet(ss *StatefulSetHelper, log *zap.SugaredLogger) error {
+func (k *KubeHelper) ensureSSLCertsForStatefulSet(ss *StatefulSetHelper, log *zap.SugaredLogger) (bool, error) {
 	if !ss.IsTLSEnabled() {
 		// if there's no SSL certs to generate, return
-		return nil
+		return false, nil
 	}
 
 	// Flag that's set to false if any of the certificates have not been approved yet.
@@ -577,7 +577,7 @@ func (k *KubeHelper) ensureSSLCertsForStatefulSet(ss *StatefulSetHelper, log *za
 		// Because of the async nature of Kubernetes, this object might not be ready yet,
 		// in which case, we'll keep reconciling until the object is created and is correct.
 		if notReadyCerts := k.verifyCertificatesForStatefulSet(ss, ss.Security.TLSConfig.Secret); notReadyCerts > 0 {
-			return fmt.Errorf("The secret object '%s' does not contain all the certificates needed."+
+			return false, fmt.Errorf("The secret object '%s' does not contain all the certificates needed."+
 				"Required: %d, contains: %d", ss.Security.TLSConfig.Secret,
 				ss.Replicas,
 				ss.Replicas-notReadyCerts,
@@ -586,13 +586,13 @@ func (k *KubeHelper) ensureSSLCertsForStatefulSet(ss *StatefulSetHelper, log *za
 
 		// Validates that the secret is valid
 		if err := k.validateCertficate(secretName, ss.Namespace, false); err != nil {
-			return err
+			return false, err
 		}
 	} else {
 
 		// Validates that the secret is valid, and removes it if it is not
 		if err := k.validateCertficate(secretName, ss.Namespace, true); err != nil {
-			return err
+			return false, err
 		}
 
 		if notReadyCerts := k.verifyCertificatesForStatefulSet(ss, secretName); notReadyCerts > 0 {
@@ -617,7 +617,7 @@ func (k *KubeHelper) ensureSSLCertsForStatefulSet(ss *StatefulSetHelper, log *za
 					certsNeedApproval = true
 					key, err := k.createTlsCsr(podnames[idx], ss.Namespace, []string{host, podnames[idx]}, podnames[idx])
 					if err != nil {
-						return fmt.Errorf("Failed to create CSR, %s", err)
+						return false, fmt.Errorf("Failed to create CSR, %s", err)
 					}
 
 					pemFiles.addPrivateKey(podnames[idx], string(key))
@@ -644,16 +644,13 @@ func (k *KubeHelper) ensureSSLCertsForStatefulSet(ss *StatefulSetHelper, log *za
 				// the keys, in which case we return an error, to make it clear what
 				// the error was to customers -- this should end up in the status
 				// message.
-				return fmt.Errorf("Failed to create or update the secret: %s", err)
+				return false, fmt.Errorf("Failed to create or update the secret: %s", err)
 			}
 		}
 	}
 
-	if certsNeedApproval {
-		return fmt.Errorf("Not all certificates have been approved by Kubernetes CA")
-	}
-
-	return nil
+	successful := !certsNeedApproval
+	return successful, nil
 }
 
 // validateCertificate verifies the Secret containing the certificates and the keys is valid.

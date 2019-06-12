@@ -55,18 +55,12 @@ class TestReplicaSetWithTLSUpgradeSetRequireSSLMode(KubernetesTester):
     update:
       file: test-tls-base-rs-require-ssl-upgrade.yaml
       patch: '[{"op": "add", "path" : "/spec/security", "value": {}}, {"op":"add","path":"/spec/security/tls","value": { "enabled": true }}]'
-      wait_until: in_failed_state
+      wait_for_message: Not all certificates have been approved by Kubernetes CA
       timeout: 240
     """
 
     def test_mdb_resource_status_is_correct(self):
-        mdb = self.customv1.get_namespaced_custom_object(
-            "mongodb.com", "v1", self.namespace, "mongodb", mdb_resource
-        )
-        assert (
-            mdb["status"]["message"]
-            == "Not all certificates have been approved by Kubernetes CA"
-        )
+        assert True
 
     @skip_if_local()
     def test_mdb_is_reachable_with_no_ssl(self):

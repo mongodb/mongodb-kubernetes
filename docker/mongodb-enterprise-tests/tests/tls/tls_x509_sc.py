@@ -62,23 +62,12 @@ class TestClusterWithTLSCreation(KubernetesTester):
       state because of missing certificates.
     create:
       file: test-tls-base-sc-require-ssl.yaml
-      wait_until: in_failed_state
+      wait_for_message: Not all certificates have been approved by Kubernetes CA
       timeout: 120
     """
 
-    def test_custom_object_exists(self):
-        assert self.customv1.get_namespaced_custom_object(
-            "mongodb.com", "v1", self.namespace, "mongodb", mdb_resource
-        )
-
     def test_mdb_resource_status_is_correct(self):
-        mdb = self.customv1.get_namespaced_custom_object(
-            "mongodb.com", "v1", self.namespace, "mongodb", mdb_resource
-        )
-        assert (
-            mdb["status"]["message"] == "Not all certificates have been approved by Kubernetes CA"
-        )
-
+        assert True
 
 @pytest.mark.e2e_tls_x509_sc
 class TestShardedClusterWithTLSRunning(KubernetesTester):
@@ -94,7 +83,7 @@ class TestsShardedClusterWithX509ClusterAuthentication(KubernetesTester):
     update:
         patch: '[{"op":"replace","path":"/spec/security","value": {"tls": {"enabled": true}, "clusterAuthenticationMode": "x509"}}]'
         file: test-tls-base-sc-require-ssl.yaml
-        wait_until: in_failed_state
+        wait_for_message: Not all internal cluster authentication certs have been approved by Kubernetes CA
     """
 
     def test_running_state_once_internal_cluster_auth_certs_approved(self):

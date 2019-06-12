@@ -72,20 +72,24 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		SetProjectConfig(*projectConfig).
 		SetSecurity(rs.Spec.Security)
 
-	if err := r.kubeHelper.ensureSSLCertsForStatefulSet(replicaBuilder, log); err != nil {
+	if success, err := r.kubeHelper.ensureSSLCertsForStatefulSet(replicaBuilder, log); err != nil {
 		return r.updateStatusFailed(rs, err.Error(), log)
+	} else if rs.Spec.GetTLSConfig().Enabled && !success {
+		return r.updateStatusPending(rs, "Not all certificates have been approved by Kubernetes CA")
 	}
 
 	if projectConfig.AuthMode == util.X509 {
 		if !spec.Security.TLSConfig.Enabled {
 			return r.updateStatusFailed(rs, "Authentication mode for project is x509 but this MDB resource is not TLS enabled", log)
 		} else if !r.doAgentX509CertsExist(request.Namespace) {
-			return r.updateStatusFailed(rs, "Agent x509 certs have not yet been created", log)
+			return r.updateStatusPending(rs, "Agent x509 certificates have not yet been created")
 		}
 
 		if spec.Security.ClusterAuthMode == util.X509 {
-			if err := r.ensureInternalClusterCerts(replicaBuilder, log); err != nil {
+			if success, err := r.ensureInternalClusterCerts(replicaBuilder, log); err != nil {
 				return r.updateStatusFailed(rs, fmt.Sprintf("Failed ensuring internal cluster authentication certs %s", err), log)
+			} else if !success {
+				return r.updateStatusPending(rs, "Not all internal cluster authentication certs have been approved by Kubernetes CA")
 			}
 		}
 	} else {

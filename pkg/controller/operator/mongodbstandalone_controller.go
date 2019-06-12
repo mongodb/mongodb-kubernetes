@@ -119,15 +119,25 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		SetClusterName(s.Spec.ClusterName).
 		SetProjectConfig(*projectConfig)
 
-	if err := r.kubeHelper.ensureSSLCertsForStatefulSet(standaloneBuilder, log); err != nil {
+	if successful, err := r.kubeHelper.ensureSSLCertsForStatefulSet(standaloneBuilder, log); err != nil {
 		return r.updateStatusFailed(s, err.Error(), log)
+	} else if s.Spec.GetTLSConfig().Enabled && !successful {
+		return r.updateStatusPending(s, "Not all certificates have been approved by Kubernetes CA")
 	}
 
 	if projectConfig.AuthMode == util.X509 {
 		if !spec.Security.TLSConfig.Enabled {
 			return r.updateStatusFailed(s, "Authentication mode for project is x509 but this MDB resource is not TLS enabled", log)
 		} else if !r.doAgentX509CertsExist(request.Namespace) {
-			return r.updateStatusFailed(s, "agent x509 certs have not yet been created", log)
+			return r.updateStatusPending(s, "Agent x509 certificates have not yet been created")
+		}
+	}
+
+	if projectConfig.AuthMode == util.X509 {
+		if !spec.Security.TLSConfig.Enabled {
+			return r.updateStatusFailed(s, "Authentication mode for project is x509 but this MDB resource is not TLS enabled", log)
+		} else if !r.doAgentX509CertsExist(request.Namespace) {
+			return r.updateStatusFailed(s, "Agent x509 certificates have not yet been created", log)
 		}
 	}
 

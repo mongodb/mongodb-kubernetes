@@ -22,7 +22,7 @@ class TestMultipleCreation(KubernetesTester):
       and the other one will not. Both of them should work, and listen on respective SSL/non SSL endpoints.
     create:
     - file: test-tls-base-rs-require-ssl.yaml
-      wait_until: in_failed_state
+      wait_for_message: Not all certificates have been approved by Kubernetes CA
       timeout: 120
 
     - file: test-no-tls-no-status.yaml

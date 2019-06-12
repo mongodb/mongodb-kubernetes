@@ -29,7 +29,7 @@ type Updatable interface {
 	runtime.Object
 	UpdateSuccessful(object runtime.Object, args ...string)
 	UpdateError(msg string)
-	UpdatePending()
+	UpdatePending(msg string)
 	UpdateReconciling()
 }
 
@@ -174,10 +174,14 @@ func (c *ReconcileCommonController) updateStatusSuccessful(reconciledResource Up
 	}
 }
 
-func (c *ReconcileCommonController) updateStatusPending(reconciledResource Updatable) error {
-	return c.updateStatus(reconciledResource, func(fresh Updatable) {
-		fresh.UpdatePending()
+func (c *ReconcileCommonController) updateStatusPending(reconciledResource Updatable, msg string) (reconcile.Result, error) {
+	err := c.updateStatus(reconciledResource, func(fresh Updatable) {
+		fresh.UpdatePending(msg)
 	})
+	if err != nil {
+		return fail(err)
+	}
+	return retry()
 }
 
 func (c *ReconcileCommonController) updateReconciling(reconciledResource Updatable) error {
@@ -332,7 +336,7 @@ func (r *ReconcileCommonController) doAgentX509CertsExist(namespace string) bool
 
 // ensureInternalClusterCerts ensures that all the x509 internal cluster certs exist.
 // TODO: this is almost the same as kubeHelper::ensureSSLCertsForStatefulSet, we should centralize the functionality
-func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHelper, log *zap.SugaredLogger) error {
+func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHelper, log *zap.SugaredLogger) (bool, error) {
 	k := r.kubeHelper
 	// Flag that's set to false if any of the certificates have not been approved yet.
 	certsNeedApproval := false
@@ -345,7 +349,7 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHe
 		// Because of the async nature of Kubernetes, this object might not be ready yet,
 		// in which case, we'll keep reconciling until the object is created and is correct.
 		if notReadyCerts := k.verifyCertificatesForStatefulSet(ss, ss.Security.TLSConfig.Secret); notReadyCerts > 0 {
-			return fmt.Errorf("The secret object '%s' does not contain all the certificates needed."+
+			return false, fmt.Errorf("The secret object '%s' does not contain all the certificates needed."+
 				"Required: %d, contains: %d", ss.Security.TLSConfig.Secret,
 				ss.Replicas,
 				ss.Replicas-notReadyCerts,
@@ -354,13 +358,13 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHe
 
 		// Validates that the secret is valid
 		if err := k.validateCertficate(secretName, ss.Namespace, false); err != nil {
-			return err
+			return false, err
 		}
 	} else {
 
 		// Validates that the secret is valid, and removes it if it is not
 		if err := k.validateCertficate(secretName, ss.Namespace, true); err != nil {
-			return err
+			return false, err
 		}
 
 		if notReadyCerts := k.verifyCertificatesForStatefulSet(ss, secretName); notReadyCerts > 0 {
@@ -386,7 +390,7 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHe
 					certsNeedApproval = true
 					key, err := k.createInternalClusterAuthCSR(csrName, ss.Namespace, []string{host, podnames[idx]}, podnames[idx])
 					if err != nil {
-						return fmt.Errorf("Failed to create CSR, %s", err)
+						return false, fmt.Errorf("Failed to create CSR, %s", err)
 					}
 
 					pemFiles.addPrivateKey(podnames[idx], string(key))
@@ -413,16 +417,13 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHe
 				// the keys, in which case we return an error, to make it clear what
 				// the error was to customers -- this should end up in the status
 				// message.
-				return fmt.Errorf("Failed to create or update the secret: %s", err)
+				return false, fmt.Errorf("Failed to create or update the secret: %s", err)
 			}
 		}
 	}
 
-	if certsNeedApproval {
-		return fmt.Errorf("Not all certificates have been approved by Kubernetes CA")
-	}
-
-	return nil
+	successful := !certsNeedApproval
+	return successful, nil
 }
 
 func getSpec(resource Updatable) interface{} {

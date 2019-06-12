@@ -10,3 +10,6 @@ def running_cloud_manager():
 
 
 skip_if_cloud_manager = pytest.mark.skipif(running_cloud_manager(), reason="Do not run in Cloud Manager")
+
+class OMTester(object):
+    """ OMTester is designed to """

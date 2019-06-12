@@ -201,6 +201,8 @@ class KubernetesTester(object):
 
                 if "wait_for_condition" in rule:
                     cls.wait_for_condition_string(rule["wait_for_condition"])
+                elif "wait_for_message" in rule:
+                    cls.wait_for_status_message(rule)
                 else:
                     cls.wait_condition(rule)
 
@@ -378,6 +380,14 @@ class KubernetesTester(object):
         )
 
     @staticmethod
+    def wait_for_status_message(rule, timeout=0):
+        def action():
+            res = KubernetesTester.get_namespaced_custom_object(KubernetesTester.namespace, KubernetesTester.name, KubernetesTester.kind)
+            return res.get('status', {}).get('message', "") == rule["wait_for_message"]
+        return KubernetesTester.wait_until(action, timeout)
+
+
+    @staticmethod
     def is_deleted(namespace, name, kind="MongoDB"):
         try:
             KubernetesTester.get_namespaced_custom_object(
@@ -415,7 +425,12 @@ class KubernetesTester(object):
 
     @classmethod
     def wait_until(cls, action, timeout):
-        func = getattr(cls, action)
+        func = None
+        # if passed a function directly, we can use it
+        if callable(action):
+            func = action
+        else:  # otherwise find a function of that name
+            func = getattr(cls, action)
         return run_periodically(func, timeout=timeout)
 
     @classmethod
@@ -771,7 +786,6 @@ class KubernetesTester(object):
         assert pvc.spec.resources.requests["storage"] == expected_size
 
         assert getattr(pvc.spec, "storage_class_name") == storage_class
-
 
 # Some general functions go here
 

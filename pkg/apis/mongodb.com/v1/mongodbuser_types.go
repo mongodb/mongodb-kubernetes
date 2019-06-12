@@ -62,7 +62,10 @@ func (u *MongoDBUser) UpdateSuccessful(other runtime.Object, _ ...string) {
 	u.Status.Phase = PhaseUpdated
 	u.Status.LastTransition = util.Now()
 }
-func (u *MongoDBUser) UpdatePending() {
+func (u *MongoDBUser) UpdatePending(msg string) {
+	if msg != "" {
+		u.Status.Message = msg
+	}
 	u.Status.Phase = PhasePending
 }
 

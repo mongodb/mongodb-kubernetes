@@ -164,9 +164,12 @@ func (r *ProjectReconciler) disableX509Authentication(request reconcile.Request,
 
 func (r *ProjectReconciler) enableX509Authentication(request reconcile.Request, projectConfig *ProjectConfig, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
 
-	err := r.ensureX509AgentCertsForProject(projectConfig, request.Namespace)
+	successful, err := r.ensureX509AgentCertsForProject(projectConfig, request.Namespace)
 	if err != nil {
-		log.Errorf("error ensuring x509 certs for agents %s", err)
+		log.Errorf("error ensuring x509 certificates for agents %s", err)
+		return retry()
+	} else if !successful {
+		log.Info("Agent certs have not yet been approved")
 		return retry()
 	}
 
@@ -209,13 +212,13 @@ func (r *ProjectReconciler) enableX509Authentication(request reconcile.Request, 
 }
 
 //ensureX509AgentCertsForProject will generate all the CSRs for the agents
-func (r *ProjectReconciler) ensureX509AgentCertsForProject(project *ProjectConfig, namespace string) error {
+func (r *ProjectReconciler) ensureX509AgentCertsForProject(project *ProjectConfig, namespace string) (bool, error) {
 
 	log := zap.S().With("Project", namespace)
 	k := r.kubeHelper
 
 	if project.AuthMode != util.X509 {
-		return nil
+		return true, nil
 	}
 
 	certsNeedApproval := false
@@ -235,7 +238,7 @@ func (r *ProjectReconciler) ensureX509AgentCertsForProject(project *ProjectConfi
 				// a unique name for the CSR created.
 				key, err := k.createAgentCSR(agentName, namespace)
 				if err != nil {
-					return fmt.Errorf("failed to create CSR, %s", err)
+					return false, fmt.Errorf("failed to create CSR, %s", err)
 				}
 
 				pemFiles.addPrivateKey(agentName, string(key))
@@ -262,16 +265,13 @@ func (r *ProjectReconciler) ensureX509AgentCertsForProject(project *ProjectConfi
 			// the keys, in which case we return an error, to make it clear what
 			// the error was to customers -- this should end up in the status
 			// message.
-			return fmt.Errorf("failed to create or update the secret: %s", err)
+			return false, fmt.Errorf("failed to create or update the secret: %s", err)
 		}
 
 	}
 
-	if certsNeedApproval {
-		return fmt.Errorf("not all automation agent certificates have been approved")
-	}
-
-	return nil
+	successful := !certsNeedApproval
+	return successful, nil
 }
 
 // AddProjectController creates a new ProjectController Controller and adds it to the Manager.
