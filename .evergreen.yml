@@ -750,6 +750,12 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_tls_x509_users_addition_removal
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+
+
 - name: e2e_tls_x509_user_connectivity
   exec_timeout_secs: 600
   commands:
@@ -832,6 +838,7 @@ task_groups:
     - e2e_tls_x509_rs
     - e2e_tls_x509_sc
     - e2e_tls_x509_user_connectivity
+    - e2e_tls_x509_users_addition_removal
     - e2e_users_schema_validation
   teardown_task:
     - func: "upload_e2e_artifacts"

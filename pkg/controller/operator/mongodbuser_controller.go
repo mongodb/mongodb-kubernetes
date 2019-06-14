@@ -53,19 +53,31 @@ func (r *MongoDBUserReconciler) Reconcile(request reconcile.Request) (res reconc
 		func(result reconcile.Result, err error) { res = result; e = err },
 	)
 
+	// this can happen when a user has registered a configmap as watched resource
+	// but the user gets deleted. Reconciliation happens to this user even though it is deleted.
+	// TODO: unregister config map upon MongoDBUser deletion
+	if user.Namespace == "" && user.Name == "" {
+		return stop()
+	}
+
 	if err != nil {
 		log.Warnf("error getting user %s", err)
 		return retry()
 	}
 
-	projectConfig, err := r.kubeHelper.readConfigMap(request.Namespace, user.Spec.Project)
+	projectConfig, err := r.kubeHelper.readProjectConfig(request.Namespace, user.Spec.Project)
 	if err != nil {
 		return r.updateStatusFailed(user, fmt.Sprintf("Error reading project config. %s", err), log)
 	}
 
+	if projectConfig.Credentials == "" {
+		log.Info("No project credentials - stopping now.")
+		return stop()
+	}
+
 	connSpec := v1.ConnectionSpec{
 		Project:     user.Spec.Project,
-		Credentials: projectConfig["credentials"],
+		Credentials: projectConfig.Credentials,
 	}
 
 	log.Info("-> MongoDBUser.Reconcile")
@@ -78,7 +90,22 @@ func (r *MongoDBUserReconciler) Reconcile(request reconcile.Request) (res reconc
 		return r.updateStatusFailed(user, fmt.Sprintf("failed to prepare Ops Manager connection. %s", err), log)
 	}
 
+	if projectConfig.AuthMode != util.X509 {
+		log.Info("X509 authentication is not enabled for this project, stopping")
+		return stop()
+	}
+
+	if !r.doAgentX509CertsExist(user.Namespace) {
+		log.Info("Agent certs have not yet been created, cannot add MongoDBUser yet")
+		return retry()
+	}
+
+	shouldRetry := false
 	err = conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		if !util.ContainsString(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) {
+			shouldRetry = true
+			return fmt.Errorf("x509 has not yet been configured")
+		}
 		auth := ac.Auth
 		desiredUser := toOmUser(user.Spec)
 		if auth.HasUser(desiredUser.Username, desiredUser.Database) {
@@ -89,6 +116,10 @@ func (r *MongoDBUserReconciler) Reconcile(request reconcile.Request) (res reconc
 		return nil
 	}, getMutex(conn.GroupName(), conn.OrgID()), log)
 
+	if shouldRetry {
+		log.Info("x509 has not yet been configured")
+		return retry()
+	}
 	if err != nil {
 		return r.updateStatusFailed(user, fmt.Sprintf("error updating user %s", err), log)
 	}
@@ -133,9 +164,10 @@ func AddMongoDBUserController(mgr manager.Manager) error {
 	if err != nil {
 		return err
 	}
+
 	// watch for changes to MongoDBUser resources
 	eventHandler := MongoDBUserEventHandler{reconciler: reconciler}
-	err = c.Watch(&source.Kind{Type: &v1.MongoDBUser{}}, &eventHandler)
+	err = c.Watch(&source.Kind{Type: &v1.MongoDBUser{}}, &eventHandler, predicatesForUser())
 	if err != nil {
 		return err
 	}

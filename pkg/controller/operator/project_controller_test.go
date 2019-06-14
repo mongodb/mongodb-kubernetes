@@ -54,11 +54,7 @@ func TestX509InternalClusterAuthentication_CannotBeEnabledForShardedCluster_IfPr
 
 func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_ReplicaSet(t *testing.T) {
 
-	rsWithTls := DefaultReplicaSetBuilder().EnableTLS().SetClusterAuth(util.X509).SetName("rs-with-tls").Build()
-
-	connectionFunc := func(omContext *om.OMContext) om.Connection {
-		return om.CurrMockedConnection
-	}
+	rsWithTls := DefaultReplicaSetBuilder().EnableTLS().SetName("rs-with-tls").Build()
 
 	manager := newMockedManager(rsWithTls)
 	client := manager.client
@@ -67,12 +63,20 @@ func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_Re
 
 	addTlsData(client, rsWithTls)
 
+	// create the plain TLS replica set
+	checkReconcileSuccessful(t, reconciler, rsWithTls, client)
+
+	// enable internal cluster authentication mode
+	rsWithTls.Spec.Security.ClusterAuthMode = util.X509
+
 	checkReconcileFailed(t, reconciler, rsWithTls,
 		"This deployment has clusterAuthenticationMode set to x509, ensure the ConfigMap for this project is configured to enable x509", client)
 
 	cMap := enableProjectLevelX509Authentication(client)
 	// our project controller needs to use the same connection so it shares the underlying deployment
-	projectController := newProjectReconciler(manager, connectionFunc)
+	projectController := newProjectReconciler(manager, func(omContext *om.OMContext) om.Connection {
+		return om.CurrMockedConnection
+	})
 	projectResult, projectErr := projectController.Reconcile(requestFromObject(cMap))
 
 	expected, _ := success()
@@ -85,11 +89,7 @@ func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_Re
 
 func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_ShardedCluster(t *testing.T) {
 
-	scWithTls := DefaultClusterBuilder().WithTLS().SetClusterAuth(util.X509).SetName("sc-with-tls").Build()
-
-	connectionFunc := func(omContext *om.OMContext) om.Connection {
-		return om.CurrMockedConnection
-	}
+	scWithTls := DefaultClusterBuilder().WithTLS().SetName("sc-with-tls").Build()
 
 	manager := newMockedManager(scWithTls)
 	client := manager.client
@@ -97,14 +97,21 @@ func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_Sh
 	reconciler := newShardedClusterReconciler(manager, om.NewEmptyMockedOmConnection)
 
 	addTlsData(client, scWithTls)
-	approveCSRs(client, scWithTls)
+
+	// create the plain TLS sharded cluster
+	checkReconcileSuccessful(t, reconciler, scWithTls, client)
+
+	// enable internal cluster authentication mode
+	scWithTls.Spec.Security.ClusterAuthMode = util.X509
 
 	checkReconcileFailed(t, reconciler, scWithTls,
 		"This deployment has clusterAuthenticationMode set to x509, ensure the ConfigMap for this project is configured to enable x509", client)
 
 	cMap := enableProjectLevelX509Authentication(client)
 	// our project controller needs to use the same connection so it shares the underlying deployment
-	projectController := newProjectReconciler(manager, connectionFunc)
+	projectController := newProjectReconciler(manager, func(omContext *om.OMContext) om.Connection {
+		return om.CurrMockedConnection
+	})
 	projectResult, projectErr := projectController.Reconcile(requestFromObject(cMap))
 
 	expected, _ := success()

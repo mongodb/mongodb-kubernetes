@@ -8,6 +8,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
+func predicatesForUser() predicate.Funcs {
+	return predicate.Funcs{
+		// don't update users on status changes
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldResource := e.ObjectOld.(*mongodb.MongoDBUser)
+			newResource := e.ObjectNew.(*mongodb.MongoDBUser)
+			return shouldReconcile(oldResource, newResource)
+		},
+	}
+}
+
 func predicatesFor(resourceType mongodb.ResourceType) predicate.Funcs {
 	return predicate.Funcs{
 		CreateFunc: func(createEvent event.CreateEvent) bool {
@@ -50,8 +61,8 @@ func predicatesFor(resourceType mongodb.ResourceType) predicate.Funcs {
 func predicatesForProject() predicate.Funcs {
 	hasRequiredParams := func(configMap *v1.ConfigMap) bool {
 		_, hasBaseUrl := configMap.Data[util.OmBaseUrl]
-		_, hasOrgId := configMap.Data[util.OmOrgId]
-		return hasBaseUrl && hasOrgId
+		_, hasProjectUrl := configMap.Data[util.OmProjectName]
+		return hasProjectUrl && hasBaseUrl
 	}
 	return predicate.Funcs{
 		CreateFunc: func(createEvent event.CreateEvent) bool {

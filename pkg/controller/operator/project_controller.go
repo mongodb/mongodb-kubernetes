@@ -5,12 +5,13 @@ import (
 
 	"strings"
 
+	"k8s.io/apimachinery/pkg/types"
+
 	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -37,10 +38,19 @@ func (r *ProjectReconciler) getProjectConfig(namespacedName types.NamespacedName
 	return config, nil
 }
 
+// tlsResult contains a group of fields which indicate
+// the success of enabling TLS
+// TODO: revist after CLOUDP-44175
+type tlsResult struct {
+	msg                  string
+	isError, shouldRetry bool
+}
+
 // ensureTLS makes sure that it is possible to enable TLS at the project level
 // if TLS cannot be enabled, it means that it will not be possible to enable x509 authentication.
-func ensureTLS(conn om.Connection, log *zap.SugaredLogger) error {
+func ensureTLS(conn om.Connection, log *zap.SugaredLogger) tlsResult {
 
+	shouldRetry := false
 	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		if !ac.AgentSSL.SSLEnabled() {
 			ac.AgentSSL = &om.AgentSSL{
@@ -50,19 +60,20 @@ func ensureTLS(conn om.Connection, log *zap.SugaredLogger) error {
 			}
 		}
 
-		// it is not possible to enable x509 auth if any processes do not have TLS enabled
-		if !ac.Deployment.AllProcessesAreTLSEnabled() {
-			return fmt.Errorf("not all procceses are TLS enabled, unable to configure TLS")
+		// if it's not possible to enable x509, we shouldn't attempt to as we would be
+		// providing an invalid automation config.
+		if canEnableX509, reason := ac.CanEnableX509ProjectAuthentication(); !canEnableX509 {
+			shouldRetry = true
+			return fmt.Errorf(reason)
 		}
-
 		return nil
 	}, getMutex(conn.GroupName(), conn.OrgID()), log)
 
 	if err != nil {
-		return err
+		return tlsResult{msg: err.Error(), shouldRetry: shouldRetry, isError: true}
 	}
 
-	return nil
+	return tlsResult{}
 }
 
 func (r *ProjectReconciler) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
@@ -82,7 +93,7 @@ func (r *ProjectReconciler) Reconcile(request reconcile.Request) (res reconcile.
 		"hasCredentials", hasCredentials)
 
 	if !hasCredentials {
-		log.Info("no project credentials - stopping now.")
+		log.Info("No project credentials - stopping now.")
 		return stop()
 	}
 
@@ -173,8 +184,12 @@ func (r *ProjectReconciler) enableX509Authentication(request reconcile.Request, 
 		return retry()
 	}
 
-	if err := ensureTLS(conn, log); err != nil {
-		log.Errorf("error ensuring ssl is enabled: %s", err)
+	result := ensureTLS(conn, log)
+	if result.isError {
+		log.Errorf("error ensuring ssl is enabled: %s", result.msg)
+		return retry()
+	} else if result.shouldRetry {
+		log.Infof("unable to enable x509: %s", result.msg)
 		return retry()
 	}
 
@@ -244,10 +259,10 @@ func (r *ProjectReconciler) ensureX509AgentCertsForProject(project *ProjectConfi
 				pemFiles.addPrivateKey(agentName, string(key))
 			} else {
 				if checkCSRWasApproved(csr.Status.Conditions) {
-					log.Infof("certificate for Automation agentName %s -> Approved", agentName)
+					log.Infof("Certificate for Agent %s -> Approved", agentName)
 					pemFiles.addCertificate(agentName, string(csr.Status.Certificate))
 				} else {
-					log.Infof("certificate for Automation agentName %s -> Waiting for Approval", agentName)
+					log.Infof("Certificate for Agent %s -> Waiting for Approval", agentName)
 					certsNeedApproval = true
 				}
 			}

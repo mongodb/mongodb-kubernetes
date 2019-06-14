@@ -182,8 +182,7 @@ class KubernetesTester(object):
 
     @classmethod
     def prepare(cls, test_setup, namespace):
-        allowed_actions = ["create", "update", "delete", "noop", "wait"]
-
+        allowed_actions = ["create", "create_many", "update", "delete", "noop", "wait"]
         for action in [action for action in allowed_actions if action in test_setup]:
             rules = test_setup[action]
 
@@ -230,6 +229,17 @@ class KubernetesTester(object):
             resource,
             exception_reason=section.get("exception", None),
             patch=section.get("patch", None))
+
+    @staticmethod
+    def create_many(section, namespace):
+        "creates multiple custom objects from a yaml list"
+        resources = yaml.safe_load(open(fixture(section["file"])))
+        for res in resources:
+            name, kind = KubernetesTester.create_custom_resource_from_object(
+                namespace,
+                res,
+                exception_reason=section.get("exception", None),
+                patch=section.get("patch", None))
 
     @staticmethod
     def create_mongodb_from_file(namespace, file_path):
@@ -305,10 +315,20 @@ class KubernetesTester(object):
             raise
         print('Updated resource {} with type {} {}'.format(kind, res_type, name))
 
+
     @staticmethod
     def delete(section, namespace):
         "delete custom object"
-        resource = yaml.safe_load(open(fixture(section["file"])))
+        delete_name = section.get('delete_name')
+        loaded_yaml = yaml.safe_load(open(fixture(section["file"])))
+
+        resource = None
+        if delete_name is None:
+            resource = loaded_yaml
+        else:
+            # remove the element by name in the case of a list of elements
+            resource = [res for res in loaded_yaml if res['metadata']['name'] == delete_name][0]
+
         name, kind, group, version, _ = get_crd_meta(resource)
 
         KubernetesTester.delete_custom_resource(namespace, name, kind, group, version)

@@ -63,7 +63,7 @@ class TestUsersSchemaValidationRoleDb(KubernetesTester):
     name: Validation for mongodbusers (role db)
     create:
       file: user_with_roles.yaml
-      patch: '[{"op":"remove","path":"/spec/roles/1/db"}]'
+      patch: '[{"op":"remove","path":"/spec/roles/0/db"}]'
       exception: 'Unprocessable Entity'
     """
 

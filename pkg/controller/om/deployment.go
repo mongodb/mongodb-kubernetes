@@ -338,6 +338,10 @@ func (d Deployment) AllProcessesAreTLSEnabled() bool {
 	return true
 }
 
+func (d Deployment) NumberOfProcesses() int {
+	return len(d.getProcesses())
+}
+
 // anyProcessHasInternalClusterAuthentication determines if at least one process
 // has internal cluster authentication enabled. If this is true, it is impossible to disable
 // x509 authentication

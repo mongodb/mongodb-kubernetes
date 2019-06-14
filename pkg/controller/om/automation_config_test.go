@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-var testAC = *getTestAutomationConfig()
+var originalAutomationConfig = *getTestAutomationConfig()
 
 func getTestAutomationConfig() *AutomationConfig {
 	a, _ := BuildAutomationConfigFromBytes(loadBytesFromTestData("automation_config.json"))
@@ -22,12 +22,24 @@ func TestUntouchedFieldsAreNotDeleted(t *testing.T) {
 	a.Apply()
 
 	auth := a.Deployment["auth"].(map[string]interface{})
-	authTest := testAC.Deployment["auth"].(map[string]interface{})
-	assert.Equal(t, auth["usersDeleted"], authTest["usersDeleted"])
-	assert.Equal(t, auth["autoAuthMechanisms"], authTest["autoAuthMechanisms"])
-	assert.Equal(t, auth["autoAuthRestrictions"], authTest["autoAuthRestrictions"])
-	assert.Equal(t, auth["disabled"], authTest["disabled"])
-	assert.Equal(t, auth["usersWanted"], authTest["usersWanted"])
+	originalAuth := originalAutomationConfig.Deployment["auth"].(map[string]interface{})
+
+	// ensure values aren't overridden
+	assert.Equal(t, auth["usersDeleted"], originalAuth["usersDeleted"])
+	assert.Equal(t, auth["autoAuthMechanisms"], originalAuth["autoAuthMechanisms"])
+	assert.Equal(t, auth["autoAuthRestrictions"], originalAuth["autoAuthRestrictions"])
+	assert.Equal(t, auth["disabled"], originalAuth["disabled"])
+	assert.Equal(t, auth["usersWanted"], originalAuth["usersWanted"])
+
+	// ensure values we specified are overridden
+	assert.Equal(t, auth["autoUser"], "some-user")
+	ssl := a.Deployment["ssl"].(map[string]interface{})
+	assert.Equal(t, ssl["clientCertificateMode"], util.RequireClientCertificates)
+
+	// ensure values we know nothing about aren't touched
+	options := a.Deployment["options"].(map[string]interface{})
+	assert.Equal(t, options["downloadBase"], "/var/lib/mongodb-mms-automation")
+	assert.Equal(t, options["downloadBaseWindows"], "%SystemDrive%\\MMSAutomation\\versions")
 }
 
 func TestUserIsAddedToTheEnd(t *testing.T) {

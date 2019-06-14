@@ -30,7 +30,7 @@ type MongoDBUserStatus struct {
 	Roles          []Role `json:"roles,omitempty"`
 	Username       string `json:"username"`
 	Database       string `json:"db"`
-	Message        string `json:"msg"`
+	Message        string `json:"msg,omitempty"`
 	Phase          Phase  `json:"phase"`
 	LastTransition string `json:"lastTransition"`
 	Project        string `json:"project"`
@@ -59,6 +59,7 @@ func (u *MongoDBUser) UpdateSuccessful(other runtime.Object, _ ...string) {
 	u.Status.Roles = reconciledUser.Spec.Roles
 	u.Status.Database = reconciledUser.Spec.Database
 	u.Status.Username = reconciledUser.Spec.Username
+	u.Status.Project = reconciledUser.Spec.Project
 	u.Status.Phase = PhaseUpdated
 	u.Status.LastTransition = util.Now()
 }

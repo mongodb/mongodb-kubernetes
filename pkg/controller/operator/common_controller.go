@@ -242,8 +242,8 @@ func (c *ReconcileCommonController) updateStatus(reconciledResource Updatable, u
 // - the watchers receive signals only about any changes to *CR*. If the reconciliation failed and a reconciler returned
 // "requeue after 10 seconds" - this doesn't get to watcher, so will never be filtered out.
 // - the only client making changes to status is the Operator itself and it makes sure that spec stays untouched
-func shouldReconcile(oldResource *v1.MongoDB, newResource *v1.MongoDB) bool {
-	return reflect.DeepEqual(oldResource.Status, newResource.Status)
+func shouldReconcile(oldResource Updatable, newResource Updatable) bool {
+	return reflect.DeepEqual(getStatus(oldResource), getStatus(newResource))
 }
 
 // getResource populates the provided runtime.Object with some additional error handling
@@ -426,6 +426,7 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHe
 	return successful, nil
 }
 
+// getSpec returns the spec of the Updatable, required as there is no common Spec type
 func getSpec(resource Updatable) interface{} {
 	switch res := resource.(type) {
 	case *v1.MongoDB:
@@ -434,5 +435,17 @@ func getSpec(resource Updatable) interface{} {
 		return res.Spec
 	default:
 		panic("was unable to find spec. Expected values are MongoDB or MongoDBUser")
+	}
+}
+
+// getStatus returns the status of the Updatable, required as there is no common Status type
+func getStatus(resource Updatable) interface{} {
+	switch res := resource.(type) {
+	case *v1.MongoDB:
+		return res.Status
+	case *v1.MongoDBUser:
+		return res.Status
+	default:
+		panic("was unable to find status. Expected values are MongoDB or MongoDBUser")
 	}
 }

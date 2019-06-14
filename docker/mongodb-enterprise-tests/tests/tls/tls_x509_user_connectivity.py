@@ -35,17 +35,6 @@ def get_cert_names(namespace, *, members=3, with_internal_auth_certs=False, with
 
 
 @pytest.mark.e2e_tls_x509_user_connectivity
-class TestAddMongoDBUser(KubernetesTester):
-    """
-    create:
-      file: test-tls-x509-user.yaml
-    """
-
-    def test_add_user(self):
-        assert True
-
-
-@pytest.mark.e2e_tls_x509_user_connectivity
 class TestsReplicaSetWithNoTLSWithX509Project(KubernetesTester):
     def test_enable_x509(self):
         self.patch_config_map(self.get_namespace(), "my-project", {"authenticationMode": "x509", "credentials": "my-credentials"})
@@ -77,6 +66,23 @@ class TestReplicaSetWithTLSRunning(KubernetesTester):
         KubernetesTester.wait_until('in_running_state', 240)
         print('finished waiting')
 
+@pytest.mark.e2e_tls_x509_user_connectivity
+class TestAddMongoDBUser(KubernetesTester):
+    """
+    create:
+      file: test-tls-x509-user.yaml
+      wait_until: user_exists
+    """
+
+    def test_add_user(self):
+        assert True
+
+    @staticmethod
+    def user_exists():
+        ac = KubernetesTester.get_automation_config()
+        users = ac['auth']['usersWanted']
+        return 'CN=x509-testing-user' in [user['user'] for user in users]
+
 
 @pytest.mark.e2e_tls_x509_user_connectivity
 class TestX509CertCreationAndApproval(KubernetesTester):
@@ -84,7 +90,6 @@ class TestX509CertCreationAndApproval(KubernetesTester):
         cert_name = f'x509-testing-user.{self.get_namespace()}'
         with open(fixture('x509-testing-user.csr'), "r") as f:
             encoded_request = base64.b64encode(f.read().encode('utf-8')).decode('utf-8')
-            print(encoded_request)
         csr_body = self.client.V1beta1CertificateSigningRequest(
             metadata=self.client.V1ObjectMeta(
                 name=cert_name,
@@ -96,7 +101,7 @@ class TestX509CertCreationAndApproval(KubernetesTester):
                 request=encoded_request
             )
         )
-        result = self.certificates.create_certificate_signing_request(csr_body)
+        self.certificates.create_certificate_signing_request(csr_body)
 
         self.approve_certificate(cert_name)
         time.sleep(10)  # FIXME: waits for cert to be approved
