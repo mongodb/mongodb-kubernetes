@@ -2,15 +2,42 @@
 
 ## General
 
-We have single test suite which is run in two different platforms: native Kubernetes (AWS created by Kops) and Openshift
-Each test creates a new K8s namespace and the new group in Ops Manager with the same name (something like `a-330-r1at3ukxl5b2sk6f20mcz`)
-The namespace is left unremoved if the test fails so it was easier to check problems
+We have single test suite which is run in two different platforms:
+native Kubernetes (AWS created by Kops) and Openshift.
+
+Each test creates a new K8s namespace and a new group in Ops Manager
+with the same name as the namespace (something like
+`a-330-r1at3ukxl5b2sk6f20mcz`). After the test finish, and in case of
+a success run, the namespace will be removed. If the test fail, we
+guarantee that the test namespace will remain for at least one hour
+for you to investigate what is needed.
+
+The tests are run against a combination of Ops Manager and Cloud
+Manager releases. We defined a simple nomenclature to make it easy to
+determine the Ops Manager or Cloud Manager version we are running the
+tests against.
+
+* `ops_manager_40_first`: This is the first Ops Manager version that
+  we support on the 4.0 series. It is actually 4.0.5, but we assume
+  there were no breaking changes between 4.0.0 and 4.0.5. This version
+  will remain fixed for the duration of the 4.0 release maintenance,
+  unless the target version is deprecated because of a know security
+  vulnerability.
+
+* `ops_manager_40_current`: This point to the current release of the
+  4.0 release. This will be updated with each release of the 4.0
+  version.
+
+* `cloud_manager_qa`: This target corresponds to Cloud Manager QA
+  (https://cloud-qa.mongodb.com), which is an "advanced" version of
+  Cloud Manager, around 3 weeks in advance. This is where our tests
+  against *master* go.
 
 ## FAQ
 #### How to connect to Openshift e2e cluster?
 
 1. `brew install openshift-cli`
-1. login here https://master.openshift-cluster.mongokubernetes.com:8443   
+1. login here https://master.openshift-cluster.mongokubernetes.com:8443
 1. user is "admin", password is "asdqwe1"
 1. get a login token from the "admin" panel top-right
 1. paste it in command line and use `oc` CMD app to query Openshift cluster
@@ -19,7 +46,7 @@ The namespace is left unremoved if the test fails so it was easier to check prob
 ```bash
 export KOPS_STATE_STORE=s3://kube-om-state-store
 kops export kubecfg e2e.mongokubernetes.com
-#(later when you need to switch to this cluster) 
+#(later when you need to switch to this cluster)
 kubectl config use-context e2e.mongokubernetes.com
 ```
 
@@ -64,8 +91,8 @@ make recreate-e2e-openshift
    # ~/.ssh/config
    Host ec2-54-164-91-238.compute-1.amazonaws.com
        ForwardAgent yes
-   ```  
-   * if some of the parameters in `exports.do` have changed - you need to copy the file to the remote host manually 
+   ```
+   * if some of the parameters in `exports.do` have changed - you need to copy the file to the remote host manually
    before running `ssh ... 'source exports.do ...' ` again
 
 
@@ -76,11 +103,11 @@ make recreate-e2e-openshift
     (if they exist): Persistent Volume Claims, Mongodb resources, pods
     * `operator.log` - contains the log from the Operator
     * `*` - set of files containing logs from Mongodb resource pods (for sharded clusters this includes only shards)
-* If the files didn't provide enough information you can always use `kubectl` to query **more information for the Kubernetes cluster** 
+* If the files didn't provide enough information you can always use `kubectl` to query **more information for the Kubernetes cluster**
 (`kubectl config use-context e2e.mongokubernetes.com/default/master-openshift-cluster-mongokubernetes-com:8443/admin`)
-* Check the state of project in **Ops Manager**. 
+* Check the state of project in **Ops Manager**.
     * To find out the external ip of Ops Manager check the bottom of the output of a failed task in Evergreen - it will contain
-    the following phrase: 
+    the following phrase:
     "Use the following address to access Ops Manager from the browser: http://3.87.239.164:30039 (namespace: a-042-y6y9c31v8j5kt9vumeptz)"
     * Use `admin/admin12345%` to login and search for the namespace
     * Note, that the external ports are opened automatically by the setup script so you don't need to do this
@@ -88,33 +115,107 @@ make recreate-e2e-openshift
     * switch kubectl context to the necessary cluster (for `e2e.mongokubernetes.com` the dashboard is installed automatically,
     for the openshift one you need to do this manually once)
     * call `make dashboard` and enter the token that is copied to the clipboard
-        
+
 #### Cleaning old namespaces via CronJob
 
-The `docker/cluster-cleaner/job.yaml` should be applied on each cluster. This file is a `CronJob` that runs every day
-at 2am. Every time this Pod runs, it will remove all the testing namespaces in the cluster that are older than 12 hours.
+The `docker/cluster-cleaner/job.yaml` should be applied on each
+cluster. This file is a `CronJob` that runs every 10 minutes. Every
+time this Job runs, it will remove all the testing namespaces in the
+cluster that are older than 1 hour and that have "failed". Remember
+that the tests that Succeed are removed immediately.
+
+#### Getting Credentials for Cloud-QA
+
+The different Ops Manager instances that run inside the Kubernetes
+Cluster will use a `GLOBAL_OWNER` user. This is different as to how we
+connect "Cloud-qa". In this case, the user is created manually and the
+credentials are configured in the `ops-manager-kubernetes` Evergreen
+project. These credentials will work for 30 days (until the trial
+expires). To create a new user:
+
+* Visit [Cloud QA Registration
+  Page](https://cloud-qa.mongodb.com/user#/cloud/register/accountProfile)
+* Register a new user with the following data:
+
+| attribute | value | notes |
+|-----------|-------|-------|
+| Email Address | ops-manager-team+cloud-qa-kube-operator-e2e-<index>@mongodb.com | Make sure you increment the `<index>` |
+| Password | *Ask someone on the Kubernetes team about this password.*| |
+| First Name | Kubernetes | |
+| Last Name | E2E Tests | |
+| Phone Number | +353 (01) 901 4654 | This is the Dublin Office Phone Number |
+| Company Name | Ireland | |
+| Job Function | DBA | |
+| Country | Ireland | |
+
+* After logging-in, click on "Kubernetes" (our First Name) on the
+  top-right part of the UI.
+* Click on Account and then in "Public API Access"
+* Create a new API Key, don't forget to write it down
+* Whitelist all the IPs of the Kubernetes cluster that will be
+  connecting to Cloud Manager. An easy way of getting all the external
+  IPs that a cluster is using is to do:
+
+``` bash
+kubectl get nodes -o jsonpath='{$.items[*].status.addresses[?(@.type=="ExternalIP")].address}'
+```
+
+* Get the name of the [default
+  organization](https://cloud-qa.mongodb.com/v2#/account/organizations). Find
+  the organization named *MongoDB* (this is the "Company Name" you set
+  during registration. Click on the Organization name and get the
+  Organization ID from the URL.
+
+* Finally, update this information into [Evergreen
+  project](https://evergreen.mongodb.com/projects##ops-manager-kubernetes).
+
+* The attributes to fill up are:
+  - `e2e_cloud_qa_apikey`: The new Public API Key
+  - `e2e_cloud_qa_baseurl`: This is always
+    `https://cloud-qa.mongodb.com`
+  - `e2e_cloud_qa_orgid` : Organization ID
+  - `e2e_cloud_qa_user` : Email used for registration
+
+#### How to avoid my test Namespaces being deleted?
+
+You can label your namespaces to flag them so the `cluster-cleaner`
+script won't kill them. Use the `label` command from `kubectl` like:
+
+``` bash
+kubectl label namespace/my-namespace "evg/keep=true"
+```
+
+This will skip the cleaner for as long as you need from removing your
+testing namespace. To remove the label so the cluster cleaner can
+deallocate the resources, remove the label from it with:
+
+``` bash
+kubectl patch namespace/my-namespace --type=json -p='[{"op": "remove", "path": "/metadata/labels/evg~1keep"}]'
+```
+
+* note: the `~1` in the `jsonpath` is how `/` (slash) is escaped.
 
 #### Problems with EBS volumes
 These are some facts that we gathered while fighting with EBS problems for e2e tests:
-* Backing EBS volume (see `Volumes` in https://console.aws.amazon.com/ec2) are removed as soon as PVs are removed. We 
-use dynamic PVs in our tests, so to get them removed their PVCs must be removed (this happens when the namespace is removed 
+* Backing EBS volume (see `Volumes` in https://console.aws.amazon.com/ec2) are removed as soon as PVs are removed. We
+use dynamic PVs in our tests, so to get them removed their PVCs must be removed (this happens when the namespace is removed
 which happens after successful test or during namespaces cleanup). Dynamic removal happens because the `StorageClass` we use
 (default one - `gp2`) declares the `Delete` reclaim policy.
 * Usually this works fine, but sometimes the EBS volumes can get stuck in attaching and not removed even if PVs are removed:
  ![stuck-volumes](stuck-volumes.png)
- Such PVs get the status `Failed` and must be removed manually. This is done in `prepare_test_env`. It's still unclear 
+ Such PVs get the status `Failed` and must be removed manually. This is done in `prepare_test_env`. It's still unclear
  if AWS removes the corresponding volumes eventually (seems no) so it's necessary to go the the UI and "force detach" them
- and delete then 
+ and delete then
 * Seems there are problems cleaning volumes for Openshift (sometimes?). Volumes tend to stay in AWS but get status `available`:
  ![available-volumes](available-volumes.png)
  These volumes are removed automatically in `scripts/evergreen/prepare_test_env` script
 * One quite common and annoying thing is taint `NodeWithImpairedVolumes` that is sometimes added to the Kubernetes nodes.
 It means that there are some stuck volumes. The fixes above try to fix all stuck volumes (though the taint is not removed automatically).
-Also the taint is removed in `prepare_test_env`. This doesn't mean that the problem is solved completely (AWS is quite 
+Also the taint is removed in `prepare_test_env`. This doesn't mean that the problem is solved completely (AWS is quite
 unpredictable) but may help sometimes avoid complete rebuilds of the cluster
 * Sometimes deleting of the PVC/PV may get stuck. Even more - "Force detach" for the Volume in AWS console may get stuck as well.
 Seems there are no well-knows ways of solving this except for recreating kops cluster...
- 
+
 
 #### Error terminating Ops Manager instance
 
@@ -135,11 +236,11 @@ po/mongodb-enterprise-ops-manager-0   0/1       Terminating   0          3h     
 ```
 
 One possible inspection is to check the `kubelet` logs on the node but this requires `ssh` access to the node
-Trying to detach/remove OM volumes in AWS console didn't succeed so only complete recreation of kops cluster helped 
+Trying to detach/remove OM volumes in AWS console didn't succeed so only complete recreation of kops cluster helped
 
 #### SSH access to nodes
 
-* If there's someone who has the ssh access to the node then you should ask to add your public key to the 
+* If there's someone who has the ssh access to the node then you should ask to add your public key to the
 `.ssh/authorized_keys` on the node
 * If the access is lost then it makes sense to use a new key pair (from https://github.com/kubernetes/kops/blob/master/docs/security.md#ssh-access)
 ```bash
@@ -147,7 +248,7 @@ kops delete secret --name e2e.mongokubernetes.com sshpublickey admin
 kops create secret --name e2e.mongokubernetes.com sshpublickey admin -i ~/.ssh/newkey.pub
 kops update cluster --yes
 kops rolling-update cluster --yes
-``` 
+```
 
 #### Runnings tests against a specific (perpetual) Ops Manager instance
 
