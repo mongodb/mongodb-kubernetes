@@ -372,6 +372,50 @@ functions:
           # A complete environment is set each time.
           WATCH_NAMESPACE=${watch_namespace} TASK_NAME=${task_name} STATIC_NAMESPACE=${static_namespace} ./scripts/evergreen/e2e_tests.sh
 
+  "e2e_test_upgrade_operator":
+    - *configure_cloud_manager_qa
+    - command: shell.exec
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        script: |
+          # revision is only supposed to be set in evergreen
+          export WORKDIR=${workdir}
+          export IS_EVERGREEN=${revision}
+          export REVISION=$(git rev-parse HEAD)
+          export PATH=${workdir}/bin:$PATH
+          export VERSION_ID=${version_id}
+          export MANAGED_SECURITY_CONTEXT="true"
+          export BUILD_VARIANT=${build_variant}
+          export TASK_ID=${task_id}
+          export TASK_NAME=${task_name}
+          export OPS_MANAGER_NAMESPACE=${ops_manager_namespace}
+          export NODE_PORT=${node_port}
+
+          set -e # fail on first failed test
+
+          # Externally Configured Ops Manager (Perpetual Instance or Cloud Manager)
+          test -f ${workdir}/.ops-manager-env && source ${workdir}/.ops-manager-env
+
+          # Will generate a random namespace to use during this run
+          source scripts/funcs
+          export PROJECT_NAMESPACE=$(generate_random_namespace)
+          echo "Using $PROJECT_NAMESPACE"
+
+          export CURRENT_VERSION=$(grep mongodbOperator release.json | awk '{ print $2 }' | cut -d '"' -f 2)
+          echo "Setting up environment with current operator release: $CURRENT_VERSION"
+
+          # By setting CURRENT_VERSION we are indicating the e2e_tests script to install this version
+          # which is the latest released version, as defined in the release.json file.
+          TASK_NAME=e2e_operator_upgrade_build_deployment ./scripts/evergreen/e2e_tests.sh
+
+          # Before running the next test, the CURRENT_VERSION variable is unset, then the latest
+          # Version of the operator will be installed, effectively, updating the currently running operator
+          unset CURRENT_VERSION
+          export OPERATOR_UPGRADE_IN_PROGRESS="true"
+
+          echo "Deploying the new Operator with version $VERSION_ID"
+          TASK_NAME=e2e_operator_upgrade_scale_and_verify_deployment ./scripts/evergreen/e2e_tests.sh
+
   "prepare_test_env":
     - *omkp_setup
     - *configure_cloud_manager_qa
@@ -512,6 +556,11 @@ tasks:
         tag_images_with_version: "true"
     - func: "setup_kubectl"
     - func: "prepare_test_env"
+
+- name: e2e_operator_upgrade
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test_upgrade_operator"
 
 - name: e2e_standalone_schema_validation
   exec_timeout_secs: 600
@@ -744,6 +793,7 @@ task_groups:
     - e2e_sharded_cluster_recovery
     - e2e_sharded_cluster_secret
     - e2e_sharded_cluster_upgrade_downgrade
+    - e2e_operator_upgrade
   teardown_task:
     - func: "upload_e2e_artifacts"
 

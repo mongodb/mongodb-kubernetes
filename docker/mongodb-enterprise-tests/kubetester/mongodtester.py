@@ -1,9 +1,9 @@
 import random
 
+import string
 import pymongo
 import time
 
-import strgen
 from kubetester import kubetester
 from kubetester.kubetester import KubernetesTester
 
@@ -141,9 +141,17 @@ def build_mongodb_uri(hosts):
 
 def generate_single_json():
     """ Generates a json with two fields. String field contains random characters and has length 100 characters. """
-    return {"description": strgen.StringGenerator("[\d\w]{100}").render(), "type": random.uniform(1, 10)}
+    return {
+        "description": random_ascii_string(100),
+        "type": random.uniform(1, 10)
+    }
 
 
 def db_namespace(collection):
     """ https://docs.mongodb.com/manual/reference/glossary/#term-namespace """
     return "{}.{}".format(TEST_DB, collection)
+
+
+def random_ascii_string(size=100):
+    """Returns a string with length of `size` of random ASCII lower case characters."""
+    return ''.join([random.choice(string.ascii_lowercase) for _ in range(size)])

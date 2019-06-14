@@ -7,26 +7,19 @@ set -euo pipefail
 ##
 
 cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
-
 source scripts/funcs
 
-# Will generate a random namespace to use each time
 
 if [ ! -z "${STATIC_NAMESPACE-}" ]; then
     PROJECT_NAMESPACE=${STATIC_NAMESPACE}
 elif [ -z "${PROJECT_NAMESPACE-}" ]; then
-    random_namespace=$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 20) || true
-    doy=$(date +'%j')
-    PROJECT_NAMESPACE="a-${doy}-${random_namespace}z"
+    PROJECT_NAMESPACE=$(generate_random_namespace)
     export PROJECT_NAMESPACE
-    printf "Project Namespace is: %s\\n" "${PROJECT_NAMESPACE}"
-else
-    printf "Using %s namespace\\n" "${PROJECT_NAMESPACE}"
 fi
 
 if [[ ! -z "${STATIC_NAMESPACE-}" ]]; then
     echo "Waiting for static namespace ${STATIC_NAMESPACE} to be deleted before use"
-    wait_for_namespace_to_be_deleted ${STATIC_NAMESPACE}
+    wait_for_namespace_to_be_deleted "${STATIC_NAMESPACE}"
     echo "Namespace ${STATIC_NAMESPACE} is available for use"
 fi
 
@@ -73,6 +66,10 @@ fetch_om_information() {
 
 configure_operator() {
     title "Creating project and credentials Kubernetes object..."
+    if [[ "${OPERATOR_UPGRADE_IN_PROGRESS-}" = "true" ]]; then
+        echo "Upgrade in progress, skipping configuration of projects"
+        return
+    fi
 
     if [ ! -z "${OM_BASE_URL-}" ]; then
       BASE_URL="${OM_BASE_URL}"
@@ -265,8 +262,21 @@ initialize
 if [[ "${MODE-}" != "dev" ]]; then
     fix_taints
 
-    redeploy_operator "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev" \
-            "${REVISION:-}" "${PROJECT_NAMESPACE}" "${WATCH_NAMESPACE:-$PROJECT_NAMESPACE}" "Always" "${MANAGED_SECURITY_CONTEXT:-}" "2m"
+    registry="quay.io/mongodb"
+    if [ -z "${CURRENT_VERSION-}" ]; then
+        registry="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
+    else
+        REVISION="${CURRENT_VERSION}"
+    fi
+
+    redeploy_operator \
+        "${registry}" \
+        "${REVISION:-}" \
+        "${PROJECT_NAMESPACE}" \
+        "${WATCH_NAMESPACE:-$PROJECT_NAMESPACE}" \
+        "Always" \
+        "${MANAGED_SECURITY_CONTEXT:-}" \
+        "2m"
 
     # Not required when running against the Ops Manager Kubernetes perpetual instance
     if [[ "${OM_EXTERNALLY_CONFIGURED:-}" != "true" ]]; then
@@ -290,9 +300,14 @@ echo "Tests have finished with the following exit code: ${TESTS_OK}"
 # We don't do it for local development (as 'make e2e' will clean the resources before launching test)
 if [[ "${MODE-}" != "dev" ]]; then
     if [[ "${TESTS_OK}" -eq 0 ]]; then
-        kubectl label "namespace/${PROJECT_NAMESPACE}" "evg/state=pass"
+        kubectl label "namespace/${PROJECT_NAMESPACE}" "evg/state=pass" --overwrite
 
-        teardown
+        if [[ ! -n "${CURRENT_VERSION-}" ]]; then
+            # Skip teardown if we are on a operator-upgrade task.
+            teardown
+        else
+            echo "Performing upgrade test, skipping teardown"
+        fi
     else
         # Dump diagnostic information
         dump_diagnostic_information "logs/diagnostics.txt"

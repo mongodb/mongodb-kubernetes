@@ -296,7 +296,11 @@ redeploy_operator() {
     # note that we don't remove all objects from file as it contains CRDs as well (and they will be blocked if there are
     # existing mongodb resources)
 
-    kubectl delete deployment mongodb-enterprise-operator &> /dev/null || true
+    if [[ "${OPERATOR_UPGRADE_IN_PROGRESS-}" != "true" ]]; then
+        kubectl delete deployment mongodb-enterprise-operator &> /dev/null || true
+    else
+        echo "Not removing operator before install as this is an upgrade operation."
+    fi
     kubectl apply -f my-operator.yaml
 
     rm my-operator.yaml
@@ -389,6 +393,14 @@ create_kops_cluster() {
 
     title "Kubernetes dashboard is installed, use \"make dashboard\" to open it"
 }
+
+# Returns a random string that can be used as a namespace.
+generate_random_namespace() {
+    random_namespace=$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 20)
+    doy=$(date +'%j')
+    echo "a-${doy}-${random_namespace}z"
+}
+
 # gathers the information about K8s objects and writes it to the specified file handler (can be the stdout)
 dump_diagnostic_information() {
     dump_file=$1

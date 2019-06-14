@@ -56,9 +56,7 @@ spec:
     - name: POD_NAME
       value: "mongodb-enterprise-operator-testing-pod"
     image: {{ .Values.repo }}/mongodb-enterprise-tests:{{ .Values.tag }}
+    # Options to pytest command should go in the pytest.ini file.
     command: ["pytest"]
-    # -s  -- disable stdout capture: should be added to `PYTEST_ADDOPTS` if needed
-    # -x  -- stop after first failure
-    # -v  -- increase verbosity
-    args: ["-v", "-x", "-s", "-m", "{{ .Values.taskName }}"]
+    args: ["-m", "{{ .Values.taskName }}"]
     imagePullPolicy: Always
