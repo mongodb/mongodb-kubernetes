@@ -54,7 +54,14 @@ spec:
     - name: PYTHONWARNINGS
       value: 'ignore:yaml.YAMLLoadWarning,ignore:urllib3.InsecureRequestWarning'
     - name: POD_NAME
-      value: "mongodb-enterprise-operator-testing-pod"
+      value: 'mongodb-enterprise-operator-testing-pod'
+{{ if .Values.managedSecurityContext }}
+    - name: MANAGED_SECURITY_CONTEXT
+      value: 'true'
+{{ else }}
+    - name: MANAGED_SECURITY_CONTEXT
+      value: 'false'
+{{  end }}
     image: {{ .Values.repo }}/mongodb-enterprise-tests:{{ .Values.tag }}
     # Options to pytest command should go in the pytest.ini file.
     command: ["pytest"]

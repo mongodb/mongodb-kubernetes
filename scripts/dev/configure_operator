@@ -23,8 +23,8 @@ source ${OPERATOR_DIR}/om
 
 secret_name="my-credentials"
 config_map_name="my-project"
-kubectl delete secret ${secret_name} 2>/dev/null || true
-kubectl delete configmap ${config_map_name} 2>/dev/null || true
+kubectl delete secret ${secret_name} -n ${NAMESPACE} 2>/dev/null || true
+kubectl delete configmap ${config_map_name} -n ${NAMESPACE} 2>/dev/null || true
 
 kubectl create secret generic ${secret_name}  --from-literal=user=${OM_USER} --from-literal=publicApiKey=${OM_API_KEY} -n ${NAMESPACE}
 kubectl create configmap ${config_map_name} --from-literal authenticationMode="" --from-literal credentials=${secret_name} --from-literal projectName=${NAMESPACE}  --from-literal baseUrl=${OM_HOST} -n ${NAMESPACE}

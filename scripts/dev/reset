@@ -17,7 +17,8 @@ ensure_namespace "${NAMESPACE}"
 
 kubectl delete mdb --all -n "${NAMESPACE}" || true
 kubectl delete mdbu --all -n "${NAMESPACE}" || true
-kubectl delete csr --all
+
+kubectl delete csr $(kubectl get csr -o name | grep ${NAMESPACE}) || true
 
 if [[ -z $ONLY_MDB ]]; then
   kubectl delete secrets --all -n "${NAMESPACE}"

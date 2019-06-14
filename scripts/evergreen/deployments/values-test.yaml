@@ -8,6 +8,8 @@ operator:
   version: ${REVISION}
   env: dev # keep prod unless you want more debugging (e.g. failing tests)
 
+managedSecurityContext: false
+
 opsmanager:
   name: mongodb-enterprise-ops-manager
   version: 4.0.2.50187.20180905T1427Z-1

@@ -16,7 +16,11 @@ export OM_BASE_URL=${OM_HOST}
 
 title "Running the e2e test ${test}..."
 
-TASK_NAME=${test} WAIT_TIMEOUT="4m" MODE="dev" WATCH_NAMESPACE=${watch_namespace:-$PROJECT_NAMESPACE} ./scripts/evergreen/e2e_tests.sh
+if [[ ${CLUSTER_TYPE} = "openshift" ]]; then
+    managed_security_context=true
+fi
+
+TASK_NAME=${test} WAIT_TIMEOUT="4m" MODE="dev" WATCH_NAMESPACE=${watch_namespace:-$PROJECT_NAMESPACE} MANAGED_SECURITY_CONTEXT=${managed_security_context:-} ./scripts/evergreen/e2e_tests.sh
 
 title "E2e test ${test} is finished"
 

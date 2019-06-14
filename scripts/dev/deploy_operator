@@ -32,6 +32,6 @@ if [[ ${REPO_TYPE} = "local" ]]; then
 fi
 
 if [[ ${CLUSTER_TYPE} = "openshift" ]]; then
-    managed_security_context="true"
+    managed_security_context=true
 fi
 redeploy_operator "${REPO_URL}" "${OPERATOR_VERSION:-}" "${NAMESPACE:-mongodb}" "${watch_namespace:-$NAMESPACE}" "${pull_policy:-}" "${managed_security_context:-}"

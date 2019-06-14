@@ -139,6 +139,7 @@ deploy_test_app() {
          --set taskName="${task_name}" \
          --set pytest.addopts="${pytest_addopts}" \
          --set orgId="${OM_ORGID:-}" \
+         --set managedSecurityContext="${MANAGED_SECURITY_CONTEXT:=false}" \
          --set tag="${TEST_IMAGE_TAG}" > mongodb-enterprise-tests.yaml || exit 1
 
     kubectl -n "${PROJECT_NAMESPACE}" delete -f mongodb-enterprise-tests.yaml 2>/dev/null  || true
