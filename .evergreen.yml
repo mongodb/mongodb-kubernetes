@@ -949,8 +949,8 @@ buildvariants:
 
 # any subsequent tasks being executed in this build variant should depend upon the previously
 # executed task in order to prevent interference
-- name: e2e_cloud_qa_clusterwide_operator
-  display_name: "e2e_cloud_qa_clusterwide_operator"
+- name: e2e_kube_vanilla_cloud_qa_clusterwide
+  display_name: "e2e_kube_vanilla_cloud_qa_clusterwide"
   run_on:
     - archlinux-test
   stepback: false

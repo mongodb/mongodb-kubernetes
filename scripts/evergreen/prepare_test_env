@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -euo pipefail
+
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$(${DIR}/../gitroot)"
 
@@ -13,7 +15,7 @@ source scripts/funcs
 
 # cleanup_env removes old namespaces and Ops Manager if there are too many of them
 cleanup_env() {
-    ns_count=$(kubectl get ns -o name | grep a- --count)
+    ns_count="$(kubectl get ns -o name | grep a- --count || true)"
     echo "Current number of test namespaces: $ns_count"
 
     echo "##### Removing FAILED Persistent Volumes if any"

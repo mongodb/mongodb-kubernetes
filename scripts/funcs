@@ -102,8 +102,7 @@ ensure_ops_manager_k8s() {
 
         echo "Installing cluster cleaner into namespace ${ops_manager_namespace}"
 
-        helm template docker/cluster-cleaner/job.yaml \
-            --set namespace=${ops_manager_namespace} > cluster-cleaner.yaml
+        helm template docker/cluster-cleaner --set namespace=${ops_manager_namespace} > cluster-cleaner.yaml
 
         kubectl delete -f cluster-cleaner.yaml || true
         kubectl apply -f cluster-cleaner.yaml
@@ -278,7 +277,7 @@ redeploy_operator() {
     managed_security_context="${6:-false}"
     timeout="${7:-1m}"
 
-    echo "Installing the Operator (registry url: ${url}, version: ${version}, namespace: ${ns}) to ${CLUSTER_NAME:-'e2e cluster'}..."
+    echo "Installing the Operator (registry url: ${url}, version: ${version}, namespace: ${ns}, managed_security_context: ${managed_security_context}) to ${CLUSTER_NAME:-'e2e cluster'}..."
 
     check_app "helm" "helm is not installed, run 'make prerequisites' to install all necessary software"
     check_app "timeout" "coreutils is not installed, call \"brew install coreutils\""

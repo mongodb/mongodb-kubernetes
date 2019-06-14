@@ -3,17 +3,24 @@ package util
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"net"
 	"net/http"
 	"time"
 )
 
 // NewHTTPClient is a functional options constructor, based on this blog post:
 // https://dave.cheney.net/2014/10/17/functional-options-for-friendly-apis
+// The default clients specifies some important timeouts (some of them are synced with AA one):
+// 10 seconds for connection (TLS/non TLS)
+// 10 minutes for requests (time to get the first response headers)
 func NewHTTPClient(options ...func(*http.Client) error) (*http.Client, error) {
 	client := &http.Client{
 		Transport: &http.Transport{
 			ResponseHeaderTimeout: 10 * time.Minute,
 			TLSHandshakeTimeout:   10 * time.Second,
+			DialContext: (&net.Dialer{
+				Timeout: 10 * time.Second,
+			}).DialContext,
 		},
 	}
 

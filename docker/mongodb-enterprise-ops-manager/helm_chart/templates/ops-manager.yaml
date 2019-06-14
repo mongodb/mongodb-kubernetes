@@ -78,6 +78,23 @@ spec:
             memory: "5Gi"
       imagePullSecrets:
       - name: {{ .Values.registry.imagePullSecret }}
+#      TODO the affinity rule for some reasons doesn't work for kops cluster:
+#        0/5 nodes are available: 1 Insufficient memory, 1 node(s) didn''t
+#        match pod affinity/anti-affinity, 1 node(s) didn''t match pod anti-affinity
+#        rules, 3 node(s) had no available volume zone.
+#      affinity:
+#        podAntiAffinity:
+#          requiredDuringSchedulingIgnoredDuringExecution:
+#          - labelSelector:
+#              matchExpressions:
+#              - key: app
+#                operator: In
+#                values:
+#                - mongodb-enterprise-ops-manager
+#            topologyKey: "kubernetes.io/hostname"
+#              namespaces:
+#              - operator-testing-40-first
+#              - operator-testing-40-current
   volumeClaimTemplates:
   - metadata:
       name: mongodb-mms-data
