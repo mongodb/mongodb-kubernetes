@@ -301,7 +301,8 @@ func basePodSpec(statefulSetName string, reqs mongodb.PodSpecWrapper, podVars *P
 					// cache (e.g too small: it was configured for "request" memory size and then container
 					// memory grew to "limit", too big: wired tiger cache was configured by "limit" by the real memory for
 					// container is at "resource" values)
-					Limits: buildRequirements(reqs),
+					Limits:   buildLimitsRequirements(reqs),
+					Requests: buildRequestsRequirements(reqs),
 				},
 				LivenessProbe: baseLivenessProbe(),
 			},

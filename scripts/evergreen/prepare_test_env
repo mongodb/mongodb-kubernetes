@@ -77,8 +77,8 @@ cleanup_env
 
 
 ops_manager_namespace="${1}"
-ops_manager_version="${2}"
-node_port="${3}"
+ops_manager_version="${2:-}"
+node_port="${3:-}"
 # Not required when running against the Ops Manager Kubernetes perpetual instance
 if [[ "${OM_EXTERNALLY_CONFIGURED:-}" != "true" ]]; then
     ensure_ops_manager_k8s ${ops_manager_namespace} ${ops_manager_version} ${node_port}

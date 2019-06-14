@@ -370,7 +370,9 @@ type PodSpecWrapper struct {
 
 type MongoDbPodSpecStandard struct {
 	Cpu             string                 `json:"cpu,omitempty"`
+	CpuRequests     string                 `json:"cpuRequests,omitempty"`
 	Memory          string                 `json:"memory,omitempty"`
+	MemoryRequests  string                 `json:"memoryRequests,omitempty"`
 	PodAffinity     *v1.PodAffinity        `json:"podAffinity,omitempty"`
 	NodeAffinity    *v1.NodeAffinity       `json:"nodeAffinity,omitempty"`
 	SecurityContext *v1.PodSecurityContext `json:"securityContext,omitempty"`
@@ -411,6 +413,20 @@ func (p PodSpecWrapper) GetMemoryOrDefault() string {
 		return p.Default.Memory
 	}
 	return p.Memory
+}
+
+func (p PodSpecWrapper) GetCpuRequestsOrDefault() string {
+	if p.CpuRequests == "" {
+		return p.Default.CpuRequests
+	}
+	return p.CpuRequests
+}
+
+func (p PodSpecWrapper) GetMemoryRequestsOrDefault() string {
+	if p.MemoryRequests == "" {
+		return p.Default.MemoryRequests
+	}
+	return p.MemoryRequests
 }
 
 func (p PodSpecWrapper) GetTopologyKeyOrDefault() string {

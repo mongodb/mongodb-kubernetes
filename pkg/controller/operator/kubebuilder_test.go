@@ -249,6 +249,18 @@ func TestBasePodSpec_FsGroup(t *testing.T) {
 	InitDefaultEnvVariables()
 }
 
+func TestBasePodSpec_Requirements(t *testing.T) {
+	podSpec := mongodb.PodSpecWrapper{
+		MongoDbPodSpec: newMongoDbPodSpec(
+			mongodb.MongoDbPodSpecStandard{CpuRequests: "0.1", MemoryRequests: "512M", Cpu: "0.3", Memory: "1012M"}, "")}
+	spec := basePodSpec("s", podSpec, defaultPodVars())
+
+	expectedLimits := corev1.ResourceList{corev1.ResourceCPU: parseQuantityOrZero("0.3"), corev1.ResourceMemory: parseQuantityOrZero("1012M")}
+	expectedRequests := corev1.ResourceList{corev1.ResourceCPU: parseQuantityOrZero("0.1"), corev1.ResourceMemory: parseQuantityOrZero("512M")}
+	assert.Equal(t, expectedLimits, spec.Containers[0].Resources.Limits)
+	assert.Equal(t, expectedRequests, spec.Containers[0].Resources.Requests)
+}
+
 func baseSetHelper() *StatefulSetHelper {
 	st := DefaultStandaloneBuilder().Build()
 	return (&KubeHelper{newMockedClient(st)}).NewStatefulSetHelper(st)

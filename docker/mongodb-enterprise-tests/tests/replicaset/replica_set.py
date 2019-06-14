@@ -83,6 +83,15 @@ class TestReplicaSetCreation(KubernetesTester):
             assert c0.ports[0].host_port is None
             assert c0.ports[0].protocol == 'TCP'
 
+    def test_pods_resources(self):
+        for podname in self._get_pods('my-replica-set-{}', 3):
+            pod = self.corev1.read_namespaced_pod(podname, self.namespace)
+            c0 = pod.spec.containers[0]
+            assert c0.resources.limits["cpu"] == "500m"
+            assert c0.resources.limits["memory"] == "700M"
+            assert c0.resources.requests["cpu"] == "200m"
+            assert c0.resources.requests["memory"] == "300M"
+
     def test_pods_container_envvars(self):
         for podname in self._get_pods('my-replica-set-{}', 3):
             pod = self.corev1.read_namespaced_pod(podname, self.namespace)

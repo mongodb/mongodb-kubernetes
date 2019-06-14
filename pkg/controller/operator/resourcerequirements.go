@@ -19,15 +19,30 @@ func buildStorageRequirements(persistenceConfig, defaultConfig *mongodb.Persiste
 	return res
 }
 
-// buildRequirements returns a corev1.ResourceList definition for CPU and Memory Requirements
+// buildLimitsRequirements returns a corev1.ResourceList definition for limits for CPU and Memory Requirements
 // This is used by the StatefulSet containers to allocate resources per Pod.
-func buildRequirements(reqs mongodb.PodSpecWrapper) corev1.ResourceList {
+func buildLimitsRequirements(reqs mongodb.PodSpecWrapper) corev1.ResourceList {
 	res := corev1.ResourceList{}
 
 	if q := parseQuantityOrZero(reqs.GetCpuOrDefault()); !q.IsZero() {
 		res[corev1.ResourceCPU] = q
 	}
 	if q := parseQuantityOrZero(reqs.GetMemoryOrDefault()); !q.IsZero() {
+		res[corev1.ResourceMemory] = q
+	}
+
+	return res
+}
+
+// buildRequestsRequirements returns a corev1.ResourceList definition for requests for CPU and Memory Requirements
+//// This is used by the StatefulSet containers to allocate resources per Pod.
+func buildRequestsRequirements(reqs mongodb.PodSpecWrapper) corev1.ResourceList {
+	res := corev1.ResourceList{}
+
+	if q := parseQuantityOrZero(reqs.GetCpuRequestsOrDefault()); !q.IsZero() {
+		res[corev1.ResourceCPU] = q
+	}
+	if q := parseQuantityOrZero(reqs.GetMemoryRequestsOrDefault()); !q.IsZero() {
 		res[corev1.ResourceMemory] = q
 	}
 
