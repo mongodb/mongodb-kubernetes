@@ -495,7 +495,6 @@ tasks:
     - func: "setup_jq"
     - func: "build_operator"
     - func: "push_operator_binary_for_rhel"
-    - func: "build_rhel_images"
 
 # Note that this task doesn't work so far as it needs different quay account and token
 - name: release_mongodb_enterprise
