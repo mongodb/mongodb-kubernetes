@@ -159,7 +159,7 @@ func getMutex(projectName, orgId string) *sync.Mutex {
 	return mutex.(*sync.Mutex)
 }
 
-func (c *ReconcileCommonController) updateStatusSuccessful(reconciledResource Updatable, log *zap.SugaredLogger, args ...string) {
+func (c *ReconcileCommonController) updateStatusSuccessful(reconciledResource Updatable, log *zap.SugaredLogger, args ...string) (reconcile.Result, error) {
 	old := reconciledResource.DeepCopyObject()
 	err := c.updateStatus(reconciledResource, func(fresh Updatable) {
 		// we need to update the Updatable based on the Spec of the reconciled resource
@@ -172,9 +172,13 @@ func (c *ReconcileCommonController) updateStatusSuccessful(reconciledResource Up
 	} else {
 		log.Infow("Successful update", "spec", getSpec(reconciledResource))
 	}
+	return reconcile.Result{}, nil
 }
 
-func (c *ReconcileCommonController) updateStatusPending(reconciledResource Updatable, msg string) (reconcile.Result, error) {
+func (c *ReconcileCommonController) updateStatusPending(reconciledResource Updatable, msg string, log *zap.SugaredLogger) (reconcile.Result, error) {
+	// Info or warning?
+	log.Info(msg)
+
 	err := c.updateStatus(reconciledResource, func(fresh Updatable) {
 		fresh.UpdatePending(msg)
 	})
@@ -267,7 +271,7 @@ func (c *ReconcileCommonController) getResource(request reconcile.Request, resou
 // prepareResourceForReconciliation finds the object being reconciled. Returns pointer to 'reconcile.Result' and error
 // If the 'reconcile.Result' pointer is not nil - the client is expected to finish processing
 func (c *ReconcileCommonController) prepareResourceForReconciliation(
-	request reconcile.Request, resource runtime.Object, log *zap.SugaredLogger) (*reconcile.Result, error) {
+	request reconcile.Request, resource Updatable, log *zap.SugaredLogger) (*reconcile.Result, error) {
 	if result, err := c.getResource(request, resource, log); result != nil {
 		return result, err
 	}
@@ -283,7 +287,7 @@ func (c *ReconcileCommonController) prepareResourceForReconciliation(
 		}
 	}
 
-	updateErr := c.updateReconciling(resource.(Updatable))
+	updateErr := c.updateReconciling(resource)
 	if updateErr != nil {
 		log.Errorf("Error setting state to pending: %s, the resource: %+v", updateErr, resource)
 		return &reconcile.Result{RequeueAfter: 10 * time.Second}, nil

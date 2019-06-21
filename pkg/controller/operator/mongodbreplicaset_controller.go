@@ -72,32 +72,12 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		SetProjectConfig(*projectConfig).
 		SetSecurity(rs.Spec.Security)
 
-	if success, err := r.kubeHelper.ensureSSLCertsForStatefulSet(replicaBuilder, log); err != nil {
-		return r.updateStatusFailed(rs, err.Error(), log)
-	} else if rs.Spec.GetTLSConfig().Enabled && !success {
-		return r.updateStatusPending(rs, "Not all certificates have been approved by Kubernetes CA")
+	if status := r.kubeHelper.ensureSSLCertsForStatefulSet(replicaBuilder, log); !status.isOk() {
+		return status.updateStatus(rs, r.ReconcileCommonController, log)
 	}
 
-	if projectConfig.AuthMode == util.X509 {
-		if !spec.Security.TLSConfig.Enabled {
-			return r.updateStatusFailed(rs, "Authentication mode for project is x509 but this MDB resource is not TLS enabled", log)
-		} else if !r.doAgentX509CertsExist(request.Namespace) {
-			return r.updateStatusPending(rs, "Agent x509 certificates have not yet been created")
-		}
-
-		if spec.Security.ClusterAuthMode == util.X509 {
-			if success, err := r.ensureInternalClusterCerts(replicaBuilder, log); err != nil {
-				return r.updateStatusFailed(rs, fmt.Sprintf("Failed ensuring internal cluster authentication certs %s", err), log)
-			} else if !success {
-				return r.updateStatusPending(rs, "Not all internal cluster authentication certs have been approved by Kubernetes CA")
-			}
-		}
-	} else {
-		// this means the user has disabled x509 at the project level, but the resource is still configured to use x509 cluster authentication
-		// as we don't have a status on the ConfigMap, we can inform the user in the status of the resource.
-		if spec.Security.ClusterAuthMode == util.X509 {
-			return r.updateStatusFailed(rs, "This deployment has clusterAuthenticationMode set to x509, ensure the ConfigMap for this project is configured to enable x509", log)
-		}
+	if status := r.ensureX509(rs, projectConfig, replicaBuilder, log); !status.isOk() {
+		return status.updateStatus(rs, r.ReconcileCommonController, log)
 	}
 
 	replicaSetObject := replicaBuilder.BuildStatefulSet()
@@ -119,9 +99,8 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		return r.updateStatusFailed(rs, fmt.Sprintf("Failed to create/update replica set in Ops Manager: %s", err), log)
 	}
 
-	r.updateStatusSuccessful(rs, log, DeploymentLink(conn.BaseURL(), conn.GroupID()))
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
-	return reconcile.Result{}, nil
+	return r.updateStatusSuccessful(rs, log, DeploymentLink(conn.BaseURL(), conn.GroupID()))
 }
 
 // AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
@@ -263,6 +242,32 @@ func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLog
 
 	log.Info("Removed replica set from Ops Manager!")
 	return nil
+}
+
+func (r *ReconcileMongoDbReplicaSet) ensureX509(rs *mongodb.MongoDB, projectConfig *ProjectConfig, helper *StatefulSetHelper, log *zap.SugaredLogger) reconcileStatus {
+	spec := rs.Spec
+	if projectConfig.AuthMode == util.X509 {
+		if !spec.Security.TLSConfig.Enabled {
+			return failed("Authentication mode for project is x509 but this MDB resource is not TLS enabled")
+		} else if !r.doAgentX509CertsExist(rs.Namespace) {
+			return pending("Agent x509 certificates have not yet been created")
+		}
+
+		if spec.Security.ClusterAuthMode == util.X509 {
+			if success, err := r.ensureInternalClusterCerts(helper, log); err != nil {
+				return failed("Failed ensuring internal cluster authentication certs %s", err)
+			} else if !success {
+				return pending("Not all internal cluster authentication certs have been approved by Kubernetes CA")
+			}
+		}
+	} else {
+		// this means the user has disabled x509 at the project level, but the resource is still configured to use x509 cluster authentication
+		// as we don't have a status on the ConfigMap, we can inform the user in the status of the resource.
+		if spec.Security.ClusterAuthMode == util.X509 {
+			return failed("This deployment has clusterAuthenticationMode set to x509, ensure the ConfigMap for this project is configured to enable x509")
+		}
+	}
+	return ok()
 }
 
 func prepareScaleDownReplicaSet(omClient om.Connection, statefulSet *appsv1.StatefulSet, oldMembersCount int, new *mongodb.MongoDB, log *zap.SugaredLogger) error {

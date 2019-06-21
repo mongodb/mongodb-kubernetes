@@ -119,26 +119,12 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		SetClusterName(s.Spec.ClusterName).
 		SetProjectConfig(*projectConfig)
 
-	if successful, err := r.kubeHelper.ensureSSLCertsForStatefulSet(standaloneBuilder, log); err != nil {
-		return r.updateStatusFailed(s, err.Error(), log)
-	} else if s.Spec.GetTLSConfig().Enabled && !successful {
-		return r.updateStatusPending(s, "Not all certificates have been approved by Kubernetes CA")
+	if status := r.kubeHelper.ensureSSLCertsForStatefulSet(standaloneBuilder, log); !status.isOk() {
+		return status.updateStatus(s, r.ReconcileCommonController, log)
 	}
 
-	if projectConfig.AuthMode == util.X509 {
-		if !spec.Security.TLSConfig.Enabled {
-			return r.updateStatusFailed(s, "Authentication mode for project is x509 but this MDB resource is not TLS enabled", log)
-		} else if !r.doAgentX509CertsExist(request.Namespace) {
-			return r.updateStatusPending(s, "Agent x509 certificates have not yet been created")
-		}
-	}
-
-	if projectConfig.AuthMode == util.X509 {
-		if !spec.Security.TLSConfig.Enabled {
-			return r.updateStatusFailed(s, "Authentication mode for project is x509 but this MDB resource is not TLS enabled", log)
-		} else if !r.doAgentX509CertsExist(request.Namespace) {
-			return r.updateStatusFailed(s, "Agent x509 certificates have not yet been created", log)
-		}
+	if status := r.ensureX509(s, projectConfig, standaloneBuilder, log); !status.isOk() {
+		return status.updateStatus(s, r.ReconcileCommonController, log)
 	}
 
 	err = standaloneBuilder.CreateOrUpdateInKubernetes()
@@ -152,9 +138,9 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		return r.updateStatusFailed(s, fmt.Sprintf("Failed to create/update standalone in Ops Manager: %s", err), log)
 	}
 
-	r.updateStatusSuccessful(s, log, DeploymentLink(conn.BaseURL(), conn.GroupID()))
 	log.Infof("Finished reconciliation for MongoDbStandalone! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
-	return reconcile.Result{}, nil
+
+	return r.updateStatusSuccessful(s, log, DeploymentLink(conn.BaseURL(), conn.GroupID()))
 }
 
 func updateOmDeployment(conn om.Connection, s *mongodb.MongoDB,
@@ -184,6 +170,17 @@ func updateOmDeployment(conn om.Connection, s *mongodb.MongoDB,
 
 	return om.WaitForReadyState(conn, processNames, log)
 
+}
+
+func (r *ReconcileMongoDbStandalone) ensureX509(st *mongodb.MongoDB, projectConfig *ProjectConfig, helper *StatefulSetHelper, log *zap.SugaredLogger) reconcileStatus {
+	if projectConfig.AuthMode == util.X509 {
+		if !st.Spec.Security.TLSConfig.Enabled {
+			return failed("Authentication mode for project is x509 but this MDB resource is not TLS enabled")
+		} else if !r.doAgentX509CertsExist(st.Namespace) {
+			return pending("Agent x509 certificates have not yet been created")
+		}
+	}
+	return ok()
 }
 
 func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLogger) error {

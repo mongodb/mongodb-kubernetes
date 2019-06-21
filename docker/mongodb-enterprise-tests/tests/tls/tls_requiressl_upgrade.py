@@ -59,13 +59,12 @@ class TestReplicaSetWithTLSUpgradeSetRequireSSLMode(KubernetesTester):
       timeout: 240
     """
 
-    def test_mdb_resource_status_is_correct(self):
-        assert True
+    def test_mdb_resource_status_is_pending(self):
+        assert KubernetesTester.get_resource()['status']['phase'] == "Pending"
 
     @skip_if_local()
     def test_mdb_is_reachable_with_no_ssl(self):
-        mongo_tester = ReplicaSetTester(mdb_resource, 3)
-        mongo_tester.assert_connectivity()
+        ReplicaSetTester(mdb_resource, 3).assert_connectivity()
 
 
 @pytest.mark.e2e_replica_set_tls_require_upgrade
@@ -93,21 +92,13 @@ class TestReplicaSetWithTLSUpgradeRunning(KubernetesTester):
       timeout: 240
     """
 
-    def test_mdb_should_reach_goal_state(self):
-        mdb = self.customv1.get_namespaced_custom_object(
-            "mongodb.com", "v1", self.namespace, "mongodb", mdb_resource
-        )
-        assert mdb["status"]["phase"] == "Running"
-
     @skip_if_local()
     def test_mdb_is_reachable_with_no_ssl(self):
-        mongo_tester = ReplicaSetTester(mdb_resource, 3)
-        mongo_tester.assert_no_connection()
+        ReplicaSetTester(mdb_resource, 3).assert_no_connection()
 
     @skip_if_local()
     def test_mdb_is_reachable_with_ssl(self):
-        mongo_tester = ReplicaSetTester(mdb_resource, 3, ssl=True)
-        mongo_tester.assert_connectivity()
+        ReplicaSetTester(mdb_resource, 3, ssl=True).assert_connectivity()
 
 
 @pytest.mark.e2e_replica_set_tls_require_upgrade

@@ -29,7 +29,7 @@ else
         namespace_name=$(echo "${namespace}" | cut -d '/' -f 2)
 
         csrs_in_namespace="$(kubectl get csr -o name | grep ${namespace_name})"
-        kubectl delete csr ${csrs_in_namespace}
+        kubectl delete ${csrs_in_namespace}
 
         kubectl delete mdb --all -n "${namespace_name=}"
         kubectl delete mdbu --all -n "${namespace_name=}"

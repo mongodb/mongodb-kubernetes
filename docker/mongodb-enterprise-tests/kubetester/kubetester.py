@@ -33,6 +33,8 @@ def running_locally():
 skip_if_local = pytest.mark.skipif(running_locally(), reason="Only run in Kubernetes cluster")
 # time to sleep between retries
 SLEEP_TIME = 2
+# no timeout (loop forever)
+INFINITY = -1
 
 
 class KubernetesTester(object):
@@ -114,6 +116,7 @@ class KubernetesTester(object):
     @classmethod
     def setup_class(cls):
         "Will setup class (initialize kubernetes objects)"
+        print('\n')
         KubernetesTester.load_configuration()
         # Loads the subclass doc
         if cls.__doc__:
@@ -315,7 +318,6 @@ class KubernetesTester(object):
             raise
         print('Updated resource {} with type {} {}'.format(kind, res_type, name))
 
-
     @staticmethod
     def delete(section, namespace):
         "delete custom object"
@@ -383,6 +385,26 @@ class KubernetesTester(object):
 
     @staticmethod
     def in_running_state():
+        """ Returns true if the resource in Running state, fails fast if got into Failed error.
+         This allows to fail fast in case of cascade failures """
+        resource = KubernetesTester.get_namespaced_custom_object(
+            KubernetesTester.namespace,
+            KubernetesTester.name,
+            KubernetesTester.kind
+        )
+        if 'status' not in resource:
+            return False
+        phase = resource['status']['phase']
+        if phase == "Failed":
+            msg = resource['status']['message']
+            # Sometimes (for sharded cluster for example) the Automation agents don't get on time - we
+            # should survive this
+            if "haven't reached READY" not in msg:
+                raise AssertionError('Got into Failed phase while waiting for Running! ("{}")'.format(msg))
+        return phase == "Running"
+
+    @staticmethod
+    def in_running_state_failures_possible():
         return KubernetesTester.check_phase(
             KubernetesTester.namespace,
             KubernetesTester.kind,
@@ -400,12 +422,15 @@ class KubernetesTester(object):
         )
 
     @staticmethod
-    def wait_for_status_message(rule, timeout=0):
-        def action():
-            res = KubernetesTester.get_namespaced_custom_object(KubernetesTester.namespace, KubernetesTester.name, KubernetesTester.kind)
-            return res.get('status', {}).get('message', "") == rule["wait_for_message"]
-        return KubernetesTester.wait_until(action, timeout)
+    def wait_for_status_message(rule):
+        timeout = int(rule.get("timeout", INFINITY))
 
+        def wait_for_status():
+            res = KubernetesTester.get_namespaced_custom_object(KubernetesTester.namespace, KubernetesTester.name,
+                                                                KubernetesTester.kind)
+            return rule["wait_for_message"] in res.get('status', {}).get('message', "")
+
+        return KubernetesTester.wait_until(wait_for_status, timeout)
 
     @staticmethod
     def is_deleted(namespace, name, kind="MongoDB"):
@@ -807,6 +832,7 @@ class KubernetesTester(object):
 
         assert getattr(pvc.spec, "storage_class_name") == storage_class
 
+
 # Some general functions go here
 
 def get_group(doc):
@@ -884,31 +910,23 @@ def current_milliseconds():
 
 
 def run_periodically(fn, *args, **kwargs):
-    sleep_time = kwargs.get("sleep_time", SLEEP_TIME)
-    timeout = kwargs.get("timeout", 0)
-
-    if timeout > 0:
-        return run_periodically_with_timeout(fn, timeout, sleep_time)
-
-    return run_periodically_forever(fn, sleep_time)
-
-
-def run_periodically_with_timeout(fn, timeout, sleep_time):
     """
     Calls `fn` until it succeeds or until the `timeout` is reached, every `sleep_time` seconds.
     If `timeout` is negative or zero, it never times out.
 
-    >>> run_periodically_with_timeout(lambda: time.sleep(5), timeout=3, sleep_time=2)
+    >>> run_periodically(lambda: time.sleep(5), timeout=3, sleep_time=2)
     False
-    >>> run_periodically_with_timeout(lambda: time.sleep(2), timeout=5, sleep_time=2)
+    >>> run_periodically(lambda: time.sleep(2), timeout=5, sleep_time=2)
     True
     """
+    sleep_time = kwargs.get("sleep_time", SLEEP_TIME)
+    timeout = kwargs.get("timeout", INFINITY)
 
     start_time = current_milliseconds()
-    timeout = start_time + (timeout * 1000)
+    end = start_time + (timeout * 1000)
     callable_name = fn.__name__
 
-    while current_milliseconds() < timeout:
+    while current_milliseconds() < end or timeout <= 0:
         if fn():
             print('{} executed successfully after {} seconds'.format(
                 callable_name,
@@ -919,14 +937,7 @@ def run_periodically_with_timeout(fn, timeout, sleep_time):
 
     raise AssertionError("Timed out executing {} after {} seconds".format(
         callable_name,
-        (timeout - start_time) / 1000))
-
-
-def run_periodically_forever(fn, sleep_time):
-    while True:
-        if fn():
-            return True
-        time.sleep(sleep_time)
+        (current_milliseconds() - start_time) / 1000))
 
 
 def get_env_var_or_fail(name):

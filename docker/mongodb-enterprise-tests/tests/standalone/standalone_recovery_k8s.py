@@ -37,7 +37,7 @@ class TestStandaloneRecoversBadPvConfiguration(KubernetesTester):
 
         print('Created a storage class "{}", standalone is supposed to get fixed now.'.format(self.__class__.random_storage_name))
 
-        KubernetesTester.wait_until('in_running_state', 300)
+        KubernetesTester.wait_until('in_running_state_failures_possible', 300)
 
     @classmethod
     def teardown_env(cls):

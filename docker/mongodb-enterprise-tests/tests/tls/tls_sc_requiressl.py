@@ -19,7 +19,7 @@ class TestClusterWithTLSCreation(KubernetesTester):
     """
     name: Sharded Cluster With TLS Creation
     description: |
-      Creates a MongoDB object with the ssl attribute on. The MongoDB object will go to Failed
+      Creates a MongoDB object with the ssl attribute on. The MongoDB object will go to Pending
       state because of missing certificates.
     create:
       file: test-tls-base-sc-require-ssl.yaml
@@ -32,8 +32,8 @@ class TestClusterWithTLSCreation(KubernetesTester):
             "mongodb.com", "v1", self.namespace, "mongodb", mdb_resource
         )
 
-    def test_mdb_resource_status_is_correct(self):
-        assert True
+    def test_mdb_resource_status_is_pending(self):
+        assert KubernetesTester.get_resource()['status']['phase'] == "Pending"
 
 @pytest.mark.e2e_sharded_cluster_tls_require
 class TestClusterWithTLSCreationApproval(KubernetesTester):

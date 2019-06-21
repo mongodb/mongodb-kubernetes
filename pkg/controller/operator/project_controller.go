@@ -105,14 +105,14 @@ func (r *ProjectReconciler) Reconcile(request reconcile.Request) (res reconcile.
 	conn, err := r.prepareConnection(request.NamespacedName, connectionSpec, nil, log)
 
 	if err != nil {
-		log.Errorf("error establishing Ops Manager connection. %s", err)
+		log.Errorf("Error establishing Ops Manager connection. %s", err)
 		return retry()
 	}
 
 	if !canEnableX509(conn) {
 		// only log warning if the configuration is being changed
 		if projectConfig.AuthMode == util.X509 {
-			log.Warnf("x509 authentication not compatible with this version of Ops Manager! Please update to at least 4.0.11")
+			log.Warnf("X509 authentication not compatible with this version of Ops Manager! Please update to at least 4.0.11")
 		}
 		return stop()
 	}
@@ -146,7 +146,7 @@ func (r *ProjectReconciler) disableX509Authentication(request reconcile.Request,
 	}
 
 	if err != nil {
-		log.Errorf("error disabling authentication in the automationConfig %s", err)
+		log.Errorf("Error disabling authentication in the automationConfig %s", err)
 		return retry()
 	}
 
@@ -156,7 +156,7 @@ func (r *ProjectReconciler) disableX509Authentication(request reconcile.Request,
 	}, getMutex(conn.GroupName(), conn.OrgID()), log)
 
 	if err != nil {
-		log.Errorf("error disabling authentication in the monitoringAgentConfig %s", err)
+		log.Errorf("Error disabling authentication in the monitoringAgentConfig %s", err)
 		return retry()
 	}
 
@@ -166,7 +166,7 @@ func (r *ProjectReconciler) disableX509Authentication(request reconcile.Request,
 	}, getMutex(conn.GroupName(), conn.OrgID()), log)
 
 	if err != nil {
-		log.Errorf("error disabling authentication in the backupAgentConfig %s", err)
+		log.Errorf("Error disabling authentication in the backupAgentConfig %s", err)
 		return retry()
 	}
 	log.Info("successfully reconciled Project")
@@ -177,7 +177,7 @@ func (r *ProjectReconciler) enableX509Authentication(request reconcile.Request, 
 
 	successful, err := r.ensureX509AgentCertsForProject(projectConfig, request.Namespace)
 	if err != nil {
-		log.Errorf("error ensuring x509 certificates for agents %s", err)
+		log.Errorf("Error ensuring x509 certificates for agents %s", err)
 		return retry()
 	} else if !successful {
 		log.Info("Agent certs have not yet been approved")
@@ -186,7 +186,7 @@ func (r *ProjectReconciler) enableX509Authentication(request reconcile.Request, 
 
 	result := ensureTLS(conn, log)
 	if result.isError {
-		log.Errorf("error ensuring ssl is enabled: %s", result.msg)
+		log.Errorf("Error ensuring ssl is enabled: %s", result.msg)
 		return retry()
 	} else if result.shouldRetry {
 		log.Infof("unable to enable x509: %s", result.msg)
@@ -199,7 +199,7 @@ func (r *ProjectReconciler) enableX509Authentication(request reconcile.Request, 
 	}, getMutex(conn.GroupName(), conn.OrgID()), log)
 
 	if err != nil {
-		log.Errorf("error updating monitoringAgentTemplate %s", err)
+		log.Errorf("Error updating monitoringAgentTemplate %s", err)
 		return retry()
 	}
 
@@ -209,7 +209,7 @@ func (r *ProjectReconciler) enableX509Authentication(request reconcile.Request, 
 	}, getMutex(conn.GroupName(), conn.OrgID()), log)
 
 	if err != nil {
-		log.Errorf("error updating backupAgentTemplate %s", err)
+		log.Errorf("Error updating backupAgentTemplate %s", err)
 		return retry()
 	}
 
@@ -219,10 +219,10 @@ func (r *ProjectReconciler) enableX509Authentication(request reconcile.Request, 
 	}, getMutex(conn.GroupName(), conn.OrgID()), log)
 
 	if err != nil {
-		log.Errorf("error updating automationConfig %s", err)
+		log.Errorf("Error updating automationConfig %s", err)
 		return retry()
 	}
-	log.Info("successfully reconciled Project")
+	log.Info("Successfully reconciled Project")
 	return success()
 }
 

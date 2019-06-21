@@ -16,7 +16,7 @@ class TestReplicaSetWithTLSCreation(KubernetesTester):
     """
     name: Replica Set With TLS Creation
     description: |
-      Creates a MongoDB object with the ssl attribute on. The MongoDB object will go to Failed
+      Creates a MongoDB object with the ssl attribute on. The MongoDB object will go to Pending
       state because of missing certificates.
     create:
       file: test-tls-base-rs-prefer-ssl.yaml
@@ -24,8 +24,8 @@ class TestReplicaSetWithTLSCreation(KubernetesTester):
       timeout: 120
     """
 
-    def test_mdb_resource_status_is_correct(self):
-        assert True
+    def test_mdb_resource_status_is_pending(self):
+        assert KubernetesTester.get_resource()['status']['phase'] == "Pending"
 
 
 @pytest.mark.e2e_replica_set_tls_prefer

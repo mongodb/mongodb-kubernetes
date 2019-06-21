@@ -30,4 +30,4 @@ class TestStandaloneRecoversBadOmConfiguration(KubernetesTester):
         config_map = V1ConfigMap(data={"baseUrl": KubernetesTester.get_om_base_url()})
         KubernetesTester.clients("corev1").patch_namespaced_config_map("my-project", KubernetesTester.get_namespace(), config_map)
 
-        KubernetesTester.wait_until('in_running_state', 80)
+        KubernetesTester.wait_until('in_running_state_failures_possible', 80)

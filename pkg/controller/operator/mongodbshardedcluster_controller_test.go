@@ -205,7 +205,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 	newState := createStateFromResource(sc)
 
 	mockOm := om.NewMockedOmConnection(createDeploymentFromShardedCluster(sc))
-	assert.NoError(t, updateOmDeploymentShardedCluster(mockOm, sc, newState, zap.S()))
+	assert.Equal(t, ok(), updateOmDeploymentShardedCluster(mockOm, sc, newState, zap.S()))
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadUpdateDeployment), reflect.ValueOf(mockOm.RemoveHost))
 
