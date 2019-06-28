@@ -66,7 +66,7 @@ fetch_om_information() {
 
 configure_operator() {
     title "Creating project and credentials Kubernetes object..."
-    if [[ "${OPERATOR_UPGRADE_IN_PROGRESS-}" = "true" ]]; then
+    if [[ "${OPERATOR_UPGRADE_IN_PROGRESS-}" = "stage2" ]]; then
         echo "Upgrade in progress, skipping configuration of projects"
         return
     fi
@@ -83,6 +83,7 @@ configure_operator() {
     # Configuring project
     kubectl --namespace "${PROJECT_NAMESPACE}" create configmap my-project \
             --from-literal=projectName="${PROJECT_NAMESPACE}" --from-literal=baseUrl="${BASE_URL}" \
+            --from-literal=credentials="my-credentials" \
             --from-literal=orgId="${OM_ORGID:-}"
 
     # delete `my-credentials` if it exists
@@ -115,7 +116,12 @@ deploy_test_app() {
 
     # If running in evergreen, prefer the VERSION_ID to avoid GIT_SHA collisions
     # when people is building images from same commit.
-    TEST_IMAGE_TAG="${VERSION_ID:-$GIT_SHA}"
+
+    # Set the test_image_tag outside this function
+    # TEST_IMAGE_TAG="${VERSION_ID:-$GIT_SHA}"
+    if [ -z "${TEST_IMAGE_TAG-}" ]; then
+        TEST_IMAGE_TAG="${VERSION_ID:-$GIT_SHA}"
+    fi
 
     charttmpdir=$(mktemp -d 2>/dev/null || mktemp -d -t 'charttmpdir')
     charttmpdir=${charttmpdir}/chart
@@ -138,6 +144,7 @@ deploy_test_app() {
          --set namespace="${PROJECT_NAMESPACE}" \
          --set taskName="${task_name}" \
          --set pytest.addopts="${pytest_addopts}" \
+         --set operator.name="${OPERATOR_NAME:=mongodb-enterprise-operator}" \
          --set orgId="${OM_ORGID:-}" \
          --set managedSecurityContext="${MANAGED_SECURITY_CONTEXT:=false}" \
          --set tag="${TEST_IMAGE_TAG}" > mongodb-enterprise-tests.yaml || exit 1
@@ -263,15 +270,12 @@ initialize
 if [[ "${MODE-}" != "dev" ]]; then
     fix_taints
 
-    registry="quay.io/mongodb"
-    if [ -z "${CURRENT_VERSION-}" ]; then
-        registry="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
-    else
+    if [ -n "${CURRENT_VERSION-}" ]; then
         REVISION="${CURRENT_VERSION}"
     fi
 
     redeploy_operator \
-        "${registry}" \
+        "${REGISTRY}" \
         "${REVISION:-}" \
         "${PROJECT_NAMESPACE}" \
         "${WATCH_NAMESPACE:-$PROJECT_NAMESPACE}" \
@@ -288,8 +292,8 @@ if [[ "${MODE-}" != "dev" ]]; then
     configure_operator
 fi
 
-if [ -z "${TEST_NAME-}" ] && [ -z "${TASK_NAME}" ]; then
-    echo "TEST_NAME needs to be defined"
+if [ -z "${TASK_NAME}" ]; then
+    echo "TASK_NAME needs to be defined"
 fi
 
 TESTS_OK=0
@@ -301,13 +305,12 @@ echo "Tests have finished with the following exit code: ${TESTS_OK}"
 # We don't do it for local development (as 'make e2e' will clean the resources before launching test)
 if [[ "${MODE-}" != "dev" ]]; then
     if [[ "${TESTS_OK}" -eq 0 ]]; then
-        kubectl label "namespace/${PROJECT_NAMESPACE}" "evg/state=pass" --overwrite
+        kubectl label "namespace/${PROJECT_NAMESPACE}" "evg/state=pass" --overwrite=true
 
-        if [[ ! -n "${CURRENT_VERSION-}" ]]; then
-            # Skip teardown if we are on a operator-upgrade task.
-            teardown
+        if [[ "${OPERATOR_UPGRADE_IN_PROGRESS-}" = "stage1" ]]; then
+            echo "Upgrade in progress, skipping removal of namespace"
         else
-            echo "Performing upgrade test, skipping teardown"
+            teardown
         fi
     else
         # Dump diagnostic information
@@ -322,10 +325,10 @@ if [[ "${MODE-}" != "dev" ]]; then
             print_perpetual_om_endpoint "${PROJECT_NAMESPACE}"
         fi
 
-        kubectl label "namespace/${PROJECT_NAMESPACE}" "evg/state=failed"
+        kubectl label "namespace/${PROJECT_NAMESPACE}" "evg/state=failed" --overwrite=true
 
         # we want to teardown no matter what if it's a static namespace in order to let other tests run
-        if [[ ! -z ${STATIC_NAMESPACE} ]]; then
+        if [[ -n ${STATIC_NAMESPACE-} ]]; then
             teardown
         fi
     fi

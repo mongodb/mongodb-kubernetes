@@ -11,6 +11,7 @@ variables:
     ops_manager_version: "4.0.12.50517.20190605T1533Z-1_test"
     ops_manager_namespace: "operator-testing-40-current"
     node_port: 30040
+
 # TODO: CLOUDP-42158 there are some incompatibilities with the operator and 4.1.x Ops Managers
 #  - &ops_manager_41_current
 #    ops_manager_version: "4.1.6.54491.20190508T1510Z-1_test"
@@ -20,6 +21,13 @@ variables:
   - &cloud_manager_qa
     ops_manager_version: "cloud_qa"
 
+  # These need to be defined manually
+  - &rhel_prebuilt_images
+    prebuilt_tag: 1.0
+    prebuilt_database_name: mdb-database
+    prebuilt_operator_name: mdb-operator
+    prebuilt_registry: quay.io/some
+    prebuilt_images_run: true
 
 functions:
   "golint":
@@ -64,7 +72,8 @@ functions:
         bucket: ops-manager-kubernetes-build
         permissions: public-read
         content_type: application/octet-stream
-  "upload_e2e_artifacts":
+
+  "upload_e2e_logs":
     # todo note, that the bucket is public so far - there was something with permissions that didn't allow uploads for the eng test acccount
     - command: s3.put
       params:
@@ -207,52 +216,29 @@ functions:
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         script: |
-          echo "Checking Evergreen Host Health"
+          mkdir -p logs
+          cat <<EOF >> logs/evergreen_environment.txt
+          Checking Evergreen Host Health
+          IS_PATCH=${is_patch}
+          AUTHOR=${author}
+          TASK_ID=${task_id}
+          TASK_NAME=${task_name}
+          EXECUTION=${execution}
+          BUILD_ID=${build_id}
+          BUILD_VARIANT=${build_variant}
+          VERSION_ID=${version_id}
+          WORKDIR=${workdir}
           REVISION=${revision}
-          echo "REVISION is $REVISION"
-
-          echo "IS_PATCH: ${is_patch}"
-          echo "AUTHOR: ${author}"
-          echo "TASK_ID: ${task_id}"
-          echo "TASK_NAME: ${task_name}"
-          echo "EXECUTION: ${execution}"
-          echo "BUILD_ID: ${build_id}"
-          echo "BUILD_VARIANT: ${build_variant}"
-          echo "VERSION_ID: ${version_id}"
-          echo "WORKDIR: ${workdir}"
-          echo "REVISION: ${revision}"
-          echo "PROJECT: ${project}"
-          echo "BRANCH_NAME: ${branch_name}"
-          echo "DISTRO_ID: ${distro_id}"
-          echo "CREATED_AT: ${created_at}"
-          echo "REVISION_ORDER_ID: ${revision_order_id}"
-          echo "GITHUB_PR_NUMBER: ${github_pr_number}"
-          echo "GITHUB_ORG: ${github_org}"
-          echo "GITHUB_REPO: ${github_repo}"
-          echo "GITHUB_AUTHOR: ${github_author}"
-          echo "HOME: ${HOME}"
-
-
-          MAX_PERCENT_USED=80
-          ROOT_DISK_USED=$(df / | tail -1 | awk ' { print $5 } ' | cut -d"%" -f 1)
-          if [ "$ROOT_DISK_USED" -gt "$MAX_PERCENT_USED" ]; then
-              printf "More than %s%% used in root partition. Currently used disk %s%%\\n" $MAX_PERCENT_USED $ROOT_DISK_USED
-              df /
-              exit 1
-          fi
-
-          MCI_DIR=/data/mci
-          if [ -d $MCI_DIR ]; then
-              DATA_DISK_USED=$(df $MCI_DIR | tail -1 | awk ' { print $5 } ' | cut -d"%" -f 1)
-              if [ "$DATA_DISK_USED" -gt "$MAX_PERCENT_USED" ]; then
-                  printf "Less than %s%% in %s. Currently used disk %s%%\\n" $MAX_PERCENT_USED $MCI_DIR $DATA_DISK_USED
-                  df $MCI_DIR
-                  exit 1
-              fi
-          else
-              echo "$MCI_DIR does not exists"
-              exit
-          fi
+          PROJECT=${project}
+          BRANCH_NAME=${branch_name}
+          DISTRO_ID=${distro_id}
+          CREATED_AT=${created_at}
+          REVISION_ORDER_ID=${revision_order_id}
+          GITHUB_PR_NUMBER=${github_pr_number}
+          GITHUB_ORG=${github_org}
+          GITHUB_REPO=${github_repo}
+          GITHUB_AUTHOR=${github_author}
+          EOF
 
   "build_and_push_image":
     - command: shell.exec
@@ -344,11 +330,24 @@ functions:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         script: |
           # revision is only supposed to be set in evergreen
+          if [ "${prebuilt_images_run}" = "true" ]; then
+            echo "Testing prebuilt images"
+            export REVISION=${prebuilt_tag}
+            export DATABASE_NAME=${prebuilt_database_name}
+            export OPERATOR_NAME=${prebuilt_operator_name}
+            export REGISTRY=${prebuilt_registry}
+            export TEST_IMAGE_TAG=${version_id}
+          else
+            export REVISION=$(git rev-parse HEAD)
+            export VERSION_ID=${version_id}
+            export OPERATOR_NAME=mongodb-enterprise-operator
+            export DATABASE_NAME=mongodb-enterprise-database
+            export REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
+          fi
+
           export WORKDIR=${workdir}
           export IS_EVERGREEN=${revision}
-          export REVISION=$(git rev-parse HEAD)
           export PATH=${workdir}/bin:$PATH
-          export VERSION_ID=${version_id}
           export MANAGED_SECURITY_CONTEXT="false"
           export BUILD_VARIANT=${build_variant}
           export TASK_ID=${task_id}
@@ -381,6 +380,7 @@ functions:
           # revision is only supposed to be set in evergreen
           export WORKDIR=${workdir}
           export IS_EVERGREEN=${revision}
+          export PATH=${workdir}/bin:$PATH
           export REVISION=$(git rev-parse HEAD)
           export PATH=${workdir}/bin:$PATH
           export VERSION_ID=${version_id}
@@ -390,6 +390,8 @@ functions:
           export TASK_NAME=${task_name}
           export OPS_MANAGER_NAMESPACE=${ops_manager_namespace}
           export NODE_PORT=${node_port}
+          export OPERATOR_NAME=mongodb-enterprise-operator
+          export DATABASE_NAME=mongodb-enterprise-database
 
           set -e # fail on first failed test
 
@@ -404,15 +406,18 @@ functions:
           export CURRENT_VERSION=$(grep mongodbOperator release.json | awk '{ print $2 }' | cut -d '"' -f 2)
           echo "Setting up environment with current operator release: $CURRENT_VERSION"
 
+          export REGISTRY="quay.io/mongodb"
           # By setting CURRENT_VERSION we are indicating the e2e_tests script to install this version
           # which is the latest released version, as defined in the release.json file.
+          export OPERATOR_UPGRADE_IN_PROGRESS="stage1"
           TASK_NAME=e2e_operator_upgrade_build_deployment ./scripts/evergreen/e2e_tests.sh
 
           # Before running the next test, the CURRENT_VERSION variable is unset, then the latest
           # Version of the operator will be installed, effectively, updating the currently running operator
           unset CURRENT_VERSION
-          export OPERATOR_UPGRADE_IN_PROGRESS="true"
+          export OPERATOR_UPGRADE_IN_PROGRESS="stage2"
 
+          export REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
           echo "Deploying the new Operator with version $VERSION_ID"
           TASK_NAME=e2e_operator_upgrade_scale_and_verify_deployment ./scripts/evergreen/e2e_tests.sh
 
@@ -429,13 +434,9 @@ functions:
           export AWS_REGION=${mms_eng_test_aws_region}
           export AWS_DEFAULT_REGION=${mms_eng_test_aws_region}
 
-          # Externally managed Ops/Cloud Manager instance get configured here
           test -f ${workdir}/.ops-manager-env && source ${workdir}/.ops-manager-env
-          if [ $ops_manager_version = "cloud_qa" ]; then
-            echo "Preparing Cloud Manager"
-          else
-            echo "Preparing Ops Manager Version: ${ops_manager_version} in namespace ${ops_manager_namespace} on node port ${node_port}"
-          fi
+
+          echo "Preparing Ops Manager ${ops_manager_version}"
           ./prepare_test_env ${ops_manager_namespace} ${ops_manager_version} ${node_port}
 
   "post_task":
@@ -491,6 +492,12 @@ tasks:
   tags: ["release_operator_rhel"]
   patch_only: true
   commands:
+    - func: "build_rhel_images"
+
+- name: build_operator_rhel_connect
+  tags: ["build_operator_rhel"]
+  patch_only: true
+  commands:
     - func: "clone"
     - func: "setup_jq"
     - func: "build_operator"
@@ -510,56 +517,51 @@ tasks:
         image_name: mongodb-enterprise
         path: mongodb-enterprise/4.0
 
-- name: build_and_push_images_development
-  tags: ["build_and_push_images_development"]
+- name: build_images
+  exec_timeout_secs: 600
+  priority: 1
   commands:
-    - func: "clone"
-    - func: "build_operator"
-    - func: "setup_docker"
-    - func: "setup_aws"
-    - func: "build_and_push_image"
+    - func: clone
+    - func: check_evergreen_health
+    - func: setup_aws
+    - func: setup_jq
+    - func: setup_docker
+    - func: build_operator
+    - func: build_and_push_image
       vars:
         env: development
         image_name: mongodb-enterprise-operator
         tag_images_with_version: "true"
-    - func: "build_and_push_image"
+    - func: build_and_push_image
       vars:
         env: development
         image_name: mongodb-enterprise-database
         tag_images_with_version: "true"
-
-- name: setup_e2e
-  # 40 minutes max (sometimes cleanup procedure may take very long because of slow PVCs removal...)
-  exec_timeout_secs: 2400
-  commands:
-    - func: "clone"
-    - func: "check_evergreen_health"
-    - func: "setup_aws"
-    - func: "setup_jq"
-    - func: "setup_docker"
-    - func: "build_operator"
-    - func: "build_and_push_image"
-      vars:
-        env: development
-        image_name: mongodb-enterprise-operator
-        tag_images_with_version: "true"
-    - func: "build_and_push_image"
-      vars:
-        env: development
-        image_name: mongodb-enterprise-database
-        tag_images_with_version: "true"
-    - func: "build_and_push_image"
+    - func: build_and_push_image
       vars:
         env: development
         image_name: mongodb-enterprise-tests
         tag_images_with_version: "true"
-    - func: "setup_kubectl"
-    - func: "prepare_test_env"
+    - func: setup_kubectl
+
+- name: prepare_cluster
+  exec_timeout_secs: 1200
+  priority: 1
+  commands:
+    - func: clone
+    - func: setup_aws
+    - func: setup_kubectl
+    - func: prepare_test_env
+      vars:
+        <<: *ops_manager_40_first
+    - func: prepare_test_env
+      vars:
+        <<: *ops_manager_40_current
 
 - name: e2e_operator_upgrade
   exec_timeout_secs: 1200
   commands:
-    - func: "e2e_test_upgrade_operator"
+    - func: e2e_test_upgrade_operator
 
 - name: e2e_standalone_schema_validation
   exec_timeout_secs: 600
@@ -577,7 +579,7 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_users_schema_validation
-  exec_timeout_secs: 600 # 10 minutes max
+  exec_timeout_secs: 600
   commands:
     - func: "e2e_test"
 
@@ -745,7 +747,7 @@ tasks:
   - func: "e2e_test"
 
 - name: e2e_tls_x509_sc
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
@@ -800,7 +802,7 @@ task_groups:
     - e2e_sharded_cluster_upgrade_downgrade
     - e2e_operator_upgrade
   teardown_task:
-    - func: "upload_e2e_artifacts"
+    - func: "upload_e2e_logs"
 
 - name: e2e_tls_task_group
   max_hosts: 3
@@ -816,7 +818,7 @@ task_groups:
     - e2e_replica_set_tls_require_upgrade
     - e2e_replica_set_tls_require_and_disable
   teardown_task:
-    - func: "upload_e2e_artifacts"
+    - func: "upload_e2e_logs"
 
 - name: e2e_core_others_task_group
   max_hosts: 1
@@ -826,7 +828,7 @@ task_groups:
   tasks:
     - e2e_sharded_cluster_scale_shards
   teardown_task:
-    - func: "upload_e2e_artifacts"
+    - func: "upload_e2e_logs"
 
 - name: e2e_x509_task_group
   max_hosts: 1
@@ -840,7 +842,7 @@ task_groups:
     - e2e_tls_x509_users_addition_removal
     - e2e_users_schema_validation
   teardown_task:
-    - func: "upload_e2e_artifacts"
+    - func: "upload_e2e_logs"
 
 - name: e2e_multiple_namespace_task_group
   max_hosts: 100
@@ -850,10 +852,12 @@ task_groups:
   tasks:
     - e2e_replica_set_different_namespaces
   teardown_task:
-    - func: "upload_e2e_artifacts"
+    - func: "upload_e2e_logs"
 
+#
+# -BUILDVARIANTS-
+#
 buildvariants:
-
 - name: release_operator
   display_name: "release_operator"
   run_on:
@@ -867,96 +871,81 @@ buildvariants:
     - archlinux-test
   tasks:
     - ".release_operator_rhel"
-
-- name: build_and_push_images_development
-  display_name: "build_and_push_images_development"
-  run_on:
-    - archlinux-test
-  stepback: false
-  tasks:
-    - ".build_and_push_images_development"
+    - ".build_operator_rhel"
 
 - name: e2e_kube_vanilla_v1.11_om_40_first
   display_name: "e2e_kube_vanilla_v1.11_om_40_first"
+  depends_on:
+    - name: build_images
+      variant: init_test_run
+    - name: prepare_cluster
+      variant: init_test_run
   run_on:
   - archlinux-test
   stepback: false
   expansions:
     <<: *ops_manager_40_first
   tasks:
-  - name: "setup_e2e"
   - name: "e2e_core_task_group"
-    depends_on:
-    - name: setup_e2e
   - name: "e2e_tls_task_group"
-    depends_on:
-    - name: setup_e2e
 
 - name: e2e_kube_vanilla_v1.11_om_40_current
   display_name: "e2e_kube_vanilla_v1.11_om_40_current"
+  depends_on:
+    - name: build_images
+      variant: init_test_run
+    - name: prepare_cluster
+      variant: init_test_run
   run_on:
   - archlinux-test
   stepback: false
   expansions:
     <<: *ops_manager_40_current
   tasks:
-  - name: "setup_e2e"
   - name: "e2e_tls_task_group"
-    depends_on:
-      - name: setup_e2e
   - name: "e2e_x509_task_group"
-    depends_on:
-      - name: setup_e2e
   - name: "e2e_core_others_task_group"
-    depends_on:
-      - name: setup_e2e
-
 
 - name: e2e_openshift_origin_v3.11_om_40_current
   display_name: "e2e_openshift_origin_v3.11_om_40_current"
+  depends_on:
+    - name: build_images
+      variant: init_test_run
+    - name: prepare_cluster
+      variant: init_test_run
   run_on:
   - archlinux-test
   stepback: false
   expansions:
     <<: *ops_manager_40_current
   tasks:
-  - name: "setup_e2e"
   - name: "e2e_core_task_group"
-    depends_on:
-    - name: setup_e2e
   - name: "e2e_tls_task_group"
-    depends_on:
-    - name: setup_e2e
   - name: "e2e_x509_task_group"
-    depends_on:
-      - name: setup_e2e
   - name: "e2e_core_others_task_group"
-    depends_on:
-      - name: setup_e2e
 
 - name: e2e_openshift_cloud_qa
   display_name: "e2e_openshift_cloud_qa"
+  depends_on:
+    - name: build_images
+      variant: init_test_run
   run_on:
   - archlinux-test
   stepback: false
   expansions:
     <<: *cloud_manager_qa
   tasks:
-  - name: "setup_e2e"
   - name: "e2e_core_task_group"
-    depends_on:
-    - name: setup_e2e
   - name: "e2e_tls_task_group"
-    depends_on:
-    - name: setup_e2e
   - name: "e2e_x509_task_group"
-    depends_on:
-      - name: setup_e2e
 
 # any subsequent tasks being executed in this build variant should depend upon the previously
 # executed task in order to prevent interference
 - name: e2e_kube_vanilla_cloud_qa_clusterwide
   display_name: "e2e_kube_vanilla_cloud_qa_clusterwide"
+  depends_on:
+    - name: build_images
+      variant: init_test_run
   run_on:
     - archlinux-test
   stepback: false
@@ -965,10 +954,30 @@ buildvariants:
     static_namespace: "multiple-namespace-test"
     cluster_name: "e2e.multinamespace.mongokubernetes.com"
   tasks:
-    - name: "setup_e2e"
     - name: "e2e_multiple_namespace_task_group"
-      depends_on:
-        - name: setup_e2e
+
+- name: init_test_run
+  display_name: init_test_run
+  run_on:
+  - archlinux-test
+  stepback: false
+  tasks:
+  - name: build_images
+  - name: prepare_cluster
+
+- name: openshift_rhel_prebuilt_images
+  display_name: openshift_rhel_prebuilt_images
+  depends_on:
+  - name: build_images
+    variant: init_test_run
+  run_on:
+    - archlinux-test
+  expansions:
+    <<: *rhel_prebuilt_images
+  tasks:
+    - name: e2e_core_task_group
+    - name: e2e_tls_task_group
+    - name: e2e_x509_task_group
 
 - name: go_unit_tests
   display_name: "go_unit_tests"

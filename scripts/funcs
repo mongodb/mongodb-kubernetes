@@ -172,17 +172,15 @@ ensure_ops_manager_k8s() {
 }
 
 print_om_endpoint() {
-    test_namespace="${1-}"
     ops_manager_namespace="${2}"
     node_port="${3}"
     external_ip="$(kubectl get nodes -o wide | grep $(kubectl get pods/mongodb-enterprise-ops-manager-0 -n ${ops_manager_namespace} -o wide | tail -n 1 | awk '{print $7}') | awk '{print $7}')"
 
-    echo "Use the following address to access Ops Manager from the browser: http://${external_ip}:${node_port} (group: ${test_namespace})"
+    echo "Use the following address to access Ops Manager from the browser: http://${external_ip}:${node_port}"
 }
 
 print_perpetual_om_endpoint() {
-    test_namespace="${1:-'<undefined>'}"
-    echo "Use the following address to access Ops Manager from the browser: ${OM_BASE_URL} (namespace: ${test_namespace})"
+    echo "Use the following address to access Ops Manager from the browser: ${OM_BASE_URL}"
 }
 
 ensure_vpc_rules() {
@@ -288,6 +286,8 @@ redeploy_operator() {
             --set operator.env=dev  \
             --set operator.version="${version}"  \
             --set operator.watchNamespace="${watch_namespace}" \
+            --set operator.name="${OPERATOR_NAME:=mongodb-enterprise-operator}" \
+            --set database.name="${DATABASE_NAME:=mongodb-enterprise-database}" \
             --set namespace="${ns}"  \
             --set managedSecurityContext="${managed_security_context}" \
             > my-operator.yaml
@@ -296,22 +296,23 @@ redeploy_operator() {
     # existing mongodb resources)
 
     if [[ "${OPERATOR_UPGRADE_IN_PROGRESS-}" != "true" ]]; then
-        kubectl delete deployment mongodb-enterprise-operator &> /dev/null || true
+        kubectl delete deployment ${OPERATOR_NAME} &> /dev/null || true
     else
         echo "Not removing operator before install as this is an upgrade operation."
     fi
+
     kubectl apply -f my-operator.yaml
 
     rm my-operator.yaml
 
     echo "Waiting until the Operator gets to Running state..."
     timeout ${timeout} bash -c \
-        'while ! kubectl -n '"${ns}"' get pods -l app=mongodb-enterprise-operator -o jsonpath="{.items[0].status.phase}" | grep -q "Running" ; do printf .; sleep 1; done' || true
+        'while ! kubectl -n '"${ns}"' get pods -l app=${OPERATOR_NAME} -o jsonpath="{.items[0].status.phase}" | grep -q "Running" ; do printf .; sleep 1; done' || true
 
     # In the end let's check again and print the state
-    if ! kubectl -n "${ns}" get pods -l app=mongodb-enterprise-operator -o jsonpath="{.items[0].status.phase}" | grep -q "Running"; then
+    if ! kubectl -n "${ns}" get pods -l "app=${OPERATOR_NAME}" -o jsonpath="{.items[0].status.phase}" | grep -q "Running"; then
         error "Operator hasn't reached RUNNING state after ${timeout}. The full yaml configuration for the pod is:"
-        kubectl -n "${ns}" get pods -l app=mongodb-enterprise-operator -o yaml
+        kubectl -n "${ns}" get pods -l "app=${OPERATOR_NAME}" -o yaml
 
         title "Operator failed to start, exiting"
         exit 1
@@ -423,7 +424,7 @@ dump_diagnostic_information() {
     fi
 
     # we don't output pods for the operator and tests (they will be output if they didn't manage to start)
-    for pod in $(kubectl get pods -n "${PROJECT_NAMESPACE}" -o name | grep -v mongodb-enterprise-operator); do
+    for pod in $(kubectl get pods -n "${PROJECT_NAMESPACE}" -o name | grep -v "${OPERATOR_NAME}"); do
         header "$pod" >> "$dump_file"
         # in general describe produces shorter output than "get -o yaml" and seems it is enough to diagnose the problem
         kubectl describe "${pod}" -n "${PROJECT_NAMESPACE}"  >> "$dump_file"

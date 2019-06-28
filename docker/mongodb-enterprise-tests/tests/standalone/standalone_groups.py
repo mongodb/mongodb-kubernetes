@@ -4,13 +4,15 @@ from kubetester.kubetester import KubernetesTester, fixture
 from kubetester.omtester import skip_if_cloud_manager
 
 
+@skip_if_cloud_manager
 @pytest.mark.e2e_standalone_groups
 class TestStandaloneOrganizationSpecified(KubernetesTester):
     """
-    name: Test for config map with specified organization id
+    name: Test for config map with specified organization id.
     description: |
       Tests the configuration in config map with organization specified which already exists. The group
-      must be created automatically
+      must be created automatically.
+      Skipped in Cloud Manager as programmatic API keys won't allow for organizations to be created.
     """
 
     org_id = None

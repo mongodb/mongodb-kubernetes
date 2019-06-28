@@ -64,7 +64,7 @@ fix_taints() {
 # (note, that 'aws ecr list-images' for some reasons returns the ~700+ images when in fact there are 1000 of them -
 # so we choose 500 as a some representative number)
 check_and_clean_repo() {
-    if [[ $(aws ecr list-images --repository-name "$1" | jq '.[] | length') -gt 500 ]]; then
+    if [[ $(aws ecr list-images --repository-name "$1" | grep -c imageDigest) -gt 500 ]]; then
         echo "Recreating the \"$1\" repo"
         aws ecr delete-repository --repository-name "$1" --force
         aws ecr create-repository --repository-name "$1"

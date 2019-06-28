@@ -20,6 +20,10 @@ class TestReplicaSetWithSecretAndConfigMapInDifferentNamespace(KubernetesTester)
         # create secret and config map in different namespace
         project_name = 'test-project'
         creds_name = 'test-creds'
+        try:
+            org_id = cls.get_om_org_id()
+        except ValueError:
+            org_id = ""
         cls.create_secret(cls.other_namespace, creds_name, {
             "publicApiKey": cls.get_om_api_key(),
             "user": cls.get_om_user(),
@@ -27,6 +31,7 @@ class TestReplicaSetWithSecretAndConfigMapInDifferentNamespace(KubernetesTester)
         cls.create_config_map(cls.other_namespace, project_name, {
             "projectName": cls.get_om_group_name(),
             "baseUrl": cls.get_om_base_url(),
+            "orgId": org_id,
         })
 
         # create replica set and wait for it to be ready

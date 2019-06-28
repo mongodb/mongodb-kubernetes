@@ -32,6 +32,8 @@ fi
 vet_exclusions="github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1
 github.com/10gen/ops-manager-kubernetes/pkg/client/"
 
+echo "Go Version: $(go version)"
+
 # ensure there are no warnings detected with go vet
 if ! go vet $(go list ./... | grep -Fv "$vet_exclusions") ; then
   echo "ERROR: Failed go vet check"

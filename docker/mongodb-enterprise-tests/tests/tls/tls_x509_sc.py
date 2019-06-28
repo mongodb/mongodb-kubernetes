@@ -74,7 +74,8 @@ class TestShardedClusterWithTLSRunning(KubernetesTester):
     def test_approve_certificates(self):
         for cert in self.yield_existing_csrs(get_cert_names(self.get_namespace())):
             self.approve_certificate(cert)
-        KubernetesTester.wait_until('in_running_state', 360)
+
+        KubernetesTester.wait_until('in_running_state', 420)
 
 
 @pytest.mark.e2e_tls_x509_sc

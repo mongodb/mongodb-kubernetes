@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path"
 
+	"github.com/blang/semver"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
 
@@ -315,16 +316,19 @@ func (p Process) configureAdditionalMongodConfig(additionalConfig *mongodb.Addit
 }
 
 func calculateFeatureCompatibilityVersion(version string) string {
-	ans := ""
-	compare, err := util.CompareVersions(version, "3.2.0")
+	v1, err := semver.Make(version)
 	if err != nil {
 		zap.S().Warnf("Failed to parse version %s: %s", version, err)
-	} else if compare >= 0 {
-		// The error will always be empty as the version is already parseable as we got to this stage
-		ans, _ = util.MajorMinorVersion(version)
+		return ""
 	}
-	// feature compatibility version has only two numbers, so we cannot just return the version
-	return ans
+
+	baseVersion, _ := semver.Make("3.2.0")
+	if v1.GTE(baseVersion) {
+		ans, _ := util.MajorMinorVersion(version)
+		return ans
+	}
+
+	return ""
 }
 
 // see https://github.com/10gen/ops-manager-kubernetes/pull/68#issuecomment-397247337
