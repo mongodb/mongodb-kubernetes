@@ -1,6 +1,7 @@
 import pytest
 
 from kubetester.kubetester import KubernetesTester
+from kubetester.mongotester import ShardedClusterTester
 from kubernetes import client
 
 
@@ -37,16 +38,10 @@ class TestShardedClusterCreation(KubernetesTester):
         assert svc0
 
     def test_shard0_was_configured(self):
-        hosts = [
-            "sh001-base-0-{}.sh001-base-sh.{}.svc.cluster.local:27017".format(
-                i, self.namespace
-            )
-            for i in range(3)
-        ]
+        ShardedClusterTester("sh001-base", 1).assert_connectivity()
 
-        primary, secondaries = self.wait_for_rs_is_ready(hosts)
-        assert primary is not None
-        assert len(secondaries) == 2
+    def test_shard0_was_configured_with_srv(self):
+        ShardedClusterTester("sh001-base", 1, ssl=False, srv=True).assert_connectivity()
 
 
 @pytest.mark.e2e_sharded_cluster

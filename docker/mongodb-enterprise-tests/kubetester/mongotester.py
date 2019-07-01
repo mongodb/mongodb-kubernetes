@@ -7,24 +7,24 @@ from kubetester import kubetester
 from kubetester.kubetester import KubernetesTester
 from pymongo.errors import ServerSelectionTimeoutError
 from pytest import fail
+from typing import List
 
 TEST_DB = "test-db"
 TEST_COLLECTION = "test-collection"
 
 
 class MongoTester:
-    """ MongodTester is a general abstraction to work with mongo database. It incapsulates the client created in
+    """ MongodTester is a general abstraction to work with mongo database. It encapsulates the client created in
     the constructor. All general methods non-specific to types of mongodb topologies should reside here. """
 
-    def __init__(self, hosts, ssl=False):
-        mongodburi = build_mongodb_uri(hosts)
-        options = {}
+    def __init__(self, connection_string: str, ssl: bool):
+        # SSL is set to true by default if using mongodb+srv, it needs to be explicitely set to false
+        # https://docs.mongodb.com/manual/reference/program/mongo/index.html#cmdoption-mongo-host
+        options = {"ssl": ssl}
         if ssl:
-            options = {
-                "ssl": True,
-                "ssl_ca_certs": kubetester.SSL_CA_CERT
-            }
-        self.client = pymongo.MongoClient(mongodburi, **options)
+            options["ssl_ca_certs"] = kubetester.SSL_CA_CERT
+
+        self.client = pymongo.MongoClient(connection_string, **options)
 
     def assert_connectivity(self):
         """ Trivial check to make sure mongod is alive """
@@ -63,18 +63,26 @@ class MongoTester:
 
 
 class StandaloneTester(MongoTester):
-    def __init__(self, mdb_resource_name, ssl=False):
-        hosts = build_list_of_hosts(mdb_resource_name, KubernetesTester.get_namespace(), 1)
-        super().__init__(hosts, ssl)
+    def __init__(self, mdb_resource_name: str, ssl: bool = False, srv: bool = False):
+        cnx_string = build_mongodb_connection_uri(mdb_resource_name, KubernetesTester.get_namespace(), 1)
+        super().__init__(cnx_string, ssl)
 
 
 class ReplicaSetTester(MongoTester):
-    def __init__(self, mdb_resource_name, replicas_count, ssl=False):
+    def __init__(self, mdb_resource_name: str, replicas_count: int, ssl: bool = False, srv: bool = False):
         self.replicas_count = replicas_count
-        hosts = build_list_of_hosts(mdb_resource_name, KubernetesTester.get_namespace(), replicas_count)
-        super().__init__(hosts, ssl)
 
-    def assert_connectivity(self, wait_for=60, check_every=5):
+        cnx_string = build_mongodb_connection_uri(
+            mdb_resource_name,
+            KubernetesTester.get_namespace(),
+            replicas_count,
+            servicename=None,
+            srv=srv
+        )
+
+        super().__init__(cnx_string, ssl)
+
+    def assert_connectivity(self, wait_for=60, check_every=5, with_srv=False):
         """ For replica sets in addition to is_master() we need to make sure all replicas are up """
         super().assert_connectivity()
 
@@ -93,11 +101,17 @@ class ReplicaSetTester(MongoTester):
 
 
 class ShardedClusterTester(MongoTester):
-    def __init__(self, mdb_resource_name, mongos_count, ssl=False):
-        hosts = build_list_of_hosts(
-            mdb_resource_name + "-mongos", KubernetesTester.get_namespace(), mongos_count,
-            servicename="{}-svc".format(mdb_resource_name))
-        super().__init__(hosts, ssl)
+    def __init__(self, mdb_resource_name: str, mongos_count: int, ssl: bool = False, srv: bool = False):
+        mdb_name = mdb_resource_name + "-mongos"
+        servicename = mdb_resource_name + "-svc"
+
+        cnx_string = build_mongodb_connection_uri(
+            mdb_name,
+            KubernetesTester.get_namespace(),
+            mongos_count,
+            servicename
+        )
+        super().__init__(cnx_string, ssl)
 
     def shard_collection(self, shards_pattern, shards_count, key, test_collection=TEST_COLLECTION):
         """ enables sharding and creates zones to make sure data is spread over shards.
@@ -129,24 +143,45 @@ class ShardedClusterTester(MongoTester):
 # ------------------------- Helper functions ----------------------------
 
 
-def build_list_of_hosts(mdb_resource, namespace, members, servicename=None):
+def build_mongodb_connection_uri(mdb_resource: str, namespace: str, members: int, servicename: str = None, srv: bool = False) -> str:
     if servicename is None:
         servicename = "{}-svc".format(mdb_resource)
 
+    if srv:
+        return build_mongodb_uri(build_host_srv(servicename, namespace), srv)
+    else:
+        return build_mongodb_uri(build_list_of_hosts(mdb_resource, namespace, members, servicename))
+
+
+def build_list_of_hosts(mdb_resource: str, namespace: str, members: int, servicename: str) -> List[str]:
     return [
         build_host_fqdn("{}-{}".format(mdb_resource, idx), namespace, servicename)
         for idx in range(members)
     ]
 
 
-def build_host_fqdn(hostname, namespace, servicename):
+def build_host_fqdn(hostname: str, namespace: str, servicename: str) -> str:
     return "{hostname}.{servicename}.{namespace}.svc.cluster.local:27017".format(
         hostname=hostname, servicename=servicename, namespace=namespace
     )
 
 
-def build_mongodb_uri(hosts):
-    return "mongodb://{}".format(",".join(hosts))
+def build_host_srv(servicename: str, namespace: str) -> str:
+    srv_host = "{servicename}.{namespace}.svc.cluster.local".format(
+        servicename=servicename,
+        namespace=namespace
+    )
+    return srv_host
+
+
+def build_mongodb_uri(hosts, srv: bool = False) -> str:
+    plus_srv = ""
+    if srv:
+        plus_srv = "+srv"
+    else:
+        hosts = ",".join(hosts)
+
+    return "mongodb{}://{}".format(plus_srv, hosts)
 
 
 def generate_single_json():

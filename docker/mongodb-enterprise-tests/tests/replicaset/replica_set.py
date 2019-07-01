@@ -1,6 +1,7 @@
 import pytest
 
 from kubetester.kubetester import KubernetesTester, skip_if_local, get_env_var_or_fail
+from kubetester.mongotester import ReplicaSetTester
 from kubetester.omtester import skip_if_cloud_manager
 from kubernetes import client
 
@@ -306,18 +307,11 @@ class TestReplicaSetCreation(KubernetesTester):
 
     @skip_if_local
     def test_replica_set_was_configured(self):
-        'Should connect to one of the mongods and check the replica set was correctly configured.'
-        hosts = [
-            "my-replica-set-{}.my-replica-set-svc.{}.svc.cluster.local:27017".format(
-                i, self.namespace
-            )
-            for i in range(3)
-        ]
+        ReplicaSetTester("my-replica-set", 3, ssl=False).assert_connectivity()
 
-        primary, secondaries = self.wait_for_rs_is_ready(hosts)
-
-        assert primary is not None
-        assert len(secondaries) == 2
+    @skip_if_local
+    def test_replica_set_was_configured_with_srv(self):
+        ReplicaSetTester("my-replica-set", 3, ssl=False, srv=True).assert_connectivity()
 
 
 @pytest.mark.e2e_replica_set
