@@ -21,7 +21,8 @@ variables:
   - &cloud_manager_qa
     ops_manager_version: "cloud_qa"
 
-  # These need to be defined manually
+  # These need to be defined manually.
+  # TODO(rodrigo): This will be improved as part of CLOUDP-38550.
   - &rhel_prebuilt_images
     prebuilt_tag: 1.0
     prebuilt_database_name: mdb-database
@@ -964,19 +965,24 @@ buildvariants:
   - name: build_images
   - name: prepare_cluster
 
-- name: openshift_rhel_prebuilt_images
-  display_name: openshift_rhel_prebuilt_images
-  depends_on:
-  - name: build_images
-    variant: init_test_run
-  run_on:
-    - archlinux-test
-  expansions:
-    <<: *rhel_prebuilt_images
-  tasks:
-    - name: e2e_core_task_group
-    - name: e2e_tls_task_group
-    - name: e2e_x509_task_group
+#
+# TODO(rodrigo): There's no mechanism that I know of to avoid running this
+#                build variant at master-merge time. Disabling it for now.
+#                This will be improved as part of CLOUDP-38550
+#
+# - name: openshift_rhel_prebuilt_images
+#   display_name: openshift_rhel_prebuilt_images
+#   depends_on:
+#   - name: build_images
+#     variant: init_test_run
+#   run_on:
+#     - archlinux-test
+#   expansions:
+#     <<: *rhel_prebuilt_images
+#   tasks:
+#     - name: e2e_core_task_group
+#     - name: e2e_tls_task_group
+#     - name: e2e_x509_task_group
 
 - name: go_unit_tests
   display_name: "go_unit_tests"
