@@ -290,6 +290,8 @@ redeploy_operator() {
             --set database.name="${DATABASE_NAME:=mongodb-enterprise-database}" \
             --set namespace="${ns}"  \
             --set managedSecurityContext="${managed_security_context}" \
+            --set debug="${DEBUG-}" \
+            --set debugPort="${DEBUG_PORT:-30042}" \
             > my-operator.yaml
 
     # note that we don't remove all objects from file as it contains CRDs as well (and they will be blocked if there are

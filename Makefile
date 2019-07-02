@@ -40,6 +40,9 @@ usage:
 	@ echo "  dashboard:                  opens the Kubernetes dashboard. Make sure the cluster was installed using current Makefile as"
 	@ echo "                              dashboard is not installed by default and the script ensures it's installed and permissions"
 	@ echo "                              are configured."
+	@ echo "  debug:                      configures the operator to run in debug mode, exposing DEBUG_PORT as a node port in the"
+	@ echo "                              cluster to enable debuggers to attach remotely."
+
 
 # install all necessary software, must be run only once
 prerequisites:
@@ -74,6 +77,10 @@ database: aws_login
 full: ensure-k8s-and-reset build-and-push-images
 	@ $(MAKE) deploy-and-configure-operator
 	@ scripts/dev/apply_resources
+
+debug: export DEBUG_PORT=30042
+debug: export DEBUG=true
+debug: full
 
 # install OM in Kubernetes if it's not running
 om:

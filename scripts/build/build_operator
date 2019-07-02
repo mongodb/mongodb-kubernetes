@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#
+
 set -o nounset
 set -o errexit
 set -o pipefail
@@ -11,13 +11,18 @@ source scripts/funcs
 # --dirty to flag changes to your working tree
 RELEASE_VERSION=$(git describe --dirty)
 
-echo "Building Operator binary..."
-
 # build stripped binary for linux with appropriate release version set
 if [[ "$(uname)" != 'Linux' ]]; then
     export GOOS='linux'
 fi
-go build -i -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator \
-  -ldflags="-s -w -X github.com/10gen/ops-manager-kubernetes/pkg/util.OperatorVersion=$RELEASE_VERSION"
+
+if [[ ${DEBUG-} = "true" ]]; then
+    echo "Building Operator binary in debug mode..."
+    go build -gcflags "-N -l" -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator
+else
+    echo "Building Operator binary..."
+    go build -i -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator \
+      -ldflags="-s -w -X github.com/10gen/ops-manager-kubernetes/pkg/util.OperatorVersion=$RELEASE_VERSION"
+fi
 
 echo "Operator successfully built (version ${RELEASE_VERSION})"
