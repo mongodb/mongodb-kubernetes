@@ -57,7 +57,9 @@ func main() {
 	log.Info("Starting the Cmd.")
 
 	// Start the Manager
-	log.Fatal(mgr.Start(signals.SetupSignalHandler()))
+	if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func initializeEnvironment() {
