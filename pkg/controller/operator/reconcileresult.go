@@ -39,12 +39,16 @@ type errorStatus struct {
 	err error
 }
 
+type validationStatus struct {
+	errorStatus
+}
+
 func ok() *successStatus {
 	return &successStatus{}
 }
 
-func pending(msg string, params ...string) *pendingStatus {
-	return &pendingStatus{msg: fmt.Sprintf(msg, params)}
+func pending(msg string, params ...interface{}) *pendingStatus {
+	return &pendingStatus{msg: fmt.Sprintf(msg, params...)}
 }
 
 func failed(msg string, params ...interface{}) *errorStatus {
@@ -53,6 +57,10 @@ func failed(msg string, params ...interface{}) *errorStatus {
 
 func failedErr(err error) *errorStatus {
 	return &errorStatus{err: err}
+}
+
+func failedValidation(msg string, params ...interface{}) *validationStatus {
+	return &validationStatus{errorStatus: *failedErr(fmt.Errorf(msg, params...))}
 }
 
 func (e *pendingStatus) updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger) (reconcile.Result, error) {
@@ -69,7 +77,7 @@ func (e *pendingStatus) merge(other reconcileStatus) reconcileStatus {
 	case *pendingStatus:
 		return pending(e.msg + ", " + v.msg)
 	// any error message overrides the others
-	case *errorStatus:
+	case *errorStatus, *validationStatus:
 		return v
 	}
 	return e
@@ -87,7 +95,7 @@ func (e *errorStatus) merge(other reconcileStatus) reconcileStatus {
 	switch v := other.(type) {
 	case *pendingStatus:
 		return e
-	case *errorStatus:
+	case *errorStatus, *validationStatus:
 		return v
 	}
 	return e
@@ -105,6 +113,10 @@ func (e *successStatus) merge(other reconcileStatus) reconcileStatus {
 }
 func (e *successStatus) isOk() bool {
 	return true
+}
+
+func (e *validationStatus) updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger) (reconcile.Result, error) {
+	return c.updateStatusValidationFailure(resource, upperCaseFirstChar(e.err.Error()), log)
 }
 
 // We need to make sure that the message sent to 'updateStatus..' method is Uppercased

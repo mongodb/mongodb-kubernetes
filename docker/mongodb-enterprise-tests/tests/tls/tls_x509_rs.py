@@ -3,25 +3,9 @@ import time
 import pytest
 from kubernetes import client
 from kubetester.kubetester import KubernetesTester, build_list_of_hosts
+from kubetester.omtester import get_rs_cert_names
 
 mdb_resource = "test-tls-upgrade"
-
-
-def get_cert_names(namespace, *, members=3, with_internal_auth_certs=False, with_agent_certs=False):
-    cert_names = [f"{mdb_resource}-{i}.{namespace}" for i in range(members)]
-
-    if with_internal_auth_certs:
-        cert_names += [f"{mdb_resource}-{i}-clusterfile.{namespace}" for i in range(members)]
-
-    if with_agent_certs:
-        cert_names += [
-            f'mms-monitoring-agent.{namespace}',
-            f'mms-backup-agent.{namespace}',
-            f'mms-automation-agent.{namespace}'
-        ]
-
-    return cert_names
-
 
 @pytest.mark.e2e_tls_x509_rs
 class TestReplicaSetWithNoTLSCreation(KubernetesTester):
@@ -67,7 +51,7 @@ class TestReplicaSetUpgradeToTLSWithX509Project(KubernetesTester):
 @pytest.mark.e2e_tls_x509_rs
 class TestReplicaSetWithTLSRunning(KubernetesTester):
     def setup(self):
-        for cert in self.yield_existing_csrs(get_cert_names(self.namespace, with_agent_certs=True)):
+        for cert in self.yield_existing_csrs(get_rs_cert_names(mdb_resource, self.namespace, with_agent_certs=True)):
             self.approve_certificate(cert)
         KubernetesTester.wait_until('in_running_state', 120)
 
@@ -90,7 +74,7 @@ class TestsReplicaSetWithX509ClusterAuthentication(KubernetesTester):
     """
 
     def setup(self):
-        for cert in self.yield_existing_csrs(get_cert_names(self.get_namespace(), with_internal_auth_certs=True)):
+        for cert in self.yield_existing_csrs(get_rs_cert_names(mdb_resource, self.get_namespace(), with_internal_auth_certs=True)):
             self.approve_certificate(cert)
         KubernetesTester.wait_until('in_running_state', 240)
 
@@ -128,7 +112,7 @@ class TestReplicaSetWithX509Remove(KubernetesTester):
     def setup(self):
         # Deletes the certificate
         body = client.V1DeleteOptions()
-        certs = get_cert_names(self.namespace, with_internal_auth_certs=True, with_agent_certs=True)
+        certs = get_rs_cert_names(mdb_resource, self.namespace, with_internal_auth_certs=True, with_agent_certs=True)
         for name in certs:
             self.certificates.delete_certificate_signing_request(name, body=body)
 
@@ -157,6 +141,7 @@ class TestReplicaSetWithoutTLSAgain(KubernetesTester):
     def test_mdb_is_reachable_with_no_ssl(self):
         hosts = build_list_of_hosts(mdb_resource, self.namespace, 3)
         primary, secondaries = self.wait_for_rs_is_ready(hosts, wait_for=120)
+
 
         assert primary is not None
         assert len(secondaries) == 2

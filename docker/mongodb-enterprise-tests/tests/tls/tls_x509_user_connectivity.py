@@ -6,32 +6,9 @@ import ssl
 import pytest
 import pymongo
 from kubetester.kubetester import KubernetesTester, build_list_of_hosts, fixture
+from kubetester.omtester import get_agent_cert_names, get_rs_cert_names
 
 mdb_resource = "test-tls-base-rs-require-ssl"
-
-
-def get_agent_cert_names(namespace):
-    return [
-        f'mms-monitoring-agent.{namespace}',
-        f'mms-backup-agent.{namespace}',
-        f'mms-automation-agent.{namespace}'
-    ]
-
-
-def get_cert_names(namespace, *, members=3, with_internal_auth_certs=False, with_agent_certs=False):
-    cert_names = [f"{mdb_resource}-{i}.{namespace}" for i in range(members)]
-
-    if with_internal_auth_certs:
-        cert_names += [f"{mdb_resource}-{i}-clusterfile.{namespace}" for i in range(members)]
-
-    if with_agent_certs:
-        cert_names += [
-            f'mms-monitoring-agent.{namespace}',
-            f'mms-backup-agent.{namespace}',
-            f'mms-automation-agent.{namespace}'
-        ]
-
-    return cert_names
 
 
 @pytest.mark.e2e_tls_x509_user_connectivity
@@ -59,9 +36,8 @@ class TestReplicaSetWithTLSCreation(KubernetesTester):
 
 @pytest.mark.e2e_tls_x509_user_connectivity
 class TestReplicaSetWithTLSRunning(KubernetesTester):
-
     def test_approve_certs(self):
-        for cert in self.yield_existing_csrs(get_cert_names(self.get_namespace())):
+        for cert in self.yield_existing_csrs(get_rs_cert_names(mdb_resource, self.get_namespace())):
             self.approve_certificate(cert)
         KubernetesTester.wait_until('in_running_state', 240)
         print('finished waiting')

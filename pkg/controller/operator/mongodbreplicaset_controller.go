@@ -59,6 +59,11 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		return retry()
 	}
 
+	// cannot have a non-tls deployment in an x509 environment
+	if projectConfig.AuthMode == util.X509 && !rs.Spec.GetTLSConfig().Enabled {
+		return r.updateStatusValidationFailure(rs, fmt.Sprintf("cannot have a non-tls deployment when x509 authentication is enabled"), log)
+	}
+
 	replicaBuilder := r.kubeHelper.NewStatefulSetHelper(rs).
 		SetService(rs.ServiceName()).
 		SetReplicas(rs.Spec.Members).

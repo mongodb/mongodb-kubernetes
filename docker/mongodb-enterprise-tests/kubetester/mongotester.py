@@ -14,7 +14,7 @@ TEST_COLLECTION = "test-collection"
 
 
 class MongoTester:
-    """ MongodTester is a general abstraction to work with mongo database. It encapsulates the client created in
+    """ MongoTester is a general abstraction to work with mongo database. It incapsulates the client created in
     the constructor. All general methods non-specific to types of mongodb topologies should reside here. """
 
     def __init__(self, connection_string: str, ssl: bool):

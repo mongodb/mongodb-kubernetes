@@ -1,6 +1,6 @@
 import pytest
 from kubetester.kubetester import KubernetesTester
-from kubetester.mongodtester import ShardedClusterTester
+from kubetester.mongotester import ShardedClusterTester
 from kubernetes import client
 
 

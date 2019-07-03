@@ -52,14 +52,6 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (r
 	return r.updateStatusSuccessful(sc, log, DeploymentLink(conn.BaseURL(), conn.GroupID()))
 }
 
-// processingResult contains all the fields required to determine the outcome
-// of the sharded cluster processing, and which state the resource should enter next
-type processingResult struct {
-	connection                     om.Connection
-	msg                            string
-	isFailure, shouldGoIntoPending bool
-}
-
 // implements all the logic to do the sharded cluster thing
 func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interface{}, log *zap.SugaredLogger) (om.Connection, reconcileStatus) {
 	log.Info("ShardedCluster.doShardedClusterProcessing")
@@ -73,6 +65,10 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 	projectConfig, err := r.kubeHelper.readProjectConfig(sc.Namespace, sc.Spec.Project)
 	if err != nil {
 		return nil, failed("error reading project %s", err)
+	}
+
+	if projectConfig.AuthMode == util.X509 && !sc.Spec.GetTLSConfig().Enabled {
+		return nil, failedValidation("cannot have a non-tls deployment when x509 authentication is enabled")
 	}
 
 	kubeState := r.buildKubeObjectsForShardedCluster(sc, podVars, projectConfig, log)

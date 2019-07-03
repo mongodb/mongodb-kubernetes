@@ -485,7 +485,7 @@ class KubernetesTester(object):
             cls.wait_until(phase, int(action.get("timeout", 0)) / len(wait_phases))
 
     @classmethod
-    def wait_until(cls, action, timeout):
+    def wait_until(cls, action, timeout=0):
         func = None
         # if passed a function directly, we can use it
         if callable(action):

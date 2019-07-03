@@ -315,7 +315,7 @@ functions:
       shell: bash
       script: |
         echo "Configuring Cloud Manager QA"
-        if echo "${build_variant}" | grep -q "cloud_qa"; then
+        if echo "${build_variant}" | grep -Eq "cloud_qa|multiple_namespace"; then
           echo "export OM_BASE_URL=${e2e_cloud_qa_baseurl}"      > ${workdir}/.ops-manager-env
           echo "export OM_USER=${e2e_cloud_qa_user}"            >> ${workdir}/.ops-manager-env
           echo "export OM_API_KEY=${e2e_cloud_qa_apikey}"       >> ${workdir}/.ops-manager-env
@@ -762,6 +762,16 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_tls_x509_configure_all_options_rs
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_tls_x509_configure_all_options_sc
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+
 task_groups:
 - name: unit_task_group
   setup_group:
@@ -840,6 +850,8 @@ task_groups:
     - e2e_tls_x509_sc
     - e2e_tls_x509_user_connectivity
     - e2e_tls_x509_users_addition_removal
+    - e2e_tls_x509_configure_all_options_rs
+    - e2e_tls_x509_configure_all_options_sc
     - e2e_users_schema_validation
   teardown_task:
     - func: "upload_e2e_logs"

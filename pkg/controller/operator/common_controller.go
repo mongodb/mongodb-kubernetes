@@ -194,6 +194,13 @@ func (c *ReconcileCommonController) updateReconciling(reconciledResource Updatab
 	})
 }
 
+// updateStatusValidationFailure indicates that the resource should enter failed state, but the reconciliation should not
+// be requeued
+func (c *ReconcileCommonController) updateStatusValidationFailure(resource Updatable, msg string, log *zap.SugaredLogger) (reconcile.Result, error) {
+	_, _ = c.updateStatusFailed(resource, msg, log)
+	return stop()
+}
+
 func (c *ReconcileCommonController) updateStatusFailed(resource Updatable, msg string, log *zap.SugaredLogger) (reconcile.Result, error) {
 	log.Error(msg)
 	// Resource may be nil if the reconciliation failed very early (on fetching the resource) and panic handling function

@@ -170,9 +170,6 @@ func (ac *AutomationConfig) DisableX509Authentication() {
 	}
 }
 func (ac *AutomationConfig) CanEnableX509ProjectAuthentication() (bool, string) {
-	if ac.Deployment.NumberOfProcesses() == 0 {
-		return false, "not possible to enable x509 authentication, as there are no processes"
-	}
 	if !ac.Deployment.AllProcessesAreTLSEnabled() {
 		return false, "not all processes are TLS enabled, unable to enable x509 authentication"
 	}

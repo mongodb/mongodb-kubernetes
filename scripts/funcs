@@ -308,6 +308,8 @@ redeploy_operator() {
     rm my-operator.yaml
 
     echo "Waiting until the Operator gets to Running state..."
+
+    export OPERATOR_NAME
     timeout ${timeout} bash -c \
         'while ! kubectl -n '"${ns}"' get pods -l app=${OPERATOR_NAME} -o jsonpath="{.items[0].status.phase}" | grep -q "Running" ; do printf .; sleep 1; done' || true
 
