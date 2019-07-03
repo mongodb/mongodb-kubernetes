@@ -21,8 +21,8 @@ class TestStandaloneWithNoTLS(KubernetesTester):
         )
 
         assert mdb["status"]["phase"] == "Running"
-        assert "additionalMongodConfig" not in mdb["status"]
-        assert "net" not in mdb
+        assert "additionalMongodConfig" not in mdb["spec"]
+        assert "security" not in mdb
 
 
 @pytest.mark.e2e_standalone_no_tls_no_status_is_set

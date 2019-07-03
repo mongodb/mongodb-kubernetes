@@ -36,11 +36,8 @@ class TestReplicaSetWithTLSApproval(KubernetesTester):
       Approves the certificates in Kubernetes, the MongoDB resource should move to Successful state.
     """
 
-    def setup(self):
+    def test_approve_certs(self):
         [self.approve_certificate(cert) for cert in cert_names(self.namespace)]
-
-    def test_noop(self):
-        assert True
 
 
 @pytest.mark.e2e_replica_set_tls_require_and_disable
@@ -102,24 +99,24 @@ class TestReplicaSetWithTLSAllow(KubernetesTester):
 
 
 @pytest.mark.e2e_replica_set_tls_require_and_disable
-# TODO CLOUDP-44001
-# class TestReplicaSetWithTLSDisabling(KubernetesTester):
-#     """
-#     name: check everything is in place
-#     update:
-#       patch: '[{"op":"add","path":"/spec/additionalMongodConfig","value": { "net": {"ssl": {"mode": "disabled"}} }}]'
-#       file: test-tls-base-rs-require-ssl.yaml
-#       wait_until: in_running_state
-#       timeout: 200
-#     """
-#
-#     @skip_if_local()
-#     def test_mdb_is_reachable_with_no_ssl(self):
-#         ReplicaSetTester(mdb_resource, 3).assert_connectivity()
-#
-#     @skip_if_local()
-#     def test_mdb_is_not_reachable_with_ssl(self):
-#         ReplicaSetTester(mdb_resource, 3, ssl=True).assert_no_connection()
+class TestReplicaSetWithTLSDisabling(KubernetesTester):
+    """
+    name: check everything is in place
+    update:
+      patch: '[{ "op": "replace", "path":"/spec/security", "value": null }]'
+      file: test-tls-base-rs-require-ssl.yaml
+      wait_until: in_running_state
+      timeout: 200
+    """
+
+    @skip_if_local()
+    def test_mdb_is_reachable_with_no_ssl(self):
+        ReplicaSetTester(mdb_resource, 3).assert_connectivity()
+
+    @skip_if_local()
+    def test_mdb_is_not_reachable_with_ssl(self):
+        ReplicaSetTester(mdb_resource, 3, ssl=True).assert_no_connection()
+
 
 @pytest.mark.e2e_replica_set_tls_require_and_disable
 class TestReplicaSetWithTLSRemove(KubernetesTester):

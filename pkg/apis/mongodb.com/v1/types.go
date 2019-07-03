@@ -171,8 +171,9 @@ type TLSConfig struct {
 
 func (spec MongoDbSpec) GetTLSConfig() *TLSConfig {
 	if spec.Security == nil || spec.Security.TLSConfig == nil {
-		return nil
+		return &TLSConfig{}
 	}
+
 	return &TLSConfig{
 		Enabled: spec.Security.TLSConfig.Enabled,
 		Secret:  spec.Security.TLSConfig.Secret,
@@ -337,8 +338,6 @@ func (m *MongoDB) InitDefaults() {
 		newSecurity := newSecurity()
 		m.Spec.Security = &newSecurity
 	}
-
-	m.Spec.ensureAdditionalMongodConfig()
 }
 
 func (m *MongoDB) ObjectKey() client.ObjectKey {
@@ -467,31 +466,33 @@ func newMongoDbPodSpec() *MongoDbPodSpec {
 	}
 }
 
-// ensureAdditionalMongodConfig must be called during any MongoDB resource creation (either json demarshalling)
-// or direct creation
-// It makes sure the `AdditionalMongodConfig` contains correct state for TLS settings based on 'spec.Security.TLSConfig'
-func (spec MongoDbSpec) ensureAdditionalMongodConfig() {
+func (spec MongoDbSpec) GetTLSMode() SSLMode {
 	if spec.Security == nil || spec.Security.TLSConfig == nil || !spec.Security.TLSConfig.Enabled {
-		return
+		return DisabledSSLMode
 	}
 
-	// If we are at this stage this means that `spec.Security.TLSConfig.Enabled==true`
-	mode := RequireTLSMode
-	if spec.AdditionalMongodConfig != nil && spec.AdditionalMongodConfig.Net.SSL.Mode != "" {
-		// `additionalMongodConfig` overrides the 'spec.Security.TLSConfig.Enabled' if any
-		mode = spec.AdditionalMongodConfig.Net.SSL.Mode
+	if spec.AdditionalMongodConfig == nil {
+		return RequireSSLMode
 	}
 
-	// Make sure that people can use `requireSSL` & `requireTLS` indistinctly
+	return validModeOrDefault(spec.AdditionalMongodConfig.Net.SSL.Mode)
+}
+
+// validModeOrDefault returns a valid mode for the Net.SSL.Mode string
+func validModeOrDefault(mode SSLMode) SSLMode {
+	if mode == "" {
+		return RequireSSLMode
+	}
+
 	if mode == RequireTLSMode {
 		mode = RequireSSLMode
-	} else if mode == AllowTLSMode {
-		mode = AllowSSLMode
 	} else if mode == PreferTLSMode {
 		mode = PreferSSLMode
+	} else if mode == AllowTLSMode {
+		mode = AllowSSLMode
 	}
 
-	spec.AdditionalMongodConfig.Net.SSL.Mode = mode
+	return mode
 }
 
 // Returns an empty `AdditionalMongodConfig` object for marshalling/unmarshalling

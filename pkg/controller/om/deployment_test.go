@@ -456,8 +456,14 @@ func (b *MongoDBBuilder) SetMembers(m int) *MongoDBBuilder {
 	b.Spec.Members = m
 	return b
 }
+
 func (b *MongoDBBuilder) SetAdditionalConfig(c *mongodb.AdditionalMongodConfig) *MongoDBBuilder {
 	b.Spec.AdditionalMongodConfig = c
+	return b
+}
+
+func (b *MongoDBBuilder) SetSecurityTLSEnabled() *MongoDBBuilder {
+	b.Spec.Security = &mongodb.Security{TLSConfig: &mongodb.TLSConfig{Enabled: true}}
 	return b
 }
 

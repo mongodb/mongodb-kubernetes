@@ -301,9 +301,25 @@ class KubernetesTester(object):
 
     @staticmethod
     def update(section, namespace):
-        "patches custom object"
+        """
+        Updates the resource in the "file" section, applying the jsonpatch in "patch" section.
+
+        Python API client (patch_namespaced_custom_object) will send a "merge-patch+json" by default.
+        This means that the resulting objects, after the patch is the union of the old and new objects. The
+        patch can only change attributes or remove, but not delete, as it is the case with "json-patch+json"
+        requests. The json-patch+json requests are the ones used by `kubectl edit` and `kubectl patch`.
+
+        # TODO:
+        A fix for this has been merged already (https://github.com/kubernetes-client/python/issues/862). The
+        Kubernetes Python module should be updated when the client is regenerated (version 10.0.1 or so)
+        """
         resource = yaml.safe_load(open(fixture(section["file"])))
         name, kind, group, version, res_type = get_crd_meta(resource)
+
+        KubernetesTester.namespace = namespace
+        KubernetesTester.name = name
+        KubernetesTester.kind = kind
+
         patched = resource
         if "patch" in section:
             patch = jsonpatch.JsonPatch.from_string(section["patch"])

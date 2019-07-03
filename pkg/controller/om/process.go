@@ -94,35 +94,41 @@ func NewProcessFromInterface(i interface{}) Process {
 
 // NewMongosProcess
 func NewMongosProcess(name, hostName string, resource *mongodb.MongoDB) Process {
-	ans := Process{}
+	p := Process{}
 
-	initDefault(name, hostName, resource.Spec.Version, resource.Spec.FeatureCompatibilityVersion, ProcessTypeMongos, ans)
+	initDefault(name, hostName, resource.Spec.Version, resource.Spec.FeatureCompatibilityVersion, ProcessTypeMongos, p)
 
 	// default values for configurable values
-	ans.SetLogPath(path.Join(util.PvcMountPathLogs, "/mongodb.log"))
+	p.SetLogPath(path.Join(util.PvcMountPathLogs, "/mongodb.log"))
 
-	ans.configureAdditionalMongodConfig(resource.Spec.AdditionalMongodConfig)
-	ans.ConfigureClusterAuthMode(resource.Spec.Security.ClusterAuthMode)
+	if resource.Spec.GetTLSConfig().Enabled {
+		p.EnableTLS(resource.Spec.GetTLSMode())
+	}
 
-	return ans
+	p.ConfigureClusterAuthMode(resource.Spec.Security.ClusterAuthMode)
+
+	return p
 }
 
 // NewMongodProcess
 func NewMongodProcess(name, hostName string, resource *mongodb.MongoDB) Process {
-	ans := Process{}
+	p := Process{}
 
-	initDefault(name, hostName, resource.Spec.Version, resource.Spec.FeatureCompatibilityVersion, ProcessTypeMongod, ans)
+	initDefault(name, hostName, resource.Spec.Version, resource.Spec.FeatureCompatibilityVersion, ProcessTypeMongod, p)
 
 	// default values for configurable values
-	ans.SetDbPath("/data")
+	p.SetDbPath("/data")
 	// CLOUDP-33467: we put mongod logs to the same directory as AA/Monitoring/Backup ones to provide single mount point
 	// for all types of logs
-	ans.SetLogPath(path.Join(util.PvcMountPathLogs, "mongodb.log"))
+	p.SetLogPath(path.Join(util.PvcMountPathLogs, "mongodb.log"))
 
-	ans.configureAdditionalMongodConfig(resource.Spec.AdditionalMongodConfig)
-	ans.ConfigureClusterAuthMode(resource.Spec.Security.ClusterAuthMode)
+	if resource.Spec.GetTLSConfig().Enabled {
+		p.EnableTLS(resource.Spec.GetTLSMode())
+	}
 
-	return ans
+	p.ConfigureClusterAuthMode(resource.Spec.Security.ClusterAuthMode)
+
+	return p
 }
 
 // DeepCopy
@@ -291,28 +297,14 @@ func initDefault(name, hostName, processVersion string, featureCompatibilityVers
 	process.EnsureNetConfig()["port"] = util.MongoDbDefaultPort
 }
 
-// configureTLS sets the process's SSL configuration
-func (p Process) configureTLS(netConfig *mongodb.NetSpec) {
-	if netConfig == nil || netConfig.SSL.Mode == "" {
-		// SSL modes is flaged as "Enabled" when the `SSL.Mode` attribute is set to something
-		return
-	}
-
+// EnableTLS enable TLS for this process. TLS will be always enabled after calling this. This function expects
+// the value of "mode" to be an allowed ssl.mode from OM API perspective.
+func (p Process) EnableTLS(mode mongodb.SSLMode) {
 	// Initializing SSL configuration if it's necessary
 	sslConfig := p.EnsureSSLConfig()
 
-	sslConfig["mode"] = netConfig.SSL.Mode
+	sslConfig["mode"] = string(mode)
 	sslConfig["PEMKeyFile"] = util.PEMKeyFilePathInContainer
-}
-
-// configureAdditionalMongodConfig will configure additional parameters passed in the `additionalMongodConfig`
-// document in the spec.
-// Supported so far:
-// + additionalConfig.Net.SSL.Mode
-func (p Process) configureAdditionalMongodConfig(additionalConfig *mongodb.AdditionalMongodConfig) {
-	if additionalConfig != nil {
-		p.configureTLS(&additionalConfig.Net)
-	}
 }
 
 func calculateFeatureCompatibilityVersion(version string) string {

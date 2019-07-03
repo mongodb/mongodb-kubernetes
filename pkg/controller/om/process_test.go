@@ -52,16 +52,17 @@ func TestCreateMongodProcess_featureCompatibilityVersion(t *testing.T) {
 
 func TestConfigureSSL_Process(t *testing.T) {
 	process := Process{}
-	process.configureTLS(&mongodb.NetSpec{SSL: mongodb.SSLSpec{Mode: mongodb.RequireSSLMode}})
-	assert.Equal(t, map[string]interface{}{"mode": mongodb.RequireSSLMode, "PEMKeyFile": "/mongodb-automation/server.pem"}, process.SSLConfig())
+
+	process.EnableTLS(mongodb.RequireSSLMode)
+	assert.Equal(t, map[string]interface{}{"mode": string(mongodb.RequireSSLMode), "PEMKeyFile": "/mongodb-automation/server.pem"}, process.SSLConfig())
 
 	process = Process{}
-	process.configureTLS(&mongodb.NetSpec{SSL: mongodb.SSLSpec{Mode: ""}})
-	assert.Empty(t, process.SSLConfig())
+	process.EnableTLS("")
+	assert.Equal(t, map[string]interface{}{"mode": "", "PEMKeyFile": "/mongodb-automation/server.pem"}, process.SSLConfig())
 
 	process = Process{}
-	process.configureTLS(&mongodb.NetSpec{})
-	assert.Empty(t, process.SSLConfig())
+	process.EnableTLS(mongodb.DisabledSSLMode)
+	assert.Equal(t, map[string]interface{}{"mode": string(mongodb.DisabledSSLMode), "PEMKeyFile": "/mongodb-automation/server.pem"}, process.SSLConfig())
 }
 
 func TestConfigureX509_Process(t *testing.T) {
@@ -86,25 +87,32 @@ func TestConfigureX509_Process(t *testing.T) {
 
 func TestCreateMongodProcess_SSL(t *testing.T) {
 	additionalConfig := &mongodb.AdditionalMongodConfig{Net: mongodb.NetSpec{SSL: mongodb.SSLSpec{Mode: mongodb.PreferSSLMode}}}
+
 	mdb := DefaultMongoDB().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).Build()
 	process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdb)
+	assert.Empty(t, process.SSLConfig())
 
-	assert.Equal(t, map[string]interface{}{"mode": mongodb.PreferSSLMode, "PEMKeyFile": "/mongodb-automation/server.pem"}, process.SSLConfig())
+	mdb = DefaultMongoDB().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).SetSecurityTLSEnabled().Build()
+
+	process = NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdb)
+
+	assert.Equal(t, map[string]interface{}{"mode": string(mongodb.PreferSSLMode), "PEMKeyFile": "/mongodb-automation/server.pem"}, process.SSLConfig())
 }
 
 func TestCreateMongosProcess_SSL(t *testing.T) {
 	additionalConfig := &mongodb.AdditionalMongodConfig{Net: mongodb.NetSpec{SSL: mongodb.SSLSpec{Mode: mongodb.AllowSSLMode}}}
-	mdb := DefaultMongoDB().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).Build()
+	mdb := DefaultMongoDB().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).SetSecurityTLSEnabled().Build()
 	process := NewMongosProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdb)
 
-	assert.Equal(t, map[string]interface{}{"mode": mongodb.AllowSSLMode, "PEMKeyFile": "/mongodb-automation/server.pem"}, process.SSLConfig())
+	assert.Equal(t, map[string]interface{}{"mode": string(mongodb.AllowSSLMode), "PEMKeyFile": "/mongodb-automation/server.pem"}, process.SSLConfig())
 }
 
 // TestMergeMongodProcess_SSL verifies that merging for the process SSL settings keeps the Operator "owned" properties
 // and doesn't overwrite the other Ops Manager initiated configuration
 func TestMergeMongodProcess_SSL(t *testing.T) {
 	additionalConfig := &mongodb.AdditionalMongodConfig{Net: mongodb.NetSpec{SSL: mongodb.SSLSpec{Mode: mongodb.RequireSSLMode}}}
-	operatorMdb := DefaultMongoDB().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).Build()
+	operatorMdb := DefaultMongoDB().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).SetSecurityTLSEnabled().Build()
+
 	omMdb := DefaultMongoDB().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(&mongodb.AdditionalMongodConfig{}).Build()
 
 	operatorProcess := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", operatorMdb)
@@ -117,7 +125,7 @@ func TestMergeMongodProcess_SSL(t *testing.T) {
 	omProcess.mergeFrom(operatorProcess)
 
 	expectedSSLConfig := map[string]interface{}{
-		"mode":             mongodb.RequireSSLMode,
+		"mode":             string(mongodb.RequireSSLMode),
 		"PEMKeyFile":       "/mongodb-automation/server.pem",
 		"sslOnNormalPorts": "true",
 		"PEMKeyPassword":   "qwerty",
