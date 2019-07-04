@@ -21,3 +21,6 @@ helm_out
 .redo-last-namespace
 exports.do
 /Gopkg.lock
+
+public/support/*.gz
+public/support/logs*
