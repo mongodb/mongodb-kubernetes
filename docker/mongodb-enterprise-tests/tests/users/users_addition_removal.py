@@ -1,14 +1,11 @@
-
-import sys
-import os
 import pytest
-import time
 
-from kubetester.kubetester import KubernetesTester, build_list_of_hosts
+from kubetester.kubetester import KubernetesTester
 from kubetester.mongotester import ReplicaSetTester
 
 mdb_resource = "test-tls-upgrade"
 NUM_AGENTS = 2
+
 
 def get_cert_names(namespace, members=3, with_agent_certs=False):
     cert_names = [f"{mdb_resource}-{i}.{namespace}" for i in range(members)]
@@ -20,11 +17,13 @@ def get_cert_names(namespace, members=3, with_agent_certs=False):
         ]
     return cert_names
 
+
 def get_subjects(start, end):
     subjects = [f'CN=mms-user-{i},OU=cloud,O=MongoDB,L=New York,ST=New York,C=US' for i in range(start, end)]
     subjects.append("CN=mms-backup-agent,OU=MongoDB Kubernetes Operator,O=mms-backup-agent,L=NY,ST=NY,C=US")
     subjects.append("CN=mms-monitoring-agent,OU=MongoDB Kubernetes Operator,O=mms-monitoring-agent,L=NY,ST=NY,C=US")
     return subjects
+
 
 @pytest.mark.e2e_tls_x509_users_addition_removal
 class TestReplicaSetWithNoTLSCreation(KubernetesTester):
@@ -69,11 +68,11 @@ class TestReplicaSetWithTLSRunning(KubernetesTester):
     def setup(self):
         for cert in self.yield_existing_csrs(get_cert_names(self.namespace, with_agent_certs=True)):
             self.approve_certificate(cert)
-        KubernetesTester.wait_until('in_running_state', 240)
+        KubernetesTester.wait_until('in_running_state')
 
     def test_noop(self):
-      pass
-    
+        pass
+
 
 @pytest.mark.e2e_tls_x509_users_addition_removal
 class TestMultipleUsersAreAdded(KubernetesTester):

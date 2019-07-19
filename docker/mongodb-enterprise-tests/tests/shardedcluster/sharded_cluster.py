@@ -49,7 +49,7 @@ class TestShardedClusterUpdate(KubernetesTester):
     """
     name: Sharded Cluster Base Creation
     description: |
-      Scales a Sharded Cluster from 2 to 3 Shards
+      Scales a Sharded Cluster from 1 to 2 Shards
     update:
       file: sharded-cluster.yaml
       patch: '[{"op":"replace","path":"/spec/shardCount","value":2}]'

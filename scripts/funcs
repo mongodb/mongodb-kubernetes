@@ -280,37 +280,33 @@ redeploy_operator() {
     check_app "helm" "helm is not installed, run 'make prerequisites' to install all necessary software"
     check_app "timeout" "coreutils is not installed, call \"brew install coreutils\""
 
+    tmp_file=$(mktemp)
     helm template public/helm_chart \
-            --set registry.repository="${url}"  \
-            --set registry.pullPolicy="${pull_policy}" \
-            --set operator.env=dev  \
-            --set operator.version="${version}"  \
-            --set operator.watchNamespace="${watch_namespace}" \
-            --set operator.name="${OPERATOR_NAME:=mongodb-enterprise-operator}" \
-            --set database.name="${DATABASE_NAME:=mongodb-enterprise-database}" \
-            --set namespace="${ns}"  \
-            --set managedSecurityContext="${managed_security_context}" \
-            --set debug="${DEBUG-}" \
-            --set debugPort="${DEBUG_PORT:-30042}" \
-            > my-operator.yaml
+         --set registry.repository="${url}" \
+         --set registry.pullPolicy="${pull_policy}" \
+         --set operator.env=dev \
+         --set operator.version="${version}" \
+         --set operator.watchNamespace="${watch_namespace}" \
+         --set operator.name="${OPERATOR_NAME:=mongodb-enterprise-operator}" \
+         --set database.name="${DATABASE_NAME:=mongodb-enterprise-database}" \
+         --set namespace="${ns}" \
+         --set managedSecurityContext="${managed_security_context}" \
+         --set debug="${DEBUG-}" \
+         --set debugPort="${DEBUG_PORT:-30042}" \
+         > "${tmp_file}"
 
-    # note that we don't remove all objects from file as it contains CRDs as well (and they will be blocked if there are
-    # existing mongodb resources)
+    kubectl apply -f "${tmp_file}"
+    rm "${tmp_file}"
 
-    if [[ "${OPERATOR_UPGRADE_IN_PROGRESS-}" != "true" ]]; then
-        kubectl delete deployment ${OPERATOR_NAME} &> /dev/null || true
-    else
-        echo "Not removing operator before install as this is an upgrade operation."
+    if [[ "${OPERATOR_UPGRADE_IN_PROGRESS-}" = "stage2" ]]; then
+        echo "Doing Upgrade stage 2, need to wait for the new operator to start."
+        echo "Forcing 30 seconds to make sure the *new* operator has started and we are not looking for the original one."
+        sleep 30
     fi
-
-    kubectl apply -f my-operator.yaml
-
-    rm my-operator.yaml
-
     echo "Waiting until the Operator gets to Running state..."
 
     export OPERATOR_NAME
-    timeout ${timeout} bash -c \
+    timeout "${timeout}" bash -c \
         'while ! kubectl -n '"${ns}"' get pods -l app=${OPERATOR_NAME} -o jsonpath="{.items[0].status.phase}" | grep -q "Running" ; do printf .; sleep 1; done' || true
 
     # In the end let's check again and print the state
@@ -323,11 +319,11 @@ redeploy_operator() {
     fi
     echo ""
 
-    if ! [[ $(kubectl -n "${ns}" get crds | grep mongodb.mongodb.com) ]]; then
-        echo "mongodb.mongodb.com not found"
-        kubectl get crd -n ${ns}
-        exit 1
-    fi
+    # if ! kubectl -n "${ns}" get crds | grep -q mongodb.mongodb.com ; then
+    #     echo "mongodb.mongodb.com not found"
+    #     kubectl get crd
+    #     exit 1
+    # fi
 
     title "The Operator successfully installed to the Kubernetes cluster"
 }

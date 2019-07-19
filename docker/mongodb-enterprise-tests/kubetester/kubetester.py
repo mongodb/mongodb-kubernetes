@@ -411,12 +411,29 @@ class KubernetesTester(object):
         if 'status' not in resource:
             return False
         phase = resource['status']['phase']
+
+        intermediate_events = (
+            # In this case the operator will be waiting for the StatefulSet to be in full running state
+            # which under some circumstances, might not be the case if, for instance, there are too many
+            # pods to start, which will be concluded after a few reconciliation passes.
+            "Statefulset or its pods failed to reach READY state",
+            # After agents have been installed, they might have not finished or reached goal state yet.
+            "haven't reached READY"
+        )
+
         if phase == "Failed":
             msg = resource['status']['message']
             # Sometimes (for sharded cluster for example) the Automation agents don't get on time - we
             # should survive this
-            if "haven't reached READY" not in msg:
+
+            found = False
+            for event in intermediate_events:
+                if event in msg:
+                    found = True
+
+            if not found:
                 raise AssertionError('Got into Failed phase while waiting for Running! ("{}")'.format(msg))
+
         return phase == "Running"
 
     @staticmethod

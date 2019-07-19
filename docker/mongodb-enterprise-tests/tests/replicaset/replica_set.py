@@ -645,7 +645,6 @@ class TestReplicaSetDelete(KubernetesTester):
     delete:
       file: replica-set.yaml
       wait_until: mongo_resource_deleted
-      timeout: 120
     '''
 
     def test_replica_set_sts_doesnt_exist(self):

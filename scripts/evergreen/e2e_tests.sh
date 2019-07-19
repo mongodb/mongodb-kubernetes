@@ -10,7 +10,7 @@ cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 source scripts/funcs
 
 
-if [ ! -z "${STATIC_NAMESPACE-}" ]; then
+if [ -n "${STATIC_NAMESPACE-}" ]; then
     PROJECT_NAMESPACE=${STATIC_NAMESPACE}
 elif [ -z "${PROJECT_NAMESPACE-}" ]; then
     PROJECT_NAMESPACE=$(generate_random_namespace)
@@ -71,7 +71,7 @@ configure_operator() {
         return
     fi
 
-    if [ ! -z "${OM_BASE_URL-}" ]; then
+    if [ -n "${OM_BASE_URL-}" ]; then
       BASE_URL="${OM_BASE_URL}"
     else
       BASE_URL="http://ops-manager.${OPS_MANAGER_NAMESPACE:-}.svc.cluster.local:8080"
@@ -177,7 +177,7 @@ test_app_ended() {
 
 wait_while_pod_is_active() {
     timeout=${1}
-    timeout ${timeout} bash -c \
+    timeout "${timeout}" bash -c \
         'while kubectl -n '"${PROJECT_NAMESPACE}"' get pod '"${TEST_APP_PODNAME}"' -o jsonpath="{.status.phase}" | grep -q "Running" ; do sleep 1; done' || true
 }
 
@@ -243,17 +243,14 @@ initialize() {
         title "More info: https://master.openshift-cluster.mongokubernetes.com:8443/console/project/${PROJECT_NAMESPACE}"
     fi
 
+    fix_taints
+
     # Make sure we use VERSION_ID if it is defined.
     if [[ -n "${VERSION_ID-}" ]]; then
         REVISION="${VERSION_ID}"
     fi
     export REVISION
 }
-
-finalizer() {
-    echo "*** Finalizer called"
-}
-trap finalizer SIGHUP SIGTERM
 
 # sometimes in kops cluster some nodes get this taint that makes nodes non-schedulable. Just going over all nodes and
 # trying to remove the taint is supposed to help
@@ -268,8 +265,6 @@ fix_taints() {
 initialize
 
 if [[ "${MODE-}" != "dev" ]]; then
-    fix_taints
-
     if [ -n "${CURRENT_VERSION-}" ]; then
         REVISION="${CURRENT_VERSION}"
     fi

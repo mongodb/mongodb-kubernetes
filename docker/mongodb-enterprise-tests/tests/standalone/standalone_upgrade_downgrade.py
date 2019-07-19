@@ -15,10 +15,10 @@ class TestStandaloneUpgradeDowngradeCreate(KubernetesTester):
       timeout: 100
     '''
 
-
     def test_db_connectable(self):
         mongod_tester = StandaloneTester("my-standalone-downgrade")
         mongod_tester.assert_version("3.6.12")
+
 
 @pytest.mark.e2e_standalone_upgrade_downgrade
 class TestStandaloneUpgradeDowngradeUpdate(KubernetesTester):
@@ -36,6 +36,7 @@ class TestStandaloneUpgradeDowngradeUpdate(KubernetesTester):
     def test_db_connectable(self):
         mongod_tester = StandaloneTester("my-standalone-downgrade")
         mongod_tester.assert_version("4.0.3")
+
 
 @pytest.mark.e2e_standalone_upgrade_downgrade
 class TestStandaloneUpgradeDowngradeRevert(KubernetesTester):

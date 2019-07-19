@@ -13,14 +13,13 @@ class TestStandaloneRecoversBadOmConfiguration(KubernetesTester):
       Creates a standalone with a bad OM connection (ConfigMap is broken) and ensures it enters a failed state |
       Then the config map is fixed and the standalone is expected to reach good state eventually
     '''
-    @classmethod
-    def setup_env(cls):
+    def test_standalone_reaches_failed_state(self):
         config_map = V1ConfigMap(data={"baseUrl": "http://foo.bar"})
-        cls.clients("corev1").patch_namespaced_config_map("my-project", cls.get_namespace(), config_map)
+        KubernetesTester.clients("corev1").patch_namespaced_config_map("my-project", KubernetesTester.get_namespace(), config_map)
 
         resource = yaml.safe_load(open(fixture("standalone.yaml")))
 
-        cls.create_mongodb_from_object(cls.get_namespace(), resource)
+        KubernetesTester.create_mongodb_from_object(KubernetesTester.get_namespace(), resource)
 
         KubernetesTester.wait_until('in_error_state', 20)
         mrs = KubernetesTester.get_resource()
@@ -30,4 +29,4 @@ class TestStandaloneRecoversBadOmConfiguration(KubernetesTester):
         config_map = V1ConfigMap(data={"baseUrl": KubernetesTester.get_om_base_url()})
         KubernetesTester.clients("corev1").patch_namespaced_config_map("my-project", KubernetesTester.get_namespace(), config_map)
 
-        KubernetesTester.wait_until('in_running_state_failures_possible', 80)
+        KubernetesTester.wait_until('in_running_state_failures_possible', 120)

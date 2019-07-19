@@ -314,7 +314,7 @@ func calculateFeatureCompatibilityVersion(version string) string {
 		return ""
 	}
 
-	baseVersion, _ := semver.Make("3.2.0")
+	baseVersion, _ := semver.Make("3.4.0")
 	if v1.GTE(baseVersion) {
 		ans, _ := util.MajorMinorVersion(version)
 		return ans
@@ -325,14 +325,20 @@ func calculateFeatureCompatibilityVersion(version string) string {
 
 // see https://github.com/10gen/ops-manager-kubernetes/pull/68#issuecomment-397247337
 func calculateAuthSchemaVersion(version string) int {
-	compare, err := util.CompareVersions(version, "3.0.0")
-	ans := 5
+	v, err := semver.Make(version)
 	if err != nil {
 		zap.S().Warnf("Failed to parse version %s: %s", version, err)
-	} else if compare < 0 {
-		ans = 3
+		return 5
 	}
-	return ans
+
+	baseVersion, _ := semver.Make("3.0.0")
+	if v.GTE(baseVersion) {
+		// Version >= 3.0
+		return 5
+	}
+
+	// Version 2.6
+	return 3
 }
 
 // mergeFrom merges the Operator version of process ('operatorProcess') into OM one ('p').

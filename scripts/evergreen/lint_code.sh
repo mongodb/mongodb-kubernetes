@@ -18,13 +18,10 @@ else
     echo "goimports is already installed"
 fi
 
-exit_code=0
-
 # ensure all code has been formatted with goimports
 if [[ "$($GOPATH/bin/goimports -l ./pkg/controller ./pkg/util ./pkg/apis main.go)" ]]; then
     echo "ERROR: Not all code has been formatted with goimports."
     echo "Run: goimports -w ./pkg/controller ./pkg/util ./pkg/apis main.go"
-    exit_code=1
 fi
 
 
@@ -35,9 +32,4 @@ github.com/10gen/ops-manager-kubernetes/pkg/client/"
 echo "Go Version: $(go version)"
 
 # ensure there are no warnings detected with go vet
-if ! go vet $(go list ./... | grep -Fv "$vet_exclusions") ; then
-  echo "ERROR: Failed go vet check"
-  exit_code=1
-fi
-
-exit ${exit_code}
+go vet $(go list ./... | grep -Fv "$vet_exclusions")

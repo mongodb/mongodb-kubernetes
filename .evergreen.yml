@@ -654,12 +654,12 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_pv
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
@@ -669,7 +669,7 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_secret
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
@@ -694,12 +694,12 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_replica_set_upgrade_downgrade
-  exec_timeout_secs: 600
+  exec_timeout_secs: 900
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_upgrade_downgrade
-  exec_timeout_secs: 600
+  exec_timeout_secs: 900
   commands:
     - func: "e2e_test"
 
@@ -719,33 +719,33 @@ tasks:
   - func: "e2e_test"
 
 - name: e2e_replica_set_tls_require
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
 - name: e2e_replica_set_tls_require_and_disable
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
 - name: e2e_tls_multiple_different_ssl_configs
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
 - name: e2e_replica_set_tls_require_upgrade
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
 - name: e2e_sharded_cluster_tls_require
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
 - name: e2e_tls_x509_rs
   # longer timeout than usual as this test tests recovery from bad states which can take some time
-  exec_timeout_secs: 900
+  exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 

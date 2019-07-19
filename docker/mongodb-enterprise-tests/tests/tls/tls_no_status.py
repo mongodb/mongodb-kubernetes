@@ -12,7 +12,7 @@ class TestStandaloneWithNoTLS(KubernetesTester):
     create:
       file: test-no-tls-no-status.yaml
       wait_until: in_running_state
-      timeout: 180
+      timeout: 240
     """
 
     def test_mdb_resource_status_is_correct(self):
@@ -32,7 +32,6 @@ class TestStandaloneWithNoTLSDeletion(KubernetesTester):
     delete:
       file: test-no-tls-no-status.yaml
       wait_until: mongo_resource_deleted
-      timeout: 180
     """
 
     def test_deletion(self):

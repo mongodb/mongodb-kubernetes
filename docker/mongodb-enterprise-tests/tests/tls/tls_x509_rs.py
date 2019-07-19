@@ -76,7 +76,7 @@ class TestsReplicaSetWithX509ClusterAuthentication(KubernetesTester):
     def setup(self):
         for cert in self.yield_existing_csrs(get_rs_cert_names(mdb_resource, self.get_namespace(), with_internal_auth_certs=True)):
             self.approve_certificate(cert)
-        KubernetesTester.wait_until('in_running_state', 240)
+        KubernetesTester.wait_until('in_running_state', 360)
 
     def test_x509_enabled(self):
         mdb = self.get_resource()

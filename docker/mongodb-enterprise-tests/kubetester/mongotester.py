@@ -26,9 +26,19 @@ class MongoTester:
 
         self.client = pymongo.MongoClient(connection_string, **options)
 
-    def assert_connectivity(self):
+    def assert_connectivity(self, attempts: int = 5):
         """ Trivial check to make sure mongod is alive """
-        self.client.admin.command("ismaster")
+        assert attempts > 0
+        while True:
+            attempts -= 1
+            try:
+                self.client.admin.command("ismaster")
+            except ServerSelectionTimeoutError:
+                if attempts == 0:
+                    raise
+                time.sleep(5)
+            else:
+                break
 
     def assert_no_connection(self):
         try:
@@ -82,9 +92,9 @@ class ReplicaSetTester(MongoTester):
 
         super().__init__(cnx_string, ssl)
 
-    def assert_connectivity(self, wait_for=60, check_every=5, with_srv=False):
+    def assert_connectivity(self, wait_for=60, check_every=5, with_srv=False, attempts: int = 5):
         """ For replica sets in addition to is_master() we need to make sure all replicas are up """
-        super().assert_connectivity()
+        super().assert_connectivity(attempts=attempts)
 
         check_times = wait_for // check_every
 

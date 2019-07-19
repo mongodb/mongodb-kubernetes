@@ -80,7 +80,6 @@ class TestShardedClusterDeletion(KubernetesTester):
     delete:
       file: sharded-cluster-pv.yaml
       wait_until: mongo_resource_deleted
-      timeout: 250
     """
 
     def test_sharded_cluster_doesnt_exist(self):

@@ -1,6 +1,6 @@
 import pytest
 
-from kubetester.kubetester import KubernetesTester, skip_if_local, build_list_of_hosts
+from kubetester.kubetester import KubernetesTester, skip_if_local
 from kubernetes import client
 from kubetester.mongotester import ReplicaSetTester
 
@@ -26,6 +26,7 @@ class TestReplicaSetWithTLSCreation(KubernetesTester):
 
     def test_mdb_resource_status_is_pending(self):
         assert KubernetesTester.get_resource()['status']['phase'] == "Pending"
+
 
 @pytest.mark.e2e_replica_set_tls_allow
 class TestReplicaSetWithTLSCreationApproval(KubernetesTester):
@@ -56,7 +57,6 @@ class TestReplicaSetWithTLSCreationRunning(KubernetesTester):
         mongo_tester = ReplicaSetTester(mdb_resource, 3)
         mongo_tester.assert_connectivity()
 
-
     @skip_if_local()
     def test_mdb_is_reachable_with_ssl(self):
         mongo_tester = ReplicaSetTester(mdb_resource, 3, ssl=True)
@@ -70,7 +70,6 @@ class TestReplicaSetWithTLSCreationRemove(KubernetesTester):
     delete:
       file: test-tls-base-rs-allow-ssl.yaml
       wait_until: mongo_resource_deleted
-      timeout: 120
     """
 
     def setup(self):

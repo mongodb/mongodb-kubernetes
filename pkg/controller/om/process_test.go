@@ -40,7 +40,7 @@ func TestCreateMongodProcess_featureCompatibilityVersion(t *testing.T) {
 	assert.Equal(t, "", process.featureCompatibilityVersion())
 
 	process = NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", DefaultMongoDBVersioned("3.2.0"))
-	assert.Equal(t, "3.2", process.featureCompatibilityVersion())
+	assert.Equal(t, "", process.featureCompatibilityVersion())
 
 	process = NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", DefaultMongoDBVersioned("aaa"))
 	assert.Equal(t, "", process.featureCompatibilityVersion())
