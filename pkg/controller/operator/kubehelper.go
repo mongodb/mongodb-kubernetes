@@ -58,6 +58,8 @@ type ProjectConfig struct {
 	// +optional
 	AuthMode string
 	// +optional
+	UseCustomCA bool
+	// +optional
 	SSLProjectConfig
 }
 
@@ -228,7 +230,7 @@ func (s *StatefulSetHelper) CreateOrUpdateInKubernetes() error {
 // getDNSNamesForStatefulSet Returns a list of hostnames and names for the N Pods that are part of this StatefulSet
 // The `fqdns` refer to the FQDN names of the Pods, that makes them reachable and distinguishable at cluster level.
 // The `names` array refers to the hostname of each Pod.
-func (s *StatefulSetHelper) getDNSNames() (fqdns []string, names []string) {
+func (s *StatefulSetHelper) getDNSNames() ([]string, []string) {
 	var members int
 
 	if s.ResourceType == mongodb.Standalone {
@@ -433,6 +435,12 @@ func (k *KubeHelper) readProjectConfig(defaultNamespace, name string) (*ProjectC
 		}
 	}
 
+	var useCustomCA bool
+	useCustomCAData, ok := data[util.UseCustomCAConfigMap]
+	if ok {
+		useCustomCA = useCustomCAData != "false"
+	}
+
 	return &ProjectConfig{
 		BaseURL:     baseURL,
 		ProjectName: projectName,
@@ -460,6 +468,8 @@ func (k *KubeHelper) readProjectConfig(defaultNamespace, name string) (*ProjectC
 
 		AuthMode:    data[util.OmAuthMode],
 		Credentials: data[util.OmCredentials],
+
+		UseCustomCA: useCustomCA,
 	}, nil
 }
 
@@ -570,28 +580,27 @@ func (k *KubeHelper) ensureSSLCertsForStatefulSet(ss *StatefulSetHelper, log *za
 	certsNeedApproval := false
 	secretName := ss.Name + "-cert"
 
-	if ss.Security.TLSConfig.Secret != "" {
+	if ss.Security.TLSConfig.CA != "" {
+
 		// A "Certs" attribute has been provided
 		// This means that the customer has provided with a secret name they have
 		// already populated with the certs and keys for this deployment.
 		// Because of the async nature of Kubernetes, this object might not be ready yet,
 		// in which case, we'll keep reconciling until the object is created and is correct.
-		if notReadyCerts := k.verifyCertificatesForStatefulSet(ss, ss.Security.TLSConfig.Secret); notReadyCerts > 0 {
+		if notReadyCerts := k.verifyCertificatesForStatefulSet(ss, secretName); notReadyCerts > 0 {
 			return failed("The secret object '%s' does not contain all the certificates needed."+
-				"Required: %d, contains: %d", ss.Security.TLSConfig.Secret,
+				"Required: %d, contains: %d", secretName,
 				ss.Replicas,
 				ss.Replicas-notReadyCerts,
 			)
 		}
 
-		// Validates that the secret is valid
-		if err := k.validateCertficate(secretName, ss.Namespace, false); err != nil {
+		if err := k.validateCertificates(secretName, ss.Namespace, false); err != nil {
 			return failedErr(err)
 		}
-	} else {
 
-		// Validates that the secret is valid, and removes it if it is not
-		if err := k.validateCertficate(secretName, ss.Namespace, true); err != nil {
+	} else {
+		if err := k.validateCertificates(secretName, ss.Namespace, true); err != nil {
 			return failedErr(err)
 		}
 
@@ -656,14 +665,14 @@ func (k *KubeHelper) ensureSSLCertsForStatefulSet(ss *StatefulSetHelper, log *za
 }
 
 // validateCertificate verifies the Secret containing the certificates and the keys is valid.
-func (k *KubeHelper) validateCertficate(name, namespace string, destroy bool) error {
+func (k *KubeHelper) validateCertificates(name, namespace string, destroy bool) error {
 	secret := &corev1.Secret{}
 	err := k.client.Get(context.TODO(), objectKey(namespace, name), secret)
 	if err == nil {
 		// Validate that the secret contains the keys, if it contains the certs.
 		for _, value := range secret.Data {
 			pemFile := newPemFileFromData(value)
-			if !pemFile.validate() {
+			if !pemFile.isValid() {
 				// if this is an invalid secret (it does not have a key), remove the
 				// secret and start from scratch
 				if destroy {
@@ -714,11 +723,14 @@ func (k *KubeHelper) verifyCertificatesForStatefulSet(ss *StatefulSetHelper, sec
 	certsNotReady := 0
 
 	for _, pod := range podnames {
-		certEntry := fmt.Sprintf("%s-cert", pod)
-		keyEntry := fmt.Sprintf("%s-key", pod)
-		_, certExist := secret.Data[certEntry]
-		_, keyExist := secret.Data[keyEntry]
-		if !certExist || !keyExist {
+		pem := fmt.Sprintf("%s-pem", pod)
+		data, ok := secret.Data[pem]
+		if ok {
+			pemFile := newPemFileFromData(data)
+			if !pemFile.isComplete() {
+				certsNotReady++
+			}
+		} else {
 			certsNotReady++
 		}
 	}

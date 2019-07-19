@@ -140,8 +140,10 @@ func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
 	spec := v1.MongoDbSpec{
 		Version:    "4.0.0",
 		Persistent: util.BooleanRef(false),
-		ConnectionSpec: v1.ConnectionSpec{Project: TestProjectConfigMapName,
-			Credentials: TestCredentialsSecretName},
+		ConnectionSpec: v1.ConnectionSpec{
+			Project:     TestProjectConfigMapName,
+			Credentials: TestCredentialsSecretName,
+		},
 		ResourceType: v1.ReplicaSet,
 		Members:      3,
 		Security:     &v1.Security{TLSConfig: &v1.TLSConfig{}},
@@ -181,7 +183,6 @@ func (b *ReplicaSetBuilder) EnableTLS() *ReplicaSetBuilder {
 		b.SetSecurity(v1.Security{TLSConfig: &v1.TLSConfig{}})
 	}
 	b.Spec.Security.TLSConfig.Enabled = true
-	b.Spec.Security.TLSConfig.Secret = TestCredentialsSecretName
 	return b
 }
 

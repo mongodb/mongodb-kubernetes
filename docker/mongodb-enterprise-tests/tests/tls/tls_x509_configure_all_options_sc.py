@@ -1,10 +1,10 @@
 import pytest
-from kubernetes import client
-from kubetester.kubetester import KubernetesTester, build_list_of_hosts
-from kubetester.mongotester import ShardedClusterTester
+
+from kubetester.kubetester import KubernetesTester
 from kubetester.omtester import get_sc_cert_names, get_agent_cert_names
 
 mdb_resource = "test-x509-all-options-sc"
+
 
 @pytest.mark.e2e_tls_x509_configure_all_options_sc
 class TestShardedClusterEnableX509(KubernetesTester):
@@ -29,10 +29,8 @@ class TestShardedClusterEnableAllOptions(KubernetesTester):
     def test_approve_certs(self):
         for cert in self.yield_existing_csrs(get_sc_cert_names(mdb_resource, self.namespace, with_internal_auth_certs=True)):
             self.approve_certificate(cert)
-            
+
     # TODO: use /mongodb-automation/server.pem but doesn't exist on test pod
     # def test_mdb_is_reachable_with_no_ssl(self):
     #     mongo_tester = ShardedClusterTester(mdb_resource, 2, ssl=True)
     #     mongo_tester.assert_connectivity()
-
-

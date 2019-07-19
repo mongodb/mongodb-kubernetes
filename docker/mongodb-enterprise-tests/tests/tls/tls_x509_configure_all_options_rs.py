@@ -1,7 +1,6 @@
 import pytest
-from kubernetes import client
-from kubetester.kubetester import KubernetesTester, build_list_of_hosts
-from kubetester.mongotester import ReplicaSetTester
+
+from kubetester.kubetester import KubernetesTester
 from kubetester.omtester import get_agent_cert_names, get_rs_cert_names
 
 mdb_resource = "test-x509-all-options-rs"
@@ -37,5 +36,3 @@ class TestReplicaSetEnableAllOptions(KubernetesTester):
     # def test_mdb_is_reachable(self):
     #     mongo_tester = ReplicaSetTester(mdb_resource, 3, ssl=True)
     #     mongo_tester.assert_connectivity()
-
-

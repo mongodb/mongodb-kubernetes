@@ -353,28 +353,28 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHe
 	certsNeedApproval := false
 	secretName := toInternalClusterAuthName(ss.Name) // my-replica-set-clusterfile
 
-	if ss.Security.TLSConfig.Secret != "" {
+	if ss.Security.TLSConfig.CA != "" {
 		// A "Certs" attribute has been provided
 		// This means that the customer has provided with a secret name they have
 		// already populated with the certs and keys for this deployment.
 		// Because of the async nature of Kubernetes, this object might not be ready yet,
 		// in which case, we'll keep reconciling until the object is created and is correct.
-		if notReadyCerts := k.verifyCertificatesForStatefulSet(ss, ss.Security.TLSConfig.Secret); notReadyCerts > 0 {
+		if notReadyCerts := k.verifyCertificatesForStatefulSet(ss, secretName); notReadyCerts > 0 {
 			return false, fmt.Errorf("The secret object '%s' does not contain all the certificates needed."+
-				"Required: %d, contains: %d", ss.Security.TLSConfig.Secret,
+				"Required: %d, contains: %d", secretName,
 				ss.Replicas,
 				ss.Replicas-notReadyCerts,
 			)
 		}
 
 		// Validates that the secret is valid
-		if err := k.validateCertficate(secretName, ss.Namespace, false); err != nil {
+		if err := k.validateCertificates(secretName, ss.Namespace, false); err != nil {
 			return false, err
 		}
 	} else {
 
 		// Validates that the secret is valid, and removes it if it is not
-		if err := k.validateCertficate(secretName, ss.Namespace, true); err != nil {
+		if err := k.validateCertificates(secretName, ss.Namespace, true); err != nil {
 			return false, err
 		}
 

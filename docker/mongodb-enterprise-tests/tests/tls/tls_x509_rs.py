@@ -1,11 +1,10 @@
-import time
-
 import pytest
 from kubernetes import client
 from kubetester.kubetester import KubernetesTester, build_list_of_hosts
 from kubetester.omtester import get_rs_cert_names
 
 mdb_resource = "test-tls-upgrade"
+
 
 @pytest.mark.e2e_tls_x509_rs
 class TestReplicaSetWithNoTLSCreation(KubernetesTester):
@@ -47,6 +46,7 @@ class TestReplicaSetUpgradeToTLSWithX509Project(KubernetesTester):
 
     def test_mdb_resource_status_is_correct(self):
         assert True
+
 
 @pytest.mark.e2e_tls_x509_rs
 class TestReplicaSetWithTLSRunning(KubernetesTester):
@@ -141,7 +141,6 @@ class TestReplicaSetWithoutTLSAgain(KubernetesTester):
     def test_mdb_is_reachable_with_no_ssl(self):
         hosts = build_list_of_hosts(mdb_resource, self.namespace, 3)
         primary, secondaries = self.wait_for_rs_is_ready(hosts, wait_for=120)
-
 
         assert primary is not None
         assert len(secondaries) == 2

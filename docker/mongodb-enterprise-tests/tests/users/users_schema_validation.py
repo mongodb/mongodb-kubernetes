@@ -1,9 +1,7 @@
-
-import sys
-import os
 import pytest
 
 from kubetester.kubetester import KubernetesTester
+
 
 @pytest.mark.e2e_users_schema_validation
 class TestUsersSchemaValidationDbNotExternal(KubernetesTester):
@@ -18,6 +16,7 @@ class TestUsersSchemaValidationDbNotExternal(KubernetesTester):
     def test_validation_ok(self):
         assert True
 
+
 @pytest.mark.e2e_users_schema_validation
 class TestUsersSchemaValidationNoProject(KubernetesTester):
     """
@@ -30,6 +29,7 @@ class TestUsersSchemaValidationNoProject(KubernetesTester):
 
     def test_validation_ok(self):
         assert True
+
 
 @pytest.mark.e2e_users_schema_validation
 class TestUsersSchemaValidationUserName(KubernetesTester):
@@ -44,6 +44,7 @@ class TestUsersSchemaValidationUserName(KubernetesTester):
     def test_validation_ok(self):
         assert True
 
+
 @pytest.mark.e2e_users_schema_validation
 class TestUsersSchemaValidationRoleName(KubernetesTester):
     """
@@ -56,6 +57,7 @@ class TestUsersSchemaValidationRoleName(KubernetesTester):
 
     def test_validation_ok(self):
         assert True
+
 
 @pytest.mark.e2e_users_schema_validation
 class TestUsersSchemaValidationRoleDb(KubernetesTester):

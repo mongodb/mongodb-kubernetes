@@ -317,7 +317,7 @@ functions:
       shell: bash
       script: |
         echo "Configuring Cloud Manager QA"
-        if echo "${build_variant}" | grep -Eq "cloud_qa|multiple_namespace"; then
+        if echo "${build_variant}" | grep -Eq "cloud_qa|multiple_namespace|openshift_rhel_prebuilt_images"; then
           echo "export OM_BASE_URL=${e2e_cloud_qa_baseurl}"      > ${workdir}/.ops-manager-env
           echo "export OM_USER=${e2e_cloud_qa_user}"            >> ${workdir}/.ops-manager-env
           echo "export OM_API_KEY=${e2e_cloud_qa_apikey}"       >> ${workdir}/.ops-manager-env
@@ -495,7 +495,8 @@ tasks:
   tags: ["release_operator_rhel"]
   patch_only: true
   commands:
-    - func: "build_rhel_images"
+    - func: clone
+    - func: build_rhel_images
 
 - name: build_operator_rhel_connect
   tags: ["build_operator_rhel"]
@@ -554,6 +555,7 @@ tasks:
     - func: clone
     - func: setup_aws
     - func: setup_kubectl
+    - func: setup_jq
     - func: prepare_test_env
       vars:
         <<: *ops_manager_40_first
@@ -723,6 +725,21 @@ tasks:
   commands:
   - func: "e2e_test"
 
+- name: e2e_replica_set_tls_require_custom_ca
+  exec_timeout_secs: 1200
+  commands:
+  - func: "e2e_test"
+
+- name: e2e_sharded_cluster_tls_require_custom_ca
+  exec_timeout_secs: 1200
+  commands:
+  - func: "e2e_test"
+
+- name: e2e_tls_x509_sc_custom_ca
+  exec_timeout_secs: 1200
+  commands:
+  - func: "e2e_test"
+
 - name: e2e_replica_set_tls_require_and_disable
   exec_timeout_secs: 1200
   commands:
@@ -832,6 +849,18 @@ task_groups:
   teardown_task:
     - func: "upload_e2e_logs"
 
+- name: e2e_tls_custom_ca_task_group
+  max_hosts: 3
+  setup_group:
+    - func: "clone"
+    - func: "setup_kubectl"
+  tasks:
+    - e2e_replica_set_tls_require_custom_ca
+    - e2e_sharded_cluster_tls_require_custom_ca
+    - e2e_tls_x509_sc_custom_ca
+  teardown_task:
+    - func: "upload_e2e_logs"
+
 - name: e2e_core_others_task_group
   max_hosts: 1
   setup_group:
@@ -937,6 +966,7 @@ buildvariants:
   - name: "e2e_tls_task_group"
   - name: "e2e_x509_task_group"
   - name: "e2e_core_others_task_group"
+  - name: e2e_tls_custom_ca_task_group
 
 - name: e2e_openshift_cloud_qa
   display_name: "e2e_openshift_cloud_qa"
@@ -952,6 +982,7 @@ buildvariants:
   - name: "e2e_core_task_group"
   - name: "e2e_tls_task_group"
   - name: "e2e_x509_task_group"
+  - name: e2e_tls_custom_ca_task_group
 
 # any subsequent tasks being executed in this build variant should depend upon the previously
 # executed task in order to prevent interference

@@ -25,10 +25,17 @@ const (
 
 	// SecretVolumeMountPath defines where in the Pod will be the secrets
 	// object mounted.
-	SecretVolumeMountPath = "/var/lib/mongodb-automation/secrets"
+	SecretVolumeMountPath = "/var/lib/mongodb-automation/secrets/certs"
 
 	// SecretVolumeName is the name of the volume resource.
-	SecretVolumeName = "secret"
+	SecretVolumeName = "secret-certs"
+
+	// SecretVolumeCAMountPath defines where in the Pod will be the secrets
+	// object mounted.
+	SecretVolumeCAMountPath = "/var/lib/mongodb-automation/secrets/ca"
+
+	// SecretVolumeCAName is the name of the volume resource.
+	SecretVolumeCAName = "secret-ca"
 
 	// CaCertMountPath defines where in the Pod the ca cert will be mounted.
 	CaCertMountPath = "/mongodb-automation/certs"
@@ -153,12 +160,7 @@ func mountVolumes(set *appsv1.StatefulSet, helper StatefulSetHelper) {
 	// SSL is active
 	if helper.Security != nil && helper.Security.TLSConfig.Enabled {
 		tlsConfig := helper.Security.TLSConfig
-		var secretName string
-		if tlsConfig.Secret != "" {
-			secretName = tlsConfig.Secret
-		} else {
-			secretName = fmt.Sprintf("%s-cert", helper.Name)
-		}
+		secretName := fmt.Sprintf("%s-cert", helper.Name)
 
 		mountVolume(volumeMountData{
 			volumeMountName:  SecretVolumeName,
@@ -168,6 +170,15 @@ func mountVolumes(set *appsv1.StatefulSet, helper StatefulSetHelper) {
 			volumeSourceName: secretName,
 		}, set)
 
+		if tlsConfig.CA != "" {
+			mountVolume(volumeMountData{
+				volumeMountName:  SecretVolumeCAName,
+				volumeMountPath:  SecretVolumeCAMountPath,
+				volumeName:       SecretVolumeCAName,
+				volumeSourceType: corev1.ConfigMapVolumeSource{},
+				volumeSourceName: tlsConfig.CA,
+			}, set)
+		}
 	}
 
 	if helper.PodVars.SSLMMSCAConfigMap != "" {
@@ -414,6 +425,7 @@ func baseEnvFrom(podVars *PodVars) []corev1.EnvVar {
 		)
 	}
 
+	// TODO(rodrigo): BUG here, the same env variable will be set twice with different values.
 	if trustedCACertLocation != "" {
 		// The value of this variable depends on 2 things:
 		// If the user sets "require valid" we expect it to be based on the KubeCA

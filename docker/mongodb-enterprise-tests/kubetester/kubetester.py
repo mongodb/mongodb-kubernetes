@@ -6,6 +6,8 @@ import time
 import warnings
 from datetime import datetime, timezone
 
+from typing import Dict
+
 import jsonpatch
 import pymongo
 import pytest
@@ -74,13 +76,55 @@ class KubernetesTester(object):
         cls.clients("corev1").patch_namespaced_config_map(name, namespace, config_map)
 
     @classmethod
-    def create_secret(cls, namespace, name, data):
+    def create_secret(cls, namespace: str, name: str, data: Dict[str, str]):
         """Create a secret in a given namespace with the given name and data—handles base64 encoding."""
         secret = cls.clients('client').V1Secret(
             metadata=cls.clients('client').V1ObjectMeta(name=name),
             string_data=data
         )
         cls.clients('corev1').create_namespaced_secret(namespace, secret)
+
+    @classmethod
+    def update_secret(cls, namespace: str, name: str, data: Dict[str, str]):
+        """Updates a secret in a given namespace with the given name and data—handles base64 encoding."""
+        secret = cls.clients('client').V1Secret(
+            metadata=cls.clients('client').V1ObjectMeta(name=name),
+            string_data=data
+        )
+        cls.clients('corev1').patch_namespaced_secret(name, namespace, secret)
+
+    @classmethod
+    def delete_secret(cls, namespace: str, name: str):
+        """Delete a secret in a given namespace with the given name."""
+        cls.clients('corev1').delete_namespaced_secret(name, namespace)
+
+    @classmethod
+    def read_configmap(cls, namespace: str, name: str) -> Dict[str, str]:
+        """Reads a ConfigMap and returns its contents"""
+        return cls.clients("corev1").read_namespaced_config_map(name, namespace).data
+
+    @classmethod
+    def create_configmap(cls, namespace: str, name: str, data: Dict[str, str]):
+        """Create a ConfigMap in a given namespace with the given name and data—handles base64 encoding."""
+        configmap = cls.clients('client').V1ConfigMap(
+            metadata=cls.clients('client').V1ObjectMeta(name=name),
+            data=data
+        )
+        cls.clients('corev1').create_namespaced_config_map(namespace, configmap)
+
+    @classmethod
+    def update_configmap(cls, namespace: str, name: str, data: Dict[str, str]):
+        """Updates a ConfigMap in a given namespace with the given name and data—handles base64 encoding."""
+        configmap = cls.clients('client').V1ConfigMap(
+            metadata=cls.clients('client').V1ObjectMeta(name=name),
+            data=data
+        )
+        cls.clients('corev1').patch_namespaced_config_map(name, namespace, configmap)
+
+    @classmethod
+    def delete_configmap(cls, namespace: str, name: str):
+        """Delete a ConfigMap in a given namespace with the given name."""
+        cls.clients('corev1').delete_namespaced_config_map(name, namespace)
 
     @classmethod
     def create_namespace(cls, namespace_name):
@@ -756,9 +800,9 @@ class KubernetesTester(object):
         hosts = KubernetesTester.get_hosts()
 
         return len(config["replicaSets"]) == 0 and \
-               len(config["sharding"]) == 0 and \
-               len(config["processes"]) == 0 and \
-               len(hosts["results"]) == 0
+            len(config["sharding"]) == 0 and \
+            len(config["processes"]) == 0 and \
+            len(hosts["results"]) == 0
 
     @staticmethod
     def mongo_resource_deleted(check_om_state=True):

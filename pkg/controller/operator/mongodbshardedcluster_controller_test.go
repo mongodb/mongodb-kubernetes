@@ -338,8 +338,10 @@ func DefaultClusterBuilder() *ClusterBuilder {
 
 	spec := v1.MongoDbSpec{
 		Persistent: util.BooleanRef(false),
-		ConnectionSpec: v1.ConnectionSpec{Project: TestProjectConfigMapName,
-			Credentials: TestCredentialsSecretName},
+		ConnectionSpec: v1.ConnectionSpec{
+			Project:     TestProjectConfigMapName,
+			Credentials: TestCredentialsSecretName,
+		},
 		Version:                         "3.6.4",
 		ResourceType:                    v1.ShardedCluster,
 		MongodbShardedClusterSizeConfig: sizeConfig,

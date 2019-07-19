@@ -328,6 +328,18 @@ func createCSR(conditionType certsv1.RequestConditionType) *certsv1.CertificateS
 				{Type: conditionType}}}}
 }
 
+// TODO: Add this function instead of having all the client/server Secret with certs
+// generated in the same function
+// func addClientx509Certificates(client *MockedClient, mdb *v1.MongoDB) {
+// 	switch mdb.Spec.ResourceType {
+// 	case v1.ReplicaSet:
+// 		createReplicaSetTLSData(client, mdb)
+// 		// TODO: Add Sharded Cluster
+// 		// case v1.ShardedCluster:
+// 		// 	createShardedClusterSecretData(client, mdb)
+// 	}
+// }
+
 // addTlsData ensures all the required TLS secrets exist for the given MongoDB resource
 func addTlsData(client *MockedClient, mdb *v1.MongoDB) {
 	switch mdb.Spec.ResourceType {
@@ -338,22 +350,51 @@ func addTlsData(client *MockedClient, mdb *v1.MongoDB) {
 	}
 }
 
+func createCertsAndKey() []byte {
+	return []byte(`-----BEGIN CERTIFICATE-----
+some certificate
+-----END CERTIFICATE-----
+-----BEGIN RSA PRIVATE KEY-----
+some private key
+-----END RSA PRIVATE KEY-----`)
+}
+
 // createReplicaSetTLSData creates and populates secrets required for a TLS enabled ReplicaSet
 func createReplicaSetTLSData(client *MockedClient, mdb *v1.MongoDB) {
+	// First lets create a Credentials Object
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: TestCredentialsSecretName, Namespace: TestNamespace},
 	}
 	data := map[string][]byte{
-		"publicApiKey": []byte(""),
-		"user":         []byte(""),
+		"publicApiKey": []byte("someapi"),
+		"user":         []byte("someuser"),
 	}
 
-	for i := 0; i < mdb.Spec.Members; i++ {
-		data[fmt.Sprintf("%s-%d-cert", mdb.Name, i)] = []byte("")
-		data[fmt.Sprintf("%s-%d-key", mdb.Name, i)] = []byte("")
-	}
 	secret.Data = data
 	_ = client.Update(context.TODO(), secret)
+
+	// Second, lets create a secret with Certificates and private keys!
+	secret = &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-cert", mdb.Name),
+			Namespace: TestNamespace,
+		},
+	}
+
+	certs := map[string][]byte{}
+	clientCerts := map[string][]byte{}
+	for i := 0; i < mdb.Spec.Members; i++ {
+		pemFile := createCertsAndKey()
+		certs[fmt.Sprintf("%s-%d-pem", mdb.Name, i)] = pemFile
+		clientCerts[fmt.Sprintf("%s-%d-pem", mdb.Name, i)] = pemFile
+	}
+	secret.Data = certs
+	_ = client.Create(context.TODO(), secret)
+
+	_ = client.Create(context.TODO(), &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("%s-clusterfile", mdb.Name), Namespace: TestNamespace},
+		Data:       clientCerts,
+	})
 }
 
 // createShardedClusterSecretData creates and populates all the  secrets needed for a TLS enabled Sharded
@@ -364,8 +405,7 @@ func createShardedClusterSecretData(client *MockedClient, mdb *v1.MongoDB) {
 		secretName := fmt.Sprintf("%s-%d-cert", mdb.Name, i)
 		shardData := make(map[string][]byte, 0)
 		for j := 0; j <= mdb.Spec.MongodsPerShardCount; j++ {
-			shardData[fmt.Sprintf("%s-%d-%d-cert", mdb.Name, i, j)] = []byte("")
-			shardData[fmt.Sprintf("%s-%d-%d-key", mdb.Name, i, j)] = []byte("")
+			shardData[fmt.Sprintf("%s-%d-%d-pem", mdb.Name, i, j)] = createCertsAndKey()
 		}
 		_ = client.Create(context.TODO(), &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: TestNamespace},
@@ -380,8 +420,7 @@ func createShardedClusterSecretData(client *MockedClient, mdb *v1.MongoDB) {
 	// populate with the expected cert and key fields
 	mongosData := make(map[string][]byte, 0)
 	for i := 0; i < mdb.Spec.MongosCount; i++ {
-		mongosData[fmt.Sprintf("%s-mongos-%d-cert", mdb.Name, i)] = []byte("")
-		mongosData[fmt.Sprintf("%s-mongos-%d-key", mdb.Name, i)] = []byte("")
+		mongosData[fmt.Sprintf("%s-mongos-%d-pem", mdb.Name, i)] = createCertsAndKey()
 	}
 
 	// create the mongos secret
@@ -399,8 +438,7 @@ func createShardedClusterSecretData(client *MockedClient, mdb *v1.MongoDB) {
 	// create secret for config server
 	configData := make(map[string][]byte, 0)
 	for i := 0; i < mdb.Spec.ConfigServerCount; i++ {
-		configData[fmt.Sprintf("%s-config-%d-cert", mdb.Name, i)] = []byte("")
-		configData[fmt.Sprintf("%s-config-%d-key", mdb.Name, i)] = []byte("")
+		configData[fmt.Sprintf("%s-config-%d-pem", mdb.Name, i)] = createCertsAndKey()
 	}
 
 	_ = client.Create(context.TODO(), &corev1.Secret{

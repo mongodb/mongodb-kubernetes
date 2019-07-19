@@ -238,7 +238,11 @@ func (r *ProjectReconciler) ensureX509AgentCertsForProject(project *ProjectConfi
 
 	certsNeedApproval := false
 
-	if k.verifyClientCertificatesForAgents(util.AgentSecretName, namespace) > 0 {
+	if missing := k.verifyClientCertificatesForAgents(util.AgentSecretName, namespace); missing > 0 {
+		if project.UseCustomCA {
+			return false, fmt.Errorf("The %s Secret file does not contain the necessary Agent certificates. Missing %d certificates", util.AgentSecretName, missing)
+		}
+
 		pemFiles := newPemCollection()
 		agents := []string{"automation", "monitoring", "backup"}
 

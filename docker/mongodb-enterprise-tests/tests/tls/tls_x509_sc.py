@@ -4,6 +4,7 @@ from kubetester.omtester import get_agent_cert_names, get_sc_cert_names
 
 mdb_resource = "test-tls-base-sc-require-ssl"
 
+
 @pytest.mark.e2e_tls_x509_sc
 class TestShardedClusterWithTLSWithX509Project(KubernetesTester):
     def test_enable_x509(self):
@@ -28,13 +29,14 @@ class TestClusterWithTLSCreation(KubernetesTester):
     def test_mdb_resource_status_is_correct(self):
         assert True
 
+
 @pytest.mark.e2e_tls_x509_sc
 class TestShardedClusterWithTLSRunning(KubernetesTester):
     def test_approve_certificates(self):
         for cert in self.yield_existing_csrs(get_sc_cert_names(mdb_resource, self.get_namespace())):
             self.approve_certificate(cert)
 
-        KubernetesTester.wait_until('in_running_state', 420)
+        KubernetesTester.wait_until('in_running_state')
 
 
 @pytest.mark.e2e_tls_x509_sc
@@ -50,7 +52,7 @@ class TestsShardedClusterWithX509ClusterAuthentication(KubernetesTester):
         cert_names = get_sc_cert_names(mdb_resource, self.get_namespace(), with_internal_auth_certs=True)
         for cert in self.yield_existing_csrs(cert_names):
             self.approve_certificate(cert)
-        KubernetesTester.wait_until('in_running_state', 0)
+        KubernetesTester.wait_until('in_running_state')
 
     def test_x509_enabled(self):
         mdb = self.get_resource()

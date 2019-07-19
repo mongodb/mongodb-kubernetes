@@ -34,6 +34,7 @@ class TestReplicaSetWithTLSCreation(KubernetesTester):
     def test_mdb_resource_status_is_correct(self):
         assert True
 
+
 @pytest.mark.e2e_tls_x509_user_connectivity
 class TestReplicaSetWithTLSRunning(KubernetesTester):
     def test_approve_certs(self):
@@ -41,6 +42,7 @@ class TestReplicaSetWithTLSRunning(KubernetesTester):
             self.approve_certificate(cert)
         KubernetesTester.wait_until('in_running_state', 240)
         print('finished waiting')
+
 
 @pytest.mark.e2e_tls_x509_user_connectivity
 class TestAddMongoDBUser(KubernetesTester):

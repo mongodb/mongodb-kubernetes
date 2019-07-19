@@ -1,6 +1,6 @@
 import pytest
 
-from kubetester.kubetester import KubernetesTester, skip_if_local, build_list_of_hosts
+from kubetester.kubetester import KubernetesTester, skip_if_local
 from kubernetes import client
 from kubetester.mongotester import ReplicaSetTester
 
@@ -75,7 +75,8 @@ class TestReplicaSetWithTLSScaling0Approval(KubernetesTester):
     """
 
     def setup(self):
-        [self.approve_certificate(cert) for cert in cert_names(self.namespace, 5)]
+        for cert in self.yield_existing_csrs(cert_names(self.namespace, 5)):
+            self.approve_certificate(cert)
 
     def test_noop(self):
         assert True

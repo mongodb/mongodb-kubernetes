@@ -140,7 +140,7 @@ func TestConfigureSSL_Deployment(t *testing.T) {
 	d := Deployment{}
 	d.ConfigureTLS(&mongodb.TLSConfig{Enabled: true})
 	expectedSSLConfig := map[string]interface{}{
-		"CAFilePath": "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
+		"CAFilePath": "/mongodb-automation/ca.pem",
 	}
 	assert.Equal(t, expectedSSLConfig, d["ssl"].(map[string]interface{}))
 

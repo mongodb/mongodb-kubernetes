@@ -38,6 +38,10 @@ const (
 	// CA certificate used to sign the MMS TLS certificate
 	SSLMMSCAConfigMap = "sslMMSCAConfigMap"
 
+	// UseCustomCAConfigMap flags the operator to try to generate certificates
+	// (if false) or to not generate them (if true).
+	UseCustomCAConfigMap = "useCustomCA"
+
 	// SSLMMSCALocation Specifies where the CA certificate should be mounted.
 	SSLMMSCALocation = "/mongodb-automation/certs/ca.crt"
 
@@ -67,7 +71,7 @@ const (
 	PvcMountPathJournal        = "/journal"
 	PvcNameLogs                = "logs"
 	PvcMountPathLogs           = "/var/log/mongodb-mms-automation"
-	CAFilePathInContainer      = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+	CAFilePathInContainer      = "/mongodb-automation/ca.pem"
 	PEMKeyFilePathInContainer  = "/mongodb-automation/server.pem"
 	AutomationAgentName        = "mms-automation-agent"
 	AutomationAgentPemFileName = AutomationAgentName + "-pem"

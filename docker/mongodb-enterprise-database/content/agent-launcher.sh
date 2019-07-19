@@ -6,6 +6,7 @@ set -o pipefail
 keyfile_dir="/var/lib/mongodb-mms-automation"
 secrets_dir="/var/lib/mongodb-automation/secrets"
 pod_secrets_dir="/mongodb-automation"
+custom_ca_dir="${secrets_dir}/ca"
 
 # file required by Automation Agents of authentication is enabled.
 mkdir -p ${keyfile_dir}
@@ -47,15 +48,29 @@ function cleanup {
 }
 
 
-if [ -d "${secrets_dir}" ]; then
+if [ -d "${secrets_dir}/certs" ]; then
     script_log "Found certificates in the host, will symlink to where the automation agent expects them to be"
     podname=$(hostname)
 
-    if [ ! -f "${secrets_dir}/${podname}-pem" ]; then
-        script_log "PEM Certificate file does not exist in ${secrets_dir}/${podname}-pem. Check the Secret object with certificates is well formed."
+    if [ ! -f "${secrets_dir}/certs/${podname}-pem" ]; then
+        script_log "PEM Certificate file does not exist in ${secrets_dir}/certs/${podname}-pem. Check the Secret object with certificates is well formed."
         exit 1
     fi
-    ln -s "${secrets_dir}/${podname}-pem" "${pod_secrets_dir}/server.pem"
+
+    ln -s "${secrets_dir}/certs/${podname}-pem" "${pod_secrets_dir}/server.pem"
+fi
+
+if [ -d "${custom_ca_dir}" ]; then
+    if [ -f "${custom_ca_dir}/ca-pem" ]; then
+        script_log "Using CA file provided by user"
+        ln -s "${custom_ca_dir}/ca-pem" "${pod_secrets_dir}/ca.pem"
+    else
+        script_log "Could not find CA file. The name of the entry on the Secret object should be 'ca-pem'"
+        exit 1
+    fi
+else
+    script_log "Using Kubernetes CA file"
+    ln -s "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt" "${pod_secrets_dir}/ca.pem"
 fi
 
 # Ensure that the user has an entry in /etc/passwd

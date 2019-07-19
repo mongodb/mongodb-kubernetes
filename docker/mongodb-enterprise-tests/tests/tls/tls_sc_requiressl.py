@@ -35,6 +35,7 @@ class TestClusterWithTLSCreation(KubernetesTester):
     def test_mdb_resource_status_is_pending(self):
         assert KubernetesTester.get_resource()['status']['phase'] == "Pending"
 
+
 @pytest.mark.e2e_sharded_cluster_tls_require
 class TestClusterWithTLSCreationApproval(KubernetesTester):
     """

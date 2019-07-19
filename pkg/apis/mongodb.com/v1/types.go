@@ -163,10 +163,9 @@ type Security struct {
 type TLSConfig struct {
 	Enabled bool `json:"enabled,omitempty"`
 
-	// SSLSecret is the name of the secret in which the SSL certificates and
-	// their respective keys are stored. If omitted, the certificates and their
-	// keys will be automatically generated and stored in a secret.
-	Secret string `json:"secret,omitempty"`
+	// CA corresponds to a Secret containing an entry for the CA certificate (ca.pem)
+	// used to sign the certificates created already.
+	CA string `json:"ca,omitempty"`
 }
 
 func (spec MongoDbSpec) GetTLSConfig() *TLSConfig {
@@ -174,10 +173,7 @@ func (spec MongoDbSpec) GetTLSConfig() *TLSConfig {
 		return &TLSConfig{}
 	}
 
-	return &TLSConfig{
-		Enabled: spec.Security.TLSConfig.Enabled,
-		Secret:  spec.Security.TLSConfig.Secret,
-	}
+	return spec.Security.TLSConfig
 }
 
 // when we marshal a MongoDB, we don't want to marshal any "empty" fields

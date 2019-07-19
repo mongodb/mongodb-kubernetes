@@ -155,8 +155,12 @@ func newPemFileFromData(data []byte) pemFile {
 	return newPemFileFrom(string(data))
 }
 
-func (p *pemFile) validate() bool {
-	return !(p.privateKey == "" && p.certificate != "")
+func (p *pemFile) isValid() bool {
+	return p.privateKey != ""
+}
+
+func (p *pemFile) isComplete() bool {
+	return p.isValid() && p.certificate != ""
 }
 
 func (p *pemFile) String() string {
@@ -179,8 +183,6 @@ func separatePemFile(data string) []string {
 
 	return certificates
 }
-
-// ssl.go provides a mechanism to obtain certificates programmatically.
 
 // NewCSR will create a CSR object (and server key).
 func newCSR(certificate certificateData) (*certificateSigningRequestFile, error) {

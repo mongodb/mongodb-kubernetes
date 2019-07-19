@@ -4,6 +4,7 @@ import random
 import yaml
 from kubetester.kubetester import KubernetesTester, fixture
 
+
 @pytest.mark.e2e_replica_set_different_namespaces
 class TestReplicaSetWithSecretAndConfigMapInDifferentNamespace(KubernetesTester):
     """

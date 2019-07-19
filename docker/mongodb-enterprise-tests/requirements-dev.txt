@@ -1,0 +1,6 @@
+-r requirements.txt
+jedi
+rope
+black
+flake8
+autopep8
