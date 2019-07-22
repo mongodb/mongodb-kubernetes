@@ -43,7 +43,7 @@ spec:
                 type: string
               version:
                 type: string
-                pattern: "^[0-9]+.[0-9]+.[0-9]+(-ent)?$"
+                pattern: "^[0-9]+.[0-9]+.[0-9]+(-.+)?$"
               logLevel:
                 type: string
                 enum: ["DEBUG", "INFO", "WARN", "ERROR", "FATAL"]
@@ -89,7 +89,7 @@ spec:
                 type: string
               version:
                 type: string
-                pattern: "^[0-9]+.[0-9]+.[0-9]+(-ent)?$"
+                pattern: "^[0-9]+.[0-9]+.[0-9]+(-.+)?$"
               logLevel:
                 type: string
                 enum: ["DEBUG", "INFO", "WARN", "ERROR", "FATAL"]
@@ -149,7 +149,7 @@ spec:
                 type: string
               version:
                 type: string
-                pattern: "^[0-9]+.[0-9]+.[0-9]+(-ent)?$"
+                pattern: "^[0-9]+.[0-9]+.[0-9]+(-.+)?$"
               logLevel:
                 type: string
                 enum: ["DEBUG", "INFO", "WARN", "ERROR", "FATAL"]
