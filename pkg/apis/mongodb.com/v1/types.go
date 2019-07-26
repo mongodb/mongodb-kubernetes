@@ -303,6 +303,14 @@ func (m *MongoDB) UpdateSuccessful(object runtime.Object, args ...string) {
 	}
 }
 
+func (m *MongoDB) GetStatus() interface{} {
+	return m.Status
+}
+
+func (m *MongoDB) GetSpec() interface{} {
+	return m.Spec
+}
+
 // InitDefaults makes sure the MongoDB resource has correct state after initialization:
 // - prevents any references from having nil values.
 // - makes sure the spec is in correct state

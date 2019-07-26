@@ -19,6 +19,17 @@ func predicatesForUser() predicate.Funcs {
 	}
 }
 
+func predicatesForOpsManager() predicate.Funcs {
+	return predicate.Funcs{
+		// don't update ops manager on status changes
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldResource := e.ObjectOld.(*mongodb.MongoDBOpsManager)
+			newResource := e.ObjectNew.(*mongodb.MongoDBOpsManager)
+			return shouldReconcile(oldResource, newResource)
+		},
+	}
+}
+
 func predicatesFor(resourceType mongodb.ResourceType) predicate.Funcs {
 	return predicate.Funcs{
 		CreateFunc: func(createEvent event.CreateEvent) bool {

@@ -44,49 +44,6 @@ func TestMajorMinorVersion(t *testing.T) {
 	assert.Equal(t, "4.2", s)
 }
 
-func TestHash(t *testing.T) {
-	s1 := &struct {
-		Foo    string
-		Bar    string
-		Baz    int
-		FooBar float32
-		BarFoo float64
-		Nested struct {
-			NestedFoo string
-			NestedBar int
-		}
-	}{
-		"foo",
-		"bar",
-		1,
-		float32(2.5),
-		float64(5.6),
-		struct {
-			NestedFoo string
-			NestedBar int
-		}{
-			"Hello",
-			123,
-		},
-	}
-	firstHash, _ := Hash(s1)
-	secondHash, err := Hash(s1)
-	assert.Nil(t, err, "There should not have been an error when hashing the struct.")
-	assert.Equal(t, firstHash, secondHash, "First hash did not match second hash.")
-
-	s1.Nested.NestedFoo = "different"
-	postChange, _ := Hash(s1)
-	assert.NotEqual(t, firstHash, postChange, "When a field is changed, it should not hash to the same value.")
-
-	s1.Nested.NestedFoo = "Hello"
-	backToOriginal, _ := Hash(s1)
-	assert.Equal(t, firstHash, backToOriginal, "When changed back, it should hash to the same value.")
-
-	s1.Foo = "FOO"
-	caseShouldMatter, _ := Hash(s1)
-	assert.NotEqual(t, firstHash, caseShouldMatter, "Case should matter.")
-}
-
 func TestReadBoolEnv(t *testing.T) {
 	os.Setenv("ENV_1", "true")
 	os.Setenv("ENV_2", "false")

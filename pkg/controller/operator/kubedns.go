@@ -35,6 +35,14 @@ func GetDNSNames(statefulSetName, service, namespace, clusterName string, replic
 	return hostnames, names
 }
 
+// GetServiceFQDN returns the FQDN for the service inside Kubernetes
+func GetServiceFQDN(service, namespace, clusterName string) string {
+	if clusterName == "" {
+		clusterName = "cluster.local"
+	}
+	return fmt.Sprintf("%s.%s.svc.%s", service, namespace, clusterName)
+}
+
 // getDnsTemplateFor returns a template-FQDN for a StatefulSet. This
 // name will lack one parameter: the index for a given Pod, so the form of
 // the returned fqdn will be:

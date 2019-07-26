@@ -12,6 +12,7 @@ func init() {
 	AddToManagerFuncs = append(AddToManagerFuncs, operator.AddShardedClusterController)
 	AddToManagerFuncs = append(AddToManagerFuncs, operator.AddProjectController)
 	AddToManagerFuncs = append(AddToManagerFuncs, operator.AddMongoDBUserController)
+	AddToManagerFuncs = append(AddToManagerFuncs, operator.AddOpsManagerController)
 }
 
 // AddToManagerFuncs is a list of functions to add all Controllers to the Manager

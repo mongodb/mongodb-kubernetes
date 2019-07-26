@@ -16,6 +16,9 @@ const (
 	// MongoDbUserController name of the MongoDBUser controller
 	MongoDbUserController = "mongodbuser-controller"
 
+	// MongoDbOpsManagerController name of the OpsManager controller
+	MongoDbOpsManagerController = "opsmanager-controller"
+
 	// Ops manager config map and secret variables
 	OmBaseUrl      = "baseUrl"
 	OmOrgId        = "orgId"
@@ -62,6 +65,7 @@ const (
 	EnvVarSSLTrustedMMSServerCertificate = "SSL_TRUSTED_MMS_SERVER_CERTIFICATE"
 
 	// Pod/StatefulSet specific constants
+	OpsManagerName             = "mongodb-ops-manager"
 	ContainerName              = "mongodb-enterprise-database"
 	OmControllerLabel          = "mongodb-enterprise-operator"
 	LivenessProbe              = "/mongodb-automation/files/probe.sh"
@@ -112,6 +116,8 @@ const (
 	AutomationAgentKeyFilePathInContainer = "/var/lib/mongodb-mms-automation/keyfile"
 
 	// Operator Env configuration properties
+	OpsManagerImageUrl             = "OPS_MANAGER_IMAGE_NO_VERSION"
+	OpsManagerPullPolicy           = "OPS_MANAGER_IMAGE_PULL_POLICY"
 	AutomationAgentImageUrl        = "MONGODB_ENTERPRISE_DATABASE_IMAGE"
 	AutomationAgentImagePullPolicy = "IMAGE_PULL_POLICY"
 	AutomationAgentPullSecrets     = "IMAGE_PULL_SECRETS"
@@ -129,6 +135,7 @@ const (
 	DefaultLogsStorageSize         = "3G"
 	DefaultAntiAffinityTopologyKey = "kubernetes.io/hostname"
 	MongoDbDefaultPort             = 27017
+	OpsManagerDefaultPort          = 8080
 	// 60 * 3 = 180 seconds = 3 min - should be in general enough for a couple of PVCs to be bound but not too long to
 	// block waiting reconciliations
 	DefaultPodWaitSecondsProd          = "3"
@@ -138,6 +145,11 @@ const (
 	DefaultBackupDisableWaitSeconds    = "3"
 	DefaultBackupDisableWaitRetries    = "30" // 30 * 3 = 90 seconds, should be ok for backup job to terminate
 	DefaultPodTerminationPeriodSeconds = 600  // 10 min
+
+	// Ops Manager related constants
+	OmPropertyPrefix       = "OM_PROP_"
+	MongoUriPropKey        = "mongo.mongoUri"
+	MongoCentralUrlPropKey = "mms.centralUrl"
 
 	// All others
 	OmGroupExternallyManagedTag = "EXTERNALLY_MANAGED_BY_KUBERNETES"

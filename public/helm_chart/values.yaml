@@ -21,6 +21,9 @@ operator:
 database:
   name: mongodb-enterprise-database
 
+opsManager:
+  name: mongodb-enterprise-ops-manager
+
 registry:
   # Specify if images are pulled from private repository
   imagePullSecrets:

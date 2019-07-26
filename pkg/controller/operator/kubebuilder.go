@@ -12,8 +12,10 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 const (
@@ -101,6 +103,37 @@ func buildStatefulSet(p StatefulSetHelper) *appsv1.StatefulSet {
 
 	mountVolumes(set, p)
 
+	return set
+}
+
+// todo refactor - merge with 'buildStatefulSet'
+func buildOpsManagerStatefulSet(p OpsManagerStatefulSetHelper) *appsv1.StatefulSet {
+	labels := map[string]string{
+		APP_LABEL_KEY:               p.Service,
+		"controller":                util.OmControllerLabel,
+		POD_ANTI_AFFINITY_LABEL_KEY: p.Name,
+	}
+
+	set := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            p.Name,
+			Namespace:       p.Namespace,
+			OwnerReferences: baseOwnerReference(p.Owner),
+		},
+		Spec: appsv1.StatefulSetSpec{
+			ServiceName: p.Service,
+			Replicas:    util.Int32Ref(int32(p.Replicas)),
+			Selector: &metav1.LabelSelector{
+				MatchLabels: labels,
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: labels,
+				},
+				Spec: opsManagerPodSpec(p.EnvVars, p.Version),
+			},
+		},
+	}
 	return set
 }
 
@@ -363,6 +396,33 @@ func basePodSpec(statefulSetName string, reqs mongodb.PodSpecWrapper, podVars *P
 	return spec
 }
 
+func opsManagerPodSpec(envVars []corev1.EnvVar, version string) corev1.PodSpec {
+	// todo memory must be a configurable parameter (must also affect the JVM parameters for starting the OM instance)
+	// let's have it hardcoded for alpha
+	var defaultMemory resource.Quantity
+	if q := parseQuantityOrZero("5G"); !q.IsZero() {
+		defaultMemory = q
+	}
+	omImageUrl := fmt.Sprintf("%s:%s", util.ReadEnvVarOrPanic(util.OpsManagerImageUrl), version)
+	spec := corev1.PodSpec{
+		Containers: []corev1.Container{
+			{
+				Name:            util.OpsManagerName,
+				Image:           omImageUrl,
+				ImagePullPolicy: corev1.PullPolicy(util.ReadEnvVarOrPanic(util.OpsManagerPullPolicy)),
+				Env:             envVars,
+				Ports:           []corev1.ContainerPort{{ContainerPort: util.OpsManagerDefaultPort}},
+				Resources: corev1.ResourceRequirements{
+					// Setting limits only sets "requests" to the same value (but not vice versa)
+					Limits: corev1.ResourceList{corev1.ResourceMemory: defaultMemory},
+				},
+			},
+		},
+	}
+
+	return spec
+}
+
 func baseLivenessProbe() *corev1.Probe {
 	return &corev1.Probe{
 		Handler: corev1.Handler{
@@ -373,6 +433,26 @@ func baseLivenessProbe() *corev1.Probe {
 		PeriodSeconds:       30,
 		SuccessThreshold:    1,
 		FailureThreshold:    6,
+	}
+}
+
+// opsManagerReadinessProbe creates the readiness probe
+// todo This is disabled currently because of one weird aspect: if the readiness probe reports false
+// while the container is starting - this results in container restart.
+// So to avoid false restarts we need to set 'InitialDelaySeconds' very high.
+// This however will affect the `kubehelper#waitForStatefulsetAndPods` as it will hang for too long
+// because we check for 'set.Status.ReadyReplicas'
+// so far we'll just manually check 8080 port from the Operator to check when the OM instance is ready
+func opsManagerReadinessProbe() *corev1.Probe {
+	return &corev1.Probe{
+		Handler: corev1.Handler{
+			HTTPGet: &corev1.HTTPGetAction{Port: intstr.FromInt(8080), Path: "/"},
+		},
+		InitialDelaySeconds: 120,
+		TimeoutSeconds:      5,
+		PeriodSeconds:       10,
+		SuccessThreshold:    1,
+		FailureThreshold:    18, // So the probe will fail after ~3 minutes of Ops Manager being non-responsive
 	}
 }
 

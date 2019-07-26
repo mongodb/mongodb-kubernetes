@@ -80,8 +80,8 @@ func (r *ProjectReconciler) Reconcile(request reconcile.Request) (res reconcile.
 	log := zap.S().With("Project", request.NamespacedName)
 	projectConfig, err := r.getProjectConfig(request.NamespacedName)
 	if err != nil {
-		log.Errorf("error getting config map %s", err)
-		return retry()
+		log.Warnf("Error getting config map %s, was it removed?", err)
+		return stop()
 	}
 
 	hasCredentials := projectConfig.Credentials != ""

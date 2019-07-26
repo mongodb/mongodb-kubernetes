@@ -37,6 +37,7 @@ rules:
   - mongodb
   - mongodb/finalizers
   - mongodbusers
+  - opsmanagers
   verbs:
   - get
   - list

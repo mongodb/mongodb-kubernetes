@@ -27,15 +27,34 @@ import (
 // status updated
 type Updatable interface {
 	runtime.Object
+
+	// UpdateSuccessful called when the MongoDB CR object needs to transition to
+	// successful state. This means that the CR object is ready to work
 	UpdateSuccessful(object runtime.Object, args ...string)
+
+	// UpdateError called when the MongoDB CR object needs to transition to
+	// error state.
 	UpdateError(msg string)
+
+	// UpdatePending called when the MongoDB CR object needs to transition to
+	// pending state.
 	UpdatePending(msg string)
+
+	// UpdateReconciling called when the MongoDB CR object needs to transition to
+	// reconciling state.
 	UpdateReconciling()
+
+	// GetStatus returns the status of the object
+	GetStatus() interface{}
+
+	// GetSpec returns the spec of the object
+	GetSpec() interface{}
 }
 
 // ensure our types are all Updatable
 var _ Updatable = &v1.MongoDB{}
 var _ Updatable = &v1.MongoDBUser{}
+var _ Updatable = &v1.MongoDBOpsManager{}
 
 // omMutexes is the synchronous map of mutexes that allow to get strict serializability for operations "read-modify-write"
 // for Ops Manager. Keys are (group_name + org_id) and values are mutexes.
@@ -170,7 +189,7 @@ func (c *ReconcileCommonController) updateStatusSuccessful(reconciledResource Up
 	if err != nil {
 		log.Errorf("Failed to update status for resource to successful: %s", err)
 	} else {
-		log.Infow("Successful update", "spec", getSpec(reconciledResource))
+		log.Infow("Successful update", "spec", reconciledResource.GetSpec())
 	}
 	return reconcile.Result{}, nil
 }
@@ -254,7 +273,7 @@ func (c *ReconcileCommonController) updateStatus(reconciledResource Updatable, u
 // "requeue after 10 seconds" - this doesn't get to watcher, so will never be filtered out.
 // - the only client making changes to status is the Operator itself and it makes sure that spec stays untouched
 func shouldReconcile(oldResource Updatable, newResource Updatable) bool {
-	return reflect.DeepEqual(getStatus(oldResource), getStatus(newResource))
+	return reflect.DeepEqual(oldResource.GetStatus(), newResource.GetStatus())
 }
 
 // getResource populates the provided runtime.Object with some additional error handling
@@ -264,7 +283,6 @@ func (c *ReconcileCommonController) getResource(request reconcile.Request, resou
 		if apiErrors.IsNotFound(err) {
 			// Request object not found, could have been deleted after reconcile request.
 			// Return and don't requeue
-			// Note: for some reasons the reconciliation is triggered twice after the object has been deleted
 			log.Debugf("Object %s doesn't exist, was it deleted after reconcile request?", request.NamespacedName)
 			return &reconcile.Result{}, nil
 		}
@@ -284,6 +302,7 @@ func (c *ReconcileCommonController) prepareResourceForReconciliation(
 	}
 	// this is a temporary measure to prevent changing type and getting the resource into a bad state
 	// this should be removed once we have the functionality in place to convert between resource types
+	// todo needs to be moved to a webhook or we should use the K8s OpenAPI immutability for the fields once its ready
 	switch res := resource.(type) {
 	case *v1.MongoDB:
 		spec := res.Spec
@@ -435,28 +454,4 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHe
 
 	successful := !certsNeedApproval
 	return successful, nil
-}
-
-// getSpec returns the spec of the Updatable, required as there is no common Spec type
-func getSpec(resource Updatable) interface{} {
-	switch res := resource.(type) {
-	case *v1.MongoDB:
-		return res.Spec
-	case *v1.MongoDBUser:
-		return res.Spec
-	default:
-		panic("was unable to find spec. Expected values are MongoDB or MongoDBUser")
-	}
-}
-
-// getStatus returns the status of the Updatable, required as there is no common Status type
-func getStatus(resource Updatable) interface{} {
-	switch res := resource.(type) {
-	case *v1.MongoDB:
-		return res.Status
-	case *v1.MongoDBUser:
-		return res.Status
-	default:
-		panic("was unable to find status. Expected values are MongoDB or MongoDBUser")
-	}
 }

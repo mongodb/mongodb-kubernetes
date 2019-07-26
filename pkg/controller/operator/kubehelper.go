@@ -6,8 +6,7 @@ import (
 	"strings"
 
 	"k8s.io/apimachinery/pkg/types"
-
-	client "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"time"
 
@@ -73,10 +72,7 @@ type Credentials struct {
 	PublicAPIKey string
 }
 
-// StatefulSetHelper is a struct that holds different attributes needed to build
-// a StatefulSet. It is used as a convenient way of passing many different parameters in one
-// struct, instead of multiple parameters.
-type StatefulSetHelper struct {
+type StatefulSetHelperCommon struct {
 	// Attributes that are part of StatefulSet
 	Owner     metav1.Object
 	Name      string
@@ -86,20 +82,36 @@ type StatefulSetHelper struct {
 	// ClusterName is the cluster name that's usually 'cluster.local' but it can be changed by the customer.
 	ClusterName string
 	Replicas    int
-	Persistent  *bool
-	PodSpec     mongodb.PodSpecWrapper
-	PodVars     *PodVars
+	ServicePort int32
+
+	// Not part of StatefulSet object
+	Helper *KubeHelper
+	Logger *zap.SugaredLogger
+}
+
+// StatefulSetHelper is a struct that holds different attributes needed to build
+// a StatefulSet for MongoDB CR. It is used as a convenient way of passing many different parameters in one
+// struct, instead of multiple parameters.
+type StatefulSetHelper struct {
+	StatefulSetHelperCommon
+
+	Persistent *bool
+	PodSpec    mongodb.PodSpecWrapper
+	PodVars    *PodVars
 
 	ResourceType mongodb.ResourceType
 
 	// Not part of StatefulSet object
-	Helper            *KubeHelper
 	ExposedExternally bool
-	ServicePort       int32
-	Logger            *zap.SugaredLogger
 	Project           ProjectConfig
+	Security          *mongodb.Security
+}
 
-	Security *mongodb.Security
+type OpsManagerStatefulSetHelper struct {
+	StatefulSetHelperCommon
+
+	EnvVars []corev1.EnvVar
+	Version string
 }
 
 // ShardedClusterKubeState holds the Kubernetes configuration for the set of StatefulSets composing
@@ -123,15 +135,31 @@ type ShardedClusterKubeState struct {
 //
 func (k *KubeHelper) NewStatefulSetHelper(obj metav1.Object) *StatefulSetHelper {
 	return &StatefulSetHelper{
-		Owner:      obj,
-		Name:       obj.GetName(),
-		Namespace:  obj.GetNamespace(),
-		Replicas:   1,
+		StatefulSetHelperCommon: StatefulSetHelperCommon{
+			Owner:       obj,
+			Name:        obj.GetName(),
+			Namespace:   obj.GetNamespace(),
+			Replicas:    1,
+			Helper:      k,
+			ServicePort: util.MongoDbDefaultPort,
+		},
 		Persistent: util.BooleanRef(true),
 
 		ExposedExternally: false,
-		ServicePort:       util.MongoDbDefaultPort,
-		Helper:            k,
+	}
+}
+
+func (k *KubeHelper) NewOpsManagerStatefulSetHelper(obj metav1.Object) *OpsManagerStatefulSetHelper {
+	return &OpsManagerStatefulSetHelper{
+		StatefulSetHelperCommon: StatefulSetHelperCommon{
+			Owner:       obj,
+			Name:        obj.GetName(),
+			Namespace:   obj.GetNamespace(),
+			Replicas:    1,
+			Helper:      k,
+			ServicePort: util.OpsManagerDefaultPort,
+		},
+		EnvVars: opsManagerConfigurationToEnvVars(obj.(*mongodb.MongoDBOpsManager)),
 	}
 }
 
@@ -214,14 +242,45 @@ func (s *StatefulSetHelper) BuildStatefulSet() *appsv1.StatefulSet {
 }
 
 func (s *StatefulSetHelper) CreateOrUpdateInKubernetes() error {
-	set := s.BuildStatefulSet()
 	_, err := s.Helper.createOrUpdateStatefulsetWithService(
 		s.Owner,
 		s.ServicePort,
 		s.Namespace,
 		s.ExposedExternally,
 		s.Logger,
-		set,
+		s.BuildStatefulSet(),
+	)
+
+	return err
+}
+
+func (s *OpsManagerStatefulSetHelper) BuildStatefulSet() *appsv1.StatefulSet {
+	return buildOpsManagerStatefulSet(*s)
+}
+
+func (s *OpsManagerStatefulSetHelper) SetService(service string) *OpsManagerStatefulSetHelper {
+	s.Service = service
+	return s
+}
+
+func (s *OpsManagerStatefulSetHelper) SetLogger(log *zap.SugaredLogger) *OpsManagerStatefulSetHelper {
+	s.Logger = log
+	return s
+}
+
+func (s *OpsManagerStatefulSetHelper) SetVersion(version string) *OpsManagerStatefulSetHelper {
+	s.Version = version
+	return s
+}
+
+func (s *OpsManagerStatefulSetHelper) CreateOrUpdateInKubernetes() error {
+	_, err := s.Helper.createOrUpdateStatefulsetWithService(
+		s.Owner,
+		s.ServicePort,
+		s.Namespace,
+		true, // todo temporary to make development easier (open OM from browser)
+		s.Logger,
+		s.BuildStatefulSet(),
 	)
 
 	return err
@@ -376,7 +435,7 @@ func (k *KubeHelper) readOrCreateService(owner metav1.Object, serviceName string
 func getNamespaceAndNameForResource(resource, defaultNamespace string) (types.NamespacedName, error) {
 	s := strings.Split(resource, "/")
 	if len(s) > 2 {
-		return types.NamespacedName{}, fmt.Errorf("Resource identifier must be of the form 'resoureName' or 'resourceNamespace/resourceName'")
+		return types.NamespacedName{}, fmt.Errorf("Resource identifier must be of the form 'resourceName' or 'resourceNamespace/resourceName'")
 	}
 	var namespace, name string
 	if len(s) == 2 {
@@ -765,4 +824,16 @@ func validateExistingService(label string, service *corev1.Service) error {
 			service.Spec.Selector["app"], label)
 	}
 	return nil
+}
+
+// EnvVars returns a list of corev1.EnvVar which should be passed
+// to the container running Ops Manager
+func opsManagerConfigurationToEnvVars(m *mongodb.MongoDBOpsManager) []corev1.EnvVar {
+	var envVars []corev1.EnvVar
+	for name, value := range m.Spec.Configuration {
+		envVars = append(envVars, corev1.EnvVar{
+			Name: mongodb.ConvertNameToEnvVarFormat(name), Value: value,
+		})
+	}
+	return envVars
 }

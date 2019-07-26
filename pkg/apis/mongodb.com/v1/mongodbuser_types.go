@@ -73,3 +73,11 @@ func (u *MongoDBUser) UpdatePending(msg string) {
 func (u *MongoDBUser) UpdateReconciling() {
 	u.Status.Phase = PhaseReconciling
 }
+
+func (u *MongoDBUser) GetStatus() interface{} {
+	return u.Status
+}
+
+func (u *MongoDBUser) GetSpec() interface{} {
+	return u.Spec
+}

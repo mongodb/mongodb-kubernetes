@@ -365,7 +365,7 @@ create_kops_cluster() {
          --node-volume-size "${node_volume_size}" \
          --master-size="${master_size}" \
          --master-volume-size 16  \
-         --kubernetes-version=v1.11.6 \
+         --kubernetes-version=v1.11.10 \
          --ssh-public-key=~/.ssh/id_rsa.pub \
          --authorization RBAC "${cluster_name}"
 
