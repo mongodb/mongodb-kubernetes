@@ -150,6 +150,7 @@ const (
 	OmPropertyPrefix       = "OM_PROP_"
 	MongoUriPropKey        = "mongo.mongoUri"
 	MongoCentralUrlPropKey = "mms.centralUrl"
+	GenKeyPath             = "/etc/mongodb-mms"
 
 	// All others
 	OmGroupExternallyManagedTag = "EXTERNALLY_MANAGED_BY_KUBERNETES"

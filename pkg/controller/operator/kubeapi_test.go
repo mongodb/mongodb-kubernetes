@@ -236,6 +236,7 @@ func (k *MockedClient) onStatefulsetUpdate(set *appsv1.StatefulSet) {
 }
 
 func markStatefulSetsReady(set *appsv1.StatefulSet) {
+	set.Status.UpdatedReplicas = *set.Spec.Replicas
 	set.Status.ReadyReplicas = *set.Spec.Replicas
 
 	if om.CurrMockedConnection != nil {

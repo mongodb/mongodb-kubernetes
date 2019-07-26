@@ -354,9 +354,20 @@ func (k *KubeHelper) createOrUpdateStatefulsetWithService(owner metav1.Object, s
 	return discoverServicePort(service)
 }
 
+// waitForStatefulsetAndPods hangs until the statefulset is rolling upgraded and all replicas restart
+// (or not restart at all)
+// Some notes about the logic: 'Status.UpdatedReplicas' is used in addition to 'Status.ReadyReplicas' as
+// 'Status.ReadyReplicas' stays = 'Spec.Replicas' for some time while the pod is handling the SIGTERM.
+// 'Status.UpdatedReplicas' is set to 0 right away after the statefulset is updated (the 'Status.updateRevision' is
+//  changed as well)
 func (k *KubeHelper) waitForStatefulsetAndPods(ns, stsName string, log *zap.SugaredLogger) bool {
 	waitSeconds := util.ReadEnvVarOrPanicInt(util.PodWaitSecondsEnv)
 	retrials := util.ReadEnvVarOrPanicInt(util.PodWaitRetriesEnv)
+
+	// Seems there is some asynchronicity in the way the caches are updated - if do the check right away
+	// 'client.Get' returns the old version of statefulset with 'Status.UpdatedReplicas' == 'set.Spec.Replicas'
+	// The env variable is needed only for tests
+	time.Sleep(time.Duration(util.ReadEnvVarIntOrDefault("K8S_CACHES_REFRESH_TIME_SEC", 2)) * time.Second)
 
 	return util.DoAndRetry(func() (string, bool) {
 		set := &appsv1.StatefulSet{}
@@ -365,8 +376,9 @@ func (k *KubeHelper) waitForStatefulsetAndPods(ns, stsName string, log *zap.Suga
 			// Should we retry these errors?...
 			return fmt.Sprintf("Error reading statefulset %s: %s", objectKey(ns, stsName), err), false
 		}
-		msg := fmt.Sprintf("Replicas count: expected %d, current %d", *set.Spec.Replicas, set.Status.ReadyReplicas)
-		return msg, set.Status.ReadyReplicas == *set.Spec.Replicas
+		msg := fmt.Sprintf("Replicas count: total %d, updated %d, ready %d", *set.Spec.Replicas,
+			set.Status.UpdatedReplicas, set.Status.ReadyReplicas)
+		return msg, set.Status.UpdatedReplicas == *set.Spec.Replicas && set.Status.ReadyReplicas == *set.Spec.Replicas
 	}, log, retrials, waitSeconds)
 }
 
@@ -424,7 +436,7 @@ func (k *KubeHelper) readOrCreateService(owner metav1.Object, serviceName string
 		}
 		log.Infow("Created service", "type", service.Spec.Type, "port", service.Spec.Ports[0])
 	} else {
-		log.Info("Service already exists!")
+		log.Debug("Service already exists!")
 		if err := validateExistingService(label, service); err != nil {
 			return nil, err
 		}
@@ -554,7 +566,7 @@ func (k *KubeHelper) readCredentials(defaultNamespace, name string) (*Credential
 
 	secret, err := k.readSecret(secretNamespacedName)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Error getting secret %s: %s", secretNamespacedName, err)
 	}
 
 	publicAPIKey, ok := secret[util.OmPublicApiKey]
@@ -590,7 +602,7 @@ func (k *KubeHelper) readSecret(nsName client.ObjectKey) (map[string]string, err
 	secret := &corev1.Secret{}
 	e := k.client.Get(context.TODO(), nsName, secret)
 	if e != nil {
-		return nil, fmt.Errorf("Error getting secret %s: %s", nsName, e)
+		return nil, e
 	}
 
 	secrets := make(map[string]string)
@@ -606,18 +618,7 @@ func (k *KubeHelper) createOrUpdateSecret(name, namespace string, pemFiles *pemC
 	err := k.client.Get(context.TODO(), objectKey(namespace, name), secret)
 	if err != nil {
 		// assume the secret was not found, need to create it
-
-		secret.ObjectMeta = metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-		}
-		if len(labels) > 0 {
-			secret.ObjectMeta.Labels = labels
-		}
-
-		secret.StringData = pemFiles.merge()
-		// return now because the object we created is already "updated"
-		return k.client.Create(context.TODO(), secret)
+		return k.createSecret(objectKey(namespace, name), pemFiles.merge(), labels)
 	}
 
 	// if the secret already exists, it might contain entries that we want merged:
@@ -626,6 +627,29 @@ func (k *KubeHelper) createOrUpdateSecret(name, namespace string, pemFiles *pemC
 
 	secret.StringData = pemFiles.mergeWith(secret.Data)
 	return k.client.Update(context.TODO(), secret)
+}
+
+// createSecret creates the secret. 'data' must either 'map[string][]byte' or 'map[string]string'
+func (k *KubeHelper) createSecret(nsName client.ObjectKey, data interface{}, labels map[string]string) error {
+	secret := &corev1.Secret{}
+	secret.ObjectMeta = metav1.ObjectMeta{
+		Name:      nsName.Name,
+		Namespace: nsName.Namespace,
+	}
+	if len(labels) > 0 {
+		secret.ObjectMeta.Labels = labels
+	}
+
+	switch v := data.(type) {
+	case map[string][]byte:
+		secret.Data = v
+	case map[string]string:
+		secret.StringData = v
+	default:
+		panic("Dev error: wrong type is passed!")
+	}
+
+	return k.client.Create(context.TODO(), secret)
 }
 
 // ensureSSLCertsForStatefulSet contains logic to create SSL certs for a StatefulSet object

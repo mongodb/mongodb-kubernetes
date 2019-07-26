@@ -33,8 +33,6 @@ type MongoDBOpsManagerSpec struct {
 	Configuration map[string]string `json:"configuration"`
 	Version       string            `json:"version"`
 	ClusterName   string            `json:"clusterName,omitempty"`
-	// todo temporary just for testing until managed appdb support is added
-	MongoDBUrl string `json:"mongodbUrl"`
 }
 
 type MongoDBOpsManagerStatus struct {

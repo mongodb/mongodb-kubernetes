@@ -156,6 +156,18 @@ func ReadEnvVarOrPanicInt(key string) int {
 	return i
 }
 
+func ReadEnvVarIntOrDefault(key string, dflt int) int {
+	value, exists := os.LookupEnv(key)
+	if !exists {
+		return dflt
+	}
+	i, e := cast.ToIntE(value)
+	if e != nil {
+		return dflt
+	}
+	return i
+}
+
 func ReadEnv(env string) (string, bool) {
 	return os.LookupEnv(env)
 }
@@ -197,10 +209,6 @@ func MaxInt(x, y int) int {
 		return x
 	}
 	return y
-}
-
-func BuildMongoUri(host string, port int) string {
-	return fmt.Sprintf("mongodb://%s:%d/?maxPoolSize=150", host, port)
 }
 
 // ************ Different string/array functions **************

@@ -22,6 +22,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+func init() {
+	// Setting this to 0 to make sure the tests run immediately and do not wait for Kubernetes caches to refreh
+	os.Setenv("K8S_CACHES_REFRESH_TIME_SEC", "0")
+}
+
 func TestShardedClusterEventMethodsHandlePanic(t *testing.T) {
 	// nullifying env variable will result in panic exception raised
 	os.Setenv(util.AutomationAgentImageUrl, "")

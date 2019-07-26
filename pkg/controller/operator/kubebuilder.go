@@ -134,6 +134,15 @@ func buildOpsManagerStatefulSet(p OpsManagerStatefulSetHelper) *appsv1.StatefulS
 			},
 		},
 	}
+
+	mountVolume(volumeMountData{
+		volumeMountName:  "gen-key",
+		volumeMountPath:  util.GenKeyPath,
+		volumeName:       "gen-key",
+		volumeSourceType: corev1.SecretVolumeSource{},
+		volumeSourceName: set.Name + "-gen-key",
+	}, set)
+
 	return set
 }
 

@@ -19,7 +19,7 @@ func TestStatefulsetCreationSuccessful(t *testing.T) {
 
 	err := helper.CreateOrUpdateInKubernetes()
 	assert.NoError(t, err)
-	assert.True(t, time.Now().Sub(start) < time.Second*2) // we waited only a little
+	assert.True(t, time.Now().Sub(start) < time.Second*4) // we waited only a little (considering 2 seconds of wait as well)
 }
 
 func TestStatefulsetCreationWaitsForCompletion(t *testing.T) {
