@@ -62,10 +62,31 @@ functions:
     - command: shell.exec
       type: system
       params:
+        shell: bash
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         script: |
           export WORKDIR=${workdir}
+
+          if [[ "${task_name}" = "release_operator_rhel_connect" ]] || [[ "${task}" = "release_operator" ]]; then
+            # Make sure release matches a correct release name.
+
+            if [[ -z $(git status --short) ]]; then
+              echo "The repository is dirty. Make sure no uncommited or modified files were added to the patch."
+              git status --short
+              exit 1
+            fi
+
+            release_version="$(git describe --dirty)"
+            if ! [[ "$release_version" =~ ^[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+              echo "$release_version does not conform to what we expect as a version label."
+              exit 1
+            fi
+
+            echo "Proceeding with release $release_version"
+          fi
+
           SKIP_TESTING=true ./scripts/evergreen/build_operator
+
     - command: s3.put
       params:
         aws_key: ${mms_build_s3_aws_access_key}
