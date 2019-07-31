@@ -128,7 +128,7 @@ ensure_ops_manager_k8s() {
         echo "Waiting until Statefulset for Ops Manager is running..."
 
         timeout "1m" bash -c \
-          "while [[ $(kubectl -n ${ops_manager_namespace} get statefulset mongodb-enterprise-ops-manager -o jsonpath=\"{.status.currentReplicas}\") != \"1\" ]]; do sleep 1; done"
+          'while [[ $(kubectl -n '${ops_manager_namespace}' get statefulset mongodb-enterprise-ops-manager -o jsonpath="{.status.currentReplicas}") != "1" ]]; do sleep 1; done'
 
         echo "Statefulset is ready, waiting for the Ops Manager to start..."
 

@@ -18,9 +18,9 @@ ARG MDB_DOWNLOAD_LOCATION
 # Non-interactive setup
 RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
 
-# Enable the testing repo (for Python3.6)
+# Enable the testing repo (for Python3.7)
 RUN echo "deb http://ftp.de.debian.org/debian testing main" >> /etc/apt/sources.list \
-    && echo 'APT::Default-Release "stable";' >> /etc/apt/apt.conf.d/00local
+    && echo 'APT::Default-Release "oldstable";' >> /etc/apt/apt.conf.d/00local
 
 # Install system depedencies
 # Structured according to: https://docs.docker.com/develop/develop-images/dockerfile_best-practices/#run

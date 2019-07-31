@@ -2,6 +2,8 @@
 
 # We need to replicate part of the init-d file due to using $0 instead of $BASH_SOURCE
 # https://stackoverflow.com/questions/21792176/0-doesnt-work-when-i-source-a-bash-script
+# As of July 2019, the original file is located here:
+# https://github.com/10gen/mms/blob/master/server/scripts/rpm/server/mms.init-d
 
 # Define basic Ops Manager env variables
 APP_DIR="/opt/mongodb/mms"
@@ -97,6 +99,9 @@ start() {
     local opts_array=(
         "-Duser.timezone=GMT"
         "-Dfile.encoding=UTF-8"
+        "-Dcom.sun.jndi.ldap.connect.pool.maxsize=20"
+        "-Dcom.sun.jndi.ldap.connect.pool.prefsize=4"
+        "-Dcom.sun.jndi.ldap.connect.pool.timeout=600000"
         "-Dsun.net.client.defaultReadTimeout=20000"
         "-Dsun.net.client.defaultConnectTimeout=10000"
         "-Djavax.net.ssl.sessionCacheSize=1"
@@ -114,7 +119,6 @@ start() {
         "-XX:CMSInitiatingOccupancyFraction=62"
         "-XX:+UseCMSInitiatingOccupancyOnly"
         "-XX:+UseConcMarkSweepGC"
-        "-XX:+UseParNewGC"
         "-XX:+UseBiasedLocking"
         "-XX:+CMSParallelRemarkEnabled"
         "-XX:-OmitStackTraceInFastThrow"
@@ -142,7 +146,8 @@ start() {
         else
             echo "Ops Manager failed to start..."
             echo
-            echo "   Check ${log_file_base}.log and ${startup_log_file_base}.log for errors"
+            echo 'Printing log files below:'
+            tail -n +1 ${log_file_base}.log ${startup_log_file_base}.log
             exit 1
         fi
     fi
