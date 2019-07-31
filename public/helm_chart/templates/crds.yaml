@@ -257,9 +257,12 @@ spec:
       properties:
         spec:
           properties:
-            configuration: # configuration holds all of the mms properties
-              type: object
             version:
               type: string
+            applicationDatabase:
+              type: object
+          required:
+            - version
+            - applicationDatabase
 
 {{end}}

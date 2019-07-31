@@ -1,7 +1,6 @@
 package om
 
 import (
-	"bytes"
 	"crypto/md5"
 	"crypto/rand"
 	"encoding/hex"
@@ -613,7 +612,7 @@ func (oc *HTTPOmConnection) getHTTPClient() (*http.Client, error) {
 func request(method, hostname, path string, v interface{}, user string, token string, client *http.Client) ([]byte, error) {
 	url := hostname + path
 
-	buffer, err := serialize(v)
+	buffer, err := util.SerializeToBuffer(v)
 	if err != nil {
 		return nil, NewAPIError(err)
 	}
@@ -670,7 +669,7 @@ func request(method, hostname, path string, v interface{}, user string, token st
 		}
 
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			apiError := parseAPIError(resp.StatusCode, method, url, body)
+			apiError := ParseAPIError(resp.StatusCode, method, url, body)
 			return nil, apiError
 		}
 	}
@@ -695,8 +694,10 @@ func createHTTPRequest(method string, url string, reader io.Reader) (*http.Reque
 	return req, nil
 }
 
-// parseAPIError
-func parseAPIError(statusCode int, method, url string, body []byte) *APIError {
+// ParseAPIError
+// todo made public as is reused from 'operator' package - in the end it must be either made private again or moved to
+// some shared package
+func ParseAPIError(statusCode int, method, url string, body []byte) *APIError {
 	// If no body - returning the error object with only HTTP status
 	if body == nil {
 		return &APIError{
@@ -715,18 +716,6 @@ func parseAPIError(statusCode int, method, url string, body []byte) *APIError {
 	}
 
 	return errorObject
-}
-
-func serialize(v interface{}) (io.Reader, error) {
-	var buffer io.Reader
-	if v != nil {
-		b, err := json.Marshal(v)
-		if err != nil {
-			return nil, err
-		}
-		buffer = bytes.NewBuffer(b)
-	}
-	return buffer, nil
 }
 
 func digestParts(resp *http.Response) map[string]string {

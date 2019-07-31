@@ -2,6 +2,7 @@ package util
 
 import (
 	"sort"
+	"strings"
 	"time"
 
 	"bytes"
@@ -232,4 +233,9 @@ func RemoveString(slice []string, s string) (result []string) {
 		result = append(result, item)
 	}
 	return
+}
+
+// UpperCaseFirstChar ensures the message first char is uppercased
+func UpperCaseFirstChar(msg string) string {
+	return string(strings.ToUpper(msg[:1])) + msg[1:]
 }

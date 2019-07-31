@@ -147,10 +147,15 @@ const (
 	DefaultPodTerminationPeriodSeconds = 600  // 10 min
 
 	// Ops Manager related constants
-	OmPropertyPrefix       = "OM_PROP_"
-	MongoUriPropKey        = "mongo.mongoUri"
-	MongoCentralUrlPropKey = "mms.centralUrl"
-	GenKeyPath             = "/etc/mongodb-mms"
+	OmPropertyPrefix   = "OM_PROP_"
+	GenKeyPath         = "/etc/mongodb-mms"
+	ENV_VAR_MANAGED_DB = "MANAGED_APP_DB"
+
+	// Ops Manager configuration properties
+	MmsCentralUrlPropKey = "mms.centralUrl"
+	MmsManagedAppDB      = "mms.managedAppDb"
+	MmsTempAppDB         = "mms.temp.appDb.version"
+	MmsMongoUri          = "mongo.mongoUri"
 
 	// All others
 	OmGroupExternallyManagedTag = "EXTERNALLY_MANAGED_BY_KUBERNETES"

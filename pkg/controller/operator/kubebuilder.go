@@ -283,16 +283,6 @@ func buildPersistentVolumeClaims(set *appsv1.StatefulSet, p StatefulSetHelper) {
 	set.Spec.Template.Spec.Containers[0].VolumeMounts = append(set.Spec.Template.Spec.Containers[0].VolumeMounts, mounts...)
 }
 
-// buildSecretForAgentKey creates the secret object to store agent key. This secret is read directly by Automation Agent containers
-func buildSecretForAgentKey(secretName, namespace string, agentKey string) *corev1.Secret {
-	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      secretName,
-			Namespace: namespace,
-		},
-		StringData: map[string]string{util.OmAgentApiKey: agentKey}}
-}
-
 // buildService creates the Kube Service. If it should be seen externally it makes it of type NodePort that will assign
 // some random port in the range 30000-32767
 // Note that itself service has no dedicated IP by default ("clusterIP: None") as all mongo entities should be directly
@@ -412,6 +402,12 @@ func opsManagerPodSpec(envVars []corev1.EnvVar, version string) corev1.PodSpec {
 	if q := parseQuantityOrZero("5G"); !q.IsZero() {
 		defaultMemory = q
 	}
+
+	// Need to specify the "MANAGED_APP_DB" env property to "enable" managed AppDB mode for the container
+	envVars = append(envVars, corev1.EnvVar{
+		Name:  util.ENV_VAR_MANAGED_DB,
+		Value: "true",
+	})
 	omImageUrl := fmt.Sprintf("%s:%s", util.ReadEnvVarOrPanic(util.OpsManagerImageUrl), version)
 	spec := corev1.PodSpec{
 		Containers: []corev1.Container{

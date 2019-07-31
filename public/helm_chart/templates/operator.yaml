@@ -42,6 +42,10 @@ spec:
             fieldRef:
               fieldPath: metadata.namespace
 {{ end }}
+        - name: CURRENT_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
 {{ if eq .Values.managedSecurityContext true }}
         - name: MANAGED_SECURITY_CONTEXT
           value: 'true'

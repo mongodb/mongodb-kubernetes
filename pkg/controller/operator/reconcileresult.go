@@ -2,7 +2,7 @@ package operator
 
 import (
 	"fmt"
-	"strings"
+	"time"
 
 	"go.uber.org/zap"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -36,7 +36,8 @@ type pendingStatus struct {
 
 // errorStatus indicates that the reconciliation process must be suspended and CR should get "Failed" status
 type errorStatus struct {
-	err error
+	err               error
+	retryAfterSeconds *time.Duration
 }
 
 type validationStatus struct {
@@ -55,6 +56,10 @@ func failed(msg string, params ...interface{}) *errorStatus {
 	return &errorStatus{err: fmt.Errorf(msg, params...)}
 }
 
+func failedRetry(msg string, retryInSeconds time.Duration, params ...interface{}) *errorStatus {
+	return &errorStatus{err: fmt.Errorf(msg, params...), retryAfterSeconds: &retryInSeconds}
+}
+
 func failedErr(err error) *errorStatus {
 	return &errorStatus{err: err}
 }
@@ -64,7 +69,7 @@ func failedValidation(msg string, params ...interface{}) *validationStatus {
 }
 
 func (e *pendingStatus) updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger) (reconcile.Result, error) {
-	return c.updateStatusPending(resource, upperCaseFirstChar(e.msg), log)
+	return c.updateStatusPending(resource, e.msg, log)
 }
 
 // merge performs messages concatenation for two pending results and makes sure the error message always overrides it
@@ -87,7 +92,11 @@ func (e *pendingStatus) isOk() bool {
 }
 
 func (e *errorStatus) updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger) (reconcile.Result, error) {
-	return c.updateStatusFailed(resource, upperCaseFirstChar(e.err.Error()), log)
+	result, error := c.updateStatusFailed(resource, e.err.Error(), log)
+	if e.retryAfterSeconds != nil {
+		return reconcile.Result{RequeueAfter: time.Second * (*e.retryAfterSeconds)}, nil
+	}
+	return result, error
 }
 
 func (e *errorStatus) merge(other reconcileStatus) reconcileStatus {
@@ -116,10 +125,5 @@ func (e *successStatus) isOk() bool {
 }
 
 func (e *validationStatus) updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger) (reconcile.Result, error) {
-	return c.updateStatusValidationFailure(resource, upperCaseFirstChar(e.err.Error()), log)
-}
-
-// We need to make sure that the message sent to 'updateStatus..' method is Uppercased
-func upperCaseFirstChar(msg string) string {
-	return string(strings.ToUpper(msg[:1])) + msg[1:]
+	return c.updateStatusValidationFailure(resource, e.err.Error(), log)
 }

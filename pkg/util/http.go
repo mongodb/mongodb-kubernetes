@@ -1,8 +1,11 @@
 package util
 
 import (
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"time"
@@ -63,4 +66,17 @@ func OptionCAValidate(ca string) func(client *http.Client) error {
 
 		return nil
 	}
+}
+
+// SerializeToBuffer takes any object and tries to serialize it to the buffer
+func SerializeToBuffer(v interface{}) (io.Reader, error) {
+	var buffer io.Reader
+	if v != nil {
+		b, err := json.Marshal(v)
+		if err != nil {
+			return nil, err
+		}
+		buffer = bytes.NewBuffer(b)
+	}
+	return buffer, nil
 }

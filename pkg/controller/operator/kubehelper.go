@@ -652,6 +652,20 @@ func (k *KubeHelper) createSecret(nsName client.ObjectKey, data interface{}, lab
 	return k.client.Create(context.TODO(), secret)
 }
 
+// deleteSecret deletes the secret. Unfortunately we cannot use 'client.Delete' directly from clients as
+// it requires the object
+func (k *KubeHelper) deleteSecret(key client.ObjectKey) error {
+	secret := &corev1.Secret{}
+	if err := k.client.Get(context.TODO(), key, secret); err != nil {
+		return err
+	}
+
+	if err := k.client.Delete(context.TODO(), secret); err != nil {
+		return err
+	}
+	return nil
+}
+
 // ensureSSLCertsForStatefulSet contains logic to create SSL certs for a StatefulSet object
 func (k *KubeHelper) ensureSSLCertsForStatefulSet(ss *StatefulSetHelper, log *zap.SugaredLogger) reconcileStatus {
 	if !ss.IsTLSEnabled() {

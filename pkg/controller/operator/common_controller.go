@@ -161,14 +161,19 @@ func (c *ReconcileCommonController) ensureAgentKeySecretExists(conn om.Connectio
 			log.Info("Agent key was successfully generated")
 		}
 
-		secret = buildSecretForAgentKey(secretName, nameSpace, agentKey)
-		if err = c.client.Create(context.TODO(), secret); err != nil {
+		if err = c.createAgentKeySecret(objectKey(nameSpace, secretName), agentKey); err != nil {
 			return "", fmt.Errorf("Failed to create Secret: %s", err)
 		}
 		log.Infof("Project agent key is saved in Kubernetes Secret for later usage")
+		return agentKey, nil
 	}
 
 	return strings.TrimSuffix(string(secret.Data[util.OmAgentApiKey]), "\n"), nil
+}
+
+func (c *ReconcileCommonController) createAgentKeySecret(objectKey client.ObjectKey, agentKey string) error {
+	data := map[string]string{util.OmAgentApiKey: agentKey}
+	return c.kubeHelper.createSecret(objectKey, data, map[string]string{})
 }
 
 // getMutex creates or reuses the relevant mutex for the group + org
@@ -195,6 +200,8 @@ func (c *ReconcileCommonController) updateStatusSuccessful(reconciledResource Up
 }
 
 func (c *ReconcileCommonController) updateStatusPending(reconciledResource Updatable, msg string, log *zap.SugaredLogger) (reconcile.Result, error) {
+	msg = util.UpperCaseFirstChar(msg)
+
 	// Info or warning?
 	log.Info(msg)
 
@@ -221,6 +228,8 @@ func (c *ReconcileCommonController) updateStatusValidationFailure(resource Updat
 }
 
 func (c *ReconcileCommonController) updateStatusFailed(resource Updatable, msg string, log *zap.SugaredLogger) (reconcile.Result, error) {
+	msg = util.UpperCaseFirstChar(msg)
+
 	log.Error(msg)
 	// Resource may be nil if the reconciliation failed very early (on fetching the resource) and panic handling function
 	// took over
@@ -315,7 +324,7 @@ func (c *ReconcileCommonController) prepareResourceForReconciliation(
 
 	updateErr := c.updateReconciling(resource)
 	if updateErr != nil {
-		log.Errorf("Error setting state to pending: %s, the resource: %+v", updateErr, resource)
+		log.Errorf("Error setting state to reconciling: %s, the resource: %+v", updateErr, resource)
 		return &reconcile.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 

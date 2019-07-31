@@ -322,3 +322,8 @@ func fail(err error) (reconcile.Result, error) {
 func toInternalClusterAuthName(name string) string {
 	return fmt.Sprintf("%s-%s", name, util.ClusterFileName)
 }
+
+// operatorNamespace returns the current namespace where the Operator is deployed
+func operatorNamespace() string {
+	return util.ReadEnvVarOrPanic("CURRENT_NAMESPACE")
+}
