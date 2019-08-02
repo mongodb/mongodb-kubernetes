@@ -139,6 +139,48 @@ repo, and they should not be checked into the private repo either.
 
 Check the last commit in the public repo and if everything is ok - push it.
 
+## Release new version to operatorhub.io
+
+The goal of this part of the process is to have our latest operator
+version deployed to
+[operatorhub.io](https://operatorhub.io/operator/mongodb-enterprise).
+
+The process of releasing a new version to operatorhub.io consists on
+creating a new CSV (ClusterServiceDefinition) file and create a PR,
+with the new file against the
+[community-operators](https://github.com/operator-framework/community-operators)
+repo. As an starting point, you can check the [PR for the version 1.1
+release.](https://github.com/operator-framework/community-operators/pull/540).
+
+### New Operator Version Quick Start
+
+1. Copy the latest `mongodboperator.vX.Y.0.csv.yaml` file into a new file with the updated version
+2. Change `metadata.name` to reflect the new Operator name (version included)
+3. Update `metadata.annotations.containerImage` to point at newest build
+4. Update `metadata.annotations.createdAt`
+5. Update `spec.version`
+6. Update `spec.replaces` and indicate the version you are replacing
+7. Update `spec.install.spec.deployments[0].spec.template.spec.containers[0].image` and the `MONGODB_ENTERPRISE_DATABASE_IMAGE` environment variable to the latest database image. Please note, this should be the `Ubuntu` based images, on the Quay.io registry, as this is the one that we use for upstream Kubernetes distributions.
+
+The PR review process can be a bit tedious and might take weeks to
+complete, and there are many pitfalls in the way. On the other hand,
+RedHat is *really* interested in our operator, so they will be very
+helpful!  Just ask the repo owners if there's any in the tests or
+linting process that you don't understand.
+
+### CRD Changes
+
+1. The `spec.customresourcedefinitions` should be updated with the new `CRD` structures, if any
+2. There will be a couple of `*.crd.yaml` files, currently `mongodb.crd.yaml` and `mongodbusers.crd.yaml` that need to be update accordingly
+3. If there are new `CRD`, new files need to be added
+
+### Roles Changes
+
+Any updates on the Roles, needs to go to the
+`spec.install.spec.permissions` and
+`spec.install.spec.clusterPermissions`, make sure those are updated as
+well.
+
 ## Ask the Docs team to publish the Release Notes
 Do this in the #docs channel
 
@@ -149,6 +191,13 @@ Copy the Release Notes from the DOCSP [into Github](https://github.com/mongodb/m
 
 Publish release in our public Github repository
 [https://github.com/mongodb/mongodb-enterprise-kubernetes/releases](https://github.com/mongodb/mongodb-enterprise-kubernetes/releases)
+
+## Update Operator in Kanopy
+
+Create a
+[ticket](https://jira.mongodb.org/projects/TECHOPS/welcome-guide) for
+TechOps to update their Kanopy Kubernetes cluster to latest release of
+our Operator.
 
 ## Create the next release ticket
 
