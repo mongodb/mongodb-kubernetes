@@ -696,10 +696,13 @@ tasks:
   commands:
     - func: "e2e_test"
 
-- name: e2e_replica_set_groups
-  exec_timeout_secs: 600
-  commands:
-    - func: "e2e_test"
+# TODO: restructure this test as it fails on OM 4.2 reaching
+# max amount of orgs per user (250) and makes all subsequent
+# tests to fail.
+# - name: e2e_replica_set_groups
+#   exec_timeout_secs: 600
+#   commands:
+#     - func: "e2e_test"
 
 - name: e2e_replica_set_pv
   exec_timeout_secs: 600
@@ -880,7 +883,6 @@ task_groups:
     - e2e_replica_set
     - e2e_replica_set_config_map
     - e2e_replica_set_ent
-    - e2e_replica_set_groups
     - e2e_replica_set_recovery
     - e2e_replica_set_pv
     - e2e_replica_set_pv_multiple

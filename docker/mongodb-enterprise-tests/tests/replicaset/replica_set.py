@@ -270,7 +270,8 @@ class TestReplicaSetCreation(KubernetesTester):
         mv = config['monitoringVersions']
 
         # baseUrl is not present in Cloud Manager response
-        assert mv[0]['baseUrl'] is None
+        if 'baseUrl' in mv[0]:
+            assert mv[0]['baseUrl'] is None
         # Monitoring agent is installed in first host
         hostname = 'my-replica-set-0.my-replica-set-svc.{}.svc.cluster.local'.format(
             self.namespace
@@ -581,7 +582,8 @@ class TestReplicaSetUpdate(KubernetesTester):
         mv = config['monitoringVersions']
 
         # baseUrl is not set in Cloud Manager
-        assert mv[0]['baseUrl'] is None
+        if 'baseUrl' in mv[0]:
+            assert mv[0]['baseUrl'] is None
         # Monitoring agent is installed in first host
         assert mv[0][
             'hostname'

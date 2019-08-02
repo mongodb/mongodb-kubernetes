@@ -1,6 +1,7 @@
 package om
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -174,6 +175,17 @@ func (s ShardedCluster) draining() []string {
 	if _, ok := s["draining"]; !ok {
 		return make([]string, 0)
 	}
+
+	// When go unmarhals an empty list from Json, it becomes
+	// []interface{} and not []string, so we must check for
+	// that particular case.
+	if obj, ok := s["draining"].([]interface{}); ok {
+		if len(obj) > 0 {
+			panic(fmt.Sprintf(`"draining" is supposed to be empty but its length is %d with contents %+v`, len(obj), obj))
+		}
+		return make([]string, 0)
+	}
+
 	return s["draining"].([]string)
 }
 
