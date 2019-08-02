@@ -55,7 +55,7 @@ cleanup_env() {
 # trying to remove the taint is supposed to help
 fix_taints() {
     for n in $(kubectl get nodes -o name); do
-        kubectl taint nodes ${n} NodeWithImpairedVolumes:NoSchedule- 2> /dev/null || true
+        kubectl taint nodes "${n}" NodeWithImpairedVolumes:NoSchedule- 2> /dev/null || true
     done
 }
 
@@ -71,15 +71,36 @@ check_and_clean_repo() {
     fi
 }
 
-fix_taints
+deploy_cluster_cleaner() {
+    ops_manager_namespace="${1}"
+    cleaner_namespace="cluster-cleaner"
+    if ! kubectl get "ns/${cleaner_namespace=}" &> /dev/null ; then
+        kubectl create namespace "${cleaner_namespace=}"
+    fi
 
-cleanup_env
-
+    kubectl create namespace "${ops_manager_namespace}" || true
+    helm template docker/cluster-cleaner \
+         --set namespace="${ops_manager_namespace}" \
+         --set cleanerNamespace=cluster-cleaner \
+         > cluster-cleaner.yaml
+    kubectl apply -f cluster-cleaner.yaml
+    rm cluster-cleaner.yaml
+}
 
 ops_manager_namespace="${1}"
 ops_manager_version="${2:-}"
 node_port="${3:-}"
+
+echo "Fixing taints"
+fix_taints
+
+echo "Cleaning up environment"
+cleanup_env
+
+echo "Deploying cluster-cleaner"
+deploy_cluster_cleaner "${ops_manager_namespace}"
+
 # Not required when running against the Ops Manager Kubernetes perpetual instance
 if [[ "${OM_EXTERNALLY_CONFIGURED:-}" != "true" ]]; then
-    ensure_ops_manager_k8s ${ops_manager_namespace} ${ops_manager_version} ${node_port}
+    ensure_ops_manager_k8s "${ops_manager_namespace}" "${ops_manager_version}" "${node_port}"
 fi

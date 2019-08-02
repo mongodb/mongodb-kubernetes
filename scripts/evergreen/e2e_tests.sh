@@ -243,23 +243,11 @@ initialize() {
         title "More info: https://master.openshift-cluster.mongokubernetes.com:8443/console/project/${PROJECT_NAMESPACE}"
     fi
 
-    fix_taints
-
     # Make sure we use VERSION_ID if it is defined.
     if [[ -n "${VERSION_ID-}" ]]; then
         REVISION="${VERSION_ID}"
     fi
     export REVISION
-}
-
-# sometimes in kops cluster some nodes get this taint that makes nodes non-schedulable. Just going over all nodes and
-# trying to remove the taint is supposed to help
-# (very view materials about this taint - this one https://github.com/kubernetes/kubernetes/blob/master/pkg/cloudprovider/providers/aws/aws.go#L204
-# indicates that there are some problems with PVs, but removing PVs didn't help...)
-fix_taints() {
-    for n in $(kubectl get nodes -o name); do
-        kubectl taint nodes "${n}" NodeWithImpairedVolumes:NoSchedule- &> /dev/null || true
-    done
 }
 
 initialize

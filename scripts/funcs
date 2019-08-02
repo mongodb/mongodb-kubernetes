@@ -56,8 +56,8 @@ metadata:
     evg/version-id: ${VERSION_ID:-'not-specified'}
     evg/task-name: ${TASK_NAME:-'not-specified'}
   annotations:
-    evg/url: "https://evergreen.mongodb.com/version/${VERSION_ID:-'not-specified'}"
-    evg/task-url: "https://evergreen.mongodb.com/task/${TASK_ID:-'not-specified'}"
+    evg/version: "https://evergreen.mongodb.com/version/${VERSION_ID:-'not-specified'}"
+    evg/task: "https://evergreen.mongodb.com/task/${TASK_ID:-'not-specified'}"
     evg/mms-version: "${MMS_VERSION:-'not-specified'}"
 EOF
     kubectl create -f "${tmp_file}" 2>/dev/null || true
@@ -98,16 +98,6 @@ ensure_ops_manager_k8s() {
         if [[ ${REPO_TYPE:-'ecr'} = "local" ]]; then
             make -C docker/mongodb-enterprise-ops-manager IMAGE_VERSION=${ops_manager_version} build
         fi
-        kubectl create namespace ${ops_manager_namespace}  || true
-
-        echo "Installing cluster cleaner into namespace ${ops_manager_namespace}"
-
-        helm template docker/cluster-cleaner --set namespace=${ops_manager_namespace} > cluster-cleaner.yaml
-
-        kubectl delete -f cluster-cleaner.yaml || true
-        kubectl apply -f cluster-cleaner.yaml
-
-        rm cluster-cleaner.yaml
 
         echo "Installing Ops Manager ${ops_manager_version}"
 
@@ -130,12 +120,12 @@ ensure_ops_manager_k8s() {
         timeout "1m" bash -c \
           'while [[ $(kubectl -n '${ops_manager_namespace}' get statefulset mongodb-enterprise-ops-manager -o jsonpath="{.status.currentReplicas}") != "1" ]]; do sleep 1; done'
 
-        echo "Statefulset is ready, waiting for the Ops Manager to start..."
+        echo "Statefulset is ready, waiting for Ops Manager to start..."
 
         # We can't communicate with Ops Manager if it is inside Kubernetes, so we just
         # wait for this command to succeed.
         # Note, that for OM check for "status.phase==Running" may not work - we need to check the container status
-        timeout "5m" bash -c \
+        timeout "10m" bash -c \
           "while ! kubectl get pod/mongodb-enterprise-ops-manager-0 -o jsonpath=\"{.status.containerStatuses[0].ready}\" -n ${ops_manager_namespace} | grep -q \"true\"; do sleep 4; done" || true
 
         if ! kubectl get pod/mongodb-enterprise-ops-manager-0 -o jsonpath="{.status.containerStatuses[0].ready}" -n ${ops_manager_namespace} | grep -q "true"; then

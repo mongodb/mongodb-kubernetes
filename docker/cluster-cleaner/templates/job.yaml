@@ -3,13 +3,14 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: cluster-cleaner
+  namespace: {{ .Values.cleanerNamespace }}
 
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: cluster-cleaner
-  namespace: {{ .Values.namespace }}
+  namespace: {{ .Values.cleanerNamespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -17,14 +18,15 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: cluster-cleaner
-  namespace: {{ .Values.namespace }}
+  namespace: {{ .Values.cleanerNamespace }}
 
+# Remove old failed namespaces
 ---
 apiVersion: batch/v1beta1
 kind: CronJob
 metadata:
   name: cluster-cleaner-delete-each-hour
-  namespace: {{ .Values.namespace }}
+  namespace: {{ .Values.cleanerNamespace }}
 spec:
   schedule: "16 * * * *"
   jobTemplate:
@@ -32,46 +34,60 @@ spec:
       template:
         spec:
           serviceAccountName: cluster-cleaner
-
-          # Do not restart if failed, this should not fail!
           restartPolicy: Never
 
           containers:
           - name: cluster-cleaner
-            image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cluster-cleaner:0.1
-
+            image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cluster-cleaner:0.4
+            imagePullPolicy: Always
+            command: ["./clean-failed-namespaces.sh"]
             env:
             - name: DELETE_OLDER_THAN_UNIT
               value: "hours"
             - name: DELETE_OLDER_THAN_AMOUNT
               value: "1"
 
-# Second Job will kill Ops Manager Pod every Saturday
-# TODO: this should also delete the PVCs and have MongoDB start from scratch
+# Clean old certificates
 ---
 apiVersion: batch/v1beta1
 kind: CronJob
 metadata:
-  name: cluster-cleaner-ops-manager
-  namespace: {{ .Values.namespace }}
+  name: cluster-cleaner-ca-certificates
+  namespace: {{ .Values.cleanerNamespace }}
 spec:
-  # run every saturday
-  schedule: "10 2 * * 6"
+  # run every 10 minutes
+  schedule: "*/10 * * * *"
   jobTemplate:
     spec:
       template:
         spec:
           serviceAccountName: cluster-cleaner
-
           restartPolicy: Never
 
           containers:
           - name: cluster-cleaner
-            image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cluster-cleaner:0.1
+            image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cluster-cleaner:0.4
+            imagePullPolicy: Always
+            command: ["./create-cluster-ca-as-configmap.sh"]
 
-            env:
-            # by passing DELETE_OPS_MANAGER we'll remove Ops Manager StatefulSet from
-            - name: DELETE_OPS_MANAGER
-              value: "true"
-            - name: OM_NAMESPACE
-              value: {{ .Values.namespace }}
+# Remove old clusterroles
+---
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: cluster-cleaner-cluster-roles-and-bindings
+  namespace: {{ .Values.cleanerNamespace }}
+spec:
+  schedule: "46 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: cluster-cleaner
+          restartPolicy: Never
+
+          containers:
+          - name: cluster-cleaner
+            image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cluster-cleaner:0.4
+            imagePullPolicy: Always
+            command: ["./clean-cluster-roles-and-bindings.sh"]
