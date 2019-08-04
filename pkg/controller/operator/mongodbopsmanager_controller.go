@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
@@ -79,8 +80,20 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 		return r.updateStatusPending(opsManager, err.Error(), log)
 	}
 
-	if status := r.prepareOpsManager(opsManager, log); status != nil {
+	credentials := &Credentials{}
+	if status := r.prepareOpsManager(opsManager, credentials, log); status != nil {
 		return status.updateStatus(opsManager, r.ReconcileCommonController, log)
+	}
+
+	emptyResult := reconcile.Result{}
+	appDbReconciler := newAppDBReplicaSetReconciler(r.ReconcileCommonController)
+	result, err := appDbReconciler.Reconcile(opsManager, &opsManager.Spec.AppDB, credentials)
+	if err != nil || result != emptyResult {
+		return result, err
+	}
+
+	if err = r.waitForFullOpsManagerToBeReady(opsManager, log); err != nil {
+		return r.updateStatusPending(opsManager, err.Error(), log)
 	}
 
 	log.Info("Finished reconciliation for MongoDBOpsManager!")
@@ -95,18 +108,11 @@ func AddOpsManagerController(mgr manager.Manager) error {
 	}
 
 	// watch for changes to the Ops Manager resources
-	eventHandler := MongoDBResourceEventHandler{reconciler: reconciler}
-
-	if err = c.Watch(&source.Kind{Type: &v1.MongoDBOpsManager{}}, &eventHandler, predicatesForOpsManager()); err != nil {
+	if err = c.Watch(&source.Kind{Type: &v1.MongoDBOpsManager{}}, &handler.EnqueueRequestForObject{}, predicatesForOpsManager()); err != nil {
 		return err
 	}
 
 	zap.S().Infof("Registered controller %s", util.MongoDbOpsManagerController)
-	return nil
-}
-
-func (r *OpsManagerReconciler) delete(obj interface{}, log *zap.SugaredLogger) error {
-	log.Info("TODO: implement OpsManagerReconciler::delete - manual cleanup required")
 	return nil
 }
 
@@ -116,6 +122,7 @@ func (r *OpsManagerReconciler) delete(obj interface{}, log *zap.SugaredLogger) e
 // successful start. If unsuccessful - the resource gets into "Pending" state and "info" message is logged.
 // The downside is that we can sit in "Pending" forever even if something bad has happened - may be we need to add some
 // timer (since last successful start) and log errors if Ops Manager is stuck.
+// todo replace with just checks for ready replicas in next PR
 func (r *OpsManagerReconciler) waitForOpsManagerToBeReady(om *v1.MongoDBOpsManager, log *zap.SugaredLogger) error {
 	if !util.DoAndRetry(func() (string, bool) {
 		// Simple tcp check for port 8080 so far
@@ -132,6 +139,22 @@ func (r *OpsManagerReconciler) waitForOpsManagerToBeReady(om *v1.MongoDBOpsManag
 	return nil
 }
 
+func (r *OpsManagerReconciler) waitForFullOpsManagerToBeReady(om *v1.MongoDBOpsManager, log *zap.SugaredLogger) error {
+	if !util.DoAndRetry(func() (string, bool) {
+		fullMode, err := checkOpsManagerInFullMode(om)
+		if err != nil {
+			return err.Error(), false
+		}
+		if fullMode {
+			return "", true
+		}
+		return "Ops Manager hasn't started during specified interval", false
+	}, log, 6, 5) {
+		return errors.New("Ops Manager hasn't started during specified timeout (it may take quite long)")
+	}
+	return nil
+}
+
 // ensureConfiguration makes sure the mandatory configuration is specified
 func (r OpsManagerReconciler) ensureConfiguration(opsManager *v1.MongoDBOpsManager, log *zap.SugaredLogger) {
 	// update the central URL
@@ -139,7 +162,10 @@ func (r OpsManagerReconciler) ensureConfiguration(opsManager *v1.MongoDBOpsManag
 
 	setConfigProperty(opsManager, util.MmsManagedAppDB, "true", log)
 
-	setConfigProperty(opsManager, util.MmsTempAppDB, opsManager.Spec.AppDB.Version, log)
+	// Note, that we don't specify the 'opsManager.Spec.AppDB.Version' as temp app db version as otherwise
+	// any appdb version upgrade will result in OM rolling upgrade. Ideally this version must be used only
+	// on statefulset creation, but not the update
+	setConfigProperty(opsManager, util.MmsTempAppDB, "4.0.9", log)
 
 	setConfigProperty(opsManager, util.MmsMongoUri, buildMongoConnectionUrl(opsManager), log)
 }
@@ -168,7 +194,7 @@ func buildMongoConnectionUrl(opsManager *v1.MongoDBOpsManager) string {
 		h = fmt.Sprintf("%s:%d", h, util.MongoDbDefaultPort)
 	}
 	uri += strings.Join(hostnames, ",")
-	uri += "/?connectTimeoutMS=5000&serverSelectionTimeoutMS=5000"
+	uri += "/?connectTimeoutMS=15000&serverSelectionTimeoutMS=15000"
 	return uri
 }
 
@@ -191,12 +217,12 @@ func (r OpsManagerReconciler) ensureGenKey(om *v1.MongoDBOpsManager, log *zap.Su
 		keyMap := map[string][]byte{"gen.key": token}
 
 		log.Infof("Creating secret %s", objectKey)
-		return r.kubeHelper.createSecret(objectKey, keyMap, map[string]string{})
+		return r.kubeHelper.createSecret(objectKey, keyMap, map[string]string{}, om)
 	}
 	return err
 }
 
-func (r OpsManagerReconciler) prepareOpsManager(opsManager *v1.MongoDBOpsManager, log *zap.SugaredLogger) reconcileStatus {
+func (r OpsManagerReconciler) prepareOpsManager(opsManager *v1.MongoDBOpsManager, credentials *Credentials, log *zap.SugaredLogger) reconcileStatus {
 	fullMode, err := checkOpsManagerInFullMode(opsManager)
 	if err != nil {
 		return failedErr(err)
@@ -217,9 +243,13 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager *v1.MongoDBOpsManager
 			// doesn't make much sense to retry soon - let's wait for 5 minutes
 			return failedRetry("Admin API key secret for Ops Manager doesn't exit - was it removed accidentally? "+
 				"Reconciliation cannot proceed, please create the API key using Ops Manager UI and create a secret manually.", 300)
-
 		}
 	}
+	cred, err := r.kubeHelper.readCredentials(operatorNamespace(), opsManager.APIKeySecretName())
+	if err != nil {
+		return failedErr(err)
+	}
+	*credentials = *cred
 	return nil
 }
 
@@ -282,7 +312,7 @@ func (r OpsManagerReconciler) initializeOpsManager(opsManager *v1.MongoDBOpsMana
 		if err = r.kubeHelper.deleteSecret(adminKeySecretName); err != nil && !apiErrors.IsNotFound(err) {
 			return r.cleanStatefulsetAndError(opsManager, fmt.Errorf("failed to replace a secret for admin public api key: %s", err))
 		}
-		if err = r.kubeHelper.createSecret(adminKeySecretName, secretData, map[string]string{}); err != nil {
+		if err = r.kubeHelper.createSecret(adminKeySecretName, secretData, map[string]string{}, opsManager); err != nil {
 			return r.cleanStatefulsetAndError(opsManager, fmt.Errorf("failed to create a secret for admin public api key: %s", err))
 		}
 		log.Infof("Created a secret for admin public api key %s", adminKeySecretName)
@@ -292,7 +322,7 @@ func (r OpsManagerReconciler) initializeOpsManager(opsManager *v1.MongoDBOpsMana
 	if agentKey != "" {
 		agentKeySecretName := objectKey(operatorNamespace(), agentApiKeySecretName(BackingGroupId))
 		if err = r.kubeHelper.deleteSecret(agentKeySecretName); err == nil || apiErrors.IsNotFound(err) {
-			err = r.createAgentKeySecret(agentKeySecretName, agentKey)
+			err = r.createAgentKeySecret(agentKeySecretName, agentKey, opsManager)
 		}
 		if err != nil {
 			log.Warnf("Failed to (re)create agent key secret %s, this is not critical, will try to create it again later: %s",

@@ -118,7 +118,7 @@ if [ ! -e "${MMS_HOME}/files/mongodb-mms-automation-agent" ]; then
 
     curl_opts=(
         "${base_url}/download/agent/automation/mongodb-mms-automation-agent-latest.linux_x86_64.tar.gz"
-        "--location" "--silent" "--retry" "3" "--fail"
+        "--location" "--silent" "--retry" "3" "--fail" "-v"
         "--output" "automation-agent.tar.gz"
     )
 
@@ -134,6 +134,7 @@ if [ ! -e "${MMS_HOME}/files/mongodb-mms-automation-agent" ]; then
 
     if ! curl "${curl_opts[@]}" &> "${MMS_LOG_DIR}/agent-launcher-script.log"; then
         script_log "Error while downloading the Automation agent"
+        cat "${MMS_LOG_DIR}/agent-launcher-script.log" | json_log 'agent-launcher-script'
         exit 1
     fi
 

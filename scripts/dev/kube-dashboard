@@ -26,7 +26,13 @@ open_web_location () {
     fi
 }
 
-secret=$(kubectl get secret $(kubectl get serviceaccount dashboard -o jsonpath="{.secrets[0].name}") -o jsonpath="{.data.token}" | base64 --decode)
+secret=$(kubectl get secret -n default $(kubectl get serviceaccount dashboard -n default -o jsonpath="{.secrets[0].name}") -o jsonpath="{.data.token}" | base64 --decode)
+
+if [[ -z "${secret}" ]]; then
+  echo "Secret was not found!"
+  exit 1
+fi
+
 if [ "$(uname)" = "Linux" ]; then
     if which xclip &> /dev/null; then
         echo $secret | xclip -selection clipboard

@@ -14,6 +14,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
@@ -27,6 +29,7 @@ import (
 // status updated
 type Updatable interface {
 	runtime.Object
+	metav1.Object
 
 	// UpdateSuccessful called when the MongoDB CR object needs to transition to
 	// successful state. This means that the CR object is ready to work
@@ -43,6 +46,10 @@ type Updatable interface {
 	// UpdateReconciling called when the MongoDB CR object needs to transition to
 	// reconciling state.
 	UpdateReconciling()
+
+	// GetKind returns the kind of the object. This
+	// is convenient when setting the owner for K8s objects created by controllers
+	GetKind() string
 
 	// GetStatus returns the status of the object
 	GetStatus() interface{}
@@ -161,7 +168,8 @@ func (c *ReconcileCommonController) ensureAgentKeySecretExists(conn om.Connectio
 			log.Info("Agent key was successfully generated")
 		}
 
-		if err = c.createAgentKeySecret(objectKey(nameSpace, secretName), agentKey); err != nil {
+		// todo pass a real owner in a next PR
+		if err = c.createAgentKeySecret(objectKey(nameSpace, secretName), agentKey, nil); err != nil {
 			return "", fmt.Errorf("Failed to create Secret: %s", err)
 		}
 		log.Infof("Project agent key is saved in Kubernetes Secret for later usage")
@@ -171,9 +179,9 @@ func (c *ReconcileCommonController) ensureAgentKeySecretExists(conn om.Connectio
 	return strings.TrimSuffix(string(secret.Data[util.OmAgentApiKey]), "\n"), nil
 }
 
-func (c *ReconcileCommonController) createAgentKeySecret(objectKey client.ObjectKey, agentKey string) error {
+func (c *ReconcileCommonController) createAgentKeySecret(objectKey client.ObjectKey, agentKey string, owner Updatable) error {
 	data := map[string]string{util.OmAgentApiKey: agentKey}
-	return c.kubeHelper.createSecret(objectKey, data, map[string]string{})
+	return c.kubeHelper.createSecret(objectKey, data, map[string]string{}, owner)
 }
 
 // getMutex creates or reuses the relevant mutex for the group + org
@@ -255,27 +263,26 @@ func (c *ReconcileCommonController) updateStatusFailed(resource Updatable, msg s
 func (c *ReconcileCommonController) updateStatus(reconciledResource Updatable, updateFunc func(fresh Updatable)) error {
 	for i := 0; i < 3; i++ {
 		err := c.client.Get(context.TODO(), objectKeyFromApiObject(reconciledResource), reconciledResource)
-		if err == nil {
-			updateFunc(reconciledResource)
-			err = c.client.Update(context.TODO(), reconciledResource)
-			if err == nil {
-				return nil
-			}
-			// we want to try again if there's a conflict, possible concurrent modification
-			if apiErrors.IsConflict(err) {
-				continue
-			}
-			// otherwise we've got a different error
+		if err != nil {
 			return err
 		}
+		updateFunc(reconciledResource)
+		err = c.client.Update(context.TODO(), reconciledResource)
+		if err == nil {
+			return nil
+		}
+		// we want to try again if there's a conflict, possible concurrent modification
+		if apiErrors.IsConflict(err) {
+			continue
+		}
+		// otherwise we've got a different error
+		return err
 	}
 	return fmt.Errorf("the resource is experiencing some intensive concurrent modifications")
 }
 
 // shouldReconcile checks if the resource must be reconciled.
-// Edge cases:
-// 1) Statuses changes - we never reconcile on them, only on spec/metadata ones
-// 2) Controller may add a finalizer or it may be removed by K8s - ignoring this
+// We never reconcile on statuses changes, only on spec/metadata ones
 //
 // Important notes about why we can just check statuses/finalizers and be sure that we don't miss the reconciliation:
 // - the watchers receive signals only about any changes to *CR*. If the reconciliation failed and a reconciler returned

@@ -199,7 +199,9 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 		return err
 	}
 
-	return calculateDiffAndStopMonitoringHosts(conn, getAllHostsRs(set, newResource, membersNumberBefore), getAllHostsRs(set, newResource, newResource.Spec.Members), log)
+	hostsBefore := getAllHostsRs(set, newResource.Spec.ClusterName, membersNumberBefore)
+	hostsAfter := getAllHostsRs(set, newResource.Spec.ClusterName, newResource.Spec.Members)
+	return calculateDiffAndStopMonitoringHosts(conn, hostsBefore, hostsAfter, log)
 
 }
 
@@ -282,11 +284,7 @@ func prepareScaleDownReplicaSet(omClient om.Connection, statefulSet *appsv1.Stat
 	return prepareScaleDown(omClient, map[string][]string{new.Name: podNames}, log)
 }
 
-func getAllHostsRs(set *appsv1.StatefulSet, rs *mongodb.MongoDB, membersCount int) []string {
-	if rs == nil {
-		return []string{}
-	}
-
-	hostnames, _ := GetDnsForStatefulSetReplicasSpecified(set, rs.Spec.ClusterName, membersCount)
+func getAllHostsRs(set *appsv1.StatefulSet, clusterName string, membersCount int) []string {
+	hostnames, _ := GetDnsForStatefulSetReplicasSpecified(set, clusterName, membersCount)
 	return hostnames
 }

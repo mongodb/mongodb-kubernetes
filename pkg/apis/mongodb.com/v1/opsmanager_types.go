@@ -34,7 +34,7 @@ type MongoDBOpsManagerList struct {
 }
 
 type MongoDBOpsManagerSpec struct {
-	Configuration map[string]string `json:"configuration"`
+	Configuration map[string]string `json:"configuration,omitempty"`
 	Version       string            `json:"version"`
 	ClusterName   string            `json:"clusterName,omitempty"`
 	// AdminSecret is the secret for the first admin user to create
@@ -60,23 +60,21 @@ type AppDbStatus struct {
 	MongoDbStatus
 }
 
-// when unmarshaling a MongoDB instance, we don't want to have any nil references
-// these are replaced with an empty instance to prevent nil references
 func (m *MongoDBOpsManager) UnmarshalJSON(data []byte) error {
 	type MongoDBJSON *MongoDBOpsManager
 	if err := json.Unmarshal(data, (MongoDBJSON)(m)); err != nil {
 		return err
 	}
-	// adding the reference from appdb to om
-	m.Spec.AppDB.OpsManager = m
+	// setting ops manager name for the appdb
+	m.Spec.AppDB.OpsManagerName = m.Name
 	return nil
 }
 
 func (m *MongoDBOpsManager) MarshalJSON() ([]byte, error) {
 	mdb := m.DeepCopyObject().(*MongoDBOpsManager) // prevent mutation of the original object
-	mdb.Spec.AppDB.OpsManager = nil
 
-	return json.Marshal((MongoDBOpsManager)(*mdb))
+	mdb.Spec.AppDB.OpsManagerName = ""
+	return json.Marshal(*mdb)
 }
 
 func (m *MongoDBOpsManager) SvcName() string {
@@ -125,6 +123,10 @@ func (m *MongoDBOpsManager) UpdateSuccessful(object runtime.Object, args ...stri
 	m.Status.OpsManagerStatus.Phase = PhaseRunning
 }
 
+func (m *MongoDBOpsManager) GetKind() string {
+	return "MongoDBOpsManager"
+}
+
 func (m *MongoDBOpsManager) GetStatus() interface{} {
 	return m.Status
 }
@@ -135,6 +137,47 @@ func (m *MongoDBOpsManager) GetSpec() interface{} {
 
 func (m *MongoDBOpsManager) APIKeySecretName() string {
 	return m.Name + "-admin-key"
+}
+
+// todo for all methods below - reuse the ones from types.go
+func (m *MongoDBOpsManager) UpdateErrorAppDb(msg string) {
+	m.Status.AppDbStatus.Message = msg
+	m.Status.AppDbStatus.LastTransition = util.Now()
+	m.Status.AppDbStatus.Phase = PhaseFailed
+}
+
+func (m *MongoDBOpsManager) UpdatePendingAppDb(msg string) {
+	if msg != "" {
+		m.Status.AppDbStatus.Message = msg
+	}
+	if m.Status.AppDbStatus.Phase != PhasePending {
+		m.Status.AppDbStatus.LastTransition = util.Now()
+		m.Status.AppDbStatus.Phase = PhasePending
+	}
+}
+
+func (m *MongoDBOpsManager) UpdateReconcilingAppDb() {
+	m.Status.AppDbStatus.LastTransition = util.Now()
+	m.Status.AppDbStatus.Phase = PhaseReconciling
+}
+
+func (m *MongoDBOpsManager) UpdateSuccessfulAppDb(object runtime.Object, args ...string) {
+	spec := object.(*AppDB)
+
+	// assign all fields common to the different resource types
+	if len(args) >= DeploymentLinkIndex {
+		m.Status.AppDbStatus.Link = args[DeploymentLinkIndex]
+	}
+	m.Status.AppDbStatus.Version = spec.Version
+	m.Status.AppDbStatus.Message = ""
+	m.Status.AppDbStatus.LastTransition = util.Now()
+	m.Status.AppDbStatus.Phase = PhaseRunning
+	m.Status.AppDbStatus.ResourceType = spec.ResourceType
+
+	switch spec.ResourceType {
+	case ReplicaSet:
+		m.Status.AppDbStatus.Members = spec.Members
+	}
 }
 
 // ConvertToEnvVarFormat takes a property in the form of
@@ -152,24 +195,27 @@ func ConvertNameToEnvVarFormat(propertyFormat string) string {
 type AppDB struct {
 	MongoDbSpec
 
-	// transient reference to OpsManager
-	OpsManager *MongoDBOpsManager
+	// transient field. This field is cleaned before serialization, see 'MarshalJSON()'
+	// note, that we cannot include the 'OpsManager' instance here as this creates circular dependency and problems with
+	// 'DeepCopy'
+	OpsManagerName string `json:"omName,omitempty"`
 }
 
 // No Security and no AdditionalMongodConfig as of alpha
 func (m *AppDB) UnmarshalJSON(data []byte) error {
 	type MongoDBJSON *AppDB
-	if err := json.Unmarshal(data, (*AppDB)(m)); err != nil {
+	if err := json.Unmarshal(data, (MongoDBJSON)(m)); err != nil {
 		return err
 	}
-	// adding the reference from appdb to om
 	m.Security = nil
 	m.AdditionalMongodConfig = nil
+	m.ConnectionSpec.Credentials = ""
+	m.ConnectionSpec.Project = ""
 	return nil
 }
 
 func (m *AppDB) Name() string {
-	return m.OpsManager.Name + "-db"
+	return m.OpsManagerName + "-db"
 }
 
 func (m *AppDB) ServiceName() string {
@@ -183,69 +229,7 @@ func (m *AppDB) MongosRsName() string {
 	return m.Name() + "-mongos"
 }
 
-// todo for all methods below - reuse the ones from types.go
-func (m *AppDB) UpdateError(msg string) {
-	m.OpsManager.Status.AppDbStatus.Message = msg
-	m.OpsManager.Status.AppDbStatus.LastTransition = util.Now()
-	m.OpsManager.Status.AppDbStatus.Phase = PhaseFailed
-}
-
-// UpdatePending called when the CR object (MongoDB resource) needs to transition to
-// pending state.
-func (m *AppDB) UpdatePending(msg string) {
-	if msg != "" {
-		m.OpsManager.Status.AppDbStatus.Message = msg
-	}
-	if m.OpsManager.Status.AppDbStatus.Phase != PhasePending {
-		m.OpsManager.Status.AppDbStatus.LastTransition = util.Now()
-		m.OpsManager.Status.AppDbStatus.Phase = PhasePending
-	}
-}
-
-// UpdateReconciling called when the CR object (MongoDB resource) needs to transition to
-// reconciling state.
-func (m *AppDB) UpdateReconciling() {
-	m.OpsManager.Status.AppDbStatus.LastTransition = util.Now()
-	m.OpsManager.Status.AppDbStatus.Phase = PhaseReconciling
-}
-
-// UpdateSuccessful called when the CR object (MongoDB resource) needs to transition to
-// successful state. This means that the CR object and the underlying MongoDB deployment
-// are ready to work
-func (m *AppDB) UpdateSuccessful(object runtime.Object, args ...string) {
-	reconciledResource := object.(*MongoDB)
-	spec := reconciledResource.Spec
-
-	// assign all fields common to the different resource types
-	if len(args) >= DeploymentLinkIndex {
-		m.OpsManager.Status.AppDbStatus.Link = args[DeploymentLinkIndex]
-	}
-	m.OpsManager.Status.AppDbStatus.Version = spec.Version
-	m.OpsManager.Status.AppDbStatus.Message = ""
-	m.OpsManager.Status.AppDbStatus.LastTransition = util.Now()
-	m.OpsManager.Status.AppDbStatus.Phase = PhaseRunning
-	m.OpsManager.Status.AppDbStatus.ResourceType = spec.ResourceType
-
-	switch spec.ResourceType {
-	case ReplicaSet:
-		m.OpsManager.Status.AppDbStatus.Members = spec.Members
-	case ShardedCluster:
-		m.OpsManager.Status.AppDbStatus.MongosCount = spec.MongosCount
-		m.OpsManager.Status.AppDbStatus.MongodsPerShardCount = spec.MongodsPerShardCount
-		m.OpsManager.Status.AppDbStatus.ConfigServerCount = spec.ConfigServerCount
-		m.OpsManager.Status.AppDbStatus.ShardCount = spec.ShardCount
-	}
-}
-
-func (m *AppDB) GetStatus() interface{} {
-	return m.OpsManager.Status.AppDbStatus
-}
-
-func (m *AppDB) GetSpec() interface{} {
-	return m
-}
-
-// todo these two methods are added only to make AppDB implement Updatable
+// todo these two methods are added only to make AppDB implement runtime.Object
 func (m *AppDB) GetObjectKind() schema.ObjectKind {
 	return nil
 }

@@ -74,7 +74,7 @@ type Credentials struct {
 
 type StatefulSetHelperCommon struct {
 	// Attributes that are part of StatefulSet
-	Owner     metav1.Object
+	Owner     Updatable
 	Name      string
 	Service   string
 	Namespace string
@@ -133,7 +133,7 @@ type ShardedClusterKubeState struct {
 // * ExposedExternally: false
 // * ServicePort: `MongoDbDefaultPort` (27017)
 //
-func (k *KubeHelper) NewStatefulSetHelper(obj metav1.Object) *StatefulSetHelper {
+func (k *KubeHelper) NewStatefulSetHelper(obj Updatable) *StatefulSetHelper {
 	return &StatefulSetHelper{
 		StatefulSetHelperCommon: StatefulSetHelperCommon{
 			Owner:       obj,
@@ -149,7 +149,7 @@ func (k *KubeHelper) NewStatefulSetHelper(obj metav1.Object) *StatefulSetHelper 
 	}
 }
 
-func (k *KubeHelper) NewOpsManagerStatefulSetHelper(obj metav1.Object) *OpsManagerStatefulSetHelper {
+func (k *KubeHelper) NewOpsManagerStatefulSetHelper(obj Updatable) *OpsManagerStatefulSetHelper {
 	return &OpsManagerStatefulSetHelper{
 		StatefulSetHelperCommon: StatefulSetHelperCommon{
 			Owner:       obj,
@@ -312,7 +312,7 @@ func (s *StatefulSetHelper) SetSecurity(security *mongodb.Security) *StatefulSet
 // (the random port will be allocated by Kubernetes) otherwise only one service of type "ClusterIP" is created and it
 // won't be connectible from external (unless pods in statefulset expose themselves to outside using "hostNetwork: true")
 // Function returns the service port number assigned
-func (k *KubeHelper) createOrUpdateStatefulsetWithService(owner metav1.Object, servicePort int32,
+func (k *KubeHelper) createOrUpdateStatefulsetWithService(owner Updatable, servicePort int32,
 	ns string, exposeExternally bool, log *zap.SugaredLogger, set *appsv1.StatefulSet) (*int32, error) {
 
 	start := time.Now()
@@ -397,7 +397,7 @@ func (k *KubeHelper) deleteStatefulSet(key client.ObjectKey) error {
 // ensureServicesExist checks if the necessary services exist and creates them if not. If the service name is not
 // provided - creates it based on the first replicaset name provided
 // TODO it must remove the external service in case it's no more needed
-func (k *KubeHelper) ensureServicesExist(owner metav1.Object, serviceName string, servicePort int32, nameSpace string,
+func (k *KubeHelper) ensureServicesExist(owner Updatable, serviceName string, servicePort int32, nameSpace string,
 	exposeExternally bool, log *zap.SugaredLogger, statefulset *appsv1.StatefulSet) (*corev1.Service, error) {
 
 	ensureStatefulsetsHaveServiceLabel(serviceName, statefulset)
@@ -420,7 +420,7 @@ func (k *KubeHelper) ensureServicesExist(owner metav1.Object, serviceName string
 	return service, nil
 }
 
-func (k *KubeHelper) readOrCreateService(owner metav1.Object, serviceName string, label string, servicePort int32, ns string,
+func (k *KubeHelper) readOrCreateService(owner Updatable, serviceName string, label string, servicePort int32, ns string,
 	exposeExternally bool, log *zap.SugaredLogger) (*corev1.Service, error) {
 	log = log.With("service", serviceName)
 
@@ -618,7 +618,8 @@ func (k *KubeHelper) createOrUpdateSecret(name, namespace string, pemFiles *pemC
 	err := k.client.Get(context.TODO(), objectKey(namespace, name), secret)
 	if err != nil {
 		// assume the secret was not found, need to create it
-		return k.createSecret(objectKey(namespace, name), pemFiles.merge(), labels)
+		// passing 'nil' as an owner reference as we haven't decided yet if we need to remove certificates
+		return k.createSecret(objectKey(namespace, name), pemFiles.merge(), labels, nil)
 	}
 
 	// if the secret already exists, it might contain entries that we want merged:
@@ -630,7 +631,7 @@ func (k *KubeHelper) createOrUpdateSecret(name, namespace string, pemFiles *pemC
 }
 
 // createSecret creates the secret. 'data' must either 'map[string][]byte' or 'map[string]string'
-func (k *KubeHelper) createSecret(nsName client.ObjectKey, data interface{}, labels map[string]string) error {
+func (k *KubeHelper) createSecret(nsName client.ObjectKey, data interface{}, labels map[string]string, owner Updatable) error {
 	secret := &corev1.Secret{}
 	secret.ObjectMeta = metav1.ObjectMeta{
 		Name:      nsName.Name,
@@ -638,6 +639,9 @@ func (k *KubeHelper) createSecret(nsName client.ObjectKey, data interface{}, lab
 	}
 	if len(labels) > 0 {
 		secret.ObjectMeta.Labels = labels
+	}
+	if owner != nil {
+		secret.ObjectMeta.OwnerReferences = baseOwnerReference(owner)
 	}
 
 	switch v := data.(type) {

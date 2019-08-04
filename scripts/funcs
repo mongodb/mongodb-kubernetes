@@ -285,6 +285,14 @@ redeploy_operator() {
          --set debugPort="${DEBUG_PORT:-30042}" \
          > "${tmp_file}"
 
+    if [[ "${OPERATOR_UPGRADE_IN_PROGRESS-}" != "stage2" ]]; then
+        # note that we don't remove all objects from file as it contains CRDs as well (and they will be blocked if there
+        # are existing mongodb resources)
+        echo "Removing the Operator deployment"
+        kubectl delete deployment ${OPERATOR_NAME} &> /dev/null || true
+    fi
+
+    echo "Deploying Operator"
     kubectl apply -f "${tmp_file}"
     rm "${tmp_file}"
 
@@ -345,8 +353,6 @@ create_kops_cluster() {
 
     check_env_var "KOPS_STATE_STORE" "Make sure you add \"export KOPS_STATE_STORE=s3://kube-om-state-store\" to your ~/.bashrc"
 
-    [[ ! -f ~/.ssh/id_aws_rsa ]] && ssh-keygen -f ~/.ssh/id_aws_rsa && ssh-add ~/.ssh/id_aws_rsa
-
     echo "Make sure you use the latest version of kops (>= 1.11.0): 'brew upgrade kops'"
     kops create cluster \
          --node-count "$node_count" \
@@ -367,11 +373,12 @@ create_kops_cluster() {
 
     timeout "20m" bash -c 'while ! kops validate cluster $cluster_name &>/dev/null ; do printf .; sleep 5; done'
 
-    title "Kops cluster $cluster_name is ready!"
+    title "Kops cluster $cluster_name is ready! Note, that you need to use 'admin' user if you want to ssh to the nodes"
 
     # see https://codeandunicorns.com/kubernetes-dashboard-kops/
+    # also keep an eye on https://github.com/kubernetes/dashboard/releases - we should use 2.0.0 once it goes to GA
     title "Adding support for Kubernetes dashboard"
-    kubectl create -f https://raw.githubusercontent.com/kubernetes/dashboard/master/aio/deploy/recommended/kubernetes-dashboard.yaml
+    kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v1.10.1/src/deploy/recommended/kubernetes-dashboard.yaml
 
     #To create a service account with access to default namespace
     kubectl create serviceaccount dashboard -n default

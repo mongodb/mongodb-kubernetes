@@ -4,6 +4,7 @@ package operator
 // custom objects
 import (
 	"path"
+	"sort"
 	"strconv"
 
 	"fmt"
@@ -287,7 +288,7 @@ func buildPersistentVolumeClaims(set *appsv1.StatefulSet, p StatefulSetHelper) {
 // some random port in the range 30000-32767
 // Note that itself service has no dedicated IP by default ("clusterIP: None") as all mongo entities should be directly
 // addressable
-func buildService(owner metav1.Object, name string, label string, namespace string, port int32, exposeExternally bool) *corev1.Service {
+func buildService(owner Updatable, name string, label string, namespace string, port int32, exposeExternally bool) *corev1.Service {
 	serviceType := corev1.ServiceTypeClusterIP
 	clusterIp := "None"
 	if exposeExternally {
@@ -316,12 +317,12 @@ func buildService(owner metav1.Object, name string, label string, namespace stri
 	}
 }
 
-func baseOwnerReference(owner metav1.Object) []metav1.OwnerReference {
+func baseOwnerReference(owner Updatable) []metav1.OwnerReference {
 	return []metav1.OwnerReference{
 		*metav1.NewControllerRef(owner, schema.GroupVersionKind{
 			Group:   mongodb.SchemeGroupVersion.Group,
 			Version: mongodb.SchemeGroupVersion.Version,
-			Kind:    "MongoDB",
+			Kind:    owner.GetKind(),
 		}),
 	}
 }
@@ -408,6 +409,7 @@ func opsManagerPodSpec(envVars []corev1.EnvVar, version string) corev1.PodSpec {
 		Name:  util.ENV_VAR_MANAGED_DB,
 		Value: "true",
 	})
+	sort.Sort(&envVarSorter{envVars: envVars})
 	omImageUrl := fmt.Sprintf("%s:%s", util.ReadEnvVarOrPanic(util.OpsManagerImageUrl), version)
 	spec := corev1.PodSpec{
 		Containers: []corev1.Container{
@@ -426,6 +428,26 @@ func opsManagerPodSpec(envVars []corev1.EnvVar, version string) corev1.PodSpec {
 	}
 
 	return spec
+}
+
+// envVarSorter
+type envVarSorter struct {
+	envVars []corev1.EnvVar
+}
+
+// Len is part of sort.Interface.
+func (s *envVarSorter) Len() int {
+	return len(s.envVars)
+}
+
+// Swap is part of sort.Interface.
+func (s *envVarSorter) Swap(i, j int) {
+	s.envVars[i], s.envVars[j] = s.envVars[j], s.envVars[i]
+}
+
+// Less is part of sort.Interface. It is implemented by calling the "by" closure in the sorter.
+func (s *envVarSorter) Less(i, j int) bool {
+	return s.envVars[i].Name < s.envVars[j].Name
 }
 
 func baseLivenessProbe() *corev1.Probe {

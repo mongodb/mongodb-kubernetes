@@ -126,9 +126,11 @@ type MongoDbSpec struct {
 }
 
 // ConnectionSpec holds fields required to establish an Ops Manager connection
+// note, that the fields are marked as 'omitempty' as otherwise they are shown for AppDB
+// which is not good
 type ConnectionSpec struct {
-	Project     string `json:"project"`
-	Credentials string `json:"credentials"`
+	Project     string `json:"project,omitempty"`
+	Credentials string `json:"credentials,omitempty"`
 	// FIXME: LogLevel is not a required field for creating an Ops Manager connection, it should not be here.
 	LogLevel LogLevel `json:"logLevel,omitempty"`
 }
@@ -301,6 +303,10 @@ func (m *MongoDB) UpdateSuccessful(object runtime.Object, args ...string) {
 		m.Status.ConfigServerCount = spec.ConfigServerCount
 		m.Status.ShardCount = spec.ShardCount
 	}
+}
+
+func (m *MongoDB) GetKind() string {
+	return "MongoDB"
 }
 
 func (m *MongoDB) GetStatus() interface{} {
