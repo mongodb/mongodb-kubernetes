@@ -1005,8 +1005,8 @@ buildvariants:
   - name: "e2e_core_task_group"
   - name: "e2e_tls_task_group"
 
-- name: e2e_kube_vanilla_v1.11_om_40_current
-  display_name: "e2e_kube_vanilla_v1.11_om_40_current"
+- name: e2e_kube_vanilla_v1.11_om_42_current
+  display_name: "e2e_kube_vanilla_v1.11_om_42_current"
   depends_on:
     - name: build_images
       variant: init_test_run
@@ -1023,8 +1023,8 @@ buildvariants:
   - name: "e2e_x509_task_group"
   - name: "e2e_core_others_task_group"
 
-- name: e2e_openshift_origin_v3.11_om_40_current
-  display_name: "e2e_openshift_origin_v3.11_om_40_current"
+- name: e2e_openshift_origin_v3.11_om_42_current
+  display_name: "e2e_openshift_origin_v3.11_om_42_current"
   depends_on:
     - name: build_images
       variant: init_test_run
