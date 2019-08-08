@@ -21,7 +21,7 @@ class TestReplicaSetWithTLSCreation(KubernetesTester):
     create:
       file: test-tls-base-rs-require-ssl.yaml
       wait_for_message: Not all certificates have been approved by Kubernetes CA
-      timeout: 120
+      timeout: 240
     """
 
     def test_mdb_resource_status_is_pending(self):
@@ -46,7 +46,7 @@ class TestReplicaSetWithTLSRunning(KubernetesTester):
     name: check everything is in place
     noop:
       wait_until: in_running_state
-      timeout: 200
+      timeout: 300
     """
 
     @skip_if_local()
@@ -66,7 +66,7 @@ class TestReplicaSetWithTLSPrefer(KubernetesTester):
       patch: '[{"op":"add","path":"/spec/additionalMongodConfig","value": { "net": {"ssl": {"mode": "preferSSL"}} }}]'
       file: test-tls-base-rs-require-ssl.yaml
       wait_until: in_running_state
-      timeout: 200
+      timeout: 300
     """
 
     @skip_if_local()
@@ -86,7 +86,7 @@ class TestReplicaSetWithTLSAllow(KubernetesTester):
       patch: '[{"op":"add","path":"/spec/additionalMongodConfig","value": { "net": {"ssl": {"mode": "allowSSL"}} }}]'
       file: test-tls-base-rs-require-ssl.yaml
       wait_until: in_running_state
-      timeout: 200
+      timeout: 300
     """
 
     @skip_if_local()
@@ -106,7 +106,7 @@ class TestReplicaSetWithTLSDisabling(KubernetesTester):
       patch: '[{ "op": "replace", "path":"/spec/security", "value": null }]'
       file: test-tls-base-rs-require-ssl.yaml
       wait_until: in_running_state
-      timeout: 200
+      timeout: 300
     """
 
     @skip_if_local()
@@ -127,7 +127,7 @@ class TestReplicaSetWithTLSRemove(KubernetesTester):
     delete:
       file: test-tls-base-rs-require-ssl.yaml
       wait_until: mongo_resource_deleted
-      timeout: 120
+      timeout: 240
     """
 
     def setup(self):

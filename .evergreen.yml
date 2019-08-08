@@ -10,15 +10,9 @@ variables:
     ops_manager_namespace: "operator-testing-40-first"
     node_port: 30041
   - &ops_manager_42_current
-    ops_manager_version: "4.2.0.56423.20190722T1139Z-1_test"
+    ops_manager_version: "4.2.0.56506.20190804T0058Z-1_test"
     ops_manager_namespace: "operator-testing-42-current"
     node_port: 30043
-
-# TODO: CLOUDP-42158 there are some incompatibilities with the operator and 4.1.x Ops Managers
-#  - &ops_manager_41_current
-#    ops_manager_version: "4.1.6.54491.20190508T1510Z-1_test"
-#    ops_manager_namespace: "operator-testing-41-current"
-#    node_port: 30042
 
   - &cloud_manager_qa
     ops_manager_version: "cloud_qa"
@@ -565,7 +559,7 @@ tasks:
         path: mongodb-enterprise/4.0
 
 - name: build_images
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   priority: 1
   commands:
     - func: clone
@@ -630,22 +624,22 @@ tasks:
     - func: e2e_test_upgrade_operator
 
 - name: e2e_standalone_schema_validation
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_schema_validation
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_schema_validation
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_users_schema_validation
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
@@ -657,42 +651,42 @@ tasks:
         watch_namespace: "*"
 
 - name: e2e_standalone_config_map
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_standalone_groups
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_standalone_recovery
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_standalone_recovery_k8s
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_recovery
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_config_map
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_ent
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
@@ -705,17 +699,17 @@ tasks:
 #     - func: "e2e_test"
 
 - name: e2e_replica_set_pv
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_pv_multiple
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_8_members
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
@@ -730,7 +724,7 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_recovery
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
@@ -745,42 +739,42 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_standalone_type_change_recovery
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_all_mongodb_resources_parallel
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_standalone_upgrade_downgrade
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_upgrade_downgrade
-  exec_timeout_secs: 900
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_upgrade_downgrade
-  exec_timeout_secs: 900
+  exec_timeout_secs: 1800
   commands:
     - func: "e2e_test"
 
 - name: e2e_standalone_no_tls_no_status_is_set
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
 - name: e2e_replica_set_tls_allow
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
 - name: e2e_replica_set_tls_prefer
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
@@ -826,32 +820,32 @@ tasks:
 
 - name: e2e_tls_x509_rs
   # longer timeout than usual as this test tests recovery from bad states which can take some time
-  exec_timeout_secs: 1200
+  exec_timeout_secs: 1800
   commands:
   - func: "e2e_test"
 
 - name: e2e_tls_x509_sc
-  exec_timeout_secs: 1200
+  exec_timeout_secs: 1800
   commands:
     - func: "e2e_test"
 
 - name: e2e_tls_x509_users_addition_removal
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_tls_x509_user_connectivity
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_tls_x509_configure_all_options_rs
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_tls_x509_configure_all_options_sc
-  exec_timeout_secs: 600
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 

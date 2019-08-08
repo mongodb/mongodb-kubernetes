@@ -15,7 +15,7 @@ class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
     create:
       file: replica-set-pv-multiple.yaml
       wait_until: in_running_state
-      timeout: 180
+      timeout: 300
     """
     RESOURCE_NAME = "rs001-pv-multiple"
 

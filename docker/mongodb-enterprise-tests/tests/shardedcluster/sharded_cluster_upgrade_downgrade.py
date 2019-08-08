@@ -12,13 +12,14 @@ class TestShardedClusterUpgradeDowngradeCreate(KubernetesTester):
     create:
       file: sharded-cluster-downgrade.yaml
       wait_until: in_running_state
-      timeout: 200
+      timeout: 300
     '''
 
     def test_db_connectable(self):
         mongod_tester = ShardedClusterTester("sh001-downgrade", 1)
         mongod_tester.assert_connectivity()
         mongod_tester.assert_version("3.6.5")
+
 
 @pytest.mark.e2e_sharded_cluster_upgrade_downgrade
 class TestShardedClusterUpgradeDowngradeUpdate(KubernetesTester):
@@ -30,13 +31,14 @@ class TestShardedClusterUpgradeDowngradeUpdate(KubernetesTester):
       file: sharded-cluster-downgrade.yaml
       patch: '[{"op":"replace","path":"/spec/version", "value": "4.0.7"}, {"op":"add","path":"/spec/featureCompatibilityVersion", "value": "3.6"}]'
       wait_until: in_running_state
-      timeout: 200
+      timeout: 300
     '''
 
     def test_db_connectable(self):
         mongod_tester = ShardedClusterTester("sh001-downgrade", 1)
         mongod_tester.assert_connectivity()
         mongod_tester.assert_version("4.0.7")
+
 
 @pytest.mark.e2e_sharded_cluster_upgrade_downgrade
 class TestShardedClusterUpgradeDowngradeRevert(KubernetesTester):
@@ -47,7 +49,7 @@ class TestShardedClusterUpgradeDowngradeRevert(KubernetesTester):
     update:
       file: sharded-cluster-downgrade.yaml
       wait_until: in_running_state
-      timeout: 200
+      timeout: 300
     '''
 
     def test_db_connectable(self):

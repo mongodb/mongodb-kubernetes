@@ -170,6 +170,11 @@ func (c *ReconcileCommonController) ensureAgentKeySecretExists(conn om.Connectio
 
 		// todo pass a real owner in a next PR
 		if err = c.createAgentKeySecret(objectKey(nameSpace, secretName), agentKey, nil); err != nil {
+			if apiErrors.IsAlreadyExists(err) {
+				// some strange race conditions may happen now in e2e - sometimes we get
+				// "secrets "5d4946ebf78174008e74978b-group-secret" already exists" in e2e tests
+				return agentKey, nil
+			}
 			return "", fmt.Errorf("Failed to create Secret: %s", err)
 		}
 		log.Infof("Project agent key is saved in Kubernetes Secret for later usage")

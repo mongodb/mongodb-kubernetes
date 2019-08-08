@@ -47,6 +47,37 @@ function cleanup {
   script_log "Mongod and automation agent processes are shutdown"
 }
 
+#https://stackoverflow.com/a/4025065/614239
+compare_versions () {
+    if [[ $1 == $2 ]]
+    then
+        return 0
+    fi
+    local IFS=.
+    local i ver1=($1) ver2=($2)
+    # fill empty fields in ver1 with zeros
+    for ((i=${#ver1[@]}; i<${#ver2[@]}; i++))
+    do
+        ver1[i]=0
+    done
+    for ((i=0; i<${#ver1[@]}; i++))
+    do
+        if [[ -z ${ver2[i]} ]]
+        then
+            # fill empty fields in ver2 with zeros
+            ver2[i]=0
+        fi
+        if ((10#${ver1[i]} > 10#${ver2[i]}))
+        then
+            return 1
+        fi
+        if ((10#${ver1[i]} < 10#${ver2[i]}))
+        then
+            return 2
+        fi
+    done
+    return 0
+}
 
 if [ -d "${secrets_dir}/certs" ]; then
     script_log "Found certificates in the host, will symlink to where the automation agent expects them to be"
@@ -140,6 +171,7 @@ if [ ! -e "${MMS_HOME}/files/mongodb-mms-automation-agent" ]; then
 
     script_log "The Automation Agent binary downloaded, unpacking"
     tar -xzf automation-agent.tar.gz
+    AGENT_VERSION=$(find . -name mongodb-mms-automation-agent-* | awk -F"-" '{ print $5 }')
     mv mongodb-mms-automation-agent-*/mongodb-mms-automation-agent "${MMS_HOME}/files/"
     chmod +x "${MMS_HOME}/files/mongodb-mms-automation-agent"
     rm -rf automation-agent.tar.gz mongodb-mms-automation-agent-*.linux_x86_64
@@ -162,15 +194,25 @@ else
         "-logLevel" "${LOG_LEVEL:-INFO}"
         "-logFile" "${MMS_LOG_DIR}/automation-agent.log"
     )
-    if [ -n "${HTTP_PROXY-}" ]; then
+    script_log "Automation Agent version: ${AGENT_VERSION}"
+    if [[ -n "${AGENT_VERSION}" ]]; then
+        # this is the version of Automation Agent which has fixes for health file bugs
+        set +e
+        compare_versions "${AGENT_VERSION}" 10.2.3.5866-1
+        if [[ $? -le 1 ]]; then
+          agentOpts+=("-healthCheckFilePath" "${MMS_LOG_DIR}/agent-health-status.json")
+        fi
+        set -e
+    fi
+    if [[ -n "${HTTP_PROXY-}" ]]; then
         agentOpts+=("-httpProxy" "${HTTP_PROXY}")
     fi
 
-    if [ -n "${SSL_TRUSTED_MMS_SERVER_CERTIFICATE-}" ]; then
+    if [[ -n "${SSL_TRUSTED_MMS_SERVER_CERTIFICATE-}" ]]; then
         agentOpts+=("-sslTrustedMMSServerCertificate" "${SSL_TRUSTED_MMS_SERVER_CERTIFICATE}")
     fi
 
-    if [ -n "${SSL_REQUIRE_VALID_MMS_CERTIFICATES-}" ] && [ "${SSL_REQUIRE_VALID_MMS_CERTIFICATES}" = "true" ]; then
+    if [[ -n "${SSL_REQUIRE_VALID_MMS_CERTIFICATES-}" ]] && [[ "${SSL_REQUIRE_VALID_MMS_CERTIFICATES}" = "true" ]]; then
         # Only set this option when valid certs are required. The default is false
         agentOpts+=("-sslRequireValidMMSServerCertificates")
     fi

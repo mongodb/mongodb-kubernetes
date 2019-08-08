@@ -69,6 +69,7 @@ const (
 	ContainerName              = "mongodb-enterprise-database"
 	OmControllerLabel          = "mongodb-enterprise-operator"
 	LivenessProbe              = "/mongodb-automation/files/probe.sh"
+	ReadinessProbe             = "/mongodb-automation/files/readinessprobe"
 	PvcNameData                = "data"
 	PvcMountPathData           = "/data"
 	PvcNameJournal             = "journal"

@@ -12,7 +12,7 @@ class TestReplicaSetWithNoTLSCreation(KubernetesTester):
     create:
       file: test-tls-base-rs-require-ssl-upgrade.yaml
       wait_until: in_running_state
-      timeout: 120
+      timeout: 240
     """
 
     def test_mdb_is_reachable_with_no_ssl(self):
@@ -76,7 +76,7 @@ class TestsReplicaSetWithX509ClusterAuthentication(KubernetesTester):
     def setup(self):
         for cert in self.yield_existing_csrs(get_rs_cert_names(mdb_resource, self.get_namespace(), with_internal_auth_certs=True)):
             self.approve_certificate(cert)
-        KubernetesTester.wait_until('in_running_state')
+        KubernetesTester.in_running_state_failures_possible()
 
     def test_x509_enabled(self):
         mdb = self.get_resource()
@@ -106,7 +106,7 @@ class TestReplicaSetWithX509Remove(KubernetesTester):
     delete:
       file: test-tls-base-rs-require-ssl-upgrade.yaml
       wait_until: mongo_resource_deleted
-      timeout: 60
+      timeout: 240
     """
 
     def setup(self):

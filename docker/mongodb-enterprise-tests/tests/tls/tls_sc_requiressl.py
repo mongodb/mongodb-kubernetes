@@ -24,7 +24,7 @@ class TestClusterWithTLSCreation(KubernetesTester):
     create:
       file: test-tls-base-sc-require-ssl.yaml
       wait_for_message: Not all certificates have been approved by Kubernetes CA
-      timeout: 120
+      timeout: 240
     """
 
     def test_custom_object_exists(self):
@@ -90,7 +90,7 @@ class TestClusterWithTLSCreationRemove(KubernetesTester):
     delete:
       file: test-tls-base-sc-require-ssl.yaml
       wait_until: mongo_resource_deleted
-      timeout: 120
+      timeout: 240
     """
 
     def setup(self):

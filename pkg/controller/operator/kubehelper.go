@@ -378,7 +378,11 @@ func (k *KubeHelper) waitForStatefulsetAndPods(ns, stsName string, log *zap.Suga
 		}
 		msg := fmt.Sprintf("Replicas count: total %d, updated %d, ready %d", *set.Spec.Replicas,
 			set.Status.UpdatedReplicas, set.Status.ReadyReplicas)
-		return msg, set.Status.UpdatedReplicas == *set.Spec.Replicas && set.Status.ReadyReplicas == *set.Spec.Replicas
+
+		allReady := *set.Spec.Replicas == set.Status.UpdatedReplicas &&
+			*set.Spec.Replicas == set.Status.ReadyReplicas
+
+		return msg, allReady
 	}, log, retrials, waitSeconds)
 }
 

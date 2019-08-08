@@ -2,7 +2,10 @@ import pytest
 import string
 import random
 import yaml
+
 from kubetester.kubetester import KubernetesTester, fixture
+from kubetester.mongotester import ReplicaSetTester
+
 
 
 @pytest.mark.e2e_replica_set_different_namespaces
@@ -52,8 +55,4 @@ class TestReplicaSetWithSecretAndConfigMapInDifferentNamespace(KubernetesTester)
         return ["{}-{}.{}-svc.{}.svc.cluster.local".format(name, n, name, namespace) for n in range(members)]
 
     def test_can_connect_to_repl_set(self):
-        hosts = self.get_host_strings(self.get_namespace(), "my-replica-set", 3)
-        primary, secondaries = self.wait_for_rs_is_ready(hosts)
-
-        assert primary is not None
-        assert len(secondaries) == 2
+        ReplicaSetTester("my-replica-set", 3, ssl=False).assert_connectivity()

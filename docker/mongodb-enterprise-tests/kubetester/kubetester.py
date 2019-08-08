@@ -456,13 +456,18 @@ class KubernetesTester(object):
             return False
         phase = resource['status']['phase']
 
+        # todo we need to implement a more reliable mechanism to diagnose problems in the cluster. So
+        # far we just ignore the "Pending" errors below, but they could be caused by real problems - not
+        # just by long starting containers. Some ideas: we could check the conditions for pods to see if there
+        # are errors
         intermediate_events = (
             # In this case the operator will be waiting for the StatefulSet to be in full running state
             # which under some circumstances, might not be the case if, for instance, there are too many
             # pods to start, which will be concluded after a few reconciliation passes.
             "Statefulset or its pods failed to reach READY state",
             # After agents have been installed, they might have not finished or reached goal state yet.
-            "haven't reached READY"
+            "haven't reached READY",
+            "Some agents failed to register"
         )
 
         if phase == "Failed":

@@ -29,6 +29,8 @@ clean: delete_container
 	- docker rmi $(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)
 
 build:
+	GOOS='linux' go build -i ../../probe/readiness.go
+	mv readiness content/readinessprobe
 	docker build $(EXTRA_PARAM) -t $(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION) .
 
 clean-build:

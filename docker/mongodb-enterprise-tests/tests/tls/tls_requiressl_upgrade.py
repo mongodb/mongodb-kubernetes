@@ -21,7 +21,7 @@ class TestReplicaSetWithTLSUpgradeCreation(KubernetesTester):
     create:
       file: test-tls-base-rs-require-ssl-upgrade.yaml
       wait_until: in_running_state
-      timeout: 120
+      timeout: 240
     """
 
     def test_mdb_resource_status_is_correct(self):
@@ -56,7 +56,7 @@ class TestReplicaSetWithTLSUpgradeSetRequireSSLMode(KubernetesTester):
       file: test-tls-base-rs-require-ssl-upgrade.yaml
       patch: '[{"op": "add", "path" : "/spec/security", "value": {}}, {"op":"add","path":"/spec/security/tls","value": { "enabled": true }}]'
       wait_for_message: Not all certificates have been approved by Kubernetes CA
-      timeout: 240
+      timeout: 360
     """
 
     def test_mdb_resource_status_is_pending(self):
@@ -89,7 +89,7 @@ class TestReplicaSetWithTLSUpgradeRunning(KubernetesTester):
     name: check everything is in place
     noop:
       wait_until: in_running_state
-      timeout: 240
+      timeout: 360
     """
 
     @skip_if_local()
@@ -110,7 +110,7 @@ class TestReplicaSetWithTLSCreationDeleted(KubernetesTester):
     delete:
       file: test-tls-base-rs-require-ssl-upgrade.yaml
       wait_until: mongo_resource_deleted
-      timeout: 120
+      timeout: 240
     """
 
     def setup(self):

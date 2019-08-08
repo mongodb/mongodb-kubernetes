@@ -291,9 +291,11 @@ func buildPersistentVolumeClaims(set *appsv1.StatefulSet, p StatefulSetHelper) {
 func buildService(owner Updatable, name string, label string, namespace string, port int32, exposeExternally bool) *corev1.Service {
 	serviceType := corev1.ServiceTypeClusterIP
 	clusterIp := "None"
+	publishNotReady := true
 	if exposeExternally {
 		serviceType = corev1.ServiceTypeNodePort
 		clusterIp = ""
+		publishNotReady = false
 	}
 
 	servicePort := corev1.ServicePort{Port: port}
@@ -313,6 +315,9 @@ func buildService(owner Updatable, name string, label string, namespace string, 
 			Type:      serviceType,
 			ClusterIP: clusterIp,
 			Ports:     []corev1.ServicePort{servicePort},
+
+			// We publish this address even when it is not ready, so it can join the party!
+			PublishNotReadyAddresses: publishNotReady,
 		},
 	}
 }
@@ -348,7 +353,8 @@ func basePodSpec(statefulSetName string, reqs mongodb.PodSpecWrapper, podVars *P
 					Limits:   buildLimitsRequirements(reqs),
 					Requests: buildRequestsRequirements(reqs),
 				},
-				LivenessProbe: baseLivenessProbe(),
+				LivenessProbe:  baseLivenessProbe(),
+				ReadinessProbe: baseReadinessProbe(),
 			},
 		},
 		Affinity: &corev1.Affinity{
@@ -480,6 +486,16 @@ func opsManagerReadinessProbe() *corev1.Probe {
 		PeriodSeconds:       10,
 		SuccessThreshold:    1,
 		FailureThreshold:    18, // So the probe will fail after ~3 minutes of Ops Manager being non-responsive
+	}
+}
+
+func baseReadinessProbe() *corev1.Probe {
+	return &corev1.Probe{
+		Handler: corev1.Handler{
+			Exec: &corev1.ExecAction{Command: []string{util.ReadinessProbe}},
+		},
+		// Setting the failure threshold to quite big value as the agent may spend some time to reach the goal
+		FailureThreshold: 12,
 	}
 }
 

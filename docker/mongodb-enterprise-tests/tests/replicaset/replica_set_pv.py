@@ -14,7 +14,7 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
     create:
       file: replica-set-pv.yaml
       wait_until: in_running_state
-      timeout: 180
+      timeout: 300
     """
 
     def test_replica_set_sts_exists(self):

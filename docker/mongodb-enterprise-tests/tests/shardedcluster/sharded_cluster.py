@@ -15,7 +15,7 @@ class TestShardedClusterCreation(KubernetesTester):
     create:
       file: sharded-cluster.yaml
       wait_until: in_running_state
-      timeout: 240
+      timeout: 360
     """
     def test_sharded_cluster_sts(self):
         sts0 = self.appsv1.read_namespaced_stateful_set("sh001-base-0", self.namespace)
@@ -54,7 +54,7 @@ class TestShardedClusterUpdate(KubernetesTester):
       file: sharded-cluster.yaml
       patch: '[{"op":"replace","path":"/spec/shardCount","value":2}]'
       wait_until: in_running_state
-      timeout: 120
+      timeout: 240
     """
     def test_shard1_was_configured(self):
         hosts = [
@@ -78,7 +78,7 @@ class TestShardedClusterDeletion(KubernetesTester):
     delete:
       file: sharded-cluster.yaml
       wait_until: mongo_resource_deleted
-      timeout: 120
+      timeout: 240
     """
 
     def test_sharded_cluster_doesnt_exist(self):

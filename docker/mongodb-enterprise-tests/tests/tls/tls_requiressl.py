@@ -49,7 +49,7 @@ class TestReplicaSetWithTLSRunning(KubernetesTester):
     name: MDB object works with 3 nodes approved
     noop:
       wait_until: in_running_state
-      timeout: 200
+      timeout: 300
     """
 
     @skip_if_local()
@@ -71,7 +71,7 @@ class TestReplicaSetWithTLSScaling0Approval(KubernetesTester):
       patch: '[{"op":"replace","path":"/spec/members","value":5}]'
       file: test-tls-base-rs-require-ssl.yaml
       wait_for_message: Not all certificates have been approved by Kubernetes CA
-      timeout: 200
+      timeout: 300
     """
 
     def setup(self):
@@ -88,7 +88,6 @@ class TestReplicaSetWithTLSScaling0Running(KubernetesTester):
     name: After certs have been approved, the MDB object goes to success
     noop:
       wait_until: in_running_state
-      timeout: 200
     """
 
     def test_noop(self):
@@ -113,7 +112,7 @@ class TestReplicaSetWithTLSScaling1(KubernetesTester):
       patch: '[{"op":"replace","path":"/spec/members","value": 3}]'
       file: test-tls-base-rs-require-ssl.yaml
       wait_for_condition: sts/test-tls-base-rs-require-ssl -> status.current_replicas == 3
-      timeout: 200
+      timeout: 300
     """
 
     def test_noop(self):
@@ -139,7 +138,7 @@ class TestReplicaSetWithTLSRemove(KubernetesTester):
     delete:
       file: test-tls-base-rs-require-ssl.yaml
       wait_until: mongo_resource_deleted
-      timeout: 120
+      timeout: 240
     """
 
     def setup(self):
