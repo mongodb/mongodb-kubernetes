@@ -407,15 +407,14 @@ func (k *KubeHelper) ensureServicesExist(owner Updatable, serviceName string, se
 	ensureStatefulsetsHaveServiceLabel(serviceName, statefulset)
 
 	// we always create the headless service to achieve Kubernetes internal connectivity
-	service, err := k.readOrCreateService(owner, serviceName, serviceName, servicePort, nameSpace, false, log)
-
+	service, err := k.ensureService(owner, serviceName, serviceName, servicePort, nameSpace, false, log)
 	if err != nil {
 		return nil, err
 	}
 
 	if exposeExternally {
 		// for providing external connectivity we need the NodePort service
-		service, err = k.readOrCreateService(owner, serviceName+"-external", serviceName, servicePort, nameSpace, true, log)
+		service, err = k.ensureService(owner, serviceName+"-external", serviceName, servicePort, nameSpace, true, log)
 
 		if err != nil {
 			return nil, err
@@ -424,28 +423,35 @@ func (k *KubeHelper) ensureServicesExist(owner Updatable, serviceName string, se
 	return service, nil
 }
 
-func (k *KubeHelper) readOrCreateService(owner Updatable, serviceName string, label string, servicePort int32, ns string,
+func (k *KubeHelper) ensureService(owner Updatable, serviceName string, label string, servicePort int32, ns string,
 	exposeExternally bool, log *zap.SugaredLogger) (*corev1.Service, error) {
 	log = log.With("service", serviceName)
 
+	namespacedName := objectKey(ns, serviceName)
+	updatedService := buildService(namespacedName, owner, label, servicePort, exposeExternally)
+
 	service := &corev1.Service{}
-	err := k.client.Get(context.TODO(), objectKey(ns, serviceName), service)
+	err := k.client.Get(context.TODO(), namespacedName, service)
+	method := ""
 
 	if err != nil {
-		log.Info("Service doesn't exist - creating it")
-		service = buildService(owner, serviceName, label, ns, servicePort, exposeExternally)
-		err = k.client.Create(context.TODO(), service)
+		log.Infof("Creating Service %s", namespacedName)
+		err = k.client.Create(context.TODO(), updatedService)
 		if err != nil {
 			return nil, err
 		}
-		log.Infow("Created service", "type", service.Spec.Type, "port", service.Spec.Ports[0])
+		method = "Created"
 	} else {
-		log.Debug("Service already exists!")
-		if err := validateExistingService(label, service); err != nil {
+		log.Infof("Updating Service %s", namespacedName)
+		err = k.client.Update(context.TODO(), updatedService)
+		if err != nil {
 			return nil, err
 		}
+		method = "Updated"
 	}
-	return service, nil
+
+	log.Infow(fmt.Sprintf("%s Service %s", method, namespacedName), "type", updatedService.Spec.Type, "port", updatedService.Spec.Ports[0])
+	return updatedService, nil
 }
 
 func getNamespaceAndNameForResource(resource, defaultNamespace string) (types.NamespacedName, error) {
@@ -460,7 +466,7 @@ func getNamespaceAndNameForResource(resource, defaultNamespace string) (types.Na
 		namespace, name = defaultNamespace, s[0]
 	}
 	if namespace == "" || name == "" {
-		return types.NamespacedName{}, fmt.Errorf("Namespace and name and name must both be non-empty")
+		return types.NamespacedName{}, fmt.Errorf("Namespace and name must both be non-empty")
 	}
 	return objectKey(namespace, name), nil
 }
@@ -844,8 +850,8 @@ func (k *KubeHelper) verifyCertificatesForStatefulSet(ss *StatefulSetHelper, sec
 }
 
 func discoverServicePort(service *corev1.Service) (*int32, error) {
-	if l := len(service.Spec.Ports); l != 1 {
-		return nil, fmt.Errorf("Only one port is expected for the service but found %d", l)
+	if ports := len(service.Spec.Ports); ports != 1 {
+		return nil, fmt.Errorf("Only one port is expected for the service but found %d", ports)
 	}
 
 	if service.Spec.Type == corev1.ServiceTypeNodePort {
@@ -861,15 +867,6 @@ func ensureStatefulsetsHaveServiceLabel(serviceName string, set *appsv1.Stateful
 		set.ObjectMeta.Labels = make(map[string]string)
 	}
 	set.ObjectMeta.Labels["app"] = serviceName
-}
-
-// validateExistingService checks if the existing service is created correctly. This means it must contain correct labels
-func validateExistingService(label string, service *corev1.Service) error {
-	if service.Spec.Selector["app"] != label {
-		return fmt.Errorf("Existing service %s has incorrect label selector: %s instead of %s", label,
-			service.Spec.Selector["app"], label)
-	}
-	return nil
 }
 
 // EnvVars returns a list of corev1.EnvVar which should be passed

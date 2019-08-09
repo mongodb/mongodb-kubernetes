@@ -16,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
@@ -288,7 +289,7 @@ func buildPersistentVolumeClaims(set *appsv1.StatefulSet, p StatefulSetHelper) {
 // some random port in the range 30000-32767
 // Note that itself service has no dedicated IP by default ("clusterIP: None") as all mongo entities should be directly
 // addressable
-func buildService(owner Updatable, name string, label string, namespace string, port int32, exposeExternally bool) *corev1.Service {
+func buildService(namespacedName types.NamespacedName, owner Updatable, label string, port int32, exposeExternally bool) *corev1.Service {
 	serviceType := corev1.ServiceTypeClusterIP
 	clusterIp := "None"
 	publishNotReady := true
@@ -305,8 +306,8 @@ func buildService(owner Updatable, name string, label string, namespace string, 
 
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:            name,
-			Namespace:       namespace,
+			Name:            namespacedName.Name,
+			Namespace:       namespacedName.Namespace,
 			Labels:          map[string]string{APP_LABEL_KEY: label},
 			OwnerReferences: baseOwnerReference(owner),
 		},
