@@ -620,31 +620,37 @@ tasks:
         <<: *ops_manager_42_current
 
 - name: e2e_operator_upgrade
+  tags: ["openshift-om-qa"]
   exec_timeout_secs: 1200
   commands:
     - func: e2e_test_upgrade_operator
 
 - name: e2e_standalone_schema_validation
+  tags: ["kops-om-40"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_schema_validation
+  tags: ["openshift-om-qa"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_schema_validation
+  tags: ["openshift-om-42"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_users_schema_validation
+  tags: ["kops-om-40"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_different_namespaces
+  tags: ["kops-multiple"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
@@ -652,41 +658,49 @@ tasks:
         watch_namespace: "*"
 
 - name: e2e_standalone_config_map
+  tags: ["openshift-om-qa"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_standalone_groups
+  tags: ["openshift-om-42"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_standalone_recovery
+  tags: ["kops-om-40"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_standalone_recovery_k8s
+  tags: ["openshift-om-qa"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set
+  tags: ["openshift-om-42"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_recovery
+  tags: ["kops-om-40"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_config_map
+  tags: ["openshift-om-qa"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_ent
+  tags: ["openshift-om-42"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
@@ -700,162 +714,194 @@ tasks:
 #     - func: "e2e_test"
 
 - name: e2e_replica_set_pv
+  tags: ["kops-om-40"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_pv_multiple
+  tags: ["openshift-om-qa"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_8_members
+  tags: ["openshift-om-42"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster
+#  tags: ["kops-om-40"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_pv
+  tags: ["kops-om-40"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_recovery
+  tags: ["openshift-om-qa"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_secret
+  tags: ["openshift-om-42"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_scale_shards
+  tags: ["kops-om-40"]
   exec_timeout_secs: 720
   commands:
     - func: "e2e_test"
 
 - name: e2e_standalone_type_change_recovery
+  tags: ["openshift-om-qa"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_all_mongodb_resources_parallel
+  tags: ["openshift-om-42"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_standalone_upgrade_downgrade
+  tags: ["kops-om-40"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_upgrade_downgrade
+  tags: ["openshift-om-qa"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_upgrade_downgrade
+  tags: ["openshift-om-42"]
   exec_timeout_secs: 1800
   commands:
     - func: "e2e_test"
 
 - name: e2e_standalone_no_tls_no_status_is_set
+  tags: ["kops-om-40"]
   exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
 - name: e2e_replica_set_tls_allow
+  tags: ["kops-om-42"]
   exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
 - name: e2e_replica_set_tls_prefer
+  tags: ["openshift-om-qa"]
   exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
 - name: e2e_replica_set_tls_require
+  tags: ["kops-om-42"]
   exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
 - name: e2e_replica_set_tls_require_custom_ca
+  tags: ["openshift-om-42"]
   exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
 - name: e2e_sharded_cluster_tls_require_custom_ca
+  tags: ["kops-om-42"]
   exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
 - name: e2e_tls_x509_sc_custom_ca
+  tags: ["openshift-om-qa"]
   exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
 - name: e2e_replica_set_tls_require_and_disable
+  tags: ["kops-om-42"]
   exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
 - name: e2e_tls_multiple_different_ssl_configs
+  tags: ["openshift-om-42"]
   exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
 - name: e2e_replica_set_tls_require_upgrade
+  tags: ["kops-om-42"]
   exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
 - name: e2e_sharded_cluster_tls_require
+  tags: ["openshift-om-qa"]
   exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
 - name: e2e_tls_x509_rs
+  tags: ["kops-om-42"]
   # longer timeout than usual as this test tests recovery from bad states which can take some time
   exec_timeout_secs: 1800
   commands:
   - func: "e2e_test"
 
 - name: e2e_tls_x509_sc
+  tags: ["openshift-om-42"]
   exec_timeout_secs: 1800
   commands:
     - func: "e2e_test"
 
 - name: e2e_tls_x509_users_addition_removal
+  tags: ["kops-om-42"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_tls_x509_user_connectivity
+  tags: ["openshift-om-qa"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_tls_x509_configure_all_options_rs
+  tags: ["kops-om-42"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_tls_x509_configure_all_options_sc
+  tags: ["openshift-om-42"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_om_scale_up_down_appdb
+  tags: ["kops-ops-manager"]
   exec_timeout_secs: 2400
   commands:
     - func: "e2e_test"
 
 - name: e2e_om_ops_manager_upgrade
+  tags: ["kops-ops-manager"]
   exec_timeout_secs: 2400
   commands:
     - func: "e2e_test"
