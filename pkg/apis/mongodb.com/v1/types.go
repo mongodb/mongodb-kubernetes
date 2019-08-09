@@ -101,7 +101,6 @@ type MongoDbSpec struct {
 	// ExposedExternally determines whether a NodePort service should be created for the resource
 	ExposedExternally bool `json:"exposedExternally,omitempty"`
 
-	// TODO seems the ObjectMeta contains the field for ClusterName - may be we should use it instead
 	ClusterName string `json:"clusterName,omitempty"`
 	ConnectionSpec
 	Persistent   *bool        `json:"persistent,omitempty"`

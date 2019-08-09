@@ -28,10 +28,11 @@ usage:
 	@ echo "                              parameters in ~/operator-dev/om. You can pass custom Ubuntu Debian package url using 'url' parameter"
 	@ echo "  reset:                      cleans all Operator related state from Kubernetes and Ops Manager. Pass the 'light=true'"
 	@ echo "                              to perform a \"light\" cleanup - delete only Mongodb resources"
-	@ echo "  e2e:                        runs the e2e test, e.g. 'make e2e test=sharded_cluster_pv'. The Operator is redeployed before"
+	@ echo "  e2e:                        runs the e2e test, e.g. 'make e2e test=e2e_sharded_cluster_pv'. The Operator is redeployed before"
 	@ echo "                              the test, the namespace is cleaned. The e2e app image is built and pushed. Use a 'light=true'"
 	@ echo "                              in case you are developing tests and not changing the Operator code - this will allow to"
-	@ echo "                              avoid redeploying the Operator"
+	@ echo "                              avoid redeploying the Operator. Use a 'local=true' to run the test locally using 'pytest'. Note"
+	@ echo "                              that in this case some tests cases won't be run (e.g. mongodb connectivity)"
 	@ echo "  recreate-e2e-kops:          deletes and creates a specified e2e cluster 'cluster' using kops (note, that you don't need to switch to the correct"
 	@ echo "                              kubectl context - the script will handle everything. Pass the flag 'imsure=yes' to make it work."
 	@ echo "  recreate-e2e-openshift:     deletes and creates an e2e Openshift cluster"
@@ -94,7 +95,7 @@ log:
 	@ . scripts/dev/read_context
 	@ kubectl logs -f deployment/mongodb-enterprise-operator --tail=1000
 
-# runs the e2e test: make e2e test=sharded_cluster_pv. The Operator is redeployed before the test, the namespace is cleaned.
+# runs the e2e test: make e2e test=e2e_sharded_cluster_pv. The Operator is redeployed before the test, the namespace is cleaned.
 # The e2e app image is built and pushed.
 # Use 'light=true' parameter to skip Operator rebuilding - use this mode when you are focused on e2e tests development only
 # Note, that this may be not perfectly the same what is done in evergreen e2e tests as the OM instance may be external
@@ -104,7 +105,7 @@ e2e: build-and-push-test-image reset
 		$(MAKE) operator; \
 	fi
 	@ scripts/dev/configure_operator
-	@ scripts/dev/launch_e2e $(test)
+	@ scripts/dev/launch_e2e $(test) $(local)
 
 # deletes and creates a kops e2e cluster
 recreate-e2e-kops:
@@ -142,7 +143,9 @@ build-and-push-database-image: aws_login
 	@ scripts/dev/build_push_database_image
 
 build-and-push-test-image: aws_login
-	@ scripts/dev/build_push_tests_image
+	@ if [[ -z "$(local)" ]]; then \
+		scripts/dev/build_push_tests_image; \
+	fi
 
 build-and-push-images: build-and-push-database-image build-and-push-operator-image
 

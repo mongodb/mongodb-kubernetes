@@ -27,6 +27,9 @@ class TestStandaloneOrganizationSpecified(KubernetesTester):
 
         print("Patched config map, now it references organization " + cls.org_id)
 
+    # todo
+    @pytest.mark.skip(reason="project reconciliation adds some flakiness - sometimes it gets on time to create the "
+                             "project in OM before this method is called - should be fixed by one project")
     def test_standalone_created_organization_found(self):
         groups_in_org = self.get_groups_in_organization_first_page(self.__class__.org_id)["totalCount"]
 

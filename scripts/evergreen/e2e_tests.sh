@@ -34,6 +34,11 @@ contains() {
 }
 
 fetch_om_information() {
+    if [[ "${TEST_MODE:-}" = "opsmanager" ]]; then
+        echo "Skipping Ops Manager connection configuration as current test is for Ops Manager"
+        return
+    fi
+
     title "Reading Ops Manager environment variables..."
 
     if [ -z "$OPS_MANAGER_NAMESPACE" ]; then
@@ -65,6 +70,18 @@ fetch_om_information() {
 }
 
 configure_operator() {
+    if [[ "${TEST_MODE:-}" = "opsmanager" ]]; then
+        echo "Creating admin secret for the new Ops Manager instance"
+        kubectl create secret generic ops-manager-admin  \
+            --from-literal=Username="jane.doe@example.com" \
+            --from-literal=Password="Passw0rd." \
+            --from-literal=FirstName="Jane" \
+            --from-literal=LastName="Doe" -n ${PROJECT_NAMESPACE}
+
+        echo "Admin secret created"
+        return
+    fi
+
     title "Creating project and credentials Kubernetes object..."
     if [[ "${OPERATOR_UPGRADE_IN_PROGRESS-}" = "stage2" ]]; then
         echo "Upgrade in progress, skipping configuration of projects"
@@ -135,19 +152,20 @@ deploy_test_app() {
     fi
 
     # apply the correct configuration of the running OM instance
+    # note, that the 4 last parameters are used only for Mongodb resource testing - not for Ops Manager
     helm template "${charttmpdir}" \
          -x templates/mongodb-enterprise-tests.yaml \
          --set repo="${REPO_URL:=268558157000.dkr.ecr.us-east-1.amazonaws.com/dev}" \
-         --set baseUrl="${OM_BASE_URL:=http://ops-manager.${OPS_MANAGER_NAMESPACE}.svc.cluster.local:8080}" \
-         --set apiKey="${OM_API_KEY}" \
-         --set apiUser="${OM_USER:=admin}" \
          --set namespace="${PROJECT_NAMESPACE}" \
          --set taskName="${task_name}" \
          --set pytest.addopts="${pytest_addopts}" \
          --set operator.name="${OPERATOR_NAME:=mongodb-enterprise-operator}" \
-         --set orgId="${OM_ORGID:-}" \
          --set managedSecurityContext="${MANAGED_SECURITY_CONTEXT:=false}" \
-         --set tag="${TEST_IMAGE_TAG}" > mongodb-enterprise-tests.yaml || exit 1
+         --set tag="${TEST_IMAGE_TAG}" \
+         --set baseUrl="${OM_BASE_URL:=http://ops-manager.${OPS_MANAGER_NAMESPACE}.svc.cluster.local:8080}" \
+         --set apiKey="${OM_API_KEY:-}" \
+         --set apiUser="${OM_USER:=admin}" \
+         --set orgId="${OM_ORGID:-}"  > mongodb-enterprise-tests.yaml || exit 1
 
     kubectl -n "${PROJECT_NAMESPACE}" delete -f mongodb-enterprise-tests.yaml 2>/dev/null  || true
 
@@ -216,15 +234,15 @@ run_tests() {
     [[ $(kubectl -n "${PROJECT_NAMESPACE}" get pods/${TEST_APP_PODNAME} -o jsonpath='{.status.phase}') == "Succeeded" ]]
 }
 
-dump_agent_logs() {
+dump_pods_logs() {
     i=1
-    for res in $(kubectl get mdb -n ${PROJECT_NAMESPACE} -o name | cut -d "/" -f 2); do
-        for pod in $(kubectl get pods -n ${PROJECT_NAMESPACE}  -o name | grep "$res" | cut -d "/" -f 2 \
-        | grep -v "$res-config" | grep -v "$res-mongos" | cut -d "/" -f 2); do # only dump shard logs if it's a sharded cluster
+    if ! kubectl get pods -n "${PROJECT_NAMESPACE}" 2>&1 | grep -q "No resources found"; then
+        for pod in $(kubectl get pods -n ${PROJECT_NAMESPACE}  -o name | cut -d "/" -f 2 \
+        | grep -v "\-config" | grep -v "\-mongos" | grep -v "operator-"); do # only dump shard logs if it's a sharded cluster
             kubectl logs -n ${PROJECT_NAMESPACE} ${pod} > "logs/${pod}"
             ((i++))
         done
-    done
+    fi
     echo "${i} log files were written."
 }
 
@@ -271,7 +289,6 @@ if [[ "${MODE-}" != "dev" ]]; then
         fetch_om_information
     fi
 
-    echo "Creating Operator Configuration for Ops Manager Test Instance."
     configure_operator
 fi
 
@@ -299,7 +316,7 @@ if [[ "${MODE-}" != "dev" ]]; then
         # Dump diagnostic information
         dump_diagnostic_information "logs/diagnostics.txt"
 
-        dump_agent_logs
+        dump_pods_logs
 
         # Not required when running against the Ops Manager Kubernetes perpetual instance
         if [[ "${OM_EXTERNALLY_CONFIGURED:-}" != "true" ]]; then

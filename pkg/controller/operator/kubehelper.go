@@ -340,14 +340,10 @@ func (k *KubeHelper) createOrUpdateStatefulsetWithService(owner Updatable, servi
 	log.Infow("Waiting until statefulset and its pods reach READY state...")
 
 	if !k.waitForStatefulsetAndPods(ns, set.Name, log) {
-		// we don't pass cluster name as we are not interested in full DNS names
-		_, names := GetDnsForStatefulSet(set, "")
-
 		// Unfortunately Kube api for events is too weak and doesn't allow to filter by object so we cannot show
 		// the real pod event message to user
 		return nil, fmt.Errorf("Statefulset or its pods failed to reach READY state. Check the events for "+
-			"statefulset and pods: kubectl describe sts %s -n %s; kubectl describe po %s -n %s;...", set.Name,
-			set.Namespace, names[0], set.Namespace)
+			"statefulset %s/%s and its pods", set.Namespace, set.Name)
 	}
 	log.Infow(event+" statefulset", "time", time.Since(start))
 

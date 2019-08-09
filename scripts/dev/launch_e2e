@@ -20,7 +20,11 @@ if [[ ${CLUSTER_TYPE} = "openshift" ]]; then
     managed_security_context=true
 fi
 
-TASK_NAME=${test} WAIT_TIMEOUT="4m" MODE="dev" WATCH_NAMESPACE=${watch_namespace:-$PROJECT_NAMESPACE} MANAGED_SECURITY_CONTEXT=${managed_security_context:-} ./scripts/evergreen/e2e_tests.sh
+if [[ -n "${local:-}" ]]; then
+    pytest -m ${test} docker/mongodb-enterprise-tests --disable-pytest-warnings
+else
+    TASK_NAME=${test} WAIT_TIMEOUT="4m" MODE="dev" WATCH_NAMESPACE=${watch_namespace:-$PROJECT_NAMESPACE} MANAGED_SECURITY_CONTEXT=${managed_security_context:-} ./scripts/evergreen/e2e_tests.sh
+fi
 
 title "E2e test ${test} is finished"
 

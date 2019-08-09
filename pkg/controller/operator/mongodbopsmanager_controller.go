@@ -92,8 +92,12 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 		return result, err
 	}
 
-	if err = r.waitForFullOpsManagerToBeReady(opsManager, log); err != nil {
-		return r.updateStatusPending(opsManager, err.Error(), log)
+	// Note, that we don't need to loop here - if it's not the Ops Manager initialization - this will return true
+	// immediately, otherwise the whole reconciliation will restart (with initial "ops manager is up" loop)
+	inFullMode, err := checkOpsManagerInFullMode(opsManager)
+	if err != nil || !inFullMode {
+		return r.updateStatusPending(opsManager,
+			"Ops Manager hasn't started during specified timeout (it may take quite long)", log)
 	}
 
 	log.Info("Finished reconciliation for MongoDBOpsManager!")
@@ -133,22 +137,6 @@ func (r *OpsManagerReconciler) waitForOpsManagerToBeReady(om *v1.MongoDBOpsManag
 		}
 		defer conn.Close()
 		return "", true
-	}, log, 6, 5) {
-		return errors.New("Ops Manager hasn't started during specified timeout (it may take quite long)")
-	}
-	return nil
-}
-
-func (r *OpsManagerReconciler) waitForFullOpsManagerToBeReady(om *v1.MongoDBOpsManager, log *zap.SugaredLogger) error {
-	if !util.DoAndRetry(func() (string, bool) {
-		fullMode, err := checkOpsManagerInFullMode(om)
-		if err != nil {
-			return err.Error(), false
-		}
-		if fullMode {
-			return "", true
-		}
-		return "Ops Manager hasn't started during specified interval", false
 	}, log, 6, 5) {
 		return errors.New("Ops Manager hasn't started during specified timeout (it may take quite long)")
 	}

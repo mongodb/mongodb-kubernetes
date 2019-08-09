@@ -252,6 +252,27 @@ spec:
     shortNames:
     - om
     singular: opsmanager
+  additionalPrinterColumns:
+    - name: Version
+      type: string
+      description: The version of MongoDBOpsManager.
+      JSONPath: .spec.version
+    - name: Version (DB)
+      type: string
+      description: The version of Application Database  .
+      JSONPath: .spec.applicationDatabase.version
+    - name: State
+      type: string
+      description: The current state of the MongoDBOpsManager.
+      JSONPath: .status.opsManager.phase
+    - name: State (DB)
+      type: string
+      description: The current state of the MongoDBOpsManager Application Database.
+      JSONPath: .status.applicationDatabase.phase
+    - name: Age
+      type: date
+      description: The time since the MongoDBOpsManager resource was created.
+      JSONPath: .metadata.creationTimestamp
   validation:
     openAPIV3Schema:
       properties:

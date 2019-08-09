@@ -409,7 +409,8 @@ functions:
           test -f ${workdir}/.ops-manager-env && source ${workdir}/.ops-manager-env
 
           # A complete environment is set each time.
-          WATCH_NAMESPACE=${watch_namespace} TASK_NAME=${task_name} STATIC_NAMESPACE=${static_namespace} ./scripts/evergreen/e2e_tests.sh
+          WATCH_NAMESPACE=${watch_namespace} TASK_NAME=${task_name} STATIC_NAMESPACE=${static_namespace} \
+            TEST_MODE=${test_mode} ./scripts/evergreen/e2e_tests.sh
 
   "e2e_test_upgrade_operator":
     - *configure_cloud_manager_qa
@@ -849,6 +850,16 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_om_scale_up_down_appdb
+  exec_timeout_secs: 2400
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_om_ops_manager_upgrade
+  exec_timeout_secs: 2400
+  commands:
+    - func: "e2e_test"
+
 task_groups:
 - name: unit_task_group
   setup_group:
@@ -963,6 +974,18 @@ task_groups:
   teardown_task:
     - func: "upload_e2e_logs"
 
+- name: e2e_ops_manager_task_group
+  max_hosts: 3
+  setup_group:
+    - func: clone
+    - func: download_kubectl
+    - func: setup_kubernetes_environment
+  tasks:
+    - e2e_om_scale_up_down_appdb
+    - e2e_om_ops_manager_upgrade
+  teardown_task:
+    - func: "upload_e2e_logs"
+
 #
 # -BUILDVARIANTS-
 #
@@ -1071,6 +1094,21 @@ buildvariants:
     kube_environment_name: vanilla_1_11
   tasks:
     - name: "e2e_multiple_namespace_task_group"
+
+- name: e2e_kube_vanilla_ops_manager
+  display_name: "e2e_kube_vanilla_ops_manager"
+  depends_on:
+    - name: build_images
+      variant: init_test_run
+  run_on:
+    - archlinux-test
+  stepback: false
+  expansions:
+    cluster_name: "e2e.om.mongokubernetes.com"
+    kube_environment_name: vanilla_1_11
+    test_mode: "opsmanager"
+  tasks:
+    - name: "e2e_ops_manager_task_group"
 
 - name: init_test_run
   display_name: init_test_run

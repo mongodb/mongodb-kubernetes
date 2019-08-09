@@ -117,7 +117,7 @@ const (
 	AutomationAgentKeyFilePathInContainer = "/var/lib/mongodb-mms-automation/keyfile"
 
 	// Operator Env configuration properties
-	OpsManagerImageUrl             = "OPS_MANAGER_IMAGE_NO_VERSION"
+	OpsManagerImageUrl             = "OPS_MANAGER_IMAGE_REPOSITORY"
 	OpsManagerPullPolicy           = "OPS_MANAGER_IMAGE_PULL_POLICY"
 	AutomationAgentImageUrl        = "MONGODB_ENTERPRISE_DATABASE_IMAGE"
 	AutomationAgentImagePullPolicy = "IMAGE_PULL_POLICY"

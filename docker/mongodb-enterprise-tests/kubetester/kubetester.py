@@ -4,6 +4,7 @@ import string
 import sys
 import time
 import warnings
+from base64 import b64decode
 from datetime import datetime, timezone
 
 from typing import Dict
@@ -17,14 +18,14 @@ from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 from requests.auth import HTTPDigestAuth
 
-TESTING_DIRS = ("replicaset", "shardedcluster", "standalone", "tls", "mixed", "users")
 SSL_CA_CERT = "/var/run/secrets/kubernetes.io/serviceaccount/..data/ca.crt"
 ENVIRONMENT_FILES = ("~/.operator-dev/om", "~/.operator-dev/contexts/{}")
 ENVIRONMENT_FILE_CURRENT = os.path.expanduser("~/.operator-dev/current")
 
 plural_map = {
     "MongoDB": "mongodb",
-    "MongoDBUser": "mongodbusers"
+    "MongoDBUser": "mongodbusers",
+    "MongoDBOpsManager": "opsmanagers"
 }
 
 
@@ -97,6 +98,11 @@ class KubernetesTester(object):
     def delete_secret(cls, namespace: str, name: str):
         """Delete a secret in a given namespace with the given name."""
         cls.clients('corev1').delete_namespaced_secret(name, namespace)
+
+    @classmethod
+    def read_secret(cls, namespace: str, name: str) -> Dict[str, str]:
+        data = cls.clients('corev1').read_namespaced_secret(name, namespace).data
+        return {k: b64decode(v).decode("utf-8") for (k, v) in data.items()}
 
     @classmethod
     def read_configmap(cls, namespace: str, name: str) -> Dict[str, str]:
@@ -271,7 +277,7 @@ class KubernetesTester(object):
     def create(section, namespace):
         "creates a custom object from filename"
         resource = yaml.safe_load(open(fixture(section["file"])))
-        name, kind = KubernetesTester.create_custom_resource_from_object(
+        KubernetesTester.create_custom_resource_from_object(
             namespace,
             resource,
             exception_reason=section.get("exception", None),
@@ -321,9 +327,14 @@ class KubernetesTester(object):
         KubernetesTester.name = name
         KubernetesTester.kind = kind
 
-        print('Creating resource {} with type {} {}'.format(kind, res_type, name))
+        # For some long-running actions (e.g. creation of OpsManager) we may want to reuse already existing CR
+        if os.getenv("SKIP_EXECUTION") is not None:
+            print("Skipping creation as 'SKIP_EXECUTION' env variable is not empty")
+            return
 
-        # todo move "wait for exception" logic to a generic function and reuse for create/update/delete
+        print('Creating resource {} {} {}'.format(kind, name, '(' + res_type + ')' if kind == 'MongoDb' else ''))
+
+        # TODO move "wait for exception" logic to a generic function and reuse for create/update/delete
         try:
             KubernetesTester.clients("customv1").create_namespaced_custom_object(
                 group, version, namespace, plural(kind), resource
@@ -340,7 +351,7 @@ class KubernetesTester(object):
             print("Failed to create a resource ({}): \n {}".format(e, resource))
             raise
 
-        print('Created resource {} with type {} {}'.format(kind, res_type, name))
+        print('Created resource {} {} {}'.format(kind, name, '(' + res_type + ')' if kind == 'MongoDb' else ''))
         return name, kind
 
     @staticmethod
@@ -350,12 +361,16 @@ class KubernetesTester(object):
 
         Python API client (patch_namespaced_custom_object) will send a "merge-patch+json" by default.
         This means that the resulting objects, after the patch is the union of the old and new objects. The
-        patch can only change attributes or remove, but not delete, as it is the case with "json-patch+json"
+        patch can only change attributes or add, but not delete, as it is the case with "json-patch+json"
         requests. The json-patch+json requests are the ones used by `kubectl edit` and `kubectl patch`.
 
         # TODO:
         A fix for this has been merged already (https://github.com/kubernetes-client/python/issues/862). The
         Kubernetes Python module should be updated when the client is regenerated (version 10.0.1 or so)
+
+        TODO 2: as of 10.0.0 the patch gets completely broken: https://github.com/kubernetes-client/python/issues/866
+        ("reason":"UnsupportedMediaType","code":415)
+        So we still should be careful with "remove" operation - better use "replace: null"
         """
         resource = yaml.safe_load(open(fixture(section["file"])))
         name, kind, group, version, res_type = get_crd_meta(resource)
@@ -370,13 +385,14 @@ class KubernetesTester(object):
             patched = patch.apply(resource)
 
         try:
+            # TODO currently if the update doesn't pass (e.g. patch is incorrect) - we don't fail here...
             KubernetesTester.clients("customv1").patch_namespaced_custom_object(
                 group, version, namespace, plural(kind), name, patched
             )
         except Exception:
             print("Failed to update a resource ({}): \n {}".format(sys.exc_info()[0], patched))
             raise
-        print('Updated resource {} with type {} {}'.format(kind, res_type, name))
+        print('Updated resource {} {} {}'.format(kind, name, '(' + res_type + ')' if kind == 'MongoDb' else ''))
 
     @staticmethod
     def delete(section, namespace):
@@ -447,16 +463,12 @@ class KubernetesTester(object):
     def in_running_state():
         """ Returns true if the resource in Running state, fails fast if got into Failed error.
          This allows to fail fast in case of cascade failures """
-        resource = KubernetesTester.get_namespaced_custom_object(
-            KubernetesTester.namespace,
-            KubernetesTester.name,
-            KubernetesTester.kind
-        )
+        resource = KubernetesTester.get_resource()
         if 'status' not in resource:
             return False
         phase = resource['status']['phase']
 
-        # todo we need to implement a more reliable mechanism to diagnose problems in the cluster. So
+        # TODO we need to implement a more reliable mechanism to diagnose problems in the cluster. So
         # far we just ignore the "Pending" errors below, but they could be caused by real problems - not
         # just by long starting containers. Some ideas: we could check the conditions for pods to see if there
         # are errors
@@ -805,9 +817,9 @@ class KubernetesTester(object):
         hosts = KubernetesTester.get_hosts()
 
         return len(config["replicaSets"]) == 0 and \
-            len(config["sharding"]) == 0 and \
-            len(config["processes"]) == 0 and \
-            len(hosts["results"]) == 0
+               len(config["sharding"]) == 0 and \
+               len(config["processes"]) == 0 and \
+               len(hosts["results"]) == 0
 
     @staticmethod
     def mongo_resource_deleted(check_om_state=True):
@@ -1112,9 +1124,11 @@ def fixture(filename):
     """
     root_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tests")
 
-    fixture_dirs = [
-        os.path.join(root_dir, test_dir, "fixtures") for test_dir in TESTING_DIRS
-    ]
+    fixture_dirs = []
+
+    for (dirpath, dirnames, filenames) in os.walk(root_dir):
+        if dirpath.endswith("/fixtures"):
+            fixture_dirs.append(dirpath)
 
     found = None
     for dirs in fixture_dirs:
@@ -1140,10 +1154,14 @@ def build_list_of_hosts(mdb_resource, namespace, members, servicename=None):
     ]
 
 
-def build_host_fqdn(hostname, namespace, servicename):
-    return "{hostname}.{servicename}.{namespace}.svc.cluster.local:27017".format(
-        hostname=hostname, servicename=servicename, namespace=namespace
+def build_host_fqdn(hostname: str, namespace: str, servicename: str, clustername: str="cluster.local") -> str:
+    return "{hostname}.{servicename}.{namespace}.{clustername}:27017".format(
+        hostname=hostname, servicename=servicename, namespace=namespace, clustername=clustername
     )
+
+
+def build_svc_fqdn(service: str, namespace: str, clustername: str="cluster.local") -> str:
+    return "{}.{}.svc.{}".format(service, namespace, clustername)
 
 
 def hostname(hostname, idx):

@@ -37,6 +37,7 @@ type MongoDBOpsManagerSpec struct {
 	Configuration map[string]string `json:"configuration,omitempty"`
 	Version       string            `json:"version"`
 	ClusterName   string            `json:"clusterName,omitempty"`
+
 	// AdminSecret is the secret for the first admin user to create
 	// has the fields: "Username", "Password", "FirstName", "LastName"
 	AdminSecret string `json:"adminCredentials,omitempty"`
@@ -78,7 +79,7 @@ func (m *MongoDBOpsManager) MarshalJSON() ([]byte, error) {
 }
 
 func (m *MongoDBOpsManager) SvcName() string {
-	return "om-svc"
+	return m.Name + "-svc"
 }
 
 func (m *MongoDBOpsManager) AddConfigIfDoesntExist(key, value string) bool {
