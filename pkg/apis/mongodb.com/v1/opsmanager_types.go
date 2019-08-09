@@ -212,6 +212,10 @@ func (m *AppDB) UnmarshalJSON(data []byte) error {
 	m.AdditionalMongodConfig = nil
 	m.ConnectionSpec.Credentials = ""
 	m.ConnectionSpec.Project = ""
+	// all resources have a pod spec
+	if m.PodSpec == nil {
+		m.PodSpec = newMongoDbPodSpec()
+	}
 	return nil
 }
 

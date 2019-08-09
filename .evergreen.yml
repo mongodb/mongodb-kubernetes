@@ -894,7 +894,13 @@ tasks:
   commands:
     - func: "e2e_test"
 
-- name: e2e_om_scale_up_down_appdb
+- name: e2e_om_appdb_scale_up_down
+  tags: ["kops-ops-manager"]
+  exec_timeout_secs: 2400
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_om_appdb_upgrade
   tags: ["kops-ops-manager"]
   exec_timeout_secs: 2400
   commands:
@@ -1027,7 +1033,8 @@ task_groups:
     - func: download_kubectl
     - func: setup_kubernetes_environment
   tasks:
-    - e2e_om_scale_up_down_appdb
+    - e2e_om_appdb_scale_up_down
+    - e2e_om_appdb_upgrade
     - e2e_om_ops_manager_upgrade
   teardown_task:
     - func: "upload_e2e_logs"

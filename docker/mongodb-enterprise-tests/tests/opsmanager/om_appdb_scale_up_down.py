@@ -11,14 +11,14 @@ admin_key_resource_version = None
 # creation of Ops Manager takes too long, so we try to avoid fine-grained test cases and combine different
 # updates in one test
 
-@pytest.mark.e2e_om_scale_up_down_appdb
+@pytest.mark.e2e_om_appdb_scale_up_down
 class TestOpsManagerCreation(OpsManagerBase):
     """
     name: Ops Manager successful creation
     description: |
       Creates an Ops Manager instance with AppDB of size 3. Note, that the initial creation usually takes ~500 seconds
     create:
-      file: om_scale_up_down_appdb.yaml
+      file: om_appdb_scale_up_down.yaml
       wait_until: om_in_running_state
       timeout: 900
     """
@@ -53,14 +53,14 @@ class TestOpsManagerCreation(OpsManagerBase):
         # todo check the backing db group, automation config and data integrity
 
 
-@pytest.mark.e2e_om_scale_up_down_appdb
+@pytest.mark.e2e_om_appdb_scale_up_down
 class TestOpsManagerAppDbScaleUp(OpsManagerBase):
     """
     name: Ops Manager successful appdb scale up
     description: |
       Scales appdb up to 5 members
     update:
-      file: om_scale_up_down_appdb.yaml
+      file: om_appdb_scale_up_down.yaml
       patch: '[{"op":"replace","path":"/spec/applicationDatabase/members","value":5}]'
       wait_until: om_in_running_state
       timeout: 400
@@ -85,14 +85,14 @@ class TestOpsManagerAppDbScaleUp(OpsManagerBase):
     def test_om_connectivity(self):
         OMTester(self.om_context).assert_healthiness()
 
-@pytest.mark.e2e_om_scale_up_down_appdb
+@pytest.mark.e2e_om_appdb_scale_up_down
 class TestOpsManagerAppDbScaleDown(OpsManagerBase):
     """
     name: Ops Manager successful appdb scale down
     description: |
       Scales appdb back down to 3 members
     update:
-      file: om_scale_up_down_appdb.yaml
+      file: om_appdb_scale_up_down.yaml
       patch: '[{"op":"replace","path":"/spec/applicationDatabase/members","value":3}]'
       wait_until: om_in_running_state
       timeout: 400

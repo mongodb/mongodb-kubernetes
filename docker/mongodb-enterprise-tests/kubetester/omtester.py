@@ -51,6 +51,12 @@ class OMTester(object):
         # logic: if mms.helpAndSupportPage.enabled==true - then status is 307, otherwise 303"
         assert response.status_code == 307
 
+    def assert_group_exists(self):
+        path = "/api/public/v1.0/groups/" + self.om_context.group_id
+        response = self.om_request("get", path)
+
+        assert response.status_code == 200
+
     def om_request(self, method, path, json_object=None):
         headers = {"Content-Type": "application/json"}
         auth = build_auth(self.om_context.user, self.om_context.public_key)

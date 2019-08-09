@@ -438,6 +438,8 @@ func opsManagerPodSpec(envVars []corev1.EnvVar, version string) corev1.PodSpec {
 		},
 	}
 
+	// TODO CLOUDP-47810: we need to enable security context but currently it's not possible as OM starts from root
+
 	return spec
 }
 
