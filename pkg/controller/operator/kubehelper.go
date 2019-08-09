@@ -428,30 +428,30 @@ func (k *KubeHelper) ensureService(owner Updatable, serviceName string, label st
 	log = log.With("service", serviceName)
 
 	namespacedName := objectKey(ns, serviceName)
-	updatedService := buildService(namespacedName, owner, label, servicePort, exposeExternally)
 
 	service := &corev1.Service{}
 	err := k.client.Get(context.TODO(), namespacedName, service)
+	buildService(service, namespacedName, owner, label, servicePort, exposeExternally)
 	method := ""
 
 	if err != nil {
 		log.Infof("Creating Service %s", namespacedName)
-		err = k.client.Create(context.TODO(), updatedService)
+		err = k.client.Create(context.TODO(), service)
 		if err != nil {
 			return nil, err
 		}
 		method = "Created"
 	} else {
 		log.Infof("Updating Service %s", namespacedName)
-		err = k.client.Update(context.TODO(), updatedService)
+		err = k.client.Update(context.TODO(), service)
 		if err != nil {
 			return nil, err
 		}
 		method = "Updated"
 	}
 
-	log.Infow(fmt.Sprintf("%s Service %s", method, namespacedName), "type", updatedService.Spec.Type, "port", updatedService.Spec.Ports[0])
-	return updatedService, nil
+	log.Infow(fmt.Sprintf("%s Service %s", method, namespacedName), "type", service.Spec.Type, "port", service.Spec.Ports[0])
+	return service, nil
 }
 
 func getNamespaceAndNameForResource(resource, defaultNamespace string) (types.NamespacedName, error) {

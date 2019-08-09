@@ -289,7 +289,9 @@ func buildPersistentVolumeClaims(set *appsv1.StatefulSet, p StatefulSetHelper) {
 // some random port in the range 30000-32767
 // Note that itself service has no dedicated IP by default ("clusterIP: None") as all mongo entities should be directly
 // addressable
-func buildService(namespacedName types.NamespacedName, owner Updatable, label string, port int32, exposeExternally bool) *corev1.Service {
+// This function will update a Service object if passed, or return a new one if passed nil, this is to be able to update
+// Services and to not change any attribute they might already have that needs to be maintained.
+func buildService(service *corev1.Service, namespacedName types.NamespacedName, owner Updatable, label string, port int32, exposeExternally bool) {
 	serviceType := corev1.ServiceTypeClusterIP
 	clusterIp := "None"
 	publishNotReady := true
@@ -304,23 +306,25 @@ func buildService(namespacedName types.NamespacedName, owner Updatable, label st
 		servicePort.Name = "mongodb"
 	}
 
-	return &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:            namespacedName.Name,
-			Namespace:       namespacedName.Namespace,
-			Labels:          map[string]string{APP_LABEL_KEY: label},
-			OwnerReferences: baseOwnerReference(owner),
-		},
-		Spec: corev1.ServiceSpec{
-			Selector:  map[string]string{APP_LABEL_KEY: label},
-			Type:      serviceType,
-			ClusterIP: clusterIp,
-			Ports:     []corev1.ServicePort{servicePort},
-
-			// We publish this address even when it is not ready, so it can join the party!
-			PublishNotReadyAddresses: publishNotReady,
-		},
+	if service == nil {
+		service = &corev1.Service{}
 	}
+
+	// Each attribute needs to be set manually to avoid overwritting or deleting
+	// attributes from the subobject that we don't know about.
+	service.ObjectMeta.Name = namespacedName.Name
+	service.ObjectMeta.Namespace = namespacedName.Namespace
+	service.ObjectMeta.Labels = map[string]string{APP_LABEL_KEY: label}
+	service.ObjectMeta.OwnerReferences = baseOwnerReference(owner)
+
+	service.Spec.Selector = map[string]string{APP_LABEL_KEY: label}
+	service.Spec.Type = serviceType
+	service.Spec.ClusterIP = clusterIp
+	service.Spec.Ports = []corev1.ServicePort{servicePort}
+
+	// We publish this address even when it is not ready, so it can join the party!
+	service.Spec.PublishNotReadyAddresses = publishNotReady
+
 }
 
 func baseOwnerReference(owner Updatable) []metav1.OwnerReference {
