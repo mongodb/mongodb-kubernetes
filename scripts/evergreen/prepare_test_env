@@ -9,14 +9,22 @@ source scripts/funcs
 
 ##
 ## Does some preliminary actions to prepare testing environment:
-## - prunes namespaces
-## - starts Ops Manager if it's not started yet
+## - fixes AWS
+## - installs cluster cleaner
+## - starts Ops Manager if it's not started yet and if it's necessary
 ##
 
-# cleanup_env removes old namespaces and Ops Manager if there are too many of them
-cleanup_env() {
+# cleanup_env fixes AWS problems if any
+fix_env() {
     ns_count="$(kubectl get ns -o name | grep a- --count || true)"
     echo "Current number of test namespaces: $ns_count"
+
+    # sometimes in kops cluster some nodes get this taint that makes nodes non-schedulable. Just going over all nodes and
+    # trying to remove the taint is supposed to help
+    echo "##### Fixing taints"
+    for n in $(kubectl get nodes -o name); do
+        kubectl taint nodes "${n}" NodeWithImpairedVolumes:NoSchedule- 2> /dev/null || true
+    done
 
     echo "##### Removing FAILED Persistent Volumes if any"
     # Note, that these volumes will be removed from EBS eventually (during a couple of hours), most of all they are stuck
@@ -48,17 +56,6 @@ cleanup_env() {
 
 }
 
-# Update: taints are supposed not to appear as "cleanup_env" function is supposed to remove failed PVs, but let's keep
-# this function for some time here
-#
-# sometimes in kops cluster some nodes get this taint that makes nodes non-schedulable. Just going over all nodes and
-# trying to remove the taint is supposed to help
-fix_taints() {
-    for n in $(kubectl get nodes -o name); do
-        kubectl taint nodes "${n}" NodeWithImpairedVolumes:NoSchedule- 2> /dev/null || true
-    done
-}
-
 # The functions checks the size for the ECR repository and recreates it if necessary
 # This may affect some parallel running tests, so should be called quite rarely - when the size exceeds 500
 # (note, that 'aws ecr list-images' for some reasons returns the ~700+ images when in fact there are 1000 of them -
@@ -78,7 +75,10 @@ deploy_cluster_cleaner() {
         kubectl create namespace "${cleaner_namespace=}"
     fi
 
-    kubectl create namespace "${ops_manager_namespace}" || true
+    if [[ -n "${ops_manager_namespace}" ]]; then
+        kubectl create namespace "${ops_manager_namespace}" || true
+    fi
+
     helm template docker/cluster-cleaner \
          --set namespace="${ops_manager_namespace}" \
          --set cleanerNamespace=cluster-cleaner \
@@ -87,20 +87,16 @@ deploy_cluster_cleaner() {
     rm cluster-cleaner.yaml
 }
 
-ops_manager_namespace="${1}"
+ops_manager_namespace="${1:-}"
 ops_manager_version="${2:-}"
 node_port="${3:-}"
 
-echo "Fixing taints"
-fix_taints
-
-echo "Cleaning up environment"
-cleanup_env
+echo "Fixing AWS problems if any"
+fix_env
 
 echo "Deploying cluster-cleaner"
 deploy_cluster_cleaner "${ops_manager_namespace}"
 
-# Not required when running against the Ops Manager Kubernetes perpetual instance
-if [[ "${OM_EXTERNALLY_CONFIGURED:-}" != "true" ]]; then
+if [[ "${OM_EXTERNALLY_CONFIGURED:-}" != "true" ]] && [[ -n "${ops_manager_namespace}" ]]; then
     ensure_ops_manager_k8s "${ops_manager_namespace}" "${ops_manager_version}" "${node_port}"
 fi

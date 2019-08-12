@@ -1,3 +1,4 @@
+{{ if .Values.namespace }}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -44,3 +45,4 @@ spec:
             env:
             - name: OM_NAMESPACE
               value: {{ .Values.namespace }}
+{{ end }}

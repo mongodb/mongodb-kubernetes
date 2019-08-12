@@ -438,7 +438,6 @@ func (k *KubeHelper) ensureService(owner Updatable, serviceName string, label st
 		}
 		method = "Created"
 	} else {
-		log.Infof("Updating Service %s", namespacedName)
 		err = k.client.Update(context.TODO(), service)
 		if err != nil {
 			return nil, err

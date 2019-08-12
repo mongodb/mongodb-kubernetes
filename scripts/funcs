@@ -71,8 +71,6 @@ wait_for_namespace_to_be_deleted(){
 # the function installs Ops Manager into Kubernetes cluster if it's not installed already
 # Note, that this requires the k8s node with 4 Gb of free memory
 ensure_ops_manager_k8s() {
-    echo "##### Installing Ops Manager into Kubernetes..."
-
     ops_manager_namespace="${1}"
     ops_manager_version="${2}"
     node_port="${3}"
@@ -89,6 +87,8 @@ ensure_ops_manager_k8s() {
         error "node_port must be set!"
         exit 1
     fi
+
+    echo "##### Installing Ops Manager ${ops_manager_version} (namespace ${ops_manager_namespace} into Kubernetes..."
 
     if is_ops_manager_down ${ops_manager_namespace}; then
         echo "Ops Manager is not installed in this cluster. Doing it now."

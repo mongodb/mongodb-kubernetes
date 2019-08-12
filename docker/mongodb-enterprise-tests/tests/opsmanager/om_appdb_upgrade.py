@@ -8,6 +8,7 @@ from tests.opsmanager.om_base import OpsManagerBase
 gen_key_resource_version = None
 admin_key_resource_version = None
 
+
 # Note the strategy for Ops Manager testing: the tests should have more than 1 updates - this is because the initial
 # creation of Ops Manager takes too long, so we try to avoid fine-grained test cases and combine different
 # updates in one test
@@ -23,6 +24,7 @@ class TestOpsManagerCreation(OpsManagerBase):
       wait_until: om_in_running_state
       timeout: 900
     """
+
     def test_appdb(self):
         assert self.om_cr.get_appdb_status()['members'] == 3
         assert self.om_cr.get_appdb_status()['version'] == '4.0.0'
@@ -59,6 +61,7 @@ class TestOpsManagerAppDbUpgrade(OpsManagerBase):
     @skip_if_local
     def test_om_connectivity(self):
         OMTester(self.om_context).assert_healthiness()
+
 
 @pytest.mark.e2e_om_appdb_upgrade
 class TestOpsManagerAppDbUpdateMemory(OpsManagerBase):

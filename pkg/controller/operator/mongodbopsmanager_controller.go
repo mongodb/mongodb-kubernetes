@@ -205,7 +205,7 @@ func (r OpsManagerReconciler) ensureGenKey(om *v1.MongoDBOpsManager, log *zap.Su
 		keyMap := map[string][]byte{"gen.key": token}
 
 		log.Infof("Creating secret %s", objectKey)
-		return r.kubeHelper.createSecret(objectKey, keyMap, map[string]string{}, om)
+		return r.kubeHelper.createSecret(objectKey, keyMap, map[string]string{}, nil)
 	}
 	return err
 }
@@ -298,10 +298,10 @@ func (r OpsManagerReconciler) initializeOpsManager(opsManager *v1.MongoDBOpsMana
 		secretData := map[string]string{util.OmPublicApiKey: apiKey, util.OmUser: user.Username}
 
 		if err = r.kubeHelper.deleteSecret(adminKeySecretName); err != nil && !apiErrors.IsNotFound(err) {
-			return r.cleanStatefulsetAndError(opsManager, fmt.Errorf("failed to replace a secret for admin public api key: %s", err))
+			return r.cleanStatefulsetAndError(opsManager, log, fmt.Errorf("failed to replace a secret for admin public api key: %s", err))
 		}
 		if err = r.kubeHelper.createSecret(adminKeySecretName, secretData, map[string]string{}, opsManager); err != nil {
-			return r.cleanStatefulsetAndError(opsManager, fmt.Errorf("failed to create a secret for admin public api key: %s", err))
+			return r.cleanStatefulsetAndError(opsManager, log, fmt.Errorf("failed to create a secret for admin public api key: %s", err))
 		}
 		log.Infof("Created a secret for admin public api key %s", adminKeySecretName)
 	}
@@ -325,7 +325,8 @@ func (r OpsManagerReconciler) initializeOpsManager(opsManager *v1.MongoDBOpsMana
 	// start everything again
 	_, err = r.kubeHelper.readSecret(adminKeySecretName)
 	if err != nil {
-		return r.cleanStatefulsetAndError(opsManager, fmt.Errorf("failed to read the admin key secret, is it the restart after the failed reconciliation? %s", err))
+		return r.cleanStatefulsetAndError(opsManager, log,
+			fmt.Errorf("failed to read the admin key secret, is it the restart after the failed reconciliation? %s", err))
 	}
 
 	return nil
@@ -333,12 +334,13 @@ func (r OpsManagerReconciler) initializeOpsManager(opsManager *v1.MongoDBOpsMana
 
 // cleanStatefulsetAndError is the "garbage collector" method which removes the statefulset for Ops Manager
 // This must be used only when the Ops Manager is in "lightweight" mode as it's safe to remove it (no appdb yet)
-func (r OpsManagerReconciler) cleanStatefulsetAndError(opsManager *v1.MongoDBOpsManager, err error) error {
+func (r OpsManagerReconciler) cleanStatefulsetAndError(opsManager *v1.MongoDBOpsManager, log *zap.SugaredLogger, err error) error {
 	set := r.kubeHelper.NewOpsManagerStatefulSetHelper(opsManager).BuildStatefulSet()
 
-	if err = r.kubeHelper.deleteStatefulSet(objectKey(set.Namespace, set.Name)); err != nil {
-		return err
+	if e := r.kubeHelper.deleteStatefulSet(objectKey(set.Namespace, set.Name)); e != nil {
+		return e
 	}
+	log.Warnf("Removed statefulset %s as Ops Manager is initialization stage and an unrecoverable error happened", set.Name)
 	return err
 }
 

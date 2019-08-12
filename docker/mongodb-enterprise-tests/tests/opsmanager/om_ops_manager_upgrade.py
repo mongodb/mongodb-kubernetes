@@ -1,4 +1,5 @@
 import pytest
+from kubernetes.client.rest import ApiException
 from kubetester.kubetester import skip_if_local
 from kubetester.omtester import OMTester
 
@@ -48,6 +49,8 @@ class TestOpsManagerCreation(OpsManagerBase):
         """Checks that the OM is responsive and test service is available (enabled by 'mms.testUtil.enabled')."""
         om_tester = OMTester(self.om_context)
         om_tester.assert_healthiness()
+        om_tester.assert_group_exists()
+
         om_tester.assert_test_service()
         try:
             om_tester.assert_support_page_enabled()
@@ -112,4 +115,34 @@ class TestOpsManagerVersionUpgrade(OpsManagerBase):
     @skip_if_local
     def test_om(self):
         OMTester(self.om_context).assert_healthiness()
+
+
+@pytest.mark.e2e_om_ops_manager_upgrade
+class TestOpsManagerRemoved(OpsManagerBase):
+    """
+    name: Ops Manager removal
+    description: |
+      Deletes an Ops Manager Custom resource and verifies that some of the dependant objects are removed
+    delete:
+      file: om_ops_manager_upgrade.yaml
+      wait_until: om_is_deleted
+      timeout: 20
+    """
+
+    def test_api_key_removed(self):
+        with pytest.raises(ApiException):
+            self.corev1.read_namespaced_secret(self.om_cr.api_key_secret(), self.namespace)
+
+    def test_gen_key_not_removed(self):
+        """ The gen key must not be removed - this is for situations when the appdb is persistent -
+        so PVs may survive removal"""
+        self.corev1.read_namespaced_secret(self.om_cr.gen_key_secret(), self.namespace)
+
+    def test_om_sts_removed(self):
+        with pytest.raises(ApiException):
+            self.appsv1.read_namespaced_stateful_set(self.om_cr.name(), self.namespace)
+
+    def test_om_appdb_removed(self):
+        with pytest.raises(ApiException):
+            self.appsv1.read_namespaced_stateful_set(self.om_cr.app_db_name(), self.namespace)
 

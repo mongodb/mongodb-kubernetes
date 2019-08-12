@@ -293,11 +293,9 @@ func buildPersistentVolumeClaims(set *appsv1.StatefulSet, p StatefulSetHelper) {
 // Services and to not change any attribute they might already have that needs to be maintained.
 func buildService(service *corev1.Service, namespacedName types.NamespacedName, owner Updatable, label string, port int32, exposeExternally bool) {
 	serviceType := corev1.ServiceTypeClusterIP
-	clusterIp := "None"
 	publishNotReady := true
 	if exposeExternally {
 		serviceType = corev1.ServiceTypeNodePort
-		clusterIp = ""
 		publishNotReady = false
 	}
 
@@ -319,12 +317,14 @@ func buildService(service *corev1.Service, namespacedName types.NamespacedName, 
 
 	service.Spec.Selector = map[string]string{APP_LABEL_KEY: label}
 	service.Spec.Type = serviceType
-	service.Spec.ClusterIP = clusterIp
 	service.Spec.Ports = []corev1.ServicePort{servicePort}
+
+	if !exposeExternally {
+		service.Spec.ClusterIP = "None"
+	}
 
 	// We publish this address even when it is not ready, so it can join the party!
 	service.Spec.PublishNotReadyAddresses = publishNotReady
-
 }
 
 func baseOwnerReference(owner Updatable) []metav1.OwnerReference {

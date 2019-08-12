@@ -373,24 +373,28 @@ class KubernetesTester(object):
         So we still should be careful with "remove" operation - better use "replace: null"
         """
         resource = yaml.safe_load(open(fixture(section["file"])))
-        name, kind, group, version, res_type = get_crd_meta(resource)
 
+        patch = section.get("patch")
+        KubernetesTester.patch_custom_resource_from_object(namespace, resource, patch)
+
+    @staticmethod
+    def patch_custom_resource_from_object(namespace, resource, patch):
+        name, kind, group, version, res_type = get_crd_meta(resource)
         KubernetesTester.namespace = namespace
         KubernetesTester.name = name
         KubernetesTester.kind = kind
 
-        patched = resource
-        if "patch" in section:
-            patch = jsonpatch.JsonPatch.from_string(section["patch"])
-            patched = patch.apply(resource)
+        if patch is not None:
+            patch = jsonpatch.JsonPatch.from_string(patch)
+            resource = patch.apply(resource)
 
         try:
             # TODO currently if the update doesn't pass (e.g. patch is incorrect) - we don't fail here...
             KubernetesTester.clients("customv1").patch_namespaced_custom_object(
-                group, version, namespace, plural(kind), name, patched
+                group, version, namespace, plural(kind), name, resource
             )
         except Exception:
-            print("Failed to update a resource ({}): \n {}".format(sys.exc_info()[0], patched))
+            print("Failed to update a resource ({}): \n {}".format(sys.exc_info()[0], resource))
             raise
         print('Updated resource {} {} {}'.format(kind, name, '(' + res_type + ')' if kind == 'MongoDb' else ''))
 
@@ -1154,13 +1158,13 @@ def build_list_of_hosts(mdb_resource, namespace, members, servicename=None):
     ]
 
 
-def build_host_fqdn(hostname: str, namespace: str, servicename: str, clustername: str="cluster.local") -> str:
+def build_host_fqdn(hostname: str, namespace: str, servicename: str, clustername: str = "cluster.local") -> str:
     return "{hostname}.{servicename}.{namespace}.{clustername}:27017".format(
         hostname=hostname, servicename=servicename, namespace=namespace, clustername=clustername
     )
 
 
-def build_svc_fqdn(service: str, namespace: str, clustername: str="cluster.local") -> str:
+def build_svc_fqdn(service: str, namespace: str, clustername: str = "cluster.local") -> str:
     return "{}.{}.svc.{}".format(service, namespace, clustername)
 
 

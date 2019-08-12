@@ -1,13 +1,15 @@
+import pytest
 from kubetester.kubetester import KubernetesTester
 
 
+@pytest.mark.e2e_replica_set_exposed_externally
 class TestReplicaSetExposedExternally(KubernetesTester):
     '''
     name: Replica set exposed externally
     description: |
         Tests that a replica set can be appropriately exposed externally.
     create:
-      file: fixtures/replica-set-externally-exposed.yaml
+      file: replica-set-externally-exposed.yaml
       wait_until: in_running_state
       timeout: 60
     '''
