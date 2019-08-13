@@ -14,8 +14,8 @@ class OpsManagerBase(KubernetesTester):
          Note, that this method is useful ONLY if the docstring annotation was used - custom tests won't benefit """
         try:
             if KubernetesTester.get_resource() is not None:
-                om_cr = OpsManagerBase.read_om_cr()
-                OpsManagerBase.init_om_context(om_cr)
+                OpsManagerBase.om_cr = OpsManagerBase.read_om_cr()
+                OpsManagerBase.init_om_context(OpsManagerBase.om_cr)
         except ApiException:
             # the object doesn't exist after we remove it - this is ok.
             # TODO ideally we need to distinguish API errors as we do in go code
@@ -79,7 +79,9 @@ class OpsManagerBase(KubernetesTester):
 
     @staticmethod
     def om_is_deleted():
-        """ Returns true if the resource has been removed """
+        """ Returns true if the resource has been removed.
+        TODO this and other methods using static methods from 'KubernetesTester' won't work if 2 different resources
+        are created (OM + MDB for example)"""
         try:
             KubernetesTester.get_resource()
             return False

@@ -10,6 +10,7 @@ import (
 	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/blang/semver"
 	"go.uber.org/zap"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -60,6 +61,10 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 	log.Info("-> OpsManager.Reconcile")
 	log.Infow("OpsManager.Spec", "spec", opsManager.Spec)
 	log.Infow("OpsManager.Status", "status", opsManager.Status)
+
+	if err := performValidation(opsManager); err != nil {
+		return r.updateStatusValidationFailure(opsManager, err.Error(), log)
+	}
 
 	if err := r.ensureGenKey(opsManager, log); err != nil {
 		return r.updateStatusFailed(opsManager, err.Error(), log)
@@ -342,6 +347,23 @@ func (r OpsManagerReconciler) cleanStatefulsetAndError(opsManager *v1.MongoDBOps
 	}
 	log.Warnf("Removed statefulset %s as Ops Manager is initialization stage and an unrecoverable error happened", set.Name)
 	return err
+}
+
+// performValidation makes some validation of Ops Manager spec. So far this validation mostly follows the restrictions
+// for the app db in ops manager, see MongoConnectionConfigurationCheck
+// Ideally it must be done in an admission web hook
+func performValidation(opsManager *v1.MongoDBOpsManager) error {
+	version := opsManager.Spec.AppDB.Version
+	v, err := semver.Make(version)
+	if err != nil {
+		return fmt.Errorf("version %s has wrong format!", version)
+	}
+	fourZero, _ := semver.Make("4.0.0")
+	if v.LT(fourZero) {
+		return errors.New("the version of Application Database must be >= 4.0")
+	}
+
+	return nil
 }
 
 // centralURL constructs the service name that can be used to access Ops Manager from within

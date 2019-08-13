@@ -502,7 +502,7 @@ func baseReadinessProbe() *corev1.Probe {
 			Exec: &corev1.ExecAction{Command: []string{util.ReadinessProbe}},
 		},
 		// Setting the failure threshold to quite big value as the agent may spend some time to reach the goal
-		FailureThreshold: 12,
+		FailureThreshold: 24,
 	}
 }
 

@@ -23,6 +23,11 @@ if [[ ! -z "${STATIC_NAMESPACE-}" ]]; then
     echo "Namespace ${STATIC_NAMESPACE} is available for use"
 fi
 
+if [[ "${BUILD_VARIANT-}" = "e2e_openshift_origin_v3.11_ops_manager" ]]; then
+    # we need to allow running containers as ROOT for ops manager tests in Openshift
+    oc adm policy add-scc-to-user anyuid system:serviceaccount:${PROJECT_NAMESPACE}:default
+fi
+
 ensure_namespace "${PROJECT_NAMESPACE}"
 
 # Array contains string; based on https://stackoverflow.com/questions/3685970/check-if-a-bash-array-contains-a-value
@@ -239,7 +244,8 @@ dump_pods_logs() {
     if ! kubectl get pods -n "${PROJECT_NAMESPACE}" 2>&1 | grep -q "No resources found"; then
         for pod in $(kubectl get pods -n ${PROJECT_NAMESPACE}  -o name | cut -d "/" -f 2 \
         | grep -v "\-config" | grep -v "\-mongos" | grep -v "operator-"); do # only dump shard logs if it's a sharded cluster
-            kubectl logs -n ${PROJECT_NAMESPACE} ${pod} > "logs/${pod}"
+            echo "Writing log file for pod ${pod} to logs/${pod}.log"
+            kubectl logs -n ${PROJECT_NAMESPACE} ${pod} > "logs/${pod}.log"
             ((i++))
         done
     fi
