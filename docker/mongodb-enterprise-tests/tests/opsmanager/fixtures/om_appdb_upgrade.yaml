@@ -3,7 +3,7 @@ kind: MongoDBOpsManager
 metadata:
   name: om-upgrade
 spec:
-  version: 4.2.0.56536.20190809T1110Z-1
+  version: 4.2.0
   adminCredentials: ops-manager-admin
 
   applicationDatabase:

@@ -44,20 +44,20 @@ class TestOpsManagerAppDbUpgrade(OpsManagerBase):
       Upgrades appdb to a newer version
     update:
       file: om_appdb_upgrade.yaml
-      patch: '[{"op":"replace","path":"/spec/applicationDatabase/version","value":"4.0.7"}]'
+      patch: '[{"op":"replace","path":"/spec/applicationDatabase/version","value":"4.0.11"}]'
       wait_until: om_in_running_state
       timeout: 400
     """
 
     def test_appdb(self):
         assert self.om_cr.get_appdb_status()['members'] == 3
-        assert self.om_cr.get_appdb_status()['version'] == '4.0.7'
+        assert self.om_cr.get_appdb_status()['version'] == '4.0.11'
 
     @skip_if_local
     def test_mongod(self):
         mdb_tester = ReplicaSetTester(self.om_cr.app_db_name(), 3)
         mdb_tester.assert_connectivity()
-        mdb_tester.assert_version('4.0.7')
+        mdb_tester.assert_version('4.0.11')
 
     @skip_if_local
     def test_om_connectivity(self):
@@ -87,32 +87,32 @@ class TestOpsManagerAppDbUpdateMemory(OpsManagerBase):
     @skip_if_local
     def test_om_connectivity(self):
         OMTester(self.om_context).assert_healthiness()
-
-@pytest.mark.e2e_om_appdb_upgrade
-class TestOpsManagerMixed(OpsManagerBase):
-    """
-    name: Ops Manager mixed scenario
-    description: |
-      Performs changes to both AppDB and Ops Manager spec
-    update:
-      file: om_appdb_upgrade.yaml
-      patch: '[{"op":"replace","path":"/spec/applicationDatabase/version","value":"4.0.11"},{"op":"add","path":"/spec/configuration","value":{"mms.helpAndSupportPage.enabled":"true"}}]'
-      wait_until: om_in_running_state
-      timeout: 600
-    """
-
-    def test_appdb(self):
-        assert self.om_cr.get_appdb_status()['members'] == 3
-        assert self.om_cr.get_appdb_status()['version'] == '4.0.11'
-
-    @skip_if_local
-    def test_mongod(self):
-        mdb_tester = ReplicaSetTester(self.om_cr.app_db_name(), 3)
-        mdb_tester.assert_connectivity()
-        mdb_tester.assert_version('4.0.11')
-
-    @skip_if_local
-    def test_om_connectivity(self):
-        om_tester = OMTester(self.om_context)
-        om_tester.assert_healthiness()
-        om_tester.assert_support_page_enabled()
+#
+# @pytest.mark.e2e_om_appdb_upgrade
+# class TestOpsManagerMixed(OpsManagerBase):
+#     """
+#     name: Ops Manager mixed scenario
+#     description: |
+#       Performs changes to both AppDB and Ops Manager spec
+#     update:
+#       file: om_appdb_upgrade.yaml
+#       patch: '[{"op":"replace","path":"/spec/applicationDatabase/version","value":"4.0.11"},{"op":"add","path":"/spec/configuration","value":{"mms.helpAndSupportPage.enabled":"true"}}]'
+#       wait_until: om_in_running_state
+#       timeout: 600
+#     """
+#
+#     def test_appdb(self):
+#         assert self.om_cr.get_appdb_status()['members'] == 3
+#         assert self.om_cr.get_appdb_status()['version'] == '4.0.11'
+#
+#     @skip_if_local
+#     def test_mongod(self):
+#         mdb_tester = ReplicaSetTester(self.om_cr.app_db_name(), 3)
+#         mdb_tester.assert_connectivity()
+#         mdb_tester.assert_version('4.0.11')
+#
+#     @skip_if_local
+#     def test_om_connectivity(self):
+#         om_tester = OMTester(self.om_context)
+#         om_tester.assert_healthiness()
+#         om_tester.assert_support_page_enabled()

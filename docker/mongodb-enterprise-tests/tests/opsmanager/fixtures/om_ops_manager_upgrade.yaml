@@ -3,7 +3,7 @@ kind: MongoDBOpsManager
 metadata:
   name: om-upgrade
 spec:
-  version: 4.2.0.56506.20190804T0058Z-1
+  version: 4.2.0.56506.20190804T0058Z-1 # this will be upgraded to 4.2.0
   adminCredentials: ops-manager-admin
   configuration:
     mms.testUtil.enabled: "true"

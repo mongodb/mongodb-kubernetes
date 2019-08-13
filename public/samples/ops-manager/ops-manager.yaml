@@ -1,13 +1,17 @@
 apiVersion: mongodb.com/v1
 kind: MongoDBOpsManager
 metadata:
-  name: om-recovery
+  name: ops-manager
 spec:
   version: 4.2.0
   adminCredentials: ops-manager-admin
+  configuration:
+    mms.fromEmailAddr: "admin@thecompany.com"
 
   applicationDatabase:
     members: 3
-    version: 100.0.0 # some fake version to make sure appdb doesn't start
-    persistent: false
+    version: 4.2.0
+    persistent: true
     type: ReplicaSet
+    podSpec:
+      cpu: '0.25'
