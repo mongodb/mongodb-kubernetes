@@ -93,18 +93,45 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		}
 	}
 
-	err = replicaBuilder.CreateOrUpdateInKubernetes()
+	errorMessage := ""
+	err = RunInGivenOrder(replicaBuilder.NeedToPublishStateFirst(log),
+		func() error {
+			errorMessage = "Ops Manager"
+			return r.updateOmDeploymentRs(conn, rs.Status.Members, rs, replicaSetObject, log)
+		},
+		func() error {
+			errorMessage = "Kubernetes"
+			return replicaBuilder.CreateOrUpdateInKubernetes()
+		})
 	if err != nil {
-		return r.updateStatusFailed(rs, fmt.Sprintf("Failed to create/update the StatefulSet: %s", err), log)
-	}
-
-	log.Info("Updated statefulset for replica set")
-	if err := r.updateOmDeploymentRs(conn, rs.Status.Members, rs, replicaSetObject, log); err != nil {
-		return r.updateStatusFailed(rs, fmt.Sprintf("Failed to create/update replica set in Ops Manager: %s", err), log)
+		return r.updateStatusFailed(rs, fmt.Sprintf("Failed to create/update (%s reconciliation phase): %s.", errorMessage, err), log)
 	}
 
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	return r.updateStatusSuccessful(rs, log, DeploymentLink(conn.BaseURL(), conn.GroupID()))
+}
+
+// RunInGivenOrder will execute N functions, passed as varargs as `funcs`. The order of execution will depend on the result
+// of the evaluation of the `tester` boolean value. If `tester` is true, the functions will be executed in order; if
+// `tester` is false, the functions will be executed in reverse order (from last to first)
+func RunInGivenOrder(tester bool, funcs ...func() error) error {
+	if tester {
+		for _, fn := range funcs {
+			err := fn()
+			if err != nil {
+				return err
+			}
+		}
+	} else {
+		for i := len(funcs) - 1; i >= 0; i-- {
+			err := funcs[i]()
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 // AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller

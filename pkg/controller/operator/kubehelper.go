@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -15,6 +16,7 @@ import (
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -300,9 +302,71 @@ func (s *StatefulSetHelper) getDNSNames() ([]string, []string) {
 
 	return GetDNSNames(s.Name, s.Service, s.Namespace, s.ClusterName, members)
 }
+
 func (s *StatefulSetHelper) SetSecurity(security *mongodb.Security) *StatefulSetHelper {
 	s.Security = security
 	return s
+}
+
+// NeedToPublishStateFirst will check if the Published State of the StatfulSet backed MongoDB Deployments
+// needs to be updated first. In the case of unmounting certs, for instance, the certs should be not
+// required anymore before we unmount them, or the automation-agent and readiness probe will never
+// reach goal state.
+func (s *StatefulSetHelper) NeedToPublishStateFirst(log *zap.SugaredLogger) bool {
+	currentSet := appsv1.StatefulSet{}
+	namespacedName := objectKey(s.Namespace, s.Name)
+	err := s.Helper.client.Get(context.TODO(), namespacedName, &currentSet)
+
+	if err != nil {
+		if apiErrors.IsNotFound(err) {
+			// No need to publish state as this is a new StatefulSet
+			log.Debugf("New StatefulSet %s", namespacedName)
+			return false
+		}
+
+		log.Debugw(fmt.Sprintf("Error getting StatefulSet %s", namespacedName), "error", err)
+		return false
+	}
+
+	volumeMounts := currentSet.Spec.Template.Spec.Containers[0].VolumeMounts
+	if s.Security != nil {
+		if !s.Security.TLSConfig.Enabled && volumeMountWithNameExists(volumeMounts, SecretVolumeName) {
+			log.Debug("About to set `tls.security.enabled` to false. automationConfig needs to be updated first")
+			return true
+		}
+
+		if s.Security.TLSConfig.CA == "" && volumeMountWithNameExists(volumeMounts, SecretVolumeCAName) {
+			log.Debug("About to set `tls.security.CA` to empty. automationConfig needs to be updated first")
+			return true
+		}
+
+		if s.Security.ClusterAuthMode == "" && volumeMountWithNameExists(volumeMounts, util.ClusterFileName) {
+			log.Debug("About to set `tls.security.clusterAuthMode` to empty. automationConfig needs to be updated first")
+			return true
+		}
+	}
+
+	if s.PodVars.SSLMMSCAConfigMap == "" && volumeMountWithNameExists(volumeMounts, CaCertName) {
+		log.Debug("About to set `SSLMMSCAConfigMap` to empty. automationConfig needs to be updated first")
+		return true
+	}
+
+	if s.Project.AuthMode == "" && volumeMountWithNameExists(volumeMounts, util.AgentSecretName) {
+		log.Debug("About to set `project.AuthMode` to empty. automationConfig needs to be updated first")
+		return true
+	}
+
+	return false
+}
+
+func volumeMountWithNameExists(mounts []v1.VolumeMount, volumeName string) bool {
+	for _, mount := range mounts {
+		if mount.Name == volumeName {
+			return true
+		}
+	}
+
+	return false
 }
 
 // createOrUpdateStatefulsetWithService creates or updates the set of statefulsets in Kubernetes mapped to the service with name "serviceName"
