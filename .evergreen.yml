@@ -20,7 +20,7 @@ variables:
   # These need to be defined manually.
   # TODO(rodrigo): This will be improved as part of CLOUDP-38550.
   - &rhel_prebuilt_images
-    prebuilt_tag: 1.0
+    prebuilt_tag: latest
     prebuilt_database_name: mdb-database
     prebuilt_operator_name: mdb-operator
     prebuilt_registry: quay.io/some
@@ -113,13 +113,24 @@ functions:
         content_type: text/plain
 
   # push the latest build of the operator to s3 for the RH build-service to be able to build the RHEL image.
-  "push_operator_binary_for_rhel":
+  push_operator_binary_for_rhel:
     - command: s3.put
       params:
         aws_key: ${mms_build_s3_aws_access_key}
         aws_secret: ${mms_build_s3_aws_secret}
         local_file: src/github.com/10gen/ops-manager-kubernetes/docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator
         remote_file: ops-manager-operator/latest/mongodb-enterprise-operator
+        bucket: ops-manager-kubernetes-build
+        permissions: public-read
+        content_type: application/octet-stream
+
+  push_database_readiness_probe_for_rhel:
+    - command: s3.put
+      params:
+        aws_key: ${mms_build_s3_aws_access_key}
+        aws_secret: ${mms_build_s3_aws_secret}
+        local_file: src/github.com/10gen/ops-manager-kubernetes/docker/mongodb-enterprise-database/content/readinessprobe
+        remote_file: ops-manager-operator/latest/database-readiness-probe
         bucket: ops-manager-kubernetes-build
         permissions: public-read
         content_type: application/octet-stream
@@ -534,6 +545,7 @@ tasks:
   patch_only: true
   commands:
     - func: clone
+    - func: "setup_jq"
     - func: build_rhel_images
 
 - name: build_operator_rhel_connect
@@ -544,6 +556,7 @@ tasks:
     - func: "setup_jq"
     - func: "build_operator"
     - func: "push_operator_binary_for_rhel"
+    - func: "push_database_readiness_probe_for_rhel"
 
 # Note that this task doesn't work so far as it needs different quay account and token
 - name: release_mongodb_enterprise
@@ -1242,6 +1255,8 @@ buildvariants:
 #     - archlinux-test
 #   expansions:
 #     <<: *rhel_prebuilt_images
+#     <<: *cloud_manager_qa
+#     kube_environment_name: openshift_3_11
 #   tasks:
 #     - name: e2e_core_task_group
 #     - name: e2e_tls_task_group
