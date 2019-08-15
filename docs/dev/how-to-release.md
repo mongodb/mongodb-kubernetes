@@ -27,8 +27,6 @@ https://quay.io/repository/mongodb/mongodb-enterprise-database?tab=tags
 ```
 
 
-
-
 ## Release ticket, branch and PR
 
 * Create a branch named after release ticket.
@@ -48,23 +46,6 @@ pip3 install -r scripts/evergreen/requirements.txt
 This will update all relevant files with a new version
 Push the PR changes
 
-## QA
-
-Ensure that your branch is up to date with master.
-
-Build the operator and database images and push them to the "development"
-registry (Amazon ECR).
-
-``` bash
-evergreen patch -p ops-manager-kubernetes -v build_and_push_images_development -f
-```
-
-Perform a sanity check with your Kops cluster using just built images. This
-cluster should have access to the ECR images, as they are all hosted in AWS.
-
-Most of the standard operations with 3 MongoDB resources are covered by E2E tests, try to look
-through the tickets that got into the release and check if any additional QA is necessary.
-
 ## Get the release PR approved and merge the branch to Master
 
 Ask someone from the team to approve the PR.
@@ -73,9 +54,12 @@ Merge the release branch to master
 
 ## Tag the commit for release
 
+Checkout the latest master and pull changes
 Create a signed and annotated tag for this particular release. Set the message contents to the release notes.
 
 ```bash
+git checkout master
+git pull
 git tag --annotate --sign $(jq --raw-output .mongodbOperator < release.json)
 git push origin $(jq --raw-output .mongodbOperator < release.json)
 ```
