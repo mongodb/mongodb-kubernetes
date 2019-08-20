@@ -15,7 +15,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/runtime/signals"
 )
 
-var log *zap.SugaredLogger
+var (
+	log *zap.SugaredLogger
+
+	// List of allowed operator environments. The first element of this list is
+	// considered the default one.
+	operatorEnvironments = [...]string{"dev", "local", "prod"}
+)
 
 func main() {
 
@@ -64,10 +70,17 @@ func main() {
 
 func initializeEnvironment() {
 	env := os.Getenv(util.OmOperatorEnv)
-
-	validateEnv(env)
+	configuredEnv := env
+	if !validateEnv(env) {
+		env = operatorEnvironments[0]
+	}
 
 	initLogger(env)
+
+	if configuredEnv != env {
+		log.Infof("Configured environment %s, not recognized. Must be one of %v", configuredEnv, operatorEnvironments)
+		log.Infof("Using default environment, %s, instead", operatorEnvironments[0])
+	}
 
 	initEnvVariables(env)
 
@@ -94,13 +107,8 @@ func initEnvVariables(env string) {
 	util.EnsureEnvVar(util.BackupDisableWaitRetriesEnv, util.DefaultBackupDisableWaitRetries)
 }
 
-func validateEnv(env string) {
-	switch env {
-	case "prod", "dev", "local":
-		return
-	}
-	zap.S().Error("Wrong environment specified", "env", env)
-	os.Exit(1)
+func validateEnv(env string) bool {
+	return util.ContainsString(operatorEnvironments[:], env)
 }
 
 func initLogger(env string) {
