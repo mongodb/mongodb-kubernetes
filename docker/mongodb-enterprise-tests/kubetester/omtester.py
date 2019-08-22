@@ -3,6 +3,7 @@ import requests
 from kubetester.kubetester import build_auth
 
 from .kubetester import get_env_var_or_fail
+from typing import List
 
 
 def running_cloud_manager():
@@ -77,12 +78,12 @@ class OMTester(object):
 # TODO can we move below methods to some other place?
 
 
-def get_agent_cert_names(namespace):
+def get_agent_cert_names(namespace: str) -> List[str]:
     agent_names = ['mms-automation-agent', 'mms-backup-agent', 'mms-monitoring-agent']
     return ['{}.{}'.format(agent_name, namespace) for agent_name in agent_names]
 
 
-def get_rs_cert_names(mdb_resource, namespace, *, members=3, with_internal_auth_certs=False, with_agent_certs=False):
+def get_rs_cert_names(mdb_resource : str, namespace : str , *, members: int = 3, with_internal_auth_certs: bool = False, with_agent_certs: bool = False) -> List[str]:
     cert_names = [f"{mdb_resource}-{i}.{namespace}" for i in range(members)]
 
     if with_internal_auth_certs:

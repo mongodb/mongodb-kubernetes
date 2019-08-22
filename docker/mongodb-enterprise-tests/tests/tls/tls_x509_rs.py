@@ -28,7 +28,6 @@ class TestsReplicaSetWithNoTLSWithX509Project(KubernetesTester):
     @classmethod
     def setup_env(cls):
         cls.patch_config_map(cls.get_namespace(), "my-project", {"authenticationMode": "x509", "credentials": "my-credentials"})
-        KubernetesTester.wait_until('in_failed_state', 60)
 
     def test_noop(self):
         pass

@@ -89,6 +89,9 @@ type StatefulSetHelperCommon struct {
 	// Not part of StatefulSet object
 	Helper *KubeHelper
 	Logger *zap.SugaredLogger
+
+	shouldMountAgentCerts                    bool
+	shouldMountAgentInternalClusterAuthCerts bool
 }
 
 // StatefulSetHelper is a struct that holds different attributes needed to build
@@ -163,6 +166,24 @@ func (k *KubeHelper) NewOpsManagerStatefulSetHelper(obj Updatable) *OpsManagerSt
 		},
 		EnvVars: opsManagerConfigurationToEnvVars(obj.(*mongodb.MongoDBOpsManager)),
 	}
+}
+
+func (s *StatefulSetHelper) ShouldMountAgentCerts() bool {
+	return s.shouldMountAgentCerts
+}
+
+func (s *StatefulSetHelper) SetShouldMountAgentCerts(shouldMount bool) *StatefulSetHelper {
+	s.shouldMountAgentCerts = shouldMount
+	return s
+}
+
+func (s *StatefulSetHelper) ShouldMountAgentInternalClusterAuthCerts() bool {
+	return s.shouldMountAgentInternalClusterAuthCerts
+}
+
+func (s *StatefulSetHelper) SetShouldMountInternalClusterAuthCerts(shouldMount bool) *StatefulSetHelper {
+	s.shouldMountAgentInternalClusterAuthCerts = shouldMount
+	return s
 }
 
 // SetName can override the value of `StatefulSetHelper.Name` which is set to
@@ -870,13 +891,22 @@ func (k *KubeHelper) verifyClientCertificatesForAgents(name, namespace string) i
 	}
 
 	certsNotReady := 0
-	for _, agent := range []string{util.AutomationAgentPemFileName, util.MonitoringAgentPemFileName, util.BackupAgentPemFilePath} {
-		if _, ok := secret.Data[agent]; !ok {
+	for _, agentSecretKey := range []string{util.AutomationAgentPemSecretKey, util.MonitoringAgentPemSecretKey, util.BackupAgentPemSecretKey} {
+		if !isValidPemSecret(secret, agentSecretKey) {
 			certsNotReady++
 		}
 	}
 
 	return certsNotReady
+}
+
+func isValidPemSecret(secret *corev1.Secret, key string) bool {
+	if data, ok := secret.Data[key]; ok {
+		pemFile := newPemFileFromData(data)
+		return pemFile.isComplete()
+	} else {
+		return false
+	}
 }
 
 // verifyCertificatesForStatefulSet will return the number of certificates which are
@@ -894,13 +924,7 @@ func (k *KubeHelper) verifyCertificatesForStatefulSet(ss *StatefulSetHelper, sec
 
 	for _, pod := range podnames {
 		pem := fmt.Sprintf("%s-pem", pod)
-		data, ok := secret.Data[pem]
-		if ok {
-			pemFile := newPemFileFromData(data)
-			if !pemFile.isComplete() {
-				certsNotReady++
-			}
-		} else {
+		if !isValidPemSecret(secret, pem) {
 			certsNotReady++
 		}
 	}
@@ -938,4 +962,8 @@ func opsManagerConfigurationToEnvVars(m *mongodb.MongoDBOpsManager) []corev1.Env
 		})
 	}
 	return envVars
+}
+
+func (k *KubeHelper) secretExists(namespace, secretName string) bool {
+	return k.client.Get(context.TODO(), objectKey(namespace, secretName), &corev1.Secret{}) == nil
 }

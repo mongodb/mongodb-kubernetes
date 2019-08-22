@@ -65,30 +65,30 @@ const (
 	EnvVarSSLTrustedMMSServerCertificate = "SSL_TRUSTED_MMS_SERVER_CERTIFICATE"
 
 	// Pod/StatefulSet specific constants
-	OpsManagerName             = "mongodb-ops-manager"
-	ContainerName              = "mongodb-enterprise-database"
-	OmControllerLabel          = "mongodb-enterprise-operator"
-	LivenessProbe              = "/mongodb-automation/files/probe.sh"
-	ReadinessProbe             = "/mongodb-automation/files/readinessprobe"
-	PvcNameData                = "data"
-	PvcMountPathData           = "/data"
-	PvcNameJournal             = "journal"
-	PvcMountPathJournal        = "/journal"
-	PvcNameLogs                = "logs"
-	PvcMountPathLogs           = "/var/log/mongodb-mms-automation"
-	CAFilePathInContainer      = "/mongodb-automation/ca.pem"
-	PEMKeyFilePathInContainer  = "/mongodb-automation/server.pem"
-	AutomationAgentName        = "mms-automation-agent"
-	AutomationAgentPemFileName = AutomationAgentName + "-pem"
-	MonitoringAgentName        = "mms-monitoring-agent"
-	MonitoringAgentPemFileName = MonitoringAgentName + "-pem"
-	BackupAgentName            = "mms-backup-agent"
-	BackupAgentUserPemFileName = BackupAgentName + "-pem"
-	AutomationAgentPemFilePath = "/mongodb-automation/" + AgentSecretName + "/" + AutomationAgentPemFileName
-	MonitoringAgentPemFilePath = "/mongodb-automation/" + AgentSecretName + "/" + MonitoringAgentPemFileName
-	BackupAgentPemFilePath     = "/mongodb-automation/" + AgentSecretName + "/" + BackupAgentUserPemFileName
-	RunAsUser                  = 2000
-	FsGroup                    = 2000
+	OpsManagerName              = "mongodb-ops-manager"
+	ContainerName               = "mongodb-enterprise-database"
+	OmControllerLabel           = "mongodb-enterprise-operator"
+	LivenessProbe               = "/mongodb-automation/files/probe.sh"
+	ReadinessProbe              = "/mongodb-automation/files/readinessprobe"
+	PvcNameData                 = "data"
+	PvcMountPathData            = "/data"
+	PvcNameJournal              = "journal"
+	PvcMountPathJournal         = "/journal"
+	PvcNameLogs                 = "logs"
+	PvcMountPathLogs            = "/var/log/mongodb-mms-automation"
+	CAFilePathInContainer       = "/mongodb-automation/ca.pem"
+	PEMKeyFilePathInContainer   = "/mongodb-automation/server.pem"
+	AutomationAgentName         = "mms-automation-agent"
+	AutomationAgentPemSecretKey = AutomationAgentName + "-pem"
+	MonitoringAgentName         = "mms-monitoring-agent"
+	MonitoringAgentPemSecretKey = MonitoringAgentName + "-pem"
+	BackupAgentName             = "mms-backup-agent"
+	BackupAgentPemSecretKey     = BackupAgentName + "-pem"
+	AutomationAgentPemFilePath  = "/mongodb-automation/" + AgentSecretName + "/" + AutomationAgentPemSecretKey
+	MonitoringAgentPemFilePath  = "/mongodb-automation/" + AgentSecretName + "/" + MonitoringAgentPemSecretKey
+	BackupAgentPemFilePath      = "/mongodb-automation/" + AgentSecretName + "/" + BackupAgentPemSecretKey
+	RunAsUser                   = 2000
+	FsGroup                     = 2000
 
 	// x509 authentication
 	X509Db                         = "$external"

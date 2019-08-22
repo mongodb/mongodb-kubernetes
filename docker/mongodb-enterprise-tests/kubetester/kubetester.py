@@ -7,7 +7,7 @@ import warnings
 from base64 import b64decode
 from datetime import datetime, timezone
 
-from typing import Dict
+from typing import Dict, List
 
 import jsonpatch
 import pymongo
@@ -860,7 +860,7 @@ class KubernetesTester(object):
         body.status.conditions = [conditions]
         self.certificates.replace_certificate_signing_request_approval(name, body)
 
-    def yield_existing_csrs(self, csr_names, timeout=300):
+    def yield_existing_csrs(self, csr_names : List[str], timeout: int = 300) -> None:
         total_csrs = len(csr_names)
         seen_csrs = 0
         stop_time = time.time() + timeout

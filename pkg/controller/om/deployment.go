@@ -326,6 +326,15 @@ func (d Deployment) GetProcessNames(kind interface{}, name string) []string {
 	}
 }
 
+func (d Deployment) GetReplicaSetNames() []string {
+	rSets := d.getReplicaSets()
+	names := make([]string, len(rSets))
+	for i, rs := range rSets {
+		names[i] = rs.Name()
+	}
+	return names
+}
+
 // allProcessesAreTLSEnabled ensures that every process in the given deployment is TLS enabled
 // it is not possible to enable x509 authentication at the project level if a single process
 // does not have TLS enabled.
@@ -526,7 +535,7 @@ func (d Deployment) getProcesses() []Process {
 	}
 }
 
-func (d Deployment) getProcessesHostNames(names []string) []string {
+func (d Deployment) GetProcessesHostNames(names []string) []string {
 	ans := make([]string, len(names))
 
 	for i, n := range names {
@@ -723,7 +732,7 @@ func (d Deployment) addMonitoring(hostName string, log *zap.SugaredLogger) {
 func (d Deployment) removeMonitoring(processNames []string) {
 	monitoringVersions := d.getMonitoringVersions()
 	updatedMonitoringVersions := make([]interface{}, 0)
-	hostNames := d.getProcessesHostNames(processNames)
+	hostNames := d.GetProcessesHostNames(processNames)
 	for _, m := range monitoringVersions {
 		monitoring := m.(map[string]interface{})
 		hostname := monitoring["hostname"].(string)
@@ -764,7 +773,7 @@ func (d Deployment) removeBackup(processNames []string, log *zap.SugaredLogger) 
 	backupVersions := d.getBackupVersions()
 	updatedBackupVersions := make([]interface{}, 0)
 	initialLength := len(processNames)
-	hostNames := d.getProcessesHostNames(processNames)
+	hostNames := d.GetProcessesHostNames(processNames)
 	for _, b := range backupVersions {
 		backup := b.(map[string]interface{})
 		hostname := backup["hostname"].(string)
