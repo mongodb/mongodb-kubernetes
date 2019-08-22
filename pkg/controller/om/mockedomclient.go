@@ -248,7 +248,7 @@ func (oc *MockedOmConnection) ReadAutomationStatus() (*AutomationStatus, error) 
 
 	return oc.buildAutomationStatusFromDeployment(oc.deployment, false), nil
 }
-func (oc *MockedOmConnection) ReadAutomationAgents() (*AgentState, error) {
+func (oc *MockedOmConnection) ReadAutomationAgents(pageNum int) (*AgentState, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadAutomationAgents))
 
 	results := make([]ResultStruct, 0)

@@ -133,21 +133,30 @@ func waitUntilAgentsHaveRegistered(omConnection om.Connection, log *zap.SugaredL
 	retrials := util.ReadEnvVarOrPanicInt(util.PodWaitRetriesEnv)
 
 	agentsCheckFunc := func() (string, bool) {
-		agentResponse, err := omConnection.ReadAutomationAgents()
-		if err != nil {
-			return fmt.Sprintf("Unable to read from OM API: %s", err), false
-		}
-
 		registeredCount := 0
-		for _, hostname := range agentHostnames {
-			if om.CheckAgentExists(hostname, agentResponse, log) {
-				registeredCount++
+		pageNum := 0
+		for pageNum >= 0 {
+			agentResponse, err := omConnection.ReadAutomationAgents(pageNum)
+			if err != nil {
+				return fmt.Sprintf("Unable to read from OM API: %s", err), false
+			}
+
+			for _, hostname := range agentHostnames {
+				if om.CheckAgentExists(hostname, agentResponse, log) {
+					registeredCount++
+				}
+			}
+
+			if registeredCount == len(agentHostnames) {
+				return "", true
+			}
+
+			pageNum, err = om.FindNextPageForAgents(agentResponse)
+			if err != nil {
+				fmt.Println(err.Error())
 			}
 		}
 
-		if registeredCount == len(agentHostnames) {
-			return "", true
-		}
 		var msg string
 		if registeredCount == 0 {
 			msg = fmt.Sprintf("None of %d agents has registered with OM", len(agentHostnames))

@@ -30,7 +30,7 @@ type Connection interface {
 	//WaitForReadyState(processNames []string, log *zap.SugaredLogger) error
 	GenerateAgentKey() (string, error)
 	ReadAutomationStatus() (*AutomationStatus, error)
-	ReadAutomationAgents() (*AgentState, error)
+	ReadAutomationAgents(int) (*AgentState, error)
 	GetHosts() (*Host, error)
 	RemoveHost(hostID string) error
 	ReadOrganizations(page int) (Paginated, error)
@@ -295,8 +295,10 @@ func (oc *HTTPOmConnection) GenerateAgentKey() (string, error) {
 }
 
 // ReadAutomationAgents returns the state of the automation agents registered in Ops Manager
-func (oc *HTTPOmConnection) ReadAutomationAgents() (*AgentState, error) {
-	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/agents/AUTOMATION", oc.GroupID()))
+func (oc *HTTPOmConnection) ReadAutomationAgents(pageNum int) (*AgentState, error) {
+	// TODO: Add proper testing to this pagination. In order to test it I just used `itemsPerPage=1`, which will make
+	// the endpoint to be called 3 times in a 3 member replica set. The default itemsPerPage is 100
+	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/agents/AUTOMATION?pageNum=%d", oc.GroupID(), pageNum))
 	if err != nil {
 		return nil, err
 	}

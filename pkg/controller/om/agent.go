@@ -2,6 +2,8 @@ package om
 
 import (
 	"encoding/json"
+	"net/url"
+	"strconv"
 	"strings"
 
 	"time"
@@ -14,6 +16,7 @@ import (
 // AgentState represents the json document returned by the agents API.
 type AgentState struct {
 	Results []ResultStruct `json:"results,omitempty"`
+	Links   []LinksStruct  `json:"links,omitempty"`
 }
 
 // ResultStruct represents the json document pointed by the "results" key
@@ -26,6 +29,11 @@ type ResultStruct struct {
 	TypeName  string `json:"typeName"`
 }
 
+type LinksStruct struct {
+	Rel  string `json:"rel"`
+	Href string `json:"href"`
+}
+
 // BuildAgentStateFromBytes
 func BuildAgentStateFromBytes(jsonBytes []byte) (*AgentState, error) {
 	cc := &AgentState{}
@@ -33,6 +41,28 @@ func BuildAgentStateFromBytes(jsonBytes []byte) (*AgentState, error) {
 		return nil, err
 	}
 	return cc, nil
+}
+
+func FindNextPageForAgents(current *AgentState) (int, error) {
+	for _, links := range current.Links {
+		if links.Rel == "next" {
+			parsedUrl, err := url.Parse(links.Href)
+			if err != nil {
+				return -1, err
+			}
+
+			query, err := url.ParseQuery(parsedUrl.RawQuery)
+			if err != nil {
+				return -1, err
+			}
+
+			if pageNum, ok := query["pageNum"]; ok {
+				return strconv.Atoi(pageNum[0])
+			}
+		}
+	}
+
+	return -1, nil
 }
 
 // CheckAgentExists will return true if any of the agents in the json document
