@@ -5,13 +5,10 @@ import (
 	"fmt"
 	"testing"
 
-	_client "sigs.k8s.io/controller-runtime/pkg/client"
-
 	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
-	appsv1 "k8s.io/api/apps/v1"
 	certsv1 "k8s.io/api/certificates/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -55,10 +52,6 @@ func TestX509InternalClusterAuthentication_CannotBeEnabledForShardedCluster_IfPr
 		"This deployment has clusterAuthenticationMode set to x509, ensure the ConfigMap for this project is configured to enable x509", client)
 }
 
-//func toFullProcessName(resourceName string) string {
-//	return fmt.Sprintf("%s.%s-svc.%s.svc.cluster.local", resourceName, resourceName, TestNamespace)
-//}
-
 func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_ReplicaSet(t *testing.T) {
 
 	rsWithTls := DefaultReplicaSetBuilder().EnableTLS().SetName("rs-with-tls").Build()
@@ -79,9 +72,6 @@ func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_Re
 	checkReconcileFailed(t, reconciler, rsWithTls,
 		"This deployment has clusterAuthenticationMode set to x509, ensure the ConfigMap for this project is configured to enable x509", client)
 
-	createAgentSecrets(client)
-	createStatefulSet(client, objectKey(rsWithTls.Namespace, rsWithTls.Name))
-
 	cMap := enableProjectLevelX509Authentication(client)
 	// our project controller needs to use the same connection so it shares the underlying deployment
 	projectController := newProjectReconciler(manager, func(omContext *om.OMContext) om.Connection {
@@ -92,42 +82,9 @@ func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_Re
 	expected, _ := success()
 	assert.Nil(t, projectErr)
 	assert.Equal(t, expected, projectResult,
-		"should be able to enable x509 internal cluster auth if x509 auth is enabled at the project level")
+		"should be able to enable x509 internal cluster auth if x509 auth is disabled at the project level")
 
 	checkReconcileSuccessful(t, reconciler, rsWithTls, client)
-}
-
-// createStatefulSets
-func createStatefulSets(client *MockedClient, keys []_client.ObjectKey) {
-	for _, k := range keys {
-		createStatefulSet(client, k)
-	}
-}
-
-// createStatefulSet creates the stateful set that is configurable by the ProjectController
-func createStatefulSet(client *MockedClient, key _client.ObjectKey) {
-	client.sets[objectKey(TestNamespace, key.Name)] = &appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      key.Name,
-			Namespace: key.Namespace,
-		},
-		Status: appsv1.StatefulSetStatus{
-			ReadyReplicas:   1,
-			UpdatedReplicas: 1,
-		},
-		Spec: appsv1.StatefulSetSpec{
-			Replicas: util.Int32Ref(1),
-			Template: corev1.PodTemplateSpec{
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{{
-						VolumeMounts: []corev1.VolumeMount{{
-							Name: util.AgentSecretName,
-						}},
-					}},
-				},
-			},
-		},
-	}
 }
 
 func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_ShardedCluster(t *testing.T) {
@@ -149,12 +106,6 @@ func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_Sh
 
 	checkReconcileFailed(t, reconciler, scWithTls,
 		"This deployment has clusterAuthenticationMode set to x509, ensure the ConfigMap for this project is configured to enable x509", client)
-
-	createStatefulSets(client, []_client.ObjectKey{
-		objectKey(TestNamespace, "sc-with-tls-config"),
-		objectKey(TestNamespace, "sc-with-tls-0"),
-		objectKey(TestNamespace, "sc-with-tls-1"),
-	})
 
 	cMap := enableProjectLevelX509Authentication(client)
 	// our project controller needs to use the same connection so it shares the underlying deployment
@@ -239,8 +190,6 @@ func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ReplicaSet(t *testing.T
 	// enable x509 authentication at the project level
 	cMap := enableProjectLevelX509Authentication(client)
 
-	createStatefulSet(client, objectKey(rsWithTls.Namespace, rsWithTls.Name))
-
 	// our project controller needs to use the same connection so it shares the underlying deployment
 	projectController := newProjectReconciler(manager, connectionFunc)
 	projectResult, projectErr := projectController.Reconcile(requestFromObject(cMap))
@@ -266,12 +215,6 @@ func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ShardedCluster(t *testi
 
 	// enable x509 authentication at the project level
 	cMap := enableProjectLevelX509Authentication(client)
-
-	createStatefulSets(client, []_client.ObjectKey{
-		objectKey(om.TestGroupName, "sc-with-tls-config"),
-		objectKey(om.TestGroupName, "sc-with-tls-0"),
-		objectKey(om.TestGroupName, "sc-with-tls-1"),
-	})
 
 	// our project controller needs to use the same connection so it shares the underlying deployment
 	projectController := newProjectReconciler(manager, connectionFunc)
@@ -523,14 +466,6 @@ func createAgentCSRs(client *MockedClient, conditionType certsv1.RequestConditio
 	client.csrs[objectKey("", fmt.Sprintf("mms-automation-agent.%s", TestNamespace))] = createCSR(conditionType)
 	client.csrs[objectKey("", fmt.Sprintf("mms-monitoring-agent.%s", TestNamespace))] = createCSR(conditionType)
 	client.csrs[objectKey("", fmt.Sprintf("mms-backup-agent.%s", TestNamespace))] = createCSR(conditionType)
-}
-
-func createAgentSecrets(client *MockedClient) {
-	agentSecret := &corev1.Secret{Data: make(map[string][]byte, 0)}
-	agentSecret.Data[fmt.Sprintf("mms-automation-agent.%s", TestNamespace)] = createCertsAndKey()
-	agentSecret.Data[fmt.Sprintf("mms-monitoring-agent.%s", TestNamespace)] = createCertsAndKey()
-	agentSecret.Data[fmt.Sprintf("mms-backup-agent.%s", TestNamespace)] = createCertsAndKey()
-	client.secrets[objectKey(TestNamespace, util.AgentSecretName)] = agentSecret
 }
 
 // approveCSRs approves all CSRs related to the given MongoDB resource, this includes TLS and x509 internal cluster authentication CSRs

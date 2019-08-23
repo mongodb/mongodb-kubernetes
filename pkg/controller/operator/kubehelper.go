@@ -89,9 +89,6 @@ type StatefulSetHelperCommon struct {
 	// Not part of StatefulSet object
 	Helper *KubeHelper
 	Logger *zap.SugaredLogger
-
-	shouldMountAgentCerts                    bool
-	shouldMountAgentInternalClusterAuthCerts bool
 }
 
 // StatefulSetHelper is a struct that holds different attributes needed to build
@@ -166,24 +163,6 @@ func (k *KubeHelper) NewOpsManagerStatefulSetHelper(obj Updatable) *OpsManagerSt
 		},
 		EnvVars: opsManagerConfigurationToEnvVars(obj.(*mongodb.MongoDBOpsManager)),
 	}
-}
-
-func (s *StatefulSetHelper) ShouldMountAgentCerts() bool {
-	return s.shouldMountAgentCerts
-}
-
-func (s *StatefulSetHelper) SetShouldMountAgentCerts(shouldMount bool) *StatefulSetHelper {
-	s.shouldMountAgentCerts = shouldMount
-	return s
-}
-
-func (s *StatefulSetHelper) ShouldMountAgentInternalClusterAuthCerts() bool {
-	return s.shouldMountAgentInternalClusterAuthCerts
-}
-
-func (s *StatefulSetHelper) SetShouldMountInternalClusterAuthCerts(shouldMount bool) *StatefulSetHelper {
-	s.shouldMountAgentInternalClusterAuthCerts = shouldMount
-	return s
 }
 
 // SetName can override the value of `StatefulSetHelper.Name` which is set to
@@ -962,8 +941,4 @@ func opsManagerConfigurationToEnvVars(m *mongodb.MongoDBOpsManager) []corev1.Env
 		})
 	}
 	return envVars
-}
-
-func (k *KubeHelper) secretExists(namespace, secretName string) bool {
-	return k.client.Get(context.TODO(), objectKey(namespace, secretName), &corev1.Secret{}) == nil
 }

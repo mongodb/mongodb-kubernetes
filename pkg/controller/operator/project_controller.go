@@ -1,10 +1,7 @@
 package operator
 
 import (
-	"context"
 	"fmt"
-
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"strings"
 
@@ -14,7 +11,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -80,67 +76,6 @@ func ensureTLS(conn om.Connection, log *zap.SugaredLogger) tlsResult {
 	return tlsResult{}
 }
 
-// we can't reliably take the group name from the connection as the namespace as this value
-// is potentially user defined.
-// the second index will always be the namespace the stateful set is in
-// process-name.svc-name.namespace.cluster-name
-func (r *ProjectReconciler) getReplicaSetNamespace(deployment om.Deployment, rsName string) string {
-	processNames := deployment.GetProcessNames(om.ReplicaSet{}, rsName)
-	processHostNames := deployment.GetProcessesHostNames(processNames)
-	processHostName := processHostNames[0]
-	return strings.Split(processHostName, ".")[2]
-}
-
-// areStatefulSetsConfigurable determines if a stateful set is able to be configured, or if it is still undergoing
-// a different change
-func (r *ProjectReconciler) areStatefulSetsConfigurable(conn om.Connection, log *zap.SugaredLogger) (bool, error) {
-	deployment, err := conn.ReadDeployment()
-	if err != nil {
-		return false, err
-	}
-	replSetNames := deployment.GetReplicaSetNames()
-	if len(replSetNames) == 0 { // no StatefulSet exists
-		return true, nil
-	}
-
-	// build up a list of all the stateful set object keys based on combination of rs and namespace
-	objectKeys := make([]client.ObjectKey, 0)
-	for _, rsName := range replSetNames {
-		ns := r.getReplicaSetNamespace(deployment, rsName)
-		objectKeys = append(objectKeys, objectKey(ns, rsName))
-	}
-
-	// get all of the stateful sets corresponding to the Ops Manager replica sets
-	sets := make([]*appsv1.StatefulSet, len(replSetNames))
-	for i, key := range objectKeys {
-		sts := &appsv1.StatefulSet{}
-		err := r.client.Get(context.TODO(), key, sts)
-		if err != nil {
-			return false, err
-		}
-		sets[i] = sts
-	}
-
-	for _, sts := range sets {
-		ready := sts.Status.ReadyReplicas == *sts.Spec.Replicas && sts.Status.UpdatedReplicas == *sts.Spec.Replicas
-		if !ready {
-			log.Infow("Stateful set is not ready", "name", sts.Name, "replicas", sts.Status.Replicas, "updatedReplicas", sts.Status.UpdatedReplicas, "readyReplicas", sts.Status.ReadyReplicas)
-			return false, nil
-		}
-
-		// we need to ensure that the database pods have the agent certificates mounted before enabling auth
-		// if we don't do this, it is possible for the pods to start in unrecoverable state
-		volumeMounts := sts.Spec.Template.Spec.Containers[0].VolumeMounts
-		if !volumeMountWithNameExists(volumeMounts, util.AgentSecretName) {
-			log.Infof("Stateful set %s does not have the agent x509 certificates mounted yet", sts.Name)
-			return false, nil
-		}
-
-		log.Infow("stateful set is ready", "name", sts.Name, "replicas", sts.Status.Replicas, "updatedReplicas", sts.Status.UpdatedReplicas, "readyReplicas", sts.Status.ReadyReplicas)
-	}
-	return true, nil
-}
-
 func (r *ProjectReconciler) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
 	log := zap.S().With("Project", request.NamespacedName)
 	projectConfig, err := r.getProjectConfig(request.NamespacedName)
@@ -183,42 +118,13 @@ func (r *ProjectReconciler) Reconcile(request reconcile.Request) (res reconcile.
 	}
 
 	if projectConfig.AuthMode == util.X509 {
-		successful, err := r.ensureX509AgentCertsForProject(projectConfig, request.Namespace)
-		if err != nil {
-			log.Errorf("Error ensuring x509 certificates for agents %s", err)
-			return retry()
-		} else if !successful {
-			log.Info("Agent certs have not yet been approved")
-			return retry()
-		}
-		configurable, err := r.areStatefulSetsConfigurable(conn, log)
-		if err != nil {
-			log.Infof("error reading stateful sets %s", err)
-			return retry()
-		}
-		if !configurable {
-			log.Info("it is not possible to configure stateful sets")
-			return retry()
-		}
 		return r.enableX509Authentication(request, projectConfig, conn, log)
 	} else {
-
-		configurable, err := r.areStatefulSetsConfigurable(conn, log)
-		if err != nil {
-			log.Infof("error reading stateful sets %s", err)
-			return retry()
-		}
-		if !configurable {
-			log.Info("it is not possible to configure stateful sets")
-			return retry()
-		}
-
 		return r.disableX509Authentication(request, conn, log)
 	}
 }
 
 func (r *ProjectReconciler) disableX509Authentication(request reconcile.Request, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
-
 	// AutomationConfig update needs to come first otherwise MonitoringAgent and BackupAgent
 	// updates are considered invalid
 
@@ -269,6 +175,15 @@ func (r *ProjectReconciler) disableX509Authentication(request reconcile.Request,
 
 func (r *ProjectReconciler) enableX509Authentication(request reconcile.Request, projectConfig *ProjectConfig, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
 
+	successful, err := r.ensureX509AgentCertsForProject(projectConfig, request.Namespace)
+	if err != nil {
+		log.Errorf("Error ensuring x509 certificates for agents %s", err)
+		return retry()
+	} else if !successful {
+		log.Info("Agent certs have not yet been approved")
+		return retry()
+	}
+
 	result := ensureTLS(conn, log)
 	if result.isError {
 		log.Errorf("Error ensuring ssl is enabled: %s", result.msg)
@@ -278,7 +193,7 @@ func (r *ProjectReconciler) enableX509Authentication(request reconcile.Request, 
 		return retry()
 	}
 
-	err := conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
+	err = conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
 		config.EnableX509Authentication()
 		return nil
 	}, getMutex(conn.GroupName(), conn.OrgID()), log)
@@ -324,7 +239,6 @@ func (r *ProjectReconciler) ensureX509AgentCertsForProject(project *ProjectConfi
 	certsNeedApproval := false
 
 	if missing := k.verifyClientCertificatesForAgents(util.AgentSecretName, namespace); missing > 0 {
-		log.Infof("missing %d agent certificates", missing)
 		if project.UseCustomCA {
 			return false, fmt.Errorf("The %s Secret file does not contain the necessary Agent certificates. Missing %d certificates", util.AgentSecretName, missing)
 		}
@@ -374,6 +288,7 @@ func (r *ProjectReconciler) ensureX509AgentCertsForProject(project *ProjectConfi
 		}
 
 	}
+
 	successful := !certsNeedApproval
 	return successful, nil
 }

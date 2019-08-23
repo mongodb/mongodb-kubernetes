@@ -172,14 +172,14 @@ functions:
       params:
         shell: bash
         script: |
-          src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/setup_aws
+            src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/setup_aws
 
   "setup_docker":
     - command: shell.exec
       params:
         shell: bash
         script: |
-          src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/setup_docker
+            src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/setup_docker
 
   download_kubectl:
     - command: shell.exec
@@ -202,11 +202,12 @@ functions:
           mv linux-amd64/helm $BINDIR
           rm $HELM
 
+
   setup_kubernetes_environment:
-    - command: shell.exec
-      params:
-        shell: bash
-        script: |
+  - command: shell.exec
+    params:
+      shell: bash
+      script: |
           export WORKDIR=${workdir}
           export BINDIR=$WORKDIR/bin
           export PATH=$BINDIR:$PATH
@@ -254,6 +255,7 @@ functions:
             echo "kube_environment_name not recognized"
             echo "value is <<${kube_environment_name}>>. If empty it means it was not set"
           fi
+
 
   "gotest_parse_files":
     - command: gotest.parse_files
@@ -490,786 +492,780 @@ functions:
           ./prepare_test_env ${ops_manager_namespace} ${ops_manager_version} ${node_port}
 
   "post_task":
-    - command: shell.exec
-      params:
-        script: |
-          if [ ! "$(which docker)" ]; then
-            # if not docker present, no images either.
-            exit 0
-          fi
+  - command: shell.exec
+    params:
+      script: |
+        if [ ! "$(which docker)" ]; then
+          # if not docker present, no images either.
+          exit 0
+        fi
 
-          echo "Removing all docker images in this machine"
-          docker rmi -f $(docker images -a -q) &> /dev/null || true
+        echo "Removing all docker images in this machine"
+        docker rmi -f $(docker images -a -q) &> /dev/null || true
 
-          echo "Are there any remaining Docker images in this host?"
-          docker images
+        echo "Are there any remaining Docker images in this host?"
+        docker images
+
 
 post:
   - func: "post_task"
 
 tasks:
-  - name: unit_tests
-    tags: ["unit_tests"]
-    commands:
-      - func: "test_operator"
-      - func: "gotest_parse_files"
+- name: unit_tests
+  tags: ["unit_tests"]
+  commands:
+    - func: "test_operator"
+    - func: "gotest_parse_files"
 
-  - name: unit_tests_lint
-    tags: ["unit_tests_lint"]
-    commands:
-      - func: "golint"
+- name: unit_tests_lint
+  tags: ["unit_tests_lint"]
+  commands:
+    - func: "golint"
 
-  - name: release_operator
-    tags: ["release_operator"]
-    patch_only: true
-    commands:
-      - func: "clone"
-      - func: "build_operator"
-      - func: "setup_docker"
-      - func: "build_and_push_image"
-        vars:
-          release_object: "mongodbOperator"
-          env: production
-          image_name: mongodb-enterprise-operator
-      - func: "build_and_push_image"
-        vars:
-          release_object: "mongodbOperator"
-          env: production
-          image_name: mongodb-enterprise-database
+- name: release_operator
+  tags: ["release_operator"]
+  patch_only: true
+  commands:
+    - func: "clone"
+    - func: "build_operator"
+    - func: "setup_docker"
+    - func: "build_and_push_image"
+      vars:
+        release_object: "mongodbOperator"
+        env: production
+        image_name: mongodb-enterprise-operator
+    - func: "build_and_push_image"
+      vars:
+        release_object: "mongodbOperator"
+        env: production
+        image_name: mongodb-enterprise-database
 
-  - name: release_operator_rhel_connect
-    tags: ["release_operator_rhel"]
-    patch_only: true
-    commands:
-      - func: clone
-      - func: "setup_jq"
-      - func: build_rhel_images
+- name: release_operator_rhel_connect
+  tags: ["release_operator_rhel"]
+  patch_only: true
+  commands:
+    - func: clone
+    - func: "setup_jq"
+    - func: build_rhel_images
 
-  - name: build_operator_rhel_connect
-    tags: ["build_operator_rhel"]
-    patch_only: true
-    commands:
-      - func: "clone"
-      - func: "setup_jq"
-      - func: "build_operator"
-      - func: "push_operator_binary_for_rhel"
-      - func: "push_database_readiness_probe_for_rhel"
+- name: build_operator_rhel_connect
+  tags: ["build_operator_rhel"]
+  patch_only: true
+  commands:
+    - func: "clone"
+    - func: "setup_jq"
+    - func: "build_operator"
+    - func: "push_operator_binary_for_rhel"
+    - func: "push_database_readiness_probe_for_rhel"
 
-  # Note that this task doesn't work so far as it needs different quay account and token
-  - name: release_mongodb_enterprise
-    tags: ["release_mongodb_enterprise"]
-    patch_only: true
-    commands:
-      - func: "clone"
-      - func: "setup_docker"
-      - func: "build_and_push_image"
-        vars:
-          release_object: "mongodbEnterprise"
-          env: production
-          image_name: mongodb-enterprise
-          path: mongodb-enterprise/4.0
+# Note that this task doesn't work so far as it needs different quay account and token
+- name: release_mongodb_enterprise
+  tags: ["release_mongodb_enterprise"]
+  patch_only: true
+  commands:
+    - func: "clone"
+    - func: "setup_docker"
+    - func: "build_and_push_image"
+      vars:
+        release_object: "mongodbEnterprise"
+        env: production
+        image_name: mongodb-enterprise
+        path: mongodb-enterprise/4.0
 
-  - name: build_images
-    exec_timeout_secs: 1200
-    priority: 1
-    commands:
-      - func: clone
-      - func: check_evergreen_health
-      - func: setup_aws
-      - func: setup_jq
-      - func: setup_docker
-      - func: build_operator
-      - func: build_and_push_image
-        vars:
-          env: development
-          image_name: mongodb-enterprise-operator
-          tag_images_with_version: "true"
-      - func: build_and_push_image
-        vars:
-          env: development
-          image_name: mongodb-enterprise-database
-          tag_images_with_version: "true"
-      - func: build_and_push_image
-        vars:
-          env: development
-          image_name: mongodb-enterprise-tests
-          tag_images_with_version: "true"
+- name: build_images
+  exec_timeout_secs: 1200
+  priority: 1
+  commands:
+    - func: clone
+    - func: check_evergreen_health
+    - func: setup_aws
+    - func: setup_jq
+    - func: setup_docker
+    - func: build_operator
+    - func: build_and_push_image
+      vars:
+        env: development
+        image_name: mongodb-enterprise-operator
+        tag_images_with_version: "true"
+    - func: build_and_push_image
+      vars:
+        env: development
+        image_name: mongodb-enterprise-database
+        tag_images_with_version: "true"
+    - func: build_and_push_image
+      vars:
+        env: development
+        image_name: mongodb-enterprise-tests
+        tag_images_with_version: "true"
 
-  - name: prepare_cluster_openshift_3_11
-    exec_timeout_secs: 1200
-    priority: 1
-    commands:
-      - func: clone
-      - func: setup_aws
-      - func: download_kubectl
-      - func: setup_kubernetes_environment
-        vars:
-          kube_environment_name: openshift_3_11
-      - func: setup_jq
-      - func: prepare_test_env
-        vars:
-          <<: *ops_manager_42_current
+- name: prepare_cluster_openshift_3_11
+  exec_timeout_secs: 1200
+  priority: 1
+  commands:
+    - func: clone
+    - func: setup_aws
+    - func: download_kubectl
+    - func: setup_kubernetes_environment
+      vars:
+        kube_environment_name: openshift_3_11
+    - func: setup_jq
+    - func: prepare_test_env
+      vars:
+        <<: *ops_manager_42_current
 
-  - name: prepare_cluster_vanilla_1_11
-    exec_timeout_secs: 1200
-    priority: 1
-    commands:
-      - func: clone
-      - func: setup_aws
-      - func: setup_jq
-      - func: download_kubectl
-      - func: setup_kubernetes_environment
-        vars:
-          kube_environment_name: vanilla_1_11
-      - func: prepare_test_env
-        vars:
-          <<: *ops_manager_40_first
+- name: prepare_cluster_vanilla_1_11
+  exec_timeout_secs: 1200
+  priority: 1
+  commands:
+    - func: clone
+    - func: setup_aws
+    - func: setup_jq
+    - func: download_kubectl
+    - func: setup_kubernetes_environment
+      vars:
+        kube_environment_name: vanilla_1_11
+    - func: prepare_test_env
+      vars:
+        <<: *ops_manager_40_first
 
-      - func: prepare_test_env
-        vars:
-          <<: *ops_manager_42_current
+    - func: prepare_test_env
+      vars:
+        <<: *ops_manager_42_current
 
-  - name: prepare_cluster_vanilla_1_11_om
-    exec_timeout_secs: 600
-    priority: 1
-    commands:
-      - func: clone
-      - func: setup_aws
-      - func: download_kubectl
-      - func: setup_kubernetes_environment
-        vars:
-          kube_environment_name: vanilla_1_11
-          cluster_name: e2e.om.mongokubernetes.com
-      - func: prepare_test_env
+- name: prepare_cluster_vanilla_1_11_om
+  exec_timeout_secs: 600
+  priority: 1
+  commands:
+    - func: clone
+    - func: setup_aws
+    - func: download_kubectl
+    - func: setup_kubernetes_environment
+      vars:
+        kube_environment_name: vanilla_1_11
+        cluster_name: e2e.om.mongokubernetes.com
+    - func: prepare_test_env
 
-  - name: e2e_operator_upgrade
-    tags: ["openshift-om-qa"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: e2e_test_upgrade_operator
+- name: e2e_operator_upgrade
+  tags: ["openshift-om-qa"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: e2e_test_upgrade_operator
 
-  - name: e2e_standalone_schema_validation
-    tags: ["kops-om-40"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_standalone_schema_validation
+  tags: ["kops-om-40"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_replica_set_schema_validation
-    tags: ["openshift-om-qa"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_replica_set_schema_validation
+  tags: ["openshift-om-qa"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_sharded_cluster_schema_validation
-    tags: ["openshift-om-42"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_sharded_cluster_schema_validation
+  tags: ["openshift-om-42"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_users_schema_validation
-    tags: ["kops-om-40"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_users_schema_validation
+  tags: ["kops-om-40"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_replica_set_different_namespaces
-    tags: ["kops-multiple"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
-        vars:
-          watch_namespace: "*"
+- name: e2e_replica_set_different_namespaces
+  tags: ["kops-multiple"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+      vars:
+        watch_namespace: "*"
 
-  - name: e2e_standalone_config_map
-    tags: ["openshift-om-qa"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_standalone_config_map
+  tags: ["openshift-om-qa"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_standalone_groups
-    tags: ["openshift-om-42"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_standalone_groups
+  tags: ["openshift-om-42"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_standalone_recovery
-    tags: ["kops-om-40"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_standalone_recovery
+  tags: ["kops-om-40"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_standalone_recovery_k8s
-    tags: ["openshift-om-qa"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_standalone_recovery_k8s
+  tags: ["openshift-om-qa"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_replica_set
-    tags: ["openshift-om-42"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_replica_set
+  tags: ["openshift-om-42"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_replica_set_recovery
-    tags: ["kops-om-40"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_replica_set_recovery
+  tags: ["kops-om-40"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_replica_set_config_map
-    tags: ["openshift-om-qa"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_replica_set_config_map
+  tags: ["openshift-om-qa"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_replica_set_ent
-    tags: ["openshift-om-42"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_replica_set_ent
+  tags: ["openshift-om-42"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  # TODO: restructure this test as it fails on OM 4.2 reaching
-  # max amount of orgs per user (250) and makes all subsequent
-  # tests to fail.
-  # - name: e2e_replica_set_groups
-  #   exec_timeout_secs: 600
-  #   commands:
-  #     - func: "e2e_test"
+# TODO: restructure this test as it fails on OM 4.2 reaching
+# max amount of orgs per user (250) and makes all subsequent
+# tests to fail.
+# - name: e2e_replica_set_groups
+#   exec_timeout_secs: 600
+#   commands:
+#     - func: "e2e_test"
 
-  - name: e2e_replica_set_pv
-    tags: ["kops-om-40"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_replica_set_pv
+  tags: ["kops-om-40"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_replica_set_pv_multiple
-    tags: ["openshift-om-qa"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_replica_set_pv_multiple
+  tags: ["openshift-om-qa"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_replica_set_8_members
-    tags: ["openshift-om-42"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_replica_set_8_members
+  tags: ["openshift-om-42"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_replica_set_exposed_externally
-    tags: ["openshift-om-qa"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_replica_set_exposed_externally
+  tags: ["openshift-om-qa"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_sharded_cluster
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_sharded_cluster
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_sharded_cluster_pv
-    tags: ["kops-om-40"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_sharded_cluster_pv
+  tags: ["kops-om-40"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_sharded_cluster_recovery
-    tags: ["openshift-om-qa"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_sharded_cluster_recovery
+  tags: ["openshift-om-qa"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_sharded_cluster_secret
-    tags: ["openshift-om-42"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_sharded_cluster_secret
+  tags: ["openshift-om-42"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_sharded_cluster_scale_shards
-    tags: ["kops-om-40"]
-    exec_timeout_secs: 720
-    commands:
-      - func: "e2e_test"
+- name: e2e_sharded_cluster_scale_shards
+  tags: ["kops-om-40"]
+  exec_timeout_secs: 720
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_standalone_type_change_recovery
-    tags: ["openshift-om-qa"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_standalone_type_change_recovery
+  tags: ["openshift-om-qa"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_all_mongodb_resources_parallel
-    tags: ["openshift-om-42"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_all_mongodb_resources_parallel
+  tags: ["openshift-om-42"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_standalone_upgrade_downgrade
-    tags: ["kops-om-40"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_standalone_upgrade_downgrade
+  tags: ["kops-om-40"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_replica_set_upgrade_downgrade
-    tags: ["openshift-om-qa"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_replica_set_upgrade_downgrade
+  tags: ["openshift-om-qa"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_sharded_cluster_upgrade_downgrade
-    tags: ["openshift-om-42"]
-    exec_timeout_secs: 2400
-    commands:
-      - func: "e2e_test"
+- name: e2e_sharded_cluster_upgrade_downgrade
+  tags: ["openshift-om-42"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_standalone_no_tls_no_status_is_set
-    tags: ["kops-om-40"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_standalone_no_tls_no_status_is_set
+  tags: ["kops-om-40"]
+  exec_timeout_secs: 1200
+  commands:
+  - func: "e2e_test"
 
-  - name: e2e_replica_set_tls_allow
-    tags: ["kops-om-42"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_replica_set_tls_allow
+  tags: ["kops-om-42"]
+  exec_timeout_secs: 1200
+  commands:
+  - func: "e2e_test"
 
-  - name: e2e_replica_set_tls_prefer
-    tags: ["openshift-om-qa"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_replica_set_tls_prefer
+  tags: ["openshift-om-qa"]
+  exec_timeout_secs: 1200
+  commands:
+  - func: "e2e_test"
 
-  - name: e2e_replica_set_tls_require
-    tags: ["kops-om-42"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_replica_set_tls_require
+  tags: ["kops-om-42"]
+  exec_timeout_secs: 1200
+  commands:
+  - func: "e2e_test"
 
-  - name: e2e_replica_set_tls_require_custom_ca
-    tags: ["openshift-om-42"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_replica_set_tls_require_custom_ca
+  tags: ["openshift-om-42"]
+  exec_timeout_secs: 1200
+  commands:
+  - func: "e2e_test"
 
-  - name: e2e_sharded_cluster_tls_require_custom_ca
-    tags: ["kops-om-42"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_sharded_cluster_tls_require_custom_ca
+  tags: ["kops-om-42"]
+  exec_timeout_secs: 1200
+  commands:
+  - func: "e2e_test"
 
-  - name: e2e_tls_x509_sc_custom_ca
-    tags: ["openshift-om-qa"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_tls_x509_sc_custom_ca
+  tags: ["openshift-om-qa"]
+  exec_timeout_secs: 1200
+  commands:
+  - func: "e2e_test"
 
-  - name: e2e_tls_x509_rs_uses_existing_secrets
-    tags: ["kops-om-42"]
-    exec_timeout_secs: 1800
-    commands:
-      - func: "e2e_test"
+- name: e2e_replica_set_tls_require_and_disable
+  tags: ["kops-om-42"]
+  exec_timeout_secs: 1200
+  commands:
+  - func: "e2e_test"
 
-  - name: e2e_replica_set_tls_require_and_disable
-    tags: ["kops-om-42"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_tls_multiple_different_ssl_configs
+  tags: ["openshift-om-42"]
+  exec_timeout_secs: 1200
+  commands:
+  - func: "e2e_test"
 
-  - name: e2e_tls_multiple_different_ssl_configs
-    tags: ["openshift-om-42"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_replica_set_tls_require_upgrade
+  tags: ["kops-om-42"]
+  exec_timeout_secs: 1200
+  commands:
+  - func: "e2e_test"
 
-  - name: e2e_replica_set_tls_require_upgrade
-    tags: ["kops-om-42"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_sharded_cluster_tls_require
+  tags: ["openshift-om-qa"]
+  exec_timeout_secs: 1200
+  commands:
+  - func: "e2e_test"
 
-  - name: e2e_sharded_cluster_tls_require
-    tags: ["openshift-om-qa"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_tls_x509_rs
+  tags: ["kops-om-42"]
+  # longer timeout than usual as this test tests recovery from bad states which can take some time
+  exec_timeout_secs: 1800
+  commands:
+  - func: "e2e_test"
 
-  - name: e2e_tls_x509_rs
-    tags: ["kops-om-42"]
-    # longer timeout than usual as this test tests recovery from bad states which can take some time
-    exec_timeout_secs: 1800
-    commands:
-      - func: "e2e_test"
+- name: e2e_tls_x509_sc
+  tags: ["openshift-om-42"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_tls_x509_sc
-    tags: ["openshift-om-42"]
-    exec_timeout_secs: 1800
-    commands:
-      - func: "e2e_test"
+- name: e2e_tls_x509_users_addition_removal
+  tags: ["kops-om-42"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_tls_x509_users_addition_removal
-    tags: ["kops-om-42"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_tls_x509_user_connectivity
+  tags: ["openshift-om-qa"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_tls_x509_user_connectivity
-    tags: ["openshift-om-qa"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_tls_x509_configure_all_options_rs
+  tags: ["kops-om-42"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_tls_x509_configure_all_options_rs
-    tags: ["kops-om-42"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_tls_x509_configure_all_options_sc
+  tags: ["openshift-om-42"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_tls_x509_configure_all_options_sc
-    tags: ["openshift-om-42"]
-    exec_timeout_secs: 1200
-    commands:
-      - func: "e2e_test"
+- name: e2e_om_appdb_scale_up_down
+  tags: ["kops-ops-manager"]
+  exec_timeout_secs: 2400
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_om_appdb_scale_up_down
-    tags: ["kops-ops-manager"]
-    exec_timeout_secs: 2400
-    commands:
-      - func: "e2e_test"
+- name: e2e_om_appdb_upgrade
+  tags: ["kops-ops-manager"]
+  exec_timeout_secs: 2400
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_om_appdb_upgrade
-    tags: ["kops-ops-manager"]
-    exec_timeout_secs: 2400
-    commands:
-      - func: "e2e_test"
+- name: e2e_om_ops_manager_upgrade
+  tags: ["kops-ops-manager"]
+  exec_timeout_secs: 2400
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_om_ops_manager_upgrade
-    tags: ["kops-ops-manager"]
-    exec_timeout_secs: 2400
-    commands:
-      - func: "e2e_test"
+- name: e2e_om_ops_manager_recovery
+  tags: ["kops-ops-manager"]
+  exec_timeout_secs: 2400
+  commands:
+    - func: "e2e_test"
 
-  - name: e2e_om_ops_manager_recovery
-    tags: ["kops-ops-manager"]
-    exec_timeout_secs: 2400
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_om_appdb_validation
-    tags: ["kops-ops-manager"]
-    exec_timeout_secs: 600
-    commands:
-      - func: "e2e_test"
+- name: e2e_om_appdb_validation
+  tags: ["kops-ops-manager"]
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
 
 task_groups:
-  - name: unit_task_group
-    setup_group:
-      - func: "clone"
-    tasks:
-      - unit_tests
-      - unit_tests_lint
+- name: unit_task_group
+  setup_group:
+    - func: "clone"
+  tasks:
+    - unit_tests
+    - unit_tests_lint
 
-  - name: e2e_core_task_group
-    max_hosts: 5
-    setup_group:
-      - func: clone
-      - func: download_kubectl
-      - func: setup_kubernetes_environment
+- name: e2e_core_task_group
+  max_hosts: 5
+  setup_group:
+    - func: clone
+    - func: download_kubectl
+    - func: setup_kubernetes_environment
 
-    tasks:
-      - e2e_all_mongodb_resources_parallel
-      - e2e_standalone_config_map
-      - e2e_standalone_groups
-      - e2e_standalone_schema_validation
-      - e2e_standalone_type_change_recovery
-      - e2e_standalone_upgrade_downgrade
-      - e2e_sharded_cluster_schema_validation
-      - e2e_standalone_recovery
-      - e2e_standalone_recovery_k8s
-      - e2e_replica_set
-      - e2e_replica_set_config_map
-      - e2e_replica_set_ent
-      - e2e_replica_set_recovery
-      - e2e_replica_set_pv
-      - e2e_replica_set_pv_multiple
-      - e2e_replica_set_schema_validation
-      - e2e_replica_set_upgrade_downgrade
-      - e2e_replica_set_8_members
-      - e2e_replica_set_exposed_externally
-      - e2e_sharded_cluster
-      - e2e_sharded_cluster_pv
-      - e2e_sharded_cluster_recovery
-      - e2e_sharded_cluster_secret
-      - e2e_sharded_cluster_upgrade_downgrade
-      - e2e_operator_upgrade
-    teardown_task:
-      - func: "upload_e2e_logs"
+  tasks:
+    - e2e_all_mongodb_resources_parallel
+    - e2e_standalone_config_map
+    - e2e_standalone_groups
+    - e2e_standalone_schema_validation
+    - e2e_standalone_type_change_recovery
+    - e2e_standalone_upgrade_downgrade
+    - e2e_sharded_cluster_schema_validation
+    - e2e_standalone_recovery
+    - e2e_standalone_recovery_k8s
+    - e2e_replica_set
+    - e2e_replica_set_config_map
+    - e2e_replica_set_ent
+    - e2e_replica_set_recovery
+    - e2e_replica_set_pv
+    - e2e_replica_set_pv_multiple
+    - e2e_replica_set_schema_validation
+    - e2e_replica_set_upgrade_downgrade
+    - e2e_replica_set_8_members
+    - e2e_replica_set_exposed_externally
+    - e2e_sharded_cluster
+    - e2e_sharded_cluster_pv
+    - e2e_sharded_cluster_recovery
+    - e2e_sharded_cluster_secret
+    - e2e_sharded_cluster_upgrade_downgrade
+    - e2e_operator_upgrade
+  teardown_task:
+    - func: "upload_e2e_logs"
 
-  - name: e2e_tls_task_group
-    max_hosts: 3
-    setup_group:
-      - func: clone
-      - func: download_kubectl
-      - func: setup_kubernetes_environment
+- name: e2e_tls_task_group
+  max_hosts: 3
+  setup_group:
+    - func: clone
+    - func: download_kubectl
+    - func: setup_kubernetes_environment
 
-    tasks:
-      - e2e_sharded_cluster_tls_require
-      - e2e_standalone_no_tls_no_status_is_set
-      - e2e_replica_set_tls_allow
-      - e2e_replica_set_tls_prefer
-      - e2e_replica_set_tls_require
-      - e2e_replica_set_tls_require_upgrade
-      - e2e_replica_set_tls_require_and_disable
-    teardown_task:
-      - func: "upload_e2e_logs"
+  tasks:
+    - e2e_sharded_cluster_tls_require
+    - e2e_standalone_no_tls_no_status_is_set
+    - e2e_replica_set_tls_allow
+    - e2e_replica_set_tls_prefer
+    - e2e_replica_set_tls_require
+    - e2e_replica_set_tls_require_upgrade
+    - e2e_replica_set_tls_require_and_disable
+  teardown_task:
+    - func: "upload_e2e_logs"
 
-  - name: e2e_tls_custom_ca_task_group
-    setup_group:
-      - func: clone
-      - func: download_kubectl
-      - func: setup_kubernetes_environment
+- name: e2e_tls_custom_ca_task_group
+  setup_group:
+    - func: clone
+    - func: download_kubectl
+    - func: setup_kubernetes_environment
 
-    tasks:
-      - e2e_replica_set_tls_require_custom_ca
-      - e2e_sharded_cluster_tls_require_custom_ca
-      - e2e_tls_x509_sc_custom_ca
-    teardown_task:
-      - func: "upload_e2e_logs"
+  tasks:
+    - e2e_replica_set_tls_require_custom_ca
+    - e2e_sharded_cluster_tls_require_custom_ca
+    - e2e_tls_x509_sc_custom_ca
+  teardown_task:
+    - func: "upload_e2e_logs"
 
-  - name: e2e_core_others_task_group
-    max_hosts: 1
-    setup_group:
-      - func: clone
-      - func: download_kubectl
-      - func: setup_kubernetes_environment
+- name: e2e_core_others_task_group
+  max_hosts: 1
+  setup_group:
+    - func: clone
+    - func: download_kubectl
+    - func: setup_kubernetes_environment
 
-    tasks:
-      - e2e_sharded_cluster_scale_shards
-    teardown_task:
-      - func: "upload_e2e_logs"
+  tasks:
+    - e2e_sharded_cluster_scale_shards
+  teardown_task:
+    - func: "upload_e2e_logs"
 
-  - name: e2e_x509_task_group
-    max_hosts: 1
-    setup_group:
-      - func: clone
-      - func: download_kubectl
-      - func: setup_kubernetes_environment
-    tasks:
-      - e2e_tls_x509_rs
-      - e2e_tls_x509_sc
-      - e2e_tls_x509_user_connectivity
-      - e2e_tls_x509_users_addition_removal
-      - e2e_tls_x509_configure_all_options_rs
-      - e2e_tls_x509_configure_all_options_sc
-      - e2e_tls_x509_rs_uses_existing_secrets
-      - e2e_users_schema_validation
-    teardown_task:
-      - func: "upload_e2e_logs"
+- name: e2e_x509_task_group
+  max_hosts: 1
+  setup_group:
+    - func: clone
+    - func: download_kubectl
+    - func: setup_kubernetes_environment
+  tasks:
+    - e2e_tls_x509_rs
+    - e2e_tls_x509_sc
+    - e2e_tls_x509_user_connectivity
+    - e2e_tls_x509_users_addition_removal
+    - e2e_tls_x509_configure_all_options_rs
+    - e2e_tls_x509_configure_all_options_sc
+    - e2e_users_schema_validation
+  teardown_task:
+    - func: "upload_e2e_logs"
 
-  - name: e2e_multiple_namespace_task_group
-    max_hosts: 100
-    setup_group:
-      - func: clone
-      - func: download_kubectl
-      - func: setup_kubernetes_environment
-    tasks:
-      - e2e_replica_set_different_namespaces
-    teardown_task:
-      - func: "upload_e2e_logs"
+- name: e2e_multiple_namespace_task_group
+  max_hosts: 100
+  setup_group:
+    - func: clone
+    - func: download_kubectl
+    - func: setup_kubernetes_environment
+  tasks:
+    - e2e_replica_set_different_namespaces
+  teardown_task:
+    - func: "upload_e2e_logs"
 
-  - name: e2e_ops_manager_task_group
-    max_hosts: 3
-    setup_group:
-      - func: clone
-      - func: download_kubectl
-      - func: setup_kubernetes_environment
-    tasks:
-      - e2e_om_appdb_scale_up_down
-      - e2e_om_appdb_upgrade
-      - e2e_om_ops_manager_upgrade
-      - e2e_om_ops_manager_recovery
-      - e2e_om_appdb_validation
-    teardown_task:
-      - func: "upload_e2e_logs"
+- name: e2e_ops_manager_task_group
+  max_hosts: 3
+  setup_group:
+    - func: clone
+    - func: download_kubectl
+    - func: setup_kubernetes_environment
+  tasks:
+    - e2e_om_appdb_scale_up_down
+    - e2e_om_appdb_upgrade
+    - e2e_om_ops_manager_upgrade
+    - e2e_om_ops_manager_recovery
+    - e2e_om_appdb_validation
+  teardown_task:
+    - func: "upload_e2e_logs"
 
 #
 # -BUILDVARIANTS-
 #
 buildvariants:
-  - name: release_operator
-    display_name: "release_operator"
-    run_on:
-      - archlinux-test
-    tasks:
-      - ".release_operator"
+- name: release_operator
+  display_name: "release_operator"
+  run_on:
+    - archlinux-test
+  tasks:
+    - ".release_operator"
 
-  - name: release_operator_rhel
-    display_name: "release_operator_rhel"
-    run_on:
-      - archlinux-test
-    tasks:
-      - ".release_operator_rhel"
-      - ".build_operator_rhel"
+- name: release_operator_rhel
+  display_name: "release_operator_rhel"
+  run_on:
+    - archlinux-test
+  tasks:
+    - ".release_operator_rhel"
+    - ".build_operator_rhel"
 
-  - name: e2e_kube_vanilla_v1.11_om_40_first
-    display_name: "e2e_kube_vanilla_v1.11_om_40_first"
-    depends_on:
-      - name: build_images
-        variant: init_test_run
-      - name: prepare_cluster_vanilla_1_11
-        variant: init_test_run
-    run_on:
-      - archlinux-test
-    stepback: false
-    expansions:
-      <<: *ops_manager_40_first
-      kube_environment_name: vanilla_1_11
-    tasks:
-      - name: "e2e_core_task_group"
-      - name: "e2e_tls_task_group"
+- name: e2e_kube_vanilla_v1.11_om_40_first
+  display_name: "e2e_kube_vanilla_v1.11_om_40_first"
+  depends_on:
+    - name: build_images
+      variant: init_test_run
+    - name: prepare_cluster_vanilla_1_11
+      variant: init_test_run
+  run_on:
+  - archlinux-test
+  stepback: false
+  expansions:
+    <<: *ops_manager_40_first
+    kube_environment_name: vanilla_1_11
+  tasks:
+  - name: "e2e_core_task_group"
+  - name: "e2e_tls_task_group"
 
-  - name: e2e_kube_vanilla_v1.11_om_42_current
-    display_name: "e2e_kube_vanilla_v1.11_om_42_current"
-    depends_on:
-      - name: build_images
-        variant: init_test_run
-      - name: prepare_cluster_vanilla_1_11
-        variant: init_test_run
-    run_on:
-      - archlinux-test
-    stepback: false
-    expansions:
-      <<: *ops_manager_42_current
-      kube_environment_name: vanilla_1_11
-    tasks:
-      - name: "e2e_tls_task_group"
-      - name: "e2e_x509_task_group"
-      - name: "e2e_core_others_task_group"
+- name: e2e_kube_vanilla_v1.11_om_42_current
+  display_name: "e2e_kube_vanilla_v1.11_om_42_current"
+  depends_on:
+    - name: build_images
+      variant: init_test_run
+    - name: prepare_cluster_vanilla_1_11
+      variant: init_test_run
+  run_on:
+  - archlinux-test
+  stepback: false
+  expansions:
+    <<: *ops_manager_42_current
+    kube_environment_name: vanilla_1_11
+  tasks:
+  - name: "e2e_tls_task_group"
+  - name: "e2e_x509_task_group"
+  - name: "e2e_core_others_task_group"
 
-  - name: e2e_openshift_origin_v3.11_om_42_current
-    display_name: "e2e_openshift_origin_v3.11_om_42_current"
-    depends_on:
-      - name: build_images
-        variant: init_test_run
-      - name: prepare_cluster_openshift_3_11
-        variant: init_test_run
-    run_on:
-      - archlinux-test
-    stepback: false
-    expansions:
-      <<: *ops_manager_42_current
-      kube_environment_name: openshift_3_11
-    tasks:
-      - name: "e2e_core_task_group"
-      - name: "e2e_tls_task_group"
-      - name: "e2e_x509_task_group"
-      - name: "e2e_core_others_task_group"
-      - name: e2e_tls_custom_ca_task_group
+- name: e2e_openshift_origin_v3.11_om_42_current
+  display_name: "e2e_openshift_origin_v3.11_om_42_current"
+  depends_on:
+    - name: build_images
+      variant: init_test_run
+    - name: prepare_cluster_openshift_3_11
+      variant: init_test_run
+  run_on:
+  - archlinux-test
+  stepback: false
+  expansions:
+    <<: *ops_manager_42_current
+    kube_environment_name: openshift_3_11
+  tasks:
+  - name: "e2e_core_task_group"
+  - name: "e2e_tls_task_group"
+  - name: "e2e_x509_task_group"
+  - name: "e2e_core_others_task_group"
+  - name: e2e_tls_custom_ca_task_group
 
-  - name: e2e_openshift_cloud_qa
-    display_name: "e2e_openshift_cloud_qa"
-    depends_on:
-      - name: build_images
-        variant: init_test_run
-    run_on:
-      - archlinux-test
-    stepback: false
-    expansions:
-      <<: *cloud_manager_qa
-      kube_environment_name: openshift_3_11
-    tasks:
-      - name: "e2e_core_task_group"
-      - name: "e2e_tls_task_group"
-      - name: "e2e_x509_task_group"
-      - name: e2e_tls_custom_ca_task_group
+- name: e2e_openshift_cloud_qa
+  display_name: "e2e_openshift_cloud_qa"
+  depends_on:
+    - name: build_images
+      variant: init_test_run
+  run_on:
+  - archlinux-test
+  stepback: false
+  expansions:
+    <<: *cloud_manager_qa
+    kube_environment_name: openshift_3_11
+  tasks:
+  - name: "e2e_core_task_group"
+  - name: "e2e_tls_task_group"
+  - name: "e2e_x509_task_group"
+  - name: e2e_tls_custom_ca_task_group
 
-  # any subsequent tasks being executed in this build variant should depend upon the previously
-  # executed task in order to prevent interference
-  - name: e2e_kube_vanilla_cloud_qa_clusterwide
-    display_name: "e2e_kube_vanilla_cloud_qa_clusterwide"
-    depends_on:
-      - name: build_images
-        variant: init_test_run
-    run_on:
-      - archlinux-test
-    stepback: false
-    expansions:
-      <<: *cloud_manager_qa
-      static_namespace: "multiple-namespace-test"
-      cluster_name: "e2e.multinamespace.mongokubernetes.com"
-      kube_environment_name: vanilla_1_11
-    tasks:
-      - name: "e2e_multiple_namespace_task_group"
+# any subsequent tasks being executed in this build variant should depend upon the previously
+# executed task in order to prevent interference
+- name: e2e_kube_vanilla_cloud_qa_clusterwide
+  display_name: "e2e_kube_vanilla_cloud_qa_clusterwide"
+  depends_on:
+    - name: build_images
+      variant: init_test_run
+  run_on:
+    - archlinux-test
+  stepback: false
+  expansions:
+    <<: *cloud_manager_qa
+    static_namespace: "multiple-namespace-test"
+    cluster_name: "e2e.multinamespace.mongokubernetes.com"
+    kube_environment_name: vanilla_1_11
+  tasks:
+    - name: "e2e_multiple_namespace_task_group"
 
-  - name: e2e_kube_vanilla_ops_manager
-    display_name: "e2e_kube_vanilla_ops_manager"
-    depends_on:
-      - name: build_images
-        variant: init_test_run
-      - name: prepare_cluster_vanilla_1_11_om
-        variant: init_test_run
-    run_on:
-      - archlinux-test
-    stepback: false
-    expansions:
-      cluster_name: "e2e.om.mongokubernetes.com"
-      kube_environment_name: vanilla_1_11
-      test_mode: "opsmanager"
-    tasks:
-      - name: "e2e_ops_manager_task_group"
+- name: e2e_kube_vanilla_ops_manager
+  display_name: "e2e_kube_vanilla_ops_manager"
+  depends_on:
+    - name: build_images
+      variant: init_test_run
+    - name: prepare_cluster_vanilla_1_11_om
+      variant: init_test_run
+  run_on:
+    - archlinux-test
+  stepback: false
+  expansions:
+    cluster_name: "e2e.om.mongokubernetes.com"
+    kube_environment_name: vanilla_1_11
+    test_mode: "opsmanager"
+  tasks:
+    - name: "e2e_ops_manager_task_group"
 
-  # TODO: most of the OM tasks fail in Openshift
-  #
-  #- name: e2e_openshift_origin_v3.11_ops_manager
-  #  display_name: "e2e_openshift_origin_v3.11_ops_manager"
-  #  depends_on:
-  #    - name: build_images
-  #      variant: init_test_run
-  #    - name: prepare_cluster_openshift_3_11
-  #      variant: init_test_run
-  #  run_on:
-  #    - archlinux-test
-  #  stepback: false
-  #  expansions:
-  #    <<: *ops_manager_42_current
-  #    kube_environment_name: openshift_3_11
-  #    test_mode: "opsmanager"
-  #  tasks:
-  #    - name: "e2e_ops_manager_task_group"
+# TODO: most of the OM tasks fail in Openshift
+#
+#- name: e2e_openshift_origin_v3.11_ops_manager
+#  display_name: "e2e_openshift_origin_v3.11_ops_manager"
+#  depends_on:
+#    - name: build_images
+#      variant: init_test_run
+#    - name: prepare_cluster_openshift_3_11
+#      variant: init_test_run
+#  run_on:
+#    - archlinux-test
+#  stepback: false
+#  expansions:
+#    <<: *ops_manager_42_current
+#    kube_environment_name: openshift_3_11
+#    test_mode: "opsmanager"
+#  tasks:
+#    - name: "e2e_ops_manager_task_group"
 
-  - name: init_test_run
-    display_name: init_test_run
-    run_on:
-      - archlinux-test
-    stepback: false
-    tasks:
-      - name: build_images
-      - name: prepare_cluster_openshift_3_11
-      - name: prepare_cluster_vanilla_1_11
-      - name: prepare_cluster_vanilla_1_11_om
+- name: init_test_run
+  display_name: init_test_run
+  run_on:
+  - archlinux-test
+  stepback: false
+  tasks:
+  - name: build_images
+  - name: prepare_cluster_openshift_3_11
+  - name: prepare_cluster_vanilla_1_11
+  - name: prepare_cluster_vanilla_1_11_om
 
-  #
-  # TODO(rodrigo): There's no mechanism that I know of to avoid running this
-  #                build variant at master-merge time. Disabling it for now.
-  #                This will be improved as part of CLOUDP-38550
-  #
-  # - name: openshift_rhel_prebuilt_images
-  #   display_name: openshift_rhel_prebuilt_images
-  #   depends_on:
-  #   - name: build_images
-  #     variant: init_test_run
-  #   run_on:
-  #     - archlinux-test
-  #   expansions:
-  #     <<: *rhel_prebuilt_images
-  #     <<: *cloud_manager_qa
-  #     kube_environment_name: openshift_3_11
-  #   tasks:
-  #     - name: e2e_core_task_group
-  #     - name: e2e_tls_task_group
-  #     - name: e2e_x509_task_group
+#
+# TODO(rodrigo): There's no mechanism that I know of to avoid running this
+#                build variant at master-merge time. Disabling it for now.
+#                This will be improved as part of CLOUDP-38550
+#
+# - name: openshift_rhel_prebuilt_images
+#   display_name: openshift_rhel_prebuilt_images
+#   depends_on:
+#   - name: build_images
+#     variant: init_test_run
+#   run_on:
+#     - archlinux-test
+#   expansions:
+#     <<: *rhel_prebuilt_images
+#     <<: *cloud_manager_qa
+#     kube_environment_name: openshift_3_11
+#   tasks:
+#     - name: e2e_core_task_group
+#     - name: e2e_tls_task_group
+#     - name: e2e_x509_task_group
 
-  - name: go_unit_tests
-    display_name: "go_unit_tests"
-    run_on:
-      - archlinux-test
-    stepback: false
-    tasks:
-      - name: "unit_task_group"
+- name: go_unit_tests
+  display_name: "go_unit_tests"
+  run_on:
+  - archlinux-test
+  stepback: false
+  tasks:
+    - name: "unit_task_group"

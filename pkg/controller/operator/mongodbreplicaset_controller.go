@@ -1,7 +1,6 @@
 package operator
 
 import (
-	"context"
 	"fmt"
 
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
@@ -65,9 +64,6 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		return r.updateStatusValidationFailure(rs, fmt.Sprintf("cannot have a non-tls deployment when x509 authentication is enabled"), log)
 	}
 
-	agentCertSecretExists := r.client.Get(context.TODO(), objectKey(rs.Namespace, util.AgentSecretName), &corev1.Secret{}) == nil
-	internalClusterAuthSecretExists := r.client.Get(context.TODO(), objectKey(rs.Namespace, toInternalClusterAuthName(rs.Name)), &corev1.Secret{}) == nil
-
 	replicaBuilder := r.kubeHelper.NewStatefulSetHelper(rs).
 		SetService(rs.ServiceName()).
 		SetReplicas(rs.Spec.Members).
@@ -79,9 +75,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		SetTLS(rs.Spec.GetTLSConfig()).
 		SetClusterName(rs.Spec.ClusterName).
 		SetProjectConfig(*projectConfig).
-		SetSecurity(rs.Spec.Security).
-		SetShouldMountAgentCerts(agentCertSecretExists).
-		SetShouldMountInternalClusterAuthCerts(internalClusterAuthSecretExists)
+		SetSecurity(rs.Spec.Security)
 
 	if status := r.kubeHelper.ensureSSLCertsForStatefulSet(replicaBuilder, log); !status.isOk() {
 		return status.updateStatus(rs, r.ReconcileCommonController, log)

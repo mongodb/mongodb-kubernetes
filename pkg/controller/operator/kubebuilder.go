@@ -203,30 +203,6 @@ func mountVolume(mountData volumeMountData, set *appsv1.StatefulSet) {
 // Make sure you keep this updated with `kubehelper.NeedToPublishStateFirst` as it declares
 // in which order to make changes to StatefulSet and Ops Manager automationConfig
 func mountVolumes(set *appsv1.StatefulSet, helper StatefulSetHelper) {
-
-	// always mount the certs if they exists. This alleviates some problems when there are multiple changes
-	// happening to the automation config which would otherwise put restarted pods in a bad state.
-	if helper.ShouldMountAgentCerts() {
-		mountVolume(volumeMountData{
-			volumeMountName:  util.AgentSecretName,
-			volumeMountPath:  AgentCertMountPath,
-			volumeName:       util.AgentSecretName,
-			volumeSourceType: corev1.SecretVolumeSource{},
-			volumeSourceName: util.AgentSecretName,
-		}, set)
-	}
-
-	// always mount cluster file if the secret exists. Prevent agent pods getting into a bad state
-	if helper.ShouldMountAgentInternalClusterAuthCerts() {
-		mountVolume(volumeMountData{
-			volumeMountName:  util.ClusterFileName,
-			volumeMountPath:  util.InternalClusterAuthMountPath,
-			volumeName:       util.ClusterFileName,
-			volumeSourceType: corev1.SecretVolumeSource{},
-			volumeSourceName: toInternalClusterAuthName(helper.Name),
-		}, set)
-	}
-
 	// SSL is active
 	if helper.Security != nil && helper.Security.TLSConfig.Enabled {
 		tlsConfig := helper.Security.TLSConfig
@@ -261,6 +237,26 @@ func mountVolumes(set *appsv1.StatefulSet, helper StatefulSetHelper) {
 		}, set)
 	}
 
+	if helper.Project.AuthMode == util.X509 {
+		mountVolume(volumeMountData{
+			volumeMountName:  util.AgentSecretName,
+			volumeMountPath:  AgentCertMountPath,
+			volumeName:       util.AgentSecretName,
+			volumeSourceType: corev1.SecretVolumeSource{},
+			volumeSourceName: util.AgentSecretName,
+		}, set)
+
+		// add volume for x509 cert used in internal cluster authentication
+		if helper.Security.ClusterAuthMode == util.X509 {
+			mountVolume(volumeMountData{
+				volumeMountName:  util.ClusterFileName,
+				volumeMountPath:  util.InternalClusterAuthMountPath,
+				volumeName:       util.ClusterFileName,
+				volumeSourceType: corev1.SecretVolumeSource{},
+				volumeSourceName: toInternalClusterAuthName(helper.Name),
+			}, set)
+		}
+	}
 }
 
 func buildPersistentVolumeClaims(set *appsv1.StatefulSet, p StatefulSetHelper) {

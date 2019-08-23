@@ -202,9 +202,6 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mongodb.Mo
 }
 
 func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mongodb.MongoDB, podVars *PodVars, projectConfig *ProjectConfig, log *zap.SugaredLogger) ShardedClusterKubeState {
-
-	agentCertsSecretExists := r.kubeHelper.secretExists(s.Namespace, util.AgentSecretName)
-	mongosClusterfileName := fmt.Sprintf("%s-clusterfile", s.MongosRsName())
 	// 1. Create the mongos StatefulSet
 	mongosBuilder := r.kubeHelper.NewStatefulSetHelper(s).
 		SetName(s.MongosRsName()).
@@ -218,9 +215,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mo
 		SetTLS(s.Spec.GetTLSConfig()).
 		SetClusterName(s.Spec.ClusterName).
 		SetProjectConfig(*projectConfig).
-		SetSecurity(s.Spec.Security).
-		SetShouldMountAgentCerts(agentCertsSecretExists).
-		SetShouldMountInternalClusterAuthCerts(r.kubeHelper.secretExists(s.Namespace, mongosClusterfileName))
+		SetSecurity(s.Spec.Security)
 
 	// 2. Create a Config Server StatefulSet
 	defaultConfigSrvSpec := NewDefaultPodSpec()
@@ -229,8 +224,6 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mo
 		MongoDbPodSpec: *s.Spec.ConfigSrvPodSpec,
 		Default:        defaultConfigSrvSpec,
 	}
-
-	configSvrClusterfileName := fmt.Sprintf("%s-clusterfile", s.ConfigRsName())
 	configBuilder := r.kubeHelper.NewStatefulSetHelper(s).
 		SetName(s.ConfigRsName()).
 		SetService(s.ConfigSrvServiceName()).
@@ -242,14 +235,11 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mo
 		SetTLS(s.Spec.GetTLSConfig()).
 		SetClusterName(s.Spec.ClusterName).
 		SetProjectConfig(*projectConfig).
-		SetSecurity(s.Spec.Security).
-		SetShouldMountAgentCerts(agentCertsSecretExists).
-		SetShouldMountInternalClusterAuthCerts(r.kubeHelper.secretExists(s.Namespace, configSvrClusterfileName))
+		SetSecurity(s.Spec.Security)
 
 	// 3. Creates a StatefulSet for each shard in the cluster
 	shardsSetHelpers := make([]*StatefulSetHelper, s.Spec.ShardCount)
 	for i := 0; i < s.Spec.ShardCount; i++ {
-		clusterfileName := fmt.Sprintf("%s-%d-clusterfile", s.Name, i)
 		shardsSetHelpers[i] = r.kubeHelper.NewStatefulSetHelper(s).
 			SetName(s.ShardRsName(i)).
 			SetService(s.ShardServiceName()).
@@ -261,9 +251,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mo
 			SetTLS(s.Spec.GetTLSConfig()).
 			SetClusterName(s.Spec.ClusterName).
 			SetProjectConfig(*projectConfig).
-			SetSecurity(s.Spec.Security).
-			SetShouldMountAgentCerts(agentCertsSecretExists).
-			SetShouldMountInternalClusterAuthCerts(r.kubeHelper.secretExists(s.Namespace, clusterfileName))
+			SetSecurity(s.Spec.Security)
 	}
 
 	return ShardedClusterKubeState{
