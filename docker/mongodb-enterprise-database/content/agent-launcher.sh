@@ -10,9 +10,7 @@ custom_ca_dir="${secrets_dir}/ca"
 
 # file required by Automation Agents of authentication is enabled.
 mkdir -p ${keyfile_dir}
-echo "DUMMYFILE" > "${keyfile_dir}/keyfile"
-
-# agent requires read/write privileges on keyfile
+touch "${keyfile_dir}/keyfile"
 chmod 600 "${keyfile_dir}/keyfile"
 
 # Important! Keep this in sync with DefaultPodTerminationPeriodSeconds constant from constants.go

@@ -53,7 +53,7 @@ type Auth struct {
 	DeploymentAuthMechanisms []string `json:"deploymentAuthMechanisms,omitempty"`
 	// AutoUser is the MongoDB Automation Agent user, when x509 is enabled, it should be set to the subject of the AA's certificate
 	AutoUser string `json:"autoUser,omitempty"`
-	// Key is the contents of the KeyFile
+	// Key is the contents of the KeyFile, the automation agent will ensure this a KeyFile with these contents exists at the `KeyFile` path
 	Key string `json:"key,omitempty"`
 	// KeyFile is the path to a keyfile with read & write permissions. It is a required field if `Disabled=false`
 	KeyFile string `json:"keyfile,omitempty"`
@@ -126,13 +126,27 @@ type Role struct {
 	Database string `json:"db"`
 }
 
-func (ac *AutomationConfig) EnableX509Authentication() {
+// ensureKeyFileContents makes sure a valid keyfile is generated and used for internal cluster authentication
+func (ac *AutomationConfig) ensureKeyFileContents() error {
+	if ac.Auth.Key == "" || ac.Auth.Key == util.InvalidKeyFileContents {
+		keyfileContents, err := util.GenerateKeyFileContents()
+		if err != nil {
+			return err
+		}
+		ac.Auth.Key = keyfileContents
+	}
+	return nil
+}
+
+func (ac *AutomationConfig) EnableX509Authentication() error {
+	if err := ac.ensureKeyFileContents(); err != nil {
+		return err
+	}
 	ac.ensureAgentUsers()
 	auth := ac.Auth
 	auth.AutoPwd = util.MergoDelete
 	auth.Disabled = false
 	auth.AuthoritativeSet = true
-	auth.Key = util.AutomationAgentKeyFileContents
 	auth.KeyFile = util.AutomationAgentKeyFilePathInContainer
 	auth.KeyFileWindows = util.AutomationAgentWindowsKeyFilePath
 	ac.AgentSSL = &AgentSSL{
@@ -147,6 +161,7 @@ func (ac *AutomationConfig) EnableX509Authentication() {
 	if !util.ContainsString(auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) {
 		auth.DeploymentAuthMechanisms = append(auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option)
 	}
+	return nil
 }
 
 func (ac *AutomationConfig) DisableX509Authentication() {
@@ -169,6 +184,7 @@ func (ac *AutomationConfig) DisableX509Authentication() {
 		}
 	}
 }
+
 func (ac *AutomationConfig) CanEnableX509ProjectAuthentication() (bool, string) {
 	if !ac.Deployment.AllProcessesAreTLSEnabled() {
 		return false, "not all processes are TLS enabled, unable to enable x509 authentication"

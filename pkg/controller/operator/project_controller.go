@@ -2,7 +2,6 @@ package operator
 
 import (
 	"fmt"
-
 	"strings"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -135,7 +134,6 @@ func (r *ProjectReconciler) disableX509Authentication(request reconcile.Request,
 			shouldStop = true
 			return fmt.Errorf("unable to disable x509 authentication as there as at least once process with internal cluster authentication enabled")
 		}
-
 		ac.DisableX509Authentication()
 		return nil
 	}, getMutex(conn.GroupName(), conn.OrgID()), log)
@@ -214,8 +212,7 @@ func (r *ProjectReconciler) enableX509Authentication(request reconcile.Request, 
 	}
 
 	err = conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-		ac.EnableX509Authentication()
-		return nil
+		return ac.EnableX509Authentication()
 	}, getMutex(conn.GroupName(), conn.OrgID()), log)
 
 	if err != nil {

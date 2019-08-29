@@ -97,7 +97,6 @@ const (
 	MonitoringAgentSubject         = "CN=mms-monitoring-agent,OU=MongoDB Kubernetes Operator,O=mms-monitoring-agent,L=NY,ST=NY,C=US"
 	AgentSecretName                = "agent-certs"
 	AutomationConfigX509Option     = "MONGODB-X509"
-	AutomationAgentKeyFileContents = "DUMMYFILE"
 	DefaultAutomationAgentPassword = "D9XK2SfdR2obIevI9aKsYlVH"
 	AutomationAgentUserName        = "mms-automation-agent"
 	RequireClientCertificates      = "REQUIRE"
@@ -105,6 +104,7 @@ const (
 	ClusterFileName                = "clusterfile"
 	InternalClusterAuthMountPath   = "/mongodb-automation/cluster-auth/"
 	X509                           = "x509"
+	InvalidKeyFileContents         = "DUMMYFILE"
 
 	// AutomationAgentWindowsKeyFilePath is the default path for the windows key file. This is never
 	// used, but we want to keep it the default value so it is is possible to add new users without modifying

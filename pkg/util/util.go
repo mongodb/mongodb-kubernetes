@@ -1,6 +1,7 @@
 package util
 
 import (
+	"encoding/base64"
 	"sort"
 	"strings"
 	"time"
@@ -12,6 +13,8 @@ import (
 
 	"fmt"
 	"os"
+
+	crypto "crypto/rand"
 
 	"github.com/blang/semver"
 	"github.com/spf13/cast"
@@ -238,4 +241,24 @@ func RemoveString(slice []string, s string) (result []string) {
 // UpperCaseFirstChar ensures the message first char is uppercased
 func UpperCaseFirstChar(msg string) string {
 	return string(strings.ToUpper(msg[:1])) + msg[1:]
+}
+
+// final key must be between 6 and at most 1024 characters
+func GenerateKeyFileContents() (string, error) {
+	return generateRandomString(500)
+}
+
+func generateRandomBytes(size int) ([]byte, error) {
+	b := make([]byte, size)
+	_, err := crypto.Read(b)
+	if err != nil {
+		return nil, err
+	}
+
+	return b, nil
+}
+
+func generateRandomString(numBytes int) (string, error) {
+	b, err := generateRandomBytes(numBytes)
+	return base64.StdEncoding.EncodeToString(b), err
 }
