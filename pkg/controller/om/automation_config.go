@@ -164,13 +164,21 @@ func (ac *AutomationConfig) EnableX509Authentication() error {
 	return nil
 }
 
-func (ac *AutomationConfig) DisableX509Authentication() {
+func (ac *AutomationConfig) DisableX509Authentication() error {
 	auth := ac.Auth
 	// change back from subject to human readable user name
 	auth.AutoUser = util.AutomationAgentUserName
 	auth.Disabled = true
+
 	// when going from disabled true -> false, a password is required for the Automation Agent
-	auth.AutoPwd = util.DefaultAutomationAgentPassword
+	if auth.AutoPwd == "" || auth.AutoPwd == util.InvalidAutomationAgentPassword {
+		automationAgentBackupPassword, err := util.GenerateKeyFileContents()
+		if err != nil {
+			return err
+		}
+		auth.AutoPwd = automationAgentBackupPassword
+	}
+
 	ac.AgentSSL = &AgentSSL{
 		AutoPEMKeyFilePath:    util.MergoDelete,
 		ClientCertificateMode: util.OptionalClientCertficates,
@@ -183,6 +191,8 @@ func (ac *AutomationConfig) DisableX509Authentication() {
 			auth.RemoveUser(user.Username, user.Database)
 		}
 	}
+
+	return nil
 }
 
 func (ac *AutomationConfig) CanEnableX509ProjectAuthentication() (bool, string) {

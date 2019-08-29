@@ -91,20 +91,22 @@ const (
 	FsGroup                     = 2000
 
 	// x509 authentication
-	X509Db                         = "$external"
-	AutomationAgentSubject         = "CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US"
-	BackupAgentSubject             = "CN=mms-backup-agent,OU=MongoDB Kubernetes Operator,O=mms-backup-agent,L=NY,ST=NY,C=US"
-	MonitoringAgentSubject         = "CN=mms-monitoring-agent,OU=MongoDB Kubernetes Operator,O=mms-monitoring-agent,L=NY,ST=NY,C=US"
-	AgentSecretName                = "agent-certs"
-	AutomationConfigX509Option     = "MONGODB-X509"
-	DefaultAutomationAgentPassword = "D9XK2SfdR2obIevI9aKsYlVH"
-	AutomationAgentUserName        = "mms-automation-agent"
-	RequireClientCertificates      = "REQUIRE"
-	OptionalClientCertficates      = "OPTIONAL"
-	ClusterFileName                = "clusterfile"
-	InternalClusterAuthMountPath   = "/mongodb-automation/cluster-auth/"
-	X509                           = "x509"
+	X509Db                       = "$external"
+	AutomationAgentSubject       = "CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US"
+	BackupAgentSubject           = "CN=mms-backup-agent,OU=MongoDB Kubernetes Operator,O=mms-backup-agent,L=NY,ST=NY,C=US"
+	MonitoringAgentSubject       = "CN=mms-monitoring-agent,OU=MongoDB Kubernetes Operator,O=mms-monitoring-agent,L=NY,ST=NY,C=US"
+	AgentSecretName              = "agent-certs"
+	AutomationConfigX509Option   = "MONGODB-X509"
+	AutomationAgentUserName      = "mms-automation-agent"
+	RequireClientCertificates    = "REQUIRE"
+	OptionalClientCertficates    = "OPTIONAL"
+	ClusterFileName              = "clusterfile"
+	InternalClusterAuthMountPath = "/mongodb-automation/cluster-auth/"
+	X509                         = "x509"
+
+	// these were historically used and constituted a security issue—if set they should be changed
 	InvalidKeyFileContents         = "DUMMYFILE"
+	InvalidAutomationAgentPassword = "D9XK2SfdR2obIevI9aKsYlVH"
 
 	// AutomationAgentWindowsKeyFilePath is the default path for the windows key file. This is never
 	// used, but we want to keep it the default value so it is is possible to add new users without modifying

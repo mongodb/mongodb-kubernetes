@@ -134,7 +134,9 @@ func (r *ProjectReconciler) disableX509Authentication(request reconcile.Request,
 			shouldStop = true
 			return fmt.Errorf("unable to disable x509 authentication as there as at least once process with internal cluster authentication enabled")
 		}
-		ac.DisableX509Authentication()
+		if err := ac.DisableX509Authentication(); err != nil {
+			return err
+		}
 		return nil
 	}, getMutex(conn.GroupName(), conn.OrgID()), log)
 
