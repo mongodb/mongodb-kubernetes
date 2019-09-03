@@ -151,3 +151,9 @@ Ask someone with permission (Crystal/James/David/Rahul ) to "release" the versio
 ## Publish the New Version into Operatorhub.io and Openshift Marketplace
 
 Find instructions [here](publishing-to-marketplaces.md).
+
+## Inform TechOps
+Let Ricardo (ricardo.hernandez) know that we've released a new version and link
+him the release notes. This will ensure that the Operator as deployed in Kanopy
+is updated appropriately. Also offer to remove this notification from our
+release process if it proves unnecessary.
