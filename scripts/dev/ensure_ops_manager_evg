@@ -43,4 +43,4 @@ chmod +x ~/.operator-dev/om
 
 source "$HOME/.operator-dev/om"
 
-echo "Your Ops Manager is installed on $OM_HOST - don't forget to extend its expiration manually in Evergreen!"
+echo "Your Ops Manager is installed on $OM_HOST - don't forget to extend its expiration manually in Evergreen (https://evergreen.mongodb.com/spawn)!"
