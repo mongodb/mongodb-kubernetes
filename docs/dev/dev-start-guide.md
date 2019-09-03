@@ -21,7 +21,8 @@ PATH="/usr/local/opt/coreutils/libexec/gnubin:$PATH"
 note, that you should switch to python virtual environment in most cases when you work with `make` dev utility
 * [Generate a github token](https://github.com/settings/tokens/new) with "repo" permissions and set `GITHUB_TOKEN`
 environment variable in `~/.bashrc`
-* Get the access to AWS account  "MMS Engineering Test" (268558157000)" - ask your colleagues to add the user account
+* Get the access to AWS account  "MMS Engineering Test" (268558157000)" - ask your colleagues to add the user account (and have them to send you your password), and then
+    * Create the credentials for your user and put them in ~/.aws/credentials under default section (be sure to move mms-scratch credentials out of default)
 * Add the following environment variable export to your `~/.bashrc`: `export KOPS_STATE_STORE=s3://kube-om-state-store`
 
 ### Development workflow
@@ -62,6 +63,8 @@ kubectl apply -f my-replica-set.yaml
 make status
 
 ```
+
+If kops cluster fails to get created because of VPC limits, you can change KOPS_ZONES in ~/.operator-dev/contexts/dev (or the context you are currently using) to point to the other zones which have free VPCs (look at the values in `scripts/dev/ensure_k8s`).
 
 ### Some tips
 
