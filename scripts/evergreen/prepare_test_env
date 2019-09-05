@@ -80,6 +80,7 @@ deploy_cluster_cleaner() {
     fi
 
     helm template docker/cluster-cleaner \
+         --set cleanerVersion=0.5 \
          --set namespace="${ops_manager_namespace}" \
          --set cleanerNamespace=cluster-cleaner \
          > cluster-cleaner.yaml

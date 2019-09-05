@@ -291,6 +291,62 @@ functions:
           GITHUB_AUTHOR=${github_author}
           EOF
 
+  # Uploads the Docker build context to S3 in order for Kaniko to be able to build the images.
+  upload_e2e_build_context:
+  - command: shell.exec
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      script: |
+        tar -C docker/mongodb-enterprise-operator -zcvf operator-context.tar.gz .
+        tar -C docker/mongodb-enterprise-database -zcvf database-context.tar.gz .
+        tar -C docker/mongodb-enterprise-tests -zcvf tests-context.tar.gz .
+  - command: s3.put
+    params:
+      aws_key: ${mms_build_s3_aws_access_key}
+      aws_secret: ${mms_build_s3_aws_secret}
+      local_files_include_filter:
+        - src/github.com/10gen/ops-manager-kubernetes/*-context.tar.gz
+      remote_file: ops-manager-operator/${version_id}/contexts/
+      bucket: ops-manager-kubernetes-build
+      permissions: public-read
+      content_type: application/octet-stream
+
+  # Builds the Docker images using Kaniko using the context present in S3
+  build_e2e_images:
+  - command: shell.exec
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      script: |
+        export PATH=${workdir}/bin:$PATH
+        export VERSION=${version_id}
+        export AWS_ACCESS_KEY_ID=${mms_eng_test_aws_access_key}
+        export AWS_SECRET_ACCESS_KEY=${mms_eng_test_aws_secret}
+        export AWS_REGION=${mms_eng_test_aws_region}
+        for image_type in "tests" "operator" "database"; do
+          ./scripts/evergreen/build_docker_image.sh \
+              "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-$image_type" \
+              "$VERSION" \
+              "s3://ops-manager-kubernetes-build/ops-manager-operator/$VERSION/contexts/$image_type-context.tar.gz" \
+              "a=1" \
+              "268558157000.dkr.ecr.us-east-1.amazonaws.com/cache/mongodb-enterprise-$image_type" \
+              "$image_type-build-$VERSION"
+        done
+        echo "All images have been scheduled to be built."
+        all_finished="false"
+        while [[ $all_finished == "false" ]]; do
+          sleep 5
+          all_finished="true"
+          for image_type in "tests" "operator" "database"; do
+            echo "Checking if $image_type-build-$VERSION finished already."
+            if [[ $(kubectl -n construction-site get pod --selector "podbuilderid=$image_type-build-$VERSION" -o jsonpath='{.items[0].status.phase}') != "Succeeded" ]]; then
+              echo "$image_type-build-$VERSION has not finished yet. Status is"
+              kubectl -n construction-site get pod --selector "podbuilderid=$image_type-build-$VERSION" -o jsonpath='{.status.phase}'
+              all_finished="false"
+            fi
+          done
+        done
+        echo "Construction Pods have finished, we are good to start the tests."
+
   "build_and_push_image":
     - command: shell.exec
       params:
@@ -558,6 +614,18 @@ tasks:
     - func: "push_operator_binary_for_rhel"
     - func: "push_database_readiness_probe_for_rhel"
 
+- name: build_images
+  commands:
+  - func: clone
+  - func: setup_jq
+  - func: build_operator
+  - func: upload_e2e_build_context
+  - func: download_kubectl
+  - func: setup_kubernetes_environment
+    vars:
+      kube_environment_name: openshift_3_11
+  - func: build_e2e_images
+
 # Note that this task doesn't work so far as it needs different quay account and token
 - name: release_mongodb_enterprise
   tags: ["release_mongodb_enterprise"]
@@ -571,32 +639,6 @@ tasks:
         env: production
         image_name: mongodb-enterprise
         path: mongodb-enterprise/4.0
-
-- name: build_images
-  exec_timeout_secs: 1200
-  priority: 1
-  commands:
-    - func: clone
-    - func: check_evergreen_health
-    - func: setup_aws
-    - func: setup_jq
-    - func: setup_docker
-    - func: build_operator
-    - func: build_and_push_image
-      vars:
-        env: development
-        image_name: mongodb-enterprise-operator
-        tag_images_with_version: "true"
-    - func: build_and_push_image
-      vars:
-        env: development
-        image_name: mongodb-enterprise-database
-        tag_images_with_version: "true"
-    - func: build_and_push_image
-      vars:
-        env: development
-        image_name: mongodb-enterprise-tests
-        tag_images_with_version: "true"
 
 - name: prepare_cluster_openshift_3_11
   exec_timeout_secs: 1200

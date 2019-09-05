@@ -38,7 +38,7 @@ spec:
 
           containers:
           - name: cluster-cleaner
-            image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cluster-cleaner:0.4
+            image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cluster-cleaner:{{ .Values.cleanerVersion }}
             imagePullPolicy: Always
             command: ["./clean-failed-namespaces.sh"]
             env:
@@ -66,7 +66,7 @@ spec:
 
           containers:
           - name: cluster-cleaner
-            image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cluster-cleaner:0.4
+            image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cluster-cleaner:{{ .Values.cleanerVersion }}
             imagePullPolicy: Always
             command: ["./create-cluster-ca-as-configmap.sh"]
 
@@ -88,6 +88,6 @@ spec:
 
           containers:
           - name: cluster-cleaner
-            image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cluster-cleaner:0.4
+            image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cluster-cleaner:{{ .Values.cleanerVersion }}
             imagePullPolicy: Always
             command: ["./clean-cluster-roles-and-bindings.sh"]
