@@ -29,6 +29,15 @@ region = $AWS_REGION
     kubectl -n construction-site create secret generic aws-secret --from-literal=credentials="$aws_credentials" &> /dev/null || true
 }
 
+split_version_into_sha() {
+    # split first paramter by _ delimiter and return 20 chars from the last part
+    version="${1}"
+
+    IFS="_" read -ra parts <<< "$version"
+
+    echo "${parts[-1]:0:20}"
+}
+
 build_image () {
     destination="${1}"
     tag="${2}"

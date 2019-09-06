@@ -322,6 +322,10 @@ functions:
         export AWS_ACCESS_KEY_ID=${mms_eng_test_aws_access_key}
         export AWS_SECRET_ACCESS_KEY=${mms_eng_test_aws_secret}
         export AWS_REGION=${mms_eng_test_aws_region}
+
+        source scripts/evergreen/build_docker_image.sh
+        short_version=$(split_version_into_sha ${version_id})
+
         for image_type in "tests" "operator" "database"; do
           ./scripts/evergreen/build_docker_image.sh \
               "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-$image_type" \
@@ -329,7 +333,7 @@ functions:
               "s3://ops-manager-kubernetes-build/ops-manager-operator/$VERSION/contexts/$image_type-context.tar.gz" \
               "a=1" \
               "268558157000.dkr.ecr.us-east-1.amazonaws.com/cache/mongodb-enterprise-$image_type" \
-              "$image_type-build-$VERSION"
+              "$image_type-build-$short_version"
         done
         echo "All images have been scheduled to be built."
         all_finished="false"
@@ -337,10 +341,10 @@ functions:
           sleep 5
           all_finished="true"
           for image_type in "tests" "operator" "database"; do
-            echo "Checking if $image_type-build-$VERSION finished already."
-            if [[ $(kubectl -n construction-site get pod --selector "podbuilderid=$image_type-build-$VERSION" -o jsonpath='{.items[0].status.phase}') != "Succeeded" ]]; then
-              echo "$image_type-build-$VERSION has not finished yet. Status is"
-              kubectl -n construction-site get pod --selector "podbuilderid=$image_type-build-$VERSION" -o jsonpath='{.status.phase}'
+            echo "Checking if $image_type-build-$short_version finished already."
+            if [[ $(kubectl -n construction-site get pod --selector "podbuilderid=$image_type-build-$short_version" -o jsonpath='{.items[0].status.phase}') != "Succeeded" ]]; then
+              echo "$image_type-build-$short_version has not finished yet. Status is"
+              kubectl -n construction-site get pod --selector "podbuilderid=$image_type-build-$short_version" -o jsonpath='{.status.phase}'
               all_finished="false"
             fi
           done
