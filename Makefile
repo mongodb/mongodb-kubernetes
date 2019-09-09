@@ -43,6 +43,7 @@ usage:
 	@ echo "                              are configured."
 	@ echo "  debug:                      configures the operator to run in debug mode, exposing DEBUG_PORT as a node port in the"
 	@ echo "                              cluster to enable debuggers to attach remotely."
+	@ echo "  open-automation-config/ac:   displays the contents of the Automation Config in in $EDITOR using ~/.operator-dev configuration"
 
 
 # install all necessary software, must be run only once
@@ -125,6 +126,10 @@ status:
 dashboard:
 	@ scripts/dev/kube-dashboard
 
+# opens the automation config in your editor
+open-automation-config: ac
+ac:
+	@ scripts/dev/print_automation_config
 
 ###############################################################################
 # Internal Targets
