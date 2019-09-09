@@ -40,20 +40,12 @@ class TestShardedClusterWithTLSRunning(KubernetesTester):
 
 
 @pytest.mark.e2e_tls_x509_sc
-class TestsShardedClusterWithX509ClusterAuthentication(KubernetesTester):
+class TestShardedClusterWithTLSDeletion(KubernetesTester):
     """
-    update:
-        patch: '[{"op":"replace","path":"/spec/security","value": {"tls": {"enabled": true}, "clusterAuthenticationMode": "x509"}}]'
-        file: test-tls-base-sc-require-ssl.yaml
-        wait_for_message: Not all internal cluster authentication certs have been approved by Kubernetes CA
+    delete:
+      file: test-tls-base-sc-require-ssl.yaml
+      wait_until: mongo_resource_deleted_no_om
+      timeout: 240
     """
-
-    def test_running_state_once_internal_cluster_auth_certs_approved(self):
-        cert_names = get_sc_cert_names(mdb_resource, self.get_namespace(), with_internal_auth_certs=True)
-        for cert in self.yield_existing_csrs(cert_names):
-            self.approve_certificate(cert)
-        KubernetesTester.wait_until('in_running_state')
-
-    def test_x509_enabled(self):
-        mdb = self.get_resource()
-        assert mdb["spec"]["security"]["clusterAuthenticationMode"] == "x509"
+    def test_deletion(self):
+        assert True

@@ -1089,7 +1089,7 @@ task_groups:
     - func: "upload_e2e_logs"
 
 - name: e2e_x509_task_group
-  max_hosts: 1
+  max_hosts: 3
   setup_group:
     - func: clone
     - func: download_kubectl

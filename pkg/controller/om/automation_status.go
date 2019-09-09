@@ -54,6 +54,16 @@ func WaitForReadyState(oc Connection, processNames []string, log *zap.SugaredLog
 	return nil
 }
 
+func CheckEveryHostHasReachedReadyState(oc Connection, processNames []string, log *zap.SugaredLogger) bool {
+	log.Infof("Checking processes %+v", processNames)
+	as, err := oc.ReadAutomationStatus()
+	if err != nil {
+		return false
+	}
+
+	return checkAutomationStatusIsGoal(as, processNames)
+}
+
 // CheckAutomationStatusIsGoal returns true if all the relevant processes are in Goal
 // state.
 // Note, that the function is quite tolerant to any situations except for non matching goal state, for example

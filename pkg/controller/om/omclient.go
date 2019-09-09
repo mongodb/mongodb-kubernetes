@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -59,19 +60,19 @@ type Connection interface {
 
 type MonitoringConfigConnection interface {
 	ReadMonitoringAgentConfig() (*MonitoringAgentConfig, error)
-	UpdateMonitoringAgentConfig(mat *MonitoringAgentConfig) ([]byte, error)
+	UpdateMonitoringAgentConfig(mat *MonitoringAgentConfig, log *zap.SugaredLogger) ([]byte, error)
 	ReadUpdateMonitoringAgentConfig(matFunc func(*MonitoringAgentConfig) error, mutex *sync.Mutex, log *zap.SugaredLogger) error
 }
 
 type BackupConfigConnection interface {
 	ReadBackupAgentConfig() (*BackupAgentConfig, error)
-	UpdateBackupAgentConfig(mat *BackupAgentConfig) ([]byte, error)
+	UpdateBackupAgentConfig(mat *BackupAgentConfig, log *zap.SugaredLogger) ([]byte, error)
 	ReadUpdateBackupAgentConfig(matFunc func(*BackupAgentConfig) error, mutex *sync.Mutex, log *zap.SugaredLogger) error
 }
 
 // AutomationConfigConnection is an interface that only deals with reading/updating of the AutomationConfig
 type AutomationConfigConnection interface {
-	UpdateAutomationConfig(ac *AutomationConfig) error
+	UpdateAutomationConfig(ac *AutomationConfig, log *zap.SugaredLogger) error
 	ReadAutomationConfig() (*AutomationConfig, error)
 	ReadUpdateAutomationConfig(acFunc func(ac *AutomationConfig) error, mutex *sync.Mutex, log *zap.SugaredLogger) error
 }
@@ -232,26 +233,39 @@ func (oc *HTTPOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error,
 	if err != nil {
 		return err
 	}
+	original, _ := util.MapDeepCopy(deployment)
 
 	if err := depFunc(deployment); err != nil {
 		return NewAPIError(err)
 	}
 
-	_, err = oc.UpdateDeployment(deployment)
-	if err != nil {
-		return err
+	if reflect.DeepEqual(original, deployment) {
+		log.Debug("Deployment has not changed, not pushing changes to Ops Manager")
+	} else {
+		_, err = oc.UpdateDeployment(deployment)
+		if err != nil {
+			return err
+		}
 	}
+
 	return nil
 }
 
-func (oc *HTTPOmConnection) UpdateAutomationConfig(ac *AutomationConfig) error {
+func (oc *HTTPOmConnection) UpdateAutomationConfig(ac *AutomationConfig, log *zap.SugaredLogger) error {
+	original, _ := util.MapDeepCopy(ac.Deployment)
+
 	err := ac.Apply()
 	if err != nil {
 		return err
 	}
-	_, err = oc.UpdateDeployment(ac.Deployment)
-	if err != nil {
-		return err
+
+	if reflect.DeepEqual(original, ac.Deployment) {
+		log.Debug("AutomationConfig has not changed, not pushing changes to Ops Manager")
+	} else {
+		_, err = oc.UpdateDeployment(ac.Deployment)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -270,7 +284,7 @@ func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(acFunc func(ac *Automatio
 		return NewAPIError(err)
 	}
 
-	err = oc.UpdateAutomationConfig(ac)
+	err = oc.UpdateAutomationConfig(ac, log)
 	if err != nil {
 		log.Errorf("error updating automation config. %s", err)
 		return NewAPIError(err)
@@ -492,15 +506,26 @@ func (oc *HTTPOmConnection) ReadMonitoringAgentConfig() (*MonitoringAgentConfig,
 	return mat, nil
 }
 
-func (oc *HTTPOmConnection) UpdateMonitoringAgentConfig(mat *MonitoringAgentConfig) ([]byte, error) {
+func (oc *HTTPOmConnection) UpdateMonitoringAgentConfig(mat *MonitoringAgentConfig, log *zap.SugaredLogger) ([]byte, error) {
+	original, _ := util.MapDeepCopy(mat.BackingMap)
 	err := mat.Apply()
 	if err != nil {
 		return nil, err
 	}
-	return oc.put(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/monitoringAgentConfig", oc.GroupID()), mat.BackingMap)
+
+	if reflect.DeepEqual(original, mat.BackingMap) {
+		log.Debug("Monitoring Configuration has not changed, not pushing changes to Ops Manager")
+	} else {
+		return oc.put(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/monitoringAgentConfig", oc.GroupID()), mat.BackingMap)
+	}
+
+	return nil, nil
 }
 
 func (oc *HTTPOmConnection) ReadUpdateMonitoringAgentConfig(matFunc func(*MonitoringAgentConfig) error, mutex *sync.Mutex, log *zap.SugaredLogger) error {
+	if log == nil {
+		log = zap.S()
+	}
 	mutex.Lock()
 	defer mutex.Unlock()
 
@@ -513,7 +538,7 @@ func (oc *HTTPOmConnection) ReadUpdateMonitoringAgentConfig(matFunc func(*Monito
 		return err
 	}
 
-	if _, err := oc.UpdateMonitoringAgentConfig(mat); err != nil {
+	if _, err := oc.UpdateMonitoringAgentConfig(mat, log); err != nil {
 		return err
 	}
 
@@ -535,13 +560,21 @@ func (oc *HTTPOmConnection) ReadBackupAgentConfig() (*BackupAgentConfig, error) 
 	return backup, nil
 }
 
-func (oc *HTTPOmConnection) UpdateBackupAgentConfig(backup *BackupAgentConfig) ([]byte, error) {
+func (oc *HTTPOmConnection) UpdateBackupAgentConfig(backup *BackupAgentConfig, log *zap.SugaredLogger) ([]byte, error) {
+	original, _ := util.MapDeepCopy(backup.BackingMap)
+
 	err := backup.Apply()
 	if err != nil {
 		return nil, err
 	}
-	return oc.put(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/backupAgentConfig", oc.GroupID()), backup.BackingMap)
 
+	if reflect.DeepEqual(original, backup.BackingMap) {
+		log.Debug("Backup Configuration has not changed, not pushing changes to Ops Manager")
+	} else {
+		return oc.put(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/backupAgentConfig", oc.GroupID()), backup.BackingMap)
+	}
+
+	return nil, nil
 }
 
 func (oc *HTTPOmConnection) ReadUpdateBackupAgentConfig(backupFunc func(*BackupAgentConfig) error, mutex *sync.Mutex, log *zap.SugaredLogger) error {
@@ -557,7 +590,7 @@ func (oc *HTTPOmConnection) ReadUpdateBackupAgentConfig(backupFunc func(*BackupA
 		return err
 	}
 
-	if _, err := oc.UpdateBackupAgentConfig(backup); err != nil {
+	if _, err := oc.UpdateBackupAgentConfig(backup, log); err != nil {
 		return err
 	}
 

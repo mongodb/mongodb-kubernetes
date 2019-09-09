@@ -219,6 +219,9 @@ func MaxInt(x, y int) int {
 //
 // Helper functions to check and remove string from a slice of strings.
 //
+
+// ContainsString returns true if there is at least one string in `slice`
+// that is equal to `s`.
 func ContainsString(slice []string, s string) bool {
 	for _, item := range slice {
 		if item == s {

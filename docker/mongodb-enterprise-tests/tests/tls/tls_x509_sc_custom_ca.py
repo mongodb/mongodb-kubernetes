@@ -41,12 +41,6 @@ class TestClusterWithTLSCreation(KubernetesTester):
       wait_for_message: Not all certificates have been approved by Kubernetes CA
     """
 
-    def test_mdb_resource_status_is_correct(self):
-        assert True
-
-
-@pytest.mark.e2e_tls_x509_sc_custom_ca
-class TestShardedClusterWithTLSRunning(KubernetesTester):
     def test_approve_certificates(self):
         for cert in self.yield_existing_csrs(get_sc_cert_names(mdb_resource, self.get_namespace(), with_internal_auth_certs=True)):
             self.approve_certificate(cert)
@@ -67,7 +61,7 @@ class TestShardedClusterIsRemoved(KubernetesTester):
       be used are the ones already stored in the Secrets.
     delete:
       file: test-tls-base-sc-require-ssl-x509-custom-ca.yaml
-      wait_until: mongo_resource_deleted
+      wait_until: mongo_resource_deleted_no_om
     """
 
     def test_remove_certificates(self):

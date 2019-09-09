@@ -5,8 +5,9 @@ import ssl
 
 import pytest
 import pymongo
-from kubetester.kubetester import KubernetesTester, build_list_of_hosts, fixture
+from kubetester.kubetester import KubernetesTester, fixture
 from kubetester.omtester import get_agent_cert_names, get_rs_cert_names
+from kubetester.mongotester import build_mongodb_connection_uri
 
 mdb_resource = "test-tls-base-rs-require-ssl"
 
@@ -99,8 +100,8 @@ class TestX509CertCreationAndApproval(KubernetesTester):
 
     def test_can_authenticate_with_added_user(self):
         time.sleep(20)
-        hosts = build_list_of_hosts(mdb_resource, self.namespace, 3)
-        uri = self.build_mongodb_uri_for_rs(hosts)
+        uri = build_mongodb_connection_uri(mdb_resource, self.namespace, 3)
+
         conn = pymongo.MongoClient(
             uri,
             authMechanism="MONGODB-X509",

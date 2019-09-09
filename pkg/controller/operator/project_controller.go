@@ -47,7 +47,7 @@ type tlsResult struct {
 
 // ensureTLS makes sure that it is possible to enable TLS at the project level
 // if TLS cannot be enabled, it means that it will not be possible to enable x509 authentication.
-func ensureTLS(conn om.Connection, log *zap.SugaredLogger) tlsResult {
+func ensureTLS(r *ProjectReconciler, conn om.Connection, log *zap.SugaredLogger) tlsResult {
 
 	shouldRetry := false
 	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
@@ -58,6 +58,10 @@ func ensureTLS(conn om.Connection, log *zap.SugaredLogger) tlsResult {
 				AutoPEMKeyFilePath:    util.AutomationAgentPemFilePath,
 			}
 		}
+
+		// Block if the automation agents have not reached goal state.
+		hostnames := ac.Deployment.GetAllHostnames()
+		om.WaitForReadyState(conn, hostnames, log)
 
 		// if it's not possible to enable x509, we shouldn't attempt to as we would be
 		// providing an invalid automation config.
@@ -117,6 +121,21 @@ func (r *ProjectReconciler) Reconcile(request reconcile.Request) (res reconcile.
 	}
 
 	if projectConfig.AuthMode == util.X509 {
+		log.Info("About to enable x509, will check if all processes are in goal state.")
+		// Need to make sure that every deployment is in Running state
+		ac, err := conn.ReadAutomationConfig()
+		if err != nil {
+			return retry()
+		}
+
+		hostnames := ac.Deployment.GetAllHostnames()
+		if !om.CheckEveryHostHasReachedReadyState(conn, hostnames, log) {
+			// Do not change the configuration if not all the agents have reached goal state.
+			return retry()
+		}
+
+		log.Info("All processes are in goal state! We may proceed with further configurations.")
+
 		return r.enableX509Authentication(request, projectConfig, conn, log)
 	} else {
 		return r.disableX509Authentication(request, conn, log)
@@ -184,7 +203,7 @@ func (r *ProjectReconciler) enableX509Authentication(request reconcile.Request, 
 		return retry()
 	}
 
-	result := ensureTLS(conn, log)
+	result := ensureTLS(r, conn, log)
 	if result.isError {
 		log.Errorf("Error ensuring ssl is enabled: %s", result.msg)
 		return retry()

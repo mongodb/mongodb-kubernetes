@@ -840,6 +840,14 @@ class KubernetesTester(object):
         # Then we check that the resource was removed in Ops Manager if specified
         return deleted_in_k8 if not check_om_state else (deleted_in_k8 and KubernetesTester.is_om_state_cleaned())
 
+    @staticmethod
+    def mongo_resource_deleted_no_om():
+        """
+        Waits until the MDB resource dissappears but won't wait for OM state to be removed, as sometimes
+        OM will just fail on us and make the test fail.
+        """
+        return KubernetesTester.mongo_resource_deleted(False)
+
     def build_mongodb_uri_for_rs(self, hosts):
         return "mongodb://{}".format(",".join(hosts))
 

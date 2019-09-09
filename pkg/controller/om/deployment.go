@@ -338,6 +338,15 @@ func (d Deployment) AllProcessesAreTLSEnabled() bool {
 	return true
 }
 
+func (d Deployment) GetAllHostnames() []string {
+	hostnames := make([]string, d.NumberOfProcesses())
+	for idx, p := range d.getProcesses() {
+		hostnames[idx] = p.Name()
+	}
+
+	return hostnames
+}
+
 func (d Deployment) NumberOfProcesses() int {
 	return len(d.getProcesses())
 }

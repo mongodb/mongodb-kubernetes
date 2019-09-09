@@ -166,7 +166,7 @@ func (oc *MockedOmConnection) ReadUpdateMonitoringAgentConfig(matFunc func(*Moni
 	return matFunc(oc.monitoringAgentConfig)
 }
 
-func (oc *MockedOmConnection) UpdateAutomationConfig(ac *AutomationConfig) error {
+func (oc *MockedOmConnection) UpdateAutomationConfig(ac *AutomationConfig, log *zap.SugaredLogger) error {
 	oc.addToHistory(reflect.ValueOf(oc.UpdateAutomationConfig))
 	oc.automationConfig = ac
 	return nil
@@ -202,7 +202,7 @@ func (oc *MockedOmConnection) ReadBackupAgentConfig() (*BackupAgentConfig, error
 	return oc.backupAgentConfig, nil
 }
 
-func (oc *MockedOmConnection) UpdateBackupAgentConfig(bac *BackupAgentConfig) ([]byte, error) {
+func (oc *MockedOmConnection) UpdateBackupAgentConfig(bac *BackupAgentConfig, log *zap.SugaredLogger) ([]byte, error) {
 	oc.addToHistory(reflect.ValueOf(oc.UpdateBackupAgentConfig))
 	oc.backupAgentConfig = bac
 	return nil, nil
@@ -224,7 +224,7 @@ func (oc *MockedOmConnection) ReadMonitoringAgentConfig() (*MonitoringAgentConfi
 	return oc.monitoringAgentConfig, nil
 }
 
-func (oc *MockedOmConnection) UpdateMonitoringAgentConfig(mac *MonitoringAgentConfig) ([]byte, error) {
+func (oc *MockedOmConnection) UpdateMonitoringAgentConfig(mac *MonitoringAgentConfig, log *zap.SugaredLogger) ([]byte, error) {
 	oc.addToHistory(reflect.ValueOf(oc.UpdateMonitoringAgentConfig))
 	oc.monitoringAgentConfig = mac
 	return nil, nil
