@@ -118,7 +118,9 @@ const (
 	// kept as is for the same reason as above
 	AutomationAgentKeyFilePathInContainer = "/var/lib/mongodb-mms-automation/keyfile"
 
-	// Operator Env configuration properties
+	// Operator Env configuration properties. Please note that when adding environment variables to this list,
+	// make sure you append them to util.go:PrintEnvVars function's `printableEnvPrefixes` if you need the
+	// new variable to be printed at operator start.
 	OpsManagerImageUrl             = "OPS_MANAGER_IMAGE_REPOSITORY"
 	OpsManagerPullPolicy           = "OPS_MANAGER_IMAGE_PULL_POLICY"
 	AutomationAgentImageUrl        = "MONGODB_ENTERPRISE_DATABASE_IMAGE"

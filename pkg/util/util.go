@@ -195,12 +195,32 @@ func EnsureEnvVar(key, value string) {
 	}
 }
 
+// PrintEnvVars prints environment variables to the global SugaredLogger. It will only print the environment variables
+// with a given prefix set inside the function.
 func PrintEnvVars() {
+	// Only env variables with one of these prefixes will be printed
+	printableEnvPrefixes := [...]string{
+		"BACKUP_WAIT_",
+		"POD_WAIT_",
+		"OPERATOR_ENV",
+		"WATCH_NAMESPACE",
+		"MANAGED_SECURITY_CONTEXT",
+		"IMAGE_PULL_SECRETS",
+		"IMAGE_PULL_SECRETS",
+		"MONGODB_ENTERPRISE_",
+		"OPS_MANAGER_",
+		"KUBERNETES_",
+	}
+
 	zap.S().Info("Environment variables:")
 	envVariables := os.Environ()
 	sort.Strings(envVariables)
 	for _, e := range envVariables {
-		zap.S().Infof("%s", e)
+		for _, prefix := range printableEnvPrefixes {
+			if strings.HasPrefix(e, prefix) {
+				zap.S().Infof("%s", e)
+			}
+		}
 	}
 }
 
