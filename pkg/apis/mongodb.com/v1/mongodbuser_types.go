@@ -27,13 +27,14 @@ type MongoDBUserSpec struct {
 }
 
 type MongoDBUserStatus struct {
-	Roles          []Role `json:"roles,omitempty"`
-	Username       string `json:"username"`
-	Database       string `json:"db"`
-	Message        string `json:"msg,omitempty"`
-	Phase          Phase  `json:"phase"`
-	LastTransition string `json:"lastTransition"`
-	Project        string `json:"project"`
+	Roles          []Role          `json:"roles,omitempty"`
+	Username       string          `json:"username"`
+	Database       string          `json:"db"`
+	Message        string          `json:"msg,omitempty"`
+	Phase          Phase           `json:"phase"`
+	LastTransition string          `json:"lastTransition"`
+	Project        string          `json:"project"`
+	Warnings       []StatusWarning `json:"warnings,omitempty"`
 }
 
 type Role struct {
@@ -63,6 +64,7 @@ func (u *MongoDBUser) UpdateSuccessful(other runtime.Object, _ ...string) {
 	u.Status.Phase = PhaseUpdated
 	u.Status.LastTransition = util.Now()
 }
+
 func (u *MongoDBUser) UpdatePending(msg string) {
 	if msg != "" {
 		u.Status.Message = msg

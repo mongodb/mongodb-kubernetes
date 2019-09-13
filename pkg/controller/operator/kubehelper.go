@@ -16,7 +16,6 @@ import (
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -359,7 +358,7 @@ func (s *StatefulSetHelper) NeedToPublishStateFirst(log *zap.SugaredLogger) bool
 	return false
 }
 
-func volumeMountWithNameExists(mounts []v1.VolumeMount, volumeName string) bool {
+func volumeMountWithNameExists(mounts []corev1.VolumeMount, volumeName string) bool {
 	for _, mount := range mounts {
 		if mount.Name == volumeName {
 			return true

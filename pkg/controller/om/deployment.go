@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
@@ -519,6 +520,15 @@ func (d Deployment) handleShardsRemoval(finalizing bool, s ShardedCluster, log *
 	return false
 }
 
+// GetAllProcessNames returns a list of names of processes in this deployment. This is, the names of all processes
+// in the `processes` attribute of the deployment object.
+func (d Deployment) GetAllProcessNames() (names []string) {
+	for _, p := range d.getProcesses() {
+		names = append(names, p.Name())
+	}
+	return
+}
+
 func (d Deployment) getProcesses() []Process {
 	switch v := d["processes"].(type) {
 	case []Process:
@@ -874,4 +884,64 @@ func (d Deployment) limitVotingMembers(rsName string) {
 			v.setVotes(0).setPriority(0)
 		}
 	}
+}
+
+// ProcessBelongsToResource determines if `processName` belongs to `resourceName`.
+func (d Deployment) ProcessBelongsToResource(processName, resourceName string) bool {
+	if util.ContainsString(d.GetProcessNames(ShardedCluster{}, resourceName), processName) {
+		return true
+	}
+	if util.ContainsString(d.GetProcessNames(ReplicaSet{}, resourceName), processName) {
+		return true
+	}
+	if util.ContainsString(d.GetProcessNames(Standalone{}, resourceName), processName) {
+		return true
+	}
+
+	return false
+}
+
+// TODO: We agreed on moving these pair of functions to common_controller.go, however we are
+// currently blocked by the way the tests are private to a given package.
+
+// ensureOneClusterPerProjectShouldProceed perfoms a series of check to ensure that there's no more
+// than 1 cluster per project. It does it by calculating how many processes do not belong to this
+// resource, and that number is returned as the first return value of this function. The second
+// return value will indicate if this reconciliation is good to proceed. A "no good to proceed" is a
+// reconciliation pass where the resource is new (it does not currently belong to the project) and
+// there are other processes living on it already.
+func ensureOneClusterPerProjectShouldProceed(conn Connection, resource *mongodb.MongoDB) (int, bool) {
+	deployment, err := conn.ReadDeployment()
+	if err != nil {
+		return 0, false
+	}
+	processNames := deployment.GetAllProcessNames()
+	deploymentSize := len(processNames)
+
+	alreadyBelongs := false
+	for _, p := range processNames {
+		if deployment.ProcessBelongsToResource(p, resource.Name) {
+			deploymentSize -= 1
+			alreadyBelongs = true
+		}
+	}
+
+	return deploymentSize, alreadyBelongs
+}
+
+// CheckIfCanProceedWithWarnings will return if the reconciliation should proceed. On top of that,
+// if the reconciliaiton can proceed, a v1.StatusWarning list will be returned when needed.
+func CheckIfCanProceedWithWarnings(conn Connection, resource *mongodb.MongoDB) (bool, v1.StatusWarnings) {
+	size, belongs := ensureOneClusterPerProjectShouldProceed(conn, resource)
+
+	if size == 0 {
+		// cluster is empty or this resource is the only one living on it
+		return true, v1.StatusWarnings{}
+	} else if size > 0 && belongs {
+		// cluster is not empty, but we belong to it
+		return true, v1.StatusWarnings{v1.MultipleClustersInProjectWarning}
+	}
+
+	// more than one cluster and this is not one of them -- won't set warnings as we will fail with a message
+	return false, v1.StatusWarnings{}
 }

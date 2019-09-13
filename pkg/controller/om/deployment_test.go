@@ -179,6 +179,123 @@ func TestMergeDeployment_BigReplicaset(t *testing.T) {
 	assert.Equal(t, 0, omDeployment.getReplicaSets()[0].members()[4].Priority())
 }
 
+func TestGetAllProcessNames_MergedReplicaSetsAndShardedClusters(t *testing.T) {
+	d := NewDeployment()
+	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
+
+	d.MergeReplicaSet(rs0, zap.S())
+	assert.Equal(t, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, d.GetAllProcessNames())
+
+	rs1 := buildRsByProcesses("another-rs", createReplicaSetProcessesCount(5, "another-rs"))
+	d.MergeReplicaSet(rs1, zap.S())
+
+	assert.Equal(
+		t,
+		[]string{
+			"my-rs-0", "my-rs-1", "my-rs-2",
+			"another-rs-0", "another-rs-1", "another-rs-2", "another-rs-3", "another-rs-4",
+		},
+		d.GetAllProcessNames())
+
+	configRs := createConfigSrvRs("configSrv", false)
+	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard"), false)
+
+	assert.Equal(
+		t,
+		[]string{
+			"my-rs-0", "my-rs-1", "my-rs-2",
+			"another-rs-0", "another-rs-1", "another-rs-2", "another-rs-3", "another-rs-4",
+			"pretty0", "pretty1", "pretty2",
+			"configSrv-0", "configSrv-1", "configSrv-2",
+			"myShard-0-0", "myShard-0-1", "myShard-0-2",
+			"myShard-1-0", "myShard-1-1", "myShard-1-2",
+			"myShard-2-0", "myShard-2-1", "myShard-2-2",
+		},
+		d.GetAllProcessNames())
+
+}
+
+func TestGetAllProcessNames_MergedShardedClusters(t *testing.T) {
+	d := NewDeployment()
+
+	configRs := createConfigSrvRs("configSrv", false)
+	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard"), false)
+	assert.Equal(
+		t,
+		[]string{
+			"pretty0", "pretty1", "pretty2",
+			"configSrv-0", "configSrv-1", "configSrv-2",
+			"myShard-0-0", "myShard-0-1", "myShard-0-2",
+			"myShard-1-0", "myShard-1-1", "myShard-1-2",
+			"myShard-2-0", "myShard-2-1", "myShard-2-2",
+		},
+		d.GetAllProcessNames(),
+	)
+
+	d.MergeShardedCluster("anotherCluster", createMongosProcesses(3, "anotherMongos", ""), configRs, createShards("anotherClusterSh"), false)
+	assert.Equal(
+		t,
+		[]string{
+			"pretty0", "pretty1", "pretty2",
+			"configSrv-0", "configSrv-1", "configSrv-2",
+			"myShard-0-0", "myShard-0-1", "myShard-0-2",
+			"myShard-1-0", "myShard-1-1", "myShard-1-2",
+			"myShard-2-0", "myShard-2-1", "myShard-2-2",
+			"anotherMongos0", "anotherMongos1", "anotherMongos2",
+			"anotherClusterSh-0-0", "anotherClusterSh-0-1", "anotherClusterSh-0-2",
+			"anotherClusterSh-1-0", "anotherClusterSh-1-1", "anotherClusterSh-1-2",
+			"anotherClusterSh-2-0", "anotherClusterSh-2-1", "anotherClusterSh-2-2",
+		},
+		d.GetAllProcessNames(),
+	)
+}
+
+func TestDeploymentCountIsCorrect(t *testing.T) {
+	d := NewDeployment()
+	conn := NewMockedOmConnection(d)
+
+	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
+	d.MergeReplicaSet(rs0, zap.S())
+	res := DefaultMongoDBVersioned("3.6.3")
+	res.Name = "my-rs"
+
+	count, belongs := ensureOneClusterPerProjectShouldProceed(conn, res)
+	// There's only one resource in this deployment
+	assert.Equal(t, 0, count)
+	assert.True(t, belongs)
+
+	rs1 := buildRsByProcesses("my-rs-second", createReplicaSetProcessesCount(3, "my-rs-second"))
+	d.MergeReplicaSet(rs1, zap.S())
+	count, belongs = ensureOneClusterPerProjectShouldProceed(conn, res)
+
+	// another replica set was added to the deployment. 3 processes do not belong to this one
+	assert.Equal(t, 3, count)
+	assert.True(t, belongs)
+
+	configRs := createConfigSrvRs("config", false)
+	d.MergeShardedCluster("sc001", createMongosProcesses(3, "mongos", ""), configRs, createShards("shards"), false)
+	count, belongs = ensureOneClusterPerProjectShouldProceed(conn, res)
+
+	// a Sharded Cluster was added, plenty of processes do not belong to "my-rs" anymore
+	assert.Equal(t, 18, count)
+	assert.True(t, belongs)
+
+	// This unknown process does not belong in here
+	unknown := DefaultMongoDB().Build()
+	unknown.Name = "some-unknown-name"
+	count, belongs = ensureOneClusterPerProjectShouldProceed(conn, unknown)
+
+	// a Sharded Cluster was added, plenty of processes do not belong to "my-rs" anymore
+	assert.Equal(t, 21, count)
+	assert.False(t, belongs)
+
+	sc := DefaultMongoDB().Build()
+	sc.Name = "sc001"
+	count, belongs = ensureOneClusterPerProjectShouldProceed(conn, sc)
+	// There are 6 processes that do not belong to the sc001 sharded cluster
+	assert.Equal(t, 6, count)
+}
+
 func TestIsShardOf(t *testing.T) {
 	clusterName := "my-shard"
 	assert.True(t, isShardOfShardedCluster(clusterName, "my-shard-0"))
@@ -194,6 +311,62 @@ func TestIsShardOf(t *testing.T) {
 	assert.False(t, isShardOfShardedCluster(clusterName, "my-shard-1-0"))
 	assert.False(t, isShardOfShardedCluster(clusterName, "mmy-shard-1"))
 	assert.False(t, isShardOfShardedCluster(clusterName, "my-shard-1s"))
+}
+
+func TestProcessBelongsToReplicaSet(t *testing.T) {
+	d := NewDeployment()
+	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
+	d.MergeReplicaSet(rs0, zap.S())
+
+	assert.True(t, d.ProcessBelongsToResource("my-rs-0", "my-rs"))
+	assert.True(t, d.ProcessBelongsToResource("my-rs-1", "my-rs"))
+	assert.True(t, d.ProcessBelongsToResource("my-rs-2", "my-rs"))
+
+	// Process does not belong if resource does not exist
+	assert.True(t, d.ProcessBelongsToResource("unknown-0", "unknown"))
+}
+
+func TestProcessBelongsToShardedCluster(t *testing.T) {
+	d := NewDeployment()
+	configRs := createConfigSrvRs("config", false)
+	d.MergeShardedCluster("sh001", createMongosProcesses(3, "mongos", ""), configRs, createShards("shards"), false)
+
+	// Config Servers
+	assert.True(t, d.ProcessBelongsToResource("config-0", "sh001"))
+	assert.True(t, d.ProcessBelongsToResource("config-1", "sh001"))
+	assert.True(t, d.ProcessBelongsToResource("config-2", "sh001"))
+
+	// Does not belong!
+	assert.False(t, d.ProcessBelongsToResource("config-3", "sh001"))
+
+	// Mongos
+	assert.True(t, d.ProcessBelongsToResource("mongos0", "sh001"))
+	assert.True(t, d.ProcessBelongsToResource("mongos1", "sh001"))
+	assert.True(t, d.ProcessBelongsToResource("mongos2", "sh001"))
+	// Does not belong!
+	assert.False(t, d.ProcessBelongsToResource("mongos3", "sh001"))
+
+	// Shard members
+	assert.True(t, d.ProcessBelongsToResource("shards-0-0", "sh001"))
+	assert.True(t, d.ProcessBelongsToResource("shards-0-1", "sh001"))
+	assert.True(t, d.ProcessBelongsToResource("shards-0-2", "sh001"))
+
+	// Does not belong!
+	assert.False(t, d.ProcessBelongsToResource("shards-0-3", "sh001"))
+	// Shard members
+	assert.True(t, d.ProcessBelongsToResource("shards-1-0", "sh001"))
+	assert.True(t, d.ProcessBelongsToResource("shards-1-1", "sh001"))
+	assert.True(t, d.ProcessBelongsToResource("shards-1-2", "sh001"))
+
+	// Does not belong!
+	assert.False(t, d.ProcessBelongsToResource("shards-1-3", "sh001"))
+	// Shard members
+	assert.True(t, d.ProcessBelongsToResource("shards-2-0", "sh001"))
+	assert.True(t, d.ProcessBelongsToResource("shards-2-1", "sh001"))
+	assert.True(t, d.ProcessBelongsToResource("shards-2-2", "sh001"))
+
+	// Does not belong!
+	assert.False(t, d.ProcessBelongsToResource("shards-2-3", "sh001"))
 }
 
 // ************************   Methods for checking deployment units

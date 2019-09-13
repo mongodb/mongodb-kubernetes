@@ -108,6 +108,12 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		return retry()
 	}
 
+	shouldContinue, warnings := om.CheckIfCanProceedWithWarnings(conn, s)
+	if !shouldContinue {
+		return r.updateStatusFailed(s, "cannot create more than 1 MongoDB Cluster per project", log)
+	}
+	s.Status.Warnings = warnings
+
 	// cannot have a non-tls deployment in an x509 environment
 	if projectConfig.AuthMode == util.X509 && !s.Spec.GetTLSConfig().Enabled {
 		return r.updateStatusValidationFailure(s, fmt.Sprintf("cannot have a non-tls deployment when x509 authentication is enabled"), log)

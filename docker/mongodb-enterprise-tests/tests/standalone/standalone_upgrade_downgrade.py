@@ -1,5 +1,5 @@
 import pytest
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, skip_if_local
 from kubetester.mongotester import StandaloneTester
 
 
@@ -15,9 +15,13 @@ class TestStandaloneUpgradeDowngradeCreate(KubernetesTester):
       timeout: 100
     '''
 
+    @skip_if_local
     def test_db_connectable(self):
         mongod_tester = StandaloneTester("my-standalone-downgrade")
         mongod_tester.assert_version("3.6.12")
+
+    def test_noop(self):
+        assert True
 
 
 @pytest.mark.e2e_standalone_upgrade_downgrade
@@ -33,9 +37,13 @@ class TestStandaloneUpgradeDowngradeUpdate(KubernetesTester):
       timeout: 100
     '''
 
+    @skip_if_local
     def test_db_connectable(self):
         mongod_tester = StandaloneTester("my-standalone-downgrade")
         mongod_tester.assert_version("4.0.3")
+
+    def test_noop(self):
+        assert True
 
 
 @pytest.mark.e2e_standalone_upgrade_downgrade
@@ -50,6 +58,10 @@ class TestStandaloneUpgradeDowngradeRevert(KubernetesTester):
       timeout: 100
     '''
 
+    @skip_if_local
     def test_db_connectable(self):
         mongod_tester = StandaloneTester("my-standalone-downgrade")
         mongod_tester.assert_version("3.6.12")
+
+    def test_noop(self):
+        assert True

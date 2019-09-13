@@ -5,6 +5,7 @@ import (
 
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
@@ -58,6 +59,14 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		log.Infof("error reading project %s", err)
 		return retry()
 	}
+
+	shouldContinue, warnings := om.CheckIfCanProceedWithWarnings(conn, rs)
+	if !shouldContinue {
+		return r.updateStatusFailed(rs, "cannot create more than 1 MongoDB Cluster per project", log)
+	}
+	// TODO: We agreed on having the warnings set here. It is not the best place, but this code will not last
+	// for long.
+	rs.Status.Warnings = warnings
 
 	// cannot have a non-tls deployment in an x509 environment
 	if projectConfig.AuthMode == util.X509 && !rs.Spec.GetTLSConfig().Enabled {

@@ -62,6 +62,12 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return nil, failedErr(err)
 	}
 
+	shouldContinue, warnings := om.CheckIfCanProceedWithWarnings(conn, sc)
+	if !shouldContinue {
+		return nil, failed("cannot create more than 1 MongoDB Cluster per project")
+	}
+	sc.Status.Warnings = warnings
+
 	projectConfig, err := r.kubeHelper.readProjectConfig(sc.Namespace, sc.Spec.Project)
 	if err != nil {
 		return nil, failed("error reading project %s", err)

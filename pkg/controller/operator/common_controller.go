@@ -203,6 +203,7 @@ func (c *ReconcileCommonController) updateStatusSuccessful(reconciledResource Up
 		// if there has been a change to the spec since, we don't want to change the state
 		// subresource to match an incorrect spec
 		fresh.UpdateSuccessful(old, args...)
+
 	})
 	if err != nil {
 		log.Errorf("Failed to update status for resource to successful: %s", err)
@@ -271,6 +272,7 @@ func (c *ReconcileCommonController) updateStatus(reconciledResource Updatable, u
 		if err != nil {
 			return err
 		}
+
 		updateFunc(reconciledResource)
 		err = c.client.Update(context.TODO(), reconciledResource)
 		if err == nil {

@@ -82,13 +82,14 @@ type MongoDBList struct {
 
 type MongoDbStatus struct {
 	MongodbShardedClusterSizeConfig
-	Members        int          `json:"members,omitempty"`
-	Version        string       `json:"version"`
-	Phase          Phase        `json:"phase"`
-	Message        string       `json:"message,omitempty"`
-	Link           string       `json:"link,omitempty"`
-	LastTransition string       `json:"lastTransition,omitempty"`
-	ResourceType   ResourceType `json:"type"`
+	Members        int             `json:"members,omitempty"`
+	Version        string          `json:"version"`
+	Phase          Phase           `json:"phase"`
+	Message        string          `json:"message,omitempty"`
+	Link           string          `json:"link,omitempty"`
+	LastTransition string          `json:"lastTransition,omitempty"`
+	ResourceType   ResourceType    `json:"type"`
+	Warnings       []StatusWarning `json:"warnings,omitempty"`
 }
 
 type MongoDbSpec struct {
@@ -292,6 +293,8 @@ func (m *MongoDB) UpdateSuccessful(object runtime.Object, args ...string) {
 	m.Status.LastTransition = util.Now()
 	m.Status.Phase = PhaseRunning
 	m.Status.ResourceType = spec.ResourceType
+
+	m.Status.Warnings = reconciledResource.Status.Warnings
 
 	switch spec.ResourceType {
 	case ReplicaSet:

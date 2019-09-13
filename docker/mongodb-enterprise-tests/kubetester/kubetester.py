@@ -368,7 +368,7 @@ class KubernetesTester(object):
         A fix for this has been merged already (https://github.com/kubernetes-client/python/issues/862). The
         Kubernetes Python module should be updated when the client is regenerated (version 10.0.1 or so)
 
-        TODO 2: as of 10.0.0 the patch gets completely broken: https://github.com/kubernetes-client/python/issues/866
+        # TODO 2 (fixed in 10.0.1): As of 10.0.0 the patch gets completely broken: https://github.com/kubernetes-client/python/issues/866
         ("reason":"UnsupportedMediaType","code":415)
         So we still should be careful with "remove" operation - better use "replace: null"
         """

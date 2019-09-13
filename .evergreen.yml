@@ -515,7 +515,14 @@ functions:
           export PROJECT_NAMESPACE=$(generate_random_namespace)
           echo "Using $PROJECT_NAMESPACE"
 
-          export CURRENT_VERSION=$(grep mongodbOperator release.json | awk '{ print $2 }' | cut -d '"' -f 2)
+          if [ "${from_version}" = "latest" ]; then
+              # gets the last version released.
+              export CURRENT_VERSION=$(grep mongodbOperator release.json | awk '{ print $2 }' | cut -d '"' -f 2)
+          else
+              export CURRENT_VERSION=${from_version}
+          fi
+
+          export CURRENT_VERSION=${from_version}
           echo "Setting up environment with current operator release: $CURRENT_VERSION"
 
           export REGISTRY="quay.io/mongodb"
@@ -691,11 +698,26 @@ tasks:
         cluster_name: e2e.om.mongokubernetes.com
     - func: prepare_test_env
 
-- name: e2e_operator_upgrade
+- name: e2e_operator_upgrade_from_multiple_clusters
   tags: ["openshift-om-qa"]
   exec_timeout_secs: 1200
   commands:
     - func: e2e_test_upgrade_operator
+      vars:
+        from_version: 1.2.2
+
+# - name: e2e_operator_upgrade
+#   tags: ["openshift-om-qa"]
+#   exec_timeout_secs: 1200
+#   commands:
+#     - func: e2e_test_upgrade_operator
+#       vars:
+#         from_version: latest
+
+- name: e2e_multiple_cluster_failures
+  tags: ["openshift-om-qa"]
+  commands:
+    - func: e2e_test
 
 - name: e2e_standalone_schema_validation
   tags: ["kops-om-40"]
@@ -1033,7 +1055,9 @@ task_groups:
     - e2e_sharded_cluster_recovery
     - e2e_sharded_cluster_secret
     - e2e_sharded_cluster_upgrade_downgrade
-    - e2e_operator_upgrade
+    - e2e_multiple_cluster_failures
+    # - e2e_operator_upgrade
+    - e2e_operator_upgrade_from_multiple_clusters
   teardown_task:
     - func: "upload_e2e_logs"
 

@@ -47,6 +47,7 @@ type MongoDBOpsManagerSpec struct {
 type MongoDBOpsManagerStatus struct {
 	OpsManagerStatus OpsManagerStatus `json:"opsManager,omitempty"`
 	AppDbStatus      AppDbStatus      `json:"applicationDatabase,omitempty"`
+	Warnings         []StatusWarning  `json:"warnings,omitempty"`
 }
 
 type OpsManagerStatus struct {
