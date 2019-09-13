@@ -69,7 +69,7 @@ functions:
         script: |
           export WORKDIR=${workdir}
 
-          if [[ "${task_name}" = "release_operator_rhel_connect" ]] || [[ "${task}" = "release_operator" ]]; then
+          if [[ "${task_name}" = "release_operator_rhel_connect" ]] || [[ "${task_name}" = "release_operator" ]]; then
             # Make sure release matches a correct release name.
 
             if [[ -z $(git status --short) ]]; then
