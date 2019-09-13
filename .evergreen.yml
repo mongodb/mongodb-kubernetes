@@ -721,14 +721,6 @@ tasks:
   commands:
     - func: "e2e_test"
 
-- name: e2e_replica_set_different_namespaces
-  tags: ["kops-multiple"]
-  exec_timeout_secs: 1200
-  commands:
-    - func: "e2e_test"
-      vars:
-        watch_namespace: "*"
-
 - name: e2e_standalone_config_map
   tags: ["openshift-om-qa"]
   exec_timeout_secs: 1200
@@ -1105,17 +1097,6 @@ task_groups:
   teardown_task:
     - func: "upload_e2e_logs"
 
-- name: e2e_multiple_namespace_task_group
-  max_hosts: 100
-  setup_group:
-    - func: clone
-    - func: download_kubectl
-    - func: setup_kubernetes_environment
-  tasks:
-    - e2e_replica_set_different_namespaces
-  teardown_task:
-    - func: "upload_e2e_logs"
-
 - name: e2e_ops_manager_task_group
   max_hosts: 3
   setup_group:
@@ -1221,24 +1202,6 @@ buildvariants:
   - name: "e2e_tls_task_group"
   - name: "e2e_x509_task_group"
   - name: e2e_tls_custom_ca_task_group
-
-# any subsequent tasks being executed in this build variant should depend upon the previously
-# executed task in order to prevent interference
-- name: e2e_kube_vanilla_cloud_qa_clusterwide
-  display_name: "e2e_kube_vanilla_cloud_qa_clusterwide"
-  depends_on:
-    - name: build_images
-      variant: init_test_run
-  run_on:
-    - archlinux-test
-  stepback: false
-  expansions:
-    <<: *cloud_manager_qa
-    static_namespace: "multiple-namespace-test"
-    cluster_name: "e2e.multinamespace.mongokubernetes.com"
-    kube_environment_name: vanilla_1_11
-  tasks:
-    - name: "e2e_multiple_namespace_task_group"
 
 - name: e2e_kube_vanilla_ops_manager
   display_name: "e2e_kube_vanilla_ops_manager"
