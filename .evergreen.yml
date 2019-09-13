@@ -585,7 +585,7 @@ tasks:
     - func: "gotest_parse_files"
 
 - name: unit_tests_lint
-  tags: ["unit_tests_lint"]
+  tags: ["unit_tests"]
   commands:
     - func: "golint"
 

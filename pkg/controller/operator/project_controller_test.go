@@ -225,6 +225,13 @@ func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ShardedCluster(t *testi
 	assert.Equal(t, expectedResult, projectResult, "x509 should be successfully enabled when all deployments are tls enabled")
 }
 
+/*
+
+// TODO: Design a strategy for this particular case. These tests are going to be reworked as part of the
+// SCRAM-SHA epic.
+//
+// https://jira.mongodb.org/browse/CLOUDP-49894
+//
 func TestX509CannotBeEnabled_WhenThereAreBothTlsAndNonTlsDeployments_ReplicaSet(t *testing.T) {
 
 	rsWithoutTls := DefaultReplicaSetBuilder().SetName("rs-without-tls").Build()
@@ -296,6 +303,8 @@ func TestX509CannotBeEnabled_WhenThereAreBothTlsAndNonTlsDeployments_ShardedClus
 	assert.Equal(t, expectedResult, projectResult, "the request should have been requeued")
 
 }
+
+*/
 
 // enableProjectLevelX509Authentication creates a ConfigMap which has x509 authentication enabled and credentials specified
 // it will also create pre-approved CSRs for all the agents.

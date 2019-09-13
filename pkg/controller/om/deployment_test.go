@@ -323,7 +323,7 @@ func TestProcessBelongsToReplicaSet(t *testing.T) {
 	assert.True(t, d.ProcessBelongsToResource("my-rs-2", "my-rs"))
 
 	// Process does not belong if resource does not exist
-	assert.True(t, d.ProcessBelongsToResource("unknown-0", "unknown"))
+	assert.False(t, d.ProcessBelongsToResource("unknown-0", "unknown"))
 }
 
 func TestProcessBelongsToShardedCluster(t *testing.T) {
