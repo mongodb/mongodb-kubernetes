@@ -823,6 +823,12 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_replica_set_readiness_probe
+  tags: ["openshift-om-42"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_sharded_cluster
   exec_timeout_secs: 1200
   commands:
@@ -1050,6 +1056,7 @@ task_groups:
     - e2e_replica_set_upgrade_downgrade
     - e2e_replica_set_8_members
     - e2e_replica_set_exposed_externally
+    - e2e_replica_set_readiness_probe
     - e2e_sharded_cluster
     - e2e_sharded_cluster_pv
     - e2e_sharded_cluster_recovery

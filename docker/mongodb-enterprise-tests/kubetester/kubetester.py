@@ -1178,3 +1178,6 @@ def build_svc_fqdn(service: str, namespace: str, clustername: str = "cluster.loc
 
 def hostname(hostname, idx):
     return "{}-{}".format(hostname, idx)
+
+def get_pods(podname_format, qty=3):
+    return [podname_format.format(i) for i in range(qty)]
