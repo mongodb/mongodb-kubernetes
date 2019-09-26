@@ -102,45 +102,28 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		}
 	}
 
-	errorMessage := ""
-	err = RunInGivenOrder(replicaBuilder.NeedToPublishStateFirst(log),
-		func() error {
-			errorMessage = "Ops Manager"
-			return r.updateOmDeploymentRs(conn, rs.Status.Members, rs, replicaSetObject, log)
+	status := runInGivenOrder(replicaBuilder.needToPublishStateFirst(log),
+		func() reconcileStatus {
+			if err := r.updateOmDeploymentRs(conn, rs.Status.Members, rs, replicaSetObject, log); err != nil {
+				return failedErr(fmt.Errorf("Failed to create/update (Ops Manager reconciliation phase): %s.", err))
+			}
+			log.Info("Updated Ops Manager for replica set")
+			return ok()
 		},
-		func() error {
-			errorMessage = "Kubernetes"
-			return replicaBuilder.CreateOrUpdateInKubernetes()
+		func() reconcileStatus {
+			if err := replicaBuilder.CreateOrUpdateInKubernetes(); err != nil {
+				return failedErr(fmt.Errorf("Failed to create/update (Kubernetes reconciliation phase): %s.", err))
+			}
+			log.Info("Updated statefulsets for replica set")
+			return ok()
 		})
-	if err != nil {
-		return r.updateStatusFailed(rs, fmt.Sprintf("Failed to create/update (%s reconciliation phase): %s.", errorMessage, err), log)
+
+	if !status.isOk() {
+		return status.updateStatus(rs, r.ReconcileCommonController, log)
 	}
 
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	return r.updateStatusSuccessful(rs, log, DeploymentLink(conn.BaseURL(), conn.GroupID()))
-}
-
-// RunInGivenOrder will execute N functions, passed as varargs as `funcs`. The order of execution will depend on the result
-// of the evaluation of the `tester` boolean value. If `tester` is true, the functions will be executed in order; if
-// `tester` is false, the functions will be executed in reverse order (from last to first)
-func RunInGivenOrder(tester bool, funcs ...func() error) error {
-	if tester {
-		for _, fn := range funcs {
-			err := fn()
-			if err != nil {
-				return err
-			}
-		}
-	} else {
-		for i := len(funcs) - 1; i >= 0; i-- {
-			err := funcs[i]()
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
 }
 
 // AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller

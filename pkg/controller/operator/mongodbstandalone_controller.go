@@ -138,15 +138,24 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		return status.updateStatus(s, r.ReconcileCommonController, log)
 	}
 
-	err = standaloneBuilder.CreateOrUpdateInKubernetes()
-	if err != nil {
-		return r.updateStatusFailed(s, fmt.Sprintf("Failed to create/update the StatefulSet: %s", err), log)
-	}
+	status := runInGivenOrder(standaloneBuilder.needToPublishStateFirst(log),
+		func() reconcileStatus {
+			if err := updateOmDeployment(conn, s, standaloneBuilder.BuildStatefulSet(), log); err != nil {
+				return failedErr(fmt.Errorf("Failed to create/update (Ops Manager reconciliation phase): %s.", err))
+			}
+			log.Info("Updated Ops Manager for standalone")
+			return ok()
+		},
+		func() reconcileStatus {
+			if err := standaloneBuilder.CreateOrUpdateInKubernetes(); err != nil {
+				return failedErr(fmt.Errorf("Failed to create/update (Kubernetes reconciliation phase): %s.", err))
+			}
+			log.Info("Updated statefulset for standalone")
+			return ok()
+		})
 
-	log.Info("Updated statefulset for standalone")
-
-	if err := updateOmDeployment(conn, s, standaloneBuilder.BuildStatefulSet(), log); err != nil {
-		return r.updateStatusFailed(s, fmt.Sprintf("Failed to create/update standalone in Ops Manager: %s", err), log)
+	if !status.isOk() {
+		return status.updateStatus(s, r.ReconcileCommonController, log)
 	}
 
 	log.Infof("Finished reconciliation for MongoDbStandalone! %s", completionMessage(conn.BaseURL(), conn.GroupID()))

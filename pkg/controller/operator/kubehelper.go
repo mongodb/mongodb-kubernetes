@@ -307,11 +307,11 @@ func (s *StatefulSetHelper) SetSecurity(security *mongodb.Security) *StatefulSet
 	return s
 }
 
-// NeedToPublishStateFirst will check if the Published State of the StatfulSet backed MongoDB Deployments
+// needToPublishStateFirst will check if the Published State of the StatfulSet backed MongoDB Deployments
 // needs to be updated first. In the case of unmounting certs, for instance, the certs should be not
 // required anymore before we unmount them, or the automation-agent and readiness probe will never
 // reach goal state.
-func (s *StatefulSetHelper) NeedToPublishStateFirst(log *zap.SugaredLogger) bool {
+func (s *StatefulSetHelper) needToPublishStateFirst(log *zap.SugaredLogger) bool {
 	currentSet := appsv1.StatefulSet{}
 	namespacedName := objectKey(s.Namespace, s.Name)
 	err := s.Helper.client.Get(context.TODO(), namespacedName, &currentSet)
@@ -330,19 +330,15 @@ func (s *StatefulSetHelper) NeedToPublishStateFirst(log *zap.SugaredLogger) bool
 	volumeMounts := currentSet.Spec.Template.Spec.Containers[0].VolumeMounts
 	if s.Security != nil {
 		if !s.Security.TLSConfig.Enabled && volumeMountWithNameExists(volumeMounts, SecretVolumeName) {
-			log.Debug("About to set `tls.security.enabled` to false. automationConfig needs to be updated first")
+			log.Debug("About to set `security.tls.enabled` to false. automationConfig needs to be updated first")
 			return true
 		}
 
 		if s.Security.TLSConfig.CA == "" && volumeMountWithNameExists(volumeMounts, SecretVolumeCAName) {
-			log.Debug("About to set `tls.security.CA` to empty. automationConfig needs to be updated first")
+			log.Debug("About to set `security.tls.CA` to empty. automationConfig needs to be updated first")
 			return true
 		}
 
-		if s.Security.ClusterAuthMode == "" && volumeMountWithNameExists(volumeMounts, util.ClusterFileName) {
-			log.Debug("About to set `tls.security.clusterAuthMode` to empty. automationConfig needs to be updated first")
-			return true
-		}
 	}
 
 	if s.PodVars.SSLMMSCAConfigMap == "" && volumeMountWithNameExists(volumeMounts, CaCertName) {

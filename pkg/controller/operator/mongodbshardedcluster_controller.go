@@ -91,19 +91,41 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return nil, status
 	}
 
-	if err = r.createKubernetesResources(sc, kubeState, log); err != nil {
-		return nil, failed("Failed to create/update resources in Kubernetes for sharded cluster: %s", err)
-	}
-	log.Infow("All Kubernetes objects are created/updated, adding the deployment to Ops Manager")
+	status := runInGivenOrder(anyStatefulSetHelperNeedsToPublishState(kubeState, log),
+		func() reconcileStatus {
+			if status := updateOmDeploymentShardedCluster(conn, sc, kubeState, log); !status.isOk() {
+				return status
+			}
+			log.Info("Updated Ops Manager for sharded cluster")
+			return ok()
+		},
+		func() reconcileStatus {
+			if err := r.createKubernetesResources(sc, kubeState, log); err != nil {
+				return failedErr(err)
+			}
+			log.Info("Updated statefulsets for sharded cluster")
+			return ok()
+		})
 
-	if status := updateOmDeploymentShardedCluster(conn, sc, kubeState, log); !status.isOk() {
+	if !status.isOk() {
 		return nil, status
 	}
 
-	log.Infow("Ops Manager deployment updated successfully")
 	r.removeUnusedStatefulsets(sc, kubeState, log)
 	return conn, ok()
 
+}
+
+// anyStatefulSetHelperNeedsToPublishState checks to see if any stateful set helper part
+// of the given sharded cluster needs to publish state to Ops Manager before updating Kubernetes resources
+func anyStatefulSetHelperNeedsToPublishState(kubeState ShardedClusterKubeState, log *zap.SugaredLogger) bool {
+	allHelpers := getAllStatefulSetHelpers(kubeState)
+	for _, stsHelper := range allHelpers {
+		if stsHelper.needToPublishStateFirst(log) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *ReconcileMongoDbShardedCluster) ensureX509(sc *mongodb.MongoDB, projectConfig *ProjectConfig, kubeState ShardedClusterKubeState, log *zap.SugaredLogger) reconcileStatus {

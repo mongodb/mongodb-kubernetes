@@ -28,7 +28,7 @@ class TestStandaloneRecoversBadPvConfiguration(KubernetesTester):
         KubernetesTester.wait_until('in_error_state', 300)
 
         mrs = KubernetesTester.get_resource()
-        assert "Failed to create/update the StatefulSet" in mrs['status']['message']
+        assert "Failed to create/update (Kubernetes reconciliation phase)" in mrs['status']['message']
 
     def test_recovery(self):
         resource = yaml.safe_load(open(fixture("test_storage_class.yaml")))

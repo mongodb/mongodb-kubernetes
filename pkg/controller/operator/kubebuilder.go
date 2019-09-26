@@ -200,7 +200,7 @@ func mountVolume(mountData volumeMountData, set *appsv1.StatefulSet) {
 }
 
 // mountVolumes will add VolumeMounts to the `set` object.
-// Make sure you keep this updated with `kubehelper.NeedToPublishStateFirst` as it declares
+// Make sure you keep this updated with `kubehelper.needToPublishStateFirst` as it declares
 // in which order to make changes to StatefulSet and Ops Manager automationConfig
 func mountVolumes(set *appsv1.StatefulSet, helper StatefulSetHelper) {
 	// SSL is active

@@ -34,7 +34,7 @@ func TestX509InternalClusterAuthentication_CannotBeEnabledForReplicaSet_IfProjec
 
 	manager := newMockedManager(rsWithTls)
 	client := manager.client
-	addTlsData(client, rsWithTls)
+	addKubernetesTlsResources(client, rsWithTls)
 
 	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
 	checkReconcileFailed(t, reconciler, rsWithTls,
@@ -46,7 +46,7 @@ func TestX509InternalClusterAuthentication_CannotBeEnabledForShardedCluster_IfPr
 	scWithTls := DefaultClusterBuilder().WithTLS().SetClusterAuth(util.X509).SetName("sc-with-tls").Build()
 	manager := newMockedManager(scWithTls)
 	client := manager.client
-	addTlsData(client, scWithTls)
+	addKubernetesTlsResources(client, scWithTls)
 	reconciler := newShardedClusterReconciler(manager, om.NewEmptyMockedOmConnection)
 	checkReconcileFailed(t, reconciler, scWithTls,
 		"This deployment has clusterAuthenticationMode set to x509, ensure the ConfigMap for this project is configured to enable x509", client)
@@ -61,7 +61,7 @@ func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_Re
 
 	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
 
-	addTlsData(client, rsWithTls)
+	addKubernetesTlsResources(client, rsWithTls)
 
 	// create the plain TLS replica set
 	checkReconcileSuccessful(t, reconciler, rsWithTls, client)
@@ -96,7 +96,7 @@ func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_Sh
 
 	reconciler := newShardedClusterReconciler(manager, om.NewEmptyMockedOmConnection)
 
-	addTlsData(client, scWithTls)
+	addKubernetesTlsResources(client, scWithTls)
 
 	// create the plain TLS sharded cluster
 	checkReconcileSuccessful(t, reconciler, scWithTls, client)
@@ -181,7 +181,7 @@ func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ReplicaSet(t *testing.T
 
 	manager := newMockedManager(rsWithTls)
 	client := manager.client
-	addTlsData(client, rsWithTls)
+	addKubernetesTlsResources(client, rsWithTls)
 
 	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
 
@@ -207,7 +207,7 @@ func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ShardedCluster(t *testi
 
 	manager := newMockedManager(scWithTls)
 	client := manager.client
-	addTlsData(client, scWithTls)
+	addKubernetesTlsResources(client, scWithTls)
 
 	reconciler := newShardedClusterReconciler(manager, om.NewEmptyMockedOmConnection)
 
@@ -245,7 +245,7 @@ func TestX509CannotBeEnabled_WhenThereAreBothTlsAndNonTlsDeployments_ReplicaSet(
 	// create a MongoDB resource with TLS enabled
 	manager := newMockedManager(rsWithTls)
 	client := manager.client
-	addTlsData(client, rsWithTls)
+	addKubernetesTlsResources(client, rsWithTls)
 
 	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
 
@@ -281,7 +281,7 @@ func TestX509CannotBeEnabled_WhenThereAreBothTlsAndNonTlsDeployments_ShardedClus
 	// create a MongoDB resource with TLS enabled
 	manager := newMockedManager(scWithTls)
 	client := manager.client
-	addTlsData(client, scWithTls)
+	addKubernetesTlsResources(client, scWithTls)
 
 	reconciler := newShardedClusterReconciler(manager, om.NewEmptyMockedOmConnection)
 
@@ -349,8 +349,8 @@ func createCSR(conditionType certsv1.RequestConditionType) *certsv1.CertificateS
 // 	}
 // }
 
-// addTlsData ensures all the required TLS secrets exist for the given MongoDB resource
-func addTlsData(client *MockedClient, mdb *v1.MongoDB) {
+// addKubernetesTlsResources ensures all the required TLS secrets exist for the given MongoDB resource
+func addKubernetesTlsResources(client *MockedClient, mdb *v1.MongoDB) {
 	switch mdb.Spec.ResourceType {
 	case v1.ReplicaSet:
 		createReplicaSetTLSData(client, mdb)

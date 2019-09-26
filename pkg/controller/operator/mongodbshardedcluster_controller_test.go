@@ -290,6 +290,35 @@ func TestShardedCluster_WithTLSEnabled_AndX509Enabled_Succeeds(t *testing.T) {
 	assert.Nil(t, err)
 }
 
+func TestShardedCluster_NeedToPublishState(t *testing.T) {
+	sc := DefaultClusterBuilder().
+		WithTLS().
+		Build()
+
+	manager := newMockedManager(sc)
+
+	client := manager.client
+	addKubernetesTlsResources(client, sc)
+
+	// perform successful reconciliation to populate all the stateful sets in the mocked client
+	reconciler := newShardedClusterReconciler(manager, om.NewEmptyMockedOmConnection)
+	actualResult, err := reconciler.Reconcile(requestFromObject(sc))
+	expectedResult, _ := success()
+
+	assert.Equal(t, expectedResult, actualResult)
+	assert.Nil(t, err)
+
+	kubeState := reconciler.buildKubeObjectsForShardedCluster(sc, defaultPodVars(), &ProjectConfig{}, zap.S())
+	assert.False(t, anyStatefulSetHelperNeedsToPublishState(kubeState, zap.S()))
+
+	// attempting to set tls to false
+	sc.Spec.Security.TLSConfig.Enabled = false
+
+	// Ops Manager state needs to be published first as we want to reach goal state before unmounting certificates
+	kubeState = reconciler.buildKubeObjectsForShardedCluster(sc, defaultPodVars(), &ProjectConfig{}, zap.S())
+	assert.True(t, anyStatefulSetHelperNeedsToPublishState(kubeState, zap.S()))
+}
+
 func createDeploymentFromShardedCluster(updatable Updatable) om.Deployment {
 	sh := updatable.(*v1.MongoDB)
 	state := createStateFromResource(sh)
