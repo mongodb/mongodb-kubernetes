@@ -25,13 +25,4 @@ else
       -ldflags="-s -w -X github.com/10gen/ops-manager-kubernetes/pkg/util.OperatorVersion=$RELEASE_VERSION"
 fi
 
-echo "Building readiness probe"
-(
-    cd probe
-    go build -o ../docker/mongodb-enterprise-database/content/readinessprobe
-)
-
-# echo "Compressing probe binary"
-# upx -9 -qq docker/mongodb-enterprise-database/content/readinessprobe
-
 echo "Operator successfully built (version ${RELEASE_VERSION})"

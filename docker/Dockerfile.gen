@@ -1,0 +1,115 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+#
+# * Dockerfile.gen
+#
+# Generates a Dockerfile by using `Dockerfile.template` and the values
+# for `ubuntu` and `rhel` distros.  It needs to be called with first
+# argument being one of the supported distros.
+#
+# The result of the execution will be printed to stdout so it needs to
+# be redirected into a Dockerfile.
+#
+# * Usage:
+#
+#     ./Dockerfile.gen <distro> > Dockerfile
+#
+# It is required that the `Dockerfile.template` to exist in the
+# current working directory.
+#
+
+from typing import Dict, List, Union
+from pathlib import Path
+import json
+import os
+import sys
+
+import jinja2
+
+
+def get_version() -> str:
+    """Returns the current version of the operator based on the
+    release.json file. It find the release.json file in this directory
+    and every parent directory up to the root.
+    """
+    def release(p: Path):
+        if Path("/") == p:
+            return
+
+        if os.path.exists(os.path.join(p, "release.json")):
+            return os.path.join(p, "release.json")
+        else:
+            return release(p.parent)
+
+    release_path = release(Path(os.getcwd()))
+    with open(release_path) as fd:
+        release_json = json.loads(fd.read())
+        return release_json["mongodbOperator"]
+
+
+def ubuntu() -> Dict[str, Union[str, List[str]]]:
+    """Ubuntu distro data."""
+    packages = """
+        ca-certificates
+        curl
+        libcurl3
+        openssl
+        libgssapi-krb5-2
+        libkrb5-dbg
+        libldap-2.4-2
+        libpcap0.8
+        libsasl2-2
+        snmp
+        jq""".split()
+
+    version = get_version()
+
+    return {
+        "packages": packages,
+        "base_image": "ubuntu:16.04",
+        "distro": "ubuntu",
+        "version": version
+    }
+
+
+def rhel() -> Dict[str, Union[str, List[str]]]:
+    """RHEL distro data."""
+    packages = """
+        cyrus-sasl
+        cyrus-sasl-gssapi
+        cyrus-sasl-plain
+        krb5-libs
+        libcurl
+        libpcap
+        lm_sensors-libs
+        net-snmp
+        net-snmp-agent-libs
+        openldap
+        openssl
+        rpm-libs
+        tcp_wrappers-libs
+        curl
+        jq""".split()
+
+    return {
+        "packages": packages,
+        "base_image": "registry.access.redhat.com/ubi7/ubi-minimal",
+        "distro": "rhel",
+        "version": get_version(),
+    }
+
+
+def render(distro: str):
+    if getattr(sys.modules[__name__], distro, None) is None:
+        raise ValueError("{} is not a valid distro name.".format(distro))
+
+    return jinja2.Template(open("Dockerfile.template").read()).render(
+        getattr(sys.modules[__name__], distro)()
+    )
+
+
+if __name__ == "__main__":
+    distro = sys.argv[1]
+
+    print(render(distro))

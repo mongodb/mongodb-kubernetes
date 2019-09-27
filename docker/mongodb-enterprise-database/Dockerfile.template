@@ -1,0 +1,58 @@
+# This is the Docker file for the Ops Manager (Enterprise) Database
+#
+FROM {{ base_image }}
+
+ENV MMS_HOME /mongodb-automation
+ENV MMS_LOG_DIR /var/log/mongodb-mms-automation
+
+LABEL name="MongoDB Enterprise Database" \
+      maintainer="support@mongodb.com" \
+      vendor="MongoDB" \
+      version="{{ version }}" \
+      release="1" \
+      summary="MongoDB Enterprise Database Image" \
+      description="MongoDB Enterprise Database Image"
+
+{% if distro == "rhel" -%}
+COPY licenses /licenses
+COPY content/epel.repo /etc/yum.repos.d/epel.repo
+COPY content/RPM-GPG-KEY-EPEL-7 /etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-7
+{% endif -%}
+
+{% if distro == "rhel" -%}
+RUN microdnf install {% for package in packages %}{{ package }} {% endfor %} \
+        --nodocs ; \
+        microdnf clean all
+
+RUN ln -s /usr/lib64/libsasl2.so.3 /usr/lib64/libsasl2.so.2
+{% elif distro == "ubuntu" %}
+RUN apt-get -qq update \
+        && apt-get -y -qq install \ {% for package in packages %}
+           {{ package }} \ {% endfor %}
+        && apt-get upgrade -y -qq \
+        && apt-get dist-upgrade -y -qq \
+        && rm -rf /var/lib/apt/lists/*
+{% endif %}
+
+COPY content/ ${MMS_HOME}/files/
+
+# Set the required perms
+RUN    mkdir -p ${MMS_LOG_DIR} \
+        && chmod 0775 ${MMS_LOG_DIR} \
+        && mkdir -p /var/lib/mongodb-mms-automation \
+        && chmod 0775 /var/lib/mongodb-mms-automation \
+        && mkdir -p /data \
+        && chmod 0775 /data \
+        && mkdir -p /journal \
+        && chmod 0775 /journal \
+        && chmod -R 0775 ${MMS_HOME} \
+        && chmod 0664 /etc/passwd
+
+{% if distro == "rhel" %}
+# USER needs to be set for this image to pass RedHat verification.
+# It does not matter what number it is, as long as it is set to something.
+# However, OpenShift will run the container as a random user,
+# and the number in this configuration is not relevant.
+USER 2000
+{% endif %}
+ENTRYPOINT ["/mongodb-automation/files/agent-launcher.sh"]

@@ -87,7 +87,28 @@ functions:
             echo "Proceeding with release $release_version"
           fi
 
+          ( cd docker/mongodb-enterprise-operator && ../Dockerfile.gen ${distro} > Dockerfile )
+
           SKIP_TESTING=true ./scripts/evergreen/build_operator
+
+  build_database:
+    - command: shell.exec
+      type: system
+      params:
+        shell: bash
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        script: |
+          export GOPATH="${workdir}"
+          export GOROOT="/usr/lib/go"
+          export GOBIN="$GOPATH/bin"
+          export PATH="$GOBIN:$PATH"
+
+          ( cd docker/mongodb-enterprise-database && ../Dockerfile.gen ${distro} > Dockerfile )
+
+          cd probe
+          go build -i -o readinessprobe
+
+          mv readinessprobe ../docker/mongodb-enterprise-database/content/readinessprobe
 
     - command: s3.put
       params:
@@ -306,7 +327,7 @@ functions:
       aws_secret: ${mms_build_s3_aws_secret}
       local_files_include_filter:
         - src/github.com/10gen/ops-manager-kubernetes/*-context.tar.gz
-      remote_file: ops-manager-operator/${version_id}/contexts/
+      remote_file: ops-manager-operator/${version_id}:${distro}/contexts/
       bucket: ops-manager-kubernetes-build
       permissions: public-read
       content_type: application/octet-stream
@@ -329,11 +350,11 @@ functions:
         for image_type in "tests" "operator" "database"; do
           ./scripts/evergreen/build_docker_image.sh \
               "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-$image_type" \
-              "$VERSION" \
-              "s3://ops-manager-kubernetes-build/ops-manager-operator/$VERSION/contexts/$image_type-context.tar.gz" \
+              "$VERSION-${distro}" \
+              "s3://ops-manager-kubernetes-build/ops-manager-operator/$VERSION:${distro}/contexts/$image_type-context.tar.gz" \
               "a=1" \
               "268558157000.dkr.ecr.us-east-1.amazonaws.com/cache/mongodb-enterprise-$image_type" \
-              "$image_type-build-$short_version"
+              "$image_type-build-$short_version-${distro}"
         done
         echo "All images have been scheduled to be built."
         all_finished="false"
@@ -341,10 +362,10 @@ functions:
           sleep 5
           all_finished="true"
           for image_type in "tests" "operator" "database"; do
-            echo "Checking if $image_type-build-$short_version finished already."
-            if [[ $(kubectl -n construction-site get pod --selector "podbuilderid=$image_type-build-$short_version" -o jsonpath='{.items[0].status.phase}') != "Succeeded" ]]; then
+            echo "Checking if $image_type-build-$short_version-${distro} finished already."
+            if [[ $(kubectl -n construction-site get pod --selector "podbuilderid=$image_type-build-$short_version-${distro}" -o jsonpath='{.items[0].status.phase}') != "Succeeded" ]]; then
               echo "$image_type-build-$short_version has not finished yet. Status is"
-              kubectl -n construction-site get pod --selector "podbuilderid=$image_type-build-$short_version" -o jsonpath='{.status.phase}'
+              kubectl -n construction-site get pod --selector "podbuilderid=$image_type-build-$short_version-${distro}" -o jsonpath='{.status.phase}'
               all_finished="false"
             fi
           done
@@ -449,12 +470,14 @@ functions:
             export REGISTRY=${prebuilt_registry}
             export TEST_IMAGE_TAG=${version_id}
           else
-            export REVISION=$(git rev-parse HEAD)
-            export VERSION_ID=${version_id}
+            export REVISION="$(git rev-parse HEAD)"
+            export VERSION_ID="${version_id}-${distro}"
             export OPERATOR_NAME=mongodb-enterprise-operator
             export DATABASE_NAME=mongodb-enterprise-database
             export REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
           fi
+
+          echo "Distro is ${distro}. Should have been set in buildvariant!"
 
           export WORKDIR=${workdir}
           export IS_EVERGREEN=${revision}
@@ -495,7 +518,7 @@ functions:
           export PATH=${workdir}/bin:$PATH
           export REVISION=$(git rev-parse HEAD)
           export PATH=${workdir}/bin:$PATH
-          export VERSION_ID=${version_id}
+          export VERSION_ID="${version_id}-${distro}"
           export MANAGED_SECURITY_CONTEXT="true"
           export BUILD_VARIANT=${build_variant}
           export TASK_ID=${task_id}
@@ -595,6 +618,11 @@ tasks:
   commands:
     - func: "clone"
     - func: "build_operator"
+      vars:
+        distro: ubuntu
+    - func: "build_database"
+      vars:
+        distro: ubuntu
     - func: "setup_docker"
     - func: "build_and_push_image"
       vars:
@@ -622,20 +650,55 @@ tasks:
     - func: "clone"
     - func: "setup_jq"
     - func: "build_operator"
+      vars:
+        distro: rhel
+    - func: "build_database"
+      vars:
+        distro: rhel
     - func: "push_operator_binary_for_rhel"
     - func: "push_database_readiness_probe_for_rhel"
 
-- name: build_images
+- name: build_images_rhel
   commands:
   - func: clone
   - func: setup_jq
   - func: build_operator
+    vars:
+      distro: rhel
+  - func: build_database
+    vars:
+      distro: rhel
   - func: upload_e2e_build_context
+    vars:
+      distro: rhel
   - func: download_kubectl
   - func: setup_kubernetes_environment
     vars:
       kube_environment_name: openshift_3_11
   - func: build_e2e_images
+    vars:
+      distro: rhel
+
+- name: build_images_ubuntu
+  commands:
+  - func: clone
+  - func: setup_jq
+  - func: build_operator
+    vars:
+      distro: ubuntu
+  - func: build_database
+    vars:
+      distro: ubuntu
+  - func: upload_e2e_build_context
+    vars:
+      distro: ubuntu
+  - func: download_kubectl
+  - func: setup_kubernetes_environment
+    vars:
+      kube_environment_name: openshift_3_11
+  - func: build_e2e_images
+    vars:
+      distro: ubuntu
 
 # Note that this task doesn't work so far as it needs different quay account and token
 - name: release_mongodb_enterprise
@@ -1165,7 +1228,7 @@ buildvariants:
 - name: e2e_kube_vanilla_v1.11_om_40_first
   display_name: "e2e_kube_vanilla_v1.11_om_40_first"
   depends_on:
-    - name: build_images
+    - name: build_images_ubuntu
       variant: init_test_run
     - name: prepare_cluster_vanilla_1_11
       variant: init_test_run
@@ -1175,6 +1238,7 @@ buildvariants:
   expansions:
     <<: *ops_manager_40_first
     kube_environment_name: vanilla_1_11
+    distro: ubuntu
   tasks:
   - name: "e2e_core_task_group"
   - name: "e2e_tls_task_group"
@@ -1182,7 +1246,7 @@ buildvariants:
 - name: e2e_kube_vanilla_v1.11_om_42_current
   display_name: "e2e_kube_vanilla_v1.11_om_42_current"
   depends_on:
-    - name: build_images
+    - name: build_images_ubuntu
       variant: init_test_run
     - name: prepare_cluster_vanilla_1_11
       variant: init_test_run
@@ -1192,6 +1256,7 @@ buildvariants:
   expansions:
     <<: *ops_manager_42_current
     kube_environment_name: vanilla_1_11
+    distro: ubuntu
   tasks:
   - name: "e2e_tls_task_group"
   - name: "e2e_x509_task_group"
@@ -1200,7 +1265,7 @@ buildvariants:
 - name: e2e_openshift_origin_v3.11_om_42_current
   display_name: "e2e_openshift_origin_v3.11_om_42_current"
   depends_on:
-    - name: build_images
+    - name: build_images_rhel
       variant: init_test_run
     - name: prepare_cluster_openshift_3_11
       variant: init_test_run
@@ -1210,6 +1275,7 @@ buildvariants:
   expansions:
     <<: *ops_manager_42_current
     kube_environment_name: openshift_3_11
+    distro: rhel
   tasks:
   - name: "e2e_core_task_group"
   - name: "e2e_tls_task_group"
@@ -1220,7 +1286,7 @@ buildvariants:
 - name: e2e_openshift_cloud_qa
   display_name: "e2e_openshift_cloud_qa"
   depends_on:
-    - name: build_images
+    - name: build_images_rhel
       variant: init_test_run
   run_on:
   - archlinux-test
@@ -1228,6 +1294,7 @@ buildvariants:
   expansions:
     <<: *cloud_manager_qa
     kube_environment_name: openshift_3_11
+    distro: rhel
   tasks:
   - name: "e2e_core_task_group"
   - name: "e2e_tls_task_group"
@@ -1237,7 +1304,7 @@ buildvariants:
 - name: e2e_kube_vanilla_ops_manager
   display_name: "e2e_kube_vanilla_ops_manager"
   depends_on:
-    - name: build_images
+    - name: build_images_ubuntu
       variant: init_test_run
     - name: prepare_cluster_vanilla_1_11_om
       variant: init_test_run
@@ -1248,6 +1315,7 @@ buildvariants:
     cluster_name: "e2e.om.mongokubernetes.com"
     kube_environment_name: vanilla_1_11
     test_mode: "opsmanager"
+    distro: ubuntu
   tasks:
     - name: "e2e_ops_manager_task_group"
 
@@ -1256,7 +1324,7 @@ buildvariants:
 #- name: e2e_openshift_origin_v3.11_ops_manager
 #  display_name: "e2e_openshift_origin_v3.11_ops_manager"
 #  depends_on:
-#    - name: build_images
+#    - name: build_images_rhel
 #      variant: init_test_run
 #    - name: prepare_cluster_openshift_3_11
 #      variant: init_test_run
@@ -1276,7 +1344,8 @@ buildvariants:
   - archlinux-test
   stepback: false
   tasks:
-  - name: build_images
+  - name: build_images_rhel
+  - name: build_images_ubuntu
   - name: prepare_cluster_openshift_3_11
   - name: prepare_cluster_vanilla_1_11
   - name: prepare_cluster_vanilla_1_11_om
@@ -1289,7 +1358,7 @@ buildvariants:
 # - name: openshift_rhel_prebuilt_images
 #   display_name: openshift_rhel_prebuilt_images
 #   depends_on:
-#   - name: build_images
+#   - name: build_images_rhel
 #     variant: init_test_run
 #   run_on:
 #     - archlinux-test
@@ -1297,6 +1366,7 @@ buildvariants:
 #     <<: *rhel_prebuilt_images
 #     <<: *cloud_manager_qa
 #     kube_environment_name: openshift_3_11
+#     distro: rhel
 #   tasks:
 #     - name: e2e_core_task_group
 #     - name: e2e_tls_task_group

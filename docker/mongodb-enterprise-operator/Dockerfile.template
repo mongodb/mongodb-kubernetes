@@ -1,0 +1,38 @@
+FROM {{ base_image }}
+
+LABEL name="MongoDB Enterprise Operator" \
+      maintainer="support@mongodb.com" \
+      vendor="MongoDB" \
+      version="{{ version }}" \
+      release="1" \
+      summary="MongoDB Enterprise Operator Image" \
+      description="MongoDB Enterprise Operator Image"
+
+{% if distro == "ubuntu" %}
+# Adds up-to-date CA certificates.
+RUN apt-get -qq update && \
+      apt-get -y -qq install ca-certificates curl && \
+      apt-get upgrade -y -qq && \
+      apt-get dist-upgrade -y -qq && \
+      rm -rf /var/lib/apt/lists/*
+{% endif %}
+
+# Install the cfssl packages to generate CSR
+RUN \
+         curl -sO https://pkg.cfssl.org/R1.2/cfssl_linux-amd64 \
+      && curl -sO https://pkg.cfssl.org/R1.2/cfssljson_linux-amd64 \
+      && curl -sO https://pkg.cfssl.org/R1.2/SHA256SUMS \
+      && cat SHA256SUMS | grep cfssl_linux-amd64 | sha256sum -c - \
+      && cat SHA256SUMS | grep cfssljson_linux-amd64 | sha256sum -c - \
+      && mv cfssljson_linux-amd64 /usr/local/bin/cfssljson \
+      && chmod +x /usr/local/bin/cfssljson \
+      && mv cfssl_linux-amd64 /usr/local/bin/cfssl \
+      && chmod +x /usr/local/bin/cfssl
+
+ADD content/mongodb-enterprise-operator /usr/local/bin/
+
+{% if distro == "rhel" %}
+COPY licenses /licenses
+{% endif %}
+
+ENTRYPOINT exec /usr/local/bin/mongodb-enterprise-operator
