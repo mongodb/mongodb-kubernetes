@@ -4,10 +4,14 @@ import (
 	"encoding/json"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/spf13/cast"
 )
 
 // AutomationConfig maintains the raw map in the Deployment field
 // and constructs structs to make use of go's type safety
+// Dev notes: actually this object is just a wrapper for the `Deployment` object which is received from Ops Manager
+// and it's not equal to the AutomationConfig object from mms! It contains some transient struct fields for easier
+// configuration which are merged into the `Deployment` object before sending it back to Ops Manager
 type AutomationConfig struct {
 	Auth       *Auth
 	AgentSSL   *AgentSSL
@@ -39,6 +43,37 @@ func NewAutomationConfig(deployment Deployment) *AutomationConfig {
 
 func NewAuth() *Auth {
 	return &Auth{Users: make([]MongoDBUser, 0), AutoAuthMechanisms: make([]string, 0), DeploymentAuthMechanisms: make([]string, 0)}
+}
+
+// this is needed only for the cluster config file when we use a headless agent
+func (a *AutomationConfig) SetVersion(configVersion int64) *AutomationConfig {
+	a.Deployment["version"] = configVersion
+	return a
+}
+
+// this is needed only for the cluster config file when we use a headless agent
+func (a *AutomationConfig) SetOptions(downloadBase string) *AutomationConfig {
+	a.Deployment["options"] = map[string]string{"downloadBase": downloadBase}
+
+	return a
+}
+
+// this is needed only for the cluster config file when we use a headless agent
+func (a *AutomationConfig) SetMongodbVersions(versionConfigs []MongoDbVersionConfig) *AutomationConfig {
+	a.Deployment["mongoDbVersions"] = versionConfigs
+
+	return a
+}
+
+// this is needed only for the cluster config file when we use a headless agent
+func (a *AutomationConfig) SetBaseUrlForAgents(baseUrl string) *AutomationConfig {
+	for _, v := range a.Deployment.getBackupVersions() {
+		cast.ToStringMap(v)["baseUrl"] = baseUrl
+	}
+	for _, v := range a.Deployment.getMonitoringVersions() {
+		cast.ToStringMap(v)["baseUrl"] = baseUrl
+	}
+	return a
 }
 
 type Auth struct {
@@ -124,6 +159,21 @@ func (u *MongoDBUser) AddRole(role Role) {
 type Role struct {
 	Role     string `json:"role"`
 	Database string `json:"db"`
+}
+
+type BuildConfig struct {
+	Platform     string `json:"platform"`
+	Url          string `json:"url"`
+	GitVersion   string `json:"gitVersion"`
+	Architecture string `json:"architecture"`
+	Flavor       string `json:"flavor"`
+	MinOsVersion string `json:"minOsVersion"`
+	MaxOsVersion string `json:"maxOsVersion"`
+}
+
+type MongoDbVersionConfig struct {
+	Name   string         `json:"name"`
+	Builds []*BuildConfig `json:"builds"`
 }
 
 // ensureKeyFileContents makes sure a valid keyfile is generated and used for internal cluster authentication
