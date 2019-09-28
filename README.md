@@ -1,5 +1,7 @@
 # Ops Manager Operator #
 
+<img align="left" src="https://mongodb-kubernetes-operator.s3.amazonaws.com/img/Leaf-Forest%402x.png">
+
 This is a Kubernetes operator (https://coreos.com/operators/) to work
 with Ops Manager and Kubernetes clusters. It allows to easily add new
 MongoDB deployments (standalones, replica sets, sharded clusters) to your Kubernetes cluster, configure them (modify, scale up/down, remove) and to manage them from your

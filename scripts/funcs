@@ -46,7 +46,6 @@ check_app() {
 ensure_namespace() {
     namespace="${1}"
     tmp_file=$(mktemp)
-    echo "Temp file created: ${tmp_file}"
     cat <<EOF > "${tmp_file}"
 apiVersion: v1
 kind: Namespace
@@ -54,10 +53,9 @@ metadata:
   name: ${namespace}
   labels:
     evg: task
-    evg/version-id: ${VERSION_ID:-'not-specified'}
-    evg/task-name: ${TASK_NAME:-'not-specified'}
   annotations:
     evg/version: "https://evergreen.mongodb.com/version/${VERSION_ID:-'not-specified'}"
+    evg/task-name: ${TASK_NAME:-'not-specified'}
     evg/task: "https://evergreen.mongodb.com/task/${TASK_ID:-'not-specified'}"
     evg/mms-version: "${MMS_VERSION:-'not-specified'}"
 EOF
