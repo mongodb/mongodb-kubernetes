@@ -46,6 +46,7 @@ check_app() {
 ensure_namespace() {
     namespace="${1}"
     tmp_file=$(mktemp)
+    echo "Temp file created: ${tmp_file}"
     cat <<EOF > "${tmp_file}"
 apiVersion: v1
 kind: Namespace
@@ -60,7 +61,14 @@ metadata:
     evg/task: "https://evergreen.mongodb.com/task/${TASK_ID:-'not-specified'}"
     evg/mms-version: "${MMS_VERSION:-'not-specified'}"
 EOF
-    kubectl create -f "${tmp_file}" 2>/dev/null || true
+
+    cat "${tmp_file}"
+    if kubectl get "ns/${namespace}" -o name > /dev/null; then
+        echo "Namespace already exists!"
+    else
+        echo "Creating new namespace: ${namespace}"
+        kubectl create -f "${tmp_file}"
+    fi
 }
 
 wait_for_namespace_to_be_deleted(){

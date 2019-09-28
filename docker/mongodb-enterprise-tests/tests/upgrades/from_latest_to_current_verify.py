@@ -1,0 +1,28 @@
+from kubetester.kubetester import skip_if_local
+from kubetester.mongodb import MongoDB
+from pytest import fixture, mark
+
+
+@fixture(scope="module")
+def replica_set(namespace: str) -> MongoDB:
+    resource = MongoDB("my-replica-set", namespace).load()
+
+    yield resource
+
+    resource.delete()
+
+
+@mark.e2e_latest_to_current_verify
+def test_reaches_running_phase(replica_set):
+    replica_set.reaches_phase("Running")
+    assert replica_set["status"]["phase"] == "Running"
+
+    assert replica_set["metadata"]["name"] == replica_set.name
+    assert replica_set["status"]["members"] == 3
+    assert replica_set["status"]["version"] == "4.0.10"
+
+
+@skip_if_local
+@mark.e2e_latest_to_current_verify
+def test_client_can_connect_to_mongodb(replica_set):
+    replica_set.assert_connectivity()

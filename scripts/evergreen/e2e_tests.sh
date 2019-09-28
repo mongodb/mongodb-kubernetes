@@ -120,15 +120,10 @@ configure_operator() {
 }
 
 teardown() {
-    # Cluster maintenance should be the responsibility of other agent, not the test runner.
-    # TODO: Use CronJob to start a command every hour to check for resources and delete
-    # namespaces if needed
-    # Make sure that under no circumstances, this function fails.
-
     kubectl delete mdb --all -n "${PROJECT_NAMESPACE}" || true
     kubectl delete mdbu --all -n "${PROJECT_NAMESPACE}" || true
     echo "Removing test namespace"
-    kubectl delete "namespace/${PROJECT_NAMESPACE}" || true
+    kubectl delete "namespace/${PROJECT_NAMESPACE}" --wait=false || true
 }
 
 deploy_test_app() {
@@ -229,7 +224,6 @@ run_tests() {
         # until this moment and go continue with our lives
         kubectl -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" -f | tee "${output_filename}"
         kubectl -n "${PROJECT_NAMESPACE}" logs "deployment/mongodb-enterprise-operator" > "${operator_filename}"
-
     fi
 
     # Waiting a bit until the pod gets to some end

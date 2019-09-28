@@ -6,7 +6,7 @@
 #
 # Ref: https://cryptography.io/en/latest/installation/#building-cryptography-on-linux
 #
-FROM python:3.6-slim
+FROM python:3.7-slim
 
 RUN mkdir /tests
 WORKDIR /tests

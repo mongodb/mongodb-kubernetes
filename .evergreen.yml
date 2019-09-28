@@ -552,7 +552,7 @@ functions:
           # By setting CURRENT_VERSION we are indicating the e2e_tests script to install this version
           # which is the latest released version, as defined in the release.json file.
           export OPERATOR_UPGRADE_IN_PROGRESS="stage1"
-          TASK_NAME=e2e_operator_upgrade_build_deployment ./scripts/evergreen/e2e_tests.sh
+          TASK_NAME=${mark_build} ./scripts/evergreen/e2e_tests.sh
 
           # Before running the next test, the CURRENT_VERSION variable is unset, then the latest
           # Version of the operator will be installed, effectively, updating the currently running operator
@@ -561,7 +561,7 @@ functions:
 
           export REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
           echo "Deploying the new Operator with version $VERSION_ID"
-          TASK_NAME=e2e_operator_upgrade_scale_and_verify_deployment ./scripts/evergreen/e2e_tests.sh
+          TASK_NAME=${mark_verify} ./scripts/evergreen/e2e_tests.sh
 
   "prepare_test_env":
     - *omkp_setup
@@ -761,21 +761,25 @@ tasks:
         cluster_name: e2e.om.mongokubernetes.com
     - func: prepare_test_env
 
-- name: e2e_operator_upgrade_from_multiple_clusters
+- name: e2e_operator_upgrade_multiple_clusters_allowed
   tags: ["openshift-om-qa"]
   exec_timeout_secs: 1200
   commands:
     - func: e2e_test_upgrade_operator
       vars:
         from_version: 1.2.2
+        mark_build: e2e_operator_upgrade_build_deployment
+        mark_verify: e2e_operator_upgrade_scale_and_verify_deployment
 
-# - name: e2e_operator_upgrade
-#   tags: ["openshift-om-qa"]
-#   exec_timeout_secs: 1200
-#   commands:
-#     - func: e2e_test_upgrade_operator
-#       vars:
-#         from_version: latest
+- name: e2e_operator_upgrade_from_previous
+  tags: ["openshift-om-qa"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: e2e_test_upgrade_operator
+      vars:
+        from_version: latest
+        mark_build: e2e_latest_to_current_build
+        mark_verify: e2e_latest_to_current_verify
 
 - name: e2e_multiple_cluster_failures
   tags: ["openshift-om-qa"]
@@ -1126,8 +1130,8 @@ task_groups:
     - e2e_sharded_cluster_secret
     - e2e_sharded_cluster_upgrade_downgrade
     - e2e_multiple_cluster_failures
-    # - e2e_operator_upgrade
-    - e2e_operator_upgrade_from_multiple_clusters
+    - e2e_operator_upgrade_from_previous
+    - e2e_operator_upgrade_multiple_clusters_allowed
   teardown_task:
     - func: "upload_e2e_logs"
 
