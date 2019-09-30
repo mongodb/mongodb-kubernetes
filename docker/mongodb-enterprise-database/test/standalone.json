@@ -1,0 +1,46 @@
+{
+    "version": 3,
+    "processes": [
+        {
+            "name": "foo",
+            "processType": "mongod",
+            "version": "4.1.7-ent",
+            "featureCompatibilityVersion" : "4.0",
+            "args2_6": {
+                "storage" : {
+                    "dbPath": "/tmp/mms-automation/data/foo",
+                    "journal" : {
+                        "enabled" : false
+                    }
+                },
+                "systemLog" : {
+                    "destination" : "file",
+                    "path": "/tmp/mms-automation/logs/foo_run.log"
+                },
+                "net" : {
+                    "port": 27017
+                }
+            }
+        }
+    ],
+    "options": {
+        "downloadBase": "/tmp/mms-automation/versions"
+    },
+    "mongoDbVersions" : [
+         {
+            "name" : "4.1.7-ent",
+            "builds" : [
+                {
+                    "architecture": "amd64",
+                    "flavor": "ubuntu",
+                    "gitVersion": "97de2142f89ab280a4d0b2ddf168248c79f741d0",
+                    "maxOsVersion": "17.04",
+                    "minOsVersion": "16.04",
+                    "modules": [ "enterprise" ],
+                    "platform": "linux",
+                    "url": "https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise-ubuntu1604-4.1.7.tgz"
+                }
+            ]
+        }
+    ]
+}

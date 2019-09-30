@@ -49,7 +49,8 @@ def get_version() -> str:
 
 
 def ubuntu() -> Dict[str, Union[str, List[str]]]:
-    """Ubuntu distro data."""
+    """Ubuntu distro data (only for the Database image)"""
+    # Note, that the Automation Agent needs lsb-release on the CLI to determine the current distro
     packages = """
         ca-certificates
         curl
@@ -74,7 +75,7 @@ def ubuntu() -> Dict[str, Union[str, List[str]]]:
 
 
 def rhel() -> Dict[str, Union[str, List[str]]]:
-    """RHEL distro data."""
+    """RHEL distro data (only for the Database image)"""
     packages = """
         cyrus-sasl
         cyrus-sasl-gssapi
@@ -100,16 +101,20 @@ def rhel() -> Dict[str, Union[str, List[str]]]:
     }
 
 
-def render(distro: str):
+def render(distro: str, is_appdb: bool):
     if getattr(sys.modules[__name__], distro, None) is None:
         raise ValueError("{} is not a valid distro name.".format(distro))
 
-    return jinja2.Template(open("Dockerfile.template").read()).render(
-        getattr(sys.modules[__name__], distro)()
-    )
+    template_params = getattr(sys.modules[__name__], distro)()
+    template_params["is_appdb"] = is_appdb
+    return jinja2.Template(open("Dockerfile.template").read()).render(template_params)
 
 
 if __name__ == "__main__":
     distro = sys.argv[1]
+    try:
+        is_appdb = bool(sys.argv[2])
+    except IndexError:
+        is_appdb = False
 
-    print(render(distro))
+    print(render(distro, is_appdb))

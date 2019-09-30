@@ -491,11 +491,11 @@ func (d Deployment) mergeShards(clusterName string, configServerRs ReplicaSetWit
 
 // handleShardsRemoval is a complicated method handling different scenarios.
 // - 'draining' array is empty and no extra shards were found in OM which should be removed - return
-// - if 'shardsRemoving' == true - this means that this is the 1st phase of the process - when the shards are due to be removed
+// - if 'finalizing' == false - this means that this is the 1st phase of the process - when the shards are due to be removed
 // or have already been removed and their replica sets are added/already sit in the 'draining' array. Note, that this
 // method can be called many times while in the 1st phase and 'draining' array is not empty - this means that the agent
 // is performing the shards rebalancing
-// - if 'shardsRemoving' == false - this means that this is the 2nd phase of the process - when the shards were removed
+// - if 'finalizing' == true - this means that this is the 2nd phase of the process - when the shards were removed
 // from the sharded cluster and their data was rebalanced to the rest of the shards. Now we can remove the replica sets
 // and their processes and clean the 'draining' array.
 func (d Deployment) handleShardsRemoval(finalizing bool, s ShardedCluster, log *zap.SugaredLogger) bool {

@@ -1,27 +1,39 @@
 IMAGE = mongodb-enterprise-database
+IMAGE_APPDB = mongodb-enterprise-appdb
 IMAGE_VERSION = latest
 IMAGE_DIR = dev
 AWS_IMAGE_REPO = 268558157000.dkr.ecr.us-east-1.amazonaws.com
 AWS_REGION = us-east-1
 IMAGE_TYPE = ubuntu
+AA_DOWNLOAD_LOCATION = https://mongodb-mms-build-agent.s3.amazonaws.com/releases/prod
+AA_VERSION = 10.2.2.5862-1
+TEST_AUTOMATION_CONFIG = test/replset.json
 
 usage:
 	@ echo "MongoDB Enterprise Database - Docker image builder"
 	@ echo
 	@ echo "Usage:"
-	@ echo "  delete_container:	stops and deletes the container"
-	@ echo "  clean: 	        deletes the image and any running containers"
-	@ echo "  build: 	        builds the Docker image"
-	@ echo "  clean-build:		rebuilds the Docker image from scratch (no-cache), stopping any running containers and deleting all intermediate containers"
-	@ echo "  all: 		        shorthand for 'clean build run'"
+	@ echo "  (Database)"
+	@ echo "  delete_container:	      stops and deletes the container"
+	@ echo "  clean: 	              deletes the image and any running containers"
+	@ echo "  build: 	              builds the Docker image"
+	@ echo "  clean-build:		      rebuilds the Docker image from scratch (no-cache), stopping any running containers and deleting all intermediate containers"
+	@ echo "  all: 		              shorthand for 'clean build run'"
 	@ echo
-	@ echo "  pull:			pulls the image from the configured Docker registry"
-	@ echo "  push:			pushes the image to the configured Docker registry"
+	@ echo "  pull:			      pulls the image from the configured Docker registry"
+	@ echo "  push:			      pushes the image to the configured Docker registry"
 	@ echo
-	@ echo "  run: 		        runs the image in a new container"
-	@ echo "  status:	        shows all the containers created using this image"
-	@ echo "  version:	        prints the image's version string (IMAGE_VERSION)"
+	@ echo "  run: 		              runs the image in a new container"
+	@ echo "  status:	              shows all the containers created using this image"
+	@ echo "  version:	              prints the image's version string (IMAGE_VERSION)"
 	@ echo
+	@ echo "  (AppDB)"
+	@ echo "  delete_container_appdb:     stops and deletes the container for appdb"
+	@ echo "  build_appdb: 	              builds the Docker image for appdb"
+	@ echo "  pull_appdb:		      pulls the image for appdb from the configured Docker registry"
+	@ echo "  push_appdb:		      pushes the image for appdb to the configured Docker registry"
+	@ echo "  run_appdb: 		      runs the image for appdb in a new container"
+	@ echo "  all_appdb: 		      shorthand for 'build_appdb run_appdb'"
 
 delete_container:
 	- docker ps -a | tail -n +2 | grep '$(IMAGE)' | awk '{print $$1}' | xargs docker rm -f
@@ -61,7 +73,7 @@ ifndef AGENT_API_KEY
 endif
 
 run: check-ops-manager-env
-	docker run -e BASE_URL -e GROUP_ID -e AGENT_API_KEY -e HTTP_PROXY -t  $(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE)
+	docker run -e BASE_URL -e GROUP_ID -e AGENT_API_KEY -e HTTP_PROXY -t  $(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE)
 
 all:
 	@ $(MAKE) clean build run
@@ -72,3 +84,42 @@ status:
 
 version:
 	@ echo $(IMAGE_VERSION)
+
+###############################################################
+# These are all the commands to work with appdb image
+###############################################################
+
+delete_container_appdb:
+	docker stop test-appdb || true
+	docker rm -f test-appdb || true
+
+build_appdb:
+	@ if [[ -z "$(AA_DOWNLOAD_LOCATION)" ]]; then \
+		echo "AA_DOWNLOAD_LOCATION parameter must be specified"; exit 1; \
+	fi
+	@ if [[ -z "$(AA_VERSION)" ]]; then \
+		echo "AA_VERSION parameter must be specified"; exit 1; \
+	fi
+	@ GOOS='linux' go build -i ../../probe/readiness.go
+	@ mv readiness content/readinessprobe
+	@ ../Dockerfile.gen "${IMAGE_TYPE}" "True" > Dockerfile
+	docker build $(EXTRA_PARAM) \
+		-t $(IMAGE_DIR)/$(IMAGE_APPDB):$(IMAGE_VERSION)-$(IMAGE_TYPE) \
+		--build-arg AA_DOWNLOAD_LOCATION=$(AA_DOWNLOAD_LOCATION) \
+		--build-arg AA_VERSION=$(AA_VERSION) .
+
+pull_appdb: aws_login
+	docker pull $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE_APPDB):$(IMAGE_VERSION)-$(IMAGE_TYPE)
+	docker tag $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE_APPDB):$(IMAGE_VERSION)-$(IMAGE_TYPE) $(IMAGE_DIR)/$(IMAGE_APPDB):$(IMAGE_VERSION)-$(IMAGE_TYPE)
+
+push_appdb: build aws_login
+	docker tag $(IMAGE_DIR)/$(IMAGE_APPDB):$(IMAGE_VERSION)-$(IMAGE_TYPE) $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE_APPDB):$(IMAGE_VERSION)-$(IMAGE_TYPE)
+	docker push $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE_APPDB):$(IMAGE_VERSION)-$(IMAGE_TYPE)
+
+run_appdb: delete_container_appdb
+	docker run --name test-appdb \
+		--mount type=bind,source=$(shell pwd)/$(TEST_AUTOMATION_CONFIG),target=/var/lib/mongodb-automation/cluster-config.json \
+		-t $(IMAGE_DIR)/$(IMAGE_APPDB):$(IMAGE_VERSION)-$(IMAGE_TYPE)
+
+all_appdb:
+	@ $(MAKE) build_appdb run_appdb
