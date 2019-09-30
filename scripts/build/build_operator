@@ -22,7 +22,11 @@ if [[ ${DEBUG-} = "true" ]]; then
 else
     echo "Building Operator binary..."
     go build -i -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator \
-      -ldflags="-s -w -X github.com/10gen/ops-manager-kubernetes/pkg/util.OperatorVersion=$RELEASE_VERSION"
+        -ldflags="-s -w -X github.com/10gen/ops-manager-kubernetes/pkg/util.OperatorVersion=$RELEASE_VERSION"
+
+    if [[ ${COMPRESS_OPERATOR_BINARY-} = 'true' ]]; then
+        upx -q docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator
+    fi
 fi
 
 echo "Operator successfully built (version ${RELEASE_VERSION})"
