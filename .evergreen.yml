@@ -72,14 +72,14 @@ functions:
           if [[ "${task_name}" = "release_operator_rhel_connect" ]] || [[ "${task_name}" = "release_operator" ]]; then
             # Make sure release matches a correct release name.
 
-            if [[ -z $(git status --short) ]]; then
+            if ! git status --short; then
               echo "The repository is dirty. Make sure no uncommited or modified files were added to the patch."
               git status --short
               exit 1
             fi
 
             release_version="$(git describe --dirty)"
-            if ! [[ "$release_version" =~ ^[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+            if ! [[ "$release_version" =~ ^[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
               echo "$release_version does not conform to what we expect as a version label."
               exit 1
             fi
