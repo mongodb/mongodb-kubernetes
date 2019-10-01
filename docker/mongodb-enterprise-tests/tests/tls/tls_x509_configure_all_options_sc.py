@@ -12,9 +12,8 @@ class TestShardedClusterEnableX509(KubernetesTester):
     def setup_env(cls):
         cls.patch_config_map(cls.get_namespace(), "my-project", {"authenticationMode": "x509", "credentials": "my-credentials"})
 
-    def test_approve_certs(self):
-        for cert in self.yield_existing_csrs(get_agent_cert_names(self.namespace,)):
-            self.approve_certificate(cert)
+    def test_noop(self):
+        pass
 
 
 @pytest.mark.e2e_tls_x509_configure_all_options_sc
@@ -27,10 +26,14 @@ class TestShardedClusterEnableAllOptions(KubernetesTester):
     """
 
     def test_approve_certs(self):
-        for cert in self.yield_existing_csrs(get_sc_cert_names(mdb_resource, self.namespace, with_internal_auth_certs=True)):
+        for cert in self.yield_existing_csrs(get_sc_cert_names(mdb_resource, self.namespace, with_internal_auth_certs=True, with_agent_certs=True)):
             self.approve_certificate(cert)
+
+    def test_gets_to_running_state(self):
+        self.wait_until(KubernetesTester.in_running_state, 240)
 
     # TODO: use /mongodb-automation/server.pem but doesn't exist on test pod
     # def test_mdb_is_reachable_with_no_ssl(self):
     #     mongo_tester = ShardedClusterTester(mdb_resource, 2, ssl=True)
     #     mongo_tester.assert_connectivity()
+

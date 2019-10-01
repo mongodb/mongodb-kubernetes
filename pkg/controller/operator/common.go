@@ -356,3 +356,26 @@ func runInGivenOrder(shouldRunInOrder bool, funcs ...func() reconcileStatus) rec
 	}
 	return ok()
 }
+
+type x509ConfigurationState struct {
+	x509EnablingHasBeenRequested bool // if the desired state has x509 enabled
+	shouldDisableX509            bool // if x509 should be disabled in this reconciliation
+	x509CanBeEnabledInOpsManager bool // if Ops Manager is in a state in which it is possible to enable X509
+}
+
+func (x x509ConfigurationState) shouldLog() bool {
+	return x.x509EnablingHasBeenRequested || x.shouldDisableX509
+}
+
+// getX509ConfigurationState returns information about what stages need to be performed when enabling x509 authentication
+func getX509ConfigurationState(ac *om.AutomationConfig, projectConfig *ProjectConfig) x509ConfigurationState {
+	// we only need to make the corresponding requests to configure x509 if we're enabling/disabling it
+	// otherwise we don't need to make any changes.
+	x509EnablingHasBeenRequested := !util.ContainsString(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) && projectConfig.AuthMode == util.X509
+	shouldDisableX509 := util.ContainsString(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) && projectConfig.AuthMode != util.X509
+	return x509ConfigurationState{
+		x509EnablingHasBeenRequested: x509EnablingHasBeenRequested,
+		shouldDisableX509:            shouldDisableX509,
+		x509CanBeEnabledInOpsManager: ac.Deployment.AllProcessesAreTLSEnabled(),
+	}
+}

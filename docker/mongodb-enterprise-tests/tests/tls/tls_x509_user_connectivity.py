@@ -16,9 +16,6 @@ mdb_resource = "test-tls-base-rs-require-ssl"
 class TestsReplicaSetWithNoTLSWithX509Project(KubernetesTester):
     def test_enable_x509(self):
         self.patch_config_map(self.get_namespace(), "my-project", {"authenticationMode": "x509", "credentials": "my-credentials"})
-        for cert in self.yield_existing_csrs(get_agent_cert_names(self.get_namespace())):
-            self.approve_certificate(cert)
-
 
 @pytest.mark.e2e_tls_x509_user_connectivity
 class TestReplicaSetWithTLSCreation(KubernetesTester):
@@ -39,7 +36,7 @@ class TestReplicaSetWithTLSCreation(KubernetesTester):
 @pytest.mark.e2e_tls_x509_user_connectivity
 class TestReplicaSetWithTLSRunning(KubernetesTester):
     def test_approve_certs(self):
-        for cert in self.yield_existing_csrs(get_rs_cert_names(mdb_resource, self.get_namespace())):
+        for cert in self.yield_existing_csrs(get_rs_cert_names(mdb_resource, self.get_namespace(), with_agent_certs=True)):
             self.approve_certificate(cert)
         KubernetesTester.wait_until('in_running_state', 240)
         print('finished waiting')

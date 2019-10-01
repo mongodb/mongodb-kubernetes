@@ -210,7 +210,15 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 	newState := createStateFromResource(sc)
 
 	mockOm := om.NewMockedOmConnection(createDeploymentFromShardedCluster(sc))
-	assert.Equal(t, ok(), updateOmDeploymentShardedCluster(mockOm, sc, newState, zap.S()))
+
+	// updateOmDeploymentShardedCluster checks an element from ac.Auth.DeploymentAuthMechanisms
+	// so we need to ensure it has a non-nil value. An empty list implies no authentication
+	_ = mockOm.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		ac.Auth.DeploymentAuthMechanisms = []string{}
+		return nil
+	}, nil, nil)
+
+	assert.Equal(t, ok(), updateOmDeploymentShardedCluster(mockOm, sc, newState, &ProjectConfig{}, zap.S()))
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadUpdateDeployment), reflect.ValueOf(mockOm.RemoveHost))
 

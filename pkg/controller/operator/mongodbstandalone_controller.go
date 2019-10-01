@@ -134,17 +134,10 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		return status.updateStatus(s, r.ReconcileCommonController, log)
 	}
 
-	if status := r.ensureX509(s, projectConfig, standaloneBuilder, log); !status.isOk() {
-		return status.updateStatus(s, r.ReconcileCommonController, log)
-	}
-
 	status := runInGivenOrder(standaloneBuilder.needToPublishStateFirst(log),
 		func() reconcileStatus {
-			if err := updateOmDeployment(conn, s, standaloneBuilder.BuildStatefulSet(), log); err != nil {
-				return failedErr(fmt.Errorf("Failed to create/update (Ops Manager reconciliation phase): %s.", err))
-			}
-			log.Info("Updated Ops Manager for standalone")
-			return ok()
+			return updateOmDeployment(conn, s, standaloneBuilder.BuildStatefulSet(), log)
+
 		},
 		func() reconcileStatus {
 			if err := standaloneBuilder.CreateOrUpdateInKubernetes(); err != nil {
@@ -164,9 +157,9 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 }
 
 func updateOmDeployment(conn om.Connection, s *mongodb.MongoDB,
-	set *appsv1.StatefulSet, log *zap.SugaredLogger) error {
+	set *appsv1.StatefulSet, log *zap.SugaredLogger) reconcileStatus {
 	if err := waitForRsAgentsToRegister(set, s.Spec.ClusterName, conn, log); err != nil {
-		return err
+		return failedErr(err)
 	}
 
 	processNames := make([]string, 0)
@@ -185,22 +178,14 @@ func updateOmDeployment(conn om.Connection, s *mongodb.MongoDB,
 	)
 
 	if err != nil {
-		return err
+		return failedErr(err)
 	}
-
-	return om.WaitForReadyState(conn, processNames, log)
-
-}
-
-func (r *ReconcileMongoDbStandalone) ensureX509(st *mongodb.MongoDB, projectConfig *ProjectConfig, helper *StatefulSetHelper, log *zap.SugaredLogger) reconcileStatus {
-	if projectConfig.AuthMode == util.X509 {
-		if !st.Spec.Security.TLSConfig.Enabled {
-			return failed("Authentication mode for project is x509 but this MDB resource is not TLS enabled")
-		} else if !r.doAgentX509CertsExist(st.Namespace) {
-			return pending("Agent x509 certificates have not yet been created")
-		}
+	if err := om.WaitForReadyState(conn, processNames, log); err != nil {
+		return failedErr(err)
 	}
+	log.Info("Updated Ops Manager for standalone")
 	return ok()
+
 }
 
 func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLogger) error {

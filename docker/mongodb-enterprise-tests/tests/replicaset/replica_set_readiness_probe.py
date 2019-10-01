@@ -43,6 +43,6 @@ class TestReplicaSetNoAgentDeadlock(KubernetesTester):
     @staticmethod
     def pods_are_ready():
         sts = KubernetesTester.clients('appsv1').read_namespaced_stateful_set("my-replica-set-double",
-                                                                               KubernetesTester.get_namespace())
+                                                                              KubernetesTester.get_namespace())
 
         return sts.status.ready_replicas == 2

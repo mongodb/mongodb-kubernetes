@@ -13,9 +13,8 @@ class TestsReplicaSetWithNoTLSWithX509Project(KubernetesTester):
     def setup_env(cls):
         cls.patch_config_map(cls.get_namespace(), "my-project", {"authenticationMode": "x509", "credentials": "my-credentials"})
 
-    def test_approve_certs(self):
-        for cert in self.yield_existing_csrs(get_agent_cert_names(self.get_namespace())):
-            self.approve_certificate(cert)
+    def test_noop(self):
+        assert True
 
 
 @pytest.mark.e2e_tls_x509_rs
@@ -27,10 +26,9 @@ class TestReplicaSetWithNoTLSCreation(KubernetesTester):
       timeout: 240
     """
     def test_approve_certs(self):
-        for cert in self.yield_existing_csrs(get_rs_cert_names(mdb_resource, self.namespace)):
+        for cert in self.yield_existing_csrs(get_rs_cert_names(mdb_resource, self.namespace, with_agent_certs=True)):
             print("Approving certificate {}".format(cert))
             self.approve_certificate(cert)
-
         KubernetesTester.wait_until('in_running_state')
 
     @skip_if_local

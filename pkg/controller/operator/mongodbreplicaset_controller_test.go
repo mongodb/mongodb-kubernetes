@@ -137,6 +137,7 @@ func TestCreateDeleteReplicaSet(t *testing.T) {
 }
 
 func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
+	podSpec := NewDefaultPodSpec()
 	spec := v1.MongoDbSpec{
 		Version:    "4.0.0",
 		Persistent: util.BooleanRef(false),
@@ -147,6 +148,7 @@ func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
 		ResourceType: v1.ReplicaSet,
 		Members:      3,
 		Security:     &v1.Security{TLSConfig: &v1.TLSConfig{}},
+		PodSpec:      &podSpec,
 	}
 	rs := &v1.MongoDB{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "temple", Namespace: TestNamespace}}
 	return &ReplicaSetBuilder{rs}

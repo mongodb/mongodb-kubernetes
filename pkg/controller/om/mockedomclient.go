@@ -168,6 +168,7 @@ func (oc *MockedOmConnection) ReadUpdateMonitoringAgentConfig(matFunc func(*Moni
 
 func (oc *MockedOmConnection) UpdateAutomationConfig(ac *AutomationConfig, log *zap.SugaredLogger) error {
 	oc.addToHistory(reflect.ValueOf(oc.UpdateAutomationConfig))
+	oc.deployment = ac.Deployment
 	oc.automationConfig = ac
 	return nil
 }

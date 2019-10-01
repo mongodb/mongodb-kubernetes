@@ -526,8 +526,10 @@ func (oc *HTTPOmConnection) ReadUpdateMonitoringAgentConfig(matFunc func(*Monito
 	if log == nil {
 		log = zap.S()
 	}
-	mutex.Lock()
-	defer mutex.Unlock()
+	if mutex != nil {
+		mutex.Lock()
+		defer mutex.Unlock()
+	}
 
 	mat, err := oc.ReadMonitoringAgentConfig()
 	if err != nil {
@@ -578,8 +580,13 @@ func (oc *HTTPOmConnection) UpdateBackupAgentConfig(backup *BackupAgentConfig, l
 }
 
 func (oc *HTTPOmConnection) ReadUpdateBackupAgentConfig(backupFunc func(*BackupAgentConfig) error, mutex *sync.Mutex, log *zap.SugaredLogger) error {
-	mutex.Lock()
-	defer mutex.Unlock()
+	if log == nil {
+		log = zap.S()
+	}
+	if mutex != nil {
+		mutex.Lock()
+		defer mutex.Unlock()
+	}
 
 	backup, err := oc.ReadBackupAgentConfig()
 	if err != nil {

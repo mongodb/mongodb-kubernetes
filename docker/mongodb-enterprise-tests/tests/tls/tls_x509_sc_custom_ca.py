@@ -25,8 +25,6 @@ def host_groups() -> Dict[str, List[str]]:
 class TestShardedClusterWithTLSWithX509Project(KubernetesTester):
     def test_enable_x509(self):
         self.patch_config_map(self.get_namespace(), "my-project", {"authenticationMode": "x509", "credentials": "my-credentials"})
-        for cert in self.yield_existing_csrs(get_agent_cert_names(self.get_namespace())):
-            self.approve_certificate(cert)
 
 
 @pytest.mark.e2e_tls_x509_sc_custom_ca
@@ -42,7 +40,7 @@ class TestClusterWithTLSCreation(KubernetesTester):
     """
 
     def test_approve_certificates(self):
-        for cert in self.yield_existing_csrs(get_sc_cert_names(mdb_resource, self.get_namespace(), with_internal_auth_certs=True)):
+        for cert in self.yield_existing_csrs(get_sc_cert_names(mdb_resource, self.get_namespace(), with_internal_auth_certs=True, with_agent_certs=True)):
             self.approve_certificate(cert)
 
         KubernetesTester.wait_until('in_running_state')

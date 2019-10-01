@@ -93,11 +93,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 
 	status := runInGivenOrder(anyStatefulSetHelperNeedsToPublishState(kubeState, log),
 		func() reconcileStatus {
-			if status := updateOmDeploymentShardedCluster(conn, sc, kubeState, log); !status.isOk() {
-				return status
-			}
-			log.Info("Updated Ops Manager for sharded cluster")
-			return ok()
+			return updateOmDeploymentShardedCluster(conn, sc, kubeState, projectConfig, log)
 		},
 		func() reconcileStatus {
 			if err := r.createKubernetesResources(sc, kubeState, log); err != nil {
@@ -130,6 +126,13 @@ func anyStatefulSetHelperNeedsToPublishState(kubeState ShardedClusterKubeState, 
 
 func (r *ReconcileMongoDbShardedCluster) ensureX509(sc *mongodb.MongoDB, projectConfig *ProjectConfig, kubeState ShardedClusterKubeState, log *zap.SugaredLogger) reconcileStatus {
 	if projectConfig.AuthMode == util.X509 {
+		successful, err := r.ensureX509AgentCertsForMongoDBResource(projectConfig, sc.Namespace)
+		if err != nil {
+			return failedErr(err)
+		}
+		if !successful {
+			return pending("Agent certs have not yet been approved")
+		}
 		if !sc.Spec.Security.TLSConfig.Enabled {
 			return failed("authentication mode for project is x509 but this MDB resource is not TLS enabled")
 		} else if !r.doAgentX509CertsExist(sc.Namespace) {
@@ -411,7 +414,7 @@ func isShardsSizeScaleDown(sc *mongodb.MongoDB) bool {
 	return sc.Spec.MongodsPerShardCount < sc.Status.MongodsPerShardCount
 }
 
-// updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
+// updateOmDeploymentShardedCluster performs OM registration operation for the sharded cluster. So the changes will be finally propagated
 // to automation agents in containers
 // Note that the process may have two phases (if shards number is decreased):
 // phase 1: "drain" the shards: remove them from sharded cluster, put replica set names to "draining" array, not remove
@@ -419,17 +422,17 @@ func isShardsSizeScaleDown(sc *mongodb.MongoDB) bool {
 // phase 2: remove the "junk" replica sets and their processes, wait for agents to reach the goal.
 // The logic is designed to be idempotent: if the reconciliation is retried the controller will never skip the phase 1
 // until the agents have performed draining
-func updateOmDeploymentShardedCluster(conn om.Connection, sc *mongodb.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger) reconcileStatus {
+func updateOmDeploymentShardedCluster(conn om.Connection, sc *mongodb.MongoDB, state ShardedClusterKubeState, projectConfig *ProjectConfig, log *zap.SugaredLogger) reconcileStatus {
 	err := waitForAgentsToRegister(sc, state, conn, log)
 	if err != nil {
 		return failedErr(err)
 	}
 
-	shardsRemoving := false
 	processNames := make([]string, 0)
-	err, shardsRemoving = publishDeployment(conn, sc, state, log, &processNames, false)
-	if err != nil {
-		return failedErr(err)
+	status, shardsRemoving := publishDeployment(conn, sc, state, log, &processNames, false, projectConfig)
+
+	if !status.isOk() {
+		return status
 	}
 
 	if err = om.WaitForReadyState(conn, processNames, log); err != nil {
@@ -441,8 +444,8 @@ func updateOmDeploymentShardedCluster(conn om.Connection, sc *mongodb.MongoDB, s
 
 	if shardsRemoving {
 		log.Infof("Some shards were removed from the sharded cluster, we need to remove them from the deployment completely")
-		err, shardsRemoving = publishDeployment(conn, sc, state, log, &processNames, true)
-		if err != nil {
+		status, shardsRemoving = publishDeployment(conn, sc, state, log, &processNames, true, projectConfig)
+		if !status.isOk() {
 			return failedErr(err)
 		}
 
@@ -457,11 +460,12 @@ func updateOmDeploymentShardedCluster(conn om.Connection, sc *mongodb.MongoDB, s
 	if err = calculateDiffAndStopMonitoringHosts(conn, currentHosts, wantedHosts, log); err != nil {
 		return failedErr(err)
 	}
+	log.Info("Updated Ops Manager for sharded cluster")
 	return ok()
 }
 
 func publishDeployment(conn om.Connection, sc *mongodb.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger,
-	processNames *[]string, finalizing bool) (error, bool) {
+	processNames *[]string, finalizing bool, projectConfig *ProjectConfig) (reconcileStatus, bool) {
 	mongosProcesses := createProcesses(
 		state.mongosSetHelper.BuildStatefulSet(),
 		om.ProcessTypeMongos,
@@ -476,8 +480,18 @@ func publishDeployment(conn om.Connection, sc *mongodb.MongoDB, state ShardedClu
 		shards[i] = buildReplicaSetFromStatefulSet(s.BuildStatefulSet(), sc, log)
 	}
 
+	ac, err := conn.ReadAutomationConfig()
+	if err != nil {
+		return failedErr(err), false
+	}
+
+	x509Config := getX509ConfigurationState(ac, projectConfig)
+	if x509Config.shouldLog() {
+		log.Info("X509 configuration status %+v", x509Config)
+	}
+
 	shardsRemoving := false
-	err := conn.ReadUpdateDeployment(
+	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			// it is not possible to disable internal cluster authentication once enabled
 			allProcesses := getAllProcesses(shards, configRs, mongosProcesses)
@@ -493,12 +507,30 @@ func publishDeployment(conn om.Connection, sc *mongodb.MongoDB, state ShardedClu
 
 			processes := d.GetProcessNames(om.ShardedCluster{}, sc.Name)
 			*processNames = processes
+			if x509Config.x509EnablingHasBeenRequested && x509Config.x509CanBeEnabledInOpsManager {
+				return enableX509Authentication(d, conn, log)
+			}
 			return nil
 		},
 		getMutex(conn.GroupName(), conn.OrgID()),
 		log,
 	)
-	return err, shardsRemoving
+
+	if err != nil {
+		return failedErr(err), shardsRemoving
+	}
+
+	if x509Config.x509EnablingHasBeenRequested && !x509Config.x509CanBeEnabledInOpsManager {
+		return pending("Performing multi stage reconciliation"), shardsRemoving
+	}
+
+	if x509Config.shouldDisableX509 {
+		if err := disableX509Authentication(conn, log); err != nil {
+			return failedErr(err), shardsRemoving
+		}
+	}
+
+	return ok(), shardsRemoving
 }
 
 func getAllProcesses(shards []om.ReplicaSetWithProcesses, configRs om.ReplicaSetWithProcesses, mongosProcesses []om.Process) []om.Process {

@@ -10,7 +10,6 @@ func init() {
 	AddToManagerFuncs = append(AddToManagerFuncs, operator.AddStandaloneController)
 	AddToManagerFuncs = append(AddToManagerFuncs, operator.AddReplicaSetController)
 	AddToManagerFuncs = append(AddToManagerFuncs, operator.AddShardedClusterController)
-	AddToManagerFuncs = append(AddToManagerFuncs, operator.AddProjectController)
 	AddToManagerFuncs = append(AddToManagerFuncs, operator.AddMongoDBUserController)
 	AddToManagerFuncs = append(AddToManagerFuncs, operator.AddOpsManagerController)
 }

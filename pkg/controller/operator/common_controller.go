@@ -478,3 +478,140 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHe
 	successful := !certsNeedApproval
 	return successful, nil
 }
+
+//ensureX509AgentCertsForMongoDBResource will generate all the CSRs for the agents
+func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(project *ProjectConfig, namespace string) (bool, error) {
+
+	log := zap.S().With("Project", namespace)
+	k := r.kubeHelper
+
+	if project.AuthMode != util.X509 {
+		return true, nil
+	}
+
+	certsNeedApproval := false
+
+	if missing := k.verifyClientCertificatesForAgents(util.AgentSecretName, namespace); missing > 0 {
+		if project.UseCustomCA {
+			return false, fmt.Errorf("The %s Secret file does not contain the necessary Agent certificates. Missing %d certificates", util.AgentSecretName, missing)
+		}
+
+		pemFiles := newPemCollection()
+		agents := []string{"automation", "monitoring", "backup"}
+
+		for _, agent := range agents {
+			agentName := fmt.Sprintf("mms-%s-agent", agent)
+			csr, err := k.readCSR(agentName, namespace)
+			if err != nil {
+				certsNeedApproval = true
+
+				log.Infof("Creating CSR: %s", agentName)
+				// the agentName name will be the same on each host, but we want to ensure there's
+				// a unique name for the CSR created.
+				key, err := k.createAgentCSR(agentName, namespace)
+				if err != nil {
+					return false, fmt.Errorf("failed to create CSR, %s", err)
+				}
+
+				pemFiles.addPrivateKey(agentName, string(key))
+			} else {
+				if checkCSRWasApproved(csr.Status.Conditions) {
+					log.Infof("Certificate for Agent %s -> Approved", agentName)
+					pemFiles.addCertificate(agentName, string(csr.Status.Certificate))
+				} else {
+					log.Infof("Certificate for Agent %s -> Waiting for Approval", agentName)
+					certsNeedApproval = true
+				}
+			}
+		}
+
+		// once we are here we know we have built everything we needed
+		// This "secret" object corresponds to the certificates for this statefulset
+		labels := make(map[string]string)
+		labels["mongodb/secure"] = "certs"
+		labels["mongodb/operator"] = "certs." + util.AgentSecretName
+
+		err := k.createOrUpdateSecret(util.AgentSecretName, namespace, pemFiles, labels)
+		if err != nil {
+			// If we have an error creating or updating the secret, we might lose
+			// the keys, in which case we return an error, to make it clear what
+			// the error was to customers -- this should end up in the status
+			// message.
+			return false, fmt.Errorf("failed to create or update the secret: %s", err)
+		}
+
+	}
+
+	successful := !certsNeedApproval
+	return successful, nil
+}
+
+// canEnableX509 determines if it's possible to enable/disable x509 configuration options in the current
+// version of Ops Manager
+func canEnableX509(conn om.Connection) bool {
+	err := conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
+		return nil
+	}, getMutex(conn.GroupName(), conn.OrgID()), nil)
+	if err != nil && strings.Contains(err.Error(), "405 (Method Not Allowed)") {
+		return false
+	}
+	return true
+}
+
+// disableX509Authentication disables x509 authentication from a given project. The order
+// of monitoring/backup and automation config needs to be the opposite to enableX509Authentication
+// in order to prevent sending an invalid config
+func disableX509Authentication(conn om.Connection, log *zap.SugaredLogger) error {
+	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		return ac.DisableX509Authentication()
+	}, getMutex(conn.GroupName(), conn.OrgID()), log)
+	if err != nil {
+		return err
+	}
+	err = conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
+		config.DisableX509Authentication()
+		return nil
+	}, getMutex(conn.GroupName(), conn.OrgID()), log)
+
+	if err != nil {
+		return err
+	}
+
+	return conn.ReadUpdateBackupAgentConfig(func(config *om.BackupAgentConfig) error {
+		config.DisableX509Authentication()
+		return nil
+	}, getMutex(conn.GroupName(), conn.OrgID()), log)
+}
+
+// enableX509Authentication configures the given deployment to enable x509 authentication at the
+// project level. The monitoring and backup changes need to happen before the changes to the automation
+// config otherwise an invalid config will be sent.
+func enableX509Authentication(deployment om.Deployment, conn om.Connection, log *zap.SugaredLogger) error {
+	ac, err := om.BuildAutomationConfigFromDeployment(deployment)
+	if err != nil {
+		return err
+	}
+
+	err = conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
+		config.EnableX509Authentication()
+		return nil
+	}, nil, log)
+
+	if err != nil {
+		return err
+	}
+
+	err = conn.ReadUpdateBackupAgentConfig(func(config *om.BackupAgentConfig) error {
+		config.EnableX509Authentication()
+		return nil
+	}, nil, log)
+
+	if err != nil {
+		return err
+	}
+
+	if err := ac.EnableX509Authentication(); err != nil {
+		return err
+	}
+	return ac.Apply()
+}

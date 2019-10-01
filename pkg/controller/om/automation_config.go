@@ -311,15 +311,7 @@ func agentUsers() []MongoDBUser {
 	}
 }
 
-// BuildAutomationConfigFromBytes takes in jsonBytes representing the Deployment
-// and constructs an instance of AutomationConfig with all the concrete structs
-// filled out.
-func BuildAutomationConfigFromBytes(jsonBytes []byte) (*AutomationConfig, error) {
-	deployment, err := BuildDeploymentFromBytes(jsonBytes)
-	if err != nil {
-		return nil, err
-	}
-
+func BuildAutomationConfigFromDeployment(deployment Deployment) (*AutomationConfig, error) {
 	finalAutomationConfig := &AutomationConfig{Deployment: deployment}
 
 	authMap, ok := deployment["auth"]
@@ -348,4 +340,15 @@ func BuildAutomationConfigFromBytes(jsonBytes []byte) (*AutomationConfig, error)
 		finalAutomationConfig.AgentSSL = ssl
 	}
 	return finalAutomationConfig, nil
+}
+
+// BuildAutomationConfigFromBytes takes in jsonBytes representing the Deployment
+// and constructs an instance of AutomationConfig with all the concrete structs
+// filled out.
+func BuildAutomationConfigFromBytes(jsonBytes []byte) (*AutomationConfig, error) {
+	deployment, err := BuildDeploymentFromBytes(jsonBytes)
+	if err != nil {
+		return nil, err
+	}
+	return BuildAutomationConfigFromDeployment(deployment)
 }

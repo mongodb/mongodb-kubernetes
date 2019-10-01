@@ -104,11 +104,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 
 	status := runInGivenOrder(replicaBuilder.needToPublishStateFirst(log),
 		func() reconcileStatus {
-			if err := r.updateOmDeploymentRs(conn, rs.Status.Members, rs, replicaSetObject, log); err != nil {
-				return failedErr(fmt.Errorf("Failed to create/update (Ops Manager reconciliation phase): %s.", err))
-			}
-			log.Info("Updated Ops Manager for replica set")
-			return ok()
+			return r.updateOmDeploymentRs(conn, rs.Status.Members, rs, replicaSetObject, projectConfig, log)
 		},
 		func() reconcileStatus {
 			if err := replicaBuilder.CreateOrUpdateInKubernetes(); err != nil {
@@ -185,14 +181,24 @@ func AddReplicaSetController(mgr manager.Manager) error {
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
 func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, membersNumberBefore int, newResource *mongodb.MongoDB,
-	set *appsv1.StatefulSet, log *zap.SugaredLogger) error {
+	set *appsv1.StatefulSet, projectConfig *ProjectConfig, log *zap.SugaredLogger) reconcileStatus {
 
 	err := waitForRsAgentsToRegister(set, newResource.Spec.ClusterName, conn, log)
 	if err != nil {
-		return err
+		return failedErr(err)
 	}
-	replicaSet := buildReplicaSetFromStatefulSet(set, newResource, log)
 
+	ac, err := conn.ReadAutomationConfig()
+	if err != nil {
+		return failedErr(err)
+	}
+
+	x509Config := getX509ConfigurationState(ac, projectConfig)
+	if x509Config.shouldLog() {
+		log.Info("X509 configuration status %+v", x509Config)
+	}
+
+	replicaSet := buildReplicaSetFromStatefulSet(set, newResource, log)
 	processNames := make([]string, 0)
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
@@ -204,23 +210,41 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 			d.AddMonitoringAndBackup(replicaSet.Processes[0].HostName(), log)
 			d.ConfigureTLS(newResource.Spec.GetTLSConfig())
 			processNames = d.GetProcessNames(om.ReplicaSet{}, replicaSet.Rs.Name())
+
+			if x509Config.x509EnablingHasBeenRequested && x509Config.x509CanBeEnabledInOpsManager {
+				return enableX509Authentication(d, conn, log)
+			}
 			return nil
 		},
 		getMutex(conn.GroupName(), conn.OrgID()),
 		log,
 	)
 	if err != nil {
-		return err
+		return failedErr(err)
+	}
+
+	if x509Config.x509EnablingHasBeenRequested && !x509Config.x509CanBeEnabledInOpsManager { // we want to enable x509, but can't as we are also enabling TLS in the same operation
+		// this prevents the validation error "Invalid config: No TLS mode changes are allowed when toggling auth. Detected the following change: REPLICA_SET parameter tlsMode/sslMode changed from null to requireTLS/requireSSL."
+		return pending("Performing multi stage reconciliation")
+	}
+
+	if x509Config.shouldDisableX509 {
+		if err := disableX509Authentication(conn, log); err != nil {
+			return failedErr(err)
+		}
 	}
 
 	if err := om.WaitForReadyState(conn, processNames, log); err != nil {
-		return err
+		return failedErr(err)
 	}
 
 	hostsBefore := getAllHostsRs(set, newResource.Spec.ClusterName, membersNumberBefore)
 	hostsAfter := getAllHostsRs(set, newResource.Spec.ClusterName, newResource.Spec.Members)
-	return calculateDiffAndStopMonitoringHosts(conn, hostsBefore, hostsAfter, log)
-
+	if err := calculateDiffAndStopMonitoringHosts(conn, hostsBefore, hostsAfter, log); err != nil {
+		return failedErr(err)
+	}
+	log.Info("Updated Ops Manager for replica set")
+	return ok()
 }
 
 func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLogger) error {
@@ -269,12 +293,20 @@ func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLog
 	return nil
 }
 
-func (r *ReconcileMongoDbReplicaSet) ensureX509(rs *mongodb.MongoDB, projectConfig *ProjectConfig, helper *StatefulSetHelper, log *zap.SugaredLogger) reconcileStatus {
-	spec := rs.Spec
+func (r *ReconcileCommonController) ensureX509(mdb *mongodb.MongoDB, projectConfig *ProjectConfig, helper *StatefulSetHelper, log *zap.SugaredLogger) reconcileStatus {
+	spec := mdb.Spec
 	if projectConfig.AuthMode == util.X509 {
+		successful, err := r.ensureX509AgentCertsForMongoDBResource(projectConfig, mdb.Namespace)
+		if err != nil {
+			return failedErr(err)
+		}
+		if !successful {
+			return pending("Agent certs have not yet been approved")
+		}
+
 		if !spec.Security.TLSConfig.Enabled {
 			return failed("Authentication mode for project is x509 but this MDB resource is not TLS enabled")
-		} else if !r.doAgentX509CertsExist(rs.Namespace) {
+		} else if !r.doAgentX509CertsExist(mdb.Namespace) {
 			return pending("Agent x509 certificates have not yet been created")
 		}
 

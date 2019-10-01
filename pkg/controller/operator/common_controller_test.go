@@ -309,3 +309,27 @@ func checkReconcileFailed(t *testing.T, reconciler reconcile.Reconciler, object 
 	assert.Equal(t, v1.PhaseFailed, object.Status.Phase)
 	assert.Equal(t, expectedErrorMessage, object.Status.Message)
 }
+
+func checkReconcileStopped(t *testing.T, reconciler reconcile.Reconciler, object *v1.MongoDB, expectedErrorMessage string, client *MockedClient) {
+	stoppedResult := reconcile.Result{}
+	result, e := reconciler.Reconcile(requestFromObject(object))
+	assert.Nil(t, e, "When stopping, error should be nil")
+	assert.Equal(t, stoppedResult, result)
+
+	// also need to make sure the object status is updated to failed
+	assert.NoError(t, client.Get(context.TODO(), objectKeyFromApiObject(object), object))
+	assert.Equal(t, v1.PhaseFailed, object.Status.Phase)
+	assert.Equal(t, expectedErrorMessage, object.Status.Message)
+}
+
+func checkReconcilePending(t *testing.T, reconciler reconcile.Reconciler, object *v1.MongoDB, expectedErrorMessage string, client *MockedClient) {
+	failedResult := reconcile.Result{RequeueAfter: 10 * time.Second}
+	result, e := reconciler.Reconcile(requestFromObject(object))
+	assert.Nil(t, e, "When retrying, error should be nil")
+	assert.Equal(t, failedResult, result)
+
+	// also need to make sure the object status is updated to failed
+	assert.NoError(t, client.Get(context.TODO(), objectKeyFromApiObject(object), object))
+	assert.Equal(t, v1.PhasePending, object.Status.Phase)
+	assert.Equal(t, expectedErrorMessage, object.Status.Message)
+}
