@@ -22,6 +22,9 @@ type reconcileStatus interface {
 
 	// isOk returns true if there was no signal to interrupt reconciliation process
 	isOk() bool
+
+	// onErrorPrepend prepends the message in the case of an error reconcileStatus
+	onErrorPrepend(msg string) reconcileStatus
 }
 
 // successStatus indicates that the reconciliation process can proceed
@@ -72,6 +75,11 @@ func (e *pendingStatus) updateStatus(resource Updatable, c *ReconcileCommonContr
 	return c.updateStatusPending(resource, e.msg, log)
 }
 
+func (e *pendingStatus) onErrorPrepend(msg string) reconcileStatus {
+	e.msg = fmt.Sprintf("%s %s", msg, e.msg)
+	return e
+}
+
 // merge performs messages concatenation for two pending results and makes sure the error message always overrides it
 // So if for example the Sharded Cluster (tls enabled) reconciliation is happening and two statefulsets have pending
 // CSRs (so two pending statuses were merged together) but at some stage the error happens - the new error will just
@@ -113,6 +121,11 @@ func (e *errorStatus) isOk() bool {
 	return false
 }
 
+func (e *errorStatus) onErrorPrepend(msg string) reconcileStatus {
+	e.err = fmt.Errorf("%s %s", msg, e.err.Error())
+	return e
+}
+
 func (e *successStatus) updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger) (reconcile.Result, error) {
 	return c.updateStatusSuccessful(resource, log)
 }
@@ -124,6 +137,15 @@ func (e *successStatus) isOk() bool {
 	return true
 }
 
+func (e *successStatus) onErrorPrepend(msg string) reconcileStatus {
+	return e
+}
+
 func (e *validationStatus) updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger) (reconcile.Result, error) {
 	return c.updateStatusValidationFailure(resource, e.err.Error(), log)
+}
+
+func (e *validationStatus) onErrorPrepend(msg string) reconcileStatus {
+	e.err = fmt.Errorf("%s %s", msg, e.err.Error())
+	return e
 }

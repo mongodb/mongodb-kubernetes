@@ -104,11 +104,11 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 
 	status := runInGivenOrder(replicaBuilder.needToPublishStateFirst(log),
 		func() reconcileStatus {
-			return r.updateOmDeploymentRs(conn, rs.Status.Members, rs, replicaSetObject, projectConfig, log)
+			return r.updateOmDeploymentRs(conn, rs.Status.Members, rs, replicaSetObject, projectConfig, log).onErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() reconcileStatus {
 			if err := replicaBuilder.CreateOrUpdateInKubernetes(); err != nil {
-				return failedErr(fmt.Errorf("Failed to create/update (Kubernetes reconciliation phase): %s.", err))
+				return failed("Failed to create/update (Kubernetes reconciliation phase): %s", err.Error())
 			}
 			log.Info("Updated statefulsets for replica set")
 			return ok()

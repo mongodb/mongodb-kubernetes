@@ -93,11 +93,11 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 
 	status := runInGivenOrder(anyStatefulSetHelperNeedsToPublishState(kubeState, log),
 		func() reconcileStatus {
-			return updateOmDeploymentShardedCluster(conn, sc, kubeState, projectConfig, log)
+			return updateOmDeploymentShardedCluster(conn, sc, kubeState, projectConfig, log).onErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() reconcileStatus {
 			if err := r.createKubernetesResources(sc, kubeState, log); err != nil {
-				return failedErr(err)
+				return failedErr(err).onErrorPrepend("Failed to create/update (Kubernetes reconciliation phase):")
 			}
 			log.Info("Updated statefulsets for sharded cluster")
 			return ok()

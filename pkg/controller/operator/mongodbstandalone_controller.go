@@ -136,12 +136,11 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 
 	status := runInGivenOrder(standaloneBuilder.needToPublishStateFirst(log),
 		func() reconcileStatus {
-			return updateOmDeployment(conn, s, standaloneBuilder.BuildStatefulSet(), log)
-
+			return updateOmDeployment(conn, s, standaloneBuilder.BuildStatefulSet(), log).onErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() reconcileStatus {
 			if err := standaloneBuilder.CreateOrUpdateInKubernetes(); err != nil {
-				return failedErr(fmt.Errorf("Failed to create/update (Kubernetes reconciliation phase): %s.", err))
+				return failed("Failed to create/update (Kubernetes reconciliation phase): %s", err.Error())
 			}
 			log.Info("Updated statefulset for standalone")
 			return ok()
