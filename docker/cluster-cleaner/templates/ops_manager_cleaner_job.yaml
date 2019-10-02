@@ -28,7 +28,7 @@ metadata:
   name: cluster-cleaner-ops-manager
   namespace: {{ .Values.namespace }}
 spec:
-  # run every day at 3am
+  # Run at 3:00 am every day.
   schedule: "0 3 * * *"
   jobTemplate:
     spec:
