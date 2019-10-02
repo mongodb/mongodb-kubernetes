@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
+
+source scripts/dev/set_env_context
+
+title "Building AppDB image..."
+
+om_version=${1}
+
+if [[ -z "${om_version}" ]]; then
+    fatal "'om_version' parameter must be specified!"
+fi
+
+# om_branch is optional - only if the Ops Manager is not released yet and we need to use some branch
+om_branch="${2:-on-prem-$om_version}"
+
+# download OM configuration file conf-hosted.properties to find the automation agent version
+check_env_var "GITHUB_TOKEN" "To download Ops Manager config file you need to specify the 'GITHUB_TOKEN' environment variable (https://github.com/settings/tokens/new) with 'repo' scope"
+
+echo "Downloading mms conf-hosted file from the following tag/branch: $om_branch"
+curl -OL "https://${GITHUB_TOKEN}@raw.githubusercontent.com/10gen/mms/$om_branch/server/conf/conf-hosted.properties" --fail
+
+automation_agent_version=$(grep "automation.agent.version" conf-hosted.properties | cut -d "=" -f 2)
+
+rm conf-hosted.properties
+
+if [[ -z ${automation_agent_version} ]]; then
+    fatal "Failed to find automation agent binary name for ops manager branch ${om_branch}"
+fi
+
+echo "The Automation Agent version fetched from Ops Manager tag/branch $om_branch is $automation_agent_version"
+
+if [[ ${REPO_TYPE} = "local" ]]; then
+    eval "$(minikube docker-env)"
+    make -C docker/mongodb-enterprise-database build IMAGE_DIR=local IMAGE_TYPE="${IMAGE_TYPE}"
+    title "Database image successfully built"
+elif [[ ${REPO_TYPE} = "ecr" ]]; then
+    repo_host="$(echo ${REPO_URL} | cut -d "/" -f 1)"
+    repo_name="$(echo ${REPO_URL} | cut -d "/" -f 2)"
+
+	if ! aws ecr describe-repositories | grep -q "${repo_name}/mongodb-enterprise-database"; then
+        aws ecr create-repository --repository-name="${repo_name}/mongodb-enterprise-database"
+	fi
+
+    make -C docker/mongodb-enterprise-database push_appdb IMAGE_DIR="${repo_name}" AWS_IMAGE_REPO="${repo_host}" \
+           IMAGE_TYPE="${IMAGE_TYPE}" AA_VERSION="${automation_agent_version}" IMAGE_VERSION="${om_version}"
+
+    title "Database image successfully built and pushed to the ECR registry"
+elif [[ ${REPO_TYPE} = "quay" ]]; then
+    title "Skipping build of the database as current Docker registry is quay.io"
+fi
+

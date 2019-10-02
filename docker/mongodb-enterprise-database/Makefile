@@ -5,7 +5,7 @@ IMAGE_DIR = dev
 AWS_IMAGE_REPO = 268558157000.dkr.ecr.us-east-1.amazonaws.com
 AWS_REGION = us-east-1
 IMAGE_TYPE = ubuntu
-AA_DOWNLOAD_LOCATION = https://mongodb-mms-build-agent.s3.amazonaws.com/releases/prod
+AA_DOWNLOAD_LOCATION = https://s3.amazonaws.com/mciuploads/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod
 AA_VERSION = 10.2.2.5862-1
 TEST_AUTOMATION_CONFIG = test/replset.json
 
@@ -112,7 +112,7 @@ pull_appdb: aws_login
 	docker pull $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE_APPDB):$(IMAGE_VERSION)-$(IMAGE_TYPE)
 	docker tag $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE_APPDB):$(IMAGE_VERSION)-$(IMAGE_TYPE) $(IMAGE_DIR)/$(IMAGE_APPDB):$(IMAGE_VERSION)-$(IMAGE_TYPE)
 
-push_appdb: build aws_login
+push_appdb: build_appdb aws_login
 	docker tag $(IMAGE_DIR)/$(IMAGE_APPDB):$(IMAGE_VERSION)-$(IMAGE_TYPE) $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE_APPDB):$(IMAGE_VERSION)-$(IMAGE_TYPE)
 	docker push $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE_APPDB):$(IMAGE_VERSION)-$(IMAGE_TYPE)
 

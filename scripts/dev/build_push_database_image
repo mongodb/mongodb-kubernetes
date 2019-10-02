@@ -7,27 +7,21 @@ source scripts/dev/set_env_context
 
 title "Building Database image..."
 
-IMAGE_TYPE=ubuntu
-if [[ "${CLUSTER_TYPE}" = "openshift" ]]; then
-    IMAGE_TYPE="rhel"
-fi
-
 if [[ ${REPO_TYPE} = "local" ]]; then
-	eval "$(minikube docker-env)"
-	make -C docker/mongodb-enterprise-database build IMAGE_DIR=local IMAGE_TYPE="${IMAGE_TYPE}"
-	title "Database image successfully built"
+    eval "$(minikube docker-env)"
+    make -C docker/mongodb-enterprise-database build IMAGE_DIR=local IMAGE_TYPE="${IMAGE_TYPE}"
+    title "Database image successfully built"
 elif [[ ${REPO_TYPE} = "ecr" ]]; then
-	repo_name="$(echo ${REPO_URL} | cut -d "/" -f 2)"
+    repo_host="$(echo ${REPO_URL} | cut -d "/" -f 1)"
+    repo_name="$(echo ${REPO_URL} | cut -d "/" -f 2)"
 
-	if ! aws ecr describe-repositories | grep -q "${repo_name}/mongodb-enterprise-database"; then
-		aws ecr create-repository --repository-name="${repo_name}/mongodb-enterprise-database"
-	fi
+    if ! aws ecr describe-repositories | grep -q "${repo_name}/mongodb-enterprise-database"; then
+        aws ecr create-repository --repository-name="${repo_name}/mongodb-enterprise-database"
+    fi
 
-	make -C docker/mongodb-enterprise-database build IMAGE_DIR="${repo_name}" IMAGE_TYPE="${IMAGE_TYPE}"
-	docker tag "${repo_name}"/mongodb-enterprise-database "${REPO_URL}"/mongodb-enterprise-database
-	docker push "${REPO_URL}"/mongodb-enterprise-database
+    make -C docker/mongodb-enterprise-database push IMAGE_DIR="${repo_name}" AWS_IMAGE_REPO="${repo_host}" IMAGE_TYPE="${IMAGE_TYPE}"
 
-	title "Database image successfully built and pushed to the ECR registry"
+    title "Database image successfully built and pushed to the ECR registry"
 elif [[ ${REPO_TYPE} = "quay" ]]; then
-	title "Skipping build of the database as current Docker registry is quay.io"
+    title "Skipping build of the database as current Docker registry is quay.io"
 fi

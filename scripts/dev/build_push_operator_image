@@ -7,21 +7,17 @@ source scripts/dev/set_env_context
 
 title "Building Operator image..."
 
-IMAGE_TYPE=ubuntu
-if [[ "${CLUSTER_TYPE}" = "openshift" ]]; then
-    IMAGE_TYPE="rhel"
-fi
-
 if [[ ${REPO_TYPE} = "local" ]]; then
     eval "$(minikube docker-env)"
     make -C docker/mongodb-enterprise-operator build IMAGE_DIR=local IMAGE_TYPE="${IMAGE_TYPE}"
     title "Operator image successfully built"
 elif [[ ${REPO_TYPE} = "ecr" ]]; then
+    repo_host="$(echo ${REPO_URL} | cut -d "/" -f 1)"
     repo_name="$(echo ${REPO_URL} | cut -d "/" -f 2)"
 
     operator_name="mongodb-enterprise-operator"
     if ! aws ecr describe-repositories | grep -q "${repo_name}/${operator_name}"; then
-	aws ecr create-repository --repository-name="${repo_name}/${operator_name}"
+        aws ecr create-repository --repository-name="${repo_name}/${operator_name}"
     fi
 
     docker_file_dir="docker/${operator_name}"
@@ -32,11 +28,7 @@ elif [[ ${REPO_TYPE} = "ecr" ]]; then
 
     echo "using Dockerfile: ${docker_file}"
 
-    make -C docker/mongodb-enterprise-operator build IMAGE_DIR="${repo_name}" IMAGE_TYPE="${IMAGE_TYPE}"
-    # docker build -t "${repo_name}/${operator_name}:latest" "docker/${operator_name}" -f "${docker_file}"
-
-    docker tag "${repo_name}/mongodb-enterprise-operator:latest-${IMAGE_TYPE}" "${REPO_URL}/${operator_name}"
-    docker push "${REPO_URL}"/mongodb-enterprise-operator
+    make -C docker/mongodb-enterprise-operator push IMAGE_DIR="${repo_name}" AWS_IMAGE_REPO="${repo_host}" IMAGE_TYPE="${IMAGE_TYPE}"
 
     title "Operator image successfully built and pushed to the ECR registry"
 elif [[ ${REPO_TYPE} = "quay" ]]; then

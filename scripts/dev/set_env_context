@@ -37,7 +37,13 @@ else
 	fatal "Failed to guess repository type based on url \"${REPO_URL}\""
 fi
 
+export IMAGE_TYPE=ubuntu
+if [[ "${CLUSTER_TYPE}" = "openshift" ]]; then
+    export IMAGE_TYPE="rhel"
+fi
+
 export CURRENT_CONTEXT=${context}
 export NAMESPACE=${NAMESPACE:-mongodb}
 export OPERATOR_DIR=${root_dir}
-
+# switch this on if your network is slow to decrease the size of binary
+# export COMPRESS_OPERATOR_BINARY=true

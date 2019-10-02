@@ -19,6 +19,9 @@ usage:
 	@ echo "  operator:                   build and push Operator image, deploy it to the Kubernetes cluster"
 	@ echo "                              Use the 'watch_namespace' flag to specify a namespace to watch or leave empty to watch project namespace."
 	@ echo "  database:                   build and push Database image"
+	@ echo "  appdb:                      build and push AppDB image. Specify 'om_version' in format '4.2.1' to provide the already released Ops Manager"
+	@ echo "                              version which will be used to find the matching tag and find the Automation Agent version. Add 'om_branch' "
+	@ echo "                              if Ops Manager is not released yet and you want to have some git branch as the source "
 	@ echo "  full:                       ('make' is an alias for this command) ensures K8s cluster is up, cleans Kubernetes"
 	@ echo "                              resources, build-push-deploy operator, push-deploy database, create secrets, "
 	@ echo "                              config map, resources etc"
@@ -73,6 +76,10 @@ operator: build-and-push-operator-image
 # build-push, (todo) restart database
 database: aws_login
 	@ scripts/dev/build_push_database_image
+
+# build-push appdb image
+appdb: aws_login
+	@ scripts/dev/build_push_appdb_image $(om_version) $(om_branch)
 
 # ensures cluster is up, cleans Kubernetes + OM, build-push-deploy operator,
 # push-deploy database, create secrets, config map, resources etc
