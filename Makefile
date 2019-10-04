@@ -25,7 +25,10 @@ usage:
 	@ echo "  full:                       ('make' is an alias for this command) ensures K8s cluster is up, cleans Kubernetes"
 	@ echo "                              resources, build-push-deploy operator, push-deploy database, create secrets, "
 	@ echo "                              config map, resources etc"
-	@ echo "  om:                         install Ops Manager into Kubernetes if it's not installed yet. Initializes the connection"
+	@ echo "  om-image:                   builds and pushes the Ops Manager docker image. Specify the image version using 'image_version'"
+	@ echo "                              and download file version using 'download_version' (e.g. 'download_version=4.2.2.56673.20191001T1459Z-1')"
+	@ echo "                              By default the an official url is used but this can be overriden by specifing 'download_url_base'"
+	@ echo "  om:                         install Test Ops Manager into Kubernetes if it's not installed yet. Initializes the connection"
 	@ echo "                              parameters in ~/operator-dev/om"
 	@ echo "  om-evg:                     install Ops Manager into Evergreen if it's not installed yet. Initializes the connection"
 	@ echo "                              parameters in ~/operator-dev/om. You can pass custom Ubuntu Debian package url using 'url' parameter"
@@ -90,6 +93,9 @@ full: ensure-k8s-and-reset build-and-push-images
 debug: export DEBUG_PORT=30042
 debug: export DEBUG=true
 debug: full
+
+om-image:
+	@ scripts/dev/build_push_opsmanager_image $(om_version) $(download_version) $(download_url_base)
 
 # install OM in Kubernetes if it's not running
 om:

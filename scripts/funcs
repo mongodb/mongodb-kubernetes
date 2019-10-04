@@ -43,6 +43,13 @@ check_app() {
     fi
 }
 
+check_mandatory_param() {
+    param="${1-}"
+    param_name="${2-}"
+    if [[ -z "$param" ]]; then
+        fatal "Parameter $param_name must be specified!"
+    fi
+}
 ensure_namespace() {
     namespace="${1}"
     tmp_file=$(mktemp)

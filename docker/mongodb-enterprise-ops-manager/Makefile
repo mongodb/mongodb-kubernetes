@@ -1,0 +1,84 @@
+IMAGE = mongodb-enterprise-ops-manager
+# Image version can be picked from the download url - just remove "mongodb-mms_" prefix and "_x86_64.deb" suffix
+IMAGE_VERSION=4.0.12
+IMAGE_DIR = dev
+CONTAINER = ops_manager
+AWS_IMAGE_REPO = 268558157000.dkr.ecr.us-east-1.amazonaws.com
+AWS_IMAGE_REPO = dev
+AWS_REGION = us-east-1
+OM_DOWNLOAD_LOCATION = https://downloads.mongodb.com/on-prem-mms/deb
+OM_DOWNLOAD_VERSION = 4.0.12.50517.20190605T1533Z-1
+APPDB_PORT = 27017
+IP = $(shell ifconfig | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1' | head -1)
+IMAGE_TYPE = ubuntu
+
+usage:
+	@ echo "MongoDB Enterprise Ops Manager - Docker image builder"
+	@ echo
+	@ echo "Usage:"
+	@ echo "  delete_container:      stops and deletes the container"
+	@ echo "  clean:                 deletes the image and any running containers"
+	@ echo "  build:                 builds the Docker image"
+	@ echo "  clean_build:           rebuilds the Docker image from scratch (no-cache), stopping any running containers and deleting all intermediate containers"
+	@ echo "  all:                   shorthand for 'clean build run'"
+	@ echo "  pull:                  pulls the image from the configured Docker registry"
+	@ echo "  push:                  pushes the image to the configured Docker registry"
+	@ echo
+	@ echo "  run:                   runs the image in a new container"
+	@ echo "  start:                 (re)starts an existing container"
+	@ echo "  stop:                  stops a running container, if one exists"
+	@ echo "  restart:               stops any running containers, then restarts"
+	@ echo "  status:                shows the running container's IP and processes"
+	@ echo
+	@ echo "  wait:                  wait until Ops Manager has started and was configured (Docker only, not Kubernetes)"
+	@ echo "  version:               prints the image's version string (IMAGE_VERSION)"
+	@ echo
+
+delete_container:
+	@ docker rm -f $(CONTAINER) || true
+
+clean: delete_container
+	@ docker rmi $(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE) || true
+
+build:
+	docker build $(EXTRA_PARAM) \
+		-t $(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE) \
+		--build-arg OM_DOWNLOAD_LINK=$(OM_DOWNLOAD_LOCATION)/mongodb-mms_$(OM_DOWNLOAD_VERSION)_x86_64.deb \
+		.
+
+clean_build:
+	@ rm -rf cache/*
+	@ $(MAKE) EXTRA_PARAM="--no-cache --force-rm --rm" clean build
+
+all:
+	@ $(MAKE) clean build run
+
+aws_login:
+	@ eval "$(shell aws ecr get-login --no-include-email --region $(AWS_REGION))"
+
+pull: aws_login
+	docker pull $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE)
+	docker tag $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE) $(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE)
+
+push: build aws_login
+	docker tag $(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE) $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE)
+	docker push $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE)
+
+run:
+	@ echo "Make sure you run the mongodb on port $(APPDB_PORT)"
+	docker run --name $(CONTAINER) -p 8080:8080 -e OM_PROP_mongo_mongoUri='mongodb://$(IP):$(APPDB_PORT)' -t $(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE)
+
+start:
+	@ echo "Restarting the $(CONTAINER) container..."
+	- docker start $(CONTAINER)
+
+stop:
+	@ echo "Stopping the $(CONTAINER) container..."
+	- docker stop $(CONTAINER)
+	@ while ! docker ps -a --filter 'status=exited' --filter 'status=paused' --filter 'status=dead' 2>/dev/null | grep -s 'ops_manager' 2>/dev/null; do sleep 3; done
+
+restart:
+	@ $(MAKE) stop start
+
+version:
+	@ echo $(IMAGE_VERSION)

@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
+
+source scripts/dev/set_env_context
+
+title "Building Ops Manager image..."
+
+check_mandatory_param "${1-}" "image_version"
+check_mandatory_param "${2-}" "download_version"
+
+image_version="$1"
+download_version="$2"
+download_url_base="${3:-}"
+
+if [[ ${REPO_TYPE} = "local" ]]; then
+    eval "$(minikube docker-env)"
+    make -C docker/mongodb-enterprise-ops-manager build IMAGE_DIR=local IMAGE_TYPE="${IMAGE_TYPE}"
+    title "Ops Manager image successfully built"
+elif [[ ${REPO_TYPE} = "ecr" ]]; then
+    repo_host="$(echo ${REPO_URL} | cut -d "/" -f 1)"
+    repo_name="$(echo ${REPO_URL} | cut -d "/" -f 2)"
+
+    if ! aws ecr describe-repositories | grep -q "${repo_name}/mongodb-enterprise-ops-manager"; then
+        aws ecr create-repository --repository-name="${repo_name}/mongodb-enterprise-ops-manager"
+    fi
+
+    if [[ -n "${download_url_base}" ]]; then
+        make -C docker/mongodb-enterprise-ops-manager push IMAGE_DIR="${repo_name}" AWS_IMAGE_REPO="${repo_host}" \
+            IMAGE_TYPE="${IMAGE_TYPE}" IMAGE_VERSION="${image_version}" OM_DOWNLOAD_VERSION="${download_version}" \
+            OM_DOWNLOAD_LOCATION="${download_url_base}"
+    else
+        make -C docker/mongodb-enterprise-ops-manager push IMAGE_DIR="${repo_name}" AWS_IMAGE_REPO="${repo_host}" \
+            IMAGE_TYPE="${IMAGE_TYPE}" IMAGE_VERSION="${image_version}" OM_DOWNLOAD_VERSION="${download_version}"
+    fi
+    title "Ops Manager image successfully built and pushed to the ECR registry"
+elif [[ ${REPO_TYPE} = "quay" ]]; then
+    title "Skipping build of the Ops Manager as current Docker registry is quay.io"
+fi
