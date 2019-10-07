@@ -3,6 +3,8 @@
 # pre-commit hook will go vet all the files being committed
 # and also format them with go imports
 
+export GO111MODULE=on
+export GOFLAGS="-mod=vendor"
 
 if [[ -z $GOPATH ]]; then
     echo "GOPATH is not configured"

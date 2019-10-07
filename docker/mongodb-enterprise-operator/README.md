@@ -5,7 +5,7 @@ This directory hosts the Dockerfile for the Ops Manager Operator.
 ### Building the source-code
 
 ```bash
-CGO_ENABLED=0 GOOS=linux go build -i -o mongodb-enterprise-operator
+CGO_ENABLED=0 GOOS=linux GOFLAGS="-mod=vendor" go build -i -o mongodb-enterprise-operator
 ```
 
 ### Building the image

@@ -101,6 +101,7 @@ functions:
           export GOPATH="${workdir}"
           export GOROOT="/usr/lib/go"
           export GOBIN="$GOPATH/bin"
+          export GOFLAGS="-mod=vendor"
           export PATH="$GOBIN:$PATH"
 
           ( cd docker/mongodb-enterprise-database && ../Dockerfile.gen ${distro} > Dockerfile )

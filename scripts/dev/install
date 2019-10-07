@@ -10,9 +10,6 @@ title "The following tools will be installed: dep, kubectl, minikube, kops, aws-
 echo "Note, that you must download 'go' by yourself"
 
 if [ $(uname) = "Darwin" ] ; then
-  # dep
-  brew install dep
-
   # kubectl 1.11.3
   brew install https://raw.githubusercontent.com/Homebrew/homebrew-core/41764e07727d9a86b0f8a077117dc7876ca294c4/Formula/kubernetes-cli.rb
 

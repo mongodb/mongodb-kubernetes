@@ -24,5 +24,7 @@ exports.do
 
 public/support/*.gz
 public/support/logs*
+docker/mongodb-enterprise-appdb/content/readinessprobe
+ops-manager-kubernetes
 docker/mongodb-enterprise-operator/Dockerfile
 docker/mongodb-enterprise-database/Dockerfile

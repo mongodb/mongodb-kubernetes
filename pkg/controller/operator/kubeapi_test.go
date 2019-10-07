@@ -11,7 +11,8 @@ import (
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/webhook/admission/types"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -142,13 +143,13 @@ func (k *MockedClient) Get(ctx context.Context, key client.ObjectKey, obj apirun
 // List retrieves list of objects for a given namespace and list options. On a
 // successful call, Items field in the list will be populated with the
 // result returned from the server.
-func (k *MockedClient) List(ctx context.Context, opts *client.ListOptions, list apiruntime.Object) error {
+func (k *MockedClient) List(ctx context.Context, list apiruntime.Object, opts ...client.ListOption) error {
 	// we don't need this
 	return nil
 }
 
 // Create saves the object obj in the Kubernetes cluster.
-func (k *MockedClient) Create(ctx context.Context, obj apiruntime.Object) error {
+func (k *MockedClient) Create(ctx context.Context, obj apiruntime.Object, opts ...client.CreateOption) error {
 	key := objectKeyFromApiObject(obj)
 	resMap := k.getMapForObject(obj)
 	k.addToHistory(reflect.ValueOf(k.Create), obj)
@@ -184,7 +185,7 @@ func (k *MockedClient) Create(ctx context.Context, obj apiruntime.Object) error 
 
 // Update updates the given obj in the Kubernetes cluster. obj must be a
 // struct pointer so that obj can be updated with the content returned by the Server.
-func (k *MockedClient) Update(ctx context.Context, obj apiruntime.Object) error {
+func (k *MockedClient) Update(ctx context.Context, obj apiruntime.Object, opts ...client.UpdateOption) error {
 	k.addToHistory(reflect.ValueOf(k.Update), obj)
 	if k.UpdateFunc != nil {
 		return k.UpdateFunc(ctx, obj)
@@ -206,7 +207,7 @@ func (k *MockedClient) doUpdate(ctx context.Context, obj apiruntime.Object) erro
 }
 
 // Delete deletes the given obj from Kubernetes cluster.
-func (k *MockedClient) Delete(ctx context.Context, obj apiruntime.Object, opts ...client.DeleteOptionFunc) error {
+func (k *MockedClient) Delete(ctx context.Context, obj apiruntime.Object, opts ...client.DeleteOption) error {
 	k.addToHistory(reflect.ValueOf(k.Delete), obj)
 
 	key := objectKeyFromApiObject(obj)
@@ -214,6 +215,14 @@ func (k *MockedClient) Delete(ctx context.Context, obj apiruntime.Object, opts .
 	resMap := k.getMapForObject(obj)
 	delete(resMap, key)
 
+	return nil
+}
+
+func (k *MockedClient) DeleteAllOf(ctx context.Context, obj apiruntime.Object, opts ...client.DeleteAllOfOption) error {
+	return nil
+}
+
+func (k *MockedClient) Patch(ctx context.Context, obj apiruntime.Object, patch client.Patch, opts ...client.PatchOption) error {
 	return nil
 }
 
@@ -375,13 +384,24 @@ func (m *MockedManager) GetScheme() *apiruntime.Scheme {
 }
 
 // GetAdmissionDecoder returns the runtime.Decoder based on the scheme.
-func (m *MockedManager) GetAdmissionDecoder() types.Decoder {
+func (m *MockedManager) GetAdmissionDecoder() admission.Decoder {
+	// just returning nothing
+	d, _ := admission.NewDecoder(apiruntime.NewScheme())
+	return *d
+}
+
+// GetAPIReader returns the client reader
+func (m *MockedManager) GetAPIReader() client.Reader {
 	return nil
 }
 
 // GetClient returns a client configured with the Config
 func (m *MockedManager) GetClient() client.Client {
 	return m.client
+}
+
+func (m *MockedManager) GetEventRecorderFor(name string) record.EventRecorder {
+	return nil
 }
 
 // GetFieldIndexer returns a client.FieldIndexer configured with the client
@@ -401,5 +421,9 @@ func (m *MockedManager) GetRecorder(name string) record.EventRecorder {
 
 // GetRESTMapper returns a RESTMapper
 func (m *MockedManager) GetRESTMapper() meta.RESTMapper {
+	return nil
+}
+
+func (m *MockedManager) GetWebhookServer() *webhook.Server {
 	return nil
 }

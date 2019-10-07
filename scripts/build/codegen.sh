@@ -6,4 +6,7 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 pushd "${DIR}" &> /dev/null
 cd "$(../gitroot)/vendor/k8s.io/code-generator"
 
-./generate-groups.sh all github.com/10gen/ops-manager-kubernetes/pkg/client github.com/10gen/ops-manager-kubernetes/pkg/apis "mongodb.com:v1"
+ROOT_PACKAGE="github.com/10gen/ops-manager-kubernetes"
+
+# overriding go modules and GOFLAGS, because code-generator does not support go modules
+GO111MODULE=off GOFLAGS="" bash ./generate-groups.sh all ${ROOT_PACKAGE}/pkg/client ${ROOT_PACKAGE}/pkg/apis "mongodb.com:v1" --go-header-file "${DIR}/boilerplate.go.txt"
