@@ -16,8 +16,8 @@ if [[ "$(uname)" != 'Linux' ]]; then
     export GOOS='linux'
 fi
 
-if [[ ${DEBUG-} = "true" ]]; then
-    echo "Building Operator binary in debug mode..."
+if [[ ${DEBUG-} = "True" ]]; then
+    echo "Building Operator binary in 'debug' mode..."
     go build -gcflags "-N -l" -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator
 else
     echo "Building Operator binary..."

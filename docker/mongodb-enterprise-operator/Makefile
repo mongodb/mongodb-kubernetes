@@ -4,6 +4,7 @@ IMAGE_DIR = dev
 AWS_IMAGE_REPO = 268558157000.dkr.ecr.us-east-1.amazonaws.com
 AWS_REGION = us-east-1
 IMAGE_TYPE = ubuntu
+IS_DEBUG = False
 
 usage:
 	@ echo "MongoDB Enterprise Kubernetes Operator - Docker image builder"
@@ -29,8 +30,8 @@ clean: delete_container
 	- docker rmi $(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE)
 
 build:
-	@ ../Dockerfile.gen "${IMAGE_TYPE}" > Dockerfile
-	@ ../../scripts/build/build_operator || (../../scripts/build/prepare_build_environment && ../../scripts/build/build_operator)
+	@ ../Dockerfile.gen "${IMAGE_TYPE}" False $(IS_DEBUG) > Dockerfile
+	@ DEBUG=$(IS_DEBUG) ../../scripts/build/build_operator || (../../scripts/build/prepare_build_environment && ../../scripts/build/build_operator)
 	docker build $(EXTRA_PARAM) -t $(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE) .
 
 clean-build:

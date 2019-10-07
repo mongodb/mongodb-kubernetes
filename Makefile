@@ -17,6 +17,8 @@ usage:
 	@ echo "                              one"
 	@ echo "  contexts:                   list all available contexts"
 	@ echo "  operator:                   build and push Operator image, deploy it to the Kubernetes cluster"
+	@ echo "                              Use the 'debug' flag to build and deploy the Operator in debug mode - you need"
+	@ echo "                              to ensure the 30042 port on the K8s node is open"
 	@ echo "                              Use the 'watch_namespace' flag to specify a namespace to watch or leave empty to watch project namespace."
 	@ echo "  database:                   build and push Database image"
 	@ echo "  appdb:                      build and push AppDB image. Specify 'om_version' in format '4.2.1' to provide the already released Ops Manager"
@@ -47,8 +49,6 @@ usage:
 	@ echo "  dashboard:                  opens the Kubernetes dashboard. Make sure the cluster was installed using current Makefile as"
 	@ echo "                              dashboard is not installed by default and the script ensures it's installed and permissions"
 	@ echo "                              are configured."
-	@ echo "  debug:                      configures the operator to run in debug mode, exposing DEBUG_PORT as a node port in the"
-	@ echo "                              cluster to enable debuggers to attach remotely."
 	@ echo "  open-automation-config/ac:   displays the contents of the Automation Config in in $EDITOR using ~/.operator-dev configuration"
 
 
@@ -89,10 +89,6 @@ appdb: aws_login
 full: ensure-k8s-and-reset build-and-push-images
 	@ $(MAKE) deploy-and-configure-operator
 	@ scripts/dev/apply_resources
-
-debug: export DEBUG_PORT=30042
-debug: export DEBUG=true
-debug: full
 
 om-image:
 	@ scripts/dev/build_push_opsmanager_image $(om_version) $(download_version) $(download_url_base)
@@ -155,7 +151,7 @@ aws_login:
 	@ eval "$(shell aws ecr get-login --no-include-email --region us-east-1)"
 
 build-and-push-operator-image: aws_login
-	@ scripts/dev/build_push_operator_image
+	@ scripts/dev/build_push_operator_image  $(debug)
 
 build-and-push-database-image: aws_login
 	@ scripts/dev/build_push_database_image

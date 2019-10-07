@@ -5,6 +5,8 @@ cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
 source scripts/dev/set_env_context
 
+debug="${1-}"
+
 title "Building Operator image..."
 
 if [[ ${REPO_TYPE} = "local" ]]; then
@@ -20,15 +22,14 @@ elif [[ ${REPO_TYPE} = "ecr" ]]; then
         aws ecr create-repository --repository-name="${repo_name}/${operator_name}"
     fi
 
-    docker_file_dir="docker/${operator_name}"
-    docker_file="${docker_file_dir}/Dockerfile"
-    if [[ "${DEBUG-}" = "true" ]]; then
-        docker_file="${docker_file}-debug"
+    is_debug="False"
+    if [[ -n "${debug-}" ]]; then
+        echo "Building Operator Image in 'debug' mode"
+        is_debug="True"
     fi
 
-    echo "using Dockerfile: ${docker_file}"
-
-    make -C docker/mongodb-enterprise-operator push IMAGE_DIR="${repo_name}" AWS_IMAGE_REPO="${repo_host}" IMAGE_TYPE="${IMAGE_TYPE}"
+    make -C docker/mongodb-enterprise-operator push IMAGE_DIR="${repo_name}" AWS_IMAGE_REPO="${repo_host}" \
+        IMAGE_TYPE="${IMAGE_TYPE}" IS_DEBUG="${is_debug}"
 
     title "Operator image successfully built and pushed to the ECR registry"
 elif [[ ${REPO_TYPE} = "quay" ]]; then

@@ -101,20 +101,26 @@ def rhel() -> Dict[str, Union[str, List[str]]]:
     }
 
 
-def render(distro: str, is_appdb: bool):
+def render(distro: str, is_appdb: bool, is_debug: bool):
     if getattr(sys.modules[__name__], distro, None) is None:
         raise ValueError("{} is not a valid distro name.".format(distro))
 
     template_params = getattr(sys.modules[__name__], distro)()
     template_params["is_appdb"] = is_appdb
+    template_params["is_debug"] = is_debug
     return jinja2.Template(open("Dockerfile.template").read()).render(template_params)
 
 
 if __name__ == "__main__":
     distro = sys.argv[1]
+    # TODO support for key->value parameters
     try:
         is_appdb = bool(sys.argv[2])
     except IndexError:
         is_appdb = False
+    try:
+        is_debug = sys.argv[3] == 'True'
+    except IndexError:
+        is_debug = False
 
-    print(render(distro, is_appdb))
+    print(render(distro, is_appdb, is_debug))
