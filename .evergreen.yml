@@ -1124,7 +1124,6 @@ task_groups:
     - e2e_replica_set_upgrade_downgrade
     - e2e_replica_set_8_members
     - e2e_replica_set_exposed_externally
-    - e2e_replica_set_readiness_probe
     - e2e_sharded_cluster
     - e2e_sharded_cluster_pv
     - e2e_sharded_cluster_recovery
@@ -1167,6 +1166,7 @@ task_groups:
   teardown_task:
     - func: "upload_e2e_logs"
 
+# The "others" tasks are those which cannot be run on 4.0 - only on 4.2+
 - name: e2e_core_others_task_group
   max_hosts: 1
   setup_group:
@@ -1176,6 +1176,7 @@ task_groups:
 
   tasks:
     - e2e_sharded_cluster_scale_shards
+    - e2e_replica_set_readiness_probe
   teardown_task:
     - func: "upload_e2e_logs"
 

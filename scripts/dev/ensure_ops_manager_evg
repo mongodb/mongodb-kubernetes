@@ -26,7 +26,7 @@ if ! ssh "ubuntu@${OPS_MANAGER_HOST}" cat "~/om" &> /dev/null; then
   rm ~/.operator-dev/om || true
 
   # todo the script just creates a user - we need to create a test organization as well
-  docker/mongodb-enterprise-ops-manager/scripts/configure-ops-manager.py \
+  docker/mongodb-enterprise-ops-manager-dev/scripts/configure-ops-manager.py \
     "http://${OPS_MANAGER_HOST}:9080" ~/.operator-dev/om
 
   echo "Ops Manager Environment:"
