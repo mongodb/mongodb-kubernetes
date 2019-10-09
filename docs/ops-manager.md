@@ -18,7 +18,7 @@ configuring Operator later
 
 ## Manual Ops Manager Kubernetes configuration
 
-If you chose to skip [automatic configuration in Ops Manager](../docker/mongodb-enterprise-ops-manager/#auto-configuration) by setting `SKIP_OPS_MANAGER_REGISTRATION` environment variable,
+If you chose to skip [automatic configuration in Ops Manager](../docker/mongodb-enterprise-ops-manager-dev/#auto-configuration) by setting `SKIP_OPS_MANAGER_REGISTRATION` environment variable,
 you will need to perform the following steps to correctly configure the [mongodb-enterprise-operator](../docker/mongodb-enterprise-operator).
 
 - 1\. Register an admin user

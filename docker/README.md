@@ -158,7 +158,7 @@ helm install  --tiller-namespace "tiller" --namespace "mongodb" --name mongodb-e
     --set registry.repository="quay.io/mongodb-enterprise-private" \  # Custom Docker Registry
     --set registry.pullPolicy="Never" \                               # Don't pull images
     --set opsManager.version="4.1.0" \                                # Custom Ops Manager Version
-    "mongodb-enterprise-ops-manager/helm_chart" -f "mongodb-enterprise-ops-manager/helm_chart/values.yaml"
+    "mongodb-enterprise-ops-manager-dev/helm_chart" -f "mongodb-enterprise-ops-manager-dev/helm_chart/values.yaml"
 ```
 
 

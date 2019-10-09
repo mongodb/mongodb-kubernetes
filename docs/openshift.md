@@ -4,7 +4,7 @@ This page contains instructions for configuring the following:
 - a local [Openshift Cluster](https://docs.openshift.org/latest/getting_started/administrators.html)
 - [Helm and Tiller](https://docs.helm.sh/install/)
 - [MongoDB Enterprise Kubernetes Operator](../public)
-- [MongoDB Ops Manager](../docker/mongodb-enterprise-ops-manager) running in Docker
+- [MongoDB Ops Manager](../docker/mongodb-enterprise-ops-manager-dev) running in Docker
 
 **NOTE:** This guide assumes that you are running in a MacOS environment.
 

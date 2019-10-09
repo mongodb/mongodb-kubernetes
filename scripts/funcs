@@ -105,11 +105,11 @@ ensure_ops_manager_k8s() {
 
     if is_ops_manager_down ${ops_manager_namespace}; then
         echo "Ops Manager is not installed in this cluster. Doing it now."
-        echo "Run \"make -C docker/mongodb-enterprise-ops-manager IMAGE_VERSION=${ops_manager_version} push\" to update Ops Manager image in ECR if necessary"
+        echo "Run \"make -C docker/mongodb-enterprise-ops-manager-dev IMAGE_VERSION=${ops_manager_version} push\" to update Ops Manager image in ECR if necessary"
 
         # Building Ops Manager image if we want to run it in local Kubernetes cluster
         if [[ ${REPO_TYPE:-'ecr'} = "local" ]]; then
-            make -C docker/mongodb-enterprise-ops-manager IMAGE_VERSION=${ops_manager_version} build
+            make -C docker/mongodb-enterprise-ops-manager-dev IMAGE_VERSION=${ops_manager_version} build
         fi
 
         echo "Installing Ops Manager ${ops_manager_version}"
@@ -119,7 +119,7 @@ ensure_ops_manager_k8s() {
             --set opsManager.version=${ops_manager_version} \
             --set opsManager.host="ops-manager.${ops_manager_namespace}.svc.cluster.local" \
             --set opsManager.nodePort=${node_port} \
-            docker/mongodb-enterprise-ops-manager/helm_chart > mongodb-enterprise-ops-manager.yaml
+            docker/mongodb-enterprise-ops-manager-dev/helm_chart > mongodb-enterprise-ops-manager.yaml
 
         echo
 
