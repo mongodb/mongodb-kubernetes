@@ -15,22 +15,19 @@ title "Building e2e tests application image..."
 TEST_IMAGE_TAG=$(git rev-parse HEAD)
 
 if [[ ${REPO_TYPE} = "local" ]]; then
-	eval "$(minikube docker-env)"
-	docker build -t local/mongodb-enterprise-tests docker/mongodb-enterprise-tests:${TEST_IMAGE_TAG}
-	title "Enterprise tests image successfully built"
+    eval "$(minikube docker-env)"
+    docker build -t local/mongodb-enterprise-tests "docker/mongodb-enterprise-tests:${TEST_IMAGE_TAG}"
+    title "Enterprise tests image successfully built"
 elif [[ ${REPO_TYPE} = "ecr" ]]; then
     # note that 'aws login' should be called before - 'make' takes care of it
-	repo_name="$(echo ${REPO_URL} | cut -d "/" -f 2)"
+    repo_name="$(echo "${REPO_URL}" | cut -d "/" -f 2)"
+    ensure_ecr_repository "${repo_name}/mongodb-enterprise-tests"
 
-	if ! aws ecr describe-repositories | grep -q "${repo_name}/mongodb-enterprise-tests"; then
-		aws ecr create-repository --repository-name="${repo_name}/mongodb-enterprise-tests"
-	fi
+    docker build -t "${repo_name}"/mongodb-enterprise-tests:${TEST_IMAGE_TAG} docker/mongodb-enterprise-tests
+    docker tag "${repo_name}"/mongodb-enterprise-tests:${TEST_IMAGE_TAG} "${REPO_URL}"/mongodb-enterprise-tests:${TEST_IMAGE_TAG}
+    docker push "${REPO_URL}"/mongodb-enterprise-tests:${TEST_IMAGE_TAG}
 
-	docker build -t "${repo_name}"/mongodb-enterprise-tests:${TEST_IMAGE_TAG} docker/mongodb-enterprise-tests
-	docker tag "${repo_name}"/mongodb-enterprise-tests:${TEST_IMAGE_TAG} "${REPO_URL}"/mongodb-enterprise-tests:${TEST_IMAGE_TAG}
-	docker push "${REPO_URL}"/mongodb-enterprise-tests:${TEST_IMAGE_TAG}
-
-	title "Enterprise tests successfully built and pushed to the ECR registry"
+    title "Enterprise tests successfully built and pushed to the ECR registry"
 elif [[ ${REPO_TYPE} = "quay" ]]; then
-	title "Skipping build of the database as current Docker registry is quay.io"
+    title "Skipping build of the database as current Docker registry is quay.io"
 fi
