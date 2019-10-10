@@ -442,8 +442,8 @@ dump_diagnostic_information() {
 }
 
 ensure_ecr_repository() {
-    repo_name=$1
-    if ! aws ecr describe-repositories | grep "${repo_name}" > /dev/null; then
-        aws ecr create-repository --repository-name="${repo_name}"
+    local ecr_repo_name=$1
+    if ! aws ecr describe-repositories | grep "${ecr_repo_name}" > /dev/null; then
+        aws ecr create-repository --repository-name="${ecr_repo_name}"
     fi
 }
