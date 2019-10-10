@@ -10,8 +10,8 @@ title "The following tools will be installed: dep, kubectl, minikube, kops, aws-
 echo "Note, that you must download 'go' by yourself"
 
 if [ $(uname) = "Darwin" ] ; then
-  # kubectl 1.11.3
-  brew install https://raw.githubusercontent.com/Homebrew/homebrew-core/41764e07727d9a86b0f8a077117dc7876ca294c4/Formula/kubernetes-cli.rb
+  # kubectl 1.16.1
+  brew install https://raw.githubusercontent.com/Homebrew/homebrew-core/d9f05abd70f5dc3519a58344f4bd3ec76ccea351/Formula/kubernetes-cli.rb
 
   # virtualbox
   brew cask install virtualbox

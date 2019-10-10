@@ -30,9 +30,9 @@ variables:
   - &kubernetes_environment_openshift_3_11:
     kube_environment_name: openshift_3_11
 
-    # Kops Vanilla Kubernetes v1.11
-  - &kubernetes_environment_vanilla_1_11:
-    kube_environment_name: vanilla_1_11
+    # Kops Vanilla Kubernetes v1.15
+  - &kubernetes_environment_vanilla_1_15:
+    kube_environment_name: vanilla_1_15
 
 functions:
   "golint":
@@ -213,7 +213,7 @@ functions:
           export PATH=$BINDIR:$PATH
 
           echo "Downloading kubectl"
-          curl -s -LO https://storage.googleapis.com/kubernetes-release/release/v1.11.3/bin/linux/amd64/kubectl
+          curl -s -LO https://storage.googleapis.com/kubernetes-release/release/v1.15.4/bin/linux/amd64/kubectl
           chmod +x kubectl
           mv kubectl $BINDIR
 
@@ -245,7 +245,7 @@ functions:
             echo "Token: ${openshift_cluster_token}"
             oc login ${openshift_cluster_url} --token=${openshift_cluster_token} --insecure-skip-tls-verify
             kubectl config use-context default/master-openshift-cluster-mongokubernetes-com:8443/admin
-          elif [ "${kube_environment_name}" = "vanilla_1_11" ]; then
+          elif [ "${kube_environment_name}" = "vanilla_1_15" ]; then
             if [ ! -z ${cluster_name} ]; then
               export CLUSTER=${cluster_name}
             else
@@ -260,7 +260,7 @@ functions:
             export KOPS_STATE_STORE=s3://kube-om-state-store
 
             echo "Downloading kops"
-            curl -s -L https://github.com/kubernetes/kops/releases/download/1.11.1/kops-linux-amd64 -o kops
+            curl -s -L https://github.com/kubernetes/kops/releases/download/1.14.0/kops-linux-amd64 -o kops
             chmod +x kops
             mv kops $BINDIR
 
@@ -730,7 +730,7 @@ tasks:
       vars:
         <<: *ops_manager_42_current
 
-- name: prepare_cluster_vanilla_1_11
+- name: prepare_cluster_vanilla_1_15
   exec_timeout_secs: 1200
   priority: 1
   commands:
@@ -740,7 +740,7 @@ tasks:
     - func: download_kubectl
     - func: setup_kubernetes_environment
       vars:
-        kube_environment_name: vanilla_1_11
+        kube_environment_name: vanilla_1_15
     - func: prepare_test_env
       vars:
         <<: *ops_manager_40_first
@@ -749,7 +749,7 @@ tasks:
       vars:
         <<: *ops_manager_42_current
 
-- name: prepare_cluster_vanilla_1_11_om
+- name: prepare_cluster_vanilla_1_15_om
   exec_timeout_secs: 600
   priority: 1
   commands:
@@ -758,7 +758,7 @@ tasks:
     - func: download_kubectl
     - func: setup_kubernetes_environment
       vars:
-        kube_environment_name: vanilla_1_11
+        kube_environment_name: vanilla_1_15
         cluster_name: e2e.om.mongokubernetes.com
     - func: prepare_test_env
 
@@ -1231,37 +1231,37 @@ buildvariants:
     - ".release_operator_rhel"
     - ".build_operator_rhel"
 
-- name: e2e_kube_vanilla_v1.11_om_40_first
-  display_name: "e2e_kube_vanilla_v1.11_om_40_first"
+- name: e2e_kube_vanilla_v1.15_om_40_first
+  display_name: "e2e_kube_vanilla_v1.15_om_40_first"
   depends_on:
     - name: build_images_ubuntu
       variant: init_test_run
-    - name: prepare_cluster_vanilla_1_11
+    - name: prepare_cluster_vanilla_1_15
       variant: init_test_run
   run_on:
   - archlinux-test
   stepback: false
   expansions:
     <<: *ops_manager_40_first
-    kube_environment_name: vanilla_1_11
+    kube_environment_name: vanilla_1_15
     distro: ubuntu
   tasks:
   - name: "e2e_core_task_group"
   - name: "e2e_tls_task_group"
 
-- name: e2e_kube_vanilla_v1.11_om_42_current
-  display_name: "e2e_kube_vanilla_v1.11_om_42_current"
+- name: e2e_kube_vanilla_v1.15_om_42_current
+  display_name: "e2e_kube_vanilla_v1.15_om_42_current"
   depends_on:
     - name: build_images_ubuntu
       variant: init_test_run
-    - name: prepare_cluster_vanilla_1_11
+    - name: prepare_cluster_vanilla_1_15
       variant: init_test_run
   run_on:
   - archlinux-test
   stepback: false
   expansions:
     <<: *ops_manager_42_current
-    kube_environment_name: vanilla_1_11
+    kube_environment_name: vanilla_1_15
     distro: ubuntu
   tasks:
   - name: "e2e_tls_task_group"
@@ -1312,14 +1312,14 @@ buildvariants:
   depends_on:
     - name: build_images_ubuntu
       variant: init_test_run
-    - name: prepare_cluster_vanilla_1_11_om
+    - name: prepare_cluster_vanilla_1_15_om
       variant: init_test_run
   run_on:
     - archlinux-test
   stepback: false
   expansions:
     cluster_name: "e2e.om.mongokubernetes.com"
-    kube_environment_name: vanilla_1_11
+    kube_environment_name: vanilla_1_15
     test_mode: "opsmanager"
     distro: ubuntu
   tasks:
@@ -1353,8 +1353,8 @@ buildvariants:
   - name: build_images_rhel
   - name: build_images_ubuntu
   - name: prepare_cluster_openshift_3_11
-  - name: prepare_cluster_vanilla_1_11
-  - name: prepare_cluster_vanilla_1_11_om
+  - name: prepare_cluster_vanilla_1_15
+  - name: prepare_cluster_vanilla_1_15_om
 
 #
 # TODO(rodrigo): There's no mechanism that I know of to avoid running this

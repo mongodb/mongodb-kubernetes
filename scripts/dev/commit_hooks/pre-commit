@@ -13,6 +13,8 @@ fi
 
 mkdir -p "${GOPATH}/bin"
 
+go mod vendor
+
 if ! [[ -x "$(command -v goimports)" ]]; then
     echo "installing goimports..."
     go get golang.org/x/tools/cmd/goimports

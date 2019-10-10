@@ -11,12 +11,12 @@ if [[ "${recreate}" != "yes" ]]; then
 	fatal "Exiting as \"imsure=yes\" parameter is not specified"
 fi
 
-# make sure kops version is >= 1.11.0
+# make sure kops version is >= 1.14.0
 kops_version=$(kops version | awk '{ print $2 }')
 major=$(echo "$kops_version" | cut -d "." -f 1)
 minor=$(echo "$kops_version" | cut -d "." -f 2)
-if (( major != 1 || minor < 11 )); then
-        fatal "kops must be of version >= 1.11.0!"
+if (( major != 1 || minor < 14 )); then
+        fatal "kops must be of version >= 1.14.0!"
 fi
 
 title "Deleting kops cluster $CLUSTER"

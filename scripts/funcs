@@ -176,10 +176,14 @@ ensure_ops_manager_k8s() {
 
 print_om_endpoint() {
     ops_manager_namespace="${2}"
-    node_port="${3}"
-    external_ip="$(kubectl get nodes -o wide | grep $(kubectl get pods/mongodb-enterprise-ops-manager-0 -n ${ops_manager_namespace} -o wide | tail -n 1 | awk '{print $7}') | awk '{print $7}')"
+    if [ -z "$ops_manager_namespace" ]; then
+        error "No ops_manager_namespace set: not able to find Ops Manager external IP"
+    else
+        node_port="${3}"
+        external_ip="$(kubectl get nodes -o wide | grep $(kubectl get pods/mongodb-enterprise-ops-manager-0 -n ${ops_manager_namespace} -o wide | tail -n 1 | awk '{print $7}') | awk '{print $7}')"
 
-    echo "Use the following address to access Ops Manager from the browser: http://${external_ip}:${node_port}"
+        echo "Use the following address to access Ops Manager from the browser: http://${external_ip}:${node_port}"
+    fi
 }
 
 print_perpetual_om_endpoint() {
@@ -347,9 +351,9 @@ ensure_minikube() {
         || $(minikube status | grep -q "Error") \
         || ! $(minikube status | grep "Running") ]]; then
 
-        echo "Starting minikube (Kubernetes version 1.11.0) as it's not started..."
+        echo "Starting minikube (Kubernetes version 1.15.4) as it's not started..."
         # todo minikube parameters to configuration
-        minikube start --kubernetes-version v1.11.0 --memory 5120
+        minikube start --kubernetes-version v1.15.4 --memory 5120
     fi
 }
 
@@ -366,7 +370,7 @@ create_kops_cluster() {
 
     check_env_var "KOPS_STATE_STORE" "Make sure you add \"export KOPS_STATE_STORE=s3://kube-om-state-store\" to your ~/.bashrc"
 
-    echo "Make sure you use the latest version of kops (>= 1.11.0): 'brew upgrade kops'"
+    echo "Make sure you use the latest version of kops (>= 1.14.0): 'brew upgrade kops'"
     kops create cluster \
          --node-count "$node_count" \
          --zones "${zones}" \
@@ -374,7 +378,7 @@ create_kops_cluster() {
          --node-volume-size "${node_volume_size}" \
          --master-size="${master_size}" \
          --master-volume-size 16  \
-         --kubernetes-version=v1.11.10 \
+         --kubernetes-version=v1.15.4 \
          --ssh-public-key=~/.ssh/id_rsa.pub \
          --authorization RBAC "${cluster_name}"
 

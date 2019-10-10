@@ -26,7 +26,7 @@ You can discuss this integration in our [Slack](https://community-slack.mongodb.
 
 ## Requirements ##
 
-The MongoDB Enterprise Operator is compatible with Kubernetes v1.11 and above. It has been tested against Openshift 3.11.
+The MongoDB Enterprise Operator is compatible with Kubernetes v1.13 and above. It has been tested against Openshift 3.11.
 
 This Operator requires [Ops Manager](https://docs.opsmanager.mongodb.com/current/) or [Cloud Manager](https://cloud.mongodb.com/user#/cloud/login). In this document, when we refer to "Ops Manager", you may substitute "Cloud Manager". The functionality is the same.
 > If this is your first time trying the Operator, Cloud Manager is easier to get started
