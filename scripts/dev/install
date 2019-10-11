@@ -9,6 +9,10 @@ source scripts/funcs
 title "The following tools will be installed: dep, kubectl, minikube, kops, aws-cli, helm"
 echo "Note, that you must download 'go' by yourself"
 
+grep -a "GO111MODULE=on" ~/.bashrc || echo "export GO111MODULE=on" >> ~/.bashrc
+grep -a 'GOFLAGS="-mod=vendor"' ~/.bashrc || echo 'export GOFLAGS="-mod=vendor"' >> ~/.bashrc
+grep -a "export KOPS_STATE_STORE='s3://kube-om-state-store'" || echo "export KOPS_STATE_STORE='s3://kube-om-state-store'" >> ~/.bashrc
+
 if [ $(uname) = "Darwin" ] ; then
   # kubectl 1.16.1
   brew install https://raw.githubusercontent.com/Homebrew/homebrew-core/d9f05abd70f5dc3519a58344f4bd3ec76ccea351/Formula/kubernetes-cli.rb
@@ -21,7 +25,6 @@ if [ $(uname) = "Darwin" ] ; then
 
   # kops
   brew install kops
-  echo "export KOPS_STATE_STORE='s3://kube-om-state-store'" >> ~/.bashrc
 
   # aws-cli
   brew install awscli
