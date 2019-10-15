@@ -36,4 +36,6 @@ RUN chown mongodb-mms:root /etc/mongodb-mms \
 RUN mkdir -p /opt/scripts
 COPY scripts /opt/scripts/
 
+USER 2000
+
 ENTRYPOINT [ "/opt/scripts/docker-entry-point.sh" ]

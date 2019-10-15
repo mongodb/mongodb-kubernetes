@@ -40,6 +40,8 @@ ADD content/mongodb-enterprise-operator /usr/local/bin/
 COPY licenses /licenses
 {% endif %}
 
+USER 2000
+
 {% if is_debug -%}
 RUN go get -u github.com/derekparker/delve/cmd/dlv
 ENTRYPOINT ["dlv", "--listen=0.0.0.0:40000", "--headless=true", "--api-version=2", "exec", "/usr/local/bin/mongodb-enterprise-operator"]
