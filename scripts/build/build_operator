@@ -19,13 +19,18 @@ fi
 export GO111MODULE=on
 export GOFLAGS="-mod=vendor"
 
+if [[ -z ${LOG_AUTOMATION_CONFIG_DIFF-} ]]; then
+    LOG_AUTOMATION_CONFIG_DIFF="false"
+fi
+
 if [[ ${DEBUG-} = "True" ]]; then
     echo "Building Operator binary in 'debug' mode..."
-    go build -gcflags "-N -l" -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator
+    go build -gcflags "-N -l" -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator \
+      -ldflags="-X github.com/10gen/ops-manager-kubernetes/pkg/util.LogAutomationConfigDiff=${LOG_AUTOMATION_CONFIG_DIFF}"
 else
     echo "Building Operator binary..."
     go build -i -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator \
-        -ldflags="-s -w -X github.com/10gen/ops-manager-kubernetes/pkg/util.OperatorVersion=$RELEASE_VERSION"
+        -ldflags="-s -w -X github.com/10gen/ops-manager-kubernetes/pkg/util.OperatorVersion=${RELEASE_VERSION} -X github.com/10gen/ops-manager-kubernetes/pkg/util.LogAutomationConfigDiff=${LOG_AUTOMATION_CONFIG_DIFF}"
 
     if [[ ${COMPRESS_OPERATOR_BINARY-} = 'true' ]]; then
         upx -q docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator

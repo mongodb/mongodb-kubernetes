@@ -129,6 +129,10 @@ func NewAPIError(err error) error {
 	return &APIError{Detail: err.Error()}
 }
 
+func (e *APIError) isGeneric() bool {
+	return strings.Contains(e.Error(), util.GenericErrorMessage)
+}
+
 // Error
 func (e *APIError) Error() string {
 	if e.Status != nil {
@@ -233,8 +237,11 @@ func (oc *HTTPOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error,
 	if err != nil {
 		return err
 	}
-	original, _ := util.MapDeepCopy(deployment)
 
+	original, err := util.MapDeepCopy(deployment)
+	if err != nil {
+		return err
+	}
 	if err := depFunc(deployment); err != nil {
 		return NewAPIError(err)
 	}
@@ -244,6 +251,14 @@ func (oc *HTTPOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error,
 	} else {
 		_, err = oc.UpdateDeployment(deployment)
 		if err != nil {
+			apiError := err.(*APIError)
+			if util.ShouldLogAutomationConfigDiff() && apiError.isGeneric() {
+				var originalDeployment Deployment = original
+				log.Debug("Current Automation Config")
+				originalDeployment.Debug(log)
+				log.Debug("Invalid Automation Config")
+				deployment.Debug(log)
+			}
 			return err
 		}
 	}
@@ -252,9 +267,11 @@ func (oc *HTTPOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error,
 }
 
 func (oc *HTTPOmConnection) UpdateAutomationConfig(ac *AutomationConfig, log *zap.SugaredLogger) error {
-	original, _ := util.MapDeepCopy(ac.Deployment)
-
-	err := ac.Apply()
+	original, err := util.MapDeepCopy(ac.Deployment)
+	if err != nil {
+		return err
+	}
+	err = ac.Apply()
 	if err != nil {
 		return err
 	}
@@ -280,12 +297,24 @@ func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(acFunc func(ac *Automatio
 		return err
 	}
 
+	original, err := util.MapDeepCopy(ac.Deployment)
+	if err != nil {
+		return err
+	}
 	if err := acFunc(ac); err != nil {
 		return NewAPIError(err)
 	}
 
 	err = oc.UpdateAutomationConfig(ac, log)
 	if err != nil {
+		apiError := err.(*APIError)
+		if util.ShouldLogAutomationConfigDiff() && apiError.isGeneric() {
+			var originalDeployment Deployment = original
+			log.Debug("Current Automation Config")
+			originalDeployment.Debug(log)
+			log.Debug("Invalid Automation Config")
+			ac.Deployment.Debug(log)
+		}
 		log.Errorf("error updating automation config. %s", err)
 		return NewAPIError(err)
 	}

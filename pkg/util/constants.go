@@ -1,5 +1,7 @@
 package util
 
+import "strings"
+
 const (
 	// MongoDbStandaloneController name of the Standalone controller
 	MongoDbStandaloneController = "mongodbstandalone-controller"
@@ -164,7 +166,13 @@ const (
 
 	// All others
 	OmGroupExternallyManagedTag = "EXTERNALLY_MANAGED_BY_KUBERNETES"
+	GenericErrorMessage         = "Something went wrong validating your Automation Config"
 )
 
-// this is set at compile time
+// these variables are set at compile time
 var OperatorVersion string
+var LogAutomationConfigDiff string
+
+func ShouldLogAutomationConfigDiff() bool {
+	return strings.EqualFold(LogAutomationConfigDiff, "true")
+}

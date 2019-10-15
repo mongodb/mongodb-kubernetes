@@ -34,6 +34,7 @@ func init() {
 	// registered below as otherwise the operator will successfully compile and
 	// run but be completely broken.
 	gob.Register(map[string]interface{}{})
+	gob.Register([]interface{}{})
 	gob.Register(map[string]int{})
 	gob.Register(map[string]string{})
 	gob.Register(ProcessTypeMongos)
