@@ -147,8 +147,11 @@ ac:
 # in the usage target above.
 ###############################################################################
 
+# dev note on '&> /dev/null || true': if the 'aws_login' is run in parallel (e.g. 'make' launches builds for images
+# in parallel and both call 'aws_login') then Docker login may return an error "Error saving credentials:..The
+# specified item already exists in the keychain". Seems this allows to ignore the error
 aws_login:
-	@ eval "$(shell aws ecr get-login --no-include-email --region us-east-1)"
+	@ eval "$(shell aws ecr get-login --no-include-email --region us-east-1)" &> /dev/null || true
 
 build-and-push-operator-image: aws_login
 	@ scripts/dev/build_push_operator_image  $(debug)

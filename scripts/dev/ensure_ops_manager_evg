@@ -15,7 +15,7 @@ source scripts/dev/set_env_context
 PACKAGE_URL="${1:-$OPS_MANAGER_PACKAGE_URL}"
 
 # start ops manager
-ensure_ops_manager_evg "${PACKAGE_URL:-https://s3.amazonaws.com/mongodb-mms-build-onprem/6f88d1eaffb5eec31d627a1401e353c6bdedbae7/mongodb-mms_4.1.5.54067.20190416T1810Z-1_x86_64.deb}"
+ensure_ops_manager_evg "${PACKAGE_URL:-https://downloads.mongodb.com/on-prem-mms/deb/mongodb-mms_4.2.0.56551.20190812T1752Z-1_x86_64.deb}"
 
 # overwrite the connectivity data for current context
 mkdir -p ~/.operator-dev

@@ -1,5 +1,9 @@
-# This is a configuration file for working with Operator remotely using Kops
-# The docker builds (based on Ubuntu image) are pushed to the ECR registry
+# This is a configuration file for working with Operator remotely using Openshift.
+# The docker builds (based on Rhel image) are pushed to the ECR registry.
+# Note, that to work with Openshift you need to:
+# * import current e2e cluster connection details (
+# * login to the cluster using token
+# (get the login command from https://master.openshift-cluster.mongokubernetes.com:8443/console/catalog)
 #
 # Parameters:
 # - CLUSTER_TYPE: the type of Kubernetes cluster. Possible values are "kops", "minikube", "openshift"
@@ -13,15 +17,11 @@
 #              registry is used (quay.io)
 # - MONGODB_RESOURCES: (optional) the list of yaml config files that will be applied automatically after each "make full"
 #               run. For example "MONGODB_RESOURCES="rs.yaml; rs2.yaml"
-# - KOPS_ZONES: (optional, only if CLUSTER_TYPE is set to 'kops'). Overrides default zones for kops cluster. May be
-#              necessary if the default region (us-east) has engaged all VPCs up to the limit (5 by default)
 # - OPS_MANAGER_PACKAGE_URL: the url which is used to download Ops Manager debian package for 'make om-evg' task. If
 #              not specified some default one will be used (check 'ensure_ops_manager_evg' script).
 
-# IMPORTANT: this file is just an example, you need to change the values proper way
 
-export CLUSTER_TYPE=kops
-export CLUSTER_NAME=dev.mongokubernetes.com
+export CLUSTER_TYPE=openshift
+export CLUSTER_NAME=default/master-openshift-cluster-mongokubernetes-com:8443/admin
 export REPO_URL=268558157000.dkr.ecr.us-east-1.amazonaws.com/myname
 export NAMESPACE=myname
-

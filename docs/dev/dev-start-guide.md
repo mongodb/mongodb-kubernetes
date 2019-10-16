@@ -8,7 +8,7 @@ that works with Minikube and allows to do incremental Operator deployments (just
 * Make sure to checkout this project into the `src/github.com/10gen` folder in the `$GOPATH` directory as described
  [here](https://golang.org/doc/code.html). So if your `$GOPATH` variable points to `/home/user/go` then the project
  must be checked out into `/Users/user/go/src/github.com/10gen/ops-manager-kubernetes`
-* [Go](https://golang.org/doc/install): Go programming language (we use the latest current version which is `1.11.5`)
+* [Go](https://golang.org/doc/install): Go programming language (we use the latest current version which is `1.13.1`)
 * [Docker](https://docs.docker.com/docker-for-mac/install/)
 * (For Mac) Install `coreutils`:
 ```bash
@@ -32,16 +32,15 @@ You can have many configurations - local, remote etc, you can easily switch betw
 Execute `make usage` to see detailed description of all targets
 
 ```bash
-# install all necessary software (dep, minikube, kubectl, aws-cli, kops, helm)
+# install all necessary software (minikube, kubectl, aws-cli, kops, helm)
 make prerequisites
 
-# prepare default configuration context files. Switches to 'minikube' context.
+# prepare default configuration context files templates. Switches to 'minikube' context.
 make init
 
-# add a configuration file to ~/.operator-dev/contexts if necessary
-# it's highly recommended to work with kops cluster instead of Minikube so just copy 'kops' configuration and change
-# "dev." to some other name
-# .....
+# change the templates - set specific names for registries/namespaces (we usually use some last name abbreviation)
+# add a new configuration file to ~/.operator-dev/contexts if necessary
+# it's highly recommended to work with kops cluster instead of Minikube
 
 # switch to the necessary context
 make switch context=dev
@@ -52,12 +51,18 @@ make switch context=dev
 make om-evg
 
 # initialize Kubernetes cluster (for kops will spawn a new cluster - takes ~5-10 minutes, for minikube starts a new
-# cluster locally)
+# cluster locally) and build+deploy all the necessary artifacts
 make
 
 # create Mongodb resource (note, that it's the best not to specify namespace inside yaml file as it will be defined by
 # current namespace)
-kubectl apply -f my-replica-set.yaml
+kubectl apply -f public/samples/minimal/replica-set.yaml
+
+# check the Operator logs
+make log
+
+# run an e2e test (specify 'light=true' to avoid rebuilding the Operator image)
+make e2e test=e2e_replica_set
 
 # prints some information about current context and Kubernetes cluster
 make status
