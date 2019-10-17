@@ -11,9 +11,12 @@ export GOROOT="/usr/lib/go"
 export GOBIN="${GOPATH}/bin"
 export PATH="${GOBIN}:${PATH}"
 
+export GO111MODULE=on
+export GOFLAGS="-mod=vendor"
+
 if ! [[ -x "$(command -v goimports)" ]]; then
     echo "installing goimports..."
-    go get golang.org/x/tools/cmd/goimports
+    GOFLAGS="" go get golang.org/x/tools/cmd/goimports
 else
     echo "goimports is already installed"
 fi
