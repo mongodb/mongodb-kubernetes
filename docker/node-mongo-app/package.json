@@ -4,7 +4,7 @@
   "description": "Test application to check mongod cluster connectivity",
   "main": "index.js",
   "dependencies": {
-    "mongodb": "^3.0.4"
+    "mongodb": "^3.1.13"
   },
   "devDependencies": {},
   "scripts": {
