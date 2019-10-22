@@ -6,7 +6,6 @@ module github.com/10gen/ops-manager-kubernetes
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver v3.5.1+incompatible
-	github.com/cloudflare/cfssl v0.0.0-20190911221928-1a911ca1b1d6
 	github.com/go-logr/zapr v0.1.1 // indirect
 	github.com/google/go-cmp v0.3.1 // indirect
 	github.com/google/uuid v1.1.1
@@ -21,10 +20,9 @@ require (
 	github.com/stretchr/testify v1.4.0
 	go.uber.org/zap v1.10.0
 	golang.org/x/text v0.3.2 // indirect
-	gopkg.in/yaml.v2 v2.2.4 // indirect
-	k8s.io/api v0.0.0-20190918195907-bd6ac527cfd2
-	k8s.io/apimachinery v0.0.0-20190817020851-f2f3a405f61d
-	k8s.io/client-go v0.0.0-20190918200256-06eb1244587a
+	k8s.io/api v0.0.0-20191016110246-af539daaa43a
+	k8s.io/apimachinery v0.0.0-20191004115701-31ade1b30762
+	k8s.io/client-go v0.0.0-20191016110837-54936ba21026
 	k8s.io/code-generator v0.0.0-20190612205613-18da4a14b22b
 	sigs.k8s.io/controller-runtime v0.3.0
 )
