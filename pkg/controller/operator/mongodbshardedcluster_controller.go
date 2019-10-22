@@ -133,7 +133,7 @@ func (r *ReconcileMongoDbShardedCluster) ensureX509(sc *mongodb.MongoDB, kubeSta
 	if authEnabled && usingX509 {
 		authModes := sc.Spec.Security.Authentication.Modes
 		useCustomCA := sc.Spec.GetTLSConfig().CA != ""
-		successful, err := r.ensureX509AgentCertsForMongoDBResource(authModes, useCustomCA, sc.Namespace)
+		successful, err := r.ensureX509AgentCertsForMongoDBResource(authModes, useCustomCA, sc.Namespace, log)
 		if err != nil {
 			return failedErr(err)
 		}

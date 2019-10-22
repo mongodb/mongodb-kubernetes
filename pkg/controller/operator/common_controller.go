@@ -10,7 +10,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
-	"github.com/cloudflare/cfssl/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
@@ -476,7 +475,7 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHe
 }
 
 //ensureX509AgentCertsForMongoDBResource will generate all the CSRs for the agents
-func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(authModes []string, useCustomCA bool, namespace string) (bool, error) {
+func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(authModes []string, useCustomCA bool, namespace string, log *zap.SugaredLogger) (bool, error) {
 	k := r.kubeHelper
 
 	if !util.ContainsString(authModes, util.X509) {

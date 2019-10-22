@@ -310,7 +310,7 @@ func (r *ReconcileCommonController) ensureX509(mdb *mongodb.MongoDB, helper *Sta
 	if authEnabled && usingX509 {
 		authModes := mdb.Spec.Security.Authentication.Modes
 		useCustomCA := mdb.Spec.GetTLSConfig().CA != ""
-		successful, err := r.ensureX509AgentCertsForMongoDBResource(authModes, useCustomCA, mdb.Namespace)
+		successful, err := r.ensureX509AgentCertsForMongoDBResource(authModes, useCustomCA, mdb.Namespace, log)
 		if err != nil {
 			return failedErr(err)
 		}
