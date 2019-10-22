@@ -17,7 +17,7 @@ type MonitoringAgentTemplate struct {
 }
 
 func (m *MonitoringAgentConfig) Apply() error {
-	merged, err := util.MergeWith(m.MonitoringAgentTemplate, m.BackingMap, &util.AgentTransformer{})
+	merged, err := util.MergeWith(m.MonitoringAgentTemplate, m.BackingMap, &util.AutomationConfigTransformer{})
 	if err != nil {
 		return err
 	}

@@ -25,3 +25,11 @@ func (r ReplicaSetWithProcesses) ConfigureAuthenticationMode(clusterAuthMode str
 	}
 	return r
 }
+
+func (r ReplicaSetWithProcesses) GetProcessNames() []string {
+	processNames := make([]string, len(r.Processes))
+	for i, p := range r.Processes {
+		processNames[i] = p.Name()
+	}
+	return processNames
+}

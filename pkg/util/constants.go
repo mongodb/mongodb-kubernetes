@@ -50,9 +50,6 @@ const (
 	// SSLMMSCALocation Specifies where the CA certificate should be mounted.
 	SSLMMSCALocation = "/mongodb-automation/certs/ca.crt"
 
-	// KubernetesCALocation CA For Kubernetes CA
-	KubernetesCALocation = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-
 	// Env variables names for pods
 	ENV_VAR_BASE_URL      = "BASE_URL"
 	ENV_VAR_PROJECT_ID    = "GROUP_ID"
@@ -92,19 +89,26 @@ const (
 	RunAsUser                   = 2000
 	FsGroup                     = 2000
 
-	// x509 authentication
-	X509Db                       = "$external"
-	AutomationAgentSubject       = "CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US"
-	BackupAgentSubject           = "CN=mms-backup-agent,OU=MongoDB Kubernetes Operator,O=mms-backup-agent,L=NY,ST=NY,C=US"
-	MonitoringAgentSubject       = "CN=mms-monitoring-agent,OU=MongoDB Kubernetes Operator,O=mms-monitoring-agent,L=NY,ST=NY,C=US"
-	AgentSecretName              = "agent-certs"
-	AutomationConfigX509Option   = "MONGODB-X509"
-	AutomationAgentUserName      = "mms-automation-agent"
-	RequireClientCertificates    = "REQUIRE"
-	OptionalClientCertficates    = "OPTIONAL"
-	ClusterFileName              = "clusterfile"
-	InternalClusterAuthMountPath = "/mongodb-automation/cluster-auth/"
-	X509                         = "x509"
+	// Authentication
+
+	X509Db                            = "$external"
+	AutomationAgentSubject            = "CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US"
+	BackupAgentSubject                = "CN=mms-backup-agent,OU=MongoDB Kubernetes Operator,O=mms-backup-agent,L=NY,ST=NY,C=US"
+	MonitoringAgentSubject            = "CN=mms-monitoring-agent,OU=MongoDB Kubernetes Operator,O=mms-monitoring-agent,L=NY,ST=NY,C=US"
+	AgentSecretName                   = "agent-certs"
+	AutomationConfigX509Option        = "MONGODB-X509"
+	AutomationConfigScramSha256Option = "SCRAM-SHA-256"
+	AutomationAgentUserName           = "mms-automation-agent"
+	RequireClientCertificates         = "REQUIRE"
+	OptionalClientCertficates         = "OPTIONAL"
+	ClusterFileName                   = "clusterfile"
+	InternalClusterAuthMountPath      = "/mongodb-automation/cluster-auth/"
+	DefaultUserDatabase               = "admin"
+	X509                              = "X509"
+
+	// uses a lowercase 'x' and will take precedence over the value specified in
+	// the MongoDB resource
+	LegacyX509InConfigMapValue = "x509"
 
 	// these were historically used and constituted a security issue—if set they should be changed
 	InvalidKeyFileContents         = "DUMMYFILE"

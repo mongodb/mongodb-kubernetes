@@ -89,10 +89,23 @@ type StandaloneBuilder struct {
 
 func DefaultStandaloneBuilder() *StandaloneBuilder {
 	spec := v1.MongoDbSpec{
-		Version:        "4.0.0",
-		Persistent:     util.BooleanRef(false),
-		ConnectionSpec: v1.ConnectionSpec{Project: TestProjectConfigMapName, Credentials: TestCredentialsSecretName},
-		ResourceType:   v1.Standalone,
+		Version:    "4.0.0",
+		Persistent: util.BooleanRef(false),
+		ConnectionSpec: v1.ConnectionSpec{
+			OpsManagerConfig: v1.OpsManagerConfig{
+				ConfigMapRef: v1.ConfigMapRef{
+					Name: TestProjectConfigMapName,
+				},
+			},
+			Credentials: TestCredentialsSecretName,
+		},
+		Security: &v1.Security{
+			Authentication: &v1.Authentication{
+				Modes: []string{},
+			},
+			TLSConfig: &v1.TLSConfig{},
+		},
+		ResourceType: v1.Standalone,
 	}
 	resource := &v1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "dublin", Namespace: TestNamespace}, Spec: spec}
 	return &StandaloneBuilder{resource}

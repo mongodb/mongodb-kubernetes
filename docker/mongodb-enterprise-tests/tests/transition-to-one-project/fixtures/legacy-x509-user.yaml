@@ -6,8 +6,7 @@ metadata:
 spec:
   username: 'CN=x509-testing-user'
   db: '$external'
-  mongodbResourceRef:
-    name: 'test-tls-base-rs-x509'
+  project: my-project
   roles:
     - db: admin
       name: clusterAdmin

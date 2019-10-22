@@ -2,14 +2,12 @@ package operator
 
 import (
 	"context"
-	"testing"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-
 	"fmt"
+	"testing"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	certsv1 "k8s.io/api/certificates/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -22,7 +20,7 @@ func configureX509(client *MockedClient, condition certsv1.RequestConditionType)
 }
 
 func TestX509CannotBeEnabled_IfAgentCertsAreNotApproved(t *testing.T) {
-	rs := DefaultReplicaSetBuilder().EnableTLS().Build()
+	rs := DefaultReplicaSetBuilder().EnableTLS().EnableX509().Build()
 	manager := newMockedManager(rs)
 
 	addKubernetesTlsResources(manager.client, rs)
@@ -35,94 +33,33 @@ func TestX509CannotBeEnabled_IfAgentCertsAreNotApproved(t *testing.T) {
 	checkReconcilePending(t, reconciler, rs, fmt.Sprintf("Agent certs have not yet been approved"), manager.client)
 }
 
-func TestX509InternalClusterAuthentication_CannotBeEnabledForReplicaSet_IfProjectLevelX509AuthenticationIsNotEnabled(t *testing.T) {
-	rsWithTls := DefaultReplicaSetBuilder().EnableTLS().SetClusterAuth(util.X509).SetName("rs-with-tls").Build()
-
-	manager := newMockedManager(rsWithTls)
-	client := manager.client
-	addKubernetesTlsResources(client, rsWithTls)
+func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ReplicaSet(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().EnableTLS().EnableX509().Build()
+	manager := newMockedManager(rs)
+	addKubernetesTlsResources(manager.client, rs)
+	approveCSRs(manager.client, rs)
+	configureX509(manager.client, certsv1.CertificateApproved)
 
 	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
-	checkReconcileFailed(t, reconciler, rsWithTls,
-		"This deployment has clusterAuthenticationMode set to x509, ensure the ConfigMap for this project is configured to enable x509", client)
-
-}
-
-func TestX509InternalClusterAuthentication_CannotBeEnabledForShardedCluster_IfProjectLevelX509AuthenticationIsNotEnabled(t *testing.T) {
-	scWithTls := DefaultClusterBuilder().WithTLS().SetClusterAuth(util.X509).SetName("sc-with-tls").Build()
-	manager := newMockedManager(scWithTls)
-	client := manager.client
-	addKubernetesTlsResources(client, scWithTls)
-	reconciler := newShardedClusterReconciler(manager, om.NewEmptyMockedOmConnection)
-	checkReconcileFailed(t, reconciler, scWithTls,
-		"This deployment has clusterAuthenticationMode set to x509, ensure the ConfigMap for this project is configured to enable x509", client)
+	checkReconcileSuccessful(t, reconciler, rs, manager.client)
 }
 
 func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_ReplicaSet(t *testing.T) {
-
-	rsWithTls := DefaultReplicaSetBuilder().EnableTLS().SetName("rs-with-tls").Build()
-
-	manager := newMockedManager(rsWithTls)
-	client := manager.client
-
-	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
-
-	addKubernetesTlsResources(client, rsWithTls)
-
-	// create the plain TLS replica set
-	checkReconcileSuccessful(t, reconciler, rsWithTls, client)
+	rs := DefaultReplicaSetBuilder().EnableTLS().EnableX509().Build()
+	manager := newMockedManager(rs)
+	addKubernetesTlsResources(manager.client, rs)
+	approveCSRs(manager.client, rs)
+	configureX509(manager.client, certsv1.CertificateApproved)
 
 	// enable internal cluster authentication mode
-	rsWithTls.Spec.Security.ClusterAuthMode = util.X509
-
-	checkReconcileFailed(t, reconciler, rsWithTls,
-		"This deployment has clusterAuthenticationMode set to x509, ensure the ConfigMap for this project is configured to enable x509", client)
-
-	configureX509(client, certsv1.CertificateApproved)
-
-	// our project controller needs to use the same connection so it shares the underlying deployment
-	reconciler = newReplicaSetReconciler(manager, func(omContext *om.OMContext) om.Connection {
-		return om.CurrMockedConnection
-	})
-
-	checkReconcileSuccessful(t, reconciler, rsWithTls, client)
-}
-
-func TestX509CannotBeEnabled_WhenThereIsANonTlsDeployment_ReplicaSet(t *testing.T) {
-	rsWithoutTls := DefaultReplicaSetBuilder().SetName("rs-without-tls").Build()
-
-	manager := newMockedManager(rsWithoutTls)
-	client := manager.client
+	rs.Spec.Security.ClusterAuthMode = util.X509
 
 	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
-
-	checkReconcileSuccessful(t, reconciler, rsWithoutTls, client)
-
-	configureX509(client, certsv1.CertificateApproved)
-
-	checkReconcileStopped(t, reconciler, rsWithoutTls, "Cannot have a non-tls deployment when x509 authentication is enabled", client)
-}
-
-func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ReplicaSet(t *testing.T) {
-	rsWithTls := DefaultReplicaSetBuilder().EnableTLS().SetName("rs-with-tls").Build()
-
-	manager := newMockedManager(rsWithTls)
-	client := manager.client
-	addKubernetesTlsResources(client, rsWithTls)
-
-	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
-
-	checkReconcileSuccessful(t, reconciler, rsWithTls, client)
-
-	// enable x509 authentication at the project level
-	configureX509(client, certsv1.CertificateApproved)
-
-	checkReconcileSuccessful(t, reconciler, rsWithTls, client)
+	checkReconcileSuccessful(t, reconciler, rs, manager.client)
 }
 
 func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_ShardedCluster(t *testing.T) {
-
-	scWithTls := DefaultClusterBuilder().WithTLS().SetName("sc-with-tls").Build()
+	scWithTls := DefaultClusterBuilder().WithTLS().EnableX509().SetName("sc-with-tls").Build()
 
 	manager := newMockedManager(scWithTls)
 	client := manager.client
@@ -130,23 +67,15 @@ func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_Sh
 
 	reconciler := newShardedClusterReconciler(manager, om.NewEmptyMockedOmConnection)
 
-	addKubernetesTlsResources(client, scWithTls)
-
-	// create the plain TLS sharded cluster
-	checkReconcileSuccessful(t, reconciler, scWithTls, client)
+	configureX509(client, certsv1.CertificateApproved)
 
 	// enable internal cluster authentication mode
 	scWithTls.Spec.Security.ClusterAuthMode = util.X509
-
-	checkReconcileFailed(t, reconciler, scWithTls,
-		"This deployment has clusterAuthenticationMode set to x509, ensure the ConfigMap for this project is configured to enable x509", client)
-
-	configureX509(client, certsv1.CertificateApproved)
 	checkReconcileSuccessful(t, reconciler, scWithTls, client)
 }
 
 func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ShardedCluster(t *testing.T) {
-	scWithTls := DefaultClusterBuilder().WithTLS().SetName("sc-with-tls").Build()
+	scWithTls := DefaultClusterBuilder().WithTLS().EnableX509().SetName("sc-with-tls").Build()
 
 	manager := newMockedManager(scWithTls)
 	client := manager.client
@@ -157,21 +86,6 @@ func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ShardedCluster(t *testi
 	configureX509(client, certsv1.CertificateApproved)
 
 	checkReconcileSuccessful(t, reconciler, scWithTls, client)
-}
-
-func TestX509CannotBeEnabled_WhenThereIsANonTlsDeployment_ShardedCluster(t *testing.T) {
-	scWithoutTls := DefaultClusterBuilder().SetName("sc-without-tls").Build()
-
-	manager := newMockedManager(scWithoutTls)
-	client := manager.client
-
-	reconciler := newShardedClusterReconciler(manager, om.NewEmptyMockedOmConnection)
-
-	checkReconcileSuccessful(t, reconciler, scWithoutTls, client)
-
-	configureX509(client, certsv1.CertificateApproved)
-
-	checkReconcileStopped(t, reconciler, scWithoutTls, "Cannot have a non-tls deployment when x509 authentication is enabled", client)
 }
 
 /*
@@ -444,9 +358,8 @@ func x509ConfigMap() *corev1.ConfigMap {
 		ObjectMeta: metav1.ObjectMeta{Name: om.TestGroupName, Namespace: TestNamespace},
 		Data: map[string]string{
 			util.OmBaseUrl:     om.TestURL,
-			util.OmAuthMode:    util.X509,
 			util.OmProjectName: om.TestGroupName,
-			util.OmCredentials: TestCredentialsSecretName,
+			util.OmAuthMode:    util.X509,
 		},
 	}
 }

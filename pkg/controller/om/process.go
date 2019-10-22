@@ -105,7 +105,7 @@ func NewMongosProcess(name, hostName string, resource *mongodb.MongoDB) Process 
 		p.EnableTLS(resource.Spec.GetTLSMode())
 	}
 
-	p.ConfigureClusterAuthMode(resource.Spec.Security.ClusterAuthMode)
+	p.ConfigureClusterAuthMode(resource.Spec.Security.Authentication.InternalCluster)
 
 	return p
 }
@@ -126,7 +126,7 @@ func NewMongodProcess(name, hostName string, resource *mongodb.MongoDB) Process 
 		p.EnableTLS(resource.Spec.GetTLSMode())
 	}
 
-	p.ConfigureClusterAuthMode(resource.Spec.Security.ClusterAuthMode)
+	p.ConfigureClusterAuthMode(resource.Spec.Security.Authentication.InternalCluster)
 
 	return p
 }
@@ -254,7 +254,7 @@ func (p Process) EnsureSecurity() map[string]interface{} {
 func (p Process) ConfigureClusterAuthMode(clusterAuthMode string) Process {
 	if clusterAuthMode == util.X509 {
 		// the individual key per pod will be podname-pem e.g. my-replica-set-0-pem
-		p.setClusterAuthMode(clusterAuthMode)
+		p.setClusterAuthMode("x509")
 		p.setClusterFile(fmt.Sprintf("%s%s-pem", util.InternalClusterAuthMountPath, p.Name()))
 	}
 	return p

@@ -142,13 +142,22 @@ func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
 		Version:    "4.0.0",
 		Persistent: util.BooleanRef(false),
 		ConnectionSpec: v1.ConnectionSpec{
-			Project:     TestProjectConfigMapName,
+			OpsManagerConfig: v1.OpsManagerConfig{
+				ConfigMapRef: v1.ConfigMapRef{
+					Name: TestProjectConfigMapName,
+				},
+			},
 			Credentials: TestCredentialsSecretName,
 		},
 		ResourceType: v1.ReplicaSet,
 		Members:      3,
-		Security:     &v1.Security{TLSConfig: &v1.TLSConfig{}},
-		PodSpec:      &podSpec,
+		Security: &v1.Security{
+			TLSConfig: &v1.TLSConfig{},
+			Authentication: &v1.Authentication{
+				Modes: []string{},
+			},
+		},
+		PodSpec: &podSpec,
 	}
 	rs := &v1.MongoDB{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "temple", Namespace: TestNamespace}}
 	return &ReplicaSetBuilder{rs}
@@ -188,6 +197,12 @@ func (b *ReplicaSetBuilder) EnableTLS() *ReplicaSetBuilder {
 	return b
 }
 
+func (b *ReplicaSetBuilder) EnableX509() *ReplicaSetBuilder {
+	b.Spec.Security.Authentication.Enabled = true
+	b.Spec.Security.Authentication.Modes = []string{util.X509}
+	return b
+}
+
 func (b *ReplicaSetBuilder) Build() *v1.MongoDB {
 	b.InitDefaults()
 	return b.MongoDB
@@ -208,5 +223,9 @@ func createDeploymentFromReplicaSet(rs *v1.MongoDB) om.Deployment {
 }
 
 func createStatefulHelperFromReplicaSet(sh *v1.MongoDB) *StatefulSetHelper {
-	return defaultSetHelper().SetName(sh.Name).SetService(sh.ServiceName()).SetReplicas(sh.Spec.Members)
+	return defaultSetHelper().
+		SetName(sh.Name).
+		SetService(sh.ServiceName()).
+		SetReplicas(sh.Spec.Members).
+		SetSecurity(sh.Spec.Security)
 }

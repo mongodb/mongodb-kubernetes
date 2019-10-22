@@ -6,16 +6,11 @@ import ssl
 import pytest
 import pymongo
 from kubetester.kubetester import KubernetesTester, fixture
-from kubetester.omtester import get_agent_cert_names, get_rs_cert_names
+from kubetester.omtester import get_rs_cert_names
 from kubetester.mongotester import build_mongodb_connection_uri
 
-mdb_resource = "test-tls-base-rs-require-ssl"
+mdb_resource = "test-tls-base-rs-x509"
 
-
-@pytest.mark.e2e_tls_x509_user_connectivity
-class TestsReplicaSetWithNoTLSWithX509Project(KubernetesTester):
-    def test_enable_x509(self):
-        self.patch_config_map(self.get_namespace(), "my-project", {"authenticationMode": "x509", "credentials": "my-credentials"})
 
 @pytest.mark.e2e_tls_x509_user_connectivity
 class TestReplicaSetWithTLSCreation(KubernetesTester):
@@ -25,7 +20,7 @@ class TestReplicaSetWithTLSCreation(KubernetesTester):
       Creates a MongoDB object with the ssl attribute on. The MongoDB object will go to Failed
       state because of missing certificates.
     create:
-      file: test-tls-base-rs-require-ssl.yaml
+      file: test-tls-base-rs-x509.yaml
       wait_for_message: Not all certificates have been approved by Kubernetes CA
     """
 

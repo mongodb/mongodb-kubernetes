@@ -25,43 +25,11 @@ type KubeHelper struct {
 	client client.Client
 }
 
-// SSLProjectConfig contains the configuration options that are relevant for MMS SSL configuraiton
-type SSLProjectConfig struct {
-	// This is set to true if baseUrl is HTTPS
-	SSLRequireValidMMSServerCertificates bool
-
-	// Name of a configmap containing a `mms-ca.crt` entry that will be mounted
-	// on every Pod.
-	SSLMMSCAConfigMap string
-
-	// SSLMMSCAConfigMap will contain the CA cert, used to push muliple
-	SSLMMSCAConfigMapContents string
-}
-
 type AuthMode string
 
 const (
 	NumAgents = 3
 )
-
-// ProjectConfig contains the configuration expected from the `project` (ConfigMap) attribute in
-// `.spec.project`.
-type ProjectConfig struct {
-	// +required
-	BaseURL string
-	// +required
-	ProjectName string
-	// +optional
-	OrgID string
-	// +optional
-	Credentials string
-	// +optional
-	AuthMode string
-	// +optional
-	UseCustomCA bool
-	// +optional
-	SSLProjectConfig
-}
 
 // Credentials contains the configuration expected from the `credentials` (Secret)` attribute in
 // `.spec.credentials`.
@@ -104,7 +72,7 @@ type StatefulSetHelper struct {
 
 	// Not part of StatefulSet object
 	ExposedExternally bool
-	Project           ProjectConfig
+	Project           mongodb.ProjectConfig
 	Security          *mongodb.Security
 }
 
@@ -201,7 +169,7 @@ func (s *StatefulSetHelper) SetExposedExternally(exposed bool) *StatefulSetHelpe
 	return s
 }
 
-func (s *StatefulSetHelper) SetProjectConfig(project ProjectConfig) *StatefulSetHelper {
+func (s *StatefulSetHelper) SetProjectConfig(project mongodb.ProjectConfig) *StatefulSetHelper {
 	s.Project = project
 	return s
 }
@@ -346,7 +314,7 @@ func (s *StatefulSetHelper) needToPublishStateFirst(log *zap.SugaredLogger) bool
 		return true
 	}
 
-	if s.Project.AuthMode == "" && volumeMountWithNameExists(volumeMounts, util.AgentSecretName) {
+	if !util.ContainsString(s.Security.Authentication.Modes, util.X509) && volumeMountWithNameExists(volumeMounts, util.AgentSecretName) {
 		log.Debug("About to set `project.AuthMode` to empty. automationConfig needs to be updated first")
 		return true
 	}
@@ -527,7 +495,7 @@ func getNamespaceAndNameForResource(resource, defaultNamespace string) (types.Na
 
 // readProjectConfig returns a "Project" config which is a ConfigMap with a series of attributes
 // like `projectName`, `baseUrl` and a series of attributes related to SSL.
-func (k *KubeHelper) readProjectConfig(defaultNamespace, name string) (*ProjectConfig, error) {
+func (k *KubeHelper) readProjectConfig(defaultNamespace, name string) (*mongodb.ProjectConfig, error) {
 	configMapNamespacedName, err := getNamespaceAndNameForResource(name, defaultNamespace)
 	if err != nil {
 		return nil, err
@@ -543,9 +511,6 @@ func (k *KubeHelper) readProjectConfig(defaultNamespace, name string) (*ProjectC
 		return nil, fmt.Errorf(`Property "%s" is not specified in config map %s`, util.OmBaseUrl, configMapNamespacedName)
 	}
 	projectName, ok := data[util.OmProjectName]
-	if !ok {
-		return nil, fmt.Errorf(`Property %s" is not specified in config map %s`, util.OmProjectName, configMapNamespacedName)
-	}
 	orgID := data[util.OmOrgId]
 
 	sslRequireValidData, ok := data[util.SSLRequireValidMMSServerCertificates]
@@ -576,13 +541,13 @@ func (k *KubeHelper) readProjectConfig(defaultNamespace, name string) (*ProjectC
 		useCustomCA = useCustomCAData != "false"
 	}
 
-	return &ProjectConfig{
+	return &mongodb.ProjectConfig{
 		BaseURL:     baseURL,
 		ProjectName: projectName,
 		OrgID:       orgID,
 
 		// Options related with SSL on OM side.
-		SSLProjectConfig: SSLProjectConfig{
+		SSLProjectConfig: mongodb.SSLProjectConfig{
 			// Relevant to
 			// + operator (via golang http configuration)
 			// + curl (via command line argument [--insecure])

@@ -220,12 +220,12 @@ class KubernetesTester(object):
         return org_id
 
     @staticmethod
-    def get_om_group_id():
+    def get_om_group_id(group_name=None, org_id=None):
         # doing some "caching" for the group id on the first invocation
-        if KubernetesTester.group_id is None:
-            group_name = KubernetesTester.get_om_group_name()
+        if (KubernetesTester.group_id is None) or group_name or org_id:
+            group_name = group_name or KubernetesTester.get_om_group_name()
 
-            org_id = KubernetesTester.get_om_org_id()
+            org_id = org_id or KubernetesTester.get_om_org_id()
 
             group = KubernetesTester.query_group(group_name, org_id)
 
@@ -646,9 +646,8 @@ class KubernetesTester(object):
         group_ids = KubernetesTester.find_groups_in_organization(org_id[0], group_name)
         if len(group_ids) != 1:
             raise Exception(
-                '{} groups with name "{}" found inside organization "{}" instead of 1!'.format(len(org_id), org_id[0],
-                                                                                               group_name))
-
+                f'{len(group_ids)} groups with name "{group_name}" found inside organization "{org_id[0]}" instead of 1!'
+            )
         url = build_om_group_endpoint(KubernetesTester.get_om_base_url(),
                                       group_ids[0])
         response = KubernetesTester.om_request("get", url)

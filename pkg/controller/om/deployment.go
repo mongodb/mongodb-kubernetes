@@ -947,6 +947,19 @@ func CheckIfCanProceedWithWarnings(conn Connection, resource *mongodb.MongoDB) (
 		// cluster is empty or this resource is the only one living on it
 		return true, v1.StatusWarnings{}
 	} else if size > 0 && belongs {
+
+		// remove tags if multiple clusters in project
+		groupWithTags := &Project{
+			Name:  conn.GroupName(),
+			OrgID: conn.OrgID(),
+			ID:    conn.GroupID(),
+			Tags:  []string{},
+		}
+		_, err := conn.UpdateProject(groupWithTags)
+		if err != nil {
+			return true, v1.StatusWarnings{v1.CouldNotRemoveTagsWarning}
+		}
+
 		// cluster is not empty, but we belong to it
 		return true, v1.StatusWarnings{v1.MultipleClustersInProjectWarning}
 	}

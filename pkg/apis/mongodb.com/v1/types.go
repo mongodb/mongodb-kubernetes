@@ -2,6 +2,7 @@ package v1
 
 import (
 	"fmt"
+	"strings"
 
 	"encoding/json"
 
@@ -125,12 +126,74 @@ type MongoDbSpec struct {
 	AdditionalMongodConfig *AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
 }
 
+// SSLProjectConfig contains the configuration options that are relevant for MMS SSL configuraiton
+type SSLProjectConfig struct {
+	// This is set to true if baseUrl is HTTPS
+	SSLRequireValidMMSServerCertificates bool
+
+	// Name of a configmap containing a `mms-ca.crt` entry that will be mounted
+	// on every Pod.
+	SSLMMSCAConfigMap string
+
+	// SSLMMSCAConfigMap will contain the CA cert, used to push multiple
+	SSLMMSCAConfigMapContents string
+}
+
+// ProjectConfig contains the configuration expected from the `project` (ConfigMap) attribute in
+// `.spec.project`.
+type ProjectConfig struct {
+	// +required
+	BaseURL string
+	// +required
+	ProjectName string
+	// +optional
+	OrgID string
+	// +optional
+	Credentials string
+	// +optional
+	AuthMode string
+	// +optional
+	UseCustomCA bool
+	// +optional
+	SSLProjectConfig
+}
+
+func (ms *MongoDbSpec) SetParametersFromConfigMap(cm *ProjectConfig) {
+	if cm.AuthMode == util.LegacyX509InConfigMapValue {
+		ms.Security.Authentication.Enabled = true
+		ms.Security.Authentication.Modes = []string{util.X509}
+	}
+
+	if ms.Credentials == "" {
+		ms.Credentials = cm.Credentials
+	}
+
+	if cm.ProjectName != "" {
+		ms.ProjectName = cm.ProjectName
+	}
+}
+
+type ConfigMapRef struct {
+	Name string `json:"name,omitempty"`
+}
+
+type OpsManagerConfig struct {
+	ConfigMapRef ConfigMapRef `json:"configMapRef,omitempty"`
+}
+
 // ConnectionSpec holds fields required to establish an Ops Manager connection
 // note, that the fields are marked as 'omitempty' as otherwise they are shown for AppDB
 // which is not good
 type ConnectionSpec struct {
-	Project     string `json:"project,omitempty"`
-	Credentials string `json:"credentials,omitempty"`
+	ProjectName        string
+	Credentials        string           `json:"credentials,omitempty"`
+	OpsManagerConfig   OpsManagerConfig `json:"opsManager,omitempty"`
+	CloudManagerConfig OpsManagerConfig `json:"cloudManager,omitempty"`
+
+	// Deprecated: This has been replaced by the OpsManagerConfig which should be
+	// used instead
+	Project string `json:"project,omitempty"`
+
 	// FIXME: LogLevel is not a required field for creating an Ops Manager connection, it should not be here.
 	LogLevel LogLevel `json:"logLevel,omitempty"`
 }
@@ -158,8 +221,20 @@ type SSLSpec struct {
 }
 
 type Security struct {
-	TLSConfig       *TLSConfig `json:"tls,omitempty"`
-	ClusterAuthMode string     `json:"clusterAuthenticationMode,omitempty"`
+	TLSConfig      *TLSConfig      `json:"tls,omitempty"`
+	Authentication *Authentication `json:"authentication,omitempty"`
+
+	// Deprecated: This has been replaced by Authentication.InternalCluster which
+	// should be used instead
+	ClusterAuthMode string `json:"clusterAuthenticationMode,omitempty"`
+}
+
+// Authentication holds various authentication related settings that affect
+// this MongoDB resource.
+type Authentication struct {
+	Enabled         bool     `json:"enabled"`
+	Modes           []string `json:"modes"`
+	InternalCluster string   `json:"internalCluster,omitempty"`
 }
 
 type TLSConfig struct {
@@ -217,7 +292,9 @@ func (m *MongoDB) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, (MongoDBJSON)(m)); err != nil {
 		return err
 	}
+
 	m.InitDefaults()
+
 	return nil
 }
 
@@ -346,10 +423,25 @@ func (m *MongoDB) InitDefaults() {
 		m.Spec.AdditionalMongodConfig = newAdditionalMongodConfig()
 	}
 
-	if m.Spec.Security == nil {
-		newSecurity := newSecurity()
-		m.Spec.Security = &newSecurity
+	ensureSecurity(&m.Spec)
+
+	if m.Spec.Security.Authentication.InternalCluster == "" {
+		// old value was lowercase, new value is uppercase
+		m.Spec.Security.Authentication.InternalCluster = strings.ToUpper(m.Spec.Security.ClusterAuthMode)
 	}
+
+	if m.Spec.OpsManagerConfig == (OpsManagerConfig{}) {
+		m.Spec.OpsManagerConfig = m.Spec.CloudManagerConfig
+	}
+
+	// ProjectName defaults to the name of the resource
+	m.Spec.ProjectName = m.Name
+
+	// if new style of config map reference is not set, use the old style
+	if m.Spec.ConnectionSpec.OpsManagerConfig.ConfigMapRef.Name == "" {
+		m.Spec.ConnectionSpec.OpsManagerConfig.ConfigMapRef.Name = m.Spec.ConnectionSpec.Project
+	}
+
 }
 
 func (m *MongoDB) ObjectKey() client.ObjectKey {
@@ -513,6 +605,24 @@ func newAdditionalMongodConfig() *AdditionalMongodConfig {
 	return &AdditionalMongodConfig{}
 }
 
-func newSecurity() Security {
-	return Security{TLSConfig: &TLSConfig{}}
+func ensureSecurity(spec *MongoDbSpec) {
+	if spec.Security == nil {
+		spec.Security = newSecurity()
+		return
+	}
+	if spec.Security.TLSConfig == nil {
+		spec.Security.TLSConfig = &TLSConfig{}
+	}
+
+	if spec.Security.Authentication == nil {
+		spec.Security.Authentication = newAuthentication()
+	}
+}
+
+func newAuthentication() *Authentication {
+	return &Authentication{Modes: []string{}}
+}
+
+func newSecurity() *Security {
+	return &Security{TLSConfig: &TLSConfig{}, Authentication: newAuthentication()}
 }

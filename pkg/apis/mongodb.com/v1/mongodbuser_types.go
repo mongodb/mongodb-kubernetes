@@ -19,11 +19,19 @@ type MongoDBUser struct {
 	Spec              MongoDBUserSpec   `json:"spec"`
 }
 
+type MongoDBResourceRef struct {
+	Name string `json:"name"`
+}
+
 type MongoDBUserSpec struct {
-	Roles    []Role `json:"roles,omitempty"`
-	Username string `json:"username"`
-	Database string `json:"db"`
-	Project  string `json:"project"`
+	Roles              []Role             `json:"roles,omitempty"`
+	Username           string             `json:"username"`
+	Database           string             `json:"db"`
+	MongoDBResourceRef MongoDBResourceRef `json:"mongodbResourceRef"`
+
+	// Deprecated: This has been replaced by the MongoDBResourceRef which should
+	// be used instead
+	Project string `json:"project"`
 }
 
 type MongoDBUserStatus struct {
@@ -49,6 +57,17 @@ type MongoDBUserList struct {
 	Items           []MongoDBUser `json:"items"`
 }
 
+// Changed identifier determines if the user has changed a value that is used in
+// uniquely identifying them. Either username or db. This function relies on the status
+// of the resource and is required in order to remove the old user before
+// adding a new one to avoid leaving stale state in Ops Manger.
+func (u *MongoDBUser) ChangedIdentifier() bool {
+	if u.Status.Username == "" || u.Status.Database == "" {
+		return false
+	}
+	return u.Status.Username != u.Spec.Username || u.Status.Database != u.Spec.Database
+}
+
 func (u *MongoDBUser) UpdateError(msg string) {
 	u.Status.Message = msg
 	u.Status.LastTransition = util.Now()
@@ -60,7 +79,6 @@ func (u *MongoDBUser) UpdateSuccessful(other runtime.Object, _ ...string) {
 	u.Status.Roles = reconciledUser.Spec.Roles
 	u.Status.Database = reconciledUser.Spec.Database
 	u.Status.Username = reconciledUser.Spec.Username
-	u.Status.Project = reconciledUser.Spec.Project
 	u.Status.Phase = PhaseUpdated
 	u.Status.LastTransition = util.Now()
 }

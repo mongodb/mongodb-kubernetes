@@ -64,7 +64,7 @@ type PodVars struct {
 	LogLevel    mongodb.LogLevel
 
 	// Related to MMS SSL configuration
-	SSLProjectConfig
+	mongodb.SSLProjectConfig
 }
 
 // buildStatefulSet builds the statefulset of pods containing agent containers. It's a general function used by
@@ -237,24 +237,26 @@ func mountVolumes(set *appsv1.StatefulSet, helper StatefulSetHelper) {
 		}, set)
 	}
 
-	if helper.Project.AuthMode == util.X509 {
-		mountVolume(volumeMountData{
-			volumeMountName:  util.AgentSecretName,
-			volumeMountPath:  AgentCertMountPath,
-			volumeName:       util.AgentSecretName,
-			volumeSourceType: corev1.SecretVolumeSource{},
-			volumeSourceName: util.AgentSecretName,
-		}, set)
-
-		// add volume for x509 cert used in internal cluster authentication
-		if helper.Security.ClusterAuthMode == util.X509 {
+	if helper.Security != nil {
+		if util.ContainsString(helper.Security.Authentication.Modes, util.X509) {
 			mountVolume(volumeMountData{
-				volumeMountName:  util.ClusterFileName,
-				volumeMountPath:  util.InternalClusterAuthMountPath,
-				volumeName:       util.ClusterFileName,
+				volumeMountName:  util.AgentSecretName,
+				volumeMountPath:  AgentCertMountPath,
+				volumeName:       util.AgentSecretName,
 				volumeSourceType: corev1.SecretVolumeSource{},
-				volumeSourceName: toInternalClusterAuthName(helper.Name),
+				volumeSourceName: util.AgentSecretName,
 			}, set)
+
+			// add volume for x509 cert used in internal cluster authentication
+			if helper.Security.Authentication.InternalCluster == util.X509 {
+				mountVolume(volumeMountData{
+					volumeMountName:  util.ClusterFileName,
+					volumeMountPath:  util.InternalClusterAuthMountPath,
+					volumeName:       util.ClusterFileName,
+					volumeSourceType: corev1.SecretVolumeSource{},
+					volumeSourceName: toInternalClusterAuthName(helper.Name),
+				}, set)
+			}
 		}
 	}
 }

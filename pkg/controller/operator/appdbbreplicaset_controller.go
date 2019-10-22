@@ -130,7 +130,6 @@ func (r *ReconcileAppDbReplicaSet) updateOmDeploymentRs(conn om.Connection, opsM
 			processNames = d.GetProcessNames(om.ReplicaSet{}, replicaSet.Rs.Name())
 			return nil
 		},
-		getMutex(conn.GroupName(), conn.OrgID()),
 		log,
 	)
 	if err != nil {

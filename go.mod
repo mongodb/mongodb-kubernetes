@@ -6,6 +6,7 @@ module github.com/10gen/ops-manager-kubernetes
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver v3.5.1+incompatible
+	github.com/cloudflare/cfssl v0.0.0-20190911221928-1a911ca1b1d6
 	github.com/go-logr/zapr v0.1.1 // indirect
 	github.com/google/go-cmp v0.3.1 // indirect
 	github.com/google/uuid v1.1.1

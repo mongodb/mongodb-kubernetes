@@ -276,7 +276,17 @@ func defaultPodSpec() mongodb.PodSpecWrapper {
 }
 
 func defaultSetHelper() *StatefulSetHelper {
-	return baseSetHelper().SetLogger(zap.S()).SetPodSpec(defaultPodSpec()).SetPodVars(defaultPodVars()).SetService("test-service")
+	return baseSetHelper().
+		SetLogger(zap.S()).
+		SetPodSpec(defaultPodSpec()).
+		SetPodVars(defaultPodVars()).
+		SetService("test-service").
+		SetSecurity(&mongodb.Security{
+			TLSConfig: &mongodb.TLSConfig{},
+			Authentication: &mongodb.Authentication{
+				Modes: []string{},
+			},
+		})
 }
 
 func defaultPodVars() *PodVars {

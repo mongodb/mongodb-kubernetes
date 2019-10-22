@@ -100,7 +100,7 @@ functions:
         script: |
           export GOPATH="${workdir}"
           export GOROOT="/usr/lib/go"
-          export GOBIN="$GOPATH/bin"
+          export GOBIN="/opt/golang/go1.13"
           export GOFLAGS="-mod=vendor"
           export PATH="$GOBIN:$PATH"
 

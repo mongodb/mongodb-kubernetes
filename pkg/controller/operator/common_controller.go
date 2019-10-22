@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
-	"sync"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"github.com/cloudflare/cfssl/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
@@ -63,10 +63,6 @@ var _ Updatable = &v1.MongoDB{}
 var _ Updatable = &v1.MongoDBUser{}
 var _ Updatable = &v1.MongoDBOpsManager{}
 
-// omMutexes is the synchronous map of mutexes that allow to get strict serializability for operations "read-modify-write"
-// for Ops Manager. Keys are (group_name + org_id) and values are mutexes.
-var omMutexes = sync.Map{}
-
 // ReconcileCommonController is the "parent" controller that is included into each specific controller and allows
 // to reuse the common functionality
 type ReconcileCommonController struct {
@@ -94,26 +90,30 @@ func newReconcileCommonController(mgr manager.Manager, omFunc om.ConnectionFacto
 // prepareConnection reads project config map and credential secrets and uses these values to communicate with Ops Manager:
 // create or read the project and optionally request an agent key (it could have been returned by group api call)
 func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedName, spec v1.ConnectionSpec, podVars *PodVars, log *zap.SugaredLogger) (om.Connection, error) {
-	projectConfig, err := c.kubeHelper.readProjectConfig(nsName.Namespace, spec.Project)
+	projectConfig, err := c.kubeHelper.readProjectConfig(nsName.Namespace, spec.OpsManagerConfig.ConfigMapRef.Name)
 	if err != nil {
 		return nil, fmt.Errorf("Error reading Project Config: %s", err)
 	}
+	if projectConfig.ProjectName != "" {
+		spec.ProjectName = projectConfig.ProjectName
+	}
+
 	credsConfig, err := c.kubeHelper.readCredentials(nsName.Namespace, spec.Credentials)
 	if err != nil {
 		return nil, fmt.Errorf("Error reading Credentials secret: %s", err)
 	}
 
-	c.registerWatchedResources(nsName, spec.Project, spec.Credentials)
+	c.registerWatchedResources(nsName, spec.OpsManagerConfig.ConfigMapRef.Name, spec.Credentials)
 
-	group, err := c.readOrCreateGroup(projectConfig, credsConfig, log)
+	group, err := c.readOrCreateGroup(spec.ProjectName, projectConfig, credsConfig, log)
 	if err != nil {
 		return nil, fmt.Errorf("Error reading or creating project in Ops Manager: %s", err)
 	}
 
 	omContext := om.OMContext{
 		GroupID:      group.ID,
-		GroupName:    projectConfig.ProjectName,
-		OrgID:        projectConfig.OrgID,
+		GroupName:    group.Name,
+		OrgID:        group.OrgID,
 		BaseURL:      projectConfig.BaseURL,
 		PublicAPIKey: credsConfig.PublicAPIKey,
 		User:         credsConfig.User,
@@ -187,13 +187,6 @@ func (c *ReconcileCommonController) ensureAgentKeySecretExists(conn om.Connectio
 func (c *ReconcileCommonController) createAgentKeySecret(objectKey client.ObjectKey, agentKey string, owner Updatable) error {
 	data := map[string]string{util.OmAgentApiKey: agentKey}
 	return c.kubeHelper.createSecret(objectKey, data, map[string]string{}, owner)
-}
-
-// getMutex creates or reuses the relevant mutex for the group + org
-func getMutex(projectName, orgId string) *sync.Mutex {
-	lockName := projectName + orgId
-	mutex, _ := omMutexes.LoadOrStore(lockName, &sync.Mutex{})
-	return mutex.(*sync.Mutex)
 }
 
 func (c *ReconcileCommonController) updateStatusSuccessful(reconciledResource Updatable, log *zap.SugaredLogger, args ...string) (reconcile.Result, error) {
@@ -354,6 +347,9 @@ func (c *ReconcileCommonController) registerWatchedResources(mongodbResourceNsNa
 	c.addWatchedResourceIfNotAdded(secret, defaultNamespace, Secret, mongodbResourceNsName)
 }
 
+// addWatchedResourceIfNotAdded adds the given resource to the list of watched
+// resources. A watched resource is a resource that, when changed, will trigger
+// a reconciliation for its dependent resource.
 func (c *ReconcileCommonController) addWatchedResourceIfNotAdded(watchedResourceFullName, watchedResourceDefaultNamespace string,
 	wType watchedType, dependentResourceNsName types.NamespacedName) {
 	watchedNamespacedName, err := getNamespaceAndNameForResource(watchedResourceFullName, dependentResourceNsName.Namespace)
@@ -480,19 +476,16 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHe
 }
 
 //ensureX509AgentCertsForMongoDBResource will generate all the CSRs for the agents
-func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(project *ProjectConfig, namespace string) (bool, error) {
-
-	log := zap.S().With("Project", namespace)
+func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(authModes []string, useCustomCA bool, namespace string) (bool, error) {
 	k := r.kubeHelper
 
-	if project.AuthMode != util.X509 {
+	if !util.ContainsString(authModes, util.X509) {
 		return true, nil
 	}
 
 	certsNeedApproval := false
-
 	if missing := k.verifyClientCertificatesForAgents(util.AgentSecretName, namespace); missing > 0 {
-		if project.UseCustomCA {
+		if useCustomCA {
 			return false, fmt.Errorf("The %s Secret file does not contain the necessary Agent certificates. Missing %d certificates", util.AgentSecretName, missing)
 		}
 
@@ -546,32 +539,20 @@ func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(proje
 	return successful, nil
 }
 
-// canEnableX509 determines if it's possible to enable/disable x509 configuration options in the current
-// version of Ops Manager
-func canEnableX509(conn om.Connection) bool {
-	err := conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
-		return nil
-	}, getMutex(conn.GroupName(), conn.OrgID()), nil)
-	if err != nil && strings.Contains(err.Error(), "405 (Method Not Allowed)") {
-		return false
-	}
-	return true
-}
-
 // disableX509Authentication disables x509 authentication from a given project. The order
 // of monitoring/backup and automation config needs to be the opposite to enableX509Authentication
 // in order to prevent sending an invalid config
 func disableX509Authentication(conn om.Connection, log *zap.SugaredLogger) error {
 	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		return ac.DisableX509Authentication()
-	}, getMutex(conn.GroupName(), conn.OrgID()), log)
+	}, log)
 	if err != nil {
 		return err
 	}
 	err = conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
 		config.DisableX509Authentication()
 		return nil
-	}, getMutex(conn.GroupName(), conn.OrgID()), log)
+	}, log)
 
 	if err != nil {
 		return err
@@ -580,22 +561,17 @@ func disableX509Authentication(conn om.Connection, log *zap.SugaredLogger) error
 	return conn.ReadUpdateBackupAgentConfig(func(config *om.BackupAgentConfig) error {
 		config.DisableX509Authentication()
 		return nil
-	}, getMutex(conn.GroupName(), conn.OrgID()), log)
+	}, log)
 }
 
 // enableX509Authentication configures the given deployment to enable x509 authentication at the
 // project level. The monitoring and backup changes need to happen before the changes to the automation
 // config otherwise an invalid config will be sent.
-func enableX509Authentication(deployment om.Deployment, conn om.Connection, log *zap.SugaredLogger) error {
-	ac, err := om.BuildAutomationConfigFromDeployment(deployment)
-	if err != nil {
-		return err
-	}
-
-	err = conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
+func enableX509Authentication(conn om.Connection, log *zap.SugaredLogger) error {
+	err := conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
 		config.EnableX509Authentication()
 		return nil
-	}, nil, log)
+	}, log)
 
 	if err != nil {
 		return err
@@ -604,14 +580,25 @@ func enableX509Authentication(deployment om.Deployment, conn om.Connection, log 
 	err = conn.ReadUpdateBackupAgentConfig(func(config *om.BackupAgentConfig) error {
 		config.EnableX509Authentication()
 		return nil
-	}, nil, log)
+	}, log)
 
 	if err != nil {
 		return err
 	}
 
-	if err := ac.EnableX509Authentication(); err != nil {
-		return err
+	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		return ac.EnableX509Authentication()
+	}, log)
+}
+
+// canEnableX509 determines if it's possible to enable/disable x509 configuration options in the current
+// version of Ops Manager
+func canEnableX509(conn om.Connection) bool {
+	err := conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
+		return nil
+	}, nil)
+	if err != nil && strings.Contains(err.Error(), "405 (Method Not Allowed)") {
+		return false
 	}
-	return ac.Apply()
+	return true
 }

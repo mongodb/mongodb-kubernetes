@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"math"
 	"reflect"
-	"sync"
+	"time"
 
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/pkg/errors"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
@@ -16,12 +19,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	"time"
-
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 // This is a collection of some common methods that may be shared by operator code
@@ -67,7 +64,7 @@ func DeploymentLink(url, groupId string) string {
 func buildReplicaSetFromStatefulSet(set *appsv1.StatefulSet, mdb *mongodb.MongoDB, log *zap.SugaredLogger) om.ReplicaSetWithProcesses {
 	members := createProcesses(set, om.ProcessTypeMongod, mdb, log)
 	rsWithProcesses := om.NewReplicaSetWithProcesses(om.NewReplicaSet(set.Name, mdb.Spec.Version), members)
-	rsWithProcesses.ConfigureAuthenticationMode(mdb.Spec.Security.ClusterAuthMode)
+	rsWithProcesses.ConfigureAuthenticationMode(mdb.Spec.Security.Authentication.InternalCluster)
 	return rsWithProcesses
 }
 
@@ -191,7 +188,6 @@ func prepareScaleDown(omClient om.Connection, rsMembers map[string][]string, log
 				}
 				return nil
 			},
-			&sync.Mutex{},
 			log,
 		)
 
@@ -368,14 +364,14 @@ func (x x509ConfigurationState) shouldLog() bool {
 }
 
 // getX509ConfigurationState returns information about what stages need to be performed when enabling x509 authentication
-func getX509ConfigurationState(ac *om.AutomationConfig, projectConfig *ProjectConfig) x509ConfigurationState {
+func getX509ConfigurationState(ac *om.AutomationConfig, authModes []string) x509ConfigurationState {
 	// we only need to make the corresponding requests to configure x509 if we're enabling/disabling it
 	// otherwise we don't need to make any changes.
-	x509EnablingHasBeenRequested := !util.ContainsString(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) && projectConfig.AuthMode == util.X509
-	shouldDisableX509 := util.ContainsString(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) && projectConfig.AuthMode != util.X509
+	x509EnablingHasBeenRequested := !util.ContainsString(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) && util.ContainsString(authModes, util.X509)
+	shouldDisableX509 := util.ContainsString(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) && !util.ContainsString(authModes, util.X509)
 	return x509ConfigurationState{
 		x509EnablingHasBeenRequested: x509EnablingHasBeenRequested,
 		shouldDisableX509:            shouldDisableX509,
-		x509CanBeEnabledInOpsManager: ac.Deployment.AllProcessesAreTLSEnabled(),
+		x509CanBeEnabledInOpsManager: ac.Deployment.AllProcessesAreTLSEnabled() || ac.Deployment.NumberOfProcesses() == 0,
 	}
 }

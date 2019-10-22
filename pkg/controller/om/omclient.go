@@ -26,7 +26,7 @@ type Connection interface {
 
 	// ReadUpdateDeployment reads Deployment from Ops Manager, applies the update function to it and pushes it back
 	// Note the mutex that must be passed to provide strict serializability for the read-write operations for the same group
-	ReadUpdateDeployment(depFunc func(Deployment) error, mutex *sync.Mutex, log *zap.SugaredLogger) error
+	ReadUpdateDeployment(depFunc func(Deployment) error, log *zap.SugaredLogger) error
 
 	//WaitForReadyState(processNames []string, log *zap.SugaredLogger) error
 	GenerateAgentKey() (string, error)
@@ -61,20 +61,31 @@ type Connection interface {
 type MonitoringConfigConnection interface {
 	ReadMonitoringAgentConfig() (*MonitoringAgentConfig, error)
 	UpdateMonitoringAgentConfig(mat *MonitoringAgentConfig, log *zap.SugaredLogger) ([]byte, error)
-	ReadUpdateMonitoringAgentConfig(matFunc func(*MonitoringAgentConfig) error, mutex *sync.Mutex, log *zap.SugaredLogger) error
+	ReadUpdateMonitoringAgentConfig(matFunc func(*MonitoringAgentConfig) error, log *zap.SugaredLogger) error
 }
 
 type BackupConfigConnection interface {
 	ReadBackupAgentConfig() (*BackupAgentConfig, error)
 	UpdateBackupAgentConfig(mat *BackupAgentConfig, log *zap.SugaredLogger) ([]byte, error)
-	ReadUpdateBackupAgentConfig(matFunc func(*BackupAgentConfig) error, mutex *sync.Mutex, log *zap.SugaredLogger) error
+	ReadUpdateBackupAgentConfig(matFunc func(*BackupAgentConfig) error, log *zap.SugaredLogger) error
 }
 
 // AutomationConfigConnection is an interface that only deals with reading/updating of the AutomationConfig
 type AutomationConfigConnection interface {
-	UpdateAutomationConfig(ac *AutomationConfig, log *zap.SugaredLogger) error
 	ReadAutomationConfig() (*AutomationConfig, error)
-	ReadUpdateAutomationConfig(acFunc func(ac *AutomationConfig) error, mutex *sync.Mutex, log *zap.SugaredLogger) error
+	UpdateAutomationConfig(ac *AutomationConfig, log *zap.SugaredLogger) error
+	ReadUpdateAutomationConfig(acFunc func(ac *AutomationConfig) error, log *zap.SugaredLogger) error
+}
+
+// omMutexes is the synchronous map of mutexes that provide strict serializability for operations "read-modify-write"
+// for Ops Manager. Keys are (group_name + org_id) and values are mutexes.
+var omMutexes = sync.Map{}
+
+// GetMutex creates or reuses the relevant mutex for the group + org
+func GetMutex(projectName, orgId string) *sync.Mutex {
+	lockName := projectName + orgId
+	mutex, _ := omMutexes.LoadOrStore(lockName, &sync.Mutex{})
+	return mutex.(*sync.Mutex)
 }
 
 // ConnectionFactory type defines a function to create a connection to Ops Manager API.
@@ -229,7 +240,8 @@ func (oc *HTTPOmConnection) ReadAutomationConfig() (*AutomationConfig, error) {
 // ReadUpdateDeployment performs the "read-modify-update" operation on OpsManager Deployment.
 // Note, that the mutex locks infinitely (there is no built-in support for timeouts for locks in Go) which seems to be
 // ok as OM endpoints are not supposed to hang for long
-func (oc *HTTPOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error, mutex *sync.Mutex, log *zap.SugaredLogger) error {
+func (oc *HTTPOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error, log *zap.SugaredLogger) error {
+	mutex := GetMutex(oc.GroupName(), oc.OrgID())
 	mutex.Lock()
 	defer mutex.Unlock()
 
@@ -287,7 +299,8 @@ func (oc *HTTPOmConnection) UpdateAutomationConfig(ac *AutomationConfig, log *za
 	return nil
 }
 
-func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(acFunc func(ac *AutomationConfig) error, mutex *sync.Mutex, log *zap.SugaredLogger) error {
+func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(acFunc func(ac *AutomationConfig) error, log *zap.SugaredLogger) error {
+	mutex := GetMutex(oc.GroupName(), oc.OrgID())
 	mutex.Lock()
 	defer mutex.Unlock()
 
@@ -551,14 +564,13 @@ func (oc *HTTPOmConnection) UpdateMonitoringAgentConfig(mat *MonitoringAgentConf
 	return nil, nil
 }
 
-func (oc *HTTPOmConnection) ReadUpdateMonitoringAgentConfig(matFunc func(*MonitoringAgentConfig) error, mutex *sync.Mutex, log *zap.SugaredLogger) error {
+func (oc *HTTPOmConnection) ReadUpdateMonitoringAgentConfig(matFunc func(*MonitoringAgentConfig) error, log *zap.SugaredLogger) error {
 	if log == nil {
 		log = zap.S()
 	}
-	if mutex != nil {
-		mutex.Lock()
-		defer mutex.Unlock()
-	}
+	mutex := GetMutex(oc.GroupName(), oc.OrgID())
+	mutex.Lock()
+	defer mutex.Unlock()
 
 	mat, err := oc.ReadMonitoringAgentConfig()
 	if err != nil {
@@ -608,15 +620,10 @@ func (oc *HTTPOmConnection) UpdateBackupAgentConfig(backup *BackupAgentConfig, l
 	return nil, nil
 }
 
-func (oc *HTTPOmConnection) ReadUpdateBackupAgentConfig(backupFunc func(*BackupAgentConfig) error, mutex *sync.Mutex, log *zap.SugaredLogger) error {
+func (oc *HTTPOmConnection) ReadUpdateBackupAgentConfig(backupFunc func(*BackupAgentConfig) error, log *zap.SugaredLogger) error {
 	if log == nil {
 		log = zap.S()
 	}
-	if mutex != nil {
-		mutex.Lock()
-		defer mutex.Unlock()
-	}
-
 	backup, err := oc.ReadBackupAgentConfig()
 	if err != nil {
 		return err

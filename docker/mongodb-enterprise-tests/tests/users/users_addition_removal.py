@@ -33,20 +33,8 @@ class TestReplicaSetWithNoTLSCreation(KubernetesTester):
       wait_until: in_running_state
       timeout: 120
     """
-
     def test_mdb_is_reachable_with_no_ssl(self):
         ReplicaSetTester(mdb_resource, 3).assert_connectivity()
-
-
-@pytest.mark.e2e_tls_x509_users_addition_removal
-class TestsReplicaSetWithNoTLSWithX509Project(KubernetesTester):
-    @classmethod
-    def setup_env(cls):
-        cls.patch_config_map(cls.get_namespace(), "my-project", {"authenticationMode": "x509", "credentials": "my-credentials"})
-        KubernetesTester.wait_until('in_failed_state', 60)
-
-    def test_noop(self):
-        pass
 
 
 @pytest.mark.e2e_tls_x509_users_addition_removal
@@ -54,7 +42,7 @@ class TestReplicaSetUpgradeToTLSWithX509Project(KubernetesTester):
     """
     update:
       file: test-tls-base-rs-require-ssl-upgrade.yaml
-      patch: '[{"op":"add","path":"/spec/security","value":{"tls": { "enabled": true }}}]'
+      patch: '[{"op":"add","path":"/spec/security","value":{"tls": { "enabled": true }, "authentication": {"enabled": true, "modes": ["X509"]}}}]'
       wait_for_message: Not all certificates have been approved by Kubernetes CA
       timeout: 240
     """
@@ -92,7 +80,7 @@ class TestMultipleUsersAreAdded(KubernetesTester):
         return len(ac['auth']['usersWanted']) == 8  # 2 agents + 6 MongoDBUsers
 
     def test_users_are_added_to_automation_config(self):
-        ac = self.get_automation_config()
+        ac = KubernetesTester.get_automation_config()
         users = sorted(ac['auth']['usersWanted'], key=lambda user: user['user'])
         subjects = sorted(get_subjects(1, 7))
 
@@ -117,6 +105,6 @@ class TestTheCorrectUserIsDeleted(KubernetesTester):
         return len(ac['auth']['usersWanted']) == 7  # One user has been deleted
 
     def test_deleted_user_is_gone(self):
-        ac = self.get_automation_config()
+        ac = KubernetesTester.get_automation_config()
         users = ac['auth']['usersWanted']
         assert 'CN=mms-user-4,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US' not in [user['user'] for user in users]

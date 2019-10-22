@@ -47,17 +47,18 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 	log.Infow("ReplicaSet.Spec", "spec", rs.Spec)
 	log.Infow("ReplicaSet.Status", "status", rs.Status)
 
-	spec := rs.Spec
-	podVars := &PodVars{}
-	conn, err := r.prepareConnection(request.NamespacedName, spec.ConnectionSpec, podVars, log)
-	if err != nil {
-		return r.updateStatusFailed(rs, fmt.Sprintf("Failed to prepare Ops Manager connection: %s", err), log)
-	}
-
-	projectConfig, err := r.kubeHelper.readProjectConfig(request.Namespace, spec.Project)
+	projectConfig, err := r.kubeHelper.readProjectConfig(request.Namespace, rs.Spec.OpsManagerConfig.ConfigMapRef.Name)
 	if err != nil {
 		log.Infof("error reading project %s", err)
 		return retry()
+	}
+
+	rs.Spec.SetParametersFromConfigMap(projectConfig)
+
+	podVars := &PodVars{}
+	conn, err := r.prepareConnection(request.NamespacedName, rs.Spec.ConnectionSpec, podVars, log)
+	if err != nil {
+		return r.updateStatusFailed(rs, fmt.Sprintf("Failed to prepare Ops Manager connection: %s", err), log)
 	}
 
 	shouldContinue, warnings := om.CheckIfCanProceedWithWarnings(conn, rs)
@@ -69,7 +70,8 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 	rs.Status.Warnings = warnings
 
 	// cannot have a non-tls deployment in an x509 environment
-	if projectConfig.AuthMode == util.X509 && !rs.Spec.GetTLSConfig().Enabled {
+	authSpec := rs.Spec.Security.Authentication
+	if authSpec.Enabled && util.ContainsString(authSpec.Modes, util.X509) && !rs.Spec.GetTLSConfig().Enabled {
 		return r.updateStatusValidationFailure(rs, fmt.Sprintf("cannot have a non-tls deployment when x509 authentication is enabled"), log)
 	}
 
@@ -90,13 +92,13 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		return status.updateStatus(rs, r.ReconcileCommonController, log)
 	}
 
-	if status := r.ensureX509(rs, projectConfig, replicaBuilder, log); !status.isOk() {
+	if status := r.ensureX509(rs, replicaBuilder, log); !status.isOk() {
 		return status.updateStatus(rs, r.ReconcileCommonController, log)
 	}
 
 	replicaSetObject := replicaBuilder.BuildStatefulSet()
 
-	if spec.Members < rs.Status.Members {
+	if rs.Spec.Members < rs.Status.Members {
 		if err := prepareScaleDownReplicaSet(conn, replicaSetObject, rs.Status.Members, rs, log); err != nil {
 			return r.updateStatusFailed(rs, fmt.Sprintf("Failed to prepare Replica Set for scaling down using Ops Manager: %s", err), log)
 		}
@@ -104,7 +106,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 
 	status := runInGivenOrder(replicaBuilder.needToPublishStateFirst(log),
 		func() reconcileStatus {
-			return r.updateOmDeploymentRs(conn, rs.Status.Members, rs, replicaSetObject, projectConfig, log).onErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+			return r.updateOmDeploymentRs(conn, rs.Status.Members, rs, replicaSetObject, log).onErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() reconcileStatus {
 			if err := replicaBuilder.CreateOrUpdateInKubernetes(); err != nil {
@@ -181,7 +183,7 @@ func AddReplicaSetController(mgr manager.Manager) error {
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
 func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, membersNumberBefore int, newResource *mongodb.MongoDB,
-	set *appsv1.StatefulSet, projectConfig *ProjectConfig, log *zap.SugaredLogger) reconcileStatus {
+	set *appsv1.StatefulSet, log *zap.SugaredLogger) reconcileStatus {
 
 	err := waitForRsAgentsToRegister(set, newResource.Spec.ClusterName, conn, log)
 	if err != nil {
@@ -193,30 +195,36 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 		return failedErr(err)
 	}
 
-	x509Config := getX509ConfigurationState(ac, projectConfig)
+	x509Config := getX509ConfigurationState(ac, newResource.Spec.Security.Authentication.Modes)
 	if x509Config.shouldLog() {
-		log.Info("X509 configuration status %+v", x509Config)
+		log.Infof("X509 configuration status %+v", x509Config)
 	}
 
 	replicaSet := buildReplicaSetFromStatefulSet(set, newResource, log)
-	processNames := make([]string, 0)
+	processNames := replicaSet.GetProcessNames()
+
+	if x509Config.x509EnablingHasBeenRequested && x509Config.x509CanBeEnabledInOpsManager {
+		if err := enableX509Authentication(conn, log); err != nil {
+			return failedErr(err)
+		}
+		if err := om.WaitForReadyState(conn, processNames, log); err != nil {
+			return failedErr(err)
+		}
+	}
+
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			// it is not possible to disable internal cluster authentication once enabled
-			if d.ExistingProcessesHaveInternalClusterAuthentication(replicaSet.Processes) && newResource.Spec.Security.ClusterAuthMode == "" {
+			if d.ExistingProcessesHaveInternalClusterAuthentication(replicaSet.Processes) && newResource.Spec.Security.Authentication.InternalCluster == "" {
 				return fmt.Errorf("cannot disable x509 internal cluster authentication")
 			}
 			d.MergeReplicaSet(replicaSet, nil)
 			d.AddMonitoringAndBackup(replicaSet.Processes[0].HostName(), log)
 			d.ConfigureTLS(newResource.Spec.GetTLSConfig())
 			processNames = d.GetProcessNames(om.ReplicaSet{}, replicaSet.Rs.Name())
-
-			if x509Config.x509EnablingHasBeenRequested && x509Config.x509CanBeEnabledInOpsManager {
-				return enableX509Authentication(d, conn, log)
-			}
 			return nil
+
 		},
-		getMutex(conn.GroupName(), conn.OrgID()),
 		log,
 	)
 	if err != nil {
@@ -225,6 +233,9 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 
 	if x509Config.x509EnablingHasBeenRequested && !x509Config.x509CanBeEnabledInOpsManager { // we want to enable x509, but can't as we are also enabling TLS in the same operation
 		// this prevents the validation error "Invalid config: No TLS mode changes are allowed when toggling auth. Detected the following change: REPLICA_SET parameter tlsMode/sslMode changed from null to requireTLS/requireSSL."
+		if err := om.WaitForReadyState(conn, processNames, log); err != nil {
+			return failedErr(err)
+		}
 		return pending("Performing multi stage reconciliation")
 	}
 
@@ -267,7 +278,6 @@ func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLog
 
 			return nil
 		},
-		getMutex(conn.GroupName(), conn.OrgID()),
 		log,
 	)
 	if err != nil {
@@ -293,10 +303,14 @@ func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLog
 	return nil
 }
 
-func (r *ReconcileCommonController) ensureX509(mdb *mongodb.MongoDB, projectConfig *ProjectConfig, helper *StatefulSetHelper, log *zap.SugaredLogger) reconcileStatus {
+func (r *ReconcileCommonController) ensureX509(mdb *mongodb.MongoDB, helper *StatefulSetHelper, log *zap.SugaredLogger) reconcileStatus {
 	spec := mdb.Spec
-	if projectConfig.AuthMode == util.X509 {
-		successful, err := r.ensureX509AgentCertsForMongoDBResource(projectConfig, mdb.Namespace)
+	authEnabled := mdb.Spec.Security.Authentication.Enabled
+	usingX509 := util.ContainsString(mdb.Spec.Security.Authentication.Modes, util.X509)
+	if authEnabled && usingX509 {
+		authModes := mdb.Spec.Security.Authentication.Modes
+		useCustomCA := mdb.Spec.GetTLSConfig().CA != ""
+		successful, err := r.ensureX509AgentCertsForMongoDBResource(authModes, useCustomCA, mdb.Namespace)
 		if err != nil {
 			return failedErr(err)
 		}
@@ -310,18 +324,12 @@ func (r *ReconcileCommonController) ensureX509(mdb *mongodb.MongoDB, projectConf
 			return pending("Agent x509 certificates have not yet been created")
 		}
 
-		if spec.Security.ClusterAuthMode == util.X509 {
+		if spec.Security.Authentication.InternalCluster == util.X509 {
 			if success, err := r.ensureInternalClusterCerts(helper, log); err != nil {
 				return failed("Failed ensuring internal cluster authentication certs %s", err)
 			} else if !success {
 				return pending("Not all internal cluster authentication certs have been approved by Kubernetes CA")
 			}
-		}
-	} else {
-		// this means the user has disabled x509 at the project level, but the resource is still configured to use x509 cluster authentication
-		// as we don't have a status on the ConfigMap, we can inform the user in the status of the resource.
-		if spec.Security.ClusterAuthMode == util.X509 {
-			return failed("This deployment has clusterAuthenticationMode set to x509, ensure the ConfigMap for this project is configured to enable x509")
 		}
 	}
 	return ok()

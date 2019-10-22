@@ -95,17 +95,18 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 	log.Infow("Standalone.Spec", "spec", s.Spec)
 	log.Infow("Standalone.Status", "status", s.Status)
 
-	spec := s.Spec
-	podVars := &PodVars{}
-	conn, err := r.prepareConnection(request.NamespacedName, spec.ConnectionSpec, podVars, log)
-	if err != nil {
-		return r.updateStatusFailed(s, fmt.Sprintf("Failed to prepare Ops Manager connection: %s", err), log)
-	}
-
-	projectConfig, err := r.kubeHelper.readProjectConfig(request.Namespace, spec.Project)
+	projectConfig, err := r.kubeHelper.readProjectConfig(request.Namespace, s.Spec.OpsManagerConfig.ConfigMapRef.Name)
 	if err != nil {
 		log.Infof("error reading project %s", err)
 		return retry()
+	}
+
+	s.Spec.SetParametersFromConfigMap(projectConfig)
+
+	podVars := &PodVars{}
+	conn, err := r.prepareConnection(request.NamespacedName, s.Spec.ConnectionSpec, podVars, log)
+	if err != nil {
+		return r.updateStatusFailed(s, fmt.Sprintf("Failed to prepare Ops Manager connection: %s", err), log)
 	}
 
 	shouldContinue, warnings := om.CheckIfCanProceedWithWarnings(conn, s)
@@ -115,7 +116,8 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 	s.Status.Warnings = warnings
 
 	// cannot have a non-tls deployment in an x509 environment
-	if projectConfig.AuthMode == util.X509 && !s.Spec.GetTLSConfig().Enabled {
+	authSpec := s.Spec.Security.Authentication
+	if authSpec.Enabled && util.ContainsString(authSpec.Modes, util.X509) && !s.Spec.GetTLSConfig().Enabled {
 		return r.updateStatusValidationFailure(s, fmt.Sprintf("cannot have a non-tls deployment when x509 authentication is enabled"), log)
 	}
 
@@ -128,7 +130,8 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		SetLogger(log).
 		SetTLS(s.Spec.GetTLSConfig()).
 		SetClusterName(s.Spec.ClusterName).
-		SetProjectConfig(*projectConfig)
+		SetProjectConfig(*projectConfig).
+		SetSecurity(s.Spec.Security)
 
 	if status := r.kubeHelper.ensureSSLCertsForStatefulSet(standaloneBuilder, log); !status.isOk() {
 		return status.updateStatus(s, r.ReconcileCommonController, log)
@@ -172,7 +175,6 @@ func updateOmDeployment(conn om.Connection, s *mongodb.MongoDB,
 			processNames = d.GetProcessNames(om.Standalone{}, s.Name)
 			return nil
 		},
-		getMutex(conn.GroupName(), conn.OrgID()),
 		log,
 	)
 
@@ -208,7 +210,6 @@ func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLog
 			}
 			return nil
 		},
-		getMutex(conn.GroupName(), conn.OrgID()),
 		log,
 	)
 	if err != nil {

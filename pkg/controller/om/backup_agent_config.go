@@ -17,7 +17,7 @@ type BackupAgentConfig struct {
 }
 
 func (bac *BackupAgentConfig) Apply() error {
-	merged, err := util.MergeWith(bac.BackupAgentTemplate, bac.BackingMap, &util.AgentTransformer{})
+	merged, err := util.MergeWith(bac.BackupAgentTemplate, bac.BackingMap, &util.AutomationConfigTransformer{})
 	if err != nil {
 		return err
 	}

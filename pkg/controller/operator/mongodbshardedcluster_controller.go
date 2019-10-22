@@ -56,6 +56,13 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (r
 func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interface{}, log *zap.SugaredLogger) (om.Connection, reconcileStatus) {
 	log.Info("ShardedCluster.doShardedClusterProcessing")
 	sc := obj.(*mongodb.MongoDB)
+	projectConfig, err := r.kubeHelper.readProjectConfig(sc.Namespace, sc.Spec.OpsManagerConfig.ConfigMapRef.Name)
+	if err != nil {
+		return nil, failed("error reading project %s", err)
+	}
+
+	sc.Spec.SetParametersFromConfigMap(projectConfig)
+
 	podVars := &PodVars{}
 	conn, err := r.prepareConnection(objectKey(sc.Namespace, sc.Name), sc.Spec.ConnectionSpec, podVars, log)
 	if err != nil {
@@ -68,12 +75,8 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 	}
 	sc.Status.Warnings = warnings
 
-	projectConfig, err := r.kubeHelper.readProjectConfig(sc.Namespace, sc.Spec.Project)
-	if err != nil {
-		return nil, failed("error reading project %s", err)
-	}
-
-	if projectConfig.AuthMode == util.X509 && !sc.Spec.GetTLSConfig().Enabled {
+	authSpec := sc.Spec.Security.Authentication
+	if authSpec.Enabled && util.ContainsString(authSpec.Modes, util.X509) && !sc.Spec.GetTLSConfig().Enabled {
 		return nil, failedValidation("cannot have a non-tls deployment when x509 authentication is enabled")
 	}
 
@@ -87,13 +90,13 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return nil, status
 	}
 
-	if status := r.ensureX509(sc, projectConfig, kubeState, log); !status.isOk() {
+	if status := r.ensureX509(sc, kubeState, log); !status.isOk() {
 		return nil, status
 	}
 
 	status := runInGivenOrder(anyStatefulSetHelperNeedsToPublishState(kubeState, log),
 		func() reconcileStatus {
-			return updateOmDeploymentShardedCluster(conn, sc, kubeState, projectConfig, log).onErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+			return updateOmDeploymentShardedCluster(conn, sc, kubeState, log).onErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() reconcileStatus {
 			if err := r.createKubernetesResources(sc, kubeState, log); err != nil {
@@ -124,9 +127,13 @@ func anyStatefulSetHelperNeedsToPublishState(kubeState ShardedClusterKubeState, 
 	return false
 }
 
-func (r *ReconcileMongoDbShardedCluster) ensureX509(sc *mongodb.MongoDB, projectConfig *ProjectConfig, kubeState ShardedClusterKubeState, log *zap.SugaredLogger) reconcileStatus {
-	if projectConfig.AuthMode == util.X509 {
-		successful, err := r.ensureX509AgentCertsForMongoDBResource(projectConfig, sc.Namespace)
+func (r *ReconcileMongoDbShardedCluster) ensureX509(sc *mongodb.MongoDB, kubeState ShardedClusterKubeState, log *zap.SugaredLogger) reconcileStatus {
+	authEnabled := sc.Spec.Security.Authentication.Enabled
+	usingX509 := util.ContainsString(sc.Spec.Security.Authentication.Modes, util.X509)
+	if authEnabled && usingX509 {
+		authModes := sc.Spec.Security.Authentication.Modes
+		useCustomCA := sc.Spec.GetTLSConfig().CA != ""
+		successful, err := r.ensureX509AgentCertsForMongoDBResource(authModes, useCustomCA, sc.Namespace)
 		if err != nil {
 			return failedErr(err)
 		}
@@ -139,7 +146,7 @@ func (r *ReconcileMongoDbShardedCluster) ensureX509(sc *mongodb.MongoDB, project
 			return pending("agent x509 certificates have not yet been created")
 		}
 
-		if sc.Spec.Security.ClusterAuthMode == util.X509 {
+		if sc.Spec.Security.Authentication.InternalCluster == util.X509 {
 			errors := make([]error, 0)
 			allSuccessful := true
 			for _, helper := range getAllStatefulSetHelpers(kubeState) {
@@ -157,10 +164,6 @@ func (r *ReconcileMongoDbShardedCluster) ensureX509(sc *mongodb.MongoDB, project
 			}
 		}
 
-	} else if sc.Spec.Security.ClusterAuthMode == util.X509 {
-		// this means the user has disabled x509 at the project level, but the resource is still configured to use x509 cluster authentication
-		// as we don't have a status on the ConfigMap, we can inform the user in the status of the resource.
-		return failed("This deployment has clusterAuthenticationMode set to x509, ensure the ConfigMap for this project is configured to enable x509")
 	}
 	return ok()
 }
@@ -232,7 +235,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mongodb.Mo
 	return nil
 }
 
-func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mongodb.MongoDB, podVars *PodVars, projectConfig *ProjectConfig, log *zap.SugaredLogger) ShardedClusterKubeState {
+func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mongodb.MongoDB, podVars *PodVars, projectConfig *mongodb.ProjectConfig, log *zap.SugaredLogger) ShardedClusterKubeState {
 	// 1. Create the mongos StatefulSet
 	mongosBuilder := r.kubeHelper.NewStatefulSetHelper(s).
 		SetName(s.MongosRsName()).
@@ -310,7 +313,6 @@ func (r *ReconcileMongoDbShardedCluster) delete(obj interface{}, log *zap.Sugare
 			}
 			return nil
 		},
-		getMutex(conn.GroupName(), conn.OrgID()),
 		log,
 	)
 	if err != nil {
@@ -422,14 +424,20 @@ func isShardsSizeScaleDown(sc *mongodb.MongoDB) bool {
 // phase 2: remove the "junk" replica sets and their processes, wait for agents to reach the goal.
 // The logic is designed to be idempotent: if the reconciliation is retried the controller will never skip the phase 1
 // until the agents have performed draining
-func updateOmDeploymentShardedCluster(conn om.Connection, sc *mongodb.MongoDB, state ShardedClusterKubeState, projectConfig *ProjectConfig, log *zap.SugaredLogger) reconcileStatus {
+func updateOmDeploymentShardedCluster(conn om.Connection, sc *mongodb.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger) reconcileStatus {
 	err := waitForAgentsToRegister(sc, state, conn, log)
 	if err != nil {
 		return failedErr(err)
 	}
 
-	processNames := make([]string, 0)
-	status, shardsRemoving := publishDeployment(conn, sc, state, log, &processNames, false, projectConfig)
+	dep, err := conn.ReadDeployment()
+	if err != nil {
+		return failedErr(err)
+	}
+
+	processNames := dep.GetProcessNames(om.ShardedCluster{}, sc.Name)
+
+	status, shardsRemoving := publishDeployment(conn, sc, state, log, &processNames, false)
 
 	if !status.isOk() {
 		return status
@@ -444,7 +452,7 @@ func updateOmDeploymentShardedCluster(conn om.Connection, sc *mongodb.MongoDB, s
 
 	if shardsRemoving {
 		log.Infof("Some shards were removed from the sharded cluster, we need to remove them from the deployment completely")
-		status, shardsRemoving = publishDeployment(conn, sc, state, log, &processNames, true, projectConfig)
+		status, shardsRemoving = publishDeployment(conn, sc, state, log, &processNames, true)
 		if !status.isOk() {
 			return failedErr(err)
 		}
@@ -465,7 +473,7 @@ func updateOmDeploymentShardedCluster(conn om.Connection, sc *mongodb.MongoDB, s
 }
 
 func publishDeployment(conn om.Connection, sc *mongodb.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger,
-	processNames *[]string, finalizing bool, projectConfig *ProjectConfig) (reconcileStatus, bool) {
+	processNames *[]string, finalizing bool) (reconcileStatus, bool) {
 	mongosProcesses := createProcesses(
 		state.mongosSetHelper.BuildStatefulSet(),
 		om.ProcessTypeMongos,
@@ -485,9 +493,18 @@ func publishDeployment(conn om.Connection, sc *mongodb.MongoDB, state ShardedClu
 		return failedErr(err), false
 	}
 
-	x509Config := getX509ConfigurationState(ac, projectConfig)
+	x509Config := getX509ConfigurationState(ac, sc.Spec.Security.Authentication.Modes)
 	if x509Config.shouldLog() {
 		log.Info("X509 configuration status %+v", x509Config)
+	}
+
+	if x509Config.x509EnablingHasBeenRequested && x509Config.x509CanBeEnabledInOpsManager {
+		if err := enableX509Authentication(conn, log); err != nil {
+			return failedErr(err), false
+		}
+		if err := om.WaitForReadyState(conn, *processNames, log); err != nil {
+			return failedErr(err), false
+		}
 	}
 
 	shardsRemoving := false
@@ -495,7 +512,7 @@ func publishDeployment(conn om.Connection, sc *mongodb.MongoDB, state ShardedClu
 		func(d om.Deployment) error {
 			// it is not possible to disable internal cluster authentication once enabled
 			allProcesses := getAllProcesses(shards, configRs, mongosProcesses)
-			if sc.Spec.Security.ClusterAuthMode == "" && d.ExistingProcessesHaveInternalClusterAuthentication(allProcesses) {
+			if sc.Spec.Security.Authentication.InternalCluster == "" && d.ExistingProcessesHaveInternalClusterAuthentication(allProcesses) {
 				return fmt.Errorf("cannot disable x509 internal cluster authentication")
 			}
 			var err error
@@ -507,12 +524,8 @@ func publishDeployment(conn om.Connection, sc *mongodb.MongoDB, state ShardedClu
 
 			processes := d.GetProcessNames(om.ShardedCluster{}, sc.Name)
 			*processNames = processes
-			if x509Config.x509EnablingHasBeenRequested && x509Config.x509CanBeEnabledInOpsManager {
-				return enableX509Authentication(d, conn, log)
-			}
 			return nil
 		},
-		getMutex(conn.GroupName(), conn.OrgID()),
 		log,
 	)
 
@@ -521,6 +534,9 @@ func publishDeployment(conn om.Connection, sc *mongodb.MongoDB, state ShardedClu
 	}
 
 	if x509Config.x509EnablingHasBeenRequested && !x509Config.x509CanBeEnabledInOpsManager {
+		if err := om.WaitForReadyState(conn, *processNames, log); err != nil {
+			return failedErr(err), false
+		}
 		return pending("Performing multi stage reconciliation"), shardsRemoving
 	}
 

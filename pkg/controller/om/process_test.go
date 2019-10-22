@@ -68,8 +68,12 @@ func TestConfigureSSL_Process(t *testing.T) {
 func TestConfigureX509_Process(t *testing.T) {
 	mdb := &mongodb.MongoDB{
 		Spec: mongodb.MongoDbSpec{
-			Version:  "3.6.4",
-			Security: &mongodb.Security{},
+			Version: "3.6.4",
+			Security: &mongodb.Security{
+				Authentication: &mongodb.Authentication{
+					Modes: []string{util.X509},
+				},
+			},
 		},
 	}
 	process := NewMongodProcess(
@@ -81,7 +85,7 @@ func TestConfigureX509_Process(t *testing.T) {
 	assert.NotContains(t, process.SSLConfig(), "clusterFile")
 
 	process.ConfigureClusterAuthMode(util.X509) // should update fields if specified as x509
-	assert.Equal(t, util.X509, process.security()["clusterAuthMode"])
+	assert.Equal(t, "x509", process.security()["clusterAuthMode"])
 	assert.Equal(t, fmt.Sprintf("%s%s-pem", util.InternalClusterAuthMountPath, process.Name()), process.SSLConfig()["clusterFile"])
 }
 

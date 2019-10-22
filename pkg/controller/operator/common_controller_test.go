@@ -146,7 +146,15 @@ func TestPrepareOmConnection_ConfigMapAndSecretWatched(t *testing.T) {
 
 	// Here we create two replica sets both referencing the same project and credentials
 	vars := &PodVars{}
-	spec := v1.ConnectionSpec{Project: TestProjectConfigMapName, Credentials: "otherNs/mySecret", LogLevel: v1.Warn}
+	spec := v1.ConnectionSpec{
+		OpsManagerConfig: v1.OpsManagerConfig{
+			ConfigMapRef: v1.ConfigMapRef{
+				Name: TestProjectConfigMapName,
+			},
+		},
+		Credentials: "otherNs/mySecret",
+		LogLevel:    v1.Warn,
+	}
 	_, e := reconciler.prepareConnection(objectKey(TestNamespace, "ReplicaSetOne"), spec, vars, zap.S())
 	assert.NoError(t, e)
 	_, e = reconciler.prepareConnection(objectKey(TestNamespace, "ReplicaSetTwo"), spec, vars, zap.S())
@@ -211,7 +219,15 @@ func TestShouldReconcile_DoesReconcileOnSpecChange(t *testing.T) {
 
 func prepareConnection(controller *ReconcileCommonController, t *testing.T) (*om.MockedOmConnection, *PodVars) {
 	vars := &PodVars{}
-	spec := v1.ConnectionSpec{Project: TestProjectConfigMapName, Credentials: TestCredentialsSecretName, LogLevel: v1.Warn}
+	spec := v1.ConnectionSpec{
+		OpsManagerConfig: v1.OpsManagerConfig{
+			ConfigMapRef: v1.ConfigMapRef{
+				Name: TestProjectConfigMapName,
+			},
+		},
+		Credentials: TestCredentialsSecretName,
+		LogLevel:    v1.Warn,
+	}
 	conn, e := controller.prepareConnection(objectKey(TestNamespace, ""), spec, vars, zap.S())
 	mockOm := conn.(*om.MockedOmConnection)
 	assert.NoError(t, e)

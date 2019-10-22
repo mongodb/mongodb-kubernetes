@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
@@ -23,17 +24,17 @@ duplicated groups/organizations creation. So if for example the standalone and t
 configMap are created in parallel - this function will be invoked sequantaly and the second caller will see the group
 created on the first call
 */
-func (c *ReconcileCommonController) readOrCreateGroup(config *ProjectConfig, credentials *Credentials, log *zap.SugaredLogger) (*om.Project, error) {
-	mutex := getMutex(config.ProjectName, config.OrgID)
+func (c *ReconcileCommonController) readOrCreateGroup(projectName string, config *mongodb.ProjectConfig, credentials *Credentials, log *zap.SugaredLogger) (*om.Project, error) {
+	mutex := om.GetMutex(projectName, config.OrgID)
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	log = log.With("project", config.ProjectName)
+	log = log.With("project", projectName)
 
 	// we need to create a temporary connection object without group id
 	omContext := om.OMContext{
 		GroupID:      "",
-		GroupName:    config.ProjectName,
+		GroupName:    projectName,
 		OrgID:        config.OrgID,
 		BaseURL:      config.BaseURL,
 		PublicAPIKey: credentials.PublicAPIKey,
@@ -44,14 +45,14 @@ func (c *ReconcileCommonController) readOrCreateGroup(config *ProjectConfig, cre
 	}
 	conn := c.omConnectionFactory(&omContext)
 
-	group, org, err := findExistingGroup(config, conn, log)
+	group, org, err := findExistingGroup(projectName, config.OrgID, conn, log)
 
 	if err != nil {
 		return nil, err
 	}
 
 	if group == nil {
-		group, err = tryCreateProject(org, config, conn, log)
+		group, err = tryCreateProject(org, projectName, config.OrgID, conn, log)
 		if err != nil {
 			return nil, err
 		}
@@ -89,16 +90,15 @@ func (c *ReconcileCommonController) readOrCreateGroup(config *ProjectConfig, cre
 // findExistingGroup tries to find if the group already exists. The logic is to read all projects in the organization
 // and find the one with the required name. If the 'orgId' is not specified - then we need to find the organization by
 // name first
-func findExistingGroup(config *ProjectConfig, conn om.Connection, log *zap.SugaredLogger) (*om.Project, *om.Organization, error) {
-	orgId := config.OrgID
-	if config.OrgID == "" {
+func findExistingGroup(projectName, orgID string, conn om.Connection, log *zap.SugaredLogger) (*om.Project, *om.Organization, error) {
+	if orgID == "" {
 		// If org id is not specified - then the contract is that the organization for the project must have the same
 		// name as project has (as it was created automatically for the project), so we need to find relevant organization
-		log.Debugf("Organization id is not specified - trying to find the organization with name \"%s\"", config.ProjectName)
+		log.Debugf("Organization id is not specified - trying to find the organization with name \"%s\"", projectName)
 		_, err := om.TraversePages(conn.ReadOrganizations, func(o interface{}) bool {
 			org := o.(*om.Organization)
-			if org.Name == config.ProjectName {
-				orgId = org.ID
+			if org.Name == projectName {
+				orgID = org.ID
 				log.Debugf("Found organization \"%s\" (%s)", org.Name, org.ID)
 				return true
 			}
@@ -107,24 +107,24 @@ func findExistingGroup(config *ProjectConfig, conn om.Connection, log *zap.Sugar
 		if err != nil {
 			return nil, nil, err
 		}
-		if orgId == "" {
-			log.Debugf("Organization \"%s\" not found", config.ProjectName)
+		if orgID == "" {
+			log.Debugf("Organization \"%s\" not found", projectName)
 			return nil, nil, nil
 		}
 	}
 
-	organization, err := conn.ReadOrganization(orgId)
+	organization, err := conn.ReadOrganization(orgID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("Organization with id %s not found: %s", config.OrgID, err)
+		return nil, nil, fmt.Errorf("Organization with id %s not found: %s", orgID, err)
 	}
 	var group *om.Project
 	_, err = om.TraversePages(
 		func(pageNum int) (paginated om.Paginated, e error) {
-			return conn.ReadProjectsInOrganization(orgId, pageNum)
+			return conn.ReadProjectsInOrganization(orgID, pageNum)
 		},
 		func(o interface{}) bool {
 			g := o.(*om.Project)
-			if g.Name == config.ProjectName {
+			if g.Name == projectName {
 				log.Debugf("Found the project %s in organization %s (\"%s\")", g.ID, organization.ID, organization.Name)
 				group = g
 				return true
@@ -132,17 +132,16 @@ func findExistingGroup(config *ProjectConfig, conn om.Connection, log *zap.Sugar
 			return false
 		})
 	if err != nil {
-		return nil, nil, fmt.Errorf("Error reading projects in organization with id %s: %s", config.OrgID, err)
+		return nil, nil, fmt.Errorf("Error reading projects in organization with id %s: %s", orgID, err)
 	}
 	if group != nil {
 		return group, organization, nil
 	}
-	log.Debugf("Project \"%s\" not found in organization %s (\"%s\")", config.ProjectName, organization.ID, organization.Name)
+	log.Debugf("Project \"%s\" not found in organization %s (\"%s\")", projectName, organization.ID, organization.Name)
 	return nil, organization, nil
 }
 
-func tryCreateProject(organization *om.Organization, config *ProjectConfig, conn om.Connection, log *zap.SugaredLogger) (*om.Project, error) {
-	orgId := config.OrgID
+func tryCreateProject(organization *om.Organization, projectName, orgId string, conn om.Connection, log *zap.SugaredLogger) (*om.Project, error) {
 	// We can face the following scenario: for the project "foo" with 'orgId=""' the organization "foo" already exists
 	// - so we need to reuse its orgId instead of creating the new Organization with the same name (OM API is quite
 	// poor here - it may create duplicates)
@@ -153,10 +152,10 @@ func tryCreateProject(organization *om.Organization, config *ProjectConfig, conn
 	log.Infow("Creating the project as it doesn't exist", "orgId", orgId)
 	if orgId == "" {
 		log.Infof("Note that as the orgId is not specified the organization with name \"%s\" will be created "+
-			"automatically by Ops Manager", config.ProjectName)
+			"automatically by Ops Manager", projectName)
 	}
 	group := &om.Project{
-		Name:  config.ProjectName,
+		Name:  projectName,
 		OrgID: orgId,
 		Tags:  []string{util.OmGroupExternallyManagedTag},
 	}

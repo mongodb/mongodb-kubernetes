@@ -22,12 +22,12 @@ type AutomationConfig struct {
 func (a *AutomationConfig) Apply() error {
 	// applies all changes made to the Auth struct and merges with the corresponding map[string]interface{}
 	// inside the Deployment
-	mergedAuth, err := util.MergeWith(a.Auth, a.Deployment["auth"].(map[string]interface{}), &util.AgentTransformer{})
+	mergedAuth, err := util.MergeWith(a.Auth, a.Deployment["auth"].(map[string]interface{}), &util.AutomationConfigTransformer{})
 	if err != nil {
 		return err
 	}
 	// same applies for the ssl object and map
-	mergedSsl, err := util.MergeWith(a.AgentSSL, a.Deployment["ssl"].(map[string]interface{}), &util.AgentTransformer{})
+	mergedSsl, err := util.MergeWith(a.AgentSSL, a.Deployment["ssl"].(map[string]interface{}), &util.AutomationConfigTransformer{})
 	if err != nil {
 		return err
 	}
@@ -37,12 +37,15 @@ func (a *AutomationConfig) Apply() error {
 	return nil
 }
 
+// NewAutomationConfig returns an AutomationConfig instance with all reference
+// types initialized with non nil values
 func NewAutomationConfig(deployment Deployment) *AutomationConfig {
 	return &AutomationConfig{AgentSSL: &AgentSSL{}, Auth: NewAuth(), Deployment: deployment}
 }
 
+// NewAuth returns an empty Auth reference with all reference types initialised to non nil values
 func NewAuth() *Auth {
-	return &Auth{Users: make([]MongoDBUser, 0), AutoAuthMechanisms: make([]string, 0), DeploymentAuthMechanisms: make([]string, 0)}
+	return &Auth{Users: make([]*MongoDBUser, 0), AutoAuthMechanisms: make([]string, 0), DeploymentAuthMechanisms: make([]string, 0)}
 }
 
 // this is needed only for the cluster config file when we use a headless agent
@@ -78,8 +81,8 @@ func (a *AutomationConfig) SetBaseUrlForAgents(baseUrl string) *AutomationConfig
 
 type Auth struct {
 	// Users is a list which contains the desired users at the project level.
-	Users    []MongoDBUser `json:"usersWanted,omitempty"`
-	Disabled bool          `json:"disabled"`
+	Users    []*MongoDBUser `json:"usersWanted,omitempty"`
+	Disabled bool           `json:"disabled"`
 	// AuthoritativeSet indicates if the MongoDBUsers should be synced with the current list of Users
 	AuthoritativeSet bool `json:"authoritativeSet,omitempty"`
 	// AutoAuthMechanisms is a list of auth mechanisms the Automation Agent is able to use
@@ -98,37 +101,66 @@ type Auth struct {
 	AutoPwd string `json:"autoPwd,omitempty"`
 }
 
+// AddUser updates the Users list with the specified user
 func (a *Auth) AddUser(user MongoDBUser) {
-	a.Users = append(a.Users, user)
+	a.Users = append(a.Users, &user)
 }
 
+// HasUser returns true if a user exists with the specified username and password
+// or false if the user does not exists
 func (a *Auth) HasUser(username, db string) bool {
 	_, user := a.GetUser(username, db)
 	return user != nil
 }
 
+// GetUser returns the index of the user with the given username and password
+// and the user itself. -1 and a nil user are returned if the user does not exist
 func (a *Auth) GetUser(username, db string) (int, *MongoDBUser) {
 	for i, u := range a.Users {
-		if u.Username == username && u.Database == db {
-			return i, &u
+		if u != nil && u.Username == username && u.Database == db {
+			return i, u
 		}
 	}
 	return -1, nil
 }
 
-func (a *Auth) UpdateUser(username, db string, user MongoDBUser) bool {
-	i, foundUser := a.GetUser(username, db)
+// UpdateUser accepts a user ad updates the corresponding existing user.
+// the user to update is identified by user.Username and user.Database
+func (a *Auth) UpdateUser(user MongoDBUser) bool {
+	i, foundUser := a.GetUser(user.Username, user.Database)
 	if foundUser == nil {
 		return false
 	}
-	a.Users[i] = user
+	a.Users[i] = &user
 	return true
 }
 
+// EnsureUser adds the user to the Users list if it does not exist,
+// it will update the existing user if it is already present.
+func (a *Auth) EnsureUser(user MongoDBUser) {
+	if a.HasUser(user.Username, user.Database) {
+		a.UpdateUser(user)
+	} else {
+		a.AddUser(user)
+	}
+}
+
+// EnsureUserRemoved will remove user of given username and password. A boolean
+// indicating whether or not the underlying array was modified will be
+// returned
+func (a *Auth) EnsureUserRemoved(username, db string) bool {
+	if a.HasUser(username, db) {
+		a.RemoveUser(username, db)
+		return true
+	}
+	return false
+}
+
+// RemoveUser assigns a nil value to the user. This nil value
+// will flag this user for deletion when merging, see mergo_utils.go
 func (a *Auth) RemoveUser(username, db string) {
 	i, _ := a.GetUser(username, db)
-	copy(a.Users[i:], a.Users[i+1:])
-	a.Users = a.Users[:len(a.Users)-1]
+	a.Users[i] = nil
 }
 
 // AgentSSL contains fields related to configuration Automation
@@ -146,13 +178,13 @@ func (a AgentSSL) SSLEnabled() bool {
 
 type MongoDBUser struct {
 	Mechanisms                 []string `json:"mechanisms"`
-	Roles                      []Role   `json:"roles"`
+	Roles                      []*Role  `json:"roles"`
 	Username                   string   `json:"user"`
 	Database                   string   `json:"db"`
 	AuthenticationRestrictions []string `json:"authenticationRestrictions"`
 }
 
-func (u *MongoDBUser) AddRole(role Role) {
+func (u *MongoDBUser) AddRole(role *Role) {
 	u.Roles = append(u.Roles, role)
 }
 
@@ -176,8 +208,8 @@ type MongoDbVersionConfig struct {
 	Builds []*BuildConfig `json:"builds"`
 }
 
-// ensureKeyFileContents makes sure a valid keyfile is generated and used for internal cluster authentication
-func (ac *AutomationConfig) ensureKeyFileContents() error {
+// EnsureKeyFileContents makes sure a valid keyfile is generated and used for internal cluster authentication
+func (ac *AutomationConfig) EnsureKeyFileContents() error {
 	if ac.Auth.Key == "" || ac.Auth.Key == util.InvalidKeyFileContents {
 		keyfileContents, err := util.GenerateKeyFileContents()
 		if err != nil {
@@ -188,8 +220,23 @@ func (ac *AutomationConfig) ensureKeyFileContents() error {
 	return nil
 }
 
+// EnsurePassword makes sure that there is an Automation Agent password
+// that the agents will use to communicate with the deployments. The password
+// is returned so it can be provided to the other agents
+func (ac *AutomationConfig) EnsurePassword() (string, error) {
+	if ac.Auth.AutoPwd == "" || ac.Auth.AutoPwd == util.InvalidAutomationAgentPassword {
+		automationAgentBackupPassword, err := util.GenerateKeyFileContents()
+		if err != nil {
+			return "", err
+		}
+		ac.Auth.AutoPwd = automationAgentBackupPassword
+		return automationAgentBackupPassword, nil
+	}
+	return ac.Auth.AutoPwd, nil
+}
+
 func (ac *AutomationConfig) EnableX509Authentication() error {
-	if err := ac.ensureKeyFileContents(); err != nil {
+	if err := ac.EnsureKeyFileContents(); err != nil {
 		return err
 	}
 	ac.ensureAgentUsers()
@@ -221,12 +268,8 @@ func (ac *AutomationConfig) DisableX509Authentication() error {
 	auth.Disabled = true
 
 	// when going from disabled true -> false, a password is required for the Automation Agent
-	if auth.AutoPwd == "" || auth.AutoPwd == util.InvalidAutomationAgentPassword {
-		automationAgentBackupPassword, err := util.GenerateKeyFileContents()
-		if err != nil {
-			return err
-		}
-		auth.AutoPwd = automationAgentBackupPassword
+	if _, err := ac.EnsurePassword(); err != nil {
+		return err
 	}
 
 	ac.AgentSSL = &AgentSSL{
@@ -241,7 +284,6 @@ func (ac *AutomationConfig) DisableX509Authentication() error {
 			auth.RemoveUser(user.Username, user.Database)
 		}
 	}
-
 	return nil
 }
 
@@ -252,28 +294,29 @@ func (ac *AutomationConfig) CanEnableX509ProjectAuthentication() (bool, string) 
 	return true, ""
 }
 
+// TODO: Move this to authentication/x509
 func (ac *AutomationConfig) ensureAgentUsers() {
 	auth := ac.Auth
 	auth.AutoUser = util.AutomationAgentSubject
 	for _, agentUser := range agentUsers() {
-		if auth.HasUser(agentUser.Username, agentUser.Database) {
-			auth.UpdateUser(agentUser.Username, agentUser.Database, agentUser)
-		} else {
-			auth.AddUser(agentUser)
-		}
+		auth.EnsureUser(agentUser)
 	}
 }
 
 // agentUsers returns the MongoDBUsers with all the required roles
 // for the BackupAgent and the MonitoringAgent
+// TODO: Move this to authentication/x509
 func agentUsers() []MongoDBUser {
+
+	// required roles for Backup Agent
+	// https://docs.opsmanager.mongodb.com/current/reference/required-access-backup-agent/
 	return []MongoDBUser{
 		{
 			Username:                   util.BackupAgentSubject,
 			Database:                   util.X509Db,
 			AuthenticationRestrictions: []string{},
 			Mechanisms:                 []string{},
-			Roles: []Role{
+			Roles: []*Role{
 				{
 					Database: "admin",
 					Role:     "clusterAdmin",
@@ -296,12 +339,14 @@ func agentUsers() []MongoDBUser {
 				},
 			},
 		},
+		// roles for Monitoring Agent
+		// https://docs.opsmanager.mongodb.com/current/reference/required-access-monitoring-agent/
 		{
 			Username:                   util.MonitoringAgentSubject,
 			Database:                   util.X509Db,
 			AuthenticationRestrictions: []string{},
 			Mechanisms:                 []string{},
-			Roles: []Role{
+			Roles: []*Role{
 				{
 					Database: "admin",
 					Role:     "clusterMonitor",

@@ -14,6 +14,7 @@ import (
 
 	"fmt"
 
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"go.uber.org/zap"
@@ -216,9 +217,9 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 	_ = mockOm.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		ac.Auth.DeploymentAuthMechanisms = []string{}
 		return nil
-	}, nil, nil)
+	}, nil)
 
-	assert.Equal(t, ok(), updateOmDeploymentShardedCluster(mockOm, sc, newState, &ProjectConfig{}, zap.S()))
+	assert.Equal(t, ok(), updateOmDeploymentShardedCluster(mockOm, sc, newState, zap.S()))
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadUpdateDeployment), reflect.ValueOf(mockOm.RemoveHost))
 
@@ -239,7 +240,7 @@ func TestPodAntiaffinity_MongodsInsideShardAreSpread(t *testing.T) {
 	sc := DefaultClusterBuilder().Build()
 
 	reconciler := newShardedClusterReconciler(newMockedManager(sc), om.NewEmptyMockedOmConnection)
-	state := reconciler.buildKubeObjectsForShardedCluster(sc, defaultPodVars(), &ProjectConfig{}, zap.S())
+	state := reconciler.buildKubeObjectsForShardedCluster(sc, defaultPodVars(), &mongodb.ProjectConfig{}, zap.S())
 
 	shardHelpers := state.shardsSetsHelpers
 
@@ -316,14 +317,14 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 	assert.Equal(t, expectedResult, actualResult)
 	assert.Nil(t, err)
 
-	kubeState := reconciler.buildKubeObjectsForShardedCluster(sc, defaultPodVars(), &ProjectConfig{}, zap.S())
+	kubeState := reconciler.buildKubeObjectsForShardedCluster(sc, defaultPodVars(), &mongodb.ProjectConfig{}, zap.S())
 	assert.False(t, anyStatefulSetHelperNeedsToPublishState(kubeState, zap.S()))
 
 	// attempting to set tls to false
 	sc.Spec.Security.TLSConfig.Enabled = false
 
 	// Ops Manager state needs to be published first as we want to reach goal state before unmounting certificates
-	kubeState = reconciler.buildKubeObjectsForShardedCluster(sc, defaultPodVars(), &ProjectConfig{}, zap.S())
+	kubeState = reconciler.buildKubeObjectsForShardedCluster(sc, defaultPodVars(), &mongodb.ProjectConfig{}, zap.S())
 	assert.True(t, anyStatefulSetHelperNeedsToPublishState(kubeState, zap.S()))
 }
 
@@ -381,12 +382,22 @@ func DefaultClusterBuilder() *ClusterBuilder {
 	spec := v1.MongoDbSpec{
 		Persistent: util.BooleanRef(false),
 		ConnectionSpec: v1.ConnectionSpec{
-			Project:     TestProjectConfigMapName,
+			OpsManagerConfig: v1.OpsManagerConfig{
+				ConfigMapRef: v1.ConfigMapRef{
+					Name: TestProjectConfigMapName,
+				},
+			},
 			Credentials: TestCredentialsSecretName,
 		},
 		Version:                         "3.6.4",
 		ResourceType:                    v1.ShardedCluster,
 		MongodbShardedClusterSizeConfig: sizeConfig,
+		Security: &v1.Security{
+			TLSConfig: &v1.TLSConfig{},
+			Authentication: &v1.Authentication{
+				Modes: []string{},
+			},
+		},
 	}
 
 	resource := &v1.MongoDB{
@@ -445,6 +456,12 @@ func (b *ClusterBuilder) WithTLS() *ClusterBuilder {
 		return b.SetSecurity(v1.Security{TLSConfig: &v1.TLSConfig{Enabled: true}})
 	}
 	b.Spec.Security.TLSConfig.Enabled = true
+	return b
+}
+
+func (b *ClusterBuilder) EnableX509() *ClusterBuilder {
+	b.Spec.Security.Authentication.Enabled = true
+	b.Spec.Security.Authentication.Modes = []string{util.X509}
 	return b
 }
 

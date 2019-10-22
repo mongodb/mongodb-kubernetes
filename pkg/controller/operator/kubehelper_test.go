@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
@@ -24,7 +25,17 @@ func TestStatefulsetCreationSuccessful(t *testing.T) {
 
 func TestStatefulsetCreationWaitsForCompletion(t *testing.T) {
 	start := time.Now()
-	helper := baseSetHelperDelayed(5000).SetLogger(zap.S()).SetPodSpec(defaultPodSpec()).SetPodVars(defaultPodVars()).SetService("test-service")
+	helper := baseSetHelperDelayed(5000).
+		SetLogger(zap.S()).
+		SetPodSpec(defaultPodSpec()).
+		SetPodVars(defaultPodVars()).
+		SetService("test-service").
+		SetSecurity(&mongodb.Security{
+			TLSConfig: &mongodb.TLSConfig{},
+			Authentication: &mongodb.Authentication{
+				Modes: []string{},
+			},
+		})
 	err := helper.CreateOrUpdateInKubernetes()
 	assert.Errorf(t, err, "failed to reach READY state")
 	assert.True(t, time.Now().Sub(start) >= time.Second*2) // we have two retrials each waiting for one second

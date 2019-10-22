@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"runtime"
 	"strconv"
-	"sync"
 	"testing"
 	"time"
 
@@ -114,6 +113,18 @@ func NewMockedOmConnection(d Deployment) *MockedOmConnection {
 	return &connection
 }
 
+// NewEmptyMockedOmConnectionWithAutomationConfigChanges returns a Connect instance that has had
+// changes applied to the underlying AutomationConfig. This is to update the state of the AutomationConfig
+// before the connection is used.
+func NewEmptyMockedOmConnectionWithAutomationConfigChanges(ctx *OMContext, acFunc func(ac *AutomationConfig)) Connection {
+	connection := NewEmptyMockedOmConnection(ctx)
+	_ = connection.ReadUpdateAutomationConfig(func(ac *AutomationConfig) error {
+		acFunc(ac)
+		return nil
+	}, nil)
+	return connection
+}
+
 // NewEmptyMockedConnection is the standard function for creating mocked connections that is usually used for testing
 // "full cycle" mocked controller. It doesn't have the group created.
 func NewEmptyMockedOmConnectionNoGroup(ctx *OMContext) Connection {
@@ -148,7 +159,7 @@ func (oc *MockedOmConnection) ReadDeployment() (Deployment, error) {
 	}
 	return oc.deployment, nil
 }
-func (oc *MockedOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error, mutex *sync.Mutex, log *zap.SugaredLogger) error {
+func (oc *MockedOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error, log *zap.SugaredLogger) error {
 	oc.addToHistory(reflect.ValueOf(oc.ReadUpdateDeployment))
 	if oc.deployment == nil {
 		oc.deployment = NewDeployment()
@@ -158,7 +169,7 @@ func (oc *MockedOmConnection) ReadUpdateDeployment(depFunc func(Deployment) erro
 	return nil
 }
 
-func (oc *MockedOmConnection) ReadUpdateMonitoringAgentConfig(matFunc func(*MonitoringAgentConfig) error, mutex *sync.Mutex, log *zap.SugaredLogger) error {
+func (oc *MockedOmConnection) ReadUpdateMonitoringAgentConfig(matFunc func(*MonitoringAgentConfig) error, log *zap.SugaredLogger) error {
 	oc.addToHistory(reflect.ValueOf(oc.ReadUpdateMonitoringAgentConfig))
 	if oc.monitoringAgentConfig == nil {
 		oc.monitoringAgentConfig = &MonitoringAgentConfig{MonitoringAgentTemplate: &MonitoringAgentTemplate{}}
@@ -184,7 +195,7 @@ func (oc *MockedOmConnection) ReadAutomationConfig() (*AutomationConfig, error) 
 	return oc.automationConfig, nil
 }
 
-func (oc *MockedOmConnection) ReadUpdateAutomationConfig(acFunc func(ac *AutomationConfig) error, mutex *sync.Mutex, log *zap.SugaredLogger) error {
+func (oc *MockedOmConnection) ReadUpdateAutomationConfig(acFunc func(ac *AutomationConfig) error, log *zap.SugaredLogger) error {
 	oc.addToHistory(reflect.ValueOf(oc.ReadUpdateAutomationConfig))
 	if oc.automationConfig == nil {
 		if oc.deployment == nil {
@@ -209,7 +220,7 @@ func (oc *MockedOmConnection) UpdateBackupAgentConfig(bac *BackupAgentConfig, lo
 	return nil, nil
 }
 
-func (oc *MockedOmConnection) ReadUpdateBackupAgentConfig(bacFunc func(*BackupAgentConfig) error, mutex *sync.Mutex, log *zap.SugaredLogger) error {
+func (oc *MockedOmConnection) ReadUpdateBackupAgentConfig(bacFunc func(*BackupAgentConfig) error, log *zap.SugaredLogger) error {
 	oc.addToHistory(reflect.ValueOf(oc.ReadUpdateBackupAgentConfig))
 	if oc.backupAgentConfig == nil {
 		oc.backupAgentConfig = &BackupAgentConfig{BackupAgentTemplate: &BackupAgentTemplate{}}

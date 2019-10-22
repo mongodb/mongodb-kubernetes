@@ -1,0 +1,20 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: test-tls-base-rs-x509
+spec:
+  members: 3
+  version: 3.6.8
+  type: ReplicaSet
+  project: my-project
+  credentials: my-credentials
+  logLevel: DEBUG
+
+  persistent: false
+  security:
+    tls:
+      enabled: true
+    authentication:
+      enabled: true
+      modes: ["X509"]

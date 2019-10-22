@@ -6,7 +6,8 @@
   spec:
     username: "CN=mms-user-1,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US"
     db: "$external"
-    project: my-project
+    mongodbResourceRef:
+      name: test-tls-upgrade
     roles:
       - db: "admin"
         name: "clusterAdmin"
@@ -17,7 +18,8 @@
   spec:
     username: "CN=mms-user-2,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US"
     db: "$external"
-    project: my-project
+    mongodbResourceRef:
+      name: test-tls-upgrade
     roles:
       - db: "admin"
         name: "clusterManager"
@@ -28,7 +30,8 @@
   spec:
     username: "CN=mms-user-3,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US"
     db: "$external"
-    project: my-project
+    mongodbResourceRef:
+      name: test-tls-upgrade
     roles:
       - db: "admin"
         name: "clusterAdmin"
@@ -39,7 +42,8 @@
   spec:
     username: "CN=mms-user-4,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US"
     db: "$external"
-    project: my-project
+    mongodbResourceRef:
+      name: test-tls-upgrade
     roles:
       - db: "admin"
         name: "clusterManager"
@@ -50,7 +54,8 @@
   spec:
     username: "CN=mms-user-5,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US"
     db: "$external"
-    project: my-project
+    mongodbResourceRef:
+      name: test-tls-upgrade
     roles:
       - db: "admin"
         name: "clusterAdmin"
@@ -61,7 +66,8 @@
   spec:
     username: "CN=mms-user-6,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US"
     db: "$external"
-    project: my-project
+    mongodbResourceRef:
+      name: test-tls-upgrade
     roles:
       - db: "admin"
         name: "clusterManager"

@@ -40,6 +40,7 @@ const (
 	TestProjectConfigMapName  = om.TestGroupName
 	TestCredentialsSecretName = "my-credentials"
 	TestNamespace             = "my-namespace"
+	TestMongoDBName           = "my-mongodb"
 )
 
 // MockedClient is the mocked implementation of client.Client from controller-runtime library
@@ -53,6 +54,7 @@ type MockedClient struct {
 	secrets          map[client.ObjectKey]apiruntime.Object
 	mongoDbResources map[client.ObjectKey]apiruntime.Object
 	csrs             map[client.ObjectKey]apiruntime.Object
+	users            map[client.ObjectKey]apiruntime.Object
 	// mocked client keeps track of all implemented functions called - uses reflection Func for this to enable type-safety
 	// and make function names rename easier
 	history []*HistoryItem
@@ -82,6 +84,7 @@ func newMockedClientDetailed(object apiruntime.Object, projectName, organization
 	api.secrets = make(map[client.ObjectKey]apiruntime.Object)
 	api.mongoDbResources = make(map[client.ObjectKey]apiruntime.Object)
 	api.csrs = make(map[client.ObjectKey]apiruntime.Object)
+	api.users = make(map[client.ObjectKey]apiruntime.Object)
 
 	// initialize a either a default ConfigMap, or use the one passed directly to the mocked client
 	api.Create(context.TODO(), getProjectConfigMap(object, projectName, organizationId))
@@ -275,6 +278,8 @@ func (oc *MockedClient) getMapForObject(obj apiruntime.Object) map[client.Object
 		return oc.mongoDbResources
 	case *certsv1.CertificateSigningRequest:
 		return oc.csrs
+	case *v1.MongoDBUser:
+		return oc.users
 	}
 	return nil
 }
