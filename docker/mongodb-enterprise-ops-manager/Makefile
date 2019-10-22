@@ -53,8 +53,11 @@ clean_build:
 all:
 	@ $(MAKE) clean build run
 
+# dev note on '&> /dev/null || true': if the 'aws_login' is run in parallel (e.g. 'make' launches builds for images
+# in parallel and both call 'aws_login') then Docker login may return an error "Error saving credentials:..The
+# specified item already exists in the keychain". Seems this allows to ignore the error
 aws_login:
-	@ eval "$(shell aws ecr get-login --no-include-email --region $(AWS_REGION))"
+	@ eval "$(shell aws ecr get-login --no-include-email --region $(AWS_REGION))" &> /dev/null || true
 
 pull: aws_login
 	docker pull $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE)
