@@ -1077,12 +1077,6 @@ tasks:
   commands:
     - func: "e2e_test"
 
-- name: e2e_om_ops_manager_recovery
-  tags: ["kops-ops-manager"]
-  exec_timeout_secs: 2400
-  commands:
-    - func: "e2e_test"
-
 - name: e2e_om_appdb_validation
   tags: ["kops-ops-manager"]
   exec_timeout_secs: 600
@@ -1207,7 +1201,6 @@ task_groups:
     - e2e_om_appdb_scale_up_down
     - e2e_om_appdb_upgrade
     - e2e_om_ops_manager_upgrade
-    - e2e_om_ops_manager_recovery
     - e2e_om_appdb_validation
   teardown_task:
     - func: "upload_e2e_logs"

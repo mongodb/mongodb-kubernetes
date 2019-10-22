@@ -99,11 +99,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 			return updateOmDeploymentShardedCluster(conn, sc, kubeState, log).onErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() reconcileStatus {
-			if err := r.createKubernetesResources(sc, kubeState, log); err != nil {
-				return failedErr(err).onErrorPrepend("Failed to create/update (Kubernetes reconciliation phase):")
-			}
-			log.Info("Updated statefulsets for sharded cluster")
-			return ok()
+			return r.createKubernetesResources(sc, kubeState, log).onErrorPrepend("Failed to create/update (Kubernetes reconciliation phase):")
 		})
 
 	if !status.isOk() {
@@ -204,22 +200,31 @@ func (r *ReconcileMongoDbShardedCluster) ensureSSLCertificates(s *mongodb.MongoD
 	return status
 }
 
-// createKubernetesResources creates all Kubernetes objects that are specified in 'state' parameter
+// createKubernetesResources creates all Kubernetes objects that are specified in 'state' parameter.
+// This function returns errorStatus if any errors occured or pendingStatus if the statefulsets are not
+// ready yet
 // Note, that it doesn't remove any existing shards - this will be done later
-func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mongodb.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger) error {
+func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mongodb.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger) reconcileStatus {
 	err := state.mongosSetHelper.CreateOrUpdateInKubernetes()
 	if err != nil {
-		return fmt.Errorf("Failed to create Mongos Stateful Set: %s", err)
+		return failed("Failed to create Mongos Stateful Set: %s", err)
 	}
 
-	log.Infow("Created StatefulSet for mongos servers", "name", state.mongosSetHelper.Name, "servers count", state.mongosSetHelper.Replicas)
+	if !r.kubeHelper.isStatefulSetUpdated(state.mongosSetHelper.Namespace, state.mongosSetHelper.Name, log) {
+		return pending("StatefulSet %s/%s is still pending to start/update", state.mongosSetHelper.Namespace, state.mongosSetHelper.Name)
+	}
+
+	log.Infow("Created/updated StatefulSet for mongos servers", "name", state.mongosSetHelper.Name, "servers count", state.mongosSetHelper.Replicas)
 
 	err = state.configSrvSetHelper.CreateOrUpdateInKubernetes()
 	if err != nil {
-		return fmt.Errorf("Failed to create Config Server Stateful Set: %s", err)
+		return failed("Failed to create Config Server Stateful Set: %s", err)
+	}
+	if !r.kubeHelper.isStatefulSetUpdated(state.configSrvSetHelper.Namespace, state.configSrvSetHelper.Name, log) {
+		return pending("StatefulSet %s/%s is still pending to start/update", state.configSrvSetHelper.Namespace, state.configSrvSetHelper.Name)
 	}
 
-	log.Infow("Created StatefulSet for config servers", "name", state.configSrvSetHelper.Name, "servers count", state.configSrvSetHelper.Replicas)
+	log.Infow("Created/updated StatefulSet for config servers", "name", state.configSrvSetHelper.Name, "servers count", state.configSrvSetHelper.Replicas)
 
 	shardsNames := make([]string, s.Spec.ShardCount)
 
@@ -227,12 +232,16 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mongodb.Mo
 		shardsNames[i] = s.Name
 		err = s.CreateOrUpdateInKubernetes()
 		if err != nil {
-			return fmt.Errorf("Failed to create Stateful Set for shard %s: %s", s.Name, err)
+			return failed("Failed to create Stateful Set for shard %s: %s", s.Name, err)
+		}
+		if !r.kubeHelper.isStatefulSetUpdated(s.Namespace, s.Name, log) {
+			return pending("StatefulSet %s/%s is still pending to start/update", s.Namespace, s.Name)
 		}
 	}
-	log.Infow("Created Stateful Sets for shards in Kubernetes", "shards", shardsNames)
 
-	return nil
+	log.Infow("Created/updated Stateful Sets for shards in Kubernetes", "shards", shardsNames)
+
+	return ok()
 }
 
 func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mongodb.MongoDB, podVars *PodVars, projectConfig *mongodb.ProjectConfig, log *zap.SugaredLogger) ShardedClusterKubeState {
@@ -245,9 +254,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mo
 		SetPodVars(podVars).
 		SetLogger(log).
 		SetPersistence(util.BooleanRef(false)).
-		SetExposedExternally(s.Spec.ExposedExternally).
 		SetTLS(s.Spec.GetTLSConfig()).
-		SetClusterName(s.Spec.ClusterName).
 		SetProjectConfig(*projectConfig).
 		SetSecurity(s.Spec.Security)
 
@@ -262,12 +269,10 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mo
 		SetName(s.ConfigRsName()).
 		SetService(s.ConfigSrvServiceName()).
 		SetReplicas(s.Spec.ConfigServerCount).
-		SetPersistence(s.Spec.Persistent).
 		SetPodSpec(podSpec).
 		SetPodVars(podVars).
 		SetLogger(log).
 		SetTLS(s.Spec.GetTLSConfig()).
-		SetClusterName(s.Spec.ClusterName).
 		SetProjectConfig(*projectConfig).
 		SetSecurity(s.Spec.Security)
 
@@ -278,12 +283,10 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mo
 			SetName(s.ShardRsName(i)).
 			SetService(s.ShardServiceName()).
 			SetReplicas(s.Spec.MongodsPerShardCount).
-			SetPersistence(s.Spec.Persistent).
 			SetPodSpec(NewDefaultPodSpecWrapper(*s.Spec.ShardPodSpec)).
 			SetPodVars(podVars).
 			SetLogger(log).
 			SetTLS(s.Spec.GetTLSConfig()).
-			SetClusterName(s.Spec.ClusterName).
 			SetProjectConfig(*projectConfig).
 			SetSecurity(s.Spec.Security)
 	}

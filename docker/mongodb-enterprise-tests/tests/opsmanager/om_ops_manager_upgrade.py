@@ -49,7 +49,6 @@ class TestOpsManagerCreation(OpsManagerBase):
         """Checks that the OM is responsive and test service is available (enabled by 'mms.testUtil.enabled')."""
         om_tester = OMTester(self.om_context)
         om_tester.assert_healthiness()
-        om_tester.assert_group_exists()
 
         om_tester.assert_test_service()
         try:
@@ -100,17 +99,19 @@ class TestOpsManagerVersionUpgrade(OpsManagerBase):
     """
     name: Ops Manager image upgrade
     description: |
-      The OM version is upgraded - this means the new image is deployed, the app db stays the same
+      The OM version is upgraded - this means the new image is deployed for both OM and appdb.
+      Note that the time until the finish is quite high as upgrade for OM image involves the upgrade for the appdb
+      image as well
     update:
       file: om_ops_manager_upgrade.yaml
-      patch: '[{"op":"replace","path":"/spec/version", "value": "4.2.0"}]'
+      patch: '[{"op":"replace","path":"/spec/version", "value": "4.2.3-ubuntu"}]'
       wait_until: om_in_running_state
-      timeout: 500
+      timeout: 800
     """
 
     def test_image_url(self):
         pod = self.corev1.read_namespaced_pod("om-upgrade-0", self.namespace)
-        assert "4.2.0" in pod.spec.containers[0].image
+        assert "4.2.3-ubuntu" in pod.spec.containers[0].image
 
     @skip_if_local
     def test_om(self):

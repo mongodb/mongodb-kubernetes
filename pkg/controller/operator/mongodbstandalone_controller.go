@@ -122,14 +122,11 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 	}
 
 	standaloneBuilder := r.kubeHelper.NewStatefulSetHelper(s).
+		SetReplicas(1).
 		SetService(s.ServiceName()).
-		SetPersistence(s.Spec.Persistent).
-		SetPodSpec(NewDefaultStandalonePodSpecWrapper(s.Spec.PodSpec.MongoDbPodSpecStandard)).
 		SetPodVars(podVars).
-		SetExposedExternally(s.Spec.ExposedExternally).
 		SetLogger(log).
 		SetTLS(s.Spec.GetTLSConfig()).
-		SetClusterName(s.Spec.ClusterName).
 		SetProjectConfig(*projectConfig).
 		SetSecurity(s.Spec.Security)
 
@@ -145,6 +142,11 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 			if err := standaloneBuilder.CreateOrUpdateInKubernetes(); err != nil {
 				return failed("Failed to create/update (Kubernetes reconciliation phase): %s", err.Error())
 			}
+
+			if !r.kubeHelper.isStatefulSetUpdated(standaloneBuilder.Namespace, standaloneBuilder.Name, log) {
+				return pending(fmt.Sprintf("MongoDB %s resource is reconciling", standaloneBuilder.Name))
+			}
+
 			log.Info("Updated statefulset for standalone")
 			return ok()
 		})

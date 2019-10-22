@@ -72,8 +72,14 @@ type BackupConfigConnection interface {
 
 // AutomationConfigConnection is an interface that only deals with reading/updating of the AutomationConfig
 type AutomationConfigConnection interface {
-	ReadAutomationConfig() (*AutomationConfig, error)
+	// UpdateAutomationConfig updates the Automation Config in Ops Manager
+	// Note, that this method calls *the same* api endpoint as the `OmConnection.UpdateDeployment` - just uses a
+	// Deployment wrapper (AutomationConfig) as a parameter
 	UpdateAutomationConfig(ac *AutomationConfig, log *zap.SugaredLogger) error
+	ReadAutomationConfig() (*AutomationConfig, error)
+	// ReadAutomationConfig reads the Automation Config from Ops Manager
+	// Note, that this method calls *the same* api endpoint as the `OmConnection.ReadDeployment` - just wraps the answer
+	// to the different object
 	ReadUpdateAutomationConfig(acFunc func(ac *AutomationConfig) error, log *zap.SugaredLogger) error
 }
 

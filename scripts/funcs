@@ -67,11 +67,11 @@ metadata:
     evg/mms-version: "${MMS_VERSION:-'not-specified'}"
 EOF
 
-    cat "${tmp_file}"
     if kubectl get "ns/${namespace}" -o name > /dev/null; then
         echo "Namespace already exists!"
     else
         echo "Creating new namespace: ${namespace}"
+        cat "${tmp_file}"
         kubectl create -f "${tmp_file}"
     fi
 }

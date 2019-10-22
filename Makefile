@@ -9,6 +9,8 @@ usage:
 	@ echo "switch to it using 'make switch', make sure Ops Manager is running (use 'make om' or 'make om-evg') "
 	@ echo "and call 'make' to start the Kubernetes cluster and the Operator"
 	@ echo
+	@ echo "More information can be found by the link https://github.com/10gen/ops-manager-kubernetes/blob/master/docs/dev/dev-start-guide.md"
+	@ echo
 	@ echo "Usage:"
 	@ echo "  prerequisites:              installs the command line applications necessary for working with this tool and adds git pre-commit hook."
 	@ echo "  init:                       prepares operator environment. Switches to 'minikube' context."
@@ -27,9 +29,10 @@ usage:
 	@ echo "  full:                       ('make' is an alias for this command) ensures K8s cluster is up, cleans Kubernetes"
 	@ echo "                              resources, build-push-deploy operator, push-deploy database, create secrets, "
 	@ echo "                              config map, resources etc"
-	@ echo "  om-image:                   builds and pushes the Ops Manager docker image. Specify the image version using 'image_version'"
+	@ echo "  om-image:                   builds and pushes the Ops Manager docker image. Specify the image version using 'om_version'"
 	@ echo "                              and download file version using 'download_version' (e.g. 'download_version=4.2.2.56673.20191001T1459Z-1')"
 	@ echo "                              By default the an official url is used but this can be overriden by specifing 'download_url_base'"
+	@ echo "                              To get the version of the OM binary you need to check the DEBIAN distro"
 	@ echo "  om:                         install Test Ops Manager into Kubernetes if it's not installed yet. Initializes the connection"
 	@ echo "                              parameters in ~/operator-dev/om"
 	@ echo "  om-evg:                     install Ops Manager into Evergreen if it's not installed yet. Initializes the connection"
@@ -151,7 +154,7 @@ ac:
 # in parallel and both call 'aws_login') then Docker login may return an error "Error saving credentials:..The
 # specified item already exists in the keychain". Seems this allows to ignore the error
 aws_login:
-	@ eval "$(shell aws ecr get-login --no-include-email --region us-east-1)" &> /dev/null || true
+	@ eval "$(shell aws ecr get-login --no-include-email --region us-east-1)"  &> /dev/null || true
 
 build-and-push-operator-image: aws_login
 	@ scripts/dev/build_push_operator_image  $(debug)

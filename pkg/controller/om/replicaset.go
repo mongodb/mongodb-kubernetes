@@ -60,12 +60,12 @@ func NewReplicaSet(name, version string) ReplicaSet {
 	ans["members"] = make([]ReplicaSetMember, 0)
 
 	// "protocolVersion" was a new field in 3.2+ Mongodb
-	var protocolVersion *int32
+	var protocolVersion string
 	compare, err := util.CompareVersions(version, "3.2.0")
 	if err != nil {
 		zap.S().Warnf("Failed to parse version %s: %s", version, err)
 	} else if compare >= 0 {
-		protocolVersion = util.Int32Ref(1)
+		protocolVersion = "1"
 	}
 
 	initDefaultRs(ans, name, protocolVersion)
@@ -146,8 +146,9 @@ func (r ReplicaSet) String() string {
 
 // ***************************************** Private methods ***********************************************************
 
-func initDefaultRs(set ReplicaSet, name string, protocolVersion *int32) {
-	if protocolVersion != nil {
+func initDefaultRs(set ReplicaSet, name string, protocolVersion string) {
+	if protocolVersion != "" {
+		// Automation Agent considers the cluster config with protocol version as string
 		set["protocolVersion"] = protocolVersion
 	}
 	set.setName(name)
@@ -249,8 +250,9 @@ func (r ReplicaSet) findMemberByName(name string) *ReplicaSetMember {
 	return nil
 }
 
-func (r ReplicaSet) protocolVersion() *int32 {
-	return r["protocolVersion"].(*int32)
+// mms uses string for this field to make it optional in json
+func (r ReplicaSet) protocolVersion() string {
+	return r["protocolVersion"].(string)
 }
 
 // Note, that setting vote to 0 without setting priority to the same value is not correct

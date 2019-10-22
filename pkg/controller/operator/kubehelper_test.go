@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -26,7 +28,6 @@ func TestStatefulsetCreationSuccessful(t *testing.T) {
 func TestStatefulsetCreationWaitsForCompletion(t *testing.T) {
 	start := time.Now()
 	helper := baseSetHelperDelayed(5000).
-		SetLogger(zap.S()).
 		SetPodSpec(defaultPodSpec()).
 		SetPodVars(defaultPodVars()).
 		SetService("test-service").
@@ -37,8 +38,13 @@ func TestStatefulsetCreationWaitsForCompletion(t *testing.T) {
 			},
 		})
 	err := helper.CreateOrUpdateInKubernetes()
-	assert.Errorf(t, err, "failed to reach READY state")
-	assert.True(t, time.Now().Sub(start) >= time.Second*2) // we have two retrials each waiting for one second
+	assert.NoError(t, err)
+
+	// There was not waiting for the StatefulSet to be ready
+	assert.False(t, time.Now().Sub(start) >= time.Second*2)
+
+	ready := helper.Helper.isStatefulSetUpdated(helper.Namespace, helper.Name, zap.S())
+	assert.False(t, ready)
 }
 
 func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
@@ -47,14 +53,6 @@ func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
 	InitDefaultEnvVariables()
 
 	os.Setenv(util.AutomationAgentImagePullPolicy, "")
-	assert.Panics(t, func() { defaultSetHelper().CreateOrUpdateInKubernetes() })
-	InitDefaultEnvVariables()
-
-	os.Setenv(util.PodWaitSecondsEnv, "")
-	assert.Panics(t, func() { defaultSetHelper().CreateOrUpdateInKubernetes() })
-	InitDefaultEnvVariables()
-
-	os.Setenv(util.PodWaitRetriesEnv, "")
 	assert.Panics(t, func() { defaultSetHelper().CreateOrUpdateInKubernetes() })
 	InitDefaultEnvVariables()
 }
@@ -142,4 +140,82 @@ func TestReadCredentials_InDifferentNamespace(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, expectedUser, actualCredentials.User)
 	assert.Equal(t, expectedApiKey, actualCredentials.PublicAPIKey)
+}
+
+// TestComputeConfigMap_CreateNew checks the "create" features of 'computeConfigMap' function when the configmap is created
+// if it doesn't exist (or the creation is skipped totally)
+func TestComputeConfigMap_CreateNew(t *testing.T) {
+	client := newMockedClient(nil)
+	helper := KubeHelper{client: client}
+	owner := mongodb.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "test"}}
+	key := objectKey("ns", "cfm")
+	testData := map[string]string{"foo": "bar"}
+
+	// Successful creation
+	err := helper.computeConfigMap(key, func(cmap *corev1.ConfigMap) bool {
+		cmap.Data = testData
+		return true
+	}, &owner)
+
+	assert.NoError(t, err)
+
+	cmap := &corev1.ConfigMap{}
+	err = client.Get(context.TODO(), key, cmap)
+	assert.NoError(t, err)
+	assert.Equal(t, key.Name, cmap.Name)
+	assert.Equal(t, key.Namespace, cmap.Namespace)
+	assert.Equal(t, "test", cmap.OwnerReferences[0].Name)
+	assert.Equal(t, testData, cmap.Data)
+
+	// Creation skipped
+	key2 := objectKey("ns", "cfm2")
+	err = helper.computeConfigMap(key2, func(cmap *corev1.ConfigMap) bool {
+		return false
+	}, &owner)
+
+	err = client.Get(context.TODO(), key2, cmap)
+	assert.True(t, apiErrors.IsNotFound(err))
+}
+
+func TestComputeConfigMap_UpdateExisting(t *testing.T) {
+	client := newMockedClient(nil)
+	helper := KubeHelper{client: client}
+	owner := mongodb.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "test"}}
+
+	// this is an existing configmap (created inside 'newMockedClient')
+	key := objectKey(TestNamespace, TestProjectConfigMapName)
+
+	// Successful update (data is appended)
+	err := helper.computeConfigMap(key, func(cmap *corev1.ConfigMap) bool {
+		cmap.Data["foo"] = "bla"
+		return true
+	}, &owner)
+
+	assert.NoError(t, err)
+
+	cmap := &corev1.ConfigMap{}
+	err = client.Get(context.TODO(), key, cmap)
+	assert.NoError(t, err)
+	// We don't change the owner in case of update
+	assert.Empty(t, cmap.OwnerReferences)
+	// We added one key-value but the other must stay in the config map
+	assert.True(t, len(cmap.Data) > 1)
+
+	currentSize := len(cmap.Data)
+
+	// Update skipped
+	err = helper.computeConfigMap(key, func(cmap *corev1.ConfigMap) bool {
+		return false
+	}, &owner)
+
+	assert.NoError(t, err)
+
+	cmap = &corev1.ConfigMap{}
+	err = client.Get(context.TODO(), key, cmap)
+	assert.NoError(t, err)
+	// The size of data must not change as there was no update
+	assert.Len(t, cmap.Data, currentSize)
+
+	// The only operation in history is the first update
+	client.CheckNumberOfOperations(t, HItem(reflect.ValueOf(client.Update), cmap), 1)
 }

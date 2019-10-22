@@ -16,7 +16,7 @@ func TestCreateMongodProcess(t *testing.T) {
 	assert.Equal(t, "trinity", process.Name())
 	assert.Equal(t, "trinity-0.trinity-svc.svc.cluster.local", process.HostName())
 	assert.Equal(t, "4.0.5", process.Version())
-	assert.Equal(t, "4.0", process.featureCompatibilityVersion())
+	assert.Equal(t, "4.0", process.FeatureCompatibilityVersion())
 	assert.Equal(t, "/data", process.DbPath())
 	assert.Equal(t, "/var/log/mongodb-mms-automation/mongodb.log", process.LogPath())
 	assert.Equal(t, 5, process.authSchemaVersion())
@@ -37,17 +37,17 @@ func TestCreateMongodProcess_authSchemaVersion(t *testing.T) {
 
 func TestCreateMongodProcess_featureCompatibilityVersion(t *testing.T) {
 	process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", DefaultMongoDBVersioned("3.0.6"))
-	assert.Equal(t, "", process.featureCompatibilityVersion())
+	assert.Equal(t, "", process.FeatureCompatibilityVersion())
 
 	process = NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", DefaultMongoDBVersioned("3.2.0"))
-	assert.Equal(t, "", process.featureCompatibilityVersion())
+	assert.Equal(t, "", process.FeatureCompatibilityVersion())
 
 	process = NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", DefaultMongoDBVersioned("aaa"))
-	assert.Equal(t, "", process.featureCompatibilityVersion())
+	assert.Equal(t, "", process.FeatureCompatibilityVersion())
 
 	mdb := DefaultMongoDB().SetVersion("4.2.1").SetFCVersion("4.0").Build()
 	process = NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdb)
-	assert.Equal(t, "4.0", process.featureCompatibilityVersion())
+	assert.Equal(t, "4.0", process.FeatureCompatibilityVersion())
 }
 
 func TestConfigureSSL_Process(t *testing.T) {

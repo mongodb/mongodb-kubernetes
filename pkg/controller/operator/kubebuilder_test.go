@@ -14,7 +14,6 @@ import (
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -160,7 +159,7 @@ func TestBasePodSpec_Affinity(t *testing.T) {
 	assert.Len(t, spec.Affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution, 0)
 	term := spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0]
 	assert.Equal(t, int32(100), term.Weight)
-	assert.Equal(t, map[string]string{POD_ANTI_AFFINITY_LABEL_KEY: "s"}, term.PodAffinityTerm.LabelSelector.MatchLabels)
+	assert.Equal(t, map[string]string{PodAntiAffinityLabelKey: "s"}, term.PodAffinityTerm.LabelSelector.MatchLabels)
 	assert.Equal(t, "nodeId", term.PodAffinityTerm.TopologyKey)
 }
 
@@ -172,7 +171,7 @@ func TestBasePodSpec_AntiAffinityDefaultTopology(t *testing.T) {
 
 	term := spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0]
 	assert.Equal(t, int32(100), term.Weight)
-	assert.Equal(t, map[string]string{POD_ANTI_AFFINITY_LABEL_KEY: "s"}, term.PodAffinityTerm.LabelSelector.MatchLabels)
+	assert.Equal(t, map[string]string{PodAntiAffinityLabelKey: "s"}, term.PodAffinityTerm.LabelSelector.MatchLabels)
 	assert.Equal(t, util.DefaultAntiAffinityTopologyKey, term.PodAffinityTerm.TopologyKey)
 }
 
@@ -196,6 +195,30 @@ func TestBasePodSpec_TerminationGracePeriodSeconds(t *testing.T) {
 	podSpec := mongodb.PodSpecWrapper{MongoDbPodSpec: mongodb.MongoDbPodSpec{}, Default: NewDefaultPodSpec()}
 	spec := basePodSpec("s", podSpec, defaultPodVars())
 	assert.Equal(t, util.Int64Ref(600), spec.TerminationGracePeriodSeconds)
+}
+
+func TestBaseAppDbPodSpec(t *testing.T) {
+	_ = os.Setenv(util.AppDBImageUrl, "http://quay.io/appdb")
+	_ = os.Setenv(util.AutomationAgentImagePullPolicy, "NEVER")
+
+	podSpec := mongodb.PodSpecWrapper{MongoDbPodSpec: mongodb.MongoDbPodSpec{}, Default: NewDefaultPodSpec()}
+	spec := baseAppDbPodSpec("testSts", podSpec, "4.2.2")
+
+	assert.Len(t, spec.Containers, 1)
+	assert.Equal(t, util.ContainerAppDbName, spec.Containers[0].Name)
+	assert.Equal(t, "http://quay.io/appdb:4.2.2", spec.Containers[0].Image)
+	assert.Equal(t, corev1.PullPolicy("NEVER"), spec.Containers[0].ImagePullPolicy)
+
+	// Env variables
+	assert.Len(t, spec.Containers[0].Env, 3)
+	assert.Equal(t, util.ENV_POD_NAMESPACE, spec.Containers[0].Env[0].Name)
+	assert.Equal(t, "metadata.namespace", spec.Containers[0].Env[0].ValueFrom.FieldRef.FieldPath)
+
+	assert.Equal(t, util.ENV_AUTOMATION_CONFIG_MAP, spec.Containers[0].Env[1].Name)
+	assert.Equal(t, "testSts-config", spec.Containers[0].Env[1].Value)
+
+	assert.Equal(t, util.ENV_HEADLESS_AGENT, spec.Containers[0].Env[2].Name)
+	assert.Equal(t, "true", spec.Containers[0].Env[2].Value)
 }
 
 func checkPvClaims(t *testing.T, set *v1.StatefulSet, expectedClaims []*corev1.PersistentVolumeClaim) {
@@ -261,14 +284,18 @@ func TestBasePodSpec_Requirements(t *testing.T) {
 	assert.Equal(t, expectedRequests, spec.Containers[0].Resources.Requests)
 }
 
+// ******************************** Helper methods *******************************************
+
 func baseSetHelper() *StatefulSetHelper {
 	st := DefaultStandaloneBuilder().Build()
 	return (&KubeHelper{newMockedClient(st)}).NewStatefulSetHelper(st)
 }
 
-func baseSetHelperDelayed(delayMillis time.Duration) *StatefulSetHelper {
+// baseSetHelperDelayed returns a delayed StatefulSetHelper.
+// This helper will not get to Success state right away, but will take at least `delay`.
+func baseSetHelperDelayed(delay time.Duration) *StatefulSetHelper {
 	st := DefaultStandaloneBuilder().Build()
-	return (&KubeHelper{newMockedClientDelayed(st, delayMillis)}).NewStatefulSetHelper(st)
+	return (&KubeHelper{newMockedClientDelayed(st, delay)}).NewStatefulSetHelper(st)
 }
 
 func defaultPodSpec() mongodb.PodSpecWrapper {
@@ -277,7 +304,6 @@ func defaultPodSpec() mongodb.PodSpecWrapper {
 
 func defaultSetHelper() *StatefulSetHelper {
 	return baseSetHelper().
-		SetLogger(zap.S()).
 		SetPodSpec(defaultPodSpec()).
 		SetPodVars(defaultPodVars()).
 		SetService("test-service").

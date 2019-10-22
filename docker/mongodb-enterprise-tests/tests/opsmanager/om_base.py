@@ -36,6 +36,7 @@ class OpsManagerBase(KubernetesTester):
 
         # This is the magic id of the "backing database" group in Ops Manager - the one which is used to manage the
         # appdb - it's created during OM initialization
+        # TODO remove as not relevant any more
         group_id = "0" * 24
         api_key_secret = KubernetesTester.read_secret(KubernetesTester.get_namespace(), om_cr.api_key_secret())
         OpsManagerBase.om_context = OMContext(om_cr.base_url(), group_id, "Backing Database",
@@ -87,4 +88,20 @@ class OpsManagerBase(KubernetesTester):
             return False
         except ApiException:
             return True
+
+
+    @staticmethod
+    def appdb_in_running_state():
+        """ Returns true if the AppDB in Running state, fails fast if got into Failed error
+         This allows to fail fast in case of cascade failures """
+        resource = OpsManagerBase.read_om_cr()
+        if resource.get_status() is None:
+            return False
+        phase = resource.get_appdb_status()['phase']
+
+        if phase == "Failed":
+            msg = resource.get_appdb_status()['message']
+            raise AssertionError('AppDB got into Failed phase while waiting for Running! ("{}")'.format(msg))
+
+        return resource.get_appdb_status()['phase'] == "Running"
 

@@ -11,5 +11,9 @@ if [[ ! -d $HOME/.operator-dev/contexts ]]; then
 fi
 
 for f in $HOME/.operator-dev/contexts/*; do
+	echo "----------"
 	echo $(basename "$f")
+	echo "----------"
+	cat $f | grep -v "^# "
+	echo
 done

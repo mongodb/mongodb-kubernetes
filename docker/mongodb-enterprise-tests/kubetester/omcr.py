@@ -28,6 +28,9 @@ class OpsManagerCR(object):
     def app_db_name(self):
         return self.name() + "-db"
 
+    def app_config_name(self):
+        return self.app_db_name() + "-config"
+
     def get_spec(self):
         return self.resource["spec"]
 

@@ -41,6 +41,7 @@ type Credentials struct {
 	PublicAPIKey string
 }
 
+// StatefulSetHelperCommon is the basic struct the same for all Statefulset helpers (MongoDB, OpsManager)
 type StatefulSetHelperCommon struct {
 	// Attributes that are part of StatefulSet
 	Owner     Updatable
@@ -52,6 +53,7 @@ type StatefulSetHelperCommon struct {
 	ClusterName string
 	Replicas    int
 	ServicePort int32
+	Version     string
 
 	// Not part of StatefulSet object
 	Helper *KubeHelper
@@ -81,6 +83,15 @@ type OpsManagerStatefulSetHelper struct {
 
 	EnvVars []corev1.EnvVar
 	Version string
+
+	// Determines if this StatefulSet should run as a BackupDaemon
+	IsBackupDaemon bool
+
+	// Storage is the amount of Storage to allocate to HeadDB
+	Storage string
+
+	// StorageClass determines the StorageClass to use for HeadDB
+	StorageClass string
 }
 
 // ShardedClusterKubeState holds the Kubernetes configuration for the set of StatefulSets composing
@@ -94,7 +105,7 @@ type ShardedClusterKubeState struct {
 	shardsSetsHelpers  []*StatefulSetHelper
 }
 
-// NewStatefulSetHelper returns a default `StatefulSetHelper`. The defaults are as follows:
+// NewStatefulSetHelper returns a default `StatefulSetHelper` for the database statefulset. The defaults are as follows:
 //
 // * Name: Same as the Name of the owner
 // * Namespace: Same as the Namespace of the owner
@@ -102,19 +113,33 @@ type ShardedClusterKubeState struct {
 // * ExposedExternally: false
 // * ServicePort: `MongoDbDefaultPort` (27017)
 //
+// Note, that it's the same for both MongodbResource Statefulset and AppDB Statefulset. The
 func (k *KubeHelper) NewStatefulSetHelper(obj Updatable) *StatefulSetHelper {
+	var mongodbSpec mongodb.MongoDbSpec
+	switch v := obj.(type) {
+	case *mongodb.MongoDB:
+		mongodbSpec = v.Spec
+	case *mongodb.MongoDBOpsManager:
+		mongodbSpec = v.Spec.AppDB.MongoDbSpec
+	default:
+		panic("Wrong type provided, only MongoDB or AppDB are expected!")
+	}
+
 	return &StatefulSetHelper{
 		StatefulSetHelperCommon: StatefulSetHelperCommon{
 			Owner:       obj,
 			Name:        obj.GetName(),
 			Namespace:   obj.GetNamespace(),
-			Replicas:    1,
+			Replicas:    mongodbSpec.Members,
 			Helper:      k,
 			ServicePort: util.MongoDbDefaultPort,
+			Version:     mongodbSpec.Version,
+			ClusterName: mongodbSpec.ClusterName,
+			Logger:      zap.S(), // by default, must be overridden by clients
 		},
-		Persistent: util.BooleanRef(true),
-
-		ExposedExternally: false,
+		Persistent:        mongodbSpec.Persistent,
+		PodSpec:           NewDefaultPodSpecWrapper(*mongodbSpec.PodSpec),
+		ExposedExternally: mongodbSpec.ExposedExternally,
 	}
 }
 
@@ -136,6 +161,10 @@ func (k *KubeHelper) NewOpsManagerStatefulSetHelper(obj Updatable) *OpsManagerSt
 // `owner.GetName()` initially.
 func (s *StatefulSetHelper) SetName(name string) *StatefulSetHelper {
 	s.Name = name
+	return s
+}
+func (s *StatefulSetHelper) SetOwner(obj Updatable) *StatefulSetHelper {
+	s.Owner = obj
 	return s
 }
 
@@ -206,19 +235,32 @@ func (s StatefulSetHelper) IsTLSEnabled() bool {
 	return s.Security != nil && s.Security.TLSConfig != nil && s.Security.TLSConfig.Enabled
 }
 
+func (s *StatefulSetHelper) SetVersion(version string) *StatefulSetHelper {
+	s.Version = version
+	return s
+}
+
 func (s *StatefulSetHelper) BuildStatefulSet() *appsv1.StatefulSet {
 	return buildStatefulSet(*s)
 }
 
+func (s *StatefulSetHelper) BuildAppDBStatefulSet() *appsv1.StatefulSet {
+	return buildAppDbStatefulSet(*s)
+}
+
+// CreateOrUpdateInKubernetes creates (updates if it exists) the StatefulSet with its Service.
+// It returns any errors coming from Kubernetes API.
 func (s *StatefulSetHelper) CreateOrUpdateInKubernetes() error {
-	_, err := s.Helper.createOrUpdateStatefulsetWithService(
-		s.Owner,
-		s.ServicePort,
+	set, err := s.Helper.createOrUpdateStatefulset(
 		s.Namespace,
-		s.ExposedExternally,
 		s.Logger,
 		s.BuildStatefulSet(),
 	)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.Helper.createOrUpdateService(s.Owner, s.ServicePort, s.Namespace, s.ExposedExternally, s.Logger, set)
 
 	return err
 }
@@ -229,6 +271,22 @@ func (s *OpsManagerStatefulSetHelper) BuildStatefulSet() *appsv1.StatefulSet {
 
 func (s *OpsManagerStatefulSetHelper) SetService(service string) *OpsManagerStatefulSetHelper {
 	s.Service = service
+	return s
+}
+
+func (s *OpsManagerStatefulSetHelper) SetName(name string) *OpsManagerStatefulSetHelper {
+	s.Name = name
+	return s
+}
+
+func (s *OpsManagerStatefulSetHelper) SetIsBackupDaemon() *OpsManagerStatefulSetHelper {
+	s.IsBackupDaemon = true
+	return s
+}
+
+func (s *OpsManagerStatefulSetHelper) SetStorageRequirements(storage, storageClass string) *OpsManagerStatefulSetHelper {
+	s.Storage = storage
+	s.StorageClass = storageClass
 	return s
 }
 
@@ -243,15 +301,31 @@ func (s *OpsManagerStatefulSetHelper) SetVersion(version string) *OpsManagerStat
 }
 
 func (s *OpsManagerStatefulSetHelper) CreateOrUpdateInKubernetes() error {
-	_, err := s.Helper.createOrUpdateStatefulsetWithService(
-		s.Owner,
-		s.ServicePort,
+	set, err := s.Helper.createOrUpdateStatefulset(
 		s.Namespace,
-		true, // todo temporary to make development easier (open OM from browser)
 		s.Logger,
 		s.BuildStatefulSet(),
 	)
+	if err != nil {
+		return err
+	}
 
+	_, err = s.Helper.createOrUpdateService(s.Owner, s.ServicePort, s.Namespace, true, s.Logger, set)
+	return err
+}
+
+// CreateOrUpdateAppDBInKubernetes creates the StatefulSet specific for AppDB.
+func (s *StatefulSetHelper) CreateOrUpdateAppDBInKubernetes() error {
+	set, err := s.Helper.createOrUpdateStatefulset(
+		s.Namespace,
+		s.Logger,
+		s.BuildAppDBStatefulSet(),
+	)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.Helper.createOrUpdateService(s.Owner, s.ServicePort, s.Namespace, true, s.Logger, set)
 	return err
 }
 
@@ -332,28 +406,43 @@ func volumeMountWithNameExists(mounts []corev1.VolumeMount, volumeName string) b
 	return false
 }
 
-// createOrUpdateStatefulsetWithService creates or updates the set of statefulsets in Kubernetes mapped to the service with name "serviceName"
+func (k *KubeHelper) createOrUpdateStatefulsetNoService(owner Updatable,
+	ns string, log *zap.SugaredLogger, set *appsv1.StatefulSet) error {
+
+	log = log.With("statefulset", set.Name)
+	if err := k.client.Get(context.TODO(), objectKey(ns, set.Name), &appsv1.StatefulSet{}); err != nil {
+		if err = k.client.Create(context.TODO(), set); err != nil {
+			return err
+		}
+	} else {
+		if err = k.client.Update(context.TODO(), set); err != nil {
+			return err
+		}
+	}
+
+	log.Infow("Waiting until statefulset and its pods reach READY state...")
+
+	if !k.isStatefulSetUpdated(ns, set.Name, log) {
+		// Unfortunately Kube api for events is too weak and doesn't allow to filter by object so we cannot show
+		// the real pod event message to user
+		return fmt.Errorf("Statefulset or its pods failed to reach READY state. Check the events for "+
+			"statefulset %s/%s and its pods", set.Namespace, set.Name)
+	}
+
+	return nil
+}
+
+// createOrUpdateStatefulset will create or update a StatefulSet in Kubernetes.
+//
 // The method has to be flexible (create/update) as there are cases when custom resource is created but statefulset - not
 // Service named "serviceName" is created optionally (it may already exist - created by either user or by operator before)
 // Note the logic for "exposeExternally" parameter: if it is true then the second service is created of type "NodePort"
 // (the random port will be allocated by Kubernetes) otherwise only one service of type "ClusterIP" is created and it
 // won't be connectible from external (unless pods in statefulset expose themselves to outside using "hostNetwork: true")
 // Function returns the service port number assigned
-func (k *KubeHelper) createOrUpdateStatefulsetWithService(owner Updatable, servicePort int32,
-	ns string, exposeExternally bool, log *zap.SugaredLogger, set *appsv1.StatefulSet) (*int32, error) {
-
-	start := time.Now()
-
-	service, err := k.ensureServicesExist(owner, set.Spec.ServiceName, servicePort, ns,
-		exposeExternally, log, set)
-
-	if err != nil {
-		return nil, err
-	}
-
+func (k *KubeHelper) createOrUpdateStatefulset(ns string, log *zap.SugaredLogger, set *appsv1.StatefulSet) (*appsv1.StatefulSet, error) {
 	log = log.With("statefulset", set.Name)
-	event := "Created"
-	if err = k.client.Get(context.TODO(), objectKey(ns, set.Name), &appsv1.StatefulSet{}); err != nil {
+	if err := k.client.Get(context.TODO(), objectKey(ns, set.Name), &appsv1.StatefulSet{}); err != nil {
 		if err = k.client.Create(context.TODO(), set); err != nil {
 			return nil, err
 		}
@@ -361,51 +450,52 @@ func (k *KubeHelper) createOrUpdateStatefulsetWithService(owner Updatable, servi
 		if err = k.client.Update(context.TODO(), set); err != nil {
 			return nil, err
 		}
-		event = "Updated"
 	}
 
-	log.Infow("Waiting until statefulset and its pods reach READY state...")
+	return set, nil
+}
 
-	if !k.waitForStatefulsetAndPods(ns, set.Name, log) {
-		// Unfortunately Kube api for events is too weak and doesn't allow to filter by object so we cannot show
-		// the real pod event message to user
-		return nil, fmt.Errorf("Statefulset or its pods failed to reach READY state. Check the events for "+
-			"statefulset %s/%s and its pods", set.Namespace, set.Name)
+func (k *KubeHelper) createOrUpdateService(owner Updatable, servicePort int32,
+	ns string, exposeExternally bool, log *zap.SugaredLogger, set *appsv1.StatefulSet) (int32, error) {
+	service, err := k.ensureServicesExist(owner, set.Spec.ServiceName, servicePort, ns,
+		exposeExternally, log, set)
+	if err != nil {
+		return -1, err
 	}
-	log.Infow(event+" statefulset", "time", time.Since(start))
 
 	return discoverServicePort(service)
 }
 
-// waitForStatefulsetAndPods hangs until the statefulset is rolling upgraded and all replicas restart
-// (or not restart at all)
-// Some notes about the logic: 'Status.UpdatedReplicas' is used in addition to 'Status.ReadyReplicas' as
-// 'Status.ReadyReplicas' stays = 'Spec.Replicas' for some time while the pod is handling the SIGTERM.
-// 'Status.UpdatedReplicas' is set to 0 right away after the statefulset is updated (the 'Status.updateRevision' is
-//  changed as well)
-func (k *KubeHelper) waitForStatefulsetAndPods(ns, stsName string, log *zap.SugaredLogger) bool {
-	waitSeconds := util.ReadEnvVarOrPanicInt(util.PodWaitSecondsEnv)
-	retrials := util.ReadEnvVarOrPanicInt(util.PodWaitRetriesEnv)
+// isStatefulSetUpdated will check if every Replica from the StatefulSet has been updated.
+// The StatefulSet controller updates Pods one at a time, and each one is considered "ready" and
+// "updated". We expect that the StatefulSet is completely Updated when all of the Pods have been
+// updated (moved to latest version) and ready (they have reached Ready state after being updated).
+// This function also sleeps for `K8S_CACHES_REFRESH_TIME_SEC` to somehow avoid fetching a cached
+// result from the Kubernetes API.
+// There is a short loop inside to check everything during 15 seconds. This will allow to discover "ok" result
+// faster for users and tests (as the next reconciliation will happen in 10 seconds), though will still
+// provide good interactivity for user requests
+func (k *KubeHelper) isStatefulSetUpdated(namespace, name string, log *zap.SugaredLogger) bool {
+	// environment variables are used only for tests
+	waitSeconds := util.ReadEnvVarIntOrDefault(util.PodWaitSecondsEnv, 3)
+	retrials := util.ReadEnvVarIntOrDefault(util.PodWaitRetriesEnv, 5)
 
-	// Seems there is some asynchronicity in the way the caches are updated - if do the check right away
-	// 'client.Get' returns the old version of statefulset with 'Status.UpdatedReplicas' == 'set.Spec.Replicas'
-	// The env variable is needed only for tests
-	time.Sleep(time.Duration(util.ReadEnvVarIntOrDefault("K8S_CACHES_REFRESH_TIME_SEC", 2)) * time.Second)
+	time.Sleep(time.Duration(util.ReadEnvVarIntOrDefault(util.K8sCacheRefreshEnv, util.DefaultK8sCacheRefreshTimeSeconds)) * time.Second)
 
 	return util.DoAndRetry(func() (string, bool) {
 		set := &appsv1.StatefulSet{}
-		err := k.client.Get(context.TODO(), objectKey(ns, stsName), set)
+		err := k.client.Get(context.TODO(), objectKey(namespace, name), set)
+
 		if err != nil {
-			// Should we retry these errors?...
-			return fmt.Sprintf("Error reading statefulset %s: %s", objectKey(ns, stsName), err), false
+			return fmt.Sprintf("Error reading statefulset %s: %s", objectKey(namespace, name), err), false
 		}
-		msg := fmt.Sprintf("Replicas count: total %d, updated %d, ready %d", *set.Spec.Replicas,
-			set.Status.UpdatedReplicas, set.Status.ReadyReplicas)
 
-		allReady := *set.Spec.Replicas == set.Status.UpdatedReplicas &&
-			*set.Spec.Replicas == set.Status.ReadyReplicas
+		replicas := *set.Spec.Replicas
+		allUpdated := replicas == set.Status.UpdatedReplicas
+		allReady := replicas == set.Status.ReadyReplicas
 
-		return msg, allReady
+		return fmt.Sprintf("Replicas count: total %d, updated %d, ready %d", *set.Spec.Replicas,
+			set.Status.UpdatedReplicas, set.Status.ReadyReplicas), allUpdated && allReady
 	}, log, retrials, waitSeconds)
 }
 
@@ -426,8 +516,6 @@ func (k *KubeHelper) deleteStatefulSet(key client.ObjectKey) error {
 // TODO it must remove the external service in case it's no more needed
 func (k *KubeHelper) ensureServicesExist(owner Updatable, serviceName string, servicePort int32, nameSpace string,
 	exposeExternally bool, log *zap.SugaredLogger, statefulset *appsv1.StatefulSet) (*corev1.Service, error) {
-
-	ensureStatefulsetsHaveServiceLabel(serviceName, statefulset)
 
 	// we always create the headless service to achieve Kubernetes internal connectivity
 	service, err := k.ensureService(owner, serviceName, serviceName, servicePort, nameSpace, false, log)
@@ -458,7 +546,6 @@ func (k *KubeHelper) ensureService(owner Updatable, serviceName string, label st
 	method := ""
 
 	if err != nil {
-		log.Infof("Creating Service %s", namespacedName)
 		err = k.client.Create(context.TODO(), service)
 		if err != nil {
 			return nil, err
@@ -639,6 +726,65 @@ func (k *KubeHelper) readSecret(nsName client.ObjectKey) (map[string]string, err
 		secrets[k] = strings.TrimSuffix(string(v[:]), "\n")
 	}
 	return secrets, nil
+}
+
+// computeConfigMap fetches the existing config map and applies the computation function to it and pushes changes back
+// The computation function is expected to update the data in config map or return false if no update/create is needed
+// (Name for the function is chosen as an analogy to Map.compute() function in Java)
+func (k *KubeHelper) computeConfigMap(nsName client.ObjectKey, callback func(*corev1.ConfigMap) bool, owner Updatable) error {
+	existingConfigMap := &corev1.ConfigMap{}
+	if err := k.client.Get(context.TODO(), nsName, existingConfigMap); err != nil {
+		if apiErrors.IsNotFound(err) {
+			existingConfigMap = &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            nsName.Name,
+					Namespace:       nsName.Namespace,
+					OwnerReferences: baseOwnerReference(owner),
+				}}
+			if !callback(existingConfigMap) {
+				return nil
+			}
+			if err = k.client.Create(context.TODO(), existingConfigMap); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+	} else {
+		if !callback(existingConfigMap) {
+			return nil
+		}
+		if err = k.client.Update(context.TODO(), existingConfigMap); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (k *KubeHelper) createOrUpdateConfigMap(nsName client.ObjectKey, data map[string]string, owner Updatable) error {
+	existingConfigMap := &corev1.ConfigMap{}
+	newConfigMap := &corev1.ConfigMap{
+		Data: data,
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            nsName.Name,
+			Namespace:       nsName.Namespace,
+			OwnerReferences: baseOwnerReference(owner),
+		}}
+
+	if err := k.client.Get(context.TODO(), nsName, existingConfigMap); err != nil {
+		if apiErrors.IsNotFound(err) {
+			if err = k.client.Create(context.TODO(), newConfigMap); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+	} else {
+		if err = k.client.Update(context.TODO(), newConfigMap); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // CreateOrUpdateSecret will create (if it does not exist) or update (if it does) a secret.
@@ -871,24 +1017,18 @@ func (k *KubeHelper) verifyCertificatesForStatefulSet(ss *StatefulSetHelper, sec
 	return certsNotReady
 }
 
-func discoverServicePort(service *corev1.Service) (*int32, error) {
+// discoverServicePort returns `Port` for this `Service`.
+// If the `Service` is `NodePort` it will return `NodePort` instead.
+func discoverServicePort(service *corev1.Service) (int32, error) {
 	if ports := len(service.Spec.Ports); ports != 1 {
-		return nil, fmt.Errorf("Only one port is expected for the service but found %d", ports)
+		return -1, fmt.Errorf("Only one port is expected for the service but found %d", ports)
 	}
 
 	if service.Spec.Type == corev1.ServiceTypeNodePort {
-		nodePort := util.Int32Ref(service.Spec.Ports[0].NodePort)
+		nodePort := service.Spec.Ports[0].NodePort
 		return nodePort, nil
 	}
-	return util.Int32Ref(service.Spec.Ports[0].Port), nil
-}
-
-// ensureStatefulsetsHaveServiceLabel makes sure all the statefulsets contain the correct label (to be mapped on service)
-func ensureStatefulsetsHaveServiceLabel(serviceName string, set *appsv1.StatefulSet) {
-	if len(set.ObjectMeta.Labels) == 0 {
-		set.ObjectMeta.Labels = make(map[string]string)
-	}
-	set.ObjectMeta.Labels["app"] = serviceName
+	return service.Spec.Ports[0].Port, nil
 }
 
 // EnvVars returns a list of corev1.EnvVar which should be passed

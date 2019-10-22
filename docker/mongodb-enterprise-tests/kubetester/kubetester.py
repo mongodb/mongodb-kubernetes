@@ -464,6 +464,15 @@ class KubernetesTester(object):
         )
 
     @staticmethod
+    def in_pending_state():
+        return KubernetesTester.check_phase(
+            KubernetesTester.namespace,
+            KubernetesTester.kind,
+            KubernetesTester.name,
+            "Pending"
+        )
+
+    @staticmethod
     def in_running_state():
         """ Returns true if the resource in Running state, fails fast if got into Failed error.
          This allows to fail fast in case of cascade failures """

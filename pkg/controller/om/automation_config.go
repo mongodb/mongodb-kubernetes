@@ -22,18 +22,21 @@ type AutomationConfig struct {
 func (a *AutomationConfig) Apply() error {
 	// applies all changes made to the Auth struct and merges with the corresponding map[string]interface{}
 	// inside the Deployment
-	mergedAuth, err := util.MergeWith(a.Auth, a.Deployment["auth"].(map[string]interface{}), &util.AutomationConfigTransformer{})
-	if err != nil {
-		return err
+	if _, ok := a.Deployment["auth"]; ok {
+		mergedAuth, err := util.MergeWith(a.Auth, a.Deployment["auth"].(map[string]interface{}), &util.AutomationConfigTransformer{})
+		if err != nil {
+			return err
+		}
+		a.Deployment["auth"] = mergedAuth
 	}
 	// same applies for the ssl object and map
-	mergedSsl, err := util.MergeWith(a.AgentSSL, a.Deployment["ssl"].(map[string]interface{}), &util.AutomationConfigTransformer{})
-	if err != nil {
-		return err
+	if _, ok := a.Deployment["ssl"]; ok {
+		mergedSsl, err := util.MergeWith(a.AgentSSL, a.Deployment["ssl"].(map[string]interface{}), &util.AutomationConfigTransformer{})
+		if err != nil {
+			return err
+		}
+		a.Deployment["ssl"] = mergedSsl
 	}
-
-	a.Deployment["ssl"] = mergedSsl
-	a.Deployment["auth"] = mergedAuth
 	return nil
 }
 
@@ -68,6 +71,10 @@ func (a *AutomationConfig) SetMongodbVersions(versionConfigs []MongoDbVersionCon
 	return a
 }
 
+func (a *AutomationConfig) MongodbVersions() []MongoDbVersionConfig {
+	return a.Deployment["mongoDbVersions"].([]MongoDbVersionConfig)
+}
+
 // this is needed only for the cluster config file when we use a headless agent
 func (a *AutomationConfig) SetBaseUrlForAgents(baseUrl string) *AutomationConfig {
 	for _, v := range a.Deployment.getBackupVersions() {
@@ -77,6 +84,10 @@ func (a *AutomationConfig) SetBaseUrlForAgents(baseUrl string) *AutomationConfig
 		cast.ToStringMap(v)["baseUrl"] = baseUrl
 	}
 	return a
+}
+
+func (a *AutomationConfig) Serialize() ([]byte, error) {
+	return a.Deployment.Serialize()
 }
 
 type Auth struct {
@@ -194,13 +205,15 @@ type Role struct {
 }
 
 type BuildConfig struct {
-	Platform     string `json:"platform"`
-	Url          string `json:"url"`
-	GitVersion   string `json:"gitVersion"`
-	Architecture string `json:"architecture"`
-	Flavor       string `json:"flavor"`
-	MinOsVersion string `json:"minOsVersion"`
-	MaxOsVersion string `json:"maxOsVersion"`
+	Platform     string   `json:"platform"`
+	Url          string   `json:"url"`
+	GitVersion   string   `json:"gitVersion"`
+	Architecture string   `json:"architecture"`
+	Flavor       string   `json:"flavor"`
+	MinOsVersion string   `json:"minOsVersion"`
+	MaxOsVersion string   `json:"maxOsVersion"`
+	Modules      []string `json:"modules"`
+	// Note, that we are not including all "windows" parameters like "Win2008plus" as such distros won't be used
 }
 
 type MongoDbVersionConfig struct {
@@ -358,6 +371,7 @@ func agentUsers() []MongoDBUser {
 
 func BuildAutomationConfigFromDeployment(deployment Deployment) (*AutomationConfig, error) {
 	finalAutomationConfig := &AutomationConfig{Deployment: deployment}
+	finalAutomationConfig.Auth = &Auth{}
 
 	authMap, ok := deployment["auth"]
 	if ok {

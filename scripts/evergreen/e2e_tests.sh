@@ -328,7 +328,9 @@ if [[ "${MODE-}" != "dev" ]]; then
         kubectl label "namespace/${PROJECT_NAMESPACE}" "evg/state=failed" --overwrite=true
 
         # we want to teardown no matter what if it's a static namespace in order to let other tests run
-        if [[ -n ${STATIC_NAMESPACE-} ]]; then
+        # another case for always cleaning the namespace is Ops Manager tests - they consume too many resources and
+        # it's too expensive to keep them
+        if [[ -n ${STATIC_NAMESPACE-} ]] || [[ "${TEST_MODE:-}" = "opsmanager" ]]; then
             teardown
         fi
     fi

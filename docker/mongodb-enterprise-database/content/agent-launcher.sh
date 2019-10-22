@@ -83,6 +83,9 @@ if [[ -n "${base_url}" ]]; then
     agentOpts+=("-mmsBaseUrl" "${base_url}")
 else
     agentOpts+=("-cluster" "${cluster_config_file}")
+    # we need to open the web server on localhost even though we don't use it - otherwise Agent doesn't
+    # produce status information at all (we need it in health file)
+    agentOpts+=("-serveStatusPort" "5000")
     script_log "Mongodb Agent is configured to run in \"headless\" mode using local config file"
 fi
 

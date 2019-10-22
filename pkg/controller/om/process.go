@@ -269,6 +269,13 @@ func (p Process) IsInternalClusterAuthentication() bool {
 	return p.clusterAuthMode() != ""
 }
 
+func (s Process) FeatureCompatibilityVersion() string {
+	if s["featureCompatibilityVersion"] == nil {
+		return ""
+	}
+	return s["featureCompatibilityVersion"].(string)
+}
+
 // String
 func (p Process) String() string {
 	return fmt.Sprintf("\"%s\" (hostName: %s, version: %s, args: %s)", p.Name(), p.HostName(), p.Version(), p.Args())
@@ -369,7 +376,7 @@ func (p Process) mergeFrom(operatorProcess Process) {
 	// update authentication mode and clusterFile path for both process types
 	p.ConfigureClusterAuthMode(operatorProcess.clusterAuthMode())
 
-	fcv := operatorProcess.featureCompatibilityVersion()
+	fcv := operatorProcess.FeatureCompatibilityVersion()
 	initDefault(
 		operatorProcess.Name(),
 		operatorProcess.HostName(),
@@ -446,13 +453,6 @@ func (p Process) setClusterAuthMode(authMode string) Process {
 
 func (s Process) authSchemaVersion() int {
 	return s["authSchemaVersion"].(int)
-}
-
-func (s Process) featureCompatibilityVersion() string {
-	if s["featureCompatibilityVersion"] == nil {
-		return ""
-	}
-	return s["featureCompatibilityVersion"].(string)
 }
 
 // These methods are ONLY FOR REPLICA SET members!

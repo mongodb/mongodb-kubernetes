@@ -497,7 +497,6 @@ func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(authM
 			if err != nil {
 				certsNeedApproval = true
 
-				log.Infof("Creating CSR: %s", agentName)
 				// the agentName name will be the same on each host, but we want to ensure there's
 				// a unique name for the CSR created.
 				key, err := k.createAgentCSR(agentName, namespace)
@@ -508,10 +507,8 @@ func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(authM
 				pemFiles.addPrivateKey(agentName, string(key))
 			} else {
 				if checkCSRWasApproved(csr.Status.Conditions) {
-					log.Infof("Certificate for Agent %s -> Approved", agentName)
 					pemFiles.addCertificate(agentName, string(csr.Status.Certificate))
 				} else {
-					log.Infof("Certificate for Agent %s -> Waiting for Approval", agentName)
 					certsNeedApproval = true
 				}
 			}

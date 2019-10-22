@@ -6,12 +6,12 @@ cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
 source scripts/funcs
 
-title "The following tools will be installed: dep, kubectl, minikube, kops, aws-cli, helm"
+title "The following tools will be installed: kubectl, minikube, kops, aws-cli, helm"
 echo "Note, that you must download 'go' by yourself"
 
 grep -a "GO111MODULE=on" ~/.bashrc || echo "export GO111MODULE=on" >> ~/.bashrc
 grep -a 'GOFLAGS="-mod=vendor"' ~/.bashrc || echo 'export GOFLAGS="-mod=vendor"' >> ~/.bashrc
-grep -a "export KOPS_STATE_STORE='s3://kube-om-state-store'" || echo "export KOPS_STATE_STORE='s3://kube-om-state-store'" >> ~/.bashrc
+grep -a "KOPS_STATE_STORE='s3://kube-om-state-store'" ~/.bashrc || echo "export KOPS_STATE_STORE='s3://kube-om-state-store'" >> ~/.bashrc
 
 if [ $(uname) = "Darwin" ] ; then
   # kubectl 1.16.1
@@ -37,9 +37,6 @@ if [ $(uname) = "Darwin" ] ; then
   brew install upx
 
 elif [ $(uname) = "Linux" ] ; then # Ubuntu only
-  # dep
-  curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
-
   sudo snap install kubectl --classic
 
   curl -Lo minikube "https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64"

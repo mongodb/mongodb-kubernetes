@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"os"
 	"reflect"
 	"testing"
 	"time"
@@ -23,8 +24,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
+const OperatorNamespace = "operatorNs"
+
 func init() {
 	util.OperatorVersion = "testVersion"
+	_ = os.Setenv(util.CurrentNamespace, OperatorNamespace)
 }
 
 // TestPrepareOmConnection_FindExistingGroup finds existing group when org ID is specified, no new Project or Organization

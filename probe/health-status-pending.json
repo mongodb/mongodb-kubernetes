@@ -12,6 +12,11 @@
       "lastGoalVersionAchieved": -1,
       "plans": [
         {
+          "started": "2019-09-11T07:58:22.834514922Z",
+          "completed": "2019-09-11T07:58:42.834514922Z",
+          "moves": []
+        },
+        {
           "started": "2019-09-11T07:58:43.834514922Z",
           "completed": null,
           "moves": [

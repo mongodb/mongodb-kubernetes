@@ -121,6 +121,7 @@ func (e *errorStatus) isOk() bool {
 	return false
 }
 
+// onErrorPrepend prepends a string message to the `errorStatus` returning it.
 func (e *errorStatus) onErrorPrepend(msg string) reconcileStatus {
 	e.err = fmt.Errorf("%s %s", msg, e.err.Error())
 	return e

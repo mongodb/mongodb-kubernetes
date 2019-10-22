@@ -23,13 +23,13 @@ func TestCreateOmProcess(t *testing.T) {
 	assert.Equal(t, "4.0.0", process.Version())
 }
 
-// TestOnAddStandalone checks the reconciliation on standalone creation. It emulates the kubernetes work on statefulset
-// creation ('StsCreationDelayMillis') and makes sure the operator waits for this to finish
 func TestOnAddStandalone(t *testing.T) {
 	st := DefaultStandaloneBuilder().SetVersion("4.1.0").SetService("mysvc").Build()
+
 	client := newMockedClient(st)
-	client.StsCreationDelayMillis = 200
-	reconciler := newStandaloneReconciler(newMockedManagerSpecificClient(client), om.NewEmptyMockedOmConnection)
+	manager := newMockedManagerSpecificClient(client)
+
+	reconciler := newStandaloneReconciler(manager, om.NewEmptyMockedOmConnection)
 
 	checkReconcileSuccessful(t, reconciler, st, client)
 
@@ -43,6 +43,40 @@ func TestOnAddStandalone(t *testing.T) {
 
 	omConn.CheckDeployment(t, createDeploymentFromStandalone(st))
 	omConn.CheckNumberOfUpdateRequests(t, 1)
+}
+
+// TestOnAddStandaloneWithDelay checks the reconciliation on standalone creation with a small delay.
+// It emulates the kubernetes work on statefulset creation ('StsCreationDelayMillis') and makes sure
+// the operator waits for this to finish.
+func TestOnAddStandaloneWithDelay(t *testing.T) {
+	st := DefaultStandaloneBuilder().SetVersion("4.1.0").SetService("mysvc").Build()
+
+	client := newMockedClient(st)
+	client.StsCreationDelayMillis = 200
+	manager := newMockedManagerSpecificClient(client)
+
+	reconciler := newStandaloneReconciler(manager, om.NewEmptyMockedOmConnection)
+
+	checkReconcileSuccessful(t, reconciler, st, client)
+}
+
+// TestOnAddStandaloneWithDelayPending checks the reconciliation on standalone creation with a small delay
+// if the Operator gives up before the StatefulSet gets ready.
+// It emulates the kubernetes work on statefulset creation ('StsCreationDelayMillis') and makes sure
+// the mongodb resource goes to Pending state
+func TestOnAddStandaloneWithDelayPending(t *testing.T) {
+	_ = os.Setenv(util.PodWaitRetriesEnv, "0")
+	st := DefaultStandaloneBuilder().SetVersion("4.1.0").SetService("mysvc").Build()
+
+	client := newMockedClient(st)
+	client.StsCreationDelayMillis = 200
+	manager := newMockedManagerSpecificClient(client)
+
+	reconciler := newStandaloneReconciler(manager, om.NewEmptyMockedOmConnection)
+
+	checkReconcilePending(t, reconciler, st, "MongoDB dublin resource is reconciling", client)
+
+	InitDefaultEnvVariables()
 }
 
 // TestAddDeleteStandalone checks that no state is left in OpsManager on removal of the standalone
@@ -90,7 +124,8 @@ type StandaloneBuilder struct {
 func DefaultStandaloneBuilder() *StandaloneBuilder {
 	spec := v1.MongoDbSpec{
 		Version:    "4.0.0",
-		Persistent: util.BooleanRef(false),
+		Members:    1,
+		Persistent: util.BooleanRef(true),
 		ConnectionSpec: v1.ConnectionSpec{
 			OpsManagerConfig: v1.OpsManagerConfig{
 				ConfigMapRef: v1.ConfigMapRef{

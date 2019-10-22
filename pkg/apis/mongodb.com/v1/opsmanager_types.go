@@ -42,6 +42,18 @@ type MongoDBOpsManagerSpec struct {
 	// has the fields: "Username", "Password", "FirstName", "LastName"
 	AdminSecret string `json:"adminCredentials,omitempty"`
 	AppDB       AppDB  `json:"applicationDatabase"`
+
+	// Backup
+	Backup MongoDBOpsManagerBackup `json:"backup,omitempty"`
+}
+
+// MongoDBOpsManagerBackup backup structure for Ops Manager resources
+type MongoDBOpsManagerBackup struct {
+	// Enabled indicates if Backups will be enabled for this Ops Manager.
+	Enabled bool `json:"enabled,omitempty"`
+
+	// HeadDB specifies configuration options for the HeadDB
+	HeadDB PersistenceConfig `json:"headDB,omitempty"`
 }
 
 type MongoDBOpsManagerStatus struct {
@@ -167,7 +179,7 @@ func (m *MongoDBOpsManager) UpdateSuccessfulAppDb(object runtime.Object, args ..
 	spec := object.(*AppDB)
 
 	// assign all fields common to the different resource types
-	if len(args) >= DeploymentLinkIndex {
+	if len(args) >= DeploymentLinkIndex+1 {
 		m.Status.AppDbStatus.Link = args[DeploymentLinkIndex]
 	}
 	m.Status.AppDbStatus.Version = spec.Version
@@ -231,8 +243,8 @@ func (m *AppDB) ServiceName() string {
 	return m.Service
 }
 
-func (m *AppDB) MongosRsName() string {
-	return m.Name() + "-mongos"
+func (m *AppDB) AutomationConfigSecretName() string {
+	return m.Name() + "-config"
 }
 
 // todo these two methods are added only to make AppDB implement runtime.Object

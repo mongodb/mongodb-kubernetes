@@ -77,14 +77,9 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 
 	replicaBuilder := r.kubeHelper.NewStatefulSetHelper(rs).
 		SetService(rs.ServiceName()).
-		SetReplicas(rs.Spec.Members).
-		SetPersistence(rs.Spec.Persistent).
-		SetPodSpec(NewDefaultPodSpecWrapper(*rs.Spec.PodSpec)).
 		SetPodVars(podVars).
-		SetExposedExternally(rs.Spec.ExposedExternally).
 		SetLogger(log).
 		SetTLS(rs.Spec.GetTLSConfig()).
-		SetClusterName(rs.Spec.ClusterName).
 		SetProjectConfig(*projectConfig).
 		SetSecurity(rs.Spec.Security)
 
@@ -112,6 +107,11 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 			if err := replicaBuilder.CreateOrUpdateInKubernetes(); err != nil {
 				return failed("Failed to create/update (Kubernetes reconciliation phase): %s", err.Error())
 			}
+
+			if !r.kubeHelper.isStatefulSetUpdated(rs.Namespace, rs.Name, log) {
+				return pending(fmt.Sprintf("MongoDB %s resource is reconciling", rs.Name))
+			}
+
 			log.Info("Updated statefulsets for replica set")
 			return ok()
 		})

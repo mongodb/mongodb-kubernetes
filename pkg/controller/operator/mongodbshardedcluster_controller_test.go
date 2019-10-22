@@ -249,14 +249,14 @@ func TestPodAntiaffinity_MongodsInsideShardAreSpread(t *testing.T) {
 	firstShardSet := shardHelpers[0].BuildStatefulSet()
 	secondShardSet := shardHelpers[1].BuildStatefulSet()
 
-	assert.Equal(t, sc.ShardRsName(0), firstShardSet.Spec.Selector.MatchLabels[POD_ANTI_AFFINITY_LABEL_KEY])
-	assert.Equal(t, sc.ShardRsName(1), secondShardSet.Spec.Selector.MatchLabels[POD_ANTI_AFFINITY_LABEL_KEY])
+	assert.Equal(t, sc.ShardRsName(0), firstShardSet.Spec.Selector.MatchLabels[PodAntiAffinityLabelKey])
+	assert.Equal(t, sc.ShardRsName(1), secondShardSet.Spec.Selector.MatchLabels[PodAntiAffinityLabelKey])
 
 	firstShartPodAffinityTerm := firstShardSet.Spec.Template.Spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0].PodAffinityTerm
-	assert.Equal(t, firstShartPodAffinityTerm.LabelSelector.MatchLabels[POD_ANTI_AFFINITY_LABEL_KEY], sc.ShardRsName(0))
+	assert.Equal(t, firstShartPodAffinityTerm.LabelSelector.MatchLabels[PodAntiAffinityLabelKey], sc.ShardRsName(0))
 
 	secondShartPodAffinityTerm := secondShardSet.Spec.Template.Spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0].PodAffinityTerm
-	assert.Equal(t, secondShartPodAffinityTerm.LabelSelector.MatchLabels[POD_ANTI_AFFINITY_LABEL_KEY], sc.ShardRsName(1))
+	assert.Equal(t, secondShartPodAffinityTerm.LabelSelector.MatchLabels[PodAntiAffinityLabelKey], sc.ShardRsName(1))
 }
 
 func TestShardedCluster_WithTLSEnabled_AndX509Enabled_Succeeds(t *testing.T) {

@@ -95,14 +95,6 @@ func initializeEnvironment() {
 // env variables). Having the central place to manage defaults increases manageability and transparency of the application
 // Method initializes variables only in case they are not specified already.
 func initEnvVariables(env string) {
-	switch env {
-	case "prod":
-		util.EnsureEnvVar(util.PodWaitSecondsEnv, util.DefaultPodWaitSecondsProd)
-		util.EnsureEnvVar(util.PodWaitRetriesEnv, util.DefaultPodWaitRetriesProd)
-	case "dev", "local":
-		util.EnsureEnvVar(util.PodWaitSecondsEnv, util.DefaultPodWaitSecondsDev)
-		util.EnsureEnvVar(util.PodWaitRetriesEnv, util.DefaultPodWaitRetriesDev)
-	}
 	util.EnsureEnvVar(util.BackupDisableWaitSecondsEnv, util.DefaultBackupDisableWaitSeconds)
 	util.EnsureEnvVar(util.BackupDisableWaitRetriesEnv, util.DefaultBackupDisableWaitRetries)
 }

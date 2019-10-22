@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
@@ -53,6 +54,7 @@ type MockedClient struct {
 	configMaps       map[client.ObjectKey]apiruntime.Object
 	secrets          map[client.ObjectKey]apiruntime.Object
 	mongoDbResources map[client.ObjectKey]apiruntime.Object
+	opsManagers      map[client.ObjectKey]apiruntime.Object
 	csrs             map[client.ObjectKey]apiruntime.Object
 	users            map[client.ObjectKey]apiruntime.Object
 	// mocked client keeps track of all implemented functions called - uses reflection Func for this to enable type-safety
@@ -76,6 +78,8 @@ func newMockedClientDelayed(object apiruntime.Object, delayMillis time.Duration)
 
 // newMockedClientDetailed creates mocked Kubernetes client adding the kubernetes 'object' in parallel. This is necessary
 // as in new controller-runtime library reconciliation code fetches the existing object so it should be added beforehand
+// TODO this is a pure design as we ALWAYS create the configmap and secret (though ops manager for example doesn't need it
+// - this needs to be refactored)
 func newMockedClientDetailed(object apiruntime.Object, projectName, organizationId string) *MockedClient {
 	api := MockedClient{}
 	api.sets = make(map[client.ObjectKey]apiruntime.Object)
@@ -83,6 +87,7 @@ func newMockedClientDetailed(object apiruntime.Object, projectName, organization
 	api.configMaps = make(map[client.ObjectKey]apiruntime.Object)
 	api.secrets = make(map[client.ObjectKey]apiruntime.Object)
 	api.mongoDbResources = make(map[client.ObjectKey]apiruntime.Object)
+	api.opsManagers = make(map[client.ObjectKey]apiruntime.Object)
 	api.csrs = make(map[client.ObjectKey]apiruntime.Object)
 	api.users = make(map[client.ObjectKey]apiruntime.Object)
 
@@ -134,7 +139,7 @@ func (k *MockedClient) Get(ctx context.Context, key client.ObjectKey, obj apirun
 	resMap := k.getMapForObject(obj)
 	k.addToHistory(reflect.ValueOf(k.Get), obj)
 	if _, exists := resMap[key]; !exists {
-		return fmt.Errorf("%T %s doesn't exists!", obj, key)
+		return &errors.StatusError{ErrStatus: metav1.Status{Reason: metav1.StatusReasonNotFound}}
 	}
 	// Golang cannot update pointers if they are declared as interfaces... Have to use reflection
 	//*obj = *(resMap[key])
@@ -153,6 +158,7 @@ func (k *MockedClient) List(ctx context.Context, list apiruntime.Object, opts ..
 
 // Create saves the object obj in the Kubernetes cluster.
 func (k *MockedClient) Create(ctx context.Context, obj apiruntime.Object, opts ...client.CreateOption) error {
+	obj = obj.DeepCopyObject()
 	key := objectKeyFromApiObject(obj)
 	resMap := k.getMapForObject(obj)
 	k.addToHistory(reflect.ValueOf(k.Create), obj)
@@ -189,6 +195,7 @@ func (k *MockedClient) Create(ctx context.Context, obj apiruntime.Object, opts .
 // Update updates the given obj in the Kubernetes cluster. obj must be a
 // struct pointer so that obj can be updated with the content returned by the Server.
 func (k *MockedClient) Update(ctx context.Context, obj apiruntime.Object, opts ...client.UpdateOption) error {
+	obj = obj.DeepCopyObject()
 	k.addToHistory(reflect.ValueOf(k.Update), obj)
 	if k.UpdateFunc != nil {
 		return k.UpdateFunc(ctx, obj)
@@ -280,6 +287,8 @@ func (oc *MockedClient) getMapForObject(obj apiruntime.Object) map[client.Object
 		return oc.csrs
 	case *v1.MongoDBUser:
 		return oc.users
+	case *v1.MongoDBOpsManager:
+		return oc.opsManagers
 	}
 	return nil
 }
@@ -312,13 +321,24 @@ func (oc *MockedClient) CheckNumberOfOperations(t *testing.T, value *HistoryItem
 func (oc *MockedClient) CheckOperationsDidntHappen(t *testing.T, value ...*HistoryItem) {
 	for _, h := range oc.history {
 		for _, o := range value {
-			assert.NotEqual(t, o, h, "Operation %v is not expected to happen", h)
+			if *h == *o {
+				assert.Fail(t, "Operation is not expected to happen", "%v is not expected to happen", *h)
+			}
 		}
 	}
 }
 
+func (oc *MockedClient) ClearHistory() {
+	oc.history = []*HistoryItem{}
+}
+
 func (oc *MockedClient) getSet(key client.ObjectKey) *appsv1.StatefulSet {
 	return oc.sets[key].(*appsv1.StatefulSet)
+}
+
+// convenience method to get a helper from the mocked client
+func (oc *MockedClient) helper() *KubeHelper {
+	return &KubeHelper{oc}
 }
 
 // HistoryItem is an item that describe the invocation of 'client.client' method.

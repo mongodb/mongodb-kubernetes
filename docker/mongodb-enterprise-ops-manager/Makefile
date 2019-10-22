@@ -1,13 +1,13 @@
 IMAGE = mongodb-enterprise-ops-manager
 # Image version can be picked from the download url - just remove "mongodb-mms_" prefix and "_x86_64.deb" suffix
-IMAGE_VERSION=4.0.12
+IMAGE_VERSION=4.2.2
 IMAGE_DIR = dev
 CONTAINER = ops_manager
 AWS_IMAGE_REPO = 268558157000.dkr.ecr.us-east-1.amazonaws.com
-AWS_IMAGE_REPO = dev
+# AWS_IMAGE_REPO =
 AWS_REGION = us-east-1
 OM_DOWNLOAD_LOCATION = https://downloads.mongodb.com/on-prem-mms/deb
-OM_DOWNLOAD_VERSION = 4.0.12.50517.20190605T1533Z-1
+OM_DOWNLOAD_VERSION = 4.2.2.56673.20191001T1459Z-1
 APPDB_PORT = 27017
 IP = $(shell ifconfig | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1' | head -1)
 IMAGE_TYPE = ubuntu
@@ -24,7 +24,8 @@ usage:
 	@ echo "  pull:                  pulls the image from the configured Docker registry"
 	@ echo "  push:                  pushes the image to the configured Docker registry"
 	@ echo
-	@ echo "  run:                   runs the image in a new container"
+	@ echo "  run:                   runs the image in a new container. Note, that you must start mongo database on port"
+	@ echo "                         'APPDB_PORT' (default 27017) beforehand"
 	@ echo "  start:                 (re)starts an existing container"
 	@ echo "  stop:                  stops a running container, if one exists"
 	@ echo "  restart:               stops any running containers, then restarts"

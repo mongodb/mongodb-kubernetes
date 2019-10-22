@@ -5,6 +5,7 @@ metadata:
 spec:
   version: 4.2.0
   adminCredentials: ops-manager-admin
+
   configuration:
     mms.fromEmailAddr: "admin@thecompany.com"
 

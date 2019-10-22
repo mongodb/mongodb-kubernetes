@@ -21,11 +21,11 @@ import (
 )
 
 const (
-	APP_LABEL_KEY = "app"
+	AppLabelKey = "app"
 	// The label that defines the anti affinity rule label. The main rule is to spread entities inside one statefulset
 	// (aka replicaset) to different locations, so pods having the same label shouldn't coexist on the node that has
 	// the same topology key
-	POD_ANTI_AFFINITY_LABEL_KEY = "pod-anti-affinity"
+	PodAntiAffinityLabelKey = "pod-anti-affinity"
 
 	// SecretVolumeMountPath defines where in the Pod will be the secrets
 	// object mounted.
@@ -52,6 +52,13 @@ const (
 
 	// CaCertVolumeName is the name of the volume with the CA Cert
 	CaCertName = "ca-cert-volume"
+
+	// AgentLibPath defines the base path for agent configuration files including the automation
+	// config file for the headless agent,
+	AgentLibPath = "/var/lib/mongodb-automation/"
+
+	// ClusterConfigVolumeName is the name of the volume resource.
+	ClusterConfigVolumeName = "cluster-config"
 )
 
 // PodVars is a convenience struct to pass environment variables to Pods as needed.
@@ -67,34 +74,38 @@ type PodVars struct {
 	mongodb.SSLProjectConfig
 }
 
-// buildStatefulSet builds the statefulset of pods containing agent containers. It's a general function used by
-// all the types of mongodb deployment resources.
-// This is a convenience method to pass all attributes inside a "parameters" object which is easier to
-// build in client code and avoid passing too many different parameters to `buildStatefulSet`.
-func buildStatefulSet(p StatefulSetHelper) *appsv1.StatefulSet {
-	labels := map[string]string{
-		APP_LABEL_KEY:               p.Service,
-		"controller":                util.OmControllerLabel,
-		POD_ANTI_AFFINITY_LABEL_KEY: p.Name,
+// createDatabaseStatefulSet is a general function for building the database StatefulSet.
+// Reused for building an appdb StatefulSet and a normal mongodb StatefulSet
+func createDatabaseStatefulSet(p StatefulSetHelper, podSpec corev1.PodSpec) *appsv1.StatefulSet {
+	// ssLabels are labels we set to the StatefulSet
+	ssLabels := map[string]string{
+		AppLabelKey: p.Service,
+	}
+	// podLabels are labels we set to StatefulSet Selector and Template.Meta
+	podLabels := map[string]string{
+		AppLabelKey:             p.Service,
+		"controller":            util.OmControllerLabel,
+		PodAntiAffinityLabelKey: p.Name,
 	}
 
 	set := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            p.Name,
 			Namespace:       p.Namespace,
+			Labels:          ssLabels,
 			OwnerReferences: baseOwnerReference(p.Owner),
 		},
 		Spec: appsv1.StatefulSetSpec{
 			ServiceName: p.Service,
 			Replicas:    util.Int32Ref(int32(p.Replicas)),
 			Selector: &metav1.LabelSelector{
-				MatchLabels: labels,
+				MatchLabels: podLabels,
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
+					Labels: podLabels,
 				},
-				Spec: basePodSpec(p.Name, p.PodSpec, p.PodVars),
+				Spec: podSpec,
 			},
 		},
 	}
@@ -108,12 +119,46 @@ func buildStatefulSet(p StatefulSetHelper) *appsv1.StatefulSet {
 	return set
 }
 
-// todo refactor - merge with 'buildStatefulSet'
+// buildStatefulSet builds the StatefulSet of pods containing agent containers. It's a general function used by
+// all the types of mongodb deployment resources.
+// This is a convenience method to pass all attributes inside a "parameters" object which is easier to
+// build in client code and avoid passing too many different parameters to `buildStatefulSet`.
+func buildStatefulSet(p StatefulSetHelper) *appsv1.StatefulSet {
+	return createDatabaseStatefulSet(p, basePodSpec(p.Name, p.PodSpec, p.PodVars))
+}
+
+// buildAppDbStatefulSet builds the StatefulSet for AppDB.
+// It's mostly the same as the normal Mongodb one but had a different pod spec and an additional mounting volume
+func buildAppDbStatefulSet(p StatefulSetHelper) *appsv1.StatefulSet {
+	set := createDatabaseStatefulSet(p, baseAppDbPodSpec(p.Name, p.PodSpec, p.Version))
+
+	// cluster config mount
+	mountVolume(volumeMountData{
+		volumeMountName:  ClusterConfigVolumeName,
+		volumeMountPath:  AgentLibPath,
+		volumeName:       ClusterConfigVolumeName,
+		volumeSourceType: corev1.ConfigMapVolumeSource{},
+		volumeSourceName: p.Name + "-config",
+	}, set)
+
+	return set
+}
+
+// TODO refactor - merge with 'buildStatefulSet'
 func buildOpsManagerStatefulSet(p OpsManagerStatefulSetHelper) *appsv1.StatefulSet {
 	labels := map[string]string{
-		APP_LABEL_KEY:               p.Service,
-		"controller":                util.OmControllerLabel,
-		POD_ANTI_AFFINITY_LABEL_KEY: p.Name,
+		AppLabelKey:             p.Service,
+		"controller":            util.OmControllerLabel,
+		PodAntiAffinityLabelKey: p.Name,
+	}
+
+	if p.IsBackupDaemon {
+		p.EnvVars = append(p.EnvVars, corev1.EnvVar{
+			// For the OM Docker image to run as Backup Daemon, the BACKUP_DAEMON env variable
+			// needs to be passed with any value.
+			Name:  "BACKUP_DAEMON",
+			Value: "backup",
+		})
 	}
 
 	set := &appsv1.StatefulSet{
@@ -137,21 +182,38 @@ func buildOpsManagerStatefulSet(p OpsManagerStatefulSetHelper) *appsv1.StatefulS
 		},
 	}
 
+	if p.IsBackupDaemon {
+		// backup daemon needs head db, this is set to some default value for now.
+		// `kind` only supports a "default" storageclass
+		defaultConfig := &mongodb.PersistenceConfig{
+			Storage:      p.Storage,
+			StorageClass: &p.StorageClass,
+		}
+		set.Spec.VolumeClaimTemplates = append(
+			set.Spec.VolumeClaimTemplates,
+			*pvc("head", defaultConfig, defaultConfig),
+		)
+		set.Spec.Template.Spec.Containers[0].VolumeMounts = append(
+			set.Spec.Template.Spec.Containers[0].VolumeMounts,
+			*mount("head", "/head", ""),
+		)
+	}
+
 	mountVolume(volumeMountData{
 		volumeMountName:  "gen-key",
 		volumeMountPath:  util.GenKeyPath,
 		volumeName:       "gen-key",
 		volumeSourceType: corev1.SecretVolumeSource{},
-		volumeSourceName: set.Name + "-gen-key",
+		volumeSourceName: p.Owner.GetName() + "-gen-key",
 	}, set)
 
 	return set
 }
 
 // volumeMountData is a wrapper around all the fields required to
-// mount a volume
+// mount a volume.
 type volumeMountData struct {
-	volumeMountName  string
+	volumeMountName  string // TODO remove - it's always equal to the volume name
 	volumeMountPath  string
 	volumeName       string
 	volumeSourceType interface{}
@@ -316,10 +378,10 @@ func buildService(service *corev1.Service, namespacedName types.NamespacedName, 
 	// attributes from the subobject that we don't know about.
 	service.ObjectMeta.Name = namespacedName.Name
 	service.ObjectMeta.Namespace = namespacedName.Namespace
-	service.ObjectMeta.Labels = map[string]string{APP_LABEL_KEY: label}
+	service.ObjectMeta.Labels = map[string]string{AppLabelKey: label}
 	service.ObjectMeta.OwnerReferences = baseOwnerReference(owner)
 
-	service.Spec.Selector = map[string]string{APP_LABEL_KEY: label}
+	service.Spec.Selector = map[string]string{AppLabelKey: label}
 	service.Spec.Type = serviceType
 	service.Spec.Ports = []corev1.ServicePort{servicePort}
 
@@ -341,31 +403,10 @@ func baseOwnerReference(owner Updatable) []metav1.OwnerReference {
 	}
 }
 
-// basePodSpec creates the standard Pod definition which uses the database container for managing mongod/mongos
-// instances. Parameters to the container will be passed as environment variables which values are contained
-// in the PodVars structure.
-func basePodSpec(statefulSetName string, reqs mongodb.PodSpecWrapper, podVars *PodVars) corev1.PodSpec {
+// createBaseDbPodSpec is a base pod spec build for both AppDB and MongoDB
+func createBaseDbPodSpec(container corev1.Container, statefulSetName string, reqs mongodb.PodSpecWrapper) corev1.PodSpec {
 	spec := corev1.PodSpec{
-		Containers: []corev1.Container{
-			{
-				Name:            util.ContainerName,
-				Image:           util.ReadEnvVarOrPanic(util.AutomationAgentImageUrl),
-				ImagePullPolicy: corev1.PullPolicy(util.ReadEnvVarOrPanic(util.AutomationAgentImagePullPolicy)),
-				Env:             baseEnvFrom(podVars),
-				Ports:           []corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort}},
-				Resources: corev1.ResourceRequirements{
-					// Setting limits only sets "requests" to the same value (but not vice versa)
-					// This seems as a fair trade off as having these values different may result in incorrect wiredtiger
-					// cache (e.g too small: it was configured for "request" memory size and then container
-					// memory grew to "limit", too big: wired tiger cache was configured by "limit" by the real memory for
-					// container is at "resource" values)
-					Limits:   buildLimitsRequirements(reqs),
-					Requests: buildRequestsRequirements(reqs),
-				},
-				LivenessProbe:  baseLivenessProbe(),
-				ReadinessProbe: baseReadinessProbe(),
-			},
-		},
+		Containers: []corev1.Container{container},
 		Affinity: &corev1.Affinity{
 			NodeAffinity: reqs.NodeAffinity,
 			PodAffinity:  reqs.PodAffinity,
@@ -401,7 +442,7 @@ func basePodSpec(statefulSetName string, reqs mongodb.PodSpecWrapper, podVars *P
 			// it to 100
 			Weight: 100,
 			PodAffinityTerm: corev1.PodAffinityTerm{
-				LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{POD_ANTI_AFFINITY_LABEL_KEY: statefulSetName}},
+				LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{PodAntiAffinityLabelKey: statefulSetName}},
 				// If PodAntiAffinityTopologyKey config property is empty - then it's ok to use some default (even for standalones)
 				TopologyKey: reqs.GetTopologyKeyOrDefault(),
 			},
@@ -411,19 +452,82 @@ func basePodSpec(statefulSetName string, reqs mongodb.PodSpecWrapper, podVars *P
 	return spec
 }
 
+// basePodSpec creates the standard Pod definition which uses the database container for managing mongod/mongos
+// instances. Parameters to the container will be passed as environment variables which values are contained
+// in the PodVars structure.
+func basePodSpec(statefulSetName string, reqs mongodb.PodSpecWrapper, podVars *PodVars) corev1.PodSpec {
+	container := corev1.Container{
+		Name:            util.ContainerName,
+		Image:           util.ReadEnvVarOrPanic(util.AutomationAgentImageUrl),
+		ImagePullPolicy: corev1.PullPolicy(util.ReadEnvVarOrPanic(util.AutomationAgentImagePullPolicy)),
+		Env:             baseEnvFrom(podVars),
+		Ports:           []corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort}},
+		Resources: corev1.ResourceRequirements{
+			// Setting limits only sets "requests" to the same value (but not vice versa)
+			// This seems as a fair trade off as having these values different may result in incorrect wiredtiger
+			// cache (e.g too small: it was configured for "request" memory size and then container
+			// memory grew to "limit", too big: wired tiger cache was configured by "limit" by the real memory for
+			// container is at "resource" values)
+			Limits:   buildLimitsRequirements(reqs),
+			Requests: buildRequestsRequirements(reqs),
+		},
+		LivenessProbe:  baseLivenessProbe(),
+		ReadinessProbe: baseReadinessProbe(),
+	}
+	return createBaseDbPodSpec(container, statefulSetName, reqs)
+}
+
+// baseAppDbPodSpec creates the AppDB pod template. The container spec is mostly the same as for the MongoDB one -
+// just different url and readiness probe
+func baseAppDbPodSpec(statefulSetName string, reqs mongodb.PodSpecWrapper, version string) corev1.PodSpec {
+	appdbImageUrl := fmt.Sprintf("%s:%s", util.ReadEnvVarOrPanic(util.AppDBImageUrl), version)
+	container := corev1.Container{
+		Name:            util.ContainerAppDbName,
+		Image:           appdbImageUrl,
+		ImagePullPolicy: corev1.PullPolicy(util.ReadEnvVarOrPanic(util.AutomationAgentImagePullPolicy)),
+		Env:             appdbContainerEnv(statefulSetName),
+		Ports:           []corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort}},
+		Resources: corev1.ResourceRequirements{
+			Limits:   buildLimitsRequirements(reqs),
+			Requests: buildRequestsRequirements(reqs),
+		},
+		LivenessProbe:  baseLivenessProbe(),
+		ReadinessProbe: baseAppDbReadinessProbe(),
+	}
+
+	podSpec := createBaseDbPodSpec(container, statefulSetName, reqs)
+
+	// AppDB must run under a dedicated account with special readConfigMap permissions
+	podSpec.ServiceAccountName = util.AppDBServiceAccount
+	return podSpec
+}
+
+func appdbContainerEnv(statefulSetName string) []corev1.EnvVar {
+	return []corev1.EnvVar{
+		{
+			Name:      util.ENV_POD_NAMESPACE,
+			ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"}},
+		},
+		{
+			Name: util.ENV_AUTOMATION_CONFIG_MAP,
+			// not critical but would be nice to reuse `AppDB.AutomationConfigSecretName`
+			Value: statefulSetName + "-config",
+		},
+		{
+			Name:  util.ENV_HEADLESS_AGENT,
+			Value: "true",
+		},
+	}
+}
+
 func opsManagerPodSpec(envVars []corev1.EnvVar, version string) corev1.PodSpec {
-	// todo memory must be a configurable parameter (must also affect the JVM parameters for starting the OM instance)
+	// TODO memory must be a configurable parameter (must also affect the JVM parameters for starting the OM instance)
 	// let's have it hardcoded for alpha
 	var defaultMemory resource.Quantity
 	if q := parseQuantityOrZero("5G"); !q.IsZero() {
 		defaultMemory = q
 	}
 
-	// Need to specify the "MANAGED_APP_DB" env property to "enable" managed AppDB mode for the container
-	envVars = append(envVars, corev1.EnvVar{
-		Name:  util.ENV_VAR_MANAGED_DB,
-		Value: "true",
-	})
 	sort.Sort(&envVarSorter{envVars: envVars})
 	omImageUrl := fmt.Sprintf("%s:%s", util.ReadEnvVarOrPanic(util.OpsManagerImageUrl), version)
 	spec := corev1.PodSpec{
@@ -506,7 +610,25 @@ func baseReadinessProbe() *corev1.Probe {
 			Exec: &corev1.ExecAction{Command: []string{util.ReadinessProbe}},
 		},
 		// Setting the failure threshold to quite big value as the agent may spend some time to reach the goal
-		FailureThreshold: 24,
+		FailureThreshold: 240,
+		// The agent may be not on time to write the status file right after the container is created - we need to wait
+		// for some time
+		InitialDelaySeconds: 5,
+		PeriodSeconds:       5,
+	}
+}
+func baseAppDbReadinessProbe() *corev1.Probe {
+	return &corev1.Probe{
+		Handler: corev1.Handler{
+			Exec: &corev1.ExecAction{Command: []string{util.ReadinessProbe}},
+		},
+		// Need to set to 1 to make readiness "interactive" and to indicate whether the agent has reached the goal or not
+		FailureThreshold: 1,
+		// The agent may be not on time to write the status file right after the container is created - we need to wait
+		// for some time (todo check this)
+		InitialDelaySeconds: 5,
+		// We need more frequent check to provide faster response to the Operator
+		PeriodSeconds: 5,
 	}
 }
 
@@ -609,6 +731,9 @@ func createBackwordCompatibleConfig(p StatefulSetHelper) *mongodb.PersistenceCon
 	return &mongodb.PersistenceConfig{Storage: p.PodSpec.Storage, StorageClass: &p.PodSpec.StorageClass}
 }
 
+// pvc convenience function to build a PersistentVolumeClaim.
+//
+// TODO: Describe why this function receives 2 "configs"
 func pvc(name string, config, defaultConfig *mongodb.PersistenceConfig) *corev1.PersistentVolumeClaim {
 	claim := corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
@@ -627,6 +752,7 @@ func pvc(name string, config, defaultConfig *mongodb.PersistenceConfig) *corev1.
 	return &claim
 }
 
+// mount convenience function to build a VolumeMount.
 func mount(name, path, subpath string) *corev1.VolumeMount {
 	volumeMount := &corev1.VolumeMount{
 		Name:      name,

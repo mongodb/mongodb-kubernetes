@@ -51,11 +51,14 @@ const (
 	SSLMMSCALocation = "/mongodb-automation/certs/ca.crt"
 
 	// Env variables names for pods
-	ENV_VAR_BASE_URL      = "BASE_URL"
-	ENV_VAR_PROJECT_ID    = "GROUP_ID"
-	ENV_VAR_USER          = "USER_LOGIN"
-	ENV_VAR_AGENT_API_KEY = "AGENT_API_KEY"
-	ENV_VAR_LOG_LEVEL     = "LOG_LEVEL"
+	ENV_VAR_BASE_URL          = "BASE_URL"
+	ENV_VAR_PROJECT_ID        = "GROUP_ID"
+	ENV_VAR_USER              = "USER_LOGIN"
+	ENV_VAR_AGENT_API_KEY     = "AGENT_API_KEY"
+	ENV_VAR_LOG_LEVEL         = "LOG_LEVEL"
+	ENV_POD_NAMESPACE         = "POD_NAMESPACE"
+	ENV_AUTOMATION_CONFIG_MAP = "AUTOMATION_CONFIG_MAP"
+	ENV_HEADLESS_AGENT        = "HEADLESS_AGENT"
 
 	// EnvVarSSLRequireValidMMSCertificates bla bla
 	EnvVarSSLRequireValidMMSCertificates = "SSL_REQUIRE_VALID_MMS_CERTIFICATES"
@@ -66,6 +69,7 @@ const (
 	// Pod/StatefulSet specific constants
 	OpsManagerName              = "mongodb-ops-manager"
 	ContainerName               = "mongodb-enterprise-database"
+	ContainerAppDbName          = "mongodb-enterprise-appdb"
 	OmControllerLabel           = "mongodb-enterprise-operator"
 	LivenessProbe               = "/mongodb-automation/files/probe.sh"
 	ReadinessProbe              = "/mongodb-automation/files/readinessprobe"
@@ -88,6 +92,7 @@ const (
 	BackupAgentPemFilePath      = "/mongodb-automation/" + AgentSecretName + "/" + BackupAgentPemSecretKey
 	RunAsUser                   = 2000
 	FsGroup                     = 2000
+	AppDBServiceAccount         = "mongodb-enterprise-appdb"
 
 	// Authentication
 
@@ -133,40 +138,42 @@ const (
 	AutomationAgentImagePullPolicy = "IMAGE_PULL_POLICY"
 	AutomationAgentPullSecrets     = "IMAGE_PULL_SECRETS"
 	OmOperatorEnv                  = "OPERATOR_ENV"
-	PodWaitSecondsEnv              = "POD_WAIT_SEC"
-	PodWaitRetriesEnv              = "POD_WAIT_RETRIES"
 	BackupDisableWaitSecondsEnv    = "BACKUP_WAIT_SEC"
 	BackupDisableWaitRetriesEnv    = "BACKUP_WAIT_RETRIES"
 	ManagedSecurityContextEnv      = "MANAGED_SECURITY_CONTEXT"
+	AppDBImageUrl                  = "APP_DB_IMAGE_REPOSITORY"
+	CurrentNamespace               = "CURRENT_NAMESPACE"
 
 	// Different default configuration values
-	DefaultMongodStorageSize       = "16G"
-	DefaultConfigSrvStorageSize    = "5G"
-	DefaultJournalStorageSize      = "1G" // maximum size for single journal file is 100Mb, journal files are removed soon after checkpoints
-	DefaultLogsStorageSize         = "3G"
-	DefaultAntiAffinityTopologyKey = "kubernetes.io/hostname"
-	MongoDbDefaultPort             = 27017
-	OpsManagerDefaultPort          = 8080
-	// 60 * 3 = 180 seconds = 3 min - should be in general enough for a couple of PVCs to be bound but not too long to
-	// block waiting reconciliations
-	DefaultPodWaitSecondsProd          = "3"
-	DefaultPodWaitRetriesProd          = "60"
-	DefaultPodWaitSecondsDev           = "3"
-	DefaultPodWaitRetriesDev           = "60" // This needs to be bigger for the extreme case when 3 PVs are mounted
+	DefaultMongodStorageSize           = "16G"
+	DefaultConfigSrvStorageSize        = "5G"
+	DefaultJournalStorageSize          = "1G" // maximum size for single journal file is 100Mb, journal files are removed soon after checkpoints
+	DefaultLogsStorageSize             = "3G"
+	DefaultAntiAffinityTopologyKey     = "kubernetes.io/hostname"
+	MongoDbDefaultPort                 = 27017
+	OpsManagerDefaultPort              = 8080
 	DefaultBackupDisableWaitSeconds    = "3"
 	DefaultBackupDisableWaitRetries    = "30" // 30 * 3 = 90 seconds, should be ok for backup job to terminate
 	DefaultPodTerminationPeriodSeconds = 600  // 10 min
+	DefaultK8sCacheRefreshTimeSeconds  = 2
 
 	// Ops Manager related constants
 	OmPropertyPrefix   = "OM_PROP_"
 	GenKeyPath         = "/etc/mongodb-mms"
 	ENV_VAR_MANAGED_DB = "MANAGED_APP_DB"
+	LatestOmVersion    = "4.2"
 
 	// Ops Manager configuration properties
 	MmsCentralUrlPropKey = "mms.centralUrl"
 	MmsManagedAppDB      = "mms.managedAppDb"
 	MmsTempAppDB         = "mms.temp.appDb.version"
 	MmsMongoUri          = "mongo.mongoUri"
+
+	// Env variables used for testing mostly to decrease waiting time
+	PodWaitSecondsEnv     = "POD_WAIT_SEC"
+	PodWaitRetriesEnv     = "POD_WAIT_RETRIES"
+	K8sCacheRefreshEnv    = "K8S_CACHES_REFRESH_TIME_SEC"
+	AppDBReadinessWaitEnv = "APPDB_STATEFULSET_WAIT_SEC"
 
 	// All others
 	OmGroupExternallyManagedTag = "EXTERNALLY_MANAGED_BY_KUBERNETES"

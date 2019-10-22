@@ -26,9 +26,37 @@ done
 # todo seems some properties in mms.conf can also be updated (jvm Xmx for example) depending on the configuration
 # we can follow the same approach as for conf.properties - just use another prefix
 
-echo "Starting Ops Manager..."
-
-# only start Ops Manager
-/etc/init.d/mongodb-mms start_mms
 log_dir="/opt/mongodb/mms/logs"
-tail -F "${log_dir}/mms0.log" "${log_dir}/mms0-startup.log" "${log_dir}/mms0-access.log" "${log_dir}/mms-migration.log"
+
+if [[ -z ${BACKUP_DAEMON+x} ]]; then
+    echo "Starting Ops Manager"
+    /etc/init.d/mongodb-mms start_mms || {
+      echo "Startup of Ops Manager failed with code $?"
+      if [[ -f ${log_dir}/mms0-startup.log ]]; then
+        echo
+        echo "mms0-startup.log:"
+        echo
+        cat "${log_dir}/mms0-startup.log"
+      fi
+      if [[ -f ${log_dir}/mms0.log ]]; then
+        echo
+        echo "mms0.log:"
+        echo
+        cat "${log_dir}/mms0.log"
+      fi
+      if [[ -f ${log_dir}/mms-migration.log ]]; then
+        echo
+        echo "mms-migration.log"
+        echo
+        cat "${log_dir}/mms-migration.log"
+      fi
+      exit 1
+    }
+
+    tail -F -n 1000 "${log_dir}/mms0.log" "${log_dir}/mms0-startup.log" "${log_dir}/mms-migration.log"
+else
+    echo "Starting Ops Manager Backup Daemon"
+    /etc/init.d/mongodb-mms start_backup_daemon
+
+    tail -F "${log_dir}/daemon.log"
+fi

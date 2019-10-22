@@ -370,6 +370,20 @@ spec:
           properties:
             version:
               type: string
+            backup:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+
+                headDB:
+                  type: object
+                  properties:
+                    storage:
+                      type: string
+                    storageClass:
+                      type: string
+
             applicationDatabase:
               type: object
               properties:
@@ -383,9 +397,6 @@ spec:
                 logLevel:
                   type: string
                   enum: ["DEBUG", "INFO", "WARN", "ERROR", "FATAL"]
-                type:
-                  type: string
-                  enum: ["ReplicaSet"]
                 exposedExternally:
                   type: boolean
               required:

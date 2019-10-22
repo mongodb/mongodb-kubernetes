@@ -7,7 +7,7 @@ source scripts/dev/set_env_context
 
 title "Building Ops Manager image..."
 
-check_mandatory_param "${1-}" "image_version"
+check_mandatory_param "${1-}" "om_version"
 check_mandatory_param "${2-}" "download_version"
 
 image_version="$1"

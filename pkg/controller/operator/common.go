@@ -124,10 +124,13 @@ func waitForRsAgentsToRegister(set *appsv1.StatefulSet, clusterName string, omCo
 
 // waitUntilAgentsHaveRegistered waits until all agents with 'agentHostnames' are registered in OM. Note, that wait
 // happens after retrial - this allows to skip waiting in case agents are already registered
+// TODO in practice "pods are ready" usually signals that the agents are registered already - we need to consider
+// removing this in future
 func waitUntilAgentsHaveRegistered(omConnection om.Connection, log *zap.SugaredLogger, agentHostnames ...string) bool {
 	log.Infow("Waiting for agents to register with OM", "agent hosts", agentHostnames)
-	waitSeconds := util.ReadEnvVarOrPanicInt(util.PodWaitSecondsEnv)
-	retrials := util.ReadEnvVarOrPanicInt(util.PodWaitRetriesEnv)
+	// environment variables are used only for tests
+	waitSeconds := util.ReadEnvVarIntOrDefault(util.PodWaitSecondsEnv, 3)
+	retrials := util.ReadEnvVarIntOrDefault(util.PodWaitRetriesEnv, 5)
 
 	agentsCheckFunc := func() (string, bool) {
 		registeredCount := 0
@@ -330,7 +333,7 @@ func toInternalClusterAuthName(name string) string {
 
 // operatorNamespace returns the current namespace where the Operator is deployed
 func operatorNamespace() string {
-	return util.ReadEnvVarOrPanic("CURRENT_NAMESPACE")
+	return util.ReadEnvVarOrPanic(util.CurrentNamespace)
 }
 
 // runInGivenOrder will execute N functions, passed as varargs as `funcs`. The order of execution will depend on the result

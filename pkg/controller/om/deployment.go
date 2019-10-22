@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 
+	"github.com/spf13/cast"
 	"go.uber.org/zap"
 
 	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
@@ -37,6 +38,12 @@ func init() {
 	gob.Register([]interface{}{})
 	gob.Register(map[string]int{})
 	gob.Register(map[string]string{})
+	gob.Register([]interface{}{})
+	gob.Register([]Process{})
+	gob.Register([]ReplicaSet{})
+	gob.Register([]ReplicaSetMember{})
+	gob.Register([]ShardedCluster{})
+	gob.Register([]MongoDbVersionConfig{})
 	gob.Register(ProcessTypeMongos)
 
 	gob.Register(mongodb.RequireSSLMode)
@@ -73,8 +80,6 @@ func NewDeployment() Deployment {
 	ans.setShardedClusters(make([]ShardedCluster, 0))
 	ans.setMonitoringVersions(make([]interface{}, 0))
 	ans.setBackupVersions(make([]interface{}, 0))
-	ans.setAuth(make(map[string]interface{}))
-	ans.setAgentSSL(make(map[string]interface{}))
 	return ans
 }
 
@@ -373,6 +378,74 @@ func (d Deployment) ExistingProcessesHaveInternalClusterAuthentication(processes
 	return d.processesHaveInternalClusterAuthentication(deploymentProcesses)
 }
 
+func (d Deployment) Serialize() ([]byte, error) {
+	return json.Marshal(d)
+}
+
+// ToCanonicalForm performs serialization/deserialization to get a map without struct members
+// This may be useful if the Operator version of Deployment (which may contain structs) needs to be compared with
+// a deployment deserialized from json
+func (d Deployment) ToCanonicalForm() Deployment {
+	bytes, err := d.Serialize()
+	if err != nil {
+		// dev error
+		panic(err)
+	}
+	var canonical Deployment
+	canonical, err = BuildDeploymentFromBytes(bytes)
+	if err != nil {
+		panic(err)
+	}
+	return canonical
+}
+
+func (d Deployment) Version() int64 {
+	if _, ok := d["version"]; !ok {
+		return -1
+	}
+	return cast.ToInt64(d["version"])
+}
+
+// Debug
+func (d Deployment) Debug(l *zap.SugaredLogger) {
+	dep := Deployment{}
+	for key, value := range d {
+		if key != "mongoDbVersions" {
+			dep[key] = value
+		}
+	}
+	b, err := json.MarshalIndent(dep, "", "  ")
+	if err != nil {
+		fmt.Println("error:", err)
+	}
+	l.Debug(">> Deployment: ", string(b))
+}
+
+// ProcessesCopy returns the COPY of processes in the deployment.
+func (d Deployment) ProcessesCopy() []Process {
+	return d.deepCopy().getProcesses()
+}
+
+// ReplicaSetsCopy returns the COPY of replicasets in the deployment.
+func (d Deployment) ReplicaSetsCopy() []ReplicaSet {
+	return d.deepCopy().getReplicaSets()
+}
+
+// ShardedClustersCopy returns the COPY of sharded clusters in the deployment.
+func (d Deployment) ShardedClustersCopy() []ShardedCluster {
+	return d.deepCopy().getShardedClusters()
+}
+
+// MonitoringVersionsCopy returns the COPY of monitoring versions in the deployment.
+func (d Deployment) MonitoringVersionsCopy() []interface{} {
+	return d.deepCopy().getMonitoringVersions()
+}
+
+// BackupVersionsCopy returns the COPY of backup versions in the deployment.
+func (d Deployment) BackupVersionsCopy() []interface{} {
+	return d.deepCopy().getBackupVersions()
+}
+
 // ***************************************** Private methods ***********************************************************
 
 func (d Deployment) getReplicaSetProcessNames(name string) []string {
@@ -396,23 +469,6 @@ func (d Deployment) getShardedClusterProcessNames(name string) []string {
 	}
 	return processNames
 }
-
-// Debug
-func (d Deployment) Debug(l *zap.SugaredLogger) {
-	dep := Deployment{}
-	for key, value := range d {
-		if key != "mongoDbVersions" {
-			dep[key] = value
-		}
-	}
-	b, err := json.MarshalIndent(dep, "", "  ")
-	if err != nil {
-		fmt.Println("error:", err)
-	}
-	l.Debug(">> Deployment: ", string(b))
-}
-
-// ***************************************** Private methods ***********************************************************
 
 func (d Deployment) mergeMongosProcesses(clusterName string, mongosProcesses []Process, log *zap.SugaredLogger) error {
 	// First removing old mongos processes
@@ -936,6 +992,16 @@ func ensureOneClusterPerProjectShouldProceed(conn Connection, resource *mongodb.
 	}
 
 	return deploymentSize, alreadyBelongs
+}
+
+func (d Deployment) deepCopy() Deployment {
+	var depCopy Deployment
+
+	depCopy, err := util.MapDeepCopy(d)
+	if err != nil {
+		panic(err)
+	}
+	return depCopy
 }
 
 // CheckIfCanProceedWithWarnings will return if the reconciliation should proceed. On top of that,

@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
-	"net"
 	"strings"
+	"time"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
@@ -20,28 +20,24 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
-const (
-	BackingGroupId = "000000000000000000000000"
-)
-
 type OpsManagerReconciler struct {
 	*ReconcileCommonController
+	omInitializer om.Initializer
 }
 
 var _ reconcile.Reconciler = &OpsManagerReconciler{}
 
-func newOpsManagerReconciler(mgr manager.Manager, omFunc om.ConnectionFactory) *OpsManagerReconciler {
-	return &OpsManagerReconciler{newReconcileCommonController(mgr, omFunc)}
+func newOpsManagerReconciler(mgr manager.Manager, omFunc om.ConnectionFactory, initializer om.Initializer) *OpsManagerReconciler {
+	return &OpsManagerReconciler{
+		ReconcileCommonController: newReconcileCommonController(mgr, omFunc),
+		omInitializer:             initializer,
+	}
 }
 
-func (r OpsManagerReconciler) createOpsManagerStatefulSet(opsManager *v1.MongoDBOpsManager, log *zap.SugaredLogger) error {
-
-	return nil
-}
-
-// Reconcile performs the reconciliation logic for Ops Manager and AppDB
-// The workflow description: https://docs.google.com/document/d/1M20PMIl3eyHXPpXOC-tAL7zjr-w5vU5ITvB3xJ8fVNU/edit#bookmark=id.gkgnh437vcx3
-// Note, that as the design with "appdb managed by OM" may be rejected for OM beta we don't create separate files
+// Reconcile performs the reconciliation logic for AppDB and Ops Manager
+// AppDB is reconciled first (independent from Ops Manager as the agent is run in headless mode) and
+// Ops Manager statefulset is created then.
+// Backup daemon statefulset is created/updated and configured optionally if backup is enabled.
 func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
 	log := zap.S().With("OpsManager", request.NamespacedName)
 
@@ -66,6 +62,15 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 		return r.updateStatusValidationFailure(opsManager, err.Error(), log)
 	}
 
+	// 1. AppDB
+	emptyResult := reconcile.Result{}
+	appDbReconciler := newAppDBReplicaSetReconciler(r.ReconcileCommonController)
+	result, err := appDbReconciler.Reconcile(opsManager, &opsManager.Spec.AppDB)
+	if err != nil || result != emptyResult {
+		return result, err
+	}
+
+	// 2. Ops Manager
 	if err := r.ensureGenKey(opsManager, log); err != nil {
 		return r.updateStatusFailed(opsManager, err.Error(), log)
 	}
@@ -81,36 +86,60 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 		return r.updateStatusFailed(opsManager, fmt.Sprintf("Failed to create/update the StatefulSet: %s", err), log)
 	}
 
+	if !r.kubeHelper.isStatefulSetUpdated(opsManager.Namespace, opsManager.Name, log) {
+		// Instead of polling the StatefulSet and Pods to see if they reach goal state, we
+		// simply finish this reconciliation and check during the next pass.
+		return r.updateStatusPending(opsManager, "Ops Manager is still waiting to start", log)
+	}
+
 	if err := r.waitForOpsManagerToBeReady(opsManager, log); err != nil {
 		return r.updateStatusPending(opsManager, err.Error(), log)
 	}
 
 	credentials := &Credentials{}
-	if status := r.prepareOpsManager(opsManager, credentials, log); status != nil {
-		return status.updateStatus(opsManager, r.ReconcileCommonController, log)
+	if result := r.prepareOpsManager(opsManager, credentials, log); !result.isOk() {
+		return result.updateStatus(opsManager, r.ReconcileCommonController, log)
 	}
 
-	emptyResult := reconcile.Result{}
-	appDbReconciler := newAppDBReplicaSetReconciler(r.ReconcileCommonController)
-	result, err := appDbReconciler.Reconcile(opsManager, &opsManager.Spec.AppDB, credentials)
-	if err != nil || result != emptyResult {
-		return result, err
+	// 3. Backup
+	return r.ensureBackups(opsManager)
+}
+
+// ensureBackups will start a backup if defined in the Spec.
+//
+// This function will make sure the backups are enabled if the corresponding attributes
+// exist in the Custom Object. However, it won't delete the backups if the attributes do
+// not exist. The reasoning behind all this is that we don't want to inadvertently remove
+// backups which can be a destructive measure.
+func (r *OpsManagerReconciler) ensureBackups(opsManager *v1.MongoDBOpsManager) (res reconcile.Result, e error) {
+	log := zap.S().With("OpsManager", opsManager)
+	if opsManager.Spec.Backup.Enabled {
+		log.Info("Enabling backups for OM")
+
+		helper := r.kubeHelper.NewOpsManagerStatefulSetHelper(opsManager)
+		helper.SetName(fmt.Sprintf("%s-backup-daemon", opsManager.GetName())).
+			SetIsBackupDaemon().
+			SetStorageRequirements(
+				opsManager.Spec.Backup.HeadDB.Storage,
+				*opsManager.Spec.Backup.HeadDB.StorageClass,
+			).
+			SetLogger(log).
+			SetVersion(opsManager.Spec.Version)
+
+		if err := helper.CreateOrUpdateInKubernetes(); err != nil {
+			return r.updateStatusFailed(opsManager, fmt.Sprintf("Failed to create/update the StatefulSet: %s", err), log)
+		}
+
+		if !r.kubeHelper.isStatefulSetUpdated(opsManager.Namespace, opsManager.Name, log) {
+			return r.updateStatusPending(opsManager, "Backup Daemon is still waiting to start", log)
+		}
 	}
 
-	// Note, that we don't need to loop here - if it's not the Ops Manager initialization - this will return true
-	// immediately, otherwise the whole reconciliation will restart (with initial "ops manager is up" loop)
-	inFullMode, err := checkOpsManagerInFullMode(opsManager)
-	if err != nil || !inFullMode {
-		return r.updateStatusPending(opsManager,
-			"Ops Manager hasn't started during specified timeout (it may take quite long)", log)
-	}
-
-	log.Info("Finished reconciliation for MongoDBOpsManager!")
 	return r.updateStatusSuccessful(opsManager, log)
 }
 
 func AddOpsManagerController(mgr manager.Manager) error {
-	reconciler := newOpsManagerReconciler(mgr, om.NewOpsManagerConnection)
+	reconciler := newOpsManagerReconciler(mgr, om.NewOpsManagerConnection, &om.DefaultInitializer{})
 	c, err := controller.New(util.MongoDbOpsManagerController, mgr, controller.Options{Reconciler: reconciler})
 	if err != nil {
 		return err
@@ -131,18 +160,26 @@ func AddOpsManagerController(mgr manager.Manager) error {
 // successful start. If unsuccessful - the resource gets into "Pending" state and "info" message is logged.
 // The downside is that we can sit in "Pending" forever even if something bad has happened - may be we need to add some
 // timer (since last successful start) and log errors if Ops Manager is stuck.
-// todo replace with just checks for ready replicas in next PR
 func (r *OpsManagerReconciler) waitForOpsManagerToBeReady(om *v1.MongoDBOpsManager, log *zap.SugaredLogger) error {
 	if !util.DoAndRetry(func() (string, bool) {
-		// Simple tcp check for port 8080 so far
-		host := GetServiceFQDN(om.SvcName(), om.Namespace, om.ClusterName)
-		conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", host, util.OpsManagerDefaultPort))
+		omUrl := centralURL(om)
+		client, err := util.NewHTTPClient()
 		if err != nil {
-			return fmt.Sprintf("Ops Manager (%s:%d) is not accessible", host, util.OpsManagerDefaultPort), false
+			return err.Error(), false
 		}
-		defer conn.Close()
-		return "", true
-	}, log, 6, 5) {
+		resp, err := client.Get(omUrl + "/monitor/health")
+		if err != nil {
+			return err.Error(), false
+		}
+
+		if resp.StatusCode == 404 {
+			return "Ops Manager reports 404", false
+		} else if resp.StatusCode == 200 {
+			return "", true
+		} else {
+			return fmt.Sprintf("unexpected HTTP status for /monitor/health, expected either 404 or 200 but got %d", resp.StatusCode), false
+		}
+	}, log, 6, 3) {
 		return errors.New("Ops Manager hasn't started during specified timeout (it may take quite long)")
 	}
 	return nil
@@ -153,41 +190,23 @@ func (r OpsManagerReconciler) ensureConfiguration(opsManager *v1.MongoDBOpsManag
 	// update the central URL
 	setConfigProperty(opsManager, util.MmsCentralUrlPropKey, centralURL(opsManager), log)
 
-	setConfigProperty(opsManager, util.MmsManagedAppDB, "true", log)
-
-	// Note, that we don't specify the 'opsManager.Spec.AppDB.Version' as temp app db version as otherwise
-	// any appdb version upgrade will result in OM rolling upgrade. Ideally this version must be used only
-	// on statefulset creation, but not the update
-	setConfigProperty(opsManager, util.MmsTempAppDB, "4.0.9", log)
-
 	setConfigProperty(opsManager, util.MmsMongoUri, buildMongoConnectionUrl(opsManager), log)
 }
 
 // Ideally this must be a method in v1.MongoDB - todo move it there when the AppDB is gone and v1.MongoDB is used instead
 func buildMongoConnectionUrl(opsManager *v1.MongoDBOpsManager) string {
 	db := opsManager.Spec.AppDB
-	var replicas int
-
 	statefulsetName := db.Name()
 	serviceName := db.ServiceName()
-	switch db.ResourceType {
-	case v1.Standalone:
-		replicas = 1
-	case v1.ReplicaSet:
-		replicas = db.Members
-	case v1.ShardedCluster:
-		{
-			replicas = db.MongosCount
-			statefulsetName = db.MongosRsName()
-		}
-	}
+	replicas := db.Members
+
 	hostnames, _ := GetDNSNames(statefulsetName, serviceName, opsManager.Namespace, db.ClusterName, replicas)
 	uri := "mongodb://"
 	for _, h := range hostnames {
 		h = fmt.Sprintf("%s:%d", h, util.MongoDbDefaultPort)
 	}
 	uri += strings.Join(hostnames, ",")
-	uri += "/?connectTimeoutMS=15000&serverSelectionTimeoutMS=15000"
+	uri += "/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000"
 	return uri
 }
 
@@ -197,6 +216,7 @@ func setConfigProperty(opsManager *v1.MongoDBOpsManager, key, value string, log 
 	}
 }
 
+// ensureGenKey
 func (r OpsManagerReconciler) ensureGenKey(om *v1.MongoDBOpsManager, log *zap.SugaredLogger) error {
 	objectKey := objectKey(om.Namespace, om.Name+"-gen-key")
 	_, err := r.kubeHelper.readSecret(objectKey)
@@ -215,62 +235,13 @@ func (r OpsManagerReconciler) ensureGenKey(om *v1.MongoDBOpsManager, log *zap.Su
 	return err
 }
 
+// prepareOpsManager ensures the admin user is created and the admin public key exists
+// Note the exception handling logic - if the controller fails to save the public API key secret - it cannot fix this
+// manually (the first OM user can be created only once) - so the resource goes to Failed state and shows the message
+// asking the user to fix this manually.
+// Theoretically the Operator could remove the appdb StatefulSet (as the OM must be empty without any user data) and
+// allow the db to get recreated but seems this is a quite radical operation.
 func (r OpsManagerReconciler) prepareOpsManager(opsManager *v1.MongoDBOpsManager, credentials *Credentials, log *zap.SugaredLogger) reconcileStatus {
-	fullMode, err := checkOpsManagerInFullMode(opsManager)
-	if err != nil {
-		return failedErr(err)
-	}
-	if !fullMode {
-		// The OM is in the "initialization" mode so we need to create the first user
-		log.Info(`Ops Manager is running in "Application Database initialization mode", ensuring the admin user is created`)
-
-		if err = r.initializeOpsManager(opsManager, log); err != nil {
-			return failed("failed to initialize Ops Manager: %s", err)
-		}
-		log.Info("Ops Manager is initialized (admin user created), ready to start AppDB")
-	} else {
-		// Validating that the admin key secret exists
-		adminKeySecretName := objectKey(operatorNamespace(), opsManager.APIKeySecretName())
-		_, err = r.kubeHelper.readSecret(adminKeySecretName)
-		if err != nil {
-			// doesn't make much sense to retry soon - let's wait for 5 minutes
-			return failedRetry("Admin API key secret for Ops Manager doesn't exit - was it removed accidentally? "+
-				"Reconciliation cannot proceed, please create the API key using Ops Manager UI and create a secret manually.", 300)
-		}
-	}
-	cred, err := r.kubeHelper.readCredentials(operatorNamespace(), opsManager.APIKeySecretName())
-	if err != nil {
-		return failedErr(err)
-	}
-	*credentials = *cred
-	return nil
-}
-
-// checkOpsManagerInFullMode checks if the OM instance in "lightweight" or "full" mode.
-// "lightweight" (appdb initialization) mode doesn't have the '/monitor/health' endpoint.
-// in case of "full" mode the endpoint will report 200.
-func checkOpsManagerInFullMode(om *v1.MongoDBOpsManager) (bool, error) {
-	omUrl := centralURL(om)
-	client, err := util.NewHTTPClient()
-	if err != nil {
-		return false, err
-	}
-	resp, err := client.Get(omUrl + "/monitor/health")
-	if err != nil {
-		return false, err
-	}
-
-	if resp.StatusCode == 404 {
-		return false, nil
-	} else if resp.StatusCode == 200 {
-		return true, nil
-	} else {
-		return false, fmt.Errorf("unexpected HTTP status for /monitor/health, expected either 404 or 200 but got %d", resp.StatusCode)
-	}
-}
-
-// initializeOpsManager ensures the admin user is created and the admin public key exists
-func (r OpsManagerReconciler) initializeOpsManager(opsManager *v1.MongoDBOpsManager, log *zap.SugaredLogger) error {
 	// We won't support cross-namespace secrets until CLOUDP-46636 is resolved
 	secret := objectKey(opsManager.Namespace, opsManager.Spec.AdminSecret)
 
@@ -278,75 +249,74 @@ func (r OpsManagerReconciler) initializeOpsManager(opsManager *v1.MongoDBOpsMana
 	userData, err := r.kubeHelper.readSecret(secret)
 
 	if apiErrors.IsNotFound(err) {
-		return fmt.Errorf("the secret %s doesn't exist - you need to create it to finish Ops Manager initialization", secret)
+		// This requires user actions - let's wait a bit longer than 10 seconds
+		return failedRetry("the secret %s doesn't exist - you need to create it to finish Ops Manager initialization", 60, secret)
 	} else if err != nil {
-		return err
+		return failedErr(err)
 	}
 
 	user, err := newUserFromSecret(userData)
 	if err != nil {
-		return fmt.Errorf("failed to read user data from the secret %s: %s", secret, err)
+		return failed("failed to read user data from the secret %s: %s", secret, err)
 	}
 
-	// 2. Try to create a user in Ops Manager
-	apiKey, agentKey, err := om.TryCreateUser(centralURL(opsManager), opsManager, user)
-	if err != nil {
-		return fmt.Errorf("failed to create an admin user in Ops Manager: %s", err)
-	}
-
-	// 3. Recreate an admin key secret in the Operator namespace
 	adminKeySecretName := objectKey(operatorNamespace(), opsManager.APIKeySecretName())
-	if apiKey != "" {
-		log.Infof("Created an admin user %s with GLOBAL_ADMIN role", user.Username)
+	detailedMsg := fmt.Sprintf("This is a fatal error, as the"+
+		" Operator requires public API key for the admin user to exist. Please create the GLOBAL_ADMIN user in "+
+		"Ops Manager manually and create a secret '%s' with fields '%s' and '%s'", adminKeySecretName, util.OmPublicApiKey,
+		util.OmUser)
 
-		// The structure matches the structure of a credentials secret used by normal mongodb resources
-		secretData := map[string]string{util.OmPublicApiKey: apiKey, util.OmUser: user.Username}
+	// 2. Create a user in Ops Manager if necessary. Note, that we don't send the request if the API key secret exists.
+	// This is because of the weird Ops Manager /unauth endpoint logic: it allows to create any number of users though only
+	// the first one will have GLOBAL_ADMIN permission. So we should avoid the situation when the admin changes the
+	// user secret and reconciles OM resource and the new user (non admin one) is created overriding the previous API secret
+	_, err = r.kubeHelper.readSecret(adminKeySecretName)
 
-		if err = r.kubeHelper.deleteSecret(adminKeySecretName); err != nil && !apiErrors.IsNotFound(err) {
-			return r.cleanStatefulsetAndError(opsManager, log, fmt.Errorf("failed to replace a secret for admin public api key: %s", err))
-		}
-		if err = r.kubeHelper.createSecret(adminKeySecretName, secretData, map[string]string{}, opsManager); err != nil {
-			return r.cleanStatefulsetAndError(opsManager, log, fmt.Errorf("failed to create a secret for admin public api key: %s", err))
-		}
-		log.Infof("Created a secret for admin public api key %s", adminKeySecretName)
-	}
-
-	// 4. Recreate an agent key secret in the Operator namespace
-	if agentKey != "" {
-		agentKeySecretName := objectKey(operatorNamespace(), agentApiKeySecretName(BackingGroupId))
-		if err = r.kubeHelper.deleteSecret(agentKeySecretName); err == nil || apiErrors.IsNotFound(err) {
-			err = r.createAgentKeySecret(agentKeySecretName, agentKey, opsManager)
-		}
+	if apiErrors.IsNotFound(err) {
+		apiKey, err := r.omInitializer.TryCreateUser(centralURL(opsManager), user)
 		if err != nil {
-			log.Warnf("Failed to (re)create agent key secret %s, this is not critical, will try to create it again later: %s",
-				agentKeySecretName, err)
-		} else {
-			log.Infof("Created a secret for agent key %s", agentKeySecretName)
+			return failed("failed to create an admin user in Ops Manager: %s", err)
+		}
+
+		// Recreate an admin key secret in the Operator namespace if the user was created
+		if apiKey != "" {
+			log.Infof("Created an admin user %s with GLOBAL_ADMIN role", user.Username)
+
+			// The structure matches the structure of a credentials secret used by normal mongodb resources
+			secretData := map[string]string{util.OmPublicApiKey: apiKey, util.OmUser: user.Username}
+
+			if err = r.kubeHelper.deleteSecret(adminKeySecretName); err != nil && !apiErrors.IsNotFound(err) {
+				// TODO our desired behavior is not to fail but just append the warning to the status (CLOUDP-51340)
+				return failedRetry("failed to replace a secret for admin public api key. %s. The error : %s", 300,
+					detailedMsg, err)
+			}
+			if err = r.kubeHelper.createSecret(adminKeySecretName, secretData, map[string]string{}, opsManager); err != nil {
+				// TODO see above
+				return failedRetry("failed to create a secret for admin public api key. %s. The error : %s", 300,
+					detailedMsg, err)
+			}
+			log.Infof("Created a secret for admin public api key %s", adminKeySecretName)
+
+			// Each "read-after-write" operation needs some timeout after write unfortunately :(
+			// https://github.com/kubernetes-sigs/controller-runtime/issues/343#issuecomment-468402446
+			time.Sleep(time.Duration(util.ReadEnvVarIntOrDefault(util.K8sCacheRefreshEnv, util.DefaultK8sCacheRefreshTimeSeconds)) * time.Second)
 		}
 	}
 
-	// 5. Final validation of current state - this could be the retry after failing to create the secret during
+	// 3. Final validation of current state - this could be the retry after failing to create the secret during
 	// previous reconciliation (and the apiKey is empty as "the first user already exists") - the only fix is
-	// start everything again
+	// to create the secret manually
 	_, err = r.kubeHelper.readSecret(adminKeySecretName)
 	if err != nil {
-		return r.cleanStatefulsetAndError(opsManager, log,
-			fmt.Errorf("failed to read the admin key secret, is it the restart after the failed reconciliation? %s", err))
+		return failedRetry("admin API key secret for Ops Manager doesn't exit - was it removed accidentally? %s. The error : %s", 300,
+			detailedMsg, err)
 	}
-
-	return nil
-}
-
-// cleanStatefulsetAndError is the "garbage collector" method which removes the statefulset for Ops Manager
-// This must be used only when the Ops Manager is in "lightweight" mode as it's safe to remove it (no appdb yet)
-func (r OpsManagerReconciler) cleanStatefulsetAndError(opsManager *v1.MongoDBOpsManager, log *zap.SugaredLogger, err error) error {
-	set := r.kubeHelper.NewOpsManagerStatefulSetHelper(opsManager).BuildStatefulSet()
-
-	if e := r.kubeHelper.deleteStatefulSet(objectKey(set.Namespace, set.Name)); e != nil {
-		return e
+	cred, err := r.kubeHelper.readCredentials(operatorNamespace(), opsManager.APIKeySecretName())
+	if err != nil {
+		return failedErr(err)
 	}
-	log.Warnf("Removed statefulset %s as Ops Manager is initialization stage and an unrecoverable error happened", set.Name)
-	return err
+	*credentials = *cred
+	return ok()
 }
 
 // performValidation makes some validation of Ops Manager spec. So far this validation mostly follows the restrictions

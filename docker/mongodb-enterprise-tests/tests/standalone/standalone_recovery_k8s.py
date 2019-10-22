@@ -25,10 +25,12 @@ class TestStandaloneRecoversBadPvConfiguration(KubernetesTester):
         cls.random_storage_name = KubernetesTester.random_k8s_name()
         resource["spec"]["podSpec"]["persistence"]["single"]["storageClass"] = cls.random_storage_name
         cls.create_mongodb_from_object(cls.get_namespace(), resource)
-        KubernetesTester.wait_until('in_error_state', 300)
+        KubernetesTester.wait_until('in_pending_state', 300)
 
         mrs = KubernetesTester.get_resource()
-        assert "Failed to create/update (Kubernetes reconciliation phase)" in mrs['status']['message']
+
+        # MDB resource will be stuck in reconciling, waiting for the StatefulSet to reach goal state.
+        assert mrs['status']['message'] == "MongoDB my-replica-set-vol-broken resource is reconciling"
 
     def test_recovery(self):
         resource = yaml.safe_load(open(fixture("test_storage_class.yaml")))

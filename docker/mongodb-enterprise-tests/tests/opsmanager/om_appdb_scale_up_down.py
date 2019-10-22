@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from kubetester.kubetester import skip_if_local
 from kubetester.omtester import OMTester
@@ -7,9 +9,15 @@ from tests.opsmanager.om_base import OpsManagerBase
 gen_key_resource_version = None
 admin_key_resource_version = None
 
+
 # Note the strategy for Ops Manager testing: the tests should have more than 1 updates - this is because the initial
 # creation of Ops Manager takes too long, so we try to avoid fine-grained test cases and combine different
 # updates in one test
+
+# Important - you need to ensure that OM and Appdb images are build and pushed into your current docker registry before
+# running tests locally - use "make om-image" and "make appdb" to do this
+# TODO current tests are run only on kops cluster so it's ok to specify "4.2.0-ubuntu" version - later we need to move
+# types from labels to registry names and use "4.2.0" only which will allow to run tests on Openshift and Kops cluster
 
 @pytest.mark.e2e_om_appdb_scale_up_down
 class TestOpsManagerCreation(OpsManagerBase):
@@ -47,6 +55,11 @@ class TestOpsManagerCreation(OpsManagerBase):
         assert statefulset.status.ready_replicas == 3
         assert statefulset.status.current_replicas == 3
 
+    def test_admin_config_map(self):
+        config_map = self.corev1.read_namespaced_config_map(self.om_cr.app_config_name(), self.namespace).data
+        assert "cluster-config.json" in config_map
+        assert json.loads(config_map["cluster-config.json"])["version"] == 1
+
     @skip_if_local
     def test_om_connectivity(self):
         OMTester(self.om_context).assert_healthiness()
@@ -81,9 +94,14 @@ class TestOpsManagerAppDbScaleUp(OpsManagerBase):
         assert statefulset.status.ready_replicas == 5
         assert statefulset.status.current_replicas == 5
 
+    def test_admin_config_map(self):
+        config_map = self.corev1.read_namespaced_config_map(self.om_cr.app_config_name(), self.namespace).data
+        assert json.loads(config_map["cluster-config.json"])["version"] == 2
+
     @skip_if_local
     def test_om_connectivity(self):
         OMTester(self.om_context).assert_healthiness()
+
 
 @pytest.mark.e2e_om_appdb_scale_up_down
 class TestOpsManagerAppDbScaleDown(OpsManagerBase):
@@ -103,6 +121,11 @@ class TestOpsManagerAppDbScaleDown(OpsManagerBase):
         statefulset = self.appsv1.read_namespaced_stateful_set_status(self.om_cr.app_db_name(), self.namespace)
         assert statefulset.status.ready_replicas == 3
         assert statefulset.status.current_replicas == 3
+
+    def test_admin_config_map(self):
+        config_map = self.corev1.read_namespaced_config_map(self.om_cr.app_config_name(), self.namespace).data
+        assert json.loads(config_map["cluster-config.json"])["version"] == 3
+
 
     @skip_if_local
     def test_om_connectivity(self):

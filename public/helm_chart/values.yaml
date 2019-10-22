@@ -24,6 +24,9 @@ database:
 opsManager:
   name: mongodb-enterprise-ops-manager
 
+appDb:
+  name: mongodb-enterprise-appdb
+
 registry:
   # Specify if images are pulled from private repository
   imagePullSecrets:
