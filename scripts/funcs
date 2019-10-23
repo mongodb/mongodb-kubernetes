@@ -322,7 +322,7 @@ redeploy_operator() {
 
     export OPERATOR_NAME
     timeout "${timeout}" bash -c \
-        'while ! kubectl -n '"${ns}"' get pods -l app=${OPERATOR_NAME} -o jsonpath="{.items[0].status.phase}" | grep -q "Running" ; do printf .; sleep 1; done' || true
+        'while ! kubectl -n '"${ns}"' get pods -l app=${OPERATOR_NAME} -o jsonpath="{.items[0].status.phase}" &>/dev/null | grep -q "Running" ; do printf .; sleep 1; done' || true
 
     # In the end let's check again and print the state
     if ! kubectl -n "${ns}" get pods -l "app=${OPERATOR_NAME}" -o jsonpath="{.items[0].status.phase}" | grep -q "Running"; then

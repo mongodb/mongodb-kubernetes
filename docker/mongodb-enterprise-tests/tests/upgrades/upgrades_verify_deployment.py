@@ -15,7 +15,7 @@ class TestBuildDeploymentShardedCluster(KubernetesTester):
     """
     def test_resource_has_warnings_set(self):
         mdb = KubernetesTester.get_namespaced_custom_object(self.get_namespace(), "sh001-base", "MongoDB")
-        assert mdb["status"]["warnings"][0] == "Project contains multiple clusters"
+        assert "Project contains multiple clusters" in mdb["status"]["warnings"][0]
 
     def test_sharded_cluster_is_alive(self):
         resource = ShardedClusterTester("sh001-base", 1)
@@ -34,7 +34,7 @@ class TestBuildDeploymentReplicaSet(KubernetesTester):
     '''
     def test_resource_has_warnings_set(self):
         mdb = KubernetesTester.get_namespaced_custom_object(self.get_namespace(), "my-replica-set", "MongoDB")
-        assert mdb["status"]["warnings"][0] == "Project contains multiple clusters"
+        assert "Project contains multiple clusters" in mdb["status"]["warnings"][0]
 
     def test_replica_set_is_alive(self):
         resource = ReplicaSetTester("my-replica-set", 3)
