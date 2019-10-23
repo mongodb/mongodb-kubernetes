@@ -123,10 +123,9 @@ def main() -> int:
     with open(go_mod_file, "w") as go_mod_handle:
         go_mod_handle.write(DO_NOT_MODIFY_WARNING)
         go_mod_handle.write(go_mod_contents)
-    if not is_patch:
-        # upgrade patch if no fixed patch version
-        if not run_cmd_with_no_goflags(["go", "get", "-u=patch"]):
-            return 1
+    # patch version of k8s does not get updated because version is rewritten
+    if not run_cmd_with_no_goflags(["go", "get", "-u=patch"]):
+        return 1
     # ensure we get an updated copy of the vendor dir
     if not run_cmd(["go", "mod", "vendor"]):
         return 1
