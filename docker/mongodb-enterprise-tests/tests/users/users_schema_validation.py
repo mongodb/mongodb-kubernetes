@@ -18,20 +18,6 @@ class TestUsersSchemaValidationDbNotExternal(KubernetesTester):
 
 
 @pytest.mark.e2e_users_schema_validation
-class TestUsersSchemaValidationNoProject(KubernetesTester):
-    """
-    name: Validation for mongodbusers (project)
-    create:
-      file: user_with_roles.yaml
-      patch: '[{"op":"remove","path":"/spec/project"}]'
-      exception: 'Unprocessable Entity'
-    """
-
-    def test_validation_ok(self):
-        assert True
-
-
-@pytest.mark.e2e_users_schema_validation
 class TestUsersSchemaValidationUserName(KubernetesTester):
     """
     name: Validation for mongodbusers (username)

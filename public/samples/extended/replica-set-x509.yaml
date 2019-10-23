@@ -12,7 +12,6 @@ spec:
   opsManager:
     configMapRef:
       name: my-project
-
   credentials: my-credentials
 
   # look into `replica-set-persistent-volumes.yaml` for an example on how to use
