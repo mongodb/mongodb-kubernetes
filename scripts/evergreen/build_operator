@@ -17,7 +17,7 @@ export PATH="${GOBIN}:${PATH}"
 
 ./scripts/build/prepare_build_environment
 # This skips the regeneration of code + download of dependencies if this step was
-# taken care of by the test_operator script.
+# taken care of by the prepare_build_environment script.
 export BUILD_ENVIRONMENT_READY=true
 
 if [ -z "${SKIP_TESTING}" ]; then
