@@ -6,7 +6,10 @@ build:
 push:
 	$(aws ecr get-login --no-include-email --region us-east-1) &> /dev/null || true
 	docker tag dev/cluster-cleaner:$(IMAGE_VERSION) 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cluster-cleaner:$(IMAGE_VERSION)
+	docker tag dev/cluster-cleaner:$(IMAGE_VERSION) 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cluster-cleaner:latest
+
 	docker push 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cluster-cleaner:$(IMAGE_VERSION)
+	docker push 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cluster-cleaner:latest
 
 install:
 	kubectl create namespace cluster-cleaner || true
