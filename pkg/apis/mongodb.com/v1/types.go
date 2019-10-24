@@ -480,11 +480,6 @@ type MongoDbPodSpecStandard struct {
 	NodeAffinity    *v1.NodeAffinity       `json:"nodeAffinity,omitempty"`
 	SecurityContext *v1.PodSecurityContext `json:"securityContext,omitempty"`
 	Persistence     *Persistence           `json:"persistence,omitempty"`
-
-	// Deprecated: deprecated as of 0.4 and will be removed eventually in next releases. Use Persistence struct instead
-	Storage string `json:"storage,omitempty"`
-	// Deprecated: deprecated as of 0.4 and will be removed eventually in next releases. Use Persistence struct instead
-	StorageClass string `json:"storageClass,omitempty"`
 }
 
 type Persistence struct {

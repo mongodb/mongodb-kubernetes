@@ -32,24 +32,6 @@ func TestBuildStatefulSet_PersistentFlag(t *testing.T) {
 	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 0)
 }
 
-// Test for backward compatibility, works the same as TestBuildStatefulSet_PersistentVolumeClaimSingle except for
-// absent label selector
-func TestBuildStatefulSet_PersistentVolumeClaimDeprecated(t *testing.T) {
-	podSpec := mongodb.PodSpecWrapper{
-		MongoDbPodSpec: mongodb.MongoDbPodSpec{
-			MongoDbPodSpecStandard: mongodb.MongoDbPodSpecStandard{StorageClass: "fast", Storage: "5G"}, PodAntiAffinityTopologyKey: ""},
-		Default: NewDefaultPodSpec()}
-	set := defaultSetHelper().SetPodSpec(podSpec).BuildStatefulSet()
-
-	checkPvClaims(t, set, []*corev1.PersistentVolumeClaim{pvClaim(util.PvcNameData, "5G", util.StringRef("fast"), nil)})
-
-	checkMounts(t, set, []*corev1.VolumeMount{
-		volMount(util.PvcNameData, util.PvcMountPathData, util.PvcNameData),
-		volMount(util.PvcNameData, util.PvcMountPathJournal, util.PvcNameJournal),
-		volMount(util.PvcNameData, util.PvcMountPathLogs, util.PvcNameLogs),
-	})
-}
-
 // TestBuildStatefulSet_PersistentVolumeClaimSingle checks that one persistent volume claim is created that is mounted by
 // 3 points
 func TestBuildStatefulSet_PersistentVolumeClaimSingle(t *testing.T) {

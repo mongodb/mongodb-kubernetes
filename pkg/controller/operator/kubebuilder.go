@@ -332,9 +332,7 @@ func buildPersistentVolumeClaims(set *appsv1.StatefulSet, p StatefulSetHelper) {
 		(p.PodSpec.Persistence.SingleConfig == nil && p.PodSpec.Persistence.MultipleConfig == nil) ||
 		p.PodSpec.Persistence.SingleConfig != nil {
 		var config *mongodb.PersistenceConfig
-		if p.PodSpec.Persistence == nil || p.PodSpec.Persistence.SingleConfig == nil {
-			config = createBackwordCompatibleConfig(p)
-		} else {
+		if p.PodSpec.Persistence != nil && p.PodSpec.Persistence.SingleConfig != nil {
 			config = p.PodSpec.Persistence.SingleConfig
 		}
 		// Single claim, multiple mounts using this claim. Note, that we use "subpaths" in the volume to mount to different
@@ -720,15 +718,6 @@ func createClaimsAndMountsSingleMode(config *mongodb.PersistenceConfig, p Statef
 		*mount(util.PvcNameData, util.PvcMountPathLogs, util.PvcNameLogs),
 	}
 	return claims, mounts
-}
-
-func createBackwordCompatibleConfig(p StatefulSetHelper) *mongodb.PersistenceConfig {
-	// backward compatibility: take storage and class values from old properties (if they are specified)
-	if p.PodSpec.StorageClass == "" {
-		return &mongodb.PersistenceConfig{Storage: p.PodSpec.Storage}
-	}
-
-	return &mongodb.PersistenceConfig{Storage: p.PodSpec.Storage, StorageClass: &p.PodSpec.StorageClass}
 }
 
 // pvc convenience function to build a PersistentVolumeClaim.
