@@ -363,13 +363,16 @@ func buildService(service *corev1.Service, namespacedName types.NamespacedName, 
 		publishNotReady = false
 	}
 
+	if service == nil {
+		service = &corev1.Service{}
+	}
+
 	servicePort := corev1.ServicePort{Port: port}
 	if !exposeExternally {
 		servicePort.Name = "mongodb"
-	}
-
-	if service == nil {
-		service = &corev1.Service{}
+	} else if len(service.Spec.Ports) > 0 {
+		// If the service exists and has a nodeport specified - we copy the value
+		servicePort.NodePort = service.Spec.Ports[0].NodePort
 	}
 
 	// Each attribute needs to be set manually to avoid overwritting or deleting

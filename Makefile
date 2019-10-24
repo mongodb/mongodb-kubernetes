@@ -170,7 +170,7 @@ build-and-push-test-image: aws_login
 build-and-push-images: build-and-push-database-image build-and-push-operator-image
 
 deploy-operator:
-	@ scripts/dev/deploy_operator
+	@ scripts/dev/deploy_operator $(debug)
 
 configure-operator:
 	@ scripts/dev/configure_operator
