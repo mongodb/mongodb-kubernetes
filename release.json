@@ -1,5 +1,5 @@
 {
-  "mongodbOperator": "1.2.4",
+  "mongodbOperator": "1.3.0",
   "mongodbEnterprise": "4.0.3",
   "automation.agent.version": "5.4.7.5469-1"
 }
