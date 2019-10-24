@@ -23,9 +23,8 @@ RUN apt-get -qq update \
 
 WORKDIR /opt
 
-ADD ${OM_DOWNLOAD_LINK} ops_manager_deb
-
-RUN dpkg -i ops_manager_deb \
+RUN curl --fail -L -o ops_manager_deb "${OM_DOWNLOAD_LINK}" \
+    && dpkg -i ops_manager_deb \
     && rm ops_manager_deb \
     && chown -R mongodb-mms:root /opt/mongodb/mms \
     && chmod -R ug+w /opt/mongodb/mms

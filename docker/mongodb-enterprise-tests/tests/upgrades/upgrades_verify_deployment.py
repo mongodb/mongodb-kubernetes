@@ -7,11 +7,13 @@ from kubetester.mongotester import ReplicaSetTester, ShardedClusterTester
 @pytest.mark.e2e_operator_upgrade_scale_and_verify_deployment
 class TestBuildDeploymentShardedCluster(KubernetesTester):
     """
-    name: Wait for the Sharded Cluster to reach goal state.
+    name: Wait for the Sharded Cluster to reach goal state. Note, that the update will be ignored by K8s as the spec
+       hasn't changed though the sharded cluster is automatically reconciled on the Operator upgrade
     update:
       file: sharded-cluster.yaml
       patch: '{}'
       wait_until: in_running_state
+      timeout: 360
     """
     def test_resource_has_warnings_set(self):
         mdb = KubernetesTester.get_namespaced_custom_object(self.get_namespace(), "sh001-base", "MongoDB")
@@ -25,13 +27,15 @@ class TestBuildDeploymentShardedCluster(KubernetesTester):
 
 @pytest.mark.e2e_operator_upgrade_scale_and_verify_deployment
 class TestBuildDeploymentReplicaSet(KubernetesTester):
-    '''
-    name: Wait for the Replica Set to reach goal state.
+    """
+    name: Wait for the Replica Set to reach goal state. Note, that the update will be ignored by K8s as the spec
+       hasn't changed though the replicaset is automatically reconciled on the Operator upgrade
     update:
       file: replica-set.yaml
       patch: '{}'
       wait_until: in_running_state
-    '''
+      timeout: 240
+    """
     def test_resource_has_warnings_set(self):
         mdb = KubernetesTester.get_namespaced_custom_object(self.get_namespace(), "my-replica-set", "MongoDB")
         assert "Project contains multiple clusters" in mdb["status"]["warnings"][0]
