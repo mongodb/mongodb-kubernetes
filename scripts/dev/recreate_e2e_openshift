@@ -34,7 +34,7 @@ cluster_name="openshift-test"
 
 # This is a private RSA key you should have installed to use
 # Ask your team mates for a copy
-cluster_key="openshift-test-cluster"
+cluster_key="private-cloud-openshift-cluster"
 
 # Gets a new password for aws ecr and pushes it to exports.do
 ecr_password=$(aws ecr get-login --no-include-email | cut -d "-" -f 3 | awk '{print $2}')
@@ -43,11 +43,11 @@ echo "export ECR_PASSWORD=${ecr_password}" >> exports.do.bak
 mv exports.do.bak exports.do
 
 echo "Destroying the CloudFormation stack"
-./aule.py delete-cluster --cluster-name="${cluster_name}"
+./aule.py delete-cluster --name "${cluster_name}"
 echo "Old stack was removed"
 
 echo "Recreating the cluster"
-./aule.py create-cluster --cluster-name="${cluster_name}" --aws-key="${cluster_key}" --save-manual-steps
+./aule.py create-cluster --name "${cluster_name}" --aws-key "${cluster_key}" --save-manual-steps
 echo "CloudFormation stack has been created"
 
 echo "Deploying Openshift"

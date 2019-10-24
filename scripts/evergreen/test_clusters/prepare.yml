@@ -21,8 +21,8 @@
       echo "/dev/xvdb       /var/lib/docker   xfs    defaults,nofail 0       2" >> /etc/fstab
       mount -a
 
-  - name: downgrade to a sane docker version
-    yum: allow_downgrade=yes state=installed name=docker-1.13.1-75.git8633870.el7.centos
+  - name: install docker
+    yum: state=installed name=docker
     tags: ['nodes']
 
   - name: start docker
@@ -49,12 +49,12 @@
     become_user: root
 
   - name: install pip
-    shell: curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py && python36 get-pip.py || true
+    shell: curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py && python3 get-pip.py || true
     become: yes
     become_user: root
 
   - name: install ansible
-    shell: python36 -m pip install ansible==2.6.5 --user
+    shell: python3 -m pip install ansible==2.6.5 --user
 
   - name: ssh config
     shell: |

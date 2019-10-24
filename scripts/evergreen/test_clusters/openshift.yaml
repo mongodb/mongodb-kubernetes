@@ -154,6 +154,44 @@ Resources:
            - !Ref workersecgroup
       ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", CentOS7]
 
+  openshiftworker3:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      Tags:
+      - Key: Name
+        Value: openshift-worker3
+      - Key: !Ref PersistentVolumeTag
+        Value: owned
+      InstanceType: t2.2xlarge
+      KeyName: !Ref KeyName
+      AvailabilityZone: !Ref AvailabilityZone
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          SubnetId: !Ref subnet
+          GroupSet:
+           - !Ref workersecgroup
+      ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", CentOS7]
+
+  openshiftworker4:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      Tags:
+      - Key: Name
+        Value: openshift-worker4
+      - Key: !Ref PersistentVolumeTag
+        Value: owned
+      InstanceType: t2.2xlarge
+      KeyName: !Ref KeyName
+      AvailabilityZone: !Ref AvailabilityZone
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          SubnetId: !Ref subnet
+          GroupSet:
+           - !Ref workersecgroup
+      ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", CentOS7]
+
   volume1:
     Type: 'AWS::EC2::Volume'
     Properties:
@@ -205,6 +243,40 @@ Resources:
       VolumeId: !Ref volume3
       InstanceId: !Ref openshiftworker2
 
+  volume4:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      Tags:
+      - Key: !Ref PersistentVolumeTag
+        Value: owned
+      AvailabilityZone: !GetAtt openshiftmaster.AvailabilityZone
+      Size: 50
+    DeletionPolicy: Delete
+
+  volat4:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      Device: '/dev/xvdb'
+      VolumeId: !Ref volume4
+      InstanceId: !Ref openshiftworker3
+
+  volume5:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      Tags:
+      - Key: !Ref PersistentVolumeTag
+        Value: owned
+      AvailabilityZone: !GetAtt openshiftmaster.AvailabilityZone
+      Size: 50
+    DeletionPolicy: Delete
+
+  volat5:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      Device: '/dev/xvdb'
+      VolumeId: !Ref volume5
+      InstanceId: !Ref openshiftworker4
+      
   pvolume01: # this is for the persistent volumes to live on
     Type: 'AWS::EC2::Volume'
     Properties:

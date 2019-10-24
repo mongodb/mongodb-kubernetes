@@ -146,6 +146,8 @@ def write_inventory_file(instances):
                 master=instances["master"]["PublicDnsName"],
                 node1=instances["node1"]["PublicDnsName"],
                 node2=instances["node2"]["PublicDnsName"],
+                node3=instances["node3"]["PublicDnsName"],
+                node4=instances["node4"]["PublicDnsName"],
                 control=instances["control"]["PublicDnsName"],
             )
         )
@@ -179,18 +181,24 @@ def create_stack_full(args):
         master=get_stack_resources_by_name(stack_name, "openshiftmaster"),
         node1=get_stack_resources_by_name(stack_name, "openshiftworker1"),
         node2=get_stack_resources_by_name(stack_name, "openshiftworker2"),
+        node3=get_stack_resources_by_name(stack_name, "openshiftworker3"),
+        node4=get_stack_resources_by_name(stack_name, "openshiftworker4"),
         control=get_stack_resources_by_name(stack_name, "openshiftcontrol"),
     )
 
     print("master: {}".format(resources["master"]["PhysicalResourceId"]))
     print("node1: {}".format(resources["node1"]["PhysicalResourceId"]))
     print("node2: {}".format(resources["node2"]["PhysicalResourceId"]))
+    print("node3: {}".format(resources["node3"]["PhysicalResourceId"]))
+    print("node4: {}".format(resources["node4"]["PhysicalResourceId"]))
     print("control: {}".format(resources["control"]["PhysicalResourceId"]))
 
     instances = dict(
         master=get_instance_from_ec2(resources["master"]["PhysicalResourceId"]),
         node1=get_instance_from_ec2(resources["node1"]["PhysicalResourceId"]),
         node2=get_instance_from_ec2(resources["node2"]["PhysicalResourceId"]),
+        node3=get_instance_from_ec2(resources["node3"]["PhysicalResourceId"]),
+        node4=get_instance_from_ec2(resources["node4"]["PhysicalResourceId"]),
         control=get_instance_from_ec2(resources["control"]["PhysicalResourceId"]),
     )
 
