@@ -19,28 +19,32 @@ directory. Take a look at the list of files in this repo:
 $ git clone git@github.com:<your-user>/community-operators.git
 $ cd community-operators/upstream-community-operators/mongodb-enterprise
 $ ls -l
-mongodb.crd.yaml
+0.3.2
+0.9.0
+1.1.0
+1.2.1
+1.2.2
+1.2.3
+1.2.4
 mongodb-enterprise.package.yaml
-mongodb-enterprise.v0.3.2.clusterserviceversion.yaml
-mongodb-enterprise.v0.9.0.clusterserviceversion.yaml
-mongodb-enterprise.v1.1.0.clusterserviceversion.yaml
-mongodb-enterprise.v1.2.1.clusterserviceversion.yaml
-mongodb-enterprise.v1.2.2.clusterserviceversion.yaml
-mongodbreplicaset.crd.yaml
-mongodbshardedcluster.crd.yaml
-mongodbstandalone.crd.yaml
-mongodbusers.crd.yaml
-mongodbopsmanagers.crd.yaml
 ```
 
 In that last example, we see 3 versions published: `0.3.2`, `0.9.0`,
 `1.1.0` and others. Let's assume you are working on publishing version
-`1.3.0`. You'll start by copying the last CSV file:
+`1.3.0`. You'll start by copying the last version directory:
 
-    cp mongodb-enterprise.v1.2.2.clusterserviceversion.yaml mongodb-enterprise.v1.3.0.clusterserviceversion.yaml
+    ```bash
+    cp -r 1.2.4 1.3.0
+    ```
 
-We created a new copy of the file with the new version. Now, in your
-new file, there are a few attributes you'll have to change:
+Then renaming the clusterserviceversion file:
+    ```bash
+    cd 1.3.0
+    mv mongodb-enterprise.v1.2.4.clusterserviceversion.yaml mongodb-enterprise.v1.3.0.clusterserviceversion.yaml
+    ```
+
+
+Now, in the clusterserviceversion file, there are a few attributes you'll have to change:
 
 ## Metadata
 
