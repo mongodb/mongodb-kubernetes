@@ -185,7 +185,7 @@ type OpsManagerConfig struct {
 // note, that the fields are marked as 'omitempty' as otherwise they are shown for AppDB
 // which is not good
 type ConnectionSpec struct {
-	ProjectName        string
+	ProjectName        string           `json:"-"` // ignore when marshalling
 	Credentials        string           `json:"credentials,omitempty"`
 	OpsManagerConfig   OpsManagerConfig `json:"opsManager,omitempty"`
 	CloudManagerConfig OpsManagerConfig `json:"cloudManager,omitempty"`
