@@ -89,7 +89,7 @@ func newReconcileCommonController(mgr manager.Manager, omFunc om.ConnectionFacto
 // prepareConnection reads project config map and credential secrets and uses these values to communicate with Ops Manager:
 // create or read the project and optionally request an agent key (it could have been returned by group api call)
 func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedName, spec v1.ConnectionSpec, podVars *PodVars, log *zap.SugaredLogger) (om.Connection, error) {
-	projectConfig, err := c.kubeHelper.readProjectConfig(nsName.Namespace, spec.OpsManagerConfig.ConfigMapRef.Name)
+	projectConfig, err := c.kubeHelper.readProjectConfig(nsName.Namespace, spec.GetProject())
 	if err != nil {
 		return nil, fmt.Errorf("Error reading Project Config: %s", err)
 	}
@@ -102,7 +102,7 @@ func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedNam
 		return nil, fmt.Errorf("Error reading Credentials secret: %s", err)
 	}
 
-	c.registerWatchedResources(nsName, spec.OpsManagerConfig.ConfigMapRef.Name, spec.Credentials)
+	c.registerWatchedResources(nsName, spec.GetProject(), spec.Credentials)
 
 	group, err := c.readOrCreateGroup(spec.ProjectName, projectConfig, credsConfig, log)
 	if err != nil {

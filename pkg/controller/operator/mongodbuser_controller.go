@@ -74,7 +74,7 @@ func (r *MongoDBUserReconciler) getConnectionSpec(user v1.MongoDBUser, mdbSpec v
 	}
 
 	return v1.ConnectionSpec{
-		OpsManagerConfig: v1.OpsManagerConfig{
+		OpsManagerConfig: &v1.PrivateCloudConfig{
 			ConfigMapRef: v1.ConfigMapRef{
 				//lint:ignore SA1019 need to use deprecated Project to ensure backwards compatibility
 				Name: user.Spec.Project,

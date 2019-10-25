@@ -56,7 +56,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (r
 func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interface{}, log *zap.SugaredLogger) (om.Connection, reconcileStatus) {
 	log.Info("ShardedCluster.doShardedClusterProcessing")
 	sc := obj.(*mongodb.MongoDB)
-	projectConfig, err := r.kubeHelper.readProjectConfig(sc.Namespace, sc.Spec.OpsManagerConfig.ConfigMapRef.Name)
+	projectConfig, err := r.kubeHelper.readProjectConfig(sc.Namespace, sc.Spec.GetProject())
 	if err != nil {
 		return nil, failed("error reading project %s", err)
 	}

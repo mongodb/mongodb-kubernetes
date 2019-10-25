@@ -151,7 +151,7 @@ func TestPrepareOmConnection_ConfigMapAndSecretWatched(t *testing.T) {
 	// Here we create two replica sets both referencing the same project and credentials
 	vars := &PodVars{}
 	spec := v1.ConnectionSpec{
-		OpsManagerConfig: v1.OpsManagerConfig{
+		OpsManagerConfig: &v1.PrivateCloudConfig{
 			ConfigMapRef: v1.ConfigMapRef{
 				Name: TestProjectConfigMapName,
 			},
@@ -224,7 +224,7 @@ func TestShouldReconcile_DoesReconcileOnSpecChange(t *testing.T) {
 func prepareConnection(controller *ReconcileCommonController, t *testing.T) (*om.MockedOmConnection, *PodVars) {
 	vars := &PodVars{}
 	spec := v1.ConnectionSpec{
-		OpsManagerConfig: v1.OpsManagerConfig{
+		OpsManagerConfig: &v1.PrivateCloudConfig{
 			ConfigMapRef: v1.ConfigMapRef{
 				Name: TestProjectConfigMapName,
 			},

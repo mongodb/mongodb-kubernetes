@@ -127,7 +127,7 @@ func DefaultStandaloneBuilder() *StandaloneBuilder {
 		Members:    1,
 		Persistent: util.BooleanRef(true),
 		ConnectionSpec: v1.ConnectionSpec{
-			OpsManagerConfig: v1.OpsManagerConfig{
+			OpsManagerConfig: &v1.PrivateCloudConfig{
 				ConfigMapRef: v1.ConfigMapRef{
 					Name: TestProjectConfigMapName,
 				},

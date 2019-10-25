@@ -47,7 +47,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 	log.Infow("ReplicaSet.Spec", "spec", rs.Spec)
 	log.Infow("ReplicaSet.Status", "status", rs.Status)
 
-	projectConfig, err := r.kubeHelper.readProjectConfig(request.Namespace, rs.Spec.OpsManagerConfig.ConfigMapRef.Name)
+	projectConfig, err := r.kubeHelper.readProjectConfig(request.Namespace, rs.Spec.GetProject())
 	if err != nil {
 		log.Infof("error reading project %s", err)
 		return retry()

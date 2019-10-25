@@ -3,6 +3,7 @@ package v1
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -44,7 +45,7 @@ type MongoDBOpsManagerSpec struct {
 	AppDB       AppDB  `json:"applicationDatabase"`
 
 	// Backup
-	Backup MongoDBOpsManagerBackup `json:"backup,omitempty"`
+	Backup *MongoDBOpsManagerBackup `json:"backup,omitempty"`
 }
 
 // MongoDBOpsManagerBackup backup structure for Ops Manager resources
@@ -81,6 +82,10 @@ func (m *MongoDBOpsManager) UnmarshalJSON(data []byte) error {
 	}
 	// setting ops manager name for the appdb
 	m.Spec.AppDB.OpsManagerName = m.Name
+
+	if m.Spec.Backup == nil {
+		m.Spec.Backup = newBackup()
+	}
 	return nil
 }
 
@@ -88,6 +93,10 @@ func (m *MongoDBOpsManager) MarshalJSON() ([]byte, error) {
 	mdb := m.DeepCopyObject().(*MongoDBOpsManager) // prevent mutation of the original object
 
 	mdb.Spec.AppDB.OpsManagerName = ""
+
+	if reflect.DeepEqual(m.Spec.Backup, newBackup()) {
+		mdb.Spec.Backup = nil
+	}
 	return json.Marshal(*mdb)
 }
 
@@ -194,6 +203,11 @@ func (m *MongoDBOpsManager) UpdateSuccessfulAppDb(object runtime.Object, args ..
 	}
 }
 
+// newBackup returns an empty backup object
+func newBackup() *MongoDBOpsManagerBackup {
+	return &MongoDBOpsManagerBackup{}
+}
+
 // ConvertToEnvVarFormat takes a property in the form of
 // mms.mail.transport, and converts it into the expected env var format of
 // OM_PROP_mms_mail_transport
@@ -224,6 +238,8 @@ func (m *AppDB) UnmarshalJSON(data []byte) error {
 	m.Security = nil
 	m.AdditionalMongodConfig = nil
 	m.ConnectionSpec.Credentials = ""
+	m.ConnectionSpec.CloudManagerConfig = nil
+	m.ConnectionSpec.OpsManagerConfig = nil
 	m.ConnectionSpec.Project = ""
 	// all resources have a pod spec
 	if m.PodSpec == nil {

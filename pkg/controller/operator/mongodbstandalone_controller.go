@@ -95,7 +95,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 	log.Infow("Standalone.Spec", "spec", s.Spec)
 	log.Infow("Standalone.Status", "status", s.Status)
 
-	projectConfig, err := r.kubeHelper.readProjectConfig(request.Namespace, s.Spec.OpsManagerConfig.ConfigMapRef.Name)
+	projectConfig, err := r.kubeHelper.readProjectConfig(request.Namespace, s.Spec.GetProject())
 	if err != nil {
 		log.Infof("error reading project %s", err)
 		return retry()

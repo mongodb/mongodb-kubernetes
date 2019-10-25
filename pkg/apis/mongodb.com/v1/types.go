@@ -1,10 +1,9 @@
 package v1
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
-
-	"encoding/json"
 
 	"reflect"
 
@@ -177,7 +176,7 @@ type ConfigMapRef struct {
 	Name string `json:"name,omitempty"`
 }
 
-type OpsManagerConfig struct {
+type PrivateCloudConfig struct {
 	ConfigMapRef ConfigMapRef `json:"configMapRef,omitempty"`
 }
 
@@ -185,12 +184,14 @@ type OpsManagerConfig struct {
 // note, that the fields are marked as 'omitempty' as otherwise they are shown for AppDB
 // which is not good
 type ConnectionSpec struct {
-	ProjectName        string           `json:"-"` // ignore when marshalling
-	Credentials        string           `json:"credentials,omitempty"`
-	OpsManagerConfig   OpsManagerConfig `json:"opsManager,omitempty"`
-	CloudManagerConfig OpsManagerConfig `json:"cloudManager,omitempty"`
+	ProjectName string `json:"-"` // ignore when marshalling
+	Credentials string `json:"credentials,omitempty"`
 
-	// Deprecated: This has been replaced by the OpsManagerConfig which should be
+	// Dev note: don't reference these two fields directly - use the `getProject` method instead
+	OpsManagerConfig   *PrivateCloudConfig `json:"opsManager,omitempty"`
+	CloudManagerConfig *PrivateCloudConfig `json:"cloudManager,omitempty"`
+
+	// Deprecated: This has been replaced by the PrivateCloudConfig which should be
 	// used instead
 	Project string `json:"project,omitempty"`
 
@@ -278,7 +279,15 @@ func (m *MongoDB) MarshalJSON() ([]byte, error) {
 		mdb.Spec.AdditionalMongodConfig = nil
 	}
 
-	if reflect.DeepEqual(*mdb.Spec.Security, newSecurity()) || reflect.DeepEqual(*mdb.Spec.Security, Security{}) {
+	if reflect.DeepEqual(mdb.Spec.OpsManagerConfig, newOpsManagerConfig()) {
+		mdb.Spec.OpsManagerConfig = nil
+	}
+
+	if reflect.DeepEqual(mdb.Spec.CloudManagerConfig, newOpsManagerConfig()) {
+		mdb.Spec.CloudManagerConfig = nil
+	}
+
+	if reflect.DeepEqual(mdb.Spec.Security, newSecurity()) || reflect.DeepEqual(mdb.Spec.Security, &Security{}) {
 		mdb.Spec.Security = nil
 	}
 
@@ -396,6 +405,19 @@ func (m *MongoDB) GetSpec() interface{} {
 	return m.Spec
 }
 
+// GetProject returns the name of the ConfigMap containing the information about connection to OM/CM
+func (c *ConnectionSpec) GetProject() string {
+	// the contract is that either ops manager or cloud manager must be provided - the controller must validate this
+	if c.OpsManagerConfig.ConfigMapRef.Name != "" {
+		return c.OpsManagerConfig.ConfigMapRef.Name
+	}
+	if c.CloudManagerConfig.ConfigMapRef.Name != "" {
+		return c.CloudManagerConfig.ConfigMapRef.Name
+	}
+	// failback to the deprecated field
+	return c.Project
+}
+
 // InitDefaults makes sure the MongoDB resource has correct state after initialization:
 // - prevents any references from having nil values.
 // - makes sure the spec is in correct state
@@ -430,18 +452,16 @@ func (m *MongoDB) InitDefaults() {
 		m.Spec.Security.Authentication.InternalCluster = strings.ToUpper(m.Spec.Security.ClusterAuthMode)
 	}
 
-	if m.Spec.OpsManagerConfig == (OpsManagerConfig{}) {
-		m.Spec.OpsManagerConfig = m.Spec.CloudManagerConfig
+	if m.Spec.OpsManagerConfig == nil {
+		m.Spec.OpsManagerConfig = newOpsManagerConfig()
+	}
+
+	if m.Spec.CloudManagerConfig == nil {
+		m.Spec.CloudManagerConfig = newOpsManagerConfig()
 	}
 
 	// ProjectName defaults to the name of the resource
 	m.Spec.ProjectName = m.Name
-
-	// if new style of config map reference is not set, use the old style
-	if m.Spec.ConnectionSpec.OpsManagerConfig.ConfigMapRef.Name == "" {
-		m.Spec.ConnectionSpec.OpsManagerConfig.ConfigMapRef.Name = m.Spec.ConnectionSpec.Project
-	}
-
 }
 
 func (m *MongoDB) ObjectKey() client.ObjectKey {
@@ -598,6 +618,11 @@ func validModeOrDefault(mode SSLMode) SSLMode {
 // json representation of the MDB object.
 func newAdditionalMongodConfig() *AdditionalMongodConfig {
 	return &AdditionalMongodConfig{}
+}
+
+// PrivateCloudConfig returns and empty `PrivateCloudConfig` object
+func newOpsManagerConfig() *PrivateCloudConfig {
+	return &PrivateCloudConfig{}
 }
 
 func ensureSecurity(spec *MongoDbSpec) {

@@ -142,7 +142,7 @@ func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
 		Version:    "4.0.0",
 		Persistent: util.BooleanRef(false),
 		ConnectionSpec: v1.ConnectionSpec{
-			OpsManagerConfig: v1.OpsManagerConfig{
+			OpsManagerConfig: &v1.PrivateCloudConfig{
 				ConfigMapRef: v1.ConfigMapRef{
 					Name: TestProjectConfigMapName,
 				},
