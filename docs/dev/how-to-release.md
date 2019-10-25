@@ -10,9 +10,14 @@ Update any finished tickets in [kube-next](https://jira.mongodb.org/issues/?jql=
 
 ## Prepare Release Notes (Tuesday)
 
-Create a DOCSP ticket describing the tickets in the current [fixVersion](https://jira.mongodb.org/issues/?jql=project%20%3D%20CLOUDP%20AND%20component%20%3D%20Kubernetes%20AND%20status%20in%20(Resolved%2C%20Closed)%20and%20fixVersion%3D%20kube-next%20)
+Draft the release notes describing the tickets in the current
+[fixVersion](https://jira.mongodb.org/issues/?jql=project%20%3D%20CLOUDP%20AND%20component%20%3D%20Kubernetes%20AND%20status%20in%20(Resolved%2C%20Closed)%20and%20fixVersion%3D%20kube-next%20).
 
-If the DOCSP ticket has not been assigned by Wednesday, ask about it in the #docs channel.
+Submit the proposed release notes in the team Slack channel
+([#k8s-operator-devs](https://mongodb.slack.com/messages/CGLP6R2PQ)) for peer
+review. Once people have had a chance to look at them, create a DOCSP ticket to
+publish the release notes. If the DOCSP ticket has not been assigned by
+Wednesday, ask about it in the #docs channel.
 
 Ensure there is a link to our quay.io tags, and if there are any Medium or higher CVEs **include a section in the release notes**.
 
