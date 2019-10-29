@@ -7,7 +7,7 @@ spec:
   username: CN=my-user,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US
   db: $external
   mongodbResourceRef:
-    name: my-mongodb
+    name: my-replica-set
   roles:
     - db: admin
-      name: my-mongodb
+      name: dbOwner

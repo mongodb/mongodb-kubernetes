@@ -290,6 +290,15 @@ spec:
     shortNames:
     - mdbu
     singular: mongodbuser
+  additionalPrinterColumns:
+    - name: State
+      type: string
+      description: The current state of the MongoDB User
+      JSONPath: .status.phase
+    - name: Age
+      type: date
+      description: The time since the MongoDB User resource was created
+      JSONPath: .metadata.creationTimestamp
   validation:
       openAPIV3Schema:
         properties:
