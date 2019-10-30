@@ -17,7 +17,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 const (
@@ -586,24 +585,24 @@ func baseLivenessProbe() *corev1.Probe {
 }
 
 // opsManagerReadinessProbe creates the readiness probe
-// todo This is disabled currently because of one weird aspect: if the readiness probe reports false
+// TODO: This is disabled currently because of one weird aspect: if the readiness probe reports false
 // while the container is starting - this results in container restart.
 // So to avoid false restarts we need to set 'InitialDelaySeconds' very high.
 // This however will affect the `kubehelper#waitForStatefulsetAndPods` as it will hang for too long
 // because we check for 'set.Status.ReadyReplicas'
 // so far we'll just manually check 8080 port from the Operator to check when the OM instance is ready
-func opsManagerReadinessProbe() *corev1.Probe {
-	return &corev1.Probe{
-		Handler: corev1.Handler{
-			HTTPGet: &corev1.HTTPGetAction{Port: intstr.FromInt(8080), Path: "/"},
-		},
-		InitialDelaySeconds: 120,
-		TimeoutSeconds:      5,
-		PeriodSeconds:       10,
-		SuccessThreshold:    1,
-		FailureThreshold:    18, // So the probe will fail after ~3 minutes of Ops Manager being non-responsive
-	}
-}
+//func opsManagerReadinessProbe() *corev1.Probe {
+//return &corev1.Probe{
+//Handler: corev1.Handler{
+//HTTPGet: &corev1.HTTPGetAction{Port: intstr.FromInt(8080), Path: "/"},
+//},
+//InitialDelaySeconds: 120,
+//TimeoutSeconds:      5,
+//PeriodSeconds:       10,
+//SuccessThreshold:    1,
+//FailureThreshold:    18, // So the probe will fail after ~3 minutes of Ops Manager being non-responsive
+//}
+//}
 
 func baseReadinessProbe() *corev1.Probe {
 	return &corev1.Probe{

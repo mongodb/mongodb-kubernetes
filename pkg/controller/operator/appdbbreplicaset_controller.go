@@ -244,12 +244,14 @@ func (c *ReconcileAppDbReplicaSet) updateStatusPendingAppDb(resource *mongodb.Mo
 	return retry()
 }
 
-func prepareScaleDownReplicaSetAppDb(omClient om.Connection, statefulSet *appsv1.StatefulSet, oldMembersCount int, new *mongodb.AppDB, log *zap.SugaredLogger) error {
-	_, podNames := GetDnsForStatefulSetReplicasSpecified(statefulSet, new.ClusterName, oldMembersCount)
-	podNames = podNames[new.Members:oldMembersCount]
+// FIXME: this should be used and implemented before GA of the OM managed by
+// the Operator project
+//func prepareScaleDownReplicaSetAppDb(omClient om.Connection, statefulSet *appsv1.StatefulSet, oldMembersCount int, new *mongodb.AppDB, log *zap.SugaredLogger) error {
+//_, podNames := GetDnsForStatefulSetReplicasSpecified(statefulSet, new.ClusterName, oldMembersCount)
+//podNames = podNames[new.Members:oldMembersCount]
 
-	return prepareScaleDown(omClient, map[string][]string{new.Name(): podNames}, log)
-}
+//return prepareScaleDown(omClient, map[string][]string{new.Name(): podNames}, log)
+//}
 
 func buildReplicaSetFromStatefulSetAppDb(set *appsv1.StatefulSet, mdb *mongodb.AppDB, log *zap.SugaredLogger) om.ReplicaSetWithProcesses {
 	members := createProcessesAppDb(set, om.ProcessTypeMongod, mdb)

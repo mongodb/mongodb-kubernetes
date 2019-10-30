@@ -299,16 +299,3 @@ func remove(slice []*Role, i int) []*Role {
 	copy(slice[i:], slice[i+1:])
 	return slice[:len(slice)-1]
 }
-
-func getMongoDbVersions(deployment map[string]interface{}) []interface{} {
-	return deployment["mongoDbVersions"].([]interface{})
-}
-
-func getVersionBuilds(deployment map[string]interface{}, versionIndex int) []interface{} {
-	versions := deployment["mongoDbVersions"].([]interface{})
-	return versions[versionIndex].(map[string]interface{})["builds"].([]interface{})
-}
-
-func getVersionBuild(deployment map[string]interface{}, versionIndex, buildIndex int) map[string]interface{} {
-	return getVersionBuilds(deployment, versionIndex)[buildIndex].(map[string]interface{})
-}

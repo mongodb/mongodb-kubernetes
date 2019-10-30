@@ -406,31 +406,33 @@ func volumeMountWithNameExists(mounts []corev1.VolumeMount, volumeName string) b
 	return false
 }
 
-func (k *KubeHelper) createOrUpdateStatefulsetNoService(owner Updatable,
-	ns string, log *zap.SugaredLogger, set *appsv1.StatefulSet) error {
+// FIXME: apparently this should be used but the code was accidentally removed:
+// https://github.com/10gen/ops-manager-kubernetes/pull/469/files#r340723863
+//func (k *KubeHelper) createOrUpdateStatefulsetNoService(owner Updatable,
+//ns string, log *zap.SugaredLogger, set *appsv1.StatefulSet) error {
 
-	log = log.With("statefulset", set.Name)
-	if err := k.client.Get(context.TODO(), objectKey(ns, set.Name), &appsv1.StatefulSet{}); err != nil {
-		if err = k.client.Create(context.TODO(), set); err != nil {
-			return err
-		}
-	} else {
-		if err = k.client.Update(context.TODO(), set); err != nil {
-			return err
-		}
-	}
+//log = log.With("statefulset", set.Name)
+//if err := k.client.Get(context.TODO(), objectKey(ns, set.Name), &appsv1.StatefulSet{}); err != nil {
+//if err = k.client.Create(context.TODO(), set); err != nil {
+//return err
+//}
+//} else {
+//if err = k.client.Update(context.TODO(), set); err != nil {
+//return err
+//}
+//}
 
-	log.Infow("Waiting until statefulset and its pods reach READY state...")
+//log.Infow("Waiting until statefulset and its pods reach READY state...")
 
-	if !k.isStatefulSetUpdated(ns, set.Name, log) {
-		// Unfortunately Kube api for events is too weak and doesn't allow to filter by object so we cannot show
-		// the real pod event message to user
-		return fmt.Errorf("Statefulset or its pods failed to reach READY state. Check the events for "+
-			"statefulset %s/%s and its pods", set.Namespace, set.Name)
-	}
+//if !k.isStatefulSetUpdated(ns, set.Name, log) {
+//// Unfortunately Kube api for events is too weak and doesn't allow to filter by object so we cannot show
+//// the real pod event message to user
+//return fmt.Errorf("Statefulset or its pods failed to reach READY state. Check the events for "+
+//"statefulset %s/%s and its pods", set.Namespace, set.Name)
+//}
 
-	return nil
-}
+//return nil
+//}
 
 // createOrUpdateStatefulset will create or update a StatefulSet in Kubernetes.
 //
@@ -761,31 +763,33 @@ func (k *KubeHelper) computeConfigMap(nsName client.ObjectKey, callback func(*co
 	return nil
 }
 
-func (k *KubeHelper) createOrUpdateConfigMap(nsName client.ObjectKey, data map[string]string, owner Updatable) error {
-	existingConfigMap := &corev1.ConfigMap{}
-	newConfigMap := &corev1.ConfigMap{
-		Data: data,
-		ObjectMeta: metav1.ObjectMeta{
-			Name:            nsName.Name,
-			Namespace:       nsName.Namespace,
-			OwnerReferences: baseOwnerReference(owner),
-		}}
+// TODO: leave this because the OM controller might end up using this:
+// https://github.com/10gen/ops-manager-kubernetes/pull/469/files#r340725250
+//func (k *KubeHelper) createOrUpdateConfigMap(nsName client.ObjectKey, data map[string]string, owner Updatable) error {
+//existingConfigMap := &corev1.ConfigMap{}
+//newConfigMap := &corev1.ConfigMap{
+//Data: data,
+//ObjectMeta: metav1.ObjectMeta{
+//Name:            nsName.Name,
+//Namespace:       nsName.Namespace,
+//OwnerReferences: baseOwnerReference(owner),
+//}}
 
-	if err := k.client.Get(context.TODO(), nsName, existingConfigMap); err != nil {
-		if apiErrors.IsNotFound(err) {
-			if err = k.client.Create(context.TODO(), newConfigMap); err != nil {
-				return err
-			}
-		} else {
-			return err
-		}
-	} else {
-		if err = k.client.Update(context.TODO(), newConfigMap); err != nil {
-			return err
-		}
-	}
-	return nil
-}
+//if err := k.client.Get(context.TODO(), nsName, existingConfigMap); err != nil {
+//if apiErrors.IsNotFound(err) {
+//if err = k.client.Create(context.TODO(), newConfigMap); err != nil {
+//return err
+//}
+//} else {
+//return err
+//}
+//} else {
+//if err = k.client.Update(context.TODO(), newConfigMap); err != nil {
+//return err
+//}
+//}
+//return nil
+//}
 
 // CreateOrUpdateSecret will create (if it does not exist) or update (if it does) a secret.
 func (k *KubeHelper) createOrUpdateSecret(name, namespace string, pemFiles *pemCollection, labels map[string]string) error {

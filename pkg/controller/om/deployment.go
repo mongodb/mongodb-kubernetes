@@ -746,13 +746,6 @@ func (d Deployment) setMonitoringVersions(monitoring []interface{}) {
 func (d Deployment) setBackupVersions(backup []interface{}) {
 	d["backupVersions"] = backup
 }
-func (d Deployment) setAuth(auth map[string]interface{}) {
-	d["auth"] = auth
-}
-func (d Deployment) setAgentSSL(agentSSL map[string]interface{}) {
-	d["ssl"] = agentSSL
-}
-
 func (d Deployment) getSSL() map[string]interface{} {
 	return util.ReadOrCreateMap(d, "ssl")
 }

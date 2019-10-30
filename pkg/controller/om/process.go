@@ -438,14 +438,6 @@ func (p Process) setClusterFile(filePath string) Process {
 	return p
 }
 
-func (p Process) getClusterFile() string {
-	ssl := p.SSLConfig()
-	if clusterFile, ok := ssl["clusterFile"]; ok {
-		return clusterFile.(string)
-	}
-	return ""
-}
-
 func (p Process) setClusterAuthMode(authMode string) Process {
 	p.EnsureSecurity()["clusterAuthMode"] = authMode
 	return p
