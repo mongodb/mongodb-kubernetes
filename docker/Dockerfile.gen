@@ -54,16 +54,16 @@ def ubuntu() -> Dict[str, Union[str, List[str]]]:
     packages = """
         ca-certificates
         curl
+        jq
         libcurl3
-        openssl
         libgssapi-krb5-2
         libkrb5-dbg
         libldap-2.4-2
         libpcap0.8
         libsasl2-2
-        lsb-core
-        snmp
-        jq""".split()
+        lsb-release
+        openssl
+        snmp""".split()
 
     version = get_version()
 
@@ -78,9 +78,11 @@ def ubuntu() -> Dict[str, Union[str, List[str]]]:
 def rhel() -> Dict[str, Union[str, List[str]]]:
     """RHEL distro data (only for the Database image)"""
     packages = """
+        curl
         cyrus-sasl
         cyrus-sasl-gssapi
         cyrus-sasl-plain
+        jq
         krb5-libs
         libcurl
         libpcap
@@ -90,9 +92,7 @@ def rhel() -> Dict[str, Union[str, List[str]]]:
         openldap
         openssl
         rpm-libs
-        tcp_wrappers-libs
-        curl
-        jq""".split()
+        tcp_wrappers-libs""".split()
 
     return {
         "packages": packages,

@@ -43,9 +43,8 @@ COPY content/ ${MMS_HOME}/files/
 {% if is_appdb -%}
 
 # Download the Automation Agent binary (only if the argument provided meaning this is the image for the appdb)
-ADD "${AA_DOWNLOAD_LOCATION}/mongodb-mms-automation-agent-${AA_VERSION}.linux_x86_64.tar.gz" automation-agent.tar.gz
-
-RUN tar -xzf automation-agent.tar.gz \
+RUN curl --fail -L -o automation-agent.tar.gz "${AA_DOWNLOAD_LOCATION}/mongodb-mms-automation-agent-${AA_VERSION}.linux_x86_64.tar.gz"  \
+    && tar -xzf automation-agent.tar.gz \
     && echo "${AA_VERSION}" > "${MMS_HOME}/files/agent-version" \
     && mv mongodb-mms-automation-agent-*/mongodb-mms-automation-agent "${MMS_HOME}/files/" \
     && chmod +x "${MMS_HOME}/files/mongodb-mms-automation-agent" \
