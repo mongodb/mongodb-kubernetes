@@ -2,8 +2,10 @@ FROM ubuntu:18.04
 
 ARG OM_DOWNLOAD_LINK
 
-ENV mms_prop_file /opt/mongodb/mms/conf/conf-mms.properties
-ENV mms_conf_file /opt/mongodb/mms/conf/mms.conf
+ENV MMS_HOME /mongodb-ops-manager
+ENV MMS_PROP_FILE ${MMS_HOME}/conf/conf-mms.properties
+ENV MMS_CONF_FILE ${MMS_HOME}/conf/mms.conf
+ENV MMS_LOG_DIR ${MMS_HOME}/logs
 
 EXPOSE 8080
 
@@ -20,17 +22,15 @@ RUN apt-get -qq update \
     && apt-get dist-upgrade -y -qq \
     && rm -rf /var/lib/apt/lists/*
 
+RUN curl --fail -L -o ops_manager.tar.gz "${OM_DOWNLOAD_LINK}" \
+    && tar -xzf ops_manager.tar.gz \
+    && rm ops_manager.tar.gz \
+    && mv mongodb-mms-* "${MMS_HOME}"
 
-WORKDIR /opt
-
-RUN curl --fail -L -o ops_manager_deb "${OM_DOWNLOAD_LINK}" \
-    && dpkg -i ops_manager_deb \
-    && rm ops_manager_deb \
-    && chown -R mongodb-mms:root /opt/mongodb/mms \
-    && chmod -R ug+w /opt/mongodb/mms
-
-RUN chown mongodb-mms:root /etc/mongodb-mms \
-    && chmod 0770 /etc/mongodb-mms
+# permissions
+RUN chmod -R 0775 "${MMS_LOG_DIR}" \
+    && chmod -R 0775 "${MMS_HOME}/conf" \
+    && chmod -R 0775 "${MMS_HOME}/tmp"
 
 RUN mkdir -p /opt/scripts
 COPY scripts /opt/scripts/

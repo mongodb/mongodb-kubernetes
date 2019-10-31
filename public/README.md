@@ -166,7 +166,7 @@ $ kubectl apply -f samples/ops-manager/ops-manager.yaml
 
 Note, that it takes up to 8 minutes to initialize the Application Database and start Ops Manager.
 
-## (Optionally) Create a MongoDB object referencing the new Ops Manager
+### (Optionally) Create a MongoDB object referencing the new Ops Manager
 
 Now you can use the Ops Manager application to create MongoDB objects. You need to follow the 
 [instructions](https://docs.mongodb.com/kubernetes-operator/stable/tutorial/install-k8s-operator/#onprem-prerequisites)

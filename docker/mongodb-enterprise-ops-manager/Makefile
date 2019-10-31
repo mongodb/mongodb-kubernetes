@@ -6,8 +6,7 @@ CONTAINER = ops_manager
 AWS_IMAGE_REPO = 268558157000.dkr.ecr.us-east-1.amazonaws.com
 # AWS_IMAGE_REPO =
 AWS_REGION = us-east-1
-OM_DOWNLOAD_LOCATION = https://downloads.mongodb.com/on-prem-mms/deb
-OM_DOWNLOAD_VERSION = 4.2.2.56673.20191001T1459Z-1
+OM_DOWNLOAD_LINK = https://downloads.mongodb.com/on-prem-mms/tar/mongodb-mms-4.2.0.56551.20190812T1752Z-1.x86_64.tar.gz
 APPDB_PORT = 27017
 IP = $(shell ifconfig | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1' | head -1)
 IMAGE_TYPE = ubuntu
@@ -44,7 +43,7 @@ clean: delete_container
 build:
 	docker build $(EXTRA_PARAM) \
 		-t $(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE) \
-		--build-arg OM_DOWNLOAD_LINK=$(OM_DOWNLOAD_LOCATION)/mongodb-mms_$(OM_DOWNLOAD_VERSION)_x86_64.deb \
+		--build-arg OM_DOWNLOAD_LINK=$(OM_DOWNLOAD_LINK) \
 		.
 
 clean_build:

@@ -7,12 +7,12 @@ source scripts/dev/set_env_context
 
 title "Building Ops Manager image..."
 
+# TODO use some kind of named parameters instead of relying on positions...
 check_mandatory_param "${1-}" "om_version"
-check_mandatory_param "${2-}" "download_version"
+check_mandatory_param "${2-}" "download_url"
 
 image_version="$1"
-download_version="$2"
-download_url_base="${3:-}"
+download_url="$2"
 
 if [[ ${REPO_TYPE} = "local" ]]; then
     eval "$(minikube docker-env)"
@@ -24,14 +24,9 @@ elif [[ ${REPO_TYPE} = "ecr" ]]; then
 
     ensure_ecr_repository "${repo_name}/mongodb-enterprise-ops-manager"
 
-    if [[ -n "${download_url_base}" ]]; then
-        make -C docker/mongodb-enterprise-ops-manager push IMAGE_DIR="${repo_name}" AWS_IMAGE_REPO="${repo_host}" \
-            IMAGE_TYPE="${IMAGE_TYPE}" IMAGE_VERSION="${image_version}" OM_DOWNLOAD_VERSION="${download_version}" \
-            OM_DOWNLOAD_LOCATION="${download_url_base}"
-    else
-        make -C docker/mongodb-enterprise-ops-manager push IMAGE_DIR="${repo_name}" AWS_IMAGE_REPO="${repo_host}" \
-            IMAGE_TYPE="${IMAGE_TYPE}" IMAGE_VERSION="${image_version}" OM_DOWNLOAD_VERSION="${download_version}"
-    fi
+    make -C docker/mongodb-enterprise-ops-manager push IMAGE_DIR="${repo_name}" AWS_IMAGE_REPO="${repo_host}" \
+            IMAGE_TYPE="${IMAGE_TYPE}" IMAGE_VERSION="${image_version}" OM_DOWNLOAD_LINK="${download_url}"
+
     title "Ops Manager image successfully built and pushed to the ECR registry"
 elif [[ ${REPO_TYPE} = "quay" ]]; then
     title "Skipping build of the Ops Manager as current Docker registry is quay.io"

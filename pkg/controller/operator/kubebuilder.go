@@ -420,21 +420,7 @@ func createBaseDbPodSpec(container corev1.Container, statefulSetName string, req
 		}}
 	}
 
-	managedSecurityContext, _ := util.ReadBoolEnv(util.ManagedSecurityContextEnv)
-	if !managedSecurityContext {
-		if reqs.SecurityContext != nil {
-			spec.SecurityContext = reqs.SecurityContext
-		} else {
-			spec.SecurityContext = &corev1.PodSecurityContext{
-				// By default, containers will never run as root.
-				// unless `MANAGED_SECURITY_CONTEXT` env variable is set, in which case the SecurityContext
-				// should be managed by Kubernetes (this is the default in OpenShift)
-				RunAsUser:    util.Int64Ref(util.RunAsUser),
-				FSGroup:      util.Int64Ref(util.FsGroup),
-				RunAsNonRoot: util.BooleanRef(true),
-			}
-		}
-	}
+	ensurePodSecurityContext(reqs.SecurityContext, &spec)
 
 	spec.Affinity.PodAntiAffinity = &corev1.PodAntiAffinity{
 		PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{{
@@ -450,6 +436,26 @@ func createBaseDbPodSpec(container corev1.Container, statefulSetName string, req
 	}
 
 	return spec
+}
+
+// ensurePodSecurityContext adds the 'SecurityContext' to the pod spec if it's necessary (Openshift doesn't need this
+// as it manages the security by itself)
+func ensurePodSecurityContext(explicitContext *corev1.PodSecurityContext, spec *corev1.PodSpec) {
+	managedSecurityContext, _ := util.ReadBoolEnv(util.ManagedSecurityContextEnv)
+	if !managedSecurityContext {
+		if explicitContext != nil {
+			spec.SecurityContext = explicitContext
+		} else {
+			spec.SecurityContext = &corev1.PodSecurityContext{
+				// By default, containers will never run as root.
+				// unless `MANAGED_SECURITY_CONTEXT` env variable is set, in which case the SecurityContext
+				// should be managed by Kubernetes (this is the default in OpenShift)
+				RunAsUser:    util.Int64Ref(util.RunAsUser),
+				FSGroup:      util.Int64Ref(util.FsGroup),
+				RunAsNonRoot: util.BooleanRef(true),
+			}
+		}
+	}
 }
 
 // basePodSpec creates the standard Pod definition which uses the database container for managing mongod/mongos
@@ -546,7 +552,7 @@ func opsManagerPodSpec(envVars []corev1.EnvVar, version string) corev1.PodSpec {
 		},
 	}
 
-	// TODO CLOUDP-47810: we need to enable security context but currently it's not possible as OM starts from root
+	ensurePodSecurityContext(nil, &spec)
 
 	return spec
 }

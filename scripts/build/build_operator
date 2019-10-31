@@ -6,8 +6,6 @@ set -o pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
-./scripts/build/prepare_build_environment
-
 # --dirty to flag changes to your working tree
 RELEASE_VERSION=$(git describe --dirty)
 

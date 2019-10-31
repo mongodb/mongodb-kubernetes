@@ -158,15 +158,12 @@ const (
 	DefaultK8sCacheRefreshTimeSeconds  = 2
 
 	// Ops Manager related constants
-	OmPropertyPrefix   = "OM_PROP_"
-	GenKeyPath         = "/etc/mongodb-mms"
-	ENV_VAR_MANAGED_DB = "MANAGED_APP_DB"
-	LatestOmVersion    = "4.2"
+	OmPropertyPrefix = "OM_PROP_"
+	GenKeyPath       = "/mongodb-ops-manager/.mongodb-mms"
+	LatestOmVersion  = "4.2"
 
 	// Ops Manager configuration properties
 	MmsCentralUrlPropKey = "mms.centralUrl"
-	MmsManagedAppDB      = "mms.managedAppDb"
-	MmsTempAppDB         = "mms.temp.appDb.version"
 	MmsMongoUri          = "mongo.mongoUri"
 
 	// Env variables used for testing mostly to decrease waiting time
