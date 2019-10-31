@@ -20,7 +20,9 @@ subjects:
   name: cluster-cleaner
   namespace: {{ .Values.cleanerNamespace }}
 
-# Remove old failed namespaces
+# Remove old failed namespaces, which are older than 20 minutes.
+# This CJ runs every 10 minutes, so a failed namespace will live for
+# at least 20 minutes, but can live up to 30.
 ---
 apiVersion: batch/v1beta1
 kind: CronJob
@@ -44,9 +46,9 @@ spec:
             command: ["./clean-failed-namespaces.sh"]
             env:
             - name: DELETE_OLDER_THAN_UNIT
-              value: "hours"
+              value: "minutes"
             - name: DELETE_OLDER_THAN_AMOUNT
-              value: "1"
+              value: "20"
 
 # Clean old builder pods
 ---

@@ -1,4 +1,4 @@
-IMAGE_VERSION=0.7
+IMAGE_VERSION=0.8
 
 build:
 	docker build -t dev/cluster-cleaner:$(IMAGE_VERSION) .
