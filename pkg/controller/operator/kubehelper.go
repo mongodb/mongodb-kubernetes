@@ -565,39 +565,17 @@ func (k *KubeHelper) ensureService(owner Updatable, serviceName string, label st
 	return service, nil
 }
 
-func getNamespaceAndNameForResource(resource, defaultNamespace string) (types.NamespacedName, error) {
-	s := strings.Split(resource, "/")
-	if len(s) > 2 {
-		return types.NamespacedName{}, fmt.Errorf("Resource identifier must be of the form 'resourceName' or 'resourceNamespace/resourceName'")
-	}
-	var namespace, name string
-	if len(s) == 2 {
-		namespace, name = s[0], s[1]
-	} else {
-		namespace, name = defaultNamespace, s[0]
-	}
-	if namespace == "" || name == "" {
-		return types.NamespacedName{}, fmt.Errorf("Namespace and name must both be non-empty")
-	}
-	return objectKey(namespace, name), nil
-}
-
 // readProjectConfig returns a "Project" config which is a ConfigMap with a series of attributes
 // like `projectName`, `baseUrl` and a series of attributes related to SSL.
-func (k *KubeHelper) readProjectConfig(defaultNamespace, name string) (*mongodb.ProjectConfig, error) {
-	configMapNamespacedName, err := getNamespaceAndNameForResource(name, defaultNamespace)
-	if err != nil {
-		return nil, err
-	}
-
-	data, err := k.readConfigMap(defaultNamespace, name)
+func (k *KubeHelper) readProjectConfig(namespace, name string) (*mongodb.ProjectConfig, error) {
+	data, err := k.readConfigMap(namespace, name)
 	if err != nil {
 		return nil, err
 	}
 
 	baseURL, ok := data[util.OmBaseUrl]
 	if !ok {
-		return nil, fmt.Errorf(`Property "%s" is not specified in config map %s`, util.OmBaseUrl, configMapNamespacedName)
+		return nil, fmt.Errorf(`Property "%s" is not specified in config map %s`, util.OmBaseUrl, name)
 	}
 	projectName, ok := data[util.OmProjectName]
 	orgID := data[util.OmOrgId]
@@ -612,9 +590,9 @@ func (k *KubeHelper) readProjectConfig(defaultNamespace, name string) (*mongodb.
 	sslCaConfigMap, ok := data[util.SSLMMSCAConfigMap]
 	caFile := ""
 	if ok {
-		cacrt, err := k.readConfigMap(defaultNamespace, sslCaConfigMap)
+		cacrt, err := k.readConfigMap(namespace, sslCaConfigMap)
 		if err != nil {
-			return nil, fmt.Errorf("Could not read the specified ConfigMap %s/%s (%e)", defaultNamespace, sslCaConfigMap, err)
+			return nil, fmt.Errorf("Could not read the specified ConfigMap %s/%s (%e)", namespace, sslCaConfigMap, err)
 		}
 		for k, v := range cacrt {
 			if k == CaCertMMS {
@@ -663,37 +641,32 @@ func (k *KubeHelper) readProjectConfig(defaultNamespace, name string) (*mongodb.
 }
 
 func (k *KubeHelper) readConfigMap(namespace, name string) (map[string]string, error) {
-	configMapNamespacedName, err := getNamespaceAndNameForResource(name, namespace)
-	if err != nil {
-		return nil, err
-	}
-
+	location := types.NamespacedName{Namespace: namespace, Name: name}
 	cmap := &corev1.ConfigMap{}
-	if err = k.client.Get(context.TODO(), configMapNamespacedName, cmap); err != nil {
+	if err := k.client.Get(context.TODO(), location, cmap); err != nil {
 		return nil, err
 	}
 
 	return cmap.Data, nil
 }
 
-func (k *KubeHelper) readCredentials(defaultNamespace, name string) (*Credentials, error) {
-	secretNamespacedName, err := getNamespaceAndNameForResource(name, defaultNamespace)
-	if err != nil {
-		return nil, err
+func (k *KubeHelper) readCredentials(namespace, name string) (*Credentials, error) {
+	location := types.NamespacedName{
+		Name:      name,
+		Namespace: namespace,
 	}
-
-	secret, err := k.readSecret(secretNamespacedName)
+	secret, err := k.readSecret(location)
 	if err != nil {
-		return nil, fmt.Errorf("Error getting secret %s: %s", secretNamespacedName, err)
+		return nil, fmt.Errorf("Error getting secret %s: %s", name, err)
 	}
 
 	publicAPIKey, ok := secret[util.OmPublicApiKey]
 	if !ok {
-		return nil, fmt.Errorf("Property \"%s\" is not specified in secret %s", util.OmPublicApiKey, secretNamespacedName)
+		return nil, fmt.Errorf("Property \"%s\" is not specified in secret %s", util.OmPublicApiKey, name)
 	}
 	user, ok := secret[util.OmUser]
 	if !ok {
-		return nil, fmt.Errorf("Property \"%s\" is not specified in secret %s", util.OmUser, secretNamespacedName)
+		return nil, fmt.Errorf("Property \"%s\" is not specified in secret %s", util.OmUser, name)
 	}
 
 	return &Credentials{

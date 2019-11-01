@@ -349,14 +349,15 @@ func (c *ReconcileCommonController) registerWatchedResources(mongodbResourceNsNa
 // addWatchedResourceIfNotAdded adds the given resource to the list of watched
 // resources. A watched resource is a resource that, when changed, will trigger
 // a reconciliation for its dependent resource.
-func (c *ReconcileCommonController) addWatchedResourceIfNotAdded(watchedResourceFullName, watchedResourceDefaultNamespace string,
+func (c *ReconcileCommonController) addWatchedResourceIfNotAdded(name, namespace string,
 	wType watchedType, dependentResourceNsName types.NamespacedName) {
-	watchedNamespacedName, err := getNamespaceAndNameForResource(watchedResourceFullName, dependentResourceNsName.Namespace)
-	if err != nil {
-		// note, that we don't propagate an error in case the full name has formatting errors
-		return
+	key := watchedObject{
+		resourceType: wType,
+		resource: types.NamespacedName{
+			Name:      name,
+			Namespace: namespace,
+		},
 	}
-	key := watchedObject{resourceType: wType, resource: watchedNamespacedName}
 	if _, ok := c.watchedResources[key]; !ok {
 		c.watchedResources[key] = make([]types.NamespacedName, 0)
 	}

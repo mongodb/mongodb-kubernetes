@@ -144,7 +144,7 @@ func TestPrepareOmConnection_ConfigMapAndSecretWatched(t *testing.T) {
 
 	// "create" a secret (config map already exists)
 	credentials := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "mySecret", Namespace: "otherNs"},
+		ObjectMeta: metav1.ObjectMeta{Name: "mySecret", Namespace: TestNamespace},
 		StringData: map[string]string{util.OmUser: "bla@mycompany.com", util.OmPublicApiKey: "2423423gdfgsdf23423sdfds"}}
 	_ = manager.client.Create(context.TODO(), credentials)
 
@@ -156,7 +156,7 @@ func TestPrepareOmConnection_ConfigMapAndSecretWatched(t *testing.T) {
 				Name: TestProjectConfigMapName,
 			},
 		},
-		Credentials: "otherNs/mySecret",
+		Credentials: "mySecret",
 		LogLevel:    v1.Warn,
 	}
 	_, e := reconciler.prepareConnection(objectKey(TestNamespace, "ReplicaSetOne"), spec, vars, zap.S())
@@ -172,7 +172,7 @@ func TestPrepareOmConnection_ConfigMapAndSecretWatched(t *testing.T) {
 	// to be reconciled as soon as config map or secret changes
 	expected := map[watchedObject][]types.NamespacedName{
 		watchedObject{resourceType: ConfigMap, resource: objectKey(TestNamespace, TestProjectConfigMapName)}: {objectKey(TestNamespace, "ReplicaSetOne"), objectKey(TestNamespace, "ReplicaSetTwo")},
-		watchedObject{resourceType: Secret, resource: objectKey("otherNs", "mySecret")}:                      {objectKey(TestNamespace, "ReplicaSetOne"), objectKey(TestNamespace, "ReplicaSetTwo")},
+		watchedObject{resourceType: Secret, resource: objectKey(TestNamespace, "mySecret")}:                  {objectKey(TestNamespace, "ReplicaSetOne"), objectKey(TestNamespace, "ReplicaSetTwo")},
 	}
 	assert.Equal(t, expected, reconciler.watchedResources)
 }
