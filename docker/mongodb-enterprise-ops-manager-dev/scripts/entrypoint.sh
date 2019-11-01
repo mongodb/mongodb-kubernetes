@@ -3,20 +3,14 @@ set -o errexit
 
 echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')]: entrypoint.sh"
 
-# This was taken from https://blog.openshift.com/jupyter-on-openshift-part-6-running-as-an-assigned-user-id/
-# to avoid uids with no name (issue present in OpenShift).
 if [ "$(id -u)" -ge 10000 ]; then
-    # Assume this user does not have an entry in /etc/{group,passwd} so we create one here.
-    # In OpenShift the $(id -u) will be something easy to identify, like 1000290000, but it changes
-    # from deployment to deployment.
-    echo "mongodb-mms-runner:x:$(id -u):0:/:/bin/false" >> /etc/passwd
-    echo "mongodb-mms-runner:x:$(id -g)" >> /etc/group
-
-    echo "/etc/password is"
-    cat /etc/passwd
-
-    echo "/etc/group is"
-    cat /etc/group
+    cp /etc/passwd /tmp/passwd
+    cp /etc/group /tmp/group
+    echo "mongodb-mms-runner:x:$(id -u):0:/:/bin/false" >> /tmp/passwd
+    echo "mongodb-mms-runner:x:$(id -g)" >> /tmp/group
+    export LD_PRELOAD=libnss_wrapper.so
+    export NSS_WRAPPER_PASSWD=/tmp/passwd
+    export NSS_WRAPPER_GROUP=/tmp/group
 fi
 
 # Ensure that the required directories exist in /data (needs to be part of runtime, due to /data being mounted as a VOLUME)
@@ -65,8 +59,8 @@ if [ ! -z "${OM_HOST}" ] &&  [ -z "${SKIP_OPS_MANAGER_REGISTRATION}" ]; then
     /opt/scripts/configure-ops-manager.py "http://${OM_HOST}:${OM_PORT}" "${OM_ENV_FILE}" || true
 
     if [ ! -f "${OM_ENV_FILE}" ]; then
-    	echo "The env file ${OM_ENV_FILE} doesn't exist - exiting!"
-    	exit 1
+        echo "The env file ${OM_ENV_FILE} doesn't exist - exiting!"
+        exit 1
     fi
     # keep going if a user has registered already, we'll assume it is us.
 fi

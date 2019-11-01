@@ -23,8 +23,9 @@ if ! grep -q "${current_uid}" /etc/passwd ; then
     # Adding it here to avoid panics in the automation agent
     sed -e "s/^mongodb:/builder:/" /etc/passwd > /tmp/passwd
     echo "mongodb:x:$(id -u):$(id -g):,,,:/mongodb-automation:/bin/bash" >> /tmp/passwd
-    cat /tmp/passwd > /etc/passwd
-    rm /tmp/passwd
+    export LD_PRELOAD=libnss_wrapper.so
+    export NSS_WRAPPER_PASSWD=/tmp/passwd
+    export NSS_WRAPPER_GROUP=/etc/group
 
     script_log "Added ${current_uid} to /etc/passwd"
 fi

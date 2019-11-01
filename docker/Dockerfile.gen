@@ -63,7 +63,8 @@ def ubuntu() -> Dict[str, Union[str, List[str]]]:
         libsasl2-2
         lsb-release
         openssl
-        snmp""".split()
+        snmp
+        libnss-wrapper""".split()
 
     version = get_version()
 
@@ -92,7 +93,8 @@ def rhel() -> Dict[str, Union[str, List[str]]]:
         openldap
         openssl
         rpm-libs
-        tcp_wrappers-libs""".split()
+        tcp_wrappers-libs
+        nss_wrapper""".split()
 
     return {
         "packages": packages,

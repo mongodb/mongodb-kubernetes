@@ -34,6 +34,7 @@ RUN apt-get -qq update \
         netcat \
         procps \
         sudo \
+        libnss-wrapper \
     && apt-get -qq -yt testing install \
         python3-pip \
         python3.7-venv \
@@ -93,9 +94,6 @@ RUN chown mongodb-mms:root /etc/mongodb-mms \
 
 RUN mkdir -p /data \
 	&& chmod 775 /data
-
-# Openshift: allow the root group to update users and groups at runtime
-RUN chmod g+w /etc/passwd /etc/group
 
 # Explicitly declare the volumes that are to be mounted (Docker) or provided via Persistent Volumes (Kubernetes)
 VOLUME ["/etc/mongodb-mms", "/data" ]
