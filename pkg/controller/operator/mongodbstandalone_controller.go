@@ -86,8 +86,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		func(result reconcile.Result, err error) { res = result; e = err },
 	)
 
-	reconcileResult, err := r.prepareResourceForReconciliation(request, s, log)
-	if reconcileResult != nil {
+	if reconcileResult, err := r.prepareResourceForReconciliation(request, s, log); reconcileResult != nil {
 		return *reconcileResult, err
 	}
 
@@ -109,11 +108,10 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		return r.updateStatusFailed(s, fmt.Sprintf("Failed to prepare Ops Manager connection: %s", err), log)
 	}
 
-	shouldContinue, warnings := om.CheckIfCanProceedWithWarnings(conn, s)
-	if !shouldContinue {
-		return r.updateStatusFailed(s, "cannot create more than 1 MongoDB Cluster per project", log)
+	reconcileResult := checkIfCanProceedWithWarnings(conn, s)
+	if !reconcileResult.isOk() {
+		return reconcileResult.updateStatus(s, r.ReconcileCommonController, log)
 	}
-	s.Status.Warnings = warnings
 
 	// cannot have a non-tls deployment in an x509 environment
 	authSpec := s.Spec.Security.Authentication
@@ -157,7 +155,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 
 	log.Infof("Finished reconciliation for MongoDbStandalone! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 
-	return r.updateStatusSuccessful(s, log, DeploymentLink(conn.BaseURL(), conn.GroupID()))
+	return reconcileResult.updateStatus(s, r.ReconcileCommonController, log, DeploymentLink(conn.BaseURL(), conn.GroupID()))
 }
 
 func updateOmDeployment(conn om.Connection, s *mongodb.MongoDB,
@@ -170,6 +168,10 @@ func updateOmDeployment(conn om.Connection, s *mongodb.MongoDB,
 	standaloneOmObject := createProcess(set, s)
 	err := conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
+			numberOfOtherMembers, belongsTo := d.EnsureOneClusterPerProjectShouldProceed(s.Name)
+			if numberOfOtherMembers > 0 && !belongsTo {
+				return fmt.Errorf("cannot create more than 1 MongoDB Cluster per project")
+			}
 			d.MergeStandalone(standaloneOmObject, nil)
 			d.AddMonitoringAndBackup(standaloneOmObject.HostName(), log)
 			d.ConfigureTLS(s.Spec.GetTLSConfig())

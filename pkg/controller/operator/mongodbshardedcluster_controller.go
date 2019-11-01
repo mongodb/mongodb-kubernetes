@@ -49,7 +49,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (r
 	}
 
 	log.Infof("Finished reconciliation for Sharded Cluster! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
-	return r.updateStatusSuccessful(sc, log, DeploymentLink(conn.BaseURL(), conn.GroupID()))
+	return status.updateStatus(sc, r.ReconcileCommonController, log, DeploymentLink(conn.BaseURL(), conn.GroupID()))
 }
 
 // implements all the logic to do the sharded cluster thing
@@ -69,11 +69,10 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return nil, failedErr(err)
 	}
 
-	shouldContinue, warnings := om.CheckIfCanProceedWithWarnings(conn, sc)
-	if !shouldContinue {
-		return nil, failed("cannot create more than 1 MongoDB Cluster per project")
+	reconcileResult := checkIfCanProceedWithWarnings(conn, sc)
+	if !reconcileResult.isOk() {
+		return nil, reconcileResult
 	}
-	sc.Status.Warnings = warnings
 
 	authSpec := sc.Spec.Security.Authentication
 	if authSpec.Enabled && util.ContainsString(authSpec.Modes, util.X509) && !sc.Spec.GetTLSConfig().Enabled {
@@ -107,7 +106,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 	}
 
 	r.removeUnusedStatefulsets(sc, kubeState, log)
-	return conn, ok()
+	return conn, reconcileResult
 
 }
 
@@ -517,6 +516,10 @@ func publishDeployment(conn om.Connection, sc *mongodb.MongoDB, state ShardedClu
 			allProcesses := getAllProcesses(shards, configRs, mongosProcesses)
 			if sc.Spec.Security.Authentication.InternalCluster == "" && d.ExistingProcessesHaveInternalClusterAuthentication(allProcesses) {
 				return fmt.Errorf("cannot disable x509 internal cluster authentication")
+			}
+			numberOfOtherMembers, belongsTo := d.EnsureOneClusterPerProjectShouldProceed(sc.Name)
+			if numberOfOtherMembers > 0 && !belongsTo {
+				return fmt.Errorf("cannot create more than 1 MongoDB Cluster per project")
 			}
 			var err error
 			if shardsRemoving, err = d.MergeShardedCluster(sc.Name, mongosProcesses, configRs, shards, finalizing); err != nil {

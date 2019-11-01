@@ -252,46 +252,39 @@ func TestGetAllProcessNames_MergedShardedClusters(t *testing.T) {
 
 func TestDeploymentCountIsCorrect(t *testing.T) {
 	d := NewDeployment()
-	conn := NewMockedOmConnection(d)
 
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
 	d.MergeReplicaSet(rs0, zap.S())
-	res := DefaultMongoDBVersioned("3.6.3")
-	res.Name = "my-rs"
 
-	count, belongs := ensureOneClusterPerProjectShouldProceed(conn, res)
+	count, belongs := d.EnsureOneClusterPerProjectShouldProceed("my-rs")
 	// There's only one resource in this deployment
 	assert.Equal(t, 0, count)
 	assert.True(t, belongs)
 
 	rs1 := buildRsByProcesses("my-rs-second", createReplicaSetProcessesCount(3, "my-rs-second"))
 	d.MergeReplicaSet(rs1, zap.S())
-	count, belongs = ensureOneClusterPerProjectShouldProceed(conn, res)
+	count, belongs = d.EnsureOneClusterPerProjectShouldProceed("my-rs")
 
 	// another replica set was added to the deployment. 3 processes do not belong to this one
 	assert.Equal(t, 3, count)
 	assert.True(t, belongs)
 
 	configRs := createConfigSrvRs("config", false)
-	d.MergeShardedCluster("sc001", createMongosProcesses(3, "mongos", ""), configRs, createShards("shards"), false)
-	count, belongs = ensureOneClusterPerProjectShouldProceed(conn, res)
+	_, _ = d.MergeShardedCluster("sc001", createMongosProcesses(3, "mongos", ""), configRs, createShards("shards"), false)
+	count, belongs = d.EnsureOneClusterPerProjectShouldProceed("my-rs")
 
 	// a Sharded Cluster was added, plenty of processes do not belong to "my-rs" anymore
 	assert.Equal(t, 18, count)
 	assert.True(t, belongs)
 
 	// This unknown process does not belong in here
-	unknown := DefaultMongoDB().Build()
-	unknown.Name = "some-unknown-name"
-	count, belongs = ensureOneClusterPerProjectShouldProceed(conn, unknown)
+	count, belongs = d.EnsureOneClusterPerProjectShouldProceed("some-unknown-name")
 
 	// a Sharded Cluster was added, plenty of processes do not belong to "my-rs" anymore
 	assert.Equal(t, 21, count)
 	assert.False(t, belongs)
 
-	sc := DefaultMongoDB().Build()
-	sc.Name = "sc001"
-	count, belongs = ensureOneClusterPerProjectShouldProceed(conn, sc)
+	count, belongs = d.EnsureOneClusterPerProjectShouldProceed("sc001")
 	// There are 6 processes that do not belong to the sc001 sharded cluster
 	assert.Equal(t, 6, count)
 }

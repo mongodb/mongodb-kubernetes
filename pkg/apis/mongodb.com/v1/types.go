@@ -393,6 +393,10 @@ func (m *MongoDB) UpdateSuccessful(object runtime.Object, args ...string) {
 	}
 }
 
+func (m *MongoDB) SetWarnings(warnings []StatusWarning) {
+	m.Status.Warnings = warnings
+}
+
 func (m *MongoDB) GetKind() string {
 	return "MongoDB"
 }

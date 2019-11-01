@@ -146,6 +146,10 @@ func (m *MongoDBOpsManager) UpdateSuccessful(object runtime.Object, args ...stri
 	m.Status.OpsManagerStatus.Phase = PhaseRunning
 }
 
+func (m *MongoDBOpsManager) SetWarnings(warnings []StatusWarning) {
+	m.Status.Warnings = warnings
+}
+
 func (m *MongoDBOpsManager) GetKind() string {
 	return "MongoDBOpsManager"
 }

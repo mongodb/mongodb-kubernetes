@@ -61,13 +61,10 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		return r.updateStatusFailed(rs, fmt.Sprintf("Failed to prepare Ops Manager connection: %s", err), log)
 	}
 
-	shouldContinue, warnings := om.CheckIfCanProceedWithWarnings(conn, rs)
-	if !shouldContinue {
-		return r.updateStatusFailed(rs, "cannot create more than 1 MongoDB Cluster per project", log)
+	reconcileResult := checkIfCanProceedWithWarnings(conn, rs)
+	if !reconcileResult.isOk() {
+		return reconcileResult.updateStatus(rs, r.ReconcileCommonController, log)
 	}
-	// TODO: We agreed on having the warnings set here. It is not the best place, but this code will not last
-	// for long.
-	rs.Status.Warnings = warnings
 
 	// cannot have a non-tls deployment in an x509 environment
 	authSpec := rs.Spec.Security.Authentication
@@ -121,7 +118,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 	}
 
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
-	return r.updateStatusSuccessful(rs, log, DeploymentLink(conn.BaseURL(), conn.GroupID()))
+	return reconcileResult.updateStatus(rs, r.ReconcileCommonController, log, DeploymentLink(conn.BaseURL(), conn.GroupID()))
 }
 
 // AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
@@ -217,6 +214,10 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 			// it is not possible to disable internal cluster authentication once enabled
 			if d.ExistingProcessesHaveInternalClusterAuthentication(replicaSet.Processes) && newResource.Spec.Security.Authentication.InternalCluster == "" {
 				return fmt.Errorf("cannot disable x509 internal cluster authentication")
+			}
+			numberOfOtherMembers, belongsTo := d.EnsureOneClusterPerProjectShouldProceed(newResource.Name)
+			if numberOfOtherMembers > 0 && !belongsTo {
+				return fmt.Errorf("cannot create more than 1 MongoDB Cluster per project")
 			}
 			d.MergeReplicaSet(replicaSet, nil)
 			d.AddMonitoringAndBackup(replicaSet.Processes[0].HostName(), log)

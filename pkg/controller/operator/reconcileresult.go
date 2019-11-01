@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"go.uber.org/zap"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -14,7 +15,9 @@ import (
 type reconcileStatus interface {
 	// updateStatus performs the update of the CR status in Kubernetes, returns the reconciliation result to return
 	// from reconciliation loop
-	updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger) (reconcile.Result, error)
+	// TODO additional arguments should be moved to the state (aka "statusVars") and not generic, will be done as part
+	// of CLOUDP-51340
+	updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger, args ...string) (reconcile.Result, error)
 
 	// merge performs the merge of current status with the status returned from the other operation and returns the
 	// new status
@@ -29,7 +32,9 @@ type reconcileStatus interface {
 
 // successStatus indicates that the reconciliation process can proceed
 type successStatus struct {
-	msg string
+	// TODO refactor the reconcile result topology to include warnings to all the statuses
+	warnings []v1.StatusWarning
+	msg      string
 }
 
 // pendingStatus indicates that the reconciliation process must be suspended and CR should get "Pending" status
@@ -47,8 +52,8 @@ type validationStatus struct {
 	errorStatus
 }
 
-func ok() *successStatus {
-	return &successStatus{}
+func ok(warnings ...v1.StatusWarning) *successStatus {
+	return &successStatus{warnings: warnings}
 }
 
 func pending(msg string, params ...interface{}) *pendingStatus {
@@ -71,7 +76,7 @@ func failedValidation(msg string, params ...interface{}) *validationStatus {
 	return &validationStatus{errorStatus: *failedErr(fmt.Errorf(msg, params...))}
 }
 
-func (e *pendingStatus) updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger) (reconcile.Result, error) {
+func (e *pendingStatus) updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger, args ...string) (reconcile.Result, error) {
 	return c.updateStatusPending(resource, e.msg, log)
 }
 
@@ -99,7 +104,7 @@ func (e *pendingStatus) isOk() bool {
 	return false
 }
 
-func (e *errorStatus) updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger) (reconcile.Result, error) {
+func (e *errorStatus) updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger, args ...string) (reconcile.Result, error) {
 	result, error := c.updateStatusFailed(resource, e.err.Error(), log)
 	if e.retryAfterSeconds != nil {
 		return reconcile.Result{RequeueAfter: time.Second * (*e.retryAfterSeconds)}, nil
@@ -127,8 +132,9 @@ func (e *errorStatus) onErrorPrepend(msg string) reconcileStatus {
 	return e
 }
 
-func (e *successStatus) updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger) (reconcile.Result, error) {
-	return c.updateStatusSuccessful(resource, log)
+func (e *successStatus) updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger, args ...string) (reconcile.Result, error) {
+	resource.SetWarnings(e.warnings)
+	return c.updateStatusSuccessful(resource, log, args...)
 }
 
 func (e *successStatus) merge(other reconcileStatus) reconcileStatus {
@@ -142,7 +148,7 @@ func (e *successStatus) onErrorPrepend(msg string) reconcileStatus {
 	return e
 }
 
-func (e *validationStatus) updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger) (reconcile.Result, error) {
+func (e *validationStatus) updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger, args ...string) (reconcile.Result, error) {
 	return c.updateStatusValidationFailure(resource, e.err.Error(), log)
 }
 

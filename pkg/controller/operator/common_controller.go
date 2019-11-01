@@ -24,27 +24,29 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// Updatable is an interface representing any runtime.Objects that can have their
-// status updated
+// Updatable is an interface for all "operator owned" entities
 type Updatable interface {
 	runtime.Object
 	metav1.Object
 
-	// UpdateSuccessful called when the MongoDB CR object needs to transition to
+	// UpdateSuccessful called when the Updatable object needs to transition to
 	// successful state. This means that the CR object is ready to work
 	UpdateSuccessful(object runtime.Object, args ...string)
 
-	// UpdateError called when the MongoDB CR object needs to transition to
+	// UpdateError called when the Updatable object needs to transition to
 	// error state.
 	UpdateError(msg string)
 
-	// UpdatePending called when the MongoDB CR object needs to transition to
+	// UpdatePending called when the Updatable object needs to transition to
 	// pending state.
 	UpdatePending(msg string)
 
-	// UpdateReconciling called when the MongoDB CR object needs to transition to
+	// UpdateReconciling called when the Updatable object needs to transition to
 	// reconciling state.
 	UpdateReconciling()
+
+	// SetWarnings sets the warnings for the Updatable object
+	SetWarnings([]v1.StatusWarning)
 
 	// GetKind returns the kind of the object. This
 	// is convenient when setting the owner for K8s objects created by controllers
@@ -371,6 +373,41 @@ func (c *ReconcileCommonController) addWatchedResourceIfNotAdded(name, namespace
 		c.watchedResources[key] = append(c.watchedResources[key], dependentResourceNsName)
 		zap.S().Debugf("Watching %s to trigger reconciliation for %s", key, dependentResourceNsName)
 	}
+}
+
+// checkIfCanProceedWithWarnings will return if the reconciliation should proceed. It may add some warnings depending
+// on the number of resources. Also it removes the tag ExternallyManaged from the project in this case as the user may
+// need to clean the resources from OM UI if they move the resource to another project (as recommended by the migration
+// instructions)
+func checkIfCanProceedWithWarnings(conn om.Connection, resource *v1.MongoDB) reconcileStatus {
+	deployment, err := conn.ReadDeployment()
+	if err != nil {
+		return failedErr(err)
+	}
+	size, belongs := deployment.EnsureOneClusterPerProjectShouldProceed(resource.Name)
+
+	if size == 0 {
+		// cluster is empty or this resource is the only one living on it
+		return ok()
+	} else if size > 0 && belongs {
+		// remove tags if multiple clusters in project
+		groupWithTags := &om.Project{
+			Name:  conn.GroupName(),
+			OrgID: conn.OrgID(),
+			ID:    conn.GroupID(),
+			Tags:  []string{},
+		}
+		_, err = conn.UpdateProject(groupWithTags)
+		if err != nil {
+			return ok(v1.CouldNotRemoveTagsWarning)
+		}
+
+		// cluster is not empty, but we belong to it
+		return ok(v1.MultipleClustersInProjectWarning)
+	}
+
+	// more than one cluster and this is not one of them
+	return failed("cannot create more than 1 MongoDB Cluster per project")
 }
 
 // doAgentX509CertsExist looks for the secret "agent-certs" to determine if we can continue with mounting the x509 volumes

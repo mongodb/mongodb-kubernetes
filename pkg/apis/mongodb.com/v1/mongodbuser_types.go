@@ -94,6 +94,10 @@ func (u *MongoDBUser) UpdateReconciling() {
 	u.Status.Phase = PhaseReconciling
 }
 
+func (m *MongoDBUser) SetWarnings(warnings []StatusWarning) {
+	m.Status.Warnings = warnings
+}
+
 func (m *MongoDBUser) GetKind() string {
 	return "MongoDBUser"
 }

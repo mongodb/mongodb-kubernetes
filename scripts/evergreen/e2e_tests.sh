@@ -236,8 +236,7 @@ run_tests() {
 dump_pods_logs() {
     i=1
     if ! kubectl get pods -n "${PROJECT_NAMESPACE}" 2>&1 | grep -q "No resources found"; then
-        for pod in $(kubectl get pods -n ${PROJECT_NAMESPACE}  -o name | cut -d "/" -f 2 \
-        | grep -v "\-config" | grep -v "\-mongos" | grep -v "operator-"); do # only dump shard logs if it's a sharded cluster
+        for pod in $(kubectl get pods -n ${PROJECT_NAMESPACE}  -o name | cut -d "/" -f 2 | grep -v "operator-"); do
             echo "Writing log file for pod ${pod} to logs/${pod}.log"
             kubectl logs -n ${PROJECT_NAMESPACE} ${pod} > "logs/${pod}.log"
             ((i++))

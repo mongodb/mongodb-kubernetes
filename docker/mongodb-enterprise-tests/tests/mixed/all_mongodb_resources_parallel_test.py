@@ -3,7 +3,6 @@ import time
 
 import pytest
 
-
 from kubetester.kubetester import KubernetesTester, fixture, run_periodically
 
 mdb_resources = {
@@ -36,10 +35,16 @@ class TestRaceConditions(KubernetesTester):
         [t.start() for t in threads]
         [t.join() for t in threads]
 
-        print("Waiting until all three resources get 'Running' state..")
-        run_periodically(TestRaceConditions.all_resources_created, timeout=360)
+        print("Waiting until any of the resources gets to 'Running' state..")
+        run_periodically(TestRaceConditions.any_resource_created, timeout=360)
 
-    def test_all_resources_created(self):
+    def test_one_resource_created_only(self):
+        mongodbs = [
+            KubernetesTester.get_namespaced_custom_object(KubernetesTester.get_namespace(), resource, "MongoDB")
+            for resource in mdb_resources.keys()
+        ]
+        assert len([m for m in mongodbs if m['status']['phase'] == 'Running']) == 1
+
         # No duplicated organizations were created and automation config is consistent
         organizations = KubernetesTester.find_organizations(
             KubernetesTester.get_om_group_name()
@@ -52,41 +57,15 @@ class TestRaceConditions(KubernetesTester):
 
         config = KubernetesTester.get_automation_config()
 
-        # 2 replica sets for the sharded cluster and 1 - for the replica set
-        assert len(config["replicaSets"]) == 3
+        # making sure that only one single mdb resource was created
+        replica_set_created = len(config["replicaSets"]) == 1 and len(config["processes"]) == 1
+        sharded_cluster_created = len(config["replicaSets"]) == 2 and len(config["processes"]) == 3
+        standalone_created = len(config["replicaSets"]) == 0 and len(config["processes"]) == 1
 
-        # 1 standalone, 1 rs, 1 sharded cluster (each replica set contains single members)
-        assert len(config["processes"]) == 5
-
-        assert len(config["sharding"]) == 1
-
-    def test_all_resources_removed(self):
-        #
-        # TODO: In 1 agent environments, if the Pods are removed before the agents reach a
-        # monitoring-is-initialized state, removal of backup will not be possible and will
-        # find errors like CANNOT_GET_BACKUP_CONFIG_INVALID_STATE or SERVER_ERROR
-        # from Ops/Cloud Manager.
-        #
-        print("Giving it 30 seconds for monitoring agent to complete initialization tasks.")
-        time.sleep(30)
-        print("Going forward with the deletion")
-
-        threads = []
-        for resource in mdb_resources.keys():
-            args = (self.get_namespace(), resource, "MongoDB")
-            threads.append(
-                threading.Thread(
-                    target=KubernetesTester.delete_custom_resource, args=args
-                )
-            )
-
-        [t.start() for t in threads]
-        [t.join() for t in threads]
-
-        run_periodically(TestRaceConditions.all_resources_removed, timeout=360)
+        assert replica_set_created + sharded_cluster_created + standalone_created == 1
 
     @staticmethod
-    def all_resources_created():
+    def any_resource_created():
         namespace = KubernetesTester.get_namespace()
         results = [
             KubernetesTester.check_phase(namespace, "MongoDB", resource, "Running")
@@ -94,24 +73,8 @@ class TestRaceConditions(KubernetesTester):
         ]
 
         print(
-            "Standalone ready: {}, replica set ready: {}, sharded cluster ready: {}".format(
+            "Standalone ready: {}, sharded cluster ready: {}, replica set ready: {}".format(
                 *results
             )
         )
-        return all(results)
-
-    @staticmethod
-    def all_resources_removed():
-        results = [
-            KubernetesTester.is_deleted(KubernetesTester.get_namespace(), r)
-            for r in mdb_resources.keys()
-        ]
-
-        results.append(KubernetesTester.is_om_state_cleaned())
-        print(
-            "Standalone removed: {}, replica set removed: {}, sharded cluster removed: {}, Ops Manager cleaned: {}".format(
-                *results
-            )
-        )
-
-        return all(results)
+        return any(results)
