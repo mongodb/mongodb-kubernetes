@@ -21,6 +21,16 @@ else
     echo "goimports is already installed"
 fi
 
+if ! [[ -x "$(command -v staticcheck)" ]]; then
+    echo "installing goimports..."
+    GO111MODULE="off" GOFLAGS="" go get honnef.co/go/tools/...
+  else
+    echo "go tools are already installed"
+fi
+
+# check for dead code
+staticcheck -checks U1000 ./pkg/controller/...
+
 # ensure all code has been formatted with goimports
 if [[ "$($GOPATH/bin/goimports -l ./pkg/controller ./pkg/util ./pkg/apis main.go)" ]]; then
     echo "ERROR: Not all code has been formatted with goimports."

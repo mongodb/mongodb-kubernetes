@@ -15,10 +15,19 @@ mkdir -p "${GOPATH}/bin"
 
 go mod vendor
 
+# important to turn off modules to ensure a global install
 if ! [[ -x "$(command -v goimports)" ]]; then
     echo "installing goimports..."
-    go get golang.org/x/tools/cmd/goimports
+    GO111MODULE=off go get golang.org/x/tools/cmd/goimports
 fi
+
+if ! [[ -x "$(command -v staticcheck)" ]]; then
+    echo "installing go tools..."
+    GO111MODULE=off go get honnef.co/go/tools/...
+fi
+
+# check for dead code
+staticcheck -checks U1000 ./pkg/controller/... || exit 1
 
 # some directories are excluded from vetting as they are auto-generated
 vet_exclusions="github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1
