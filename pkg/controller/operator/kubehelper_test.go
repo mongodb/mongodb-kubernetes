@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
@@ -31,9 +31,9 @@ func TestStatefulsetCreationWaitsForCompletion(t *testing.T) {
 		SetPodSpec(defaultPodSpec()).
 		SetPodVars(defaultPodVars()).
 		SetService("test-service").
-		SetSecurity(&mongodb.Security{
-			TLSConfig: &mongodb.TLSConfig{},
-			Authentication: &mongodb.Authentication{
+		SetSecurity(&mdbv1.Security{
+			TLSConfig: &mdbv1.TLSConfig{},
+			Authentication: &mdbv1.Authentication{
 				Modes: []string{},
 			},
 		})
@@ -62,7 +62,7 @@ func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
 func TestComputeConfigMap_CreateNew(t *testing.T) {
 	client := newMockedClient(nil)
 	helper := KubeHelper{client: client}
-	owner := mongodb.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "test"}}
+	owner := mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "test"}}
 	key := objectKey("ns", "cfm")
 	testData := map[string]string{"foo": "bar"}
 
@@ -95,7 +95,7 @@ func TestComputeConfigMap_CreateNew(t *testing.T) {
 func TestComputeConfigMap_UpdateExisting(t *testing.T) {
 	client := newMockedClient(nil)
 	helper := KubeHelper{client: client}
-	owner := mongodb.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "test"}}
+	owner := mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "test"}}
 
 	// this is an existing configmap (created inside 'newMockedClient')
 	key := objectKey(TestNamespace, TestProjectConfigMapName)

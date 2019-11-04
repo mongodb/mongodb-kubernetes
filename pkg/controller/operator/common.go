@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"time"
 
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/pkg/errors"
@@ -24,35 +24,35 @@ import (
 // This is a collection of some common methods that may be shared by operator code
 
 // NewDefaultPodSpec creates default pod spec, seems we shouldn't set CPU and Memory if they are not provided by user
-func NewDefaultPodSpec() mongodb.MongoDbPodSpec {
-	defaultPodSpec := mongodb.MongoDbPodSpecStandard{}
-	defaultPodSpec.Persistence = &mongodb.Persistence{
-		SingleConfig: &mongodb.PersistenceConfig{Storage: util.DefaultMongodStorageSize},
-		MultipleConfig: &mongodb.MultiplePersistenceConfig{
-			Data:    &mongodb.PersistenceConfig{Storage: util.DefaultMongodStorageSize},
-			Journal: &mongodb.PersistenceConfig{Storage: util.DefaultJournalStorageSize},
-			Logs:    &mongodb.PersistenceConfig{Storage: util.DefaultLogsStorageSize},
+func NewDefaultPodSpec() mdbv1.MongoDbPodSpec {
+	defaultPodSpec := mdbv1.MongoDbPodSpecStandard{}
+	defaultPodSpec.Persistence = &mdbv1.Persistence{
+		SingleConfig: &mdbv1.PersistenceConfig{Storage: util.DefaultMongodStorageSize},
+		MultipleConfig: &mdbv1.MultiplePersistenceConfig{
+			Data:    &mdbv1.PersistenceConfig{Storage: util.DefaultMongodStorageSize},
+			Journal: &mdbv1.PersistenceConfig{Storage: util.DefaultJournalStorageSize},
+			Logs:    &mdbv1.PersistenceConfig{Storage: util.DefaultLogsStorageSize},
 		},
 	}
 
-	return mongodb.MongoDbPodSpec{
+	return mdbv1.MongoDbPodSpec{
 		MongoDbPodSpecStandard:     defaultPodSpec,
 		PodAntiAffinityTopologyKey: util.DefaultAntiAffinityTopologyKey,
 	}
 }
 
 // NewDefaultPodSpecWrapper
-func NewDefaultPodSpecWrapper(podSpec mongodb.MongoDbPodSpec) mongodb.PodSpecWrapper {
-	return mongodb.PodSpecWrapper{
+func NewDefaultPodSpecWrapper(podSpec mdbv1.MongoDbPodSpec) mdbv1.PodSpecWrapper {
+	return mdbv1.PodSpecWrapper{
 		MongoDbPodSpec: podSpec,
 		Default:        NewDefaultPodSpec(),
 	}
 }
 
 // NewDefaultStandalonePodSpecWrapper
-func NewDefaultStandalonePodSpecWrapper(podSpec mongodb.MongoDbPodSpecStandard) mongodb.PodSpecWrapper {
-	return mongodb.PodSpecWrapper{
-		MongoDbPodSpec: mongodb.MongoDbPodSpec{MongoDbPodSpecStandard: podSpec},
+func NewDefaultStandalonePodSpecWrapper(podSpec mdbv1.MongoDbPodSpecStandard) mdbv1.PodSpecWrapper {
+	return mdbv1.PodSpecWrapper{
+		MongoDbPodSpec: mdbv1.MongoDbPodSpec{MongoDbPodSpecStandard: podSpec},
 		Default:        NewDefaultPodSpec(),
 	}
 }
@@ -61,7 +61,7 @@ func DeploymentLink(url, groupId string) string {
 	return fmt.Sprintf("%s/v2/%s", url, groupId)
 }
 
-func buildReplicaSetFromStatefulSet(set *appsv1.StatefulSet, mdb *mongodb.MongoDB, log *zap.SugaredLogger) om.ReplicaSetWithProcesses {
+func buildReplicaSetFromStatefulSet(set *appsv1.StatefulSet, mdb *mdbv1.MongoDB, log *zap.SugaredLogger) om.ReplicaSetWithProcesses {
 	members := createProcesses(set, om.ProcessTypeMongod, mdb, log)
 	rsWithProcesses := om.NewReplicaSetWithProcesses(om.NewReplicaSet(set.Name, mdb.Spec.Version), members)
 	rsWithProcesses.ConfigureAuthenticationMode(mdb.Spec.Security.Authentication.InternalCluster)
@@ -69,7 +69,7 @@ func buildReplicaSetFromStatefulSet(set *appsv1.StatefulSet, mdb *mongodb.MongoD
 }
 
 func createProcesses(set *appsv1.StatefulSet, mongoType om.MongoType,
-	mdb *mongodb.MongoDB, log *zap.SugaredLogger) []om.Process {
+	mdb *mdbv1.MongoDB, log *zap.SugaredLogger) []om.Process {
 
 	hostnames, names := GetDnsForStatefulSet(set, mdb.Spec.ClusterName)
 	processes := make([]om.Process, len(hostnames))

@@ -9,7 +9,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
@@ -46,7 +46,7 @@ type Updatable interface {
 	UpdateReconciling()
 
 	// SetWarnings sets the warnings for the Updatable object
-	SetWarnings([]v1.StatusWarning)
+	SetWarnings([]mdbv1.StatusWarning)
 
 	// GetKind returns the kind of the object. This
 	// is convenient when setting the owner for K8s objects created by controllers
@@ -60,9 +60,9 @@ type Updatable interface {
 }
 
 // ensure our types are all Updatable
-var _ Updatable = &v1.MongoDB{}
-var _ Updatable = &v1.MongoDBUser{}
-var _ Updatable = &v1.MongoDBOpsManager{}
+var _ Updatable = &mdbv1.MongoDB{}
+var _ Updatable = &mdbv1.MongoDBUser{}
+var _ Updatable = &mdbv1.MongoDBOpsManager{}
 
 // ReconcileCommonController is the "parent" controller that is included into each specific controller and allows
 // to reuse the common functionality
@@ -90,7 +90,7 @@ func newReconcileCommonController(mgr manager.Manager, omFunc om.ConnectionFacto
 
 // prepareConnection reads project config map and credential secrets and uses these values to communicate with Ops Manager:
 // create or read the project and optionally request an agent key (it could have been returned by group api call)
-func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedName, spec v1.ConnectionSpec, podVars *PodVars, log *zap.SugaredLogger) (om.Connection, error) {
+func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedName, spec mdbv1.ConnectionSpec, podVars *PodVars, log *zap.SugaredLogger) (om.Connection, error) {
 	projectConfig, err := c.kubeHelper.readProjectConfig(nsName.Namespace, spec.GetProject())
 	if err != nil {
 		return nil, fmt.Errorf("Error reading Project Config: %s", err)
@@ -321,7 +321,7 @@ func (c *ReconcileCommonController) prepareResourceForReconciliation(
 	// this should be removed once we have the functionality in place to convert between resource types
 	// todo needs to be moved to a webhook or we should use the K8s OpenAPI immutability for the fields once its ready
 	switch res := resource.(type) {
-	case *v1.MongoDB:
+	case *mdbv1.MongoDB:
 		spec := res.Spec
 		status := res.Status
 		if spec.ResourceType != status.ResourceType && status.ResourceType != "" {
@@ -379,7 +379,7 @@ func (c *ReconcileCommonController) addWatchedResourceIfNotAdded(name, namespace
 // on the number of resources. Also it removes the tag ExternallyManaged from the project in this case as the user may
 // need to clean the resources from OM UI if they move the resource to another project (as recommended by the migration
 // instructions)
-func checkIfCanProceedWithWarnings(conn om.Connection, resource *v1.MongoDB) reconcileStatus {
+func checkIfCanProceedWithWarnings(conn om.Connection, resource *mdbv1.MongoDB) reconcileStatus {
 	deployment, err := conn.ReadDeployment()
 	if err != nil {
 		return failedErr(err)
@@ -399,11 +399,11 @@ func checkIfCanProceedWithWarnings(conn om.Connection, resource *v1.MongoDB) rec
 		}
 		_, err = conn.UpdateProject(groupWithTags)
 		if err != nil {
-			return ok(v1.CouldNotRemoveTagsWarning)
+			return ok(mdbv1.CouldNotRemoveTagsWarning)
 		}
 
 		// cluster is not empty, but we belong to it
-		return ok(v1.MultipleClustersInProjectWarning)
+		return ok(mdbv1.MultipleClustersInProjectWarning)
 	}
 
 	// more than one cluster and this is not one of them

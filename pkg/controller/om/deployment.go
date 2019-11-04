@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
 
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
@@ -45,10 +45,10 @@ func init() {
 	gob.Register([]MongoDbVersionConfig{})
 	gob.Register(ProcessTypeMongos)
 
-	gob.Register(mongodb.RequireSSLMode)
-	gob.Register(mongodb.PreferSSLMode)
-	gob.Register(mongodb.AllowSSLMode)
-	gob.Register(mongodb.DisabledSSLMode)
+	gob.Register(mdbv1.RequireSSLMode)
+	gob.Register(mdbv1.PreferSSLMode)
+	gob.Register(mdbv1.AllowSSLMode)
+	gob.Register(mdbv1.DisabledSSLMode)
 }
 
 // Deployment is a map representing the automation agent's cluster configuration.
@@ -84,7 +84,7 @@ func NewDeployment() Deployment {
 
 // ConfigureTLS configures the deployment's TLS settings from the TLS
 // specification provided by the user in the mongodb resource spec.
-func (d Deployment) ConfigureTLS(tlsSpec *mongodb.TLSConfig) {
+func (d Deployment) ConfigureTLS(tlsSpec *mdbv1.TLSConfig) {
 	if tlsSpec == nil || !tlsSpec.Enabled {
 		// delete(d, "ssl") // unset SSL config
 		// Do not delete because this might not be the last deployment with TLS enabled in this Project

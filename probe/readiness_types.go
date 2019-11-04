@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -13,7 +13,7 @@ import (
 // ConfigMapReader is an interface which allows to read the config map
 // Needed mainly for unit testing as it seems there is no easy way to mock out 'kubernetes.Clientset'
 type ConfigMapReader interface {
-	readConfigMap(namespace, configMapName string) (*v1.ConfigMap, error)
+	readConfigMap(namespace, configMapName string) (*corev1.ConfigMap, error)
 }
 
 type Health struct {
@@ -73,6 +73,6 @@ func NewKubernetesConfigMapReader() *KubernetesConfigMapReader {
 	return &KubernetesConfigMapReader{clientset: clientset}
 }
 
-func (r *KubernetesConfigMapReader) readConfigMap(namespace, configMapName string) (*v1.ConfigMap, error) {
+func (r *KubernetesConfigMapReader) readConfigMap(namespace, configMapName string) (*corev1.ConfigMap, error) {
 	return r.clientset.CoreV1().ConfigMaps(namespace).Get(configMapName, metav1.GetOptions{})
 }

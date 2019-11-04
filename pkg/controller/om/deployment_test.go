@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -138,13 +138,13 @@ func TestMergeReplicaSet_MergeFirstProcess(t *testing.T) {
 
 func TestConfigureSSL_Deployment(t *testing.T) {
 	d := Deployment{}
-	d.ConfigureTLS(&mongodb.TLSConfig{Enabled: true})
+	d.ConfigureTLS(&mdbv1.TLSConfig{Enabled: true})
 	expectedSSLConfig := map[string]interface{}{
 		"CAFilePath": "/mongodb-automation/ca.pem",
 	}
 	assert.Equal(t, expectedSSLConfig, d["ssl"].(map[string]interface{}))
 
-	d.ConfigureTLS(&mongodb.TLSConfig{})
+	d.ConfigureTLS(&mdbv1.TLSConfig{})
 	assert.NotEmpty(t, d["ssl"])
 }
 
@@ -592,19 +592,19 @@ func mergeStandalone(d Deployment, s Process) Process {
 
 // Convinience builder for Mongodb object
 type MongoDBBuilder struct {
-	*mongodb.MongoDB
+	*mdbv1.MongoDB
 }
 
 func DefaultMongoDB() *MongoDBBuilder {
-	spec := mongodb.MongoDbSpec{
+	spec := mdbv1.MongoDbSpec{
 		Version: "4.0.0",
 		Members: 3,
 	}
-	mdb := &mongodb.MongoDB{Spec: spec}
+	mdb := &mdbv1.MongoDB{Spec: spec}
 	return &MongoDBBuilder{mdb}
 }
 
-func DefaultMongoDBVersioned(version string) *mongodb.MongoDB {
+func DefaultMongoDBVersioned(version string) *mdbv1.MongoDB {
 	return DefaultMongoDB().SetVersion(version).Build()
 }
 
@@ -623,17 +623,17 @@ func (b *MongoDBBuilder) SetMembers(m int) *MongoDBBuilder {
 	return b
 }
 
-func (b *MongoDBBuilder) SetAdditionalConfig(c *mongodb.AdditionalMongodConfig) *MongoDBBuilder {
+func (b *MongoDBBuilder) SetAdditionalConfig(c *mdbv1.AdditionalMongodConfig) *MongoDBBuilder {
 	b.Spec.AdditionalMongodConfig = c
 	return b
 }
 
 func (b *MongoDBBuilder) SetSecurityTLSEnabled() *MongoDBBuilder {
-	b.Spec.Security = &mongodb.Security{TLSConfig: &mongodb.TLSConfig{Enabled: true}}
+	b.Spec.Security = &mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}}
 	return b
 }
 
-func (b *MongoDBBuilder) Build() *mongodb.MongoDB {
+func (b *MongoDBBuilder) Build() *mdbv1.MongoDB {
 	b.InitDefaults()
 	return b.MongoDB
 }

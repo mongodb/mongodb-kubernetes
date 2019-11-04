@@ -17,7 +17,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -281,13 +281,13 @@ func (oc *MockedClient) getMapForObject(obj apiruntime.Object) map[client.Object
 		return oc.configMaps
 	case *corev1.Service:
 		return oc.services
-	case *v1.MongoDB:
+	case *mdbv1.MongoDB:
 		return oc.mongoDbResources
 	case *certsv1.CertificateSigningRequest:
 		return oc.csrs
-	case *v1.MongoDBUser:
+	case *mdbv1.MongoDBUser:
 		return oc.users
-	case *v1.MongoDBOpsManager:
+	case *mdbv1.MongoDBOpsManager:
 		return oc.opsManagers
 	}
 	return nil

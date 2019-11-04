@@ -8,7 +8,7 @@ import (
 	"reflect"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -496,14 +496,14 @@ type PodSpecWrapper struct {
 }
 
 type MongoDbPodSpecStandard struct {
-	Cpu             string                 `json:"cpu,omitempty"`
-	CpuRequests     string                 `json:"cpuRequests,omitempty"`
-	Memory          string                 `json:"memory,omitempty"`
-	MemoryRequests  string                 `json:"memoryRequests,omitempty"`
-	PodAffinity     *v1.PodAffinity        `json:"podAffinity,omitempty"`
-	NodeAffinity    *v1.NodeAffinity       `json:"nodeAffinity,omitempty"`
-	SecurityContext *v1.PodSecurityContext `json:"securityContext,omitempty"`
-	Persistence     *Persistence           `json:"persistence,omitempty"`
+	Cpu             string                     `json:"cpu,omitempty"`
+	CpuRequests     string                     `json:"cpuRequests,omitempty"`
+	Memory          string                     `json:"memory,omitempty"`
+	MemoryRequests  string                     `json:"memoryRequests,omitempty"`
+	PodAffinity     *corev1.PodAffinity        `json:"podAffinity,omitempty"`
+	NodeAffinity    *corev1.NodeAffinity       `json:"nodeAffinity,omitempty"`
+	SecurityContext *corev1.PodSecurityContext `json:"securityContext,omitempty"`
+	Persistence     *Persistence               `json:"persistence,omitempty"`
 }
 
 type Persistence struct {

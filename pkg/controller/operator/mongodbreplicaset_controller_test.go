@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
@@ -16,7 +16,7 @@ import (
 )
 
 type ReplicaSetBuilder struct {
-	*v1.MongoDB
+	*mdbv1.MongoDB
 }
 
 func TestReplicaSetEventMethodsHandlePanic(t *testing.T) {
@@ -138,28 +138,28 @@ func TestCreateDeleteReplicaSet(t *testing.T) {
 
 func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
 	podSpec := NewDefaultPodSpec()
-	spec := v1.MongoDbSpec{
+	spec := mdbv1.MongoDbSpec{
 		Version:    "4.0.0",
 		Persistent: util.BooleanRef(false),
-		ConnectionSpec: v1.ConnectionSpec{
-			OpsManagerConfig: &v1.PrivateCloudConfig{
-				ConfigMapRef: v1.ConfigMapRef{
+		ConnectionSpec: mdbv1.ConnectionSpec{
+			OpsManagerConfig: &mdbv1.PrivateCloudConfig{
+				ConfigMapRef: mdbv1.ConfigMapRef{
 					Name: TestProjectConfigMapName,
 				},
 			},
 			Credentials: TestCredentialsSecretName,
 		},
-		ResourceType: v1.ReplicaSet,
+		ResourceType: mdbv1.ReplicaSet,
 		Members:      3,
-		Security: &v1.Security{
-			TLSConfig: &v1.TLSConfig{},
-			Authentication: &v1.Authentication{
+		Security: &mdbv1.Security{
+			TLSConfig: &mdbv1.TLSConfig{},
+			Authentication: &mdbv1.Authentication{
 				Modes: []string{},
 			},
 		},
 		PodSpec: &podSpec,
 	}
-	rs := &v1.MongoDB{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "temple", Namespace: TestNamespace}}
+	rs := &mdbv1.MongoDB{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "temple", Namespace: TestNamespace}}
 	return &ReplicaSetBuilder{rs}
 }
 
@@ -184,14 +184,14 @@ func (b *ReplicaSetBuilder) SetMembers(m int) *ReplicaSetBuilder {
 	return b
 }
 
-func (b *ReplicaSetBuilder) SetSecurity(security v1.Security) *ReplicaSetBuilder {
+func (b *ReplicaSetBuilder) SetSecurity(security mdbv1.Security) *ReplicaSetBuilder {
 	b.Spec.Security = &security
 	return b
 }
 
 func (b *ReplicaSetBuilder) EnableTLS() *ReplicaSetBuilder {
 	if b.Spec.Security == nil || b.Spec.Security.TLSConfig == nil {
-		b.SetSecurity(v1.Security{TLSConfig: &v1.TLSConfig{}})
+		b.SetSecurity(mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{}})
 	}
 	b.Spec.Security.TLSConfig.Enabled = true
 	return b
@@ -203,12 +203,12 @@ func (b *ReplicaSetBuilder) EnableX509() *ReplicaSetBuilder {
 	return b
 }
 
-func (b *ReplicaSetBuilder) Build() *v1.MongoDB {
+func (b *ReplicaSetBuilder) Build() *mdbv1.MongoDB {
 	b.InitDefaults()
 	return b.MongoDB
 }
 
-func createDeploymentFromReplicaSet(rs *v1.MongoDB) om.Deployment {
+func createDeploymentFromReplicaSet(rs *mdbv1.MongoDB) om.Deployment {
 	helper := createStatefulHelperFromReplicaSet(rs)
 
 	d := om.NewDeployment()
@@ -222,7 +222,7 @@ func createDeploymentFromReplicaSet(rs *v1.MongoDB) om.Deployment {
 	return d
 }
 
-func createStatefulHelperFromReplicaSet(sh *v1.MongoDB) *StatefulSetHelper {
+func createStatefulHelperFromReplicaSet(sh *mdbv1.MongoDB) *StatefulSetHelper {
 	return defaultSetHelper().
 		SetName(sh.Name).
 		SetService(sh.ServiceName()).

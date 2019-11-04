@@ -3,7 +3,7 @@ package operator
 import (
 	"fmt"
 
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -31,7 +31,7 @@ func newReplicaSetReconciler(mgr manager.Manager, omFunc om.ConnectionFactory) *
 // and what is in the MongoDbReplicaSet.Spec
 func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
 	log := zap.S().With("ReplicaSet", request.NamespacedName)
-	rs := &mongodb.MongoDB{}
+	rs := &mdbv1.MongoDB{}
 
 	defer exceptionHandling(
 		func(err interface{}) (reconcile.Result, error) {
@@ -134,7 +134,7 @@ func AddReplicaSetController(mgr manager.Manager) error {
 	// watch for changes to replica set MongoDB resources
 	eventHandler := MongoDBResourceEventHandler{reconciler: reconciler}
 	// Watch for changes to primary resource MongoDbReplicaSet
-	err = c.Watch(&source.Kind{Type: &mongodb.MongoDB{}}, &eventHandler, predicatesFor(mongodb.ReplicaSet))
+	err = c.Watch(&source.Kind{Type: &mdbv1.MongoDB{}}, &eventHandler, predicatesFor(mdbv1.ReplicaSet))
 
 	if err != nil {
 		return err
@@ -144,7 +144,7 @@ func AddReplicaSetController(mgr manager.Manager) error {
 	//	// TODO CLOUDP-35240
 	//	/*err = c.Watch(&source.Kind{Type: &appsv1.StatefulSet{}}, &handler.EnqueueRequestForOwner{
 	//		IsController: true,
-	//		OwnerType:    &mongodb.MongoDbReplicaSet{},
+	//		OwnerType:    &mdbv1.MongoDbReplicaSet{},
 	//	}, predicate.Funcs{
 	//		CreateFunc: func(e event.CreateEvent) bool {
 	//			return false
@@ -179,7 +179,7 @@ func AddReplicaSetController(mgr manager.Manager) error {
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
-func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, membersNumberBefore int, newResource *mongodb.MongoDB,
+func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, membersNumberBefore int, newResource *mdbv1.MongoDB,
 	set *appsv1.StatefulSet, log *zap.SugaredLogger) reconcileStatus {
 
 	err := waitForRsAgentsToRegister(set, newResource.Spec.ClusterName, conn, log)
@@ -260,7 +260,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 }
 
 func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLogger) error {
-	rs := obj.(*mongodb.MongoDB)
+	rs := obj.(*mdbv1.MongoDB)
 
 	log.Infow("Removing replica set from Ops Manager", "config", rs.Spec)
 	conn, err := r.prepareConnection(objectKey(rs.Namespace, rs.Name), rs.Spec.ConnectionSpec, nil, log)
@@ -304,7 +304,7 @@ func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLog
 	return nil
 }
 
-func (r *ReconcileCommonController) ensureX509(mdb *mongodb.MongoDB, helper *StatefulSetHelper, log *zap.SugaredLogger) reconcileStatus {
+func (r *ReconcileCommonController) ensureX509(mdb *mdbv1.MongoDB, helper *StatefulSetHelper, log *zap.SugaredLogger) reconcileStatus {
 	spec := mdb.Spec
 	authEnabled := mdb.Spec.Security.Authentication.Enabled
 	usingX509 := util.ContainsString(mdb.Spec.Security.Authentication.Modes, util.X509)
@@ -336,7 +336,7 @@ func (r *ReconcileCommonController) ensureX509(mdb *mongodb.MongoDB, helper *Sta
 	return ok()
 }
 
-func prepareScaleDownReplicaSet(omClient om.Connection, statefulSet *appsv1.StatefulSet, oldMembersCount int, new *mongodb.MongoDB, log *zap.SugaredLogger) error {
+func prepareScaleDownReplicaSet(omClient om.Connection, statefulSet *appsv1.StatefulSet, oldMembersCount int, new *mdbv1.MongoDB, log *zap.SugaredLogger) error {
 	_, podNames := GetDnsForStatefulSetReplicasSpecified(statefulSet, new.Spec.ClusterName, oldMembersCount)
 	podNames = podNames[new.Spec.Members:oldMembersCount]
 

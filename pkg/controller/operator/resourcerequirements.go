@@ -1,7 +1,7 @@
 package operator
 
 import (
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -9,10 +9,10 @@ import (
 
 // buildStorageRequirements returns a corev1.ResourceList definition for storage requirements.
 // This is used by the StatefulSet PersistentVolumeClaimTemplate.
-func buildStorageRequirements(persistenceConfig, defaultConfig *mongodb.PersistenceConfig) corev1.ResourceList {
+func buildStorageRequirements(persistenceConfig, defaultConfig *mdbv1.PersistenceConfig) corev1.ResourceList {
 	res := corev1.ResourceList{}
 
-	if q := parseQuantityOrZero(mongodb.GetStorageOrDefault(persistenceConfig, defaultConfig)); !q.IsZero() {
+	if q := parseQuantityOrZero(mdbv1.GetStorageOrDefault(persistenceConfig, defaultConfig)); !q.IsZero() {
 		res[corev1.ResourceStorage] = q
 	}
 
@@ -21,7 +21,7 @@ func buildStorageRequirements(persistenceConfig, defaultConfig *mongodb.Persiste
 
 // buildLimitsRequirements returns a corev1.ResourceList definition for limits for CPU and Memory Requirements
 // This is used by the StatefulSet containers to allocate resources per Pod.
-func buildLimitsRequirements(reqs mongodb.PodSpecWrapper) corev1.ResourceList {
+func buildLimitsRequirements(reqs mdbv1.PodSpecWrapper) corev1.ResourceList {
 	res := corev1.ResourceList{}
 
 	if q := parseQuantityOrZero(reqs.GetCpuOrDefault()); !q.IsZero() {
@@ -36,7 +36,7 @@ func buildLimitsRequirements(reqs mongodb.PodSpecWrapper) corev1.ResourceList {
 
 // buildRequestsRequirements returns a corev1.ResourceList definition for requests for CPU and Memory Requirements
 //// This is used by the StatefulSet containers to allocate resources per Pod.
-func buildRequestsRequirements(reqs mongodb.PodSpecWrapper) corev1.ResourceList {
+func buildRequestsRequirements(reqs mdbv1.PodSpecWrapper) corev1.ResourceList {
 	res := corev1.ResourceList{}
 
 	if q := parseQuantityOrZero(reqs.GetCpuRequestsOrDefault()); !q.IsZero() {

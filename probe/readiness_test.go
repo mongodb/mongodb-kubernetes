@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -111,18 +111,18 @@ func TestHeadlessAgentPanicsIfEnvVarsNotSet(t *testing.T) {
 
 // MockedConfigMapReader is a mocked implementation of ConfigMapReader
 type MockedConfigMapReader struct {
-	configMap *v1.ConfigMap
+	configMap *corev1.ConfigMap
 }
 
 func NewMockedConfigMapReader(namespace, name string, version int) *MockedConfigMapReader {
 	// We don't need to create a full automation config - just the json with version field is enough
 	deployment := fmt.Sprintf("{\"version\": %d}", version)
-	configMap := &v1.ConfigMap{Data: map[string]string{"cluster-config.json": deployment}}
+	configMap := &corev1.ConfigMap{Data: map[string]string{"cluster-config.json": deployment}}
 	configMap.ObjectMeta = metav1.ObjectMeta{Namespace: namespace, Name: name}
 	return &MockedConfigMapReader{configMap: configMap}
 }
 
-func (r *MockedConfigMapReader) readConfigMap(namespace, configMapName string) (*v1.ConfigMap, error) {
+func (r *MockedConfigMapReader) readConfigMap(namespace, configMapName string) (*corev1.ConfigMap, error) {
 	if r != nil && r.configMap.Namespace == namespace && r.configMap.Name == configMapName {
 		return r.configMap, nil
 	}

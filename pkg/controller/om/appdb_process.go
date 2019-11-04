@@ -3,7 +3,7 @@ package om
 import (
 	"path"
 
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
@@ -16,7 +16,7 @@ import (
 // - after this all the Operator/OpsManager methods dealing with 'mongodb.MongoDB' can be switched to this new interface
 
 // NewMongodProcess
-func NewMongodProcessAppDB(name, hostName string, resource *mongodb.AppDB) Process {
+func NewMongodProcessAppDB(name, hostName string, resource *mdbv1.AppDB) Process {
 	p := Process{}
 
 	initDefault(name, hostName, resource.Version, resource.FeatureCompatibilityVersion, ProcessTypeMongod, p)

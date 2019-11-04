@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/pkg/errors"
@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
-	v12 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
@@ -132,8 +131,8 @@ func TestPrepareOmConnection_PrepareAgentKeys(t *testing.T) {
 	assert.NotNil(t, key)
 
 	manager.client.CheckOrderOfOperations(t,
-		HItem(reflect.ValueOf(manager.client.Get), &v12.Secret{}),
-		HItem(reflect.ValueOf(manager.client.Create), &v12.Secret{}))
+		HItem(reflect.ValueOf(manager.client.Get), &corev1.Secret{}),
+		HItem(reflect.ValueOf(manager.client.Create), &corev1.Secret{}))
 }
 
 // TestPrepareOmConnection_ConfigMapAndSecretWatched verifies that config map and secret are added to the internal
@@ -150,14 +149,14 @@ func TestPrepareOmConnection_ConfigMapAndSecretWatched(t *testing.T) {
 
 	// Here we create two replica sets both referencing the same project and credentials
 	vars := &PodVars{}
-	spec := v1.ConnectionSpec{
-		OpsManagerConfig: &v1.PrivateCloudConfig{
-			ConfigMapRef: v1.ConfigMapRef{
+	spec := mdbv1.ConnectionSpec{
+		OpsManagerConfig: &mdbv1.PrivateCloudConfig{
+			ConfigMapRef: mdbv1.ConfigMapRef{
 				Name: TestProjectConfigMapName,
 			},
 		},
 		Credentials: "mySecret",
-		LogLevel:    v1.Warn,
+		LogLevel:    mdbv1.Warn,
 	}
 	_, e := reconciler.prepareConnection(objectKey(TestNamespace, "ReplicaSetOne"), spec, vars, zap.S())
 	assert.NoError(t, e)
@@ -192,13 +191,13 @@ func TestResourcesAreUpdated_AfterConflictErrors(t *testing.T) {
 	controller := newReconcileCommonController(manager, om.NewEmptyMockedOmConnection)
 
 	controller.updateStatus(rs, func(updatable Updatable) {
-		toChange := updatable.(*v1.MongoDB)
+		toChange := updatable.(*mdbv1.MongoDB)
 		status := &toChange.Status
 		status.Version = "new-version"
-		status.Phase = v1.PhaseRunning
+		status.Phase = mdbv1.PhaseRunning
 	})
 
-	assert.Equal(t, v1.PhaseRunning, rs.Status.Phase, "The phase should have been updated even after one failure")
+	assert.Equal(t, mdbv1.PhaseRunning, rs.Status.Phase, "The phase should have been updated even after one failure")
 	assert.Equal(t, "new-version", rs.Status.Version, "The version should have been updated even after one failure")
 	mockedClient.CheckNumberOfOperations(t, HItem(reflect.ValueOf(mockedClient.Update), rs), 2)
 }
@@ -223,14 +222,14 @@ func TestShouldReconcile_DoesReconcileOnSpecChange(t *testing.T) {
 
 func prepareConnection(controller *ReconcileCommonController, t *testing.T) (*om.MockedOmConnection, *PodVars) {
 	vars := &PodVars{}
-	spec := v1.ConnectionSpec{
-		OpsManagerConfig: &v1.PrivateCloudConfig{
-			ConfigMapRef: v1.ConfigMapRef{
+	spec := mdbv1.ConnectionSpec{
+		OpsManagerConfig: &mdbv1.PrivateCloudConfig{
+			ConfigMapRef: mdbv1.ConfigMapRef{
 				Name: TestProjectConfigMapName,
 			},
 		},
 		Credentials: TestCredentialsSecretName,
-		LogLevel:    v1.Warn,
+		LogLevel:    mdbv1.Warn,
 	}
 	conn, e := controller.prepareConnection(objectKey(TestNamespace, ""), spec, vars, zap.S())
 	mockOm := conn.(*om.MockedOmConnection)
@@ -290,14 +289,14 @@ func requestFromObject(object apiruntime.Object) reconcile.Request {
 	return reconcile.Request{NamespacedName: objectKeyFromApiObject(object)}
 }
 
-func checkReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, object *v1.MongoDB, client *MockedClient) {
+func checkReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, client *MockedClient) {
 	result, e := reconciler.Reconcile(requestFromObject(object))
 	require.NoError(t, e)
 	require.Equal(t, reconcile.Result{}, result)
 
 	// also need to make sure the object status is updated to successful
 	assert.NoError(t, client.Get(context.TODO(), objectKeyFromApiObject(object), object))
-	assert.Equal(t, v1.PhaseRunning, object.Status.Phase)
+	assert.Equal(t, mdbv1.PhaseRunning, object.Status.Phase)
 
 	expectedLink := DeploymentLink(om.TestURL, om.TestGroupID)
 
@@ -308,9 +307,9 @@ func checkReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, obj
 	assert.NotEqual(t, object.Status.LastTransition, "")
 
 	switch object.Spec.ResourceType {
-	case v1.ReplicaSet:
+	case mdbv1.ReplicaSet:
 		assert.Equal(t, object.Spec.Members, object.Status.Members)
-	case v1.ShardedCluster:
+	case mdbv1.ShardedCluster:
 		assert.Equal(t, object.Spec.ConfigServerCount, object.Status.ConfigServerCount)
 		assert.Equal(t, object.Spec.MongosCount, object.Status.MongosCount)
 		assert.Equal(t, object.Spec.MongodsPerShardCount, object.Status.MongodsPerShardCount)
@@ -318,7 +317,7 @@ func checkReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, obj
 	}
 }
 
-func checkReconcileFailed(t *testing.T, reconciler reconcile.Reconciler, object *v1.MongoDB, expectedErrorMessage string, client *MockedClient) {
+func checkReconcileFailed(t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, expectedErrorMessage string, client *MockedClient) {
 	failedResult := reconcile.Result{RequeueAfter: 10 * time.Second}
 	result, e := reconciler.Reconcile(requestFromObject(object))
 	assert.Nil(t, e, "When retrying, error should be nil")
@@ -326,11 +325,11 @@ func checkReconcileFailed(t *testing.T, reconciler reconcile.Reconciler, object 
 
 	// also need to make sure the object status is updated to failed
 	assert.NoError(t, client.Get(context.TODO(), objectKeyFromApiObject(object), object))
-	assert.Equal(t, v1.PhaseFailed, object.Status.Phase)
+	assert.Equal(t, mdbv1.PhaseFailed, object.Status.Phase)
 	assert.Equal(t, expectedErrorMessage, object.Status.Message)
 }
 
-func checkReconcilePending(t *testing.T, reconciler reconcile.Reconciler, object *v1.MongoDB, expectedErrorMessage string, client *MockedClient) {
+func checkReconcilePending(t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, expectedErrorMessage string, client *MockedClient) {
 	failedResult := reconcile.Result{RequeueAfter: 10 * time.Second}
 	result, e := reconciler.Reconcile(requestFromObject(object))
 	assert.Nil(t, e, "When retrying, error should be nil")
@@ -338,6 +337,6 @@ func checkReconcilePending(t *testing.T, reconciler reconcile.Reconciler, object
 
 	// also need to make sure the object status is updated to failed
 	assert.NoError(t, client.Get(context.TODO(), objectKeyFromApiObject(object), object))
-	assert.Equal(t, v1.PhasePending, object.Status.Phase)
+	assert.Equal(t, mdbv1.PhasePending, object.Status.Phase)
 	assert.Equal(t, expectedErrorMessage, object.Status.Message)
 }

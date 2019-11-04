@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -34,11 +34,11 @@ func newAppDBReplicaSetReconciler(commonController *ReconcileCommonController) *
 }
 
 // Reconcile deploys the "headless" agent, and wait until it reaches the goal state
-func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *mongodb.MongoDBOpsManager, rs *mongodb.AppDB) (res reconcile.Result, e error) {
+func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *mdbv1.MongoDBOpsManager, rs *mdbv1.AppDB) (res reconcile.Result, e error) {
 	log := zap.S().With("ReplicaSet (AppDB)", objectKey(opsManager.Namespace, rs.Name()))
 
 	err := r.updateStatus(opsManager, func(fresh Updatable) {
-		(fresh.(*mongodb.MongoDBOpsManager)).UpdateReconcilingAppDb()
+		(fresh.(*mdbv1.MongoDBOpsManager)).UpdateReconcilingAppDb()
 	})
 	if err != nil {
 		log.Errorf("Error setting state to reconciling: %s", err)
@@ -92,7 +92,7 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *mongodb.MongoDBOpsManag
 	log.Infof("Finished reconciliation for AppDB ReplicaSet!")
 
 	err = r.updateStatus(opsManager, func(fresh Updatable) {
-		fresh.(*mongodb.MongoDBOpsManager).UpdateSuccessfulAppDb(rs)
+		fresh.(*mdbv1.MongoDBOpsManager).UpdateSuccessfulAppDb(rs)
 	})
 	if err != nil {
 		log.Errorf("Failed to update status for resource to successful: %s", err)
@@ -102,13 +102,13 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *mongodb.MongoDBOpsManag
 	return reconcile.Result{}, nil
 }
 
-func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(rs *mongodb.AppDB, opsManager *mongodb.MongoDBOpsManager, automationConfig *om.AutomationConfig, log *zap.SugaredLogger) error {
+func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(rs *mdbv1.AppDB, opsManager *mdbv1.MongoDBOpsManager, automationConfig *om.AutomationConfig, log *zap.SugaredLogger) error {
 	// Create/update the automation config configMap if it changed.
 	// Note, that the 'version' field is incremented if there are changes (emulating the db versioning mechanism)
 	// No optimistic concurrency control is done - there cannot be a concurrent reconciliation for the same Ops Manager
 	// object and the probability that the user will edit the config map manually in the same time is extremely low
 	if err := r.kubeHelper.computeConfigMap(objectKey(opsManager.Namespace, rs.AutomationConfigSecretName()),
-		func(existingMap *v1.ConfigMap) bool {
+		func(existingMap *corev1.ConfigMap) bool {
 			if len(existingMap.Data) == 0 {
 				log.Debugf("ConfigMap for the Automation Config doesn't exist, it will be created")
 			} else if existingDeployment, err := om.BuildDeploymentFromBytes([]byte(existingMap.Data["cluster-config.json"])); err != nil {
@@ -148,7 +148,7 @@ func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(rs *mongodb.AppDB, op
 	return nil
 }
 
-func buildAppDbAutomationConfig(rs *mongodb.AppDB, opsManager *mongodb.MongoDBOpsManager, set *appsv1.StatefulSet, log *zap.SugaredLogger) (*om.AutomationConfig, error) {
+func buildAppDbAutomationConfig(rs *mdbv1.AppDB, opsManager *mdbv1.MongoDBOpsManager, set *appsv1.StatefulSet, log *zap.SugaredLogger) (*om.AutomationConfig, error) {
 	d := om.NewDeployment()
 
 	replicaSet := buildReplicaSetFromStatefulSetAppDb(set, rs, log)
@@ -213,7 +213,7 @@ func fixLinks(configs []om.MongoDbVersionConfig) {
 	}
 }
 
-func (c *ReconcileAppDbReplicaSet) updateStatusFailedAppDb(resource *mongodb.MongoDBOpsManager, msg string, log *zap.SugaredLogger) (reconcile.Result, error) {
+func (c *ReconcileAppDbReplicaSet) updateStatusFailedAppDb(resource *mdbv1.MongoDBOpsManager, msg string, log *zap.SugaredLogger) (reconcile.Result, error) {
 	msg = util.UpperCaseFirstChar(msg)
 
 	log.Error(msg)
@@ -221,7 +221,7 @@ func (c *ReconcileAppDbReplicaSet) updateStatusFailedAppDb(resource *mongodb.Mon
 	// took over
 	if resource != nil {
 		err := c.updateStatus(resource, func(fresh Updatable) {
-			fresh.(*mongodb.MongoDBOpsManager).UpdateErrorAppDb(msg)
+			fresh.(*mdbv1.MongoDBOpsManager).UpdateErrorAppDb(msg)
 		})
 		if err != nil {
 			log.Errorf("Failed to update resource status: %s", err)
@@ -230,13 +230,13 @@ func (c *ReconcileAppDbReplicaSet) updateStatusFailedAppDb(resource *mongodb.Mon
 	return retry()
 }
 
-func (c *ReconcileAppDbReplicaSet) updateStatusPendingAppDb(resource *mongodb.MongoDBOpsManager, msg string, log *zap.SugaredLogger) (reconcile.Result, error) {
+func (c *ReconcileAppDbReplicaSet) updateStatusPendingAppDb(resource *mdbv1.MongoDBOpsManager, msg string, log *zap.SugaredLogger) (reconcile.Result, error) {
 	msg = util.UpperCaseFirstChar(msg)
 
 	log.Info(msg)
 
 	err := c.updateStatus(resource, func(fresh Updatable) {
-		fresh.(*mongodb.MongoDBOpsManager).UpdatePendingAppDb(msg)
+		fresh.(*mdbv1.MongoDBOpsManager).UpdatePendingAppDb(msg)
 	})
 	if err != nil {
 		return fail(err)
@@ -253,14 +253,14 @@ func (c *ReconcileAppDbReplicaSet) updateStatusPendingAppDb(resource *mongodb.Mo
 //return prepareScaleDown(omClient, map[string][]string{new.Name(): podNames}, log)
 //}
 
-func buildReplicaSetFromStatefulSetAppDb(set *appsv1.StatefulSet, mdb *mongodb.AppDB, log *zap.SugaredLogger) om.ReplicaSetWithProcesses {
+func buildReplicaSetFromStatefulSetAppDb(set *appsv1.StatefulSet, mdb *mdbv1.AppDB, log *zap.SugaredLogger) om.ReplicaSetWithProcesses {
 	members := createProcessesAppDb(set, om.ProcessTypeMongod, mdb)
 	rsWithProcesses := om.NewReplicaSetWithProcesses(om.NewReplicaSet(set.Name, mdb.Version), members)
 	return rsWithProcesses
 }
 
 func createProcessesAppDb(set *appsv1.StatefulSet, mongoType om.MongoType,
-	mdb *mongodb.AppDB) []om.Process {
+	mdb *mdbv1.AppDB) []om.Process {
 
 	hostnames, names := GetDnsForStatefulSet(set, mdb.ClusterName)
 	processes := make([]om.Process, len(hostnames))

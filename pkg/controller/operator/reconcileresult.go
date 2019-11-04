@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"go.uber.org/zap"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -33,7 +33,7 @@ type reconcileStatus interface {
 // successStatus indicates that the reconciliation process can proceed
 type successStatus struct {
 	// TODO refactor the reconcile result topology to include warnings to all the statuses
-	warnings []v1.StatusWarning
+	warnings []mdbv1.StatusWarning
 	msg      string
 }
 
@@ -52,7 +52,7 @@ type validationStatus struct {
 	errorStatus
 }
 
-func ok(warnings ...v1.StatusWarning) *successStatus {
+func ok(warnings ...mdbv1.StatusWarning) *successStatus {
 	return &successStatus{warnings: warnings}
 }
 

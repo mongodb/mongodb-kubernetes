@@ -6,7 +6,7 @@ import (
 
 	"os"
 
-	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
@@ -118,31 +118,31 @@ func TestStandaloneEventMethodsHandlePanic(t *testing.T) {
 }
 
 type StandaloneBuilder struct {
-	*v1.MongoDB
+	*mdbv1.MongoDB
 }
 
 func DefaultStandaloneBuilder() *StandaloneBuilder {
-	spec := v1.MongoDbSpec{
+	spec := mdbv1.MongoDbSpec{
 		Version:    "4.0.0",
 		Members:    1,
 		Persistent: util.BooleanRef(true),
-		ConnectionSpec: v1.ConnectionSpec{
-			OpsManagerConfig: &v1.PrivateCloudConfig{
-				ConfigMapRef: v1.ConfigMapRef{
+		ConnectionSpec: mdbv1.ConnectionSpec{
+			OpsManagerConfig: &mdbv1.PrivateCloudConfig{
+				ConfigMapRef: mdbv1.ConfigMapRef{
 					Name: TestProjectConfigMapName,
 				},
 			},
 			Credentials: TestCredentialsSecretName,
 		},
-		Security: &v1.Security{
-			Authentication: &v1.Authentication{
+		Security: &mdbv1.Security{
+			Authentication: &mdbv1.Authentication{
 				Modes: []string{},
 			},
-			TLSConfig: &v1.TLSConfig{},
+			TLSConfig: &mdbv1.TLSConfig{},
 		},
-		ResourceType: v1.Standalone,
+		ResourceType: mdbv1.Standalone,
 	}
-	resource := &v1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "dublin", Namespace: TestNamespace}, Spec: spec}
+	resource := &mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "dublin", Namespace: TestNamespace}, Spec: spec}
 	return &StandaloneBuilder{resource}
 }
 
@@ -162,13 +162,13 @@ func (b *StandaloneBuilder) SetService(s string) *StandaloneBuilder {
 	b.Spec.Service = s
 	return b
 }
-func (b *StandaloneBuilder) Build() *v1.MongoDB {
-	b.Spec.ResourceType = v1.Standalone
+func (b *StandaloneBuilder) Build() *mdbv1.MongoDB {
+	b.Spec.ResourceType = mdbv1.Standalone
 	b.InitDefaults()
 	return b.MongoDB
 }
 
-func createDeploymentFromStandalone(st *v1.MongoDB) om.Deployment {
+func createDeploymentFromStandalone(st *mdbv1.MongoDB) om.Deployment {
 	helper := createStatefulHelperFromStandalone(st)
 
 	d := om.NewDeployment()
@@ -179,6 +179,6 @@ func createDeploymentFromStandalone(st *v1.MongoDB) om.Deployment {
 	return d
 }
 
-func createStatefulHelperFromStandalone(sh *v1.MongoDB) *StatefulSetHelper {
+func createStatefulHelperFromStandalone(sh *mdbv1.MongoDB) *StatefulSetHelper {
 	return defaultSetHelper().SetName(sh.Name).SetService(sh.ServiceName()).SetReplicas(1)
 }

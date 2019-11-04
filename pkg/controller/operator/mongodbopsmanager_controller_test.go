@@ -3,11 +3,11 @@ package operator
 import (
 	"testing"
 
-	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
-	appv1 "k8s.io/api/apps/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -107,7 +107,7 @@ func TestOpsManagerReconciler_prepareOpsManagerDuplicatedUser(t *testing.T) {
 
 // ********** Helper methods ***********************************
 
-func defaultTestOmReconciler(t *testing.T, opsManager *v1.MongoDBOpsManager) (*OpsManagerReconciler, *MockedClient,
+func defaultTestOmReconciler(t *testing.T, opsManager *mdbv1.MongoDBOpsManager) (*OpsManagerReconciler, *MockedClient,
 	*MockedInitializer) {
 	manager := newMockedManager(opsManager)
 	// create an admin user secret
@@ -119,24 +119,24 @@ func defaultTestOmReconciler(t *testing.T, opsManager *v1.MongoDBOpsManager) (*O
 	return newOpsManagerReconciler(manager, om.NewOpsManagerConnection, initializer), manager.client, initializer
 }
 
-func omWithAppDBVersion(version string) *v1.MongoDBOpsManager {
+func omWithAppDBVersion(version string) *mdbv1.MongoDBOpsManager {
 	return DefaultOpsManagerBuilder().SetAppDbVersion(version).Build()
 }
 
 type OpsManagerBuilder struct {
-	om *v1.MongoDBOpsManager
+	om *mdbv1.MongoDBOpsManager
 }
 
 func DefaultOpsManagerBuilder() *OpsManagerBuilder {
-	spec := v1.MongoDBOpsManagerSpec{
+	spec := mdbv1.MongoDBOpsManagerSpec{
 		Version: "4.2.0",
-		AppDB: v1.AppDB{
-			MongoDbSpec:    v1.MongoDbSpec{Version: "4.2.0", Members: 3, PodSpec: &v1.MongoDbPodSpec{}},
+		AppDB: mdbv1.AppDB{
+			MongoDbSpec:    mdbv1.MongoDbSpec{Version: "4.2.0", Members: 3, PodSpec: &mdbv1.MongoDbPodSpec{}},
 			OpsManagerName: "testOM", // in practice this field is set during deserialization
 		},
 		AdminSecret: "om-admin",
 	}
-	om := &v1.MongoDBOpsManager{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "testOM", Namespace: TestNamespace}}
+	om := &mdbv1.MongoDBOpsManager{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "testOM", Namespace: TestNamespace}}
 	return &OpsManagerBuilder{om}
 }
 
@@ -160,11 +160,11 @@ func (b *OpsManagerBuilder) SetAppDbFeatureCompatibility(version string) *OpsMan
 	return b
 }
 
-func (b *OpsManagerBuilder) Build() *v1.MongoDBOpsManager {
+func (b *OpsManagerBuilder) Build() *mdbv1.MongoDBOpsManager {
 	return b.om
 }
 
-func (b *OpsManagerBuilder) BuildStatefulSet() *appv1.StatefulSet {
+func (b *OpsManagerBuilder) BuildStatefulSet() *appsv1.StatefulSet {
 	rs := b.om.Spec.AppDB
 	return (&KubeHelper{}).NewStatefulSetHelper(b.om).
 		SetName(rs.Name()).

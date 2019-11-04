@@ -5,12 +5,12 @@ import (
 	"reflect"
 	"testing"
 
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/spf13/cast"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
@@ -47,12 +47,12 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 
 	// publishing the config without updates should not result in API call
 	assert.NoError(t, reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S()))
-	kubeManager.client.CheckOperationsDidntHappen(t, HItem(reflect.ValueOf(kubeManager.client.Update), &v1.ConfigMap{}))
+	kubeManager.client.CheckOperationsDidntHappen(t, HItem(reflect.ValueOf(kubeManager.client.Update), &corev1.ConfigMap{}))
 
 	// publishing changed config will result in update
 	automationConfig.Deployment.AddMonitoringAndBackup("foo", zap.S())
 	assert.NoError(t, reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S()))
-	kubeManager.client.CheckOrderOfOperations(t, HItem(reflect.ValueOf(kubeManager.client.Update), &v1.ConfigMap{}))
+	kubeManager.client.CheckOrderOfOperations(t, HItem(reflect.ValueOf(kubeManager.client.Update), &corev1.ConfigMap{}))
 
 	// verify the configmap was updated (the version must get incremented)
 	configMap := readAutomationConfigMap(t, kubeManager, opsManager)
@@ -139,7 +139,7 @@ func buildAutomationConfigForAppDb(t *testing.T, builder *OpsManagerBuilder) *om
 	return config
 }
 
-func checkDeploymentEqualToPublished(t *testing.T, expected om.Deployment, configMap *v1.ConfigMap) {
+func checkDeploymentEqualToPublished(t *testing.T, expected om.Deployment, configMap *corev1.ConfigMap) {
 	publishedDeployment, err := om.BuildDeploymentFromBytes([]byte(configMap.Data["cluster-config.json"]))
 	assert.NoError(t, err)
 	assert.Equal(t, expected.ToCanonicalForm(), publishedDeployment)
@@ -149,8 +149,8 @@ func newAppDbReconciler(mgr manager.Manager) *ReconcileAppDbReplicaSet {
 	return &ReconcileAppDbReplicaSet{newReconcileCommonController(mgr, nil)}
 }
 
-func readAutomationConfigMap(t *testing.T, kubeManager *MockedManager, opsManager *mongodb.MongoDBOpsManager) *v1.ConfigMap {
-	configMap := &v1.ConfigMap{}
+func readAutomationConfigMap(t *testing.T, kubeManager *MockedManager, opsManager *mdbv1.MongoDBOpsManager) *corev1.ConfigMap {
+	configMap := &corev1.ConfigMap{}
 	key := objectKey(opsManager.Namespace, opsManager.Spec.AppDB.AutomationConfigSecretName())
 	assert.NoError(t, kubeManager.client.Get(context.TODO(), key, configMap))
 	return configMap

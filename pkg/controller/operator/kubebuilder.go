@@ -9,7 +9,7 @@ import (
 
 	"fmt"
 
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -67,10 +67,10 @@ type PodVars struct {
 	ProjectID   string
 	User        string
 	AgentAPIKey string
-	LogLevel    mongodb.LogLevel
+	LogLevel    mdbv1.LogLevel
 
 	// Related to MMS SSL configuration
-	mongodb.SSLProjectConfig
+	mdbv1.SSLProjectConfig
 }
 
 // createDatabaseStatefulSet is a general function for building the database StatefulSet.
@@ -184,7 +184,7 @@ func buildOpsManagerStatefulSet(p OpsManagerStatefulSetHelper) *appsv1.StatefulS
 	if p.IsBackupDaemon {
 		// backup daemon needs head db, this is set to some default value for now.
 		// `kind` only supports a "default" storageclass
-		defaultConfig := &mongodb.PersistenceConfig{
+		defaultConfig := &mdbv1.PersistenceConfig{
 			Storage:      p.Storage,
 			StorageClass: &p.StorageClass,
 		}
@@ -330,7 +330,7 @@ func buildPersistentVolumeClaims(set *appsv1.StatefulSet, p StatefulSetHelper) {
 	if p.PodSpec.Persistence == nil ||
 		(p.PodSpec.Persistence.SingleConfig == nil && p.PodSpec.Persistence.MultipleConfig == nil) ||
 		p.PodSpec.Persistence.SingleConfig != nil {
-		var config *mongodb.PersistenceConfig
+		var config *mdbv1.PersistenceConfig
 		if p.PodSpec.Persistence != nil && p.PodSpec.Persistence.SingleConfig != nil {
 			config = p.PodSpec.Persistence.SingleConfig
 		}
@@ -396,15 +396,15 @@ func buildService(service *corev1.Service, namespacedName types.NamespacedName, 
 func baseOwnerReference(owner Updatable) []metav1.OwnerReference {
 	return []metav1.OwnerReference{
 		*metav1.NewControllerRef(owner, schema.GroupVersionKind{
-			Group:   mongodb.SchemeGroupVersion.Group,
-			Version: mongodb.SchemeGroupVersion.Version,
+			Group:   mdbv1.SchemeGroupVersion.Group,
+			Version: mdbv1.SchemeGroupVersion.Version,
 			Kind:    owner.GetKind(),
 		}),
 	}
 }
 
 // createBaseDbPodSpec is a base pod spec build for both AppDB and MongoDB
-func createBaseDbPodSpec(container corev1.Container, statefulSetName string, reqs mongodb.PodSpecWrapper) corev1.PodSpec {
+func createBaseDbPodSpec(container corev1.Container, statefulSetName string, reqs mdbv1.PodSpecWrapper) corev1.PodSpec {
 	spec := corev1.PodSpec{
 		Containers: []corev1.Container{container},
 		Affinity: &corev1.Affinity{
@@ -461,7 +461,7 @@ func ensurePodSecurityContext(explicitContext *corev1.PodSecurityContext, spec *
 // basePodSpec creates the standard Pod definition which uses the database container for managing mongod/mongos
 // instances. Parameters to the container will be passed as environment variables which values are contained
 // in the PodVars structure.
-func basePodSpec(statefulSetName string, reqs mongodb.PodSpecWrapper, podVars *PodVars) corev1.PodSpec {
+func basePodSpec(statefulSetName string, reqs mdbv1.PodSpecWrapper, podVars *PodVars) corev1.PodSpec {
 	container := corev1.Container{
 		Name:            util.ContainerName,
 		Image:           util.ReadEnvVarOrPanic(util.AutomationAgentImageUrl),
@@ -485,7 +485,7 @@ func basePodSpec(statefulSetName string, reqs mongodb.PodSpecWrapper, podVars *P
 
 // baseAppDbPodSpec creates the AppDB pod template. The container spec is mostly the same as for the MongoDB one -
 // just different url and readiness probe
-func baseAppDbPodSpec(statefulSetName string, reqs mongodb.PodSpecWrapper, version string) corev1.PodSpec {
+func baseAppDbPodSpec(statefulSetName string, reqs mdbv1.PodSpecWrapper, version string) corev1.PodSpec {
 	appdbImageUrl := fmt.Sprintf("%s:%s", util.ReadEnvVarOrPanic(util.AppDBImageUrl), version)
 	container := corev1.Container{
 		Name:            util.ContainerAppDbName,
@@ -704,7 +704,7 @@ func baseEnvFrom(podVars *PodVars) []corev1.EnvVar {
 	return vars
 }
 
-func createClaimsAndMontsMultiMode(p StatefulSetHelper, defaultConfig *mongodb.MultiplePersistenceConfig) ([]corev1.PersistentVolumeClaim, []corev1.VolumeMount) {
+func createClaimsAndMontsMultiMode(p StatefulSetHelper, defaultConfig *mdbv1.MultiplePersistenceConfig) ([]corev1.PersistentVolumeClaim, []corev1.VolumeMount) {
 	claims := []corev1.PersistentVolumeClaim{
 		*pvc(util.PvcNameData, p.PodSpec.Persistence.MultipleConfig.Data, defaultConfig.Data),
 		*pvc(util.PvcNameJournal, p.PodSpec.Persistence.MultipleConfig.Journal, defaultConfig.Journal),
@@ -718,7 +718,7 @@ func createClaimsAndMontsMultiMode(p StatefulSetHelper, defaultConfig *mongodb.M
 	return claims, mounts
 }
 
-func createClaimsAndMountsSingleMode(config *mongodb.PersistenceConfig, p StatefulSetHelper) ([]corev1.PersistentVolumeClaim, []corev1.VolumeMount) {
+func createClaimsAndMountsSingleMode(config *mdbv1.PersistenceConfig, p StatefulSetHelper) ([]corev1.PersistentVolumeClaim, []corev1.VolumeMount) {
 	claims := []corev1.PersistentVolumeClaim{*pvc(util.PvcNameData, config, p.PodSpec.Default.Persistence.SingleConfig)}
 	mounts := []corev1.VolumeMount{
 		*mount(util.PvcNameData, util.PvcMountPathData, util.PvcNameData),
@@ -731,7 +731,7 @@ func createClaimsAndMountsSingleMode(config *mongodb.PersistenceConfig, p Statef
 // pvc convenience function to build a PersistentVolumeClaim.
 //
 // TODO: Describe why this function receives 2 "configs"
-func pvc(name string, config, defaultConfig *mongodb.PersistenceConfig) *corev1.PersistentVolumeClaim {
+func pvc(name string, config, defaultConfig *mdbv1.PersistenceConfig) *corev1.PersistentVolumeClaim {
 	claim := corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,

@@ -11,7 +11,7 @@ import (
 
 	"time"
 
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
@@ -67,15 +67,15 @@ type StatefulSetHelper struct {
 	StatefulSetHelperCommon
 
 	Persistent *bool
-	PodSpec    mongodb.PodSpecWrapper
+	PodSpec    mdbv1.PodSpecWrapper
 	PodVars    *PodVars
 
-	ResourceType mongodb.ResourceType
+	ResourceType mdbv1.ResourceType
 
 	// Not part of StatefulSet object
 	ExposedExternally bool
-	Project           mongodb.ProjectConfig
-	Security          *mongodb.Security
+	Project           mdbv1.ProjectConfig
+	Security          *mdbv1.Security
 }
 
 type OpsManagerStatefulSetHelper struct {
@@ -115,11 +115,11 @@ type ShardedClusterKubeState struct {
 //
 // Note, that it's the same for both MongodbResource Statefulset and AppDB Statefulset. The
 func (k *KubeHelper) NewStatefulSetHelper(obj Updatable) *StatefulSetHelper {
-	var mongodbSpec mongodb.MongoDbSpec
+	var mongodbSpec mdbv1.MongoDbSpec
 	switch v := obj.(type) {
-	case *mongodb.MongoDB:
+	case *mdbv1.MongoDB:
 		mongodbSpec = v.Spec
-	case *mongodb.MongoDBOpsManager:
+	case *mdbv1.MongoDBOpsManager:
 		mongodbSpec = v.Spec.AppDB.MongoDbSpec
 	default:
 		panic("Wrong type provided, only MongoDB or AppDB are expected!")
@@ -153,7 +153,7 @@ func (k *KubeHelper) NewOpsManagerStatefulSetHelper(obj Updatable) *OpsManagerSt
 			Helper:      k,
 			ServicePort: util.OpsManagerDefaultPort,
 		},
-		EnvVars: opsManagerConfigurationToEnvVars(obj.(*mongodb.MongoDBOpsManager)),
+		EnvVars: opsManagerConfigurationToEnvVars(obj.(*mdbv1.MongoDBOpsManager)),
 	}
 }
 
@@ -183,7 +183,7 @@ func (s *StatefulSetHelper) SetPersistence(persistent *bool) *StatefulSetHelper 
 	return s
 }
 
-func (s *StatefulSetHelper) SetPodSpec(podSpec mongodb.PodSpecWrapper) *StatefulSetHelper {
+func (s *StatefulSetHelper) SetPodSpec(podSpec mdbv1.PodSpecWrapper) *StatefulSetHelper {
 	s.PodSpec = podSpec
 	return s
 }
@@ -198,7 +198,7 @@ func (s *StatefulSetHelper) SetExposedExternally(exposed bool) *StatefulSetHelpe
 	return s
 }
 
-func (s *StatefulSetHelper) SetProjectConfig(project mongodb.ProjectConfig) *StatefulSetHelper {
+func (s *StatefulSetHelper) SetProjectConfig(project mdbv1.ProjectConfig) *StatefulSetHelper {
 	s.Project = project
 	return s
 }
@@ -213,9 +213,9 @@ func (s *StatefulSetHelper) SetLogger(log *zap.SugaredLogger) *StatefulSetHelper
 	return s
 }
 
-func (s *StatefulSetHelper) SetTLS(tlsConfig *mongodb.TLSConfig) *StatefulSetHelper {
+func (s *StatefulSetHelper) SetTLS(tlsConfig *mdbv1.TLSConfig) *StatefulSetHelper {
 	if s.Security == nil {
-		s.Security = &mongodb.Security{}
+		s.Security = &mdbv1.Security{}
 	}
 	s.Security.TLSConfig = tlsConfig
 	return s
@@ -335,7 +335,7 @@ func (s *StatefulSetHelper) CreateOrUpdateAppDBInKubernetes() error {
 func (s *StatefulSetHelper) getDNSNames() ([]string, []string) {
 	var members int
 
-	if s.ResourceType == mongodb.Standalone {
+	if s.ResourceType == mdbv1.Standalone {
 		members = 1
 	} else {
 		members = s.Replicas
@@ -344,7 +344,7 @@ func (s *StatefulSetHelper) getDNSNames() ([]string, []string) {
 	return GetDNSNames(s.Name, s.Service, s.Namespace, s.ClusterName, members)
 }
 
-func (s *StatefulSetHelper) SetSecurity(security *mongodb.Security) *StatefulSetHelper {
+func (s *StatefulSetHelper) SetSecurity(security *mdbv1.Security) *StatefulSetHelper {
 	s.Security = security
 	return s
 }
@@ -567,7 +567,7 @@ func (k *KubeHelper) ensureService(owner Updatable, serviceName string, label st
 
 // readProjectConfig returns a "Project" config which is a ConfigMap with a series of attributes
 // like `projectName`, `baseUrl` and a series of attributes related to SSL.
-func (k *KubeHelper) readProjectConfig(namespace, name string) (*mongodb.ProjectConfig, error) {
+func (k *KubeHelper) readProjectConfig(namespace, name string) (*mdbv1.ProjectConfig, error) {
 	data, err := k.readConfigMap(namespace, name)
 	if err != nil {
 		return nil, err
@@ -608,13 +608,13 @@ func (k *KubeHelper) readProjectConfig(namespace, name string) (*mongodb.Project
 		useCustomCA = useCustomCAData != "false"
 	}
 
-	return &mongodb.ProjectConfig{
+	return &mdbv1.ProjectConfig{
 		BaseURL:     baseURL,
 		ProjectName: projectName,
 		OrgID:       orgID,
 
 		// Options related with SSL on OM side.
-		SSLProjectConfig: mongodb.SSLProjectConfig{
+		SSLProjectConfig: mdbv1.SSLProjectConfig{
 			// Relevant to
 			// + operator (via golang http configuration)
 			// + curl (via command line argument [--insecure])
@@ -1010,11 +1010,11 @@ func discoverServicePort(service *corev1.Service) (int32, error) {
 
 // EnvVars returns a list of corev1.EnvVar which should be passed
 // to the container running Ops Manager
-func opsManagerConfigurationToEnvVars(m *mongodb.MongoDBOpsManager) []corev1.EnvVar {
+func opsManagerConfigurationToEnvVars(m *mdbv1.MongoDBOpsManager) []corev1.EnvVar {
 	var envVars []corev1.EnvVar
 	for name, value := range m.Spec.Configuration {
 		envVars = append(envVars, corev1.EnvVar{
-			Name: mongodb.ConvertNameToEnvVarFormat(name), Value: value,
+			Name: mdbv1.ConvertNameToEnvVarFormat(name), Value: value,
 		})
 	}
 	return envVars

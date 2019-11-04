@@ -3,7 +3,7 @@ package operator
 import (
 	"fmt"
 
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
@@ -27,7 +27,7 @@ func AddStandaloneController(mgr manager.Manager) error {
 
 	// watch for changes to standalone MongoDB resources
 	eventHandler := MongoDBResourceEventHandler{reconciler: reconciler}
-	err = c.Watch(&source.Kind{Type: &mongodb.MongoDB{}}, &eventHandler, predicatesFor(mongodb.Standalone))
+	err = c.Watch(&source.Kind{Type: &mdbv1.MongoDB{}}, &eventHandler, predicatesFor(mdbv1.Standalone))
 	if err != nil {
 		return err
 	}
@@ -36,7 +36,7 @@ func AddStandaloneController(mgr manager.Manager) error {
 	// Watch for changes to secondary resource Statefulsets and requeue the owner MongoDbStandalone
 	/*err = c.Watch(&source.Kind{Type: &appsv1.StatefulSet{}}, &handler.EnqueueRequestForOwner{
 	  	IsController: true,
-	  	OwnerType:    &mongodb.MongoDB{},
+	  	OwnerType:    &mdbv1.MongoDB{},
 	  }, predicate.Funcs{
 	  	UpdateFunc: func(e event.UpdateEvent) bool {
 	  		// The controller must watch only for changes in spec made by users, we don't care about status changes
@@ -77,7 +77,7 @@ type ReconcileMongoDbStandalone struct {
 
 func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
 	log := zap.S().With("Standalone", request.NamespacedName)
-	s := &mongodb.MongoDB{}
+	s := &mdbv1.MongoDB{}
 
 	defer exceptionHandling(
 		func(err interface{}) (reconcile.Result, error) {
@@ -158,7 +158,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 	return reconcileResult.updateStatus(s, r.ReconcileCommonController, log, DeploymentLink(conn.BaseURL(), conn.GroupID()))
 }
 
-func updateOmDeployment(conn om.Connection, s *mongodb.MongoDB,
+func updateOmDeployment(conn om.Connection, s *mdbv1.MongoDB,
 	set *appsv1.StatefulSet, log *zap.SugaredLogger) reconcileStatus {
 	if err := waitForRsAgentsToRegister(set, s.Spec.ClusterName, conn, log); err != nil {
 		return failedErr(err)
@@ -194,7 +194,7 @@ func updateOmDeployment(conn om.Connection, s *mongodb.MongoDB,
 }
 
 func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLogger) error {
-	s := obj.(*mongodb.MongoDB)
+	s := obj.(*mdbv1.MongoDB)
 
 	log.Infow("Removing standalone from Ops Manager", "config", s.Spec)
 
@@ -233,7 +233,7 @@ func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLog
 	return nil
 }
 
-func createProcess(set *appsv1.StatefulSet, s *mongodb.MongoDB) om.Process {
+func createProcess(set *appsv1.StatefulSet, s *mdbv1.MongoDB) om.Process {
 	hostnames, _ := GetDnsForStatefulSet(set, s.Spec.ClusterName)
 	wiredTigerCache := calculateWiredTigerCache(set, s.Spec.Version)
 

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
@@ -24,7 +24,7 @@ duplicated groups/organizations creation. So if for example the standalone and t
 configMap are created in parallel - this function will be invoked sequantaly and the second caller will see the group
 created on the first call
 */
-func (c *ReconcileCommonController) readOrCreateGroup(projectName string, config *mongodb.ProjectConfig, credentials *Credentials, log *zap.SugaredLogger) (*om.Project, error) {
+func (c *ReconcileCommonController) readOrCreateGroup(projectName string, config *mdbv1.ProjectConfig, credentials *Credentials, log *zap.SugaredLogger) (*om.Project, error) {
 	mutex := om.GetMutex(projectName, config.OrgID)
 	mutex.Lock()
 	defer mutex.Unlock()

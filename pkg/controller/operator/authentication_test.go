@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	certsv1 "k8s.io/api/certificates/v1beta1"
@@ -190,11 +190,11 @@ func createCSR(conditionType certsv1.RequestConditionType) *certsv1.CertificateS
 // }
 
 // addKubernetesTlsResources ensures all the required TLS secrets exist for the given MongoDB resource
-func addKubernetesTlsResources(client *MockedClient, mdb *v1.MongoDB) {
+func addKubernetesTlsResources(client *MockedClient, mdb *mdbv1.MongoDB) {
 	switch mdb.Spec.ResourceType {
-	case v1.ReplicaSet:
+	case mdbv1.ReplicaSet:
 		createReplicaSetTLSData(client, mdb)
-	case v1.ShardedCluster:
+	case mdbv1.ShardedCluster:
 		createShardedClusterTLSData(client, mdb)
 	}
 }
@@ -209,7 +209,7 @@ some private key
 }
 
 // createReplicaSetTLSData creates and populates secrets required for a TLS enabled ReplicaSet
-func createReplicaSetTLSData(client *MockedClient, mdb *v1.MongoDB) {
+func createReplicaSetTLSData(client *MockedClient, mdb *mdbv1.MongoDB) {
 	// First lets create a Credentials Object
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: TestCredentialsSecretName, Namespace: TestNamespace},
@@ -248,7 +248,7 @@ func createReplicaSetTLSData(client *MockedClient, mdb *v1.MongoDB) {
 
 // createShardedClusterTLSData creates and populates all the  secrets needed for a TLS enabled Sharded
 // Cluster with internal cluster authentication. Mongos, config server and all shards.
-func createShardedClusterTLSData(client *MockedClient, mdb *v1.MongoDB) {
+func createShardedClusterTLSData(client *MockedClient, mdb *mdbv1.MongoDB) {
 	// create the secrets for all the shards
 	for i := 0; i < mdb.Spec.ShardCount; i++ {
 		secretName := fmt.Sprintf("%s-%d-cert", mdb.Name, i)
@@ -318,15 +318,15 @@ func createAgentCSRs(client *MockedClient, conditionType certsv1.RequestConditio
 }
 
 // approveCSRs approves all CSRs related to the given MongoDB resource, this includes TLS and x509 internal cluster authentication CSRs
-func approveCSRs(client *MockedClient, mdb *v1.MongoDB) {
+func approveCSRs(client *MockedClient, mdb *mdbv1.MongoDB) {
 	if mdb != nil && mdb.Spec.Security.TLSConfig.Enabled {
 		switch mdb.Spec.ResourceType {
-		case v1.ReplicaSet:
+		case mdbv1.ReplicaSet:
 			for i := 0; i < mdb.Spec.Members; i++ {
 				client.csrs[objectKey(TestNamespace, fmt.Sprintf("%s-%d.%s", mdb.Name, i, TestNamespace))] = createCSR(certsv1.CertificateApproved)
 				client.csrs[objectKey(TestNamespace, fmt.Sprintf("%s-%d.%s-clusterfile", mdb.Name, i, TestNamespace))] = createCSR(certsv1.CertificateApproved)
 			}
-		case v1.ShardedCluster:
+		case mdbv1.ShardedCluster:
 			// mongos
 			for i := 0; i < mdb.Spec.MongosCount; i++ {
 				client.csrs[objectKey(TestNamespace, fmt.Sprintf("%s-mongos-0.%s", mdb.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)

@@ -5,8 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
-	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
@@ -25,8 +24,8 @@ func newMongoDBUserReconciler(mgr manager.Manager, omFunc om.ConnectionFactory) 
 	return &MongoDBUserReconciler{newReconcileCommonController(mgr, omFunc)}
 }
 
-func (r *MongoDBUserReconciler) getUser(request reconcile.Request, log *zap.SugaredLogger) (*v1.MongoDBUser, error) {
-	user := &v1.MongoDBUser{}
+func (r *MongoDBUserReconciler) getUser(request reconcile.Request, log *zap.SugaredLogger) (*mdbv1.MongoDBUser, error) {
+	user := &mdbv1.MongoDBUser{}
 	if _, err := r.getResource(request, user, log); err != nil {
 		return nil, err
 	}
@@ -34,8 +33,8 @@ func (r *MongoDBUserReconciler) getUser(request reconcile.Request, log *zap.Suga
 	return user, nil
 }
 
-func (r *MongoDBUserReconciler) getMongoDBSpec(user v1.MongoDBUser) (v1.MongoDbSpec, error) {
-	mdb := mongodb.MongoDB{}
+func (r *MongoDBUserReconciler) getMongoDBSpec(user mdbv1.MongoDBUser) (mdbv1.MongoDbSpec, error) {
+	mdb := mdbv1.MongoDB{}
 	name := objectKey(user.Namespace, user.Spec.MongoDBResourceRef.Name)
 	if err := r.client.Get(context.TODO(), name, &mdb); err != nil {
 		return mdb.Spec, err
@@ -44,7 +43,7 @@ func (r *MongoDBUserReconciler) getMongoDBSpec(user v1.MongoDBUser) (v1.MongoDbS
 	return mdb.Spec, nil
 }
 
-func (r *MongoDBUserReconciler) getConnectionSpec(user v1.MongoDBUser, mdbSpec v1.MongoDbSpec) (v1.ConnectionSpec, error) {
+func (r *MongoDBUserReconciler) getConnectionSpec(user mdbv1.MongoDBUser, mdbSpec mdbv1.MongoDbSpec) (mdbv1.ConnectionSpec, error) {
 	if user.Spec.MongoDBResourceRef.Name != "" {
 		return mdbSpec.ConnectionSpec, nil
 	}
@@ -54,28 +53,28 @@ func (r *MongoDBUserReconciler) getConnectionSpec(user v1.MongoDBUser, mdbSpec v
 
 	//lint:ignore SA1019 need to use deprecated Project to ensure backwards compatibility
 	if user.Spec.Project == "" {
-		return v1.ConnectionSpec{}, errors.New("either mongodb reference or project must be defined in user")
+		return mdbv1.ConnectionSpec{}, errors.New("either mongodb reference or project must be defined in user")
 	}
 
 	//lint:ignore SA1019 need to use deprecated Project to ensure backwards compatibility
 	projectConfig, err := r.kubeHelper.readConfigMap(user.Namespace, user.Spec.Project)
 	if err != nil {
-		return v1.ConnectionSpec{}, err
+		return mdbv1.ConnectionSpec{}, err
 	}
 
 	// these parameters both existed in the old config map but are no longer
 	// required for one project
 	if _, hasProjectName := projectConfig["projectName"]; !hasProjectName {
-		return v1.ConnectionSpec{}, errors.New("if using project config map, a project name must be defined")
+		return mdbv1.ConnectionSpec{}, errors.New("if using project config map, a project name must be defined")
 	}
 
 	if _, hasCredentials := projectConfig["credentials"]; !hasCredentials {
-		return v1.ConnectionSpec{}, errors.New("if using project config map, credentials must be defined")
+		return mdbv1.ConnectionSpec{}, errors.New("if using project config map, credentials must be defined")
 	}
 
-	return v1.ConnectionSpec{
-		OpsManagerConfig: &v1.PrivateCloudConfig{
-			ConfigMapRef: v1.ConfigMapRef{
+	return mdbv1.ConnectionSpec{
+		OpsManagerConfig: &mdbv1.PrivateCloudConfig{
+			ConfigMapRef: mdbv1.ConfigMapRef{
 				//lint:ignore SA1019 need to use deprecated Project to ensure backwards compatibility
 				Name: user.Spec.Project,
 			},
@@ -103,7 +102,7 @@ func (r *MongoDBUserReconciler) Reconcile(request reconcile.Request) (res reconc
 	)
 
 	log.Infow("MongoDBUser.Spec", "spec", user.Spec)
-	mdbSpec := v1.MongoDbSpec{}
+	mdbSpec := mdbv1.MongoDbSpec{}
 	if user.Spec.MongoDBResourceRef.Name != "" {
 		if mdbSpec, err = r.getMongoDBSpec(*user); err != nil {
 			return fail(err)
@@ -140,7 +139,7 @@ func (r *MongoDBUserReconciler) Reconcile(request reconcile.Request) (res reconc
 	return r.handleX509User(user, conn, log)
 }
 
-func (r *MongoDBUserReconciler) isX509Enabled(user v1.MongoDBUser, mdbSpec v1.MongoDbSpec) (bool, error) {
+func (r *MongoDBUserReconciler) isX509Enabled(user mdbv1.MongoDBUser, mdbSpec mdbv1.MongoDbSpec) (bool, error) {
 	if user.Spec.MongoDBResourceRef.Name != "" {
 		authEnabled := mdbSpec.Security.Authentication.Enabled
 		usingX509 := util.ContainsString(mdbSpec.Security.Authentication.Modes, util.X509)
@@ -160,7 +159,7 @@ func (r *MongoDBUserReconciler) isX509Enabled(user v1.MongoDBUser, mdbSpec v1.Mo
 }
 
 func (r *MongoDBUserReconciler) delete(obj interface{}, log *zap.SugaredLogger) error {
-	user := obj.(*v1.MongoDBUser)
+	user := obj.(*mdbv1.MongoDBUser)
 
 	mdbSpec, err := r.getMongoDBSpec(*user)
 	if err != nil {
@@ -206,7 +205,7 @@ func AddMongoDBUserController(mgr manager.Manager) error {
 
 	// watch for changes to MongoDBUser resources
 	eventHandler := MongoDBUserEventHandler{reconciler: reconciler}
-	err = c.Watch(&source.Kind{Type: &v1.MongoDBUser{}}, &eventHandler, predicatesForUser())
+	err = c.Watch(&source.Kind{Type: &mdbv1.MongoDBUser{}}, &eventHandler, predicatesForUser())
 	if err != nil {
 		return err
 	}
@@ -218,7 +217,7 @@ func AddMongoDBUserController(mgr manager.Manager) error {
 // toOmUser converts a MongoDBUser specification and optional password into an
 // automation config MongoDB user. If the user has no password then a blank
 // password should be provided.
-func toOmUser(spec v1.MongoDBUserSpec, password string) om.MongoDBUser {
+func toOmUser(spec mdbv1.MongoDBUserSpec, password string) om.MongoDBUser {
 
 	user := om.MongoDBUser{
 		Database:                   spec.Database,
@@ -234,7 +233,7 @@ func toOmUser(spec v1.MongoDBUserSpec, password string) om.MongoDBUser {
 	return user
 }
 
-func (r *MongoDBUserReconciler) handleX509User(user *v1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (res reconcile.Result, e error) {
+func (r *MongoDBUserReconciler) handleX509User(user *mdbv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (res reconcile.Result, e error) {
 	if !r.doAgentX509CertsExist(user.Namespace) {
 		log.Info("Agent certs have not yet been created, cannot add MongoDBUser yet")
 		return retry()

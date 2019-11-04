@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
 
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
@@ -93,7 +93,7 @@ func NewProcessFromInterface(i interface{}) Process {
 }
 
 // NewMongosProcess
-func NewMongosProcess(name, hostName string, resource *mongodb.MongoDB) Process {
+func NewMongosProcess(name, hostName string, resource *mdbv1.MongoDB) Process {
 	p := Process{}
 
 	initDefault(name, hostName, resource.Spec.Version, resource.Spec.FeatureCompatibilityVersion, ProcessTypeMongos, p)
@@ -111,7 +111,7 @@ func NewMongosProcess(name, hostName string, resource *mongodb.MongoDB) Process 
 }
 
 // NewMongodProcess
-func NewMongodProcess(name, hostName string, resource *mongodb.MongoDB) Process {
+func NewMongodProcess(name, hostName string, resource *mdbv1.MongoDB) Process {
 	p := Process{}
 
 	initDefault(name, hostName, resource.Spec.Version, resource.Spec.FeatureCompatibilityVersion, ProcessTypeMongod, p)
@@ -306,7 +306,7 @@ func initDefault(name, hostName, processVersion string, featureCompatibilityVers
 
 // EnableTLS enable TLS for this process. TLS will be always enabled after calling this. This function expects
 // the value of "mode" to be an allowed ssl.mode from OM API perspective.
-func (p Process) EnableTLS(mode mongodb.SSLMode) {
+func (p Process) EnableTLS(mode mdbv1.SSLMode) {
 	// Initializing SSL configuration if it's necessary
 	sslConfig := p.EnsureSSLConfig()
 

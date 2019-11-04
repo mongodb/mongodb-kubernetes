@@ -5,7 +5,7 @@ import (
 	"os"
 	"runtime"
 
-	apis "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/operator-framework/operator-sdk/pkg/k8sutil"
@@ -51,7 +51,7 @@ func main() {
 	log.Info("Registering Components.")
 
 	// Setup Scheme for all resources
-	if err := apis.AddToScheme(mgr.GetScheme()); err != nil {
+	if err := mdbv1.AddToScheme(mgr.GetScheme()); err != nil {
 		log.Fatal(err)
 	}
 

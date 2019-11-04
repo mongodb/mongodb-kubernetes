@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/blang/semver"
@@ -41,7 +41,7 @@ func newOpsManagerReconciler(mgr manager.Manager, omFunc om.ConnectionFactory, i
 func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
 	log := zap.S().With("OpsManager", request.NamespacedName)
 
-	opsManager := &v1.MongoDBOpsManager{}
+	opsManager := &mdbv1.MongoDBOpsManager{}
 
 	defer exceptionHandling(
 		func(err interface{}) (reconcile.Result, error) {
@@ -111,7 +111,7 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 // exist in the Custom Object. However, it won't delete the backups if the attributes do
 // not exist. The reasoning behind all this is that we don't want to inadvertently remove
 // backups which can be a destructive measure.
-func (r *OpsManagerReconciler) ensureBackups(opsManager *v1.MongoDBOpsManager) (res reconcile.Result, e error) {
+func (r *OpsManagerReconciler) ensureBackups(opsManager *mdbv1.MongoDBOpsManager) (res reconcile.Result, e error) {
 	log := zap.S().With("OpsManager", opsManager)
 	if opsManager.Spec.Backup.Enabled {
 		log.Info("Enabling backups for OM")
@@ -146,7 +146,7 @@ func AddOpsManagerController(mgr manager.Manager) error {
 	}
 
 	// watch for changes to the Ops Manager resources
-	if err = c.Watch(&source.Kind{Type: &v1.MongoDBOpsManager{}}, &handler.EnqueueRequestForObject{}, predicatesForOpsManager()); err != nil {
+	if err = c.Watch(&source.Kind{Type: &mdbv1.MongoDBOpsManager{}}, &handler.EnqueueRequestForObject{}, predicatesForOpsManager()); err != nil {
 		return err
 	}
 
@@ -160,7 +160,7 @@ func AddOpsManagerController(mgr manager.Manager) error {
 // successful start. If unsuccessful - the resource gets into "Pending" state and "info" message is logged.
 // The downside is that we can sit in "Pending" forever even if something bad has happened - may be we need to add some
 // timer (since last successful start) and log errors if Ops Manager is stuck.
-func (r *OpsManagerReconciler) waitForOpsManagerToBeReady(om *v1.MongoDBOpsManager, log *zap.SugaredLogger) error {
+func (r *OpsManagerReconciler) waitForOpsManagerToBeReady(om *mdbv1.MongoDBOpsManager, log *zap.SugaredLogger) error {
 	if !util.DoAndRetry(func() (string, bool) {
 		omUrl := centralURL(om)
 		client, err := util.NewHTTPClient()
@@ -186,7 +186,7 @@ func (r *OpsManagerReconciler) waitForOpsManagerToBeReady(om *v1.MongoDBOpsManag
 }
 
 // ensureConfiguration makes sure the mandatory configuration is specified
-func (r OpsManagerReconciler) ensureConfiguration(opsManager *v1.MongoDBOpsManager, log *zap.SugaredLogger) {
+func (r OpsManagerReconciler) ensureConfiguration(opsManager *mdbv1.MongoDBOpsManager, log *zap.SugaredLogger) {
 	// update the central URL
 	setConfigProperty(opsManager, util.MmsCentralUrlPropKey, centralURL(opsManager), log)
 
@@ -194,7 +194,7 @@ func (r OpsManagerReconciler) ensureConfiguration(opsManager *v1.MongoDBOpsManag
 }
 
 // Ideally this must be a method in v1.MongoDB - todo move it there when the AppDB is gone and v1.MongoDB is used instead
-func buildMongoConnectionUrl(opsManager *v1.MongoDBOpsManager) string {
+func buildMongoConnectionUrl(opsManager *mdbv1.MongoDBOpsManager) string {
 	db := opsManager.Spec.AppDB
 	statefulsetName := db.Name()
 	serviceName := db.ServiceName()
@@ -210,14 +210,14 @@ func buildMongoConnectionUrl(opsManager *v1.MongoDBOpsManager) string {
 	return uri
 }
 
-func setConfigProperty(opsManager *v1.MongoDBOpsManager, key, value string, log *zap.SugaredLogger) {
+func setConfigProperty(opsManager *mdbv1.MongoDBOpsManager, key, value string, log *zap.SugaredLogger) {
 	if opsManager.AddConfigIfDoesntExist(key, value) {
 		log.Debugw("Configured property", key, value)
 	}
 }
 
 // ensureGenKey
-func (r OpsManagerReconciler) ensureGenKey(om *v1.MongoDBOpsManager, log *zap.SugaredLogger) error {
+func (r OpsManagerReconciler) ensureGenKey(om *mdbv1.MongoDBOpsManager, log *zap.SugaredLogger) error {
 	objectKey := objectKey(om.Namespace, om.Name+"-gen-key")
 	_, err := r.kubeHelper.readSecret(objectKey)
 	if apiErrors.IsNotFound(err) {
@@ -241,7 +241,7 @@ func (r OpsManagerReconciler) ensureGenKey(om *v1.MongoDBOpsManager, log *zap.Su
 // asking the user to fix this manually.
 // Theoretically the Operator could remove the appdb StatefulSet (as the OM must be empty without any user data) and
 // allow the db to get recreated but seems this is a quite radical operation.
-func (r OpsManagerReconciler) prepareOpsManager(opsManager *v1.MongoDBOpsManager, credentials *Credentials, log *zap.SugaredLogger) reconcileStatus {
+func (r OpsManagerReconciler) prepareOpsManager(opsManager *mdbv1.MongoDBOpsManager, credentials *Credentials, log *zap.SugaredLogger) reconcileStatus {
 	// We won't support cross-namespace secrets until CLOUDP-46636 is resolved
 	secret := objectKey(opsManager.Namespace, opsManager.Spec.AdminSecret)
 
@@ -322,7 +322,7 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager *v1.MongoDBOpsManager
 // performValidation makes some validation of Ops Manager spec. So far this validation mostly follows the restrictions
 // for the app db in ops manager, see MongoConnectionConfigurationCheck
 // Ideally it must be done in an admission web hook
-func performValidation(opsManager *v1.MongoDBOpsManager) error {
+func performValidation(opsManager *mdbv1.MongoDBOpsManager) error {
 	version := opsManager.Spec.AppDB.Version
 	v, err := semver.Make(version)
 	if err != nil {
@@ -338,7 +338,7 @@ func performValidation(opsManager *v1.MongoDBOpsManager) error {
 
 // centralURL constructs the service name that can be used to access Ops Manager from within
 // the cluster
-func centralURL(om *v1.MongoDBOpsManager) string {
+func centralURL(om *mdbv1.MongoDBOpsManager) string {
 	fqdn := GetServiceFQDN(om.SvcName(), om.Namespace, om.ClusterName)
 
 	// protocol must be calculated based on tls configuration of the ops manager resource

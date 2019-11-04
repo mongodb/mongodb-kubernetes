@@ -14,8 +14,7 @@ import (
 
 	"fmt"
 
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
-	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"go.uber.org/zap"
 	certsv1 "k8s.io/api/certificates/v1beta1"
@@ -240,7 +239,7 @@ func TestPodAntiaffinity_MongodsInsideShardAreSpread(t *testing.T) {
 	sc := DefaultClusterBuilder().Build()
 
 	reconciler := newShardedClusterReconciler(newMockedManager(sc), om.NewEmptyMockedOmConnection)
-	state := reconciler.buildKubeObjectsForShardedCluster(sc, defaultPodVars(), &mongodb.ProjectConfig{}, zap.S())
+	state := reconciler.buildKubeObjectsForShardedCluster(sc, defaultPodVars(), &mdbv1.ProjectConfig{}, zap.S())
 
 	shardHelpers := state.shardsSetsHelpers
 
@@ -317,19 +316,19 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 	assert.Equal(t, expectedResult, actualResult)
 	assert.Nil(t, err)
 
-	kubeState := reconciler.buildKubeObjectsForShardedCluster(sc, defaultPodVars(), &mongodb.ProjectConfig{}, zap.S())
+	kubeState := reconciler.buildKubeObjectsForShardedCluster(sc, defaultPodVars(), &mdbv1.ProjectConfig{}, zap.S())
 	assert.False(t, anyStatefulSetHelperNeedsToPublishState(kubeState, zap.S()))
 
 	// attempting to set tls to false
 	sc.Spec.Security.TLSConfig.Enabled = false
 
 	// Ops Manager state needs to be published first as we want to reach goal state before unmounting certificates
-	kubeState = reconciler.buildKubeObjectsForShardedCluster(sc, defaultPodVars(), &mongodb.ProjectConfig{}, zap.S())
+	kubeState = reconciler.buildKubeObjectsForShardedCluster(sc, defaultPodVars(), &mdbv1.ProjectConfig{}, zap.S())
 	assert.True(t, anyStatefulSetHelperNeedsToPublishState(kubeState, zap.S()))
 }
 
 func createDeploymentFromShardedCluster(updatable Updatable) om.Deployment {
-	sh := updatable.(*v1.MongoDB)
+	sh := updatable.(*mdbv1.MongoDB)
 	state := createStateFromResource(sh)
 	mongosProcesses := createProcesses(
 		state.mongosSetHelper.BuildStatefulSet(),
@@ -352,7 +351,7 @@ func createDeploymentFromShardedCluster(updatable Updatable) om.Deployment {
 // createStateFromResource creates the kube state for the sharded cluster. Note, that it uses the `Status` of cluster
 // instead of `Spec` as it tries to reflect the CURRENT state
 func createStateFromResource(updatable Updatable) ShardedClusterKubeState {
-	sh := updatable.(*v1.MongoDB)
+	sh := updatable.(*mdbv1.MongoDB)
 	shardHelpers := make([]*StatefulSetHelper, sh.Status.ShardCount)
 	for i := 0; i < sh.Status.ShardCount; i++ {
 		shardHelpers[i] = defaultSetHelper().SetName(sh.ShardRsName(i)).SetService(sh.ShardServiceName()).SetReplicas(sh.Status.MongodsPerShardCount)
@@ -364,43 +363,43 @@ func createStateFromResource(updatable Updatable) ShardedClusterKubeState {
 }
 
 type ClusterBuilder struct {
-	*v1.MongoDB
+	*mdbv1.MongoDB
 }
 
 func DefaultClusterBuilder() *ClusterBuilder {
-	sizeConfig := v1.MongodbShardedClusterSizeConfig{
+	sizeConfig := mdbv1.MongodbShardedClusterSizeConfig{
 		ShardCount:           2,
 		MongodsPerShardCount: 3,
 		ConfigServerCount:    3,
 		MongosCount:          4,
 	}
 
-	status := v1.MongoDbStatus{
+	status := mdbv1.MongoDbStatus{
 		MongodbShardedClusterSizeConfig: sizeConfig,
 	}
 
-	spec := v1.MongoDbSpec{
+	spec := mdbv1.MongoDbSpec{
 		Persistent: util.BooleanRef(false),
-		ConnectionSpec: v1.ConnectionSpec{
-			OpsManagerConfig: &v1.PrivateCloudConfig{
-				ConfigMapRef: v1.ConfigMapRef{
+		ConnectionSpec: mdbv1.ConnectionSpec{
+			OpsManagerConfig: &mdbv1.PrivateCloudConfig{
+				ConfigMapRef: mdbv1.ConfigMapRef{
 					Name: TestProjectConfigMapName,
 				},
 			},
 			Credentials: TestCredentialsSecretName,
 		},
 		Version:                         "3.6.4",
-		ResourceType:                    v1.ShardedCluster,
+		ResourceType:                    mdbv1.ShardedCluster,
 		MongodbShardedClusterSizeConfig: sizeConfig,
-		Security: &v1.Security{
-			TLSConfig: &v1.TLSConfig{},
-			Authentication: &v1.Authentication{
+		Security: &mdbv1.Security{
+			TLSConfig: &mdbv1.TLSConfig{},
+			Authentication: &mdbv1.Authentication{
 				Modes: []string{},
 			},
 		},
 	}
 
-	resource := &v1.MongoDB{
+	resource := &mdbv1.MongoDB{
 		ObjectMeta: metav1.ObjectMeta{Name: "slaney", Namespace: TestNamespace},
 		Status:     status,
 		Spec:       spec,
@@ -446,14 +445,14 @@ func (b *ClusterBuilder) SetMongosCountStatus(count int) *ClusterBuilder {
 	return b
 }
 
-func (b *ClusterBuilder) SetSecurity(security v1.Security) *ClusterBuilder {
+func (b *ClusterBuilder) SetSecurity(security mdbv1.Security) *ClusterBuilder {
 	b.Spec.Security = &security
 	return b
 }
 
 func (b *ClusterBuilder) WithTLS() *ClusterBuilder {
 	if b.Spec.Security == nil || b.Spec.Security.TLSConfig == nil {
-		return b.SetSecurity(v1.Security{TLSConfig: &v1.TLSConfig{Enabled: true}})
+		return b.SetSecurity(mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}})
 	}
 	b.Spec.Security.TLSConfig.Enabled = true
 	return b
@@ -469,8 +468,8 @@ func (b *ClusterBuilder) SetClusterAuth(auth string) *ClusterBuilder {
 	b.Spec.Security.ClusterAuthMode = auth
 	return b
 }
-func (b *ClusterBuilder) Build() *v1.MongoDB {
-	b.Spec.ResourceType = v1.ShardedCluster
+func (b *ClusterBuilder) Build() *mdbv1.MongoDB {
+	b.Spec.ResourceType = mdbv1.ShardedCluster
 	b.InitDefaults()
 	return b.MongoDB
 }

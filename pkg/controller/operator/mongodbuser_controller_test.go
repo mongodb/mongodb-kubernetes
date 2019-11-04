@@ -8,7 +8,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,8 +16,8 @@ import (
 )
 
 func TestSettingUserStatus_ToPending_IsFilteredOut(t *testing.T) {
-	userInUpdatedPhase := &v1.MongoDBUser{ObjectMeta: metav1.ObjectMeta{Name: "mms-user", Namespace: TestNamespace}, Status: v1.MongoDBUserStatus{Phase: v1.PhaseUpdated}}
-	userInPendingPhase := &v1.MongoDBUser{ObjectMeta: metav1.ObjectMeta{Name: "mms-user", Namespace: TestNamespace}, Status: v1.MongoDBUserStatus{Phase: v1.PhasePending}}
+	userInUpdatedPhase := &mdbv1.MongoDBUser{ObjectMeta: metav1.ObjectMeta{Name: "mms-user", Namespace: TestNamespace}, Status: mdbv1.MongoDBUserStatus{Phase: mdbv1.PhaseUpdated}}
+	userInPendingPhase := &mdbv1.MongoDBUser{ObjectMeta: metav1.ObjectMeta{Name: "mms-user", Namespace: TestNamespace}, Status: mdbv1.MongoDBUserStatus{Phase: mdbv1.PhasePending}}
 
 	predicates := predicatesForUser()
 	updateEvent := event.UpdateEvent{
@@ -68,13 +68,13 @@ func createX509UserControllerConfigMap(client *MockedClient) {
 	})
 }
 
-func createMongoDBForUser(client *MockedClient, user v1.MongoDBUser) {
+func createMongoDBForUser(client *MockedClient, user mdbv1.MongoDBUser) {
 	mdb := DefaultReplicaSetBuilder().SetName(user.Spec.MongoDBResourceRef.Name).Build()
 	_ = client.Update(context.TODO(), mdb)
 }
 
 type MongoDBUserBuilder struct {
-	roles               []v1.Role
+	roles               []mdbv1.Role
 	username            string
 	database            string
 	resourceName        string
@@ -101,14 +101,14 @@ func (b *MongoDBUserBuilder) SetResourceName(resourceName string) *MongoDBUserBu
 	return b
 }
 
-func (b *MongoDBUserBuilder) SetRoles(roles []v1.Role) *MongoDBUserBuilder {
+func (b *MongoDBUserBuilder) SetRoles(roles []mdbv1.Role) *MongoDBUserBuilder {
 	b.roles = roles
 	return b
 }
 
 func DefaultMongoDBUserBuilder() *MongoDBUserBuilder {
 	return &MongoDBUserBuilder{
-		roles: []v1.Role{{
+		roles: []mdbv1.Role{{
 			RoleName: "role-1",
 			Database: "admin",
 		}, {
@@ -124,24 +124,24 @@ func DefaultMongoDBUserBuilder() *MongoDBUserBuilder {
 	}
 }
 
-func (b *MongoDBUserBuilder) Build() *v1.MongoDBUser {
+func (b *MongoDBUserBuilder) Build() *mdbv1.MongoDBUser {
 	if b.roles == nil {
-		b.roles = make([]v1.Role, 0)
+		b.roles = make([]mdbv1.Role, 0)
 	}
 	if b.resourceName == "" {
 		b.resourceName = b.username
 	}
 
-	return &v1.MongoDBUser{
+	return &mdbv1.MongoDBUser{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      b.resourceName,
 			Namespace: TestNamespace,
 		},
-		Spec: v1.MongoDBUserSpec{
+		Spec: mdbv1.MongoDBUserSpec{
 			Roles:    b.roles,
 			Username: b.username,
 			Database: b.database,
-			MongoDBResourceRef: v1.MongoDBResourceRef{
+			MongoDBResourceRef: mdbv1.MongoDBResourceRef{
 				Name: b.mongodbResourceName,
 			},
 		},
