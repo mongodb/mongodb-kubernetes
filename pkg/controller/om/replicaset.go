@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
+
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 /* This corresponds to:
@@ -154,8 +156,8 @@ func initDefaultRs(set ReplicaSet, name string, protocolVersion string) {
 	set.setName(name)
 }
 
-// Adding a member to the replicaset. The _id for the new member is calculated based on last existing member in the RS.
-// Note that any other configuration (arbiterOnly/priority etc) can be passed as the argument to the function if needed
+// Adding a member to the replicaset. The _id for the new member is calculated
+// based on last existing member in the RS.
 func (r ReplicaSet) addMember(process Process) {
 	members := r.members()
 	lastIndex := -1
@@ -166,6 +168,7 @@ func (r ReplicaSet) addMember(process Process) {
 	rsMember := ReplicaSetMember{}
 	rsMember["_id"] = lastIndex + 1
 	rsMember["host"] = process.Name()
+
 	// We always set this member to have vote (it will be set anyway on creation of deployment in OM), though this can
 	// be overriden by OM during merge and corrected in the end (as rs can have only 7 voting members)
 	rsMember.setVotes(1).setPriority(1)
@@ -181,11 +184,18 @@ func (r ReplicaSet) mergeFrom(operatorRs ReplicaSet) []string {
 	omMap := buildMapOfRsNodes(r)
 	operatorMap := buildMapOfRsNodes(operatorRs)
 
-	// merge overlapping members to the operatorMap (overriding 'host' and '_id" fields only)
+	// merge overlapping members into the operatorMap (overriding the 'host',
+	// 'horizons' and '_id' fields only)
 	for k, currentValue := range omMap {
 		if otherValue, ok := operatorMap[k]; ok {
 			currentValue["host"] = otherValue.Name()
 			currentValue["_id"] = otherValue.Id()
+			horizons := otherValue.getHorizonConfig()
+			if len(horizons) > 0 {
+				currentValue["horizons"] = horizons
+			} else {
+				delete(currentValue, "horizons")
+			}
 			operatorMap[k] = currentValue
 		}
 	}
@@ -253,6 +263,22 @@ func (r ReplicaSet) findMemberByName(name string) *ReplicaSetMember {
 // mms uses string for this field to make it optional in json
 func (r ReplicaSet) protocolVersion() string {
 	return r["protocolVersion"].(string)
+}
+
+func (r ReplicaSetMember) getHorizonConfig() mongodb.MongoDBHorizonConfig {
+	if horizons, okay := r["horizons"]; okay {
+		return horizons.(mongodb.MongoDBHorizonConfig)
+	}
+	return mongodb.MongoDBHorizonConfig{}
+}
+
+func (r ReplicaSetMember) setHorizonConfig(horizonConfig mongodb.MongoDBHorizonConfig) ReplicaSetMember {
+	// must not set empty horizon config
+	if len(horizonConfig) > 0 {
+		r["horizons"] = horizonConfig
+	}
+
+	return r
 }
 
 // Note, that setting vote to 0 without setting priority to the same value is not correct

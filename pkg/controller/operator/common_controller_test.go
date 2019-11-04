@@ -317,8 +317,11 @@ func checkReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, obj
 	}
 }
 
-func checkReconcileFailed(t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, expectedErrorMessage string, client *MockedClient) {
-	failedResult := reconcile.Result{RequeueAfter: 10 * time.Second}
+func checkReconcileFailed(t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, expectedRetry bool, expectedErrorMessage string, client *MockedClient) {
+	failedResult := reconcile.Result{}
+	if expectedRetry {
+		failedResult.RequeueAfter = 10 * time.Second
+	}
 	result, e := reconciler.Reconcile(requestFromObject(object))
 	assert.Nil(t, e, "When retrying, error should be nil")
 	assert.Equal(t, failedResult, result)

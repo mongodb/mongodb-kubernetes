@@ -71,7 +71,9 @@ func TestMergeShardedCluster_ReplicaSetsModified(t *testing.T) {
 
 	// These OM changes must be overriden
 	(*d.getReplicaSetByName("cluster-0"))["protocolVersion"] = util.Int32Ref(2)
-	(*d.getReplicaSetByName("configSrv")).addMember(NewMongodProcess("foo", "bar", DefaultMongoDB().Build()))
+	(*d.getReplicaSetByName("configSrv")).addMember(
+		NewMongodProcess("foo", "bar", DefaultMongoDB().Build()),
+	)
 	(*d.getReplicaSetByName("cluster-2")).setMembers(d.getReplicaSetByName("cluster-2").members()[0:2])
 
 	// Final check - we create the expected configuration, add there correct OM changes and check for equality with merge

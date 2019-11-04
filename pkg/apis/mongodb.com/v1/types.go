@@ -80,6 +80,21 @@ type MongoDBList struct {
 	Items           []MongoDB `json:"items"`
 }
 
+// MongoDBHorizonConfig holds a map of horizon names to the node addresses,
+// e.g.
+// {
+//   "internal": "my-rs-2.my-internal-domain.com:31843",
+//   "external": "my-rs-2.my-external-domain.com:21467"
+// }
+// The key of each item in the map is an arbitrary, user-chosen string that
+// represents the name of the horizon. The value of the item is the host and,
+// optionally, the port that this mongod node will be connected to from.
+type MongoDBHorizonConfig map[string]string
+
+type MongoDBConnectivity struct {
+	ReplicaSetHorizons []MongoDBHorizonConfig `json:"replicaSetHorizons,omitempty"`
+}
+
 type MongoDbStatus struct {
 	MongodbShardedClusterSizeConfig
 	Members        int             `json:"members,omitempty"`
@@ -117,6 +132,8 @@ type MongoDbSpec struct {
 	PodSpec *MongoDbPodSpec `json:"podSpec,omitempty"`
 
 	Security *Security `json:"security,omitempty"`
+
+	Connectivity *MongoDBConnectivity `json:"connectivity,omitempty"`
 
 	// AdditionalMongodConfig is additional configuration that can be passed to
 	// each data-bearing mongod at runtime. Uses the same structure as the mongod
@@ -291,6 +308,10 @@ func (m *MongoDB) MarshalJSON() ([]byte, error) {
 		mdb.Spec.Security = nil
 	}
 
+	if reflect.DeepEqual(mdb.Spec.Connectivity, newConnectivity()) {
+		mdb.Spec.Connectivity = nil
+	}
+
 	return json.Marshal((MongoDBJSON)(*mdb))
 }
 
@@ -443,6 +464,10 @@ func (m *MongoDB) InitDefaults() {
 		if m.Spec.ShardPodSpec == nil {
 			m.Spec.ShardPodSpec = newMongoDbPodSpec()
 		}
+	}
+
+	if m.Spec.Connectivity == nil {
+		m.Spec.Connectivity = newConnectivity()
 	}
 
 	if m.Spec.AdditionalMongodConfig == nil {
@@ -616,6 +641,10 @@ func validModeOrDefault(mode SSLMode) SSLMode {
 	}
 
 	return mode
+}
+
+func newConnectivity() *MongoDBConnectivity {
+	return &MongoDBConnectivity{}
 }
 
 // Returns an empty `AdditionalMongodConfig` object for marshalling/unmarshalling

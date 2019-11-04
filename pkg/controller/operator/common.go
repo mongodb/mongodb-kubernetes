@@ -63,7 +63,9 @@ func DeploymentLink(url, groupId string) string {
 
 func buildReplicaSetFromStatefulSet(set *appsv1.StatefulSet, mdb *mdbv1.MongoDB, log *zap.SugaredLogger) om.ReplicaSetWithProcesses {
 	members := createProcesses(set, om.ProcessTypeMongod, mdb, log)
-	rsWithProcesses := om.NewReplicaSetWithProcesses(om.NewReplicaSet(set.Name, mdb.Spec.Version), members)
+	replicaSet := om.NewReplicaSet(set.Name, mdb.Spec.Version)
+	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members)
+	rsWithProcesses.SetHorizons(mdb.Spec.Connectivity.ReplicaSetHorizons)
 	rsWithProcesses.ConfigureAuthenticationMode(mdb.Spec.Security.Authentication.InternalCluster)
 	return rsWithProcesses
 }

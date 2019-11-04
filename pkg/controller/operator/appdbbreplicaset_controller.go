@@ -255,7 +255,8 @@ func (c *ReconcileAppDbReplicaSet) updateStatusPendingAppDb(resource *mdbv1.Mong
 
 func buildReplicaSetFromStatefulSetAppDb(set *appsv1.StatefulSet, mdb *mdbv1.AppDB, log *zap.SugaredLogger) om.ReplicaSetWithProcesses {
 	members := createProcessesAppDb(set, om.ProcessTypeMongod, mdb)
-	rsWithProcesses := om.NewReplicaSetWithProcesses(om.NewReplicaSet(set.Name, mdb.Version), members)
+	replicaSet := om.NewReplicaSet(set.Name, mdb.Version)
+	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members)
 	return rsWithProcesses
 }
 

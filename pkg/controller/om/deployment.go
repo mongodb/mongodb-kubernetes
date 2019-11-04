@@ -44,6 +44,7 @@ func init() {
 	gob.Register([]ShardedCluster{})
 	gob.Register([]MongoDbVersionConfig{})
 	gob.Register(ProcessTypeMongos)
+	gob.Register(mdbv1.MongoDBHorizonConfig{})
 
 	gob.Register(mdbv1.RequireSSLMode)
 	gob.Register(mdbv1.PreferSSLMode)

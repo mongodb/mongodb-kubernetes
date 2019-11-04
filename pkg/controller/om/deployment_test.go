@@ -517,13 +517,19 @@ func createSpecificNumberOfShardsAndMongods(countShards, countMongods int, name 
 	shards := make([]ReplicaSetWithProcesses, countShards)
 	for i := 0; i < countShards; i++ {
 		rsName := fmt.Sprintf("%s-%d", name, i)
-		shards[i] = NewReplicaSetWithProcesses(NewReplicaSet(rsName, "3.6.3"), createReplicaSetProcessesCount(countMongods, rsName))
+		shards[i] = NewReplicaSetWithProcesses(
+			NewReplicaSet(rsName, "3.6.3"),
+			createReplicaSetProcessesCount(countMongods, rsName),
+		)
 	}
 	return shards
 }
 
 func buildRsByProcesses(rsName string, processes []Process) ReplicaSetWithProcesses {
-	return NewReplicaSetWithProcesses(NewReplicaSet(rsName, "3.6.3"), processes)
+	return NewReplicaSetWithProcesses(
+		NewReplicaSet(rsName, "3.6.3"),
+		processes,
+	)
 }
 
 func createStandalone() Process {
@@ -558,7 +564,10 @@ func createReplicaSetProcessesCount(count int, rsName string) []Process {
 }
 
 func createConfigSrvRs(name string, check bool) ReplicaSetWithProcesses {
-	replicaSetWithProcesses := NewReplicaSetWithProcesses(NewReplicaSet(name, "3.6.3"), createReplicaSetProcesses(name))
+	replicaSetWithProcesses := NewReplicaSetWithProcesses(
+		NewReplicaSet(name, "3.6.3"),
+		createReplicaSetProcesses(name),
+	)
 
 	if check {
 		for _, p := range replicaSetWithProcesses.Processes {
@@ -569,7 +578,10 @@ func createConfigSrvRs(name string, check bool) ReplicaSetWithProcesses {
 }
 
 func createConfigSrvRsCount(count int, name string, check bool) ReplicaSetWithProcesses {
-	replicaSetWithProcesses := NewReplicaSetWithProcesses(NewReplicaSet(name, "3.6.3"), createReplicaSetProcessesCount(count, name))
+	replicaSetWithProcesses := NewReplicaSetWithProcesses(
+		NewReplicaSet(name, "3.6.3"),
+		createReplicaSetProcessesCount(count, name),
+	)
 
 	if check {
 		for _, p := range replicaSetWithProcesses.Processes {

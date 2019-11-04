@@ -1,5 +1,9 @@
 package om
 
+import (
+	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+)
+
 // ReplicaSetWithProcesses is a wrapper for replica set and processes that match to it
 // The contract for class is that both processes and replica set are guaranteed to match to each other
 // Note, that the type modifies the entities directly and doesn't create copies! (seems not a big deal for clients)
@@ -9,7 +13,10 @@ type ReplicaSetWithProcesses struct {
 }
 
 // NewReplicaSetWithProcesses is the only correct function for creation ReplicaSetWithProcesses
-func NewReplicaSetWithProcesses(rs ReplicaSet, processes []Process) ReplicaSetWithProcesses {
+func NewReplicaSetWithProcesses(
+	rs ReplicaSet,
+	processes []Process,
+) ReplicaSetWithProcesses {
 	rs.clearMembers()
 
 	for _, p := range processes {
@@ -32,4 +39,12 @@ func (r ReplicaSetWithProcesses) GetProcessNames() []string {
 		processNames[i] = p.Name()
 	}
 	return processNames
+}
+
+func (r ReplicaSetWithProcesses) SetHorizons(replicaSetHorizons []mongodb.MongoDBHorizonConfig) {
+	if len(replicaSetHorizons) >= len(r.Rs.members()) {
+		for i, m := range r.Rs.members() {
+			m.setHorizonConfig(replicaSetHorizons[i])
+		}
+	}
 }

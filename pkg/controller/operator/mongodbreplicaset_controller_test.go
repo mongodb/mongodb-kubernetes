@@ -25,7 +25,11 @@ func TestReplicaSetEventMethodsHandlePanic(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().Build()
 
 	manager := newMockedManager(rs)
-	checkReconcileFailed(t, newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection), rs,
+	checkReconcileFailed(
+		t,
+		newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection),
+		rs,
+		true,
 		"Failed to reconcile Mongodb Replica Set: MONGODB_ENTERPRISE_DATABASE_IMAGE environment variable is not set!",
 		manager.client)
 
@@ -51,6 +55,42 @@ func TestCreateReplicaSet(t *testing.T) {
 	connection := om.CurrMockedConnection
 	connection.CheckDeployment(t, createDeploymentFromReplicaSet(rs))
 	connection.CheckNumberOfUpdateRequests(t, 1)
+}
+
+func TestHorizonVerificationTLS(t *testing.T) {
+	replicaSetHorizons := []mdbv1.MongoDBHorizonConfig{
+		mdbv1.MongoDBHorizonConfig{"my-horizon": "my-db.com:12345"},
+		mdbv1.MongoDBHorizonConfig{"my-horizon": "my-db.com:12346"},
+		mdbv1.MongoDBHorizonConfig{"my-horizon": "my-db.com:12347"},
+	}
+	rs := DefaultReplicaSetBuilder().SetReplicaSetHorizons(replicaSetHorizons).Build()
+
+	manager := newMockedManager(rs)
+	client := manager.client
+
+	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
+
+	msg := "TLS must be enabled in order to set replica set horizons"
+	checkReconcileFailed(t, reconciler, rs, false, msg, client)
+}
+
+func TestHorizonVerificationCount(t *testing.T) {
+	replicaSetHorizons := []mdbv1.MongoDBHorizonConfig{
+		mdbv1.MongoDBHorizonConfig{"my-horizon": "my-db.com:12345"},
+		mdbv1.MongoDBHorizonConfig{"my-horizon": "my-db.com:12346"},
+	}
+	rs := DefaultReplicaSetBuilder().
+		EnableTLS().
+		SetReplicaSetHorizons(replicaSetHorizons).
+		Build()
+
+	manager := newMockedManager(rs)
+	client := manager.client
+
+	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
+
+	msg := "Number of horizons must be equal to number of members in replica set"
+	checkReconcileFailed(t, reconciler, rs, false, msg, client)
 }
 
 // TestScaleUpReplicaSet verifies scaling up for replica set. Statefulset and OM Deployment must be changed accordingly
@@ -186,6 +226,14 @@ func (b *ReplicaSetBuilder) SetMembers(m int) *ReplicaSetBuilder {
 
 func (b *ReplicaSetBuilder) SetSecurity(security mdbv1.Security) *ReplicaSetBuilder {
 	b.Spec.Security = &security
+	return b
+}
+
+func (b *ReplicaSetBuilder) SetReplicaSetHorizons(replicaSetHorizons []mdbv1.MongoDBHorizonConfig) *ReplicaSetBuilder {
+	if b.Spec.Connectivity == nil {
+		b.Spec.Connectivity = &mdbv1.MongoDBConnectivity{}
+	}
+	b.Spec.Connectivity.ReplicaSetHorizons = replicaSetHorizons
 	return b
 }
 
