@@ -41,7 +41,7 @@ func TestOnAddStandalone(t *testing.T) {
 	assert.Equal(t, *client.sets[st.ObjectKey()].(*appsv1.StatefulSet).Spec.Replicas, int32(1))
 	assert.Len(t, client.secrets, 2)
 
-	omConn.CheckDeployment(t, createDeploymentFromStandalone(st))
+	omConn.CheckDeployment(t, createDeploymentFromStandalone(st), "auth", "ssl")
 	omConn.CheckNumberOfUpdateRequests(t, 1)
 }
 

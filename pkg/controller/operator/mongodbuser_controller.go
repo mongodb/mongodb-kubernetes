@@ -7,9 +7,11 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -28,6 +30,12 @@ func (r *MongoDBUserReconciler) getUser(request reconcile.Request, log *zap.Suga
 	user := &mdbv1.MongoDBUser{}
 	if _, err := r.getResource(request, user, log); err != nil {
 		return nil, err
+	}
+
+	// if database isn't specified default to the admin database, the recommended
+	// place for creating non-$external users
+	if user.Spec.Database == "" {
+		user.Spec.Database = "admin"
 	}
 
 	return user, nil
@@ -105,7 +113,7 @@ func (r *MongoDBUserReconciler) Reconcile(request reconcile.Request) (res reconc
 	mdbSpec := mdbv1.MongoDbSpec{}
 	if user.Spec.MongoDBResourceRef.Name != "" {
 		if mdbSpec, err = r.getMongoDBSpec(*user); err != nil {
-			return fail(err)
+			return r.updateStatusPending(user, err.Error(), log)
 		}
 	} else {
 		log.Warn("MongoDB reference not specified. Using deprecated project field.")
@@ -129,14 +137,12 @@ func (r *MongoDBUserReconciler) Reconcile(request reconcile.Request) (res reconc
 		return r.updateStatusFailed(user, fmt.Sprintf("failed to prepare Ops Manager connection. %s", err), log)
 	}
 
-	if x509IsEnabled, err := r.isX509Enabled(*user, mdbSpec); err != nil {
-		return fail(err)
-	} else if !x509IsEnabled {
-		log.Info("X509 authentication is not enabled for this project, stopping")
-		return stop()
+	if user.Spec.Database == util.X509Db {
+		return r.handleX509User(user, mdbSpec, conn, log)
+	} else {
+		return r.handleScramShaUser(user, conn, log)
 	}
 
-	return r.handleX509User(user, conn, log)
 }
 
 func (r *MongoDBUserReconciler) isX509Enabled(user mdbv1.MongoDBUser, mdbSpec mdbv1.MongoDbSpec) (bool, error) {
@@ -214,11 +220,27 @@ func AddMongoDBUserController(mgr manager.Manager) error {
 	return nil
 }
 
+// configureScramCredentials creates both SCRAM-SHA-1 and SCRAM-SHA-256 credentials. This ensures
+// that changes to the authentication settings on the MongoDB resources won't leave MongoDBUsers without
+// the correct credentials.
+func configureScramCredentials(user *om.MongoDBUser, password string) error {
+	scram256Creds, err := authentication.ComputeScramShaCreds(user.Username, password, authentication.ScramSha256)
+	if err != nil {
+		return err
+	}
+	scram1Creds, err := authentication.ComputeScramShaCreds(user.Username, password, authentication.MongoDBCR)
+	if err != nil {
+		return err
+	}
+	user.ScramSha256Creds = scram256Creds
+	user.ScramSha1Creds = scram1Creds
+	return nil
+}
+
 // toOmUser converts a MongoDBUser specification and optional password into an
 // automation config MongoDB user. If the user has no password then a blank
 // password should be provided.
-func toOmUser(spec mdbv1.MongoDBUserSpec, password string) om.MongoDBUser {
-
+func toOmUser(spec mdbv1.MongoDBUserSpec, password string) (om.MongoDBUser, error) {
 	user := om.MongoDBUser{
 		Database:                   spec.Database,
 		Username:                   spec.Username,
@@ -227,14 +249,81 @@ func toOmUser(spec mdbv1.MongoDBUserSpec, password string) om.MongoDBUser {
 		Mechanisms:                 []string{},
 	}
 
+	// only specify password if we're dealing with non-x509 users
+	if spec.Database != util.X509Db {
+		if err := configureScramCredentials(&user, password); err != nil {
+			return om.MongoDBUser{}, fmt.Errorf("error generating SCRAM credentials: %s", err)
+		}
+	}
+
 	for _, r := range spec.Roles {
 		user.AddRole(&om.Role{Role: r.RoleName, Database: r.Database})
 	}
-	return user
+	return user, nil
 }
 
-func (r *MongoDBUserReconciler) handleX509User(user *mdbv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (res reconcile.Result, e error) {
-	if !r.doAgentX509CertsExist(user.Namespace) {
+func (r *MongoDBUserReconciler) handleScramShaUser(user *mdbv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (res reconcile.Result, e error) {
+	// watch the password secret in order to trigger reconciliation if the
+	// password is updated
+	if user.Spec.PasswordSecretKeyRef.Name != "" {
+		userNamespacedName := types.NamespacedName{
+			Name:      user.Name,
+			Namespace: user.Namespace,
+		}
+		r.addWatchedResourceIfNotAdded(
+			user.Spec.PasswordSecretKeyRef.Name,
+			user.Namespace,
+			Secret,
+			userNamespacedName,
+		)
+	}
+
+	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+
+		password, err := user.GetPassword(r.client)
+		if err != nil {
+			return err
+		}
+
+		// TODO: this can be removed once https://jira.mongodb.org/browse/CLOUDP-51116 is resolved
+		if err := authentication.EnsureAgentUsers(ac, authentication.ScramSha256); err != nil {
+			return err
+		}
+
+		auth := ac.Auth
+		if user.ChangedIdentifier() { // we've changed username or database, we need to remove the old user before adding new
+			auth.RemoveUser(user.Status.Username, user.Status.Database)
+		}
+
+		desiredUser, err := toOmUser(user.Spec, password)
+		if err != nil {
+			return err
+		}
+
+		auth.EnsureUser(desiredUser)
+		return nil
+	}, log)
+
+	if err != nil {
+		return r.updateStatusFailed(user, fmt.Sprintf("error updating user %s", err), log)
+	}
+
+	log.Infof("Finished reconciliation for MongoDBUser!")
+	return r.updateStatusSuccessful(user, log)
+}
+
+func (r *MongoDBUserReconciler) handleX509User(user *mdbv1.MongoDBUser, mdbSpec mdbv1.MongoDbSpec, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
+
+	if x509IsEnabled, err := r.isX509Enabled(*user, mdbSpec); err != nil {
+		return fail(err)
+	} else if !x509IsEnabled {
+		log.Info("X509 authentication is not enabled for this project, stopping")
+		return stop()
+	}
+
+	mdbAuth := mdbSpec.Security.Authentication
+
+	if mdbAuth.GetAgentMechanism() == util.X509 && !r.doAgentX509CertsExist(user.Namespace) {
 		log.Info("Agent certs have not yet been created, cannot add MongoDBUser yet")
 		return retry()
 	}
@@ -245,12 +334,23 @@ func (r *MongoDBUserReconciler) handleX509User(user *mdbv1.MongoDBUser, conn om.
 			shouldRetry = true
 			return fmt.Errorf("x509 has not yet been configured")
 		}
-		auth := ac.Auth
 
+		if mdbAuth.GetAgentMechanism() == util.X509 {
+			// TODO: this can be removed once https://jira.mongodb.org/browse/CLOUDP-51116 is resolved
+			if err := authentication.EnsureAgentUsers(ac, authentication.MongoDBX509); err != nil {
+				return err
+			}
+		}
+
+		auth := ac.Auth
 		if user.ChangedIdentifier() { // we've changed username or database, we need to remove the old user before adding new
 			auth.RemoveUser(user.Status.Username, user.Status.Database)
 		}
-		desiredUser := toOmUser(user.Spec, "")
+
+		desiredUser, err := toOmUser(user.Spec, "")
+		if err != nil {
+			return err
+		}
 		auth.EnsureUser(desiredUser)
 		return nil
 	}, log)

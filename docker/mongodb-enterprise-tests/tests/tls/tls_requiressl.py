@@ -4,11 +4,11 @@ from kubetester.kubetester import KubernetesTester, skip_if_local
 from kubernetes import client
 from kubetester.mongotester import ReplicaSetTester
 
-mdb_resource = "test-tls-base-rs-require-ssl"
+MDB_RESOURCE = "test-tls-base-rs-require-ssl"
 
 
 def cert_names(namespace, members=3):
-    return ["{}-{}.{}".format(mdb_resource, i, namespace) for i in range(members)]
+    return ["{}-{}.{}".format(MDB_RESOURCE, i, namespace) for i in range(members)]
 
 
 @pytest.mark.e2e_replica_set_tls_require
@@ -54,12 +54,12 @@ class TestReplicaSetWithTLSRunning(KubernetesTester):
 
     @skip_if_local()
     def test_mdb_is_not_reachable_with_no_ssl(self):
-        mongo_tester = ReplicaSetTester(mdb_resource, 3)
+        mongo_tester = ReplicaSetTester(MDB_RESOURCE, 3)
         mongo_tester.assert_no_connection()
 
     @skip_if_local()
     def test_mdb_is_reachable_with_ssl(self):
-        mongo_tester = ReplicaSetTester(mdb_resource, 3, ssl=True)
+        mongo_tester = ReplicaSetTester(MDB_RESOURCE, 3, ssl=True)
         mongo_tester.assert_connectivity()
 
 
@@ -95,12 +95,12 @@ class TestReplicaSetWithTLSScaling0Running(KubernetesTester):
 
     @skip_if_local()
     def test_mdb_is_not_reachable_with_no_ssl(self):
-        mongo_tester = ReplicaSetTester(mdb_resource, 5)
+        mongo_tester = ReplicaSetTester(MDB_RESOURCE, 5)
         mongo_tester.assert_no_connection()
 
     @skip_if_local()
     def test_mdb_is_reachable_with_ssl(self):
-        mongo_tester = ReplicaSetTester(mdb_resource, 5, ssl=True)
+        mongo_tester = ReplicaSetTester(MDB_RESOURCE, 5, ssl=True)
         mongo_tester.assert_connectivity()
 
 
@@ -120,12 +120,12 @@ class TestReplicaSetWithTLSScaling1(KubernetesTester):
 
     @skip_if_local()
     def test_mdb_is_reachable_with_no_ssl(self):
-        mongo_tester = ReplicaSetTester(mdb_resource, 3)
+        mongo_tester = ReplicaSetTester(MDB_RESOURCE, 3)
         mongo_tester.assert_no_connection()
 
     @skip_if_local()
     def test_mdb_is_reachable_with_ssl(self):
-        mongo_tester = ReplicaSetTester(mdb_resource, 3, ssl=True)
+        mongo_tester = ReplicaSetTester(MDB_RESOURCE, 3, ssl=True)
         mongo_tester.assert_connectivity()
 
 

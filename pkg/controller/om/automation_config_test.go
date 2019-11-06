@@ -16,6 +16,19 @@ func getTestAutomationConfig() *AutomationConfig {
 	return a
 }
 
+func TestScramShaCreds_AreRemovedCorrectly(t *testing.T) {
+	ac := getTestAutomationConfig()
+	user := ac.Auth.Users[0]
+	user.ScramSha256Creds = nil
+
+	if err := ac.Apply(); err != nil {
+		t.Fatal(err)
+	}
+
+	deploymentUser := getUser(ac.Deployment, 0)
+	assert.NotContains(t, deploymentUser, "scramSha256Creds")
+}
+
 func TestUntouchedFieldsAreNotDeleted(t *testing.T) {
 	a := getTestAutomationConfig()
 	a.Auth.AutoUser = "some-user"
@@ -39,6 +52,13 @@ func TestUntouchedFieldsAreNotDeleted(t *testing.T) {
 	assert.Equal(t, auth["autoUser"], "some-user")
 	ssl := cast.ToStringMap(a.Deployment["ssl"])
 	assert.Equal(t, ssl["clientCertificateMode"], util.RequireClientCertificates)
+
+	// ensures fields in nested fields we don't know about are retained
+	scramSha256Creds := cast.ToStringMap(getUser(a.Deployment, 0)["scramSha256Creds"])
+	assert.Equal(t, float64(15000), scramSha256Creds["iterationCount"])
+	assert.Equal(t, "I570PanWIx1eNUTo7j4ROl2/zIqMsVd6CcIE+A==", scramSha256Creds["salt"])
+	assert.Equal(t, "M4/jskiMM0DpvG/qgMELWlfReqV2ZmwdU8+vJZ/4prc=", scramSha256Creds["serverKey"])
+	assert.Equal(t, "m1dXf5hHJk7EOAAyJBxfsZvFx1HwtTdda6pFPm0BlOE=", scramSha256Creds["storedKey"])
 
 	// ensure values we know nothing about aren't touched
 	options := cast.ToStringMap(a.Deployment["options"])
@@ -106,6 +126,66 @@ func TestUserIsUpdated_AndOtherUsersDontGetAffected(t *testing.T) {
 	}
 }
 
+func TestCanPrependUser(t *testing.T) {
+	ac := getTestAutomationConfig()
+
+	newUser := &MongoDBUser{
+		Database:                   "myDatabase",
+		Username:                   "myUsername",
+		AuthenticationRestrictions: []string{},
+		Roles: []*Role{
+			{
+				Role:     "myRole",
+				Database: "myDb",
+			},
+		},
+	}
+
+	assert.Len(t, getUsers(ac.Deployment), 3)
+	assert.Len(t, ac.Auth.Users, 3)
+
+	ac.Auth.Users = append([]*MongoDBUser{newUser}, ac.Auth.Users...)
+
+	if err := ac.Apply(); err != nil {
+		t.Fatal(err)
+	}
+
+	dep := ac.Deployment
+
+	firstUser := getUser(dep, 0)
+	firstUsersRole := getRole(dep, 0, 0)
+	secondUser := getUser(dep, 1)
+	secondUsersRoles := getRoles(dep, 1)
+
+	// the user added to the start of the list should be the first element
+	assert.Equal(t, "myUsername", firstUser["user"])
+	assert.Equal(t, "myDatabase", firstUser["db"])
+
+	// it should have the single role provided
+	assert.Equal(t, "myRole", firstUsersRole["role"])
+	assert.Equal(t, "myDb", firstUsersRole["db"])
+
+	// the already existing user should be the second element
+	assert.Equal(t, "testUser0", secondUser["user"])
+	assert.Equal(t, "testDb0", secondUser["db"])
+
+	assert.Len(t, secondUsersRoles, 3, "second user should not have an additional role")
+
+	// already existing user should not have been granted the additional role
+	for _, omRoleInterface := range secondUsersRoles {
+		omRoleMap := cast.ToStringMap(omRoleInterface)
+		assert.False(t, omRoleMap["db"] == "myDb")
+		assert.False(t, omRoleMap["role"] == "myRole")
+	}
+
+	allUsers := getUsers(ac.Deployment)
+	for _, user := range allUsers[1:] {
+		userMap := cast.ToStringMap(user)
+		assert.NotEqual(t, "new-db", userMap["db"])
+		assert.NotEqual(t, "new-user", userMap["user"])
+	}
+}
+
 func TestUserIsDeleted(t *testing.T) {
 	a := getTestAutomationConfig()
 
@@ -117,6 +197,45 @@ func TestUserIsDeleted(t *testing.T) {
 	}
 
 	assert.Len(t, getUsers(a.Deployment), 1)
+}
+
+func TestUnknownFields_AreNotMergedWithOtherElements(t *testing.T) {
+	ac := getTestAutomationConfig()
+
+	userToDelete := getUser(ac.Deployment, 1)
+	assert.Contains(t, userToDelete, "unknownFieldOne")
+	assert.Contains(t, userToDelete, "unknownFieldTwo")
+
+	ac.Auth.Users[1] = nil
+
+	if err := ac.Apply(); err != nil {
+		t.Fatal(err)
+	}
+
+	users := getUsers(ac.Deployment)
+
+	// user got removed
+	assert.Len(t, users, 2)
+
+	// other users didn't accidentally get unknown fields merged into them
+	for _, user := range users {
+		userMap := cast.ToStringMap(user)
+		assert.NotContains(t, userMap, "unknownFieldOne")
+		assert.NotContains(t, userMap, "unknownFieldTwo")
+	}
+
+}
+
+func TestSettingFieldInListToNil_RemovesElement(t *testing.T) {
+	ac := getTestAutomationConfig()
+
+	ac.Auth.Users[1] = nil
+
+	if err := ac.Apply(); err != nil {
+		t.Fatal(err)
+	}
+
+	assert.Len(t, getUsers(ac.Deployment), 2)
 }
 
 func TestRoleIsAddedToTheEnd(t *testing.T) {
@@ -272,6 +391,212 @@ func TestCanResetAgentSSL(t *testing.T) {
 	assert.NotContains(t, ssl, "CAFilePath")
 }
 
+func TestVersionsAndBuildsRetained(t *testing.T) {
+	ac := getTestAutomationConfig()
+
+	if err := ac.Apply(); err != nil {
+		t.Fatal(err)
+	}
+
+	dep := ac.Deployment
+	versions := getMongoDbVersions(dep)
+	assert.Len(t, versions, 2)
+
+	// ensure no elements lost from array
+	builds1 := getVersionBuilds(dep, 0)
+	builds2 := getVersionBuilds(dep, 1)
+
+	// ensure the correct number of elements in each nested array
+	assert.Len(t, builds1, 6)
+	assert.Len(t, builds2, 11)
+
+	/*
+		{
+			"architecture": "amd64",
+			"bits": 64,
+			"flavor": "suse",
+			"gitVersion": "45d947729a0315accb6d4f15a6b06be6d9c19fe7",
+			"maxOsVersion": "12",
+			"minOsVersion": "11",
+			"modules": [
+				"enterprise"
+			],
+			"platform": "linux",
+			"url": "https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise-suse11-3.2.0.tgz"
+		}
+	*/
+	// ensure correct values for nested fields
+	build1 := getVersionBuild(dep, 1, 4)
+	assert.Equal(t, "amd64", build1["architecture"])
+	assert.Equal(t, float64(64), build1["bits"])
+	assert.Equal(t, "suse", build1["flavor"])
+	assert.Equal(t, "45d947729a0315accb6d4f15a6b06be6d9c19fe7", build1["gitVersion"])
+	assert.Equal(t, "12", build1["maxOsVersion"])
+	assert.Equal(t, "11", build1["minOsVersion"])
+	assert.Equal(t, "linux", build1["platform"])
+	assert.Equal(t, "https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise-suse11-3.2.0.tgz", build1["url"])
+
+	// nested list maintains untouched
+	modulesList := build1["modules"].([]interface{})
+	assert.Equal(t, "enterprise", modulesList[0])
+}
+
+func TestMergoDeleteWorksInNestedMapsWithFieldsNotReturnedByAutomationConfig(t *testing.T) {
+	ac := getTestAutomationConfig()
+
+	ac.Auth.Users[0].Database = util.MergoDelete
+
+	if err := ac.Apply(); err != nil {
+		t.Fatal(err)
+	}
+
+	user := getUser(ac.Deployment, 0)
+
+	assert.NotContains(t, user, "db") // specify value to delete, it does not remain in final map
+	assert.Contains(t, user, "user")  // value untouched remains
+}
+
+func TestDeletionOfMiddleElements(t *testing.T) {
+	ac := getTestAutomationConfig()
+
+	ac.Auth.AddUser(MongoDBUser{
+		Database: "my-db",
+		Username: "my-user",
+		Roles:    []*Role{{Role: "my-role", Database: "role-db"}},
+	})
+
+	ac.Auth.AddUser(MongoDBUser{
+		Database: "my-db-1",
+		Username: "my-user-1",
+		Roles:    []*Role{{Role: "my-role", Database: "role-db"}},
+	})
+
+	ac.Auth.AddUser(MongoDBUser{
+		Database: "my-db-2",
+		Username: "my-user-2",
+		Roles:    []*Role{{Role: "my-role", Database: "role-db"}},
+	})
+
+	if err := ac.Apply(); err != nil {
+		t.Fatal(err)
+	}
+
+	assert.Len(t, getUsers(ac.Deployment), 6)
+
+	// remove the 3rd element of the list
+	ac.Auth.Users[2] = nil
+
+	if err := ac.Apply(); err != nil {
+		t.Fatal(err)
+	}
+
+	assert.Len(t, getUsers(ac.Deployment), 5)
+
+	users := getUsers(ac.Deployment)
+	lastUser := cast.ToStringMap(users[len(users)-1])
+	assert.Equal(t, lastUser["user"], "my-user-2")
+	assert.Equal(t, lastUser["db"], "my-db-2")
+
+	// my-user-1 was correctly removed from between the other two elements
+	secondLastUser := cast.ToStringMap(users[len(users)-2])
+	assert.Equal(t, "my-user-1", secondLastUser["user"])
+	assert.Equal(t, "my-db-1", secondLastUser["db"])
+
+}
+
+func TestDeleteLastElement(t *testing.T) {
+	ac := getTestAutomationConfig()
+	ac.Auth.Users[len(ac.Auth.Users)-1] = nil
+
+	if err := ac.Apply(); err != nil {
+		t.Fatal(err)
+	}
+
+	users := getUsers(ac.Deployment)
+	assert.Len(t, users, 2)
+
+	lastUser := cast.ToStringMap(users[1])
+	assert.Equal(t, "testDb1", lastUser["db"])
+	assert.Equal(t, "testUser1", lastUser["user"])
+
+}
+
+func TestCanDeleteUsers_AndAddNewOnes_InSingleOperation(t *testing.T) {
+	ac := getTestAutomationConfig()
+
+	for i := range ac.Auth.Users {
+		ac.Auth.Users[i] = nil
+	}
+
+	ac.Auth.AddUser(MongoDBUser{
+		Database: "my-added-db",
+		Username: "my-added-user",
+		Roles:    []*Role{},
+	})
+
+	if err := ac.Apply(); err != nil {
+		t.Fatal(err)
+	}
+
+	users := getUsers(ac.Deployment)
+	assert.Len(t, users, 1)
+
+	addedUser := cast.ToStringMap(users[0])
+	assert.Equal(t, "my-added-db", addedUser["db"])
+	assert.Equal(t, "my-added-user", addedUser["user"])
+}
+
+func TestOneUserDeleted_OneUserUpdated(t *testing.T) {
+	ac := getTestAutomationConfig()
+	ac.Auth.Users[1] = nil
+	ac.Auth.Users[2].Database = "updated-database"
+
+	if err := ac.Apply(); err != nil {
+		t.Fatal(err)
+	}
+
+	users := getUsers(ac.Deployment)
+
+	assert.Len(t, users, 2)
+	updatedUser := cast.ToStringMap(users[1])
+	assert.Equal(t, "updated-database", updatedUser["db"])
+}
+
+func TestAssigningListsReassignsInDeployment(t *testing.T) {
+	ac := getTestAutomationConfig()
+
+	ac.Auth.AutoAuthMechanisms = append(ac.Auth.AutoAuthMechanisms, "one", "two", "three")
+
+	if err := ac.Apply(); err != nil {
+		t.Fatal(err)
+	}
+
+	auth := cast.ToStringMap(ac.Deployment["auth"])
+	authMechanisms := cast.ToSlice(auth["autoAuthMechanisms"])
+	assert.Len(t, authMechanisms, 3)
+
+	ac.Auth.AutoAuthMechanisms = []string{"two"}
+
+	if err := ac.Apply(); err != nil {
+		t.Fatal(err)
+	}
+
+	auth = cast.ToStringMap(ac.Deployment["auth"])
+	authMechanisms = cast.ToSlice(auth["autoAuthMechanisms"])
+	assert.Len(t, authMechanisms, 1)
+	assert.Contains(t, authMechanisms, "two")
+
+	ac.Auth.AutoAuthMechanisms = []string{}
+
+	if err := ac.Apply(); err != nil {
+		t.Fatal(err)
+	}
+
+	auth = cast.ToStringMap(ac.Deployment["auth"])
+	authMechanisms = cast.ToSlice(auth["autoAuthMechanisms"])
+	assert.Len(t, authMechanisms, 0)
+}
+
 func getUsers(deployment map[string]interface{}) []interface{} {
 	auth := deployment["auth"].(map[string]interface{})
 	if users, ok := auth["usersWanted"]; ok {
@@ -298,4 +623,17 @@ func getRole(deployment map[string]interface{}, userIdx, roleIdx int) map[string
 func remove(slice []*Role, i int) []*Role {
 	copy(slice[i:], slice[i+1:])
 	return slice[:len(slice)-1]
+}
+
+func getMongoDbVersions(deployment map[string]interface{}) []interface{} {
+	return deployment["mongoDbVersions"].([]interface{})
+}
+
+func getVersionBuilds(deployment map[string]interface{}, versionIndex int) []interface{} {
+	versions := deployment["mongoDbVersions"].([]interface{})
+	return versions[versionIndex].(map[string]interface{})["builds"].([]interface{})
+}
+
+func getVersionBuild(deployment map[string]interface{}, versionIndex, buildIndex int) map[string]interface{} {
+	return getVersionBuilds(deployment, versionIndex)[buildIndex].(map[string]interface{})
 }

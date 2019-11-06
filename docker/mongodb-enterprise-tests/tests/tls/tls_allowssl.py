@@ -4,11 +4,11 @@ from kubetester.kubetester import KubernetesTester, skip_if_local
 from kubernetes import client
 from kubetester.mongotester import ReplicaSetTester
 
-mdb_resource = "test-tls-base-rs-allow-ssl"
+MDB_RESOURCE = "test-tls-base-rs-allow-ssl"
 
 
 def cert_names(namespace):
-    return ["{}-{}.{}".format(mdb_resource, i, namespace) for i in range(3)]
+    return ["{}-{}.{}".format(MDB_RESOURCE, i, namespace) for i in range(3)]
 
 
 @pytest.mark.e2e_replica_set_tls_allow
@@ -54,12 +54,12 @@ class TestReplicaSetWithTLSCreationRunning(KubernetesTester):
 
     @skip_if_local()
     def test_mdb_is_reachable_with_no_ssl(self):
-        mongo_tester = ReplicaSetTester(mdb_resource, 3)
+        mongo_tester = ReplicaSetTester(MDB_RESOURCE, 3)
         mongo_tester.assert_connectivity()
 
     @skip_if_local()
     def test_mdb_is_reachable_with_ssl(self):
-        mongo_tester = ReplicaSetTester(mdb_resource, 3, ssl=True)
+        mongo_tester = ReplicaSetTester(MDB_RESOURCE, 3, ssl=True)
         mongo_tester.assert_connectivity()
 
 

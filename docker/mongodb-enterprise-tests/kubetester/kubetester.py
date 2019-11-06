@@ -4,7 +4,7 @@ import string
 import sys
 import time
 import warnings
-from base64 import b64decode
+from base64 import b64decode, b64encode
 from datetime import datetime, timezone
 
 from typing import Dict
@@ -14,9 +14,11 @@ import pymongo
 import pytest
 import requests
 import yaml
+import tempfile
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 from requests.auth import HTTPDigestAuth
+from kubetester.crypto import wait_for_certs_to_be_issued
 
 SSL_CA_CERT = "/var/run/secrets/kubernetes.io/serviceaccount/..data/ca.crt"
 ENVIRONMENT_FILES = ("~/.operator-dev/om", "~/.operator-dev/contexts/{}")
@@ -464,6 +466,15 @@ class KubernetesTester(object):
         )
 
     @staticmethod
+    def in_updated_state():
+        return KubernetesTester.check_phase(
+            KubernetesTester.namespace,
+            KubernetesTester.kind,
+            KubernetesTester.name,
+            "Updated"
+        )
+
+    @staticmethod
     def in_pending_state():
         return KubernetesTester.check_phase(
             KubernetesTester.namespace,
@@ -875,6 +886,47 @@ class KubernetesTester(object):
 
         body.status.conditions = [conditions]
         self.certificates.replace_certificate_signing_request_approval(name, body)
+
+    def generate_certfile(self, csr_name: str, certificate_request_fixture : str, server_pem_fixture: str):
+        """
+        generate_certfile create a temporary file object that is created from a certificate request fixture
+        as well as a fixture containing the server pem key. This file can be used to pass to a MongoClient
+        when using MONGODB-X509 authentication
+
+        :param csr_name: The name of the CSR that is to be created
+        :param certificate_request_fixture: a fixture containing the contents of the certificate request
+        :param server_pem_fixture: a fixture containing the server pem key file
+        :return: A File object containing the key and certificate
+        """
+        with open(fixture(certificate_request_fixture), "r") as f:
+            encoded_request = b64encode(f.read().encode('utf-8')).decode('utf-8')
+
+        csr_body = self.client.V1beta1CertificateSigningRequest(
+            metadata=self.client.V1ObjectMeta(
+                name=csr_name,
+                namespace=self.namespace,
+            ),
+            spec=self.client.V1beta1CertificateSigningRequestSpec(
+                groups=["system:authenticated"],
+                usages=["digital signature", "key encipherment", "client auth"],
+                request=encoded_request
+            )
+        )
+
+        self.certificates.create_certificate_signing_request(csr_body)
+        self.approve_certificate(csr_name)
+        wait_for_certs_to_be_issued([csr_name])
+        csr = self.certificates.read_certificate_signing_request(csr_name)
+        certificate = b64decode(csr.status.certificate)
+
+        tmp = tempfile.NamedTemporaryFile()
+        with open(fixture(server_pem_fixture), 'r+b') as f:
+            key = f.read()
+        tmp.write(key)
+        tmp.write(certificate)
+        tmp.flush()
+
+        return tmp
 
     def yield_existing_csrs(self, csr_names, timeout=300):
         total_csrs = len(csr_names)

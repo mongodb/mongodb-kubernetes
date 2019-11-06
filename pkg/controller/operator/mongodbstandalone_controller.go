@@ -115,7 +115,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 
 	// cannot have a non-tls deployment in an x509 environment
 	authSpec := s.Spec.Security.Authentication
-	if authSpec.Enabled && util.ContainsString(authSpec.Modes, util.X509) && !s.Spec.GetTLSConfig().Enabled {
+	if authSpec.Enabled && authSpec.IsX509Enabled() && !s.Spec.GetTLSConfig().Enabled {
 		return r.updateStatusValidationFailure(s, fmt.Sprintf("cannot have a non-tls deployment when x509 authentication is enabled"), log)
 	}
 
@@ -128,7 +128,15 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		SetProjectConfig(*projectConfig).
 		SetSecurity(s.Spec.Security)
 
+	if status := validateMongoDBResource(s, conn); !status.isOk() {
+		return status.updateStatus(s, r.ReconcileCommonController, log)
+	}
+
 	if status := r.kubeHelper.ensureSSLCertsForStatefulSet(standaloneBuilder, log); !status.isOk() {
+		return status.updateStatus(s, r.ReconcileCommonController, log)
+	}
+
+	if status := r.ensureX509InKubernetes(s, standaloneBuilder, log); !status.isOk() {
 		return status.updateStatus(s, r.ReconcileCommonController, log)
 	}
 
@@ -164,7 +172,11 @@ func updateOmDeployment(conn om.Connection, s *mdbv1.MongoDB,
 		return failedErr(err)
 	}
 
-	processNames := make([]string, 0)
+	status, additionalReconciliationRequired := updateOmAuthentication(conn, []string{set.Name}, s, log)
+	if !status.isOk() {
+		return status
+	}
+
 	standaloneOmObject := createProcess(set, s)
 	err := conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
@@ -175,8 +187,6 @@ func updateOmDeployment(conn om.Connection, s *mdbv1.MongoDB,
 			d.MergeStandalone(standaloneOmObject, nil)
 			d.AddMonitoringAndBackup(standaloneOmObject.HostName(), log)
 			d.ConfigureTLS(s.Spec.GetTLSConfig())
-
-			processNames = d.GetProcessNames(om.Standalone{}, s.Name)
 			return nil
 		},
 		log,
@@ -185,9 +195,15 @@ func updateOmDeployment(conn om.Connection, s *mdbv1.MongoDB,
 	if err != nil {
 		return failedErr(err)
 	}
-	if err := om.WaitForReadyState(conn, processNames, log); err != nil {
+
+	if err := om.WaitForReadyState(conn, []string{set.Name}, log); err != nil {
 		return failedErr(err)
 	}
+
+	if additionalReconciliationRequired {
+		return pending("Performing multi stage reconciliation")
+	}
+
 	log.Info("Updated Ops Manager for standalone")
 	return ok()
 

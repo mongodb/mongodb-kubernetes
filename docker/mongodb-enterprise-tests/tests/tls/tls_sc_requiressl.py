@@ -3,14 +3,14 @@ from kubernetes import client
 from kubetester.kubetester import KubernetesTester, skip_if_local
 from kubetester.mongotester import ShardedClusterTester
 
-mdb_resource = "test-tls-base-sc-require-ssl"
+MDB_RESOURCE = "test-tls-base-sc-require-ssl"
 
 
 def host_groups():
     "Returns the list of generated certs we use with this deployment"
-    shard0 = ["{}-0-{}".format(mdb_resource, i) for i in range(3)]
-    config = ["{}-config-{}".format(mdb_resource, i) for i in range(3)]
-    mongos = ["{}-mongos-{}".format(mdb_resource, i) for i in range(2)]
+    shard0 = ["{}-0-{}".format(MDB_RESOURCE, i) for i in range(3)]
+    config = ["{}-config-{}".format(MDB_RESOURCE, i) for i in range(3)]
+    mongos = ["{}-mongos-{}".format(MDB_RESOURCE, i) for i in range(2)]
     return dict(shards=shard0, mongos=mongos, config=config)
 
 
@@ -29,7 +29,7 @@ class TestClusterWithTLSCreation(KubernetesTester):
 
     def test_custom_object_exists(self):
         assert self.customv1.get_namespaced_custom_object(
-            "mongodb.com", "v1", self.namespace, "mongodb", mdb_resource
+            "mongodb.com", "v1", self.namespace, "mongodb", MDB_RESOURCE
         )
 
     def test_mdb_resource_status_is_pending(self):
@@ -66,7 +66,7 @@ class TestClusterWithTLSCreationRunning(KubernetesTester):
 
     def test_mdb_should_reach_goal_state(self):
         mdb = self.customv1.get_namespaced_custom_object(
-            "mongodb.com", "v1", self.namespace, "mongodb", mdb_resource
+            "mongodb.com", "v1", self.namespace, "mongodb", MDB_RESOURCE
         )
         assert mdb["status"]["phase"] == "Running"
 

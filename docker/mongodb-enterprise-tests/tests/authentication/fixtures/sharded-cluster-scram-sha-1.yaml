@@ -1,0 +1,20 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: my-sharded-cluster-scram-sha-1
+spec:
+  shardCount: 1
+  type: ShardedCluster
+  mongodsPerShardCount: 3
+  mongosCount: 2
+  configServerCount: 3
+  version: 3.6.9 # versions < 4.0 will use SCRAM-SHA-1
+  project: my-project
+  credentials: my-credentials
+  logLevel: WARN
+  persistent: false
+  security:
+    authentication:
+      enabled: true
+      modes: ["SCRAM"]

@@ -1037,7 +1037,7 @@ tasks:
 
 - name: e2e_tls_x509_users_addition_removal
   tags: ["kops-om-42"]
-  exec_timeout_secs: 1200
+  exec_timeout_secs: 1800
   commands:
     - func: "e2e_test"
 
@@ -1080,6 +1080,84 @@ tasks:
 - name: e2e_om_appdb_validation
   tags: ["kops-ops-manager"]
   exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_scram_sha_256_user_connectivity
+  tags: ["kops-om-42"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_scram_sha_1_user_connectivity
+  tags: ["kops-om-42"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_scram_sha_256_user_connectivity
+  tags: ["kops-om-42"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_scram_sha_1_user_connectivity
+  tags: ["kops-om-42"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_scram_sha_1_upgrade
+  tags: ["kops-om-42"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_scram_sha_1_upgrade
+  tags: ["kops-om-42"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_x509_to_scram_transition
+  tags: ["kops-om-42"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_x509_to_scram_transition
+  tags: ["kops-om-42"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_scram_sha_and_x509
+  tags: ["kops-om-42"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_scram_sha_and_x509
+  tags: ["kops-om-42"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_configure_tls_and_x509_simultaneously_rs
+  tags: ["kops-om-42"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_configure_tls_and_x509_simultaneously_sc
+  tags: ["kops-om-42"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_configure_tls_and_x509_simultaneously_st
+  tags: ["kops-om-42"]
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
@@ -1147,6 +1225,28 @@ task_groups:
   teardown_task:
     - func: "upload_e2e_logs"
 
+- name: e2e_scram_sha_task_group
+  max_hosts: 3
+  setup_group:
+    - func: clone
+    - func: download_kubectl
+    - func: setup_kubernetes_environment
+
+  tasks:
+    - e2e_replica_set_scram_sha_256_user_connectivity
+    - e2e_replica_set_scram_sha_1_user_connectivity
+    - e2e_replica_set_scram_sha_1_upgrade
+    - e2e_replica_set_x509_to_scram_transition
+    - e2e_replica_set_scram_sha_and_x509
+    - e2e_sharded_cluster_scram_sha_1_upgrade
+    - e2e_sharded_cluster_x509_to_scram_transition
+    - e2e_sharded_cluster_scram_sha_256_user_connectivity
+    - e2e_sharded_cluster_scram_sha_1_user_connectivity
+    - e2e_sharded_cluster_scram_sha_and_x509
+
+  teardown_task:
+    - func: "upload_e2e_logs"
+
 - name: e2e_tls_custom_ca_task_group
   setup_group:
     - func: clone
@@ -1187,6 +1287,9 @@ task_groups:
     - e2e_tls_x509_users_addition_removal
     - e2e_tls_x509_configure_all_options_rs
     - e2e_tls_x509_configure_all_options_sc
+    - e2e_configure_tls_and_x509_simultaneously_st
+    - e2e_configure_tls_and_x509_simultaneously_rs
+    - e2e_configure_tls_and_x509_simultaneously_sc
     - e2e_users_schema_validation
   teardown_task:
     - func: "upload_e2e_logs"
@@ -1258,6 +1361,7 @@ buildvariants:
     distro: ubuntu
   tasks:
   - name: "e2e_tls_task_group"
+  - name: "e2e_scram_sha_task_group"
   - name: "e2e_x509_task_group"
   - name: "e2e_core_others_task_group"
 
@@ -1280,7 +1384,7 @@ buildvariants:
   - name: "e2e_tls_task_group"
   - name: "e2e_x509_task_group"
   - name: "e2e_core_others_task_group"
-  - name: e2e_tls_custom_ca_task_group
+  - name: "e2e_tls_custom_ca_task_group"
 
 - name: e2e_openshift_cloud_qa
   display_name: "e2e_openshift_cloud_qa"
@@ -1298,7 +1402,8 @@ buildvariants:
   - name: "e2e_core_task_group"
   - name: "e2e_tls_task_group"
   - name: "e2e_x509_task_group"
-  - name: e2e_tls_custom_ca_task_group
+  - name: "e2e_tls_custom_ca_task_group"
+  - name: "e2e_scram_sha_task_group"
 
 - name: e2e_kube_vanilla_ops_manager
   display_name: "e2e_kube_vanilla_ops_manager"

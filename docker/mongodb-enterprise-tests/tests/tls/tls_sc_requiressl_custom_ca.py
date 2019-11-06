@@ -4,19 +4,19 @@ from kubernetes import client
 from kubetester.kubetester import KubernetesTester, skip_if_local
 from kubetester.mongotester import ShardedClusterTester
 
-from kubetester.crypto import generate_csr, request_certificate, get_pem_certificate
+from kubetester.crypto import generate_csr, request_certificate, get_pem_certificate, wait_for_certs_to_be_issued
 
 from typing import Dict, List
 
-mdb_resource = "test-tls-base-sc-require-ssl"
+MDB_RESOURCE = "test-tls-base-sc-require-ssl"
 usages = ["digital signature", "key encipherment", "server auth", "client auth"]
 
 
 def servicename_for_group(group_name: str) -> str:
     groups = {
-        f"{mdb_resource}-0": f"{mdb_resource}-sh",
-        f"{mdb_resource}-config": f"{mdb_resource}-cs",
-        f"{mdb_resource}-mongos": f"{mdb_resource}-svc"
+        f"{MDB_RESOURCE}-0": f"{MDB_RESOURCE}-sh",
+        f"{MDB_RESOURCE}-config": f"{MDB_RESOURCE}-cs",
+        f"{MDB_RESOURCE}-mongos": f"{MDB_RESOURCE}-svc"
     }
 
     return groups[group_name]
@@ -25,13 +25,13 @@ def servicename_for_group(group_name: str) -> str:
 # TODO: There's an almost equivalent functionality in omtester. Make sure you use just one.
 def host_groups() -> Dict[str, List[str]]:
     "Returns the list of generated certs we use with this deployment"
-    shard0 = ["{}-0-{}".format(mdb_resource, i) for i in range(3)]
-    config = ["{}-config-{}".format(mdb_resource, i) for i in range(3)]
-    mongos = ["{}-mongos-{}".format(mdb_resource, i) for i in range(2)]
+    shard0 = ["{}-0-{}".format(MDB_RESOURCE, i) for i in range(3)]
+    config = ["{}-config-{}".format(MDB_RESOURCE, i) for i in range(3)]
+    mongos = ["{}-mongos-{}".format(MDB_RESOURCE, i) for i in range(2)]
     return {
-        f"{mdb_resource}-0": shard0,
-        f"{mdb_resource}-config": config,
-        f"{mdb_resource}-mongos": mongos
+        f"{MDB_RESOURCE}-0": shard0,
+        f"{MDB_RESOURCE}-config": config,
+        f"{MDB_RESOURCE}-mongos": mongos
     }
 
 
@@ -61,6 +61,8 @@ class TestClusterWithTLSCreateCerts(KubernetesTester):
         for cert in self.yield_existing_csrs(certs):
             self.approve_certificate(cert)
 
+        wait_for_certs_to_be_issued(certs)
+
     def test_create_secrets(self):
         for name, group in host_groups().items():
             server_certs: Dict[str, [bytes]] = dict()
@@ -89,12 +91,12 @@ class TestClusterWithTLSCreation(KubernetesTester):
 
     @skip_if_local
     def test_mongos_are_reachable_with_ssl(self):
-        mongo_tester = ShardedClusterTester(mdb_resource, len(host_groups()[f"{mdb_resource}-mongos"]), ssl=True)
+        mongo_tester = ShardedClusterTester(MDB_RESOURCE, len(host_groups()[f"{MDB_RESOURCE}-mongos"]), ssl=True)
         mongo_tester.assert_connectivity()
 
     @skip_if_local
     def test_mongos_are_not_reachable_with_no_ssl(self):
-        mongo_tester = ShardedClusterTester(mdb_resource, len(host_groups()[f"{mdb_resource}-mongos"]))
+        mongo_tester = ShardedClusterTester(MDB_RESOURCE, len(host_groups()[f"{MDB_RESOURCE}-mongos"]))
         mongo_tester.assert_no_connection()
 
 
@@ -103,7 +105,7 @@ class TestClusterWithTLSAddMoreCerts(KubernetesTester):
     def test_add_2_more_certificates(self):
         KubernetesTester.test_keys = {}
         for i in range(3, 5):
-            name = f"{mdb_resource}-0"
+            name = f"{MDB_RESOURCE}-0"
             pod_name = f"{name}-{i}"
 
             csr, key = generate_csr(self.get_namespace(), pod_name, servicename_for_group(name))
@@ -113,18 +115,18 @@ class TestClusterWithTLSAddMoreCerts(KubernetesTester):
     def test_approve_certs(self):
         certs = []
         for i in range(3, 5):
-            certs.append("{}-0-{}.{}".format(mdb_resource, i, self.get_namespace()))
+            certs.append("{}-0-{}.{}".format(MDB_RESOURCE, i, self.get_namespace()))
 
         for cert in self.yield_existing_csrs(certs):
             self.approve_certificate(cert)
 
     def test_update_secrets(self):
         server_certs: Dict[str, [bytes]] = dict()
-        for pod_name in [f"{mdb_resource}-0-{i}" for i in range(3, 5)]:
+        for pod_name in [f"{MDB_RESOURCE}-0-{i}" for i in range(3, 5)]:
             cert = get_pem_certificate("{}.{}".format(pod_name, self.get_namespace()))
             server_certs[f"{pod_name}-pem"] = (cert + KubernetesTester.test_keys[pod_name]).decode("utf-8")
 
-            secret_name = f"{mdb_resource}-0-cert"
+            secret_name = f"{MDB_RESOURCE}-0-cert"
             KubernetesTester.update_secret(self.get_namespace(), secret_name, server_certs)
 
 
@@ -144,12 +146,12 @@ class TestClusterWithTLSCreationRunning(KubernetesTester):
 
     @skip_if_local
     def test_mongos_are_reachable_with_ssl(self):
-        mongo_tester = ShardedClusterTester("test-tls-base-sc-require-ssl", len(host_groups()[f"{mdb_resource}-mongos"]), ssl=True)
+        mongo_tester = ShardedClusterTester("test-tls-base-sc-require-ssl", len(host_groups()[f"{MDB_RESOURCE}-mongos"]), ssl=True)
         mongo_tester.assert_connectivity()
 
     @skip_if_local
     def test_mongos_are_not_reachable_with_no_ssl(self):
-        mongo_tester = ShardedClusterTester("test-tls-base-sc-require-ssl", len(host_groups()[f"{mdb_resource}-mongos"]))
+        mongo_tester = ShardedClusterTester("test-tls-base-sc-require-ssl", len(host_groups()[f"{MDB_RESOURCE}-mongos"]))
         mongo_tester.assert_no_connection()
 
 

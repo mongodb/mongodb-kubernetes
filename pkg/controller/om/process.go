@@ -105,8 +105,6 @@ func NewMongosProcess(name, hostName string, resource *mdbv1.MongoDB) Process {
 		p.EnableTLS(resource.Spec.GetTLSMode())
 	}
 
-	p.ConfigureClusterAuthMode(resource.Spec.Security.Authentication.InternalCluster)
-
 	return p
 }
 
@@ -125,8 +123,6 @@ func NewMongodProcess(name, hostName string, resource *mdbv1.MongoDB) Process {
 	if resource.Spec.GetTLSConfig().Enabled {
 		p.EnableTLS(resource.Spec.GetTLSMode())
 	}
-
-	p.ConfigureClusterAuthMode(resource.Spec.Security.Authentication.InternalCluster)
 
 	return p
 }

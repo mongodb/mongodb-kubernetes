@@ -2,16 +2,16 @@ import pytest
 
 from kubernetes import client
 from kubetester.kubetester import KubernetesTester, skip_if_local
-from kubetester.crypto import generate_csr, request_certificate, get_pem_certificate
+from kubetester.crypto import generate_csr, request_certificate, get_pem_certificate, wait_for_certs_to_be_issued
 from kubetester.mongotester import ReplicaSetTester
 
 from typing import Dict
 
-mdb_resource = "test-tls-base-rs-require-ssl"
+MDB_RESOURCE = "test-tls-base-rs-require-ssl"
 
 
 def cert_names(namespace, members=3):
-    return ["{}-{}.{}".format(mdb_resource, i, namespace) for i in range(members)]
+    return ["{}-{}.{}".format(MDB_RESOURCE, i, namespace) for i in range(members)]
 
 
 @pytest.mark.e2e_replica_set_tls_require_custom_ca
@@ -21,8 +21,8 @@ class TestReplicaSetCreateCerts(KubernetesTester):
         usages = ["digital signature", "key encipherment", "server auth", "client auth"]
         cls.keys = {}
         for i in range(3):
-            pod_name = f"{mdb_resource}-{i}"
-            csr, key = generate_csr(cls.get_namespace(), pod_name, f"{mdb_resource}-svc")
+            pod_name = f"{MDB_RESOURCE}-{i}"
+            csr, key = generate_csr(cls.get_namespace(), pod_name, f"{MDB_RESOURCE}-svc")
             cls.keys[pod_name] = key
             request_certificate(csr, "{}.{}".format(pod_name, cls.get_namespace()), usages)
 
@@ -37,11 +37,11 @@ class TestReplicaSetCreateCerts(KubernetesTester):
     def test_create_secrets(self):
         server_certs: Dict[str, [bytes]] = dict()
         for i in range(3):
-            pod_name = f"{mdb_resource}-{i}"
+            pod_name = f"{MDB_RESOURCE}-{i}"
             cert = get_pem_certificate("{}.{}".format(pod_name, self.get_namespace()))
             server_certs[f"{pod_name}-pem"] = (cert + self.keys[pod_name]).decode("utf-8")
 
-        KubernetesTester.create_secret(self.get_namespace(), f"{mdb_resource}-cert", server_certs)
+        KubernetesTester.create_secret(self.get_namespace(), f"{MDB_RESOURCE}-cert", server_certs)
 
     def test_remove_csr(self):
         body = client.V1DeleteOptions()
@@ -75,12 +75,12 @@ class TestReplicaSetWithTLSRunning(KubernetesTester):
 
     @skip_if_local()
     def test_mdb_is_not_reachable_with_no_ssl(self):
-        mongo_tester = ReplicaSetTester(mdb_resource, 3)
+        mongo_tester = ReplicaSetTester(MDB_RESOURCE, 3)
         mongo_tester.assert_no_connection()
 
     @skip_if_local()
     def test_mdb_is_reachable_with_ssl(self):
-        mongo_tester = ReplicaSetTester(mdb_resource, 3, ssl=True)
+        mongo_tester = ReplicaSetTester(MDB_RESOURCE, 3, ssl=True)
         mongo_tester.assert_connectivity()
 
 
@@ -91,8 +91,8 @@ class TestReplicaSetAddCerts(KubernetesTester):
         usages = ["digital signature", "key encipherment", "server auth", "client auth"]
         cls.keys = {}
         for i in range(3, 5):
-            pod_name = f"{mdb_resource}-{i}"
-            csr, key = generate_csr(cls.get_namespace(), pod_name, f"{mdb_resource}-svc")
+            pod_name = f"{MDB_RESOURCE}-{i}"
+            csr, key = generate_csr(cls.get_namespace(), pod_name, f"{MDB_RESOURCE}-svc")
             cls.keys[pod_name] = key
             request_certificate(csr, "{}.{}".format(pod_name, cls.get_namespace()), usages)
 
@@ -101,14 +101,16 @@ class TestReplicaSetAddCerts(KubernetesTester):
         for cert in self.yield_existing_csrs(certificates):
             self.approve_certificate(cert)
 
+        wait_for_certs_to_be_issued(certificates)
+
     def test_update_secrets(self):
         server_certs: Dict[str, [bytes]] = dict()
         for i in range(3, 5):
-            pod_name = f"{mdb_resource}-{i}"
+            pod_name = f"{MDB_RESOURCE}-{i}"
             cert = get_pem_certificate("{}.{}".format(pod_name, self.get_namespace()))
             server_certs[f"{pod_name}-pem"] = (cert + self.keys[pod_name]).decode("utf-8")
 
-        KubernetesTester.update_secret(self.get_namespace(), f"{mdb_resource}-cert", server_certs)
+        KubernetesTester.update_secret(self.get_namespace(), f"{MDB_RESOURCE}-cert", server_certs)
 
 
 @pytest.mark.e2e_replica_set_tls_require_custom_ca
@@ -126,12 +128,12 @@ class TestReplicaSetWithTLSScaling1(KubernetesTester):
 
     @skip_if_local()
     def test_mdb_is_reachable_with_no_ssl(self):
-        mongo_tester = ReplicaSetTester(mdb_resource, 5)
+        mongo_tester = ReplicaSetTester(MDB_RESOURCE, 5)
         mongo_tester.assert_no_connection()
 
     @skip_if_local()
     def test_mdb_is_reachable_with_ssl(self):
-        mongo_tester = ReplicaSetTester(mdb_resource, 5, ssl=True)
+        mongo_tester = ReplicaSetTester(MDB_RESOURCE, 5, ssl=True)
         mongo_tester.assert_connectivity()
 
 
@@ -148,4 +150,4 @@ class TestReplicaSetWithTLSRemove(KubernetesTester):
 
     def test_deletion(self):
         self.delete_configmap(self.get_namespace(), "customer-ca")
-        self.delete_secret(self.get_namespace(), f"{mdb_resource}-cert")
+        self.delete_secret(self.get_namespace(), f"{MDB_RESOURCE}-cert")

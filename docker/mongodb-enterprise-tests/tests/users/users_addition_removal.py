@@ -1,14 +1,13 @@
 import pytest
 
 from kubetester.kubetester import KubernetesTester
-from kubetester.mongotester import ReplicaSetTester
 
-mdb_resource = "test-tls-upgrade"
+MDB_RESOURCE = "test-x509-rs"
 NUM_AGENTS = 2
 
 
 def get_cert_names(namespace, members=3, with_agent_certs=False):
-    cert_names = [f"{mdb_resource}-{i}.{namespace}" for i in range(members)]
+    cert_names = [f"{MDB_RESOURCE}-{i}.{namespace}" for i in range(members)]
     if with_agent_certs:
         cert_names += [
             f'mms-monitoring-agent.{namespace}',
@@ -26,40 +25,18 @@ def get_subjects(start, end):
 
 
 @pytest.mark.e2e_tls_x509_users_addition_removal
-class TestReplicaSetWithNoTLSCreation(KubernetesTester):
-    """
-    create:
-      file: test-tls-base-rs-require-ssl-upgrade.yaml
-      wait_until: in_running_state
-      timeout: 120
-    """
-    def test_mdb_is_reachable_with_no_ssl(self):
-        ReplicaSetTester(mdb_resource, 3).assert_connectivity()
-
-
-@pytest.mark.e2e_tls_x509_users_addition_removal
 class TestReplicaSetUpgradeToTLSWithX509Project(KubernetesTester):
     """
-    update:
-      file: test-tls-base-rs-require-ssl-upgrade.yaml
-      patch: '[{"op":"add","path":"/spec/security","value":{"tls": { "enabled": true }, "authentication": {"enabled": true, "modes": ["X509"]}}}]'
+    create:
+      file: test-x509-rs.yaml
       wait_for_message: Not all certificates have been approved by Kubernetes CA
       timeout: 240
     """
 
     def test_mdb_resource_status_is_correct(self):
-        assert True
-
-
-@pytest.mark.e2e_tls_x509_users_addition_removal
-class TestReplicaSetWithTLSRunning(KubernetesTester):
-    def setup(self):
         for cert in self.yield_existing_csrs(get_cert_names(self.namespace, with_agent_certs=True)):
             self.approve_certificate(cert)
         KubernetesTester.wait_until('in_running_state')
-
-    def test_noop(self):
-        pass
 
 
 @pytest.mark.e2e_tls_x509_users_addition_removal

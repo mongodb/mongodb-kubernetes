@@ -1,0 +1,17 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: my-replica-set-scram-sha-1
+spec:
+  members: 3
+  version: 3.6.0 # versions < 4.0 will use SCRAM-SHA-1
+  type: ReplicaSet
+  project: my-project
+  credentials: my-credentials
+  logLevel: DEBUG
+  persistent: false
+  security:
+    authentication:
+      enabled: true
+      modes: ["SCRAM"]

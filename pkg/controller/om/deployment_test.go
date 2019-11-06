@@ -362,6 +362,30 @@ func TestProcessBelongsToShardedCluster(t *testing.T) {
 	assert.False(t, d.ProcessBelongsToResource("shards-2-3", "sh001"))
 }
 
+func TestDeploymentMinimumMajorVersion(t *testing.T) {
+	d0 := NewDeployment()
+	rs0Processes := createReplicaSetProcessesCount(3, "my-rs")
+	rs0 := buildRsByProcesses("my-rs", rs0Processes)
+	d0.MergeReplicaSet(rs0, zap.S())
+
+	assert.Equal(t, uint64(3), d0.MinimumMajorVersion())
+
+	d1 := NewDeployment()
+	rs1Processes := createReplicaSetProcessesCount(3, "my-rs")
+	rs1Processes[0]["featureCompatibilityVersion"] = "2.4"
+	rs1 := buildRsByProcesses("my-rs", rs1Processes)
+	d1.MergeReplicaSet(rs1, zap.S())
+
+	assert.Equal(t, uint64(2), d1.MinimumMajorVersion())
+
+	d2 := NewDeployment()
+	rs2Processes := createReplicaSetProcessesCountEnt(3, "my-rs")
+	rs2 := buildRsByProcesses("my-rs", rs2Processes)
+	d2.MergeReplicaSet(rs2, zap.S())
+
+	assert.Equal(t, uint64(3), d2.MinimumMajorVersion())
+}
+
 // ************************   Methods for checking deployment units
 
 func checkShardedCluster(t *testing.T, d Deployment, expectedCluster ShardedCluster, replicaSetWithProcesses []ReplicaSetWithProcesses) {
@@ -558,6 +582,16 @@ func createReplicaSetProcessesCount(count int, rsName string) []Process {
 
 	for i := 0; i < count; i++ {
 		rsMembers[i] = NewMongodProcess(fmt.Sprintf("%s-%d", rsName, i), fmt.Sprintf("%s-%d.some.host", rsName, i), DefaultMongoDBVersioned("3.6.3"))
+		// Note that we don't specify the replicaset config for process
+	}
+	return rsMembers
+}
+
+func createReplicaSetProcessesCountEnt(count int, rsName string) []Process {
+	rsMembers := make([]Process, count)
+
+	for i := 0; i < count; i++ {
+		rsMembers[i] = NewMongodProcess(fmt.Sprintf("%s-%d", rsName, i), fmt.Sprintf("%s-%d.some.host", rsName, i), DefaultMongoDBVersioned("3.6.3-ent"))
 		// Note that we don't specify the replicaset config for process
 	}
 	return rsMembers

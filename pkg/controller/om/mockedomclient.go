@@ -148,7 +148,6 @@ func (oc *MockedOmConnection) UpdateDeployment(d Deployment) ([]byte, error) {
 	oc.addToHistory(reflect.ValueOf(oc.UpdateDeployment))
 	oc.numRequestsSent++
 	oc.deployment = d
-
 	return nil, nil
 }
 
@@ -203,7 +202,16 @@ func (oc *MockedOmConnection) ReadUpdateAutomationConfig(acFunc func(ac *Automat
 		}
 		oc.automationConfig = NewAutomationConfig(oc.deployment)
 	}
-	return acFunc(oc.automationConfig)
+
+	// when we update the mocked automation config, update the corresponding deployment
+	err := acFunc(oc.automationConfig)
+
+	// mock the change of auto auth mechanism that is done based on the provided autoAuthMechanisms
+	updateAutoAuthMechanism(oc.automationConfig)
+
+	_ = oc.automationConfig.Apply()
+	oc.deployment = oc.automationConfig.Deployment
+	return err
 }
 
 func (oc *MockedOmConnection) ReadBackupAgentConfig() (*BackupAgentConfig, error) {
@@ -423,8 +431,13 @@ func (oc *MockedOmConnection) CheckNumberOfUpdateRequests(t *testing.T, expected
 	assert.Equal(t, expected, oc.numRequestsSent)
 }
 
-func (oc *MockedOmConnection) CheckDeployment(t *testing.T, expected Deployment) {
-	assert.Equal(t, expected, oc.deployment)
+func (oc *MockedOmConnection) CheckDeployment(t *testing.T, expected Deployment, ignoreFields ...string) {
+	for key := range expected {
+		if !util.ContainsString(ignoreFields, key) {
+			assert.Equal(t, expected[key], oc.deployment[key])
+		}
+	}
+
 }
 
 func (oc *MockedOmConnection) CheckResourcesDeleted(t *testing.T) {
@@ -579,4 +592,17 @@ func (oc *MockedOmConnection) findOrganization(orgId string) (*Organization, err
 		}
 	}
 	return nil, NewAPIError(fmt.Errorf("Organization with id %s not found", orgId))
+}
+
+// updateAutoAuthMechanism simulates the changes made by Ops Manager and the agents in deciding which
+// mechanism will be specified as the "autoAuthMechanisms"
+func updateAutoAuthMechanism(ac *AutomationConfig) {
+	mechanisms := ac.Auth.AutoAuthMechanisms
+	if util.ContainsString(mechanisms, "SCRAM-SHA-256") {
+		ac.Auth.AutoAuthMechanism = "SCRAM-SHA-256"
+	} else if util.ContainsString(mechanisms, "MONGODB-CR") {
+		ac.Auth.AutoAuthMechanism = "MONGODB-CR"
+	} else if util.ContainsString(mechanisms, "MONGODB-X509") {
+		ac.Auth.AutoAuthMechanism = "MONGODB-X509"
+	}
 }

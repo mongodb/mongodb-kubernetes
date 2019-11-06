@@ -4,11 +4,11 @@ from kubetester.kubetester import KubernetesTester, skip_if_local, build_list_of
 from kubernetes import client
 from kubetester.mongotester import ReplicaSetTester
 
-mdb_resource = "test-tls-base-rs-require-ssl"
+MDB_RESOURCE = "test-tls-base-rs-require-ssl"
 
 
 def cert_names(namespace):
-    return ["{}-{}.{}".format(mdb_resource, i, namespace) for i in range(3)]
+    return ["{}-{}.{}".format(MDB_RESOURCE, i, namespace) for i in range(3)]
 
 
 @pytest.mark.e2e_replica_set_tls_require_and_disable
@@ -51,11 +51,11 @@ class TestReplicaSetWithTLSRunning(KubernetesTester):
 
     @skip_if_local()
     def test_mdb_is_not_reachable_with_no_ssl(self):
-        ReplicaSetTester(mdb_resource, 3).assert_no_connection()
+        ReplicaSetTester(MDB_RESOURCE, 3).assert_no_connection()
 
     @skip_if_local()
     def test_mdb_is_reachable_with_ssl(self):
-        ReplicaSetTester(mdb_resource, 3, ssl=True).assert_connectivity()
+        ReplicaSetTester(MDB_RESOURCE, 3, ssl=True).assert_connectivity()
 
 
 @pytest.mark.e2e_replica_set_tls_require_and_disable
@@ -71,11 +71,11 @@ class TestReplicaSetWithTLSPrefer(KubernetesTester):
 
     @skip_if_local()
     def test_mdb_is_reachable_with_no_ssl(self):
-        ReplicaSetTester(mdb_resource, 3).assert_connectivity()
+        ReplicaSetTester(MDB_RESOURCE, 3).assert_connectivity()
 
     @skip_if_local()
     def test_mdb_is_reachable_with_ssl(self):
-        ReplicaSetTester(mdb_resource, 3, ssl=True).assert_connectivity()
+        ReplicaSetTester(MDB_RESOURCE, 3, ssl=True).assert_connectivity()
 
 
 @pytest.mark.e2e_replica_set_tls_require_and_disable
@@ -91,11 +91,11 @@ class TestReplicaSetWithTLSAllow(KubernetesTester):
 
     @skip_if_local()
     def test_mdb_is_reachable_with_no_ssl(self):
-        ReplicaSetTester(mdb_resource, 3).assert_connectivity()
+        ReplicaSetTester(MDB_RESOURCE, 3).assert_connectivity()
 
     @skip_if_local()
     def test_mdb_is_reachable_with_ssl(self):
-        ReplicaSetTester(mdb_resource, 3, ssl=True).assert_connectivity()
+        ReplicaSetTester(MDB_RESOURCE, 3, ssl=True).assert_connectivity()
 
 
 @pytest.mark.e2e_replica_set_tls_require_and_disable
@@ -111,11 +111,11 @@ class TestReplicaSetWithTLSDisabling(KubernetesTester):
 
     @skip_if_local()
     def test_mdb_is_reachable_with_no_ssl(self):
-        ReplicaSetTester(mdb_resource, 3).assert_connectivity()
+        ReplicaSetTester(MDB_RESOURCE, 3).assert_connectivity()
 
     @skip_if_local()
     def test_mdb_is_not_reachable_with_ssl(self):
-        ReplicaSetTester(mdb_resource, 3, ssl=True).assert_no_connection()
+        ReplicaSetTester(MDB_RESOURCE, 3, ssl=True).assert_no_connection()
 
 
 @pytest.mark.e2e_replica_set_tls_require_and_disable

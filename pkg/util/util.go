@@ -2,6 +2,7 @@ package util
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"sort"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"fmt"
 	"os"
 
+	"crypto/md5"
 	crypto "crypto/rand"
 
 	"github.com/blang/semver"
@@ -57,6 +59,10 @@ func BooleanRef(b bool) *bool {
 
 func StringRef(s string) *string {
 	return &s
+}
+
+func StripEnt(version string) string {
+	return strings.Trim(version, "-ent")
 }
 
 // DoAndRetry performs the task 'f' until it returns true or 'count' retrials are executed. Sleeps for 'interval' seconds
@@ -269,6 +275,18 @@ func UpperCaseFirstChar(msg string) string {
 // final key must be between 6 and at most 1024 characters
 func GenerateKeyFileContents() (string, error) {
 	return generateRandomString(500)
+}
+
+func GenerateRandomFixedLengthStringOfSize(n int) (string, error) {
+	b, err := generateRandomBytes(n)
+	return base64.URLEncoding.EncodeToString(b)[:n], err
+}
+
+// MD5Hex computes the MDB checksum of the given string as per https://golang.org/pkg/crypto/md5/
+func MD5Hex(s string) string {
+	h := md5.New()
+	h.Write([]byte(s))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func generateRandomBytes(size int) ([]byte, error) {

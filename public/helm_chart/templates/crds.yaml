@@ -67,6 +67,7 @@ spec:
                 type: object
                 properties:
                   authentication:
+                    type: object
                     properties:
                       enabled:
                         type: boolean
@@ -74,7 +75,9 @@ spec:
                         type: array
                         items:
                           type: string
-                          enum: ["X509"]
+                          enum: ["SCRAM", "X509"]
+                      ignoreUnknownUsers:
+                        type: boolean
                   tls:
                     type: object
                     properties:
@@ -138,6 +141,7 @@ spec:
                 type: object
                 properties:
                   authentication:
+                    type: object
                     properties:
                       enabled:
                         type: boolean
@@ -145,10 +149,12 @@ spec:
                         type: array
                         items:
                           type: string
-                          enum: ["X509"]
+                          enum: ["SCRAM", "X509"]
                       internalCluster:
                         type: string
                         enum: ["X509"]
+                      ignoreUnknownUsers:
+                        type: boolean
                   tls:
                     type: object
                     properties:
@@ -229,6 +235,7 @@ spec:
                 type: object
                 properties:
                   authentication:
+                    type: object
                     properties:
                       enabled:
                         type: boolean
@@ -236,10 +243,12 @@ spec:
                         type: array
                         items:
                           type: string
-                          enum: ["X509"]
+                          enum: ["SCRAM", "X509"]
                       internalCluster:
                         type: string
                         enum: ["X509"]
+                      ignoreUnknownUsers:
+                        type: boolean
                   tls:
                     type: object
                     properties:
@@ -310,9 +319,16 @@ spec:
               db:
                 type: string
                 description: "The database the user is stored in"
-                enum: ["$external"]
               project:
                 type: string
+                description: "The project the user belongs to"
+              passwordSecretKeyRef:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  key:
+                    type: string
                 description: "DEPRECATED The project the user belongs to"
               mongodbResourceRef:
                 properties:
@@ -330,6 +346,12 @@ spec:
                     db:
                       type: string
                       description: "The db the role can act on"
+                    passwordSecretKeyRef:
+                      properties:
+                        name:
+                          type: string
+                        key:
+                          type: string
                   required:
                     - name
                     - db

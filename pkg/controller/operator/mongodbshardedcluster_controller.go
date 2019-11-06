@@ -75,7 +75,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 	}
 
 	authSpec := sc.Spec.Security.Authentication
-	if authSpec.Enabled && util.ContainsString(authSpec.Modes, util.X509) && !sc.Spec.GetTLSConfig().Enabled {
+	if authSpec.Enabled && authSpec.IsX509Enabled() && !sc.Spec.GetTLSConfig().Enabled {
 		return nil, failedValidation("cannot have a non-tls deployment when x509 authentication is enabled")
 	}
 
@@ -85,11 +85,15 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return nil, failed("failed to perform scale down preliminary actions: %s", err)
 	}
 
+	if status := validateMongoDBResource(sc, conn); !status.isOk() {
+		return nil, status
+	}
+
 	if status := r.ensureSSLCertificates(sc, kubeState, log); !status.isOk() {
 		return nil, status
 	}
 
-	if status := r.ensureX509(sc, kubeState, log); !status.isOk() {
+	if status := r.ensureX509InKubernetes(sc, kubeState, log); !status.isOk() {
 		return nil, status
 	}
 
@@ -122,9 +126,9 @@ func anyStatefulSetHelperNeedsToPublishState(kubeState ShardedClusterKubeState, 
 	return false
 }
 
-func (r *ReconcileMongoDbShardedCluster) ensureX509(sc *mdbv1.MongoDB, kubeState ShardedClusterKubeState, log *zap.SugaredLogger) reconcileStatus {
+func (r *ReconcileMongoDbShardedCluster) ensureX509InKubernetes(sc *mdbv1.MongoDB, kubeState ShardedClusterKubeState, log *zap.SugaredLogger) reconcileStatus {
 	authEnabled := sc.Spec.Security.Authentication.Enabled
-	usingX509 := util.ContainsString(sc.Spec.Security.Authentication.Modes, util.X509)
+	usingX509 := sc.Spec.Security.Authentication.GetAgentMechanism() == util.X509
 	if authEnabled && usingX509 {
 		authModes := sc.Spec.Security.Authentication.Modes
 		useCustomCA := sc.Spec.GetTLSConfig().CA != ""
@@ -480,37 +484,22 @@ func publishDeployment(conn om.Connection, sc *mdbv1.MongoDB, state ShardedClust
 		state.mongosSetHelper.BuildStatefulSet(),
 		om.ProcessTypeMongos,
 		sc,
-		log,
 	)
 
-	configRs := buildReplicaSetFromStatefulSet(state.configSrvSetHelper.BuildStatefulSet(), sc, log)
+	configRs := buildReplicaSetFromStatefulSet(state.configSrvSetHelper.BuildStatefulSet(), sc)
 
 	shards := make([]om.ReplicaSetWithProcesses, len(state.shardsSetsHelpers))
 	for i, s := range state.shardsSetsHelpers {
-		shards[i] = buildReplicaSetFromStatefulSet(s.BuildStatefulSet(), sc, log)
+		shards[i] = buildReplicaSetFromStatefulSet(s.BuildStatefulSet(), sc)
 	}
 
-	ac, err := conn.ReadAutomationConfig()
-	if err != nil {
-		return failedErr(err), false
-	}
-
-	x509Config := getX509ConfigurationState(ac, sc.Spec.Security.Authentication.Modes)
-	if x509Config.shouldLog() {
-		log.Info("X509 configuration status %+v", x509Config)
-	}
-
-	if x509Config.x509EnablingHasBeenRequested && x509Config.x509CanBeEnabledInOpsManager {
-		if err := enableX509Authentication(conn, log); err != nil {
-			return failedErr(err), false
-		}
-		if err := om.WaitForReadyState(conn, *processNames, log); err != nil {
-			return failedErr(err), false
-		}
+	status, additionalReconciliationRequired := updateOmAuthentication(conn, *processNames, sc, log)
+	if !status.isOk() {
+		return status, false
 	}
 
 	shardsRemoving := false
-	err = conn.ReadUpdateDeployment(
+	err := conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			// it is not possible to disable internal cluster authentication once enabled
 			allProcesses := getAllProcesses(shards, configRs, mongosProcesses)
@@ -527,6 +516,7 @@ func publishDeployment(conn om.Connection, sc *mdbv1.MongoDB, state ShardedClust
 			}
 			d.AddMonitoringAndBackup(mongosProcesses[0].HostName(), log)
 			d.ConfigureTLS(sc.Spec.GetTLSConfig())
+			d.ConfigureInternalClusterAuthentication(*processNames, sc.Spec.Security.Authentication.InternalCluster)
 
 			processes := d.GetProcessNames(om.ShardedCluster{}, sc.Name)
 			*processNames = processes
@@ -539,17 +529,12 @@ func publishDeployment(conn om.Connection, sc *mdbv1.MongoDB, state ShardedClust
 		return failedErr(err), shardsRemoving
 	}
 
-	if x509Config.x509EnablingHasBeenRequested && !x509Config.x509CanBeEnabledInOpsManager {
-		if err := om.WaitForReadyState(conn, *processNames, log); err != nil {
-			return failedErr(err), false
-		}
-		return pending("Performing multi stage reconciliation"), shardsRemoving
+	if err := om.WaitForReadyState(conn, *processNames, log); err != nil {
+		return failedErr(err), shardsRemoving
 	}
 
-	if x509Config.shouldDisableX509 {
-		if err := disableX509Authentication(conn, log); err != nil {
-			return failedErr(err), shardsRemoving
-		}
+	if additionalReconciliationRequired {
+		return pending("Performing multi stage reconciliation"), shardsRemoving
 	}
 
 	return ok(), shardsRemoving

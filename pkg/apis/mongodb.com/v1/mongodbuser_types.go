@@ -1,9 +1,14 @@
 package v1
 
 import (
+	"context"
+	"fmt"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	kubev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func init() {
@@ -19,15 +24,50 @@ type MongoDBUser struct {
 	Spec              MongoDBUserSpec   `json:"spec"`
 }
 
+// GetPassword returns the password of the user as stored in the referenced
+// secret. If the password secret reference is unset then a blank password and
+// a nil error will be returned.
+func (user MongoDBUser) GetPassword(kubeClient client.Client) (string, error) {
+	if user.Spec.PasswordSecretKeyRef.Name == "" {
+		return "", nil
+	}
+
+	nsName := client.ObjectKey{
+		Namespace: user.Namespace,
+		Name:      user.Spec.PasswordSecretKeyRef.Name,
+	}
+
+	secret := &kubev1.Secret{}
+	if err := kubeClient.Get(context.TODO(), nsName, secret); err != nil {
+		return "", fmt.Errorf("could not retrieve user password secret: %s", err)
+	}
+
+	passwordBytes, passwordIsSet := secret.Data[user.Spec.PasswordSecretKeyRef.Key]
+	if !passwordIsSet {
+		return "", fmt.Errorf("password is not set in password secret")
+	}
+
+	return string(passwordBytes), nil
+}
+
+// SecretKeyRef is a reference to a value in a given secret in the same
+// namespace. Based on:
+// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.15/#secretkeyselector-v1-core
+type SecretKeyRef struct {
+	Name string `json:"name"`
+	Key  string `json:"key"`
+}
+
 type MongoDBResourceRef struct {
 	Name string `json:"name"`
 }
 
 type MongoDBUserSpec struct {
-	Roles              []Role             `json:"roles,omitempty"`
-	Username           string             `json:"username"`
-	Database           string             `json:"db"`
-	MongoDBResourceRef MongoDBResourceRef `json:"mongodbResourceRef"`
+	Roles                []Role             `json:"roles,omitempty"`
+	Username             string             `json:"username"`
+	Database             string             `json:"db"`
+	MongoDBResourceRef   MongoDBResourceRef `json:"mongodbResourceRef"`
+	PasswordSecretKeyRef SecretKeyRef       `json:"passwordSecretKeyRef"`
 
 	// Deprecated: This has been replaced by the MongoDBResourceRef which should
 	// be used instead

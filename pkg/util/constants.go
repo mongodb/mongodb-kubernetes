@@ -12,9 +12,6 @@ const (
 	// MongoDbShardedClusterController name of the ShardedCluster controller
 	MongoDbShardedClusterController = "mongodbshardedcluster-controller"
 
-	// MongoDbProjectController name of Project controller
-	MongoDbProjectController = "project-controller"
-
 	// MongoDbUserController name of the MongoDBUser controller
 	MongoDbUserController = "mongodbuser-controller"
 
@@ -110,6 +107,7 @@ const (
 	InternalClusterAuthMountPath      = "/mongodb-automation/cluster-auth/"
 	DefaultUserDatabase               = "admin"
 	X509                              = "X509"
+	SCRAM                             = "SCRAM"
 
 	// uses a lowercase 'x' and will take precedence over the value specified in
 	// the MongoDB resource

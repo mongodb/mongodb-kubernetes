@@ -4,11 +4,11 @@ from kubetester.kubetester import KubernetesTester, skip_if_local, build_list_of
 from kubernetes import client
 from kubetester.mongotester import ReplicaSetTester
 
-mdb_resource = "test-tls-upgrade"
+MDB_RESOURCE = "test-tls-upgrade"
 
 
 def host_names():
-    return ["{}-{}".format(mdb_resource, i) for i in range(3)]
+    return ["{}-{}".format(MDB_RESOURCE, i) for i in range(3)]
 
 
 @pytest.mark.e2e_replica_set_tls_require_upgrade
@@ -26,7 +26,7 @@ class TestReplicaSetWithTLSUpgradeCreation(KubernetesTester):
 
     def test_mdb_resource_status_is_correct(self):
         mdb = self.customv1.get_namespaced_custom_object(
-            "mongodb.com", "v1", self.namespace, "mongodb", mdb_resource
+            "mongodb.com", "v1", self.namespace, "mongodb", MDB_RESOURCE
         )
         assert mdb["status"]["phase"] == "Running"
         assert mdb["status"]["type"] == "ReplicaSet"
@@ -41,7 +41,7 @@ class TestReplicaSetWithTLSUpgradeCreation(KubernetesTester):
 
     @skip_if_local()
     def test_mdb_is_reachable_with_no_ssl(self):
-        mongo_tester = ReplicaSetTester(mdb_resource, 3)
+        mongo_tester = ReplicaSetTester(MDB_RESOURCE, 3)
         mongo_tester.assert_connectivity()
 
 
@@ -64,7 +64,7 @@ class TestReplicaSetWithTLSUpgradeSetRequireSSLMode(KubernetesTester):
 
     @skip_if_local()
     def test_mdb_is_reachable_with_no_ssl(self):
-        ReplicaSetTester(mdb_resource, 3).assert_connectivity()
+        ReplicaSetTester(MDB_RESOURCE, 3).assert_connectivity()
 
 
 @pytest.mark.e2e_replica_set_tls_require_upgrade
@@ -94,11 +94,11 @@ class TestReplicaSetWithTLSUpgradeRunning(KubernetesTester):
 
     @skip_if_local()
     def test_mdb_is_reachable_with_no_ssl(self):
-        ReplicaSetTester(mdb_resource, 3).assert_no_connection()
+        ReplicaSetTester(MDB_RESOURCE, 3).assert_no_connection()
 
     @skip_if_local()
     def test_mdb_is_reachable_with_ssl(self):
-        ReplicaSetTester(mdb_resource, 3, ssl=True).assert_connectivity()
+        ReplicaSetTester(MDB_RESOURCE, 3, ssl=True).assert_connectivity()
 
 
 @pytest.mark.e2e_replica_set_tls_require_upgrade

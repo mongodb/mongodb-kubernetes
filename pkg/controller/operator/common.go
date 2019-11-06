@@ -61,18 +61,15 @@ func DeploymentLink(url, groupId string) string {
 	return fmt.Sprintf("%s/v2/%s", url, groupId)
 }
 
-func buildReplicaSetFromStatefulSet(set *appsv1.StatefulSet, mdb *mdbv1.MongoDB, log *zap.SugaredLogger) om.ReplicaSetWithProcesses {
-	members := createProcesses(set, om.ProcessTypeMongod, mdb, log)
+func buildReplicaSetFromStatefulSet(set *appsv1.StatefulSet, mdb *mdbv1.MongoDB) om.ReplicaSetWithProcesses {
+	members := createProcesses(set, om.ProcessTypeMongod, mdb)
 	replicaSet := om.NewReplicaSet(set.Name, mdb.Spec.Version)
 	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members)
 	rsWithProcesses.SetHorizons(mdb.Spec.Connectivity.ReplicaSetHorizons)
-	rsWithProcesses.ConfigureAuthenticationMode(mdb.Spec.Security.Authentication.InternalCluster)
 	return rsWithProcesses
 }
 
-func createProcesses(set *appsv1.StatefulSet, mongoType om.MongoType,
-	mdb *mdbv1.MongoDB, log *zap.SugaredLogger) []om.Process {
-
+func createProcesses(set *appsv1.StatefulSet, mongoType om.MongoType, mdb *mdbv1.MongoDB) []om.Process {
 	hostnames, names := GetDnsForStatefulSet(set, mdb.Spec.ClusterName)
 	processes := make([]om.Process, len(hostnames))
 	wiredTigerCache := calculateWiredTigerCache(set, mdb.Spec.Version)
@@ -366,27 +363,4 @@ func runInGivenOrder(shouldRunInOrder bool, funcs ...func() reconcileStatus) rec
 		}
 	}
 	return ok()
-}
-
-type x509ConfigurationState struct {
-	x509EnablingHasBeenRequested bool // if the desired state has x509 enabled
-	shouldDisableX509            bool // if x509 should be disabled in this reconciliation
-	x509CanBeEnabledInOpsManager bool // if Ops Manager is in a state in which it is possible to enable X509
-}
-
-func (x x509ConfigurationState) shouldLog() bool {
-	return x.x509EnablingHasBeenRequested || x.shouldDisableX509
-}
-
-// getX509ConfigurationState returns information about what stages need to be performed when enabling x509 authentication
-func getX509ConfigurationState(ac *om.AutomationConfig, authModes []string) x509ConfigurationState {
-	// we only need to make the corresponding requests to configure x509 if we're enabling/disabling it
-	// otherwise we don't need to make any changes.
-	x509EnablingHasBeenRequested := !util.ContainsString(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) && util.ContainsString(authModes, util.X509)
-	shouldDisableX509 := util.ContainsString(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) && !util.ContainsString(authModes, util.X509)
-	return x509ConfigurationState{
-		x509EnablingHasBeenRequested: x509EnablingHasBeenRequested,
-		shouldDisableX509:            shouldDisableX509,
-		x509CanBeEnabledInOpsManager: ac.Deployment.AllProcessesAreTLSEnabled() || ac.Deployment.NumberOfProcesses() == 0,
-	}
 }

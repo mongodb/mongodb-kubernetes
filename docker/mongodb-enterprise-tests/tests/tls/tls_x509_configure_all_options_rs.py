@@ -1,19 +1,9 @@
 import pytest
 
 from kubetester.kubetester import KubernetesTester
-from kubetester.omtester import get_agent_cert_names, get_rs_cert_names
+from kubetester.omtester import get_rs_cert_names
 
-mdb_resource = "test-x509-all-options-rs"
-
-
-@pytest.mark.e2e_tls_x509_configure_all_options_rs
-class TestsReplicaSetWithNoTLSWithX509Project(KubernetesTester):
-    @classmethod
-    def setup_env(cls):
-        cls.patch_config_map(cls.get_namespace(), "my-project", {"authenticationMode": "x509", "credentials": "my-credentials"})
-
-    def test_noop(self):
-        pass
+MDB_RESOURCE = "test-x509-all-options-rs"
 
 
 @pytest.mark.e2e_tls_x509_configure_all_options_rs
@@ -26,7 +16,8 @@ class TestReplicaSetEnableAllOptions(KubernetesTester):
     """
 
     def test_approve_certs(self):
-        for cert in self.yield_existing_csrs(get_rs_cert_names(mdb_resource, self.namespace, with_internal_auth_certs=True, with_agent_certs=True)):
+        for cert in self.yield_existing_csrs(
+                get_rs_cert_names(MDB_RESOURCE, self.namespace, with_internal_auth_certs=True, with_agent_certs=True)):
             self.approve_certificate(cert)
 
         KubernetesTester.wait_until(KubernetesTester.in_running_state)

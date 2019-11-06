@@ -1,7 +1,7 @@
 package om
 
 import (
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 )
 
 // ReplicaSetWithProcesses is a wrapper for replica set and processes that match to it
@@ -26,13 +26,6 @@ func NewReplicaSetWithProcesses(
 	return ReplicaSetWithProcesses{rs, processes}
 }
 
-func (r ReplicaSetWithProcesses) ConfigureAuthenticationMode(clusterAuthMode string) ReplicaSetWithProcesses {
-	for _, process := range r.Processes {
-		process.ConfigureClusterAuthMode(clusterAuthMode)
-	}
-	return r
-}
-
 func (r ReplicaSetWithProcesses) GetProcessNames() []string {
 	processNames := make([]string, len(r.Processes))
 	for i, p := range r.Processes {
@@ -41,7 +34,7 @@ func (r ReplicaSetWithProcesses) GetProcessNames() []string {
 	return processNames
 }
 
-func (r ReplicaSetWithProcesses) SetHorizons(replicaSetHorizons []mongodb.MongoDBHorizonConfig) {
+func (r ReplicaSetWithProcesses) SetHorizons(replicaSetHorizons []mdbv1.MongoDBHorizonConfig) {
 	if len(replicaSetHorizons) >= len(r.Rs.members()) {
 		for i, m := range r.Rs.members() {
 			m.setHorizonConfig(replicaSetHorizons[i])

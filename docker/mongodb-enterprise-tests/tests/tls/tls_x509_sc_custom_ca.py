@@ -6,25 +6,19 @@ from kubetester.omtester import get_agent_cert_names, get_sc_cert_names
 
 from typing import Dict, List
 
-mdb_resource = "test-tls-base-sc-require-ssl"
+MDB_RESOURCE = "test-x509-sc-custom-ca"
 
 
 def host_groups() -> Dict[str, List[str]]:
     "Returns the list of generated certs we use with this deployment"
-    shard0 = ["{}-0-{}".format(mdb_resource, i) for i in range(3)]
-    config = ["{}-config-{}".format(mdb_resource, i) for i in range(3)]
-    mongos = ["{}-mongos-{}".format(mdb_resource, i) for i in range(2)]
+    shard0 = ["{}-0-{}".format(MDB_RESOURCE, i) for i in range(3)]
+    config = ["{}-config-{}".format(MDB_RESOURCE, i) for i in range(3)]
+    mongos = ["{}-mongos-{}".format(MDB_RESOURCE, i) for i in range(2)]
     return {
-        f"{mdb_resource}-0": shard0,
-        f"{mdb_resource}-config": config,
-        f"{mdb_resource}-mongos": mongos
+        f"{MDB_RESOURCE}-0": shard0,
+        f"{MDB_RESOURCE}-config": config,
+        f"{MDB_RESOURCE}-mongos": mongos
     }
-
-
-@pytest.mark.e2e_tls_x509_sc_custom_ca
-class TestShardedClusterWithTLSWithX509Project(KubernetesTester):
-    def test_enable_x509(self):
-        self.patch_config_map(self.get_namespace(), "my-project", {"authenticationMode": "x509", "credentials": "my-credentials"})
 
 
 @pytest.mark.e2e_tls_x509_sc_custom_ca
@@ -35,12 +29,12 @@ class TestClusterWithTLSCreation(KubernetesTester):
       Creates a MongoDB object with the ssl attribute on. The MongoDB object will go to Failed
       state because of missing certificates.
     create:
-      file: test-tls-base-sc-require-ssl-x509-custom-ca.yaml
+      file: test-x509-sc-custom-ca.yaml
       wait_for_message: Not all certificates have been approved by Kubernetes CA
     """
 
     def test_approve_certificates(self):
-        for cert in self.yield_existing_csrs(get_sc_cert_names(mdb_resource, self.get_namespace(), with_internal_auth_certs=True, with_agent_certs=True)):
+        for cert in self.yield_existing_csrs(get_sc_cert_names(MDB_RESOURCE, self.get_namespace(), with_internal_auth_certs=True, with_agent_certs=True)):
             self.approve_certificate(cert)
 
         KubernetesTester.wait_until('in_running_state')
@@ -58,7 +52,7 @@ class TestShardedClusterIsRemoved(KubernetesTester):
       There will be no more CSR in the cluster after this, the certificates that will
       be used are the ones already stored in the Secrets.
     delete:
-      file: test-tls-base-sc-require-ssl-x509-custom-ca.yaml
+      file: test-x509-sc-custom-ca.yaml
       wait_until: mongo_resource_deleted_no_om
     """
 
@@ -91,7 +85,7 @@ class TestClusterWithX509WithExistingCerts(KubernetesTester):
       we are setting the security.tls.ca parameter to point to a "custom" CA, even if it is the
       ones that the operator created.
     create:
-      file: test-tls-base-sc-require-ssl-x509-custom-ca.yaml
+      file: test-x509-sc-custom-ca.yaml
       wait_until: in_running_state
     """
 

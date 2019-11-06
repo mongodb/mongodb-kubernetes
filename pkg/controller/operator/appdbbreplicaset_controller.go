@@ -178,6 +178,7 @@ func addLatestMongodbVersions(config *om.AutomationConfig, log *zap.SugaredLogge
 	if err != nil {
 		return err
 	}
+
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return err

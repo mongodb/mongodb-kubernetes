@@ -64,7 +64,7 @@ func TestReconcileCreateShardedCluster(t *testing.T) {
 	assert.Equal(t, *client.getSet(objectKey(sc.Namespace, sc.ShardRsName(1))).Spec.Replicas, int32(sc.Spec.MongodsPerShardCount))
 
 	connection := om.CurrMockedConnection
-	connection.CheckDeployment(t, createDeploymentFromShardedCluster(sc))
+	connection.CheckDeployment(t, createDeploymentFromShardedCluster(sc), "auth", "ssl")
 	connection.CheckNumberOfUpdateRequests(t, 1)
 	// we don't remove hosts from monitoring if there is no scale down
 	connection.CheckOperationsDidntHappen(t, reflect.ValueOf(connection.GetHosts), reflect.ValueOf(connection.RemoveHost))
@@ -95,7 +95,7 @@ func TestReconcileCreateShardedCluster_ScaleDown(t *testing.T) {
 
 	// todo ideally we need to check the "transitive" deployment that was created on first step, but let's check the
 	// final version at least
-	connection.CheckDeployment(t, createDeploymentFromShardedCluster(sc))
+	connection.CheckDeployment(t, createDeploymentFromShardedCluster(sc), "auth", "ssl")
 
 	// One shard has gone
 	assert.Len(t, client.sets, 4)
@@ -338,12 +338,11 @@ func createDeploymentFromShardedCluster(updatable Updatable) om.Deployment {
 		state.mongosSetHelper.BuildStatefulSet(),
 		om.ProcessTypeMongos,
 		sh,
-		zap.S(),
 	)
-	configRs := buildReplicaSetFromStatefulSet(state.configSrvSetHelper.BuildStatefulSet(), sh, zap.S())
+	configRs := buildReplicaSetFromStatefulSet(state.configSrvSetHelper.BuildStatefulSet(), sh)
 	shards := make([]om.ReplicaSetWithProcesses, len(state.shardsSetsHelpers))
 	for i, s := range state.shardsSetsHelpers {
-		shards[i] = buildReplicaSetFromStatefulSet(s.BuildStatefulSet(), sh, zap.S())
+		shards[i] = buildReplicaSetFromStatefulSet(s.BuildStatefulSet(), sh)
 	}
 
 	d := om.NewDeployment()
@@ -464,7 +463,7 @@ func (b *ClusterBuilder) WithTLS() *ClusterBuilder {
 
 func (b *ClusterBuilder) EnableX509() *ClusterBuilder {
 	b.Spec.Security.Authentication.Enabled = true
-	b.Spec.Security.Authentication.Modes = []string{util.X509}
+	b.Spec.Security.Authentication.Modes = append(b.Spec.Security.Authentication.Modes, util.X509)
 	return b
 }
 

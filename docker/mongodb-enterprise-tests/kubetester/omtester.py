@@ -1,6 +1,7 @@
 import pytest
 import requests
 from kubetester.kubetester import build_auth
+from typing import List, Dict, Set, Tuple
 
 from .kubetester import get_env_var_or_fail
 
@@ -77,12 +78,13 @@ class OMTester(object):
 # TODO can we move below methods to some other place?
 
 
-def get_agent_cert_names(namespace):
+def get_agent_cert_names(namespace: str) -> List[str]:
     agent_names = ['mms-automation-agent', 'mms-backup-agent', 'mms-monitoring-agent']
     return ['{}.{}'.format(agent_name, namespace) for agent_name in agent_names]
 
 
-def get_rs_cert_names(mdb_resource, namespace, *, members=3, with_internal_auth_certs=False, with_agent_certs=False):
+def get_rs_cert_names(mdb_resource: str, namespace: str, *, members: int = 3, with_internal_auth_certs: bool = False,
+                      with_agent_certs: bool = False) -> List[str]:
     cert_names = [f"{mdb_resource}-{i}.{namespace}" for i in range(members)]
 
     if with_internal_auth_certs:
@@ -94,17 +96,23 @@ def get_rs_cert_names(mdb_resource, namespace, *, members=3, with_internal_auth_
     return cert_names
 
 
+def get_st_cert_names(mdb_resource: str, namespace: str, *, with_internal_auth_certs: bool = False,
+                      with_agent_certs: bool = False) -> List[str]:
+    return get_rs_cert_names(mdb_resource, namespace, members=1, with_internal_auth_certs=with_internal_auth_certs,
+                             with_agent_certs=with_agent_certs)
+
+
 def get_sc_cert_names(
-        mdb_resource,
-        namespace,
+        mdb_resource: str,
+        namespace: str,
         *,
-        num_shards=1,
-        members=3,
-        config_members=3,
-        num_mongos=2,
-        with_internal_auth_certs=False,
-        with_agent_certs=False
-):
+        num_shards: int = 1,
+        members: int = 3,
+        config_members: int = 3,
+        num_mongos: int = 2,
+        with_internal_auth_certs: bool = False,
+        with_agent_certs: bool = False
+) -> List[str]:
     names = []
 
     for shard_num in range(num_shards):

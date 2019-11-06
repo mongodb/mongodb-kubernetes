@@ -299,7 +299,7 @@ func mountVolumes(set *appsv1.StatefulSet, helper StatefulSetHelper) {
 	}
 
 	if helper.Security != nil {
-		if util.ContainsString(helper.Security.Authentication.Modes, util.X509) {
+		if helper.Security.Authentication.GetAgentMechanism() == util.X509 {
 			mountVolume(volumeMountData{
 				volumeMountName:  util.AgentSecretName,
 				volumeMountPath:  AgentCertMountPath,

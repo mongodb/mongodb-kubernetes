@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -86,6 +89,56 @@ func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ShardedCluster(t *testi
 	configureX509(client, certsv1.CertificateApproved)
 
 	checkReconcileSuccessful(t, reconciler, scWithTls, client)
+}
+
+func TestUpdateOmAuthentication_NoAuthenticationEnabled(t *testing.T) {
+	conn := om.NewMockedOmConnection(om.NewDeployment())
+	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).Build()
+	processNames := []string{"my-rs-0", "my-rs-1", "my-rs-2"}
+
+	updateOmAuthentication(conn, processNames, rs, zap.S())
+
+	ac, _ := conn.ReadAutomationConfig()
+
+	assert.True(t, ac.Auth.Disabled, "authentication was not specified to enabled, so it should remain disabled in Ops Manager")
+	assert.Len(t, ac.Auth.Users, 0)
+}
+
+func TestUpdateOmAuthentication_EnableX509_TlsNotEnabled(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).Build()
+	// deployment with existing non-tls non-x509 replica set
+	conn := om.NewMockedOmConnection(createDeploymentFromReplicaSet(rs))
+
+	// configure X509 authentication & tls
+	rs.Spec.Security.Authentication.Modes = []string{"X509"}
+	rs.Spec.Security.Authentication.Enabled = true
+	rs.Spec.Security.TLSConfig.Enabled = true
+
+	status, isMultiStageReconciliation := updateOmAuthentication(conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, zap.S())
+
+	assert.True(t, status.isOk(), "configuring both options at once should not result in a failed status")
+	assert.True(t, isMultiStageReconciliation, "configuring both tls and x509 at once should result in a multi stage reconciliation")
+}
+
+func TestUpdateOmAuthentication_EnableX509_WithTlsAlreadyEnabled(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().Build()
+	conn := om.NewMockedOmConnection(createDeploymentFromReplicaSet(rs))
+
+	status, isMultiStageReconciliation := updateOmAuthentication(conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, zap.S())
+
+	assert.True(t, status.isOk(), "configuring x509 when tls has already been enabled should not result in a failed status")
+	assert.False(t, isMultiStageReconciliation, "if tls is already enabled, we should be able to configure x509 is a single reconciliation")
+}
+
+func TestUpdateOmAuthentication_EnableX509_FromEmptyDeployment(t *testing.T) {
+	conn := om.NewMockedOmConnection(om.NewDeployment())
+
+	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().EnableAuth().SetAuthModes([]string{"X509"}).Build()
+
+	status, isMultiStageReconciliation := updateOmAuthentication(conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, zap.S())
+
+	assert.True(t, status.isOk(), "configuring x509 and tls when there are no processes should not result in a failed status")
+	assert.False(t, isMultiStageReconciliation, "if we are enabling tls and x509 at once, this should be done in a single reconciliation")
 }
 
 /*

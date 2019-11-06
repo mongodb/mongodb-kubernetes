@@ -7,8 +7,9 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 import base64
+import time
 
-from typing import List
+from typing import List, Optional
 
 
 def generate_csr(namespace: str, host: str, servicename: str):
@@ -54,6 +55,24 @@ def request_certificate(csr: [bytes], name: str, usages: List[str]) -> client.V1
     return client.CertificatesV1beta1Api().create_certificate_signing_request(request)
 
 
-def get_pem_certificate(name: str) -> str:
+def get_pem_certificate(name: str) -> Optional[str]:
     body = client.CertificatesV1beta1Api().read_certificate_signing_request_status(name)
+    if body.status.certificate is None:
+        return None
     return base64.b64decode(body.status.certificate)
+
+
+def wait_for_certs_to_be_issued(certificates: List[str]) -> None:
+    un_issued_certs = set(certificates)
+    while un_issued_certs:
+        issued_certs = set()
+        to_wait = False
+        for cert in un_issued_certs:
+            if get_pem_certificate(cert):
+                issued_certs.add(cert)
+            else:
+                print(f"waiting for certificate {cert} to be issued")
+                to_wait = True
+        un_issued_certs -= issued_certs
+        if to_wait:
+            time.sleep(1)

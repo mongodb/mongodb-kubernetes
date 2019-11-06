@@ -144,6 +144,7 @@ func (e *successStatus) isOk() bool {
 	return true
 }
 
+//nolint:U1000
 func (e *successStatus) onErrorPrepend(msg string) reconcileStatus {
 	return e
 }

@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -53,7 +55,7 @@ func TestCreateReplicaSet(t *testing.T) {
 	assert.Len(t, client.secrets, 2)
 
 	connection := om.CurrMockedConnection
-	connection.CheckDeployment(t, createDeploymentFromReplicaSet(rs))
+	connection.CheckDeployment(t, createDeploymentFromReplicaSet(rs), "auth", "ssl")
 	connection.CheckNumberOfUpdateRequests(t, 1)
 }
 
@@ -120,7 +122,7 @@ func TestScaleUpReplicaSet(t *testing.T) {
 	assert.Equal(t, set.Spec, updatedSet.Spec)
 
 	connection := om.CurrMockedConnection
-	connection.CheckDeployment(t, createDeploymentFromReplicaSet(rs))
+	connection.CheckDeployment(t, createDeploymentFromReplicaSet(rs), "auth", "ssl")
 	connection.CheckNumberOfUpdateRequests(t, 2)
 }
 
@@ -176,6 +178,26 @@ func TestCreateDeleteReplicaSet(t *testing.T) {
 
 }
 
+func TestReplicaSetScramUpgradeDowngrade(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().SetVersion("4.0.0").EnableAuth().SetAuthModes([]string{"SCRAM"}).Build()
+
+	kubeManager := newMockedManager(rs)
+	reconciler := newReplicaSetReconciler(kubeManager, om.NewEmptyMockedOmConnection)
+
+	checkReconcileSuccessful(t, reconciler, rs, kubeManager.client)
+
+	ac, _ := om.CurrMockedConnection.ReadAutomationConfig()
+	assert.Contains(t, ac.Auth.AutoAuthMechanisms, string(authentication.ScramSha256))
+
+	// downgrade to version that will not use SCRAM-SHA-256
+	rs.Spec.Version = "3.6.9"
+
+	client := kubeManager.client
+	_ = client.Update(context.TODO(), rs)
+
+	checkReconcileFailed(t, reconciler, rs, true, "Unable to downgrade to SCRAM-SHA-1 when SCRAM-SHA-256 has been enabled", kubeManager.client)
+}
+
 func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
 	podSpec := NewDefaultPodSpec()
 	spec := mdbv1.MongoDbSpec{
@@ -191,13 +213,13 @@ func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
 		},
 		ResourceType: mdbv1.ReplicaSet,
 		Members:      3,
+		PodSpec:      &podSpec,
 		Security: &mdbv1.Security{
 			TLSConfig: &mdbv1.TLSConfig{},
 			Authentication: &mdbv1.Authentication{
 				Modes: []string{},
 			},
 		},
-		PodSpec: &podSpec,
 	}
 	rs := &mdbv1.MongoDB{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "temple", Namespace: TestNamespace}}
 	return &ReplicaSetBuilder{rs}
@@ -229,6 +251,16 @@ func (b *ReplicaSetBuilder) SetSecurity(security mdbv1.Security) *ReplicaSetBuil
 	return b
 }
 
+func (b *ReplicaSetBuilder) EnableAuth() *ReplicaSetBuilder {
+	b.Spec.Security.Authentication.Enabled = true
+	return b
+}
+
+func (b *ReplicaSetBuilder) SetAuthModes(modes []string) *ReplicaSetBuilder {
+	b.Spec.Security.Authentication.Modes = modes
+	return b
+}
+
 func (b *ReplicaSetBuilder) SetReplicaSetHorizons(replicaSetHorizons []mdbv1.MongoDBHorizonConfig) *ReplicaSetBuilder {
 	if b.Spec.Connectivity == nil {
 		b.Spec.Connectivity = &mdbv1.MongoDBConnectivity{}
@@ -247,7 +279,7 @@ func (b *ReplicaSetBuilder) EnableTLS() *ReplicaSetBuilder {
 
 func (b *ReplicaSetBuilder) EnableX509() *ReplicaSetBuilder {
 	b.Spec.Security.Authentication.Enabled = true
-	b.Spec.Security.Authentication.Modes = []string{util.X509}
+	b.Spec.Security.Authentication.Modes = append(b.Spec.Security.Authentication.Modes, util.X509)
 	return b
 }
 
@@ -262,11 +294,11 @@ func createDeploymentFromReplicaSet(rs *mdbv1.MongoDB) om.Deployment {
 	d := om.NewDeployment()
 	hostnames, _ := GetDnsForStatefulSet(helper.BuildStatefulSet(), rs.Spec.ClusterName)
 	d.MergeReplicaSet(
-		buildReplicaSetFromStatefulSet(helper.BuildStatefulSet(), rs, zap.S()),
+		buildReplicaSetFromStatefulSet(helper.BuildStatefulSet(), rs),
 		nil,
 	)
 	d.AddMonitoringAndBackup(hostnames[0], zap.S())
-
+	d.ConfigureTLS(rs.Spec.GetTLSConfig())
 	return d
 }
 

@@ -16,6 +16,9 @@ spec:
 
   persistent: false
   security:
-    clusterAuthenticationMode: x509
     tls:
       enabled: true
+    authentication:
+      internalCluster: X509
+      enabled: true
+      modes: ["X509"]

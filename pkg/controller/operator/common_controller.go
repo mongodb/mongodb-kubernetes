@@ -7,6 +7,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blang/semver"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
+
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
@@ -516,10 +520,6 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHe
 func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(authModes []string, useCustomCA bool, namespace string, log *zap.SugaredLogger) (bool, error) {
 	k := r.kubeHelper
 
-	if !util.ContainsString(authModes, util.X509) {
-		return true, nil
-	}
-
 	certsNeedApproval := false
 	if missing := k.verifyClientCertificatesForAgents(util.AgentSecretName, namespace); missing > 0 {
 		if useCustomCA {
@@ -573,56 +573,96 @@ func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(authM
 	return successful, nil
 }
 
-// disableX509Authentication disables x509 authentication from a given project. The order
-// of monitoring/backup and automation config needs to be the opposite to enableX509Authentication
-// in order to prevent sending an invalid config
-func disableX509Authentication(conn om.Connection, log *zap.SugaredLogger) error {
-	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-		return ac.DisableX509Authentication()
-	}, log)
+// validateMongoDBResource performs validation on the MongoDBResource
+func validateMongoDBResource(mdb *mdbv1.MongoDB, conn om.Connection) reconcileStatus {
+	ac, err := conn.ReadAutomationConfig()
 	if err != nil {
-		return err
-	}
-	err = conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
-		config.DisableX509Authentication()
-		return nil
-	}, log)
-
-	if err != nil {
-		return err
+		return failedErr(err)
 	}
 
-	return conn.ReadUpdateBackupAgentConfig(func(config *om.BackupAgentConfig) error {
-		config.DisableX509Authentication()
-		return nil
-	}, log)
+	if status := validateScram(mdb, ac); !status.isOk() {
+		return status
+	}
+
+	return ok()
 }
 
-// enableX509Authentication configures the given deployment to enable x509 authentication at the
-// project level. The monitoring and backup changes need to happen before the changes to the automation
-// config otherwise an invalid config will be sent.
-func enableX509Authentication(conn om.Connection, log *zap.SugaredLogger) error {
-	err := conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
-		config.EnableX509Authentication()
-		return nil
-	}, log)
-
+// validateScram ensures that the SCRAM configuration is valid for the MongoDBResource
+func validateScram(mdb *mdbv1.MongoDB, ac *om.AutomationConfig) reconcileStatus {
+	specVersion, err := semver.Make(util.StripEnt(mdb.Spec.Version))
 	if err != nil {
-		return err
+		return failedErr(err)
 	}
 
-	err = conn.ReadUpdateBackupAgentConfig(func(config *om.BackupAgentConfig) error {
-		config.EnableX509Authentication()
-		return nil
-	}, log)
+	scram256IsAlreadyEnabled := util.ContainsString(ac.Auth.DeploymentAuthMechanisms, string(authentication.ScramSha256))
+	attemptingToDowngradeMongoDBVersion := ac.Deployment.MinimumMajorVersion() >= 4 && specVersion.Major < 4
+	isDowngradingFromScramSha256ToScramSha1 := attemptingToDowngradeMongoDBVersion && util.ContainsString(mdb.Spec.Security.Authentication.Modes, "SCRAM") && scram256IsAlreadyEnabled
 
-	if err != nil {
-		return err
+	if isDowngradingFromScramSha256ToScramSha1 {
+		return failed("Unable to downgrade to SCRAM-SHA-1 when SCRAM-SHA-256 has been enabled")
 	}
 
-	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-		return ac.EnableX509Authentication()
-	}, log)
+	return ok()
+}
+
+// updateOmAuthentication examines the state of Ops Manager and the desired state of the MongoDB resource and
+// enables/disables authentication. If the authentication can't be fully configured, a boolean value indicating that
+// an additional reconciliation needs to be queued up to fully make the authentication changes is returned.
+func updateOmAuthentication(conn om.Connection, processNames []string, mdb *mdbv1.MongoDB, log *zap.SugaredLogger) (status reconcileStatus, multiStageReconciliation bool) {
+
+	// we need to wait for all agents to be ready before configuring any authentication settings
+	if err := om.WaitForReadyState(conn, processNames, log); err != nil {
+		return failedErr(err), false
+	}
+
+	ac, err := conn.ReadAutomationConfig()
+	if err != nil {
+		return failedErr(err), false
+	}
+
+	authOpts := authentication.Options{
+		MinimumMajorVersion: mdb.Spec.MinimumMajorVersion(),
+		Mechanisms:          mdb.Spec.Security.Authentication.Modes,
+		ProcessNames:        processNames,
+		AuthoritativeSet:    !mdb.Spec.Security.Authentication.IgnoreUnknownUsers,
+	}
+
+	log.Debug("using authentication options %+v", authOpts)
+
+	wantToEnableAuthentication := mdb.Spec.Security.Authentication.Enabled
+	if wantToEnableAuthentication && canConfigureAuthentication(ac, mdb) {
+		log.Info("configuring authentication for MongoDB resource")
+		if err := authentication.Configure(conn, authOpts, log); err != nil {
+			return failedErr(err), false
+		}
+	} else if wantToEnableAuthentication {
+		// The MongoDB resource has been configured with a type of authentication
+		// but the current state in Ops Manager does not allow a direct transition. This will require
+		// an additional reconciliation after a partial update to Ops Manager.
+		log.Debug("attempting to enable authentication, but Ops Manager state will not allow this")
+		return ok(), true
+	} else {
+		if err := authentication.Disable(conn, authOpts, log); err != nil {
+			return failedErr(err), false
+		}
+	}
+	return ok(), false
+}
+
+// canConfigureAuthentication determines if based on the existing state of Ops Manager
+// it is possible to configure the authentication mechanisms specified by the given MongoDB resource
+// during this reconciliation. This function may return a different value on the next reconciliation
+// if the state of Ops Manager has been changed.
+func canConfigureAuthentication(ac *om.AutomationConfig, mdb *mdbv1.MongoDB) bool {
+	attemptingToEnableX509 := !util.ContainsString(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) && util.ContainsString(mdb.Spec.Security.Authentication.Modes, util.X509)
+	canEnableX509InOpsManager := ac.Deployment.AllProcessesAreTLSEnabled() || ac.Deployment.NumberOfProcesses() == 0
+
+	if attemptingToEnableX509 {
+		return canEnableX509InOpsManager
+	}
+
+	// x509 is the only mechanism with restrictions determined based on Ops Manager state
+	return true
 }
 
 // FIXME: this should be called:

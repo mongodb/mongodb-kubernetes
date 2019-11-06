@@ -1,9 +1,7 @@
 package om
 
 import (
-	"crypto/md5"
 	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -630,6 +628,10 @@ func (oc *HTTPOmConnection) ReadUpdateBackupAgentConfig(backupFunc func(*BackupA
 	if log == nil {
 		log = zap.S()
 	}
+	mutex := GetMutex(oc.GroupName(), oc.OrgID())
+	mutex.Lock()
+	defer mutex.Unlock()
+
 	backup, err := oc.ReadBackupAgentConfig()
 	if err != nil {
 		return err
@@ -819,12 +821,6 @@ func digestParts(resp *http.Response) map[string]string {
 	return result
 }
 
-func getMD5(text string) string {
-	hasher := md5.New()
-	hasher.Write([]byte(text))
-	return hex.EncodeToString(hasher.Sum(nil))
-}
-
 func getCnonce() string {
 	b := make([]byte, 8)
 	io.ReadFull(rand.Reader, b)
@@ -833,11 +829,11 @@ func getCnonce() string {
 
 func getDigestAuthorization(digestParts map[string]string, method string, url string, user string, token string) string {
 	d := digestParts
-	ha1 := getMD5(user + ":" + d["realm"] + ":" + token)
-	ha2 := getMD5(method + ":" + url)
+	ha1 := util.MD5Hex(user + ":" + d["realm"] + ":" + token)
+	ha2 := util.MD5Hex(method + ":" + url)
 	nonceCount := 00000001
 	cnonce := getCnonce()
-	response := getMD5(fmt.Sprintf("%s:%s:%v:%s:%s:%s", ha1, d["nonce"], nonceCount, cnonce, d["qop"], ha2))
+	response := util.MD5Hex(fmt.Sprintf("%s:%s:%v:%s:%s:%s", ha1, d["nonce"], nonceCount, cnonce, d["qop"], ha2))
 	authorization := fmt.Sprintf(`Digest username="%s", realm="%s", nonce="%s", uri="%s", cnonce="%s", nc=%v, qop=%s, response="%s", algorithm="MD5"`,
 		user, d["realm"], d["nonce"], url, cnonce, nonceCount, d["qop"], response)
 	return authorization

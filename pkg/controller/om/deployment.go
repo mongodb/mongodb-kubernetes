@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
+	"strings"
 
+	"github.com/blang/semver"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
 
@@ -333,6 +336,44 @@ func (d Deployment) GetProcessNames(kind interface{}, name string) []string {
 	default:
 		panic(fmt.Errorf("unexpected kind: %v", kind))
 	}
+}
+
+// ConfigureInternalClusterAuthentication configures all processes in processNames to have the corresponding
+// clusterAuthenticationMode enabled
+func (d Deployment) ConfigureInternalClusterAuthentication(processNames []string, clusterAuthenticationMode string) {
+	clusterAuthenticationMode = strings.ToLower(clusterAuthenticationMode) // Ops Manager value is "x509"
+	for _, p := range processNames {
+		process := d.getProcessByName(p)
+		if process != nil {
+			process.ConfigureClusterAuthMode(clusterAuthenticationMode)
+		}
+	}
+}
+
+// MinimumMajorVersion returns the lowest major version in the entire deployment.
+// this includes feature compatibility version. This can be used to determine
+// which version of SCRAM-SHA the deployment can enable.
+func (d Deployment) MinimumMajorVersion() uint64 {
+	if len(d.getProcesses()) == 0 {
+		return 0
+	}
+	minimumMajorVersion := semver.Version{Major: math.MaxUint64}
+	for _, p := range d.getProcesses() {
+		if p.FeatureCompatibilityVersion() != "" {
+			fcv := fmt.Sprintf("%s.0", util.StripEnt(p.FeatureCompatibilityVersion()))
+			semverFcv, _ := semver.Make(fcv)
+			if semverFcv.LE(minimumMajorVersion) {
+				minimumMajorVersion = semverFcv
+			}
+		} else {
+			semverVersion, _ := semver.Make(util.StripEnt(p.Version()))
+			if semverVersion.LE(minimumMajorVersion) {
+				minimumMajorVersion = semverVersion
+			}
+		}
+	}
+
+	return minimumMajorVersion.Major
 }
 
 // allProcessesAreTLSEnabled ensures that every process in the given deployment is TLS enabled

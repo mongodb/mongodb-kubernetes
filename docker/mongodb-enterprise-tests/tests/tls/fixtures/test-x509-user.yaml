@@ -2,7 +2,7 @@
 apiVersion: mongodb.com/v1
 kind: MongoDBUser
 metadata:
-  name: test-tls-x509-user
+  name: test-x509-user
 spec:
   username: 'CN=x509-testing-user'
   db: '$external'

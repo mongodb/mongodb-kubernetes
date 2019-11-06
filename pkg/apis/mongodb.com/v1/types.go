@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/blang/semver"
+
 	"reflect"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -142,6 +144,18 @@ type MongoDbSpec struct {
 	AdditionalMongodConfig *AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
 }
 
+func (m MongoDbSpec) MinimumMajorVersion() uint64 {
+	if m.FeatureCompatibilityVersion != nil && *m.FeatureCompatibilityVersion != "" {
+		fcv := *m.FeatureCompatibilityVersion
+
+		// ignore errors here as the format of FCV/version is handled by CRD validation
+		semverFcv, _ := semver.Make(fmt.Sprintf("%s.0", fcv))
+		return semverFcv.Major
+	}
+	semverVersion, _ := semver.Make(util.StripEnt(m.Version))
+	return semverVersion.Major
+}
+
 // SSLProjectConfig contains the configuration options that are relevant for MMS SSL configuraiton
 type SSLProjectConfig struct {
 	// This is set to true if baseUrl is HTTPS
@@ -253,6 +267,26 @@ type Authentication struct {
 	Enabled         bool     `json:"enabled"`
 	Modes           []string `json:"modes"`
 	InternalCluster string   `json:"internalCluster,omitempty"`
+	// IgnoreUnknownUsers maps to the inverse of auth.authoritativeSet
+	IgnoreUnknownUsers bool `json:"ignoreUnknownUsers,omitempty"`
+}
+
+// IsX509Enabled determines if X509 is to be enabled at the project level
+// it does not necessarily mean that the agents are using X509 authentication
+func (a *Authentication) IsX509Enabled() bool {
+	return util.ContainsString(a.Modes, util.X509)
+}
+
+// GetAgentMechanism returns the authentication mechanism that the agents will be using.
+// The agents will use X509 if it is the only mechanism specified, otherwise they will use SCRAM if specified
+// and no auth if no mechanisms exist.
+func (a *Authentication) GetAgentMechanism() string {
+	if len(a.Modes) == 1 && a.Modes[0] == util.X509 {
+		return util.X509
+	} else if util.ContainsString(a.Modes, util.SCRAM) {
+		return util.SCRAM
+	}
+	return ""
 }
 
 type TLSConfig struct {
