@@ -67,7 +67,7 @@ func FindNextPageForAgents(current *AgentState) (int, error) {
 
 // CheckAgentExists will return true if any of the agents in the json document
 // has `hostname_prefix` as prefix.
-// This is needed to check if given agent has registered.
+// This is needed to check if the given agent has registered.
 func CheckAgentExists(hostnamePrefix string, agentState *AgentState, log *zap.SugaredLogger) bool {
 	for _, result := range agentState.Results {
 		lastPing, err := time.Parse(time.RFC3339, result.LastConf)

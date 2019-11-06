@@ -119,15 +119,15 @@ func waitForRsAgentsToRegister(set *appsv1.StatefulSet, clusterName string, omCo
 	log = log.With("statefulset", set.Name)
 
 	if !waitUntilAgentsHaveRegistered(omConnection, log, hostnames...) {
-		return errors.New("Some agents failed to register")
+		return errors.New("Some agents failed to register or the Operator is using the wrong host names for the pods. " +
+			"Make sure the 'spec.clusterName' is set if it's different from the default Kubernetes cluster " +
+			"name ('cluster.local') ")
 	}
 	return nil
 }
 
 // waitUntilAgentsHaveRegistered waits until all agents with 'agentHostnames' are registered in OM. Note, that wait
 // happens after retrial - this allows to skip waiting in case agents are already registered
-// TODO in practice "pods are ready" usually signals that the agents are registered already - we need to consider
-// removing this in future
 func waitUntilAgentsHaveRegistered(omConnection om.Connection, log *zap.SugaredLogger, agentHostnames ...string) bool {
 	log.Infow("Waiting for agents to register with OM", "agent hosts", agentHostnames)
 	// environment variables are used only for tests
@@ -151,6 +151,9 @@ func waitUntilAgentsHaveRegistered(omConnection om.Connection, log *zap.SugaredL
 
 			if registeredCount == len(agentHostnames) {
 				return "", true
+			} else {
+				// printing extensive debug information only in case the agents were not found
+				printDebuggingInformation(agentHostnames, agentResponse, log)
 			}
 
 			pageNum, err = om.FindNextPageForAgents(agentResponse)
@@ -169,6 +172,13 @@ func waitUntilAgentsHaveRegistered(omConnection om.Connection, log *zap.SugaredL
 	}
 
 	return util.DoAndRetry(agentsCheckFunc, log, retrials, waitSeconds)
+}
+
+// printDebuggingInformation prints some debugging information which may help to find out the inconsistencies
+// in names that agents report and the names that the Operator expects to see
+func printDebuggingInformation(agentHostNames []string, agentResponse *om.AgentState, log *zap.SugaredLogger) {
+	log.Debugf("The following agent host names were expected to be created in Ops Manager: %+v", agentHostNames)
+	log.Debugf("The following agents are already registered in Ops Manager: %+v", agentResponse.Results)
 }
 
 // prepareScaleDown performs additional steps necessary to make sure removed members are not primary (so no
