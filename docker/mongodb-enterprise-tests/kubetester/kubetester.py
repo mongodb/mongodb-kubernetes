@@ -1216,19 +1216,21 @@ def fixture(filename):
     return found
 
 
-def build_list_of_hosts(mdb_resource, namespace, members, servicename=None):
+def build_list_of_hosts(mdb_resource, namespace, members, servicename=None, clustername: str = "cluster.local",
+                        port=27017):
     if servicename is None:
         servicename = "{}-svc".format(mdb_resource)
 
     return [
-        build_host_fqdn(hostname(mdb_resource, idx), namespace, servicename)
+        build_host_fqdn(hostname(mdb_resource, idx), namespace, servicename, clustername, port)
         for idx in range(members)
     ]
 
 
-def build_host_fqdn(hostname: str, namespace: str, servicename: str, clustername: str = "cluster.local") -> str:
-    return "{hostname}.{servicename}.{namespace}.{clustername}:27017".format(
-        hostname=hostname, servicename=servicename, namespace=namespace, clustername=clustername
+def build_host_fqdn(hostname: str, namespace: str, servicename: str, clustername: str = "cluster.local",
+                    port=27017) -> str:
+    return "{hostname}.{servicename}.{namespace}.svc.{clustername}:{port}".format(
+        hostname=hostname, servicename=servicename, namespace=namespace, clustername=clustername, port=port
     )
 
 
@@ -1238,6 +1240,7 @@ def build_svc_fqdn(service: str, namespace: str, clustername: str = "cluster.loc
 
 def hostname(hostname, idx):
     return "{}-{}".format(hostname, idx)
+
 
 def get_pods(podname_format, qty=3):
     return [podname_format.format(i) for i in range(qty)]

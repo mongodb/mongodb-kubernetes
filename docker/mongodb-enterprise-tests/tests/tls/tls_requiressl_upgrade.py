@@ -1,7 +1,6 @@
 import pytest
-
-from kubetester.kubetester import KubernetesTester, skip_if_local, build_list_of_hosts
 from kubernetes import client
+from kubetester.kubetester import KubernetesTester, skip_if_local
 from kubetester.mongotester import ReplicaSetTester
 
 MDB_RESOURCE = "test-tls-upgrade"

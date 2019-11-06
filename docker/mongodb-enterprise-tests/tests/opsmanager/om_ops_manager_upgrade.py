@@ -15,6 +15,8 @@ admin_key_resource_version = None
 
 # Current test should contain all kinds of upgrades to Ops Manager as a sequence of tests
 
+# TODO add the check for real OM version after upgrade (using the data in HTTP headers from the API calls)
+
 @pytest.mark.e2e_om_ops_manager_upgrade
 class TestOpsManagerCreation(OpsManagerBase):
     """
@@ -116,6 +118,8 @@ class TestOpsManagerVersionUpgrade(OpsManagerBase):
     @skip_if_local
     def test_om(self):
         OMTester(self.om_context).assert_healthiness()
+        # TODO ideally we need to check the OM version as well but currently public API calls don't return the version
+        # properly: "X-MongoDB-Service-Version: gitHash=ca9b4ac974b67f3f4c26563f94832037b0555829; versionString=current"
 
 
 @pytest.mark.e2e_om_ops_manager_upgrade

@@ -30,7 +30,9 @@ RUN curl --fail -L -o ops_manager.tar.gz "${OM_DOWNLOAD_LINK}" \
 # permissions
 RUN chmod -R 0775 "${MMS_LOG_DIR}" \
     && chmod -R 0775 "${MMS_HOME}/conf" \
-    && chmod -R 0775 "${MMS_HOME}/tmp"
+    && chmod -R 0775 "${MMS_HOME}/tmp" \
+    && mkdir "${MMS_HOME}/mongodb-releases/" \
+    && chmod -R 0775 "${MMS_HOME}/mongodb-releases"
 
 RUN mkdir -p /opt/scripts
 COPY scripts /opt/scripts/

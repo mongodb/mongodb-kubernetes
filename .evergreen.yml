@@ -1161,6 +1161,12 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_om_ops_manager_scale
+  tags: ["kops-ops-manager"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: "e2e_test"
+
 task_groups:
 - name: unit_task_group
   setup_group:
@@ -1305,6 +1311,7 @@ task_groups:
     - e2e_om_appdb_upgrade
     - e2e_om_ops_manager_upgrade
     - e2e_om_appdb_validation
+    - e2e_om_ops_manager_scale
   teardown_task:
     - func: "upload_e2e_logs"
 

@@ -3,6 +3,7 @@ kind: MongoDBOpsManager
 metadata:
   name: om-validate
 spec:
+  replicas: 1
   version: 4.2.0-ubuntu
   adminCredentials: ops-manager-admin
 
@@ -10,4 +11,3 @@ spec:
     members: 3
     version: 3.6.12
     persistent: true
-    type: ReplicaSet

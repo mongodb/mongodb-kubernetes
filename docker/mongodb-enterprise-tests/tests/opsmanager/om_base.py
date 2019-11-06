@@ -32,14 +32,10 @@ class OpsManagerBase(KubernetesTester):
     @staticmethod
     def init_om_context(om_cr: OpsManagerCR):
         """ Creates OM context by Ops Manager Custom Resource. Must be called only after the CR is pushed
-        and the first used is created in OM (so the API secret exists) """
+        and the first user is created in OM (so the API secret exists) """
 
-        # This is the magic id of the "backing database" group in Ops Manager - the one which is used to manage the
-        # appdb - it's created during OM initialization
-        # TODO remove as not relevant any more
-        group_id = "0" * 24
         api_key_secret = KubernetesTester.read_secret(KubernetesTester.get_namespace(), om_cr.api_key_secret())
-        OpsManagerBase.om_context = OMContext(om_cr.base_url(), group_id, "Backing Database",
+        OpsManagerBase.om_context = OMContext(om_cr.base_url(), "", "",
                                               api_key_secret['user'], api_key_secret['publicApiKey'])
         OpsManagerBase.om_cr = om_cr
 

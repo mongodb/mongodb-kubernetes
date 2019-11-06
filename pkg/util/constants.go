@@ -163,6 +163,7 @@ const (
 	// Ops Manager configuration properties
 	MmsCentralUrlPropKey = "mms.centralUrl"
 	MmsMongoUri          = "mongo.mongoUri"
+	MmsVersionsDirectory = "automation.versions.directory"
 
 	// Env variables used for testing mostly to decrease waiting time
 	PodWaitSecondsEnv     = "POD_WAIT_SEC"

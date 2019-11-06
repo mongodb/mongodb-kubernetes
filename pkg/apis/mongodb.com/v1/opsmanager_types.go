@@ -38,6 +38,7 @@ type MongoDBOpsManagerSpec struct {
 	Configuration map[string]string `json:"configuration,omitempty"`
 	Version       string            `json:"version"`
 	ClusterName   string            `json:"clusterName,omitempty"`
+	Replicas      int               `json:"replicas"`
 
 	// AdminSecret is the secret for the first admin user to create
 	// has the fields: "Username", "Password", "FirstName", "LastName"
@@ -65,9 +66,11 @@ type MongoDBOpsManagerStatus struct {
 
 type OpsManagerStatus struct {
 	Version        string `json:"version"`
+	Replicas       int    `json:"replicas,omitempty"`
 	Phase          Phase  `json:"phase"`
 	Message        string `json:"message,omitempty"`
 	LastTransition string `json:"lastTransition,omitempty"`
+	Url            string `json:"url,omitempty"`
 }
 
 // Everything the same as for MongoDbStatus
@@ -82,6 +85,13 @@ func (m *MongoDBOpsManager) UnmarshalJSON(data []byte) error {
 	}
 	// setting ops manager name for the appdb
 	m.Spec.AppDB.OpsManagerName = m.Name
+
+	// providing backward compatibility for the deployments which didn't specify the 'replicas' before Operator 1.3.1
+	// This doesn't update the object in Api server so the real spec won't change
+	// All newly created resources will pass through the normal validation so 'replicas' will never be 0
+	if m.Spec.Replicas == 0 {
+		m.Spec.Replicas = 1
+	}
 
 	if m.Spec.Backup == nil {
 		m.Spec.Backup = newBackup()
@@ -140,6 +150,11 @@ func (m *MongoDBOpsManager) UpdateSuccessful(object runtime.Object, args ...stri
 	reconciledResource := object.(*MongoDBOpsManager)
 	spec := reconciledResource.Spec
 
+	if len(args) > 0 {
+		m.Status.OpsManagerStatus.Url = args[0]
+	}
+
+	m.Status.OpsManagerStatus.Replicas = spec.Replicas
 	m.Status.OpsManagerStatus.Version = spec.Version
 	m.Status.OpsManagerStatus.Message = ""
 	m.Status.OpsManagerStatus.LastTransition = util.Now()
@@ -191,20 +206,12 @@ func (m *MongoDBOpsManager) UpdateReconcilingAppDb() {
 func (m *MongoDBOpsManager) UpdateSuccessfulAppDb(object runtime.Object, args ...string) {
 	spec := object.(*AppDB)
 
-	// assign all fields common to the different resource types
-	if len(args) >= DeploymentLinkIndex+1 {
-		m.Status.AppDbStatus.Link = args[DeploymentLinkIndex]
-	}
 	m.Status.AppDbStatus.Version = spec.Version
 	m.Status.AppDbStatus.Message = ""
 	m.Status.AppDbStatus.LastTransition = util.Now()
 	m.Status.AppDbStatus.Phase = PhaseRunning
 	m.Status.AppDbStatus.ResourceType = spec.ResourceType
-
-	switch spec.ResourceType {
-	case ReplicaSet:
-		m.Status.AppDbStatus.Members = spec.Members
-	}
+	m.Status.AppDbStatus.Members = spec.Members
 }
 
 // newBackup returns an empty backup object

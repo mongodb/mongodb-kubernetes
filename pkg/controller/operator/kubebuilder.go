@@ -17,6 +17,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 const (
@@ -548,6 +549,7 @@ func opsManagerPodSpec(envVars []corev1.EnvVar, version string) corev1.PodSpec {
 					// Setting limits only sets "requests" to the same value (but not vice versa)
 					Limits: corev1.ResourceList{corev1.ResourceMemory: defaultMemory},
 				},
+				ReadinessProbe: opsManagerReadinessProbe(),
 			},
 		},
 	}
@@ -590,25 +592,20 @@ func baseLivenessProbe() *corev1.Probe {
 	}
 }
 
-// opsManagerReadinessProbe creates the readiness probe
-// TODO: This is disabled currently because of one weird aspect: if the readiness probe reports false
-// while the container is starting - this results in container restart.
-// So to avoid false restarts we need to set 'InitialDelaySeconds' very high.
-// This however will affect the `kubehelper#waitForStatefulsetAndPods` as it will hang for too long
-// because we check for 'set.Status.ReadyReplicas'
-// so far we'll just manually check 8080 port from the Operator to check when the OM instance is ready
-//func opsManagerReadinessProbe() *corev1.Probe {
-//return &corev1.Probe{
-//Handler: corev1.Handler{
-//HTTPGet: &corev1.HTTPGetAction{Port: intstr.FromInt(8080), Path: "/"},
-//},
-//InitialDelaySeconds: 120,
-//TimeoutSeconds:      5,
-//PeriodSeconds:       10,
-//SuccessThreshold:    1,
-//FailureThreshold:    18, // So the probe will fail after ~3 minutes of Ops Manager being non-responsive
-//}
-//}
+// opsManagerReadinessProbe creates the readiness probe.
+// Note on 'PeriodSeconds': /monitor/health is a super lightweight method not doing any IO so we can make it more often.
+func opsManagerReadinessProbe() *corev1.Probe {
+	return &corev1.Probe{
+		Handler: corev1.Handler{
+			HTTPGet: &corev1.HTTPGetAction{Port: intstr.FromInt(8080), Path: "/monitor/health"},
+		},
+		InitialDelaySeconds: 60,
+		TimeoutSeconds:      5,
+		PeriodSeconds:       5,
+		SuccessThreshold:    1,
+		FailureThreshold:    12, // So the probe will fail after 1 minute of Ops Manager being non-responsive
+	}
+}
 
 func baseReadinessProbe() *corev1.Probe {
 	return &corev1.Probe{

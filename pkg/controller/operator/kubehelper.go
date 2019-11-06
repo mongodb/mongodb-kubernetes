@@ -82,7 +82,6 @@ type OpsManagerStatefulSetHelper struct {
 	StatefulSetHelperCommon
 
 	EnvVars []corev1.EnvVar
-	Version string
 
 	// Determines if this StatefulSet should run as a BackupDaemon
 	IsBackupDaemon bool
@@ -113,7 +112,9 @@ type ShardedClusterKubeState struct {
 // * ExposedExternally: false
 // * ServicePort: `MongoDbDefaultPort` (27017)
 //
-// Note, that it's the same for both MongodbResource Statefulset and AppDB Statefulset. The
+// Note, that it's the same for both MongodbResource Statefulset and AppDB Statefulset. So the object passed
+// can be either 'MongoDB' or 'MongoDBOpsManager' - in the latter case the configuration for AppDB is used.
+// We pass the 'MongoDBOpsManager' instead of 'AppDB' as the former is the owner of the object - no AppDB CR exists
 func (k *KubeHelper) NewStatefulSetHelper(obj Updatable) *StatefulSetHelper {
 	var mongodbSpec mdbv1.MongoDbSpec
 	switch v := obj.(type) {
@@ -143,17 +144,19 @@ func (k *KubeHelper) NewStatefulSetHelper(obj Updatable) *StatefulSetHelper {
 	}
 }
 
-func (k *KubeHelper) NewOpsManagerStatefulSetHelper(obj Updatable) *OpsManagerStatefulSetHelper {
+func (k *KubeHelper) NewOpsManagerStatefulSetHelper(opsManager *mdbv1.MongoDBOpsManager) *OpsManagerStatefulSetHelper {
 	return &OpsManagerStatefulSetHelper{
 		StatefulSetHelperCommon: StatefulSetHelperCommon{
-			Owner:       obj,
-			Name:        obj.GetName(),
-			Namespace:   obj.GetNamespace(),
-			Replicas:    1,
+			Owner:       opsManager,
+			Name:        opsManager.GetName(),
+			Namespace:   opsManager.GetNamespace(),
+			Replicas:    opsManager.Spec.Replicas,
 			Helper:      k,
 			ServicePort: util.OpsManagerDefaultPort,
+			Version:     opsManager.Spec.Version,
+			Service:     opsManager.SvcName(),
 		},
-		EnvVars: opsManagerConfigurationToEnvVars(obj.(*mdbv1.MongoDBOpsManager)),
+		EnvVars: opsManagerConfigurationToEnvVars(opsManager),
 	}
 }
 

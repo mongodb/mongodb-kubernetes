@@ -1,4 +1,4 @@
-from kubetester.kubetester import get_name, build_svc_fqdn
+from kubetester.kubetester import get_name, build_svc_fqdn, build_list_of_hosts
 
 
 class OpsManagerCR(object):
@@ -12,6 +12,10 @@ class OpsManagerCR(object):
         protocol = "http"
         svc_fqdn = build_svc_fqdn(self.svc_name(), self.namespace, self.get_cluster_name())
         return "{}://{}:{}".format(protocol, svc_fqdn, 8080)
+
+    def pod_urls(self):
+        return ['http://{}'.format(host) for host in
+                build_list_of_hosts(self.name(), self.namespace, self.get_replicas(), port=8080)]
 
     def name(self):
         return get_name(self.resource)
@@ -44,6 +48,9 @@ class OpsManagerCR(object):
     def get_admin_credentials(self):
         return self.get_spec()["adminCredentials"]
 
+    def get_replicas(self) -> int:
+        return self.get_spec()["replicas"]
+
     def get_status(self):
         if "status" not in self.resource:
             return None
@@ -53,6 +60,12 @@ class OpsManagerCR(object):
         if self.get_status() is None:
             return None
         return self.get_status()["opsManager"]
+
+    def get_om_status_replicas(self) -> int:
+        return self.get_om_status()["replicas"]
+
+    def get_om_status_url(self):
+        return self.get_om_status()["url"]
 
     def get_appdb_status(self):
         if self.get_status() is None:

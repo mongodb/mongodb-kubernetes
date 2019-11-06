@@ -374,6 +374,10 @@ spec:
     - om
     singular: opsmanager
   additionalPrinterColumns:
+    - name: Replicas
+      type: integer
+      description: The number of replicas of MongoDBOpsManager.
+      JSONPath: .spec.replicas
     - name: Version
       type: string
       description: The version of MongoDBOpsManager.
@@ -401,6 +405,9 @@ spec:
           properties:
             version:
               type: string
+            replicas:
+              minimum: 1
+              type: integer
             backup:
               type: object
               properties:
@@ -432,10 +439,10 @@ spec:
                   type: boolean
               required:
                 - version
-                - type
                 - members
           required:
             - version
             - applicationDatabase
+            - replicas
 
 {{end}}

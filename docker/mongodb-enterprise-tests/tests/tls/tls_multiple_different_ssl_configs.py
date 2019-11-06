@@ -1,6 +1,6 @@
 import pytest
 
-from kubetester.kubetester import KubernetesTester, skip_if_local, build_list_of_hosts
+from kubetester.kubetester import KubernetesTester, skip_if_local
 from kubetester.mongotester import ReplicaSetTester
 
 mdb_resources = {

@@ -77,10 +77,7 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 
 	r.ensureConfiguration(opsManager, log)
 
-	helper := r.kubeHelper.NewOpsManagerStatefulSetHelper(opsManager)
-	helper.SetService(opsManager.SvcName()).
-		SetLogger(log).
-		SetVersion(opsManager.Spec.Version)
+	helper := r.kubeHelper.NewOpsManagerStatefulSetHelper(opsManager).SetLogger(log)
 
 	if err := helper.CreateOrUpdateInKubernetes(); err != nil {
 		return r.updateStatusFailed(opsManager, fmt.Sprintf("Failed to create/update the StatefulSet: %s", err), log)
@@ -90,10 +87,6 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 		// Instead of polling the StatefulSet and Pods to see if they reach goal state, we
 		// simply finish this reconciliation and check during the next pass.
 		return r.updateStatusPending(opsManager, "Ops Manager is still waiting to start", log)
-	}
-
-	if err := r.waitForOpsManagerToBeReady(opsManager, log); err != nil {
-		return r.updateStatusPending(opsManager, err.Error(), log)
 	}
 
 	credentials := &Credentials{}
@@ -135,7 +128,7 @@ func (r *OpsManagerReconciler) ensureBackups(opsManager *mdbv1.MongoDBOpsManager
 		}
 	}
 
-	return r.updateStatusSuccessful(opsManager, log)
+	return r.updateStatusSuccessful(opsManager, log, centralURL(opsManager))
 }
 
 func AddOpsManagerController(mgr manager.Manager) error {
@@ -154,43 +147,15 @@ func AddOpsManagerController(mgr manager.Manager) error {
 	return nil
 }
 
-// waitForOpsManagerToBeReady waits until Ops Manager is ready.
-// Note, that the waiting time is deliberately made short to make the OpsManager resource more interactive
-// to changes/removal. Anyway OpsManager takes crazily long to start so we don't want to block waiting for
-// successful start. If unsuccessful - the resource gets into "Pending" state and "info" message is logged.
-// The downside is that we can sit in "Pending" forever even if something bad has happened - may be we need to add some
-// timer (since last successful start) and log errors if Ops Manager is stuck.
-func (r *OpsManagerReconciler) waitForOpsManagerToBeReady(om *mdbv1.MongoDBOpsManager, log *zap.SugaredLogger) error {
-	if !util.DoAndRetry(func() (string, bool) {
-		omUrl := centralURL(om)
-		client, err := util.NewHTTPClient()
-		if err != nil {
-			return err.Error(), false
-		}
-		resp, err := client.Get(omUrl + "/monitor/health")
-		if err != nil {
-			return err.Error(), false
-		}
-
-		if resp.StatusCode == 404 {
-			return "Ops Manager reports 404", false
-		} else if resp.StatusCode == 200 {
-			return "", true
-		} else {
-			return fmt.Sprintf("unexpected HTTP status for /monitor/health, expected either 404 or 200 but got %d", resp.StatusCode), false
-		}
-	}, log, 6, 3) {
-		return errors.New("Ops Manager hasn't started during specified timeout (it may take quite long)")
-	}
-	return nil
-}
-
 // ensureConfiguration makes sure the mandatory configuration is specified
 func (r OpsManagerReconciler) ensureConfiguration(opsManager *mdbv1.MongoDBOpsManager, log *zap.SugaredLogger) {
 	// update the central URL
 	setConfigProperty(opsManager, util.MmsCentralUrlPropKey, centralURL(opsManager), log)
 
 	setConfigProperty(opsManager, util.MmsMongoUri, buildMongoConnectionUrl(opsManager), log)
+
+	// override the versions directory (defaults to "/opt/mongodb/mms/mongodb-releases/")
+	setConfigProperty(opsManager, util.MmsVersionsDirectory, "/mongodb-ops-manager/mongodb-releases/", log)
 }
 
 // Ideally this must be a method in v1.MongoDB - todo move it there when the AppDB is gone and v1.MongoDB is used instead
