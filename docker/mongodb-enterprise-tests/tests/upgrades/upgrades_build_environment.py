@@ -1,41 +1,58 @@
-import pytest
+"""
+This is a multi stage test. Referenced on .evergreen.yml as e2e_operator_upgrade_multiple_clusters_allowed.
 
-from kubetester.kubetester import KubernetesTester
+The test consist on upgrading the operator from version 1.2.2 to latest. Version 1.2.2 allows for
+multiple clusters per project. After moving to latest version of the operator, the different resources
+are meant to fail or to print warnings (depending on the version).
 
+Stage 1 (this): e2e_operator_upgrade_build_deployment
+Stage 2: e2e_operator_upgrade_scale_and_verify_deployment
+"""
 
-@pytest.mark.e2e_operator_upgrade_build_deployment
-class TestBuildDeploymentShardedCluster(KubernetesTester):
-    """
-    name: Sharded Cluster Base Creation for Upgrades
-    description: |
-      Creates a simple Sharded Cluster with 1 shard, 2 mongos,
-      1 replica set as config server and NO persistent volumes.
-      This test must be run in the Operator before version 1.2.3 as the latter
-      one forbids creating more than one resource in the project
-    create:
-      file: sharded-cluster.yaml
-      wait_until: in_running_state
-      timeout: 360
-
-    """
-
-    def test_resource_has_no_warnings(self):
-        mdb = KubernetesTester.get_namespaced_custom_object(self.get_namespace(), "sh001-base", "MongoDB")
-        assert "warning" not in mdb["status"]
+from kubetester.kubetester import skip_if_local, fixture as yaml_fixture
+from kubetester.mongodb import MongoDB
+from pytest import fixture, mark
 
 
-@pytest.mark.e2e_operator_upgrade_build_deployment
-class TestBuildDeploymentReplicaSet(KubernetesTester):
-    '''
-    name: Replica Set Creation for Upgrades
-    description: |
-      Creates a Replica set and checks everything is created as expected.
-    create:
-      file: replica-set.yaml
-      wait_until: in_running_state
-      timeout: 240
-    '''
+@fixture(scope="module")
+def replica_set(namespace: str) -> MongoDB:
+    resource = MongoDB.from_yaml(
+        yaml_fixture("replica-set.yaml"), namespace=namespace
+    )
+    return resource.create()
 
-    def test_resource_has_no_warnings(self):
-        mdb = KubernetesTester.get_namespaced_custom_object(self.get_namespace(), "my-replica-set", "MongoDB")
-        assert "warning" not in mdb["status"]
+
+@fixture(scope="module")
+def sharded_cluster(namespace: str) -> MongoDB:
+    resource = MongoDB.from_yaml(
+        yaml_fixture("sharded-cluster.yaml"), namespace=namespace
+    )
+    return resource.create()
+
+
+@mark.e2e_operator_upgrade_build_deployment
+def test_replica_set_reaches_running_phase(replica_set):
+    replica_set.reaches_phase("Running", timeout=600)
+
+    assert replica_set["status"]["phase"] == "Running"
+    assert "warnings" not in replica_set["status"]
+
+
+@skip_if_local
+@mark.e2e_operator_upgrade_build_deployment
+def test_replica_set_client_can_connect_to_mongodb(replica_set):
+    replica_set.assert_connectivity()
+
+
+@mark.e2e_operator_upgrade_build_deployment
+def test_cluster_reaches_running_phase(sharded_cluster):
+    sharded_cluster.reaches_phase("Running", timeout=600)
+
+    assert sharded_cluster["status"]["phase"] == "Running"
+    assert "warnings" not in sharded_cluster["status"]
+
+
+@skip_if_local
+@mark.e2e_operator_upgrade_build_deployment
+def test_cluster_client_can_connect_to_mongodb(sharded_cluster):
+    sharded_cluster.assert_connectivity()

@@ -9,25 +9,18 @@ from .mongotester import (
 )
 
 
-class MongoDB(CustomObject):
-    def __init__(
-        self,
-        name: str,
-        namespace: str,
-        plural: str = "mongodb",
-        kind: str = "MongoDB",
-        api_version: str = "mongodb.com/v1",
-    ):
-        super(self.__class__, self).__init__(name, namespace, plural, kind, api_version)
+# MongoDBBase defines a custom class that will handle objects of type
+# MongoDB.
+MongoDBBase = CustomObject.define(
+    "MongoDB", plural="mongodb", group="mongodb.com", version="v1"
+)
 
-    def wait_for_phase(self, phase, timeout=240):
-        """Waits until object reaches given state. The solution currently
-        implemented is super simple and very similar to what we already have,
-        but does the job well.
-        """
-        return self.wait_for(lambda s: s["status"].get("phase") == phase)
 
-    def wait_for(self, fn, timeout=240):
+class MongoDB(MongoDBBase):
+    def wait_for(self, fn, timeout=None):
+        if timeout is None:
+            timeout = 240
+
         wait = 5
         while True:
             self.reload()
@@ -43,11 +36,11 @@ class MongoDB(CustomObject):
             else:
                 break
 
-    def reaches_phase(self, phase):
-        return self.wait_for_phase(phase)
+    def reaches_phase(self, phase, timeout=None):
+        return self.wait_for(lambda s: s["status"].get("phase") == phase, timeout)
 
-    def abandons_phase(self, phase):
-        return self.wait_for(lambda s: s["status"].get("phase") != phase)
+    def abandons_phase(self, phase, timeout=None):
+        return self.wait_for(lambda s: s["status"].get("phase") != phase, timeout)
 
     @property
     def type(self) -> str:

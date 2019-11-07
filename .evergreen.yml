@@ -764,7 +764,7 @@ tasks:
 
 - name: e2e_operator_upgrade_multiple_clusters_allowed
   tags: ["openshift-om-qa"]
-  exec_timeout_secs: 1200
+  exec_timeout_secs: 2400
   commands:
     - func: e2e_test_upgrade_operator
       vars:

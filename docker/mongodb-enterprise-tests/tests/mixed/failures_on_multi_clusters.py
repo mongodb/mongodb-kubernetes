@@ -1,162 +1,138 @@
-from kubetester.kubetester import KubernetesTester
-import pytest
+from pytest import mark, fixture
+
+from kubetester.kubetester import KubernetesTester, fixture as yaml_fixture
+from kubetester.mongodb import MongoDB
 
 
-@pytest.mark.e2e_multiple_cluster_failures
-class TestMultipleClustersHaveFailures0(KubernetesTester):
-    """
-    name: Creating multiple clusters should result on a failure on the second one
-    create:
-      file: replica-set.yaml
-      wait_until: in_running_state
-    """
+@fixture(scope="class")
+def replica_set(namespace):
+    resource = MongoDB.from_yaml(
+        yaml_fixture("replica-set.yaml"), namespace=namespace
+    )
+    yield resource.create()
 
-    def test_replica_set_is_ready_no_warnings(self):
-        mdb = KubernetesTester.get_resource()
-        assert "warnings" not in mdb["status"]
+    resource.delete()
 
 
-@pytest.mark.e2e_multiple_cluster_failures
-class TestMultipleClustersHaveFailures1(KubernetesTester):
-    """
-    name: Applying a change should not add a warning
-    update:
-      file: replica-set.yaml
-      patch: '[{"op":"replace","path":"/spec/members","value":5}]'
-      wait_until: in_running_state
-    """
+@fixture(scope="class")
+def replica_set_single(namespace):
+    resource = MongoDB.from_yaml(
+        yaml_fixture("replica-set-single.yaml"), namespace=namespace
+    )
+    yield resource.create()
 
-    def test_replica_set_is_ready_no_warnings_after_update(self):
-        mdb = KubernetesTester.get_resource()
-        assert "warnings" not in mdb["status"]
+    resource.delete()
 
 
-@pytest.mark.e2e_multiple_cluster_failures
-class TestMultipleClustersHaveFailures2(KubernetesTester):
-    """
-    name: Creating a new cluster in the same project should fail
-    create:
-      file: replica-set-single.yaml
-      wait_until: in_failed_state
-    """
+@fixture(scope="class")
+def sharded_cluster(namespace):
+    resource = MongoDB.from_yaml(
+        yaml_fixture("sharded-cluster.yaml"), namespace=namespace
+    )
+    yield resource.create()
 
-    def test_replica_set_failed(self):
-        mdb = KubernetesTester.get_resource()
-        assert mdb["status"]["message"] == "Cannot create more than 1 MongoDB Cluster per project"
+    resource.delete()
 
-        # No warnings in the failed resource
-        assert "warnings" not in mdb["status"]
 
-    def test_no_mention_of_new_processes_in_automation_config(self):
-        config = self.get_automation_config()
+@fixture(scope="class")
+def sharded_cluster_single(namespace):
+    resource = MongoDB.from_yaml(
+        yaml_fixture("sharded-cluster-single.yaml"), namespace=namespace
+    )
+    yield resource.create()
+
+    resource.delete()
+
+
+@mark.e2e_multiple_cluster_failures
+class TestNoTwoReplicaSetsCanBeCreatedOnTheSameProject:
+    def test_replica_set_get_to_running_state(self, replica_set: MongoDB):
+        replica_set.reaches_phase("Running")
+
+        assert replica_set["status"]["phase"] == "Running"
+        assert "warnings" not in replica_set["status"]
+
+    def test_no_warnings_when_scaling(self, replica_set: MongoDB):
+        replica_set["spec"]["members"] = 5
+        replica_set.update()
+
+        replica_set.abandons_phase("Running")
+        replica_set.reaches_phase("Running")
+        assert replica_set["status"]["phase"] == "Running"
+        assert "warnings" not in replica_set["status"]
+
+    def test_second_mdb_resource_fails(self, replica_set_single: MongoDB):
+        replica_set_single.reaches_phase("Failed")
+
+        assert replica_set_single["status"]["phase"] == "Failed"
+        assert replica_set_single["status"]["message"] == "Cannot create more than 1 MongoDB Cluster per project"
+        assert "warnings" not in replica_set_single["status"]
+
+    # pylint: disable=unused-argument
+    def test_automation_config_is_correct(self, replica_set, replica_set_single):
+        config = KubernetesTester.get_automation_config()
 
         assert len(config["processes"]) == 5
-
         for process in config["processes"]:
             assert not process["name"].startswith("my-replica-set-single")
-
-    def test_no_new_sharded_cluster_was_added(self):
-        config = self.get_automation_config()
 
         assert len(config["sharding"]) == 0
         assert len(config["replicaSets"]) == 1
 
-    @classmethod
-    def teardown_env(cls):
-        cls.delete_custom_resource(cls.get_namespace(), "my-replica-set", "MongoDB")
-        cls.delete_custom_resource(cls.get_namespace(), "my-replica-set-single", "MongoDB")
+
+@mark.e2e_multiple_cluster_failures
+class TestNoTwoClustersCanBeCreatedOnTheSameProject:
+    def test_sharded_cluster_reaches_running_phase(self, sharded_cluster: MongoDB):
+        sharded_cluster.reaches_phase("Running")
+
+        assert sharded_cluster["status"]["phase"] == "Running"
+        assert "warnings" not in sharded_cluster["status"]
 
 
-@pytest.mark.e2e_multiple_cluster_failures
-class TestMultipleClustersHaveFailures4(KubernetesTester):
-    """
-    name: Adding a new sharded cluster (after removal of old Rs) does not result in warnings
-    create:
-      file: sharded-cluster.yaml
-      wait_until: in_running_state
-    """
+    def test_second_mdb_sharded_cluster_fails(self, sharded_cluster_single: MongoDB):
+        sharded_cluster_single.reaches_phase("Failed")
 
-    def test_cluster_is_ready_no_warnings(self):
-        mdb = KubernetesTester.get_resource()
-        assert "warnings" not in mdb["status"]
+        assert sharded_cluster_single["status"]["phase"] == "Failed"
+        assert "warnings" not in sharded_cluster_single["status"]
 
 
-@pytest.mark.e2e_multiple_cluster_failures
-class TestMultipleClustersHaveFailures5(KubernetesTester):
-    """
-    name: Creating a new cluster should fail without warnings
-    create:
-      file: sharded-cluster-single.yaml
-      wait_until: in_failed_state
-    """
-
-    def test_cluster_is_ready_warnings(self):
-        mdb = KubernetesTester.get_resource()
-        assert mdb["status"]["message"] == "Cannot create more than 1 MongoDB Cluster per project"
-
-        assert "warnings" not in mdb["status"]
-
-    def test_no_mention_of_new_processes_in_automation_config(self):
-        config = self.get_automation_config()
+    # pylint: disable=unused-argument
+    def test_sharded_cluster_automation_config_is_correct(self, sharded_cluster, sharded_cluster_single):
+        config = KubernetesTester.get_automation_config()
 
         for process in config["processes"]:
             assert not process["name"].startswith("sh001-single")
 
-    def test_no_new_sharded_cluster_was_added(self):
-        config = self.get_automation_config()
-
+        # Creating a Sharded Cluster will result in 1 entry added to `sharding` and ...
         assert len(config["sharding"]) == 1
-
-    @classmethod
-    def teardown_env(cls):
-        cls.delete_custom_resource(cls.get_namespace(), "sh001-base", "MongoDB")
-        cls.delete_custom_resource(cls.get_namespace(), "sh001-single", "MongoDB")
+        # ... and also 2 entries into `replicaSets` (1 shard and 1 config replica set, in this case)
+        assert len(config["replicaSets"]) == 2
 
 
-@pytest.mark.e2e_multiple_cluster_failures
-class TestMultipleClustersHaveFailures7(KubernetesTester):
-    """
-    name: Creating multiple clusters should result on a failure on the second one
-    create:
-      file: replica-set-single.yaml
-      wait_until: in_running_state
-    """
-
-    def test_replica_set_is_ready_no_warnings(self):
-        mdb = KubernetesTester.get_resource()
-        assert "warnings" not in mdb["status"]
+@mark.e2e_multiple_cluster_failures
+class TestNoTwoDifferentTypeOfResourceCanBeCreatedOnTheSameProject:
+    def test_multiple_test_different_type_fails(self, replica_set_single: MongoDB):
+        replica_set_single.reaches_phase("Running")
+        assert replica_set_single["status"]["phase"] == "Running"
 
 
-@pytest.mark.e2e_multiple_cluster_failures
-class TestMultipleClustersHaveFailures8(KubernetesTester):
-    """
-    name: Creating a new cluster should fail without warnings
-    create:
-      file: sharded-cluster-single.yaml
-      wait_until: in_failed_state
-    """
+    def test_adding_sharded_cluster_fails(self, sharded_cluster_single: MongoDB):
+        sharded_cluster_single.reaches_phase("Failed")
 
-    def test_cluster_is_ready_warnings(self):
-        mdb = KubernetesTester.get_resource()
-        assert mdb["status"]["message"] == "Cannot create more than 1 MongoDB Cluster per project"
+        status = sharded_cluster_single["status"]
+        assert status["phase"] == "Failed"
+        assert status["message"] == "Cannot create more than 1 MongoDB Cluster per project"
 
-        assert "warnings" not in mdb["status"]
+        assert "warnings" not in status
 
-    def test_no_mention_of_new_processes_in_automation_config(self):
-        config = self.get_automation_config()
+    # pylint: disable=unused-argument
+    def test_automation_config_contains_one_cluster(self, replica_set_single, sharded_cluster_single):
+        config = KubernetesTester.get_automation_config()
 
         assert len(config["processes"]) == 1
 
         for process in config["processes"]:
             assert not process["name"].startswith("sh001-single")
 
-    def test_no_new_sharded_cluster_was_added(self):
-        config = self.get_automation_config()
-
         assert len(config["sharding"]) == 0
         assert len(config["replicaSets"]) == 1
-
-    @classmethod
-    def teardown_env(cls):
-        cls.delete_custom_resource(cls.get_namespace(), "my-replica-set-single", "MongoDB")
-        cls.delete_custom_resource(cls.get_namespace(), "sh001-single", "MongoDB")

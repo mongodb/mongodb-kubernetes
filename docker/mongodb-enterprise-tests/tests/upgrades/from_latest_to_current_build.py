@@ -1,3 +1,14 @@
+"""
+This is a multi stage test. Referenced on .evergreen.yml as e2e_operator_upgrade_from_previous
+
+The test consist on upgrading the operator from latest released version to current. Makes sure
+that after an update, the MongoDB resources, which has been updated and rolling-restarted, go
+back to Running state.
+
+Stage 1 (this): e2e_operator_upgrade_build_deployment
+Stage 2: e2e_operator_upgrade_scale_and_verify_deployment
+"""
+
 from kubetester.kubetester import skip_if_local, fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from pytest import fixture, mark
