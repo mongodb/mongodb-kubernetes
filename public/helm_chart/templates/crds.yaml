@@ -85,6 +85,9 @@ spec:
                         type: boolean
                       ca:
                         type: string
+              connectivity:
+                not:
+                  required: ["replicaSetHorizons"]
               additionalMongodConfig:
                 properties:
                   net:
@@ -167,6 +170,14 @@ spec:
                     # https://docs.mongodb.com/kubernetes-operator/
                     type: string
                     enum: ["x509"]
+              connectivity:
+                properties:
+                  replicaSetHorizons:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties:
+                        type: string
               additionalMongodConfig:
                 properties:
                   net:
@@ -261,6 +272,9 @@ spec:
                     # https://docs.mongodb.com/kubernetes-operator/
                     type: string
                     enum: ["x509"]
+              connectivity:
+                not:
+                  required: ["replicaSetHorizons"]
               additionalMongodConfig:
                 properties:
                   net:
