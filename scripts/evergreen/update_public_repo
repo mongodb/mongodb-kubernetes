@@ -14,6 +14,12 @@ generate_standalone_yaml() {
 
     cat "${charttmpdir}"/mongodb-enterprise-operator/templates/{roles.yaml,serviceaccount.yaml,operator.yaml} > mongodb-enterprise.yaml
     cp "${charttmpdir}"/mongodb-enterprise-operator/templates/crds.yaml crds.yaml
+
+    rm -rf ${charttmpdir}/*
+
+    helm template -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-openshift.yaml
+
+    cat "${charttmpdir}"/mongodb-enterprise-operator/templates/{roles.yaml,serviceaccount.yaml,operator.yaml} > mongodb-enterprise-openshift.yaml
 }
 
 PUBLIC_REPO="$1"
@@ -34,7 +40,7 @@ generate_standalone_yaml
 STATUS=$(git status --porcelain)
 if ! [ z"${STATUS}" = z ]; then
     if [ -z "${GENERATE_ONLY+x}" ]; then
-        echo "Commiting and pushing"
+        echo "Commiting (don't forget to push)"
         git add .
         git commit -m "${GITHASH}: update public repo contents"
 #        git push

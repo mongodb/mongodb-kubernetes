@@ -64,6 +64,9 @@ or clone this repo, make any edits you need, and apply it from your machine.
 
     kubectl apply -f mongodb-enterprise.yaml
 
+Use `mongodb-enterprise-openshift.yaml` if you want to install the Operator to an OpenShift cluster. You need to specify
+the image pull secret name to use images from RedHad Catalog.
+
 Check the end of the page for instructions on how to remove the Operator.
 
 ### Installation using Helm Chart
@@ -71,11 +74,14 @@ Check the end of the page for instructions on how to remove the Operator.
 If you have installed the Helm client locally then you can run (note that `helm install` is a less preferred way as makes upgrades more complicated.
 `kubectl apply` is a much clearer way of installing/upgrading):
 
-    helm template public/helm_chart > operator.yaml
+    helm template helm_chart > operator.yaml
     kubectl apply -f operator.yaml
 
 You can customize installation by simple overriding of helm variables, for example use `--set operator.env="dev"` to run the Operator in development mode
 (this will turn logging level to `Debug` and will make logging output as non-json)
+
+Pass the `--values helm_chart/values-openshift.yaml` parameter if you want to install the Operator to an OpenShift cluster.
+You need to specify the image pull secret name using `--set registry.imagePullSecrets=<secret_name>`
 
 Check the end of the page for instructions on how to remove the Operator.
 

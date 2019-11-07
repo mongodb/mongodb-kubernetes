@@ -2,4 +2,4 @@ docker==3.3.0
 docker-pycreds==0.3.0
 docopt==0.6.2
 PyYAML==3.13
-ruamel.yaml==0.15.71
+ruamel.yaml==0.16.5

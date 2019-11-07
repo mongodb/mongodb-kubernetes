@@ -125,7 +125,7 @@ the operator in clusters with no Helm installed. These yaml files will
 be copied into the public repo, they will not exist in the private
 repo, and they should not be checked into the private repo either.
 
-Check the last commit in the public repo and if everything is ok - push it.
+Check the last commit in the public repo and if everything is ok - **push it**.
 
 ## Ask the Docs team to publish the Release Notes
 Do this in the #docs channel
