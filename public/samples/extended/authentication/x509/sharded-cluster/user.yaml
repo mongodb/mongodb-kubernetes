@@ -2,9 +2,9 @@
 apiVersion: mongodb.com/v1
 kind: MongoDBUser
 metadata:
-  name: my-user
+  name: my-sharded-cluster-x509-user
 spec:
-  username: CN=my-user,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US
+  username: CN=my-sharded-cluster-x509-user,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US
   db: $external
   mongodbResourceRef:
     name: my-replica-set
