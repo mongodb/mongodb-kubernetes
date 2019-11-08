@@ -62,10 +62,10 @@ class TestNoTwoReplicaSetsCanBeCreatedOnTheSameProject:
         assert "warnings" not in replica_set["status"]
 
     def test_second_mdb_resource_fails(self, replica_set_single: MongoDB):
-        replica_set_single.reaches_phase("Failed")
+        replica_set_single.reaches_phase("Pending")
 
-        assert replica_set_single["status"]["phase"] == "Failed"
-        assert replica_set_single["status"]["message"] == "Cannot create more than 1 MongoDB Cluster per project"
+        assert replica_set_single["status"]["phase"] == "Pending"
+        assert replica_set_single["status"]["message"] == "Cannot have more than 1 MongoDB Cluster per project—see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/"
         assert "warnings" not in replica_set_single["status"]
 
     # pylint: disable=unused-argument
@@ -90,9 +90,9 @@ class TestNoTwoClustersCanBeCreatedOnTheSameProject:
 
 
     def test_second_mdb_sharded_cluster_fails(self, sharded_cluster_single: MongoDB):
-        sharded_cluster_single.reaches_phase("Failed")
+        sharded_cluster_single.reaches_phase("Pending")
 
-        assert sharded_cluster_single["status"]["phase"] == "Failed"
+        assert sharded_cluster_single["status"]["phase"] == "Pending"
         assert "warnings" not in sharded_cluster_single["status"]
 
 
@@ -117,11 +117,11 @@ class TestNoTwoDifferentTypeOfResourceCanBeCreatedOnTheSameProject:
 
 
     def test_adding_sharded_cluster_fails(self, sharded_cluster_single: MongoDB):
-        sharded_cluster_single.reaches_phase("Failed")
+        sharded_cluster_single.reaches_phase("Pending")
 
         status = sharded_cluster_single["status"]
-        assert status["phase"] == "Failed"
-        assert status["message"] == "Cannot create more than 1 MongoDB Cluster per project"
+        assert status["phase"] == "Pending"
+        assert status["message"] == "Cannot have more than 1 MongoDB Cluster per project—see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/"
 
         assert "warnings" not in status
 

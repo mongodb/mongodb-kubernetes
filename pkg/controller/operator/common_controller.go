@@ -379,39 +379,33 @@ func (c *ReconcileCommonController) addWatchedResourceIfNotAdded(name, namespace
 	}
 }
 
-// checkIfCanProceedWithWarnings will return if the reconciliation should proceed. It may add some warnings depending
-// on the number of resources. Also it removes the tag ExternallyManaged from the project in this case as the user may
-// need to clean the resources from OM UI if they move the resource to another project (as recommended by the migration
-// instructions)
-func checkIfCanProceedWithWarnings(conn om.Connection, resource *mdbv1.MongoDB) reconcileStatus {
+// checkIfHasExcessProcesses will check if the project has excess processes.
+// Also it removes the tag ExternallyManaged from the project in this case as
+// the user may need to clean the resources from OM UI if they move the
+// resource to another project (as recommended by the migration instructions).
+func checkIfHasExcessProcesses(conn om.Connection, resource *mdbv1.MongoDB, log *zap.SugaredLogger) reconcileStatus {
 	deployment, err := conn.ReadDeployment()
 	if err != nil {
 		return failedErr(err)
 	}
-	size, belongs := deployment.EnsureOneClusterPerProjectShouldProceed(resource.Name)
-
-	if size == 0 {
+	excessProcesses := deployment.GetNumberOfExcessProcesses(resource.Name)
+	if excessProcesses == 0 {
 		// cluster is empty or this resource is the only one living on it
 		return ok()
-	} else if size > 0 && belongs {
-		// remove tags if multiple clusters in project
-		groupWithTags := &om.Project{
-			Name:  conn.GroupName(),
-			OrgID: conn.OrgID(),
-			ID:    conn.GroupID(),
-			Tags:  []string{},
-		}
-		_, err = conn.UpdateProject(groupWithTags)
-		if err != nil {
-			return ok(mdbv1.CouldNotRemoveTagsWarning)
-		}
-
-		// cluster is not empty, but we belong to it
-		return ok(mdbv1.MultipleClustersInProjectWarning)
+	}
+	// remove tags if multiple clusters in project
+	groupWithTags := &om.Project{
+		Name:  conn.GroupName(),
+		OrgID: conn.OrgID(),
+		ID:    conn.GroupID(),
+		Tags:  []string{},
+	}
+	_, err = conn.UpdateProject(groupWithTags)
+	if err != nil {
+		log.Warnw("could not remove externally managed tag from Ops Manager group", "error", err)
 	}
 
-	// more than one cluster and this is not one of them
-	return failed("cannot create more than 1 MongoDB Cluster per project")
+	return pending("cannot have more than 1 MongoDB Cluster per project—see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/")
 }
 
 // doAgentX509CertsExist looks for the secret "agent-certs" to determine if we can continue with mounting the x509 volumes

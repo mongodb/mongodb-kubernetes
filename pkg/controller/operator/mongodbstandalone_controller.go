@@ -108,7 +108,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		return r.updateStatusFailed(s, fmt.Sprintf("Failed to prepare Ops Manager connection: %s", err), log)
 	}
 
-	reconcileResult := checkIfCanProceedWithWarnings(conn, s)
+	reconcileResult := checkIfHasExcessProcesses(conn, s, log)
 	if !reconcileResult.isOk() {
 		return reconcileResult.updateStatus(s, r.ReconcileCommonController, log)
 	}
@@ -180,9 +180,9 @@ func updateOmDeployment(conn om.Connection, s *mdbv1.MongoDB,
 	standaloneOmObject := createProcess(set, s)
 	err := conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
-			numberOfOtherMembers, belongsTo := d.EnsureOneClusterPerProjectShouldProceed(s.Name)
-			if numberOfOtherMembers > 0 && !belongsTo {
-				return fmt.Errorf("cannot create more than 1 MongoDB Cluster per project")
+			excessProcesses := d.GetNumberOfExcessProcesses(s.Name)
+			if excessProcesses > 0 {
+				return fmt.Errorf("cannot have more than 1 MongoDB Cluster per project—see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/")
 			}
 			d.MergeStandalone(standaloneOmObject, nil)
 			d.AddMonitoringAndBackup(standaloneOmObject.HostName(), log)

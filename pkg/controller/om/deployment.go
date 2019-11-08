@@ -462,25 +462,18 @@ func (d Deployment) ProcessBelongsToResource(processName, resourceName string) b
 	return false
 }
 
-// EnsureOneClusterPerProjectShouldProceed performs a series of check to ensure that there's no more
-// than 1 cluster per project. It does it by calculating how many processes do not belong to this
-// resource, and that number is returned as the first return value of this function. The second
-// return value will indicate if this reconciliation is good to proceed. A "no good to proceed" is a
-// reconciliation pass where the resource is new (it does not currently belong to the project) and
-// there are other processes living on it already.
-func (d Deployment) EnsureOneClusterPerProjectShouldProceed(resourceName string) (int, bool) {
+// GetNumberOfExcessProcesses calculates how many processes do not belong to
+// this resource.
+func (d Deployment) GetNumberOfExcessProcesses(resourceName string) int {
 	processNames := d.GetAllProcessNames()
-	deploymentSize := len(processNames)
-
-	alreadyBelongs := false
+	excessProcesses := len(processNames)
 	for _, p := range processNames {
 		if d.ProcessBelongsToResource(p, resourceName) {
-			deploymentSize -= 1
-			alreadyBelongs = true
+			excessProcesses -= 1
 		}
 	}
 
-	return deploymentSize, alreadyBelongs
+	return excessProcesses
 }
 
 // Debug

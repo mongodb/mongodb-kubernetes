@@ -69,7 +69,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return nil, failedErr(err)
 	}
 
-	reconcileResult := checkIfCanProceedWithWarnings(conn, sc)
+	reconcileResult := checkIfHasExcessProcesses(conn, sc, log)
 	if !reconcileResult.isOk() {
 		return nil, reconcileResult
 	}
@@ -506,13 +506,13 @@ func publishDeployment(conn om.Connection, sc *mdbv1.MongoDB, state ShardedClust
 			if sc.Spec.Security.Authentication.InternalCluster == "" && d.ExistingProcessesHaveInternalClusterAuthentication(allProcesses) {
 				return fmt.Errorf("cannot disable x509 internal cluster authentication")
 			}
-			numberOfOtherMembers, belongsTo := d.EnsureOneClusterPerProjectShouldProceed(sc.Name)
-			if numberOfOtherMembers > 0 && !belongsTo {
-				return fmt.Errorf("cannot create more than 1 MongoDB Cluster per project")
-			}
 			var err error
 			if shardsRemoving, err = d.MergeShardedCluster(sc.Name, mongosProcesses, configRs, shards, finalizing); err != nil {
 				return err
+			}
+			numberOfOtherMembers := d.GetNumberOfExcessProcesses(sc.Name)
+			if numberOfOtherMembers > 0 {
+				return fmt.Errorf("cannot have more than 1 MongoDB Cluster per project—see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/")
 			}
 			d.AddMonitoringAndBackup(mongosProcesses[0].HostName(), log)
 			d.ConfigureTLS(sc.Spec.GetTLSConfig())

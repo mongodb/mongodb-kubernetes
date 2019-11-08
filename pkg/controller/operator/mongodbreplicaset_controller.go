@@ -60,7 +60,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		return r.updateStatusFailed(rs, fmt.Sprintf("Failed to prepare Ops Manager connection: %s", err), log)
 	}
 
-	reconcileResult := checkIfCanProceedWithWarnings(conn, rs)
+	reconcileResult := checkIfHasExcessProcesses(conn, rs, log)
 	if !reconcileResult.isOk() {
 		return reconcileResult.updateStatus(rs, r.ReconcileCommonController, log)
 	}
@@ -217,9 +217,9 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 			if d.ExistingProcessesHaveInternalClusterAuthentication(replicaSet.Processes) && rs.Spec.Security.Authentication.InternalCluster == "" {
 				return fmt.Errorf("cannot disable x509 internal cluster authentication")
 			}
-			numberOfOtherMembers, belongsTo := d.EnsureOneClusterPerProjectShouldProceed(rs.Name)
-			if numberOfOtherMembers > 0 && !belongsTo {
-				return fmt.Errorf("cannot create more than 1 MongoDB Cluster per project")
+			excessProcesses := d.GetNumberOfExcessProcesses(rs.Name)
+			if excessProcesses > 0 {
+				return fmt.Errorf("cannot have more than 1 MongoDB Cluster per project—see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/")
 			}
 			d.MergeReplicaSet(replicaSet, nil)
 			d.AddMonitoringAndBackup(replicaSet.Processes[0].HostName(), log)

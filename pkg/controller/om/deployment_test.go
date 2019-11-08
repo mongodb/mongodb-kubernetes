@@ -256,37 +256,33 @@ func TestDeploymentCountIsCorrect(t *testing.T) {
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
 	d.MergeReplicaSet(rs0, zap.S())
 
-	count, belongs := d.EnsureOneClusterPerProjectShouldProceed("my-rs")
+	excessProcesses := d.GetNumberOfExcessProcesses("my-rs")
 	// There's only one resource in this deployment
-	assert.Equal(t, 0, count)
-	assert.True(t, belongs)
+	assert.Equal(t, 0, excessProcesses)
 
 	rs1 := buildRsByProcesses("my-rs-second", createReplicaSetProcessesCount(3, "my-rs-second"))
 	d.MergeReplicaSet(rs1, zap.S())
-	count, belongs = d.EnsureOneClusterPerProjectShouldProceed("my-rs")
+	excessProcesses = d.GetNumberOfExcessProcesses("my-rs")
 
 	// another replica set was added to the deployment. 3 processes do not belong to this one
-	assert.Equal(t, 3, count)
-	assert.True(t, belongs)
+	assert.Equal(t, 3, excessProcesses)
 
 	configRs := createConfigSrvRs("config", false)
 	_, _ = d.MergeShardedCluster("sc001", createMongosProcesses(3, "mongos", ""), configRs, createShards("shards"), false)
-	count, belongs = d.EnsureOneClusterPerProjectShouldProceed("my-rs")
+	excessProcesses = d.GetNumberOfExcessProcesses("my-rs")
 
 	// a Sharded Cluster was added, plenty of processes do not belong to "my-rs" anymore
-	assert.Equal(t, 18, count)
-	assert.True(t, belongs)
+	assert.Equal(t, 18, excessProcesses)
 
 	// This unknown process does not belong in here
-	count, belongs = d.EnsureOneClusterPerProjectShouldProceed("some-unknown-name")
+	excessProcesses = d.GetNumberOfExcessProcesses("some-unknown-name")
 
 	// a Sharded Cluster was added, plenty of processes do not belong to "my-rs" anymore
-	assert.Equal(t, 21, count)
-	assert.False(t, belongs)
+	assert.Equal(t, 21, excessProcesses)
 
-	count, belongs = d.EnsureOneClusterPerProjectShouldProceed("sc001")
+	excessProcesses = d.GetNumberOfExcessProcesses("sc001")
 	// There are 6 processes that do not belong to the sc001 sharded cluster
-	assert.Equal(t, 6, count)
+	assert.Equal(t, 6, excessProcesses)
 }
 
 func TestIsShardOf(t *testing.T) {
