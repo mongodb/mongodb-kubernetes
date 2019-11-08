@@ -457,6 +457,5 @@ spec:
           required:
             - version
             - applicationDatabase
-            - replicas
 
 {{end}}

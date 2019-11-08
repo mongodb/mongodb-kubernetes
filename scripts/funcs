@@ -254,7 +254,7 @@ ensure_ops_manager_evg() {
 
     # todo move version to some configuration
     # note, that we use OM 4.1 for development to differ from e2e suites (they use 4.0+)
-    ./ego nohup "ubuntu@${host}" ego scenario_install_package_from_link "${om_package}" "http://${host}:9080"
+    ./ego nohup "ubuntu@${host}" ego scenario_install_package_from_link --url "${om_package}" --central-url "http://${host}:9080"
 
     if ! ./ego tail "ubuntu@$host"; then
         # seems 'tail' throws an error after finish which is not relevant

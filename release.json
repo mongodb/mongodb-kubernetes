@@ -1,5 +1,14 @@
 {
-  "mongodbOperator": "1.3.0",
-  "mongodbEnterprise": "4.0.3",
-  "automation.agent.version": "5.4.7.5469-1"
+  "mongodbOperator": "1.3.1",
+  "opsManagerImages": [
+    {
+      "4.2.0": "https://downloads.mongodb.com/on-prem-mms/tar/mongodb-mms-4.2.0.56551.20190812T1752Z-1.x86_64.tar.gz"
+    },
+    {
+      "4.2.3": "https://downloads.mongodb.com/on-prem-mms/tar/mongodb-mms-4.2.3.56677.20191010T1408Z-1.x86_64.tar.gz"
+    },
+    {
+      "4.2.4": "https://downloads.mongodb.com/on-prem-mms/tar/mongodb-mms-4.2.4.56729.20191105T2245Z-1.x86_64.tar.gz"
+    }
+  ]
 }
