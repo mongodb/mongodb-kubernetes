@@ -921,7 +921,7 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_scale_shards
-  tags: ["kops-om-40"]
+  tags: ["kops-om-42"]
   exec_timeout_secs: 720
   commands:
     - func: "e2e_test"

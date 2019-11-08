@@ -472,6 +472,13 @@ func (d Deployment) GetNumberOfExcessProcesses(resourceName string) int {
 			excessProcesses -= 1
 		}
 	}
+	// Edge case: for sharded cluster it's ok to have junk replica sets during scale down - we consider them as
+	// belonging to sharded cluster
+	if d.getShardedClusterByName(resourceName) != nil {
+		for _, r := range d.findReplicaSetsRemovedFromShardedCluster(resourceName) {
+			excessProcesses -= len(d.GetProcessNames(ReplicaSet{}, r))
+		}
+	}
 
 	return excessProcesses
 }

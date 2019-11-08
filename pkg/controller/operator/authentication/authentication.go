@@ -157,7 +157,7 @@ func Disable(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 	}
 
 	if ac.Auth.IsEnabled() {
-		log.Info("disabling authentication")
+		log.Info("Disabling authentication")
 		err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 			if err := ac.EnsureKeyFileContents(); err != nil {
 				return err

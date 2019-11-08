@@ -268,7 +268,7 @@ func TestDeploymentCountIsCorrect(t *testing.T) {
 	assert.Equal(t, 3, excessProcesses)
 
 	configRs := createConfigSrvRs("config", false)
-	_, _ = d.MergeShardedCluster("sc001", createMongosProcesses(3, "mongos", ""), configRs, createShards("shards"), false)
+	_, _ = d.MergeShardedCluster("sc001", createMongosProcesses(3, "mongos", ""), configRs, createShards("sc001"), false)
 	excessProcesses = d.GetNumberOfExcessProcesses("my-rs")
 
 	// a Sharded Cluster was added, plenty of processes do not belong to "my-rs" anymore
@@ -283,6 +283,23 @@ func TestDeploymentCountIsCorrect(t *testing.T) {
 	excessProcesses = d.GetNumberOfExcessProcesses("sc001")
 	// There are 6 processes that do not belong to the sc001 sharded cluster
 	assert.Equal(t, 6, excessProcesses)
+}
+
+func TestGetNumberOfExcessProcesses_ShardedClusterScaleDown(t *testing.T) {
+	d := NewDeployment()
+	configRs := createConfigSrvRs("config", false)
+	_, _ = d.MergeShardedCluster("sc001", createMongosProcesses(3, "mongos", ""), configRs, createShards("sc001"), false)
+	assert.Len(t, d.getShardedClusterByName("sc001").shards(), 3)
+	assert.Len(t, d.getReplicaSets(), 4)
+	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("sc001"))
+
+	// Now we are "scaling down" the sharded cluster - so junk replica sets will appear - this is still ok
+	twoShards := createShards("sc001")[0:2]
+	_, _ = d.MergeShardedCluster("sc001", createMongosProcesses(3, "mongos", ""), configRs, twoShards, false)
+	assert.Len(t, d.getShardedClusterByName("sc001").shards(), 2)
+	assert.Len(t, d.getReplicaSets(), 4)
+
+	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("sc001"))
 }
 
 func TestIsShardOf(t *testing.T) {

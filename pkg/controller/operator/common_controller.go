@@ -405,7 +405,7 @@ func checkIfHasExcessProcesses(conn om.Connection, resource *mdbv1.MongoDB, log 
 		log.Warnw("could not remove externally managed tag from Ops Manager group", "error", err)
 	}
 
-	return pending("cannot have more than 1 MongoDB Cluster per project—see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/")
+	return pending("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 }
 
 // doAgentX509CertsExist looks for the secret "agent-certs" to determine if we can continue with mounting the x509 volumes
@@ -621,11 +621,11 @@ func updateOmAuthentication(conn om.Connection, processNames []string, mdb *mdbv
 		AuthoritativeSet:    !mdb.Spec.Security.Authentication.IgnoreUnknownUsers,
 	}
 
-	log.Debug("using authentication options %+v", authOpts)
+	log.Debugf("Using authentication options %+v", authOpts)
 
 	wantToEnableAuthentication := mdb.Spec.Security.Authentication.Enabled
 	if wantToEnableAuthentication && canConfigureAuthentication(ac, mdb) {
-		log.Info("configuring authentication for MongoDB resource")
+		log.Info("Configuring authentication for MongoDB resource")
 		if err := authentication.Configure(conn, authOpts, log); err != nil {
 			return failedErr(err), false
 		}
@@ -633,7 +633,7 @@ func updateOmAuthentication(conn om.Connection, processNames []string, mdb *mdbv
 		// The MongoDB resource has been configured with a type of authentication
 		// but the current state in Ops Manager does not allow a direct transition. This will require
 		// an additional reconciliation after a partial update to Ops Manager.
-		log.Debug("attempting to enable authentication, but Ops Manager state will not allow this")
+		log.Debug("Attempting to enable authentication, but Ops Manager state will not allow this")
 		return ok(), true
 	} else {
 		if err := authentication.Disable(conn, authOpts, log); err != nil {

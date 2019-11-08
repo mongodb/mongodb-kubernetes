@@ -460,7 +460,7 @@ func updateOmDeploymentShardedCluster(conn om.Connection, sc *mdbv1.MongoDB, sta
 		log.Infof("Some shards were removed from the sharded cluster, we need to remove them from the deployment completely")
 		status, shardsRemoving = publishDeployment(conn, sc, state, log, &processNames, true)
 		if !status.isOk() {
-			return failedErr(err)
+			return status
 		}
 
 		if err = om.WaitForReadyState(conn, processNames, log); err != nil {
@@ -506,13 +506,13 @@ func publishDeployment(conn om.Connection, sc *mdbv1.MongoDB, state ShardedClust
 			if sc.Spec.Security.Authentication.InternalCluster == "" && d.ExistingProcessesHaveInternalClusterAuthentication(allProcesses) {
 				return fmt.Errorf("cannot disable x509 internal cluster authentication")
 			}
-			var err error
-			if shardsRemoving, err = d.MergeShardedCluster(sc.Name, mongosProcesses, configRs, shards, finalizing); err != nil {
-				return err
-			}
 			numberOfOtherMembers := d.GetNumberOfExcessProcesses(sc.Name)
 			if numberOfOtherMembers > 0 {
 				return fmt.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
+			}
+			var err error
+			if shardsRemoving, err = d.MergeShardedCluster(sc.Name, mongosProcesses, configRs, shards, finalizing); err != nil {
+				return err
 			}
 			d.AddMonitoringAndBackup(mongosProcesses[0].HostName(), log)
 			d.ConfigureTLS(sc.Spec.GetTLSConfig())
