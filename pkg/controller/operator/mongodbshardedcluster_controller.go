@@ -512,7 +512,7 @@ func publishDeployment(conn om.Connection, sc *mdbv1.MongoDB, state ShardedClust
 			}
 			numberOfOtherMembers := d.GetNumberOfExcessProcesses(sc.Name)
 			if numberOfOtherMembers > 0 {
-				return fmt.Errorf("cannot have more than 1 MongoDB Cluster per project—see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/")
+				return fmt.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 			}
 			d.AddMonitoringAndBackup(mongosProcesses[0].HostName(), log)
 			d.ConfigureTLS(sc.Spec.GetTLSConfig())

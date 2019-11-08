@@ -65,7 +65,7 @@ class TestNoTwoReplicaSetsCanBeCreatedOnTheSameProject:
         replica_set_single.reaches_phase("Pending")
 
         assert replica_set_single["status"]["phase"] == "Pending"
-        assert replica_set_single["status"]["message"] == "Cannot have more than 1 MongoDB Cluster per project—see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/"
+        assert replica_set_single["status"]["message"] == "Cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)"
         assert "warnings" not in replica_set_single["status"]
 
     # pylint: disable=unused-argument
@@ -121,7 +121,7 @@ class TestNoTwoDifferentTypeOfResourceCanBeCreatedOnTheSameProject:
 
         status = sharded_cluster_single["status"]
         assert status["phase"] == "Pending"
-        assert status["message"] == "Cannot have more than 1 MongoDB Cluster per project—see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/"
+        assert status["message"] == "Cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)"
 
         assert "warnings" not in status
 

@@ -22,7 +22,7 @@ def sharded_cluster(namespace: str) -> MongoDB:
 def test_replica_set_gets_to_running_state_with_warnings(replica_set: MongoDB):
     replica_set.reaches_phase("Pending", timeout=600)
     assert replica_set["status"]["phase"] == "Pending"
-    assert replica_set["status"]["message"] == "Cannot have more than 1 MongoDB Cluster per project—see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/"
+    assert replica_set["status"]["message"] == "Cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)"
 
 
 @mark.e2e_operator_upgrade_scale_and_verify_deployment
@@ -32,4 +32,4 @@ def test_sharded_cluster_gets_to_running_state_with_warnings(sharded_cluster: Mo
 
     sharded_cluster.reload()
     assert sharded_cluster["status"]["phase"] == "Pending"
-    assert sharded_cluster["status"]["message"] == "Cannot have more than 1 MongoDB Cluster per project—see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/"
+    assert sharded_cluster["status"]["message"] == "Cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)"

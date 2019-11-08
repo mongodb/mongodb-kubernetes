@@ -182,7 +182,7 @@ func updateOmDeployment(conn om.Connection, s *mdbv1.MongoDB,
 		func(d om.Deployment) error {
 			excessProcesses := d.GetNumberOfExcessProcesses(s.Name)
 			if excessProcesses > 0 {
-				return fmt.Errorf("cannot have more than 1 MongoDB Cluster per project—see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/")
+				return fmt.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 			}
 			d.MergeStandalone(standaloneOmObject, nil)
 			d.AddMonitoringAndBackup(standaloneOmObject.HostName(), log)

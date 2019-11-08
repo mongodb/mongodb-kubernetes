@@ -219,7 +219,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 			}
 			excessProcesses := d.GetNumberOfExcessProcesses(rs.Name)
 			if excessProcesses > 0 {
-				return fmt.Errorf("cannot have more than 1 MongoDB Cluster per project—see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/")
+				return fmt.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 			}
 			d.MergeReplicaSet(replicaSet, nil)
 			d.AddMonitoringAndBackup(replicaSet.Processes[0].HostName(), log)
