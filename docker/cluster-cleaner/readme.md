@@ -14,3 +14,18 @@ to be rebuild, just increase the version number both in `Chart.yaml` and
 
 The CronJobs will be installed, and they will always point at the `latest`
 version.
+
+## Running the scripts locally
+
+These cleaning scripts can be run locally, just make sure you are pointing at
+the right Kubernetes cluster and set the required environment variables.
+
+### Examples
+
+* To restart Ops Manager:
+
+    OM_NAMESPACE=operator-testing-42-current scripts/clean-ops-manager.sh
+
+* To clean failed namespaces:
+
+    DELETE_OLDER_THAN_AMOUNT=10 DELETE_OLDER_THAN_UNIT=minutes scripts/clean-failed-namespaces.sh

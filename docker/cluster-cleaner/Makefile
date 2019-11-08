@@ -1,17 +1,17 @@
-IMAGE_VERSION=0.8
+IMAGE_VERSION=0.9
 
 build:
 	docker build -t dev/cluster-cleaner:$(IMAGE_VERSION) .
 
 push:
-	$(aws ecr get-login --no-include-email --region us-east-1) &> /dev/null || true
+	$(aws ecr get-login --no-include-email --region us-east-1 || true)
 	docker tag dev/cluster-cleaner:$(IMAGE_VERSION) 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cluster-cleaner:$(IMAGE_VERSION)
 	docker tag dev/cluster-cleaner:$(IMAGE_VERSION) 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cluster-cleaner:latest
 
 	docker push 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cluster-cleaner:$(IMAGE_VERSION)
 	docker push 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cluster-cleaner:latest
 
-install:
+install: build push
 	kubectl create namespace cluster-cleaner || true
 	helm template . \
 		--set cleanerVersion=$(IMAGE_VERSION) \
