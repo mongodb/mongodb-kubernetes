@@ -11,19 +11,20 @@ require (
 	github.com/google/uuid v1.1.1
 	github.com/hashicorp/golang-lru v0.5.3 // indirect
 	github.com/imdario/mergo v0.3.8
-	github.com/json-iterator/go v1.1.7 // indirect
+	github.com/json-iterator/go v1.1.8 // indirect
 	github.com/operator-framework/operator-sdk v0.8.2
 	github.com/pkg/errors v0.8.1
 	github.com/prometheus/procfs v0.0.5 // indirect
 	github.com/spf13/cast v1.3.0
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/stretchr/testify v1.4.0
+	github.com/xdg/stringprep v1.0.0
 	go.uber.org/zap v1.10.0
-	golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2 // indirect
 	golang.org/x/text v0.3.2 // indirect
-	k8s.io/api v0.0.0-20191016110246-af539daaa43a
-	k8s.io/apimachinery v0.0.0-20191004115701-31ade1b30762
-	k8s.io/client-go v0.0.0-20191016110837-54936ba21026
+	gopkg.in/yaml.v2 v2.2.5 // indirect
+	k8s.io/api v0.0.0-20190918195907-bd6ac527cfd2
+	k8s.io/apimachinery v0.0.0-20190817020851-f2f3a405f61d
+	k8s.io/client-go v0.0.0-20190918200256-06eb1244587a
 	k8s.io/code-generator v0.0.0-20190612205613-18da4a14b22b
 	sigs.k8s.io/controller-runtime v0.3.0
 )
