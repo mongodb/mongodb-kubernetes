@@ -11,6 +11,13 @@ if [[ -z $GOPATH ]]; then
     exit 1
 fi
 
+go_mod_files_changed=$(git diff --cached --name-only --diff-filter=ACM | grep '^go.*' | wc -l)
+if [[ $go_mod_files_changed == "1" ]]; then
+  echo 'ERROR: Should change both or neither of go.mod and go.sum'
+  exit 1
+fi
+
+
 mkdir -p "${GOPATH}/bin"
 
 go mod vendor
