@@ -83,18 +83,17 @@ class TestNoTwoReplicaSetsCanBeCreatedOnTheSameProject:
 @mark.e2e_multiple_cluster_failures
 class TestNoTwoClustersCanBeCreatedOnTheSameProject:
     def test_sharded_cluster_reaches_running_phase(self, sharded_cluster: MongoDB):
-        sharded_cluster.reaches_phase("Running")
+        # Unfortunately, Sharded cluster takes a long time to even start.
+        sharded_cluster.reaches_phase("Running", timeout=600)
 
         assert sharded_cluster["status"]["phase"] == "Running"
         assert "warnings" not in sharded_cluster["status"]
-
 
     def test_second_mdb_sharded_cluster_fails(self, sharded_cluster_single: MongoDB):
         sharded_cluster_single.reaches_phase("Pending")
 
         assert sharded_cluster_single["status"]["phase"] == "Pending"
         assert "warnings" not in sharded_cluster_single["status"]
-
 
     # pylint: disable=unused-argument
     def test_sharded_cluster_automation_config_is_correct(self, sharded_cluster, sharded_cluster_single):
@@ -114,7 +113,6 @@ class TestNoTwoDifferentTypeOfResourceCanBeCreatedOnTheSameProject:
     def test_multiple_test_different_type_fails(self, replica_set_single: MongoDB):
         replica_set_single.reaches_phase("Running")
         assert replica_set_single["status"]["phase"] == "Running"
-
 
     def test_adding_sharded_cluster_fails(self, sharded_cluster_single: MongoDB):
         sharded_cluster_single.reaches_phase("Pending")

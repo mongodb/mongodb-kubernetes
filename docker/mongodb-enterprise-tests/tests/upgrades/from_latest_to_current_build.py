@@ -5,8 +5,8 @@ The test consist on upgrading the operator from latest released version to curre
 that after an update, the MongoDB resources, which has been updated and rolling-restarted, go
 back to Running state.
 
-Stage 1 (this): e2e_operator_upgrade_build_deployment
-Stage 2: e2e_operator_upgrade_scale_and_verify_deployment
+Stage 1 (this): e2e_latest_to_current_build
+Stage 2: e2e_latest_to_current_verify
 """
 
 from kubetester.kubetester import skip_if_local, fixture as yaml_fixture
