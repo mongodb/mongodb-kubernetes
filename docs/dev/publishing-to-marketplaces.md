@@ -4,7 +4,7 @@
 
 First, fork the following repo into you own:
 
-    git@github.com:operator-framework/community-operators.git
+    https://github.com/operator-framework/community-operators/tree/master/upstream-community-operators
 
 Make sure you clone the *fork* and not *upstream*.
 
@@ -43,27 +43,37 @@ Then renaming the clusterserviceversion file:
     mv mongodb-enterprise.v1.2.4.clusterserviceversion.yaml mongodb-enterprise.v1.3.0.clusterserviceversion.yaml
     ```
 
+## Update clusterserviceversion file
 
-Now, in the clusterserviceversion file, there are a few attributes you'll have to change:
-
-## Metadata
+### Metadata
 
 * `metadata.name`: The name should include the latest version
-* `metadata.containerImage`: Should point to the last version (**not latest**) in RedHat Connect catalog.
+* `metadata.containerImage`: Should point to the last version (**not 'latest'**) in quay.io repository.
 * `metadata.createdAt`: `$(date +%Y-%m-%dT%H:%M:%SZ)`
 
-## Spec
+### Spec
 
 * `spec.version`: Add your new version with 3 parts (x.y.z)
 * `spec.replaces`: Indicate the last version that is replaced by this one
 
+### Operator
+
+* `install.spec.deployments` - update the versions of Database and Operator images
+* Check if anything has changed for the Operator deployment spec that needs to be 
+reflected in `install.spec.deployments` (environment variables etc)
+
+### Permissions
+
+Copy the `rules` from roles in `roles.yaml` to the `permissions.rules` element to make sure the permissions are up-to-date
+
 ## CustomResourceDefinitions
 
-The CRDs need to be updated if there's anything to be updated. This is basically the
+The CRD files need to be updated if there's anything to be updated. This is basically the
 same that we have in the `crds.yaml` file.
 
 ## Package
 
+Go back to `mongodb-enterprise` directory.
 Update the file `mongodb-enterprise.package.yaml` making the
 `channels[?@.name==stable].currentCSV` section to point to this release.
 
@@ -87,13 +97,19 @@ This file is very similar to the one in
 with the difference that the docker images in these manifest files
 point at the RedHat Connect catalog and not to Quay.io.
 
-The process of building a new version is to just take the latest CSV,
-created in the previous step, and to change the Docker registry from
-Quay to RedHat Connect.
+Copy the file to some temporary location and edit it:
 
-* Pro tip: Use your favorite search/replace tool to change
-  `quay.io/mongodb/mongodb-enterprise-` for
-  `registry.connect.redhat.com/mongodb/enterprise-`.
+```
+cp mongodb-enterprise.v1.y.z.clusterserviceversion.yaml /tmp/mongodb-enterprise.v1.y.z.clusterserviceversion.yaml
+```
+
+Change the Docker registry from Quay to RedHat Connect:
+
+* Change  `quay.io/mongodb/mongodb-enterprise-` to
+  `registry.connect.redhat.com/mongodb/enterprise-`. for the Operator and Database
+* Change  `quay.io/mongodb` to `registry.connect.redhat.com/mongodb` for `OPS_MANAGER_IMAGE_REPOSITORY`
+and `APP_DB_IMAGE_REPOSITORY`
+  
 
 ## Compress and Upload
 
