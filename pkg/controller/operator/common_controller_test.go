@@ -42,8 +42,8 @@ func TestPrepareOmConnection_FindExistingGroup(t *testing.T) {
 	// No new group was created
 	assert.Len(t, mockOm.OrganizationsWithGroups, 1)
 
-	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadOrganization), reflect.ValueOf(mockOm.ReadProjectsInOrganization))
-	mockOm.CheckOperationsDidntHappen(t, reflect.ValueOf(mockOm.CreateProject))
+	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadOrganization), reflect.ValueOf(mockOm.ReadProjectsInOrganizationByName))
+	mockOm.CheckOperationsDidntHappen(t, reflect.ValueOf(mockOm.ReadOrganizations), reflect.ValueOf(mockOm.CreateProject), reflect.ValueOf(mockOm.ReadProjectsInOrganization))
 }
 
 // TestPrepareOmConnection_DuplicatedGroups verifies that if there are groups with the same name but in different organization
@@ -61,8 +61,9 @@ func TestPrepareOmConnection_DuplicatedGroups(t *testing.T) {
 	// New group and organization will be created in addition to existing ones
 	assert.Len(t, mockOm.OrganizationsWithGroups, 2)
 
-	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadOrganizations), reflect.ValueOf(mockOm.CreateProject))
-	mockOm.CheckOperationsDidntHappen(t, reflect.ValueOf(mockOm.ReadProjectsInOrganization))
+	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadOrganizationsByName), reflect.ValueOf(mockOm.CreateProject))
+	mockOm.CheckOperationsDidntHappen(t, reflect.ValueOf(mockOm.ReadOrganizations),
+		reflect.ValueOf(mockOm.ReadProjectsInOrganization), reflect.ValueOf(mockOm.ReadProjectsInOrganizationByName))
 }
 
 // TestPrepareOmConnection_CreateGroup checks that if the group doesn't exist in OM - it is created
@@ -79,7 +80,7 @@ func TestPrepareOmConnection_CreateGroup(t *testing.T) {
 	assert.Len(t, mockOm.OrganizationsWithGroups, 1)
 	assert.Contains(t, mockOm.FindGroup(om.TestGroupName).Tags, util.OmGroupExternallyManagedTag)
 
-	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadOrganizations), reflect.ValueOf(mockOm.CreateProject))
+	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadOrganizationsByName), reflect.ValueOf(mockOm.CreateProject))
 	mockOm.CheckOperationsDidntHappen(t, reflect.ValueOf(mockOm.UpdateProject), reflect.ValueOf(mockOm.ReadProjectsInOrganization))
 }
 
@@ -97,9 +98,8 @@ func TestPrepareOmConnection_CreateGroupFallback(t *testing.T) {
 	assert.NotNil(t, mockOm.FindGroup(om.TestGroupName))
 	assert.Empty(t, mockOm.FindGroup(om.TestGroupName).Tags)
 
-	// Creation happened twice
-	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.CreateProject), reflect.ValueOf(mockOm.CreateProject))
-	mockOm.CheckOperationsDidntHappen(t, reflect.ValueOf(mockOm.UpdateProject))
+	// Creation happened twice, Update happened as well but didn't succeed
+	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.CreateProject), reflect.ValueOf(mockOm.CreateProject), reflect.ValueOf(mockOm.UpdateProject))
 }
 
 // TestPrepareOmConnection_CreateGroupFixTags fixes tags if they are not set for existing group

@@ -697,7 +697,7 @@ class KubernetesTester(object):
         (aligned with 'ompaginator.TraversePages').
 
         If the Organization ID has been defined, return that instead. This is required to avoid 500's in Cloud Manager.
-        Returns the list of ids
+        Returns the list of ids.
         """
         org_id = KubernetesTester.get_om_org_id()
         if org_id is not None:
@@ -761,6 +761,7 @@ class KubernetesTester(object):
 
         return ids
 
+
     @staticmethod
     def get_automation_config(group_id=None):
         if group_id is None:
@@ -771,6 +772,7 @@ class KubernetesTester(object):
 
         return response.json()
 
+
     @staticmethod
     def get_monitoring_config(group_id=None):
         if group_id is None:
@@ -780,6 +782,7 @@ class KubernetesTester(object):
 
         return response.json()
 
+
     @staticmethod
     def put_automation_config(config):
         url = build_automation_config_endpoint(KubernetesTester.get_om_base_url(),
@@ -787,6 +790,7 @@ class KubernetesTester(object):
         response = KubernetesTester.om_request("put", url, config)
 
         return response
+
 
     @staticmethod
     def put_monitoring_config(config, group_id=None):
@@ -798,6 +802,7 @@ class KubernetesTester(object):
 
         return response
 
+
     @staticmethod
     def get_hosts():
         url = build_hosts_endpoint(KubernetesTester.get_om_base_url(),
@@ -805,6 +810,7 @@ class KubernetesTester(object):
         response = KubernetesTester.om_request("get", url)
 
         return response.json()
+
 
     @staticmethod
     def om_request(method, endpoint, json_object=None):
@@ -822,6 +828,7 @@ class KubernetesTester(object):
 
         return response
 
+
     @staticmethod
     def check_om_state_cleaned():
         """Checks that OM state is cleaned: Automation config is empty, monitoring hosts are removed"""
@@ -834,6 +841,7 @@ class KubernetesTester(object):
         hosts = KubernetesTester.get_hosts()
         assert len(hosts["results"]) == 0, "Hosts not empty: ({} hosts left)".format(len(hosts["results"]))
 
+
     @staticmethod
     def is_om_state_cleaned():
         config = KubernetesTester.get_automation_config()
@@ -843,6 +851,7 @@ class KubernetesTester(object):
                len(config["sharding"]) == 0 and \
                len(config["processes"]) == 0 and \
                len(hosts["results"]) == 0
+
 
     @staticmethod
     def mongo_resource_deleted(check_om_state=True):
@@ -859,6 +868,7 @@ class KubernetesTester(object):
         # Then we check that the resource was removed in Ops Manager if specified
         return deleted_in_k8 if not check_om_state else (deleted_in_k8 and KubernetesTester.is_om_state_cleaned())
 
+
     @staticmethod
     def mongo_resource_deleted_no_om():
         """
@@ -867,14 +877,17 @@ class KubernetesTester(object):
         """
         return KubernetesTester.mongo_resource_deleted(False)
 
+
     def build_mongodb_uri_for_rs(self, hosts):
         return "mongodb://{}".format(",".join(hosts))
+
 
     @staticmethod
     def random_k8s_name(prefix='test-'):
         return prefix + ''.join(
             random.choice(string.ascii_lowercase) for _ in range(10)
         )
+
 
     def approve_certificate(self, name):
         body = self.certificates.read_certificate_signing_request_status(name)
@@ -951,6 +964,7 @@ class KubernetesTester(object):
         raise AssertionError(
             f"Expected to find {total_csrs} csrs, but only found {seen_csrs} after {timeout} seconds. Expected csrs {csr_names}")
 
+
     # TODO eventually replace all usages of this function with "ReplicaSetTester(mdb_resource, 3).assert_connectivity()"
     def wait_for_rs_is_ready(self, hosts, wait_for=60, check_every=5, ssl=False):
         "Connects to a given replicaset and wait a while for a primary and secondaries."
@@ -968,6 +982,7 @@ class KubernetesTester(object):
 
         return client.primary, client.secondaries
 
+
     def check_hosts_are_ready(self, hosts, ssl=False):
         mongodburi = self.build_mongodb_uri_for_rs(hosts)
         options = {}
@@ -983,8 +998,10 @@ class KubernetesTester(object):
 
         return client
 
+
     def _get_pods(self, podname, qty=3):
         return [podname.format(i) for i in range(qty)]
+
 
     def check_single_pvc(self, volume, expected_name, expected_claim_name, expected_size, storage_class=None):
         assert volume.name == expected_name
@@ -1166,8 +1183,12 @@ def build_om_org_endpoint(base_url):
     return "{}/api/public/v1.0/orgs".format(base_url)
 
 
-def build_om_org_list_endpoint(base_url, page_num):
+def build_om_org_list_endpoint(base_url: string, page_num: int):
     return "{}/api/public/v1.0/orgs?itemsPerPage=500&pageNum={}".format(base_url, page_num)
+
+
+def build_om_org_list_by_name_endpoint(base_url: string, name: string):
+    return "{}/api/public/v1.0/orgs?name={}".format(base_url, name)
 
 
 def build_om_one_org_endpoint(base_url, org_id):
@@ -1176,6 +1197,10 @@ def build_om_one_org_endpoint(base_url, org_id):
 
 def build_om_groups_in_org_endpoint(base_url, org_id, page_num):
     return "{}/api/public/v1.0/orgs/{}/groups?itemsPerPage=500&pageNum={}".format(base_url, org_id, page_num)
+
+
+def build_om_groups_in_org_by_name_endpoint(base_url: string, org_id: string, name: string):
+    return "{}/api/public/v1.0/orgs/{}/groups?name={}".format(base_url, org_id, name)
 
 
 def build_automation_config_endpoint(base_url, group_id):

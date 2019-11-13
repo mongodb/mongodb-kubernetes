@@ -295,6 +295,20 @@ func (oc *MockedOmConnection) RemoveHost(hostID string) error {
 	return nil
 }
 
+func (oc *MockedOmConnection) ReadOrganizationsByName(name string) ([]*Organization, error) {
+	oc.addToHistory(reflect.ValueOf(oc.ReadOrganizationsByName))
+	allOrgs := make([]*Organization, 0)
+	for k, _ := range oc.OrganizationsWithGroups {
+		if k.Name == name {
+			allOrgs = append(allOrgs, k)
+		}
+	}
+	if len(allOrgs) == 0 {
+		return nil, &APIError{ErrorCode: OrganizationNotFound}
+	}
+	return allOrgs, nil
+}
+
 func (oc *MockedOmConnection) ReadOrganizations(page int) (Paginated, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadOrganizations))
 	// We don't set Next field - so there should be no pagination
@@ -303,12 +317,27 @@ func (oc *MockedOmConnection) ReadOrganizations(page int) (Paginated, error) {
 		allOrgs = append(allOrgs, k)
 	}
 	response := OrganizationsResponse{Organizations: allOrgs, OMPaginaged: OMPaginaged{TotalCount: len(oc.OrganizationsWithGroups)}}
-	return response, nil
+	return &response, nil
 }
 
 func (oc *MockedOmConnection) ReadOrganization(orgID string) (*Organization, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadOrganization))
 	return oc.findOrganization(orgID)
+}
+
+func (oc *MockedOmConnection) ReadProjectsInOrganizationByName(orgID string, name string) ([]*Project, error) {
+	oc.addToHistory(reflect.ValueOf(oc.ReadProjectsInOrganizationByName))
+	org, err := oc.findOrganization(orgID)
+	if err != nil {
+		return nil, err
+	}
+	projects := make([]*Project, 0)
+	for _, p := range oc.OrganizationsWithGroups[org] {
+		if p.Name == name {
+			projects = append(projects, p)
+		}
+	}
+	return projects, nil
 }
 
 func (oc *MockedOmConnection) ReadProjectsInOrganization(orgID string, page int) (Paginated, error) {
@@ -317,7 +346,7 @@ func (oc *MockedOmConnection) ReadProjectsInOrganization(orgID string, page int)
 	if err != nil {
 		return nil, err
 	}
-	response := ProjectsResponse{Groups: oc.OrganizationsWithGroups[org], OMPaginaged: OMPaginaged{TotalCount: len(oc.OrganizationsWithGroups)}}
+	response := &ProjectsResponse{Groups: oc.OrganizationsWithGroups[org], OMPaginaged: OMPaginaged{TotalCount: len(oc.OrganizationsWithGroups[org])}}
 	return response, nil
 }
 
@@ -483,6 +512,7 @@ func (oc *MockedOmConnection) CheckOrderOfOperations(t *testing.T, value ...refl
 	j := 0
 	matched := ""
 	for _, h := range oc.history {
+		zap.S().Info(h.Name())
 		if h.Name() == runtime.FuncForPC(value[j].Pointer()).Name() {
 			matched += h.Name() + " "
 			j++
@@ -497,7 +527,7 @@ func (oc *MockedOmConnection) CheckOrderOfOperations(t *testing.T, value ...refl
 func (oc *MockedOmConnection) CheckOperationsDidntHappen(t *testing.T, value ...reflect.Value) {
 	for _, h := range oc.history {
 		for _, o := range value {
-			assert.NotEqual(t, o, h, "Operation %v is not expected to happen", h)
+			assert.NotEqual(t, h.Name(), runtime.FuncForPC(o.Pointer()).Name(), "Operation %v is not expected to happen", h.Name())
 		}
 	}
 }

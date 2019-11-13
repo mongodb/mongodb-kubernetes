@@ -15,6 +15,13 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	// Error codes that Ops Manager may return that we are concerned about
+	InvalidAttribute     = "INVALID_ATTRIBUTE"
+	OrganizationNotFound = "ORG_NAME_NOT_FOUND"
+	ProjectNotFound      = "GROUP_NAME_NOT_FOUND"
+)
+
 // Connection is a client interacting with OpsManager API. Note, that all methods returning 'error' return the
 // '*APIError' in fact but it's error-prone to declare method as returning specific implementation of error
 // (see https://golang.org/doc/faq#nil_error)
@@ -29,11 +36,17 @@ type Connection interface {
 	//WaitForReadyState(processNames []string, log *zap.SugaredLogger) error
 	GenerateAgentKey() (string, error)
 	ReadAutomationStatus() (*AutomationStatus, error)
-	ReadAutomationAgents(int) (*AgentState, error)
+	ReadAutomationAgents(page int) (*AgentState, error)
 	GetHosts() (*Host, error)
 	RemoveHost(hostID string) error
+
+	ReadOrganizationsByName(name string) ([]*Organization, error)
+	// ReadOrganizations returns all organizations at specified page
 	ReadOrganizations(page int) (Paginated, error)
 	ReadOrganization(orgID string) (*Organization, error)
+
+	ReadProjectsInOrganizationByName(orgID string, name string) ([]*Project, error)
+	// ReadProjectsInOrganization returns all projects in the organization at the specified page
 	ReadProjectsInOrganization(orgID string, page int) (Paginated, error)
 	CreateProject(project *Project) (*Project, error)
 	UpdateProject(project *Project) (*Project, error)
@@ -399,7 +412,24 @@ func (oc *HTTPOmConnection) RemoveHost(hostID string) error {
 	return oc.delete(mPath)
 }
 
-// ReadOrganizations
+// ReadOrganizationsByName finds the organizations by name. It uses the same endpoint as the 'ReadOrganizations' but
+// 'name' and 'page' parameters are not supposed to be used together so having a separate endpoint allows
+func (oc *HTTPOmConnection) ReadOrganizationsByName(name string) ([]*Organization, error) {
+	mPath := fmt.Sprintf("/api/public/v1.0/orgs?name=%s", name)
+	res, err := oc.get(mPath)
+	if err != nil {
+		return nil, err
+	}
+
+	orgsResponse := &OrganizationsResponse{}
+	if err = json.Unmarshal(res, orgsResponse); err != nil {
+		return nil, NewAPIError(err)
+	}
+
+	return orgsResponse.Organizations, nil
+}
+
+// ReadOrganizations returns all organizations at the specified page.
 func (oc *HTTPOmConnection) ReadOrganizations(page int) (Paginated, error) {
 	mPath := fmt.Sprintf("/api/public/v1.0/orgs?itemsPerPage=500&pageNum=%d", page)
 	res, err := oc.get(mPath)
@@ -428,6 +458,21 @@ func (oc *HTTPOmConnection) ReadOrganization(orgID string) (*Organization, error
 	return organization, nil
 }
 
+func (oc *HTTPOmConnection) ReadProjectsInOrganizationByName(orgID string, name string) ([]*Project, error) {
+	mPath := fmt.Sprintf("/api/public/v1.0/orgs/%s/groups?name=%s", orgID, name)
+	res, err := oc.get(mPath)
+	if err != nil {
+		return nil, err
+	}
+
+	projectsResponse := &ProjectsResponse{}
+	if err := json.Unmarshal(res, projectsResponse); err != nil {
+		return nil, NewAPIError(err)
+	}
+
+	return projectsResponse.Groups, nil
+}
+
 // ReadProjectsInOrganization returns all projects inside organization
 func (oc *HTTPOmConnection) ReadProjectsInOrganization(orgID string, page int) (Paginated, error) {
 	mPath := fmt.Sprintf("/api/public/v1.0/orgs/%s/groups?itemsPerPage=500&pageNum=%d", orgID, page)
@@ -436,12 +481,12 @@ func (oc *HTTPOmConnection) ReadProjectsInOrganization(orgID string, page int) (
 		return nil, err
 	}
 
-	groupsResponse := &ProjectsResponse{}
-	if err := json.Unmarshal(res, groupsResponse); err != nil {
+	projectsResponse := &ProjectsResponse{}
+	if err := json.Unmarshal(res, projectsResponse); err != nil {
 		return nil, NewAPIError(err)
 	}
 
-	return groupsResponse, nil
+	return projectsResponse, nil
 }
 
 // CreateProject

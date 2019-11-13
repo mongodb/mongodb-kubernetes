@@ -859,13 +859,11 @@ tasks:
   commands:
     - func: "e2e_test"
 
-# TODO: restructure this test as it fails on OM 4.2 reaching
-# max amount of orgs per user (250) and makes all subsequent
-# tests to fail.
-# - name: e2e_replica_set_groups
-#   exec_timeout_secs: 600
-#   commands:
-#     - func: "e2e_test"
+- name: e2e_replica_set_groups
+  tags: ["openshift-om-42"]
+  exec_timeout_secs: 600
+  commands:
+     - func: "e2e_test"
 
 - name: e2e_replica_set_pv
   tags: ["kops-om-40"]
@@ -1202,6 +1200,7 @@ task_groups:
     - e2e_replica_set_upgrade_downgrade
     - e2e_replica_set_8_members
     - e2e_replica_set_exposed_externally
+    - e2e_replica_set_groups
     - e2e_sharded_cluster
     - e2e_sharded_cluster_pv
     - e2e_sharded_cluster_recovery

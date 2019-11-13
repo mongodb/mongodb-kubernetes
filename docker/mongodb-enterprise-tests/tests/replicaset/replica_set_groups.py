@@ -13,11 +13,9 @@ class TestReplicaSetOrganizationsPagination(KubernetesTester):
       Both organization and group already exist.
       Two things are tested:
       1. organization id is not specified in config map but the organization with the same name already exists
-      and there are 600+ organizations in OM (so the operator will traverse pages to find the organization by
-      name)
-      2. 600+ groups are created during setup and the necessary group must be found (so no duplicates will be created)
-
-      This test will not run in Cloud Manager
+      so the Operator will find it by name
+      2. the group already exists so no new group will be created
+      The test is skipped for cloud manager as we cannot create organizations there ("API_KEY_CANNOT_CREATE_ORG")
     """
 
     all_orgs_ids = []
@@ -27,15 +25,15 @@ class TestReplicaSetOrganizationsPagination(KubernetesTester):
 
     @classmethod
     def setup_env(cls):
-        # Create 600 organizations
-        cls.all_orgs_ids = cls.create_organizations(600)
+        # Create 5 organizations
+        cls.all_orgs_ids = cls.create_organizations(5)
 
         # Create another organization with the same name as group
         cls.group_name = KubernetesTester.random_k8s_name("replica-set-group-test-")
         cls.org_id = cls.create_organization(cls.group_name)
 
-        # Create 600 groups inside the organization
-        cls.all_groups_ids = cls.create_groups(cls.org_id, 600)
+        # Create 5 groups inside the organization
+        cls.all_groups_ids = cls.create_groups(cls.org_id, 5)
 
         # Create the group manually (btw no tag will be set - this must be fixed by the Operator)
         cls.create_group(cls.org_id, cls.group_name)
@@ -76,7 +74,8 @@ class TestReplicaSetOrganizationsPagination(KubernetesTester):
     def create_groups(org_id, count):
         ids = []
         for i in range(0, count):
-            ids.append(KubernetesTester.create_group(org_id, KubernetesTester.random_k8s_name("fake-group-{}-".format(i))))
+            ids.append(
+                KubernetesTester.create_group(org_id, KubernetesTester.random_k8s_name("fake-group-{}-".format(i))))
             if (i + 1) % 100 == 0:
                 print("Created {} fake groups inside organization {}".format(i + 1, org_id))
         return ids
