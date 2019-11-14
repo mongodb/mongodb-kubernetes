@@ -32,28 +32,21 @@ def get_go_mod_file() -> pathlib.Path:
     return current_dir.joinpath("go.mod")
 
 
-def parse_k8s_label(label: str) -> Tuple[Optional[str], bool]:
+def parse_k8s_label(label: str) -> Optional[str]:
     "Returns a k8s label"
-    sem_ver = label.split(".")
-    if len(sem_ver) not in (2, 3):
-        LOGGER.debug("Label must have either 2 or 3 parts")
+    try:
+        major, minor, patch = label.split(".")
+    except ValueError:
+        LOGGER.debug("Label must have 3 parts")
         return None
-    major = sem_ver[0]
-    minor = sem_ver[1]
-    if len(sem_ver) == 3:
-        patch = sem_ver[2]
-        is_patch = True
-    else:
-        patch = "0"
-        is_patch = False
     try:
         int(major)
         int(minor)
         int(patch)
     except ValueError:
         LOGGER.debug("Versions must be integers")
-        return None, False
-    return ".".join((major, minor, patch)), is_patch
+        return None
+    return ".".join((major, minor, patch))
 
 
 def run_cmd_with_no_goflags(cmd: List[str]) -> bool:
@@ -98,18 +91,15 @@ def main() -> int:
         "--debug", "-d", default=False, action="store_true", help="Run in debug mode"
     )
     parser.add_argument(
-        "k8s_label",
-        help=(
-            "Kubernetes label to get k8s libs from, such as 1.15 or 1.15.3"
-            "(patch version is ignored)"
-        ),
+        "k8s_label", help="Kubernetes label to get k8s libs from, such as 1.15.3",
     )
     args = parser.parse_args()
     if args.debug:
         LOGGER.setLevel(logging.DEBUG)
-    k8s_label, is_patch = parse_k8s_label(args.k8s_label)
+    k8s_label = parse_k8s_label(args.k8s_label)
     if not k8s_label:
         parser.error("Need to pass a valid k8s label. Got: %s" % args.k8s_label)
+        return 1
     LOGGER.info("Setting k8s_label as %s", k8s_label)
     scripts_dev_dir = pathlib.Path(os.path.abspath(__file__)).parent.absolute()
     template_file = scripts_dev_dir.joinpath("go.mod.jinja")
