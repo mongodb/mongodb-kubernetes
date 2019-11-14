@@ -54,7 +54,7 @@ build_image () {
 apiVersion: v1
 kind: Pod
 metadata:
-  name: builder-pod-${image_random_name}
+  name: ${pod_builder_id}
   namespace: construction-site
   labels:
     podbuilderid: ${pod_builder_id}

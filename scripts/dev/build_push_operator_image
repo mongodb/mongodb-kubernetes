@@ -18,7 +18,7 @@ elif [[ ${REPO_TYPE} = "ecr" ]]; then
     repo_name="$(echo ${REPO_URL} | cut -d "/" -f 2)"
 
     operator_name="mongodb-enterprise-operator"
-    ensure_ecr_repository "${repo_name}/${operator_name}"
+    ensure_ecr_repository "${repo_name}/${IMAGE_TYPE}/${operator_name}"
 
     is_debug="False"
     if [[ -n "${debug-}" ]]; then

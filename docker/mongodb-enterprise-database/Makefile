@@ -5,6 +5,8 @@ IMAGE_DIR = dev
 AWS_IMAGE_REPO = 268558157000.dkr.ecr.us-east-1.amazonaws.com
 AWS_REGION = us-east-1
 IMAGE_TYPE = ubuntu
+IMAGE_PATH = $(IMAGE_DIR)/$(IMAGE_TYPE)/$(IMAGE):$(IMAGE_VERSION)
+APP_IMAGE_PATH = $(IMAGE_DIR)/$(IMAGE_TYPE)/$(IMAGE_APPDB):$(IMAGE_VERSION)
 AA_DOWNLOAD_LOCATION = https://s3.amazonaws.com/mciuploads/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod
 AA_VERSION = 10.2.2.5862-1
 TEST_AUTOMATION_CONFIG = test/replset.json
@@ -39,13 +41,13 @@ delete_container:
 	- docker ps -a | tail -n +2 | grep '$(IMAGE)' | awk '{print $$1}' | xargs docker rm -f
 
 clean: delete_container
-	- docker rmi $(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE)
+	- docker rmi $(IMAGE_PATH)
 
 build:
 	@ GOOS='linux' GOFLAGS="-mod=vendor" go build -i -o readiness ../../probe
 	@ mv readiness content/readinessprobe
 	@ ../Dockerfile.gen "${IMAGE_TYPE}" > Dockerfile
-	docker build $(EXTRA_PARAM) -t $(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE) .
+	docker build $(EXTRA_PARAM) -t $(IMAGE_PATH) .
 
 clean-build:
 	@ $(MAKE) EXTRA_PARAM="--no-cache --force-rm --rm" clean build
@@ -57,12 +59,12 @@ aws_login:
 	@ eval "$(shell aws ecr get-login --no-include-email --region $(AWS_REGION))" &> /dev/null || true
 
 pull: aws_login
-	docker pull $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE)
-	docker tag $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE) $(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE)
+	docker pull $(AWS_IMAGE_REPO)/$(IMAGE_PATH)
+	docker tag $(AWS_IMAGE_REPO)/$(IMAGE_PATH) $(IMAGE_PATH)
 
 push: build aws_login
-	docker tag $(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE) $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE)
-	docker push $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE)
+	docker tag $(IMAGE_PATH) $(AWS_IMAGE_REPO)/$(IMAGE_PATH)
+	docker push $(AWS_IMAGE_REPO)/$(IMAGE_PATH)
 
 check-ops-manager-env:
 ifndef BASE_URL
@@ -76,7 +78,7 @@ ifndef AGENT_API_KEY
 endif
 
 run: check-ops-manager-env
-	docker run -e BASE_URL -e GROUP_ID -e AGENT_API_KEY -e HTTP_PROXY -t  $(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE)
+	docker run -e BASE_URL -e GROUP_ID -e AGENT_API_KEY -e HTTP_PROXY -t  $(IMAGE_PATH)
 
 all:
 	@ $(MAKE) clean build run
@@ -107,22 +109,22 @@ build_appdb:
 	@ mv readiness content/readinessprobe
 	@ ../Dockerfile.gen "${IMAGE_TYPE}" "True" > Dockerfile
 	docker build $(EXTRA_PARAM) \
-		-t $(IMAGE_DIR)/$(IMAGE_APPDB):$(IMAGE_VERSION)-$(IMAGE_TYPE) \
+		-t $(APP_IMAGE_PATH) \
 		--build-arg AA_DOWNLOAD_LOCATION=$(AA_DOWNLOAD_LOCATION) \
 		--build-arg AA_VERSION=$(AA_VERSION) .
 
 pull_appdb: aws_login
-	docker pull $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE_APPDB):$(IMAGE_VERSION)-$(IMAGE_TYPE)
-	docker tag $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE_APPDB):$(IMAGE_VERSION)-$(IMAGE_TYPE) $(IMAGE_DIR)/$(IMAGE_APPDB):$(IMAGE_VERSION)-$(IMAGE_TYPE)
+	docker pull $(AWS_IMAGE_REPO)/$(APP_IMAGE_PATH)
+	docker tag $(AWS_IMAGE_REPO)/$(APP_IMAGE_PATH) $(APP_IMAGE_PATH)
 
 push_appdb: build_appdb aws_login
-	docker tag $(IMAGE_DIR)/$(IMAGE_APPDB):$(IMAGE_VERSION)-$(IMAGE_TYPE) $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE_APPDB):$(IMAGE_VERSION)-$(IMAGE_TYPE)
-	docker push $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE_APPDB):$(IMAGE_VERSION)-$(IMAGE_TYPE)
+	docker tag $(APP_IMAGE_PATH) $(AWS_IMAGE_REPO)/$(APP_IMAGE_PATH)
+	docker push $(AWS_IMAGE_REPO)/$(APP_IMAGE_PATH)
 
 run_appdb: delete_container_appdb
 	docker run --name test-appdb \
 		--mount type=bind,source=$(shell pwd)/$(TEST_AUTOMATION_CONFIG),target=/var/lib/mongodb-automation/cluster-config.json \
-		-t $(IMAGE_DIR)/$(IMAGE_APPDB):$(IMAGE_VERSION)-$(IMAGE_TYPE)
+		-t $(APP_IMAGE_PATH)
 
 all_appdb:
 	@ $(MAKE) build_appdb run_appdb

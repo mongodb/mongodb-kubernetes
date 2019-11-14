@@ -321,7 +321,6 @@ functions:
       script: |
         tar -C docker/mongodb-enterprise-operator -zcvf operator-context.tar.gz .
         tar -C docker/mongodb-enterprise-database -zcvf database-context.tar.gz .
-        tar -C docker/mongodb-enterprise-tests -zcvf tests-context.tar.gz .
   - command: s3.put
     params:
       aws_key: ${mms_build_s3_aws_access_key}
@@ -344,14 +343,17 @@ functions:
         export AWS_ACCESS_KEY_ID=${mms_eng_test_aws_access_key}
         export AWS_SECRET_ACCESS_KEY=${mms_eng_test_aws_secret}
         export AWS_REGION=${mms_eng_test_aws_region}
+        export AWS_DEFAULT_REGION=${mms_eng_test_aws_region}
 
         source scripts/evergreen/build_docker_image.sh
+        source scripts/funcs
         short_version=$(split_version_into_sha ${version_id})
 
-        for image_type in "tests" "operator" "database"; do
+        for image_type in "operator" "database"; do
+          ensure_ecr_repository "dev/${distro}/mongodb-enterprise-$image_type"
           ./scripts/evergreen/build_docker_image.sh \
-              "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-$image_type" \
-              "$VERSION-${distro}" \
+              "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/${distro}/mongodb-enterprise-$image_type" \
+              "$VERSION" \
               "s3://ops-manager-kubernetes-build/ops-manager-operator/$VERSION:${distro}/contexts/$image_type-context.tar.gz" \
               "a=1" \
               "268558157000.dkr.ecr.us-east-1.amazonaws.com/cache/mongodb-enterprise-$image_type" \
@@ -362,12 +364,13 @@ functions:
         while [[ $all_finished == "false" ]]; do
           sleep 5
           all_finished="true"
-          for image_type in "tests" "operator" "database"; do
-            echo "Checking if $image_type-build-$short_version-${distro} finished already."
+          for image_type in "operator" "database"; do
             if [[ $(kubectl -n construction-site get pod --selector "podbuilderid=$image_type-build-$short_version-${distro}" -o jsonpath='{.items[0].status.phase}') != "Succeeded" ]]; then
-              echo "$image_type-build-$short_version has not finished yet. Status is"
-              kubectl -n construction-site get pod --selector "podbuilderid=$image_type-build-$short_version-${distro}" -o jsonpath='{.status.phase}'
+              status=$(kubectl -n construction-site get pod --selector "podbuilderid=$image_type-build-$short_version-${distro}" -o jsonpath='{.status.phase}')
+              echo "Pod with label $image_type-build-$short_version-${distro} has not finished yet. Status is $status"
               all_finished="false"
+            else
+              echo "Pod with label $image_type-build-$short_version-${distro} has finished"
             fi
           done
         done
@@ -472,10 +475,10 @@ functions:
             export TEST_IMAGE_TAG=${version_id}
           else
             export REVISION="$(git rev-parse HEAD)"
-            export VERSION_ID="${version_id}-${distro}"
+            export VERSION_ID="${version_id}"
             export OPERATOR_NAME=mongodb-enterprise-operator
             export DATABASE_NAME=mongodb-enterprise-database
-            export REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
+            export REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/${distro}"
           fi
 
           echo "Distro is ${distro}. Should have been set in buildvariant!"
@@ -519,7 +522,7 @@ functions:
           export PATH=${workdir}/bin:$PATH
           export REVISION=$(git rev-parse HEAD)
           export PATH=${workdir}/bin:$PATH
-          export VERSION_ID="${version_id}-${distro}"
+          export VERSION_ID="${version_id}"
           export MANAGED_SECURITY_CONTEXT="true"
           export BUILD_VARIANT=${build_variant}
           export TASK_ID=${task_id}
@@ -560,7 +563,7 @@ functions:
           unset CURRENT_VERSION
           export OPERATOR_UPGRADE_IN_PROGRESS="stage2"
 
-          export REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
+          export REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/${distro}"
           echo "Deploying the new Operator with version $VERSION_ID"
           TASK_NAME=${mark_verify} ./scripts/evergreen/e2e_tests.sh
 
@@ -659,10 +662,25 @@ tasks:
     - func: "push_operator_binary_for_rhel"
     - func: "push_database_readiness_probe_for_rhel"
 
+- name: build_test_image
+  exec_timeout_secs: 1200
+  priority: 1
+  commands:
+    - func: clone
+    - func: setup_aws
+    - func: setup_jq
+    - func: setup_docker
+    - func: build_and_push_image
+      vars:
+        env: development
+        image_name: mongodb-enterprise-tests
+        tag_images_with_version: "true"
+
 - name: build_images_rhel
   commands:
   - func: clone
   - func: setup_jq
+  - func: setup_aws
   - func: build_operator
     vars:
       distro: rhel
@@ -684,6 +702,7 @@ tasks:
   commands:
   - func: clone
   - func: setup_jq
+  - func: setup_aws
   - func: build_operator
     vars:
       distro: ubuntu
@@ -1338,6 +1357,8 @@ buildvariants:
   depends_on:
     - name: build_images_ubuntu
       variant: init_test_run
+    - name: build_test_image
+      variant: init_test_run
     - name: prepare_cluster_vanilla_1_15
       variant: init_test_run
   run_on:
@@ -1355,6 +1376,8 @@ buildvariants:
   display_name: "e2e_kube_vanilla_v1.15_om_42_current"
   depends_on:
     - name: build_images_ubuntu
+      variant: init_test_run
+    - name: build_test_image
       variant: init_test_run
     - name: prepare_cluster_vanilla_1_15
       variant: init_test_run
@@ -1375,6 +1398,8 @@ buildvariants:
   display_name: "e2e_openshift_origin_v3.11_om_42_current"
   depends_on:
     - name: build_images_rhel
+      variant: init_test_run
+    - name: build_test_image
       variant: init_test_run
     - name: prepare_cluster_openshift_3_11
       variant: init_test_run
@@ -1397,6 +1422,8 @@ buildvariants:
   depends_on:
     - name: build_images_rhel
       variant: init_test_run
+    - name: build_test_image
+      variant: init_test_run
   run_on:
   - archlinux-test
   stepback: false
@@ -1415,6 +1442,8 @@ buildvariants:
   display_name: "e2e_kube_vanilla_ops_manager"
   depends_on:
     - name: build_images_ubuntu
+      variant: init_test_run
+    - name: build_test_image
       variant: init_test_run
     - name: prepare_cluster_vanilla_1_15_om
       variant: init_test_run
@@ -1456,6 +1485,7 @@ buildvariants:
   tasks:
   - name: build_images_rhel
   - name: build_images_ubuntu
+  - name: build_test_image
   - name: prepare_cluster_openshift_3_11
   - name: prepare_cluster_vanilla_1_15
   - name: prepare_cluster_vanilla_1_15_om

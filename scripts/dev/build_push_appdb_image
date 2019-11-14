@@ -39,7 +39,7 @@ elif [[ ${REPO_TYPE} = "ecr" ]]; then
     repo_host="$(echo ${REPO_URL} | cut -d "/" -f 1)"
     repo_name="$(echo ${REPO_URL} | cut -d "/" -f 2)"
 
-    ensure_ecr_repository "${repo_name}/mongodb-enterprise-appdb"
+    ensure_ecr_repository "${repo_name}/${IMAGE_TYPE}/mongodb-enterprise-appdb"
 
     make -C docker/mongodb-enterprise-database push_appdb IMAGE_DIR="${repo_name}" AWS_IMAGE_REPO="${repo_host}" \
            IMAGE_TYPE="${IMAGE_TYPE}" AA_VERSION="${automation_agent_version}" IMAGE_VERSION="${om_version}"

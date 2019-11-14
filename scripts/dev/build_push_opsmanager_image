@@ -9,10 +9,17 @@ title "Building Ops Manager image..."
 
 # TODO use some kind of named parameters instead of relying on positions...
 check_mandatory_param "${1-}" "om_version"
-check_mandatory_param "${2-}" "download_url"
 
 image_version="$1"
-download_url="$2"
+download_url="${2-}"
+
+if [[ -z $download_url ]]; then
+    echo "Download url is not provided, so fetching it from the official Ops Manager binaries json"
+    download_url=$(om_download_url $image_version)
+
+    [[ -z ${download_url} ]] && fatal "Failed to find download link for version $image_version"
+    echo "The download url for ${image_version} is ${download_url}"
+fi
 
 if [[ ${REPO_TYPE} = "local" ]]; then
     eval "$(minikube docker-env)"
@@ -22,7 +29,7 @@ elif [[ ${REPO_TYPE} = "ecr" ]]; then
     repo_host="$(echo ${REPO_URL} | cut -d "/" -f 1)"
     repo_name="$(echo ${REPO_URL} | cut -d "/" -f 2)"
 
-    ensure_ecr_repository "${repo_name}/mongodb-enterprise-ops-manager"
+    ensure_ecr_repository "${repo_name}/${IMAGE_TYPE}/mongodb-enterprise-ops-manager"
 
     make -C docker/mongodb-enterprise-ops-manager push IMAGE_DIR="${repo_name}" AWS_IMAGE_REPO="${repo_host}" \
             IMAGE_TYPE="${IMAGE_TYPE}" IMAGE_VERSION="${image_version}" OM_DOWNLOAD_LINK="${download_url}"

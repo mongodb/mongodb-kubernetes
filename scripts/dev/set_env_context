@@ -42,6 +42,7 @@ if [[ "${CLUSTER_TYPE}" = "openshift" ]]; then
     export IMAGE_TYPE="rhel"
 fi
 
+export REPO_URL=${REPO_URL}/${IMAGE_TYPE}
 export CURRENT_CONTEXT=${context}
 export NAMESPACE=${NAMESPACE:-mongodb}
 export OPERATOR_DIR=${root_dir}

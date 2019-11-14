@@ -81,7 +81,7 @@ class TestOpsManagerVersionUpgrade(OpsManagerBase):
       The OM upgrade happens in rolling manner, we are checking for OM healthiness in parallel
     update:
       file: om_ops_manager_scale.yaml
-      patch: '[{"op":"replace","path":"/spec/version", "value": "4.2.3-ubuntu"}]'
+      patch: '[{"op":"replace","path":"/spec/version", "value": "4.2.3"}]'
       wait_until: om_in_running_state
       timeout: 1000
     """
@@ -89,10 +89,10 @@ class TestOpsManagerVersionUpgrade(OpsManagerBase):
     def test_image_url(self):
         """All pods in statefulset are referencing the correct image"""
         pod = self.corev1.read_namespaced_pod("om-scale-0", self.namespace)
-        assert "4.2.3-ubuntu" in pod.spec.containers[0].image
+        assert "4.2.3" in pod.spec.containers[0].image
 
         pod = self.corev1.read_namespaced_pod("om-scale-1", self.namespace)
-        assert "4.2.3-ubuntu" in pod.spec.containers[0].image
+        assert "4.2.3" in pod.spec.containers[0].image
 
     @skip_if_local
     def test_om_has_been_up_during_upgrade(self):
@@ -107,7 +107,7 @@ class TestOpsManagerScaleUp(OpsManagerBase):
       The OM statefulset is scaled to 3 nodes
     update:
       file: om_ops_manager_scale.yaml
-      patch: '[{"op":"replace","path":"/spec/version", "value": "4.2.3-ubuntu"}, {"op":"replace","path":"/spec/replicas", "value": 3}]'
+      patch: '[{"op":"replace","path":"/spec/version", "value": "4.2.3"}, {"op":"replace","path":"/spec/replicas", "value": 3}]'
       wait_until: om_in_running_state
       timeout: 500
     """
@@ -143,7 +143,7 @@ class TestOpsManagerScaleDown(OpsManagerBase):
       TODO somehow we need to check that termination for OM pods happened successfully: CLOUDP-52310
     update:
       file: om_ops_manager_scale.yaml
-      patch: '[{"op":"replace","path":"/spec/version", "value": "4.2.3-ubuntu"}, {"op":"replace","path":"/spec/replicas", "value": 1}]'
+      patch: '[{"op":"replace","path":"/spec/version", "value": "4.2.3"}, {"op":"replace","path":"/spec/replicas", "value": 1}]'
       wait_until: om_in_running_state
       timeout: 500
     """

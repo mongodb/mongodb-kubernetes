@@ -10,6 +10,7 @@ OM_DOWNLOAD_LINK = https://downloads.mongodb.com/on-prem-mms/tar/mongodb-mms-4.2
 APPDB_PORT = 27017
 IP = $(shell ifconfig | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1' | head -1)
 IMAGE_TYPE = ubuntu
+IMAGE_PATH = $(IMAGE_DIR)/$(IMAGE_TYPE)/$(IMAGE):$(IMAGE_VERSION)
 
 usage:
 	@ echo "MongoDB Enterprise Ops Manager - Docker image builder"
@@ -38,11 +39,11 @@ delete_container:
 	@ docker rm -f $(CONTAINER) || true
 
 clean: delete_container
-	@ docker rmi $(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE) || true
+	@ docker rmi $(IMAGE_PATH) || true
 
 build:
 	docker build $(EXTRA_PARAM) \
-		-t $(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE) \
+		-t $(IMAGE_PATH) \
 		--build-arg OM_DOWNLOAD_LINK=$(OM_DOWNLOAD_LINK) \
 		.
 
@@ -60,16 +61,16 @@ aws_login:
 	@ eval "$(shell aws ecr get-login --no-include-email --region $(AWS_REGION))" &> /dev/null || true
 
 pull: aws_login
-	docker pull $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE)
-	docker tag $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE) $(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE)
+	docker pull $(AWS_IMAGE_REPO)/$(IMAGE_PATH)
+	docker tag $(AWS_IMAGE_REPO)/$(IMAGE_PATH) $(IMAGE_PATH)
 
 push: build aws_login
-	docker tag $(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE) $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE)
-	docker push $(AWS_IMAGE_REPO)/$(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE)
+	docker tag $(IMAGE_PATH) $(AWS_IMAGE_REPO)/$(IMAGE_PATH)
+	docker push $(AWS_IMAGE_REPO)/$(IMAGE_PATH)
 
 run:
 	@ echo "Make sure you run the mongodb on port $(APPDB_PORT)"
-	docker run --name $(CONTAINER) -p 8080:8080 -e OM_PROP_mongo_mongoUri='mongodb://$(IP):$(APPDB_PORT)' -t $(IMAGE_DIR)/$(IMAGE):$(IMAGE_VERSION)-$(IMAGE_TYPE)
+	docker run --name $(CONTAINER) -p 8080:8080 -e OM_PROP_mongo_mongoUri='mongodb://$(IP):$(APPDB_PORT)' -t $(IMAGE_PATH)-
 
 start:
 	@ echo "Restarting the $(CONTAINER) container..."

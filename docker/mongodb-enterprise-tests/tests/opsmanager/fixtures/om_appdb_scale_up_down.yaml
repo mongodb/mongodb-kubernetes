@@ -4,7 +4,7 @@ metadata:
   name: om-scale
 spec:
   replicas: 1
-  version: 4.2.0-ubuntu
+  version: 4.2.0
   adminCredentials: ops-manager-admin
 
   applicationDatabase:
