@@ -1,4 +1,7 @@
-IMAGE_VERSION=0.9
+IMAGE_VERSION=0.10
+
+.PHONY: all
+all: build push install
 
 build:
 	docker build -t dev/cluster-cleaner:$(IMAGE_VERSION) .

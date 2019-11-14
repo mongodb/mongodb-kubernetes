@@ -14,6 +14,5 @@ for pod in $(kubectl -n $NAMESPACE get pods -o name); do
         continue
     fi
 
-    kubectl delete "${pod}"
-
+    kubectl -n $NAMESPACE delete "${pod}"
 done

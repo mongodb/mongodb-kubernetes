@@ -24,8 +24,12 @@ the right Kubernetes cluster and set the required environment variables.
 
 * To restart Ops Manager:
 
-    OM_NAMESPACE=operator-testing-42-current scripts/clean-ops-manager.sh
+    OM_NAMESPACE=operator-testing-42-current ./clean-ops-manager.sh
 
 * To clean failed namespaces:
 
-    DELETE_OLDER_THAN_AMOUNT=10 DELETE_OLDER_THAN_UNIT=minutes scripts/clean-failed-namespaces.sh
+    DELETE_OLDER_THAN_AMOUNT=10 DELETE_OLDER_THAN_UNIT=minutes ./clean-failed-namespaces.sh
+
+* To clean old builder Pods:
+
+    DELETE_OLDER_THAN_AMOUNT=1 DELETE_OLDER_THAN_UNIT=days ./delete-old-builder-pods.sh
