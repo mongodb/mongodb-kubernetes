@@ -21,10 +21,10 @@ require (
 	go.uber.org/zap v1.10.0
 	golang.org/x/text v0.3.2 // indirect
 	gopkg.in/yaml.v2 v2.2.5 // indirect
-	k8s.io/api v0.0.0-20191114100237-2cd11237263f
-	k8s.io/apimachinery v0.0.0-20191004115701-31ade1b30762
-	k8s.io/client-go v0.0.0-20191114101336-8cba805ad12d
-	k8s.io/code-generator v0.0.0-20190612205613-18da4a14b22b
+	k8s.io/api v0.0.0-20191114100237-2cd11237263f // 1.15.6
+	k8s.io/apimachinery v0.0.0-20191004115701-31ade1b30762 // 1.15.6
+	k8s.io/client-go v0.0.0-20191114101336-8cba805ad12d // 1.15.6
+	k8s.io/code-generator v0.0.0-20190612205613-18da4a14b22b // 1.15.6
 	sigs.k8s.io/controller-runtime v0.3.0
 )
 
