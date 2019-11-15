@@ -30,7 +30,7 @@ fi
 
 if ! [[ -x "$(command -v staticcheck)" ]]; then
     echo "installing go tools..."
-    GO111MODULE=off go get honnef.co/go/tools/...
+    GO111MODULE=off go get -u honnef.co/go/tools/...
 fi
 
 # check for dead code
