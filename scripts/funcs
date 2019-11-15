@@ -296,6 +296,8 @@ redeploy_operator() {
          --set operator.watchNamespace="${watch_namespace}" \
          --set operator.name="${OPERATOR_NAME:=mongodb-enterprise-operator}" \
          --set database.name="${DATABASE_NAME:=mongodb-enterprise-database}" \
+         --set opsManager.name="${OPS_MANAGER_NAME:=mongodb-enterprise-ops-manager}" \
+         --set appDb.name="${APPDB_NAME:=mongodb-enterprise-appdb}" \
          --set namespace="${ns}" \
          --set managedSecurityContext="${managed_security_context}" \
          --set debug="${DEBUG-}" \

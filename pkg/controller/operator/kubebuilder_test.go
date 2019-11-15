@@ -188,7 +188,7 @@ func TestBaseAppDbPodSpec(t *testing.T) {
 
 	assert.Len(t, spec.Containers, 1)
 	assert.Equal(t, util.ContainerAppDbName, spec.Containers[0].Name)
-	assert.Equal(t, "http://quay.io/appdb:4.2.2", spec.Containers[0].Image)
+	assert.Equal(t, "http://quay.io/appdb:4.2.2-operator9.9.9-test", spec.Containers[0].Image)
 	assert.Equal(t, corev1.PullPolicy("NEVER"), spec.Containers[0].ImagePullPolicy)
 
 	// Env variables

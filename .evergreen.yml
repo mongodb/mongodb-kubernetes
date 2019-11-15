@@ -376,6 +376,28 @@ functions:
         done
         echo "Construction Pods have finished, we are good to start the tests."
 
+  "build_and_push_om_test_images":
+    - command: shell.exec
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        script: |
+          export PATH=${workdir}/bin:$PATH
+
+          # AWS creds
+          export AWS_ACCESS_KEY_ID=${mms_eng_test_aws_access_key}
+          export AWS_SECRET_ACCESS_KEY=${mms_eng_test_aws_secret}
+          export AWS_DEFAULT_REGION=${mms_eng_test_aws_region}
+
+          export IN_MEMORY_CONTEXT=true
+          export REPO_URL=268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
+          export GITHUB_TOKEN=${GITHUB_TOKEN}
+          export CLUSTER_TYPE=kops
+          if [[ ${distro} = "rhel" ]]; then
+            export CLUSTER_TYPE=openshift
+          fi
+
+          make om-batch scope=test
+
   "build_and_push_image":
     - command: shell.exec
       params:
@@ -410,11 +432,6 @@ functions:
           # Releases override REVISION from predefined tags
           if [ -n "${release_object}" ]; then
             export REVISION=$(./scripts/evergreen/read_release_version.py --release-app ${release_object})
-
-            # When releasing mongodb enterprise the docker tag and version of MongoDB are the same
-            if [ "${release_object}" = "mongodbEnterprise" ]; then
-              export docker_args="MONGO_VERSION=$REVISION"
-            fi
           fi
 
           ./scripts/evergreen/build_and_push.py \
@@ -676,6 +693,20 @@ tasks:
         image_name: mongodb-enterprise-tests
         tag_images_with_version: "true"
 
+- name: build_om_images
+  exec_timeout_secs: 1200
+  priority: 1
+  commands:
+    - func: clone
+    - func: setup_aws
+    - func: setup_jq
+    - func: setup_docker
+    - func: build_and_push_image
+      vars:
+        env: development
+        image_name: mongodb-enterprise-tests
+        tag_images_with_version: "true"
+
 - name: build_images_rhel
   commands:
   - func: clone
@@ -717,6 +748,19 @@ tasks:
     vars:
       kube_environment_name: openshift_3_11
   - func: build_e2e_images
+    vars:
+      distro: ubuntu
+
+- name: build_om_images_ubuntu
+  commands:
+  - func: clone
+  - func: setup_jq
+  - func: setup_aws
+  - func: setup_docker
+  - func: "build_operator"
+    vars:
+      distro: ubuntu
+  - func: build_and_push_om_test_images
     vars:
       distro: ubuntu
 
@@ -1462,6 +1506,8 @@ buildvariants:
       variant: init_test_run
     - name: build_test_image
       variant: init_test_run
+    - name: build_om_images_ubuntu
+      variant: init_test_run
     - name: prepare_cluster_vanilla_1_15_om
       variant: init_test_run
   run_on:
@@ -1502,6 +1548,7 @@ buildvariants:
   tasks:
   - name: build_images_rhel
   - name: build_images_ubuntu
+  - name: build_om_images_ubuntu
   - name: build_test_image
   - name: prepare_cluster_openshift_3_11
   - name: prepare_cluster_vanilla_1_15

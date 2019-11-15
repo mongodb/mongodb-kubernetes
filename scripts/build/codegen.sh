@@ -1,6 +1,6 @@
 #!/bin/bash -e
 
-set -xeuo pipefail
+set -euo pipefail
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 pushd "${DIR}" &> /dev/null

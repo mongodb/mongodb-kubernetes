@@ -2,7 +2,7 @@
 #
 # This script should be run from the root evergreen work dir
 
-set -xeuo pipefail
+set -euo pipefail
 
 INSTALL_DIR="$(pwd)/.local/lib/aws"
 BIN_LOCATION="$(pwd)/bin/aws"

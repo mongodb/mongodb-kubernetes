@@ -9,21 +9,32 @@ cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
 source scripts/funcs
 
-# Reading context file
-readonly root_dir="$HOME/.operator-dev"
-readonly context_file="$root_dir/current"
+if [[ -z "${IN_MEMORY_CONTEXT-}" ]]; then
+    # Reading context file
+    readonly root_dir="$HOME/.operator-dev"
+    readonly context_file="$root_dir/current"
 
-if [[ ! -f ${context_file} ]]; then
-    fatal "File \"${context_file}\" not found! You must init development environment using \"make init\" first"
+    if [[ ! -f ${context_file} ]]; then
+        fatal "File \"${context_file}\" not found! You must init development environment using \"make init\" first"
+    fi
+
+    context=$(cat ${context_file})
+
+    if [[ ! -f ${root_dir}/contexts/${context} ]]; then
+        fatal "Configuration file \"${root_dir}/contexts/${context}\" not found!"
+    fi
+
+    eval "$(cat ${root_dir}/contexts/${context})"
+
+    # LOCAL_RUN indicates that the make script is run locally. This may affect different build/deploy decisions
+    export LOCAL_RUN=true
+else
+    echo "Skipping reading context file. Note that all the configuration information\
+         (REPO_URL, CLUSTER_TYPE) must be provided as environment variables!"
+
+    # LOCAL_RUN=false indicates that the make script is run by Evergreen. This may affect different build/deploy decisions
+    export LOCAL_RUN=false
 fi
-
-context=$(cat ${context_file})
-
-if [[ ! -f ${root_dir}/contexts/${context} ]]; then
-    fatal "Configuration file \"${root_dir}/contexts/${context}\" not found!"
-fi
-
-eval "$(cat ${root_dir}/contexts/${context})"
 
 # guessing type of registry by url
 # regular expression matching (https://www.tldp.org/LDP/abs/html/string-manipulation.html)
@@ -42,9 +53,13 @@ if [[ "${CLUSTER_TYPE}" = "openshift" ]]; then
     export IMAGE_TYPE="rhel"
 fi
 
+# Appending image type (ubuntu/rhel) to the registry url
 export REPO_URL=${REPO_URL}/${IMAGE_TYPE}
-export CURRENT_CONTEXT=${context}
 export NAMESPACE=${NAMESPACE:-mongodb}
-export OPERATOR_DIR=${root_dir}
+
+if [[ -z "${IN_MEMORY_CONTEXT-}" ]]; then
+    export OPERATOR_DIR=${root_dir}
+    export CURRENT_CONTEXT=${context}
+fi
 # switch this on if your network is slow to decrease the size of binary
 # export COMPRESS_OPERATOR_BINARY=true

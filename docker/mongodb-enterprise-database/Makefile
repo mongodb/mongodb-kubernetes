@@ -5,11 +5,13 @@ IMAGE_DIR = dev
 AWS_IMAGE_REPO = 268558157000.dkr.ecr.us-east-1.amazonaws.com
 AWS_REGION = us-east-1
 IMAGE_TYPE = ubuntu
-IMAGE_PATH = $(IMAGE_DIR)/$(IMAGE_TYPE)/$(IMAGE):$(IMAGE_VERSION)
-APP_IMAGE_PATH = $(IMAGE_DIR)/$(IMAGE_TYPE)/$(IMAGE_APPDB):$(IMAGE_VERSION)
 AA_DOWNLOAD_LOCATION = https://s3.amazonaws.com/mciuploads/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod
 AA_VERSION = 10.2.2.5862-1
 TEST_AUTOMATION_CONFIG = test/replset.json
+IMAGE_PATH = $(IMAGE_DIR)/$(IMAGE_TYPE)/$(IMAGE):$(IMAGE_VERSION)
+# Image suffix allows to separate different build versions. The main planned sample is '-operatorX.Y.Z'
+IMAGE_SUFFIX =
+APP_IMAGE_PATH = $(IMAGE_DIR)/$(IMAGE_TYPE)/$(IMAGE_APPDB):$(IMAGE_VERSION)$(IMAGE_SUFFIX)
 
 usage:
 	@ echo "MongoDB Enterprise Database - Docker image builder"
@@ -105,7 +107,8 @@ build_appdb:
 	@ if [[ -z "$(AA_VERSION)" ]]; then \
 		echo "AA_VERSION parameter must be specified"; exit 1; \
 	fi
-	@ GOOS='linux' GOFLAGS="-mod=vendor" go build -i -o readiness ../../probe
+	@ GOOS='linux' GOFLAGS="-mod=vendor" go build -i -o readiness ../../probe || \
+	   (../../scripts/build/prepare_build_environment && GOOS='linux' GOFLAGS="-mod=vendor" go build -i -o readiness ../../probe)
 	@ mv readiness content/readinessprobe
 	@ ../Dockerfile.gen "${IMAGE_TYPE}" "True" > Dockerfile
 	docker build $(EXTRA_PARAM) \

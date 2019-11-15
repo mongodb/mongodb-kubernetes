@@ -9,6 +9,10 @@ cd "$(git rev-parse --show-toplevel)"
 # --dirty to flag changes to your working tree
 RELEASE_VERSION=$(git describe --dirty)
 
+# for running Operator locally we don't specify version (as the Operator version affects the OM/AppDB image used when
+# deploying OM resource)
+[[ -n "${LOCAL_RUN-}" ]] && RELEASE_VERSION=""
+
 # build stripped binary for linux with appropriate release version set
 if [[ "$(uname)" != 'Linux' ]]; then
     export GOOS='linux'
@@ -24,7 +28,7 @@ fi
 if [[ ${DEBUG-} = "True" ]]; then
     echo "Building Operator binary in 'debug' mode..."
     go build -gcflags "-N -l" -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator \
-      -ldflags="-X github.com/10gen/ops-manager-kubernetes/pkg/util.LogAutomationConfigDiff=${LOG_AUTOMATION_CONFIG_DIFF}"
+      -ldflags="-X github.com/10gen/ops-manager-kubernetes/pkg/util.OperatorVersion=${RELEASE_VERSION} -X github.com/10gen/ops-manager-kubernetes/pkg/util.LogAutomationConfigDiff=${LOG_AUTOMATION_CONFIG_DIFF}"
 else
     echo "Building Operator binary..."
     go build -i -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator \

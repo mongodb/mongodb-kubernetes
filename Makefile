@@ -23,12 +23,15 @@ usage:
 	@ echo "                              to ensure the 30042 port on the K8s node is open"
 	@ echo "                              Use the 'watch_namespace' flag to specify a namespace to watch or leave empty to watch project namespace."
 	@ echo "  database:                   build and push Database image"
-	@ echo "  appdb:                      build and push AppDB image. Specify 'om_version' in format '4.2.1' to provide the already released Ops Manager"
-	@ echo "                              version which will be used to find the matching tag and find the Automation Agent version. Add 'om_branch' "
-	@ echo "                              if Ops Manager is not released yet and you want to have some git branch as the source "
 	@ echo "  full:                       ('make' is an alias for this command) ensures K8s cluster is up, cleans Kubernetes"
 	@ echo "                              resources, build-push-deploy operator, push-deploy database, create secrets, "
 	@ echo "                              config map, resources etc"
+	@ echo "  om-batch                    builds both Ops Manager and AppDB images for the specified scope. Provide 'scope=all' to build"
+	@ echo "                              all versions from 'release.json'. Provide 'scope=test' to build only images marked as 'test=true'"
+	@ echo "                              in 'release.json'. Or 'scope=4.2.2,4.3.4' to provide versions explicitely"
+	@ echo "  appdb:                      build and push AppDB image. Specify 'om_version' in format '4.2.1' to provide the already released Ops Manager"
+	@ echo "                              version which will be used to find the matching tag and find the Automation Agent version. Add 'om_branch' "
+	@ echo "                              if Ops Manager is not released yet and you want to have some git branch as the source "
 	@ echo "  om-image:                   builds and pushes the Ops Manager docker image. The download url will be discovered for official releases."
 	@ echo "                              Specify the download url using 'download_url' if you need some custom build. The url must point "
 	@ echo "                              to the Ubuntu 16/18 tar.gz distro"
@@ -82,15 +85,18 @@ operator: build-and-push-operator-image
 database: aws_login
 	@ scripts/dev/build_push_database_image
 
-# build-push appdb image
-appdb: aws_login
-	@ scripts/dev/build_push_appdb_image $(om_version) $(om_branch)
-
 # ensures cluster is up, cleans Kubernetes + OM, build-push-deploy operator,
 # push-deploy database, create secrets, config map, resources etc
 full: ensure-k8s-and-reset build-and-push-images
 	@ $(MAKE) deploy-and-configure-operator
 	@ scripts/dev/apply_resources
+
+om-batch: aws_login
+	@ scripts/dev/batch_om_appdb_images $(scope)
+
+# build-push appdb image
+appdb: aws_login
+	@ scripts/dev/build_push_appdb_image $(om_version) $(om_branch)
 
 om-image:
 	@ scripts/dev/build_push_opsmanager_image $(om_version) $(download_url)

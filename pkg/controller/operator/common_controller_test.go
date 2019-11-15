@@ -26,7 +26,7 @@ import (
 const OperatorNamespace = "operatorNs"
 
 func init() {
-	util.OperatorVersion = "testVersion"
+	util.OperatorVersion = "9.9.9-test"
 	_ = os.Setenv(util.CurrentNamespace, OperatorNamespace)
 }
 

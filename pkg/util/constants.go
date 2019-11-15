@@ -176,7 +176,11 @@ const (
 	GenericErrorMessage         = "Something went wrong validating your Automation Config"
 )
 
-// these variables are set at compile time
+// ***** These variables are set at compile time
+
+// OperatorVersion is the version of the current Operator. Important: currently it's empty when the Operator is
+// installed for development (using 'make') meaning the Ops Manager/AppDB images deployed won't have
+// "operator specific" part of the version tag
 var OperatorVersion string
 var LogAutomationConfigDiff string
 

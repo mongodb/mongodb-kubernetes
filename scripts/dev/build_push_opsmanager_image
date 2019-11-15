@@ -21,9 +21,15 @@ if [[ -z $download_url ]]; then
     echo "The download url for ${image_version} is ${download_url}"
 fi
 
+# note that in non local runs we want to build images with suffix (operator version).
+if [[ "${LOCAL_RUN-}" = false ]]; then
+    image_suffix="-operator$(git describe --dirty)"
+    echo "Using image suffix (operator version) ${image_suffix} for building images"
+fi
+
 if [[ ${REPO_TYPE} = "local" ]]; then
     eval "$(minikube docker-env)"
-    make -C docker/mongodb-enterprise-ops-manager build IMAGE_DIR=local IMAGE_TYPE="${IMAGE_TYPE}"
+    make -C docker/mongodb-enterprise-ops-manager build IMAGE_DIR=local IMAGE_TYPE="${IMAGE_TYPE}" IMAGE_SUFFIX=${image_suffix-}
     title "Ops Manager image successfully built"
 elif [[ ${REPO_TYPE} = "ecr" ]]; then
     repo_host="$(echo ${REPO_URL} | cut -d "/" -f 1)"
@@ -32,7 +38,8 @@ elif [[ ${REPO_TYPE} = "ecr" ]]; then
     ensure_ecr_repository "${repo_name}/${IMAGE_TYPE}/mongodb-enterprise-ops-manager"
 
     make -C docker/mongodb-enterprise-ops-manager push IMAGE_DIR="${repo_name}" AWS_IMAGE_REPO="${repo_host}" \
-            IMAGE_TYPE="${IMAGE_TYPE}" IMAGE_VERSION="${image_version}" OM_DOWNLOAD_LINK="${download_url}"
+            IMAGE_TYPE="${IMAGE_TYPE}" IMAGE_VERSION="${image_version}" OM_DOWNLOAD_LINK="${download_url}" \
+            IMAGE_SUFFIX=${image_suffix-}
 
     title "Ops Manager image successfully built and pushed to the ECR registry"
 elif [[ ${REPO_TYPE} = "quay" ]]; then

@@ -32,7 +32,8 @@ clean: delete_container
 
 build:
 	@ ../Dockerfile.gen "${IMAGE_TYPE}" False $(IS_DEBUG) > Dockerfile
-	@ DEBUG=$(IS_DEBUG) ../../scripts/build/build_operator || (../../scripts/build/prepare_build_environment && ../../scripts/build/build_operator)
+	@ DEBUG=$(IS_DEBUG) ../../scripts/build/build_operator || \
+		(../../scripts/build/prepare_build_environment && ../../scripts/build/build_operator)
 	docker build $(EXTRA_PARAM) -t $(IMAGE_PATH) .
 
 clean-build:

@@ -10,7 +10,9 @@ OM_DOWNLOAD_LINK = https://downloads.mongodb.com/on-prem-mms/tar/mongodb-mms-4.2
 APPDB_PORT = 27017
 IP = $(shell ifconfig | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1' | head -1)
 IMAGE_TYPE = ubuntu
-IMAGE_PATH = $(IMAGE_DIR)/$(IMAGE_TYPE)/$(IMAGE):$(IMAGE_VERSION)
+# Image suffix allows to separate different build versions. The main planned sample is '-operatorX.Y.Z'
+IMAGE_SUFFIX =
+IMAGE_PATH = $(IMAGE_DIR)/$(IMAGE_TYPE)/$(IMAGE):$(IMAGE_VERSION)$(IMAGE_SUFFIX)
 
 usage:
 	@ echo "MongoDB Enterprise Ops Manager - Docker image builder"
