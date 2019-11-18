@@ -328,7 +328,7 @@ func (s *StatefulSetHelper) CreateOrUpdateAppDBInKubernetes() error {
 		return err
 	}
 
-	_, err = s.Helper.createOrUpdateService(s.Owner, s.ServicePort, s.Namespace, true, s.Logger, set)
+	_, err = s.Helper.createOrUpdateService(s.Owner, s.ServicePort, s.Namespace, false, s.Logger, set)
 	return err
 }
 
