@@ -37,23 +37,25 @@ variables:
 functions:
   "golint":
     - command: shell.exec
+      type: test
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         script: |
           WORKDIR=${workdir} ./scripts/evergreen/lint_code.sh
   "clone":
     - command: shell.exec
+      type: setup
       params:
         script: |
           mkdir -p src/github.com/10gen
     - command: git.get_project
-      type: system
+      type: setup
       params:
         directory: src/github.com/10gen/ops-manager-kubernetes
 
   "test_operator":
     - command: shell.exec
-      type: system
+      type: test
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         script: |
@@ -62,7 +64,7 @@ functions:
 
   "build_operator":
     - command: shell.exec
-      type: system
+      type: setup
       params:
         shell: bash
         working_dir: src/github.com/10gen/ops-manager-kubernetes
@@ -93,7 +95,7 @@ functions:
 
   build_database:
     - command: shell.exec
-      type: system
+      type: setup
       params:
         shell: bash
         working_dir: src/github.com/10gen/ops-manager-kubernetes
@@ -159,6 +161,7 @@ functions:
 
   "build_rhel_images":
     - command: shell.exec
+      type: setup
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         script: |
@@ -179,6 +182,7 @@ functions:
 
   "setup_jq":
     - command: shell.exec
+      type: setup
       params:
         shell: bash
         script: |
@@ -191,6 +195,7 @@ functions:
 
   "setup_aws":
     - command: shell.exec
+      type: setup
       params:
         shell: bash
         script: |
@@ -198,6 +203,7 @@ functions:
 
   "setup_docker":
     - command: shell.exec
+      type: setup
       params:
         shell: bash
         script: |
@@ -205,6 +211,7 @@ functions:
 
   download_kubectl:
     - command: shell.exec
+      type: setup
       params:
         shell: bash
         script: |
@@ -227,6 +234,7 @@ functions:
 
   setup_kubernetes_environment:
   - command: shell.exec
+    type: setup
     params:
       shell: bash
       script: |
@@ -281,6 +289,7 @@ functions:
 
   "gotest_parse_files":
     - command: gotest.parse_files
+      type: test
       params:
         files: ["*.suite", "src/**/*.suite"]
 
@@ -335,6 +344,7 @@ functions:
   # Builds the Docker images using Kaniko using the context present in S3
   build_e2e_images:
   - command: shell.exec
+    type: setup
     params:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
       script: |
@@ -365,7 +375,7 @@ functions:
           sleep 5
           all_finished="true"
           for image_type in "operator" "database"; do
-            if [[ $(kubectl -n construction-site get pod --selector "podbuilderid=$image_type-build-$short_version-${distro}" -o jsonpath='{.items[0].status.phase}') != "Succeeded" ]]; then
+            if [[ $(kubectl -n construction-site get pod --selector "podbuilderid=$image_type-build-$short_version-${distro}" -o jsonpath="{.items[0].status.phase}") != "Succeeded" ]]; then
               status=$(kubectl -n construction-site get pod --selector "podbuilderid=$image_type-build-$short_version-${distro}" -o jsonpath='{.status.phase}')
               echo "Pod with label $image_type-build-$short_version-${distro} has not finished yet. Status is $status"
               all_finished="false"
@@ -378,6 +388,7 @@ functions:
 
   "build_and_push_om_test_images":
     - command: shell.exec
+      type: setup
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         script: |
@@ -400,6 +411,7 @@ functions:
 
   "build_and_push_image":
     - command: shell.exec
+      type: setup
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         script: |
@@ -445,6 +457,7 @@ functions:
   # Populate the Ops Manager Kubernetes Perpetual instance, env vars
   "omkp_setup": &omkp_setup
     command: shell.exec
+    type: setup
     params:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
       shell: bash
@@ -462,6 +475,7 @@ functions:
 
   "configure_cloud_manager_qa": &configure_cloud_manager_qa
     command: shell.exec
+    type: setup
     params:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
       shell: bash
@@ -479,6 +493,7 @@ functions:
     - *omkp_setup
     - *configure_cloud_manager_qa
     - command: shell.exec
+      type: setup
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         script: |
@@ -530,6 +545,7 @@ functions:
   "e2e_test_upgrade_operator":
     - *configure_cloud_manager_qa
     - command: shell.exec
+      type: setup
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         script: |
@@ -588,6 +604,7 @@ functions:
     - *omkp_setup
     - *configure_cloud_manager_qa
     - command: shell.exec
+      type: setup
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen
         script: |
