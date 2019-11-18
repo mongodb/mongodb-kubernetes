@@ -23,7 +23,7 @@ source ${OPERATOR_DIR}/om
 
 secret_name="my-credentials"
 config_map_name="my-project"
-om_admin_secret="ops-manager-admin"
+om_admin_secret="ops-manager-admin-secret"
 
 kubectl delete secret ${secret_name} -n ${NAMESPACE} 2>/dev/null || true
 kubectl delete configmap ${config_map_name} -n ${NAMESPACE} 2>/dev/null || true

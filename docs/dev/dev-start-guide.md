@@ -54,12 +54,22 @@ make om-evg
 # cluster locally) and build+deploy all the necessary artifacts
 make
 
+# (optionally) build and deploy Ops Manager and AppDB images used in e2e tests if you plan to install OpsManager resource
+make om-batch scope=test # or scope=4.2.0,4.2.3
+
 # create Mongodb resource (note, that it's the best not to specify namespace inside yaml file as it will be defined by
 # current namespace)
-kubectl apply -f public/samples/minimal/replica-set.yaml
+kubectl apply -f public/samples/mongodb/minimal/replica-set.yaml
+
+# create Ops Manager resource
+kubectl apply -f public/samples/ops-manager/ops-manager.yaml
 
 # check the Operator logs
 make log
+
+# check statuses of Custom Resources
+kubectl get mdb -o yaml -w
+kubectl get om -o yaml -w
 
 # run an e2e test (specify 'light=true' to avoid rebuilding the Operator image)
 make e2e test=e2e_replica_set
