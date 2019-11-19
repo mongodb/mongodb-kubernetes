@@ -658,17 +658,3 @@ func canConfigureAuthentication(ac *om.AutomationConfig, mdb *mdbv1.MongoDB) boo
 	// x509 is the only mechanism with restrictions determined based on Ops Manager state
 	return true
 }
-
-// FIXME: this should be called:
-// https://github.com/10gen/ops-manager-kubernetes/pull/469/files#r340712447
-// canEnableX509 determines if it's possible to enable/disable x509 configuration options in the current
-// version of Ops Manager
-//func canEnableX509(conn om.Connection) bool {
-//err := conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
-//return nil
-//}, nil)
-//if err != nil && strings.Contains(err.Error(), "405 (Method Not Allowed)") {
-//return false
-//}
-//return true
-//}

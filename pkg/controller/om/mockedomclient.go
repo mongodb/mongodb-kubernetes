@@ -63,6 +63,9 @@ type MockedOmConnection struct {
 	UpdateGroupFunc         func(group *Project) (*Project, error)
 	BackupConfigs           map[*BackupConfig]*HostCluster
 	UpdateBackupStatusFunc  func(clusterId string, status BackupStatus) error
+
+	// UpdateMonitoringAgentConfigFunc is delegated to if not nil when UpdateMonitoringAgentConfig is called
+	UpdateMonitoringAgentConfigFunc func(mac *MonitoringAgentConfig, log *zap.SugaredLogger) ([]byte, error)
 	// AgentsDelayCount is the number of loops to wait until the agents reach the goal
 	AgentsDelayCount int
 	// mocked client keeps track of all implemented functions called - uses reflection Func for this to enable type-safety
@@ -173,7 +176,13 @@ func (oc *MockedOmConnection) ReadUpdateMonitoringAgentConfig(matFunc func(*Moni
 	if oc.monitoringAgentConfig == nil {
 		oc.monitoringAgentConfig = &MonitoringAgentConfig{MonitoringAgentTemplate: &MonitoringAgentTemplate{}}
 	}
-	return matFunc(oc.monitoringAgentConfig)
+
+	err := matFunc(oc.monitoringAgentConfig)
+	if err != nil {
+		return err
+	}
+	_, err = oc.UpdateMonitoringAgentConfig(oc.monitoringAgentConfig, log)
+	return err
 }
 
 func (oc *MockedOmConnection) UpdateAutomationConfig(ac *AutomationConfig, log *zap.SugaredLogger) error {
@@ -246,6 +255,9 @@ func (oc *MockedOmConnection) ReadMonitoringAgentConfig() (*MonitoringAgentConfi
 
 func (oc *MockedOmConnection) UpdateMonitoringAgentConfig(mac *MonitoringAgentConfig, log *zap.SugaredLogger) ([]byte, error) {
 	oc.addToHistory(reflect.ValueOf(oc.UpdateMonitoringAgentConfig))
+	if oc.UpdateMonitoringAgentConfigFunc != nil {
+		return oc.UpdateMonitoringAgentConfigFunc(mac, log)
+	}
 	oc.monitoringAgentConfig = mac
 	return nil, nil
 }

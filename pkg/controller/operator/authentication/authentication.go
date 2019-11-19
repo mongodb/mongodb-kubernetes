@@ -1,6 +1,7 @@
 package authentication
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
@@ -28,6 +29,10 @@ type Options struct {
 // the agents to reach ready state after each operation as prematurely updating the automation config can cause the agents to get stuck.
 func Configure(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 	log.Infow("ensuring correct deployment mechanisms", "MinimumMajorVersion", opts.MinimumMajorVersion, "ProcessNames", opts.ProcessNames, "Mechanisms", opts.Mechanisms)
+
+	if util.ContainsString(opts.Mechanisms, util.X509) && !canEnableX509(conn) {
+		return errors.New("unable to configure X509 with this version of Ops Manager, 4.0.11 is the minimum required version to enable X509")
+	}
 
 	// we need to make sure the desired authentication mechanism for the agent exists. If the desired agent
 	// authentication mechanism does not exist in auth.deploymentAuthMechanisms, it is an invalid config

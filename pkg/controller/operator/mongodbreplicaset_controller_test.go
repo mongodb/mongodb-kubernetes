@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"reflect"
 	"testing"
@@ -176,6 +177,26 @@ func TestCreateDeleteReplicaSet(t *testing.T) {
 		reflect.ValueOf(omConn.ReadUpdateDeployment), reflect.ValueOf(omConn.ReadAutomationStatus),
 		reflect.ValueOf(omConn.ReadBackupConfigs), reflect.ValueOf(omConn.GetHosts), reflect.ValueOf(omConn.RemoveHost))
 
+}
+
+func TestX509IsNotEnabledWithOlderVersionsOfOpsManager(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().EnableAuth().EnableTLS().SetAuthModes([]string{util.X509}).Build()
+	kubeManager := newMockedManager(rs)
+
+	addKubernetesTlsResources(kubeManager.client, rs)
+	approveAgentCSRs(kubeManager.client)
+
+	reconciler := newReplicaSetReconciler(kubeManager, func(context *om.OMContext) om.Connection {
+		conn := om.NewEmptyMockedOmConnection(context)
+
+		// make the mocked connection return an error behaving as an older version of Ops Manager
+		conn.(*om.MockedOmConnection).UpdateMonitoringAgentConfigFunc = func(mac *om.MonitoringAgentConfig, log *zap.SugaredLogger) (bytes []byte, e error) {
+			return nil, fmt.Errorf("some error. Detail: %s", util.MethodNotAllowed)
+		}
+		return conn
+	})
+
+	checkReconcileFailed(t, reconciler, rs, true, "unable to configure X509 with this version of Ops Manager", kubeManager.client)
 }
 
 func TestReplicaSetScramUpgradeDowngrade(t *testing.T) {

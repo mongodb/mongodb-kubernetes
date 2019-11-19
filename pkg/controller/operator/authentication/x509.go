@@ -1,6 +1,8 @@
 package authentication
 
 import (
+	"strings"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
@@ -183,4 +185,16 @@ func buildX509AgentUsers() []om.MongoDBUser {
 			},
 		},
 	}
+}
+
+//canEnableX509 determines if it's possible to enable/disable x509 configuration options in the current
+// version of Ops Manager
+func canEnableX509(conn om.Connection) bool {
+	err := conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
+		return nil
+	}, nil)
+	if err != nil && strings.Contains(err.Error(), util.MethodNotAllowed) {
+		return false
+	}
+	return true
 }

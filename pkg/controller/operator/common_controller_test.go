@@ -329,7 +329,7 @@ func checkReconcileFailed(t *testing.T, reconciler reconcile.Reconciler, object 
 	// also need to make sure the object status is updated to failed
 	assert.NoError(t, client.Get(context.TODO(), objectKeyFromApiObject(object), object))
 	assert.Equal(t, mdbv1.PhaseFailed, object.Status.Phase)
-	assert.Equal(t, expectedErrorMessage, object.Status.Message)
+	assert.Contains(t, object.Status.Message, expectedErrorMessage)
 }
 
 func checkReconcilePending(t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, expectedErrorMessage string, client *MockedClient) {
@@ -341,5 +341,5 @@ func checkReconcilePending(t *testing.T, reconciler reconcile.Reconciler, object
 	// also need to make sure the object status is updated to failed
 	assert.NoError(t, client.Get(context.TODO(), objectKeyFromApiObject(object), object))
 	assert.Equal(t, mdbv1.PhasePending, object.Status.Phase)
-	assert.Equal(t, expectedErrorMessage, object.Status.Message)
+	assert.Contains(t, object.Status.Message, expectedErrorMessage)
 }
