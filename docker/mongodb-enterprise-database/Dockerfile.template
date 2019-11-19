@@ -1,14 +1,18 @@
-# This is the Docker file for the Ops Manager (Enterprise) Database
 #
+# Base Template Dockerfile for Database Image.
+#
+
 FROM {{ base_image }}
 
+{% block variables %}
 ENV MMS_HOME /mongodb-automation
 ENV MMS_LOG_DIR /var/log/mongodb-mms-automation
 
 ARG AA_VERSION
 ARG AA_DOWNLOAD_LOCATION
+{% endblock %}
 
-
+{% block labels %}
 LABEL name="MongoDB Enterprise Database" \
       maintainer="support@mongodb.com" \
       vendor="MongoDB" \
@@ -16,32 +20,17 @@ LABEL name="MongoDB Enterprise Database" \
       release="1" \
       summary="MongoDB Enterprise Database Image" \
       description="MongoDB Enterprise Database Image"
+{% endblock %}
 
-{% if distro == "rhel" -%}
-COPY licenses /licenses
-COPY content/epel.repo /etc/yum.repos.d/epel.repo
-COPY content/RPM-GPG-KEY-EPEL-7 /etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-7
-{% endif -%}
+{% block static %}
+{% endblock %}
 
-{% if distro == "rhel" -%}
-RUN microdnf install {% for package in packages %}{{ package }} {% endfor %} \
-        --nodocs ; \
-        microdnf clean all
-
-RUN ln -s /usr/lib64/libsasl2.so.3 /usr/lib64/libsasl2.so.2
-{% elif distro == "ubuntu" %}
-RUN apt-get -qq update \
-        && apt-get -y -qq install \ {% for package in packages %}
-           {{ package }} \ {% endfor %}
-        && apt-get upgrade -y -qq \
-        && apt-get dist-upgrade -y -qq \
-        && rm -rf /var/lib/apt/lists/*
-{% endif %}
+{% block packages %}
+{% endblock %}
 
 COPY content/ ${MMS_HOME}/files/
 
 {% if is_appdb -%}
-
 # Download the Automation Agent binary (only if the argument provided meaning this is the image for the appdb)
 RUN curl --fail -L -o automation-agent.tar.gz "${AA_DOWNLOAD_LOCATION}/mongodb-mms-automation-agent-${AA_VERSION}.linux_x86_64.tar.gz"  \
     && tar -xzf automation-agent.tar.gz \

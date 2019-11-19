@@ -93,7 +93,7 @@ functions:
 
           SKIP_TESTING=true ./scripts/evergreen/build_operator
 
-  build_database:
+  "build_database":
     - command: shell.exec
       type: setup
       params:
@@ -122,6 +122,40 @@ functions:
         bucket: ops-manager-kubernetes-build
         permissions: public-read
         content_type: application/octet-stream
+
+  # push_versioned_binaries will build the operator and readinessprobe binaries,
+  # put them into a tar.gz file and upload them to S3, indicating the release version.
+  # this is for customers or any other third party consumers to be able to build
+  # their own Docker images.
+  "push_versioned_binaries":
+    - command: shell.exec
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        script: |
+          export PATH=${workdir}/bin:$PATH
+          set -o xtrace
+
+          release="$(jq --raw-output .mongodbOperator < release.json)"
+          mkdir -p releases/
+
+          mv docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator .
+          mv docker/mongodb-enterprise-database/content/readinessprobe .
+
+          tar -czf releases/mongodb-enterprise-operator-binaries-release-$release.tar.gz \
+             mongodb-enterprise-operator \
+             readinessprobe
+
+    - command: s3.put
+      params:
+        aws_key: ${mms_build_s3_aws_access_key}
+        aws_secret: ${mms_build_s3_aws_secret}
+        local_files_include_filter:
+          - src/github.com/10gen/ops-manager-kubernetes/releases/*
+        remote_file: releases/
+        bucket: ops-manager-kubernetes-build
+        permissions: public-read
+        content_type: application/octet-stream
+
 
   "upload_e2e_logs":
     # todo note, that the bucket is public so far - there was something with permissions that didn't allow uploads for the eng test acccount
@@ -696,9 +730,25 @@ tasks:
     - func: "push_operator_binary_for_rhel"
     - func: "push_database_readiness_probe_for_rhel"
 
+# build_binaries builds and pushes binaries required to build the Database and
+# Operator Docker images. Currently these are the actual operator and the
+# readinessprobe.
+# This is part of process to release binary artifacts to customers that need
+# to create their own Dockerfile.
+- name: build_binaries
+  tags: ["build_operator_rhel"]
+  patch_only: true
+  commands:
+    - func: clone
+    - func: setup_jq
+    - func: build_operator
+    - func: build_database
+    - func: push_versioned_binaries
+
 - name: build_test_image
   exec_timeout_secs: 1200
   priority: 1
+  type: setup
   commands:
     - func: clone
     - func: setup_aws
@@ -713,6 +763,7 @@ tasks:
 - name: build_om_images
   exec_timeout_secs: 1200
   priority: 1
+  type: setup
   commands:
     - func: clone
     - func: setup_aws
@@ -1416,12 +1467,6 @@ buildvariants:
     - archlinux-test
   tasks:
     - ".release_operator"
-
-- name: release_operator_rhel
-  display_name: "release_operator_rhel"
-  run_on:
-    - archlinux-test
-  tasks:
     - ".release_operator_rhel"
     - ".build_operator_rhel"
 

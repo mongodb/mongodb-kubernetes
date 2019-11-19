@@ -2,9 +2,16 @@
 
 # This is a file containing all the functions which may be needed for other shell scripts
 
+# see if jq is available for json logging
+use_jq="$(command -v jq)"
+
 # log stdout as structured json with given log type
 json_log () {
+  if [ "$use_jq" ]; then
     jq --unbuffered --null-input -c --raw-input "inputs | {\"logType\": \"$1\", \"contents\": .}";
+  else
+    echo "$1"
+  fi
 }
 
 # log a given message in json format

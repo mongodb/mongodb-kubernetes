@@ -184,6 +184,21 @@ func separatePemFile(data string) []string {
 	return certificates
 }
 
+// canCreateCSR determines if the cfssl, and cfssljson exists.
+// It is important to note that we expect those files to live in specific directories,
+// and not to just only exist on $PATH.
+func canCreateCSR() bool {
+	requiredFiles := []string{"/usr/local/bin/cfssljson", "/usr/local/bin/cfssl"}
+
+	for _, f := range requiredFiles {
+		if _, err := os.Stat(f); os.IsNotExist(err) {
+			return false
+		}
+	}
+
+	return true
+}
+
 // NewCSR will create a CSR object (and server key).
 func newCSR(certificate certificateData) (*certificateSigningRequestFile, error) {
 	fileContents, err := json.Marshal(certificate)
@@ -309,7 +324,12 @@ func (k *KubeHelper) createTlsCsr(name, namespace string, hosts []string, common
 	}, keyUsages, name, namespace)
 }
 
+// createCSR creates a CertificateSigningRequest object and posting it into Kubernetes API.
 func (k *KubeHelper) createCSR(certificate certificateData, keyUsages []certsv1.KeyUsage, name, namespace string) ([]byte, error) {
+	if !canCreateCSR() {
+		return nil, fmt.Errorf("cfssl or cfssljson binary could not be found")
+	}
+
 	serverCsr, err := newCSR(certificate)
 	if err != nil {
 		return nil, err

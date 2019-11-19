@@ -74,8 +74,11 @@ git push origin $(jq --raw-output .mongodbOperator < release.json)
 ### Ubuntu based images (published to Quay)
 
 ```bash
-evergreen patch -p ops-manager-kubernetes -v release_operator -t release_operator -y -f -d "Building images for release $(jq -r .mongodbOperator < release.json)" --browse
-
+evergreen patch -p ops-manager-kubernetes \
+  -v release_operator \
+  -t release_operator \
+  -y -f -d "Building Ubuntu Images: $(jq -r .mongodbOperator <release.json)" \
+  --browse
 ```
 
 This evergreen task will build the images and publish them to `quay.io`.
@@ -93,7 +96,11 @@ For RHEL based images we use Red Hat Connect service that will build
 images by itself eventually.  To submit the job call the following:
 
 ```bash
-evergreen patch -p ops-manager-kubernetes -v release_operator_rhel -t release_operator_rhel_connect -f
+evergreen patch -p ops-manager-kubernetes \
+  -v release_operator \
+  -t release_operator_rhel_connect \
+  -y -f -d "Building RHEL Images: $(jq -r .mongodbOperator <release.json)" \
+  --browse
 ```
 
 Track the status of the jobs for operator and database using the following links:
@@ -110,6 +117,19 @@ Finally publish the images manually:
 * https://connect.redhat.com/project/851701/view (Database)
 
 (more details about RHEL build process are in https://github.com/10gen/kubernetes-rhel-images)
+
+### Publish Binary Artifacts for Customers
+
+Some customers decide to build their own images. In order to do this, we upload
+the binaries we produce into S3, in the `ops-manager-kubernetes-build` bucket, as a `tar.gz` file.
+
+```bash
+evergreen patch -p ops-manager-kubernetes \
+  -v release_operator \
+  -t build_binaries \
+  -f -y -d "Building tar.gz Binaries: $(jq -r .mongodbOperator <release.json)" \
+  --browse
+```
 
 ## Publish public repo
 

@@ -1,10 +1,14 @@
+#
+# Base Template Dockerfile for Operator Image.
+#
+
 {% if is_debug -%}
 FROM golang
 {% else %}
 FROM {{ base_image }}
 {% endif %}
 
-
+{% block labels %}
 LABEL name="MongoDB Enterprise Operator" \
       maintainer="support@mongodb.com" \
       vendor="MongoDB" \
@@ -12,16 +16,15 @@ LABEL name="MongoDB Enterprise Operator" \
       release="1" \
       summary="MongoDB Enterprise Operator Image" \
       description="MongoDB Enterprise Operator Image"
+{% endblock %}
 
-{% if distro == "ubuntu" %}
-# Adds up-to-date CA certificates.
-RUN apt-get -qq update && \
-      apt-get -y -qq install ca-certificates curl && \
-      apt-get upgrade -y -qq && \
-      apt-get dist-upgrade -y -qq && \
-      rm -rf /var/lib/apt/lists/*
-{% endif %}
+{% block packages %}
+{% endblock %}
 
+{% block static %}
+{% endblock %}
+
+{% block external_packages %}
 # Install the cfssl packages to generate CSR
 RUN \
          curl -sO https://pkg.cfssl.org/R1.2/cfssl_linux-amd64 \
@@ -33,21 +36,20 @@ RUN \
       && chmod +x /usr/local/bin/cfssljson \
       && mv cfssl_linux-amd64 /usr/local/bin/cfssl \
       && chmod +x /usr/local/bin/cfssl
+{% endblock %}
 
+{% block install_operator %}
 ADD content/mongodb-enterprise-operator /usr/local/bin/
-
-{% if distro == "rhel" %}
-COPY licenses /licenses
-{% endif %}
-
+{% endblock %}
 
 {% if is_debug -%}
+
 RUN go get -u github.com/derekparker/delve/cmd/dlv
 ENTRYPOINT ["dlv", "--listen=0.0.0.0:40000", "--headless=true", "--api-version=2", "exec", "/usr/local/bin/mongodb-enterprise-operator"]
+
 {% else %}
+
 USER 2000
-
 ENTRYPOINT exec /usr/local/bin/mongodb-enterprise-operator
+
 {% endif %}
-
-

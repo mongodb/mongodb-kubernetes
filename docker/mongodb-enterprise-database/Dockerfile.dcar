@@ -1,0 +1,30 @@
+{% extends "Dockerfile.template" %}
+
+{% block static %}
+COPY licenses /licenses
+COPY content/epel.repo /etc/yum.repos.d/epel.repo
+COPY content/RPM-GPG-KEY-EPEL-7 /etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-7
+{% endblock %}
+
+{% block packages %}
+RUN microdnf install \
+        curl \
+        cyrus-sasl \
+        cyrus-sasl-gssapi \
+        cyrus-sasl-plain \
+        krb5-libs \
+        libcurl \
+        libpcap \
+        lm_sensors-libs \
+        net-snmp \
+        net-snmp-agent-libs \
+        openldap \
+        openssl \
+        rpm-libs \
+        tcp_wrappers-libs \
+        nss_wrapper \
+        --nodocs ; \
+        microdnf clean all
+
+RUN ln -s /usr/lib64/libsasl2.so.3 /usr/lib64/libsasl2.so.2
+{% endblock %}

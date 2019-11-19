@@ -5,7 +5,7 @@
 # * Dockerfile.gen
 #
 # Generates a Dockerfile by using `Dockerfile.template` and the values
-# for `ubuntu` and `rhel` distros.  It needs to be called with first
+# for `ubuntu`, `rhel` or `dcar` distros.  It needs to be called with first
 # argument being one of the supported distros.
 #
 # The result of the execution will be printed to stdout so it needs to
@@ -51,25 +51,9 @@ def get_version() -> str:
 def ubuntu() -> Dict[str, Union[str, List[str]]]:
     """Ubuntu distro data (only for the Database image)"""
     # Note, that the Automation Agent needs lsb-release on the CLI to determine the current distro
-    packages = """
-        ca-certificates
-        curl
-        jq
-        libcurl3
-        libgssapi-krb5-2
-        libkrb5-dbg
-        libldap-2.4-2
-        libpcap0.8
-        libsasl2-2
-        lsb-release
-        openssl
-        snmp
-        libnss-wrapper""".split()
-
     version = get_version()
 
     return {
-        "packages": packages,
         "base_image": "ubuntu:16.04",
         "distro": "ubuntu",
         "version": version
@@ -78,28 +62,21 @@ def ubuntu() -> Dict[str, Union[str, List[str]]]:
 
 def rhel() -> Dict[str, Union[str, List[str]]]:
     """RHEL distro data (only for the Database image)"""
-    packages = """
-        curl
-        cyrus-sasl
-        cyrus-sasl-gssapi
-        cyrus-sasl-plain
-        jq
-        krb5-libs
-        libcurl
-        libpcap
-        lm_sensors-libs
-        net-snmp
-        net-snmp-agent-libs
-        openldap
-        openssl
-        rpm-libs
-        tcp_wrappers-libs
-        nss_wrapper""".split()
-
     return {
-        "packages": packages,
         "base_image": "registry.access.redhat.com/ubi7/ubi-minimal",
         "distro": "rhel",
+        "version": get_version(),
+    }
+
+
+def dcar() -> Dict[str, Union[str, List[str]]]:
+    """RHEL distro data (only for the Database image)"""
+    # dcar release for disconnected network, avoid packages with epel dependencies
+    return {
+        # base image is hardened ubi7 provided by dsop
+        "base_image": "nexus-docker.52.61.140.4.nip.io/dsop/ubi7",
+        "distro": "dcar",
+        "local_repo": "nexus.52.61.140.4.nip.io/repository",
         "version": get_version(),
     }
 
@@ -111,7 +88,11 @@ def render(distro: str, is_appdb: bool, is_debug: bool):
     template_params = getattr(sys.modules[__name__], distro)()
     template_params["is_appdb"] = is_appdb
     template_params["is_debug"] = is_debug
-    return jinja2.Template(open("Dockerfile.template").read()).render(template_params)
+
+    env = jinja2.Environment()
+    env.loader = jinja2.FileSystemLoader(".")
+
+    return env.get_template("Dockerfile.{}".format(distro)).render(template_params)
 
 
 if __name__ == "__main__":

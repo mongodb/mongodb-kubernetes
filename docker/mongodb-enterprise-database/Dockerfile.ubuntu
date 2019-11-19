@@ -1,0 +1,21 @@
+{% extends "Dockerfile.template" %}
+
+{% block packages %}
+RUN apt-get -qq update \
+        && apt-get -y -qq install \
+        curl \
+        jq \
+        libcurl3 \
+        libgssapi-krb5-2 \
+        libkrb5-dbg \
+        libldap-2.4-2 \
+        libpcap0.8 \
+        libsasl2-2 \
+        lsb-release \
+        openssl \
+        snmp \
+        libnss-wrapper \
+        && apt-get upgrade -y -qq \
+        && apt-get dist-upgrade -y -qq \
+        && rm -rf /var/lib/apt/lists/*
+{% endblock %}
