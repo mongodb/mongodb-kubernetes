@@ -141,6 +141,59 @@ func TestUpdateOmAuthentication_EnableX509_FromEmptyDeployment(t *testing.T) {
 	assert.False(t, isMultiStageReconciliation, "if we are enabling tls and x509 at once, this should be done in a single reconciliation")
 }
 
+func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().EnableAuth().SetAuthModes([]string{"X509"}).Build()
+	x509User := DefaultMongoDBUserBuilder().SetDatabase(util.X509Db).SetMongoDBResourceName("my-rs").Build()
+
+	manager := newMockedManager(rs)
+
+	// configure x509/tls resources
+	addKubernetesTlsResources(manager.client, rs)
+	createAgentCSRs(manager.client, certsv1.CertificateApproved)
+	approveCSRs(manager.client, rs)
+
+	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
+
+	checkReconcileSuccessful(t, reconciler, rs, manager.client)
+
+	userReconciler := newMongoDBUserReconciler(manager, func(context *om.OMContext) om.Connection {
+		return om.CurrMockedConnection // use the same connection
+	})
+
+	actual, err := userReconciler.Reconcile(requestFromObject(x509User))
+	expected, _ := success()
+
+	assert.NoError(t, err)
+	assert.Equal(t, expected, actual)
+
+	ac, _ := om.CurrMockedConnection.ReadAutomationConfig()
+	assert.Equal(t, ac.Auth.AutoUser, util.AutomationAgentSubject)
+}
+
+func TestScramAgentUserIsCorrectlyConfigured(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableAuth().SetAuthModes([]string{"SCRAM"}).Build()
+	x509User := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
+
+	manager := newMockedManager(rs)
+
+	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
+
+	checkReconcileSuccessful(t, reconciler, rs, manager.client)
+
+	userReconciler := newMongoDBUserReconciler(manager, func(context *om.OMContext) om.Connection {
+		return om.CurrMockedConnection // use the same connection
+	})
+
+	actual, err := userReconciler.Reconcile(requestFromObject(x509User))
+	expected, _ := success()
+
+	assert.NoError(t, err)
+	assert.Equal(t, expected, actual)
+
+	ac, _ := om.CurrMockedConnection.ReadAutomationConfig()
+	assert.Equal(t, ac.Auth.AutoUser, util.AutomationAgentName)
+}
+
 /*
 
 // TODO: Design a strategy for this particular case. These tests are going to be reworked as part of the

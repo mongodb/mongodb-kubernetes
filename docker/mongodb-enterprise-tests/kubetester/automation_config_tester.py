@@ -1,14 +1,23 @@
 from typing import Dict, Set, Tuple
 
+X509_AGENT_SUBJECT = "CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US"
+SCRAM_AGENT_USER = "mms-automation-agent"
+
 
 class AutomationConfigTester:
+    """Tester for AutomationConfig. Should be initialized with the
+    AutomationConfig we will test (`ac`), the expected amount of users, and if it should be
+    set to `authoritative_set`, which means that the Automation Agent will force the existing
+    users in MongoDB to be the ones defined in the Automation Config.
+    """
+
     def __init__(self, ac: Dict, expected_users: int = 2, authoritative_set: bool = True):
         self.automation_config = ac
         self.expected_users = expected_users
         self.authoritative_set = authoritative_set
 
     def assert_authentication_mechanism_enabled(self, mechanism: str, active_auth_mechanism: bool = True) -> None:
-        auth = self.automation_config["auth"]
+        auth: dict = self.automation_config["auth"]
         assert mechanism in auth.get("deploymentAuthMechanisms", [])
         assert auth["authoritativeSet"] == self.authoritative_set
         if active_auth_mechanism:
@@ -41,3 +50,6 @@ class AutomationConfigTester:
 
     def assert_has_user(self, username: str) -> None:
         assert username in {user["user"] for user in self.automation_config["auth"]["usersWanted"]}
+
+    def assert_agent_user(self, agent_user: str) -> None:
+        assert self.automation_config["auth"]["autoUser"] == agent_user

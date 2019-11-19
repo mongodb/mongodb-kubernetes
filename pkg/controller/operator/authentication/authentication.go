@@ -136,7 +136,12 @@ func EnsureAgentUsers(ac *om.AutomationConfig, mn mechanismName) error {
 		return err
 	}
 
-	ac.Auth.AutoUser = util.AutomationAgentName
+	if mn == MongoDBX509 {
+		ac.Auth.AutoUser = util.AutomationAgentSubject
+	} else {
+		ac.Auth.AutoUser = util.AutomationAgentName
+	}
+
 	ac.Auth.KeyFile = util.AutomationAgentKeyFilePathInContainer
 	ac.Auth.KeyFileWindows = util.AutomationAgentWindowsKeyFilePath
 
