@@ -26,13 +26,13 @@ variables:
     prebuilt_registry: quay.io/some
     prebuilt_images_run: true
 
-    # Openshift v3.11 Testing Environment
-  - &kubernetes_environment_openshift_3_11:
-    kube_environment_name: openshift_3_11
+    # Openshift v3 Testing Environment
+  - &kubernetes_environment_openshift_3
+    kube_environment_name: openshift_3
 
-    # Kops Vanilla Kubernetes v1.15
-  - &kubernetes_environment_vanilla_1_15:
-    kube_environment_name: vanilla_1_15
+    # Kops Vanilla Kubernetes
+  - &kubernetes_environment_vanilla
+    kube_environment_name: vanilla
 
 functions:
   "golint":
@@ -253,7 +253,7 @@ functions:
           export BINDIR=$WORKDIR/bin ; mkdir -p $BINDIR
           export PATH=$BINDIR:$PATH
 
-          echo "Downloading kubectl"
+          echo "Downloading kubectl v1.15.4"
           curl -s -LO https://storage.googleapis.com/kubernetes-release/release/v1.15.4/bin/linux/amd64/kubectl
           chmod +x kubectl
           mv kubectl $BINDIR
@@ -276,7 +276,7 @@ functions:
           export BINDIR=$WORKDIR/bin
           export PATH=$BINDIR:$PATH
 
-          if [ "${kube_environment_name}" = "openshift_3_11" ]; then
+          if [ "${kube_environment_name}" = "openshift_3" ]; then
             echo "Downloading OC & setting up Openshift cluster"
             OC_PKG=oc-linux.tar.gz
             curl -s -L https://github.com/openshift/origin/releases/download/v3.11.0/openshift-origin-client-tools-v3.11.0-0cbc58b-linux-64bit.tar.gz --output $OC_PKG
@@ -287,7 +287,7 @@ functions:
             echo "Token: ${openshift_cluster_token}"
             oc login ${openshift_cluster_url} --token=${openshift_cluster_token} --insecure-skip-tls-verify
             kubectl config use-context default/master-openshift-cluster-mongokubernetes-com:8443/admin
-          elif [ "${kube_environment_name}" = "vanilla_1_15" ]; then
+          elif [ "${kube_environment_name}" = "vanilla" ]; then
             if [ ! -z ${cluster_name} ]; then
               export CLUSTER=${cluster_name}
             else
@@ -792,7 +792,7 @@ tasks:
   - func: download_kubectl
   - func: setup_kubernetes_environment
     vars:
-      kube_environment_name: openshift_3_11
+      <<: *kubernetes_environment_openshift_3
   - func: build_e2e_images
     vars:
       distro: rhel
@@ -814,7 +814,7 @@ tasks:
   - func: download_kubectl
   - func: setup_kubernetes_environment
     vars:
-      kube_environment_name: openshift_3_11
+      <<: *kubernetes_environment_openshift_3
   - func: build_e2e_images
     vars:
       distro: ubuntu
@@ -846,7 +846,7 @@ tasks:
         image_name: mongodb-enterprise
         path: mongodb-enterprise/4.0
 
-- name: prepare_cluster_openshift_3_11
+- name: prepare_cluster_openshift_3
   exec_timeout_secs: 1200
   priority: 1
   commands:
@@ -855,13 +855,13 @@ tasks:
     - func: download_kubectl
     - func: setup_kubernetes_environment
       vars:
-        kube_environment_name: openshift_3_11
+        <<: *kubernetes_environment_openshift_3
     - func: setup_jq
     - func: prepare_test_env
       vars:
         <<: *ops_manager_42_current
 
-- name: prepare_cluster_vanilla_1_15
+- name: prepare_cluster_vanilla
   exec_timeout_secs: 1200
   priority: 1
   commands:
@@ -871,7 +871,7 @@ tasks:
     - func: download_kubectl
     - func: setup_kubernetes_environment
       vars:
-        kube_environment_name: vanilla_1_15
+        <<: *kubernetes_environment_vanilla
     - func: prepare_test_env
       vars:
         <<: *ops_manager_40_first
@@ -880,7 +880,7 @@ tasks:
       vars:
         <<: *ops_manager_42_current
 
-- name: prepare_cluster_vanilla_1_15_om
+- name: prepare_cluster_vanilla_om
   exec_timeout_secs: 600
   priority: 1
   commands:
@@ -889,7 +889,7 @@ tasks:
     - func: download_kubectl
     - func: setup_kubernetes_environment
       vars:
-        kube_environment_name: vanilla_1_15
+        <<: *kubernetes_environment_vanilla
         cluster_name: e2e.om.mongokubernetes.com
     - func: prepare_test_env
 
@@ -1470,21 +1470,21 @@ buildvariants:
     - ".release_operator_rhel"
     - ".build_operator_rhel"
 
-- name: e2e_kube_vanilla_v1.15_om_40_first
-  display_name: "e2e_kube_vanilla_v1.15_om_40_first"
+- name: e2e_kube_vanilla_om_40_first
+  display_name: "e2e_kube_vanilla_om_40_first"
   depends_on:
     - name: build_images_ubuntu
       variant: init_test_run
     - name: build_test_image
       variant: init_test_run
-    - name: prepare_cluster_vanilla_1_15
+    - name: prepare_cluster_vanilla
       variant: init_test_run
   run_on:
   - archlinux-test
   stepback: false
   expansions:
     <<: *ops_manager_40_first
-    kube_environment_name: vanilla_1_15
+    <<: *kubernetes_environment_vanilla
     distro: ubuntu
   tasks:
   - name: "e2e_core_task_group"
@@ -1493,21 +1493,21 @@ buildvariants:
 # Note that both kops (current build variant) and openshift (next build variant) work with the same version of OM
 # so in general they shouldn't intersect on OM-related tasks. Currently they intersect only on 'e2e_kube_only_task_group'
 # and 'e2e_om_4_2_plus_only_task_group' as the latter must be run on both kops and openshift
-- name: e2e_kube_vanilla_v1.15_om_42_current
-  display_name: "e2e_kube_vanilla_v1.15_om_42_current"
+- name: e2e_kube_vanilla_om_42_current
+  display_name: "e2e_kube_vanilla_om_42_current"
   depends_on:
     - name: build_images_ubuntu
       variant: init_test_run
     - name: build_test_image
       variant: init_test_run
-    - name: prepare_cluster_vanilla_1_15
+    - name: prepare_cluster_vanilla
       variant: init_test_run
   run_on:
   - archlinux-test
   stepback: false
   expansions:
     <<: *ops_manager_42_current
-    kube_environment_name: vanilla_1_15
+    <<: *kubernetes_environment_vanilla
     distro: ubuntu
   tasks:
   - name: "e2e_kube_only_task_group"
@@ -1516,25 +1516,25 @@ buildvariants:
   - name: "e2e_scram_sha_task_group"
   - name: "e2e_x509_task_group"
 
-- name: e2e_openshift_origin_v3.11_om_42_current
-  display_name: "e2e_openshift_origin_v3.11_om_42_current"
+- name: e2e_openshift_origin_v3_om_42_current
+  display_name: "e2e_openshift_origin_v3_om_42_current"
   depends_on:
     - name: build_images_rhel
       variant: init_test_run
     - name: build_test_image
       variant: init_test_run
-    - name: prepare_cluster_openshift_3_11
+    - name: prepare_cluster_openshift_3
       variant: init_test_run
   run_on:
   - archlinux-test
   stepback: false
   expansions:
     <<: *ops_manager_42_current
-    kube_environment_name: openshift_3_11
+    <<: *kubernetes_environment_openshift_3
     distro: rhel
   tasks:
     # Before adding the task / task_group to the current build variant check the comment on the previous one
-    # ('e2e_kube_vanilla_v1.15_om_42_current')
+    # ('e2e_kube_vanilla_om_42_current')
   - name: "e2e_kube_only_task_group"
   - name: "e2e_om_4_2_plus_only_task_group"
   - name: "e2e_core_task_group"
@@ -1552,7 +1552,7 @@ buildvariants:
   stepback: false
   expansions:
     <<: *cloud_manager_qa
-    kube_environment_name: openshift_3_11
+    <<: *kubernetes_environment_openshift_3
     distro: rhel
   tasks:
   - name: "e2e_core_task_group"
@@ -1570,14 +1570,14 @@ buildvariants:
       variant: init_test_run
     - name: build_om_images_ubuntu
       variant: init_test_run
-    - name: prepare_cluster_vanilla_1_15_om
+    - name: prepare_cluster_vanilla_om
       variant: init_test_run
   run_on:
     - archlinux-test
   stepback: false
   expansions:
     cluster_name: "e2e.om.mongokubernetes.com"
-    kube_environment_name: vanilla_1_15
+    <<: *kubernetes_environment_vanilla
     test_mode: "opsmanager"
     distro: ubuntu
   tasks:
@@ -1585,19 +1585,19 @@ buildvariants:
 
 # TODO: most of the OM tasks fail in Openshift
 #
-#- name: e2e_openshift_origin_v3.11_ops_manager
-#  display_name: "e2e_openshift_origin_v3.11_ops_manager"
+#- name: e2e_openshift_origin_v3_ops_manager
+#  display_name: "e2e_openshift_origin_v3_ops_manager"
 #  depends_on:
 #    - name: build_images_rhel
 #      variant: init_test_run
-#    - name: prepare_cluster_openshift_3_11
+#    - name: prepare_cluster_openshift_3
 #      variant: init_test_run
 #  run_on:
 #    - archlinux-test
 #  stepback: false
 #  expansions:
 #    <<: *ops_manager_42_current
-#    kube_environment_name: openshift_3_11
+#    <<: *kubernetes_environment_openshift_3
 #    test_mode: "opsmanager"
 #  tasks:
 #    - name: "e2e_ops_manager_task_group"
@@ -1612,9 +1612,9 @@ buildvariants:
   - name: build_images_ubuntu
   - name: build_om_images_ubuntu
   - name: build_test_image
-  - name: prepare_cluster_openshift_3_11
-  - name: prepare_cluster_vanilla_1_15
-  - name: prepare_cluster_vanilla_1_15_om
+  - name: prepare_cluster_openshift_3
+  - name: prepare_cluster_vanilla
+  - name: prepare_cluster_vanilla_om
 
 #
 # TODO(rodrigo): There's no mechanism that I know of to avoid running this
@@ -1631,7 +1631,7 @@ buildvariants:
 #   expansions:
 #     <<: *rhel_prebuilt_images
 #     <<: *cloud_manager_qa
-#     kube_environment_name: openshift_3_11
+#     <<: *kubernetes_environment_openshift_3
 #     distro: rhel
 #   tasks:
 #     - name: e2e_core_task_group
@@ -1645,3 +1645,4 @@ buildvariants:
   stepback: false
   tasks:
     - name: "unit_task_group"
+
