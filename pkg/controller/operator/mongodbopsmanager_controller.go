@@ -167,8 +167,8 @@ func buildMongoConnectionUrl(opsManager *mdbv1.MongoDBOpsManager) string {
 
 	hostnames, _ := GetDNSNames(statefulsetName, serviceName, opsManager.Namespace, db.ClusterName, replicas)
 	uri := "mongodb://"
-	for _, h := range hostnames {
-		h = fmt.Sprintf("%s:%d", h, util.MongoDbDefaultPort)
+	for i, h := range hostnames {
+		hostnames[i] = fmt.Sprintf("%s:%d", h, util.MongoDbDefaultPort)
 	}
 	uri += strings.Join(hostnames, ",")
 	uri += "/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000"

@@ -84,7 +84,7 @@ func TestComputeConfigMap_CreateNew(t *testing.T) {
 
 	// Creation skipped
 	key2 := objectKey("ns", "cfm2")
-	err = helper.computeConfigMap(key2, func(cmap *corev1.ConfigMap) bool {
+	_ = helper.computeConfigMap(key2, func(cmap *corev1.ConfigMap) bool {
 		return false
 	}, &owner)
 

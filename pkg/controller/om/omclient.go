@@ -770,7 +770,7 @@ func request(method, hostname, path string, v interface{}, user string, token st
 	digestParts := digestParts(resp)
 
 	// Second request is the real one - we send body as well as digest authorization header
-	req, err = createHTTPRequest(method, url, buffer)
+	req, _ = createHTTPRequest(method, url, buffer)
 
 	req.Header.Set("Authorization", getDigestAuthorization(digestParts, method, path, user, token))
 

@@ -458,7 +458,7 @@ func updateOmDeploymentShardedCluster(conn om.Connection, sc *mdbv1.MongoDB, sta
 
 	if shardsRemoving {
 		log.Infof("Some shards were removed from the sharded cluster, we need to remove them from the deployment completely")
-		status, shardsRemoving = publishDeployment(conn, sc, state, log, &processNames, true)
+		status, _ = publishDeployment(conn, sc, state, log, &processNames, true)
 		if !status.isOk() {
 			return status
 		}

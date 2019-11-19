@@ -45,6 +45,10 @@ func (x x509) enableAgentAuthentication(conn om.Connection, opts Options, log *z
 		return nil
 	}, log)
 
+	if err != nil {
+		return err
+	}
+
 	log.Info("configuring backup agent user")
 	err = conn.ReadUpdateBackupAgentConfig(func(config *om.BackupAgentConfig) error {
 		config.EnableX509Authentication()

@@ -29,7 +29,7 @@ if ! [[ -x "$(command -v staticcheck)" ]]; then
 fi
 
 # check for dead code
-staticcheck -checks U1000 ./pkg/controller/...
+staticcheck -checks U1000,SA4006 ./pkg/controller/...
 
 # ensure all code has been formatted with goimports
 if [[ "$($GOPATH/bin/goimports -l ./pkg/controller ./pkg/util ./pkg/apis main.go)" ]]; then

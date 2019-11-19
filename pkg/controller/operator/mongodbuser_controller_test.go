@@ -46,7 +46,7 @@ func TestUserIsAdded_ToAutomationConfig_OnSuccessfulReconciliation(t *testing.T)
 	assert.Equal(t, expected, actual, "there should be a successful reconciliation if the password is a valid reference")
 
 	connection := om.CurrMockedConnection
-	ac, err := connection.ReadAutomationConfig()
+	ac, _ := connection.ReadAutomationConfig()
 
 	// the automation config should have been updated during reconciliation
 	assert.Len(t, ac.Auth.Users, 3, "the MongoDBUser and agent users should have been added to the AutomationConfig")
@@ -85,7 +85,7 @@ func TestUserIsUpdated_IfNonIdentifierFieldIsUpdated_OnSuccessfulReconciliation(
 	assert.Nil(t, err, "there should be no error on successful reconciliation")
 	assert.Equal(t, expected, actual, "there should be a successful reconciliation if the password is a valid reference")
 
-	ac, err := om.CurrMockedConnection.ReadAutomationConfig()
+	ac, _ := om.CurrMockedConnection.ReadAutomationConfig()
 
 	assert.Len(t, ac.Auth.Users, 3, "we should still have a single MongoDBUser and the 2 agent users, no users should have been deleted")
 	_, updatedUser := ac.Auth.GetUser("my-user", "admin")
@@ -121,7 +121,7 @@ func TestUserIsReplaced_IfIdentifierFieldsAreChanged_OnSuccessfulReconciliation(
 	assert.Nil(t, err, "there should be no error on successful reconciliation")
 	assert.Equal(t, expected, actual, "there should be a successful reconciliation if the password is a valid reference")
 
-	ac, err := om.CurrMockedConnection.ReadAutomationConfig()
+	ac, _ := om.CurrMockedConnection.ReadAutomationConfig()
 
 	assert.Len(t, ac.Auth.Users, 4, "we should have a new user with the updated fields and a nil value for the deleted user, and 2 agent users")
 	assert.False(t, ac.Auth.HasUser("my-user", "admin"), "the deleted user should no longer be present")
@@ -157,7 +157,7 @@ func TestRetriesReconciliation_IfNoPasswordSecretExists(t *testing.T) {
 	assert.Equal(t, expected, actual, "the reconciliation should be retried as there is no password")
 
 	connection := om.CurrMockedConnection
-	ac, err := connection.ReadAutomationConfig()
+	ac, _ := connection.ReadAutomationConfig()
 
 	assert.Len(t, ac.Auth.Users, 0, "the MongoDBUser should not have been added to the AutomationConfig")
 }
@@ -182,7 +182,7 @@ func TestRetriesReconciliation_IfPasswordSecretExists_ButHasNoPassword(t *testin
 	assert.Equal(t, expected, actual, "the reconciliation should be retried as there is a secret, but the key contains no password")
 
 	connection := om.CurrMockedConnection
-	ac, err := connection.ReadAutomationConfig()
+	ac, _ := connection.ReadAutomationConfig()
 
 	assert.Len(t, ac.Auth.Users, 0, "the MongoDBUser should not have been added to the AutomationConfig")
 }

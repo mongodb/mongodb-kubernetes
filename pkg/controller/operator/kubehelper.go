@@ -256,7 +256,6 @@ func (s *StatefulSetHelper) BuildAppDBStatefulSet() *appsv1.StatefulSet {
 func (s *StatefulSetHelper) CreateOrUpdateInKubernetes() error {
 	set, err := s.Helper.createOrUpdateStatefulset(
 		s.Namespace,
-		s.Logger,
 		s.BuildStatefulSet(),
 	)
 	if err != nil {
@@ -306,7 +305,6 @@ func (s *OpsManagerStatefulSetHelper) SetVersion(version string) *OpsManagerStat
 func (s *OpsManagerStatefulSetHelper) CreateOrUpdateInKubernetes() error {
 	set, err := s.Helper.createOrUpdateStatefulset(
 		s.Namespace,
-		s.Logger,
 		s.BuildStatefulSet(),
 	)
 	if err != nil {
@@ -321,7 +319,6 @@ func (s *OpsManagerStatefulSetHelper) CreateOrUpdateInKubernetes() error {
 func (s *StatefulSetHelper) CreateOrUpdateAppDBInKubernetes() error {
 	set, err := s.Helper.createOrUpdateStatefulset(
 		s.Namespace,
-		s.Logger,
 		s.BuildAppDBStatefulSet(),
 	)
 	if err != nil {
@@ -445,8 +442,7 @@ func volumeMountWithNameExists(mounts []corev1.VolumeMount, volumeName string) b
 // (the random port will be allocated by Kubernetes) otherwise only one service of type "ClusterIP" is created and it
 // won't be connectible from external (unless pods in statefulset expose themselves to outside using "hostNetwork: true")
 // Function returns the service port number assigned
-func (k *KubeHelper) createOrUpdateStatefulset(ns string, log *zap.SugaredLogger, set *appsv1.StatefulSet) (*appsv1.StatefulSet, error) {
-	log = log.With("statefulset", set.Name)
+func (k *KubeHelper) createOrUpdateStatefulset(ns string, set *appsv1.StatefulSet) (*appsv1.StatefulSet, error) {
 	if err := k.client.Get(context.TODO(), objectKey(ns, set.Name), &appsv1.StatefulSet{}); err != nil {
 		if err = k.client.Create(context.TODO(), set); err != nil {
 			return nil, err
@@ -580,7 +576,7 @@ func (k *KubeHelper) readProjectConfig(namespace, name string) (*mdbv1.ProjectCo
 	if !ok {
 		return nil, fmt.Errorf(`Property "%s" is not specified in config map %s`, util.OmBaseUrl, name)
 	}
-	projectName, ok := data[util.OmProjectName]
+	projectName := data[util.OmProjectName]
 	orgID := data[util.OmOrgId]
 
 	sslRequireValidData, ok := data[util.SSLRequireValidMMSServerCertificates]
