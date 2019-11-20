@@ -74,9 +74,9 @@ type PodVars struct {
 	mdbv1.SSLProjectConfig
 }
 
-// createDatabaseStatefulSet is a general function for building the database StatefulSet.
+// createBaseDatabaseStatefulSet is a general function for building the database StatefulSet.
 // Reused for building an appdb StatefulSet and a normal mongodb StatefulSet
-func createDatabaseStatefulSet(p StatefulSetHelper, podSpec corev1.PodSpec) *appsv1.StatefulSet {
+func createBaseDatabaseStatefulSet(p StatefulSetHelper, podSpec corev1.PodSpec) *appsv1.StatefulSet {
 	// ssLabels are labels we set to the StatefulSet
 	ssLabels := map[string]string{
 		AppLabelKey: p.Service,
@@ -124,13 +124,13 @@ func createDatabaseStatefulSet(p StatefulSetHelper, podSpec corev1.PodSpec) *app
 // This is a convenience method to pass all attributes inside a "parameters" object which is easier to
 // build in client code and avoid passing too many different parameters to `buildStatefulSet`.
 func buildStatefulSet(p StatefulSetHelper) *appsv1.StatefulSet {
-	return createDatabaseStatefulSet(p, basePodSpec(p.Name, p.PodSpec, p.PodVars))
+	return createBaseDatabaseStatefulSet(p, basePodSpec(p.Name, p.PodSpec, p.PodVars))
 }
 
 // buildAppDbStatefulSet builds the StatefulSet for AppDB.
 // It's mostly the same as the normal Mongodb one but had a different pod spec and an additional mounting volume
 func buildAppDbStatefulSet(p StatefulSetHelper) *appsv1.StatefulSet {
-	set := createDatabaseStatefulSet(p, baseAppDbPodSpec(p.Name, p.PodSpec, p.Version))
+	set := createBaseDatabaseStatefulSet(p, baseAppDbPodSpec(p.Name, p.PodSpec, p.Version))
 
 	// cluster config mount
 	mountVolume(volumeMountData{
@@ -144,21 +144,15 @@ func buildAppDbStatefulSet(p StatefulSetHelper) *appsv1.StatefulSet {
 	return set
 }
 
-// TODO refactor - merge with 'buildStatefulSet'
-func buildOpsManagerStatefulSet(p OpsManagerStatefulSetHelper) *appsv1.StatefulSet {
+// createBaseOpsManagerStatefulSet is the base method for building StatefulSet shared by Ops Manager and Backup Daemon.
+// Shouldn't be called by end users directly
+// Dev note: it's ok to move the different parts to parameters (pod spec could be an example) as the functionality
+// evolves
+func createBaseOpsManagerStatefulSet(p OpsManagerStatefulSetHelper) *appsv1.StatefulSet {
 	labels := map[string]string{
 		AppLabelKey:             p.Service,
 		"controller":            util.OmControllerLabel,
 		PodAntiAffinityLabelKey: p.Name,
-	}
-
-	if p.IsBackupDaemon {
-		p.EnvVars = append(p.EnvVars, corev1.EnvVar{
-			// For the OM Docker image to run as Backup Daemon, the BACKUP_DAEMON env variable
-			// needs to be passed with any value.
-			Name:  "BACKUP_DAEMON",
-			Value: "backup",
-		})
 	}
 
 	set := &appsv1.StatefulSet{
@@ -182,23 +176,6 @@ func buildOpsManagerStatefulSet(p OpsManagerStatefulSetHelper) *appsv1.StatefulS
 		},
 	}
 
-	if p.IsBackupDaemon {
-		// backup daemon needs head db, this is set to some default value for now.
-		// `kind` only supports a "default" storageclass
-		defaultConfig := &mdbv1.PersistenceConfig{
-			Storage:      p.Storage,
-			StorageClass: &p.StorageClass,
-		}
-		set.Spec.VolumeClaimTemplates = append(
-			set.Spec.VolumeClaimTemplates,
-			*pvc("head", defaultConfig, defaultConfig),
-		)
-		set.Spec.Template.Spec.Containers[0].VolumeMounts = append(
-			set.Spec.Template.Spec.Containers[0].VolumeMounts,
-			*mount("head", "/head", ""),
-		)
-	}
-
 	mountVolume(volumeMountData{
 		volumeMountName:  "gen-key",
 		volumeMountPath:  util.GenKeyPath,
@@ -207,6 +184,39 @@ func buildOpsManagerStatefulSet(p OpsManagerStatefulSetHelper) *appsv1.StatefulS
 		volumeSourceName: p.Owner.GetName() + "-gen-key",
 	}, set)
 
+	return set
+}
+
+// buildOpsManagerStatefulSet builds the StatefulSet for Ops Manager
+func buildOpsManagerStatefulSet(p OpsManagerStatefulSetHelper) *appsv1.StatefulSet {
+	return createBaseOpsManagerStatefulSet(p)
+}
+
+// buildBackupDaemonStatefulSet builds the StatefulSet for backup daemon. It shares most of the configuration with
+// OpsManager StatefulSet adding something on top of it
+func buildBackupDaemonStatefulSet(p BackupStatefulSetHelper) *appsv1.StatefulSet {
+	p.EnvVars = append(p.EnvVars, corev1.EnvVar{
+		// For the OM Docker image to run as Backup Daemon, the BACKUP_DAEMON env variable
+		// needs to be passed with any value.
+		Name:  util.ENV_BACKUP_DAEMON,
+		Value: "backup",
+	})
+	set := createBaseOpsManagerStatefulSet(*p.OpsManagerStatefulSetHelper)
+
+	defaultConfig := &mdbv1.PersistenceConfig{Storage: util.DefaultHeadDbStorageSize}
+
+	set.Spec.VolumeClaimTemplates = append(
+		set.Spec.VolumeClaimTemplates,
+		*pvc("head", p.HeadDbPersistenceConfig, defaultConfig),
+	)
+	set.Spec.Template.Spec.Containers[0].VolumeMounts = append(
+		set.Spec.Template.Spec.Containers[0].VolumeMounts,
+		*mount("head", "/head", ""),
+	)
+
+	set.Spec.Template.Spec.Containers[0].Name = util.BackupdaemonContainerName
+	// todo so far we don't have any way to get Daemon readiness - may be just checking for process health will be enough
+	set.Spec.Template.Spec.Containers[0].ReadinessProbe = nil
 	return set
 }
 
@@ -739,9 +749,9 @@ func createClaimsAndMountsSingleMode(config *mdbv1.PersistenceConfig, p Stateful
 	return claims, mounts
 }
 
-// pvc convenience function to build a PersistentVolumeClaim.
-//
-// TODO: Describe why this function receives 2 "configs"
+// pvc convenience function to build a PersistentVolumeClaim. It accepts two config parameters - the one specified by
+// the customers and the default one configured by the Operator. Putting the default one to the signature ensures the
+// calling code doesn't forget to think about default values in case the user hasn't provided values.
 func pvc(name string, config, defaultConfig *mdbv1.PersistenceConfig) *corev1.PersistentVolumeClaim {
 	claim := corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{

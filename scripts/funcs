@@ -368,7 +368,7 @@ create_kops_cluster() {
     master_size="${5}"
     zones="${6}"
 
-    title "Creating kops cluster $cluster_name"
+    title "Creating kops cluster $cluster_name (master: $master_size, nodes: $master_size, zones: $zones)"
 
     check_env_var "KOPS_STATE_STORE" "Make sure you add \"export KOPS_STATE_STORE=s3://kube-om-state-store\" to your ~/.bashrc"
 

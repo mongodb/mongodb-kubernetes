@@ -70,65 +70,69 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 		return result, err
 	}
 
-	// 2. Ops Manager
-	if err := r.ensureGenKey(opsManager, log); err != nil {
-		return r.updateStatusFailed(opsManager, err.Error(), log)
+	// 2. Ops Manager and Backup (create, don't wait)
+	status := r.createStatefulsets(opsManager, log)
+	if !status.isOk() {
+		return status.updateStatus(opsManager, r.ReconcileCommonController, log)
 	}
 
-	r.ensureConfiguration(opsManager, log)
-
-	helper := r.kubeHelper.NewOpsManagerStatefulSetHelper(opsManager).SetLogger(log)
-
-	if err := helper.CreateOrUpdateInKubernetes(); err != nil {
-		return r.updateStatusFailed(opsManager, fmt.Sprintf("Failed to create/update the StatefulSet: %s", err), log)
+	// 3. Wait for Ops Manager and Backup StatefulSets to get ready
+	status = r.waitForStatefulSets(opsManager, log)
+	if !status.isOk() {
+		return status.updateStatus(opsManager, r.ReconcileCommonController, log)
 	}
 
-	if !r.kubeHelper.isStatefulSetUpdated(opsManager.Namespace, opsManager.Name, log) {
-		// Instead of polling the StatefulSet and Pods to see if they reach goal state, we
-		// simply finish this reconciliation and check during the next pass.
-		return r.updateStatusPending(opsManager, "Ops Manager is still waiting to start", log)
-	}
-
+	// 4. Prepare Ops Manager (ensure the first user is created and public API key saved to secret)
 	credentials := &Credentials{}
 	if result := r.prepareOpsManager(opsManager, credentials, log); !result.isOk() {
 		return result.updateStatus(opsManager, r.ReconcileCommonController, log)
 	}
 
-	// 3. Backup
-	return r.ensureBackups(opsManager)
+	return r.updateStatusSuccessful(opsManager, log, centralURL(opsManager))
 }
 
-// ensureBackups will start a backup if defined in the Spec.
-//
-// This function will make sure the backups are enabled if the corresponding attributes
-// exist in the Custom Object. However, it won't delete the backups if the attributes do
-// not exist. The reasoning behind all this is that we don't want to inadvertently remove
-// backups which can be a destructive measure.
-func (r *OpsManagerReconciler) ensureBackups(opsManager *mdbv1.MongoDBOpsManager) (res reconcile.Result, e error) {
-	log := zap.S().With("OpsManager", opsManager)
+// createStatefulsets ensures the gen key secret exists and creates the Ops Manager StatefulSet and Backup
+// StatefulSets. It doesn't wait until the StatefulSets reach the goal state
+func (r *OpsManagerReconciler) createStatefulsets(opsManager *mdbv1.MongoDBOpsManager, log *zap.SugaredLogger) reconcileStatus {
+	if err := r.ensureGenKey(opsManager, log); err != nil {
+		return failedErr(err)
+	}
+	r.ensureConfiguration(opsManager, log)
+
+	helper := r.kubeHelper.NewOpsManagerStatefulSetHelper(opsManager).SetLogger(log)
+	if err := helper.CreateOrUpdateInKubernetes(); err != nil {
+		return failedErr(err)
+	}
+
 	if opsManager.Spec.Backup.Enabled {
-		log.Info("Enabling backups for OM")
+		log.Debug("Enabling backup for Ops Manager")
 
-		helper := r.kubeHelper.NewOpsManagerStatefulSetHelper(opsManager)
-		helper.SetName(fmt.Sprintf("%s-backup-daemon", opsManager.GetName())).
-			SetIsBackupDaemon().
-			SetStorageRequirements(
-				opsManager.Spec.Backup.HeadDB.Storage,
-				*opsManager.Spec.Backup.HeadDB.StorageClass,
-			).
-			SetLogger(log).
-			SetVersion(opsManager.Spec.Version)
+		backupHelper := r.kubeHelper.NewBackupStatefulSetHelper(opsManager)
+		backupHelper.SetLogger(log)
 
-		if err := helper.CreateOrUpdateInKubernetes(); err != nil {
-			return r.updateStatusFailed(opsManager, fmt.Sprintf("Failed to create/update the StatefulSet: %s", err), log)
-		}
-
-		if !r.kubeHelper.isStatefulSetUpdated(opsManager.Namespace, opsManager.Name, log) {
-			return r.updateStatusPending(opsManager, "Backup Daemon is still waiting to start", log)
+		if err := backupHelper.CreateOrUpdateInKubernetes(); err != nil {
+			return failedErr(err)
 		}
 	}
 
-	return r.updateStatusSuccessful(opsManager, log, centralURL(opsManager))
+	return ok()
+}
+
+// waitForStatefulSets return pending if any of Ops Manager/Backup StatefulSets is not ready - ok() otherwise
+func (r *OpsManagerReconciler) waitForStatefulSets(opsManager *mdbv1.MongoDBOpsManager, log *zap.SugaredLogger) reconcileStatus {
+	// Is Ops Manager StatefulSet ready?
+	if !r.kubeHelper.isStatefulSetUpdated(opsManager.Namespace, opsManager.Name, log) {
+		return pending("Ops Manager is still starting")
+	}
+
+	if opsManager.Spec.Backup.Enabled {
+		// Is Backup StatefulSet ready?
+		if !r.kubeHelper.isStatefulSetUpdated(opsManager.Namespace, opsManager.BackupStatefulSetName(), log) {
+			return pending("Backup Daemon is still starting")
+		}
+	}
+
+	return ok()
 }
 
 func AddOpsManagerController(mgr manager.Manager) error {

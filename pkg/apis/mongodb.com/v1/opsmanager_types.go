@@ -55,7 +55,7 @@ type MongoDBOpsManagerBackup struct {
 	Enabled bool `json:"enabled,omitempty"`
 
 	// HeadDB specifies configuration options for the HeadDB
-	HeadDB PersistenceConfig `json:"headDB,omitempty"`
+	HeadDB *PersistenceConfig `json:"headDB,omitempty"`
 }
 
 type MongoDBOpsManagerStatus struct {
@@ -95,6 +95,8 @@ func (m *MongoDBOpsManager) UnmarshalJSON(data []byte) error {
 
 	if m.Spec.Backup == nil {
 		m.Spec.Backup = newBackup()
+		// by default backup is enabled
+		m.Spec.Backup.Enabled = true
 	}
 	return nil
 }
@@ -112,6 +114,10 @@ func (m *MongoDBOpsManager) MarshalJSON() ([]byte, error) {
 
 func (m *MongoDBOpsManager) SvcName() string {
 	return m.Name + "-svc"
+}
+
+func (m *MongoDBOpsManager) BackupSvcName() string {
+	return m.BackupStatefulSetName() + "-svc"
 }
 
 func (m *MongoDBOpsManager) AddConfigIfDoesntExist(key, value string) bool {
@@ -179,6 +185,10 @@ func (m *MongoDBOpsManager) GetSpec() interface{} {
 
 func (m *MongoDBOpsManager) APIKeySecretName() string {
 	return m.Name + "-admin-key"
+}
+
+func (m *MongoDBOpsManager) BackupStatefulSetName() string {
+	return fmt.Sprintf("%s-backup-daemon", m.GetName())
 }
 
 // todo for all methods below - reuse the ones from types.go

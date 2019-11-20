@@ -56,6 +56,7 @@ const (
 	ENV_POD_NAMESPACE         = "POD_NAMESPACE"
 	ENV_AUTOMATION_CONFIG_MAP = "AUTOMATION_CONFIG_MAP"
 	ENV_HEADLESS_AGENT        = "HEADLESS_AGENT"
+	ENV_BACKUP_DAEMON         = "BACKUP_DAEMON"
 
 	// EnvVarSSLRequireValidMMSCertificates bla bla
 	EnvVarSSLRequireValidMMSCertificates = "SSL_REQUIRE_VALID_MMS_CERTIFICATES"
@@ -65,6 +66,7 @@ const (
 
 	// Pod/StatefulSet specific constants
 	OpsManagerName              = "mongodb-ops-manager"
+	BackupdaemonContainerName   = "mongodb-backup-daemon"
 	ContainerName               = "mongodb-enterprise-database"
 	ContainerAppDbName          = "mongodb-enterprise-appdb"
 	OmControllerLabel           = "mongodb-enterprise-operator"
@@ -147,6 +149,7 @@ const (
 	DefaultConfigSrvStorageSize        = "5G"
 	DefaultJournalStorageSize          = "1G" // maximum size for single journal file is 100Mb, journal files are removed soon after checkpoints
 	DefaultLogsStorageSize             = "3G"
+	DefaultHeadDbStorageSize           = "32G"
 	DefaultAntiAffinityTopologyKey     = "kubernetes.io/hostname"
 	MongoDbDefaultPort                 = 27017
 	OpsManagerDefaultPort              = 8080
