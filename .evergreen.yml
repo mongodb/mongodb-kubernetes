@@ -527,7 +527,7 @@ functions:
     - *omkp_setup
     - *configure_cloud_manager_qa
     - command: shell.exec
-      type: setup
+      type: test
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         script: |
@@ -579,7 +579,7 @@ functions:
   "e2e_test_upgrade_operator":
     - *configure_cloud_manager_qa
     - command: shell.exec
-      type: setup
+      type: test
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         script: |
