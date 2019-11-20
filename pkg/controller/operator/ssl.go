@@ -2,15 +2,17 @@ package operator
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
-	"io"
-	"strings"
-
+	"encoding/pem"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"os/exec"
+	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	certsv1 "k8s.io/api/certificates/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -125,6 +127,11 @@ func removeSuffixFromHostname(hostname, suffix string) string {
 	}
 
 	return hostname[:len(hostname)-len(suffix)]
+}
+
+func (pf pemFile) parseCertificate() (*x509.Certificate, error) {
+	block, _ := pem.Decode([]byte(pf.certificate))
+	return x509.ParseCertificate(block.Bytes)
 }
 
 type pemFile struct {
@@ -394,4 +401,25 @@ func checkCSRWasApproved(conditions []certsv1.CertificateSigningRequestCondition
 	}
 
 	return false
+}
+
+// checkCSRHasRequiredDomains checks that a given CSR is requesting a
+// certificate valid for at least the provided domains.
+func checkCSRHasRequiredDomains(csr *certsv1.CertificateSigningRequest, domains []string) bool {
+	block, _ := pem.Decode(csr.Spec.Request)
+	if block == nil {
+		return false
+	}
+
+	csrX509, err := x509.ParseCertificateRequest(block.Bytes)
+	if err != nil {
+		return false
+	}
+
+	for _, domain := range domains {
+		if !util.ContainsString(csrX509.DNSNames, domain) {
+			return false
+		}
+	}
+	return true
 }

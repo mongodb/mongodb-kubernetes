@@ -1026,6 +1026,12 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_tls_rs_external_access
+  tags: ["openshift-om-42"]
+  exec_timeout_secs: 720
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_sharded_cluster
   exec_timeout_secs: 1200
   commands:
@@ -1370,6 +1376,7 @@ task_groups:
     - e2e_replica_set_tls_require
     - e2e_replica_set_tls_require_upgrade
     - e2e_replica_set_tls_require_and_disable
+    - e2e_tls_rs_external_access
     - e2e_sharded_cluster_tls_require
     - e2e_standalone_no_tls_no_status_is_set
   teardown_task:

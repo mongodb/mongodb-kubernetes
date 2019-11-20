@@ -1,9 +1,11 @@
+import re
 import os
 import random
 import string
 import sys
 import time
 import warnings
+import json
 from base64 import b64decode, b64encode
 from datetime import datetime, timezone
 
@@ -166,14 +168,24 @@ class KubernetesTester(object):
         sys.stdout.flush()
 
     @classmethod
+    def doc_string_to_init(cls, doc_string) -> dict:
+        result = yaml.safe_load(doc_string)
+        for m in ["create", "update"]:
+            if m in result and "patch" in result[m]:
+                result[m]["patch"] = json.loads(result[m]["patch"])
+        return result
+
+    @classmethod
     def setup_class(cls):
         "Will setup class (initialize kubernetes objects)"
         print('\n')
         KubernetesTester.load_configuration()
         # Loads the subclass doc
         if cls.__doc__:
-            test_setup = yaml.safe_load(cls.__doc__)
-            cls.prepare(test_setup, KubernetesTester.get_namespace())
+            cls.init = cls.doc_string_to_init(cls.__doc__)
+
+        if cls.init:
+            cls.prepare(cls.init, KubernetesTester.get_namespace())
 
         cls.setup_env()
 
@@ -322,7 +334,7 @@ class KubernetesTester(object):
     def create_custom_resource_from_object(namespace, resource, exception_reason=None, patch=None):
         name, kind, group, version, res_type = get_crd_meta(resource)
         if patch:
-            patch = jsonpatch.JsonPatch.from_string(patch)
+            patch = jsonpatch.JsonPatch(patch)
             resource = patch.apply(resource)
 
         KubernetesTester.namespace = namespace
@@ -387,7 +399,7 @@ class KubernetesTester(object):
         KubernetesTester.kind = kind
 
         if patch is not None:
-            patch = jsonpatch.JsonPatch.from_string(patch)
+            patch = jsonpatch.JsonPatch(patch)
             resource = patch.apply(resource)
 
         try:
@@ -546,7 +558,11 @@ class KubernetesTester(object):
         def wait_for_status():
             res = KubernetesTester.get_namespaced_custom_object(KubernetesTester.namespace, KubernetesTester.name,
                                                                 KubernetesTester.kind)
-            return rule["wait_for_message"] in res.get('status', {}).get('message', "")
+            expected_message = rule["wait_for_message"]
+            message = res.get('status', {}).get('message', "")
+            if isinstance(expected_message, re.Pattern):
+                return expected_message.match(message)
+            return expected_message in message
 
         return KubernetesTester.wait_until(wait_for_status, timeout)
 

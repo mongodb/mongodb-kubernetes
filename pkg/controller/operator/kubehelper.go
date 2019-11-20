@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
@@ -73,9 +74,30 @@ type StatefulSetHelper struct {
 	ResourceType mdbv1.ResourceType
 
 	// Not part of StatefulSet object
-	ExposedExternally bool
-	Project           mdbv1.ProjectConfig
-	Security          *mdbv1.Security
+	ExposedExternally  bool
+	Project            mdbv1.ProjectConfig
+	Security           *mdbv1.Security
+	ReplicaSetHorizons []mdbv1.MongoDBHorizonConfig
+}
+
+func (ss StatefulSetHelper) hasHorizons() bool {
+	return len(ss.ReplicaSetHorizons) > 0
+}
+
+// getAdditionalCertDomainsForMember gets any additional domains that the
+// certificate for the given member of the stateful set should be signed for.
+func (ss StatefulSetHelper) getAdditionalCertDomainsForMember(member int) (hostnames []string) {
+	if ss.hasHorizons() {
+		// at this point len(ss.ReplicaSetHorizons) should be equal to the number
+		// of members in the replica set
+		for _, externalHost := range ss.ReplicaSetHorizons[member] {
+			// need to use the URL struct directly instead of url.Parse as
+			// Parse expects the URL to have a scheme.
+			hostURL := url.URL{Host: externalHost}
+			hostnames = append(hostnames, hostURL.Hostname())
+		}
+	}
+	return hostnames
 }
 
 type OpsManagerStatefulSetHelper struct {
@@ -363,6 +385,11 @@ func (s *StatefulSetHelper) getDNSNames() ([]string, []string) {
 	}
 
 	return GetDNSNames(s.Name, s.Service, s.Namespace, s.ClusterName, members)
+}
+
+func (s *StatefulSetHelper) SetReplicaSetHorizons(replicaSetHorizons []mdbv1.MongoDBHorizonConfig) *StatefulSetHelper {
+	s.ReplicaSetHorizons = replicaSetHorizons
+	return s
 }
 
 func (s *StatefulSetHelper) SetSecurity(security *mdbv1.Security) *StatefulSetHelper {
@@ -876,23 +903,32 @@ func (k *KubeHelper) ensureSSLCertsForStatefulSet(ss *StatefulSetHelper, log *za
 
 			for idx, host := range fqdns {
 				csr, err := k.readCSR(podnames[idx], ss.Namespace)
+				additionalCertDomains := ss.getAdditionalCertDomainsForMember(idx)
 				if err != nil {
 					certsNeedApproval = true
-					key, err := k.createTlsCsr(podnames[idx], ss.Namespace, []string{host, podnames[idx]}, podnames[idx])
+					hostnames := []string{host, podnames[idx]}
+					hostnames = append(hostnames, additionalCertDomains...)
+					key, err := k.createTlsCsr(podnames[idx], ss.Namespace, hostnames, podnames[idx])
 					if err != nil {
 						return failed("Failed to create CSR, %s", err)
 					}
 
 					pemFiles.addPrivateKey(podnames[idx], string(key))
+				} else if !checkCSRHasRequiredDomains(csr, additionalCertDomains) {
+					log.Infow(
+						"Certificate request does not have all required domains",
+						"requiredDomains", additionalCertDomains,
+						"host", host,
+					)
+					return pending("Certificate request for " + host + " doesn't have all required domains. Please manually remove the CSR in order to proceed.")
+				} else if checkCSRWasApproved(csr.Status.Conditions) {
+					log.Infof("Certificate for Pod %s -> Approved", host)
+					pemFiles.addCertificate(podnames[idx], string(csr.Status.Certificate))
 				} else {
-					if checkCSRWasApproved(csr.Status.Conditions) {
-						log.Infof("Certificate for Pod %s -> Approved", host)
-						pemFiles.addCertificate(podnames[idx], string(csr.Status.Certificate))
-					} else {
-						log.Infof("Certificate for Pod %s -> Waiting for Approval", host)
-						certsNeedApproval = true
-					}
+					log.Infof("Certificate for Pod %s -> Waiting for Approval", host)
+					certsNeedApproval = true
 				}
+
 			}
 
 			// once we are here we know we have built everything we needed
@@ -955,7 +991,8 @@ func (k *KubeHelper) verifyClientCertificatesForAgents(name, namespace string) i
 
 	certsNotReady := 0
 	for _, agentSecretKey := range []string{util.AutomationAgentPemSecretKey, util.MonitoringAgentPemSecretKey, util.BackupAgentPemSecretKey} {
-		if !isValidPemSecret(secret, agentSecretKey) {
+		additionalDomains := []string{} // agents have no additional domains
+		if !isValidPemSecret(secret, agentSecretKey, additionalDomains) {
 			certsNotReady++
 		}
 	}
@@ -963,13 +1000,28 @@ func (k *KubeHelper) verifyClientCertificatesForAgents(name, namespace string) i
 	return certsNotReady
 }
 
-func isValidPemSecret(secret *corev1.Secret, key string) bool {
-	if data, ok := secret.Data[key]; ok {
-		pemFile := newPemFileFromData(data)
-		return pemFile.isComplete()
-	} else {
+func isValidPemSecret(secret *corev1.Secret, key string, additionalDomains []string) bool {
+	data, ok := secret.Data[key]
+	if !ok {
 		return false
 	}
+
+	pemFile := newPemFileFromData(data)
+	if !pemFile.isComplete() {
+		return false
+	}
+
+	cert, err := pemFile.parseCertificate()
+	if err != nil {
+		return false
+	}
+
+	for _, domain := range additionalDomains {
+		if !util.ContainsString(cert.DNSNames, domain) {
+			return false
+		}
+	}
+	return true
 }
 
 // verifyCertificatesForStatefulSet will return the number of certificates which are
@@ -985,9 +1037,10 @@ func (k *KubeHelper) verifyCertificatesForStatefulSet(ss *StatefulSetHelper, sec
 	_, podnames := ss.getDNSNames()
 	certsNotReady := 0
 
-	for _, pod := range podnames {
+	for i, pod := range podnames {
 		pem := fmt.Sprintf("%s-pem", pod)
-		if !isValidPemSecret(secret, pem) {
+		additionalDomains := ss.getAdditionalCertDomainsForMember(i)
+		if !isValidPemSecret(secret, pem, additionalDomains) {
 			certsNotReady++
 		}
 	}

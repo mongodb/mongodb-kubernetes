@@ -91,7 +91,8 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		SetLogger(log).
 		SetTLS(rs.Spec.GetTLSConfig()).
 		SetProjectConfig(*projectConfig).
-		SetSecurity(rs.Spec.Security)
+		SetSecurity(rs.Spec.Security).
+		SetReplicaSetHorizons(rs.Spec.Connectivity.ReplicaSetHorizons)
 
 	if status := validateMongoDBResource(rs, conn); !status.isOk() {
 		return status.updateStatus(rs, r.ReconcileCommonController, log)

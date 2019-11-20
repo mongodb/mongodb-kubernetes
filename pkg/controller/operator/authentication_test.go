@@ -1,9 +1,18 @@
 package operator
 
 import (
+	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
+	"math/big"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
@@ -33,7 +42,8 @@ func TestX509CannotBeEnabled_IfAgentCertsAreNotApproved(t *testing.T) {
 	configureX509(manager.client, certsv1.CertificateDenied)
 
 	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
-	checkReconcilePending(t, reconciler, rs, fmt.Sprintf("Agent certs have not yet been approved"), manager.client)
+	expectedError := fmt.Sprintf("Agent certs have not yet been approved")
+	checkReconcilePending(t, reconciler, rs, expectedError, manager.client)
 }
 
 func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ReplicaSet(t *testing.T) {
@@ -278,6 +288,9 @@ func TestX509CannotBeEnabled_WhenThereAreBothTlsAndNonTlsDeployments_ShardedClus
 // createCSR creates a CSR object which can be set to either CertificateApproved or CertificateDenied
 func createCSR(conditionType certsv1.RequestConditionType) *certsv1.CertificateSigningRequest {
 	return &certsv1.CertificateSigningRequest{
+		Spec: certsv1.CertificateSigningRequestSpec{
+			Request: createMockCSRBytes(),
+		},
 		Status: certsv1.CertificateSigningRequestStatus{
 			Conditions: []certsv1.CertificateSigningRequestCondition{
 				{Type: conditionType}}}}
@@ -305,13 +318,82 @@ func addKubernetesTlsResources(client *MockedClient, mdb *mdbv1.MongoDB) {
 	}
 }
 
-func createCertsAndKey() []byte {
-	return []byte(`-----BEGIN CERTIFICATE-----
-some certificate
------END CERTIFICATE-----
------BEGIN RSA PRIVATE KEY-----
-some private key
------END RSA PRIVATE KEY-----`)
+// createMockCSRBytes creates a new Certificate Signing Request, signed with a
+// fresh private key
+func createMockCSRBytes() []byte {
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+
+	template := x509.CertificateRequest{
+		Subject: pkix.Name{
+			Organization: []string{"MongoDB"},
+		},
+		DNSNames: []string{"somehost.com"},
+	}
+	certRequestBytes, err := x509.CreateCertificateRequest(rand.Reader, &template, priv)
+	if err != nil {
+		panic(err)
+	}
+
+	certRequestPemBytes := &bytes.Buffer{}
+	pemBlock := pem.Block{Type: "CERTIFICATE REQUEST", Bytes: certRequestBytes}
+	if err := pem.Encode(certRequestPemBytes, &pemBlock); err != nil {
+		panic(err)
+	}
+
+	return certRequestPemBytes.Bytes()
+}
+
+// createMockCertAndKeyBytes generates a random key and certificate and returns
+// them as bytes
+func createMockCertAndKeyBytes() []byte {
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+
+	privBytes, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err != nil {
+		panic(err)
+	}
+
+	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
+	if err != nil {
+		panic(err)
+	}
+
+	template := x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			Organization: []string{"MongoDB"},
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().AddDate(10, 0, 0), // cert expires in 10 years
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+		DNSNames:              []string{"somehost.com"},
+	}
+	certBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	if err != nil {
+		panic(err)
+	}
+
+	certPemBytes := &bytes.Buffer{}
+	if err := pem.Encode(certPemBytes, &pem.Block{Type: "CERTIFICATE", Bytes: certBytes}); err != nil {
+		panic(err)
+	}
+
+	privPemBytes := &bytes.Buffer{}
+	if err := pem.Encode(privPemBytes, &pem.Block{Type: "PRIVATE KEY", Bytes: privBytes}); err != nil {
+		panic(err)
+	}
+
+	return append(certPemBytes.Bytes(), privPemBytes.Bytes()...)
 }
 
 // createReplicaSetTLSData creates and populates secrets required for a TLS enabled ReplicaSet
@@ -339,7 +421,7 @@ func createReplicaSetTLSData(client *MockedClient, mdb *mdbv1.MongoDB) {
 	certs := map[string][]byte{}
 	clientCerts := map[string][]byte{}
 	for i := 0; i < mdb.Spec.Members; i++ {
-		pemFile := createCertsAndKey()
+		pemFile := createMockCertAndKeyBytes()
 		certs[fmt.Sprintf("%s-%d-pem", mdb.Name, i)] = pemFile
 		clientCerts[fmt.Sprintf("%s-%d-pem", mdb.Name, i)] = pemFile
 	}
@@ -360,7 +442,7 @@ func createShardedClusterTLSData(client *MockedClient, mdb *mdbv1.MongoDB) {
 		secretName := fmt.Sprintf("%s-%d-cert", mdb.Name, i)
 		shardData := make(map[string][]byte, 0)
 		for j := 0; j <= mdb.Spec.MongodsPerShardCount; j++ {
-			shardData[fmt.Sprintf("%s-%d-%d-pem", mdb.Name, i, j)] = createCertsAndKey()
+			shardData[fmt.Sprintf("%s-%d-%d-pem", mdb.Name, i, j)] = createMockCertAndKeyBytes()
 		}
 		_ = client.Create(context.TODO(), &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: TestNamespace},
@@ -375,7 +457,7 @@ func createShardedClusterTLSData(client *MockedClient, mdb *mdbv1.MongoDB) {
 	// populate with the expected cert and key fields
 	mongosData := make(map[string][]byte, 0)
 	for i := 0; i < mdb.Spec.MongosCount; i++ {
-		mongosData[fmt.Sprintf("%s-mongos-%d-pem", mdb.Name, i)] = createCertsAndKey()
+		mongosData[fmt.Sprintf("%s-mongos-%d-pem", mdb.Name, i)] = createMockCertAndKeyBytes()
 	}
 
 	// create the mongos secret
@@ -393,7 +475,7 @@ func createShardedClusterTLSData(client *MockedClient, mdb *mdbv1.MongoDB) {
 	// create secret for config server
 	configData := make(map[string][]byte, 0)
 	for i := 0; i < mdb.Spec.ConfigServerCount; i++ {
-		configData[fmt.Sprintf("%s-config-%d-pem", mdb.Name, i)] = createCertsAndKey()
+		configData[fmt.Sprintf("%s-config-%d-pem", mdb.Name, i)] = createMockCertAndKeyBytes()
 	}
 
 	_ = client.Create(context.TODO(), &corev1.Secret{
