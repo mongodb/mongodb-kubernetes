@@ -133,7 +133,11 @@ evergreen patch -p ops-manager-kubernetes \
 
 ## Publish public repo
 
-Just run
+First make sure that the `/public` directory is up to date with the public
+repository. This may involve creating a new PR into the development repository
+with any changes that have yet to be copied over.
+
+Then run
 
     scripts/evergreen/update_public_repo <path_to_public_repo_root>
 
