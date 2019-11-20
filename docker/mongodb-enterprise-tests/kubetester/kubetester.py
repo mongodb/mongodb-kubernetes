@@ -52,7 +52,7 @@ class KubernetesTester(object):
     The class provides some common utility methods used by all children and also performs some common
     create/update/delete actions for Kubernetes objects based on the docstrings of subclasses
     """
-
+    init = None
     group_id = None
 
     @classmethod
