@@ -52,7 +52,7 @@ type MongoDBOpsManagerSpec struct {
 // MongoDBOpsManagerBackup backup structure for Ops Manager resources
 type MongoDBOpsManagerBackup struct {
 	// Enabled indicates if Backups will be enabled for this Ops Manager.
-	Enabled bool `json:"enabled,omitempty"`
+	Enabled bool `json:"enabled"`
 
 	// HeadDB specifies configuration options for the HeadDB
 	HeadDB *PersistenceConfig `json:"headDB,omitempty"`
@@ -95,8 +95,6 @@ func (m *MongoDBOpsManager) UnmarshalJSON(data []byte) error {
 
 	if m.Spec.Backup == nil {
 		m.Spec.Backup = newBackup()
-		// by default backup is enabled
-		m.Spec.Backup.Enabled = true
 	}
 	return nil
 }
@@ -226,7 +224,7 @@ func (m *MongoDBOpsManager) UpdateSuccessfulAppDb(object runtime.Object, args ..
 
 // newBackup returns an empty backup object
 func newBackup() *MongoDBOpsManagerBackup {
-	return &MongoDBOpsManagerBackup{}
+	return &MongoDBOpsManagerBackup{Enabled: true}
 }
 
 // ConvertToEnvVarFormat takes a property in the form of

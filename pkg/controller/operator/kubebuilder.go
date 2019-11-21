@@ -207,15 +207,15 @@ func buildBackupDaemonStatefulSet(p BackupStatefulSetHelper) *appsv1.StatefulSet
 
 	set.Spec.VolumeClaimTemplates = append(
 		set.Spec.VolumeClaimTemplates,
-		*pvc("head", p.HeadDbPersistenceConfig, defaultConfig),
+		*pvc(util.PvcNameHeadDb, p.HeadDbPersistenceConfig, defaultConfig),
 	)
 	set.Spec.Template.Spec.Containers[0].VolumeMounts = append(
 		set.Spec.Template.Spec.Containers[0].VolumeMounts,
-		*mount("head", "/head", ""),
+		*mount(util.PvcNameHeadDb, util.PvcMountPathHeadDb, ""),
 	)
 
 	set.Spec.Template.Spec.Containers[0].Name = util.BackupdaemonContainerName
-	// todo so far we don't have any way to get Daemon readiness - may be just checking for process health will be enough
+	// TODO CLOUDP-53272 so far we don't have any way to get Daemon readiness
 	set.Spec.Template.Spec.Containers[0].ReadinessProbe = nil
 	return set
 }

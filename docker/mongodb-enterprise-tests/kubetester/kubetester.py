@@ -358,8 +358,8 @@ class KubernetesTester(object):
 
         except ApiException as e:
             if exception_reason:
-                assert e.reason == exception_reason, "Real exception is: {}".format(e.reason)
-                print('"{}" exception raised while creating the resource - this is expected!'.format(e.reason))
+                assert e.reason == exception_reason or exception_reason in e.body, "Real exception is: {}".format(e)
+                print('"{}" exception raised while creating the resource - this is expected!'.format(exception_reason))
                 return None, None
 
             print("Failed to create a resource ({}): \n {}".format(e, resource))

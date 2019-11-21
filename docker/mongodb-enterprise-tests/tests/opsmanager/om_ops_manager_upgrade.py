@@ -1,4 +1,5 @@
 import pytest
+from kubernetes import client
 from kubernetes.client.rest import ApiException
 from kubetester.kubetester import skip_if_local
 from kubetester.omtester import OMTester
@@ -45,6 +46,11 @@ class TestOpsManagerCreation(OpsManagerBase):
         assert "user" in data
         # saving the resource version for later checks against updates
         admin_key_resource_version = secret.metadata.resource_version
+
+    def test_backup_not_enabled(self):
+        """ Backup is deliberately disabled so no statefulset should be created"""
+        with pytest.raises(client.rest.ApiException):
+            self.appsv1.read_namespaced_stateful_set_status(self.om_cr.backup_sts_name(), self.namespace)
 
     @skip_if_local
     def test_om(self):

@@ -53,6 +53,13 @@ class TestOpsManagerCreation(OpsManagerBase):
         assert self.om_cr.get_om_status_replicas() == 2
         assert self.om_cr.get_om_status_url() == 'http://om-scale-svc.{}.svc.cluster.local:8080'.format(self.namespace)
 
+    def test_backup_statefulset(self):
+        """ If spec.backup is not specified the backup statefulset is still expected to be created.
+         Also the number of replicas doesn't depend on OM replicas """
+        statefulset = self.appsv1.read_namespaced_stateful_set_status(self.om_cr.backup_sts_name(), self.namespace)
+        assert statefulset.status.ready_replicas == 1
+        assert statefulset.status.current_replicas == 1
+
     @skip_if_local
     def test_om(self):
         """Checks that the OM is responsive and test service is available (enabled by 'mms.testUtil.enabled')."""

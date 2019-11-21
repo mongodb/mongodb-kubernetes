@@ -30,7 +30,22 @@ class TestOpsManagerAppDbWrongSize(OpsManagerBase):
     create:
       file: om_appdb_validation.yaml
       patch: '[{"op":"replace","path":"/spec/applicationDatabase/members","value":2}]'
-      exception: 'Unprocessable Entity'
+      exception: 'spec.applicationDatabase.members in body should be greater than or equal to 3'
+    """
+
+    def test_validation_ok(self):
+        assert True
+
+@pytest.mark.e2e_om_appdb_validation
+class TestOpsManagerBackupEnabledNotSpecified(OpsManagerBase):
+    """
+    name: Backup 'enabled' check
+    description: |
+      Backup specified but 'enabled' field is missing - it is required
+    create:
+      file: om_appdb_validation.yaml
+      patch: '[{"op":"add","path":"/spec/backup","value":{}}]'
+      exception: 'spec.backup.enabled in body is required'
     """
 
     def test_validation_ok(self):

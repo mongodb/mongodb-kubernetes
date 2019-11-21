@@ -182,9 +182,10 @@ func (k *KubeHelper) NewBackupStatefulSetHelper(opsManager *mdbv1.MongoDBOpsMana
 	helper := BackupStatefulSetHelper{
 		OpsManagerStatefulSetHelper: k.NewOpsManagerStatefulSetHelper(opsManager),
 	}
-	helper.SetName(opsManager.BackupStatefulSetName())
-	helper.SetService(opsManager.BackupSvcName())
-	helper.SetHeadDbStorageRequirements(opsManager.Spec.Backup.HeadDB)
+	helper.Name = opsManager.BackupStatefulSetName()
+	helper.Service = ""
+	helper.Replicas = 1
+	helper.HeadDbPersistenceConfig = opsManager.Spec.Backup.HeadDB
 	return &helper
 }
 
@@ -344,7 +345,7 @@ func (s *OpsManagerStatefulSetHelper) CreateOrUpdateInKubernetes() error {
 }
 
 func (s *BackupStatefulSetHelper) CreateOrUpdateInKubernetes() error {
-	set, err := s.Helper.createOrUpdateStatefulset(
+	_, err := s.Helper.createOrUpdateStatefulset(
 		s.Namespace,
 		s.Logger,
 		s.BuildStatefulSet(),
@@ -353,8 +354,8 @@ func (s *BackupStatefulSetHelper) CreateOrUpdateInKubernetes() error {
 		return err
 	}
 
-	_, err = s.Helper.createOrUpdateService(s.Owner, s.ServicePort, s.Namespace, false, s.Logger, set)
-	return err
+	// We don't create a service for backup as it doesn't expose any endpoints
+	return nil
 }
 
 // CreateOrUpdateAppDBInKubernetes creates the StatefulSet specific for AppDB.

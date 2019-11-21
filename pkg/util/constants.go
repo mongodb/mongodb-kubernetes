@@ -78,6 +78,8 @@ const (
 	PvcMountPathJournal         = "/journal"
 	PvcNameLogs                 = "logs"
 	PvcMountPathLogs            = "/var/log/mongodb-mms-automation"
+	PvcNameHeadDb               = "head"
+	PvcMountPathHeadDb          = "/head"
 	CAFilePathInContainer       = "/mongodb-automation/ca.pem"
 	PEMKeyFilePathInContainer   = "/mongodb-automation/server.pem"
 	AutomationAgentName         = "mms-automation-agent"

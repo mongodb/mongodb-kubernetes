@@ -77,7 +77,7 @@ fetch_om_information() {
 configure_operator() {
     if [[ "${TEST_MODE:-}" = "opsmanager" ]]; then
         echo "Creating admin secret for the new Ops Manager instance"
-        kubectl create secret generic ops-manager-admin  \
+        kubectl create secret generic ops-manager-admin-secret  \
             --from-literal=Username="jane.doe@example.com" \
             --from-literal=Password="Passw0rd." \
             --from-literal=FirstName="Jane" \

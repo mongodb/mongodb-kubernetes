@@ -20,8 +20,9 @@ if [[ ${REPO_TYPE} = "local" ]]; then
     title "Enterprise tests image successfully built"
 elif [[ ${REPO_TYPE} = "ecr" ]]; then
     # note that 'aws login' should be called before - 'make' takes care of it
-    repo_name="$(echo "${REPO_URL}" | cut -d "/" -f 2)"
-    ensure_ecr_repository "${repo_name}/mongodb-enterprise-tests"
+    repo_name="$(echo ${REPO_URL} | cut -d "/" -f 2)"
+
+    ensure_ecr_repository "${repo_name}/${IMAGE_TYPE}/mongodb-enterprise-tests"
 
     docker build -t "${repo_name}"/mongodb-enterprise-tests:${TEST_IMAGE_TAG} docker/mongodb-enterprise-tests
     docker tag "${repo_name}"/mongodb-enterprise-tests:${TEST_IMAGE_TAG} "${REPO_URL}"/mongodb-enterprise-tests:${TEST_IMAGE_TAG}

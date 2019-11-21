@@ -20,8 +20,17 @@ class OpsManagerCR(object):
     def name(self):
         return get_name(self.resource)
 
+    def backup_sts_name(self):
+        return get_name(self.resource) + "-backup-daemon"
+
+    def backup_pod_name(self):
+        return self.backup_sts_name() + "-0"
+
     def svc_name(self):
         return self.name() + "-svc"
+
+    def backup_head_pvc_name(self):
+        return "head-{}-0".format(self.backup_sts_name())
 
     def api_key_secret(self):
         return self.name() + "-admin-key"
