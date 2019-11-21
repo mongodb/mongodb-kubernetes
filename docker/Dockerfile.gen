@@ -13,17 +13,23 @@
 #
 # * Usage:
 #
-#     ./Dockerfile.gen <distro> > Dockerfile
+#     ../Dockerfile.gen [-h] [-d] image distro
+#
+# [-h]      help
+# [-d]      enable debug mode for operator image
+# <image>   can be any of: operator, database, appdb, opsmanager
+# <distro>  can be any of: ubuntu, rhel, dcar
 #
 # It is required that the `Dockerfile.template` to exist in the
 # current working directory.
 #
 
-from typing import Dict, List, Union
+from typing import Dict, List, Union, Callable
 from pathlib import Path
 import json
 import os
 import sys
+import argparse
 
 import jinja2
 
@@ -50,7 +56,8 @@ def get_version() -> str:
 
 def ubuntu() -> Dict[str, Union[str, List[str]]]:
     """Ubuntu distro data (only for the Database image)"""
-    # Note, that the Automation Agent needs lsb-release on the CLI to determine the current distro
+    # Note, that the Automation Agent needs lsb-release on the CLI to
+    # determine the current distro
     version = get_version()
 
     return {
@@ -71,7 +78,8 @@ def rhel() -> Dict[str, Union[str, List[str]]]:
 
 def dcar() -> Dict[str, Union[str, List[str]]]:
     """RHEL distro data (only for the Database image)"""
-    # dcar release for disconnected network, avoid packages with epel dependencies
+    # dcar release for disconnected network, avoid packages with epel
+    # dependencies
     return {
         # base image is hardened ubi7 provided by dsop
         "base_image": "nexus-docker.52.61.140.4.nip.io/dsop/ubi7",
@@ -81,30 +89,88 @@ def dcar() -> Dict[str, Union[str, List[str]]]:
     }
 
 
-def render(distro: str, is_appdb: bool, is_debug: bool):
-    if getattr(sys.modules[__name__], distro, None) is None:
-        raise ValueError("{} is not a valid distro name.".format(distro))
+def ops_manager(distro: Callable):
+    """Renders an Ops Manager Dockerfile for a given distro."""
+    params = distro()
 
-    template_params = getattr(sys.modules[__name__], distro)()
-    template_params["is_appdb"] = is_appdb
-    template_params["is_debug"] = is_debug
+    if params["base_image"].startswith("registry.access.redhat.com"):
+        # We don't want ubi-minimal for Ops Manager, get the
+        # full thing instead.
+        params["base_image"] = "registry.access.redhat.com/ubi7/ubi"
+
+    return params
+
+
+def appdb(distro: Callable):
+    params = distro()
+    params["is_appdb"] = True
+
+    return params
+
+
+def operator(distro: Callable):
+    return distro()
+
+
+def database(distro: Callable):
+    return distro()
+
+
+def render(image_name: str, distro_name: str, **kwargs):
+    """Renders a Dockerfile for a `image_type` on a `distro`."""
+    distros = {
+        "rhel": rhel,
+        "ubuntu": ubuntu,
+        "dcar": dcar,
+    }
+
+    image_types = {
+        "opsmanager": ops_manager,
+        "appdb": appdb,
+        "operator": operator,
+        "database": database,
+    }
+
+    if distro_name not in distros.keys():
+        raise ValueError("{} is not a valid distro name.".format(distro_name))
+
+    if image_name not in image_types.keys():
+        raise ValueError("{} is not a valid  image type.".format(image_name))
+
+    distro = distros[distro_name]
+    image_type = image_types[image_name]
+
+    template_params = image_type(distro)
+    template_params.update(kwargs)
 
     env = jinja2.Environment()
     env.loader = jinja2.FileSystemLoader(".")
 
-    return env.get_template("Dockerfile.{}".format(distro)).render(template_params)
+    return env.get_template(
+        "Dockerfile.{}".format(distro_name)
+    ).render(
+        template_params
+    )
+
+
+def argument_parser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("image", help="Type of image for the Dockerfile")
+    parser.add_argument("distro", help="Distro this image should be based on")
+    parser.add_argument("-d", "--debug", help="Builds a debuggable Operator image", action="store_true")
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = argument_parser()
+
+    options = {}
+    options["is_debug"] = args.debug
+
+    print(render(args.image, args.distro, **options))
+
+    return 0
 
 
 if __name__ == "__main__":
-    distro = sys.argv[1]
-    # TODO support for key->value parameters
-    try:
-        is_appdb = bool(sys.argv[2])
-    except IndexError:
-        is_appdb = False
-    try:
-        is_debug = sys.argv[3] == 'True'
-    except IndexError:
-        is_debug = False
-
-    print(render(distro, is_appdb, is_debug))
+    sys.exit(main())

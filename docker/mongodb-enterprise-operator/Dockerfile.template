@@ -18,11 +18,11 @@ LABEL name="MongoDB Enterprise Operator" \
       description="MongoDB Enterprise Operator Image"
 {% endblock %}
 
-{% block packages %}
-{% endblock %}
+{% block packages -%}
+{% endblock -%}
 
-{% block static %}
-{% endblock %}
+{% block static -%}
+{% endblock -%}
 
 {% block external_packages %}
 # Install the cfssl packages to generate CSR

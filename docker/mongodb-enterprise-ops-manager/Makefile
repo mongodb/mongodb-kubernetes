@@ -44,6 +44,7 @@ clean: delete_container
 	@ docker rmi $(IMAGE_PATH) || true
 
 build:
+	@ ../Dockerfile.gen opsmanager "${IMAGE_TYPE}" > Dockerfile
 	docker build $(EXTRA_PARAM) \
 		-t $(IMAGE_PATH) \
 		--build-arg OM_DOWNLOAD_LINK=$(OM_DOWNLOAD_LINK) \

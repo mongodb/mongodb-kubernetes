@@ -31,7 +31,7 @@ clean: delete_container
 	- docker rmi $(IMAGE_PATH)
 
 build:
-	@ ../Dockerfile.gen "${IMAGE_TYPE}" False $(IS_DEBUG) > Dockerfile
+	@ ../Dockerfile.gen operator "${IMAGE_TYPE}" $(IS_DEBUG) > Dockerfile
 	@ DEBUG=$(IS_DEBUG) ../../scripts/build/build_operator || \
 		(../../scripts/build/prepare_build_environment && ../../scripts/build/build_operator)
 	docker build $(EXTRA_PARAM) -t $(IMAGE_PATH) .

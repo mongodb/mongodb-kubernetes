@@ -1,4 +1,4 @@
-FROM ubuntu:18.04
+FROM {{ base_image  }}
 
 ARG OM_DOWNLOAD_LINK
 
@@ -9,23 +9,15 @@ ENV MMS_LOG_DIR ${MMS_HOME}/logs
 
 EXPOSE 8080
 
-RUN apt-get -qq update \
-    && apt-get -y -qq install \
-        apt-utils \
-        ca-certificates \
-        curl \
-        libsasl2-2 \
-        net-tools \
-        netcat \
-        procps \
-    && apt-get upgrade -y -qq \
-    && apt-get dist-upgrade -y -qq \
-    && rm -rf /var/lib/apt/lists/*
+{% block packages %}
+{% endblock %}
 
+{% block static %}
 RUN curl --fail -L -o ops_manager.tar.gz "${OM_DOWNLOAD_LINK}" \
     && tar -xzf ops_manager.tar.gz \
     && rm ops_manager.tar.gz \
     && mv mongodb-mms-* "${MMS_HOME}"
+{% endblock %}
 
 # permissions
 RUN chmod -R 0775 "${MMS_LOG_DIR}" \
@@ -37,7 +29,8 @@ RUN chmod -R 0775 "${MMS_LOG_DIR}" \
 RUN mkdir -p /opt/scripts
 COPY scripts /opt/scripts/
 
-# TODO we need to enable USER only when we enable security context on K8s level and make sure it works
-#USER 2000
+{% block user %}
+USER 2000
+{% endblock %}
 
 ENTRYPOINT [ "/opt/scripts/docker-entry-point.sh" ]

@@ -107,7 +107,7 @@ functions:
             echo "Proceeding with release $release_version"
           fi
 
-          ( cd docker/mongodb-enterprise-operator && ../Dockerfile.gen ${distro} > Dockerfile )
+          ( cd docker/mongodb-enterprise-operator && ../Dockerfile.gen operator ${distro} > Dockerfile )
 
           SKIP_TESTING=true ./scripts/evergreen/build_operator
 
@@ -124,7 +124,7 @@ functions:
           export GOFLAGS="-mod=vendor"
           export PATH="$GOBIN:$PATH"
 
-          ( cd docker/mongodb-enterprise-database && ../Dockerfile.gen ${distro} > Dockerfile )
+          ( cd docker/mongodb-enterprise-database && ../Dockerfile.gen database ${distro} > Dockerfile )
 
           cd probe
           go build -i -o readinessprobe
@@ -837,12 +837,25 @@ tasks:
   - func: setup_jq
   - func: setup_aws
   - func: setup_docker
-  - func: "build_operator"
+  - func: build_operator
     vars:
       distro: ubuntu
   - func: build_and_push_om_test_images
     vars:
       distro: ubuntu
+
+- name: build_om_images_rhel
+  commands:
+  - func: clone
+  - func: setup_jq
+  - func: setup_aws
+  - func: setup_docker
+  - func: build_operator
+    vars:
+      distro: rhel
+  - func: build_and_push_om_test_images
+    vars:
+      distro: rhel
 
 # Note that this task doesn't work so far as it needs different quay account and token
 - name: release_mongodb_enterprise
@@ -1609,24 +1622,27 @@ buildvariants:
   tasks:
     - name: "e2e_ops_manager_task_group"
 
-# TODO: most of the OM tasks fail in Openshift
-#
-#- name: e2e_openshift_origin_v3_ops_manager
-#  display_name: "e2e_openshift_origin_v3_ops_manager"
-#  depends_on:
-#    - name: build_images_rhel
-#      variant: init_test_run
-#    - name: prepare_cluster_openshift_3
-#      variant: init_test_run
-#  run_on:
-#    - archlinux-test
-#  stepback: false
-#  expansions:
-#    <<: *ops_manager_42_current
-#    <<: *kubernetes_environment_openshift_3
-#    test_mode: "opsmanager"
-#  tasks:
-#    - name: "e2e_ops_manager_task_group"
+- name: e2e_openshift_origin_v3_ops_manager
+  display_name: "e2e_openshift_origin_v3_ops_manager"
+  depends_on:
+    - name: build_images_rhel
+      variant: init_test_run
+    - name: build_test_image
+      variant: init_test_run
+    - name: build_om_images_rhel
+      variant: init_test_run
+    - name: prepare_cluster_openshift_3
+      variant: init_test_run
+  run_on:
+    - archlinux-test
+  stepback: false
+  expansions:
+    <<: *ops_manager_42_current
+    <<: *kubernetes_environment_openshift_3
+    test_mode: opsmanager
+    distro: rhel
+  tasks:
+    - name: "e2e_ops_manager_task_group"
 
 - name: init_test_run
   display_name: init_test_run
@@ -1637,6 +1653,7 @@ buildvariants:
   - name: build_images_rhel
   - name: build_images_ubuntu
   - name: build_om_images_ubuntu
+  - name: build_om_images_rhel
   - name: build_test_image
   - name: prepare_cluster_openshift_3
   - name: prepare_cluster_vanilla

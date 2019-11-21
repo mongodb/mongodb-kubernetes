@@ -1,0 +1,19 @@
+{% extends "Dockerfile.template" %}
+
+{% block packages %}
+RUN apt-get -qq update \
+    && apt-get -y -qq install \
+        apt-utils \
+        ca-certificates \
+        curl \
+        libsasl2-2 \
+        net-tools \
+        netcat \
+        procps \
+    && apt-get upgrade -y -qq \
+    && apt-get dist-upgrade -y -qq \
+    && rm -rf /var/lib/apt/lists/*
+{% endblock %}
+
+{% block user %}
+{% endblock %}
