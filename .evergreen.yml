@@ -233,17 +233,13 @@ functions:
           scripts/evergreen/build_operator_rhel.sh $release ${rhc_database_pid}
 
   "setup_jq":
-    - command: shell.exec
+    - command: subprocess.exec
       type: setup
       params:
-        shell: bash
-        script: |
-          echo "Downloading jq"
-          curl -L https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64 -o jq
-          chmod +x jq
-          mkdir -p ${workdir}/bin/
-          mv jq ${workdir}/bin/
-          echo "Installed jq to ${workdir}/bin/"
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        env:
+          WORKDIR: ${workdir}
+        binary: scripts/evergreen/setup_jq.sh
 
   "setup_aws":
     - command: subprocess.exec
