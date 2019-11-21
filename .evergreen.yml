@@ -34,33 +34,51 @@ variables:
   - &kubernetes_environment_vanilla
     kube_environment_name: vanilla
 
+  - &go_bin
+    "/opt/golang/go1.13/bin"
+
+  - &go_options
+    GO111MODULE: "on"
+    GOFLAGS: "-mod=vendor"
+
 functions:
   "golint":
-    - command: shell.exec
+    - command: subprocess.exec
       type: test
       params:
+        add_to_path:
+          - *go_bin
         working_dir: src/github.com/10gen/ops-manager-kubernetes
-        script: |
-          WORKDIR=${workdir} ./scripts/evergreen/lint_code.sh
+        add_expansions_to_env: true
+        env:
+          WORKDIR: ${workdir}
+          <<: *go_options
+        binary: scripts/evergreen/lint_code.sh
+
   "clone":
-    - command: shell.exec
+    - command: subprocess.exec
       type: setup
       params:
-        script: |
-          mkdir -p src/github.com/10gen
+        command: "mkdir -p src/github.com/10gen"
     - command: git.get_project
       type: setup
       params:
         directory: src/github.com/10gen/ops-manager-kubernetes
 
   "test_operator":
-    - command: shell.exec
+    - command: subprocess.exec
       type: test
       params:
+        add_to_path:
+          - *go_bin
         working_dir: src/github.com/10gen/ops-manager-kubernetes
-        script: |
-          export WORKDIR=${workdir}
-          CONTINUE=true ./scripts/evergreen/build_operator
+        add_expansions_to_env: true
+        env:
+          WORKDIR: ${workdir}
+          <<: *go_options
+
+          CONTINUE: "true"
+        binary: scripts/evergreen/build_operator
 
   "build_operator":
     - command: shell.exec
@@ -228,20 +246,16 @@ functions:
           echo "Installed jq to ${workdir}/bin/"
 
   "setup_aws":
-    - command: shell.exec
+    - command: subprocess.exec
       type: setup
       params:
-        shell: bash
-        script: |
-            src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/setup_aws
+        binary: src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/setup_aws
 
   "setup_docker":
-    - command: shell.exec
+    - command: subprocess.exec
       type: setup
       params:
-        shell: bash
-        script: |
-            src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/setup_docker
+        binary: src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/setup_docker
 
   download_kubectl:
     - command: shell.exec
