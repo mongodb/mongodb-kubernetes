@@ -372,12 +372,10 @@ functions:
 
   # Uploads the Docker build context to S3 in order for Kaniko to be able to build the images.
   upload_e2e_build_context:
-  - command: shell.exec
+  - command: subprocess.exec
     params:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
-      script: |
-        tar -C docker/mongodb-enterprise-operator -zcvf operator-context.tar.gz .
-        tar -C docker/mongodb-enterprise-database -zcvf database-context.tar.gz .
+      binary: scripts/evergreen/upload_e2e_build_context.sh
   - command: s3.put
     params:
       aws_key: ${mms_build_s3_aws_access_key}
