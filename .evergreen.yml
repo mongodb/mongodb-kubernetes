@@ -112,24 +112,17 @@ functions:
           SKIP_TESTING=true ./scripts/evergreen/build_operator
 
   "build_database":
-    - command: shell.exec
+    - command: subprocess.exec
       type: setup
       params:
-        shell: bash
         working_dir: src/github.com/10gen/ops-manager-kubernetes
-        script: |
-          export GOPATH="${workdir}"
-          export GOROOT="/usr/lib/go"
-          export GOBIN="/opt/golang/go1.13"
-          export GOFLAGS="-mod=vendor"
-          export PATH="$GOBIN:$PATH"
-
-          ( cd docker/mongodb-enterprise-database && ../Dockerfile.gen database ${distro} > Dockerfile )
-
-          cd probe
-          go build -i -o readinessprobe
-
-          mv readinessprobe ../docker/mongodb-enterprise-database/content/readinessprobe
+        add_to_path:
+          - *go_bin
+        add_expansions_to_env: true
+        env:
+          <<: *go_options
+          IMAGE_TYPE: ${distro}
+        command: "make -C docker/mongodb-enterprise-database prepare-build"
 
     - command: s3.put
       params:

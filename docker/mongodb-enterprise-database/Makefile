@@ -45,10 +45,12 @@ delete_container:
 clean: delete_container
 	- docker rmi $(IMAGE_PATH)
 
-build:
-	@ GOOS='linux' GOFLAGS="-mod=vendor" go build -i -o readiness ../../probe
+prepare-build:
+	@ GOOS='linux' go build -i -o readiness ../../probe
 	@ mv readiness content/readinessprobe
 	@ ../Dockerfile.gen database "${IMAGE_TYPE}" > Dockerfile
+
+build: prepare-build
 	docker build $(EXTRA_PARAM) -t $(IMAGE_PATH) .
 
 clean-build:
@@ -107,8 +109,8 @@ build_appdb:
 	@ if [[ -z "$(AA_VERSION)" ]]; then \
 		echo "AA_VERSION parameter must be specified"; exit 1; \
 	fi
-	@ GOOS='linux' GOFLAGS="-mod=vendor" go build -i -o readiness ../../probe || \
-	   (../../scripts/build/prepare_build_environment && GOOS='linux' GOFLAGS="-mod=vendor" go build -i -o readiness ../../probe)
+	@ GOOS='linux' go build -i -o readiness ../../probe || \
+	   (../../scripts/build/prepare_build_environment && GOOS='linux' go build -i -o readiness ../../probe)
 	@ mv readiness content/readinessprobe
 	@ ../Dockerfile.gen appdb "${IMAGE_TYPE}" > Dockerfile
 	docker build $(EXTRA_PARAM) \
