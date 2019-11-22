@@ -497,7 +497,7 @@ func basePodSpec(statefulSetName string, reqs mdbv1.PodSpecWrapper, podVars *Pod
 // baseAppDbPodSpec creates the AppDB pod template. The container spec is mostly the same as for the MongoDB one -
 // just different url and readiness probe
 func baseAppDbPodSpec(statefulSetName string, reqs mdbv1.PodSpecWrapper, version string) corev1.PodSpec {
-	appdbImageUrl := prepare_om_appdb_image_url(util.ReadEnvVarOrPanic(util.AppDBImageUrl), version)
+	appdbImageUrl := prepareOmAppdbImageUrl(util.ReadEnvVarOrPanic(util.AppDBImageUrl), version)
 	container := corev1.Container{
 		Name:            util.ContainerAppDbName,
 		Image:           appdbImageUrl,
@@ -546,7 +546,7 @@ func opsManagerPodSpec(envVars []corev1.EnvVar, version string) corev1.PodSpec {
 	}
 
 	sort.Sort(&envVarSorter{envVars: envVars})
-	omImageUrl := prepare_om_appdb_image_url(util.ReadEnvVarOrPanic(util.OpsManagerImageUrl), version)
+	omImageUrl := prepareOmAppdbImageUrl(util.ReadEnvVarOrPanic(util.OpsManagerImageUrl), version)
 	spec := corev1.PodSpec{
 		Containers: []corev1.Container{
 			{
@@ -569,13 +569,13 @@ func opsManagerPodSpec(envVars []corev1.EnvVar, version string) corev1.PodSpec {
 	return spec
 }
 
-// prepare_om_appdb_image_url builds the full image url for OM/AppDB images
+// prepareOmAppdbImageUrl builds the full image url for OM/AppDB images
 // It optionally appends the suffix "-operator<operatorVersion" to distinguish the images built for different Operator
 // releases. It's used in production and Evergreen runs (where the new images are built on each Evergreen run)
 // It's not used for local development where the Operator version is just not specified.
 // So far it seems that no other logic depends on the Operator version so we can afford this - we can complicate things
 // if requirements change
-func prepare_om_appdb_image_url(imageUrl, version string) string {
+func prepareOmAppdbImageUrl(imageUrl, version string) string {
 	fullImageUrl := fmt.Sprintf("%s:%s", imageUrl, version)
 	if util.OperatorVersion != "" {
 		fullImageUrl = fmt.Sprintf("%s-operator%s", fullImageUrl, util.OperatorVersion)

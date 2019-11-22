@@ -1,20 +1,18 @@
 package om
 
 import (
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"reflect"
-	"strings"
 	"sync"
-	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 )
 
+// TODO move to 'api' package
 const (
 	// Error codes that Ops Manager may return that we are concerned about
 	InvalidAttribute     = "INVALID_ATTRIBUTE"
@@ -23,7 +21,7 @@ const (
 )
 
 // Connection is a client interacting with OpsManager API. Note, that all methods returning 'error' return the
-// '*APIError' in fact but it's error-prone to declare method as returning specific implementation of error
+// '*Error' in fact but it's error-prone to declare method as returning specific implementation of error
 // (see https://golang.org/doc/faq#nil_error)
 type Connection interface {
 	UpdateDeployment(deployment Deployment) ([]byte, error)
@@ -137,58 +135,6 @@ type HTTPOmConnection struct {
 
 var _ Connection = &HTTPOmConnection{}
 
-// APIError is the error extension that contains the details of OM error if OM returned the error. This allows the
-// code using Connection methods to do more fine-grained exception handling depending on exact error that happened.
-// The class has to encapsulate the usual error (non-OM one) as well as the error may happen at any stage before/after
-// OM request (failing to (de)serialize json object for example) so in this case all fields except for 'Detail' will be
-// empty
-type APIError struct {
-	Status    *int   `json:"error"`
-	Reason    string `json:"reason"`
-	Detail    string `json:"detail"`
-	ErrorCode string `json:"errorCode"`
-}
-
-// NewAPIError
-func NewAPIError(err error) error {
-	if err == nil {
-		return nil
-	}
-	return &APIError{Detail: err.Error()}
-}
-
-func (e *APIError) isGeneric() bool {
-	return strings.Contains(e.Error(), util.GenericErrorMessage)
-}
-
-// Error
-func (e *APIError) Error() string {
-	if e.Status != nil {
-		msg := fmt.Sprintf("Status: %d", *e.Status)
-		if e.Reason != "" {
-			msg += fmt.Sprintf(" (%s)", e.Reason)
-		}
-		if e.ErrorCode != "" {
-			msg += fmt.Sprintf(", ErrorCode: %s", e.ErrorCode)
-		}
-		if e.Detail != "" {
-			msg += fmt.Sprintf(", Detail: %s", e.Detail)
-		}
-		return msg
-	}
-	return e.Detail
-}
-
-// ErrorCodeIn
-func (e *APIError) ErrorCodeIn(errorCodes ...string) bool {
-	for _, c := range errorCodes {
-		if e.ErrorCode == c {
-			return true
-		}
-	}
-	return false
-}
-
 // NewOpsManagerConnection stores OpsManger api endpoint and authentication credentials.
 // It makes it easy to call the API without having to explicitly provide connection details.
 func NewOpsManagerConnection(context *OMContext) Connection {
@@ -239,7 +185,7 @@ func (oc *HTTPOmConnection) ReadDeployment() (Deployment, error) {
 		return nil, err
 	}
 	d, e := BuildDeploymentFromBytes(ans)
-	return d, NewAPIError(e)
+	return d, api.NewError(e)
 }
 
 func (oc *HTTPOmConnection) ReadAutomationConfig() (*AutomationConfig, error) {
@@ -251,7 +197,7 @@ func (oc *HTTPOmConnection) ReadAutomationConfig() (*AutomationConfig, error) {
 
 	ac, err := BuildAutomationConfigFromBytes(ans)
 
-	return ac, NewAPIError(err)
+	return ac, api.NewError(err)
 }
 
 // ReadUpdateDeployment performs the "read-modify-update" operation on OpsManager Deployment.
@@ -272,7 +218,7 @@ func (oc *HTTPOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error,
 		return err
 	}
 	if err := depFunc(deployment); err != nil {
-		return NewAPIError(err)
+		return api.NewError(err)
 	}
 
 	if reflect.DeepEqual(original, deployment) {
@@ -280,8 +226,8 @@ func (oc *HTTPOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error,
 	} else {
 		_, err = oc.UpdateDeployment(deployment)
 		if err != nil {
-			apiError := err.(*APIError)
-			if util.ShouldLogAutomationConfigDiff() && apiError.isGeneric() {
+			apiError := err.(*api.Error)
+			if util.ShouldLogAutomationConfigDiff() && apiError.IsGeneric() {
 				var originalDeployment Deployment = original
 				log.Debug("Current Automation Config")
 				originalDeployment.Debug(log)
@@ -332,13 +278,13 @@ func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(acFunc func(ac *Automatio
 		return err
 	}
 	if err := acFunc(ac); err != nil {
-		return NewAPIError(err)
+		return api.NewError(err)
 	}
 
 	err = oc.UpdateAutomationConfig(ac, log)
 	if err != nil {
-		apiError := err.(*APIError)
-		if util.ShouldLogAutomationConfigDiff() && apiError.isGeneric() {
+		apiError := err.(*api.Error)
+		if util.ShouldLogAutomationConfigDiff() && apiError.IsGeneric() {
 			var originalDeployment Deployment = original
 			log.Debug("Current Automation Config")
 			originalDeployment.Debug(log)
@@ -346,7 +292,7 @@ func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(acFunc func(ac *Automatio
 			ac.Deployment.Debug(log)
 		}
 		log.Errorf("error updating automation config. %s", err)
-		return NewAPIError(err)
+		return api.NewError(err)
 	}
 	return nil
 }
@@ -362,7 +308,7 @@ func (oc *HTTPOmConnection) GenerateAgentKey() (string, error) {
 
 	var keyInfo map[string]interface{}
 	if err := json.Unmarshal(ans, &keyInfo); err != nil {
-		return "", NewAPIError(err)
+		return "", api.NewError(err)
 	}
 	return keyInfo["key"].(string), nil
 }
@@ -376,7 +322,7 @@ func (oc *HTTPOmConnection) ReadAutomationAgents(pageNum int) (*AgentState, erro
 		return nil, err
 	}
 	state, e := BuildAgentStateFromBytes(ans)
-	return state, NewAPIError(e)
+	return state, api.NewError(e)
 }
 
 // ReadAutomationStatus returns the state of the automation status, this includes if the agents
@@ -387,7 +333,7 @@ func (oc *HTTPOmConnection) ReadAutomationStatus() (*AutomationStatus, error) {
 		return nil, err
 	}
 	status, e := buildAutomationStatusFromBytes(ans)
-	return status, NewAPIError(e)
+	return status, api.NewError(e)
 }
 
 // GetHosts return the hosts in this group
@@ -400,7 +346,7 @@ func (oc *HTTPOmConnection) GetHosts() (*Host, error) {
 
 	hosts := &Host{}
 	if err := json.Unmarshal(res, hosts); err != nil {
-		return nil, NewAPIError(err)
+		return nil, api.NewError(err)
 	}
 
 	return hosts, nil
@@ -423,7 +369,7 @@ func (oc *HTTPOmConnection) ReadOrganizationsByName(name string) ([]*Organizatio
 
 	orgsResponse := &OrganizationsResponse{}
 	if err = json.Unmarshal(res, orgsResponse); err != nil {
-		return nil, NewAPIError(err)
+		return nil, api.NewError(err)
 	}
 
 	return orgsResponse.Organizations, nil
@@ -439,7 +385,7 @@ func (oc *HTTPOmConnection) ReadOrganizations(page int) (Paginated, error) {
 
 	orgsResponse := &OrganizationsResponse{}
 	if err := json.Unmarshal(res, orgsResponse); err != nil {
-		return nil, NewAPIError(err)
+		return nil, api.NewError(err)
 	}
 
 	return orgsResponse, nil
@@ -452,7 +398,7 @@ func (oc *HTTPOmConnection) ReadOrganization(orgID string) (*Organization, error
 	}
 	organization := &Organization{}
 	if err := json.Unmarshal(ans, organization); err != nil {
-		return nil, NewAPIError(err)
+		return nil, api.NewError(err)
 	}
 
 	return organization, nil
@@ -467,7 +413,7 @@ func (oc *HTTPOmConnection) ReadProjectsInOrganizationByName(orgID string, name 
 
 	projectsResponse := &ProjectsResponse{}
 	if err := json.Unmarshal(res, projectsResponse); err != nil {
-		return nil, NewAPIError(err)
+		return nil, api.NewError(err)
 	}
 
 	return projectsResponse.Groups, nil
@@ -483,7 +429,7 @@ func (oc *HTTPOmConnection) ReadProjectsInOrganization(orgID string, page int) (
 
 	projectsResponse := &ProjectsResponse{}
 	if err := json.Unmarshal(res, projectsResponse); err != nil {
-		return nil, NewAPIError(err)
+		return nil, api.NewError(err)
 	}
 
 	return projectsResponse, nil
@@ -499,7 +445,7 @@ func (oc *HTTPOmConnection) CreateProject(project *Project) (*Project, error) {
 
 	g := &Project{}
 	if err := json.Unmarshal(res, g); err != nil {
-		return nil, NewAPIError(err)
+		return nil, api.NewError(err)
 	}
 
 	return g, nil
@@ -516,7 +462,7 @@ func (oc *HTTPOmConnection) UpdateProject(project *Project) (*Project, error) {
 
 	g := &Project{}
 	if err := json.Unmarshal(res, g); err != nil {
-		return nil, NewAPIError(err)
+		return nil, api.NewError(err)
 	}
 
 	return project, nil
@@ -532,7 +478,7 @@ func (oc *HTTPOmConnection) ReadBackupConfigs() (*BackupConfigsResponse, error) 
 
 	response := &BackupConfigsResponse{}
 	if err := json.Unmarshal(res, response); err != nil {
-		return nil, NewAPIError(err)
+		return nil, api.NewError(err)
 	}
 
 	return response, nil
@@ -548,7 +494,7 @@ func (oc *HTTPOmConnection) ReadBackupConfig(clusterID string) (*BackupConfig, e
 
 	response := &BackupConfig{}
 	if err := json.Unmarshal(res, response); err != nil {
-		return nil, NewAPIError(err)
+		return nil, api.NewError(err)
 	}
 
 	return response, nil
@@ -564,7 +510,7 @@ func (oc *HTTPOmConnection) ReadHostCluster(clusterID string) (*HostCluster, err
 
 	cluster := &HostCluster{}
 	if err := json.Unmarshal(res, cluster); err != nil {
-		return nil, NewAPIError(err)
+		return nil, api.NewError(err)
 	}
 
 	return cluster, nil
@@ -577,7 +523,7 @@ func (oc *HTTPOmConnection) UpdateBackupStatus(clusterID string, status BackupSt
 	_, err := oc.patch(path, map[string]interface{}{"statusName": status})
 
 	if err != nil {
-		return NewAPIError(err)
+		return api.NewError(err)
 	}
 
 	return nil
@@ -714,177 +660,20 @@ func (oc *HTTPOmConnection) httpVerb(method, path string, v interface{}) ([]byte
 		return nil, err
 	}
 
-	response, err := request(method, oc.BaseURL(), path, v, oc.User(), oc.PublicAPIKey(), client)
+	response, err := api.Request(method, oc.BaseURL(), path, v, oc.User(), oc.PublicAPIKey(), client)
 	return response, err
 }
 
 func (oc *HTTPOmConnection) getHTTPClient() (*http.Client, error) {
 	if oc.context.CACertificate != "" {
 		zap.S().Debug("Using CA Certificate ")
-		return util.NewHTTPClient(util.OptionCAValidate(oc.context.CACertificate))
+		return api.NewHTTPClient(api.OptionCAValidate(oc.context.CACertificate))
 	}
 
 	if oc.context.AllowInvalidSSLCertificate {
 		zap.S().Debug("Allowing insecure certs")
-		return util.NewHTTPClient(util.OptionSkipVerify)
+		return api.NewHTTPClient(api.OptionSkipVerify)
 	}
 
-	return util.NewHTTPClient()
-}
-
-func request(method, hostname, path string, v interface{}, user string, token string, client *http.Client) ([]byte, error) {
-	url := hostname + path
-
-	buffer, err := util.SerializeToBuffer(v)
-	if err != nil {
-		return nil, NewAPIError(err)
-	}
-
-	// First request is to get authorization information - we are not sending the body
-	req, err := createHTTPRequest(method, url, nil)
-	if err != nil {
-		return nil, NewAPIError(err)
-	}
-
-	var body []byte
-	// Change this to a more flexible solution, depending on the SSL configuration
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, NewAPIError(err)
-	}
-	if resp != nil && resp.Body != nil {
-		defer resp.Body.Close()
-	}
-	if resp.StatusCode != http.StatusUnauthorized {
-		return nil, NewAPIError(
-			fmt.Errorf(
-				"Recieved status code '%v' (%v) but expected the '%d', requested url: %v",
-				resp.StatusCode,
-				resp.Status,
-				http.StatusUnauthorized,
-				req.URL,
-			),
-		)
-
-	}
-	digestParts := digestParts(resp)
-
-	// Second request is the real one - we send body as well as digest authorization header
-	req, _ = createHTTPRequest(method, url, buffer)
-
-	req.Header.Set("Authorization", getDigestAuthorization(digestParts, method, path, user, token))
-
-	// DEV: uncomment this to see full http request. Set to 'true' to to see the request body
-	//dumpRequest, _ := httputil.DumpRequest(req, false)
-	//zap.S().Debugf("Ops Manager request: \n %s", dumpRequest)
-	zap.S().Debugf("Ops Manager request: %s %s", method, url) // pass string(request) to see full http request
-
-	resp, err = client.Do(req)
-
-	if resp != nil {
-		if resp.Body != nil {
-			defer resp.Body.Close()
-			// limit size of response body read to 16MB
-			body, err = util.ReadAtMost(resp.Body, 16*1024*1024)
-			if err != nil {
-				return nil, NewAPIError(fmt.Errorf("Error reading response body from %s to %v status=%v", method, url, resp.StatusCode))
-			}
-		}
-
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			apiError := ParseAPIError(resp.StatusCode, method, url, body)
-			return nil, apiError
-		}
-	}
-
-	if err != nil {
-		return body, NewAPIError(fmt.Errorf("Error sending %s request to %s: %v", method, url, err))
-	}
-
-	return body, nil
-}
-
-// createHTTPRequest
-func createHTTPRequest(method string, url string, reader io.Reader) (*http.Request, error) {
-	req, err := http.NewRequest(method, url, reader)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", "application/json; charset=UTF-8")
-	req.Header.Add("Provider", "KUBERNETES")
-
-	return req, nil
-}
-
-// ParseAPIError
-// todo made public as is reused from 'operator' package - in the end it must be either made private again or moved to
-// some shared package
-func ParseAPIError(statusCode int, method, url string, body []byte) *APIError {
-	// If no body - returning the error object with only HTTP status
-	if body == nil {
-		return &APIError{
-			Status: &statusCode,
-			Detail: fmt.Sprintf("%s %v failed with status %d with no response body", method, url, statusCode),
-		}
-	}
-	// If response body exists - trying to parse it
-	errorObject := &APIError{}
-	if err := json.Unmarshal(body, errorObject); err != nil {
-		// If parsing has failed - returning just the general error with status code
-		return &APIError{
-			Status: &statusCode,
-			Detail: fmt.Sprintf("%s %v failed with status %d with response body: %s", method, url, statusCode, string(body)),
-		}
-	}
-
-	return errorObject
-}
-
-func digestParts(resp *http.Response) map[string]string {
-	result := map[string]string{}
-	if len(resp.Header["Www-Authenticate"]) > 0 {
-		wantedHeaders := []string{"nonce", "realm", "qop"}
-		responseHeaders := strings.Split(resp.Header["Www-Authenticate"][0], ",")
-		for _, r := range responseHeaders {
-			for _, w := range wantedHeaders {
-				if strings.Contains(r, w) {
-					result[w] = strings.Split(r, `"`)[1]
-					break
-				}
-			}
-		}
-	}
-	return result
-}
-
-func getCnonce() string {
-	b := make([]byte, 8)
-	io.ReadFull(rand.Reader, b)
-	return fmt.Sprintf("%x", b)[:16]
-}
-
-func getDigestAuthorization(digestParts map[string]string, method string, url string, user string, token string) string {
-	d := digestParts
-	ha1 := util.MD5Hex(user + ":" + d["realm"] + ":" + token)
-	ha2 := util.MD5Hex(method + ":" + url)
-	nonceCount := 00000001
-	cnonce := getCnonce()
-	response := util.MD5Hex(fmt.Sprintf("%s:%s:%v:%s:%s:%s", ha1, d["nonce"], nonceCount, cnonce, d["qop"], ha2))
-	authorization := fmt.Sprintf(`Digest username="%s", realm="%s", nonce="%s", uri="%s", cnonce="%s", nc=%v, qop=%s, response="%s", algorithm="MD5"`,
-		user, d["realm"], d["nonce"], url, cnonce, nonceCount, d["qop"], response)
-	return authorization
-}
-
-// WaitFunction
-func WaitFunction(count, interval int) func() bool {
-	// return 10 * time.Second
-	return func() bool {
-		count--
-		if count <= 0 {
-			return false
-		}
-		time.Sleep(time.Duration(interval) * time.Second)
-		return true
-	}
+	return api.NewHTTPClient()
 }

@@ -1,4 +1,4 @@
-package om
+package api
 
 import (
 	"encoding/json"
@@ -46,15 +46,17 @@ type UserKeys struct {
 // user will be created but without GLOBAL_ADMIN permissions. This potentially may result in non-admin API secret if
 // the admin removes the API secret and renames the username in the user secret. Though this scenario is almost impossible
 func (o *DefaultInitializer) TryCreateUser(omUrl string, user *User) (string, error) {
-	buffer, err := util.SerializeToBuffer(user)
+	buffer, err := serializeToBuffer(user)
 	if err != nil {
 		return "", err
 	}
 
-	client, err := util.NewHTTPClient()
+	client, err := NewHTTPClient()
 	if err != nil {
 		return "", err
 	}
+	// dev note: we are doing many similar things that 'http.go' does - though we cannot reuse that now as current
+	// request is not a digest one
 	resp, err := client.Post(omUrl+"/api/public/v1.0/unauth/users?pretty=true&whitelist=0.0.0.0%2F1&whitelist=127.0.0.0%2F1", "application/json; charset=UTF-8", buffer)
 
 	if err != nil {
@@ -72,7 +74,7 @@ func (o *DefaultInitializer) TryCreateUser(omUrl string, user *User) (string, er
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		apiError := ParseAPIError(resp.StatusCode, "post", omUrl, body)
+		apiError := parseAPIError(resp.StatusCode, "post", omUrl, body)
 		return "", apiError
 	}
 

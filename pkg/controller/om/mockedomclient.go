@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -316,7 +317,7 @@ func (oc *MockedOmConnection) ReadOrganizationsByName(name string) ([]*Organizat
 		}
 	}
 	if len(allOrgs) == 0 {
-		return nil, &APIError{ErrorCode: OrganizationNotFound}
+		return nil, &api.Error{ErrorCode: OrganizationNotFound}
 	}
 	return allOrgs, nil
 }
@@ -413,7 +414,7 @@ func (oc *MockedOmConnection) ReadBackupConfig(clusterId string) (*BackupConfig,
 			return k, nil
 		}
 	}
-	return nil, NewAPIError(errors.New("Failed to find backup config"))
+	return nil, api.NewError(errors.New("Failed to find backup config"))
 }
 
 func (oc *MockedOmConnection) ReadHostCluster(clusterId string) (*HostCluster, error) {
@@ -424,7 +425,7 @@ func (oc *MockedOmConnection) ReadHostCluster(clusterId string) (*HostCluster, e
 			return oc.BackupConfigs[k], nil
 		}
 	}
-	return nil, NewAPIError(errors.New("Failed to find host cluster"))
+	return nil, api.NewError(errors.New("Failed to find host cluster"))
 }
 
 func (oc *MockedOmConnection) UpdateBackupStatus(clusterId string, newStatus BackupStatus) error {
@@ -633,7 +634,7 @@ func (oc *MockedOmConnection) findOrganization(orgId string) (*Organization, err
 			return k, nil
 		}
 	}
-	return nil, NewAPIError(fmt.Errorf("Organization with id %s not found", orgId))
+	return nil, api.NewError(fmt.Errorf("Organization with id %s not found", orgId))
 }
 
 // updateAutoAuthMechanism simulates the changes made by Ops Manager and the agents in deciding which

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 )
@@ -48,7 +49,7 @@ func WaitForReadyState(oc Connection, processNames []string, log *zap.SugaredLog
 		return "Automation agents haven't reached READY state", false
 	}
 	if !util.DoAndRetry(reachStateFunc, log, 30, 3) {
-		return NewAPIError(fmt.Errorf("automation agents haven't reached READY state during defined interval"))
+		return api.NewError(fmt.Errorf("automation agents haven't reached READY state during defined interval"))
 	}
 	log.Info("Automation config has been successfully updated in Ops Manager and Automation Agents reached READY state")
 	return nil

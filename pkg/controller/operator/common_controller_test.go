@@ -9,6 +9,7 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -268,14 +269,14 @@ func omConnOldVersion() om.ConnectionFactory {
 			// We remove the callback on the first call
 			// Second call will perform a standard creation
 			c.CreateGroupFunc = nil
-			return nil, &om.APIError{
+			return nil, &api.Error{
 				ErrorCode: "INVALID_ATTRIBUTE",
 				Detail:    "Invalid attribute tags specified. (This is an artificial error generated deliberately by the test suite)"}
 		}
 		// If creating tags is not allowed - then neither the update
 		c.UpdateGroupFunc = func(g *om.Project) (*om.Project, error) {
 			if len(g.Tags) > 0 {
-				return nil, &om.APIError{
+				return nil, &api.Error{
 					ErrorCode: "INVALID_ATTRIBUTE",
 					Detail:    "Invalid attribute tags specified. (This is an artificial error generated deliberately by the test suite)"}
 			}

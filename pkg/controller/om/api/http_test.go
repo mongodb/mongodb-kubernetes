@@ -1,9 +1,8 @@
-package om
+package api
 
 import (
-	"testing"
-
 	"net/url"
+	"testing"
 
 	"github.com/stretchr/testify/assert"
 )

@@ -9,6 +9,7 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/blang/semver"
 	"go.uber.org/zap"
@@ -22,12 +23,12 @@ import (
 
 type OpsManagerReconciler struct {
 	*ReconcileCommonController
-	omInitializer om.Initializer
+	omInitializer api.Initializer
 }
 
 var _ reconcile.Reconciler = &OpsManagerReconciler{}
 
-func newOpsManagerReconciler(mgr manager.Manager, omFunc om.ConnectionFactory, initializer om.Initializer) *OpsManagerReconciler {
+func newOpsManagerReconciler(mgr manager.Manager, omFunc om.ConnectionFactory, initializer api.Initializer) *OpsManagerReconciler {
 	return &OpsManagerReconciler{
 		ReconcileCommonController: newReconcileCommonController(mgr, omFunc),
 		omInitializer:             initializer,
@@ -70,14 +71,14 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 		return result, err
 	}
 
-	// 2. Ops Manager and Backup (create, don't wait)
-	status := r.createStatefulsets(opsManager, log)
+	// 2. Ops Manager (create and wait)
+	status := r.createOpsManagerStatefulset(opsManager, log)
 	if !status.isOk() {
 		return status.updateStatus(opsManager, r.ReconcileCommonController, log)
 	}
 
-	// 3. Wait for Ops Manager and Backup StatefulSets to get ready
-	status = r.waitForStatefulSets(opsManager, log)
+	// 3. Backup Daemon (create and wait)
+	status = r.createBackupDaemonStatefulset(opsManager, log)
 	if !status.isOk() {
 		return status.updateStatus(opsManager, r.ReconcileCommonController, log)
 	}
@@ -88,12 +89,13 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 		return result.updateStatus(opsManager, r.ReconcileCommonController, log)
 	}
 
+	// 5. Prepare Backup Daemon
+
 	return r.updateStatusSuccessful(opsManager, log, centralURL(opsManager))
 }
 
-// createStatefulsets ensures the gen key secret exists and creates the Ops Manager StatefulSet and Backup
-// StatefulSets. It doesn't wait until the StatefulSets reach the goal state
-func (r *OpsManagerReconciler) createStatefulsets(opsManager *mdbv1.MongoDBOpsManager, log *zap.SugaredLogger) reconcileStatus {
+// createOpsManagerStatefulset ensures the gen key secret exists and creates the Ops Manager StatefulSet.
+func (r *OpsManagerReconciler) createOpsManagerStatefulset(opsManager *mdbv1.MongoDBOpsManager, log *zap.SugaredLogger) reconcileStatus {
 	if err := r.ensureGenKey(opsManager, log); err != nil {
 		return failedErr(err)
 	}
@@ -104,39 +106,15 @@ func (r *OpsManagerReconciler) createStatefulsets(opsManager *mdbv1.MongoDBOpsMa
 		return failedErr(err)
 	}
 
-	if opsManager.Spec.Backup.Enabled {
-		log.Debug("Enabling backup for Ops Manager")
-
-		backupHelper := r.kubeHelper.NewBackupStatefulSetHelper(opsManager)
-		backupHelper.SetLogger(log)
-
-		if err := backupHelper.CreateOrUpdateInKubernetes(); err != nil {
-			return failedErr(err)
-		}
-	}
-
-	return ok()
-}
-
-// waitForStatefulSets return pending if any of Ops Manager/Backup StatefulSets is not ready - ok() otherwise
-func (r *OpsManagerReconciler) waitForStatefulSets(opsManager *mdbv1.MongoDBOpsManager, log *zap.SugaredLogger) reconcileStatus {
-	// Is Ops Manager StatefulSet ready?
 	if !r.kubeHelper.isStatefulSetUpdated(opsManager.Namespace, opsManager.Name, log) {
 		return pending("Ops Manager is still starting")
-	}
-
-	if opsManager.Spec.Backup.Enabled {
-		// Is Backup StatefulSet ready?
-		if !r.kubeHelper.isStatefulSetUpdated(opsManager.Namespace, opsManager.BackupStatefulSetName(), log) {
-			return pending("Backup Daemon is still starting")
-		}
 	}
 
 	return ok()
 }
 
 func AddOpsManagerController(mgr manager.Manager) error {
-	reconciler := newOpsManagerReconciler(mgr, om.NewOpsManagerConnection, &om.DefaultInitializer{})
+	reconciler := newOpsManagerReconciler(mgr, om.NewOpsManagerConnection, &api.DefaultInitializer{})
 	c, err := controller.New(util.MongoDbOpsManagerController, mgr, controller.Options{Reconciler: reconciler})
 	if err != nil {
 		return err
@@ -160,6 +138,28 @@ func (r OpsManagerReconciler) ensureConfiguration(opsManager *mdbv1.MongoDBOpsMa
 
 	// override the versions directory (defaults to "/opt/mongodb/mms/mongodb-releases/")
 	setConfigProperty(opsManager, util.MmsVersionsDirectory, "/mongodb-ops-manager/mongodb-releases/", log)
+}
+
+// createBackupDaemonStatefulset creates a StatefulSet for backup daemon and waits shortly until it's started
+// Note, that the idea of creating two statefulsets for Ops Manager and Backup Daemon in parallel hasn't worked out
+// as the daemon in this case just hangs silently (in practice it's ok to start it in ~1 min after start of OM though
+// we will just start them sequentially)
+func (r *OpsManagerReconciler) createBackupDaemonStatefulset(opsManager *mdbv1.MongoDBOpsManager, log *zap.SugaredLogger) reconcileStatus {
+	if opsManager.Spec.Backup.Enabled {
+		log.Debug("Enabling backup for Ops Manager")
+
+		backupHelper := r.kubeHelper.NewBackupStatefulSetHelper(opsManager)
+		backupHelper.SetLogger(log)
+
+		if err := backupHelper.CreateOrUpdateInKubernetes(); err != nil {
+			return failedErr(err)
+		}
+		// Note, that this will return true quite soon as we don't have daemon readiness so far
+		if !r.kubeHelper.isStatefulSetUpdated(opsManager.Namespace, opsManager.BackupStatefulSetName(), log) {
+			return pending("Backup Daemon is still starting")
+		}
+	}
+	return ok()
 }
 
 // Ideally this must be a method in v1.MongoDB - todo move it there when the AppDB is gone and v1.MongoDB is used instead
@@ -316,14 +316,14 @@ func centralURL(om *mdbv1.MongoDBOpsManager) string {
 	return fmt.Sprintf("%s://%s:%d", protocol, fqdn, util.OpsManagerDefaultPort)
 }
 
-func newUserFromSecret(data map[string]string) (*om.User, error) {
+func newUserFromSecret(data map[string]string) (*api.User, error) {
 	// validate
 	for _, v := range []string{"Username", "Password", "FirstName", "LastName"} {
 		if _, ok := data[v]; !ok {
 			return nil, fmt.Errorf("%s property is missing in the admin secret", v)
 		}
 	}
-	user := &om.User{Username: data["Username"],
+	user := &api.User{Username: data["Username"],
 		Password:  data["Password"],
 		FirstName: data["FirstName"],
 		LastName:  data["LastName"],

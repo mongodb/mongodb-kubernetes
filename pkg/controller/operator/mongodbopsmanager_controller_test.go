@@ -5,6 +5,7 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
@@ -176,14 +177,14 @@ func (b *OpsManagerBuilder) BuildStatefulSet() *appsv1.StatefulSet {
 }
 
 type MockedInitializer struct {
-	currentUsers     []*om.User
-	expectedAPIError *om.APIError
+	currentUsers     []*api.User
+	expectedAPIError *api.Error
 	expectedOmURL    string
 	t                *testing.T
 	numberOfCalls    int
 }
 
-func (o *MockedInitializer) TryCreateUser(omUrl string, user *om.User) (string, error) {
+func (o *MockedInitializer) TryCreateUser(omUrl string, user *api.User) (string, error) {
 	o.numberOfCalls++
 	assert.Equal(o.t, o.expectedOmURL, omUrl)
 

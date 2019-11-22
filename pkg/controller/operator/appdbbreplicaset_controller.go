@@ -10,6 +10,7 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
@@ -170,7 +171,7 @@ func buildAppDbAutomationConfig(rs *mdbv1.AppDB, opsManager *mdbv1.MongoDBOpsMan
 
 func addLatestMongodbVersions(config *om.AutomationConfig, log *zap.SugaredLogger) error {
 	start := time.Now()
-	client, err := util.NewHTTPClient()
+	client, err := api.NewHTTPClient()
 	if err != nil {
 		return err
 	}
