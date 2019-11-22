@@ -162,7 +162,7 @@ aws_login:
 	@ eval "$(shell aws ecr get-login --no-include-email --region us-east-1)"  &> /dev/null || true
 
 build-and-push-operator-image: aws_login
-	@ scripts/dev/build_push_operator_image  $(debug)
+	@ scripts/dev/build_push_operator_image $(debug)
 
 build-and-push-database-image: aws_login
 	@ scripts/dev/build_push_database_image

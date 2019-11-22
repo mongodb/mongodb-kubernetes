@@ -157,7 +157,8 @@ def argument_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("image", help="Type of image for the Dockerfile")
     parser.add_argument("distro", help="Distro this image should be based on")
-    parser.add_argument("-d", "--debug", help="Builds a debuggable Operator image", action="store_true")
+    parser.add_argument("--debug", help="Builds a debuggable Operator image",
+                        action="store_true")
     return parser.parse_args()
 
 
