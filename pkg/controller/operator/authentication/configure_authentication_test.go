@@ -259,6 +259,35 @@ func TestGetCorrectAuthMechanismFromVersion(t *testing.T) {
 	assert.Contains(t, mechanismNames, mechanismName("MONGODB-X509"))
 }
 
+func TestOneAgentOption(t *testing.T) {
+	conn := om.NewMockedOmConnection(om.NewDeployment())
+
+	opts := Options{
+		MinimumMajorVersion: 3, // SCRAM-SHA-1/MONGODB-CR
+		AuthoritativeSet:    true,
+		ProcessNames:        []string{"process-1", "process-2", "process-3"},
+		Mechanisms:          []string{"SCRAM"},
+		OneAgent:            true,
+	}
+
+	if err := Configure(conn, opts, zap.S()); err != nil {
+		t.Fatal(err)
+	}
+
+	ac, _ := conn.ReadAutomationConfig()
+
+	assert.Empty(t, ac.Auth.Users)
+
+	opts.OneAgent = false // there should be 3 agents (2 users in the list)
+
+	if err := Configure(conn, opts, zap.S()); err != nil {
+		t.Fatal(err)
+	}
+
+	ac, _ = conn.ReadAutomationConfig()
+	assert.Len(t, ac.Auth.Users, 2)
+}
+
 func assertAuthenticationEnabled(t *testing.T, auth *om.Auth) {
 	assert.True(t, auth.AuthoritativeSet)
 	assert.False(t, auth.Disabled)
@@ -287,33 +316,17 @@ func assertAuthenticationMechanism(t *testing.T, auth *om.Auth, mechanism string
 	assert.Contains(t, auth.AutoAuthMechanisms, mechanism)
 }
 
-func assertDeploymentMechanismsConfigured(t *testing.T, authMechanism mechanism) {
-	conn := om.NewMockedOmConnection(om.NewDeployment())
-
-	_ = conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-		return authMechanism.enableDeploymentAuthentication(ac)
-	}, zap.S())
-
-	ac, _ := conn.ReadAutomationConfig()
-
-	assert.True(t, authMechanism.isDeploymentAuthenticationConfigured(ac))
+func assertDeploymentMechanismsConfigured(t *testing.T, authMechanism Mechanism) {
+	_ = authMechanism.EnableDeploymentAuthentication()
+	assert.True(t, authMechanism.IsDeploymentAuthenticationConfigured())
 }
 
-func assertAgentAuthenticationDisabled(t *testing.T, authMechanism mechanism) {
-	conn := om.NewMockedOmConnection(om.NewDeployment())
+func assertAgentAuthenticationDisabled(t *testing.T, authMechanism Mechanism) {
+	_ = authMechanism.EnableAgentAuthentication(Options{}, zap.S())
+	assert.True(t, authMechanism.IsAgentAuthenticationConfigured())
 
-	_ = authMechanism.enableAgentAuthentication(conn, Options{}, zap.S())
-
-	ac, _ := conn.ReadAutomationConfig()
-
-	assert.True(t, authMechanism.isAgentAuthenticationConfigured(ac))
-
-	_ = authMechanism.disableAgentAuthentication(conn, zap.S())
-
-	ac, _ = conn.ReadAutomationConfig()
-
-	assert.False(t, authMechanism.isAgentAuthenticationConfigured(ac))
-	assert.Len(t, ac.Auth.AutoAuthMechanisms, 0)
+	_ = authMechanism.DisableAgentAuthentication(zap.S())
+	assert.False(t, authMechanism.IsAgentAuthenticationConfigured())
 }
 
 func noneNil(users []*om.MongoDBUser) bool {
@@ -332,4 +345,10 @@ func allNil(users []*om.MongoDBUser) bool {
 		}
 	}
 	return true
+}
+
+func createConnectionAndAutomationConfig() (om.Connection, *om.AutomationConfig) {
+	conn := om.NewMockedOmConnection(om.NewDeployment())
+	ac, _ := conn.ReadAutomationConfig()
+	return conn, ac
 }

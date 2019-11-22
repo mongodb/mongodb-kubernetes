@@ -7,6 +7,10 @@ import (
 	"strings"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
+
+	"k8s.io/apimachinery/pkg/types"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
@@ -63,16 +67,21 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 		return r.updateStatusValidationFailure(opsManager, err.Error(), log)
 	}
 
+	opsManagerUserPassword, err := r.ensureOpsManagerUserPassword(opsManager)
+	if err != nil {
+		return r.updateStatusFailed(opsManager, fmt.Sprintf("Error ensuring Ops Manager user password: %s", err), log)
+	}
+
 	// 1. AppDB
 	emptyResult := reconcile.Result{}
 	appDbReconciler := newAppDBReplicaSetReconciler(r.ReconcileCommonController)
-	result, err := appDbReconciler.Reconcile(opsManager, &opsManager.Spec.AppDB)
+	result, err := appDbReconciler.Reconcile(opsManager, &opsManager.Spec.AppDB, opsManagerUserPassword)
 	if err != nil || result != emptyResult {
 		return result, err
 	}
 
 	// 2. Ops Manager (create and wait)
-	status := r.createOpsManagerStatefulset(opsManager, log)
+	status := r.createOpsManagerStatefulset(opsManager, opsManagerUserPassword, log)
 	if !status.isOk() {
 		return status.updateStatus(opsManager, r.ReconcileCommonController, log)
 	}
@@ -95,11 +104,11 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 }
 
 // createOpsManagerStatefulset ensures the gen key secret exists and creates the Ops Manager StatefulSet.
-func (r *OpsManagerReconciler) createOpsManagerStatefulset(opsManager *mdbv1.MongoDBOpsManager, log *zap.SugaredLogger) reconcileStatus {
+func (r *OpsManagerReconciler) createOpsManagerStatefulset(opsManager *mdbv1.MongoDBOpsManager, opsManagerUserPassword string, log *zap.SugaredLogger) reconcileStatus {
 	if err := r.ensureGenKey(opsManager, log); err != nil {
 		return failedErr(err)
 	}
-	r.ensureConfiguration(opsManager, log)
+	r.ensureConfiguration(opsManager, opsManagerUserPassword, log)
 
 	helper := r.kubeHelper.NewOpsManagerStatefulSetHelper(opsManager).SetLogger(log)
 	if err := helper.CreateOrUpdateInKubernetes(); err != nil {
@@ -125,16 +134,23 @@ func AddOpsManagerController(mgr manager.Manager) error {
 		return err
 	}
 
+	// watch the secret with the Ops Manager user password
+	err = c.Watch(&source.Kind{Type: &corev1.Secret{}},
+		&ConfigMapAndSecretHandler{resourceType: Secret, trackedResources: reconciler.watchedResources})
+	if err != nil {
+		return err
+	}
+
 	zap.S().Infof("Registered controller %s", util.MongoDbOpsManagerController)
 	return nil
 }
 
 // ensureConfiguration makes sure the mandatory configuration is specified
-func (r OpsManagerReconciler) ensureConfiguration(opsManager *mdbv1.MongoDBOpsManager, log *zap.SugaredLogger) {
+func (r OpsManagerReconciler) ensureConfiguration(opsManager *mdbv1.MongoDBOpsManager, password string, log *zap.SugaredLogger) {
 	// update the central URL
 	setConfigProperty(opsManager, util.MmsCentralUrlPropKey, centralURL(opsManager), log)
 
-	setConfigProperty(opsManager, util.MmsMongoUri, buildMongoConnectionUrl(opsManager), log)
+	setConfigProperty(opsManager, util.MmsMongoUri, buildMongoConnectionUrl(opsManager, password), log)
 
 	// override the versions directory (defaults to "/opt/mongodb/mms/mongodb-releases/")
 	setConfigProperty(opsManager, util.MmsVersionsDirectory, "/mongodb-ops-manager/mongodb-releases/", log)
@@ -162,20 +178,21 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(opsManager *mdbv1.M
 	return ok()
 }
 
-// Ideally this must be a method in v1.MongoDB - todo move it there when the AppDB is gone and v1.MongoDB is used instead
-func buildMongoConnectionUrl(opsManager *mdbv1.MongoDBOpsManager) string {
+// Ideally this must be a method in mdbv1.MongoDB - todo move it there when the AppDB is gone and mdbv1.MongoDB is used instead
+func buildMongoConnectionUrl(opsManager *mdbv1.MongoDBOpsManager, password string) string {
 	db := opsManager.Spec.AppDB
 	statefulsetName := db.Name()
 	serviceName := db.ServiceName()
 	replicas := db.Members
 
 	hostnames, _ := GetDNSNames(statefulsetName, serviceName, opsManager.Namespace, db.ClusterName, replicas)
-	uri := "mongodb://"
+	uri := fmt.Sprintf("mongodb://%s:%s@", util.OpsManagerMongoDBUserName, password)
 	for i, h := range hostnames {
 		hostnames[i] = fmt.Sprintf("%s:%d", h, util.MongoDbDefaultPort)
 	}
 	uri += strings.Join(hostnames, ",")
 	uri += "/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000"
+	uri += "&authSource=admin&authMechanism=SCRAM-SHA-1"
 	return uri
 }
 
@@ -202,6 +219,57 @@ func (r OpsManagerReconciler) ensureGenKey(om *mdbv1.MongoDBOpsManager, log *zap
 		return r.kubeHelper.createSecret(objectKey, keyMap, map[string]string{}, nil)
 	}
 	return err
+}
+
+// ensureOpsManagerUserPassword will attempt to read a password from a secret, or generate a password
+// and create the secret if it does not exist.
+func (r OpsManagerReconciler) ensureOpsManagerUserPassword(opsManager *mdbv1.MongoDBOpsManager) (string, error) {
+
+	// TODO: check for custom password that a user has specified
+
+	// otherwise we'll ensure the auto generated password exists
+	secretName := opsManager.Name + "-password" // TODO: CLOUDP-53194 take this from the spec of the resource
+	objectKey := objectKey(opsManager.Namespace, secretName)
+	secret, err := r.kubeHelper.readSecret(objectKey)
+	if apiErrors.IsNotFound(err) {
+		// create the password
+		password, err := util.GenerateRandomFixedLengthStringOfSize(100)
+		if err != nil {
+			return "", err
+		}
+
+		passwordData := map[string]string{
+			util.OpsManagerPasswordKey: password, // TODO: CLOUDP-53194 key will be specified in spec, this will be fallback value if not specified
+		}
+
+		if err := r.kubeHelper.createSecret(types.NamespacedName{Namespace: opsManager.Namespace, Name: secretName}, passwordData, nil, opsManager); err != nil {
+			return "", err
+		}
+
+		// watch the secret which contains the password for the Ops Manager user
+		r.addWatchedResourceIfNotAdded(
+			secretName,
+			opsManager.Namespace,
+			Secret,
+			objectKeyFromApiObject(opsManager),
+		)
+
+		return password, nil
+	}
+
+	// any other error
+	if err != nil {
+		return "", err
+	}
+
+	r.addWatchedResourceIfNotAdded(
+		secretName,
+		opsManager.Namespace,
+		Secret,
+		objectKeyFromApiObject(opsManager),
+	)
+
+	return secret[util.OpsManagerPasswordKey], nil
 }
 
 // prepareOpsManager ensures the admin user is created and the admin public key exists

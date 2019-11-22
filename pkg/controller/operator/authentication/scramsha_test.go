@@ -11,10 +11,11 @@ import (
 
 func TestScramSha256_EnableAgentAuthentication(t *testing.T) {
 	conn := om.NewMockedOmConnection(om.NewDeployment())
+	ac, _ := conn.ReadAutomationConfig()
 
-	s := newScramSha256()
+	s := NewConnectionScramSha256(conn, ac)
 
-	if err := s.enableAgentAuthentication(conn, Options{AuthoritativeSet: true}, zap.S()); err != nil {
+	if err := s.EnableAgentAuthentication(Options{AuthoritativeSet: true}, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -29,7 +30,7 @@ func TestScramSha256_EnableAgentAuthentication(t *testing.T) {
 	assert.Contains(t, ac.Auth.AutoAuthMechanisms, string(ScramSha256))
 	assert.NotEmpty(t, ac.Auth.AutoPwd)
 
-	assert.True(t, s.isAgentAuthenticationConfigured(ac))
+	assert.True(t, s.IsAgentAuthenticationConfigured())
 
 	for _, user := range buildScramAgentUsers(ac.Auth.AutoPwd) {
 		assert.True(t, ac.Auth.HasUser(user.Username, user.Database))
@@ -44,9 +45,11 @@ func TestScramSha256_EnableAgentAuthentication(t *testing.T) {
 func TestScramSha1_EnableAgentAuthentication(t *testing.T) {
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 
-	s := newScramSha1()
+	ac, _ := conn.ReadAutomationConfig()
 
-	if err := s.enableAgentAuthentication(conn, Options{AuthoritativeSet: true}, zap.S()); err != nil {
+	s := NewConnectionScramSha1(conn, ac)
+
+	if err := s.EnableAgentAuthentication(Options{AuthoritativeSet: true}, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -62,7 +65,7 @@ func TestScramSha1_EnableAgentAuthentication(t *testing.T) {
 	assert.NotEmpty(t, ac.Auth.AutoPwd)
 	assert.Len(t, ac.Auth.Users, 2)
 
-	assert.True(t, s.isAgentAuthenticationConfigured(ac))
+	assert.True(t, s.IsAgentAuthenticationConfigured())
 
 	for _, user := range buildScramAgentUsers(ac.Auth.AutoPwd) {
 		assert.True(t, ac.Auth.HasUser(user.Username, user.Database))
@@ -74,17 +77,21 @@ func TestScramSha1_EnableAgentAuthentication(t *testing.T) {
 }
 
 func TestScramSha256_DeploymentConfigured(t *testing.T) {
-	assertDeploymentMechanismsConfigured(t, newScramSha256())
+	conn, ac := createConnectionAndAutomationConfig()
+	assertDeploymentMechanismsConfigured(t, NewConnectionScramSha256(conn, ac))
 }
 
 func TestScramSha1_DeploymentConfigured(t *testing.T) {
-	assertDeploymentMechanismsConfigured(t, newScramSha1())
+	conn, ac := createConnectionAndAutomationConfig()
+	assertDeploymentMechanismsConfigured(t, NewConnectionScramSha1(conn, ac))
 }
 
 func TestScramSha1_DisableAgentAuthentication(t *testing.T) {
-	assertAgentAuthenticationDisabled(t, newScramSha1())
+	conn, ac := createConnectionAndAutomationConfig()
+	assertAgentAuthenticationDisabled(t, NewConnectionScramSha1(conn, ac))
 }
 
 func TestScramSha256_DisableAgentAuthentication(t *testing.T) {
-	assertAgentAuthenticationDisabled(t, newScramSha256())
+	conn, ac := createConnectionAndAutomationConfig()
+	assertAgentAuthenticationDisabled(t, NewConnectionScramSha256(conn, ac))
 }

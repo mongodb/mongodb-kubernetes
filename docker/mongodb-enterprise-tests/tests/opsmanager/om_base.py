@@ -2,6 +2,8 @@ from kubernetes.client.rest import ApiException
 from kubetester.kubetester import KubernetesTester
 from kubetester.omcr import OpsManagerCR
 from kubetester.omtester import OMContext
+from typing import Dict
+import json
 
 
 class OpsManagerBase(KubernetesTester):
@@ -85,7 +87,6 @@ class OpsManagerBase(KubernetesTester):
         except ApiException:
             return True
 
-
     @staticmethod
     def appdb_in_running_state():
         """ Returns true if the AppDB in Running state, fails fast if got into Failed error
@@ -101,3 +102,12 @@ class OpsManagerBase(KubernetesTester):
 
         return resource.get_appdb_status()['phase'] == "Running"
 
+    def get_appdb_automation_config(self) -> Dict:
+        cm = KubernetesTester.read_configmap(KubernetesTester.get_namespace(),
+                                             "{}-config".format(self.om_cr.app_db_name()))
+        automation_config_str = cm["cluster-config.json"]
+        return json.loads(automation_config_str)
+
+    def get_appdb_password(self, name: str) -> str:
+        secret = self.read_secret(self.get_namespace(), f'{name}-password')
+        return secret["password"]

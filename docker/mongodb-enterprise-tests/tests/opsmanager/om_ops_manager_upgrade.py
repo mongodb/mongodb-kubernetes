@@ -3,6 +3,7 @@ from kubernetes import client
 from kubernetes.client.rest import ApiException
 from kubetester.kubetester import skip_if_local
 from kubetester.omtester import OMTester
+from kubetester.automation_config_tester import AutomationConfigTester
 
 from tests.opsmanager.om_base import OpsManagerBase
 
@@ -156,4 +157,3 @@ class TestOpsManagerRemoved(OpsManagerBase):
     def test_om_appdb_removed(self):
         with pytest.raises(ApiException):
             self.appsv1.read_namespaced_stateful_set(self.om_cr.app_db_name(), self.namespace)
-

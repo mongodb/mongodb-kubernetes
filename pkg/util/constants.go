@@ -161,14 +161,19 @@ const (
 	DefaultK8sCacheRefreshTimeSeconds  = 2
 
 	// Ops Manager related constants
-	OmPropertyPrefix = "OM_PROP_"
-	GenKeyPath       = "/mongodb-ops-manager/.mongodb-mms"
-	LatestOmVersion  = "4.2"
+	OmPropertyPrefix         = "OM_PROP_"
+	GenKeyPath               = "/mongodb-ops-manager/.mongodb-mms"
+	LatestOmVersion          = "4.2"
+	AppDBAutomationConfigKey = "cluster-config.json"
 
 	// Ops Manager configuration properties
-	MmsCentralUrlPropKey = "mms.centralUrl"
-	MmsMongoUri          = "mongo.mongoUri"
-	MmsVersionsDirectory = "automation.versions.directory"
+	MmsCentralUrlPropKey      = "mms.centralUrl"
+	MmsMongoUri               = "mongo.mongoUri"
+	MmsVersionsDirectory      = "automation.versions.directory"
+	OpsManagerMongoDBUserName = "mongodb-ops-manager"
+
+	// Ops Manager authentication constants
+	OpsManagerPasswordKey = "password"
 
 	// Env variables used for testing mostly to decrease waiting time
 	PodWaitSecondsEnv     = "POD_WAIT_SEC"

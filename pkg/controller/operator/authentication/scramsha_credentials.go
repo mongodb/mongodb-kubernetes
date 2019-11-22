@@ -20,6 +20,8 @@ const (
 	// using the default MongoDB values for the number of iterations depending on mechanism
 	scramSha1Iterations   = 10000
 	scramSha256Iterations = 15000
+
+	RFC5802MandatedSaltSize = 4
 )
 
 // The code in this file is largely adapted from the Automation Agent codebase.
@@ -27,8 +29,7 @@ const (
 
 // ComputeScramShaCreds takes a plain text password and a specified mechanism name and generates
 // the ScramShaCreds which will be embedded into a MongoDBUser.
-func ComputeScramShaCreds(username, password string, name mechanismName) (*om.ScramShaCreds, error) {
-
+func ComputeScramShaCreds(username, password string, salt []byte, name mechanismName) (*om.ScramShaCreds, error) {
 	var hashConstructor func() hash.Hash
 	iterations := 0
 	if name == ScramSha256 {
@@ -45,15 +46,19 @@ func ComputeScramShaCreds(username, password string, name mechanismName) (*om.Sc
 	} else {
 		return nil, fmt.Errorf("unrecognized SCRAM-SHA format %s", name)
 	}
+	base64EncodedSalt := base64.StdEncoding.EncodeToString(salt)
+	return computeScramCredentials(hashConstructor, iterations, base64EncodedSalt, password)
+}
 
-	saltSize := hashConstructor().Size() - 4
+// GenerateSalt will create a salt for use with ComputeScramShaCreds based on the given hashConstructor.
+// sha1.New should be used for MONGODB-CR/SCRAM-SHA-1 and sha256.New should be used for SCRAM-SHA-256
+func GenerateSalt(hashConstructor func() hash.Hash) ([]byte, error) {
+	saltSize := hashConstructor().Size() - RFC5802MandatedSaltSize
 	salt, err := util.GenerateRandomFixedLengthStringOfSize(saltSize)
 	if err != nil {
 		return nil, err
 	}
-
-	base64EncodedSalt := base64.StdEncoding.EncodeToString([]byte(salt))
-	return computeScramCredentials(hashConstructor, iterations, base64EncodedSalt, password)
+	return []byte(salt), nil
 }
 
 func generateSaltedPassword(hashConstructor func() hash.Hash, password string, salt []byte, iterationCount int) ([]byte, error) {
@@ -74,8 +79,8 @@ func hmacIteration(hashConstructor func() hash.Hash, input, salt []byte, iterati
 
 	// incorrect salt size will pass validation, but the credentials will be invalid. i.e. it will not
 	// be possible to auth with the password provided to create the credentials.
-	if len(salt) != hashSize-4 {
-		return nil, fmt.Errorf("salt should have a size of %v bytes, but instead has a size of %v bytes", hashSize-4, len(salt))
+	if len(salt) != hashSize-RFC5802MandatedSaltSize {
+		return nil, fmt.Errorf("salt should have a size of %v bytes, but instead has a size of %v bytes", hashSize-RFC5802MandatedSaltSize, len(salt))
 	}
 
 	startKey := append(salt, 0, 0, 0, 1)

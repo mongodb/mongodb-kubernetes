@@ -3,17 +3,15 @@ package authentication
 import (
 	"testing"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 )
 
 func TestX509EnableAgentAuthentication(t *testing.T) {
-	conn := om.NewMockedOmConnection(om.NewDeployment())
-
-	x := x509{}
-	if err := x.enableAgentAuthentication(conn, Options{AuthoritativeSet: true}, zap.S()); err != nil {
+	conn, ac := createConnectionAndAutomationConfig()
+	x := NewConnectionX509(conn, ac)
+	if err := x.EnableAgentAuthentication(Options{AuthoritativeSet: true}, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -44,9 +42,11 @@ func TestX509EnableAgentAuthentication(t *testing.T) {
 }
 
 func TestX509_DisableAgentAuthentication(t *testing.T) {
-	assertAgentAuthenticationDisabled(t, x509{})
+	conn, ac := createConnectionAndAutomationConfig()
+	assertAgentAuthenticationDisabled(t, NewConnectionX509(conn, ac))
 }
 
 func TestX509_DeploymentConfigured(t *testing.T) {
-	assertDeploymentMechanismsConfigured(t, x509{})
+	conn, ac := createConnectionAndAutomationConfig()
+	assertDeploymentMechanismsConfigured(t, NewConnectionX509(conn, ac))
 }

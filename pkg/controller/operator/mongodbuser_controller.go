@@ -220,23 +220,6 @@ func AddMongoDBUserController(mgr manager.Manager) error {
 	return nil
 }
 
-// configureScramCredentials creates both SCRAM-SHA-1 and SCRAM-SHA-256 credentials. This ensures
-// that changes to the authentication settings on the MongoDB resources won't leave MongoDBUsers without
-// the correct credentials.
-func configureScramCredentials(user *om.MongoDBUser, password string) error {
-	scram256Creds, err := authentication.ComputeScramShaCreds(user.Username, password, authentication.ScramSha256)
-	if err != nil {
-		return err
-	}
-	scram1Creds, err := authentication.ComputeScramShaCreds(user.Username, password, authentication.MongoDBCR)
-	if err != nil {
-		return err
-	}
-	user.ScramSha256Creds = scram256Creds
-	user.ScramSha1Creds = scram1Creds
-	return nil
-}
-
 // toOmUser converts a MongoDBUser specification and optional password into an
 // automation config MongoDB user. If the user has no password then a blank
 // password should be provided.
@@ -251,7 +234,7 @@ func toOmUser(spec mdbv1.MongoDBUserSpec, password string) (om.MongoDBUser, erro
 
 	// only specify password if we're dealing with non-x509 users
 	if spec.Database != util.X509Db {
-		if err := configureScramCredentials(&user, password); err != nil {
+		if err := authentication.ConfigureScramCredentials(&user, password); err != nil {
 			return om.MongoDBUser{}, fmt.Errorf("error generating SCRAM credentials: %s", err)
 		}
 	}

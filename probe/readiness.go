@@ -8,6 +8,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"go.uber.org/zap"
 )
@@ -199,7 +201,7 @@ func performCheckHeadlessMode(health Health, configMapReader ConfigMapReader) (b
 	if err != nil {
 		return false, err
 	}
-	existingDeployment, err := om.BuildDeploymentFromBytes([]byte(configMap.Data["cluster-config.json"]))
+	existingDeployment, err := om.BuildDeploymentFromBytes([]byte(configMap.Data[util.AppDBAutomationConfigKey]))
 	if err != nil {
 		return false, err
 	}

@@ -1,4 +1,5 @@
 from kubetester.kubetester import get_name, build_svc_fqdn, build_list_of_hosts
+from kubetester.mongotester import MongoTester, ReplicaSetTester
 
 
 class OpsManagerCR(object):
@@ -28,6 +29,9 @@ class OpsManagerCR(object):
 
     def svc_name(self):
         return self.name() + "-svc"
+
+    def get_appdb_mongo_tester(self, **kwargs) -> MongoTester:
+        return ReplicaSetTester(self.app_db_name(), replicas_count=self.get_appdb_status()["members"], **kwargs)
 
     def backup_head_pvc_name(self):
         return "head-{}-0".format(self.backup_sts_name())

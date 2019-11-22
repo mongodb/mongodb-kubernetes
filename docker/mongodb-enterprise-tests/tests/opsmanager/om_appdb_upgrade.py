@@ -4,6 +4,7 @@ import pytest
 from kubetester.kubetester import skip_if_local
 from kubetester.mongotester import ReplicaSetTester
 from kubetester.omtester import OMTester
+from kubetester.automation_config_tester import AutomationConfigTester
 
 from tests.opsmanager.om_base import OpsManagerBase
 
@@ -44,6 +45,22 @@ class TestOpsManagerCreation(OpsManagerBase):
         # then we need to wait until Ops Manager is ready (only AppDB is ready so far) for the next test
         self.wait_until('om_in_running_state', 500)
 
+    def test_appdb_automation_config(self):
+        expected_roles = {("admin", "readWriteAnyDatabase"), ("admin", "dbAdminAnyDatabase"),
+                          ("admin", "clusterMonitor")}
+
+        # only user should be the Ops Manager user
+        tester = AutomationConfigTester(self.get_appdb_automation_config(), expected_users=1,
+                                        authoritative_set=False)
+        tester.assert_authentication_mechanism_enabled("MONGODB-CR")
+        tester.assert_has_user("mongodb-ops-manager")
+        tester.assert_user_has_roles("mongodb-ops-manager", expected_roles)
+
+    @skip_if_local
+    def test_appdb_scram_sha(self):
+        app_db_tester = self.om_cr.get_appdb_mongo_tester()
+        app_db_tester.assert_scram_sha_authentication("mongodb-ops-manager", self.get_appdb_password("om-upgrade"),
+                                                      auth_mechanism="SCRAM-SHA-1")
     # TODO check the persistent volumes created
 
 

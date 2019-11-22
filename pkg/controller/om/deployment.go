@@ -83,6 +83,14 @@ func NewDeployment() Deployment {
 	ans.setShardedClusters(make([]ShardedCluster, 0))
 	ans.setMonitoringVersions(make([]interface{}, 0))
 	ans.setBackupVersions(make([]interface{}, 0))
+
+	// these keys are required to exist for mergo to merge
+	// correctly
+	ans["auth"] = make(map[string]interface{}, 0)
+	ans["ssl"] = map[string]interface{}{
+		"clientCertificateMode": util.OptionalClientCertficates,
+		"CAFilePath":            util.CAFilePathInContainer,
+	}
 	return ans
 }
 

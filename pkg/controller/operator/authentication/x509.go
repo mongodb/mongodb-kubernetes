@@ -8,11 +8,21 @@ import (
 	"go.uber.org/zap"
 )
 
-type x509 struct{}
+func NewConnectionX509(conn om.Connection, ac *om.AutomationConfig) ConnectionX509 {
+	return ConnectionX509{
+		AutomationConfig: ac,
+		Conn:             conn,
+	}
+}
 
-func (x x509) enableAgentAuthentication(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+type ConnectionX509 struct {
+	AutomationConfig *om.AutomationConfig
+	Conn             om.Connection
+}
+
+func (x ConnectionX509) EnableAgentAuthentication(opts Options, log *zap.SugaredLogger) error {
 	log.Info("configuring x509 authentication")
-	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+	err := x.Conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		if err := ac.EnsureKeyFileContents(); err != nil {
 			return err
 		}
@@ -50,7 +60,7 @@ func (x x509) enableAgentAuthentication(conn om.Connection, opts Options, log *z
 	}
 
 	log.Info("configuring backup agent user")
-	err = conn.ReadUpdateBackupAgentConfig(func(config *om.BackupAgentConfig) error {
+	err = x.Conn.ReadUpdateBackupAgentConfig(func(config *om.BackupAgentConfig) error {
 		config.EnableX509Authentication()
 		return nil
 	}, log)
@@ -60,14 +70,14 @@ func (x x509) enableAgentAuthentication(conn om.Connection, opts Options, log *z
 	}
 
 	log.Info("configuring monitoring agent user")
-	return conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
+	return x.Conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
 		config.EnableX509Authentication()
 		return nil
 	}, log)
 }
 
-func (x x509) disableAgentAuthentication(conn om.Connection, log *zap.SugaredLogger) error {
-	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+func (x ConnectionX509) DisableAgentAuthentication(log *zap.SugaredLogger) error {
+	err := x.Conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 
 		ac.AgentSSL = &om.AgentSSL{
 			AutoPEMKeyFilePath:    util.MergoDelete,
@@ -83,7 +93,7 @@ func (x x509) disableAgentAuthentication(conn om.Connection, log *zap.SugaredLog
 	if err != nil {
 		return err
 	}
-	err = conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
+	err = x.Conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
 		config.DisableX509Authentication()
 		return nil
 	}, log)
@@ -92,25 +102,28 @@ func (x x509) disableAgentAuthentication(conn om.Connection, log *zap.SugaredLog
 		return err
 	}
 
-	return conn.ReadUpdateBackupAgentConfig(func(config *om.BackupAgentConfig) error {
+	return x.Conn.ReadUpdateBackupAgentConfig(func(config *om.BackupAgentConfig) error {
 		config.DisableX509Authentication()
 		return nil
 	}, log)
 }
 
-func (x x509) enableDeploymentAuthentication(ac *om.AutomationConfig) error {
+func (x ConnectionX509) EnableDeploymentAuthentication() error {
+	ac := x.AutomationConfig
 	if !util.ContainsString(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) {
 		ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, string(MongoDBX509))
 	}
 	return nil
 }
 
-func (x x509) disableDeploymentAuthentication(ac *om.AutomationConfig) error {
+func (x ConnectionX509) DisableDeploymentAuthentication() error {
+	ac := x.AutomationConfig
 	ac.Auth.DeploymentAuthMechanisms = util.RemoveString(ac.Auth.DeploymentAuthMechanisms, string(MongoDBX509))
 	return nil
 }
 
-func (x x509) isAgentAuthenticationConfigured(ac *om.AutomationConfig) bool {
+func (x ConnectionX509) IsAgentAuthenticationConfigured() bool {
+	ac := x.AutomationConfig
 	if ac.Auth.Disabled {
 		return false
 	}
@@ -136,8 +149,8 @@ func (x x509) isAgentAuthenticationConfigured(ac *om.AutomationConfig) bool {
 	return true
 }
 
-func (x x509) isDeploymentAuthenticationConfigured(ac *om.AutomationConfig) bool {
-	return util.ContainsString(ac.Auth.DeploymentAuthMechanisms, string(MongoDBX509))
+func (x ConnectionX509) IsDeploymentAuthenticationConfigured() bool {
+	return util.ContainsString(x.AutomationConfig.Auth.DeploymentAuthMechanisms, string(MongoDBX509))
 }
 
 // buildX509AgentUsers returns the MongoDBUsers with all the required roles

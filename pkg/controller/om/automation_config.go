@@ -48,7 +48,17 @@ func NewAutomationConfig(deployment Deployment) *AutomationConfig {
 
 // NewAuth returns an empty Auth reference with all reference types initialised to non nil values
 func NewAuth() *Auth {
-	return &Auth{Users: make([]*MongoDBUser, 0), AutoAuthMechanisms: make([]string, 0), DeploymentAuthMechanisms: make([]string, 0), AutoAuthMechanism: "MONGODB-CR", Disabled: true}
+	return &Auth{
+		KeyFile:                  util.AutomationAgentKeyFilePathInContainer,
+		KeyFileWindows:           util.AutomationAgentWindowsKeyFilePath,
+		Users:                    make([]*MongoDBUser, 0),
+		AutoAuthMechanisms:       make([]string, 0),
+		DeploymentAuthMechanisms: make([]string, 0),
+		AutoAuthMechanism:        "MONGODB-CR",
+		Disabled:                 true,
+		AuthoritativeSet:         true,
+		AutoUser:                 util.AutomationAgentName,
+	}
 }
 
 // this is needed only for the cluster config file when we use a headless agent
@@ -95,7 +105,7 @@ type Auth struct {
 	Users    []*MongoDBUser `json:"usersWanted,omitempty"`
 	Disabled bool           `json:"disabled"`
 	// AuthoritativeSet indicates if the MongoDBUsers should be synced with the current list of Users
-	AuthoritativeSet bool `json:"authoritativeSet,omitempty"`
+	AuthoritativeSet bool `json:"authoritativeSet"`
 	// AutoAuthMechanisms is a list of auth mechanisms the Automation Agent is able to use
 	AutoAuthMechanisms []string `json:"autoAuthMechanisms,omitempty"`
 

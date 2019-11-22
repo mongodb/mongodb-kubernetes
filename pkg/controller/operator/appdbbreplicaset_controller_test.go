@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/spf13/cast"
@@ -130,11 +132,46 @@ func TestBuildAppDbAutomationConfig(t *testing.T) {
 
 }
 
+func TestGenerateScramCredentials(t *testing.T) {
+	opsManager := DefaultOpsManagerBuilder().Build()
+	firstScram1Creds, firstScram256Creds, err := generateScramShaCredentials("my-password", opsManager)
+	assert.NoError(t, err)
+
+	secondScram1Creds, secondScram256Creds, err := generateScramShaCredentials("my-password", opsManager)
+	assert.NoError(t, err)
+	assert.Equal(t, firstScram1Creds, secondScram1Creds, "scram sha 1 credentials should be the same as the password was the same")
+	assert.Equal(t, firstScram256Creds, secondScram256Creds, "scram sha 256 credentials should be the same as the password was the same")
+
+	changedPasswordScram1Creds, changedPassword256Creds, err := generateScramShaCredentials("my-changed-password", opsManager)
+
+	assert.NoError(t, err)
+	assert.NotEqual(t, changedPasswordScram1Creds, firstScram1Creds, "different scram 1 credentials should have been generated as the password changed")
+	assert.NotEqual(t, changedPassword256Creds, firstScram256Creds, "different scram 256 credentials should have been generated as the password changed")
+
+	opsManager.Name = "my-different-ops-manager"
+
+	differentNameScram1Creds, differentNameScram256Creds, err := generateScramShaCredentials("my-password", opsManager)
+
+	assert.NoError(t, err)
+	assert.NotEqual(t, differentNameScram1Creds, firstScram1Creds, "a different name should generate different scram 1 credentials even with the same password")
+	assert.NotEqual(t, differentNameScram256Creds, firstScram256Creds, "a different name should generate different scram 256 credentials even with the same password")
+}
+
 // ***************** Helper methods *******************************
 
 func buildAutomationConfigForAppDb(t *testing.T, builder *OpsManagerBuilder) *om.AutomationConfig {
 	opsManager := builder.Build()
-	config, err := buildAppDbAutomationConfig(&opsManager.Spec.AppDB, opsManager, builder.BuildStatefulSet(), zap.S())
+	kubeManager := newMockedManager(opsManager)
+
+	// ensure the password exists for the Ops Manager User. The Ops Manager controller will have ensured this
+	kubeManager.client.secrets[objectKey(opsManager.Namespace, opsManager.Name+"-password")] = &corev1.Secret{
+		StringData: map[string]string{
+			util.OpsManagerPasswordKey: "my-password",
+		},
+	}
+
+	reconciler := newAppDbReconciler(kubeManager)
+	config, err := reconciler.buildAppDbAutomationConfig(&opsManager.Spec.AppDB, opsManager, builder.BuildStatefulSet(), zap.S())
 	assert.NoError(t, err)
 	return config
 }
