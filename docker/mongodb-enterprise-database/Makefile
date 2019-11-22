@@ -48,7 +48,7 @@ clean: delete_container
 prepare-build:
 	@ GOOS='linux' go build -i -o readiness ../../probe
 	@ mv readiness content/readinessprobe
-	@ ../Dockerfile.gen database "${IMAGE_TYPE}" > Dockerfile
+	@ ../Dockerfile.gen database "$(IMAGE_TYPE)" > Dockerfile
 
 build: prepare-build
 	docker build $(EXTRA_PARAM) -t $(IMAGE_PATH) .
@@ -112,7 +112,7 @@ build_appdb:
 	@ GOOS='linux' go build -i -o readiness ../../probe || \
 	   (../../scripts/build/prepare_build_environment && GOOS='linux' go build -i -o readiness ../../probe)
 	@ mv readiness content/readinessprobe
-	@ ../Dockerfile.gen appdb "${IMAGE_TYPE}" > Dockerfile
+	@ ../Dockerfile.gen appdb "$(IMAGE_TYPE)" > Dockerfile
 	docker build $(EXTRA_PARAM) \
 		-t $(APP_IMAGE_PATH) \
 		--build-arg AA_DOWNLOAD_LOCATION=$(AA_DOWNLOAD_LOCATION) \

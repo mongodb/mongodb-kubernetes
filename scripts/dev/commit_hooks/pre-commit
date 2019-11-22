@@ -17,6 +17,11 @@ if [[ $go_mod_files_changed == "1" ]]; then
   exit 1
 fi
 
+if find . -name "Makefile"|grep -v vendor|xargs grep "\${"
+then
+    echo 'ERROR: Makefiles should NEVER contain curly brackets variables'
+    exit 1
+fi
 
 mkdir -p "${GOPATH}/bin"
 

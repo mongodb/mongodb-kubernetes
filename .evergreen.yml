@@ -121,8 +121,7 @@ functions:
         add_expansions_to_env: true
         env:
           <<: *go_options
-          IMAGE_TYPE: ${distro}
-        command: "make -C docker/mongodb-enterprise-database prepare-build"
+        command: "make -C docker/mongodb-enterprise-database prepare-build IMAGE_TYPE=${distro}"
 
     - command: s3.put
       params:
