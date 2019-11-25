@@ -48,7 +48,7 @@ else
 	fatal "Failed to guess repository type based on url \"${REPO_URL}\""
 fi
 
-export IMAGE_TYPE=ubuntu
+export IMAGE_TYPE="ubuntu"
 if [[ "${CLUSTER_TYPE}" = "openshift" ]]; then
     export IMAGE_TYPE="rhel"
 fi
