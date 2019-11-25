@@ -1,11 +1,5 @@
 {% extends "Dockerfile.template" %}
 
-{% block static %}
-COPY licenses /licenses
-COPY content/epel.repo /etc/yum.repos.d/epel.repo
-COPY content/RPM-GPG-KEY-EPEL-7 /etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-7
-{% endblock %}
-
 {% block packages %}
 RUN microdnf install \
         curl \
@@ -28,4 +22,10 @@ RUN microdnf install \
         microdnf clean all
 
 RUN ln -s /usr/lib64/libsasl2.so.3 /usr/lib64/libsasl2.so.2
+{% endblock %}
+
+{% block static %}
+COPY LICENSE /licenses
+COPY content/epel.repo /etc/yum.repos.d/epel.repo
+COPY content/RPM-GPG-KEY-EPEL-7 /etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-7
 {% endblock %}

@@ -71,7 +71,9 @@ git push origin $(jq --raw-output .mongodbOperator < release.json)
 
 ## Build and push images
 
-### Ubuntu based images (published to Quay)
+### Operator & Database
+
+#### Ubuntu based images (published to Quay)
 
 ```bash
 evergreen patch -p ops-manager-kubernetes \
@@ -87,7 +89,7 @@ This evergreen task will build the images and publish them to `quay.io`.
 current tagged images will be overwritten by `evergreen` if they have
 the same tag as any old images.
 
-### RHEL based images (published to Red Hat Connect)
+#### RHEL based images (published to Red Hat Connect)
 
 *Please note:* This is going to be improved as part of
 [CLOUDP-40403](https://jira.mongodb.org/browse/CLOUDP-40403).
@@ -117,6 +119,22 @@ Finally publish the images manually:
 * https://connect.redhat.com/project/851701/view (Database)
 
 (more details about RHEL build process are in https://github.com/10gen/kubernetes-rhel-images)
+
+### Ops Manager & AppDB
+
+#### RHEL based images (published to Red Hat Connect)
+
+The Ops Manager images will be built and tested first. The process will then
+publish them to Red Hat Connect if all the E2E tests passed. The images will
+have to be manually "Published" from the UI.
+
+```bash
+evergreen patch -p ops-manager-kubernetes \
+  -v release_ops_manager_rhel \
+  -t all \
+  -y -f -d "Building Ops Manger RHEL Images" \
+  --browse
+```
 
 ### Publish Binary Artifacts for Customers
 

@@ -221,6 +221,20 @@ functions:
           scripts/evergreen/build_operator_rhel.sh $release ${rhc_operator_pid}
           scripts/evergreen/build_operator_rhel.sh $release ${rhc_database_pid}
 
+  # Install and configures ecr-login-helper, allowing for accessing the ECR registry
+  # without calling docker login and in the ECR case, avoiding also calling
+  # `aws ecr get login`. This is a binary that should run on every distro.
+  # BIN_PATH is used to define where to save the binary. This is added to the $PATH
+  # in subsequent functions that need this program.
+  setup_ecr_login_helper:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        binary: scripts/evergreen/setup_ecr_login_helper
+        env:
+          BIN_PATH: ${workdir}/bin
+
   "setup_jq":
     - command: subprocess.exec
       type: setup
@@ -518,6 +532,41 @@ functions:
           echo "export OM_EXTERNALLY_CONFIGURED=true"           >> ${workdir}/.ops-manager-env
         fi
 
+  # Exit if repository is not clean.
+  guard_git_repo_is_clean:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        binary: scripts/evergreen/guard_git_repo_is_clean
+
+  # Tags and pushes an image into an external Docker registry. The source image
+  # needs to exist before it can be pushed to a remote registry.
+  # It is expected that IMAGE_SOURCE is accessible with no authentication (like a
+  # local image), and the IMAGE_TARGET will be authenticated with DOCKER_* series of
+  # environemnt variables.
+  release_docker_image_to_registry:
+    - command: subprocess.exec
+      type: system
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        add_to_path:
+          - ${workdir}/bin
+        env:
+          DOCKER_REGISTRY: scan.connect.redhat.com
+          DOCKER_LOGIN_USER: unused
+          DOCKER_LOGIN_PASSWORD: ${docker_password}
+          AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
+          AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
+
+          VERSIONS: ${versions}
+          PRERELEASE_FROM: ${prerelease_from}
+          PRERELEASE_TO: ${prerelease_to}
+          IMAGE_SOURCE: ${image_source}
+          IMAGE_TARGET: ${image_target}
+
+        binary: scripts/evergreen/tag_push_docker_image.sh
+
   "e2e_test":
     - *omkp_setup
     - *configure_cloud_manager_qa
@@ -724,6 +773,38 @@ tasks:
         distro: rhel
     - func: "push_operator_binary_for_rhel"
     - func: "push_database_readiness_probe_for_rhel"
+
+# release_ops_manager_rhel Releases the just build Docker image
+# with a release image tag.
+# The registry location (variable with name `to`) is obtained from RedHat Connect.
+- name: release_ops_manager_rhel
+  patch_only: True
+  commands:
+    - func: clone
+    - func: guard_git_repo_is_clean
+    - func: setup_jq
+    - func: setup_docker
+    - func: setup_ecr_login_helper
+
+    # Ops Manager Release
+    - func: release_docker_image_to_registry
+      vars:
+        versions: "jq --raw-output '.opsManagerImages[] | .version' < release.json"
+        prerelease_from: 'echo "operator$(git describe --dirty)"'
+        prerelease_to: 'echo "operator$(git describe --dirty)"'
+        image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/rhel/mongodb-enterprise-ops-manager
+        image_target: scan.connect.redhat.com/ospid-b419ca35-17b4-4655-adee-a34e704a6835/mongodb-enterprise-ops-manager
+        docker_password: ${rhc_om_pid}
+
+    # AppDB Release
+    - func: release_docker_image_to_registry
+      vars:
+        versions: "jq --raw-output '.opsManagerImages[] | .version' < release.json"
+        prerelease_from: 'echo "operator$(git describe --dirty)"'
+        prerelease_to: 'echo "operator$(git describe --dirty)"'
+        image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/rhel/mongodb-enterprise-appdb
+        image_target: scan.connect.redhat.com/ospid-31c2f102-af15-4e15-87b9-30710586d9ad/mongodb-enterprise-appdb
+        docker_password: ${rhc_appdb_pid}
 
 # build_binaries builds and pushes binaries required to build the Database and
 # Operator Docker images. Currently these are the actual operator and the
@@ -1606,7 +1687,7 @@ buildvariants:
     - name: "e2e_ops_manager_task_group"
 
 - name: e2e_openshift_origin_v3_ops_manager
-  display_name: "e2e_openshift_origin_v3_ops_manager"
+  display_name: e2e_openshift_origin_v3_ops_manager
   depends_on:
     - name: build_images_rhel
       variant: init_test_run
@@ -1626,6 +1707,33 @@ buildvariants:
     distro: rhel
   tasks:
     - name: "e2e_ops_manager_task_group"
+
+# Runs the complete suite of tests for Ops Manager Container in Openshift
+# and releases the Docker images to RedHat Container Catalog
+- name: release_ops_manager_rhel
+  display_name: release_ops_manager_rhel
+  depends_on:
+    # TODO: I'm not sure how to depend on a set of tasks, maybe
+    # I could use a "tag"?
+    - name: e2e_om_appdb_scale_up_down
+      variant: e2e_openshift_origin_v3_ops_manager
+    - name: e2e_om_appdb_upgrade
+      variant: e2e_openshift_origin_v3_ops_manager
+    - name: e2e_om_appdb_validation
+      variant: e2e_openshift_origin_v3_ops_manager
+    - name: e2e_om_ops_manager_scale
+      variant: e2e_openshift_origin_v3_ops_manager
+    - name: e2e_om_ops_manager_upgrade
+      variant: e2e_openshift_origin_v3_ops_manager
+  run_on:
+    - archlinux-test
+  stepback: false
+  expansions:
+    <<: *kubernetes_environment_openshift_3
+    test_mode: opsmanager
+    distro: rhel
+  tasks:
+     - name: release_ops_manager_rhel
 
 - name: init_test_run
   display_name: init_test_run

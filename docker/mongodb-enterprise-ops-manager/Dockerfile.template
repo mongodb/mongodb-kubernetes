@@ -1,4 +1,18 @@
+#
+# Base Template Dockerfile for Ops Manager Image.
+#
+
 FROM {{ base_image  }}
+
+{% block labels %}
+LABEL name="MongoDB Enterprise Ops Manager" \
+      maintainer="support@mongodb.com" \
+      vendor="MongoDB" \
+      version="operator-{{ version }}" \
+      release="1" \
+      summary="MongoDB Enterprise Ops Manager Image" \
+      description="MongoDB Enterprise Ops Manager"
+{% endblock %}
 
 ARG OM_DOWNLOAD_LINK
 
@@ -10,6 +24,9 @@ ENV MMS_LOG_DIR ${MMS_HOME}/logs
 EXPOSE 8080
 
 {% block packages %}
+{% endblock %}
+
+{% block licenses %}
 {% endblock %}
 
 {% block static %}

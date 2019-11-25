@@ -57,4 +57,5 @@ RUN    mkdir -p ${MMS_LOG_DIR} \
 # However, OpenShift will run the container as a random user,
 # and the number in this configuration is not relevant.
 USER 2000
+
 ENTRYPOINT ["/mongodb-automation/files/agent-launcher.sh"]

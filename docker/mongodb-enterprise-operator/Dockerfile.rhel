@@ -3,5 +3,5 @@
 # Packages is empty because there's nothing to install on RHEL.
 
 {% block static %}
-COPY licenses /licenses
+COPY LICENSE /licenses
 {% endblock %}

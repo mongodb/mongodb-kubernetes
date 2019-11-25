@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+
+#
+# Exits with status code 1 if the git describe command prints "dirty".
+# This is a mechanism to block evergreen release patches that are not clean.
+#
+
+git describe --dirty | grep -v -q "dirty"

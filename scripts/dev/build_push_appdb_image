@@ -39,7 +39,7 @@ echo "The Automation Agent version fetched from Ops Manager tag/branch $om_branc
 
 if [[ ${REPO_TYPE} = "local" ]]; then
     eval "$(minikube docker-env)"
-    make -C docker/mongodb-enterprise-database build IMAGE_DIR=local IMAGE_TYPE="${IMAGE_TYPE}" IMAGE_SUFFIX=${image_suffix-}
+    make -C docker/mongodb-enterprise-database build_appdb IMAGE_DIR=local IMAGE_TYPE="${IMAGE_TYPE}" IMAGE_SUFFIX=${image_suffix-}
     title "Database image successfully built"
 elif [[ ${REPO_TYPE} = "ecr" ]]; then
     repo_host="$(echo ${REPO_URL} | cut -d "/" -f 1)"
