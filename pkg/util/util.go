@@ -269,7 +269,10 @@ func RemoveString(slice []string, s string) (result []string) {
 
 // UpperCaseFirstChar ensures the message first char is uppercased
 func UpperCaseFirstChar(msg string) string {
-	return string(strings.ToUpper(msg[:1])) + msg[1:]
+	if msg == "" {
+		return ""
+	}
+	return strings.ToUpper(msg[:1]) + msg[1:]
 }
 
 // final key must be between 6 and at most 1024 characters

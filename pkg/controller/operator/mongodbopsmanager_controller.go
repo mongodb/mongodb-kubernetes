@@ -368,11 +368,11 @@ func (r *OpsManagerReconciler) prepareBackup(opsManager *mdbv1.MongoDBOpsManager
 	// 1. Enabling Daemon Config if necessary
 	backupHostName := backupDaemonURL(opsManager)
 	_, err := omAdmin.ReadDaemonConfig(backupHostName, util.PvcMountPathHeadDb)
-	if err != nil && err.ErrorCode == api.BackupDaemonConfigNotFound {
+	if api.NewErrorNonNil(err).ErrorCode == api.BackupDaemonConfigNotFound {
 		log.Infow("Backup Daemon is not configured, enabling it", "hostname", backupHostName, "headDB", util.PvcMountPathHeadDb)
 
 		err = omAdmin.CreateDaemonConfig(backupHostName, util.PvcMountPathHeadDb)
-		if err != nil && err.ErrorCode == api.BackupDaemonConfigNotFound {
+		if api.NewErrorNonNil(err).ErrorCode == api.BackupDaemonConfigNotFound {
 			// Unfortunately by this time backup daemon may not have been started yet and we don't have proper
 			// mechanism to ensure this using readiness probe so we just retry
 			return pending("BackupDaemon hasn't started yet")

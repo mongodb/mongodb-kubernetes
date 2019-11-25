@@ -42,7 +42,7 @@ func NewMockedAdmin() *MockedOmAdmin {
 	return CurrMockedAdmin
 }
 
-func (a *MockedOmAdmin) ReadDaemonConfig(hostName, headDbDir string) (*backup.DaemonConfig, *Error) {
+func (a *MockedOmAdmin) ReadDaemonConfig(hostName, headDbDir string) (*backup.DaemonConfig, error) {
 	for _, v := range a.daemonConfigs {
 		if v.Machine.HeadRootDirectory == headDbDir && v.Machine.MachineHostName == hostName {
 			return v, nil
@@ -51,7 +51,7 @@ func (a *MockedOmAdmin) ReadDaemonConfig(hostName, headDbDir string) (*backup.Da
 	return nil, NewErrorWithCode(BackupDaemonConfigNotFound)
 }
 
-func (a *MockedOmAdmin) CreateDaemonConfig(hostName, headDbDir string) *Error {
+func (a *MockedOmAdmin) CreateDaemonConfig(hostName, headDbDir string) error {
 	config := backup.DaemonConfig{Machine: backup.MachineConfig{
 		HeadRootDirectory: headDbDir,
 		MachineHostName:   hostName,

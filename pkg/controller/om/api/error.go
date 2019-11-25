@@ -29,9 +29,9 @@ type Error struct {
 }
 
 // NewError returns either the error itself if it's of type 'api.Error' or an 'Error' created from a normal string
-func NewError(err error) *Error {
+func NewError(err error) error {
 	if err == nil {
-		return &Error{}
+		return nil
 	}
 	switch v := err.(type) {
 	case *Error:
@@ -39,6 +39,17 @@ func NewError(err error) *Error {
 	default:
 		return &Error{Detail: err.Error()}
 	}
+}
+
+// NewErrorNonNil returns empty 'Error' if the incoming parameter is nil. This allows to perform the checks for
+// error code without risks to get nil pointer
+// Unfortunately we have to do this as we cannot return *Error directly in our method signatures
+// (https://golang.org/doc/faq#nil_error)
+func NewErrorNonNil(err error) *Error {
+	if err == nil {
+		return &Error{}
+	}
+	return NewError(err).(*Error)
 }
 
 // NewErrorWithCode returns the Error initialized with the code passed. This is convenient for testing.

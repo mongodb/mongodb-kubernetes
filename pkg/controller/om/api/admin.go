@@ -13,10 +13,10 @@ import (
 // to be encapsulated is baseUrl, user and key
 type Admin interface {
 	// ReadDaemonConfig returns the daemon config by hostname and head db path
-	ReadDaemonConfig(hostName, headDbDir string) (*backup.DaemonConfig, *Error)
+	ReadDaemonConfig(hostName, headDbDir string) (*backup.DaemonConfig, error)
 
 	// CreateDaemonConfig creates the daemon config with specified hostname and head db path
-	CreateDaemonConfig(hostName, headDbDir string) *Error
+	CreateDaemonConfig(hostName, headDbDir string) error
 }
 
 // AdminProvider is a function which returns an instance of Admin interface initialized with connection parameters.
@@ -37,7 +37,7 @@ func NewOmAdmin(baseUrl, user, publicApiKey string) Admin {
 	return &DefaultOmAdmin{BaseURL: baseUrl, User: user, PublicAPIKey: publicApiKey}
 }
 
-func (a *DefaultOmAdmin) ReadDaemonConfig(hostName, headDbDir string) (*backup.DaemonConfig, *Error) {
+func (a *DefaultOmAdmin) ReadDaemonConfig(hostName, headDbDir string) (*backup.DaemonConfig, error) {
 	ans, apiErr := a.get("admin/backup/daemon/configs/%s/%s", hostName, url.QueryEscape(headDbDir))
 	if apiErr != nil {
 		return nil, apiErr
@@ -50,7 +50,7 @@ func (a *DefaultOmAdmin) ReadDaemonConfig(hostName, headDbDir string) (*backup.D
 	return daemonConfig, nil
 }
 
-func (a *DefaultOmAdmin) CreateDaemonConfig(hostName, headDbDir string) *Error {
+func (a *DefaultOmAdmin) CreateDaemonConfig(hostName, headDbDir string) error {
 	config := backup.DaemonConfig{Machine: backup.MachineConfig{
 		HeadRootDirectory: headDbDir,
 		MachineHostName:   hostName,
@@ -65,11 +65,11 @@ func (a *DefaultOmAdmin) CreateDaemonConfig(hostName, headDbDir string) *Error {
 
 //********************************** Private methods *******************************************************************
 
-func (a *DefaultOmAdmin) get(path string, params ...interface{}) ([]byte, *Error) {
+func (a *DefaultOmAdmin) get(path string, params ...interface{}) ([]byte, error) {
 	return a.httpVerb("GET", path, nil, params...)
 }
 
-func (a *DefaultOmAdmin) put(path string, v interface{}, params ...interface{}) ([]byte, *Error) {
+func (a *DefaultOmAdmin) put(path string, v interface{}, params ...interface{}) ([]byte, error) {
 	return a.httpVerb("PUT", path, v, params...)
 }
 
@@ -86,7 +86,7 @@ func (a *DefaultOmAdmin) delete(path string, params ...interface{}) error {
 	return err
 }
 */
-func (a *DefaultOmAdmin) httpVerb(method, path string, v interface{}, params ...interface{}) ([]byte, *Error) {
+func (a *DefaultOmAdmin) httpVerb(method, path string, v interface{}, params ...interface{}) ([]byte, error) {
 	client, err := NewHTTPClient()
 	if err != nil {
 		return nil, NewError(err)
