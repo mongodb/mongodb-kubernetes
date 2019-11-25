@@ -1,4 +1,4 @@
-package model
+package backup
 
 type DaemonConfig struct {
 	Machine MachineConfig `json:"machine"`

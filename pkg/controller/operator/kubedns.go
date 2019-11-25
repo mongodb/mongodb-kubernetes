@@ -22,17 +22,17 @@ func GetDnsForStatefulSetReplicasSpecified(set *appsv1.StatefulSet, clusterName 
 // GetDnsNames returns hostnames and names of pods in stateful set, it's less preferable than "GetDnsForStatefulSet" and
 // should be used only in situations when statefulset doesn't exist any more (the main example is when the mongodb custom
 // resource is being deleted - then the dependant statefulsets cannot be read any more as they get into Terminated state)
-func GetDNSNames(statefulSetName, service, namespace, clusterName string, replicas int) ([]string, []string) {
+func GetDNSNames(statefulSetName, service, namespace, clusterName string, replicas int) (hostnames, names []string) {
 	mName := getDnsTemplateFor(statefulSetName, service, namespace, clusterName)
-	hostnames := make([]string, replicas)
-	names := make([]string, replicas)
+	hostnames = make([]string, replicas)
+	names = make([]string, replicas)
 
 	for i := 0; i < replicas; i++ {
 		hostnames[i] = fmt.Sprintf(mName, i)
 		names[i] = GetPodName(statefulSetName, i)
 	}
 
-	return hostnames, names
+	return
 }
 
 // GetServiceFQDN returns the FQDN for the service inside Kubernetes

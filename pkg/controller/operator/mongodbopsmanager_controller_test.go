@@ -29,13 +29,12 @@ func TestOpsManagerReconciler_performValidation(t *testing.T) {
 
 func TestOpsManagerReconciler_prepareOpsManager(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().Build()
-	reconciler, client, initializer := defaultTestOmReconciler(t, testOm)
+	reconciler, client, initializer, admin := defaultTestOmReconciler(t, testOm)
 
-	credentials := &Credentials{}
-	reconcileStatus := reconciler.prepareOpsManager(testOm, credentials, zap.S())
+	reconcileStatus, _ := reconciler.prepareOpsManager(testOm, zap.S())
 
 	assert.Equal(t, ok(), reconcileStatus)
-	assert.Equal(t, "jane.doe@g.com-key", credentials.PublicAPIKey)
+	assert.Equal(t, "jane.doe@g.com-key", admin.PublicAPIKey)
 
 	// the user "created" in Ops Manager
 	assert.Len(t, initializer.currentUsers, 1)
@@ -56,19 +55,17 @@ func TestOpsManagerReconciler_prepareOpsManager(t *testing.T) {
 // OM api to create a user as the API secret already exists
 func TestOpsManagerReconciler_prepareOpsManagerTwoCalls(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().Build()
-	reconciler, client, initializer := defaultTestOmReconciler(t, testOm)
+	reconciler, client, initializer, admin := defaultTestOmReconciler(t, testOm)
 
-	credentials := &Credentials{}
-	reconciler.prepareOpsManager(testOm, credentials, zap.S())
+	reconciler.prepareOpsManager(testOm, zap.S())
 
 	// let's "update" the user admin secret - this must not affect anything
 	client.secrets[objectKey(OperatorNamespace, testOm.APIKeySecretName())].(*corev1.Secret).StringData["Username"] = "this-is-not-expected@g.com"
 
 	// second call is ok - we just don't create the admin user in OM and don't add new secrets
-	credentials = &Credentials{}
-	reconcileStatus := reconciler.prepareOpsManager(testOm, credentials, zap.S())
+	reconcileStatus, _ := reconciler.prepareOpsManager(testOm, zap.S())
 	assert.Equal(t, ok(), reconcileStatus)
-	assert.Equal(t, "jane.doe@g.com-key", credentials.PublicAPIKey)
+	assert.Equal(t, "jane.doe@g.com-key", admin.PublicAPIKey)
 
 	// the call to the api didn't happen
 	assert.Equal(t, 1, initializer.numberOfCalls)
@@ -80,23 +77,24 @@ func TestOpsManagerReconciler_prepareOpsManagerTwoCalls(t *testing.T) {
 	assert.Equal(t, "jane.doe@g.com", data["user"])
 }
 
+// TestOpsManagerReconciler_prepareOpsManagerDuplicatedUser checks that if the public API key secret is removed by the
+// user - the Operator will try to create a user again and this will result in UserAlreadyExists error
 func TestOpsManagerReconciler_prepareOpsManagerDuplicatedUser(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().Build()
-	reconciler, client, initializer := defaultTestOmReconciler(t, testOm)
+	reconciler, client, initializer, _ := defaultTestOmReconciler(t, testOm)
 
-	credentials := &Credentials{}
-	reconciler.prepareOpsManager(testOm, credentials, zap.S())
+	reconciler.prepareOpsManager(testOm, zap.S())
 
-	// for some reasons the admin removed the API secret so the call will be done to OM to create a user - it will
-	// fail as the user already exists
+	// for some reasons the admin removed the public Api key secret so the call will be done to OM to create a user -
+	// it will fail as the user already exists
 	delete(client.secrets, objectKey(OperatorNamespace, testOm.APIKeySecretName()))
 
-	credentials = &Credentials{}
-	reconcileStatus := reconciler.prepareOpsManager(testOm, credentials, zap.S())
+	reconcileStatus, admin := reconciler.prepareOpsManager(testOm, zap.S())
 	assert.IsType(t, &errorStatus{}, reconcileStatus)
-	assert.Equal(t, "", credentials.PublicAPIKey)
+	assert.Contains(t, reconcileStatus.(*errorStatus).err.Error(), "USER_ALREADY_EXISTS")
+	assert.Nil(t, admin)
 
-	// the call to the api happened, user wasn't added
+	// the call to the api happened, but the user wasn't added
 	assert.Equal(t, 2, initializer.numberOfCalls)
 	assert.Len(t, initializer.currentUsers, 1)
 	assert.Equal(t, "jane.doe@g.com", initializer.currentUsers[0].Username)
@@ -106,10 +104,10 @@ func TestOpsManagerReconciler_prepareOpsManagerDuplicatedUser(t *testing.T) {
 	assert.NotContains(t, client.secrets, objectKey(OperatorNamespace, testOm.APIKeySecretName()))
 }
 
-// ********** Helper methods ***********************************
+// ******************************************* Helper methods *********************************************************
 
 func defaultTestOmReconciler(t *testing.T, opsManager *mdbv1.MongoDBOpsManager) (*OpsManagerReconciler, *MockedClient,
-	*MockedInitializer) {
+	*MockedInitializer, *api.MockedOmAdmin) {
 	manager := newMockedManager(opsManager)
 	// create an admin user secret
 	data := map[string]string{"Username": "jane.doe@g.com", "Password": "pwd", "FirstName": "Jane", "LastName": "Doe"}
@@ -117,7 +115,11 @@ func defaultTestOmReconciler(t *testing.T, opsManager *mdbv1.MongoDBOpsManager) 
 		map[string]string{}, opsManager)
 
 	initializer := &MockedInitializer{expectedOmURL: centralURL(opsManager), t: t}
-	return newOpsManagerReconciler(manager, om.NewOpsManagerConnection, initializer), manager.client, initializer
+
+	// It's important to clean the om state as soon as the reconciler is built!
+	admin := api.NewMockedAdmin()
+	return newOpsManagerReconciler(manager, om.NewOpsManagerConnection, initializer, api.NewMockedAdminProvider),
+		manager.client, initializer, admin
 }
 
 func omWithAppDBVersion(version string) *mdbv1.MongoDBOpsManager {
@@ -191,10 +193,10 @@ func (o *MockedInitializer) TryCreateUser(omUrl string, user *api.User) (string,
 	if o.expectedAPIError != nil {
 		return "", o.expectedAPIError
 	}
-	// OM logic: any number of users is created :(
+	// OM logic: any number of users is created. But we cannot of course create the user with the same name
 	for _, v := range o.currentUsers {
 		if v.Username == user.Username {
-			return "", nil
+			return "", api.NewErrorWithCode(api.UserAlreadyExists)
 		}
 	}
 	o.currentUsers = append(o.currentUsers, user)

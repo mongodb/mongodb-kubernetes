@@ -317,7 +317,7 @@ func (oc *MockedOmConnection) ReadOrganizationsByName(name string) ([]*Organizat
 		}
 	}
 	if len(allOrgs) == 0 {
-		return nil, &api.Error{ErrorCode: OrganizationNotFound}
+		return nil, api.NewErrorWithCode(api.OrganizationNotFound)
 	}
 	return allOrgs, nil
 }

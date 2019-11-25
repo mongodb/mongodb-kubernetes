@@ -136,7 +136,7 @@ func findProjectInsideOrganization(conn om.Connection, projectName string, organ
 	// 1. Trying to find the project by name
 	projects, err := conn.ReadProjectsInOrganizationByName(organization.ID, projectName)
 
-	if err != nil && err.(*api.Error).ErrorCode == om.ProjectNotFound {
+	if err != nil && err.(*api.Error).ErrorCode == api.ProjectNotFound {
 		return nil, nil
 	}
 	if err == nil && len(projects) == 1 {
@@ -174,7 +174,7 @@ func findOrganizationByName(conn om.Connection, name string, log *zap.SugaredLog
 	// 1. We try to find the ogranization using 'name' filter parameter first
 	organizations, err := conn.ReadOrganizationsByName(name)
 
-	if err != nil && err.(*api.Error).ErrorCode == om.OrganizationNotFound {
+	if err != nil && err.(*api.Error).ErrorCode == api.OrganizationNotFound {
 		// the "name" API is supported and the organization not found - returning nil
 		return "", nil
 	}
@@ -229,7 +229,7 @@ func tryCreateProject(organization *om.Organization, projectName, orgId string, 
 
 	if err != nil {
 		apiError := err.(*api.Error)
-		if apiError.ErrorCodeIn(om.InvalidAttribute) && strings.Contains(apiError.Detail, "tags") {
+		if apiError.ErrorCodeIn(api.InvalidAttribute) && strings.Contains(apiError.Detail, "tags") {
 			// Fallback logic: seems that OM version is < 4.0.2 (as it allows to edit group
 			// tags only for GLOBAL_OWNER users), let's try to create group without tags
 			group.Tags = []string{}

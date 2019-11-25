@@ -12,13 +12,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// TODO move to 'api' package
-const (
-	// Error codes that Ops Manager may return that we are concerned about
-	InvalidAttribute     = "INVALID_ATTRIBUTE"
-	OrganizationNotFound = "ORG_NAME_NOT_FOUND"
-	ProjectNotFound      = "GROUP_NAME_NOT_FOUND"
-)
+// TODO move it to 'api' package
 
 // Connection is a client interacting with OpsManager API. Note, that all methods returning 'error' return the
 // '*Error' in fact but it's error-prone to declare method as returning specific implementation of error
@@ -660,7 +654,7 @@ func (oc *HTTPOmConnection) httpVerb(method, path string, v interface{}) ([]byte
 		return nil, err
 	}
 
-	response, err := api.Request(method, oc.BaseURL(), path, v, oc.User(), oc.PublicAPIKey(), client)
+	response, err := api.DigestRequest(method, oc.BaseURL(), path, v, oc.User(), oc.PublicAPIKey(), client)
 	return response, err
 }
 

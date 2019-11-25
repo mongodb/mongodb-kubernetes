@@ -70,6 +70,7 @@ var _ Updatable = &mdbv1.MongoDBOpsManager{}
 
 // ReconcileCommonController is the "parent" controller that is included into each specific controller and allows
 // to reuse the common functionality
+// TODO the 'omConnectionFactory' needs to be moved out as Ops Manager controller for example doesn't need it
 type ReconcileCommonController struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver

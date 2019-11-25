@@ -7,6 +7,15 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
+const (
+	// Error codes that Ops Manager may return that we are concerned about
+	InvalidAttribute           = "INVALID_ATTRIBUTE"
+	OrganizationNotFound       = "ORG_NAME_NOT_FOUND"
+	ProjectNotFound            = "GROUP_NAME_NOT_FOUND"
+	BackupDaemonConfigNotFound = "DAEMON_MACHINE_CONFIG_NOT_FOUND"
+	UserAlreadyExists          = "USER_ALREADY_EXISTS"
+)
+
 // Error is the error extension that contains the details of OM error if OM returned the error. This allows the
 // code using Connection methods to do more fine-grained exception handling depending on exact error that happened.
 // The class has to encapsulate the usual error (non-OM one) as well as the error may happen at any stage before/after
@@ -19,12 +28,22 @@ type Error struct {
 	ErrorCode string `json:"errorCode"`
 }
 
-// NewError
-func NewError(err error) error {
+// NewError returns either the error itself if it's of type 'api.Error' or an 'Error' created from a normal string
+func NewError(err error) *Error {
 	if err == nil {
-		return nil
+		return &Error{}
 	}
-	return &Error{Detail: err.Error()}
+	switch v := err.(type) {
+	case *Error:
+		return v
+	default:
+		return &Error{Detail: err.Error()}
+	}
+}
+
+// NewErrorWithCode returns the Error initialized with the code passed. This is convenient for testing.
+func NewErrorWithCode(code string) *Error {
+	return &Error{ErrorCode: code}
 }
 
 func (e *Error) IsGeneric() bool {
@@ -33,8 +52,11 @@ func (e *Error) IsGeneric() bool {
 
 // Error
 func (e *Error) Error() string {
-	if e.Status != nil {
-		msg := fmt.Sprintf("Status: %d", *e.Status)
+	if e.Status != nil || e.ErrorCode != "" {
+		msg := ""
+		if e.Status != nil {
+			msg += fmt.Sprintf("Status: %d", *e.Status)
+		}
 		if e.Reason != "" {
 			msg += fmt.Sprintf(" (%s)", e.Reason)
 		}

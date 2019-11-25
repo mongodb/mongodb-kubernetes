@@ -8,8 +8,10 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
@@ -18,24 +20,23 @@ import (
 	"github.com/blang/semver"
 	"go.uber.org/zap"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
 type OpsManagerReconciler struct {
 	*ReconcileCommonController
-	omInitializer api.Initializer
+	omInitializer   api.Initializer
+	omAdminProvider api.AdminProvider
 }
 
 var _ reconcile.Reconciler = &OpsManagerReconciler{}
 
-func newOpsManagerReconciler(mgr manager.Manager, omFunc om.ConnectionFactory, initializer api.Initializer) *OpsManagerReconciler {
+func newOpsManagerReconciler(mgr manager.Manager, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider) *OpsManagerReconciler {
 	return &OpsManagerReconciler{
 		ReconcileCommonController: newReconcileCommonController(mgr, omFunc),
 		omInitializer:             initializer,
+		omAdminProvider:           adminProvider,
 	}
 }
 
@@ -93,12 +94,15 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 	}
 
 	// 4. Prepare Ops Manager (ensure the first user is created and public API key saved to secret)
-	credentials := &Credentials{}
-	if result := r.prepareOpsManager(opsManager, credentials, log); !result.isOk() {
-		return result.updateStatus(opsManager, r.ReconcileCommonController, log)
+	var omAdmin api.Admin
+	if status, omAdmin = r.prepareOpsManager(opsManager, log); !status.isOk() {
+		return status.updateStatus(opsManager, r.ReconcileCommonController, log)
 	}
 
 	// 5. Prepare Backup Daemon
+	if status = r.prepareBackup(opsManager, omAdmin, log); !status.isOk() {
+		return status.updateStatus(opsManager, r.ReconcileCommonController, log)
+	}
 
 	return r.updateStatusSuccessful(opsManager, log, centralURL(opsManager))
 }
@@ -123,7 +127,7 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulset(opsManager *mdbv1.Mon
 }
 
 func AddOpsManagerController(mgr manager.Manager) error {
-	reconciler := newOpsManagerReconciler(mgr, om.NewOpsManagerConnection, &api.DefaultInitializer{})
+	reconciler := newOpsManagerReconciler(mgr, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin)
 	c, err := controller.New(util.MongoDbOpsManagerController, mgr, controller.Options{Reconciler: reconciler})
 	if err != nil {
 		return err
@@ -161,19 +165,18 @@ func (r OpsManagerReconciler) ensureConfiguration(opsManager *mdbv1.MongoDBOpsMa
 // as the daemon in this case just hangs silently (in practice it's ok to start it in ~1 min after start of OM though
 // we will just start them sequentially)
 func (r *OpsManagerReconciler) createBackupDaemonStatefulset(opsManager *mdbv1.MongoDBOpsManager, log *zap.SugaredLogger) reconcileStatus {
-	if opsManager.Spec.Backup.Enabled {
-		log.Debug("Enabling backup for Ops Manager")
+	if !opsManager.Spec.Backup.Enabled {
+		return ok()
+	}
+	backupHelper := r.kubeHelper.NewBackupStatefulSetHelper(opsManager)
+	backupHelper.SetLogger(log)
 
-		backupHelper := r.kubeHelper.NewBackupStatefulSetHelper(opsManager)
-		backupHelper.SetLogger(log)
-
-		if err := backupHelper.CreateOrUpdateInKubernetes(); err != nil {
-			return failedErr(err)
-		}
-		// Note, that this will return true quite soon as we don't have daemon readiness so far
-		if !r.kubeHelper.isStatefulSetUpdated(opsManager.Namespace, opsManager.BackupStatefulSetName(), log) {
-			return pending("Backup Daemon is still starting")
-		}
+	if err := backupHelper.CreateOrUpdateInKubernetes(); err != nil {
+		return failedErr(err)
+	}
+	// Note, that this will return true quite soon as we don't have daemon readiness so far
+	if !r.kubeHelper.isStatefulSetUpdated(opsManager.Namespace, opsManager.BackupStatefulSetName(), log) {
+		return pending("Backup Daemon is still starting")
 	}
 	return ok()
 }
@@ -272,13 +275,14 @@ func (r OpsManagerReconciler) ensureOpsManagerUserPassword(opsManager *mdbv1.Mon
 	return secret[util.OpsManagerPasswordKey], nil
 }
 
-// prepareOpsManager ensures the admin user is created and the admin public key exists
+// prepareOpsManager ensures the admin user is created and the admin public key exists. It returns the instance of
+// api.Admin to perform future Ops Manager configuration
 // Note the exception handling logic - if the controller fails to save the public API key secret - it cannot fix this
 // manually (the first OM user can be created only once) - so the resource goes to Failed state and shows the message
 // asking the user to fix this manually.
 // Theoretically the Operator could remove the appdb StatefulSet (as the OM must be empty without any user data) and
 // allow the db to get recreated but seems this is a quite radical operation.
-func (r OpsManagerReconciler) prepareOpsManager(opsManager *mdbv1.MongoDBOpsManager, credentials *Credentials, log *zap.SugaredLogger) reconcileStatus {
+func (r OpsManagerReconciler) prepareOpsManager(opsManager *mdbv1.MongoDBOpsManager, log *zap.SugaredLogger) (reconcileStatus, api.Admin) {
 	// We won't support cross-namespace secrets until CLOUDP-46636 is resolved
 	secret := objectKey(opsManager.Namespace, opsManager.Spec.AdminSecret)
 
@@ -287,14 +291,14 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager *mdbv1.MongoDBOpsMana
 
 	if apiErrors.IsNotFound(err) {
 		// This requires user actions - let's wait a bit longer than 10 seconds
-		return failedRetry("the secret %s doesn't exist - you need to create it to finish Ops Manager initialization", 60, secret)
+		return failedRetry("the secret %s doesn't exist - you need to create it to finish Ops Manager initialization", 60, secret), nil
 	} else if err != nil {
-		return failedErr(err)
+		return failedErr(err), nil
 	}
 
 	user, err := newUserFromSecret(userData)
 	if err != nil {
-		return failed("failed to read user data from the secret %s: %s", secret, err)
+		return failed("failed to read user data from the secret %s: %s", secret, err), nil
 	}
 
 	adminKeySecretName := objectKey(operatorNamespace(), opsManager.APIKeySecretName())
@@ -312,7 +316,7 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager *mdbv1.MongoDBOpsMana
 	if apiErrors.IsNotFound(err) {
 		apiKey, err := r.omInitializer.TryCreateUser(centralURL(opsManager), user)
 		if err != nil {
-			return failed("failed to create an admin user in Ops Manager: %s", err)
+			return failed("failed to create an admin user in Ops Manager: %s", err), nil
 		}
 
 		// Recreate an admin key secret in the Operator namespace if the user was created
@@ -325,12 +329,12 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager *mdbv1.MongoDBOpsMana
 			if err = r.kubeHelper.deleteSecret(adminKeySecretName); err != nil && !apiErrors.IsNotFound(err) {
 				// TODO our desired behavior is not to fail but just append the warning to the status (CLOUDP-51340)
 				return failedRetry("failed to replace a secret for admin public api key. %s. The error : %s", 300,
-					detailedMsg, err)
+					detailedMsg, err), nil
 			}
 			if err = r.kubeHelper.createSecret(adminKeySecretName, secretData, map[string]string{}, opsManager); err != nil {
 				// TODO see above
 				return failedRetry("failed to create a secret for admin public api key. %s. The error : %s", 300,
-					detailedMsg, err)
+					detailedMsg, err), nil
 			}
 			log.Infof("Created a secret for admin public api key %s", adminKeySecretName)
 
@@ -346,13 +350,38 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager *mdbv1.MongoDBOpsMana
 	_, err = r.kubeHelper.readSecret(adminKeySecretName)
 	if err != nil {
 		return failedRetry("admin API key secret for Ops Manager doesn't exit - was it removed accidentally? %s. The error : %s", 300,
-			detailedMsg, err)
+			detailedMsg, err), nil
 	}
 	cred, err := r.kubeHelper.readCredentials(operatorNamespace(), opsManager.APIKeySecretName())
 	if err != nil {
+		return failedErr(err), nil
+	}
+
+	return ok(), r.omAdminProvider(centralURL(opsManager), cred.User, cred.PublicAPIKey)
+}
+
+// prepareBackup makes the changes to backup admin configuration based on the Ops Manager spec
+func (r *OpsManagerReconciler) prepareBackup(opsManager *mdbv1.MongoDBOpsManager, omAdmin api.Admin, log *zap.SugaredLogger) reconcileStatus {
+	if !opsManager.Spec.Backup.Enabled {
+		return ok()
+	}
+	// 1. Enabling Daemon Config if necessary
+	backupHostName := backupDaemonURL(opsManager)
+	_, err := omAdmin.ReadDaemonConfig(backupHostName, util.PvcMountPathHeadDb)
+	if err != nil && err.ErrorCode == api.BackupDaemonConfigNotFound {
+		log.Infow("Backup Daemon is not configured, enabling it", "hostname", backupHostName, "headDB", util.PvcMountPathHeadDb)
+
+		err = omAdmin.CreateDaemonConfig(backupHostName, util.PvcMountPathHeadDb)
+		if err != nil && err.ErrorCode == api.BackupDaemonConfigNotFound {
+			// Unfortunately by this time backup daemon may not have been started yet and we don't have proper
+			// mechanism to ensure this using readiness probe so we just retry
+			return pending("BackupDaemon hasn't started yet")
+		} else if err != nil {
+			return failedErr(err)
+		}
+	} else if err != nil {
 		return failedErr(err)
 	}
-	*credentials = *cred
 	return ok()
 }
 
@@ -375,6 +404,8 @@ func performValidation(opsManager *mdbv1.MongoDBOpsManager) error {
 
 // centralURL constructs the service name that can be used to access Ops Manager from within
 // the cluster
+// TODO the kubedns.go should be moved to 'util' and be reused by 'om' package as well to make this method an OM resource
+//  method
 func centralURL(om *mdbv1.MongoDBOpsManager) string {
 	fqdn := GetServiceFQDN(om.SvcName(), om.Namespace, om.ClusterName)
 
@@ -382,6 +413,13 @@ func centralURL(om *mdbv1.MongoDBOpsManager) string {
 	protocol := "http"
 
 	return fmt.Sprintf("%s://%s:%d", protocol, fqdn, util.OpsManagerDefaultPort)
+}
+
+// TODO the kubedns.go should be moved to 'util' and be reused by 'om' package as well to make this method an OM resource
+//  method
+func backupDaemonURL(om *mdbv1.MongoDBOpsManager) string {
+	_, podnames := GetDNSNames(om.BackupStatefulSetName(), "", om.Namespace, om.Spec.ClusterName, 1)
+	return podnames[0]
 }
 
 func newUserFromSecret(data map[string]string) (*api.User, error) {

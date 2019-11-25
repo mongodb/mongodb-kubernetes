@@ -33,7 +33,7 @@ if [[ "${CLUSTER}" = "e2e.mongokubernetes.com" ]]; then
     create_kops_cluster ${CLUSTER} 4 64 "t2.2xlarge" "t2.medium" "us-east-2a,us-east-2b,us-east-2c"
 elif [[ "${CLUSTER}" = "e2e.om.mongokubernetes.com" ]]; then
     # this one is for Ops Manager e2e tests
-    create_kops_cluster ${CLUSTER} 5 32 "t2.xlarge" "t2.medium" "us-west-2a,us-west-2b,us-west-2c"
+    create_kops_cluster ${CLUSTER} 4 32 "t2.2xlarge" "t2.medium" "us-west-2a,us-west-2b,us-west-2c"
 else
     # we're creating a smaller cluster for specific tests
     # the only known "other" namespace is "e2e.multinamespace.mongokubernetes.com"

@@ -87,10 +87,10 @@ func serializeToBuffer(v interface{}) (io.Reader, error) {
 	return buffer, nil
 }
 
-// Request is a generic method allowing to make all types of HTTP digest requests using specific 'client'
+// DigestRequest is a generic method allowing to make all types of HTTP digest requests using specific 'client'
 // Note, that it's currently coupled with Ops Manager specific functionality (ApiError) that's why it's put into 'om'
 // package - this can be decoupled to a 'util' package if 'operator' package needs this in future
-func Request(method, hostname, path string, v interface{}, user string, token string, client *http.Client) ([]byte, error) {
+func DigestRequest(method, hostname, path string, v interface{}, user string, token string, client *http.Client) ([]byte, *Error) {
 	url := hostname + path
 
 	buffer, err := serializeToBuffer(v)
