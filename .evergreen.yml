@@ -10,7 +10,7 @@ variables:
     ops_manager_namespace: "operator-testing-40-first"
     node_port: 30041
   - &ops_manager_42_current
-    ops_manager_version: "4.2.0.56506.20190804T0058Z-1_test"
+    ops_manager_version: "4.2.4.56729.20191105T2247Z-1"
     ops_manager_namespace: "operator-testing-42-current"
     node_port: 30043
 
@@ -1116,7 +1116,7 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_tls_rs_external_access
-  tags: ["openshift-om-42"]
+  tags: ["openshift-om-qa"]
   exec_timeout_secs: 720
   commands:
     - func: "e2e_test"
@@ -1471,7 +1471,6 @@ task_groups:
     - e2e_replica_set_tls_require
     - e2e_replica_set_tls_require_upgrade
     - e2e_replica_set_tls_require_and_disable
-    - e2e_tls_rs_external_access
     - e2e_sharded_cluster_tls_require
     - e2e_standalone_no_tls_no_status_is_set
   teardown_task:
@@ -1522,6 +1521,7 @@ task_groups:
   tasks:
     - e2e_sharded_cluster_scale_shards
     - e2e_replica_set_readiness_probe
+    - e2e_tls_rs_external_access
   teardown_task:
     - func: "upload_e2e_logs"
 
