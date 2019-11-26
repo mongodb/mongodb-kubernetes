@@ -3,5 +3,5 @@
 {% block licenses %}
 # Licenses is required to pass Redhat verification process
 # TODO: Add a proper license
-COPY LICENSE /licenses
+COPY LICENSE /licenses/mongodb-enterprise-ops-manager
 {% endblock %}

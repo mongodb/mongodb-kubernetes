@@ -25,7 +25,7 @@ RUN ln -s /usr/lib64/libsasl2.so.3 /usr/lib64/libsasl2.so.2
 {% endblock %}
 
 {% block static %}
-COPY LICENSE /licenses
+COPY LICENSE /licenses/mongodb-enterprise-database
 COPY content/epel.repo /etc/yum.repos.d/epel.repo
 COPY content/RPM-GPG-KEY-EPEL-7 /etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-7
 {% endblock %}
