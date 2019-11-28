@@ -1,12 +1,17 @@
 {% extends "Dockerfile.template" %}
 
 {% block packages %}
-RUN microdnf install \
+
+RUN yum update -y && rm -rf /var/cache/yum
+
+# nss_wrapper needs cmake3 on UBI7
+RUN yum install --disableplugin=subscription-manager -y cmake3 nss_wrapper
+
+RUN yum install --disableplugin=subscription-manager -y \
         curl \
         cyrus-sasl \
         cyrus-sasl-gssapi \
         cyrus-sasl-plain \
-        jq \
         krb5-libs \
         libcurl \
         libpcap \
@@ -16,16 +21,20 @@ RUN microdnf install \
         openldap \
         openssl \
         rpm-libs \
-        tcp_wrappers-libs \
-        nss_wrapper \
-        --nodocs ; \
-        microdnf clean all
+        tcp_wrappers-libs
+
+# epel repo needs to be enabled, but not before installing the regular packages!
+COPY content/epel.repo /etc/yum.repos.d/epel.repo
+COPY content/RPM-GPG-KEY-EPEL-7 /etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-7
+
+# yum can fail with http/https Error 404 when the new repo has been added.
+# https://access.redhat.com/articles/1320623
+RUN rm -fr /var/cache/yum/* && yum clean all
+RUN yum install --disableplugin=subscription-manager -y jq
 
 RUN ln -s /usr/lib64/libsasl2.so.3 /usr/lib64/libsasl2.so.2
 {% endblock %}
 
 {% block static %}
 COPY LICENSE /licenses/mongodb-enterprise-database
-COPY content/epel.repo /etc/yum.repos.d/epel.repo
-COPY content/RPM-GPG-KEY-EPEL-7 /etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-7
 {% endblock %}

@@ -70,7 +70,7 @@ def ubuntu() -> Dict[str, Union[str, List[str]]]:
 def rhel() -> Dict[str, Union[str, List[str]]]:
     """RHEL distro data (only for the Database image)"""
     return {
-        "base_image": "registry.access.redhat.com/ubi7/ubi-minimal",
+        "base_image": "registry.access.redhat.com/ubi7/ubi",
         "distro": "rhel",
         "version": get_version(),
     }
