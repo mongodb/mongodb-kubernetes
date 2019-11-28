@@ -78,6 +78,7 @@ type StatefulSetHelper struct {
 	Project            mdbv1.ProjectConfig
 	Security           *mdbv1.Security
 	ReplicaSetHorizons []mdbv1.MongoDBHorizonConfig
+	CertificateHash    string
 }
 
 func (ss StatefulSetHelper) hasHorizons() bool {
@@ -388,6 +389,11 @@ func (s *StatefulSetHelper) getDNSNames() ([]string, []string) {
 	return GetDNSNames(s.Name, s.Service, s.Namespace, s.ClusterName, members)
 }
 
+func (s *StatefulSetHelper) SetCertificateHash(certHash string) *StatefulSetHelper {
+	s.CertificateHash = certHash
+	return s
+}
+
 func (s *StatefulSetHelper) SetReplicaSetHorizons(replicaSetHorizons []mdbv1.MongoDBHorizonConfig) *StatefulSetHelper {
 	s.ReplicaSetHorizons = replicaSetHorizons
 	return s
@@ -466,7 +472,8 @@ func volumeMountWithNameExists(mounts []corev1.VolumeMount, volumeName string) b
 func (k *KubeHelper) createOrUpdateStatefulset(ns string, log *zap.SugaredLogger, set *appsv1.StatefulSet) (*appsv1.StatefulSet, error) {
 	log = log.With("statefulset", objectKey(ns, set.Name))
 	var msg string
-	if err := k.client.Get(context.TODO(), objectKey(ns, set.Name), &appsv1.StatefulSet{}); err != nil {
+	existingStatefulSet := appsv1.StatefulSet{}
+	if err := k.client.Get(context.TODO(), objectKey(ns, set.Name), &existingStatefulSet); err != nil {
 		if apiErrors.IsNotFound(err) {
 			if err = k.client.Create(context.TODO(), set); err != nil {
 				return nil, err
@@ -476,6 +483,12 @@ func (k *KubeHelper) createOrUpdateStatefulset(ns string, log *zap.SugaredLogger
 		}
 		msg = "Created"
 	} else {
+		// preserve existing certificate hash if new one is not set
+		existingCertHash := existingStatefulSet.Spec.Template.Annotations["certHash"]
+		newCertHash := set.Spec.Template.Annotations["certHash"]
+		if existingCertHash != "" && newCertHash == "" {
+			set.Spec.Template.Annotations["certHash"] = existingCertHash
+		}
 		if err = k.client.Update(context.TODO(), set); err != nil {
 			return nil, err
 		}
@@ -938,6 +951,8 @@ func (k *KubeHelper) ensureSSLCertsForStatefulSet(ss *StatefulSetHelper, log *za
 			labels["mongodb/secure"] = "certs"
 			labels["mongodb/operator"] = "certs." + secretName
 
+			// note that createOrUpdateSecret modifies pemFiles in place by merging
+			// in the existing values in the secret
 			err := k.createOrUpdateSecret(secretName, ss.Namespace, pemFiles, labels)
 			if err != nil {
 				// If we have an error creating or updating the secret, we might lose
@@ -946,6 +961,13 @@ func (k *KubeHelper) ensureSSLCertsForStatefulSet(ss *StatefulSetHelper, log *za
 				// message.
 				return failed("Failed to create or update the secret: %s", err)
 			}
+
+			certsHash, err := pemFiles.getHash()
+			if err != nil {
+				log.Errorw("Could not hash PEM files", "err", err)
+				return failedErr(err)
+			}
+			ss.SetCertificateHash(certsHash)
 		}
 	}
 

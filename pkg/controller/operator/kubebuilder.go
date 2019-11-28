@@ -104,6 +104,12 @@ func createBaseDatabaseStatefulSet(p StatefulSetHelper, podSpec corev1.PodSpec) 
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: podLabels,
+					Annotations: map[string]string{
+						// this annotation is necessary in order to trigger a pod restart
+						// if the certificate secret is out of date. This happens if
+						// existing certificates have been replaced/rotated/renewed.
+						"certHash": p.CertificateHash,
+					},
 				},
 				Spec: podSpec,
 			},
