@@ -32,7 +32,8 @@ class TestEnableX509AndTls(KubernetesTester):
 
     def test_approve_certificates(self):
         for cert in self.yield_existing_csrs(
-                get_rs_cert_names(MDB_RESOURCE, self.namespace, with_agent_certs=True)):
+            get_rs_cert_names(MDB_RESOURCE, self.namespace, with_agent_certs=True)
+        ):
             self.approve_certificate(cert)
         KubernetesTester.wait_until(KubernetesTester.in_running_state)
 

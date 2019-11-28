@@ -27,15 +27,17 @@
 from datetime import datetime, timedelta
 import sys
 
+
 def is_older_than(date, amount, unit):
     """Checks if datetime is older than `amount` of `unit`"""
-    date = datetime.strptime(date, '%Y-%m-%dT%H:%M:%SZ')
+    date = datetime.strptime(date, "%Y-%m-%dT%H:%M:%SZ")
     # gets the following options, same as we use to construct the timedelta object,
     # like 'minutes 6' -- it is expected in command line as '6 minutes'
     delta_options = {unit: amount}
     delta = timedelta(**delta_options)
 
     return date + delta > datetime.now()
+
 
 if __name__ == "__main__":
     date = sys.argv[1]

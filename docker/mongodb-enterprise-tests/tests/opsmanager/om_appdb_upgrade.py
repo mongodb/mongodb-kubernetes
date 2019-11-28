@@ -16,6 +16,7 @@ admin_key_resource_version = None
 # creation of Ops Manager takes too long, so we try to avoid fine-grained test cases and combine different
 # updates in one test
 
+
 @pytest.mark.e2e_om_appdb_upgrade
 class TestOpsManagerCreation(OpsManagerBase):
     """
@@ -29,29 +30,37 @@ class TestOpsManagerCreation(OpsManagerBase):
     """
 
     def test_appdb(self):
-        assert self.om_cr.get_appdb_status()['members'] == 3
-        assert self.om_cr.get_appdb_status()['version'] == '4.0.0'
+        assert self.om_cr.get_appdb_status()["members"] == 3
+        assert self.om_cr.get_appdb_status()["version"] == "4.0.0"
 
     def test_admin_config_map(self):
-        config_map = self.corev1.read_namespaced_config_map(self.om_cr.app_config_name(), self.namespace).data
+        config_map = self.corev1.read_namespaced_config_map(
+            self.om_cr.app_config_name(), self.namespace
+        ).data
         assert json.loads(config_map["cluster-config.json"])["version"] == 1
 
     @skip_if_local
     def test_mongod(self):
         mdb_tester = ReplicaSetTester(self.om_cr.app_db_name(), 3)
         mdb_tester.assert_connectivity()
-        mdb_tester.assert_version('4.0.0')
+        mdb_tester.assert_version("4.0.0")
 
         # then we need to wait until Ops Manager is ready (only AppDB is ready so far) for the next test
-        self.wait_until('om_in_running_state', 500)
+        self.wait_until("om_in_running_state", 500)
 
     def test_appdb_automation_config(self):
-        expected_roles = {("admin", "readWriteAnyDatabase"), ("admin", "dbAdminAnyDatabase"),
-                          ("admin", "clusterMonitor")}
+        expected_roles = {
+            ("admin", "readWriteAnyDatabase"),
+            ("admin", "dbAdminAnyDatabase"),
+            ("admin", "clusterMonitor"),
+        }
 
         # only user should be the Ops Manager user
-        tester = AutomationConfigTester(self.get_appdb_automation_config(), expected_users=1,
-                                        authoritative_set=False)
+        tester = AutomationConfigTester(
+            self.get_appdb_automation_config(),
+            expected_users=1,
+            authoritative_set=False,
+        )
         tester.assert_authentication_mechanism_enabled("MONGODB-CR")
         tester.assert_has_user("mongodb-ops-manager")
         tester.assert_user_has_roles("mongodb-ops-manager", expected_roles)
@@ -59,8 +68,12 @@ class TestOpsManagerCreation(OpsManagerBase):
     @skip_if_local
     def test_appdb_scram_sha(self):
         app_db_tester = self.om_cr.get_appdb_mongo_tester()
-        app_db_tester.assert_scram_sha_authentication("mongodb-ops-manager", self.get_appdb_password("om-upgrade"),
-                                                      auth_mechanism="SCRAM-SHA-1")
+        app_db_tester.assert_scram_sha_authentication(
+            "mongodb-ops-manager",
+            self.get_appdb_password("om-upgrade"),
+            auth_mechanism="SCRAM-SHA-1",
+        )
+
     # TODO check the persistent volumes created
 
 
@@ -78,21 +91,23 @@ class TestOpsManagerAppDbUpgrade(OpsManagerBase):
     """
 
     def test_appdb(self):
-        assert self.om_cr.get_appdb_status()['members'] == 3
-        assert self.om_cr.get_appdb_status()['version'] == '4.2.0'
+        assert self.om_cr.get_appdb_status()["members"] == 3
+        assert self.om_cr.get_appdb_status()["version"] == "4.2.0"
 
     def test_admin_config_map(self):
-        config_map = self.corev1.read_namespaced_config_map(self.om_cr.app_config_name(), self.namespace).data
+        config_map = self.corev1.read_namespaced_config_map(
+            self.om_cr.app_config_name(), self.namespace
+        ).data
         assert json.loads(config_map["cluster-config.json"])["version"] == 2
 
     @skip_if_local
     def test_mongod(self):
         mdb_tester = ReplicaSetTester(self.om_cr.app_db_name(), 3)
         mdb_tester.assert_connectivity()
-        mdb_tester.assert_version('4.2.0')
+        mdb_tester.assert_version("4.2.0")
 
         # then we need to wait until Ops Manager is ready (only AppDB is ready so far) for the next test
-        self.wait_until('om_in_running_state', 500)
+        self.wait_until("om_in_running_state", 500)
 
 
 @pytest.mark.e2e_om_appdb_upgrade
@@ -109,14 +124,20 @@ class TestOpsManagerAppDbUpdateMemory(OpsManagerBase):
     """
 
     def test_appdb(self):
-        assert self.om_cr.get_appdb_status()['members'] == 3
+        assert self.om_cr.get_appdb_status()["members"] == 3
         response = self.corev1.list_namespaced_pod(self.namespace)
-        db_pods = [pod for pod in response.items if pod.metadata.name.startswith(self.om_cr.app_db_name())]
+        db_pods = [
+            pod
+            for pod in response.items
+            if pod.metadata.name.startswith(self.om_cr.app_db_name())
+        ]
         for pod in db_pods:
-            assert pod.spec.containers[0].resources.requests["memory"] == '200M'
+            assert pod.spec.containers[0].resources.requests["memory"] == "200M"
 
     def test_admin_config_map(self):
-        config_map = self.corev1.read_namespaced_config_map(self.om_cr.app_config_name(), self.namespace).data
+        config_map = self.corev1.read_namespaced_config_map(
+            self.om_cr.app_config_name(), self.namespace
+        ).data
         # The version hasn't changed as there were no changes to the automation config
         assert json.loads(config_map["cluster-config.json"])["version"] == 2
 
@@ -139,14 +160,14 @@ class TestOpsManagerMixed(OpsManagerBase):
     """
 
     def test_appdb(self):
-        assert self.om_cr.get_appdb_status()['members'] == 3
-        assert self.om_cr.get_appdb_status()['version'] == '4.2.1'
+        assert self.om_cr.get_appdb_status()["members"] == 3
+        assert self.om_cr.get_appdb_status()["version"] == "4.2.1"
 
     @skip_if_local
     def test_mongod(self):
         mdb_tester = ReplicaSetTester(self.om_cr.app_db_name(), 3)
         mdb_tester.assert_connectivity()
-        mdb_tester.assert_version('4.2.1')
+        mdb_tester.assert_version("4.2.1")
 
     @skip_if_local
     def test_om_connectivity(self):

@@ -15,17 +15,17 @@ import docopt
 
 
 def read_release_from_file(fname, release_object):
-    with open(fname, 'r') as fd:
+    with open(fname, "r") as fd:
         content = json.load(fd)
 
     return content[release_object]
 
 
 def main(args):
-    release_object = args['RELEASE_OBJECT']
-    print(read_release_from_file('release.json', release_object))
+    release_object = args["RELEASE_OBJECT"]
+    print(read_release_from_file("release.json", release_object))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     args = docopt.docopt(__doc__)
     main(args)

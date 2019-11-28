@@ -17,7 +17,9 @@ def get_csr_sans(csr_name):
     Return all of the subject alternative names for a given Kubernetes
     certificate signing request.
     """
-    csr = client.CertificatesV1beta1Api().read_certificate_signing_request_status(csr_name)
+    csr = client.CertificatesV1beta1Api().read_certificate_signing_request_status(
+        csr_name
+    )
     base64_csr_request = csr.spec.request
     csr_pem_string = base64.b64decode(base64_csr_request)
     csr = x509.load_pem_x509_csr(csr_pem_string, default_backend())
@@ -33,19 +35,24 @@ class TestReplicaSetWithExternalAccess(KubernetesTester):
       wait_for_message: Not all certificates have been approved by Kubernetes CA
       timeout: 240
     """
+
     def test_horizon_certs_generated(self):
         expected_horizon_names = {
             "mdb0-test-website.com",
             "mdb1-test-website.com",
-            "mdb2-test-website.com"
+            "mdb2-test-website.com",
         }
-        csr_names = get_rs_cert_names("test-tls-base-rs-external-access", self.namespace)
+        csr_names = get_rs_cert_names(
+            "test-tls-base-rs-external-access", self.namespace
+        )
         for csr_name in self.yield_existing_csrs(csr_names):
-            horizon_name = [s for s in get_csr_sans(csr_name) if s in expected_horizon_names][0]
+            horizon_name = [
+                s for s in get_csr_sans(csr_name) if s in expected_horizon_names
+            ][0]
             expected_horizon_names.remove(horizon_name)
 
             self.approve_certificate(csr_name)
-        KubernetesTester.wait_until('in_running_state')
+        KubernetesTester.wait_until("in_running_state")
 
     @skip_if_local
     def test_can_still_connect(self):
@@ -59,7 +66,7 @@ class TestReplicaSetWithExternalAccess(KubernetesTester):
         assert horizon_names == [
             {"test-horizon": "mdb0-test-website.com:1337"},
             {"test-horizon": "mdb1-test-website.com:1337"},
-            {"test-horizon": "mdb2-test-website.com:1337"}
+            {"test-horizon": "mdb2-test-website.com:1337"},
         ]
 
     @skip_if_local
@@ -87,22 +94,20 @@ class TestReplicaSetScaleWithExternalAccess(KubernetesTester):
                 {
                     "op": "add",
                     "path": "/spec/connectivity/replicaSetHorizons/-",
-                    "value": {"test-horizon": "mdb3-test-website.com:1337"}
+                    "value": {"test-horizon": "mdb3-test-website.com:1337"},
                 },
-                {
-                    "op": "replace",
-                    "path": "/spec/members",
-                    "value": 4
-                }
-            ]
+                {"op": "replace", "path": "/spec/members", "value": 4},
+            ],
         }
     }
 
     def test_certs_approved(self):
-        csr_names = get_rs_cert_names("test-tls-base-rs-external-access", self.namespace, members=4)
+        csr_names = get_rs_cert_names(
+            "test-tls-base-rs-external-access", self.namespace, members=4
+        )
         for csr_name in self.yield_existing_csrs(csr_names):
             self.approve_certificate(csr_name)
-        KubernetesTester.wait_until('in_running_state')
+        KubernetesTester.wait_until("in_running_state")
 
 
 @pytest.mark.e2e_tls_rs_external_access
@@ -110,12 +115,14 @@ class TestReplicaSetExternalAccessInvalidCerts(KubernetesTester):
     init = {
         "update": {
             "file": "test-tls-base-rs-external-access.yaml",
-            "wait_for_message": re.compile(r"Certificate request for .+ doesn't have all required domains. Please manually remove the CSR in order to proceed."),
+            "wait_for_message": re.compile(
+                r"Certificate request for .+ doesn't have all required domains. Please manually remove the CSR in order to proceed."
+            ),
             "patch": [
                 {
                     "op": "replace",
                     "path": "/spec/connectivity/replicaSetHorizons/0/test-horizon",
-                    "value": "mdb5-test-website.com:1337"
+                    "value": "mdb5-test-website.com:1337",
                 }
             ],
             "timeout": 10,
@@ -135,6 +142,7 @@ class TestReplicaSetCanRemoveExternalAccess(KubernetesTester):
       patch: '[{"op":"replace","path":"/spec/connectivity/replicaSetHorizons", "value": []}]'
       timeout: 240
     """
+
     def test_can_remove_horizons(self):
         return True
 
@@ -147,6 +155,7 @@ class TestReplicaSetWithNoTLSDeletion(KubernetesTester):
       wait_until: mongo_resource_deleted_no_om
       timeout: 240
     """
+
     def test_deletion(self):
         assert True
 
@@ -159,6 +168,7 @@ class TestReplicaSetWithMultipleHorizons(KubernetesTester):
       wait_for_message: Not all certificates have been approved by Kubernetes CA
       timeout: 240
     """
+
     def test_horizon_certs_generated(self):
         expected_horizon_names = {
             ("mdb0-test-1-website.com", "mdb0-test-2-website.com"),
@@ -173,13 +183,12 @@ class TestReplicaSetWithMultipleHorizons(KubernetesTester):
             sans = get_csr_sans(csr_name)
             assert any(
                 all(name in sans for name in expected)
-                for expected
-                in expected_horizon_names
+                for expected in expected_horizon_names
             )
 
             print("Approving certificate {}".format(csr_name))
             self.approve_certificate(csr_name)
-        KubernetesTester.wait_until('in_running_state')
+        KubernetesTester.wait_until("in_running_state")
 
     def test_automation_config_is_right(self):
         ac = self.get_automation_config()
@@ -188,15 +197,15 @@ class TestReplicaSetWithMultipleHorizons(KubernetesTester):
         assert horizons == [
             {
                 "test-horizon-1": "mdb0-test-1-website.com:1337",
-                "test-horizon-2": "mdb0-test-2-website.com:2337"
+                "test-horizon-2": "mdb0-test-2-website.com:2337",
             },
             {
                 "test-horizon-1": "mdb1-test-1-website.com:1338",
-                "test-horizon-2": "mdb1-test-2-website.com:2338"
+                "test-horizon-2": "mdb1-test-2-website.com:2338",
             },
             {
                 "test-horizon-1": "mdb2-test-1-website.com:1339",
-                "test-horizon-2": "mdb2-test-2-website.com:2339"
+                "test-horizon-2": "mdb2-test-2-website.com:2339",
             },
         ]
 
@@ -209,6 +218,7 @@ class TestReplicaSetDeleteMultipleHorizon(KubernetesTester):
       wait_until: mongo_resource_deleted_no_om
       timeout: 240
     """
+
     def test_deletion(self):
         assert True
 
@@ -222,6 +232,7 @@ class TestReplicaSetWithMissingHorizon(KubernetesTester):
       timeout: 240
       patch: '[{"op":"remove","path":"/spec/connectivity/replicaSetHorizons/0"}]'
     """
+
     def test_missing_horizon(self):
         assert True
 
@@ -234,5 +245,6 @@ class TestReplicaSetDeleteFailed(KubernetesTester):
       wait_until: mongo_resource_deleted_no_om
       timeout: 240
     """
+
     def test_deletion(self):
         assert True

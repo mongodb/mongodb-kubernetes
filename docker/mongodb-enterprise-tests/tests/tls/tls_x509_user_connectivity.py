@@ -2,7 +2,10 @@ import pytest
 from kubetester.kubetester import KubernetesTester
 from kubetester.omtester import get_rs_cert_names
 from kubetester.mongotester import ReplicaSetTester
-from kubetester.automation_config_tester import AutomationConfigTester, X509_AGENT_SUBJECT
+from kubetester.automation_config_tester import (
+    AutomationConfigTester,
+    X509_AGENT_SUBJECT,
+)
 
 MDB_RESOURCE = "test-x509-rs"
 BACKUP_AGENT_USER = "CN=mms-backup-agent,OU=MongoDB Kubernetes Operator,O=mms-backup-agent,L=NY,ST=NY,C=US"
@@ -23,9 +26,10 @@ class TestReplicaSetWithTLSCreation(KubernetesTester):
 
     def test_approve_certs(self):
         for cert in self.yield_existing_csrs(
-                get_rs_cert_names(MDB_RESOURCE, self.get_namespace(), with_agent_certs=True)):
+            get_rs_cert_names(MDB_RESOURCE, self.get_namespace(), with_agent_certs=True)
+        ):
             self.approve_certificate(cert)
-        KubernetesTester.wait_until('in_running_state', 320)
+        KubernetesTester.wait_until("in_running_state", 320)
 
     def test_users_wanted_is_correct(self):
         """At this stage we should have 2 members in the usersWanted list,
@@ -53,17 +57,18 @@ class TestAddMongoDBUser(KubernetesTester):
     @staticmethod
     def user_exists():
         ac = KubernetesTester.get_automation_config()
-        users = ac['auth']['usersWanted']
+        users = ac["auth"]["usersWanted"]
 
-        return 'CN=x509-testing-user' in [user['user'] for user in users]
+        return "CN=x509-testing-user" in [user["user"] for user in users]
 
 
 @pytest.mark.e2e_tls_x509_user_connectivity
 class TestX509CertCreationAndApproval(KubernetesTester):
     def setup(self):
-        cert_name = 'x509-testing-user.' + self.get_namespace()
-        self.cert_file = self.generate_certfile(cert_name, 'x509-testing-user.csr',
-                                                'server-key.pem')
+        cert_name = "x509-testing-user." + self.get_namespace()
+        self.cert_file = self.generate_certfile(
+            cert_name, "x509-testing-user.csr", "server-key.pem"
+        )
 
     def teardown(self):
         self.cert_file.close()
@@ -76,7 +81,9 @@ class TestX509CertCreationAndApproval(KubernetesTester):
 @pytest.mark.e2e_tls_x509_user_connectivity
 class TestX509CorrectlyConfigured(KubernetesTester):
     def test_om_state_is_correct(self):
-        tester = AutomationConfigTester(KubernetesTester.get_automation_config(), expected_users=3)
+        tester = AutomationConfigTester(
+            KubernetesTester.get_automation_config(), expected_users=3
+        )
 
         tester.assert_authentication_mechanism_enabled("MONGODB-X509")
         tester.assert_agent_user(X509_AGENT_SUBJECT)

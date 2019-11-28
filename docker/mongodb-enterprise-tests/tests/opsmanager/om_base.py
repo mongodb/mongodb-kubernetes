@@ -25,7 +25,9 @@ class OpsManagerBase(KubernetesTester):
 
     @staticmethod
     def read_om_cr() -> OpsManagerCR:
-        return OpsManagerCR(KubernetesTester.get_resource(), KubernetesTester.get_namespace())
+        return OpsManagerCR(
+            KubernetesTester.get_resource(), KubernetesTester.get_namespace()
+        )
 
     @staticmethod
     def om_cr_from_resource(resource) -> OpsManagerCR:
@@ -36,9 +38,16 @@ class OpsManagerBase(KubernetesTester):
         """ Creates OM context by Ops Manager Custom Resource. Must be called only after the CR is pushed
         and the first user is created in OM (so the API secret exists) """
 
-        api_key_secret = KubernetesTester.read_secret(KubernetesTester.get_namespace(), om_cr.api_key_secret())
-        OpsManagerBase.om_context = OMContext(om_cr.base_url(), "", "",
-                                              api_key_secret['user'], api_key_secret['publicApiKey'])
+        api_key_secret = KubernetesTester.read_secret(
+            KubernetesTester.get_namespace(), om_cr.api_key_secret()
+        )
+        OpsManagerBase.om_context = OMContext(
+            om_cr.base_url(),
+            "",
+            "",
+            api_key_secret["user"],
+            api_key_secret["publicApiKey"],
+        )
         OpsManagerBase.om_cr = om_cr
 
     @staticmethod
@@ -48,18 +57,23 @@ class OpsManagerBase(KubernetesTester):
         resource = OpsManagerBase.read_om_cr()
         if resource.get_status() is None:
             return False
-        phase = resource.get_om_status()['phase']
+        phase = resource.get_om_status()["phase"]
 
         if phase == "Failed":
-            msg = resource.get_om_status()['message']
-            raise AssertionError('Got into Failed phase while waiting for Running! ("{}")'.format(msg))
+            msg = resource.get_om_status()["message"]
+            raise AssertionError(
+                'Got into Failed phase while waiting for Running! ("{}")'.format(msg)
+            )
 
         is_om_running = phase == "Running"
-        is_appdb_running = resource.get_appdb_status()['phase'] == "Running"
+        is_appdb_running = resource.get_appdb_status()["phase"] == "Running"
 
         if is_om_running and not is_appdb_running:
             raise AssertionError(
-                "Ops Manager has Running status, but AppDB has status {}".format(resource.get_appdb_status()['phase']))
+                "Ops Manager has Running status, but AppDB has status {}".format(
+                    resource.get_appdb_status()["phase"]
+                )
+            )
 
         return is_om_running
 
@@ -69,10 +83,10 @@ class OpsManagerBase(KubernetesTester):
         resource = OpsManagerBase.read_om_cr()
         if resource.get_status() is None:
             return False
-        phase = resource.get_om_status()['phase']
+        phase = resource.get_om_status()["phase"]
 
         if phase == "Running":
-            raise AssertionError('Got into Running phase while waiting for Error!')
+            raise AssertionError("Got into Running phase while waiting for Error!")
 
         return phase == "Failed"
 
@@ -94,20 +108,26 @@ class OpsManagerBase(KubernetesTester):
         resource = OpsManagerBase.read_om_cr()
         if resource.get_status() is None:
             return False
-        phase = resource.get_appdb_status()['phase']
+        phase = resource.get_appdb_status()["phase"]
 
         if phase == "Failed":
-            msg = resource.get_appdb_status()['message']
-            raise AssertionError('AppDB got into Failed phase while waiting for Running! ("{}")'.format(msg))
+            msg = resource.get_appdb_status()["message"]
+            raise AssertionError(
+                'AppDB got into Failed phase while waiting for Running! ("{}")'.format(
+                    msg
+                )
+            )
 
-        return resource.get_appdb_status()['phase'] == "Running"
+        return resource.get_appdb_status()["phase"] == "Running"
 
     def get_appdb_automation_config(self) -> Dict:
-        cm = KubernetesTester.read_configmap(KubernetesTester.get_namespace(),
-                                             "{}-config".format(self.om_cr.app_db_name()))
+        cm = KubernetesTester.read_configmap(
+            KubernetesTester.get_namespace(),
+            "{}-config".format(self.om_cr.app_db_name()),
+        )
         automation_config_str = cm["cluster-config.json"]
         return json.loads(automation_config_str)
 
     def get_appdb_password(self, name: str) -> str:
-        secret = self.read_secret(self.get_namespace(), f'{name}-password')
+        secret = self.read_secret(self.get_namespace(), f"{name}-password")
         return secret["password"]

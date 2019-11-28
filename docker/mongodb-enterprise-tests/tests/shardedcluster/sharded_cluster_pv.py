@@ -17,6 +17,7 @@ class TestShardedClusterCreation(KubernetesTester):
       wait_until: in_running_state
       timeout: 360
     """
+
     def test_sharded_cluster_sts(self):
         sts0 = self.appsv1.read_namespaced_stateful_set("sh001-pv-0", self.namespace)
         assert sts0

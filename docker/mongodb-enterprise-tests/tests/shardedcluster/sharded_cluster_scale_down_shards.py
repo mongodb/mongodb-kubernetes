@@ -6,7 +6,7 @@ from kubernetes import client
 
 @pytest.mark.e2e_sharded_cluster_scale_down_shards
 class TestShardedClusterScaleDownShardsCreate(KubernetesTester):
-    '''
+    """
     name: ShardedCluster scale down of shards (create)
     description: |
       Creates a sharded cluster with 2 shards
@@ -14,7 +14,7 @@ class TestShardedClusterScaleDownShardsCreate(KubernetesTester):
       file: sharded-cluster-scale-down-shards.yaml
       wait_until: in_running_state
       timeout: 180
-    '''
+    """
 
     def test_db_connectable(self):
         mongod_tester = ShardedClusterTester("sh001-scale-down-shards", 1)
@@ -29,7 +29,7 @@ class TestShardedClusterScaleDownShardsCreate(KubernetesTester):
 
 @pytest.mark.e2e_sharded_cluster_scale_down_shards
 class TestShardedClusterScaleDownShardsUpdate(KubernetesTester):
-    '''
+    """
     name: ShardedCluster scale down of shards (update)
     description: |
       Updates the sharded cluster, scaling down its shards count to 1. Makes sure no data is lost.
@@ -41,7 +41,7 @@ class TestShardedClusterScaleDownShardsUpdate(KubernetesTester):
       patch: '[{"op":"replace","path":"/spec/shardCount", "value": 1}]'
       wait_until: in_running_state
       timeout: 360
-    '''
+    """
 
     def test_db_data_the_same_count(self):
         mongod_tester = ShardedClusterTester("sh001-scale-down-shards", 1)
@@ -51,4 +51,6 @@ class TestShardedClusterScaleDownShardsUpdate(KubernetesTester):
 
     def test_statefulset_for_shard_removed(self):
         with pytest.raises(client.rest.ApiException):
-            self.appsv1.read_namespaced_stateful_set('sh001-scale-down-shards-1', self.namespace)
+            self.appsv1.read_namespaced_stateful_set(
+                "sh001-scale-down-shards-1", self.namespace
+            )

@@ -59,7 +59,7 @@ class TestReplicaSetWithTLSUpgradeSetRequireSSLMode(KubernetesTester):
     """
 
     def test_mdb_resource_status_is_pending(self):
-        assert KubernetesTester.get_resource()['status']['phase'] == "Pending"
+        assert KubernetesTester.get_resource()["status"]["phase"] == "Pending"
 
     @skip_if_local()
     def test_mdb_is_reachable_with_no_ssl(self):

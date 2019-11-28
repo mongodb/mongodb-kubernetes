@@ -7,7 +7,7 @@ from kubetester.mongotester import ReplicaSetTester
 
 @pytest.mark.e2e_replica_set_readiness_probe
 class TestReplicaSetNoAgentDeadlock(KubernetesTester):
-    '''
+    """
     name: ReplicaSet recovers when all pods are removed
     description: |
       Creates a 2-members replica set and then removes the pods. The pods are started sequentially (pod-0 waits for
@@ -17,14 +17,14 @@ class TestReplicaSetNoAgentDeadlock(KubernetesTester):
       file: replica-set-double.yaml
       wait_until: in_running_state
       timeout: 120
-    '''
+    """
 
     @skip_if_local()
     def test_db_connectable(self):
         ReplicaSetTester("my-replica-set-double", 2).assert_connectivity()
 
     def test_remove_pods_and_wait_for_recovery(self):
-        pods = get_pods('my-replica-set-double-{}', 2)
+        pods = get_pods("my-replica-set-double-{}", 2)
         for podname in pods:
             self.corev1.delete_namespaced_pod(podname, self.namespace)
 
@@ -42,7 +42,8 @@ class TestReplicaSetNoAgentDeadlock(KubernetesTester):
 
     @staticmethod
     def pods_are_ready():
-        sts = KubernetesTester.clients('appsv1').read_namespaced_stateful_set("my-replica-set-double",
-                                                                              KubernetesTester.get_namespace())
+        sts = KubernetesTester.clients("appsv1").read_namespaced_stateful_set(
+            "my-replica-set-double", KubernetesTester.get_namespace()
+        )
 
         return sts.status.ready_replicas == 2

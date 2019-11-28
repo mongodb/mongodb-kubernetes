@@ -17,7 +17,7 @@ def host_groups() -> Dict[str, List[str]]:
     return {
         f"{MDB_RESOURCE}-0": shard0,
         f"{MDB_RESOURCE}-config": config,
-        f"{MDB_RESOURCE}-mongos": mongos
+        f"{MDB_RESOURCE}-mongos": mongos,
     }
 
 
@@ -34,10 +34,17 @@ class TestClusterWithTLSCreation(KubernetesTester):
     """
 
     def test_approve_certificates(self):
-        for cert in self.yield_existing_csrs(get_sc_cert_names(MDB_RESOURCE, self.get_namespace(), with_internal_auth_certs=True, with_agent_certs=True)):
+        for cert in self.yield_existing_csrs(
+            get_sc_cert_names(
+                MDB_RESOURCE,
+                self.get_namespace(),
+                with_internal_auth_certs=True,
+                with_agent_certs=True,
+            )
+        ):
             self.approve_certificate(cert)
 
-        KubernetesTester.wait_until('in_running_state')
+        KubernetesTester.wait_until("in_running_state")
 
     def test_x509_enabled(self):
         mdb = self.get_resource()

@@ -20,9 +20,10 @@ class TestClusterWithTLSCreation(KubernetesTester):
 
     def test_approve_certificates(self):
         for cert in self.yield_existing_csrs(
-                get_sc_cert_names(MDB_RESOURCE, self.get_namespace(), with_agent_certs=True)):
+            get_sc_cert_names(MDB_RESOURCE, self.get_namespace(), with_agent_certs=True)
+        ):
             self.approve_certificate(cert)
-        KubernetesTester.wait_until('in_running_state')
+        KubernetesTester.wait_until("in_running_state")
 
 
 @pytest.mark.e2e_tls_x509_sc

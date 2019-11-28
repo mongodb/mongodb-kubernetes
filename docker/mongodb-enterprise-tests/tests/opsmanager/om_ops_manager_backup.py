@@ -26,22 +26,34 @@ class TestOpsManagerCreation(OpsManagerBase):
     """
 
     def test_daemon_statefulset(self):
-        statefulset = self.appsv1.read_namespaced_stateful_set_status(self.om_cr.backup_sts_name(), self.namespace)
+        statefulset = self.appsv1.read_namespaced_stateful_set_status(
+            self.om_cr.backup_sts_name(), self.namespace
+        )
         assert statefulset.status.ready_replicas == 1
         assert statefulset.status.current_replicas == 1
 
         # pod template has volume mount request
-        assert ("/head", "head") in \
-               ((mount.mount_path, mount.name) for mount in statefulset.spec.template.spec.containers[0].volume_mounts)
+        assert ("/head", "head") in (
+            (mount.mount_path, mount.name)
+            for mount in statefulset.spec.template.spec.containers[0].volume_mounts
+        )
 
     def test_daemon_pvc(self):
         """ Verifies the PVCs mounted to the pod """
-        pod = self.corev1.read_namespaced_pod(self.om_cr.backup_pod_name(), self.namespace)
-        claims = [volume for volume in pod.spec.volumes if getattr(volume, "persistent_volume_claim")]
+        pod = self.corev1.read_namespaced_pod(
+            self.om_cr.backup_pod_name(), self.namespace
+        )
+        claims = [
+            volume
+            for volume in pod.spec.volumes
+            if getattr(volume, "persistent_volume_claim")
+        ]
         assert len(claims) == 1
-        claims.sort(key=attrgetter('name'))
+        claims.sort(key=attrgetter("name"))
 
-        self.check_single_pvc(claims[0], "head", self.om_cr.backup_head_pvc_name(), "500M", "gp2")
+        self.check_single_pvc(
+            claims[0], "head", self.om_cr.backup_head_pvc_name(), "500M", "gp2"
+        )
 
     def test_no_daemon_service_created(self):
         """ Backup daemon serves no incoming traffic so no service must be created """

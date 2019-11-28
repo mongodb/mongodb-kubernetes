@@ -1,5 +1,12 @@
 #!/bin/bash
 
+# pre-commit hook will format all python scripts with black
+black .
+if [[ $? >0 ]]; then
+    echo "Python formatting with black failed! Ensure black is installed"
+    exit 1
+fi
+
 # pre-commit hook will go vet all the files being committed
 # and also format them with go imports
 

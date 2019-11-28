@@ -22,10 +22,12 @@ class TestEnableX509ForReplicaSet(KubernetesTester):
     """
 
     def test_approve_certs(self):
-        for cert in self.yield_existing_csrs(get_rs_cert_names(MDB_RESOURCE, self.namespace, with_agent_certs=True)):
+        for cert in self.yield_existing_csrs(
+            get_rs_cert_names(MDB_RESOURCE, self.namespace, with_agent_certs=True)
+        ):
             print("Approving certificate {}".format(cert))
             self.approve_certificate(cert)
-        KubernetesTester.wait_until('in_running_state')
+        KubernetesTester.wait_until("in_running_state")
 
     def test_ops_manager_state_updated_correctly(self):
         tester = AutomationConfigTester(KubernetesTester.get_automation_config())
@@ -88,21 +90,33 @@ class TestCreateScramSha256User(KubernetesTester):
 
     @classmethod
     def setup_class(cls):
-        print(f"creating password for MongoDBUser {USER_NAME} in secret/{PASSWORD_SECRET_NAME} ")
-        KubernetesTester.create_secret(KubernetesTester.get_namespace(), PASSWORD_SECRET_NAME, {
-            "password": USER_PASSWORD,
-        })
+        print(
+            f"creating password for MongoDBUser {USER_NAME} in secret/{PASSWORD_SECRET_NAME} "
+        )
+        KubernetesTester.create_secret(
+            KubernetesTester.get_namespace(),
+            PASSWORD_SECRET_NAME,
+            {"password": USER_PASSWORD,},
+        )
         super().setup_class()
 
     def test_user_cannot_authenticate_with_incorrect_password(self):
         tester = ReplicaSetTester(MDB_RESOURCE, 3)
-        tester.assert_scram_sha_authentication_fails(password="invalid-password", username="mms-user-1",
-                                                     auth_mechanism="SCRAM-SHA-256", ssl=True)
+        tester.assert_scram_sha_authentication_fails(
+            password="invalid-password",
+            username="mms-user-1",
+            auth_mechanism="SCRAM-SHA-256",
+            ssl=True,
+        )
 
     def test_user_can_authenticate_with_correct_password(self):
         tester = ReplicaSetTester(MDB_RESOURCE, 3)
-        tester.assert_scram_sha_authentication(password="my-password", username="mms-user-1",
-                                               auth_mechanism="SCRAM-SHA-256", ssl=True)
+        tester.assert_scram_sha_authentication(
+            password="my-password",
+            username="mms-user-1",
+            auth_mechanism="SCRAM-SHA-256",
+            ssl=True,
+        )
 
 
 @pytest.mark.e2e_replica_set_x509_to_scram_transition

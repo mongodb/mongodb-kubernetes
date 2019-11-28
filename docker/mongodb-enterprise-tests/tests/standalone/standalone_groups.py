@@ -28,24 +28,34 @@ class TestStandaloneOrganizationSpecified(KubernetesTester):
         print("Patched config map, now it references organization " + cls.org_id)
 
     # todo
-    @pytest.mark.skip(reason="project reconciliation adds some flakiness - sometimes it gets on time to create the "
-                             "project in OM before this method is called - should be fixed by one project")
+    @pytest.mark.skip(
+        reason="project reconciliation adds some flakiness - sometimes it gets on time to create the "
+        "project in OM before this method is called - should be fixed by one project"
+    )
     def test_standalone_created_organization_found(self):
-        groups_in_org = self.get_groups_in_organization_first_page(self.__class__.org_id)["totalCount"]
+        groups_in_org = self.get_groups_in_organization_first_page(
+            self.__class__.org_id
+        )["totalCount"]
 
         # no group is created when organization is created
         assert groups_in_org == 0
 
     def test_standalone_cr_is_created(self):
         # Create a standalone - the organization will be found and new group will be created
-        self.create_custom_resource_from_file(self.get_namespace(), fixture("standalone.yaml"))
+        self.create_custom_resource_from_file(
+            self.get_namespace(), fixture("standalone.yaml")
+        )
 
-        KubernetesTester.wait_until('in_running_state', 150)
+        KubernetesTester.wait_until("in_running_state", 150)
 
     def test_standalone_organizations_are_found(self):
         # Making sure no more organizations were created but the group was created inside the organization
         assert len(self.find_organizations(self.__class__.org_name)) == 1
-        print('Only one organization with name "{}" exists (as expected)'.format(self.__class__.org_name))
+        print(
+            'Only one organization with name "{}" exists (as expected)'.format(
+                self.__class__.org_name
+            )
+        )
 
     def test_standalone_get_groups_in_orgs(self):
         page = self.get_groups_in_organization_first_page(self.__class__.org_id)
@@ -54,9 +64,11 @@ class TestStandaloneOrganizationSpecified(KubernetesTester):
         assert group is not None
         assert group["orgId"] == self.__class__.org_id
 
-        print('The group "{}" has been created by the Operator in organization "{}"'.format(self.get_om_group_name(),
-                                                                                            self.__class__.org_name),
-              )
+        print(
+            'The group "{}" has been created by the Operator in organization "{}"'.format(
+                self.get_om_group_name(), self.__class__.org_name
+            ),
+        )
 
     @skip_if_cloud_manager()
     def test_group_tag_was_set(self):

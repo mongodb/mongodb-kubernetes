@@ -32,31 +32,41 @@ class TestOpsManagerCreation(OpsManagerBase):
     """
 
     def test_number_of_replicas(self):
-        statefulset = self.appsv1.read_namespaced_stateful_set_status(self.om_cr.name(), self.namespace)
+        statefulset = self.appsv1.read_namespaced_stateful_set_status(
+            self.om_cr.name(), self.namespace
+        )
         assert statefulset.status.ready_replicas == 2
         assert statefulset.status.current_replicas == 2
 
     def test_service(self):
-        service = self.corev1.read_namespaced_service(self.om_cr.svc_name(), self.namespace)
-        assert service.spec.type == 'ClusterIP'
-        assert service.spec.cluster_ip == 'None'
+        service = self.corev1.read_namespaced_service(
+            self.om_cr.svc_name(), self.namespace
+        )
+        assert service.spec.type == "ClusterIP"
+        assert service.spec.cluster_ip == "None"
         assert len(service.spec.ports) == 1
         assert service.spec.ports[0].target_port == 8080
 
     def test_endpoints(self):
         """making sure the service points at correct pods"""
-        endpoints = self.corev1.read_namespaced_endpoints(self.om_cr.svc_name(), self.namespace)
+        endpoints = self.corev1.read_namespaced_endpoints(
+            self.om_cr.svc_name(), self.namespace
+        )
         assert len(endpoints.subsets) == 1
         assert len(endpoints.subsets[0].addresses) == 2
 
     def test_om_resource(self):
         assert self.om_cr.get_om_status_replicas() == 2
-        assert self.om_cr.get_om_status_url() == 'http://om-scale-svc.{}.svc.cluster.local:8080'.format(self.namespace)
+        assert self.om_cr.get_om_status_url() == "http://om-scale-svc.{}.svc.cluster.local:8080".format(
+            self.namespace
+        )
 
     def test_backup_statefulset(self):
         """ If spec.backup is not specified the backup statefulset is still expected to be created.
          Also the number of replicas doesn't depend on OM replicas """
-        statefulset = self.appsv1.read_namespaced_stateful_set_status(self.om_cr.backup_sts_name(), self.namespace)
+        statefulset = self.appsv1.read_namespaced_stateful_set_status(
+            self.om_cr.backup_sts_name(), self.namespace
+        )
         assert statefulset.status.ready_replicas == 1
         assert statefulset.status.current_replicas == 1
 
@@ -120,7 +130,9 @@ class TestOpsManagerScaleUp(OpsManagerBase):
     """
 
     def test_number_of_replicas(self):
-        statefulset = self.appsv1.read_namespaced_stateful_set_status(self.om_cr.name(), self.namespace)
+        statefulset = self.appsv1.read_namespaced_stateful_set_status(
+            self.om_cr.name(), self.namespace
+        )
         assert statefulset.status.ready_replicas == 3
         assert statefulset.status.current_replicas == 3
 
@@ -156,7 +168,9 @@ class TestOpsManagerScaleDown(OpsManagerBase):
     """
 
     def test_number_of_replicas(self):
-        statefulset = self.appsv1.read_namespaced_stateful_set_status(self.om_cr.name(), self.namespace)
+        statefulset = self.appsv1.read_namespaced_stateful_set_status(
+            self.om_cr.name(), self.namespace
+        )
         assert statefulset.status.ready_replicas == 1
         assert statefulset.status.current_replicas == 1
 

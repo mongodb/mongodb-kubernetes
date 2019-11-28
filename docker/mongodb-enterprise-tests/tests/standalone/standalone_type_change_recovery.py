@@ -5,7 +5,7 @@ from kubetester.kubetester import KubernetesTester
 
 @pytest.mark.e2e_standalone_type_change_recovery
 class TestStandaloneTypeChangeRecovery(KubernetesTester):
-    '''
+    """
     name: Standalone Type Change Recovery
     tags: standalone, creation
     description: |
@@ -14,7 +14,7 @@ class TestStandaloneTypeChangeRecovery(KubernetesTester):
     create:
       file: standalone.yaml
       wait_until: in_running_state
-    '''
+    """
 
     def test_created_ok(self):
         assert True
@@ -22,7 +22,7 @@ class TestStandaloneTypeChangeRecovery(KubernetesTester):
 
 @pytest.mark.e2e_standalone_type_change_recovery
 class TestChangingStandaloneToReplicaSetFails(KubernetesTester):
-    '''
+    """
     name: Standalone Type Change Recovery
     tags: standalone, creation
     description: |
@@ -31,17 +31,20 @@ class TestChangingStandaloneToReplicaSetFails(KubernetesTester):
       file: standalone.yaml
       patch: '[{"op":"add","path":"/spec/members","value":1}, {"op":"replace","path":"/spec/type","value":"ReplicaSet"}]'
       wait_until: in_error_state
-    '''
+    """
 
     def test_type_change_invalid(self):
         res = KubernetesTester.get_resource()
-        assert res['status']['message'] == "Changing type is not currently supported, please change the resource back to a Standalone"
-        assert res['status']['type'] == "Standalone"  # we haven't changed type
+        assert (
+            res["status"]["message"]
+            == "Changing type is not currently supported, please change the resource back to a Standalone"
+        )
+        assert res["status"]["type"] == "Standalone"  # we haven't changed type
 
 
 @pytest.mark.e2e_standalone_type_change_recovery
 class TestChangingBackToStandaloneWorks(KubernetesTester):
-    '''
+    """
     name: Standalone Type Change Recovery
     tags: standalone, creation
     description: |
@@ -50,8 +53,8 @@ class TestChangingBackToStandaloneWorks(KubernetesTester):
       file: standalone.yaml
       patch: '[{"op":"replace","path":"/spec/type","value":"Standalone"}]'
       wait_until: in_running_state
-    '''
+    """
 
     def test_change_back_successful(self):
         res = KubernetesTester.get_resource()
-        assert res['status']['type'] == "Standalone"
+        assert res["status"]["type"] == "Standalone"

@@ -8,7 +8,7 @@ from kubetester.mongotester import ReplicaSetTester
 
 @pytest.mark.e2e_replica_set_upgrade_downgrade
 class TestReplicaSetUpgradeDowngradeCreate(KubernetesTester):
-    '''
+    """
     name: ReplicaSet upgrade downgrade (create)
     description: |
       Creates a replica set, then upgrades it with compatibility version set and then downgrades back
@@ -16,16 +16,16 @@ class TestReplicaSetUpgradeDowngradeCreate(KubernetesTester):
       file: replica-set-downgrade.yaml
       wait_until: in_running_state
       timeout: 150
-    '''
-
+    """
 
     def test_db_connectable(self):
         mongod_tester = ReplicaSetTester("my-replica-set-downgrade", 3)
         mongod_tester.assert_version("3.6.0")
 
+
 @pytest.mark.e2e_replica_set_upgrade_downgrade
 class TestReplicaSetUpgradeDowngradeUpdate(KubernetesTester):
-    '''
+    """
     name: ReplicaSet upgrade downgrade (update)
     description: |
       Updates a ReplicaSet to bigger version, leaving feature compatibility version as it was
@@ -34,15 +34,16 @@ class TestReplicaSetUpgradeDowngradeUpdate(KubernetesTester):
       patch: '[{"op":"replace","path":"/spec/version", "value": "4.0.9"}, {"op":"add","path":"/spec/featureCompatibilityVersion", "value": "3.6"}]'
       wait_until: in_running_state
       timeout: 150
-    '''
+    """
 
     def test_db_connectable(self):
         mongod_tester = ReplicaSetTester("my-replica-set-downgrade", 3)
         mongod_tester.assert_version("4.0.9")
 
+
 @pytest.mark.e2e_replica_set_upgrade_downgrade
 class TestReplicaSetUpgradeDowngradeRevert(KubernetesTester):
-    '''
+    """
     name: ReplicaSet upgrade downgrade (downgrade)
     description: |
       Updates a ReplicaSet to the same version it was created initially
@@ -50,7 +51,7 @@ class TestReplicaSetUpgradeDowngradeRevert(KubernetesTester):
       file: replica-set-downgrade.yaml
       wait_until: in_running_state
       timeout: 150
-    '''
+    """
 
     def test_db_connectable(self):
         mongod_tester = ReplicaSetTester("my-replica-set-downgrade", 3)

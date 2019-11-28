@@ -6,7 +6,7 @@ from kubernetes import client
 
 @pytest.mark.e2e_sharded_cluster_scale_shards
 class TestShardedClusterScaleShardsCreate(KubernetesTester):
-    '''
+    """
     name: ShardedCluster scale of shards (create)
     description: |
       Creates a sharded cluster with 2 shards
@@ -14,7 +14,7 @@ class TestShardedClusterScaleShardsCreate(KubernetesTester):
       file: sharded-cluster-scale-shards.yaml
       wait_until: in_running_state
       timeout: 180
-    '''
+    """
 
     def test_db_connectable(self):
         mongod_tester = ShardedClusterTester("sh001-scale-down-shards", 1)
@@ -29,7 +29,7 @@ class TestShardedClusterScaleShardsCreate(KubernetesTester):
 
 @pytest.mark.e2e_sharded_cluster_scale_shards
 class TestShardedClusterScaleDownShards(KubernetesTester):
-    '''
+    """
     name: ShardedCluster scale down of shards (update)
     description: |
       Updates the sharded cluster, scaling down its shards count to 1. Makes sure no data is lost.
@@ -41,7 +41,7 @@ class TestShardedClusterScaleDownShards(KubernetesTester):
       patch: '[{"op":"replace","path":"/spec/shardCount", "value": 1}]'
       wait_until: in_running_state
       timeout: 360
-    '''
+    """
 
     def test_db_data_the_same_count(self):
         mongod_tester = ShardedClusterTester("sh001-scale-down-shards", 1)
@@ -51,12 +51,14 @@ class TestShardedClusterScaleDownShards(KubernetesTester):
 
     def test_statefulset_for_shard_removed(self):
         with pytest.raises(client.rest.ApiException):
-            self.appsv1.read_namespaced_stateful_set('sh001-scale-down-shards-1', self.namespace)
+            self.appsv1.read_namespaced_stateful_set(
+                "sh001-scale-down-shards-1", self.namespace
+            )
 
 
 @pytest.mark.e2e_sharded_cluster_scale_shards
 class TestShardedClusterScaleUpShards(KubernetesTester):
-    '''
+    """
     name: ShardedCluster scale down of shards (sc)
     description: |
       Updates the sharded cluster, scaling up its shards count to 2. Makes sure no data is lost.
@@ -65,7 +67,7 @@ class TestShardedClusterScaleUpShards(KubernetesTester):
       patch: '[{"op":"replace","path":"/spec/shardCount", "value": 2}]'
       wait_until: in_running_state
       timeout: 360
-    '''
+    """
 
     def test_db_data_the_same_count(self):
         mongod_tester = ShardedClusterTester("sh001-scale-down-shards", 1)
@@ -74,4 +76,9 @@ class TestShardedClusterScaleUpShards(KubernetesTester):
         mongod_tester.assert_data_size(50_000)
 
     def test_statefulset_for_shard_added(self):
-        assert self.appsv1.read_namespaced_stateful_set('sh001-scale-down-shards-1', self.namespace) is not None
+        assert (
+            self.appsv1.read_namespaced_stateful_set(
+                "sh001-scale-down-shards-1", self.namespace
+            )
+            is not None
+        )

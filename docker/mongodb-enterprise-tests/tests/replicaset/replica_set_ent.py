@@ -55,7 +55,7 @@ class TestReplicaSetEnterpriseCreation(KubernetesTester):
         assert tmpl.spec.affinity.pod_anti_affinity is not None
 
     def test_replica_set_was_configured(self):
-        'Should connect to one of the mongods and check the replica set was correctly configured.'
+        "Should connect to one of the mongods and check the replica set was correctly configured."
         hosts = [
             "rs001-ent-{}.rs001-ent-svc.{}.svc.cluster.local:27017".format(
                 i, self.namespace
@@ -81,6 +81,7 @@ class TestReplicaSetEnterpriseDelete(KubernetesTester):
       wait_until: mongo_resource_deleted
       timeout: 120
     """
+
     def test_om_state_deleted(self):
         KubernetesTester.check_om_state_cleaned()
 

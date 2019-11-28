@@ -60,7 +60,7 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
     def test_pvc_are_created_and_bound(self):
         "PersistentVolumeClaims should be created with the correct attributes."
         bound_pvc_names = []
-        for podname in self._get_pods('rs001-pv-{}', 3):
+        for podname in self._get_pods("rs001-pv-{}", 3):
             pod = self.corev1.read_namespaced_pod(podname, self.namespace)
             bound_pvc_names.append(
                 pod.spec.volumes[0].persistent_volume_claim.claim_name
@@ -70,7 +70,7 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
             pvc_status = self.corev1.read_namespaced_persistent_volume_claim_status(
                 pvc_name, self.namespace
             )
-            assert pvc_status.status.phase == 'Bound'
+            assert pvc_status.status.phase == "Bound"
 
     def test_om_processes(self):
         config = self.get_automation_config()
@@ -92,7 +92,10 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
         assert p0["args2_6"]["replication"]["replSetName"] == "rs001-pv"
         assert p0["args2_6"]["storage"]["dbPath"] == "/data"
         assert p0["args2_6"]["systemLog"]["destination"] == "file"
-        assert p0["args2_6"]["systemLog"]["path"] == "/var/log/mongodb-mms-automation/mongodb.log"
+        assert (
+            p0["args2_6"]["systemLog"]["path"]
+            == "/var/log/mongodb-mms-automation/mongodb.log"
+        )
         assert p0["logRotate"]["sizeThresholdMB"] == 1000
         assert p0["logRotate"]["timeThresholdHrs"] == 24
 
@@ -109,7 +112,10 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
         assert p1["args2_6"]["replication"]["replSetName"] == "rs001-pv"
         assert p1["args2_6"]["storage"]["dbPath"] == "/data"
         assert p1["args2_6"]["systemLog"]["destination"] == "file"
-        assert p1["args2_6"]["systemLog"]["path"] == "/var/log/mongodb-mms-automation/mongodb.log"
+        assert (
+            p1["args2_6"]["systemLog"]["path"]
+            == "/var/log/mongodb-mms-automation/mongodb.log"
+        )
         assert p1["logRotate"]["sizeThresholdMB"] == 1000
         assert p1["logRotate"]["timeThresholdHrs"] == 24
 
@@ -126,12 +132,15 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
         assert p2["args2_6"]["replication"]["replSetName"] == "rs001-pv"
         assert p2["args2_6"]["storage"]["dbPath"] == "/data"
         assert p2["args2_6"]["systemLog"]["destination"] == "file"
-        assert p2["args2_6"]["systemLog"]["path"] == "/var/log/mongodb-mms-automation/mongodb.log"
+        assert (
+            p2["args2_6"]["systemLog"]["path"]
+            == "/var/log/mongodb-mms-automation/mongodb.log"
+        )
         assert p2["logRotate"]["sizeThresholdMB"] == 1000
         assert p2["logRotate"]["timeThresholdHrs"] == 24
 
     def test_replica_set_was_configured(self):
-        'Should connect to one of the mongods and check the replica set was correctly configured.'
+        "Should connect to one of the mongods and check the replica set was correctly configured."
         hosts = [
             "rs001-pv-{}.rs001-pv-svc.{}.svc.cluster.local:27017".format(
                 i, self.namespace

@@ -17,7 +17,13 @@ class TestShardedClusterEnableAllOptions(KubernetesTester):
 
     def test_approve_certs(self):
         for cert in self.yield_existing_csrs(
-                get_sc_cert_names(MDB_RESOURCE, self.namespace, with_internal_auth_certs=True, with_agent_certs=True)):
+            get_sc_cert_names(
+                MDB_RESOURCE,
+                self.namespace,
+                with_internal_auth_certs=True,
+                with_agent_certs=True,
+            )
+        ):
             self.approve_certificate(cert)
 
     def test_gets_to_running_state(self):

@@ -33,7 +33,7 @@ class TestClusterWithTLSCreation(KubernetesTester):
         )
 
     def test_mdb_resource_status_is_pending(self):
-        assert KubernetesTester.get_resource()['status']['phase'] == "Pending"
+        assert KubernetesTester.get_resource()["status"]["phase"] == "Pending"
 
 
 @pytest.mark.e2e_sharded_cluster_tls_require
@@ -72,12 +72,16 @@ class TestClusterWithTLSCreationRunning(KubernetesTester):
 
     @skip_if_local
     def test_mongos_are_reachable_with_ssl(self):
-        mongo_tester = ShardedClusterTester("test-tls-base-sc-require-ssl", len(host_groups()["mongos"]), ssl=True)
+        mongo_tester = ShardedClusterTester(
+            "test-tls-base-sc-require-ssl", len(host_groups()["mongos"]), ssl=True
+        )
         mongo_tester.assert_connectivity()
 
     @skip_if_local
     def test_mongos_are_not_reachable_with_no_ssl(self):
-        mongo_tester = ShardedClusterTester("test-tls-base-sc-require-ssl", len(host_groups()["mongos"]))
+        mongo_tester = ShardedClusterTester(
+            "test-tls-base-sc-require-ssl", len(host_groups()["mongos"])
+        )
         mongo_tester.assert_no_connection()
 
 

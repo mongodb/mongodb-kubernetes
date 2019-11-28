@@ -19,7 +19,8 @@ class TestOpsManagerAppDbWrongVersion(OpsManagerBase):
     """
 
     def test_om_appdb_version_validation(self):
-        assert "must be >= 4.0" in self.om_cr.get_om_status()['message']
+        assert "must be >= 4.0" in self.om_cr.get_om_status()["message"]
+
 
 @pytest.mark.e2e_om_appdb_validation
 class TestOpsManagerAppDbWrongSize(OpsManagerBase):
@@ -36,6 +37,7 @@ class TestOpsManagerAppDbWrongSize(OpsManagerBase):
     def test_validation_ok(self):
         assert True
 
+
 @pytest.mark.e2e_om_appdb_validation
 class TestOpsManagerBackupEnabledNotSpecified(OpsManagerBase):
     """
@@ -50,4 +52,3 @@ class TestOpsManagerBackupEnabledNotSpecified(OpsManagerBase):
 
     def test_validation_ok(self):
         assert True
-

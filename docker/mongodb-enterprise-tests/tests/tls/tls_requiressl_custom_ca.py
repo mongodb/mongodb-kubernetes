@@ -2,7 +2,12 @@ import pytest
 
 from kubernetes import client
 from kubetester.kubetester import KubernetesTester, skip_if_local
-from kubetester.crypto import generate_csr, request_certificate, get_pem_certificate, wait_for_certs_to_be_issued
+from kubetester.crypto import (
+    generate_csr,
+    request_certificate,
+    get_pem_certificate,
+    wait_for_certs_to_be_issued,
+)
 from kubetester.mongotester import ReplicaSetTester
 
 from typing import Dict
@@ -22,9 +27,13 @@ class TestReplicaSetCreateCerts(KubernetesTester):
         cls.keys = {}
         for i in range(3):
             pod_name = f"{MDB_RESOURCE}-{i}"
-            csr, key = generate_csr(cls.get_namespace(), pod_name, f"{MDB_RESOURCE}-svc")
+            csr, key = generate_csr(
+                cls.get_namespace(), pod_name, f"{MDB_RESOURCE}-svc"
+            )
             cls.keys[pod_name] = key
-            request_certificate(csr, "{}.{}".format(pod_name, cls.get_namespace()), usages)
+            request_certificate(
+                csr, "{}.{}".format(pod_name, cls.get_namespace()), usages
+            )
 
         # Creates the "customer-ca" with an existing CA.
         data = cls.read_configmap("default", "ca-certificates")
@@ -39,9 +48,13 @@ class TestReplicaSetCreateCerts(KubernetesTester):
         for i in range(3):
             pod_name = f"{MDB_RESOURCE}-{i}"
             cert = get_pem_certificate("{}.{}".format(pod_name, self.get_namespace()))
-            server_certs[f"{pod_name}-pem"] = (cert + self.keys[pod_name]).decode("utf-8")
+            server_certs[f"{pod_name}-pem"] = (cert + self.keys[pod_name]).decode(
+                "utf-8"
+            )
 
-        KubernetesTester.create_secret(self.get_namespace(), f"{MDB_RESOURCE}-cert", server_certs)
+        KubernetesTester.create_secret(
+            self.get_namespace(), f"{MDB_RESOURCE}-cert", server_certs
+        )
 
     def test_remove_csr(self):
         body = client.V1DeleteOptions()
@@ -62,7 +75,7 @@ class TestReplicaSetWithTLSCreation(KubernetesTester):
     """
 
     def test_mdb_resource_status_is_running(self):
-        assert KubernetesTester.get_resource()['status']['phase'] == "Running"
+        assert KubernetesTester.get_resource()["status"]["phase"] == "Running"
 
 
 @pytest.mark.e2e_replica_set_tls_require_custom_ca
@@ -92,9 +105,13 @@ class TestReplicaSetAddCerts(KubernetesTester):
         cls.keys = {}
         for i in range(3, 5):
             pod_name = f"{MDB_RESOURCE}-{i}"
-            csr, key = generate_csr(cls.get_namespace(), pod_name, f"{MDB_RESOURCE}-svc")
+            csr, key = generate_csr(
+                cls.get_namespace(), pod_name, f"{MDB_RESOURCE}-svc"
+            )
             cls.keys[pod_name] = key
-            request_certificate(csr, "{}.{}".format(pod_name, cls.get_namespace()), usages)
+            request_certificate(
+                csr, "{}.{}".format(pod_name, cls.get_namespace()), usages
+            )
 
     def test_approve_certs(self):
         certificates = cert_names(self.get_namespace(), 5)[3:]
@@ -108,9 +125,13 @@ class TestReplicaSetAddCerts(KubernetesTester):
         for i in range(3, 5):
             pod_name = f"{MDB_RESOURCE}-{i}"
             cert = get_pem_certificate("{}.{}".format(pod_name, self.get_namespace()))
-            server_certs[f"{pod_name}-pem"] = (cert + self.keys[pod_name]).decode("utf-8")
+            server_certs[f"{pod_name}-pem"] = (cert + self.keys[pod_name]).decode(
+                "utf-8"
+            )
 
-        KubernetesTester.update_secret(self.get_namespace(), f"{MDB_RESOURCE}-cert", server_certs)
+        KubernetesTester.update_secret(
+            self.get_namespace(), f"{MDB_RESOURCE}-cert", server_certs
+        )
 
 
 @pytest.mark.e2e_replica_set_tls_require_custom_ca

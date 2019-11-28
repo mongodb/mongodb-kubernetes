@@ -6,9 +6,7 @@ from kubetester.mongodb import MongoDB
 
 @fixture(scope="class")
 def replica_set(namespace):
-    resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set.yaml"), namespace=namespace
-    )
+    resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), namespace=namespace)
     yield resource.create()
 
     resource.delete()
@@ -65,7 +63,10 @@ class TestNoTwoReplicaSetsCanBeCreatedOnTheSameProject:
         replica_set_single.reaches_phase("Pending")
 
         assert replica_set_single["status"]["phase"] == "Pending"
-        assert replica_set_single["status"]["message"] == "Cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)"
+        assert (
+            replica_set_single["status"]["message"]
+            == "Cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)"
+        )
         assert "warnings" not in replica_set_single["status"]
 
     # pylint: disable=unused-argument
@@ -96,7 +97,9 @@ class TestNoTwoClustersCanBeCreatedOnTheSameProject:
         assert "warnings" not in sharded_cluster_single["status"]
 
     # pylint: disable=unused-argument
-    def test_sharded_cluster_automation_config_is_correct(self, sharded_cluster, sharded_cluster_single):
+    def test_sharded_cluster_automation_config_is_correct(
+        self, sharded_cluster, sharded_cluster_single
+    ):
         config = KubernetesTester.get_automation_config()
 
         for process in config["processes"]:
@@ -119,12 +122,17 @@ class TestNoTwoDifferentTypeOfResourceCanBeCreatedOnTheSameProject:
 
         status = sharded_cluster_single["status"]
         assert status["phase"] == "Pending"
-        assert status["message"] == "Cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)"
+        assert (
+            status["message"]
+            == "Cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)"
+        )
 
         assert "warnings" not in status
 
     # pylint: disable=unused-argument
-    def test_automation_config_contains_one_cluster(self, replica_set_single, sharded_cluster_single):
+    def test_automation_config_contains_one_cluster(
+        self, replica_set_single, sharded_cluster_single
+    ):
         config = KubernetesTester.get_automation_config()
 
         assert len(config["processes"]) == 1

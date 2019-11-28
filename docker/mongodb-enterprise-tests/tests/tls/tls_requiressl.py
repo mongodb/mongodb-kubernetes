@@ -25,7 +25,7 @@ class TestReplicaSetWithTLSCreation(KubernetesTester):
     """
 
     def test_mdb_resource_status_is_pending(self):
-        assert KubernetesTester.get_resource()['status']['phase'] == "Pending"
+        assert KubernetesTester.get_resource()["status"]["phase"] == "Pending"
 
 
 @pytest.mark.e2e_replica_set_tls_require

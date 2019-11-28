@@ -15,7 +15,9 @@ def running_cloud_manager():
     return get_env_var_or_fail("OM_HOST") == "https://cloud-qa.mongodb.com"
 
 
-skip_if_cloud_manager = pytest.mark.skipif(running_cloud_manager(), reason="Do not run in Cloud Manager")
+skip_if_cloud_manager = pytest.mark.skipif(
+    running_cloud_manager(), reason="Do not run in Cloud Manager"
+)
 
 
 # todo use @dataclass annotation https://www.python.org/dev/peps/pep-0557/
@@ -77,7 +79,9 @@ class OMTester(object):
         auth = build_auth(self.om_context.user, self.om_context.public_key)
 
         endpoint = self.om_context.base_url + path
-        response = requests.request(method, endpoint, auth=auth, headers=headers, json=json_object)
+        response = requests.request(
+            method, endpoint, auth=auth, headers=headers, json=json_object
+        )
 
         if response.status_code >= 300:
             raise Exception(
@@ -96,7 +100,12 @@ class OMBackgroundTester(threading.Thread):
     only for 'allowed_sequental_failures' failures. In practice having 'allowed_sequental_failures' should work as
      failures are very rare (1-2 per appdb upgrade) but let's be safe to avoid e2e flakiness. """
 
-    def __init__(self, om_tester: OMTester, wait_sec: int = 3, allowed_sequental_failures: int = 3):
+    def __init__(
+        self,
+        om_tester: OMTester,
+        wait_sec: int = 3,
+        allowed_sequental_failures: int = 3,
+    ):
         super().__init__()
         self._stop_event = threading.Event()
         self.om_tester = om_tester
@@ -117,7 +126,9 @@ class OMBackgroundTester(threading.Thread):
                 print(e)
                 self.last_exception = e
                 consecutive_failure = consecutive_failure + 1
-                self.max_consecutive_failure = max(self.max_consecutive_failure, consecutive_failure)
+                self.max_consecutive_failure = max(
+                    self.max_consecutive_failure, consecutive_failure
+                )
                 self.exception_number = self.exception_number + 1
             time.sleep(self.wait_sec)
 
@@ -134,16 +145,24 @@ class OMBackgroundTester(threading.Thread):
 
 
 def get_agent_cert_names(namespace: str) -> List[str]:
-    agent_names = ['mms-automation-agent', 'mms-backup-agent', 'mms-monitoring-agent']
-    return ['{}.{}'.format(agent_name, namespace) for agent_name in agent_names]
+    agent_names = ["mms-automation-agent", "mms-backup-agent", "mms-monitoring-agent"]
+    return ["{}.{}".format(agent_name, namespace) for agent_name in agent_names]
 
 
-def get_rs_cert_names(mdb_resource: str, namespace: str, *, members: int = 3, with_internal_auth_certs: bool = False,
-                      with_agent_certs: bool = False) -> List[str]:
+def get_rs_cert_names(
+    mdb_resource: str,
+    namespace: str,
+    *,
+    members: int = 3,
+    with_internal_auth_certs: bool = False,
+    with_agent_certs: bool = False,
+) -> List[str]:
     cert_names = [f"{mdb_resource}-{i}.{namespace}" for i in range(members)]
 
     if with_internal_auth_certs:
-        cert_names += [f"{mdb_resource}-{i}-clusterfile.{namespace}" for i in range(members)]
+        cert_names += [
+            f"{mdb_resource}-{i}-clusterfile.{namespace}" for i in range(members)
+        ]
 
     if with_agent_certs:
         cert_names += get_agent_cert_names(namespace)
@@ -151,46 +170,66 @@ def get_rs_cert_names(mdb_resource: str, namespace: str, *, members: int = 3, wi
     return cert_names
 
 
-def get_st_cert_names(mdb_resource: str, namespace: str, *, with_internal_auth_certs: bool = False,
-                      with_agent_certs: bool = False) -> List[str]:
-    return get_rs_cert_names(mdb_resource, namespace, members=1, with_internal_auth_certs=with_internal_auth_certs,
-                             with_agent_certs=with_agent_certs)
+def get_st_cert_names(
+    mdb_resource: str,
+    namespace: str,
+    *,
+    with_internal_auth_certs: bool = False,
+    with_agent_certs: bool = False,
+) -> List[str]:
+    return get_rs_cert_names(
+        mdb_resource,
+        namespace,
+        members=1,
+        with_internal_auth_certs=with_internal_auth_certs,
+        with_agent_certs=with_agent_certs,
+    )
 
 
 def get_sc_cert_names(
-        mdb_resource: str,
-        namespace: str,
-        *,
-        num_shards: int = 1,
-        members: int = 3,
-        config_members: int = 3,
-        num_mongos: int = 2,
-        with_internal_auth_certs: bool = False,
-        with_agent_certs: bool = False
+    mdb_resource: str,
+    namespace: str,
+    *,
+    num_shards: int = 1,
+    members: int = 3,
+    config_members: int = 3,
+    num_mongos: int = 2,
+    with_internal_auth_certs: bool = False,
+    with_agent_certs: bool = False,
 ) -> List[str]:
     names = []
 
     for shard_num in range(num_shards):
         for member in range(members):
             # e.g. test-tls-x509-sc-0-1.developer14
-            names.append('{}-{}-{}.{}'.format(mdb_resource, shard_num, member, namespace))
+            names.append(
+                "{}-{}-{}.{}".format(mdb_resource, shard_num, member, namespace)
+            )
             if with_internal_auth_certs:
                 # e.g. test-tls-x509-sc-0-2-clusterfile.developer14
-                names.append('{}-{}-{}-clusterfile.{}'.format(mdb_resource, shard_num, member, namespace))
+                names.append(
+                    "{}-{}-{}-clusterfile.{}".format(
+                        mdb_resource, shard_num, member, namespace
+                    )
+                )
 
     for member in range(config_members):
         # e.g. test-tls-x509-sc-config-1.developer14
-        names.append('{}-config-{}.{}'.format(mdb_resource, member, namespace))
+        names.append("{}-config-{}.{}".format(mdb_resource, member, namespace))
         if with_internal_auth_certs:
             # e.g. test-tls-x509-sc-config-1-clusterfile.developer14
-            names.append('{}-config-{}-clusterfile.{}'.format(mdb_resource, member, namespace))
+            names.append(
+                "{}-config-{}-clusterfile.{}".format(mdb_resource, member, namespace)
+            )
 
     for mongos in range(num_mongos):
         # e.g.test-tls-x509-sc-mongos-1.developer14
-        names.append('{}-mongos-{}.{}'.format(mdb_resource, mongos, namespace))
+        names.append("{}-mongos-{}.{}".format(mdb_resource, mongos, namespace))
         if with_internal_auth_certs:
             # e.g. test-tls-x509-sc-mongos-0-clusterfile.developer14
-            names.append('{}-mongos-{}-clusterfile.{}'.format(mdb_resource, mongos, namespace))
+            names.append(
+                "{}-mongos-{}-clusterfile.{}".format(mdb_resource, mongos, namespace)
+            )
 
     if with_agent_certs:
         names.extend(get_agent_cert_names(namespace))

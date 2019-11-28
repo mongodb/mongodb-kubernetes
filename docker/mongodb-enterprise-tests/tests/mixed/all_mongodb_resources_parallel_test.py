@@ -40,10 +40,12 @@ class TestRaceConditions(KubernetesTester):
 
     def test_one_resource_created_only(self):
         mongodbs = [
-            KubernetesTester.get_namespaced_custom_object(KubernetesTester.get_namespace(), resource, "MongoDB")
+            KubernetesTester.get_namespaced_custom_object(
+                KubernetesTester.get_namespace(), resource, "MongoDB"
+            )
             for resource in mdb_resources.keys()
         ]
-        assert len([m for m in mongodbs if m['status']['phase'] == 'Running']) == 1
+        assert len([m for m in mongodbs if m["status"]["phase"] == "Running"]) == 1
 
         # No duplicated organizations were created and automation config is consistent
         organizations = KubernetesTester.find_organizations(
@@ -58,9 +60,15 @@ class TestRaceConditions(KubernetesTester):
         config = KubernetesTester.get_automation_config()
 
         # making sure that only one single mdb resource was created
-        replica_set_created = len(config["replicaSets"]) == 1 and len(config["processes"]) == 1
-        sharded_cluster_created = len(config["replicaSets"]) == 2 and len(config["processes"]) == 3
-        standalone_created = len(config["replicaSets"]) == 0 and len(config["processes"]) == 1
+        replica_set_created = (
+            len(config["replicaSets"]) == 1 and len(config["processes"]) == 1
+        )
+        sharded_cluster_created = (
+            len(config["replicaSets"]) == 2 and len(config["processes"]) == 3
+        )
+        standalone_created = (
+            len(config["replicaSets"]) == 0 and len(config["processes"]) == 1
+        )
 
         assert replica_set_created + sharded_cluster_created + standalone_created == 1
 

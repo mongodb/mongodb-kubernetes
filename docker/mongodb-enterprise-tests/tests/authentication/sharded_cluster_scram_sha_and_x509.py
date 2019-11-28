@@ -24,7 +24,8 @@ class TestShardedClusterCreation(KubernetesTester):
 
     def test_approve_certificates(self):
         for cert in self.yield_existing_csrs(
-                get_sc_cert_names(MDB_RESOURCE, self.namespace)):
+            get_sc_cert_names(MDB_RESOURCE, self.namespace)
+        ):
             self.approve_certificate(cert)
         KubernetesTester.wait_until(KubernetesTester.in_running_state)
 
@@ -51,10 +52,14 @@ class TestCreateMongoDBUser(KubernetesTester):
 
     @classmethod
     def setup_class(cls):
-        print(f"creating password for MongoDBUser {USER_NAME} in secret/{PASSWORD_SECRET_NAME} ")
-        KubernetesTester.create_secret(KubernetesTester.get_namespace(), PASSWORD_SECRET_NAME, {
-            "password": USER_PASSWORD,
-        })
+        print(
+            f"creating password for MongoDBUser {USER_NAME} in secret/{PASSWORD_SECRET_NAME} "
+        )
+        KubernetesTester.create_secret(
+            KubernetesTester.get_namespace(),
+            PASSWORD_SECRET_NAME,
+            {"password": USER_PASSWORD,},
+        )
         super().setup_class()
 
     def test_create_user(self):
@@ -65,13 +70,21 @@ class TestCreateMongoDBUser(KubernetesTester):
 class TestScramUserCanAuthenticate(KubernetesTester):
     def test_user_cannot_authenticate_with_incorrect_password(self):
         tester = ShardedClusterTester(MDB_RESOURCE, 2)
-        tester.assert_scram_sha_authentication_fails(password="invalid-password", username="mms-user-1", ssl=True,
-                                                     auth_mechanism="SCRAM-SHA-256")
+        tester.assert_scram_sha_authentication_fails(
+            password="invalid-password",
+            username="mms-user-1",
+            ssl=True,
+            auth_mechanism="SCRAM-SHA-256",
+        )
 
     def test_user_can_authenticate_with_correct_password(self):
         tester = ShardedClusterTester(MDB_RESOURCE, 2)
-        tester.assert_scram_sha_authentication(password="my-password", username="mms-user-1", ssl=True,
-                                               auth_mechanism="SCRAM-SHA-256")
+        tester.assert_scram_sha_authentication(
+            password="my-password",
+            username="mms-user-1",
+            ssl=True,
+            auth_mechanism="SCRAM-SHA-256",
+        )
 
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_and_x509
@@ -85,9 +98,13 @@ class TestEnableX509(KubernetesTester):
 
     # important note that no CSRs for the agents should have been created
     def test_ops_manager_state_correctly_updated(self):
-        tester = AutomationConfigTester(KubernetesTester.get_automation_config(), expected_users=3)
-        tester.assert_authentication_mechanism_enabled("MONGODB-X509", active_auth_mechanism=False)
-        tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256", )
+        tester = AutomationConfigTester(
+            KubernetesTester.get_automation_config(), expected_users=3
+        )
+        tester.assert_authentication_mechanism_enabled(
+            "MONGODB-X509", active_auth_mechanism=False
+        )
+        tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256",)
         tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=2)
 
 
@@ -106,16 +123,17 @@ class TestAddMongoDBUser(KubernetesTester):
     @staticmethod
     def user_exists():
         ac = KubernetesTester.get_automation_config()
-        users = ac['auth']['usersWanted']
-        return 'CN=x509-testing-user' in [user['user'] for user in users]
+        users = ac["auth"]["usersWanted"]
+        return "CN=x509-testing-user" in [user["user"] for user in users]
 
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_and_x509
 class TestX509CertCreationAndApproval(KubernetesTester):
     def setup(self):
-        cert_name = 'x509-testing-user.' + self.get_namespace()
-        self.cert_file = self.generate_certfile(cert_name, 'x509-testing-user.csr',
-                                                'server-key.pem')
+        cert_name = "x509-testing-user." + self.get_namespace()
+        self.cert_file = self.generate_certfile(
+            cert_name, "x509-testing-user.csr", "server-key.pem"
+        )
 
     def teardown(self):
         self.cert_file.close()
@@ -129,10 +147,18 @@ class TestX509CertCreationAndApproval(KubernetesTester):
 class TestCanStillAuthAsScramUsers(KubernetesTester):
     def test_user_cannot_authenticate_with_incorrect_password(self):
         tester = ShardedClusterTester(MDB_RESOURCE, 2)
-        tester.assert_scram_sha_authentication_fails(password="invalid-password", username="mms-user-1", ssl=True,
-                                                     auth_mechanism="SCRAM-SHA-256")
+        tester.assert_scram_sha_authentication_fails(
+            password="invalid-password",
+            username="mms-user-1",
+            ssl=True,
+            auth_mechanism="SCRAM-SHA-256",
+        )
 
     def test_user_can_authenticate_with_correct_password(self):
         tester = ShardedClusterTester(MDB_RESOURCE, 2)
-        tester.assert_scram_sha_authentication(password="my-password", username="mms-user-1", ssl=True,
-                                               auth_mechanism="SCRAM-SHA-256")
+        tester.assert_scram_sha_authentication(
+            password="my-password",
+            username="mms-user-1",
+            ssl=True,
+            auth_mechanism="SCRAM-SHA-256",
+        )

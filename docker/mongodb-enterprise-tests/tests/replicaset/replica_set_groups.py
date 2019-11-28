@@ -39,33 +39,60 @@ class TestReplicaSetOrganizationsPagination(KubernetesTester):
         cls.create_group(cls.org_id, cls.group_name)
 
         # Update the config map - change the group name, no orgId
-        cls.patch_config_map(cls.get_namespace(), "my-project", {"projectName": cls.group_name, "orgId": ""})
+        cls.patch_config_map(
+            cls.get_namespace(),
+            "my-project",
+            {"projectName": cls.group_name, "orgId": ""},
+        )
 
-        print('Patched config map, now it has the projectName "{}"'.format(cls.group_name))
+        print(
+            'Patched config map, now it has the projectName "{}"'.format(cls.group_name)
+        )
 
     def test_standalone_created_organization_found(self):
-        groups_in_org = self.get_groups_in_organization_first_page(self.__class__.org_id)["totalCount"]
+        groups_in_org = self.get_groups_in_organization_first_page(
+            self.__class__.org_id
+        )["totalCount"]
 
         # Create a replica set - both the organization and the group will be found (after traversing pages)
-        self.create_custom_resource_from_file(self.get_namespace(), fixture("replica-set-single.yaml"))
-        KubernetesTester.wait_until('in_running_state', 150)
+        self.create_custom_resource_from_file(
+            self.get_namespace(), fixture("replica-set-single.yaml")
+        )
+        KubernetesTester.wait_until("in_running_state", 150)
 
         # Making sure no more groups and organizations were created, but the tag was fixed by the Operator
         assert len(self.find_organizations(self.__class__.group_name)) == 1
-        print('Only one organization with name "{}" exists (as expected)'.format(self.__class__.group_name))
+        print(
+            'Only one organization with name "{}" exists (as expected)'.format(
+                self.__class__.group_name
+            )
+        )
 
-        assert self.get_groups_in_organization_first_page(self.__class__.org_id)["totalCount"] == groups_in_org
+        assert (
+            self.get_groups_in_organization_first_page(self.__class__.org_id)[
+                "totalCount"
+            ]
+            == groups_in_org
+        )
         group = self.query_group(self.__class__.group_name)
         assert group is not None
         assert group["orgId"] == self.__class__.org_id
         assert group["tags"] == ["EXTERNALLY_MANAGED_BY_KUBERNETES"]
-        print('Only one group with name "{}" exists (as expected)'.format(self.__class__.group_name))
+        print(
+            'Only one group with name "{}" exists (as expected)'.format(
+                self.__class__.group_name
+            )
+        )
 
     @staticmethod
     def create_organizations(count):
         ids = []
         for i in range(0, count):
-            ids.append(KubernetesTester.create_organization(KubernetesTester.random_k8s_name("fake-{}-".format(i))))
+            ids.append(
+                KubernetesTester.create_organization(
+                    KubernetesTester.random_k8s_name("fake-{}-".format(i))
+                )
+            )
             if (i + 1) % 100 == 0:
                 print("Created {} fake organizations".format(i + 1))
         return ids
@@ -75,9 +102,16 @@ class TestReplicaSetOrganizationsPagination(KubernetesTester):
         ids = []
         for i in range(0, count):
             ids.append(
-                KubernetesTester.create_group(org_id, KubernetesTester.random_k8s_name("fake-group-{}-".format(i))))
+                KubernetesTester.create_group(
+                    org_id, KubernetesTester.random_k8s_name("fake-group-{}-".format(i))
+                )
+            )
             if (i + 1) % 100 == 0:
-                print("Created {} fake groups inside organization {}".format(i + 1, org_id))
+                print(
+                    "Created {} fake groups inside organization {}".format(
+                        i + 1, org_id
+                    )
+                )
         return ids
 
     @classmethod
@@ -92,4 +126,8 @@ class TestReplicaSetOrganizationsPagination(KubernetesTester):
         for i, id in enumerate(cls.all_groups_ids):
             cls.remove_group(id)
             if (i + 1) % 100 == 0:
-                print("Removed {} fake groups inside organizationn {}".format(i, cls.org_id))
+                print(
+                    "Removed {} fake groups inside organizationn {}".format(
+                        i, cls.org_id
+                    )
+                )

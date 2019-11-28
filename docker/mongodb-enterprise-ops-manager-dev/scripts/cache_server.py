@@ -38,7 +38,7 @@ def download(url, filename):
     if os.path.exists(output_file):
         return
 
-    print('Downloading {}'.format(url))
+    print("Downloading {}".format(url))
 
     urllib.request.urlretrieve(url, output_file)
 
@@ -46,7 +46,7 @@ def download(url, filename):
 def download_mms():
     version = os.getenv("IMAGE_VERSION")
     filename = "mongodb-mms_{}_x86_64.deb".format(version)
-    url = '{}/{}'.format(OM_DOWNLOAD_LOCATION, filename)
+    url = "{}/{}".format(OM_DOWNLOAD_LOCATION, filename)
     download(url, filename)
 
 
@@ -57,7 +57,7 @@ def download_mongodb():
     download(url, filename)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     if not os.path.exists(CACHE_DIR):
         os.makedirs(CACHE_DIR)
 

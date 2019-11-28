@@ -11,12 +11,18 @@ class OpsManagerCR(object):
 
     def base_url(self):
         protocol = "http"
-        svc_fqdn = build_svc_fqdn(self.svc_name(), self.namespace, self.get_cluster_name())
+        svc_fqdn = build_svc_fqdn(
+            self.svc_name(), self.namespace, self.get_cluster_name()
+        )
         return "{}://{}:{}".format(protocol, svc_fqdn, 8080)
 
     def pod_urls(self):
-        return ['http://{}'.format(host) for host in
-                build_list_of_hosts(self.name(), self.namespace, self.get_replicas(), port=8080)]
+        return [
+            "http://{}".format(host)
+            for host in build_list_of_hosts(
+                self.name(), self.namespace, self.get_replicas(), port=8080
+            )
+        ]
 
     def name(self):
         return get_name(self.resource)
@@ -31,7 +37,11 @@ class OpsManagerCR(object):
         return self.name() + "-svc"
 
     def get_appdb_mongo_tester(self, **kwargs) -> MongoTester:
-        return ReplicaSetTester(self.app_db_name(), replicas_count=self.get_appdb_status()["members"], **kwargs)
+        return ReplicaSetTester(
+            self.app_db_name(),
+            replicas_count=self.get_appdb_status()["members"],
+            **kwargs
+        )
 
     def backup_head_pvc_name(self):
         return "head-{}-0".format(self.backup_sts_name())

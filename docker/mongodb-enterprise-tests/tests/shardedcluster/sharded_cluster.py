@@ -17,6 +17,7 @@ class TestShardedClusterCreation(KubernetesTester):
       wait_until: in_running_state
       timeout: 360
     """
+
     def test_sharded_cluster_sts(self):
         sts0 = self.appsv1.read_namespaced_stateful_set("sh001-base-0", self.namespace)
         assert sts0
@@ -56,6 +57,7 @@ class TestShardedClusterUpdate(KubernetesTester):
       wait_until: in_running_state
       timeout: 240
     """
+
     def test_shard1_was_configured(self):
         hosts = [
             "sh001-base-1-{}.sh001-base-sh.{}.svc.cluster.local:27017".format(

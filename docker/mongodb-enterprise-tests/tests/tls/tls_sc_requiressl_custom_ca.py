@@ -4,7 +4,12 @@ from kubernetes import client
 from kubetester.kubetester import KubernetesTester, skip_if_local
 from kubetester.mongotester import ShardedClusterTester
 
-from kubetester.crypto import generate_csr, request_certificate, get_pem_certificate, wait_for_certs_to_be_issued
+from kubetester.crypto import (
+    generate_csr,
+    request_certificate,
+    get_pem_certificate,
+    wait_for_certs_to_be_issued,
+)
 
 from typing import Dict, List
 
@@ -16,7 +21,7 @@ def servicename_for_group(group_name: str) -> str:
     groups = {
         f"{MDB_RESOURCE}-0": f"{MDB_RESOURCE}-sh",
         f"{MDB_RESOURCE}-config": f"{MDB_RESOURCE}-cs",
-        f"{MDB_RESOURCE}-mongos": f"{MDB_RESOURCE}-svc"
+        f"{MDB_RESOURCE}-mongos": f"{MDB_RESOURCE}-svc",
     }
 
     return groups[group_name]
@@ -31,7 +36,7 @@ def host_groups() -> Dict[str, List[str]]:
     return {
         f"{MDB_RESOURCE}-0": shard0,
         f"{MDB_RESOURCE}-config": config,
-        f"{MDB_RESOURCE}-mongos": mongos
+        f"{MDB_RESOURCE}-mongos": mongos,
     }
 
 
@@ -43,7 +48,9 @@ class TestClusterWithTLSCreateCerts(KubernetesTester):
 
         for name, group in host_groups().items():
             for pod_name in group:
-                csr, key = generate_csr(cls.get_namespace(), pod_name, servicename_for_group(name))
+                csr, key = generate_csr(
+                    cls.get_namespace(), pod_name, servicename_for_group(name)
+                )
                 cls.keys[pod_name] = key
                 cert_name = "{}.{}".format(pod_name, cls.get_namespace())
                 request_certificate(csr, cert_name, usages)
@@ -67,11 +74,17 @@ class TestClusterWithTLSCreateCerts(KubernetesTester):
         for name, group in host_groups().items():
             server_certs: Dict[str, [bytes]] = dict()
             for pod_name in group:
-                cert = get_pem_certificate("{}.{}".format(pod_name, self.get_namespace()))
-                server_certs[f"{pod_name}-pem"] = (cert + self.keys[pod_name]).decode("utf-8")
+                cert = get_pem_certificate(
+                    "{}.{}".format(pod_name, self.get_namespace())
+                )
+                server_certs[f"{pod_name}-pem"] = (cert + self.keys[pod_name]).decode(
+                    "utf-8"
+                )
 
             secret_name = f"{name}-cert"
-            KubernetesTester.create_secret(self.get_namespace(), secret_name, server_certs)
+            KubernetesTester.create_secret(
+                self.get_namespace(), secret_name, server_certs
+            )
 
 
 @pytest.mark.e2e_sharded_cluster_tls_require_custom_ca
@@ -87,16 +100,20 @@ class TestClusterWithTLSCreation(KubernetesTester):
     """
 
     def test_mdb_resource_status_is_running(self):
-        assert KubernetesTester.get_resource()['status']['phase'] == "Running"
+        assert KubernetesTester.get_resource()["status"]["phase"] == "Running"
 
     @skip_if_local
     def test_mongos_are_reachable_with_ssl(self):
-        mongo_tester = ShardedClusterTester(MDB_RESOURCE, len(host_groups()[f"{MDB_RESOURCE}-mongos"]), ssl=True)
+        mongo_tester = ShardedClusterTester(
+            MDB_RESOURCE, len(host_groups()[f"{MDB_RESOURCE}-mongos"]), ssl=True
+        )
         mongo_tester.assert_connectivity()
 
     @skip_if_local
     def test_mongos_are_not_reachable_with_no_ssl(self):
-        mongo_tester = ShardedClusterTester(MDB_RESOURCE, len(host_groups()[f"{MDB_RESOURCE}-mongos"]))
+        mongo_tester = ShardedClusterTester(
+            MDB_RESOURCE, len(host_groups()[f"{MDB_RESOURCE}-mongos"])
+        )
         mongo_tester.assert_no_connection()
 
 
@@ -108,9 +125,13 @@ class TestClusterWithTLSAddMoreCerts(KubernetesTester):
             name = f"{MDB_RESOURCE}-0"
             pod_name = f"{name}-{i}"
 
-            csr, key = generate_csr(self.get_namespace(), pod_name, servicename_for_group(name))
+            csr, key = generate_csr(
+                self.get_namespace(), pod_name, servicename_for_group(name)
+            )
             KubernetesTester.test_keys[pod_name] = key
-            request_certificate(csr, "{}.{}".format(pod_name, self.get_namespace()), usages)
+            request_certificate(
+                csr, "{}.{}".format(pod_name, self.get_namespace()), usages
+            )
 
     def test_approve_certs(self):
         certs = []
@@ -124,10 +145,14 @@ class TestClusterWithTLSAddMoreCerts(KubernetesTester):
         server_certs: Dict[str, [bytes]] = dict()
         for pod_name in [f"{MDB_RESOURCE}-0-{i}" for i in range(3, 5)]:
             cert = get_pem_certificate("{}.{}".format(pod_name, self.get_namespace()))
-            server_certs[f"{pod_name}-pem"] = (cert + KubernetesTester.test_keys[pod_name]).decode("utf-8")
+            server_certs[f"{pod_name}-pem"] = (
+                cert + KubernetesTester.test_keys[pod_name]
+            ).decode("utf-8")
 
             secret_name = f"{MDB_RESOURCE}-0-cert"
-            KubernetesTester.update_secret(self.get_namespace(), secret_name, server_certs)
+            KubernetesTester.update_secret(
+                self.get_namespace(), secret_name, server_certs
+            )
 
 
 @pytest.mark.e2e_sharded_cluster_tls_require_custom_ca
@@ -146,12 +171,18 @@ class TestClusterWithTLSCreationRunning(KubernetesTester):
 
     @skip_if_local
     def test_mongos_are_reachable_with_ssl(self):
-        mongo_tester = ShardedClusterTester("test-tls-base-sc-require-ssl", len(host_groups()[f"{MDB_RESOURCE}-mongos"]), ssl=True)
+        mongo_tester = ShardedClusterTester(
+            "test-tls-base-sc-require-ssl",
+            len(host_groups()[f"{MDB_RESOURCE}-mongos"]),
+            ssl=True,
+        )
         mongo_tester.assert_connectivity()
 
     @skip_if_local
     def test_mongos_are_not_reachable_with_no_ssl(self):
-        mongo_tester = ShardedClusterTester("test-tls-base-sc-require-ssl", len(host_groups()[f"{MDB_RESOURCE}-mongos"]))
+        mongo_tester = ShardedClusterTester(
+            "test-tls-base-sc-require-ssl", len(host_groups()[f"{MDB_RESOURCE}-mongos"])
+        )
         mongo_tester.assert_no_connection()
 
 
