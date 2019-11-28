@@ -57,7 +57,7 @@ func (o *DefaultInitializer) TryCreateUser(omUrl string, user *User) (string, er
 	}
 	// dev note: we are doing many similar things that 'http.go' does - though we cannot reuse that now as current
 	// request is not a digest one
-	resp, err := client.Post(omUrl+"/api/public/v1.0/unauth/users?pretty=true&whitelist=0.0.0.0%2F1&whitelist=127.0.0.0%2F1", "application/json; charset=UTF-8", buffer)
+	resp, err := client.Post(omUrl+"/api/public/v1.0/unauth/users?pretty=true&whitelist=0.0.0.0%2F1&whitelist=128.0.0.0%2F1", "application/json; charset=UTF-8", buffer)
 
 	if err != nil {
 		return "", fmt.Errorf("Error sending POST request to %s: %v", omUrl, err)
