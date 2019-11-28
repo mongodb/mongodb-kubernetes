@@ -431,6 +431,11 @@ dump_diagnostic_information() {
         kubectl get mdb -o yaml -n ${PROJECT_NAMESPACE}  >> $dump_file
     fi
 
+    if ! kubectl get om -n ${PROJECT_NAMESPACE} 2>&1 | grep -q "No resources found"; then
+        header "OpsManager Resources" >> $dump_file
+        kubectl get om -o yaml -n ${PROJECT_NAMESPACE}  >> $dump_file
+    fi
+
     header "All namespace objects" >> "$dump_file"
     kubectl get all -n "${PROJECT_NAMESPACE}" >> "$dump_file"
 

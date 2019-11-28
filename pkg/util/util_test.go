@@ -70,3 +70,42 @@ func TestReadBoolEnv(t *testing.T) {
 	assert.False(t, present)
 	assert.False(t, result)
 }
+
+type someId struct {
+	name string
+}
+
+func (s someId) Identifier() interface{} {
+	return s.name
+}
+
+func TestSetDifference(t *testing.T) {
+	left := []Identifiable{someId{"1"}, someId{"2"}}
+	right := []Identifiable{someId{"2"}, someId{"3"}}
+
+	assert.Equal(t, []Identifiable{someId{"1"}}, SetDifference(left, right))
+	assert.Equal(t, []Identifiable{someId{"3"}}, SetDifference(right, left))
+
+	left = []Identifiable{someId{"1"}, someId{"2"}}
+	right = []Identifiable{someId{"3"}, someId{"4"}}
+	assert.Equal(t, left, SetDifference(left, right))
+
+	left = []Identifiable{}
+	right = []Identifiable{someId{"3"}, someId{"4"}}
+	assert.Empty(t, SetDifference(left, right))
+	assert.Equal(t, right, SetDifference(right, left))
+
+	left = nil
+	right = []Identifiable{someId{"3"}, someId{"4"}}
+	assert.Empty(t, SetDifference(left, right))
+	assert.Equal(t, right, SetDifference(right, left))
+
+	// check reflection magic to solve lack of covariance in go. The arrays are declared as '[]someId' instead of
+	// '[]Identifiable'
+	leftNotIdentifiable := []someId{{"1"}, {"2"}}
+	rightNotIdentifiable := []someId{{"2"}, {"3"}}
+
+	assert.Equal(t, []Identifiable{someId{"1"}}, SetDifferenceGeneric(leftNotIdentifiable, rightNotIdentifiable))
+	assert.Equal(t, []Identifiable{someId{"3"}}, SetDifferenceGeneric(rightNotIdentifiable, leftNotIdentifiable))
+
+}

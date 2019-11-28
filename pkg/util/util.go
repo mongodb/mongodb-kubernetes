@@ -3,6 +3,7 @@ package util
 import (
 	"encoding/base64"
 	"encoding/hex"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -292,6 +293,44 @@ func MD5Hex(s string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// SetDifference returns all 'Identifiable' elements that are in left slice and not in the right one
+func SetDifference(left, right []Identifiable) []Identifiable {
+	result := make([]Identifiable, 0)
+	for _, l := range left {
+		found := false
+		for _, r := range right {
+			if r.Identifier() == l.Identifier() {
+				found = true
+				break
+			}
+		}
+		if !found {
+			result = append(result, l)
+		}
+	}
+	return result
+}
+
+// SetDifferenceGeneric is a convenience function solving lack of covariance in Go: it allows to pass the arrays declared
+// as some types implementing 'Identifiable' and find the difference between them
+// Important: the arrays past must declare types implementing 'Identifiable'!
+func SetDifferenceGeneric(left, right interface{}) []Identifiable {
+	leftIdentifiers := toIdentifiableSlice(left)
+	rightIdentifiers := toIdentifiableSlice(right)
+
+	return SetDifference(leftIdentifiers, rightIdentifiers)
+}
+
+// toIdentifiableSlice uses reflection to cast the array
+func toIdentifiableSlice(data interface{}) []Identifiable {
+	value := reflect.ValueOf(data)
+
+	result := make([]Identifiable, value.Len())
+	for i := 0; i < value.Len(); i++ {
+		result[i] = value.Index(i).Interface().(Identifiable)
+	}
+	return result
+}
 func generateRandomBytes(size int) ([]byte, error) {
 	b := make([]byte, size)
 	_, err := crypto.Read(b)
