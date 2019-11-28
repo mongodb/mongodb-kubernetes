@@ -65,7 +65,8 @@ RUN echo "mms.ignoreInitialUiSetup=true"                            >> ${mms_pro
     && echo "mms.replyToEmailAddr=ops-manager-no-reply@example.com" >> ${mms_prop_file} \
     && echo "mms.mail.transport=smtp"                               >> ${mms_prop_file} \
     && echo "mms.mail.hostname=localhost"                           >> ${mms_prop_file} \
-    && echo "mms.mail.port=25"                                      >> ${mms_prop_file}
+    && echo "mms.mail.port=25"                                      >> ${mms_prop_file} \
+    && echo "mms.limits.maxGroupsPerOrg=5000"                       >> ${mms_prop_file}
 
 # Download MongoDB
 WORKDIR /opt
