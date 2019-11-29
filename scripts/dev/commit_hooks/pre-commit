@@ -1,9 +1,8 @@
 #!/bin/bash
 
-# pre-commit hook will format all python scripts with black
-black .
-if [[ $? >0 ]]; then
-    echo "Python formatting with black failed! Ensure black is installed"
+# ensure all python files are correctly formatted with black
+if ! black --check --quiet .; then
+    echo "Python formatting with black failed! Ensure black is installed and python files are correctly formatted."
     exit 1
 fi
 
