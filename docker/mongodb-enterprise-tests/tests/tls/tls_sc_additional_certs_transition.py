@@ -16,7 +16,12 @@ class TestShardedClusterWithoutAdditionalCertDomains(KubernetesTester):
             "file": "test-tls-sc-additional-domains.yaml",
             "wait_for_message": "Not all certificates have been approved by Kubernetes CA",
             "timeout": 240,
-            "patch": [{"op": "remove", "path": "/spec/security/tls/additionalCertificateDomains"}],
+            "patch": [
+                {
+                    "op": "remove",
+                    "path": "/spec/security/tls/additionalCertificateDomains",
+                }
+            ],
         },
     }
 
@@ -27,11 +32,11 @@ class TestShardedClusterWithoutAdditionalCertDomains(KubernetesTester):
             num_shards=1,
             num_mongos=2,
             config_members=1,
-            members=1
+            members=1,
         )
         for csr_name in self.yield_existing_csrs(csr_names):
             self.approve_certificate(csr_name)
-        self.wait_until('in_running_state')
+        self.wait_until("in_running_state")
 
     @skip_if_local
     def test_has_right_certs(self):
@@ -50,6 +55,7 @@ class TestShardedClustertWithAdditionalCertDomains(KubernetesTester):
     Check that when additionalCertificateDomains are added the resource fails
     to reconcile and requires the existing CSRs to be removed.
     """
+
     init = {
         "update": {
             "file": "test-tls-sc-additional-domains.yaml",
@@ -65,17 +71,19 @@ class TestShardedClustertWithAdditionalCertDomains(KubernetesTester):
             num_shards=1,
             num_mongos=2,
             config_members=1,
-            members=1
+            members=1,
         )
         for csr_name in self.yield_existing_csrs(csr_names):
             self.delete_csr(csr_name)
-        self.wait_for_status_message({
-            "wait_for_message": "Not all certificates have been approved",
-            "timeout": 60
-        })
+        self.wait_for_status_message(
+            {
+                "wait_for_message": "Not all certificates have been approved",
+                "timeout": 60,
+            }
+        )
         for csr_name in self.yield_existing_csrs(csr_names):
             self.approve_certificate(csr_name)
-        KubernetesTester.wait_until('in_running_state')
+        KubernetesTester.wait_until("in_running_state")
 
     @skip_if_local
     def test_has_right_certs(self):
@@ -83,9 +91,10 @@ class TestShardedClustertWithAdditionalCertDomains(KubernetesTester):
         for i in range(2):
             host = f"{MDB_RESOURCE_NAME}-mongos-{i}.{MDB_RESOURCE_NAME}-svc.{self.namespace}.svc"
             assert any(
-                re.match(fr"{MDB_RESOURCE_NAME}-mongos-{i}\.additional-cert-test\.com", san)
-                for san
-                in self.get_mongo_server_sans(host)
+                re.match(
+                    fr"{MDB_RESOURCE_NAME}-mongos-{i}\.additional-cert-test\.com", san
+                )
+                for san in self.get_mongo_server_sans(host)
             )
 
     @skip_if_local
