@@ -49,6 +49,40 @@ spec:
               value: "minutes"
             - name: DELETE_OLDER_THAN_AMOUNT
               value: "20"
+            - name: LABELS
+              value: "evg=task,evg/state=failed"
+
+# Remove old testing namespaces, no matter if they have succeeded or failed.
+# This is run every 40 minutes, so every testing namespace, even if it has not
+# finished running it will be removed.
+---
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: cluster-cleaner-delete-each-hour-all
+  namespace: {{ .Values.cleanerNamespace }}
+spec:
+  # Run every 10 minutes
+  schedule: "*/10 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: cluster-cleaner
+          restartPolicy: Never
+
+          containers:
+          - name: cluster-cleaner
+            image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cluster-cleaner:{{ .Values.cleanerVersion }}
+            imagePullPolicy: Always
+            command: ["./clean-failed-namespaces.sh"]
+            env:
+            - name: DELETE_OLDER_THAN_UNIT
+              value: "minutes"
+            - name: DELETE_OLDER_THAN_AMOUNT
+              value: "40"
+            - name: LABELS
+              value: "evg=task"
 
 # Clean old builder pods
 ---

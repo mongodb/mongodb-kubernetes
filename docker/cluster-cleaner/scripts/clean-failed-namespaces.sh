@@ -5,8 +5,13 @@ if [ -z ${DELETE_OLDER_THAN_AMOUNT+x} ] || [ -z ${DELETE_OLDER_THAN_UNIT+x} ]; t
     exit 1
 fi
 
-echo "Deleting evg tasks that are older than ${DELETE_OLDER_THAN_AMOUNT} ${DELETE_OLDER_THAN_UNIT}"
-for namespace in $(kubectl get namespace -l "evg=task" -o name); do
+if [ -z ${LABELS+x} ]; then
+    echo "Need to set 'LABELS' environment variables."
+    exit 1
+fi
+
+echo "Deleting evg tasks that are older than ${DELETE_OLDER_THAN_AMOUNT} ${DELETE_OLDER_THAN_UNIT} with label ${LABELS}"
+for namespace in $(kubectl get namespace -l "${LABELS}" -o name); do
     creation_time=$(kubectl get "${namespace}" -o jsonpath='{.metadata.creationTimestamp}')
 
     if ! ./is_older_than.py "${creation_time}" "${DELETE_OLDER_THAN_AMOUNT}" "${DELETE_OLDER_THAN_UNIT}"; then
