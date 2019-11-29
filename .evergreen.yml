@@ -1115,6 +1115,24 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_tls_sc_additional_certs
+  tags: ["openshift-om-42"]
+  exec_timeout_secs: 720
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_tls_sc_additional_certs_transition
+  tags: ["openshift-om-qa"]
+  exec_timeout_secs: 720
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_tls_rs_additional_certs
+  tags: ["kops-om-42"]
+  exec_timeout_secs: 720
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_tls_rs_external_access
   tags: ["openshift-om-qa"]
   exec_timeout_secs: 720
@@ -1471,6 +1489,9 @@ task_groups:
     - e2e_replica_set_tls_require
     - e2e_replica_set_tls_require_upgrade
     - e2e_replica_set_tls_require_and_disable
+    - e2e_tls_rs_additional_certs
+    - e2e_tls_sc_additional_certs
+    - e2e_tls_sc_additional_certs_transition
     - e2e_sharded_cluster_tls_require
     - e2e_standalone_no_tls_no_status_is_set
   teardown_task:

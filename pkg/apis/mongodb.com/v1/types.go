@@ -292,8 +292,11 @@ func (a *Authentication) GetAgentMechanism() string {
 type TLSConfig struct {
 	Enabled bool `json:"enabled,omitempty"`
 
+	AdditionalCertificateDomains []string `json:"additionalCertificateDomains,omitempty"`
+
 	// CA corresponds to a Secret containing an entry for the CA certificate (ca.pem)
 	// used to sign the certificates created already.
+	// benelgar: should this read "used to validate"?
 	CA string `json:"ca,omitempty"`
 }
 

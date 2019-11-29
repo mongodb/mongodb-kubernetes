@@ -85,6 +85,10 @@ spec:
                         type: boolean
                       ca:
                         type: string
+                      additionalCertificateDomains:
+                        type: array
+                        items:
+                          type: string
               connectivity:
                 not:
                   required: ["replicaSetHorizons"]
@@ -165,6 +169,10 @@ spec:
                         type: boolean
                       ca:
                         type: string
+                      additionalCertificateDomains:
+                        type: array
+                        items:
+                          type: string
                   clusterAuthenticationMode:
                     # Warning: please refer to the documentation before enabling X509 in your MongoDB resource.
                     # https://docs.mongodb.com/kubernetes-operator/
@@ -267,6 +275,10 @@ spec:
                         type: boolean
                       ca:
                         type: string
+                      additionalCertificateDomains:
+                        type: array
+                        items:
+                          type: string
                   clusterAuthenticationMode:
                     # Warning: please refer to the documentation before enabling X509 in your MongoDB resource.
                     # https://docs.mongodb.com/kubernetes-operator/

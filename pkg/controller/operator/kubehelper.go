@@ -88,6 +88,10 @@ func (ss StatefulSetHelper) hasHorizons() bool {
 // getAdditionalCertDomainsForMember gets any additional domains that the
 // certificate for the given member of the stateful set should be signed for.
 func (ss StatefulSetHelper) getAdditionalCertDomainsForMember(member int) (hostnames []string) {
+	_, podnames := ss.getDNSNames()
+	for _, certDomain := range ss.Security.TLSConfig.AdditionalCertificateDomains {
+		hostnames = append(hostnames, podnames[member]+"."+certDomain)
+	}
 	if ss.hasHorizons() {
 		// at this point len(ss.ReplicaSetHorizons) should be equal to the number
 		// of members in the replica set
@@ -864,85 +868,81 @@ func (k *KubeHelper) deleteSecret(key client.ObjectKey) error {
 	return nil
 }
 
-// ensureSSLCertsForStatefulSet contains logic to create SSL certs for a StatefulSet object
-func (k *KubeHelper) ensureSSLCertsForStatefulSet(ss *StatefulSetHelper, log *zap.SugaredLogger) reconcileStatus {
-	if !ss.IsTLSEnabled() {
-		// if there's no SSL certs to generate, return
-		return ok()
+// validateSelfManagedSSLCertsForStatefulSet ensures that a stateful set using
+// user-provided certificates has all of the relevant certificates in place.
+func (ss *StatefulSetHelper) validateSelfManagedSSLCertsForStatefulSet(k *KubeHelper, secretName string) reconcileStatus {
+	// A "Certs" attribute has been provided
+	// This means that the customer has provided with a secret name they have
+	// already populated with the certs and keys for this deployment.
+	// Because of the async nature of Kubernetes, this object might not be ready yet,
+	// in which case, we'll keep reconciling until the object is created and is correct.
+	if notReadyCerts := k.verifyCertificatesForStatefulSet(ss, secretName); notReadyCerts > 0 {
+		return failed("The secret object '%s' does not contain all the certificates needed."+
+			"Required: %d, contains: %d", secretName,
+			ss.Replicas,
+			ss.Replicas-notReadyCerts,
+		)
 	}
 
-	// Flag that's set to false if any of the certificates have not been approved yet.
+	if err := k.validateCertificates(secretName, ss.Namespace, false); err != nil {
+		return failedErr(err)
+	}
+
+	return ok()
+}
+
+// ensureOperatorManagedSSLCertsForStatefulSet ensures that a stateful set
+// using operator-managed certificates has all of the relevant certificates in
+// place.
+func (ss *StatefulSetHelper) ensureOperatorManagedSSLCertsForStatefulSet(k *KubeHelper, secretName string, log *zap.SugaredLogger) reconcileStatus {
 	certsNeedApproval := false
-	secretName := ss.Name + "-cert"
 
-	if ss.Security.TLSConfig.CA != "" {
+	if err := k.validateCertificates(secretName, ss.Namespace, true); err != nil {
+		return failedErr(err)
+	}
 
-		// A "Certs" attribute has been provided
-		// This means that the customer has provided with a secret name they have
-		// already populated with the certs and keys for this deployment.
-		// Because of the async nature of Kubernetes, this object might not be ready yet,
-		// in which case, we'll keep reconciling until the object is created and is correct.
-		if notReadyCerts := k.verifyCertificatesForStatefulSet(ss, secretName); notReadyCerts > 0 {
-			return failed("The secret object '%s' does not contain all the certificates needed."+
-				"Required: %d, contains: %d", secretName,
-				ss.Replicas,
-				ss.Replicas-notReadyCerts,
-			)
-		}
+	if notReadyCerts := k.verifyCertificatesForStatefulSet(ss, secretName); notReadyCerts > 0 {
+		// If the Kube CA and the operator are responsible for the certificates to be
+		// ready and correctly stored in the secret object, and this secret is not "complete"
+		// we'll go through the process of creating the CSR, wait for certs approval and then
+		// creating a correct secret with the certificates and keys.
 
-		if err := k.validateCertificates(secretName, ss.Namespace, false); err != nil {
-			return failedErr(err)
-		}
+		// For replica set we need to create rs.Spec.Replicas certificates, one per each Pod
+		fqdns, podnames := ss.getDNSNames()
 
-	} else {
-		if err := k.validateCertificates(secretName, ss.Namespace, true); err != nil {
-			return failedErr(err)
-		}
+		// pemFiles will store every key (during the CSR creation phase) and certificate
+		// both can happen on different reconciliation stages (CSR and keys are created, then
+		// reconciliation, then certs are obtained from the CA). If this happens we need to
+		// store the keys in the final secret, that will be updated with the certs, once they
+		// are issued by the CA.
+		pemFiles := newPemCollection()
 
-		if notReadyCerts := k.verifyCertificatesForStatefulSet(ss, secretName); notReadyCerts > 0 {
-			// If the Kube CA and the operator are responsible for the certificates to be
-			// ready and correctly stored in the secret object, and this secret is not "complete"
-			// we'll go through the process of creating the CSR, wait for certs approval and then
-			// creating a correct secret with the certificates and keys.
-
-			// For replica set we need to create rs.Spec.Replicas certificates, one per each Pod
-			fqdns, podnames := ss.getDNSNames()
-
-			// pemFiles will store every key (during the CSR creation phase) and certificate
-			// both can happen on different reconciliation stages (CSR and keys are created, then
-			// reconciliation, then certs are obtained from the CA). If this happens we need to
-			// store the keys in the final secret, that will be updated with the certs, once they
-			// are issued by the CA.
-			pemFiles := newPemCollection()
-
-			for idx, host := range fqdns {
-				csr, err := k.readCSR(podnames[idx], ss.Namespace)
-				additionalCertDomains := ss.getAdditionalCertDomainsForMember(idx)
+		for idx, host := range fqdns {
+			csr, err := k.readCSR(podnames[idx], ss.Namespace)
+			additionalCertDomains := ss.getAdditionalCertDomainsForMember(idx)
+			if err != nil {
+				certsNeedApproval = true
+				hostnames := []string{host, podnames[idx]}
+				hostnames = append(hostnames, additionalCertDomains...)
+				key, err := k.createTlsCsr(podnames[idx], ss.Namespace, hostnames, podnames[idx])
 				if err != nil {
-					certsNeedApproval = true
-					hostnames := []string{host, podnames[idx]}
-					hostnames = append(hostnames, additionalCertDomains...)
-					key, err := k.createTlsCsr(podnames[idx], ss.Namespace, hostnames, podnames[idx])
-					if err != nil {
-						return failed("Failed to create CSR, %s", err)
-					}
-
-					pemFiles.addPrivateKey(podnames[idx], string(key))
-				} else if !checkCSRHasRequiredDomains(csr, additionalCertDomains) {
-					log.Infow(
-						"Certificate request does not have all required domains",
-						"requiredDomains", additionalCertDomains,
-						"host", host,
-					)
-					return pending("Certificate request for " + host + " doesn't have all required domains. Please manually remove the CSR in order to proceed.")
-				} else if checkCSRWasApproved(csr.Status.Conditions) {
-					log.Infof("Certificate for Pod %s -> Approved", host)
-					pemFiles.addCertificate(podnames[idx], string(csr.Status.Certificate))
-				} else {
-					log.Infof("Certificate for Pod %s -> Waiting for Approval", host)
-					certsNeedApproval = true
+					return failed("Failed to create CSR, %s", err)
 				}
 
+				pemFiles.addPrivateKey(podnames[idx], string(key))
+			} else if !checkCSRHasRequiredDomains(csr, additionalCertDomains) {
+				log.Infow(
+					"Certificate request does not have all required domains",
+					"requiredDomains", additionalCertDomains,
+					"host", host,
+				)
+				return pending("Certificate request for " + host + " doesn't have all required domains. Please manually remove the CSR in order to proceed.")
+			} else if checkCSRWasApproved(csr.Status.Conditions) {
+				log.Infof("Certificate for Pod %s -> Approved", host)
+				pemFiles.addCertificate(podnames[idx], string(csr.Status.Certificate))
+			} else {
+				log.Infof("Certificate for Pod %s -> Waiting for Approval", host)
+				certsNeedApproval = true
 			}
 
 			// once we are here we know we have built everything we needed
@@ -953,7 +953,7 @@ func (k *KubeHelper) ensureSSLCertsForStatefulSet(ss *StatefulSetHelper, log *za
 
 			// note that createOrUpdateSecret modifies pemFiles in place by merging
 			// in the existing values in the secret
-			err := k.createOrUpdateSecret(secretName, ss.Namespace, pemFiles, labels)
+			err = k.createOrUpdateSecret(secretName, ss.Namespace, pemFiles, labels)
 			if err != nil {
 				// If we have an error creating or updating the secret, we might lose
 				// the keys, in which case we return an error, to make it clear what
@@ -975,6 +975,21 @@ func (k *KubeHelper) ensureSSLCertsForStatefulSet(ss *StatefulSetHelper, log *za
 		return pending("Not all certificates have been approved by Kubernetes CA for %s", ss.Name)
 	}
 	return ok()
+}
+
+// ensureSSLCertsForStatefulSet contains logic to ensure that all of the
+// required SSL certs for a StatefulSet object exist.
+func (k *KubeHelper) ensureSSLCertsForStatefulSet(ss *StatefulSetHelper, log *zap.SugaredLogger) reconcileStatus {
+	if !ss.IsTLSEnabled() {
+		// if there's no SSL certs to generate, return
+		return ok()
+	}
+
+	secretName := ss.Name + "-cert"
+	if ss.Security.TLSConfig.CA != "" {
+		return ss.validateSelfManagedSSLCertsForStatefulSet(k, secretName)
+	}
+	return ss.ensureOperatorManagedSSLCertsForStatefulSet(k, secretName, log)
 }
 
 // validateCertificate verifies the Secret containing the certificates and the keys is valid.

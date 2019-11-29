@@ -4,12 +4,13 @@ import random
 import string
 import sys
 import time
+import ssl
 import warnings
 import json
 from base64 import b64decode, b64encode
 from datetime import datetime, timezone
 
-from typing import Dict
+from typing import Dict, List
 
 import jsonpatch
 import pymongo
@@ -17,6 +18,8 @@ import pytest
 import requests
 import yaml
 import tempfile
+from cryptography import x509
+from cryptography.hazmat.backends import default_backend
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 from requests.auth import HTTPDigestAuth
@@ -104,6 +107,10 @@ class KubernetesTester(object):
         cls.clients("corev1").delete_namespaced_secret(name, namespace)
 
     @classmethod
+    def delete_csr(cls, name: str):
+        cls.clients("certificates").delete_certificate_signing_request(name)
+
+    @classmethod
     def read_secret(cls, namespace: str, name: str) -> Dict[str, str]:
         data = cls.clients("corev1").read_namespaced_secret(name, namespace).data
         return {k: b64decode(v).decode("utf-8") for (k, v) in data.items()}
@@ -181,7 +188,7 @@ class KubernetesTester(object):
         print("\n")
         KubernetesTester.load_configuration()
         # Loads the subclass doc
-        if cls.__doc__:
+        if cls.init is None and cls.__doc__:
             cls.init = cls.doc_string_to_init(cls.__doc__)
 
         if cls.init:
@@ -1028,6 +1035,7 @@ class KubernetesTester(object):
         return tmp
 
     def yield_existing_csrs(self, csr_names, timeout=300):
+        csr_names = csr_names.copy()
         total_csrs = len(csr_names)
         seen_csrs = 0
         stop_time = time.time() + timeout
@@ -1099,6 +1107,13 @@ class KubernetesTester(object):
         assert pvc.spec.resources.requests["storage"] == expected_size
 
         assert getattr(pvc.spec, "storage_class_name") == storage_class
+
+    @staticmethod
+    def get_mongo_server_sans(host: str) -> List[str]:
+        cert_bytes = ssl.get_server_certificate((host, 27017)).encode("ascii")
+        cert = x509.load_pem_x509_certificate(cert_bytes, default_backend())
+        ext = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+        return ext.value.get_values_for_type(x509.DNSName)
 
 
 # Some general functions go here
