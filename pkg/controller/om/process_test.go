@@ -11,7 +11,7 @@ import (
 )
 
 func TestCreateMongodProcess(t *testing.T) {
-	process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", DefaultMongoDBVersioned("4.0.5"))
+	process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", defaultMongoDBVersioned("4.0.5"))
 
 	assert.Equal(t, "trinity", process.Name())
 	assert.Equal(t, "trinity-0.trinity-svc.svc.cluster.local", process.HostName())
@@ -25,27 +25,27 @@ func TestCreateMongodProcess(t *testing.T) {
 }
 
 func TestCreateMongodProcess_authSchemaVersion(t *testing.T) {
-	process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", DefaultMongoDBVersioned("2.6.2"))
+	process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", defaultMongoDBVersioned("2.6.2"))
 	assert.Equal(t, 3, process.authSchemaVersion())
 
-	process = NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", DefaultMongoDBVersioned("aaaa"))
+	process = NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", defaultMongoDBVersioned("aaaa"))
 	assert.Equal(t, 5, process.authSchemaVersion())
 
-	process = NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", DefaultMongoDBVersioned("4.0.0"))
+	process = NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", defaultMongoDBVersioned("4.0.0"))
 	assert.Equal(t, 5, process.authSchemaVersion())
 }
 
 func TestCreateMongodProcess_featureCompatibilityVersion(t *testing.T) {
-	process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", DefaultMongoDBVersioned("3.0.6"))
+	process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", defaultMongoDBVersioned("3.0.6"))
 	assert.Equal(t, "", process.FeatureCompatibilityVersion())
 
-	process = NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", DefaultMongoDBVersioned("3.2.0"))
+	process = NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", defaultMongoDBVersioned("3.2.0"))
 	assert.Equal(t, "", process.FeatureCompatibilityVersion())
 
-	process = NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", DefaultMongoDBVersioned("aaa"))
+	process = NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", defaultMongoDBVersioned("aaa"))
 	assert.Equal(t, "", process.FeatureCompatibilityVersion())
 
-	mdb := DefaultMongoDB().SetVersion("4.2.1").SetFCVersion("4.0").Build()
+	mdb := mdbv1.NewStandaloneBuilder().SetVersion("4.2.1").SetFCVersion("4.0").Build()
 	process = NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdb)
 	assert.Equal(t, "4.0", process.FeatureCompatibilityVersion())
 }
@@ -92,20 +92,23 @@ func TestConfigureX509_Process(t *testing.T) {
 func TestCreateMongodProcess_SSL(t *testing.T) {
 	additionalConfig := &mdbv1.AdditionalMongodConfig{Net: mdbv1.NetSpec{SSL: mdbv1.SSLSpec{Mode: mdbv1.PreferSSLMode}}}
 
-	mdb := DefaultMongoDB().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).Build()
+	mdb := mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).Build()
 	process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdb)
 	assert.Empty(t, process.SSLConfig())
 
-	mdb = DefaultMongoDB().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).SetSecurityTLSEnabled().Build()
+	mdb = mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).
+		SetSecurityTLSEnabled().Build()
 
 	process = NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdb)
 
-	assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.PreferSSLMode), "PEMKeyFile": "/mongodb-automation/server.pem"}, process.SSLConfig())
+	assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.PreferSSLMode),
+		"PEMKeyFile": "/mongodb-automation/server.pem"}, process.SSLConfig())
 }
 
 func TestCreateMongosProcess_SSL(t *testing.T) {
 	additionalConfig := &mdbv1.AdditionalMongodConfig{Net: mdbv1.NetSpec{SSL: mdbv1.SSLSpec{Mode: mdbv1.AllowSSLMode}}}
-	mdb := DefaultMongoDB().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).SetSecurityTLSEnabled().Build()
+	mdb := mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).
+		SetSecurityTLSEnabled().Build()
 	process := NewMongosProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdb)
 
 	assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.AllowSSLMode), "PEMKeyFile": "/mongodb-automation/server.pem"}, process.SSLConfig())
@@ -115,9 +118,11 @@ func TestCreateMongosProcess_SSL(t *testing.T) {
 // and doesn't overwrite the other Ops Manager initiated configuration
 func TestMergeMongodProcess_SSL(t *testing.T) {
 	additionalConfig := &mdbv1.AdditionalMongodConfig{Net: mdbv1.NetSpec{SSL: mdbv1.SSLSpec{Mode: mdbv1.RequireSSLMode}}}
-	operatorMdb := DefaultMongoDB().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).SetSecurityTLSEnabled().Build()
+	operatorMdb := mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").
+		SetAdditionalConfig(additionalConfig).SetSecurityTLSEnabled().Build()
 
-	omMdb := DefaultMongoDB().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(&mdbv1.AdditionalMongodConfig{}).Build()
+	omMdb := mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").
+		SetAdditionalConfig(&mdbv1.AdditionalMongodConfig{}).Build()
 
 	operatorProcess := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", operatorMdb)
 	omProcess := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", omMdb)

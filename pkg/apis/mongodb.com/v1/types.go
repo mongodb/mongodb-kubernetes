@@ -3,6 +3,7 @@ package v1
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/blang/semver"
@@ -122,7 +123,7 @@ type MongoDbSpec struct {
 	ClusterName string `json:"clusterName,omitempty"`
 	ConnectionSpec
 	Persistent   *bool        `json:"persistent,omitempty"`
-	ResourceType ResourceType `json:"type"`
+	ResourceType ResourceType `json:"type,omitempty"`
 	// sharded cluster
 	ConfigSrvPodSpec *MongoDbPodSpec `json:"configSrvPodSpec,omitempty"`
 	MongosPodSpec    *MongoDbPodSpec `json:"mongosPodSpec,omitempty"`
@@ -144,6 +145,7 @@ type MongoDbSpec struct {
 	AdditionalMongodConfig *AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
 }
 
+// TODO docs
 func (m MongoDbSpec) MinimumMajorVersion() uint64 {
 	if m.FeatureCompatibilityVersion != nil && *m.FeatureCompatibilityVersion != "" {
 		fcv := *m.FeatureCompatibilityVersion
@@ -534,6 +536,16 @@ func (m *MongoDB) ObjectKey() client.ObjectKey {
 	return client.ObjectKey{Name: m.Name, Namespace: m.Namespace}
 }
 
+// ConnectionURL returns connection url to the MongoDB based on its internal state. Username and password are
+// provided as parameters as they need to be fetched by the caller
+func (m *MongoDB) ConnectionURL(userName, password string, connectionParams map[string]string) string {
+	statefulsetName := m.Name
+	if m.Spec.ResourceType == ShardedCluster {
+		statefulsetName = m.MongosRsName()
+	}
+	return buildConnectionUrl(statefulsetName, m.ServiceName(), m.Namespace, userName, password, m.Spec, connectionParams)
+}
+
 // MongodbShardedClusterSizeConfig describes the numbers and sizes of replica sets inside
 // sharded cluster
 type MongodbShardedClusterSizeConfig struct {
@@ -663,6 +675,24 @@ func (spec MongoDbSpec) GetTLSMode() SSLMode {
 	return validModeOrDefault(spec.AdditionalMongodConfig.Net.SSL.Mode)
 }
 
+// Replicas returns the number of "user facing" replicas of the MongoDB resource. This method can be used for
+// constructing the mongodb URL for example.
+// 'Members' would be a more consistent function but go doesn't allow to have the same
+func (spec MongoDbSpec) Replicas() int {
+	var replicasCount int
+	switch spec.ResourceType {
+	case Standalone:
+		replicasCount = 1
+	case ReplicaSet:
+		replicasCount = spec.Members
+	case ShardedCluster:
+		replicasCount = spec.MongosCount
+	default:
+		panic("Unknown type of resource!")
+	}
+	return replicasCount
+}
+
 // validModeOrDefault returns a valid mode for the Net.SSL.Mode string
 func validModeOrDefault(mode SSLMode) SSLMode {
 	if mode == "" {
@@ -715,4 +745,61 @@ func newAuthentication() *Authentication {
 
 func newSecurity() *Security {
 	return &Security{TLSConfig: &TLSConfig{}, Authentication: newAuthentication()}
+}
+
+func buildConnectionUrl(statefulsetName, serviceName, namespace, userName, password string, spec MongoDbSpec, connectionParams map[string]string) string {
+	if util.ContainsString(spec.Security.Authentication.Modes, util.SCRAM) && (userName == "" || password == "") {
+		panic("Dev error: UserName and Password must be specified if the resource has SCRAM-SHA enabled")
+	}
+	replicasCount := spec.Replicas()
+
+	hostnames, _ := util.GetDNSNames(statefulsetName, serviceName, namespace, spec.ClusterName, replicasCount)
+	uri := "mongodb://"
+	if util.ContainsString(spec.Security.Authentication.Modes, util.SCRAM) {
+		uri += fmt.Sprintf("%s:%s@", userName, password)
+	}
+	for i, h := range hostnames {
+		hostnames[i] = fmt.Sprintf("%s:%d", h, util.MongoDbDefaultPort)
+	}
+	uri += strings.Join(hostnames, ",")
+
+	// default and calculated query parameters
+	params := map[string]string{"connectTimeoutMS": "20000", "serverSelectionTimeoutMS": "20000"}
+	if spec.ResourceType == ReplicaSet {
+		params["replicaSet"] = statefulsetName
+	}
+	if spec.Security.TLSConfig.Enabled {
+		params["ssl"] = "true"
+	}
+	if util.ContainsString(spec.Security.Authentication.Modes, util.SCRAM) {
+		params["authSource"] = util.DefaultUserDatabase
+
+		comparison, err := util.CompareVersions(spec.Version, "4.0.0")
+		if err != nil {
+			// This is the dev error - the object must have a correct state by this stage and the version must be
+			// validated in the controller/web hook
+			panic(err)
+		}
+		if comparison < 0 {
+			params["authMechanism"] = "SCRAM-SHA-1"
+		} else {
+			params["authMechanism"] = "SCRAM-SHA-256"
+		}
+	}
+	// custom parameters may override the default ones
+	for k, v := range connectionParams {
+		params[k] = v
+	}
+
+	var keys []string
+	for k := range params {
+		keys = append(keys, k)
+	}
+	uri += "/?"
+	// sorting parameters to make a url stable
+	sort.Strings(keys)
+	for _, k := range keys {
+		uri += fmt.Sprintf("%s=%s&", k, params[k])
+	}
+	return strings.TrimSuffix(uri, "&")
 }

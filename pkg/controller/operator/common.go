@@ -70,7 +70,7 @@ func buildReplicaSetFromStatefulSet(set *appsv1.StatefulSet, mdb *mdbv1.MongoDB)
 }
 
 func createProcesses(set *appsv1.StatefulSet, mongoType om.MongoType, mdb *mdbv1.MongoDB) []om.Process {
-	hostnames, names := GetDnsForStatefulSet(set, mdb.Spec.ClusterName)
+	hostnames, names := util.GetDnsForStatefulSet(set, mdb.Spec.ClusterName)
 	processes := make([]om.Process, len(hostnames))
 	wiredTigerCache := calculateWiredTigerCache(set, mdb.Spec.Version)
 
@@ -112,7 +112,7 @@ func calculateWiredTigerCache(set *appsv1.StatefulSet, version string) *float32 
 }
 
 func waitForRsAgentsToRegister(set *appsv1.StatefulSet, clusterName string, omConnection om.Connection, log *zap.SugaredLogger) error {
-	hostnames, _ := GetDnsForStatefulSet(set, clusterName)
+	hostnames, _ := util.GetDnsForStatefulSet(set, clusterName)
 	log = log.With("statefulset", set.Name)
 
 	if !waitUntilAgentsHaveRegistered(omConnection, log, hostnames...) {

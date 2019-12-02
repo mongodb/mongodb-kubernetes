@@ -390,7 +390,7 @@ func (s *StatefulSetHelper) getDNSNames() ([]string, []string) {
 		members = s.Replicas
 	}
 
-	return GetDNSNames(s.Name, s.Service, s.Namespace, s.ClusterName, members)
+	return util.GetDNSNames(s.Name, s.Service, s.Namespace, s.ClusterName, members)
 }
 
 func (s *StatefulSetHelper) SetCertificateHash(certHash string) *StatefulSetHelper {

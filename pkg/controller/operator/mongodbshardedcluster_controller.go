@@ -394,14 +394,14 @@ func prepareScaleDownShardedCluster(omClient om.Connection, state ShardedCluster
 
 	// Scaledown amount of replicas in ConfigServer
 	if isConfigServerScaleDown(sc) {
-		_, podNames := GetDnsForStatefulSetReplicasSpecified(state.configSrvSetHelper.BuildStatefulSet(), clusterName, sc.Status.ConfigServerCount)
+		_, podNames := util.GetDnsForStatefulSetReplicasSpecified(state.configSrvSetHelper.BuildStatefulSet(), clusterName, sc.Status.ConfigServerCount)
 		membersToScaleDown[state.configSrvSetHelper.Name] = podNames[sc.Spec.ConfigServerCount:sc.Status.ConfigServerCount]
 	}
 
 	// Scaledown size of each shard
 	if isShardsSizeScaleDown(sc) {
 		for _, s := range state.shardsSetsHelpers[:sc.Status.ShardCount] {
-			_, podNames := GetDnsForStatefulSetReplicasSpecified(s.BuildStatefulSet(), clusterName, sc.Status.MongodsPerShardCount)
+			_, podNames := util.GetDnsForStatefulSetReplicasSpecified(s.BuildStatefulSet(), clusterName, sc.Status.MongodsPerShardCount)
 			membersToScaleDown[s.Name] = podNames[sc.Spec.MongodsPerShardCount:sc.Status.MongodsPerShardCount]
 		}
 	}
@@ -581,14 +581,14 @@ func getMaxShardedClusterSizeConfig(specConfig mdbv1.MongodbShardedClusterSizeCo
 func getAllHosts(c *mdbv1.MongoDB, sizeConfig mdbv1.MongodbShardedClusterSizeConfig) []string {
 	ans := make([]string, 0)
 
-	hosts, _ := GetDNSNames(c.MongosRsName(), c.ServiceName(), c.Namespace, c.Spec.ClusterName, sizeConfig.MongosCount)
+	hosts, _ := util.GetDNSNames(c.MongosRsName(), c.ServiceName(), c.Namespace, c.Spec.ClusterName, sizeConfig.MongosCount)
 	ans = append(ans, hosts...)
 
-	hosts, _ = GetDNSNames(c.ConfigRsName(), c.ConfigSrvServiceName(), c.Namespace, c.Spec.ClusterName, sizeConfig.ConfigServerCount)
+	hosts, _ = util.GetDNSNames(c.ConfigRsName(), c.ConfigSrvServiceName(), c.Namespace, c.Spec.ClusterName, sizeConfig.ConfigServerCount)
 	ans = append(ans, hosts...)
 
 	for i := 0; i < sizeConfig.ShardCount; i++ {
-		hosts, _ = GetDNSNames(c.ShardRsName(i), c.ShardServiceName(), c.Namespace, c.Spec.ClusterName, sizeConfig.MongodsPerShardCount)
+		hosts, _ = util.GetDNSNames(c.ShardRsName(i), c.ShardServiceName(), c.Namespace, c.Spec.ClusterName, sizeConfig.MongodsPerShardCount)
 		ans = append(ans, hosts...)
 	}
 	return ans

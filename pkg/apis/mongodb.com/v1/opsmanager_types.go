@@ -83,8 +83,7 @@ func (m *MongoDBOpsManager) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, (MongoDBJSON)(m)); err != nil {
 		return err
 	}
-	// setting ops manager name for the appdb
-	m.Spec.AppDB.OpsManagerName = m.Name
+	m.InitDefault()
 
 	// providing backward compatibility for the deployments which didn't specify the 'replicas' before Operator 1.3.1
 	// This doesn't update the object in Api server so the real spec won't change
@@ -99,14 +98,26 @@ func (m *MongoDBOpsManager) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func (m *MongoDBOpsManager) InitDefault() {
+	// setting ops manager name and namespace for the appdb (transient fields)
+	m.Spec.AppDB.opsManagerName = m.Name
+	m.Spec.AppDB.namespace = m.Namespace
+}
+
 func (m *MongoDBOpsManager) MarshalJSON() ([]byte, error) {
 	mdb := m.DeepCopyObject().(*MongoDBOpsManager) // prevent mutation of the original object
 
-	mdb.Spec.AppDB.OpsManagerName = ""
+	mdb.Spec.AppDB.opsManagerName = ""
+	mdb.Spec.AppDB.namespace = ""
 
 	if reflect.DeepEqual(m.Spec.Backup, newBackup()) {
 		mdb.Spec.Backup = nil
 	}
+	// TODO change this when we may move `passwordRef` to `security.authentication`
+	// why 'MarshalJSON' in AppDB didn't work??
+	mdb.Spec.AppDB.Security = nil
+	mdb.Spec.AppDB.ResourceType = ""
+
 	return json.Marshal(*mdb)
 }
 
@@ -250,10 +261,11 @@ type AppDB struct {
 	// for the mongodb-ops-manager SCRAM-SHA user
 	PasswordSecretKeyRef *SecretKeyRef `json:"passwordSecretKeyRef,omitempty"`
 
-	// transient field. This field is cleaned before serialization, see 'MarshalJSON()'
+	// transient fields. These fields are cleaned before serialization, see 'MarshalJSON()'
 	// note, that we cannot include the 'OpsManager' instance here as this creates circular dependency and problems with
 	// 'DeepCopy'
-	OpsManagerName string `json:"omName,omitempty"`
+	opsManagerName string
+	namespace      string
 }
 
 func (m *AppDB) GetSecretName() string {
@@ -282,11 +294,16 @@ func (m *AppDB) UnmarshalJSON(data []byte) error {
 	if m.PodSpec == nil {
 		m.PodSpec = newMongoDbPodSpec()
 	}
+	// we always "enable" scram sha authentication
+	// TODO change this when we may move `passwordRef` to `security.authentication`
+	m.Security = newSecurity()
+	m.Security.Authentication.Modes = append(m.Security.Authentication.Modes, util.SCRAM)
+	m.ResourceType = ReplicaSet
 	return nil
 }
 
 func (m *AppDB) Name() string {
-	return m.OpsManagerName + "-db"
+	return m.opsManagerName + "-db"
 }
 
 func (m *AppDB) ServiceName() string {
@@ -298,6 +315,11 @@ func (m *AppDB) ServiceName() string {
 
 func (m *AppDB) AutomationConfigSecretName() string {
 	return m.Name() + "-config"
+}
+
+// ConnectionURL returns the connection url to the AppDB
+func (m *AppDB) ConnectionURL(userName, password string, connectionParams map[string]string) string {
+	return buildConnectionUrl(m.Name(), m.ServiceName(), m.namespace, userName, password, m.MongoDbSpec, connectionParams)
 }
 
 // todo these two methods are added only to make AppDB implement runtime.Object

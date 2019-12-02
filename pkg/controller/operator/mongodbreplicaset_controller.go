@@ -286,7 +286,7 @@ func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLog
 		return err
 	}
 
-	hostsToRemove, _ := GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.ClusterName, util.MaxInt(rs.Status.Members, rs.Spec.Members))
+	hostsToRemove, _ := util.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.ClusterName, util.MaxInt(rs.Status.Members, rs.Spec.Members))
 	log.Infow("Stop monitoring removed hosts in Ops Manager", "removedHosts", hostsToRemove)
 
 	if err = om.StopMonitoring(conn, hostsToRemove, log); err != nil {
@@ -330,13 +330,13 @@ func (r *ReconcileCommonController) ensureX509InKubernetes(mdb *mdbv1.MongoDB, h
 }
 
 func prepareScaleDownReplicaSet(omClient om.Connection, statefulSet *appsv1.StatefulSet, oldMembersCount int, new *mdbv1.MongoDB, log *zap.SugaredLogger) error {
-	_, podNames := GetDnsForStatefulSetReplicasSpecified(statefulSet, new.Spec.ClusterName, oldMembersCount)
+	_, podNames := util.GetDnsForStatefulSetReplicasSpecified(statefulSet, new.Spec.ClusterName, oldMembersCount)
 	podNames = podNames[new.Spec.Members:oldMembersCount]
 
 	return prepareScaleDown(omClient, map[string][]string{new.Name: podNames}, log)
 }
 
 func getAllHostsRs(set *appsv1.StatefulSet, clusterName string, membersCount int) []string {
-	hostnames, _ := GetDnsForStatefulSetReplicasSpecified(set, clusterName, membersCount)
+	hostnames, _ := util.GetDnsForStatefulSetReplicasSpecified(set, clusterName, membersCount)
 	return hostnames
 }

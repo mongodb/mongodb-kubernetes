@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
-	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -100,7 +99,7 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 	}
 
 	// 5. Prepare Backup Daemon
-	if status = r.prepareBackup(opsManager, omAdmin, log); !status.isOk() {
+	if status = r.prepareBackupInOpsManager(opsManager, omAdmin, log); !status.isOk() {
 		return status.updateStatus(opsManager, r.ReconcileCommonController, log)
 	}
 
@@ -181,22 +180,11 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(opsManager *mdbv1.M
 	return ok()
 }
 
-// Ideally this must be a method in mdbv1.MongoDB - todo move it there when the AppDB is gone and mdbv1.MongoDB is used instead
+// buildMongoConnectionUrl builds the connection url to the appdb. Note, that it overrides the default authMechanism
+// (which internally depends on the mongodb version)
 func buildMongoConnectionUrl(opsManager *mdbv1.MongoDBOpsManager, password string) string {
-	db := opsManager.Spec.AppDB
-	statefulsetName := db.Name()
-	serviceName := db.ServiceName()
-	replicas := db.Members
-
-	hostnames, _ := GetDNSNames(statefulsetName, serviceName, opsManager.Namespace, db.ClusterName, replicas)
-	uri := fmt.Sprintf("mongodb://%s:%s@", util.OpsManagerMongoDBUserName, password)
-	for i, h := range hostnames {
-		hostnames[i] = fmt.Sprintf("%s:%d", h, util.MongoDbDefaultPort)
-	}
-	uri += strings.Join(hostnames, ",")
-	uri += "/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000"
-	uri += "&authSource=admin&authMechanism=SCRAM-SHA-1"
-	return uri
+	return opsManager.Spec.AppDB.ConnectionURL(util.OpsManagerMongoDBUserName, password,
+		map[string]string{"authMechanism": "SCRAM-SHA-1"})
 }
 
 func setConfigProperty(opsManager *mdbv1.MongoDBOpsManager, key, value string, log *zap.SugaredLogger) {
@@ -265,7 +253,7 @@ func (r OpsManagerReconciler) getAppDBPassword(opsManager *mdbv1.MongoDBOpsManag
 
 	if apiErrors.IsNotFound(err) {
 		// create the password
-		password, err := util.GenerateRandomFixedLengthStringOfSize(100)
+		password, err := util.GenerateRandomFixedLengthStringOfSize(12)
 		if err != nil {
 			return "", err
 		}
@@ -375,8 +363,8 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager *mdbv1.MongoDBOpsMana
 	return ok(), r.omAdminProvider(centralURL(opsManager), cred.User, cred.PublicAPIKey)
 }
 
-// prepareBackup makes the changes to backup admin configuration based on the Ops Manager spec
-func (r *OpsManagerReconciler) prepareBackup(opsManager *mdbv1.MongoDBOpsManager, omAdmin api.Admin, log *zap.SugaredLogger) reconcileStatus {
+// prepareBackupInOpsManager makes the changes to backup admin configuration based on the Ops Manager spec
+func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager *mdbv1.MongoDBOpsManager, omAdmin api.Admin, log *zap.SugaredLogger) reconcileStatus {
 	if !opsManager.Spec.Backup.Enabled {
 		return ok()
 	}
@@ -422,7 +410,7 @@ func performValidation(opsManager *mdbv1.MongoDBOpsManager) error {
 // TODO the kubedns.go should be moved to 'util' and be reused by 'om' package as well to make this method an OM resource
 //  method
 func centralURL(om *mdbv1.MongoDBOpsManager) string {
-	fqdn := GetServiceFQDN(om.SvcName(), om.Namespace, om.ClusterName)
+	fqdn := util.GetServiceFQDN(om.SvcName(), om.Namespace, om.ClusterName)
 
 	// protocol must be calculated based on tls configuration of the ops manager resource
 	protocol := "http"
@@ -433,7 +421,7 @@ func centralURL(om *mdbv1.MongoDBOpsManager) string {
 // TODO the kubedns.go should be moved to 'util' and be reused by 'om' package as well to make this method an OM resource
 //  method
 func backupDaemonURL(om *mdbv1.MongoDBOpsManager) string {
-	_, podnames := GetDNSNames(om.BackupStatefulSetName(), "", om.Namespace, om.Spec.ClusterName, 1)
+	_, podnames := util.GetDNSNames(om.BackupStatefulSetName(), "", om.Namespace, om.Spec.ClusterName, 1)
 	return podnames[0]
 }
 

@@ -110,7 +110,7 @@ func TestOpsManagerGeneratesAppDBPassword_IfNotProvided(t *testing.T) {
 
 	password, err := reconciler.getAppDBPassword(testOm, zap.S())
 	assert.NoError(t, err)
-	assert.Len(t, password, 100, "auto generated password should have a size of 100")
+	assert.Len(t, password, 12, "auto generated password should have a size of 12")
 }
 
 func TestOpsManagerUsersPassword_SpecifiedInSpec(t *testing.T) {
@@ -160,12 +160,12 @@ func DefaultOpsManagerBuilder() *OpsManagerBuilder {
 		Version: "4.2.0",
 		AppDB: mdbv1.AppDB{
 			MongoDbSpec:          mdbv1.MongoDbSpec{Version: "4.2.0", Members: 3, PodSpec: &mdbv1.MongoDbPodSpec{}},
-			OpsManagerName:       "testOM", // in practice this field is set during deserialization
 			PasswordSecretKeyRef: &mdbv1.SecretKeyRef{},
 		},
 		AdminSecret: "om-admin",
 	}
 	om := &mdbv1.MongoDBOpsManager{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "testOM", Namespace: TestNamespace}}
+	om.InitDefault()
 	return &OpsManagerBuilder{om}
 }
 
