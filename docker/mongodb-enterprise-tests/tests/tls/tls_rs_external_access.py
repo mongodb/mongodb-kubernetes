@@ -1,30 +1,11 @@
 import base64
 import re
-import ssl
 
 import pytest
-from kubernetes import client
-from cryptography import x509
-from cryptography.hazmat.backends import default_backend
 
 from kubetester.omtester import get_rs_cert_names
 from kubetester.kubetester import KubernetesTester, skip_if_local
 from kubetester.mongotester import ReplicaSetTester
-
-
-def get_csr_sans(csr_name):
-    """
-    Return all of the subject alternative names for a given Kubernetes
-    certificate signing request.
-    """
-    csr = client.CertificatesV1beta1Api().read_certificate_signing_request_status(
-        csr_name
-    )
-    base64_csr_request = csr.spec.request
-    csr_pem_string = base64.b64decode(base64_csr_request)
-    csr = x509.load_pem_x509_csr(csr_pem_string, default_backend())
-    ext = csr.extensions.get_extension_for_class(x509.SubjectAlternativeName)
-    return ext.value.get_values_for_type(x509.DNSName)
 
 
 @pytest.mark.e2e_tls_rs_external_access
@@ -47,7 +28,7 @@ class TestReplicaSetWithExternalAccess(KubernetesTester):
         )
         for csr_name in self.yield_existing_csrs(csr_names):
             horizon_name = [
-                s for s in get_csr_sans(csr_name) if s in expected_horizon_names
+                s for s in self.get_csr_sans(csr_name) if s in expected_horizon_names
             ][0]
             expected_horizon_names.remove(horizon_name)
 
@@ -76,11 +57,9 @@ class TestReplicaSetWithExternalAccess(KubernetesTester):
         serving the right certificates.
         """
         host = f"test-tls-base-rs-external-access-svc.{self.namespace}.svc"
-        cert_bytes = ssl.get_server_certificate((host, 27017)).encode("ascii")
-        cert = x509.load_pem_x509_certificate(cert_bytes, default_backend())
-        ext = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
-        sans = ext.value.get_values_for_type(x509.DNSName)
-        assert any(san.endswith("test-website.com") for san in sans)
+        assert any(
+            san.endswith("test-website.com") for san in self.get_mongo_server_sans(host)
+        )
 
 
 @pytest.mark.e2e_tls_rs_external_access
@@ -180,7 +159,7 @@ class TestReplicaSetWithMultipleHorizons(KubernetesTester):
         for csr_name in self.yield_existing_csrs(csr_names):
             # ensure that the CSR has one of expected sets of Subject
             # Alternative Names
-            sans = get_csr_sans(csr_name)
+            sans = self.get_csr_sans(csr_name)
             assert any(
                 all(name in sans for name in expected)
                 for expected in expected_horizon_names

@@ -1043,7 +1043,9 @@ class KubernetesTester(object):
         while time.time() < stop_time:
             for idx, csr_name in enumerate(csr_names):
                 try:
-                    self.certificates.read_certificate_signing_request_status(csr_name)
+                    self.clients(
+                        "certificates"
+                    ).read_certificate_signing_request_status(csr_name)
                     # The certificate exists
                     seen_csrs += 1
                     yield csr_names.pop(idx)
@@ -1113,6 +1115,21 @@ class KubernetesTester(object):
         cert_bytes = ssl.get_server_certificate((host, 27017)).encode("ascii")
         cert = x509.load_pem_x509_certificate(cert_bytes, default_backend())
         ext = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+        return ext.value.get_values_for_type(x509.DNSName)
+
+    @staticmethod
+    def get_csr_sans(csr_name: str) -> List[str]:
+        """
+        Return all of the subject alternative names for a given Kubernetes
+        certificate signing request.
+        """
+        csr = client.CertificatesV1beta1Api().read_certificate_signing_request_status(
+            csr_name
+        )
+        base64_csr_request = csr.spec.request
+        csr_pem_string = b64decode(base64_csr_request)
+        csr = x509.load_pem_x509_csr(csr_pem_string, default_backend())
+        ext = csr.extensions.get_extension_for_class(x509.SubjectAlternativeName)
         return ext.value.get_values_for_type(x509.DNSName)
 
 
