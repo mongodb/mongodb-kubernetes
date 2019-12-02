@@ -35,7 +35,6 @@ type successStatus struct {
 	// TODO refactor the reconcile result topology to include warnings to all the statuses
 	warnings []mdbv1.StatusWarning
 
-	//lint:ignore U1000 used by a test method
 	msg string
 }
 

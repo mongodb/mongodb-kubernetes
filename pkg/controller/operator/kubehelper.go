@@ -721,7 +721,6 @@ func (k *KubeHelper) readCredentials(namespace, name string) (*Credentials, erro
 	}, nil
 }
 
-//lint:ignore U1000 used by a test method
 func (k *KubeHelper) readAgentApiKeyForProject(namespace, agentKeySecretName string) (string, error) {
 	secret, err := k.readSecret(objectKey(namespace, agentKeySecretName))
 	if err != nil {
