@@ -41,12 +41,12 @@ class TestOpsManagerCreation(OpsManagerBase):
 
     @skip_if_local
     def test_mongod(self):
-        mdb_tester = ReplicaSetTester(self.om_cr.app_db_name(), 3)
+        mdb_tester = self.om_cr.get_appdb_mongo_tester()
         mdb_tester.assert_connectivity()
         mdb_tester.assert_version("4.0.0")
 
         # then we need to wait until Ops Manager is ready (only AppDB is ready so far) for the next test
-        self.wait_until("om_in_running_state", 500)
+        self.wait_until("om_in_running_state", 900)
 
     def test_appdb_automation_config(self):
         expected_roles = {
@@ -70,7 +70,7 @@ class TestOpsManagerCreation(OpsManagerBase):
         app_db_tester = self.om_cr.get_appdb_mongo_tester()
         app_db_tester.assert_scram_sha_authentication(
             "mongodb-ops-manager",
-            self.get_appdb_password("om-upgrade"),
+            self.get_appdb_password(),
             auth_mechanism="SCRAM-SHA-1",
         )
 
@@ -102,12 +102,13 @@ class TestOpsManagerAppDbUpgrade(OpsManagerBase):
 
     @skip_if_local
     def test_mongod(self):
-        mdb_tester = ReplicaSetTester(self.om_cr.app_db_name(), 3)
+        mdb_tester = self.om_cr.get_appdb_mongo_tester()
         mdb_tester.assert_connectivity()
         mdb_tester.assert_version("4.2.0")
 
         # then we need to wait until Ops Manager is ready (only AppDB is ready so far) for the next test
-        self.wait_until("om_in_running_state", 500)
+
+        self.wait_until("om_in_running_state", 900)
 
 
 @pytest.mark.e2e_om_appdb_upgrade
@@ -165,7 +166,7 @@ class TestOpsManagerMixed(OpsManagerBase):
 
     @skip_if_local
     def test_mongod(self):
-        mdb_tester = ReplicaSetTester(self.om_cr.app_db_name(), 3)
+        mdb_tester = self.om_cr.get_appdb_mongo_tester()
         mdb_tester.assert_connectivity()
         mdb_tester.assert_version("4.2.1")
 

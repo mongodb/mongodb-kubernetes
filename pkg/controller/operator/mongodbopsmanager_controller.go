@@ -8,7 +8,6 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/source"
@@ -68,7 +67,8 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 		return r.updateStatusValidationFailure(opsManager, err.Error(), log)
 	}
 
-	opsManagerUserPassword, err := r.ensureOpsManagerUserPassword(opsManager)
+	opsManagerUserPassword, err := r.getAppDBPassword(opsManager, log)
+
 	if err != nil {
 		return r.updateStatusFailed(opsManager, fmt.Sprintf("Error ensuring Ops Manager user password: %s", err), log)
 	}
@@ -201,7 +201,11 @@ func buildMongoConnectionUrl(opsManager *mdbv1.MongoDBOpsManager, password strin
 
 func setConfigProperty(opsManager *mdbv1.MongoDBOpsManager, key, value string, log *zap.SugaredLogger) {
 	if opsManager.AddConfigIfDoesntExist(key, value) {
-		log.Debugw("Configured property", key, value)
+		if key == util.MmsMongoUri {
+			log.Debugw("Configured property", key, util.RedactMongoURI(value))
+		} else {
+			log.Debugw("Configured property", key, value)
+		}
 	}
 }
 
@@ -224,16 +228,41 @@ func (r OpsManagerReconciler) ensureGenKey(om *mdbv1.MongoDBOpsManager, log *zap
 	return err
 }
 
-// ensureOpsManagerUserPassword will attempt to read a password from a secret, or generate a password
-// and create the secret if it does not exist.
-func (r OpsManagerReconciler) ensureOpsManagerUserPassword(opsManager *mdbv1.MongoDBOpsManager) (string, error) {
+// getAppDBPassword will return the password that was specified by the user, or auto generate
+// a password, store it in a secret and use that.
+func (r OpsManagerReconciler) getAppDBPassword(opsManager *mdbv1.MongoDBOpsManager, log *zap.SugaredLogger) (string, error) {
 
-	// TODO: check for custom password that a user has specified
+	passwordRef := opsManager.Spec.AppDB.PasswordSecretKeyRef
+	if passwordRef != nil && passwordRef.Name != "" { // there is a secret specified for the Ops Manager user
+
+		password, err := r.kubeHelper.readSecretKey(objectKey(opsManager.Namespace, passwordRef.Name), passwordRef.Key)
+		if err != nil {
+			return "", err
+		}
+		log.Debugf("Reading password from secret/%s", passwordRef.Name)
+
+		// watch for any changes on the user provided password
+		r.addWatchedResourceIfNotAdded(
+			passwordRef.Name,
+			opsManager.Namespace,
+			Secret,
+			objectKeyFromApiObject(opsManager),
+		)
+
+		// delete the auto generated password, we don't need it anymore. We can just generate a new one if
+		// the user password is deleted
+		log.Debugf("Deleting Operator managed password secret/%s from namespace", opsManager.Spec.AppDB.GetSecretName(), opsManager.Namespace)
+		if err := r.kubeHelper.deleteSecret(objectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetSecretName())); err != nil && !apiErrors.IsNotFound(err) {
+			return "", err
+		}
+
+		return password, nil
+	}
 
 	// otherwise we'll ensure the auto generated password exists
-	secretName := opsManager.Name + "-password" // TODO: CLOUDP-53194 take this from the spec of the resource
-	objectKey := objectKey(opsManager.Namespace, secretName)
-	secret, err := r.kubeHelper.readSecret(objectKey)
+	secretObjectKey := objectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetSecretName())
+	secret, err := r.kubeHelper.readSecret(secretObjectKey)
+
 	if apiErrors.IsNotFound(err) {
 		// create the password
 		password, err := util.GenerateRandomFixedLengthStringOfSize(100)
@@ -242,36 +271,22 @@ func (r OpsManagerReconciler) ensureOpsManagerUserPassword(opsManager *mdbv1.Mon
 		}
 
 		passwordData := map[string]string{
-			util.OpsManagerPasswordKey: password, // TODO: CLOUDP-53194 key will be specified in spec, this will be fallback value if not specified
+			util.OpsManagerPasswordKey: password,
 		}
 
-		if err := r.kubeHelper.createSecret(types.NamespacedName{Namespace: opsManager.Namespace, Name: secretName}, passwordData, nil, opsManager); err != nil {
+		log.Infof("Creating mongodb-ops-manager password in secret/%s in namespace %s", secretObjectKey.Name, secretObjectKey.Namespace)
+		if err := r.kubeHelper.createSecret(secretObjectKey, passwordData, nil, opsManager); err != nil {
 			return "", err
 		}
 
-		// watch the secret which contains the password for the Ops Manager user
-		r.addWatchedResourceIfNotAdded(
-			secretName,
-			opsManager.Namespace,
-			Secret,
-			objectKeyFromApiObject(opsManager),
-		)
-
+		log.Debugf("Using auto generated AppDB password stored in secret/%s", opsManager.Spec.AppDB.GetSecretName())
 		return password, nil
-	}
-
-	// any other error
-	if err != nil {
+	} else if err != nil {
+		// any other error
 		return "", err
 	}
 
-	r.addWatchedResourceIfNotAdded(
-		secretName,
-		opsManager.Namespace,
-		Secret,
-		objectKeyFromApiObject(opsManager),
-	)
-
+	log.Debugf("Using auto generated AppDB password stored in secret/%s", opsManager.Spec.AppDB.GetSecretName())
 	return secret[util.OpsManagerPasswordKey], nil
 }
 

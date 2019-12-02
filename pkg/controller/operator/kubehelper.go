@@ -721,6 +721,7 @@ func (k *KubeHelper) readCredentials(namespace, name string) (*Credentials, erro
 	}, nil
 }
 
+//lint:ignore U1000 used by a test method
 func (k *KubeHelper) readAgentApiKeyForProject(namespace, agentKeySecretName string) (string, error) {
 	secret, err := k.readSecret(objectKey(namespace, agentKeySecretName))
 	if err != nil {
@@ -747,6 +748,20 @@ func (k *KubeHelper) readSecret(nsName client.ObjectKey) (map[string]string, err
 		secrets[k] = strings.TrimSuffix(string(v[:]), "\n")
 	}
 	return secrets, nil
+}
+
+// readSecretKey returns the value stored with the corresponding key from the provided
+// ObjectKey
+func (k *KubeHelper) readSecretKey(nsName client.ObjectKey, key string) (string, error) {
+	secretData, err := k.readSecret(nsName)
+	if err != nil {
+		return "", err
+	}
+	if val, ok := secretData[key]; !ok {
+		return "", fmt.Errorf("secret/%s did not contain the key %s", nsName.Name, key)
+	} else {
+		return val, nil
+	}
 }
 
 // computeConfigMap fetches the existing config map and applies the computation function to it and pushes changes back

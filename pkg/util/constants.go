@@ -165,6 +165,7 @@ const (
 	GenKeyPath               = "/mongodb-ops-manager/.mongodb-mms"
 	LatestOmVersion          = "4.2"
 	AppDBAutomationConfigKey = "cluster-config.json"
+	DefaultAppDbPasswordKey  = "password"
 
 	// Ops Manager configuration properties
 	MmsCentralUrlPropKey      = "mms.centralUrl"

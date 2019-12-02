@@ -453,6 +453,15 @@ spec:
             applicationDatabase:
               type: object
               properties:
+                passwordSecretKeyRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    key:
+                      type: string
+                  required:
+                    - name
                 members:
                   maximum: 50
                   minimum: 3

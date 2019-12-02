@@ -73,9 +73,9 @@ type OpsManagerStatus struct {
 	Url            string `json:"url,omitempty"`
 }
 
-// Everything the same as for MongoDbStatus
 type AppDbStatus struct {
 	MongoDbStatus
+	PasswordSecretKeyRef *SecretKeyRef `json:"passwordSecretKeyRef,omitempty"`
 }
 
 func (m *MongoDBOpsManager) UnmarshalJSON(data []byte) error {
@@ -178,6 +178,10 @@ func (m *MongoDBOpsManager) GetStatus() interface{} {
 }
 
 func (m *MongoDBOpsManager) GetSpec() interface{} {
+	configuration := m.Spec.Configuration
+	if uri, ok := configuration[util.MmsMongoUri]; ok {
+		configuration[util.MmsMongoUri] = util.RedactMongoURI(uri)
+	}
 	return m.Spec
 }
 
@@ -242,10 +246,18 @@ func ConvertNameToEnvVarFormat(propertyFormat string) string {
 type AppDB struct {
 	MongoDbSpec
 
+	// PasswordSecretKeyRef contains a reference to the secret which contains the password
+	// for the mongodb-ops-manager SCRAM-SHA user
+	PasswordSecretKeyRef *SecretKeyRef `json:"passwordSecretKeyRef,omitempty"`
+
 	// transient field. This field is cleaned before serialization, see 'MarshalJSON()'
 	// note, that we cannot include the 'OpsManager' instance here as this creates circular dependency and problems with
 	// 'DeepCopy'
 	OpsManagerName string `json:"omName,omitempty"`
+}
+
+func (m *AppDB) GetSecretName() string {
+	return m.Name() + "-password"
 }
 
 // No Security and no AdditionalMongodConfig as of alpha
@@ -254,6 +266,12 @@ func (m *AppDB) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, (MongoDBJSON)(m)); err != nil {
 		return err
 	}
+
+	// if no reference is specified, we will use a default key of "password"
+	if m.PasswordSecretKeyRef == nil {
+		m.PasswordSecretKeyRef = &SecretKeyRef{Key: util.DefaultAppDbPasswordKey}
+	}
+
 	m.Security = nil
 	m.AdditionalMongodConfig = nil
 	m.ConnectionSpec.Credentials = ""

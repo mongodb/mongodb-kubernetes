@@ -72,3 +72,6 @@ class AutomationConfigTester:
 
     def assert_agent_user(self, agent_user: str) -> None:
         assert self.automation_config["auth"]["autoUser"] == agent_user
+
+    def reached_version(self, version: int) -> bool:
+        return self.automation_config["version"] == version

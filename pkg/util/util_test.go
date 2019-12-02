@@ -71,6 +71,20 @@ func TestReadBoolEnv(t *testing.T) {
 	assert.False(t, result)
 }
 
+func TestRedactURI(t *testing.T) {
+	uri := "mongo.mongoUri=mongodb://mongodb-ops-manager:my-scram-password@om-scram-db-0.om-scram-db-svc.mongodb.svc.cluster.local:27017/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&authSource=admin&authMechanism=SCRAM-SHA-1"
+	expected := "mongo.mongoUri=mongodb://mongodb-ops-manager:<redacted>@om-scram-db-0.om-scram-db-svc.mongodb.svc.cluster.local:27017/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&authSource=admin&authMechanism=SCRAM-SHA-1"
+	assert.Equal(t, expected, RedactMongoURI(uri))
+
+	uri = "mongo.mongoUri=mongodb://mongodb-ops-manager:mongodb-ops-manager@om-scram-db-0.om-scram-db-svc.mongodb.svc.cluster.local:27017/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&authSource=admin&authMechanism=SCRAM-SHA-1"
+	expected = "mongo.mongoUri=mongodb://mongodb-ops-manager:<redacted>@om-scram-db-0.om-scram-db-svc.mongodb.svc.cluster.local:27017/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&authSource=admin&authMechanism=SCRAM-SHA-1"
+	assert.Equal(t, expected, RedactMongoURI(uri))
+
+	uri = "mongo.mongoUri=mongodb://mongodb-ops-manager:12345AllTheCharactersWith@SymbolToo@om-scram-db-0.om-scram-db-svc.mongodb.svc.cluster.local:27017/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&authSource=admin&authMechanism=SCRAM-SHA-1"
+	expected = "mongo.mongoUri=mongodb://mongodb-ops-manager:<redacted>@om-scram-db-0.om-scram-db-svc.mongodb.svc.cluster.local:27017/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&authSource=admin&authMechanism=SCRAM-SHA-1"
+	assert.Equal(t, expected, RedactMongoURI(uri))
+}
+
 type someId struct {
 	name string
 }
@@ -107,5 +121,4 @@ func TestSetDifference(t *testing.T) {
 
 	assert.Equal(t, []Identifiable{someId{"1"}}, SetDifferenceGeneric(leftNotIdentifiable, rightNotIdentifiable))
 	assert.Equal(t, []Identifiable{someId{"3"}}, SetDifferenceGeneric(rightNotIdentifiable, leftNotIdentifiable))
-
 }

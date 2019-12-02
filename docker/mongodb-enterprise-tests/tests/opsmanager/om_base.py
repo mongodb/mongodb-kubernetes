@@ -128,6 +128,8 @@ class OpsManagerBase(KubernetesTester):
         automation_config_str = cm["cluster-config.json"]
         return json.loads(automation_config_str)
 
-    def get_appdb_password(self, name: str) -> str:
-        secret = self.read_secret(self.get_namespace(), f"{name}-password")
+    def get_appdb_password(self) -> str:
+        secret = self.read_secret(
+            self.get_namespace(), "{}-password".format(self.om_cr.app_db_name())
+        )
         return secret["password"]

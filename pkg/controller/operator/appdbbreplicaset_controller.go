@@ -64,7 +64,7 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *mdbv1.MongoDBOpsManager
 		SetClusterName(opsManager.ClusterName).
 		SetVersion(opsManager.Spec.Version) // the version of the appdb image must match the OM image one
 
-	config, err := r.buildAppDbAutomationConfig(rs, opsManager, replicaBuilder.BuildAppDBStatefulSet(), log)
+	config, err := r.buildAppDbAutomationConfig(rs, opsManager, opsManagerUserPassword, replicaBuilder.BuildAppDBStatefulSet(), log)
 	if err != nil {
 		return r.updateStatusFailedAppDb(opsManager, err.Error(), log)
 	}
@@ -212,7 +212,7 @@ func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(rs *mdbv1.AppDB,
 	return nil
 }
 
-func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(rs *mdbv1.AppDB, opsManager *mdbv1.MongoDBOpsManager, set *appsv1.StatefulSet, log *zap.SugaredLogger) (*om.AutomationConfig, error) {
+func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(rs *mdbv1.AppDB, opsManager *mdbv1.MongoDBOpsManager, opsManagerUserPassword string, set *appsv1.StatefulSet, log *zap.SugaredLogger) (*om.AutomationConfig, error) {
 	d := om.NewDeployment()
 
 	replicaSet := buildReplicaSetFromStatefulSetAppDb(set, rs, log)
@@ -224,7 +224,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(rs *mdbv1.AppDB, o
 	automationConfig.SetOptions("/tmp/mms-automation/test/versions")
 	automationConfig.SetBaseUrlForAgents(centralURL(opsManager))
 
-	sha1Creds, sha256Creds, err := r.getScramShaCreds(opsManager)
+	sha1Creds, sha256Creds, err := generateScramShaCredentials(opsManagerUserPassword, opsManager)
 
 	if err != nil {
 		return nil, err
@@ -240,18 +240,6 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(rs *mdbv1.AppDB, o
 	// Setting the default version - will be used if no automation config has been published before
 	automationConfig.SetVersion(1)
 	return automationConfig, nil
-}
-
-func (r *ReconcileAppDbReplicaSet) getScramShaCreds(opsManager *mdbv1.MongoDBOpsManager) (*om.ScramShaCreds, *om.ScramShaCreds, error) {
-	// TODO: if the user has provided a password, we can generate credentials based on that
-
-	// otherwise, we will have made sure to have a password auto generated for the Ops Manager user to use
-	scramCredentialsData, err := r.kubeHelper.readSecret(objectKey(opsManager.Namespace, opsManager.Name+"-password"))
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return generateScramShaCredentials(scramCredentialsData[util.OpsManagerPasswordKey], opsManager)
 }
 
 // configureScramShaAuthentication configures agent and deployment authentication mechanisms using SCRAM-SHA-1

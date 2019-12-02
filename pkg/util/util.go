@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -291,6 +292,12 @@ func MD5Hex(s string) string {
 	h := md5.New()
 	h.Write([]byte(s))
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// RedactMongoURI will strip the password out of the MongoURI and replace it with the text "<redacted>"
+func RedactMongoURI(uri string) string {
+	re := regexp.MustCompile("(mongodb://mongodb-ops-manager:)(.*)(@.*&authSource=admin&authMechanism=SCRAM-SHA-1)")
+	return re.ReplaceAllString(uri, "$1<redacted>$3")
 }
 
 // SetDifference returns all 'Identifiable' elements that are in left slice and not in the right one

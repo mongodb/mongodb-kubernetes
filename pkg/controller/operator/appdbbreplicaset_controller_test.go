@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
@@ -60,6 +62,32 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 	configMap := readAutomationConfigMap(t, kubeManager, opsManager)
 	automationConfig.SetVersion(2)
 	checkDeploymentEqualToPublished(t, automationConfig.Deployment, configMap)
+}
+
+func TestPublishAutomationConfig_ScramShaConfigured(t *testing.T) {
+	builder := DefaultOpsManagerBuilder()
+	opsManager := builder.Build()
+	appdb := &opsManager.Spec.AppDB
+	kubeManager := newMockedManager(nil)
+	reconciler := newAppDbReconciler(kubeManager)
+	automationConfig := buildAutomationConfigForAppDb(t, builder)
+	assert.NoError(t, reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S()))
+
+	configMap := readAutomationConfigMap(t, kubeManager, opsManager)
+
+	acStr := configMap.Data[util.AppDBAutomationConfigKey]
+
+	ac, _ := om.BuildAutomationConfigFromBytes([]byte(acStr))
+
+	assert.NotEmpty(t, ac.Auth.Key, "key file content should have been generated")
+	assert.NotEmpty(t, ac.Auth.AutoPwd, "automation agent password should have been generated")
+	assert.False(t, ac.Auth.AuthoritativeSet, "authoritativeSet should be set to false")
+	assert.Equal(t, ac.Auth.AutoUser, util.AutomationAgentName, "agent should have default name")
+	assert.True(t, util.ContainsString(ac.Auth.DeploymentAuthMechanisms, string(authentication.MongoDBCR)), "MONGODB-CR should be configured")
+	assert.True(t, util.ContainsString(ac.Auth.AutoAuthMechanisms, string(authentication.MongoDBCR)), "MONGODB-CR should be configured")
+
+	_, omUser := ac.Auth.GetUser(util.OpsManagerMongoDBUserName, util.DefaultUserDatabase)
+	assert.NotNil(t, omUser, "ops manager user should have been created")
 }
 
 // TestBuildAppDbAutomationConfig checks that the automation config is built correctly
@@ -139,6 +167,7 @@ func TestGenerateScramCredentials(t *testing.T) {
 
 	secondScram1Creds, secondScram256Creds, err := generateScramShaCredentials("my-password", opsManager)
 	assert.NoError(t, err)
+
 	assert.Equal(t, firstScram1Creds, secondScram1Creds, "scram sha 1 credentials should be the same as the password was the same")
 	assert.Equal(t, firstScram256Creds, secondScram256Creds, "scram sha 256 credentials should be the same as the password was the same")
 
@@ -164,14 +193,14 @@ func buildAutomationConfigForAppDb(t *testing.T, builder *OpsManagerBuilder) *om
 	kubeManager := newMockedManager(opsManager)
 
 	// ensure the password exists for the Ops Manager User. The Ops Manager controller will have ensured this
-	kubeManager.client.secrets[objectKey(opsManager.Namespace, opsManager.Name+"-password")] = &corev1.Secret{
+	kubeManager.client.secrets[objectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetSecretName())] = &corev1.Secret{
 		StringData: map[string]string{
 			util.OpsManagerPasswordKey: "my-password",
 		},
 	}
 
 	reconciler := newAppDbReconciler(kubeManager)
-	config, err := reconciler.buildAppDbAutomationConfig(&opsManager.Spec.AppDB, opsManager, builder.BuildStatefulSet(), zap.S())
+	config, err := reconciler.buildAppDbAutomationConfig(&opsManager.Spec.AppDB, opsManager, "my-pass", builder.BuildStatefulSet(), zap.S())
 	assert.NoError(t, err)
 	return config
 }

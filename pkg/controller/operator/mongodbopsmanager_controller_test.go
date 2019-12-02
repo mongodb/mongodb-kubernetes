@@ -104,6 +104,31 @@ func TestOpsManagerReconciler_prepareOpsManagerDuplicatedUser(t *testing.T) {
 	assert.NotContains(t, client.secrets, objectKey(OperatorNamespace, testOm.APIKeySecretName()))
 }
 
+func TestOpsManagerGeneratesAppDBPassword_IfNotProvided(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	reconciler, _, _, _ := defaultTestOmReconciler(t, testOm)
+
+	password, err := reconciler.getAppDBPassword(testOm, zap.S())
+	assert.NoError(t, err)
+	assert.Len(t, password, 100, "auto generated password should have a size of 100")
+}
+
+func TestOpsManagerUsersPassword_SpecifiedInSpec(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").Build()
+	reconciler, client, _, _ := defaultTestOmReconciler(t, testOm)
+
+	client.secrets[objectKey(testOm.Namespace, testOm.Spec.AppDB.PasswordSecretKeyRef.Name)] = &corev1.Secret{
+		Data: map[string][]byte{
+			testOm.Spec.AppDB.PasswordSecretKeyRef.Key: []byte("my-password"), // create the secret with the password
+		},
+	}
+
+	password, err := reconciler.getAppDBPassword(testOm, zap.S())
+
+	assert.NoError(t, err)
+	assert.Equal(t, password, "my-password", "the password specified by the SecretRef should have been returned when specified")
+}
+
 // ******************************************* Helper methods *********************************************************
 
 func defaultTestOmReconciler(t *testing.T, opsManager *mdbv1.MongoDBOpsManager) (*OpsManagerReconciler, *MockedClient,
@@ -134,8 +159,9 @@ func DefaultOpsManagerBuilder() *OpsManagerBuilder {
 	spec := mdbv1.MongoDBOpsManagerSpec{
 		Version: "4.2.0",
 		AppDB: mdbv1.AppDB{
-			MongoDbSpec:    mdbv1.MongoDbSpec{Version: "4.2.0", Members: 3, PodSpec: &mdbv1.MongoDbPodSpec{}},
-			OpsManagerName: "testOM", // in practice this field is set during deserialization
+			MongoDbSpec:          mdbv1.MongoDbSpec{Version: "4.2.0", Members: 3, PodSpec: &mdbv1.MongoDbPodSpec{}},
+			OpsManagerName:       "testOM", // in practice this field is set during deserialization
+			PasswordSecretKeyRef: &mdbv1.SecretKeyRef{},
 		},
 		AdminSecret: "om-admin",
 	}
@@ -160,6 +186,11 @@ func (b *OpsManagerBuilder) SetAppDbMembers(members int) *OpsManagerBuilder {
 
 func (b *OpsManagerBuilder) SetAppDbFeatureCompatibility(version string) *OpsManagerBuilder {
 	b.om.Spec.AppDB.FeatureCompatibilityVersion = &version
+	return b
+}
+
+func (b *OpsManagerBuilder) SetAppDBPassword(secretName, key string) *OpsManagerBuilder {
+	b.om.Spec.AppDB.PasswordSecretKeyRef = &mdbv1.SecretKeyRef{Name: secretName, Key: key}
 	return b
 }
 

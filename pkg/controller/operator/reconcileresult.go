@@ -34,7 +34,9 @@ type reconcileStatus interface {
 type successStatus struct {
 	// TODO refactor the reconcile result topology to include warnings to all the statuses
 	warnings []mdbv1.StatusWarning
-	msg      string
+
+	//lint:ignore U1000 used by a test method
+	msg string
 }
 
 // pendingStatus indicates that the reconciliation process must be suspended and CR should get "Pending" status
