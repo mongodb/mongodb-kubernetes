@@ -295,8 +295,12 @@ func MD5Hex(s string) string {
 }
 
 // RedactMongoURI will strip the password out of the MongoURI and replace it with the text "<redacted>"
+//
 func RedactMongoURI(uri string) string {
-	re := regexp.MustCompile("(mongodb://mongodb-ops-manager:)(.*)(@.*&authSource=admin&authMechanism=SCRAM-SHA-1)")
+	if !strings.Contains(uri, "@") {
+		return uri
+	}
+	re := regexp.MustCompile("(mongodb://.*:)(.*)(@.*:.*)")
 	return re.ReplaceAllString(uri, "$1<redacted>$3")
 }
 
@@ -318,6 +322,20 @@ func SetDifference(left, right []Identifiable) []Identifiable {
 	return result
 }
 
+// SetIntersection returns all 'Identifiable' elements from 'left' and 'right' slice that intersect by 'Identifier()'
+//value. Each intersection is represented as a tuple of two elements - matching elements from 'left' and 'right'
+func SetIntersection(left, right []Identifiable) [][]Identifiable {
+	result := make([][]Identifiable, 0)
+	for _, l := range left {
+		for _, r := range right {
+			if r.Identifier() == l.Identifier() {
+				result = append(result, []Identifiable{l, r})
+			}
+		}
+	}
+	return result
+}
+
 // SetDifferenceGeneric is a convenience function solving lack of covariance in Go: it allows to pass the arrays declared
 // as some types implementing 'Identifiable' and find the difference between them
 // Important: the arrays past must declare types implementing 'Identifiable'!
@@ -326,6 +344,16 @@ func SetDifferenceGeneric(left, right interface{}) []Identifiable {
 	rightIdentifiers := toIdentifiableSlice(right)
 
 	return SetDifference(leftIdentifiers, rightIdentifiers)
+}
+
+// SetIntersectionGeneric is a convenience function solving lack of covariance in Go: it allows to pass the arrays declared
+// as some types implementing 'Identifiable' and find the intersection between them
+// Important: the arrays past must declare types implementing 'Identifiable'!
+func SetIntersectionGeneric(left, right interface{}) [][]Identifiable {
+	leftIdentifiers := toIdentifiableSlice(left)
+	rightIdentifiers := toIdentifiableSlice(right)
+
+	return SetIntersection(leftIdentifiers, rightIdentifiers)
 }
 
 // toIdentifiableSlice uses reflection to cast the array

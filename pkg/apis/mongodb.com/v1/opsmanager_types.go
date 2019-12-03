@@ -10,6 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func init() {
@@ -56,6 +57,9 @@ type MongoDBOpsManagerBackup struct {
 
 	// HeadDB specifies configuration options for the HeadDB
 	HeadDB *PersistenceConfig `json:"headDB,omitempty"`
+
+	// OplogStoreConfigs describes the list of oplog store configs used for backup
+	OplogStoreConfigs []*DataStoreConfig `json:"oplogStores,omitempty"`
 }
 
 type MongoDBOpsManagerStatus struct {
@@ -76,6 +80,40 @@ type OpsManagerStatus struct {
 type AppDbStatus struct {
 	MongoDbStatus
 	PasswordSecretKeyRef *SecretKeyRef `json:"passwordSecretKeyRef,omitempty"`
+}
+
+// DataStoreConfig is the description of the config used to reference to database. Reused by Oplog and Block stores
+// Optionally references the user if the Mongodb is configured with authentication
+type DataStoreConfig struct {
+	Name               string             `json:"name"`
+	MongoDBResourceRef MongoDBResourceRef `json:"mongodbResourceRef"`
+	MongoDBUserRef     *MongoDBUserRef    `json:"mongodbUserRef,omitempty"`
+}
+
+func (f DataStoreConfig) Identifier() interface{} {
+	return f.Name
+}
+
+// MongodbResourceObjectKey returns the object key for the mongodb resource referenced by the dataStoreConfig.
+// It uses the "parent" object namespace if it is not overriden by 'MongoDBResourceRef.namespace'
+func (f DataStoreConfig) MongodbResourceObjectKey(defaultNamespace string) client.ObjectKey {
+	ns := defaultNamespace
+	if f.MongoDBResourceRef.Namespace != "" {
+		ns = f.MongoDBResourceRef.Namespace
+	}
+	return client.ObjectKey{Name: f.MongoDBResourceRef.Name, Namespace: ns}
+}
+
+func (f DataStoreConfig) MongodbUserObjectKey(defaultNamespace string) client.ObjectKey {
+	ns := defaultNamespace
+	if f.MongoDBResourceRef.Namespace != "" {
+		ns = f.MongoDBResourceRef.Namespace
+	}
+	return client.ObjectKey{Name: f.MongoDBUserRef.Name, Namespace: ns}
+}
+
+type MongoDBUserRef struct {
+	Name string `json:"name"`
 }
 
 func (m *MongoDBOpsManager) UnmarshalJSON(data []byte) error {

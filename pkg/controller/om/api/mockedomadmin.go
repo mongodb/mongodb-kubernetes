@@ -1,6 +1,10 @@
 package api
 
-import "github.com/10gen/ops-manager-kubernetes/pkg/controller/om/backup"
+import (
+	"errors"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/backup"
+)
 
 // ********************************************************************************************************************
 // This is a mock for om admin. It's created as a normal (not a test) go file to allow different packages use it for
@@ -20,6 +24,7 @@ type MockedOmAdmin struct {
 	PublicAPIKey string
 
 	daemonConfigs []*backup.DaemonConfig
+	oplogConfigs  []*backup.DataStoreConfig
 }
 
 // NewMockedAdminProvider is the function creating the admin object. The function returns the existing mocked admin instance
@@ -52,10 +57,7 @@ func (a *MockedOmAdmin) ReadDaemonConfig(hostName, headDbDir string) (*backup.Da
 }
 
 func (a *MockedOmAdmin) CreateDaemonConfig(hostName, headDbDir string) error {
-	config := backup.DaemonConfig{Machine: backup.MachineConfig{
-		HeadRootDirectory: headDbDir,
-		MachineHostName:   hostName,
-	}}
+	config := backup.NewDaemonConfig(hostName, headDbDir)
 	// Unfortunately backup API for daemon configs is a bit weird: if headdb dir is not empty - this is an update
 	// as (hostname, headdb) is a composite key
 	if headDbDir != "" {
@@ -66,6 +68,44 @@ func (a *MockedOmAdmin) CreateDaemonConfig(hostName, headDbDir string) error {
 		panic("Updates are not supported!")
 	}
 
-	a.daemonConfigs = append(a.daemonConfigs, &config)
+	a.daemonConfigs = append(a.daemonConfigs, config)
 	return nil
+}
+
+func (a *MockedOmAdmin) ReadOplogStoreConfigs() ([]*backup.DataStoreConfig, error) {
+	return a.oplogConfigs, nil
+}
+
+func (a *MockedOmAdmin) CreateOplogStoreConfig(config *backup.DataStoreConfig) error {
+	for i, v := range a.oplogConfigs {
+		if v.Id == config.Id {
+			// Note, that backup API doesn't throw an error if the config already exists - it just updates it
+			a.oplogConfigs[i] = config
+			return nil
+		}
+	}
+	a.oplogConfigs = append(a.oplogConfigs, config)
+	return nil
+}
+
+func (a *MockedOmAdmin) UpdateOplogStoreConfig(config *backup.DataStoreConfig) error {
+	for i, v := range a.oplogConfigs {
+		if v.Id == config.Id {
+			a.oplogConfigs[i] = config
+			return nil
+		}
+	}
+	// OM backup service doesn't throw any errors if the config is not there
+	return nil
+}
+
+func (a *MockedOmAdmin) DeleteOplogStoreConfig(id string) error {
+	for i, v := range a.oplogConfigs {
+		if v.Id == id {
+			a.oplogConfigs = append(a.oplogConfigs[:i], a.oplogConfigs[i+1:]...)
+			return nil
+		}
+	}
+
+	return errors.New("Failed to remove as the oplog doesn't exist!")
 }

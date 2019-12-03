@@ -1,6 +1,12 @@
 #!/bin/bash
 
+source scripts/funcs
+
 # ensure all python files are correctly formatted with black
+if ! which "black" > /dev/null; then
+    pip3 install -r docker/mongodb-enterprise-tests/requirements-dev.txt
+fi
+
 if ! black --check --quiet .; then
     echo "Python formatting with black failed! Ensure black is installed and python files are correctly formatted."
     exit 1

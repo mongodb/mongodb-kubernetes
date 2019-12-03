@@ -1,11 +1,11 @@
-import copy
 import threading
-import time
+from datetime import datetime
+from typing import List
 
 import pytest
 import requests
+import time
 from kubetester.kubetester import build_auth
-from typing import List, Dict, Set, Tuple
 
 from .kubetester import get_env_var_or_fail
 
@@ -72,7 +72,11 @@ class OMTester(object):
     def do_assert_healthiness(base_url: str):
         endpoint = base_url + "/monitor/health"
         response = requests.request("get", endpoint)
-        assert response.status_code == 200
+        assert (
+            response.status_code == 200
+        ), "Expected HTTP 200 from Ops Manager but got {} ({})".format(
+            response.status_code, datetime.now()
+        )
 
     def om_request(self, method, path, json_object=None):
         headers = {"Content-Type": "application/json"}

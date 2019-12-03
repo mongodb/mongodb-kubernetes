@@ -774,7 +774,7 @@ func buildConnectionUrl(statefulsetName, serviceName, namespace, userName, passw
 	if util.ContainsString(spec.Security.Authentication.Modes, util.SCRAM) {
 		params["authSource"] = util.DefaultUserDatabase
 
-		comparison, err := util.CompareVersions(spec.Version, "4.0.0")
+		comparison, err := util.CompareVersions(spec.Version, util.MinimumScramSha256MdbVersion)
 		if err != nil {
 			// This is the dev error - the object must have a correct state by this stage and the version must be
 			// validated in the controller/web hook

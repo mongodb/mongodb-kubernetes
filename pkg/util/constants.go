@@ -112,6 +112,7 @@ const (
 	DefaultUserDatabase               = "admin"
 	X509                              = "X509"
 	SCRAM                             = "SCRAM"
+	MinimumScramSha256MdbVersion      = "4.0.0"
 
 	// uses a lowercase 'x' and will take precedence over the value specified in
 	// the MongoDB resource

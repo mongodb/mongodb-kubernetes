@@ -17,6 +17,18 @@ type Admin interface {
 
 	// CreateDaemonConfig creates the daemon config with specified hostname and head db path
 	CreateDaemonConfig(hostName, headDbDir string) error
+
+	// ReadOplogStoreConfigs returns all oplog stores registered in Ops Manager
+	ReadOplogStoreConfigs() ([]*backup.DataStoreConfig, error)
+
+	// CreateOplogStoreConfig creates an oplog store in Ops Manager
+	CreateOplogStoreConfig(config *backup.DataStoreConfig) error
+
+	// UpdateOplogStoreConfig updates the oplog store in Ops Manager
+	UpdateOplogStoreConfig(config *backup.DataStoreConfig) error
+
+	// DeleteOplogStoreConfig removes the oplog store by its ID
+	DeleteOplogStoreConfig(id string) error
 }
 
 // AdminProvider is a function which returns an instance of Admin interface initialized with connection parameters.
@@ -51,16 +63,49 @@ func (a *DefaultOmAdmin) ReadDaemonConfig(hostName, headDbDir string) (*backup.D
 }
 
 func (a *DefaultOmAdmin) CreateDaemonConfig(hostName, headDbDir string) error {
-	config := backup.DaemonConfig{Machine: backup.MachineConfig{
-		HeadRootDirectory: headDbDir,
-		MachineHostName:   hostName,
-	}}
+	config := backup.NewDaemonConfig(hostName, headDbDir)
 	// dev note, for creation we don't specify the second path parameter (head db) - it's used only during update
 	_, err := a.put("admin/backup/daemon/configs/%s", config, hostName)
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+// ReadOplogStoreConfigs returns all oplog stores registered in Ops Manager
+// Some assumption: while the API returns the paginated source we don't handle it to make api simpler (quite unprobable
+// to have 500+ configs)
+func (a *DefaultOmAdmin) ReadOplogStoreConfigs() ([]*backup.DataStoreConfig, error) {
+	res, err := a.get("admin/backup/oplog/mongoConfigs/")
+	if err != nil {
+		return nil, err
+	}
+
+	dataStoreConfigResponse := &backup.DataStoreConfigResponse{}
+	if err = json.Unmarshal(res, dataStoreConfigResponse); err != nil {
+		return nil, NewError(err)
+	}
+
+	return dataStoreConfigResponse.DataStoreConfigs, nil
+}
+
+// CreateOplogStoreConfig creates an oplog store in Ops Manager
+func (a *DefaultOmAdmin) CreateOplogStoreConfig(config *backup.DataStoreConfig) error {
+	_, err := a.post("admin/backup/oplog/mongoConfigs/", config)
+
+	return err
+}
+
+// UpdateOplogStoreConfig updates an oplog store in Ops Manager
+func (a *DefaultOmAdmin) UpdateOplogStoreConfig(config *backup.DataStoreConfig) error {
+	_, err := a.put("admin/backup/oplog/mongoConfigs/%s", config.Id, config)
+
+	return err
+}
+
+// DeleteOplogStoreConfig removes the oplog store by its ID
+func (a *DefaultOmAdmin) DeleteOplogStoreConfig(id string) error {
+	return a.delete("admin/backup/oplog/mongoConfigs/%s", id)
 }
 
 //********************************** Private methods *******************************************************************
@@ -73,19 +118,20 @@ func (a *DefaultOmAdmin) put(path string, v interface{}, params ...interface{}) 
 	return a.httpVerb("PUT", path, v, params...)
 }
 
-/*func (a *DefaultOmAdmin) post(path string, v interface{}, params ...interface{}) ([]byte, error) {
+func (a *DefaultOmAdmin) post(path string, v interface{}, params ...interface{}) ([]byte, error) {
 	return a.httpVerb("POST", path, v, params...)
 }
 
+/*
 func (a *DefaultOmAdmin) patch(path string, v interface{}, params ...interface{}) ([]byte, error) {
 	return a.httpVerb("PATCH", path, v, params...)
 }
-
+*/
 func (a *DefaultOmAdmin) delete(path string, params ...interface{}) error {
 	_, err := a.httpVerb("DELETE", path, nil, params...)
 	return err
 }
-*/
+
 func (a *DefaultOmAdmin) httpVerb(method, path string, v interface{}, params ...interface{}) ([]byte, error) {
 	client, err := NewHTTPClient()
 	if err != nil {

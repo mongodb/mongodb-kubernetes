@@ -59,7 +59,8 @@ type SecretKeyRef struct {
 }
 
 type MongoDBResourceRef struct {
-	Name string `json:"name"`
+	Name      string `json:"name"`
+	Namespace string `json:"namespace,omitempty"`
 }
 
 type MongoDBUserSpec struct {

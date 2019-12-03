@@ -76,17 +76,33 @@ func TestRedactURI(t *testing.T) {
 	expected := "mongo.mongoUri=mongodb://mongodb-ops-manager:<redacted>@om-scram-db-0.om-scram-db-svc.mongodb.svc.cluster.local:27017/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&authSource=admin&authMechanism=SCRAM-SHA-1"
 	assert.Equal(t, expected, RedactMongoURI(uri))
 
-	uri = "mongo.mongoUri=mongodb://mongodb-ops-manager:mongodb-ops-manager@om-scram-db-0.om-scram-db-svc.mongodb.svc.cluster.local:27017/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&authSource=admin&authMechanism=SCRAM-SHA-1"
-	expected = "mongo.mongoUri=mongodb://mongodb-ops-manager:<redacted>@om-scram-db-0.om-scram-db-svc.mongodb.svc.cluster.local:27017/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&authSource=admin&authMechanism=SCRAM-SHA-1"
+	uri = "mongo.mongoUri=mongodb://mongodb-ops-manager:mongodb-ops-manager@om-scram-db-0.om-scram-db-svc.mongodb.svc.cluster.local:27017/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000"
+	expected = "mongo.mongoUri=mongodb://mongodb-ops-manager:<redacted>@om-scram-db-0.om-scram-db-svc.mongodb.svc.cluster.local:27017/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000"
 	assert.Equal(t, expected, RedactMongoURI(uri))
 
-	uri = "mongo.mongoUri=mongodb://mongodb-ops-manager:12345AllTheCharactersWith@SymbolToo@om-scram-db-0.om-scram-db-svc.mongodb.svc.cluster.local:27017/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&authSource=admin&authMechanism=SCRAM-SHA-1"
-	expected = "mongo.mongoUri=mongodb://mongodb-ops-manager:<redacted>@om-scram-db-0.om-scram-db-svc.mongodb.svc.cluster.local:27017/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&authSource=admin&authMechanism=SCRAM-SHA-1"
+	// the password with '@' in it
+	uri = "mongo.mongoUri=mongodb://some-user:12345AllTheCharactersWith@SymbolToo@om-scram-db-0.om-scram-db-svc.mongodb.svc.cluster.local:27017"
+	expected = "mongo.mongoUri=mongodb://some-user:<redacted>@om-scram-db-0.om-scram-db-svc.mongodb.svc.cluster.local:27017"
+	assert.Equal(t, expected, RedactMongoURI(uri))
+
+	// no authentication data
+	uri = "mongo.mongoUri=mongodb://om-scram-db-0.om-scram-db-svc.mongodb.svc.cluster.local:27017"
+	expected = "mongo.mongoUri=mongodb://om-scram-db-0.om-scram-db-svc.mongodb.svc.cluster.local:27017"
 	assert.Equal(t, expected, RedactMongoURI(uri))
 }
 
 type someId struct {
+	// name is a "key" field used for merging
 	name string
+	// some other property. Indicates which exactly object was returned by an aggregation operation
+	property string
+}
+
+func newSome(name, property string) someId {
+	return someId{
+		name:     name,
+		property: property,
+	}
 }
 
 func (s someId) Identifier() interface{} {
@@ -94,31 +110,79 @@ func (s someId) Identifier() interface{} {
 }
 
 func TestSetDifference(t *testing.T) {
-	left := []Identifiable{someId{"1"}, someId{"2"}}
-	right := []Identifiable{someId{"2"}, someId{"3"}}
+	oneLeft := newSome("1", "left")
+	twoLeft := newSome("2", "left")
+	twoRight := newSome("2", "right")
+	threeRight := newSome("3", "right")
+	fourRight := newSome("4", "right")
 
-	assert.Equal(t, []Identifiable{someId{"1"}}, SetDifference(left, right))
-	assert.Equal(t, []Identifiable{someId{"3"}}, SetDifference(right, left))
+	left := []Identifiable{oneLeft, twoLeft}
+	right := []Identifiable{twoRight, threeRight}
 
-	left = []Identifiable{someId{"1"}, someId{"2"}}
-	right = []Identifiable{someId{"3"}, someId{"4"}}
+	assert.Equal(t, []Identifiable{oneLeft}, SetDifference(left, right))
+	assert.Equal(t, []Identifiable{threeRight}, SetDifference(right, left))
+
+	left = []Identifiable{oneLeft, twoLeft}
+	right = []Identifiable{threeRight, fourRight}
 	assert.Equal(t, left, SetDifference(left, right))
 
 	left = []Identifiable{}
-	right = []Identifiable{someId{"3"}, someId{"4"}}
+	right = []Identifiable{threeRight, fourRight}
 	assert.Empty(t, SetDifference(left, right))
 	assert.Equal(t, right, SetDifference(right, left))
 
 	left = nil
-	right = []Identifiable{someId{"3"}, someId{"4"}}
+	right = []Identifiable{threeRight, fourRight}
 	assert.Empty(t, SetDifference(left, right))
 	assert.Equal(t, right, SetDifference(right, left))
 
 	// check reflection magic to solve lack of covariance in go. The arrays are declared as '[]someId' instead of
 	// '[]Identifiable'
-	leftNotIdentifiable := []someId{{"1"}, {"2"}}
-	rightNotIdentifiable := []someId{{"2"}, {"3"}}
+	leftNotIdentifiable := []someId{oneLeft, twoLeft}
+	rightNotIdentifiable := []someId{twoRight, threeRight}
 
-	assert.Equal(t, []Identifiable{someId{"1"}}, SetDifferenceGeneric(leftNotIdentifiable, rightNotIdentifiable))
-	assert.Equal(t, []Identifiable{someId{"3"}}, SetDifferenceGeneric(rightNotIdentifiable, leftNotIdentifiable))
+	assert.Equal(t, []Identifiable{oneLeft}, SetDifferenceGeneric(leftNotIdentifiable, rightNotIdentifiable))
+	assert.Equal(t, []Identifiable{threeRight}, SetDifferenceGeneric(rightNotIdentifiable, leftNotIdentifiable))
+}
+
+func TestSetIntersection(t *testing.T) {
+	oneLeft := newSome("1", "left")
+	oneRight := newSome("1", "right")
+	twoLeft := newSome("2", "left")
+	twoRight := newSome("2", "right")
+	threeRight := newSome("3", "right")
+	fourRight := newSome("4", "right")
+
+	left := []Identifiable{oneLeft, twoLeft}
+	right := []Identifiable{twoRight, threeRight}
+
+	assert.Equal(t, [][]Identifiable{pair(twoLeft, twoRight)}, SetIntersection(left, right))
+	assert.Equal(t, [][]Identifiable{pair(twoRight, twoLeft)}, SetIntersection(right, left))
+
+	left = []Identifiable{oneLeft, twoLeft}
+	right = []Identifiable{threeRight, fourRight}
+	assert.Empty(t, SetIntersection(left, right))
+	assert.Empty(t, SetIntersection(right, left))
+
+	left = []Identifiable{}
+	right = []Identifiable{threeRight, fourRight}
+	assert.Empty(t, SetIntersection(left, right))
+	assert.Empty(t, SetIntersection(right, left))
+
+	left = nil
+	right = []Identifiable{threeRight, fourRight}
+	assert.Empty(t, SetIntersection(left, right))
+	assert.Empty(t, SetIntersection(right, left))
+
+	// check reflection magic to solve lack of covariance in go. The arrays are declared as '[]someId' instead of
+	// '[]Identifiable'
+	leftNotIdentifiable := []someId{oneLeft, twoLeft}
+	rightNotIdentifiable := []someId{oneRight, twoRight, threeRight}
+
+	assert.Equal(t, [][]Identifiable{pair(oneLeft, oneRight), pair(twoLeft, twoRight)}, SetIntersectionGeneric(leftNotIdentifiable, rightNotIdentifiable))
+	assert.Equal(t, [][]Identifiable{pair(oneRight, oneLeft), pair(twoRight, twoLeft)}, SetIntersectionGeneric(rightNotIdentifiable, leftNotIdentifiable))
+}
+
+func pair(left, right Identifiable) []Identifiable {
+	return []Identifiable{left, right}
 }

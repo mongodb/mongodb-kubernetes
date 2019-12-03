@@ -1,11 +1,13 @@
 package operator
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/rand"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/backup"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -384,6 +386,135 @@ func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager *mdbv1.Mongo
 		}
 	} else if err != nil {
 		return failedErr(err)
+	}
+
+	// 2. Oplog store configs
+	status := r.ensureOplogStoresInOpsManager(opsManager, omAdmin, log)
+	return status
+}
+
+// ensureOplogStoresInOpsManager aligns the oplog stores in Ops Manager with the Operator state. So it adds the new configs
+// and removes the non-existing ones. Note that there's no update operation as so far the Operator manages only one field
+// 'path'. This will allow users to make any additional changes to the file system stores using Ops Manager UI and the
+// Operator won't override them
+func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(opsManager *mdbv1.MongoDBOpsManager, omAdmin api.Admin, log *zap.SugaredLogger) reconcileStatus {
+	if !opsManager.Spec.Backup.Enabled {
+		return ok()
+	}
+	opsManagerOplogConfigs, err := omAdmin.ReadOplogStoreConfigs()
+	if err != nil {
+		return failedErr(err)
+	}
+
+	// Creating new configs
+	operatorOplogConfigs := opsManager.Spec.Backup.OplogStoreConfigs
+	configsToCreate := util.SetDifferenceGeneric(operatorOplogConfigs, opsManagerOplogConfigs)
+	for _, v := range configsToCreate {
+		omConfig, status := r.buildOMDatastoreConfig(opsManager, v.(*mdbv1.DataStoreConfig))
+		if !status.isOk() {
+			return status
+		}
+		log.Debugw("Creating Oplog Store in Ops Manager", "config", omConfig)
+		if err = omAdmin.CreateOplogStoreConfig(omConfig); err != nil {
+			return failedErr(err)
+		}
+	}
+
+	// Updating existing configs. It intersects the OM API configs with Operator spec configs and returns pairs
+	//["omConfig", "operatorConfig"].
+	configsToUpdate := util.SetIntersectionGeneric(opsManagerOplogConfigs, operatorOplogConfigs)
+	for _, v := range configsToUpdate {
+		omConfig := v[0].(*backup.DataStoreConfig)
+		operatorConfig := v[1].(*mdbv1.DataStoreConfig)
+		operatorView, status := r.buildOMDatastoreConfig(opsManager, operatorConfig)
+		if !status.isOk() {
+			return status
+		}
+
+		// Now we need to merge the Operator version into the OM one overriding only the fields that the Operator
+		// "owns"
+		configToUpdate := operatorView.MergeIntoOpsManagerConfig(omConfig)
+		log.Debugw("Updating Oplog Store in Ops Manager", "config", configToUpdate)
+		if err = omAdmin.UpdateOplogStoreConfig(configToUpdate); err != nil {
+			return failedErr(err)
+		}
+	}
+
+	// Removing non-existing configs
+	configsToRemove := util.SetDifferenceGeneric(opsManagerOplogConfigs, opsManager.Spec.Backup.OplogStoreConfigs)
+	for _, v := range configsToRemove {
+		log.Debugf("Removing Oplog Store %s from Ops Manager", v.Identifier())
+		if err = omAdmin.DeleteOplogStoreConfig(v.Identifier().(string)); err != nil {
+			return failedErr(err)
+		}
+	}
+	return ok()
+}
+
+// buildOMDatastoreConfig builds the OM API datastore config based on the Kubernetes OM resource one.
+// To do this it may need to read the Mongodb User and its password to build mongodb url correctly
+func (r *OpsManagerReconciler) buildOMDatastoreConfig(opsManager *mdbv1.MongoDBOpsManager, operatorConfig *mdbv1.DataStoreConfig) (*backup.DataStoreConfig, reconcileStatus) {
+	mongodb := &mdbv1.MongoDB{}
+	mongodbObjectKey := operatorConfig.MongodbResourceObjectKey(opsManager.Namespace)
+	err := r.client.Get(context.TODO(), mongodbObjectKey, mongodb)
+	if err != nil {
+		if apiErrors.IsNotFound(err) {
+			// Returning pending as the user may create the mongodb resource soon
+			return nil, pending("The MongoDB object %s doesn't exist", mongodbObjectKey)
+		}
+		return nil, failedErr(err)
+	}
+
+	status := validateDataStoreConfig(mongodb, operatorConfig)
+	if !status.isOk() {
+		return nil, status
+	}
+
+	var userName, password string
+	// If MongoDB resource has scram-sha enabled then we need to read the username and the password.
+	// Note, that we don't worry if the 'mongodbUserRef' is specified but SCRAM-SHA is not enabled - we just ignore the
+	// user
+	if util.ContainsString(mongodb.Spec.Security.Authentication.Modes, util.SCRAM) {
+		// We need to fetch username + password if the resource is SCRAM-SHA enabled
+		mongodbUser := &mdbv1.MongoDBUser{}
+		mongodbUserObjectKey := operatorConfig.MongodbUserObjectKey(opsManager.Namespace)
+		err = r.client.Get(context.TODO(), mongodbUserObjectKey, mongodbUser)
+		if err != nil {
+			if apiErrors.IsNotFound(err) {
+				// Returning pending as the user may create the mongodb resource soon
+				return nil, pending("The MongoDBUser object %s doesn't exist", mongodbUserObjectKey)
+			}
+			return nil, failedErr(err)
+		}
+		userName = mongodbUser.Spec.Username
+		password, err = mongodbUser.GetPassword(r.client)
+		if err != nil {
+			return nil, failed("Failed to read password for the user %s: %s", mongodbUserObjectKey, err)
+		}
+	}
+	tls := mongodb.Spec.Security.TLSConfig.Enabled
+	mongoUri := mongodb.ConnectionURL(userName, password, map[string]string{})
+
+	return backup.NewDataStoreConfig(operatorConfig.Name, mongoUri, tls), ok()
+}
+
+func validateDataStoreConfig(mongodb *mdbv1.MongoDB, config *mdbv1.DataStoreConfig) reconcileStatus {
+	// validate
+	if !util.ContainsString(mongodb.Spec.Security.Authentication.Modes, util.SCRAM) &&
+		len(mongodb.Spec.Security.Authentication.Modes) > 0 {
+		return failed("The only authentication mode supported for Oplog/Blockstore databases is SCRAM-SHA")
+	}
+	if util.ContainsString(mongodb.Spec.Security.Authentication.Modes, util.SCRAM) &&
+		(config.MongoDBUserRef == nil || config.MongoDBUserRef.Name == "") {
+		return failed("MongoDB resource %s is configured to use SCRAM-SHA authentication mode, the user must be"+
+			" specified using 'mongodbUserRef'", config.MongoDBResourceRef.Name)
+	}
+	comparison, err := util.CompareVersions(mongodb.Spec.Version, util.MinimumScramSha256MdbVersion)
+	if err != nil {
+		return failedErr(err)
+	}
+	if util.ContainsString(mongodb.Spec.Security.Authentication.Modes, util.SCRAM) && comparison >= 0 {
+		return failed("The Oplog/Blockstore database with SCRAM-SHA enabled must have version less than 4.0.0")
 	}
 	return ok()
 }
