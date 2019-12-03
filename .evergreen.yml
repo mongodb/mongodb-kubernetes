@@ -560,8 +560,8 @@ functions:
           AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
 
           VERSIONS: ${versions}
-          PRERELEASE_FROM: ${prerelease_from}
-          PRERELEASE_TO: ${prerelease_to}
+          TAG_SOURCE: ${tag_source}
+          TAG_DEST: ${tag_dest}
           IMAGE_SOURCE: ${image_source}
           IMAGE_TARGET: ${image_target}
 
@@ -751,33 +751,10 @@ tasks:
         env: production
         image_name: mongodb-enterprise-database
 
-- name: release_operator_rhel_connect
-  tags: ["release_operator_rhel"]
-  patch_only: true
-  commands:
-    - func: clone
-    - func: "setup_jq"
-    - func: build_rhel_images
-
-- name: build_operator_rhel_connect
-  tags: ["build_operator_rhel"]
-  patch_only: true
-  commands:
-    - func: "clone"
-    - func: "setup_jq"
-    - func: "build_operator"
-      vars:
-        distro: rhel
-    - func: "build_database"
-      vars:
-        distro: rhel
-    - func: "push_operator_binary_for_rhel"
-    - func: "push_database_readiness_probe_for_rhel"
-
 # release_ops_manager_rhel Releases the just build Docker image
 # with a release image tag.
-# The registry location (variable with name `to`) is obtained from RedHat Connect.
-- name: release_ops_manager_rhel
+# The registry location (variable with name `image_target`) is obtained from RedHat Connect.
+- name: release_ops_manager_rh_connect
   patch_only: True
   commands:
     - func: clone
@@ -786,25 +763,54 @@ tasks:
     - func: setup_docker
     - func: setup_ecr_login_helper
 
-    # Ops Manager Release
+    # Ops Manager Image
     - func: release_docker_image_to_registry
       vars:
-        versions: "jq --raw-output '.opsManagerImages[] | .version' < release.json"
-        prerelease_from: 'echo "operator$(git describe --dirty)"'
-        prerelease_to: 'echo "operator$(git describe --dirty)"'
+        versions: '$(jq --raw-output ".opsManagerImages[] | .version" < release.json)'
+        tag_source: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
+        tag_dest: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
         image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/rhel/mongodb-enterprise-ops-manager
         image_target: scan.connect.redhat.com/ospid-b419ca35-17b4-4655-adee-a34e704a6835/mongodb-enterprise-ops-manager
         docker_password: ${rhc_om_pid}
 
-    # AppDB Release
+    # AppDB Image
     - func: release_docker_image_to_registry
       vars:
-        versions: "jq --raw-output '.opsManagerImages[] | .version' < release.json"
-        prerelease_from: 'echo "operator$(git describe --dirty)"'
-        prerelease_to: 'echo "operator$(git describe --dirty)"'
+        versions: '$(jq --raw-output ".opsManagerImages[] | .version" < release.json)'
+        tag_source: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
+        tag_dest: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
         image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/rhel/mongodb-enterprise-appdb
         image_target: scan.connect.redhat.com/ospid-31c2f102-af15-4e15-87b9-30710586d9ad/mongodb-enterprise-appdb
         docker_password: ${rhc_appdb_pid}
+
+# release_operator_rh_connect Releases the Operator and Database image to RH Connect.
+- name: release_operator_rh_connect
+  patch_only: True
+  commands:
+    - func: clone
+    - func: guard_git_repo_is_clean
+    - func: setup_jq
+    - func: setup_ecr_login_helper
+
+    # Operator Image
+    - func: release_docker_image_to_registry
+      vars:
+        versions: ${version_id}
+        tag_source: '$(echo $version)'
+        tag_dest: '$(jq --raw-output .mongodbOperator < release.json)'
+        image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/rhel/mongodb-enterprise-operator
+        image_target: scan.connect.redhat.com/ospid-5558a531-617e-46d7-9320-e84d3458768a/mongodb-enterprise-operator
+        docker_password: ${rhc_operator_pid}
+
+    # Database Image
+    - func: release_docker_image_to_registry
+      vars:
+        versions: ${version_id}
+        tag_source: '$(echo $version)'
+        tag_dest: '$(jq --raw-output .mongodbOperator < release.json)'
+        image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/rhel/mongodb-enterprise-database
+        image_target: scan.connect.redhat.com/ospid-239de277-d8bb-44b4-8593-73753752317f/mongodb-enterprise-database
+        docker_password: ${rhc_database_pid}
 
 # build_binaries builds and pushes binaries required to build the Database and
 # Operator Docker images. Currently these are the actual operator and the
@@ -1601,8 +1607,6 @@ buildvariants:
     - archlinux-test
   tasks:
     - ".release_operator"
-    - ".release_operator_rhel"
-    - ".build_operator_rhel"
 
 - name: e2e_kube_vanilla_om_40_first
   display_name: "e2e_kube_vanilla_om_40_first"
@@ -1740,9 +1744,9 @@ buildvariants:
     - name: "e2e_ops_manager_task_group"
 
 # Runs the complete suite of tests for Ops Manager Container in Openshift
-# and releases the Docker images to RedHat Container Catalog
-- name: release_ops_manager_rhel
-  display_name: release_ops_manager_rhel
+# and releases the Docker images to RedHat Container Catalog.
+- name: release_ops_manager_rh_connect
+  display_name: release_ops_manager_rh_connect
   depends_on:
     # TODO: I'm not sure how to depend on a set of tasks, maybe
     # I could use a "tag"?
@@ -1764,7 +1768,26 @@ buildvariants:
     test_mode: opsmanager
     distro: rhel
   tasks:
-     - name: release_ops_manager_rhel
+     - name: release_ops_manager_rh_connect
+
+# Builds and tests the Operator and Database images. If the tests succeed, the
+# the image is pushed to Redhat service.
+- name: release_operator_rh_connect
+  display_name: release_operator_rh_connect
+  depends_on:
+    # TODO: Decide what tests are sufficient as sanity checks.
+    - name: e2e_replica_set
+      variant: e2e_openshift_origin_v3_om_42_current
+  run_on:
+    # We use rhel76-docker because the only requirement is Docker to be installed.
+    # and the queue is much faster.
+    - rhel76-docker
+  stepback: false
+  expansions:
+    <<: *kubernetes_environment_openshift_3
+    distro: rhel
+  tasks:
+    - name: release_operator_rh_connect
 
 - name: init_test_run
   display_name: init_test_run
@@ -1780,28 +1803,6 @@ buildvariants:
   - name: prepare_cluster_openshift_3
   - name: prepare_cluster_vanilla
   - name: prepare_cluster_vanilla_om
-
-#
-# TODO(rodrigo): There's no mechanism that I know of to avoid running this
-#                build variant at master-merge time. Disabling it for now.
-#                This will be improved as part of CLOUDP-38550
-#
-# - name: openshift_rhel_prebuilt_images
-#   display_name: openshift_rhel_prebuilt_images
-#   depends_on:
-#   - name: build_images_rhel
-#     variant: init_test_run
-#   run_on:
-#     - archlinux-test
-#   expansions:
-#     <<: *rhel_prebuilt_images
-#     <<: *cloud_manager_qa
-#     <<: *kubernetes_environment_openshift_3
-#     distro: rhel
-#   tasks:
-#     - name: e2e_core_task_group
-#     - name: e2e_tls_task_group
-#     - name: e2e_x509_task_group
 
 - name: go_unit_tests
   display_name: "go_unit_tests"

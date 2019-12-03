@@ -99,16 +99,11 @@ images by itself eventually.  To submit the job call the following:
 
 ```bash
 evergreen patch -p ops-manager-kubernetes \
-  -v release_operator \
-  -t release_operator_rhel_connect \
+  -v release_operator_rh_connect \
+  -t release_operator_rh_connect \
   -y -f -d "Building RHEL Images: $(jq -r .mongodbOperator <release.json)" \
   --browse
 ```
-
-Track the status of the jobs for operator and database using the following links:
-
-* https://connect.redhat.com/project/850021/build-service
-* https://connect.redhat.com/project/851701/build-service
 
 Note, that so far the build service is not reliable and some checks may fail - you need to trigger new builds on the
 site manually specifying the new version (increase the patch part, e.g. `0.7.1`) and hopefully the build will succeed
@@ -117,8 +112,6 @@ eventually.
 Finally publish the images manually:
 * https://connect.redhat.com/project/850021/view (Operator)
 * https://connect.redhat.com/project/851701/view (Database)
-
-(more details about RHEL build process are in https://github.com/10gen/kubernetes-rhel-images)
 
 ### Ops Manager & AppDB
 
