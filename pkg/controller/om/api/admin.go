@@ -98,7 +98,7 @@ func (a *DefaultOmAdmin) CreateOplogStoreConfig(config *backup.DataStoreConfig) 
 
 // UpdateOplogStoreConfig updates an oplog store in Ops Manager
 func (a *DefaultOmAdmin) UpdateOplogStoreConfig(config *backup.DataStoreConfig) error {
-	_, err := a.put("admin/backup/oplog/mongoConfigs/%s", config.Id, config)
+	_, err := a.put("admin/backup/oplog/mongoConfigs/%s", config, config.Id)
 
 	return err
 }

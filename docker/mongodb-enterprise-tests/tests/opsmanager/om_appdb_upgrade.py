@@ -32,6 +32,15 @@ class TestOpsManagerCreation(OpsManagerBase):
     def test_appdb(self):
         assert self.om_cr.get_appdb_status()["members"] == 3
         assert self.om_cr.get_appdb_status()["version"] == "4.0.0"
+        response = self.corev1.list_namespaced_pod(self.namespace)
+        db_pods = [
+            pod
+            for pod in response.items
+            if pod.metadata.name.startswith(self.om_cr.app_db_name())
+        ]
+        for pod in db_pods:
+            # the appdb pods by default have 500M
+            assert pod.spec.containers[0].resources.requests["memory"] == "500M"
 
     def test_admin_config_map(self):
         config_map = self.corev1.read_namespaced_config_map(
@@ -116,10 +125,10 @@ class TestOpsManagerAppDbUpdateMemory(OpsManagerBase):
     """
     name: Ops Manager appdb pod spec change
     description: |
-      Changes memory requirements for the AppDB
+      Changes memory limits requirements for the AppDB
     update:
       file: om_appdb_upgrade.yaml
-      patch: '[{"op":"add","path":"/spec/applicationDatabase","value": {"podSpec": { "memory": "200M" }}}]'
+      patch: '[{"op":"add","path":"/spec/applicationDatabase","value": {"podSpec": { "memory": "350M" }}}]'
       wait_until: om_in_running_state
       timeout: 400
     """
@@ -133,7 +142,7 @@ class TestOpsManagerAppDbUpdateMemory(OpsManagerBase):
             if pod.metadata.name.startswith(self.om_cr.app_db_name())
         ]
         for pod in db_pods:
-            assert pod.spec.containers[0].resources.requests["memory"] == "200M"
+            assert pod.spec.containers[0].resources.requests["memory"] == "350M"
 
     def test_admin_config_map(self):
         config_map = self.corev1.read_namespaced_config_map(

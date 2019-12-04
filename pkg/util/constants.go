@@ -154,6 +154,7 @@ const (
 	DefaultJournalStorageSize          = "1G" // maximum size for single journal file is 100Mb, journal files are removed soon after checkpoints
 	DefaultLogsStorageSize             = "3G"
 	DefaultHeadDbStorageSize           = "32G"
+	DefaultMemoryAppDB                 = "500M"
 	DefaultAntiAffinityTopologyKey     = "kubernetes.io/hostname"
 	MongoDbDefaultPort                 = 27017
 	OpsManagerDefaultPort              = 8080

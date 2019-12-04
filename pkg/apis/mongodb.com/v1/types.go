@@ -598,28 +598,32 @@ type PersistenceConfig struct {
 }
 
 func (p PodSpecWrapper) GetCpuOrDefault() string {
-	if p.Cpu == "" {
+	if p.Cpu == "" && p.CpuRequests == "" {
 		return p.Default.Cpu
 	}
 	return p.Cpu
 }
 
 func (p PodSpecWrapper) GetMemoryOrDefault() string {
-	if p.Memory == "" {
+	// We don't set default if either Memory requests or Memory limits are specified by the User
+	if p.Memory == "" && p.MemoryRequests == "" {
 		return p.Default.Memory
 	}
 	return p.Memory
 }
 
 func (p PodSpecWrapper) GetCpuRequestsOrDefault() string {
-	if p.CpuRequests == "" {
+	if p.CpuRequests == "" && p.Cpu == "" {
 		return p.Default.CpuRequests
 	}
 	return p.CpuRequests
 }
 
 func (p PodSpecWrapper) GetMemoryRequestsOrDefault() string {
-	if p.MemoryRequests == "" {
+	// We don't set default if either Memory requests or Memory limits are specified by the User
+	// otherwise it's possible to get failed Statefulset (e.g. the user specified limits of 200M but we default
+	//requests to 500M though requests must be less than limits)
+	if p.MemoryRequests == "" && p.Memory == "" {
 		return p.Default.MemoryRequests
 	}
 	return p.MemoryRequests

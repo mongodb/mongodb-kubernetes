@@ -55,12 +55,19 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *mdbv1.MongoDBOpsManager
 	log.Infow("ReplicaSet.Spec", "spec", rs)
 	log.Infow("ReplicaSet.Status", "status", opsManager.Status.AppDbStatus)
 
+	// Providing the default size of pod as otherwise sometimes the agents in pod complain about not enough memory
+	// on mongodb download: "write /tmp/mms-automation/test/versions/mongodb-linux-x86_64-4.0.0/bin/mongo: cannot
+	// allocate memory"
+	appdbPodSpec := NewDefaultPodSpecWrapper(*rs.PodSpec)
+	appdbPodSpec.Default.MemoryRequests = util.DefaultMemoryAppDB
+
 	// It's ok to pass 'opsManager' instance to statefulset constructor as it will be the owner for the appdb statefulset
 	replicaBuilder := r.kubeHelper.NewStatefulSetHelper(opsManager).
 		SetName(rs.Name()).
 		SetService(rs.ServiceName()).
 		SetPodVars(&PodVars{}). // TODO remove
 		SetLogger(log).
+		SetPodSpec(appdbPodSpec).
 		SetClusterName(opsManager.ClusterName).
 		SetVersion(opsManager.Spec.Version) // the version of the appdb image must match the OM image one
 

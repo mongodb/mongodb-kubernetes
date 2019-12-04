@@ -17,4 +17,4 @@ spec:
     version: 4.0.0
     persistent: false
     podSpec:
-      memory: '250M'
+      memory: '350M'

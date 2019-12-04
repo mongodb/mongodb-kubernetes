@@ -2,9 +2,6 @@ import pytest
 
 from tests.opsmanager.om_base import OpsManagerBase
 
-gen_key_resource_version = None
-admin_key_resource_version = None
-
 
 @pytest.mark.e2e_om_appdb_validation
 class TestOpsManagerAppDbWrongVersion(OpsManagerBase):
