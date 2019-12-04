@@ -313,7 +313,7 @@ func (oc *MockedOmConnection) RemoveHost(hostID string) error {
 func (oc *MockedOmConnection) ReadOrganizationsByName(name string) ([]*Organization, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadOrganizationsByName))
 	allOrgs := make([]*Organization, 0)
-	for k, _ := range oc.OrganizationsWithGroups {
+	for k := range oc.OrganizationsWithGroups {
 		if k.Name == name {
 			allOrgs = append(allOrgs, k)
 		}
@@ -328,7 +328,7 @@ func (oc *MockedOmConnection) ReadOrganizations(page int) (Paginated, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadOrganizations))
 	// We don't set Next field - so there should be no pagination
 	allOrgs := make([]*Organization, 0)
-	for k, _ := range oc.OrganizationsWithGroups {
+	for k := range oc.OrganizationsWithGroups {
 		allOrgs = append(allOrgs, k)
 	}
 	response := OrganizationsResponse{Organizations: allOrgs, OMPaginaged: OMPaginaged{TotalCount: len(oc.OrganizationsWithGroups)}}
@@ -643,7 +643,7 @@ func (oc *MockedOmConnection) FindGroup(groupName string) *Project {
 }
 
 func (oc *MockedOmConnection) findOrganization(orgId string) (*Organization, error) {
-	for k, _ := range oc.OrganizationsWithGroups {
+	for k := range oc.OrganizationsWithGroups {
 		if k.ID == orgId {
 			return k, nil
 		}
