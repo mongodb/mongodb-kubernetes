@@ -56,6 +56,8 @@ This will create a new `crd` in your cluster, `MongoDB`. This new object will be
 
 #### Operator Installation
 
+* In order to install the Operator in OpenShift, please follow [these](openshift-install.md) instructions instead.
+
 This operator can also be installed using yaml files, in case you are not using Helm. You may apply the config directly from github clone this repo, and apply the file
 
     kubectl apply -f https://raw.githubusercontent.com/mongodb/mongodb-enterprise-kubernetes/master/mongodb-enterprise.yaml
@@ -63,18 +65,6 @@ This operator can also be installed using yaml files, in case you are not using 
 or clone this repo, make any edits you need, and apply it from your machine.
 
     kubectl apply -f mongodb-enterprise.yaml
-
-Use `mongodb-enterprise-openshift.yaml` if you want to install the Operator on an OpenShift cluster. The MongoDB images are published to Redhat Container
-Catalog which requires authenticated access. You will find information on how to get and use a `imagePullSecrets` field in this [Redhat Access
-Page](https://access.redhat.com/terms-based-registry/) (Requires authentication).
-
-Once you have your `imagePullSecrets` token, you should add it to two different places, on the `Deployment` object:
-
-* `spec.template.spec.containers[0].imagePullSecrets` set this value to your `imagePullSecrets`
-* `spec.template.spec.containers[0].env` add a new entry with `name` set
-  to `IMAGE_PULL_SECRETS` and `value` set to the `imagePullSecrets` you got from Redhat Container Catalog.
-
-Check the end of the page for instructions on how to remove the Operator.
 
 ### Installation using Helm Chart
 
