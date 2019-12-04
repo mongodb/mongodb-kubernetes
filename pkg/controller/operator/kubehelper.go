@@ -829,17 +829,30 @@ func (k *KubeHelper) createOrUpdateSecret(name, namespace string, pemFiles *pemC
 	secret := &corev1.Secret{}
 	err := k.client.Get(context.TODO(), objectKey(namespace, name), secret)
 	if err != nil {
-		// assume the secret was not found, need to create it
-		// passing 'nil' as an owner reference as we haven't decided yet if we need to remove certificates
-		return k.createSecret(objectKey(namespace, name), pemFiles.merge(), labels, nil)
+		if apiErrors.IsNotFound(err) {
+			// assume the secret was not found, need to create it
+			// passing 'nil' as an owner reference as we haven't decided yet if we need to remove certificates
+			return k.createSecret(objectKey(namespace, name), pemFiles.merge(), labels, nil)
+		}
+		return err
 	}
 
 	// if the secret already exists, it might contain entries that we want merged:
 	// for each Pod we'll have the key and the certificate, but we might also have the
 	// certificate added in several stages. If a certificate/key exists, and this
 
-	secret.StringData = pemFiles.mergeWith(secret.Data)
-	return k.client.Update(context.TODO(), secret)
+	pemData := pemFiles.mergeWith(secret.Data)
+	secret.StringData = pemData
+	if err = k.client.Update(context.TODO(), secret); err != nil {
+		// attempt one retry
+		if err = k.client.Get(context.TODO(), objectKey(namespace, name), secret); err != nil {
+			return err
+		}
+		secret.StringData = pemData
+		return k.client.Update(context.TODO(), secret)
+	}
+
+	return nil
 }
 
 // createSecret creates the secret. 'data' must either 'map[string][]byte' or 'map[string]string'

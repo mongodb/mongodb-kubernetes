@@ -1145,6 +1145,12 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_tls_rs_external_access_tls_transition
+  tags: ["openshift-om-qa"]
+  exec_timeout_secs: 720
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_sharded_cluster
   exec_timeout_secs: 1200
   commands:
@@ -1508,11 +1514,9 @@ task_groups:
     - e2e_replica_set_tls_require
     - e2e_replica_set_tls_require_upgrade
     - e2e_replica_set_tls_require_and_disable
-    # Comment out flaky tests—should be readded when issue is fixed
-    # https://jira.mongodb.org/browse/CLOUDP-53701
-    #- e2e_tls_rs_additional_certs
-    #- e2e_tls_sc_additional_certs
-    #- e2e_tls_sc_additional_certs_transition
+    - e2e_tls_rs_additional_certs
+    - e2e_tls_sc_additional_certs
+    - e2e_tls_sc_additional_certs_transition
     - e2e_sharded_cluster_tls_require
     - e2e_standalone_no_tls_no_status_is_set
   teardown_task:
@@ -1564,6 +1568,7 @@ task_groups:
     - e2e_sharded_cluster_scale_shards
     - e2e_replica_set_readiness_probe
     - e2e_tls_rs_external_access
+    - e2e_tls_rs_external_access_tls_transition
   teardown_task:
     - func: "upload_e2e_logs"
 
