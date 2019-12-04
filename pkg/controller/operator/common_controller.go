@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
+
 	"github.com/blang/semver"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
@@ -111,29 +113,21 @@ func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedNam
 
 	c.registerWatchedResources(nsName, spec.GetProject(), spec.Credentials)
 
-	group, err := c.readOrCreateGroup(spec.ProjectName, projectConfig, credsConfig, log)
+	project, conn, err := c.readOrCreateProject(spec.ProjectName, projectConfig, credsConfig, log)
 	if err != nil {
 		return nil, fmt.Errorf("Error reading or creating project in Ops Manager: %s", err)
 	}
 
-	omContext := om.OMContext{
-		GroupID:      group.ID,
-		GroupName:    group.Name,
-		OrgID:        group.OrgID,
-		BaseURL:      projectConfig.BaseURL,
-		PublicAPIKey: credsConfig.PublicAPIKey,
-		User:         credsConfig.User,
-
-		// The OM Client expects the inverse of "Require valid cert" because in Go
-		// The "zero" value of bool is "False", hence this default.
-		AllowInvalidSSLCertificate: !projectConfig.SSLRequireValidMMSServerCertificates,
-
-		// The CA certificate passed to the OM client needs to be a actual certificate,
-		// and not a location in disk, because each "project" will have its own CA cert.
-		CACertificate: projectConfig.SSLMMSCAConfigMapContents,
+	omVersion := conn.OMVersion()
+	if omVersion != nil { // older versions of Ops Manager will not include the version in the header
+		log.Infof("Using Ops Manager version %s", omVersion)
 	}
-	conn := c.omConnectionFactory(&omContext)
-	agentAPIKey, err := c.ensureAgentKeySecretExists(conn, nsName.Namespace, group.AgentAPIKey, log)
+
+	if err := c.updateControlledFeatureAndTag(conn, project, log); err != nil {
+		return nil, err
+	}
+
+	agentAPIKey, err := c.ensureAgentKeySecretExists(conn, nsName.Namespace, project.AgentAPIKey, log)
 	if err != nil {
 		return nil, err
 	}
@@ -149,6 +143,50 @@ func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedNam
 		podVars.SSLProjectConfig = projectConfig.SSLProjectConfig
 	}
 	return conn, nil
+}
+
+// updateControlledFeatureAndTag will configure the project to use feature controls, and set the
+// EXTERNALLY_MANAGED_BY_KUBERNETES tag. The tag will be ignored if feature controls are enabled
+func (c *ReconcileCommonController) updateControlledFeatureAndTag(conn om.Connection, project *om.Project, log *zap.SugaredLogger) error {
+
+	// TODO: for now, always ensure the tag, once feature controls are enabled by default we can stop apply the tag
+	// the tag will have no impact if feature controls are enabled. It's either/or
+	if err := ensureTagAdded(conn, project, log); err != nil {
+		return err
+	}
+
+	if shouldUseFeatureControls(conn.OMVersion()) {
+		log.Debug("Configuring feature controls")
+		if err := conn.UpdateControlledFeature(controlledfeature.FullyRestrictive()); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func ensureTagAdded(conn om.Connection, project *om.Project, log *zap.SugaredLogger) error {
+
+	if util.ContainsString(project.Tags, util.OmGroupExternallyManagedTag) {
+		return nil
+	}
+
+	log.Infow("Seems group doesn't have necessary tag " + util.OmGroupExternallyManagedTag + " - updating it")
+
+	projectWithTag := &om.Project{
+		Name:  project.Name,
+		OrgID: project.OrgID,
+		ID:    project.ID,
+		Tags:  append(project.Tags, util.OmGroupExternallyManagedTag),
+	}
+
+	_, err := conn.UpdateProject(projectWithTag)
+	if err != nil {
+		log.Warnf("Failed to update tags for project: %s", err)
+	} else {
+		log.Infow("Project tags are fixed")
+	}
+	return err
 }
 
 // ensureAgentKeySecretExists checks if the Secret with specified name (<groupId>-group-secret) exists, otherwise tries to
@@ -658,4 +696,76 @@ func canConfigureAuthentication(ac *om.AutomationConfig, mdb *mdbv1.MongoDB) boo
 
 	// x509 is the only mechanism with restrictions determined based on Ops Manager state
 	return true
+}
+
+func shouldUseFeatureControls(version *om.Version) bool {
+
+	// if we were not successfully able to determine a version
+	// from Ops Manager, we can assume it is a legacy version
+	if version.IsUnknown() {
+		return false
+	}
+
+	// feature controls are enabled on Cloud Manager, e.g. v20191112
+	if version.IsCloudManager() {
+		return true
+	}
+
+	sv, err := version.Semver()
+	if err != nil {
+		return false
+	}
+
+	// feature was closed Oct 01 2019  https://jira.mongodb.org/browse/CLOUDP-46339
+	// 4.2.2 was cut Oct 02 2019
+	// 4.3.0 was cut Sept 12 2019
+	// 4.3.1 was cut Oct 03 2019
+
+	// You need 4.2.2 or later
+	// 4.3.1 or later
+	// or any 4.4 onwards to make use of Feature Controls
+
+	minFourTwoVersion := semver.Version{
+		Major: 4,
+		Minor: 2,
+		Patch: 2,
+	}
+
+	minFourThreeVersion := semver.Version{
+		Major: 4,
+		Minor: 3,
+		Patch: 1,
+	}
+
+	minFourFourVersion := semver.Version{
+		Major: 4,
+		Minor: 4,
+		Patch: 0,
+	}
+
+	if isFourTwo(sv) {
+		return sv.GTE(minFourTwoVersion)
+	} else if isFourThree(sv) {
+		return sv.GTE(minFourThreeVersion)
+	} else if isFourFour(sv) {
+		return sv.GTE(minFourFourVersion)
+	} else { // otherwise it's an older version, so we will use the tag
+		return false
+	}
+}
+
+func isFourTwo(version semver.Version) bool {
+	return isMajorMinor(version, 4, 2)
+}
+
+func isFourThree(version semver.Version) bool {
+	return isMajorMinor(version, 4, 3)
+}
+
+func isFourFour(version semver.Version) bool {
+	return isMajorMinor(version, 4, 4)
+}
+
+func isMajorMinor(v semver.Version, major, minor uint64) bool {
+	return v.Major == major && v.Minor == minor
 }

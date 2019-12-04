@@ -90,31 +90,31 @@ func serializeToBuffer(v interface{}) (io.Reader, error) {
 // DigestRequest is a generic method allowing to make all types of HTTP digest requests using specific 'client'
 // Note, that it's currently coupled with Ops Manager specific functionality (ApiError) that's why it's put into 'om'
 // package - this can be decoupled to a 'util' package if 'operator' package needs this in future
-func DigestRequest(method, hostname, path string, v interface{}, user string, token string, client *http.Client) ([]byte, error) {
+func DigestRequest(method, hostname, path string, v interface{}, user string, token string, client *http.Client) ([]byte, http.Header, error) {
 	url := hostname + path
 
 	buffer, err := serializeToBuffer(v)
 	if err != nil {
-		return nil, NewError(err)
+		return nil, nil, NewError(err)
 	}
 
 	// First request is to get authorization information - we are not sending the body
 	req, err := createHTTPRequest(method, url, nil)
 	if err != nil {
-		return nil, NewError(err)
+		return nil, nil, NewError(err)
 	}
 
 	var body []byte
 	// Change this to a more flexible solution, depending on the SSL configuration
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, NewError(err)
+		return nil, nil, NewError(err)
 	}
 	if resp != nil && resp.Body != nil {
 		defer resp.Body.Close()
 	}
 	if resp.StatusCode != http.StatusUnauthorized {
-		return nil, NewError(
+		return nil, nil, NewError(
 			fmt.Errorf(
 				"Recieved status code '%v' (%v) but expected the '%d', requested url: %v",
 				resp.StatusCode,
@@ -145,21 +145,21 @@ func DigestRequest(method, hostname, path string, v interface{}, user string, to
 			// limit size of response body read to 16MB
 			body, err = util.ReadAtMost(resp.Body, 16*1024*1024)
 			if err != nil {
-				return nil, NewError(fmt.Errorf("Error reading response body from %s to %v status=%v", method, url, resp.StatusCode))
+				return nil, nil, NewError(fmt.Errorf("Error reading response body from %s to %v status=%v", method, url, resp.StatusCode))
 			}
 		}
 
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			apiError := parseAPIError(resp.StatusCode, method, url, body)
-			return nil, apiError
+			return nil, nil, apiError
 		}
 	}
 
 	if err != nil {
-		return body, NewError(fmt.Errorf("Error sending %s request to %s: %v", method, url, err))
+		return body, nil, NewError(fmt.Errorf("Error sending %s request to %s: %v", method, url, err))
 	}
 
-	return body, nil
+	return body, resp.Header, nil
 }
 
 // createHTTPRequest

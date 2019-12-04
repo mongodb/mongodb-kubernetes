@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -54,6 +56,7 @@ type MockedOmConnection struct {
 	automationConfig      *AutomationConfig
 	backupAgentConfig     *BackupAgentConfig
 	monitoringAgentConfig *MonitoringAgentConfig
+	controlledFeature     *controlledfeature.ControlledFeature
 	// hosts are used for both automation agents and monitoring endpoints.
 	// They are necessary for emulating "agents" are ready behavior as operator checks for hosts for agents to exist
 	hosts                   *Host
@@ -113,7 +116,6 @@ func NewMockedOmConnection(d Deployment) *MockedOmConnection {
 	connection.AgentsDelayCount = 0
 	// We use a simplified version of context as this is the only thing needed to get lock for the update
 	connection.context = &OMContext{GroupName: TestGroupName, OrgID: TestOrgID}
-
 	return &connection
 }
 
@@ -437,6 +439,18 @@ func (oc *MockedOmConnection) UpdateBackupStatus(clusterId string, newStatus Bac
 
 	oc.doUpdateBackupStatus(clusterId, newStatus)
 	return nil
+}
+
+func (oc *MockedOmConnection) UpdateControlledFeature(cf *controlledfeature.ControlledFeature) error {
+	oc.controlledFeature = cf
+	return nil
+}
+
+func (oc *MockedOmConnection) GetControlledFeature() (*controlledfeature.ControlledFeature, error) {
+	if oc.controlledFeature == nil {
+		oc.controlledFeature = &controlledfeature.ControlledFeature{}
+	}
+	return oc.controlledFeature, nil
 }
 
 // ************* These are native methods of Mocked client (not implementation of OmConnection)

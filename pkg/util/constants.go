@@ -65,6 +65,7 @@ const (
 	EnvVarSSLTrustedMMSServerCertificate = "SSL_TRUSTED_MMS_SERVER_CERTIFICATE"
 
 	// Pod/StatefulSet specific constants
+	OperatorName                = "mongodb-enterprise-operator"
 	OpsManagerName              = "mongodb-ops-manager"
 	BackupdaemonContainerName   = "mongodb-backup-daemon"
 	ContainerName               = "mongodb-enterprise-database"
@@ -171,6 +172,8 @@ const (
 	// Ops Manager configuration properties
 	MmsCentralUrlPropKey      = "mms.centralUrl"
 	MmsMongoUri               = "mongo.mongoUri"
+	MmsFeatureControls        = "mms.featureControls.enable"
+	MmsHeaderContainVersion   = "mms.serviceVersionApiHeader.enabled"
 	MmsVersionsDirectory      = "automation.versions.directory"
 	OpsManagerMongoDBUserName = "mongodb-ops-manager"
 

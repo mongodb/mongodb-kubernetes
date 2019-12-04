@@ -141,6 +141,6 @@ func (a *DefaultOmAdmin) httpVerb(method, path string, v interface{}, params ...
 	path = fmt.Sprintf("/api/public/v1.0/%s", path)
 	path = fmt.Sprintf(path, params...)
 
-	response, apiErr := DigestRequest(method, a.BaseURL, path, v, a.User, a.PublicAPIKey, client)
+	response, _, apiErr := DigestRequest(method, a.BaseURL, path, v, a.User, a.PublicAPIKey, client)
 	return response, apiErr
 }

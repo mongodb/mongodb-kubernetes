@@ -7,7 +7,6 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 )
 
@@ -25,7 +24,7 @@ duplicated groups/organizations creation. So if for example the standalone and t
 configMap are created in parallel - this function will be invoked sequantaly and the second caller will see the group
 created on the first call
 */
-func (c *ReconcileCommonController) readOrCreateGroup(projectName string, config *mdbv1.ProjectConfig, credentials *Credentials, log *zap.SugaredLogger) (*om.Project, error) {
+func (c *ReconcileCommonController) readOrCreateProject(projectName string, config *mdbv1.ProjectConfig, credentials *Credentials, log *zap.SugaredLogger) (*om.Project, om.Connection, error) {
 	mutex := om.GetMutex(projectName, config.OrgID)
 	mutex.Lock()
 	defer mutex.Unlock()
@@ -41,14 +40,20 @@ func (c *ReconcileCommonController) readOrCreateGroup(projectName string, config
 		PublicAPIKey: credentials.PublicAPIKey,
 		User:         credentials.User,
 
+		// The OM Client expects the inverse of "Require valid cert" because in Go
+		// The "zero" value of bool is "False", hence this default.
 		AllowInvalidSSLCertificate: !config.SSLRequireValidMMSServerCertificates,
-		CACertificate:              config.SSLMMSCAConfigMapContents,
+
+		// The CA certificate passed to the OM client needs to be a actual certificate,
+		// and not a location in disk, because each "project" will have its own CA cert.
+		CACertificate: config.SSLMMSCAConfigMapContents,
 	}
+
 	conn := c.omConnectionFactory(&omContext)
 
 	org, err := findOrganization(config.OrgID, projectName, conn, log)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var project *om.Project
@@ -56,44 +61,20 @@ func (c *ReconcileCommonController) readOrCreateGroup(projectName string, config
 		project, err = findProject(projectName, org, conn, log)
 
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
 	if project == nil {
 		project, err = tryCreateProject(org, projectName, config.OrgID, conn, log)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
-	// ensure the project has necessary tag
-	for _, t := range project.Tags {
-		if t == util.OmGroupExternallyManagedTag {
-			return project, nil
-		}
-	}
+	conn.ConfigureProject(project)
 
-	// So the project doesn't have necessary tag - let's fix it (this is a temporary solution and we must throw the
-	// exception by 1.0)
-	// return nil, fmt.Errorf("Project \"%s\" doesn't have the tag %s", config.ProjectName, OmGroupExternallyManagedTag)
-	log.Infow("Seems group doesn't have necessary tag " + util.OmGroupExternallyManagedTag + " - updating it")
-
-	groupWithTags := &om.Project{
-		Name:  project.Name,
-		OrgID: project.OrgID,
-		ID:    project.ID,
-		Tags:  append(project.Tags, util.OmGroupExternallyManagedTag),
-	}
-	g, err := conn.UpdateProject(groupWithTags)
-	if err != nil {
-		log.Warnf("Failed to update tags for group: %s", err)
-	} else {
-		log.Infow("Project tags are fixed")
-		project = g
-	}
-
-	return project, nil
+	return project, conn, nil
 }
 
 func findOrganization(orgID string, projectName string, conn om.Connection, log *zap.SugaredLogger) (*om.Organization, error) {
@@ -223,7 +204,7 @@ func tryCreateProject(organization *om.Organization, projectName, orgId string, 
 	group := &om.Project{
 		Name:  projectName,
 		OrgID: orgId,
-		Tags:  []string{util.OmGroupExternallyManagedTag},
+		Tags:  []string{}, // Project creation no longer applies the EXTERNALLY_MANAGED tag, this is added afterwards
 	}
 	ans, err := conn.CreateProject(group)
 

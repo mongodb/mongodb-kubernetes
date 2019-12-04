@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"reflect"
 	"testing"
@@ -9,7 +10,6 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -82,25 +82,7 @@ func TestPrepareOmConnection_CreateGroup(t *testing.T) {
 	assert.Contains(t, mockOm.FindGroup(om.TestGroupName).Tags, util.OmGroupExternallyManagedTag)
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadOrganizationsByName), reflect.ValueOf(mockOm.CreateProject))
-	mockOm.CheckOperationsDidntHappen(t, reflect.ValueOf(mockOm.UpdateProject), reflect.ValueOf(mockOm.ReadProjectsInOrganization))
-}
-
-// TestPrepareOmConnection_CreateGroupFallback checks that if the group creation failed because tags editing is not allowed
-// - the program failbacks to creating group without tags
-func TestPrepareOmConnection_CreateGroupFallback(t *testing.T) {
-	mockedOmConnection := omConnOldVersion()
-
-	controller := newReconcileCommonController(newMockedManager(nil), mockedOmConnection)
-
-	mockOm, vars := prepareConnection(controller, t)
-
-	assert.Equal(t, om.TestGroupID, vars.ProjectID)
-	assert.Equal(t, om.TestGroupID, mockOm.GroupID())
-	assert.NotNil(t, mockOm.FindGroup(om.TestGroupName))
-	assert.Empty(t, mockOm.FindGroup(om.TestGroupName).Tags)
-
-	// Creation happened twice, Update happened as well but didn't succeed
-	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.CreateProject), reflect.ValueOf(mockOm.CreateProject), reflect.ValueOf(mockOm.UpdateProject))
+	mockOm.CheckOperationsDidntHappen(t, reflect.ValueOf(mockOm.ReadProjectsInOrganization))
 }
 
 // TestPrepareOmConnection_CreateGroupFixTags fixes tags if they are not set for existing group
@@ -221,6 +203,86 @@ func TestShouldReconcile_DoesReconcileOnSpecChange(t *testing.T) {
 	assert.True(t, shouldReconcile(rsOld, rsNew), "should reconcile when spec changes")
 }
 
+func TestFeatureControlPolicyAndTagAddedWithNewerOpsManager(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().Build()
+
+	manager := newMockedManager(rs)
+	controller := newReplicaSetReconciler(manager, func(context *om.OMContext) om.Connection {
+		context.Version = "4.2.2"
+		conn := om.NewEmptyMockedOmConnection(context)
+		return conn
+	})
+
+	checkReconcileSuccessful(t, controller, rs, manager.client)
+
+	mockedConn := om.CurrMockedConnection
+	cf, _ := mockedConn.GetControlledFeature()
+
+	assert.Len(t, cf.Policies, 2)
+	assert.Equal(t, cf.ManagementSystem.Version, util.OperatorVersion)
+	assert.Equal(t, cf.ManagementSystem.Name, util.OperatorName)
+
+	project := mockedConn.FindGroup("my-project")
+	assert.Contains(t, project.Tags, util.OmGroupExternallyManagedTag)
+}
+
+func TestOnlyTagIsAppliedToOlderOpsManager(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().Build()
+
+	manager := newMockedManager(rs)
+	controller := newReplicaSetReconciler(manager, func(context *om.OMContext) om.Connection {
+		context.Version = "4.2.1"
+		conn := om.NewEmptyMockedOmConnection(context)
+		return conn
+	})
+
+	checkReconcileSuccessful(t, controller, rs, manager.client)
+
+	mockedConn := om.CurrMockedConnection
+	cf, _ := mockedConn.GetControlledFeature()
+
+	// no feature controls are configured
+	assert.Empty(t, cf.Policies)
+	assert.Empty(t, cf.ManagementSystem.Version)
+	assert.Empty(t, cf.ManagementSystem.Name)
+
+	project := mockedConn.FindGroup("my-project")
+	assert.Contains(t, project.Tags, util.OmGroupExternallyManagedTag)
+}
+
+func TestShouldUseFeatureControls(t *testing.T) {
+
+	// older versions which do not support policy control
+	assert.False(t, shouldUseFeatureControls(toOMVersion("4.2.1")))
+	assert.False(t, shouldUseFeatureControls(toOMVersion("4.3.0")))
+
+	// if we don't know the version, use the tag
+	assert.False(t, shouldUseFeatureControls(toOMVersion("")))
+
+	// older version we don't know about, we assume a tag
+	assert.False(t, shouldUseFeatureControls(toOMVersion("3.6.0")))
+	assert.False(t, shouldUseFeatureControls(toOMVersion("3.6.2")))
+	assert.False(t, shouldUseFeatureControls(toOMVersion("3.6.3")))
+
+	// minimum versions that support policy control
+	assert.True(t, shouldUseFeatureControls(toOMVersion("4.2.2")))
+	assert.True(t, shouldUseFeatureControls(toOMVersion("4.2.3")))
+	assert.True(t, shouldUseFeatureControls(toOMVersion("4.3.1")))
+	assert.True(t, shouldUseFeatureControls(toOMVersion("4.3.2")))
+	assert.True(t, shouldUseFeatureControls(toOMVersion("4.4.0")))
+	assert.True(t, shouldUseFeatureControls(toOMVersion("4.4.1")))
+}
+
+func toOMVersion(versionString string) *om.Version {
+	if versionString == "" {
+		return &om.Version{}
+	}
+
+	return &om.Version{
+		VersionString: fmt.Sprintf("%s.56729.20191105T2247Z", versionString),
+	}
+}
+
 func prepareConnection(controller *ReconcileCommonController, t *testing.T) (*om.MockedOmConnection, *PodVars) {
 	vars := &PodVars{}
 	spec := mdbv1.ConnectionSpec{
@@ -258,30 +320,6 @@ func omConnGroupInOrganizationWithDifferentName() om.ConnectionFactory {
 			c.OrganizationsWithGroups = map[*om.Organization][]*om.Project{{ID: om.TestOrgID, Name: "foo"}: {{Name: om.TestGroupName, ID: "existingGroupId", OrgID: om.TestOrgID}}}
 		}
 
-		return c
-	}
-}
-
-func omConnOldVersion() om.ConnectionFactory {
-	return func(ctx *om.OMContext) om.Connection {
-		c := om.NewEmptyMockedOmConnectionNoGroup(ctx).(*om.MockedOmConnection)
-		c.CreateGroupFunc = func(g *om.Project) (*om.Project, error) {
-			// We remove the callback on the first call
-			// Second call will perform a standard creation
-			c.CreateGroupFunc = nil
-			return nil, &api.Error{
-				ErrorCode: "INVALID_ATTRIBUTE",
-				Detail:    "Invalid attribute tags specified. (This is an artificial error generated deliberately by the test suite)"}
-		}
-		// If creating tags is not allowed - then neither the update
-		c.UpdateGroupFunc = func(g *om.Project) (*om.Project, error) {
-			if len(g.Tags) > 0 {
-				return nil, &api.Error{
-					ErrorCode: "INVALID_ATTRIBUTE",
-					Detail:    "Invalid attribute tags specified. (This is an artificial error generated deliberately by the test suite)"}
-			}
-			return g, nil
-		}
 		return c
 	}
 }

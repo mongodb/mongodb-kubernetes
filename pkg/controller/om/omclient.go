@@ -5,7 +5,12 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"strings"
 	"sync"
+
+	"github.com/blang/semver"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -53,12 +58,19 @@ type Connection interface {
 	MonitoringConfigConnection
 	BackupConfigConnection
 
+	UpdateControlledFeature(cf *controlledfeature.ControlledFeature) error
+	GetControlledFeature() (*controlledfeature.ControlledFeature, error)
+
 	BaseURL() string
 	GroupID() string
 	GroupName() string
 	OrgID() string
 	User() string
 	PublicAPIKey() string
+	OMVersion() *Version
+
+	// ConfigureProject configures the OMContext to have the correct project and org ids
+	ConfigureProject(project *Project)
 }
 
 type MonitoringConfigConnection interface {
@@ -111,6 +123,7 @@ type OMContext struct {
 	OrgID        string
 	User         string
 	PublicAPIKey string
+	Version      string
 
 	// Will check that the SSL certificate provided by the Ops Manager Server is valid
 	// I've decided to use a "AllowInvalid" instead of "RequireValid" as the Zero value
@@ -133,6 +146,11 @@ var _ Connection = &HTTPOmConnection{}
 // It makes it easy to call the API without having to explicitly provide connection details.
 func NewOpsManagerConnection(context *OMContext) Connection {
 	return &HTTPOmConnection{context: context}
+}
+
+func (oc *HTTPOmConnection) ConfigureProject(project *Project) {
+	oc.context.GroupID = project.ID
+	oc.context.OrgID = project.OrgID
 }
 
 // BaseURL returns BaseURL of HTTPOmConnection
@@ -164,6 +182,11 @@ func (oc *HTTPOmConnection) User() string {
 // PublicAPIKey returns PublicAPIKey of HTTPOmConnection
 func (oc *HTTPOmConnection) PublicAPIKey() string {
 	return oc.context.PublicAPIKey
+}
+
+// OMVersion returns the current Ops Manager version
+func (oc *HTTPOmConnection) OMVersion() *Version {
+	return &Version{VersionString: oc.context.Version}
 }
 
 // UpdateDeployment updates a given deployment to the new deployment object passed as parameter.
@@ -625,6 +648,23 @@ func (oc *HTTPOmConnection) ReadUpdateBackupAgentConfig(backupFunc func(*BackupA
 	return nil
 }
 
+func (oc *HTTPOmConnection) UpdateControlledFeature(cf *controlledfeature.ControlledFeature) error {
+	_, err := oc.put(fmt.Sprintf("/api/public/v1.0/groups/%s/controlledFeature", oc.GroupID()), cf)
+	return err
+}
+
+func (oc *HTTPOmConnection) GetControlledFeature() (*controlledfeature.ControlledFeature, error) {
+	res, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/controlledFeature", oc.GroupID()))
+	if err != nil {
+		return nil, err
+	}
+	cf := &controlledfeature.ControlledFeature{}
+	if err := json.Unmarshal(res, cf); err != nil {
+		return nil, api.NewError(err)
+	}
+	return cf, nil
+}
+
 //********************************** Private methods *******************************************************************
 
 func (oc *HTTPOmConnection) get(path string) ([]byte, error) {
@@ -654,7 +694,11 @@ func (oc *HTTPOmConnection) httpVerb(method, path string, v interface{}) ([]byte
 		return nil, err
 	}
 
-	response, err := api.DigestRequest(method, oc.BaseURL(), path, v, oc.User(), oc.PublicAPIKey(), client)
+	response, header, err := api.DigestRequest(method, oc.BaseURL(), path, v, oc.User(), oc.PublicAPIKey(), client)
+	if header != nil {
+		oc.context.Version = getVersionFromVersionString(header.Get("X-MongoDB-Service-Version"))
+	}
+
 	return response, err
 }
 
@@ -670,4 +714,55 @@ func (oc *HTTPOmConnection) getHTTPClient() (*http.Client, error) {
 	}
 
 	return api.NewHTTPClient()
+}
+
+type Version struct {
+	VersionString string
+}
+
+func (v Version) Semver() (semver.Version, error) {
+	if v.IsCloudManager() {
+		return semver.Version{}, nil
+	}
+
+	versionParts := strings.Split(v.VersionString, ".") // [4 2 4 56729 20191105T2247Z]
+	if len(versionParts) < 3 {
+		return semver.Version{}, nil
+	}
+
+	sv, err := semver.Make(strings.Join(versionParts[:3], "."))
+	if err != nil {
+		return semver.Version{}, err
+	}
+
+	return sv, nil
+}
+
+func (v Version) IsCloudManager() bool {
+	return strings.HasPrefix(strings.ToLower(v.VersionString), "v")
+}
+
+func (v Version) IsUnknown() bool {
+	return v.VersionString == ""
+}
+
+func (v Version) String() string {
+	return v.VersionString
+}
+
+// GetVersionFromVersionString returns the major, minor and patch version from the string
+// which is returned in the header of all Ops Manager responses in the form of:
+// gitHash=f7bdac406b7beceb1415fd32c81fc64501b6e031; versionString=4.2.4.56729.20191105T2247Z
+func getVersionFromVersionString(versionString string) string {
+	if versionString == "" || !strings.Contains(versionString, "versionString=") {
+		return ""
+	}
+
+	splitString := strings.Split(versionString, "versionString=")
+
+	if len(splitString) == 2 {
+		return splitString[1]
+	}
+
+	return ""
 }

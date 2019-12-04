@@ -159,6 +159,9 @@ func (r OpsManagerReconciler) ensureConfiguration(opsManager *mdbv1.MongoDBOpsMa
 
 	// override the versions directory (defaults to "/opt/mongodb/mms/mongodb-releases/")
 	setConfigProperty(opsManager, util.MmsVersionsDirectory, "/mongodb-ops-manager/mongodb-releases/", log)
+
+	// feature controls will always be enabled
+	setConfigProperty(opsManager, util.MmsFeatureControls, "true", log)
 }
 
 // createBackupDaemonStatefulset creates a StatefulSet for backup daemon and waits shortly until it's started
