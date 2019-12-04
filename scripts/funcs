@@ -444,6 +444,11 @@ dump_diagnostic_information() {
         kubectl get pvc -o yaml -n "${PROJECT_NAMESPACE}"  >> "$dump_file"
     fi
 
+    if ! kubectl get sts -n "${PROJECT_NAMESPACE}" 2>&1 | grep -q "No resources found"; then
+        header "Statefulsets" >> "$dump_file"
+        kubectl describe sts -n "${PROJECT_NAMESPACE}"  >> "$dump_file"
+    fi
+
     # we don't output pods for the operator and tests (they will be output if they didn't manage to start)
     for pod in $(kubectl get pods -n "${PROJECT_NAMESPACE}" -o name | grep -v "${OPERATOR_NAME}"); do
         header "$pod" >> "$dump_file"

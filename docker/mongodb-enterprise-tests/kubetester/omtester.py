@@ -48,6 +48,13 @@ class OMTester(object):
         for pod_fqdn in pod_urls:
             self.do_assert_healthiness(pod_fqdn)
 
+    def assert_version(self, version: str):
+        """ makes the request to a random API url to get headers """
+        response = self.om_request("get", "/api/public/v1.0/orgs")
+        assert (
+            f"versionString={version}" in response.headers["X-MongoDB-Service-Version"]
+        )
+
     def assert_test_service(self):
         endpoint = self.om_context.base_url + "/test/utils/systemTime"
         response = requests.request("get", endpoint)

@@ -55,7 +55,7 @@ func (user MongoDBUser) GetPassword(kubeClient client.Client) (string, error) {
 // https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.15/#secretkeyselector-v1-core
 type SecretKeyRef struct {
 	Name string `json:"name"`
-	Key  string `json:"key"`
+	Key  string `json:"key,omitempty"`
 }
 
 type MongoDBResourceRef struct {
