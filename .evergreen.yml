@@ -1014,13 +1014,13 @@ tasks:
     - func: e2e_test
 
 - name: e2e_standalone_schema_validation
-  tags: ["kops-om-40"]
+  tags: ["kops-om-42"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_schema_validation
-  tags: ["openshift-om-qa"]
+  tags: ["openshift-om-42"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
@@ -1032,13 +1032,13 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_users_schema_validation
-  tags: ["kops-om-40"]
+  tags: ["kops-om-42"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_standalone_config_map
-  tags: ["openshift-om-qa"]
+  tags: ["kops-om-42"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
@@ -1050,13 +1050,13 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_standalone_recovery
-  tags: ["kops-om-40"]
+  tags: ["openshift-om-42"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_standalone_recovery_k8s
-  tags: ["openshift-om-qa"]
+  tags: ["kops-om-42"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
@@ -1074,7 +1074,7 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_replica_set_config_map
-  tags: ["openshift-om-qa"]
+  tags: ["openshift-om-42"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
@@ -1092,13 +1092,13 @@ tasks:
      - func: "e2e_test"
 
 - name: e2e_replica_set_pv
-  tags: ["kops-om-40"]
+  tags: ["kops-om-42"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_pv_multiple
-  tags: ["openshift-om-qa"]
+  tags: ["openshift-om-42"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
@@ -1110,7 +1110,7 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_replica_set_exposed_externally
-  tags: ["openshift-om-qa"]
+  tags: ["kops-om-42"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
@@ -1122,7 +1122,7 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_tls_sc_additional_certs
-  tags: ["openshift-om-42"]
+  tags: ["openshift-om-qa"]
   exec_timeout_secs: 720
   commands:
     - func: "e2e_test"
@@ -1140,13 +1140,13 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_tls_rs_external_access
-  tags: ["openshift-om-qa"]
+  tags: ["kops-om-42"]
   exec_timeout_secs: 720
   commands:
     - func: "e2e_test"
 
 - name: e2e_tls_rs_external_access_tls_transition
-  tags: ["openshift-om-qa"]
+  tags: ["kops-om-42"]
   exec_timeout_secs: 720
   commands:
     - func: "e2e_test"
@@ -1157,19 +1157,19 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_pv
-  tags: ["kops-om-40"]
+  tags: ["kops-om-42"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_recovery
-  tags: ["openshift-om-qa"]
+  tags: ["openshift-om-42"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_secret
-  tags: ["openshift-om-42"]
+  tags: ["openshift-om-qa"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
@@ -1356,7 +1356,7 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_replica_set_scram_sha_1_user_connectivity
-  tags: ["kops-om-42"]
+  tags: ["openshift-om-qa"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
@@ -1368,7 +1368,7 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_scram_sha_1_user_connectivity
-  tags: ["kops-om-42"]
+  tags: ["openshift-om-qa"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
@@ -1380,13 +1380,13 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_scram_sha_1_upgrade
-  tags: ["kops-om-42"]
+  tags: ["openshift-om-qa"]
   exec_timeout_secs: 1800
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_x509_to_scram_transition
-  tags: ["kops-om-42"]
+  tags: ["openshift-om-qa"]
   exec_timeout_secs: 1800
   commands:
     - func: "e2e_test"
@@ -1404,7 +1404,7 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_scram_sha_and_x509
-  tags: ["kops-om-42"]
+  tags: ["openshift-om-qa"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"

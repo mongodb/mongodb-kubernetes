@@ -13,25 +13,41 @@ guarantee that the test namespace will remain for at least one hour
 for you to investigate what is needed.
 
 The tests are run against a combination of Ops Manager and Cloud
-Manager releases. We defined a simple nomenclature to make it easy to
-determine the Ops Manager or Cloud Manager version we are running the
-tests against.
+Manager releases and Kubernetes clusters (kops/Openshift)
+ 
+# How to choose the taskGroup/buildVariant for an e2e test
+1. Choose the task group (or create a new one) where the e2e test should fit into:
+* `e2e_kube_only_task_group`: the task group for tests which focus on **Kubernetes features**
+instead of Ops Manager ones. Examples: PersistentVolumes, CRD validation, Operator recovery 
+from Kubernetes errors. This task group won't be run on all OM versions - only the
+latest ones (1 per kops and Openshift cluster)
+* `e2e_core_task_group`: the general task group which is run in both kops and Openshift
+clusters for **all** the tested versions of OM and CloudManager QA. The tests are focused
+on testing the OM + Automation Agents behavior
+* `e2e_tls_task_group`: any tests focused on TLS. As they focus on OM more than on Kubernetes
+they don't run on OM 4.2 version in both kops and Openshift clusters - only in kops one
+* `e2e_scram_sha_task_group`: scram-sha related tests. Run on kops OM 4.2 and on Openshift CM QA.
+* `e2e_tls_custom_ca_task_group`: the same as for scram-sha
+* `e2e_x509_task_group`: the same as for scram-sha
+* `e2e_om_4_2_plus_only_task_group`: includes tests for functionality which works in only OM 4.2.
+Run in both kops OM 4.2 and Openshift OM 4.2
+* `e2e_ops_manager_task_group`: the task group for all OM Custom Resource related tests
 
-* `ops_manager_40_first`: This is the first Ops Manager version that
-  we support on the 4.0 series. It is actually 4.0.5, but we assume
-  there were no breaking changes between 4.0.0 and 4.0.5. This version
-  will remain fixed for the duration of the 4.0 release maintenance,
-  unless the target version is deprecated because of a know security
-  vulnerability.
-
-* `ops_manager_40_current`: This point to the current release of the
-  4.0 release. This will be updated with each release of the 4.0
-  version.
-
-* `cloud_manager_qa`: This target corresponds to Cloud Manager QA
-  (https://cloud-qa.mongodb.com), which is an "advanced" version of
-  Cloud Manager, around 3 weeks in advance. This is where our tests
-  against *master* go.
+# Choose the correct tag
+ 
+The tag assigned to e2e test affects which build variant will be chosen for the test for Evergreen
+builds run in Github PRs. For example
+```
+- name: e2e_replica_set_tls_prefer
+  tags: ["openshift-om-qa"]
+  exec_timeout_secs: 1200
+  commands:
+  - func: "e2e_test"
+```
+means that in the PRs the test will be run in the build variant `e2e_openshift_cloud_qa`
+**It's important to make sure that the task group which the test belongs to is run by this build 
+variant!** Otherwise the test may be skipped from PR run totally and may get red only after merge 
+to master.
 
 ## FAQ
 #### How to connect to Openshift e2e cluster?
