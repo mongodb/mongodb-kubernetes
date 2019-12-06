@@ -163,6 +163,11 @@ const (
 	DefaultPodTerminationPeriodSeconds = 600  // 10 min
 	DefaultK8sCacheRefreshTimeSeconds  = 2
 
+	// S3 constants
+	S3AccessKey             = "accessKey"
+	S3SecretKey             = "secretKey"
+	DefaultS3MaxConnections = 50
+
 	// Ops Manager related constants
 	OmPropertyPrefix         = "OM_PROP_"
 	GenKeyPath               = "/mongodb-ops-manager/.mongodb-mms"

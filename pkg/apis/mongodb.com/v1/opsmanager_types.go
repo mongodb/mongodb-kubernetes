@@ -60,6 +60,7 @@ type MongoDBOpsManagerBackup struct {
 
 	// OplogStoreConfigs describes the list of oplog store configs used for backup
 	OplogStoreConfigs []*DataStoreConfig `json:"oplogStores,omitempty"`
+	S3Configs         []*S3Config        `json:"s3Stores,omitempty"`
 }
 
 type MongoDBOpsManagerStatus struct {
@@ -92,6 +93,40 @@ type DataStoreConfig struct {
 
 func (f DataStoreConfig) Identifier() interface{} {
 	return f.Name
+}
+
+type SecretRef struct {
+	Name string `json:"name"`
+}
+
+type S3Config struct {
+	MongoDBResourceRef     MongoDBResourceRef `json:"mongodbResourceRef"`
+	MongoDBUserRef         *MongoDBUserRef    `json:"mongodbUserRef,omitempty"`
+	S3SecretRef            SecretRef          `json:"s3SecretRef"`
+	Name                   string             `json:"name"`
+	PathStyleAccessEnabled bool               `json:"pathStyleAccessEnabled"`
+	S3BucketEndpoint       string             `json:"s3BucketEndpoint"`
+	S3BucketName           string             `json:"s3BucketName"`
+}
+
+func (s S3Config) Identifier() interface{} {
+	return s.Name
+}
+
+func (s S3Config) MongodbResourceObjectKey(defaultNamespace string) client.ObjectKey {
+	ns := defaultNamespace
+	if s.MongoDBResourceRef.Namespace != "" {
+		ns = s.MongoDBResourceRef.Namespace
+	}
+	return client.ObjectKey{Name: s.MongoDBResourceRef.Name, Namespace: ns}
+}
+
+func (s S3Config) MongodbUserObjectKey(defaultNamespace string) client.ObjectKey {
+	ns := defaultNamespace
+	if s.MongoDBResourceRef.Namespace != "" {
+		ns = s.MongoDBResourceRef.Namespace
+	}
+	return client.ObjectKey{Name: s.MongoDBUserRef.Name, Namespace: ns}
 }
 
 // MongodbResourceObjectKey returns the object key for the mongodb resource referenced by the dataStoreConfig.
@@ -210,6 +245,7 @@ func (m *MongoDBOpsManager) UpdateSuccessful(object runtime.Object, args ...stri
 		m.Status.OpsManagerStatus.Url = args[0]
 	}
 
+	m.Status.Warnings = reconciledResource.Status.Warnings
 	m.Status.OpsManagerStatus.Replicas = spec.Replicas
 	m.Status.OpsManagerStatus.Version = spec.Version
 	m.Status.OpsManagerStatus.Message = ""
@@ -320,9 +356,9 @@ func (m *AppDB) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	// if no reference is specified, we will use a default key of "password"
-	if m.PasswordSecretKeyRef == nil {
-		m.PasswordSecretKeyRef = &SecretKeyRef{Key: util.DefaultAppDbPasswordKey}
+	// if a reference is specified without a key, we will default to "password"
+	if m.PasswordSecretKeyRef != nil && m.PasswordSecretKeyRef.Key == "" {
+		m.PasswordSecretKeyRef.Key = util.DefaultAppDbPasswordKey
 	}
 
 	m.Security = nil

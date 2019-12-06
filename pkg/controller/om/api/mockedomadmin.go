@@ -23,6 +23,7 @@ type MockedOmAdmin struct {
 	User         string
 	PublicAPIKey string
 
+	s3Configs     map[string]*backup.S3Config
 	daemonConfigs []*backup.DaemonConfig
 	oplogConfigs  []*backup.DataStoreConfig
 }
@@ -72,6 +73,27 @@ func (a *MockedOmAdmin) CreateDaemonConfig(hostName, headDbDir string) error {
 	return nil
 }
 
+func (a *MockedOmAdmin) ReadS3Configs() ([]*backup.S3Config, error) {
+	if a.s3Configs == nil {
+		a.s3Configs = make(map[string]*backup.S3Config)
+	}
+
+	allConfigs := make([]*backup.S3Config, len(a.s3Configs))
+	for _, v := range a.s3Configs {
+		allConfigs = append(allConfigs, v)
+	}
+
+	return allConfigs, nil
+}
+
+func (a *MockedOmAdmin) DeleteS3Config(id string) error {
+	if a.s3Configs == nil {
+		a.s3Configs = make(map[string]*backup.S3Config)
+	}
+	delete(a.s3Configs, id)
+	return nil
+}
+
 func (a *MockedOmAdmin) ReadOplogStoreConfigs() ([]*backup.DataStoreConfig, error) {
 	return a.oplogConfigs, nil
 }
@@ -108,4 +130,16 @@ func (a *MockedOmAdmin) DeleteOplogStoreConfig(id string) error {
 	}
 
 	return errors.New("Failed to remove as the oplog doesn't exist!")
+}
+
+func (a *MockedOmAdmin) CreateS3Config(s3Config *backup.S3Config) error {
+	if a.s3Configs == nil {
+		a.s3Configs = make(map[string]*backup.S3Config)
+	}
+	a.s3Configs[s3Config.Id] = s3Config
+	return nil
+}
+
+func (a *MockedOmAdmin) UpdateS3Config(s3Config *backup.S3Config) error {
+	return a.CreateS3Config(s3Config)
 }

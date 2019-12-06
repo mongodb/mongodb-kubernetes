@@ -18,6 +18,18 @@ type Admin interface {
 	// CreateDaemonConfig creates the daemon config with specified hostname and head db path
 	CreateDaemonConfig(hostName, headDbDir string) error
 
+	// CreateS3Config creates the given S3Config
+	CreateS3Config(s3Config *backup.S3Config) error
+
+	// UpdateS3Config updates the given S3Config
+	UpdateS3Config(s3Config *backup.S3Config) error
+
+	// ReadS3Configs returns a list of all S3Configs
+	ReadS3Configs() ([]*backup.S3Config, error)
+
+	// DeleteS3Config removes an s3config by id
+	DeleteS3Config(id string) error
+
 	// ReadOplogStoreConfigs returns all oplog stores registered in Ops Manager
 	ReadOplogStoreConfigs() ([]*backup.DataStoreConfig, error)
 
@@ -92,20 +104,46 @@ func (a *DefaultOmAdmin) ReadOplogStoreConfigs() ([]*backup.DataStoreConfig, err
 // CreateOplogStoreConfig creates an oplog store in Ops Manager
 func (a *DefaultOmAdmin) CreateOplogStoreConfig(config *backup.DataStoreConfig) error {
 	_, err := a.post("admin/backup/oplog/mongoConfigs/", config)
-
 	return err
 }
 
 // UpdateOplogStoreConfig updates an oplog store in Ops Manager
 func (a *DefaultOmAdmin) UpdateOplogStoreConfig(config *backup.DataStoreConfig) error {
 	_, err := a.put("admin/backup/oplog/mongoConfigs/%s", config, config.Id)
-
 	return err
 }
 
 // DeleteOplogStoreConfig removes the oplog store by its ID
 func (a *DefaultOmAdmin) DeleteOplogStoreConfig(id string) error {
 	return a.delete("admin/backup/oplog/mongoConfigs/%s", id)
+}
+
+// S3 related methods
+func (a *DefaultOmAdmin) CreateS3Config(s3Config *backup.S3Config) error {
+	_, err := a.post("admin/backup/snapshot/s3Configs", s3Config)
+	return err
+}
+
+func (a *DefaultOmAdmin) UpdateS3Config(s3Config *backup.S3Config) error {
+	_, err := a.put("admin/backup/snapshot/s3Configs/%s", s3Config, s3Config.Id)
+	return err
+}
+
+func (a *DefaultOmAdmin) ReadS3Configs() ([]*backup.S3Config, error) {
+	res, err := a.get("admin/backup/snapshot/s3Configs")
+	if err != nil {
+		return nil, NewError(err)
+	}
+	s3ConfigResponse := &backup.S3ConfigResponse{}
+	if err = json.Unmarshal(res, s3ConfigResponse); err != nil {
+		return nil, NewError(err)
+	}
+
+	return s3ConfigResponse.S3Configs, nil
+}
+
+func (a *DefaultOmAdmin) DeleteS3Config(id string) error {
+	return a.delete("admin/backup/snapshot/s3Configs/%s", id)
 }
 
 //********************************** Private methods *******************************************************************
@@ -122,11 +160,10 @@ func (a *DefaultOmAdmin) post(path string, v interface{}, params ...interface{})
 	return a.httpVerb("POST", path, v, params...)
 }
 
-/*
-func (a *DefaultOmAdmin) patch(path string, v interface{}, params ...interface{}) ([]byte, error) {
-	return a.httpVerb("PATCH", path, v, params...)
-}
-*/
+//func (a *DefaultOmAdmin) patch(path string, v interface{}, params ...interface{}) ([]byte, error) {
+//	return a.httpVerb("PATCH", path, v, params...)
+//}
+
 func (a *DefaultOmAdmin) delete(path string, params ...interface{}) error {
 	_, err := a.httpVerb("DELETE", path, nil, params...)
 	return err

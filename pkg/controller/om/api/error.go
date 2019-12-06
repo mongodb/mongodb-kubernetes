@@ -14,6 +14,7 @@ const (
 	ProjectNotFound            = "GROUP_NAME_NOT_FOUND"
 	BackupDaemonConfigNotFound = "DAEMON_MACHINE_CONFIG_NOT_FOUND"
 	UserAlreadyExists          = "USER_ALREADY_EXISTS"
+	S3ConfigNotFound           = "S3_SNAPSHOT_CONFIG_NOT_FOUND"
 )
 
 // Error is the error extension that contains the details of OM error if OM returned the error. This allows the

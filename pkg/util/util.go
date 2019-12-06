@@ -304,6 +304,13 @@ func RedactMongoURI(uri string) string {
 	return re.ReplaceAllString(uri, "$1<redacted>$3")
 }
 
+func Redact(toRedact interface{}) string {
+	if toRedact == nil {
+		return "nil"
+	}
+	return "<redacted>"
+}
+
 // SetDifference returns all 'Identifiable' elements that are in left slice and not in the right one
 func SetDifference(left, right []Identifiable) []Identifiable {
 	result := make([]Identifiable, 0)
