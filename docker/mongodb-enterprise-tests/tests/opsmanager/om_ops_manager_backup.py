@@ -85,7 +85,7 @@ class TestOplogAdded(OpsManagerBase):
             {"baseUrl": self.om_cr.get_om_status_url(), "projectName": "development"},
         )
         resource = MongoDB.from_yaml(
-            yaml_fixture("replica-set.yaml"),
+            yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,
             name="my-mongodb-oplog",
         )
