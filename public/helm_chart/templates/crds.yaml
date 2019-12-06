@@ -439,7 +439,6 @@ spec:
               properties:
                 enabled:
                   type: boolean
-
                 headDB:
                   type: object
                   properties:
@@ -447,6 +446,31 @@ spec:
                       type: string
                     storageClass:
                       type: string
+                opLogStores:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      mongodbResourceRef:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                        required:
+                          - name
+                      mongodbUserRef:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                        required:
+                            - name
+                    required:
+                      - name
+                      - mongodbResourceRef
+
               required:
                 - enabled
 

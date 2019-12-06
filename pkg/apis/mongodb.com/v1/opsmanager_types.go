@@ -184,13 +184,16 @@ func (m *MongoDBOpsManager) UpdateError(msg string) {
 	m.Status.OpsManagerStatus.Phase = PhaseFailed
 }
 
-func (m *MongoDBOpsManager) UpdatePending(msg string) {
+func (m *MongoDBOpsManager) UpdatePending(msg string, args ...string) {
 	if msg != "" {
 		m.Status.OpsManagerStatus.Message = msg
 	}
 	if m.Status.OpsManagerStatus.Phase != PhasePending {
 		m.Status.OpsManagerStatus.LastTransition = util.Now()
 		m.Status.OpsManagerStatus.Phase = PhasePending
+	}
+	if len(args) > 0 {
+		m.Status.OpsManagerStatus.Url = args[0]
 	}
 }
 

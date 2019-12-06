@@ -85,24 +85,24 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 	// 2. Ops Manager (create and wait)
 	status := r.createOpsManagerStatefulset(opsManager, opsManagerUserPassword, log)
 	if !status.isOk() {
-		return status.updateStatus(opsManager, r.ReconcileCommonController, log)
+		return status.updateStatus(opsManager, r.ReconcileCommonController, log, centralURL(opsManager))
 	}
 
 	// 3. Backup Daemon (create and wait)
 	status = r.createBackupDaemonStatefulset(opsManager, log)
 	if !status.isOk() {
-		return status.updateStatus(opsManager, r.ReconcileCommonController, log)
+		return status.updateStatus(opsManager, r.ReconcileCommonController, log, centralURL(opsManager))
 	}
 
 	// 4. Prepare Ops Manager (ensure the first user is created and public API key saved to secret)
 	var omAdmin api.Admin
 	if status, omAdmin = r.prepareOpsManager(opsManager, log); !status.isOk() {
-		return status.updateStatus(opsManager, r.ReconcileCommonController, log)
+		return status.updateStatus(opsManager, r.ReconcileCommonController, log, centralURL(opsManager))
 	}
 
 	// 5. Prepare Backup Daemon
 	if status = r.prepareBackupInOpsManager(opsManager, omAdmin, log); !status.isOk() {
-		return status.updateStatus(opsManager, r.ReconcileCommonController, log)
+		return status.updateStatus(opsManager, r.ReconcileCommonController, log, centralURL(opsManager))
 	}
 
 	return r.updateStatusSuccessful(opsManager, log, centralURL(opsManager))

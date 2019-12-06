@@ -24,3 +24,5 @@ taskName: ${TASK_NAME}
 
 pytest:
   addopts: ""
+
+skipExecution: 'false'

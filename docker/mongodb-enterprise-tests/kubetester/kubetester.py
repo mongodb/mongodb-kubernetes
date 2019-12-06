@@ -357,7 +357,7 @@ class KubernetesTester(object):
         KubernetesTester.kind = kind
 
         # For some long-running actions (e.g. creation of OpsManager) we may want to reuse already existing CR
-        if os.getenv("SKIP_EXECUTION") is not None:
+        if os.getenv("SKIP_EXECUTION") == "true":
             print("Skipping creation as 'SKIP_EXECUTION' env variable is not empty")
             return
 
@@ -432,6 +432,11 @@ class KubernetesTester(object):
         if patch is not None:
             patch = jsonpatch.JsonPatch(patch)
             resource = patch.apply(resource)
+
+        # For some long-running actions (e.g. update of OpsManager) we may want to reuse already existing CR
+        if os.getenv("SKIP_EXECUTION") == "true":
+            print("Skipping creation as 'SKIP_EXECUTION' env variable is not empty")
+            return
 
         try:
             # TODO currently if the update doesn't pass (e.g. patch is incorrect) - we don't fail here...

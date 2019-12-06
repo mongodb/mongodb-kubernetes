@@ -74,7 +74,7 @@ func TestOnAddStandaloneWithDelayPending(t *testing.T) {
 
 	reconciler := newStandaloneReconciler(manager, om.NewEmptyMockedOmConnection)
 
-	checkReconcilePending(t, reconciler, st, "MongoDB dublin resource is reconciling", client)
+	checkReconcilePending(t, reconciler, st, "MongoDB dublin resource is still starting", client)
 
 	InitDefaultEnvVariables()
 }

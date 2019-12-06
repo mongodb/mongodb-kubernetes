@@ -45,7 +45,7 @@ type Updatable interface {
 
 	// UpdatePending called when the Updatable object needs to transition to
 	// pending state.
-	UpdatePending(msg string)
+	UpdatePending(msg string, args ...string)
 
 	// UpdateReconciling called when the Updatable object needs to transition to
 	// reconciling state.
@@ -250,14 +250,14 @@ func (c *ReconcileCommonController) updateStatusSuccessful(reconciledResource Up
 	return reconcile.Result{}, nil
 }
 
-func (c *ReconcileCommonController) updateStatusPending(reconciledResource Updatable, msg string, log *zap.SugaredLogger) (reconcile.Result, error) {
+func (c *ReconcileCommonController) updateStatusPending(reconciledResource Updatable, msg string, log *zap.SugaredLogger, args ...string) (reconcile.Result, error) {
 	msg = util.UpperCaseFirstChar(msg)
 
 	// Info or warning?
 	log.Info(msg)
 
 	err := c.updateStatus(reconciledResource, func(fresh Updatable) {
-		fresh.UpdatePending(msg)
+		fresh.UpdatePending(msg, args...)
 	})
 	if err != nil {
 		return fail(err)

@@ -4,14 +4,18 @@ from kubetester.omtester import OMTester
 
 from tests.opsmanager.om_base import OpsManagerBase
 
+"""
+The test for the latest OM image. This test is supposed to be updated each time new OM is released.
+Don't forget to set 'testing:true' in 'release.json' file for a matching OM version!
+"""
+
 
 @pytest.mark.e2e_om_ops_manager_latest
 class TestOpsManagerCreation(OpsManagerBase):
     """
     name: Latest Ops Manager successful creation
     description: |
-      Creates an Ops Manager instance (latest version) with AppDB of size 3. Don't forget to set 'testing:true' in
-       'release.json' file for a matching OM version!
+      Creates an Ops Manager instance (latest version) with AppDB of size 3.
     create:
       file: om_ops_manager_basic.yaml
       patch: '[{"op":"replace","path":"/spec/version", "value": "4.2.4"}]'

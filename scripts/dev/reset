@@ -23,7 +23,5 @@ kubectl delete pvc --all -n "${NAMESPACE}"
 
 kubectl delete $(kubectl get csr -o name | grep ${NAMESPACE}) 2>/dev/null || true
 
-if [[ -z $ONLY_MDB ]]; then
-  kubectl delete secrets --all -n "${NAMESPACE}"
-  kubectl delete configmaps --all -n "${NAMESPACE}"
-fi
+kubectl delete secrets --all -n "${NAMESPACE}"
+kubectl delete configmaps --all -n "${NAMESPACE}"

@@ -78,7 +78,7 @@ func failedValidation(msg string, params ...interface{}) *validationStatus {
 }
 
 func (e *pendingStatus) updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger, args ...string) (reconcile.Result, error) {
-	return c.updateStatusPending(resource, e.msg, log)
+	return c.updateStatusPending(resource, e.msg, log, args...)
 }
 
 func (e *pendingStatus) onErrorPrepend(msg string) reconcileStatus {

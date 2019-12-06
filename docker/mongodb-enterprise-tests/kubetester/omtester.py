@@ -5,6 +5,7 @@ from typing import List
 import pytest
 import requests
 import time
+import urllib.parse
 from kubetester.kubetester import build_auth
 
 from .kubetester import get_env_var_or_fail
@@ -50,7 +51,7 @@ class OMTester(object):
 
     def assert_version(self, version: str):
         """ makes the request to a random API url to get headers """
-        response = self.om_request("get", "/api/public/v1.0/orgs")
+        response = self.om_request("get", "/orgs")
         assert (
             f"versionString={version}" in response.headers["X-MongoDB-Service-Version"]
         )
@@ -58,7 +59,7 @@ class OMTester(object):
     def assert_test_service(self):
         endpoint = self.om_context.base_url + "/test/utils/systemTime"
         response = requests.request("get", endpoint)
-        assert response.status_code == 200
+        assert response.status_code == requests.status_codes.codes.OK
 
     def assert_support_page_enabled(self):
         """The method ends successfully if 'mms.helpAndSupportPage.enabled' is set to 'true'. It's 'false' by default.
@@ -70,26 +71,58 @@ class OMTester(object):
         assert response.status_code == 307
 
     def assert_group_exists(self):
-        path = "/api/public/v1.0/groups/" + self.om_context.group_id
+        path = "/groups/" + self.om_context.group_id
         response = self.om_request("get", path)
 
-        assert response.status_code == 200
+        assert response.status_code == requests.status_codes.codes.OK
+
+    def assert_daemon_enabled(self, host_name: str, head_db_path: str):
+        encoded_head_db_path = urllib.parse.quote(head_db_path, safe="")
+        response = self.om_request(
+            "get", f"/admin/backup/daemon/configs/{host_name}/{encoded_head_db_path}",
+        )
+
+        assert response.status_code == requests.status_codes.codes.OK
+        daemon_config = response.json()
+        assert daemon_config["machine"] == {
+            "headRootDirectory": head_db_path,
+            "machine": host_name,
+        }
+        assert daemon_config["assignmentEnabled"]
+        assert daemon_config["configured"]
+
+    def assert_oplog_stores(self, expected_oplog_stores: List):
+        """ verifies that the list of oplog store configs in OM is equal to the expected one"""
+        response = self.om_request("get", "/admin/backup/oplog/mongoConfigs")
+        assert response.status_code == requests.status_codes.codes.OK
+
+        existing_configs = response.json()["results"]
+
+        expected_oplog_stores = sorted(
+            expected_oplog_stores, key=lambda oplog: oplog["id"]
+        )
+        existing_configs = sorted(existing_configs, key=lambda oplog: oplog["id"])
+        for expected, existing in zip(expected_oplog_stores, existing_configs):
+            for key in expected:
+                assert expected[key] == existing[key]
 
     @staticmethod
     def do_assert_healthiness(base_url: str):
         endpoint = base_url + "/monitor/health"
         response = requests.request("get", endpoint)
         assert (
-            response.status_code == 200
+            response.status_code == requests.status_codes.codes.OK
         ), "Expected HTTP 200 from Ops Manager but got {} ({})".format(
             response.status_code, datetime.now()
         )
 
     def om_request(self, method, path, json_object=None):
+        """ performs the digest API request to Ops Manager. Note that the paths don't need to be prefixed with
+        '/api../v1.0' as the method does it internally"""
         headers = {"Content-Type": "application/json"}
         auth = build_auth(self.om_context.user, self.om_context.public_key)
 
-        endpoint = self.om_context.base_url + path
+        endpoint = f"{self.om_context.base_url}/api/public/v1.0{path}"
         response = requests.request(
             method, endpoint, auth=auth, headers=headers, json=json_object
         )

@@ -1,3 +1,5 @@
+import re
+
 from kubernetes.client.rest import ApiException
 from kubetester.kubetester import KubernetesTester
 from kubetester.omcr import OpsManagerCR
@@ -52,7 +54,17 @@ class OpsManagerBase(KubernetesTester):
 
     @staticmethod
     def om_in_running_state():
-        """ Returns true if the resource in Running state, fails fast if got into Failed error.
+        return OpsManagerBase.om_in_desired_state("Running")
+
+    @staticmethod
+    def om_in_pending_state_mongodb_doesnt_exist():
+        return OpsManagerBase.om_in_desired_state(
+            "Pending", "The MongoDB object .+ doesn't exist"
+        )
+
+    @staticmethod
+    def om_in_desired_state(state: str, message: str = None):
+        """ Returns true if the resource in desired state, fails fast if got into Failed error.
          This allows to fail fast in case of cascade failures """
         resource = OpsManagerBase.read_om_cr()
         if resource.get_status() is None:
@@ -65,17 +77,23 @@ class OpsManagerBase(KubernetesTester):
                 'Got into Failed phase while waiting for Running! ("{}")'.format(msg)
             )
 
-        is_om_running = phase == "Running"
+        is_om_in_desired_state = phase == state
+        if message is not None:
+            regexp = re.compile(message)
+            is_om_in_desired_state = is_om_in_desired_state and regexp.match(
+                resource.get_om_status()["message"]
+            )
+
         is_appdb_running = resource.get_appdb_status()["phase"] == "Running"
 
-        if is_om_running and not is_appdb_running:
+        if is_om_in_desired_state and not is_appdb_running:
             raise AssertionError(
-                "Ops Manager has Running status, but AppDB has status {}".format(
-                    resource.get_appdb_status()["phase"]
+                "Ops Manager has {} status, but AppDB has status {}".format(
+                    state, resource.get_appdb_status()["phase"]
                 )
             )
 
-        return is_om_running
+        return is_om_in_desired_state
 
     @staticmethod
     def om_in_error_state():

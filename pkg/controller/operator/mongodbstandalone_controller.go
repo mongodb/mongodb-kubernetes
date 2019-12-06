@@ -150,7 +150,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 			}
 
 			if !r.kubeHelper.isStatefulSetUpdated(standaloneBuilder.Namespace, standaloneBuilder.Name, log) {
-				return pending(fmt.Sprintf("MongoDB %s resource is reconciling", standaloneBuilder.Name))
+				return pending(fmt.Sprintf("MongoDB %s resource is still starting", standaloneBuilder.Name))
 			}
 
 			log.Info("Updated statefulset for standalone")

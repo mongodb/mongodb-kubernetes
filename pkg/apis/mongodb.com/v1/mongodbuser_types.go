@@ -124,7 +124,7 @@ func (u *MongoDBUser) UpdateSuccessful(other runtime.Object, _ ...string) {
 	u.Status.LastTransition = util.Now()
 }
 
-func (u *MongoDBUser) UpdatePending(msg string) {
+func (u *MongoDBUser) UpdatePending(msg string, args ...string) {
 	if msg != "" {
 		u.Status.Message = msg
 	}

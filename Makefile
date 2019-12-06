@@ -120,12 +120,15 @@ log:
 # Use 'light=true' parameter to skip Operator rebuilding - use this mode when you are focused on e2e tests development only
 # Note, that this may be not perfectly the same what is done in evergreen e2e tests as the OM instance may be external
 # (in Evergreen)
-e2e: build-and-push-test-image reset
+e2e: build-and-push-test-image
+	@ if [[ -z "$(skip)" ]]; then \
+		$(MAKE) reset; \
+	fi
 	@ if [[ -z "$(light)" ]]; then \
 		$(MAKE) operator; \
 	fi
 	@ scripts/dev/configure_operator
-	@ scripts/dev/launch_e2e $(test) $(local)
+	@ scripts/dev/launch_e2e $(test) $(local) $(skip)
 
 # deletes and creates a kops e2e cluster
 recreate-e2e-kops:

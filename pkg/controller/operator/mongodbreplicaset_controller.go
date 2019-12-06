@@ -123,7 +123,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 			}
 
 			if !r.kubeHelper.isStatefulSetUpdated(rs.Namespace, rs.Name, log) {
-				return pending(fmt.Sprintf("MongoDB %s resource is reconciling", rs.Name))
+				return pending("MongoDB %s resource is still starting", rs.Name)
 			}
 
 			log.Info("Updated statefulsets for replica set")

@@ -162,6 +162,7 @@ deploy_test_app() {
          --set operator.name="${OPERATOR_NAME:=mongodb-enterprise-operator}" \
          --set managedSecurityContext="${MANAGED_SECURITY_CONTEXT:=false}" \
          --set tag="${TEST_IMAGE_TAG}" \
+         --set skipExecution="${SKIP_EXECUTION:="'false'"}" \
          --set baseUrl="${OM_BASE_URL:=http://ops-manager.${OPS_MANAGER_NAMESPACE}.svc.cluster.local:8080}" \
          --set apiKey="${OM_API_KEY:-}" \
          --set apiUser="${OM_USER:=admin}" \

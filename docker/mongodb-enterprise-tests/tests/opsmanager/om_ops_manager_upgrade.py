@@ -81,11 +81,7 @@ class TestOpsManagerWithMongoDB(OpsManagerBase):
         self.create_config_map(
             self.namespace,
             "om-rs-configmap",
-            {
-                "baseUrl": f"http://om-upgrade-svc.{self.namespace}.svc:8080",
-                "projectName": "development",
-                "credentials": "om-upgrade-admin-key",
-            },
+            {"baseUrl": self.om_cr.get_om_status_url(), "projectName": "development",},
         )
         self.create_mongodb_from_object(
             self.namespace,

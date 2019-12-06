@@ -49,6 +49,8 @@ spec:
     # We can pass additional options to pytest. For instance -s
     - name: PYTEST_ADDOPTS
       value: {{ .Values.pytest.addopts }}
+    - name: SKIP_EXECUTION
+      value: {{ .Values.skipExecution}}
     - name: PYTHONUNBUFFERED
       value: 'true'
     - name: PYTHONWARNINGS

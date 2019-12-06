@@ -54,5 +54,5 @@ func (s DataStoreConfig) MergeIntoOpsManagerConfig(opsManagerConfig *DataStoreCo
 }
 
 func (r DataStoreConfig) String() string {
-	return fmt.Sprintf("id: %s, uri: %s, useSSL: %v", r.Id, util.RedactMongoURI(r.Uri), r.UseSSL)
+	return fmt.Sprintf("id: %s, uri: %s, ssl: %v", r.Id, util.RedactMongoURI(r.Uri), r.UseSSL)
 }

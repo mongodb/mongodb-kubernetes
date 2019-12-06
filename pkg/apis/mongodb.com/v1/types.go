@@ -406,7 +406,7 @@ func (m *MongoDB) UpdateError(msg string) {
 
 // UpdatePending called when the CR object (MongoDB resource) needs to transition to
 // pending state.
-func (m *MongoDB) UpdatePending(msg string) {
+func (m *MongoDB) UpdatePending(msg string, args ...string) {
 	if msg != "" {
 		m.Status.Message = msg
 	}

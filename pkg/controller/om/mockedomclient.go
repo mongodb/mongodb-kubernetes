@@ -34,9 +34,9 @@ import (
 //   configured using 'AgentsDelayCount' property
 // * As Deployment has package access to most of its data to preserve encapsulation (processes, ssl etc) this class can
 //   be used as an access point to those fields for testing (see 'getProcesses' as an example)
-// * There is a small trick with global variable 'CurrMockedConnection' that allows to "survive" separate calls to the
-//   om creation function and allows to test more complicated scenarios (create delete). The state is cleaned as soon as
-//   a new mocked api object is built (which usually occurs when the new reconciler is built)
+// * Note that the variable 'CurrMockedConnection' is global (as Go tests don't allow to have setup/teardown hooks)
+//  The state is cleaned as soon as a new mocked api object is built (which usually occurs when the new reconciler is
+//   built)
 // ********************************************************************************************************************
 
 // Global variable for current OM connection object that was created by MongoDbController - just for tests

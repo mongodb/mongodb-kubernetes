@@ -49,3 +49,35 @@ class TestOpsManagerBackupEnabledNotSpecified(OpsManagerBase):
 
     def test_validation_ok(self):
         assert True
+
+
+@pytest.mark.e2e_om_appdb_validation
+class TestOpsManagerBackupOplogStoreNameRequired(OpsManagerBase):
+    """
+    name: Backup 'enabled' check
+    description: |
+      Backup oplog store specified but missing 'name' field
+    create:
+      file: om_appdb_validation.yaml
+      patch: '[{"op":"add","path":"/spec/backup","value":{"enabled": true, "opLogStores": [{"mongodbResourceRef": {}}]}}]'
+      exception: 'spec.backup.opLogStores.name in body is required'
+    """
+
+    def test_validation_ok(self):
+        assert True
+
+
+@pytest.mark.e2e_om_appdb_validation
+class TestOpsManagerBackupOplogStoreMongodbRefRequired(OpsManagerBase):
+    """
+    name: Backup 'enabled' check
+    description: |
+      Backup oplog store specified but missing 'mongodbResourceRef' field
+    create:
+      file: om_appdb_validation.yaml
+      patch: '[{"op":"add","path":"/spec/backup","value":{"enabled": true, "opLogStores": [{"name": "foo"}]}}]'
+      exception: 'spec.backup.opLogStores.mongodbResourceRef in body is required'
+    """
+
+    def test_validation_ok(self):
+        assert True
