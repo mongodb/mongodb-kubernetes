@@ -81,3 +81,93 @@ class TestOpsManagerBackupOplogStoreMongodbRefRequired(OpsManagerBase):
 
     def test_validation_ok(self):
         assert True
+
+
+@pytest.mark.e2e_om_appdb_validation
+class TestOpsManagerS3StoreNameRequired(OpsManagerBase):
+    """
+    description: |
+      S3 store specified but missing 'name' field
+    create:
+      file: om_s3store_validation.yaml
+      patch: '[ { "op":"add","path":"/spec/backup/s3Stores/-","value": {} }]'
+      exception: 'spec.backup.s3Stores.name in body is required'
+    """
+
+    def test_validation_ok(self):
+        assert True
+
+
+@pytest.mark.e2e_om_appdb_validation
+class TestOpsManagerS3StoreMongoDBResourceRefRequired(OpsManagerBase):
+    """
+    description: |
+      S3 store specified but missing 'mongodbResourceRef' field
+    create:
+      file: om_s3store_validation.yaml
+      patch: '[{"op":"add","path":"/spec/backup/s3Stores/-", "value": { "name": "foo" }}]'
+      exception: 'spec.backup.s3Stores.mongodbResourceRef in body is required'
+    """
+
+    def test_validation_ok(self):
+        assert True
+
+
+@pytest.mark.e2e_om_appdb_validation
+class TestOpsManagerS3StorePathStyleAccessEnabledRequired(OpsManagerBase):
+    """
+    description: |
+      S3 store specified but missing 'pathStyleAccessEnabled' field
+    create:
+      file: om_s3store_validation.yaml
+      patch: '[{"op":"add","path":"/spec/backup/s3Stores/-","value":{ "name": "foo", "mongodbResourceRef": {"name":"my-rs" }}}]'
+      exception: 'spec.backup.s3Stores.pathStyleAccessEnabled in body is required'
+    """
+
+    def test_validation_ok(self):
+        assert True
+
+
+@pytest.mark.e2e_om_appdb_validation
+class TestOpsManagerS3StoreS3BucketEndpointRequired(OpsManagerBase):
+    """
+    description: |
+      S3 store specified but missing 's3BucketEndpoint' field
+    create:
+      file: om_s3store_validation.yaml
+      patch: '[{"op":"add","path":"/spec/backup/s3Stores/-","value":{ "name": "foo", "mongodbResourceRef": {"name":"my-rs" }, "pathStyleAccessEnabled": true }}]'
+      exception: 'spec.backup.s3Stores.s3BucketEndpoint in body is required'
+    """
+
+    def test_validation_ok(self):
+        assert True
+
+
+@pytest.mark.e2e_om_appdb_validation
+class TestOpsManagerS3StoreS3BucketNameRequired(OpsManagerBase):
+    """
+    description: |
+      S3 store specified but missing 's3BucketName' field
+    create:
+      file: om_s3store_validation.yaml
+      patch: '[{"op":"add","path":"/spec/backup/s3Stores/-","value":{ "name": "foo", "mongodbResourceRef": {"name":"my-rs" }, "pathStyleAccessEnabled": true , "s3BucketEndpoint": "my-endpoint"}}]'
+      exception: 'spec.backup.s3Stores.s3BucketName in body is required'
+    """
+
+    def test_validation_ok(self):
+        assert True
+
+
+@pytest.mark.e2e_om_appdb_validation
+class TestOpsManagerS3StoreS3SecretRequired(OpsManagerBase):
+    """
+    description: |
+      S3 store specified but missing 's3SecretRef' field
+    create:
+      file: om_s3store_validation.yaml
+      patch: '[{"op":"add","path":"/spec/backup/s3Stores/-","value":{ "name": "foo", "mongodbResourceRef": {"name":"my-rs" }, "pathStyleAccessEnabled": true , "s3BucketEndpoint": "my-endpoint", "s3BucketName": "bucket-name"}}]'
+      exception: 'spec.backup.s3Stores.s3SecretRef in body is required'
+    """
+
+    def test_validation_ok(self):
+        assert True
