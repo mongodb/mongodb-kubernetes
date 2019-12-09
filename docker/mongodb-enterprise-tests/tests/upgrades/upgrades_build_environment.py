@@ -30,9 +30,8 @@ def sharded_cluster(namespace: str) -> MongoDB:
 
 @mark.e2e_operator_upgrade_build_deployment
 def test_replica_set_reaches_running_phase(replica_set):
-    replica_set.reaches_phase("Running", timeout=600)
+    replica_set.assert_reaches_phase("Running", timeout=600)
 
-    assert replica_set["status"]["phase"] == "Running"
     assert "warnings" not in replica_set["status"]
 
 
@@ -44,9 +43,8 @@ def test_replica_set_client_can_connect_to_mongodb(replica_set):
 
 @mark.e2e_operator_upgrade_build_deployment
 def test_cluster_reaches_running_phase(sharded_cluster):
-    sharded_cluster.reaches_phase("Running", timeout=600)
+    sharded_cluster.assert_reaches_phase("Running", timeout=600)
 
-    assert sharded_cluster["status"]["phase"] == "Running"
     assert "warnings" not in sharded_cluster["status"]
 
 

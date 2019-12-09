@@ -266,6 +266,104 @@ func TestBasePodSpec_Requirements(t *testing.T) {
 	assert.Equal(t, expectedRequests, spec.Containers[0].Resources.Requests)
 }
 
+func TestService_merge0(t *testing.T) {
+	dst := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"}}
+	src := &corev1.Service{}
+
+	mergeServices(dst, src)
+	assert.Equal(t, "my-service", dst.ObjectMeta.Name)
+	assert.Equal(t, "my-namespace", dst.ObjectMeta.Namespace)
+
+	// Name and Namespace will not be copied over.
+	src = &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "new-service", Namespace: "new-namespace"}}
+	mergeServices(dst, src)
+	assert.Equal(t, "my-service", dst.ObjectMeta.Name)
+	assert.Equal(t, "my-namespace", dst.ObjectMeta.Namespace)
+}
+
+func TestService_NodePortIsNotOverwritten(t *testing.T) {
+	dst := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
+		Spec: corev1.ServiceSpec {Ports: []corev1.ServicePort {{NodePort: 30030}}},
+	}
+	src := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
+		Spec: corev1.ServiceSpec {},
+	}
+
+	mergeServices(dst, src)
+	assert.Equal(t, int32(30030), dst.Spec.Ports[0].NodePort)
+}
+
+func TestService_NodePortIsNotOverwrittenIfNoNodePortIsSpecified(t *testing.T) {
+	dst := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
+		Spec: corev1.ServiceSpec {Ports: []corev1.ServicePort {{NodePort: 30030}}},
+	}
+	src := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
+		Spec: corev1.ServiceSpec {Ports: []corev1.ServicePort {{}}},
+	}
+
+	mergeServices(dst, src)
+	assert.Equal(t, int32(30030), dst.Spec.Ports[0].NodePort)
+}
+
+func TestService_NodePortIsKeptWhenChangingServiceType(t *testing.T) {
+	dst := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
+		Spec: corev1.ServiceSpec {
+			Ports: []corev1.ServicePort {{NodePort: 30030}},
+			Type: corev1.ServiceTypeLoadBalancer,
+		},
+	}
+	src := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
+		Spec: corev1.ServiceSpec {
+			Ports: []corev1.ServicePort {{NodePort: 30099}},
+			Type: corev1.ServiceTypeNodePort,
+		},
+	}
+	mergeServices(dst, src)
+	assert.Equal(t, int32(30099), dst.Spec.Ports[0].NodePort)
+
+	src = &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
+		Spec: corev1.ServiceSpec {
+			Ports: []corev1.ServicePort {{NodePort: 30011}},
+			Type: corev1.ServiceTypeLoadBalancer,
+		},
+	}
+
+	mergeServices(dst, src)
+	assert.Equal(t, int32(30011), dst.Spec.Ports[0].NodePort)
+}
+
+func TestService_mergeAnnotations(t *testing.T) {
+	// Annotations will be added
+	annotationsDest := make(map[string]string)
+	annotationsDest["annotation0"] = "value0"
+	annotationsDest["annotation1"] = "value1"
+	annotationsSrc := make(map[string]string)
+	annotationsSrc["annotation0"] = "valueXXXX"
+	annotationsSrc["annotation2"] = "value2"
+
+	src := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: annotationsSrc,
+		},
+	}
+	dst := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "my-service", Namespace: "my-namespace",
+			Annotations: annotationsDest,
+		},
+	}
+	mergeServices(dst, src)
+	assert.Len(t, dst.ObjectMeta.Annotations, 3)
+	assert.Equal(t, dst.ObjectMeta.Annotations["annotation0"], "valueXXXX")
+}
+
 // ******************************** Helper methods *******************************************
 
 func baseSetHelper() *StatefulSetHelper {

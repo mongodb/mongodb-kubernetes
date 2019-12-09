@@ -73,8 +73,12 @@ type StatefulSetHelper struct {
 
 	ResourceType mdbv1.ResourceType
 
-	// Not part of StatefulSet object
-	ExposedExternally  bool
+	// The following attributes are not part of StatefulSet object
+
+	// ExposedExternally sets this StatefulSetHelper to receive a `Service` that will allow it to be
+	// visible from outside the Kubernetes cluster.
+	ExposedExternally bool
+
 	Project            mdbv1.ProjectConfig
 	Security           *mdbv1.Security
 	ReplicaSetHorizons []mdbv1.MongoDBHorizonConfig
@@ -107,6 +111,9 @@ func (ss StatefulSetHelper) getAdditionalCertDomainsForMember(member int) (hostn
 
 type OpsManagerStatefulSetHelper struct {
 	StatefulSetHelperCommon
+
+	// MongoDBOpsManagerSpec reference to the actual Spec received.
+	Spec mdbv1.MongoDBOpsManagerSpec
 
 	EnvVars []corev1.EnvVar
 }
@@ -180,9 +187,11 @@ func (k *KubeHelper) NewOpsManagerStatefulSetHelper(opsManager *mdbv1.MongoDBOps
 			Version:     opsManager.Spec.Version,
 			Service:     opsManager.SvcName(),
 		},
+		Spec:    opsManager.Spec,
 		EnvVars: opsManagerConfigurationToEnvVars(opsManager),
 	}
 }
+
 func (k *KubeHelper) NewBackupStatefulSetHelper(opsManager *mdbv1.MongoDBOpsManager) *BackupStatefulSetHelper {
 	helper := BackupStatefulSetHelper{
 		OpsManagerStatefulSetHelper: k.NewOpsManagerStatefulSetHelper(opsManager),
@@ -230,8 +239,8 @@ func (s *StatefulSetHelper) SetPodVars(podVars *PodVars) *StatefulSetHelper {
 	return s
 }
 
-func (s *StatefulSetHelper) SetExposedExternally(exposed bool) *StatefulSetHelper {
-	s.ExposedExternally = exposed
+func (s *StatefulSetHelper) SetExposedExternally(exposedExternally bool) *StatefulSetHelper {
+	s.ExposedExternally = exposedExternally
 	return s
 }
 
@@ -297,7 +306,18 @@ func (s *StatefulSetHelper) CreateOrUpdateInKubernetes() error {
 		return err
 	}
 
-	_, err = s.Helper.createOrUpdateService(s.Owner, s.ServicePort, s.Namespace, s.ExposedExternally, s.Logger, set)
+	namespacedName := objectKey(s.Namespace, set.Spec.ServiceName)
+	internalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, &mdbv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	err = s.Helper.createOrUpdateService(internalService, s.Logger)
+	if err != nil {
+		return err
+	}
+
+	if s.ExposedExternally {
+		namespacedName := objectKey(s.Namespace, set.Spec.ServiceName+"-external")
+		externalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, &mdbv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeNodePort})
+		err = s.Helper.createOrUpdateService(externalService, s.Logger)
+	}
 
 	return err
 }
@@ -345,7 +365,19 @@ func (s *OpsManagerStatefulSetHelper) CreateOrUpdateInKubernetes() error {
 		return err
 	}
 
-	_, err = s.Helper.createOrUpdateService(s.Owner, s.ServicePort, s.Namespace, true, s.Logger, set)
+	namespacedName := objectKey(s.Namespace, set.Spec.ServiceName)
+	internalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, &mdbv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	err = s.Helper.createOrUpdateService(internalService, s.Logger)
+	if err != nil {
+		return err
+	}
+
+	if s.Spec.MongoDBOpsManagerExternalConnectivity != nil {
+		namespacedName := objectKey(s.Namespace, set.Spec.ServiceName+"-ext")
+		externalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, s.Spec.MongoDBOpsManagerExternalConnectivity)
+		err = s.Helper.createOrUpdateService(externalService, s.Logger)
+	}
+
 	return err
 }
 
@@ -374,7 +406,9 @@ func (s *StatefulSetHelper) CreateOrUpdateAppDBInKubernetes() error {
 		return err
 	}
 
-	_, err = s.Helper.createOrUpdateService(s.Owner, s.ServicePort, s.Namespace, false, s.Logger, set)
+	namespacedName := objectKey(s.Namespace, set.Spec.ServiceName)
+	internalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, &mdbv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	err = s.Helper.createOrUpdateService(internalService, s.Logger)
 	return err
 }
 
@@ -503,17 +537,6 @@ func (k *KubeHelper) createOrUpdateStatefulset(ns string, log *zap.SugaredLogger
 	return set, nil
 }
 
-func (k *KubeHelper) createOrUpdateService(owner Updatable, servicePort int32,
-	ns string, exposeExternally bool, log *zap.SugaredLogger, set *appsv1.StatefulSet) (int32, error) {
-	service, err := k.ensureServicesExist(owner, set.Spec.ServiceName, servicePort, ns,
-		exposeExternally, log, set)
-	if err != nil {
-		return -1, err
-	}
-
-	return discoverServicePort(service)
-}
-
 // isStatefulSetUpdated will check if every Replica from the StatefulSet has been updated.
 // The StatefulSet controller updates Pods one at a time, and each one is considered "ready" and
 // "updated". We expect that the StatefulSet is completely Updated when all of the Pods have been
@@ -560,55 +583,35 @@ func (k *KubeHelper) deleteStatefulSet(key client.ObjectKey) error {
 	return nil
 }
 
-// ensureServicesExist checks if the necessary services exist and creates them if not. If the service name is not
-// provided - creates it based on the first replicaset name provided
-// TODO it must remove the external service in case it's no more needed
-func (k *KubeHelper) ensureServicesExist(owner Updatable, serviceName string, servicePort int32, nameSpace string,
-	exposeExternally bool, log *zap.SugaredLogger, statefulset *appsv1.StatefulSet) (*corev1.Service, error) {
+func (k *KubeHelper) createOrUpdateService(desiredService *corev1.Service, log *zap.SugaredLogger) error {
+	log = log.With("service", desiredService.ObjectMeta.Name)
+	namespacedName := objectKey(desiredService.ObjectMeta.Namespace, desiredService.ObjectMeta.Name)
 
-	// we always create the headless service to achieve Kubernetes internal connectivity
-	service, err := k.ensureService(owner, serviceName, serviceName, servicePort, nameSpace, false, log)
-	if err != nil {
-		return nil, err
-	}
-
-	if exposeExternally {
-		// for providing external connectivity we need the NodePort service
-		service, err = k.ensureService(owner, serviceName+"-external", serviceName, servicePort, nameSpace, true, log)
-
-		if err != nil {
-			return nil, err
-		}
-	}
-	return service, nil
-}
-
-func (k *KubeHelper) ensureService(owner Updatable, serviceName string, label string, servicePort int32, ns string,
-	exposeExternally bool, log *zap.SugaredLogger) (*corev1.Service, error) {
-	namespacedName := objectKey(ns, serviceName)
-	log = log.With("service", namespacedName)
-
-	service := &corev1.Service{}
-	err := k.client.Get(context.TODO(), namespacedName, service)
-	buildService(service, namespacedName, owner, label, servicePort, exposeExternally)
+	existingService := &corev1.Service{}
+	err := k.client.Get(context.TODO(), namespacedName, existingService)
 	method := ""
 
 	if err != nil {
-		err = k.client.Create(context.TODO(), service)
-		if err != nil {
-			return nil, err
+		if apiErrors.IsNotFound(err) {
+			err = k.client.Create(context.TODO(), desiredService)
+			if err != nil {
+				return err
+			}
+		} else {
+			return err
 		}
 		method = "Created"
 	} else {
-		err = k.client.Update(context.TODO(), service)
+		mergeServices(existingService, desiredService)
+		err = k.client.Update(context.TODO(), existingService)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		method = "Updated"
 	}
 
-	log.Debugw(fmt.Sprintf("%s Service", method), "type", service.Spec.Type, "port", service.Spec.Ports[0])
-	return service, nil
+	log.Debugw(fmt.Sprintf("%s Service", method), "type", desiredService.Spec.Type, "port", desiredService.Spec.Ports[0])
+	return nil
 }
 
 // readProjectConfig returns a "Project" config which is a ConfigMap with a series of attributes
@@ -1111,20 +1114,6 @@ func (k *KubeHelper) verifyCertificatesForStatefulSet(ss *StatefulSetHelper, sec
 	}
 
 	return certsNotReady
-}
-
-// discoverServicePort returns `Port` for this `Service`.
-// If the `Service` is `NodePort` it will return `NodePort` instead.
-func discoverServicePort(service *corev1.Service) (int32, error) {
-	if ports := len(service.Spec.Ports); ports != 1 {
-		return -1, fmt.Errorf("Only one port is expected for the service but found %d", ports)
-	}
-
-	if service.Spec.Type == corev1.ServiceTypeNodePort {
-		nodePort := service.Spec.Ports[0].NodePort
-		return nodePort, nil
-	}
-	return service.Spec.Ports[0].Port, nil
 }
 
 // EnvVars returns a list of corev1.EnvVar which should be passed

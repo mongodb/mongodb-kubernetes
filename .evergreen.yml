@@ -278,7 +278,6 @@ functions:
           mv linux-amd64/helm $BINDIR
           rm $HELM
 
-
   setup_kubernetes_environment:
   - command: shell.exec
     type: setup
@@ -1331,6 +1330,12 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_om_external_connectivity
+  tags: ["kops-ops-manager"]
+  exec_timeout_secs: 2400
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_om_ops_manager_backup
   tags: ["kops-ops-manager"]
   exec_timeout_secs: 2400
@@ -1606,6 +1611,7 @@ task_groups:
     - e2e_om_ops_manager_latest
     - e2e_om_ops_manager_scale
     - e2e_om_ops_manager_upgrade
+    - e2e_om_external_connectivity
   teardown_task:
     - func: "upload_e2e_logs"
 

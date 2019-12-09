@@ -368,46 +368,85 @@ func buildPersistentVolumeClaims(set *appsv1.StatefulSet, p StatefulSetHelper) {
 // buildService creates the Kube Service. If it should be seen externally it makes it of type NodePort that will assign
 // some random port in the range 30000-32767
 // Note that itself service has no dedicated IP by default ("clusterIP: None") as all mongo entities should be directly
-// addressable
+// addressable.
 // This function will update a Service object if passed, or return a new one if passed nil, this is to be able to update
 // Services and to not change any attribute they might already have that needs to be maintained.
-func buildService(service *corev1.Service, namespacedName types.NamespacedName, owner Updatable, label string, port int32, exposeExternally bool) {
-	serviceType := corev1.ServiceTypeClusterIP
-	publishNotReady := true
-	if exposeExternally {
-		serviceType = corev1.ServiceTypeNodePort
-		publishNotReady = false
-	}
-
-	if service == nil {
-		service = &corev1.Service{}
-	}
-
+//
+func buildService(namespacedName types.NamespacedName, owner Updatable, label string, port int32, mongoServiceDefinition *mdbv1.MongoDBOpsManagerServiceDefinition) *corev1.Service {
+	service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: namespacedName.Name}}
 	servicePort := corev1.ServicePort{Port: port}
-	if !exposeExternally {
+	serviceType := mongoServiceDefinition.Type
+
+	if serviceType == corev1.ServiceTypeNodePort || serviceType == corev1.ServiceTypeLoadBalancer {
+		servicePort.NodePort = mongoServiceDefinition.Port
+		service.Spec.ClusterIP = ""
+	}
+
+	if serviceType == corev1.ServiceTypeClusterIP {
+		service.Spec.PublishNotReadyAddresses = true
+		service.Spec.ClusterIP = "None"
 		servicePort.Name = "mongodb"
-	} else if len(service.Spec.Ports) > 0 {
-		// If the service exists and has a nodeport specified - we copy the value
-		servicePort.NodePort = service.Spec.Ports[0].NodePort
 	}
 
 	// Each attribute needs to be set manually to avoid overwritting or deleting
 	// attributes from the subobject that we don't know about.
-	service.ObjectMeta.Name = namespacedName.Name
 	service.ObjectMeta.Namespace = namespacedName.Namespace
 	service.ObjectMeta.Labels = map[string]string{AppLabelKey: label}
+
 	service.ObjectMeta.OwnerReferences = baseOwnerReference(owner)
 
 	service.Spec.Selector = map[string]string{AppLabelKey: label}
 	service.Spec.Type = serviceType
 	service.Spec.Ports = []corev1.ServicePort{servicePort}
 
-	if !exposeExternally {
-		service.Spec.ClusterIP = "None"
+	if mongoServiceDefinition.LoadBalancerIP != "" {
+		service.Spec.LoadBalancerIP = mongoServiceDefinition.LoadBalancerIP
 	}
 
-	// We publish this address even when it is not ready, so it can join the party!
-	service.Spec.PublishNotReadyAddresses = publishNotReady
+	if mongoServiceDefinition.ExternalTrafficPolicy != "" {
+		service.Spec.ExternalTrafficPolicy = mongoServiceDefinition.ExternalTrafficPolicy
+	}
+
+	if mongoServiceDefinition.Annotations != nil {
+		service.ObjectMeta.Annotations = mongoServiceDefinition.Annotations
+	}
+
+	return service
+}
+
+// mergeServices merges `source` into `dest`. The `source` parameter will remain
+// intact while `dest` will be modified in place.
+//
+// The "merging" process is arbitrary and it only handle attributes that can be
+// set in the `MongoDBOpsManagerExternalConnectivity` section of the Ops Manager
+// definition.
+func mergeServices(dest, source *corev1.Service) {
+	for k, v := range source.ObjectMeta.Annotations {
+		dest.ObjectMeta.Annotations[k] = v
+	}
+
+	for k, v := range source.ObjectMeta.Labels {
+		dest.ObjectMeta.Labels[k] = v
+	}
+
+	var nodePort int32 = 0
+	if len(dest.Spec.Ports) > 0 {
+		// Save the NodePort for later, in case this ServicePort is changed.
+		nodePort = dest.Spec.Ports[0].NodePort
+	}
+
+	if len(source.Spec.Ports) > 0 {
+		dest.Spec.Ports = source.Spec.Ports
+
+		if nodePort > 0 && source.Spec.Ports[0].NodePort == 0 {
+			// There *is* a nodePort defined already, and a new one is not being passed
+			dest.Spec.Ports[0].NodePort = nodePort
+		}
+	}
+
+	dest.Spec.Type = source.Spec.Type
+	dest.Spec.LoadBalancerIP = source.Spec.LoadBalancerIP
+	dest.Spec.ExternalTrafficPolicy = source.Spec.ExternalTrafficPolicy
 }
 
 func baseOwnerReference(owner Updatable) []metav1.OwnerReference {
@@ -505,11 +544,12 @@ func basePodSpec(statefulSetName string, reqs mdbv1.PodSpecWrapper, podVars *Pod
 func baseAppDbPodSpec(statefulSetName string, reqs mdbv1.PodSpecWrapper, version string) corev1.PodSpec {
 	appdbImageUrl := prepareOmAppdbImageUrl(util.ReadEnvVarOrPanic(util.AppDBImageUrl), version)
 	container := corev1.Container{
-		Name:            util.ContainerAppDbName,
-		Image:           appdbImageUrl,
-		ImagePullPolicy: corev1.PullPolicy(util.ReadEnvVarOrPanic(util.AutomationAgentImagePullPolicy)),
-		Env:             appdbContainerEnv(statefulSetName),
-		Ports:           []corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort}},
+		Name:  util.ContainerAppDbName,
+		Image: appdbImageUrl,
+		ImagePullPolicy: corev1.PullPolicy(util.ReadEnvVarOrPanic(
+			util.AutomationAgentImagePullPolicy)),
+		Env:   appdbContainerEnv(statefulSetName),
+		Ports: []corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort}},
 		Resources: corev1.ResourceRequirements{
 			Limits:   buildLimitsRequirements(reqs),
 			Requests: buildRequestsRequirements(reqs),

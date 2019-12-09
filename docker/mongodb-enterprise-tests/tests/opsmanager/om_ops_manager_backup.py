@@ -12,7 +12,7 @@ HEAD_PATH = "/head"
 Current test focuses on backup capabilities
 Note the strategy for Ops Manager testing: the tests should have more than 1 updates - this is because the initial
 creation of Ops Manager takes too long, so we try to avoid fine-grained test cases and combine different
-updates in one test 
+updates in one test.
 """
 
 
@@ -63,8 +63,8 @@ class TestOpsManagerCreation(OpsManagerBase):
         """ Backup daemon serves no incoming traffic so no service must be created """
         services = self.corev1.list_namespaced_service(self.namespace).items
 
-        # 1 for AppDB and 2 for Ops Manager statefulset
-        assert len(services) == 3
+        # 1 for AppDB and 1 for Ops Manager statefulset
+        assert len(services) == 2
 
     @skip_if_local
     def test_om(self):

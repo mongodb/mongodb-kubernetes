@@ -149,7 +149,7 @@ func AddOpsManagerController(mgr manager.Manager) error {
 	return nil
 }
 
-// ensureConfiguration makes sure the mandatory configuration is specified
+// ensureConfiguration makes sure the mandatory configuration is specified.
 func (r OpsManagerReconciler) ensureConfiguration(opsManager *mdbv1.MongoDBOpsManager, password string, log *zap.SugaredLogger) {
 	// update the central URL
 	setConfigProperty(opsManager, util.MmsCentralUrlPropKey, centralURL(opsManager), log)

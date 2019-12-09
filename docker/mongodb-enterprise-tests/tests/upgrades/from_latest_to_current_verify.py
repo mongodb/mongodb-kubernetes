@@ -21,8 +21,7 @@ def replica_set(namespace: str) -> MongoDB:
 
 @mark.e2e_latest_to_current_verify
 def test_reaches_running_phase(replica_set):
-    replica_set.reaches_phase("Running")
-    assert replica_set["status"]["phase"] == "Running"
+    replica_set.assert_reaches_phase("Running")
 
     assert replica_set["metadata"]["name"] == replica_set.name
     assert replica_set["status"]["members"] == 3

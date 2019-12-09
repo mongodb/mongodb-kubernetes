@@ -10,6 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -48,6 +49,30 @@ type MongoDBOpsManagerSpec struct {
 
 	// Backup
 	Backup *MongoDBOpsManagerBackup `json:"backup,omitempty"`
+
+	// MongoDBOpsManagerExternalConnectivity if sets allows for the creation of a Service for
+	// accessing this Ops Manager resource from outside the Kubernetes cluster.
+	MongoDBOpsManagerExternalConnectivity *MongoDBOpsManagerServiceDefinition `json:"externalConnectivity,omitempty"`
+}
+
+// MongoDBOpsManagerServiceDefinition struct that defines the mechanism by which this Ops Manager resource
+// is exposed, via a Service, to the outside of the Kubernetes Cluster.
+type MongoDBOpsManagerServiceDefinition struct {
+	// Type of the `Service` to be created.
+	Type corev1.ServiceType `json:"type,omitempty"`
+
+	// Port in which this `Service` will listen to, this applies to `NodePort`.
+	Port int32 `json:"port,omitempty"`
+
+	// LoadBalancerIP IP that will be assigned to this LoadBalancer.
+	LoadBalancerIP string `json:"loadBalancerIP,omitempty"`
+
+	// ExternalTrafficPolicy mechanism to preserve the client source IP.
+	// Only supported on GCE and Google Kubernetes Engine.
+	ExternalTrafficPolicy corev1.ServiceExternalTrafficPolicyType `json:"externalTrafficPolicy,omitempty"`
+
+	// Annotations is a list of annotations to be directly passed to the Service object.
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 // MongoDBOpsManagerBackup backup structure for Ops Manager resources
