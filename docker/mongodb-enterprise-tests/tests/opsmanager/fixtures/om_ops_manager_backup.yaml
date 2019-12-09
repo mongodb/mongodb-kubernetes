@@ -15,6 +15,15 @@ spec:
       - name: oplog1
         mongodbResourceRef:
           name: my-mongodb-oplog
+    s3Stores:
+      - name: s3store1
+        mongodbResourceRef:
+          name: my-mongodb-s3
+        s3SecretRef:
+          name: my-s3-secret
+        pathStyleAccessEnabled: true
+        s3BucketEndpoint: s3.us-east-1.amazonaws.com
+        s3BucketName: test-bucket
 
   applicationDatabase:
     members: 3

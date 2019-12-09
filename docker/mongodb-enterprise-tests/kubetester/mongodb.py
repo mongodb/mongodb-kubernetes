@@ -41,7 +41,12 @@ class MongoDBCommon:
 
 class MongoDB(CustomObject, MongoDBCommon):
     def __init__(self, *args, **kwargs):
-        with_defaults = {"plural": "mongodb", "kind": "MongoDB", "group": "mongodb.com", "version": "v1"}
+        with_defaults = {
+            "plural": "mongodb",
+            "kind": "MongoDB",
+            "group": "mongodb.com",
+            "version": "v1",
+        }
         with_defaults.update(kwargs)
         super(MongoDB, self).__init__(*args, **with_defaults)
 
@@ -99,7 +104,12 @@ class MongoDB(CustomObject, MongoDBCommon):
 
 class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def __init__(self, *args, **kwargs):
-        with_defaults = {"plural": "opsmanagers", "kind": "MongoDBOpsManager", "group": "mongodb.com", "version": "v1"}
+        with_defaults = {
+            "plural": "opsmanagers",
+            "kind": "MongoDBOpsManager",
+            "group": "mongodb.com",
+            "version": "v1",
+        }
         with_defaults.update(kwargs)
         super(MongoDBOpsManager, self).__init__(*args, **with_defaults)
 

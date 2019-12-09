@@ -51,6 +51,10 @@ spec:
       value: {{ .Values.pytest.addopts }}
     - name: SKIP_EXECUTION
       value: {{ .Values.skipExecution}}
+    - name: AWS_ACCESS_KEY_ID
+      value: {{ .Values.aws.accessKey}}
+    - name: AWS_SECRET_ACCESS_KEY
+      value: {{ .Values.aws.secretAccessKey}}
     - name: PYTHONUNBUFFERED
       value: 'true'
     - name: PYTHONWARNINGS

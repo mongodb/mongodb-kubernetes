@@ -1,12 +1,18 @@
 from operator import attrgetter
 
-from pytest import mark, fixture
+import yaml
 from kubetester import MongoDB
-from kubetester.kubetester import skip_if_local, fixture as yaml_fixture
+from kubetester.awss3client import AwsS3Client
+from kubetester.kubetester import (
+    skip_if_local,
+    fixture as yaml_fixture,
+    KubernetesTester,
+)
 from kubetester.omtester import OMTester
+from pytest import mark, fixture
 from tests.opsmanager.om_base import OpsManagerBase
 
-HEAD_PATH = "/head"
+HEAD_PATH = "/head/"
 
 """
 Current test focuses on backup capabilities
@@ -23,11 +29,52 @@ class TestOpsManagerCreation(OpsManagerBase):
     description: |
       Creates an Ops Manager instance with backup enabled. The OM is expected to get to 'Pending' state
       eventually as it will wait for oplog db to be created
-    create:
-      file: om_ops_manager_backup.yaml
-      wait_until: om_in_pending_state_mongodb_doesnt_exist
-      timeout: 900
     """
+
+    @fixture(scope="module")
+    def s3_bucket(self):
+        """ creates an s3 bucket and an s3 config"""
+        aws_helper = AwsS3Client("us-east-1")
+
+        bucket_name = KubernetesTester.random_k8s_name("test-bucket-")
+        aws_helper.create_s3_bucket(bucket_name)
+        print(f"\nCreated S3 bucket {bucket_name}")
+
+        s3_secret = "my-s3-secret"
+        self.create_secret(
+            KubernetesTester.get_namespace(),
+            s3_secret,
+            {
+                "accessKey": aws_helper.aws_access_key,
+                "secretKey": aws_helper.aws_secret_access_key,
+            },
+        )
+        print(f"Created a secret for S3 credentials {s3_secret}")
+        yield bucket_name
+
+        print(f"\nRemoving S3 bucket {bucket_name}")
+
+        aws_helper.delete_s3_bucket(bucket_name)
+
+    def test_create_om(self, s3_bucket):
+        """ creates a s3 bucket, s3 config and an OM resource (waits until gets to Pending state)"""
+        resource = yaml.safe_load(open(yaml_fixture("om_ops_manager_backup.yaml")))
+
+        patch = [
+            {
+                "op": "replace",
+                "path": "/spec/backup/s3Stores/0/s3BucketName",
+                "value": s3_bucket,
+            }
+        ]
+        self.create_custom_resource_from_object(
+            self.get_namespace(), resource, patch=patch
+        )
+
+        self.wait_until("om_in_pending_state_mongodb_doesnt_exist", 900)
+
+        # TODO this one is super ugly but we need this to initialize an instance variable 'om_cr'...
+        super().setup_class()
 
     def test_daemon_statefulset(self):
         statefulset = self.appsv1.read_namespaced_stateful_set_status(
@@ -76,7 +123,9 @@ class TestOpsManagerCreation(OpsManagerBase):
 
 
 @mark.e2e_om_ops_manager_backup
-class TestOplogAdded(OpsManagerBase):
+class TestBackupDatabasesAdded(OpsManagerBase):
+    """ name: Creates two mongodb resources for oplog and s3 and waits until OM resource gets to running state"""
+
     @fixture(scope="class")
     def oplog_replica_set(self, namespace):
         self.create_configmap(
@@ -98,10 +147,34 @@ class TestOplogAdded(OpsManagerBase):
 
         yield resource.create()
 
+    @fixture(scope="class")
+    def s3_replica_set(self, namespace):
+        self.create_configmap(
+            self.namespace,
+            "s3-mongodb-config-map",
+            {"baseUrl": self.om_cr.get_om_status_url(), "projectName": "s3metadata"},
+        )
+        resource = MongoDB.from_yaml(
+            yaml_fixture("replica-set-for-om.yaml"),
+            namespace=namespace,
+            name="my-mongodb-s3",
+        )
+
+        resource["spec"]["version"] = "3.6.10"
+        resource["spec"]["opsManager"]["configMapRef"]["name"] = "s3-mongodb-config-map"
+        resource["spec"]["credentials"] = self.om_cr.api_key_secret()
+
+        yield resource.create()
+
     def test_oplog_replica_set_created(self, oplog_replica_set: MongoDB):
-        oplog_replica_set.reaches_phase("Running")
+        oplog_replica_set.assert_reaches_phase("Running")
 
         assert oplog_replica_set["status"]["phase"] == "Running"
+
+    def test_s3_replica_set_created(self, s3_replica_set: MongoDB):
+        s3_replica_set.assert_reaches_phase("Running")
+
+        assert s3_replica_set["status"]["phase"] == "Running"
 
     @skip_if_local
     def test_om(self, namespace):

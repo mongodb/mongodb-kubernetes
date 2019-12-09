@@ -601,6 +601,8 @@ functions:
           export TASK_NAME=${task_name}
           export OPS_MANAGER_NAMESPACE=${ops_manager_namespace}
           export NODE_PORT=${node_port}
+          export AWS_ACCESS_KEY_ID=${mms_eng_test_aws_access_key}
+          export AWS_SECRET_ACCESS_KEY=${mms_eng_test_aws_secret}
 
           export MMS_VERSION=${ops_manager_version}
 

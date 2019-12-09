@@ -15,9 +15,13 @@ class OpsManagerBase(KubernetesTester):
     @classmethod
     def setup_env(cls):
         """ Preparing OM context and OM custom resource - by this time the public api key should be known (if OM was created).
-         Note, that this method is useful ONLY if the docstring annotation was used - custom tests won't benefit """
+         Note, that this method is useful ONLY if the docstring annotation was used - custom tests won't benefit
+          TODO remove this and use the MongodbOpsManager object, it's terrible... """
         try:
-            if KubernetesTester.get_resource() is not None:
+            if (
+                hasattr(KubernetesTester, "namespace")
+                and KubernetesTester.get_resource() is not None
+            ):
                 OpsManagerBase.om_cr = OpsManagerBase.read_om_cr()
                 OpsManagerBase.init_om_context(OpsManagerBase.om_cr)
         except ApiException:

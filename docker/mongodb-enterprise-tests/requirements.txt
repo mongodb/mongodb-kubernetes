@@ -9,3 +9,5 @@ urllib3==1.25.3
 dnspython==1.16.0
 cryptography==2.7
 kubeobject==0.1.8
+boto3==1.10.34
+python-dateutil==2.8.0

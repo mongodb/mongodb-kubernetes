@@ -162,6 +162,8 @@ deploy_test_app() {
          --set operator.name="${OPERATOR_NAME:=mongodb-enterprise-operator}" \
          --set managedSecurityContext="${MANAGED_SECURITY_CONTEXT:=false}" \
          --set tag="${TEST_IMAGE_TAG}" \
+         --set aws.accessKey="${AWS_ACCESS_KEY_ID:=}" \
+         --set aws.secretAccessKey="${AWS_SECRET_ACCESS_KEY:=}" \
          --set skipExecution="${SKIP_EXECUTION:="'false'"}" \
          --set baseUrl="${OM_BASE_URL:=http://ops-manager.${OPS_MANAGER_NAMESPACE}.svc.cluster.local:8080}" \
          --set apiKey="${OM_API_KEY:-}" \

@@ -284,11 +284,11 @@ func TestService_merge0(t *testing.T) {
 func TestService_NodePortIsNotOverwritten(t *testing.T) {
 	dst := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
-		Spec: corev1.ServiceSpec {Ports: []corev1.ServicePort {{NodePort: 30030}}},
+		Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{{NodePort: 30030}}},
 	}
 	src := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
-		Spec: corev1.ServiceSpec {},
+		Spec:       corev1.ServiceSpec{},
 	}
 
 	mergeServices(dst, src)
@@ -298,11 +298,11 @@ func TestService_NodePortIsNotOverwritten(t *testing.T) {
 func TestService_NodePortIsNotOverwrittenIfNoNodePortIsSpecified(t *testing.T) {
 	dst := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
-		Spec: corev1.ServiceSpec {Ports: []corev1.ServicePort {{NodePort: 30030}}},
+		Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{{NodePort: 30030}}},
 	}
 	src := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
-		Spec: corev1.ServiceSpec {Ports: []corev1.ServicePort {{}}},
+		Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{{}}},
 	}
 
 	mergeServices(dst, src)
@@ -312,16 +312,16 @@ func TestService_NodePortIsNotOverwrittenIfNoNodePortIsSpecified(t *testing.T) {
 func TestService_NodePortIsKeptWhenChangingServiceType(t *testing.T) {
 	dst := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
-		Spec: corev1.ServiceSpec {
-			Ports: []corev1.ServicePort {{NodePort: 30030}},
-			Type: corev1.ServiceTypeLoadBalancer,
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{{NodePort: 30030}},
+			Type:  corev1.ServiceTypeLoadBalancer,
 		},
 	}
 	src := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
-		Spec: corev1.ServiceSpec {
-			Ports: []corev1.ServicePort {{NodePort: 30099}},
-			Type: corev1.ServiceTypeNodePort,
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{{NodePort: 30099}},
+			Type:  corev1.ServiceTypeNodePort,
 		},
 	}
 	mergeServices(dst, src)
@@ -329,9 +329,9 @@ func TestService_NodePortIsKeptWhenChangingServiceType(t *testing.T) {
 
 	src = &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
-		Spec: corev1.ServiceSpec {
-			Ports: []corev1.ServicePort {{NodePort: 30011}},
-			Type: corev1.ServiceTypeLoadBalancer,
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{{NodePort: 30011}},
+			Type:  corev1.ServiceTypeLoadBalancer,
 		},
 	}
 
