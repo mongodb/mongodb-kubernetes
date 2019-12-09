@@ -434,6 +434,23 @@ spec:
             replicas:
               minimum: 1
               type: integer
+            externalConnectivity:
+              type: object
+              properties:
+                type:
+                  type: string
+                  enum: ["LoadBalancer", "NodePort"]
+                port:
+                  type: integer
+                loadBalancerIP:
+                  type: string
+                externalTrafficPolicy:
+                  type: string
+                  enum: ["Cluster", "Local"]
+                annotations:
+                  type: object
+              required:
+                - type
             backup:
               type: object
               properties:

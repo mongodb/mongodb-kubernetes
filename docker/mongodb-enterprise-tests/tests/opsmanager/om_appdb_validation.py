@@ -171,3 +171,33 @@ class TestOpsManagerS3StoreS3SecretRequired(OpsManagerBase):
 
     def test_validation_ok(self):
         assert True
+
+
+@pytest.mark.e2e_om_appdb_validation
+class TestOpsManagerExternalConnectivityTypeRequired(OpsManagerBase):
+    """
+    description: |
+        'spec.externalConnectivity.type' is a required field
+    create:
+      file: om_appdb_validation.yaml
+      patch: '[{"op":"add","path":"/spec/externalConnectivity","value":{}}]'
+      exception: 'spec.externalConnectivity.type in body is required'
+    """
+
+    def test_validation_ok(self):
+        assert True
+
+
+@pytest.mark.e2e_om_appdb_validation
+class TestOpsManagerExternalConnectivityWrongType(OpsManagerBase):
+    """
+    description: |
+        'spec.externalConnectivity.type' must be either "LoadBalancer" or "NodePort"
+    create:
+      file: om_appdb_validation.yaml
+      patch: '[{"op":"add","path":"/spec/externalConnectivity","value":{"type": "nginx"}}]'
+      exception: 'spec.externalConnectivity.type in body should be one of [LoadBalancer NodePort]'
+    """
+
+    def test_validation_ok(self):
+        assert True
