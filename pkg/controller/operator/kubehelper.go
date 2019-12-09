@@ -846,16 +846,7 @@ func (k *KubeHelper) createOrUpdateSecret(name, namespace string, pemFiles *pemC
 
 	pemData := pemFiles.mergeWith(secret.Data)
 	secret.StringData = pemData
-	if err = k.client.Update(context.TODO(), secret); err != nil {
-		// attempt one retry
-		if err = k.client.Get(context.TODO(), objectKey(namespace, name), secret); err != nil {
-			return err
-		}
-		secret.StringData = pemData
-		return k.client.Update(context.TODO(), secret)
-	}
-
-	return nil
+	return k.client.Update(context.TODO(), secret)
 }
 
 // createSecret creates the secret. 'data' must either 'map[string][]byte' or 'map[string]string'
@@ -974,31 +965,31 @@ func (ss *StatefulSetHelper) ensureOperatorManagedSSLCertsForStatefulSet(k *Kube
 				log.Infof("Certificate for Pod %s -> Waiting for Approval", host)
 				certsNeedApproval = true
 			}
-
-			// once we are here we know we have built everything we needed
-			// This "secret" object corresponds to the certificates for this statefulset
-			labels := make(map[string]string)
-			labels["mongodb/secure"] = "certs"
-			labels["mongodb/operator"] = "certs." + secretName
-
-			// note that createOrUpdateSecret modifies pemFiles in place by merging
-			// in the existing values in the secret
-			err = k.createOrUpdateSecret(secretName, ss.Namespace, pemFiles, labels)
-			if err != nil {
-				// If we have an error creating or updating the secret, we might lose
-				// the keys, in which case we return an error, to make it clear what
-				// the error was to customers -- this should end up in the status
-				// message.
-				return failed("Failed to create or update the secret: %s", err)
-			}
-
-			certsHash, err := pemFiles.getHash()
-			if err != nil {
-				log.Errorw("Could not hash PEM files", "err", err)
-				return failedErr(err)
-			}
-			ss.SetCertificateHash(certsHash)
 		}
+
+		// once we are here we know we have built everything we needed
+		// This "secret" object corresponds to the certificates for this statefulset
+		labels := make(map[string]string)
+		labels["mongodb/secure"] = "certs"
+		labels["mongodb/operator"] = "certs." + secretName
+
+		// note that createOrUpdateSecret modifies pemFiles in place by merging
+		// in the existing values in the secret
+		err := k.createOrUpdateSecret(secretName, ss.Namespace, pemFiles, labels)
+		if err != nil {
+			// If we have an error creating or updating the secret, we might lose
+			// the keys, in which case we return an error, to make it clear what
+			// the error was to customers -- this should end up in the status
+			// message.
+			return failed("Failed to create or update the secret: %s", err)
+		}
+
+		certsHash, err := pemFiles.getHash()
+		if err != nil {
+			log.Errorw("Could not hash PEM files", "err", err)
+			return failedErr(err)
+		}
+		ss.SetCertificateHash(certsHash)
 	}
 
 	if certsNeedApproval {
