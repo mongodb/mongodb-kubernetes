@@ -5,3 +5,20 @@
 # TODO: Add a proper license
 COPY LICENSE /licenses/mongodb-enterprise-ops-manager
 {% endblock %}
+
+{% block packages %}
+RUN yum install --disableplugin=subscription-manager -y \
+  cyrus-sasl \
+  cyrus-sasl-gssapi \
+  cyrus-sasl-plain \
+  krb5-libs \
+  libcurl \
+  libpcap \
+  lm_sensors-libs \
+  net-snmp \
+  net-snmp-agent-libs \
+  openldap \
+  openssl \
+  rpm-libs \
+  tcp_wrappers-libs
+{% endblock %}
