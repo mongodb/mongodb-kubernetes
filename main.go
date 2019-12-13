@@ -8,7 +8,6 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/operator-framework/operator-sdk/pkg/k8sutil"
 	"go.uber.org/zap"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -27,8 +26,10 @@ func main() {
 
 	initializeEnvironment()
 
+	// "WATCH_NAMESPACE" is taken from github.com/operator-framework/operator-sdk/pkg/k8sutil
+	// copied the string value only to prevent importing the whole package
 	// get watch namespace from environment variable
-	namespace, namespaceSet := os.LookupEnv(k8sutil.WatchNamespaceEnvVar)
+	namespace, namespaceSet := os.LookupEnv("WATCH_NAMESPACE")
 
 	// if namespace is set to the wildcard then use the empty string to represent all namespaces
 	if namespace == "*" || !namespaceSet {
