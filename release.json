@@ -1,5 +1,5 @@
 {
-  "mongodbOperator": "1.4.0",
+  "mongodbOperator": "1.4.1",
   "opsManagerImages": [
     {
       "version": "4.2.0",
