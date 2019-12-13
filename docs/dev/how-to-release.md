@@ -123,9 +123,9 @@ have to be manually "Published" from the UI.
 
 ```bash
 evergreen patch -p ops-manager-kubernetes \
-  -v release_ops_manager_rhel \
+  -v release_ops_manager_rh_connect \
   -t all \
-  -y -f -d "Building Ops Manger RHEL Images" \
+  -y -f -d "Building Ops Manger RHEL Images: $(jq -r .mongodbOperator <release.json)" \
   --browse
 ```
 

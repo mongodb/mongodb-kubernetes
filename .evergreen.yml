@@ -3,7 +3,9 @@ ignore:
   - "public/support/*"
   - "public/samples/*"
 stepback: true
-exec_timeout_secs: 1800 # 30 minutes is the longest we'll ever run
+
+# Ops Manager image building & pushing takes a long time
+exec_timeout_secs: 3600
 variables:
   - &ops_manager_40_first
     ops_manager_version: "4.0.11.50485.20190502T1847Z-1_test"
@@ -819,13 +821,15 @@ tasks:
 # This is part of process to release binary artifacts to customers that need
 # to create their own Dockerfile.
 - name: build_binaries
-  tags: ["build_operator_rhel"]
+  tags: ["release_operator"]
   patch_only: true
   commands:
     - func: clone
     - func: setup_jq
     - func: build_operator
     - func: build_database
+      vars:
+        distro: dcar
     - func: push_versioned_binaries
 
 - name: build_test_image
