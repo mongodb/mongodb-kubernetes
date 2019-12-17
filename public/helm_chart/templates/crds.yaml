@@ -63,6 +63,9 @@ spec:
               type:
                 type: string
                 pattern: "^Standalone$"
+              clusterName:
+                type: string
+                format: hostname
               security:
                 type: object
                 properties:
@@ -144,6 +147,9 @@ spec:
               type:
                 type: string
                 pattern: "^ReplicaSet$"
+              clusterName:
+                type: string
+                format: hostname
               security:
                 type: object
                 properties:
@@ -250,6 +256,9 @@ spec:
               type:
                 type: string
                 pattern: "^ShardedCluster$"
+              clusterName:
+                type: string
+                format: hostname
               security:
                 type: object
                 properties:
@@ -434,6 +443,9 @@ spec:
             replicas:
               minimum: 1
               type: integer
+            clusterName:
+              type: string
+              format: hostname
             externalConnectivity:
               type: object
               properties:
