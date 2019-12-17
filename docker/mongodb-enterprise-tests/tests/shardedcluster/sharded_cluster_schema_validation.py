@@ -91,10 +91,78 @@ class TestShardedClusterSchemaInvalidSSL(KubernetesTester):
     """
     name: Sharded Cluster Validation (invalid ssl mode)
     create:
-      file: standalone.yaml
+      file: sharded-cluster.yaml
       patch: '[{"op":"add","path":"/spec","value":{"additionalMongodConfig":{"net":{"ssl":{"mode": "disabledSSL"}}}}}]'
       exception: 'Unprocessable Entity'
     """
+
+    def test_validation_ok(self):
+        assert True
+
+
+@pytest.mark.e2e_sharded_cluster_schema_validation
+class TestShardedClusterInvalidWithProjectAndCloudManager(KubernetesTester):
+    init = {
+        "create": {
+            "file": "sharded-cluster.yaml",
+            "patch": [
+                {"op": "add", "path": "/spec/project", "value": "something"},
+                {
+                    "op": "add",
+                    "path": "/spec/cloudManager",
+                    "value": {"configMapRef": "something"},
+                },
+            ],
+            "exception": "must validate one and only one schema",
+        },
+    }
+
+    def test_validation_ok(self):
+        assert True
+
+
+@pytest.mark.e2e_sharded_cluster_schema_validation
+class TestShardedClusterInvalidWithProjectAndOpsManager(KubernetesTester):
+    init = {
+        "create": {
+            "file": "sharded-cluster.yaml",
+            "patch": [
+                {"op": "add", "path": "/spec/project", "value": "something"},
+                {
+                    "op": "add",
+                    "path": "/spec/opsManager",
+                    "value": {"configMapRef": "something"},
+                },
+            ],
+            "exception": "must validate one and only one schema",
+        },
+    }
+
+    def test_validation_ok(self):
+        assert True
+
+
+@pytest.mark.e2e_sharded_cluster_schema_validation
+class TestShardedClusterInvalidWithCloudAndOpsManagerAndProject(KubernetesTester):
+    init = {
+        "create": {
+            "file": "sharded-cluster.yaml",
+            "patch": [
+                {"op": "add", "path": "/spec/project", "value": "something"},
+                {
+                    "op": "add",
+                    "path": "/spec/cloudManager",
+                    "value": {"configMapRef": "something"},
+                },
+                {
+                    "op": "add",
+                    "path": "/spec/opsManager",
+                    "value": {"configMapRef": "something"},
+                },
+            ],
+            "exception": "must validate one and only one schema",
+        },
+    }
 
     def test_validation_ok(self):
         assert True

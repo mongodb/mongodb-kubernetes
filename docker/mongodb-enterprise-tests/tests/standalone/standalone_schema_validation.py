@@ -84,3 +84,71 @@ class TestStandaloneSchemaInvalidSSL(KubernetesTester):
 
     def test_validation_ok(self):
         assert True
+
+
+@pytest.mark.e2e_standalone_schema_validation
+class TestStandaloneInvalidWithProjectAndCloudManager(KubernetesTester):
+    init = {
+        "create": {
+            "file": "standalone.yaml",
+            "patch": [
+                {"op": "add", "path": "/spec/project", "value": "something"},
+                {
+                    "op": "add",
+                    "path": "/spec/cloudManager",
+                    "value": {"configMapRef": "something"},
+                },
+            ],
+            "exception": "must validate one and only one schema",
+        },
+    }
+
+    def test_validation_ok(self):
+        assert True
+
+
+@pytest.mark.e2e_standalone_schema_validation
+class TestStandaloneInvalidWithProjectAndOpsManager(KubernetesTester):
+    init = {
+        "create": {
+            "file": "standalone.yaml",
+            "patch": [
+                {"op": "add", "path": "/spec/project", "value": "something"},
+                {
+                    "op": "add",
+                    "path": "/spec/opsManager",
+                    "value": {"configMapRef": "something"},
+                },
+            ],
+            "exception": "must validate one and only one schema",
+        },
+    }
+
+    def test_validation_ok(self):
+        assert True
+
+
+@pytest.mark.e2e_standalone_schema_validation
+class TestStandaloneInvalidWithCloudAndOpsManagerAndProject(KubernetesTester):
+    init = {
+        "create": {
+            "file": "standalone.yaml",
+            "patch": [
+                {"op": "add", "path": "/spec/project", "value": "something"},
+                {
+                    "op": "add",
+                    "path": "/spec/cloudManager",
+                    "value": {"configMapRef": "something"},
+                },
+                {
+                    "op": "add",
+                    "path": "/spec/opsManager",
+                    "value": {"configMapRef": "something"},
+                },
+            ],
+            "exception": "must validate one and only one schema",
+        },
+    }
+
+    def test_validation_ok(self):
+        assert True

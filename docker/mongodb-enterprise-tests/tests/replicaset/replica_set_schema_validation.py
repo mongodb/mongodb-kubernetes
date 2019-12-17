@@ -65,3 +65,102 @@ class TestReplicaSetSchemaInvalidSSL(KubernetesTester):
 
     def test_validation_ok(self):
         assert True
+
+
+@pytest.mark.e2e_replica_set_schema_validation
+class TestReplicaSetInvalidWithOpsAndCloudManager(KubernetesTester):
+    """Creates a Replica Set with both a cloud manager and an ops manager
+    configuration specified."""
+
+    init = {
+        "create": {
+            "file": "replica-set.yaml",
+            "patch": [
+                {
+                    "op": "add",
+                    "path": "/spec/cloudManager",
+                    "value": {"configMapRef": "something"},
+                },
+                {
+                    "op": "add",
+                    "path": "/spec/opsManager",
+                    "value": {"configMapRef": "something"},
+                },
+            ],
+            "exception": "must validate one and only one schema",
+        },
+    }
+
+    def test_validation_ok(self):
+        assert True
+
+
+@pytest.mark.e2e_replica_set_schema_validation
+class TestReplicaSetInvalidWithProjectAndCloudManager(KubernetesTester):
+    """Creates a Replica Set with both a cloud manager and an ops manager
+    configuration specified."""
+
+    init = {
+        "create": {
+            "file": "replica-set.yaml",
+            "patch": [
+                {"op": "add", "path": "/spec/project", "value": "something"},
+                {
+                    "op": "add",
+                    "path": "/spec/cloudManager",
+                    "value": {"configMapRef": "something"},
+                },
+            ],
+            "exception": "must validate one and only one schema",
+        },
+    }
+
+    def test_validation_ok(self):
+        assert True
+
+
+@pytest.mark.e2e_replica_set_schema_validation
+class TestReplicaSetInvalidWithProjectAndOpsManager(KubernetesTester):
+    init = {
+        "create": {
+            "file": "replica-set.yaml",
+            "patch": [
+                {"op": "add", "path": "/spec/project", "value": "something"},
+                {
+                    "op": "add",
+                    "path": "/spec/opsManager",
+                    "value": {"configMapRef": "something"},
+                },
+            ],
+            "exception": "must validate one and only one schema",
+        },
+    }
+
+    def test_validation_ok(self):
+        assert True
+
+
+@pytest.mark.e2e_replica_set_schema_validation
+class TestReplicaSetInvalidWithCloudAndOpsManagerAndProject(KubernetesTester):
+    init = {
+        "create": {
+            "file": "replica-set.yaml",
+            "patch": [
+                {"op": "add", "path": "/spec/project", "value": "something"},
+                {
+                    "op": "add",
+                    "path": "/spec/cloudManager",
+                    "value": {"configMapRef": "something"},
+                },
+                {
+                    "op": "add",
+                    "path": "/spec/opsManager",
+                    "value": {"configMapRef": "something"},
+                },
+            ],
+            "exception": "must validate one and only one schema",
+        },
+    }
+
+    def test_validation_ok(self):
+        assert True
