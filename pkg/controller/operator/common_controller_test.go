@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,6 +30,40 @@ const OperatorNamespace = "operatorNs"
 func init() {
 	util.OperatorVersion = "9.9.9-test"
 	_ = os.Setenv(util.CurrentNamespace, OperatorNamespace)
+}
+
+func TestEnsureTagAdded(t *testing.T) {
+	mockedOmConnection := om.NewEmptyMockedOmConnection
+	controller := newReconcileCommonController(newMockedManager(nil), mockedOmConnection)
+	mockOm, _ := prepareConnection(controller, t)
+	err := ensureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "myTag", zap.S())
+	assert.NoError(t, err)
+	expected := []string{"EXTERNALLY_MANAGED_BY_KUBERNETES", "MY-NAMESPACE", "MYTAG"}
+	assert.Equal(t, expected, mockOm.FindGroup(om.TestGroupName).Tags)
+}
+
+func TestEnsureTagAddedLength(t *testing.T) {
+	mockedOmConnection := om.NewEmptyMockedOmConnection
+	controller := newReconcileCommonController(newMockedManager(nil), mockedOmConnection)
+	mockOm, _ := prepareConnection(controller, t)
+	err := ensureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "LOOKATTHISTRINGTHATISTOOLONGFORTHEFIELD", zap.S())
+	assert.NoError(t, err)
+	expected := []string{"EXTERNALLY_MANAGED_BY_KUBERNETES", "MY-NAMESPACE", "LOOKATTHISTRINGTHATISTOOLONGFORT"}
+	assert.Equal(t, expected, mockOm.FindGroup(om.TestGroupName).Tags)
+}
+
+func TestEnsureTagAddedDuplicates(t *testing.T) {
+	mockedOmConnection := om.NewEmptyMockedOmConnection
+	controller := newReconcileCommonController(newMockedManager(nil), mockedOmConnection)
+	mockOm, _ := prepareConnection(controller, t)
+	err := ensureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "MYTAG", zap.S())
+	assert.NoError(t, err)
+	err = ensureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "MYTAG", zap.S())
+	assert.NoError(t, err)
+	err = ensureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "MYOTHERTAG", zap.S())
+	assert.NoError(t, err)
+	expected := []string{"EXTERNALLY_MANAGED_BY_KUBERNETES", "MY-NAMESPACE", "MYTAG", "MYOTHERTAG"}
+	assert.Equal(t, expected, mockOm.FindGroup(om.TestGroupName).Tags)
 }
 
 // TestPrepareOmConnection_FindExistingGroup finds existing group when org ID is specified, no new Project or Organization
@@ -80,6 +115,7 @@ func TestPrepareOmConnection_CreateGroup(t *testing.T) {
 	mockOm.CheckGroupInOrganization(t, om.TestGroupName, om.TestGroupName)
 	assert.Len(t, mockOm.OrganizationsWithGroups, 1)
 	assert.Contains(t, mockOm.FindGroup(om.TestGroupName).Tags, util.OmGroupExternallyManagedTag)
+	assert.Contains(t, mockOm.FindGroup(om.TestGroupName).Tags, strings.ToUpper(TestNamespace))
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadOrganizationsByName), reflect.ValueOf(mockOm.CreateProject))
 	mockOm.CheckOperationsDidntHappen(t, reflect.ValueOf(mockOm.ReadProjectsInOrganization))
@@ -93,6 +129,7 @@ func TestPrepareOmConnection_CreateGroupFixTags(t *testing.T) {
 
 	mockOm, _ := prepareConnection(controller, t)
 	assert.Contains(t, mockOm.FindGroup(om.TestGroupName).Tags, util.OmGroupExternallyManagedTag)
+	assert.Contains(t, mockOm.FindGroup(om.TestGroupName).Tags, strings.ToUpper(TestNamespace))
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.UpdateProject))
 }

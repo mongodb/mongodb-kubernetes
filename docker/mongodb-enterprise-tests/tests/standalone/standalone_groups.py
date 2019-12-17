@@ -75,4 +75,6 @@ class TestStandaloneOrganizationSpecified(KubernetesTester):
         page = self.get_groups_in_organization_first_page(self.__class__.org_id)
         group = page["results"][0]
 
-        assert group["tags"] == ["EXTERNALLY_MANAGED_BY_KUBERNETES"]
+        assert sorted(group["tags"]) == sorted(
+            ["EXTERNALLY_MANAGED_BY_KUBERNETES", self.namespace.upper()[:32]]
+        )

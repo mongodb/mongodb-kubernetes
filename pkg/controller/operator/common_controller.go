@@ -123,7 +123,12 @@ func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedNam
 		log.Infof("Using Ops Manager version %s", omVersion)
 	}
 
-	if err := c.updateControlledFeatureAndTag(conn, project, log); err != nil {
+	if err := c.updateControlledFeatureAndTag(conn, project, nsName.Namespace, log); err != nil {
+		return nil, err
+	}
+
+	// adds the namespace as a tag to the Ops Manager project
+	if err := ensureTagAdded(conn, project, nsName.Namespace, log); err != nil {
 		return nil, err
 	}
 
@@ -147,11 +152,16 @@ func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedNam
 
 // updateControlledFeatureAndTag will configure the project to use feature controls, and set the
 // EXTERNALLY_MANAGED_BY_KUBERNETES tag. The tag will be ignored if feature controls are enabled
-func (c *ReconcileCommonController) updateControlledFeatureAndTag(conn om.Connection, project *om.Project, log *zap.SugaredLogger) error {
+func (c *ReconcileCommonController) updateControlledFeatureAndTag(
+	conn om.Connection,
+	project *om.Project,
+	resourceNamespace string,
+	log *zap.SugaredLogger,
+) error {
 
 	// TODO: for now, always ensure the tag, once feature controls are enabled by default we can stop apply the tag
 	// the tag will have no impact if feature controls are enabled. It's either/or
-	if err := ensureTagAdded(conn, project, log); err != nil {
+	if err := ensureTagAdded(conn, project, util.OmGroupExternallyManagedTag, log); err != nil {
 		return err
 	}
 
@@ -165,26 +175,23 @@ func (c *ReconcileCommonController) updateControlledFeatureAndTag(conn om.Connec
 	return nil
 }
 
-func ensureTagAdded(conn om.Connection, project *om.Project, log *zap.SugaredLogger) error {
-
-	if util.ContainsString(project.Tags, util.OmGroupExternallyManagedTag) {
+func ensureTagAdded(conn om.Connection, project *om.Project, tag string, log *zap.SugaredLogger) error {
+	// must truncate the tag to at most 32 characters and capitalise as
+	// these are Ops Manager requirements
+	sanitisedTag := strings.ToUpper(fmt.Sprintf("%.32s", tag))
+	alreadyHasTag := util.ContainsString(project.Tags, sanitisedTag)
+	if alreadyHasTag {
 		return nil
 	}
 
-	log.Infow("Seems group doesn't have necessary tag " + util.OmGroupExternallyManagedTag + " - updating it")
+	project.Tags = append(project.Tags, sanitisedTag)
 
-	projectWithTag := &om.Project{
-		Name:  project.Name,
-		OrgID: project.OrgID,
-		ID:    project.ID,
-		Tags:  append(project.Tags, util.OmGroupExternallyManagedTag),
-	}
-
-	_, err := conn.UpdateProject(projectWithTag)
+	log.Infow("Updating group tags", "newTags", project.Tags)
+	_, err := conn.UpdateProject(project)
 	if err != nil {
 		log.Warnf("Failed to update tags for project: %s", err)
 	} else {
-		log.Infow("Project tags are fixed")
+		log.Info("Project tags are fixed")
 	}
 	return err
 }

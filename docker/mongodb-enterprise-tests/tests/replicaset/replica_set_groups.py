@@ -77,7 +77,9 @@ class TestReplicaSetOrganizationsPagination(KubernetesTester):
         group = self.query_group(self.__class__.group_name)
         assert group is not None
         assert group["orgId"] == self.__class__.org_id
-        assert group["tags"] == ["EXTERNALLY_MANAGED_BY_KUBERNETES"]
+        assert sorted(group["tags"]) == sorted(
+            ["EXTERNALLY_MANAGED_BY_KUBERNETES", self.namespace[:32].upper()]
+        )
         print(
             'Only one group with name "{}" exists (as expected)'.format(
                 self.__class__.group_name
