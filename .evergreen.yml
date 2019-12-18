@@ -827,11 +827,11 @@ tasks:
       destination: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-tests:${version_id}
       context: s3://ops-manager-kubernetes-build/ops-manager-operator/${version_id}:scratch/contexts/tests-context.tar.gz
       cache_repo: 268558157000.dkr.ecr.us-east-1.amazonaws.com/cache/mongodb-enterprise-tests
-      label: ${version_id}-tests
+      label: tests-${version_id}
   # kaniko_wait will block until all the Pods with 'labels' are in Succeeded state.
   - func: kaniko_wait
     vars:
-      label: '${version_id}-tests'
+      label: 'tests-${version_id}'
 
 - name: build_images_rhel
   type: setup
@@ -858,16 +858,16 @@ tasks:
       destination: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/rhel/mongodb-enterprise-operator:${version_id}
       context: s3://ops-manager-kubernetes-build/ops-manager-operator/${version_id}:rhel/contexts/operator-context.tar.gz
       cache_repo: 268558157000.dkr.ecr.us-east-1.amazonaws.com/cache/mongodb-enterprise-operator
-      label: ${version_id}-rhel-operator
+      label: rhel-operator-${version_id}
   - func: kaniko_build
     vars:
       destination: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/rhel/mongodb-enterprise-database:${version_id}
       context: s3://ops-manager-kubernetes-build/ops-manager-operator/${version_id}:rhel/contexts/database-context.tar.gz
       cache_repo: 268558157000.dkr.ecr.us-east-1.amazonaws.com/cache/mongodb-enterprise-database
-      label: ${version_id}-rhel-database
+      label: rhel-database-${version_id}
   - func: kaniko_wait
     vars:
-      label: '${version_id}-rhel-operator, ${version_id}-rhel-database'
+      label: 'rhel-operator-${version_id}, rhel-database-${version_id}'
 
 - name: build_images_ubuntu
   commands:
@@ -893,16 +893,16 @@ tasks:
       destination: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/ubuntu/mongodb-enterprise-operator:${version_id}
       context: s3://ops-manager-kubernetes-build/ops-manager-operator/${version_id}:ubuntu/contexts/operator-context.tar.gz
       cache_repo: 268558157000.dkr.ecr.us-east-1.amazonaws.com/cache/mongodb-enterprise-operator
-      label: ${version_id}-ubuntu-operator
+      label: ubuntu-operator-${version_id}
   - func: kaniko_build
     vars:
       destination: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/ubuntu/mongodb-enterprise-database:${version_id}
       context: s3://ops-manager-kubernetes-build/ops-manager-operator/${version_id}:ubuntu/contexts/database-context.tar.gz
       cache_repo: 268558157000.dkr.ecr.us-east-1.amazonaws.com/cache/mongodb-enterprise-database
-      label: ${version_id}-ubuntu-database
+      label: ubuntu-database-${version_id}
   - func: kaniko_wait
     vars:
-      label: '${version_id}-ubuntu-operator, ${version_id}-ubuntu-database'
+      label: 'ubuntu-operator-${version_id}, ubuntu-database-${version_id}'
 
 - name: build_om_images_rhel
   commands:

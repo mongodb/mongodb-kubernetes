@@ -42,7 +42,7 @@ build_image () {
     destination="${1}"
     context="${2}"
     cache_repo="${3}"
-    label="${4}"
+    label="${4:0:63}"  # make sure label is not longer than 63 chars
 
     image_random_name=$(tr -dc 'a-z0-9' < /dev/urandom | fold -w 32 | head -n 1)
 
