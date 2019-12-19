@@ -39,7 +39,7 @@ var singleOrganizationsPage = func(pageNum int) (Paginated, error) {
 	if pageNum == 1 {
 		// Note, that we don't specify 'next' attribute, so no extra pages will be requested
 		return &OrganizationsResponse{
-			OMPaginaged:   OMPaginaged{TotalCount: 1},
+			OMPaginated:   OMPaginated{TotalCount: 1},
 			Organizations: []*Organization{{ID: "1323", Name: "test"}},
 		}, nil
 	}
@@ -53,17 +53,17 @@ var multipleOrganizationsPage = func(pageNum int) (Paginated, error) {
 	// page 1
 	if pageNum == 1 {
 		return &OrganizationsResponse{
-			OMPaginaged:   OMPaginaged{TotalCount: 1300, Links: []*Link{{Rel: "next"}}},
+			OMPaginated:   OMPaginated{TotalCount: 1300, Links: []*Link{{Rel: "next"}}},
 			Organizations: generateOrganizations(0, 500),
 		}, nil
 	} else if pageNum == 2 {
 		return &OrganizationsResponse{
-			OMPaginaged:   OMPaginaged{TotalCount: 1300, Links: []*Link{{Rel: "next"}}},
+			OMPaginated:   OMPaginated{TotalCount: 1300, Links: []*Link{{Rel: "next"}}},
 			Organizations: generateOrganizations(500, 500),
 		}, nil
 	} else if pageNum == 3 {
 		return &OrganizationsResponse{
-			OMPaginaged:   OMPaginaged{TotalCount: 1300},
+			OMPaginated:   OMPaginated{TotalCount: 1300},
 			Organizations: generateOrganizations(1000, 300),
 		}, nil
 	}

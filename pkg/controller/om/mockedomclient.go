@@ -283,16 +283,16 @@ func (oc *MockedOmConnection) ReadAutomationStatus() (*AutomationStatus, error) 
 
 	return oc.buildAutomationStatusFromDeployment(oc.deployment, false), nil
 }
-func (oc *MockedOmConnection) ReadAutomationAgents(pageNum int) (*AgentState, error) {
+func (oc *MockedOmConnection) ReadAutomationAgents(pageNum int) (Paginated, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadAutomationAgents))
 
-	results := make([]ResultStruct, 0)
+	results := make([]AgentStatus, 0)
 	for _, r := range oc.hosts.Results {
 		results = append(results,
-			ResultStruct{Hostname: r.Hostname, LastConf: time.Now().Add(time.Second * -1).Format(time.RFC3339)})
+			AgentStatus{Hostname: r.Hostname, LastConf: time.Now().Add(time.Second * -1).Format(time.RFC3339)})
 	}
 	// todo extend this for real testing
-	return &AgentState{Results: results}, nil
+	return automationAgentStatusResponse{AutomationAgents: results}, nil
 }
 func (oc *MockedOmConnection) GetHosts() (*Host, error) {
 	oc.addToHistory(reflect.ValueOf(oc.GetHosts))
@@ -331,7 +331,7 @@ func (oc *MockedOmConnection) ReadOrganizations(page int) (Paginated, error) {
 	for k := range oc.OrganizationsWithGroups {
 		allOrgs = append(allOrgs, k)
 	}
-	response := OrganizationsResponse{Organizations: allOrgs, OMPaginaged: OMPaginaged{TotalCount: len(oc.OrganizationsWithGroups)}}
+	response := OrganizationsResponse{Organizations: allOrgs, OMPaginated: OMPaginated{TotalCount: len(oc.OrganizationsWithGroups)}}
 	return &response, nil
 }
 
@@ -361,7 +361,7 @@ func (oc *MockedOmConnection) ReadProjectsInOrganization(orgID string, page int)
 	if err != nil {
 		return nil, err
 	}
-	response := &ProjectsResponse{Groups: oc.OrganizationsWithGroups[org], OMPaginaged: OMPaginaged{TotalCount: len(oc.OrganizationsWithGroups[org])}}
+	response := &ProjectsResponse{Groups: oc.OrganizationsWithGroups[org], OMPaginated: OMPaginated{TotalCount: len(oc.OrganizationsWithGroups[org])}}
 	return response, nil
 }
 

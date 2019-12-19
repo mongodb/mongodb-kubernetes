@@ -7,7 +7,7 @@ type Paginated interface {
 	ItemsCount() int
 }
 
-type OMPaginaged struct {
+type OMPaginated struct {
 	TotalCount int     `json:"totalCount"`
 	Links      []*Link `json:"links,omitempty"`
 }
@@ -17,7 +17,7 @@ type Link struct {
 }
 
 // HasNext return true if there is next page (see 'ApiBaseResource.handlePaginationInternal` in mms code)
-func (o OMPaginaged) HasNext() bool {
+func (o OMPaginated) HasNext() bool {
 	for _, l := range o.Links {
 		if l.Rel == "next" {
 			return true
@@ -26,7 +26,7 @@ func (o OMPaginaged) HasNext() bool {
 	return false
 }
 
-func (o OMPaginaged) ItemsCount() int {
+func (o OMPaginated) ItemsCount() int {
 	return o.TotalCount
 }
 
@@ -42,7 +42,7 @@ type PageItemPredicate func(interface{}) bool
 // Note, that in OM 4.0 the max number of pages is 100, but in OM 4.1 and CM - 500.
 // So we'll traverse 100000 (200 pages 500 items on each) records in Cloud Manager and 20000 records in OM 4.0 - I believe it's ok
 // This won't be necessary if MMS-5638 is implemented or if we make 'orgId' configuration mandatory
-func TraversePages(reader PageReader, predicate PageItemPredicate) (bool, error) {
+func TraversePages(reader PageReader, predicate PageItemPredicate) (found bool, err error) {
 	// First we check the first page and get the number of items to calculate the max number of pages to traverse
 	paginated, e := reader(1)
 	if e != nil {

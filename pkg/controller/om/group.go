@@ -2,7 +2,7 @@ package om
 
 // ProjectsResponse
 type ProjectsResponse struct {
-	OMPaginaged
+	OMPaginated
 	Groups []*Project `json:"results"`
 }
 

@@ -133,30 +133,25 @@ func waitUntilAgentsHaveRegistered(omConnection om.Connection, log *zap.SugaredL
 
 	agentsCheckFunc := func() (string, bool) {
 		registeredCount := 0
-		pageNum := 0
-		for pageNum >= 0 {
-			agentResponse, err := omConnection.ReadAutomationAgents(pageNum)
-			if err != nil {
-				return fmt.Sprintf("Unable to read from OM API: %s", err), false
-			}
+		found, err := om.TraversePages(
+			omConnection.ReadAutomationAgents,
+			func(aa interface{}) bool {
+				automationAgent := aa.(om.AgentStatus)
 
-			for _, hostname := range agentHostnames {
-				if om.CheckAgentExists(hostname, agentResponse, log) {
-					registeredCount++
+				for _, hostname := range agentHostnames {
+					if automationAgent.IsRegistered(hostname, log) {
+						registeredCount++
+						if registeredCount == len(agentHostnames) {
+							return true
+						}
+					}
 				}
-			}
+				return false
+			},
+		)
 
-			if registeredCount == len(agentHostnames) {
-				return "", true
-			} else {
-				// printing extensive debug information only in case the agents were not found
-				printDebuggingInformation(agentHostnames, agentResponse, log)
-			}
-
-			pageNum, err = om.FindNextPageForAgents(agentResponse)
-			if err != nil {
-				fmt.Println(err.Error())
-			}
+		if err != nil {
+			log.Errorw("Received error when reading automation agent pages", "err", err)
 		}
 
 		var msg string
@@ -165,17 +160,10 @@ func waitUntilAgentsHaveRegistered(omConnection om.Connection, log *zap.SugaredL
 		} else {
 			msg = fmt.Sprintf("Only %d of %d agents have registered with OM", registeredCount, len(agentHostnames))
 		}
-		return msg, false
+		return msg, found
 	}
 
 	return util.DoAndRetry(agentsCheckFunc, log, retrials, waitSeconds)
-}
-
-// printDebuggingInformation prints some debugging information which may help to find out the inconsistencies
-// in names that agents report and the names that the Operator expects to see
-func printDebuggingInformation(agentHostNames []string, agentResponse *om.AgentState, log *zap.SugaredLogger) {
-	log.Debugf("The following agent host names were expected to be created in Ops Manager: %+v", agentHostNames)
-	log.Debugf("The following agents are already registered in Ops Manager: %+v", agentResponse.Results)
 }
 
 // prepareScaleDown performs additional steps necessary to make sure removed members are not primary (so no
