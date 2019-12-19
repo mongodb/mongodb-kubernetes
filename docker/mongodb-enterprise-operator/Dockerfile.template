@@ -24,20 +24,6 @@ LABEL name="MongoDB Enterprise Operator" \
 {% block static -%}
 {% endblock -%}
 
-{% block external_packages %}
-# Install the cfssl packages to generate CSR
-RUN \
-         curl -sO https://pkg.cfssl.org/R1.2/cfssl_linux-amd64 \
-      && curl -sO https://pkg.cfssl.org/R1.2/cfssljson_linux-amd64 \
-      && curl -sO https://pkg.cfssl.org/R1.2/SHA256SUMS \
-      && cat SHA256SUMS | grep cfssl_linux-amd64 | sha256sum -c - \
-      && cat SHA256SUMS | grep cfssljson_linux-amd64 | sha256sum -c - \
-      && mv cfssljson_linux-amd64 /usr/local/bin/cfssljson \
-      && chmod +x /usr/local/bin/cfssljson \
-      && mv cfssl_linux-amd64 /usr/local/bin/cfssl \
-      && chmod +x /usr/local/bin/cfssl
-{% endblock %}
-
 {% block install_operator %}
 ADD content/mongodb-enterprise-operator /usr/local/bin/
 {% endblock %}

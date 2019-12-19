@@ -148,6 +148,19 @@ func (k *MockedClient) Get(ctx context.Context, key client.ObjectKey, obj apirun
 	return nil
 }
 
+func (k *MockedClient) ApproveAllCSRs() {
+	for _, csrObject := range k.csrs {
+		csr := csrObject.(*certsv1.CertificateSigningRequest)
+		approvedCondition := certsv1.CertificateSigningRequestCondition{
+			Type: certsv1.CertificateApproved,
+		}
+		csr.Status.Conditions = append(csr.Status.Conditions, approvedCondition)
+		if err := k.Update(context.Background(), csr); err != nil {
+			panic(err)
+		}
+	}
+}
+
 // List retrieves list of objects for a given namespace and list options. On a
 // successful call, Items field in the list will be populated with the
 // result returned from the server.

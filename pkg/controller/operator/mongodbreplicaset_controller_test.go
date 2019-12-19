@@ -127,33 +127,31 @@ func TestScaleUpReplicaSet(t *testing.T) {
 	connection.CheckNumberOfUpdateRequests(t, 2)
 }
 
-// TODO unfortunately this fails with "Failed to create CSR, exec: "cfssl": executable file not found in $PATH"
-// we should either mock out the cfssl generator or find the library instead of the process (?)
+func TestCreateReplicaSet_TLS(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().SetMembers(3).EnableTLS().Build()
 
-//func TestCreateReplicaSet_TLS(t *testing.T) {
-//	rs := DefaultReplicaSetBuilder().SetMembers(3).EnableTLS().Build()
-//
-//	manager := newMockedManager(rs)
-//	client := manager.client
-//
-//	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
-//
-//	checkReconcileSuccessful(t, reconciler, rs, client)
-//
-//	processes := om.CurrMockedConnection.GetProcesses()
-//	assert.Len(t, processes, 3)
-//	for _, v := range processes {
-//		assert.NotNil(t, v.SSLConfig())
-//		assert.Len(t, v.SSLConfig(), 2)
-//		assert.Equal(t, "/mongodb-automation/server.pem", v.SSLConfig()["PEMKeyFile"])
-//		assert.Equal(t, "requireSSL", v.SSLConfig()["mode"])
-//	}
-//
-//	sslConfig := om.CurrMockedConnection.GetSSL()
-//	assert.Len(t, sslConfig, 3)
-//	assert.Equal(t, "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt", sslConfig["CAFilePath"])
-//	assert.Equal(t, "OPTIONAL", sslConfig["clientCertificateMode"])
-//}
+	manager := newMockedManager(rs)
+	client := manager.client
+
+	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
+
+	checkReconcilePending(t, reconciler, rs, "Not all certificates have been approved by Kubernetes CA for temple", client)
+	client.ApproveAllCSRs()
+	checkReconcileSuccessful(t, reconciler, rs, client)
+
+	processes := om.CurrMockedConnection.GetProcesses()
+	assert.Len(t, processes, 3)
+	for _, v := range processes {
+		assert.NotNil(t, v.SSLConfig())
+		assert.Len(t, v.SSLConfig(), 2)
+		assert.Equal(t, util.PEMKeyFilePathInContainer, v.SSLConfig()["PEMKeyFile"])
+		assert.Equal(t, "requireSSL", v.SSLConfig()["mode"])
+	}
+
+	sslConfig := om.CurrMockedConnection.GetSSL()
+	assert.Equal(t, util.CAFilePathInContainer, sslConfig["CAFilePath"])
+	assert.Equal(t, "OPTIONAL", sslConfig["clientCertificateMode"])
+}
 
 // TestCreateDeleteReplicaSet checks that no state is left in OpsManager on removal of the replicaset
 func TestCreateDeleteReplicaSet(t *testing.T) {

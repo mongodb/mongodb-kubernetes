@@ -1,17 +1,17 @@
 package operator
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base32"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"io"
-	"io/ioutil"
-	"os"
-	"os/exec"
 	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -24,44 +24,13 @@ var keyUsages = []certsv1.KeyUsage{"digital signature", "key encipherment", "ser
 var clientKeyUsages = []certsv1.KeyUsage{"digital signature", "key encipherment", "client auth"}
 
 const (
-	PrivateKeyAlgo = "rsa"
-	PrivateKeySize = 4096
-
+	PrivateKeySize                    = 4096
 	CertificateNameCountry            = "US"
 	CertificateNameState              = "NY"
 	CertificateNameLocation           = "NY"
 	CertificateNameOrganization       = "mongodb"
 	CertificateNameOrganizationalUnit = "MongoDB Kubernetes Operator"
 )
-
-// CertificateData is the object that encapsulates the json document that
-// `cfssl` expects.
-type certificateData struct {
-	Hosts      []string           `json:"hosts"`
-	CommonName string             `json:"CN"`
-	Key        CertificateDataKey `json:"key"`
-	Names      []CertificateNames `json:"names"`
-}
-
-type CertificateNames struct {
-	Country            string `json:"C,omitempty"`
-	State              string `json:"ST,omitempty"`
-	Location           string `json:"L,omitempty"`
-	Organization       string `json:"O,omitempty"`
-	OrganizationalUnit string `json:"OU,omitempty"`
-}
-
-// CertificateDataKey key used for this CSR
-type CertificateDataKey struct {
-	Algo string `json:"algo"`
-	Size int    `json:"size"`
-}
-
-// CSRFile structure of the file returned by cfssl
-type certificateSigningRequestFile struct {
-	CSR []byte `json:"csr"`
-	Key []byte `json:"key"`
-}
 
 type pemCollection struct {
 	pemFiles map[string]pemFile
@@ -220,113 +189,6 @@ func separatePemFile(data string) []string {
 	return certificates
 }
 
-// canCreateCSR determines if the cfssl, and cfssljson exists.
-// It is important to note that we expect those files to live in specific directories,
-// and not to just only exist on $PATH.
-func canCreateCSR() bool {
-	requiredFiles := []string{"/usr/local/bin/cfssljson", "/usr/local/bin/cfssl"}
-
-	for _, f := range requiredFiles {
-		if _, err := os.Stat(f); os.IsNotExist(err) {
-			return false
-		}
-	}
-
-	return true
-}
-
-// NewCSR will create a CSR object (and server key).
-func newCSR(certificate certificateData) (*certificateSigningRequestFile, error) {
-	fileContents, err := json.Marshal(certificate)
-	if err != nil {
-		return nil, err
-	}
-
-	// First tmp file is the file from where we read the "hosts" struct
-	tmpfile, err := ioutil.TempFile("", "inputdata")
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(tmpfile.Name())
-
-	// Second tmp file is the file where the results of cfssl is stored
-	// In this implementation, this is a redirect from the stdout of this
-	// command to an actual file in disk.
-	tmpfileCfSSLOutput, err := ioutil.TempFile("", "csr")
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(tmpfileCfSSLOutput.Name())
-
-	// This is the output of the cfssljson command into files, we will only
-	// use this command to figure out random names for these files, not to write
-	// into them directly, as cfssljson will do that for us.
-	tmpfileCfSSLJSONOutput, err := ioutil.TempFile("", "cfssljson")
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(tmpfileCfSSLJSONOutput.Name())
-
-	if _, err := tmpfile.Write(fileContents); err != nil {
-		return nil, err
-	}
-	err = tmpfile.Close()
-	if err != nil {
-		return nil, err
-	}
-
-	cfsslCmd := exec.Command("cfssl", "genkey", tmpfile.Name())
-	cfssljsonCmd := exec.Command("cfssljson", "-bare", tmpfileCfSSLJSONOutput.Name())
-
-	r, w := io.Pipe()
-	cfsslCmd.Stdout = w
-	cfssljsonCmd.Stdin = r
-
-	if err := cfsslCmd.Start(); err != nil {
-		return nil, err
-	}
-	if err := cfssljsonCmd.Start(); err != nil {
-		return nil, err
-	}
-
-	if err := cfsslCmd.Wait(); err != nil {
-		return nil, err
-	}
-	err = w.Close()
-	if err != nil {
-		return nil, err
-	}
-
-	if err := cfssljsonCmd.Wait(); err != nil {
-		return nil, err
-	}
-
-	csrObj := certificateSigningRequestFile{}
-	csrFile, err := os.Open(tmpfileCfSSLJSONOutput.Name() + ".csr")
-	if err != nil {
-		return nil, err
-	}
-
-	keyFile, err := os.Open(tmpfileCfSSLJSONOutput.Name() + "-key.pem")
-	if err != nil {
-		return nil, err
-	}
-
-	_data, err := ioutil.ReadAll(csrFile)
-	if err != nil {
-		return nil, err
-	}
-	csrObj.CSR = _data
-
-	_data, err = ioutil.ReadAll(keyFile)
-	if err != nil {
-		return nil, err
-	}
-	csrObj.Key = _data
-
-	return &csrObj, err
-}
-
 // ReadCSR will obtain a get a CSR object from the Kubernetes API
 func (k *KubeHelper) readCSR(name, namespace string) (*certsv1.CertificateSigningRequest, error) {
 	csr := &certsv1.CertificateSigningRequest{}
@@ -342,84 +204,89 @@ func (k *KubeHelper) readCSR(name, namespace string) (*certsv1.CertificateSignin
 }
 
 // CreateCSR will send a new CSR to the Kubernetes API
-func (k *KubeHelper) createTlsCsr(name, namespace string, hosts []string, commonName string) ([]byte, error) {
-	return k.createCSR(certificateData{
-		Hosts:      hosts,
-		CommonName: commonName,
-		Key: CertificateDataKey{
-			Algo: PrivateKeyAlgo,
-			Size: PrivateKeySize,
-		},
-		Names: []CertificateNames{{
-			Country:            CertificateNameCountry,
-			State:              CertificateNameState,
-			Location:           CertificateNameLocation,
-			Organization:       CertificateNameOrganization,
-			OrganizationalUnit: CertificateNameOrganizationalUnit,
-		}},
-	}, keyUsages, name, namespace)
+func (k *KubeHelper) createTlsCsr(name, namespace string, hosts []string, commonName string) (key []byte, err error) {
+	subject := pkix.Name{
+		CommonName:         commonName,
+		Locality:           []string{CertificateNameLocation},
+		Organization:       []string{CertificateNameOrganization},
+		Country:            []string{CertificateNameCountry},
+		Province:           []string{CertificateNameState},
+		OrganizationalUnit: []string{CertificateNameOrganizationalUnit},
+	}
+	return k.createCSR(hosts, subject, keyUsages, name, namespace)
 }
 
 // createCSR creates a CertificateSigningRequest object and posting it into Kubernetes API.
-func (k *KubeHelper) createCSR(certificate certificateData, keyUsages []certsv1.KeyUsage, name, namespace string) ([]byte, error) {
-	if !canCreateCSR() {
-		return nil, fmt.Errorf("cfssl or cfssljson binary could not be found")
-	}
-
-	serverCsr, err := newCSR(certificate)
+func (k *KubeHelper) createCSR(hosts []string, subject pkix.Name, keyUsages []certsv1.KeyUsage, name, namespace string) ([]byte, error) {
+	priv, err := rsa.GenerateKey(rand.Reader, PrivateKeySize)
 	if err != nil {
 		return nil, err
 	}
 
-	csr := &certsv1.CertificateSigningRequest{
+	template := x509.CertificateRequest{
+		Subject:  subject,
+		DNSNames: hosts,
+	}
+	certRequestBytes, err := x509.CreateCertificateRequest(rand.Reader, &template, priv)
+	if err != nil {
+		return nil, err
+	}
+
+	certRequestPemBytes := &bytes.Buffer{}
+	certRequestPemBlock := pem.Block{Type: "CERTIFICATE REQUEST", Bytes: certRequestBytes}
+	if err := pem.Encode(certRequestPemBytes, &certRequestPemBlock); err != nil {
+		return nil, err
+	}
+
+	csr := certsv1.CertificateSigningRequest{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: fmt.Sprintf("%s.%s", name, namespace),
 		},
 		Spec: certsv1.CertificateSigningRequestSpec{
 			Groups:  []string{"system:authenticated"},
 			Usages:  keyUsages,
-			Request: serverCsr.CSR,
+			Request: certRequestPemBytes.Bytes(),
 		},
 	}
 
-	err = k.client.Create(context.TODO(), csr)
-	return serverCsr.Key, err
+	if err = k.client.Create(context.TODO(), &csr); err != nil {
+		return nil, err
+	}
+
+	x509EncodedPrivKey, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err != nil {
+		return nil, err
+	}
+
+	pemEncodedPrivKey := pem.EncodeToMemory(&pem.Block{
+		Type:  "PRIVATE KEY",
+		Bytes: x509EncodedPrivKey,
+	})
+	return pemEncodedPrivKey, nil
 }
 
 func (k *KubeHelper) createInternalClusterAuthCSR(name, namespace string, hosts []string, commonName string) ([]byte, error) {
-	return k.createCSR(certificateData{
-		Hosts:      hosts,
-		CommonName: commonName,
-		Key: CertificateDataKey{
-			Algo: PrivateKeyAlgo,
-			Size: PrivateKeySize,
-		},
-		Names: []CertificateNames{{
-			Country:            CertificateNameCountry,
-			State:              CertificateNameState,
-			Location:           CertificateNameLocation,
-			Organization:       CertificateNameOrganization,
-			OrganizationalUnit: CertificateNameOrganizationalUnit,
-		}},
-	}, clientKeyUsages, name, namespace)
+	subject := pkix.Name{
+		CommonName:         commonName,
+		Locality:           []string{CertificateNameLocation},
+		Organization:       []string{CertificateNameOrganization},
+		Country:            []string{CertificateNameCountry},
+		Province:           []string{CertificateNameState},
+		OrganizationalUnit: []string{CertificateNameOrganizationalUnit},
+	}
+	return k.createCSR(hosts, subject, clientKeyUsages, name, namespace)
 }
 
 func (k *KubeHelper) createAgentCSR(name, namespace string) ([]byte, error) {
-	return k.createCSR(certificateData{
-		Hosts:      []string{name},
-		CommonName: name,
-		Key: CertificateDataKey{
-			Algo: PrivateKeyAlgo,
-			Size: PrivateKeySize,
-		},
-		Names: []CertificateNames{{
-			Country:            CertificateNameCountry,
-			State:              CertificateNameState,
-			Location:           CertificateNameLocation,
-			OrganizationalUnit: CertificateNameOrganizationalUnit,
-			Organization:       name,
-		}},
-	}, clientKeyUsages, name, namespace)
+	subject := pkix.Name{
+		CommonName:         name,
+		Organization:       []string{name}, // Organization must be set to the pod name for X509
+		Locality:           []string{CertificateNameLocation},
+		Country:            []string{CertificateNameCountry},
+		Province:           []string{CertificateNameState},
+		OrganizationalUnit: []string{CertificateNameOrganizationalUnit},
+	}
+	return k.createCSR([]string{name}, subject, clientKeyUsages, name, namespace)
 }
 
 func checkCSRWasApproved(conditions []certsv1.CertificateSigningRequestCondition) bool {
