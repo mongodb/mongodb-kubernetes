@@ -216,6 +216,10 @@ func (m *MongoDBOpsManager) MarshalJSON() ([]byte, error) {
 	mdb.Spec.AppDB.Security = nil
 	mdb.Spec.AppDB.ResourceType = ""
 
+	if reflect.DeepEqual(mdb.Spec.AppDB.PodSpec, newMongoDbPodSpec()) {
+		mdb.Spec.AppDB.PodSpec = nil
+	}
+
 	return json.Marshal(*mdb)
 }
 

@@ -63,6 +63,8 @@ spec:
               type:
                 type: string
                 pattern: "^Standalone$"
+              persistent:
+                type: boolean
               clusterName:
                 type: string
                 format: hostname
@@ -147,6 +149,8 @@ spec:
               type:
                 type: string
                 pattern: "^ReplicaSet$"
+              persistent:
+                type: boolean
               clusterName:
                 type: string
                 format: hostname
@@ -256,6 +260,8 @@ spec:
               type:
                 type: string
                 pattern: "^ShardedCluster$"
+              persistent:
+                type: boolean
               clusterName:
                 type: string
                 format: hostname
@@ -563,7 +569,7 @@ spec:
                 logLevel:
                   type: string
                   enum: ["DEBUG", "INFO", "WARN", "ERROR", "FATAL"]
-                exposedExternally:
+                persistent:
                   type: boolean
               required:
                 - version
