@@ -508,6 +508,14 @@ functions:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         binary: scripts/evergreen/guard_git_repo_is_clean
 
+  # This is a blocker for the release process. It will *always* fail and needs to be overriden
+  # if the release needs to proceed.
+  release_blocker:
+    - command: subprocess.exec
+      type: setup
+      params:
+        command: 'false'
+
   # Tags and pushes an image into an external Docker registry. The source image
   # needs to exist before it can be pushed to a remote registry.
   # It is expected that IMAGE_SOURCE is accessible with no authentication (like a
@@ -698,19 +706,20 @@ tasks:
   commands:
     - func: "golint"
 
+- name: release_blocker
+  commands:
+  - func: release_blocker
+
 # release_ops_manager_rhel Releases the just build Docker image
 # with a release image tag.
 # The registry location (variable with name `image_target`) is obtained from RedHat Connect.
 - name: release_ops_manager_rh_connect
-  patch_only: True
   commands:
     - func: clone
     - func: guard_git_repo_is_clean
     - func: setup_jq
-    - func: setup_docker
     - func: setup_ecr_login_helper
 
-    # Ops Manager Image
     - func: release_docker_image_to_registry
       vars:
         versions: '$(jq --raw-output ".opsManagerImages[] | .version" < release.json)'
@@ -720,7 +729,6 @@ tasks:
         image_target: scan.connect.redhat.com/ospid-b419ca35-17b4-4655-adee-a34e704a6835/mongodb-enterprise-ops-manager
         docker_password: ${rhc_om_pid}
 
-    # AppDB Image
     - func: release_docker_image_to_registry
       vars:
         versions: '$(jq --raw-output ".opsManagerImages[] | .version" < release.json)'
@@ -732,36 +740,83 @@ tasks:
 
 # release_operator_rh_connect Releases the Operator and Database image to RH Connect.
 - name: release_operator_rh_connect
-  patch_only: True
   commands:
     - func: clone
     - func: guard_git_repo_is_clean
     - func: setup_jq
     - func: setup_ecr_login_helper
 
-    # Operator Image
     - func: release_docker_image_to_registry
       vars:
         versions: ${version_id}
         tag_source: '$(echo $version)'
-        tag_dest: '$(jq --raw-output .mongodbOperator < release.json)'
+        tag_dest: '$(git describe --dirty)'
         image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/rhel/mongodb-enterprise-operator
         image_target: scan.connect.redhat.com/ospid-5558a531-617e-46d7-9320-e84d3458768a/mongodb-enterprise-operator
-        docker_registry: scan.connect.redhat.com
-        docker_username: unused
         docker_password: ${rhc_operator_pid}
 
-    # Database Image
     - func: release_docker_image_to_registry
       vars:
         versions: ${version_id}
         tag_source: '$(echo $version)'
-        tag_dest: '$(jq --raw-output .mongodbOperator < release.json)'
+        tag_dest: '$(git describe --dirty)'
         image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/rhel/mongodb-enterprise-database
         image_target: scan.connect.redhat.com/ospid-239de277-d8bb-44b4-8593-73753752317f/mongodb-enterprise-database
-        docker_registry: scan.connect.redhat.com
-        docker_username: unused
         docker_password: ${rhc_database_pid}
+
+- name: release_ops_manager_quay
+  commands:
+    - func: clone
+    - func: guard_git_repo_is_clean
+    - func: setup_jq
+    - func: setup_ecr_login_helper
+
+    - func: release_docker_image_to_registry
+      vars:
+        versions: '$(jq --raw-output ".opsManagerImages[] | .version" < release.json)'
+        tag_source: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
+        tag_dest: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
+        image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/ubuntu/mongodb-enterprise-ops-manager
+        image_target: quay.io/mongodb/mongodb-enterprise-ops-manager
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
+
+    - func: release_docker_image_to_registry
+      vars:
+        versions: '$(jq --raw-output ".opsManagerImages[] | .version" < release.json)'
+        tag_source: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
+        tag_dest: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
+        image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/ubuntu/mongodb-enterprise-appdb
+        image_target: quay.io/mongodb/mongodb-enterprise-appdb
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
+
+- name: release_operator_quay
+  commands:
+    - func: clone
+    - func: guard_git_repo_is_clean
+    - func: setup_jq
+    - func: setup_ecr_login_helper
+
+    - func: release_docker_image_to_registry
+      vars:
+        versions: ${version_id}
+        tag_source: '$(echo $version)'
+        tag_dest: '$(git describe --dirty)'
+        image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/ubuntu/mongodb-enterprise-operator
+        image_target: quay.io/mongodb/mongodb-enterprise-operator
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
+
+    - func: release_docker_image_to_registry
+      vars:
+        versions: ${version_id}
+        tag_source: '$(echo $version)'
+        tag_dest: '$(git describe --dirty)'
+        image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/ubuntu/mongodb-enterprise-database
+        image_target: quay.io/mongodb/mongodb-enterprise-database
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
 
 - name: prerelease_master_images
   commands:
@@ -776,7 +831,6 @@ tasks:
         tag_dest: '$(git describe --dirty)'
         image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/ubuntu/mongodb-enterprise-operator
         image_target: quay.io/mongodb/mongodb-enterprise-operator-prerelease
-        docker_registry: quay.io
         docker_username: ${quay_prod_username}
         docker_password: ${quay_prod_robot_token}
 
@@ -787,7 +841,6 @@ tasks:
         tag_dest: '$(git describe --dirty)'
         image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/ubuntu/mongodb-enterprise-database
         image_target: quay.io/mongodb/mongodb-enterprise-database-prerelease
-        docker_registry: quay.io
         docker_username: ${quay_prod_username}
         docker_password: ${quay_prod_robot_token}
 
@@ -798,7 +851,6 @@ tasks:
         tag_dest: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
         image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/ubuntu/mongodb-enterprise-ops-manager
         image_target: quay.io/mongodb/mongodb-enterprise-ops-manager-prerelease
-        docker_registry: quay.io
         docker_username: ${quay_prod_username}
         docker_password: ${quay_prod_robot_token}
 
@@ -809,7 +861,6 @@ tasks:
         tag_dest: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
         image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/ubuntu/mongodb-enterprise-appdb
         image_target: quay.io/mongodb/mongodb-enterprise-appdb-prerelease
-        docker_registry: quay.io
         docker_username: ${quay_prod_username}
         docker_password: ${quay_prod_robot_token}
 
@@ -951,20 +1002,6 @@ tasks:
   - func: build_and_push_om_test_images
     vars:
       cluster_type: "kops"
-
-# Note that this task doesn't work so far as it needs different quay account and token
-- name: release_mongodb_enterprise
-  tags: ["release_mongodb_enterprise"]
-  patch_only: true
-  commands:
-    - func: "clone"
-    - func: "setup_docker"
-    - func: "build_and_push_image"
-      vars:
-        release_object: "mongodbEnterprise"
-        env: production
-        image_name: mongodb-enterprise
-        path: mongodb-enterprise/4.0
 
 - name: prepare_cluster_openshift_3
   exec_timeout_secs: 1200
@@ -1641,17 +1678,7 @@ task_groups:
   teardown_task:
     - func: "upload_e2e_logs"
 
-#
-# -BUILDVARIANTS-
-#
 buildvariants:
-- name: release_operator
-  display_name: "release_operator"
-  run_on:
-    - archlinux-test
-  tasks:
-    - ".release_operator"
-
 - name: e2e_kube_vanilla_om_40_first
   display_name: "e2e_kube_vanilla_om_40_first"
   depends_on:
@@ -1787,50 +1814,39 @@ buildvariants:
   tasks:
     - name: "e2e_ops_manager_task_group"
 
-# Runs the complete suite of tests for Ops Manager Container in Openshift
-# and releases the Docker images to RedHat Container Catalog.
-- name: release_ops_manager_rh_connect
-  display_name: release_ops_manager_rh_connect
+- name: release_rh_connect
+  display_name: release_rh_connect
   depends_on:
-    - name: e2e_om_appdb_scale_up_down
-      variant: e2e_openshift_origin_v3_ops_manager
-    - name: e2e_om_appdb_upgrade
-      variant: e2e_openshift_origin_v3_ops_manager
-    - name: e2e_om_appdb_validation
-      variant: e2e_openshift_origin_v3_ops_manager
-    - name: e2e_om_ops_manager_scale
-      variant: e2e_openshift_origin_v3_ops_manager
-    - name: e2e_om_ops_manager_upgrade
-      variant: e2e_openshift_origin_v3_ops_manager
+    - name: release_blocker
+      variant: release_blocker
   run_on:
     - archlinux-test
-  stepback: false
   expansions:
-    <<: *kubernetes_environment_openshift_3
-    test_mode: opsmanager
-    distro: rhel
+    docker_registry: scan.connect.redhat.com
+    docker_username: unused
   tasks:
-     - name: release_ops_manager_rh_connect
-
-# Builds and tests the Operator and Database images. If the tests succeed, the
-# the image is pushed to Redhat service.
-- name: release_operator_rh_connect
-  display_name: release_operator_rh_connect
-  depends_on:
-    # TODO: Decide what tests are sufficient as sanity checks.
-    - name: e2e_replica_set
-      variant: e2e_openshift_origin_v3_om_42_current
-  run_on:
-    # We use rhel76-docker because the only requirement is Docker to be installed.
-    # and the queue is much faster.
-    - rhel76-docker
-  stepback: false
-  expansions:
-    <<: *kubernetes_environment_openshift_3
-    distro: rhel
-    test_mode: opsmanager
-  tasks:
+    - name: release_ops_manager_rh_connect
     - name: release_operator_rh_connect
+
+- name: release_quay
+  display_name: release_quay
+  depends_on:
+    - name: release_blocker
+      variant: release_blocker
+  run_on:
+    - archlinux-test
+  expansions:
+    docker_registry: quay.io
+  tasks:
+    - name: release_ops_manager_quay
+    - name: release_operator_quay
+
+- name: release_blocker
+  display_name: release_blocker
+  run_on:
+  - ubuntu1604-packer  # Note: cheapest machine I found
+  tasks:
+  - name: release_blocker
 
 - name: init_test_run
   display_name: init_test_run
@@ -1858,6 +1874,8 @@ buildvariants:
     variant: init_test_run
   - name: build_om_images_ubuntu
     variant: init_test_run
+  expansions:
+    docker_registry: quay.io
   tasks:
   - name: prerelease_master_images
 
