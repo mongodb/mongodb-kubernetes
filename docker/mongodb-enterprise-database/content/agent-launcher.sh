@@ -26,8 +26,6 @@ if ! grep -q "${current_uid}" /etc/passwd ; then
     export LD_PRELOAD=libnss_wrapper.so
     export NSS_WRAPPER_PASSWD=/tmp/passwd
     export NSS_WRAPPER_GROUP=/etc/group
-
-    script_log "Added ${current_uid} to /etc/passwd"
 fi
 
 # Create a symlink, after the volumes have been mounted
