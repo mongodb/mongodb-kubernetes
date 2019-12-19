@@ -19,15 +19,6 @@ variables:
   - &cloud_manager_qa
     ops_manager_version: "cloud_qa"
 
-  # These need to be defined manually.
-  # TODO(rodrigo): This will be improved as part of CLOUDP-38550.
-  - &rhel_prebuilt_images
-    prebuilt_tag: latest
-    prebuilt_database_name: mdb-database
-    prebuilt_operator_name: mdb-operator
-    prebuilt_registry: quay.io/some
-    prebuilt_images_run: true
-
     # Openshift v3 Testing Environment
   - &kubernetes_environment_openshift_3
     kube_environment_name: openshift_3
@@ -530,8 +521,8 @@ functions:
         add_to_path:
           - ${workdir}/bin
         env:
-          DOCKER_REGISTRY: scan.connect.redhat.com
-          DOCKER_LOGIN_USER: unused
+          DOCKER_REGISTRY: ${docker_registry}
+          DOCKER_LOGIN_USER: ${docker_username}
           DOCKER_LOGIN_PASSWORD: ${docker_password}
           AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
           AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
@@ -707,29 +698,6 @@ tasks:
   commands:
     - func: "golint"
 
-- name: release_operator
-  tags: ["release_operator"]
-  patch_only: true
-  commands:
-    - func: "clone"
-    - func: "build_operator"
-      vars:
-        distro: ubuntu
-    - func: "build_database"
-      vars:
-        distro: ubuntu
-    - func: "setup_docker"
-    - func: "build_and_push_image"
-      vars:
-        release_object: "mongodbOperator"
-        env: production
-        image_name: mongodb-enterprise-operator
-    - func: "build_and_push_image"
-      vars:
-        release_object: "mongodbOperator"
-        env: production
-        image_name: mongodb-enterprise-database
-
 # release_ops_manager_rhel Releases the just build Docker image
 # with a release image tag.
 # The registry location (variable with name `image_target`) is obtained from RedHat Connect.
@@ -779,6 +747,8 @@ tasks:
         tag_dest: '$(jq --raw-output .mongodbOperator < release.json)'
         image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/rhel/mongodb-enterprise-operator
         image_target: scan.connect.redhat.com/ospid-5558a531-617e-46d7-9320-e84d3458768a/mongodb-enterprise-operator
+        docker_registry: scan.connect.redhat.com
+        docker_username: unused
         docker_password: ${rhc_operator_pid}
 
     # Database Image
@@ -789,7 +759,59 @@ tasks:
         tag_dest: '$(jq --raw-output .mongodbOperator < release.json)'
         image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/rhel/mongodb-enterprise-database
         image_target: scan.connect.redhat.com/ospid-239de277-d8bb-44b4-8593-73753752317f/mongodb-enterprise-database
+        docker_registry: scan.connect.redhat.com
+        docker_username: unused
         docker_password: ${rhc_database_pid}
+
+- name: prerelease_master_images
+  commands:
+    - func: clone
+    - func: setup_jq
+    - func: setup_ecr_login_helper
+
+    - func: release_docker_image_to_registry
+      vars:
+        versions: ${version_id}
+        tag_source: '$(echo $version)'
+        tag_dest: '$(git describe --dirty)'
+        image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/ubuntu/mongodb-enterprise-operator
+        image_target: quay.io/mongodb/mongodb-enterprise-operator-prerelease
+        docker_registry: quay.io
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
+
+    - func: release_docker_image_to_registry
+      vars:
+        versions: ${version_id}
+        tag_source: '$(echo $version)'
+        tag_dest: '$(git describe --dirty)'
+        image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/ubuntu/mongodb-enterprise-database
+        image_target: quay.io/mongodb/mongodb-enterprise-database-prerelease
+        docker_registry: quay.io
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
+
+    - func: release_docker_image_to_registry
+      vars:
+        versions: '$(jq --raw-output ".opsManagerImages[] | .version" < release.json)'
+        tag_source: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
+        tag_dest: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
+        image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/ubuntu/mongodb-enterprise-ops-manager
+        image_target: quay.io/mongodb/mongodb-enterprise-ops-manager-prerelease
+        docker_registry: quay.io
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
+
+    - func: release_docker_image_to_registry
+      vars:
+        versions: '$(jq --raw-output ".opsManagerImages[] | .version" < release.json)'
+        tag_source: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
+        tag_dest: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
+        image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/ubuntu/mongodb-enterprise-appdb
+        image_target: quay.io/mongodb/mongodb-enterprise-appdb-prerelease
+        docker_registry: quay.io
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
 
 # build_binaries builds and pushes binaries required to build the Database and
 # Operator Docker images. Currently these are the actual operator and the
@@ -1770,8 +1792,6 @@ buildvariants:
 - name: release_ops_manager_rh_connect
   display_name: release_ops_manager_rh_connect
   depends_on:
-    # TODO: I'm not sure how to depend on a set of tasks, maybe
-    # I could use a "tag"?
     - name: e2e_om_appdb_scale_up_down
       variant: e2e_openshift_origin_v3_ops_manager
     - name: e2e_om_appdb_upgrade
@@ -1808,6 +1828,7 @@ buildvariants:
   expansions:
     <<: *kubernetes_environment_openshift_3
     distro: rhel
+    test_mode: opsmanager
   tasks:
     - name: release_operator_rh_connect
 
@@ -1825,6 +1846,20 @@ buildvariants:
   - name: prepare_cluster_openshift_3
   - name: prepare_cluster_vanilla
   - name: prepare_cluster_vanilla_om
+
+# Runs on master patches. This will populate the mongodb/mongodb-enterprise-*-prerelease
+# registries with the images that were pushed to master
+- name: prerelease_master_images
+  display_name: prerelease_master_images
+  run_on:
+  - ubuntu1604-test
+  depends_on:
+  - name: build_images_ubuntu
+    variant: init_test_run
+  - name: build_om_images_ubuntu
+    variant: init_test_run
+  tasks:
+  - name: prerelease_master_images
 
 - name: go_unit_tests
   display_name: "go_unit_tests"
