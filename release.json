@@ -10,7 +10,10 @@
       "testing": true
     },
     {
-      "version": "4.2.4",
+      "version": "4.2.4"
+    },
+    {
+      "version": "4.2.6",
       "testing": true
     }
   ]

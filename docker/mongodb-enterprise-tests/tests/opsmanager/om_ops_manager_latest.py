@@ -18,7 +18,7 @@ class TestOpsManagerCreation(OpsManagerBase):
       Creates an Ops Manager instance (latest version) with AppDB of size 3.
     create:
       file: om_ops_manager_basic.yaml
-      patch: '[{"op":"replace","path":"/spec/version", "value": "4.2.4"}]'
+      patch: '[{"op":"replace","path":"/spec/version", "value": "4.2.6"}]'
       wait_until: om_in_running_state
       timeout: 900
     """
@@ -28,7 +28,7 @@ class TestOpsManagerCreation(OpsManagerBase):
         """Checks that the OM is responsive and test service is available (enabled by 'mms.testUtil.enabled')."""
         om_tester = OMTester(self.om_context)
         om_tester.assert_healthiness()
-        om_tester.assert_version("4.2.4")
+        om_tester.assert_version("4.2.6")
 
     @skip_if_local
     def test_appdb(self):
