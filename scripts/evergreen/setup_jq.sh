@@ -8,9 +8,11 @@
 set -o nounset
 set -xeo pipefail
 
+BINDIR="${workdir}/bin"
+mkdir -p "${BINDIR}" || true
+
 echo "Downloading jq"
-curl -L https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64 -o jq
+curl --retry 3 --silent -L https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64 -o jq
 chmod +x jq
-mkdir -p ${WORKDIR}/bin/
-mv jq ${WORKDIR}/bin/
-echo "Installed jq to ${WORKDIR}/bin/"
+mv jq "${BINDIR}"
+echo "Installed jq to ${BINDIR}"

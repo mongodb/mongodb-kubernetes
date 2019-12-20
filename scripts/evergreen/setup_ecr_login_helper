@@ -6,10 +6,12 @@
 # installing `aws` Python client.
 #
 
-curl -LO https://amazon-ecr-credential-helper-releases.s3.us-east-2.amazonaws.com/0.3.1/linux-amd64/docker-credential-ecr-login
+BIN_PATH="${workdir}/bin"
+mkdir -p "${BIN_PATH}" || true
+
+curl --retry 3 --silent -LO https://amazon-ecr-credential-helper-releases.s3.us-east-2.amazonaws.com/0.3.1/linux-amd64/docker-credential-ecr-login
 chmod +x docker-credential-ecr-login
 
-mkdir -p "${BIN_PATH}"
 sudo mv docker-credential-ecr-login "${BIN_PATH}"
 
 # Creates credsStore configuration for Docker for ECR

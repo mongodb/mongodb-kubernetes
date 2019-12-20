@@ -378,6 +378,27 @@ class KubernetesTester(object):
                 )
 
         except ApiException as e:
+            if isinstance(e.body, str):
+                # In Kubernetes v1.16+ the result body is a json string that needs to be parsed, according to
+                # whatever exception_reason was passed.
+                try:
+                    body_json = json.loads(e.body)
+                    field, reason = None, None
+                    if "in body is required" in exception_reason:
+                        field = exception_reason.split()[0]  # gets the actual field
+                        reason = "FieldValueRequired"
+                    elif "in body should be one of" in exception_reason:
+                        field = exception_reason.split()[0]
+                        reason = "FieldValueNotSupported"
+
+                    if field and reason:
+                        for cause in body_json["details"]["causes"]:
+                            if cause["reason"] == reason and cause["field"] == field:
+                                return None, None
+
+                except json.decoder.JSONDecodeError:
+                    pass
+
             if exception_reason:
                 assert (
                     e.reason == exception_reason or exception_reason in e.body

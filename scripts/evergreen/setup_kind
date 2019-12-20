@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+#
+#
+
+if [[ "${kube_environment_name=}" != "kind" ]]; then
+  echo "Skiping download of kind"
+  exit 0
+fi
+
+# Store the lowercase name of Operating System
+os=$(uname | tr '[:upper:]' '[:lower:]')
+
+if ! command -v kind &> /dev/null ; then
+  # This should be changed when needed
+  latest_version="v0.6.1"
+
+  mkdir -p "${workdir}/bin/"
+  echo "Saving kind to ${workdir}/bin"
+  curl --retry 3 --silent -L "https://github.com/kubernetes-sigs/kind/releases/download/${latest_version}/kind-${os}-amd64" -o kind
+  chmod +x kind
+  mv kind "${workdir}/bin"
+  echo "Installed kind in ${workdir}/bin"
+else
+  echo "Kind is already present in this host"
+  kind version
+fi
+
+mkdir -p "${HOME}/.docker"
+
+# First we need to create proper "auths" entry for our ECR registry,
+# using docker-credential-ecr-login (which is faster to install than Python + aws-cli).
+secret=$(echo "${ecr_registry}" | docker-credential-ecr-login get | jq -r .Secret)
+auth=$(echo "AWS:${secret}" | base64 -w0)
+# Add the login token (from aws ecr get-login)
+cat <<EOF > "${HOME}/.docker/kind_config.json"
+{
+    "auths": {
+        "${ecr_registry}": {"auth": "${auth}"}
+    }
+}
+EOF
+
+mkdir -p "$HOME/.operator-dev"
+# We make sure this patched docker/config.json file is mounted on each Kind node
+cat <<EOF > "${HOME}/.operator-dev/kind-ecr-config.yaml"
+kind: Cluster
+apiVersion: kind.sigs.k8s.io/v1alpha3
+nodes:
+- role: control-plane
+  extraMounts:
+  - containerPath: /var/lib/kubelet/config.json
+    hostPath: ${HOME}/.docker/kind_config.json
+EOF

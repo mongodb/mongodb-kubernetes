@@ -2,7 +2,6 @@ import json
 
 import pytest
 from kubetester.kubetester import skip_if_local
-from kubetester.mongotester import ReplicaSetTester
 from kubetester.omtester import OMTester
 from kubetester.automation_config_tester import AutomationConfigTester
 
@@ -130,7 +129,7 @@ class TestOpsManagerAppDbUpdateMemory(OpsManagerBase):
       file: om_appdb_upgrade.yaml
       patch: '[{"op":"add","path":"/spec/applicationDatabase","value": {"podSpec": { "memory": "350M" }}}]'
       wait_until: om_in_running_state
-      timeout: 400
+      timeout: 600
     """
 
     def test_appdb(self):
