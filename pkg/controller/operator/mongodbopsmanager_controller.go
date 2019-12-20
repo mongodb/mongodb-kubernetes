@@ -510,7 +510,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager *mdb
 		}
 	}
 
-	if len(opsManager.Spec.Backup.S3Configs) > 0 && len(opsManager.Spec.Backup.OplogStoreConfigs) == 0 {
+	if len(opsManager.Spec.Backup.S3Configs) == 0 || len(opsManager.Spec.Backup.OplogStoreConfigs) == 0 {
 		return ok(mdbv1.S3BackupsNotFullyConfigured)
 	}
 

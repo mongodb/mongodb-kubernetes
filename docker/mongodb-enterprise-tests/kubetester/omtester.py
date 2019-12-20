@@ -1,6 +1,6 @@
 import threading
 from datetime import datetime
-from typing import List
+from typing import List, Dict
 
 import pytest
 import requests
@@ -91,20 +91,40 @@ class OMTester(object):
         assert daemon_config["assignmentEnabled"]
         assert daemon_config["configured"]
 
-    def assert_oplog_stores(self, expected_oplog_stores: List):
-        """ verifies that the list of oplog store configs in OM is equal to the expected one"""
-        response = self.om_request("get", "/admin/backup/oplog/mongoConfigs")
+    def _assert_stores(
+        self, expected_stores: List[Dict], endpoint: str, store_type: str
+    ):
+        response = self.om_request("get", endpoint)
         assert response.status_code == requests.status_codes.codes.OK
 
-        existing_configs = response.json()["results"]
+        existing_stores = {
+            result["id"]: result for result in response.json()["results"]
+        }
 
-        expected_oplog_stores = sorted(
-            expected_oplog_stores, key=lambda oplog: oplog["id"]
-        )
-        existing_configs = sorted(existing_configs, key=lambda oplog: oplog["id"])
-        for expected, existing in zip(expected_oplog_stores, existing_configs):
+        assert len(expected_stores) == len(
+            existing_stores
+        ), f"expected:{expected_stores} actual: {existing_stores}."
+
+        for expected in expected_stores:
+            store_id = expected["id"]
+            assert (
+                store_id in existing_stores
+            ), f"existing {store_type} store with id {store_id} not found"
+            existing = existing_stores[store_id]
             for key in expected:
                 assert expected[key] == existing[key]
+
+    def assert_oplog_stores(self, expected_oplog_stores: List):
+        """ verifies that the list of oplog store configs in OM is equal to the expected one"""
+        self._assert_stores(
+            expected_oplog_stores, "/admin/backup/oplog/mongoConfigs", "oplog"
+        )
+
+    def assert_s3_stores(self, expected_s3_stores: List):
+        """ verifies that the list of s3 store configs in OM is equal to the expected one"""
+        self._assert_stores(
+            expected_s3_stores, "/admin/backup/snapshot/s3Configs", "s3"
+        )
 
     @staticmethod
     def do_assert_healthiness(base_url: str):

@@ -1,18 +1,23 @@
 from operator import attrgetter
 
 import yaml
-from kubetester import MongoDB
-from kubetester.awss3client import AwsS3Client
+from kubetester import MongoDB, MongoDBOpsManager
+from kubetester.awss3client import AwsS3Client, s3_endpoint
 from kubetester.kubetester import (
     skip_if_local,
     fixture as yaml_fixture,
     KubernetesTester,
 )
+from typing import Optional, Dict
 from kubetester.omtester import OMTester
 from pytest import mark, fixture
 from tests.opsmanager.om_base import OpsManagerBase
 
 HEAD_PATH = "/head/"
+S3_SECRET_NAME = "my-s3-secret"
+AWS_REGION = "us-east-1"
+OPLOG_RS_NAME = "my-mongodb-oplog"
+S3_RS_NAME = "my-mongodb-s3"
 
 """
 Current test focuses on backup capabilities
@@ -20,6 +25,94 @@ Note the strategy for Ops Manager testing: the tests should have more than 1 upd
 creation of Ops Manager takes too long, so we try to avoid fine-grained test cases and combine different
 updates in one test.
 """
+
+
+# TODO: improve this function to be generic and put on MongoDB resource object
+def mongo_uri(name: str, namespace: Optional[str] = None) -> str:
+    if namespace is None:
+        namespace = KubernetesTester.get_namespace()
+    return (
+        f"mongodb://{name}-0.{name}-svc.{namespace}.svc.cluster.local:27017,"
+        f"{name}-1.{name}-svc.{namespace}.svc.cluster.local:27017,"
+        f"{name}-2.{name}-svc.{namespace}.svc.cluster.local:27017/?"
+        f"connectTimeoutMS=20000&replicaSet={name}&serverSelectionTimeoutMS=20000"
+    )
+
+
+def new_om_s3_store(
+    s3_id: str,
+    s3_bucket_name: str,
+    aws_s3_client: AwsS3Client,
+    assignment_enabled: bool = True,
+    path_style_access_enabled: bool = True,
+    rs_name: str = S3_RS_NAME,
+) -> Dict:
+    return {
+        "uri": mongo_uri(rs_name),
+        "id": s3_id,
+        "pathStyleAccessEnabled": path_style_access_enabled,
+        "s3BucketEndpoint": s3_endpoint(AWS_REGION),
+        "s3BucketName": s3_bucket_name,
+        "awsAccessKey": aws_s3_client.aws_access_key,
+        "awsSecretKey": aws_s3_client.aws_secret_access_key,
+        "assignmentEnabled": assignment_enabled,
+    }
+
+
+def new_om_oplog_store(
+    oplog_store_name: str,
+    ssl: bool = False,
+    assignment_enabled: bool = True,
+    oplog_rs_name=OPLOG_RS_NAME,
+) -> Dict:
+    return {
+        "id": oplog_store_name,
+        "uri": mongo_uri(oplog_rs_name),
+        "ssl": ssl,
+        "assignmentEnabled": assignment_enabled,
+    }
+
+
+@fixture(scope="module")
+def aws_s3_client() -> AwsS3Client:
+    return AwsS3Client(AWS_REGION)
+
+
+@fixture(scope="module")
+def s3_bucket(aws_s3_client: AwsS3Client) -> str:
+    """ creates a s3 bucket and a s3 config"""
+
+    bucket_name = KubernetesTester.random_k8s_name("test-bucket-")
+    aws_s3_client.create_s3_bucket(bucket_name)
+    print(f"\nCreated S3 bucket {bucket_name}")
+
+    OpsManagerBase.create_secret(
+        OpsManagerBase.get_namespace(),
+        S3_SECRET_NAME,
+        {
+            "accessKey": aws_s3_client.aws_access_key,
+            "secretKey": aws_s3_client.aws_secret_access_key,
+        },
+    )
+    print(f"Created a secret for S3 credentials {S3_SECRET_NAME}")
+    yield bucket_name
+
+    print(f"\nRemoving S3 bucket {bucket_name}")
+    aws_s3_client.delete_s3_bucket(bucket_name)
+
+
+@fixture(scope="module")
+def s3_bucket_2(aws_s3_client: AwsS3Client) -> str:
+    """ creates a s3 bucket and a s3 config"""
+
+    bucket_name = KubernetesTester.random_k8s_name("test-bucket-")
+    aws_s3_client.create_s3_bucket(bucket_name)
+    print(f"\nCreated S3 bucket {bucket_name}")
+
+    yield bucket_name
+
+    print(f"\nRemoving S3 bucket {bucket_name}")
+    aws_s3_client.delete_s3_bucket(bucket_name)
 
 
 @mark.e2e_om_ops_manager_backup
@@ -30,31 +123,6 @@ class TestOpsManagerCreation(OpsManagerBase):
       Creates an Ops Manager instance with backup enabled. The OM is expected to get to 'Pending' state
       eventually as it will wait for oplog db to be created
     """
-
-    @fixture(scope="module")
-    def s3_bucket(self):
-        """ creates an s3 bucket and an s3 config"""
-        aws_helper = AwsS3Client("us-east-1")
-
-        bucket_name = KubernetesTester.random_k8s_name("test-bucket-")
-        aws_helper.create_s3_bucket(bucket_name)
-        print(f"\nCreated S3 bucket {bucket_name}")
-
-        s3_secret = "my-s3-secret"
-        self.create_secret(
-            KubernetesTester.get_namespace(),
-            s3_secret,
-            {
-                "accessKey": aws_helper.aws_access_key,
-                "secretKey": aws_helper.aws_secret_access_key,
-            },
-        )
-        print(f"Created a secret for S3 credentials {s3_secret}")
-        yield bucket_name
-
-        print(f"\nRemoving S3 bucket {bucket_name}")
-
-        aws_helper.delete_s3_bucket(bucket_name)
 
     def test_create_om(self, s3_bucket):
         """ creates a s3 bucket, s3 config and an OM resource (waits until gets to Pending state)"""
@@ -120,6 +188,7 @@ class TestOpsManagerCreation(OpsManagerBase):
         om_tester.assert_daemon_enabled(self.om_cr.backup_pod_name(), HEAD_PATH)
         # No oplog stores were created in Ops Manager by this time
         om_tester.assert_oplog_stores([])
+        om_tester.assert_s3_stores([])
 
 
 @mark.e2e_om_ops_manager_backup
@@ -136,7 +205,7 @@ class TestBackupDatabasesAdded(OpsManagerBase):
         resource = MongoDB.from_yaml(
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,
-            name="my-mongodb-oplog",
+            name=OPLOG_RS_NAME,
         )
 
         resource["spec"]["version"] = "3.6.10"
@@ -157,7 +226,7 @@ class TestBackupDatabasesAdded(OpsManagerBase):
         resource = MongoDB.from_yaml(
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,
-            name="my-mongodb-s3",
+            name=S3_RS_NAME,
         )
 
         resource["spec"]["version"] = "3.6.10"
@@ -169,15 +238,11 @@ class TestBackupDatabasesAdded(OpsManagerBase):
     def test_oplog_replica_set_created(self, oplog_replica_set: MongoDB):
         oplog_replica_set.assert_reaches_phase("Running")
 
-        assert oplog_replica_set["status"]["phase"] == "Running"
-
     def test_s3_replica_set_created(self, s3_replica_set: MongoDB):
         s3_replica_set.assert_reaches_phase("Running")
 
-        assert s3_replica_set["status"]["phase"] == "Running"
-
     @skip_if_local
-    def test_om(self, namespace):
+    def test_om(self, s3_bucket: str, aws_s3_client: AwsS3Client):
         """ As soon as oplog mongodb store is created Operator will create oplog configs in OM and
         get to Running state"""
         self.wait_until("om_in_running_state", timeout=200)
@@ -186,21 +251,105 @@ class TestBackupDatabasesAdded(OpsManagerBase):
         # Nothing has changed for daemon
         om_tester.assert_daemon_enabled(self.om_cr.backup_pod_name(), HEAD_PATH)
 
-        # One oplog store was created
-        # TODO this is a good candidate for mongo_uri() function to 'MongoDB' object
-        mongo_uri = (
-            f"mongodb://my-mongodb-oplog-0.my-mongodb-oplog-svc.{namespace}.svc.cluster.local:27017,"
-            f"my-mongodb-oplog-1.my-mongodb-oplog-svc.{namespace}.svc.cluster.local:27017,"
-            f"my-mongodb-oplog-2.my-mongodb-oplog-svc.{namespace}.svc.cluster.local:27017/?"
-            f"connectTimeoutMS=20000&replicaSet=my-mongodb-oplog&serverSelectionTimeoutMS=20000"
+        om_tester.assert_oplog_stores([new_om_oplog_store("oplog1")])
+        om_tester.assert_s3_stores(
+            [new_om_s3_store("s3Store1", s3_bucket, aws_s3_client)]
         )
+
+
+@mark.e2e_om_ops_manager_backup
+class TestBackupConfigurationAdditionDeletion(OpsManagerBase):
+    @fixture(scope="class")
+    def ops_manager(self) -> MongoDBOpsManager:
+        # TODO: Ops Manager should be created at the top of the module and be module scoped
+        return MongoDBOpsManager("om-backup", OpsManagerBase.get_namespace()).load()
+
+    def test_oplog_store_is_added(
+        self, ops_manager: MongoDBOpsManager, s3_bucket: str, aws_s3_client: AwsS3Client
+    ):
+        ops_manager["spec"]["backup"]["oplogStores"].append(
+            {"name": "oplog2", "mongodbResourceRef": {"name": S3_RS_NAME}}
+        )
+
+        ops_manager.update()
+        ops_manager.assert_reaches_phase("Reconciling", timeout=60)
+        ops_manager.assert_reaches_phase("Running", timeout=600)
+
+        # TODO: this is just to populate "self.om_context", should not be required
+        self.setup_env()
+
+        om_tester = OMTester(self.om_context)
         om_tester.assert_oplog_stores(
             [
-                {
-                    "id": "oplog1",
-                    "uri": mongo_uri,
-                    "ssl": False,
-                    "assignmentEnabled": True,
-                }
+                new_om_oplog_store("oplog1"),
+                new_om_oplog_store("oplog2", oplog_rs_name=S3_RS_NAME),
             ]
         )
+        om_tester.assert_s3_stores(
+            [new_om_s3_store("s3Store1", s3_bucket, aws_s3_client)]
+        )
+
+    def test_s3_store_is_updated(
+        self,
+        ops_manager: MongoDBOpsManager,
+        s3_bucket_2: str,
+        aws_s3_client: AwsS3Client,
+    ):
+        ops_manager.reload()
+        existing_s3_store = ops_manager["spec"]["backup"]["s3Stores"][0]
+        existing_s3_store["s3BucketName"] = s3_bucket_2
+
+        ops_manager.update()
+        ops_manager.assert_reaches_phase("Reconciling", timeout=60)
+        ops_manager.assert_reaches_phase("Running", timeout=600)
+
+        # TODO: this is just to populate "self.om_context", should not be required
+        self.setup_env()
+
+        om_tester = OMTester(self.om_context)
+
+        om_tester.assert_oplog_stores(
+            [
+                new_om_oplog_store("oplog1"),
+                new_om_oplog_store("oplog2", oplog_rs_name=S3_RS_NAME),
+            ]
+        )
+        om_tester.assert_s3_stores(
+            [new_om_s3_store("s3Store1", s3_bucket_2, aws_s3_client),]
+        )
+
+    def test_oplog_store_is_deleted_correctly(
+        self,
+        ops_manager: MongoDBOpsManager,
+        s3_bucket_2: str,
+        aws_s3_client: AwsS3Client,
+    ):
+        ops_manager.reload()
+        ops_manager["spec"]["backup"]["oplogStores"].pop()
+        ops_manager.update()
+
+        ops_manager.assert_reaches_phase("Reconciling", timeout=60)
+        ops_manager.assert_reaches_phase("Running", timeout=600)
+
+        # TODO: this is just to populate "self.om_context", should not be required
+        self.setup_env()
+
+        om_tester = OMTester(self.om_context)
+
+        om_tester.assert_oplog_stores([new_om_oplog_store("oplog1")])
+        om_tester.assert_s3_stores(
+            [new_om_s3_store("s3Store1", s3_bucket_2, aws_s3_client),]
+        )
+
+    def test_warning_on_partial_configuration(
+        self, ops_manager: MongoDBOpsManager,
+    ):
+        ops_manager.reload()
+        ops_manager["spec"]["backup"]["s3Stores"] = []
+        ops_manager.update()
+
+        ops_manager.assert_reaches_phase("Reconciling", timeout=60)
+        ops_manager.assert_reaches_phase("Running", timeout=600)
+
+        expected_warning_message = "S3 configuration requires at least 1 Oplog Store configuration and at least 1 S3 store to be fully configured"
+        assert expected_warning_message in ops_manager["status"]["warnings"]

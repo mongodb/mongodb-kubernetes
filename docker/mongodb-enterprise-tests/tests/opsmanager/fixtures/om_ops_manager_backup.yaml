@@ -16,7 +16,7 @@ spec:
         mongodbResourceRef:
           name: my-mongodb-oplog
     s3Stores:
-      - name: s3store1
+      - name: s3Store1
         mongodbResourceRef:
           name: my-mongodb-s3
         s3SecretRef:

@@ -21,3 +21,7 @@ class AwsS3Client:
                 self.s3_client.delete_object(Bucket=name, Key=x["Key"])
 
         self.s3_client.delete_bucket(Bucket=name)
+
+
+def s3_endpoint(aws_region: str) -> str:
+    return f"s3.{aws_region}.amazonaws.com"
