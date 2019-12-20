@@ -76,6 +76,7 @@ EOF
     fi
 }
 
+# TODO remove when CLOUDP-51063 is done
 wait_for_namespace_to_be_deleted(){
     namespace=${1}
     while kubectl get ns | grep -q ${namespace} ; do printf .; sleep 1; done;
@@ -186,10 +187,6 @@ print_om_endpoint() {
     fi
 }
 
-print_perpetual_om_endpoint() {
-    echo "Use the following address to access Ops Manager from the browser: ${OM_BASE_URL}"
-}
-
 ensure_vpc_rules() {
     region="$1"
     prefix="$2"
@@ -272,8 +269,17 @@ ensure_ops_manager_evg() {
     title "Ops Manager is ready! Hostname: ${OPS_MANAGER_HOST}"
 }
 
+delete_operator() {
+    ns="$1"
+    name=${OPERATOR_NAME:=mongodb-enterprise-operator}
+
+    title "Removing the Operator deployment ${name}"
+    ! kubectl --namespace "${ns}" get deployments | grep -q ${name} \
+        || kubectl delete deployment $name -n ${ns}
+}
+
 # Generates kube yaml configuration for the Operator from helm chart and deletes + installs the Operator to the Kubernetes cluster
-redeploy_operator() {
+deploy_operator() {
     url="$1"
     version="${2:-latest}"
     ns="$3"
@@ -282,7 +288,7 @@ redeploy_operator() {
     managed_security_context="${6:-false}"
     timeout="${7:-1m}"
 
-    echo "Installing the Operator (registry url: ${url}, version: ${version}, namespace: ${ns}, managed_security_context: ${managed_security_context}) to ${CLUSTER_NAME:-'e2e cluster'}..."
+    title "Installing the Operator (registry url: ${url}, version: ${version}, namespace: ${ns}, managed_security_context: ${managed_security_context}) to ${CLUSTER_NAME:-'e2e cluster'}..."
 
     check_app "helm" "helm is not installed, run 'make prerequisites' to install all necessary software"
     check_app "timeout" "coreutils is not installed, call \"brew install coreutils\""
@@ -304,25 +310,17 @@ redeploy_operator() {
          --set debugPort="${DEBUG_PORT:-30042}" \
          > "${tmp_file}"
 
-    if [[ "${OPERATOR_UPGRADE_IN_PROGRESS-}" != "stage2" ]]; then
-        # note that we don't remove all objects from file as it contains CRDs as well (and they will be blocked if there
-        # are existing mongodb resources)
-        echo "Removing the Operator deployment"
-        kubectl delete deployment ${OPERATOR_NAME} &> /dev/null || true
-    fi
-
     echo "Deploying Operator"
     kubectl apply -f "${tmp_file}"
     rm "${tmp_file}"
 
-    if [[ "${OPERATOR_UPGRADE_IN_PROGRESS-}" = "stage2" ]]; then
-        echo "Doing Upgrade stage 2, need to wait for the new operator to start."
-        echo "Forcing 30 seconds to make sure the *new* operator has started and we are not looking for the original one."
-        sleep 30
-    fi
     echo "Waiting until the Operator gets to Running state..."
-
     export OPERATOR_NAME
+
+    # Waiting until there is only one pod left as this could be the upgrade operation (very fast in practice)
+    timeout "1m" bash -c \
+        'while [[ $(kubectl -n '"${ns}"' get pods -l app=${OPERATOR_NAME}  --no-headers 2>/dev/null | wc -l) -gt 1 ]] ; do printf .; sleep 1; done' || true
+
     timeout "${timeout}" bash -c \
         'while ! kubectl -n '"${ns}"' get pods -l app=${OPERATOR_NAME} -o jsonpath="{.items[0].status.phase}" 2>/dev/null | grep -q "Running" ; do printf .; sleep 1; done' || true
 
@@ -335,12 +333,6 @@ redeploy_operator() {
         exit 1
     fi
     echo ""
-
-    # if ! kubectl -n "${ns}" get crds | grep -q mongodb.mongodb.com ; then
-    #     echo "mongodb.mongodb.com not found"
-    #     kubectl get crd
-    #     exit 1
-    # fi
 
     title "The Operator successfully installed to the Kubernetes cluster"
 }
@@ -415,46 +407,6 @@ generate_random_namespace() {
     random_namespace=$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 20)
     doy=$(date +'%j')
     echo "a-${doy}-${random_namespace}z"
-}
-
-# gathers the information about K8s objects and writes it to the specified file handler (can be the stdout)
-dump_diagnostic_information() {
-    dump_file=$1
-
-    if ! kubectl get mdbu -n "${PROJECT_NAMESPACE}" 2>&1 | grep -q "No resources found"; then
-        header "MongoDBUser resources" >> "$dump_file"
-        kubectl get mdbu -o yaml -n "${PROJECT_NAMESPACE}"  >> "$dump_file"
-    fi
-
-    if ! kubectl get mdb -n ${PROJECT_NAMESPACE} 2>&1 | grep -q "No resources found"; then
-        header "Mongodb Resources" >> $dump_file
-        kubectl get mdb -o yaml -n ${PROJECT_NAMESPACE}  >> $dump_file
-    fi
-
-    if ! kubectl get om -n ${PROJECT_NAMESPACE} 2>&1 | grep -q "No resources found"; then
-        header "OpsManager Resources" >> $dump_file
-        kubectl get om -o yaml -n ${PROJECT_NAMESPACE}  >> $dump_file
-    fi
-
-    header "All namespace objects" >> "$dump_file"
-    kubectl get all -n "${PROJECT_NAMESPACE}" >> "$dump_file"
-
-    if ! kubectl get pvc -n "${PROJECT_NAMESPACE}" 2>&1 | grep -q "No resources found"; then
-        header "Persistent Volume Claims" >> "$dump_file"
-        kubectl get pvc -o yaml -n "${PROJECT_NAMESPACE}"  >> "$dump_file"
-    fi
-
-    if ! kubectl get sts -n "${PROJECT_NAMESPACE}" 2>&1 | grep -q "No resources found"; then
-        header "Statefulsets" >> "$dump_file"
-        kubectl describe sts -n "${PROJECT_NAMESPACE}"  >> "$dump_file"
-    fi
-
-    # we don't output pods for the operator and tests (they will be output if they didn't manage to start)
-    for pod in $(kubectl get pods -n "${PROJECT_NAMESPACE}" -o name | grep -v "${OPERATOR_NAME}"); do
-        header "$pod" >> "$dump_file"
-        # in general describe produces shorter output than "get -o yaml" and seems it is enough to diagnose the problem
-        kubectl describe "${pod}" -n "${PROJECT_NAMESPACE}"  >> "$dump_file"
-    done
 }
 
 ensure_ecr_repository() {

@@ -28,7 +28,7 @@ def sharded_cluster(namespace: str) -> MongoDB:
     return resource.create()
 
 
-@mark.e2e_operator_upgrade_build_deployment
+@mark.e2e_op_upgrade_one_deployment_first
 def test_replica_set_reaches_running_phase(replica_set):
     replica_set.assert_reaches_phase("Running", timeout=600)
 
@@ -36,12 +36,12 @@ def test_replica_set_reaches_running_phase(replica_set):
 
 
 @skip_if_local
-@mark.e2e_operator_upgrade_build_deployment
+@mark.e2e_op_upgrade_one_deployment_first
 def test_replica_set_client_can_connect_to_mongodb(replica_set):
     replica_set.assert_connectivity()
 
 
-@mark.e2e_operator_upgrade_build_deployment
+@mark.e2e_op_upgrade_one_deployment_first
 def test_cluster_reaches_running_phase(sharded_cluster):
     sharded_cluster.assert_reaches_phase("Running", timeout=600)
 
@@ -49,6 +49,6 @@ def test_cluster_reaches_running_phase(sharded_cluster):
 
 
 @skip_if_local
-@mark.e2e_operator_upgrade_build_deployment
+@mark.e2e_op_upgrade_one_deployment_first
 def test_cluster_client_can_connect_to_mongodb(sharded_cluster):
     sharded_cluster.assert_connectivity()

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+[[ "${MODE-}" = "dev" ]] && return
+
+# We don't clean everything in case of failure unless these are the ops manager test
+# (we need to always clean them as they are too expensive to keep)
+[[ "${TESTS_OK}" -ne 0 ]] && [[ "${TEST_MODE:-}" != "opsmanager" ]] && return
+
+echo "Removing all CRs and the test namespace ${PROJECT_NAMESPACE}"
+kubectl delete mdb --all -n "${PROJECT_NAMESPACE}" || true
+kubectl delete mdbu --all -n "${PROJECT_NAMESPACE}" || true
+kubectl delete om --all -n "${PROJECT_NAMESPACE}" || true
+kubectl delete "namespace/${PROJECT_NAMESPACE}" --wait=false || true

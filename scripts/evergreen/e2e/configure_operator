@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+
+# Configuration of the resources for Ops Manager
+if [[ "${TEST_MODE:-}" = "opsmanager" ]]; then
+    echo "Creating admin secret for the new Ops Manager instance"
+    kubectl create secret generic ops-manager-admin-secret  \
+        --from-literal=Username="jane.doe@example.com" \
+        --from-literal=Password="Passw0rd." \
+        --from-literal=FirstName="Jane" \
+        --from-literal=LastName="Doe" -n ${PROJECT_NAMESPACE}
+
+    echo "Admin secret created"
+    return
+fi
+
+# Configuration of the resources for MongoDB
+title "Creating project and credentials Kubernetes object..."
+
+if [ -n "${OM_BASE_URL-}" ]; then
+  BASE_URL="${OM_BASE_URL}"
+else
+  BASE_URL="http://ops-manager.${OPS_MANAGER_NAMESPACE:-}.svc.cluster.local:8080"
+fi
+
+# delete `my-project` if it exists
+! kubectl --namespace "${PROJECT_NAMESPACE}" get configmaps | grep -q my-project \
+    || kubectl --namespace "${PROJECT_NAMESPACE}" delete configmap my-project
+# Configuring project
+kubectl --namespace "${PROJECT_NAMESPACE}" create configmap my-project \
+        --from-literal=projectName="${PROJECT_NAMESPACE}" --from-literal=baseUrl="${BASE_URL}" \
+        --from-literal=credentials="my-credentials" \
+        --from-literal=orgId="${OM_ORGID:-}"
+
+# delete `my-credentials` if it exists
+! kubectl --namespace "${PROJECT_NAMESPACE}" get secrets | grep -q my-credentials \
+    || kubectl --namespace "${PROJECT_NAMESPACE}" delete secret my-credentials
+# Configure the Kubernetes credentials for Ops Manager
+kubectl --namespace "${PROJECT_NAMESPACE}" create secret generic my-credentials \
+        --from-literal=user="${OM_USER:=admin}" --from-literal=publicApiKey="${OM_API_KEY}"
+
+title "Credentials, Project have been created"

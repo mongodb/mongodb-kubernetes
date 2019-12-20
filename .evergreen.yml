@@ -465,24 +465,6 @@ functions:
               --docker-args "$docker_args" \
               $(if [ -n "${release_object}" ]; then echo '--with-latest-tag'; fi)
 
-  # Populate the Ops Manager Kubernetes Perpetual instance, env vars
-  "omkp_setup": &omkp_setup
-    command: shell.exec
-    type: setup
-    params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
-      shell: bash
-      script: |
-        if [[ "${omkp_enabled}" == "true" ]]; then
-          echo "echo Using the Ops Manager Kubernetes Perpetual instance..."  > ${workdir}/.ops-manager-env
-          echo "export OM_BASE_URL=${omkp_host}"                             >> ${workdir}/.ops-manager-env
-          echo "export OM_USER=${omkp_user}"                                 >> ${workdir}/.ops-manager-env
-          echo "export OM_API_KEY=${omkp_api_key}"                           >> ${workdir}/.ops-manager-env
-          echo "export OM_EXTERNALLY_CONFIGURED=${omkp_enabled}"             >> ${workdir}/.ops-manager-env
-          echo "Using the Ops Manager Kubernetes Perpetual Instance, env stored at '${workdir}/.ops-manager-env')"
-        else
-          echo "Skipping the Ops Manager Kubernetes Perpetual config (omkp_enabled=${omkp_enabled})"
-        fi
 
   "configure_cloud_manager_qa": &configure_cloud_manager_qa
     command: shell.exec
@@ -492,7 +474,7 @@ functions:
       shell: bash
       script: |
         echo "Configuring Cloud Manager QA"
-        if echo "${build_variant}" | grep -Eq "cloud_qa|multiple_namespace|openshift_rhel_prebuilt_images"; then
+        if echo "${build_variant}" | grep -Eq "cloud_qa|multiple_namespace"; then
           echo "export OM_BASE_URL=${e2e_cloud_qa_baseurl}"      > ${workdir}/.ops-manager-env
           echo "export OM_USER=${e2e_cloud_qa_user}"            >> ${workdir}/.ops-manager-env
           echo "export OM_API_KEY=${e2e_cloud_qa_apikey}"       >> ${workdir}/.ops-manager-env
@@ -544,7 +526,6 @@ functions:
         binary: scripts/evergreen/tag_push_docker_image.sh
 
   "e2e_test":
-    - *omkp_setup
     - *configure_cloud_manager_qa
     - command: shell.exec
       type: test
@@ -552,112 +533,39 @@ functions:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         script: |
           # revision is only supposed to be set in evergreen
-          if [ "${prebuilt_images_run}" = "true" ]; then
-            echo "Testing prebuilt images"
-            export REVISION=${prebuilt_tag}
-            export DATABASE_NAME=${prebuilt_database_name}
-            export OPERATOR_NAME=${prebuilt_operator_name}
-            export REGISTRY=${prebuilt_registry}
-            export TEST_IMAGE_TAG=${version_id}
-          else
-            export REVISION="$(git rev-parse HEAD)"
-            export VERSION_ID="${version_id}"
-            export OPERATOR_NAME=mongodb-enterprise-operator
-            export DATABASE_NAME=mongodb-enterprise-database
-            export REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/${distro}"
-          fi
+          export OPERATOR_VERSION="${version_id}"
+          export REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/${distro}"
 
           echo "Distro is ${distro}. Should have been set in buildvariant!"
 
           export WORKDIR=${workdir}
-          export IS_EVERGREEN=${revision}
           export PATH=${workdir}/bin:$PATH
           export MANAGED_SECURITY_CONTEXT="false"
-          export BUILD_VARIANT=${build_variant}
           export TASK_ID=${task_id}
           export TASK_NAME=${task_name}
           export OPS_MANAGER_NAMESPACE=${ops_manager_namespace}
           export NODE_PORT=${node_port}
           export AWS_ACCESS_KEY_ID=${mms_eng_test_aws_access_key}
           export AWS_SECRET_ACCESS_KEY=${mms_eng_test_aws_secret}
+          export OPERATOR_VERSION_UPGRADE_FROM=${from_version}
 
           export MMS_VERSION=${ops_manager_version}
 
           echo "Build Variant: ${build_variant}"
-          set -e # fail on first failed test
 
           if echo "${build_variant}" | grep -q "openshift"; then
             echo "Setting up OpenShift variant"
             export MANAGED_SECURITY_CONTEXT="true"
           fi
 
-          # Externally Configured Ops Manager (Perpetual Instance or Cloud Manager)
+          # Externally Configured Ops Manager (Cloud Manager)
           test -f ${workdir}/.ops-manager-env && source ${workdir}/.ops-manager-env
 
           # A complete environment is set each time.
           WATCH_NAMESPACE=${watch_namespace} TASK_NAME=${task_name} STATIC_NAMESPACE=${static_namespace} \
-            TEST_MODE=${test_mode} ./scripts/evergreen/e2e_tests.sh
-
-  "e2e_test_upgrade_operator":
-    - *configure_cloud_manager_qa
-    - command: shell.exec
-      type: test
-      params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
-        script: |
-          # revision is only supposed to be set in evergreen
-          export WORKDIR=${workdir}
-          export IS_EVERGREEN=${revision}
-          export PATH=${workdir}/bin:$PATH
-          export REVISION=$(git rev-parse HEAD)
-          export PATH=${workdir}/bin:$PATH
-          export VERSION_ID="${version_id}"
-          export MANAGED_SECURITY_CONTEXT="true"
-          export BUILD_VARIANT=${build_variant}
-          export TASK_ID=${task_id}
-          export TASK_NAME=${task_name}
-          export OPS_MANAGER_NAMESPACE=${ops_manager_namespace}
-          export NODE_PORT=${node_port}
-          export OPERATOR_NAME=mongodb-enterprise-operator
-          export DATABASE_NAME=mongodb-enterprise-database
-
-          set -e # fail on first failed test
-
-          # Externally Configured Ops Manager (Perpetual Instance or Cloud Manager)
-          test -f ${workdir}/.ops-manager-env && source ${workdir}/.ops-manager-env
-
-          # Will generate a random namespace to use during this run
-          source scripts/funcs
-          export PROJECT_NAMESPACE=$(generate_random_namespace)
-          echo "Using $PROJECT_NAMESPACE"
-
-          if [ "${from_version}" = "latest" ]; then
-              # gets the last version released.
-              export CURRENT_VERSION=$(grep mongodbOperator release.json | awk '{ print $2 }' | cut -d '"' -f 2)
-          else
-              export CURRENT_VERSION=${from_version}
-          fi
-
-          export CURRENT_VERSION=${from_version}
-          echo "Setting up environment with current operator release: $CURRENT_VERSION"
-
-          export REGISTRY="quay.io/mongodb"
-          # By setting CURRENT_VERSION we are indicating the e2e_tests script to install this version
-          # which is the latest released version, as defined in the release.json file.
-          export OPERATOR_UPGRADE_IN_PROGRESS="stage1"
-          TASK_NAME=${mark_build} ./scripts/evergreen/e2e_tests.sh
-
-          # Before running the next test, the CURRENT_VERSION variable is unset, then the latest
-          # Version of the operator will be installed, effectively, updating the currently running operator
-          unset CURRENT_VERSION
-          export OPERATOR_UPGRADE_IN_PROGRESS="stage2"
-
-          export REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/${distro}"
-          echo "Deploying the new Operator with version $VERSION_ID"
-          TASK_NAME=${mark_verify} ./scripts/evergreen/e2e_tests.sh
+            TEST_MODE=${test_mode} ./scripts/evergreen/e2e/e2e
 
   "prepare_test_env":
-    - *omkp_setup
     - *configure_cloud_manager_qa
     - command: shell.exec
       type: setup
@@ -1050,25 +958,21 @@ tasks:
         cluster_name: e2e.om.mongokubernetes.com
     - func: prepare_test_env
 
-- name: e2e_operator_upgrade_multiple_clusters_allowed
+- name: e2e_op_upgrade_one_deployment
   tags: ["openshift-om-qa"]
   exec_timeout_secs: 2400
   commands:
-    - func: e2e_test_upgrade_operator
+    - func: e2e_test
       vars:
         from_version: 1.2.2
-        mark_build: e2e_operator_upgrade_build_deployment
-        mark_verify: e2e_operator_upgrade_scale_and_verify_deployment
 
-- name: e2e_operator_upgrade_from_previous
+- name: e2e_op_upgrade_replica_set
   tags: ["openshift-om-qa"]
   exec_timeout_secs: 1200
   commands:
-    - func: e2e_test_upgrade_operator
+    - func: e2e_test
       vars:
         from_version: latest
-        mark_build: e2e_latest_to_current_build
-        mark_verify: e2e_latest_to_current_verify
 
 - name: e2e_multiple_cluster_failures
   tags: ["openshift-om-qa"]
@@ -1552,8 +1456,8 @@ task_groups:
   tasks:
     - e2e_all_mongodb_resources_parallel
     - e2e_multiple_cluster_failures
-    - e2e_operator_upgrade_from_previous
-    - e2e_operator_upgrade_multiple_clusters_allowed
+    - e2e_op_upgrade_replica_set
+    - e2e_op_upgrade_one_deployment
     - e2e_replica_set
     - e2e_replica_set_8_members
     - e2e_replica_set_ent

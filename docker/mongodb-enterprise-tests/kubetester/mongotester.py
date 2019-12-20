@@ -49,7 +49,7 @@ class MongoTester:
         except ServerSelectionTimeoutError:
             pass
 
-    def assert_version(self, expected_version):
+    def assert_version(self, expected_version: str):
         assert self.client.admin.command("buildInfo")["version"] == expected_version
 
     def assert_data_size(self, expected_count, test_collection=TEST_COLLECTION):

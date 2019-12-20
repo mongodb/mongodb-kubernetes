@@ -19,7 +19,7 @@ def replica_set(namespace: str) -> MongoDB:
     resource.delete()
 
 
-@mark.e2e_latest_to_current_verify
+@mark.e2e_op_upgrade_replica_set_second
 def test_reaches_running_phase(replica_set):
     replica_set.assert_reaches_phase("Running")
 
@@ -29,6 +29,6 @@ def test_reaches_running_phase(replica_set):
 
 
 @skip_if_local
-@mark.e2e_latest_to_current_verify
+@mark.e2e_op_upgrade_replica_set_second
 def test_client_can_connect_to_mongodb(replica_set):
     replica_set.assert_connectivity()

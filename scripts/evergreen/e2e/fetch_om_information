@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+
+[[ "${MODE-}" = "dev" ]] && return
+
+if [[ "${TEST_MODE:-}" = "opsmanager" ]]; then
+    echo "Skipping Ops Manager connection configuration as current test is for Ops Manager"
+    return
+fi
+
+if [[ "${OM_EXTERNALLY_CONFIGURED:-}" = "true" ]]; then
+    echo "Skipping Ops Manager connection configuration as the connection details are already provided"
+    return
+fi
+
+title "Reading Ops Manager environment variables..."
+
+check_env_var "OPS_MANAGER_NAMESPACE" "The 'OPS_MANAGER_NAMESPACE' must be specified to fetch Ops Manager connection details"
+
+OPERATOR_TESTING_FRAMEWORK_NS=${OPS_MANAGER_NAMESPACE}
+if ! kubectl get "namespace/${OPERATOR_TESTING_FRAMEWORK_NS}" &> /dev/null; then
+    error "Ops Manager is not installed in this cluster. Make sure the Ops Manager installation script is called beforehand. Exiting..."
+
+    exit 1
+else
+    echo "Ops Manager is already installed in this cluster. Will reuse it now."
+fi
+
+# Get the environment from the ops-manager container
+echo "Getting credentials from Ops Manager"
+
+# Gets the om-environment
+kubectl -n "${OPERATOR_TESTING_FRAMEWORK_NS}" exec mongodb-enterprise-ops-manager-0 ls "/opt/mongodb/mms/env/.ops-manager-env" && \
+    eval "$(kubectl -n "${OPERATOR_TESTING_FRAMEWORK_NS}" exec mongodb-enterprise-ops-manager-0 cat "/opt/mongodb/mms/env/.ops-manager-env")" || exit 1
+
+echo "OM_USER: ${OM_USER}"
+echo "OM_PASSWORD: ${OM_PASSWORD}"
+echo "OM_API_KEY: ${OM_API_KEY}"
+
+title "Ops Manager environment is successfully read"

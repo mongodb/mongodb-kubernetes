@@ -18,7 +18,7 @@ def sharded_cluster(namespace: str) -> MongoDB:
     return MongoDB("sh001-base", namespace).load()
 
 
-@mark.e2e_operator_upgrade_scale_and_verify_deployment
+@mark.e2e_op_upgrade_one_deployment_second
 def test_replica_set_gets_to_running_state_with_warnings(replica_set: MongoDB):
     replica_set.assert_reaches_phase("Pending", timeout=600)
     assert (
@@ -27,7 +27,7 @@ def test_replica_set_gets_to_running_state_with_warnings(replica_set: MongoDB):
     )
 
 
-@mark.e2e_operator_upgrade_scale_and_verify_deployment
+@mark.e2e_op_upgrade_one_deployment_second
 def test_sharded_cluster_gets_to_running_state_with_warnings(sharded_cluster: MongoDB):
     # Sharded clusters take a long time to restart in the Kops cluster
     sharded_cluster.assert_reaches_phase("Pending", timeout=1800)

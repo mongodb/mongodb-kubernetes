@@ -25,12 +25,12 @@ def replica_set(namespace: str) -> MongoDB:
     return resource
 
 
-@mark.e2e_latest_to_current_build
-def test_reaches_running_phase(replica_set):
+@mark.e2e_op_upgrade_replica_set_first
+def test_reaches_running_phase(replica_set: MongoDB):
     replica_set.assert_reaches_phase("Running")
 
 
 @skip_if_local
-@mark.e2e_latest_to_current_build
-def test_client_can_connect_to_mongodb(replica_set):
+@mark.e2e_op_upgrade_replica_set_first
+def test_client_can_connect_to_mongodb(replica_set: MongoDB):
     replica_set.assert_connectivity()

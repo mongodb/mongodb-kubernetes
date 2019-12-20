@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
+source scripts/funcs
+
+#
+# This is the main entry point for running e2e tests. It can be used both for simple e2e tests (running a single test
+# application) and for the Operator upgrade ones involving two steps (deploy previous Operator version, run test, deploy
+# a new Operator - run verification tests)
+# All the preparation work (fetching OM information, configuring resources) is done before running tests but
+# it should be moved to e2e tests themselves (TODO)
+#
+check_env_var "TASK_NAME" "The 'TASK_NAME' must be specified for the Operator e2e tests"
+
+# 1. Ensure the namespace exists - generate its name if not specified
+
+if [[ -z "${PROJECT_NAMESPACE-}" ]]; then
+    PROJECT_NAMESPACE=$(generate_random_namespace)
+    export PROJECT_NAMESPACE
+fi
+
+ensure_namespace "${PROJECT_NAMESPACE}"
+
+# 2. Fetch OM connection information - it will be saved to environment variables
+. ./scripts/evergreen/e2e/fetch_om_information
+
+# 3. Configure Operator resources
+. ./scripts/evergreen/e2e/configure_operator
+
+export TEST_NAME="${TASK_NAME}"
+delete_operator ${PROJECT_NAMESPACE}
+
+# 4. (optionally) Preliminary step in the case of Operator upgrade
+if echo "${TASK_NAME}" | egrep -q "^e2e_op_upgrade"; then
+    export TEST_NAME="${TASK_NAME}_first"
+    echo "The test ${TASK_NAME} is an Operator upgrade test, performing the first stage (${TEST_NAME})"
+
+    # If the version of the Operator to upgrade from not specified then we assume it's the latest
+    export REVISION="${OPERATOR_VERSION_UPGRADE_FROM:-"latest"}"
+
+    # TODO add support for quay.io UBI images as well
+    REGISTRY="quay.io/mongodb" ./scripts/evergreen/e2e/deploy_operator
+    if ! ./scripts/evergreen/e2e_tests.sh; then
+        . ./scripts/evergreen/e2e/dump_diagnostic_information
+        . ./scripts/evergreen/e2e/teardown
+        return
+    fi
+    # Setting the second test to be run after the Operator upgrade after 'if' block
+    # Note, that in this case the second Operator will be upgraded, not deleted-created
+    export TEST_NAME="${TASK_NAME}_second"
+    echo "Performing the second stage (${TEST_NAME})"
+fi
+
+# 5. Main test run. In case of Operator upgrade this will be the second test run and
+# the Operator won't be removed - only upgraded
+export REVISION="${OPERATOR_VERSION}"
+
+./scripts/evergreen/e2e/deploy_operator
+
+if ! ./scripts/evergreen/e2e_tests.sh; then
+    . ./scripts/evergreen/e2e/dump_diagnostic_information
+fi
+. ./scripts/evergreen/e2e/teardown
