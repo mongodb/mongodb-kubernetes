@@ -129,6 +129,23 @@ func TestOpsManagerUsersPassword_SpecifiedInSpec(t *testing.T) {
 	assert.Equal(t, password, "my-password", "the password specified by the SecretRef should have been returned when specified")
 }
 
+// TODO move this test to 'opsmanager_types_test.go' when the builder is moved to 'apis' package
+func TestOpsManagerCentralUrl(t *testing.T) {
+	assert.Equal(t, "http://testOM-svc.my-namespace.svc.cluster.local:8080",
+		DefaultOpsManagerBuilder().Build().CentralURL())
+	assert.Equal(t, "http://testOM-svc.my-namespace.svc.some.domain:8080",
+		DefaultOpsManagerBuilder().SetClusterDomain("some.domain").Build().CentralURL())
+}
+
+// TODO move this test to 'opsmanager_types_test.go' when the builder is moved to 'apis' package
+func TestOpsManagerBackupDaemonHostName(t *testing.T) {
+	assert.Equal(t, "testOM-backup-daemon-0",
+		DefaultOpsManagerBuilder().Build().BackupDaemonHostName())
+	// The host name doesn't depend on cluster domain
+	assert.Equal(t, "testOM-backup-daemon-0",
+		DefaultOpsManagerBuilder().SetClusterDomain("some.domain").Build().BackupDaemonHostName())
+}
+
 // ******************************************* Helper methods *********************************************************
 
 func defaultTestOmReconciler(t *testing.T, opsManager *mdbv1.MongoDBOpsManager) (*OpsManagerReconciler, *MockedClient,
@@ -139,7 +156,7 @@ func defaultTestOmReconciler(t *testing.T, opsManager *mdbv1.MongoDBOpsManager) 
 	_ = manager.client.helper().createSecret(objectKey(opsManager.Namespace, opsManager.Spec.AdminSecret), data,
 		map[string]string{}, opsManager)
 
-	initializer := &MockedInitializer{expectedOmURL: centralURL(opsManager), t: t}
+	initializer := &MockedInitializer{expectedOmURL: opsManager.CentralURL(), t: t}
 
 	// It's important to clean the om state as soon as the reconciler is built!
 	admin := api.NewMockedAdmin()
@@ -151,6 +168,7 @@ func omWithAppDBVersion(version string) *mdbv1.MongoDBOpsManager {
 	return DefaultOpsManagerBuilder().SetAppDbVersion(version).Build()
 }
 
+// TODO move the builder to 'apis' package as done for mongodb
 type OpsManagerBuilder struct {
 	om *mdbv1.MongoDBOpsManager
 }
@@ -176,6 +194,11 @@ func (b *OpsManagerBuilder) SetVersion(version string) *OpsManagerBuilder {
 
 func (b *OpsManagerBuilder) SetAppDbVersion(version string) *OpsManagerBuilder {
 	b.om.Spec.AppDB.Version = version
+	return b
+}
+
+func (b *OpsManagerBuilder) SetClusterDomain(clusterDomain string) *OpsManagerBuilder {
+	b.om.Spec.ClusterDomain = clusterDomain
 	return b
 }
 

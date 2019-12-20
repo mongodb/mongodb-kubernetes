@@ -85,24 +85,24 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 	// 2. Ops Manager (create and wait)
 	status := r.createOpsManagerStatefulset(opsManager, opsManagerUserPassword, log)
 	if !status.isOk() {
-		return status.updateStatus(opsManager, r.ReconcileCommonController, log, centralURL(opsManager))
+		return status.updateStatus(opsManager, r.ReconcileCommonController, log, opsManager.CentralURL())
 	}
 
 	// 3. Backup Daemon (create and wait)
 	status = r.createBackupDaemonStatefulset(opsManager, log)
 	if !status.isOk() {
-		return status.updateStatus(opsManager, r.ReconcileCommonController, log, centralURL(opsManager))
+		return status.updateStatus(opsManager, r.ReconcileCommonController, log, opsManager.CentralURL())
 	}
 
 	// 4. Prepare Ops Manager (ensure the first user is created and public API key saved to secret)
 	var omAdmin api.Admin
 	if status, omAdmin = r.prepareOpsManager(opsManager, log); !status.isOk() {
-		return status.updateStatus(opsManager, r.ReconcileCommonController, log, centralURL(opsManager))
+		return status.updateStatus(opsManager, r.ReconcileCommonController, log, opsManager.CentralURL())
 	}
 
 	// 5. Prepare Backup Daemon
 	if status = r.prepareBackupInOpsManager(opsManager, omAdmin, log); !status.isOk() {
-		return status.updateStatus(opsManager, r.ReconcileCommonController, log, centralURL(opsManager))
+		return status.updateStatus(opsManager, r.ReconcileCommonController, log, opsManager.CentralURL())
 	}
 	return status.updateStatus(opsManager, r.ReconcileCommonController, log)
 }
@@ -152,7 +152,7 @@ func AddOpsManagerController(mgr manager.Manager) error {
 // ensureConfiguration makes sure the mandatory configuration is specified.
 func (r OpsManagerReconciler) ensureConfiguration(opsManager *mdbv1.MongoDBOpsManager, password string, log *zap.SugaredLogger) {
 	// update the central URL
-	setConfigProperty(opsManager, util.MmsCentralUrlPropKey, centralURL(opsManager), log)
+	setConfigProperty(opsManager, util.MmsCentralUrlPropKey, opsManager.CentralURL(), log)
 
 	setConfigProperty(opsManager, util.MmsMongoUri, buildMongoConnectionUrl(opsManager, password), log)
 
@@ -321,7 +321,7 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager *mdbv1.MongoDBOpsMana
 	_, err = r.kubeHelper.readSecret(adminKeySecretName)
 
 	if apiErrors.IsNotFound(err) {
-		apiKey, err := r.omInitializer.TryCreateUser(centralURL(opsManager), user)
+		apiKey, err := r.omInitializer.TryCreateUser(opsManager.CentralURL(), user)
 		if err != nil {
 			return failed("failed to create an admin user in Ops Manager: %s", err), nil
 		}
@@ -364,7 +364,7 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager *mdbv1.MongoDBOpsMana
 		return failedErr(err), nil
 	}
 
-	return ok(), r.omAdminProvider(centralURL(opsManager), cred.User, cred.PublicAPIKey)
+	return ok(), r.omAdminProvider(opsManager.CentralURL(), cred.User, cred.PublicAPIKey)
 }
 
 // prepareBackupInOpsManager makes the changes to backup admin configuration based on the Ops Manager spec
@@ -373,7 +373,7 @@ func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager *mdbv1.Mongo
 		return ok()
 	}
 	// 1. Enabling Daemon Config if necessary
-	backupHostName := backupDaemonURL(opsManager)
+	backupHostName := opsManager.BackupDaemonHostName()
 	_, err := omAdmin.ReadDaemonConfig(backupHostName, util.PvcMountPathHeadDb)
 	if api.NewErrorNonNil(err).ErrorCode == api.BackupDaemonConfigNotFound {
 		log.Infow("Backup Daemon is not configured, enabling it", "hostname", backupHostName, "headDB", util.PvcMountPathHeadDb)
@@ -682,26 +682,6 @@ func performValidation(opsManager *mdbv1.MongoDBOpsManager) error {
 	}
 
 	return nil
-}
-
-// centralURL constructs the service name that can be used to access Ops Manager from within
-// the cluster
-// TODO the kubedns.go should be moved to 'util' and be reused by 'om' package as well to make this method an OM resource
-//  method
-func centralURL(om *mdbv1.MongoDBOpsManager) string {
-	fqdn := util.GetServiceFQDN(om.SvcName(), om.Namespace, om.ClusterName)
-
-	// protocol must be calculated based on tls configuration of the ops manager resource
-	protocol := "http"
-
-	return fmt.Sprintf("%s://%s:%d", protocol, fqdn, util.OpsManagerDefaultPort)
-}
-
-// TODO the kubedns.go should be moved to 'util' and be reused by 'om' package as well to make this method an OM resource
-//  method
-func backupDaemonURL(om *mdbv1.MongoDBOpsManager) string {
-	_, podnames := util.GetDNSNames(om.BackupStatefulSetName(), "", om.Namespace, om.Spec.GetClusterDomain(), 1)
-	return podnames[0]
 }
 
 func newUserFromSecret(data map[string]string) (*api.User, error) {

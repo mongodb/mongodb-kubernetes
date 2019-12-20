@@ -356,6 +356,21 @@ func (m *MongoDBOpsManager) UpdateSuccessfulAppDb(object runtime.Object, args ..
 	m.Status.AppDbStatus.Members = spec.Members
 }
 
+func (m *MongoDBOpsManager) CentralURL() string {
+	fqdn := util.GetServiceFQDN(m.SvcName(), m.Namespace, m.Spec.GetClusterDomain())
+
+	// protocol must be calculated based on tls configuration of the ops manager resource
+	protocol := "http"
+
+	// TODO use url.URL to build the url
+	return fmt.Sprintf("%s://%s:%d", protocol, fqdn, util.OpsManagerDefaultPort)
+}
+
+func (m *MongoDBOpsManager) BackupDaemonHostName() string {
+	_, podnames := util.GetDNSNames(m.BackupStatefulSetName(), "", m.Namespace, m.Spec.GetClusterDomain(), 1)
+	return podnames[0]
+}
+
 // newBackup returns an empty backup object
 func newBackup() *MongoDBOpsManagerBackup {
 	return &MongoDBOpsManagerBackup{Enabled: true}

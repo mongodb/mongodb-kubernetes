@@ -229,7 +229,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(rs *mdbv1.AppDB, o
 
 	automationConfig := om.NewAutomationConfig(d)
 	automationConfig.SetOptions("/tmp/mms-automation/test/versions")
-	automationConfig.SetBaseUrlForAgents(centralURL(opsManager))
+	automationConfig.SetBaseUrlForAgents(opsManager.CentralURL())
 
 	sha1Creds, sha256Creds, err := generateScramShaCredentials(opsManagerUserPassword, opsManager)
 

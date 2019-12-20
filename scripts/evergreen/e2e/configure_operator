@@ -1,17 +1,14 @@
 #!/usr/bin/env bash
 
 # Configuration of the resources for Ops Manager
-if [[ "${TEST_MODE:-}" = "opsmanager" ]]; then
-    echo "Creating admin secret for the new Ops Manager instance"
-    kubectl create secret generic ops-manager-admin-secret  \
-        --from-literal=Username="jane.doe@example.com" \
-        --from-literal=Password="Passw0rd." \
-        --from-literal=FirstName="Jane" \
-        --from-literal=LastName="Doe" -n ${PROJECT_NAMESPACE}
+echo "Creating admin secret for the new Ops Manager instance"
+kubectl create secret generic ops-manager-admin-secret  \
+    --from-literal=Username="jane.doe@example.com" \
+    --from-literal=Password="Passw0rd." \
+    --from-literal=FirstName="Jane" \
+    --from-literal=LastName="Doe" -n ${PROJECT_NAMESPACE}
 
-    echo "Admin secret created"
-    return
-fi
+echo "Admin secret created"
 
 # Configuration of the resources for MongoDB
 title "Creating project and credentials Kubernetes object..."
@@ -38,4 +35,4 @@ kubectl --namespace "${PROJECT_NAMESPACE}" create configmap my-project \
 kubectl --namespace "${PROJECT_NAMESPACE}" create secret generic my-credentials \
         --from-literal=user="${OM_USER:=admin}" --from-literal=publicApiKey="${OM_API_KEY}"
 
-title "Credentials, Project have been created"
+title "All necessary ConfigMaps and Secrets have been created"
