@@ -400,7 +400,7 @@ func buildReplicaSetFromStatefulSetAppDb(set *appsv1.StatefulSet, mdb *mdbv1.App
 func createProcessesAppDb(set *appsv1.StatefulSet, mongoType om.MongoType,
 	mdb *mdbv1.AppDB) []om.Process {
 
-	hostnames, names := util.GetDnsForStatefulSet(set, mdb.ClusterName)
+	hostnames, names := util.GetDnsForStatefulSet(set, mdb.GetClusterDomain())
 	processes := make([]om.Process, len(hostnames))
 	wiredTigerCache := calculateWiredTigerCache(set, mdb.Version)
 

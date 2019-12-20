@@ -50,11 +50,12 @@ type StatefulSetHelperCommon struct {
 	Service   string
 	Namespace string
 
-	// ClusterName is the cluster name that's usually 'cluster.local' but it can be changed by the customer.
-	ClusterName string
-	Replicas    int
-	ServicePort int32
-	Version     string
+	// ClusterDomain is the cluster name that's usually 'cluster.local' but it
+	// can be changed by the customer.
+	ClusterDomain string
+	Replicas      int
+	ServicePort   int32
+	Version       string
 
 	// Not part of StatefulSet object
 	Helper *KubeHelper
@@ -159,15 +160,15 @@ func (k *KubeHelper) NewStatefulSetHelper(obj Updatable) *StatefulSetHelper {
 
 	return &StatefulSetHelper{
 		StatefulSetHelperCommon: StatefulSetHelperCommon{
-			Owner:       obj,
-			Name:        obj.GetName(),
-			Namespace:   obj.GetNamespace(),
-			Replicas:    mongodbSpec.Members,
-			Helper:      k,
-			ServicePort: util.MongoDbDefaultPort,
-			Version:     mongodbSpec.Version,
-			ClusterName: mongodbSpec.ClusterName,
-			Logger:      zap.S(), // by default, must be overridden by clients
+			Owner:         obj,
+			Name:          obj.GetName(),
+			Namespace:     obj.GetNamespace(),
+			Replicas:      mongodbSpec.Members,
+			Helper:        k,
+			ServicePort:   util.MongoDbDefaultPort,
+			Version:       mongodbSpec.Version,
+			ClusterDomain: mongodbSpec.GetClusterDomain(),
+			Logger:        zap.S(), // by default, must be overridden by clients
 		},
 		Persistent:        mongodbSpec.Persistent,
 		PodSpec:           NewDefaultPodSpecWrapper(*mongodbSpec.PodSpec),
@@ -269,9 +270,9 @@ func (s *StatefulSetHelper) SetTLS(tlsConfig *mdbv1.TLSConfig) *StatefulSetHelpe
 
 func (s *StatefulSetHelper) SetClusterName(name string) *StatefulSetHelper {
 	if name == "" {
-		s.ClusterName = "cluster.local"
+		s.ClusterDomain = "cluster.local"
 	} else {
-		s.ClusterName = name
+		s.ClusterDomain = name
 	}
 
 	return s
@@ -424,7 +425,7 @@ func (s *StatefulSetHelper) getDNSNames() ([]string, []string) {
 		members = s.Replicas
 	}
 
-	return util.GetDNSNames(s.Name, s.Service, s.Namespace, s.ClusterName, members)
+	return util.GetDNSNames(s.Name, s.Service, s.Namespace, s.ClusterDomain, members)
 }
 
 func (s *StatefulSetHelper) SetCertificateHash(certHash string) *StatefulSetHelper {

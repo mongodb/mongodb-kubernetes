@@ -311,7 +311,7 @@ func createDeploymentFromReplicaSet(rs *mdbv1.MongoDB) om.Deployment {
 	helper := createStatefulHelperFromReplicaSet(rs)
 
 	d := om.NewDeployment()
-	hostnames, _ := util.GetDnsForStatefulSet(helper.BuildStatefulSet(), rs.Spec.ClusterName)
+	hostnames, _ := util.GetDnsForStatefulSet(helper.BuildStatefulSet(), rs.Spec.GetClusterDomain())
 	d.MergeReplicaSet(
 		buildReplicaSetFromStatefulSet(helper.BuildStatefulSet(), rs),
 		nil,

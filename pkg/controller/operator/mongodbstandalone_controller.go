@@ -168,7 +168,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 
 func updateOmDeployment(conn om.Connection, s *mdbv1.MongoDB,
 	set *appsv1.StatefulSet, log *zap.SugaredLogger) reconcileStatus {
-	if err := waitForRsAgentsToRegister(set, s.Spec.ClusterName, conn, log); err != nil {
+	if err := waitForRsAgentsToRegister(set, s.Spec.GetClusterDomain(), conn, log); err != nil {
 		return failedErr(err)
 	}
 
@@ -240,7 +240,7 @@ func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLog
 		return err
 	}
 
-	hostsToRemove, _ := util.GetDNSNames(s.Name, s.ServiceName(), s.Namespace, s.Spec.ClusterName, 1)
+	hostsToRemove, _ := util.GetDNSNames(s.Name, s.ServiceName(), s.Namespace, s.Spec.GetClusterDomain(), 1)
 	log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
 	if err = om.StopMonitoring(conn, hostsToRemove, log); err != nil {
 		return err
@@ -250,7 +250,7 @@ func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLog
 }
 
 func createProcess(set *appsv1.StatefulSet, s *mdbv1.MongoDB) om.Process {
-	hostnames, _ := util.GetDnsForStatefulSet(set, s.Spec.ClusterName)
+	hostnames, _ := util.GetDnsForStatefulSet(set, s.Spec.GetClusterDomain())
 	wiredTigerCache := calculateWiredTigerCache(set, s.Spec.Version)
 
 	process := om.NewMongodProcess(s.Name, hostnames[0], s)

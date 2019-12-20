@@ -56,8 +56,8 @@ func (b *MongoDBBuilder) SetMembers(m int) *MongoDBBuilder {
 	b.Spec.Members = m
 	return b
 }
-func (b *MongoDBBuilder) SetClusterName(m string) *MongoDBBuilder {
-	b.Spec.ClusterName = m
+func (b *MongoDBBuilder) SetClusterDomain(m string) *MongoDBBuilder {
+	b.Spec.ClusterDomain = m
 	return b
 }
 

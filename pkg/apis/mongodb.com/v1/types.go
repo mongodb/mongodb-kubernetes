@@ -120,7 +120,10 @@ type MongoDbSpec struct {
 	// ExposedExternally determines whether a NodePort service should be created for the resource
 	ExposedExternally bool `json:"exposedExternally,omitempty"`
 
-	ClusterName string `json:"clusterName,omitempty"`
+	// Deprecated: This has been replaced by the ClusterDomain which should be
+	// used instead
+	ClusterName   string `json:"clusterName,omitempty"`
+	ClusterDomain string `json:"clusterDomain,omitempty"`
 	ConnectionSpec
 	Persistent   *bool        `json:"persistent,omitempty"`
 	ResourceType ResourceType `json:"type,omitempty"`
@@ -143,6 +146,16 @@ type MongoDbSpec struct {
 	// configuration file:
 	// https://docs.mongodb.com/manual/reference/configuration-options/
 	AdditionalMongodConfig *AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
+}
+
+func (ms MongoDbSpec) GetClusterDomain() string {
+	if ms.ClusterDomain != "" {
+		return ms.ClusterDomain
+	}
+	if ms.ClusterName != "" {
+		return ms.ClusterName
+	}
+	return "cluster.local"
 }
 
 // TODO docs
@@ -757,7 +770,7 @@ func buildConnectionUrl(statefulsetName, serviceName, namespace, userName, passw
 	}
 	replicasCount := spec.Replicas()
 
-	hostnames, _ := util.GetDNSNames(statefulsetName, serviceName, namespace, spec.ClusterName, replicasCount)
+	hostnames, _ := util.GetDNSNames(statefulsetName, serviceName, namespace, spec.GetClusterDomain(), replicasCount)
 	uri := "mongodb://"
 	if util.ContainsString(spec.Security.Authentication.Modes, util.SCRAM) {
 		uri += fmt.Sprintf("%s:%s@", userName, password)

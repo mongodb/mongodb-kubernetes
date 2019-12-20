@@ -70,7 +70,7 @@ func buildReplicaSetFromStatefulSet(set *appsv1.StatefulSet, mdb *mdbv1.MongoDB)
 }
 
 func createProcesses(set *appsv1.StatefulSet, mongoType om.MongoType, mdb *mdbv1.MongoDB) []om.Process {
-	hostnames, names := util.GetDnsForStatefulSet(set, mdb.Spec.ClusterName)
+	hostnames, names := util.GetDnsForStatefulSet(set, mdb.Spec.GetClusterDomain())
 	processes := make([]om.Process, len(hostnames))
 	wiredTigerCache := calculateWiredTigerCache(set, mdb.Spec.Version)
 
@@ -117,7 +117,7 @@ func waitForRsAgentsToRegister(set *appsv1.StatefulSet, clusterName string, omCo
 
 	if !waitUntilAgentsHaveRegistered(omConnection, log, hostnames...) {
 		return errors.New("Some agents failed to register or the Operator is using the wrong host names for the pods. " +
-			"Make sure the 'spec.clusterName' is set if it's different from the default Kubernetes cluster " +
+			"Make sure the 'spec.clusterDomain' is set if it's different from the default Kubernetes cluster " +
 			"name ('cluster.local') ")
 	}
 	return nil

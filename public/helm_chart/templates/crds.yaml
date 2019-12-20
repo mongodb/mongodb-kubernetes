@@ -68,6 +68,10 @@ spec:
               clusterName:
                 type: string
                 format: hostname
+                description: "DEPRECATED Use clusterDomain instead"
+              clusterDomain:
+                type: string
+                format: hostname
               security:
                 type: object
                 properties:
@@ -152,6 +156,10 @@ spec:
               persistent:
                 type: boolean
               clusterName:
+                type: string
+                format: hostname
+                description: "DEPRECATED Use clusterDomain instead"
+              clusterDomain:
                 type: string
                 format: hostname
               security:
@@ -263,6 +271,10 @@ spec:
               persistent:
                 type: boolean
               clusterName:
+                type: string
+                format: hostname
+                description: "DEPRECATED Use clusterDomain instead"
+              clusterDomain:
                 type: string
                 format: hostname
               security:
@@ -450,6 +462,10 @@ spec:
               minimum: 1
               type: integer
             clusterName:
+              type: string
+              format: hostname
+              description: "DEPRECATED Use clusterDomain instead"
+            clusterDomain:
               type: string
               format: hostname
             externalConnectivity:

@@ -12,7 +12,7 @@ class OpsManagerCR(object):
     def base_url(self):
         protocol = "http"
         svc_fqdn = build_svc_fqdn(
-            self.svc_name(), self.namespace, self.get_cluster_name()
+            self.svc_name(), self.namespace, self.get_cluster_domain()
         )
         return "{}://{}:{}".format(protocol, svc_fqdn, 8080)
 
@@ -63,10 +63,12 @@ class OpsManagerCR(object):
 
     # getters for accessing different fields in the CR
 
-    def get_cluster_name(self):
-        if "clusterName" not in self.get_spec():
-            return "cluster.local"
-        return self.get_spec()["clusterName"]
+    def get_cluster_domain(self):
+        if "clusterDomain" in self.get_spec():
+            return self.get_spec()["clusterDomain"]
+        if "clusterName" in self.get_spec():
+            return self.get_spec()["clusterName"]
+        return "cluster.local"
 
     def get_admin_credentials(self):
         return self.get_spec()["adminCredentials"]

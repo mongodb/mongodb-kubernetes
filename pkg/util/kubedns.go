@@ -36,11 +36,11 @@ func GetDNSNames(statefulSetName, service, namespace, clusterName string, replic
 }
 
 // GetServiceFQDN returns the FQDN for the service inside Kubernetes
-func GetServiceFQDN(service, namespace, clusterName string) string {
-	if clusterName == "" {
-		clusterName = "cluster.local"
+func GetServiceFQDN(service, namespace, clusterDomain string) string {
+	if clusterDomain == "" {
+		clusterDomain = "cluster.local"
 	}
-	return fmt.Sprintf("%s.%s.svc.%s", service, namespace, clusterName)
+	return fmt.Sprintf("%s.%s.svc.%s", service, namespace, clusterDomain)
 }
 
 // getDnsTemplateFor returns a template-FQDN for a StatefulSet. This
@@ -55,11 +55,11 @@ func GetServiceFQDN(service, namespace, clusterName string) string {
 // TODO: The cluster domain is not known inside the Kubernetes cluster,
 // so there is no API to obtain this name from the operator.
 // * See: https://github.com/kubernetes/kubernetes/issues/44954
-func getDnsTemplateFor(name, service, namespace, cluster string) string {
-	if cluster == "" {
-		cluster = "cluster.local"
+func getDnsTemplateFor(name, service, namespace, clusterDomain string) string {
+	if clusterDomain == "" {
+		clusterDomain = "cluster.local"
 	}
-	dnsTemplate := fmt.Sprintf("%s-{}.%s.%s.svc.%s", name, service, namespace, cluster)
+	dnsTemplate := fmt.Sprintf("%s-{}.%s.%s.svc.%s", name, service, namespace, clusterDomain)
 	return strings.Replace(dnsTemplate, "{}", "%d", 1)
 }
 

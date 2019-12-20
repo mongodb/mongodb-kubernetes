@@ -390,7 +390,7 @@ func AddShardedClusterController(mgr manager.Manager) error {
 
 func prepareScaleDownShardedCluster(omClient om.Connection, state ShardedClusterKubeState, sc *mdbv1.MongoDB, log *zap.SugaredLogger) error {
 	membersToScaleDown := make(map[string][]string)
-	clusterName := sc.Spec.ClusterName
+	clusterName := sc.Spec.GetClusterDomain()
 
 	// Scaledown amount of replicas in ConfigServer
 	if isConfigServerScaleDown(sc) {
@@ -552,16 +552,16 @@ func getAllProcesses(shards []om.ReplicaSetWithProcesses, configRs om.ReplicaSet
 
 func waitForAgentsToRegister(cluster *mdbv1.MongoDB, state ShardedClusterKubeState, conn om.Connection,
 	log *zap.SugaredLogger) error {
-	if err := waitForRsAgentsToRegister(state.mongosSetHelper.BuildStatefulSet(), cluster.Spec.ClusterName, conn, log); err != nil {
+	if err := waitForRsAgentsToRegister(state.mongosSetHelper.BuildStatefulSet(), cluster.Spec.GetClusterDomain(), conn, log); err != nil {
 		return err
 	}
 
-	if err := waitForRsAgentsToRegister(state.configSrvSetHelper.BuildStatefulSet(), cluster.Spec.ClusterName, conn, log); err != nil {
+	if err := waitForRsAgentsToRegister(state.configSrvSetHelper.BuildStatefulSet(), cluster.Spec.GetClusterDomain(), conn, log); err != nil {
 		return err
 	}
 
 	for _, s := range state.shardsSetsHelpers {
-		if err := waitForRsAgentsToRegister(s.BuildStatefulSet(), cluster.Spec.ClusterName, conn, log); err != nil {
+		if err := waitForRsAgentsToRegister(s.BuildStatefulSet(), cluster.Spec.GetClusterDomain(), conn, log); err != nil {
 			return err
 		}
 	}
@@ -581,14 +581,14 @@ func getMaxShardedClusterSizeConfig(specConfig mdbv1.MongodbShardedClusterSizeCo
 func getAllHosts(c *mdbv1.MongoDB, sizeConfig mdbv1.MongodbShardedClusterSizeConfig) []string {
 	ans := make([]string, 0)
 
-	hosts, _ := util.GetDNSNames(c.MongosRsName(), c.ServiceName(), c.Namespace, c.Spec.ClusterName, sizeConfig.MongosCount)
+	hosts, _ := util.GetDNSNames(c.MongosRsName(), c.ServiceName(), c.Namespace, c.Spec.GetClusterDomain(), sizeConfig.MongosCount)
 	ans = append(ans, hosts...)
 
-	hosts, _ = util.GetDNSNames(c.ConfigRsName(), c.ConfigSrvServiceName(), c.Namespace, c.Spec.ClusterName, sizeConfig.ConfigServerCount)
+	hosts, _ = util.GetDNSNames(c.ConfigRsName(), c.ConfigSrvServiceName(), c.Namespace, c.Spec.GetClusterDomain(), sizeConfig.ConfigServerCount)
 	ans = append(ans, hosts...)
 
 	for i := 0; i < sizeConfig.ShardCount; i++ {
-		hosts, _ = util.GetDNSNames(c.ShardRsName(i), c.ShardServiceName(), c.Namespace, c.Spec.ClusterName, sizeConfig.MongodsPerShardCount)
+		hosts, _ = util.GetDNSNames(c.ShardRsName(i), c.ShardServiceName(), c.Namespace, c.Spec.GetClusterDomain(), sizeConfig.MongodsPerShardCount)
 		ans = append(ans, hosts...)
 	}
 	return ans

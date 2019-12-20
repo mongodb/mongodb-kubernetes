@@ -39,8 +39,11 @@ type MongoDBOpsManagerList struct {
 type MongoDBOpsManagerSpec struct {
 	Configuration map[string]string `json:"configuration,omitempty"`
 	Version       string            `json:"version"`
-	ClusterName   string            `json:"clusterName,omitempty"`
 	Replicas      int               `json:"replicas"`
+	// Deprecated: This has been replaced by the ClusterDomain which should be
+	// used instead
+	ClusterName   string `json:"clusterName,omitempty"`
+	ClusterDomain string `json:"clusterDomain,omitempty"`
 
 	// AdminSecret is the secret for the first admin user to create
 	// has the fields: "Username", "Password", "FirstName", "LastName"
@@ -53,6 +56,16 @@ type MongoDBOpsManagerSpec struct {
 	// MongoDBOpsManagerExternalConnectivity if sets allows for the creation of a Service for
 	// accessing this Ops Manager resource from outside the Kubernetes cluster.
 	MongoDBOpsManagerExternalConnectivity *MongoDBOpsManagerServiceDefinition `json:"externalConnectivity,omitempty"`
+}
+
+func (ms MongoDBOpsManagerSpec) GetClusterDomain() string {
+	if ms.ClusterDomain != "" {
+		return ms.ClusterDomain
+	}
+	if ms.ClusterName != "" {
+		return ms.ClusterName
+	}
+	return "cluster.local"
 }
 
 // MongoDBOpsManagerServiceDefinition struct that defines the mechanism by which this Ops Manager resource

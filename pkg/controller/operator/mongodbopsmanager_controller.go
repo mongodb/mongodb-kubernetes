@@ -700,7 +700,7 @@ func centralURL(om *mdbv1.MongoDBOpsManager) string {
 // TODO the kubedns.go should be moved to 'util' and be reused by 'om' package as well to make this method an OM resource
 //  method
 func backupDaemonURL(om *mdbv1.MongoDBOpsManager) string {
-	_, podnames := util.GetDNSNames(om.BackupStatefulSetName(), "", om.Namespace, om.Spec.ClusterName, 1)
+	_, podnames := util.GetDNSNames(om.BackupStatefulSetName(), "", om.Namespace, om.Spec.GetClusterDomain(), 1)
 	return podnames[0]
 }
 

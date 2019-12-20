@@ -199,7 +199,7 @@ func AddReplicaSetController(mgr manager.Manager) error {
 func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, membersNumberBefore int, rs *mdbv1.MongoDB,
 	set *appsv1.StatefulSet, log *zap.SugaredLogger) reconcileStatus {
 
-	err := waitForRsAgentsToRegister(set, rs.Spec.ClusterName, conn, log)
+	err := waitForRsAgentsToRegister(set, rs.Spec.GetClusterDomain(), conn, log)
 	if err != nil {
 		return failedErr(err)
 	}
@@ -242,8 +242,8 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 		return pending("Performing multi stage reconciliation")
 	}
 
-	hostsBefore := getAllHostsRs(set, rs.Spec.ClusterName, membersNumberBefore)
-	hostsAfter := getAllHostsRs(set, rs.Spec.ClusterName, rs.Spec.Members)
+	hostsBefore := getAllHostsRs(set, rs.Spec.GetClusterDomain(), membersNumberBefore)
+	hostsAfter := getAllHostsRs(set, rs.Spec.GetClusterDomain(), rs.Spec.Members)
 	if err := calculateDiffAndStopMonitoringHosts(conn, hostsBefore, hostsAfter, log); err != nil {
 		return failedErr(err)
 	}
@@ -286,7 +286,7 @@ func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLog
 		return err
 	}
 
-	hostsToRemove, _ := util.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.ClusterName, util.MaxInt(rs.Status.Members, rs.Spec.Members))
+	hostsToRemove, _ := util.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(), util.MaxInt(rs.Status.Members, rs.Spec.Members))
 	log.Infow("Stop monitoring removed hosts in Ops Manager", "removedHosts", hostsToRemove)
 
 	if err = om.StopMonitoring(conn, hostsToRemove, log); err != nil {
@@ -330,7 +330,7 @@ func (r *ReconcileCommonController) ensureX509InKubernetes(mdb *mdbv1.MongoDB, h
 }
 
 func prepareScaleDownReplicaSet(omClient om.Connection, statefulSet *appsv1.StatefulSet, oldMembersCount int, new *mdbv1.MongoDB, log *zap.SugaredLogger) error {
-	_, podNames := util.GetDnsForStatefulSetReplicasSpecified(statefulSet, new.Spec.ClusterName, oldMembersCount)
+	_, podNames := util.GetDnsForStatefulSetReplicasSpecified(statefulSet, new.Spec.GetClusterDomain(), oldMembersCount)
 	podNames = podNames[new.Spec.Members:oldMembersCount]
 
 	return prepareScaleDown(omClient, map[string][]string{new.Name: podNames}, log)
