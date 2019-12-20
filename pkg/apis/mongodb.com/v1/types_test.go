@@ -91,7 +91,7 @@ func TestMongoDB_ConnectionURL_NotSecure(t *testing.T) {
 		rs.ConnectionURL("", "", map[string]string{"connectTimeoutMS": "30000", "readPreference": "secondary"}))
 
 	// 2 members, custom cluster name
-	rs = NewReplicaSetBuilder().SetName("paymentsDb").SetMembers(2).SetClusterName("company.domain.net").Build()
+	rs = NewReplicaSetBuilder().SetName("paymentsDb").SetMembers(2).SetClusterDomain("company.domain.net").Build()
 	assert.Equal(t, "mongodb://paymentsDb-0.paymentsDb-svc.testNS.svc.company.domain.net:27017,"+
 		"paymentsDb-1.paymentsDb-svc.testNS.svc.company.domain.net:27017/?connectTimeoutMS=20000&replicaSet=paymentsDb"+
 		"&serverSelectionTimeoutMS=20000", rs.ConnectionURL("", "", nil))
