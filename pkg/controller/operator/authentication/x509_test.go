@@ -49,4 +49,5 @@ func TestX509_DisableAgentAuthentication(t *testing.T) {
 func TestX509_DeploymentConfigured(t *testing.T) {
 	conn, ac := createConnectionAndAutomationConfig()
 	assertDeploymentMechanismsConfigured(t, NewConnectionX509(conn, ac))
+	assert.Equal(t, ac.AgentSSL.CAFilePath, util.CAFilePathInContainer)
 }

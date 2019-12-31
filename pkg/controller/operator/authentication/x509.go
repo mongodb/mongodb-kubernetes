@@ -113,6 +113,9 @@ func (x ConnectionX509) EnableDeploymentAuthentication() error {
 	if !util.ContainsString(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) {
 		ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, string(MongoDBX509))
 	}
+	// AutomationConfig validation requires the CAFile path to be specified in the case of multiple auth
+	// mechanisms enabled. This is not required if only X509 is being configured
+	ac.AgentSSL.CAFilePath = util.CAFilePathInContainer
 	return nil
 }
 
