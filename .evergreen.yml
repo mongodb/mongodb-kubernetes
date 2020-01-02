@@ -582,25 +582,6 @@ functions:
           echo "Preparing Test Environment"
           ./prepare_test_env ${ops_manager_namespace} ${ops_manager_version} ${node_port}
 
-  "post_task":
-  - command: shell.exec
-    params:
-      script: |
-        if [ ! "$(which docker)" ]; then
-          # if not docker present, no images either.
-          exit 0
-        fi
-
-        echo "Removing all docker images in this machine"
-        docker rmi -f $(docker images -a -q) &> /dev/null || true
-
-        echo "Are there any remaining Docker images in this host?"
-        docker images
-
-
-post:
-  - func: "post_task"
-
 tasks:
 - name: unit_tests
   tags: ["unit_tests"]
