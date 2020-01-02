@@ -1016,6 +1016,7 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_standalone_recovery_k8s
+  tags: ["patch-run"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
@@ -1051,11 +1052,13 @@ tasks:
      - func: "e2e_test"
 
 - name: e2e_replica_set_pv
+  tags: ["patch-run"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_pv_multiple
+  tags: ["patch-run"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
@@ -1109,11 +1112,13 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster
+  tags: ["patch-run"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_pv
+  tags: ["patch-run"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
@@ -1167,6 +1172,7 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_standalone_no_tls_no_status_is_set
+  tags: ["patch-run"]
   exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
@@ -1270,12 +1276,14 @@ tasks:
   commands:
     - func: "e2e_test"
 
-- name: e2e_om_appdb_upgrade  # Needs persistence for appdb
+- name: e2e_om_appdb_upgrade
+  tags: ["patch-run"]
   exec_timeout_secs: 2400
   commands:
   - func: "e2e_test"
 
-- name: e2e_om_ops_manager_upgrade # Does not work on Kind, might work with persistence
+- name: e2e_om_ops_manager_upgrade
+  tags: ["patch-run"]
   exec_timeout_secs: 2400
   commands:
     - func: "e2e_test"
@@ -1286,7 +1294,8 @@ tasks:
   commands:
     - func: "e2e_test"
 
-- name: e2e_om_ops_manager_backup # Needs persistence for backup
+- name: e2e_om_ops_manager_backup
+  tags: ["patch-run"]
   exec_timeout_secs: 2400
   commands:
     - func: "e2e_test"
