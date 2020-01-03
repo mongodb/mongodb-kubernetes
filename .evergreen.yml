@@ -496,7 +496,8 @@ functions:
     - command: subprocess.exec
       type: setup
       params:
-        command: 'false'
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        binary: scripts/evergreen/release_blocker
 
   # Tags and pushes an image into an external Docker registry. The source image
   # needs to exist before it can be pushed to a remote registry.
@@ -596,6 +597,7 @@ tasks:
 
 - name: release_blocker
   commands:
+  - func: clone
   - func: release_blocker
 
 # release_ops_manager_rhel Releases the just build Docker image
