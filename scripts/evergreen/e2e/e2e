@@ -44,7 +44,7 @@ if echo "${TASK_NAME}" | egrep -q "^e2e_op_upgrade"; then
     if ! ./scripts/evergreen/e2e_tests.sh; then
         . ./scripts/evergreen/e2e/dump_diagnostic_information
         . ./scripts/evergreen/e2e/teardown
-        return
+        exit 1
     fi
     # Setting the second test to be run after the Operator upgrade after 'if' block
     # Note, that in this case the second Operator will be upgraded, not deleted-created
@@ -58,7 +58,15 @@ export REVISION="${OPERATOR_VERSION}"
 
 ./scripts/evergreen/e2e/deploy_operator
 
-if ! ./scripts/evergreen/e2e_tests.sh; then
-    . ./scripts/evergreen/e2e/dump_diagnostic_information
+# We need to capture the results of the tests that we run
+./scripts/evergreen/e2e_tests.sh
+TEST_RESULTS=$?
+
+if [[ "${TEST_RESULTS}" -ne 0 ]]; then
+    ./scripts/evergreen/e2e/dump_diagnostic_information
 fi
-. ./scripts/evergreen/e2e/teardown
+
+./scripts/evergreen/e2e/teardown
+
+# We exit with the test result to surface status to Evergreen.
+exit $TEST_RESULTS
