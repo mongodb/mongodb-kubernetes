@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 #
@@ -43,8 +43,12 @@ def get_version() -> str:
         if Path("/") == p:
             return
 
-        if os.path.exists(os.path.join(p, "release.json")):
-            return os.path.join(p, "release.json")
+        # os.path.join won't work on PosixPath on Python 3.5, which
+        # is installed in Ubuntu16 by default, that's why it needs to be
+        # changed into str.
+        release_path = os.path.join(str(p), "release.json")
+        if os.path.exists(release_path):
+            return os.path.join(release_path)
         else:
             return release(p.parent)
 

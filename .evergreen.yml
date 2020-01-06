@@ -36,6 +36,7 @@ variables:
   - &go_options
     GO111MODULE: "on"
     GOFLAGS: "-mod=vendor"
+    GOROOT: "/opt/golang/go1.13"
 
 functions:
   "golint":
@@ -75,35 +76,20 @@ functions:
         binary: scripts/evergreen/build_operator
 
   "build_operator":
-    - command: shell.exec
+    - command: subprocess.exec
       type: setup
       params:
-        shell: bash
+        add_to_path:
+        - *go_bin
         working_dir: src/github.com/10gen/ops-manager-kubernetes
-        script: |
-          export WORKDIR=${workdir}
+        env:
+          WORKDIR: ${workdir}
+          SKIP_TESTING: "true"
 
-          if [[ "${task_name}" = "release_operator_rhel_connect" ]] || [[ "${task_name}" = "release_operator" ]]; then
-            # Make sure release matches a correct release name.
+          IMAGE_TYPE: ${distro}
+          <<: *go_options
 
-            if ! git status --short; then
-              echo "The repository is dirty. Make sure no uncommited or modified files were added to the patch."
-              git status --short
-              exit 1
-            fi
-
-            release_version="$(git describe --dirty)"
-            if ! [[ "$release_version" =~ ^[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
-              echo "$release_version does not conform to what we expect as a version label."
-              exit 1
-            fi
-
-            echo "Proceeding with release $release_version"
-          fi
-
-          ( cd docker/mongodb-enterprise-operator && ../Dockerfile.gen operator ${distro} > Dockerfile )
-
-          SKIP_TESTING=true ./scripts/evergreen/build_operator
+        binary: scripts/evergreen/build_operator
 
   "build_database":
     - command: subprocess.exec
@@ -405,9 +391,12 @@ functions:
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         add_to_path:
+          - *go_bin
           - ${workdir}/bin
         add_expansions_to_env: true
         env:
+          <<: *go_options
+
           AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
           AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
           AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
@@ -772,6 +761,7 @@ tasks:
     - func: push_versioned_binaries
 
 - name: build_test_image
+  priority: 60
   type: setup
   commands:
   - func: clone
@@ -796,11 +786,12 @@ tasks:
       label: 'tests-${version_id}'
 
 - name: build_images_rhel
+  priority: 60
   type: setup
   commands:
   - func: clone
   - func: download_kube_tools
-  - func: setup_aws
+  - func: setup_ecr_login_helper
   - func: build_operator
     vars:
       distro: rhel
@@ -831,10 +822,11 @@ tasks:
       label: 'rhel-operator-${version_id}, rhel-database-${version_id}'
 
 - name: build_images_ubuntu
+  priority: 60
   commands:
   - func: clone
   - func: download_kube_tools
-  - func: setup_aws
+  - func: setup_ecr_login_helper
   - func: build_operator
     vars:
       distro: ubuntu
@@ -865,6 +857,7 @@ tasks:
       label: 'ubuntu-operator-${version_id}, ubuntu-database-${version_id}'
 
 - name: build_om_images_rhel
+  priority: 60
   commands:
   - func: clone
   - func: setup_jq

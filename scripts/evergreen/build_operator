@@ -11,6 +11,11 @@ set -xeo pipefail
 GOPATH="${WORKDIR}"
 export GOPATH
 
+if [ ! -f "docker/mongodb-enterprise-operator/Dockerfile" ] && [ -n "${IMAGE_TYPE}" ]; then
+    echo "Generating Dockerfile for ${IMAGE_TYPE}"
+    ( cd docker/mongodb-enterprise-operator && ../Dockerfile.gen operator "${IMAGE_TYPE}" > Dockerfile )
+fi
+
 ./scripts/build/prepare_build_environment
 # This skips the regeneration of code + download of dependencies if this step was
 # taken care of by the prepare_build_environment script.
