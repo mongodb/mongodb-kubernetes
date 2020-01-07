@@ -1346,17 +1346,17 @@ tasks:
   commands:
     - func: "e2e_test"
 
-- name: e2e_configure_tls_and_x509_simultaneously_rs # Broken
+- name: e2e_configure_tls_and_x509_simultaneously_rs
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
-- name: e2e_configure_tls_and_x509_simultaneously_sc # Broken
+- name: e2e_configure_tls_and_x509_simultaneously_sc
   exec_timeout_secs: 1800
   commands:
     - func: "e2e_test"
 
-- name: e2e_configure_tls_and_x509_simultaneously_st # Broken
+- name: e2e_configure_tls_and_x509_simultaneously_st
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"

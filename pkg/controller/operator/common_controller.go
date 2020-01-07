@@ -670,7 +670,7 @@ func updateOmAuthentication(conn om.Connection, processNames []string, mdb *mdbv
 	log.Debugf("Using authentication options %+v", authOpts)
 
 	wantToEnableAuthentication := mdb.Spec.Security.Authentication.Enabled
-	if wantToEnableAuthentication && canConfigureAuthentication(ac, mdb) {
+	if wantToEnableAuthentication && canConfigureAuthentication(ac, mdb, log) {
 		log.Info("Configuring authentication for MongoDB resource")
 		if err := authentication.Configure(conn, authOpts, log); err != nil {
 			return failedErr(err), false
@@ -693,9 +693,17 @@ func updateOmAuthentication(conn om.Connection, processNames []string, mdb *mdbv
 // it is possible to configure the authentication mechanisms specified by the given MongoDB resource
 // during this reconciliation. This function may return a different value on the next reconciliation
 // if the state of Ops Manager has been changed.
-func canConfigureAuthentication(ac *om.AutomationConfig, mdb *mdbv1.MongoDB) bool {
+func canConfigureAuthentication(ac *om.AutomationConfig, mdb *mdbv1.MongoDB, log *zap.SugaredLogger) bool {
 	attemptingToEnableX509 := !util.ContainsString(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) && util.ContainsString(mdb.Spec.Security.Authentication.Modes, util.X509)
 	canEnableX509InOpsManager := ac.Deployment.AllProcessesAreTLSEnabled() || ac.Deployment.NumberOfProcesses() == 0
+
+	log.Debugw("canConfigureAuthentication",
+		"attemptingToEnableX509", attemptingToEnableX509,
+		"deploymentAuthMechanisms", ac.Auth.DeploymentAuthMechanisms,
+		"modes", mdb.Spec.Security.Authentication.Modes,
+		"canEnableX509InOpsManager", canEnableX509InOpsManager,
+		"allProcessesAreTLSEnabled", ac.Deployment.AllProcessesAreTLSEnabled(),
+		"numberOfProcesses", ac.Deployment.NumberOfProcesses())
 
 	if attemptingToEnableX509 {
 		return canEnableX509InOpsManager
@@ -776,3 +784,4 @@ func isFourFour(version semver.Version) bool {
 func isMajorMinor(v semver.Version, major, minor uint64) bool {
 	return v.Major == major && v.Minor == minor
 }
+

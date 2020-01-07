@@ -240,6 +240,14 @@ func (p Process) SSLConfig() map[string]interface{} {
 	if _, ok := netConfig["ssl"]; ok {
 		return netConfig["ssl"].(map[string]interface{})
 	}
+
+	// in newer versions of Ops Manager/Cloud Manager the ssl
+	// field was renamed to tls. This may be the key that is returned instead.
+	// All of the values should be the same.
+	if _, ok := netConfig["tls"]; ok {
+		return netConfig["tls"].(map[string]interface{})
+	}
+
 	return make(map[string]interface{}, 0)
 }
 
@@ -498,3 +506,4 @@ func (s Process) json() string {
 	}
 	return string(b)
 }
+

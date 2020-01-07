@@ -65,6 +65,20 @@ func TestConfigureSSL_Process(t *testing.T) {
 	assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.DisabledSSLMode), "PEMKeyFile": "/mongodb-automation/server.pem"}, process.SSLConfig())
 }
 
+func TestTlsConfig(t *testing.T) {
+	process := Process{}
+	process.EnableTLS(mdbv1.RequireSSLMode)
+	process.Args()["tls"] = map[string]interface{}{
+		"mode":       "requireSSL",
+		"PEMKeyFile": "/mongodb-automation/server.pem",
+	}
+
+	tlsConfig := process.SSLConfig()
+	assert.NotNil(t, tlsConfig)
+	assert.Equal(t, tlsConfig["mode"], "requireSSL")
+	assert.Equal(t, tlsConfig["PEMKeyFile"], "/mongodb-automation/server.pem")
+}
+
 func TestConfigureX509_Process(t *testing.T) {
 	mdb := &mdbv1.MongoDB{
 		Spec: mdbv1.MongoDbSpec{
@@ -141,3 +155,4 @@ func TestMergeMongodProcess_SSL(t *testing.T) {
 	}
 	assert.Equal(t, expectedSSLConfig, readMapValueAsInterface(omProcess, "args2_6", "net", "ssl"))
 }
+

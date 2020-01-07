@@ -35,7 +35,7 @@ class TestEnableX509AndTls(KubernetesTester):
             get_rs_cert_names(MDB_RESOURCE, self.namespace, with_agent_certs=True)
         ):
             self.approve_certificate(cert)
-        KubernetesTester.wait_until(KubernetesTester.in_running_state)
+        KubernetesTester.wait_until(KubernetesTester.in_running_state, timeout=900)
 
 
 @pytest.mark.e2e_configure_tls_and_x509_simultaneously_rs
