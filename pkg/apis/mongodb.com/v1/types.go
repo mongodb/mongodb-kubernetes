@@ -570,7 +570,8 @@ type MongodbShardedClusterSizeConfig struct {
 
 type MongoDbPodSpec struct {
 	MongoDbPodSpecStandard
-	PodAntiAffinityTopologyKey string `json:"podAntiAffinityTopologyKey,omitempty"`
+	PodTemplate                *corev1.PodTemplateSpec `json:"podTemplate,omitempty"`
+	PodAntiAffinityTopologyKey string                  `json:"podAntiAffinityTopologyKey,omitempty"`
 }
 
 // This is a struct providing the opportunity to customize the pod created under the hood.

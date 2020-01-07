@@ -221,7 +221,7 @@ func (b *OpsManagerBuilder) Build() *mdbv1.MongoDBOpsManager {
 	return b.om
 }
 
-func (b *OpsManagerBuilder) BuildStatefulSet() *appsv1.StatefulSet {
+func (b *OpsManagerBuilder) BuildStatefulSet() (*appsv1.StatefulSet, error) {
 	rs := b.om.Spec.AppDB
 	return (&KubeHelper{}).NewStatefulSetHelper(b.om).
 		SetName(rs.Name()).

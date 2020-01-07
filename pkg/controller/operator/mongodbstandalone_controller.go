@@ -126,7 +126,8 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		SetLogger(log).
 		SetTLS(s.Spec.GetTLSConfig()).
 		SetProjectConfig(*projectConfig).
-		SetSecurity(s.Spec.Security)
+		SetSecurity(s.Spec.Security).
+		SetPodTemplate(s.Spec.PodSpec.PodTemplate)
 
 	if status := validateMongoDBResource(s, conn); !status.isOk() {
 		return status.updateStatus(s, r.ReconcileCommonController, log)
@@ -142,7 +143,11 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 
 	status := runInGivenOrder(standaloneBuilder.needToPublishStateFirst(log),
 		func() reconcileStatus {
-			return updateOmDeployment(conn, s, standaloneBuilder.BuildStatefulSet(), log).onErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+			sts, err := standaloneBuilder.BuildStatefulSet()
+			if err != nil {
+				return failed("Failed to create/update (Ops Manager reconciliation phase): %s", err.Error())
+			}
+			return updateOmDeployment(conn, s, sts, log).onErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() reconcileStatus {
 			if err := standaloneBuilder.CreateOrUpdateInKubernetes(); err != nil {

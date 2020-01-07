@@ -200,7 +200,8 @@ func buildAutomationConfigForAppDb(t *testing.T, builder *OpsManagerBuilder) *om
 	}
 
 	reconciler := newAppDbReconciler(kubeManager)
-	config, err := reconciler.buildAppDbAutomationConfig(&opsManager.Spec.AppDB, opsManager, "my-pass", builder.BuildStatefulSet(), zap.S())
+	sts, _ := builder.BuildStatefulSet()
+	config, err := reconciler.buildAppDbAutomationConfig(&opsManager.Spec.AppDB, opsManager, "my-pass", sts, zap.S())
 	assert.NoError(t, err)
 	return config
 }

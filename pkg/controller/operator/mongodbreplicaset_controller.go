@@ -92,7 +92,8 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		SetTLS(rs.Spec.GetTLSConfig()).
 		SetProjectConfig(*projectConfig).
 		SetSecurity(rs.Spec.Security).
-		SetReplicaSetHorizons(rs.Spec.Connectivity.ReplicaSetHorizons)
+		SetReplicaSetHorizons(rs.Spec.Connectivity.ReplicaSetHorizons).
+		SetPodTemplate(rs.Spec.PodSpec.PodTemplate)
 
 	if status := validateMongoDBResource(rs, conn); !status.isOk() {
 		return status.updateStatus(rs, r.ReconcileCommonController, log)
@@ -106,7 +107,11 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		return status.updateStatus(rs, r.ReconcileCommonController, log)
 	}
 
-	replicaSetObject := replicaBuilder.BuildStatefulSet()
+	replicaSetObject, err := replicaBuilder.BuildStatefulSet()
+	if err != nil {
+		return r.updateStatusFailed(rs, err.Error(), log)
+	}
+
 	if rs.Spec.Members < rs.Status.Members {
 		if err := prepareScaleDownReplicaSet(conn, replicaSetObject, rs.Status.Members, rs, log); err != nil {
 			return r.updateStatusFailed(rs, fmt.Sprintf("Failed to prepare Replica Set for scaling down using Ops Manager: %s", err), log)

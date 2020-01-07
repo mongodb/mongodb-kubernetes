@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cast"
 
 	"github.com/imdario/mergo"
+	corev1 "k8s.io/api/core/v1"
 )
 
 // MergoDelete is a sentinel value that indicates a field is to be removed during the merging process
@@ -111,4 +112,10 @@ func MergeWith(structToMerge interface{}, src map[string]interface{}, transforme
 	}
 
 	return dst, nil
+}
+
+// MergePodSpecs takes all of the values that exist in defaultPodTemplateSpec, and merges them into
+// customPodTemplateSpec. Values that exist in both will not be touched.
+func MergePodSpecs(customPodTemplateSpec *corev1.PodTemplateSpec, defaultPodTemplateSpec corev1.PodTemplateSpec) error {
+	return mergo.Merge(customPodTemplateSpec, defaultPodTemplateSpec)
 }

@@ -37,6 +37,33 @@ spec:
       - properties: # Standalone schema
           spec:
             properties:
+              podSpec:
+                type: object
+                properties:
+                  podTemplate:
+                    type: object
+                    properties:
+                      spec:
+                        type: object
+                        properties:
+                          podAntiAffinityTopologyKey:
+                            type: string
+                          cpu:
+                            type: string
+                          cpuRequests:
+                            type: string
+                          memory:
+                            type: string
+                          memoryRequests:
+                            type: string
+                          podAffinity:
+                            type: object
+                          nodeAffinity:
+                            type: object
+                          securityContext:
+                            type: object
+                          persistence:
+                            type: object
               credentials:
                 type: string
               project:
@@ -123,6 +150,34 @@ spec:
       - properties: # ReplicaSet schema
           spec:
             properties:
+              podSpec:
+                type: object
+                properties:
+                  podTemplate:
+                    type: object
+                    properties:
+                      spec:
+                        type: object
+                        properties:
+                          podAntiAffinityTopologyKey:
+                            type: string
+                          cpu:
+                            type: string
+                          cpuRequests:
+                            type: string
+                          memory:
+                            type: string
+                          memoryRequests:
+                            type: string
+                          podAffinity:
+                            type: object
+                          nodeAffinity:
+                            type: object
+                          securityContext:
+                            type: object
+                          persistence:
+                            type: object
+
               members:
                 maximum: 50
                 minimum: 1
@@ -228,6 +283,78 @@ spec:
       - properties:
           spec:
             properties: # ShardedCluster schema
+              shardPodSpec:
+                type: object
+                properties:
+                  spec:
+                    type: object
+                    properties:
+                      podAntiAffinityTopologyKey:
+                        type: string
+                      cpu:
+                        type: string
+                      cpuRequests:
+                        type: string
+                      memory:
+                        type: string
+                      memoryRequests:
+                        type: string
+                      podAffinity:
+                        type: object
+                      nodeAffinity:
+                        type: object
+                      securityContext:
+                        type: object
+                      persistence:
+                        type: object
+              mongosPodSpec:
+                type: object
+                properties:
+                  spec:
+                    type: object
+                    properties:
+                      podAntiAffinityTopologyKey:
+                        type: string
+                      cpu:
+                        type: string
+                      cpuRequests:
+                        type: string
+                      memory:
+                        type: string
+                      memoryRequests:
+                        type: string
+                      podAffinity:
+                        type: object
+                      nodeAffinity:
+                        type: object
+                      securityContext:
+                        type: object
+                      persistence:
+                        type: object
+              configSrvPodSpec:
+                type: object
+                properties:
+                  spec:
+                    type: object
+                    properties:
+                      podAntiAffinityTopologyKey:
+                        type: string
+                      cpu:
+                        type: string
+                      cpuRequests:
+                        type: string
+                      memory:
+                        type: string
+                      memoryRequests:
+                        type: string
+                      podAffinity:
+                        type: object
+                      nodeAffinity:
+                        type: object
+                      securityContext:
+                        type: object
+                      persistence:
+                        type: object
               configServerCount:
                 maximum: 50
                 minimum: 1

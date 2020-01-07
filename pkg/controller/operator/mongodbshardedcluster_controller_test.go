@@ -17,6 +17,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"go.uber.org/zap"
+	appsv1 "k8s.io/api/apps/v1"
 	certsv1 "k8s.io/api/certificates/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -249,8 +250,8 @@ func TestPodAntiaffinity_MongodsInsideShardAreSpread(t *testing.T) {
 
 	assert.Len(t, shardHelpers, 2)
 
-	firstShardSet := shardHelpers[0].BuildStatefulSet()
-	secondShardSet := shardHelpers[1].BuildStatefulSet()
+	firstShardSet, _ := shardHelpers[0].BuildStatefulSet()
+	secondShardSet, _ := shardHelpers[1].BuildStatefulSet()
 
 	assert.Equal(t, sc.ShardRsName(0), firstShardSet.Spec.Selector.MatchLabels[PodAntiAffinityLabelKey])
 	assert.Equal(t, sc.ShardRsName(1), secondShardSet.Spec.Selector.MatchLabels[PodAntiAffinityLabelKey])
@@ -264,7 +265,7 @@ func TestPodAntiaffinity_MongodsInsideShardAreSpread(t *testing.T) {
 
 func TestShardedCluster_WithTLSEnabled_AndX509Enabled_Succeeds(t *testing.T) {
 	sc := DefaultClusterBuilder().
-		WithTLS().
+		EnableTLS().
 		Build()
 
 	manager := newMockedManager(sc)
@@ -304,7 +305,7 @@ func TestShardedCluster_WithTLSEnabled_AndX509Enabled_Succeeds(t *testing.T) {
 
 func TestShardedCluster_NeedToPublishState(t *testing.T) {
 	sc := DefaultClusterBuilder().
-		WithTLS().
+		EnableTLS().
 		Build()
 
 	manager := newMockedManager(sc)
@@ -331,18 +332,103 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 	assert.True(t, anyStatefulSetHelperNeedsToPublishState(kubeState, zap.S()))
 }
 
+func TestShardedCustomPodSpecTemplate(t *testing.T) {
+	sc := DefaultClusterBuilder().SetName("pod-spec-sc").EnableTLS().SetPodSpecTemplate(corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{
+			NodeName: "some-node-name",
+			Hostname: "some-host-name",
+			Containers: []corev1.Container{{
+				Name:  "my-custom-container",
+				Image: "my-custom-image",
+				VolumeMounts: []corev1.VolumeMount{{
+					Name: "my-volume-mount",
+				}},
+			}},
+			RestartPolicy: corev1.RestartPolicyAlways,
+		},
+	}).SetMongosPodSpecTemplate(corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{
+			NodeName: "some-node-name-mongos",
+			Hostname: "some-host-name-mongos",
+			Containers: []corev1.Container{{
+				Name:  "my-custom-container",
+				Image: "my-custom-image",
+				VolumeMounts: []corev1.VolumeMount{{
+					Name: "my-volume-mount",
+				}},
+			}},
+			RestartPolicy: corev1.RestartPolicyNever,
+		},
+	}).SetPodConfigSvrSpecTemplate(corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{
+			NodeName: "some-node-name-config",
+			Hostname: "some-host-name-config",
+			Containers: []corev1.Container{{
+				Name:  "my-custom-container",
+				Image: "my-custom-image",
+				VolumeMounts: []corev1.VolumeMount{{
+					Name: "my-volume-mount",
+				}},
+			}},
+			RestartPolicy: corev1.RestartPolicyOnFailure,
+		},
+	}).Build()
+
+	kubeManager := newMockedManager(sc)
+
+	addKubernetesTlsResources(kubeManager.client, sc)
+
+	reconciler := newShardedClusterReconciler(kubeManager, om.NewEmptyMockedOmConnection)
+
+	checkReconcileSuccessful(t, reconciler, sc, kubeManager.client)
+
+	// read the stateful sets that were created by the operator
+	assertPodSpecSts(t, getStatefulSet(kubeManager.client, objectKey(TestNamespace, "pod-spec-sc-0")))
+	assertPodSpecSts(t, getStatefulSet(kubeManager.client, objectKey(TestNamespace, "pod-spec-sc-1")))
+	assertMongosSts(t, getStatefulSet(kubeManager.client, objectKey(TestNamespace, "pod-spec-sc-mongos")))
+	assertConfigSvrSts(t, getStatefulSet(kubeManager.client, objectKey(TestNamespace, "pod-spec-sc-config")))
+}
+
+func assertPodSpecSts(t *testing.T, sts *appsv1.StatefulSet) {
+	assertPodSpecTemplate(t, "some-node-name", "some-host-name", SecretVolumeName, corev1.RestartPolicyAlways, sts)
+}
+
+func assertMongosSts(t *testing.T, sts *appsv1.StatefulSet) {
+	assertPodSpecTemplate(t, "some-node-name-mongos", "some-host-name-mongos", SecretVolumeName, corev1.RestartPolicyNever, sts)
+}
+
+func assertConfigSvrSts(t *testing.T, sts *appsv1.StatefulSet) {
+	assertPodSpecTemplate(t, "some-node-name-config", "some-host-name-config", SecretVolumeName, corev1.RestartPolicyOnFailure, sts)
+}
+
+func assertPodSpecTemplate(t *testing.T, nodeName, hostName, volumeName string, restartPolicy corev1.RestartPolicy, sts *appsv1.StatefulSet) {
+	podSpecTemplate := sts.Spec.Template.Spec
+	// ensure values were passed to the stateful set
+	assert.Equal(t, nodeName, podSpecTemplate.NodeName)
+	assert.Equal(t, hostName, podSpecTemplate.Hostname)
+	assert.Equal(t, restartPolicy, podSpecTemplate.RestartPolicy)
+
+	// ensure the database container was set instead of custom container
+	assert.Equal(t, "mongodb-enterprise-database", podSpecTemplate.Containers[0].Name, "Database container should be present, not custom container")
+	assert.Equal(t, volumeName, podSpecTemplate.Containers[0].VolumeMounts[0].Name, "Operator mounted volume should be present, not custom volume")
+}
+
 func createDeploymentFromShardedCluster(updatable Updatable) om.Deployment {
 	sh := updatable.(*mdbv1.MongoDB)
 	state := createStateFromResource(sh)
+	mongosSts, _ := state.mongosSetHelper.BuildStatefulSet()
 	mongosProcesses := createProcesses(
-		state.mongosSetHelper.BuildStatefulSet(),
+		mongosSts,
 		om.ProcessTypeMongos,
 		sh,
 	)
-	configRs := buildReplicaSetFromStatefulSet(state.configSrvSetHelper.BuildStatefulSet(), sh)
+
+	configSvrSts, _ := state.configSrvSetHelper.BuildStatefulSet()
+	configRs := buildReplicaSetFromStatefulSet(configSvrSts, sh)
 	shards := make([]om.ReplicaSetWithProcesses, len(state.shardsSetsHelpers))
 	for i, s := range state.shardsSetsHelpers {
-		shards[i] = buildReplicaSetFromStatefulSet(s.BuildStatefulSet(), sh)
+		shardSts, _ := s.BuildStatefulSet()
+		shards[i] = buildReplicaSetFromStatefulSet(shardSts, sh)
 	}
 
 	d := om.NewDeployment()
@@ -453,7 +539,7 @@ func (b *ClusterBuilder) SetSecurity(security mdbv1.Security) *ClusterBuilder {
 	return b
 }
 
-func (b *ClusterBuilder) WithTLS() *ClusterBuilder {
+func (b *ClusterBuilder) EnableTLS() *ClusterBuilder {
 	if b.Spec.Security == nil || b.Spec.Security.TLSConfig == nil {
 		return b.SetSecurity(mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}})
 	}
@@ -471,6 +557,31 @@ func (b *ClusterBuilder) SetClusterAuth(auth string) *ClusterBuilder {
 	b.Spec.Security.ClusterAuthMode = auth
 	return b
 }
+
+func (b *ClusterBuilder) SetPodSpecTemplate(spec corev1.PodTemplateSpec) *ClusterBuilder {
+	if b.Spec.PodSpec == nil {
+		b.Spec.PodSpec = &mdbv1.MongoDbPodSpec{}
+	}
+	b.Spec.PodSpec.PodTemplate = &spec
+	return b
+}
+
+func (b *ClusterBuilder) SetPodConfigSvrSpecTemplate(spec corev1.PodTemplateSpec) *ClusterBuilder {
+	if b.Spec.ConfigSrvPodSpec == nil {
+		b.Spec.ConfigSrvPodSpec = &mdbv1.MongoDbPodSpec{}
+	}
+	b.Spec.ConfigSrvPodSpec.PodTemplate = &spec
+	return b
+}
+
+func (b *ClusterBuilder) SetMongosPodSpecTemplate(spec corev1.PodTemplateSpec) *ClusterBuilder {
+	if b.Spec.MongosPodSpec == nil {
+		b.Spec.MongosPodSpec = &mdbv1.MongoDbPodSpec{}
+	}
+	b.Spec.MongosPodSpec.PodTemplate = &spec
+	return b
+}
+
 func (b *ClusterBuilder) Build() *mdbv1.MongoDB {
 	b.Spec.ResourceType = mdbv1.ShardedCluster
 	b.InitDefaults()

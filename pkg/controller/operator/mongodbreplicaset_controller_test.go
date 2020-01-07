@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -217,6 +218,34 @@ func TestReplicaSetScramUpgradeDowngrade(t *testing.T) {
 	checkReconcileFailed(t, reconciler, rs, true, "Unable to downgrade to SCRAM-SHA-1 when SCRAM-SHA-256 has been enabled", kubeManager.client)
 }
 
+func TestReplicaSetCustomPodSpecTemplate(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().EnableTLS().SetPodSpecTemplate(corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{
+			NodeName: "some-node-name",
+			Hostname: "some-host-name",
+			Containers: []corev1.Container{{
+				Name:  "my-custom-container",
+				Image: "my-custom-image",
+				VolumeMounts: []corev1.VolumeMount{{
+					Name: "my-volume-mount",
+				}},
+			}},
+			RestartPolicy: corev1.RestartPolicyAlways,
+		},
+	}).Build()
+
+	kubeManager := newMockedManager(rs)
+
+	addKubernetesTlsResources(kubeManager.client, rs)
+
+	reconciler := newReplicaSetReconciler(kubeManager, om.NewEmptyMockedOmConnection)
+
+	checkReconcileSuccessful(t, reconciler, rs, kubeManager.client)
+
+	// read the stateful set that was created by the operator
+	assertPodSpecSts(t, getStatefulSet(kubeManager.client, objectKeyFromApiObject(rs)))
+}
+
 func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
 	podSpec := NewDefaultPodSpec()
 	spec := mdbv1.MongoDbSpec{
@@ -302,6 +331,14 @@ func (b *ReplicaSetBuilder) EnableX509() *ReplicaSetBuilder {
 	return b
 }
 
+func (b *ReplicaSetBuilder) SetPodSpecTemplate(spec corev1.PodTemplateSpec) *ReplicaSetBuilder {
+	if b.Spec.PodSpec == nil {
+		b.Spec.PodSpec = &mdbv1.MongoDbPodSpec{}
+	}
+	b.Spec.PodSpec.PodTemplate = &spec
+	return b
+}
+
 func (b *ReplicaSetBuilder) Build() *mdbv1.MongoDB {
 	b.InitDefaults()
 	return b.MongoDB
@@ -310,10 +347,11 @@ func (b *ReplicaSetBuilder) Build() *mdbv1.MongoDB {
 func createDeploymentFromReplicaSet(rs *mdbv1.MongoDB) om.Deployment {
 	helper := createStatefulHelperFromReplicaSet(rs)
 
+	sts, _ := helper.BuildStatefulSet()
 	d := om.NewDeployment()
-	hostnames, _ := util.GetDnsForStatefulSet(helper.BuildStatefulSet(), rs.Spec.GetClusterDomain())
+	hostnames, _ := util.GetDnsForStatefulSet(sts, rs.Spec.GetClusterDomain())
 	d.MergeReplicaSet(
-		buildReplicaSetFromStatefulSet(helper.BuildStatefulSet(), rs),
+		buildReplicaSetFromStatefulSet(sts, rs),
 		nil,
 	)
 	d.AddMonitoringAndBackup(hostnames[0], zap.S())

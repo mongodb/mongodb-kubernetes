@@ -12,11 +12,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestCreateOmProcess(t *testing.T) {
-	process := createProcess(defaultSetHelper().BuildStatefulSet(), DefaultStandaloneBuilder().Build())
+	sts, _ := defaultSetHelper().BuildStatefulSet()
+	process := createProcess(sts, DefaultStandaloneBuilder().Build())
 	// Note, that for standalone the name of process is the name of statefulset - not the pod inside it.
 	assert.Equal(t, "dublin", process.Name())
 	assert.Equal(t, "dublin-0.test-service.my-namespace.svc.cluster.local", process.HostName())
@@ -121,6 +123,34 @@ func TestStandaloneEventMethodsHandlePanic(t *testing.T) {
 	InitDefaultEnvVariables()
 }
 
+func TestStandaloneCustomPodSpecTemplate(t *testing.T) {
+	s := DefaultReplicaSetBuilder().EnableTLS().SetPodSpecTemplate(corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{
+			NodeName: "some-node-name",
+			Hostname: "some-host-name",
+			Containers: []corev1.Container{{
+				Name:  "my-custom-container",
+				Image: "my-custom-image",
+				VolumeMounts: []corev1.VolumeMount{{
+					Name: "my-volume-mount",
+				}},
+			}},
+			RestartPolicy: corev1.RestartPolicyAlways,
+		},
+	}).Build()
+
+	kubeManager := newMockedManager(s)
+
+	addKubernetesTlsResources(kubeManager.client, s)
+
+	reconciler := newReplicaSetReconciler(kubeManager, om.NewEmptyMockedOmConnection)
+
+	checkReconcileSuccessful(t, reconciler, s, kubeManager.client)
+
+	// read the stateful set that was created by the operator
+	assertPodSpecSts(t, getStatefulSet(kubeManager.client, objectKeyFromApiObject(s)))
+}
+
 type StandaloneBuilder struct {
 	*mdbv1.MongoDB
 }
@@ -166,6 +196,14 @@ func (b *StandaloneBuilder) SetService(s string) *StandaloneBuilder {
 	b.Spec.Service = s
 	return b
 }
+func (b *StandaloneBuilder) SetPodSpecTemplate(spec corev1.PodTemplateSpec) *StandaloneBuilder {
+	if b.Spec.PodSpec == nil {
+		b.Spec.PodSpec = &mdbv1.MongoDbPodSpec{}
+	}
+	b.Spec.PodSpec.PodTemplate = &spec
+	return b
+}
+
 func (b *StandaloneBuilder) Build() *mdbv1.MongoDB {
 	b.Spec.ResourceType = mdbv1.Standalone
 	b.InitDefaults()
@@ -176,7 +214,8 @@ func createDeploymentFromStandalone(st *mdbv1.MongoDB) om.Deployment {
 	helper := createStatefulHelperFromStandalone(st)
 
 	d := om.NewDeployment()
-	hostnames, _ := util.GetDnsForStatefulSet(helper.BuildStatefulSet(), st.Spec.GetClusterDomain())
+	sts, _ := helper.BuildStatefulSet()
+	hostnames, _ := util.GetDnsForStatefulSet(sts, st.Spec.GetClusterDomain())
 	process := om.NewMongodProcess(st.Name, hostnames[0], st)
 	d.MergeStandalone(process, nil)
 	d.AddMonitoringAndBackup(hostnames[0], zap.S())

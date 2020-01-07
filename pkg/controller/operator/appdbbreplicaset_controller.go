@@ -71,7 +71,12 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *mdbv1.MongoDBOpsManager
 		SetClusterName(opsManager.ClusterName).
 		SetVersion(opsManager.Spec.Version) // the version of the appdb image must match the OM image one
 
-	config, err := r.buildAppDbAutomationConfig(rs, opsManager, opsManagerUserPassword, replicaBuilder.BuildAppDBStatefulSet(), log)
+	appDbSts, err := replicaBuilder.BuildAppDBStatefulSet()
+	if err != nil {
+		return r.updateStatusFailedAppDb(opsManager, err.Error(), log)
+	}
+
+	config, err := r.buildAppDbAutomationConfig(rs, opsManager, opsManagerUserPassword, appDbSts, log)
 	if err != nil {
 		return r.updateStatusFailedAppDb(opsManager, err.Error(), log)
 	}

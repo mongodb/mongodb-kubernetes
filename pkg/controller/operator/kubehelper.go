@@ -68,9 +68,10 @@ type StatefulSetHelperCommon struct {
 type StatefulSetHelper struct {
 	StatefulSetHelperCommon
 
-	Persistent *bool
-	PodSpec    mdbv1.PodSpecWrapper
-	PodVars    *PodVars
+	Persistent      *bool
+	PodSpec         mdbv1.PodSpecWrapper
+	PodTemplateSpec *corev1.PodTemplateSpec
+	PodVars         *PodVars
 
 	ResourceType mdbv1.ResourceType
 
@@ -287,21 +288,25 @@ func (s *StatefulSetHelper) SetVersion(version string) *StatefulSetHelper {
 	return s
 }
 
-func (s *StatefulSetHelper) BuildStatefulSet() *appsv1.StatefulSet {
+func (s *StatefulSetHelper) BuildStatefulSet() (*appsv1.StatefulSet, error) {
 	return buildStatefulSet(*s)
 }
 
-func (s *StatefulSetHelper) BuildAppDBStatefulSet() *appsv1.StatefulSet {
+func (s *StatefulSetHelper) BuildAppDBStatefulSet() (*appsv1.StatefulSet, error) {
 	return buildAppDbStatefulSet(*s)
 }
 
 // CreateOrUpdateInKubernetes creates (updates if it exists) the StatefulSet with its Service.
 // It returns any errors coming from Kubernetes API.
 func (s *StatefulSetHelper) CreateOrUpdateInKubernetes() error {
+	sts, err := s.BuildStatefulSet()
+	if err != nil {
+		return err
+	}
 	set, err := s.Helper.createOrUpdateStatefulset(
 		s.Namespace,
 		s.Logger,
-		s.BuildStatefulSet(),
+		sts,
 	)
 	if err != nil {
 		return err
@@ -398,10 +403,14 @@ func (s *BackupStatefulSetHelper) CreateOrUpdateInKubernetes() error {
 
 // CreateOrUpdateAppDBInKubernetes creates the StatefulSet specific for AppDB.
 func (s *StatefulSetHelper) CreateOrUpdateAppDBInKubernetes() error {
+	appDbSts, err := s.BuildAppDBStatefulSet()
+	if err != nil {
+		return err
+	}
 	set, err := s.Helper.createOrUpdateStatefulset(
 		s.Namespace,
 		s.Logger,
-		s.BuildAppDBStatefulSet(),
+		appDbSts,
 	)
 	if err != nil {
 		return err
@@ -435,6 +444,11 @@ func (s *StatefulSetHelper) SetCertificateHash(certHash string) *StatefulSetHelp
 
 func (s *StatefulSetHelper) SetReplicaSetHorizons(replicaSetHorizons []mdbv1.MongoDBHorizonConfig) *StatefulSetHelper {
 	s.ReplicaSetHorizons = replicaSetHorizons
+	return s
+}
+
+func (s *StatefulSetHelper) SetPodTemplate(podTemplateSpec *corev1.PodTemplateSpec) *StatefulSetHelper {
+	s.PodTemplateSpec = podTemplateSpec
 	return s
 }
 

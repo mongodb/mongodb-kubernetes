@@ -76,18 +76,11 @@ type PodVars struct {
 
 // createBaseDatabaseStatefulSet is a general function for building the database StatefulSet.
 // Reused for building an appdb StatefulSet and a normal mongodb StatefulSet
-func createBaseDatabaseStatefulSet(p StatefulSetHelper, podSpec corev1.PodSpec) *appsv1.StatefulSet {
+func createBaseDatabaseStatefulSet(p StatefulSetHelper, podSpec corev1.PodTemplateSpec) *appsv1.StatefulSet {
 	// ssLabels are labels we set to the StatefulSet
 	ssLabels := map[string]string{
 		AppLabelKey: p.Service,
 	}
-	// podLabels are labels we set to StatefulSet Selector and Template.Meta
-	podLabels := map[string]string{
-		AppLabelKey:             p.Service,
-		"controller":            util.OmControllerLabel,
-		PodAntiAffinityLabelKey: p.Name,
-	}
-
 	set := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            p.Name,
@@ -99,20 +92,9 @@ func createBaseDatabaseStatefulSet(p StatefulSetHelper, podSpec corev1.PodSpec) 
 			ServiceName: p.Service,
 			Replicas:    util.Int32Ref(int32(p.Replicas)),
 			Selector: &metav1.LabelSelector{
-				MatchLabels: podLabels,
+				MatchLabels: podSpec.Labels,
 			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: podLabels,
-					Annotations: map[string]string{
-						// this annotation is necessary in order to trigger a pod restart
-						// if the certificate secret is out of date. This happens if
-						// existing certificates have been replaced/rotated/renewed.
-						"certHash": p.CertificateHash,
-					},
-				},
-				Spec: podSpec,
-			},
+			Template: podSpec,
 		},
 	}
 	// If 'persistent' flag is not set - we consider it to be true
@@ -125,18 +107,137 @@ func createBaseDatabaseStatefulSet(p StatefulSetHelper, podSpec corev1.PodSpec) 
 	return set
 }
 
+func defaultPodLabels(stsHelper StatefulSetHelper) map[string]string {
+	return map[string]string{
+		AppLabelKey:             stsHelper.Service,
+		"controller":            util.OmControllerLabel,
+		PodAntiAffinityLabelKey: stsHelper.Name,
+	}
+}
+
+// getMergedDefaultPodSpecTemplate returns either the a PodTemplateSpec with defaulted values
+// or a PodTemplateSpec created by merging a specified podSpec.podTemplate with the defaulted
+// values
+func getMergedDefaultPodSpecTemplate(stsHelper StatefulSetHelper, annotations map[string]string) (corev1.PodTemplateSpec, error) {
+	// podLabels are labels we set to StatefulSet Selector and Template.Meta
+	podLabels := defaultPodLabels(stsHelper)
+
+	defaultPodSpecTemplate := defaultPodSpecTemplate(stsHelper.Name, stsHelper.PodSpec, podLabels, annotations)
+	if stsHelper.PodTemplateSpec == nil {
+		stsHelper.PodTemplateSpec = defaultPodSpecTemplate
+	} else {
+		// there is a user defined pod spec template, we need to merge in all of the default values
+		if err := util.MergePodSpecs(stsHelper.PodTemplateSpec, *defaultPodSpecTemplate); err != nil {
+			return corev1.PodTemplateSpec{}, fmt.Errorf("error merging podSpecTemplate: %s", err)
+		}
+	}
+
+	if val, found := util.ReadEnv(util.AutomationAgentPullSecrets); found {
+		stsHelper.PodTemplateSpec.Spec.ImagePullSecrets = append(stsHelper.PodTemplateSpec.Spec.ImagePullSecrets, corev1.LocalObjectReference{
+			Name: val,
+		})
+	}
+
+	return *stsHelper.PodTemplateSpec, nil
+}
+
+func defaultPodSpecTemplate(statefulSetName string, wrapper mdbv1.PodSpecWrapper, podLabels map[string]string, annotations map[string]string) *corev1.PodTemplateSpec {
+	if podLabels == nil {
+		podLabels = make(map[string]string)
+	}
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+	templateSpec := &corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+		Affinity: &corev1.Affinity{
+			NodeAffinity: wrapper.NodeAffinity,
+			PodAffinity:  wrapper.PodAffinity,
+			PodAntiAffinity: &corev1.PodAntiAffinity{
+				PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{{
+					// Weight thoughts - seems no other affinity rule should be stronger than anti affinity one so putting
+					// it to 100
+					Weight: 100,
+					PodAffinityTerm: corev1.PodAffinityTerm{
+						LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{PodAntiAffinityLabelKey: statefulSetName}},
+						// If PodAntiAffinityTopologyKey config property is empty - then it's ok to use some default (even for standalones)
+						TopologyKey: wrapper.GetTopologyKeyOrDefault(),
+					},
+				}},
+			},
+		},
+		TerminationGracePeriodSeconds: util.Int64Ref(util.DefaultPodTerminationPeriodSeconds),
+	}}
+
+	managedSecurityContext, _ := util.ReadBoolEnv(util.ManagedSecurityContextEnv)
+	if !managedSecurityContext {
+		templateSpec.Spec.SecurityContext = defaultPodSecurityContext()
+	}
+	templateSpec.ObjectMeta.Labels = podLabels
+	templateSpec.Annotations = annotations
+	return templateSpec
+}
+
+func newDatabaseContainer(reqs mdbv1.PodSpecWrapper, podVars *PodVars) corev1.Container {
+	return newContainer(reqs, util.ContainerName, util.ReadEnvVarOrPanic(util.AutomationAgentImageUrl), baseEnvFrom(podVars), baseReadinessProbe())
+}
+
+func newAppDBContainer(reqs mdbv1.PodSpecWrapper, statefulSetName, appdbImageUrl string) corev1.Container {
+	return newContainer(reqs, util.ContainerAppDbName, appdbImageUrl, appdbContainerEnv(statefulSetName), baseAppDbReadinessProbe())
+}
+
+func newContainer(reqs mdbv1.PodSpecWrapper, containerName, imageUrl string, envVars []corev1.EnvVar, readinessProbe *corev1.Probe) corev1.Container {
+	return corev1.Container{
+		Name:  containerName,
+		Image: imageUrl,
+		ImagePullPolicy: corev1.PullPolicy(util.ReadEnvVarOrPanic(
+			util.AutomationAgentImagePullPolicy)),
+		Env:   envVars,
+		Ports: []corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort}},
+		Resources: corev1.ResourceRequirements{
+			Limits:   buildLimitsRequirements(reqs),
+			Requests: buildRequestsRequirements(reqs),
+		},
+		LivenessProbe:  baseLivenessProbe(),
+		ReadinessProbe: readinessProbe,
+	}
+}
+
 // buildStatefulSet builds the StatefulSet of pods containing agent containers. It's a general function used by
 // all the types of mongodb deployment resources.
 // This is a convenience method to pass all attributes inside a "parameters" object which is easier to
 // build in client code and avoid passing too many different parameters to `buildStatefulSet`.
-func buildStatefulSet(p StatefulSetHelper) *appsv1.StatefulSet {
-	return createBaseDatabaseStatefulSet(p, basePodSpec(p.Name, p.PodSpec, p.PodVars))
+func buildStatefulSet(p StatefulSetHelper) (*appsv1.StatefulSet, error) {
+	annotations := map[string]string{
+		// this annotation is necessary in order to trigger a pod restart
+		// if the certificate secret is out of date. This happens if
+		// existing certificates have been replaced/rotated/renewed.
+		"certHash": p.CertificateHash,
+	}
+	template, err := getMergedDefaultPodSpecTemplate(p, annotations)
+	if err != nil {
+		return nil, err
+	}
+
+	// directly override the containers
+	template.Spec.Containers = []corev1.Container{newDatabaseContainer(p.PodSpec, p.PodVars)}
+	return createBaseDatabaseStatefulSet(p, template), nil
 }
 
 // buildAppDbStatefulSet builds the StatefulSet for AppDB.
 // It's mostly the same as the normal Mongodb one but had a different pod spec and an additional mounting volume
-func buildAppDbStatefulSet(p StatefulSetHelper) *appsv1.StatefulSet {
-	set := createBaseDatabaseStatefulSet(p, baseAppDbPodSpec(p.Name, p.PodSpec, p.Version))
+func buildAppDbStatefulSet(p StatefulSetHelper) (*appsv1.StatefulSet, error) {
+	template, err := getMergedDefaultPodSpecTemplate(p, map[string]string{})
+	if err != nil {
+		return nil, err
+	}
+
+	// AppDB must run under a dedicated account with special readConfigMap permissions
+	template.Spec.ServiceAccountName = util.AppDBServiceAccount
+	appdbImageUrl := prepareOmAppdbImageUrl(util.ReadEnvVarOrPanic(util.AppDBImageUrl), p.Version)
+	container := newAppDBContainer(p.PodSpec, p.Name, appdbImageUrl)
+	template.Spec.Containers = []corev1.Container{container}
+
+	set := createBaseDatabaseStatefulSet(p, template)
 
 	// cluster config mount
 	mountVolume(volumeMountData{
@@ -146,8 +247,7 @@ func buildAppDbStatefulSet(p StatefulSetHelper) *appsv1.StatefulSet {
 		volumeSourceType: corev1.ConfigMapVolumeSource{},
 		volumeSourceName: p.Name + "-config",
 	}, set)
-
-	return set
+	return set, nil
 }
 
 // createBaseOpsManagerStatefulSet is the base method for building StatefulSet shared by Ops Manager and Backup Daemon.
@@ -459,39 +559,15 @@ func baseOwnerReference(owner Updatable) []metav1.OwnerReference {
 	}
 }
 
-// createBaseDbPodSpec is a base pod spec build for both AppDB and MongoDB
-func createBaseDbPodSpec(container corev1.Container, statefulSetName string, reqs mdbv1.PodSpecWrapper) corev1.PodSpec {
-	spec := corev1.PodSpec{
-		Containers: []corev1.Container{container},
-		Affinity: &corev1.Affinity{
-			NodeAffinity: reqs.NodeAffinity,
-			PodAffinity:  reqs.PodAffinity,
-		},
-		TerminationGracePeriodSeconds: util.Int64Ref(util.DefaultPodTerminationPeriodSeconds),
+func defaultPodSecurityContext() *corev1.PodSecurityContext {
+	return &corev1.PodSecurityContext{
+		// By default, containers will never run as root.
+		// unless `MANAGED_SECURITY_CONTEXT` env variable is set, in which case the SecurityContext
+		// should be managed by Kubernetes (this is the default in OpenShift)
+		RunAsUser:    util.Int64Ref(util.RunAsUser),
+		FSGroup:      util.Int64Ref(util.FsGroup),
+		RunAsNonRoot: util.BooleanRef(true),
 	}
-
-	if val, found := util.ReadEnv(util.AutomationAgentPullSecrets); found {
-		spec.ImagePullSecrets = []corev1.LocalObjectReference{{
-			Name: val,
-		}}
-	}
-
-	ensurePodSecurityContext(reqs.SecurityContext, &spec)
-
-	spec.Affinity.PodAntiAffinity = &corev1.PodAntiAffinity{
-		PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{{
-			// Weight thoughts - seems no other affinity rule should be stronger than anti affinity one so putting
-			// it to 100
-			Weight: 100,
-			PodAffinityTerm: corev1.PodAffinityTerm{
-				LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{PodAntiAffinityLabelKey: statefulSetName}},
-				// If PodAntiAffinityTopologyKey config property is empty - then it's ok to use some default (even for standalones)
-				TopologyKey: reqs.GetTopologyKeyOrDefault(),
-			},
-		}},
-	}
-
-	return spec
 }
 
 // ensurePodSecurityContext adds the 'SecurityContext' to the pod spec if it's necessary (Openshift doesn't need this
@@ -502,67 +578,9 @@ func ensurePodSecurityContext(explicitContext *corev1.PodSecurityContext, spec *
 		if explicitContext != nil {
 			spec.SecurityContext = explicitContext
 		} else {
-			spec.SecurityContext = &corev1.PodSecurityContext{
-				// By default, containers will never run as root.
-				// unless `MANAGED_SECURITY_CONTEXT` env variable is set, in which case the SecurityContext
-				// should be managed by Kubernetes (this is the default in OpenShift)
-				RunAsUser:    util.Int64Ref(util.RunAsUser),
-				FSGroup:      util.Int64Ref(util.FsGroup),
-				RunAsNonRoot: util.BooleanRef(true),
-			}
+			spec.SecurityContext = defaultPodSecurityContext()
 		}
 	}
-}
-
-// basePodSpec creates the standard Pod definition which uses the database container for managing mongod/mongos
-// instances. Parameters to the container will be passed as environment variables which values are contained
-// in the PodVars structure.
-func basePodSpec(statefulSetName string, reqs mdbv1.PodSpecWrapper, podVars *PodVars) corev1.PodSpec {
-	container := corev1.Container{
-		Name:            util.ContainerName,
-		Image:           util.ReadEnvVarOrPanic(util.AutomationAgentImageUrl),
-		ImagePullPolicy: corev1.PullPolicy(util.ReadEnvVarOrPanic(util.AutomationAgentImagePullPolicy)),
-		Env:             baseEnvFrom(podVars),
-		Ports:           []corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort}},
-		Resources: corev1.ResourceRequirements{
-			// Setting limits only sets "requests" to the same value (but not vice versa)
-			// This seems as a fair trade off as having these values different may result in incorrect wiredtiger
-			// cache (e.g too small: it was configured for "request" memory size and then container
-			// memory grew to "limit", too big: wired tiger cache was configured by "limit" by the real memory for
-			// container is at "resource" values)
-			Limits:   buildLimitsRequirements(reqs),
-			Requests: buildRequestsRequirements(reqs),
-		},
-		LivenessProbe:  baseLivenessProbe(),
-		ReadinessProbe: baseReadinessProbe(),
-	}
-	return createBaseDbPodSpec(container, statefulSetName, reqs)
-}
-
-// baseAppDbPodSpec creates the AppDB pod template. The container spec is mostly the same as for the MongoDB one -
-// just different url and readiness probe
-func baseAppDbPodSpec(statefulSetName string, reqs mdbv1.PodSpecWrapper, version string) corev1.PodSpec {
-	appdbImageUrl := prepareOmAppdbImageUrl(util.ReadEnvVarOrPanic(util.AppDBImageUrl), version)
-	container := corev1.Container{
-		Name:  util.ContainerAppDbName,
-		Image: appdbImageUrl,
-		ImagePullPolicy: corev1.PullPolicy(util.ReadEnvVarOrPanic(
-			util.AutomationAgentImagePullPolicy)),
-		Env:   appdbContainerEnv(statefulSetName),
-		Ports: []corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort}},
-		Resources: corev1.ResourceRequirements{
-			Limits:   buildLimitsRequirements(reqs),
-			Requests: buildRequestsRequirements(reqs),
-		},
-		LivenessProbe:  baseLivenessProbe(),
-		ReadinessProbe: baseAppDbReadinessProbe(),
-	}
-
-	podSpec := createBaseDbPodSpec(container, statefulSetName, reqs)
-
-	// AppDB must run under a dedicated account with special readConfigMap permissions
-	podSpec.ServiceAccountName = util.AppDBServiceAccount
-	return podSpec
 }
 
 func appdbContainerEnv(statefulSetName string) []corev1.EnvVar {
