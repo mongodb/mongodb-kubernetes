@@ -6,6 +6,21 @@ from operator import attrgetter
 
 
 @pytest.mark.e2e_replica_set_pv_multiple
+class TestCreateStorageClass(KubernetesTester):
+    """
+    description: |
+      Creates a gp2 storage class if it does not exist already.
+      This is required as it seems that this storage class exists in
+      Kops and Openshift, but not on kind. This type of StorageClass is
+      based on the rancher.io/local-path provider, so it only works
+      on Kind.
+    """
+
+    def test_setup_gp2_storage_class(self):
+        self.make_default_gp2_storage_class()
+
+
+@pytest.mark.e2e_replica_set_pv_multiple
 class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
     """
     name: Replica Set Creation with Multiple PersistentVolumes
@@ -58,12 +73,16 @@ class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
         self.check_single_pvc(
             claims[1],
             "journal",
-            "journal-{}-{}".format(self.RESOURCE_NAME, idx),
+            f"journal-{self.RESOURCE_NAME}-{idx}",
             "1Gi",
             "gp2",
         )
         self.check_single_pvc(
-            claims[2], "logs", "logs-{}-{}".format(self.RESOURCE_NAME, idx), "1G", "gp2"
+            claims[2],
+            "logs",
+            f"logs-{self.RESOURCE_NAME}-{idx}",
+            "1G",
+            "gp2",
         )
 
 
@@ -76,7 +95,7 @@ class TestReplicaSetMultiplePersistentVolumeDelete(KubernetesTester):
       Deletes a Replica Set.
     delete:
       file: replica-set-pv-multiple.yaml
-      wait_until: mongo_resource_deleted
+      wait_until: mongo_resource_deleted_no_om
       timeout: 240
     """
 

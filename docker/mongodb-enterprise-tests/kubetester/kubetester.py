@@ -10,7 +10,7 @@ import json
 from base64 import b64decode, b64encode
 from datetime import datetime, timezone
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import jsonpatch
 import pymongo
@@ -530,7 +530,7 @@ class KubernetesTester(object):
     def get_resource():
         """Assumes a single resource in the test environment"""
         return KubernetesTester.get_namespaced_custom_object(
-            KubernetesTester.namespace, KubernetesTester.name, KubernetesTester.kind,
+            KubernetesTester.namespace, KubernetesTester.name, KubernetesTester.kind
         )
 
     @staticmethod
@@ -1037,7 +1037,7 @@ class KubernetesTester(object):
             encoded_request = b64encode(f.read().encode("utf-8")).decode("utf-8")
 
         csr_body = self.client.V1beta1CertificateSigningRequest(
-            metadata=self.client.V1ObjectMeta(name=csr_name, namespace=self.namespace,),
+            metadata=self.client.V1ObjectMeta(name=csr_name, namespace=self.namespace),
             spec=self.client.V1beta1CertificateSigningRequestSpec(
                 groups=["system:authenticated"],
                 usages=["digital signature", "key encipherment", "client auth"],
@@ -1059,6 +1059,52 @@ class KubernetesTester(object):
         tmp.flush()
 
         return tmp
+
+    def list_storage_class(self) -> List[client.V1StorageClass]:
+        """Returns a list of all the Storage classes in this cluster."""
+        sv1 = KubernetesTester.clients("storagev1")
+        return sv1.list_storage_class().items
+
+    def get_storage_class_provisioner_enabled(self) -> str:
+        """Returns 'a' provisioner that is known to exist in this cluster."""
+        # If there's no storageclass in this cluster, then the following
+        # will raise a KeyError.
+        return self.list_storage_class()[0].provisioner
+
+    def create_storage_class(self, name: str, provisioner: Optional[str] = None):
+        if provisioner is None:
+            provisioner = self.get_storage_class_provisioner_enabled()
+
+        cli = KubernetesTester.clients("client")
+        sv1 = KubernetesTester.clients("storagev1")
+
+        sc = cli.V1StorageClass(
+            metadata=cli.V1ObjectMeta(
+                name=name,
+                annotations={"storageclass.kubernetes.io/is-default-class": "true"},
+            ),
+            provisioner=provisioner,
+            volume_binding_mode="WaitForFirstConsumer",
+        )
+        sv1.create_storage_class(sc)
+
+    def storage_class_make_not_default(self, name: str):
+        """Changes the 'default' annotation from a storage class."""
+        sv1 = KubernetesTester.clients("storagev1")
+        sc = sv1.read_storage_class(name)
+        sc.metadata.annotations["storageclass.kubernetes.io/is-default-class"] = "false"
+        sv1.patch_storage_class(name, sc)
+
+    def make_default_gp2_storage_class(self):
+        classes = self.list_storage_class()
+
+        for sc in classes:
+            if sc.metadata.name == "gp2":
+                # The required class already exist, no need to create it.
+                return
+
+        self.create_storage_class("gp2")
+        self.storage_class_make_not_default("standard")
 
     def yield_existing_csrs(self, csr_names, timeout=300):
         csr_names = csr_names.copy()

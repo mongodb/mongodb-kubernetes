@@ -80,7 +80,7 @@ class TestShardedClusterDeletion(KubernetesTester):
       Removes a Sharded Cluster with PV
     delete:
       file: sharded-cluster-pv.yaml
-      wait_until: mongo_resource_deleted
+      wait_until: mongo_resource_deleted_no_om
       timeout: 300
 
     """

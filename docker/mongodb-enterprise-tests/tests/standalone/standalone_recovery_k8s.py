@@ -22,8 +22,8 @@ class TestStandaloneRecoversBadPvConfiguration(KubernetesTester):
     @classmethod
     def setup_env(cls):
         resource = yaml.safe_load(open(fixture("standalone_pv_invalid.yaml")))
-
         cls.random_storage_name = KubernetesTester.random_k8s_name()
+
         resource["spec"]["podSpec"]["persistence"]["single"][
             "storageClass"
         ] = cls.random_storage_name
@@ -39,9 +39,7 @@ class TestStandaloneRecoversBadPvConfiguration(KubernetesTester):
         )
 
     def test_recovery(self):
-        resource = yaml.safe_load(open(fixture("test_storage_class.yaml")))
-        resource["metadata"]["name"] = self.__class__.random_storage_name
-        KubernetesTester.clients("storagev1").create_storage_class(resource)
+        self.create_storage_class(self.__class__.random_storage_name)
 
         print(
             'Created a storage class "{}", standalone is supposed to get fixed now.'.format(
