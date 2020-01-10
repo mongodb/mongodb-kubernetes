@@ -22,6 +22,7 @@ variables:
     # Openshift v3 Testing Environment
   - &kubernetes_environment_openshift_3
     kube_environment_name: openshift_3
+    managed_security_context: "true"
 
     # Kops Vanilla Kubernetes
   - &kubernetes_environment_vanilla
@@ -145,9 +146,14 @@ functions:
         permissions: public-read
         content_type: application/octet-stream
 
-
-  "upload_e2e_logs":
-    # todo note, that the bucket is public so far - there was something with permissions that didn't allow uploads for the eng test acccount
+  # upload_e2e_logs has the responsibility of dumping as much information as
+  # posible into the S3 bucket that corresponds to this ${version}. The
+  # Kubernetes cluster where the test finished running, should still be
+  # reachable. Note that after a timeout, Evergreen kills the running process
+  # and any running container in the host (which kills Kind).
+  upload_e2e_logs:
+    # TODO: note that the bucket is public so far - there was something with
+    # permissions that didn't allow uploads for the eng test acccount.
     - command: s3.put
       params:
         aws_key: ${mms_eng_test_aws_access_key}
@@ -462,8 +468,8 @@ functions:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
       shell: bash
       script: |
-        echo "Configuring Cloud Manager QA"
         if echo "${build_variant}" | grep -Eq "cloud_qa|multiple_namespace"; then
+          echo "Configuring Cloud Manager QA"
           echo "export OM_BASE_URL=${e2e_cloud_qa_baseurl}"      > ${workdir}/.ops-manager-env
           echo "export OM_USER=${e2e_cloud_qa_user}"            >> ${workdir}/.ops-manager-env
           echo "export OM_API_KEY=${e2e_cloud_qa_apikey}"       >> ${workdir}/.ops-manager-env
@@ -515,62 +521,60 @@ functions:
 
         binary: scripts/evergreen/tag_push_docker_image.sh
 
-  "e2e_test":
+  #
+  # e2e_test is the main function used to run the e2e tests. It expects Ops
+  # Manager to be running (local to the Kubernetes cluster or Cloud Manager) and
+  # its configuration to exist in a ${workdir}/.ops-manager-env file.
+  #
+  # The e2e script will run all the tasks that are needed by the e2e tests like
+  # fetching the OM API credentials to use and create the Secret and ConfigMap
+  # objects that are required.
+  #
+  # At this point, the Kubernetes environment should be configured already
+  # (kubectl configuration points to the Kubernetes cluster where we run the tests).
+  #
+  # Please note: There are many ENV variables passed to the `e2e` script, so try
+  # to not add more. If this is required, discuss your use case with the team first.
+  #
+  e2e_test:
     - *configure_cloud_manager_qa
-    - command: shell.exec
+    - command: subprocess.exec
       type: test
       params:
-        shell: bash
         working_dir: src/github.com/10gen/ops-manager-kubernetes
-        script: |
-          # revision is only supposed to be set in evergreen
-          export OPERATOR_VERSION="${version_id}"
-          export REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/${distro}"
+        add_to_path:
+          - ${workdir}/bin
+        env:
+          OPERATOR_VERSION: ${version_id}
+          REGISTRY: ${ecr_registry}/dev/${distro}
+          MANAGED_SECURITY_CONTEXT: ${managed_security_context}
+          TASK_ID: ${task_id}
+          TASK_NAME: ${task_name}
+          OPS_MANAGER_NAMESPACE: ${ops_manager_namespace}
+          OPS_MANAGER_ENV: ${workdir}/.ops-manager-env
+          NODE_PORT: ${node_port}
+          AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
+          AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
+          OPERATOR_VERSION_UPGRADE_FROM: ${from_version}
+          MMS_VERSION: ${ops_manager_version}
+          WATCH_NAMESPACE: ${watch_namespace}
+          STATIC_NAMESPACE: ${static_namespace}
+          TEST_MODE: ${test_mode}
 
-          export WORKDIR=${workdir}
-          export PATH=${workdir}/bin:$PATH
-          export MANAGED_SECURITY_CONTEXT="false"
-          export TASK_ID=${task_id}
-          export TASK_NAME=${task_name}
-          export OPS_MANAGER_NAMESPACE=${ops_manager_namespace}
-          export NODE_PORT=${node_port}
-          export AWS_ACCESS_KEY_ID=${mms_eng_test_aws_access_key}
-          export AWS_SECRET_ACCESS_KEY=${mms_eng_test_aws_secret}
-          export OPERATOR_VERSION_UPGRADE_FROM=${from_version}
+        binary: scripts/evergreen/e2e/e2e
 
-          export MMS_VERSION=${ops_manager_version}
-
-          echo "Build Variant: ${build_variant}"
-
-          if echo "${build_variant}" | grep -q "openshift"; then
-            echo "Setting up OpenShift variant"
-            export MANAGED_SECURITY_CONTEXT="true"
-          fi
-
-          # Externally Configured Ops Manager (Cloud Manager)
-          test -f ${workdir}/.ops-manager-env && source ${workdir}/.ops-manager-env
-
-          # A complete environment is set each time.
-          WATCH_NAMESPACE=${watch_namespace} TASK_NAME=${task_name} STATIC_NAMESPACE=${static_namespace} \
-            TEST_MODE=${test_mode} ./scripts/evergreen/e2e/e2e
-
-  "prepare_test_env":
-    - *configure_cloud_manager_qa
-    - command: shell.exec
+  prepare_test_env:
+    - command: subprocess.exec
       type: setup
       params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen
-        script: |
-          export PATH=${workdir}/bin:$PATH
-          export AWS_ACCESS_KEY_ID=${mms_eng_test_aws_access_key}
-          export AWS_SECRET_ACCESS_KEY=${mms_eng_test_aws_secret}
-          export AWS_REGION=${mms_eng_test_aws_region}
-          export AWS_DEFAULT_REGION=${mms_eng_test_aws_region}
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        add_to_path:
+          - ${workdir}/bin
+        env:
+          AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
+          AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
 
-          test -f ${workdir}/.ops-manager-env && source ${workdir}/.ops-manager-env
-
-          echo "Preparing Test Environment"
-          ./prepare_test_env ${ops_manager_namespace} ${ops_manager_version} ${node_port}
+        command: "scripts/evergreen/prepare_test_env ${ops_manager_namespace} ${ops_manager_version} ${node_port}"
 
 tasks:
 - name: unit_tests
@@ -885,7 +889,7 @@ tasks:
 
 - name: prepare_cluster_openshift_3
   exec_timeout_secs: 1200
-  priority: 1
+  priority: 59
   commands:
     - func: clone
     - func: setup_aws
@@ -899,7 +903,7 @@ tasks:
 
 - name: prepare_cluster_vanilla
   exec_timeout_secs: 1200
-  priority: 1
+  priority: 59
   commands:
     - func: clone
     - func: setup_aws
@@ -917,7 +921,7 @@ tasks:
 
 - name: prepare_cluster_vanilla_om
   exec_timeout_secs: 600
-  priority: 1
+  priority: 59
   commands:
     - func: clone
     - func: download_kube_tools
@@ -1405,8 +1409,8 @@ task_groups:
     - e2e_standalone_schema_validation
     - e2e_users_schema_validation
   teardown_task:
-    - func: teardown_kubernetes_environment
     - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
 
   # This is the general task group which is supposed to be tested on ALL OM versions. Please don't add tests here which
   # don't test anything special in automation config and more focused on Kubernetes features - such tests should go to
@@ -1436,8 +1440,8 @@ task_groups:
     - e2e_standalone_type_change_recovery
     - e2e_standalone_upgrade_downgrade
   teardown_task:
-    - func: teardown_kubernetes_environment
     - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
 
 - name: e2e_tls_task_group
   max_hosts: 3
@@ -1458,8 +1462,8 @@ task_groups:
     - e2e_sharded_cluster_tls_require
     - e2e_standalone_no_tls_no_status_is_set
   teardown_task:
-    - func: teardown_kubernetes_environment
     - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
 
 - name: e2e_scram_sha_task_group
   max_hosts: 3
@@ -1480,8 +1484,8 @@ task_groups:
     - e2e_sharded_cluster_scram_sha_1_user_connectivity
     - e2e_sharded_cluster_scram_sha_and_x509
   teardown_task:
-    - func: teardown_kubernetes_environment
     - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
 
 # e2e_tls_custom_ca_task_group tests if the operator works with custom
 # certificate authorities. This is not run on patch builds.
@@ -1496,8 +1500,8 @@ task_groups:
     - e2e_sharded_cluster_tls_require_custom_ca
     - e2e_tls_x509_sc_custom_ca
   teardown_task:
-    - func: teardown_kubernetes_environment
     - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
 
 # The "others" tasks are those which cannot be run on 4.0 - only on 4.2+
 - name: e2e_om_4_2_plus_only_task_group
@@ -1513,8 +1517,8 @@ task_groups:
     - e2e_tls_rs_external_access
     - e2e_tls_rs_external_access_tls_transition
   teardown_task:
-    - func: teardown_kubernetes_environment
     - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
 
 - name: e2e_x509_task_group
   max_hosts: 3
@@ -1534,8 +1538,8 @@ task_groups:
     - e2e_tls_x509_user_connectivity
     - e2e_tls_x509_users_addition_removal
   teardown_task:
-    - func: teardown_kubernetes_environment
     - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
 
 - name: e2e_ops_manager_task_group
   max_hosts: 3
@@ -1555,8 +1559,8 @@ task_groups:
     - e2e_om_ops_manager_upgrade
     - e2e_om_external_connectivity
   teardown_task:
-    - func: teardown_kubernetes_environment
     - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
 
 buildvariants:
 - name: e2e_kube_vanilla_om_40_first

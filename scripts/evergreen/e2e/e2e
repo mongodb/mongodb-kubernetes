@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+# shellcheck disable=SC1091
+
+set -uo pipefail
 cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
+
 source scripts/funcs
+source scripts/evergreen/e2e/dump_diagnostic_information
+
+# Externally Configured Ops Manager (Cloud Manager)
+test -f "${OPS_MANAGER_ENV}" && source "${OPS_MANAGER_ENV}"
+
+timeout=$(get_timeout_for_task "${TASK_NAME}")
 
 #
 # This is the main entry point for running e2e tests. It can be used both for simple e2e tests (running a single test
@@ -23,13 +32,14 @@ fi
 ensure_namespace "${PROJECT_NAMESPACE}"
 
 # 2. Fetch OM connection information - it will be saved to environment variables
-. ./scripts/evergreen/e2e/fetch_om_information
+# shellcheck disable=SC1091
+. scripts/evergreen/e2e/fetch_om_information
 
 # 3. Configure Operator resources
-. ./scripts/evergreen/e2e/configure_operator
+. scripts/evergreen/e2e/configure_operator
 
 export TEST_NAME="${TASK_NAME}"
-delete_operator ${PROJECT_NAMESPACE}
+delete_operator "${PROJECT_NAMESPACE}"
 
 # 4. (optionally) Preliminary step in the case of Operator upgrade
 if echo "${TASK_NAME}" | egrep -q "^e2e_op_upgrade"; then
@@ -42,8 +52,8 @@ if echo "${TASK_NAME}" | egrep -q "^e2e_op_upgrade"; then
     # TODO add support for quay.io UBI images as well
     REGISTRY="quay.io/mongodb" ./scripts/evergreen/e2e/deploy_operator
     if ! ./scripts/evergreen/e2e_tests.sh; then
-        . ./scripts/evergreen/e2e/dump_diagnostic_information
-        . ./scripts/evergreen/e2e/teardown
+        dump_all
+        scripts/evergreen/e2e/teardown
         exit 1
     fi
     # Setting the second test to be run after the Operator upgrade after 'if' block
@@ -56,17 +66,28 @@ fi
 # the Operator won't be removed - only upgraded
 export REVISION="${OPERATOR_VERSION}"
 
-./scripts/evergreen/e2e/deploy_operator
+scripts/evergreen/e2e/deploy_operator
 
-# We need to capture the results of the tests that we run
-./scripts/evergreen/e2e_tests.sh
+# We'll have the task running for 80% of the allocated time, assuming that the
+# setup process takes a bit of time as well. This is needed because Evergreen
+# kills the process *AND* Docker containers running on the host when it hits a
+# timeout. Under these circumstances and in Kind based environments, it is
+# impossible to fetch the results from the Kubernetes cluster running on top of
+# Docker.
+timeout=$((timeout * 8 / 10))
+echo "This task is allowed to run for ${timeout} seconds"
+timeout "${timeout}" scripts/evergreen/e2e_tests.sh
 TEST_RESULTS=$?
 
 if [[ "${TEST_RESULTS}" -ne 0 ]]; then
-    ./scripts/evergreen/e2e/dump_diagnostic_information
-fi
+    # Dump all the information we can from this namespace
+    dump_all
 
-./scripts/evergreen/e2e/teardown
+    # And then mark it as failed
+    kubectl label "namespace/${PROJECT_NAMESPACE}" "evg/state=failed" --overwrite=true
+else
+    scripts/evergreen/e2e/teardown
+fi
 
 # We exit with the test result to surface status to Evergreen.
 exit $TEST_RESULTS

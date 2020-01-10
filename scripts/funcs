@@ -67,8 +67,8 @@ metadata:
     evg/mms-version: "${MMS_VERSION:-'not-specified'}"
 EOF
 
-    if kubectl get "ns/${namespace}" -o name > /dev/null; then
-        echo "Namespace already exists!"
+    if kubectl get "ns/${namespace}" -o name &> /dev/null; then
+        echo "Namespace ${namespace} already exists!"
     else
         echo "Creating new namespace: ${namespace}"
         cat "${tmp_file}"
@@ -428,4 +428,17 @@ om_download_url() {
               jq -r '.oldReleases[] | select(.version == "'"${om_version}"'") | .platform[] | select(.package_format=="deb") | select(.arch=="x86_64") | .packages.links[] | select(.name=="tar.gz") | .download_link')
 
     echo ${link}
+}
+
+# Finds the exec_timeout_secs for this task in Evergreen. If it can't find it, will return the general
+# exec_timeout_secs attribute set in top-level evergreen.yaml.
+get_timeout_for_task () {
+    task_name=${1}
+
+    timeout=$(grep "name: ${task_name}$" .evergreen.yml -A 3 | grep exec_timeout_secs | awk '{ print $2 }')
+    if [[ $timeout = "" ]]; then
+        timeout=$(grep "^exec_timeout_secs:" .evergreen.yml  | awk '{ print $2 }')
+    fi
+
+    echo "$timeout"
 }

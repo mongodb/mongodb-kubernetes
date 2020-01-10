@@ -1,60 +1,56 @@
 #!/usr/bin/env bash
 
+[[ "${MODE-}" = "dev" ]] && return
+
+# shellcheck disable=SC1091
+source scripts/funcs
+
 dump_objects() {
     objects=$1
     msg=$2
     to_describe=${3-}
-    if ! kubectl get $objects -n ${PROJECT_NAMESPACE} 2>&1 | grep -q "No resources found"; then
+    if ! kubectl get "$objects" -n "${PROJECT_NAMESPACE}" 2>&1 | grep -q "No resources found"; then
         header "$msg" >> "$dump_file"
         if [[ -n $to_describe ]]; then
-            kubectl describe $objects -n ${PROJECT_NAMESPACE}  >> "$dump_file"
+            kubectl describe "$objects" -n "${PROJECT_NAMESPACE}"  >> "$dump_file"
         else
-            kubectl get $objects -o yaml -n ${PROJECT_NAMESPACE}  >> "$dump_file"
+            kubectl get "$objects" -o yaml -n "${PROJECT_NAMESPACE}"  >> "$dump_file"
         fi
     fi
 }
 
-[[ "${MODE-}" = "dev" ]] && return
+dump_all () {
+    # 1. Dump diagnostic information
+    # gathers the information about K8s objects and writes it to the file which will be attached to Evergreen job
+    mkdir -p logs
+    dump_file="logs/diagnostics.txt"
 
-# 1. Dump diagnostic information
-# gathers the information about K8s objects and writes it to the file which will be attached to Evergreen job
-mkdir -p logs
-dump_file="logs/diagnostics.txt"
+    header "All MongoDB Custom Resources" >> "${dump_file}"
+    dump_objects "mdb" "MongoDB Resources"
+    dump_objects "mdbu" "MongoDBUser Resources"
+    dump_objects "om" "MongoDBOpsManager Resources"
 
-dump_objects "mdbu" "MongoDBUser resources"
-dump_objects "mdb" "MongoDB Resources"
-dump_objects "om" "MongoDBOpsManager Resources"
-dump_objects "mdbu" "MongoDBUser resources"
+    header "All namespace objects" >> "$dump_file"
+    kubectl get all -n "${PROJECT_NAMESPACE}" >> "$dump_file"
 
-header "All namespace objects" >> "$dump_file"
-kubectl get all -n "${PROJECT_NAMESPACE}" >> "$dump_file"
+    dump_objects "pvc" "Persistent Volume Claims"
+    dump_objects "sts" "StatefulSets" true
 
-dump_objects "pvc" "Persistent Volume Claims"
-dump_objects "pvc" "Persistent Volume Claims"
-dump_objects "sts" "StatefulSets" true
-
-# we don't output pods for the operator and tests (they will be output if they didn't manage to start)
-for pod in $(kubectl get pods -n "${PROJECT_NAMESPACE}" -o name | grep -v "${OPERATOR_NAME:=mongodb-enterprise-operator}"); do
-    header "$pod" >> "$dump_file"
-    # in general describe produces shorter output than "get -o yaml" and seems it is enough to diagnose the problem
-    kubectl describe "${pod}" -n "${PROJECT_NAMESPACE}"  >> "$dump_file"
-done
-
-# 2. Pods logs
-i=1
-if ! kubectl get pods -n "${PROJECT_NAMESPACE}" 2>&1 | grep -q "No resources found"; then
-    for pod in $(kubectl get pods -n ${PROJECT_NAMESPACE}  -o name | cut -d "/" -f 2 | grep -v "operator-"); do
-        echo "Writing log file for pod ${pod} to logs/${pod}.log"
-        kubectl logs -n ${PROJECT_NAMESPACE} ${pod} > "logs/${pod}.log"
-        ((i++))
+    # we don't output pods for the operator and tests (they will be output if they didn't manage to start)
+    for pod in $(kubectl get pods -n "${PROJECT_NAMESPACE}" -o name | grep -v "${OPERATOR_NAME:=mongodb-enterprise-operator}"); do
+        header "$pod" >> "$dump_file"
+        # in general describe produces shorter output than "get -o yaml" and seems it is enough to diagnose the problem
+        kubectl describe "${pod}" -n "${PROJECT_NAMESPACE}"  >> "$dump_file"
     done
-fi
-echo "${i} log files were written."
 
-# 3. Print Ops Manager endpoint
-# Not required when running against the Cloud QA
-if [[ "${OM_EXTERNALLY_CONFIGURED:-}" != "true" ]]; then
-    print_om_endpoint "${PROJECT_NAMESPACE}" "${OPS_MANAGER_NAMESPACE}" "${NODE_PORT}"
-fi
-
-kubectl label "namespace/${PROJECT_NAMESPACE}" "evg/state=failed" --overwrite=true
+    # 2. Pods logs
+    i=1
+    if ! kubectl get pods -n "${PROJECT_NAMESPACE}" 2>&1 | grep -q "No resources found"; then
+        for pod in $(kubectl get pods -n "${PROJECT_NAMESPACE}"  -o name | cut -d "/" -f 2 | grep -v "operator-"); do
+            echo "Writing log file for pod ${pod} to logs/${pod}.log"
+            kubectl logs -n "${PROJECT_NAMESPACE}" "${pod}" > "logs/${pod}.log"
+            ((i++))
+        done
+    fi
+    echo "${i} log files were written."
+}
