@@ -784,4 +784,3 @@ func isFourFour(version semver.Version) bool {
 func isMajorMinor(v semver.Version, major, minor uint64) bool {
 	return v.Major == major && v.Minor == minor
 }
-

@@ -440,7 +440,7 @@ func createShardedClusterTLSData(client *MockedClient, mdb *mdbv1.MongoDB) {
 	// create the secrets for all the shards
 	for i := 0; i < mdb.Spec.ShardCount; i++ {
 		secretName := fmt.Sprintf("%s-%d-cert", mdb.Name, i)
-		shardData := make(map[string][]byte, 0)
+		shardData := make(map[string][]byte)
 		for j := 0; j <= mdb.Spec.MongodsPerShardCount; j++ {
 			shardData[fmt.Sprintf("%s-%d-%d-pem", mdb.Name, i, j)] = createMockCertAndKeyBytes()
 		}
@@ -455,7 +455,7 @@ func createShardedClusterTLSData(client *MockedClient, mdb *mdbv1.MongoDB) {
 	}
 
 	// populate with the expected cert and key fields
-	mongosData := make(map[string][]byte, 0)
+	mongosData := make(map[string][]byte)
 	for i := 0; i < mdb.Spec.MongosCount; i++ {
 		mongosData[fmt.Sprintf("%s-mongos-%d-pem", mdb.Name, i)] = createMockCertAndKeyBytes()
 	}
@@ -473,7 +473,7 @@ func createShardedClusterTLSData(client *MockedClient, mdb *mdbv1.MongoDB) {
 	})
 
 	// create secret for config server
-	configData := make(map[string][]byte, 0)
+	configData := make(map[string][]byte)
 	for i := 0; i < mdb.Spec.ConfigServerCount; i++ {
 		configData[fmt.Sprintf("%s-config-%d-pem", mdb.Name, i)] = createMockCertAndKeyBytes()
 	}

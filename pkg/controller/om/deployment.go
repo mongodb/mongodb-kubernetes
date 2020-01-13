@@ -86,7 +86,7 @@ func NewDeployment() Deployment {
 
 	// these keys are required to exist for mergo to merge
 	// correctly
-	ans["auth"] = make(map[string]interface{}, 0)
+	ans["auth"] = make(map[string]interface{})
 	ans["ssl"] = map[string]interface{}{
 		"clientCertificateMode": util.OptionalClientCertficates,
 		"CAFilePath":            util.CAFilePathInContainer,

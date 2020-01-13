@@ -248,7 +248,7 @@ func (p Process) SSLConfig() map[string]interface{} {
 		return netConfig["tls"].(map[string]interface{})
 	}
 
-	return make(map[string]interface{}, 0)
+	return make(map[string]interface{})
 }
 
 func (p Process) EnsureSecurity() map[string]interface{} {
@@ -467,7 +467,7 @@ func (p Process) security() map[string]interface{} {
 	if _, ok := args["security"]; ok {
 		return args["security"].(map[string]interface{})
 	}
-	return make(map[string]interface{}, 0)
+	return make(map[string]interface{})
 }
 
 func (p Process) clusterAuthMode() string {
@@ -506,4 +506,3 @@ func (s Process) json() string {
 	}
 	return string(b)
 }
-

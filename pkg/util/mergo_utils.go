@@ -19,7 +19,7 @@ const MergoDelete = "MERGO_DELETE"
 type AutomationConfigTransformer struct{}
 
 func isStringMap(elem interface{}) bool {
-	return reflect.TypeOf(elem) == reflect.TypeOf(make(map[string]interface{}, 0))
+	return reflect.TypeOf(elem) == reflect.TypeOf(make(map[string]interface{}))
 }
 
 // withoutElementAtIndex returns the given slice without the element at the specified index
@@ -101,7 +101,7 @@ func MergeWith(structToMerge interface{}, src map[string]interface{}, transforme
 	if err != nil {
 		return nil, err
 	}
-	dst := make(map[string]interface{}, 0)
+	dst := make(map[string]interface{})
 	err = json.Unmarshal(bytes, &dst)
 	if err != nil {
 		return nil, err

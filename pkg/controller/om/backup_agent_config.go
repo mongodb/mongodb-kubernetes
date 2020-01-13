@@ -37,7 +37,7 @@ func (bac *BackupAgentConfig) DisableX509Authentication() {
 
 // BuildBackupAgentConfigFromBytes
 func BuildBackupAgentConfigFromBytes(jsonBytes []byte) (*BackupAgentConfig, error) {
-	fullMap := make(map[string]interface{}, 0)
+	fullMap := make(map[string]interface{})
 	if err := json.Unmarshal(jsonBytes, &fullMap); err != nil {
 		return nil, err
 	}

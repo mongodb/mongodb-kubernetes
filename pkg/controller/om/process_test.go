@@ -155,4 +155,3 @@ func TestMergeMongodProcess_SSL(t *testing.T) {
 	}
 	assert.Equal(t, expectedSSLConfig, readMapValueAsInterface(omProcess, "args2_6", "net", "ssl"))
 }
-

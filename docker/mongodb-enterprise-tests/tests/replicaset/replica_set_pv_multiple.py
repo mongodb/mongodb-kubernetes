@@ -71,18 +71,10 @@ class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
 
         # Note that PVC gets the default storage class for cluster even if it wasn't requested initially
         self.check_single_pvc(
-            claims[1],
-            "journal",
-            f"journal-{self.RESOURCE_NAME}-{idx}",
-            "1Gi",
-            "gp2",
+            claims[1], "journal", f"journal-{self.RESOURCE_NAME}-{idx}", "1Gi", "gp2",
         )
         self.check_single_pvc(
-            claims[2],
-            "logs",
-            f"logs-{self.RESOURCE_NAME}-{idx}",
-            "1G",
-            "gp2",
+            claims[2], "logs", f"logs-{self.RESOURCE_NAME}-{idx}", "1G", "gp2",
         )
 
 

@@ -37,7 +37,7 @@ func (m *MonitoringAgentConfig) DisableX509Authentication() {
 
 // BuildMonitoringAgentConfigFromBytes
 func BuildMonitoringAgentConfigFromBytes(jsonBytes []byte) (*MonitoringAgentConfig, error) {
-	fullMap := make(map[string]interface{}, 0)
+	fullMap := make(map[string]interface{})
 	if err := json.Unmarshal(jsonBytes, &fullMap); err != nil {
 		return nil, err
 	}

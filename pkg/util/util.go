@@ -105,7 +105,7 @@ func MapDeepCopy(m map[string]interface{}) (map[string]interface{}, error) {
 
 func ReadOrCreateMap(m map[string]interface{}, key string) map[string]interface{} {
 	if _, ok := m[key]; !ok {
-		m[key] = make(map[string]interface{}, 0)
+		m[key] = make(map[string]interface{})
 	}
 	return m[key].(map[string]interface{})
 }
