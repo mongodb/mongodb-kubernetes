@@ -9,7 +9,7 @@ source scripts/funcs
 source scripts/evergreen/e2e/dump_diagnostic_information
 
 # Externally Configured Ops Manager (Cloud Manager)
-test -f "${OPS_MANAGER_ENV}" && source "${OPS_MANAGER_ENV}"
+test -f "${OPS_MANAGER_ENV:-}" && source "${OPS_MANAGER_ENV}"
 
 timeout=$(get_timeout_for_task "${TASK_NAME}")
 
@@ -51,7 +51,7 @@ if echo "${TASK_NAME}" | egrep -q "^e2e_op_upgrade"; then
 
     # TODO add support for quay.io UBI images as well
     REGISTRY="quay.io/mongodb" ./scripts/evergreen/e2e/deploy_operator
-    if ! ./scripts/evergreen/e2e_tests.sh; then
+    if ! ./scripts/evergreen/e2e/single_e2e; then
         dump_all
         scripts/evergreen/e2e/teardown
         exit 1
@@ -76,7 +76,7 @@ scripts/evergreen/e2e/deploy_operator
 # Docker.
 timeout=$((timeout * 8 / 10))
 echo "This task is allowed to run for ${timeout} seconds"
-timeout "${timeout}" scripts/evergreen/e2e_tests.sh
+timeout "${timeout}" scripts/evergreen/e2e/single_e2e
 TEST_RESULTS=$?
 
 if [[ "${TEST_RESULTS}" -ne 0 ]]; then
