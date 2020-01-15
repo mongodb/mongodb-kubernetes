@@ -27,6 +27,8 @@ check_env_var "TASK_NAME" "The 'TASK_NAME' must be specified for the Operator e2
 if [[ -z "${PROJECT_NAMESPACE-}" ]]; then
     PROJECT_NAMESPACE=$(generate_random_namespace)
     export PROJECT_NAMESPACE
+
+    echo "$PROJECT_NAMESPACE" > "${NAMESPACE_FILE}"
 fi
 
 ensure_namespace "${PROJECT_NAMESPACE}"

@@ -460,22 +460,40 @@ functions:
               --docker-args "$docker_args" \
               $(if [ -n "${release_object}" ]; then echo '--with-latest-tag'; fi)
 
-
-  "configure_cloud_manager_qa": &configure_cloud_manager_qa
-    command: shell.exec
+  setup_cloud_qa:
+  - command: subprocess.exec
     type: setup
     params:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
-      shell: bash
-      script: |
-        if echo "${build_variant}" | grep -Eq "cloud_qa|multiple_namespace"; then
-          echo "Configuring Cloud Manager QA"
-          echo "export OM_BASE_URL=${e2e_cloud_qa_baseurl}"      > ${workdir}/.ops-manager-env
-          echo "export OM_USER=${e2e_cloud_qa_user}"            >> ${workdir}/.ops-manager-env
-          echo "export OM_API_KEY=${e2e_cloud_qa_apikey}"       >> ${workdir}/.ops-manager-env
-          echo "export OM_ORGID=${e2e_cloud_qa_orgid}"          >> ${workdir}/.ops-manager-env
-          echo "export OM_EXTERNALLY_CONFIGURED=true"           >> ${workdir}/.ops-manager-env
-        fi
+      env:
+        NAMESPACE_FILE: ${workdir}/.namespace
+        ENV_FILE: ${workdir}/.ops-manager-env
+      include_expansions_in_env:
+      - e2e_cloud_qa_baseurl
+      - e2e_cloud_qa_orgid_owner
+      - e2e_cloud_qa_apikey_owner
+      - e2e_cloud_qa_user_owner
+      - ops_manager_version
+      - task_name
+
+      command: "scripts/evergreen/e2e/setup_cloud_qa.py create"
+
+  teardown_cloud_qa:
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      include_expansions_in_env:
+      - e2e_cloud_qa_baseurl
+      - e2e_cloud_qa_orgid_owner
+      - e2e_cloud_qa_apikey_owner
+      - e2e_cloud_qa_user_owner
+      - ops_manager_version
+      env:
+        NAMESPACE_FILE: ${workdir}/.namespace
+        ENV_FILE: ${workdir}/.ops-manager-env
+
+      command: "scripts/evergreen/e2e/setup_cloud_qa.py delete"
 
   # Exit if repository is not clean.
   guard_git_repo_is_clean:
@@ -537,7 +555,6 @@ functions:
   # to not add more. If this is required, discuss your use case with the team first.
   #
   e2e_test:
-    - *configure_cloud_manager_qa
     - command: subprocess.exec
       type: test
       params:
@@ -552,6 +569,7 @@ functions:
           TASK_NAME: ${task_name}
           OPS_MANAGER_NAMESPACE: ${ops_manager_namespace}
           OPS_MANAGER_ENV: ${workdir}/.ops-manager-env
+          NAMESPACE_FILE: ${workdir}/.namespace
           NODE_PORT: ${node_port}
           AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
           AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
@@ -1394,6 +1412,7 @@ task_groups:
     - func: download_kube_tools
   setup_task:
     - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
   tasks:
     - e2e_replica_set_config_map
     - e2e_replica_set_exposed_externally
@@ -1411,6 +1430,7 @@ task_groups:
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
+    - func: teardown_cloud_qa
 
   # This is the general task group which is supposed to be tested on ALL OM versions. Please don't add tests here which
   # don't test anything special in automation config and more focused on Kubernetes features - such tests should go to
@@ -1422,6 +1442,7 @@ task_groups:
     - func: download_kube_tools
   setup_task:
     - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
   tasks:
     - e2e_all_mongodb_resources_parallel
     - e2e_multiple_cluster_failures
@@ -1442,6 +1463,7 @@ task_groups:
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
+    - func: teardown_cloud_qa
 
 - name: e2e_tls_task_group
   max_hosts: 3
@@ -1450,6 +1472,7 @@ task_groups:
     - func: download_kube_tools
   setup_task:
     - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
   tasks:
     - e2e_replica_set_tls_allow
     - e2e_replica_set_tls_prefer
@@ -1464,6 +1487,7 @@ task_groups:
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
+    - func: teardown_cloud_qa
 
 - name: e2e_scram_sha_task_group
   max_hosts: 3
@@ -1472,6 +1496,7 @@ task_groups:
     - func: download_kube_tools
   setup_task:
     - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
   tasks:
     - e2e_replica_set_scram_sha_256_user_connectivity
     - e2e_replica_set_scram_sha_1_user_connectivity
@@ -1486,6 +1511,7 @@ task_groups:
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
+    - func: teardown_cloud_qa
 
 # e2e_tls_custom_ca_task_group tests if the operator works with custom
 # certificate authorities. This is not run on patch builds.
@@ -1495,6 +1521,7 @@ task_groups:
     - func: download_kube_tools
   setup_task:
     - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
   tasks:
     - e2e_replica_set_tls_require_custom_ca
     - e2e_sharded_cluster_tls_require_custom_ca
@@ -1502,6 +1529,7 @@ task_groups:
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
+    - func: teardown_cloud_qa
 
 # The "others" tasks are those which cannot be run on 4.0 - only on 4.2+
 - name: e2e_om_4_2_plus_only_task_group
@@ -1511,6 +1539,7 @@ task_groups:
     - func: download_kube_tools
   setup_task:
     - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
   tasks:
     - e2e_sharded_cluster_scale_shards
     - e2e_replica_set_readiness_probe
@@ -1519,6 +1548,7 @@ task_groups:
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
+    - func: teardown_cloud_qa
 
 - name: e2e_x509_task_group
   max_hosts: 3
@@ -1527,6 +1557,7 @@ task_groups:
     - func: download_kube_tools
   setup_task:
     - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
   tasks:
     - e2e_configure_tls_and_x509_simultaneously_st
     - e2e_configure_tls_and_x509_simultaneously_rs
@@ -1540,6 +1571,7 @@ task_groups:
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
+    - func: teardown_cloud_qa
 
 - name: e2e_ops_manager_task_group
   max_hosts: 3
@@ -1548,6 +1580,7 @@ task_groups:
     - func: download_kube_tools
   setup_task:
     - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
   tasks:
     - e2e_om_appdb_scale_up_down
     - e2e_om_appdb_upgrade
@@ -1561,6 +1594,7 @@ task_groups:
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
+    - func: teardown_cloud_qa
 
 buildvariants:
 - name: e2e_kube_vanilla_om_40_first

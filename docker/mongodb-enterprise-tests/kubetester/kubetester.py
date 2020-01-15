@@ -581,6 +581,8 @@ class KubernetesTester(object):
             # After agents have been installed, they might have not finished or reached goal state yet.
             "haven't reached READY",
             "Some agents failed to register",
+            # Sometimes Cloud-QA timeouts so we anticipate to this
+            "Error sending GET request to",
         )
 
         if phase == "Failed":
@@ -771,6 +773,12 @@ class KubernetesTester(object):
     def remove_group(group_id):
         url = build_om_group_endpoint(KubernetesTester.get_om_base_url(), group_id)
         KubernetesTester.om_request("delete", url)
+
+    @staticmethod
+    def remove_group_by_name(group_name):
+        orgid = KubernetesTester.get_om_org_id()
+        project_id = KubernetesTester.query_group(group_name, orgid)["id"]
+        KubernetesTester.remove_group(project_id)
 
     @staticmethod
     def create_organization(org_name):
