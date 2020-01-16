@@ -1,8 +1,11 @@
 import time
 
-from typing import List
+from typing import List, Optional
 
 from kubeobject import CustomObject
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
+
 from .mongotester import (
     MongoTester,
     ReplicaSetTester,
@@ -96,6 +99,13 @@ class MongoDB(CustomObject, MongoDBCommon):
             self["status"].get("phase", ""), self["status"].get("message", "")
         )
 
+    def configure(self, om, project_name: str):
+        self["spec"]["opsManager"]["configMapRef"][
+            "name"
+        ] = om.get_or_create_mongodb_connection_config_map(self.name, project_name)
+        self["spec"]["credentials"] = om.api_key_secret()
+        return self
+
     class Types:
         REPLICA_SET = "ReplicaSet"
         SHARDED_CLUSTER = "ShardedCluster"
@@ -147,9 +157,40 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         return services[0], services[1]
 
+    def get_or_create_mongodb_connection_config_map(
+        self, mongodb_name: str, project_name: str
+    ) -> str:
+        config_map_name = f"{mongodb_name}-config"
+        try:
+            KubernetesTester.create_configmap(
+                self.namespace,
+                config_map_name,
+                {"baseUrl": self.get_om_status_url(), "projectName": project_name},
+            )
+        except ApiException as e:
+            if e.status != 409:
+                raise
+        return config_map_name
+
     def __repr__(self):
         # FIX: this should be __unicode__
         return "MongoDBOpsManager| status: {}| message: {}".format(
             self["status"]["opsManager"].get("phase", ""),
             self["status"]["opsManager"].get("message", ""),
         )
+
+    def get_status(self) -> Optional[str]:
+        if "status" not in self:
+            return None
+        return self["status"]
+
+    def get_om_status(self) -> Optional[str]:
+        if self.get_status() is None:
+            return None
+        return self.get_status()["opsManager"]
+
+    def get_om_status_url(self):
+        return self.get_om_status()["url"]
+
+    def api_key_secret(self) -> str:
+        return self.name + "-admin-key"

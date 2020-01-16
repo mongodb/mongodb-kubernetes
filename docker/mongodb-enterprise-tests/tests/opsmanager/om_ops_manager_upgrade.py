@@ -1,10 +1,13 @@
 import pytest
 from kubernetes import client
 from kubernetes.client.rest import ApiException
+from kubetester import MongoDBOpsManager, MongoDB
 from kubetester.kubetester import skip_if_local
 from kubetester.omtester import OMTester
 from kubetester.automation_config_tester import AutomationConfigTester
+from pytest import fixture
 from kubetester.mongotester import ReplicaSetTester
+from kubetester.kubetester import fixture as yaml_fixture
 
 from tests.opsmanager.om_base import OpsManagerBase
 
@@ -19,6 +22,12 @@ admin_key_resource_version = None
 # Current test should contain all kinds of upgrades to Ops Manager as a sequence of tests
 
 # TODO add the check for real OM version after upgrade (using the data in HTTP headers from the API calls)
+
+
+@fixture(scope="module")
+def ops_manager(namespace) -> MongoDBOpsManager:
+    # TODO: this is used only for loading the Ops Manager, the creation of OM is still done the old way
+    return MongoDBOpsManager("om-upgrade", namespace).load()
 
 
 @pytest.mark.e2e_om_ops_manager_upgrade
@@ -77,54 +86,31 @@ class TestOpsManagerCreation(OpsManagerBase):
 
 @pytest.mark.e2e_om_ops_manager_upgrade
 class TestOpsManagerWithMongoDB(OpsManagerBase):
-    def test_can_use_om(self):
-        self.create_config_map(
-            self.namespace,
-            "om-rs-configmap",
-            {"baseUrl": self.om_cr.get_om_status_url(), "projectName": "development",},
+    @staticmethod
+    @fixture(scope="class")
+    def mdb(ops_manager, namespace):
+        return (
+            MongoDB.from_yaml(
+                yaml_fixture("replica-set-for-om.yaml"),
+                namespace=namespace,
+                name="my-replica-set",
+            )
+            .configure(ops_manager, "development")
+            .create()
         )
-        self.create_mongodb_from_object(
-            self.namespace,
-            {
-                "apiVersion": "mongodb.com/v1",
-                "kind": "MongoDB",
-                "metadata": {"name": "my-replica-set"},
-                "spec": {
-                    "credentials": "om-upgrade-admin-key",
-                    "members": 3,
-                    "opsManager": {"configMapRef": {"name": "om-rs-configmap"}},
-                    "persistent": False,
-                    "type": "ReplicaSet",
-                    "version": "4.2.0",
-                },
-            },
-        )
-        self.wait_until("in_running_state")
-        mongod_tester = ReplicaSetTester("my-replica-set", 3)
-        mongod_tester.assert_connectivity()
 
-    def test_om_can_change_mongodb_version(self):
-        self.patch_custom_resource_from_object(
-            self.namespace,
-            {
-                "apiVersion": "mongodb.com/v1",
-                "kind": "MongoDB",
-                "metadata": {"name": "my-replica-set"},
-                "spec": {
-                    "credentials": "om-upgrade-admin-key",
-                    "members": 3,
-                    "opsManager": {"configMapRef": {"name": "om-rs-configmap"}},
-                    "persistent": False,
-                    "type": "ReplicaSet",
-                    "version": "4.2.1",  # upgrade the version
-                },
-            },
-            None,  # no patch
-        )
-        self.wait_until("in_running_state")
-        mongod_tester = ReplicaSetTester("my-replica-set", 3)
-        mongod_tester.assert_connectivity()
-        mongod_tester.assert_version("4.2.1")
+    def test_can_use_om(self, mdb):
+        mdb.assert_reaches_phase("Running")
+        mdb.assert_connectivity()
+
+    def test_om_can_change_mongodb_version(self, mdb):
+        mdb["spec"]["version"] = "4.2.1"
+
+        mdb.update()
+        mdb.assert_abandons_phase("Running")
+        mdb.assert_reaches_phase("Running")
+        mdb.assert_connectivity()
+        mdb._tester().assert_version("4.2.1")
 
 
 class TestOpsManagerConfigurationChange(OpsManagerBase):

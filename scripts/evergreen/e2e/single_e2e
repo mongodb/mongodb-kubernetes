@@ -5,7 +5,6 @@ set -euo pipefail
 ##
 ## The script deploys a single test application and waits until it finishes.
 ## All the Operator deployment, configuration and teardown work is done in 'e2e' script
-## TODO rename the file to 'e2e_single_test.sh' or whatever and move to 'e2e' directory
 ##
 
 cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"

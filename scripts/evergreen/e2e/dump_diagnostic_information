@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 
-[[ "${MODE-}" = "dev" ]] && return
 
 # shellcheck disable=SC1091
 source scripts/funcs
@@ -20,6 +19,8 @@ dump_objects() {
 }
 
 dump_all () {
+    [[ "${MODE-}" = "dev" ]] && return
+
     # 1. Dump diagnostic information
     # gathers the information about K8s objects and writes it to the file which will be attached to Evergreen job
     mkdir -p logs

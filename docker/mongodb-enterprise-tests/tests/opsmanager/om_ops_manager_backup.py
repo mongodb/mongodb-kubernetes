@@ -74,6 +74,12 @@ def new_om_oplog_store(
 
 
 @fixture(scope="module")
+def ops_manager(namespace) -> MongoDBOpsManager:
+    # TODO: this is used only for loading the Ops Manager, the creation of OM is still done the old way
+    return MongoDBOpsManager("om-backup", namespace).load()
+
+
+@fixture(scope="module")
 def aws_s3_client() -> AwsS3Client:
     return AwsS3Client(AWS_REGION)
 
@@ -196,42 +202,24 @@ class TestBackupDatabasesAdded(OpsManagerBase):
     """ name: Creates two mongodb resources for oplog and s3 and waits until OM resource gets to running state"""
 
     @fixture(scope="class")
-    def oplog_replica_set(self, namespace):
-        self.create_configmap(
-            self.namespace,
-            "oplog-mongodb-config-map",
-            {"baseUrl": self.om_cr.get_om_status_url(), "projectName": "development"},
-        )
+    def oplog_replica_set(self, ops_manager, namespace):
         resource = MongoDB.from_yaml(
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,
             name=OPLOG_RS_NAME,
-        )
-
+        ).configure(ops_manager, "development")
         resource["spec"]["version"] = "3.6.10"
-        resource["spec"]["opsManager"]["configMapRef"][
-            "name"
-        ] = "oplog-mongodb-config-map"
-        resource["spec"]["credentials"] = self.om_cr.api_key_secret()
 
         yield resource.create()
 
     @fixture(scope="class")
-    def s3_replica_set(self, namespace):
-        self.create_configmap(
-            self.namespace,
-            "s3-mongodb-config-map",
-            {"baseUrl": self.om_cr.get_om_status_url(), "projectName": "s3metadata"},
-        )
+    def s3_replica_set(self, ops_manager, namespace):
         resource = MongoDB.from_yaml(
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,
             name=S3_RS_NAME,
-        )
-
+        ).configure(ops_manager, "s3metadata")
         resource["spec"]["version"] = "3.6.10"
-        resource["spec"]["opsManager"]["configMapRef"]["name"] = "s3-mongodb-config-map"
-        resource["spec"]["credentials"] = self.om_cr.api_key_secret()
 
         yield resource.create()
 
@@ -242,10 +230,14 @@ class TestBackupDatabasesAdded(OpsManagerBase):
         s3_replica_set.assert_reaches_phase("Running")
 
     @skip_if_local
-    def test_om(self, s3_bucket: str, aws_s3_client: AwsS3Client):
+    def test_om(
+        self, s3_bucket: str, aws_s3_client: AwsS3Client, ops_manager: MongoDBOpsManager
+    ):
         """ As soon as oplog mongodb store is created Operator will create oplog configs in OM and
-        get to Running state"""
-        self.wait_until("om_in_running_state", timeout=200)
+        get to Running state. Note, that the OM may quickly get into error state as the backup replicasets may
+        not be completely ready but this is expected to get fixed soon"""
+        ops_manager.assert_reaches_phase("Running", timeout=200)
+
         om_tester = OMTester(self.om_context)
         om_tester.assert_healthiness()
         # Nothing has changed for daemon
@@ -259,14 +251,10 @@ class TestBackupDatabasesAdded(OpsManagerBase):
 
 @mark.e2e_om_ops_manager_backup
 class TestBackupConfigurationAdditionDeletion(OpsManagerBase):
-    @fixture(scope="class")
-    def ops_manager(self) -> MongoDBOpsManager:
-        # TODO: Ops Manager should be created at the top of the module and be module scoped
-        return MongoDBOpsManager("om-backup", OpsManagerBase.get_namespace()).load()
-
     def test_oplog_store_is_added(
         self, ops_manager: MongoDBOpsManager, s3_bucket: str, aws_s3_client: AwsS3Client
     ):
+        ops_manager.reload()
         ops_manager["spec"]["backup"]["oplogStores"].append(
             {"name": "oplog2", "mongodbResourceRef": {"name": S3_RS_NAME}}
         )
