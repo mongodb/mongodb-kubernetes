@@ -52,6 +52,7 @@ class TestReplicaSetCreation(KubernetesTester):
         tmpl = sts.spec.template
         assert tmpl.metadata.labels["app"] == "my-replica-set-svc"
         assert tmpl.metadata.labels["controller"] == "mongodb-enterprise-operator"
+        assert tmpl.spec.service_account_name == "mongodb-enterprise-database-pods"
         assert tmpl.spec.affinity.node_affinity is None
         assert tmpl.spec.affinity.pod_affinity is None
         assert tmpl.spec.affinity.pod_anti_affinity is not None

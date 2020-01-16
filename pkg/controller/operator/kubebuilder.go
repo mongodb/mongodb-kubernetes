@@ -166,6 +166,7 @@ func defaultPodSpecTemplate(statefulSetName string, wrapper mdbv1.PodSpecWrapper
 			},
 		},
 		TerminationGracePeriodSeconds: util.Int64Ref(util.DefaultPodTerminationPeriodSeconds),
+		ServiceAccountName:            "mongodb-enterprise-database-pods",
 	}}
 
 	managedSecurityContext, _ := util.ReadBoolEnv(util.ManagedSecurityContextEnv)
