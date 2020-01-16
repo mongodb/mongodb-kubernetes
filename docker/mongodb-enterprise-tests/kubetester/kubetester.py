@@ -1079,22 +1079,26 @@ class KubernetesTester(object):
         # will raise a KeyError.
         return self.list_storage_class()[0].provisioner
 
-    def create_storage_class(self, name: str, provisioner: Optional[str] = None):
+    def create_storage_class(
+        self, name: str, provisioner: Optional[str] = None
+    ) -> None:
+        """Creates a new StorageClass which is a duplicate of an existing one."""
         if provisioner is None:
             provisioner = self.get_storage_class_provisioner_enabled()
 
-        cli = KubernetesTester.clients("client")
-        sv1 = KubernetesTester.clients("storagev1")
+        sc0 = self.list_storage_class()[0]
 
+        cli = KubernetesTester.clients("client")
         sc = cli.V1StorageClass(
             metadata=cli.V1ObjectMeta(
                 name=name,
                 annotations={"storageclass.kubernetes.io/is-default-class": "true"},
             ),
             provisioner=provisioner,
-            volume_binding_mode="WaitForFirstConsumer",
+            volume_binding_mode=sc0.volume_binding_mode,
+            reclaim_policy=sc0.reclaim_policy,
         )
-        sv1.create_storage_class(sc)
+        KubernetesTester.clients("storagev1").create_storage_class(sc)
 
     def storage_class_make_not_default(self, name: str):
         """Changes the 'default' annotation from a storage class."""
