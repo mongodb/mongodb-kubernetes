@@ -581,6 +581,11 @@ functions:
 
         binary: scripts/evergreen/e2e/e2e
 
+  #
+  # This function makes sure the target Kubernetes cluster has the required Ops
+  # Manager services running. It also fix a few problems that could exist and
+  # deploys the "cluster_cleaner".
+  #
   prepare_test_env:
     - command: subprocess.exec
       type: setup
@@ -591,6 +596,7 @@ functions:
         env:
           AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
           AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
+          AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
 
         command: "scripts/evergreen/prepare_test_env ${ops_manager_namespace} ${ops_manager_version} ${node_port}"
 
