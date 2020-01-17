@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
 	"hash"
 	"io/ioutil"
 	"reflect"
@@ -15,7 +16,6 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
@@ -229,11 +229,14 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(rs *mdbv1.AppDB, o
 
 	replicaSet := buildReplicaSetFromStatefulSetAppDb(set, rs, log)
 
+	appDbVersion := "4.2.2-ent" // TODO: dynamically determine the version that is bundled with the AppDB image.
+	isUsingBundledMongoDb := rs.Version == appDbVersion || rs.Version == ""
+
 	d.MergeReplicaSet(replicaSet, nil)
 	d.AddMonitoringAndBackup(replicaSet.Processes[0].HostName(), log)
 
 	automationConfig := om.NewAutomationConfig(d)
-	automationConfig.SetOptions("/tmp/mms-automation/test/versions")
+	automationConfig.SetOptions(util.AgentDownloadsDir)
 	automationConfig.SetBaseUrlForAgents(opsManager.CentralURL())
 
 	sha1Creds, sha256Creds, err := generateScramShaCredentials(opsManagerUserPassword, opsManager)
@@ -246,7 +249,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(rs *mdbv1.AppDB, o
 		return nil, err
 	}
 
-	if err := addLatestMongodbVersions(automationConfig, log); err != nil {
+	if err := configureMongoDBVersions(automationConfig, isUsingBundledMongoDb, log); err != nil {
 		return nil, err
 	}
 	// Setting the default version - will be used if no automation config has been published before
@@ -308,7 +311,48 @@ func buildOpsManagerUser(scramSha1Creds, scramSha256Creds *om.ScramShaCreds) om.
 	}
 }
 
-func addLatestMongodbVersions(config *om.AutomationConfig, log *zap.SugaredLogger) error {
+func configureMongoDBVersions(config *om.AutomationConfig, isUsingBundledMongoDb bool, log *zap.SugaredLogger) error {
+	if isUsingBundledMongoDb {
+		// TODO: dynamically create this list
+
+		// The agent calls mongod --version and compares the githash and version in order to confirm the corresponding
+		// version of MongoDB exists on disk. So these values need to be correct. The agent will fail cluster validation
+		// if the other values don't exist. (URL is not required)
+		mdbGitVersion := "a0bbbff6ada159e19298d37946ac8dc4b497eadf" // TODO: determine this at runtime
+		versions := []om.MongoDbVersionConfig{
+			{
+				Name: "4.2.2-ent",
+				Builds: []*om.BuildConfig{
+					{
+						Platform:     "linux",
+						GitVersion:   mdbGitVersion,
+						Architecture: "amd64",
+						Flavor:       "ubuntu",
+						MinOsVersion: "16.04",
+						MaxOsVersion: "17.04",
+						Modules:      []string{"enterprise"},
+					},
+					{
+						Platform:     "linux",
+						GitVersion:   mdbGitVersion,
+						Architecture: "amd64",
+						Flavor:       "rhel",
+						MinOsVersion: "7.0",
+						MaxOsVersion: "8.0",
+						Modules:      []string{"enterprise"},
+					},
+				},
+			},
+		}
+		config.SetMongodbVersions(versions)
+		log.Infof("Using bundled MongoDB version: %s", versions[0].Name)
+		return nil
+	} else {
+		return addLatestMongoDBVersions(config, log)
+	}
+}
+
+func addLatestMongoDBVersions(config *om.AutomationConfig, log *zap.SugaredLogger) error {
 	start := time.Now()
 	client, err := api.NewHTTPClient()
 	if err != nil {

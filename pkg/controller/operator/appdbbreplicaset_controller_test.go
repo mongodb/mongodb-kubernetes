@@ -125,7 +125,7 @@ func TestBuildAppDbAutomationConfig(t *testing.T) {
 	assert.Equal(t, omUrl, cast.ToStringMap(deployment.BackupVersionsCopy()[1])["baseUrl"])
 
 	// options
-	assert.Equal(t, map[string]string{"downloadBase": "/tmp/mms-automation/test/versions"}, deployment["options"])
+	assert.Equal(t, map[string]string{"downloadBase": util.AgentDownloadsDir}, deployment["options"])
 
 	// mongodb versions (as of OM 4.2.2 version manifests contains 235 entries)
 	assert.True(t, len(automationConfig.MongodbVersions()) > 234)

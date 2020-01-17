@@ -7,6 +7,8 @@ FROM {{ base_image }}
 {% block variables %}
 ENV MMS_HOME /mongodb-automation
 ENV MMS_LOG_DIR /var/log/mongodb-mms-automation
+ENV MDB_DIR /var/lib/mongodb-mms-automation/downloads
+ENV MDB_VERSION 4.2.2
 
 ARG AA_VERSION
 ARG AA_DOWNLOAD_LOCATION
@@ -31,6 +33,10 @@ LABEL name="MongoDB Enterprise Database" \
 COPY content/ ${MMS_HOME}/files/
 
 {% if is_appdb -%}
+
+{% block download_mdb %}
+{% endblock %}
+
 # Download the Automation Agent binary (only if the argument provided meaning this is the image for the appdb)
 RUN curl --fail -L -o automation-agent.tar.gz "${AA_DOWNLOAD_LOCATION}/mongodb-mms-automation-agent-${AA_VERSION}.linux_x86_64.tar.gz"  \
     && tar -xzf automation-agent.tar.gz \

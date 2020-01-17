@@ -95,6 +95,7 @@ const (
 	RunAsUser                   = 2000
 	FsGroup                     = 2000
 	AppDBServiceAccount         = "mongodb-enterprise-appdb"
+	AgentDownloadsDir           = "/var/lib/mongodb-mms-automation/downloads"
 
 	// Authentication
 
