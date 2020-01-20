@@ -960,7 +960,7 @@ func (ss *StatefulSetHelper) ensureOperatorManagedSSLCertsForStatefulSet(k *Kube
 				certsNeedApproval = true
 				hostnames := []string{host, podnames[idx]}
 				hostnames = append(hostnames, additionalCertDomains...)
-				key, err := k.createTlsCsr(podnames[idx], ss.Namespace, hostnames, podnames[idx])
+				key, err := k.createTlsCsr(podnames[idx], ss.Namespace, hostnames, host)
 				if err != nil {
 					return failed("Failed to create CSR, %s", err)
 				}

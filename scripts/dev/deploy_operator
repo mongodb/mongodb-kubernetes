@@ -18,7 +18,7 @@ elif [[ ${CLUSTER_TYPE} = "kops" ]]; then
         fatal "kops cluster is not running, call \"make\" to create it"
     fi
 elif [[ ${CLUSTER_TYPE} = "openshift" ]]; then
-    if ! oc get nodes &> /dev/null; then
+    if ! kubectl get nodes &> /dev/null; then
         fatal "Could not communicate to Openshift cluster"
     fi
 else
