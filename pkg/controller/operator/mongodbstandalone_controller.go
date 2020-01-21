@@ -127,7 +127,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		SetTLS(s.Spec.GetTLSConfig()).
 		SetProjectConfig(*projectConfig).
 		SetSecurity(s.Spec.Security).
-		SetPodTemplate(s.Spec.PodSpec.PodTemplate)
+		SetPodTemplateSpec(s.Spec.PodSpec.PodTemplate)
 
 	if status := validateMongoDBResource(s, conn); !status.isOk() {
 		return status.updateStatus(s, r.ReconcileCommonController, log)

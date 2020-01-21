@@ -118,11 +118,11 @@ func defaultPodLabels(stsHelper StatefulSetHelper) map[string]string {
 // getMergedDefaultPodSpecTemplate returns either the a PodTemplateSpec with defaulted values
 // or a PodTemplateSpec created by merging a specified podSpec.podTemplate with the defaulted
 // values
-func getMergedDefaultPodSpecTemplate(stsHelper StatefulSetHelper, annotations map[string]string) (corev1.PodTemplateSpec, error) {
+func getMergedDefaultPodSpecTemplate(stsHelper StatefulSetHelper, annotations map[string]string, defaultContainers []corev1.Container) (corev1.PodTemplateSpec, error) {
 	// podLabels are labels we set to StatefulSet Selector and Template.Meta
 	podLabels := defaultPodLabels(stsHelper)
 
-	defaultPodSpecTemplate := defaultPodSpecTemplate(stsHelper.Name, stsHelper.PodSpec, podLabels, annotations)
+	defaultPodSpecTemplate := getDefaultPodSpecTemplate(stsHelper.Name, stsHelper.PodSpec, stsHelper.PodVars, podLabels, annotations, defaultContainers)
 	if stsHelper.PodTemplateSpec == nil {
 		stsHelper.PodTemplateSpec = defaultPodSpecTemplate
 	} else {
@@ -141,7 +141,7 @@ func getMergedDefaultPodSpecTemplate(stsHelper StatefulSetHelper, annotations ma
 	return *stsHelper.PodTemplateSpec, nil
 }
 
-func defaultPodSpecTemplate(statefulSetName string, wrapper mdbv1.PodSpecWrapper, podLabels map[string]string, annotations map[string]string) *corev1.PodTemplateSpec {
+func getDefaultPodSpecTemplate(statefulSetName string, wrapper mdbv1.PodSpecWrapper, podVars *PodVars, podLabels map[string]string, annotations map[string]string, defaultContainers []corev1.Container) *corev1.PodTemplateSpec {
 	if podLabels == nil {
 		podLabels = make(map[string]string)
 	}
@@ -165,6 +165,7 @@ func defaultPodSpecTemplate(statefulSetName string, wrapper mdbv1.PodSpecWrapper
 				}},
 			},
 		},
+		Containers:                    defaultContainers,
 		TerminationGracePeriodSeconds: util.Int64Ref(util.DefaultPodTerminationPeriodSeconds),
 		ServiceAccountName:            "mongodb-enterprise-database-pods",
 	}}
@@ -214,29 +215,25 @@ func buildStatefulSet(p StatefulSetHelper) (*appsv1.StatefulSet, error) {
 		// existing certificates have been replaced/rotated/renewed.
 		"certHash": p.CertificateHash,
 	}
-	template, err := getMergedDefaultPodSpecTemplate(p, annotations)
+	template, err := getMergedDefaultPodSpecTemplate(p, annotations, []corev1.Container{newDatabaseContainer(p.PodSpec, p.PodVars)})
 	if err != nil {
 		return nil, err
 	}
 
-	// directly override the containers
-	template.Spec.Containers = []corev1.Container{newDatabaseContainer(p.PodSpec, p.PodVars)}
 	return createBaseDatabaseStatefulSet(p, template), nil
 }
 
 // buildAppDbStatefulSet builds the StatefulSet for AppDB.
 // It's mostly the same as the normal Mongodb one but had a different pod spec and an additional mounting volume
 func buildAppDbStatefulSet(p StatefulSetHelper) (*appsv1.StatefulSet, error) {
-	template, err := getMergedDefaultPodSpecTemplate(p, map[string]string{})
+	appdbImageUrl := prepareOmAppdbImageUrl(util.ReadEnvVarOrPanic(util.AppDBImageUrl), p.Version)
+	template, err := getMergedDefaultPodSpecTemplate(p, map[string]string{}, []corev1.Container{newAppDBContainer(p.PodSpec, p.Name, appdbImageUrl)})
 	if err != nil {
 		return nil, err
 	}
 
 	// AppDB must run under a dedicated account with special readConfigMap permissions
 	template.Spec.ServiceAccountName = util.AppDBServiceAccount
-	appdbImageUrl := prepareOmAppdbImageUrl(util.ReadEnvVarOrPanic(util.AppDBImageUrl), p.Version)
-	container := newAppDBContainer(p.PodSpec, p.Name, appdbImageUrl)
-	template.Spec.Containers = []corev1.Container{container}
 
 	set := createBaseDatabaseStatefulSet(p, template)
 

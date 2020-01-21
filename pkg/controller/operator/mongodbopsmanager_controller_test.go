@@ -175,11 +175,8 @@ type OpsManagerBuilder struct {
 
 func DefaultOpsManagerBuilder() *OpsManagerBuilder {
 	spec := mdbv1.MongoDBOpsManagerSpec{
-		Version: "4.2.0",
-		AppDB: mdbv1.AppDB{
-			MongoDbSpec:          mdbv1.MongoDbSpec{Version: "4.2.0", Members: 3, PodSpec: &mdbv1.MongoDbPodSpec{}},
-			PasswordSecretKeyRef: &mdbv1.SecretKeyRef{},
-		},
+		Version:     "4.2.0",
+		AppDB:       *mdbv1.DefaultAppDbBuilder().Build(),
 		AdminSecret: "om-admin",
 	}
 	om := &mdbv1.MongoDBOpsManager{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "testOM", Namespace: TestNamespace}}

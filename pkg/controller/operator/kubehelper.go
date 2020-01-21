@@ -447,7 +447,7 @@ func (s *StatefulSetHelper) SetReplicaSetHorizons(replicaSetHorizons []mdbv1.Mon
 	return s
 }
 
-func (s *StatefulSetHelper) SetPodTemplate(podTemplateSpec *corev1.PodTemplateSpec) *StatefulSetHelper {
+func (s *StatefulSetHelper) SetPodTemplateSpec(podTemplateSpec *corev1.PodTemplateSpec) *StatefulSetHelper {
 	s.PodTemplateSpec = podTemplateSpec
 	return s
 }

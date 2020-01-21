@@ -147,8 +147,15 @@ func TestStandaloneCustomPodSpecTemplate(t *testing.T) {
 
 	checkReconcileSuccessful(t, reconciler, s, kubeManager.client)
 
+	statefulSet := getStatefulSet(kubeManager.client, objectKeyFromApiObject(s))
 	// read the stateful set that was created by the operator
-	assertPodSpecSts(t, getStatefulSet(kubeManager.client, objectKeyFromApiObject(s)))
+	assertPodSpecSts(t, statefulSet)
+
+	podSpecTemplate := statefulSet.Spec.Template.Spec
+
+	assert.Len(t, podSpecTemplate.Containers, 2, "Custom container should be second")
+	assert.Equal(t, util.ContainerName, podSpecTemplate.Containers[0].Name, "Database container should always be first")
+	assert.Equal(t, "my-custom-container", podSpecTemplate.Containers[1].Name, "Custom container should be second")
 }
 
 type StandaloneBuilder struct {

@@ -106,6 +106,34 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultipleDefaults(t *testing.T) {
 	})
 }
 
+func TestBuildAppDbStatefulSetDefault(t *testing.T) {
+	appDbSts, _ := defaultSetHelper().BuildAppDBStatefulSet()
+	podSpecTemplate := appDbSts.Spec.Template.Spec
+	assert.Len(t, podSpecTemplate.Containers, 1, "Should have only the db")
+	assert.Equal(t, "mongodb-enterprise-appdb", podSpecTemplate.Containers[0].Name, "Database container should always be first")
+}
+
+func TestBuildAppDbStatefulSetWithSideCar(t *testing.T) {
+	appDbSts, _ := defaultSetHelper().SetPodTemplateSpec(&corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{
+			NodeName: "some-node-name",
+			Hostname: "some-host-name",
+			Containers: []corev1.Container{{
+				Name:  "my-custom-container",
+				Image: "my-custom-image",
+				VolumeMounts: []corev1.VolumeMount{{
+					Name: "my-volume-mount",
+				}},
+			}},
+			RestartPolicy: corev1.RestartPolicyAlways,
+		},
+	}).BuildAppDBStatefulSet()
+	podSpecTemplate := appDbSts.Spec.Template.Spec
+	assert.Len(t, podSpecTemplate.Containers, 2, "Should have 2 containers now")
+	assert.Equal(t, "mongodb-enterprise-appdb", podSpecTemplate.Containers[0].Name, "Database container should always be first")
+	assert.Equal(t, "my-custom-container", podSpecTemplate.Containers[1].Name, "Custom container to be second")
+}
+
 func TestBasePodSpec_Affinity(t *testing.T) {
 	nodeAffinity := corev1.NodeAffinity{
 		RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
@@ -134,7 +162,7 @@ func TestBasePodSpec_Affinity(t *testing.T) {
 		},
 		Default: NewDefaultPodSpec()}
 
-	spec := defaultPodSpecTemplate("s", podSpec, map[string]string{}, map[string]string{}).Spec
+	spec := getDefaultPodSpecTemplate("s", podSpec, defaultPodVars(), map[string]string{}, map[string]string{}, []corev1.Container{}).Spec
 	assert.Equal(t, nodeAffinity, *spec.Affinity.NodeAffinity)
 	assert.Equal(t, podAffinity, *spec.Affinity.PodAffinity)
 	assert.Len(t, spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution, 1)
@@ -149,7 +177,7 @@ func TestBasePodSpec_Affinity(t *testing.T) {
 // not specified
 func TestBasePodSpec_AntiAffinityDefaultTopology(t *testing.T) {
 	podSpec := mdbv1.PodSpecWrapper{MongoDbPodSpec: mdbv1.MongoDbPodSpec{}, Default: NewDefaultPodSpec()}
-	spec := defaultPodSpecTemplate("s", podSpec, map[string]string{}, map[string]string{}).Spec
+	spec := getDefaultPodSpecTemplate("s", podSpec, defaultPodVars(), map[string]string{}, map[string]string{}, []corev1.Container{}).Spec
 
 	term := spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0]
 	assert.Equal(t, int32(100), term.Weight)
@@ -161,7 +189,7 @@ func TestBasePodSpec_AntiAffinityDefaultTopology(t *testing.T) {
 // IMAGE_PULL_SECRETS is initialized
 func TestBasePodSpec_ImagePullSecrets(t *testing.T) {
 	podSpec := mdbv1.PodSpecWrapper{MongoDbPodSpec: mdbv1.MongoDbPodSpec{}, Default: NewDefaultPodSpec()}
-	spec := defaultPodSpecTemplate("s", podSpec, map[string]string{}, map[string]string{}).Spec
+	spec := getDefaultPodSpecTemplate("s", podSpec, defaultPodVars(), map[string]string{}, map[string]string{}, []corev1.Container{}).Spec
 	assert.Nil(t, spec.ImagePullSecrets)
 
 	_ = os.Setenv(util.AutomationAgentPullSecrets, "foo")
@@ -172,7 +200,7 @@ func TestBasePodSpec_ImagePullSecrets(t *testing.T) {
 	reconciler := newReplicaSetReconciler(kubeManager, om.NewEmptyMockedOmConnection)
 	stsHelper := *reconciler.kubeHelper.NewStatefulSetHelper(rs).SetPodVars(defaultPodVars())
 
-	podSpecTemplate, _ := getMergedDefaultPodSpecTemplate(stsHelper, map[string]string{})
+	podSpecTemplate, _ := getMergedDefaultPodSpecTemplate(stsHelper, map[string]string{}, []corev1.Container{})
 	assert.Equal(t, []corev1.LocalObjectReference{{Name: "foo"}}, podSpecTemplate.Spec.ImagePullSecrets)
 
 	// Cleaning the state (there is no tear down in go test :( )
@@ -182,7 +210,7 @@ func TestBasePodSpec_ImagePullSecrets(t *testing.T) {
 // TestBasePodSpec_TerminationGracePeriodSeconds verifies that the TerminationGracePeriodSeconds is set to 600 seconds
 func TestBasePodSpec_TerminationGracePeriodSeconds(t *testing.T) {
 	podSpec := mdbv1.PodSpecWrapper{MongoDbPodSpec: mdbv1.MongoDbPodSpec{}, Default: NewDefaultPodSpec()}
-	spec := defaultPodSpecTemplate("s", podSpec, map[string]string{}, map[string]string{}).Spec
+	spec := getDefaultPodSpecTemplate("s", podSpec, defaultPodVars(), map[string]string{}, map[string]string{}, []corev1.Container{}).Spec
 	assert.Equal(t, util.Int64Ref(600), spec.TerminationGracePeriodSeconds)
 }
 
@@ -229,7 +257,7 @@ func TestDefaultPodSpec_FsGroup(t *testing.T) {
 	reconciler := newReplicaSetReconciler(kubeManager, om.NewEmptyMockedOmConnection)
 	stsHelper := *reconciler.kubeHelper.NewStatefulSetHelper(rs).SetPodVars(defaultPodVars())
 
-	podSpecTemplate, _ := getMergedDefaultPodSpecTemplate(stsHelper, map[string]string{})
+	podSpecTemplate, _ := getMergedDefaultPodSpecTemplate(stsHelper, map[string]string{}, []corev1.Container{})
 
 	spec := podSpecTemplate.Spec
 	assert.Len(t, spec.InitContainers, 0)
@@ -239,7 +267,7 @@ func TestDefaultPodSpec_FsGroup(t *testing.T) {
 
 	os.Setenv(util.ManagedSecurityContextEnv, "true")
 
-	podSpecTemplate, _ = getMergedDefaultPodSpecTemplate(stsHelper, map[string]string{})
+	podSpecTemplate, _ = getMergedDefaultPodSpecTemplate(stsHelper, map[string]string{}, []corev1.Container{})
 	spec = podSpecTemplate.Spec
 
 	InitDefaultEnvVariables()

@@ -338,7 +338,7 @@ func TestShardedCustomPodSpecTemplate(t *testing.T) {
 			NodeName: "some-node-name",
 			Hostname: "some-host-name",
 			Containers: []corev1.Container{{
-				Name:  "my-custom-container",
+				Name:  "my-custom-container-sc",
 				Image: "my-custom-image",
 				VolumeMounts: []corev1.VolumeMount{{
 					Name: "my-volume-mount",
@@ -351,7 +351,7 @@ func TestShardedCustomPodSpecTemplate(t *testing.T) {
 			NodeName: "some-node-name-mongos",
 			Hostname: "some-host-name-mongos",
 			Containers: []corev1.Container{{
-				Name:  "my-custom-container",
+				Name:  "my-custom-container-mongos",
 				Image: "my-custom-image",
 				VolumeMounts: []corev1.VolumeMount{{
 					Name: "my-volume-mount",
@@ -364,7 +364,7 @@ func TestShardedCustomPodSpecTemplate(t *testing.T) {
 			NodeName: "some-node-name-config",
 			Hostname: "some-host-name-config",
 			Containers: []corev1.Container{{
-				Name:  "my-custom-container",
+				Name:  "my-custom-container-config",
 				Image: "my-custom-image",
 				VolumeMounts: []corev1.VolumeMount{{
 					Name: "my-volume-mount",
@@ -383,10 +383,34 @@ func TestShardedCustomPodSpecTemplate(t *testing.T) {
 	checkReconcileSuccessful(t, reconciler, sc, kubeManager.client)
 
 	// read the stateful sets that were created by the operator
-	assertPodSpecSts(t, getStatefulSet(kubeManager.client, objectKey(TestNamespace, "pod-spec-sc-0")))
-	assertPodSpecSts(t, getStatefulSet(kubeManager.client, objectKey(TestNamespace, "pod-spec-sc-1")))
-	assertMongosSts(t, getStatefulSet(kubeManager.client, objectKey(TestNamespace, "pod-spec-sc-mongos")))
-	assertConfigSvrSts(t, getStatefulSet(kubeManager.client, objectKey(TestNamespace, "pod-spec-sc-config")))
+	statefulSetSc0 := getStatefulSet(kubeManager.client, objectKey(TestNamespace, "pod-spec-sc-0"))
+	statefulSetSc1 := getStatefulSet(kubeManager.client, objectKey(TestNamespace, "pod-spec-sc-1"))
+	statefulSetScConfig := getStatefulSet(kubeManager.client, objectKey(TestNamespace, "pod-spec-sc-config"))
+	statefulSetMongoS := getStatefulSet(kubeManager.client, objectKey(TestNamespace, "pod-spec-sc-mongos"))
+	assertPodSpecSts(t, statefulSetSc0)
+	assertPodSpecSts(t, statefulSetSc1)
+	assertMongosSts(t, statefulSetMongoS)
+	assertConfigSvrSts(t, statefulSetScConfig)
+
+	podSpecTemplateSc0 := statefulSetSc0.Spec.Template.Spec
+	assert.Len(t, podSpecTemplateSc0.Containers, 2, "Should have 2 containers now")
+	assert.Equal(t, util.ContainerName, podSpecTemplateSc0.Containers[0].Name, "Database container should always be first")
+	assert.Equal(t, "my-custom-container-sc", podSpecTemplateSc0.Containers[1].Name, "Custom container should be second")
+
+	podSpecTemplateSc1 := statefulSetSc1.Spec.Template.Spec
+	assert.Len(t, podSpecTemplateSc1.Containers, 2, "Should have 2 containers now")
+	assert.Equal(t, util.ContainerName, podSpecTemplateSc1.Containers[0].Name, "Database container should always be first")
+	assert.Equal(t, "my-custom-container-sc", podSpecTemplateSc1.Containers[1].Name, "Custom container should be second")
+
+	podSpecTemplateMongoS := statefulSetMongoS.Spec.Template.Spec
+	assert.Len(t, podSpecTemplateMongoS.Containers, 2, "Should have 2 containers now")
+	assert.Equal(t, util.ContainerName, podSpecTemplateMongoS.Containers[0].Name, "Database container should always be first")
+	assert.Equal(t, "my-custom-container-mongos", podSpecTemplateMongoS.Containers[1].Name, "Custom container should be second")
+
+	podSpecTemplateScConfig := statefulSetScConfig.Spec.Template.Spec
+	assert.Len(t, podSpecTemplateScConfig.Containers, 2, "Should have 2 containers now")
+	assert.Equal(t, util.ContainerName, podSpecTemplateScConfig.Containers[0].Name, "Database container should always be first")
+	assert.Equal(t, "my-custom-container-config", podSpecTemplateScConfig.Containers[1].Name, "Custom container should be second")
 }
 
 func assertPodSpecSts(t *testing.T, sts *appsv1.StatefulSet) {
@@ -408,8 +432,7 @@ func assertPodSpecTemplate(t *testing.T, nodeName, hostName, volumeName string, 
 	assert.Equal(t, hostName, podSpecTemplate.Hostname)
 	assert.Equal(t, restartPolicy, podSpecTemplate.RestartPolicy)
 
-	// ensure the database container was set instead of custom container
-	assert.Equal(t, "mongodb-enterprise-database", podSpecTemplate.Containers[0].Name, "Database container should be present, not custom container")
+	assert.Equal(t, util.ContainerName, podSpecTemplate.Containers[0].Name, "Database container should always be first")
 	assert.Equal(t, volumeName, podSpecTemplate.Containers[0].VolumeMounts[0].Name, "Operator mounted volume should be present, not custom volume")
 }
 

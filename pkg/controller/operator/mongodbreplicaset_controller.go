@@ -93,7 +93,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		SetProjectConfig(*projectConfig).
 		SetSecurity(rs.Spec.Security).
 		SetReplicaSetHorizons(rs.Spec.Connectivity.ReplicaSetHorizons).
-		SetPodTemplate(rs.Spec.PodSpec.PodTemplate)
+		SetPodTemplateSpec(rs.Spec.PodSpec.PodTemplate)
 
 	if status := validateMongoDBResource(rs, conn); !status.isOk() {
 		return status.updateStatus(rs, r.ReconcileCommonController, log)

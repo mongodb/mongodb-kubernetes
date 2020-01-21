@@ -43,6 +43,7 @@ func TestPrepareScaleDown_OpsManagerRemovedMember(t *testing.T) {
 }
 
 func InitDefaultEnvVariables() {
+	os.Setenv(util.AppDBImageUrl, "some.repo")
 	os.Setenv(util.AutomationAgentImageUrl, "mongodb-enterprise-database")
 	os.Setenv(util.AutomationAgentImagePullPolicy, "Never")
 	os.Setenv(util.OmOperatorEnv, "test")

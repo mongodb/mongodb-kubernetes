@@ -5,12 +5,13 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
 	"hash"
 	"io/ioutil"
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
 

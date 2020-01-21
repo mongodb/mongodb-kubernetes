@@ -260,7 +260,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 		SetTLS(s.Spec.GetTLSConfig()).
 		SetProjectConfig(*projectConfig).
 		SetSecurity(s.Spec.Security).
-		SetPodTemplate(s.Spec.MongosPodSpec.PodTemplate)
+		SetPodTemplateSpec(s.Spec.MongosPodSpec.PodTemplate)
 
 	// 2. Create a Config Server StatefulSet
 	defaultConfigSrvSpec := NewDefaultPodSpec()
@@ -279,7 +279,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 		SetTLS(s.Spec.GetTLSConfig()).
 		SetProjectConfig(*projectConfig).
 		SetSecurity(s.Spec.Security).
-		SetPodTemplate(s.Spec.ConfigSrvPodSpec.PodTemplate)
+		SetPodTemplateSpec(s.Spec.ConfigSrvPodSpec.PodTemplate)
 
 	// 3. Creates a StatefulSet for each shard in the cluster
 	shardsSetHelpers := make([]*StatefulSetHelper, s.Spec.ShardCount)
@@ -294,7 +294,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 			SetTLS(s.Spec.GetTLSConfig()).
 			SetProjectConfig(*projectConfig).
 			SetSecurity(s.Spec.Security).
-			SetPodTemplate(s.Spec.PodSpec.PodTemplate)
+			SetPodTemplateSpec(s.Spec.PodSpec.PodTemplate)
 	}
 
 	return ShardedClusterKubeState{

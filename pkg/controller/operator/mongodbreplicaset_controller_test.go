@@ -243,7 +243,14 @@ func TestReplicaSetCustomPodSpecTemplate(t *testing.T) {
 	checkReconcileSuccessful(t, reconciler, rs, kubeManager.client)
 
 	// read the stateful set that was created by the operator
-	assertPodSpecSts(t, getStatefulSet(kubeManager.client, objectKeyFromApiObject(rs)))
+	statefulSet := getStatefulSet(kubeManager.client, objectKeyFromApiObject(rs))
+
+	assertPodSpecSts(t, statefulSet)
+
+	podSpecTemplate := statefulSet.Spec.Template.Spec
+	assert.Len(t, podSpecTemplate.Containers, 2, "Should have 2 containers now")
+	assert.Equal(t, util.ContainerName, podSpecTemplate.Containers[0].Name, "Database container should always be first")
+	assert.Equal(t, "my-custom-container", podSpecTemplate.Containers[1].Name, "Custom container should be second")
 }
 
 func DefaultReplicaSetBuilder() *ReplicaSetBuilder {

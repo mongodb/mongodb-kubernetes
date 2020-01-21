@@ -27,6 +27,42 @@ func withoutElementAtIndex(slice []interface{}, index int) []interface{} {
 	return append(slice[:index], slice[index+1:]...) // slice[i+1:] returns an empty slice if i >= len(slice)
 }
 
+// mergeBoth is called when both maps have a common field
+func mergeBoth(structAsMap map[string]interface{}, unmodifiedOriginalMap map[string]interface{}, key string, val interface{}) {
+	switch val.(type) {
+	case map[string]interface{}:
+		// we already know about the key, and it's a nested map so we can continue
+		merge(cast.ToStringMap(structAsMap[key]), cast.ToStringMap(unmodifiedOriginalMap[key]))
+	case []interface{}:
+		i, j := 0, 0
+		for _, element := range cast.ToSlice(val) {
+			elementsFromStruct := cast.ToSlice(structAsMap[key])
+
+			if i >= len(elementsFromStruct) {
+				break
+			}
+
+			// in the case of a nested map, we can continue the merging process
+			if isStringMap(element) {
+				// by marking an element as nil, we indicate that we want to delete this element
+				if cast.ToSlice(structAsMap[key])[i] == nil {
+					slice := cast.ToSlice(structAsMap[key])
+					structAsMap[key] = withoutElementAtIndex(slice, i)
+					i-- // if we removed the element at a given position, we want to examine the same index again as the contents have shifted
+				} else {
+					merge(cast.ToStringMap(cast.ToSlice(structAsMap[key])[i]), cast.ToStringMap(cast.ToSlice(unmodifiedOriginalMap[key])[j]))
+				}
+			}
+			// we need to maintain 2 counters in order to prevent merging a map from "structAsMap" with a value from "unmodifiedOriginalMap"
+			// that doesn't correspond to the same logical value.
+			i++
+			j++
+		}
+		// for any other type, the value has been set by the operator, so we don't want to override
+		// a value from the existing Automation Config value in that case.
+	}
+}
+
 // merge takes a map dst (serialized from a struct) and a map src (the map from an unmodified deployment)
 // and merges them together based on a set of rules
 func merge(structAsMap, unmodifiedOriginalMap map[string]interface{}) {
@@ -41,38 +77,7 @@ func merge(structAsMap, unmodifiedOriginalMap map[string]interface{}) {
 			}
 
 		} else { // the value exists already in the map we have, we need to perform merge
-			switch val.(type) {
-			case map[string]interface{}:
-				// we already know about the key, and it's a nested map so we can continue
-				merge(cast.ToStringMap(structAsMap[key]), cast.ToStringMap(unmodifiedOriginalMap[key]))
-			case []interface{}:
-				i, j := 0, 0
-				for _, element := range cast.ToSlice(val) {
-					elementsFromStruct := cast.ToSlice(structAsMap[key])
-
-					if i >= len(elementsFromStruct) {
-						break
-					}
-
-					// in the case of a nested map, we can continue the merging process
-					if isStringMap(element) {
-						// by marking an element as nil, we indicate that we want to delete this element
-						if cast.ToSlice(structAsMap[key])[i] == nil {
-							slice := cast.ToSlice(structAsMap[key])
-							structAsMap[key] = withoutElementAtIndex(slice, i)
-							i-- // if we removed the element at a given position, we want to examine the same index again as the contents have shifted
-						} else {
-							merge(cast.ToStringMap(cast.ToSlice(structAsMap[key])[i]), cast.ToStringMap(cast.ToSlice(unmodifiedOriginalMap[key])[j]))
-						}
-					}
-					// we need to maintain 2 counters in order to prevent merging a map from "structAsMap" with a value from "unmodifiedOriginalMap"
-					// that doesn't correspond to the same logical value.
-					i++
-					j++
-				}
-				// for any other type, the value has been set by the operator, so we don't want to override
-				// a value from the existing Automation Config value in that case.
-			}
+			mergeBoth(structAsMap, unmodifiedOriginalMap, key, val)
 		}
 	}
 
@@ -117,5 +122,14 @@ func MergeWith(structToMerge interface{}, src map[string]interface{}, transforme
 // MergePodSpecs takes all of the values that exist in defaultPodTemplateSpec, and merges them into
 // customPodTemplateSpec. Values that exist in both will not be touched.
 func MergePodSpecs(customPodTemplateSpec *corev1.PodTemplateSpec, defaultPodTemplateSpec corev1.PodTemplateSpec) error {
+	// TODO: this test is to remedy a builder calling MergePodSpecs multiple times, I will address that in a follow-up PR
+	if len(customPodTemplateSpec.Spec.Containers) > 0 && (len(defaultPodTemplateSpec.Spec.Containers) == 0 || customPodTemplateSpec.Spec.Containers[0].Name != defaultPodTemplateSpec.Spec.Containers[0].Name) {
+		// needs merge
+		mergedContainers := []corev1.Container{}
+		// defaultPodTemplateSpec is always 1st
+		mergedContainers = append(mergedContainers, defaultPodTemplateSpec.Spec.Containers...)
+		mergedContainers = append(mergedContainers, customPodTemplateSpec.Spec.Containers...)
+		customPodTemplateSpec.Spec.Containers = mergedContainers
+	}
 	return mergo.Merge(customPodTemplateSpec, defaultPodTemplateSpec)
 }

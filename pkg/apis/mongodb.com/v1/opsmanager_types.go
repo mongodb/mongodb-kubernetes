@@ -402,6 +402,22 @@ type AppDB struct {
 	namespace      string
 }
 
+type AppDbBuilder struct {
+	appDb *AppDB
+}
+
+func DefaultAppDbBuilder() *AppDbBuilder {
+	appDb := &AppDB{
+		MongoDbSpec:          MongoDbSpec{Version: "4.2.0", Members: 3, PodSpec: &MongoDbPodSpec{}},
+		PasswordSecretKeyRef: &SecretKeyRef{},
+	}
+	return &AppDbBuilder{appDb: appDb}
+}
+
+func (b *AppDbBuilder) Build() *AppDB {
+	return b.appDb
+}
+
 func (m *AppDB) GetSecretName() string {
 	return m.Name() + "-password"
 }
