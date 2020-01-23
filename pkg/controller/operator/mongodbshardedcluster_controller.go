@@ -208,18 +208,7 @@ func (r *ReconcileMongoDbShardedCluster) ensureSSLCertificates(s *mdbv1.MongoDB,
 // ready yet
 // Note, that it doesn't remove any existing shards - this will be done later
 func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger) reconcileStatus {
-	err := state.mongosSetHelper.CreateOrUpdateInKubernetes()
-	if err != nil {
-		return failed("Failed to create Mongos Stateful Set: %s", err)
-	}
-
-	if !r.kubeHelper.isStatefulSetUpdated(state.mongosSetHelper.Namespace, state.mongosSetHelper.Name, log) {
-		return pending("StatefulSet %s/%s is still pending to start/update", state.mongosSetHelper.Namespace, state.mongosSetHelper.Name)
-	}
-
-	log.Infow("Created/updated StatefulSet for mongos servers", "name", state.mongosSetHelper.Name, "servers count", state.mongosSetHelper.Replicas)
-
-	err = state.configSrvSetHelper.CreateOrUpdateInKubernetes()
+	err := state.configSrvSetHelper.CreateOrUpdateInKubernetes()
 	if err != nil {
 		return failed("Failed to create Config Server Stateful Set: %s", err)
 	}
@@ -243,6 +232,17 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 	}
 
 	log.Infow("Created/updated Stateful Sets for shards in Kubernetes", "shards", shardsNames)
+
+	err = state.mongosSetHelper.CreateOrUpdateInKubernetes()
+	if err != nil {
+		return failed("Failed to create Mongos Stateful Set: %s", err)
+	}
+
+	if !r.kubeHelper.isStatefulSetUpdated(state.mongosSetHelper.Namespace, state.mongosSetHelper.Name, log) {
+		return pending("StatefulSet %s/%s is still pending to start/update", state.mongosSetHelper.Namespace, state.mongosSetHelper.Name)
+	}
+
+	log.Infow("Created/updated StatefulSet for mongos servers", "name", state.mongosSetHelper.Name, "servers count", state.mongosSetHelper.Replicas)
 
 	return ok()
 }

@@ -18,6 +18,19 @@ func TestDeadlockDetection(t *testing.T) {
 	assert.True(t, isPodReady("health-status-deadlocked.json", nil))
 }
 
+// TestDeadlockDetection verifies that if the agent is stuck in "WaitFeatureCompatibilityVersionCorrect" phase
+//(started > 15 seconds ago) then the function returns "ready"
+// Note, that in this example two waiting phases started and there is no step after them, so the last one
+// is expected to be returned
+func TestDeadlockDetectionTwoWaitingPhases(t *testing.T) {
+	health := readHealthinessFile("health-status-deadlocked-2.json")
+	stepStatus := findCurrentStep(health.ProcessPlans)
+
+	assert.Equal(t, "WaitFeatureCompatibilityVersionCorrect", stepStatus.Step)
+
+	assert.True(t, isPodReady("health-status-deadlocked-2.json", nil))
+}
+
 // TestDeadlockDetection verifies that if the agent is in "WaitAllRsMembersUp" phase but started < 15 seconds ago
 // then the function returns "not ready". To achieve this "started" is put into some long future.
 // Note, that the status file is artificial: it has two plans (the first one is complete and has no moves) to make sure
@@ -107,6 +120,12 @@ func TestHeadlessAgentPanicsIfEnvVarsNotSet(t *testing.T) {
 	_ = os.Setenv(PodNamespaceEnv, "test")
 	// Still panics
 	assert.Panics(t, func() { isPodReady("health-status-ok.json", mockedReader) })
+}
+
+func readHealthinessFile(path string) Health {
+	fd, _ := os.Open(path)
+	health, _ := readAgentHealthStatus(fd)
+	return health
 }
 
 // MockedConfigMapReader is a mocked implementation of ConfigMapReader

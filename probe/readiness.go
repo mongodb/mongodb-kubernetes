@@ -25,7 +25,7 @@ var riskySteps []string
 var logger *zap.SugaredLogger
 
 func init() {
-	riskySteps = []string{"WaitAllRsMembersUp", "WaitRsInit"}
+	riskySteps = []string{"WaitAllRsMembersUp", "WaitRsInit", "WaitFeatureCompatibilityVersionCorrect"}
 
 	// By default we log to the output (convenient for tests)
 	cfg := zap.NewDevelopmentConfig()
@@ -140,13 +140,11 @@ func findCurrentStep(processStatuses map[string]mmsDirectorStatus) *StepStatus {
 		for _, s := range m.Steps {
 			if s.Started != nil {
 				lastStartedStep = s
-			} else {
-				return lastStartedStep
 			}
 		}
 	}
 
-	return nil
+	return lastStartedStep
 }
 
 func isDeadlocked(status *StepStatus) bool {
