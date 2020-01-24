@@ -8,8 +8,8 @@ FROM {{ base_image }}
 ENV MMS_HOME /mongodb-automation
 ENV MMS_LOG_DIR /var/log/mongodb-mms-automation
 ENV MDB_DIR /var/lib/mongodb-mms-automation/downloads
-ENV MDB_VERSION 4.2.2
 
+ARG MDB_VERSION
 ARG AA_VERSION
 ARG AA_DOWNLOAD_LOCATION
 {% endblock %}

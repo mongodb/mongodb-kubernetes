@@ -68,6 +68,7 @@ functions:
       params:
         add_to_path:
           - *go_bin
+          - ${workdir}/bin
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         env:
           WORKDIR: ${workdir}
@@ -82,6 +83,7 @@ functions:
       params:
         add_to_path:
         - *go_bin
+        - ${workdir}/bin
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         env:
           WORKDIR: ${workdir}
@@ -604,6 +606,7 @@ tasks:
 - name: unit_tests
   tags: ["unit_tests"]
   commands:
+    - func: "setup_jq"
     - func: "test_operator"
     - func: "gotest_parse_files"
 
@@ -820,6 +823,7 @@ tasks:
   - func: clone
   - func: download_kube_tools
   - func: setup_ecr_login_helper
+  - func: setup_jq
   - func: build_operator
     vars:
       distro: rhel
@@ -855,6 +859,7 @@ tasks:
   - func: clone
   - func: download_kube_tools
   - func: setup_ecr_login_helper
+  - func: setup_jq
   - func: build_operator
     vars:
       distro: ubuntu

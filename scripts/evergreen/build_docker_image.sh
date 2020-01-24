@@ -49,6 +49,8 @@ build_image () {
     # TODO: this needs to receive the AWS_ env variables.
     ensure_ecr_credentials
 
+    MDB_VERSION="$(jq --raw-output .appDbBundledMongoDbVersion < release.json | cut  -d. -f-2)"
+
     cat <<EOF | kubectl create -f -
 apiVersion: v1
 kind: Pod
@@ -62,6 +64,7 @@ spec:
   - name: kaniko
     image: gcr.io/kaniko-project/executor:latest
     args: ["--dockerfile=Dockerfile",
+           "--build-arg=MDB_VERSION=${MDB_VERSION}",
            "--destination=${destination}",
            "--context=${context}",
            "--cache=true",

@@ -422,6 +422,13 @@ func (m *AppDB) GetSecretName() string {
 	return m.Name() + "-password"
 }
 
+func (m *AppDB) GetVersion() string {
+	if m.Version == "" {
+		return util.GetBundledAppDbMongoDBVersion()
+	}
+	return m.Version
+}
+
 // No Security and no AdditionalMongodConfig as of alpha
 func (m *AppDB) UnmarshalJSON(data []byte) error {
 	type MongoDBJSON *AppDB

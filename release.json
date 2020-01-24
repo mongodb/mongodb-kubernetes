@@ -1,4 +1,5 @@
 {
+  "appDbBundledMongoDbVersion" : "4.2.2",
   "mongodbOperator": "1.4.1",
   "opsManagerImages": [
     {

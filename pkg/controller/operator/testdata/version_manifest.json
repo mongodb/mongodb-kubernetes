@@ -1,0 +1,82 @@
+{
+  "updated": 1576540800042,
+  "versions": [
+    {
+      "builds": [
+        {
+          "architecture": "ppc64le",
+          "gitVersion": "a0bbbff6ada159e19298d37946ac8dc4b497eadf",
+          "platform": "linux",
+          "url": "/linux/mongodb-linux-ppc64le-enterprise-rhel71-4.2.2.tgz",
+          "flavor": "rhel",
+          "maxOsVersion": "8.0",
+          "minOsVersion": "7.0",
+          "modules": [
+            "enterprise"
+          ]
+        },
+        {
+          "architecture": "amd64",
+          "gitVersion": "a0bbbff6ada159e19298d37946ac8dc4b497eadf",
+          "platform": "linux",
+          "url": "/linux/mongodb-linux-x86_64-enterprise-rhel62-4.2.2.tgz",
+          "flavor": "rhel",
+          "maxOsVersion": "7.0",
+          "minOsVersion": "6.2",
+          "modules": [
+            "enterprise"
+          ]
+        },
+        {
+          "architecture": "s390x",
+          "gitVersion": "a0bbbff6ada159e19298d37946ac8dc4b497eadf",
+          "platform": "linux",
+          "url": "/linux/mongodb-linux-s390x-enterprise-rhel72-4.2.2.tgz",
+          "flavor": "rhel",
+          "maxOsVersion": "8.0",
+          "minOsVersion": "7.0",
+          "modules": [
+            "enterprise"
+          ]
+        },
+        {
+          "architecture": "amd64",
+          "gitVersion": "a0bbbff6ada159e19298d37946ac8dc4b497eadf",
+          "platform": "linux",
+          "url": "/linux/mongodb-linux-x86_64-enterprise-ubuntu1604-4.2.2.tgz",
+          "flavor": "ubuntu",
+          "maxOsVersion": "17.04",
+          "minOsVersion": "16.04",
+          "modules": [
+            "enterprise"
+          ]
+        },
+        {
+          "architecture": "amd64",
+          "gitVersion": "a0bbbff6ada159e19298d37946ac8dc4b497eadf",
+          "platform": "linux",
+          "url": "/linux/mongodb-linux-x86_64-enterprise-suse12-4.2.2.tgz",
+          "flavor": "suse",
+          "maxOsVersion": "13",
+          "minOsVersion": "12",
+          "modules": [
+            "enterprise"
+          ]
+        },
+        {
+          "architecture": "amd64",
+          "gitVersion": "a0bbbff6ada159e19298d37946ac8dc4b497eadf",
+          "platform": "linux",
+          "url": "/linux/mongodb-linux-x86_64-enterprise-debian92-4.2.2.tgz",
+          "flavor": "debian",
+          "maxOsVersion": "10.0",
+          "minOsVersion": "9.1",
+          "modules": [
+            "enterprise"
+          ]
+        }
+      ],
+      "name": "4.2.2-ent"
+    }
+  ]
+}

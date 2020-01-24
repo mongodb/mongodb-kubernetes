@@ -3,15 +3,10 @@ package operator
 import (
 	"crypto/sha1"
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"hash"
-	"io/ioutil"
 	"reflect"
-	"strings"
 	"time"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
 
@@ -26,18 +21,15 @@ import (
 
 const DefaultWaitForReadinessSeconds = 5
 
-type VersionManifest struct {
-	Updated  int                       `json:"updated"`
-	Versions []om.MongoDbVersionConfig `json:"versions"`
-}
-
 // ReconcileAppDbReplicaSet reconciles a MongoDB with a type of ReplicaSet
 type ReconcileAppDbReplicaSet struct {
 	*ReconcileCommonController
+	VersionManifestFilePath  string
+	InternetManifestProvider om.VersionManifestProvider
 }
 
 func newAppDBReplicaSetReconciler(commonController *ReconcileCommonController) *ReconcileAppDbReplicaSet {
-	return &ReconcileAppDbReplicaSet{commonController}
+	return &ReconcileAppDbReplicaSet{ReconcileCommonController: commonController, VersionManifestFilePath: util.VersionManifestFilePath, InternetManifestProvider: om.InternetManifestProvider{}}
 }
 
 // Reconcile deploys the "headless" agent, and wait until it reaches the goal state
@@ -230,9 +222,6 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(rs *mdbv1.AppDB, o
 
 	replicaSet := buildReplicaSetFromStatefulSetAppDb(set, rs, log)
 
-	appDbVersion := "4.2.2-ent" // TODO: dynamically determine the version that is bundled with the AppDB image.
-	isUsingBundledMongoDb := rs.Version == appDbVersion || rs.Version == ""
-
 	d.MergeReplicaSet(replicaSet, nil)
 	d.AddMonitoringAndBackup(replicaSet.Processes[0].HostName(), log)
 
@@ -250,7 +239,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(rs *mdbv1.AppDB, o
 		return nil, err
 	}
 
-	if err := configureMongoDBVersions(automationConfig, isUsingBundledMongoDb, log); err != nil {
+	if err := r.configureMongoDBVersions(automationConfig, rs, log); err != nil {
 		return nil, err
 	}
 	// Setting the default version - will be used if no automation config has been published before
@@ -312,91 +301,29 @@ func buildOpsManagerUser(scramSha1Creds, scramSha256Creds *om.ScramShaCreds) om.
 	}
 }
 
-func configureMongoDBVersions(config *om.AutomationConfig, isUsingBundledMongoDb bool, log *zap.SugaredLogger) error {
-	if isUsingBundledMongoDb {
-		// TODO: dynamically create this list
-
-		// The agent calls mongod --version and compares the githash and version in order to confirm the corresponding
-		// version of MongoDB exists on disk. So these values need to be correct. The agent will fail cluster validation
-		// if the other values don't exist. (URL is not required)
-		mdbGitVersion := "a0bbbff6ada159e19298d37946ac8dc4b497eadf" // TODO: determine this at runtime
-		versions := []om.MongoDbVersionConfig{
-			{
-				Name: "4.2.2-ent",
-				Builds: []*om.BuildConfig{
-					{
-						Platform:     "linux",
-						GitVersion:   mdbGitVersion,
-						Architecture: "amd64",
-						Flavor:       "ubuntu",
-						MinOsVersion: "16.04",
-						MaxOsVersion: "17.04",
-						Modules:      []string{"enterprise"},
-					},
-					{
-						Platform:     "linux",
-						GitVersion:   mdbGitVersion,
-						Architecture: "amd64",
-						Flavor:       "rhel",
-						MinOsVersion: "7.0",
-						MaxOsVersion: "8.0",
-						Modules:      []string{"enterprise"},
-					},
-				},
-			},
+func (r *ReconcileAppDbReplicaSet) configureMongoDBVersions(config *om.AutomationConfig, rs *mdbv1.AppDB, log *zap.SugaredLogger) error {
+	if rs.GetVersion() == util.GetBundledAppDbMongoDBVersion() {
+		versionManifest, err := om.FileVersionManifestProvider{FilePath: r.VersionManifestFilePath}.GetVersionManifest()
+		if err != nil {
+			return err
 		}
-		config.SetMongodbVersions(versions)
-		log.Infof("Using bundled MongoDB version: %s", versions[0].Name)
+		config.SetMongodbVersions(versionManifest.Versions)
+		log.Infof("Using bundled MongoDB version: %s", util.GetBundledAppDbMongoDBVersion())
 		return nil
 	} else {
-		return addLatestMongoDBVersions(config, log)
+		return r.addLatestMongoDBVersions(config, log)
 	}
 }
 
-func addLatestMongoDBVersions(config *om.AutomationConfig, log *zap.SugaredLogger) error {
+func (r *ReconcileAppDbReplicaSet) addLatestMongoDBVersions(config *om.AutomationConfig, log *zap.SugaredLogger) error {
 	start := time.Now()
-	client, err := api.NewHTTPClient()
+	versionManifest, err := r.InternetManifestProvider.GetVersionManifest()
 	if err != nil {
 		return err
 	}
-	resp, err := client.Get(fmt.Sprintf("https://opsmanager.mongodb.com/static/version_manifest/%s.json", util.LatestOmVersion))
-	if err != nil {
-		return err
-	}
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-
-	versionManifest := &VersionManifest{}
-	err = json.Unmarshal(body, &versionManifest)
-	if err != nil {
-		return err
-	}
-	fixLinks(versionManifest.Versions)
 	config.SetMongodbVersions(versionManifest.Versions)
-
 	log.Debugf("Mongodb version manifest %s downloaded, took %s", util.LatestOmVersion, time.Since(start))
 	return nil
-}
-
-// fixLinks iterates over build links and prefixes them with a correct domain
-// (see mms AutomationMongoDbVersionSvc#buildRemoteUrl)
-func fixLinks(configs []om.MongoDbVersionConfig) {
-	for _, version := range configs {
-		for _, build := range version.Builds {
-			if strings.HasSuffix(version.Name, "-ent") {
-				build.Url = "https://downloads.mongodb.com" + build.Url
-			} else {
-				build.Url = "https://fastdl.mongodb.org" + build.Url
-			}
-			// AA expects not nil element
-			if build.Modules == nil {
-				build.Modules = []string{}
-			}
-		}
-	}
 }
 
 func (r *ReconcileAppDbReplicaSet) updateStatusFailedAppDb(resource *mdbv1.MongoDBOpsManager, msg string, log *zap.SugaredLogger) (reconcile.Result, error) {
@@ -442,7 +369,7 @@ func (r *ReconcileAppDbReplicaSet) updateStatusPendingAppDb(resource *mdbv1.Mong
 
 func buildReplicaSetFromStatefulSetAppDb(set *appsv1.StatefulSet, mdb *mdbv1.AppDB, log *zap.SugaredLogger) om.ReplicaSetWithProcesses {
 	members := createProcessesAppDb(set, om.ProcessTypeMongod, mdb)
-	replicaSet := om.NewReplicaSet(set.Name, mdb.Version)
+	replicaSet := om.NewReplicaSet(set.Name, mdb.GetVersion())
 	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members)
 	return rsWithProcesses
 }
@@ -452,7 +379,7 @@ func createProcessesAppDb(set *appsv1.StatefulSet, mongoType om.MongoType,
 
 	hostnames, names := util.GetDnsForStatefulSet(set, mdb.GetClusterDomain())
 	processes := make([]om.Process, len(hostnames))
-	wiredTigerCache := calculateWiredTigerCache(set, mdb.Version)
+	wiredTigerCache := calculateWiredTigerCache(set, mdb.GetVersion())
 
 	for idx, hostname := range hostnames {
 		switch mongoType {

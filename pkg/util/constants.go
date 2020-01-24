@@ -1,6 +1,9 @@
 package util
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 const (
 	// MongoDbStandaloneController name of the Standalone controller
@@ -96,6 +99,9 @@ const (
 	FsGroup                     = 2000
 	AppDBServiceAccount         = "mongodb-enterprise-appdb"
 	AgentDownloadsDir           = "/var/lib/mongodb-mms-automation/downloads"
+
+	// Operator Filesystem constants
+	VersionManifestFilePath = "/var/lib/mongodb-enterprise-operator/version_manifest.json"
 
 	// Authentication
 
@@ -205,6 +211,12 @@ const (
 // installed for development (using 'make') meaning the Ops Manager/AppDB images deployed won't have
 // "operator specific" part of the version tag
 var OperatorVersion string
+var BundledAppDbMongodbVersion string
+
+func GetBundledAppDbMongoDBVersion() string {
+	return fmt.Sprintf("%s-ent", BundledAppDbMongodbVersion)
+}
+
 var LogAutomationConfigDiff string
 
 func ShouldLogAutomationConfigDiff() bool {

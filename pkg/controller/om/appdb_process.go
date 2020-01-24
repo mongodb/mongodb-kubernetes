@@ -19,7 +19,7 @@ import (
 func NewMongodProcessAppDB(name, hostName string, resource *mdbv1.AppDB) Process {
 	p := Process{}
 
-	initDefault(name, hostName, resource.Version, resource.FeatureCompatibilityVersion, ProcessTypeMongod, p)
+	initDefault(name, hostName, resource.GetVersion(), resource.FeatureCompatibilityVersion, ProcessTypeMongod, p)
 
 	// default values for configurable values
 	p.SetDbPath("/data")

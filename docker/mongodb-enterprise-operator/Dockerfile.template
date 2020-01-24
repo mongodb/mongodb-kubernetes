@@ -25,6 +25,11 @@ LABEL name="MongoDB Enterprise Operator" \
 {% endblock -%}
 
 {% block install_operator %}
+ARG MDB_VERSION
+RUN mkdir -p /var/lib/mongodb-enterprise-operator \
+    && chmod -R +r /var/lib/mongodb-enterprise-operator \
+    && curl --fail --retry 3 -o /var/lib/mongodb-enterprise-operator/version_manifest.json "https://opsmanager.mongodb.com/static/version_manifest/${MDB_VERSION}.json"
+
 ADD content/mongodb-enterprise-operator /usr/local/bin/
 {% endblock %}
 

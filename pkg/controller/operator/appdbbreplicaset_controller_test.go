@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -18,15 +19,21 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
+const relativeVersionManifestFixturePath = "testdata/version_manifest.json"
+
+func init() {
+	util.BundledAppDbMongodbVersion = "4.2.2"
+}
+
 // TestPublishAutomationConfig_Create verifies that the automation config map is created if it doesn't exist
 func TestPublishAutomationConfig_Create(t *testing.T) {
 	builder := DefaultOpsManagerBuilder()
 	opsManager := builder.Build()
 	appdb := &opsManager.Spec.AppDB
 	kubeManager := newMockedManager(nil)
-	reconciler := newAppDbReconciler(kubeManager)
-	automationConfig := buildAutomationConfigForAppDb(t, builder)
-
+	reconciler := newAppDbReconciler(kubeManager, om.InternetManifestProvider{})
+	automationConfig, err := buildAutomationConfigForAppDb(t, builder, om.InternetManifestProvider{})
+	assert.NoError(t, err)
 	assert.NoError(t, reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S()))
 
 	// verify the configmap was created
@@ -42,9 +49,9 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 	opsManager := builder.Build()
 	appdb := &opsManager.Spec.AppDB
 	kubeManager := newMockedManager(nil)
-	reconciler := newAppDbReconciler(kubeManager)
-	automationConfig := buildAutomationConfigForAppDb(t, builder)
-
+	reconciler := newAppDbReconciler(kubeManager, om.InternetManifestProvider{})
+	automationConfig, err := buildAutomationConfigForAppDb(t, builder, om.InternetManifestProvider{})
+	assert.NoError(t, err)
 	// create
 	assert.NoError(t, reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S()))
 	kubeManager.client.ClearHistory()
@@ -69,8 +76,9 @@ func TestPublishAutomationConfig_ScramShaConfigured(t *testing.T) {
 	opsManager := builder.Build()
 	appdb := &opsManager.Spec.AppDB
 	kubeManager := newMockedManager(nil)
-	reconciler := newAppDbReconciler(kubeManager)
-	automationConfig := buildAutomationConfigForAppDb(t, builder)
+	reconciler := newAppDbReconciler(kubeManager, om.InternetManifestProvider{})
+	automationConfig, err := buildAutomationConfigForAppDb(t, builder, om.InternetManifestProvider{})
+	assert.NoError(t, err)
 	assert.NoError(t, reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S()))
 
 	configMap := readAutomationConfigMap(t, kubeManager, opsManager)
@@ -96,8 +104,8 @@ func TestBuildAppDbAutomationConfig(t *testing.T) {
 		SetAppDbMembers(2).
 		SetAppDbVersion("4.2.2").
 		SetAppDbFeatureCompatibility("4.0")
-	automationConfig := buildAutomationConfigForAppDb(t, builder)
-
+	automationConfig, err := buildAutomationConfigForAppDb(t, builder, om.InternetManifestProvider{})
+	assert.NoError(t, err)
 	deployment := automationConfig.Deployment
 
 	// processes
@@ -186,9 +194,68 @@ func TestGenerateScramCredentials(t *testing.T) {
 	assert.NotEqual(t, differentNameScram256Creds, firstScram256Creds, "a different name should generate different scram 256 credentials even with the same password")
 }
 
+func TestBundledVersionManifestIsUsed_WhenCorrespondingVersionIsUsed(t *testing.T) {
+	builder := DefaultOpsManagerBuilder().
+		SetAppDbMembers(2).
+		SetAppDbVersion("4.2.2-ent").
+		SetAppDbFeatureCompatibility("4.0")
+	automationConfig, err := buildAutomationConfigForAppDb(t, builder, AlwaysFailingManifestProvider{})
+	assert.NoError(t, err)
+	mongodbVersion := automationConfig.MongodbVersions()[0]
+	mongodbBuilds := mongodbVersion.Builds
+	firstBuild := mongodbBuilds[0]
+
+	assert.Equal(t, firstBuild.Platform, "linux")
+	assert.Equal(t, firstBuild.GitVersion, "a0bbbff6ada159e19298d37946ac8dc4b497eadf")
+	assert.Equal(t, mongodbVersion.Name, "4.2.2-ent")
+	assert.Len(t, mongodbBuilds, 6)
+}
+
+func TestBundledVersionManifestIsUsed_WhenVersionIsEmpty(t *testing.T) {
+	builder := DefaultOpsManagerBuilder().
+		SetAppDbMembers(2).
+		SetAppDbVersion("").
+		SetAppDbFeatureCompatibility("4.0")
+	automationConfig, err := buildAutomationConfigForAppDb(t, builder, AlwaysFailingManifestProvider{})
+	assert.NoError(t, err)
+	mongodbVersion := automationConfig.MongodbVersions()[0]
+	mongodbBuilds := mongodbVersion.Builds
+	firstBuild := mongodbBuilds[0]
+
+	assert.Equal(t, firstBuild.Platform, "linux")
+	assert.Equal(t, firstBuild.GitVersion, "a0bbbff6ada159e19298d37946ac8dc4b497eadf")
+	assert.Equal(t, mongodbVersion.Name, "4.2.2-ent")
+	assert.Len(t, mongodbBuilds, 6)
+}
+
+func TestVersionManifestIsDownloaded_WhenNotUsingBundledVersion(t *testing.T) {
+	builder := DefaultOpsManagerBuilder().
+		SetAppDbMembers(2).
+		SetAppDbVersion("4.1.2-ent").
+		SetAppDbFeatureCompatibility("4.0")
+	automationConfig, err := buildAutomationConfigForAppDb(t, builder, om.InternetManifestProvider{})
+	assert.NoError(t, err)
+	mongodbVersion := automationConfig.MongodbVersions()[0]
+	mongodbBuilds := mongodbVersion.Builds
+	firstBuild := mongodbBuilds[0]
+
+	assert.NotEqual(t, firstBuild.GitVersion, "a0bbbff6ada159e19298d37946ac8dc4b497eadf")
+	assert.NotEqual(t, mongodbVersion.Name, "4.2.2-ent")
+	assert.NotEqual(t, 6, len(mongodbBuilds))
+}
+
+func TestFetchingVersionManifestFails_WhenUsingNonBundledVersion(t *testing.T){
+	builder := DefaultOpsManagerBuilder().
+		SetAppDbMembers(2).
+		SetAppDbVersion("4.0.2-ent").
+		SetAppDbFeatureCompatibility("4.0")
+	_, err := buildAutomationConfigForAppDb(t, builder, AlwaysFailingManifestProvider{})
+	assert.Error(t, err)
+}
+
 // ***************** Helper methods *******************************
 
-func buildAutomationConfigForAppDb(t *testing.T, builder *OpsManagerBuilder) *om.AutomationConfig {
+func buildAutomationConfigForAppDb(t *testing.T, builder *OpsManagerBuilder, internetManifestProvider om.VersionManifestProvider) (*om.AutomationConfig, error) {
 	opsManager := builder.Build()
 	kubeManager := newMockedManager(opsManager)
 
@@ -199,11 +266,9 @@ func buildAutomationConfigForAppDb(t *testing.T, builder *OpsManagerBuilder) *om
 		},
 	}
 
-	reconciler := newAppDbReconciler(kubeManager)
+	reconciler := newAppDbReconciler(kubeManager, internetManifestProvider)
 	sts, _ := builder.BuildStatefulSet()
-	config, err := reconciler.buildAppDbAutomationConfig(&opsManager.Spec.AppDB, opsManager, "my-pass", sts, zap.S())
-	assert.NoError(t, err)
-	return config
+	return reconciler.buildAppDbAutomationConfig(&opsManager.Spec.AppDB, opsManager, "my-pass", sts, zap.S())
 }
 
 func checkDeploymentEqualToPublished(t *testing.T, expected om.Deployment, configMap *corev1.ConfigMap) {
@@ -212,8 +277,8 @@ func checkDeploymentEqualToPublished(t *testing.T, expected om.Deployment, confi
 	assert.Equal(t, expected.ToCanonicalForm(), publishedDeployment)
 }
 
-func newAppDbReconciler(mgr manager.Manager) *ReconcileAppDbReplicaSet {
-	return &ReconcileAppDbReplicaSet{newReconcileCommonController(mgr, nil)}
+func newAppDbReconciler(mgr manager.Manager, internetManifestProvider om.VersionManifestProvider) *ReconcileAppDbReplicaSet {
+	return &ReconcileAppDbReplicaSet{newReconcileCommonController(mgr, nil), relativeVersionManifestFixturePath, internetManifestProvider}
 }
 
 func readAutomationConfigMap(t *testing.T, kubeManager *MockedManager, opsManager *mdbv1.MongoDBOpsManager) *corev1.ConfigMap {
@@ -221,4 +286,12 @@ func readAutomationConfigMap(t *testing.T, kubeManager *MockedManager, opsManage
 	key := objectKey(opsManager.Namespace, opsManager.Spec.AppDB.AutomationConfigSecretName())
 	assert.NoError(t, kubeManager.client.Get(context.TODO(), key, configMap))
 	return configMap
+}
+
+// AlwaysFailingManifestProvider mimics not having an internet connection
+// by failing to fetch the version manifest
+type AlwaysFailingManifestProvider struct{}
+
+func (AlwaysFailingManifestProvider) GetVersionManifest() (*om.VersionManifest, error) {
+	return nil, errors.New("failed to get version manifest")
 }
