@@ -653,6 +653,7 @@ tasks:
     - func: guard_git_repo_is_clean
     - func: setup_jq
     - func: setup_ecr_login_helper
+    - func: setup_docker
 
     - func: release_docker_image_to_registry
       vars:
@@ -679,6 +680,7 @@ tasks:
     - func: guard_git_repo_is_clean
     - func: setup_jq
     - func: setup_ecr_login_helper
+    - func: setup_docker
 
     - func: release_docker_image_to_registry
       vars:
@@ -704,6 +706,7 @@ tasks:
     - func: guard_git_repo_is_clean
     - func: setup_jq
     - func: setup_ecr_login_helper
+    - func: setup_docker
 
     - func: release_docker_image_to_registry
       vars:
@@ -731,6 +734,7 @@ tasks:
     - func: guard_git_repo_is_clean
     - func: setup_jq
     - func: setup_ecr_login_helper
+    - func: setup_docker
 
     - func: release_docker_image_to_registry
       vars:
