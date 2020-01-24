@@ -158,18 +158,18 @@ class TestOpsManagerVersionUpgrade(OpsManagerBase):
     name: Ops Manager image upgrade
     description: |
       The OM version is upgraded - this means the new image is deployed for both OM and appdb.
-      Note that the time until the finish is quite high as upgrade for OM image involves the upgrade for the appdb
-      image as well
+      >> Dev note: Please change the value of the new version to the latest one as soon as the new OM
+       is released and its version is added to release.json
     update:
       file: om_ops_manager_upgrade.yaml
-      patch: '[{"op":"replace","path":"/spec/version", "value": "4.2.3"}]'
+      patch: '[{"op":"replace","path":"/spec/version", "value": "4.2.7"}]'
       wait_until: om_in_running_state
       timeout: 800
     """
 
     def test_image_url(self):
         pod = self.corev1.read_namespaced_pod("om-upgrade-0", self.namespace)
-        assert "4.2.3" in pod.spec.containers[0].image
+        assert "4.2.7" in pod.spec.containers[0].image
 
     @skip_if_local
     def test_om(self):
