@@ -63,7 +63,7 @@ func DeploymentLink(url, groupId string) string {
 
 func buildReplicaSetFromStatefulSet(set *appsv1.StatefulSet, mdb *mdbv1.MongoDB) om.ReplicaSetWithProcesses {
 	members := createProcesses(set, om.ProcessTypeMongod, mdb)
-	replicaSet := om.NewReplicaSet(set.Name, mdb.Spec.Version)
+	replicaSet := om.NewReplicaSet(set.Name, mdb.Spec.GetVersion())
 	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members)
 	rsWithProcesses.SetHorizons(mdb.Spec.Connectivity.ReplicaSetHorizons)
 	return rsWithProcesses
@@ -72,7 +72,7 @@ func buildReplicaSetFromStatefulSet(set *appsv1.StatefulSet, mdb *mdbv1.MongoDB)
 func createProcesses(set *appsv1.StatefulSet, mongoType om.MongoType, mdb *mdbv1.MongoDB) []om.Process {
 	hostnames, names := util.GetDnsForStatefulSet(set, mdb.Spec.GetClusterDomain())
 	processes := make([]om.Process, len(hostnames))
-	wiredTigerCache := calculateWiredTigerCache(set, mdb.Spec.Version)
+	wiredTigerCache := calculateWiredTigerCache(set, mdb.Spec.GetVersion())
 
 	for idx, hostname := range hostnames {
 		switch mongoType {

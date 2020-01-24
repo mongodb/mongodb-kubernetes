@@ -90,17 +90,16 @@ class TestOpsManagerAppDbUpgrade(OpsManagerBase):
     """
     name: Ops Manager appdb version change
     description: |
-      Upgrades appdb to a newer version. The test waits until the AppDB is ready, not the OM resource
+      Upgrades appdb to the bundled version. The test waits until the AppDB is ready, not the OM resource
     update:
       file: om_appdb_upgrade.yaml
-      patch: '[{"op":"replace","path":"/spec/applicationDatabase/version","value":"4.2.0"}]'
+      patch: '[{"op":"replace","path":"/spec/applicationDatabase/version","value":""}]'
       wait_until: appdb_in_running_state
       timeout: 400
     """
 
     def test_appdb(self):
         assert self.om_cr.get_appdb_status()["members"] == 3
-        assert self.om_cr.get_appdb_status()["version"] == "4.2.0"
 
     def test_admin_config_map(self):
         config_map = self.corev1.read_namespaced_config_map(
@@ -112,7 +111,8 @@ class TestOpsManagerAppDbUpgrade(OpsManagerBase):
     def test_mongod(self):
         mdb_tester = self.om_cr.get_appdb_mongo_tester()
         mdb_tester.assert_connectivity()
-        mdb_tester.assert_version("4.2.0")
+        mdb_tester.assert_version(self.get_bundled_appdb_version())
+        mdb_tester.assert_is_enterprise()
 
         # then we need to wait until Ops Manager is ready (only AppDB is ready so far) for the next test
 

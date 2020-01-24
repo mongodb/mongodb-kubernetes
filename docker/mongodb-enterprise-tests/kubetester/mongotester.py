@@ -55,6 +55,9 @@ class MongoTester:
     def assert_data_size(self, expected_count, test_collection=TEST_COLLECTION):
         assert self.client[TEST_DB][test_collection].count() == expected_count
 
+    def assert_is_enterprise(self):
+        assert "enterprise" in self.client.admin.command("buildInfo")["modules"]
+
     def assert_scram_sha_authentication(
         self,
         username: str,

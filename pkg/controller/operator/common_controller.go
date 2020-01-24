@@ -629,7 +629,7 @@ func validateMongoDBResource(mdb *mdbv1.MongoDB, conn om.Connection) reconcileSt
 
 // validateScram ensures that the SCRAM configuration is valid for the MongoDBResource
 func validateScram(mdb *mdbv1.MongoDB, ac *om.AutomationConfig) reconcileStatus {
-	specVersion, err := semver.Make(util.StripEnt(mdb.Spec.Version))
+	specVersion, err := semver.Make(util.StripEnt(mdb.Spec.GetVersion()))
 	if err != nil {
 		return failedErr(err)
 	}

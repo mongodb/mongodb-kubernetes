@@ -6,6 +6,7 @@ from kubetester.omcr import OpsManagerCR
 from kubetester.omtester import OMContext
 from typing import Dict
 import json
+import os
 
 
 class OpsManagerBase(KubernetesTester):
@@ -141,6 +142,13 @@ class OpsManagerBase(KubernetesTester):
             )
 
         return resource.get_appdb_status()["phase"] == "Running"
+
+    @staticmethod
+    def get_bundled_appdb_version() -> str:
+        version = os.getenv("BUNDLED_APP_DB_VERSION", None)
+        if version is None:
+            raise ValueError("BUNDLED_APP_DB_VERSION needs to be defined")
+        return version
 
     def get_appdb_automation_config(self) -> Dict:
         cm = KubernetesTester.read_configmap(

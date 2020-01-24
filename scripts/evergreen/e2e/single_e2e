@@ -24,6 +24,7 @@ deploy_test_app() {
     # TEST_IMAGE_TAG="${VERSION_ID:-$GIT_SHA}"
     [[ -z "${TEST_IMAGE_TAG-}" ]] && TEST_IMAGE_TAG="${OPERATOR_VERSION:-$GIT_SHA}"
 
+    BUNDLED_APP_DB_VERSION="$(jq --raw-output .appDbBundledMongoDbVersion < release.json)"
     # apply the correct configuration of the running OM instance
     # note, that the 4 last parameters are used only for Mongodb resource testing - not for Ops Manager
     helm template "scripts/evergreen/deployments/test-app" \
@@ -40,6 +41,7 @@ deploy_test_app() {
          --set baseUrl="${OM_BASE_URL:=http://ops-manager.${OPS_MANAGER_NAMESPACE}.svc.cluster.local:8080}" \
          --set apiKey="${OM_API_KEY:-}" \
          --set apiUser="${OM_USER:=admin}" \
+         --set bundledAppDbVersion="${BUNDLED_APP_DB_VERSION}" \
          --set orgId="${OM_ORGID:-}"  > mongodb-enterprise-tests.yaml || exit 1
 
     kubectl -n "${PROJECT_NAMESPACE}" delete -f mongodb-enterprise-tests.yaml 2>/dev/null  || true

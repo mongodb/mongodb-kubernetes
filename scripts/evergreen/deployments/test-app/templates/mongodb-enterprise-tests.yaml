@@ -61,6 +61,8 @@ spec:
       value: 'ignore:yaml.YAMLLoadWarning,ignore:urllib3.InsecureRequestWarning'
     - name: POD_NAME
       value: 'mongodb-enterprise-operator-testing-pod'
+    - name: BUNDLED_APP_DB_VERSION
+      value: {{ .Values.bundledAppDbVersion }}
 {{ if .Values.managedSecurityContext }}
     - name: MANAGED_SECURITY_CONTEXT
       value: 'true'

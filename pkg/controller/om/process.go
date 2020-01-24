@@ -96,7 +96,7 @@ func NewProcessFromInterface(i interface{}) Process {
 func NewMongosProcess(name, hostName string, resource *mdbv1.MongoDB) Process {
 	p := Process{}
 
-	initDefault(name, hostName, resource.Spec.Version, resource.Spec.FeatureCompatibilityVersion, ProcessTypeMongos, p)
+	initDefault(name, hostName, resource.Spec.GetVersion(), resource.Spec.FeatureCompatibilityVersion, ProcessTypeMongos, p)
 
 	// default values for configurable values
 	p.SetLogPath(path.Join(util.PvcMountPathLogs, "/mongodb.log"))
@@ -112,7 +112,7 @@ func NewMongosProcess(name, hostName string, resource *mdbv1.MongoDB) Process {
 func NewMongodProcess(name, hostName string, resource *mdbv1.MongoDB) Process {
 	p := Process{}
 
-	initDefault(name, hostName, resource.Spec.Version, resource.Spec.FeatureCompatibilityVersion, ProcessTypeMongod, p)
+	initDefault(name, hostName, resource.Spec.GetVersion(), resource.Spec.FeatureCompatibilityVersion, ProcessTypeMongod, p)
 
 	// default values for configurable values
 	p.SetDbPath("/data")

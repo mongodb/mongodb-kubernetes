@@ -167,7 +167,7 @@ func (k *KubeHelper) NewStatefulSetHelper(obj Updatable) *StatefulSetHelper {
 			Replicas:      mongodbSpec.Members,
 			Helper:        k,
 			ServicePort:   util.MongoDbDefaultPort,
-			Version:       mongodbSpec.Version,
+			Version:       mongodbSpec.GetVersion(),
 			ClusterDomain: mongodbSpec.GetClusterDomain(),
 			Logger:        zap.S(), // by default, must be overridden by clients
 		},

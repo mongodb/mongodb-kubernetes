@@ -34,6 +34,7 @@ func (p FileVersionManifestProvider) GetVersionManifest() (*VersionManifest, err
 	if err != nil {
 		return nil, err
 	}
+	fixLinksAndBuildModules(versionManifest.Versions)
 	return versionManifest, nil
 }
 
@@ -59,13 +60,14 @@ func (InternetManifestProvider) GetVersionManifest() (*VersionManifest, error) {
 	if err != nil {
 		return nil, err
 	}
-	fixLinks(versionManifest.Versions)
+	fixLinksAndBuildModules(versionManifest.Versions)
 	return versionManifest, nil
 }
 
-// fixLinks iterates over build links and prefixes them with a correct domain
-// (see mms AutomationMongoDbVersionSvc#buildRemoteUrl)
-func fixLinks(configs []MongoDbVersionConfig) {
+// fixLinksAndBuildModules iterates over build links and prefixes them with a correct domain
+// (see mms AutomationMongoDbVersionSvc#buildRemoteUrl) and ensures that build.Modules has
+// a non-nil value as this will cause the agent to fail cluster validation
+func fixLinksAndBuildModules(configs []MongoDbVersionConfig) {
 	for _, version := range configs {
 		for _, build := range version.Builds {
 			if strings.HasSuffix(version.Name, "-ent") {

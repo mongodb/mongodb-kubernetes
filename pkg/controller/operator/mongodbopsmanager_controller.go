@@ -657,7 +657,7 @@ func validateConfig(mongodb *mdbv1.MongoDB, userRef *mdbv1.MongoDBUserRef, descr
 		return failed("MongoDB resource %s is configured to use SCRAM-SHA authentication mode, the user must be"+
 			" specified using 'mongodbUserRef'", mongodb.Name)
 	}
-	comparison, err := util.CompareVersions(mongodb.Spec.Version, util.MinimumScramSha256MdbVersion)
+	comparison, err := util.CompareVersions(mongodb.Spec.GetVersion(), util.MinimumScramSha256MdbVersion)
 	if err != nil {
 		return failedErr(err)
 	}
@@ -671,7 +671,7 @@ func validateConfig(mongodb *mdbv1.MongoDB, userRef *mdbv1.MongoDBUserRef, descr
 // for the app db in ops manager, see MongoConnectionConfigurationCheck
 // Ideally it must be done in an admission web hook
 func performValidation(opsManager *mdbv1.MongoDBOpsManager) error {
-	version := opsManager.Spec.AppDB.Version
+	version := opsManager.Spec.AppDB.GetVersion()
 	v, err := semver.Make(version)
 	if err != nil {
 		return fmt.Errorf("version %s has wrong format!", version)

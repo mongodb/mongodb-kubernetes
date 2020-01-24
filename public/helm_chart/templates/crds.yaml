@@ -689,7 +689,6 @@ spec:
 
               required:
                 - enabled
-
             applicationDatabase:
               type: object
               properties:
@@ -708,14 +707,13 @@ spec:
                   type: integer
                 version:
                   type: string
-                  pattern: "^[0-9]+.[0-9]+.[0-9]+(-.+)?$"
+                  pattern: "^[0-9]+.[0-9]+.[0-9]+(-.+)?$|^$"
                 logLevel:
                   type: string
                   enum: ["DEBUG", "INFO", "WARN", "ERROR", "FATAL"]
                 persistent:
                   type: boolean
               required:
-                - version
                 - members
           required:
             - version

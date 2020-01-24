@@ -345,10 +345,10 @@ func (m *MongoDBOpsManager) UpdateReconcilingAppDb() {
 	m.Status.AppDbStatus.Phase = PhaseReconciling
 }
 
-func (m *MongoDBOpsManager) UpdateSuccessfulAppDb(object runtime.Object, args ...string) {
+func (m *MongoDBOpsManager) UpdateSuccessfulAppDb(object runtime.Object, _ ...string) {
 	spec := object.(*AppDB)
 
-	m.Status.AppDbStatus.Version = spec.Version
+	m.Status.AppDbStatus.Version = spec.GetVersion()
 	m.Status.AppDbStatus.Message = ""
 	m.Status.AppDbStatus.LastTransition = util.Now()
 	m.Status.AppDbStatus.Phase = PhaseRunning
@@ -422,12 +422,6 @@ func (m *AppDB) GetSecretName() string {
 	return m.Name() + "-password"
 }
 
-func (m *AppDB) GetVersion() string {
-	if m.Version == "" {
-		return util.GetBundledAppDbMongoDBVersion()
-	}
-	return m.Version
-}
 
 // No Security and no AdditionalMongodConfig as of alpha
 func (m *AppDB) UnmarshalJSON(data []byte) error {
