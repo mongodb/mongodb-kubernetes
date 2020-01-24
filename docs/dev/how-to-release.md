@@ -1,12 +1,24 @@
 # Operator Release
 
-The Kubernetes Operator is composed of two different images: the Operator and
-the Database image. They follow a simple versioning schema (0.1, 0.2... 0.10...
-1.0). The release process is documented here:
+The release procedure means building all necessary images and pushing them to image repositories. 
+Also all relevant places are upgraded (Openshift Marketplace, public Github repository) and 
+release notes are published.
+
+The images released are:
+- operator
+- database
+- ops manager
+- appdb  
+
+The Operator and the Database image follow a simple versioning schema (1.2.0, 1.2.1...).
+The Ops Manager and AppDB images use a composite versioning schema <OM_version>-operator<Operator_version> 
+Each release publishes a new set of all supported Ops Manager + AppDB images.  
+
+The release process is documented below:
 
 ## Update Jira to reflect the patches in the release (Tuesday)
 
-Update any finished tickets in [kube-next](https://jira.mongodb.org/issues/?jql=project%20%3D%20CLOUDP%20AND%20component%20%3D%20Kubernetes%20AND%20status%20in%20(Resolved%2C%20Closed)%20and%20fixVersion%3D%20kube-next%20) to have the version of the release you're doing (kube-x.y)
+Update any finished tickets in [kube-next](https://jira.mongodb.org/issues/?jql=project%20%3D%20CLOUDP%20AND%20component%20%3D%20Kubernetes%20AND%20status%20in%20(Resolved%2C%20Closed)%20and%20fixVersion%3D%20kube-next%20%20ORDER%20BY%20resolved%20) to have the version of the release you're doing (kube-x.y)
 
 ## Prepare Release Notes (Tuesday)
 
@@ -71,41 +83,22 @@ git push origin $(jq --raw-output .mongodbOperator < release.json)
 
 ## Build and push images
 
-### Operator & Database
+The following images are expected to get released by the end of this procedure:
+* Operator
+* Database 
+* Ops Manager (all supported versions)
+* AppDB (all supported versions)
 
-#### Ubuntu based images (published to Quay)
+To perform release it's necessary to manually override dependencies in the tasks in the following 
+Evergreen build variants (after the release branch was merged):
+* release_quay (will deploy all images to quay.io)
+* release_rh_connect (will deploy all images to Red Hat Connect)
 
-```bash
-evergreen patch -p ops-manager-kubernetes \
-  -v release_operator \
-  -t release_operator \
-  -y -f -d "Building Ubuntu Images: $(jq -r .mongodbOperator <release.json)" \
-  --browse
-```
-
-This evergreen task will build the images and publish them to `quay.io`.
-
-**Caution**: quay.io doesn't allow to block tags from overwriting, the
+**Caution (quay.io)**: quay.io doesn't allow to block tags from overwriting, the
 current tagged images will be overwritten by `evergreen` if they have
 the same tag as any old images.
 
-#### RHEL based images (published to Red Hat Connect)
-
-*Please note:* This is going to be improved as part of
-[CLOUDP-40403](https://jira.mongodb.org/browse/CLOUDP-40403).
-
-For RHEL based images we use Red Hat Connect service that will build
-images by itself eventually.  To submit the job call the following:
-
-```bash
-evergreen patch -p ops-manager-kubernetes \
-  -v release_operator_rh_connect \
-  -t release_operator_rh_connect \
-  -y -f -d "Building RHEL Images: $(jq -r .mongodbOperator <release.json)" \
-  --browse
-```
-
-Note, that so far the build service is not reliable and some checks may fail - you need to trigger new builds on the
+**Caution (Red Hat Connect)**: so far the build service is not reliable and some checks may fail - you need to trigger new builds on the
 site manually specifying the new version (increase the patch part, e.g. `0.7.1`) and hopefully the build will succeed
 eventually.
 
@@ -113,34 +106,6 @@ Finally publish the images manually:
 * https://connect.redhat.com/project/850021/view (Operator)
 * https://connect.redhat.com/project/851701/view (Database)
 
-### Ops Manager & AppDB
-
-#### RHEL based images (published to Red Hat Connect)
-
-The Ops Manager images will be built and tested first. The process will then
-publish them to Red Hat Connect if all the E2E tests passed. The images will
-have to be manually "Published" from the UI.
-
-```bash
-evergreen patch -p ops-manager-kubernetes \
-  -v release_ops_manager_rh_connect \
-  -t all \
-  -y -f -d "Building Ops Manger RHEL Images: $(jq -r .mongodbOperator <release.json)" \
-  --browse
-```
-
-### Publish Binary Artifacts for Customers
-
-Some customers decide to build their own images. In order to do this, we upload
-the binaries we produce into S3, in the `ops-manager-kubernetes-build` bucket, as a `tar.gz` file.
-
-```bash
-evergreen patch -p ops-manager-kubernetes \
-  -v release_operator \
-  -t build_binaries \
-  -f -y -d "Building tar.gz Binaries: $(jq -r .mongodbOperator <release.json)" \
-  --browse
-```
 
 ## Publish public repo
 

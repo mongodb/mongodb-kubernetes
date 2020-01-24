@@ -415,7 +415,31 @@ functions:
 
           CLUSTER_TYPE: ${cluster_type}
 
-        command: "make om-batch scope=test"
+        command: "make om-batch scope=4.2.0,4.2.3,4.2.4"
+
+  "build_and_push_om_test_images_the_rest":
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        add_to_path:
+          - *go_bin
+          - ${workdir}/bin
+        add_expansions_to_env: true
+        env:
+          <<: *go_options
+
+          AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
+          AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
+          AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
+
+          IN_MEMORY_CONTEXT: "true"
+          REPO_URL: "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
+          GITHUB_TOKEN: ${GITHUB_TOKEN}
+
+          CLUSTER_TYPE: ${cluster_type}
+
+        command: "make om-batch scope=4.2.6,4.2.7"
 
   "build_and_push_image":
     - command: shell.exec
@@ -903,6 +927,20 @@ tasks:
     vars:
       cluster_type: "openshift"
 
+- name: build_om_images_rhel_the_rest
+  priority: 60
+  commands:
+  - func: clone
+  - func: setup_jq
+  - func: setup_aws
+  - func: setup_docker
+  - func: build_operator
+    vars:
+      distro: rhel
+  - func: build_and_push_om_test_images_the_rest
+    vars:
+      cluster_type: "openshift"
+
 - name: build_om_images_ubuntu
   commands:
   - func: clone
@@ -913,6 +951,19 @@ tasks:
     vars:
       distro: ubuntu
   - func: build_and_push_om_test_images
+    vars:
+      cluster_type: "kops"
+
+- name: build_om_images_ubuntu_the_rest
+  commands:
+  - func: clone
+  - func: setup_jq
+  - func: setup_aws
+  - func: setup_docker
+  - func: build_operator
+    vars:
+      distro: ubuntu
+  - func: build_and_push_om_test_images_the_rest
     vars:
       cluster_type: "kops"
 
@@ -1722,6 +1773,8 @@ buildvariants:
       variant: init_test_run
     - name: build_om_images_ubuntu
       variant: init_test_run
+    - name: build_om_images_ubuntu_the_rest
+      variant: init_test_run
     - name: prepare_cluster_vanilla_om
       variant: init_test_run
   run_on:
@@ -1743,6 +1796,8 @@ buildvariants:
     - name: build_test_image
       variant: init_test_run
     - name: build_om_images_rhel
+      variant: init_test_run
+    - name: build_om_images_rhel_the_rest
       variant: init_test_run
     - name: prepare_cluster_openshift_3
       variant: init_test_run
@@ -1801,7 +1856,9 @@ buildvariants:
   - name: build_images_ubuntu
   - name: build_test_image
   - name: build_om_images_ubuntu
+  - name: build_om_images_ubuntu_the_rest
   - name: build_om_images_rhel
+  - name: build_om_images_rhel_the_rest
   - name: prepare_cluster_openshift_3
   - name: prepare_cluster_vanilla
   - name: prepare_cluster_vanilla_om
@@ -1816,6 +1873,8 @@ buildvariants:
   - name: build_images_ubuntu
     variant: init_test_run
   - name: build_om_images_ubuntu
+    variant: init_test_run
+  - name: build_om_images_ubuntu_the_rest
     variant: init_test_run
   expansions:
     docker_registry: quay.io

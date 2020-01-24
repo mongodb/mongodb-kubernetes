@@ -1,6 +1,6 @@
 {
-  "appDbBundledMongoDbVersion" : "4.2.2",
-  "mongodbOperator": "1.4.1",
+  "appDbBundledMongoDbVersion": "4.2.2",
+  "mongodbOperator": "1.4.2",
   "opsManagerImages": [
     {
       "version": "4.2.0",

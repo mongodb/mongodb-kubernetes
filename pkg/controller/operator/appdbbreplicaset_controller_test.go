@@ -244,7 +244,7 @@ func TestVersionManifestIsDownloaded_WhenNotUsingBundledVersion(t *testing.T) {
 	assert.NotEqual(t, 6, len(mongodbBuilds))
 }
 
-func TestFetchingVersionManifestFails_WhenUsingNonBundledVersion(t *testing.T){
+func TestFetchingVersionManifestFails_WhenUsingNonBundledVersion(t *testing.T) {
 	builder := DefaultOpsManagerBuilder().
 		SetAppDbMembers(2).
 		SetAppDbVersion("4.0.2-ent").

@@ -3,12 +3,12 @@ package om
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"io/ioutil"
 	"strings"
-)
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+)
 
 type VersionManifest struct {
 	Updated  int                    `json:"updated"`
