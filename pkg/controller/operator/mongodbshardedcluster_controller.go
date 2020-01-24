@@ -294,7 +294,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 			SetTLS(s.Spec.GetTLSConfig()).
 			SetProjectConfig(*projectConfig).
 			SetSecurity(s.Spec.Security).
-			SetPodTemplateSpec(s.Spec.PodSpec.PodTemplate)
+			SetPodTemplateSpec(s.Spec.ShardPodSpec.PodTemplate)
 	}
 
 	return ShardedClusterKubeState{

@@ -1,0 +1,29 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: my-replica-set-custom-podspec
+spec:
+  members: 1
+  version: 3.6.9
+  type: ReplicaSet
+  project: my-project
+  credentials: my-credentials
+  logLevel: DEBUG
+  persistent: false
+  podSpec:
+    podTemplate:
+      metadata:
+        annotations:
+          key1: "val1"
+      spec:
+        hostAliases:
+          - ip: "1.2.3.4"
+            hostnames: ["hostname"]
+        terminationGracePeriodSeconds: 30
+        affinity:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - podAffinityTerm:
+                  topologyKey: "mykey-rs"
+                weight: 50

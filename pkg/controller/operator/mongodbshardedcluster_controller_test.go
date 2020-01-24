@@ -333,7 +333,7 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 }
 
 func TestShardedCustomPodSpecTemplate(t *testing.T) {
-	sc := DefaultClusterBuilder().SetName("pod-spec-sc").EnableTLS().SetPodSpecTemplate(corev1.PodTemplateSpec{
+	sc := DefaultClusterBuilder().SetName("pod-spec-sc").EnableTLS().SetShardPodSpec(corev1.PodTemplateSpec{
 		Spec: corev1.PodSpec{
 			NodeName: "some-node-name",
 			Hostname: "some-host-name",
@@ -581,11 +581,11 @@ func (b *ClusterBuilder) SetClusterAuth(auth string) *ClusterBuilder {
 	return b
 }
 
-func (b *ClusterBuilder) SetPodSpecTemplate(spec corev1.PodTemplateSpec) *ClusterBuilder {
-	if b.Spec.PodSpec == nil {
-		b.Spec.PodSpec = &mdbv1.MongoDbPodSpec{}
+func (b *ClusterBuilder) SetShardPodSpec(spec corev1.PodTemplateSpec) *ClusterBuilder {
+	if b.Spec.ShardPodSpec == nil {
+		b.Spec.ShardPodSpec = &mdbv1.MongoDbPodSpec{}
 	}
-	b.Spec.PodSpec.PodTemplate = &spec
+	b.Spec.ShardPodSpec.PodTemplate = &spec
 	return b
 }
 
