@@ -33,9 +33,6 @@ if [ $(uname) = "Darwin" ] ; then
   # helm
   brew install kubernetes-helm
 
-  # upx
-  brew install upx
-
 elif [ $(uname) = "Linux" ] ; then # Ubuntu only
   sudo snap install kubectl --classic
 
