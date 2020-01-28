@@ -14,6 +14,8 @@ if [[ ${CLUSTER_TYPE} = "minikube" ]]; then
 	check_app "minikube" "minikube is not installed!"
 elif [[ ${CLUSTER_TYPE} = "kops" ]]; then
 	check_app "kops" "kops is not installed!"
+elif [[ ${CLUSTER_TYPE} = "kind" ]]; then
+	check_app "kind" "kind is not installed!"
 fi
 
 if [[ ${CLUSTER_TYPE} = "minikube" ]]; then
@@ -27,6 +29,21 @@ elif [[ ${CLUSTER_TYPE} = "kops" ]] && ! kops validate cluster "${CLUSTER_NAME}"
 
 elif [[ ${CLUSTER_TYPE} = "openshift" ]]; then
 	echo "openshift is TODO"
+elif [[ ${CLUSTER_TYPE} = "kind" ]]; then
+  echo "deleting existing kind cluster"
+  kind delete cluster
+  echo "creating kind cluster"
+  # copy the existing docker config into the Kind cluster
+  cat <<EOF > "${HOME}/.operator-dev/kind-ecr-config.yaml"
+kind: Cluster
+apiVersion: kind.sigs.k8s.io/v1alpha3
+nodes:
+- role: control-plane
+  extraMounts:
+  - containerPath: /var/lib/kubelet/config.json
+    hostPath: ${HOME}/.docker/config.json
+EOF
+  kind create cluster --config $HOME/.operator-dev/kind-ecr-config.yaml
 fi
 
 title "Kubernetes cluster \"${CLUSTER_NAME}\" is up"

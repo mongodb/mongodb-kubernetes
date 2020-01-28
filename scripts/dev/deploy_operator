@@ -19,7 +19,11 @@ elif [[ ${CLUSTER_TYPE} = "kops" ]]; then
     fi
 elif [[ ${CLUSTER_TYPE} = "openshift" ]]; then
     if ! kubectl get nodes &> /dev/null; then
-        fatal "Could not communicate to Openshift cluster"
+        fatal "Could not communicate with Openshift cluster"
+    fi
+elif [[ ${CLUSTER_TYPE} = "kind" ]]; then
+    if ! kubectl get nodes &> /dev/null; then
+        fatal "Could not communicate with Kind cluster"
     fi
 else
     fatal "CLUSTER_TYPE=${CLUSTER_TYPE} not recognized"
