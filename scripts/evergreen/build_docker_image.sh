@@ -3,19 +3,10 @@
 
 # Only create ECR credentials (as a Secret object) when the passed parameters have changed from
 # what is stored in the currently existing aws-secret Secret object.
-ensure_ecr_credentials () {
+ensure_construction_site () {
     if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ] || [ -z "${AWS_REGION}" ]; then
-        return
-    fi
-
-    old_credentials=$(kubectl -n construction-site get secret/aws-secret -o jsonpath='{.data.credentials}' | base64 --decode)
-    old_access_key_id=$(echo "$old_credentials" | grep "aws_access_key_id"| awk '{print $3}')
-    old_secret_access_key=$(echo "$old_credentials" | grep "aws_secret_access_key" | awk '{print $3}')
-
-    if [[ $old_access_key_id != "$AWS_ACCESS_KEY_ID" ]] || [[ $old_secret_access_key != "$AWS_SECRET_ACCESS_KEY" ]]; then
-        echo "Credentials have been modified, regenerating secrets/aws-secret"
-    else
-        return
+        echo "Must provide AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY and AWS_REGION env variables!"
+        exit 1
     fi
 
     aws_credentials="
@@ -24,9 +15,14 @@ aws_access_key_id = $AWS_ACCESS_KEY_ID
 aws_secret_access_key = $AWS_SECRET_ACCESS_KEY
 region = $AWS_REGION
 "
+    echo "ensuring construction-site namespace"
+    kubectl create namespace construction-site --dry-run -o yaml | kubectl apply -f -
 
-    kubectl -n construction-site delete secret/aws-secret
-    kubectl -n construction-site create secret generic aws-secret --from-literal=credentials="$aws_credentials" &> /dev/null || true
+    echo "ensuring aws secret"
+    kubectl -n construction-site create secret generic aws-secret --from-literal=credentials="$aws_credentials" --dry-run -o yaml | kubectl apply -f -
+
+    echo "ensuring docker-config"
+    kubectl -n construction-site create configmap docker-config --from-literal=config.json='{"credHelpers":{"268558157000.dkr.ecr.us-east-1.amazonaws.com":"ecr-login"}}' --dry-run -o yaml | kubectl apply -f -
 }
 
 split_version_into_sha() {
@@ -46,8 +42,7 @@ build_image () {
 
     image_random_name=$(tr -dc 'a-z0-9' < /dev/urandom | fold -w 32 | head -n 1)
 
-    # TODO: this needs to receive the AWS_ env variables.
-    ensure_ecr_credentials
+    ensure_construction_site
 
     MDB_VERSION="$(jq --raw-output .appDbBundledMongoDbVersion < release.json | cut  -d. -f-2)"
 

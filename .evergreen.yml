@@ -377,6 +377,10 @@ functions:
   - command: subprocess.exec
     type: setup
     params:
+      env:
+        AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
+        AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
+        AWS_REGION: ${mms_eng_test_aws_region}
       working_dir: src/github.com/10gen/ops-manager-kubernetes
       add_expansions_to_env: true
       add_to_path:
@@ -828,7 +832,7 @@ tasks:
   - func: setup_aws
   - func: setup_kubernetes_environment
     vars:
-      <<: *kubernetes_environment_openshift_3
+      <<: *kubernetes_environment_vanilla
   - func: upload_e2e_build_context
     vars:
       distro: scratch
@@ -864,7 +868,7 @@ tasks:
       context: operator
   - func: setup_kubernetes_environment
     vars:
-      <<: *kubernetes_environment_openshift_3
+      <<: *kubernetes_environment_vanilla
   - func: kaniko_build
     vars:
       destination: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/rhel/mongodb-enterprise-operator:${version_id}
@@ -900,7 +904,7 @@ tasks:
       context: operator
   - func: setup_kubernetes_environment
     vars:
-      <<: *kubernetes_environment_openshift_3
+      <<: *kubernetes_environment_vanilla
   - func: kaniko_build
     vars:
       destination: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/ubuntu/mongodb-enterprise-operator:${version_id}
