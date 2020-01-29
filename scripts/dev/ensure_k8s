@@ -7,6 +7,7 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
 source scripts/dev/read_context
+source scripts/evergreen/setup_kind
 
 title "Ensuring Kubernetes cluster is up..."
 
@@ -33,16 +34,9 @@ elif [[ ${CLUSTER_TYPE} = "kind" ]]; then
   echo "deleting existing kind cluster"
   kind delete cluster
   echo "creating kind cluster"
-  # copy the existing docker config into the Kind cluster
-  cat <<EOF > "${HOME}/.operator-dev/kind-ecr-config.yaml"
-kind: Cluster
-apiVersion: kind.sigs.k8s.io/v1alpha3
-nodes:
-- role: control-plane
-  extraMounts:
-  - containerPath: /var/lib/kubelet/config.json
-    hostPath: ${HOME}/.docker/config.json
-EOF
+
+  ecr_registry="268558157000.dkr.ecr.us-east-1.amazonaws.com"
+  setup_kind "${ecr_registry}"
   kind create cluster --config $HOME/.operator-dev/kind-ecr-config.yaml
 fi
 
