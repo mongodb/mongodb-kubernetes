@@ -50,6 +50,10 @@ dump_all () {
         for pod in $(kubectl get pods -n "${PROJECT_NAMESPACE}"  -o name | cut -d "/" -f 2 | grep -v "operator-"); do
             echo "Writing log file for pod ${pod} to logs/${pod}.log"
             kubectl logs -n "${PROJECT_NAMESPACE}" "${pod}" > "logs/${pod}.log"
+
+            # kubectl cp won't create any files if the file doesn't exist in the container
+            kubectl cp ${PROJECT_NAMESPACE}/${pod}:/var/log/mongodb-mms-automation/agent-health-status.json logs/${pod}-agent-health-status.json
+            kubectl cp ${PROJECT_NAMESPACE}/${pod}:/var/lib/mongodb-automation/cluster-config.json logs/${pod}-cluster-config.json
             ((i++))
         done
     fi
