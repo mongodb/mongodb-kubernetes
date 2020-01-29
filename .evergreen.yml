@@ -828,11 +828,14 @@ tasks:
   type: setup
   commands:
   - func: clone
+  - func: setup_docker
   - func: download_kube_tools
+    vars:
+      <<: *kubernetes_environment_kind
   - func: setup_aws
   - func: setup_kubernetes_environment
     vars:
-      <<: *kubernetes_environment_vanilla
+      <<: *kubernetes_environment_kind
   - func: upload_e2e_build_context
     vars:
       distro: scratch
@@ -853,7 +856,10 @@ tasks:
   type: setup
   commands:
   - func: clone
+  - func: setup_docker
   - func: download_kube_tools
+    vars:
+      <<: *kubernetes_environment_kind
   - func: setup_ecr_login_helper
   - func: setup_jq
   - func: build_operator
@@ -868,7 +874,7 @@ tasks:
       context: operator
   - func: setup_kubernetes_environment
     vars:
-      <<: *kubernetes_environment_vanilla
+      <<: *kubernetes_environment_kind
   - func: kaniko_build
     vars:
       destination: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/rhel/mongodb-enterprise-operator:${version_id}
@@ -889,7 +895,10 @@ tasks:
   priority: 60
   commands:
   - func: clone
+  - func: setup_docker
   - func: download_kube_tools
+    vars:
+      <<: *kubernetes_environment_kind
   - func: setup_ecr_login_helper
   - func: setup_jq
   - func: build_operator
@@ -904,7 +913,7 @@ tasks:
       context: operator
   - func: setup_kubernetes_environment
     vars:
-      <<: *kubernetes_environment_vanilla
+      <<: *kubernetes_environment_kind
   - func: kaniko_build
     vars:
       destination: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/ubuntu/mongodb-enterprise-operator:${version_id}

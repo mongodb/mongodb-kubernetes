@@ -18,6 +18,9 @@ region = $AWS_REGION
     echo "ensuring construction-site namespace"
     kubectl create namespace construction-site --dry-run -o yaml | kubectl apply -f -
 
+    echo "ensuring default service account"
+    kubectl create serviceaccount default -n construction-site --dry-run -o yaml | kubectl apply -f -
+
     echo "ensuring aws secret"
     kubectl -n construction-site create secret generic aws-secret --from-literal=credentials="$aws_credentials" --dry-run -o yaml | kubectl apply -f -
 
