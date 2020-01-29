@@ -1,5 +1,6 @@
 import os
 
+from kubetester.awss3client import AwsS3Client
 from pytest import fixture
 
 import kubernetes
@@ -19,3 +20,8 @@ def namespace() -> str:
         raise Exception("PROJECT_NAMESPACE needs to be defined")
 
     return namespace
+
+
+@fixture(scope="module")
+def aws_s3_client() -> AwsS3Client:
+    return AwsS3Client("us-east-1")

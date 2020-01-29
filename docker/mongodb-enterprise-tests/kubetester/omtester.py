@@ -7,6 +7,7 @@ import requests
 import time
 import urllib.parse
 from kubetester.kubetester import build_auth
+from kubetester.mongotester import BackgroundHealthChecker
 
 from .kubetester import get_env_var_or_fail
 
@@ -23,7 +24,9 @@ skip_if_cloud_manager = pytest.mark.skipif(
 
 # todo use @dataclass annotation https://www.python.org/dev/peps/pep-0557/
 class OMContext(object):
-    def __init__(self, base_url, group_id, group_name, user, public_key, org_id=None):
+    def __init__(
+        self, base_url, user, public_key, group_name=None, group_id=None, org_id=None
+    ):
         self.base_url = base_url
         self.group_id = group_id
         self.group_name = group_name
@@ -157,52 +160,22 @@ class OMTester(object):
         return response
 
 
-class OMBackgroundTester(threading.Thread):
-    """OMBackgroundTester is the thread which periodically checks healthiness of an Ops Manager instance. It's
-    run as a daemon so usually there's no need in stopping it manually.
-    Note, that it may return sporadic 500 when the appdb is being restarted, we won't fail because of this so checking
+class OMBackgroundTester(BackgroundHealthChecker):
+    """Note, that it may return sporadic 500 when the appdb is being restarted, we won't fail because of this so checking
     only for 'allowed_sequental_failures' failures. In practice having 'allowed_sequental_failures' should work as
-     failures are very rare (1-2 per appdb upgrade) but let's be safe to avoid e2e flakiness. """
+     failures are very rare (1-2 per appdb upgrade) but let's be safe to avoid e2e flakiness."""
 
     def __init__(
         self,
         om_tester: OMTester,
         wait_sec: int = 3,
-        allowed_sequental_failures: int = 3,
+        allowed_sequential_failures: int = 3,
     ):
-        super().__init__()
-        self._stop_event = threading.Event()
-        self.om_tester = om_tester
-        self.wait_sec = wait_sec
-        self.allowed_sequental_failures = allowed_sequental_failures
-        self.exception_number = 0
-        self.last_exception = None
-        self.daemon = True
-        self.max_consecutive_failure = 0
-
-    def run(self):
-        consecutive_failure = 0
-        while not self._stop_event.isSet():
-            try:
-                self.om_tester.assert_healthiness()
-                consecutive_failure = 0
-            except BaseException as e:
-                print(e)
-                self.last_exception = e
-                consecutive_failure = consecutive_failure + 1
-                self.max_consecutive_failure = max(
-                    self.max_consecutive_failure, consecutive_failure
-                )
-                self.exception_number = self.exception_number + 1
-            time.sleep(self.wait_sec)
-
-    def stop(self):
-        self._stop_event.set()
-
-    def assert_healthiness(self):
-        print("\nlongest consecutive failures: {}".format(self.max_consecutive_failure))
-        print("total exceptions count: {}".format(self.exception_number))
-        assert self.max_consecutive_failure <= self.allowed_sequental_failures
+        super().__init__(
+            health_function=om_tester.assert_healthiness,
+            wait_sec=wait_sec,
+            allowed_sequential_failures=allowed_sequential_failures,
+        )
 
 
 # TODO can we move below methods to some other place?

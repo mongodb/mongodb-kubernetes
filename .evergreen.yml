@@ -1498,6 +1498,14 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_op_upgrade_om
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+      vars:
+        from_version: latest
+
 
 task_groups:
 - name: unit_task_group
@@ -1682,7 +1690,7 @@ task_groups:
     - func: teardown_cloud_qa
 
 - name: e2e_ops_manager_task_group
-  max_hosts: 3
+  max_hosts: 6
   setup_group:
     - func: clone
     - func: download_kube_tools
@@ -1698,6 +1706,7 @@ task_groups:
     - e2e_om_ops_manager_scale
     - e2e_om_ops_manager_upgrade
     - e2e_om_external_connectivity
+    - e2e_op_upgrade_om
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment

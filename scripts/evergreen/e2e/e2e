@@ -46,7 +46,7 @@ delete_operator "${PROJECT_NAMESPACE}"
 # 4. (optionally) Preliminary step in the case of Operator upgrade
 if echo "${TASK_NAME}" | egrep -q "^e2e_op_upgrade"; then
     export TEST_NAME="${TASK_NAME}_first"
-    echo "The test ${TASK_NAME} is an Operator upgrade test, performing the first stage (${TEST_NAME})"
+    header "Performing the first stage (${TEST_NAME}) of an Operator upgrade test"
 
     # If the version of the Operator to upgrade from not specified then we assume it's the latest
     export REVISION="${OPERATOR_VERSION_UPGRADE_FROM:-"latest"}"
@@ -61,7 +61,7 @@ if echo "${TASK_NAME}" | egrep -q "^e2e_op_upgrade"; then
     # Setting the second test to be run after the Operator upgrade after 'if' block
     # Note, that in this case the second Operator will be upgraded, not deleted-created
     export TEST_NAME="${TASK_NAME}_second"
-    echo "Performing the second stage (${TEST_NAME})"
+    header "Performing the second stage (${TEST_NAME})"
 fi
 
 # 5. Main test run. In case of Operator upgrade this will be the second test run and

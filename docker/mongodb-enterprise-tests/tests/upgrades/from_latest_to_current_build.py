@@ -10,7 +10,7 @@ Stage 2: e2e_latest_to_current_verify
 """
 
 from kubetester.kubetester import skip_if_local, fixture as yaml_fixture
-from kubetester.mongodb import MongoDB
+from kubetester.mongodb import MongoDB, Phase
 from pytest import fixture, mark
 
 
@@ -27,7 +27,7 @@ def replica_set(namespace: str) -> MongoDB:
 
 @mark.e2e_op_upgrade_replica_set_first
 def test_reaches_running_phase(replica_set: MongoDB):
-    replica_set.assert_reaches_phase("Running")
+    replica_set.assert_reaches_phase(Phase.Running)
 
 
 @skip_if_local

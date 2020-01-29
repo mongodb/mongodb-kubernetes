@@ -9,6 +9,8 @@ from kubetester.kubetester import (
     KubernetesTester,
 )
 from typing import Optional, Dict
+
+from kubetester.mongodb import Phase
 from kubetester.omtester import OMTester
 from pytest import mark, fixture
 from tests.opsmanager.om_base import OpsManagerBase
@@ -80,11 +82,6 @@ def ops_manager(namespace) -> MongoDBOpsManager:
 
 
 @fixture(scope="module")
-def aws_s3_client() -> AwsS3Client:
-    return AwsS3Client(AWS_REGION)
-
-
-@fixture(scope="module")
 def s3_bucket(aws_s3_client: AwsS3Client) -> str:
     """ creates a s3 bucket and a s3 config"""
 
@@ -129,6 +126,9 @@ class TestOpsManagerCreation(OpsManagerBase):
       Creates an Ops Manager instance with backup enabled. The OM is expected to get to 'Pending' state
       eventually as it will wait for oplog db to be created
     """
+
+    def test_setup_gp2_storage_class(self):
+        self.make_default_gp2_storage_class()
 
     def test_create_om(self, s3_bucket):
         """ creates a s3 bucket, s3 config and an OM resource (waits until gets to Pending state)"""
@@ -224,10 +224,10 @@ class TestBackupDatabasesAdded(OpsManagerBase):
         yield resource.create()
 
     def test_oplog_replica_set_created(self, oplog_replica_set: MongoDB):
-        oplog_replica_set.assert_reaches_phase("Running")
+        oplog_replica_set.assert_reaches_phase(Phase.Running)
 
     def test_s3_replica_set_created(self, s3_replica_set: MongoDB):
-        s3_replica_set.assert_reaches_phase("Running")
+        s3_replica_set.assert_reaches_phase(Phase.Running)
 
     @skip_if_local
     def test_om(
@@ -236,7 +236,7 @@ class TestBackupDatabasesAdded(OpsManagerBase):
         """ As soon as oplog mongodb store is created Operator will create oplog configs in OM and
         get to Running state. Note, that the OM may quickly get into error state as the backup replicasets may
         not be completely ready but this is expected to get fixed soon"""
-        ops_manager.assert_reaches_phase("Running", timeout=200)
+        ops_manager.assert_reaches_phase(Phase.Running, timeout=200)
 
         om_tester = OMTester(self.om_context)
         om_tester.assert_healthiness()
@@ -260,8 +260,8 @@ class TestBackupConfigurationAdditionDeletion(OpsManagerBase):
         )
 
         ops_manager.update()
-        ops_manager.assert_reaches_phase("Reconciling", timeout=60)
-        ops_manager.assert_reaches_phase("Running", timeout=600)
+        ops_manager.assert_reaches_phase(Phase.Reconciling, timeout=60)
+        ops_manager.assert_reaches_phase(Phase.Running, timeout=600)
 
         # TODO: this is just to populate "self.om_context", should not be required
         self.setup_env()
@@ -288,8 +288,8 @@ class TestBackupConfigurationAdditionDeletion(OpsManagerBase):
         existing_s3_store["s3BucketName"] = s3_bucket_2
 
         ops_manager.update()
-        ops_manager.assert_reaches_phase("Reconciling", timeout=60)
-        ops_manager.assert_reaches_phase("Running", timeout=600)
+        ops_manager.assert_reaches_phase(Phase.Reconciling, timeout=60)
+        ops_manager.assert_reaches_phase(Phase.Running, timeout=600)
 
         # TODO: this is just to populate "self.om_context", should not be required
         self.setup_env()
@@ -316,8 +316,8 @@ class TestBackupConfigurationAdditionDeletion(OpsManagerBase):
         ops_manager["spec"]["backup"]["oplogStores"].pop()
         ops_manager.update()
 
-        ops_manager.assert_reaches_phase("Reconciling", timeout=60)
-        ops_manager.assert_reaches_phase("Running", timeout=600)
+        ops_manager.assert_reaches_phase(Phase.Reconciling, timeout=60)
+        ops_manager.assert_reaches_phase(Phase.Running, timeout=600)
 
         # TODO: this is just to populate "self.om_context", should not be required
         self.setup_env()
@@ -336,8 +336,8 @@ class TestBackupConfigurationAdditionDeletion(OpsManagerBase):
         ops_manager["spec"]["backup"]["s3Stores"] = []
         ops_manager.update()
 
-        ops_manager.assert_reaches_phase("Reconciling", timeout=60)
-        ops_manager.assert_reaches_phase("Running", timeout=600)
+        ops_manager.assert_reaches_phase(Phase.Reconciling, timeout=60)
+        ops_manager.assert_reaches_phase(Phase.Running, timeout=600)
 
         expected_warning_message = "S3 configuration requires at least 1 Oplog Store configuration and at least 1 S3 store to be fully configured"
         assert expected_warning_message in ops_manager["status"]["warnings"]

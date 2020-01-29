@@ -1,5 +1,7 @@
 import random
 import string
+import threading
+
 import time
 import ssl
 
@@ -257,6 +259,75 @@ class ShardedClusterTester(MongoTester):
 
     def assert_number_of_shards(self, expected_count):
         assert len(self.client.admin.command("listShards")["shards"]) == expected_count
+
+
+class BackgroundHealthChecker(threading.Thread):
+    """BackgroundHealthChecker is the thread which periodically calls the function to check health of some resource. It's
+    run as a daemon so usually there's no need in stopping it manually.
+     """
+
+    def __init__(
+        self,
+        health_function,
+        wait_sec: int = 3,
+        allowed_sequential_failures: int = 3,
+        health_function_params=None,
+    ):
+        super().__init__()
+        if health_function_params is None:
+            health_function_params = {}
+        self._stop_event = threading.Event()
+        self.health_function = health_function
+        self.health_function_params = health_function_params
+        self.wait_sec = wait_sec
+        self.allowed_sequental_failures = allowed_sequential_failures
+        self.exception_number = 0
+        self.last_exception = None
+        self.daemon = True
+        self.max_consecutive_failure = 0
+        self.number_of_runs = 0
+
+    def run(self):
+        consecutive_failure = 0
+        while not self._stop_event.isSet():
+            self.number_of_runs += 1
+            try:
+                self.health_function(**self.health_function_params)
+                consecutive_failure = 0
+            except Exception as e:
+                print(f"Error in {self.__class__.__name__}: {e})")
+                self.last_exception = e
+                consecutive_failure = consecutive_failure + 1
+                self.max_consecutive_failure = max(
+                    self.max_consecutive_failure, consecutive_failure
+                )
+                self.exception_number = self.exception_number + 1
+            time.sleep(self.wait_sec)
+
+    def stop(self):
+        self._stop_event.set()
+
+    def assert_healthiness(self):
+        print("\nlongest consecutive failures: {}".format(self.max_consecutive_failure))
+        print("total exceptions count: {}".format(self.exception_number))
+        print("total checks number: {}".format(self.number_of_runs))
+        assert self.max_consecutive_failure <= self.allowed_sequental_failures
+        assert self.number_of_runs > 0
+
+
+class MongoDBBackgroundTester(BackgroundHealthChecker):
+    def __init__(
+        self,
+        mongo_tester: MongoTester,
+        wait_sec: int = 3,
+        allowed_sequential_failures: int = 1,
+    ):
+        super().__init__(
+            health_function=mongo_tester.assert_connectivity,
+            health_function_params={"attempts": 1},
+            wait_sec=wait_sec,
+            allowed_sequential_failures=allowed_sequential_failures,
+        )
 
 
 # ------------------------- Helper functions ----------------------------

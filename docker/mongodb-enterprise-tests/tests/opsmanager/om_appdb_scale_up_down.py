@@ -85,7 +85,7 @@ class TestOpsManagerAppDbScaleUp(OpsManagerBase):
       file: om_appdb_scale_up_down.yaml
       patch: '[{"op":"replace","path":"/spec/applicationDatabase/members","value":5}]'
       wait_until: om_in_running_state
-      timeout: 400
+      timeout: 600
     """
 
     def test_keys_not_touched(self):
@@ -130,7 +130,7 @@ class TestOpsManagerAppDbScaleDown(OpsManagerBase):
       file: om_appdb_scale_up_down.yaml
       patch: '[{"op":"replace","path":"/spec/applicationDatabase/members","value":3}]'
       wait_until: om_in_running_state
-      timeout: 400
+      timeout: 600
     """
 
     def test_appdb(self):

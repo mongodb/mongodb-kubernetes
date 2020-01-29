@@ -3,6 +3,7 @@ from kubernetes import client
 from kubernetes.client.rest import ApiException
 from kubetester import MongoDBOpsManager, MongoDB
 from kubetester.kubetester import skip_if_local
+from kubetester.mongodb import Phase
 from kubetester.omtester import OMTester
 from kubetester.automation_config_tester import AutomationConfigTester
 from pytest import fixture
@@ -100,15 +101,15 @@ class TestOpsManagerWithMongoDB(OpsManagerBase):
         )
 
     def test_can_use_om(self, mdb):
-        mdb.assert_reaches_phase("Running")
+        mdb.assert_reaches_phase(Phase.Running)
         mdb.assert_connectivity()
 
     def test_om_can_change_mongodb_version(self, mdb):
         mdb["spec"]["version"] = "4.2.1"
 
         mdb.update()
-        mdb.assert_abandons_phase("Running")
-        mdb.assert_reaches_phase("Running")
+        mdb.assert_abandons_phase(Phase.Running)
+        mdb.assert_reaches_phase(Phase.Running)
         mdb.assert_connectivity()
         mdb._tester().assert_version("4.2.1")
 

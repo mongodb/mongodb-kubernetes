@@ -8,9 +8,10 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"

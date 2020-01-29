@@ -49,11 +49,7 @@ class OpsManagerBase(KubernetesTester):
             KubernetesTester.get_namespace(), om_cr.api_key_secret()
         )
         OpsManagerBase.om_context = OMContext(
-            om_cr.base_url(),
-            "",
-            "",
-            api_key_secret["user"],
-            api_key_secret["publicApiKey"],
+            om_cr.base_url(), api_key_secret["user"], api_key_secret["publicApiKey"],
         )
         OpsManagerBase.om_cr = om_cr
 

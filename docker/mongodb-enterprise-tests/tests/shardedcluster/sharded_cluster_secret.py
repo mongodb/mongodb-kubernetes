@@ -15,7 +15,7 @@ class TestShardedClusterListensSecret(KubernetesTester):
     create:
       file: sharded-cluster-single.yaml
       wait_until: in_running_state
-      timeout: 120
+      timeout: 240
     """
 
     def test_patch_config_map(self):

@@ -10,7 +10,7 @@ Stage 2: e2e_operator_upgrade_scale_and_verify_deployment
 """
 
 from kubetester.kubetester import skip_if_local, fixture as yaml_fixture
-from kubetester.mongodb import MongoDB
+from kubetester.mongodb import MongoDB, Phase
 from pytest import fixture, mark
 
 
@@ -30,7 +30,7 @@ def sharded_cluster(namespace: str) -> MongoDB:
 
 @mark.e2e_op_upgrade_one_deployment_first
 def test_replica_set_reaches_running_phase(replica_set):
-    replica_set.assert_reaches_phase("Running", timeout=600)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
     assert "warnings" not in replica_set["status"]
 
@@ -43,7 +43,7 @@ def test_replica_set_client_can_connect_to_mongodb(replica_set):
 
 @mark.e2e_op_upgrade_one_deployment_first
 def test_cluster_reaches_running_phase(sharded_cluster):
-    sharded_cluster.assert_reaches_phase("Running", timeout=600)
+    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=600)
 
     assert "warnings" not in sharded_cluster["status"]
 
