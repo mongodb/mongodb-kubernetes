@@ -26,15 +26,23 @@ func main() {
 
 	initializeEnvironment()
 
-	// "WATCH_NAMESPACE" is taken from github.com/operator-framework/operator-sdk/pkg/k8sutil
-	// copied the string value only to prevent importing the whole package
 	// get watch namespace from environment variable
-	namespace, namespaceSet := os.LookupEnv("WATCH_NAMESPACE")
+	namespace, nsSpecified := os.LookupEnv("WATCH_NAMESPACE")
+
+	// if the watch namespace is not specified - we assume the Operator is watching the current namespace
+	if !nsSpecified {
+		namespace = util.ReadEnvVarOrPanic(util.CurrentNamespace)
+	}
 
 	// if namespace is set to the wildcard then use the empty string to represent all namespaces
-	if namespace == "*" || !namespaceSet {
-		log.Info("Monitoring all namespaces")
+	if namespace == "*" {
+		log.Info("Watching all namespaces")
 		namespace = ""
+	}
+
+	// The case when the Operator is watching only a single namespace different from the current
+	if util.ReadEnvVarOrPanic(util.CurrentNamespace) != namespace {
+		log.Infof("Watching namespace %s", namespace)
 	}
 
 	// Get a config to talk to the apiserver
