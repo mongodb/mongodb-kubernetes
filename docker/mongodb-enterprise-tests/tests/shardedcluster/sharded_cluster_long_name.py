@@ -1,6 +1,6 @@
 from pytest import fixture, mark
 from kubetester.kubetester import skip_if_local, fixture as yaml_fixture
-from kubetester.mongodb import MongoDB
+from kubetester.mongodb import MongoDB, Phase
 
 
 @fixture(scope="module")
