@@ -1797,6 +1797,8 @@ buildvariants:
       variant: init_test_run
     - name: build_test_image
       variant: init_test_run
+    - name:  prepare_cluster_openshift_3
+      variant: init_test_run
   run_on:
   - archlinux-test
   stepback: false
