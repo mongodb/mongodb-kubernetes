@@ -55,7 +55,9 @@ class OMTester(object):
 
     def __init__(self, om_context: OMContext):
         self.context = om_context
-        self.ensure_group_id()
+        # we only have a group id if we also have a name
+        if self.context.group_name:
+            self.ensure_group_id()
 
     def ensure_group_id(self):
         if self.context.group_id is None:
