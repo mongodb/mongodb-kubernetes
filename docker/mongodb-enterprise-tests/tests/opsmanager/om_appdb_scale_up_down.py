@@ -3,7 +3,6 @@ import json
 import pytest
 from kubetester.kubetester import skip_if_local
 from kubetester.omtester import OMTester
-
 from tests.opsmanager.om_base import OpsManagerBase
 
 gen_key_resource_version = None

@@ -7,13 +7,11 @@ source scripts/dev/set_env_context
 
 title "Building AppDB image..."
 
-check_mandatory_param "${1-}" "om_version"
-
-om_version=${1}
+check_mandatory_param "${om_version-}" "om_version"
 
 # om_branch is optional - only if the Ops Manager is not released yet and we need to use some branch
 # if omitted it points to the relevant "on-prem-" tag
-om_branch="${2:-on-prem-$om_version}"
+om_branch="${om_branch:-on-prem-$om_version}"
 
 # download OM configuration file conf-hosted.properties to find the automation agent version
 check_env_var "GITHUB_TOKEN" "To download Ops Manager config file you need to specify the 'GITHUB_TOKEN' environment variable (https://github.com/settings/tokens/new) with 'repo' scope"

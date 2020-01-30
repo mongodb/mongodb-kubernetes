@@ -1,11 +1,12 @@
-import threading
+from __future__ import annotations
+
+import urllib.parse
 from datetime import datetime
 from typing import List, Dict
 
 import pytest
 import requests
-import time
-import urllib.parse
+from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import build_auth
 from kubetester.mongotester import BackgroundHealthChecker
 
@@ -34,16 +35,34 @@ class OMContext(object):
         self.public_key = public_key
         self.org_id = org_id
 
+    @staticmethod
+    def build_from_config_map_and_secret(
+        connection_config_map: Dict[str, str], connection_secret: Dict[str, str]
+    ) -> OMContext:
+        return OMContext(
+            base_url=connection_config_map["baseUrl"],
+            group_id=None,
+            group_name=connection_config_map["projectName"],
+            org_id=connection_config_map["orgId"],
+            user=connection_secret["user"],
+            public_key=connection_secret["publicApiKey"],
+        )
+
 
 class OMTester(object):
     """ OMTester is designed to encapsulate communication with Ops Manager. It also provides the
     set of assertion methods helping to write tests"""
 
     def __init__(self, om_context: OMContext):
-        self.om_context = om_context
+        self.context = om_context
+        self.ensure_group_id()
+
+    def ensure_group_id(self):
+        if self.context.group_id is None:
+            self.context.group_id = self.find_group_id()
 
     def assert_healthiness(self):
-        self.do_assert_healthiness(self.om_context.base_url)
+        self.do_assert_healthiness(self.context.base_url)
         # TODO we need to check the login page as well (/user) - does it render properly?
 
     def assert_om_instances_healthiness(self, pod_urls: str):
@@ -60,21 +79,21 @@ class OMTester(object):
         )
 
     def assert_test_service(self):
-        endpoint = self.om_context.base_url + "/test/utils/systemTime"
+        endpoint = self.context.base_url + "/test/utils/systemTime"
         response = requests.request("get", endpoint)
         assert response.status_code == requests.status_codes.codes.OK
 
     def assert_support_page_enabled(self):
         """The method ends successfully if 'mms.helpAndSupportPage.enabled' is set to 'true'. It's 'false' by default.
             See mms SupportResource.supportLoggedOut()"""
-        endpoint = self.om_context.base_url + "/support"
+        endpoint = self.context.base_url + "/support"
         response = requests.request("get", endpoint, allow_redirects=False)
 
         # logic: if mms.helpAndSupportPage.enabled==true - then status is 307, otherwise 303"
         assert response.status_code == 307
 
     def assert_group_exists(self):
-        path = "/groups/" + self.om_context.group_id
+        path = "/groups/" + self.context.group_id
         response = self.om_request("get", path)
 
         assert response.status_code == requests.status_codes.codes.OK
@@ -129,6 +148,11 @@ class OMTester(object):
             expected_s3_stores, "/admin/backup/snapshot/s3Configs", "s3"
         )
 
+    def assert_empty(self):
+        self.get_automation_config_tester().assert_empty()
+        hosts = self.api_get_hosts()
+        assert len(hosts["results"]) == 0
+
     @staticmethod
     def do_assert_healthiness(base_url: str):
         endpoint = base_url + "/monitor/health"
@@ -143,9 +167,9 @@ class OMTester(object):
         """ performs the digest API request to Ops Manager. Note that the paths don't need to be prefixed with
         '/api../v1.0' as the method does it internally"""
         headers = {"Content-Type": "application/json"}
-        auth = build_auth(self.om_context.user, self.om_context.public_key)
+        auth = build_auth(self.context.user, self.context.public_key)
 
-        endpoint = f"{self.om_context.base_url}/api/public/v1.0{path}"
+        endpoint = f"{self.context.base_url}/api/public/v1.0{path}"
         response = requests.request(
             method, endpoint, auth=auth, headers=headers, json=json_object
         )
@@ -158,6 +182,55 @@ class OMTester(object):
             )
 
         return response
+
+    def find_group_id(self):
+        """
+        Obtains the group id of the group with specified name.
+        Note, that the logic used repeats the logic used by the Operator.
+        """
+        if self.context.org_id is None or self.context.org_id == "":
+            # If no organization is passed, then look for all organizations
+            self.context.org_id = self.api_get_organization_id(self.context.group_name)
+            if self.context.org_id == "":
+                raise Exception(
+                    f"Organization with name {self.context.group_name} not found!"
+                )
+
+        group_id = self.api_get_group_in_organization(
+            self.context.org_id, self.context.group_name
+        )
+        if group_id == "":
+            raise Exception(
+                f"Group with name {self.context.group_name} not found in organization {self.context.org_id}!"
+            )
+        return group_id
+
+    def api_get_organization_id(self, org_name: str) -> str:
+        json = self.om_request("get", f"/orgs?name={org_name}").json()
+        if len(json["results"]) > 1:
+            raise Exception(
+                f"More than one organizations with name {org_name} not found!"
+            )
+        if len(json["results"]) == 0:
+            return ""
+        return json["results"][0]["id"]
+
+    def api_get_group_in_organization(self, org_id: str, group_name: str) -> str:
+        json = self.om_request("get", f"/orgs/{org_id}/groups?name={group_name}").json()
+        if len(json["results"]) == 0:
+            return ""
+        if len(json["results"]) > 1:
+            raise Exception(f"More than one groups with name {group_name} found!")
+        return json["results"][0]["id"]
+
+    def api_get_hosts(self) -> Dict:
+        return self.om_request("get", f"/groups/{self.context.group_id}/hosts").json()
+
+    def get_automation_config_tester(self) -> AutomationConfigTester:
+        json = self.om_request(
+            "get", f"/groups/{self.context.group_id}/automationConfig"
+        ).json()
+        return AutomationConfigTester(json)
 
 
 class OMBackgroundTester(BackgroundHealthChecker):

@@ -79,6 +79,10 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 	log := zap.S().With("Standalone", request.NamespacedName)
 	s := &mdbv1.MongoDB{}
 
+	mutex := r.GetMutex(request.NamespacedName)
+	mutex.Lock()
+	defer mutex.Unlock()
+
 	defer exceptionHandling(
 		func(err interface{}) (reconcile.Result, error) {
 			return r.updateStatusFailed(s, fmt.Sprintf("Failed to reconcile Mongodb Standalone: %s", err), log)

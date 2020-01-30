@@ -27,6 +27,10 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (r
 	log := zap.S().With("ShardedCluster", request.NamespacedName)
 	sc := &mdbv1.MongoDB{}
 
+	mutex := r.GetMutex(request.NamespacedName)
+	mutex.Lock()
+	defer mutex.Unlock()
+
 	defer exceptionHandling(
 		func(err interface{}) (reconcile.Result, error) {
 			return r.updateStatusFailed(sc, fmt.Sprintf("Failed to reconcile Sharded Cluster: %s", err), log)

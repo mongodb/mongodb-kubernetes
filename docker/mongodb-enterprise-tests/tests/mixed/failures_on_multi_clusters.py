@@ -1,7 +1,6 @@
-from pytest import mark, fixture
-
 from kubetester.kubetester import KubernetesTester, fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
+from pytest import mark, fixture
 
 
 @fixture(scope="class")

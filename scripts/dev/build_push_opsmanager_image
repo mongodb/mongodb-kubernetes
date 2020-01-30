@@ -7,18 +7,14 @@ source scripts/dev/set_env_context
 
 title "Building Ops Manager image..."
 
-# TODO use some kind of named parameters instead of relying on positions...
-check_mandatory_param "${1-}" "om_version"
-
-image_version="$1"
-download_url="${2-}"
+check_mandatory_param "${om_version-}" "om_version"
 
 if [[ -z $download_url ]]; then
     echo "Download url is not provided, so fetching it from the official Ops Manager binaries json"
-    download_url=$(om_download_url $image_version)
+    download_url=$(om_download_url $om_version)
 
-    [[ -z ${download_url} ]] && fatal "Failed to find download link for version $image_version"
-    echo "The download url for ${image_version} is ${download_url}"
+    [[ -z ${download_url} ]] && fatal "Failed to find download link for version $om_version"
+    echo "The download url for ${om_version} is ${download_url}"
 fi
 
 # note that in non local runs we want to build images with suffix (operator version).
@@ -38,7 +34,7 @@ elif [[ ${REPO_TYPE} = "ecr" ]]; then
     ensure_ecr_repository "${repo_name}/${IMAGE_TYPE}/mongodb-enterprise-ops-manager"
 
     make -C docker/mongodb-enterprise-ops-manager push IMAGE_DIR="${repo_name}" AWS_IMAGE_REPO="${repo_host}" \
-            IMAGE_TYPE="${IMAGE_TYPE}" IMAGE_VERSION="${image_version}" OM_DOWNLOAD_LINK="${download_url}" \
+            IMAGE_TYPE="${IMAGE_TYPE}" IMAGE_VERSION="${om_version}" OM_DOWNLOAD_LINK="${download_url}" \
             IMAGE_SUFFIX=${image_suffix-}
 
     title "Ops Manager image successfully built and pushed to the ECR registry"

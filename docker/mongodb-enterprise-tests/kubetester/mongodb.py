@@ -1,15 +1,13 @@
-from enum import Enum
-
-import time
 import re
-
+from enum import Enum
 from typing import List, Optional, Dict
 
+import time
 from kubeobject import CustomObject
-from kubernetes.client import V1StatefulSet
+from kubernetes import client
+from kubernetes.client.rest import ApiException
 from kubetester.kubetester import KubernetesTester
-from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.omtester import OMContext, OMTester
+from kubetester.omtester import OMTester, OMContext
 
 from .mongotester import (
     MongoTester,
@@ -17,9 +15,6 @@ from .mongotester import (
     ShardedClusterTester,
     StandaloneTester,
 )
-
-from kubernetes import client
-from kubernetes.client.rest import ApiException
 
 
 class Phase(Enum):
@@ -110,8 +105,10 @@ class MongoDB(CustomObject, MongoDBCommon):
 
     def __repr__(self):
         # FIX: this should be __unicode__
-        return "MongoDB| status: {}| message: {}".format(
-            self["status"].get("phase", ""), self["status"].get("message", "")
+        return "MongoDB ({})| status: {}| message: {}".format(
+            self.name,
+            self["status"].get("phase", ""),
+            self["status"].get("message", ""),
         )
 
     def configure(self, om, project_name: str):
@@ -169,6 +166,26 @@ class MongoDB(CustomObject, MongoDBCommon):
         if "message" not in self.get_status():
             return None
         return self.get_status()["message"]
+
+    def get_om_tester(self):
+        """ Returns the OMTester instance based on MongoDB connectivity parameters """
+        config_map = KubernetesTester.read_configmap(
+            self.namespace, self.config_map_name
+        )
+        secret = KubernetesTester.read_secret(
+            self.namespace, self["spec"]["credentials"]
+        )
+        return OMTester(OMContext.build_from_config_map_and_secret(config_map, secret))
+
+    def get_automation_config_tester(self):
+        """ This is just a shortcut for getting automation config tester for replica set"""
+        return self.get_om_tester().get_automation_config_tester()
+
+    @property
+    def config_map_name(self) -> str:
+        if "opsManager" in self["spec"]:
+            return self["spec"]["opsManager"]["configMapRef"]["name"]
+        return self["spec"]["project"]
 
     class Types:
         REPLICA_SET = "ReplicaSet"

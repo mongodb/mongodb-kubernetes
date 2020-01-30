@@ -1,10 +1,8 @@
 import os
 
+import kubernetes
 from kubetester.awss3client import AwsS3Client
 from pytest import fixture
-
-import kubernetes
-
 
 try:
     kubernetes.config.load_kube_config()

@@ -1,16 +1,15 @@
 import random
+import ssl
 import string
 import threading
-
-import time
-import ssl
+from typing import List
 
 import pymongo
+import time
 from kubetester import kubetester
 from kubetester.kubetester import KubernetesTester
 from pymongo.errors import ServerSelectionTimeoutError, OperationFailure
 from pytest import fail
-from typing import List
 
 TEST_DB = "test-db"
 TEST_COLLECTION = "test-collection"

@@ -16,8 +16,6 @@ def replica_set(namespace: str) -> MongoDB:
 
     yield resource
 
-    resource.delete()
-
 
 @mark.e2e_op_upgrade_replica_set_second
 def test_reaches_running_phase(replica_set):

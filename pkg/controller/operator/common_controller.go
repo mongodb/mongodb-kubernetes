@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
@@ -83,6 +84,10 @@ type ReconcileCommonController struct {
 	// internal multimap mapping watched resources to mongodb resources they are used in
 	// (example: config map 'c1' is used in 2 mongodb replica sets 'm1', 'm2', so the map will be [c1]->[m1, m2])
 	watchedResources map[watchedObject][]types.NamespacedName
+	// this map keeps the locks for the resources the current controller is responsible for
+	// This allows to serialize processing logic (edit and removal) and necessary because
+	// we don't use reconciliation queue for removal operations
+	reconcileLocks sync.Map
 }
 
 func newReconcileCommonController(mgr manager.Manager, omFunc om.ConnectionFactory) *ReconcileCommonController {
@@ -92,7 +97,14 @@ func newReconcileCommonController(mgr manager.Manager, omFunc om.ConnectionFacto
 		kubeHelper:          KubeHelper{mgr.GetClient()},
 		omConnectionFactory: omFunc,
 		watchedResources:    map[watchedObject][]types.NamespacedName{},
+		reconcileLocks:      sync.Map{},
 	}
+}
+
+// GetMutex creates or reuses the relevant mutex for resource
+func (c *ReconcileCommonController) GetMutex(resourceName types.NamespacedName) *sync.Mutex {
+	mutex, _ := c.reconcileLocks.LoadOrStore(resourceName, &sync.Mutex{})
+	return mutex.(*sync.Mutex)
 }
 
 // prepareConnection reads project config map and credential secrets and uses these values to communicate with Ops Manager:

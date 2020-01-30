@@ -1,4 +1,5 @@
 from operator import attrgetter
+from typing import Optional, Dict
 
 import yaml
 from kubetester import MongoDB, MongoDBOpsManager
@@ -8,8 +9,6 @@ from kubetester.kubetester import (
     fixture as yaml_fixture,
     KubernetesTester,
 )
-from typing import Optional, Dict
-
 from kubetester.mongodb import Phase
 from kubetester.omtester import OMTester
 from pytest import mark, fixture

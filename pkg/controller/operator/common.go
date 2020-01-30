@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"sync"
 	"time"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
@@ -286,12 +287,20 @@ type MongoDBResourceEventHandler struct {
 	*handler.EnqueueRequestForObject
 	reconciler interface {
 		delete(obj interface{}, log *zap.SugaredLogger) error
+		GetMutex(resourceName types.NamespacedName) *sync.Mutex
 	}
 }
 
 func (eh *MongoDBResourceEventHandler) Delete(e event.DeleteEvent, _ workqueue.RateLimitingInterface) {
+	objectKey := objectKey(e.Meta.GetNamespace(), e.Meta.GetName())
+	logger := zap.S().With("resource", objectKey)
+
+	// Reusing the lock used during update reconciliations
+	mutex := eh.reconciler.GetMutex(objectKey)
+	mutex.Lock()
+	defer mutex.Unlock()
+
 	zap.S().Infow("Cleaning up MongoDB resource", "resource", e.Object)
-	logger := zap.S().With("resource", objectKey(e.Meta.GetNamespace(), e.Meta.GetName()))
 	if err := eh.reconciler.delete(e.Object, logger); err != nil {
 		logger.Errorf("MongoDB resource removed from Kubernetes, but failed to clean some state in Ops Manager: %s", err)
 		return

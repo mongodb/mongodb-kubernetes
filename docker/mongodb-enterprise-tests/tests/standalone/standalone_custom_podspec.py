@@ -1,5 +1,5 @@
 from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
-from kubetester.mongodb import MongoDB
+from kubetester.mongodb import MongoDB, Phase
 from kubetester.custom_podspec import assert_stateful_set_podspec
 from pytest import fixture, mark
 
@@ -14,7 +14,7 @@ def standalone(namespace: str) -> MongoDB:
 
 @mark.e2e_standalone_custom_podspec
 def test_replica_set_reaches_running_phase(standalone):
-    standalone.assert_reaches_phase("Running", timeout=600)
+    standalone.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_standalone_custom_podspec

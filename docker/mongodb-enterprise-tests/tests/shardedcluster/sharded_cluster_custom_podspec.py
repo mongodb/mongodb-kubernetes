@@ -1,6 +1,6 @@
-from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
-from kubetester.mongodb import MongoDB
 from kubetester.custom_podspec import assert_stateful_set_podspec
+from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
+from kubetester.mongodb import MongoDB, Phase
 from pytest import fixture, mark
 
 SHARD_WEIGHT = 50
@@ -26,7 +26,7 @@ def sharded_cluster(namespace: str) -> MongoDB:
 
 @mark.e2e_sharded_cluster_custom_podspec
 def test_replica_set_reaches_running_phase(sharded_cluster):
-    sharded_cluster.assert_reaches_phase("Running", timeout=600)
+    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=600)
     assert "warnings" not in sharded_cluster["status"]
 
 

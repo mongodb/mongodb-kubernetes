@@ -73,5 +73,19 @@ class AutomationConfigTester:
     def assert_agent_user(self, agent_user: str) -> None:
         assert self.automation_config["auth"]["autoUser"] == agent_user
 
+    def assert_replica_sets_size(self, expected_size: int):
+        assert len(self.automation_config["replicaSets"]) == expected_size
+
+    def assert_processes_size(self, expected_size: int):
+        assert len(self.automation_config["processes"]) == expected_size
+
+    def assert_sharding_size(self, expected_size: int):
+        assert len(self.automation_config["sharding"]) == expected_size
+
+    def assert_empty(self):
+        self.assert_processes_size(0)
+        self.assert_replica_sets_size(0)
+        self.assert_sharding_size(0)
+
     def reached_version(self, version: int) -> bool:
         return self.automation_config["version"] == version

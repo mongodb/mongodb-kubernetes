@@ -2,14 +2,11 @@ import pytest
 from kubernetes import client
 from kubernetes.client.rest import ApiException
 from kubetester import MongoDBOpsManager, MongoDB
+from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
 from kubetester.omtester import OMTester
-from kubetester.automation_config_tester import AutomationConfigTester
 from pytest import fixture
-from kubetester.mongotester import ReplicaSetTester
-from kubetester.kubetester import fixture as yaml_fixture
-
 from tests.opsmanager.om_base import OpsManagerBase
 
 gen_key_resource_version = None

@@ -1,12 +1,12 @@
+import json
+import os
 import re
+from typing import Dict
 
 from kubernetes.client.rest import ApiException
 from kubetester.kubetester import KubernetesTester
 from kubetester.omcr import OpsManagerCR
 from kubetester.omtester import OMContext
-from typing import Dict
-import json
-import os
 
 
 class OpsManagerBase(KubernetesTester):
