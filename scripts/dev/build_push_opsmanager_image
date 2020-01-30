@@ -9,7 +9,7 @@ title "Building Ops Manager image..."
 
 check_mandatory_param "${om_version-}" "om_version"
 
-if [[ -z $download_url ]]; then
+if [[ -z ${download_url-} ]]; then
     echo "Download url is not provided, so fetching it from the official Ops Manager binaries json"
     download_url=$(om_download_url $om_version)
 

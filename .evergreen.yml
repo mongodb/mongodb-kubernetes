@@ -1582,7 +1582,6 @@ task_groups:
     - e2e_standalone_type_change_recovery
     - e2e_standalone_upgrade_downgrade
     - e2e_standalone_custom_podspec
-    - e2e_replica_set_update_delete_parallel
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -1668,6 +1667,7 @@ task_groups:
     - e2e_replica_set_readiness_probe
     - e2e_tls_rs_external_access
     - e2e_tls_rs_external_access_tls_transition
+    - e2e_replica_set_update_delete_parallel
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment

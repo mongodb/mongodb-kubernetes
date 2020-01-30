@@ -1,6 +1,6 @@
 from pytest import fixture, mark
 from kubetester.kubetester import skip_if_local, fixture as yaml_fixture
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 
 
 @fixture(scope="module")
@@ -13,7 +13,8 @@ def sharded_cluster(namespace: str) -> MongoDB:
 
 @mark.e2e_sharded_cluster_long_name
 def test_reaches_running_phase(sharded_cluster: MongoDB):
-    sharded_cluster.assert_reaches_phase(Phase.Running)
+    # We need more time as the sharded cluster has persistence enabled
+    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=500)
 
 
 @mark.e2e_sharded_cluster_long_name
