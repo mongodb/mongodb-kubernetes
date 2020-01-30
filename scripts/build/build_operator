@@ -31,11 +31,11 @@ echo "Using MongoDB version ${mdb_version}-ent for the AppDB"
 if [[ ${DEBUG-} = "True" ]]; then
     echo "Building Operator binary in 'debug' mode..."
     go build -gcflags "-N -l" -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator \
-      -ldflags="-X github.com/10gen/ops-manager-kubernetes/pkg/util.OperatorVersion=${RELEASE_VERSION} -X github.com/10gen/ops-manager-kubernetes/pkg/util.LogAutomationConfigDiff=${LOG_AUTOMATION_CONFIG_DIFF} -X github.com/10gen/ops-manager-kubernetes/pkg/util.BundledAppDbMongodbVersion=${mdb_version}"
+      -ldflags="-X github.com/10gen/ops-manager-kubernetes/pkg/util.OperatorVersion=${RELEASE_VERSION} -X github.com/10gen/ops-manager-kubernetes/pkg/util.LogAutomationConfigDiff=${LOG_AUTOMATION_CONFIG_DIFF} -X github.com/10gen/ops-manager-kubernetes/pkg/util.BundledAppDbMongoDBVersion=${mdb_version}"
 else
     echo "Building Operator binary..."
     go build -i -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator \
-        -ldflags="-s -w -X github.com/10gen/ops-manager-kubernetes/pkg/util.OperatorVersion=${RELEASE_VERSION} -X github.com/10gen/ops-manager-kubernetes/pkg/util.LogAutomationConfigDiff=${LOG_AUTOMATION_CONFIG_DIFF} -X github.com/10gen/ops-manager-kubernetes/pkg/util.BundledAppDbMongodbVersion=${mdb_version}"
+        -ldflags="-s -w -X github.com/10gen/ops-manager-kubernetes/pkg/util.OperatorVersion=${RELEASE_VERSION} -X github.com/10gen/ops-manager-kubernetes/pkg/util.LogAutomationConfigDiff=${LOG_AUTOMATION_CONFIG_DIFF} -X github.com/10gen/ops-manager-kubernetes/pkg/util.BundledAppDbMongoDBVersion=${mdb_version}"
 
 fi
 

@@ -21,8 +21,10 @@ import (
 
 const relativeVersionManifestFixturePath = "testdata/version_manifest.json"
 
+const gitVersionFromTestData = "a0bbbff6ada159e19298d37946ac8dc4b497eadf"
+
 func init() {
-	util.BundledAppDbMongodbVersion = "4.2.2"
+	util.BundledAppDbMongoDBVersion = "4.2.2-ent"
 }
 
 // TestPublishAutomationConfig_Create verifies that the automation config map is created if it doesn't exist
@@ -31,8 +33,8 @@ func TestPublishAutomationConfig_Create(t *testing.T) {
 	opsManager := builder.Build()
 	appdb := &opsManager.Spec.AppDB
 	kubeManager := newMockedManager(nil)
-	reconciler := newAppDbReconciler(kubeManager, om.InternetManifestProvider{})
-	automationConfig, err := buildAutomationConfigForAppDb(t, builder, om.InternetManifestProvider{})
+	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
+	automationConfig, err := buildAutomationConfigForAppDb(t, builder, AlwaysFailingManifestProvider{})
 	assert.NoError(t, err)
 	assert.NoError(t, reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S()))
 
@@ -49,8 +51,8 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 	opsManager := builder.Build()
 	appdb := &opsManager.Spec.AppDB
 	kubeManager := newMockedManager(nil)
-	reconciler := newAppDbReconciler(kubeManager, om.InternetManifestProvider{})
-	automationConfig, err := buildAutomationConfigForAppDb(t, builder, om.InternetManifestProvider{})
+	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
+	automationConfig, err := buildAutomationConfigForAppDb(t, builder, AlwaysFailingManifestProvider{})
 	assert.NoError(t, err)
 	// create
 	assert.NoError(t, reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S()))
@@ -76,8 +78,8 @@ func TestPublishAutomationConfig_ScramShaConfigured(t *testing.T) {
 	opsManager := builder.Build()
 	appdb := &opsManager.Spec.AppDB
 	kubeManager := newMockedManager(nil)
-	reconciler := newAppDbReconciler(kubeManager, om.InternetManifestProvider{})
-	automationConfig, err := buildAutomationConfigForAppDb(t, builder, om.InternetManifestProvider{})
+	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
+	automationConfig, err := buildAutomationConfigForAppDb(t, builder, AlwaysFailingManifestProvider{})
 	assert.NoError(t, err)
 	assert.NoError(t, reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S()))
 
@@ -102,18 +104,19 @@ func TestPublishAutomationConfig_ScramShaConfigured(t *testing.T) {
 func TestBuildAppDbAutomationConfig(t *testing.T) {
 	builder := DefaultOpsManagerBuilder().
 		SetAppDbMembers(2).
-		SetAppDbVersion("4.2.2").
+		SetAppDbVersion("4.2.2-ent").
 		SetAppDbFeatureCompatibility("4.0")
-	automationConfig, err := buildAutomationConfigForAppDb(t, builder, om.InternetManifestProvider{})
+	builder.Build()
+	automationConfig, err := buildAutomationConfigForAppDb(t, builder, AlwaysFailingManifestProvider{})
 	assert.NoError(t, err)
 	deployment := automationConfig.Deployment
 
 	// processes
 	assert.Len(t, deployment.ProcessesCopy(), 2)
-	assert.Equal(t, "4.2.2", deployment.ProcessesCopy()[0].Version())
+	assert.Equal(t, "4.2.2-ent", deployment.ProcessesCopy()[0].Version())
 	assert.Equal(t, "testOM-db-0.testOM-db-svc.my-namespace.svc.cluster.local", deployment.ProcessesCopy()[0].HostName())
 	assert.Equal(t, "4.0", deployment.ProcessesCopy()[0].FeatureCompatibilityVersion())
-	assert.Equal(t, "4.2.2", deployment.ProcessesCopy()[1].Version())
+	assert.Equal(t, "4.2.2-ent", deployment.ProcessesCopy()[1].Version())
 	assert.Equal(t, "testOM-db-1.testOM-db-svc.my-namespace.svc.cluster.local", deployment.ProcessesCopy()[1].HostName())
 	assert.Equal(t, "4.0", deployment.ProcessesCopy()[1].FeatureCompatibilityVersion())
 
@@ -135,36 +138,25 @@ func TestBuildAppDbAutomationConfig(t *testing.T) {
 	// options
 	assert.Equal(t, map[string]string{"downloadBase": util.AgentDownloadsDir}, deployment["options"])
 
-	// mongodb versions (as of OM 4.2.2 version manifests contains 235 entries)
-	assert.True(t, len(automationConfig.MongodbVersions()) > 234)
+	// we have only the bundled version here
+	assert.Len(t, automationConfig.MongodbVersions(), 1)
 
-	twoSix := automationConfig.MongodbVersions()[0]
-	assert.Equal(t, "2.6.0", twoSix.Name)
-	assert.Equal(t, "linux", twoSix.Builds[0].Platform)
-	assert.Equal(t, "1c1c76aeca21c5983dc178920f5052c298db616c", twoSix.Builds[0].GitVersion)
-	assert.Equal(t, "amd64", twoSix.Builds[0].Architecture)
-	assert.Equal(t, "https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-2.6.0.tgz", twoSix.Builds[0].Url)
-	assert.Len(t, twoSix.Builds[0].Modules, 0)
+	fourTwoTwoEnt := automationConfig.MongodbVersions()[0]
 
-	var fourTwoEnt om.MongoDbVersionConfig
-	// seems like we cannot rely on the build by index - there used to be the "4.2.0-ent" on 234 position in the
-	// builds array but later it was replaced by 4.2.0-rc8-ent and the test started failing..
-	// So we try to find the version by name instead
-	for _, v := range automationConfig.MongodbVersions() {
-		if v.Name == "4.2.0-ent" {
-			fourTwoEnt = v
-			break
-		}
-	}
-	assert.Equal(t, "4.2.0-ent", fourTwoEnt.Name)
-	assert.Equal(t, "linux", fourTwoEnt.Builds[13].Platform)
-	assert.Equal(t, "a4b751dcf51dd249c5865812b390cfd1c0129c30", fourTwoEnt.Builds[13].GitVersion)
-	assert.Equal(t, "amd64", fourTwoEnt.Builds[13].Architecture)
-	assert.Equal(t, "ubuntu", fourTwoEnt.Builds[13].Flavor)
-	assert.Equal(t, "18.04", fourTwoEnt.Builds[13].MinOsVersion)
-	assert.Equal(t, "19.04", fourTwoEnt.Builds[13].MaxOsVersion)
-	assert.Equal(t, "https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise-ubuntu1804-4.2.0.tgz", fourTwoEnt.Builds[13].Url)
-	assert.Len(t, fourTwoEnt.Builds[13].Modules, 1)
+	assert.Equal(t, "4.2.2-ent", fourTwoTwoEnt.Name)
+	// test version_manifest.json has 6 builds
+	assert.Len(t, fourTwoTwoEnt.Builds, 6)
+
+	// only checking 1st build data matches
+	firstBuild := fourTwoTwoEnt.Builds[0]
+	assert.Equal(t, "linux", firstBuild.Platform)
+	assert.Equal(t, gitVersionFromTestData, firstBuild.GitVersion)
+	assert.Equal(t, "ppc64le", firstBuild.Architecture)
+	assert.Equal(t, "rhel", firstBuild.Flavor)
+	assert.Equal(t, "7.0", firstBuild.MinOsVersion)
+	assert.Equal(t, "8.0", firstBuild.MaxOsVersion)
+	assert.Equal(t, "https://downloads.mongodb.com/linux/mongodb-linux-ppc64le-enterprise-rhel71-4.2.2.tgz", firstBuild.Url)
+	assert.Equal(t, firstBuild.Modules, []string{"enterprise"})
 
 }
 
@@ -206,7 +198,24 @@ func TestBundledVersionManifestIsUsed_WhenCorrespondingVersionIsUsed(t *testing.
 	firstBuild := mongodbBuilds[0]
 
 	assert.Equal(t, firstBuild.Platform, "linux")
-	assert.Equal(t, firstBuild.GitVersion, "a0bbbff6ada159e19298d37946ac8dc4b497eadf")
+	assert.Equal(t, firstBuild.GitVersion, gitVersionFromTestData)
+	assert.Equal(t, mongodbVersion.Name, "4.2.2-ent")
+	assert.Len(t, mongodbBuilds, 6)
+}
+
+func TestBundledVersionManifestIsUsed_WhenSpecified(t *testing.T) {
+	builder := DefaultOpsManagerBuilder().
+		SetAppDbMembers(2).
+		SetAppDbVersion(util.BundledAppDbMongoDBVersion).
+		SetAppDbFeatureCompatibility("4.0")
+	automationConfig, err := buildAutomationConfigForAppDb(t, builder, AlwaysFailingManifestProvider{})
+	assert.NoError(t, err)
+	mongodbVersion := automationConfig.MongodbVersions()[0]
+	mongodbBuilds := mongodbVersion.Builds
+	firstBuild := mongodbBuilds[0]
+
+	assert.Equal(t, firstBuild.Platform, "linux")
+	assert.Equal(t, firstBuild.GitVersion, gitVersionFromTestData)
 	assert.Equal(t, mongodbVersion.Name, "4.2.2-ent")
 	assert.Len(t, mongodbBuilds, 6)
 }
@@ -223,7 +232,7 @@ func TestBundledVersionManifestIsUsed_WhenVersionIsEmpty(t *testing.T) {
 	firstBuild := mongodbBuilds[0]
 
 	assert.Equal(t, firstBuild.Platform, "linux")
-	assert.Equal(t, firstBuild.GitVersion, "a0bbbff6ada159e19298d37946ac8dc4b497eadf")
+	assert.Equal(t, firstBuild.GitVersion, gitVersionFromTestData)
 	assert.Equal(t, mongodbVersion.Name, "4.2.2-ent")
 	assert.Len(t, mongodbBuilds, 6)
 }
@@ -234,14 +243,42 @@ func TestVersionManifestIsDownloaded_WhenNotUsingBundledVersion(t *testing.T) {
 		SetAppDbVersion("4.1.2-ent").
 		SetAppDbFeatureCompatibility("4.0")
 	automationConfig, err := buildAutomationConfigForAppDb(t, builder, om.InternetManifestProvider{})
-	assert.NoError(t, err)
-	mongodbVersion := automationConfig.MongodbVersions()[0]
-	mongodbBuilds := mongodbVersion.Builds
-	firstBuild := mongodbBuilds[0]
+	if err != nil {
+		// if failing, checking that the error is connectivity only
+		assert.Equal(t, err.Error(), "Get https://opsmanager.mongodb.com/static/version_manifest/4.2.json: dial tcp: lookup opsmanager.mongodb.com: no such host")
+		return
+	}
 
-	assert.NotEqual(t, firstBuild.GitVersion, "a0bbbff6ada159e19298d37946ac8dc4b497eadf")
-	assert.NotEqual(t, mongodbVersion.Name, "4.2.2-ent")
-	assert.NotEqual(t, 6, len(mongodbBuilds))
+	// mongodb versions (as of OM 4.2.2 version manifests contains 235 entries)
+	assert.True(t, len(automationConfig.MongodbVersions()) > 234)
+
+	twoSix := automationConfig.MongodbVersions()[0]
+	assert.Equal(t, "2.6.0", twoSix.Name)
+	assert.Equal(t, "linux", twoSix.Builds[0].Platform)
+	assert.Equal(t, "1c1c76aeca21c5983dc178920f5052c298db616c", twoSix.Builds[0].GitVersion)
+	assert.Equal(t, "amd64", twoSix.Builds[0].Architecture)
+	assert.Equal(t, "https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-2.6.0.tgz", twoSix.Builds[0].Url)
+	assert.Len(t, twoSix.Builds[0].Modules, 0)
+
+	var fourTwoEnt om.MongoDbVersionConfig
+	// seems like we cannot rely on the build by index - there used to be the "4.2.0-ent" on 234 position in the
+	// builds array but later it was replaced by 4.2.0-rc8-ent and the test started failing..
+	// So we try to find the version by name instead
+	for _, v := range automationConfig.MongodbVersions() {
+		if v.Name == "4.2.0-ent" {
+			fourTwoEnt = v
+			break
+		}
+	}
+	assert.Equal(t, "4.2.0-ent", fourTwoEnt.Name)
+	assert.Equal(t, "linux", fourTwoEnt.Builds[13].Platform)
+	assert.Equal(t, "a4b751dcf51dd249c5865812b390cfd1c0129c30", fourTwoEnt.Builds[13].GitVersion)
+	assert.Equal(t, "amd64", fourTwoEnt.Builds[13].Architecture)
+	assert.Equal(t, "ubuntu", fourTwoEnt.Builds[13].Flavor)
+	assert.Equal(t, "18.04", fourTwoEnt.Builds[13].MinOsVersion)
+	assert.Equal(t, "19.04", fourTwoEnt.Builds[13].MaxOsVersion)
+	assert.Equal(t, "https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise-ubuntu1804-4.2.0.tgz", fourTwoEnt.Builds[13].Url)
+	assert.Len(t, fourTwoEnt.Builds[13].Modules, 1)
 }
 
 func TestFetchingVersionManifestFails_WhenUsingNonBundledVersion(t *testing.T) {

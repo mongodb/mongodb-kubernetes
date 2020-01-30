@@ -57,23 +57,22 @@ func TestMergePodSpecsEmptyCustom(t *testing.T) {
 	defaultPodSpec := getDefaultPodSpec()
 	customPodSpecTemplate := corev1.PodTemplateSpec{}
 
-	err := MergePodSpecs(&customPodSpecTemplate, defaultPodSpec)
+	mergedPodTemplateSpec, err := MergePodSpecs(customPodSpecTemplate, defaultPodSpec)
 
 	assert.NoError(t, err)
+	assert.Equal(t, "my-default-service-account", mergedPodTemplateSpec.Spec.ServiceAccountName)
+	assert.Equal(t, Int64Ref(12), mergedPodTemplateSpec.Spec.TerminationGracePeriodSeconds)
 
-	assert.Equal(t, "my-default-service-account", customPodSpecTemplate.Spec.ServiceAccountName)
-	assert.Equal(t, Int64Ref(12), customPodSpecTemplate.Spec.TerminationGracePeriodSeconds)
-
-	assert.Equal(t, "my-default-name", customPodSpecTemplate.ObjectMeta.Name)
-	assert.Equal(t, "my-default-namespace", customPodSpecTemplate.ObjectMeta.Namespace)
-	assert.Equal(t, Int64Ref(10), customPodSpecTemplate.Spec.ActiveDeadlineSeconds)
+	assert.Equal(t, "my-default-name", mergedPodTemplateSpec.ObjectMeta.Name)
+	assert.Equal(t, "my-default-namespace", mergedPodTemplateSpec.ObjectMeta.Namespace)
+	assert.Equal(t, Int64Ref(10), mergedPodTemplateSpec.Spec.ActiveDeadlineSeconds)
 
 	// ensure collections have been merged
-	assert.Contains(t, customPodSpecTemplate.Spec.NodeSelector, "node-0")
-	assert.Len(t, customPodSpecTemplate.Spec.Containers, 1)
-	assert.Equal(t, "container-0", customPodSpecTemplate.Spec.Containers[0].Name)
-	assert.Equal(t, "image-0", customPodSpecTemplate.Spec.Containers[0].Image)
-	assert.Equal(t, "container-0.volume-mount-0", customPodSpecTemplate.Spec.Containers[0].VolumeMounts[0].Name)
+	assert.Contains(t, mergedPodTemplateSpec.Spec.NodeSelector, "node-0")
+	assert.Len(t, mergedPodTemplateSpec.Spec.Containers, 1)
+	assert.Equal(t, "container-0", mergedPodTemplateSpec.Spec.Containers[0].Name)
+	assert.Equal(t, "image-0", mergedPodTemplateSpec.Spec.Containers[0].Image)
+	assert.Equal(t, "container-0.volume-mount-0", mergedPodTemplateSpec.Spec.Containers[0].VolumeMounts[0].Name)
 }
 
 func TestMergePodSpecsEmptyDefault(t *testing.T) {
@@ -81,18 +80,17 @@ func TestMergePodSpecsEmptyDefault(t *testing.T) {
 	defaultPodSpec := corev1.PodTemplateSpec{}
 	customPodSpecTemplate := getCustomPodSpec()
 
-	err := MergePodSpecs(&customPodSpecTemplate, defaultPodSpec)
+	mergedPodTemplateSpec, err := MergePodSpecs(customPodSpecTemplate, defaultPodSpec)
 
 	assert.NoError(t, err)
+	assert.Equal(t, "my-service-account-override", mergedPodTemplateSpec.Spec.ServiceAccountName)
+	assert.Equal(t, Int64Ref(11), mergedPodTemplateSpec.Spec.TerminationGracePeriodSeconds)
+	assert.Equal(t, "my-node-name", mergedPodTemplateSpec.Spec.NodeName)
+	assert.Equal(t, corev1.RestartPolicy("Always"), mergedPodTemplateSpec.Spec.RestartPolicy)
 
-	assert.Equal(t, "my-service-account-override", customPodSpecTemplate.Spec.ServiceAccountName)
-	assert.Equal(t, Int64Ref(11), customPodSpecTemplate.Spec.TerminationGracePeriodSeconds)
-	assert.Equal(t, "my-node-name", customPodSpecTemplate.Spec.NodeName)
-	assert.Equal(t, corev1.RestartPolicy("Always"), customPodSpecTemplate.Spec.RestartPolicy)
-
-	assert.Len(t, customPodSpecTemplate.Spec.Containers, 1)
-	assert.Equal(t, "container-1", customPodSpecTemplate.Spec.Containers[0].Name)
-	assert.Equal(t, "image-1", customPodSpecTemplate.Spec.Containers[0].Image)
+	assert.Len(t, mergedPodTemplateSpec.Spec.Containers, 1)
+	assert.Equal(t, "container-1", mergedPodTemplateSpec.Spec.Containers[0].Name)
+	assert.Equal(t, "image-1", mergedPodTemplateSpec.Spec.Containers[0].Image)
 
 }
 
@@ -101,31 +99,33 @@ func TestMergePodSpecsBoth(t *testing.T) {
 	defaultPodSpec := getDefaultPodSpec()
 	customPodSpecTemplate := getCustomPodSpec()
 
+	var mergedPodTemplateSpec corev1.PodTemplateSpec
+	var err error
+
 	// multiple merges must give the same result
 	for i := 0; i < 3; i++ {
-		err := MergePodSpecs(&customPodSpecTemplate, defaultPodSpec)
+		mergedPodTemplateSpec, err = MergePodSpecs(customPodSpecTemplate, defaultPodSpec)
 
 		assert.NoError(t, err)
-
 		// ensure values that were specified in the custom pod spec template remain unchanged
-		assert.Equal(t, "my-service-account-override", customPodSpecTemplate.Spec.ServiceAccountName)
-		assert.Equal(t, Int64Ref(11), customPodSpecTemplate.Spec.TerminationGracePeriodSeconds)
-		assert.Equal(t, "my-node-name", customPodSpecTemplate.Spec.NodeName)
-		assert.Equal(t, corev1.RestartPolicy("Always"), customPodSpecTemplate.Spec.RestartPolicy)
+		assert.Equal(t, "my-service-account-override", mergedPodTemplateSpec.Spec.ServiceAccountName)
+		assert.Equal(t, Int64Ref(11), mergedPodTemplateSpec.Spec.TerminationGracePeriodSeconds)
+		assert.Equal(t, "my-node-name", mergedPodTemplateSpec.Spec.NodeName)
+		assert.Equal(t, corev1.RestartPolicy("Always"), mergedPodTemplateSpec.Spec.RestartPolicy)
 
 		// ensure values from the default pod spec template have been merged in
-		assert.Equal(t, "my-default-name", customPodSpecTemplate.ObjectMeta.Name)
-		assert.Equal(t, "my-default-namespace", customPodSpecTemplate.ObjectMeta.Namespace)
-		assert.Equal(t, Int64Ref(10), customPodSpecTemplate.Spec.ActiveDeadlineSeconds)
+		assert.Equal(t, "my-default-name", mergedPodTemplateSpec.ObjectMeta.Name)
+		assert.Equal(t, "my-default-namespace", mergedPodTemplateSpec.ObjectMeta.Namespace)
+		assert.Equal(t, Int64Ref(10), mergedPodTemplateSpec.Spec.ActiveDeadlineSeconds)
 
 		// ensure collections have been merged
-		assert.Contains(t, customPodSpecTemplate.Spec.NodeSelector, "node-0")
-		assert.Contains(t, customPodSpecTemplate.Spec.NodeSelector, "node-1")
-		assert.Len(t, customPodSpecTemplate.Spec.Containers, 2)
-		assert.Equal(t, "container-0", customPodSpecTemplate.Spec.Containers[0].Name)
-		assert.Equal(t, "image-0", customPodSpecTemplate.Spec.Containers[0].Image)
-		assert.Equal(t, "container-0.volume-mount-0", customPodSpecTemplate.Spec.Containers[0].VolumeMounts[0].Name)
-		assert.Equal(t, "container-1", customPodSpecTemplate.Spec.Containers[1].Name)
-		assert.Equal(t, "image-1", customPodSpecTemplate.Spec.Containers[1].Image)
+		assert.Contains(t, mergedPodTemplateSpec.Spec.NodeSelector, "node-0")
+		assert.Contains(t, mergedPodTemplateSpec.Spec.NodeSelector, "node-1")
+		assert.Len(t, mergedPodTemplateSpec.Spec.Containers, 2)
+		assert.Equal(t, "container-0", mergedPodTemplateSpec.Spec.Containers[0].Name)
+		assert.Equal(t, "image-0", mergedPodTemplateSpec.Spec.Containers[0].Image)
+		assert.Equal(t, "container-0.volume-mount-0", mergedPodTemplateSpec.Spec.Containers[0].VolumeMounts[0].Name)
+		assert.Equal(t, "container-1", mergedPodTemplateSpec.Spec.Containers[1].Name)
+		assert.Equal(t, "image-1", mergedPodTemplateSpec.Spec.Containers[1].Image)
 	}
 }

@@ -386,7 +386,7 @@ func ConvertNameToEnvVarFormat(propertyFormat string) string {
 
 //=============== AppDB ===========================================
 
-// Note, that as of alpha the AppDB has a limited schema comparing with a MongoDB struct
+// Note, that as of beta the AppDB has a limited schema comparing with a MongoDB struct
 
 type AppDB struct {
 	MongoDbSpec
@@ -408,7 +408,7 @@ type AppDbBuilder struct {
 
 func DefaultAppDbBuilder() *AppDbBuilder {
 	appDb := &AppDB{
-		MongoDbSpec:          MongoDbSpec{Version: "4.2.0", Members: 3, PodSpec: &MongoDbPodSpec{}},
+		MongoDbSpec:          MongoDbSpec{Version: "", Members: 3, PodSpec: &MongoDbPodSpec{}},
 		PasswordSecretKeyRef: &SecretKeyRef{},
 	}
 	return &AppDbBuilder{appDb: appDb}

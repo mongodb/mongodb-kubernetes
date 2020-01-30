@@ -1,7 +1,6 @@
 package util
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -211,11 +210,7 @@ const (
 // installed for development (using 'make') meaning the Ops Manager/AppDB images deployed won't have
 // "operator specific" part of the version tag
 var OperatorVersion string
-var BundledAppDbMongodbVersion string
-
-func GetBundledAppDbMongoDBVersion() string {
-	return fmt.Sprintf("%s-ent", BundledAppDbMongodbVersion)
-}
+var BundledAppDbMongoDBVersion string
 
 var LogAutomationConfigDiff string
 

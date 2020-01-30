@@ -121,15 +121,18 @@ func MergeWith(structToMerge interface{}, src map[string]interface{}, transforme
 
 // MergePodSpecs takes all of the values that exist in defaultPodTemplateSpec, and merges them into
 // customPodTemplateSpec. Values that exist in both will not be touched.
-func MergePodSpecs(customPodTemplateSpec *corev1.PodTemplateSpec, defaultPodTemplateSpec corev1.PodTemplateSpec) error {
-	// TODO: this test is to remedy a builder calling MergePodSpecs multiple times, I will address that in a follow-up PR
-	if len(customPodTemplateSpec.Spec.Containers) > 0 && (len(defaultPodTemplateSpec.Spec.Containers) == 0 || customPodTemplateSpec.Spec.Containers[0].Name != defaultPodTemplateSpec.Spec.Containers[0].Name) {
-		// needs merge
-		mergedContainers := []corev1.Container{}
-		// defaultPodTemplateSpec is always 1st
-		mergedContainers = append(mergedContainers, defaultPodTemplateSpec.Spec.Containers...)
-		mergedContainers = append(mergedContainers, customPodTemplateSpec.Spec.Containers...)
-		customPodTemplateSpec.Spec.Containers = mergedContainers
+func MergePodSpecs(customPodTemplateSpec corev1.PodTemplateSpec, defaultPodTemplateSpec corev1.PodTemplateSpec) (corev1.PodTemplateSpec, error) {
+	mergedContainers := []corev1.Container{}
+	// defaultPodTemplateSpec is always 1st
+	mergedContainers = append(mergedContainers, defaultPodTemplateSpec.Spec.Containers...)
+	mergedContainers = append(mergedContainers, customPodTemplateSpec.Spec.Containers...)
+	mergedPodTemplateSpec := corev1.PodTemplateSpec{}
+	if err := mergo.Merge(&mergedPodTemplateSpec, defaultPodTemplateSpec); err != nil {
+		return corev1.PodTemplateSpec{}, err
 	}
-	return mergo.Merge(customPodTemplateSpec, defaultPodTemplateSpec)
+	if err := mergo.Merge(&mergedPodTemplateSpec, customPodTemplateSpec, mergo.WithOverride); err != nil {
+		return corev1.PodTemplateSpec{}, err
+	}
+	mergedPodTemplateSpec.Spec.Containers = mergedContainers
+	return mergedPodTemplateSpec, nil
 }

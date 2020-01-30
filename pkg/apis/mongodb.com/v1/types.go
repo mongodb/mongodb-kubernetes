@@ -153,7 +153,7 @@ type MongoDbSpec struct {
 // version string validator will not allow this.
 func (ms MongoDbSpec) GetVersion() string {
 	if ms.Version == "" {
-		return util.GetBundledAppDbMongoDBVersion()
+		return util.BundledAppDbMongoDBVersion
 	}
 	return ms.Version
 }

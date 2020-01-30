@@ -302,13 +302,13 @@ func buildOpsManagerUser(scramSha1Creds, scramSha256Creds *om.ScramShaCreds) om.
 }
 
 func (r *ReconcileAppDbReplicaSet) configureMongoDBVersions(config *om.AutomationConfig, rs *mdbv1.AppDB, log *zap.SugaredLogger) error {
-	if rs.GetVersion() == util.GetBundledAppDbMongoDBVersion() {
+	if rs.GetVersion() == util.BundledAppDbMongoDBVersion {
 		versionManifest, err := om.FileVersionManifestProvider{FilePath: r.VersionManifestFilePath}.GetVersionManifest()
 		if err != nil {
 			return err
 		}
 		config.SetMongodbVersions(versionManifest.Versions)
-		log.Infof("Using bundled MongoDB version: %s", util.GetBundledAppDbMongoDBVersion())
+		log.Infof("Using bundled MongoDB version: %s", util.BundledAppDbMongoDBVersion)
 		return nil
 	} else {
 		return r.addLatestMongoDBVersions(config, log)

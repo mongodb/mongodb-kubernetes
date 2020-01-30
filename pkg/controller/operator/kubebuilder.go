@@ -123,22 +123,17 @@ func getMergedDefaultPodSpecTemplate(stsHelper StatefulSetHelper, annotations ma
 	podLabels := defaultPodLabels(stsHelper)
 
 	defaultPodSpecTemplate := getDefaultPodSpecTemplate(stsHelper.Name, stsHelper.PodSpec, stsHelper.PodVars, podLabels, annotations, defaultContainers)
-	if stsHelper.PodTemplateSpec == nil {
-		stsHelper.PodTemplateSpec = defaultPodSpecTemplate
-	} else {
+	var newPodTemplateSpec *corev1.PodTemplateSpec = defaultPodSpecTemplate
+	if stsHelper.PodTemplateSpec != nil {
 		// there is a user defined pod spec template, we need to merge in all of the default values
-		if err := util.MergePodSpecs(stsHelper.PodTemplateSpec, *defaultPodSpecTemplate); err != nil {
+		mergedPodTemplateSpec, err := util.MergePodSpecs(*stsHelper.PodTemplateSpec, *defaultPodSpecTemplate)
+		if err != nil {
 			return corev1.PodTemplateSpec{}, fmt.Errorf("error merging podSpecTemplate: %s", err)
 		}
+		newPodTemplateSpec = &mergedPodTemplateSpec
 	}
 
-	if val, found := util.ReadEnv(util.AutomationAgentPullSecrets); found {
-		stsHelper.PodTemplateSpec.Spec.ImagePullSecrets = append(stsHelper.PodTemplateSpec.Spec.ImagePullSecrets, corev1.LocalObjectReference{
-			Name: val,
-		})
-	}
-
-	return *stsHelper.PodTemplateSpec, nil
+	return *newPodTemplateSpec, nil
 }
 
 func getDefaultPodSpecTemplate(statefulSetName string, wrapper mdbv1.PodSpecWrapper, podVars *PodVars, podLabels map[string]string, annotations map[string]string, defaultContainers []corev1.Container) *corev1.PodTemplateSpec {
@@ -176,6 +171,13 @@ func getDefaultPodSpecTemplate(statefulSetName string, wrapper mdbv1.PodSpecWrap
 	}
 	templateSpec.ObjectMeta.Labels = podLabels
 	templateSpec.Annotations = annotations
+
+	if val, found := util.ReadEnv(util.AutomationAgentPullSecrets); found {
+		templateSpec.Spec.ImagePullSecrets = append(templateSpec.Spec.ImagePullSecrets, corev1.LocalObjectReference{
+			Name: val,
+		})
+	}
+
 	return templateSpec
 }
 
