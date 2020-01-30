@@ -52,10 +52,18 @@ dump_all () {
             kubectl logs -n "${PROJECT_NAMESPACE}" "${pod}" > "logs/${pod}.log"
 
             # kubectl cp won't create any files if the file doesn't exist in the container
-            kubectl cp ${PROJECT_NAMESPACE}/${pod}:/var/log/mongodb-mms-automation/agent-health-status.json logs/${pod}-agent-health-status.json
-            kubectl cp ${PROJECT_NAMESPACE}/${pod}:/var/lib/mongodb-automation/cluster-config.json logs/${pod}-cluster-config.json
+            agent_health_status="logs/${pod}-agent-health-status.json"
+            kubectl cp ${PROJECT_NAMESPACE}/${pod}:var/log/mongodb-mms-automation/agent-health-status.json ${agent_health_status} &> /dev/null
+            [ -f ${agent_health_status} ] && jq < logs/${pod}-agent-health-status.json > tmpfile && mv tmpfile ${agent_health_status}
+
+            # cluster-config.json is a mounted volume and the actual file is located in the "..data" directory
+            pod_cluster_config="logs/${pod}-cluster-config.json"
+            kubectl cp ${PROJECT_NAMESPACE}/${pod}:var/lib/mongodb-automation/..data/cluster-config.json ${pod_cluster_config} &> /dev/null
+            [ -f ${pod_cluster_config} ] && jq < logs/${pod}-cluster-config.json > tmpfile && mv tmpfile ${pod_cluster_config}
+
+            kubectl cp ${PROJECT_NAMESPACE}/${pod}:var/log/mongodb-mms-automation/readiness.log logs/${pod}-readines.log &> /dev/null
             ((i++))
         done
     fi
-    echo "${i} log files were written."
+    echo "logs for ${i} pods were written."
 }
