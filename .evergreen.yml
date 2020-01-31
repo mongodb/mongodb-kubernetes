@@ -89,7 +89,7 @@ functions:
           WORKDIR: ${workdir}
           SKIP_TESTING: "true"
 
-          IMAGE_TYPE: ${distro}
+          IMAGE_TYPE: ${image_type}
           <<: *go_options
 
         binary: scripts/evergreen/build_operator
@@ -103,7 +103,7 @@ functions:
           - *go_bin
         env:
           <<: *go_options
-        command: "make -C docker/mongodb-enterprise-database prepare-build IMAGE_TYPE=${distro}"
+        command: "make -C docker/mongodb-enterprise-database prepare-build IMAGE_TYPE=${image_type}"
 
     - command: s3.put
       params:
@@ -219,7 +219,7 @@ functions:
 
   # Install and configures ecr-login-helper, allowing for accessing the ECR registry
   # without calling docker login and in the ECR case, avoiding also calling
-  # `aws ecr get login`. This is a binary that should run on every distro.
+  # `aws ecr get login`. This is a binary that should run on every image_type.
   # BIN_PATH is used to define where to save the binary. This is added to the $PATH
   # in subsequent functions that need this program.
   setup_ecr_login_helper:
@@ -327,7 +327,7 @@ functions:
       aws_secret: ${mms_build_s3_aws_secret}
       local_files_include_filter:
         - src/github.com/10gen/ops-manager-kubernetes/*-context.tar.gz
-      remote_file: ops-manager-operator/${version_id}:${distro}/contexts/
+      remote_file: ops-manager-operator/${version_id}:${image_type}/contexts/
       bucket: ops-manager-kubernetes-build
       permissions: public-read
       content_type: application/octet-stream
@@ -555,7 +555,7 @@ functions:
           - ${workdir}/bin
         env:
           OPERATOR_VERSION: ${version_id}
-          REGISTRY: ${ecr_registry}/dev/${distro}
+          REGISTRY: ${ecr_registry}/dev/${image_type}
           MANAGED_SECURITY_CONTEXT: ${managed_security_context}
           TASK_ID: ${task_id}
           TASK_NAME: ${task_name}
@@ -784,7 +784,7 @@ tasks:
     - func: build_operator
     - func: build_database
       vars:
-        distro: dcar
+        image_type: dcar
     - func: push_versioned_binaries
 
 - name: build_test_image
@@ -802,7 +802,7 @@ tasks:
       <<: *kubernetes_environment_kind
   - func: upload_e2e_build_context
     vars:
-      distro: scratch
+      image_type: scratch
       context: tests
   - func: kaniko_build
     vars:
@@ -828,13 +828,13 @@ tasks:
   - func: setup_jq
   - func: build_operator
     vars:
-      distro: rhel
+      image_type: rhel
   - func: build_database
     vars:
-      distro: rhel
+      image_type: rhel
   - func: upload_e2e_build_context
     vars:
-      distro: rhel
+      image_type: rhel
       context: operator
   - func: setup_kubernetes_environment
     vars:
@@ -867,13 +867,13 @@ tasks:
   - func: setup_jq
   - func: build_operator
     vars:
-      distro: ubuntu
+      image_type: ubuntu
   - func: build_database
     vars:
-      distro: ubuntu
+      image_type: ubuntu
   - func: upload_e2e_build_context
     vars:
-      distro: ubuntu
+      image_type: ubuntu
       context: operator
   - func: setup_kubernetes_environment
     vars:
@@ -903,7 +903,7 @@ tasks:
   - func: setup_docker
   - func: build_operator
     vars:
-      distro: rhel
+      image_type: rhel
   - func: build_and_push_om_test_images
     vars:
       cluster_type: "openshift"
@@ -917,7 +917,7 @@ tasks:
   - func: setup_docker
   - func: build_operator
     vars:
-      distro: rhel
+      image_type: rhel
   - func: build_and_push_om_test_images_the_rest
     vars:
       cluster_type: "openshift"
@@ -930,7 +930,7 @@ tasks:
   - func: setup_docker
   - func: build_operator
     vars:
-      distro: ubuntu
+      image_type: ubuntu
   - func: build_and_push_om_test_images
     vars:
       cluster_type: "kops"
@@ -943,7 +943,7 @@ tasks:
   - func: setup_docker
   - func: build_operator
     vars:
-      distro: ubuntu
+      image_type: ubuntu
   - func: build_and_push_om_test_images_the_rest
     vars:
       cluster_type: "kops"
@@ -1699,7 +1699,7 @@ buildvariants:
   expansions:
     <<: *ops_manager_40_first
     <<: *kubernetes_environment_vanilla
-    distro: ubuntu
+    image_type: ubuntu
   tasks:
   - name: "e2e_core_task_group"
   - name: "e2e_tls_task_group"
@@ -1722,7 +1722,7 @@ buildvariants:
   expansions:
     <<: *ops_manager_42_current
     <<: *kubernetes_environment_vanilla
-    distro: ubuntu
+    image_type: ubuntu
   tasks:
   - name: "e2e_kube_only_task_group"
   - name: "e2e_om_4_2_plus_only_task_group"
@@ -1745,7 +1745,7 @@ buildvariants:
   expansions:
     <<: *ops_manager_42_current
     <<: *kubernetes_environment_openshift_3
-    distro: rhel
+    image_type: rhel
   tasks:
     # Before adding the task / task_group to the current build variant check the comment on the previous one
     # ('e2e_kube_vanilla_om_42_current')
@@ -1769,7 +1769,7 @@ buildvariants:
   expansions:
     <<: *cloud_manager_qa
     <<: *kubernetes_environment_openshift_3
-    distro: rhel
+    image_type: rhel
   tasks:
   - name: "e2e_core_task_group"
   - name: "e2e_tls_task_group"
@@ -1797,7 +1797,7 @@ buildvariants:
     cluster_name: "e2e.om.mongokubernetes.com"
     <<: *kubernetes_environment_vanilla
     test_mode: "opsmanager"
-    distro: ubuntu
+    image_type: ubuntu
   tasks:
     - name: "e2e_ops_manager_task_group"
 
@@ -1821,7 +1821,7 @@ buildvariants:
     <<: *ops_manager_42_current
     <<: *kubernetes_environment_openshift_3
     test_mode: opsmanager
-    distro: rhel
+    image_type: rhel
   tasks:
     - name: "e2e_ops_manager_task_group"
 
@@ -1918,7 +1918,7 @@ buildvariants:
     variant: init_test_run
   expansions:
     <<: *kubernetes_environment_kind
-    distro: rhel
+    image_type: rhel
     test_mode: opsmanager
   tasks:
   - name: e2e_ops_manager_task_group
@@ -1935,7 +1935,7 @@ buildvariants:
   expansions:
     <<: *cloud_manager_qa
     <<: *kubernetes_environment_kind
-    distro: ubuntu
+    image_type: ubuntu
   tasks:
   - name: e2e_kube_only_task_group
   - name: e2e_core_task_group

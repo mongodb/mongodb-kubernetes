@@ -47,7 +47,7 @@ build_image () {
 
     ensure_construction_site
 
-    MDB_VERSION="$(jq --raw-output .appDbBundledMongoDbVersion < release.json | cut  -d. -f-2)"
+    MANIFEST_VERSION="$(jq --raw-output .appDbBundle.mongodbVersion < release.json | cut  -d. -f-2)"
 
     cat <<EOF | kubectl create -f -
 apiVersion: v1
@@ -62,7 +62,7 @@ spec:
   - name: kaniko
     image: gcr.io/kaniko-project/executor:latest
     args: ["--dockerfile=Dockerfile",
-           "--build-arg=MDB_VERSION=${MDB_VERSION}",
+           "--build-arg=MANIFEST_VERSION=${MANIFEST_VERSION}",
            "--destination=${destination}",
            "--context=${context}",
            "--cache=true",

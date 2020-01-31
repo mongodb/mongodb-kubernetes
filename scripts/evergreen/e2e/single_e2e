@@ -24,7 +24,7 @@ deploy_test_app() {
     # TEST_IMAGE_TAG="${VERSION_ID:-$GIT_SHA}"
     [[ -z "${TEST_IMAGE_TAG-}" ]] && TEST_IMAGE_TAG="${OPERATOR_VERSION:-$GIT_SHA}"
 
-    BUNDLED_APP_DB_VERSION="$(jq --raw-output .appDbBundledMongoDbVersion < release.json)"
+    BUNDLED_APP_DB_VERSION="$(jq --raw-output .appDbBundle.mongodbVersion < release.json)"
     # apply the correct configuration of the running OM instance
     # note, that the 4 last parameters are used only for Mongodb resource testing - not for Ops Manager
     helm template "scripts/evergreen/deployments/test-app" \

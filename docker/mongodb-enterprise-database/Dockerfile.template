@@ -9,7 +9,8 @@ ENV MMS_HOME /mongodb-automation
 ENV MMS_LOG_DIR /var/log/mongodb-mms-automation
 ENV MDB_DIR /var/lib/mongodb-mms-automation/downloads
 
-ARG MDB_VERSION
+ARG MDB_URL
+ARG BINARY_NAME
 ARG AA_VERSION
 ARG AA_DOWNLOAD_LOCATION
 {% endblock %}
@@ -30,12 +31,18 @@ LABEL name="MongoDB Enterprise Database" \
 {% block packages %}
 {% endblock %}
 
-COPY content/ ${MMS_HOME}/files/
+COPY content/ "${MMS_HOME}"/files/
 
 {% if is_appdb -%}
 
-{% block download_mdb %}
-{% endblock %}
+# Download and extract the MongoDB archive. The agent will download MongoDB from the internet unless it is extracted.
+RUN curl --fail --retry 3 -L -o "${BINARY_NAME}" "${MDB_URL}${BINARY_NAME}" \
+    && mkdir -p "${MDB_DIR}" \
+    && tar -xzf "${BINARY_NAME}" \
+    && rm "${BINARY_NAME}" \
+    # We need to strip the binary name from its tgz extension
+    && mv "${BINARY_NAME%.*}" "${MDB_DIR}" \
+    && chmod -R 0775 "${MDB_DIR}"
 
 # Download the Automation Agent binary (only if the argument provided meaning this is the image for the appdb)
 RUN curl --fail -L -o automation-agent.tar.gz "${AA_DOWNLOAD_LOCATION}/mongodb-mms-automation-agent-${AA_VERSION}.linux_x86_64.tar.gz"  \
@@ -48,15 +55,15 @@ RUN curl --fail -L -o automation-agent.tar.gz "${AA_DOWNLOAD_LOCATION}/mongodb-m
 {% endif %}
 
 # Set the required perms
-RUN    mkdir -p ${MMS_LOG_DIR} \
-        && chmod 0775 ${MMS_LOG_DIR} \
+RUN    mkdir -p "${MMS_LOG_DIR}" \
+        && chmod 0775 "${MMS_LOG_DIR}" \
         && mkdir -p /var/lib/mongodb-mms-automation \
         && chmod 0775 /var/lib/mongodb-mms-automation \
         && mkdir -p /data \
         && chmod 0775 /data \
         && mkdir -p /journal \
         && chmod 0775 /journal \
-        && chmod -R 0775 ${MMS_HOME}
+        && chmod -R 0775 "${MMS_HOME}"
 
 # USER needs to be set for this image to pass RedHat verification. Some customers have these requirements as well
 # It does not matter what number it is, as long as it is set to something.

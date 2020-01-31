@@ -6,7 +6,7 @@ AWS_REGION = us-east-1
 IMAGE_TYPE = ubuntu
 IMAGE_PATH = $(IMAGE_DIR)/$(IMAGE_TYPE)/$(IMAGE):$(IMAGE_VERSION)
 IS_DEBUG = False
-MANIFEST_VERSION=$(shell jq --raw-output .appDbBundledMongoDbVersion < ../../release.json | cut  -d. -f-2)
+MANIFEST_VERSION=$(shell jq --raw-output .appDbBundle.mongodbVersion < ../../release.json | cut  -d. -f-2)
 
 usage:
 	@ echo "MongoDB Enterprise Kubernetes Operator - Docker image builder"
@@ -35,7 +35,7 @@ build:
 	@ test $(IS_DEBUG) = "True" && DEBUG_FLAG="--debug" ; ../Dockerfile.gen operator $(IMAGE_TYPE) $$DEBUG_FLAG > Dockerfile
 	@ DEBUG=$(IS_DEBUG) ../../scripts/build/build_operator || \
 		(../../scripts/build/prepare_build_environment && ../../scripts/build/build_operator)
-	docker build --build-arg MDB_VERSION=$(MANIFEST_VERSION) $(EXTRA_PARAM) -t $(IMAGE_PATH) .
+	docker build --build-arg MANIFEST_VERSION=$(MANIFEST_VERSION) $(EXTRA_PARAM) -t $(IMAGE_PATH) .
 
 clean-build:
 	@ $(MAKE) EXTRA_PARAM="--no-cache --force-rm --rm" clean build

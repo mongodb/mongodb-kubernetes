@@ -12,7 +12,8 @@ IMAGE_PATH = $(IMAGE_DIR)/$(IMAGE_TYPE)/$(IMAGE):$(IMAGE_VERSION)
 # Image suffix allows to separate different build versions. The main planned sample is '-operatorX.Y.Z'
 IMAGE_SUFFIX =
 APP_IMAGE_PATH = $(IMAGE_DIR)/$(IMAGE_TYPE)/$(IMAGE_APPDB):$(IMAGE_VERSION)$(IMAGE_SUFFIX)
-MDB_VERSION=$(shell jq --raw-output .appDbBundledMongoDbVersion < ../../release.json)
+MDB_URL=$(shell jq --raw-output .appDbBundle.baseUrl < ../../release.json)
+BINARY_NAME=$(shell jq --raw-output .appDbBundle.$(IMAGE_TYPE)BinaryName < ../../release.json)
 
 usage:
 	@ echo "MongoDB Enterprise Database - Docker image builder"
@@ -117,7 +118,8 @@ build_appdb:
 
 	docker build $(EXTRA_PARAM) \
 		-t $(APP_IMAGE_PATH) \
-		--build-arg MDB_VERSION=$(MDB_VERSION) \
+		--build-arg MDB_URL=$(MDB_URL) \
+		--build-arg BINARY_NAME=$(BINARY_NAME) \
 		--build-arg AA_DOWNLOAD_LOCATION=$(AA_DOWNLOAD_LOCATION) \
 		--build-arg AA_VERSION=$(AA_VERSION) .
 

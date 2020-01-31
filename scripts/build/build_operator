@@ -25,7 +25,7 @@ if [[ -z ${LOG_AUTOMATION_CONFIG_DIFF-} ]]; then
     LOG_AUTOMATION_CONFIG_DIFF="false"
 fi
 
-mdb_version="$(jq --raw-output .appDbBundledMongoDbVersion < release.json)"
+mdb_version="$(jq --raw-output .appDbBundle.mongodbVersion < release.json)"
 echo "Using MongoDB version ${mdb_version}-ent for the AppDB"
 
 if [[ ${DEBUG-} = "True" ]]; then

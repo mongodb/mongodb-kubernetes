@@ -1,15 +1,5 @@
 {% extends "Dockerfile.template" %}
 
-{% block download_mdb %}
-# Download and extract the MongoDB archive. The agent will download MongoDB from the internet unless it is extracted.
-RUN curl --fail --retry 3 -L -o mongodb-linux-x86_64-enterprise-ubuntu1604-${MDB_VERSION}.tgz "https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise-ubuntu1604-${MDB_VERSION}.tgz" \
-    && mkdir -p ${MDB_DIR} \
-    && tar -xzf mongodb-linux-x86_64-enterprise-ubuntu1604-${MDB_VERSION}.tgz \
-    && rm mongodb-linux-x86_64-enterprise-ubuntu1604-${MDB_VERSION}.tgz \
-    && mv mongodb-linux-x86_64-enterprise-ubuntu1604-${MDB_VERSION} ${MDB_DIR} \
-    && chmod -R 0775 ${MDB_DIR}
-{% endblock %}
-
 {% block packages %}
 RUN apt-get -qq update \
         && apt-get -y -qq install \
