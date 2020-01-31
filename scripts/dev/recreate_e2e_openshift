@@ -15,6 +15,7 @@ pushd scripts/evergreen/test_clusters/
 
 if [ ! -f "exports.do" ]; then
     echo "You need to create a exports.do file!"
+    echo "see https://github.com/10gen/ops-manager-kubernetes/blob/master/scripts/evergreen/test_clusters/README.md#configuration"
     exit 1
 fi
 

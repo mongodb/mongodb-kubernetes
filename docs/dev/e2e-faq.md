@@ -79,6 +79,7 @@ Follow up:
 #### How to recreate e2e Openshift cluster?
 
 * Requirements
+  + create a file `exports.do` in the directory `scripts/evergreen/test_clusters`
   + `openshift-test-cluster` RSA key. Ask your team mates for it. Do not use a personal key!
   + Make sure you have configured ssh client (`~/.ssh/config`) like:
 
@@ -92,6 +93,8 @@ Host *.compute-1.amazonaws.com
 ``` bash
 make recreate-e2e-openshift
 ```
+
+Then, follow the steps here: https://github.com/10gen/ops-manager-kubernetes/blob/master/scripts/evergreen/test_clusters/README.md#evergreen
 
 #### Old instructions for Openshift cluster (might still be relevant)
 

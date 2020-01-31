@@ -16,14 +16,15 @@ deploy a full OpenShift cluster.
 ## Configuration
 
 There are a few configuration options you'll have to have ready for
-this to work. They need to exist in a file called `exports.do` that
-will be copied into the control host. An example of this file is:
+this to work. They need to exist in a file called `exports.do` in this director
+(`scripts/evergreen/test_clusters`) that will be copied into the control host.
+An example of this file is:
 
 ``` bash
 export AWS_ACCESS_KEY_ID=<your-aws-key-id>
 export AWS_SECRET_ACCESS_KEY=<your-aws-access-key>
-export OPENSHIFT_CONNECT_ADMIN_USER=<redhat-connect-user>
-export OPENSHIFT_CONNECT_ADMIN_PASSWORD=<redhat-connect-password>
+export REDHAT_CONNECT_ADMIN_USER=<redhat-connect-user>
+export REDHAT_CONNECT_ADMIN_PASSWORD=<redhat-connect-password>
 export ECR_PASSWORD=<your-ecr-password-for-docker-login>
 export OPENSHIFT_ADMIN_PASSWORD=
 export OPENSHIFT_ADMIN_USER=
@@ -32,16 +33,19 @@ export OPENSHIFT_ADMIN_USER=
 * `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`: If you have
   configured AWS CLI tool, this value should be in
   `~/.aws/credentials`.
-* `OPENSHIFT_CONNECT_ADMIN_PASSWORD` and
-  `OPENSHIFT_CONNECT_ADMIN_USER` a valid user and password for RedHat
+* `REDHAT_CONNECT_ADMIN_PASSWORD` and
+  `REDHAT_CONNECT_ADMIN_USER` a valid user and password for RedHat
   connect.
 * `ECR_PASSWORD` this password can be obtained by running `aws ecr
   get-login --no-include-email --region us-east-1`. This will be the
   value of the `-p` parameter.
-* `OPENSHIFT_ADMIN_USER` and `OPENSHIFT_ADMIN_PASSWORD` the web
+* `REDHAT_ADMIN_USER` and `REDHAT_ADMIN_PASSWORD` the web
   credentials for the admin user of the OpenShift cluster to be
   created. To know how to generate the password please see
   [this](https://docs.openshift.com/container-platform/3.11/install_config/configuring_authentication.html#HTPasswdPasswordIdentityProvider).
+  `htpasswd -n user_name` and then input the password (chose `admin` as `user_name`
+  and our common password as password!!!!!): don't forget to quote with single
+  quotes the output string given by htpasswd!!!
 
 ## Evergreen
 
