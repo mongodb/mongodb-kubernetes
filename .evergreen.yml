@@ -286,68 +286,27 @@ functions:
   - command: subprocess.exec
     type: setup
     params:
-      command: "${workdir}/bin/kind delete cluster"
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+      - ${workdir}/bin
+      include_expansions_in_env:
+      - workdir
+      - kube_environment_name
+      binary: scripts/evergreen/teardown_kubernetes_environment
 
+  #
+  # Makes sure a kubectl context is defined.
   setup_kubernetes_environment:
-  - command: shell.exec
+  - command: subprocess.exec
     type: setup
     params:
-      shell: bash
-      script: |
-          export WORKDIR=${workdir}
-          export BINDIR=$WORKDIR/bin
-          export PATH=$BINDIR:$PATH
-
-          if [ "${kube_environment_name}" = "openshift_3" ]; then
-            echo "Downloading OC & setting up Openshift cluster"
-            OC_PKG=oc-linux.tar.gz
-            curl -s -L https://github.com/openshift/origin/releases/download/v3.11.0/openshift-origin-client-tools-v3.11.0-0cbc58b-linux-64bit.tar.gz --output $OC_PKG
-            tar xfz $OC_PKG &> /dev/null
-            mv openshift-origin-client-tools-v3.11.0-0cbc58b-linux-64bit/oc $BINDIR
-
-            echo "Setting up OpenShift variant"
-            echo "Token: ${openshift_cluster_token}"
-            oc login ${openshift_cluster_url} --token=${openshift_cluster_token} --insecure-skip-tls-verify
-            kubectl config use-context default/master-openshift-cluster-mongokubernetes-com:8443/admin
-          elif [ "${kube_environment_name}" = "vanilla" ]; then
-            if [ ! -z ${cluster_name} ]; then
-              export CLUSTER=${cluster_name}
-            else
-              export CLUSTER=e2e.mongokubernetes.com
-            fi
-
-            # AWS creds
-            export AWS_ACCESS_KEY_ID=${mms_eng_test_aws_access_key}
-            export AWS_SECRET_ACCESS_KEY=${mms_eng_test_aws_secret}
-            export AWS_REGION=${mms_eng_test_aws_region}
-            export AWS_DEFAULT_REGION=${mms_eng_test_aws_region}
-            export KOPS_STATE_STORE=s3://kube-om-state-store
-
-            echo "Downloading kops"
-            curl -s -L https://github.com/kubernetes/kops/releases/download/1.14.0/kops-linux-amd64 -o kops
-            chmod +x kops
-            mv kops $BINDIR
-
-            if ! kops get clusters | grep -q $CLUSTER; then
-              echo "Cluster $CLUSTER not found, exiting..."
-              echo run "make recreate-e2e-kops imsure=yes cluster=$CLUSTER"
-              kops get clusters
-              exit 1
-            fi
-
-            kops export kubecfg $CLUSTER
-
-          elif [ "${kube_environment_name}" = "kind" ]; then
-            echo "Starting Kind"
-            kind create cluster --config $HOME/.operator-dev/kind-ecr-config.yaml
-
-            echo "Setting context to Kind"
-            kubectl config use-context kind-kind
-          else
-            echo "kube_environment_name not recognized"
-            echo "value is <<${kube_environment_name}>>. If empty it means it was not set"
-          fi
-
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_expansions_to_env: true
+      add_to_path:
+        - ${workdir}/bin
+      env:
+        BINDIR: ${workdir}/bin
+      binary: scripts/evergreen/setup_kubernetes_environment
 
   "gotest_parse_files":
     - command: gotest.parse_files
@@ -381,6 +340,7 @@ functions:
         AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
         AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
         AWS_REGION: ${mms_eng_test_aws_region}
+        KUBECONFIG: ${workdir}/${kube_environment_name}_config
       working_dir: src/github.com/10gen/ops-manager-kubernetes
       add_expansions_to_env: true
       add_to_path:
@@ -395,6 +355,8 @@ functions:
       add_expansions_to_env: true
       add_to_path:
       - ${workdir}/bin
+      env:
+        KUBECONFIG: ${workdir}/${kube_environment_name}_config
       binary: scripts/evergreen/wait_docker_image.sh
     
   "build_and_push_om_test_images":
@@ -608,6 +570,7 @@ functions:
           WATCH_NAMESPACE: ${watch_namespace}
           STATIC_NAMESPACE: ${static_namespace}
           TEST_MODE: ${test_mode}
+          KUBECONFIG: ${workdir}/${kube_environment_name}_config
 
         binary: scripts/evergreen/e2e/e2e
 
@@ -627,6 +590,7 @@ functions:
           AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
           AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
           AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
+          KUBECONFIG: ${workdir}/${kube_environment_name}_config
 
         command: "scripts/evergreen/prepare_test_env ${ops_manager_namespace} ${ops_manager_version} ${node_port}"
 

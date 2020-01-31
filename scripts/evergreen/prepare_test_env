@@ -2,6 +2,19 @@
 
 set -euo pipefail
 
+KUBECONFIG_SAVED="${KUBECONFIG}"
+unset KUBECONFIG
+
+# Make sure kubectl fails if no KUBECONFIG is set
+if kubectl get nodes &> /dev/null; then
+    echo "There's a kubectl context defined globally ($HOME/.kube/config exists)"
+    exit 1
+fi
+
+KUBECONFIG="${KUBECONFIG_SAVED}"
+export KUBECONFIG
+
+# This trick comes from https://stackoverflow.com/a/4774063/222470
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$(${DIR}/../gitroot)"
 

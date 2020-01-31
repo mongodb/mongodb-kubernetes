@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+
+
+# shellcheck disable=SC2154
+context_config="${workdir}/${kube_environment_name}_config"
+if [ -f "${context_config}" ]; then
+    echo "Context configuration already exist, host was not clearly cleaned up!"
+    rm "${context_config}"
+
+    exit 1
+fi
+
+if [ "${kube_environment_name}" = "openshift_3" ]; then
+
+    echo "Downloading OC & setting up Openshift cluster"
+    OC_PKG=oc-linux.tar.gz
+    curl -s -L https://github.com/openshift/origin/releases/download/v3.11.0/openshift-origin-client-tools-v3.11.0-0cbc58b-linux-64bit.tar.gz --output $OC_PKG
+    tar xfz $OC_PKG &> /dev/null
+    mv openshift-origin-client-tools-v3.11.0-0cbc58b-linux-64bit/oc "$BINDIR"
+
+    echo "Setting up OpenShift variant"
+    echo "Token: ${openshift_cluster_token}"
+    oc login "${openshift_cluster_url}" --token="${openshift_cluster_token}" --insecure-skip-tls-verify || exit 1
+
+    # oc won't allow me to specify a different file (like the --kubeconfig kind parameter)
+    # so we just move it from the default location to where it is expected to reside.
+    mv "${HOME}/.kube/config" "${context_config}"
+
+elif [ "${kube_environment_name}" = "vanilla" ]; then
+    if [ -n "${cluster_name}" ]; then
+        export CLUSTER=${cluster_name}
+    else
+        export CLUSTER=e2e.mongokubernetes.com
+    fi
+
+    export AWS_ACCESS_KEY_ID="${mms_eng_test_aws_access_key}"
+    export AWS_SECRET_ACCESS_KEY="${mms_eng_test_aws_secret}"
+    export AWS_DEFAULT_REGION="${mms_eng_test_aws_region}"
+    export KOPS_STATE_STORE=s3://kube-om-state-store
+
+    echo "Downloading kops"
+    curl -s -L https://github.com/kubernetes/kops/releases/download/1.14.0/kops-linux-amd64 -o kops
+    chmod +x kops
+    mv kops "$BINDIR"
+
+    if ! kops get clusters | grep -q $CLUSTER; then
+        echo "Cluster $CLUSTER not found, exiting..."
+        echo run "make recreate-e2e-kops imsure=yes cluster=$CLUSTER"
+        kops get clusters
+        exit 1
+    fi
+
+    kops export kubecfg $CLUSTER
+    mv "${HOME}"/.kube/config "${context_config}"
+
+elif [ "${kube_environment_name}" = "kind" ]; then
+    echo "Starting Kind"
+    kind create cluster \
+        --config "${HOME}/.operator-dev/kind-ecr-config.yaml" \
+        --kubeconfig "${context_config}"
+else
+    echo "kube_environment_name not recognized"
+    echo "value is <<${kube_environment_name}>>. If empty it means it was not set"
+
+    # Fail if there's no Kubernetes environment set
+    exit 1
+fi
