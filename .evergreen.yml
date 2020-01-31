@@ -1914,6 +1914,8 @@ buildvariants:
     variant: init_test_run
   - name: build_om_images_rhel
     variant: init_test_run
+  - name: build_om_images_rhel_the_rest
+    variant: init_test_run
   expansions:
     <<: *kubernetes_environment_kind
     distro: rhel

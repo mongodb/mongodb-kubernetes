@@ -162,7 +162,7 @@ class TestOpsManagerVersionUpgrade(OpsManagerBase):
       file: om_ops_manager_upgrade.yaml
       patch: '[{"op":"replace","path":"/spec/version", "value": "4.2.7"}]'
       wait_until: om_in_running_state
-      timeout: 800
+      timeout: 1200
     """
 
     def test_image_url(self):
