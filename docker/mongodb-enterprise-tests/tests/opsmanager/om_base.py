@@ -144,7 +144,7 @@ class OpsManagerBase(KubernetesTester):
         version = os.getenv("BUNDLED_APP_DB_VERSION", None)
         if version is None:
             raise ValueError("BUNDLED_APP_DB_VERSION needs to be defined")
-        return version
+        return version.partition("-")[0]
 
     def get_appdb_automation_config(self) -> Dict:
         cm = KubernetesTester.read_configmap(
