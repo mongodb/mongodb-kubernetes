@@ -60,7 +60,7 @@ metadata:
 spec:
   containers:
   - name: kaniko
-    image: gcr.io/kaniko-project/executor:latest
+    image: gcr.io/kaniko-project/executor:v0.16.0
     args: ["--dockerfile=Dockerfile",
            "--build-arg=MANIFEST_VERSION=${MANIFEST_VERSION}",
            "--destination=${destination}",
