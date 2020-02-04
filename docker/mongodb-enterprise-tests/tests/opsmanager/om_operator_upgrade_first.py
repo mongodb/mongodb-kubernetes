@@ -75,9 +75,7 @@ def s3_replica_set(ops_manager, namespace):
 @fixture(scope="module")
 def some_mdb(ops_manager, namespace):
     resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set-for-om.yaml"),
-        namespace=namespace,
-        name="some-mdb",
+        yaml_fixture("replica-set-for-om.yaml"), namespace=namespace, name="some-mdb",
     ).configure(ops_manager, "someProject")
     resource["spec"]["persistent"] = True
 

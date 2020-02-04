@@ -33,7 +33,13 @@ def get_go_mod_file() -> pathlib.Path:
 
 
 def parse_k8s_label(label: str) -> Optional[str]:
-    "Returns a k8s label"
+    """Returns a k8s label
+
+    >>> parse_k8s_label("1.15.9")
+    'v0.15.9'
+    >>> parse_k8s_label("not a label")
+    >>> parse_k8s_label("kubernetes-1.15.9")
+    """
     try:
         major, minor, patch = label.split(".")
     except ValueError:
@@ -46,7 +52,8 @@ def parse_k8s_label(label: str) -> Optional[str]:
     except ValueError:
         LOGGER.debug("Versions must be integers")
         return None
-    return ".".join((major, minor, patch))
+    # kubernetes matches the label kubernetes-1.15.9 to the version v0.15.9
+    return "".join(("v", "0", ".", minor, ".", patch))
 
 
 def run_cmd_with_no_goflags(cmd: List[str]) -> bool:
@@ -96,11 +103,12 @@ def main() -> int:
     args = parser.parse_args()
     if args.debug:
         LOGGER.setLevel(logging.DEBUG)
-    k8s_label = parse_k8s_label(args.k8s_label)
-    if not k8s_label:
+    k8s_version = parse_k8s_label(args.k8s_label)
+    if not k8s_version:
         parser.error("Need to pass a valid k8s label. Got: %s" % args.k8s_label)
         return 1
-    LOGGER.info("Setting k8s_label as %s", k8s_label)
+    LOGGER.info("Setting k8s_label as %s", args.k8s_label)
+    LOGGER.info("Setting k8s_version as %s", k8s_version)
     scripts_dev_dir = pathlib.Path(os.path.abspath(__file__)).parent.absolute()
     template_file = scripts_dev_dir.joinpath("go.mod.jinja")
     if not template_file.exists():
@@ -109,12 +117,12 @@ def main() -> int:
     LOGGER.info("Using template file: %s", template_file)
     with open(template_file) as template_fh:
         template = jinja2.Template(template_fh.read())
-    go_mod_contents = template.render(k8s_label=k8s_label)
+    go_mod_contents = template.render(k8s_label=args.k8s_label, k8s_version=k8s_version)
     with open(go_mod_file, "w") as go_mod_handle:
         go_mod_handle.write(DO_NOT_MODIFY_WARNING)
         go_mod_handle.write(go_mod_contents)
-    # patch version of k8s does not get updated because version is rewritten
-    if not run_cmd_with_no_goflags(["go", "get", "-u=patch"]):
+    # download the actual label of k8s libs
+    if not run_cmd_with_no_goflags(["go", "get"]):
         return 1
     # ensure we get an updated copy of the vendor dir
     if not run_cmd(["go", "mod", "vendor"]):
@@ -125,4 +133,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    import doctest
+
+    doctest.testmod()
     sys.exit(main())

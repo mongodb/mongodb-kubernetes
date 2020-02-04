@@ -4,25 +4,18 @@
 module github.com/10gen/ops-manager-kubernetes
 
 require (
-	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/blang/semver v3.5.1+incompatible
+	github.com/blang/semver v3.5.0+incompatible
 	github.com/google/uuid v1.1.1
-	github.com/hashicorp/golang-lru v0.5.3 // indirect
 	github.com/imdario/mergo v0.3.8
-	github.com/json-iterator/go v1.1.8 // indirect
-	github.com/pkg/errors v0.8.1
-	github.com/prometheus/procfs v0.0.8 // indirect
-	github.com/spf13/cast v1.3.0
-	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/pkg/errors v0.9.1
+	github.com/spf13/cast v1.3.1
 	github.com/stretchr/testify v1.4.0
 	github.com/xdg/stringprep v1.0.0
-	go.uber.org/zap v1.10.0
-	golang.org/x/text v0.3.2 // indirect
-	gopkg.in/yaml.v2 v2.2.7 // indirect
-	k8s.io/api v0.15.7 // 1.15.7
-	k8s.io/apimachinery v0.15.8-beta.0 // 1.15.7
-	k8s.io/client-go v0.15.7 // 1.15.7
-	k8s.io/code-generator v0.15.8-beta.0 // 1.15.7
+	go.uber.org/zap v1.13.0
+	k8s.io/api v0.15.9 // kubernetes-1.15.9
+	k8s.io/apimachinery v0.15.9 // kubernetes-1.15.9
+	k8s.io/client-go v0.15.9 // kubernetes-1.15.9
+	k8s.io/code-generator v0.15.9 // kubernetes-1.15.9
 	sigs.k8s.io/controller-runtime v0.3.0
 )
 
