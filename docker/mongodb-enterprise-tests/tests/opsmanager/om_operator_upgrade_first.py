@@ -54,6 +54,7 @@ def oplog_replica_set(ops_manager, namespace):
         name="my-mongodb-oplog",
     ).configure(ops_manager, "development")
     resource["spec"]["members"] = 1
+    resource["spec"]["persistent"] = True
 
     yield resource.create()
 
@@ -66,21 +67,21 @@ def s3_replica_set(ops_manager, namespace):
         name="my-mongodb-s3",
     ).configure(ops_manager, "s3metadata")
     resource["spec"]["members"] = 1
+    resource["spec"]["persistent"] = True
 
     yield resource.create()
 
 
 @fixture(scope="module")
 def some_mdb(ops_manager, namespace):
-    return (
-        MongoDB.from_yaml(
-            yaml_fixture("replica-set-for-om.yaml"),
-            namespace=namespace,
-            name="some-mdb",
-        )
-        .configure(ops_manager, "someProject")
-        .create()
-    )
+    resource = MongoDB.from_yaml(
+        yaml_fixture("replica-set-for-om.yaml"),
+        namespace=namespace,
+        name="some-mdb",
+    ).configure(ops_manager, "someProject")
+    resource["spec"]["persistent"] = True
+
+    return resource.create()
 
 
 @mark.e2e_op_upgrade_om_first

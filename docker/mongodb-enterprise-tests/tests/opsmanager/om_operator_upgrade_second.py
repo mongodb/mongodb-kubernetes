@@ -76,6 +76,6 @@ class TestOpsManagerWorksOkAfterOperatorUpgrade:
         self, some_mdb: MongoDB, some_mdb_health_checker: MongoDBBackgroundTester
     ):
         # TODO make sure the backup is working when it's implemented
-        some_mdb.assert_reaches_phase(Phase.Running)
+        some_mdb.assert_reaches_phase(Phase.Running, timeout=600)
         # The mongodb was supposed to be healthy all the time
         some_mdb_health_checker.assert_healthiness()
