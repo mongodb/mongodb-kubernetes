@@ -2,6 +2,38 @@
 #
 #
 
+# setup_kind configures ecr credentials and placee them in
+# ~/.docker/kind_config.json a config file in ~/.operator-dev/kind-ecr-config.yaml
+# which can be used to with the --config flag when creating a kind cluster
+setup_kind() {
+  ecr_registry=${1}
+  # First we need to create proper "auths" entry for our ECR registry,
+  # using docker-credential-ecr-login (which is faster to install than Python + aws-cli).
+  secret=$(echo "${ecr_registry}" | docker-credential-ecr-login get | jq -r .Secret)
+  auth=$(echo "AWS:${secret}" | base64 -w0)
+
+  # Add the login token (from aws ecr get-login)
+  cat <<EOF > "${HOME}/.docker/kind_config.json"
+{
+    "auths": {
+        "${ecr_registry}": {"auth": "${auth}"}
+    }
+}
+EOF
+
+  mkdir -p "$HOME/.operator-dev"
+  # We make sure this patched docker/config.json file is mounted on each Kind node
+  cat <<EOF > "${HOME}/.operator-dev/kind-ecr-config.yaml"
+kind: Cluster
+apiVersion: kind.sigs.k8s.io/v1alpha3
+nodes:
+- role: control-plane
+  extraMounts:
+  - containerPath: /var/lib/kubelet/config.json
+    hostPath: ${HOME}/.docker/kind_config.json
+EOF
+}
+
 if [[ "${kube_environment_name=}" != "kind" ]]; then
   echo "Skiping download of kind"
   exit 0
@@ -27,4 +59,4 @@ fi
 
 mkdir -p "${HOME}/.docker"
 
-scripts/dev/setup_kind "${ecr_registry}"
+setup_kind "${ecr_registry}"

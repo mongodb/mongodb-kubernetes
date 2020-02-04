@@ -7,6 +7,7 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
 source scripts/dev/read_context
+source scripts/evergreen/setup_kind
 
 title "Ensuring Kubernetes cluster is up..."
 
@@ -35,7 +36,7 @@ elif [[ ${CLUSTER_TYPE} = "kind" ]]; then
   echo "creating kind cluster"
 
   ecr_registry="268558157000.dkr.ecr.us-east-1.amazonaws.com"
-  scripts/dev/setup_kind "${ecr_registry}"
+  setup_kind "${ecr_registry}"
   kind create cluster --config $HOME/.operator-dev/kind-ecr-config.yaml
 fi
 
