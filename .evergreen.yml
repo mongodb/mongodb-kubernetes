@@ -681,8 +681,8 @@ tasks:
         versions: '$(jq --raw-output ".opsManagerImages[] | .version" < release.json)'
         tag_source: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
         tag_dest: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
-        image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/ubuntu/mongodb-enterprise-ops-manager
-        image_target: quay.io/mongodb/mongodb-enterprise-ops-manager
+        image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/${distro}/mongodb-enterprise-ops-manager
+        image_target: quay.io/mongodb/mongodb-enterprise-ops-manager${suffix}
         docker_username: ${quay_prod_username}
         docker_password: ${quay_prod_robot_token}
 
@@ -691,8 +691,8 @@ tasks:
         versions: '$(jq --raw-output ".opsManagerImages[] | .version" < release.json)'
         tag_source: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
         tag_dest: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
-        image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/ubuntu/mongodb-enterprise-appdb
-        image_target: quay.io/mongodb/mongodb-enterprise-appdb
+        image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/${distro}/mongodb-enterprise-appdb
+        image_target: quay.io/mongodb/mongodb-enterprise-appdb${suffix}
         docker_username: ${quay_prod_username}
         docker_password: ${quay_prod_robot_token}
 
@@ -709,8 +709,8 @@ tasks:
         versions: ${version_id}
         tag_source: '$(echo $version)'
         tag_dest: '$(git describe --dirty)'
-        image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/ubuntu/mongodb-enterprise-operator
-        image_target: quay.io/mongodb/mongodb-enterprise-operator
+        image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/${distro}/mongodb-enterprise-operator
+        image_target: quay.io/mongodb/mongodb-enterprise-operator${suffix}
         docker_username: ${quay_prod_username}
         docker_password: ${quay_prod_robot_token}
 
@@ -719,8 +719,8 @@ tasks:
         versions: ${version_id}
         tag_source: '$(echo $version)'
         tag_dest: '$(git describe --dirty)'
-        image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/ubuntu/mongodb-enterprise-database
-        image_target: quay.io/mongodb/mongodb-enterprise-database
+        image_source: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/${distro}/mongodb-enterprise-database
+        image_target: quay.io/mongodb/mongodb-enterprise-database${suffix}
         docker_username: ${quay_prod_username}
         docker_password: ${quay_prod_robot_token}
 
@@ -1839,8 +1839,8 @@ buildvariants:
     - name: release_ops_manager_rh_connect
     - name: release_operator_rh_connect
 
-- name: release_quay
-  display_name: release_quay
+- name: release_quay_ubuntu
+  display_name: release_quay_ubuntu
   depends_on:
     - name: release_blocker
       variant: release_blocker
@@ -1848,6 +1848,23 @@ buildvariants:
     - archlinux-test
   expansions:
     docker_registry: quay.io
+    distro: ubuntu
+    suffix: ""
+  tasks:
+    - name: release_ops_manager_quay
+    - name: release_operator_quay
+
+- name: release_quay_ubi
+  display_name: release_quay_ubi
+  depends_on:
+    - name: release_blocker
+      variant: release_blocker
+  run_on:
+    - archlinux-test
+  expansions:
+    docker_registry: quay.io
+    distro: rhel
+    suffix: -ubi
   tasks:
     - name: release_ops_manager_quay
     - name: release_operator_quay
