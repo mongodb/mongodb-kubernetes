@@ -131,7 +131,6 @@ class MongoDB(CustomObject, MongoDBCommon):
             "Some agents failed to register",
             # Sometimes Cloud-QA timeouts so we anticipate to this
             "Error sending GET request to",
-            "Failed to prepare Ops Manager connection",
         )
 
         if self.get_status_phase() == Phase.Failed and not ignore_errors:
