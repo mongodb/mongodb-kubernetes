@@ -49,7 +49,7 @@ class TestShardedClusterUpgradeDowngradeRevert(KubernetesTester):
     update:
       file: sharded-cluster-downgrade.yaml
       wait_until: in_running_state
-      timeout: 300
+      timeout: 500
     """
 
     def test_db_connectable(self):

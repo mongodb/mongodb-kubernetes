@@ -12,7 +12,7 @@ class TestStandaloneUpgradeDowngradeCreate(KubernetesTester):
     create:
       file: standalone-downgrade.yaml
       wait_until: in_running_state
-      timeout: 100
+      timeout: 200
     """
 
     @skip_if_local
@@ -34,7 +34,7 @@ class TestStandaloneUpgradeDowngradeUpdate(KubernetesTester):
       file: standalone-downgrade.yaml
       patch: '[{"op":"replace","path":"/spec/version", "value": "4.0.3"}, {"op":"add","path":"/spec/featureCompatibilityVersion", "value": "3.6"}]'
       wait_until: in_running_state
-      timeout: 100
+      timeout: 200
     """
 
     @skip_if_local
@@ -55,7 +55,7 @@ class TestStandaloneUpgradeDowngradeRevert(KubernetesTester):
     update:
       file: standalone-downgrade.yaml
       wait_until: in_running_state
-      timeout: 100
+      timeout: 200
     """
 
     @skip_if_local
