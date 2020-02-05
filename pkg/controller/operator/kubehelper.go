@@ -1013,6 +1013,27 @@ func (ss *StatefulSetHelper) ensureOperatorManagedSSLCertsForStatefulSet(k *Kube
 	return ok()
 }
 
+// readPemHashFromSecret reads the existing Pem from
+// the secret that stores this StatefulSet's Pem collection.
+func (s *StatefulSetHelper) readPemHashFromSecret() string {
+	secretName := s.Name + "-cert"
+	secretData, err := s.Helper.readSecret(objectKey(s.Namespace, secretName))
+	if err != nil {
+		s.Logger.Infof("secret %s doesn't exist yet", secretName)
+		return ""
+	}
+	pemCollection := newPemCollection()
+	for k, v := range secretData {
+		pemCollection.mergeEntry(k, newPemFileFrom(v))
+	}
+	pemHash, err := pemCollection.getHash()
+	if err != nil {
+		s.Logger.Errorf("error computing pem hash: %s", err)
+		return ""
+	}
+	return pemHash
+}
+
 // ensureSSLCertsForStatefulSet contains logic to ensure that all of the
 // required SSL certs for a StatefulSet object exist.
 func (k *KubeHelper) ensureSSLCertsForStatefulSet(ss *StatefulSetHelper, log *zap.SugaredLogger) reconcileStatus {

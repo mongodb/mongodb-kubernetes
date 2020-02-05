@@ -266,6 +266,8 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 		SetSecurity(s.Spec.Security).
 		SetPodTemplateSpec(s.Spec.MongosPodSpec.PodTemplate)
 
+	mongosBuilder.SetCertificateHash(mongosBuilder.readPemHashFromSecret())
+
 	// 2. Create a Config Server StatefulSet
 	podSpec := NewDefaultPodSpecWrapper(*s.Spec.ConfigSrvPodSpec)
 	// We override the default persistence value for Config Server
@@ -282,6 +284,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 		SetProjectConfig(*projectConfig).
 		SetSecurity(s.Spec.Security).
 		SetPodTemplateSpec(s.Spec.ConfigSrvPodSpec.PodTemplate)
+	configBuilder.SetCertificateHash(configBuilder.readPemHashFromSecret())
 
 	// 3. Creates a StatefulSet for each shard in the cluster
 	shardsSetHelpers := make([]*StatefulSetHelper, s.Spec.ShardCount)
@@ -297,6 +300,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 			SetProjectConfig(*projectConfig).
 			SetSecurity(s.Spec.Security).
 			SetPodTemplateSpec(s.Spec.ShardPodSpec.PodTemplate)
+		shardsSetHelpers[i].SetCertificateHash(shardsSetHelpers[i].readPemHashFromSecret())
 	}
 
 	return ShardedClusterKubeState{

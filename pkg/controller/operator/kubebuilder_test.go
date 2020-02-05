@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"context"
 	"os"
 	"testing"
 	"time"
@@ -103,6 +104,19 @@ func TestBuildAppDbStatefulSetDefault(t *testing.T) {
 	podSpecTemplate := appDbSts.Spec.Template.Spec
 	assert.Len(t, podSpecTemplate.Containers, 1, "Should have only the db")
 	assert.Equal(t, "mongodb-enterprise-appdb", podSpecTemplate.Containers[0].Name, "Database container should always be first")
+}
+
+func TestReadPemHashFromSecret(t *testing.T) {
+	stsHelper := baseSetHelper()
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: stsHelper.Name + "-cert", Namespace: TestNamespace},
+		Data:       map[string][]byte{"hello": []byte("world")},
+	}
+
+	assert.Empty(t, stsHelper.readPemHashFromSecret(), "secret does not exist so pem hash should be empty")
+	stsHelper.Helper.client.Update(context.TODO(), secret)
+	assert.NotEmpty(t, stsHelper.readPemHashFromSecret(), "pem hash should be read from the secret")
 }
 
 func TestBuildAppDbStatefulSetWithSideCar(t *testing.T) {

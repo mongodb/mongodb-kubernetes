@@ -98,6 +98,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		SetSecurity(rs.Spec.Security).
 		SetReplicaSetHorizons(rs.Spec.Connectivity.ReplicaSetHorizons).
 		SetPodTemplateSpec(rs.Spec.PodSpec.PodTemplate)
+	replicaBuilder.SetCertificateHash(replicaBuilder.readPemHashFromSecret())
 
 	if status := validateMongoDBResource(rs, conn); !status.isOk() {
 		return status.updateStatus(rs, r.ReconcileCommonController, log)
