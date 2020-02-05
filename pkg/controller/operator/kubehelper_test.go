@@ -28,7 +28,7 @@ func TestStatefulsetCreationSuccessful(t *testing.T) {
 func TestStatefulsetCreationWaitsForCompletion(t *testing.T) {
 	start := time.Now()
 	helper := baseSetHelperDelayed(5000).
-		SetPodSpec(defaultPodSpecWrapper()).
+		SetPodSpec(mdbv1.NewPodSpecWrapperBuilder().Build()).
 		SetPodVars(defaultPodVars()).
 		SetService("test-service").
 		SetSecurity(&mdbv1.Security{

@@ -16,11 +16,11 @@ func init() {
 
 func TestStorageRequirements(t *testing.T) {
 	// value is provided - the default is ignored
-	podSpec := mdbv1.PodSpecWrapper{
-		MongoDbPodSpec: mdbv1.MongoDbPodSpec{MongoDbPodSpecStandard: mdbv1.MongoDbPodSpecStandard{
-			Persistence: &mdbv1.Persistence{SingleConfig: &mdbv1.PersistenceConfig{Storage: "40G"}}}, PodAntiAffinityTopologyKey: ""},
-		Default: mdbv1.MongoDbPodSpec{MongoDbPodSpecStandard: mdbv1.MongoDbPodSpecStandard{
-			Persistence: &mdbv1.Persistence{SingleConfig: &mdbv1.PersistenceConfig{Storage: "12G"}}}, PodAntiAffinityTopologyKey: ""}}
+	podSpec := mdbv1.NewEmptyPodSpecWrapperBuilder().
+		SetSinglePersistence(mdbv1.NewPersistenceBuilder("40G")).
+		SetDefault(mdbv1.NewPodSpecWrapperBuilder().SetSinglePersistence(mdbv1.NewPersistenceBuilder("12G"))).
+		Build()
+
 	req := buildStorageRequirements(podSpec.Persistence.SingleConfig, podSpec.Default.Persistence.SingleConfig)
 
 	assert.Len(t, req, 1)
@@ -28,11 +28,10 @@ func TestStorageRequirements(t *testing.T) {
 	assert.Equal(t, int64(40000000000), (&quantity).Value())
 
 	// value is not provided - the default is used
-	podSpec = mdbv1.PodSpecWrapper{
-		MongoDbPodSpec: mdbv1.MongoDbPodSpec{MongoDbPodSpecStandard: mdbv1.MongoDbPodSpecStandard{
-			Persistence: &mdbv1.Persistence{SingleConfig: &mdbv1.PersistenceConfig{}}}, PodAntiAffinityTopologyKey: ""},
-		Default: mdbv1.MongoDbPodSpec{MongoDbPodSpecStandard: mdbv1.MongoDbPodSpecStandard{
-			Persistence: &mdbv1.Persistence{SingleConfig: &mdbv1.PersistenceConfig{Storage: "5G"}}}, PodAntiAffinityTopologyKey: ""}}
+	podSpec = mdbv1.NewEmptyPodSpecWrapperBuilder().
+		SetDefault(mdbv1.NewPodSpecWrapperBuilder().SetSinglePersistence(mdbv1.NewPersistenceBuilder("5G"))).
+		Build()
+
 	req = buildStorageRequirements(podSpec.Persistence.SingleConfig, podSpec.Default.Persistence.SingleConfig)
 
 	assert.Len(t, req, 1)
@@ -40,10 +39,7 @@ func TestStorageRequirements(t *testing.T) {
 	assert.Equal(t, int64(5000000000), (&quantity).Value())
 
 	// value is not provided and default is empty - the parameter must not be set at all
-	podSpec = mdbv1.PodSpecWrapper{MongoDbPodSpec: mdbv1.MongoDbPodSpec{MongoDbPodSpecStandard: mdbv1.MongoDbPodSpecStandard{
-		Persistence: &mdbv1.Persistence{SingleConfig: &mdbv1.PersistenceConfig{}}}, PodAntiAffinityTopologyKey: ""},
-		Default: mdbv1.MongoDbPodSpec{MongoDbPodSpecStandard: mdbv1.MongoDbPodSpecStandard{
-			Persistence: &mdbv1.Persistence{SingleConfig: &mdbv1.PersistenceConfig{}}}, PodAntiAffinityTopologyKey: ""}}
+	podSpec = mdbv1.NewEmptyPodSpecWrapperBuilder().Build()
 	req = buildStorageRequirements(podSpec.Persistence.SingleConfig, podSpec.Default.Persistence.SingleConfig)
 
 	assert.Len(t, req, 0)
@@ -51,9 +47,10 @@ func TestStorageRequirements(t *testing.T) {
 
 func TestBuildLimitsRequirements(t *testing.T) {
 	// values are provided - the defaults are ignored
-	podSpec := mdbv1.PodSpecWrapper{
-		MongoDbPodSpec: newMongoDbPodSpec(mdbv1.MongoDbPodSpecStandard{Cpu: "0.1", Memory: "512M"}, ""),
-		Default:        newMongoDbPodSpec(mdbv1.MongoDbPodSpecStandard{Cpu: "0.5", Memory: "1G"}, "")}
+	podSpec := mdbv1.NewEmptyPodSpecWrapperBuilder().SetCpu("0.1").SetMemory("512M").
+		SetDefault(mdbv1.NewPodSpecWrapperBuilder().SetCpu("0.5").SetMemory("1G")).
+		Build()
+
 	req := buildLimitsRequirements(podSpec)
 
 	assert.Len(t, req, 2)
@@ -63,9 +60,10 @@ func TestBuildLimitsRequirements(t *testing.T) {
 	assert.Equal(t, int64(512000000), (&memory).Value())
 
 	// values are not provided - the defaults are used
-	podSpec = mdbv1.PodSpecWrapper{
-		MongoDbPodSpec: mdbv1.MongoDbPodSpec{},
-		Default:        newMongoDbPodSpec(mdbv1.MongoDbPodSpecStandard{Cpu: "0.8", Memory: "10G"}, "")}
+	podSpec = mdbv1.NewEmptyPodSpecWrapperBuilder().
+		SetDefault(mdbv1.NewPodSpecWrapperBuilder().SetCpu("0.8").SetMemory("10G")).
+		Build()
+
 	req = buildLimitsRequirements(podSpec)
 
 	assert.Len(t, req, 2)
@@ -75,7 +73,7 @@ func TestBuildLimitsRequirements(t *testing.T) {
 	assert.Equal(t, int64(10000000000), (&memory).Value())
 
 	// value are not provided and default are empty - the parameters must not be set at all
-	podSpec = mdbv1.PodSpecWrapper{MongoDbPodSpec: mdbv1.MongoDbPodSpec{}, Default: mdbv1.MongoDbPodSpec{}}
+	podSpec = mdbv1.NewEmptyPodSpecWrapperBuilder().Build()
 	req = buildLimitsRequirements(podSpec)
 
 	assert.Len(t, req, 0)
@@ -83,9 +81,10 @@ func TestBuildLimitsRequirements(t *testing.T) {
 
 func TestBuildRequestsRequirements(t *testing.T) {
 	// values are provided - the defaults are ignored
-	podSpec := mdbv1.PodSpecWrapper{
-		MongoDbPodSpec: newMongoDbPodSpec(mdbv1.MongoDbPodSpecStandard{CpuRequests: "0.1", MemoryRequests: "512M"}, ""),
-		Default:        newMongoDbPodSpec(mdbv1.MongoDbPodSpecStandard{CpuRequests: "0.5", MemoryRequests: "1G"}, "")}
+	podSpec := mdbv1.NewEmptyPodSpecWrapperBuilder().SetCpuRequests("0.1").SetMemoryRequest("512M").
+		SetDefault(mdbv1.NewPodSpecWrapperBuilder().SetCpuRequests("0.5").SetMemoryRequest("1G")).
+		Build()
+
 	req := buildRequestsRequirements(podSpec)
 
 	assert.Len(t, req, 2)
@@ -95,9 +94,9 @@ func TestBuildRequestsRequirements(t *testing.T) {
 	assert.Equal(t, int64(512000000), (&memory).Value())
 
 	// values are not provided - the defaults are used
-	podSpec = mdbv1.PodSpecWrapper{
-		MongoDbPodSpec: mdbv1.MongoDbPodSpec{},
-		Default:        newMongoDbPodSpec(mdbv1.MongoDbPodSpecStandard{CpuRequests: "0.8", MemoryRequests: "10G"}, "")}
+	podSpec = mdbv1.NewEmptyPodSpecWrapperBuilder().
+		SetDefault(mdbv1.NewPodSpecWrapperBuilder().SetCpuRequests("0.8").SetMemoryRequest("10G")).
+		Build()
 	req = buildRequestsRequirements(podSpec)
 
 	assert.Len(t, req, 2)
@@ -107,12 +106,8 @@ func TestBuildRequestsRequirements(t *testing.T) {
 	assert.Equal(t, int64(10000000000), (&memory).Value())
 
 	// value are not provided and default are empty - the parameters must not be set at all
-	podSpec = mdbv1.PodSpecWrapper{MongoDbPodSpec: mdbv1.MongoDbPodSpec{}, Default: mdbv1.MongoDbPodSpec{}}
+	podSpec = mdbv1.NewEmptyPodSpecWrapperBuilder().Build()
 	req = buildRequestsRequirements(podSpec)
 
 	assert.Len(t, req, 0)
-}
-
-func newMongoDbPodSpec(spec mdbv1.MongoDbPodSpecStandard, podAntiAffinityTopologyKey string) mdbv1.MongoDbPodSpec {
-	return mdbv1.MongoDbPodSpec{MongoDbPodSpecStandard: spec, PodAntiAffinityTopologyKey: podAntiAffinityTopologyKey}
 }

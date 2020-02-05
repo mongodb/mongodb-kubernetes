@@ -36,15 +36,12 @@ func TestBuildStatefulSet_PersistentFlag(t *testing.T) {
 // TestBuildStatefulSet_PersistentVolumeClaimSingle checks that one persistent volume claim is created that is mounted by
 // 3 points
 func TestBuildStatefulSet_PersistentVolumeClaimSingle(t *testing.T) {
-	selector := &metav1.LabelSelector{MatchLabels: map[string]string{"app": "foo"}}
-	// todo add builders to avoid cumbersome structs
-	podSpec := mdbv1.PodSpecWrapper{
-		MongoDbPodSpec: mdbv1.MongoDbPodSpec{MongoDbPodSpecStandard: mdbv1.MongoDbPodSpecStandard{
-			Persistence: &mdbv1.Persistence{SingleConfig: &mdbv1.PersistenceConfig{Storage: "40G", StorageClass: util.StringRef("fast"), LabelSelector: selector}}}, PodAntiAffinityTopologyKey: ""},
-		Default: NewDefaultPodSpec()}
+	labels := map[string]string{"app": "foo"}
+	persistence := mdbv1.NewPersistenceBuilder("40G").SetStorageClass("fast").SetLabelSelector(labels)
+	podSpec := mdbv1.NewPodSpecWrapperBuilder().SetSinglePersistence(persistence).Build()
 	set, _ := defaultSetHelper().SetPodSpec(podSpec).BuildStatefulSet()
 
-	checkPvClaims(t, set, []*corev1.PersistentVolumeClaim{pvClaim(util.PvcNameData, "40G", util.StringRef("fast"), selector)})
+	checkPvClaims(t, set, []*corev1.PersistentVolumeClaim{pvClaim(util.PvcNameData, "40G", util.StringRef("fast"), labels)})
 
 	checkMounts(t, set, []*corev1.VolumeMount{
 		volMount(util.PvcNameData, util.PvcMountPathData, util.PvcNameData),
@@ -53,26 +50,22 @@ func TestBuildStatefulSet_PersistentVolumeClaimSingle(t *testing.T) {
 	})
 }
 
-// TestBuildStatefulSet_PersistentVolumeClaimMultiple checks multiple volumes for multiple mounts. Note, that subpaths
-// for mount points are not created (unlike in single mode)
+//TestBuildStatefulSet_PersistentVolumeClaimMultiple checks multiple volumes for multiple mounts. Note, that subpaths
+//for mount points are not created (unlike in single mode)
 func TestBuildStatefulSet_PersistentVolumeClaimMultiple(t *testing.T) {
-	selector := &metav1.LabelSelector{MatchLabels: map[string]string{"app": "bar"}}
-	selector2 := &metav1.LabelSelector{MatchLabels: map[string]string{"app": "foo"}}
-	// todo add builders to avoid cumbersome structs
-	podSpec := mdbv1.PodSpecWrapper{
-		MongoDbPodSpec: mdbv1.MongoDbPodSpec{MongoDbPodSpecStandard: mdbv1.MongoDbPodSpecStandard{
-			Persistence: &mdbv1.Persistence{MultipleConfig: &mdbv1.MultiplePersistenceConfig{
-				Data:    &mdbv1.PersistenceConfig{Storage: "40G", StorageClass: util.StringRef("fast")},
-				Logs:    &mdbv1.PersistenceConfig{Storage: "3G", StorageClass: util.StringRef("slow"), LabelSelector: selector},
-				Journal: &mdbv1.PersistenceConfig{Storage: "500M", StorageClass: util.StringRef("fast"), LabelSelector: selector2},
-			}}}, PodAntiAffinityTopologyKey: ""},
-		Default: NewDefaultPodSpec()}
+	labels1 := map[string]string{"app": "bar"}
+	labels2 := map[string]string{"app": "foo"}
+	podSpec := mdbv1.NewPodSpecWrapperBuilder().SetMultiplePersistence(
+		mdbv1.NewPersistenceBuilder("40G").SetStorageClass("fast"),
+		mdbv1.NewPersistenceBuilder("3G").SetStorageClass("slow").SetLabelSelector(labels1),
+		mdbv1.NewPersistenceBuilder("500M").SetStorageClass("fast").SetLabelSelector(labels2),
+	).Build()
 	set, _ := defaultSetHelper().SetPodSpec(podSpec).BuildStatefulSet()
 
 	checkPvClaims(t, set, []*corev1.PersistentVolumeClaim{
 		pvClaim(util.PvcNameData, "40G", util.StringRef("fast"), nil),
-		pvClaim(util.PvcNameJournal, "500M", util.StringRef("fast"), selector2),
-		pvClaim(util.PvcNameLogs, "3G", util.StringRef("slow"), selector),
+		pvClaim(util.PvcNameJournal, "3G", util.StringRef("slow"), labels1),
+		pvClaim(util.PvcNameLogs, "500M", util.StringRef("fast"), labels2),
 	})
 
 	checkMounts(t, set, []*corev1.VolumeMount{
@@ -85,12 +78,11 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultiple(t *testing.T) {
 // TestBuildStatefulSet_PersistentVolumeClaimMultipleDefaults checks the scenario when storage is provided only for one
 // mount point. Default values are expected to be used for two others
 func TestBuildStatefulSet_PersistentVolumeClaimMultipleDefaults(t *testing.T) {
-	podSpec := mdbv1.PodSpecWrapper{
-		MongoDbPodSpec: mdbv1.MongoDbPodSpec{MongoDbPodSpecStandard: mdbv1.MongoDbPodSpecStandard{
-			Persistence: &mdbv1.Persistence{MultipleConfig: &mdbv1.MultiplePersistenceConfig{
-				Data: &mdbv1.PersistenceConfig{Storage: "40G", StorageClass: util.StringRef("fast")},
-			}}}, PodAntiAffinityTopologyKey: ""},
-		Default: NewDefaultPodSpec()}
+	podSpec := mdbv1.NewPodSpecWrapperBuilder().SetMultiplePersistence(
+		mdbv1.NewPersistenceBuilder("40G").SetStorageClass("fast"),
+		nil,
+		nil).
+		Build()
 	set, _ := defaultSetHelper().SetPodSpec(podSpec).BuildStatefulSet()
 
 	checkPvClaims(t, set, []*corev1.PersistentVolumeClaim{
@@ -152,17 +144,13 @@ func TestBasePodSpec_Affinity(t *testing.T) {
 				TopologyKey:   "rack",
 			},
 		}}}
-	podSpec := mdbv1.PodSpecWrapper{
-		MongoDbPodSpec: mdbv1.MongoDbPodSpec{
-			MongoDbPodSpecStandard: mdbv1.MongoDbPodSpecStandard{
-				NodeAffinity: &nodeAffinity,
-				PodAffinity:  &podAffinity,
-			},
-			PodAntiAffinityTopologyKey: "nodeId",
-		},
-		Default: NewDefaultPodSpec()}
+	podSpec := mdbv1.NewPodSpecWrapperBuilder().
+		SetNodeAffinity(&nodeAffinity).
+		SetPodAffinity(&podAffinity).
+		SetPodAntiAffinityTopologyKey("nodeId").
+		Build()
 
-	spec := getDefaultPodSpecTemplate("s", podSpec, defaultPodVars(), map[string]string{}, map[string]string{}, []corev1.Container{}).Spec
+	spec := getDefaultPodSpecTemplate("s", podSpec, map[string]string{}, map[string]string{}, []corev1.Container{}).Spec
 	assert.Equal(t, nodeAffinity, *spec.Affinity.NodeAffinity)
 	assert.Equal(t, podAffinity, *spec.Affinity.PodAffinity)
 	assert.Len(t, spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution, 1)
@@ -176,8 +164,8 @@ func TestBasePodSpec_Affinity(t *testing.T) {
 // TestBasePodSpec_AntiAffinityDefaultTopology checks that the default topology key is created if the topology key is
 // not specified
 func TestBasePodSpec_AntiAffinityDefaultTopology(t *testing.T) {
-	podSpec := mdbv1.PodSpecWrapper{MongoDbPodSpec: mdbv1.MongoDbPodSpec{}, Default: NewDefaultPodSpec()}
-	spec := getDefaultPodSpecTemplate("s", podSpec, defaultPodVars(), map[string]string{}, map[string]string{}, []corev1.Container{}).Spec
+	podSpec := mdbv1.NewPodSpecWrapperBuilder().Build()
+	spec := getDefaultPodSpecTemplate("s", podSpec, map[string]string{}, map[string]string{}, []corev1.Container{}).Spec
 
 	term := spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0]
 	assert.Equal(t, int32(100), term.Weight)
@@ -188,8 +176,8 @@ func TestBasePodSpec_AntiAffinityDefaultTopology(t *testing.T) {
 // TestBasePodSpec_ImagePullSecrets verifies that 'spec.ImagePullSecrets' is created only if env variable
 // IMAGE_PULL_SECRETS is initialized
 func TestBasePodSpec_ImagePullSecrets(t *testing.T) {
-	podSpec := mdbv1.PodSpecWrapper{MongoDbPodSpec: mdbv1.MongoDbPodSpec{}, Default: NewDefaultPodSpec()}
-	spec := getDefaultPodSpecTemplate("s", podSpec, defaultPodVars(), map[string]string{}, map[string]string{}, []corev1.Container{}).Spec
+	podSpec := mdbv1.NewPodSpecWrapperBuilder().Build()
+	spec := getDefaultPodSpecTemplate("s", podSpec, map[string]string{}, map[string]string{}, []corev1.Container{}).Spec
 	assert.Nil(t, spec.ImagePullSecrets)
 
 	_ = os.Setenv(util.AutomationAgentPullSecrets, "foo")
@@ -209,8 +197,8 @@ func TestBasePodSpec_ImagePullSecrets(t *testing.T) {
 
 // TestBasePodSpec_TerminationGracePeriodSeconds verifies that the TerminationGracePeriodSeconds is set to 600 seconds
 func TestBasePodSpec_TerminationGracePeriodSeconds(t *testing.T) {
-	podSpec := mdbv1.PodSpecWrapper{MongoDbPodSpec: mdbv1.MongoDbPodSpec{}, Default: NewDefaultPodSpec()}
-	spec := getDefaultPodSpecTemplate("s", podSpec, defaultPodVars(), map[string]string{}, map[string]string{}, []corev1.Container{}).Spec
+	podSpec := mdbv1.NewPodSpecWrapperBuilder().Build()
+	spec := getDefaultPodSpecTemplate("s", podSpec, map[string]string{}, map[string]string{}, []corev1.Container{}).Spec
 	assert.Equal(t, util.Int64Ref(600), spec.TerminationGracePeriodSeconds)
 }
 
@@ -229,7 +217,7 @@ func checkMounts(t *testing.T, set *appsv1.StatefulSet, expectedMounts []*corev1
 	}
 }
 
-func pvClaim(pvName, size string, storageClass *string, selector *metav1.LabelSelector) *corev1.PersistentVolumeClaim {
+func pvClaim(pvName, size string, storageClass *string, labels map[string]string) *corev1.PersistentVolumeClaim {
 	quantity, _ := resource.ParseQuantity(size)
 	expectedClaim := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
@@ -241,8 +229,10 @@ func pvClaim(pvName, size string, storageClass *string, selector *metav1.LabelSe
 				Requests: corev1.ResourceList{corev1.ResourceStorage: quantity},
 			},
 			StorageClassName: storageClass,
-			Selector:         selector,
 		}}
+	if len(labels) > 0 {
+		expectedClaim.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
+	}
 	return expectedClaim
 }
 
@@ -274,9 +264,12 @@ func TestDefaultPodSpec_FsGroup(t *testing.T) {
 }
 
 func TestPodSpec_Requirements(t *testing.T) {
-	podSpec := mdbv1.PodSpecWrapper{
-		MongoDbPodSpec: newMongoDbPodSpec(
-			mdbv1.MongoDbPodSpecStandard{CpuRequests: "0.1", MemoryRequests: "512M", Cpu: "0.3", Memory: "1012M"}, "")}
+	podSpec := mdbv1.NewPodSpecWrapperBuilder().
+		SetCpuRequests("0.1").
+		SetMemoryRequest("512M").
+		SetCpu("0.3").
+		SetMemory("1012M").
+		Build()
 
 	container := newDatabaseContainer(podSpec, defaultPodVars())
 	expectedLimits := corev1.ResourceList{corev1.ResourceCPU: parseQuantityOrZero("0.3"), corev1.ResourceMemory: parseQuantityOrZero("1012M")}
@@ -397,13 +390,9 @@ func baseSetHelperDelayed(delay time.Duration) *StatefulSetHelper {
 	return (&KubeHelper{newMockedClientDelayed(st, delay)}).NewStatefulSetHelper(st)
 }
 
-func defaultPodSpecWrapper() mdbv1.PodSpecWrapper {
-	return mdbv1.PodSpecWrapper{MongoDbPodSpec: mdbv1.MongoDbPodSpec{PodAntiAffinityTopologyKey: "nodeId"}, Default: NewDefaultPodSpec()}
-}
-
 func defaultSetHelper() *StatefulSetHelper {
 	return baseSetHelper().
-		SetPodSpec(defaultPodSpecWrapper()).
+		SetPodSpec(mdbv1.NewEmptyPodSpecWrapperBuilder().Build()).
 		SetPodVars(defaultPodVars()).
 		SetService("test-service").
 		SetSecurity(&mdbv1.Security{

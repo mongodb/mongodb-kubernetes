@@ -122,7 +122,7 @@ func getMergedDefaultPodSpecTemplate(stsHelper StatefulSetHelper, annotations ma
 	// podLabels are labels we set to StatefulSet Selector and Template.Meta
 	podLabels := defaultPodLabels(stsHelper)
 
-	defaultPodSpecTemplate := getDefaultPodSpecTemplate(stsHelper.Name, stsHelper.PodSpec, stsHelper.PodVars, podLabels, annotations, defaultContainers)
+	defaultPodSpecTemplate := getDefaultPodSpecTemplate(stsHelper.Name, stsHelper.PodSpec, podLabels, annotations, defaultContainers)
 	var newPodTemplateSpec *corev1.PodTemplateSpec = defaultPodSpecTemplate
 	if stsHelper.PodTemplateSpec != nil {
 		// there is a user defined pod spec template, we need to merge in all of the default values
@@ -136,7 +136,7 @@ func getMergedDefaultPodSpecTemplate(stsHelper StatefulSetHelper, annotations ma
 	return *newPodTemplateSpec, nil
 }
 
-func getDefaultPodSpecTemplate(statefulSetName string, wrapper mdbv1.PodSpecWrapper, podVars *PodVars, podLabels map[string]string, annotations map[string]string, defaultContainers []corev1.Container) *corev1.PodTemplateSpec {
+func getDefaultPodSpecTemplate(statefulSetName string, wrapper *mdbv1.PodSpecWrapper, podLabels map[string]string, annotations map[string]string, defaultContainers []corev1.Container) *corev1.PodTemplateSpec {
 	if podLabels == nil {
 		podLabels = make(map[string]string)
 	}
@@ -181,15 +181,15 @@ func getDefaultPodSpecTemplate(statefulSetName string, wrapper mdbv1.PodSpecWrap
 	return templateSpec
 }
 
-func newDatabaseContainer(reqs mdbv1.PodSpecWrapper, podVars *PodVars) corev1.Container {
+func newDatabaseContainer(reqs *mdbv1.PodSpecWrapper, podVars *PodVars) corev1.Container {
 	return newContainer(reqs, util.ContainerName, util.ReadEnvVarOrPanic(util.AutomationAgentImageUrl), baseEnvFrom(podVars), baseReadinessProbe())
 }
 
-func newAppDBContainer(reqs mdbv1.PodSpecWrapper, statefulSetName, appdbImageUrl string) corev1.Container {
+func newAppDBContainer(reqs *mdbv1.PodSpecWrapper, statefulSetName, appdbImageUrl string) corev1.Container {
 	return newContainer(reqs, util.ContainerAppDbName, appdbImageUrl, appdbContainerEnv(statefulSetName), baseAppDbReadinessProbe())
 }
 
-func newContainer(reqs mdbv1.PodSpecWrapper, containerName, imageUrl string, envVars []corev1.EnvVar, readinessProbe *corev1.Probe) corev1.Container {
+func newContainer(reqs *mdbv1.PodSpecWrapper, containerName, imageUrl string, envVars []corev1.EnvVar, readinessProbe *corev1.Probe) corev1.Container {
 	return corev1.Container{
 		Name:  containerName,
 		Image: imageUrl,

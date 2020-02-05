@@ -1,12 +1,14 @@
 package v1
 
-import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
 
 // TODO must replace all [Standalone|Replicaset|Cluster]Builder classes in 'operator' package
-// TODO 2 it makes sense now to group different resources in different packages (types.go, mongobuilder.go, types_test.go)
+// TODO 2 move this to a separate package 'mongodb' together with 'types.go' and 'podspecbuilder.go'
 // Convenience builder for Mongodb object
 type MongoDBBuilder struct {
-	*MongoDB
+	mdb *MongoDB
 }
 
 func NewReplicaSetBuilder() *MongoDBBuilder {
@@ -25,90 +27,90 @@ func NewClusterBuilder() *MongoDBBuilder {
 		MongosCount:          2,
 	}
 	mongodb := defaultMongoDB().setType(ShardedCluster)
-	mongodb.Spec.MongodbShardedClusterSizeConfig = sizeConfig
+	mongodb.mdb.Spec.MongodbShardedClusterSizeConfig = sizeConfig
 	return mongodb
 }
 
 func (b *MongoDBBuilder) SetVersion(version string) *MongoDBBuilder {
-	b.Spec.Version = version
+	b.mdb.Spec.Version = version
 	return b
 }
 
 func (b *MongoDBBuilder) SetName(name string) *MongoDBBuilder {
-	b.Name = name
+	b.mdb.Name = name
 	return b
 }
 
 func (b *MongoDBBuilder) SetNamespace(namespace string) *MongoDBBuilder {
-	b.Namespace = namespace
+	b.mdb.Namespace = namespace
 	return b
 }
 
 func (b *MongoDBBuilder) SetFCVersion(version string) *MongoDBBuilder {
-	b.Spec.FeatureCompatibilityVersion = &version
+	b.mdb.Spec.FeatureCompatibilityVersion = &version
 	return b
 }
 
 func (b *MongoDBBuilder) SetMembers(m int) *MongoDBBuilder {
-	if b.Spec.ResourceType != ReplicaSet {
+	if b.mdb.Spec.ResourceType != ReplicaSet {
 		panic("Only replicaset can have members configuration")
 	}
-	b.Spec.Members = m
+	b.mdb.Spec.Members = m
 	return b
 }
 func (b *MongoDBBuilder) SetClusterDomain(m string) *MongoDBBuilder {
-	b.Spec.ClusterDomain = m
+	b.mdb.Spec.ClusterDomain = m
 	return b
 }
 
 func (b *MongoDBBuilder) SetAdditionalConfig(c *AdditionalMongodConfig) *MongoDBBuilder {
-	b.Spec.AdditionalMongodConfig = c
+	b.mdb.Spec.AdditionalMongodConfig = c
 	return b
 }
 
 func (b *MongoDBBuilder) SetSecurityTLSEnabled() *MongoDBBuilder {
-	b.Spec.Security.TLSConfig.Enabled = true
+	b.mdb.Spec.Security.TLSConfig.Enabled = true
 	return b
 }
 
 func (b *MongoDBBuilder) EnableAuth(modes []string) *MongoDBBuilder {
-	b.Spec.Security.Authentication.Enabled = true
-	b.Spec.Security.Authentication.Modes = modes
+	b.mdb.Spec.Security.Authentication.Enabled = true
+	b.mdb.Spec.Security.Authentication.Modes = modes
 	return b
 }
 
 func (b *MongoDBBuilder) SetShardCountSpec(count int) *MongoDBBuilder {
-	if b.Spec.ResourceType != ShardedCluster {
+	if b.mdb.Spec.ResourceType != ShardedCluster {
 		panic("Only sharded cluster can have shards configuration")
 	}
-	b.Spec.ShardCount = count
+	b.mdb.Spec.ShardCount = count
 	return b
 }
 func (b *MongoDBBuilder) SetMongodsPerShardCountSpec(count int) *MongoDBBuilder {
-	if b.Spec.ResourceType != ShardedCluster {
+	if b.mdb.Spec.ResourceType != ShardedCluster {
 		panic("Only sharded cluster can have shards configuration")
 	}
-	b.Spec.MongodsPerShardCount = count
+	b.mdb.Spec.MongodsPerShardCount = count
 	return b
 }
 func (b *MongoDBBuilder) SetConfigServerCountSpec(count int) *MongoDBBuilder {
-	if b.Spec.ResourceType != ShardedCluster {
+	if b.mdb.Spec.ResourceType != ShardedCluster {
 		panic("Only sharded cluster can have config server configuration")
 	}
-	b.Spec.ConfigServerCount = count
+	b.mdb.Spec.ConfigServerCount = count
 	return b
 }
 func (b *MongoDBBuilder) SetMongosCountSpec(count int) *MongoDBBuilder {
-	if b.Spec.ResourceType != ShardedCluster {
+	if b.mdb.Spec.ResourceType != ShardedCluster {
 		panic("Only sharded cluster can have mongos configuration")
 	}
-	b.Spec.MongosCount = count
+	b.mdb.Spec.MongosCount = count
 	return b
 }
 
 func (b *MongoDBBuilder) Build() *MongoDB {
-	b.InitDefaults()
-	return b.MongoDB
+	b.mdb.InitDefaults()
+	return b.mdb.DeepCopy()
 }
 
 // ************************* Package private methods *********************************************************
@@ -123,6 +125,6 @@ func defaultMongoDB() *MongoDBBuilder {
 }
 
 func (b *MongoDBBuilder) setType(resourceType ResourceType) *MongoDBBuilder {
-	b.Spec.ResourceType = resourceType
+	b.mdb.Spec.ResourceType = resourceType
 	return b
 }

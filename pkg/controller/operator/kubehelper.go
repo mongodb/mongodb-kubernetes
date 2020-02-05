@@ -69,7 +69,7 @@ type StatefulSetHelper struct {
 	StatefulSetHelperCommon
 
 	Persistent      *bool
-	PodSpec         mdbv1.PodSpecWrapper
+	PodSpec         *mdbv1.PodSpecWrapper
 	PodTemplateSpec *corev1.PodTemplateSpec
 	PodVars         *PodVars
 
@@ -231,7 +231,7 @@ func (s *StatefulSetHelper) SetPersistence(persistent *bool) *StatefulSetHelper 
 	return s
 }
 
-func (s *StatefulSetHelper) SetPodSpec(podSpec mdbv1.PodSpecWrapper) *StatefulSetHelper {
+func (s *StatefulSetHelper) SetPodSpec(podSpec *mdbv1.PodSpecWrapper) *StatefulSetHelper {
 	s.PodSpec = podSpec
 	return s
 }

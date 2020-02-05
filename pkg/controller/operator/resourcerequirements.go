@@ -21,7 +21,7 @@ func buildStorageRequirements(persistenceConfig, defaultConfig *mdbv1.Persistenc
 
 // buildLimitsRequirements returns a corev1.ResourceList definition for limits for CPU and Memory Requirements
 // This is used by the StatefulSet containers to allocate resources per Pod.
-func buildLimitsRequirements(reqs mdbv1.PodSpecWrapper) corev1.ResourceList {
+func buildLimitsRequirements(reqs *mdbv1.PodSpecWrapper) corev1.ResourceList {
 	res := corev1.ResourceList{}
 
 	if q := parseQuantityOrZero(reqs.GetCpuOrDefault()); !q.IsZero() {
@@ -36,7 +36,7 @@ func buildLimitsRequirements(reqs mdbv1.PodSpecWrapper) corev1.ResourceList {
 
 // buildRequestsRequirements returns a corev1.ResourceList definition for requests for CPU and Memory Requirements
 //// This is used by the StatefulSet containers to allocate resources per Pod.
-func buildRequestsRequirements(reqs mdbv1.PodSpecWrapper) corev1.ResourceList {
+func buildRequestsRequirements(reqs *mdbv1.PodSpecWrapper) corev1.ResourceList {
 	res := corev1.ResourceList{}
 
 	if q := parseQuantityOrZero(reqs.GetCpuRequestsOrDefault()); !q.IsZero() {

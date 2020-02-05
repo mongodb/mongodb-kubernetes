@@ -24,36 +24,24 @@ import (
 
 // This is a collection of some common methods that may be shared by operator code
 
-// NewDefaultPodSpec creates default pod spec, seems we shouldn't set CPU and Memory if they are not provided by user
+// NewDefaultPodSpec creates pod spec with default values,sets only the topology key and persistence sizes,
+// seems we shouldn't set CPU and Memory if they are not provided by user
 func NewDefaultPodSpec() mdbv1.MongoDbPodSpec {
-	defaultPodSpec := mdbv1.MongoDbPodSpecStandard{}
-	defaultPodSpec.Persistence = &mdbv1.Persistence{
-		SingleConfig: &mdbv1.PersistenceConfig{Storage: util.DefaultMongodStorageSize},
-		MultipleConfig: &mdbv1.MultiplePersistenceConfig{
-			Data:    &mdbv1.PersistenceConfig{Storage: util.DefaultMongodStorageSize},
-			Journal: &mdbv1.PersistenceConfig{Storage: util.DefaultJournalStorageSize},
-			Logs:    &mdbv1.PersistenceConfig{Storage: util.DefaultLogsStorageSize},
-		},
-	}
+	podSpecWrapper := mdbv1.NewEmptyPodSpecWrapperBuilder().
+		SetPodAntiAffinityTopologyKey(util.DefaultAntiAffinityTopologyKey).
+		SetSinglePersistence(mdbv1.NewPersistenceBuilder(util.DefaultMongodStorageSize)).
+		SetMultiplePersistence(mdbv1.NewPersistenceBuilder(util.DefaultMongodStorageSize),
+			mdbv1.NewPersistenceBuilder(util.DefaultJournalStorageSize),
+			mdbv1.NewPersistenceBuilder(util.DefaultLogsStorageSize)).
+		Build()
 
-	return mdbv1.MongoDbPodSpec{
-		MongoDbPodSpecStandard:     defaultPodSpec,
-		PodAntiAffinityTopologyKey: util.DefaultAntiAffinityTopologyKey,
-	}
+	return podSpecWrapper.MongoDbPodSpec
 }
 
 // NewDefaultPodSpecWrapper
-func NewDefaultPodSpecWrapper(podSpec mdbv1.MongoDbPodSpec) mdbv1.PodSpecWrapper {
-	return mdbv1.PodSpecWrapper{
+func NewDefaultPodSpecWrapper(podSpec mdbv1.MongoDbPodSpec) *mdbv1.PodSpecWrapper {
+	return &mdbv1.PodSpecWrapper{
 		MongoDbPodSpec: podSpec,
-		Default:        NewDefaultPodSpec(),
-	}
-}
-
-// NewDefaultStandalonePodSpecWrapper
-func NewDefaultStandalonePodSpecWrapper(podSpec mdbv1.MongoDbPodSpecStandard) mdbv1.PodSpecWrapper {
-	return mdbv1.PodSpecWrapper{
-		MongoDbPodSpec: mdbv1.MongoDbPodSpec{MongoDbPodSpecStandard: podSpec},
 		Default:        NewDefaultPodSpec(),
 	}
 }

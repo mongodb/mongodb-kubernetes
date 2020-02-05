@@ -267,12 +267,10 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 		SetPodTemplateSpec(s.Spec.MongosPodSpec.PodTemplate)
 
 	// 2. Create a Config Server StatefulSet
-	defaultConfigSrvSpec := NewDefaultPodSpec()
-	defaultConfigSrvSpec.Persistence.SingleConfig.Storage = util.DefaultConfigSrvStorageSize
-	podSpec := mdbv1.PodSpecWrapper{
-		MongoDbPodSpec: *s.Spec.ConfigSrvPodSpec,
-		Default:        defaultConfigSrvSpec,
-	}
+	podSpec := NewDefaultPodSpecWrapper(*s.Spec.ConfigSrvPodSpec)
+	// We override the default persistence value for Config Server
+	podSpec.Default.Persistence.SingleConfig.Storage = util.DefaultConfigSrvStorageSize
+
 	configBuilder := r.kubeHelper.NewStatefulSetHelper(s).
 		SetName(s.ConfigRsName()).
 		SetService(s.ConfigSrvServiceName()).

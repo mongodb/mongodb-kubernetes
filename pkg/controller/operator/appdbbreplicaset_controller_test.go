@@ -34,7 +34,7 @@ func TestPublishAutomationConfig_Create(t *testing.T) {
 	appdb := &opsManager.Spec.AppDB
 	kubeManager := newMockedManager(nil)
 	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
-	automationConfig, err := buildAutomationConfigForAppDb(t, builder, AlwaysFailingManifestProvider{})
+	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
 	assert.NoError(t, err)
 	assert.NoError(t, reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S()))
 
@@ -52,7 +52,7 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 	appdb := &opsManager.Spec.AppDB
 	kubeManager := newMockedManager(nil)
 	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
-	automationConfig, err := buildAutomationConfigForAppDb(t, builder, AlwaysFailingManifestProvider{})
+	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
 	assert.NoError(t, err)
 	// create
 	assert.NoError(t, reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S()))
@@ -79,7 +79,7 @@ func TestPublishAutomationConfig_ScramShaConfigured(t *testing.T) {
 	appdb := &opsManager.Spec.AppDB
 	kubeManager := newMockedManager(nil)
 	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
-	automationConfig, err := buildAutomationConfigForAppDb(t, builder, AlwaysFailingManifestProvider{})
+	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
 	assert.NoError(t, err)
 	assert.NoError(t, reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S()))
 
@@ -107,7 +107,7 @@ func TestBuildAppDbAutomationConfig(t *testing.T) {
 		SetAppDbVersion("4.2.2-ent").
 		SetAppDbFeatureCompatibility("4.0")
 	builder.Build()
-	automationConfig, err := buildAutomationConfigForAppDb(t, builder, AlwaysFailingManifestProvider{})
+	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
 	assert.NoError(t, err)
 	deployment := automationConfig.Deployment
 
@@ -191,7 +191,7 @@ func TestBundledVersionManifestIsUsed_WhenCorrespondingVersionIsUsed(t *testing.
 		SetAppDbMembers(2).
 		SetAppDbVersion("4.2.2-ent").
 		SetAppDbFeatureCompatibility("4.0")
-	automationConfig, err := buildAutomationConfigForAppDb(t, builder, AlwaysFailingManifestProvider{})
+	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
 	assert.NoError(t, err)
 	mongodbVersion := automationConfig.MongodbVersions()[0]
 	mongodbBuilds := mongodbVersion.Builds
@@ -208,7 +208,7 @@ func TestBundledVersionManifestIsUsed_WhenSpecified(t *testing.T) {
 		SetAppDbMembers(2).
 		SetAppDbVersion(util.BundledAppDbMongoDBVersion).
 		SetAppDbFeatureCompatibility("4.0")
-	automationConfig, err := buildAutomationConfigForAppDb(t, builder, AlwaysFailingManifestProvider{})
+	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
 	assert.NoError(t, err)
 	mongodbVersion := automationConfig.MongodbVersions()[0]
 	mongodbBuilds := mongodbVersion.Builds
@@ -225,7 +225,7 @@ func TestBundledVersionManifestIsUsed_WhenVersionIsEmpty(t *testing.T) {
 		SetAppDbMembers(2).
 		SetAppDbVersion("").
 		SetAppDbFeatureCompatibility("4.0")
-	automationConfig, err := buildAutomationConfigForAppDb(t, builder, AlwaysFailingManifestProvider{})
+	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
 	assert.NoError(t, err)
 	mongodbVersion := automationConfig.MongodbVersions()[0]
 	mongodbBuilds := mongodbVersion.Builds
@@ -242,7 +242,7 @@ func TestVersionManifestIsDownloaded_WhenNotUsingBundledVersion(t *testing.T) {
 		SetAppDbMembers(2).
 		SetAppDbVersion("4.1.2-ent").
 		SetAppDbFeatureCompatibility("4.0")
-	automationConfig, err := buildAutomationConfigForAppDb(t, builder, om.InternetManifestProvider{})
+	automationConfig, err := buildAutomationConfigForAppDb(builder, om.InternetManifestProvider{})
 	if err != nil {
 		// if failing, checking that the error is connectivity only
 		assert.Equal(t, err.Error(), "Get https://opsmanager.mongodb.com/static/version_manifest/4.2.json: dial tcp: lookup opsmanager.mongodb.com: no such host")
@@ -286,13 +286,13 @@ func TestFetchingVersionManifestFails_WhenUsingNonBundledVersion(t *testing.T) {
 		SetAppDbMembers(2).
 		SetAppDbVersion("4.0.2-ent").
 		SetAppDbFeatureCompatibility("4.0")
-	_, err := buildAutomationConfigForAppDb(t, builder, AlwaysFailingManifestProvider{})
+	_, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
 	assert.Error(t, err)
 }
 
 // ***************** Helper methods *******************************
 
-func buildAutomationConfigForAppDb(t *testing.T, builder *OpsManagerBuilder, internetManifestProvider om.VersionManifestProvider) (*om.AutomationConfig, error) {
+func buildAutomationConfigForAppDb(builder *OpsManagerBuilder, internetManifestProvider om.VersionManifestProvider) (*om.AutomationConfig, error) {
 	opsManager := builder.Build()
 	kubeManager := newMockedManager(opsManager)
 

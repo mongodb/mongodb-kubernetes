@@ -415,7 +415,7 @@ func DefaultAppDbBuilder() *AppDbBuilder {
 }
 
 func (b *AppDbBuilder) Build() *AppDB {
-	return b.appDb
+	return b.appDb.DeepCopy()
 }
 
 func (m *AppDB) GetSecretName() string {

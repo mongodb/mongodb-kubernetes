@@ -215,7 +215,7 @@ func (b *OpsManagerBuilder) SetAppDBPassword(secretName, key string) *OpsManager
 }
 
 func (b *OpsManagerBuilder) Build() *mdbv1.MongoDBOpsManager {
-	return b.om
+	return b.om.DeepCopy()
 }
 
 func (b *OpsManagerBuilder) BuildStatefulSet() (*appsv1.StatefulSet, error) {
@@ -223,6 +223,7 @@ func (b *OpsManagerBuilder) BuildStatefulSet() (*appsv1.StatefulSet, error) {
 	return (&KubeHelper{}).NewStatefulSetHelper(b.om).
 		SetName(rs.Name()).
 		SetService(rs.ServiceName()).
+		SetPodSpec(NewDefaultPodSpecWrapper(*rs.PodSpec)).
 		SetPodVars(&PodVars{}). // TODO remove
 		SetClusterName(b.om.ClusterName).
 		SetVersion(b.om.Spec.Version).

@@ -579,9 +579,18 @@ type MongodbShardedClusterSizeConfig struct {
 }
 
 type MongoDbPodSpec struct {
-	MongoDbPodSpecStandard
-	PodTemplate                *corev1.PodTemplateSpec `json:"podTemplate,omitempty"`
-	PodAntiAffinityTopologyKey string                  `json:"podAntiAffinityTopologyKey,omitempty"`
+	Cpu                        string                     `json:"cpu,omitempty"`
+	CpuRequests                string                     `json:"cpuRequests,omitempty"`
+	Memory                     string                     `json:"memory,omitempty"`
+	MemoryRequests             string                     `json:"memoryRequests,omitempty"`
+	PodAffinity                *corev1.PodAffinity        `json:"podAffinity,omitempty"`
+	NodeAffinity               *corev1.NodeAffinity       `json:"nodeAffinity,omitempty"`
+	SecurityContext            *corev1.PodSecurityContext `json:"securityContext,omitempty"`
+	PodTemplate                *corev1.PodTemplateSpec    `json:"podTemplate,omitempty"`
+	PodAntiAffinityTopologyKey string                     `json:"podAntiAffinityTopologyKey,omitempty"`
+
+	// Note, that this field is used by MongoDB resources only, let's keep it here for simplicity
+	Persistence *Persistence `json:"persistence,omitempty"`
 }
 
 // This is a struct providing the opportunity to customize the pod created under the hood.
@@ -591,17 +600,6 @@ type PodSpecWrapper struct {
 	// These are the default values, unfortunately Golang doesn't provide the possibility to inline default values into
 	// structs so use the operator.NewDefaultPodSpec constructor for this
 	Default MongoDbPodSpec
-}
-
-type MongoDbPodSpecStandard struct {
-	Cpu             string                     `json:"cpu,omitempty"`
-	CpuRequests     string                     `json:"cpuRequests,omitempty"`
-	Memory          string                     `json:"memory,omitempty"`
-	MemoryRequests  string                     `json:"memoryRequests,omitempty"`
-	PodAffinity     *corev1.PodAffinity        `json:"podAffinity,omitempty"`
-	NodeAffinity    *corev1.NodeAffinity       `json:"nodeAffinity,omitempty"`
-	SecurityContext *corev1.PodSecurityContext `json:"securityContext,omitempty"`
-	Persistence     *Persistence               `json:"persistence,omitempty"`
 }
 
 type Persistence struct {
@@ -686,9 +684,7 @@ func GetStorageOrDefault(config, defaultConfig *PersistenceConfig) string {
 // used to initialize any MongoDbPodSpec fields with valid values
 // in order to prevent panicking at runtime.
 func newMongoDbPodSpec() *MongoDbPodSpec {
-	return &MongoDbPodSpec{
-		MongoDbPodSpecStandard: MongoDbPodSpecStandard{},
-	}
+	return &MongoDbPodSpec{}
 }
 
 func (spec MongoDbSpec) GetTLSMode() SSLMode {
