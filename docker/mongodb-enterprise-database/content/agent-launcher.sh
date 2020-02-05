@@ -113,9 +113,9 @@ trap cleanup SIGTERM
 
 # Note that we don't care about orphan processes as they will die together with container in case of any troubles
 # tail's -F flag is equivalent to --follow=name --retry. Should we track log rotation events?
-AGENT_VERBOSE_LOG = "${MMS_LOG_DIR}/automation-agent-verbose.log" && touch "${AGENT_VERBOSE_LOG}"
-AGENT_STDERR_LOG = "${MMS_LOG_DIR}/automation-agent-stderr.log" && touch "${AGENT_STDERR_LOG}"
-MONGODB_LOG = "${MMS_LOG_DIR}/mongodb.log" && touch "${MONGODB_LOG}"
+AGENT_VERBOSE_LOG="${MMS_LOG_DIR}/automation-agent-verbose.log" && touch "${AGENT_VERBOSE_LOG}"
+AGENT_STDERR_LOG="${MMS_LOG_DIR}/automation-agent-stderr.log" && touch "${AGENT_STDERR_LOG}"
+MONGODB_LOG="${MMS_LOG_DIR}/mongodb.log" && touch "${MONGODB_LOG}"
 
 tail -F "${AGENT_VERBOSE_LOG}" 2> /dev/null | json_log 'automation-agent-verbose' &
 tail -F "${AGENT_STDERR_LOG}" 2> /dev/null | json_log 'automation-agent-stderr' &
