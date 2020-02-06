@@ -77,7 +77,7 @@ class TestCanEnableScramSha256(KubernetesTester):
     """
 
     def test_assert_connectivity(self):
-        ShardedClusterTester(MDB_RESOURCE, 1, ssl=True).assert_connectivity()
+        ShardedClusterTester(MDB_RESOURCE, 1, ssl=True).assert_connectivity(attempts=25)
 
     def test_ops_manager_state_updated_correctly(self):
         tester = AutomationConfigTester(KubernetesTester.get_automation_config())
