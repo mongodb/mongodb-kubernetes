@@ -3,11 +3,10 @@ package om
 import (
 	"encoding/json"
 	"fmt"
-	"path"
-
 	"github.com/blang/semver"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
+	"path"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -100,11 +99,7 @@ func NewMongosProcess(name, hostName string, resource *mdbv1.MongoDB) Process {
 
 	// default values for configurable values
 	p.SetLogPath(path.Join(util.PvcMountPathLogs, "/mongodb.log"))
-
-	if resource.Spec.GetTLSConfig().Enabled {
-		p.EnableTLS(resource.Spec.GetTLSMode())
-	}
-
+	p.ConfigureTLS(resource.Spec.GetTLSMode())
 	return p
 }
 
@@ -119,11 +114,7 @@ func NewMongodProcess(name, hostName string, resource *mdbv1.MongoDB) Process {
 	// CLOUDP-33467: we put mongod logs to the same directory as AA/Monitoring/Backup ones to provide single mount point
 	// for all types of logs
 	p.SetLogPath(path.Join(util.PvcMountPathLogs, "mongodb.log"))
-
-	if resource.Spec.GetTLSConfig().Enabled {
-		p.EnableTLS(resource.Spec.GetTLSMode())
-	}
-
+	p.ConfigureTLS(resource.Spec.GetTLSMode())
 	return p
 }
 
@@ -230,7 +221,14 @@ func (p Process) EnsureNetConfig() map[string]interface{} {
 // EnsureSSLConfig returns the SSL configuration map ("net.ssl"), creates an empty map if it didn't exist.
 // Use this method if you intend to make updates to the map returned
 func (p Process) EnsureSSLConfig() map[string]interface{} {
-	return util.ReadOrCreateMap(p.EnsureNetConfig(), "ssl")
+	netConfig := p.EnsureNetConfig()
+	if tlsConfig, ok := netConfig["tls"]; ok {
+		netConfig["ssl"] = tlsConfig
+		// we delete the TLS key as if we pass both ssl and tls, the desired config will not be sent
+		// by passing just "ssl" Ops Manager will map this to the correct "tls" configuration.
+		delete(netConfig, "tls")
+	}
+	return util.ReadOrCreateMap(netConfig, "ssl")
 }
 
 // SSLConfig returns the SSL configuration map ("net.ssl") or an empty map if it doesn't exist.
@@ -308,14 +306,18 @@ func initDefault(name, hostName, processVersion string, featureCompatibilityVers
 	process.EnsureNetConfig()["port"] = util.MongoDbDefaultPort
 }
 
-// EnableTLS enable TLS for this process. TLS will be always enabled after calling this. This function expects
+// ConfigureTLS enable TLS for this process. TLS will be always enabled after calling this. This function expects
 // the value of "mode" to be an allowed ssl.mode from OM API perspective.
-func (p Process) EnableTLS(mode mdbv1.SSLMode) {
+func (p Process) ConfigureTLS(mode mdbv1.SSLMode) {
 	// Initializing SSL configuration if it's necessary
 	sslConfig := p.EnsureSSLConfig()
 
 	sslConfig["mode"] = string(mode)
 	sslConfig["PEMKeyFile"] = util.PEMKeyFilePathInContainer
+
+	if mode == mdbv1.DisabledSSLMode {
+		delete(sslConfig, "PEMKeyFile")
+	}
 }
 
 func calculateFeatureCompatibilityVersion(version string) string {
@@ -391,9 +393,13 @@ func (p Process) mergeFrom(operatorProcess Process) {
 	)
 
 	// Merge SSL configuration (update if it's specified - delete otherwise)
-	if _, ok := operatorProcess.SSLConfig()["mode"]; ok {
+	if mode, ok := operatorProcess.SSLConfig()["mode"]; ok {
 		for key, value := range operatorProcess.SSLConfig() {
 			p.EnsureSSLConfig()[key] = value
+		}
+		// if the mode is specified as disabled, providing "PEMKeyFile" is an invalid config
+		if mode == string(mdbv1.DisabledSSLMode) {
+			delete(p.EnsureSSLConfig(), "PEMKeyFile")
 		}
 	} else {
 		delete(p.EnsureNetConfig(), "ssl")

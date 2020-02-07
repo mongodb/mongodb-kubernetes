@@ -105,7 +105,7 @@ class TestReplicaSetWithTLSDisabling(KubernetesTester):
       patch: '[{ "op": "replace", "path":"/spec/security", "value": null }]'
       file: test-tls-base-rs-require-ssl.yaml
       wait_until: in_running_state
-      timeout: 300
+      timeout: 400
     """
 
     @skip_if_local()

@@ -400,6 +400,35 @@ func TestDeploymentMinimumMajorVersion(t *testing.T) {
 	assert.Equal(t, uint64(3), d2.MinimumMajorVersion())
 }
 
+func TestConfiguringTlsProcessFromOpsManager(t *testing.T) {
+	d := NewDeployment()
+	rs0Processes := createReplicaSetProcessesCount(1, "my-rs")
+	rs0 := buildRsByProcesses("my-rs", rs0Processes)
+	d.MergeReplicaSet(rs0, zap.S())
+
+	processes := d.getProcesses()
+	p0 := processes[0]
+
+	p0.ConfigureTLS(mdbv1.RequireSSLMode)
+
+	d.MergeStandalone(p0, zap.S())
+	assert.Contains(t, p0.SSLConfig(), "PEMKeyFile")
+
+	p0.ConfigureTLS(mdbv1.DisabledSSLMode)
+	d.MergeStandalone(p0, zap.S())
+
+	assert.NotContains(t, processes[0].SSLConfig(), "PEMKeyFile")
+
+	// simulate Ops Manager returning the field with "tls" instead of "ssl"
+	p0.EnsureNetConfig()["tls"] = p0.EnsureNetConfig()["ssl"]
+	delete(p0.EnsureNetConfig(), "ssl")
+
+	p0.ConfigureTLS(mdbv1.RequireSSLMode)
+
+	assert.Contains(t, p0.EnsureNetConfig(), "ssl")
+	assert.NotContains(t, p0.EnsureNetConfig(), "tls")
+}
+
 // ************************   Methods for checking deployment units
 
 func checkShardedCluster(t *testing.T, d Deployment, expectedCluster ShardedCluster, replicaSetWithProcesses []ReplicaSetWithProcesses) {

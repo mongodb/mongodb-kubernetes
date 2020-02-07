@@ -21,7 +21,11 @@ func TestCreateMongodProcess(t *testing.T) {
 	assert.Equal(t, "/var/log/mongodb-mms-automation/mongodb.log", process.LogPath())
 	assert.Equal(t, 5, process.authSchemaVersion())
 	assert.Equal(t, "", process.replicaSetName())
-	assert.Equal(t, map[string]interface{}{"port": util.MongoDbDefaultPort}, process.EnsureNetConfig())
+
+	expectedMap := map[string]interface{}{"port": util.MongoDbDefaultPort, "ssl": map[string]interface{}{
+		"mode": "disabled",
+	}}
+	assert.Equal(t, expectedMap, process.EnsureNetConfig())
 }
 
 func TestCreateMongodProcess_authSchemaVersion(t *testing.T) {
@@ -53,21 +57,21 @@ func TestCreateMongodProcess_featureCompatibilityVersion(t *testing.T) {
 func TestConfigureSSL_Process(t *testing.T) {
 	process := Process{}
 
-	process.EnableTLS(mdbv1.RequireSSLMode)
+	process.ConfigureTLS(mdbv1.RequireSSLMode)
 	assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.RequireSSLMode), "PEMKeyFile": "/mongodb-automation/server.pem"}, process.SSLConfig())
 
 	process = Process{}
-	process.EnableTLS("")
+	process.ConfigureTLS("")
 	assert.Equal(t, map[string]interface{}{"mode": "", "PEMKeyFile": "/mongodb-automation/server.pem"}, process.SSLConfig())
 
 	process = Process{}
-	process.EnableTLS(mdbv1.DisabledSSLMode)
-	assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.DisabledSSLMode), "PEMKeyFile": "/mongodb-automation/server.pem"}, process.SSLConfig())
+	process.ConfigureTLS(mdbv1.DisabledSSLMode)
+	assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.DisabledSSLMode)}, process.SSLConfig())
 }
 
 func TestTlsConfig(t *testing.T) {
 	process := Process{}
-	process.EnableTLS(mdbv1.RequireSSLMode)
+	process.ConfigureTLS(mdbv1.RequireSSLMode)
 	process.Args()["tls"] = map[string]interface{}{
 		"mode":       "requireSSL",
 		"PEMKeyFile": "/mongodb-automation/server.pem",
@@ -108,7 +112,7 @@ func TestCreateMongodProcess_SSL(t *testing.T) {
 
 	mdb := mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).Build()
 	process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdb)
-	assert.Empty(t, process.SSLConfig())
+	assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.DisabledSSLMode)}, process.SSLConfig())
 
 	mdb = mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).
 		SetSecurityTLSEnabled().Build()
