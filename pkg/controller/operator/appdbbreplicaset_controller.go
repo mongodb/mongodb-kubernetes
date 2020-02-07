@@ -223,11 +223,14 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(rs *mdbv1.AppDB, o
 	replicaSet := buildReplicaSetFromStatefulSetAppDb(set, rs, log)
 
 	d.MergeReplicaSet(replicaSet, nil)
-	d.AddMonitoringAndBackup(replicaSet.Processes[0].HostName(), log)
 
 	automationConfig := om.NewAutomationConfig(d)
 	automationConfig.SetOptions(util.AgentDownloadsDir)
-	automationConfig.SetBaseUrlForAgents(opsManager.CentralURL())
+
+	// removed to resolve: https://jira.mongodb.org/browse/HELP-13728
+	// to be fixed in: https://jira.mongodb.org/browse/CLOUDP-56873
+	// d.AddMonitoringAndBackup(replicaSet.Processes[0].HostName(), log)
+	// automationConfig.SetBaseUrlForAgents(opsManager.CentralURL())
 
 	sha1Creds, sha256Creds, err := generateScramShaCredentials(opsManagerUserPassword, opsManager)
 

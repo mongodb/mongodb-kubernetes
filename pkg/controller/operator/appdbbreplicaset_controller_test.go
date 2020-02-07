@@ -12,7 +12,6 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
-	"github.com/spf13/cast"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
@@ -155,13 +154,9 @@ func TestBuildAppDbAutomationConfig(t *testing.T) {
 	// no sharded clusters
 	assert.Empty(t, deployment.ShardedClustersCopy())
 
-	// monitoring and backup agents have baseUrl specified
-	omUrl := "http://testOM-svc.my-namespace.svc.cluster.local:8080"
-	assert.Len(t, deployment.MonitoringVersionsCopy(), 1)
-	assert.Equal(t, omUrl, cast.ToStringMap(deployment.MonitoringVersionsCopy()[0])["baseUrl"])
-	assert.Len(t, deployment.BackupVersionsCopy(), 2)
-	assert.Equal(t, omUrl, cast.ToStringMap(deployment.BackupVersionsCopy()[0])["baseUrl"])
-	assert.Equal(t, omUrl, cast.ToStringMap(deployment.BackupVersionsCopy()[1])["baseUrl"])
+	// monitoring and backup agents have not been configured
+	assert.Len(t, deployment.MonitoringVersionsCopy(), 0)
+	assert.Len(t, deployment.BackupVersionsCopy(), 0)
 
 	// options
 	assert.Equal(t, map[string]string{"downloadBase": util.AgentDownloadsDir}, deployment["options"])
