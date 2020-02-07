@@ -91,13 +91,14 @@ echo "This task is allowed to run for ${timeout} seconds"
 timeout "${timeout}" scripts/evergreen/e2e/single_e2e
 TEST_RESULTS=$?
 
-if [[ "${TEST_RESULTS}" -ne 0 ]]; then
-    # Dump all the information we can from this namespace
-    dump_all
+# Dump all the information we can from this namespace
+dump_all
 
-    # And then mark it as failed
+if [[ "${TEST_RESULTS}" -ne 0 ]]; then
+    # Mark namespace as failed to be cleaned later
     kubectl label "namespace/${PROJECT_NAMESPACE}" "evg/state=failed" --overwrite=true
 else
+    # If the test pass, then the namespace is removed
     scripts/evergreen/e2e/teardown
 fi
 
