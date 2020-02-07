@@ -36,4 +36,4 @@ class TestStandaloneRecoversBadOmConfiguration(KubernetesTester):
             "my-project", KubernetesTester.get_namespace(), config_map
         )
 
-        KubernetesTester.wait_until("in_running_state_failures_possible", 120)
+        KubernetesTester.wait_until("in_running_state_failures_possible", 180)
