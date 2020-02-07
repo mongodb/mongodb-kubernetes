@@ -26,11 +26,6 @@ class TestReplicaSetBadStateCreation(KubernetesTester):
             "Failed to create/update (Ops Manager reconciliation phase)"
             in mrs["status"]["message"]
         )
-        # This is part of the message emitted by Ops Manager
-        assert (
-            "Status: 400" in mrs["status"]["message"]
-            or "Status: 500" in mrs["status"]["message"]
-        )
 
 
 @pytest.mark.e2e_replica_set_recovery
@@ -44,7 +39,7 @@ class TestReplicaSetRecoversFromBadState(KubernetesTester):
       file: replica-set-invalid.yaml
       patch: '[{"op":"replace","path":"/spec/version","value":"4.0.0"}]'
       wait_until: in_running_state
-      timeout: 120
+      timeout: 240
     """
 
     def test_in_running_state(self):
