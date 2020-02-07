@@ -210,9 +210,15 @@ func (m *MongoDBOpsManager) UnmarshalJSON(data []byte) error {
 }
 
 func (m *MongoDBOpsManager) InitDefault() {
-	// setting ops manager name and namespace for the appdb (transient fields)
+	// we always "enable" scram sha authentication
+	// TODO change this when we may move `passwordRef` to `security.authentication`
+	m.Spec.AppDB.Security = newSecurity()
+	m.Spec.AppDB.Security.Authentication.Modes = append(m.Spec.AppDB.Security.Authentication.Modes, util.SCRAM)
+	// setting ops manager name, namespace and ClusterDomain for the appdb (transient fields)
 	m.Spec.AppDB.opsManagerName = m.Name
 	m.Spec.AppDB.namespace = m.Namespace
+	m.Spec.AppDB.ClusterDomain = m.Spec.GetClusterDomain()
+	m.Spec.AppDB.ResourceType = ReplicaSet
 }
 
 func (m *MongoDBOpsManager) MarshalJSON() ([]byte, error) {
@@ -220,6 +226,7 @@ func (m *MongoDBOpsManager) MarshalJSON() ([]byte, error) {
 
 	mdb.Spec.AppDB.opsManagerName = ""
 	mdb.Spec.AppDB.namespace = ""
+	mdb.Spec.AppDB.ClusterDomain = ""
 
 	if reflect.DeepEqual(m.Spec.Backup, newBackup()) {
 		mdb.Spec.Backup = nil
@@ -422,7 +429,6 @@ func (m *AppDB) GetSecretName() string {
 	return m.Name() + "-password"
 }
 
-// No Security and no AdditionalMongodConfig as of alpha
 func (m *AppDB) UnmarshalJSON(data []byte) error {
 	type MongoDBJSON *AppDB
 	if err := json.Unmarshal(data, (MongoDBJSON)(m)); err != nil {
@@ -434,7 +440,7 @@ func (m *AppDB) UnmarshalJSON(data []byte) error {
 		m.PasswordSecretKeyRef.Key = util.DefaultAppDbPasswordKey
 	}
 
-	m.Security = nil
+	// No AdditionalMongodConfig as of beta
 	m.AdditionalMongodConfig = nil
 	m.ConnectionSpec.Credentials = ""
 	m.ConnectionSpec.CloudManagerConfig = nil
@@ -444,11 +450,6 @@ func (m *AppDB) UnmarshalJSON(data []byte) error {
 	if m.PodSpec == nil {
 		m.PodSpec = newMongoDbPodSpec()
 	}
-	// we always "enable" scram sha authentication
-	// TODO change this when we may move `passwordRef` to `security.authentication`
-	m.Security = newSecurity()
-	m.Security.Authentication.Modes = append(m.Security.Authentication.Modes, util.SCRAM)
-	m.ResourceType = ReplicaSet
 	return nil
 }
 

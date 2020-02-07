@@ -180,7 +180,6 @@ func DefaultOpsManagerBuilder() *OpsManagerBuilder {
 		AdminSecret: "om-admin",
 	}
 	om := &mdbv1.MongoDBOpsManager{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "testOM", Namespace: TestNamespace}}
-	om.InitDefault()
 	return &OpsManagerBuilder{om}
 }
 
@@ -215,6 +214,7 @@ func (b *OpsManagerBuilder) SetAppDBPassword(secretName, key string) *OpsManager
 }
 
 func (b *OpsManagerBuilder) Build() *mdbv1.MongoDBOpsManager {
+	b.om.InitDefault()
 	return b.om.DeepCopy()
 }
 

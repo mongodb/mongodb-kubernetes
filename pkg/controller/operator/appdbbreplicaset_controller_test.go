@@ -27,6 +27,34 @@ func init() {
 	util.BundledAppDbMongoDBVersion = "4.2.2-ent"
 }
 
+func TestMongoDB_ConnectionURL_DefaultCluster_AppDB(t *testing.T) {
+	opsManager := DefaultOpsManagerBuilder().Build()
+	appdb := &opsManager.Spec.AppDB
+	assert.Equal(t, "mongodb://user:passwd@testOM-db-0.testOM-db-svc.my-namespace.svc.cluster.local:27017,"+
+		"testOM-db-1.testOM-db-svc.my-namespace.svc.cluster.local:27017,testOM-db-2.testOM-db-svc.my-namespace.svc.cluster.local:27017/"+
+		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=testOM-db&serverSelectionTimeoutMS=20000", appdb.ConnectionURL("user", "passwd", nil))
+
+	// Connection parameters. The default one is overridden
+	assert.Equal(t, "mongodb://user:passwd@testOM-db-0.testOM-db-svc.my-namespace.svc.cluster.local:27017,"+
+		"testOM-db-1.testOM-db-svc.my-namespace.svc.cluster.local:27017,testOM-db-2.testOM-db-svc.my-namespace.svc.cluster.local:27017/"+
+		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=30000&readPreference=secondary&replicaSet=testOM-db&serverSelectionTimeoutMS=20000",
+		appdb.ConnectionURL("user", "passwd", map[string]string{"connectTimeoutMS": "30000", "readPreference": "secondary"}))
+}
+
+func TestMongoDB_ConnectionURL_OtherCluster_AppDB(t *testing.T) {
+	opsManager := DefaultOpsManagerBuilder().SetClusterDomain("my-cluster").Build()
+	appdb := &opsManager.Spec.AppDB
+	assert.Equal(t, "mongodb://user:passwd@testOM-db-0.testOM-db-svc.my-namespace.svc.my-cluster:27017,"+
+		"testOM-db-1.testOM-db-svc.my-namespace.svc.my-cluster:27017,testOM-db-2.testOM-db-svc.my-namespace.svc.my-cluster:27017/"+
+		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=testOM-db&serverSelectionTimeoutMS=20000", appdb.ConnectionURL("user", "passwd", nil))
+
+	// Connection parameters. The default one is overridden
+	assert.Equal(t, "mongodb://user:passwd@testOM-db-0.testOM-db-svc.my-namespace.svc.my-cluster:27017,"+
+		"testOM-db-1.testOM-db-svc.my-namespace.svc.my-cluster:27017,testOM-db-2.testOM-db-svc.my-namespace.svc.my-cluster:27017/"+
+		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=30000&readPreference=secondary&replicaSet=testOM-db&serverSelectionTimeoutMS=20000",
+		appdb.ConnectionURL("user", "passwd", map[string]string{"connectTimeoutMS": "30000", "readPreference": "secondary"}))
+}
+
 // TestPublishAutomationConfig_Create verifies that the automation config map is created if it doesn't exist
 func TestPublishAutomationConfig_Create(t *testing.T) {
 	builder := DefaultOpsManagerBuilder()
