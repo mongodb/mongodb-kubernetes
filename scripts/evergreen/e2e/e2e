@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+start_time=$(date +%s)
+
 # shellcheck disable=SC1091
 
 if [ ! -f "${KUBECONFIG}" ]; then
@@ -75,13 +77,16 @@ export REVISION="${OPERATOR_VERSION}"
 
 scripts/evergreen/e2e/deploy_operator
 
-# We'll have the task running for 80% of the allocated time, assuming that the
-# setup process takes a bit of time as well. This is needed because Evergreen
-# kills the process *AND* Docker containers running on the host when it hits a
-# timeout. Under these circumstances and in Kind based environments, it is
-# impossible to fetch the results from the Kubernetes cluster running on top of
-# Docker.
-timeout=$((timeout * 8 / 10))
+# We'll have the task running for the allocated time, minus the time it took us
+# to get all the way here, assuming configuring and deploying the operator can
+# take a bit of time. This is needed because Evergreen kills the process *AND*
+# Docker containers running on the host when it hits a timeout. Under these
+# circumstances and in Kind based environments, it is impossible to fetch the
+# results from the Kubernetes cluster running on top of Docker.
+#
+current_time=$(date +%s)
+elapsed_time=$((current_time - start_time))
+timeout=$((timeout - elapsed_time - 60))
 echo "This task is allowed to run for ${timeout} seconds"
 timeout "${timeout}" scripts/evergreen/e2e/single_e2e
 TEST_RESULTS=$?
