@@ -9,11 +9,11 @@ dump_objects() {
     msg=$2
     to_describe=${3-}
     if ! kubectl get "$objects" -n "${PROJECT_NAMESPACE}" 2>&1 | grep -q "No resources found"; then
-        header "$msg" >> "$dump_file"
+        header "$msg"
         if [[ -n $to_describe ]]; then
-            kubectl describe "$objects" -n "${PROJECT_NAMESPACE}"  >> "$dump_file"
+            kubectl describe "$objects" -n "${PROJECT_NAMESPACE}"
         else
-            kubectl get "$objects" -o yaml -n "${PROJECT_NAMESPACE}"  >> "$dump_file"
+            kubectl get "$objects" -o yaml -n "${PROJECT_NAMESPACE}"
         fi
     fi
 }
@@ -26,20 +26,25 @@ dump_all () {
     mkdir -p logs
     dump_file="logs/diagnostics.txt"
 
-    header "All MongoDB Custom Resources" >> "${dump_file}"
-    dump_objects "mdb" "MongoDB Resources"
-    dump_objects "mdbu" "MongoDBUser Resources"
-    dump_objects "om" "MongoDBOpsManager Resources"
+    {
+        header "All MongoDB Custom Resources"
+        dump_objects "mdb" "MongoDB Resources"
+        dump_objects "mdbu" "MongoDBUser Resources"
+        dump_objects "om" "MongoDBOpsManager Resources"
+    } >> "$dump_file"
 
-    header "All namespace objects" >> "$dump_file"
-    kubectl get all -n "${PROJECT_NAMESPACE}" >> "$dump_file"
+    {
+        header "All namespace objects"
+        kubectl get all -n "${PROJECT_NAMESPACE}"
+        dump_objects "pvc" "Persistent Volume Claims"
+        dump_objects "sts" "StatefulSets" true
+    } >> "$dump_file"
 
-    dump_objects "pvc" "Persistent Volume Claims"
-    dump_objects "sts" "StatefulSets" true
-
-    header "All test/namespace CSR" >> "$dump_file"
-    kubectl get csr -o wide | grep "${PROJECT_NAMESPACE}" >> "$dump_file"
-    echo "Cluster currently has $(kubectl get csr -o name | wc -l) certificates" >> "$dump_file"
+    {
+        header "All test/namespace CSR";
+        kubectl get csr -o wide | grep "${PROJECT_NAMESPACE}" ;
+        echo "Cluster currently has $(kubectl get csr -o name | wc -l) certificates"
+    } >> "$dump_file"
 
     # we don't output pods for the operator and tests (they will be output if they didn't manage to start)
     for pod in $(kubectl get pods -n "${PROJECT_NAMESPACE}" -o name | grep -v "${OPERATOR_NAME:=mongodb-enterprise-operator}"); do
@@ -57,15 +62,16 @@ dump_all () {
 
             # kubectl cp won't create any files if the file doesn't exist in the container
             agent_health_status="logs/${pod}-agent-health-status.json"
-            kubectl cp ${PROJECT_NAMESPACE}/${pod}:var/log/mongodb-mms-automation/agent-health-status.json ${agent_health_status} &> /dev/null
-            [ -f "${agent_health_status}" ] && jq < "logs/${pod}-agent-health-status.json" > tmpfile && mv tmpfile ${agent_health_status}
+            kubectl cp "${PROJECT_NAMESPACE}/${pod}:var/log/mongodb-mms-automation/agent-health-status.json" "${agent_health_status}" &> /dev/null
+            [ -f "${agent_health_status}" ] && jq < "logs/${pod}-agent-health-status.json" > tmpfile && mv tmpfile "${agent_health_status}"
 
             # cluster-config.json is a mounted volume and the actual file is located in the "..data" directory
             pod_cluster_config="logs/${pod}-cluster-config.json"
-            kubectl cp ${PROJECT_NAMESPACE}/${pod}:var/lib/mongodb-automation/..data/cluster-config.json ${pod_cluster_config} &> /dev/null
-            [ -f ${pod_cluster_config} ] && jq < logs/${pod}-cluster-config.json > tmpfile && mv tmpfile ${pod_cluster_config}
+            kubectl cp "${PROJECT_NAMESPACE}/${pod}:var/lib/mongodb-automation/..data/cluster-config.json" "${pod_cluster_config}" &> /dev/null
+            [ -f "${pod_cluster_config}" ] && jq < "logs/${pod}-cluster-config.json" > tmpfile && mv tmpfile "${pod_cluster_config}"
 
-            kubectl cp ${PROJECT_NAMESPACE}/${pod}:var/log/mongodb-mms-automation/readiness.log "logs/${pod}-readiness.log" &> /dev/null
+            kubectl cp "${PROJECT_NAMESPACE}/${pod}:var/log/mongodb-mms-automation/readiness.log" "logs/${pod}-readiness.log" &> /dev/null
+            kubectl cp "${PROJECT_NAMESPACE}/${pod}:data/automation-mongod.conf" "logs/${pod}-automation-mongod.conf" &> /dev/null
             ((i++))
         done
     fi

@@ -162,7 +162,7 @@ functions:
         aws_secret: ${mms_eng_test_aws_secret}
         local_files_include_filter:
           - src/github.com/10gen/ops-manager-kubernetes/logs/*
-        remote_file: logs/${task_id}/
+        remote_file: logs/${task_id}/${execution}/
         bucket: operator-e2e-artifacts
         permissions: public-read
         content_type: text/plain
