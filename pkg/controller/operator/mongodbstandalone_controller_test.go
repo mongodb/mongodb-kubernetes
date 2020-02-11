@@ -17,7 +17,7 @@ import (
 )
 
 func TestCreateOmProcess(t *testing.T) {
-	sts, _ := defaultSetHelper().BuildStatefulSet()
+	sts, _ := defaultSetHelper().SetName("dublin").BuildStatefulSet()
 	process := createProcess(sts, DefaultStandaloneBuilder().Build())
 	// Note, that for standalone the name of process is the name of statefulset - not the pod inside it.
 	assert.Equal(t, "dublin", process.Name())

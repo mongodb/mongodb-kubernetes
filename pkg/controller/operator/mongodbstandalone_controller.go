@@ -130,8 +130,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		SetLogger(log).
 		SetTLS(s.Spec.GetTLSConfig()).
 		SetProjectConfig(*projectConfig).
-		SetSecurity(s.Spec.Security).
-		SetPodTemplateSpec(s.Spec.PodSpec.PodTemplate)
+		SetSecurity(s.Spec.Security)
 	standaloneBuilder.SetCertificateHash(standaloneBuilder.readPemHashFromSecret())
 
 	if status := validateMongoDBResource(s, conn); !status.isOk() {

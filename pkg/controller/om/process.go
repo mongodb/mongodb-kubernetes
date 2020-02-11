@@ -3,10 +3,11 @@ package om
 import (
 	"encoding/json"
 	"fmt"
+	"path"
+
 	"github.com/blang/semver"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
-	"path"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"

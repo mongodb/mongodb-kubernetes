@@ -97,6 +97,7 @@ const (
 	RunAsUser                   = 2000
 	FsGroup                     = 2000
 	AppDBServiceAccount         = "mongodb-enterprise-appdb"
+	MongoDBServiceAccount       = "mongodb-enterprise-database-pods"
 	AgentDownloadsDir           = "/var/lib/mongodb-mms-automation/downloads"
 
 	// Operator Filesystem constants
@@ -161,6 +162,7 @@ const (
 	DefaultLogsStorageSize             = "3G"
 	DefaultHeadDbStorageSize           = "32G"
 	DefaultMemoryAppDB                 = "500M"
+	DefaultMemoryOpsManager            = "5G"
 	DefaultAntiAffinityTopologyKey     = "kubernetes.io/hostname"
 	MongoDbDefaultPort                 = 27017
 	OpsManagerDefaultPort              = 8080

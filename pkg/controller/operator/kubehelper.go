@@ -56,6 +56,7 @@ type StatefulSetHelperCommon struct {
 	Replicas      int
 	ServicePort   int32
 	Version       string
+	PodSpec       *mdbv1.PodSpecWrapper
 
 	// Not part of StatefulSet object
 	Helper *KubeHelper
@@ -68,10 +69,8 @@ type StatefulSetHelperCommon struct {
 type StatefulSetHelper struct {
 	StatefulSetHelperCommon
 
-	Persistent      *bool
-	PodSpec         *mdbv1.PodSpecWrapper
-	PodTemplateSpec *corev1.PodTemplateSpec
-	PodVars         *PodVars
+	Persistent *bool
+	PodVars    *PodVars
 
 	ResourceType mdbv1.ResourceType
 
@@ -169,15 +168,17 @@ func (k *KubeHelper) NewStatefulSetHelper(obj Updatable) *StatefulSetHelper {
 			ServicePort:   util.MongoDbDefaultPort,
 			Version:       mongodbSpec.GetVersion(),
 			ClusterDomain: mongodbSpec.GetClusterDomain(),
-			Logger:        zap.S(), // by default, must be overridden by clients
+			Logger:        zap.S(),                                        // by default, must be overridden by clients
+			PodSpec:       NewDefaultPodSpecWrapper(*mongodbSpec.PodSpec), // by default, may be overridden by clients
 		},
 		Persistent:        mongodbSpec.Persistent,
-		PodSpec:           NewDefaultPodSpecWrapper(*mongodbSpec.PodSpec),
 		ExposedExternally: mongodbSpec.ExposedExternally,
 	}
 }
 
 func (k *KubeHelper) NewOpsManagerStatefulSetHelper(opsManager *mdbv1.MongoDBOpsManager) *OpsManagerStatefulSetHelper {
+	spec := mdbv1.NewPodSpecWrapperBuilderFromSpec(opsManager.Spec.PodSpec).Build()
+	spec.Default = mdbv1.OpsManagerPodSpecDefaultValues()
 	return &OpsManagerStatefulSetHelper{
 		StatefulSetHelperCommon: StatefulSetHelperCommon{
 			Owner:       opsManager,
@@ -188,6 +189,7 @@ func (k *KubeHelper) NewOpsManagerStatefulSetHelper(opsManager *mdbv1.MongoDBOps
 			ServicePort: util.OpsManagerDefaultPort,
 			Version:     opsManager.Spec.Version,
 			Service:     opsManager.SvcName(),
+			PodSpec:     spec,
 		},
 		Spec:    opsManager.Spec,
 		EnvVars: opsManagerConfigurationToEnvVars(opsManager),
@@ -202,6 +204,9 @@ func (k *KubeHelper) NewBackupStatefulSetHelper(opsManager *mdbv1.MongoDBOpsMana
 	helper.Service = ""
 	helper.Replicas = 1
 	helper.HeadDbPersistenceConfig = opsManager.Spec.Backup.HeadDB
+	spec := mdbv1.NewPodSpecWrapperBuilderFromSpec(opsManager.Spec.Backup.PodSpec).Build()
+	spec.Default = mdbv1.OpsManagerPodSpecDefaultValues()
+	helper.PodSpec = spec
 	return &helper
 }
 
@@ -328,11 +333,11 @@ func (s *StatefulSetHelper) CreateOrUpdateInKubernetes() error {
 	return err
 }
 
-func (s *OpsManagerStatefulSetHelper) BuildStatefulSet() *appsv1.StatefulSet {
+func (s *OpsManagerStatefulSetHelper) BuildStatefulSet() (*appsv1.StatefulSet, error) {
 	return buildOpsManagerStatefulSet(*s)
 }
 
-func (s *BackupStatefulSetHelper) BuildStatefulSet() *appsv1.StatefulSet {
+func (s *BackupStatefulSetHelper) BuildStatefulSet() (*appsv1.StatefulSet, error) {
 	return buildBackupDaemonStatefulSet(*s)
 }
 
@@ -362,10 +367,14 @@ func (s *OpsManagerStatefulSetHelper) SetVersion(version string) *OpsManagerStat
 }
 
 func (s *OpsManagerStatefulSetHelper) CreateOrUpdateInKubernetes() error {
+	statefulSet, err := s.BuildStatefulSet()
+	if err != nil {
+		return err
+	}
 	set, err := s.Helper.createOrUpdateStatefulset(
 		s.Namespace,
 		s.Logger,
-		s.BuildStatefulSet(),
+		statefulSet,
 	)
 	if err != nil {
 		return err
@@ -388,10 +397,14 @@ func (s *OpsManagerStatefulSetHelper) CreateOrUpdateInKubernetes() error {
 }
 
 func (s *BackupStatefulSetHelper) CreateOrUpdateInKubernetes() error {
-	_, err := s.Helper.createOrUpdateStatefulset(
+	set, err := s.BuildStatefulSet()
+	if err != nil {
+		return err
+	}
+	_, err = s.Helper.createOrUpdateStatefulset(
 		s.Namespace,
 		s.Logger,
-		s.BuildStatefulSet(),
+		set,
 	)
 	if err != nil {
 		return err
@@ -444,11 +457,6 @@ func (s *StatefulSetHelper) SetCertificateHash(certHash string) *StatefulSetHelp
 
 func (s *StatefulSetHelper) SetReplicaSetHorizons(replicaSetHorizons []mdbv1.MongoDBHorizonConfig) *StatefulSetHelper {
 	s.ReplicaSetHorizons = replicaSetHorizons
-	return s
-}
-
-func (s *StatefulSetHelper) SetPodTemplateSpec(podTemplateSpec *corev1.PodTemplateSpec) *StatefulSetHelper {
-	s.PodTemplateSpec = podTemplateSpec
 	return s
 }
 

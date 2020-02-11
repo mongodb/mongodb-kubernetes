@@ -78,13 +78,6 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *mdbv1.MongoDBOpsManager
 		return r.updateStatusFailedAppDb(opsManager, err.Error(), log)
 	}
 
-	/* TODO CLOUDP-51015
-		if rs.Members < opsManager.Status.AppDbStatus.Members {
-		if err := prepareScaleDownReplicaSetAppDb(conn, statefulSetObject, opsManager.Status.AppDbStatus.Members, rs, log); err != nil {
-			return r.updateStatusFailedAppDb(opsManager, fmt.Sprintf("Failed to prepare Replica Set for scaling down: %s", err), log)
-		}
-	}*/
-
 	err = replicaBuilder.CreateOrUpdateAppDBInKubernetes()
 	if err != nil {
 		return r.updateStatusFailedAppDb(opsManager, fmt.Sprintf("Failed to create/update the StatefulSet: %s", err), log)

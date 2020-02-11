@@ -6,9 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/stretchr/testify/require"
-
 	appsv1 "k8s.io/api/apps/v1"
 
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -120,7 +118,7 @@ func TestReadPemHashFromSecret(t *testing.T) {
 }
 
 func TestBuildAppDbStatefulSetWithSideCar(t *testing.T) {
-	appDbSts, _ := defaultSetHelper().SetPodTemplateSpec(&corev1.PodTemplateSpec{
+	podSpecWrapper := mdbv1.NewEmptyPodSpecWrapperBuilder().SetPodTemplate(&corev1.PodTemplateSpec{
 		Spec: corev1.PodSpec{
 			NodeName: "some-node-name",
 			Hostname: "some-host-name",
@@ -133,7 +131,8 @@ func TestBuildAppDbStatefulSetWithSideCar(t *testing.T) {
 			}},
 			RestartPolicy: corev1.RestartPolicyAlways,
 		},
-	}).BuildAppDBStatefulSet()
+	}).Build()
+	appDbSts, _ := defaultSetHelper().SetPodSpec(podSpecWrapper).BuildAppDBStatefulSet()
 	podSpecTemplate := appDbSts.Spec.Template.Spec
 	assert.Len(t, podSpecTemplate.Containers, 2, "Should have 2 containers now")
 	assert.Equal(t, "mongodb-enterprise-appdb", podSpecTemplate.Containers[0].Name, "Database container should always be first")
@@ -163,8 +162,11 @@ func TestBasePodSpec_Affinity(t *testing.T) {
 		SetPodAffinity(&podAffinity).
 		SetPodAntiAffinityTopologyKey("nodeId").
 		Build()
+	setHelper := defaultSetHelper().SetName("s").SetPodSpec(podSpec)
 
-	spec := getDefaultPodSpecTemplate("s", podSpec, map[string]string{}, map[string]string{}, []corev1.Container{}).Spec
+	template, err := getDatabasePodTemplate(*setHelper, nil, "testAccount", corev1.Container{})
+	assert.NoError(t, err)
+	spec := template.Spec
 	assert.Equal(t, nodeAffinity, *spec.Affinity.NodeAffinity)
 	assert.Equal(t, podAffinity, *spec.Affinity.PodAffinity)
 	assert.Len(t, spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution, 1)
@@ -173,14 +175,16 @@ func TestBasePodSpec_Affinity(t *testing.T) {
 	assert.Equal(t, int32(100), term.Weight)
 	assert.Equal(t, map[string]string{PodAntiAffinityLabelKey: "s"}, term.PodAffinityTerm.LabelSelector.MatchLabels)
 	assert.Equal(t, "nodeId", term.PodAffinityTerm.TopologyKey)
+	//assert.Equal(t, "testAccount", spec.ServiceAccountName)
 }
 
 // TestBasePodSpec_AntiAffinityDefaultTopology checks that the default topology key is created if the topology key is
 // not specified
 func TestBasePodSpec_AntiAffinityDefaultTopology(t *testing.T) {
-	podSpec := mdbv1.NewPodSpecWrapperBuilder().Build()
-	spec := getDefaultPodSpecTemplate("s", podSpec, map[string]string{}, map[string]string{}, []corev1.Container{}).Spec
-
+	helper := defaultSetHelper().SetPodSpec(mdbv1.NewPodSpecWrapperBuilder().Build())
+	template, err := getDatabasePodTemplate(*helper, map[string]string{}, "", corev1.Container{})
+	assert.NoError(t, err)
+	spec := template.Spec
 	term := spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0]
 	assert.Equal(t, int32(100), term.Weight)
 	assert.Equal(t, map[string]string{PodAntiAffinityLabelKey: "s"}, term.PodAffinityTerm.LabelSelector.MatchLabels)
@@ -190,20 +194,15 @@ func TestBasePodSpec_AntiAffinityDefaultTopology(t *testing.T) {
 // TestBasePodSpec_ImagePullSecrets verifies that 'spec.ImagePullSecrets' is created only if env variable
 // IMAGE_PULL_SECRETS is initialized
 func TestBasePodSpec_ImagePullSecrets(t *testing.T) {
-	podSpec := mdbv1.NewPodSpecWrapperBuilder().Build()
-	spec := getDefaultPodSpecTemplate("s", podSpec, map[string]string{}, map[string]string{}, []corev1.Container{}).Spec
-	assert.Nil(t, spec.ImagePullSecrets)
+	template, err := getDatabasePodTemplate(*defaultSetHelper(), map[string]string{}, "", corev1.Container{})
+	assert.NoError(t, err)
+	assert.Nil(t, template.Spec.ImagePullSecrets)
 
 	_ = os.Setenv(util.AutomationAgentPullSecrets, "foo")
 
-	rs := DefaultReplicaSetBuilder().Build()
-	kubeManager := newMockedManager(rs)
-	addKubernetesTlsResources(kubeManager.client, rs)
-	reconciler := newReplicaSetReconciler(kubeManager, om.NewEmptyMockedOmConnection)
-	stsHelper := *reconciler.kubeHelper.NewStatefulSetHelper(rs).SetPodVars(defaultPodVars())
-
-	podSpecTemplate, _ := getMergedDefaultPodSpecTemplate(stsHelper, map[string]string{}, []corev1.Container{})
-	assert.Equal(t, []corev1.LocalObjectReference{{Name: "foo"}}, podSpecTemplate.Spec.ImagePullSecrets)
+	template, err = getDatabasePodTemplate(*defaultSetHelper(), map[string]string{}, "", corev1.Container{})
+	assert.NoError(t, err)
+	assert.Equal(t, []corev1.LocalObjectReference{{Name: "foo"}}, template.Spec.ImagePullSecrets)
 
 	// Cleaning the state (there is no tear down in go test :( )
 	InitDefaultEnvVariables()
@@ -211,9 +210,9 @@ func TestBasePodSpec_ImagePullSecrets(t *testing.T) {
 
 // TestBasePodSpec_TerminationGracePeriodSeconds verifies that the TerminationGracePeriodSeconds is set to 600 seconds
 func TestBasePodSpec_TerminationGracePeriodSeconds(t *testing.T) {
-	podSpec := mdbv1.NewPodSpecWrapperBuilder().Build()
-	spec := getDefaultPodSpecTemplate("s", podSpec, map[string]string{}, map[string]string{}, []corev1.Container{}).Spec
-	assert.Equal(t, util.Int64Ref(600), spec.TerminationGracePeriodSeconds)
+	template, err := getDatabasePodTemplate(*defaultSetHelper(), map[string]string{}, "", corev1.Container{})
+	assert.NoError(t, err)
+	assert.Equal(t, util.Int64Ref(600), template.Spec.TerminationGracePeriodSeconds)
 }
 
 func checkPvClaims(t *testing.T, set *appsv1.StatefulSet, expectedClaims []*corev1.PersistentVolumeClaim) {
@@ -255,13 +254,8 @@ func volMount(pvName, mountPath, subPath string) *corev1.VolumeMount {
 }
 
 func TestDefaultPodSpec_FsGroup(t *testing.T) {
-	rs := DefaultReplicaSetBuilder().Build()
-	kubeManager := newMockedManager(rs)
-	addKubernetesTlsResources(kubeManager.client, rs)
-	reconciler := newReplicaSetReconciler(kubeManager, om.NewEmptyMockedOmConnection)
-	stsHelper := *reconciler.kubeHelper.NewStatefulSetHelper(rs).SetPodVars(defaultPodVars())
-
-	podSpecTemplate, _ := getMergedDefaultPodSpecTemplate(stsHelper, map[string]string{}, []corev1.Container{})
+	podSpecTemplate, err := getDatabasePodTemplate(*defaultSetHelper(), map[string]string{}, "", corev1.Container{})
+	assert.NoError(t, err)
 
 	spec := podSpecTemplate.Spec
 	assert.Len(t, spec.InitContainers, 0)
@@ -269,10 +263,11 @@ func TestDefaultPodSpec_FsGroup(t *testing.T) {
 	assert.Equal(t, util.Int64Ref(util.FsGroup), spec.SecurityContext.FSGroup)
 	assert.Equal(t, util.Int64Ref(util.RunAsUser), spec.SecurityContext.RunAsUser)
 
-	os.Setenv(util.ManagedSecurityContextEnv, "true")
+	_ = os.Setenv(util.ManagedSecurityContextEnv, "true")
 
-	podSpecTemplate, _ = getMergedDefaultPodSpecTemplate(stsHelper, map[string]string{}, []corev1.Container{})
-	spec = podSpecTemplate.Spec
+	podSpecTemplate, err = getDatabasePodTemplate(*defaultSetHelper(), map[string]string{}, "", corev1.Container{})
+	assert.NoError(t, err)
+	assert.Nil(t, podSpecTemplate.Spec.SecurityContext)
 
 	InitDefaultEnvVariables()
 }
@@ -285,7 +280,12 @@ func TestPodSpec_Requirements(t *testing.T) {
 		SetMemory("1012M").
 		Build()
 
-	container := newDatabaseContainer(podSpec, defaultPodVars())
+	setHelper := defaultSetHelper().SetPodSpec(podSpec)
+
+	podSpecTemplate, err := getDatabasePodTemplate(*setHelper, map[string]string{}, "", newMongoDBContainer(defaultPodVars()))
+	assert.NoError(t, err)
+
+	container := podSpecTemplate.Spec.Containers[0]
 	expectedLimits := corev1.ResourceList{corev1.ResourceCPU: parseQuantityOrZero("0.3"), corev1.ResourceMemory: parseQuantityOrZero("1012M")}
 	expectedRequests := corev1.ResourceList{corev1.ResourceCPU: parseQuantityOrZero("0.1"), corev1.ResourceMemory: parseQuantityOrZero("512M")}
 	assert.Equal(t, expectedLimits, container.Resources.Limits)
@@ -406,6 +406,7 @@ func baseSetHelperDelayed(delay time.Duration) *StatefulSetHelper {
 
 func defaultSetHelper() *StatefulSetHelper {
 	return baseSetHelper().
+		SetName("s").
 		SetPodSpec(mdbv1.NewEmptyPodSpecWrapperBuilder().Build()).
 		SetPodVars(defaultPodVars()).
 		SetService("test-service").

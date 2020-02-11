@@ -111,7 +111,7 @@ type MongoDbStatus struct {
 }
 
 type MongoDbSpec struct {
-	Version                     string  `json:"version"`
+	Version                     string  `json:"version,omitempty"`
 	FeatureCompatibilityVersion *string `json:"featureCompatibilityVersion,omitempty"`
 
 	// this is an optional service, it will get the name "<rsName>-service" in case not provided
@@ -595,6 +595,7 @@ type MongoDbPodSpec struct {
 
 // This is a struct providing the opportunity to customize the pod created under the hood.
 // It naturally delegates to inner object and provides some defaults that can be overriden in each specific case
+// TODO remove in favor or 'StatefulSetHelper.setPodSpec(podSpec, defaultPodSpec)'
 type PodSpecWrapper struct {
 	MongoDbPodSpec
 	// These are the default values, unfortunately Golang doesn't provide the possibility to inline default values into

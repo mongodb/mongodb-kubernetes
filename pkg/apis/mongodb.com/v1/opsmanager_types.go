@@ -56,6 +56,8 @@ type MongoDBOpsManagerSpec struct {
 	// MongoDBOpsManagerExternalConnectivity if sets allows for the creation of a Service for
 	// accessing this Ops Manager resource from outside the Kubernetes cluster.
 	MongoDBOpsManagerExternalConnectivity *MongoDBOpsManagerServiceDefinition `json:"externalConnectivity,omitempty"`
+
+	PodSpec *MongoDbPodSpec `json:"podSpec,omitempty"`
 }
 
 func (ms MongoDBOpsManagerSpec) GetClusterDomain() string {
@@ -99,6 +101,8 @@ type MongoDBOpsManagerBackup struct {
 	// OplogStoreConfigs describes the list of oplog store configs used for backup
 	OplogStoreConfigs []*DataStoreConfig `json:"oplogStores,omitempty"`
 	S3Configs         []*S3Config        `json:"s3Stores,omitempty"`
+
+	PodSpec *MongoDbPodSpec `json:"podSpec,omitempty"`
 }
 
 type MongoDBOpsManagerStatus struct {
@@ -389,6 +393,16 @@ func newBackup() *MongoDBOpsManagerBackup {
 func ConvertNameToEnvVarFormat(propertyFormat string) string {
 	withPrefix := fmt.Sprintf("%s%s", util.OmPropertyPrefix, propertyFormat)
 	return strings.Replace(withPrefix, ".", "_", -1)
+}
+
+// OpsManagerPodSpecDefaultValues specifies default values for PodSpec for Ops Manager
+// 5G is the default pod memory size (OM binary requires by default Xmx = 4.2+ G)
+func OpsManagerPodSpecDefaultValues() MongoDbPodSpec {
+	return NewEmptyPodSpecWrapperBuilder().
+		SetMemory(util.DefaultMemoryOpsManager).
+		SetPodAntiAffinityTopologyKey(util.DefaultAntiAffinityTopologyKey).
+		Build().
+		MongoDbPodSpec
 }
 
 //=============== AppDB ===========================================

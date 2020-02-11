@@ -15,6 +15,7 @@ type PersistenceConfigBuilder struct {
 	config *PersistenceConfig
 }
 
+// NewPodSpecWrapperBuilder returns the builder with some default values, used in tests mostly
 func NewPodSpecWrapperBuilder() *PodSpecWrapperBuilder {
 	spec := MongoDbPodSpec{
 		Cpu:            "1.0",
@@ -26,6 +27,13 @@ func NewPodSpecWrapperBuilder() *PodSpecWrapperBuilder {
 		MongoDbPodSpec: spec,
 		Default:        NewPodSpecWithDefaultValues(),
 	}}
+}
+
+func NewPodSpecWrapperBuilderFromSpec(spec *MongoDbPodSpec) *PodSpecWrapperBuilder {
+	if spec == nil {
+		return &PodSpecWrapperBuilder{PodSpecWrapper{}}
+	}
+	return &PodSpecWrapperBuilder{PodSpecWrapper{MongoDbPodSpec: *spec}}
 }
 
 func NewEmptyPodSpecWrapperBuilder() *PodSpecWrapperBuilder {
@@ -68,6 +76,11 @@ func (p *PodSpecWrapperBuilder) SetNodeAffinity(affinity *corev1.NodeAffinity) *
 
 func (p *PodSpecWrapperBuilder) SetPodAntiAffinityTopologyKey(topologyKey string) *PodSpecWrapperBuilder {
 	p.spec.PodAntiAffinityTopologyKey = topologyKey
+	return p
+}
+
+func (p *PodSpecWrapperBuilder) SetPodTemplate(template *corev1.PodTemplateSpec) *PodSpecWrapperBuilder {
+	p.spec.PodTemplate = template
 	return p
 }
 
