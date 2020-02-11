@@ -29,15 +29,13 @@ func TestSettingUserStatus_ToPending_IsFilteredOut(t *testing.T) {
 
 func TestUserIsAdded_ToAutomationConfig_OnSuccessfulReconciliation(t *testing.T) {
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
-	manager := newMockedManager(user)
-	client := manager.client
+	reconciler, client := defaultUserReconciler(user)
 
 	// initialize resources required for the tests
 	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().SetName("my-rs").Build())
 	createUserControllerConfigMap(client)
 	createPasswordSecret(client, user.Spec.PasswordSecretKeyRef, "password")
 
-	reconciler := newMongoDBUserReconciler(manager, om.NewEmptyMockedOmConnection)
 	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
 
 	expected, _ := success()
@@ -59,15 +57,13 @@ func TestUserIsAdded_ToAutomationConfig_OnSuccessfulReconciliation(t *testing.T)
 
 func TestUserIsUpdated_IfNonIdentifierFieldIsUpdated_OnSuccessfulReconciliation(t *testing.T) {
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
-	manager := newMockedManager(user)
-	client := manager.client
+	reconciler, client := defaultUserReconciler(user)
 
 	// initialize resources required for the tests
 	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().SetName("my-rs").Build())
 	createUserControllerConfigMap(client)
 	createPasswordSecret(client, user.Spec.PasswordSecretKeyRef, "password")
 
-	reconciler := newMongoDBUserReconciler(manager, om.NewEmptyMockedOmConnection)
 	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
 
 	expected, _ := success()
@@ -94,15 +90,13 @@ func TestUserIsUpdated_IfNonIdentifierFieldIsUpdated_OnSuccessfulReconciliation(
 
 func TestUserIsReplaced_IfIdentifierFieldsAreChanged_OnSuccessfulReconciliation(t *testing.T) {
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
-	manager := newMockedManager(user)
-	client := manager.client
+	reconciler, client := defaultUserReconciler(user)
 
 	// initialize resources required for the tests
 	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().SetName("my-rs").Build())
 	createUserControllerConfigMap(client)
 	createPasswordSecret(client, user.Spec.PasswordSecretKeyRef, "password")
 
-	reconciler := newMongoDBUserReconciler(manager, om.NewEmptyMockedOmConnection)
 	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
 
 	expected, _ := success()
@@ -141,15 +135,13 @@ func updateUser(user *mdbv1.MongoDBUser, client *MockedClient, updateFunc func(*
 
 func TestRetriesReconciliation_IfNoPasswordSecretExists(t *testing.T) {
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
-	manager := newMockedManager(user)
-	client := manager.client
+	reconciler, client := defaultUserReconciler(user)
 
 	// initialize resources required for the tests
 	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().SetName("my-rs").Build())
 	createUserControllerConfigMap(client)
 
 	// No password has been created
-	reconciler := newMongoDBUserReconciler(manager, om.NewEmptyMockedOmConnection)
 	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
 
 	expected, _ := retry()
@@ -164,8 +156,7 @@ func TestRetriesReconciliation_IfNoPasswordSecretExists(t *testing.T) {
 
 func TestRetriesReconciliation_IfPasswordSecretExists_ButHasNoPassword(t *testing.T) {
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
-	manager := newMockedManager(user)
-	client := manager.client
+	reconciler, client := defaultUserReconciler(user)
 
 	// initialize resources required for the tests
 	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().SetName("my-rs").Build())
@@ -174,7 +165,6 @@ func TestRetriesReconciliation_IfPasswordSecretExists_ButHasNoPassword(t *testin
 	// use the wrong key to store the password
 	createPasswordSecret(client, mdbv1.SecretKeyRef{Name: user.Spec.PasswordSecretKeyRef.Name, Key: "non-existent-key"}, "password")
 
-	reconciler := newMongoDBUserReconciler(manager, om.NewEmptyMockedOmConnection)
 	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
 
 	expected, _ := retry()
@@ -189,8 +179,13 @@ func TestRetriesReconciliation_IfPasswordSecretExists_ButHasNoPassword(t *testin
 
 func TestX509User_DoesntRequirePassword(t *testing.T) {
 	user := DefaultMongoDBUserBuilder().SetDatabase(util.X509Db).Build()
-	manager := newMockedManager(user)
-	client := manager.client
+	reconciler, client := defaultUserReconciler(user)
+	reconciler.omConnectionFactory = func(ctx *om.OMContext) om.Connection {
+		connection := om.NewEmptyMockedOmConnectionWithAutomationConfigChanges(ctx, func(ac *om.AutomationConfig) {
+			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option)
+		})
+		return connection
+	}
 
 	// initialize resources required for x590 tests
 	createMongoDBForUser(client, *user)
@@ -202,13 +197,6 @@ func TestX509User_DoesntRequirePassword(t *testing.T) {
 
 	// in order for x509 to be configurable, "util.AutomationConfigX509Option" needs to be enabled on the automation config
 	// pre-configure the connection
-	reconciler := newMongoDBUserReconciler(manager, func(ctx *om.OMContext) om.Connection {
-		connection := om.NewEmptyMockedOmConnectionWithAutomationConfigChanges(ctx, func(ac *om.AutomationConfig) {
-			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option)
-		})
-		return connection
-	})
-
 	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
 
 	expected, _ := success()
@@ -219,15 +207,13 @@ func TestX509User_DoesntRequirePassword(t *testing.T) {
 
 func TestScramShaUserReconciliation_CreatesAgentUsers(t *testing.T) {
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
-	manager := newMockedManager(user)
-	client := manager.client
+	reconciler, client := defaultUserReconciler(user)
 
 	// initialize resources required for the tests
 	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().SetName("my-rs").Build())
 	createUserControllerConfigMap(client)
 	createPasswordSecret(client, user.Spec.PasswordSecretKeyRef, "password")
 
-	reconciler := newMongoDBUserReconciler(manager, om.NewEmptyMockedOmConnection)
 	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
 	expected, _ := success()
 
@@ -242,20 +228,18 @@ func TestScramShaUserReconciliation_CreatesAgentUsers(t *testing.T) {
 func TestX509UserReconciliation_CreatesAgentUsers(t *testing.T) {
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(util.X509Db).Build()
 
-	manager := newMockedManager(user)
-	client := manager.client
+	reconciler, client := defaultUserReconciler(user)
+	reconciler.omConnectionFactory = func(ctx *om.OMContext) om.Connection {
+		connection := om.NewEmptyMockedOmConnectionWithAutomationConfigChanges(ctx, func(ac *om.AutomationConfig) {
+			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option)
+		})
+		return connection
+	}
 
 	// initialize resources required for x590 tests
 	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().EnableAuth().SetAuthModes([]string{"X509"}).SetName("my-rs").Build())
 	createX509UserControllerConfigMap(client)
 	approveAgentCSRs(client) // pre-approved agent CSRs for x509 authentication
-
-	reconciler := newMongoDBUserReconciler(manager, func(ctx *om.OMContext) om.Connection {
-		connection := om.NewEmptyMockedOmConnectionWithAutomationConfigChanges(ctx, func(ac *om.AutomationConfig) {
-			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option)
-		})
-		return connection
-	})
 
 	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
 
@@ -313,6 +297,15 @@ func createPasswordSecret(client *MockedClient, secretRef mdbv1.SecretKeyRef, pa
 func createMongoDBForUser(client *MockedClient, user mdbv1.MongoDBUser) {
 	mdb := DefaultReplicaSetBuilder().SetName(user.Spec.MongoDBResourceRef.Name).Build()
 	_ = client.Update(context.TODO(), mdb)
+}
+
+// defaultUserReconciler is the user reconciler used in unit test. It "adds" necessary
+// additional K8s objects (st, connection config map and secrets) necessary for reconciliation
+func defaultUserReconciler(user *mdbv1.MongoDBUser) (*MongoDBUserReconciler, *MockedClient) {
+	manager := newMockedManager(user)
+	manager.client.AddDefaultMdbConfigResources()
+
+	return newMongoDBUserReconciler(manager, om.NewEmptyMockedOmConnection), manager.client
 }
 
 type MongoDBUserBuilder struct {

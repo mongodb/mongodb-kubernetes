@@ -48,6 +48,8 @@ const (
 	TestOrgID     = "xyz9876"
 	TestAgentKey  = "qwerty9876"
 	TestURL       = "http://mycompany.com:8080"
+	TestUser      = "test@mycompany.com"
+	TestApiKey    = "36lj245asg06s0h70245dstgft"
 )
 
 type MockedOmConnection struct {

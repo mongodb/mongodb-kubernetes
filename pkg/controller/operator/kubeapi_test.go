@@ -65,22 +65,7 @@ type MockedClient struct {
 	UpdateFunc             func(ctx context.Context, obj apiruntime.Object) error
 }
 
-func newMockedClient(object apiruntime.Object) *MockedClient {
-	return newMockedClientDetailed(object, om.TestGroupName, "")
-}
-
-// newMockedClientDelayed creates the kube client that emulates delay in statefulset creation
-func newMockedClientDelayed(object apiruntime.Object, delayMillis time.Duration) *MockedClient {
-	mockedClient := newMockedClient(object)
-	mockedClient.StsCreationDelayMillis = delayMillis
-	return mockedClient
-}
-
-// newMockedClientDetailed creates mocked Kubernetes client adding the kubernetes 'object' in parallel. This is necessary
-// as in new controller-runtime library reconciliation code fetches the existing object so it should be added beforehand
-// TODO this is a pure design as we ALWAYS create the configmap and secret (though ops manager for example doesn't need it
-// - this needs to be refactored)
-func newMockedClientDetailed(object apiruntime.Object, projectName, organizationId string) *MockedClient {
+func newMockedClient() *MockedClient {
 	api := MockedClient{}
 	api.sets = make(map[client.ObjectKey]apiruntime.Object)
 	api.services = make(map[client.ObjectKey]apiruntime.Object)
@@ -90,19 +75,6 @@ func newMockedClientDetailed(object apiruntime.Object, projectName, organization
 	api.opsManagers = make(map[client.ObjectKey]apiruntime.Object)
 	api.csrs = make(map[client.ObjectKey]apiruntime.Object)
 	api.users = make(map[client.ObjectKey]apiruntime.Object)
-
-	// initialize a either a default ConfigMap, or use the one passed directly to the mocked client
-	api.Create(context.TODO(), getProjectConfigMap(object, projectName, organizationId))
-
-	// initialize secret to emulate user preparing environment
-	credentials := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: TestCredentialsSecretName, Namespace: TestNamespace},
-		StringData: map[string]string{util.OmUser: "test@mycompany.com", util.OmPublicApiKey: "36lj245asg06s0h70245dstgft"}}
-	api.Create(context.TODO(), credentials)
-
-	if object != nil && !isConfigMap(object) {
-		api.Create(context.TODO(), object.DeepCopyObject())
-	}
 
 	// no delay in creation by default
 	api.StsCreationDelayMillis = 0
@@ -114,22 +86,35 @@ func newMockedClientDetailed(object apiruntime.Object, projectName, organization
 	return &api
 }
 
-// isConfigMap determines if the given apiruntime.Object is an instance of corev1.ConfigMap
-func isConfigMap(object apiruntime.Object) bool {
-	return reflect.TypeOf(object) == reflect.TypeOf(&corev1.ConfigMap{})
+func (m *MockedClient) WithResource(object apiruntime.Object) *MockedClient {
+	m.Create(context.TODO(), object.DeepCopyObject())
+	return m
 }
 
-// getProjectConfigMap creates the project's config map, if passed a config map, it will use that, otherwise a default
-func getProjectConfigMap(object apiruntime.Object, projectName, organizationId string) *corev1.ConfigMap {
-	// if we pass in a config map, this is the config map we want to use for our project
-	switch obj := object.(type) {
-	case *corev1.ConfigMap:
-		return obj
-	default:
-		return &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{Name: TestProjectConfigMapName, Namespace: TestNamespace},
-			Data:       map[string]string{util.OmBaseUrl: "http://mycompany.com:8080", util.OmProjectName: projectName, util.OmOrgId: organizationId}}
-	}
+func (m *MockedClient) AddProjectConfigMap(projectName, organizationId string) *MockedClient {
+	configMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: TestProjectConfigMapName, Namespace: TestNamespace},
+		Data:       map[string]string{util.OmBaseUrl: "http://mycompany.com:8080", util.OmProjectName: projectName, util.OmOrgId: organizationId}}
+	m.Create(context.TODO(), configMap)
+	return m
+}
+
+func (m *MockedClient) AddCredentialsSecret(omUser, omPublicKey string) *MockedClient {
+	credentials := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: TestCredentialsSecretName, Namespace: TestNamespace},
+		StringData: map[string]string{util.OmUser: omUser, util.OmPublicApiKey: omPublicKey}}
+	m.Create(context.TODO(), credentials)
+	return m
+}
+
+func (m *MockedClient) WithStsCreationDelay(delayMillis time.Duration) *MockedClient {
+	m.StsCreationDelayMillis = delayMillis
+	return m
+}
+
+func (m *MockedClient) AddDefaultMdbConfigResources() *MockedClient {
+	m = m.AddProjectConfigMap(om.TestGroupName, "")
+	return m.AddCredentialsSecret(om.TestUser, om.TestApiKey)
 }
 
 // Get retrieves an obj for the given object key from the Kubernetes Cluster.
@@ -384,11 +369,12 @@ type MockedManager struct {
 	client *MockedClient
 }
 
-func newMockedManager(object apiruntime.Object) *MockedManager {
-	return &MockedManager{client: newMockedClient(object)}
+func newEmptyMockedManager() *MockedManager {
+	return &MockedManager{client: newMockedClient()}
 }
-func newMockedManagerDetailed(object apiruntime.Object, projectName, organizationId string) *MockedManager {
-	return &MockedManager{client: newMockedClientDetailed(object, projectName, organizationId)}
+
+func newMockedManager(object apiruntime.Object) *MockedManager {
+	return &MockedManager{client: newMockedClient().WithResource(object)}
 }
 
 func newMockedManagerSpecificClient(c *MockedClient) *MockedManager {

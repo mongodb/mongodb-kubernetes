@@ -8,6 +8,7 @@ import (
 	"time"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
@@ -60,7 +61,7 @@ func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
 // TestComputeConfigMap_CreateNew checks the "create" features of 'computeConfigMap' function when the configmap is created
 // if it doesn't exist (or the creation is skipped totally)
 func TestComputeConfigMap_CreateNew(t *testing.T) {
-	client := newMockedClient(nil)
+	client := newMockedClient()
 	helper := KubeHelper{client: client}
 	owner := mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "test"}}
 	key := objectKey("ns", "cfm")
@@ -93,11 +94,11 @@ func TestComputeConfigMap_CreateNew(t *testing.T) {
 }
 
 func TestComputeConfigMap_UpdateExisting(t *testing.T) {
-	client := newMockedClient(nil)
+	client := newMockedClient()
+	client.AddProjectConfigMap(om.TestGroupName, "")
 	helper := KubeHelper{client: client}
 	owner := mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "test"}}
 
-	// this is an existing configmap (created inside 'newMockedClient')
 	key := objectKey(TestNamespace, TestProjectConfigMapName)
 
 	// Successful update (data is appended)

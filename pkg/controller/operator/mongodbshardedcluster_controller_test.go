@@ -31,15 +31,15 @@ func init() {
 func TestShardedClusterEventMethodsHandlePanic(t *testing.T) {
 	// nullifying env variable will result in panic exception raised
 	os.Setenv(util.AutomationAgentImageUrl, "")
-	st := DefaultClusterBuilder().Build()
+	sc := DefaultClusterBuilder().Build()
 
-	manager := newMockedManager(st)
+	reconciler, client := defaultClusterReconciler(sc)
 	checkReconcileFailed(t,
-		newShardedClusterReconciler(manager, om.NewEmptyMockedOmConnection),
-		st,
+		reconciler,
+		sc,
 		true,
 		"Failed to reconcile Sharded Cluster: MONGODB_ENTERPRISE_DATABASE_IMAGE environment variable is not set!",
-		manager.client,
+		client,
 	)
 
 	// restoring
@@ -49,10 +49,7 @@ func TestShardedClusterEventMethodsHandlePanic(t *testing.T) {
 func TestReconcileCreateShardedCluster(t *testing.T) {
 	sc := DefaultClusterBuilder().Build()
 
-	manager := newMockedManager(sc)
-	client := manager.client
-
-	reconciler := newShardedClusterReconciler(manager, om.NewEmptyMockedOmConnection)
+	reconciler, client := defaultClusterReconciler(sc)
 
 	checkReconcileSuccessful(t, reconciler, sc, client)
 
@@ -75,10 +72,7 @@ func TestReconcileCreateShardedCluster_ScaleDown(t *testing.T) {
 	// First creation
 	sc := DefaultClusterBuilder().SetShardCountSpec(4).Build()
 
-	manager := newMockedManager(sc)
-	client := manager.client
-
-	reconciler := newShardedClusterReconciler(manager, om.NewEmptyMockedOmConnection)
+	reconciler, client := defaultClusterReconciler(sc)
 
 	checkReconcileSuccessful(t, reconciler, sc, client)
 
@@ -107,10 +101,10 @@ func TestAddDeleteShardedCluster(t *testing.T) {
 	// First we need to create a sharded cluster
 	sc := DefaultClusterBuilder().Build()
 
-	kubeManager := newMockedManager(sc)
-	reconciler := newShardedClusterReconciler(kubeManager, om.NewEmptyMockedOmConnectionWithDelay)
+	reconciler, client := defaultClusterReconciler(sc)
+	reconciler.omConnectionFactory = om.NewEmptyMockedOmConnectionWithDelay
 
-	checkReconcileSuccessful(t, reconciler, sc, kubeManager.client)
+	checkReconcileSuccessful(t, reconciler, sc, client)
 	omConn := om.CurrMockedConnection
 	omConn.CleanHistory()
 
@@ -268,8 +262,7 @@ func TestShardedCluster_WithTLSEnabled_AndX509Enabled_Succeeds(t *testing.T) {
 		EnableTLS().
 		Build()
 
-	manager := newMockedManager(sc)
-	client := manager.client
+	reconciler, client := defaultClusterReconciler(sc)
 
 	client.configMaps[objectKey("", om.TestGroupName)] = x509ConfigMap()
 
@@ -295,7 +288,6 @@ func TestShardedCluster_WithTLSEnabled_AndX509Enabled_Succeeds(t *testing.T) {
 	client.csrs[objectKey("", fmt.Sprintf("%s-1-1.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
 	client.csrs[objectKey("", fmt.Sprintf("%s-1-2.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
 
-	reconciler := newShardedClusterReconciler(manager, om.NewEmptyMockedOmConnection)
 	actualResult, err := reconciler.Reconcile(requestFromObject(sc))
 	expectedResult, _ := success()
 
@@ -308,13 +300,9 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 		EnableTLS().
 		Build()
 
-	manager := newMockedManager(sc)
-
-	client := manager.client
-	addKubernetesTlsResources(client, sc)
-
 	// perform successful reconciliation to populate all the stateful sets in the mocked client
-	reconciler := newShardedClusterReconciler(manager, om.NewEmptyMockedOmConnection)
+	reconciler, client := defaultClusterReconciler(sc)
+	addKubernetesTlsResources(client, sc)
 	actualResult, err := reconciler.Reconcile(requestFromObject(sc))
 	expectedResult, _ := success()
 
@@ -333,20 +321,21 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 }
 
 func TestShardedCustomPodSpecTemplate(t *testing.T) {
-	sc := DefaultClusterBuilder().SetName("pod-spec-sc").EnableTLS().SetShardPodSpec(corev1.PodTemplateSpec{
-		Spec: corev1.PodSpec{
-			NodeName: "some-node-name",
-			Hostname: "some-host-name",
-			Containers: []corev1.Container{{
-				Name:  "my-custom-container-sc",
-				Image: "my-custom-image",
-				VolumeMounts: []corev1.VolumeMount{{
-					Name: "my-volume-mount",
+	sc := DefaultClusterBuilder().SetName("pod-spec-sc").EnableTLS().
+		SetShardPodSpec(corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				NodeName: "some-node-name",
+				Hostname: "some-host-name",
+				Containers: []corev1.Container{{
+					Name:  "my-custom-container-sc",
+					Image: "my-custom-image",
+					VolumeMounts: []corev1.VolumeMount{{
+						Name: "my-volume-mount",
+					}},
 				}},
-			}},
-			RestartPolicy: corev1.RestartPolicyAlways,
-		},
-	}).SetMongosPodSpecTemplate(corev1.PodTemplateSpec{
+				RestartPolicy: corev1.RestartPolicyAlways,
+			},
+		}).SetMongosPodSpecTemplate(corev1.PodTemplateSpec{
 		Spec: corev1.PodSpec{
 			NodeName: "some-node-name-mongos",
 			Hostname: "some-host-name-mongos",
@@ -374,19 +363,17 @@ func TestShardedCustomPodSpecTemplate(t *testing.T) {
 		},
 	}).Build()
 
-	kubeManager := newMockedManager(sc)
+	reconciler, client := defaultClusterReconciler(sc)
 
-	addKubernetesTlsResources(kubeManager.client, sc)
+	addKubernetesTlsResources(client, sc)
 
-	reconciler := newShardedClusterReconciler(kubeManager, om.NewEmptyMockedOmConnection)
-
-	checkReconcileSuccessful(t, reconciler, sc, kubeManager.client)
+	checkReconcileSuccessful(t, reconciler, sc, client)
 
 	// read the stateful sets that were created by the operator
-	statefulSetSc0 := getStatefulSet(kubeManager.client, objectKey(TestNamespace, "pod-spec-sc-0"))
-	statefulSetSc1 := getStatefulSet(kubeManager.client, objectKey(TestNamespace, "pod-spec-sc-1"))
-	statefulSetScConfig := getStatefulSet(kubeManager.client, objectKey(TestNamespace, "pod-spec-sc-config"))
-	statefulSetMongoS := getStatefulSet(kubeManager.client, objectKey(TestNamespace, "pod-spec-sc-mongos"))
+	statefulSetSc0 := getStatefulSet(client, objectKey(TestNamespace, "pod-spec-sc-0"))
+	statefulSetSc1 := getStatefulSet(client, objectKey(TestNamespace, "pod-spec-sc-1"))
+	statefulSetScConfig := getStatefulSet(client, objectKey(TestNamespace, "pod-spec-sc-config"))
+	statefulSetMongoS := getStatefulSet(client, objectKey(TestNamespace, "pod-spec-sc-mongos"))
 	assertPodSpecSts(t, statefulSetSc0)
 	assertPodSpecSts(t, statefulSetSc1)
 	assertMongosSts(t, statefulSetMongoS)
@@ -472,6 +459,15 @@ func createStateFromResource(updatable Updatable) ShardedClusterKubeState {
 		mongosSetHelper:    defaultSetHelper().SetName(sh.MongosRsName()).SetService(sh.ServiceName()).SetReplicas(sh.Status.MongosCount),
 		configSrvSetHelper: defaultSetHelper().SetName(sh.ConfigRsName()).SetService(sh.ConfigSrvServiceName()).SetReplicas(sh.Status.ConfigServerCount),
 		shardsSetsHelpers:  shardHelpers}
+}
+
+// defaultClusterReconciler is the sharded cluster reconciler used in unit test. It "adds" necessary
+// additional K8s objects (connection config map and secrets) necessary for reconciliation
+func defaultClusterReconciler(sc *mdbv1.MongoDB) (*ReconcileMongoDbShardedCluster, *MockedClient) {
+	manager := newMockedManager(sc)
+	manager.client.AddDefaultMdbConfigResources()
+
+	return newShardedClusterReconciler(manager, om.NewEmptyMockedOmConnection), manager.client
 }
 
 type ClusterBuilder struct {

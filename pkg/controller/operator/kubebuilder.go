@@ -75,7 +75,7 @@ type PodVars struct {
 
 // createBaseDatabaseStatefulSet is a general function for building the database StatefulSet.
 // Reused for building an appdb StatefulSet and a normal mongodb StatefulSet
-func createBaseDatabaseStatefulSet(p StatefulSetHelper, podSpec *corev1.PodTemplateSpec) *appsv1.StatefulSet {
+func createBaseDatabaseStatefulSet(p StatefulSetHelper, podSpec corev1.PodTemplateSpec) *appsv1.StatefulSet {
 	// ssLabels are labels we set to the StatefulSet
 	ssLabels := map[string]string{
 		AppLabelKey: p.Service,
@@ -93,7 +93,7 @@ func createBaseDatabaseStatefulSet(p StatefulSetHelper, podSpec *corev1.PodTempl
 			Selector: &metav1.LabelSelector{
 				MatchLabels: podSpec.Labels,
 			},
-			Template: *podSpec,
+			Template: podSpec,
 		},
 	}
 	// If 'persistent' flag is not set - we consider it to be true
@@ -102,6 +102,8 @@ func createBaseDatabaseStatefulSet(p StatefulSetHelper, podSpec *corev1.PodTempl
 	}
 
 	mountVolumes(set, p)
+
+	sortEnvVars(set)
 
 	return set
 }
@@ -116,15 +118,15 @@ func defaultPodLabels(stsHelper StatefulSetHelperCommon) map[string]string {
 
 // getMergedDefaultPodSpecTemplate merges the user-defined podTemplate into default pod template built by
 // the Operator if provided
-func getMergedDefaultPodSpecTemplate(defaultPodSpecTemplate *corev1.PodTemplateSpec, podTemplateOverride *corev1.PodTemplateSpec) (*corev1.PodTemplateSpec, error) {
+func getMergedDefaultPodSpecTemplate(defaultPodSpecTemplate corev1.PodTemplateSpec, podTemplateOverride *corev1.PodTemplateSpec) (corev1.PodTemplateSpec, error) {
 	newPodTemplateSpec := defaultPodSpecTemplate
 	if podTemplateOverride != nil {
 		// there is a user defined pod spec template, we need to merge in all of the default values
-		mergedPodTemplateSpec, err := util.MergePodSpecs(*podTemplateOverride, *defaultPodSpecTemplate)
+		mergedPodTemplateSpec, err := util.MergePodSpecs(*podTemplateOverride, defaultPodSpecTemplate)
 		if err != nil {
-			return nil, fmt.Errorf("error merging podSpecTemplate: %s", err)
+			return corev1.PodTemplateSpec{}, fmt.Errorf("error merging podSpecTemplate: %s", err)
 		}
-		newPodTemplateSpec = &mergedPodTemplateSpec
+		newPodTemplateSpec = mergedPodTemplateSpec
 	}
 
 	return newPodTemplateSpec, nil
@@ -132,7 +134,7 @@ func getMergedDefaultPodSpecTemplate(defaultPodSpecTemplate *corev1.PodTemplateS
 
 // getDatabasePodTemplate returns the pod template for mongodb pod (MongoDB or AppDB)
 func getDatabasePodTemplate(stsHelper StatefulSetHelper,
-	annotations map[string]string, serviceAccountName string, container corev1.Container) (*corev1.PodTemplateSpec, error) {
+	annotations map[string]string, serviceAccountName string, container corev1.Container) (corev1.PodTemplateSpec, error) {
 	podLabels := defaultPodLabels(stsHelper.StatefulSetHelperCommon)
 	if annotations == nil {
 		annotations = make(map[string]string)
@@ -158,7 +160,7 @@ func getDatabasePodTemplate(stsHelper StatefulSetHelper,
 
 // applyPodSpec updates the pod template created by the Operator based on spec.podSpec specified for the CR
 // note, that it doesn't deal with podspec persistence (it's actually for statefulset level, not podtemplate)
-func applyPodSpec(podTemplate *corev1.PodTemplateSpec, podSpec *mdbv1.PodSpecWrapper, stsName string) (*corev1.PodTemplateSpec, error) {
+func applyPodSpec(podTemplate *corev1.PodTemplateSpec, podSpec *mdbv1.PodSpecWrapper, stsName string) (corev1.PodTemplateSpec, error) {
 	podTemplate.Spec.Affinity =
 		&corev1.Affinity{
 			NodeAffinity: podSpec.NodeAffinity,
@@ -183,9 +185,9 @@ func applyPodSpec(podTemplate *corev1.PodTemplateSpec, podSpec *mdbv1.PodSpecWra
 	}
 
 	// merge user-defined podTemplate into the default template spec if necessary
-	templateSpec, err := getMergedDefaultPodSpecTemplate(podTemplate, podSpec.PodTemplate)
+	templateSpec, err := getMergedDefaultPodSpecTemplate(*podTemplate, podSpec.PodTemplate)
 	if err != nil {
-		return nil, err
+		return corev1.PodTemplateSpec{}, err
 	}
 	return templateSpec, nil
 }
@@ -278,7 +280,7 @@ func createBaseOpsManagerStatefulSet(p OpsManagerStatefulSetHelper) (*appsv1.Sta
 			Selector: &metav1.LabelSelector{
 				MatchLabels: labels,
 			},
-			Template: *template,
+			Template: template,
 		},
 	}
 
@@ -290,7 +292,16 @@ func createBaseOpsManagerStatefulSet(p OpsManagerStatefulSetHelper) (*appsv1.Sta
 		volumeSourceName: p.Owner.GetName() + "-gen-key",
 	}, set)
 
+	sortEnvVars(set)
+
 	return set, nil
+}
+
+// sortEnvVars sorts environment variables in the first container in StatefulSet (managed by the Operator)
+// ideally must be called for any StatefulSet built by the Operator - otherwise the same environment variables
+// but in different order may result in extra sporadic reconciliations
+func sortEnvVars(sts *appsv1.StatefulSet) {
+	sort.Sort(&envVarSorter{envVars: sts.Spec.Template.Spec.Containers[0].Env})
 }
 
 // buildOpsManagerStatefulSet builds the StatefulSet for Ops Manager
@@ -603,8 +614,7 @@ func appdbContainerEnv(statefulSetName string) []corev1.EnvVar {
 
 // opsManagerPodTemplate builds the pod template spec used by both Backup and OM statefulsets
 // In the end it applies the podSpec (and probably podSpec.podTemplate) as the MongoDB and AppDB do.
-func opsManagerPodTemplate(labels map[string]string, stsHelper OpsManagerStatefulSetHelper) (*corev1.PodTemplateSpec, error) {
-	sort.Sort(&envVarSorter{envVars: stsHelper.EnvVars})
+func opsManagerPodTemplate(labels map[string]string, stsHelper OpsManagerStatefulSetHelper) (corev1.PodTemplateSpec, error) {
 	omImageUrl := prepareOmAppdbImageUrl(util.ReadEnvVarOrPanic(util.OpsManagerImageUrl), stsHelper.Version)
 	templateSpec := &corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{

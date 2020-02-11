@@ -44,8 +44,7 @@ func TestOpsManagerReconciler_prepareOpsManager(t *testing.T) {
 	assert.Equal(t, "jane.doe@g.com", initializer.currentUsers[0].Username)
 
 	// One secret was created by the user, another one - by the Operator for the user public key
-	// todo the third one is created in `newMockedManager` by default which must be changed
-	assert.Len(t, client.secrets, 3)
+	assert.Len(t, client.secrets, 2)
 	expectedSecretData := map[string]string{"user": "jane.doe@g.com", "publicApiKey": "jane.doe@g.com-key"}
 	existingSecretData, _ := client.helper().readSecret(objectKey(OperatorNamespace, testOm.APIKeySecretName()))
 	assert.Equal(t, expectedSecretData, existingSecretData)
@@ -72,7 +71,7 @@ func TestOpsManagerReconciler_prepareOpsManagerTwoCalls(t *testing.T) {
 	assert.Len(t, initializer.currentUsers, 1)
 	assert.Equal(t, "jane.doe@g.com", initializer.currentUsers[0].Username)
 
-	assert.Len(t, client.secrets, 3)
+	assert.Len(t, client.secrets, 2)
 	data, _ := client.helper().readSecret(objectKey(OperatorNamespace, testOm.APIKeySecretName()))
 	assert.Equal(t, "jane.doe@g.com", data["user"])
 }
@@ -100,7 +99,7 @@ func TestOpsManagerReconciler_prepareOpsManagerDuplicatedUser(t *testing.T) {
 	assert.Equal(t, "jane.doe@g.com", initializer.currentUsers[0].Username)
 
 	// api secret wasn't created
-	assert.Len(t, client.secrets, 2)
+	assert.Len(t, client.secrets, 1)
 	assert.NotContains(t, client.secrets, objectKey(OperatorNamespace, testOm.APIKeySecretName()))
 }
 

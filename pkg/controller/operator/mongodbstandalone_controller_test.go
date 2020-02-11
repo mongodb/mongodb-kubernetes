@@ -28,10 +28,7 @@ func TestCreateOmProcess(t *testing.T) {
 func TestOnAddStandalone(t *testing.T) {
 	st := DefaultStandaloneBuilder().SetVersion("4.1.0").SetService("mysvc").Build()
 
-	client := newMockedClient(st)
-	manager := newMockedManagerSpecificClient(client)
-
-	reconciler := newStandaloneReconciler(manager, om.NewEmptyMockedOmConnection)
+	reconciler, client := defaultStandaloneReconciler(st)
 
 	checkReconcileSuccessful(t, reconciler, st, client)
 
@@ -53,8 +50,7 @@ func TestOnAddStandalone(t *testing.T) {
 func TestOnAddStandaloneWithDelay(t *testing.T) {
 	st := DefaultStandaloneBuilder().SetVersion("4.1.0").SetService("mysvc").Build()
 
-	client := newMockedClient(st)
-	client.StsCreationDelayMillis = 200
+	client := newMockedClient().WithResource(st).WithStsCreationDelay(200).AddDefaultMdbConfigResources()
 	manager := newMockedManagerSpecificClient(client)
 
 	reconciler := newStandaloneReconciler(manager, om.NewEmptyMockedOmConnection)
@@ -70,8 +66,7 @@ func TestOnAddStandaloneWithDelayPending(t *testing.T) {
 	_ = os.Setenv(util.PodWaitRetriesEnv, "0")
 	st := DefaultStandaloneBuilder().SetVersion("4.1.0").SetService("mysvc").Build()
 
-	client := newMockedClient(st)
-	client.StsCreationDelayMillis = 200
+	client := newMockedClient().WithResource(st).WithStsCreationDelay(200).AddDefaultMdbConfigResources()
 	manager := newMockedManagerSpecificClient(client)
 
 	reconciler := newStandaloneReconciler(manager, om.NewEmptyMockedOmConnection)
@@ -86,10 +81,9 @@ func TestAddDeleteStandalone(t *testing.T) {
 	// First we need to create a standalone
 	st := DefaultStandaloneBuilder().SetVersion("4.0.0").Build()
 
-	kubeManager := newMockedManager(st)
-	reconciler := newStandaloneReconciler(kubeManager, om.NewEmptyMockedOmConnectionWithDelay)
+	reconciler, client := defaultStandaloneReconciler(st)
 
-	checkReconcileSuccessful(t, reconciler, st, kubeManager.client)
+	checkReconcileSuccessful(t, reconciler, st, client)
 
 	// Now delete it
 	assert.NoError(t, reconciler.delete(st, zap.S()))
@@ -110,13 +104,13 @@ func TestStandaloneEventMethodsHandlePanic(t *testing.T) {
 	os.Setenv(util.AutomationAgentImageUrl, "")
 	st := DefaultStandaloneBuilder().Build()
 
-	manager := newMockedManager(st)
+	reconciler, client := defaultStandaloneReconciler(st)
 	checkReconcileFailed(t,
-		newStandaloneReconciler(manager, om.NewEmptyMockedOmConnection),
+		reconciler,
 		st,
 		true,
 		"Failed to reconcile Mongodb Standalone: MONGODB_ENTERPRISE_DATABASE_IMAGE environment variable is not set!",
-		manager.client,
+		client,
 	)
 
 	// restoring
@@ -124,40 +118,32 @@ func TestStandaloneEventMethodsHandlePanic(t *testing.T) {
 }
 
 func TestStandaloneCustomPodSpecTemplate(t *testing.T) {
-	s := DefaultReplicaSetBuilder().EnableTLS().SetPodSpecTemplate(corev1.PodTemplateSpec{
-		Spec: corev1.PodSpec{
-			NodeName: "some-node-name",
-			Hostname: "some-host-name",
-			Containers: []corev1.Container{{
-				Name:  "my-custom-container",
-				Image: "my-custom-image",
-				VolumeMounts: []corev1.VolumeMount{{
-					Name: "my-volume-mount",
-				}},
-			}},
-			RestartPolicy: corev1.RestartPolicyAlways,
-		},
+	st := DefaultStandaloneBuilder().SetPodSpecTemplate(corev1.PodTemplateSpec{
+		ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"first": "val"}},
 	}).Build()
 
-	kubeManager := newMockedManager(s)
+	reconciler, client := defaultStandaloneReconciler(st)
 
-	addKubernetesTlsResources(kubeManager.client, s)
+	checkReconcileSuccessful(t, reconciler, st, client)
 
-	reconciler := newReplicaSetReconciler(kubeManager, om.NewEmptyMockedOmConnection)
+	statefulSet := getStatefulSet(client, objectKeyFromApiObject(st))
 
-	checkReconcileSuccessful(t, reconciler, s, kubeManager.client)
-
-	statefulSet := getStatefulSet(kubeManager.client, objectKeyFromApiObject(s))
-	// read the stateful set that was created by the operator
-	assertPodSpecSts(t, statefulSet)
-
-	podSpecTemplate := statefulSet.Spec.Template.Spec
-
-	assert.Len(t, podSpecTemplate.Containers, 2, "Custom container should be second")
-	assert.Equal(t, util.ContainerName, podSpecTemplate.Containers[0].Name, "Database container should always be first")
-	assert.Equal(t, "my-custom-container", podSpecTemplate.Containers[1].Name, "Custom container should be second")
+	expectedLabels := map[string]string{"app": "dublin-svc", "controller": "mongodb-enterprise-operator",
+		"first": "val", "pod-anti-affinity": "dublin"}
+	assert.Equal(t, expectedLabels, statefulSet.Spec.Template.Labels)
 }
 
+// defaultStandaloneReconciler is the standalone reconciler used in unit test. It "adds" necessary
+// additional K8s objects (st, connection config map and secrets) necessary for reconciliation
+// so it's possible to call 'reconcile()' on it right away
+func defaultStandaloneReconciler(rs *mdbv1.MongoDB) (*ReconcileMongoDbStandalone, *MockedClient) {
+	manager := newMockedManager(rs)
+	manager.client.AddDefaultMdbConfigResources()
+
+	return newStandaloneReconciler(manager, om.NewEmptyMockedOmConnection), manager.client
+}
+
+// TODO remove in favor of '/api/mongodbbuilder.go'
 type StandaloneBuilder struct {
 	*mdbv1.MongoDB
 }
@@ -214,7 +200,7 @@ func (b *StandaloneBuilder) SetPodSpecTemplate(spec corev1.PodTemplateSpec) *Sta
 func (b *StandaloneBuilder) Build() *mdbv1.MongoDB {
 	b.Spec.ResourceType = mdbv1.Standalone
 	b.InitDefaults()
-	return b.MongoDB
+	return b.MongoDB.DeepCopy()
 }
 
 func createDeploymentFromStandalone(st *mdbv1.MongoDB) om.Deployment {

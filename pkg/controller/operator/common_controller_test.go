@@ -33,28 +33,27 @@ func init() {
 }
 
 func TestEnsureTagAdded(t *testing.T) {
-	mockedOmConnection := om.NewEmptyMockedOmConnection
-	controller := newReconcileCommonController(newMockedManager(nil), mockedOmConnection)
+	manager := newEmptyMockedManager()
+	manager.client.AddDefaultMdbConfigResources()
+	controller := newReconcileCommonController(manager, om.NewEmptyMockedOmConnection)
 	mockOm, _ := prepareConnection(controller, t)
+
+	// normal tag
 	err := ensureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "myTag", zap.S())
 	assert.NoError(t, err)
-	expected := []string{"EXTERNALLY_MANAGED_BY_KUBERNETES", "MY-NAMESPACE", "MYTAG"}
-	assert.Equal(t, expected, mockOm.FindGroup(om.TestGroupName).Tags)
-}
 
-func TestEnsureTagAddedLength(t *testing.T) {
-	mockedOmConnection := om.NewEmptyMockedOmConnection
-	controller := newReconcileCommonController(newMockedManager(nil), mockedOmConnection)
-	mockOm, _ := prepareConnection(controller, t)
-	err := ensureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "LOOKATTHISTRINGTHATISTOOLONGFORTHEFIELD", zap.S())
+	// long tag
+	err = ensureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "LOOKATTHISTRINGTHATISTOOLONGFORTHEFIELD", zap.S())
 	assert.NoError(t, err)
-	expected := []string{"EXTERNALLY_MANAGED_BY_KUBERNETES", "MY-NAMESPACE", "LOOKATTHISTRINGTHATISTOOLONGFORT"}
+
+	expected := []string{"EXTERNALLY_MANAGED_BY_KUBERNETES", "MY-NAMESPACE", "MYTAG", "LOOKATTHISTRINGTHATISTOOLONGFORT"}
 	assert.Equal(t, expected, mockOm.FindGroup(om.TestGroupName).Tags)
 }
 
 func TestEnsureTagAddedDuplicates(t *testing.T) {
-	mockedOmConnection := om.NewEmptyMockedOmConnection
-	controller := newReconcileCommonController(newMockedManager(nil), mockedOmConnection)
+	manager := newEmptyMockedManager()
+	manager.client.AddDefaultMdbConfigResources()
+	controller := newReconcileCommonController(manager, om.NewEmptyMockedOmConnection)
 	mockOm, _ := prepareConnection(controller, t)
 	err := ensureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "MYTAG", zap.S())
 	assert.NoError(t, err)
@@ -69,9 +68,10 @@ func TestEnsureTagAddedDuplicates(t *testing.T) {
 // TestPrepareOmConnection_FindExistingGroup finds existing group when org ID is specified, no new Project or Organization
 // is created
 func TestPrepareOmConnection_FindExistingGroup(t *testing.T) {
-	mockedOmConnection := omConnGroupInOrganizationWithDifferentName()
-
-	reconciler := newReconcileCommonController(newMockedManagerDetailed(nil, om.TestGroupName, om.TestOrgID), mockedOmConnection)
+	manager := newEmptyMockedManager()
+	manager.client.AddCredentialsSecret(om.TestUser, om.TestApiKey)
+	manager.client.AddProjectConfigMap(om.TestGroupName, om.TestOrgID)
+	reconciler := newReconcileCommonController(manager, omConnGroupInOrganizationWithDifferentName())
 
 	mockOm, _ := prepareConnection(reconciler, t)
 	assert.Equal(t, "existingGroupId", mockOm.GroupID())
@@ -85,11 +85,12 @@ func TestPrepareOmConnection_FindExistingGroup(t *testing.T) {
 // TestPrepareOmConnection_DuplicatedGroups verifies that if there are groups with the same name but in different organization
 // then the new group is created
 func TestPrepareOmConnection_DuplicatedGroups(t *testing.T) {
-	mockedOmConnection := omConnGroupInOrganizationWithDifferentName()
+	manager := newEmptyMockedManager()
+	manager.client.AddDefaultMdbConfigResources()
 
 	// The only difference from TestPrepareOmConnection_FindExistingGroup above is that the config map contains only project name
 	// but no org ID (see newMockedKubeApi())
-	controller := newReconcileCommonController(newMockedManager(nil), mockedOmConnection)
+	controller := newReconcileCommonController(manager, omConnGroupInOrganizationWithDifferentName())
 
 	mockOm, _ := prepareConnection(controller, t)
 	assert.Equal(t, om.TestGroupID, mockOm.GroupID())
@@ -104,9 +105,10 @@ func TestPrepareOmConnection_DuplicatedGroups(t *testing.T) {
 
 // TestPrepareOmConnection_CreateGroup checks that if the group doesn't exist in OM - it is created
 func TestPrepareOmConnection_CreateGroup(t *testing.T) {
-	mockedOmConnection := om.NewEmptyMockedOmConnectionNoGroup
+	manager := newEmptyMockedManager()
+	manager.client.AddDefaultMdbConfigResources()
 
-	controller := newReconcileCommonController(newMockedManager(nil), mockedOmConnection)
+	controller := newReconcileCommonController(manager, om.NewEmptyMockedOmConnectionNoGroup)
 
 	mockOm, vars := prepareConnection(controller, t)
 
@@ -123,9 +125,10 @@ func TestPrepareOmConnection_CreateGroup(t *testing.T) {
 
 // TestPrepareOmConnection_CreateGroupFixTags fixes tags if they are not set for existing group
 func TestPrepareOmConnection_CreateGroupFixTags(t *testing.T) {
-	mockedOmConnection := omConnGroupWithoutTags()
+	manager := newEmptyMockedManager()
+	manager.client.AddDefaultMdbConfigResources()
 
-	controller := newReconcileCommonController(newMockedManager(nil), mockedOmConnection)
+	controller := newReconcileCommonController(manager, omConnGroupWithoutTags())
 
 	mockOm, _ := prepareConnection(controller, t)
 	assert.Contains(t, mockOm.FindGroup(om.TestGroupName).Tags, util.OmGroupExternallyManagedTag)
@@ -136,7 +139,8 @@ func TestPrepareOmConnection_CreateGroupFixTags(t *testing.T) {
 
 // TestPrepareOmConnection_PrepareAgentKeys checks that agent key is generated and put to secret
 func TestPrepareOmConnection_PrepareAgentKeys(t *testing.T) {
-	manager := newMockedManager(nil)
+	manager := newEmptyMockedManager()
+	manager.client.AddDefaultMdbConfigResources()
 	controller := newReconcileCommonController(manager, om.NewEmptyMockedOmConnection)
 
 	prepareConnection(controller, t)
@@ -158,7 +162,8 @@ func TestPrepareOmConnection_PrepareAgentKeys(t *testing.T) {
 // TestPrepareOmConnection_ConfigMapAndSecretWatched verifies that config map and secret are added to the internal
 // map that allows to watch them for changes
 func TestPrepareOmConnection_ConfigMapAndSecretWatched(t *testing.T) {
-	manager := newMockedManager(nil)
+	manager := newEmptyMockedManager()
+	manager.client.AddDefaultMdbConfigResources()
 	reconciler := newReconcileCommonController(manager, om.NewEmptyMockedOmConnection)
 
 	// "create" a secret (config map already exists)
@@ -200,7 +205,7 @@ func TestPrepareOmConnection_ConfigMapAndSecretWatched(t *testing.T) {
 // the resource eventually gets updated
 func TestResourcesAreUpdated_AfterConflictErrors(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().Build()
-	mockedClient := newMockedClient(rs)
+	mockedClient := newMockedClient().WithResource(rs)
 
 	mockedClient.UpdateFunc = func(ctx context.Context, obj apiruntime.Object) error {
 		mockedClient.UpdateFunc = nil // don't return another error
@@ -238,53 +243,6 @@ func TestShouldReconcile_DoesReconcileOnSpecChange(t *testing.T) {
 	rsNew.Spec.Version = "123"
 
 	assert.True(t, shouldReconcile(rsOld, rsNew), "should reconcile when spec changes")
-}
-
-func TestFeatureControlPolicyAndTagAddedWithNewerOpsManager(t *testing.T) {
-	rs := DefaultReplicaSetBuilder().Build()
-
-	manager := newMockedManager(rs)
-	controller := newReplicaSetReconciler(manager, func(context *om.OMContext) om.Connection {
-		context.Version = "4.2.2"
-		conn := om.NewEmptyMockedOmConnection(context)
-		return conn
-	})
-
-	checkReconcileSuccessful(t, controller, rs, manager.client)
-
-	mockedConn := om.CurrMockedConnection
-	cf, _ := mockedConn.GetControlledFeature()
-
-	assert.Len(t, cf.Policies, 2)
-	assert.Equal(t, cf.ManagementSystem.Version, util.OperatorVersion)
-	assert.Equal(t, cf.ManagementSystem.Name, util.OperatorName)
-
-	project := mockedConn.FindGroup("my-project")
-	assert.Contains(t, project.Tags, util.OmGroupExternallyManagedTag)
-}
-
-func TestOnlyTagIsAppliedToOlderOpsManager(t *testing.T) {
-	rs := DefaultReplicaSetBuilder().Build()
-
-	manager := newMockedManager(rs)
-	controller := newReplicaSetReconciler(manager, func(context *om.OMContext) om.Connection {
-		context.Version = "4.2.1"
-		conn := om.NewEmptyMockedOmConnection(context)
-		return conn
-	})
-
-	checkReconcileSuccessful(t, controller, rs, manager.client)
-
-	mockedConn := om.CurrMockedConnection
-	cf, _ := mockedConn.GetControlledFeature()
-
-	// no feature controls are configured
-	assert.Empty(t, cf.Policies)
-	assert.Empty(t, cf.ManagementSystem.Version)
-	assert.Empty(t, cf.ManagementSystem.Name)
-
-	project := mockedConn.FindGroup("my-project")
-	assert.Contains(t, project.Tags, util.OmGroupExternallyManagedTag)
 }
 
 func TestShouldUseFeatureControls(t *testing.T) {

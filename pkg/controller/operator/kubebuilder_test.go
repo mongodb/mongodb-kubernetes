@@ -390,18 +390,22 @@ func TestService_mergeAnnotations(t *testing.T) {
 	assert.Equal(t, dst.ObjectMeta.Annotations["annotation0"], "valueXXXX")
 }
 
+func TestStatefulSetHasAlwaysSortedEnvVariables(t *testing.T) {
+	defaultSetHelper()
+}
+
 // ******************************** Helper methods *******************************************
 
 func baseSetHelper() *StatefulSetHelper {
 	st := DefaultStandaloneBuilder().Build()
-	return (&KubeHelper{newMockedClient(st)}).NewStatefulSetHelper(st)
+	return (&KubeHelper{newMockedClient().WithResource(st)}).NewStatefulSetHelper(st)
 }
 
 // baseSetHelperDelayed returns a delayed StatefulSetHelper.
 // This helper will not get to Success state right away, but will take at least `delay`.
 func baseSetHelperDelayed(delay time.Duration) *StatefulSetHelper {
 	st := DefaultStandaloneBuilder().Build()
-	return (&KubeHelper{newMockedClientDelayed(st, delay)}).NewStatefulSetHelper(st)
+	return (&KubeHelper{newMockedClient().WithResource(st).WithStsCreationDelay(delay)}).NewStatefulSetHelper(st)
 }
 
 func defaultSetHelper() *StatefulSetHelper {

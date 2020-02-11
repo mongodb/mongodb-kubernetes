@@ -74,11 +74,8 @@ func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_Re
 func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_ShardedCluster(t *testing.T) {
 	scWithTls := DefaultClusterBuilder().EnableTLS().EnableX509().SetName("sc-with-tls").Build()
 
-	manager := newMockedManager(scWithTls)
-	client := manager.client
+	reconciler, client := defaultClusterReconciler(scWithTls)
 	addKubernetesTlsResources(client, scWithTls)
-
-	reconciler := newShardedClusterReconciler(manager, om.NewEmptyMockedOmConnection)
 
 	configureX509(client, certsv1.CertificateApproved)
 
@@ -90,11 +87,8 @@ func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_Sh
 func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ShardedCluster(t *testing.T) {
 	scWithTls := DefaultClusterBuilder().EnableTLS().EnableX509().SetName("sc-with-tls").Build()
 
-	manager := newMockedManager(scWithTls)
-	client := manager.client
+	reconciler, client := defaultClusterReconciler(scWithTls)
 	addKubernetesTlsResources(client, scWithTls)
-
-	reconciler := newShardedClusterReconciler(manager, om.NewEmptyMockedOmConnection)
 
 	configureX509(client, certsv1.CertificateApproved)
 
@@ -156,6 +150,7 @@ func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
 	x509User := DefaultMongoDBUserBuilder().SetDatabase(util.X509Db).SetMongoDBResourceName("my-rs").Build()
 
 	manager := newMockedManager(rs)
+	manager.client.AddDefaultMdbConfigResources()
 
 	// configure x509/tls resources
 	addKubernetesTlsResources(manager.client, rs)
@@ -185,6 +180,7 @@ func TestScramAgentUserIsCorrectlyConfigured(t *testing.T) {
 	x509User := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
 
 	manager := newMockedManager(rs)
+	manager.client.AddDefaultMdbConfigResources()
 
 	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
 

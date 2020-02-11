@@ -28,14 +28,14 @@ func TestReplicaSetEventMethodsHandlePanic(t *testing.T) {
 	_ = os.Setenv(util.AutomationAgentImageUrl, "")
 	rs := DefaultReplicaSetBuilder().Build()
 
-	manager := newMockedManager(rs)
+	reconciler, client := defaultReplicaSetReconciler(rs)
 	checkReconcileFailed(
 		t,
-		newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection),
+		reconciler,
 		rs,
 		true,
 		"Failed to reconcile Mongodb Replica Set: MONGODB_ENTERPRISE_DATABASE_IMAGE environment variable is not set!",
-		manager.client)
+		client)
 
 	// restoring
 	InitDefaultEnvVariables()
@@ -44,10 +44,7 @@ func TestReplicaSetEventMethodsHandlePanic(t *testing.T) {
 func TestCreateReplicaSet(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().Build()
 
-	manager := newMockedManager(rs)
-	client := manager.client
-
-	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
+	reconciler, client := defaultReplicaSetReconciler(rs)
 
 	checkReconcileSuccessful(t, reconciler, rs, client)
 
@@ -63,16 +60,13 @@ func TestCreateReplicaSet(t *testing.T) {
 
 func TestHorizonVerificationTLS(t *testing.T) {
 	replicaSetHorizons := []mdbv1.MongoDBHorizonConfig{
-		mdbv1.MongoDBHorizonConfig{"my-horizon": "my-db.com:12345"},
-		mdbv1.MongoDBHorizonConfig{"my-horizon": "my-db.com:12346"},
-		mdbv1.MongoDBHorizonConfig{"my-horizon": "my-db.com:12347"},
+		{"my-horizon": "my-db.com:12345"},
+		{"my-horizon": "my-db.com:12346"},
+		{"my-horizon": "my-db.com:12347"},
 	}
 	rs := DefaultReplicaSetBuilder().SetReplicaSetHorizons(replicaSetHorizons).Build()
 
-	manager := newMockedManager(rs)
-	client := manager.client
-
-	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
+	reconciler, client := defaultReplicaSetReconciler(rs)
 
 	msg := "TLS must be enabled in order to set replica set horizons"
 	checkReconcileFailed(t, reconciler, rs, false, msg, client)
@@ -80,18 +74,15 @@ func TestHorizonVerificationTLS(t *testing.T) {
 
 func TestHorizonVerificationCount(t *testing.T) {
 	replicaSetHorizons := []mdbv1.MongoDBHorizonConfig{
-		mdbv1.MongoDBHorizonConfig{"my-horizon": "my-db.com:12345"},
-		mdbv1.MongoDBHorizonConfig{"my-horizon": "my-db.com:12346"},
+		{"my-horizon": "my-db.com:12345"},
+		{"my-horizon": "my-db.com:12346"},
 	}
 	rs := DefaultReplicaSetBuilder().
 		EnableTLS().
 		SetReplicaSetHorizons(replicaSetHorizons).
 		Build()
 
-	manager := newMockedManager(rs)
-	client := manager.client
-
-	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
+	reconciler, client := defaultReplicaSetReconciler(rs)
 
 	msg := "Number of horizons must be equal to number of members in replica set"
 	checkReconcileFailed(t, reconciler, rs, false, msg, client)
@@ -101,10 +92,7 @@ func TestHorizonVerificationCount(t *testing.T) {
 func TestScaleUpReplicaSet(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().SetMembers(3).Build()
 
-	manager := newMockedManager(rs)
-	client := manager.client
-
-	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
+	reconciler, client := defaultReplicaSetReconciler(rs)
 
 	checkReconcileSuccessful(t, reconciler, rs, client)
 	set := &appsv1.StatefulSet{}
@@ -131,10 +119,7 @@ func TestScaleUpReplicaSet(t *testing.T) {
 func TestCreateReplicaSet_TLS(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().SetMembers(3).EnableTLS().Build()
 
-	manager := newMockedManager(rs)
-	client := manager.client
-
-	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
+	reconciler, client := defaultReplicaSetReconciler(rs)
 
 	checkReconcilePending(t, reconciler, rs, "Not all certificates have been approved by Kubernetes CA for temple", client)
 	client.ApproveAllCSRs()
@@ -157,17 +142,16 @@ func TestCreateReplicaSet_TLS(t *testing.T) {
 // TestCreateDeleteReplicaSet checks that no state is left in OpsManager on removal of the replicaset
 func TestCreateDeleteReplicaSet(t *testing.T) {
 	// First we need to create a replicaset
-	st := DefaultReplicaSetBuilder().Build()
+	rs := DefaultReplicaSetBuilder().Build()
 
-	kubeManager := newMockedManager(st)
-	reconciler := newReplicaSetReconciler(kubeManager, om.NewEmptyMockedOmConnectionWithDelay)
+	reconciler, client := defaultReplicaSetReconciler(rs)
 
-	checkReconcileSuccessful(t, reconciler, st, kubeManager.client)
+	checkReconcileSuccessful(t, reconciler, rs, client)
 	omConn := om.CurrMockedConnection
 	omConn.CleanHistory()
 
 	// Now delete it
-	assert.NoError(t, reconciler.delete(st, zap.S()))
+	assert.NoError(t, reconciler.delete(rs, zap.S()))
 
 	// Operator doesn't mutate K8s state, so we don't check its changes, only OM
 	omConn.CheckResourcesDeleted(t)
@@ -180,12 +164,8 @@ func TestCreateDeleteReplicaSet(t *testing.T) {
 
 func TestX509IsNotEnabledWithOlderVersionsOfOpsManager(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().EnableAuth().EnableTLS().SetAuthModes([]string{util.X509}).Build()
-	kubeManager := newMockedManager(rs)
-
-	addKubernetesTlsResources(kubeManager.client, rs)
-	approveAgentCSRs(kubeManager.client)
-
-	reconciler := newReplicaSetReconciler(kubeManager, func(context *om.OMContext) om.Connection {
+	reconciler, client := defaultReplicaSetReconciler(rs)
+	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
 		conn := om.NewEmptyMockedOmConnection(context)
 
 		// make the mocked connection return an error behaving as an older version of Ops Manager
@@ -193,18 +173,20 @@ func TestX509IsNotEnabledWithOlderVersionsOfOpsManager(t *testing.T) {
 			return nil, fmt.Errorf("some error. Detail: %s", util.MethodNotAllowed)
 		}
 		return conn
-	})
+	}
 
-	checkReconcileFailed(t, reconciler, rs, true, "unable to configure X509 with this version of Ops Manager", kubeManager.client)
+	addKubernetesTlsResources(client, rs)
+	approveAgentCSRs(client)
+
+	checkReconcileFailed(t, reconciler, rs, true, "unable to configure X509 with this version of Ops Manager", client)
 }
 
 func TestReplicaSetScramUpgradeDowngrade(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().SetVersion("4.0.0").EnableAuth().SetAuthModes([]string{"SCRAM"}).Build()
 
-	kubeManager := newMockedManager(rs)
-	reconciler := newReplicaSetReconciler(kubeManager, om.NewEmptyMockedOmConnection)
+	reconciler, client := defaultReplicaSetReconciler(rs)
 
-	checkReconcileSuccessful(t, reconciler, rs, kubeManager.client)
+	checkReconcileSuccessful(t, reconciler, rs, client)
 
 	ac, _ := om.CurrMockedConnection.ReadAutomationConfig()
 	assert.Contains(t, ac.Auth.AutoAuthMechanisms, string(authentication.ScramSha256))
@@ -212,10 +194,9 @@ func TestReplicaSetScramUpgradeDowngrade(t *testing.T) {
 	// downgrade to version that will not use SCRAM-SHA-256
 	rs.Spec.Version = "3.6.9"
 
-	client := kubeManager.client
 	_ = client.Update(context.TODO(), rs)
 
-	checkReconcileFailed(t, reconciler, rs, true, "Unable to downgrade to SCRAM-SHA-1 when SCRAM-SHA-256 has been enabled", kubeManager.client)
+	checkReconcileFailed(t, reconciler, rs, true, "Unable to downgrade to SCRAM-SHA-1 when SCRAM-SHA-256 has been enabled", client)
 }
 
 func TestReplicaSetCustomPodSpecTemplate(t *testing.T) {
@@ -234,16 +215,14 @@ func TestReplicaSetCustomPodSpecTemplate(t *testing.T) {
 		},
 	}).Build()
 
-	kubeManager := newMockedManager(rs)
+	reconciler, client := defaultReplicaSetReconciler(rs)
 
-	addKubernetesTlsResources(kubeManager.client, rs)
+	addKubernetesTlsResources(client, rs)
 
-	reconciler := newReplicaSetReconciler(kubeManager, om.NewEmptyMockedOmConnection)
-
-	checkReconcileSuccessful(t, reconciler, rs, kubeManager.client)
+	checkReconcileSuccessful(t, reconciler, rs, client)
 
 	// read the stateful set that was created by the operator
-	statefulSet := getStatefulSet(kubeManager.client, objectKeyFromApiObject(rs))
+	statefulSet := getStatefulSet(client, objectKeyFromApiObject(rs))
 
 	assertPodSpecSts(t, statefulSet)
 
@@ -253,6 +232,64 @@ func TestReplicaSetCustomPodSpecTemplate(t *testing.T) {
 	assert.Equal(t, "my-custom-container", podSpecTemplate.Containers[1].Name, "Custom container should be second")
 }
 
+func TestFeatureControlPolicyAndTagAddedWithNewerOpsManager(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().Build()
+
+	reconciler, client := defaultReplicaSetReconciler(rs)
+	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
+		context.Version = "4.2.2"
+		conn := om.NewEmptyMockedOmConnection(context)
+		return conn
+	}
+
+	checkReconcileSuccessful(t, reconciler, rs, client)
+
+	mockedConn := om.CurrMockedConnection
+	cf, _ := mockedConn.GetControlledFeature()
+
+	assert.Len(t, cf.Policies, 2)
+	assert.Equal(t, cf.ManagementSystem.Version, util.OperatorVersion)
+	assert.Equal(t, cf.ManagementSystem.Name, util.OperatorName)
+
+	project := mockedConn.FindGroup("my-project")
+	assert.Contains(t, project.Tags, util.OmGroupExternallyManagedTag)
+}
+
+func TestOnlyTagIsAppliedToOlderOpsManager(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().Build()
+
+	reconciler, client := defaultReplicaSetReconciler(rs)
+	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
+		context.Version = "4.2.1"
+		conn := om.NewEmptyMockedOmConnection(context)
+		return conn
+	}
+
+	checkReconcileSuccessful(t, reconciler, rs, client)
+
+	mockedConn := om.CurrMockedConnection
+	cf, _ := mockedConn.GetControlledFeature()
+
+	// no feature controls are configured
+	assert.Empty(t, cf.Policies)
+	assert.Empty(t, cf.ManagementSystem.Version)
+	assert.Empty(t, cf.ManagementSystem.Name)
+
+	project := mockedConn.FindGroup("my-project")
+	assert.Contains(t, project.Tags, util.OmGroupExternallyManagedTag)
+}
+
+// defaultReplicaSetReconciler is the replica set reconciler used in unit test. It "adds" necessary
+// additional K8s objects (rs, connection config map and secrets) necessary for reconciliation
+// so it's possible to call 'reconcile()' on it right away
+func defaultReplicaSetReconciler(rs *mdbv1.MongoDB) (*ReconcileMongoDbReplicaSet, *MockedClient) {
+	manager := newMockedManager(rs)
+	manager.client.AddDefaultMdbConfigResources()
+
+	return newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection), manager.client
+}
+
+// TODO remove in favor of '/api/mongodbbuilder.go'
 func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
 	podSpec := NewDefaultPodSpec()
 	spec := mdbv1.MongoDbSpec{
@@ -348,7 +385,7 @@ func (b *ReplicaSetBuilder) SetPodSpecTemplate(spec corev1.PodTemplateSpec) *Rep
 
 func (b *ReplicaSetBuilder) Build() *mdbv1.MongoDB {
 	b.InitDefaults()
-	return b.MongoDB
+	return b.MongoDB.DeepCopy()
 }
 
 func createDeploymentFromReplicaSet(rs *mdbv1.MongoDB) om.Deployment {

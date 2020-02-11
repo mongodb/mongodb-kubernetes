@@ -59,7 +59,7 @@ func TestPublishAutomationConfig_Create(t *testing.T) {
 	builder := DefaultOpsManagerBuilder()
 	opsManager := builder.Build()
 	appdb := &opsManager.Spec.AppDB
-	kubeManager := newMockedManager(nil)
+	kubeManager := newEmptyMockedManager()
 	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
 	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
 	assert.NoError(t, err)
@@ -68,8 +68,7 @@ func TestPublishAutomationConfig_Create(t *testing.T) {
 	// verify the configmap was created
 	configMap := readAutomationConfigMap(t, kubeManager, opsManager)
 	checkDeploymentEqualToPublished(t, automationConfig.Deployment, configMap)
-	// one config map is the default one (created inside mocked manager)
-	assert.Len(t, kubeManager.client.configMaps, 2)
+	assert.Len(t, kubeManager.client.configMaps, 1)
 }
 
 // TestPublishAutomationConfig_Update verifies that the automation config map is updated if it has changed
@@ -77,7 +76,7 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 	builder := DefaultOpsManagerBuilder()
 	opsManager := builder.Build()
 	appdb := &opsManager.Spec.AppDB
-	kubeManager := newMockedManager(nil)
+	kubeManager := newEmptyMockedManager()
 	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
 	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
 	assert.NoError(t, err)
@@ -104,7 +103,7 @@ func TestPublishAutomationConfig_ScramShaConfigured(t *testing.T) {
 	builder := DefaultOpsManagerBuilder()
 	opsManager := builder.Build()
 	appdb := &opsManager.Spec.AppDB
-	kubeManager := newMockedManager(nil)
+	kubeManager := newEmptyMockedManager()
 	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
 	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
 	assert.NoError(t, err)
