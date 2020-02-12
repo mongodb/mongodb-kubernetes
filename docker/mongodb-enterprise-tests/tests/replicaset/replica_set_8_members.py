@@ -12,7 +12,7 @@ class TestReplicaSetEightMembers(KubernetesTester):
     create:
       file: replica-set-8-members.yaml
       wait_until: in_running_state
-      timeout: 240
+      timeout: 360
     """
 
     def test_rs_ready(self):
