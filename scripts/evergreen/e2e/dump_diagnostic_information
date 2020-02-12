@@ -27,7 +27,6 @@ dump_all () {
     dump_file="logs/diagnostics.txt"
 
     {
-        header "All MongoDB Custom Resources"
         dump_objects "mdb" "MongoDB Resources"
         dump_objects "mdbu" "MongoDBUser Resources"
         dump_objects "om" "MongoDBOpsManager Resources"
@@ -57,8 +56,14 @@ dump_all () {
     i=1
     if ! kubectl get pods -n "${PROJECT_NAMESPACE}" 2>&1 | grep -q "No resources found"; then
         for pod in $(kubectl get pods -n "${PROJECT_NAMESPACE}"  -o name | cut -d "/" -f 2 | grep -v "operator-"); do
-            echo "Writing log file for pod ${pod} to logs/${pod}.log"
-            kubectl logs -n "${PROJECT_NAMESPACE}" "${pod}" > "logs/${pod}.log"
+            if kubectl exec ${pod} -n "${PROJECT_NAMESPACE}" -- ls /var/log/mongodb-mms-automation/automation-agent-verbose.log &>/dev/null; then
+                echo "Writing agent and mongodb logs for pod ${pod} to logs"
+                kubectl cp "${PROJECT_NAMESPACE}/${pod}:var/log/mongodb-mms-automation/automation-agent-verbose.log" "logs/${pod}-agent.log" &> /dev/null
+                kubectl cp "${PROJECT_NAMESPACE}/${pod}:var/log/mongodb-mms-automation/mongodb.log" "logs/${pod}-mongodb.log" &> /dev/null
+            else
+                echo "Writing log file for pod ${pod} to logs/${pod}.log"
+                kubectl logs -n "${PROJECT_NAMESPACE}" "${pod}" > "logs/${pod}.log"
+            fi
 
             # kubectl cp won't create any files if the file doesn't exist in the container
             agent_health_status="logs/${pod}-agent-health-status.json"
