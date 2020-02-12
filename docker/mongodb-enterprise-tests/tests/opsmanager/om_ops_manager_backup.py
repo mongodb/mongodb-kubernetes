@@ -233,9 +233,9 @@ class TestBackupDatabasesAdded(OpsManagerBase):
         self, s3_bucket: str, aws_s3_client: AwsS3Client, ops_manager: MongoDBOpsManager
     ):
         """ As soon as oplog mongodb store is created Operator will create oplog configs in OM and
-        get to Running state. Note, that the OM may quickly get into error state as the backup replicasets may
-        not be completely ready but this is expected to get fixed soon"""
-        ops_manager.assert_reaches_phase(Phase.Running, timeout=200)
+        get to Running state. Note, that the OM may quickly get into error state (BACKUP_MONGO_CONNECTION_FAILED)
+        as the backup replica sets may not be completely ready but this will get fixed soon after a retry. """
+        ops_manager.assert_reaches_phase(Phase.Running, timeout=200, ignore_errors=True)
 
         om_tester = OMTester(self.om_context)
         om_tester.assert_healthiness()
