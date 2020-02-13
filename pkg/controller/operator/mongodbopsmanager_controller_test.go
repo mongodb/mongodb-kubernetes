@@ -212,6 +212,16 @@ func (b *OpsManagerBuilder) SetAppDBPassword(secretName, key string) *OpsManager
 	return b
 }
 
+func (b *OpsManagerBuilder) SetPodSpec(podSpec mdbv1.PodSpecWrapper) *OpsManagerBuilder {
+	b.om.Spec.PodSpec = &podSpec.MongoDbPodSpec
+	return b
+}
+
+func (b *OpsManagerBuilder) AddConfiguration(key, value string) *OpsManagerBuilder {
+	b.om.AddConfigIfDoesntExist(key, value)
+	return b
+}
+
 func (b *OpsManagerBuilder) Build() *mdbv1.MongoDBOpsManager {
 	b.om.InitDefault()
 	return b.om.DeepCopy()

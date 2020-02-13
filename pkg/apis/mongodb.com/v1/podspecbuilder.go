@@ -64,13 +64,13 @@ func (p *PodSpecWrapperBuilder) SetMemoryRequest(memory string) *PodSpecWrapperB
 	return p
 }
 
-func (p *PodSpecWrapperBuilder) SetPodAffinity(affinity *corev1.PodAffinity) *PodSpecWrapperBuilder {
-	p.spec.PodAffinity = affinity
+func (p *PodSpecWrapperBuilder) SetPodAffinity(affinity corev1.PodAffinity) *PodSpecWrapperBuilder {
+	p.spec.PodAffinity = &affinity
 	return p
 }
 
-func (p *PodSpecWrapperBuilder) SetNodeAffinity(affinity *corev1.NodeAffinity) *PodSpecWrapperBuilder {
-	p.spec.NodeAffinity = affinity
+func (p *PodSpecWrapperBuilder) SetNodeAffinity(affinity corev1.NodeAffinity) *PodSpecWrapperBuilder {
+	p.spec.NodeAffinity = &affinity
 	return p
 }
 

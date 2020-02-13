@@ -63,6 +63,8 @@ func TestOnAddStandaloneWithDelay(t *testing.T) {
 // It emulates the kubernetes work on statefulset creation ('StsCreationDelayMillis') and makes sure
 // the mongodb resource goes to Pending state
 func TestOnAddStandaloneWithDelayPending(t *testing.T) {
+	defer InitDefaultEnvVariables()
+
 	_ = os.Setenv(util.PodWaitRetriesEnv, "0")
 	st := DefaultStandaloneBuilder().SetVersion("4.1.0").SetService("mysvc").Build()
 
@@ -72,8 +74,6 @@ func TestOnAddStandaloneWithDelayPending(t *testing.T) {
 	reconciler := newStandaloneReconciler(manager, om.NewEmptyMockedOmConnection)
 
 	checkReconcilePending(t, reconciler, st, "MongoDB dublin resource is still starting", client)
-
-	InitDefaultEnvVariables()
 }
 
 // TestAddDeleteStandalone checks that no state is left in OpsManager on removal of the standalone
@@ -100,6 +100,9 @@ func TestAddDeleteStandalone(t *testing.T) {
 }
 
 func TestStandaloneEventMethodsHandlePanic(t *testing.T) {
+	// restoring
+	defer InitDefaultEnvVariables()
+
 	// nullifying env variable will result in panic exception raised
 	os.Setenv(util.AutomationAgentImageUrl, "")
 	st := DefaultStandaloneBuilder().Build()
@@ -112,9 +115,6 @@ func TestStandaloneEventMethodsHandlePanic(t *testing.T) {
 		"Failed to reconcile Mongodb Standalone: MONGODB_ENTERPRISE_DATABASE_IMAGE environment variable is not set!",
 		client,
 	)
-
-	// restoring
-	InitDefaultEnvVariables()
 }
 
 func TestStandaloneCustomPodSpecTemplate(t *testing.T) {

@@ -318,7 +318,7 @@ func buildBackupDaemonStatefulSet(p BackupStatefulSetHelper) (*appsv1.StatefulSe
 		Name:  util.ENV_BACKUP_DAEMON,
 		Value: "backup",
 	})
-	set, err := createBaseOpsManagerStatefulSet(*p.OpsManagerStatefulSetHelper)
+	set, err := createBaseOpsManagerStatefulSet(p.OpsManagerStatefulSetHelper)
 	if err != nil {
 		return nil, err
 	}

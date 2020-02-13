@@ -49,13 +49,14 @@ func TestStatefulsetCreationWaitsForCompletion(t *testing.T) {
 }
 
 func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
+	defer InitDefaultEnvVariables()
+
 	os.Setenv(util.AutomationAgentImageUrl, "")
 	assert.Panics(t, func() { defaultSetHelper().CreateOrUpdateInKubernetes() })
 	InitDefaultEnvVariables()
 
 	os.Setenv(util.AutomationAgentImagePullPolicy, "")
 	assert.Panics(t, func() { defaultSetHelper().CreateOrUpdateInKubernetes() })
-	InitDefaultEnvVariables()
 }
 
 // TestComputeConfigMap_CreateNew checks the "create" features of 'computeConfigMap' function when the configmap is created

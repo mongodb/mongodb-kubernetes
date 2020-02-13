@@ -24,6 +24,9 @@ type ReplicaSetBuilder struct {
 }
 
 func TestReplicaSetEventMethodsHandlePanic(t *testing.T) {
+	// restoring
+	defer InitDefaultEnvVariables()
+
 	// nullifying env variable will result in panic exception raised
 	_ = os.Setenv(util.AutomationAgentImageUrl, "")
 	rs := DefaultReplicaSetBuilder().Build()
@@ -37,8 +40,6 @@ func TestReplicaSetEventMethodsHandlePanic(t *testing.T) {
 		"Failed to reconcile Mongodb Replica Set: MONGODB_ENTERPRISE_DATABASE_IMAGE environment variable is not set!",
 		client)
 
-	// restoring
-	InitDefaultEnvVariables()
 }
 
 func TestCreateReplicaSet(t *testing.T) {

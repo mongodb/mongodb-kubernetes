@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"os"
+	"sort"
 	"testing"
 	"time"
 
@@ -140,26 +141,12 @@ func TestBuildAppDbStatefulSetWithSideCar(t *testing.T) {
 }
 
 func TestBasePodSpec_Affinity(t *testing.T) {
-	nodeAffinity := corev1.NodeAffinity{
-		RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-			NodeSelectorTerms: []corev1.NodeSelectorTerm{{
-				MatchExpressions: []corev1.NodeSelectorRequirement{{
-					Key:    "dc",
-					Values: []string{"US-EAST"},
-				}}},
-			}},
-	}
-	podAffinity := corev1.PodAffinity{
-		PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{{
-			Weight: 50,
-			PodAffinityTerm: corev1.PodAffinityTerm{
-				LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "web-server"}},
-				TopologyKey:   "rack",
-			},
-		}}}
+	nodeAffinity := defaultNodeAffinity()
+	podAffinity := defaultPodAffinity()
+
 	podSpec := mdbv1.NewPodSpecWrapperBuilder().
-		SetNodeAffinity(&nodeAffinity).
-		SetPodAffinity(&podAffinity).
+		SetNodeAffinity(nodeAffinity).
+		SetPodAffinity(podAffinity).
 		SetPodAntiAffinityTopologyKey("nodeId").
 		Build()
 	setHelper := defaultSetHelper().SetName("s").SetPodSpec(podSpec)
@@ -194,6 +181,9 @@ func TestBasePodSpec_AntiAffinityDefaultTopology(t *testing.T) {
 // TestBasePodSpec_ImagePullSecrets verifies that 'spec.ImagePullSecrets' is created only if env variable
 // IMAGE_PULL_SECRETS is initialized
 func TestBasePodSpec_ImagePullSecrets(t *testing.T) {
+	// Cleaning the state (there is no tear down in go test :( )
+	defer InitDefaultEnvVariables()
+
 	template, err := getDatabasePodTemplate(*defaultSetHelper(), map[string]string{}, "", corev1.Container{})
 	assert.NoError(t, err)
 	assert.Nil(t, template.Spec.ImagePullSecrets)
@@ -204,8 +194,6 @@ func TestBasePodSpec_ImagePullSecrets(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, []corev1.LocalObjectReference{{Name: "foo"}}, template.Spec.ImagePullSecrets)
 
-	// Cleaning the state (there is no tear down in go test :( )
-	InitDefaultEnvVariables()
 }
 
 // TestBasePodSpec_TerminationGracePeriodSeconds verifies that the TerminationGracePeriodSeconds is set to 600 seconds
@@ -254,6 +242,8 @@ func volMount(pvName, mountPath, subPath string) *corev1.VolumeMount {
 }
 
 func TestDefaultPodSpec_FsGroup(t *testing.T) {
+	defer InitDefaultEnvVariables()
+
 	podSpecTemplate, err := getDatabasePodTemplate(*defaultSetHelper(), map[string]string{}, "", corev1.Container{})
 	assert.NoError(t, err)
 
@@ -269,7 +259,6 @@ func TestDefaultPodSpec_FsGroup(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Nil(t, podSpecTemplate.Spec.SecurityContext)
 
-	InitDefaultEnvVariables()
 }
 
 func TestPodSpec_Requirements(t *testing.T) {
@@ -390,8 +379,134 @@ func TestService_mergeAnnotations(t *testing.T) {
 	assert.Equal(t, dst.ObjectMeta.Annotations["annotation0"], "valueXXXX")
 }
 
-func TestStatefulSetHasAlwaysSortedEnvVariables(t *testing.T) {
-	defaultSetHelper()
+func TestBuildStatefulSet_SortedEnvVariables(t *testing.T) {
+	helper := testDefaultOMSetHelper()
+	helper.EnvVars = []corev1.EnvVar{
+		{Name: "one", Value: "X"},
+		{Name: "two", Value: "Y"},
+		{Name: "three", Value: "Z"},
+	}
+	expectedVars := []corev1.EnvVar{
+		{Name: "one", Value: "X"},
+		{Name: "three", Value: "Z"},
+		{Name: "two", Value: "Y"},
+	}
+	set, err := helper.BuildStatefulSet()
+	assert.NoError(t, err)
+	assert.Equal(t, expectedVars, set.Spec.Template.Spec.Containers[0].Env)
+}
+
+// TestOpsManagerPodTemplate_Container verifies the default OM/Backup container
+func TestOpsManagerPodTemplate_Container(t *testing.T) {
+	om := DefaultOpsManagerBuilder().
+		AddConfiguration(util.MmsCentralUrlPropKey, "http://om-svc").
+		AddConfiguration("mms.adminEmailAddr", "cloud-manager-support@mongodb.com").
+		Build()
+	template, err := opsManagerPodTemplate(map[string]string{"one": "two"}, *omSetHelperFromResource(om))
+	assert.NoError(t, err)
+
+	assert.Equal(t, map[string]string{"one": "two"}, template.Labels)
+	assert.Len(t, template.Spec.Containers, 1)
+	container := template.Spec.Containers[0]
+	// TODO change when we stop using versioning
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-ops-manager:4.2.0-operator9.9.9-test", container.Image)
+	assert.Equal(t, corev1.PullNever, container.ImagePullPolicy)
+	expectedVars := []corev1.EnvVar{
+		{Name: "OM_PROP_mms_adminEmailAddr", Value: "cloud-manager-support@mongodb.com"},
+		{Name: "OM_PROP_mms_centralUrl", Value: "http://om-svc"},
+	}
+	env := container.Env
+	sort.Sort(&envVarSorter{envVars: env})
+	assert.Equal(t, expectedVars, env)
+	assert.Equal(t, int32(util.OpsManagerDefaultPort), container.Ports[0].ContainerPort)
+	assert.Equal(t, "/monitor/health", container.ReadinessProbe.Handler.HTTPGet.Path)
+	assert.Equal(t, int32(8080), container.ReadinessProbe.Handler.HTTPGet.Port.IntVal)
+}
+
+// TestOpsManagerPodTemplate_SecurityContext verifies that security context is created correctly
+// in OpsManager/BackupDaemon podTemplate. It's not built if 'MANAGED_SECURITY_CONTEXT' env var
+// is set to 'true'
+func TestOpsManagerPodTemplate_SecurityContext(t *testing.T) {
+	defer InitDefaultEnvVariables()
+
+	podSpecTemplate, err := opsManagerPodTemplate(map[string]string{}, *testDefaultOMSetHelper())
+	assert.NoError(t, err)
+
+	spec := podSpecTemplate.Spec
+	assert.Len(t, spec.InitContainers, 0)
+	require.NotNil(t, spec.SecurityContext)
+	assert.Equal(t, util.Int64Ref(util.FsGroup), spec.SecurityContext.FSGroup)
+	assert.Equal(t, util.Int64Ref(util.RunAsUser), spec.SecurityContext.RunAsUser)
+
+	_ = os.Setenv(util.ManagedSecurityContextEnv, "true")
+
+	podSpecTemplate, err = opsManagerPodTemplate(map[string]string{}, *testDefaultOMSetHelper())
+	assert.NoError(t, err)
+	assert.Nil(t, podSpecTemplate.Spec.SecurityContext)
+}
+
+// TestOpsManagerPodTemplate_PodSpec verifies that PodSpec is applied correctly to OpsManager/Backup pod template.
+func TestOpsManagerPodTemplate_PodSpec(t *testing.T) {
+	podSpec := mdbv1.NewPodSpecWrapperBuilder().
+		SetPodAffinity(defaultPodAffinity()).SetNodeAffinity(defaultNodeAffinity()).SetPodAntiAffinityTopologyKey("rack").Build()
+	om := DefaultOpsManagerBuilder().SetPodSpec(*podSpec).Build()
+	template, err := opsManagerPodTemplate(map[string]string{}, *omSetHelperFromResource(om))
+	assert.NoError(t, err)
+
+	spec := template.Spec
+	assert.Equal(t, defaultNodeAffinity(), *spec.Affinity.NodeAffinity)
+	assert.Equal(t, defaultPodAffinity(), *spec.Affinity.PodAffinity)
+	term := spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0]
+	assert.Equal(t, "rack", term.PodAffinityTerm.TopologyKey)
+
+	req := spec.Containers[0].Resources.Limits
+	assert.Len(t, req, 2)
+	cpu := req[corev1.ResourceCPU]
+	memory := req[corev1.ResourceMemory]
+	assert.Equal(t, "1", (&cpu).String())
+	assert.Equal(t, int64(500000000), (&memory).Value())
+
+	req = spec.Containers[0].Resources.Requests
+	assert.Len(t, req, 2)
+	cpu = req[corev1.ResourceCPU]
+	memory = req[corev1.ResourceMemory]
+	assert.Equal(t, "500m", (&cpu).String())
+	assert.Equal(t, int64(400000000), (&memory).Value())
+}
+
+// TestOpsManagerPodTemplate_MergePodTemplate checks the custom pod template provided by the user.
+// It's supposed to override the values produced by the Operator and leave everything else as is
+func TestOpsManagerPodTemplate_MergePodTemplate(t *testing.T) {
+	expectedAnnotations := map[string]string{"customKey": "customVal"}
+	expectedTolerations := []corev1.Toleration{{Key: "dedicated", Value: "database"}}
+	newContainer := corev1.Container{
+		Name:  "my-custom-container",
+		Image: "my-custom-image",
+	}
+	podSpec := mdbv1.NewPodSpecWrapperBuilder().SetPodTemplate(&corev1.PodTemplateSpec{
+		ObjectMeta: metav1.ObjectMeta{Annotations: expectedAnnotations},
+		Spec: corev1.PodSpec{
+			ServiceAccountName: "test-account",
+			Tolerations:        expectedTolerations,
+			Containers:         []corev1.Container{newContainer},
+		},
+	}).Build()
+	om := DefaultOpsManagerBuilder().SetPodSpec(*podSpec).Build()
+	template, err := opsManagerPodTemplate(map[string]string{"key": "value"}, *omSetHelperFromResource(om))
+	assert.NoError(t, err)
+
+	// Service account gets overriden by custom pod template
+	assert.Equal(t, "test-account", template.Spec.ServiceAccountName)
+	assert.Equal(t, expectedAnnotations, template.Annotations)
+	assert.Equal(t, expectedTolerations, template.Spec.Tolerations)
+	assert.Len(t, template.Spec.Containers, 2)
+	assert.Equal(t, newContainer, template.Spec.Containers[1])
+
+	// Some validation that the Operator-made config hasn't suffered
+	assert.Equal(t, map[string]string{"key": "value"}, template.Labels)
+	require.NotNil(t, template.Spec.SecurityContext)
+	assert.Equal(t, util.Int64Ref(util.FsGroup), template.Spec.SecurityContext.FSGroup)
+	assert.Equal(t, util.OpsManagerName, template.Spec.Containers[0].Name)
 }
 
 // ******************************** Helper methods *******************************************
@@ -422,6 +537,37 @@ func defaultSetHelper() *StatefulSetHelper {
 		})
 }
 
+func omSetHelperFromResource(om *mdbv1.MongoDBOpsManager) *OpsManagerStatefulSetHelper {
+	return (&KubeHelper{newMockedClient()}).NewOpsManagerStatefulSetHelper(om)
+}
+
+func testDefaultOMSetHelper() *OpsManagerStatefulSetHelper {
+	om := DefaultOpsManagerBuilder().Build()
+	return (&KubeHelper{newMockedClient()}).NewOpsManagerStatefulSetHelper(om)
+}
+
 func defaultPodVars() *PodVars {
 	return &PodVars{AgentAPIKey: "a", BaseURL: "http://localhost:8080", ProjectID: "myProject", User: "user@some.com"}
+}
+
+func defaultNodeAffinity() corev1.NodeAffinity {
+	return corev1.NodeAffinity{
+		RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+			NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+				MatchExpressions: []corev1.NodeSelectorRequirement{{
+					Key:    "dc",
+					Values: []string{"US-EAST"},
+				}}},
+			}},
+	}
+}
+func defaultPodAffinity() corev1.PodAffinity {
+	return corev1.PodAffinity{
+		PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{{
+			Weight: 50,
+			PodAffinityTerm: corev1.PodAffinityTerm{
+				LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "web-server"}},
+				TopologyKey:   "rack",
+			},
+		}}}
 }

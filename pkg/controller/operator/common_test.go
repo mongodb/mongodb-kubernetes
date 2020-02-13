@@ -47,6 +47,8 @@ func InitDefaultEnvVariables() {
 	os.Setenv(util.AppDBImageUrl, "some.repo")
 	os.Setenv(util.AutomationAgentImageUrl, "mongodb-enterprise-database")
 	os.Setenv(util.AutomationAgentImagePullPolicy, "Never")
+	os.Setenv(util.OpsManagerImageUrl, "quay.io/mongodb/mongodb-enterprise-ops-manager")
+	os.Setenv(util.OpsManagerPullPolicy, "Never")
 	os.Setenv(util.OmOperatorEnv, "test")
 	os.Setenv(util.PodWaitSecondsEnv, "1")
 	os.Setenv(util.PodWaitRetriesEnv, "2")

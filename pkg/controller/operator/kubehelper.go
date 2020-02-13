@@ -120,7 +120,7 @@ type OpsManagerStatefulSetHelper struct {
 }
 
 type BackupStatefulSetHelper struct {
-	*OpsManagerStatefulSetHelper
+	OpsManagerStatefulSetHelper
 
 	HeadDbPersistenceConfig *mdbv1.PersistenceConfig
 }
@@ -198,7 +198,7 @@ func (k *KubeHelper) NewOpsManagerStatefulSetHelper(opsManager *mdbv1.MongoDBOps
 
 func (k *KubeHelper) NewBackupStatefulSetHelper(opsManager *mdbv1.MongoDBOpsManager) *BackupStatefulSetHelper {
 	helper := BackupStatefulSetHelper{
-		OpsManagerStatefulSetHelper: k.NewOpsManagerStatefulSetHelper(opsManager),
+		OpsManagerStatefulSetHelper: *k.NewOpsManagerStatefulSetHelper(opsManager),
 	}
 	helper.Name = opsManager.BackupStatefulSetName()
 	helper.Service = ""
