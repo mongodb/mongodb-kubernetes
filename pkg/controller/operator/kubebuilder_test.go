@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"os"
+	"reflect"
 	"sort"
 	"testing"
 	"time"
@@ -18,6 +19,108 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+func assertContainersEqualBarResources(t *testing.T, self corev1.Container, other corev1.Container) {
+	// Copied fields from k8s.io/api/core/v1/types.go
+	assert.Equal(t, self.Name, other.Name)
+	assert.Equal(t, self.Image, other.Image)
+	assert.True(t, reflect.DeepEqual(self.Command, other.Command))
+	assert.True(t, reflect.DeepEqual(self.Args, other.Args))
+	assert.Equal(t, self.WorkingDir, other.WorkingDir)
+	assert.True(t, reflect.DeepEqual(self.Ports, other.Ports))
+	assert.True(t, reflect.DeepEqual(self.EnvFrom, other.EnvFrom))
+	assert.True(t, reflect.DeepEqual(self.Env, other.Env))
+	// skip Resources
+	// assert.True(t, reflect.DeepEqual(self.Resources, other.Resources))
+	assert.True(t, reflect.DeepEqual(self.VolumeMounts, other.VolumeMounts))
+	assert.True(t, reflect.DeepEqual(self.VolumeDevices, other.VolumeDevices))
+	assert.Equal(t, self.LivenessProbe, other.LivenessProbe)
+	assert.Equal(t, self.ReadinessProbe, other.ReadinessProbe)
+	assert.Equal(t, self.Lifecycle, other.Lifecycle)
+	assert.Equal(t, self.TerminationMessagePath, other.TerminationMessagePath)
+	assert.Equal(t, self.TerminationMessagePolicy, other.TerminationMessagePolicy)
+	assert.Equal(t, self.ImagePullPolicy, other.ImagePullPolicy)
+	assert.Equal(t, self.SecurityContext, other.SecurityContext)
+	assert.Equal(t, self.Stdin, other.Stdin)
+	assert.Equal(t, self.StdinOnce, other.StdinOnce)
+	assert.Equal(t, self.TTY, other.TTY)
+}
+
+func TestGetMergedDefaultPodSpecTemplate(t *testing.T) {
+	var err error
+
+	sts := defaultSetHelper()
+	assert.NoError(t, err)
+
+	container := newMongoDBContainer(defaultPodVars())
+	dbPodSpecTemplate, err := getDatabasePodTemplate(*sts, nil, "service-account", container)
+	assert.NoError(t, err)
+
+	var mergedPodSpecTemplate corev1.PodTemplateSpec
+
+	// nothing to merge
+	mergedPodSpecTemplate, err = getMergedDefaultPodSpecTemplate(dbPodSpecTemplate, &corev1.PodTemplateSpec{})
+	assert.NoError(t, err)
+	assert.Equal(t, mergedPodSpecTemplate, dbPodSpecTemplate)
+	assert.Len(t, mergedPodSpecTemplate.Spec.Containers, 1)
+	assertContainersEqualBarResources(t, mergedPodSpecTemplate.Spec.Containers[0], container)
+
+	extraContainer := corev1.Container{
+		Name:  "extra-container",
+		Image: "container-image",
+	}
+	newPodSpecTemplate := corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{extraContainer},
+		},
+	}
+
+	// with a side car container
+	mergedPodSpecTemplate, err = getMergedDefaultPodSpecTemplate(dbPodSpecTemplate, &newPodSpecTemplate)
+	assert.NoError(t, err)
+	assert.Len(t, mergedPodSpecTemplate.Spec.Containers, 2)
+	assertContainersEqualBarResources(t, mergedPodSpecTemplate.Spec.Containers[0], container)
+	assertContainersEqualBarResources(t, mergedPodSpecTemplate.Spec.Containers[1], extraContainer)
+}
+
+func TestApplyPodSpec(t *testing.T) {
+	var err error
+
+	sts := defaultSetHelper()
+	container := newMongoDBContainer(defaultPodVars())
+	template, err := getDatabasePodTemplate(*sts, nil, "service-account", container)
+	assert.NoError(t, err)
+	emptyPodSpecWrapper := mdbv1.NewEmptyPodSpecWrapperBuilder().Build()
+
+	var result corev1.PodTemplateSpec
+	// merge with empty is giving back the original template
+	result, err = applyPodSpec(&template, emptyPodSpecWrapper, "sts-name")
+	assert.NoError(t, err)
+	assert.Equal(t, result, template)
+
+	extraContainer := corev1.Container{
+		Name:  "my-custom-container",
+		Image: "my-custom-image",
+		VolumeMounts: []corev1.VolumeMount{{
+			Name: "my-volume-mount",
+		}},
+	}
+	newPodSpecWrapper := mdbv1.NewEmptyPodSpecWrapperBuilder().SetPodTemplate(&corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{
+			NodeName:      "some-node-name",
+			Hostname:      "some-host-name",
+			Containers:    []corev1.Container{extraContainer},
+			RestartPolicy: corev1.RestartPolicyAlways,
+		},
+	}).Build()
+
+	// merge should get 2 containers
+	result, err = applyPodSpec(&template, newPodSpecWrapper, "sts-name")
+	assert.NoError(t, err)
+	assert.Len(t, result.Spec.Containers, 2)
+	assertContainersEqualBarResources(t, result.Spec.Containers[0], container)
+	assertContainersEqualBarResources(t, result.Spec.Containers[1], extraContainer)
+}
 
 func TestBuildStatefulSet_PersistentFlag(t *testing.T) {
 	set, _ := defaultSetHelper().SetPersistence(nil).BuildStatefulSet()
