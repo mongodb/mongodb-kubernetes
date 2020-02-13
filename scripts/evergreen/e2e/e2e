@@ -97,6 +97,12 @@ dump_all
 if [[ "${TEST_RESULTS}" -ne 0 ]]; then
     # Mark namespace as failed to be cleaned later
     kubectl label "namespace/${PROJECT_NAMESPACE}" "evg/state=failed" --overwrite=true
+
+    if [ "${always_remove_testing_namespace-}" = "true" ]; then
+        # Failed namespaces might cascade into more failures if the namespaces
+        # are not being removed soon enough.
+        scripts/evergreen/e2e/teardown
+    fi
 else
     # If the test pass, then the namespace is removed
     scripts/evergreen/e2e/teardown

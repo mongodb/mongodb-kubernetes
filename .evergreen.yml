@@ -166,12 +166,16 @@ functions:
         bucket: operator-e2e-artifacts
         permissions: public-read
         content_type: text/plain
-    - command: subprocess.exec
-      params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
-        # Logs need to be removed after each task run or they will be pushed
-        # again after next task.
-        command: rm -rf logs/*
+
+  # cleanup_exec_environment is a very generic name when the only thing this function
+  # does is to clean the logs directory. In the future, more "commands" can be
+  # added to it with more clearning features, when needed.
+  cleanup_exec_environment:
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      command: "rm -rf logs/"
 
   # push the latest build of the operator to s3 for the RH build-service to be able to build the RHEL image.
   push_operator_binary_for_rhel:
@@ -1492,6 +1496,7 @@ task_groups:
     - func: clone
     - func: download_kube_tools
   setup_task:
+    - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
   tasks:
@@ -1524,6 +1529,7 @@ task_groups:
     - func: clone
     - func: download_kube_tools
   setup_task:
+    - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
   tasks:
@@ -1557,6 +1563,7 @@ task_groups:
     - func: clone
     - func: download_kube_tools
   setup_task:
+    - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
   tasks:
@@ -1581,6 +1588,7 @@ task_groups:
     - func: clone
     - func: download_kube_tools
   setup_task:
+    - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
   tasks:
@@ -1606,6 +1614,7 @@ task_groups:
     - func: clone
     - func: download_kube_tools
   setup_task:
+    - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
   tasks:
@@ -1624,6 +1633,7 @@ task_groups:
     - func: clone
     - func: download_kube_tools
   setup_task:
+    - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
   tasks:
@@ -1643,6 +1653,7 @@ task_groups:
     - func: clone
     - func: download_kube_tools
   setup_task:
+    - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
   tasks:
@@ -1666,6 +1677,34 @@ task_groups:
     - func: clone
     - func: download_kube_tools
   setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
+  tasks:
+    - e2e_om_appdb_scale_up_down
+    - e2e_om_appdb_upgrade
+    - e2e_om_appdb_validation
+    - e2e_om_appdb_scram
+    - e2e_om_ops_manager_backup
+    - e2e_om_ops_manager_scale
+    - e2e_om_ops_manager_upgrade
+    - e2e_om_external_connectivity
+    - e2e_op_upgrade_om
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+    - func: teardown_cloud_qa
+
+# This task is identical to e2e_ops_manager_task_group, with the exception that
+# it will run 1 host at a time, not more. In Openshift cluster (shared) this means
+# that the Ops Manager tests will not leave the cluster unusable.
+- name: e2e_ops_manager_task_group_single
+  max_hosts: 1
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+  setup_task:
+    - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
   tasks:
@@ -1746,6 +1785,7 @@ buildvariants:
     <<: *ops_manager_42_current
     <<: *kubernetes_environment_openshift_3
     image_type: rhel
+    always_remove_testing_namespace: "true"
   tasks:
     # Before adding the task / task_group to the current build variant check the comment on the previous one
     # ('e2e_kube_vanilla_om_42_current')
@@ -1770,6 +1810,7 @@ buildvariants:
     <<: *cloud_manager_qa
     <<: *kubernetes_environment_openshift_3
     image_type: rhel
+    always_remove_testing_namespace: "true"
   tasks:
   - name: "e2e_core_task_group"
   - name: "e2e_tls_task_group"
@@ -1798,8 +1839,9 @@ buildvariants:
     <<: *kubernetes_environment_vanilla
     test_mode: "opsmanager"
     image_type: ubuntu
+    always_remove_testing_namespace: "true"
   tasks:
-    - name: "e2e_ops_manager_task_group"
+    - name: e2e_ops_manager_task_group
 
 - name: e2e_openshift_origin_v3_ops_manager
   display_name: e2e_openshift_origin_v3_ops_manager
@@ -1822,8 +1864,9 @@ buildvariants:
     <<: *kubernetes_environment_openshift_3
     test_mode: opsmanager
     image_type: rhel
+    always_remove_testing_namespace: "true"
   tasks:
-    - name: "e2e_ops_manager_task_group"
+    - name: e2e_ops_manager_task_group_single
 
 - name: release_rh_connect
   display_name: release_rh_connect
