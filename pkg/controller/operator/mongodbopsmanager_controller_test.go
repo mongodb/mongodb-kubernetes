@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"testing"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
@@ -236,6 +237,7 @@ func (b *OpsManagerBuilder) BuildStatefulSet() (*appsv1.StatefulSet, error) {
 		SetPodVars(&PodVars{}). // TODO remove
 		SetClusterName(b.om.ClusterName).
 		SetVersion(b.om.Spec.Version).
+		SetContainerName(util.DatabaseContainerName).
 		BuildStatefulSet()
 }
 

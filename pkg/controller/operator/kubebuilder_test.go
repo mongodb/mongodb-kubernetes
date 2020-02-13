@@ -202,7 +202,8 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultipleDefaults(t *testing.T) {
 }
 
 func TestBuildAppDbStatefulSetDefault(t *testing.T) {
-	appDbSts, _ := defaultSetHelper().BuildAppDBStatefulSet()
+	appDbSts, err := defaultSetHelper().BuildAppDBStatefulSet()
+	assert.NoError(t, err)
 	podSpecTemplate := appDbSts.Spec.Template.Spec
 	assert.Len(t, podSpecTemplate.Containers, 1, "Should have only the db")
 	assert.Equal(t, "mongodb-enterprise-appdb", podSpecTemplate.Containers[0].Name, "Database container should always be first")

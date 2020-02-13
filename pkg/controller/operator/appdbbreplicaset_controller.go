@@ -62,7 +62,8 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *mdbv1.MongoDBOpsManager
 		SetLogger(log).
 		SetPodSpec(appdbPodSpec).
 		SetClusterName(opsManager.ClusterName).
-		SetVersion(opsManager.Spec.Version) // the version of the appdb image must match the OM image one
+		SetVersion(opsManager.Spec.Version). // the version of the appdb image must match the OM image one
+		SetContainerName(util.AppDbContainerName)
 
 	appDbSts, err := replicaBuilder.BuildAppDBStatefulSet()
 	if err != nil {

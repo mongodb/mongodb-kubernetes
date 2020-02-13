@@ -3,6 +3,7 @@ package operator
 // This is a collection of functions building different Kubernetes API objects (statefulset, templates etc) from operator
 // custom objects
 import (
+	sts "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 	"path"
 	"sort"
 	"strconv"
@@ -75,37 +76,39 @@ type PodVars struct {
 
 // createBaseDatabaseStatefulSet is a general function for building the database StatefulSet.
 // Reused for building an appdb StatefulSet and a normal mongodb StatefulSet
-func createBaseDatabaseStatefulSet(p StatefulSetHelper, podSpec corev1.PodTemplateSpec) *appsv1.StatefulSet {
+func createBaseDatabaseStatefulSet(p StatefulSetHelper, podSpec corev1.PodTemplateSpec) (*appsv1.StatefulSet, error) {
 	// ssLabels are labels we set to the StatefulSet
 	ssLabels := map[string]string{
 		AppLabelKey: p.Service,
 	}
-	set := &appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:            p.Name,
-			Namespace:       p.Namespace,
-			Labels:          ssLabels,
-			OwnerReferences: baseOwnerReference(p.Owner),
-		},
-		Spec: appsv1.StatefulSetSpec{
-			ServiceName: p.Service,
-			Replicas:    util.Int32Ref(int32(p.Replicas)),
-			Selector: &metav1.LabelSelector{
-				MatchLabels: podSpec.Labels,
-			},
-			Template: podSpec,
-		},
-	}
-	// If 'persistent' flag is not set - we consider it to be true
+
+	set := sts.Builder().
+		SetLabels(ssLabels).
+		SetName(p.Name).
+		SetNamespace(p.Namespace).
+		SetOwnerReference(baseOwnerReference(p.Owner)).
+		SetReplicas(util.Int32Ref(int32(p.Replicas))).
+		SetPodTemplateSpec(podSpec).
+		SetMatchLabels(podSpec.Labels).
+		SetServiceName(p.Service).
+		Build()
+
+	var claims []corev1.PersistentVolumeClaim
+	var mounts []corev1.VolumeMount
 	if p.Persistent == nil || *p.Persistent {
-		buildPersistentVolumeClaims(set, p)
+		claims, mounts = buildPersistentVolumeClaims(p)
+		if err := sts.AddVolumeClaimTemplates(&set, p.ContainerName, claims, mounts); err != nil {
+			return nil, err
+		}
 	}
 
-	mountVolumes(set, p)
+	if err := mountVolumes(&set, p); err != nil {
+		return nil, err
+	}
 
-	sortEnvVars(set)
+	sortEnvVars(&set)
 
-	return set
+	return &set, nil
 }
 
 func defaultPodLabels(stsHelper StatefulSetHelperCommon) map[string]string {
@@ -193,11 +196,11 @@ func applyPodSpec(podTemplate *corev1.PodTemplateSpec, podSpec *mdbv1.PodSpecWra
 }
 
 func newMongoDBContainer(podVars *PodVars) corev1.Container {
-	return newDbContainer(util.ContainerName, util.ReadEnvVarOrPanic(util.AutomationAgentImageUrl), baseEnvFrom(podVars), baseReadinessProbe())
+	return newDbContainer(util.DatabaseContainerName, util.ReadEnvVarOrPanic(util.AutomationAgentImageUrl), baseEnvFrom(podVars), baseReadinessProbe())
 }
 
 func newAppDBContainer(statefulSetName, appdbImageUrl string) corev1.Container {
-	return newDbContainer(util.ContainerAppDbName, appdbImageUrl, appdbContainerEnv(statefulSetName), baseAppDbReadinessProbe())
+	return newDbContainer(util.AppDbContainerName, appdbImageUrl, appdbContainerEnv(statefulSetName), baseAppDbReadinessProbe())
 }
 
 func newDbContainer(containerName, imageUrl string, envVars []corev1.EnvVar, readinessProbe *corev1.Probe) corev1.Container {
@@ -231,7 +234,7 @@ func buildStatefulSet(p StatefulSetHelper) (*appsv1.StatefulSet, error) {
 		return nil, err
 	}
 
-	return createBaseDatabaseStatefulSet(p, template), nil
+	return createBaseDatabaseStatefulSet(p, template)
 }
 
 // buildAppDbStatefulSet builds the StatefulSet for AppDB.
@@ -244,16 +247,23 @@ func buildAppDbStatefulSet(p StatefulSetHelper) (*appsv1.StatefulSet, error) {
 		return nil, err
 	}
 
-	set := createBaseDatabaseStatefulSet(p, template)
+
+	set, err := createBaseDatabaseStatefulSet(p, template)
+	if err != nil {
+		return nil, err
+	}
+
+	vmd := sts.VolumeMountData{
+		MountPath:  AgentLibPath,
+		Name:       ClusterConfigVolumeName,
+		SourceType: corev1.ConfigMapVolumeSource{},
+		SourceName: p.Name + "-config",
+	}
 
 	// cluster config mount
-	mountVolume(volumeMountData{
-		volumeMountName:  ClusterConfigVolumeName,
-		volumeMountPath:  AgentLibPath,
-		volumeName:       ClusterConfigVolumeName,
-		volumeSourceType: corev1.ConfigMapVolumeSource{},
-		volumeSourceName: p.Name + "-config",
-	}, set)
+	if err := sts.MountVolume(set, vmd, p.ContainerName); err != nil {
+		return nil, err
+	}
 	return set, nil
 }
 
@@ -262,39 +272,41 @@ func buildAppDbStatefulSet(p StatefulSetHelper) (*appsv1.StatefulSet, error) {
 // Dev note: it's ok to move the different parts to parameters (pod spec could be an example) as the functionality
 // evolves
 func createBaseOpsManagerStatefulSet(p OpsManagerStatefulSetHelper) (*appsv1.StatefulSet, error) {
-	labels := defaultPodLabels(p.StatefulSetHelperCommon)
+	labels := map[string]string{
+		AppLabelKey:             p.Service,
+		"controller":            util.OmControllerLabel,
+		PodAntiAffinityLabelKey: p.Name,
+	}
 
 	template, err := opsManagerPodTemplate(labels, p)
 	if err != nil {
 		return nil, err
 	}
-	set := &appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:            p.Name,
-			Namespace:       p.Namespace,
-			OwnerReferences: baseOwnerReference(p.Owner),
-		},
-		Spec: appsv1.StatefulSetSpec{
-			ServiceName: p.Service,
-			Replicas:    util.Int32Ref(int32(p.Replicas)),
-			Selector: &metav1.LabelSelector{
-				MatchLabels: labels,
-			},
-			Template: template,
-		},
+
+	set := sts.Builder().
+		SetLabels(labels).
+		SetName(p.Name).
+		SetNamespace(p.Namespace).
+		SetOwnerReference(baseOwnerReference(p.Owner)).
+		SetReplicas(util.Int32Ref(int32(p.Replicas))).
+		SetPodTemplateSpec(template).
+		SetMatchLabels(labels).
+		SetServiceName(p.Service).
+		Build()
+
+	mountData := sts.VolumeMountData{
+		Name:       "gen-key",
+		MountPath:  util.GenKeyPath,
+		SourceType: corev1.SecretVolumeSource{},
+		SourceName: p.Owner.GetName() + "-gen-key",
 	}
 
-	mountVolume(volumeMountData{
-		volumeMountName:  "gen-key",
-		volumeMountPath:  util.GenKeyPath,
-		volumeName:       "gen-key",
-		volumeSourceType: corev1.SecretVolumeSource{},
-		volumeSourceName: p.Owner.GetName() + "-gen-key",
-	}, set)
+	if err := sts.MountVolume(&set, mountData, util.OpsManagerName); err != nil {
+		return nil, err
+	}
+	sortEnvVars(&set)
 
-	sortEnvVars(set)
-
-	return set, nil
+	return &set, nil
 }
 
 // sortEnvVars sorts environment variables in the first container in StatefulSet (managed by the Operator)
@@ -341,120 +353,83 @@ func buildBackupDaemonStatefulSet(p BackupStatefulSetHelper) (*appsv1.StatefulSe
 	return set, nil
 }
 
-// volumeMountData is a wrapper around all the fields required to
-// mount a volume.
-type volumeMountData struct {
-	volumeMountName  string // TODO remove - it's always equal to the volume name
-	volumeMountPath  string
-	volumeName       string
-	volumeSourceType interface{}
-	volumeSourceName string
-}
-
-func mountVolume(mountData volumeMountData, set *appsv1.StatefulSet) {
-	volMount := corev1.VolumeMount{
-		Name:      mountData.volumeMountName,
-		ReadOnly:  true,
-		MountPath: mountData.volumeMountPath,
-	}
-
-	var vol corev1.Volume
-	switch mountData.volumeSourceType.(type) {
-	case corev1.ConfigMapVolumeSource:
-		vol = corev1.Volume{
-			Name: mountData.volumeName,
-			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: mountData.volumeSourceName,
-					},
-				},
-			},
-		}
-	case corev1.SecretVolumeSource:
-		vol = corev1.Volume{
-			Name: mountData.volumeName,
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName: mountData.volumeSourceName,
-				},
-			},
-		}
-	default:
-		panic("unrecognized volumeSource type. Must be either ConfigMapVolumeSource or SecretVolumeSource")
-	}
-
-	set.Spec.Template.Spec.Containers[0].VolumeMounts =
-		append(set.Spec.Template.Spec.Containers[0].VolumeMounts,
-			volMount)
-	set.Spec.Template.Spec.Volumes =
-		append(set.Spec.Template.Spec.Volumes,
-			vol)
-}
-
 // mountVolumes will add VolumeMounts to the `set` object.
 // Make sure you keep this updated with `kubehelper.needToPublishStateFirst` as it declares
 // in which order to make changes to StatefulSet and Ops Manager automationConfig
-func mountVolumes(set *appsv1.StatefulSet, helper StatefulSetHelper) {
+func mountVolumes(set *appsv1.StatefulSet, helper StatefulSetHelper) error {
 	// SSL is active
 	if helper.Security != nil && helper.Security.TLSConfig.Enabled {
 		tlsConfig := helper.Security.TLSConfig
 		secretName := fmt.Sprintf("%s-cert", helper.Name)
 
-		mountVolume(volumeMountData{
-			volumeMountName:  SecretVolumeName,
-			volumeMountPath:  SecretVolumeMountPath,
-			volumeName:       SecretVolumeName,
-			volumeSourceType: corev1.SecretVolumeSource{},
-			volumeSourceName: secretName,
-		}, set)
+		vmd := sts.VolumeMountData{
+			MountPath:  SecretVolumeMountPath,
+			Name:       SecretVolumeName,
+			SourceType: corev1.SecretVolumeSource{},
+			SourceName: secretName,
+		}
+
+		if err := sts.MountVolume(set, vmd, helper.ContainerName); err != nil {
+			return err
+		}
 
 		if tlsConfig.CA != "" {
-			mountVolume(volumeMountData{
-				volumeMountName:  SecretVolumeCAName,
-				volumeMountPath:  SecretVolumeCAMountPath,
-				volumeName:       SecretVolumeCAName,
-				volumeSourceType: corev1.ConfigMapVolumeSource{},
-				volumeSourceName: tlsConfig.CA,
-			}, set)
+			vmd := sts.VolumeMountData{
+				MountPath:  SecretVolumeCAMountPath,
+				Name:       SecretVolumeCAName,
+				SourceType: corev1.ConfigMapVolumeSource{},
+				SourceName: tlsConfig.CA,
+			}
+			if err := sts.MountVolume(set, vmd, helper.ContainerName); err != nil {
+				return err
+			}
 		}
 	}
 
 	if helper.PodVars.SSLMMSCAConfigMap != "" {
-		mountVolume(volumeMountData{
-			volumeMountName:  CaCertName,
-			volumeMountPath:  CaCertMountPath,
-			volumeName:       CaCertName,
-			volumeSourceType: corev1.ConfigMapVolumeSource{},
-			volumeSourceName: helper.PodVars.SSLMMSCAConfigMap,
-		}, set)
+		vmd := sts.VolumeMountData{
+			MountPath:  CaCertMountPath,
+			Name:       CaCertName,
+			SourceType: corev1.ConfigMapVolumeSource{},
+			SourceName: helper.PodVars.SSLMMSCAConfigMap,
+		}
+		if err := sts.MountVolume(set, vmd, helper.ContainerName); err != nil {
+			return err
+		}
 	}
 
 	if helper.Security != nil {
 		if helper.Security.Authentication.GetAgentMechanism() == util.X509 {
-			mountVolume(volumeMountData{
-				volumeMountName:  util.AgentSecretName,
-				volumeMountPath:  AgentCertMountPath,
-				volumeName:       util.AgentSecretName,
-				volumeSourceType: corev1.SecretVolumeSource{},
-				volumeSourceName: util.AgentSecretName,
-			}, set)
+			vmd := sts.VolumeMountData{
+				MountPath:  AgentCertMountPath,
+				Name:       util.AgentSecretName,
+				SourceType: corev1.SecretVolumeSource{},
+				SourceName: util.AgentSecretName,
+			}
+
+			if err := sts.MountVolume(set, vmd, helper.ContainerName); err != nil {
+				return err
+			}
 
 			// add volume for x509 cert used in internal cluster authentication
 			if helper.Security.Authentication.InternalCluster == util.X509 {
-				mountVolume(volumeMountData{
-					volumeMountName:  util.ClusterFileName,
-					volumeMountPath:  util.InternalClusterAuthMountPath,
-					volumeName:       util.ClusterFileName,
-					volumeSourceType: corev1.SecretVolumeSource{},
-					volumeSourceName: toInternalClusterAuthName(helper.Name),
-				}, set)
+				vmd := sts.VolumeMountData{
+					MountPath:  util.InternalClusterAuthMountPath,
+					Name:       util.ClusterFileName,
+					SourceType: corev1.SecretVolumeSource{},
+					SourceName: toInternalClusterAuthName(helper.Name),
+				}
+
+				if err := sts.MountVolume(set, vmd, helper.ContainerName); err != nil {
+					return err
+				}
 			}
 		}
 	}
+	return nil
 }
 
-func buildPersistentVolumeClaims(set *appsv1.StatefulSet, p StatefulSetHelper) {
+func buildPersistentVolumeClaims(p StatefulSetHelper) ([]corev1.PersistentVolumeClaim, []corev1.VolumeMount) {
 	var claims []corev1.PersistentVolumeClaim
 	var mounts []corev1.VolumeMount
 
@@ -475,9 +450,7 @@ func buildPersistentVolumeClaims(set *appsv1.StatefulSet, p StatefulSetHelper) {
 		// Multiple claims, multiple mounts. No subpaths are used and everything is mounted to the root of directory
 		claims, mounts = createClaimsAndMontsMultiMode(p, defaultConfig)
 	}
-
-	set.Spec.VolumeClaimTemplates = append(set.Spec.VolumeClaimTemplates, claims...)
-	set.Spec.Template.Spec.Containers[0].VolumeMounts = append(set.Spec.Template.Spec.Containers[0].VolumeMounts, mounts...)
+	return claims, mounts
 }
 
 // buildService creates the Kube Service. If it should be seen externally it makes it of type NodePort that will assign

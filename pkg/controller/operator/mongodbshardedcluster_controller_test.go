@@ -382,22 +382,22 @@ func TestShardedCustomPodSpecTemplate(t *testing.T) {
 
 	podSpecTemplateSc0 := statefulSetSc0.Spec.Template.Spec
 	assert.Len(t, podSpecTemplateSc0.Containers, 2, "Should have 2 containers now")
-	assert.Equal(t, util.ContainerName, podSpecTemplateSc0.Containers[0].Name, "Database container should always be first")
+	assert.Equal(t, util.DatabaseContainerName, podSpecTemplateSc0.Containers[0].Name, "Database container should always be first")
 	assert.Equal(t, "my-custom-container-sc", podSpecTemplateSc0.Containers[1].Name, "Custom container should be second")
 
 	podSpecTemplateSc1 := statefulSetSc1.Spec.Template.Spec
 	assert.Len(t, podSpecTemplateSc1.Containers, 2, "Should have 2 containers now")
-	assert.Equal(t, util.ContainerName, podSpecTemplateSc1.Containers[0].Name, "Database container should always be first")
+	assert.Equal(t, util.DatabaseContainerName, podSpecTemplateSc1.Containers[0].Name, "Database container should always be first")
 	assert.Equal(t, "my-custom-container-sc", podSpecTemplateSc1.Containers[1].Name, "Custom container should be second")
 
 	podSpecTemplateMongoS := statefulSetMongoS.Spec.Template.Spec
 	assert.Len(t, podSpecTemplateMongoS.Containers, 2, "Should have 2 containers now")
-	assert.Equal(t, util.ContainerName, podSpecTemplateMongoS.Containers[0].Name, "Database container should always be first")
+	assert.Equal(t, util.DatabaseContainerName, podSpecTemplateMongoS.Containers[0].Name, "Database container should always be first")
 	assert.Equal(t, "my-custom-container-mongos", podSpecTemplateMongoS.Containers[1].Name, "Custom container should be second")
 
 	podSpecTemplateScConfig := statefulSetScConfig.Spec.Template.Spec
 	assert.Len(t, podSpecTemplateScConfig.Containers, 2, "Should have 2 containers now")
-	assert.Equal(t, util.ContainerName, podSpecTemplateScConfig.Containers[0].Name, "Database container should always be first")
+	assert.Equal(t, util.DatabaseContainerName, podSpecTemplateScConfig.Containers[0].Name, "Database container should always be first")
 	assert.Equal(t, "my-custom-container-config", podSpecTemplateScConfig.Containers[1].Name, "Custom container should be second")
 }
 
@@ -420,7 +420,7 @@ func assertPodSpecTemplate(t *testing.T, nodeName, hostName, volumeName string, 
 	assert.Equal(t, hostName, podSpecTemplate.Hostname)
 	assert.Equal(t, restartPolicy, podSpecTemplate.RestartPolicy)
 
-	assert.Equal(t, util.ContainerName, podSpecTemplate.Containers[0].Name, "Database container should always be first")
+	assert.Equal(t, util.DatabaseContainerName, podSpecTemplate.Containers[0].Name, "Database container should always be first")
 	assert.Equal(t, volumeName, podSpecTemplate.Containers[0].VolumeMounts[0].Name, "Operator mounted volume should be present, not custom volume")
 }
 

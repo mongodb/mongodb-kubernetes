@@ -56,6 +56,7 @@ type StatefulSetHelperCommon struct {
 	Replicas      int
 	ServicePort   int32
 	Version       string
+	ContainerName string
 	PodSpec       *mdbv1.PodSpecWrapper
 
 	// Not part of StatefulSet object
@@ -148,11 +149,14 @@ type ShardedClusterKubeState struct {
 // can be either 'MongoDB' or 'MongoDBOpsManager' - in the latter case the configuration for AppDB is used.
 // We pass the 'MongoDBOpsManager' instead of 'AppDB' as the former is the owner of the object - no AppDB CR exists
 func (k *KubeHelper) NewStatefulSetHelper(obj Updatable) *StatefulSetHelper {
+	var containerName string
 	var mongodbSpec mdbv1.MongoDbSpec
 	switch v := obj.(type) {
 	case *mdbv1.MongoDB:
+		containerName = util.DatabaseContainerName
 		mongodbSpec = v.Spec
 	case *mdbv1.MongoDBOpsManager:
+		containerName = util.OpsManagerName
 		mongodbSpec = v.Spec.AppDB.MongoDbSpec
 	default:
 		panic("Wrong type provided, only MongoDB or AppDB are expected!")
@@ -160,6 +164,7 @@ func (k *KubeHelper) NewStatefulSetHelper(obj Updatable) *StatefulSetHelper {
 
 	return &StatefulSetHelper{
 		StatefulSetHelperCommon: StatefulSetHelperCommon{
+			ContainerName: containerName,
 			Owner:         obj,
 			Name:          obj.GetName(),
 			Namespace:     obj.GetNamespace(),
@@ -293,11 +298,17 @@ func (s *StatefulSetHelper) SetVersion(version string) *StatefulSetHelper {
 	return s
 }
 
+func (s *StatefulSetHelper) SetContainerName(containerName string) *StatefulSetHelper {
+	s.ContainerName = containerName
+	return s
+}
+
 func (s *StatefulSetHelper) BuildStatefulSet() (*appsv1.StatefulSet, error) {
 	return buildStatefulSet(*s)
 }
 
 func (s *StatefulSetHelper) BuildAppDBStatefulSet() (*appsv1.StatefulSet, error) {
+	s.SetContainerName(util.AppDbContainerName)
 	return buildAppDbStatefulSet(*s)
 }
 
