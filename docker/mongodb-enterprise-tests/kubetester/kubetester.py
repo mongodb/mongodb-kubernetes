@@ -1120,6 +1120,7 @@ class KubernetesTester(object):
 
     def yield_existing_csrs(self, csr_names, timeout=300):
         """Returns certificates as they start appearing in the Kubernetes API."""
+        csr_names = csr_names.copy()
         total_csrs = len(csr_names)
         seen_csrs = 0
         stop_time = time.time() + timeout
