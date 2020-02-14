@@ -19,10 +19,12 @@ variables:
   - &cloud_manager_qa
     ops_manager_version: "cloud_qa"
 
-    # Openshift v3 Testing Environment
-  - &kubernetes_environment_openshift_3
-    kube_environment_name: openshift_3
+    # Openshift v4 Testing Environment
+  - &kubernetes_environment_openshift_4
+    kube_environment_name: openshift_4
+    ecr_registry_needs_auth: ecr-registry
     managed_security_context: "true"
+    always_remove_testing_namespace: "true"
 
     # Kops Vanilla Kubernetes
   - &kubernetes_environment_vanilla
@@ -557,6 +559,11 @@ functions:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         add_to_path:
           - ${workdir}/bin
+        include_expansions_in_env:
+          - kube_environment_name
+          - ecr_registry_needs_auth
+          - ecr_registry
+          - always_remove_testing_namespace
         env:
           OPERATOR_VERSION: ${version_id}
           REGISTRY: ${ecr_registry}/dev/${image_type}
@@ -951,20 +958,6 @@ tasks:
   - func: build_and_push_om_test_images_the_rest
     vars:
       cluster_type: "kops"
-
-- name: prepare_cluster_openshift_3
-  exec_timeout_secs: 1200
-  priority: 59
-  commands:
-    - func: clone
-    - func: setup_aws
-    - func: download_kube_tools
-    - func: setup_kubernetes_environment
-      vars:
-        <<: *kubernetes_environment_openshift_3
-    - func: prepare_test_env
-      vars:
-        <<: *ops_manager_42_current
 
 - name: prepare_cluster_vanilla
   exec_timeout_secs: 1200
@@ -1595,13 +1588,28 @@ task_groups:
     - e2e_replica_set_scram_sha_256_user_connectivity
     - e2e_replica_set_scram_sha_1_user_connectivity
     - e2e_replica_set_scram_sha_1_upgrade
-    - e2e_replica_set_x509_to_scram_transition
-    - e2e_replica_set_scram_sha_and_x509
     - e2e_sharded_cluster_scram_sha_1_upgrade
-    - e2e_sharded_cluster_x509_to_scram_transition
     - e2e_sharded_cluster_scram_sha_256_user_connectivity
     - e2e_sharded_cluster_scram_sha_1_user_connectivity
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+    - func: teardown_cloud_qa
+
+- name: e2e_auth_transitions_task_group
+  max_hosts: 3
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
+  tasks:
+    - e2e_replica_set_scram_sha_and_x509
+    - e2e_replica_set_x509_to_scram_transition
     - e2e_sharded_cluster_scram_sha_and_x509
+    - e2e_sharded_cluster_x509_to_scram_transition
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -1767,56 +1775,26 @@ buildvariants:
   - name: "e2e_om_4_2_plus_only_task_group"
   - name: "e2e_tls_task_group"
   - name: "e2e_scram_sha_task_group"
+  - name: "e2e_auth_transitions_task_group"
   - name: "e2e_x509_task_group"
 
-- name: e2e_openshift_origin_v3_om_42_current
-  display_name: "e2e_openshift_origin_v3_om_42_current"
+- name: e2e_openshift4_cloud_qa
+  display_name: e2e_openshift4_cloud_qa
   depends_on:
     - name: build_images_rhel
       variant: init_test_run
     - name: build_test_image
-      variant: init_test_run
-    - name: prepare_cluster_openshift_3
-      variant: init_test_run
-  run_on:
-  - archlinux-test
-  stepback: false
-  expansions:
-    <<: *ops_manager_42_current
-    <<: *kubernetes_environment_openshift_3
-    image_type: rhel
-    always_remove_testing_namespace: "true"
-  tasks:
-    # Before adding the task / task_group to the current build variant check the comment on the previous one
-    # ('e2e_kube_vanilla_om_42_current')
-  - name: "e2e_kube_only_task_group"
-  - name: "e2e_om_4_2_plus_only_task_group"
-  - name: "e2e_core_task_group"
-  - name: "e2e_tls_custom_ca_task_group"
-
-- name: e2e_openshift_cloud_qa
-  display_name: "e2e_openshift_cloud_qa"
-  depends_on:
-    - name: build_images_rhel
-      variant: init_test_run
-    - name: build_test_image
-      variant: init_test_run
-    - name:  prepare_cluster_openshift_3
       variant: init_test_run
   run_on:
   - archlinux-test
   stepback: false
   expansions:
     <<: *cloud_manager_qa
-    <<: *kubernetes_environment_openshift_3
+    <<: *kubernetes_environment_openshift_4
     image_type: rhel
-    always_remove_testing_namespace: "true"
   tasks:
-  - name: "e2e_core_task_group"
-  - name: "e2e_tls_task_group"
-  - name: "e2e_x509_task_group"
-  - name: "e2e_tls_custom_ca_task_group"
-  - name: "e2e_scram_sha_task_group"
+  - name: e2e_kube_only_task_group
+  - name: e2e_scram_sha_task_group
 
 - name: e2e_kube_vanilla_ops_manager
   display_name: "e2e_kube_vanilla_ops_manager"
@@ -1843,8 +1821,8 @@ buildvariants:
   tasks:
     - name: e2e_ops_manager_task_group
 
-- name: e2e_openshift_origin_v3_ops_manager
-  display_name: e2e_openshift_origin_v3_ops_manager
+- name: e2e_openshift4_ops_manager
+  display_name: e2e_openshift4_ops_manager
   depends_on:
     - name: build_images_rhel
       variant: init_test_run
@@ -1854,14 +1832,11 @@ buildvariants:
       variant: init_test_run
     - name: build_om_images_rhel_the_rest
       variant: init_test_run
-    - name: prepare_cluster_openshift_3
-      variant: init_test_run
   run_on:
     - archlinux-test
   stepback: false
   expansions:
-    <<: *ops_manager_42_current
-    <<: *kubernetes_environment_openshift_3
+    <<: *kubernetes_environment_openshift_4
     test_mode: opsmanager
     image_type: rhel
     always_remove_testing_namespace: "true"
@@ -1932,7 +1907,6 @@ buildvariants:
   - name: build_om_images_ubuntu_the_rest
   - name: build_om_images_rhel
   - name: build_om_images_rhel_the_rest
-  - name: prepare_cluster_openshift_3
   - name: prepare_cluster_vanilla
   - name: prepare_cluster_vanilla_om
 
@@ -2003,3 +1977,4 @@ buildvariants:
   - name: e2e_om_4_2_plus_only_task_group
   - name: e2e_x509_task_group
   - name: e2e_scram_sha_task_group
+  - name: e2e_auth_transitions_task_group

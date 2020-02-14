@@ -294,21 +294,28 @@ deploy_operator() {
     check_app "timeout" "coreutils is not installed, call \"brew install coreutils\""
 
     tmp_file=$(mktemp)
-    helm template public/helm_chart \
-         --set registry.repository="${url}" \
-         --set registry.pullPolicy="${pull_policy}" \
-         --set operator.env=dev \
-         --set operator.version="${version}" \
-         --set operator.watchNamespace="${watch_namespace}" \
-         --set operator.name="${OPERATOR_NAME:=mongodb-enterprise-operator}" \
-         --set database.name="${DATABASE_NAME:=mongodb-enterprise-database}" \
-         --set opsManager.name="${OPS_MANAGER_NAME:=mongodb-enterprise-ops-manager}" \
-         --set appDb.name="${APPDB_NAME:=mongodb-enterprise-appdb}" \
-         --set namespace="${ns}" \
-         --set managedSecurityContext="${managed_security_context}" \
-         --set debug="${DEBUG-}" \
-         --set debugPort="${DEBUG_PORT:-30042}" \
-         > "${tmp_file}"
+
+    helm_params=(
+         "--set" "registry.repository=${url}"
+         "--set" "registry.pullPolicy=${pull_policy}"
+         "--set" "operator.env=dev"
+         "--set" "operator.version=${version}"
+         "--set" "operator.watchNamespace=${watch_namespace}"
+         "--set" "operator.name=${OPERATOR_NAME:=mongodb-enterprise-operator}"
+         "--set" "database.name=${DATABASE_NAME:=mongodb-enterprise-database}"
+         "--set" "opsManager.name=${OPS_MANAGER_NAME:=mongodb-enterprise-ops-manager}"
+         "--set" "appDb.name=${APPDB_NAME:=mongodb-enterprise-appdb}"
+         "--set" "namespace=${ns}"
+         "--set" "managedSecurityContext=${managed_security_context}"
+         "--set" "debug=${DEBUG-}"
+         "--set" "debugPort=${DEBUG_PORT:-30042}"
+    )
+
+    if [[ -n "${ecr_registry_needs_auth}" ]]; then
+        echo "Configuring imagePullSecrets to ${ecr_registry_needs_auth}"
+        helm_params+=("--set" "registry.imagePullSecrets=${ecr_registry_needs_auth}")
+    fi
+    helm template public/helm_chart "${helm_params[@]}"> "${tmp_file}"
 
     echo "Deploying Operator"
     kubectl apply -f "${tmp_file}"
@@ -330,7 +337,7 @@ deploy_operator() {
         kubectl -n "${ns}" get pods -l "app=${OPERATOR_NAME}" -o yaml
 
         title "Operator failed to start, exiting"
-        exit 1
+        return 1
     fi
     echo ""
 

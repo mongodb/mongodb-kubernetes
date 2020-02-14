@@ -1119,26 +1119,26 @@ class KubernetesTester(object):
         self.storage_class_make_not_default("standard")
 
     def yield_existing_csrs(self, csr_names, timeout=300):
-        csr_names = csr_names.copy()
+        """Returns certificates as they start appearing in the Kubernetes API."""
         total_csrs = len(csr_names)
         seen_csrs = 0
         stop_time = time.time() + timeout
 
-        while time.time() < stop_time:
-            for idx, csr_name in enumerate(csr_names):
-                try:
-                    self.clients(
-                        "certificates"
-                    ).read_certificate_signing_request_status(csr_name)
-                    # The certificate exists
-                    seen_csrs += 1
-                    yield csr_names.pop(idx)
-                    if seen_csrs == total_csrs:
-                        return  # we are done yielding all results
-                    break
+        while len(csr_names) > 0 and time.time() < stop_time:
+            csr = random.choice(csr_names)
+            try:
+                client.CertificatesV1beta1Api().read_certificate_signing_request_status(csr)
+            except ApiException:
+                time.sleep(3)
+                continue
 
-                except ApiException:
-                    time.sleep(0.5)
+            seen_csrs += 1
+            csr_names.remove(csr)
+            yield csr
+
+        if len(csr_names) == 0:
+            # All the certificates have been "consumed" and yielded back to the user.
+            return
 
         # we didn't find all of the expected csrs after the timeout period
         raise AssertionError(

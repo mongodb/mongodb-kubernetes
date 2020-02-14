@@ -24,6 +24,7 @@ dump_all () {
     # 1. Dump diagnostic information
     # gathers the information about K8s objects and writes it to the file which will be attached to Evergreen job
     mkdir -p logs
+
     dump_file="logs/diagnostics.txt"
 
     {

@@ -19,12 +19,16 @@ class MongoTester:
     """ MongoTester is a general abstraction to work with mongo database. It incapsulates the client created in
     the constructor. All general methods non-specific to types of mongodb topologies should reside here. """
 
-    def __init__(self, connection_string: str, ssl: bool):
+    def __init__(self, connection_string: str, use_ssl: bool, insecure=True):
         # SSL is set to true by default if using mongodb+srv, it needs to be explicitely set to false
         # https://docs.mongodb.com/manual/reference/program/mongo/index.html#cmdoption-mongo-host
-        options = {"ssl": ssl}
-        if ssl:
-            options["ssl_ca_certs"] = kubetester.SSL_CA_CERT
+        options = {"ssl": use_ssl}
+
+        if use_ssl:
+            if insecure:
+                options["ssl_cert_reqs"] = ssl.CERT_NONE
+            else:
+                options["ssl_ca_certs"] = kubetester.SSL_CA_CERT
 
         self.cnx_string = connection_string
         self.client = pymongo.MongoClient(connection_string, **options)

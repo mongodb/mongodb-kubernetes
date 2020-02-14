@@ -7,7 +7,7 @@ if [[ "${kube_environment_name=}" != "kind" ]]; then
   exit 0
 fi
 
-if docker info 2>/dev/null | grep "Docker Root Dir"| grep -q "/var/lib/docker"; then
+if docker info 2>/dev/null | grep "Docker Root Dir" | grep -q "/var/lib/docker"; then
   # we need to reconfigure Docker so its image storage points to a
   # directory with enough space, in this case /data
   echo "Trying with /etc/docker/daemon.json file"

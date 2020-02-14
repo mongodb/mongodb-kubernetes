@@ -19,6 +19,20 @@ else
   BASE_URL="http://ops-manager.${OPS_MANAGER_NAMESPACE:-}.svc.cluster.local:8080"
 fi
 
+if [[ -n "${ecr_registry_needs_auth}" ]]; then
+  # Need to configure ECR Pull Secrets!
+  docker_config=$(mktemp)
+  scripts/dev/configure_docker "${ecr_registry}" > "${docker_config}"
+
+  echo "Creating pull secret from docker configured file"
+  oc -n "${PROJECT_NAMESPACE}" create secret generic "${ecr_registry_needs_auth}" \
+    --from-file=.dockerconfigjson="${docker_config}" --type=kubernetes.io/dockerconfigjson
+  rm "${docker_config}"
+
+else
+  echo "ECR registry authentication not manually configured"
+fi
+
 # delete `my-project` if it exists
 ! kubectl --namespace "${PROJECT_NAMESPACE}" get configmaps | grep -q my-project \
     || kubectl --namespace "${PROJECT_NAMESPACE}" delete configmap my-project

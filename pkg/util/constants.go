@@ -147,7 +147,7 @@ const (
 	OpsManagerPullPolicy           = "OPS_MANAGER_IMAGE_PULL_POLICY"
 	AutomationAgentImageUrl        = "MONGODB_ENTERPRISE_DATABASE_IMAGE"
 	AutomationAgentImagePullPolicy = "IMAGE_PULL_POLICY"
-	AutomationAgentPullSecrets     = "IMAGE_PULL_SECRETS"
+	ImagePullSecrets               = "IMAGE_PULL_SECRETS"
 	OmOperatorEnv                  = "OPERATOR_ENV"
 	BackupDisableWaitSecondsEnv    = "BACKUP_WAIT_SEC"
 	BackupDisableWaitRetriesEnv    = "BACKUP_WAIT_RETRIES"

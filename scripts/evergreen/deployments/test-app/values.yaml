@@ -2,7 +2,6 @@ namespace: ${PROJECT_NAMESPACE}
 registry:
   repository: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
   pullPolicy: Always
-  imagePullSecrets:
 operator:
   name: mongodb-enterprise-operator
   version: ${REVISION}
@@ -26,3 +25,7 @@ pytest:
   addopts: ""
 
 skipExecution: 'false'
+
+# Set this when the ECR registry is not accessible from the testing cluster.
+# A Secret with type kubernetes.io/dockerconfigjson needs to exist.
+imagePullSecrets:

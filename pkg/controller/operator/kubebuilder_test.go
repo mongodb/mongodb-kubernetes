@@ -297,7 +297,7 @@ func TestBasePodSpec_ImagePullSecrets(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Nil(t, template.Spec.ImagePullSecrets)
 
-	_ = os.Setenv(util.AutomationAgentPullSecrets, "foo")
+	_ = os.Setenv(util.ImagePullSecrets, "foo")
 
 	template, err = getDatabasePodTemplate(*defaultSetHelper(), map[string]string{}, "", corev1.Container{})
 	assert.NoError(t, err)
@@ -530,6 +530,23 @@ func TestOpsManagerPodTemplate_Container(t *testing.T) {
 	assert.Equal(t, int32(util.OpsManagerDefaultPort), container.Ports[0].ContainerPort)
 	assert.Equal(t, "/monitor/health", container.ReadinessProbe.Handler.HTTPGet.Path)
 	assert.Equal(t, int32(8080), container.ReadinessProbe.Handler.HTTPGet.Port.IntVal)
+}
+
+func TestOpsManagerPodTemplate_ImagePullPolicy(t *testing.T) {
+	defer InitDefaultEnvVariables()
+	podSpecTemplate, err := opsManagerPodTemplate(map[string]string{}, *testDefaultOMSetHelper())
+	assert.NoError(t, err)
+	spec := podSpecTemplate.Spec
+
+	assert.Nil(t, spec.ImagePullSecrets)
+
+	os.Setenv(util.ImagePullSecrets, "my-cool-secret")
+	podSpecTemplate, err = opsManagerPodTemplate(map[string]string{}, *testDefaultOMSetHelper())
+	spec = podSpecTemplate.Spec
+	assert.NoError(t, err)
+
+	assert.NotNil(t, spec.ImagePullSecrets)
+	assert.Equal(t, spec.ImagePullSecrets[0].Name, "my-cool-secret")
 }
 
 // TestOpsManagerPodTemplate_SecurityContext verifies that security context is created correctly

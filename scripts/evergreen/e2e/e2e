@@ -75,7 +75,11 @@ fi
 # the Operator won't be removed - only upgraded
 export REVISION="${OPERATOR_VERSION}"
 
-scripts/evergreen/e2e/deploy_operator
+if ! scripts/evergreen/e2e/deploy_operator; then
+    echo "Operator failed to start"
+    exit 1
+fi
+
 
 # We'll have the task running for the allocated time, minus the time it took us
 # to get all the way here, assuming configuring and deploying the operator can

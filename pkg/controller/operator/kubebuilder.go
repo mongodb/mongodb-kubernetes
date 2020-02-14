@@ -149,7 +149,7 @@ func getDatabasePodTemplate(stsHelper StatefulSetHelper,
 	templateSpec.ObjectMeta.Labels = podLabels
 	templateSpec.Annotations = annotations
 
-	if val, found := util.ReadEnv(util.AutomationAgentPullSecrets); found {
+	if val, found := util.ReadEnv(util.ImagePullSecrets); found {
 		templateSpec.Spec.ImagePullSecrets = append(templateSpec.Spec.ImagePullSecrets, corev1.LocalObjectReference{
 			Name: val,
 		})
@@ -602,7 +602,11 @@ func opsManagerPodTemplate(labels map[string]string, stsHelper OpsManagerStatefu
 		}}
 
 	ensurePodSecurityContext(&templateSpec.Spec)
-
+	if val, found := util.ReadEnv(util.ImagePullSecrets); found {
+		templateSpec.Spec.ImagePullSecrets = append(templateSpec.Spec.ImagePullSecrets, corev1.LocalObjectReference{
+			Name: val,
+		})
+	}
 	return applyPodSpec(templateSpec, stsHelper.PodSpec, stsHelper.Name)
 }
 

@@ -33,6 +33,11 @@ spec:
   restartPolicy: Never
   terminationGracePeriodSeconds: 0
 
+{{- if .Values.imagePullSecrets}}
+  imagePullSecrets:
+  - name: {{ .Values.imagePullSecrets }}
+{{- end }}
+
   containers:
   - name: mongodb-enterprise-operator-tests
     env:
