@@ -29,16 +29,11 @@ EXPOSE 8080
 {% block licenses %}
 {% endblock %}
 
-RUN mkdir -p /opt/scripts
-COPY scripts /opt/scripts/
-
 {% block static %}
 RUN curl --fail -L -o ops_manager.tar.gz "${OM_DOWNLOAD_LINK}" \
     && tar -xzf ops_manager.tar.gz \
     && rm ops_manager.tar.gz \
-    && mv mongodb-mms-* "${MMS_HOME}" \
-    && /opt/scripts/remove-unused-agents.sh ${MMS_HOME}/agent \
-    && rm /opt/scripts/remove-unused-agents.sh
+    && mv mongodb-mms-* "${MMS_HOME}"
 {% endblock %}
 
 # permissions
@@ -47,6 +42,9 @@ RUN chmod -R 0775 "${MMS_LOG_DIR}" \
     && chmod -R 0775 "${MMS_HOME}/tmp" \
     && mkdir "${MMS_HOME}/mongodb-releases/" \
     && chmod -R 0775 "${MMS_HOME}/mongodb-releases"
+
+RUN mkdir -p /opt/scripts
+COPY scripts /opt/scripts/
 
 {% block user %}
 USER 2000
