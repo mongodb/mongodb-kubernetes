@@ -11,7 +11,7 @@ spec:
   credentials: my-credentials
   logLevel: DEBUG
 
-  persistent: false
+  persistent: true
   security:
     tls:
       enabled: true

@@ -98,7 +98,7 @@ class TestOpsManagerWithMongoDB(OpsManagerBase):
         )
 
     def test_can_use_om(self, mdb):
-        mdb.assert_reaches_phase(Phase.Running)
+        mdb.assert_reaches_phase(Phase.Running, timeout=350)
         mdb.assert_connectivity()
 
     def test_om_can_change_mongodb_version(self, mdb):
@@ -111,6 +111,7 @@ class TestOpsManagerWithMongoDB(OpsManagerBase):
         mdb._tester().assert_version("4.2.1")
 
 
+@pytest.mark.e2e_om_ops_manager_upgrade
 class TestOpsManagerConfigurationChange(OpsManagerBase):
     """
     name: Ops Manager configuration changes

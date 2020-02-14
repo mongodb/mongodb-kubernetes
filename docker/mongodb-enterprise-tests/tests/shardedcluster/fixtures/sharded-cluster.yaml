@@ -13,4 +13,4 @@ spec:
   project: my-project
   credentials: my-credentials
   logLevel: WARN
-  persistent: false
+  persistent: true
