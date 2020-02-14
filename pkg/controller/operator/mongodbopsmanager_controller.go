@@ -77,7 +77,7 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 	// 1. AppDB
 	emptyResult := reconcile.Result{}
 	appDbReconciler := newAppDBReplicaSetReconciler(r.ReconcileCommonController)
-	result, err := appDbReconciler.Reconcile(opsManager, &opsManager.Spec.AppDB, opsManagerUserPassword)
+	result, err := appDbReconciler.Reconcile(opsManager, opsManager.Spec.AppDB, opsManagerUserPassword)
 	if err != nil || result != emptyResult {
 		return result, err
 	}

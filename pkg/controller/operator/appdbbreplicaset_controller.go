@@ -33,7 +33,7 @@ func newAppDBReplicaSetReconciler(commonController *ReconcileCommonController) *
 }
 
 // Reconcile deploys the "headless" agent, and wait until it reaches the goal state
-func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *mdbv1.MongoDBOpsManager, rs *mdbv1.AppDB, opsManagerUserPassword string) (res reconcile.Result, e error) {
+func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *mdbv1.MongoDBOpsManager, rs mdbv1.AppDB, opsManagerUserPassword string) (res reconcile.Result, e error) {
 	log := zap.S().With("ReplicaSet (AppDB)", objectKey(opsManager.Namespace, rs.Name()))
 
 	err := r.updateStatus(opsManager, func(fresh Updatable) {
@@ -97,7 +97,7 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *mdbv1.MongoDBOpsManager
 	log.Infof("Finished reconciliation for AppDB ReplicaSet!")
 
 	err = r.updateStatus(opsManager, func(fresh Updatable) {
-		fresh.(*mdbv1.MongoDBOpsManager).UpdateSuccessfulAppDb(rs)
+		fresh.(*mdbv1.MongoDBOpsManager).UpdateSuccessfulAppDb(&rs)
 	})
 	if err != nil {
 		log.Errorf("Failed to update status for resource to successful: %s", err)
@@ -158,7 +158,7 @@ func ensureConsistentAgentAuthenticationCredentials(newAutomationConfig *om.Auto
 	return newAutomationConfig.Apply()
 }
 
-func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(rs *mdbv1.AppDB,
+func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(rs mdbv1.AppDB,
 	opsManager *mdbv1.MongoDBOpsManager, automationConfig *om.AutomationConfig, log *zap.SugaredLogger) error {
 	// Create/update the automation config configMap if it changed.
 	// Note, that the 'version' field is incremented if there are changes (emulating the db versioning mechanism)
@@ -211,7 +211,7 @@ func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(rs *mdbv1.AppDB,
 	return nil
 }
 
-func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(rs *mdbv1.AppDB, opsManager *mdbv1.MongoDBOpsManager, opsManagerUserPassword string, set *appsv1.StatefulSet, log *zap.SugaredLogger) (*om.AutomationConfig, error) {
+func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(rs mdbv1.AppDB, opsManager *mdbv1.MongoDBOpsManager, opsManagerUserPassword string, set appsv1.StatefulSet, log *zap.SugaredLogger) (*om.AutomationConfig, error) {
 	d := om.NewDeployment()
 
 	replicaSet := buildReplicaSetFromStatefulSetAppDb(set, rs, log)
@@ -298,7 +298,7 @@ func buildOpsManagerUser(scramSha1Creds, scramSha256Creds *om.ScramShaCreds) om.
 	}
 }
 
-func (r *ReconcileAppDbReplicaSet) configureMongoDBVersions(config *om.AutomationConfig, rs *mdbv1.AppDB, log *zap.SugaredLogger) error {
+func (r ReconcileAppDbReplicaSet) configureMongoDBVersions(config *om.AutomationConfig, rs mdbv1.AppDB, log *zap.SugaredLogger) error {
 	if rs.GetVersion() == util.BundledAppDbMongoDBVersion {
 		versionManifest, err := om.FileVersionManifestProvider{FilePath: r.VersionManifestFilePath}.GetVersionManifest()
 		if err != nil {
@@ -355,15 +355,15 @@ func (r *ReconcileAppDbReplicaSet) updateStatusPendingAppDb(resource *mdbv1.Mong
 	return retry()
 }
 
-func buildReplicaSetFromStatefulSetAppDb(set *appsv1.StatefulSet, mdb *mdbv1.AppDB, log *zap.SugaredLogger) om.ReplicaSetWithProcesses {
+func buildReplicaSetFromStatefulSetAppDb(set appsv1.StatefulSet, mdb mdbv1.AppDB, log *zap.SugaredLogger) om.ReplicaSetWithProcesses {
 	members := createProcessesAppDb(set, om.ProcessTypeMongod, mdb)
 	replicaSet := om.NewReplicaSet(set.Name, mdb.GetVersion())
 	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members)
 	return rsWithProcesses
 }
 
-func createProcessesAppDb(set *appsv1.StatefulSet, mongoType om.MongoType,
-	mdb *mdbv1.AppDB) []om.Process {
+func createProcessesAppDb(set appsv1.StatefulSet, mongoType om.MongoType,
+	mdb mdbv1.AppDB) []om.Process {
 
 	hostnames, names := util.GetDnsForStatefulSet(set, mdb.GetClusterDomain())
 	processes := make([]om.Process, len(hostnames))

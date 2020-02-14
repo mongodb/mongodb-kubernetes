@@ -176,7 +176,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 }
 
 func updateOmDeployment(conn om.Connection, s *mdbv1.MongoDB,
-	set *appsv1.StatefulSet, log *zap.SugaredLogger) reconcileStatus {
+	set appsv1.StatefulSet, log *zap.SugaredLogger) reconcileStatus {
 	if err := waitForRsAgentsToRegister(set, s.Spec.GetClusterDomain(), conn, log); err != nil {
 		return failedErr(err)
 	}
@@ -258,7 +258,7 @@ func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLog
 	return nil
 }
 
-func createProcess(set *appsv1.StatefulSet, s *mdbv1.MongoDB) om.Process {
+func createProcess(set appsv1.StatefulSet, s *mdbv1.MongoDB) om.Process {
 	hostnames, _ := util.GetDnsForStatefulSet(set, s.Spec.GetClusterDomain())
 	wiredTigerCache := calculateWiredTigerCache(set, s.Spec.GetVersion())
 

@@ -9,13 +9,13 @@ import (
 
 // GetDnsForStatefulSet returns hostnames and names of pods in stateful set "set". This is a preferred way of getting hostnames
 // it must be always used if it's possible to read the statefulset from Kubernetes
-func GetDnsForStatefulSet(set *appsv1.StatefulSet, clusterName string) ([]string, []string) {
+func GetDnsForStatefulSet(set appsv1.StatefulSet, clusterName string) ([]string, []string) {
 	return GetDNSNames(set.Name, set.Spec.ServiceName, set.Namespace, clusterName, int(*set.Spec.Replicas))
 }
 
 // GetDnsForStatefulSetReplicasSpecified is similar to GetDnsForStatefulSet but expects the number of replicas to be specified
 // (important for scale-down operations to support hostnames for old statefulset)
-func GetDnsForStatefulSetReplicasSpecified(set *appsv1.StatefulSet, clusterName string, replicas int) ([]string, []string) {
+func GetDnsForStatefulSetReplicasSpecified(set appsv1.StatefulSet, clusterName string, replicas int) ([]string, []string) {
 	return GetDNSNames(set.Name, set.Spec.ServiceName, set.Namespace, clusterName, replicas)
 }
 

@@ -16,7 +16,7 @@ import (
 // - after this all the Operator/OpsManager methods dealing with 'mongodb.MongoDB' can be switched to this new interface
 
 // NewMongodProcess
-func NewMongodProcessAppDB(name, hostName string, resource *mdbv1.AppDB) Process {
+func NewMongodProcessAppDB(name, hostName string, resource mdbv1.AppDB) Process {
 	p := Process{}
 
 	initDefault(name, hostName, resource.GetVersion(), resource.FeatureCompatibilityVersion, ProcessTypeMongod, p)

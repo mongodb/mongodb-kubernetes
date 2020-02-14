@@ -50,7 +50,7 @@ func DeploymentLink(url, groupId string) string {
 	return fmt.Sprintf("%s/v2/%s", url, groupId)
 }
 
-func buildReplicaSetFromStatefulSet(set *appsv1.StatefulSet, mdb *mdbv1.MongoDB) om.ReplicaSetWithProcesses {
+func buildReplicaSetFromStatefulSet(set appsv1.StatefulSet, mdb *mdbv1.MongoDB) om.ReplicaSetWithProcesses {
 	members := createProcesses(set, om.ProcessTypeMongod, mdb)
 	replicaSet := om.NewReplicaSet(set.Name, mdb.Spec.GetVersion())
 	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members)
@@ -58,7 +58,7 @@ func buildReplicaSetFromStatefulSet(set *appsv1.StatefulSet, mdb *mdbv1.MongoDB)
 	return rsWithProcesses
 }
 
-func createProcesses(set *appsv1.StatefulSet, mongoType om.MongoType, mdb *mdbv1.MongoDB) []om.Process {
+func createProcesses(set appsv1.StatefulSet, mongoType om.MongoType, mdb *mdbv1.MongoDB) []om.Process {
 	hostnames, names := util.GetDnsForStatefulSet(set, mdb.Spec.GetClusterDomain())
 	processes := make([]om.Process, len(hostnames))
 	wiredTigerCache := calculateWiredTigerCache(set, mdb.Spec.GetVersion())
@@ -82,7 +82,7 @@ func createProcesses(set *appsv1.StatefulSet, mongoType om.MongoType, mdb *mdbv1
 
 // calculateWiredTigerCache returns the cache that needs to be dedicated to mongodb engine.
 // This was fixed in SERVER-16571 so we don't need to enable this for some latest version of mongodb (see the ticket)
-func calculateWiredTigerCache(set *appsv1.StatefulSet, version string) *float32 {
+func calculateWiredTigerCache(set appsv1.StatefulSet, version string) *float32 {
 	shouldCalculate, err := util.VersionMatchesRange(version, ">=4.0.0 <4.0.9 || <3.6.13")
 
 	if err != nil || shouldCalculate {
@@ -100,7 +100,7 @@ func calculateWiredTigerCache(set *appsv1.StatefulSet, version string) *float32 
 	return nil
 }
 
-func waitForRsAgentsToRegister(set *appsv1.StatefulSet, clusterName string, omConnection om.Connection, log *zap.SugaredLogger) error {
+func waitForRsAgentsToRegister(set appsv1.StatefulSet, clusterName string, omConnection om.Connection, log *zap.SugaredLogger) error {
 	hostnames, _ := util.GetDnsForStatefulSet(set, clusterName)
 	log = log.With("statefulset", set.Name)
 

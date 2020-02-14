@@ -303,18 +303,17 @@ func (s *StatefulSetHelper) SetContainerName(containerName string) *StatefulSetH
 	return s
 }
 
-func (s *StatefulSetHelper) BuildStatefulSet() (*appsv1.StatefulSet, error) {
-	return buildStatefulSet(*s)
+func (s StatefulSetHelper) BuildStatefulSet() (appsv1.StatefulSet, error) {
+	return buildStatefulSet(s)
 }
 
-func (s *StatefulSetHelper) BuildAppDBStatefulSet() (*appsv1.StatefulSet, error) {
-	s.SetContainerName(util.AppDbContainerName)
-	return buildAppDbStatefulSet(*s)
+func (s StatefulSetHelper) BuildAppDBStatefulSet() (appsv1.StatefulSet, error) {
+	return buildAppDbStatefulSet(s)
 }
 
 // CreateOrUpdateInKubernetes creates (updates if it exists) the StatefulSet with its Service.
 // It returns any errors coming from Kubernetes API.
-func (s *StatefulSetHelper) CreateOrUpdateInKubernetes() error {
+func (s StatefulSetHelper) CreateOrUpdateInKubernetes() error {
 	sts, err := s.BuildStatefulSet()
 	if err != nil {
 		return err
@@ -322,7 +321,7 @@ func (s *StatefulSetHelper) CreateOrUpdateInKubernetes() error {
 	set, err := s.Helper.createOrUpdateStatefulset(
 		s.Namespace,
 		s.Logger,
-		sts,
+		&sts,
 	)
 	if err != nil {
 		return err
@@ -344,12 +343,12 @@ func (s *StatefulSetHelper) CreateOrUpdateInKubernetes() error {
 	return err
 }
 
-func (s *OpsManagerStatefulSetHelper) BuildStatefulSet() (*appsv1.StatefulSet, error) {
-	return buildOpsManagerStatefulSet(*s)
+func (s OpsManagerStatefulSetHelper) BuildStatefulSet() (appsv1.StatefulSet, error) {
+	return buildOpsManagerStatefulSet(s)
 }
 
-func (s *BackupStatefulSetHelper) BuildStatefulSet() (*appsv1.StatefulSet, error) {
-	return buildBackupDaemonStatefulSet(*s)
+func (s BackupStatefulSetHelper) BuildStatefulSet() (appsv1.StatefulSet, error) {
+	return buildBackupDaemonStatefulSet(s)
 }
 
 func (s *OpsManagerStatefulSetHelper) SetService(service string) *OpsManagerStatefulSetHelper {
@@ -377,15 +376,15 @@ func (s *OpsManagerStatefulSetHelper) SetVersion(version string) *OpsManagerStat
 	return s
 }
 
-func (s *OpsManagerStatefulSetHelper) CreateOrUpdateInKubernetes() error {
-	statefulSet, err := s.BuildStatefulSet()
+func (s OpsManagerStatefulSetHelper) CreateOrUpdateInKubernetes() error {
+	sts, err := s.BuildStatefulSet()
 	if err != nil {
 		return err
 	}
 	set, err := s.Helper.createOrUpdateStatefulset(
 		s.Namespace,
 		s.Logger,
-		statefulSet,
+		&sts,
 	)
 	if err != nil {
 		return err
@@ -407,15 +406,15 @@ func (s *OpsManagerStatefulSetHelper) CreateOrUpdateInKubernetes() error {
 	return err
 }
 
-func (s *BackupStatefulSetHelper) CreateOrUpdateInKubernetes() error {
-	set, err := s.BuildStatefulSet()
+func (s BackupStatefulSetHelper) CreateOrUpdateInKubernetes() error {
+	sts, err := s.BuildStatefulSet()
 	if err != nil {
 		return err
 	}
 	_, err = s.Helper.createOrUpdateStatefulset(
 		s.Namespace,
 		s.Logger,
-		set,
+		&sts,
 	)
 	if err != nil {
 		return err
@@ -434,7 +433,7 @@ func (s *StatefulSetHelper) CreateOrUpdateAppDBInKubernetes() error {
 	set, err := s.Helper.createOrUpdateStatefulset(
 		s.Namespace,
 		s.Logger,
-		appDbSts,
+		&appDbSts,
 	)
 	if err != nil {
 		return err

@@ -1,8 +1,9 @@
 package operator
 
 import (
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"testing"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
@@ -223,12 +224,12 @@ func (b *OpsManagerBuilder) AddConfiguration(key, value string) *OpsManagerBuild
 	return b
 }
 
-func (b *OpsManagerBuilder) Build() *mdbv1.MongoDBOpsManager {
+func (b OpsManagerBuilder) Build() *mdbv1.MongoDBOpsManager {
 	b.om.InitDefault()
 	return b.om.DeepCopy()
 }
 
-func (b *OpsManagerBuilder) BuildStatefulSet() (*appsv1.StatefulSet, error) {
+func (b OpsManagerBuilder) BuildStatefulSet() (appsv1.StatefulSet, error) {
 	rs := b.om.Spec.AppDB
 	return (&KubeHelper{}).NewStatefulSetHelper(b.om).
 		SetName(rs.Name()).

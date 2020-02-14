@@ -58,7 +58,7 @@ func TestMongoDB_ConnectionURL_OtherCluster_AppDB(t *testing.T) {
 func TestPublishAutomationConfig_Create(t *testing.T) {
 	builder := DefaultOpsManagerBuilder()
 	opsManager := builder.Build()
-	appdb := &opsManager.Spec.AppDB
+	appdb := opsManager.Spec.AppDB
 	kubeManager := newEmptyMockedManager()
 	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
 	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
@@ -75,7 +75,7 @@ func TestPublishAutomationConfig_Create(t *testing.T) {
 func TestPublishAutomationConfig_Update(t *testing.T) {
 	builder := DefaultOpsManagerBuilder()
 	opsManager := builder.Build()
-	appdb := &opsManager.Spec.AppDB
+	appdb := opsManager.Spec.AppDB
 	kubeManager := newEmptyMockedManager()
 	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
 	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
@@ -102,7 +102,7 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 func TestPublishAutomationConfig_ScramShaConfigured(t *testing.T) {
 	builder := DefaultOpsManagerBuilder()
 	opsManager := builder.Build()
-	appdb := &opsManager.Spec.AppDB
+	appdb := opsManager.Spec.AppDB
 	kubeManager := newEmptyMockedManager()
 	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
 	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
@@ -327,7 +327,7 @@ func buildAutomationConfigForAppDb(builder *OpsManagerBuilder, internetManifestP
 
 	reconciler := newAppDbReconciler(kubeManager, internetManifestProvider)
 	sts, _ := builder.BuildStatefulSet()
-	return reconciler.buildAppDbAutomationConfig(&opsManager.Spec.AppDB, opsManager, "my-pass", sts, zap.S())
+	return reconciler.buildAppDbAutomationConfig(opsManager.Spec.AppDB, opsManager, "my-pass", sts, zap.S())
 }
 
 func checkDeploymentEqualToPublished(t *testing.T, expected om.Deployment, configMap *corev1.ConfigMap) {

@@ -90,11 +90,15 @@ func TestApplyPodSpec(t *testing.T) {
 	container := newMongoDBContainer(defaultPodVars())
 	template, err := getDatabasePodTemplate(*sts, nil, "service-account", container)
 	assert.NoError(t, err)
+	assert.Equal(t, "default-sts-name", template.Spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0].PodAffinityTerm.LabelSelector.MatchLabels[PodAntiAffinityLabelKey])
 	emptyPodSpecWrapper := mdbv1.NewEmptyPodSpecWrapperBuilder().Build()
 
 	var result corev1.PodTemplateSpec
 	// merge with empty is giving back the original template
-	result, err = applyPodSpec(&template, emptyPodSpecWrapper, "sts-name")
+	result, err = applyPodSpec(template, emptyPodSpecWrapper, "sts-name")
+	// applyPodSpec overrides the pod-anti-affinity with the last string parameter
+	// overriding it to allow for equality test
+	template.Spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0].PodAffinityTerm.LabelSelector.MatchLabels[PodAntiAffinityLabelKey] = "sts-name"
 	assert.NoError(t, err)
 	assert.Equal(t, result, template)
 
@@ -115,7 +119,7 @@ func TestApplyPodSpec(t *testing.T) {
 	}).Build()
 
 	// merge should get 2 containers
-	result, err = applyPodSpec(&template, newPodSpecWrapper, "sts-name")
+	result, err = applyPodSpec(template, newPodSpecWrapper, "sts-name")
 	assert.NoError(t, err)
 	assert.Len(t, result.Spec.Containers, 2)
 	assertContainersEqualBarResources(t, result.Spec.Containers[0], container)
@@ -144,9 +148,9 @@ func TestBuildStatefulSet_PersistentVolumeClaimSingle(t *testing.T) {
 	podSpec := mdbv1.NewPodSpecWrapperBuilder().SetSinglePersistence(persistence).Build()
 	set, _ := defaultSetHelper().SetPodSpec(podSpec).BuildStatefulSet()
 
-	checkPvClaims(t, set, []*corev1.PersistentVolumeClaim{pvClaim(util.PvcNameData, "40G", util.StringRef("fast"), labels)})
+	checkPvClaims(t, set, []corev1.PersistentVolumeClaim{pvClaim(util.PvcNameData, "40G", util.StringRef("fast"), labels)})
 
-	checkMounts(t, set, []*corev1.VolumeMount{
+	checkMounts(t, set, []corev1.VolumeMount{
 		volMount(util.PvcNameData, util.PvcMountPathData, util.PvcNameData),
 		volMount(util.PvcNameData, util.PvcMountPathJournal, util.PvcNameJournal),
 		volMount(util.PvcNameData, util.PvcMountPathLogs, util.PvcNameLogs),
@@ -165,13 +169,13 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultiple(t *testing.T) {
 	).Build()
 	set, _ := defaultSetHelper().SetPodSpec(podSpec).BuildStatefulSet()
 
-	checkPvClaims(t, set, []*corev1.PersistentVolumeClaim{
+	checkPvClaims(t, set, []corev1.PersistentVolumeClaim{
 		pvClaim(util.PvcNameData, "40G", util.StringRef("fast"), nil),
 		pvClaim(util.PvcNameJournal, "3G", util.StringRef("slow"), labels1),
 		pvClaim(util.PvcNameLogs, "500M", util.StringRef("fast"), labels2),
 	})
 
-	checkMounts(t, set, []*corev1.VolumeMount{
+	checkMounts(t, set, []corev1.VolumeMount{
 		volMount(util.PvcNameData, util.PvcMountPathData, ""),
 		volMount(util.PvcNameJournal, util.PvcMountPathJournal, ""),
 		volMount(util.PvcNameLogs, util.PvcMountPathLogs, ""),
@@ -188,13 +192,13 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultipleDefaults(t *testing.T) {
 		Build()
 	set, _ := defaultSetHelper().SetPodSpec(podSpec).BuildStatefulSet()
 
-	checkPvClaims(t, set, []*corev1.PersistentVolumeClaim{
+	checkPvClaims(t, set, []corev1.PersistentVolumeClaim{
 		pvClaim(util.PvcNameData, "40G", util.StringRef("fast"), nil),
 		pvClaim(util.PvcNameJournal, util.DefaultJournalStorageSize, nil, nil),
 		pvClaim(util.PvcNameLogs, util.DefaultLogsStorageSize, nil, nil),
 	})
 
-	checkMounts(t, set, []*corev1.VolumeMount{
+	checkMounts(t, set, []corev1.VolumeMount{
 		volMount(util.PvcNameData, util.PvcMountPathData, ""),
 		volMount(util.PvcNameJournal, util.PvcMountPathJournal, ""),
 		volMount(util.PvcNameLogs, util.PvcMountPathLogs, ""),
@@ -273,12 +277,13 @@ func TestBasePodSpec_Affinity(t *testing.T) {
 // not specified
 func TestBasePodSpec_AntiAffinityDefaultTopology(t *testing.T) {
 	helper := defaultSetHelper().SetPodSpec(mdbv1.NewPodSpecWrapperBuilder().Build())
+
 	template, err := getDatabasePodTemplate(*helper, map[string]string{}, "", corev1.Container{})
 	assert.NoError(t, err)
 	spec := template.Spec
 	term := spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0]
 	assert.Equal(t, int32(100), term.Weight)
-	assert.Equal(t, map[string]string{PodAntiAffinityLabelKey: "s"}, term.PodAffinityTerm.LabelSelector.MatchLabels)
+	assert.Equal(t, map[string]string{PodAntiAffinityLabelKey: "default-sts-name"}, term.PodAffinityTerm.LabelSelector.MatchLabels)
 	assert.Equal(t, util.DefaultAntiAffinityTopologyKey, term.PodAffinityTerm.TopologyKey)
 }
 
@@ -307,24 +312,24 @@ func TestBasePodSpec_TerminationGracePeriodSeconds(t *testing.T) {
 	assert.Equal(t, util.Int64Ref(600), template.Spec.TerminationGracePeriodSeconds)
 }
 
-func checkPvClaims(t *testing.T, set *appsv1.StatefulSet, expectedClaims []*corev1.PersistentVolumeClaim) {
+func checkPvClaims(t *testing.T, set appsv1.StatefulSet, expectedClaims []corev1.PersistentVolumeClaim) {
 	assert.Len(t, set.Spec.VolumeClaimTemplates, len(expectedClaims))
 
 	for i, c := range expectedClaims {
-		assert.Equal(t, c, &set.Spec.VolumeClaimTemplates[i])
+		assert.Equal(t, c, set.Spec.VolumeClaimTemplates[i])
 	}
 }
-func checkMounts(t *testing.T, set *appsv1.StatefulSet, expectedMounts []*corev1.VolumeMount) {
+func checkMounts(t *testing.T, set appsv1.StatefulSet, expectedMounts []corev1.VolumeMount) {
 	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, len(expectedMounts))
 
 	for i, c := range expectedMounts {
-		assert.Equal(t, c, &set.Spec.Template.Spec.Containers[0].VolumeMounts[i])
+		assert.Equal(t, c, set.Spec.Template.Spec.Containers[0].VolumeMounts[i])
 	}
 }
 
-func pvClaim(pvName, size string, storageClass *string, labels map[string]string) *corev1.PersistentVolumeClaim {
+func pvClaim(pvName, size string, storageClass *string, labels map[string]string) corev1.PersistentVolumeClaim {
 	quantity, _ := resource.ParseQuantity(size)
-	expectedClaim := &corev1.PersistentVolumeClaim{
+	expectedClaim := corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: pvName,
 		},
@@ -341,8 +346,8 @@ func pvClaim(pvName, size string, storageClass *string, labels map[string]string
 	return expectedClaim
 }
 
-func volMount(pvName, mountPath, subPath string) *corev1.VolumeMount {
-	return &corev1.VolumeMount{Name: pvName, MountPath: mountPath, SubPath: subPath}
+func volMount(pvName, mountPath, subPath string) corev1.VolumeMount {
+	return corev1.VolumeMount{Name: pvName, MountPath: mountPath, SubPath: subPath}
 }
 
 func TestDefaultPodSpec_FsGroup(t *testing.T) {
@@ -629,7 +634,7 @@ func baseSetHelperDelayed(delay time.Duration) *StatefulSetHelper {
 
 func defaultSetHelper() *StatefulSetHelper {
 	return baseSetHelper().
-		SetName("s").
+		SetName("default-sts-name").
 		SetPodSpec(mdbv1.NewEmptyPodSpecWrapperBuilder().Build()).
 		SetPodVars(defaultPodVars()).
 		SetService("test-service").

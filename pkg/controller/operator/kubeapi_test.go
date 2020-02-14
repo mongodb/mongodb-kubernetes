@@ -259,7 +259,7 @@ func markStatefulSetsReady(set *appsv1.StatefulSet) {
 	if om.CurrMockedConnection != nil {
 		// We also "register" automation agents.
 		// So far we don't support custom cluster name
-		hostnames, _ := util.GetDnsForStatefulSet(set, "")
+		hostnames, _ := util.GetDnsForStatefulSet(*set, "")
 
 		om.CurrMockedConnection.AddHosts(hostnames)
 	}

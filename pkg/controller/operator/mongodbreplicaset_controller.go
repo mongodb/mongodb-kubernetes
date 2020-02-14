@@ -206,7 +206,7 @@ func AddReplicaSetController(mgr manager.Manager) error {
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
 func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, membersNumberBefore int, rs *mdbv1.MongoDB,
-	set *appsv1.StatefulSet, log *zap.SugaredLogger) reconcileStatus {
+	set appsv1.StatefulSet, log *zap.SugaredLogger) reconcileStatus {
 
 	err := waitForRsAgentsToRegister(set, rs.Spec.GetClusterDomain(), conn, log)
 	if err != nil {
@@ -338,14 +338,14 @@ func (r *ReconcileCommonController) ensureX509InKubernetes(mdb *mdbv1.MongoDB, h
 	return ok()
 }
 
-func prepareScaleDownReplicaSet(omClient om.Connection, statefulSet *appsv1.StatefulSet, oldMembersCount int, new *mdbv1.MongoDB, log *zap.SugaredLogger) error {
+func prepareScaleDownReplicaSet(omClient om.Connection, statefulSet appsv1.StatefulSet, oldMembersCount int, new *mdbv1.MongoDB, log *zap.SugaredLogger) error {
 	_, podNames := util.GetDnsForStatefulSetReplicasSpecified(statefulSet, new.Spec.GetClusterDomain(), oldMembersCount)
 	podNames = podNames[new.Spec.Members:oldMembersCount]
 
 	return prepareScaleDown(omClient, map[string][]string{new.Name: podNames}, log)
 }
 
-func getAllHostsRs(set *appsv1.StatefulSet, clusterName string, membersCount int) []string {
+func getAllHostsRs(set appsv1.StatefulSet, clusterName string, membersCount int) []string {
 	hostnames, _ := util.GetDnsForStatefulSetReplicasSpecified(set, clusterName, membersCount)
 	return hostnames
 }
