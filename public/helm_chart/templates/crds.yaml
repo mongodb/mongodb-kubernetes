@@ -719,4 +719,23 @@ spec:
             - version
             - applicationDatabase
 
+# This ClusterRole is necessary in order to use validating webhooks—these will
+# prevent you from applying a variety of invalid resource definitions. The
+# validating webhooks are optional so this can be removed if necessary.
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-enterprise-operator-mongodb-webhook
+rules:
+- apiGroups:
+  - "admissionregistration.k8s.io"
+  resources:
+  - validatingwebhookconfigurations
+  verbs:
+  - get
+  - create
+  - update
+
+
 {{end}}

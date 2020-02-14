@@ -117,7 +117,9 @@ class TestReplicaSetCreation(KubernetesTester):
     def test_nodeport_service_not_exists(self):
         """Test that replica set is not exposed externally."""
         services = self.clients("corev1").list_namespaced_service(self.get_namespace())
-        assert len(services.items) == 1
+
+        # 1 for replica set and 1 for validation webhook
+        assert len(services.items) == 2
         assert len([s for s in services.items if s.spec.type == "NodePort"]) == 0
 
     def test_security_context_pods(self):

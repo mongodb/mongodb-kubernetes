@@ -369,7 +369,7 @@ func checkReconcileFailed(t *testing.T, reconciler reconcile.Reconciler, object 
 func checkReconcilePending(t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, expectedErrorMessage string, client *MockedClient) {
 	failedResult := reconcile.Result{RequeueAfter: 10 * time.Second}
 	result, e := reconciler.Reconcile(requestFromObject(object))
-	assert.Nil(t, e, "When retrying, error should be nil")
+	assert.Nil(t, e, "When pending, error should be nil")
 	assert.Equal(t, failedResult, result)
 
 	// also need to make sure the object status is updated to failed

@@ -183,8 +183,8 @@ class TestOpsManagerCreation(OpsManagerBase):
         """ Backup daemon serves no incoming traffic so no service must be created """
         services = self.corev1.list_namespaced_service(self.namespace).items
 
-        # 1 for AppDB and 1 for Ops Manager statefulset
-        assert len(services) == 2
+        # 1 for AppDB, 1 for Ops Manager statefulset, 1 for validation webhook
+        assert len(services) == 3
 
     @skip_if_local
     def test_om(self):

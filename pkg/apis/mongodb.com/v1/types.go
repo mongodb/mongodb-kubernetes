@@ -3,18 +3,18 @@ package v1
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 
-	"github.com/blang/semver"
-
-	"reflect"
-
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/blang/semver"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
 func init() {
@@ -74,6 +74,10 @@ type MongoDB struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 	Status            MongoDbStatus `json:"status"`
 	Spec              MongoDbSpec   `json:"spec"`
+}
+
+func (mdb MongoDB) AddValidationToManager(m manager.Manager) error {
+	return ctrl.NewWebhookManagedBy(m).For(&mdb).Complete()
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

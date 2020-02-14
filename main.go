@@ -8,7 +8,11 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/webhook"
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
@@ -59,6 +63,8 @@ func main() {
 
 	log.Info("Registering Components.")
 
+	setupWebhook(mgr, cfg, log)
+
 	// Setup Scheme for all resources
 	if err := mdbv1.AddToScheme(mgr.GetScheme()); err != nil {
 		log.Fatal(err)
@@ -74,6 +80,36 @@ func main() {
 	// Start the Manager
 	if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
 		log.Fatal(err)
+	}
+}
+
+// setupWebhook sets up the validation webhook for MongoDB resources in order
+// to give people early warning when their MongoDB resources are wrong.
+func setupWebhook(mgr manager.Manager, cfg *rest.Config, log *zap.SugaredLogger) {
+	// set webhook port — 1993 is chosen as Ben's birthday
+	webhookPort := util.ReadEnvVarIntOrDefault("MDB_WEBHOOK_PORT", 1993)
+	mgr.GetWebhookServer().Port = webhookPort
+
+	// this is the default directory on Linux but setting it explicitly helps
+	// with cross-platform compatibility, specifically local development on MacOS
+	certDir := "/tmp/k8s-webhook-server/serving-certs/"
+	mgr.GetWebhookServer().CertDir = certDir
+
+	// create a kubernetes client that the webhook server can use. We can't reuse
+	// the one from the manager as it is not initialised yet.
+	webhookClient, err := client.New(cfg, client.Options{})
+	if err != nil {
+		panic(err)
+	}
+
+	// webhookServiceLocation is the name and namespace of the webhook service
+	// that will be created.
+	webhookServiceLocation := types.NamespacedName{
+		Name:      "operator-webhook",
+		Namespace: util.ReadEnvVarOrPanic("CURRENT_NAMESPACE"),
+	}
+	if err := webhook.Setup(webhookClient, webhookServiceLocation, certDir, webhookPort); err != nil {
+		log.Warnw("could not set up webhook", "error", err)
 	}
 }
 

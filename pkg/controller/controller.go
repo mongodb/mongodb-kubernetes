@@ -1,6 +1,7 @@
 package controller
 
 import (
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
@@ -12,6 +13,9 @@ func init() {
 	AddToManagerFuncs = append(AddToManagerFuncs, operator.AddShardedClusterController)
 	AddToManagerFuncs = append(AddToManagerFuncs, operator.AddMongoDBUserController)
 	AddToManagerFuncs = append(AddToManagerFuncs, operator.AddOpsManagerController)
+
+	// Validators:
+	AddToManagerFuncs = append(AddToManagerFuncs, mdbv1.MongoDB{}.AddValidationToManager)
 }
 
 // AddToManagerFuncs is a list of functions to add all Controllers to the Manager
