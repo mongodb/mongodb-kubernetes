@@ -179,50 +179,6 @@ functions:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
       command: "rm -rf logs/"
 
-  # push the latest build of the operator to s3 for the RH build-service to be able to build the RHEL image.
-  push_operator_binary_for_rhel:
-    - command: s3.put
-      params:
-        aws_key: ${mms_build_s3_aws_access_key}
-        aws_secret: ${mms_build_s3_aws_secret}
-        local_file: src/github.com/10gen/ops-manager-kubernetes/docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator
-        remote_file: ops-manager-operator/latest/mongodb-enterprise-operator
-        bucket: ops-manager-kubernetes-build
-        permissions: public-read
-        content_type: application/octet-stream
-
-  push_database_readiness_probe_for_rhel:
-    - command: s3.put
-      params:
-        aws_key: ${mms_build_s3_aws_access_key}
-        aws_secret: ${mms_build_s3_aws_secret}
-        local_file: src/github.com/10gen/ops-manager-kubernetes/docker/mongodb-enterprise-database/content/readinessprobe
-        remote_file: ops-manager-operator/latest/database-readiness-probe
-        bucket: ops-manager-kubernetes-build
-        permissions: public-read
-        content_type: application/octet-stream
-
-  "build_rhel_images":
-    - command: shell.exec
-      type: setup
-      params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
-        script: |
-          export PATH=${workdir}/bin:$PATH
-
-          if [ "${is_patch}" != "true" ]; then
-            echo "Releasing is done only from patches"
-            exit 0
-          fi
-
-          set -euo
-
-          release="$(jq --raw-output .mongodbOperator < release.json)"
-
-          echo "Performing release $release!"
-          scripts/evergreen/build_operator_rhel.sh $release ${rhc_operator_pid}
-          scripts/evergreen/build_operator_rhel.sh $release ${rhc_database_pid}
-
   # Install and configures ecr-login-helper, allowing for accessing the ECR registry
   # without calling docker login and in the ECR case, avoiding also calling
   # `aws ecr get login`. This is a binary that should run on every image_type.
@@ -412,51 +368,6 @@ functions:
           CLUSTER_TYPE: ${cluster_type}
 
         command: "make om-batch scope=4.2.6,4.2.7"
-
-  "build_and_push_image":
-    - command: shell.exec
-      type: setup
-      params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
-        script: |
-          set +x
-          # Releases are performed only for patches
-          if [ -n "${release_object}" ] && [ "${is_patch}" != "true" ]; then
-            echo "Releasing is done only from patches"
-            exit 0
-          fi
-
-          # AWS creds
-          export AWS_ACCESS_KEY_ID=${mms_eng_test_aws_access_key}
-          export AWS_SECRET_ACCESS_KEY=${mms_eng_test_aws_secret}
-
-          # Quay prod creds
-          export QUAY_PROD_USER=${quay_prod_username}
-          export QUAY_PROD_PASSWORD=${quay_prod_robot_token}
-
-          if [ "${tag_images_with_version}" = "true" ]; then
-            export REVISION=${version_id}
-          fi
-
-          python3 -m venv venv
-          source venv/bin/activate
-          python3 -m pip install -r scripts/evergreen/requirements.txt
-
-          # Always consider the caveat of "${var} vs $var" in evergreen!!
-          docker_args="${docker_args}"
-
-          # Releases override REVISION from predefined tags
-          if [ -n "${release_object}" ]; then
-            export REVISION=$(./scripts/evergreen/read_release_version.py --release-app ${release_object})
-          fi
-
-          ./scripts/evergreen/build_and_push.py \
-              --image ${image_name} \
-              --tag "$REVISION" \
-              --registry "${env}" \
-              --path "${path}" \
-              --docker-args "$docker_args" \
-              $(if [ -n "${release_object}" ]; then echo '--with-latest-tag'; fi)
 
   setup_cloud_qa:
   - command: subprocess.exec

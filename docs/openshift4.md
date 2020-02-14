@@ -55,7 +55,7 @@ questions.
 * ssh key: choose ssh key you want to use to access the cluster
 * provider: aws
 * domain: mongokubernetes.com
-* subdomain: openshift4
+* subdomain: openshift
 * image pull secret: copy it from [here](https://cloud.redhat.com/openshift/install/aws/installer-provisioned)
 
 Now we must configure our cluster a bit, open the

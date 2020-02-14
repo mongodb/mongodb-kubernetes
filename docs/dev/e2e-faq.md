@@ -52,11 +52,9 @@ to master.
 ## FAQ
 #### How to connect to Openshift e2e cluster?
 
-1. `brew install openshift-cli`
-1. login here https://master.openshift-cluster.mongokubernetes.com:8443
-1. user is "admin", password is "asdqwe1"
-1. get a login token from the "admin" panel top-right
-1. paste it in command line and use `oc` CMD app to query Openshift cluster
+Access the [OpenShift Web
+Console](https://console-openshift-console.apps.openshift.mongokubernetes.com).
+The person who created the cluster should have saved the credentials.
 
 #### How to connect to kops e2e cluster?
 ```bash
@@ -78,42 +76,7 @@ Follow up:
 
 #### How to recreate e2e Openshift cluster?
 
-* Requirements
-  + create a file `exports.do` in the directory `scripts/evergreen/test_clusters`
-  + `openshift-test-cluster` RSA key. Ask your team mates for it. Do not use a personal key!
-  + Make sure you have configured ssh client (`~/.ssh/config`) like:
-
-```
-Host *.compute-1.amazonaws.com
-   ForwardAgent yes
-   StrictHostKeyChecking no
-   IdentityFile ~/.ssh/id_aws_rsa
-```
-
-``` bash
-make recreate-e2e-openshift
-```
-
-Then, follow the steps here: https://github.com/10gen/ops-manager-kubernetes/blob/master/scripts/evergreen/test_clusters/README.md#evergreen
-
-#### Old instructions for Openshift cluster (might still be relevant)
-
-1. Create `scripts/evergreen/test_clusters/exports.do` following the instructions in `scripts/evergreen/test_clusters/README.md`
-    * specify `export OPENSHIFT_ADMIN_USER=admin` and `export OPENSHIFT_ADMIN_PASSWORD='$apr1$qoY/N094$ohaRogbdoWWz.W1gFhfYk/'` to get `asdqwe1` password
-1. Delete the cluster: `python3 scripts/evergreen/test_clusters/aule.py delete-cluster --name openshift-test`
-1. Create a new cluster: `cd scripts/evergreen/test_clusters/; python3 aule.py create-cluster --name openshift-test --aws-key <your_aws_key_pair_name>`
-   * `--aws-key` is the name of ssh key pair
-1. The script will output the sequence of commands to call - invoke them
-   * caveat 1: you'll have to accept the identity for the hosts manually to allow ssh-ing there
-   * caveat 2: you need to enable the `ForwardAgent` for the control host where you'll run ansible scripts:
-   ```
-   # ~/.ssh/config
-   Host ec2-54-164-91-238.compute-1.amazonaws.com
-       ForwardAgent yes
-   ```
-   * if some of the parameters in `exports.do` have changed - you need to copy the file to the remote host manually
-   before running `ssh ... 'source exports.do ...' ` again
-
+Please follow the instructions [here](docs/openshift4.md). 
 
 #### If the test has failed - how to check what happened there?
 * **Check logs in Evergreen** (they show the output from testing application)
@@ -158,7 +121,7 @@ expires). To create a new user:
 
 | attribute | value | notes |
 |-----------|-------|-------|
-| Email Address | ops-manager-team+cloud-qa-kube-operator-e2e-<index>@mongodb.com | Make sure you increment the `<index>` |
+| Email Address | `ops-manager-team+cloud-qa-kube-operator-e2e-<index>@mongodb.com` | Make sure you increment the `<index>` |
 | Password | *Ask someone on the Kubernetes team about this password.*| |
 | First Name | Kubernetes | |
 | Last Name | E2E Tests | |
@@ -188,12 +151,20 @@ kubectl get nodes -o jsonpath='{$.items[*].status.addresses[?(@.type=="ExternalI
 * Finally, update this information into [Evergreen
   project](https://evergreen.mongodb.com/projects##ops-manager-kubernetes).
 
-* The attributes to fill up are:
-  - `e2e_cloud_qa_apikey`: The new Public API Key
+* Create a Programmatic API Key: Go to Access, API Keys and create a new one
+  with "Organization Owner role". Add the following IP to the "allowed list":
+
+  - 0.0.0.0/1
+  - 128.0.0.0/1
+  
+* Save the public and private parts of the API key!
+
+* The attributes to complete are:
+  - `e2e_cloud_qa_apikey_owner`: The new programmatic API Key private part
   - `e2e_cloud_qa_baseurl`: This is always
     `https://cloud-qa.mongodb.com`
-  - `e2e_cloud_qa_orgid` : Organization ID
-  - `e2e_cloud_qa_user` : Email used for registration
+  - `e2e_cloud_qa_orgid_owner` : Organization ID
+  - `e2e_cloud_qa_user_owner` : The new programmatic API Key public part
 
 #### How to avoid my test Namespaces being deleted?
 
@@ -268,45 +239,3 @@ kops create secret --name e2e.mongokubernetes.com sshpublickey admin -i ~/.ssh/n
 kops update cluster --yes
 kops rolling-update cluster --yes
 ```
-
-#### Runnings tests against a specific (perpetual) Ops Manager instance
-
-The Evergreen project can be configured to either deploy an OM instance in Kubernetes for each test run, OR always direct traffic to a specific instance (named Ops Manager Kubernetes Perpetual, or `omkp` for short).
-
-The feature can be controlled via the [Evergreen project settings](https://evergreen.mongodb.com/projects##ops-manager-kubernetes), by the `omkp_enabled` variable.
-
-If the instance has been reaped, you will need to deploy a new one (see below) and perform minimal configurations.
-
-
-##### Install Ops Manager in AWS
-
-See the [Ops Manager deployment guide](./aws_ops_manager_deployment.md).
-
-##### Configure Evergreen
-- first, register a global owner on the Ops Manager instance
-- generate a `public API key` and set a whitelist of `0.0.0.0/0`
-- edit the following parameters in [EVG](https://evergreen.mongodb.com/projects##ops-manager-kubernetes):
-  - `omkp_host`
-  - `omkp_user`
-  - `omkp_api_key`
-
-##### Decide to use the perpetual instance, or deploy a new OM image in Kubernetes every time
-
-go to [EVG](https://evergreen.mongodb.com/projects##ops-manager-kubernetes) and set:
-  - `omkp_enabled=true` # Use the Perpetual instance
-  - `omkp_enabled=false` # any value != `true` will have the effect of NOT using the perpetual instance
-
-#### Testing a change against a specific (perpetual) Ops Manager instance
-
-If you want to test a local change or a PR against the perpetual instance, simply change the equality comparison in `.evergreen.yml`/`&omkp_setup`:
-```bash
-# from
-if [[ "${omkp_enabled}" == "true" ]]; then
-
-# to
-if [[ "${omkp_enabled}" != "true" ]]; then
-```
-
-Then submit an EVG patch (`evergreen patch -t ... -v ... -f -y -d ''`) or simply open a PR.
-
-**DO NOT forget to revert the change to the `omkp_setup` EVG function!**

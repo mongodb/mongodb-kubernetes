@@ -134,9 +134,10 @@ e2e: build-and-push-test-image
 recreate-e2e-kops:
 	@ scripts/dev/recreate_e2e_kops $(imsure) $(cluster)
 
+# TODO: Automate this process
 # deletes and creates a openshift e2e cluster
 recreate-e2e-openshift:
-	@ scripts/dev/recreate_e2e_openshift $(imsure)
+	@ echo "Please follow instructions in docs/openshift4.md to install the Openshift4 cluster."
 
 # clean all kubernetes cluster resources and OM state. "light=true" to clean only Mongodb resources
 reset:
