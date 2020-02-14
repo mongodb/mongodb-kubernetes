@@ -18,17 +18,16 @@ func TestDeadlockDetection(t *testing.T) {
 	assert.True(t, isPodReady("health-status-deadlocked.json", nil))
 }
 
-// TestDeadlockDetection verifies that if the agent is stuck in "WaitFeatureCompatibilityVersionCorrect" phase
-//(started > 15 seconds ago) then the function returns "ready"
-// Note, that in this example two waiting phases started and there is no step after them, so the last one
-// is expected to be returned
-func TestDeadlockDetectionTwoWaitingPhases(t *testing.T) {
-	health := readHealthinessFile("health-status-deadlocked-2.json")
+// TestNoDeadlock verifies that if the agent has started (but not finished) "WaitRsInit" and then there is another
+// started phase ("WaitFeatureCompatibilityVersionCorrect") then no deadlock is found as the latter is considered to
+// be the "current" step
+func TestNoDeadlock(t *testing.T) {
+	health := readHealthinessFile("health-status-no-deadlock.json")
 	stepStatus := findCurrentStep(health.ProcessPlans)
 
 	assert.Equal(t, "WaitFeatureCompatibilityVersionCorrect", stepStatus.Step)
 
-	assert.True(t, isPodReady("health-status-deadlocked-2.json", nil))
+	assert.False(t, isPodReady("health-status-no-deadlock.json", nil))
 }
 
 // TestDeadlockDetection verifies that if the agent is in "WaitAllRsMembersUp" phase but started < 15 seconds ago
