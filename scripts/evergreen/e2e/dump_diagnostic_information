@@ -62,6 +62,8 @@ dump_all () {
                 echo "Writing agent and mongodb logs for pod ${pod} to logs"
                 kubectl cp "${PROJECT_NAMESPACE}/${pod}:var/log/mongodb-mms-automation/automation-agent-verbose.log" "logs/${pod}-agent.log" &> /dev/null
                 kubectl cp "${PROJECT_NAMESPACE}/${pod}:var/log/mongodb-mms-automation/mongodb.log" "logs/${pod}-mongodb.log" &> /dev/null
+                # note that this file may get empty if the logs have already grew too much - seems it's better to have it explicitly empty then just omit
+                kubectl logs -n "${PROJECT_NAMESPACE}" "${pod}" | jq -c -r 'select( .logType == "agent-launcher-script") | .contents' > "logs/${pod}-launcher.log"
             else
                 echo "Writing log file for pod ${pod} to logs/${pod}.log"
                 kubectl logs -n "${PROJECT_NAMESPACE}" "${pod}" > "logs/${pod}.log"
