@@ -2,12 +2,13 @@ package operator
 
 import (
 	"context"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 	"os"
 	"reflect"
 	"sort"
 	"testing"
 	"time"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"

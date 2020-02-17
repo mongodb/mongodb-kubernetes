@@ -1128,7 +1128,9 @@ class KubernetesTester(object):
         while len(csr_names) > 0 and time.time() < stop_time:
             csr = random.choice(csr_names)
             try:
-                client.CertificatesV1beta1Api().read_certificate_signing_request_status(csr)
+                client.CertificatesV1beta1Api().read_certificate_signing_request_status(
+                    csr
+                )
             except ApiException:
                 time.sleep(3)
                 continue

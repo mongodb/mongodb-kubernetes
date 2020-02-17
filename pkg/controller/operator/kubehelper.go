@@ -3,9 +3,10 @@ package operator
 import (
 	"context"
 	"fmt"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 	"net/url"
 	"strings"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -24,7 +25,7 @@ import (
 // KubeHelper is the helper for dealing with Kubernetes. If any Kubernetes logic requires more than some trivial operation
 // - it should be put here
 type KubeHelper struct {
-	client client.Client
+	client        client.Client
 	serviceClient service.Client
 }
 

@@ -3,12 +3,12 @@ package operator
 // This is a collection of functions building different Kubernetes API objects (statefulset, templates etc) from operator
 // custom objects
 import (
-	service "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
-	sts "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 	"path"
 	"sort"
 	"strconv"
 
+	service "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
+	sts "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 
 	"fmt"
 

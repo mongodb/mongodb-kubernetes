@@ -15,7 +15,9 @@ class TestWebhookValidation(KubernetesTester):
             exception_reason="TLS must be enabled in order to use replica set horizons",
         )
 
-    @pytest.mark.skip(reason="Validations are currently not configured to run on reconciliation")
+    @pytest.mark.skip(
+        reason="Validations are currently not configured to run on reconciliation"
+    )
     def test_validates_without_webhook(self):
         webhook_name = "mdbpolicy.mongodb.com"
         webhook_api = self.client.AdmissionregistrationV1beta1Api()

@@ -3,11 +3,12 @@ package operator
 import (
 	"context"
 	"fmt"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 	"reflect"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
 
