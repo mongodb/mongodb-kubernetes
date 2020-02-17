@@ -4,7 +4,7 @@ metadata:
   name: my-replica-set-pod-template
 spec:
   members: 3
-  version: 4.2.2
+  version: 4.2.2-ent
   type: ReplicaSet
   opsManager:
     configMapName:
