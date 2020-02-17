@@ -121,23 +121,17 @@ functions:
   # put them into a tar.gz file and upload them to S3, indicating the release version.
   # this is for customers or any other third party consumers to be able to build
   # their own Docker images.
-  "push_versioned_binaries":
-    - command: shell.exec
+  push_versioned_binaries:
+    - command: subprocess.exec
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
-        script: |
-          export PATH=${workdir}/bin:$PATH
-          set -o xtrace
-
-          release="$(jq --raw-output .mongodbOperator < release.json)"
-          mkdir -p releases/
-
-          mv docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator .
-          mv docker/mongodb-enterprise-database/content/readinessprobe .
-
-          tar -czf releases/mongodb-enterprise-operator-binaries-release-$release.tar.gz \
-             mongodb-enterprise-operator \
-             readinessprobe
+        add_to_path:
+          - ${workdir}/bin
+        env:
+          private_gpg_key: ${private_gpg_key}
+          private_gpg_passphrase: ${private_gpg_passphrase}
+          private_gpg_id: ${private_gpg_id}
+        binary: scripts/evergreen/push_versioned_binaries
 
     - command: s3.put
       params:
@@ -692,23 +686,6 @@ tasks:
         docker_username: ${quay_prod_username}
         docker_password: ${quay_prod_robot_token}
 
-# build_binaries builds and pushes binaries required to build the Database and
-# Operator Docker images. Currently these are the actual operator and the
-# readinessprobe.
-# This is part of process to release binary artifacts to customers that need
-# to create their own Dockerfile.
-- name: build_binaries
-  tags: ["release_operator"]
-  patch_only: true
-  commands:
-    - func: clone
-    - func: setup_jq
-    - func: build_operator
-    - func: build_database
-      vars:
-        image_type: dcar
-    - func: push_versioned_binaries
-
 - name: build_test_image
   priority: 60
   type: setup
@@ -754,6 +731,7 @@ tasks:
   - func: build_database
     vars:
       image_type: rhel
+  - func: push_versioned_binaries
   - func: upload_e2e_build_context
     vars:
       image_type: rhel

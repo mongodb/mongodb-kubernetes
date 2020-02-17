@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+
+# This file is used to push a GPG signed tar file with the binaries produced (operator and
+# readinessprobe) for third parties (customers) to use it.
+#
+# The process of pushing the files with the signature should only be done on release
+# builds. These builds have a release (from release.json) that matches the version (from
+# Evergreen).
+
+release="$(jq --raw-output .mongodbOperator < release.json)"
+version=$(git describe --dirty)
+
+# For testing purposes set this variable to the current version of the operator.
+# version="1.4.1"
+
+if [ "${release}" != "${version}" ]; then
+    echo "Not releasing intermediate version"
+    exit 0
+fi
+
+shred_file() {
+    # Makes sure the contents of the file passed as argument are
+    # replaced by zeroes.
+   if command -v shred > /dev/null ; then
+        shred -uz $1
+    fi
+}
+
+mkdir -p releases/
+
+#
+# Please note:
+# Every binary produced needs to be saved and packaged into the tar.gz file.
+#
+mv docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator .
+mv docker/mongodb-enterprise-database/content/readinessprobe .
+
+tar -czf "releases/mongodb-enterprise-operator-binaries-release-$release.tar.gz" \
+    mongodb-enterprise-operator \
+    readinessprobe
+
+echo "${private_gpg_key}" > private.b64.asc
+base64 --decode private.b64.asc > private.key
+echo "${private_gpg_passphrase}" > passphrase
+
+echo "== Importing key"
+gpg --batch --import private.key
+
+echo "== Trusting key"
+echo -e "trust\n5\ny" > x.cmd
+gpg --batch --command-file x.cmd --edit-key "${private_gpg_id}" trust quit
+
+echo "== Exporting public key"
+gpg --export --armor "${private_gpg_id}" > releases/mongodb_public_gpg.key
+
+# This generates a .asc file which will be uploaded and can be used to verify the
+# tar.gz file against our public GPG key.
+echo "== Signing release tar file"
+gpg --pinentry-mode loopback \
+    --default-key "${private_gpg_id}" \
+    --passphrase-file passphrase \
+    --detach-sig --armor \
+    "releases/mongodb-enterprise-operator-binaries-release-$release.tar.gz"
+
+echo "== Verify signature file just created"
+gpg --verify \
+    "releases/mongodb-enterprise-operator-binaries-release-$release.tar.gz.asc" \
+    "releases/mongodb-enterprise-operator-binaries-release-$release.tar.gz"
+
+echo "== Generating hash (sha256) of released package"
+sha256sum "releases/mongodb-enterprise-operator-binaries-release-$release.tar.gz" > "releases/mongodb-enterprise-operator-binaries-release-$release.tar.gz.sha"
+
+shred_file "private.key"
+shred_file "passphrase"
+
+if [ $? -ne 0 ]; then
+    echo "The signature could not be verified."
+    exit 1
+ fi
+
