@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 	"os"
 	"reflect"
 	"sort"
@@ -391,67 +392,67 @@ func TestPodSpec_Requirements(t *testing.T) {
 }
 
 func TestService_merge0(t *testing.T) {
-	dst := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"}}
-	src := &corev1.Service{}
+	dst := corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"}}
+	src := corev1.Service{}
 
-	mergeServices(dst, src)
+	dst = service.Merge(dst, src)
 	assert.Equal(t, "my-service", dst.ObjectMeta.Name)
 	assert.Equal(t, "my-namespace", dst.ObjectMeta.Namespace)
 
 	// Name and Namespace will not be copied over.
-	src = &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "new-service", Namespace: "new-namespace"}}
-	mergeServices(dst, src)
+	src = corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "new-service", Namespace: "new-namespace"}}
+	dst = service.Merge(dst, src)
 	assert.Equal(t, "my-service", dst.ObjectMeta.Name)
 	assert.Equal(t, "my-namespace", dst.ObjectMeta.Namespace)
 }
 
 func TestService_NodePortIsNotOverwritten(t *testing.T) {
-	dst := &corev1.Service{
+	dst := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
 		Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{{NodePort: 30030}}},
 	}
-	src := &corev1.Service{
+	src := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
 		Spec:       corev1.ServiceSpec{},
 	}
 
-	mergeServices(dst, src)
+	dst = service.Merge(dst, src)
 	assert.Equal(t, int32(30030), dst.Spec.Ports[0].NodePort)
 }
 
 func TestService_NodePortIsNotOverwrittenIfNoNodePortIsSpecified(t *testing.T) {
-	dst := &corev1.Service{
+	dst := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
 		Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{{NodePort: 30030}}},
 	}
-	src := &corev1.Service{
+	src := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
 		Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{{}}},
 	}
 
-	mergeServices(dst, src)
+	dst = service.Merge(dst, src)
 	assert.Equal(t, int32(30030), dst.Spec.Ports[0].NodePort)
 }
 
 func TestService_NodePortIsKeptWhenChangingServiceType(t *testing.T) {
-	dst := &corev1.Service{
+	dst := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
 		Spec: corev1.ServiceSpec{
 			Ports: []corev1.ServicePort{{NodePort: 30030}},
 			Type:  corev1.ServiceTypeLoadBalancer,
 		},
 	}
-	src := &corev1.Service{
+	src := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
 		Spec: corev1.ServiceSpec{
 			Ports: []corev1.ServicePort{{NodePort: 30099}},
 			Type:  corev1.ServiceTypeNodePort,
 		},
 	}
-	mergeServices(dst, src)
+	dst = service.Merge(dst, src)
 	assert.Equal(t, int32(30099), dst.Spec.Ports[0].NodePort)
 
-	src = &corev1.Service{
+	src = corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
 		Spec: corev1.ServiceSpec{
 			Ports: []corev1.ServicePort{{NodePort: 30011}},
@@ -459,7 +460,7 @@ func TestService_NodePortIsKeptWhenChangingServiceType(t *testing.T) {
 		},
 	}
 
-	mergeServices(dst, src)
+	dst = service.Merge(dst, src)
 	assert.Equal(t, int32(30011), dst.Spec.Ports[0].NodePort)
 }
 
@@ -472,18 +473,18 @@ func TestService_mergeAnnotations(t *testing.T) {
 	annotationsSrc["annotation0"] = "valueXXXX"
 	annotationsSrc["annotation2"] = "value2"
 
-	src := &corev1.Service{
+	src := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: annotationsSrc,
 		},
 	}
-	dst := &corev1.Service{
+	dst := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "my-service", Namespace: "my-namespace",
 			Annotations: annotationsDest,
 		},
 	}
-	mergeServices(dst, src)
+	dst = service.Merge(dst, src)
 	assert.Len(t, dst.ObjectMeta.Annotations, 3)
 	assert.Equal(t, dst.ObjectMeta.Annotations["annotation0"], "valueXXXX")
 }
@@ -639,14 +640,16 @@ func TestOpsManagerPodTemplate_MergePodTemplate(t *testing.T) {
 
 func baseSetHelper() *StatefulSetHelper {
 	st := DefaultStandaloneBuilder().Build()
-	return (&KubeHelper{newMockedClient().WithResource(st)}).NewStatefulSetHelper(st)
+	mockedClient := newMockedClient().WithResource(st)
+	return (&KubeHelper{client: mockedClient, serviceClient: service.NewClient(mockedClient)}).NewStatefulSetHelper(st)
 }
 
 // baseSetHelperDelayed returns a delayed StatefulSetHelper.
 // This helper will not get to Success state right away, but will take at least `delay`.
 func baseSetHelperDelayed(delay time.Duration) *StatefulSetHelper {
 	st := DefaultStandaloneBuilder().Build()
-	return (&KubeHelper{newMockedClient().WithResource(st).WithStsCreationDelay(delay)}).NewStatefulSetHelper(st)
+	mockedClient := newMockedClient().WithResource(st).WithStsCreationDelay(delay)
+	return (&KubeHelper{client: mockedClient, serviceClient: service.NewClient(mockedClient)}).NewStatefulSetHelper(st)
 }
 
 func defaultSetHelper() *StatefulSetHelper {
@@ -664,12 +667,14 @@ func defaultSetHelper() *StatefulSetHelper {
 }
 
 func omSetHelperFromResource(om *mdbv1.MongoDBOpsManager) *OpsManagerStatefulSetHelper {
-	return (&KubeHelper{newMockedClient()}).NewOpsManagerStatefulSetHelper(om)
+	mockedClient := newMockedClient()
+	return (&KubeHelper{client: mockedClient, serviceClient: service.NewClient(mockedClient)}).NewOpsManagerStatefulSetHelper(om)
 }
 
 func testDefaultOMSetHelper() *OpsManagerStatefulSetHelper {
 	om := DefaultOpsManagerBuilder().Build()
-	return (&KubeHelper{newMockedClient()}).NewOpsManagerStatefulSetHelper(om)
+	mockedClient := newMockedClient()
+	return (&KubeHelper{client: mockedClient, serviceClient: service.NewClient(mockedClient)}).NewOpsManagerStatefulSetHelper(om)
 }
 
 func defaultPodVars() *PodVars {

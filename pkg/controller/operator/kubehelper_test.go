@@ -136,3 +136,22 @@ func TestComputeConfigMap_UpdateExisting(t *testing.T) {
 	// The only operation in history is the first update
 	client.CheckNumberOfOperations(t, HItem(reflect.ValueOf(client.Update), cmap), 1)
 }
+
+func TestBuildService(t *testing.T) {
+	mdb := DefaultReplicaSetBuilder().Build()
+	svc := buildService(objectKey(TestNamespace, "my-svc"), mdb, "label", 2000, mdbv1.MongoDBOpsManagerServiceDefinition{
+		Type:           corev1.ServiceTypeClusterIP,
+		Port:           2000,
+		LoadBalancerIP: "loadbalancerip",
+	})
+
+	assert.Len(t, svc.OwnerReferences, 1)
+	assert.Equal(t, mdb.Name, svc.OwnerReferences[0].Name)
+	assert.Equal(t, mdb.GetKind(), svc.OwnerReferences[0].Kind)
+	assert.Equal(t, TestNamespace, svc.Namespace)
+	assert.Equal(t, "my-svc", svc.Name)
+	assert.Equal(t, "loadbalancerip", svc.Spec.LoadBalancerIP)
+	assert.Equal(t, "None", svc.Spec.ClusterIP)
+	assert.Equal(t, int32(2000), svc.Spec.Ports[0].Port)
+	assert.Equal(t, "label", svc.Labels[AppLabelKey])
+}

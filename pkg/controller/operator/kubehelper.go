@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 	"net/url"
 	"strings"
 
@@ -24,6 +25,7 @@ import (
 // - it should be put here
 type KubeHelper struct {
 	client client.Client
+	serviceClient service.Client
 }
 
 type AuthMode string
@@ -328,7 +330,7 @@ func (s StatefulSetHelper) CreateOrUpdateInKubernetes() error {
 	}
 
 	namespacedName := objectKey(s.Namespace, set.Spec.ServiceName)
-	internalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, &mdbv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, mdbv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
 	err = s.Helper.createOrUpdateService(internalService, s.Logger)
 	if err != nil {
 		return err
@@ -336,7 +338,7 @@ func (s StatefulSetHelper) CreateOrUpdateInKubernetes() error {
 
 	if s.ExposedExternally {
 		namespacedName := objectKey(s.Namespace, set.Spec.ServiceName+"-external")
-		externalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, &mdbv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeNodePort})
+		externalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, mdbv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeNodePort})
 		err = s.Helper.createOrUpdateService(externalService, s.Logger)
 	}
 
@@ -391,7 +393,7 @@ func (s OpsManagerStatefulSetHelper) CreateOrUpdateInKubernetes() error {
 	}
 
 	namespacedName := objectKey(s.Namespace, set.Spec.ServiceName)
-	internalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, &mdbv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, mdbv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
 	err = s.Helper.createOrUpdateService(internalService, s.Logger)
 	if err != nil {
 		return err
@@ -399,7 +401,7 @@ func (s OpsManagerStatefulSetHelper) CreateOrUpdateInKubernetes() error {
 
 	if s.Spec.MongoDBOpsManagerExternalConnectivity != nil {
 		namespacedName := objectKey(s.Namespace, set.Spec.ServiceName+"-ext")
-		externalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, s.Spec.MongoDBOpsManagerExternalConnectivity)
+		externalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, *s.Spec.MongoDBOpsManagerExternalConnectivity)
 		err = s.Helper.createOrUpdateService(externalService, s.Logger)
 	}
 
@@ -440,7 +442,7 @@ func (s *StatefulSetHelper) CreateOrUpdateAppDBInKubernetes() error {
 	}
 
 	namespacedName := objectKey(s.Namespace, set.Spec.ServiceName)
-	internalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, &mdbv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, mdbv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
 	err = s.Helper.createOrUpdateService(internalService, s.Logger)
 	return err
 }
@@ -616,17 +618,15 @@ func (k *KubeHelper) deleteStatefulSet(key client.ObjectKey) error {
 	return nil
 }
 
-func (k *KubeHelper) createOrUpdateService(desiredService *corev1.Service, log *zap.SugaredLogger) error {
+func (k *KubeHelper) createOrUpdateService(desiredService corev1.Service, log *zap.SugaredLogger) error {
 	log = log.With("service", desiredService.ObjectMeta.Name)
 	namespacedName := objectKey(desiredService.ObjectMeta.Namespace, desiredService.ObjectMeta.Name)
 
-	existingService := &corev1.Service{}
-	err := k.client.Get(context.TODO(), namespacedName, existingService)
+	existingService, err := k.serviceClient.Get(namespacedName)
 	method := ""
-
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
-			err = k.client.Create(context.TODO(), desiredService)
+			err = k.serviceClient.Create(desiredService)
 			if err != nil {
 				return err
 			}
@@ -635,8 +635,8 @@ func (k *KubeHelper) createOrUpdateService(desiredService *corev1.Service, log *
 		}
 		method = "Created"
 	} else {
-		mergeServices(existingService, desiredService)
-		err = k.client.Update(context.TODO(), existingService)
+		mergedService := service.Merge(existingService, desiredService)
+		err = k.serviceClient.Update(mergedService)
 		if err != nil {
 			return err
 		}

@@ -3,11 +3,12 @@ package operator
 // This is a collection of functions building different Kubernetes API objects (statefulset, templates etc) from operator
 // custom objects
 import (
+	service "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
+	sts "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 	"path"
 	"sort"
 	"strconv"
 
-	sts "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 
 	"fmt"
 
@@ -455,81 +456,40 @@ func buildPersistentVolumeClaims(p StatefulSetHelper) ([]corev1.PersistentVolume
 // This function will update a Service object if passed, or return a new one if passed nil, this is to be able to update
 // Services and to not change any attribute they might already have that needs to be maintained.
 //
-func buildService(namespacedName types.NamespacedName, owner Updatable, label string, port int32, mongoServiceDefinition *mdbv1.MongoDBOpsManagerServiceDefinition) *corev1.Service {
-	service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: namespacedName.Name}}
-	servicePort := corev1.ServicePort{Port: port}
-	serviceType := mongoServiceDefinition.Type
+func buildService(namespacedName types.NamespacedName, owner Updatable, label string, port int32, mongoServiceDefinition mdbv1.MongoDBOpsManagerServiceDefinition) corev1.Service {
+	svcBuilder := service.Builder().
+		SetNamespace(namespacedName.Namespace).
+		SetName(namespacedName.Name).
+		SetPort(port).
+		SetOwnerReferences(baseOwnerReference(owner)).
+		SetLabels(map[string]string{
+			AppLabelKey: label,
+		}).SetSelector(map[string]string{
+		AppLabelKey: label,
+	}).SetServiceType(mongoServiceDefinition.Type)
 
+	serviceType := mongoServiceDefinition.Type
 	if serviceType == corev1.ServiceTypeNodePort || serviceType == corev1.ServiceTypeLoadBalancer {
-		servicePort.NodePort = mongoServiceDefinition.Port
-		service.Spec.ClusterIP = ""
+		svcBuilder.SetClusterIP("").SetNodePort(mongoServiceDefinition.Port)
 	}
 
 	if serviceType == corev1.ServiceTypeClusterIP {
-		service.Spec.PublishNotReadyAddresses = true
-		service.Spec.ClusterIP = "None"
-		servicePort.Name = "mongodb"
-	}
-
-	// Each attribute needs to be set manually to avoid overwritting or deleting
-	// attributes from the subobject that we don't know about.
-	service.ObjectMeta.Namespace = namespacedName.Namespace
-	service.ObjectMeta.Labels = map[string]string{AppLabelKey: label}
-
-	service.ObjectMeta.OwnerReferences = baseOwnerReference(owner)
-
-	service.Spec.Selector = map[string]string{AppLabelKey: label}
-	service.Spec.Type = serviceType
-	service.Spec.Ports = []corev1.ServicePort{servicePort}
-
-	if mongoServiceDefinition.LoadBalancerIP != "" {
-		service.Spec.LoadBalancerIP = mongoServiceDefinition.LoadBalancerIP
-	}
-
-	if mongoServiceDefinition.ExternalTrafficPolicy != "" {
-		service.Spec.ExternalTrafficPolicy = mongoServiceDefinition.ExternalTrafficPolicy
+		svcBuilder.SetPublishNotReadyAddresses(true).SetClusterIP("None").SetPortName("mongodb")
 	}
 
 	if mongoServiceDefinition.Annotations != nil {
-		service.ObjectMeta.Annotations = mongoServiceDefinition.Annotations
+		svcBuilder.SetAnnotations(mongoServiceDefinition.Annotations)
 	}
 
-	return service
-}
-
-// mergeServices merges `source` into `dest`. The `source` parameter will remain
-// intact while `dest` will be modified in place.
-//
-// The "merging" process is arbitrary and it only handle attributes that can be
-// set in the `MongoDBOpsManagerExternalConnectivity` section of the Ops Manager
-// definition.
-func mergeServices(dest, source *corev1.Service) {
-	for k, v := range source.ObjectMeta.Annotations {
-		dest.ObjectMeta.Annotations[k] = v
+	if mongoServiceDefinition.LoadBalancerIP != "" {
+		svcBuilder.SetLoadBalancerIP(mongoServiceDefinition.LoadBalancerIP)
 	}
 
-	for k, v := range source.ObjectMeta.Labels {
-		dest.ObjectMeta.Labels[k] = v
+	if mongoServiceDefinition.ExternalTrafficPolicy != "" {
+		svcBuilder.SetExternalTrafficPolicy(mongoServiceDefinition.ExternalTrafficPolicy)
 	}
 
-	var nodePort int32 = 0
-	if len(dest.Spec.Ports) > 0 {
-		// Save the NodePort for later, in case this ServicePort is changed.
-		nodePort = dest.Spec.Ports[0].NodePort
-	}
-
-	if len(source.Spec.Ports) > 0 {
-		dest.Spec.Ports = source.Spec.Ports
-
-		if nodePort > 0 && source.Spec.Ports[0].NodePort == 0 {
-			// There *is* a nodePort defined already, and a new one is not being passed
-			dest.Spec.Ports[0].NodePort = nodePort
-		}
-	}
-
-	dest.Spec.Type = source.Spec.Type
-	dest.Spec.LoadBalancerIP = source.Spec.LoadBalancerIP
-	dest.Spec.ExternalTrafficPolicy = source.Spec.ExternalTrafficPolicy
+	return svcBuilder.Build()
 }
 
 func baseOwnerReference(owner Updatable) []metav1.OwnerReference {

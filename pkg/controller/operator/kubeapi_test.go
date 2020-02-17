@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 	"runtime"
 	"testing"
 	"time"
@@ -336,7 +337,7 @@ func (oc *MockedClient) getSet(key client.ObjectKey) *appsv1.StatefulSet {
 
 // convenience method to get a helper from the mocked client
 func (oc *MockedClient) helper() *KubeHelper {
-	return &KubeHelper{oc}
+	return &KubeHelper{client: oc, serviceClient: service.NewClient(oc)}
 }
 
 // HistoryItem is an item that describe the invocation of 'client.client' method.
