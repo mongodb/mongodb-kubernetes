@@ -61,5 +61,3 @@ if [[ -z "${IN_MEMORY_CONTEXT-}" ]]; then
     export OPERATOR_DIR=${root_dir}
     export CURRENT_CONTEXT=${context}
 fi
-# switch this on if your network is slow to decrease the size of binary
-# export COMPRESS_OPERATOR_BINARY=true

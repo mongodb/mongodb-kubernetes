@@ -184,12 +184,12 @@ func (k *KubeHelper) NewStatefulSetHelper(obj Updatable) *StatefulSetHelper {
 	}
 }
 
-func (k *KubeHelper) NewOpsManagerStatefulSetHelper(opsManager *mdbv1.MongoDBOpsManager) *OpsManagerStatefulSetHelper {
+func (k *KubeHelper) NewOpsManagerStatefulSetHelper(opsManager mdbv1.MongoDBOpsManager) *OpsManagerStatefulSetHelper {
 	spec := mdbv1.NewPodSpecWrapperBuilderFromSpec(opsManager.Spec.PodSpec).Build()
 	spec.Default = mdbv1.OpsManagerPodSpecDefaultValues()
 	return &OpsManagerStatefulSetHelper{
 		StatefulSetHelperCommon: StatefulSetHelperCommon{
-			Owner:       opsManager,
+			Owner:       &opsManager,
 			Name:        opsManager.GetName(),
 			Namespace:   opsManager.GetNamespace(),
 			Replicas:    opsManager.Spec.Replicas,
@@ -204,7 +204,7 @@ func (k *KubeHelper) NewOpsManagerStatefulSetHelper(opsManager *mdbv1.MongoDBOps
 	}
 }
 
-func (k *KubeHelper) NewBackupStatefulSetHelper(opsManager *mdbv1.MongoDBOpsManager) *BackupStatefulSetHelper {
+func (k *KubeHelper) NewBackupStatefulSetHelper(opsManager mdbv1.MongoDBOpsManager) *BackupStatefulSetHelper {
 	helper := BackupStatefulSetHelper{
 		OpsManagerStatefulSetHelper: *k.NewOpsManagerStatefulSetHelper(opsManager),
 	}
@@ -1164,7 +1164,7 @@ func (k *KubeHelper) verifyCertificatesForStatefulSet(ss *StatefulSetHelper, sec
 
 // EnvVars returns a list of corev1.EnvVar which should be passed
 // to the container running Ops Manager
-func opsManagerConfigurationToEnvVars(m *mdbv1.MongoDBOpsManager) []corev1.EnvVar {
+func opsManagerConfigurationToEnvVars(m mdbv1.MongoDBOpsManager) []corev1.EnvVar {
 	var envVars []corev1.EnvVar
 	for name, value := range m.Spec.Configuration {
 		envVars = append(envVars, corev1.EnvVar{

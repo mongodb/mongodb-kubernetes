@@ -14,8 +14,6 @@ def opsmanager(namespace: str) -> MongoDBOpsManager:
 
     yield resource.create()
 
-    resource.delete()
-
 
 @mark.e2e_om_external_connectivity
 def test_reaches_goal_state(opsmanager: MongoDBOpsManager):

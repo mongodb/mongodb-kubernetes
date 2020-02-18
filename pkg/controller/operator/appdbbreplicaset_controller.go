@@ -33,10 +33,10 @@ func newAppDBReplicaSetReconciler(commonController *ReconcileCommonController) *
 }
 
 // Reconcile deploys the "headless" agent, and wait until it reaches the goal state
-func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *mdbv1.MongoDBOpsManager, rs mdbv1.AppDB, opsManagerUserPassword string) (res reconcile.Result, e error) {
+func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager mdbv1.MongoDBOpsManager, rs mdbv1.AppDB, opsManagerUserPassword string) (res reconcile.Result, e error) {
 	log := zap.S().With("ReplicaSet (AppDB)", objectKey(opsManager.Namespace, rs.Name()))
 
-	err := r.updateStatus(opsManager, func(fresh Updatable) {
+	err := r.updateStatus(&opsManager, func(fresh Updatable) {
 		(fresh.(*mdbv1.MongoDBOpsManager)).UpdateReconcilingAppDb()
 	})
 	if err != nil {
@@ -55,7 +55,7 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *mdbv1.MongoDBOpsManager
 	appdbPodSpec.Default.MemoryRequests = util.DefaultMemoryAppDB
 
 	// It's ok to pass 'opsManager' instance to statefulset constructor as it will be the owner for the appdb statefulset
-	replicaBuilder := r.kubeHelper.NewStatefulSetHelper(opsManager).
+	replicaBuilder := r.kubeHelper.NewStatefulSetHelper(&opsManager).
 		SetName(rs.Name()).
 		SetService(rs.ServiceName()).
 		SetPodVars(&PodVars{}). // TODO remove
@@ -67,21 +67,21 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *mdbv1.MongoDBOpsManager
 
 	appDbSts, err := replicaBuilder.BuildAppDBStatefulSet()
 	if err != nil {
-		return r.updateStatusFailedAppDb(opsManager, err.Error(), log)
+		return r.updateStatusFailedAppDb(&opsManager, err.Error(), log)
 	}
 
 	config, err := r.buildAppDbAutomationConfig(rs, opsManager, opsManagerUserPassword, appDbSts, log)
 	if err != nil {
-		return r.updateStatusFailedAppDb(opsManager, err.Error(), log)
+		return r.updateStatusFailedAppDb(&opsManager, err.Error(), log)
 	}
 
 	if err = r.publishAutomationConfig(rs, opsManager, config, log); err != nil {
-		return r.updateStatusFailedAppDb(opsManager, err.Error(), log)
+		return r.updateStatusFailedAppDb(&opsManager, err.Error(), log)
 	}
 
 	err = replicaBuilder.CreateOrUpdateAppDBInKubernetes()
 	if err != nil {
-		return r.updateStatusFailedAppDb(opsManager, fmt.Sprintf("Failed to create/update the StatefulSet: %s", err), log)
+		return r.updateStatusFailedAppDb(&opsManager, fmt.Sprintf("Failed to create/update the StatefulSet: %s", err), log)
 	}
 
 	// For the headless agent we cannot check the readiness state of the StatefulSet right away as we rely on
@@ -91,12 +91,12 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *mdbv1.MongoDBOpsManager
 	time.Sleep(time.Duration(util.ReadEnvVarIntOrDefault(util.AppDBReadinessWaitEnv, DefaultWaitForReadinessSeconds)) * time.Second)
 
 	if !r.kubeHelper.isStatefulSetUpdated(opsManager.Namespace, opsManager.Name+"-db", log) {
-		return r.updateStatusPendingAppDb(opsManager, fmt.Sprintf("AppDB Statefulset is not ready yet"), log)
+		return r.updateStatusPendingAppDb(&opsManager, fmt.Sprintf("AppDB Statefulset is not ready yet"), log)
 	}
 
 	log.Infof("Finished reconciliation for AppDB ReplicaSet!")
 
-	err = r.updateStatus(opsManager, func(fresh Updatable) {
+	err = r.updateStatus(&opsManager, func(fresh Updatable) {
 		fresh.(*mdbv1.MongoDBOpsManager).UpdateSuccessfulAppDb(&rs)
 	})
 	if err != nil {
@@ -110,7 +110,7 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *mdbv1.MongoDBOpsManager
 // generateScramShaCredentials generates both ScramSha1Creds and ScramSha256Creds. The ScramSha256Creds
 // will not be used, but it makes comparisons with the deployment simpler to generate them both, and would make
 // changing to use ScramSha256 trivial once supported by the Java driver.
-func generateScramShaCredentials(password string, opsManager *mdbv1.MongoDBOpsManager) (*om.ScramShaCreds, *om.ScramShaCreds, error) {
+func generateScramShaCredentials(password string, opsManager mdbv1.MongoDBOpsManager) (*om.ScramShaCreds, *om.ScramShaCreds, error) {
 	sha256Creds, err := authentication.ComputeScramShaCreds(util.OpsManagerMongoDBUserName, password, getOpsManagerUserSalt(opsManager, sha256.New), authentication.ScramSha256)
 	if err != nil {
 		return nil, nil, err
@@ -125,7 +125,7 @@ func generateScramShaCredentials(password string, opsManager *mdbv1.MongoDBOpsMa
 
 // getOpsManagerUserSalt returns a deterministic salt based on the name of the resource.
 // the required number of characters will be taken based on the requirements for the SCRAM-SHA-1/MONGODB-CR algorithm
-func getOpsManagerUserSalt(om *mdbv1.MongoDBOpsManager, hashConstructor func() hash.Hash) []byte {
+func getOpsManagerUserSalt(om mdbv1.MongoDBOpsManager, hashConstructor func() hash.Hash) []byte {
 	sha256bytes32 := sha256.Sum256([]byte(fmt.Sprintf("%s-mongodbopsmanager", om.Name)))
 	return sha256bytes32[:hashConstructor().Size()-authentication.RFC5802MandatedSaltSize]
 }
@@ -159,7 +159,7 @@ func ensureConsistentAgentAuthenticationCredentials(newAutomationConfig *om.Auto
 }
 
 func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(rs mdbv1.AppDB,
-	opsManager *mdbv1.MongoDBOpsManager, automationConfig *om.AutomationConfig, log *zap.SugaredLogger) error {
+	opsManager mdbv1.MongoDBOpsManager, automationConfig *om.AutomationConfig, log *zap.SugaredLogger) error {
 	// Create/update the automation config configMap if it changed.
 	// Note, that the 'version' field is incremented if there are changes (emulating the db versioning mechanism)
 	// No optimistic concurrency control is done - there cannot be a concurrent reconciliation for the same Ops Manager
@@ -205,13 +205,13 @@ func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(rs mdbv1.AppDB,
 			}
 			existingMap.Data = map[string]string{util.AppDBAutomationConfigKey: string(bytes)}
 			return true
-		}, opsManager); err != nil {
+		}, &opsManager); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(rs mdbv1.AppDB, opsManager *mdbv1.MongoDBOpsManager, opsManagerUserPassword string, set appsv1.StatefulSet, log *zap.SugaredLogger) (*om.AutomationConfig, error) {
+func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(rs mdbv1.AppDB, opsManager mdbv1.MongoDBOpsManager, opsManagerUserPassword string, set appsv1.StatefulSet, log *zap.SugaredLogger) (*om.AutomationConfig, error) {
 	d := om.NewDeployment()
 
 	replicaSet := buildReplicaSetFromStatefulSetAppDb(set, rs, log)

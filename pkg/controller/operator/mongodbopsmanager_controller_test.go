@@ -149,13 +149,13 @@ func TestOpsManagerBackupDaemonHostName(t *testing.T) {
 
 // ******************************************* Helper methods *********************************************************
 
-func defaultTestOmReconciler(t *testing.T, opsManager *mdbv1.MongoDBOpsManager) (*OpsManagerReconciler, *MockedClient,
+func defaultTestOmReconciler(t *testing.T, opsManager mdbv1.MongoDBOpsManager) (*OpsManagerReconciler, *MockedClient,
 	*MockedInitializer, *api.MockedOmAdmin) {
-	manager := newMockedManager(opsManager)
+	manager := newMockedManager(&opsManager)
 	// create an admin user secret
 	data := map[string]string{"Username": "jane.doe@g.com", "Password": "pwd", "FirstName": "Jane", "LastName": "Doe"}
 	_ = manager.client.helper().createSecret(objectKey(opsManager.Namespace, opsManager.Spec.AdminSecret), data,
-		map[string]string{}, opsManager)
+		map[string]string{}, &opsManager)
 
 	initializer := &MockedInitializer{expectedOmURL: opsManager.CentralURL(), t: t}
 
@@ -165,79 +165,29 @@ func defaultTestOmReconciler(t *testing.T, opsManager *mdbv1.MongoDBOpsManager) 
 		manager.client, initializer, admin
 }
 
-func omWithAppDBVersion(version string) *mdbv1.MongoDBOpsManager {
+func omWithAppDBVersion(version string) mdbv1.MongoDBOpsManager {
 	return DefaultOpsManagerBuilder().SetAppDbVersion(version).Build()
 }
 
-// TODO move the builder to 'apis' package as done for mongodb
-type OpsManagerBuilder struct {
-	om *mdbv1.MongoDBOpsManager
-}
-
-func DefaultOpsManagerBuilder() *OpsManagerBuilder {
+func DefaultOpsManagerBuilder() *mdbv1.OpsManagerBuilder {
 	spec := mdbv1.MongoDBOpsManagerSpec{
 		Version:     "4.2.0",
 		AppDB:       *mdbv1.DefaultAppDbBuilder().Build(),
 		AdminSecret: "om-admin",
 	}
-	om := &mdbv1.MongoDBOpsManager{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "testOM", Namespace: TestNamespace}}
-	return &OpsManagerBuilder{om}
+	resource := mdbv1.MongoDBOpsManager{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "testOM", Namespace: TestNamespace}}
+	return mdbv1.NewOpsManagerBuilderFromResource(resource)
 }
 
-func (b *OpsManagerBuilder) SetVersion(version string) *OpsManagerBuilder {
-	b.om.Spec.Version = version
-	return b
-}
-
-func (b *OpsManagerBuilder) SetAppDbVersion(version string) *OpsManagerBuilder {
-	b.om.Spec.AppDB.Version = version
-	return b
-}
-
-func (b *OpsManagerBuilder) SetClusterDomain(clusterDomain string) *OpsManagerBuilder {
-	b.om.Spec.ClusterDomain = clusterDomain
-	return b
-}
-
-func (b *OpsManagerBuilder) SetAppDbMembers(members int) *OpsManagerBuilder {
-	b.om.Spec.AppDB.Members = members
-	return b
-}
-
-func (b *OpsManagerBuilder) SetAppDbFeatureCompatibility(version string) *OpsManagerBuilder {
-	b.om.Spec.AppDB.FeatureCompatibilityVersion = &version
-	return b
-}
-
-func (b *OpsManagerBuilder) SetAppDBPassword(secretName, key string) *OpsManagerBuilder {
-	b.om.Spec.AppDB.PasswordSecretKeyRef = &mdbv1.SecretKeyRef{Name: secretName, Key: key}
-	return b
-}
-
-func (b *OpsManagerBuilder) SetPodSpec(podSpec mdbv1.PodSpecWrapper) *OpsManagerBuilder {
-	b.om.Spec.PodSpec = &podSpec.MongoDbPodSpec
-	return b
-}
-
-func (b *OpsManagerBuilder) AddConfiguration(key, value string) *OpsManagerBuilder {
-	b.om.AddConfigIfDoesntExist(key, value)
-	return b
-}
-
-func (b OpsManagerBuilder) Build() *mdbv1.MongoDBOpsManager {
-	b.om.InitDefault()
-	return b.om.DeepCopy()
-}
-
-func (b OpsManagerBuilder) BuildStatefulSet() (appsv1.StatefulSet, error) {
-	rs := b.om.Spec.AppDB
-	return (&KubeHelper{}).NewStatefulSetHelper(b.om).
+func BuildTestStatefulSet(opsManager mdbv1.MongoDBOpsManager) (appsv1.StatefulSet, error) {
+	rs := opsManager.Spec.AppDB
+	return (&KubeHelper{}).NewStatefulSetHelper(&opsManager).
 		SetName(rs.Name()).
 		SetService(rs.ServiceName()).
 		SetPodSpec(NewDefaultPodSpecWrapper(*rs.PodSpec)).
 		SetPodVars(&PodVars{}). // TODO remove
-		SetClusterName(b.om.ClusterName).
-		SetVersion(b.om.Spec.Version).
+		SetClusterName(opsManager.ClusterName).
+		SetVersion(opsManager.Spec.Version).
 		SetContainerName(util.DatabaseContainerName).
 		BuildStatefulSet()
 }

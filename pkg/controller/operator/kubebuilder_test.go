@@ -667,7 +667,7 @@ func defaultSetHelper() *StatefulSetHelper {
 		})
 }
 
-func omSetHelperFromResource(om *mdbv1.MongoDBOpsManager) *OpsManagerStatefulSetHelper {
+func omSetHelperFromResource(om mdbv1.MongoDBOpsManager) *OpsManagerStatefulSetHelper {
 	mockedClient := newMockedClient()
 	return (&KubeHelper{client: mockedClient, serviceClient: service.NewClient(mockedClient)}).NewOpsManagerStatefulSetHelper(om)
 }

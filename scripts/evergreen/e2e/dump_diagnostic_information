@@ -31,7 +31,6 @@ dump_all () {
         dump_objects "mdb" "MongoDB Resources"
         dump_objects "mdbu" "MongoDBUser Resources"
         dump_objects "om" "MongoDBOpsManager Resources"
-        dump_objects "validatingwebhookconfigurations" "Validating Webhook Configurations"
     } >> "$dump_file"
 
     {
@@ -39,6 +38,7 @@ dump_all () {
         kubectl get all -n "${PROJECT_NAMESPACE}"
         dump_objects "pvc" "Persistent Volume Claims"
         dump_objects "sts" "StatefulSets" true
+        dump_objects "validatingwebhookconfigurations" "Validating Webhook Configurations"
     } >> "$dump_file"
 
     {

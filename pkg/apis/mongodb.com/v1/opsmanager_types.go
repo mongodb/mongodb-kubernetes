@@ -198,7 +198,7 @@ func (m *MongoDBOpsManager) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, (MongoDBJSON)(m)); err != nil {
 		return err
 	}
-	m.InitDefault()
+	m.InitDefaultAppDBFields()
 
 	// providing backward compatibility for the deployments which didn't specify the 'replicas' before Operator 1.3.1
 	// This doesn't update the object in Api server so the real spec won't change
@@ -213,7 +213,7 @@ func (m *MongoDBOpsManager) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (m *MongoDBOpsManager) InitDefault() {
+func (m *MongoDBOpsManager) InitDefaultAppDBFields() {
 	// we always "enable" scram sha authentication
 	// TODO change this when we may move `passwordRef` to `security.authentication`
 	m.Spec.AppDB.Security = newSecurity()
@@ -367,7 +367,7 @@ func (m *MongoDBOpsManager) UpdateSuccessfulAppDb(object runtime.Object, _ ...st
 	m.Status.AppDbStatus.Members = spec.Members
 }
 
-func (m *MongoDBOpsManager) CentralURL() string {
+func (m MongoDBOpsManager) CentralURL() string {
 	fqdn := util.GetServiceFQDN(m.SvcName(), m.Namespace, m.Spec.GetClusterDomain())
 
 	// protocol must be calculated based on tls configuration of the ops manager resource
@@ -377,7 +377,7 @@ func (m *MongoDBOpsManager) CentralURL() string {
 	return fmt.Sprintf("%s://%s:%d", protocol, fqdn, util.OpsManagerDefaultPort)
 }
 
-func (m *MongoDBOpsManager) BackupDaemonHostName() string {
+func (m MongoDBOpsManager) BackupDaemonHostName() string {
 	_, podnames := util.GetDNSNames(m.BackupStatefulSetName(), "", m.Namespace, m.Spec.GetClusterDomain(), 1)
 	return podnames[0]
 }
@@ -439,7 +439,7 @@ func (b *AppDbBuilder) Build() *AppDB {
 	return b.appDb.DeepCopy()
 }
 
-func (m *AppDB) GetSecretName() string {
+func (m AppDB) GetSecretName() string {
 	return m.Name() + "-password"
 }
 
@@ -467,23 +467,23 @@ func (m *AppDB) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (m *AppDB) Name() string {
+func (m AppDB) Name() string {
 	return m.opsManagerName + "-db"
 }
 
-func (m *AppDB) ServiceName() string {
+func (m AppDB) ServiceName() string {
 	if m.Service == "" {
 		return m.Name() + "-svc"
 	}
 	return m.Service
 }
 
-func (m *AppDB) AutomationConfigSecretName() string {
+func (m AppDB) AutomationConfigSecretName() string {
 	return m.Name() + "-config"
 }
 
 // ConnectionURL returns the connection url to the AppDB
-func (m *AppDB) ConnectionURL(userName, password string, connectionParams map[string]string) string {
+func (m AppDB) ConnectionURL(userName, password string, connectionParams map[string]string) string {
 	return buildConnectionUrl(m.Name(), m.ServiceName(), m.namespace, userName, password, m.MongoDbSpec, connectionParams)
 }
 

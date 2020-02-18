@@ -314,9 +314,9 @@ func TestFetchingVersionManifestFails_WhenUsingNonBundledVersion(t *testing.T) {
 
 // ***************** Helper methods *******************************
 
-func buildAutomationConfigForAppDb(builder *OpsManagerBuilder, internetManifestProvider om.VersionManifestProvider) (*om.AutomationConfig, error) {
+func buildAutomationConfigForAppDb(builder *mdbv1.OpsManagerBuilder, internetManifestProvider om.VersionManifestProvider) (*om.AutomationConfig, error) {
 	opsManager := builder.Build()
-	kubeManager := newMockedManager(opsManager)
+	kubeManager := newMockedManager(&opsManager)
 
 	// ensure the password exists for the Ops Manager User. The Ops Manager controller will have ensured this
 	kubeManager.client.secrets[objectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetSecretName())] = &corev1.Secret{
@@ -326,7 +326,7 @@ func buildAutomationConfigForAppDb(builder *OpsManagerBuilder, internetManifestP
 	}
 
 	reconciler := newAppDbReconciler(kubeManager, internetManifestProvider)
-	sts, _ := builder.BuildStatefulSet()
+	sts, _ := BuildTestStatefulSet(opsManager)
 	return reconciler.buildAppDbAutomationConfig(opsManager.Spec.AppDB, opsManager, "my-pass", sts, zap.S())
 }
 
@@ -340,7 +340,7 @@ func newAppDbReconciler(mgr manager.Manager, internetManifestProvider om.Version
 	return &ReconcileAppDbReplicaSet{newReconcileCommonController(mgr, nil), relativeVersionManifestFixturePath, internetManifestProvider}
 }
 
-func readAutomationConfigMap(t *testing.T, kubeManager *MockedManager, opsManager *mdbv1.MongoDBOpsManager) *corev1.ConfigMap {
+func readAutomationConfigMap(t *testing.T, kubeManager *MockedManager, opsManager mdbv1.MongoDBOpsManager) *corev1.ConfigMap {
 	configMap := &corev1.ConfigMap{}
 	key := objectKey(opsManager.Namespace, opsManager.Spec.AppDB.AutomationConfigSecretName())
 	assert.NoError(t, kubeManager.client.Get(context.TODO(), key, configMap))

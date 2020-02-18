@@ -2,10 +2,6 @@
 
 [[ "${MODE-}" = "dev" ]] && exit 0
 
-# We don't clean everything in case of failure unless these are the ops manager test
-# (we need to always clean them as they are too expensive to keep)
-[[ "${TEST_RESULTS}" -ne 0 ]] && [[ "${TEST_MODE:-}" != "opsmanager" ]] && exit 0
-
 echo "Removing all CRs and the test namespace ${PROJECT_NAMESPACE}"
 kubectl delete mdb --all -n "${PROJECT_NAMESPACE}" || true
 kubectl delete mdbu --all -n "${PROJECT_NAMESPACE}" || true
