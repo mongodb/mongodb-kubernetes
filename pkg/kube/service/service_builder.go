@@ -98,6 +98,7 @@ func (b *builder) Build() corev1.Service {
 			Namespace:       b.namespace,
 			Labels:          b.labels,
 			OwnerReferences: b.ownerReferences,
+			Annotations:     b.annotations,
 		},
 		Spec: corev1.ServiceSpec{
 			PublishNotReadyAddresses: b.publishNotReady,
