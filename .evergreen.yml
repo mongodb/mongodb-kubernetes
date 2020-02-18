@@ -1617,8 +1617,8 @@ task_groups:
 # This task is identical to e2e_ops_manager_task_group, with the exception that
 # it will run 1 host at a time, not more. In Openshift cluster (shared) this means
 # that the Ops Manager tests will not leave the cluster unusable.
-- name: e2e_ops_manager_task_group_single
-  max_hosts: 1
+- name: e2e_ops_manager_task_group_safe
+  max_hosts: 2
   setup_group:
     - func: clone
     - func: download_kube_tools
@@ -1730,7 +1730,7 @@ buildvariants:
     image_type: ubuntu
     always_remove_testing_namespace: "true"
   tasks:
-    - name: e2e_ops_manager_task_group
+    - name: e2e_ops_manager_task_group_safe
 
 - name: e2e_openshift4_ops_manager
   display_name: e2e_openshift4_ops_manager
@@ -1752,7 +1752,7 @@ buildvariants:
     image_type: rhel
     always_remove_testing_namespace: "true"
   tasks:
-    - name: e2e_ops_manager_task_group_single
+    - name: e2e_ops_manager_task_group_safe
 
 - name: release_rh_connect
   display_name: release_rh_connect
