@@ -210,3 +210,9 @@ kubectl delete namespace <namespace>
 kubectl delete deployment mongodb-enterprise-operator -n <namespace>
 kubectl delete crd/mongodb.mongodb.com
 ```
+
+## Contributing
+
+Please file issues before filing PRs. For PRs to be accepted, contributors must sign our [CLA](https://www.mongodb.com/legal/contributor-agreement).
+
+Reviewers, please ensure that the CLA has been signed by referring to [the contributors tool](https://contributors.corp.mongodb.com/) (internal link).
