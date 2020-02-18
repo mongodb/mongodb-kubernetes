@@ -1388,7 +1388,6 @@ task_groups:
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
   tasks:
-    - e2e_webhook_validation
     - e2e_sharded_cluster_long_name
     - e2e_replica_set_long_name
     - e2e_replica_set_config_map
@@ -1408,6 +1407,22 @@ task_groups:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
     - func: teardown_cloud_qa
+
+- name: e2e_webhook_validation_task_group
+  max_hosts: 4
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+  setup_task:
+    - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
+  tasks:
+    - e2e_webhook_validation
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+    - func: teardown_cloud_qa
+
 
   # This is the general task group which is supposed to be tested on ALL OM versions. Please don't add tests here which
   # don't test anything special in automation config and more focused on Kubernetes features - such tests should go to
@@ -1874,3 +1889,4 @@ buildvariants:
   - name: e2e_x509_task_group
   - name: e2e_scram_sha_task_group
   - name: e2e_auth_transitions_task_group
+  - name: e2e_webhook_validation_task_group

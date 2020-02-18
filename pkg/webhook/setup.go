@@ -114,5 +114,9 @@ func Setup(client client.Client, serviceLocation types.NamespacedName, certDirec
 	}
 
 	webhookConfig := GetWebhookConfig(serviceLocation)
-	return client.Create(context.Background(), &webhookConfig)
+	err := client.Create(context.Background(), &webhookConfig)
+	if apiErrors.IsAlreadyExists(err) {
+		return client.Update(context.Background(), &webhookConfig)
+	}
+	return err
 }
