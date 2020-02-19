@@ -10,6 +10,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
 	"math/big"
 	"testing"
 	"time"
@@ -27,7 +28,7 @@ import (
 
 func configureX509(client *MockedClient, condition certsv1.RequestConditionType) {
 	cMap := x509ConfigMap()
-	client.configMaps[objectKeyFromApiObject(cMap)] = cMap
+	client.configMaps[objectKeyFromApiObject(&cMap)] = &cMap
 	createAgentCSRs(client, condition)
 }
 
@@ -537,13 +538,12 @@ func approveCSRs(client *MockedClient, mdb *mdbv1.MongoDB) {
 }
 
 // x509ConfigMap returns a ConfigMap with x509 enabled
-func x509ConfigMap() *corev1.ConfigMap {
-	return &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: om.TestGroupName, Namespace: TestNamespace},
-		Data: map[string]string{
-			util.OmBaseUrl:     om.TestURL,
-			util.OmProjectName: om.TestGroupName,
-			util.OmAuthMode:    util.X509,
-		},
-	}
+func x509ConfigMap() corev1.ConfigMap {
+	return configmap.Builder().
+		SetName(om.TestGroupName).
+		SetNamespace(TestNamespace).
+		SetField(util.OmBaseUrl, om.TestURL).
+		SetField(util.OmProjectName, om.TestGroupName).
+		SetField(util.OmAuthMode, util.X509).
+		Build()
 }

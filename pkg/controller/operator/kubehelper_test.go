@@ -63,7 +63,7 @@ func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
 // if it doesn't exist (or the creation is skipped totally)
 func TestComputeConfigMap_CreateNew(t *testing.T) {
 	client := newMockedClient()
-	helper := KubeHelper{client: client}
+	helper := NewKubeHelper(client)
 	owner := mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "test"}}
 	key := objectKey("ns", "cfm")
 	testData := map[string]string{"foo": "bar"}
@@ -97,7 +97,7 @@ func TestComputeConfigMap_CreateNew(t *testing.T) {
 func TestComputeConfigMap_UpdateExisting(t *testing.T) {
 	client := newMockedClient()
 	client.AddProjectConfigMap(om.TestGroupName, "")
-	helper := KubeHelper{client: client}
+	helper := NewKubeHelper(client)
 	owner := mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "test"}}
 
 	key := objectKey(TestNamespace, TestProjectConfigMapName)

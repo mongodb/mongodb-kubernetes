@@ -8,8 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
-
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
 
 	"github.com/blang/semver"
@@ -93,11 +91,10 @@ type ReconcileCommonController struct {
 }
 
 func newReconcileCommonController(mgr manager.Manager, omFunc om.ConnectionFactory) *ReconcileCommonController {
-	mgrClient := mgr.GetClient()
 	return &ReconcileCommonController{
 		client:              mgr.GetClient(),
 		scheme:              mgr.GetScheme(),
-		kubeHelper:          KubeHelper{client: mgrClient, serviceClient: service.NewClient(mgrClient)},
+		kubeHelper:          NewKubeHelper(mgr.GetClient()),
 		omConnectionFactory: omFunc,
 		watchedResources:    map[watchedObject][]types.NamespacedName{},
 		reconcileLocks:      sync.Map{},

@@ -3,10 +3,10 @@ package operator
 import (
 	"context"
 	"fmt"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 	"net/url"
 	"strings"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -25,8 +25,19 @@ import (
 // KubeHelper is the helper for dealing with Kubernetes. If any Kubernetes logic requires more than some trivial operation
 // - it should be put here
 type KubeHelper struct {
-	client        client.Client
-	serviceClient service.Client
+	client          client.Client
+	serviceClient   service.Client
+	configmapClient configmap.Client
+}
+
+// NewKubeHelper constructs an instance of KubeHelper with all clients initialized
+// using the same instance of client
+func NewKubeHelper(client client.Client) KubeHelper {
+	return KubeHelper{
+		client:          client,
+		configmapClient: configmap.NewClient(client),
+		serviceClient:   service.NewClient(client),
+	}
 }
 
 type AuthMode string
@@ -651,7 +662,7 @@ func (k *KubeHelper) createOrUpdateService(desiredService corev1.Service, log *z
 // readProjectConfig returns a "Project" config which is a ConfigMap with a series of attributes
 // like `projectName`, `baseUrl` and a series of attributes related to SSL.
 func (k *KubeHelper) readProjectConfig(namespace, name string) (*mdbv1.ProjectConfig, error) {
-	data, err := k.readConfigMap(namespace, name)
+	data, err := k.configmapClient.GetData(objectKey(namespace, name))
 	if err != nil {
 		return nil, err
 	}
@@ -673,7 +684,7 @@ func (k *KubeHelper) readProjectConfig(namespace, name string) (*mdbv1.ProjectCo
 	sslCaConfigMap, ok := data[util.SSLMMSCAConfigMap]
 	caFile := ""
 	if ok {
-		cacrt, err := k.readConfigMap(namespace, sslCaConfigMap)
+		cacrt, err := k.configmapClient.GetData(objectKey(namespace, sslCaConfigMap))
 		if err != nil {
 			return nil, fmt.Errorf("Could not read the specified ConfigMap %s/%s (%e)", namespace, sslCaConfigMap, err)
 		}
@@ -721,16 +732,6 @@ func (k *KubeHelper) readProjectConfig(namespace, name string) (*mdbv1.ProjectCo
 
 		UseCustomCA: useCustomCA,
 	}, nil
-}
-
-func (k *KubeHelper) readConfigMap(namespace, name string) (map[string]string, error) {
-	location := types.NamespacedName{Namespace: namespace, Name: name}
-	cmap := &corev1.ConfigMap{}
-	if err := k.client.Get(context.TODO(), location, cmap); err != nil {
-		return nil, err
-	}
-
-	return cmap.Data, nil
 }
 
 func (k *KubeHelper) readCredentials(namespace, name string) (*Credentials, error) {
@@ -804,29 +805,29 @@ func (k *KubeHelper) readSecretKey(nsName client.ObjectKey, key string) (string,
 // The computation function is expected to update the data in config map or return false if no update/create is needed
 // (Name for the function is chosen as an analogy to Map.compute() function in Java)
 func (k *KubeHelper) computeConfigMap(nsName client.ObjectKey, callback func(*corev1.ConfigMap) bool, owner Updatable) error {
-	existingConfigMap := &corev1.ConfigMap{}
-	if err := k.client.Get(context.TODO(), nsName, existingConfigMap); err != nil {
+	existingConfigMap, err := k.configmapClient.Get(objectKey(nsName.Namespace, nsName.Name))
+	if err != nil {
 		if apiErrors.IsNotFound(err) {
-			existingConfigMap = &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:            nsName.Name,
-					Namespace:       nsName.Namespace,
-					OwnerReferences: baseOwnerReference(owner),
-				}}
-			if !callback(existingConfigMap) {
+			existingConfigMap = configmap.Builder().
+				SetName(nsName.Name).
+				SetNamespace(nsName.Namespace).
+				SetOwnerReferences(baseOwnerReference(owner)).
+				Build()
+
+			if !callback(&existingConfigMap) {
 				return nil
 			}
-			if err = k.client.Create(context.TODO(), existingConfigMap); err != nil {
+			if err := k.configmapClient.Create(existingConfigMap); err != nil {
 				return err
 			}
 		} else {
 			return err
 		}
 	} else {
-		if !callback(existingConfigMap) {
+		if !callback(&existingConfigMap) {
 			return nil
 		}
-		if err = k.client.Update(context.TODO(), existingConfigMap); err != nil {
+		if err := k.configmapClient.Update(existingConfigMap); err != nil {
 			return err
 		}
 	}

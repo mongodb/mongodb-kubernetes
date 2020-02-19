@@ -65,7 +65,7 @@ func (r *MongoDBUserReconciler) getConnectionSpec(user mdbv1.MongoDBUser, mdbSpe
 	}
 
 	//lint:ignore SA1019 need to use deprecated Project to ensure backwards compatibility
-	projectConfig, err := r.kubeHelper.readConfigMap(user.Namespace, user.Spec.Project)
+	projectConfig, err := r.kubeHelper.configmapClient.GetData(objectKey(user.Namespace, user.Spec.Project))
 	if err != nil {
 		return mdbv1.ConnectionSpec{}, err
 	}
@@ -156,12 +156,11 @@ func (r *MongoDBUserReconciler) isX509Enabled(user mdbv1.MongoDBUser, mdbSpec md
 	// versions of the operator <1.3 is no longer required
 
 	//lint:ignore SA1019 need to use deprecated Project to ensure backwards compatibility
-	projectConfig, err := r.kubeHelper.readConfigMap(user.Namespace, user.Spec.Project)
+	omAuthMode, err := r.kubeHelper.configmapClient.ReadKey(util.OmAuthMode, objectKey(user.Namespace, user.Spec.Project))
 	if err != nil {
 		return false, err
 	}
-
-	return projectConfig[util.OmAuthMode] == util.LegacyX509InConfigMapValue, nil
+	return omAuthMode == util.LegacyX509InConfigMapValue, nil
 }
 
 func (r *MongoDBUserReconciler) delete(obj interface{}, log *zap.SugaredLogger) error {

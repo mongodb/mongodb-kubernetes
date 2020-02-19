@@ -2,11 +2,10 @@ package operator
 
 import (
 	"context"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
 	"runtime"
 	"testing"
 	"time"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -94,10 +93,15 @@ func (m *MockedClient) WithResource(object apiruntime.Object) *MockedClient {
 }
 
 func (m *MockedClient) AddProjectConfigMap(projectName, organizationId string) *MockedClient {
-	configMap := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: TestProjectConfigMapName, Namespace: TestNamespace},
-		Data:       map[string]string{util.OmBaseUrl: "http://mycompany.com:8080", util.OmProjectName: projectName, util.OmOrgId: organizationId}}
-	m.Create(context.TODO(), configMap)
+	cm := configmap.Builder().
+		SetName(TestProjectConfigMapName).
+		SetNamespace(TestNamespace).
+		SetField(util.OmBaseUrl, "http://mycompany.com:8080").
+		SetField(util.OmProjectName, projectName).
+		SetField(util.OmOrgId, organizationId).
+		Build()
+
+	m.Create(context.TODO(), &cm)
 	return m
 }
 
@@ -338,7 +342,8 @@ func (oc *MockedClient) getSet(key client.ObjectKey) *appsv1.StatefulSet {
 
 // convenience method to get a helper from the mocked client
 func (oc *MockedClient) helper() *KubeHelper {
-	return &KubeHelper{client: oc, serviceClient: service.NewClient(oc)}
+	helper := NewKubeHelper(oc)
+	return &helper
 }
 
 // HistoryItem is an item that describe the invocation of 'client.client' method.

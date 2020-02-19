@@ -2,13 +2,13 @@ package operator
 
 import (
 	"context"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 	"os"
 	"reflect"
 	"sort"
 	"testing"
 	"time"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
@@ -642,7 +642,8 @@ func TestOpsManagerPodTemplate_MergePodTemplate(t *testing.T) {
 func baseSetHelper() *StatefulSetHelper {
 	st := DefaultStandaloneBuilder().Build()
 	mockedClient := newMockedClient().WithResource(st)
-	return (&KubeHelper{client: mockedClient, serviceClient: service.NewClient(mockedClient)}).NewStatefulSetHelper(st)
+	helper := NewKubeHelper(mockedClient)
+	return helper.NewStatefulSetHelper(st)
 }
 
 // baseSetHelperDelayed returns a delayed StatefulSetHelper.
@@ -650,7 +651,8 @@ func baseSetHelper() *StatefulSetHelper {
 func baseSetHelperDelayed(delay time.Duration) *StatefulSetHelper {
 	st := DefaultStandaloneBuilder().Build()
 	mockedClient := newMockedClient().WithResource(st).WithStsCreationDelay(delay)
-	return (&KubeHelper{client: mockedClient, serviceClient: service.NewClient(mockedClient)}).NewStatefulSetHelper(st)
+	helper := NewKubeHelper(mockedClient)
+	return helper.NewStatefulSetHelper(st)
 }
 
 func defaultSetHelper() *StatefulSetHelper {
@@ -669,13 +671,14 @@ func defaultSetHelper() *StatefulSetHelper {
 
 func omSetHelperFromResource(om mdbv1.MongoDBOpsManager) *OpsManagerStatefulSetHelper {
 	mockedClient := newMockedClient()
-	return (&KubeHelper{client: mockedClient, serviceClient: service.NewClient(mockedClient)}).NewOpsManagerStatefulSetHelper(om)
+	helper := NewKubeHelper(mockedClient)
+	return helper.NewOpsManagerStatefulSetHelper(om)
 }
 
 func testDefaultOMSetHelper() *OpsManagerStatefulSetHelper {
 	om := DefaultOpsManagerBuilder().Build()
 	mockedClient := newMockedClient()
-	return (&KubeHelper{client: mockedClient, serviceClient: service.NewClient(mockedClient)}).NewOpsManagerStatefulSetHelper(om)
+	return (&KubeHelper{client: mockedClient, serviceClient: service.NewClient(mockedClient), configmapClient: configmap.NewClient(mockedClient)}).NewOpsManagerStatefulSetHelper(om)
 }
 
 func defaultPodVars() *PodVars {

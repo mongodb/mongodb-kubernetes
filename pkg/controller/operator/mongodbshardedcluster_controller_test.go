@@ -265,7 +265,8 @@ func TestShardedCluster_WithTLSEnabled_AndX509Enabled_Succeeds(t *testing.T) {
 
 	reconciler, client := defaultClusterReconciler(sc)
 
-	client.configMaps[objectKey("", om.TestGroupName)] = x509ConfigMap()
+	cMap := x509ConfigMap()
+	client.configMaps[objectKey("", om.TestGroupName)] = &cMap
 
 	// create the secret the agent certs will exist in
 	client.secrets[objectKey("", util.AgentSecretName)] = &corev1.Secret{}
