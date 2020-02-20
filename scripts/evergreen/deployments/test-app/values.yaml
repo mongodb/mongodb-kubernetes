@@ -22,7 +22,12 @@ tag:
 taskName: ${TASK_NAME}
 
 pytest:
-  addopts: ""
+  addopts: "-s"
+
+aws:
+  accessKey: "none"
+  secretAccessKey: "none"
+
 
 skipExecution: 'false'
 
