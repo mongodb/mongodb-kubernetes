@@ -613,9 +613,9 @@ type Persistence struct {
 }
 
 type MultiplePersistenceConfig struct {
-	Data    *PersistenceConfig `json:"data,omitempty"`
-	Journal *PersistenceConfig `json:"journal,omitempty"`
-	Logs    *PersistenceConfig `json:"logs,omitempty"`
+	Data    PersistenceConfig `json:"data,omitempty"`
+	Journal PersistenceConfig `json:"journal,omitempty"`
+	Logs    PersistenceConfig `json:"logs,omitempty"`
 }
 
 type PersistenceConfig struct {
@@ -678,7 +678,7 @@ func (p PodSpecWrapper) SetTopology(topology string) PodSpecWrapper {
 	return p
 }
 
-func GetStorageOrDefault(config, defaultConfig *PersistenceConfig) string {
+func GetStorageOrDefault(config *PersistenceConfig, defaultConfig PersistenceConfig) string {
 	if config == nil || config.Storage == "" {
 		return defaultConfig.Storage
 	}

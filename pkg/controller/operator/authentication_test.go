@@ -10,10 +10,11 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
 	"math/big"
 	"testing"
 	"time"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
 
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"

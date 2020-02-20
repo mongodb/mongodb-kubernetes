@@ -9,7 +9,7 @@ import (
 
 // buildStorageRequirements returns a corev1.ResourceList definition for storage requirements.
 // This is used by the StatefulSet PersistentVolumeClaimTemplate.
-func buildStorageRequirements(persistenceConfig, defaultConfig *mdbv1.PersistenceConfig) corev1.ResourceList {
+func buildStorageRequirements(persistenceConfig *mdbv1.PersistenceConfig, defaultConfig mdbv1.PersistenceConfig) corev1.ResourceList {
 	res := corev1.ResourceList{}
 
 	if q := parseQuantityOrZero(mdbv1.GetStorageOrDefault(persistenceConfig, defaultConfig)); !q.IsZero() {

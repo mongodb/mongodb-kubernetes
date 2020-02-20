@@ -6,6 +6,7 @@ module github.com/10gen/ops-manager-kubernetes
 require (
 	github.com/blang/semver v3.5.0+incompatible
 	github.com/google/uuid v1.1.1
+	github.com/hashicorp/go-multierror v1.0.0
 	github.com/imdario/mergo v0.3.8
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/cast v1.3.1

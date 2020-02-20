@@ -21,7 +21,7 @@ func TestStorageRequirements(t *testing.T) {
 		SetDefault(mdbv1.NewPodSpecWrapperBuilder().SetSinglePersistence(mdbv1.NewPersistenceBuilder("12G"))).
 		Build()
 
-	req := buildStorageRequirements(podSpec.Persistence.SingleConfig, podSpec.Default.Persistence.SingleConfig)
+	req := buildStorageRequirements(podSpec.Persistence.SingleConfig, *podSpec.Default.Persistence.SingleConfig)
 
 	assert.Len(t, req, 1)
 	quantity := req[corev1.ResourceStorage]
@@ -32,7 +32,7 @@ func TestStorageRequirements(t *testing.T) {
 		SetDefault(mdbv1.NewPodSpecWrapperBuilder().SetSinglePersistence(mdbv1.NewPersistenceBuilder("5G"))).
 		Build()
 
-	req = buildStorageRequirements(podSpec.Persistence.SingleConfig, podSpec.Default.Persistence.SingleConfig)
+	req = buildStorageRequirements(podSpec.Persistence.SingleConfig, *podSpec.Default.Persistence.SingleConfig)
 
 	assert.Len(t, req, 1)
 	quantity = req[corev1.ResourceStorage]
@@ -40,7 +40,7 @@ func TestStorageRequirements(t *testing.T) {
 
 	// value is not provided and default is empty - the parameter must not be set at all
 	podSpec = mdbv1.NewEmptyPodSpecWrapperBuilder().Build()
-	req = buildStorageRequirements(podSpec.Persistence.SingleConfig, podSpec.Default.Persistence.SingleConfig)
+	req = buildStorageRequirements(podSpec.Persistence.SingleConfig, *podSpec.Default.Persistence.SingleConfig)
 
 	assert.Len(t, req, 0)
 }

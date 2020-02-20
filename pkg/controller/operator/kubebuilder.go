@@ -4,11 +4,10 @@ package operator
 // custom objects
 import (
 	"path"
-	"sort"
 	"strconv"
 
 	service "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
-	sts "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 
 	"fmt"
 
@@ -36,6 +35,7 @@ const (
 	// SecretVolumeName is the name of the volume resource.
 	SecretVolumeName = "secret-certs"
 
+	// TODO: Rename to non secret or change the volume type
 	// SecretVolumeCAMountPath defines where in the Pod will be the secrets
 	// object mounted.
 	SecretVolumeCAMountPath = "/var/lib/mongodb-automation/secrets/ca"
@@ -76,15 +76,15 @@ type PodVars struct {
 	mdbv1.SSLProjectConfig
 }
 
-// createBaseDatabaseStatefulSet is a general function for building the database StatefulSet.
+// createBaseDatabaseStatefulSetBuilder is a general function for building the database statefulset
 // Reused for building an appdb StatefulSet and a normal mongodb StatefulSet
-func createBaseDatabaseStatefulSet(p StatefulSetHelper, podSpec corev1.PodTemplateSpec) (appsv1.StatefulSet, error) {
+func createBaseDatabaseStatefulSetBuilder(p StatefulSetHelper, podSpec corev1.PodTemplateSpec) *statefulset.Builder {
 	// ssLabels are labels we set to the StatefulSet
 	ssLabels := map[string]string{
 		AppLabelKey: p.Service,
 	}
 
-	set := sts.Builder().
+	stsBuilder := statefulset.NewBuilder().
 		SetLabels(ssLabels).
 		SetName(p.Name).
 		SetNamespace(p.Namespace).
@@ -92,26 +92,16 @@ func createBaseDatabaseStatefulSet(p StatefulSetHelper, podSpec corev1.PodTempla
 		SetReplicas(util.Int32Ref(int32(p.Replicas))).
 		SetPodTemplateSpec(podSpec).
 		SetMatchLabels(podSpec.Labels).
-		SetServiceName(p.Service).
-		Build()
+		SetServiceName(p.Service)
 
-	var claims []corev1.PersistentVolumeClaim
-	var mounts []corev1.VolumeMount
 	if p.Persistent == nil || *p.Persistent {
-
-		claims, mounts = buildPersistentVolumeClaims(p)
-		if err := sts.AddVolumeClaimTemplates(&set, podSpec.Spec.Containers[0].Name, claims, mounts); err != nil {
-			return appsv1.StatefulSet{}, err
-		}
+		claims, mounts := buildPersistentVolumeClaims(p)
+		stsBuilder.AddVolumeClaimTemplates(claims).AddVolumeMounts(p.ContainerName, mounts)
 	}
 
-	if err := mountVolumes(&set, p); err != nil {
-		return appsv1.StatefulSet{}, err
-	}
+	mountVolumes(stsBuilder, p)
 
-	sortEnvVars(&set)
-
-	return set, nil
+	return stsBuilder
 }
 
 func defaultPodLabels(stsHelper StatefulSetHelperCommon) map[string]string {
@@ -231,12 +221,14 @@ func buildStatefulSet(p StatefulSetHelper) (appsv1.StatefulSet, error) {
 		return appsv1.StatefulSet{}, err
 	}
 
-	return createBaseDatabaseStatefulSet(p, template)
+	return createBaseDatabaseStatefulSetBuilder(p, template).Build()
 }
 
 // buildAppDbStatefulSet builds the StatefulSet for AppDB.
 // It's mostly the same as the normal MongoDB one but has slightly different container and an additional mounting volume
 func buildAppDbStatefulSet(p StatefulSetHelper) (appsv1.StatefulSet, error) {
+	var err error
+	p.ContainerName = util.AppDbContainerName
 	appdbImageUrl := prepareOmAppdbImageUrl(util.ReadEnvVarOrPanic(util.AppDBImageUrl), p.Version)
 	template, err := getDatabasePodTemplate(p, nil, util.AppDBServiceAccount,
 		newAppDBContainer(p.Name, appdbImageUrl))
@@ -244,30 +236,24 @@ func buildAppDbStatefulSet(p StatefulSetHelper) (appsv1.StatefulSet, error) {
 		return appsv1.StatefulSet{}, err
 	}
 
-	set, err := createBaseDatabaseStatefulSet(p, template)
-	if err != nil {
-		return appsv1.StatefulSet{}, err
-	}
+	stsBuilder := createBaseDatabaseStatefulSetBuilder(p, template)
 
-	vmd := sts.VolumeMountData{
-		MountPath:  AgentLibPath,
-		Name:       ClusterConfigVolumeName,
-		SourceType: corev1.ConfigMapVolumeSource{},
-		SourceName: p.Name + "-config",
-	}
+	stsBuilder.AddVolumeAndMount(p.ContainerName,
+		statefulset.VolumeMountData{
+			Name:      ClusterConfigVolumeName,
+			MountPath: AgentLibPath,
+			Volume:    statefulset.CreateVolumeFromConfigMap(ClusterConfigVolumeName, p.Name+"-config"),
+		},
+	)
 
-	// cluster config mount
-	if err := sts.MountVolume(&set, vmd, template.Spec.Containers[0].Name); err != nil {
-		return appsv1.StatefulSet{}, err
-	}
-	return set, nil
+	return stsBuilder.Build()
 }
 
-// createBaseOpsManagerStatefulSet is the base method for building StatefulSet shared by Ops Manager and Backup Daemon.
+// createBaseOpsManagerStatefulSetBuilder is the base method for building StatefulSet shared by Ops Manager and Backup Daemon.
 // Shouldn't be called by end users directly
 // Dev note: it's ok to move the different parts to parameters (pod spec could be an example) as the functionality
 // evolves
-func createBaseOpsManagerStatefulSet(p OpsManagerStatefulSetHelper) (appsv1.StatefulSet, error) {
+func createBaseOpsManagerStatefulSetBuilder(p OpsManagerStatefulSetHelper) (*statefulset.Builder, error) {
 	labels := map[string]string{
 		AppLabelKey:             p.Service,
 		"controller":            util.OmControllerLabel,
@@ -276,10 +262,10 @@ func createBaseOpsManagerStatefulSet(p OpsManagerStatefulSetHelper) (appsv1.Stat
 
 	template, err := opsManagerPodTemplate(labels, p)
 	if err != nil {
-		return appsv1.StatefulSet{}, err
+		return nil, err
 	}
 
-	set := sts.Builder().
+	stsBuilder := statefulset.NewBuilder().
 		SetLabels(labels).
 		SetName(p.Name).
 		SetNamespace(p.Namespace).
@@ -287,34 +273,25 @@ func createBaseOpsManagerStatefulSet(p OpsManagerStatefulSetHelper) (appsv1.Stat
 		SetReplicas(util.Int32Ref(int32(p.Replicas))).
 		SetPodTemplateSpec(template).
 		SetMatchLabels(labels).
-		SetServiceName(p.Service).
-		Build()
+		SetServiceName(p.Service)
 
-	mountData := sts.VolumeMountData{
-		Name:       "gen-key",
-		MountPath:  util.GenKeyPath,
-		SourceType: corev1.SecretVolumeSource{},
-		SourceName: p.Owner.GetName() + "-gen-key",
+	mountData := statefulset.VolumeMountData{
+		Name:      "gen-key",
+		Volume:    statefulset.CreateVolumeFromSecret("gen-key", p.Owner.GetName()+"-gen-key"),
+		MountPath: util.GenKeyPath,
 	}
 
-	if err := sts.MountVolume(&set, mountData, util.OpsManagerName); err != nil {
-		return appsv1.StatefulSet{}, err
-	}
-	sortEnvVars(&set)
-
-	return set, nil
-}
-
-// sortEnvVars sorts environment variables in the first container in StatefulSet (managed by the Operator)
-// ideally must be called for any StatefulSet built by the Operator - otherwise the same environment variables
-// but in different order may result in extra sporadic reconciliations
-func sortEnvVars(sts *appsv1.StatefulSet) {
-	sort.Sort(&envVarSorter{envVars: sts.Spec.Template.Spec.Containers[0].Env})
+	return stsBuilder.AddVolumeAndMount(p.ContainerName, mountData), nil
 }
 
 // buildOpsManagerStatefulSet builds the StatefulSet for Ops Manager
 func buildOpsManagerStatefulSet(p OpsManagerStatefulSetHelper) (appsv1.StatefulSet, error) {
-	return createBaseOpsManagerStatefulSet(p)
+	p.ContainerName = util.OpsManagerName
+	stsBuilder, err := createBaseOpsManagerStatefulSetBuilder(p)
+	if err != nil {
+		return appsv1.StatefulSet{}, err
+	}
+	return stsBuilder.Build()
 }
 
 // buildBackupDaemonStatefulSet builds the StatefulSet for backup daemon. It shares most of the configuration with
@@ -326,103 +303,91 @@ func buildBackupDaemonStatefulSet(p BackupStatefulSetHelper) (appsv1.StatefulSet
 		Name:  util.ENV_BACKUP_DAEMON,
 		Value: "backup",
 	})
-	set, err := createBaseOpsManagerStatefulSet(p.OpsManagerStatefulSetHelper)
+	p.ContainerName = util.BackupdaemonContainerName
+	stsBuilder, err := createBaseOpsManagerStatefulSetBuilder(p.OpsManagerStatefulSetHelper)
 	if err != nil {
 		return appsv1.StatefulSet{}, err
 	}
 
 	// Mount head db
-	defaultConfig := &mdbv1.PersistenceConfig{Storage: util.DefaultHeadDbStorageSize}
+	defaultConfig := mdbv1.PersistenceConfig{Storage: util.DefaultHeadDbStorageSize}
 
-	set.Spec.VolumeClaimTemplates = append(
-		set.Spec.VolumeClaimTemplates,
-		*pvc(util.PvcNameHeadDb, p.HeadDbPersistenceConfig, defaultConfig),
-	)
-	set.Spec.Template.Spec.Containers[0].VolumeMounts = append(
-		set.Spec.Template.Spec.Containers[0].VolumeMounts,
-		*mount(util.PvcNameHeadDb, util.PvcMountPathHeadDb, ""),
-	)
+	stsBuilder.AddVolumeClaimTemplates(
+		[]corev1.PersistentVolumeClaim{pvc(util.PvcNameHeadDb, p.HeadDbPersistenceConfig, defaultConfig)},
+	).
+		AddVolumeMounts(
+			util.BackupdaemonContainerName,
+			[]corev1.VolumeMount{statefulset.CreateVolumeMount(util.PvcNameHeadDb, util.PvcMountPathHeadDb, "")},
+		)
 
-	set.Spec.Template.Spec.Containers[0].Name = util.BackupdaemonContainerName
 	// TODO CLOUDP-53272 so far we don't have any way to get Daemon readiness
-	set.Spec.Template.Spec.Containers[0].ReadinessProbe = nil
-	return set, nil
+	stsBuilder.SetReadinessProbe(nil, util.BackupdaemonContainerName)
+
+	return stsBuilder.Build()
 }
 
-// mountVolumes will add VolumeMounts to the `set` object.
+// mountVolumes will add VolumeMounts to the `stsBuilder` object.
 // Make sure you keep this updated with `kubehelper.needToPublishStateFirst` as it declares
 // in which order to make changes to StatefulSet and Ops Manager automationConfig
-func mountVolumes(set *appsv1.StatefulSet, helper StatefulSetHelper) error {
+func mountVolumes(stsBuilder *statefulset.Builder, helper StatefulSetHelper) *statefulset.Builder {
 	// SSL is active
 	if helper.Security != nil && helper.Security.TLSConfig.Enabled {
 		tlsConfig := helper.Security.TLSConfig
 		secretName := fmt.Sprintf("%s-cert", helper.Name)
 
-		vmd := sts.VolumeMountData{
-			MountPath:  SecretVolumeMountPath,
-			Name:       SecretVolumeName,
-			SourceType: corev1.SecretVolumeSource{},
-			SourceName: secretName,
-		}
-
-		if err := sts.MountVolume(set, vmd, helper.ContainerName); err != nil {
-			return err
-		}
+		stsBuilder.AddVolumeAndMount(helper.ContainerName,
+			statefulset.VolumeMountData{
+				MountPath: SecretVolumeMountPath,
+				Name:      SecretVolumeName,
+				Volume:    statefulset.CreateVolumeFromSecret(SecretVolumeName, secretName),
+			},
+		)
 
 		if tlsConfig.CA != "" {
-			vmd := sts.VolumeMountData{
-				MountPath:  SecretVolumeCAMountPath,
-				Name:       SecretVolumeCAName,
-				SourceType: corev1.ConfigMapVolumeSource{},
-				SourceName: tlsConfig.CA,
-			}
-			if err := sts.MountVolume(set, vmd, helper.ContainerName); err != nil {
-				return err
-			}
+			stsBuilder.AddVolumeAndMount(helper.ContainerName,
+				statefulset.VolumeMountData{
+					// TODO: Rename to non secret or change the volume type
+					MountPath: SecretVolumeCAMountPath,
+					Name:      SecretVolumeCAName,
+					Volume:    statefulset.CreateVolumeFromConfigMap(SecretVolumeCAName, tlsConfig.CA),
+				},
+			)
 		}
 	}
 
 	if helper.PodVars.SSLMMSCAConfigMap != "" {
-		vmd := sts.VolumeMountData{
-			MountPath:  CaCertMountPath,
-			Name:       CaCertName,
-			SourceType: corev1.ConfigMapVolumeSource{},
-			SourceName: helper.PodVars.SSLMMSCAConfigMap,
-		}
-		if err := sts.MountVolume(set, vmd, helper.ContainerName); err != nil {
-			return err
-		}
+		stsBuilder.AddVolumeAndMount(helper.ContainerName,
+			statefulset.VolumeMountData{
+				MountPath: CaCertMountPath,
+				Name:      CaCertName,
+				Volume:    statefulset.CreateVolumeFromConfigMap(CaCertName, helper.PodVars.SSLMMSCAConfigMap),
+			},
+		)
 	}
 
 	if helper.Security != nil {
 		if helper.Security.Authentication.GetAgentMechanism() == util.X509 {
-			vmd := sts.VolumeMountData{
-				MountPath:  AgentCertMountPath,
-				Name:       util.AgentSecretName,
-				SourceType: corev1.SecretVolumeSource{},
-				SourceName: util.AgentSecretName,
-			}
+			stsBuilder.AddVolumeAndMount(helper.ContainerName,
+				statefulset.VolumeMountData{
+					MountPath: AgentCertMountPath,
+					Name:      util.AgentSecretName,
+					Volume:    statefulset.CreateVolumeFromSecret(util.AgentSecretName, util.AgentSecretName),
+				},
+			)
+		}
 
-			if err := sts.MountVolume(set, vmd, helper.ContainerName); err != nil {
-				return err
-			}
-
-			// add volume for x509 cert used in internal cluster authentication
-			if helper.Security.Authentication.InternalCluster == util.X509 {
-				vmd := sts.VolumeMountData{
-					MountPath:  util.InternalClusterAuthMountPath,
-					Name:       util.ClusterFileName,
-					SourceType: corev1.SecretVolumeSource{},
-					SourceName: toInternalClusterAuthName(helper.Name),
-				}
-
-				if err := sts.MountVolume(set, vmd, helper.ContainerName); err != nil {
-					return err
-				}
-			}
+		// add volume for x509 cert used in internal cluster authentication
+		if helper.Security.Authentication.InternalCluster == util.X509 {
+			stsBuilder.AddVolumeAndMount(helper.ContainerName,
+				statefulset.VolumeMountData{
+					MountPath: util.InternalClusterAuthMountPath,
+					Name:      util.ClusterFileName,
+					Volume:    statefulset.CreateVolumeFromSecret(util.ClusterFileName, toInternalClusterAuthName(helper.Name)),
+				},
+			)
 		}
 	}
-	return nil
+	return stsBuilder
 }
 
 func buildPersistentVolumeClaims(p StatefulSetHelper) ([]corev1.PersistentVolumeClaim, []corev1.VolumeMount) {
@@ -441,10 +406,10 @@ func buildPersistentVolumeClaims(p StatefulSetHelper) ([]corev1.PersistentVolume
 		// physical folders
 		claims, mounts = createClaimsAndMountsSingleMode(config, p)
 	} else if p.PodSpec.Persistence.MultipleConfig != nil {
-		defaultConfig := p.PodSpec.Default.Persistence.MultipleConfig
+		defaultConfig := *p.PodSpec.Default.Persistence.MultipleConfig
 
 		// Multiple claims, multiple mounts. No subpaths are used and everything is mounted to the root of directory
-		claims, mounts = createClaimsAndMontsMultiMode(p, defaultConfig)
+		claims, mounts = createClaimsAndMontsMultiMode(p.PodSpec.Persistence, defaultConfig)
 	}
 	return claims, mounts
 }
@@ -551,7 +516,7 @@ func opsManagerPodTemplate(labels map[string]string, stsHelper OpsManagerStatefu
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{
-					Name:            util.OpsManagerName,
+					Name:            stsHelper.ContainerName,
 					Image:           omImageUrl,
 					ImagePullPolicy: corev1.PullPolicy(util.ReadEnvVarOrPanic(util.OpsManagerPullPolicy)),
 					Env:             stsHelper.EnvVars,
@@ -582,26 +547,6 @@ func prepareOmAppdbImageUrl(imageUrl, version string) string {
 		fullImageUrl = fmt.Sprintf("%s-operator%s", fullImageUrl, util.OperatorVersion)
 	}
 	return fullImageUrl
-}
-
-// envVarSorter
-type envVarSorter struct {
-	envVars []corev1.EnvVar
-}
-
-// Len is part of sort.Interface.
-func (s *envVarSorter) Len() int {
-	return len(s.envVars)
-}
-
-// Swap is part of sort.Interface.
-func (s *envVarSorter) Swap(i, j int) {
-	s.envVars[i], s.envVars[j] = s.envVars[j], s.envVars[i]
-}
-
-// Less is part of sort.Interface. It is implemented by calling the "by" closure in the sorter.
-func (s *envVarSorter) Less(i, j int) bool {
-	return s.envVars[i].Name < s.envVars[j].Name
 }
 
 func baseLivenessProbe() *corev1.Probe {
@@ -726,26 +671,26 @@ func baseEnvFrom(podVars *PodVars) []corev1.EnvVar {
 	return vars
 }
 
-func createClaimsAndMontsMultiMode(p StatefulSetHelper, defaultConfig *mdbv1.MultiplePersistenceConfig) ([]corev1.PersistentVolumeClaim, []corev1.VolumeMount) {
+func createClaimsAndMontsMultiMode(persistence *mdbv1.Persistence, defaultConfig mdbv1.MultiplePersistenceConfig) ([]corev1.PersistentVolumeClaim, []corev1.VolumeMount) {
 	claims := []corev1.PersistentVolumeClaim{
-		*pvc(util.PvcNameData, p.PodSpec.Persistence.MultipleConfig.Data, defaultConfig.Data),
-		*pvc(util.PvcNameJournal, p.PodSpec.Persistence.MultipleConfig.Journal, defaultConfig.Journal),
-		*pvc(util.PvcNameLogs, p.PodSpec.Persistence.MultipleConfig.Logs, defaultConfig.Logs),
+		pvc(util.PvcNameData, &persistence.MultipleConfig.Data, defaultConfig.Data),
+		pvc(util.PvcNameJournal, &persistence.MultipleConfig.Journal, defaultConfig.Journal),
+		pvc(util.PvcNameLogs, &persistence.MultipleConfig.Logs, defaultConfig.Logs),
 	}
 	mounts := []corev1.VolumeMount{
-		*mount(util.PvcNameData, util.PvcMountPathData, ""),
-		*mount(util.PvcNameJournal, util.PvcMountPathJournal, ""),
-		*mount(util.PvcNameLogs, util.PvcMountPathLogs, ""),
+		statefulset.CreateVolumeMount(util.PvcNameData, util.PvcMountPathData, ""),
+		statefulset.CreateVolumeMount(util.PvcNameJournal, util.PvcMountPathJournal, ""),
+		statefulset.CreateVolumeMount(util.PvcNameLogs, util.PvcMountPathLogs, ""),
 	}
 	return claims, mounts
 }
 
 func createClaimsAndMountsSingleMode(config *mdbv1.PersistenceConfig, p StatefulSetHelper) ([]corev1.PersistentVolumeClaim, []corev1.VolumeMount) {
-	claims := []corev1.PersistentVolumeClaim{*pvc(util.PvcNameData, config, p.PodSpec.Default.Persistence.SingleConfig)}
+	claims := []corev1.PersistentVolumeClaim{pvc(util.PvcNameData, config, *p.PodSpec.Default.Persistence.SingleConfig)}
 	mounts := []corev1.VolumeMount{
-		*mount(util.PvcNameData, util.PvcMountPathData, util.PvcNameData),
-		*mount(util.PvcNameData, util.PvcMountPathJournal, util.PvcNameJournal),
-		*mount(util.PvcNameData, util.PvcMountPathLogs, util.PvcNameLogs),
+		statefulset.CreateVolumeMount(util.PvcNameData, util.PvcMountPathData, util.PvcNameData),
+		statefulset.CreateVolumeMount(util.PvcNameData, util.PvcMountPathJournal, util.PvcNameJournal),
+		statefulset.CreateVolumeMount(util.PvcNameData, util.PvcMountPathLogs, util.PvcNameLogs),
 	}
 	return claims, mounts
 }
@@ -753,7 +698,7 @@ func createClaimsAndMountsSingleMode(config *mdbv1.PersistenceConfig, p Stateful
 // pvc convenience function to build a PersistentVolumeClaim. It accepts two config parameters - the one specified by
 // the customers and the default one configured by the Operator. Putting the default one to the signature ensures the
 // calling code doesn't forget to think about default values in case the user hasn't provided values.
-func pvc(name string, config, defaultConfig *mdbv1.PersistenceConfig) *corev1.PersistentVolumeClaim {
+func pvc(name string, config *mdbv1.PersistenceConfig, defaultConfig mdbv1.PersistenceConfig) corev1.PersistentVolumeClaim {
 	claim := corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
@@ -763,22 +708,11 @@ func pvc(name string, config, defaultConfig *mdbv1.PersistenceConfig) *corev1.Pe
 			Resources: corev1.ResourceRequirements{
 				Requests: buildStorageRequirements(config, defaultConfig),
 			},
-		}}
+		},
+	}
 	if config != nil {
 		claim.Spec.Selector = config.LabelSelector
 		claim.Spec.StorageClassName = config.StorageClass
 	}
-	return &claim
-}
-
-// mount convenience function to build a VolumeMount.
-func mount(name, path, subpath string) *corev1.VolumeMount {
-	volumeMount := &corev1.VolumeMount{
-		Name:      name,
-		MountPath: path,
-	}
-	if subpath != "" {
-		volumeMount.SubPath = subpath
-	}
-	return volumeMount
+	return claim
 }

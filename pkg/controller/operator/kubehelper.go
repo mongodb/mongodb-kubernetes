@@ -3,10 +3,11 @@ package operator
 import (
 	"context"
 	"fmt"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 	"net/url"
 	"strings"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -200,15 +201,16 @@ func (k *KubeHelper) NewOpsManagerStatefulSetHelper(opsManager mdbv1.MongoDBOpsM
 	spec.Default = mdbv1.OpsManagerPodSpecDefaultValues()
 	return &OpsManagerStatefulSetHelper{
 		StatefulSetHelperCommon: StatefulSetHelperCommon{
-			Owner:       &opsManager,
-			Name:        opsManager.GetName(),
-			Namespace:   opsManager.GetNamespace(),
-			Replicas:    opsManager.Spec.Replicas,
-			Helper:      k,
-			ServicePort: util.OpsManagerDefaultPort,
-			Version:     opsManager.Spec.Version,
-			Service:     opsManager.SvcName(),
-			PodSpec:     spec,
+			Owner:         &opsManager,
+			Name:          opsManager.GetName(),
+			Namespace:     opsManager.GetNamespace(),
+			ContainerName: util.OpsManagerName,
+			Replicas:      opsManager.Spec.Replicas,
+			Helper:        k,
+			ServicePort:   util.OpsManagerDefaultPort,
+			Version:       opsManager.Spec.Version,
+			Service:       opsManager.SvcName(),
+			PodSpec:       spec,
 		},
 		Spec:    opsManager.Spec,
 		EnvVars: opsManagerConfigurationToEnvVars(opsManager),
@@ -220,9 +222,13 @@ func (k *KubeHelper) NewBackupStatefulSetHelper(opsManager mdbv1.MongoDBOpsManag
 		OpsManagerStatefulSetHelper: *k.NewOpsManagerStatefulSetHelper(opsManager),
 	}
 	helper.Name = opsManager.BackupStatefulSetName()
+	helper.ContainerName = util.BackupdaemonContainerName
 	helper.Service = ""
 	helper.Replicas = 1
-	helper.HeadDbPersistenceConfig = opsManager.Spec.Backup.HeadDB
+	// TODO: remove this test once HeadDB is not a pointer
+	if opsManager.Spec.Backup.HeadDB != nil {
+		helper.HeadDbPersistenceConfig = opsManager.Spec.Backup.HeadDB
+	}
 	spec := mdbv1.NewPodSpecWrapperBuilderFromSpec(opsManager.Spec.Backup.PodSpec).Build()
 	spec.Default = mdbv1.OpsManagerPodSpecDefaultValues()
 	helper.PodSpec = spec
@@ -321,7 +327,7 @@ func (s StatefulSetHelper) BuildStatefulSet() (appsv1.StatefulSet, error) {
 	return buildStatefulSet(s)
 }
 
-func (s StatefulSetHelper) BuildAppDBStatefulSet() (appsv1.StatefulSet, error) {
+func (s StatefulSetHelper) BuildAppDbStatefulSet() (appsv1.StatefulSet, error) {
 	return buildAppDbStatefulSet(s)
 }
 
@@ -440,7 +446,7 @@ func (s BackupStatefulSetHelper) CreateOrUpdateInKubernetes() error {
 
 // CreateOrUpdateAppDBInKubernetes creates the StatefulSet specific for AppDB.
 func (s *StatefulSetHelper) CreateOrUpdateAppDBInKubernetes() error {
-	appDbSts, err := s.BuildAppDBStatefulSet()
+	appDbSts, err := s.BuildAppDbStatefulSet()
 	if err != nil {
 		return err
 	}

@@ -2,10 +2,11 @@ package operator
 
 import (
 	"context"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
 	"runtime"
 	"testing"
 	"time"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"

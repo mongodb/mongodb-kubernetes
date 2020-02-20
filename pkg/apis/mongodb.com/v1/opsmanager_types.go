@@ -96,6 +96,7 @@ type MongoDBOpsManagerBackup struct {
 	Enabled bool `json:"enabled"`
 
 	// HeadDB specifies configuration options for the HeadDB
+	// TODO: remove pointer as it cannot be nil
 	HeadDB *PersistenceConfig `json:"headDB,omitempty"`
 
 	// OplogStoreConfigs describes the list of oplog store configs used for backup
