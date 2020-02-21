@@ -1368,6 +1368,12 @@ tasks:
       vars:
         from_version: latest
 
+- name: e2e_om_ops_manager_pod_spec
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
 
 task_groups:
 - name: unit_task_group
@@ -1591,7 +1597,7 @@ task_groups:
     - func: teardown_cloud_qa
 
 - name: e2e_ops_manager_task_group
-  max_hosts: 6
+  max_hosts: 10
   setup_group:
     - func: clone
     - func: download_kube_tools
@@ -1605,6 +1611,7 @@ task_groups:
     - e2e_om_appdb_validation
     - e2e_om_appdb_scram
     - e2e_om_ops_manager_backup
+    - e2e_om_ops_manager_pod_spec
     - e2e_om_ops_manager_scale
     - e2e_om_ops_manager_upgrade
     - e2e_om_external_connectivity
@@ -1632,6 +1639,7 @@ task_groups:
     - e2e_om_appdb_validation
     - e2e_om_appdb_scram
     - e2e_om_ops_manager_backup
+    - e2e_om_ops_manager_pod_spec
     - e2e_om_ops_manager_scale
     - e2e_om_ops_manager_upgrade
     - e2e_om_external_connectivity

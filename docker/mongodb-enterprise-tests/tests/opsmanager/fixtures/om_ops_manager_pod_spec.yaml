@@ -1,0 +1,58 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: om-pod-spec
+spec:
+  replicas: 1
+  version: 4.2.0
+  adminCredentials: ops-manager-admin-secret
+  configuration:
+    mms.testUtil.enabled: "true"
+  backup:
+    enabled: true
+    podSpec:
+      cpuRequests: '0.50'
+      memoryRequests: 4500M
+      podTemplate:
+        spec:
+          hostAliases:
+            - ip: "1.2.3.4"
+              hostnames: ["hostname"]
+  podSpec:
+    cpu: '0.70'
+    memory: 6G
+    podTemplate:
+      metadata:
+        annotations:
+          key1: value1
+      spec:
+        tolerations:
+          - key: "key"
+            operator: "Exists"
+            effect: "NoSchedule"
+
+  applicationDatabase:
+    members: 3
+    version: 4.2.0
+    podSpec:
+      cpu: '0.25'
+      memory: 350M
+      persistence:
+        single:
+          storage: 1G
+      podTemplate:
+        spec:
+          # TO kill sidecar right away
+          terminationGracePeriodSeconds: 3
+          # This container will be added to each pod as a sidecar
+          containers:
+            - name: appdb-sidecar
+              image: busybox
+              command: ["sleep"]
+              args: [ "infinity" ]
+              resources:
+                limits:
+                  cpu: "1"
+                requests:
+                  cpu: 500m
+

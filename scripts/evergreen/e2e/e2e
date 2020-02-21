@@ -92,7 +92,7 @@ current_time=$(date +%s)
 elapsed_time=$((current_time - start_time))
 timeout=$((timeout - elapsed_time - 60))
 echo "This task is allowed to run for ${timeout} seconds"
-timeout "${timeout}" scripts/evergreen/e2e/single_e2e
+timeout --foreground "${timeout}" scripts/evergreen/e2e/single_e2e
 TEST_RESULTS=$?
 
 # Dump all the information we can from this namespace

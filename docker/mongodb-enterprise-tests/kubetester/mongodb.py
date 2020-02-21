@@ -247,6 +247,24 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             self.name, self.namespace
         )
 
+    def get_appdb_statefulset(self) -> client.V1StatefulSet:
+        return client.AppsV1Api().read_namespaced_stateful_set(
+            self.app_db_name(), self.namespace
+        )
+
+    def get_backup_statefulset(self) -> client.V1StatefulSet:
+        return client.AppsV1Api().read_namespaced_stateful_set(
+            self.name + "-backup-daemon", self.namespace
+        )
+
+    def get_appdb_pods(self) -> List[client.V1Pod]:
+        return [
+            client.CoreV1Api().read_namespaced_pod(podname, self.namespace)
+            for podname in get_pods(
+                self.app_db_name() + "-{}", self.get_appdb_members_count()
+            )
+        ]
+
     def get_or_create_mongodb_connection_config_map(
         self, mongodb_name: str, project_name: str
     ) -> str:
@@ -306,6 +324,9 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             self["status"]["opsManager"].get("message", ""),
         )
 
+    def get_appdb_members_count(self) -> int:
+        return self["spec"]["applicationDatabase"]["members"]
+
     def get_status(self) -> Optional:
         if "status" not in self:
             return None
@@ -338,3 +359,10 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
     def api_key_secret(self) -> str:
         return self.name + "-admin-key"
+
+    def app_db_name(self) -> str:
+        return self.name + "-db"
+
+
+def get_pods(podname, qty):
+    return [podname.format(i) for i in range(qty)]

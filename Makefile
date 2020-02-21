@@ -46,6 +46,7 @@ usage:
 	@ echo "                              in case you are developing tests and not changing the Operator code - this will allow to"
 	@ echo "                              avoid redeploying the Operator. Use 'debug=true' to run operator in debug mode."
 	@ echo "                              Use a 'local=true' to run the test locally using 'pytest'."
+	@ echo "                              Use a 'skip=true' to skip cleaning resources (this may help developing long-running tests like for Ops Manager)"
 	@ echo "  recreate-e2e-kops:          deletes and creates a specified e2e cluster 'cluster' using kops (note, that you don't need to switch to the correct"
 	@ echo "                              kubectl context - the script will handle everything). Pass the flag 'imsure=yes' to make it work."
 	@ echo "                              Pass 'cluster' parameter for a cluster name if it's different from default ('e2e.mongokubernetes.com')"
