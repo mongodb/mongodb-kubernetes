@@ -27,9 +27,9 @@ func TestMergeHorizonsAdd(t *testing.T) {
 	opsManagerRsWithProcesses := makeMinimalRsWithProcesses()
 	operatorRsWithProcesses := makeMinimalRsWithProcesses()
 	horizons := []mdbv1.MongoDBHorizonConfig{
-		mdbv1.MongoDBHorizonConfig{"name1": "my-db.my-test.com:12345"},
-		mdbv1.MongoDBHorizonConfig{"name1": "my-db.my-test.com:12346"},
-		mdbv1.MongoDBHorizonConfig{"name1": "my-db.my-test.com:12347"},
+		{"name1": "my-db.my-test.com:12345"},
+		{"name1": "my-db.my-test.com:12346"},
+		{"name1": "my-db.my-test.com:12347"},
 	}
 	operatorRsWithProcesses.SetHorizons(horizons)
 
@@ -44,9 +44,9 @@ func TestMergeHorizonsAdd(t *testing.T) {
 func TestMergeHorizonsRemove(t *testing.T) {
 	opsManagerRsWithProcesses := makeMinimalRsWithProcesses()
 	horizons := []mdbv1.MongoDBHorizonConfig{
-		mdbv1.MongoDBHorizonConfig{"name1": "my-db.my-test.com:12345"},
-		mdbv1.MongoDBHorizonConfig{"name1": "my-db.my-test.com:12346"},
-		mdbv1.MongoDBHorizonConfig{"name1": "my-db.my-test.com:12347"},
+		{"name1": "my-db.my-test.com:12345"},
+		{"name1": "my-db.my-test.com:12346"},
+		{"name1": "my-db.my-test.com:12347"},
 	}
 	opsManagerRsWithProcesses.SetHorizons(horizons)
 	operatorRsWithProcesses := makeMinimalRsWithProcesses()
@@ -62,14 +62,14 @@ func TestMergeHorizonsRemove(t *testing.T) {
 func TestMergeHorizonsOverride(t *testing.T) {
 	opsManagerRsWithProcesses := makeMinimalRsWithProcesses()
 	horizonsOld := []mdbv1.MongoDBHorizonConfig{
-		mdbv1.MongoDBHorizonConfig{"name1": "my-db.my-test.com:12345"},
-		mdbv1.MongoDBHorizonConfig{"name1": "my-db.my-test.com:12346"},
-		mdbv1.MongoDBHorizonConfig{"name1": "my-db.my-test.com:12347"},
+		{"name1": "my-db.my-test.com:12345"},
+		{"name1": "my-db.my-test.com:12346"},
+		{"name1": "my-db.my-test.com:12347"},
 	}
 	horizonsNew := []mdbv1.MongoDBHorizonConfig{
-		mdbv1.MongoDBHorizonConfig{"name2": "my-db.my-test.com:12345"},
-		mdbv1.MongoDBHorizonConfig{"name2": "my-db.my-test.com:12346"},
-		mdbv1.MongoDBHorizonConfig{"name2": "my-db.my-test.com:12347"},
+		{"name2": "my-db.my-test.com:12345"},
+		{"name2": "my-db.my-test.com:12346"},
+		{"name2": "my-db.my-test.com:12347"},
 	}
 	opsManagerRsWithProcesses.SetHorizons(horizonsOld)
 	operatorRsWithProcesses := makeMinimalRsWithProcesses()

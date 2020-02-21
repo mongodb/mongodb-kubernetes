@@ -12,12 +12,13 @@ from datetime import datetime, timezone
 
 from typing import Dict, List, Optional
 
+import tempfile
+
 import jsonpatch
 import pymongo
 import pytest
 import requests
 import yaml
-import tempfile
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from kubernetes import client, config

@@ -69,4 +69,17 @@ for fn in $unformatted; do
         git add $PWD/$fn
 done
 
-exit 0
+# Run gofmt -s on all modified files
+exitcode=0
+for file in `git diff --cached --name-only --diff-filter=ACM | grep '\.go$'`
+do
+    output=`gofmt -s -w "$file"`
+    if test -n "$output"
+    then
+        echo "$output"
+        exitcode=1
+    fi
+    git add "$file"
+done
+
+exit $exitcode

@@ -195,8 +195,8 @@ func TestPrepareOmConnection_ConfigMapAndSecretWatched(t *testing.T) {
 	// we expect to have two entries in the map - each value has length of 2 meaning both replica sets are "registered"
 	// to be reconciled as soon as config map or secret changes
 	expected := map[watchedObject][]types.NamespacedName{
-		watchedObject{resourceType: ConfigMap, resource: objectKey(TestNamespace, TestProjectConfigMapName)}: {objectKey(TestNamespace, "ReplicaSetOne"), objectKey(TestNamespace, "ReplicaSetTwo")},
-		watchedObject{resourceType: Secret, resource: objectKey(TestNamespace, "mySecret")}:                  {objectKey(TestNamespace, "ReplicaSetOne"), objectKey(TestNamespace, "ReplicaSetTwo")},
+		{resourceType: ConfigMap, resource: objectKey(TestNamespace, TestProjectConfigMapName)}: {objectKey(TestNamespace, "ReplicaSetOne"), objectKey(TestNamespace, "ReplicaSetTwo")},
+		{resourceType: Secret, resource: objectKey(TestNamespace, "mySecret")}:                  {objectKey(TestNamespace, "ReplicaSetOne"), objectKey(TestNamespace, "ReplicaSetTwo")},
 	}
 	assert.Equal(t, expected, reconciler.watchedResources)
 }

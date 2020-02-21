@@ -10,13 +10,33 @@ spec:
   project: my-project
   credentials: my-credentials
   logLevel: DEBUG
-  persistent: false
+  persistent: true
   podSpec:
     podTemplate:
       metadata:
         annotations:
           key1: "val1"
       spec:
+        volumes:
+          - name: test-volume
+            emptyDir: {}
+        containers:
+          - name: side-car
+            image: busybox:latest
+            command: ["/bin/sh"]
+            args: ["-c", "echo ok > /somewhere/busybox_file && sleep infinity"]
+            volumeMounts:
+              - mountPath: /somewhere
+                name: test-volume
+          - name: mongodb-enterprise-database
+            resources:
+              limits:
+                cpu: "2"
+              requests:
+                cpu: "1"
+            volumeMounts:
+              - mountPath: /somewhere
+                name: test-volume
         hostAliases:
           - ip: "1.2.3.4"
             hostnames: ["hostname"]

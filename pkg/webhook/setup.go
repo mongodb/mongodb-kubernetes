@@ -22,7 +22,7 @@ func createWebhookService(client client.Client, location types.NamespacedName, w
 		},
 		Spec: corev1.ServiceSpec{
 			Ports: []corev1.ServicePort{
-				corev1.ServicePort{
+				{
 					Name:       "operator",
 					Port:       443,
 					Protocol:   corev1.ProtocolTCP,
@@ -69,7 +69,7 @@ func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1beta.Vali
 			Name: "mdbpolicy.mongodb.com",
 		},
 		Webhooks: []admissionv1beta.ValidatingWebhook{
-			admissionv1beta.ValidatingWebhook{
+			{
 				Name: "mdbpolicy.mongodb.com",
 				ClientConfig: admissionv1beta.WebhookClientConfig{
 					Service: &admissionv1beta.ServiceReference{
@@ -83,7 +83,7 @@ func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1beta.Vali
 					CABundle: caBytes,
 				},
 				Rules: []admissionv1beta.RuleWithOperations{
-					admissionv1beta.RuleWithOperations{
+					{
 						Operations: []admissionv1beta.OperationType{
 							admissionv1beta.Create,
 							admissionv1beta.Update,

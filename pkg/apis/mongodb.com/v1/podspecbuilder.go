@@ -98,13 +98,13 @@ func (p *PodSpecWrapperBuilder) SetMultiplePersistence(dataBuilder, journalBuild
 	}
 	p.spec.Persistence.MultipleConfig = &MultiplePersistenceConfig{}
 	if dataBuilder != nil {
-		p.spec.Persistence.MultipleConfig.Data = *dataBuilder.config
+		p.spec.Persistence.MultipleConfig.Data = dataBuilder.config
 	}
 	if journalBuilder != nil {
-		p.spec.Persistence.MultipleConfig.Journal = *journalBuilder.config
+		p.spec.Persistence.MultipleConfig.Journal = journalBuilder.config
 	}
 	if logsBuilder != nil {
-		p.spec.Persistence.MultipleConfig.Logs = *logsBuilder.config
+		p.spec.Persistence.MultipleConfig.Logs = logsBuilder.config
 	}
 	return p
 }
@@ -136,9 +136,9 @@ func NewPodSpecWithDefaultValues() MongoDbPodSpec {
 	defaultPodSpec.Persistence = &Persistence{
 		SingleConfig: &PersistenceConfig{Storage: "30G"},
 		MultipleConfig: &MultiplePersistenceConfig{
-			Data:    PersistenceConfig{Storage: util.DefaultMongodStorageSize},
-			Journal: PersistenceConfig{Storage: util.DefaultJournalStorageSize},
-			Logs:    PersistenceConfig{Storage: util.DefaultLogsStorageSize},
+			Data:    &PersistenceConfig{Storage: util.DefaultMongodStorageSize},
+			Journal: &PersistenceConfig{Storage: util.DefaultJournalStorageSize},
+			Logs:    &PersistenceConfig{Storage: util.DefaultLogsStorageSize},
 		},
 	}
 	return defaultPodSpec

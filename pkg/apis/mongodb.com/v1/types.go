@@ -622,9 +622,9 @@ type Persistence struct {
 }
 
 type MultiplePersistenceConfig struct {
-	Data    PersistenceConfig `json:"data,omitempty"`
-	Journal PersistenceConfig `json:"journal,omitempty"`
-	Logs    PersistenceConfig `json:"logs,omitempty"`
+	Data    *PersistenceConfig `json:"data,omitempty"`
+	Journal *PersistenceConfig `json:"journal,omitempty"`
+	Logs    *PersistenceConfig `json:"logs,omitempty"`
 }
 
 type PersistenceConfig struct {

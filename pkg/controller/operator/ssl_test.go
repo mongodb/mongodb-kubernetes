@@ -9,11 +9,11 @@ import (
 func TestGetPEMHashIsDeterministic(t *testing.T) {
 	pem := pemCollection{
 		pemFiles: map[string]pemFile{
-			"myhostname1": pemFile{
+			"myhostname1": {
 				PrivateKey:  "mykey",
 				Certificate: "mycert",
 			},
-			"myhostname2": pemFile{
+			"myhostname2": {
 				PrivateKey:  "mykey",
 				Certificate: "mycert",
 			},
@@ -41,7 +41,7 @@ func TestGetPEMHashIsDeterministic(t *testing.T) {
 func TestMergeEntryOverwritesOldSecret(t *testing.T) {
 	p := pemCollection{
 		pemFiles: map[string]pemFile{
-			"myhostname": pemFile{
+			"myhostname": {
 				PrivateKey:  "mykey",
 				Certificate: "mycert",
 			},
@@ -61,7 +61,7 @@ func TestMergeEntryOverwritesOldSecret(t *testing.T) {
 func TestMergeEntryOnlyCertificate(t *testing.T) {
 	p := pemCollection{
 		pemFiles: map[string]pemFile{
-			"myhostname": pemFile{
+			"myhostname": {
 				PrivateKey: "mykey",
 			},
 		},
@@ -80,7 +80,7 @@ func TestMergeEntryOnlyCertificate(t *testing.T) {
 func TestMergeEntryPreservesOldSecret(t *testing.T) {
 	p := pemCollection{
 		pemFiles: map[string]pemFile{
-			"myexistinghostname": pemFile{
+			"myexistinghostname": {
 				PrivateKey:  "mykey",
 				Certificate: "mycert",
 			},

@@ -673,9 +673,9 @@ func baseEnvFrom(podVars *PodVars) []corev1.EnvVar {
 
 func createClaimsAndMontsMultiMode(persistence *mdbv1.Persistence, defaultConfig mdbv1.MultiplePersistenceConfig) ([]corev1.PersistentVolumeClaim, []corev1.VolumeMount) {
 	claims := []corev1.PersistentVolumeClaim{
-		pvc(util.PvcNameData, &persistence.MultipleConfig.Data, defaultConfig.Data),
-		pvc(util.PvcNameJournal, &persistence.MultipleConfig.Journal, defaultConfig.Journal),
-		pvc(util.PvcNameLogs, &persistence.MultipleConfig.Logs, defaultConfig.Logs),
+		pvc(util.PvcNameData, persistence.MultipleConfig.Data, *defaultConfig.Data),
+		pvc(util.PvcNameJournal, persistence.MultipleConfig.Journal, *defaultConfig.Journal),
+		pvc(util.PvcNameLogs, persistence.MultipleConfig.Logs, *defaultConfig.Logs),
 	}
 	mounts := []corev1.VolumeMount{
 		statefulset.CreateVolumeMount(util.PvcNameData, util.PvcMountPathData, ""),
