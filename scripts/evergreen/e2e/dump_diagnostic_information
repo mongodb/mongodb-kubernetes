@@ -47,6 +47,11 @@ dump_all () {
         echo "Cluster currently has $(kubectl get csr -o name | wc -l) certificates"
     } >> "$dump_file"
 
+    {
+        header "All MongoDB CRD"
+        kubectl describe $(kubectl get crd -o name | grep mongodb.com) > logs/crd.log
+    }
+
     # we don't output pods for the operator and tests (they will be output if they didn't manage to start)
     for pod in $(kubectl get pods -n "${PROJECT_NAMESPACE}" -o name | grep -v "${OPERATOR_NAME:=mongodb-enterprise-operator}"); do
         header "$pod" >> "$dump_file"

@@ -96,7 +96,7 @@ class TestStandaloneInvalidWithProjectAndCloudManager(KubernetesTester):
                 {
                     "op": "add",
                     "path": "/spec/cloudManager",
-                    "value": {"configMapRef": "something"},
+                    "value": {"configMapRef": {"name": "something"}},
                 },
             ],
             "exception": "must validate one and only one schema",
@@ -113,11 +113,11 @@ class TestStandaloneInvalidWithProjectAndOpsManager(KubernetesTester):
         "create": {
             "file": "standalone.yaml",
             "patch": [
-                {"op": "add", "path": "/spec/project", "value": "something"},
+                {"op": "add", "path": "/spec/project", "value": {"name": "something"}},
                 {
                     "op": "add",
                     "path": "/spec/opsManager",
-                    "value": {"configMapRef": "something"},
+                    "value": {"configMapRef": {"name": "something"}},
                 },
             ],
             "exception": "must validate one and only one schema",
@@ -134,16 +134,16 @@ class TestStandaloneInvalidWithCloudAndOpsManagerAndProject(KubernetesTester):
         "create": {
             "file": "standalone.yaml",
             "patch": [
-                {"op": "add", "path": "/spec/project", "value": "something"},
+                {"op": "add", "path": "/spec/project", "value": {"name": "something"}},
                 {
                     "op": "add",
                     "path": "/spec/cloudManager",
-                    "value": {"configMapRef": "something"},
+                    "value": {"configMapRef": {"name": "something"}},
                 },
                 {
                     "op": "add",
                     "path": "/spec/opsManager",
-                    "value": {"configMapRef": "something"},
+                    "value": {"configMapRef": {"name": "something"}},
                 },
             ],
             "exception": "must validate one and only one schema",

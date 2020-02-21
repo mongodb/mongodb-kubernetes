@@ -390,6 +390,9 @@ class KubernetesTester(object):
                     elif "in body should be one of" in exception_reason:
                         field = exception_reason.split()[0]
                         reason = "FieldValueNotSupported"
+                    elif "in body must be of type" in exception_reason:
+                        field = exception_reason.split()[0]
+                        reason = "FieldValueInvalid"
 
                     if field and reason:
                         for cause in body_json["details"]["causes"]:

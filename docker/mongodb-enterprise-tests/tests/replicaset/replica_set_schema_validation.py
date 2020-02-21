@@ -67,6 +67,7 @@ class TestReplicaSetSchemaInvalidSSL(KubernetesTester):
         assert True
 
 
+@pytest.mark.skip(reason="OpenAPIv2 does not support this validation.")
 @pytest.mark.e2e_replica_set_schema_validation
 class TestReplicaSetInvalidWithOpsAndCloudManager(KubernetesTester):
     """Creates a Replica Set with both a cloud manager and an ops manager
@@ -79,12 +80,12 @@ class TestReplicaSetInvalidWithOpsAndCloudManager(KubernetesTester):
                 {
                     "op": "add",
                     "path": "/spec/cloudManager",
-                    "value": {"configMapRef": "something"},
+                    "value": {"configMapRef": {"name": "something"}},
                 },
                 {
                     "op": "add",
                     "path": "/spec/opsManager",
-                    "value": {"configMapRef": "something"},
+                    "value": {"configMapRef": {"name": "something"}},
                 },
             ],
             "exception": "must validate one and only one schema",
@@ -104,11 +105,11 @@ class TestReplicaSetInvalidWithProjectAndCloudManager(KubernetesTester):
         "create": {
             "file": "replica-set.yaml",
             "patch": [
-                {"op": "add", "path": "/spec/project", "value": "something"},
+                {"op": "add", "path": "/spec/project", "value": {"name": "something"}},
                 {
                     "op": "add",
                     "path": "/spec/cloudManager",
-                    "value": {"configMapRef": "something"},
+                    "value": {"configMapRef": {"name": "something"}},
                 },
             ],
             "exception": "must validate one and only one schema",
@@ -125,11 +126,11 @@ class TestReplicaSetInvalidWithProjectAndOpsManager(KubernetesTester):
         "create": {
             "file": "replica-set.yaml",
             "patch": [
-                {"op": "add", "path": "/spec/project", "value": "something"},
+                {"op": "add", "path": "/spec/project", "value": {"name": "something"}},
                 {
                     "op": "add",
                     "path": "/spec/opsManager",
-                    "value": {"configMapRef": "something"},
+                    "value": {"configMapRef": {"name": "something"}},
                 },
             ],
             "exception": "must validate one and only one schema",
@@ -146,16 +147,16 @@ class TestReplicaSetInvalidWithCloudAndOpsManagerAndProject(KubernetesTester):
         "create": {
             "file": "replica-set.yaml",
             "patch": [
-                {"op": "add", "path": "/spec/project", "value": "something"},
+                {"op": "add", "path": "/spec/project", "value": {"name": "something"}},
                 {
                     "op": "add",
                     "path": "/spec/cloudManager",
-                    "value": {"configMapRef": "something"},
+                    "value": {"configMapRef": {"name": "something"}},
                 },
                 {
                     "op": "add",
                     "path": "/spec/opsManager",
-                    "value": {"configMapRef": "something"},
+                    "value": {"configMapRef": {"name": "something"}},
                 },
             ],
             "exception": "must validate one and only one schema",
