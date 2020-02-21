@@ -69,7 +69,7 @@ func TestHorizonVerificationTLS(t *testing.T) {
 
 	reconciler, client := defaultReplicaSetReconciler(rs)
 
-	msg := "TLS must be enabled in order to set replica set horizons"
+	msg := "TLS must be enabled in order to use replica set horizons"
 	checkReconcileFailed(t, reconciler, rs, false, msg, client)
 }
 

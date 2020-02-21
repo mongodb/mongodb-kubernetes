@@ -7,7 +7,7 @@ from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
 class TestWebhookValidation(KubernetesTester):
     def test_horizons_tls_validation(self):
         resource = yaml.safe_load(
-            open(yaml_fixture("invalid_replica_set_horizons.yaml"))
+            open(yaml_fixture("invalid_replica_set_horizons_tls.yaml"))
         )
         self.create_custom_resource_from_object(
             self.get_namespace(),
@@ -15,11 +15,33 @@ class TestWebhookValidation(KubernetesTester):
             exception_reason="TLS must be enabled in order to use replica set horizons",
         )
 
-    @pytest.mark.skip(
-        reason="Validations are currently not configured to run on reconciliation"
-    )
-    def test_validates_without_webhook(self):
-        webhook_name = "mdbpolicy.mongodb.com"
+    def test_horizons_members(self):
+        resource = yaml.safe_load(
+            open(yaml_fixture("invalid_replica_set_horizons_members.yaml"))
+        )
+        self.create_custom_resource_from_object(
+            self.get_namespace(),
+            resource,
+            exception_reason="Number of horizons must be equal to number of members in replica set",
+        )
+
+    def test_horizons_without_tls_validates_without_webhook(self):
+        self._assert_validates_without_webhook(
+            "mdbpolicy.mongodb.com",
+            "invalid_replica_set_horizons_tls.yaml",
+            "TLS must be enabled",
+        )
+
+    def test_incorrect_members_validates_without_webhook(self):
+        self._assert_validates_without_webhook(
+            "mdbpolicy.mongodb.com",
+            "invalid_replica_set_horizons_members.yaml",
+            "number of members",
+        )
+
+    def _assert_validates_without_webhook(
+        self, webhook_name: str, fixture: str, expected_msg: str
+    ):
         webhook_api = self.client.AdmissionregistrationV1beta1Api()
 
         # break the existing webhook
@@ -31,11 +53,11 @@ class TestWebhookValidation(KubernetesTester):
 
         # check that the webhook doesn't block and that the resource gets into
         # the errored state
-        resource = yaml.safe_load(
-            open(yaml_fixture("invalid_replica_set_horizons.yaml"))
-        )
+        resource = yaml.safe_load(open(yaml_fixture(fixture)))
         self.create_custom_resource_from_object(self.get_namespace(), resource)
         KubernetesTester.wait_until("in_error_state", 20)
+        mrs = KubernetesTester.get_resource()
+        assert expected_msg in mrs["status"]["message"]
 
         # fix webhooks
         webhook = webhook_api.read_validating_webhook_configuration(webhook_name)

@@ -200,30 +200,3 @@ class TestReplicaSetDeleteMultipleHorizon(KubernetesTester):
 
     def test_deletion(self):
         assert True
-
-
-@pytest.mark.e2e_tls_rs_external_access
-class TestReplicaSetWithMissingHorizon(KubernetesTester):
-    """
-    create:
-      file: test-tls-base-rs-external-access.yaml
-      wait_for_message: Number of horizons must be equal to number of members in replica set
-      timeout: 240
-      patch: '[{"op":"remove","path":"/spec/connectivity/replicaSetHorizons/0"}]'
-    """
-
-    def test_missing_horizon(self):
-        assert True
-
-
-@pytest.mark.e2e_tls_rs_external_access
-class TestReplicaSetDeleteFailed(KubernetesTester):
-    """
-    delete:
-      file: test-tls-base-rs-external-access.yaml
-      wait_until: mongo_resource_deleted_no_om
-      timeout: 240
-    """
-
-    def test_deletion(self):
-        assert True

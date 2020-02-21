@@ -484,6 +484,15 @@ func (m *MongoDB) SetWarnings(warnings []StatusWarning) {
 	m.Status.Warnings = warnings
 }
 
+func (m *MongoDB) AddWarningIfNotExists(warning StatusWarning) {
+	for _, existingWarning := range m.Status.Warnings {
+		if existingWarning == warning {
+			return
+		}
+	}
+	m.Status.Warnings = append(m.Status.Warnings, warning)
+}
+
 func (m *MongoDB) GetKind() string {
 	return "MongoDB"
 }

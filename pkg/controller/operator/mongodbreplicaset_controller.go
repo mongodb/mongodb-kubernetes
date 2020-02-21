@@ -50,6 +50,10 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 	log.Infow("ReplicaSet.Spec", "spec", rs.Spec)
 	log.Infow("ReplicaSet.Status", "status", rs.Status)
 
+	if err := rs.RunValidations(); err != nil {
+		return r.updateStatusValidationFailure(rs, err.Error(), log)
+	}
+
 	projectConfig, err := r.kubeHelper.readProjectConfig(request.Namespace, rs.Spec.GetProject())
 	if err != nil {
 		log.Infof("error reading project %s", err)
@@ -74,19 +78,6 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 	if authSpec.Enabled && authSpec.IsX509Enabled() && !rs.Spec.GetTLSConfig().Enabled {
 		msg := "cannot have a non-tls deployment when x509 authentication is enabled"
 		return r.updateStatusValidationFailure(rs, msg, log)
-	}
-
-	// validate horizon config
-	if len(rs.Spec.Connectivity.ReplicaSetHorizons) > 0 {
-		if !rs.Spec.Security.TLSConfig.Enabled {
-			msg := "TLS must be enabled in order to set replica set horizons"
-			return r.updateStatusValidationFailure(rs, msg, log)
-		}
-
-		if len(rs.Spec.Connectivity.ReplicaSetHorizons) != rs.Spec.Members {
-			msg := "Number of horizons must be equal to number of members in replica set"
-			return r.updateStatusValidationFailure(rs, msg, log)
-		}
 	}
 
 	replicaBuilder := r.kubeHelper.NewStatefulSetHelper(rs).

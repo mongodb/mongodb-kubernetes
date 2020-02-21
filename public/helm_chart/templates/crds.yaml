@@ -31,6 +31,10 @@ spec:
       type: date
       description: The time since the MongoDB resource was created.
       JSONPath: .metadata.creationTimestamp
+    - name: Warnings
+      type: string
+      description: Warnings
+      JSONPath: .status.warnings
   validation: # there are 3 possible schemas, ReplicaSet, ShardedCluster and Standalone
     openAPIV3Schema:
       oneOf:

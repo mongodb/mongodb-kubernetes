@@ -12,6 +12,31 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 )
 
+type validationLevel int
+
+const (
+	successLevel validationLevel = iota
+	warningLevel
+	errorLevel
+)
+
+type validationResult struct {
+	msg   string
+	level validationLevel
+}
+
+func validationSuccess() validationResult {
+	return validationResult{level: successLevel}
+}
+
+func validationWarning(msg string) validationResult {
+	return validationResult{msg: msg, level: warningLevel}
+}
+
+func validationError(msg string) validationResult {
+	return validationResult{msg: msg, level: errorLevel}
+}
+
 var _ webhook.Validator = &MongoDB{}
 
 // ValidateCreate and ValidateUpdate should be the same if we intend to do this
@@ -29,21 +54,35 @@ func (mdb *MongoDB) ValidateDelete() error {
 	return nil
 }
 
-func replicaSetHorizonsRequireTLS(ms MongoDbSpec) error {
+func replicaSetHorizonsRequireTLS(ms MongoDbSpec) validationResult {
 	if len(ms.Connectivity.ReplicaSetHorizons) > 0 && !ms.Security.TLSConfig.Enabled {
-		return errors.New("TLS must be enabled in order to use replica set horizons")
+		msg := "TLS must be enabled in order to use replica set horizons"
+		return validationError(msg)
 	}
-	return nil
+	return validationSuccess()
 }
 
-func (m MongoDB) RunValidations() error {
-	validators := []func(ms MongoDbSpec) error{
+func horizonsMustEqualMembers(ms MongoDbSpec) validationResult {
+	numHorizonMembers := len(ms.Connectivity.ReplicaSetHorizons)
+	if numHorizonMembers > 0 && numHorizonMembers != ms.Members {
+		return validationError("Number of horizons must be equal to number of members in replica set")
+	}
+	return validationSuccess()
+}
+
+func (m *MongoDB) RunValidations() error {
+	validators := []func(ms MongoDbSpec) validationResult{
 		replicaSetHorizonsRequireTLS,
+		horizonsMustEqualMembers,
 	}
 
 	for _, validator := range validators {
-		if err := validator(m.Spec); err != nil {
-			return err
+		if res := validator(m.Spec); res.level == errorLevel {
+			return errors.New(res.msg)
+		}
+
+		if res := validator(m.Spec); res.level == warningLevel {
+			m.AddWarningIfNotExists(StatusWarning(res.msg))
 		}
 	}
 	return nil
