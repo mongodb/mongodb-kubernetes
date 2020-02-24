@@ -161,14 +161,14 @@ class TestOpsManagerVersionUpgrade(OpsManagerBase):
        is released and its version is added to release.json
     update:
       file: om_ops_manager_upgrade.yaml
-      patch: '[{"op":"replace","path":"/spec/version", "value": "4.2.7"}]'
+      patch: '[{"op":"replace","path":"/spec/version", "value": "4.2.8"}]'
       wait_until: om_in_running_state
       timeout: 1200
     """
 
     def test_image_url(self):
         pod = self.corev1.read_namespaced_pod("om-upgrade-0", self.namespace)
-        assert "4.2.7" in pod.spec.containers[0].image
+        assert "4.2.8" in pod.spec.containers[0].image
 
     @skip_if_local
     def test_om(self):

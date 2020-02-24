@@ -8,12 +8,10 @@
   "mongodbOperator": "1.4.2",
   "opsManagerImages": [
     {
-      "version": "4.2.0",
-      "testing": true
+      "version": "4.2.0"
     },
     {
-      "version": "4.2.3",
-      "testing": true
+      "version": "4.2.3"
     },
     {
       "version": "4.2.4"
@@ -22,8 +20,10 @@
       "version": "4.2.6"
     },
     {
-      "version": "4.2.7",
-      "testing": true
+      "version": "4.2.7"
+    },
+    {
+      "version": "4.2.8"
     }
   ]
 }

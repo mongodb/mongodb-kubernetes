@@ -361,7 +361,7 @@ functions:
 
           CLUSTER_TYPE: ${cluster_type}
 
-        command: "make om-batch scope=4.2.6,4.2.7"
+        command: "make om-batch scope=4.2.6,4.2.7,4.2.8"
 
   setup_cloud_qa:
   - command: subprocess.exec
