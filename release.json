@@ -1,11 +1,11 @@
 {
   "appDbBundle": {
-      "mongodbVersion": "4.2.2-ent",
-      "baseUrl": "https://downloads.mongodb.com/linux/",
-      "rhelBinaryName": "mongodb-linux-x86_64-enterprise-rhel70-4.2.2.tgz",
-      "ubuntuBinaryName": "mongodb-linux-x86_64-enterprise-ubuntu1604-4.2.2.tgz"
+    "mongodbVersion": "4.2.2-ent",
+    "baseUrl": "https://downloads.mongodb.com/linux/",
+    "rhelBinaryName": "mongodb-linux-x86_64-enterprise-rhel70-4.2.2.tgz",
+    "ubuntuBinaryName": "mongodb-linux-x86_64-enterprise-ubuntu1604-4.2.2.tgz"
   },
-  "mongodbOperator": "1.4.2",
+  "mongodbOperator": "1.4.3",
   "opsManagerImages": [
     {
       "version": "4.2.0"
