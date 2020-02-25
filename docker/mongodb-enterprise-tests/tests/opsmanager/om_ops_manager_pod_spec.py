@@ -79,6 +79,63 @@ class TestOpsManagerCreation:
         assert sts.spec.template.spec.tolerations[0].operator == "Exists"
         assert sts.spec.template.spec.tolerations[0].effect == "NoSchedule"
 
+    def test_om_container_override(self, ops_manager: MongoDBOpsManager):
+        sts = ops_manager.get_statefulset()
+        om_container = sts.spec.template.spec.containers[0].to_dict()
+        # Readiness probe got 'failure_threshold' overridden, everything else is the same
+        # New volume mount was added
+        expected_spec = {
+            "name": "mongodb-ops-manager",
+            "readiness_probe": {
+                "http_get": {
+                    "host": None,
+                    "http_headers": None,
+                    "path": "/monitor/health",
+                    "port": 8080,
+                    "scheme": "HTTP",
+                },
+                "failure_threshold": 20,
+                "timeout_seconds": 5,
+                "period_seconds": 5,
+                "success_threshold": 1,
+                "initial_delay_seconds": 60,
+                "_exec": None,
+                "tcp_socket": None,
+            },
+            "volume_mounts": [
+                {
+                    "name": "test-volume",
+                    "mount_path": "/somewhere",
+                    "sub_path": None,
+                    "sub_path_expr": None,
+                    "mount_propagation": None,
+                    "read_only": None,
+                },
+                {
+                    "name": "gen-key",
+                    "mount_path": "/mongodb-ops-manager/.mongodb-mms",
+                    "sub_path": None,
+                    "sub_path_expr": None,
+                    "mount_propagation": None,
+                    "read_only": True,
+                },
+            ],
+        }
+        for k in expected_spec:
+            assert om_container[k] == expected_spec[k]
+
+        # new volume was added and the old one ('gen-key') stayed there
+        assert len(sts.spec.template.spec.volumes) == 2
+
+        assert sts.spec.template.spec.volumes[0].name == "test-volume"
+        assert getattr(sts.spec.template.spec.volumes[0], "empty_dir")
+
+        assert sts.spec.template.spec.volumes[1].name == "gen-key"
+        assert (
+            sts.spec.template.spec.volumes[1].secret.secret_name
+            == "om-pod-spec-gen-key"
+        )
+
     def test_backup_pod_spec(self, ops_manager: MongoDBOpsManager):
         backup_sts = ops_manager.get_backup_statefulset()
         assert len(backup_sts.spec.template.spec.containers) == 1

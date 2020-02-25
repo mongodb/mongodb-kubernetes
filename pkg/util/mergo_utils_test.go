@@ -12,6 +12,12 @@ func getDefaultContainer() corev1.Container {
 	return corev1.Container{
 		Name:  "container-0",
 		Image: "image-0",
+		ReadinessProbe: &corev1.Probe{
+			Handler: corev1.Handler{HTTPGet: &corev1.HTTPGetAction{
+				Path: "/foo",
+			}},
+			PeriodSeconds: 10,
+		},
 		VolumeMounts: []corev1.VolumeMount{
 			{
 				Name: "container-0.volume-mount-0",
@@ -60,8 +66,9 @@ func TestMergeContainer(t *testing.T) {
 
 	anotherVol := corev1.VolumeMount{Name: "another-mount"}
 
-	overrideDefaultContainer := getDefaultContainer()
+	overrideDefaultContainer := corev1.Container{Name: "container-0"}
 	overrideDefaultContainer.Image = "overridden"
+	overrideDefaultContainer.ReadinessProbe = &corev1.Probe{PeriodSeconds: 20}
 
 	otherDefaultContainer := getDefaultContainer()
 	otherDefaultContainer.Name = "default-side-car"
@@ -84,6 +91,9 @@ func TestMergeContainer(t *testing.T) {
 	assert.Equal(t, "container-0", mergedDefaultContainer.Name)
 	assert.Equal(t, []corev1.VolumeMount{vol0}, mergedDefaultContainer.VolumeMounts)
 	assert.Equal(t, "overridden", mergedDefaultContainer.Image)
+	// only "periodSeconds" was overwritten - other fields stayed untouched
+	assert.Equal(t, corev1.Handler{HTTPGet: &corev1.HTTPGetAction{Path: "/foo"}}, mergedDefaultContainer.ReadinessProbe.Handler)
+	assert.Equal(t, int32(20), mergedDefaultContainer.ReadinessProbe.PeriodSeconds)
 
 	mergedOtherContainer := mergedContainers[1]
 	assert.Equal(t, "default-side-car", mergedOtherContainer.Name)

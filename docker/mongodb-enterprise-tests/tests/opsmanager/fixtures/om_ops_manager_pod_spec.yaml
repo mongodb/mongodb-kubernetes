@@ -26,10 +26,20 @@ spec:
         annotations:
           key1: value1
       spec:
+        volumes:
+          - name: test-volume
+            emptyDir: {}
         tolerations:
           - key: "key"
             operator: "Exists"
             effect: "NoSchedule"
+        containers:
+          - name: mongodb-ops-manager
+            readinessProbe:
+              failureThreshold: 20
+            volumeMounts:
+              - mountPath: /somewhere
+                name: test-volume
 
   applicationDatabase:
     members: 3

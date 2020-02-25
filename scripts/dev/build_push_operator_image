@@ -26,7 +26,7 @@ elif [[ ${REPO_TYPE} = "ecr" ]]; then
         prefix="$(echo "nodes.${CLUSTER_NAME}" | sed s/.mongokubernetes.com//)"
         # extract the aws region from the kops output
         region="$(kops get cluster ${CLUSTER_NAME} | awk '{ print $3 }' | tail -1 | cut -d ',' -f1)"
-        region="${region::-1}" # strip out the last "a", "b" or "c"
+        region="$(echo $region | sed 's/.$//')" # strip out the last "a", "b" or "c"
         group_id=$(aws ec2 describe-security-groups --region "${region}" | jq -r '.SecurityGroups[] | select(.GroupName | startswith( "'"$prefix"'")) | .GroupId')
         aws ec2 authorize-security-group-ingress --region "${region}" --group-id ${group_id} --protocol tcp --port 30042 --cidr "0.0.0.0/0" 2>/dev/null || true
         is_debug="True"
