@@ -368,6 +368,7 @@ func TestDefaultPodSpec_FsGroup(t *testing.T) {
 	podSpecTemplate, err = getDatabasePodTemplate(*defaultSetHelper(), map[string]string{}, "", corev1.Container{})
 	assert.NoError(t, err)
 	assert.Nil(t, podSpecTemplate.Spec.SecurityContext)
+	// TODO: assert the container security context
 
 }
 

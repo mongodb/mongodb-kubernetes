@@ -129,11 +129,13 @@ func getDatabasePodTemplate(stsHelper StatefulSetHelper,
 	if annotations == nil {
 		annotations = make(map[string]string)
 	}
-	templateSpec := corev1.PodTemplateSpec{Spec: corev1.PodSpec{
-		Containers:                    []corev1.Container{container},
-		ServiceAccountName:            serviceAccountName,
-		TerminationGracePeriodSeconds: util.Int64Ref(util.DefaultPodTerminationPeriodSeconds),
-	}}
+	templateSpec := corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{
+			Containers:                    []corev1.Container{container},
+			ServiceAccountName:            serviceAccountName,
+			TerminationGracePeriodSeconds: util.Int64Ref(util.DefaultPodTerminationPeriodSeconds),
+		},
+	}
 
 	ensurePodSecurityContext(&templateSpec.Spec)
 
@@ -191,7 +193,7 @@ func newAppDBContainer(statefulSetName, appdbImageUrl string) corev1.Container {
 }
 
 func newDbContainer(containerName, imageUrl string, envVars []corev1.EnvVar, readinessProbe *corev1.Probe) corev1.Container {
-	return corev1.Container{
+	container := corev1.Container{
 		Name:  containerName,
 		Image: imageUrl,
 		ImagePullPolicy: corev1.PullPolicy(util.ReadEnvVarOrPanic(
@@ -200,11 +202,19 @@ func newDbContainer(containerName, imageUrl string, envVars []corev1.EnvVar, rea
 		Ports:          []corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort}},
 		LivenessProbe:  baseLivenessProbe(),
 		ReadinessProbe: readinessProbe,
-		SecurityContext: &corev1.SecurityContext{
+	}
+	return getContainerWithSecurityContext(container)
+}
+
+func getContainerWithSecurityContext(container corev1.Container) corev1.Container {
+	managedSecurityContext, _ := util.ReadBoolEnv(util.ManagedSecurityContextEnv)
+	if !managedSecurityContext {
+		container.SecurityContext = &corev1.SecurityContext{
 			RunAsUser:    util.Int64Ref(util.RunAsUser),
 			RunAsNonRoot: util.BooleanRef(true),
-		},
+		}
 	}
+	return container
 }
 
 // buildStatefulSet builds the StatefulSet of pods containing agent containers. It's a general function used by
@@ -504,26 +514,22 @@ func appdbContainerEnv(statefulSetName string) []corev1.EnvVar {
 // In the end it applies the podSpec (and probably podSpec.podTemplate) as the MongoDB and AppDB do.
 func opsManagerPodTemplate(labels map[string]string, stsHelper OpsManagerStatefulSetHelper) (corev1.PodTemplateSpec, error) {
 	omImageUrl := prepareOmAppdbImageUrl(util.ReadEnvVarOrPanic(util.OpsManagerImageUrl), stsHelper.Version)
+	container := corev1.Container{
+		Name:            stsHelper.ContainerName,
+		Image:           omImageUrl,
+		ImagePullPolicy: corev1.PullPolicy(util.ReadEnvVarOrPanic(util.OpsManagerPullPolicy)),
+		Env:             stsHelper.EnvVars,
+		Ports:           []corev1.ContainerPort{{ContainerPort: util.OpsManagerDefaultPort}},
+		ReadinessProbe:  opsManagerReadinessProbe(),
+	}
 	templateSpec := corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels: labels,
 		},
 		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{
-				{
-					Name:            stsHelper.ContainerName,
-					Image:           omImageUrl,
-					ImagePullPolicy: corev1.PullPolicy(util.ReadEnvVarOrPanic(util.OpsManagerPullPolicy)),
-					Env:             stsHelper.EnvVars,
-					Ports:           []corev1.ContainerPort{{ContainerPort: util.OpsManagerDefaultPort}},
-					ReadinessProbe:  opsManagerReadinessProbe(),
-					SecurityContext: &corev1.SecurityContext{
-						RunAsUser:    util.Int64Ref(util.RunAsUser),
-						RunAsNonRoot: util.BooleanRef(true),
-					},
-				},
-			},
-		}}
+			Containers: []corev1.Container{getContainerWithSecurityContext(container)},
+		},
+	}
 
 	ensurePodSecurityContext(&templateSpec.Spec)
 	if val, found := util.ReadEnv(util.ImagePullSecrets); found {
