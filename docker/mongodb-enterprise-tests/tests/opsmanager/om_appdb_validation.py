@@ -22,7 +22,7 @@ class TestOpsManagerAppDbWrongVersion(OpsManagerBase):
 @pytest.mark.e2e_om_appdb_validation
 class TestOpsManagerAppDbWrongSize(OpsManagerBase):
     """
-    name: Wrong size of AppDB
+    name: Wrong size of AppDb
     description: |
       AppDB with members < 3 is not allowed
     create:
