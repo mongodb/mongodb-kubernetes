@@ -131,8 +131,8 @@ func getDatabasePodTemplate(stsHelper StatefulSetHelper,
 	}
 	templateSpec := corev1.PodTemplateSpec{Spec: corev1.PodSpec{
 		Containers:                    []corev1.Container{container},
-		TerminationGracePeriodSeconds: util.Int64Ref(util.DefaultPodTerminationPeriodSeconds),
 		ServiceAccountName:            serviceAccountName,
+		TerminationGracePeriodSeconds: util.Int64Ref(util.DefaultPodTerminationPeriodSeconds),
 	}}
 
 	ensurePodSecurityContext(&templateSpec.Spec)
@@ -200,6 +200,10 @@ func newDbContainer(containerName, imageUrl string, envVars []corev1.EnvVar, rea
 		Ports:          []corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort}},
 		LivenessProbe:  baseLivenessProbe(),
 		ReadinessProbe: readinessProbe,
+		SecurityContext: &corev1.SecurityContext{
+			RunAsUser:    util.Int64Ref(util.RunAsUser),
+			RunAsNonRoot: util.BooleanRef(true),
+		},
 	}
 }
 
@@ -467,23 +471,14 @@ func baseOwnerReference(owner Updatable) []metav1.OwnerReference {
 	}
 }
 
-func defaultPodSecurityContext() *corev1.PodSecurityContext {
-	return &corev1.PodSecurityContext{
-		// By default, containers will never run as root.
-		// unless `MANAGED_SECURITY_CONTEXT` env variable is set, in which case the SecurityContext
-		// should be managed by Kubernetes (this is the default in OpenShift)
-		RunAsUser:    util.Int64Ref(util.RunAsUser),
-		FSGroup:      util.Int64Ref(util.FsGroup),
-		RunAsNonRoot: util.BooleanRef(true),
-	}
-}
-
 // ensurePodSecurityContext adds the 'SecurityContext' to the pod spec if it's necessary (Openshift doesn't need this
 // as it manages the security by itself)
 func ensurePodSecurityContext(spec *corev1.PodSpec) {
 	managedSecurityContext, _ := util.ReadBoolEnv(util.ManagedSecurityContextEnv)
 	if !managedSecurityContext {
-		spec.SecurityContext = defaultPodSecurityContext()
+		spec.SecurityContext = &corev1.PodSecurityContext{
+			FSGroup: util.Int64Ref(util.FsGroup),
+		}
 	}
 }
 
@@ -522,6 +517,10 @@ func opsManagerPodTemplate(labels map[string]string, stsHelper OpsManagerStatefu
 					Env:             stsHelper.EnvVars,
 					Ports:           []corev1.ContainerPort{{ContainerPort: util.OpsManagerDefaultPort}},
 					ReadinessProbe:  opsManagerReadinessProbe(),
+					SecurityContext: &corev1.SecurityContext{
+						RunAsUser:    util.Int64Ref(util.RunAsUser),
+						RunAsNonRoot: util.BooleanRef(true),
+					},
 				},
 			},
 		}}

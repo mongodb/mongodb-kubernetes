@@ -362,7 +362,6 @@ func TestDefaultPodSpec_FsGroup(t *testing.T) {
 	assert.Len(t, spec.InitContainers, 0)
 	require.NotNil(t, spec.SecurityContext)
 	assert.Equal(t, util.Int64Ref(util.FsGroup), spec.SecurityContext.FSGroup)
-	assert.Equal(t, util.Int64Ref(util.RunAsUser), spec.SecurityContext.RunAsUser)
 
 	_ = os.Setenv(util.ManagedSecurityContextEnv, "true")
 
@@ -548,7 +547,6 @@ func TestOpsManagerPodTemplate_SecurityContext(t *testing.T) {
 	assert.Len(t, spec.InitContainers, 0)
 	require.NotNil(t, spec.SecurityContext)
 	assert.Equal(t, util.Int64Ref(util.FsGroup), spec.SecurityContext.FSGroup)
-	assert.Equal(t, util.Int64Ref(util.RunAsUser), spec.SecurityContext.RunAsUser)
 
 	_ = os.Setenv(util.ManagedSecurityContextEnv, "true")
 
