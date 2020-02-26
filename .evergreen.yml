@@ -733,7 +733,6 @@ tasks:
   - func: build_database
     vars:
       image_type: rhel
-  - func: push_versioned_binaries
   - func: upload_e2e_build_context
     vars:
       image_type: rhel
