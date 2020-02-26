@@ -16,6 +16,12 @@ function split_and_slice {
 
     echo "${sliced[*]}" # equivalent to ",".join(sliced)
 }
+header() {
+    echo
+    echo "--------------------------------------------------"
+    echo "$1"
+    echo "--------------------------------------------------"
+}
 
 labels=$(split_and_slice "${label}")
 query="podbuilderid in (${labels})"
@@ -25,8 +31,16 @@ all_finished="false"
 
 while [[ $all_finished == "false" ]]; do
     all_finished="true"
-    for status in $(kubectl -n "${building_namespace}" get pods -l "${query}" -o jsonpath='{.items[*].status.phase}'); do
-        if [ "$status" != "Succeeded" ]; then
+    for pod in $(kubectl -n "${building_namespace}" get pods -l "${query}" -o jsonpath='{.items[*].metadata.name}'); do
+        status=$(kubectl get pod $pod -o jsonpath='{.status.phase}' -n "${building_namespace}")
+        if [[ "$status" == "Failed" ]]; then
+            header "Pod $pod failed to build image"
+            kubectl describe -n "${building_namespace}" pod $pod
+            header "Logs"
+            kubectl logs -n "${building_namespace}" $pod
+            exit 1
+        fi
+        if [[ "$status" != "Succeeded" ]]; then
             sleep 3
             all_finished="false"
             break  # retry as soon as we have first non succeeding Pod

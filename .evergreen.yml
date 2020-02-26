@@ -687,6 +687,7 @@ tasks:
         docker_password: ${quay_prod_robot_token}
 
 - name: build_test_image
+  exec_timeout_secs: 600
   priority: 60
   type: setup
   commands:
@@ -715,6 +716,7 @@ tasks:
       label: 'tests-${version_id}'
 
 - name: build_images_rhel
+  exec_timeout_secs: 600
   priority: 60
   type: setup
   commands:
@@ -757,6 +759,8 @@ tasks:
 
 - name: build_images_ubuntu
   priority: 60
+  exec_timeout_secs: 600
+  type: setup
   commands:
   - func: clone
   - func: setup_docker
