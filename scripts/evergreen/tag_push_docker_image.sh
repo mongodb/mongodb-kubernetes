@@ -24,6 +24,8 @@ function docker_pull_tag_push {
     docker pull "${from}"
     docker tag "${from}" "${to}"
     docker push "${to}"
+
+    docker image rmi "${from}"
 }
 
 # We login into the destination registry because for now it is the Redhat Connect one
