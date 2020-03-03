@@ -122,7 +122,7 @@ def main() -> int:
         go_mod_handle.write(DO_NOT_MODIFY_WARNING)
         go_mod_handle.write(go_mod_contents)
     # download the actual label of k8s libs
-    if not run_cmd_with_no_goflags(["go", "get"]):
+    if not run_cmd_with_no_goflags(["go", "get", "-u=patch"]):
         return 1
     # ensure we get an updated copy of the vendor dir
     if not run_cmd(["go", "mod", "vendor"]):
