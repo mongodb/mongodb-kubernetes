@@ -532,12 +532,12 @@ tasks:
 # with a release image tag.
 # The registry location (variable with name `image_target`) is obtained from RedHat Connect.
 - name: release_ops_manager_rh_connect
+  exec_timeout_secs: 7200 # can take quite long
   commands:
     - func: clone
     - func: guard_git_repo_is_clean
     - func: setup_jq
     - func: setup_ecr_login_helper
-    - func: setup_docker
 
     - func: release_docker_image_to_registry
       vars:
@@ -564,7 +564,6 @@ tasks:
     - func: guard_git_repo_is_clean
     - func: setup_jq
     - func: setup_ecr_login_helper
-    - func: setup_docker
 
     - func: release_docker_image_to_registry
       vars:
@@ -590,7 +589,6 @@ tasks:
     - func: guard_git_repo_is_clean
     - func: setup_jq
     - func: setup_ecr_login_helper
-    - func: setup_docker
 
     - func: release_docker_image_to_registry
       vars:
@@ -618,7 +616,6 @@ tasks:
     - func: guard_git_repo_is_clean
     - func: setup_jq
     - func: setup_ecr_login_helper
-    - func: setup_docker
 
     - func: release_docker_image_to_registry
       vars:
@@ -1771,7 +1768,7 @@ buildvariants:
     - name: release_blocker
       variant: release_blocker
   run_on:
-    - archlinux-test
+    - ubuntu1604-test
   expansions:
     docker_registry: scan.connect.redhat.com
     docker_username: unused
@@ -1785,7 +1782,7 @@ buildvariants:
     - name: release_blocker
       variant: release_blocker
   run_on:
-    - archlinux-test
+    - ubuntu1604-test
   expansions:
     docker_registry: quay.io
     distro: ubuntu
@@ -1800,7 +1797,7 @@ buildvariants:
     - name: release_blocker
       variant: release_blocker
   run_on:
-    - archlinux-test
+    - ubuntu1604-test
   expansions:
     docker_registry: quay.io
     distro: rhel

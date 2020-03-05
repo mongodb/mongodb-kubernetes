@@ -62,11 +62,6 @@ fix_env() {
         set +v
     done
 
-    echo "##### Cleaning ECR repositories if necessary"
-    check_and_clean_repo "dev/mongodb-enterprise-database"
-    check_and_clean_repo "dev/mongodb-enterprise-operator"
-    check_and_clean_repo "dev/mongodb-enterprise-tests"
-
 }
 
 # The functions checks the size for the ECR repository and recreates it if necessary

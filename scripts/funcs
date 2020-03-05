@@ -161,7 +161,6 @@ ensure_ops_manager_k8s() {
         fi
 
         # we try to open ports for both security groups - in kops and openshift clusters
-        ensure_vpc_rules "us-east-1" "openshift-test-workersecgroup"
         ensure_vpc_rules "us-east-2" "nodes.e2e"
 
         echo "Ops Manager is installed in this cluster. A new user will be added for automated tests to run."

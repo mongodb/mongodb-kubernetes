@@ -30,6 +30,11 @@ cd "$(../gitroot)" || exit 1
 
 GITHASH="$(git rev-parse HEAD)"
 
+cd "${PUBLIC_REPO}"
+git pull
+
+cd -
+
 rsync -avP --delete public/ "${PUBLIC_REPO}" \
   --filter 'protect .git'
 
