@@ -39,7 +39,7 @@ class TestStandaloneRecoversBadPvConfiguration(KubernetesTester):
         )
 
     def test_recovery(self):
-        self.create_storage_class(self.__class__.random_storage_name)
+        KubernetesTester.create_storage_class(self.__class__.random_storage_name)
 
         print(
             'Created a storage class "{}", standalone is supposed to get fixed now.'.format(

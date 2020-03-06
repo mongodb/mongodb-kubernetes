@@ -17,7 +17,7 @@ class TestCreateStorageClass(KubernetesTester):
     """
 
     def test_setup_gp2_storage_class(self):
-        self.make_default_gp2_storage_class()
+        KubernetesTester.make_default_gp2_storage_class()
 
 
 @pytest.mark.e2e_replica_set_pv_multiple
@@ -61,7 +61,8 @@ class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
 
         claims.sort(key=attrgetter("name"))
 
-        self.check_single_pvc(
+        KubernetesTester.check_single_pvc(
+            self.namespace,
             claims[0],
             "data",
             "data-{}-{}".format(self.RESOURCE_NAME, idx),
@@ -70,11 +71,21 @@ class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
         )
 
         # Note that PVC gets the default storage class for cluster even if it wasn't requested initially
-        self.check_single_pvc(
-            claims[1], "journal", f"journal-{self.RESOURCE_NAME}-{idx}", "1Gi", "gp2",
+        KubernetesTester.check_single_pvc(
+            self.namespace,
+            claims[1],
+            "journal",
+            f"journal-{self.RESOURCE_NAME}-{idx}",
+            "1Gi",
+            "gp2",
         )
-        self.check_single_pvc(
-            claims[2], "logs", f"logs-{self.RESOURCE_NAME}-{idx}", "1G", "gp2",
+        KubernetesTester.check_single_pvc(
+            self.namespace,
+            claims[2],
+            "logs",
+            f"logs-{self.RESOURCE_NAME}-{idx}",
+            "1G",
+            "gp2",
         )
 
 

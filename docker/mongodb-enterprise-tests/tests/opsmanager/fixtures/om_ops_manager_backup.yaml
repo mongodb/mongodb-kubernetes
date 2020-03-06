@@ -4,7 +4,7 @@ metadata:
   name: om-backup
 spec:
   replicas: 1
-  version: 4.2.0
+  version: 4.2.8
   adminCredentials: ops-manager-admin-secret
   backup:
     enabled: true
@@ -24,6 +24,9 @@ spec:
         pathStyleAccessEnabled: true
         s3BucketEndpoint: s3.us-east-1.amazonaws.com
         s3BucketName: test-bucket
+  externalConnectivity:
+    port: 30450
+    type: NodePort
 
   applicationDatabase:
     members: 3

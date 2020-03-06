@@ -58,12 +58,6 @@ class OpsManagerBase(KubernetesTester):
         return OpsManagerBase.om_in_desired_state("Running")
 
     @staticmethod
-    def om_in_pending_state_mongodb_doesnt_exist():
-        return OpsManagerBase.om_in_desired_state(
-            "Pending", "The MongoDB object .+ doesn't exist"
-        )
-
-    @staticmethod
     def om_in_desired_state(state: str, message: str = None):
         """ Returns true if the resource in desired state, fails fast if got into Failed error.
          This allows to fail fast in case of cascade failures """

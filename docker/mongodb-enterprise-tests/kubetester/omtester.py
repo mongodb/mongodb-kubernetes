@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 import urllib.parse
+import time
 from datetime import datetime
-from typing import List, Dict
+from enum import Enum
+from typing import List, Dict, Optional
 
 import pytest
 import requests
@@ -23,14 +26,28 @@ skip_if_cloud_manager = pytest.mark.skipif(
 )
 
 
+class BackupStatus(str, Enum):
+    """ Enum for backup statuses in Ops Manager. Note that 'str' is inherited to fix json serialization issues """
+
+    STARTED = "STARTED"
+    STOPPED = "STOPPED"
+    TERMINATING = "TERMINATING"
+
+
 # todo use @dataclass annotation https://www.python.org/dev/peps/pep-0557/
 class OMContext(object):
     def __init__(
-        self, base_url, user, public_key, group_name=None, group_id=None, org_id=None
+        self,
+        base_url,
+        user,
+        public_key,
+        project_name=None,
+        project_id=None,
+        org_id=None,
     ):
         self.base_url = base_url
-        self.group_id = group_id
-        self.group_name = group_name
+        self.project_id = project_id
+        self.group_name = project_name
         self.user = user
         self.public_key = public_key
         self.org_id = org_id
@@ -41,8 +58,8 @@ class OMContext(object):
     ) -> OMContext:
         return OMContext(
             base_url=connection_config_map["baseUrl"],
-            group_id=None,
-            group_name=connection_config_map["projectName"],
+            project_id=None,
+            project_name=connection_config_map["projectName"],
             org_id=connection_config_map["orgId"],
             user=connection_secret["user"],
             public_key=connection_secret["publicApiKey"],
@@ -60,8 +77,50 @@ class OMTester(object):
             self.ensure_group_id()
 
     def ensure_group_id(self):
-        if self.context.group_id is None:
-            self.context.group_id = self.find_group_id()
+        if self.context.project_id is None:
+            self.context.project_id = self.find_group_id()
+
+    def enable_backup(self):
+        configs = self.api_read_backup_configs()
+        # our project must have only a single resource so we expect only one config that we can use
+        assert len(configs) == 1
+
+        self.api_patch_backup(configs[0]["clusterId"], BackupStatus.STARTED)
+        print(f"\nEnabled backup for mdb resource (project: {self.context.group_name})")
+
+    def wait_until_backup_snapshots_are_ready(
+        self, expected_count: int, timeout: int = 1500
+    ):
+        """ waits until at least 'expected_count' backup snapshots is in complete state"""
+        start_time = time.time()
+        configs = self.api_read_backup_configs()
+        assert len(configs) == 1
+
+        if expected_count == 1:
+            print(f"Waiting until 1 snapshot is ready (can take a while)")
+        else:
+            print(
+                f"Waiting until {expected_count} snapshots are ready (can take a while)"
+            )
+
+        initial_timeout = timeout
+        while timeout > 0:
+            snapshots = self.api_get_snapshots(configs[0]["clusterId"])
+            if len([s for s in snapshots if s["complete"]]) >= expected_count:
+                print(
+                    f"Snapshots are ready, project: {self.context.group_name}, time: {time.time() - start_time} sec"
+                )
+                return
+            time.sleep(3)
+            timeout -= 3
+
+        snapshots = self.api_get_snapshots(configs[0]["clusterId"])
+        print(f"Current Backup Snapshots: {snapshots}")
+
+        raise Exception(
+            f"Timeout ({initial_timeout}) reached while waiting for {expected_count} snapshot(s) to be ready for "
+            f"project {self.context.group_name} "
+        )
 
     def assert_healthiness(self):
         self.do_assert_healthiness(self.context.base_url)
@@ -95,7 +154,7 @@ class OMTester(object):
         assert response.status_code == 307
 
     def assert_group_exists(self):
-        path = "/groups/" + self.context.group_id
+        path = "/groups/" + self.context.project_id
         response = self.om_request("get", path)
 
         assert response.status_code == requests.status_codes.codes.OK
@@ -165,9 +224,9 @@ class OMTester(object):
             response.status_code, datetime.now()
         )
 
-    def om_request(self, method, path, json_object=None):
+    def om_request(self, method, path, json_object: Optional[Dict] = None):
         """ performs the digest API request to Ops Manager. Note that the paths don't need to be prefixed with
-        '/api../v1.0' as the method does it internally"""
+        '/api../v1.0' as the method does it internally. """
         headers = {"Content-Type": "application/json"}
         auth = build_auth(self.context.user, self.context.public_key)
 
@@ -226,13 +285,37 @@ class OMTester(object):
         return json["results"][0]["id"]
 
     def api_get_hosts(self) -> Dict:
-        return self.om_request("get", f"/groups/{self.context.group_id}/hosts").json()
+        return self.om_request("get", f"/groups/{self.context.project_id}/hosts").json()
 
     def get_automation_config_tester(self) -> AutomationConfigTester:
         json = self.om_request(
-            "get", f"/groups/{self.context.group_id}/automationConfig"
+            "get", f"/groups/{self.context.project_id}/automationConfig"
         ).json()
         return AutomationConfigTester(json)
+
+    def api_read_backup_configs(self) -> List:
+        return self.om_request(
+            "get", f"/groups/{self.context.project_id}/backupConfigs"
+        ).json()["results"]
+
+    def api_patch_backup(self, cluster_id: str, status: BackupStatus):
+        """Changes the backup config to the specified status. E.g. passing 'STARTED' will result in continious backup
+        activated """
+        data = {
+            "statusName": status,
+            "syncSource": "PRIMARY",
+            "storageEngineName": "WIRED_TIGER",
+        }
+        return self.om_request(
+            "patch",
+            f"/groups/{self.context.project_id}/backupConfigs/{cluster_id}",
+            json_object=data,
+        )
+
+    def api_get_snapshots(self, cluster_id: str) -> List:
+        return self.om_request(
+            "get", f"/groups/{self.context.project_id}/clusters/{cluster_id}/snapshots"
+        ).json()["results"]
 
 
 class OMBackgroundTester(BackgroundHealthChecker):

@@ -1,7 +1,7 @@
 from operator import attrgetter
 from typing import Optional, Dict
 
-import yaml
+from kubernetes import client
 from kubetester import MongoDB, MongoDBOpsManager
 from kubetester.awss3client import AwsS3Client, s3_endpoint
 from kubetester.kubetester import (
@@ -10,7 +10,6 @@ from kubetester.kubetester import (
     KubernetesTester,
 )
 from kubetester.mongodb import Phase
-from kubetester.omtester import OMTester
 from pytest import mark, fixture
 from tests.opsmanager.om_base import OpsManagerBase
 
@@ -75,12 +74,6 @@ def new_om_oplog_store(
 
 
 @fixture(scope="module")
-def ops_manager(namespace) -> MongoDBOpsManager:
-    # TODO: this is used only for loading the Ops Manager, the creation of OM is still done the old way
-    return MongoDBOpsManager("om-backup", namespace).load()
-
-
-@fixture(scope="module")
 def s3_bucket(aws_s3_client: AwsS3Client) -> str:
     """ creates a s3 bucket and a s3 config"""
 
@@ -104,6 +97,17 @@ def s3_bucket(aws_s3_client: AwsS3Client) -> str:
 
 
 @fixture(scope="module")
+def ops_manager(namespace, s3_bucket) -> MongoDBOpsManager:
+    resource = MongoDBOpsManager.from_yaml(
+        yaml_fixture("om_ops_manager_backup.yaml"), namespace=namespace
+    )
+
+    resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
+
+    yield resource.create()
+
+
+@fixture(scope="module")
 def s3_bucket_2(aws_s3_client: AwsS3Client) -> str:
     """ creates a s3 bucket and a s3 config"""
 
@@ -118,7 +122,7 @@ def s3_bucket_2(aws_s3_client: AwsS3Client) -> str:
 
 
 @mark.e2e_om_ops_manager_backup
-class TestOpsManagerCreation(OpsManagerBase):
+class TestOpsManagerCreation:
     """
     name: Ops Manager successful creation with backup and oplog stores enabled
     description: |
@@ -127,32 +131,18 @@ class TestOpsManagerCreation(OpsManagerBase):
     """
 
     def test_setup_gp2_storage_class(self):
-        self.make_default_gp2_storage_class()
+        KubernetesTester.make_default_gp2_storage_class()
 
-    def test_create_om(self, s3_bucket):
+    def test_create_om(self, ops_manager):
         """ creates a s3 bucket, s3 config and an OM resource (waits until gets to Pending state)"""
-        resource = yaml.safe_load(open(yaml_fixture("om_ops_manager_backup.yaml")))
-
-        patch = [
-            {
-                "op": "replace",
-                "path": "/spec/backup/s3Stores/0/s3BucketName",
-                "value": s3_bucket,
-            }
-        ]
-        self.create_custom_resource_from_object(
-            self.get_namespace(), resource, patch=patch
+        ops_manager.assert_reaches_phase(
+            Phase.Pending,
+            msg_regexp="The MongoDB object .+ doesn't exist",
+            timeout=900,
         )
 
-        self.wait_until("om_in_pending_state_mongodb_doesnt_exist", 900)
-
-        # TODO this one is super ugly but we need this to initialize an instance variable 'om_cr'...
-        super().setup_class()
-
-    def test_daemon_statefulset(self):
-        statefulset = self.appsv1.read_namespaced_stateful_set_status(
-            self.om_cr.backup_sts_name(), self.namespace
-        )
+    def test_daemon_statefulset(self, ops_manager: MongoDBOpsManager):
+        statefulset = ops_manager.get_backup_statefulset()
         assert statefulset.status.ready_replicas == 1
         assert statefulset.status.current_replicas == 1
 
@@ -162,11 +152,9 @@ class TestOpsManagerCreation(OpsManagerBase):
             for mount in statefulset.spec.template.spec.containers[0].volume_mounts
         )
 
-    def test_daemon_pvc(self):
+    def test_daemon_pvc(self, ops_manager: MongoDBOpsManager, namespace: str):
         """ Verifies the PVCs mounted to the pod """
-        pod = self.corev1.read_namespaced_pod(
-            self.om_cr.backup_pod_name(), self.namespace
-        )
+        pod = ops_manager.get_backup_pod()
         claims = [
             volume
             for volume in pod.spec.volumes
@@ -175,29 +163,34 @@ class TestOpsManagerCreation(OpsManagerBase):
         assert len(claims) == 1
         claims.sort(key=attrgetter("name"))
 
-        self.check_single_pvc(
-            claims[0], "head", self.om_cr.backup_head_pvc_name(), "500M", "gp2"
+        KubernetesTester.check_single_pvc(
+            namespace,
+            claims[0],
+            "head",
+            "head-{}-0".format(ops_manager.backup_daemon_name()),
+            "500M",
+            "gp2",
         )
 
-    def test_no_daemon_service_created(self):
+    def test_no_daemon_service_created(self, namespace):
         """ Backup daemon serves no incoming traffic so no service must be created """
-        services = self.corev1.list_namespaced_service(self.namespace).items
+        services = client.CoreV1Api().list_namespaced_service(namespace).items
 
-        # 1 for AppDB, 1 for Ops Manager statefulset, 1 for validation webhook
-        assert len(services) == 3
+        # 1 for AppDB, 2 for Ops Manager statefulset, 1 for validation webhook
+        assert len(services) == 4
 
     @skip_if_local
-    def test_om(self):
-        om_tester = OMTester(self.om_context)
+    def test_om(self, ops_manager: MongoDBOpsManager):
+        om_tester = ops_manager.get_om_tester()
         om_tester.assert_healthiness()
-        om_tester.assert_daemon_enabled(self.om_cr.backup_pod_name(), HEAD_PATH)
+        om_tester.assert_daemon_enabled(ops_manager.backup_daemon_pod_name(), HEAD_PATH)
         # No oplog stores were created in Ops Manager by this time
         om_tester.assert_oplog_stores([])
         om_tester.assert_s3_stores([])
 
 
 @mark.e2e_om_ops_manager_backup
-class TestBackupDatabasesAdded(OpsManagerBase):
+class TestBackupDatabasesAdded:
     """ name: Creates two mongodb resources for oplog and s3 and waits until OM resource gets to running state"""
 
     @fixture(scope="class")
@@ -237,10 +230,10 @@ class TestBackupDatabasesAdded(OpsManagerBase):
         as the backup replica sets may not be completely ready but this will get fixed soon after a retry. """
         ops_manager.assert_reaches_phase(Phase.Running, timeout=200, ignore_errors=True)
 
-        om_tester = OMTester(self.om_context)
+        om_tester = ops_manager.get_om_tester()
         om_tester.assert_healthiness()
         # Nothing has changed for daemon
-        om_tester.assert_daemon_enabled(self.om_cr.backup_pod_name(), HEAD_PATH)
+        om_tester.assert_daemon_enabled(ops_manager.backup_daemon_pod_name(), HEAD_PATH)
 
         om_tester.assert_oplog_stores([new_om_oplog_store("oplog1")])
         om_tester.assert_s3_stores(
@@ -249,7 +242,51 @@ class TestBackupDatabasesAdded(OpsManagerBase):
 
 
 @mark.e2e_om_ops_manager_backup
-class TestBackupConfigurationAdditionDeletion(OpsManagerBase):
+class TestBackupForMongodb:
+    """ This part ensures that backup for the client works correctly and the snapshot is created.
+    Both Mdb 4.0 and 4.2 are tested (as the backup process for them differs significantly) """
+
+    @fixture(scope="class")
+    def mdb_4_2(self, ops_manager: MongoDBOpsManager, namespace):
+        resource = MongoDB.from_yaml(
+            yaml_fixture("replica-set-for-om.yaml"),
+            namespace=namespace,
+            name="mdb-four-two",
+        ).configure(ops_manager, "firstProject")
+        # MongoD versions greater than 4.2.0 must be enterprise build to enable backup
+        resource["spec"]["version"] = "4.2.2-ent"
+
+        return resource.create()
+
+    @fixture(scope="class")
+    def mdb_4_0(self, ops_manager: MongoDBOpsManager, namespace):
+        resource = MongoDB.from_yaml(
+            yaml_fixture("replica-set-for-om.yaml"),
+            namespace=namespace,
+            name="mdb-four-zero",
+        ).configure(ops_manager, "secondProject")
+        resource["spec"]["version"] = "4.0.16"
+
+        return resource.create()
+
+    def test_mdbs_created(self, mdb_4_2: MongoDB, mdb_4_0: MongoDB):
+        mdb_4_2.assert_reaches_phase(Phase.Running)
+        mdb_4_0.assert_reaches_phase(Phase.Running)
+
+    def test_mdbs_backuped(self, ops_manager: MongoDBOpsManager):
+        om_tester_first = ops_manager.get_om_tester(project_name="firstProject")
+        om_tester_first.enable_backup()
+
+        om_tester_second = ops_manager.get_om_tester(project_name="secondProject")
+        om_tester_second.enable_backup()
+
+        # wait until a first snapshot is ready for both
+        om_tester_first.wait_until_backup_snapshots_are_ready(expected_count=1)
+        om_tester_second.wait_until_backup_snapshots_are_ready(expected_count=1)
+
+
+@mark.e2e_om_ops_manager_backup
+class TestBackupConfigurationAdditionDeletion:
     def test_oplog_store_is_added(
         self, ops_manager: MongoDBOpsManager, s3_bucket: str, aws_s3_client: AwsS3Client
     ):
@@ -262,10 +299,7 @@ class TestBackupConfigurationAdditionDeletion(OpsManagerBase):
         ops_manager.assert_reaches_phase(Phase.Reconciling, timeout=60)
         ops_manager.assert_reaches_phase(Phase.Running, timeout=600)
 
-        # TODO: this is just to populate "self.om_context", should not be required
-        self.setup_env()
-
-        om_tester = OMTester(self.om_context)
+        om_tester = ops_manager.get_om_tester()
         om_tester.assert_oplog_stores(
             [
                 new_om_oplog_store("oplog1"),
@@ -290,10 +324,7 @@ class TestBackupConfigurationAdditionDeletion(OpsManagerBase):
         ops_manager.assert_reaches_phase(Phase.Reconciling, timeout=60)
         ops_manager.assert_reaches_phase(Phase.Running, timeout=600)
 
-        # TODO: this is just to populate "self.om_context", should not be required
-        self.setup_env()
-
-        om_tester = OMTester(self.om_context)
+        om_tester = ops_manager.get_om_tester()
 
         om_tester.assert_oplog_stores(
             [
@@ -318,25 +349,24 @@ class TestBackupConfigurationAdditionDeletion(OpsManagerBase):
         ops_manager.assert_reaches_phase(Phase.Reconciling, timeout=60)
         ops_manager.assert_reaches_phase(Phase.Running, timeout=600)
 
-        # TODO: this is just to populate "self.om_context", should not be required
-        self.setup_env()
-
-        om_tester = OMTester(self.om_context)
+        om_tester = ops_manager.get_om_tester()
 
         om_tester.assert_oplog_stores([new_om_oplog_store("oplog1")])
         om_tester.assert_s3_stores(
             [new_om_s3_store("s3Store1", s3_bucket_2, aws_s3_client),]
         )
 
-    def test_warning_on_partial_configuration(
+    def test_error_on_s3store_removal(
         self, ops_manager: MongoDBOpsManager,
     ):
+        """ Removing the s3 store when there are backups running is an error """
         ops_manager.reload()
         ops_manager["spec"]["backup"]["s3Stores"] = []
         ops_manager.update()
 
         ops_manager.assert_reaches_phase(Phase.Reconciling, timeout=60)
-        ops_manager.assert_reaches_phase(Phase.Running, timeout=600)
-
-        expected_warning_message = "S3 configuration requires at least 1 Oplog Store configuration and at least 1 S3 store to be fully configured"
-        assert expected_warning_message in ops_manager["status"]["warnings"]
+        ops_manager.assert_reaches_phase(
+            Phase.Failed,
+            msg_regexp=".*BACKUP_CANNOT_REMOVE_S3_STORE_CONFIG.*",
+            timeout=150,
+        )

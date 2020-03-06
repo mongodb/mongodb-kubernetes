@@ -254,7 +254,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
     def get_backup_statefulset(self) -> client.V1StatefulSet:
         return client.AppsV1Api().read_namespaced_stateful_set(
-            self.name + "-backup-daemon", self.namespace
+            self.backup_daemon_name(), self.namespace
         )
 
     def get_appdb_pods(self) -> List[client.V1Pod]:
@@ -264,6 +264,11 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                 self.app_db_name() + "-{}", self.get_appdb_members_count()
             )
         ]
+
+    def get_backup_pod(self) -> client.V1Pod:
+        return client.CoreV1Api().read_namespaced_pod(
+            self.backup_daemon_pod_name(), self.namespace
+        )
 
     def get_or_create_mongodb_connection_config_map(
         self, mongodb_name: str, project_name: str
@@ -290,7 +295,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             return False
         phase = self.get_om_status_phase()
 
-        if phase == Phase.Failed and not ignore_errors:
+        if phase == Phase.Failed and not ignore_errors and not state == Phase.Failed:
             msg = self.get_om_status()["message"]
             raise AssertionError(
                 'Got into Failed phase while waiting for Running! ("{}")'.format(msg)
@@ -305,7 +310,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         return is_om_in_desired_state
 
-    def get_om_tester(self) -> OMTester:
+    def get_om_tester(self, project_name: Optional[str] = None) -> OMTester:
         """ Returns the instance of OMTester helping to check the state of Ops Manager deployed in Kubernetes. """
         api_key_secret = KubernetesTester.read_secret(
             KubernetesTester.get_namespace(), self.api_key_secret()
@@ -314,6 +319,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             self.get_om_status_url(),
             api_key_secret["user"],
             api_key_secret["publicApiKey"],
+            project_name=project_name,
         )
         return OMTester(om_context)
 
@@ -362,6 +368,12 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
     def app_db_name(self) -> str:
         return self.name + "-db"
+
+    def backup_daemon_name(self) -> str:
+        return self.name + "-backup-daemon"
+
+    def backup_daemon_pod_name(self) -> str:
+        return self.backup_daemon_name() + "-0"
 
 
 def get_pods(podname, qty):

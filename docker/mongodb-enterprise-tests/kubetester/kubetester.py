@@ -1072,29 +1072,28 @@ class KubernetesTester(object):
 
         return tmp
 
-    def list_storage_class(self) -> List[client.V1StorageClass]:
+    @staticmethod
+    def list_storage_class() -> List[client.V1StorageClass]:
         """Returns a list of all the Storage classes in this cluster."""
-        sv1 = KubernetesTester.clients("storagev1")
-        return sv1.list_storage_class().items
+        return KubernetesTester.clients("storagev1").list_storage_class().items
 
-    def get_storage_class_provisioner_enabled(self) -> str:
+    @staticmethod
+    def get_storage_class_provisioner_enabled() -> str:
         """Returns 'a' provisioner that is known to exist in this cluster."""
         # If there's no storageclass in this cluster, then the following
         # will raise a KeyError.
-        return self.list_storage_class()[0].provisioner
+        return KubernetesTester.list_storage_class()[0].provisioner
 
-    def create_storage_class(
-        self, name: str, provisioner: Optional[str] = None
-    ) -> None:
+    @staticmethod
+    def create_storage_class(name: str, provisioner: Optional[str] = None) -> None:
         """Creates a new StorageClass which is a duplicate of an existing one."""
         if provisioner is None:
-            provisioner = self.get_storage_class_provisioner_enabled()
+            provisioner = KubernetesTester.get_storage_class_provisioner_enabled()
 
-        sc0 = self.list_storage_class()[0]
+        sc0 = KubernetesTester.list_storage_class()[0]
 
-        cli = KubernetesTester.clients("client")
-        sc = cli.V1StorageClass(
-            metadata=cli.V1ObjectMeta(
+        sc = client.V1StorageClass(
+            metadata=client.V1ObjectMeta(
                 name=name,
                 annotations={"storageclass.kubernetes.io/is-default-class": "true"},
             ),
@@ -1104,23 +1103,25 @@ class KubernetesTester(object):
         )
         KubernetesTester.clients("storagev1").create_storage_class(sc)
 
-    def storage_class_make_not_default(self, name: str):
+    @staticmethod
+    def storage_class_make_not_default(name: str):
         """Changes the 'default' annotation from a storage class."""
         sv1 = KubernetesTester.clients("storagev1")
         sc = sv1.read_storage_class(name)
         sc.metadata.annotations["storageclass.kubernetes.io/is-default-class"] = "false"
         sv1.patch_storage_class(name, sc)
 
-    def make_default_gp2_storage_class(self):
-        classes = self.list_storage_class()
+    @staticmethod
+    def make_default_gp2_storage_class():
+        classes = KubernetesTester.list_storage_class()
 
         for sc in classes:
             if sc.metadata.name == "gp2":
                 # The required class already exist, no need to create it.
                 return
 
-        self.create_storage_class("gp2")
-        self.storage_class_make_not_default("standard")
+        KubernetesTester.create_storage_class("gp2")
+        KubernetesTester.storage_class_make_not_default("standard")
 
     def yield_existing_csrs(self, csr_names, timeout=300):
         """Returns certificates as they start appearing in the Kubernetes API."""
@@ -1182,8 +1183,9 @@ class KubernetesTester(object):
     def _get_pods(self, podname, qty=3):
         return [podname.format(i) for i in range(qty)]
 
+    @staticmethod
     def check_single_pvc(
-        self,
+        namespace: str,
         volume,
         expected_name,
         expected_claim_name,
@@ -1193,8 +1195,8 @@ class KubernetesTester(object):
         assert volume.name == expected_name
         assert volume.persistent_volume_claim.claim_name == expected_claim_name
 
-        pvc = self.corev1.read_namespaced_persistent_volume_claim(
-            expected_claim_name, self.namespace
+        pvc = client.CoreV1Api().read_namespaced_persistent_volume_claim(
+            expected_claim_name, namespace
         )
         assert pvc.status.phase == "Bound"
         assert pvc.spec.resources.requests["storage"] == expected_size
