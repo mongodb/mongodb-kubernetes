@@ -12,14 +12,9 @@ if [[ ${REPO_TYPE} = "local" ]]; then
     make -C docker/mongodb-enterprise-database build IMAGE_DIR=local IMAGE_TYPE="${IMAGE_TYPE}"
     title "Database image successfully built"
 elif [[ ${REPO_TYPE} = "ecr" ]]; then
-    repo_host="$(echo ${REPO_URL} | cut -d "/" -f 1)"
-    repo_name="$(echo ${REPO_URL} | cut -d "/" -f 2)"
-
-    ensure_ecr_repository "${repo_name}/${IMAGE_TYPE}/mongodb-enterprise-database"
+    ensure_ecr_repository "${REPO_URL}/mongodb-enterprise-database"
 
     make -C docker/mongodb-enterprise-database push IMAGE_DIR="${repo_name}" AWS_IMAGE_REPO="${repo_host}" IMAGE_TYPE="${IMAGE_TYPE}"
 
     title "Database image successfully built and pushed to the ECR registry"
-elif [[ ${REPO_TYPE} = "quay" ]]; then
-    title "Skipping build of the database as current Docker registry is quay.io"
 fi

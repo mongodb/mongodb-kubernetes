@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 
-
 # shellcheck disable=SC2154
 context_config="${workdir}/${kube_environment_name}_config"
 if [ -f "${context_config}" ]; then

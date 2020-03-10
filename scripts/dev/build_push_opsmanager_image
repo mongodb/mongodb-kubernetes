@@ -5,17 +5,44 @@ cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
 source scripts/dev/set_env_context
 
-title "Building Ops Manager image..."
+docker_build() {
+    prepare_ops_manager_build
+
+    docker build \
+        -t ${repo_name} \
+        --build-arg OM_DOWNLOAD_LINK=${download_url} .
+}
+
+docker_push() {
+    repo_name="$(echo ${full_url} | cut -d "/" -f2-)" # cutting the domain part
+    docker_build
+
+    docker tag ${repo_name} ${full_url}
+    docker push ${full_url}
+}
+submit_kaniko() {
+    destination=${full_url} \
+        context=s3://operator-kubernetes-build/ops-manager-operator/${version_id}/${IMAGE_TYPE}/contexts/om-context.tar.gz \
+        cache_repo=268558157000.dkr.ecr.us-east-1.amazonaws.com/cache/mongodb-enterprise-ops-manager \
+        label=ops-manager-${version_id} \
+        build_args="OM_DOWNLOAD_LINK=${download_url}" \
+        ../../scripts/evergreen/build_docker_image.sh
+}
+
+# 1. First we need to find out the download_url necessary for image build
 
 check_mandatory_param "${om_version-}" "om_version"
+
+title "Building Ops Manager image (om version: ${om_version})..."
 
 if [[ -z ${download_url-} ]]; then
     echo "Download url is not provided, so fetching it from the official Ops Manager binaries json"
     download_url=$(om_download_url $om_version)
 
     [[ -z ${download_url} ]] && fatal "Failed to find download link for version $om_version"
-    echo "The download url for ${om_version} is ${download_url}"
 fi
+
+echo "The download url for ${om_version} is ${download_url}"
 
 # note that in non local runs we want to build images with suffix (operator version).
 if [[ "${LOCAL_RUN-}" = false ]]; then
@@ -23,21 +50,26 @@ if [[ "${LOCAL_RUN-}" = false ]]; then
     echo "Using image suffix (operator version) ${image_suffix} for building images"
 fi
 
+# 2. Building the image - either to local repo or to the remote one (ECR)
+
+cd docker/mongodb-enterprise-ops-manager || exit
+
 if [[ ${REPO_TYPE} = "local" ]]; then
-    eval "$(minikube docker-env)"
-    make -C docker/mongodb-enterprise-ops-manager build IMAGE_DIR=local IMAGE_TYPE="${IMAGE_TYPE}" IMAGE_SUFFIX=${image_suffix-}
-    title "Ops Manager image successfully built"
+    repo_name="local/mongodb-enterprise-ops-manager"
+    docker_build
+    title "Ops Manager image successfully built (to local Docker registry)"
 elif [[ ${REPO_TYPE} = "ecr" ]]; then
-    repo_host="$(echo ${REPO_URL} | cut -d "/" -f 1)"
-    repo_name="$(echo ${REPO_URL} | cut -d "/" -f 2)"
+    ensure_ecr_repository "${REPO_URL}/mongodb-enterprise-ops-manager"
 
-    ensure_ecr_repository "${repo_name}/${IMAGE_TYPE}/mongodb-enterprise-ops-manager"
+    full_url="${REPO_URL}/mongodb-enterprise-ops-manager:${om_version}${image_suffix-}"
 
-    make -C docker/mongodb-enterprise-ops-manager push IMAGE_DIR="${repo_name}" AWS_IMAGE_REPO="${repo_host}" \
-            IMAGE_TYPE="${IMAGE_TYPE}" IMAGE_VERSION="${om_version}" OM_DOWNLOAD_LINK="${download_url}" \
-            IMAGE_SUFFIX=${image_suffix-}
-
-    title "Ops Manager image successfully built and pushed to the ECR registry"
-elif [[ ${REPO_TYPE} = "quay" ]]; then
-    title "Skipping build of the Ops Manager as current Docker registry is quay.io"
+    if [[ -n ${kaniko-} ]]; then
+        # Note, that before submitting kaniko build the context needs to be uploaded to S3 - this is outside
+        # of the scope for current script
+        submit_kaniko
+        title "Kaniko job for building Ops Manager image successfully created"
+    else
+        docker_push
+        title "Ops Manager image successfully built and pushed to the ECR registry"
+    fi
 fi

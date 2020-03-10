@@ -27,8 +27,7 @@ usage:
 	@ echo "                              resources, build-push-deploy operator, push-deploy database, create secrets, "
 	@ echo "                              config map, resources etc"
 	@ echo "  om-batch                    builds both Ops Manager and AppDB images for the specified scope. Provide 'scope=all' to build"
-	@ echo "                              all versions from 'release.json'. Provide 'scope=test' to build only images marked as 'test=true'"
-	@ echo "                              in 'release.json'. Or 'scope=4.2.2,4.3.4' to provide versions explicitely"
+	@ echo "                              all versions from 'release.json'. Or 'scope=4.2.2,4.3.4' to build specific versions only"
 	@ echo "  appdb:                      build and push AppDB image. Specify 'om_version' in format '4.2.1' to provide the already released Ops Manager"
 	@ echo "                              version which will be used to find the matching tag and find the Automation Agent version. Add 'om_branch' "
 	@ echo "                              if Ops Manager is not released yet and you want to have some git branch as the source "
@@ -95,14 +94,14 @@ full: ensure-k8s-and-reset build-and-push-images
 	@ scripts/dev/apply_resources
 
 om-batch: aws_login
-	@ scripts/dev/batch_om_appdb_images $(scope)
+	@ scripts/dev/batch_om_appdb_images $(scope) $(kaniko)
 
 # build-push appdb image
 appdb: aws_login
-	@ scripts/dev/build_push_appdb_image $(om_version) $(om_branch)
+	@ scripts/dev/build_push_appdb_image $(om_version) $(om_branch) $(kaniko)
 
 om-image:
-	@ scripts/dev/build_push_opsmanager_image $(om_version) $(download_url)
+	@ scripts/dev/build_push_opsmanager_image $(om_version) $(download_url) $(kaniko)
 
 # install OM in Kubernetes if it's not running
 om:

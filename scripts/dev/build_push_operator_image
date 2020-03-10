@@ -14,11 +14,7 @@ if [[ ${REPO_TYPE} = "local" ]]; then
     make -C docker/mongodb-enterprise-operator build IMAGE_DIR=local IMAGE_TYPE="${IMAGE_TYPE}"
     title "Operator image successfully built"
 elif [[ ${REPO_TYPE} = "ecr" ]]; then
-    repo_host="$(echo ${REPO_URL} | cut -d "/" -f 1)"
-    repo_name="$(echo ${REPO_URL} | cut -d "/" -f 2)"
-
-    operator_name="mongodb-enterprise-operator"
-    ensure_ecr_repository "${repo_name}/${IMAGE_TYPE}/${operator_name}"
+    ensure_ecr_repository "${REPO_URL}/mongodb-enterprise-operator"
 
     is_debug="False"
     if [[ -n "${debug-}" ]]; then
@@ -37,6 +33,4 @@ elif [[ ${REPO_TYPE} = "ecr" ]]; then
         IMAGE_TYPE="${IMAGE_TYPE}" IS_DEBUG="${is_debug}"
 
     title "Operator image successfully built and pushed to the ECR registry"
-elif [[ ${REPO_TYPE} = "quay" ]]; then
-    title "Skipping build of the Operator as current Docker registry is quay.io"
 fi

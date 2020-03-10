@@ -11,9 +11,6 @@ TEST_AUTOMATION_CONFIG = test/replset.json
 IMAGE_PATH = $(IMAGE_DIR)/$(IMAGE_TYPE)/$(IMAGE):$(IMAGE_VERSION)
 # Image suffix allows to separate different build versions. The main planned sample is '-operatorX.Y.Z'
 IMAGE_SUFFIX =
-APP_IMAGE_PATH = $(IMAGE_DIR)/$(IMAGE_TYPE)/$(IMAGE_APPDB):$(IMAGE_VERSION)$(IMAGE_SUFFIX)
-MDB_URL=$(shell jq --raw-output .appDbBundle.baseUrl < ../../release.json)
-BINARY_NAME=$(shell jq --raw-output .appDbBundle.$(IMAGE_TYPE)BinaryName < ../../release.json)
 
 usage:
 	@ echo "MongoDB Enterprise Database - Docker image builder"
@@ -32,14 +29,6 @@ usage:
 	@ echo "  run: 		              runs the image in a new container"
 	@ echo "  status:	              shows all the containers created using this image"
 	@ echo "  version:	              prints the image's version string (IMAGE_VERSION)"
-	@ echo
-	@ echo "  (AppDB)"
-	@ echo "  delete_container_appdb:     stops and deletes the container for appdb"
-	@ echo "  build_appdb: 	              builds the Docker image for appdb"
-	@ echo "  pull_appdb:		      pulls the image for appdb from the configured Docker registry"
-	@ echo "  push_appdb:		      pushes the image for appdb to the configured Docker registry"
-	@ echo "  run_appdb: 		      runs the image for appdb in a new container"
-	@ echo "  all_appdb: 		      shorthand for 'build_appdb run_appdb'"
 
 delete_container:
 	- docker ps -a | tail -n +2 | grep '$(IMAGE)' | awk '{print $$1}' | xargs docker rm -f
@@ -96,45 +85,3 @@ status:
 version:
 	@ echo $(IMAGE_VERSION)
 
-###############################################################
-# These are all the commands to work with appdb image
-###############################################################
-
-delete_container_appdb:
-	docker stop test-appdb || true
-	docker rm -f test-appdb || true
-
-build_appdb:
-	@ if [[ -z "$(AA_DOWNLOAD_LOCATION)" ]]; then \
-		echo "AA_DOWNLOAD_LOCATION parameter must be specified"; exit 1; \
-	fi
-	@ if [[ -z "$(AA_VERSION)" ]]; then \
-		echo "AA_VERSION parameter must be specified"; exit 1; \
-	fi
-	@ GOOS='linux' go build -i -o readiness ../../probe || \
-	   (../../scripts/build/prepare_build_environment && GOOS='linux' go build -i -o readiness ../../probe)
-	@ mv readiness content/readinessprobe
-	@ ../Dockerfile.gen appdb "$(IMAGE_TYPE)" > Dockerfile
-
-	docker build $(EXTRA_PARAM) \
-		-t $(APP_IMAGE_PATH) \
-		--build-arg MDB_URL=$(MDB_URL) \
-		--build-arg BINARY_NAME=$(BINARY_NAME) \
-		--build-arg AA_DOWNLOAD_LOCATION=$(AA_DOWNLOAD_LOCATION) \
-		--build-arg AA_VERSION=$(AA_VERSION) .
-
-pull_appdb: aws_login
-	docker pull $(AWS_IMAGE_REPO)/$(APP_IMAGE_PATH)
-	docker tag $(AWS_IMAGE_REPO)/$(APP_IMAGE_PATH) $(APP_IMAGE_PATH)
-
-push_appdb: build_appdb aws_login
-	docker tag $(APP_IMAGE_PATH) $(AWS_IMAGE_REPO)/$(APP_IMAGE_PATH)
-	docker push $(AWS_IMAGE_REPO)/$(APP_IMAGE_PATH)
-
-run_appdb: delete_container_appdb
-	docker run --name test-appdb \
-		--mount type=bind,source=$(shell pwd)/$(TEST_AUTOMATION_CONFIG),target=/var/lib/mongodb-automation/cluster-config.json \
-		-t $(APP_IMAGE_PATH)
-
-all_appdb:
-	@ $(MAKE) build_appdb run_appdb

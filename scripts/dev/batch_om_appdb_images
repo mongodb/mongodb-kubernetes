@@ -5,25 +5,41 @@ cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
 source scripts/dev/set_env_context
 
-check_mandatory_param "${1-}" "scope"
-scope=${1}
+check_mandatory_param "${scope-}" "scope"
 
 if [[ ${scope} = "all" ]]; then
     echo "Building Ops Manager and AppDB images for ALL versions listed in 'release.json'"
     versions=( $(jq --raw-output '.opsManagerImages[].version' < release.json) )
-elif [[ ${scope} = "test" ]]; then
-    echo "Building Ops Manager and AppDB images for TEST versions listed in 'release.json'"
-    versions=( $(jq --raw-output '.opsManagerImages[] | select(.testing==true) | .version' < release.json) )
 else
     # we consider this to be a single/multiple versions separated by ','
     echo "Building Ops Manager and AppDB images for specific versions: $scope"
     versions=( $(echo $scope | tr ',' '\n') )
 fi
 
-for version in "${versions[@]}"; do
-    header "Building Ops Manager Image $version"
-    make om-image om_version=${version}
+if [[ -n "${kaniko-}" ]]; then
+    # Pushing contexts for AppDB and OM
+    header "Preparing Kaniko contexts"
 
-    header "Building AppDB Image $version"
-    make appdb om_version=${version}
+    (cd docker/mongodb-enterprise-database && prepare_appdb_build)
+    docker_dir_name="mongodb-enterprise-database" context="appdb" scripts/evergreen/upload_kaniko_context
+
+    (cd docker/mongodb-enterprise-ops-manager && prepare_ops_manager_build)
+    docker_dir_name="mongodb-enterprise-ops-manager" context="om" scripts/evergreen/upload_kaniko_context
+fi
+
+for version in "${versions[@]}"; do
+    header "Building Ops Manager Image $version (kaniko=${kaniko:-false})"
+    export om_version=${version}
+    scripts/dev/build_push_opsmanager_image
+
+    header "Building AppDB Image $version  (kaniko=${kaniko:-false})"
+    scripts/dev/build_push_appdb_image
 done
+
+if [[ -n "${kaniko-}" ]]; then
+    # need to wait for kaniko builds to finish
+    header "Kaniko jobs submitted, waiting until they finish"
+
+    label=appdb-${version_id} scripts/evergreen/wait_docker_image.sh
+    label=ops-manager-${version_id} scripts/evergreen/wait_docker_image.sh
+fi

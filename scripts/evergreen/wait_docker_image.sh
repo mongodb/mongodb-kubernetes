@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 #
+set -euo pipefail
 
 building_namespace="construction-site"
 

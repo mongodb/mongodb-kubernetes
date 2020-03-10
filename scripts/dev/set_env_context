@@ -33,6 +33,9 @@ if [[ -z "${IN_MEMORY_CONTEXT-}" ]]; then
 
     # LOCAL_RUN indicates that the make script is run locally. This may affect different build/deploy decisions
     export LOCAL_RUN=true
+    # version_id is similar to version_id from Evergreen. Used to differentiate different builds. Can be constant
+    # for local run
+    export version_id=$USER
 else
     echo "Skipping reading context file. Note that all the configuration information\
          (REPO_URL, CLUSTER_TYPE) must be provided as environment variables!"
@@ -58,8 +61,8 @@ if [[ "${CLUSTER_TYPE}" = "openshift" ]]; then
     export IMAGE_TYPE="rhel"
 fi
 
-# Appending image type (ubuntu/rhel) to the registry url
-export REPO_URL=${REPO_URL}/${IMAGE_TYPE}
+# Appending image type (ubuntu/rhel) to the registry url (unless it's already appended)
+[[ "$REPO_URL" != *${IMAGE_TYPE} ]] && export REPO_URL=${REPO_URL}/${IMAGE_TYPE}
 export NAMESPACE=${NAMESPACE:-mongodb}
 
 if [[ -z "${IN_MEMORY_CONTEXT-}" ]]; then
