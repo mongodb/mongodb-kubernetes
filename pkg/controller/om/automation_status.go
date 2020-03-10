@@ -34,7 +34,7 @@ func buildAutomationStatusFromBytes(b []byte) (*AutomationStatus, error) {
 
 // Waits until the agents for relevant processes reach their state
 func WaitForReadyState(oc Connection, processNames []string, log *zap.SugaredLogger) error {
-	log.Infow("Waiting for automation config to be applied by Automation Agents...", "processes", processNames)
+	log.Infow("Waiting for MongoDB agents to reach READY state...", "processes", processNames)
 	reachStateFunc := func() (string, bool) {
 
 		as, lastErr := oc.ReadAutomationStatus()
@@ -46,23 +46,13 @@ func WaitForReadyState(oc Connection, processNames []string, log *zap.SugaredLog
 			return "", true
 		}
 
-		return "Automation agents haven't reached READY state", false
+		return "MongoDB agents haven't reached READY state", false
 	}
 	if !util.DoAndRetry(reachStateFunc, log, 30, 3) {
 		return api.NewError(fmt.Errorf("automation agents haven't reached READY state during defined interval"))
 	}
-	log.Info("Automation config has been successfully updated in Ops Manager and Automation Agents reached READY state")
+	log.Info("MongoDB agents have reached READY state")
 	return nil
-}
-
-func CheckEveryHostHasReachedReadyState(oc Connection, processNames []string, log *zap.SugaredLogger) bool {
-	log.Infof("Checking processes %+v", processNames)
-	as, err := oc.ReadAutomationStatus()
-	if err != nil {
-		return false
-	}
-
-	return checkAutomationStatusIsGoal(as, processNames)
 }
 
 // CheckAutomationStatusIsGoal returns true if all the relevant processes are in Goal

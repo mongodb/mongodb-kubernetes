@@ -223,12 +223,6 @@ func (p Process) EnsureNetConfig() map[string]interface{} {
 // Use this method if you intend to make updates to the map returned
 func (p Process) EnsureSSLConfig() map[string]interface{} {
 	netConfig := p.EnsureNetConfig()
-	if tlsConfig, ok := netConfig["tls"]; ok {
-		netConfig["ssl"] = tlsConfig
-		// we delete the TLS key as if we pass both ssl and tls, the desired config will not be sent
-		// by passing just "ssl" Ops Manager will map this to the correct "tls" configuration.
-		delete(netConfig, "tls")
-	}
 	return util.ReadOrCreateMap(netConfig, "ssl")
 }
 
@@ -238,13 +232,6 @@ func (p Process) SSLConfig() map[string]interface{} {
 	netConfig := p.EnsureNetConfig()
 	if _, ok := netConfig["ssl"]; ok {
 		return netConfig["ssl"].(map[string]interface{})
-	}
-
-	// in newer versions of Ops Manager/Cloud Manager the ssl
-	// field was renamed to tls. This may be the key that is returned instead.
-	// All of the values should be the same.
-	if _, ok := netConfig["tls"]; ok {
-		return netConfig["tls"].(map[string]interface{})
 	}
 
 	return make(map[string]interface{})

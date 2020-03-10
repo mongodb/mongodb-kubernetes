@@ -86,7 +86,7 @@ func Configure(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 // removeUnusedAgentUsers ensures that the only agent users that exist in the automation config
 // are the agent users for the currently enabled auth mechanism.
 func removeUnusedAgentUsers(conn om.Connection, log *zap.SugaredLogger) error {
-	log.Info("removing any unused agent users")
+	log.Info("Removing any unused agent users")
 	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 
 		autoAuthMechanism := mechanismName(ac.Auth.AutoAuthMechanism)
@@ -382,7 +382,7 @@ func removeUnrequiredDeploymentMechanisms(conn om.Connection, opts Options, log 
 	automationConfigAuthMechanismNames := getMechanismNames(ac, opts.MinimumMajorVersion, opts.Mechanisms)
 
 	toDisable := mechanismsToDisable(automationConfigAuthMechanismNames)
-	log.Infow("removing unrequired deployment authentication mechanisms", "Mechanisms", toDisable)
+	log.Infow("Removing unrequired deployment authentication mechanisms", "Mechanisms", toDisable)
 	if err := ensureDeploymentMechanismsAreDisabled(conn, toDisable, log); err != nil {
 		return err
 	}

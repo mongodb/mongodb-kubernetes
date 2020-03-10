@@ -68,11 +68,32 @@ type Deployment map[string]interface{}
 
 // BuildDeploymentFromBytes
 func BuildDeploymentFromBytes(jsonBytes []byte) (Deployment, error) {
-	cc := Deployment{}
-	if err := json.Unmarshal(jsonBytes, &cc); err != nil {
+	deployment := Deployment{}
+	if err := json.Unmarshal(jsonBytes, &deployment); err != nil {
 		return nil, err
 	}
-	return cc, nil
+	// hack: as OM may return either 'tls' or 'ssl' - we need to use the single field everywhere - let's use 'ssl'
+	// using 'tls' is fragile as older OMs throw error on unfamiliar field on PUT requests (for 'tls')
+	if ssl, ok := deployment["tls"]; ok {
+		mapDeepCopy, err := util.MapDeepCopy(ssl.(map[string]interface{}))
+		if err != nil {
+			return nil, err
+		}
+		deployment["ssl"] = mapDeepCopy
+		delete(deployment, "tls")
+	}
+	for _, p := range deployment.getProcesses() {
+		netConfig := p.EnsureNetConfig()
+		if ssl, ok := netConfig["tls"]; ok {
+			mapDeepCopy, err := util.MapDeepCopy(ssl.(map[string]interface{}))
+			if err != nil {
+				return nil, err
+			}
+			netConfig["ssl"] = mapDeepCopy
+			delete(netConfig, "tls")
+		}
+	}
+	return deployment, nil
 }
 
 // NewDeployment
@@ -98,8 +119,7 @@ func NewDeployment() Deployment {
 // specification provided by the user in the mongodb resource spec.
 func (d Deployment) ConfigureTLS(tlsSpec *mdbv1.TLSConfig) {
 	if tlsSpec == nil || !tlsSpec.Enabled {
-		// delete(d, "ssl") // unset SSL config
-		// Do not delete because this might not be the last deployment with TLS enabled in this Project
+		delete(d, "ssl") // unset SSL config
 		return
 	}
 
@@ -674,6 +694,9 @@ func (d Deployment) GetAllProcessNames() (names []string) {
 }
 
 func (d Deployment) getProcesses() []Process {
+	if _, ok := d["processes"]; !ok {
+		return []Process{}
+	}
 	switch v := d["processes"].(type) {
 	case []Process:
 		return v

@@ -2,6 +2,7 @@ package om
 
 import (
 	"fmt"
+	"io/ioutil"
 	"strconv"
 	"strings"
 	"testing"
@@ -146,7 +147,7 @@ func TestConfigureSSL_Deployment(t *testing.T) {
 	assert.Equal(t, expectedSSLConfig, d["ssl"].(map[string]interface{}))
 
 	d.ConfigureTLS(&mdbv1.TLSConfig{})
-	assert.NotEmpty(t, d["ssl"])
+	assert.Empty(t, d["ssl"])
 }
 
 // TestMergeDeployment_BigReplicaset ensures that adding a big replica set (> 7 members) works correctly and no more than
@@ -400,33 +401,21 @@ func TestDeploymentMinimumMajorVersion(t *testing.T) {
 	assert.Equal(t, uint64(3), d2.MinimumMajorVersion())
 }
 
+// TestConfiguringTlsProcessFromOpsManager ensures that if OM sends 'tls' fields for processes and deployments -
+// they are moved to 'ssl'
 func TestConfiguringTlsProcessFromOpsManager(t *testing.T) {
-	d := NewDeployment()
-	rs0Processes := createReplicaSetProcessesCount(1, "my-rs")
-	rs0 := buildRsByProcesses("my-rs", rs0Processes)
-	d.MergeReplicaSet(rs0, zap.S())
+	data, err := ioutil.ReadFile("testdata/deployment_tls.json")
+	assert.NoError(t, err)
+	deployment, err := BuildDeploymentFromBytes(data)
+	assert.NoError(t, err)
 
-	processes := d.getProcesses()
-	p0 := processes[0]
+	assert.Contains(t, deployment, "ssl")
+	assert.NotContains(t, deployment, "tls")
 
-	p0.ConfigureTLS(mdbv1.RequireSSLMode)
-
-	d.MergeStandalone(p0, zap.S())
-	assert.Contains(t, p0.SSLConfig(), "PEMKeyFile")
-
-	p0.ConfigureTLS(mdbv1.DisabledSSLMode)
-	d.MergeStandalone(p0, zap.S())
-
-	assert.NotContains(t, processes[0].SSLConfig(), "PEMKeyFile")
-
-	// simulate Ops Manager returning the field with "tls" instead of "ssl"
-	p0.EnsureNetConfig()["tls"] = p0.EnsureNetConfig()["ssl"]
-	delete(p0.EnsureNetConfig(), "ssl")
-
-	p0.ConfigureTLS(mdbv1.RequireSSLMode)
-
-	assert.Contains(t, p0.EnsureNetConfig(), "ssl")
-	assert.NotContains(t, p0.EnsureNetConfig(), "tls")
+	for _, p := range deployment.getProcesses() {
+		assert.Contains(t, p.EnsureNetConfig(), "ssl")
+		assert.NotContains(t, p.EnsureNetConfig(), "tls")
+	}
 }
 
 // ************************   Methods for checking deployment units
