@@ -1,3 +1,5 @@
+import random
+
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDBOpsManager, Phase
 from pytest import fixture, mark
@@ -83,9 +85,10 @@ def test_add_annotations(opsmanager: MongoDBOpsManager):
 @mark.e2e_om_external_connectivity
 def test_service_set_node_port(opsmanager: MongoDBOpsManager):
     """Changes externalConnectivity to type NodePort."""
+    node_port = random.randint(30000, 32700)
     opsmanager["spec"]["externalConnectivity"] = {
         "type": "NodePort",
-        "port": 30045,
+        "port": node_port,
     }
     opsmanager.update()
 
@@ -96,7 +99,7 @@ def test_service_set_node_port(opsmanager: MongoDBOpsManager):
     internal, external = opsmanager.services()
     assert internal.spec.type == "ClusterIP"
     assert external.spec.type == "NodePort"
-    assert external.spec.ports[0].node_port == 30045
+    assert external.spec.ports[0].node_port == node_port
 
     opsmanager["spec"]["externalConnectivity"] = {
         "type": "LoadBalancer",
@@ -109,7 +112,7 @@ def test_service_set_node_port(opsmanager: MongoDBOpsManager):
 
     _, external = opsmanager.services()
     assert external.spec.type == "LoadBalancer"
-    assert external.spec.ports[0].node_port == 30045
+    assert external.spec.ports[0].node_port == node_port
 
 
 def service_is_changed_to_nodeport(services):
