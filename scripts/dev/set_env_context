@@ -24,6 +24,11 @@ if [[ -z "${IN_MEMORY_CONTEXT-}" ]]; then
         fatal "Configuration file \"${root_dir}/contexts/${context}\" not found!"
     fi
 
+    # reading the 'om' file first and then the context file - this will allow to use custom connectivity parameters
+    if [[ -f ${root_dir}/om ]]; then
+        eval "$(cat ${root_dir}/om)"
+    fi
+
     eval "$(cat ${root_dir}/contexts/${context})"
 
     # LOCAL_RUN indicates that the make script is run locally. This may affect different build/deploy decisions

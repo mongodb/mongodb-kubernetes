@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+
 # Configuration of the resources for Ops Manager
 echo "Creating admin secret for the new Ops Manager instance"
 kubectl create secret generic ops-manager-admin-secret  \
@@ -39,7 +40,6 @@ fi
 # Configuring project
 kubectl --namespace "${PROJECT_NAMESPACE}" create configmap my-project \
         --from-literal=projectName="${PROJECT_NAMESPACE}" --from-literal=baseUrl="${BASE_URL}" \
-        --from-literal=credentials="my-credentials" \
         --from-literal=orgId="${OM_ORGID:-}"
 
 # delete `my-credentials` if it exists

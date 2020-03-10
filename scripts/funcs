@@ -324,10 +324,10 @@ deploy_operator() {
     export OPERATOR_NAME
 
     # Waiting until there is only one pod left as this could be the upgrade operation (very fast in practice)
-    timeout "1m" bash -c \
+    timeout --foreground "1m" bash -c \
         'while [[ $(kubectl -n '"${ns}"' get pods -l app=${OPERATOR_NAME}  --no-headers 2>/dev/null | wc -l) -gt 1 ]] ; do printf .; sleep 1; done' || true
 
-    timeout "${timeout}" bash -c \
+    timeout --foreground "${timeout}" bash -c \
         'while ! kubectl -n '"${ns}"' get pods -l app=${OPERATOR_NAME} -o jsonpath="{.items[0].status.phase}" 2>/dev/null | grep -q "Running" ; do printf .; sleep 1; done' || true
 
     # In the end let's check again and print the state

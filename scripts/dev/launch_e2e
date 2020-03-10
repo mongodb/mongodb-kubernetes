@@ -7,8 +7,8 @@ cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 # The script launches e2e test. Note, that the Operator and necessary resources are deployed
 # inside the test
 
-source scripts/dev/read_context
-source ${OPERATOR_DIR}/om
+source scripts/dev/set_env_context
+
 
 # This will allow to reuse the current namespace - it already has Operator installed
 export PROJECT_NAMESPACE=${NAMESPACE}

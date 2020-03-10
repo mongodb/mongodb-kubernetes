@@ -4,49 +4,52 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
-# shellcheck disable=SC1091
+# TODO replace in favour of 'evergreen/e2e/configure_operator'
 source scripts/dev/set_env_context
-
 ensure_namespace "${NAMESPACE}"
+
+export OM_BASE_URL=${OM_HOST}
 
 title "Configuring config map and secret for the Operator"
 
-if [[ ! -f ${OPERATOR_DIR}/om ]]; then
-	echo "Ops Manager env file not ready - prepare it manually or call 'make om'/'make om-evg' to spawn new Ops Manager"
-	echo "Example configuration:"
-	echo "export OM_HOST=http://ops-manager.operator-testing-405.svc.cluster.local:8080"
-	echo "export OM_USER=admin"
-	echo "export OM_API_KEY=b290babc-bf1a-4e20-9d25-72e1fae82178"
-	exit 1
+if [[ -z ${OM_HOST} ]]; then
+    echo "OM_HOST env variable not provided - the default project ConfigMap won't be created!"
+    echo "You may need to spawn new Ops Manager - call 'make om'/'make om-evg' or add parameters to "
+    echo "'~/.operator-dev/om' or '~/.operator-dev/contexts/<current_context>' manually"
+    echo "(Ignore this if you are working with MongoDBOpsManager custom resource)"
+else
+    config_map_name="my-project"
+    kubectl delete configmap ${config_map_name} -n ${NAMESPACE} 2>/dev/null || true
+    kubectl create configmap ${config_map_name} --from-literal orgId="${OM_ORGID-}" --from-literal projectName=${NAMESPACE} --from-literal baseUrl=${OM_HOST} -n ${NAMESPACE}
 fi
 
-source ${OPERATOR_DIR}/om
-
-secret_name="my-credentials"
-config_map_name="my-project"
-om_admin_secret="ops-manager-admin-secret"
-
-kubectl delete secret ${secret_name} -n ${NAMESPACE} 2>/dev/null || true
-kubectl delete configmap ${config_map_name} -n ${NAMESPACE} 2>/dev/null || true
-
-kubectl create secret generic ${secret_name}  --from-literal=user=${OM_USER} --from-literal=publicApiKey=${OM_API_KEY} -n ${NAMESPACE}
-kubectl create configmap ${config_map_name} --from-literal orgId="${OM_ORGID-}" --from-literal authenticationMode="" --from-literal credentials=${secret_name} --from-literal projectName=${NAMESPACE} --from-literal baseUrl=${OM_HOST} -n ${NAMESPACE}
+if [[ -z ${OM_USER} ]] || [[ -z ${OM_API_KEY} ]]; then
+    echo "OM_USER and/or OM_API_KEY env variables are not provided - the default credentials Secret won't be created!"
+    echo "You may need to spawn new Ops Manager - call 'make om'/'make om-evg' or add parameters to "
+    echo "'~/.operator-dev/om' or '~/.operator-dev/contexts/<current_context>' manually"
+    echo "(Ignore this if you are working with MongoDBOpsManager custom resource)"
+else
+    secret_name="my-credentials"
+    kubectl delete secret ${secret_name} -n ${NAMESPACE} 2>/dev/null || true
+    kubectl create secret generic ${secret_name}  --from-literal=user=${OM_USER} --from-literal=publicApiKey=${OM_API_KEY} -n ${NAMESPACE}
+fi
 
 # this is the secret for OpsManager CR
+om_admin_secret="ops-manager-admin-secret"
 kubectl delete secret ${om_admin_secret} -n ${NAMESPACE} 2>/dev/null || true
 kubectl create secret generic ${om_admin_secret}  --from-literal=Username="jane.doe@example.com" --from-literal=Password="Passw0rd."  --from-literal=FirstName="Jane" --from-literal=LastName="Doe" -n ${NAMESPACE}
 
 if [[ -n "${ecr_registry_needs_auth-}" ]]; then
 	# Need to configure ECR Pull Secrets!
-	docker_config=$(mktemp)
-	scripts/dev/configure_docker "${ecr_registry}" > "${docker_config}"
+    docker_config=$(mktemp)
+    scripts/dev/configure_docker "${ecr_registry}" > "${docker_config}"
 
-	echo "Creating pull secret from docker configured file"
-	oc -n "${PROJECT_NAMESPACE}" create secret generic "${ecr_registry_needs_auth}" \
+    echo "Creating pull secret from docker configured file"
+    oc -n "${PROJECT_NAMESPACE}" create secret generic "${ecr_registry_needs_auth}" \
 		--from-file=.dockerconfigjson="${docker_config}" --type=kubernetes.io/dockerconfigjson || true
-	rm "${docker_config}"
+    rm "${docker_config}"
 else
-  echo "ECR registry authentication not manually configured"
+    echo "ECR registry authentication not manually configured"
 fi
 
-title "Config map '${config_map_name}' and secret '${secret_name} for the Operator are configured"
+title "All necessary ConfigMaps and Secrets for the Operator are configured"
