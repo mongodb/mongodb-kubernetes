@@ -109,7 +109,7 @@ func (u *MongoDBUser) ChangedIdentifier() bool {
 	return u.Status.Username != u.Spec.Username || u.Status.Database != u.Spec.Database
 }
 
-func (u *MongoDBUser) UpdateError(msg string) {
+func (u *MongoDBUser) UpdateError(_ runtime.Object, msg string) {
 	u.Status.Message = msg
 	u.Status.LastTransition = util.Now()
 	u.Status.Phase = PhaseFailed
@@ -124,7 +124,7 @@ func (u *MongoDBUser) UpdateSuccessful(other runtime.Object, _ ...string) {
 	u.Status.LastTransition = util.Now()
 }
 
-func (u *MongoDBUser) UpdatePending(msg string, args ...string) {
+func (u *MongoDBUser) UpdatePending(_ runtime.Object, msg string, args ...string) {
 	if msg != "" {
 		u.Status.Message = msg
 	}

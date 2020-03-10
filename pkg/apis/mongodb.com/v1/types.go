@@ -425,7 +425,9 @@ func (m *MongoDB) ShardRsName(i int) string {
 
 // UpdateError called when the CR object (MongoDB resource) needs to transition to
 // error state.
-func (m *MongoDB) UpdateError(msg string) {
+func (m *MongoDB) UpdateError(object runtime.Object, msg string) {
+	reconciledResource := object.(*MongoDB)
+	m.Status.Warnings = reconciledResource.Status.Warnings
 	m.Status.Message = msg
 	m.Status.LastTransition = util.Now()
 	m.Status.Phase = PhaseFailed
@@ -433,7 +435,9 @@ func (m *MongoDB) UpdateError(msg string) {
 
 // UpdatePending called when the CR object (MongoDB resource) needs to transition to
 // pending state.
-func (m *MongoDB) UpdatePending(msg string, args ...string) {
+func (m *MongoDB) UpdatePending(object runtime.Object, msg string, args ...string) {
+	reconciledResource := object.(*MongoDB)
+	m.Status.Warnings = reconciledResource.Status.Warnings
 	if msg != "" {
 		m.Status.Message = msg
 	}
@@ -485,12 +489,7 @@ func (m *MongoDB) SetWarnings(warnings []StatusWarning) {
 }
 
 func (m *MongoDB) AddWarningIfNotExists(warning StatusWarning) {
-	for _, existingWarning := range m.Status.Warnings {
-		if existingWarning == warning {
-			return
-		}
-	}
-	m.Status.Warnings = append(m.Status.Warnings, warning)
+	m.Status.Warnings = StatusWarnings(m.Status.Warnings).AddIfNotExists(warning)
 }
 
 func (m *MongoDB) GetKind() string {

@@ -66,6 +66,10 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 	log.Infow("OpsManager.Spec", "spec", opsManager.Spec)
 	log.Infow("OpsManager.Status", "status", opsManager.Status)
 
+	if err := opsManager.ProcessValidationsOnReconcile(); err != nil {
+		return r.updateStatusValidationFailure(&opsManager, err.Error(), log)
+	}
+
 	if err := performValidation(opsManager); err != nil {
 		return r.updateStatusValidationFailure(&opsManager, err.Error(), log)
 	}
@@ -105,6 +109,11 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 	// 5. Prepare Backup Daemon
 	if status = r.prepareBackupInOpsManager(opsManager, omAdmin, log); !status.isOk() {
 		return status.updateStatus(&opsManager, r.ReconcileCommonController, log, opsManager.CentralURL())
+	}
+
+	if status.isOk() {
+		successStatus := status.(*successStatus)
+		successStatus.warnings = append(successStatus.warnings, opsManager.Status.Warnings...)
 	}
 	return status.updateStatus(&opsManager, r.ReconcileCommonController, log)
 }

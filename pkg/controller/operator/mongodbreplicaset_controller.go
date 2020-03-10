@@ -50,7 +50,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 	log.Infow("ReplicaSet.Spec", "spec", rs.Spec)
 	log.Infow("ReplicaSet.Status", "status", rs.Status)
 
-	if err := rs.RunValidations(); err != nil {
+	if err := rs.ProcessValidationsOnReconcile(); err != nil {
 		return r.updateStatusValidationFailure(rs, err.Error(), log)
 	}
 
@@ -71,13 +71,6 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 	reconcileResult := checkIfHasExcessProcesses(conn, rs, log)
 	if !reconcileResult.isOk() {
 		return reconcileResult.updateStatus(rs, r.ReconcileCommonController, log)
-	}
-
-	// cannot have a non-tls deployment in an x509 environment
-	authSpec := rs.Spec.Security.Authentication
-	if authSpec.Enabled && authSpec.IsX509Enabled() && !rs.Spec.GetTLSConfig().Enabled {
-		msg := "cannot have a non-tls deployment when x509 authentication is enabled"
-		return r.updateStatusValidationFailure(rs, msg, log)
 	}
 
 	replicaBuilder := r.kubeHelper.NewStatefulSetHelper(rs).

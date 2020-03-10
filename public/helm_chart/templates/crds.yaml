@@ -31,10 +31,6 @@ spec:
       type: date
       description: The time since the MongoDB resource was created.
       JSONPath: .metadata.creationTimestamp
-    - name: Warnings
-      type: string
-      description: Warnings
-      JSONPath: .status.warnings
 
   validation:
     openAPIV3Schema:
@@ -400,6 +396,10 @@ spec:
       type: date
       description: The time since the MongoDBOpsManager resource was created.
       JSONPath: .metadata.creationTimestamp
+    - name: Warnings
+      type: string
+      description: Warnings
+      JSONPath: .status.warnings
   validation:
     openAPIV3Schema:
       type: object
@@ -560,5 +560,6 @@ rules:
   - get
   - create
   - update
+  - delete
 
 {{ end }}

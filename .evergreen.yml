@@ -915,7 +915,13 @@ tasks:
   commands:
     - func: "e2e_test"
 
-- name: e2e_webhook_validation
+- name: e2e_mongodb_validation_webhook
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_om_validation_webhook
   tags: ["patch-run"]
   exec_timeout_secs: 1200
   commands:
@@ -1378,7 +1384,7 @@ task_groups:
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
   tasks:
-    - e2e_webhook_validation
+    - e2e_mongodb_validation_webhook
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -1571,6 +1577,7 @@ task_groups:
     - e2e_om_ops_manager_upgrade
     - e2e_om_external_connectivity
     - e2e_op_upgrade_om
+    - e2e_om_validation_webhook
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment

@@ -12,40 +12,24 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 )
 
-type validationLevel int
-
-const (
-	successLevel validationLevel = iota
-	warningLevel
-	errorLevel
-)
-
-type validationResult struct {
-	msg   string
-	level validationLevel
-}
-
-func validationSuccess() validationResult {
-	return validationResult{level: successLevel}
-}
-
-func validationWarning(msg string) validationResult {
-	return validationResult{msg: msg, level: warningLevel}
-}
-
-func validationError(msg string) validationResult {
-	return validationResult{msg: msg, level: errorLevel}
-}
-
 var _ webhook.Validator = &MongoDB{}
 
 // ValidateCreate and ValidateUpdate should be the same if we intend to do this
 // on every reconciliation as well
 func (mdb *MongoDB) ValidateCreate() error {
-	return mdb.RunValidations()
+	return mdb.validate()
 }
+
 func (mdb *MongoDB) ValidateUpdate(old runtime.Object) error {
-	return mdb.RunValidations()
+	return mdb.validate()
+}
+
+func (mdb MongoDB) validate() error {
+	validationResults := mdb.RunValidations()
+	if len(validationResults) == 0 {
+		return nil
+	}
+	return buildValidationFailure(validationResults)
 }
 
 // ValidateDelete does nothing as we assume validation on deletion is
@@ -54,7 +38,7 @@ func (mdb *MongoDB) ValidateDelete() error {
 	return nil
 }
 
-func replicaSetHorizonsRequireTLS(ms MongoDbSpec) validationResult {
+func replicaSetHorizonsRequireTLS(ms MongoDbSpec) ValidationResult {
 	if len(ms.Connectivity.ReplicaSetHorizons) > 0 && !ms.Security.TLSConfig.Enabled {
 		msg := "TLS must be enabled in order to use replica set horizons"
 		return validationError(msg)
@@ -62,7 +46,7 @@ func replicaSetHorizonsRequireTLS(ms MongoDbSpec) validationResult {
 	return validationSuccess()
 }
 
-func horizonsMustEqualMembers(ms MongoDbSpec) validationResult {
+func horizonsMustEqualMembers(ms MongoDbSpec) ValidationResult {
 	numHorizonMembers := len(ms.Connectivity.ReplicaSetHorizons)
 	if numHorizonMembers > 0 && numHorizonMembers != ms.Members {
 		return validationError("Number of horizons must be equal to number of members in replica set")
@@ -70,20 +54,42 @@ func horizonsMustEqualMembers(ms MongoDbSpec) validationResult {
 	return validationSuccess()
 }
 
-func (m *MongoDB) RunValidations() error {
-	validators := []func(ms MongoDbSpec) validationResult{
+func deploymentsMustHaveTLSInX509Env(ms MongoDbSpec) ValidationResult {
+	authSpec := ms.Security.Authentication
+	if authSpec.Enabled && authSpec.IsX509Enabled() && !ms.GetTLSConfig().Enabled {
+		return validationError("Cannot have a non-tls deployment when x509 authentication is enabled")
+	}
+	return validationSuccess()
+}
+
+func (m MongoDB) RunValidations() []ValidationResult {
+	validators := []func(ms MongoDbSpec) ValidationResult{
 		replicaSetHorizonsRequireTLS,
 		horizonsMustEqualMembers,
+		deploymentsMustHaveTLSInX509Env,
 	}
+
+	var validationResults []ValidationResult
 
 	for _, validator := range validators {
-		if res := validator(m.Spec); res.level == errorLevel {
-			return errors.New(res.msg)
-		}
-
-		if res := validator(m.Spec); res.level == warningLevel {
-			m.AddWarningIfNotExists(StatusWarning(res.msg))
+		res := validator(m.Spec)
+		if res.Level > 0 {
+			validationResults = append(validationResults, res)
 		}
 	}
+	return validationResults
+}
+
+func (m *MongoDB) ProcessValidationsOnReconcile() error {
+	for _, res := range m.RunValidations() {
+		if res.Level == ErrorLevel {
+			return errors.New(res.Msg)
+		}
+
+		if res.Level == WarningLevel {
+			m.AddWarningIfNotExists(StatusWarning(res.Msg))
+		}
+	}
+
 	return nil
 }

@@ -3,7 +3,7 @@ import pytest
 from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
 
 
-@pytest.mark.e2e_webhook_validation
+@pytest.mark.e2e_mongodb_validation_webhook
 class TestWebhookValidation(KubernetesTester):
     def test_horizons_tls_validation(self):
         resource = yaml.safe_load(
@@ -23,6 +23,16 @@ class TestWebhookValidation(KubernetesTester):
             self.get_namespace(),
             resource,
             exception_reason="Number of horizons must be equal to number of members in replica set",
+        )
+
+    def test_x509_without_tls(self):
+        resource = yaml.safe_load(
+            open(yaml_fixture("invalid_replica_set_x509_no_tls.yaml"))
+        )
+        self.create_custom_resource_from_object(
+            self.get_namespace(),
+            resource,
+            exception_reason="Cannot have a non-tls deployment when x509 authentication is enabled",
         )
 
     def test_horizons_without_tls_validates_without_webhook(self):

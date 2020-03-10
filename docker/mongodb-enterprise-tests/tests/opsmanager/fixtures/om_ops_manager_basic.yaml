@@ -11,3 +11,6 @@ spec:
     members: 3
     version: 4.2.0
     persistent: false
+
+  backup:
+    enabled: false

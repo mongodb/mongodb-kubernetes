@@ -63,7 +63,8 @@ func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1beta.Vali
 	var sideEffects admissionv1beta.SideEffectClass = admissionv1beta.SideEffectClassNone
 	var failurePolicy admissionv1beta.FailurePolicyType = admissionv1beta.Ignore
 	var port int32 = 443
-	var path string = "/validate-mongodb-com-v1-mongodb"
+	dbPath := "/validate-mongodb-com-v1-mongodb"
+	omPath := "/validate-mongodb-com-v1-mongodbopsmanager"
 	return admissionv1beta.ValidatingWebhookConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "mdbpolicy.mongodb.com",
@@ -75,7 +76,7 @@ func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1beta.Vali
 					Service: &admissionv1beta.ServiceReference{
 						Name:      serviceLocation.Name,
 						Namespace: serviceLocation.Namespace,
-						Path:      &path,
+						Path:      &dbPath,
 						// NOTE: port isn't supported in k8s 1.11 and lower. It works in
 						// 1.15 but I am unsure about the intervening versions.
 						Port: &port,
@@ -92,6 +93,36 @@ func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1beta.Vali
 							APIGroups:   []string{"mongodb.com"},
 							APIVersions: []string{"*"},
 							Resources:   []string{"mongodb"},
+							Scope:       &scope,
+						},
+					},
+				},
+				SideEffects:   &sideEffects,
+				FailurePolicy: &failurePolicy,
+			},
+			{
+				Name: "ompolicy.mongodb.com",
+				ClientConfig: admissionv1beta.WebhookClientConfig{
+					Service: &admissionv1beta.ServiceReference{
+						Name:      serviceLocation.Name,
+						Namespace: serviceLocation.Namespace,
+						Path:      &omPath,
+						// NOTE: port isn't supported in k8s 1.11 and lower. It works in
+						// 1.15 but I am unsure about the intervening versions.
+						Port: &port,
+					},
+					CABundle: caBytes,
+				},
+				Rules: []admissionv1beta.RuleWithOperations{
+					{
+						Operations: []admissionv1beta.OperationType{
+							admissionv1beta.Create,
+							admissionv1beta.Update,
+						},
+						Rule: admissionv1beta.Rule{
+							APIGroups:   []string{"mongodb.com"},
+							APIVersions: []string{"*"},
+							Resources:   []string{"opsmanagers"},
 							Scope:       &scope,
 						},
 					},
@@ -116,7 +147,13 @@ func Setup(client client.Client, serviceLocation types.NamespacedName, certDirec
 	webhookConfig := GetWebhookConfig(serviceLocation)
 	err := client.Create(context.Background(), &webhookConfig)
 	if apiErrors.IsAlreadyExists(err) {
-		return client.Update(context.Background(), &webhookConfig)
+		// client.Update results in internal K8s error "Invalid value: 0x0: must be specified for an update"
+		// (see https://github.com/kubernetes/kubernetes/issues/80515)
+		// this fixed in K8s 1.16.0+
+		if err := client.Delete(context.Background(), &webhookConfig); err != nil {
+			return err
+		}
+		return client.Create(context.Background(), &webhookConfig)
 	}
 	return err
 }

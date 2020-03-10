@@ -6,11 +6,14 @@ import (
 	"reflect"
 	"strings"
 
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -27,6 +30,10 @@ type MongoDBOpsManager struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 	Spec              MongoDBOpsManagerSpec   `json:"spec"`
 	Status            MongoDBOpsManagerStatus `json:"status"`
+}
+
+func (om MongoDBOpsManager) AddValidationToManager(m manager.Manager) error {
+	return ctrl.NewWebhookManagedBy(m).For(&om).Complete()
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -266,13 +273,17 @@ func (m *MongoDBOpsManager) AddConfigIfDoesntExist(key, value string) bool {
 	return false
 }
 
-func (m *MongoDBOpsManager) UpdateError(msg string) {
+func (m *MongoDBOpsManager) UpdateError(object runtime.Object, msg string) {
+	reconciledResource := object.(*MongoDBOpsManager)
+	m.Status.Warnings = reconciledResource.Status.Warnings
 	m.Status.OpsManagerStatus.Message = msg
 	m.Status.OpsManagerStatus.LastTransition = util.Now()
 	m.Status.OpsManagerStatus.Phase = PhaseFailed
 }
 
-func (m *MongoDBOpsManager) UpdatePending(msg string, args ...string) {
+func (m *MongoDBOpsManager) UpdatePending(object runtime.Object, msg string, args ...string) {
+	reconciledResource := object.(*MongoDBOpsManager)
+	m.Status.Warnings = reconciledResource.Status.Warnings
 	if msg != "" {
 		m.Status.OpsManagerStatus.Message = msg
 	}
@@ -308,6 +319,10 @@ func (m *MongoDBOpsManager) UpdateSuccessful(object runtime.Object, args ...stri
 
 func (m *MongoDBOpsManager) SetWarnings(warnings []StatusWarning) {
 	m.Status.Warnings = warnings
+}
+
+func (m *MongoDBOpsManager) AddWarningIfNotExists(warning StatusWarning) {
+	m.Status.Warnings = StatusWarnings(m.Status.Warnings).AddIfNotExists(warning)
 }
 
 func (m *MongoDBOpsManager) GetKind() string {

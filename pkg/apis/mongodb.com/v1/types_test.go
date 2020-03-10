@@ -152,10 +152,10 @@ func TestMongoDB_ConnectionURL_Secure(t *testing.T) {
 
 }
 
-func TestAddWarning_Duplicates(t *testing.T) {
+func TestMongoDB_AddWarningIfNotExists(t *testing.T) {
 	resource := &MongoDB{}
 	resource.AddWarningIfNotExists("my test warning")
 	resource.AddWarningIfNotExists("my test warning")
 	resource.AddWarningIfNotExists("my other test warning")
-	assert.Equal(t, []StatusWarning{"my test warning", "my other test warning"}, resource.Status.Warnings)
+	assert.Equal(t, []StatusWarning{"my test warning;", "my other test warning"}, resource.Status.Warnings)
 }

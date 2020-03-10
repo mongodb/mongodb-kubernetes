@@ -42,11 +42,11 @@ type Updatable interface {
 
 	// UpdateError called when the Updatable object needs to transition to
 	// error state.
-	UpdateError(msg string)
+	UpdateError(object runtime.Object, msg string)
 
 	// UpdatePending called when the Updatable object needs to transition to
 	// pending state.
-	UpdatePending(msg string, args ...string)
+	UpdatePending(object runtime.Object, msg string, args ...string)
 
 	// UpdateReconciling called when the Updatable object needs to transition to
 	// reconciling state.
@@ -271,12 +271,13 @@ func (c *ReconcileCommonController) updateStatusSuccessful(reconciledResource Up
 
 func (c *ReconcileCommonController) updateStatusPending(reconciledResource Updatable, msg string, log *zap.SugaredLogger, args ...string) (reconcile.Result, error) {
 	msg = util.UpperCaseFirstChar(msg)
+	old := reconciledResource.DeepCopyObject()
 
 	// Info or warning?
 	log.Info(msg)
 
 	err := c.updateStatus(reconciledResource, func(fresh Updatable) {
-		fresh.UpdatePending(msg, args...)
+		fresh.UpdatePending(old, msg, args...)
 	})
 	if err != nil {
 		return fail(err)
@@ -299,13 +300,14 @@ func (c *ReconcileCommonController) updateStatusValidationFailure(resource Updat
 
 func (c *ReconcileCommonController) updateStatusFailed(resource Updatable, msg string, log *zap.SugaredLogger) (reconcile.Result, error) {
 	msg = util.UpperCaseFirstChar(msg)
+	old := resource.DeepCopyObject()
 
 	log.Error(msg)
 	// Resource may be nil if the reconciliation failed very early (on fetching the resource) and panic handling function
 	// took over
 	if resource != nil {
 		err := c.updateStatus(resource, func(fresh Updatable) {
-			fresh.UpdateError(msg)
+			fresh.UpdateError(old, msg)
 		})
 		if err != nil {
 			log.Errorf("Failed to update resource status: %s", err)
@@ -397,6 +399,9 @@ func (c *ReconcileCommonController) prepareResourceForReconciliation(
 		log.Errorf("Error setting state to reconciling: %s, the resource: %+v", updateErr, resource)
 		return &reconcile.Result{RequeueAfter: 10 * time.Second}, nil
 	}
+
+	// Reset warnings so that they are not stale, will populate accurate warnings in reconciliation
+	resource.SetWarnings([]mdbv1.StatusWarning{})
 
 	return nil, nil
 }

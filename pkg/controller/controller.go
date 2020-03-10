@@ -16,6 +16,7 @@ func init() {
 
 	// Validators:
 	AddToManagerFuncs = append(AddToManagerFuncs, mdbv1.MongoDB{}.AddValidationToManager)
+	AddToManagerFuncs = append(AddToManagerFuncs, mdbv1.MongoDBOpsManager{}.AddValidationToManager)
 }
 
 // AddToManagerFuncs is a list of functions to add all Controllers to the Manager
