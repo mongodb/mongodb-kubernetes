@@ -72,7 +72,7 @@ class TestOpsManagerValidationWarnings:
         )
 
     def test_create_om_pending_with_warnings(self, ops_manager: MongoDBOpsManager):
-        ops_manager.assert_reaches_phase(Phase.Pending, timeout=100)
+        ops_manager.assert_reaches_phase(Phase.Pending, timeout=300)
         assert APPDB_SHARD_COUNT_WARNING in ops_manager.get_status()["warnings"]
 
     def test_om_running_with_warnings(self, ops_manager: MongoDBOpsManager):
