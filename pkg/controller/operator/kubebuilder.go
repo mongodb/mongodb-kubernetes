@@ -659,7 +659,6 @@ func baseEnvFrom(podVars *PodVars) []corev1.EnvVar {
 		},
 	}
 
-	trustedCACertLocation := ""
 	if podVars.SSLRequireValidMMSServerCertificates {
 		vars = append(vars,
 			corev1.EnvVar{
@@ -672,30 +671,13 @@ func baseEnvFrom(podVars *PodVars) []corev1.EnvVar {
 	if podVars.SSLMMSCAConfigMap != "" {
 		// A custom CA has been provided, point the trusted CA to the location of custom CAs
 		// trustedCACertLocation = util.
-		trustedCACertLocation = path.Join(CaCertMountPath, CaCertMMS)
-
-		vars = append(vars,
-			corev1.EnvVar{
-				// This points to the location of the mms-ca.crt in the mounted volume
-				// It will be mounted during Pod creation.
-				Name:  util.EnvVarSSLTrustedMMSServerCertificate,
-				Value: util.SSLMMSCALocation,
-			},
-		)
-	}
-
-	// TODO(rodrigo): BUG here, the same env variable will be set twice with different values.
-	if trustedCACertLocation != "" {
-		// The value of this variable depends on 2 things:
-		// If the user sets "require valid" we expect it to be based on the KubeCA
-		// If the user provides its own CA, it will be based on this CA.
+		trustedCACertLocation := path.Join(CaCertMountPath, CaCertMMS)
 		vars = append(vars,
 			corev1.EnvVar{
 				Name:  util.EnvVarSSLTrustedMMSServerCertificate,
 				Value: trustedCACertLocation,
 			},
 		)
-
 	}
 
 	return vars

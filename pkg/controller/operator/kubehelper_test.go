@@ -9,6 +9,7 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
@@ -46,6 +47,129 @@ func TestStatefulsetCreationWaitsForCompletion(t *testing.T) {
 
 	ready := helper.Helper.isStatefulSetUpdated(helper.Namespace, helper.Name, zap.S())
 	assert.False(t, ready)
+}
+
+func TestSSLOptionsArePassedCorrectly_SSLRequireValidMMSServerCertificates(t *testing.T) {
+	client := newMockedClient()
+	helper := NewKubeHelper(client)
+
+	cm := defaultConfigMap("cm1")
+	cm.Data[util.SSLRequireValidMMSServerCertificates] = "true"
+	client.Create(context.TODO(), &cm)
+
+	project, err := helper.readProjectConfig(TestNamespace, "cm1")
+
+	assert.NoError(t, err)
+	assert.True(t, project.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
+
+	assert.Equal(t, project.SSLMMSCAConfigMap, "")
+	assert.Equal(t, project.SSLMMSCAConfigMapContents, "")
+
+	cm = defaultConfigMap("cm2")
+	cm.Data[util.SSLRequireValidMMSServerCertificates] = "1"
+	client.Create(context.TODO(), &cm)
+
+	project, err = helper.readProjectConfig(TestNamespace, "cm2")
+
+	assert.NoError(t, err)
+	assert.True(t, project.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
+
+	assert.Equal(t, project.SSLMMSCAConfigMap, "")
+	assert.Equal(t, project.SSLMMSCAConfigMapContents, "")
+
+	cm = defaultConfigMap("cm3")
+	// Setting this attribute to "false" will make it false, any other
+	// value will result in this attribute being set to true.
+	cm.Data[util.SSLRequireValidMMSServerCertificates] = "false"
+	client.Create(context.TODO(), &cm)
+
+	project, err = helper.readProjectConfig(TestNamespace, "cm3")
+
+	assert.NoError(t, err)
+	assert.False(t, project.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
+
+	assert.Equal(t, project.SSLMMSCAConfigMap, "")
+	assert.Equal(t, project.SSLMMSCAConfigMapContents, "")
+}
+
+func TestSSLOptionsArePassedCorrectly_SSLMMSCAConfigMap(t *testing.T) {
+	client := newMockedClient()
+	helper := NewKubeHelper(client)
+
+	// This represents the ConfigMap holding the CustomCA
+	cm := defaultConfigMap("configmap-with-ca-entry")
+	cm.Data["mms-ca.crt"] = "---- some cert ----"
+	cm.Data["this-field-is-not-required"] = "bla bla"
+	client.Create(context.TODO(), &cm)
+
+	// The second CM (the "Project" one) refers to the previous one, where
+	// the certificate entry is stored.
+	cm = defaultConfigMap("cm")
+	cm.Data[util.SSLMMSCAConfigMap] = "configmap-with-ca-entry"
+	cm.Data[util.SSLRequireValidMMSServerCertificates] = "false"
+	client.Create(context.TODO(), &cm)
+
+	project, err := helper.readProjectConfig(TestNamespace, "cm")
+
+	assert.NoError(t, err)
+	assert.False(t, project.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
+
+	assert.Equal(t, project.SSLMMSCAConfigMap, "configmap-with-ca-entry")
+	assert.Equal(t, project.SSLMMSCAConfigMapContents, "---- some cert ----")
+}
+
+func TestSSLOptionsArePassedCorrectly_UseCustomCAConfigMap(t *testing.T) {
+	client := newMockedClient()
+	helper := NewKubeHelper(client)
+
+	// Passing "false" results in false to UseCustomCA
+	cm := defaultConfigMap("cm")
+	cm.Data[util.UseCustomCAConfigMap] = "false"
+	client.Create(context.TODO(), &cm)
+
+	project, err := helper.readProjectConfig(TestNamespace, "cm")
+
+	assert.NoError(t, err)
+	assert.False(t, project.UseCustomCA)
+
+	// Passing "true" results in true to UseCustomCA
+	cm = defaultConfigMap("cm2")
+	cm.Data[util.UseCustomCAConfigMap] = "true"
+	client.Create(context.TODO(), &cm)
+
+	project, err = helper.readProjectConfig(TestNamespace, "cm2")
+
+	assert.NoError(t, err)
+	assert.True(t, project.UseCustomCA)
+
+	// Passing any value different than "false" results in true.
+	cm = defaultConfigMap("cm3")
+	cm.Data[util.UseCustomCAConfigMap] = ""
+	client.Create(context.TODO(), &cm)
+
+	project, err = helper.readProjectConfig(TestNamespace, "cm3")
+	assert.NoError(t, err)
+	assert.True(t, project.UseCustomCA)
+
+	// "1" also results in a true value
+	cm = defaultConfigMap("cm4")
+	cm.Data[util.UseCustomCAConfigMap] = "1"
+	client.Create(context.TODO(), &cm)
+
+	project, err = helper.readProjectConfig(TestNamespace, "cm4")
+	assert.NoError(t, err)
+	assert.True(t, project.UseCustomCA)
+
+	// This last section only tests that the unit test is working fine
+	// and having multiple ConfigMaps in the mocked client will not
+	// result in contaminated checks.
+	cm = defaultConfigMap("cm5")
+	cm.Data[util.UseCustomCAConfigMap] = "false"
+	client.Create(context.TODO(), &cm)
+
+	project, err = helper.readProjectConfig(TestNamespace, "cm5")
+	assert.NoError(t, err)
+	assert.False(t, project.UseCustomCA)
 }
 
 func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
@@ -154,4 +278,13 @@ func TestBuildService(t *testing.T) {
 	assert.Equal(t, "None", svc.Spec.ClusterIP)
 	assert.Equal(t, int32(2000), svc.Spec.Ports[0].Port)
 	assert.Equal(t, "label", svc.Labels[AppLabelKey])
+}
+
+func defaultConfigMap(name string) corev1.ConfigMap {
+	return configmap.Builder().
+		SetName(name).
+		SetNamespace(TestNamespace).
+		SetField(util.OmBaseUrl, "http://mycompany.com:8080").
+		SetField(util.OmProjectName, "my-name").
+		Build()
 }

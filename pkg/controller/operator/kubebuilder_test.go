@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"os"
+	"path"
 	"reflect"
 	"testing"
 	"time"
@@ -667,6 +668,45 @@ func TestBuildOpsManagerStatefulSet_EnvVarsSorted(t *testing.T) {
 	}
 	env := sts.Spec.Template.Spec.Containers[0].Env
 	assert.Equal(t, expectedVars, env)
+}
+
+func TestBaseEnvHelper(t *testing.T) {
+	envVars := defaultPodVars()
+	podEnv := baseEnvFrom(envVars)
+	assert.Len(t, podEnv, 5)
+
+	envVars = defaultPodVars()
+	envVars.SSLRequireValidMMSServerCertificates = true
+	podEnv = baseEnvFrom(envVars)
+	assert.Len(t, podEnv, 6)
+	assert.Equal(t, podEnv[5], corev1.EnvVar{
+		Name:  util.EnvVarSSLRequireValidMMSCertificates,
+		Value: "true",
+	})
+
+	envVars = defaultPodVars()
+	envVars.SSLMMSCAConfigMap = "custom-ca"
+	trustedCACertLocation := path.Join(CaCertMountPath, CaCertMMS)
+	podEnv = baseEnvFrom(envVars)
+	assert.Len(t, podEnv, 6)
+	assert.Equal(t, podEnv[5], corev1.EnvVar{
+		Name:  util.EnvVarSSLTrustedMMSServerCertificate,
+		Value: trustedCACertLocation,
+	})
+
+	envVars = defaultPodVars()
+	envVars.SSLRequireValidMMSServerCertificates = true
+	envVars.SSLMMSCAConfigMap = "custom-ca"
+	podEnv = baseEnvFrom(envVars)
+	assert.Len(t, podEnv, 7)
+	assert.Equal(t, podEnv[5], corev1.EnvVar{
+		Name:  util.EnvVarSSLRequireValidMMSCertificates,
+		Value: "true",
+	})
+	assert.Equal(t, podEnv[6], corev1.EnvVar{
+		Name:  util.EnvVarSSLTrustedMMSServerCertificate,
+		Value: trustedCACertLocation,
+	})
 }
 
 // ******************************** Helper methods *******************************************

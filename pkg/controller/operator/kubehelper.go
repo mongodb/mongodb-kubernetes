@@ -679,11 +679,10 @@ func (k *KubeHelper) readProjectConfig(namespace, name string) (*mdbv1.ProjectCo
 	projectName := data[util.OmProjectName]
 	orgID := data[util.OmOrgId]
 
-	sslRequireValidData, ok := data[util.SSLRequireValidMMSServerCertificates]
-
 	sslRequireValid := true
+	sslRequireValidData, ok := data[util.SSLRequireValidMMSServerCertificates]
 	if ok {
-		sslRequireValid = sslRequireValidData == "false"
+		sslRequireValid = sslRequireValidData != "false"
 	}
 
 	sslCaConfigMap, ok := data[util.SSLMMSCAConfigMap]
