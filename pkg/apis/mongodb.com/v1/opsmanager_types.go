@@ -205,8 +205,12 @@ func (m *MongoDBOpsManager) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, (MongoDBJSON)(m)); err != nil {
 		return err
 	}
-	m.InitDefaultAppDBFields()
+	m.InitDefaultFields()
 
+	return nil
+}
+
+func (m *MongoDBOpsManager) InitDefaultFields() {
 	// providing backward compatibility for the deployments which didn't specify the 'replicas' before Operator 1.3.1
 	// This doesn't update the object in Api server so the real spec won't change
 	// All newly created resources will pass through the normal validation so 'replicas' will never be 0
@@ -217,10 +221,7 @@ func (m *MongoDBOpsManager) UnmarshalJSON(data []byte) error {
 	if m.Spec.Backup == nil {
 		m.Spec.Backup = newBackup()
 	}
-	return nil
-}
 
-func (m *MongoDBOpsManager) InitDefaultAppDBFields() {
 	// we always "enable" scram sha authentication
 	// TODO change this when we may move `passwordRef` to `security.authentication`
 	m.Spec.AppDB.Security = newSecurity()

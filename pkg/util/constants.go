@@ -68,8 +68,8 @@ const (
 
 	// Pod/StatefulSet specific constants
 	OperatorName                = "mongodb-enterprise-operator"
-	OpsManagerName              = "mongodb-ops-manager"
-	BackupdaemonContainerName   = "mongodb-backup-daemon"
+	OpsManagerContainerName     = "mongodb-ops-manager"
+	BackupDaemonContainerName   = "mongodb-backup-daemon"
 	DatabaseContainerName       = "mongodb-enterprise-database"
 	AppDbContainerName          = "mongodb-enterprise-appdb"
 	OmControllerLabel           = "mongodb-enterprise-operator"
@@ -168,7 +168,7 @@ const (
 	OpsManagerDefaultPort              = 8080
 	DefaultBackupDisableWaitSeconds    = "3"
 	DefaultBackupDisableWaitRetries    = "30" // 30 * 3 = 90 seconds, should be ok for backup job to terminate
-	DefaultPodTerminationPeriodSeconds = 600  // 10 min
+	DefaultPodTerminationPeriodSeconds = 600  // 10 min. Keep this in sync with 'cleanup()' function in agent-launcher-lib.sh
 	DefaultK8sCacheRefreshTimeSeconds  = 2
 
 	// S3 constants

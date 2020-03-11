@@ -2,6 +2,13 @@
 
 set -euo pipefail
 
+# the function reacting on SIGTERM command sent by the container on its shutdown. Redirects the signal
+# to the child process ("tail" in this case)
+cleanup () {
+    echo "Caught SIGTERM signal."
+    kill -TERM "$child"
+}
+
 # we need to change the Home directory for current bash so that the gen key was found correctly
 # (the key is searched in "${HOME}/.mongodb-mms/gen.key")
 HOME=${MMS_HOME}
@@ -54,10 +61,15 @@ if [[ -z ${BACKUP_DAEMON+x} ]]; then
       exit 1
     }
 
-    tail -F -n 1000 "${MMS_LOG_DIR}/mms0.log" "${MMS_LOG_DIR}/mms0-startup.log" "${MMS_LOG_DIR}/mms-migration.log"
+    trap cleanup SIGTERM
+    tail -F -n 1000 "${MMS_LOG_DIR}/mms0.log" "${MMS_LOG_DIR}/mms0-startup.log" "${MMS_LOG_DIR}/mms-migration.log" &
 else
     echo "Starting Ops Manager Backup Daemon"
     ${MMS_HOME}/bin/mongodb-mms start_backup_daemon
+    trap cleanup SIGTERM
 
-    tail -F "${MMS_LOG_DIR}/daemon.log"
+    tail -F "${MMS_LOG_DIR}/daemon.log" &
 fi
+
+child=$!
+wait "$child"

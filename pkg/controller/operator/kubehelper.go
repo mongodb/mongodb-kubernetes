@@ -171,7 +171,7 @@ func (k *KubeHelper) NewStatefulSetHelper(obj Updatable) *StatefulSetHelper {
 		containerName = util.DatabaseContainerName
 		mongodbSpec = v.Spec
 	case *mdbv1.MongoDBOpsManager:
-		containerName = util.OpsManagerName
+		containerName = util.AppDbContainerName
 		mongodbSpec = v.Spec.AppDB.MongoDbSpec
 	default:
 		panic("Wrong type provided, only MongoDB or AppDB are expected!")
@@ -204,7 +204,7 @@ func (k *KubeHelper) NewOpsManagerStatefulSetHelper(opsManager mdbv1.MongoDBOpsM
 			Owner:         &opsManager,
 			Name:          opsManager.GetName(),
 			Namespace:     opsManager.GetNamespace(),
-			ContainerName: util.OpsManagerName,
+			ContainerName: util.OpsManagerContainerName,
 			Replicas:      opsManager.Spec.Replicas,
 			Helper:        k,
 			ServicePort:   util.OpsManagerDefaultPort,
@@ -222,10 +222,9 @@ func (k *KubeHelper) NewBackupStatefulSetHelper(opsManager mdbv1.MongoDBOpsManag
 		OpsManagerStatefulSetHelper: *k.NewOpsManagerStatefulSetHelper(opsManager),
 	}
 	helper.Name = opsManager.BackupStatefulSetName()
-	helper.ContainerName = util.BackupdaemonContainerName
+	helper.ContainerName = util.BackupDaemonContainerName
 	helper.Service = ""
 	helper.Replicas = 1
-	// TODO: remove this test once HeadDB is not a pointer
 	if opsManager.Spec.Backup.HeadDB != nil {
 		helper.HeadDbPersistenceConfig = opsManager.Spec.Backup.HeadDB
 	}

@@ -17,13 +17,12 @@ type Builder struct {
 	serviceName string
 
 	// these fields need to be initialised
-	labels                     map[string]string
-	matchLabels                map[string]string
-	ownerReference             []metav1.OwnerReference
-	podTemplateSpec            corev1.PodTemplateSpec
-	readinessProbePerContainer map[string]*corev1.Probe
-	volumeClaimsTemplates      []corev1.PersistentVolumeClaim
-	volumeMountsPerContainer   map[string][]corev1.VolumeMount
+	labels                   map[string]string
+	matchLabels              map[string]string
+	ownerReference           []metav1.OwnerReference
+	podTemplateSpec          corev1.PodTemplateSpec
+	volumeClaimsTemplates    []corev1.PersistentVolumeClaim
+	volumeMountsPerContainer map[string][]corev1.VolumeMount
 }
 
 func (s *Builder) SetLabels(labels map[string]string) *Builder {
@@ -58,11 +57,6 @@ func (s *Builder) SetReplicas(replicas *int32) *Builder {
 
 func (s *Builder) SetMatchLabels(matchLabels map[string]string) *Builder {
 	s.matchLabels = matchLabels
-	return s
-}
-
-func (s *Builder) SetReadinessProbe(probe *corev1.Probe, containerName string) *Builder {
-	s.readinessProbePerContainer[containerName] = probe
 	return s
 }
 
@@ -144,20 +138,6 @@ func (s Builder) buildPodTemplateSpec() (corev1.PodTemplateSpec, error) {
 		}
 	}
 
-	for containerName, overrideReadinessProbe := range s.readinessProbePerContainer {
-		idx, err := s.getContainerIndexByName(containerName)
-		if err != nil {
-			errs = multierror.Append(errs, err)
-			continue
-		}
-		var readinessProbeRef *corev1.Probe
-		if overrideReadinessProbe != nil {
-			readinessProbe := *overrideReadinessProbe
-			readinessProbeRef = &readinessProbe
-		}
-		podTemplateSpec.Spec.Containers[idx].ReadinessProbe = readinessProbeRef
-	}
-
 	// sorts environment variables for all containers
 	for _, container := range podTemplateSpec.Spec.Containers {
 		envVars := container.Env
@@ -216,12 +196,11 @@ func (s Builder) Build() (appsv1.StatefulSet, error) {
 
 func NewBuilder() *Builder {
 	return &Builder{
-		labels:                     map[string]string{},
-		matchLabels:                map[string]string{},
-		ownerReference:             []metav1.OwnerReference{},
-		podTemplateSpec:            corev1.PodTemplateSpec{},
-		readinessProbePerContainer: map[string]*corev1.Probe{},
-		volumeClaimsTemplates:      []corev1.PersistentVolumeClaim{},
-		volumeMountsPerContainer:   map[string][]corev1.VolumeMount{},
+		labels:                   map[string]string{},
+		matchLabels:              map[string]string{},
+		ownerReference:           []metav1.OwnerReference{},
+		podTemplateSpec:          corev1.PodTemplateSpec{},
+		volumeClaimsTemplates:    []corev1.PersistentVolumeClaim{},
+		volumeMountsPerContainer: map[string][]corev1.VolumeMount{},
 	}
 }

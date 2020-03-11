@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 
 	"github.com/stretchr/testify/require"
@@ -208,7 +207,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultipleDefaults(t *testing.T) {
 }
 
 func TestBuildAppDbStatefulSetDefault(t *testing.T) {
-	appDbSts, err := defaultSetHelper().BuildAppDbStatefulSet()
+	appDbSts, err := defaultAppDbSetHelper().BuildAppDbStatefulSet()
 	assert.NoError(t, err)
 	podSpecTemplate := appDbSts.Spec.Template.Spec
 	assert.Len(t, podSpecTemplate.Containers, 1, "Should have only the db")
@@ -243,7 +242,7 @@ func TestBuildAppDbStatefulSetWithSideCar(t *testing.T) {
 			RestartPolicy: corev1.RestartPolicyAlways,
 		},
 	}).Build()
-	appDbSts, _ := defaultSetHelper().SetPodSpec(podSpecWrapper).BuildAppDbStatefulSet()
+	appDbSts, _ := defaultAppDbSetHelper().SetPodSpec(podSpecWrapper).BuildAppDbStatefulSet()
 	podSpecTemplate := appDbSts.Spec.Template.Spec
 	assert.Len(t, podSpecTemplate.Containers, 2, "Should have 2 containers now")
 	assert.Equal(t, "mongodb-enterprise-appdb", podSpecTemplate.Containers[0].Name, "Database container should always be first")
@@ -490,49 +489,65 @@ func TestService_mergeAnnotations(t *testing.T) {
 	assert.Equal(t, dst.ObjectMeta.Annotations["annotation0"], "valueXXXX")
 }
 
-// TestOpsManagerPodTemplate_Container verifies the default OM/Backup container
+func TestBuildBackupDaemonContainer(t *testing.T) {
+	helper := testDefaultBackupSetHelper()
+	container := buildBackupDaemonContainer(helper)
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-ops-manager:4.2.0-operator9.9.9-test", container.Image)
+
+	assert.Equal(t, util.BackupDaemonContainerName, container.Name)
+	assert.Nil(t, container.ReadinessProbe)
+
+	assert.Equal(t, []string{"/bin/sh", "-c", "/mongodb-ops-manager/bin/mongodb-mms stop_backup_daemon"},
+		container.Lifecycle.PreStop.Exec.Command)
+}
+
+// TestOpsManagerPodTemplate_Container verifies the default OM container built by 'opsManagerPodTemplate' method
 func TestOpsManagerPodTemplate_Container(t *testing.T) {
-	om := DefaultOpsManagerBuilder().
-		AddConfiguration(util.MmsCentralUrlPropKey, "http://om-svc").
-		AddConfiguration("mms.adminEmailAddr", "cloud-manager-support@mongodb.com").
-		Build()
-	template, err := opsManagerPodTemplate(map[string]string{"one": "two"}, *omSetHelperFromResource(om))
+	om := DefaultOpsManagerBuilder().Build()
+	helper := omSetHelperFromResource(om)
+	template, err := opsManagerPodTemplate(map[string]string{"one": "two"}, helper, buildOpsManagerContainer(helper))
 	assert.NoError(t, err)
 
 	assert.Equal(t, map[string]string{"one": "two"}, template.Labels)
 	assert.Len(t, template.Spec.Containers, 1)
 	container := template.Spec.Containers[0]
+	assert.Equal(t, util.OpsManagerContainerName, container.Name)
 	// TODO change when we stop using versioning
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-ops-manager:4.2.0-operator9.9.9-test", container.Image)
 	assert.Equal(t, corev1.PullNever, container.ImagePullPolicy)
-	// TODO: ensure envvars are sorted for OpsManagerBuilder
-	//expectedVars := []corev1.EnvVar{
-	//	{Name: "OM_PROP_mms_adminEmailAddr", Value: "cloud-manager-support@mongodb.com"},
-	//	{Name: "OM_PROP_mms_centralUrl", Value: "http://om-svc"},
-	//}
-	//env := container.Env
-	//sort.Sort(&envVarSorter{envVars: env})
-	//assert.Equal(t, expectedVars, env)
+
 	assert.Equal(t, int32(util.OpsManagerDefaultPort), container.Ports[0].ContainerPort)
 	assert.Equal(t, "/monitor/health", container.ReadinessProbe.Handler.HTTPGet.Path)
 	assert.Equal(t, int32(8080), container.ReadinessProbe.Handler.HTTPGet.Port.IntVal)
+
+	assert.Equal(t, []string{"/bin/sh", "-c", "/mongodb-ops-manager/bin/mongodb-mms stop_mms"},
+		container.Lifecycle.PreStop.Exec.Command)
 }
 
 func TestOpsManagerPodTemplate_ImagePullPolicy(t *testing.T) {
 	defer InitDefaultEnvVariables()
-	podSpecTemplate, err := opsManagerPodTemplate(map[string]string{}, testDefaultOMSetHelper())
+	testHelper := testDefaultOMSetHelper()
+	podSpecTemplate, err := opsManagerPodTemplate(map[string]string{}, testHelper, buildOpsManagerContainer(testHelper))
 	assert.NoError(t, err)
 	spec := podSpecTemplate.Spec
 
 	assert.Nil(t, spec.ImagePullSecrets)
 
 	os.Setenv(util.ImagePullSecrets, "my-cool-secret")
-	podSpecTemplate, err = opsManagerPodTemplate(map[string]string{}, testDefaultOMSetHelper())
+	podSpecTemplate, err = opsManagerPodTemplate(map[string]string{}, testHelper, buildOpsManagerContainer(testHelper))
 	spec = podSpecTemplate.Spec
 	assert.NoError(t, err)
 
 	assert.NotNil(t, spec.ImagePullSecrets)
 	assert.Equal(t, spec.ImagePullSecrets[0].Name, "my-cool-secret")
+}
+
+func TestOpsManagerPodTemplate_TerminationTimeout(t *testing.T) {
+	testHelper := testDefaultOMSetHelper()
+	podSpecTemplate, err := opsManagerPodTemplate(map[string]string{}, testHelper, buildOpsManagerContainer(testHelper))
+	assert.NoError(t, err)
+
+	assert.Equal(t, int64(1800), *podSpecTemplate.Spec.TerminationGracePeriodSeconds)
 }
 
 // TestOpsManagerPodTemplate_SecurityContext verifies that security context is created correctly
@@ -541,7 +556,8 @@ func TestOpsManagerPodTemplate_ImagePullPolicy(t *testing.T) {
 func TestOpsManagerPodTemplate_SecurityContext(t *testing.T) {
 	defer InitDefaultEnvVariables()
 
-	podSpecTemplate, err := opsManagerPodTemplate(map[string]string{}, testDefaultOMSetHelper())
+	testHelper := testDefaultOMSetHelper()
+	podSpecTemplate, err := opsManagerPodTemplate(map[string]string{}, testHelper, buildOpsManagerContainer(testHelper))
 	assert.NoError(t, err)
 
 	spec := podSpecTemplate.Spec
@@ -551,7 +567,7 @@ func TestOpsManagerPodTemplate_SecurityContext(t *testing.T) {
 
 	_ = os.Setenv(util.ManagedSecurityContextEnv, "true")
 
-	podSpecTemplate, err = opsManagerPodTemplate(map[string]string{}, testDefaultOMSetHelper())
+	podSpecTemplate, err = opsManagerPodTemplate(map[string]string{}, testHelper, buildOpsManagerContainer(testHelper))
 	assert.NoError(t, err)
 	assert.Nil(t, podSpecTemplate.Spec.SecurityContext)
 }
@@ -560,8 +576,8 @@ func TestOpsManagerPodTemplate_SecurityContext(t *testing.T) {
 func TestOpsManagerPodTemplate_PodSpec(t *testing.T) {
 	podSpec := mdbv1.NewPodSpecWrapperBuilder().
 		SetPodAffinity(defaultPodAffinity()).SetNodeAffinity(defaultNodeAffinity()).SetPodAntiAffinityTopologyKey("rack").Build()
-	om := DefaultOpsManagerBuilder().SetPodSpec(*podSpec).Build()
-	template, err := opsManagerPodTemplate(map[string]string{}, *omSetHelperFromResource(om))
+	helper := omSetHelperFromResource(DefaultOpsManagerBuilder().SetPodSpec(*podSpec).Build())
+	template, err := opsManagerPodTemplate(map[string]string{}, helper, buildOpsManagerContainer(helper))
 	assert.NoError(t, err)
 
 	spec := template.Spec
@@ -603,7 +619,8 @@ func TestOpsManagerPodTemplate_MergePodTemplate(t *testing.T) {
 		},
 	}).Build()
 	om := DefaultOpsManagerBuilder().SetPodSpec(*podSpec).Build()
-	template, err := opsManagerPodTemplate(map[string]string{"key": "value"}, *omSetHelperFromResource(om))
+	helper := omSetHelperFromResource(om)
+	template, err := opsManagerPodTemplate(map[string]string{"key": "value"}, helper, buildOpsManagerContainer(helper))
 	assert.NoError(t, err)
 
 	// Service account gets overriden by custom pod template
@@ -617,22 +634,39 @@ func TestOpsManagerPodTemplate_MergePodTemplate(t *testing.T) {
 	assert.Equal(t, map[string]string{"key": "value"}, template.Labels)
 	require.NotNil(t, template.Spec.SecurityContext)
 	assert.Equal(t, util.Int64Ref(util.FsGroup), template.Spec.SecurityContext.FSGroup)
-	assert.Equal(t, util.OpsManagerName, template.Spec.Containers[0].Name)
+	assert.Equal(t, util.OpsManagerContainerName, template.Spec.Containers[0].Name)
 }
 
 func Test_buildOpsManagerStatefulSet(t *testing.T) {
 	sts, err := buildOpsManagerStatefulSet(testDefaultOMSetHelper())
 	assert.NoError(t, err)
 	assert.Equal(t, "testOM", sts.ObjectMeta.Name)
-	assert.Equal(t, util.OpsManagerName, sts.Spec.Template.Spec.Containers[0].Name)
+	assert.Equal(t, util.OpsManagerContainerName, sts.Spec.Template.Spec.Containers[0].Name)
 }
 
 func Test_buildBackupDaemonStatefulSet(t *testing.T) {
 	sts, err := buildBackupDaemonStatefulSet(testDefaultBackupSetHelper())
 	assert.NoError(t, err)
 	assert.Equal(t, "testOM-backup-daemon", sts.ObjectMeta.Name)
-	assert.Equal(t, util.BackupdaemonContainerName, sts.Spec.Template.Spec.Containers[0].Name)
+	assert.Equal(t, util.BackupDaemonContainerName, sts.Spec.Template.Spec.Containers[0].Name)
 	assert.Nil(t, sts.Spec.Template.Spec.Containers[0].ReadinessProbe)
+}
+
+func TestBuildOpsManagerStatefulSet_EnvVarsSorted(t *testing.T) {
+	om := DefaultOpsManagerBuilder().
+		AddConfiguration(util.MmsCentralUrlPropKey, "http://om-svc").
+		AddConfiguration("mms.adminEmailAddr", "cloud-manager-support@mongodb.com").
+		Build()
+	sts, err := buildOpsManagerStatefulSet(omSetHelperFromResource(om))
+	assert.NoError(t, err)
+
+	// env vars are in sorted order
+	expectedVars := []corev1.EnvVar{
+		{Name: "OM_PROP_mms_adminEmailAddr", Value: "cloud-manager-support@mongodb.com"},
+		{Name: "OM_PROP_mms_centralUrl", Value: "http://om-svc"},
+	}
+	env := sts.Spec.Template.Spec.Containers[0].Env
+	assert.Equal(t, expectedVars, env)
 }
 
 // ******************************** Helper methods *******************************************
@@ -667,25 +701,33 @@ func defaultSetHelper() *StatefulSetHelper {
 		})
 }
 
-func omSetHelperFromResource(om mdbv1.MongoDBOpsManager) *OpsManagerStatefulSetHelper {
+// defaultAppDbSetHelper builds the default statefulset helper for appdb from Ops Manager resource
+func defaultAppDbSetHelper() *StatefulSetHelper {
+	om := DefaultOpsManagerBuilder().Build()
+	mockedClient := newMockedClient().WithResource(&om)
+	helper := NewKubeHelper(mockedClient)
+	return helper.NewStatefulSetHelper(&om)
+}
+
+func omSetHelperFromResource(om mdbv1.MongoDBOpsManager) OpsManagerStatefulSetHelper {
 	mockedClient := newMockedClient()
 	helper := NewKubeHelper(mockedClient)
-	return helper.NewOpsManagerStatefulSetHelper(om)
+	return *helper.NewOpsManagerStatefulSetHelper(om)
+}
+
+func backupSetHelperFromResource(om mdbv1.MongoDBOpsManager) BackupStatefulSetHelper {
+	mockedClient := newMockedClient()
+	helper := NewKubeHelper(mockedClient)
+	return *helper.NewBackupStatefulSetHelper(om)
 }
 
 func testDefaultOMSetHelper() OpsManagerStatefulSetHelper {
-	om := DefaultOpsManagerBuilder().Build()
-	mockedClient := newMockedClient()
-	kubehelper := KubeHelper{client: mockedClient, serviceClient: service.NewClient(mockedClient), configmapClient: configmap.NewClient(mockedClient)}
-	return *(kubehelper.NewOpsManagerStatefulSetHelper(om))
+	return omSetHelperFromResource(DefaultOpsManagerBuilder().Build())
 }
 
 func testDefaultBackupSetHelper() BackupStatefulSetHelper {
 	om := DefaultOpsManagerBuilder().Build()
-	om.Spec.Backup = &mdbv1.MongoDBOpsManagerBackup{}
-	mockedClient := newMockedClient()
-	kubehelper := KubeHelper{client: mockedClient, serviceClient: service.NewClient(mockedClient), configmapClient: configmap.NewClient(mockedClient)}
-	return *(kubehelper.NewBackupStatefulSetHelper(om))
+	return backupSetHelperFromResource(om)
 }
 
 func defaultPodVars() *PodVars {

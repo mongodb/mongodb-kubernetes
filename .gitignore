@@ -28,3 +28,4 @@ docker/mongodb-enterprise-appdb/content/readinessprobe
 ops-manager-kubernetes
 docker/mongodb-enterprise-operator/Dockerfile
 docker/mongodb-enterprise-database/Dockerfile
+docker/mongodb-enterprise-ops-manager/Dockerfile

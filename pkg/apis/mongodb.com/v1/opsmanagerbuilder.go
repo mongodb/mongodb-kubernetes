@@ -53,6 +53,6 @@ func (b *OpsManagerBuilder) AddConfiguration(key, value string) *OpsManagerBuild
 }
 
 func (b *OpsManagerBuilder) Build() MongoDBOpsManager {
-	b.om.InitDefaultAppDBFields()
+	b.om.InitDefaultFields()
 	return *b.om.DeepCopy()
 }

@@ -242,7 +242,6 @@ func buildStatefulSet(p StatefulSetHelper) (appsv1.StatefulSet, error) {
 // It's mostly the same as the normal MongoDB one but has slightly different container and an additional mounting volume
 func buildAppDbStatefulSet(p StatefulSetHelper) (appsv1.StatefulSet, error) {
 	var err error
-	p.ContainerName = util.AppDbContainerName
 	appdbImageUrl := prepareOmAppdbImageUrl(util.ReadEnvVarOrPanic(util.AppDBImageUrl), p.Version)
 	template, err := getDatabasePodTemplate(p, nil, util.AppDBServiceAccount,
 		newAppDBContainer(p.Name, appdbImageUrl))
@@ -267,14 +266,10 @@ func buildAppDbStatefulSet(p StatefulSetHelper) (appsv1.StatefulSet, error) {
 // Shouldn't be called by end users directly
 // Dev note: it's ok to move the different parts to parameters (pod spec could be an example) as the functionality
 // evolves
-func createBaseOpsManagerStatefulSetBuilder(p OpsManagerStatefulSetHelper) (*statefulset.Builder, error) {
-	labels := map[string]string{
-		AppLabelKey:             p.Service,
-		"controller":            util.OmControllerLabel,
-		PodAntiAffinityLabelKey: p.Name,
-	}
+func createBaseOpsManagerStatefulSetBuilder(p OpsManagerStatefulSetHelper, containerSpec corev1.Container) (*statefulset.Builder, error) {
+	labels := defaultPodLabels(p.StatefulSetHelperCommon)
 
-	template, err := opsManagerPodTemplate(labels, p)
+	template, err := opsManagerPodTemplate(labels, p, containerSpec)
 	if err != nil {
 		return nil, err
 	}
@@ -300,12 +295,50 @@ func createBaseOpsManagerStatefulSetBuilder(p OpsManagerStatefulSetHelper) (*sta
 
 // buildOpsManagerStatefulSet builds the StatefulSet for Ops Manager
 func buildOpsManagerStatefulSet(p OpsManagerStatefulSetHelper) (appsv1.StatefulSet, error) {
-	p.ContainerName = util.OpsManagerName
-	stsBuilder, err := createBaseOpsManagerStatefulSetBuilder(p)
+	container := buildOpsManagerContainer(p)
+	stsBuilder, err := createBaseOpsManagerStatefulSetBuilder(p, container)
 	if err != nil {
 		return appsv1.StatefulSet{}, err
 	}
 	return stsBuilder.Build()
+}
+
+func buildBaseContainerForOpsManagerAndBackup(p OpsManagerStatefulSetHelper) corev1.Container {
+	omImageUrl := prepareOmAppdbImageUrl(util.ReadEnvVarOrPanic(util.OpsManagerImageUrl), p.Version)
+	container := corev1.Container{
+		Image:           omImageUrl,
+		ImagePullPolicy: corev1.PullPolicy(util.ReadEnvVarOrPanic(util.OpsManagerPullPolicy)),
+		Env:             p.EnvVars,
+		Ports:           []corev1.ContainerPort{{ContainerPort: util.OpsManagerDefaultPort}},
+	}
+	return container
+}
+
+func buildOpsManagerContainer(p OpsManagerStatefulSetHelper) corev1.Container {
+	container := buildBaseContainerForOpsManagerAndBackup(p)
+	container.Name = p.ContainerName
+	container.ReadinessProbe = opsManagerReadinessProbe()
+	container.Lifecycle = &corev1.Lifecycle{
+		PreStop: &corev1.Handler{
+			Exec: &corev1.ExecAction{
+				Command: []string{"/bin/sh", "-c", "/mongodb-ops-manager/bin/mongodb-mms stop_mms"},
+			},
+		},
+	}
+	return container
+}
+
+func buildBackupDaemonContainer(p BackupStatefulSetHelper) corev1.Container {
+	container := buildBaseContainerForOpsManagerAndBackup(p.OpsManagerStatefulSetHelper)
+	container.Name = p.ContainerName
+	container.Lifecycle = &corev1.Lifecycle{
+		PreStop: &corev1.Handler{
+			Exec: &corev1.ExecAction{
+				Command: []string{"/bin/sh", "-c", "/mongodb-ops-manager/bin/mongodb-mms stop_backup_daemon"},
+			},
+		},
+	}
+	return container
 }
 
 // buildBackupDaemonStatefulSet builds the StatefulSet for backup daemon. It shares most of the configuration with
@@ -317,8 +350,8 @@ func buildBackupDaemonStatefulSet(p BackupStatefulSetHelper) (appsv1.StatefulSet
 		Name:  util.ENV_BACKUP_DAEMON,
 		Value: "backup",
 	})
-	p.ContainerName = util.BackupdaemonContainerName
-	stsBuilder, err := createBaseOpsManagerStatefulSetBuilder(p.OpsManagerStatefulSetHelper)
+	container := buildBackupDaemonContainer(p)
+	stsBuilder, err := createBaseOpsManagerStatefulSetBuilder(p.OpsManagerStatefulSetHelper, container)
 	if err != nil {
 		return appsv1.StatefulSet{}, err
 	}
@@ -330,12 +363,9 @@ func buildBackupDaemonStatefulSet(p BackupStatefulSetHelper) (appsv1.StatefulSet
 		[]corev1.PersistentVolumeClaim{pvc(util.PvcNameHeadDb, p.HeadDbPersistenceConfig, defaultConfig)},
 	).
 		AddVolumeMounts(
-			util.BackupdaemonContainerName,
+			util.BackupDaemonContainerName,
 			[]corev1.VolumeMount{statefulset.CreateVolumeMount(util.PvcNameHeadDb, util.PvcMountPathHeadDb, "")},
 		)
-
-	// TODO CLOUDP-53272 so far we don't have any way to get Daemon readiness
-	stsBuilder.SetReadinessProbe(nil, util.BackupdaemonContainerName)
 
 	return stsBuilder.Build()
 }
@@ -369,7 +399,7 @@ func mountVolumes(stsBuilder *statefulset.Builder, helper StatefulSetHelper) *st
 		}
 	}
 
-	if helper.PodVars.SSLMMSCAConfigMap != "" {
+	if helper.PodVars != nil && helper.PodVars.SSLMMSCAConfigMap != "" {
 		stsBuilder.AddVolumeAndMount(helper.ContainerName,
 			statefulset.VolumeMountData{
 				MountPath: CaCertMountPath,
@@ -512,22 +542,17 @@ func appdbContainerEnv(statefulSetName string) []corev1.EnvVar {
 
 // opsManagerPodTemplate builds the pod template spec used by both Backup and OM statefulsets
 // In the end it applies the podSpec (and probably podSpec.podTemplate) as the MongoDB and AppDB do.
-func opsManagerPodTemplate(labels map[string]string, stsHelper OpsManagerStatefulSetHelper) (corev1.PodTemplateSpec, error) {
-	omImageUrl := prepareOmAppdbImageUrl(util.ReadEnvVarOrPanic(util.OpsManagerImageUrl), stsHelper.Version)
-	container := corev1.Container{
-		Name:            stsHelper.ContainerName,
-		Image:           omImageUrl,
-		ImagePullPolicy: corev1.PullPolicy(util.ReadEnvVarOrPanic(util.OpsManagerPullPolicy)),
-		Env:             stsHelper.EnvVars,
-		Ports:           []corev1.ContainerPort{{ContainerPort: util.OpsManagerDefaultPort}},
-		ReadinessProbe:  opsManagerReadinessProbe(),
-	}
+func opsManagerPodTemplate(labels map[string]string, stsHelper OpsManagerStatefulSetHelper, containerSpec corev1.Container) (corev1.PodTemplateSpec, error) {
 	templateSpec := corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels: labels,
 		},
 		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{getContainerWithSecurityContext(container)},
+			Containers: []corev1.Container{getContainerWithSecurityContext(containerSpec)},
+			// After discussion with John Morales seems 30 min should be ok
+			// Note, that the OM (as of current version 4.2.8) has internal timeout of 20 seconds for 'stop_mms' and
+			// backup daemon doesn't have graceful timeout for 'stop_backup_daemon' at all
+			TerminationGracePeriodSeconds: util.Int64Ref(1800),
 		},
 	}
 
