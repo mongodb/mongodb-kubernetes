@@ -5,7 +5,7 @@
     "rhelBinaryName": "mongodb-linux-x86_64-enterprise-rhel70-4.2.2.tgz",
     "ubuntuBinaryName": "mongodb-linux-x86_64-enterprise-ubuntu1604-4.2.2.tgz"
   },
-  "mongodbOperator": "1.4.3",
+  "mongodbOperator": "1.4.4",
   "opsManagerImages": [
     {
       "version": "4.2.0"
