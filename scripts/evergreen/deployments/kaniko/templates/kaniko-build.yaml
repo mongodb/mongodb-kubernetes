@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: builder-pod-{{ .Values.podName | lower }}
+  name: builder-pod-{{ .Values.podName }}
   labels:
     podbuilderid: {{ .Values.label }}
 spec:

@@ -92,8 +92,8 @@ metadata:
   name: cluster-cleaner-delete-builder-pods
   namespace: {{ .Values.cleanerNamespace }}
 spec:
-  # Runs every day at 5:37
-  schedule: "37 5 * * *"
+  # Runs every hour
+  schedule: "0 * * * *"
   jobTemplate:
     spec:
       template:
@@ -108,9 +108,9 @@ spec:
             command: ["./delete-old-builder-pods.sh"]
             env:
             - name: DELETE_OLDER_THAN_UNIT
-              value: "days"
+              value: "minutes"
             - name: DELETE_OLDER_THAN_AMOUNT
-              value: "1"
+              value: "20"
 
 # Clean old certificates
 ---

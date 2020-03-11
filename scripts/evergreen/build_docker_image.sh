@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -euo pipefail
+
 cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
 # Only create ECR credentials (as a Secret object) when the passed parameters have changed from
@@ -44,7 +46,7 @@ build_image () {
     cache_repo="${3}"
     label="${4:0:63}"  # make sure label is not longer than 63 chars
 
-    image_random_name=$(date +%s | sha256sum | base64 | head -c 16 ; echo)
+    image_random_name="$RANDOM"
 
     ensure_construction_site
 
@@ -57,11 +59,11 @@ build_image () {
     helm template "scripts/evergreen/deployments/kaniko" \
      --set podName="${image_random_name}" \
      --set label="${label}" \
-     --set buildArgs="{${build_args}}" \
+     --set buildArgs="{${build_args-}}" \
      --set destination="${destination}" \
      --set context="${context}" \
      --set cache="${cache:-true}" \
-     --set cacheRepo="${cache_repo}" > ${tmp_file} || exit 1
+     --set cacheRepo="${cache_repo}" > ${tmp_file}
 
      cat ${tmp_file}
 
@@ -70,6 +72,4 @@ build_image () {
      rm ${tmp_file}
 }
 
-if [ -n "$destination" ] && [ -n "$context" ] && [ -n "$cache_repo" ] && [ -n "$label" ]; then
-  build_image "${destination}" "${context}" "${cache_repo}" "${label}"
-fi
+build_image "${destination}" "${context}" "${cache_repo}" "${label}"

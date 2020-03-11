@@ -8,8 +8,7 @@ import (
 )
 
 func TestOpsManager_RunValidations_OpsManager(t *testing.T) {
-	om := &MongoDBOpsManager{}
-	om.InitDefaultAppDBFields()
+	om := NewOpsManagerBuilder().Build()
 	assert.Nil(t, om.ProcessValidationsOnReconcile())
 	assert.Equal(t, 0, len(om.Status.Warnings))
 }
