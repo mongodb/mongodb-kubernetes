@@ -62,6 +62,13 @@ fix_env() {
         set +v
     done
 
+    echo "##### Removing old s3 buckets"
+    # note, to run this on mac you need to install coreutils ('brew install coreutils') and use 'gdate' instead
+    yesterday=$(date +%Y-%m-%d -d "yesterday")
+    for bucket in $(aws s3api list-buckets --query 'Buckets[?CreationDate<=`'$yesterday'`&&contains(Name,`test-bucket-`)]' | jq --raw-output '.[].Name'); do
+        aws s3 rb s3://$bucket --force
+    done
+
 }
 
 # The functions checks the size for the ECR repository and recreates it if necessary
