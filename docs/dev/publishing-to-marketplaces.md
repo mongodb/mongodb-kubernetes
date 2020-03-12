@@ -2,15 +2,34 @@
 
 * **Goal**: Publish our newest version to [operatorhub](https://operatorhub.io).
 
-First, fork the following repo into you own:
+## Fork/pull changes from community-operators
+### If you do this the first time
+Fork the following repo into you own:
 
     https://github.com/operator-framework/community-operators/tree/master/upstream-community-operators
 
 Make sure you clone the *fork* and not *upstream*.
 
+Add the upstream repository as a remote one
+
+```bash
+git remote add upstream git@github.com:operator-framework/community-operators.git
+```
+
 * More information about working with forks can be found
 [here](https://help.github.com/en/articles/fork-a-repo).
 
+### If you already have the forked repository
+Pull changes from the upstream:
+
+```bash
+git fetch upstream
+git checkout master
+git merge upstream/master
+```
+
+## Create the new folder for the new version of MongoDB Operator
+ 
 Go into the
 `community-operators/upstream-community-operators/mongodb-enterprise`
 directory. Take a look at the list of files in this repo:
@@ -88,6 +107,12 @@ There are a few tests that will run on your PR and if everything goes
 fine, one of the maintainers of `community-operators` will merge your
 changes. The changes will land on `operatorhub.io` after a few days.
 
+The main things to consider before requesting review:
+* https://operatorhub.io/preview - make sure the CSV file is parsed correctly and the preview for the Operator
+looks correct
+* the other checks in the PR are green (the commits must be squashed and signed - check the failed jobs for the 
+hints how to do this)
+
 # Openshift Marketplace
 
 * **Goal**: Publish our newest version to [Openshift Marketplace](https://www.openshift.com/).
@@ -100,7 +125,7 @@ point at the RedHat Connect catalog and not to Quay.io.
 Copy the file to some temporary location and edit it:
 
 ```
-cp mongodb-enterprise.v1.y.z.clusterserviceversion.yaml /tmp/mongodb-enterprise.v1.y.z.clusterserviceversion.yaml
+cp mongodb-enterprise.vX.Y.Z.clusterserviceversion.yaml /tmp/mongodb-enterprise.vX.Y.Z.clusterserviceversion.yaml
 ```
 
 Change the Docker registry from Quay to RedHat Connect:
@@ -116,7 +141,7 @@ and `APP_DB_IMAGE_REPOSITORY`
 After the new file has been updated, it needs to be compressed as a zip
 file:
 
-    zip -r mongodb-enterprise.v<x>.<y>.<z>.zip .
+    zip -r mongodb-enterprise.vX.Y.Z.zip mongodb-enterprise.vX.Y.Z.clusterserviceversion.yaml
 
 Finally, the zip file needs to be uploaded to the [Operator
 Metadata](https://connect.redhat.com/project/850021/operator-metadata)
