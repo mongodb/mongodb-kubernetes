@@ -19,7 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-const DefaultWaitForReadinessSeconds = 5
+const DefaultWaitForReadinessSeconds = 13
 
 // ReconcileAppDbReplicaSet reconciles a MongoDB with a type of ReplicaSet
 type ReconcileAppDbReplicaSet struct {
@@ -75,7 +75,8 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager mdbv1.MongoDBOpsManager,
 		return r.updateStatusFailedAppDb(&opsManager, err.Error(), log)
 	}
 
-	if err = r.publishAutomationConfig(rs, opsManager, config, log); err != nil {
+	var wasPublished bool
+	if wasPublished, err = r.publishAutomationConfig(rs, opsManager, config, log); err != nil {
 		return r.updateStatusFailedAppDb(&opsManager, err.Error(), log)
 	}
 
@@ -84,11 +85,13 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager mdbv1.MongoDBOpsManager,
 		return r.updateStatusFailedAppDb(&opsManager, fmt.Sprintf("Failed to create/update the StatefulSet: %s", err), log)
 	}
 
-	// For the headless agent we cannot check the readiness state of the StatefulSet right away as we rely on
-	// readiness status and for the already running pods they are supposed to go from "ready" to "not ready" in maximum
-	// 5 seconds (this is the time between readiness.go launches), so 7 seconds (2 inside the method) should be enough
-	log.Debugf("Waiting for %d seconds to make sure readiness status is up-to-date", DefaultWaitForReadinessSeconds+util.DefaultK8sCacheRefreshTimeSeconds)
-	time.Sleep(time.Duration(util.ReadEnvVarIntOrDefault(util.AppDBReadinessWaitEnv, DefaultWaitForReadinessSeconds)) * time.Second)
+	// Note that the only case when we need to wait for readiness probe to go from 'true' to 'false' is when we publish
+	// the new config map - in this case we need to wait for some time to make sure the readiness probe has updated
+	// the state (usually takes up to 5 seconds). Let's be safe and wait for a bit more
+	if wasPublished {
+		log.Debugf("Waiting for %d seconds to make sure readiness status is up-to-date", DefaultWaitForReadinessSeconds+util.DefaultK8sCacheRefreshTimeSeconds)
+		time.Sleep(time.Duration(util.ReadEnvVarIntOrDefault(util.AppDBReadinessWaitEnv, DefaultWaitForReadinessSeconds)) * time.Second)
+	}
 
 	if !r.kubeHelper.isStatefulSetUpdated(opsManager.Namespace, opsManager.Name+"-db", log) {
 		return r.updateStatusPendingAppDb(&opsManager, fmt.Sprintf("AppDB Statefulset is not ready yet"), log)
@@ -158,12 +161,14 @@ func ensureConsistentAgentAuthenticationCredentials(newAutomationConfig *om.Auto
 	return newAutomationConfig.Apply()
 }
 
+// publishAutomationConfig publishes the automation config to the ConfigMap if necessary. Note that it's done only
+// if the automation config has changed - the version is incremented in this case.
+// Method returns 'bool' to indicate if the config was published.
+// No optimistic concurrency control is done - there cannot be a concurrent reconciliation for the same Ops Manager
+// object and the probability that the user will edit the config map manually in the same time is extremely low
 func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(rs mdbv1.AppDB,
-	opsManager mdbv1.MongoDBOpsManager, automationConfig *om.AutomationConfig, log *zap.SugaredLogger) error {
-	// Create/update the automation config configMap if it changed.
-	// Note, that the 'version' field is incremented if there are changes (emulating the db versioning mechanism)
-	// No optimistic concurrency control is done - there cannot be a concurrent reconciliation for the same Ops Manager
-	// object and the probability that the user will edit the config map manually in the same time is extremely low
+	opsManager mdbv1.MongoDBOpsManager, automationConfig *om.AutomationConfig, log *zap.SugaredLogger) (bool, error) {
+	wasPublished := false
 	if err := r.kubeHelper.computeConfigMap(objectKey(opsManager.Namespace, rs.AutomationConfigSecretName()),
 		func(existingMap *corev1.ConfigMap) bool {
 			if len(existingMap.Data) == 0 {
@@ -177,7 +182,7 @@ func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(rs mdbv1.AppDB,
 				// Aligning the versions to make deep comparison correct
 				automationConfig.SetVersion(existingAutomationConfig.Deployment.Version())
 
-				log.Debug("ensuring authentication credentials")
+				log.Debug("Ensuring authentication credentials")
 				if err := ensureConsistentAgentAuthenticationCredentials(automationConfig, existingAutomationConfig, log); err != nil {
 					log.Warnf("error ensuring consistent authentication credentials: %s", err)
 					return false
@@ -204,11 +209,13 @@ func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(rs mdbv1.AppDB,
 				panic(err)
 			}
 			existingMap.Data = map[string]string{util.AppDBAutomationConfigKey: string(bytes)}
+			wasPublished = true
+
 			return true
 		}, &opsManager); err != nil {
-		return err
+		return false, err
 	}
-	return nil
+	return wasPublished, nil
 }
 
 func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(rs mdbv1.AppDB, opsManager mdbv1.MongoDBOpsManager, opsManagerUserPassword string, set appsv1.StatefulSet, log *zap.SugaredLogger) (*om.AutomationConfig, error) {

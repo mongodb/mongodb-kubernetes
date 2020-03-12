@@ -63,7 +63,9 @@ func TestPublishAutomationConfig_Create(t *testing.T) {
 	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
 	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
 	assert.NoError(t, err)
-	assert.NoError(t, reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S()))
+	published, err := reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S())
+	assert.NoError(t, err)
+	assert.True(t, published)
 
 	// verify the configmap was created
 	configMap := readAutomationConfigMap(t, kubeManager, opsManager)
@@ -81,16 +83,22 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
 	assert.NoError(t, err)
 	// create
-	assert.NoError(t, reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S()))
+	published, err := reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S())
+	assert.NoError(t, err)
+	assert.True(t, published)
 	kubeManager.client.ClearHistory()
 
 	// publishing the config without updates should not result in API call
-	assert.NoError(t, reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S()))
+	published, err = reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S())
+	assert.NoError(t, err)
+	assert.False(t, published)
 	kubeManager.client.CheckOperationsDidntHappen(t, HItem(reflect.ValueOf(kubeManager.client.Update), &corev1.ConfigMap{}))
 
 	// publishing changed config will result in update
 	automationConfig.Deployment.AddMonitoringAndBackup("foo", zap.S())
-	assert.NoError(t, reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S()))
+	published, err = reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S())
+	assert.NoError(t, err)
+	assert.True(t, published)
 	kubeManager.client.CheckOrderOfOperations(t, HItem(reflect.ValueOf(kubeManager.client.Update), &corev1.ConfigMap{}))
 
 	// verify the configmap was updated (the version must get incremented)
@@ -107,7 +115,9 @@ func TestPublishAutomationConfig_ScramShaConfigured(t *testing.T) {
 	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
 	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
 	assert.NoError(t, err)
-	assert.NoError(t, reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S()))
+	published, err := reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S())
+	assert.NoError(t, err)
+	assert.True(t, published)
 
 	configMap := readAutomationConfigMap(t, kubeManager, opsManager)
 
