@@ -409,6 +409,10 @@ func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager mdbv1.MongoD
 
 	// 3. S3 Configs
 	status = status.merge(r.ensureS3ConfigurationInOpsManager(opsManager, omAdmin, log))
+
+	// 4. Block store configs
+	status = status.merge(r.ensureBlockStoresInOpsManager(opsManager, omAdmin, log))
+
 	return status
 }
 
@@ -430,7 +434,7 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(opsManager mdbv1.Mo
 	operatorOplogConfigs := opsManager.Spec.Backup.OplogStoreConfigs
 	configsToCreate := util.SetDifferenceGeneric(operatorOplogConfigs, opsManagerOplogConfigs)
 	for _, v := range configsToCreate {
-		omConfig, status := r.buildOMDatastoreConfig(opsManager, v.(*mdbv1.DataStoreConfig))
+		omConfig, status := r.buildOMDatastoreConfig(opsManager, v.(mdbv1.DataStoreConfig))
 		if !status.isOk() {
 			return status
 		}
@@ -444,8 +448,8 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(opsManager mdbv1.Mo
 	//["omConfig", "operatorConfig"].
 	configsToUpdate := util.SetIntersectionGeneric(opsManagerOplogConfigs, operatorOplogConfigs)
 	for _, v := range configsToUpdate {
-		omConfig := v[0].(*backup.DataStoreConfig)
-		operatorConfig := v[1].(*mdbv1.DataStoreConfig)
+		omConfig := v[0].(backup.DataStoreConfig)
+		operatorConfig := v[1].(mdbv1.DataStoreConfig)
 		operatorView, status := r.buildOMDatastoreConfig(opsManager, operatorConfig)
 		if !status.isOk() {
 			return status
@@ -471,8 +475,66 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(opsManager mdbv1.Mo
 	return ok()
 }
 
-func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager mdbv1.MongoDBOpsManager, omAdmin api.Admin, log *zap.SugaredLogger) reconcileStatus {
+// ensureBlockStoresInOpsManager aligns the blockStore configs in Ops Manager with the Operator state. So it adds the new configs
+// and removes the non-existing ones. Note that there's no update operation as so far the Operator manages only one field
+// 'path'. This will allow users to make any additional changes to the file system stores using Ops Manager UI and the
+// Operator won't override them
+func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(opsManager mdbv1.MongoDBOpsManager, omAdmin api.Admin, log *zap.SugaredLogger) reconcileStatus {
+	if !opsManager.Spec.Backup.Enabled {
+		return ok()
+	}
 
+	opsManagerBlockStoreConfigs, err := omAdmin.ReadBlockStoreConfigs()
+	if err != nil {
+		return failedErr(err)
+	}
+
+	// Creating new configs
+	operatorBlockStoreConfigs := opsManager.Spec.Backup.BlockStoreConfigs
+	configsToCreate := util.SetDifferenceGeneric(operatorBlockStoreConfigs, opsManagerBlockStoreConfigs)
+	for _, v := range configsToCreate {
+		omConfig, status := r.buildOMDatastoreConfig(opsManager, v.(mdbv1.DataStoreConfig))
+		if !status.isOk() {
+			return status
+		}
+		log.Debugw("Creating Block Store in Ops Manager", "config", omConfig)
+		if err = omAdmin.CreateBlockStoreConfig(omConfig); err != nil {
+			return failedErr(err)
+		}
+	}
+
+	// Updating existing configs. It intersects the OM API configs with Operator spec configs and returns pairs
+	//["omConfig", "operatorConfig"].
+	configsToUpdate := util.SetIntersectionGeneric(opsManagerBlockStoreConfigs, operatorBlockStoreConfigs)
+	for _, v := range configsToUpdate {
+		omConfig := v[0].(backup.DataStoreConfig)
+		operatorConfig := v[1].(mdbv1.DataStoreConfig)
+		operatorView, status := r.buildOMDatastoreConfig(opsManager, operatorConfig)
+		if !status.isOk() {
+			return status
+		}
+
+		// Now we need to merge the Operator version into the OM one overriding only the fields that the Operator
+		// "owns"
+		configToUpdate := operatorView.MergeIntoOpsManagerConfig(omConfig)
+		log.Debugw("Updating Block Store in Ops Manager", "config", configToUpdate)
+		if err = omAdmin.UpdateBlockStoreConfig(configToUpdate); err != nil {
+			return failedErr(err)
+		}
+	}
+
+	// Removing non-existing configs
+	configsToRemove := util.SetDifferenceGeneric(opsManagerBlockStoreConfigs, opsManager.Spec.Backup.BlockStoreConfigs)
+	for _, v := range configsToRemove {
+		log.Debugf("Removing Block Store %s from Ops Manager", v.Identifier())
+		if err = omAdmin.DeleteBlockStoreConfig(v.Identifier().(string)); err != nil {
+			return failedErr(err)
+		}
+	}
+	return ok()
+}
+
+func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager mdbv1.MongoDBOpsManager, omAdmin api.Admin, log *zap.SugaredLogger) reconcileStatus {
 	if !opsManager.Spec.Backup.Enabled {
 		return ok()
 	}
@@ -485,7 +547,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager mdbv
 	operatorS3Configs := opsManager.Spec.Backup.S3Configs
 	configsToCreate := util.SetDifferenceGeneric(operatorS3Configs, opsManagerS3Configs)
 	for _, config := range configsToCreate {
-		omConfig, status := r.buildOMS3Config(opsManager, config.(*mdbv1.S3Config))
+		omConfig, status := r.buildOMS3Config(opsManager, config.(mdbv1.S3Config))
 		if !status.isOk() {
 			return status
 		}
@@ -500,8 +562,8 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager mdbv
 	//["omConfig", "operatorConfig"].
 	configsToUpdate := util.SetIntersectionGeneric(opsManagerS3Configs, operatorS3Configs)
 	for _, v := range configsToUpdate {
-		omConfig := v[0].(*backup.S3Config)
-		operatorConfig := v[1].(*mdbv1.S3Config)
+		omConfig := v[0].(backup.S3Config)
+		operatorConfig := v[1].(mdbv1.S3Config)
 		operatorView, status := r.buildOMS3Config(opsManager, operatorConfig)
 		if !status.isOk() {
 			return status
@@ -555,21 +617,21 @@ func (r *OpsManagerReconciler) readS3Credentials(s3SecretName, namespace string)
 	return s3Creds, nil
 }
 
-func (r *OpsManagerReconciler) buildOMS3Config(opsManager mdbv1.MongoDBOpsManager, config *mdbv1.S3Config) (*backup.S3Config, reconcileStatus) {
+func (r *OpsManagerReconciler) buildOMS3Config(opsManager mdbv1.MongoDBOpsManager, config mdbv1.S3Config) (backup.S3Config, reconcileStatus) {
 	mongodb := &mdbv1.MongoDB{}
 	mongodbObjectKey := config.MongodbResourceObjectKey(opsManager.Namespace)
 	err := r.client.Get(context.TODO(), mongodbObjectKey, mongodb)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			// Returning pending as the user may create the mongodb resource soon
-			return nil, pending("The MongoDB object %s doesn't exist", mongodbObjectKey)
+			return backup.S3Config{}, pending("The MongoDB object %s doesn't exist", mongodbObjectKey)
 		}
-		return nil, failedErr(err)
+		return backup.S3Config{}, failedErr(err)
 	}
 
 	status := validateS3Config(mongodb, config)
 	if !status.isOk() {
-		return nil, status
+		return backup.S3Config{}, status
 	}
 
 	// If MongoDB resource has scram-sha enabled then we need to read the username and the password.
@@ -581,21 +643,21 @@ func (r *OpsManagerReconciler) buildOMS3Config(opsManager mdbv1.MongoDBOpsManage
 		mongodbUserObjectKey := config.MongodbUserObjectKey(opsManager.Namespace)
 		err := r.client.Get(context.TODO(), mongodbUserObjectKey, mongodbUser)
 		if apiErrors.IsNotFound(err) {
-			return nil, pending("The MongoDBUser object %s doesn't exist", config.MongodbResourceObjectKey(opsManager.Namespace))
+			return backup.S3Config{}, pending("The MongoDBUser object %s doesn't exist", config.MongodbResourceObjectKey(opsManager.Namespace))
 		}
 		if err != nil {
-			return nil, failed("Failed to fetch the user %s: %s", config.MongodbResourceObjectKey(opsManager.Namespace), err)
+			return backup.S3Config{}, failed("Failed to fetch the user %s: %s", config.MongodbResourceObjectKey(opsManager.Namespace), err)
 		}
 		userName = mongodbUser.Spec.Username
 		password, err = mongodbUser.GetPassword(r.client)
 		if err != nil {
-			return nil, failed("Failed to read password for the user %s: %s", mongodbUserObjectKey, err)
+			return backup.S3Config{}, failed("Failed to read password for the user %s: %s", mongodbUserObjectKey, err)
 		}
 	}
 
 	s3Creds, err := r.readS3Credentials(config.S3SecretRef.Name, opsManager.Namespace)
 	if err != nil {
-		return nil, failedErr(err)
+		return backup.S3Config{}, failedErr(err)
 	}
 
 	uri := mongodb.ConnectionURL(userName, password, map[string]string{})
@@ -609,21 +671,21 @@ func (r *OpsManagerReconciler) buildOMS3Config(opsManager mdbv1.MongoDBOpsManage
 
 // buildOMDatastoreConfig builds the OM API datastore config based on the Kubernetes OM resource one.
 // To do this it may need to read the Mongodb User and its password to build mongodb url correctly
-func (r *OpsManagerReconciler) buildOMDatastoreConfig(opsManager mdbv1.MongoDBOpsManager, operatorConfig *mdbv1.DataStoreConfig) (*backup.DataStoreConfig, reconcileStatus) {
+func (r *OpsManagerReconciler) buildOMDatastoreConfig(opsManager mdbv1.MongoDBOpsManager, operatorConfig mdbv1.DataStoreConfig) (backup.DataStoreConfig, reconcileStatus) {
 	mongodb := &mdbv1.MongoDB{}
 	mongodbObjectKey := operatorConfig.MongodbResourceObjectKey(opsManager.Namespace)
 	err := r.client.Get(context.TODO(), mongodbObjectKey, mongodb)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			// Returning pending as the user may create the mongodb resource soon
-			return nil, pending("The MongoDB object %s doesn't exist", mongodbObjectKey)
+			return backup.DataStoreConfig{}, pending("The MongoDB object %s doesn't exist", mongodbObjectKey)
 		}
-		return nil, failedErr(err)
+		return backup.DataStoreConfig{}, failedErr(err)
 	}
 
 	status := validateDataStoreConfig(mongodb, operatorConfig)
 	if !status.isOk() {
-		return nil, status
+		return backup.DataStoreConfig{}, status
 	}
 
 	// If MongoDB resource has scram-sha enabled then we need to read the username and the password.
@@ -635,15 +697,15 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(opsManager mdbv1.MongoDBOp
 		mongodbUserObjectKey := operatorConfig.MongodbUserObjectKey(opsManager.Namespace)
 		err := r.client.Get(context.TODO(), mongodbUserObjectKey, mongodbUser)
 		if apiErrors.IsNotFound(err) {
-			return nil, pending("The MongoDBUser object %s doesn't exist", operatorConfig.MongodbResourceObjectKey(opsManager.Namespace))
+			return backup.DataStoreConfig{}, pending("The MongoDBUser object %s doesn't exist", operatorConfig.MongodbResourceObjectKey(opsManager.Namespace))
 		}
 		if err != nil {
-			return nil, failed("Failed to fetch the user %s: %s", operatorConfig.MongodbResourceObjectKey(opsManager.Namespace), err)
+			return backup.DataStoreConfig{}, failed("Failed to fetch the user %s: %s", operatorConfig.MongodbResourceObjectKey(opsManager.Namespace), err)
 		}
 		userName = mongodbUser.Spec.Username
 		password, err = mongodbUser.GetPassword(r.client)
 		if err != nil {
-			return nil, failed("Failed to read password for the user %s: %s", mongodbUserObjectKey, err)
+			return backup.DataStoreConfig{}, failed("Failed to read password for the user %s: %s", mongodbUserObjectKey, err)
 		}
 	}
 
@@ -652,11 +714,11 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(opsManager mdbv1.MongoDBOp
 	return backup.NewDataStoreConfig(operatorConfig.Name, mongoUri, tls), ok()
 }
 
-func validateS3Config(mongodb *mdbv1.MongoDB, s3Config *mdbv1.S3Config) reconcileStatus {
+func validateS3Config(mongodb *mdbv1.MongoDB, s3Config mdbv1.S3Config) reconcileStatus {
 	return validateConfig(mongodb, s3Config.MongoDBUserRef, "S3 metadata database")
 }
 
-func validateDataStoreConfig(mongodb *mdbv1.MongoDB, dataStoreConfig *mdbv1.DataStoreConfig) reconcileStatus {
+func validateDataStoreConfig(mongodb *mdbv1.MongoDB, dataStoreConfig mdbv1.DataStoreConfig) reconcileStatus {
 	return validateConfig(mongodb, dataStoreConfig.MongoDBUserRef, "Oplog/Blockstore databases")
 }
 

@@ -16,8 +16,8 @@ type MachineConfig struct {
 }
 
 // NewDaemonConfig creates the 'DaemonConfig' fully initialized
-func NewDaemonConfig(hostName, headDbDir string) *DaemonConfig {
-	return &DaemonConfig{
+func NewDaemonConfig(hostName, headDbDir string) DaemonConfig {
+	return DaemonConfig{
 		Machine: MachineConfig{
 			HeadRootDirectory: headDbDir,
 			MachineHostName:   hostName,

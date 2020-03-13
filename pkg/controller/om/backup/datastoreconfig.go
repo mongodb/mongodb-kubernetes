@@ -7,7 +7,7 @@ import (
 )
 
 type DataStoreConfigResponse struct {
-	DataStoreConfigs []*DataStoreConfig `json:"results"`
+	DataStoreConfigs []DataStoreConfig `json:"results"`
 }
 
 // DataStoreConfig corresponds to 'ApiBackupDataStoreConfigView' in mms. It's shared by all configs which relate to
@@ -29,8 +29,8 @@ type DataStoreConfig struct {
 }
 
 // NewDataStoreConfig returns the new 'DataStoreConfig' object initializing the default values
-func NewDataStoreConfig(id, uri string, tls bool) *DataStoreConfig {
-	return &DataStoreConfig{
+func NewDataStoreConfig(id, uri string, tls bool) DataStoreConfig {
+	return DataStoreConfig{
 		Id:     id,
 		Uri:    uri,
 		UseSSL: tls,
@@ -46,7 +46,7 @@ func (s DataStoreConfig) Identifier() interface{} {
 
 // MergeIntoOpsManagerConfig performs the merge operation of the Operator config view ('s') into the OM owned one
 // ('opsManagerConfig')
-func (s DataStoreConfig) MergeIntoOpsManagerConfig(opsManagerConfig *DataStoreConfig) *DataStoreConfig {
+func (s DataStoreConfig) MergeIntoOpsManagerConfig(opsManagerConfig DataStoreConfig) DataStoreConfig {
 	opsManagerConfig.Id = s.Id
 	opsManagerConfig.Uri = s.Uri
 	opsManagerConfig.UseSSL = s.UseSSL

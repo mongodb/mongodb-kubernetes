@@ -26,3 +26,5 @@ kubectl delete $(kubectl get csr -o name | grep ${NAMESPACE}) 2>/dev/null || tru
 kubectl delete secrets --all -n "${NAMESPACE}"
 kubectl delete configmaps --all -n "${NAMESPACE}"
 kubectl delete validatingwebhookconfigurations --all -n "${NAMESPACE}"
+
+kubectl delete svc debug-svc -n "${NAMESPACE}"  || true

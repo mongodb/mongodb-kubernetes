@@ -7,7 +7,7 @@ import (
 )
 
 type S3ConfigResponse struct {
-	S3Configs []*S3Config `json:"results"`
+	S3Configs []S3Config `json:"results"`
 }
 
 // https://docs.opsmanager.mongodb.com/current/reference/api/admin/backup/snapshot/s3Configs/create-one-s3-blockstore-configuration/#request-body-parameters
@@ -69,8 +69,8 @@ type S3Credentials struct {
 	SecretKey string `json:"awsSecretKey"`
 }
 
-func NewS3Config(id, uri string, bucket S3Bucket, s3Creds S3Credentials) *S3Config {
-	return &S3Config{
+func NewS3Config(id, uri string, bucket S3Bucket, s3Creds S3Credentials) S3Config {
+	return S3Config{
 		S3Bucket:               bucket,
 		S3Credentials:          s3Creds,
 		AcceptedTos:            true,
@@ -91,7 +91,7 @@ func (s S3Config) Identifier() interface{} {
 
 // MergeIntoOpsManagerConfig performs the merge operation of the Operator config view ('s') into the OM owned one
 // ('opsManagerS3Config')
-func (s S3Config) MergeIntoOpsManagerConfig(opsManagerS3Config *S3Config) *S3Config {
+func (s S3Config) MergeIntoOpsManagerConfig(opsManagerS3Config S3Config) S3Config {
 	opsManagerS3Config.Id = s.Id
 	opsManagerS3Config.S3Credentials = s.S3Credentials
 	opsManagerS3Config.S3Bucket = s.S3Bucket

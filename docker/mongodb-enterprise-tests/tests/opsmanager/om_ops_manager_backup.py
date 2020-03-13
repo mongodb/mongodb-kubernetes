@@ -10,6 +10,7 @@ from kubetester.kubetester import (
     KubernetesTester,
 )
 from kubetester.mongodb import Phase
+from kubetester.mongodb_user import MongoDBUser
 from pytest import mark, fixture
 from tests.opsmanager.om_base import OpsManagerBase
 
@@ -18,6 +19,8 @@ S3_SECRET_NAME = "my-s3-secret"
 AWS_REGION = "us-east-1"
 OPLOG_RS_NAME = "my-mongodb-oplog"
 S3_RS_NAME = "my-mongodb-s3"
+BLOCKSTORE_RS_NAME = "my-mongodb-blockstore"
+USER_PASSWORD = "qwerty"
 
 """
 Current test focuses on backup capabilities
@@ -27,28 +30,16 @@ updates in one test.
 """
 
 
-# TODO: improve this function to be generic and put on MongoDB resource object
-def mongo_uri(name: str, namespace: Optional[str] = None) -> str:
-    if namespace is None:
-        namespace = KubernetesTester.get_namespace()
-    return (
-        f"mongodb://{name}-0.{name}-svc.{namespace}.svc.cluster.local:27017,"
-        f"{name}-1.{name}-svc.{namespace}.svc.cluster.local:27017,"
-        f"{name}-2.{name}-svc.{namespace}.svc.cluster.local:27017/?"
-        f"connectTimeoutMS=20000&replicaSet={name}&serverSelectionTimeoutMS=20000"
-    )
-
-
 def new_om_s3_store(
+    mdb: MongoDB,
     s3_id: str,
     s3_bucket_name: str,
     aws_s3_client: AwsS3Client,
     assignment_enabled: bool = True,
     path_style_access_enabled: bool = True,
-    rs_name: str = S3_RS_NAME,
 ) -> Dict:
     return {
-        "uri": mongo_uri(rs_name),
+        "uri": mdb.mongo_uri(),
         "id": s3_id,
         "pathStyleAccessEnabled": path_style_access_enabled,
         "s3BucketEndpoint": s3_endpoint(AWS_REGION),
@@ -59,16 +50,17 @@ def new_om_s3_store(
     }
 
 
-def new_om_oplog_store(
-    oplog_store_name: str,
-    ssl: bool = False,
+def new_om_data_store(
+    mdb: MongoDB,
+    id: str,
     assignment_enabled: bool = True,
-    oplog_rs_name=OPLOG_RS_NAME,
+    user_name: Optional[str] = None,
+    password: Optional[str] = None,
 ) -> Dict:
     return {
-        "id": oplog_store_name,
-        "uri": mongo_uri(oplog_rs_name),
-        "ssl": ssl,
+        "id": id,
+        "uri": mdb.mongo_uri(user_name=user_name, password=password),
+        "ssl": mdb.is_tls_enabled(),
         "assignmentEnabled": assignment_enabled,
     }
 
@@ -119,6 +111,62 @@ def s3_bucket_2(aws_s3_client: AwsS3Client) -> str:
 
     print(f"\nRemoving S3 bucket {bucket_name}")
     aws_s3_client.delete_s3_bucket(bucket_name)
+
+
+@fixture(scope="module")
+def oplog_replica_set(ops_manager, namespace) -> MongoDB:
+    resource = MongoDB.from_yaml(
+        yaml_fixture("replica-set-for-om.yaml"),
+        namespace=namespace,
+        name=OPLOG_RS_NAME,
+    ).configure(ops_manager, "development")
+
+    yield resource.create()
+
+
+@fixture(scope="module")
+def s3_replica_set(ops_manager, namespace) -> MongoDB:
+    resource = MongoDB.from_yaml(
+        yaml_fixture("replica-set-for-om.yaml"), namespace=namespace, name=S3_RS_NAME,
+    ).configure(ops_manager, "s3metadata")
+
+    yield resource.create()
+
+
+@fixture(scope="module")
+def blockstore_replica_set(ops_manager, namespace) -> MongoDB:
+    resource = MongoDB.from_yaml(
+        yaml_fixture("replica-set-for-om.yaml"),
+        namespace=namespace,
+        name=BLOCKSTORE_RS_NAME,
+    ).configure(ops_manager, "blockstore")
+    # enabling 3.6.10 to let enable scram-sha (OM until some versions understands scram-sha-1 only)
+    resource["spec"]["version"] = "3.6.10"
+    resource["spec"]["security"] = {
+        "authentication": {"enabled": True, "modes": ["SCRAM"]}
+    }
+
+    yield resource.create()
+
+
+@fixture(scope="module")
+def blockstore_user(namespace, blockstore_replica_set: MongoDB) -> MongoDBUser:
+    """ Creates a password secret and then the user referencing it"""
+    resource = MongoDBUser.from_yaml(
+        yaml_fixture("scram-sha-user-backing-db.yaml"), namespace=namespace
+    )
+    resource["spec"]["mongodbResourceRef"]["name"] = blockstore_replica_set.name
+
+    print(
+        f"Creating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} "
+    )
+    KubernetesTester.create_secret(
+        KubernetesTester.get_namespace(),
+        resource.get_secret_name(),
+        {"password": USER_PASSWORD,},
+    )
+
+    yield resource.create()
 
 
 @mark.e2e_om_ops_manager_backup
@@ -191,53 +239,71 @@ class TestOpsManagerCreation:
 
 @mark.e2e_om_ops_manager_backup
 class TestBackupDatabasesAdded:
-    """ name: Creates two mongodb resources for oplog and s3 and waits until OM resource gets to running state"""
+    """ name: Creates three mongodb resources for oplog, s3 and blockstore and waits until OM resource gets to
+    running state"""
 
-    @fixture(scope="class")
-    def oplog_replica_set(self, ops_manager, namespace):
-        resource = MongoDB.from_yaml(
-            yaml_fixture("replica-set-for-om.yaml"),
-            namespace=namespace,
-            name=OPLOG_RS_NAME,
-        ).configure(ops_manager, "development")
-        resource["spec"]["version"] = "3.6.10"
-
-        yield resource.create()
-
-    @fixture(scope="class")
-    def s3_replica_set(self, ops_manager, namespace):
-        resource = MongoDB.from_yaml(
-            yaml_fixture("replica-set-for-om.yaml"),
-            namespace=namespace,
-            name=S3_RS_NAME,
-        ).configure(ops_manager, "s3metadata")
-        resource["spec"]["version"] = "3.6.10"
-
-        yield resource.create()
-
-    def test_oplog_replica_set_created(self, oplog_replica_set: MongoDB):
+    def test_backup_mdbs_created(
+        self,
+        oplog_replica_set: MongoDB,
+        s3_replica_set: MongoDB,
+        blockstore_replica_set: MongoDB,
+    ):
+        """ Creates mongodb databases all at once """
         oplog_replica_set.assert_reaches_phase(Phase.Running)
-
-    def test_s3_replica_set_created(self, s3_replica_set: MongoDB):
         s3_replica_set.assert_reaches_phase(Phase.Running)
+        blockstore_replica_set.assert_reaches_phase(Phase.Running)
+
+    def test_blockstore_user_created(self, blockstore_user: MongoDBUser):
+        blockstore_user.assert_reaches_phase(Phase.Updated)
+
+    def test_om_failed_blockstore_no_user_ref(
+        self, ops_manager: MongoDBOpsManager, blockstore_user: MongoDBUser
+    ):
+        """ Waits until Ops manager is in failed state as blockstore doesn't have reference to the user"""
+        ops_manager.assert_reaches_phase(
+            Phase.Failed,
+            msg_regexp=".*is configured to use SCRAM-SHA authentication mode, the user "
+            "must be specified using 'mongodbUserRef'",
+        )
+        ops_manager["spec"]["backup"]["blockStores"][0]["mongodbUserRef"] = {
+            "name": blockstore_user.get_user_name()
+        }
+        ops_manager.update()
+        # As soon as oplog, s3 and blockstores mongodb stores are created Operator will create matching configs in OM and
+        # get to Running state. Note, that the OM may quickly get into error state (BACKUP_MONGO_CONNECTION_FAILED)
+        # as the backup replica sets may not be completely ready but this will get fixed soon after a retry. """
+        ops_manager.assert_reaches_phase(Phase.Running, timeout=200, ignore_errors=True)
 
     @skip_if_local
     def test_om(
-        self, s3_bucket: str, aws_s3_client: AwsS3Client, ops_manager: MongoDBOpsManager
+        self,
+        s3_bucket: str,
+        aws_s3_client: AwsS3Client,
+        ops_manager: MongoDBOpsManager,
+        oplog_replica_set: MongoDB,
+        s3_replica_set: MongoDB,
+        blockstore_replica_set: MongoDB,
+        blockstore_user: MongoDBUser,
     ):
-        """ As soon as oplog mongodb store is created Operator will create oplog configs in OM and
-        get to Running state. Note, that the OM may quickly get into error state (BACKUP_MONGO_CONNECTION_FAILED)
-        as the backup replica sets may not be completely ready but this will get fixed soon after a retry. """
-        ops_manager.assert_reaches_phase(Phase.Running, timeout=200, ignore_errors=True)
-
         om_tester = ops_manager.get_om_tester()
         om_tester.assert_healthiness()
         # Nothing has changed for daemon
         om_tester.assert_daemon_enabled(ops_manager.backup_daemon_pod_name(), HEAD_PATH)
 
-        om_tester.assert_oplog_stores([new_om_oplog_store("oplog1")])
+        om_tester.assert_oplog_stores([new_om_data_store(oplog_replica_set, "oplog1")])
+        # block store has authentication enabled
+        om_tester.assert_block_stores(
+            [
+                new_om_data_store(
+                    blockstore_replica_set,
+                    "blockStore1",
+                    user_name=blockstore_user.get_user_name(),
+                    password=USER_PASSWORD,
+                )
+            ]
+        )
         om_tester.assert_s3_stores(
-            [new_om_s3_store("s3Store1", s3_bucket, aws_s3_client)]
+            [new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)]
         )
 
 
@@ -288,7 +354,12 @@ class TestBackupForMongodb:
 @mark.e2e_om_ops_manager_backup
 class TestBackupConfigurationAdditionDeletion:
     def test_oplog_store_is_added(
-        self, ops_manager: MongoDBOpsManager, s3_bucket: str, aws_s3_client: AwsS3Client
+        self,
+        ops_manager: MongoDBOpsManager,
+        s3_bucket: str,
+        aws_s3_client: AwsS3Client,
+        oplog_replica_set: MongoDB,
+        s3_replica_set: MongoDB,
     ):
         ops_manager.reload()
         ops_manager["spec"]["backup"]["oplogStores"].append(
@@ -302,12 +373,12 @@ class TestBackupConfigurationAdditionDeletion:
         om_tester = ops_manager.get_om_tester()
         om_tester.assert_oplog_stores(
             [
-                new_om_oplog_store("oplog1"),
-                new_om_oplog_store("oplog2", oplog_rs_name=S3_RS_NAME),
+                new_om_data_store(oplog_replica_set, "oplog1"),
+                new_om_data_store(s3_replica_set, "oplog2"),
             ]
         )
         om_tester.assert_s3_stores(
-            [new_om_s3_store("s3Store1", s3_bucket, aws_s3_client)]
+            [new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)]
         )
 
     def test_s3_store_is_updated(
@@ -315,6 +386,8 @@ class TestBackupConfigurationAdditionDeletion:
         ops_manager: MongoDBOpsManager,
         s3_bucket_2: str,
         aws_s3_client: AwsS3Client,
+        oplog_replica_set: MongoDB,
+        s3_replica_set: MongoDB,
     ):
         ops_manager.reload()
         existing_s3_store = ops_manager["spec"]["backup"]["s3Stores"][0]
@@ -328,12 +401,12 @@ class TestBackupConfigurationAdditionDeletion:
 
         om_tester.assert_oplog_stores(
             [
-                new_om_oplog_store("oplog1"),
-                new_om_oplog_store("oplog2", oplog_rs_name=S3_RS_NAME),
+                new_om_data_store(oplog_replica_set, "oplog1"),
+                new_om_data_store(s3_replica_set, "oplog2"),
             ]
         )
         om_tester.assert_s3_stores(
-            [new_om_s3_store("s3Store1", s3_bucket_2, aws_s3_client),]
+            [new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket_2, aws_s3_client)]
         )
 
     def test_oplog_store_is_deleted_correctly(
@@ -341,6 +414,10 @@ class TestBackupConfigurationAdditionDeletion:
         ops_manager: MongoDBOpsManager,
         s3_bucket_2: str,
         aws_s3_client: AwsS3Client,
+        oplog_replica_set: MongoDB,
+        s3_replica_set: MongoDB,
+        blockstore_replica_set: MongoDB,
+        blockstore_user: MongoDBUser,
     ):
         ops_manager.reload()
         ops_manager["spec"]["backup"]["oplogStores"].pop()
@@ -351,9 +428,19 @@ class TestBackupConfigurationAdditionDeletion:
 
         om_tester = ops_manager.get_om_tester()
 
-        om_tester.assert_oplog_stores([new_om_oplog_store("oplog1")])
+        om_tester.assert_oplog_stores([new_om_data_store(oplog_replica_set, "oplog1")])
         om_tester.assert_s3_stores(
-            [new_om_s3_store("s3Store1", s3_bucket_2, aws_s3_client),]
+            [new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket_2, aws_s3_client)]
+        )
+        om_tester.assert_block_stores(
+            [
+                new_om_data_store(
+                    blockstore_replica_set,
+                    "blockStore1",
+                    user_name=blockstore_user.get_user_name(),
+                    password=USER_PASSWORD,
+                )
+            ]
         )
 
     def test_error_on_s3store_removal(
@@ -365,8 +452,16 @@ class TestBackupConfigurationAdditionDeletion:
         ops_manager.update()
 
         ops_manager.assert_reaches_phase(Phase.Reconciling, timeout=60)
-        ops_manager.assert_reaches_phase(
-            Phase.Failed,
-            msg_regexp=".*BACKUP_CANNOT_REMOVE_S3_STORE_CONFIG.*",
-            timeout=150,
-        )
+        try:
+            ops_manager.assert_reaches_phase(
+                Phase.Failed,
+                msg_regexp=".*BACKUP_CANNOT_REMOVE_S3_STORE_CONFIG.*",
+                timeout=150,
+            )
+        except Exception:
+            # Some backup internal logic: if more than 1 snapshot stores are configured in OM (CM?) then
+            # the random one will be picked for backup of mongodb resource.
+            # There's no way to specify the config to be used when enabling backup for a mongodb deployment.
+            # So this means that either the removal of s3 will fail as it's used already or it will succeed as
+            # the blockstore snapshot was used instead and the OM would get to Running phase
+            assert ops_manager.get_om_status_phase() == Phase.Running

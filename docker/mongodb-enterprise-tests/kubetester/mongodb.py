@@ -1,12 +1,12 @@
 import re
 from enum import Enum
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
 
 import time
 from kubeobject import CustomObject
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, build_host_fqdn
 from kubetester.omtester import OMTester, OMContext
 
 from .mongotester import (
@@ -22,6 +22,7 @@ class Phase(Enum):
     Pending = 2
     Failed = 3
     Reconciling = 4
+    Updated = 5
 
 
 class MongoDBCommon:
@@ -60,9 +61,20 @@ class MongoDB(CustomObject, MongoDBCommon):
     def assert_reaches_phase(
         self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False
     ):
+        intermediate_events = (
+            "haven't reached READY",
+            "Some agents failed to register",
+            # Sometimes Cloud-QA timeouts so we anticipate to this
+            "Error sending GET request to",
+        )
         return self.wait_for(
-            lambda s: s.in_desired_state(
-                phase, msg_regexp=msg_regexp, ignore_errors=ignore_errors
+            lambda s: in_desired_state(
+                self.get_status_phase(),
+                phase,
+                self.get_status_message(),
+                msg_regexp=msg_regexp,
+                ignore_errors=ignore_errors,
+                intermediate_events=intermediate_events,
             ),
             timeout,
             should_raise=True,
@@ -77,28 +89,18 @@ class MongoDB(CustomObject, MongoDBCommon):
     def type(self) -> str:
         return self["spec"]["type"]
 
-    def _is_tls(self) -> bool:
-        """Checks if this object is TLS enabled."""
-        is_tls = False
-        try:
-            is_tls = self["spec"]["security"]["tls"]["enabled"]
-        except KeyError:
-            pass
-
-        return is_tls
-
     def _tester(self) -> MongoTester:
         """Returns a Tester instance for this type of deployment."""
         if self.type == "ReplicaSet":
             return ReplicaSetTester(
-                self.name, self["status"]["members"], self._is_tls()
+                self.name, self["status"]["members"], self.is_tls_enabled()
             )
         elif self.type == "ShardedCluster":
             return ShardedClusterTester(
-                self.name, self["spec"]["mongosCount"], self._is_tls()
+                self.name, self["spec"]["mongosCount"], self.is_tls_enabled()
             )
         elif self.type == "Standalone":
-            return StandaloneTester(self.name, self._is_tls())
+            return StandaloneTester(self.name, self.is_tls_enabled())
 
     def assert_connectivity(self):
         return self._tester().assert_connectivity()
@@ -118,54 +120,94 @@ class MongoDB(CustomObject, MongoDBCommon):
         self["spec"]["credentials"] = om.api_key_secret()
         return self
 
-    def in_desired_state(
-        self, state: Phase, msg_regexp: Optional[str] = None, ignore_errors=False
-    ) -> bool:
-        """ Returns true if the MongoDB is in desired state, fails fast if got into Failed error.
-         Optionally checks if the message matches the specified regexp expression"""
-        if "status" not in self:
+    def build_list_of_hosts(self):
+        """ Returns the list of full_fqdn:27017 for every member of the mongodb resource """
+        return [
+            build_host_fqdn(
+                f"{self.name}-{idx}",
+                self.namespace,
+                self.get_service(),
+                self.get_cluster_domain(),
+                27017,
+            )
+            for idx in range(self.get_members())
+        ]
+
+    def mongo_uri(
+        self, user_name: Optional[str] = None, password: Optional[str] = None
+    ) -> str:
+        """ Returns the mongo uri for the MongoDB resource. The logic matches the one in 'types.go' """
+        proto = "mongodb://"
+        auth = ""
+        params = {"connectTimeoutMS": "20000", "serverSelectionTimeoutMS": "20000"}
+        if "SCRAM" in self.get_authentication_modes():
+            auth = f"{user_name}:{password}@"
+            params["authSource"] = "admin"
+            # TODO check the version for correct auth mechanism
+            params["authMechanism"] = "SCRAM-SHA-1"
+
+        hosts = ",".join(self.build_list_of_hosts())
+
+        if self.get_resource_type() == "ReplicaSet":
+            params["replicaSet"] = self.name
+
+        if self.is_tls_enabled():
+            params["ssl"] = "true"
+
+        query_params = [
+            "{}={}".format(key, params[key]) for key in sorted(params.keys())
+        ]
+        joined_params = "&".join(query_params)
+        return proto + auth + hosts + "/?" + joined_params
+
+    def get_members(self) -> int:
+        return self["spec"]["members"]
+
+    def get_service(self) -> str:
+        try:
+            return self["spec"]["service"]
+        except KeyError:
+            return "{}-svc".format(self.name)
+
+    def get_cluster_domain(self) -> Optional[str]:
+        try:
+            return self["spec"]["clusterDomain"]
+        except KeyError:
+            return "cluster.local"
+
+    def get_resource_type(self) -> str:
+        return self["spec"]["type"]
+
+    def is_tls_enabled(self):
+        """Checks if this object is TLS enabled."""
+        try:
+            return self["spec"]["security"]["tls"]["enabled"]
+        except KeyError:
             return False
 
-        intermediate_events = (
-            "haven't reached READY",
-            "Some agents failed to register",
-            # Sometimes Cloud-QA timeouts so we anticipate to this
-            "Error sending GET request to",
-        )
+    def get_authentication(self) -> Optional[Dict]:
+        try:
+            return self["spec"]["security"]["authentication"]
+        except KeyError:
+            return {}
 
-        if self.get_status_phase() == Phase.Failed and not ignore_errors:
-            found = False
-            for event in intermediate_events:
-                if event in self.get_status_message():
-                    found = True
-
-            if not found:
-                raise AssertionError(
-                    'Got into Failed phase while waiting for Running! ("{}")'.format(
-                        self["status"]["message"]
-                    )
-                )
-        is_in_desired_state = self.get_status_phase() == state
-        if msg_regexp is not None:
-            regexp = re.compile(msg_regexp)
-            is_in_desired_state = (
-                is_in_desired_state
-                and self.get_status_message() is not None
-                and regexp.match(self.get_status_message())
-            )
-
-        return is_in_desired_state
-
-    def get_status(self) -> Optional:
-        return self["status"]
+    def get_authentication_modes(self) -> Optional[Dict]:
+        try:
+            return self.get_authentication()["modes"]
+        except KeyError:
+            return {}
 
     def get_status_phase(self) -> Optional[Phase]:
-        return Phase[self.get_status()["phase"]]
+        try:
+            return Phase[self["status"]["phase"]]
+        except KeyError:
+            return None
 
     def get_status_message(self) -> Optional[str]:
-        if "message" not in self.get_status():
+        try:
+            return self["status"]["message"]
+        except KeyError:
             return None
-        return self.get_status()["message"]
 
     def get_om_tester(self):
         """ Returns the OMTester instance based on MongoDB connectivity parameters """
@@ -208,8 +250,12 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False
     ):
         self.wait_for(
-            lambda s: s.in_desired_state(
-                phase, msg_regexp=msg_regexp, ignore_errors=ignore_errors
+            lambda s: in_desired_state(
+                self.get_om_status_phase(),
+                phase,
+                self.get_om_status_message(),
+                msg_regexp=msg_regexp,
+                ignore_errors=ignore_errors,
             ),
             timeout,
             should_raise=True,
@@ -285,31 +331,6 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                 raise
         return config_map_name
 
-    def in_desired_state(
-        self, state: Phase, msg_regexp: Optional[str] = None, ignore_errors=False
-    ) -> bool:
-        """ Returns true if the resource in desired state, fails fast if got into Failed error.
-         This allows to fail fast in case of cascade failures. If message regexp is specified than
-         the CR message must match the expected one """
-        if self.get_status() is None:
-            return False
-        phase = self.get_om_status_phase()
-
-        if phase == Phase.Failed and not ignore_errors and not state == Phase.Failed:
-            msg = self.get_om_status()["message"]
-            raise AssertionError(
-                'Got into Failed phase while waiting for Running! ("{}")'.format(msg)
-            )
-
-        is_om_in_desired_state = phase == state
-        if msg_regexp is not None:
-            regexp = re.compile(msg_regexp)
-            is_om_in_desired_state = is_om_in_desired_state and regexp.match(
-                self.get_om_status()["message"]
-            )
-
-        return is_om_in_desired_state
-
     def get_om_tester(self, project_name: Optional[str] = None) -> OMTester:
         """ Returns the instance of OMTester helping to check the state of Ops Manager deployed in Kubernetes. """
         api_key_secret = KubernetesTester.read_secret(
@@ -348,6 +369,12 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             return None
         return Phase[self.get_om_status()["phase"]]
 
+    def get_om_status_message(self) -> Optional[str]:
+        try:
+            return self.get_om_status()["message"]
+        except (KeyError, TypeError):
+            return None
+
     def get_appdb_status(self) -> Optional[Dict]:
         if self.get_status() is None:
             return None
@@ -378,3 +405,43 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
 def get_pods(podname, qty):
     return [podname.format(i) for i in range(qty)]
+
+
+def in_desired_state(
+    current_state: Phase,
+    desired_state: Phase,
+    current_message: str,
+    msg_regexp: Optional[str] = None,
+    ignore_errors=False,
+    intermediate_events: Optional[Tuple] = None,
+) -> bool:
+    """ Returns true if the current_state is equal to desired state, fails fast if got into Failed error.
+     Optionally checks if the message matches the specified regexp expression"""
+    if current_state is None:
+        return False
+
+    if (
+        current_state == Phase.Failed
+        and not desired_state == Phase.Failed
+        and not ignore_errors
+    ):
+        found = False
+        for event in intermediate_events:
+            if event in current_message:
+                found = True
+
+        if not found:
+            raise AssertionError(
+                f'Got into Failed phase while waiting for Running! ("{current_message}")'
+            )
+
+    is_in_desired_state = current_state == desired_state
+    if msg_regexp is not None:
+        regexp = re.compile(msg_regexp)
+        is_in_desired_state = (
+            is_in_desired_state
+            and current_message is not None
+            and regexp.match(current_message)
+        )
+
+    return is_in_desired_state

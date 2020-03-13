@@ -15,6 +15,10 @@ spec:
       - name: oplog1
         mongodbResourceRef:
           name: my-mongodb-oplog
+    blockStores:
+      - name: blockStore1
+        mongodbResourceRef:
+          name: my-mongodb-blockstore
     s3Stores:
       - name: s3Store1
         mongodbResourceRef:

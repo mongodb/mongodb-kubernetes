@@ -48,7 +48,6 @@ dump_all () {
     } >> "$dump_file"
 
     {
-        header "All MongoDB CRD"
         kubectl describe $(kubectl get crd -o name | grep mongodb.com) > logs/crd.log
     }
 

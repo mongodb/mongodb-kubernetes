@@ -106,8 +106,9 @@ type MongoDBOpsManagerBackup struct {
 	HeadDB *PersistenceConfig `json:"headDB,omitempty"`
 
 	// OplogStoreConfigs describes the list of oplog store configs used for backup
-	OplogStoreConfigs []*DataStoreConfig `json:"oplogStores,omitempty"`
-	S3Configs         []*S3Config        `json:"s3Stores,omitempty"`
+	OplogStoreConfigs []DataStoreConfig `json:"oplogStores,omitempty"`
+	BlockStoreConfigs []DataStoreConfig `json:"blockStores,omitempty"`
+	S3Configs         []S3Config        `json:"s3Stores,omitempty"`
 
 	PodSpec *MongoDbPodSpec `json:"podSpec,omitempty"`
 }

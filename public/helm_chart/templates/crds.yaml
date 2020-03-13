@@ -472,6 +472,30 @@ spec:
                     required:
                       - name
                       - mongodbResourceRef
+                blockStores:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      mongodbResourceRef:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                        required:
+                          - name
+                      mongodbUserRef:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                        required:
+                            - name
+                    required:
+                      - name
+                      - mongodbResourceRef
                 s3Stores:
                   type: array
                   items:
