@@ -29,7 +29,7 @@ submit_kaniko() {
     destination=${full_url} \
         context=s3://operator-kubernetes-build/ops-manager-operator/${version_id}/${IMAGE_TYPE}/contexts/appdb-context.tar.gz \
         cache_repo=268558157000.dkr.ecr.us-east-1.amazonaws.com/cache/mongodb-enterprise-appdb \
-        label=appdb-${version_id} \
+        label=appdb-${IMAGE_TYPE}-${version_id} \
         build_args="MDB_URL=${mdb_url},BINARY_NAME=${binary_name},AA_DOWNLOAD_LOCATION=${agent_download_location},AA_VERSION=${agent_version}" \
         ../../scripts/evergreen/build_docker_image.sh
 }

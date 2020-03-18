@@ -24,7 +24,7 @@ submit_kaniko() {
     destination=${full_url} \
         context=s3://operator-kubernetes-build/ops-manager-operator/${version_id}/${IMAGE_TYPE}/contexts/om-context.tar.gz \
         cache_repo=268558157000.dkr.ecr.us-east-1.amazonaws.com/cache/mongodb-enterprise-ops-manager \
-        label=ops-manager-${version_id} \
+        label=ops-manager-${IMAGE_TYPE}-${version_id} \
         build_args="OM_DOWNLOAD_LINK=${download_url}" \
         ../../scripts/evergreen/build_docker_image.sh
 }

@@ -40,6 +40,6 @@ if [[ -n "${kaniko-}" ]]; then
     # need to wait for kaniko builds to finish
     header "Kaniko jobs submitted, waiting until they finish"
 
-    label=appdb-${version_id} scripts/evergreen/wait_docker_image.sh
-    label=ops-manager-${version_id} scripts/evergreen/wait_docker_image.sh
+    label=appdb-${IMAGE_TYPE}-${version_id} scripts/evergreen/wait_docker_image.sh
+    label=ops-manager-${IMAGE_TYPE}-${version_id} scripts/evergreen/wait_docker_image.sh
 fi
