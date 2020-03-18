@@ -55,7 +55,7 @@ class TestShardedClusterUpdate(KubernetesTester):
       file: sharded-cluster.yaml
       patch: '[{"op":"replace","path":"/spec/shardCount","value":2}]'
       wait_until: in_running_state
-      timeout: 240
+      timeout: 360
     """
 
     def test_shard1_was_configured(self):
