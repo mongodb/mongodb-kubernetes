@@ -34,12 +34,13 @@ Run in both kops OM 4.2 and Openshift OM 4.2
 * `e2e_ops_manager_task_group`: the task group for all OM Custom Resource related tests
 
 # Choose the correct tag
- 
-The tag assigned to e2e test affects which build variant will be chosen for the test for Evergreen
-builds run in Github PRs. For example
+
+If your test is supposed to be run during patches, then make sure you add the
+`patch-run` tag to it, like in tis example:
+
 ```
 - name: e2e_replica_set_tls_prefer
-  tags: ["openshift-om-qa"]
+  tags: ["patch-run"]
   exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
@@ -130,34 +131,28 @@ expires). To create a new user:
 | Job Function | DBA | |
 | Country | Ireland | |
 
-* After logging-in, click on "Kubernetes" (our First Name) on the
-  top-right part of the UI.
-* Click on Account and then in "Public API Access"
-* Create a new API Key, don't forget to write it down
-* Whitelist all the IPs of the Kubernetes cluster that will be
-  connecting to Cloud Manager. An easy way of getting all the external
-  IPs that a cluster is using is to do:
+* After logging in, go to "Billing" and add the a fake credit card. You'll find
+  the details in
+  [here](https://wiki.corp.mongodb.com/display/MMS/MMS+Test+Plan+-+Billing#MMSTestPlan-Billing-B.BillingSettings).
+  
+##### Creating a Programmatic API Key for Tests
 
-``` bash
-kubectl get nodes -o jsonpath='{$.items[*].status.addresses[?(@.type=="ExternalIP")].address}'
-```
+The `cloud-qa` tests work by generating a programmatic API Key on each test run,
+based on a "master" Programmatic API Key that you'll have to create manually:
 
-* Get the name of the [default
-  organization](https://cloud-qa.mongodb.com/v2#/account/organizations). Find
-  the organization named *MongoDB* (this is the "Company Name" you set
-  during registration. Click on the Organization name and get the
-  Organization ID from the URL.
-
-* Finally, update this information into [Evergreen
-  project](https://evergreen.mongodb.com/projects##ops-manager-kubernetes).
-
-* Create a Programmatic API Key: Go to Access, API Keys and create a new one
-  with "Organization Owner role". Add the following IP to the "allowed list":
+* Go to Access
+* Click on "Manage" and then "Create API Key"
+* Write down the "Public Key" (something like: zgjgujkc)
+* Add a description (like: E2E Tests Runner)
+* In "Organization Permissions" choose "Organization Owner"
+* Write down the "Private Key" (something like: f8ed33fc-9e60-44e7-b9d8-60a61e02ebd6)
+* Add the following IP to the "allowed list":
 
   - 0.0.0.0/1
   - 128.0.0.0/1
-  
-* Save the public and private parts of the API key!
+* Get the Organization ID for this organization (from the URL)
+* Finally, update this information into [Evergreen
+  project](https://evergreen.mongodb.com/projects##ops-manager-kubernetes).
 
 * The attributes to complete are:
   - `e2e_cloud_qa_apikey_owner`: The new programmatic API Key private part
