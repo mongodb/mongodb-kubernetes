@@ -42,6 +42,12 @@ dump_all () {
     } >> "$dump_file"
 
     {
+        header "Cert Manager Resources"
+        kubectl -n cert-manager get all
+        kubectl -n "${PROJECT_NAMESPACE}" get certificate -o yaml
+    } >> "$dump_file"
+
+    {
         header "All test/namespace CSR";
         kubectl get csr -o wide | grep "${PROJECT_NAMESPACE}" ;
         echo "Cluster currently has $(kubectl get csr -o name | wc -l) certificates"

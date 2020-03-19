@@ -165,7 +165,8 @@ const (
 	DefaultMemoryOpsManager            = "5G"
 	DefaultAntiAffinityTopologyKey     = "kubernetes.io/hostname"
 	MongoDbDefaultPort                 = 27017
-	OpsManagerDefaultPort              = 8080
+	OpsManagerDefaultPortHTTP          = 8080
+	OpsManagerDefaultPortHTTPS         = 8443
 	DefaultBackupDisableWaitSeconds    = "3"
 	DefaultBackupDisableWaitRetries    = "30" // 30 * 3 = 90 seconds, should be ok for backup job to terminate
 	DefaultPodTerminationPeriodSeconds = 600  // 10 min. Keep this in sync with 'cleanup()' function in agent-launcher-lib.sh

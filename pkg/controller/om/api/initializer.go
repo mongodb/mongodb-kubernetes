@@ -51,7 +51,10 @@ func (o *DefaultInitializer) TryCreateUser(omUrl string, user *User) (string, er
 		return "", err
 	}
 
-	client, err := NewHTTPClient()
+	// As of now, there is no HTTPS context that we pass to the operator, so we'll skip
+	// the HTTPS verification, because this OM instance was just created by the operator itself
+	// and we should trust it.
+	client, err := NewHTTPClient(OptionSkipVerify)
 	if err != nil {
 		return "", err
 	}

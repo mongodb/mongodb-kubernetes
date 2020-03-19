@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+
+if [[ "${with_cert_manager-}" != "true" ]]; then
+  echo "cert-manager not installed in this cluster"
+  exit 0
+fi
+
+if [ "${kube_environment_name}" = "kind" ]; then
+  # only install cert_manager in isolated clusters
+  kubectl create namespace cert-manager
+  kubectl apply --validate=false -f https://github.com/jetstack/cert-manager/releases/download/v0.13.1/cert-manager.yaml
+
+  echo "Wait for cert-manager to be ready"
+  sleep 10  # wait a bit in case cert-manager does not show up yet
+  kubectl -n cert-manager wait pod --for=condition=initialized -l app=webhook --timeout 300s
+fi

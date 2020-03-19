@@ -706,17 +706,26 @@ func (oc *HTTPOmConnection) httpVerb(method, path string, v interface{}) ([]byte
 }
 
 func (oc *HTTPOmConnection) getHTTPClient() (*http.Client, error) {
+	// TODO: build the client object using a different strategy.
+	client, err := api.NewHTTPClient()
+
 	if oc.context.CACertificate != "" {
 		zap.S().Debug("Using CA Certificate ")
-		return api.NewHTTPClient(api.OptionCAValidate(oc.context.CACertificate))
+		err = api.OptionCAValidate(oc.context.CACertificate)(client)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if oc.context.AllowInvalidSSLCertificate {
 		zap.S().Debug("Allowing insecure certs")
-		return api.NewHTTPClient(api.OptionSkipVerify)
+		err = api.OptionSkipVerify(client)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	return api.NewHTTPClient()
+	return client, err
 }
 
 type Version struct {

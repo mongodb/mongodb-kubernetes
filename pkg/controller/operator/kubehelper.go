@@ -132,6 +132,9 @@ type OpsManagerStatefulSetHelper struct {
 	// MongoDBOpsManagerSpec reference to the actual Spec received.
 	Spec mdbv1.MongoDBOpsManagerSpec
 
+	// Annotations passed to the Ops Manager resource
+	Annotations map[string]string
+
 	EnvVars []corev1.EnvVar
 }
 
@@ -199,6 +202,9 @@ func (k *KubeHelper) NewStatefulSetHelper(obj Updatable) *StatefulSetHelper {
 func (k *KubeHelper) NewOpsManagerStatefulSetHelper(opsManager mdbv1.MongoDBOpsManager) *OpsManagerStatefulSetHelper {
 	spec := mdbv1.NewPodSpecWrapperBuilderFromSpec(opsManager.Spec.PodSpec).Build()
 	spec.Default = mdbv1.OpsManagerPodSpecDefaultValues()
+
+	_, port := opsManager.GetSchemePort()
+
 	return &OpsManagerStatefulSetHelper{
 		StatefulSetHelperCommon: StatefulSetHelperCommon{
 			Owner:         &opsManager,
@@ -207,7 +213,7 @@ func (k *KubeHelper) NewOpsManagerStatefulSetHelper(opsManager mdbv1.MongoDBOpsM
 			ContainerName: util.OpsManagerContainerName,
 			Replicas:      opsManager.Spec.Replicas,
 			Helper:        k,
-			ServicePort:   util.OpsManagerDefaultPort,
+			ServicePort:   int32(port),
 			Version:       opsManager.Spec.Version,
 			Service:       opsManager.SvcName(),
 			PodSpec:       spec,
@@ -377,6 +383,11 @@ func (s *OpsManagerStatefulSetHelper) SetService(service string) *OpsManagerStat
 
 func (s *OpsManagerStatefulSetHelper) SetName(name string) *OpsManagerStatefulSetHelper {
 	s.Name = name
+	return s
+}
+
+func (s *OpsManagerStatefulSetHelper) SetAnnotations(annotations map[string]string) *OpsManagerStatefulSetHelper {
+	s.Annotations = annotations
 	return s
 }
 

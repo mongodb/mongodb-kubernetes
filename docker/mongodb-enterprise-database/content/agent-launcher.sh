@@ -96,7 +96,7 @@ if [[ -n "${SSL_TRUSTED_MMS_SERVER_CERTIFICATE-}" ]]; then
     agentOpts+=("-sslTrustedMMSServerCertificate" "${SSL_TRUSTED_MMS_SERVER_CERTIFICATE}")
 fi
 
-if [[ -n "${SSL_REQUIRE_VALID_MMS_CERTIFICATES-}" ]] && [[ "${SSL_REQUIRE_VALID_MMS_CERTIFICATES}" = "true" ]]; then
+if [[ "${SSL_REQUIRE_VALID_MMS_CERTIFICATES-}" != "false" ]]; then
     # Only set this option when valid certs are required. The default is false
     agentOpts+=("-sslRequireValidMMSServerCertificates")
 fi

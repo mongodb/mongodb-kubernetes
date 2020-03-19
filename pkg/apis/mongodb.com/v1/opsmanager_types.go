@@ -384,14 +384,17 @@ func (m *MongoDBOpsManager) UpdateSuccessfulAppDb(object runtime.Object, _ ...st
 	m.Status.AppDbStatus.Members = spec.Members
 }
 
+func (m MongoDBOpsManager) GetSchemePort() (corev1.URIScheme, int) {
+	annotation, _ := m.Annotations["x-readiness-probe-scheme"]
+	return SchemePortFromAnnotation(annotation)
+}
+
 func (m MongoDBOpsManager) CentralURL() string {
 	fqdn := util.GetServiceFQDN(m.SvcName(), m.Namespace, m.Spec.GetClusterDomain())
-
-	// protocol must be calculated based on tls configuration of the ops manager resource
-	protocol := "http"
+	scheme, port := m.GetSchemePort()
 
 	// TODO use url.URL to build the url
-	return fmt.Sprintf("%s://%s:%d", protocol, fqdn, util.OpsManagerDefaultPort)
+	return fmt.Sprintf("%s://%s:%d", strings.ToLower(string(scheme)), fqdn, port)
 }
 
 func (m MongoDBOpsManager) BackupDaemonHostName() string {
@@ -420,6 +423,17 @@ func OpsManagerPodSpecDefaultValues() MongoDbPodSpec {
 		SetPodAntiAffinityTopologyKey(util.DefaultAntiAffinityTopologyKey).
 		Build().
 		MongoDbPodSpec
+}
+
+func SchemePortFromAnnotation(annotation string) (corev1.URIScheme, int) {
+	scheme := corev1.URISchemeHTTP
+	port := util.OpsManagerDefaultPortHTTP
+	if strings.ToUpper(annotation) == "HTTPS" {
+		scheme = corev1.URISchemeHTTPS
+		port = util.OpsManagerDefaultPortHTTPS
+	}
+
+	return scheme, port
 }
 
 //=============== AppDB ===========================================

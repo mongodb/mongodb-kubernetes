@@ -517,7 +517,7 @@ func TestOpsManagerPodTemplate_Container(t *testing.T) {
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-ops-manager:4.2.0-operator9.9.9-test", container.Image)
 	assert.Equal(t, corev1.PullNever, container.ImagePullPolicy)
 
-	assert.Equal(t, int32(util.OpsManagerDefaultPort), container.Ports[0].ContainerPort)
+	assert.Equal(t, int32(util.OpsManagerDefaultPortHTTP), container.Ports[0].ContainerPort)
 	assert.Equal(t, "/monitor/health", container.ReadinessProbe.Handler.HTTPGet.Path)
 	assert.Equal(t, int32(8080), container.ReadinessProbe.Handler.HTTPGet.Port.IntVal)
 

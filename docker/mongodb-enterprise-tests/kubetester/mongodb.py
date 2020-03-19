@@ -114,6 +114,11 @@ class MongoDB(CustomObject, MongoDBCommon):
         )
 
     def configure(self, om, project_name: str):
+        if "project" in self["spec"]:
+            del self["spec"]["project"]
+
+        self["spec"]["opsManager"] = {"configMapRef": {}}
+
         self["spec"]["opsManager"]["configMapRef"][
             "name"
         ] = om.get_or_create_mongodb_connection_config_map(self.name, project_name)
@@ -265,7 +270,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
     def assert_abandons_phase(self, phase: Phase, timeout=None):
         return self.wait_for(
-            lambda s: s.get_om_status_phase() != phase, timeout, should_raise=True,
+            lambda s: s.get_om_status_phase() != phase, timeout, should_raise=True
         )
 
     def assert_reaches(self, fn, timeout=None):

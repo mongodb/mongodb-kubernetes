@@ -304,20 +304,26 @@ func buildOpsManagerStatefulSet(p OpsManagerStatefulSetHelper) (appsv1.StatefulS
 }
 
 func buildBaseContainerForOpsManagerAndBackup(p OpsManagerStatefulSetHelper) corev1.Container {
+	annotation := p.Annotations["x-readiness-probe-scheme"]
+	_, port := mdbv1.SchemePortFromAnnotation(annotation)
+
 	omImageUrl := prepareOmAppdbImageUrl(util.ReadEnvVarOrPanic(util.OpsManagerImageUrl), p.Version)
 	container := corev1.Container{
 		Image:           omImageUrl,
 		ImagePullPolicy: corev1.PullPolicy(util.ReadEnvVarOrPanic(util.OpsManagerPullPolicy)),
 		Env:             p.EnvVars,
-		Ports:           []corev1.ContainerPort{{ContainerPort: util.OpsManagerDefaultPort}},
+		Ports:           []corev1.ContainerPort{{ContainerPort: int32(port)}},
 	}
 	return container
 }
 
 func buildOpsManagerContainer(p OpsManagerStatefulSetHelper) corev1.Container {
+	annotation := p.Annotations["x-readiness-probe-scheme"]
+	scheme, _ := mdbv1.SchemePortFromAnnotation(annotation)
+
 	container := buildBaseContainerForOpsManagerAndBackup(p)
 	container.Name = p.ContainerName
-	container.ReadinessProbe = opsManagerReadinessProbe()
+	container.ReadinessProbe = opsManagerReadinessProbe(scheme)
 	container.Lifecycle = &corev1.Lifecycle{
 		PreStop: &corev1.Handler{
 			Exec: &corev1.ExecAction{
@@ -594,10 +600,14 @@ func baseLivenessProbe() *corev1.Probe {
 
 // opsManagerReadinessProbe creates the readiness probe.
 // Note on 'PeriodSeconds': /monitor/health is a super lightweight method not doing any IO so we can make it more often.
-func opsManagerReadinessProbe() *corev1.Probe {
+func opsManagerReadinessProbe(scheme corev1.URIScheme) *corev1.Probe {
+	port := 8080
+	if scheme == corev1.URISchemeHTTPS {
+		port = 8443
+	}
 	return &corev1.Probe{
 		Handler: corev1.Handler{
-			HTTPGet: &corev1.HTTPGetAction{Port: intstr.FromInt(8080), Path: "/monitor/health"},
+			HTTPGet: &corev1.HTTPGetAction{Scheme: scheme, Port: intstr.FromInt(port), Path: "/monitor/health"},
 		},
 		InitialDelaySeconds: 60,
 		TimeoutSeconds:      5,
@@ -670,7 +680,6 @@ func baseEnvFrom(podVars *PodVars) []corev1.EnvVar {
 
 	if podVars.SSLMMSCAConfigMap != "" {
 		// A custom CA has been provided, point the trusted CA to the location of custom CAs
-		// trustedCACertLocation = util.
 		trustedCACertLocation := path.Join(CaCertMountPath, CaCertMMS)
 		vars = append(vars,
 			corev1.EnvVar{

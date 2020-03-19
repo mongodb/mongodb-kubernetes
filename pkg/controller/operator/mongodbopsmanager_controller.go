@@ -126,6 +126,9 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulset(opsManager mdbv1.Mong
 	r.ensureConfiguration(&opsManager, opsManagerUserPassword, log)
 
 	helper := r.kubeHelper.NewOpsManagerStatefulSetHelper(opsManager).SetLogger(log)
+	if opsManager.Annotations != nil {
+		helper.SetAnnotations(opsManager.Annotations)
+	}
 	if err := helper.CreateOrUpdateInKubernetes(); err != nil {
 		return failedErr(err)
 	}

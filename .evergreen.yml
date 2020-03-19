@@ -264,6 +264,20 @@ functions:
         BINDIR: ${workdir}/bin
       binary: scripts/evergreen/setup_kubernetes_environment
 
+  setup_cert_manager:
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_expansions_to_env: true
+      add_to_path:
+        - ${workdir}/bin
+      env:
+        BINDIR: ${workdir}/bin
+        KUBECONFIG: ${workdir}/${kube_environment_name}_config
+      binary: scripts/evergreen/setup_cert_manager
+      
+
   "gotest_parse_files":
     - command: gotest.parse_files
       type: test
@@ -1335,6 +1349,10 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_om_ops_manager_https_enabled
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
 
 task_groups:
 - name: unit_task_group
@@ -1566,6 +1584,7 @@ task_groups:
     - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
+    - func: setup_cert_manager
   tasks:
     - e2e_om_appdb_scale_up_down
     - e2e_om_appdb_upgrade
@@ -1573,6 +1592,7 @@ task_groups:
     - e2e_om_appdb_scram
     - e2e_om_ops_manager_backup
     - e2e_om_ops_manager_pod_spec
+    - e2e_om_ops_manager_https_enabled
     - e2e_om_ops_manager_scale
     - e2e_om_ops_manager_upgrade
     - e2e_om_external_connectivity
@@ -1602,6 +1622,7 @@ task_groups:
     - e2e_om_appdb_scram
     - e2e_om_ops_manager_backup
     - e2e_om_ops_manager_pod_spec
+    - e2e_om_ops_manager_https_enabled
     - e2e_om_ops_manager_scale
     - e2e_om_ops_manager_upgrade
     - e2e_om_external_connectivity
@@ -1825,6 +1846,7 @@ buildvariants:
     <<: *kubernetes_environment_kind
     image_type: rhel
     test_mode: opsmanager
+    with_cert_manager: "true"
   tasks:
   - name: e2e_ops_manager_task_group
 

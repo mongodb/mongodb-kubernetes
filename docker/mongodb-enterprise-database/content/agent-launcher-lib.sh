@@ -87,7 +87,7 @@ download_agent () {
         "--output" "automation-agent.tar.gz"
     )
 
-    if [ -n "${SSL_REQUIRE_VALID_MMS_CERTIFICATES-}" ] && [ "${SSL_REQUIRE_VALID_MMS_CERTIFICATES}" = "false" ]; then
+    if [ "${SSL_REQUIRE_VALID_MMS_CERTIFICATES-}" = "false" ]; then
         # If we are not expecting valid certs, `curl` should be run with `--insecure` option.
         # The default is NOT to accept insecure connections.
         curl_opts+=("--insecure")

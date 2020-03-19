@@ -1,0 +1,56 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: om-pod-spec-with-custom-ca
+  annotations:
+    x-readiness-probe-scheme: https
+spec:
+  replicas: 1
+  version: 4.2.0
+  adminCredentials: ops-manager-admin-secret
+  configuration:
+    mms.testUtil.enabled: "true"
+    mms.https.PEMKeyFile: /pod-spec-mount/server.pem
+
+    # MongoDB server needs to be downloaded from Ops Manager
+    # because the public known authorities will not be recognized
+    # as valid anymore.
+    automation.versions.source: local
+  backup:
+    enabled: false
+
+  podSpec:
+    podTemplate:
+      spec:
+        volumes:
+          - name: om-cert
+            secret:
+              secretName: custom-ca-for-ops-manager
+          - name: mongodb-versions
+            emptyDir: {}
+        containers:
+          - name: mongodb-ops-manager
+            volumeMounts:
+              - name: om-cert
+                mountPath: /pod-spec-mount
+              - name: mongodb-versions
+                mountPath: /mongodb-ops-manager/mongodb-releases
+
+        # We download the version we know it is going to be used
+        # by the test and we add it to the local-mode version's directory.
+        initContainers:
+          - name: setting-up
+            image: curlimages/curl:latest
+            command:
+            - curl
+            - -L
+            - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel70-3.6.9.tgz
+            - -o
+            - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel70-3.6.9.tgz 
+            volumeMounts:
+              - name: mongodb-versions
+                mountPath: /mongodb-ops-manager/mongodb-releases
+
+  applicationDatabase:
+    members: 3
+    version: 4.2.0

@@ -216,7 +216,8 @@ func (a *DefaultOmAdmin) delete(path string, params ...interface{}) error {
 }
 
 func (a *DefaultOmAdmin) httpVerb(method, path string, v interface{}, params ...interface{}) ([]byte, error) {
-	client, err := NewHTTPClient()
+	// TODO: Add valid configuration as part of CLOUDP-57885.
+	client, err := NewHTTPClient(OptionSkipVerify)
 	if err != nil {
 		return nil, NewError(err)
 	}
