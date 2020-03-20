@@ -3,7 +3,6 @@ package operator
 // This is a collection of functions building different Kubernetes API objects (statefulset, templates etc) from operator
 // custom objects
 import (
-	"context"
 	"path"
 	"strconv"
 
@@ -275,25 +274,11 @@ func createBaseOpsManagerStatefulSetBuilder(p OpsManagerStatefulSetHelper, conta
 		return nil, err
 	}
 
-	ownerReferences := baseOwnerReference(p.Owner)
-	sts := &appsv1.StatefulSet{}
-	if err := p.Helper.client.Get(context.TODO(), objectKey(p.Namespace, p.Name+"-db"), sts); err == nil {
-		appbOwnerRef := metav1.OwnerReference{
-			APIVersion:         sts.APIVersion,
-			Kind:               sts.Kind,
-			Name:               sts.Name, // TODO
-			UID:                sts.GetUID(),
-			Controller:         util.BooleanRef(false),
-			BlockOwnerDeletion: util.BooleanRef(true),
-		}
-		ownerReferences = append(ownerReferences, appbOwnerRef)
-	}
-
 	stsBuilder := statefulset.NewBuilder().
 		SetLabels(labels).
 		SetName(p.Name).
 		SetNamespace(p.Namespace).
-		SetOwnerReference(ownerReferences).
+		SetOwnerReference(baseOwnerReference(p.Owner)).
 		SetReplicas(util.Int32Ref(int32(p.Replicas))).
 		SetPodTemplateSpec(template).
 		SetMatchLabels(labels).
