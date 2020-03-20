@@ -8,21 +8,8 @@ spec:
   adminCredentials: ops-manager-admin-secret
   backup:
     enabled: true
-    headDB:
-      storage: 500M
-      storageClass: gp2
-    oplogStores:
-      - name: oplog1
-        mongodbResourceRef:
-          name: my-mongodb-oplog
-    blockStores:
-      - name: blockStore1
-        mongodbResourceRef:
-          name: my-mongodb-blockstore
     s3Stores:
       - name: s3Store1
-        mongodbResourceRef:
-          name: my-mongodb-s3
         s3SecretRef:
           name: my-s3-secret
         pathStyleAccessEnabled: true
@@ -31,6 +18,6 @@ spec:
 
   applicationDatabase:
     members: 3
-    version: 4.0.0
+    version: 4.2.0-ent
     persistent: false
 

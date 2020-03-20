@@ -150,21 +150,26 @@ type SecretRef struct {
 }
 
 type S3Config struct {
-	MongoDBResourceRef     MongoDBResourceRef `json:"mongodbResourceRef"`
-	MongoDBUserRef         *MongoDBUserRef    `json:"mongodbUserRef,omitempty"`
-	S3SecretRef            SecretRef          `json:"s3SecretRef"`
-	Name                   string             `json:"name"`
-	PathStyleAccessEnabled bool               `json:"pathStyleAccessEnabled"`
-	S3BucketEndpoint       string             `json:"s3BucketEndpoint"`
-	S3BucketName           string             `json:"s3BucketName"`
+	MongoDBResourceRef     *MongoDBResourceRef `json:"mongodbResourceRef,omitempty"`
+	MongoDBUserRef         *MongoDBUserRef     `json:"mongodbUserRef,omitempty"`
+	S3SecretRef            SecretRef           `json:"s3SecretRef"`
+	Name                   string              `json:"name"`
+	PathStyleAccessEnabled bool                `json:"pathStyleAccessEnabled"`
+	S3BucketEndpoint       string              `json:"s3BucketEndpoint"`
+	S3BucketName           string              `json:"s3BucketName"`
 }
 
 func (s S3Config) Identifier() interface{} {
 	return s.Name
 }
 
-func (s S3Config) MongodbResourceObjectKey(defaultNamespace string) client.ObjectKey {
-	ns := defaultNamespace
+// MongodbResourceObjectKey returns the "name-namespace" object key. Uses the AppDB name if the mongodb resource is not
+// specified
+func (s S3Config) MongodbResourceObjectKey(opsManager MongoDBOpsManager) client.ObjectKey {
+	ns := opsManager.Namespace
+	if s.MongoDBResourceRef == nil {
+		return client.ObjectKey{}
+	}
 	if s.MongoDBResourceRef.Namespace != "" {
 		ns = s.MongoDBResourceRef.Namespace
 	}
@@ -173,6 +178,9 @@ func (s S3Config) MongodbResourceObjectKey(defaultNamespace string) client.Objec
 
 func (s S3Config) MongodbUserObjectKey(defaultNamespace string) client.ObjectKey {
 	ns := defaultNamespace
+	if s.MongoDBResourceRef == nil {
+		return client.ObjectKey{}
+	}
 	if s.MongoDBResourceRef.Namespace != "" {
 		ns = s.MongoDBResourceRef.Namespace
 	}

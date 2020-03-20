@@ -133,6 +133,20 @@ func configServerCountIsNotConfigurable(os MongoDBOpsManagerSpec) ValidationResu
 	return validationSuccess()
 }
 
+// s3StoreMongodbUserSpecifiedNoMongoResource checks that 'mongodbResourceRef' is provided if 'mongodbUserRef' is configured
+func s3StoreMongodbUserSpecifiedNoMongoResource(os MongoDBOpsManagerSpec) ValidationResult {
+	if !os.Backup.Enabled || len(os.Backup.S3Configs) == 0 {
+		return validationSuccess()
+	}
+	for _, config := range os.Backup.S3Configs {
+		if config.MongoDBUserRef != nil && config.MongoDBResourceRef == nil {
+			return validationWarning(
+				"'mongodbResourceRef' must be specified if 'mongodbUserRef' is configured (S3 Store: %s)", config.Name)
+		}
+	}
+	return validationSuccess()
+}
+
 func (om MongoDBOpsManager) RunValidations() []ValidationResult {
 	validators := []func(m MongoDBOpsManagerSpec) ValidationResult{
 		connectivityIsNotConfigurable,
@@ -147,6 +161,7 @@ func (om MongoDBOpsManager) RunValidations() []ValidationResult {
 		mongodsPerShardCountIsNotConfigurable,
 		mongosCountIsNotConfigurable,
 		configServerCountIsNotConfigurable,
+		s3StoreMongodbUserSpecifiedNoMongoResource,
 	}
 	var validationResults []ValidationResult
 

@@ -529,7 +529,6 @@ spec:
                         name: string
                     required:
                       - name
-                      - mongodbResourceRef
                       - pathStyleAccessEnabled
                       - s3BucketEndpoint
                       - s3BucketName

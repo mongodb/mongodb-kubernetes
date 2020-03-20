@@ -99,21 +99,6 @@ class TestOpsManagerS3StoreNameRequired(OpsManagerBase):
 
 
 @pytest.mark.e2e_om_appdb_validation
-class TestOpsManagerS3StoreMongoDBResourceRefRequired(OpsManagerBase):
-    """
-    description: |
-      S3 store specified but missing 'mongodbResourceRef' field
-    create:
-      file: om_s3store_validation.yaml
-      patch: '[{"op":"add","path":"/spec/backup/s3Stores/-", "value": { "name": "foo" }}]'
-      exception: 'spec.backup.s3Stores.mongodbResourceRef in body is required'
-    """
-
-    def test_validation_ok(self):
-        assert True
-
-
-@pytest.mark.e2e_om_appdb_validation
 class TestOpsManagerS3StorePathStyleAccessEnabledRequired(OpsManagerBase):
     """
     description: |

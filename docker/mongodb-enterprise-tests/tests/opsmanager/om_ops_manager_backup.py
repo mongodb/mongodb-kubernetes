@@ -37,9 +37,11 @@ def new_om_s3_store(
     aws_s3_client: AwsS3Client,
     assignment_enabled: bool = True,
     path_style_access_enabled: bool = True,
+    user_name: Optional[str] = None,
+    password: Optional[str] = None,
 ) -> Dict:
     return {
-        "uri": mdb.mongo_uri(),
+        "uri": mdb.mongo_uri(user_name=user_name, password=password),
         "id": s3_id,
         "pathStyleAccessEnabled": path_style_access_enabled,
         "s3BucketEndpoint": s3_endpoint(AWS_REGION),
@@ -67,25 +69,31 @@ def new_om_data_store(
 
 @fixture(scope="module")
 def s3_bucket(aws_s3_client: AwsS3Client) -> str:
-    """ creates a s3 bucket and a s3 config"""
+    create_aws_secret(aws_s3_client, S3_SECRET_NAME)
+    yield from create_s3_bucket(aws_s3_client)
 
-    bucket_name = KubernetesTester.random_k8s_name("test-bucket-")
-    aws_s3_client.create_s3_bucket(bucket_name)
-    print(f"\nCreated S3 bucket {bucket_name}")
 
+def create_aws_secret(aws_s3_client, secret_name: str):
     OpsManagerBase.create_secret(
         OpsManagerBase.get_namespace(),
-        S3_SECRET_NAME,
+        secret_name,
         {
             "accessKey": aws_s3_client.aws_access_key,
             "secretKey": aws_s3_client.aws_secret_access_key,
         },
     )
-    print(f"Created a secret for S3 credentials {S3_SECRET_NAME}")
-    yield bucket_name
+    print("\nCreated a secret for S3 credentials", secret_name)
 
-    print(f"\nRemoving S3 bucket {bucket_name}")
-    aws_s3_client.delete_s3_bucket(bucket_name)
+
+def create_s3_bucket(aws_s3_client, bucket_prefix: str = "test-bucket-"):
+    """ creates a s3 bucket and a s3 config"""
+    bucket_prefix = KubernetesTester.random_k8s_name(bucket_prefix)
+    aws_s3_client.create_s3_bucket(bucket_prefix)
+    print("Created S3 bucket", bucket_prefix)
+
+    yield bucket_prefix
+    print("\nRemoving S3 bucket", bucket_prefix)
+    aws_s3_client.delete_s3_bucket(bucket_prefix)
 
 
 @fixture(scope="module")
@@ -224,8 +232,8 @@ class TestOpsManagerCreation:
         """ Backup daemon serves no incoming traffic so no service must be created """
         services = client.CoreV1Api().list_namespaced_service(namespace).items
 
-        # 1 for AppDB, 2 for Ops Manager statefulset, 1 for validation webhook
-        assert len(services) == 4
+        # 1 for AppDB, 1 for Ops Manager statefulset, 1 for validation webhook
+        assert len(services) == 3
 
     @skip_if_local
     def test_om(self, ops_manager: MongoDBOpsManager):

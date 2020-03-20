@@ -31,6 +31,7 @@ else
     WATCH_NAMESPACE=${watch_namespace:-$PROJECT_NAMESPACE} \
     MANAGED_SECURITY_CONTEXT=${managed_security_context:-} \
     REGISTRY=${REPO_URL} \
+    DEBUG=${debug-} \
     ./scripts/evergreen/e2e/e2e
 fi
 

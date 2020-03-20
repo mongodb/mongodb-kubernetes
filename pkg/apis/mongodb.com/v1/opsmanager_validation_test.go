@@ -97,6 +97,13 @@ func TestOpsManager_RunValidations_AppDWithConfigServerCount(t *testing.T) {
 	assert.Contains(t, om.Status.Warnings, StatusWarning("configServerCount field is not configurable for application databases as it is for sharded clusters and appdbs are replica sets"))
 }
 
+func TestOpsManager_RunValidations_S3StoreUserResourceRef(t *testing.T) {
+	config := S3Config{Name: "test", MongoDBUserRef: &MongoDBUserRef{Name: "foo"}}
+	om := NewOpsManagerBuilder().AddS3SnapshotStore(config).Build()
+	assert.Nil(t, om.ProcessValidationsOnReconcile())
+	assert.Contains(t, om.Status.Warnings, StatusWarning("'mongodbResourceRef' must be specified if 'mongodbUserRef' is configured (S3 Store: test)"))
+}
+
 func TestOpsManager_RunValidations_MultipleWarnings(t *testing.T) {
 	om := NewOpsManagerBuilder().Build()
 	om.Spec.AppDB.ProjectName = "something"

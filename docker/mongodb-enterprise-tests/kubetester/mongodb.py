@@ -276,6 +276,16 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def assert_reaches(self, fn, timeout=None):
         return self.wait_for(fn, timeout=timeout, should_raise=True)
 
+    def get_appdb_resource(self) -> MongoDB:
+        mdb = MongoDB(name=self.app_db_name(), namespace=self.namespace)
+        # We "artificially" add SCRAM authentication to make syntax match the normal MongoDB -
+        # this will let the mongo_uri() method work correctly
+        # (opsmanager_types.go does the same)
+        mdb["spec"] = self["spec"]["applicationDatabase"]
+        mdb["spec"]["type"] = MongoDB.Types.REPLICA_SET
+        mdb["spec"]["security"] = {"authentication": {"modes": ["SCRAM"]}}
+        return mdb
+
     def services(self) -> List[client.V1Service]:
         """Returns a two element list with internal and external Services.
 
@@ -401,6 +411,9 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def app_db_name(self) -> str:
         return self.name + "-db"
 
+    def app_db_password_secret_name(self) -> str:
+        return self.app_db_name() + "-password"
+
     def backup_daemon_name(self) -> str:
         return self.name + "-backup-daemon"
 
@@ -418,7 +431,7 @@ def in_desired_state(
     current_message: str,
     msg_regexp: Optional[str] = None,
     ignore_errors=False,
-    intermediate_events: Optional[Tuple] = None,
+    intermediate_events: Tuple = (),
 ) -> bool:
     """ Returns true if the current_state is equal to desired state, fails fast if got into Failed error.
      Optionally checks if the message matches the specified regexp expression"""

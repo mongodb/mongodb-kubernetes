@@ -52,6 +52,17 @@ func (b *OpsManagerBuilder) AddConfiguration(key, value string) *OpsManagerBuild
 	return b
 }
 
+func (b *OpsManagerBuilder) AddS3SnapshotStore(config S3Config) *OpsManagerBuilder {
+	if b.om.Spec.Backup == nil {
+		b.om.Spec.Backup = newBackup()
+	}
+	if b.om.Spec.Backup.S3Configs == nil {
+		b.om.Spec.Backup.S3Configs = []S3Config{}
+	}
+	b.om.Spec.Backup.S3Configs = append(b.om.Spec.Backup.S3Configs, config)
+	return b
+}
+
 func (b *OpsManagerBuilder) Build() MongoDBOpsManager {
 	b.om.InitDefaultFields()
 	return *b.om.DeepCopy()

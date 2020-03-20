@@ -185,15 +185,14 @@ const (
 	DefaultAppDbPasswordKey  = "password"
 
 	// Ops Manager configuration properties
-	MmsCentralUrlPropKey      = "mms.centralUrl"
-	MmsMongoUri               = "mongo.mongoUri"
-	MmsFeatureControls        = "mms.featureControls.enable"
-	MmsHeaderContainVersion   = "mms.serviceVersionApiHeader.enabled"
-	MmsVersionsDirectory      = "automation.versions.directory"
-	OpsManagerMongoDBUserName = "mongodb-ops-manager"
+	MmsCentralUrlPropKey = "mms.centralUrl"
+	MmsMongoUri          = "mongo.mongoUri"
+	MmsFeatureControls   = "mms.featureControls.enable"
+	MmsVersionsDirectory = "automation.versions.directory"
 
 	// Ops Manager authentication constants
-	OpsManagerPasswordKey = "password"
+	OpsManagerMongoDBUserName = "mongodb-ops-manager"
+	OpsManagerPasswordKey     = "password"
 
 	// Env variables used for testing mostly to decrease waiting time
 	PodWaitSecondsEnv     = "POD_WAIT_SEC"

@@ -127,8 +127,7 @@ e2e: build-and-push-test-image
 	@ if [[ -z "$(light)" ]]; then \
 		$(MAKE) build-and-push-operator-image; \
 	fi
-#	@ scripts/dev/configure_operator
-	@ scripts/dev/launch_e2e $(test) $(local) $(skip)
+	@ scripts/dev/launch_e2e $(test) $(local) $(skip) $(debug)
 
 # deletes and creates a kops e2e cluster
 recreate-e2e-kops:

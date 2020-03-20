@@ -287,7 +287,7 @@ deploy_operator() {
     managed_security_context="${6:-false}"
     timeout="${7:-1m}"
 
-    title "Installing the Operator (registry url: ${url}, version: ${version}, namespace: ${ns}, managed_security_context: ${managed_security_context}) to ${CLUSTER_NAME:-'e2e cluster'}..."
+    title "Installing the Operator (registry url: ${url}, version: ${version}, namespace: ${ns}, managed_security_context: ${managed_security_context}), debug: ${DEBUG-}) to ${CLUSTER_NAME:-'e2e cluster'}..."
 
     check_app "helm" "helm is not installed, run 'make prerequisites' to install all necessary software"
     check_app "timeout" "coreutils is not installed, call \"brew install coreutils\""
@@ -421,6 +421,7 @@ ensure_ecr_repository() {
     local repo_url=$1
     repo_name="$(echo ${repo_url} | cut -d "/" -f2-)" # "alis/ubuntu/mongodb-enterprise-appdb"
     if ! aws ecr describe-repositories | grep "${repo_name}" > /dev/null; then
+        echo "Creating repository ${repo_name} as it doesn't exist"
         aws ecr create-repository --repository-name="${repo_name}"
     fi
 }

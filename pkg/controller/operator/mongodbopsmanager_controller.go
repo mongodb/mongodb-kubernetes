@@ -168,7 +168,7 @@ func (r OpsManagerReconciler) ensureConfiguration(opsManager *mdbv1.MongoDBOpsMa
 	// update the central URL
 	setConfigProperty(opsManager, util.MmsCentralUrlPropKey, opsManager.CentralURL(), log)
 
-	setConfigProperty(opsManager, util.MmsMongoUri, buildMongoConnectionUrl(opsManager, password), log)
+	setConfigProperty(opsManager, util.MmsMongoUri, buildMongoConnectionUrl(*opsManager, password), log)
 
 	// override the versions directory (defaults to "/opt/mongodb/mms/mongodb-releases/")
 	setConfigProperty(opsManager, util.MmsVersionsDirectory, "/mongodb-ops-manager/mongodb-releases/", log)
@@ -203,7 +203,7 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(opsManager mdbv1.Mo
 
 // buildMongoConnectionUrl builds the connection url to the appdb. Note, that it overrides the default authMechanism
 // (which internally depends on the mongodb version)
-func buildMongoConnectionUrl(opsManager *mdbv1.MongoDBOpsManager, password string) string {
+func buildMongoConnectionUrl(opsManager mdbv1.MongoDBOpsManager, password string) string {
 	return opsManager.Spec.AppDB.ConnectionURL(util.OpsManagerMongoDBUserName, password,
 		map[string]string{"authMechanism": "SCRAM-SHA-1"})
 }
@@ -237,10 +237,9 @@ func (r OpsManagerReconciler) ensureGenKey(om mdbv1.MongoDBOpsManager, log *zap.
 	return err
 }
 
-// getAppDBPassword will return the password that was specified by the user, or auto generate
-// a password, store it in a secret and use that.
+// getAppDBPassword will return the password that was specified by the user, or the auto generated password stored in
+// the secret (generate it and store in secret otherwise)
 func (r OpsManagerReconciler) getAppDBPassword(opsManager mdbv1.MongoDBOpsManager, log *zap.SugaredLogger) (string, error) {
-
 	passwordRef := opsManager.Spec.AppDB.PasswordSecretKeyRef
 	if passwordRef != nil && passwordRef.Name != "" { // there is a secret specified for the Ops Manager user
 
@@ -284,7 +283,7 @@ func (r OpsManagerReconciler) getAppDBPassword(opsManager mdbv1.MongoDBOpsManage
 		}
 
 		log.Infof("Creating mongodb-ops-manager password in secret/%s in namespace %s", secretObjectKey.Name, secretObjectKey.Namespace)
-		if err := r.kubeHelper.createSecret(secretObjectKey, passwordData, nil, &opsManager); err != nil {
+		if err = r.kubeHelper.createSecret(secretObjectKey, passwordData, nil, &opsManager); err != nil {
 			return "", err
 		}
 
@@ -385,7 +384,8 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager mdbv1.MongoDBOpsManag
 }
 
 // prepareBackupInOpsManager makes the changes to backup admin configuration based on the Ops Manager spec
-func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager mdbv1.MongoDBOpsManager, omAdmin api.Admin, log *zap.SugaredLogger) reconcileStatus {
+func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager mdbv1.MongoDBOpsManager, omAdmin api.Admin,
+	log *zap.SugaredLogger) reconcileStatus {
 	if !opsManager.Spec.Backup.Enabled {
 		return ok()
 	}
@@ -537,7 +537,8 @@ func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(opsManager mdbv1.Mo
 	return ok()
 }
 
-func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager mdbv1.MongoDBOpsManager, omAdmin api.Admin, log *zap.SugaredLogger) reconcileStatus {
+func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager mdbv1.MongoDBOpsManager, omAdmin api.Admin,
+	log *zap.SugaredLogger) reconcileStatus {
 	if !opsManager.Spec.Backup.Enabled {
 		return ok()
 	}
@@ -550,7 +551,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager mdbv
 	operatorS3Configs := opsManager.Spec.Backup.S3Configs
 	configsToCreate := util.SetDifferenceGeneric(operatorS3Configs, opsManagerS3Configs)
 	for _, config := range configsToCreate {
-		omConfig, status := r.buildOMS3Config(opsManager, config.(mdbv1.S3Config))
+		omConfig, status := r.buildOMS3Config(opsManager, config.(mdbv1.S3Config), log)
 		if !status.isOk() {
 			return status
 		}
@@ -567,7 +568,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager mdbv
 	for _, v := range configsToUpdate {
 		omConfig := v[0].(backup.S3Config)
 		operatorConfig := v[1].(mdbv1.S3Config)
-		operatorView, status := r.buildOMS3Config(opsManager, operatorConfig)
+		operatorView, status := r.buildOMS3Config(opsManager, operatorConfig, log)
 		if !status.isOk() {
 			return status
 		}
@@ -620,42 +621,26 @@ func (r *OpsManagerReconciler) readS3Credentials(s3SecretName, namespace string)
 	return s3Creds, nil
 }
 
-func (r *OpsManagerReconciler) buildOMS3Config(opsManager mdbv1.MongoDBOpsManager, config mdbv1.S3Config) (backup.S3Config, reconcileStatus) {
-	mongodb := &mdbv1.MongoDB{}
-	mongodbObjectKey := config.MongodbResourceObjectKey(opsManager.Namespace)
-	err := r.client.Get(context.TODO(), mongodbObjectKey, mongodb)
-	if err != nil {
-		if apiErrors.IsNotFound(err) {
-			// Returning pending as the user may create the mongodb resource soon
-			return backup.S3Config{}, pending("The MongoDB object %s doesn't exist", mongodbObjectKey)
-		}
-		return backup.S3Config{}, failedErr(err)
-	}
-
-	status := validateS3Config(mongodb, config)
+// buildOMS3Config builds the OM API S3 config from the Operator OM CR configuration. This involves some logic to
+// get the mongo URI which points to either the external resource or to the AppDB
+func (r *OpsManagerReconciler) buildOMS3Config(opsManager mdbv1.MongoDBOpsManager, config mdbv1.S3Config,
+	log *zap.SugaredLogger) (backup.S3Config, reconcileStatus) {
+	mongodb, status := r.getMongoDbForS3Config(opsManager, config)
 	if !status.isOk() {
 		return backup.S3Config{}, status
 	}
 
-	// If MongoDB resource has scram-sha enabled then we need to read the username and the password.
-	// Note, that we don't worry if the 'mongodbUserRef' is specified but SCRAM-SHA is not enabled - we just ignore the
-	// user
-	var userName, password string
-	if util.ContainsString(mongodb.Spec.Security.Authentication.Modes, util.SCRAM) {
-		mongodbUser := &mdbv1.MongoDBUser{}
-		mongodbUserObjectKey := config.MongodbUserObjectKey(opsManager.Namespace)
-		err := r.client.Get(context.TODO(), mongodbUserObjectKey, mongodbUser)
-		if apiErrors.IsNotFound(err) {
-			return backup.S3Config{}, pending("The MongoDBUser object %s doesn't exist", config.MongodbResourceObjectKey(opsManager.Namespace))
+	isAppDB := config.MongoDBResourceRef == nil
+
+	if !isAppDB {
+		if status = validateS3Config(mongodb, config); !status.isOk() {
+			return backup.S3Config{}, status
 		}
-		if err != nil {
-			return backup.S3Config{}, failed("Failed to fetch the user %s: %s", config.MongodbResourceObjectKey(opsManager.Namespace), err)
-		}
-		userName = mongodbUser.Spec.Username
-		password, err = mongodbUser.GetPassword(r.client)
-		if err != nil {
-			return backup.S3Config{}, failed("Failed to read password for the user %s: %s", mongodbUserObjectKey, err)
-		}
+	}
+
+	userName, password, status := r.getS3MongoDbUserNameAndPassword(mongodb, opsManager, config, log)
+	if !status.isOk() {
+		return backup.S3Config{}, status
 	}
 
 	s3Creds, err := r.readS3Credentials(config.S3SecretRef.Name, opsManager.Namespace)
@@ -663,13 +648,71 @@ func (r *OpsManagerReconciler) buildOMS3Config(opsManager mdbv1.MongoDBOpsManage
 		return backup.S3Config{}, failedErr(err)
 	}
 
-	uri := mongodb.ConnectionURL(userName, password, map[string]string{})
+	var uri string
+	if isAppDB {
+		uri = buildMongoConnectionUrl(opsManager, password)
+	} else {
+		uri = mongodb.ConnectionURL(userName, password, map[string]string{})
+	}
+
 	bucket := backup.S3Bucket{
 		Endpoint: config.S3BucketEndpoint,
 		Name:     config.S3BucketName,
 	}
 
 	return backup.NewS3Config(config.Name, uri, bucket, *s3Creds), ok()
+}
+
+func (r *OpsManagerReconciler) getMongoDbForS3Config(opsManager mdbv1.MongoDBOpsManager, config mdbv1.S3Config) (mdbv1.MongoDB, reconcileStatus) {
+	if config.MongoDBResourceRef == nil {
+		// having no mongodb reference means the AppDB should be used as a metadata storage
+		// We need to build a fake MongoDB resource
+		return mdbv1.MongoDB{Spec: opsManager.Spec.AppDB.MongoDbSpec}, ok()
+	}
+	mongodb := &mdbv1.MongoDB{}
+	mongodbObjectKey := config.MongodbResourceObjectKey(opsManager)
+	err := r.client.Get(context.TODO(), mongodbObjectKey, mongodb)
+	if err != nil {
+		if apiErrors.IsNotFound(err) {
+			// Returning pending as the user may create the mongodb resource soon
+			return mdbv1.MongoDB{}, pending("The MongoDB object %s doesn't exist", mongodbObjectKey)
+		}
+		return mdbv1.MongoDB{}, failedErr(err)
+	}
+	return *mongodb, ok()
+}
+
+// getS3MongoDbUserNameAndPassword returns userName and password if MongoDB resource has scram-sha enabled.
+// Note, that we don't worry if the 'mongodbUserRef' is specified but SCRAM-SHA is not enabled - we just ignore the
+// user
+func (r *OpsManagerReconciler) getS3MongoDbUserNameAndPassword(mongodb mdbv1.MongoDB, opsManager mdbv1.MongoDBOpsManager, config mdbv1.S3Config, log *zap.SugaredLogger) (string, string, reconcileStatus) {
+	if !util.ContainsString(mongodb.Spec.Security.Authentication.Modes, util.SCRAM) {
+		return "", "", ok()
+	}
+	// If the resource is empty then we need to consider AppDB credentials
+	if config.MongoDBResourceRef == nil {
+		password, err := r.getAppDBPassword(opsManager, log)
+		if err != nil {
+			return "", "", failedErr(err)
+		}
+		return util.OpsManagerMongoDBUserName, password, ok()
+	}
+	// Otherwise we are fetching the MongoDBUser entity and a related password
+	mongodbUser := &mdbv1.MongoDBUser{}
+	mongodbUserObjectKey := config.MongodbUserObjectKey(opsManager.Namespace)
+	err := r.client.Get(context.TODO(), mongodbUserObjectKey, mongodbUser)
+	if apiErrors.IsNotFound(err) {
+		return "", "", pending("The MongoDBUser object %s doesn't exist", mongodbUserObjectKey)
+	}
+	if err != nil {
+		return "", "", failed("Failed to fetch the user %s: %s", mongodbUserObjectKey, err)
+	}
+	userName := mongodbUser.Spec.Username
+	password, err := mongodbUser.GetPassword(r.client)
+	if err != nil {
+		return "", "", failed("Failed to read password for the user %s: %s", mongodbUserObjectKey, err)
+	}
+	return userName, password, ok()
 }
 
 // buildOMDatastoreConfig builds the OM API datastore config based on the Kubernetes OM resource one.
@@ -686,7 +729,7 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(opsManager mdbv1.MongoDBOp
 		return backup.DataStoreConfig{}, failedErr(err)
 	}
 
-	status := validateDataStoreConfig(mongodb, operatorConfig)
+	status := validateDataStoreConfig(*mongodb, operatorConfig)
 	if !status.isOk() {
 		return backup.DataStoreConfig{}, status
 	}
@@ -717,15 +760,15 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(opsManager mdbv1.MongoDBOp
 	return backup.NewDataStoreConfig(operatorConfig.Name, mongoUri, tls), ok()
 }
 
-func validateS3Config(mongodb *mdbv1.MongoDB, s3Config mdbv1.S3Config) reconcileStatus {
+func validateS3Config(mongodb mdbv1.MongoDB, s3Config mdbv1.S3Config) reconcileStatus {
 	return validateConfig(mongodb, s3Config.MongoDBUserRef, "S3 metadata database")
 }
 
-func validateDataStoreConfig(mongodb *mdbv1.MongoDB, dataStoreConfig mdbv1.DataStoreConfig) reconcileStatus {
+func validateDataStoreConfig(mongodb mdbv1.MongoDB, dataStoreConfig mdbv1.DataStoreConfig) reconcileStatus {
 	return validateConfig(mongodb, dataStoreConfig.MongoDBUserRef, "Oplog/Blockstore databases")
 }
 
-func validateConfig(mongodb *mdbv1.MongoDB, userRef *mdbv1.MongoDBUserRef, description string) reconcileStatus {
+func validateConfig(mongodb mdbv1.MongoDB, userRef *mdbv1.MongoDBUserRef, description string) reconcileStatus {
 	// validate
 	if !util.ContainsString(mongodb.Spec.Security.Authentication.Modes, util.SCRAM) &&
 		len(mongodb.Spec.Security.Authentication.Modes) > 0 {

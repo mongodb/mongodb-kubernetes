@@ -2,6 +2,7 @@ package v1
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -22,12 +23,12 @@ func validationSuccess() ValidationResult {
 	return ValidationResult{Level: SuccessLevel}
 }
 
-func validationWarning(msg string) ValidationResult {
-	return ValidationResult{Msg: msg, Level: WarningLevel}
+func validationWarning(msg string, params ...interface{}) ValidationResult {
+	return ValidationResult{Msg: fmt.Sprintf(msg, params...), Level: WarningLevel}
 }
 
-func validationError(msg string) ValidationResult {
-	return ValidationResult{Msg: msg, Level: ErrorLevel}
+func validationError(msg string, params ...interface{}) ValidationResult {
+	return ValidationResult{Msg: fmt.Sprintf(msg, params...), Level: ErrorLevel}
 }
 
 func buildValidationFailure(results []ValidationResult) error {
