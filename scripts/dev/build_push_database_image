@@ -7,16 +7,13 @@ source scripts/dev/set_env_context
 
 title "Building Database image..."
 
-if [[ ${REPO_TYPE} = "local" ]]; then
-    eval "$(minikube docker-env)"
-    make -C docker/mongodb-enterprise-database build IMAGE_DIR=local IMAGE_TYPE="${IMAGE_TYPE}"
-    title "Database image successfully built"
-elif [[ ${REPO_TYPE} = "ecr" ]]; then
+if [[ ${REPO_TYPE} = "ecr" ]]; then
     ensure_ecr_repository "${REPO_URL}/mongodb-enterprise-database"
-    repo_host="$(echo ${REPO_URL} | cut -d "/" -f 1)"
-    repo_name="$(echo ${REPO_URL} | cut -d "/" -f 2)"
-
-    make -C docker/mongodb-enterprise-database push IMAGE_DIR="${repo_name}" AWS_IMAGE_REPO="${repo_host}" IMAGE_TYPE="${IMAGE_TYPE}"
-
-    title "Database image successfully built and pushed to the ECR registry"
 fi
+
+repo_host="$(echo ${REPO_URL} | cut -d "/" -f 1)"
+repo_name="$(echo ${REPO_URL} | cut -d "/" -f 2)"
+
+make -C docker/mongodb-enterprise-database push IMAGE_DIR="${repo_name}" AWS_IMAGE_REPO="${repo_host}" IMAGE_TYPE="${IMAGE_TYPE}"
+
+title "Database image successfully built and pushed to ${REPO_TYPE} registry"

@@ -46,14 +46,12 @@ fi
 
 # guessing type of registry by url
 # regular expression matching (https://www.tldp.org/LDP/abs/html/string-manipulation.html)
-if [[ $(expr "${REPO_URL}" : '^local.*') -gt 0 ]]; then
-	export REPO_TYPE="local"
+if [[ $(expr "${REPO_URL}" : '^localhost.*') -gt 0 ]]; then
+    export REPO_TYPE="local"
 elif [[ $(expr "${REPO_URL}" : '.*\.ecr\..*') -gt 0 ]]; then
-	export REPO_TYPE="ecr"
-elif [[ $(expr "${REPO_URL}" : '^quay.io.*') -gt 0 ]]; then
-	export REPO_TYPE="quay"
+    export REPO_TYPE="ecr"
 else
-	fatal "Failed to guess repository type based on url \"${REPO_URL}\""
+    fatal "Failed to guess repository type based on url \"${REPO_URL}\""
 fi
 
 export IMAGE_TYPE="ubuntu"

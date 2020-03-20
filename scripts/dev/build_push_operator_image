@@ -9,16 +9,13 @@ debug="${1-}"
 
 title "Building Operator image..."
 
-if [[ ${REPO_TYPE} = "local" ]]; then
-    eval "$(minikube docker-env)"
-    make -C docker/mongodb-enterprise-operator build IMAGE_DIR=local IMAGE_TYPE="${IMAGE_TYPE}"
-    title "Operator image successfully built"
-elif [[ ${REPO_TYPE} = "ecr" ]]; then
-    ensure_ecr_repository "${REPO_URL}/mongodb-enterprise-operator"
-    repo_host="$(echo ${REPO_URL} | cut -d "/" -f 1)"
-    repo_name="$(echo ${REPO_URL} | cut -d "/" -f 2)"
+repo_host="$(echo ${REPO_URL} | cut -d "/" -f 1)"
+repo_name="$(echo ${REPO_URL} | cut -d "/" -f 2)"
+is_debug="False"
 
-    is_debug="False"
+if [[ ${REPO_TYPE} = "ecr" ]] ; then
+    ensure_ecr_repository "${REPO_URL}/mongodb-enterprise-operator"
+
     if [[ -n "${debug-}" ]]; then
         echo "Ensuring Security Group vpc for debug-svc"
         prefix="$(echo "nodes.${CLUSTER_NAME}" | sed s/.mongokubernetes.com//)"
@@ -30,9 +27,9 @@ elif [[ ${REPO_TYPE} = "ecr" ]]; then
         is_debug="True"
         echo "Building Operator Image in 'debug' mode"
     fi
-
-    make -C docker/mongodb-enterprise-operator push IMAGE_DIR="${repo_name}" AWS_IMAGE_REPO="${repo_host}" \
-        IMAGE_TYPE="${IMAGE_TYPE}" IS_DEBUG="${is_debug}"
-
-    title "Operator image successfully built and pushed to the ECR registry"
 fi
+
+make -C docker/mongodb-enterprise-operator push IMAGE_DIR="${repo_name}" AWS_IMAGE_REPO="${repo_host}" \
+    IMAGE_TYPE="${IMAGE_TYPE}" IS_DEBUG="${is_debug}"
+
+title "Operator image successfully built and pushed to the ${REPO_TYPE} registry"

@@ -54,22 +54,18 @@ fi
 
 cd docker/mongodb-enterprise-ops-manager || exit
 
-if [[ ${REPO_TYPE} = "local" ]]; then
-    repo_name="local/mongodb-enterprise-ops-manager"
-    docker_build
-    title "Ops Manager image successfully built (to local Docker registry)"
-elif [[ ${REPO_TYPE} = "ecr" ]]; then
+if [[ ${REPO_TYPE} = "ecr" ]]; then
     ensure_ecr_repository "${REPO_URL}/mongodb-enterprise-ops-manager"
+fi
 
-    full_url="${REPO_URL}/mongodb-enterprise-ops-manager:${om_version}${image_suffix-}"
+full_url="${REPO_URL}/mongodb-enterprise-ops-manager:${om_version}${image_suffix-}"
 
-    if [[ -n ${kaniko-} ]]; then
-        # Note, that before submitting kaniko build the context needs to be uploaded to S3 - this is outside
-        # of the scope for current script
-        submit_kaniko
-        title "Kaniko job for building Ops Manager image successfully created"
-    else
-        docker_push
-        title "Ops Manager image successfully built and pushed to the ECR registry"
-    fi
+if [[ -n ${kaniko-} ]]; then
+    # Note, that before submitting kaniko build the context needs to be uploaded to S3 - this is outside
+    # of the scope for current script
+    submit_kaniko
+    title "Kaniko job for building Ops Manager image successfully created"
+else
+    docker_push
+    title "Ops Manager image successfully built and pushed to ${REPO_TYPE} registry"
 fi

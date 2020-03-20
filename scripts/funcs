@@ -108,11 +108,6 @@ ensure_ops_manager_k8s() {
         echo "Ops Manager is not installed in this cluster. Doing it now."
         echo "Run \"make -C docker/mongodb-enterprise-ops-manager-dev IMAGE_VERSION=${ops_manager_version} push\" to update Ops Manager image in ECR if necessary"
 
-        # Building Ops Manager image if we want to run it in local Kubernetes cluster
-        if [[ ${REPO_TYPE:-'ecr'} = "local" ]]; then
-            make -C docker/mongodb-enterprise-ops-manager-dev IMAGE_VERSION=${ops_manager_version} build
-        fi
-
         echo "Installing Ops Manager ${ops_manager_version}"
 
         helm template -f scripts/evergreen/deployments/values-ops-manager.yaml \
@@ -419,6 +414,8 @@ generate_random_namespace() {
 # The incoming parameter is expected to be the full ECR url (e.g. "268558157000.dkr.ecr.us-east-1.amazonaws.com/alis/ubuntu/mongodb-enterprise-appdb")
 ensure_ecr_repository() {
     local repo_url=$1
+    local repo_name
+
     repo_name="$(echo ${repo_url} | cut -d "/" -f2-)" # "alis/ubuntu/mongodb-enterprise-appdb"
     if ! aws ecr describe-repositories | grep "${repo_name}" > /dev/null; then
         echo "Creating repository ${repo_name} as it doesn't exist"

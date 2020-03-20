@@ -69,7 +69,7 @@ if [[ "${LOCAL_RUN-}" = false ]]; then
 fi
 
 mdb_url=$(jq --raw-output .appDbBundle.baseUrl < release.json)
-binary_name=$(jq --raw-output .appDbBundle.${IMAGE_TYPE}BinaryName < release.json)
+binary_name=$(jq --raw-output ".appDbBundle.${IMAGE_TYPE}BinaryName" < release.json)
 
 echo "Data used for building the image: AA_location=${agent_download_location}, AA_version=${agent_version}, bundled_mdb_url=${mdb_url}, binary_name=${binary_name}"
 
@@ -77,24 +77,18 @@ echo "Data used for building the image: AA_location=${agent_download_location}, 
 
 cd docker/mongodb-enterprise-database || exit
 
-if [[ ${REPO_TYPE} = "local" ]]; then
-    repo_name="local/mongodb-enterprise-appdb"
-    docker_build
-
-    title "Database image successfully built (to local Docker registry)"
-elif [[ ${REPO_TYPE} = "ecr" ]]; then
+if [[ ${REPO_TYPE} = "ecr" ]]; then
     ensure_ecr_repository "${REPO_URL}/mongodb-enterprise-appdb"
-
-    full_url="${REPO_URL}/mongodb-enterprise-appdb:${om_version}${image_suffix-}"
-
-    if [[ -n ${kaniko-} ]]; then
-        # Note, that before submitting kaniko build the context needs to be uploaded to S3 - this is outside
-        # of the scope for current script
-        submit_kaniko
-        title "Kaniko job for building AppDB image successfully created"
-    else
-        docker_push
-        title "Database image successfully built and pushed to the ECR registry"
-    fi
 fi
 
+full_url="${REPO_URL}/mongodb-enterprise-appdb:${om_version}${image_suffix-}"
+
+if [[ -n ${kaniko-} ]]; then
+    # Note, that before submitting kaniko build the context needs to be uploaded to S3 - this is outside
+    # of the scope for current script
+    submit_kaniko
+    title "Kaniko job for building AppDB image successfully created"
+else
+    docker_push
+    title "Database image successfully built and pushed to ${REPO_TYPE} registry"
+fi
