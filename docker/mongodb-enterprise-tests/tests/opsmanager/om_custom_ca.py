@@ -84,18 +84,18 @@ def replicaset(ops_manager: MongoDBOpsManager, namespace: str):
     return resource.create()
 
 
-@mark.e2e_om_ops_manager_https_enabled
+@mark.e2e_om_ops_manager_https_with_custom_ca
 def test_om_created(ops_manager: MongoDBOpsManager):
     ops_manager.assert_reaches_phase(Phase.Running, timeout=900)
 
 
-@mark.e2e_om_ops_manager_https_enabled
+@mark.e2e_om_ops_manager_https_with_custom_ca
 def test_om_pod_spec(ops_manager: MongoDBOpsManager):
     sts = ops_manager.get_statefulset()
     assert len(sts.spec.template.spec.containers) == 1
 
 
-@mark.e2e_om_ops_manager_https_enabled
+@mark.e2e_om_ops_manager_https_with_custom_ca
 def test_om_container_override(ops_manager: MongoDBOpsManager):
     sts = ops_manager.get_statefulset()
     om_container = sts.spec.template.spec.containers[0].to_dict()
@@ -146,7 +146,7 @@ def test_om_container_override(ops_manager: MongoDBOpsManager):
     )
 
 
-@mark.e2e_om_ops_manager_https_enabled
+@mark.e2e_om_ops_manager_https_with_custom_ca
 def test_project_is_configured_with_custom_ca(
     ops_manager: MongoDBOpsManager, namespace: str
 ):
@@ -160,7 +160,7 @@ def test_project_is_configured_with_custom_ca(
     KubernetesTester.update_configmap(namespace, configmap, data)
 
 
-@mark.e2e_om_ops_manager_https_enabled
+@mark.e2e_om_ops_manager_https_with_custom_ca
 def test_mongodb_replicaset_uses_custom_ca(replicaset: MongoDB, config_map_custom_ca):
     _ = config_map_custom_ca
 
