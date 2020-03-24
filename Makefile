@@ -94,14 +94,14 @@ full: ensure-k8s-and-reset build-and-push-images
 	@ scripts/dev/apply_resources
 
 om-batch: aws_login
-	@ scripts/dev/batch_om_appdb_images $(scope) $(kaniko)
+	@ scripts/dev/batch_om_appdb_images
 
 # build-push appdb image
 appdb: aws_login
-	@ scripts/dev/build_push_appdb_image $(om_version) $(om_branch) $(kaniko)
+	@ scripts/dev/build_push_appdb_image
 
 om-image:
-	@ scripts/dev/build_push_opsmanager_image $(om_version) $(download_url) $(kaniko)
+	@ scripts/dev/build_push_opsmanager_image
 
 # install OM in Kubernetes if it's not running
 om:
@@ -127,7 +127,7 @@ e2e: build-and-push-test-image
 	@ if [[ -z "$(light)" ]]; then \
 		$(MAKE) build-and-push-operator-image; \
 	fi
-	@ scripts/dev/launch_e2e $(test) $(local) $(skip) $(debug)
+	@ scripts/dev/launch_e2e
 
 # deletes and creates a kops e2e cluster
 recreate-e2e-kops:
