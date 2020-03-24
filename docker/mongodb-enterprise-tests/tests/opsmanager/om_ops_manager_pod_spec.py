@@ -5,7 +5,8 @@ Also it creates a MongoDB referencing the OM.
 """
 from kubernetes import client
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import MongoDBOpsManager, Phase
+from kubetester.mongodb import Phase
+from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 
 

@@ -1,7 +1,8 @@
 import random
 
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import MongoDBOpsManager, Phase
+from kubetester.mongodb import Phase
+from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 
 

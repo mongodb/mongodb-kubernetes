@@ -1,4 +1,5 @@
-from kubetester import MongoDB, MongoDBOpsManager
+from kubetester import MongoDB
+from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import (
     skip_if_local,

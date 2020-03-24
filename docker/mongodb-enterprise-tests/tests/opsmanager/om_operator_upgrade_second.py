@@ -4,7 +4,8 @@ This ensures the OM is functional and a mongodb instance referencing OM is worki
 """
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import MongoDB, MongoDBOpsManager, Phase
+from kubetester.mongodb import MongoDB, Phase
+from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.mongotester import MongoDBBackgroundTester
 from pytest import fixture, mark
 

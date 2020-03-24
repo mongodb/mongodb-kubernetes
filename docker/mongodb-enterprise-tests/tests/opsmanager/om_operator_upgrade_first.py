@@ -9,7 +9,8 @@ from kubetester.kubetester import (
     fixture as yaml_fixture,
     KubernetesTester,
 )
-from kubetester.mongodb import MongoDB, MongoDBOpsManager, Phase
+from kubetester.mongodb import MongoDB, Phase
+from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 
 

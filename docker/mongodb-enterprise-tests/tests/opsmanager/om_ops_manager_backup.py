@@ -2,7 +2,8 @@ from operator import attrgetter
 from typing import Optional, Dict
 
 from kubernetes import client
-from kubetester import MongoDB, MongoDBOpsManager
+from kubetester import MongoDB
+from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.awss3client import AwsS3Client, s3_endpoint
 from kubetester.kubetester import (
     skip_if_local,

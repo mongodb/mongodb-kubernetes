@@ -1,7 +1,8 @@
 import pytest
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester import MongoDBOpsManager, MongoDB
+from kubetester import MongoDB
+from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
