@@ -35,10 +35,10 @@ func TestOnAddStandalone(t *testing.T) {
 	omConn := om.CurrMockedConnection
 
 	// seems we don't need very deep checks here as there should be smaller tests specially for those methods
-	assert.Len(t, client.services, 1)
-	assert.Len(t, client.sets, 1)
-	assert.Equal(t, *client.sets[st.ObjectKey()].(*appsv1.StatefulSet).Spec.Replicas, int32(1))
-	assert.Len(t, client.secrets, 2)
+	assert.Len(t, client.getMapForObject(&corev1.Service{}), 1)
+	assert.Len(t, client.getMapForObject(&appsv1.StatefulSet{}), 1)
+	assert.Equal(t, *client.getMapForObject(&appsv1.StatefulSet{})[st.ObjectKey()].(*appsv1.StatefulSet).Spec.Replicas, int32(1))
+	assert.Len(t, client.getMapForObject(&corev1.Secret{}), 2)
 
 	omConn.CheckDeployment(t, createDeploymentFromStandalone(st), "auth", "ssl")
 	omConn.CheckNumberOfUpdateRequests(t, 1)

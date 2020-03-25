@@ -29,7 +29,7 @@ import (
 
 func configureX509(client *MockedClient, condition certsv1.RequestConditionType) {
 	cMap := x509ConfigMap()
-	client.configMaps[objectKeyFromApiObject(&cMap)] = &cMap
+	client.getMapForObject(&corev1.ConfigMap{})[objectKeyFromApiObject(&cMap)] = &cMap
 	createAgentCSRs(client, condition)
 }
 
@@ -284,8 +284,9 @@ func TestX509CannotBeEnabled_WhenThereAreBothTlsAndNonTlsDeployments_ShardedClus
 */
 
 // createCSR creates a CSR object which can be set to either CertificateApproved or CertificateDenied
-func createCSR(conditionType certsv1.RequestConditionType) *certsv1.CertificateSigningRequest {
-	return &certsv1.CertificateSigningRequest{
+func createCSR(name, ns string, conditionType certsv1.RequestConditionType) certsv1.CertificateSigningRequest {
+	return certsv1.CertificateSigningRequest{
+		ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("%s.%s", name, ns)},
 		Spec: certsv1.CertificateSigningRequestSpec{
 			Request: createMockCSRBytes(),
 		},
@@ -497,10 +498,13 @@ func approveAgentCSRs(client *MockedClient) {
 // createAgentCSRs creates all the agent CSRs needed for x509 at the specified condition type
 func createAgentCSRs(client *MockedClient, conditionType certsv1.RequestConditionType) {
 	// create the secret the agent certs will exist in
-	client.secrets[objectKey(TestNamespace, util.AgentSecretName)] = &corev1.Secret{}
-	client.csrs[objectKey("", fmt.Sprintf("mms-automation-agent.%s", TestNamespace))] = createCSR(conditionType)
-	client.csrs[objectKey("", fmt.Sprintf("mms-monitoring-agent.%s", TestNamespace))] = createCSR(conditionType)
-	client.csrs[objectKey("", fmt.Sprintf("mms-backup-agent.%s", TestNamespace))] = createCSR(conditionType)
+	client.getMapForObject(&corev1.Secret{})[objectKey(TestNamespace, util.AgentSecretName)] = &corev1.Secret{}
+
+	addCsrs(client,
+		createCSR("mms-automation-agent", TestNamespace, conditionType),
+		createCSR("mms-monitoring-agent", TestNamespace, conditionType),
+		createCSR("mms-backup-agent", TestNamespace, conditionType),
+	)
 }
 
 // approveCSRs approves all CSRs related to the given MongoDB resource, this includes TLS and x509 internal cluster authentication CSRs
@@ -509,29 +513,39 @@ func approveCSRs(client *MockedClient, mdb *mdbv1.MongoDB) {
 		switch mdb.Spec.ResourceType {
 		case mdbv1.ReplicaSet:
 			for i := 0; i < mdb.Spec.Members; i++ {
-				client.csrs[objectKey(TestNamespace, fmt.Sprintf("%s-%d.%s", mdb.Name, i, TestNamespace))] = createCSR(certsv1.CertificateApproved)
-				client.csrs[objectKey(TestNamespace, fmt.Sprintf("%s-%d.%s-clusterfile", mdb.Name, i, TestNamespace))] = createCSR(certsv1.CertificateApproved)
+				addCsrs(client,
+					createCSR(fmt.Sprintf("%s-%d.%s", mdb.Name, i, TestNamespace), TestNamespace, certsv1.CertificateApproved),
+					createCSR(fmt.Sprintf("%s-%d.%s-clusterfile", mdb.Name, i, TestNamespace), TestNamespace, certsv1.CertificateApproved),
+				)
 			}
 		case mdbv1.ShardedCluster:
 			// mongos
 			for i := 0; i < mdb.Spec.MongosCount; i++ {
-				client.csrs[objectKey(TestNamespace, fmt.Sprintf("%s-mongos-0.%s", mdb.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
-				client.csrs[objectKey(TestNamespace, fmt.Sprintf("%s-mongos-0.%s-clusterfile", mdb.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
+				addCsrs(client,
+					createCSR(fmt.Sprintf("%s-mongos-0.%s", mdb.Name, TestNamespace), TestNamespace, certsv1.CertificateApproved),
+					createCSR(fmt.Sprintf("%s-mongos-0.%s-clusterfile", mdb.Name, TestNamespace), TestNamespace, certsv1.CertificateApproved),
+				)
 			}
 
 			// config server
 			for i := 0; i < mdb.Spec.ConfigServerCount; i++ {
-				client.csrs[objectKey(TestNamespace, fmt.Sprintf("%s-config-0.%s", mdb.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
-				client.csrs[objectKey(TestNamespace, fmt.Sprintf("%s-config-0.%s-clusterfile", mdb.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
+				addCsrs(client,
+					createCSR(fmt.Sprintf("%s-config-0.%s", mdb.Name, TestNamespace), TestNamespace, certsv1.CertificateApproved),
+					createCSR(fmt.Sprintf("%s-config-0.%s-clusterfile", mdb.Name, TestNamespace), TestNamespace, certsv1.CertificateApproved),
+				)
 			}
 
 			// shards
 			for shardNum := 0; shardNum < mdb.Spec.ShardCount; shardNum++ {
-				client.csrs[objectKey(TestNamespace, fmt.Sprintf("%s-%d.%s", mdb.Name, shardNum, TestNamespace))] = createCSR(certsv1.CertificateApproved)
-				client.csrs[objectKey(TestNamespace, fmt.Sprintf("%s-%d.%s-clusterfile", mdb.Name, shardNum, TestNamespace))] = createCSR(certsv1.CertificateApproved)
+				addCsrs(client,
+					createCSR(fmt.Sprintf("%s-%d.%s", mdb.Name, shardNum, TestNamespace), TestNamespace, certsv1.CertificateApproved),
+					createCSR(fmt.Sprintf("%s-%d.%s-clusterfile", mdb.Name, shardNum, TestNamespace), TestNamespace, certsv1.CertificateApproved),
+				)
 				for mongodNum := 0; mongodNum < mdb.Spec.MongodsPerShardCount; mongodNum++ {
-					client.csrs[objectKey(TestNamespace, fmt.Sprintf("%s-%d-%d.%s", mdb.Name, shardNum, mongodNum, TestNamespace))] = createCSR(certsv1.CertificateApproved)
-					client.csrs[objectKey(TestNamespace, fmt.Sprintf("%s-%d-%d.%s-clusterfile", mdb.Name, shardNum, mongodNum, TestNamespace))] = createCSR(certsv1.CertificateApproved)
+					addCsrs(client,
+						createCSR(fmt.Sprintf("%s-%d-%d.%s", mdb.Name, shardNum, mongodNum, TestNamespace), TestNamespace, certsv1.CertificateApproved),
+						createCSR(fmt.Sprintf("%s-%d-%d.%s-clusterfile", mdb.Name, shardNum, mongodNum, TestNamespace), TestNamespace, certsv1.CertificateApproved),
+					)
 				}
 			}
 		}

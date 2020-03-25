@@ -54,9 +54,9 @@ func TestReconcileCreateShardedCluster(t *testing.T) {
 
 	checkReconcileSuccessful(t, reconciler, sc, client)
 
-	assert.Len(t, client.secrets, 2)
-	assert.Len(t, client.services, 3)
-	assert.Len(t, client.sets, 4)
+	assert.Len(t, client.getMapForObject(&corev1.Secret{}), 2)
+	assert.Len(t, client.getMapForObject(&corev1.Service{}), 3)
+	assert.Len(t, client.getMapForObject(&appsv1.StatefulSet{}), 4)
 	assert.Equal(t, *client.getSet(objectKey(sc.Namespace, sc.ConfigRsName())).Spec.Replicas, int32(sc.Spec.ConfigServerCount))
 	assert.Equal(t, *client.getSet(objectKey(sc.Namespace, sc.MongosRsName())).Spec.Replicas, int32(sc.Spec.MongosCount))
 	assert.Equal(t, *client.getSet(objectKey(sc.Namespace, sc.ShardRsName(0))).Spec.Replicas, int32(sc.Spec.MongodsPerShardCount))
@@ -94,7 +94,7 @@ func TestReconcileCreateShardedCluster_ScaleDown(t *testing.T) {
 	connection.CheckDeployment(t, createDeploymentFromShardedCluster(sc), "auth", "ssl")
 
 	// One shard has gone
-	assert.Len(t, client.sets, 4)
+	assert.Len(t, client.getMapForObject(&appsv1.StatefulSet{}), 4)
 }
 
 // TestAddDeleteShardedCluster checks that no state is left in OpsManager on removal of the sharded cluster
@@ -266,35 +266,42 @@ func TestShardedCluster_WithTLSEnabled_AndX509Enabled_Succeeds(t *testing.T) {
 	reconciler, client := defaultClusterReconciler(sc)
 
 	cMap := x509ConfigMap()
-	client.configMaps[objectKey("", om.TestGroupName)] = &cMap
+	client.getMapForObject(&corev1.ConfigMap{})[objectKey("", om.TestGroupName)] = &cMap
 
 	// create the secret the agent certs will exist in
-	client.secrets[objectKey("", util.AgentSecretName)] = &corev1.Secret{}
+	client.getMapForObject(&corev1.Secret{})[objectKey("", util.AgentSecretName)] = &corev1.Secret{}
 
 	// create pre-approved TLS csrs for the sharded cluster
-	// TODO: why does this test pass with namespace="" but fails with namespace=TestNamespace?
-	client.csrs[objectKey("", fmt.Sprintf("%s-mongos-0.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
-	client.csrs[objectKey("", fmt.Sprintf("%s-mongos-1.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
-	client.csrs[objectKey("", fmt.Sprintf("%s-mongos-2.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
-	client.csrs[objectKey("", fmt.Sprintf("%s-mongos-3.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
-	client.csrs[objectKey("", fmt.Sprintf("%s-config-0.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
-	client.csrs[objectKey("", fmt.Sprintf("%s-config-1.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
-	client.csrs[objectKey("", fmt.Sprintf("%s-config-2.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
-	client.csrs[objectKey("", fmt.Sprintf("%s-0.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
-	client.csrs[objectKey("", fmt.Sprintf("%s-1.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
-	client.csrs[objectKey("", fmt.Sprintf("%s-2.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
-	client.csrs[objectKey("", fmt.Sprintf("%s-0-0.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
-	client.csrs[objectKey("", fmt.Sprintf("%s-0-1.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
-	client.csrs[objectKey("", fmt.Sprintf("%s-0-2.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
-	client.csrs[objectKey("", fmt.Sprintf("%s-1-0.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
-	client.csrs[objectKey("", fmt.Sprintf("%s-1-1.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
-	client.csrs[objectKey("", fmt.Sprintf("%s-1-2.%s", sc.Name, TestNamespace))] = createCSR(certsv1.CertificateApproved)
+	addCsrs(client,
+		createCSR(fmt.Sprintf("%s-mongos-0", sc.Name), TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-mongos-1", sc.Name), TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-mongos-2", sc.Name), TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-mongos-3", sc.Name), TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-config-0", sc.Name), TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-config-1", sc.Name), TestNamespace	, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-config-2", sc.Name), TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-0", sc.Name), TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-1", sc.Name), TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-2", sc.Name), TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-0-0", sc.Name), TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-0-1", sc.Name), TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-0-2", sc.Name), TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-1-0", sc.Name), TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-1-1", sc.Name), TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-1-2", sc.Name), TestNamespace, certsv1.CertificateApproved),
+	)
 
 	actualResult, err := reconciler.Reconcile(requestFromObject(sc))
 	expectedResult, _ := success()
 
 	assert.Equal(t, expectedResult, actualResult)
 	assert.Nil(t, err)
+}
+
+func addCsrs(client *MockedClient, csrs ...certsv1.CertificateSigningRequest) {
+	for _, csr := range csrs {
+		_ = client.Update(context.TODO(), &csr)
+	}
 }
 
 func TestShardedCluster_NeedToPublishState(t *testing.T) {

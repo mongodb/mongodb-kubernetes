@@ -70,7 +70,7 @@ func TestPublishAutomationConfig_Create(t *testing.T) {
 	// verify the configmap was created
 	configMap := readAutomationConfigMap(t, kubeManager, opsManager)
 	checkDeploymentEqualToPublished(t, automationConfig.Deployment, configMap)
-	assert.Len(t, kubeManager.client.configMaps, 1)
+	assert.Len(t, kubeManager.client.getMapForObject(&corev1.ConfigMap{}), 1)
 }
 
 // TestPublishAutomationConfig_Update verifies that the automation config map is updated if it has changed
@@ -329,7 +329,7 @@ func buildAutomationConfigForAppDb(builder *mdbv1.OpsManagerBuilder, internetMan
 	kubeManager := newMockedManager(&opsManager)
 
 	// ensure the password exists for the Ops Manager User. The Ops Manager controller will have ensured this
-	kubeManager.client.secrets[objectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetSecretName())] = &corev1.Secret{
+	kubeManager.client.getMapForObject(&corev1.Secret{})[objectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetSecretName())] = &corev1.Secret{
 		StringData: map[string]string{
 			util.OpsManagerPasswordKey: "my-password",
 		},

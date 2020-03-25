@@ -49,10 +49,10 @@ func TestCreateReplicaSet(t *testing.T) {
 
 	checkReconcileSuccessful(t, reconciler, rs, client)
 
-	assert.Len(t, client.services, 1)
-	assert.Len(t, client.sets, 1)
+	assert.Len(t, client.getMapForObject(&corev1.Service{}), 1)
+	assert.Len(t, client.getMapForObject(&appsv1.StatefulSet{}), 1)
 	assert.Equal(t, *client.getSet(rs.ObjectKey()).Spec.Replicas, int32(3))
-	assert.Len(t, client.secrets, 2)
+	assert.Len(t, client.getMapForObject(&corev1.Secret{}), 2)
 
 	connection := om.CurrMockedConnection
 	connection.CheckDeployment(t, createDeploymentFromReplicaSet(rs), "auth", "ssl")

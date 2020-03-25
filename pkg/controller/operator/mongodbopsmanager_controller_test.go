@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"context"
 	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -46,7 +47,7 @@ func TestOpsManagerReconciler_prepareOpsManager(t *testing.T) {
 	assert.Equal(t, "jane.doe@g.com", initializer.currentUsers[0].Username)
 
 	// One secret was created by the user, another one - by the Operator for the user public key
-	assert.Len(t, client.secrets, 2)
+	assert.Len(t, client.getMapForObject(&corev1.Secret{}), 2)
 	expectedSecretData := map[string]string{"user": "jane.doe@g.com", "publicApiKey": "jane.doe@g.com-key"}
 	existingSecretData, _ := client.helper().readSecret(objectKey(OperatorNamespace, testOm.APIKeySecretName()))
 	assert.Equal(t, expectedSecretData, existingSecretData)
@@ -61,7 +62,7 @@ func TestOpsManagerReconciler_prepareOpsManagerTwoCalls(t *testing.T) {
 	reconciler.prepareOpsManager(testOm, zap.S())
 
 	// let's "update" the user admin secret - this must not affect anything
-	client.secrets[objectKey(OperatorNamespace, testOm.APIKeySecretName())].(*corev1.Secret).StringData["Username"] = "this-is-not-expected@g.com"
+	client.getMapForObject(&corev1.Secret{})[objectKey(OperatorNamespace, testOm.APIKeySecretName())].(*corev1.Secret).StringData["Username"] = "this-is-not-expected@g.com"
 
 	// second call is ok - we just don't create the admin user in OM and don't add new secrets
 	reconcileStatus, _ := reconciler.prepareOpsManager(testOm, zap.S())
@@ -73,7 +74,7 @@ func TestOpsManagerReconciler_prepareOpsManagerTwoCalls(t *testing.T) {
 	assert.Len(t, initializer.currentUsers, 1)
 	assert.Equal(t, "jane.doe@g.com", initializer.currentUsers[0].Username)
 
-	assert.Len(t, client.secrets, 2)
+	assert.Len(t, client.getMapForObject(&corev1.Secret{}), 2)
 	data, _ := client.helper().readSecret(objectKey(OperatorNamespace, testOm.APIKeySecretName()))
 	assert.Equal(t, "jane.doe@g.com", data["user"])
 }
@@ -88,7 +89,9 @@ func TestOpsManagerReconciler_prepareOpsManagerDuplicatedUser(t *testing.T) {
 
 	// for some reasons the admin removed the public Api key secret so the call will be done to OM to create a user -
 	// it will fail as the user already exists
-	delete(client.secrets, objectKey(OperatorNamespace, testOm.APIKeySecretName()))
+	_ = client.Delete(context.TODO(), &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: OperatorNamespace, Name: testOm.APIKeySecretName()},
+	})
 
 	reconcileStatus, admin := reconciler.prepareOpsManager(testOm, zap.S())
 	assert.IsType(t, &errorStatus{}, reconcileStatus)
@@ -101,8 +104,8 @@ func TestOpsManagerReconciler_prepareOpsManagerDuplicatedUser(t *testing.T) {
 	assert.Equal(t, "jane.doe@g.com", initializer.currentUsers[0].Username)
 
 	// api secret wasn't created
-	assert.Len(t, client.secrets, 1)
-	assert.NotContains(t, client.secrets, objectKey(OperatorNamespace, testOm.APIKeySecretName()))
+	assert.Len(t, client.getMapForObject(&corev1.Secret{}), 1)
+	assert.NotContains(t, client.getMapForObject(&corev1.Secret{}), objectKey(OperatorNamespace, testOm.APIKeySecretName()))
 }
 
 func TestOpsManagerGeneratesAppDBPassword_IfNotProvided(t *testing.T) {
@@ -118,7 +121,7 @@ func TestOpsManagerUsersPassword_SpecifiedInSpec(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").Build()
 	reconciler, client, _, _ := defaultTestOmReconciler(t, testOm)
 
-	client.secrets[objectKey(testOm.Namespace, testOm.Spec.AppDB.PasswordSecretKeyRef.Name)] = &corev1.Secret{
+	client.getMapForObject(&corev1.Secret{})[objectKey(testOm.Namespace, testOm.Spec.AppDB.PasswordSecretKeyRef.Name)] = &corev1.Secret{
 		Data: map[string][]byte{
 			testOm.Spec.AppDB.PasswordSecretKeyRef.Key: []byte("my-password"), // create the secret with the password
 		},

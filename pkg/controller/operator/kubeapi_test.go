@@ -20,7 +20,6 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -49,17 +48,10 @@ const (
 
 // MockedClient is the mocked implementation of client.Client from controller-runtime library
 type MockedClient struct {
-	// Note that we have to specify 'apiruntime.Object' as values for maps to make 'getMapForObject()' method work
-	// (poor polymorphism in Go... )
-	// so please make sure that you put correct data to maps
-	sets             map[client.ObjectKey]apiruntime.Object
-	services         map[client.ObjectKey]apiruntime.Object
-	configMaps       map[client.ObjectKey]apiruntime.Object
-	secrets          map[client.ObjectKey]apiruntime.Object
-	mongoDbResources map[client.ObjectKey]apiruntime.Object
-	opsManagers      map[client.ObjectKey]apiruntime.Object
-	csrs             map[client.ObjectKey]apiruntime.Object
-	users            map[client.ObjectKey]apiruntime.Object
+
+	// backingMap contains all of the maps of all apiiruntime.Objects. Using the getMapForObject
+	// function will dynamically initialize a new map for the type in question
+	backingMap map[reflect.Type]map[client.ObjectKey]apiruntime.Object
 	// mocked client keeps track of all implemented functions called - uses reflection Func for this to enable type-safety
 	// and make function names rename easier
 	history []*HistoryItem
@@ -70,14 +62,7 @@ type MockedClient struct {
 
 func newMockedClient() *MockedClient {
 	api := MockedClient{}
-	api.sets = make(map[client.ObjectKey]apiruntime.Object)
-	api.services = make(map[client.ObjectKey]apiruntime.Object)
-	api.configMaps = make(map[client.ObjectKey]apiruntime.Object)
-	api.secrets = make(map[client.ObjectKey]apiruntime.Object)
-	api.mongoDbResources = make(map[client.ObjectKey]apiruntime.Object)
-	api.opsManagers = make(map[client.ObjectKey]apiruntime.Object)
-	api.csrs = make(map[client.ObjectKey]apiruntime.Object)
-	api.users = make(map[client.ObjectKey]apiruntime.Object)
+	api.backingMap = map[reflect.Type]map[client.ObjectKey]apiruntime.Object{}
 
 	// no delay in creation by default
 	api.StsCreationDelayMillis = 0
@@ -142,7 +127,7 @@ func (k *MockedClient) Get(ctx context.Context, key client.ObjectKey, obj apirun
 }
 
 func (k *MockedClient) ApproveAllCSRs() {
-	for _, csrObject := range k.csrs {
+	for _, csrObject := range k.getMapForObject(&certsv1.CertificateSigningRequest{}) {
 		csr := csrObject.(*certsv1.CertificateSigningRequest)
 		approvedCondition := certsv1.CertificateSigningRequestCondition{
 			Type: certsv1.CertificateApproved,
@@ -277,26 +262,12 @@ func (oc *MockedClient) addToHistory(value reflect.Value, obj apiruntime.Object)
 	oc.history = append(oc.history, HItem(value, obj))
 }
 
-func (oc *MockedClient) getMapForObject(obj apiruntime.Object) map[client.ObjectKey]apiruntime.Object {
-	switch obj.(type) {
-	case *appsv1.StatefulSet:
-		return oc.sets
-	case *corev1.Secret:
-		return oc.secrets
-	case *corev1.ConfigMap:
-		return oc.configMaps
-	case *corev1.Service:
-		return oc.services
-	case *mdbv1.MongoDB:
-		return oc.mongoDbResources
-	case *certsv1.CertificateSigningRequest:
-		return oc.csrs
-	case *mdbv1.MongoDBUser:
-		return oc.users
-	case *mdbv1.MongoDBOpsManager:
-		return oc.opsManagers
+func (m *MockedClient) getMapForObject(obj apiruntime.Object) map[client.ObjectKey]apiruntime.Object {
+	t := reflect.TypeOf(obj)
+	if _, ok := m.backingMap[t]; !ok {
+		m.backingMap[t] = map[client.ObjectKey]apiruntime.Object{}
 	}
-	return nil
+	return m.backingMap[t]
 }
 
 func (oc *MockedClient) CheckOrderOfOperations(t *testing.T, value ...*HistoryItem) {
@@ -339,7 +310,7 @@ func (oc *MockedClient) ClearHistory() {
 }
 
 func (oc *MockedClient) getSet(key client.ObjectKey) *appsv1.StatefulSet {
-	return oc.sets[key].(*appsv1.StatefulSet)
+	return oc.getMapForObject(&appsv1.StatefulSet{})[key].(*appsv1.StatefulSet)
 }
 
 // convenience method to get a helper from the mocked client
