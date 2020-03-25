@@ -71,6 +71,7 @@ func TestGetMergedDefaultPodSpecTemplate(t *testing.T) {
 		Name:  "extra-container",
 		Image: "container-image",
 	}
+
 	newPodSpecTemplate := corev1.PodTemplateSpec{
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{extraContainer},
@@ -663,11 +664,83 @@ func TestBuildOpsManagerStatefulSet_EnvVarsSorted(t *testing.T) {
 
 	// env vars are in sorted order
 	expectedVars := []corev1.EnvVar{
+		{Name: "CUSTOM_JAVA_DAEMON_OPTS", Value: "-Xmx4291m -Xms4291m"},
+		{Name: "CUSTOM_JAVA_MMS_UI_OPTS", Value: "-Xmx4291m -Xms4291m"},
 		{Name: "OM_PROP_mms_adminEmailAddr", Value: "cloud-manager-support@mongodb.com"},
 		{Name: "OM_PROP_mms_centralUrl", Value: "http://om-svc"},
 	}
 	env := sts.Spec.Template.Spec.Containers[0].Env
 	assert.Equal(t, expectedVars, env)
+}
+
+func TestBuildJvmParamsEnvVars_FromDefaultPodSpec(t *testing.T) {
+	om := DefaultOpsManagerBuilder().
+		AddConfiguration(util.MmsCentralUrlPropKey, "http://om-svc").
+		AddConfiguration("mms.adminEmailAddr", "cloud-manager-support@mongodb.com").
+		Build()
+	helper := omSetHelperFromResource(om)
+
+	labels := defaultPodLabels(helper.StatefulSetHelperCommon)
+
+	newContainer := corev1.Container{
+		Name:  "my-custom-container",
+		Image: "my-custom-image",
+	}
+
+	template, err := opsManagerPodTemplate(labels, helper, newContainer)
+	assert.NoError(t, err)
+
+	envVar, _ := buildJvmParamsEnvVars(om.Spec, template)
+	// xmx and xms based calculated from  default container memory, requests.mem=limits.mem=5GB
+	assert.Equal(t, "CUSTOM_JAVA_MMS_UI_OPTS", envVar[0].Name)
+	assert.Equal(t, "-Xmx4291m -Xms4291m", envVar[0].Value)
+
+	assert.Equal(t, "CUSTOM_JAVA_DAEMON_OPTS", envVar[1].Name)
+	assert.Equal(t, "-Xmx4291m -Xms4291m", envVar[1].Value)
+}
+
+func TestBuildJvmParamsEnvVars_FromCustomContainerResource(t *testing.T) {
+	om := DefaultOpsManagerBuilder().
+		AddConfiguration(util.MmsCentralUrlPropKey, "http://om-svc").
+		AddConfiguration("mms.adminEmailAddr", "cloud-manager-support@mongodb.com").
+		Build()
+	om.Spec.JVMParams = []string{"-DFakeOptionEnabled"}
+	helper := omSetHelperFromResource(om)
+
+	labels := defaultPodLabels(helper.StatefulSetHelperCommon)
+
+	newContainer := corev1.Container{
+		Name:  "my-custom-container",
+		Image: "my-custom-image",
+	}
+
+	template, err := opsManagerPodTemplate(labels, helper, newContainer)
+	assert.NoError(t, err)
+
+	unsetQuantity := *resource.NewQuantity(0, resource.BinarySI)
+
+	template.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory] = *resource.NewQuantity(268435456, resource.BinarySI)
+	template.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory] = unsetQuantity
+	envVarLimitsOnly, _ := buildJvmParamsEnvVars(om.Spec, template)
+
+	template.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory] = *resource.NewQuantity(218435456, resource.BinarySI)
+	envVarLimitsAndReqs, _ := buildJvmParamsEnvVars(om.Spec, template)
+
+	template.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory] = unsetQuantity
+	envVarReqsOnly, _ := buildJvmParamsEnvVars(om.Spec, template)
+
+	template.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory] = unsetQuantity
+	envVarsNoLimitsOrReqs, _ := buildJvmParamsEnvVars(om.Spec, template)
+
+	// if only memory requests are configured, xms and xmx should be 90% of mem request
+	assert.Equal(t, "-DFakeOptionEnabled -Xmx187m -Xms187m", envVarReqsOnly[0].Value)
+	// both are configured, xms should be 90% of mem request, and xmx 90% of mem limit
+	assert.Equal(t, "-DFakeOptionEnabled -Xmx230m -Xms187m", envVarLimitsAndReqs[0].Value)
+	// if only memory limits are configured, xms and xmx should be 90% of mem limits
+	assert.Equal(t, "-DFakeOptionEnabled -Xmx230m -Xms230m", envVarLimitsOnly[0].Value)
+	// if neither is configured, xms/xmx params should not be added to JVM params, keeping OM defaults
+	assert.Equal(t, "-DFakeOptionEnabled", envVarsNoLimitsOrReqs[0].Value)
+
 }
 
 func TestBaseEnvHelper(t *testing.T) {

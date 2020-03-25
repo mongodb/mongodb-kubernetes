@@ -1,0 +1,21 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: om-jvm-params
+spec:
+  replicas: 1
+  version: 4.2.0
+  adminCredentials: ops-manager-admin-secret
+
+  applicationDatabase:
+    members: 3
+    version: 4.2.0
+    persistent: false
+
+  podSpec:
+      memoryRequests: "400M"
+      memory: "5G"
+
+  backup:
+    enabled: true
+    jvmParameters: ["-Xmx4352m","-Xms4352m"]

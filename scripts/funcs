@@ -464,5 +464,8 @@ prepare_appdb_build() {
 # prepare_ops_manager_build prepares the dockerfile for Ops Manager.
 # Must be run from docker/mongodb-enterprise-ops-manager
 prepare_ops_manager_build() {
+	GOOS='linux' go build -i -o mmsconfiguration ../../mmsconfiguration
+	mv mmsconfiguration scripts/mmsconfiguration
+
     ../Dockerfile.gen opsmanager "${IMAGE_TYPE}" > Dockerfile
 }

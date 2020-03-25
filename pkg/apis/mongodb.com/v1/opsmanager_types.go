@@ -57,6 +57,8 @@ type MongoDBOpsManagerSpec struct {
 	AdminSecret string `json:"adminCredentials,omitempty"`
 	AppDB       AppDB  `json:"applicationDatabase"`
 
+	JVMParams []string `json:"jvmParameters,omitempty"`
+
 	// Backup
 	Backup *MongoDBOpsManagerBackup `json:"backup,omitempty"`
 
@@ -103,7 +105,8 @@ type MongoDBOpsManagerBackup struct {
 	Enabled bool `json:"enabled"`
 
 	// HeadDB specifies configuration options for the HeadDB
-	HeadDB *PersistenceConfig `json:"headDB,omitempty"`
+	HeadDB    *PersistenceConfig `json:"headDB,omitempty"`
+	JVMParams []string           `json:"jvmParameters,omitempty"`
 
 	// OplogStoreConfigs describes the list of oplog store configs used for backup
 	OplogStoreConfigs []DataStoreConfig `json:"oplogStores,omitempty"`

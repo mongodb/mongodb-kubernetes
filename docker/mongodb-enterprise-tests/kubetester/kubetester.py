@@ -22,6 +22,7 @@ import yaml
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from kubernetes import client, config
+from kubernetes.stream import stream
 from kubernetes.client.rest import ApiException
 from requests.auth import HTTPDigestAuth
 from kubetester.crypto import wait_for_certs_to_be_issued
@@ -1019,6 +1020,17 @@ class KubernetesTester(object):
         return prefix + "".join(
             random.choice(string.ascii_lowercase) for _ in range(10)
         )
+
+    def run_command_in_pod_container(self, pod_name: str, cmd: List[str]) -> str:
+        api_client = self.client.CoreV1Api()
+        api_response = stream(
+            api_client.connect_get_namespaced_pod_exec,
+            pod_name,
+            self.namespace,
+            command=cmd,
+            stdout=True,
+        )
+        return api_response
 
     def approve_certificate(self, name):
         body = self.certificates.read_certificate_signing_request_status(name)

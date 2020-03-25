@@ -5,8 +5,11 @@ package operator
 import (
 	"path"
 	"strconv"
+	"strings"
 
-	service "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
+	"k8s.io/apimachinery/pkg/api/resource"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 
 	"fmt"
@@ -61,6 +64,10 @@ const (
 
 	// ClusterConfigVolumeName is the name of the volume resource.
 	ClusterConfigVolumeName = "cluster-config"
+
+	OneMB = 1048576
+
+	OpsManagerPodMemPercentage = 90
 )
 
 // PodVars is a convenience struct to pass environment variables to Pods as needed.
@@ -274,6 +281,16 @@ func createBaseOpsManagerStatefulSetBuilder(p OpsManagerStatefulSetHelper, conta
 		return nil, err
 	}
 
+	jvmParamsEnvVars, err := buildJvmParamsEnvVars(p.Spec, template)
+	if err != nil {
+		return nil, err
+	}
+
+	// pass Xmx java parameter to container
+	for _, envVar := range jvmParamsEnvVars {
+		template.Spec.Containers[0].Env = append(template.Spec.Containers[0].Env, envVar)
+	}
+
 	stsBuilder := statefulset.NewBuilder().
 		SetLabels(labels).
 		SetName(p.Name).
@@ -374,6 +391,76 @@ func buildBackupDaemonStatefulSet(p BackupStatefulSetHelper) (appsv1.StatefulSet
 		)
 
 	return stsBuilder.Build()
+}
+
+func buildJvmParamsEnvVars(m mdbv1.MongoDBOpsManagerSpec, template corev1.PodTemplateSpec) ([]corev1.EnvVar, error) {
+	mmsJvmEnvVar := corev1.EnvVar{Name: util.MmsJvmParamEnvVar}
+	backupJvmEnvVar := corev1.EnvVar{Name: util.BackupDaemonJvmParamEnvVar}
+
+	// calculate xmx from container's memory limit
+	memLimits := template.Spec.Containers[0].Resources.Limits.Memory()
+	maxPodMem, err := getPercentOfQuantityAsInt(*memLimits, OpsManagerPodMemPercentage)
+	if err != nil {
+		return []corev1.EnvVar{}, fmt.Errorf("error calculating xmx from pod mem: %e", err)
+	}
+
+	// calculate xms from container's memory request if it is set, otherwise xms=xmx
+	memRequests := template.Spec.Containers[0].Resources.Requests.Memory()
+	minPodMem, err := getPercentOfQuantityAsInt(*memRequests, OpsManagerPodMemPercentage)
+	if err != nil {
+		return []corev1.EnvVar{}, fmt.Errorf("error calculating xms from pod mem: %e", err)
+	}
+
+	// if only one of mem limits/requests is set, use that value for both xmx & xms
+	if minPodMem == 0 {
+		minPodMem = maxPodMem
+	}
+	if maxPodMem == 0 {
+		maxPodMem = minPodMem
+	}
+
+	memParams := fmt.Sprintf("-Xmx%dm -Xms%dm", maxPodMem, minPodMem)
+	mmsJvmEnvVar.Value = buildJvmEnvVar(m.JVMParams, memParams)
+	backupJvmEnvVar.Value = buildJvmEnvVar(m.Backup.JVMParams, memParams)
+
+	return []corev1.EnvVar{mmsJvmEnvVar, backupJvmEnvVar}, nil
+}
+
+func getPercentOfQuantityAsInt(q resource.Quantity, percent int) (int, error) {
+	quantityAsInt, canConvert := q.AsInt64()
+	if !canConvert {
+		// the container's mem can't be converted to int64, use default of 5G
+		podMem, err := resource.ParseQuantity(util.DefaultMemoryOpsManager)
+		quantityAsInt, canConvert = podMem.AsInt64()
+		if err != nil {
+			return 0, err
+		}
+		if !canConvert {
+			return 0, fmt.Errorf("cannot convert %s to int64", podMem.String())
+		}
+	}
+	percentage := float64(percent) / 100.0
+
+	return int(float64(quantityAsInt)*percentage) / OneMB, nil
+}
+
+func buildJvmEnvVar(customParams []string, containerMemParams string) string {
+	jvmParams := strings.Join(customParams, " ")
+
+	// if both mem limits and mem requests are unset/have value 0, we don't want to override om's default JVM xmx/xms params
+	if strings.Contains(containerMemParams, "-Xmx0m") {
+		return jvmParams
+	}
+
+	if strings.Contains(jvmParams, "Xmx") {
+		return jvmParams
+	}
+
+	if jvmParams != "" {
+		jvmParams += " "
+	}
+
+	return jvmParams + containerMemParams
 }
 
 // mountVolumes will add VolumeMounts to the `stsBuilder` object.

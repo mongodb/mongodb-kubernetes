@@ -328,7 +328,7 @@ functions:
       env:
         KUBECONFIG: ${workdir}/${kube_environment_name}_config
       binary: scripts/evergreen/wait_docker_image.sh
-    
+
   "build_and_push_om_test_images":
     - command: subprocess.exec
       type: setup
@@ -1358,6 +1358,12 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_om_jvm_params
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
 - name: e2e_om_ops_manager_https_with_custom_ca
   tags: ["patch-run"]
   commands:
@@ -1609,6 +1615,7 @@ task_groups:
     - e2e_om_external_connectivity
     - e2e_op_upgrade_om
     - e2e_om_validation_webhook
+    - e2e_om_jvm_params
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -1638,6 +1645,7 @@ task_groups:
     - e2e_om_ops_manager_upgrade
     - e2e_om_external_connectivity
     - e2e_op_upgrade_om
+    - e2e_om_jvm_params
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
