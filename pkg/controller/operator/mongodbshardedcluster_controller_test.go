@@ -278,7 +278,7 @@ func TestShardedCluster_WithTLSEnabled_AndX509Enabled_Succeeds(t *testing.T) {
 		createCSR(fmt.Sprintf("%s-mongos-2", sc.Name), TestNamespace, certsv1.CertificateApproved),
 		createCSR(fmt.Sprintf("%s-mongos-3", sc.Name), TestNamespace, certsv1.CertificateApproved),
 		createCSR(fmt.Sprintf("%s-config-0", sc.Name), TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-config-1", sc.Name), TestNamespace	, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-config-1", sc.Name), TestNamespace, certsv1.CertificateApproved),
 		createCSR(fmt.Sprintf("%s-config-2", sc.Name), TestNamespace, certsv1.CertificateApproved),
 		createCSR(fmt.Sprintf("%s-0", sc.Name), TestNamespace, certsv1.CertificateApproved),
 		createCSR(fmt.Sprintf("%s-1", sc.Name), TestNamespace, certsv1.CertificateApproved),

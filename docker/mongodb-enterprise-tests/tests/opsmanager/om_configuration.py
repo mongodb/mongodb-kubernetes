@@ -1,5 +1,6 @@
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import MongoDBOpsManager, Phase, KubernetesTester
+from kubetester.mongodb import Phase, KubernetesTester
+from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 import re
 from tests.opsmanager.om_base import OpsManagerBase
