@@ -307,6 +307,15 @@ func createBaseOpsManagerStatefulSetBuilder(p OpsManagerStatefulSetHelper, conta
 		MountPath: util.GenKeyPath,
 	}
 
+	if p.HTTPSCertSecretName != "" {
+		mountCert := statefulset.VolumeMountData{
+			Name:      "om-https-certificate",
+			Volume:    statefulset.CreateVolumeFromSecret("om-https-certificate", p.HTTPSCertSecretName),
+			MountPath: util.MmsPemKeyFileDirInContainer,
+		}
+		stsBuilder.AddVolumeAndMount(p.ContainerName, mountCert)
+	}
+
 	return stsBuilder.AddVolumeAndMount(p.ContainerName, mountData), nil
 }
 
@@ -321,8 +330,18 @@ func buildOpsManagerStatefulSet(p OpsManagerStatefulSetHelper) (appsv1.StatefulS
 }
 
 func buildBaseContainerForOpsManagerAndBackup(p OpsManagerStatefulSetHelper) corev1.Container {
-	annotation := p.Annotations["x-readiness-probe-scheme"]
-	_, port := mdbv1.SchemePortFromAnnotation(annotation)
+	httpsSecretName := p.HTTPSCertSecretName
+	_, port := mdbv1.SchemePortFromAnnotation("http")
+	if httpsSecretName != "" {
+		_, port = mdbv1.SchemePortFromAnnotation("https")
+
+		// Before creating the podTemplate, we need to add the new PemKeyFile
+		// configuration if required.
+		p.EnvVars = append(p.EnvVars, corev1.EnvVar{
+			Name:  mdbv1.ConvertNameToEnvVarFormat(util.MmsPEMKeyFile),
+			Value: util.MmsPemKeyFileDirInContainer + "/server.pem",
+		})
+	}
 
 	omImageUrl := prepareOmAppdbImageUrl(util.ReadEnvVarOrPanic(util.OpsManagerImageUrl), p.Version)
 	container := corev1.Container{
@@ -335,8 +354,11 @@ func buildBaseContainerForOpsManagerAndBackup(p OpsManagerStatefulSetHelper) cor
 }
 
 func buildOpsManagerContainer(p OpsManagerStatefulSetHelper) corev1.Container {
-	annotation := p.Annotations["x-readiness-probe-scheme"]
-	scheme, _ := mdbv1.SchemePortFromAnnotation(annotation)
+	httpsSecretName := p.HTTPSCertSecretName
+	scheme, _ := mdbv1.SchemePortFromAnnotation("http")
+	if httpsSecretName != "" {
+		scheme, _ = mdbv1.SchemePortFromAnnotation("https")
+	}
 
 	container := buildBaseContainerForOpsManagerAndBackup(p)
 	container.Name = p.ContainerName

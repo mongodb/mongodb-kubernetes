@@ -135,6 +135,9 @@ type OpsManagerStatefulSetHelper struct {
 	// Annotations passed to the Ops Manager resource
 	Annotations map[string]string
 
+	// Name of the secret containing the secret to mount.
+	HTTPSCertSecretName string
+
 	EnvVars []corev1.EnvVar
 }
 
@@ -388,6 +391,11 @@ func (s *OpsManagerStatefulSetHelper) SetName(name string) *OpsManagerStatefulSe
 
 func (s *OpsManagerStatefulSetHelper) SetAnnotations(annotations map[string]string) *OpsManagerStatefulSetHelper {
 	s.Annotations = annotations
+	return s
+}
+
+func (s *OpsManagerStatefulSetHelper) SetHTTPSCertSecretName(secretName string) *OpsManagerStatefulSetHelper {
+	s.HTTPSCertSecretName = secretName
 	return s
 }
 

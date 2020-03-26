@@ -67,6 +67,17 @@ type MongoDBOpsManagerSpec struct {
 	MongoDBOpsManagerExternalConnectivity *MongoDBOpsManagerServiceDefinition `json:"externalConnectivity,omitempty"`
 
 	PodSpec *MongoDbPodSpec `json:"podSpec,omitempty"`
+
+	// Configure HTTPS.
+	Security MongoDBOpsManagerSecurity `json:"security,omitempty"`
+}
+
+type MongoDBOpsManagerSecurity struct {
+	TLS struct {
+		SecretRef struct {
+			Name string `json:"name"`
+		} `json:"secretRef"`
+	} `json:"tls"`
 }
 
 func (ms MongoDBOpsManagerSpec) GetClusterDomain() string {
@@ -396,8 +407,10 @@ func (m *MongoDBOpsManager) UpdateSuccessfulAppDb(object runtime.Object, _ ...st
 }
 
 func (m MongoDBOpsManager) GetSchemePort() (corev1.URIScheme, int) {
-	annotation, _ := m.Annotations["x-readiness-probe-scheme"]
-	return SchemePortFromAnnotation(annotation)
+	if m.Spec.Security.TLS.SecretRef.Name != "" {
+		return SchemePortFromAnnotation("https")
+	}
+	return SchemePortFromAnnotation("http")
 }
 
 func (m MongoDBOpsManager) CentralURL() string {
