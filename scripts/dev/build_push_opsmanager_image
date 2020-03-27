@@ -29,6 +29,31 @@ submit_kaniko() {
         ../../scripts/evergreen/build_docker_image.sh
 }
 
+# Building the init image - either to local repo or to the remote one (ECR)
+
+check_mandatory_param "${init_om_version-}" "init_om_version"
+
+title "Building Init Ops Manager image (init om version: ${init_om_version})..."
+
+pushd "${PWD}"
+cd docker/mongodb-enterprise-init-ops-manager || exit
+
+if [[ ${REPO_TYPE} = "ecr" ]]; then
+    ensure_ecr_repository "${REPO_URL}/mongodb-enterprise-init-ops-manager"
+fi
+
+# TODO: include the build id
+build_id=$(date +%Y%m%d)
+
+repo_name="mongodb-enterprise-init-ops-manager:${init_om_version}"
+full_url="${REPO_URL}/${repo_name}"
+docker build -t "${repo_name}" --build-arg VERSION=${init_om_version} .
+docker tag "${repo_name}" "${full_url}"
+docker push "${full_url}"
+title "Init Ops Manager image successfully built and pushed to ${REPO_TYPE} registry"
+
+
+# will be removed in coming PR: OpsManager build will be independent
 # 1. First we need to find out the download_url necessary for image build
 
 check_mandatory_param "${om_version-}" "om_version"
@@ -44,14 +69,16 @@ fi
 
 echo "The download url for ${om_version} is ${download_url}"
 
+
+# 2. Building the image - either to local repo or to the remote one (ECR)
+
 # note that in non local runs we want to build images with suffix (operator version).
 if [[ "${LOCAL_RUN-}" = false ]]; then
     image_suffix="-operator$(git describe --dirty)"
     echo "Using image suffix (operator version) ${image_suffix} for building images"
 fi
 
-# 2. Building the image - either to local repo or to the remote one (ECR)
-
+popd
 cd docker/mongodb-enterprise-ops-manager || exit
 
 if [[ ${REPO_TYPE} = "ecr" ]]; then

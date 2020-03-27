@@ -6,8 +6,9 @@ import (
 
 // VolumeMountData contains values required for the MountVolume function
 type VolumeMountData struct {
-	Name      string
 	MountPath string
+	Name      string
+	ReadOnly  bool
 	Volume    corev1.Volume
 }
 

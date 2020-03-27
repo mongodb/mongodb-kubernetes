@@ -139,6 +139,7 @@ func getDatabasePodTemplate(stsHelper StatefulSetHelper,
 	templateSpec := corev1.PodTemplateSpec{
 		Spec: corev1.PodSpec{
 			Containers:                    []corev1.Container{container},
+			InitContainers:                []corev1.Container{},
 			ServiceAccountName:            serviceAccountName,
 			TerminationGracePeriodSeconds: util.Int64Ref(util.DefaultPodTerminationPeriodSeconds),
 		},
@@ -258,12 +259,14 @@ func buildAppDbStatefulSet(p StatefulSetHelper) (appsv1.StatefulSet, error) {
 
 	stsBuilder := createBaseDatabaseStatefulSetBuilder(p, template)
 
-	stsBuilder.AddVolumeAndMount(p.ContainerName,
+	stsBuilder.AddVolumeAndMount(
 		statefulset.VolumeMountData{
 			Name:      ClusterConfigVolumeName,
 			MountPath: AgentLibPath,
+			ReadOnly:  true,
 			Volume:    statefulset.CreateVolumeFromConfigMap(ClusterConfigVolumeName, p.Name+"-config"),
 		},
+		p.ContainerName,
 	)
 
 	return stsBuilder.Build()
@@ -304,8 +307,10 @@ func createBaseOpsManagerStatefulSetBuilder(p OpsManagerStatefulSetHelper, conta
 	mountData := statefulset.VolumeMountData{
 		Name:      "gen-key",
 		Volume:    statefulset.CreateVolumeFromSecret("gen-key", p.Owner.GetName()+"-gen-key"),
+		ReadOnly:  true,
 		MountPath: util.GenKeyPath,
 	}
+	stsBuilder.AddVolumeAndMount(mountData, p.ContainerName)
 
 	if p.HTTPSCertSecretName != "" {
 		mountCert := statefulset.VolumeMountData{
@@ -313,10 +318,35 @@ func createBaseOpsManagerStatefulSetBuilder(p OpsManagerStatefulSetHelper, conta
 			Volume:    statefulset.CreateVolumeFromSecret("om-https-certificate", p.HTTPSCertSecretName),
 			MountPath: util.MmsPemKeyFileDirInContainer,
 		}
-		stsBuilder.AddVolumeAndMount(p.ContainerName, mountCert)
+		stsBuilder.AddVolumeAndMount(mountCert, p.ContainerName)
 	}
 
-	return stsBuilder.AddVolumeAndMount(p.ContainerName, mountData), nil
+	stsBuilder.AddVolume(
+		corev1.Volume{
+			Name: "ops-manager-scripts",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		},
+	)
+	stsBuilder.AddVolumeMount(
+		"mongodb-enterprise-init-ops-manager",
+		corev1.VolumeMount{
+			Name:      "ops-manager-scripts",
+			MountPath: "/opt/scripts",
+			ReadOnly:  false,
+		},
+	)
+	stsBuilder.AddVolumeMount(
+		p.ContainerName,
+		corev1.VolumeMount{
+			Name:      "ops-manager-scripts",
+			MountPath: "/opt/scripts",
+			ReadOnly:  true,
+		},
+	)
+
+	return stsBuilder, nil
 }
 
 // buildOpsManagerStatefulSet builds the StatefulSet for Ops Manager
@@ -370,6 +400,7 @@ func buildOpsManagerContainer(p OpsManagerStatefulSetHelper) corev1.Container {
 			},
 		},
 	}
+	container.Command = []string{"/opt/scripts/docker-entry-point.sh"}
 	return container
 }
 
@@ -383,6 +414,7 @@ func buildBackupDaemonContainer(p BackupStatefulSetHelper) corev1.Container {
 			},
 		},
 	}
+	container.Command = []string{"/opt/scripts/docker-entry-point.sh"}
 	return container
 }
 
@@ -494,55 +526,65 @@ func mountVolumes(stsBuilder *statefulset.Builder, helper StatefulSetHelper) *st
 		tlsConfig := helper.Security.TLSConfig
 		secretName := fmt.Sprintf("%s-cert", helper.Name)
 
-		stsBuilder.AddVolumeAndMount(helper.ContainerName,
+		stsBuilder.AddVolumeAndMount(
 			statefulset.VolumeMountData{
 				MountPath: SecretVolumeMountPath,
 				Name:      SecretVolumeName,
+				ReadOnly:  true,
 				Volume:    statefulset.CreateVolumeFromSecret(SecretVolumeName, secretName),
 			},
+			helper.ContainerName,
 		)
 
 		if tlsConfig.CA != "" {
-			stsBuilder.AddVolumeAndMount(helper.ContainerName,
+			stsBuilder.AddVolumeAndMount(
 				statefulset.VolumeMountData{
 					// TODO: Rename to non secret or change the volume type
 					MountPath: SecretVolumeCAMountPath,
 					Name:      SecretVolumeCAName,
+					ReadOnly:  true,
 					Volume:    statefulset.CreateVolumeFromConfigMap(SecretVolumeCAName, tlsConfig.CA),
 				},
+				helper.ContainerName,
 			)
 		}
 	}
 
 	if helper.PodVars != nil && helper.PodVars.SSLMMSCAConfigMap != "" {
-		stsBuilder.AddVolumeAndMount(helper.ContainerName,
+		stsBuilder.AddVolumeAndMount(
 			statefulset.VolumeMountData{
 				MountPath: CaCertMountPath,
 				Name:      CaCertName,
+				ReadOnly:  true,
 				Volume:    statefulset.CreateVolumeFromConfigMap(CaCertName, helper.PodVars.SSLMMSCAConfigMap),
 			},
+			helper.ContainerName,
 		)
 	}
 
 	if helper.Security != nil {
 		if helper.Security.Authentication.GetAgentMechanism() == util.X509 {
-			stsBuilder.AddVolumeAndMount(helper.ContainerName,
+			stsBuilder.AddVolumeAndMount(
 				statefulset.VolumeMountData{
 					MountPath: AgentCertMountPath,
 					Name:      util.AgentSecretName,
+					ReadOnly:  true,
 					Volume:    statefulset.CreateVolumeFromSecret(util.AgentSecretName, util.AgentSecretName),
 				},
+				helper.ContainerName,
 			)
 		}
 
 		// add volume for x509 cert used in internal cluster authentication
 		if helper.Security.Authentication.InternalCluster == util.X509 {
-			stsBuilder.AddVolumeAndMount(helper.ContainerName,
+			stsBuilder.AddVolumeAndMount(
 				statefulset.VolumeMountData{
 					MountPath: util.InternalClusterAuthMountPath,
 					Name:      util.ClusterFileName,
+					ReadOnly:  true,
 					Volume:    statefulset.CreateVolumeFromSecret(util.ClusterFileName, toInternalClusterAuthName(helper.Name)),
 				},
+				helper.ContainerName,
 			)
 		}
 	}
@@ -658,11 +700,17 @@ func appdbContainerEnv(statefulSetName string) []corev1.EnvVar {
 // opsManagerPodTemplate builds the pod template spec used by both Backup and OM statefulsets
 // In the end it applies the podSpec (and probably podSpec.podTemplate) as the MongoDB and AppDB do.
 func opsManagerPodTemplate(labels map[string]string, stsHelper OpsManagerStatefulSetHelper, containerSpec corev1.Container) (corev1.PodTemplateSpec, error) {
+	version := util.ReadEnvVarOrDefault(util.InitOpsManagerVersion, "latest")
+	imageUrl := fmt.Sprintf("%s:%s", util.ReadEnvVarOrPanic(util.InitOpsManagerImageUrl), version)
 	templateSpec := corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels: labels,
 		},
 		Spec: corev1.PodSpec{
+			InitContainers: []corev1.Container{{
+				Name:  "mongodb-enterprise-init-ops-manager",
+				Image: imageUrl,
+			}},
 			Containers: []corev1.Container{getContainerWithSecurityContext(containerSpec)},
 			// After discussion with John Morales seems 30 min should be ok
 			// Note, that the OM (as of current version 4.2.8) has internal timeout of 20 seconds for 'stop_mms' and
@@ -687,6 +735,7 @@ func opsManagerPodTemplate(labels map[string]string, stsHelper OpsManagerStatefu
 // So far it seems that no other logic depends on the Operator version so we can afford this - we can complicate things
 // if requirements change
 func prepareOmAppdbImageUrl(imageUrl, version string) string {
+	// how does this work when the -operator is appended?
 	fullImageUrl := fmt.Sprintf("%s:%s", imageUrl, version)
 	if util.OperatorVersion != "" {
 		fullImageUrl = fmt.Sprintf("%s-operator%s", fullImageUrl, util.OperatorVersion)

@@ -61,7 +61,7 @@ func (s *Builder) SetMatchLabels(matchLabels map[string]string) *Builder {
 }
 
 func (s *Builder) SetPodTemplateSpec(podTemplateSpec corev1.PodTemplateSpec) *Builder {
-	s.podTemplateSpec = podTemplateSpec
+	s.podTemplateSpec = *podTemplateSpec.DeepCopy()
 	return s
 }
 
@@ -96,7 +96,16 @@ func (s *Builder) AddVolumes(volumes []corev1.Volume) *Builder {
 
 // getContainerIndexByName returns the index of the container with containerName
 func (s Builder) getContainerIndexByName(containerName string) (int, error) {
-	for i, c := range s.podTemplateSpec.Spec.Containers {
+	return getContainerByName(containerName, s.podTemplateSpec.Spec.Containers)
+}
+
+// getInitContainerIndexByName returns the index of the container with containerName for initContainers
+func (s Builder) getInitContainerIndexByName(containerName string) (int, error) {
+	return getContainerByName(containerName, s.podTemplateSpec.Spec.InitContainers)
+}
+
+func getContainerByName(containerName string, containers []corev1.Container) (int, error) {
+	for i, c := range containers {
 		if c.Name == containerName {
 			return i, nil
 		}
@@ -104,38 +113,72 @@ func (s Builder) getContainerIndexByName(containerName string) (int, error) {
 	return -1, fmt.Errorf("no container with name [%s] found", containerName)
 }
 
-func (s *Builder) AddVolumeAndMount(containerName string, volumeMountData VolumeMountData) *Builder {
+func (s *Builder) AddVolumeAndMount(volumeMountData VolumeMountData, containerNames ...string) *Builder {
 	s.AddVolume(volumeMountData.Volume)
-	s.AddVolumeMount(containerName,
-		corev1.VolumeMount{
-			Name:      volumeMountData.Name,
-			ReadOnly:  true,
-			MountPath: volumeMountData.MountPath,
-		},
-	)
+	for _, containerName := range containerNames {
+		s.AddVolumeMount(
+			containerName,
+			corev1.VolumeMount{
+				Name:      volumeMountData.Name,
+				ReadOnly:  volumeMountData.ReadOnly,
+				MountPath: volumeMountData.MountPath,
+			},
+		)
+	}
 	return s
+}
+
+// addVolumeMountToContainers tries to mount the volumes to the container
+// (identified by name) in the podTemplateSpec. Note that it will work both for
+// "normal" containers and init containers
+func (s Builder) addVolumeMountToContainers(containerName string, volumeMounts []corev1.VolumeMount, podTemplateSpec *corev1.PodTemplateSpec) (bool, error) {
+	idx, err := s.getContainerIndexByName(containerName)
+	if err != nil {
+		return false, err
+	}
+	var errs error
+	ok := false
+	existingVolumeMounts := map[string]bool{}
+	for _, volumeMount := range volumeMounts {
+		if prevMount, seen := existingVolumeMounts[volumeMount.MountPath]; seen {
+			// Volume with the same path already mounted
+			errs = multierror.Append(errs, fmt.Errorf("Volume %v already mounted as %v", volumeMount, prevMount))
+			continue
+		}
+		podTemplateSpec.Spec.Containers[idx].VolumeMounts = append(podTemplateSpec.Spec.Containers[idx].VolumeMounts, volumeMount)
+		existingVolumeMounts[volumeMount.MountPath] = true
+		ok = true
+	}
+	return ok, errs
+}
+
+func (s Builder) addVolumeMountToInitContainers(containerName string, volumeMounts []corev1.VolumeMount, podTemplateSpec *corev1.PodTemplateSpec) (bool, error) {
+	idx, err := s.getInitContainerIndexByName(containerName)
+	if err != nil {
+		return false, err
+	}
+	for _, volumeMount := range volumeMounts {
+		// init containers just override volume mounts
+		podTemplateSpec.Spec.InitContainers[idx].VolumeMounts = append(podTemplateSpec.Spec.InitContainers[idx].VolumeMounts, volumeMount)
+	}
+	return true, nil
 }
 
 func (s Builder) buildPodTemplateSpec() (corev1.PodTemplateSpec, error) {
 	podTemplateSpec := s.podTemplateSpec.DeepCopy()
 	var errs error
 	for containerName, volumeMounts := range s.volumeMountsPerContainer {
-		idx, err := s.getContainerIndexByName(containerName)
-		if err != nil {
-			errs = multierror.Append(errs, err)
-			// other containers may have valid mounts
+		var found bool
+		var errContainer, errInitContainer error
+		if found, errContainer = s.addVolumeMountToContainers(containerName, volumeMounts, podTemplateSpec); found {
 			continue
 		}
-		existingVolumeMounts := map[string]bool{}
-		for _, volumeMount := range volumeMounts {
-			if prevMount, seen := existingVolumeMounts[volumeMount.MountPath]; seen {
-				// Volume with the same path already mounted
-				errs = multierror.Append(errs, fmt.Errorf("Volume %v already mounted as %v", volumeMount, prevMount))
-				continue
-			}
-			podTemplateSpec.Spec.Containers[idx].VolumeMounts = append(podTemplateSpec.Spec.Containers[idx].VolumeMounts, volumeMount)
-			existingVolumeMounts[volumeMount.MountPath] = true
+		if found, errInitContainer = s.addVolumeMountToInitContainers(containerName, volumeMounts, podTemplateSpec); found {
+			continue
 		}
+		// reaches here only in case of error in both cases
+		errs = multierror.Append(errs, errContainer)
+		errs = multierror.Append(errs, errInitContainer)
 	}
 
 	// sorts environment variables for all containers

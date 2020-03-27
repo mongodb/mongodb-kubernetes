@@ -94,14 +94,14 @@ full: ensure-k8s-and-reset build-and-push-images
 	@ scripts/dev/apply_resources
 
 om-batch: aws_login
-	@ scripts/dev/batch_om_appdb_images
+	@ om_version=$(om_version) init_om_version=$(init_om_version) scripts/dev/batch_om_appdb_images
 
 # build-push appdb image
 appdb: aws_login
-	@ scripts/dev/build_push_appdb_image
+	@ om_version=$(om_version) scripts/dev/build_push_appdb_image
 
 om-image:
-	@ scripts/dev/build_push_opsmanager_image
+	@ om_version=$(om_version) init_om_version=$(init_om_version) scripts/dev/build_push_opsmanager_image
 
 # install OM in Kubernetes if it's not running
 om:

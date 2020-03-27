@@ -24,6 +24,10 @@ database:
 opsManager:
   name: mongodb-enterprise-ops-manager
 
+initOpsManager:
+  name: mongodb-enterprise-init-ops-manager
+  version: 1.0.0
+
 appDb:
   name: mongodb-enterprise-appdb
 

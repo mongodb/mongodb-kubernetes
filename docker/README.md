@@ -3,9 +3,11 @@
 This directory hosts the components that make up the MongoDB for Kubernetes solution.
 
 The components are:
-- [mongodb-enterprise-database](mongodb-enterprise-database): a container which comes with an automation agent preinstalled, allowing easy installation of MongoDB
+- [mongodb-enterprise-database](mongodb-enterprise-database): a container which comes with a script that will download the automation agent from OpsManager during startup, this container will then run the automation agent which in turn will download MongoDB binaries and run them
 - [mongodb-enterprise-operator](mongodb-enterprise-operator): the Kubernetes operator which enables provisioning of databases via Kubernetes CLI commands (e.g., `kubectl`)
-- [mongodb-enteprise-ops-manager](mongodb-enteprise-ops-manager): a MongoDB Ops Manager 4.0 container
+- [mongodb-enteprise-ops-manager](mongodb-enteprise-ops-manager): a MongoDB Ops Manager container
+- [mongodb-enteprise-ops-manager-init](mongodb-enteprise-ops-manager-init): an init container that copies OpsManager startup script in a volume to be used by the OpsManager container
+- [mongodb-enterprise-appdb](mongodb-enterprise-database): a container which comes with an automation agent preinstalled which is in charge of running the database backup for OpsManager (AppDB), the agent runs in headless mode and this container also a bundled MongoDB version to satisfy airgap datacenter use-case
 - [node-mongo-app](node-mongo-app): a simple app used to test connectivity to a provided database
 
 ## RHEL Based Images for OpenShift ##

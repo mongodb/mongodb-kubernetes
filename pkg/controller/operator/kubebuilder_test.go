@@ -563,7 +563,8 @@ func TestOpsManagerPodTemplate_SecurityContext(t *testing.T) {
 	assert.NoError(t, err)
 
 	spec := podSpecTemplate.Spec
-	assert.Len(t, spec.InitContainers, 0)
+	assert.Len(t, spec.InitContainers, 1)
+	assert.Equal(t, spec.InitContainers[0].Name, "mongodb-enterprise-init-ops-manager")
 	require.NotNil(t, spec.SecurityContext)
 	assert.Equal(t, util.Int64Ref(util.FsGroup), spec.SecurityContext.FSGroup)
 

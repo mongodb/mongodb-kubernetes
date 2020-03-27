@@ -7,6 +7,10 @@ source scripts/dev/set_env_context
 
 check_mandatory_param "${scope-}" "scope"
 
+if [[ -z "$init_om_version" ]]; then
+    init_om_version=( $(jq --raw-output '.initOpsManagerVersion' < release.json) )
+fi
+
 if [[ ${scope} = "all" ]]; then
     echo "Building Ops Manager and AppDB images for ALL versions listed in 'release.json'"
     versions=( $(jq --raw-output '.opsManagerImages[].version' < release.json) )
@@ -30,7 +34,7 @@ fi
 for version in "${versions[@]}"; do
     header "Building Ops Manager Image $version (kaniko=${kaniko:-false})"
     export om_version=${version}
-    scripts/dev/build_push_opsmanager_image
+    init_om_version="${init_om_version}" scripts/dev/build_push_opsmanager_image
 
     header "Building AppDB Image $version  (kaniko=${kaniko:-false})"
     scripts/dev/build_push_appdb_image

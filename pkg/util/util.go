@@ -168,11 +168,16 @@ func ReadEnvVarOrPanicInt(key string) int {
 	return i
 }
 
-func ReadEnvVarIntOrDefault(key string, dflt int) int {
+func ReadEnvVarOrDefault(key string, dflt string) string {
 	value, exists := os.LookupEnv(key)
-	if !exists {
+	if !exists || value == "" {
 		return dflt
 	}
+	return value
+}
+
+func ReadEnvVarIntOrDefault(key string, dflt int) int {
+	value := ReadEnvVarOrDefault(key, strconv.Itoa(dflt))
 	i, e := cast.ToIntE(value)
 	if e != nil {
 		return dflt

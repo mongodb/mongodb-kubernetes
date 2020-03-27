@@ -194,6 +194,7 @@ func mergeContainers(customContainers, defaultContainers []corev1.Container) ([]
 func MergePodSpecs(customPodTemplateSpec corev1.PodTemplateSpec, defaultPodTemplateSpec corev1.PodTemplateSpec) (corev1.PodTemplateSpec, error) {
 	var err error
 	mergedContainers, err := mergeContainers(customPodTemplateSpec.Spec.Containers, defaultPodTemplateSpec.Spec.Containers)
+	mergedInitContainers, err := mergeContainers(customPodTemplateSpec.Spec.InitContainers, defaultPodTemplateSpec.Spec.InitContainers)
 	if err != nil {
 		return corev1.PodTemplateSpec{}, err
 	}
@@ -205,5 +206,6 @@ func MergePodSpecs(customPodTemplateSpec corev1.PodTemplateSpec, defaultPodTempl
 		return corev1.PodTemplateSpec{}, err
 	}
 	mergedPodTemplateSpec.Spec.Containers = mergedContainers
+	mergedPodTemplateSpec.Spec.InitContainers = mergedInitContainers
 	return mergedPodTemplateSpec, nil
 }

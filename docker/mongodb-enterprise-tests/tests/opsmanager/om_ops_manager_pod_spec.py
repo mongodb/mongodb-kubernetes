@@ -120,13 +120,21 @@ class TestOpsManagerCreation:
                     "mount_propagation": None,
                     "read_only": True,
                 },
+                {
+                    "name": "ops-manager-scripts",
+                    "mount_path": "/opt/scripts",
+                    "sub_path": None,
+                    "sub_path_expr": None,
+                    "mount_propagation": None,
+                    "read_only": True,
+                },
             ],
         }
         for k in expected_spec:
             assert om_container[k] == expected_spec[k]
 
-        # new volume was added and the old one ('gen-key') stayed there
-        assert len(sts.spec.template.spec.volumes) == 2
+        # new volume was added and the old ones ('gen-key' and 'ops-manager-scripts') stayed there
+        assert len(sts.spec.template.spec.volumes) == 3
 
         assert sts.spec.template.spec.volumes[0].name == "test-volume"
         assert getattr(sts.spec.template.spec.volumes[0], "empty_dir")
@@ -136,6 +144,9 @@ class TestOpsManagerCreation:
             sts.spec.template.spec.volumes[1].secret.secret_name
             == "om-pod-spec-gen-key"
         )
+
+        assert sts.spec.template.spec.volumes[2].name == "ops-manager-scripts"
+        assert getattr(sts.spec.template.spec.volumes[2], "empty_dir")
 
     def test_backup_pod_spec(self, ops_manager: MongoDBOpsManager):
         backup_sts = ops_manager.get_backup_statefulset()

@@ -43,11 +43,8 @@ RUN chmod -R 0775 "${MMS_LOG_DIR}" \
     && mkdir "${MMS_HOME}/mongodb-releases/" \
     && chmod -R 0775 "${MMS_HOME}/mongodb-releases"
 
-RUN mkdir -p /opt/scripts
-COPY scripts /opt/scripts/
-
 {% block user %}
 USER 2000
 {% endblock %}
 
-ENTRYPOINT [ "/opt/scripts/docker-entry-point.sh" ]
+ENTRYPOINT [ "/mongodb-ops-manager/bin/mongodb-mms start_mms" ]

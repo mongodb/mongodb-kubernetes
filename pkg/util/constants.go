@@ -147,6 +147,8 @@ const (
 	// make sure you append them to util.go:PrintEnvVars function's `printableEnvPrefixes` if you need the
 	// new variable to be printed at operator start.
 	OpsManagerImageUrl             = "OPS_MANAGER_IMAGE_REPOSITORY"
+	InitOpsManagerImageUrl         = "INIT_OPS_MANAGER_IMAGE_REPOSITORY"
+	InitOpsManagerVersion          = "INIT_OPS_MANAGER_VERSION"
 	OpsManagerPullPolicy           = "OPS_MANAGER_IMAGE_PULL_POLICY"
 	AutomationAgentImageUrl        = "MONGODB_ENTERPRISE_DATABASE_IMAGE"
 	AutomationAgentImagePullPolicy = "IMAGE_PULL_POLICY"
