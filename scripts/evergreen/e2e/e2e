@@ -12,8 +12,23 @@ fi
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
-source scripts/funcs
+source scripts/funcs/checks
+source scripts/funcs/kubernetes
+source scripts/funcs/printing
 source scripts/evergreen/e2e/dump_diagnostic_information
+
+# Finds the exec_timeout_secs for this task in Evergreen. If it can't find it, will return the general
+# exec_timeout_secs attribute set in top-level evergreen.yaml.
+get_timeout_for_task () {
+    task_name=${1}
+
+    timeout=$(grep "name: ${task_name}$" .evergreen.yml -A 3 | grep exec_timeout_secs | awk '{ print $2 }')
+    if [[ $timeout = "" ]]; then
+        timeout=$(grep "^exec_timeout_secs:" .evergreen.yml  | awk '{ print $2 }')
+    fi
+
+    echo "$timeout"
+}
 
 # Externally Configured Ops Manager (Cloud Manager)
 test -f "${OPS_MANAGER_ENV:-}" && source "${OPS_MANAGER_ENV}"
@@ -28,6 +43,13 @@ timeout=$(get_timeout_for_task "${TASK_NAME}")
 # it should be moved to e2e tests themselves (TODO)
 #
 check_env_var "TASK_NAME" "The 'TASK_NAME' must be specified for the Operator e2e tests"
+
+# Returns a random string that can be used as a namespace.
+generate_random_namespace() {
+    random_namespace=$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 20)
+    doy=$(date +'%j')
+    echo "a-${doy}-${random_namespace}z"
+}
 
 # 1. Ensure the namespace exists - generate its name if not specified
 

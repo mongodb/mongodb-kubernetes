@@ -2,7 +2,9 @@
 
 set -euo pipefail
 
-source scripts/funcs
+source scripts/funcs/errors
+source scripts/funcs/kubernetes
+source scripts/funcs/printing
 
 recreate="${1-}"
 CLUSTER="${2:-e2e.mongokubernetes.com}"

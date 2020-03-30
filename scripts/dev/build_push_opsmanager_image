@@ -4,6 +4,10 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
 source scripts/dev/set_env_context
+source scripts/funcs/checks
+source scripts/funcs/kubernetes
+source scripts/funcs/errors
+source scripts/funcs/printing
 
 docker_build() {
     prepare_ops_manager_build
@@ -54,6 +58,22 @@ title "Init Ops Manager image successfully built and pushed to ${REPO_TYPE} regi
 
 
 # will be removed in coming PR: OpsManager build will be independent
+
+om_download_url() {
+    check_mandatory_param "${1-}" "om_version"
+    om_version=${1}
+    # first search in current releases
+    link=$(curl -l https://info-mongodb-com.s3.amazonaws.com/com-download-center/ops_manager_release_archive.json | \
+              jq -r '.currentReleases[] | select(.version == "'"${om_version}"'") | .platform[] | select(.package_format=="deb") | select(.arch=="x86_64") | .packages.links[] | select(.name=="tar.gz") | .download_link')
+
+    # searching in old releases
+    [[ -z ${link} ]] && link=$(curl -l https://info-mongodb-com.s3.amazonaws.com/com-download-center/ops_manager_release_archive.json | \
+              jq -r '.oldReleases[] | select(.version == "'"${om_version}"'") | .platform[] | select(.package_format=="deb") | select(.arch=="x86_64") | .packages.links[] | select(.name=="tar.gz") | .download_link')
+
+    echo ${link}
+}
+
+
 # 1. First we need to find out the download_url necessary for image build
 
 check_mandatory_param "${om_version-}" "om_version"

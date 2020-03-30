@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-source scripts/funcs
+source scripts/funcs/kubernetes
 
 deploy_operator \
     "${REGISTRY}" \

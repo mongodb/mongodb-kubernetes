@@ -7,20 +7,19 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
 source scripts/dev/read_context
+source scripts/funcs/checks
+source scripts/funcs/kubernetes
+source scripts/funcs/printing
 
 title "Ensuring Kubernetes cluster is up..."
 
-if [[ ${CLUSTER_TYPE} = "minikube" ]]; then
-	check_app "minikube" "minikube is not installed!"
-elif [[ ${CLUSTER_TYPE} = "kops" ]]; then
+if [[ ${CLUSTER_TYPE} = "kops" ]]; then
 	check_app "kops" "kops is not installed!"
 elif [[ ${CLUSTER_TYPE} = "kind" ]]; then
 	check_app "kind" "kind is not installed!"
 fi
 
-if [[ ${CLUSTER_TYPE} = "minikube" ]]; then
-	ensure_minikube
-elif [[ ${CLUSTER_TYPE} = "kops" ]] && ! kops validate cluster "${CLUSTER_NAME}" ; then
+if [[ ${CLUSTER_TYPE} = "kops" ]] && ! kops validate cluster "${CLUSTER_NAME}" ; then
 	check_app "timeout" "coreutils is not installed, call \"brew install coreutils\""
 
 	echo "Kops cluster \"${CLUSTER_NAME}\" doesn't exist"

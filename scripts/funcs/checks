@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+
+pushd "$PWD" > /dev/null || return
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+cd "$DIR" || return
+source errors
+popd || return
+
+check_env_var() {
+    var_name="$1"
+    msg="$2"
+    set +u
+    if [[ -z "${!var_name}" ]]; then
+        echo "${msg}"
+        exit 1
+    fi
+}
+
+check_app() {
+    var="$1"
+    msg="$2"
+    if ! which "${var}" > /dev/null; then
+        echo "${msg}"
+        exit 1
+    fi
+}
+
+check_mandatory_param() {
+    param="${1-}"
+    param_name="${2-}"
+    if [[ -z "$param" ]]; then
+        fatal "Parameter $param_name must be specified!"
+    fi
+}
+

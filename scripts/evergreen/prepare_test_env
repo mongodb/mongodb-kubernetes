@@ -18,7 +18,7 @@ export KUBECONFIG
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$(${DIR}/../gitroot)"
 
-source scripts/funcs
+source scripts/funcs/kubernetes
 
 ##
 ## Does some preliminary actions to prepare testing environment:

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+source funcs/printing
 
 # Configuration of the resources for Ops Manager
 echo "Creating admin secret for the new Ops Manager instance"

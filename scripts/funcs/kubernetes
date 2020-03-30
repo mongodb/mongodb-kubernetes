@@ -1,55 +1,13 @@
 #!/usr/bin/env bash
 
-# Set of common functions used by different scripts (evergreen, dev, build)
-# Important: all the locations in the functions are relative to the root of the project so the calling
-# script must make sure to cd there
+pushd "$PWD" > /dev/null || return
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+cd "$DIR" || return
+source checks
+source errors
+source printing
+popd || return
 
-fatal() {
-    error "$1"
-    exit 1
-}
-
-error() {
-    echo "(!!) $1"
-    return
-}
-
-title() {
-    echo "=> $1"
-}
-
-header() {
-    echo
-    echo "--------------------------------------------------"
-    echo "$1"
-    echo "--------------------------------------------------"
-}
-check_env_var() {
-    var_name="$1"
-    msg="$2"
-    set +u
-    if [[ -z "${!var_name}" ]]; then
-        echo "${msg}"
-        exit 1
-    fi
-}
-
-check_app() {
-    var="$1"
-    msg="$2"
-    if ! which "${var}" > /dev/null; then
-        echo "${msg}"
-        exit 1
-    fi
-}
-
-check_mandatory_param() {
-    param="${1-}"
-    param_name="${2-}"
-    if [[ -z "$param" ]]; then
-        fatal "Parameter $param_name must be specified!"
-    fi
-}
 ensure_namespace() {
     namespace="${1}"
     tmp_file=$(mktemp)
@@ -76,12 +34,6 @@ EOF
     fi
 }
 
-# TODO remove when CLOUDP-51063 is done
-wait_for_namespace_to_be_deleted(){
-    namespace=${1}
-    while kubectl get ns | grep -q ${namespace} ; do printf .; sleep 1; done;
-}
-
 # the function installs Ops Manager into Kubernetes cluster if it's not installed already
 # Note, that this requires the k8s node with 4 Gb of free memory
 ensure_ops_manager_k8s() {
@@ -104,7 +56,7 @@ ensure_ops_manager_k8s() {
 
     echo "##### Installing Ops Manager ${ops_manager_version} (namespace ${ops_manager_namespace} into Kubernetes..."
 
-    if is_ops_manager_down ${ops_manager_namespace}; then
+    if _is_ops_manager_down ${ops_manager_namespace}; then
         echo "Ops Manager is not installed in this cluster. Doing it now."
         echo "Run \"make -C docker/mongodb-enterprise-ops-manager-dev IMAGE_VERSION=${ops_manager_version} push\" to update Ops Manager image in ECR if necessary"
 
@@ -156,7 +108,7 @@ ensure_ops_manager_k8s() {
         fi
 
         # we try to open ports for both security groups - in kops and openshift clusters
-        ensure_vpc_rules "us-east-2" "nodes.e2e"
+        _ensure_vpc_rules "us-east-2" "nodes.e2e"
 
         echo "Ops Manager is installed in this cluster. A new user will be added for automated tests to run."
     else
@@ -166,10 +118,10 @@ ensure_ops_manager_k8s() {
 
     echo "##### Ops Manager is ready"
 
-    print_om_endpoint "" ${ops_manager_namespace} ${node_port}
+    _print_om_endpoint "" ${ops_manager_namespace} ${node_port}
 }
 
-print_om_endpoint() {
+_print_om_endpoint() {
     ops_manager_namespace="${2}"
     if [ -z "$ops_manager_namespace" ]; then
         error "No ops_manager_namespace set: not able to find Ops Manager external IP"
@@ -181,7 +133,7 @@ print_om_endpoint() {
     fi
 }
 
-ensure_vpc_rules() {
+_ensure_vpc_rules() {
     region="$1"
     prefix="$2"
     group_id=$(aws ec2 describe-security-groups --region "${region}" | jq -r '.SecurityGroups[] | select(.GroupName | startswith( "'"$prefix"'")) | .GroupId')
@@ -201,66 +153,11 @@ ensure_vpc_rules() {
 # returns true if the namespace doesn't exist or if the OM pod is not running and this lasts for more than or equal to 1 hour.
 # This is supposed to work for concurrent builds when one of the builds is starting Ops Manager (ideally we need to check for 10 minutes
 # but parsing dates in bash is hard :( )
-is_ops_manager_down() {
+_is_ops_manager_down() {
     ! kubectl get namespace/${1} &> /dev/null || \
     ! kubectl get pod/mongodb-enterprise-ops-manager-0 -n ${1} 2>/dev/null ||
     kubectl get pod/mongodb-enterprise-ops-manager-0 -o jsonpath="{.status.containerStatuses[0].ready}" -n ${1} | grep -q "false"
 
-}
-# the function installs Ops Manager into Evergreen host via ego
-ensure_ops_manager_evg() {
-    om_package="$1"
-
-    title "Installing Ops Manager into Evergreen using ego (from $om_package)"
-
-    check_app "evg" \
-                "evg script is not installed or you need to switch virtual environment, follow instruction at https://wiki.corp.mongodb.com/display/MMS/Ops+Manager+Release+setup+guide#OpsManagerReleasesetupguide-First-timeonly to make it work";
-
-    # TODO this check can definitely be improved (walk through ubuntu1804-build hosts and find installed OMs)
-    if evg list | grep "ubuntu1804-build" | grep -qi "running"; then
-        OPS_MANAGER_HOST=$(evg list | grep "ubuntu1804-build" | grep -i "running" | head -n 1 | awk ' {print $3} ' | cut -d "@" -f 2)
-        export OPS_MANAGER_HOST
-        echo "There is an Evergreen instance (${OPS_MANAGER_HOST}) running already - skipping ego installaton"
-        return
-    fi
-
-    # download ego script
-    check_env_var "GITHUB_TOKEN" "To download ego you need to specify the 'GITHUB_TOKEN' environment variable (https://github.com/settings/tokens/new) with 'repo' scope"
-
-    echo "Downloading ego script"
-    curl -L "https://${GITHUB_TOKEN}@raw.githubusercontent.com/10gen/mms/master/scripts/ops_manager/ego" -o ego && chmod +x ego
-
-    # provision evergreen host
-    echo "Spawning new VM in Evergreen..."
-
-    evg spawn ubuntu1804-build
-
-    while ! evg list | grep "ubuntu1804-build"  | grep -qi "running"; do printf .; sleep 3; done
-
-    host=$(evg list | awk ' {print $3} ' | cut -d "@" -f 2)
-
-    ./ego seed "ubuntu@${host}"
-
-    echo "Deploying Ops Manager from $om_package"
-
-    # todo move version to some configuration
-    # note, that we use OM 4.1 for development to differ from e2e suites (they use 4.0+)
-    ./ego nohup "ubuntu@${host}" ego scenario_install_package_from_link --url "${om_package}" --central-url "http://${host}:9080"
-
-    if ! ./ego tail "ubuntu@$host"; then
-        # seems 'tail' throws an error after finish which is not relevant
-        # another thing that is used in mms: './ego wait_for_open_port $host 9080'
-        echo "WARN: Ego tail exited with non-zero code $?, but most of all everything is ok!"
-    fi
-
-    export OPS_MANAGER_HOST=${host}
-
-    # add ssh host key to known hosts
-    ssh-keyscan "$OPS_MANAGER_HOST" >> ~/.ssh/known_hosts
-
-    rm ego
-
-    title "Ops Manager is ready! Hostname: ${OPS_MANAGER_HOST}"
 }
 
 delete_operator() {
@@ -339,20 +236,6 @@ deploy_operator() {
     title "The Operator successfully installed to the Kubernetes cluster"
 }
 
-# Checks minikube and starts if necessary
-# (If any of "host", "kubelet" or "apiserver" are "Stopped" or "Error" or there is no "Running")
-ensure_minikube() {
-    if [[ ! $(minikube status) \
-        || $(minikube status | grep -q "Stopped") \
-        || $(minikube status | grep -q "Error") \
-        || ! $(minikube status | grep "Running") ]]; then
-
-        echo "Starting minikube (Kubernetes version 1.15.4) as it's not started..."
-        # todo minikube parameters to configuration
-        minikube start --kubernetes-version v1.15.4 --memory 5120
-    fi
-}
-
 # Creates kops cluster and adds the support for dashboard
 create_kops_cluster() {
     cluster_name="${1}"
@@ -404,13 +287,6 @@ create_kops_cluster() {
     title "Kubernetes dashboard is installed, use \"make dashboard\" to open it"
 }
 
-# Returns a random string that can be used as a namespace.
-generate_random_namespace() {
-    random_namespace=$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 20)
-    doy=$(date +'%j')
-    echo "a-${doy}-${random_namespace}z"
-}
-
 # Makes sure the ECR repository exists.
 # The incoming parameter is expected to be the full ECR url (e.g. "268558157000.dkr.ecr.us-east-1.amazonaws.com/alis/ubuntu/mongodb-enterprise-appdb")
 ensure_ecr_repository() {
@@ -424,29 +300,3 @@ ensure_ecr_repository() {
     fi
 }
 
-om_download_url() {
-    check_mandatory_param "${1-}" "om_version"
-    om_version=${1}
-    # first search in current releases
-    link=$(curl -l https://info-mongodb-com.s3.amazonaws.com/com-download-center/ops_manager_release_archive.json | \
-              jq -r '.currentReleases[] | select(.version == "'"${om_version}"'") | .platform[] | select(.package_format=="deb") | select(.arch=="x86_64") | .packages.links[] | select(.name=="tar.gz") | .download_link')
-
-    # searching in old releases
-    [[ -z ${link} ]] && link=$(curl -l https://info-mongodb-com.s3.amazonaws.com/com-download-center/ops_manager_release_archive.json | \
-              jq -r '.oldReleases[] | select(.version == "'"${om_version}"'") | .platform[] | select(.package_format=="deb") | select(.arch=="x86_64") | .packages.links[] | select(.name=="tar.gz") | .download_link')
-
-    echo ${link}
-}
-
-# Finds the exec_timeout_secs for this task in Evergreen. If it can't find it, will return the general
-# exec_timeout_secs attribute set in top-level evergreen.yaml.
-get_timeout_for_task () {
-    task_name=${1}
-
-    timeout=$(grep "name: ${task_name}$" .evergreen.yml -A 3 | grep exec_timeout_secs | awk '{ print $2 }')
-    if [[ $timeout = "" ]]; then
-        timeout=$(grep "^exec_timeout_secs:" .evergreen.yml  | awk '{ print $2 }')
-    fi
-
-    echo "$timeout"
-}

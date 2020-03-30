@@ -2,7 +2,7 @@
 
 
 # shellcheck disable=SC1091
-source scripts/funcs
+source scripts/funcs/printing
 
 dump_objects() {
     objects=$1

@@ -2,6 +2,8 @@
 #
 set -euo pipefail
 
+source scripts/funcs/printing
+
 building_namespace="construction-site"
 
 # Splits a string on ", ", and slices each element up to 63 chars long.
@@ -16,12 +18,6 @@ function split_and_slice {
     done
 
     echo "${sliced[*]}" # equivalent to ",".join(sliced)
-}
-header() {
-    echo
-    echo "--------------------------------------------------"
-    echo "$1"
-    echo "--------------------------------------------------"
 }
 
 labels=$(split_and_slice "${label}")

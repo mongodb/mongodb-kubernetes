@@ -8,11 +8,70 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
-source scripts/funcs
+source scripts/funcs/checks
+source scripts/funcs/printing
 source scripts/dev/set_env_context
 
 # package url can be passed as an argument or as an environment variable (could be set by dev/set_env_context)
 PACKAGE_URL="${1:-$OPS_MANAGER_PACKAGE_URL}"
+
+
+# the function installs Ops Manager into Evergreen host via ego
+ensure_ops_manager_evg() {
+    om_package="$1"
+
+    title "Installing Ops Manager into Evergreen using ego (from $om_package)"
+
+    check_app "evg" \
+                "evg script is not installed or you need to switch virtual environment, follow instruction at https://wiki.corp.mongodb.com/display/MMS/Ops+Manager+Release+setup+guide#OpsManagerReleasesetupguide-First-timeonly to make it work";
+
+    # TODO this check can definitely be improved (walk through ubuntu1804-build hosts and find installed OMs)
+    if evg list | grep "ubuntu1804-build" | grep -qi "running"; then
+        OPS_MANAGER_HOST=$(evg list | grep "ubuntu1804-build" | grep -i "running" | head -n 1 | awk ' {print $3} ' | cut -d "@" -f 2)
+        export OPS_MANAGER_HOST
+        echo "There is an Evergreen instance (${OPS_MANAGER_HOST}) running already - skipping ego installaton"
+        return
+    fi
+
+    # download ego script
+    check_env_var "GITHUB_TOKEN" "To download ego you need to specify the 'GITHUB_TOKEN' environment variable (https://github.com/settings/tokens/new) with 'repo' scope"
+
+    echo "Downloading ego script"
+    curl -L "https://${GITHUB_TOKEN}@raw.githubusercontent.com/10gen/mms/master/scripts/ops_manager/ego" -o ego && chmod +x ego
+
+    # provision evergreen host
+    echo "Spawning new VM in Evergreen..."
+
+    evg spawn ubuntu1804-build
+
+    while ! evg list | grep "ubuntu1804-build"  | grep -qi "running"; do printf .; sleep 3; done
+
+    host=$(evg list | awk ' {print $3} ' | cut -d "@" -f 2)
+
+    ./ego seed "ubuntu@${host}"
+
+    echo "Deploying Ops Manager from $om_package"
+
+    # todo move version to some configuration
+    # note, that we use OM 4.1 for development to differ from e2e suites (they use 4.0+)
+    ./ego nohup "ubuntu@${host}" ego scenario_install_package_from_link --url "${om_package}" --central-url "http://${host}:9080"
+
+    if ! ./ego tail "ubuntu@$host"; then
+        # seems 'tail' throws an error after finish which is not relevant
+        # another thing that is used in mms: './ego wait_for_open_port $host 9080'
+        echo "WARN: Ego tail exited with non-zero code $?, but most of all everything is ok!"
+    fi
+
+    export OPS_MANAGER_HOST=${host}
+
+    # add ssh host key to known hosts
+    ssh-keyscan "$OPS_MANAGER_HOST" >> ~/.ssh/known_hosts
+
+    rm ego
+
+    title "Ops Manager is ready! Hostname: ${OPS_MANAGER_HOST}"
+}
+
 
 # start ops manager
 ensure_ops_manager_evg "${PACKAGE_URL:-https://downloads.mongodb.com/on-prem-mms/deb/mongodb-mms_4.2.0.56551.20190812T1752Z-1_x86_64.deb}"

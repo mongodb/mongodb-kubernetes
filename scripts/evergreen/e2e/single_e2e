@@ -8,7 +8,8 @@ set -euo pipefail
 ##
 
 cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
-source scripts/funcs
+source scripts/funcs/checks
+source scripts/funcs/printing
 
 check_env_var "TEST_NAME" "The 'TEST_NAME' must be specified to run the Operator single e2e test"
 

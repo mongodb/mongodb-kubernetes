@@ -4,6 +4,8 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
 source scripts/dev/set_env_context
+source scripts/funcs/kubernetes
+source scripts/funcs/printing
 
 debug="${1-}"
 

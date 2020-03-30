@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+source scrints/funcs/checks
+source scrints/funcs/printing
+
 [[ "${MODE-}" = "dev" ]] && return
 
 if [[ "${TEST_MODE:-}" = "opsmanager" ]]; then
