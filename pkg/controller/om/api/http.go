@@ -43,6 +43,12 @@ func NewHTTPClient(options ...func(*http.Client) error) (*http.Client, error) {
 	return client, nil
 }
 
+// NewHTTPOptions returns a list of options that can be used to construct an
+// *http.Client using `NewHTTPClient`.
+func NewHTTPOptions() []func(*http.Client) error {
+	return make([]func(*http.Client) error, 0)
+}
+
 // OptionSkipVerify will set the Insecure Skip which means that TLS certs will not be
 // verified for validity.
 func OptionSkipVerify(client *http.Client) error {
