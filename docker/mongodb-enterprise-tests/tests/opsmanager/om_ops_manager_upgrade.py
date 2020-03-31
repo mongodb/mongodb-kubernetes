@@ -1,78 +1,69 @@
+from time import sleep
+
 import pytest
 from kubernetes import client
 from kubernetes.client.rest import ApiException
+from pytest import fixture
+
 from kubetester import MongoDB
-from kubetester.opsmanager import MongoDBOpsManager
-from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import fixture as yaml_fixture, run_periodically
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
-from kubetester.omtester import OMTester
-from pytest import fixture
-from tests.opsmanager.om_base import OpsManagerBase
+from kubetester.opsmanager import MongoDBOpsManager
 
 gen_key_resource_version = None
 admin_key_resource_version = None
+EXPECTED_VERSION = "4.2.8"
 
-
-# Note the strategy for Ops Manager testing: the tests should have more than 1 updates - this is because the initial
-# creation of Ops Manager takes too long, so we try to avoid fine-grained test cases and combine different
-# updates in one test
 
 # Current test should contain all kinds of upgrades to Ops Manager as a sequence of tests
-
 # TODO add the check for real OM version after upgrade (using the data in HTTP headers from the API calls)
 
 
 @fixture(scope="module")
 def ops_manager(namespace) -> MongoDBOpsManager:
-    # TODO: this is used only for loading the Ops Manager, the creation of OM is still done the old way
-    return MongoDBOpsManager("om-upgrade", namespace).load()
+    resource = MongoDBOpsManager.from_yaml(
+        yaml_fixture("om_ops_manager_upgrade.yaml"), namespace=namespace
+    )
+
+    return resource.create()
 
 
 @pytest.mark.e2e_om_ops_manager_upgrade
-class TestOpsManagerCreation(OpsManagerBase):
+class TestOpsManagerCreation:
     """
-    name: Ops Manager successful creation
-    description: |
       Creates an Ops Manager instance with AppDB of size 3.
-    create:
-      file: om_ops_manager_upgrade.yaml
-      wait_until: om_in_running_state
-      timeout: 900
     """
 
-    def test_gen_key_secret(self):
+    def test_create_om(self, ops_manager: MongoDBOpsManager):
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+
+    def test_gen_key_secret(self, ops_manager: MongoDBOpsManager):
         global gen_key_resource_version
-        secret = self.corev1.read_namespaced_secret(
-            self.om_cr.gen_key_secret(), self.namespace
-        )
+        secret = ops_manager.read_gen_key_secret()
         data = secret.data
         assert "gen.key" in data
         # saving the resource version for later checks against updates
         gen_key_resource_version = secret.metadata.resource_version
 
-    def test_admin_key_secret(self):
+    def test_admin_key_secret(self, ops_manager: MongoDBOpsManager):
         global admin_key_resource_version
-        secret = self.corev1.read_namespaced_secret(
-            self.om_cr.api_key_secret(), self.namespace
-        )
+        secret = ops_manager.read_api_key_secret()
         data = secret.data
         assert "publicApiKey" in data
         assert "user" in data
         # saving the resource version for later checks against updates
         admin_key_resource_version = secret.metadata.resource_version
 
-    def test_backup_not_enabled(self):
+    def test_backup_not_enabled(self, ops_manager: MongoDBOpsManager):
         """ Backup is deliberately disabled so no statefulset should be created"""
         with pytest.raises(client.rest.ApiException):
-            self.appsv1.read_namespaced_stateful_set_status(
-                self.om_cr.backup_sts_name(), self.namespace
-            )
+            ops_manager.read_backup_statefulset()
 
     @skip_if_local
-    def test_om(self):
+    def test_om(self, ops_manager: MongoDBOpsManager):
         """Checks that the OM is responsive and test service is available (enabled by 'mms.testUtil.enabled')."""
-        om_tester = OMTester(self.om_context)
+        om_tester = ops_manager.get_om_tester()
         om_tester.assert_healthiness()
 
         om_tester.assert_test_service()
@@ -84,14 +75,14 @@ class TestOpsManagerCreation(OpsManagerBase):
 
 
 @pytest.mark.e2e_om_ops_manager_upgrade
-class TestOpsManagerWithMongoDB(OpsManagerBase):
+class TestOpsManagerWithMongoDB:
     @staticmethod
     @fixture(scope="class")
-    def mdb(ops_manager, namespace):
+    def mdb(ops_manager: MongoDBOpsManager):
         return (
             MongoDB.from_yaml(
                 yaml_fixture("replica-set-for-om.yaml"),
-                namespace=namespace,
+                namespace=ops_manager.namespace,
                 name="my-replica-set",
             )
             .configure(ops_manager, "development")
@@ -113,36 +104,33 @@ class TestOpsManagerWithMongoDB(OpsManagerBase):
 
 
 @pytest.mark.e2e_om_ops_manager_upgrade
-class TestOpsManagerConfigurationChange(OpsManagerBase):
+class TestOpsManagerConfigurationChange:
     """
-    name: Ops Manager configuration changes
-    description: |
       The OM configuration changes: one property is removed, another is added.
       Note, that this is quite artificial change to make it testable, these properties affect the behavior of different
       endpoints in Ops Manager, so we can then check if the changes were propagated to OM
-    update:
-      file: om_ops_manager_upgrade.yaml
-      patch: '[{"op":"replace","path":"/spec/configuration/mms.testUtil.enabled", "value": null }, {"op":"add","path":"/spec/configuration/mms.helpAndSupportPage.enabled","value": "true"}]'
-      wait_until: om_in_running_state
-      timeout: 500
     """
 
-    def test_keys_not_modified(self):
+    def test_scale_app_db_up(self, ops_manager: MongoDBOpsManager):
+        ops_manager.load()
+        ops_manager["spec"]["configuration"]["mms.testUtil.enabled"] = ""
+        ops_manager["spec"]["configuration"]["mms.helpAndSupportPage.enabled"] = "true"
+        ops_manager.update()
+        ops_manager.om_status().assert_abandons_phase(Phase.Running)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=500)
+
+    def test_keys_not_modified(self, ops_manager: MongoDBOpsManager):
         """Making sure that the new reconciliation hasn't tried to generate new gen and api keys """
-        gen_key_secret = self.corev1.read_namespaced_secret(
-            self.om_cr.gen_key_secret(), self.namespace
-        )
-        api_key_secret = self.corev1.read_namespaced_secret(
-            self.om_cr.api_key_secret(), self.namespace
-        )
+        gen_key_secret = ops_manager.read_gen_key_secret()
+        api_key_secret = ops_manager.read_api_key_secret()
 
         assert gen_key_secret.metadata.resource_version == gen_key_resource_version
         assert api_key_secret.metadata.resource_version == admin_key_resource_version
 
     @skip_if_local
-    def test_om(self):
+    def test_om(self, ops_manager: MongoDBOpsManager):
         """Checks that the OM is responsive and test service is not available"""
-        om_tester = OMTester(self.om_context)
+        om_tester = ops_manager.get_om_tester()
         om_tester.assert_healthiness()
         om_tester.assert_support_page_enabled()
         try:
@@ -153,60 +141,66 @@ class TestOpsManagerConfigurationChange(OpsManagerBase):
 
 
 @pytest.mark.e2e_om_ops_manager_upgrade
-class TestOpsManagerVersionUpgrade(OpsManagerBase):
+class TestOpsManagerVersionUpgrade:
     """
-    name: Ops Manager image upgrade
-    description: |
       The OM version is upgraded - this means the new image is deployed for both OM and appdb.
       >> Dev note: Please change the value of the new version to the latest one as soon as the new OM
        is released and its version is added to release.json
-    update:
-      file: om_ops_manager_upgrade.yaml
-      patch: '[{"op":"replace","path":"/spec/version", "value": "4.2.8"}]'
-      wait_until: om_in_running_state
-      timeout: 1200
     """
 
-    def test_image_url(self):
-        pod = self.corev1.read_namespaced_pod("om-upgrade-0", self.namespace)
-        assert "4.2.8" in pod.spec.containers[0].image
+    def test_scale_app_db_up(self, ops_manager: MongoDBOpsManager):
+        ops_manager.load()
+        ops_manager["spec"]["version"] = EXPECTED_VERSION
+        ops_manager.update()
+        ops_manager.om_status().assert_abandons_phase(Phase.Running)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+
+    def test_image_url(self, ops_manager: MongoDBOpsManager):
+        pods = ops_manager.read_om_pods()
+        assert len(pods) == 1
+        assert EXPECTED_VERSION in pods[0].spec.containers[0].image
 
     @skip_if_local
-    def test_om(self):
-        OMTester(self.om_context).assert_healthiness()
+    def test_om(self, ops_manager: MongoDBOpsManager):
+        ops_manager.get_om_tester().assert_healthiness()
         # TODO ideally we need to check the OM version as well but currently public API calls don't return the version
         # properly: "X-MongoDB-Service-Version: gitHash=ca9b4ac974b67f3f4c26563f94832037b0555829; versionString=current"
 
 
 @pytest.mark.e2e_om_ops_manager_upgrade
-class TestOpsManagerRemoved(OpsManagerBase):
+class TestOpsManagerRemoved:
     """
-    name: Ops Manager removal
-    description: |
       Deletes an Ops Manager Custom resource and verifies that some of the dependant objects are removed
-    delete:
-      file: om_ops_manager_upgrade.yaml
-      wait_until: om_is_deleted
-      timeout: 20
     """
 
-    def test_api_key_removed(self):
-        with pytest.raises(ApiException):
-            self.corev1.read_namespaced_secret(
-                self.om_cr.api_key_secret(), self.namespace
-            )
+    def test_opsmanager_deleted(self, ops_manager: MongoDBOpsManager):
+        ops_manager.delete()
 
-    def test_gen_key_not_removed(self):
+        def om_is_clean():
+            try:
+                ops_manager.load()
+                return False
+            except ApiException:
+                return True
+
+        run_periodically(om_is_clean, timeout=180)
+        # Some strange race conditions/caching - the api key secret is still queryable right after OM removal
+        sleep(5)
+
+    def test_api_key_removed(self, ops_manager: MongoDBOpsManager):
+        with pytest.raises(ApiException):
+            ops_manager.read_api_key_secret()
+
+    def test_gen_key_not_removed(self, ops_manager: MongoDBOpsManager):
         """ The gen key must not be removed - this is for situations when the appdb is persistent -
         so PVs may survive removal"""
-        self.corev1.read_namespaced_secret(self.om_cr.gen_key_secret(), self.namespace)
+        gen_key_secret = ops_manager.read_gen_key_secret()
+        assert gen_key_secret.metadata.resource_version == gen_key_resource_version
 
-    def test_om_sts_removed(self):
+    def test_om_sts_removed(self, ops_manager: MongoDBOpsManager):
         with pytest.raises(ApiException):
-            self.appsv1.read_namespaced_stateful_set(self.om_cr.name(), self.namespace)
+            ops_manager.read_statefulset()
 
-    def test_om_appdb_removed(self):
+    def test_om_appdb_removed(self, ops_manager: MongoDBOpsManager):
         with pytest.raises(ApiException):
-            self.appsv1.read_namespaced_stateful_set(
-                self.om_cr.app_db_name(), self.namespace
-            )
+            ops_manager.read_appdb_statefulset()

@@ -120,7 +120,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 	// cannot have a non-tls deployment in an x509 environment
 	authSpec := s.Spec.Security.Authentication
 	if authSpec.Enabled && authSpec.IsX509Enabled() && !s.Spec.GetTLSConfig().Enabled {
-		return r.updateStatusValidationFailure(s, fmt.Sprintf("cannot have a non-tls deployment when x509 authentication is enabled"), log)
+		return r.updateStatusValidationFailure(s, fmt.Sprintf("cannot have a non-tls deployment when x509 authentication is enabled"), log, true)
 	}
 
 	standaloneBuilder := r.kubeHelper.NewStatefulSetHelper(s).

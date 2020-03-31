@@ -22,10 +22,10 @@ def ops_manager(namespace: str) -> MongoDBOpsManager:
 @mark.e2e_om_ops_manager_pod_spec
 class TestOpsManagerCreation:
     def test_om_created(self, ops_manager: MongoDBOpsManager):
-        ops_manager.assert_reaches_phase(Phase.Running, timeout=900)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
     def test_appdb_pod_template_containers(self, ops_manager: MongoDBOpsManager):
-        appdb_sts = ops_manager.get_appdb_statefulset()
+        appdb_sts = ops_manager.read_appdb_statefulset()
         assert len(appdb_sts.spec.template.spec.containers) == 2
 
         appdb_container = appdb_sts.spec.template.spec.containers[0]
@@ -40,7 +40,7 @@ class TestOpsManagerCreation:
 
     def test_appdb_persistence(self, ops_manager: MongoDBOpsManager, namespace: str):
         # appdb pod volume claim template
-        appdb_sts = ops_manager.get_appdb_statefulset()
+        appdb_sts = ops_manager.read_appdb_statefulset()
         assert len(appdb_sts.spec.volume_claim_templates) == 1
         assert appdb_sts.spec.volume_claim_templates[0].metadata.name == "data"
         assert (
@@ -48,7 +48,7 @@ class TestOpsManagerCreation:
             == "1G"
         )
 
-        for pod in ops_manager.get_appdb_pods():
+        for pod in ops_manager.read_appdb_pods():
             # pod volume claim
             expected_claim_name = f"data-{pod.metadata.name}"
             claims = [
@@ -68,7 +68,7 @@ class TestOpsManagerCreation:
             assert pvc.spec.resources.requests["storage"] == "1G"
 
     def test_om_pod_spec(self, ops_manager: MongoDBOpsManager):
-        sts = ops_manager.get_statefulset()
+        sts = ops_manager.read_statefulset()
         assert len(sts.spec.template.spec.containers) == 1
         om_container = sts.spec.template.spec.containers[0]
         assert om_container.resources.limits["cpu"] == "700m"
@@ -81,7 +81,7 @@ class TestOpsManagerCreation:
         assert sts.spec.template.spec.tolerations[0].effect == "NoSchedule"
 
     def test_om_container_override(self, ops_manager: MongoDBOpsManager):
-        sts = ops_manager.get_statefulset()
+        sts = ops_manager.read_statefulset()
         om_container = sts.spec.template.spec.containers[0].to_dict()
         # Readiness probe got 'failure_threshold' overridden, everything else is the same
         # New volume mount was added
@@ -149,7 +149,7 @@ class TestOpsManagerCreation:
         assert getattr(sts.spec.template.spec.volumes[2], "empty_dir")
 
     def test_backup_pod_spec(self, ops_manager: MongoDBOpsManager):
-        backup_sts = ops_manager.get_backup_statefulset()
+        backup_sts = ops_manager.read_backup_statefulset()
         assert len(backup_sts.spec.template.spec.containers) == 1
         om_container = backup_sts.spec.template.spec.containers[0]
         assert om_container.resources.requests["cpu"] == "500m"
@@ -181,11 +181,11 @@ class TestOpsManagerUpdate:
         print(ops_manager["spec"])
 
         ops_manager.update()
-        ops_manager.assert_abandons_phase(Phase.Running)
-        ops_manager.assert_reaches_phase(Phase.Running, timeout=900)
+        ops_manager.om_status().assert_abandons_phase(Phase.Running)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
     def test_appdb_pod_template(self, ops_manager: MongoDBOpsManager):
-        appdb_sts = ops_manager.get_appdb_statefulset()
+        appdb_sts = ops_manager.read_appdb_statefulset()
         assert len(appdb_sts.spec.template.spec.containers) == 2
 
         appdb_container = appdb_sts.spec.template.spec.containers[0]
@@ -194,7 +194,7 @@ class TestOpsManagerUpdate:
         assert appdb_sts.spec.template.metadata.annotations == {"annotation1": "val"}
 
     def test_om_pod_spec(self, ops_manager: MongoDBOpsManager):
-        sts = ops_manager.get_statefulset()
+        sts = ops_manager.read_statefulset()
         assert len(sts.spec.template.spec.containers) == 1
         om_container = sts.spec.template.spec.containers[0]
         assert om_container.resources.limits["cpu"] == "700m"
@@ -206,7 +206,7 @@ class TestOpsManagerUpdate:
         assert len(sts.spec.template.spec.tolerations) == 1
 
     def test_backup_pod_spec(self, ops_manager: MongoDBOpsManager):
-        backup_sts = ops_manager.get_backup_statefulset()
+        backup_sts = ops_manager.read_backup_statefulset()
 
         assert len(backup_sts.spec.template.spec.host_aliases) == 1
         assert backup_sts.spec.template.spec.termination_grace_period_seconds == 10

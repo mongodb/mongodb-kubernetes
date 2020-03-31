@@ -1,9 +1,8 @@
-from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import Phase, KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
+from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 import re
-from tests.opsmanager.om_base import OpsManagerBase
 
 OM_CONF_PATH_DIR = "mongodb-ops-manager/conf/mms.conf"
 JAVA_MMS_UI_OPTS = "JAVA_MMS_UI_OPTS"
@@ -20,15 +19,22 @@ def ops_manager(namespace: str) -> MongoDBOpsManager:
 
 
 @mark.e2e_om_jvm_params
-class TestOpsManagerCreationWithJvmParams(OpsManagerBase):
+class TestOpsManagerCreationWithJvmParams:
     def test_om_created(self, ops_manager: MongoDBOpsManager):
-        ops_manager.assert_reaches_phase(Phase.Running, timeout=900)
+        # Backup is not fully configured so we wait until Pending phase
+        ops_manager.backup_status().assert_reaches_phase(
+            Phase.Pending,
+            timeout=900,
+            msg_regexp="Oplog Store configuration is required for backup.*",
+        )
 
     def test_om_jvm_params_configured(self, ops_manager: MongoDBOpsManager):
         pod_name = ops_manager["metadata"]["name"] + "-0"
         cmd = ["/bin/sh", "-c", "cat " + OM_CONF_PATH_DIR]
 
-        result = self.run_command_in_pod_container(pod_name=pod_name, cmd=cmd)
+        result = KubernetesTester.run_command_in_pod_container(
+            pod_name, ops_manager.namespace, cmd
+        )
         java_params = self.parse_java_params(result, JAVA_MMS_UI_OPTS)
         assert "-Xmx4291m" in java_params
         assert "-Xms343m" in java_params
@@ -36,7 +42,9 @@ class TestOpsManagerCreationWithJvmParams(OpsManagerBase):
     def test_om_process_mem_scales(self, ops_manager: MongoDBOpsManager):
         pod_name = ops_manager["metadata"]["name"] + "-0"
         cmd = ["/bin/sh", "-c", "ps aux"]
-        result = self.run_command_in_pod_container(pod_name=pod_name, cmd=cmd)
+        result = KubernetesTester.run_command_in_pod_container(
+            pod_name, ops_manager.namespace, cmd
+        )
         rss = self.parse_rss(result)
 
         # rss is in kb, we want to ensure that it is > 400mb
@@ -47,7 +55,9 @@ class TestOpsManagerCreationWithJvmParams(OpsManagerBase):
         pod_name = ops_manager["metadata"]["name"] + "-backup-daemon-0"
         cmd = ["/bin/sh", "-c", "cat " + OM_CONF_PATH_DIR]
 
-        result = self.run_command_in_pod_container(pod_name=pod_name, cmd=cmd)
+        result = KubernetesTester.run_command_in_pod_container(
+            pod_name, ops_manager.namespace, cmd
+        )
 
         java_params = self.parse_java_params(result, JAVA_DAEMON_OPTS)
         assert "-Xmx4352m" in java_params

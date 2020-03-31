@@ -40,7 +40,7 @@ func newOpsManagerReconciler(mgr manager.Manager, omFunc om.ConnectionFactory, i
 	}
 }
 
-// Reconcile performs the reconciliation logic for AppDB and Ops Manager
+// Reconcile performs the reconciliation logic for AppDB, Ops Manager and Backup
 // AppDB is reconciled first (independent from Ops Manager as the agent is run in headless mode) and
 // Ops Manager statefulset is created then.
 // Backup daemon statefulset is created/updated and configured optionally if backup is enabled.
@@ -49,14 +49,15 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 
 	opsManagerRef := &mdbv1.MongoDBOpsManager{}
 
+	opsManagerExtraStatusParams := mdbv1.NewExtraStatusParams(mdbv1.OpsManager)
 	defer exceptionHandling(
 		func(err interface{}) (reconcile.Result, error) {
-			return r.updateStatusFailed(opsManagerRef, fmt.Sprintf("Failed to reconcile Ops Manager: %s", err), log)
+			return r.updateStatusFailed(opsManagerRef, fmt.Sprintf("Failed to reconcile Ops Manager: %s", err), log, opsManagerExtraStatusParams)
 		},
 		func(result reconcile.Result, err error) { res = result; e = err },
 	)
 
-	if reconcileResult, err := r.prepareResourceForReconciliation(request, opsManagerRef, log); reconcileResult != nil {
+	if reconcileResult, err := r.readOpsManagerResource(request, opsManagerRef, log); reconcileResult != nil {
 		return *reconcileResult, err
 	}
 
@@ -66,21 +67,23 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 	log.Infow("OpsManager.Spec", "spec", opsManager.Spec)
 	log.Infow("OpsManager.Status", "status", opsManager.Status)
 
+	// register backup
+
 	if err := opsManager.ProcessValidationsOnReconcile(); err != nil {
-		return r.updateStatusValidationFailure(&opsManager, err.Error(), log)
+		return r.updateStatusValidationFailure(&opsManager, err.Error(), log, true, opsManagerExtraStatusParams)
 	}
 
 	if err := performValidation(opsManager); err != nil {
-		return r.updateStatusValidationFailure(&opsManager, err.Error(), log)
+		return r.updateStatusValidationFailure(&opsManager, err.Error(), log, true, opsManagerExtraStatusParams)
 	}
 
 	opsManagerUserPassword, err := r.getAppDBPassword(opsManager, log)
 
 	if err != nil {
-		return r.updateStatusFailed(&opsManager, fmt.Sprintf("Error ensuring Ops Manager user password: %s", err), log)
+		return r.updateStatusFailed(&opsManager, fmt.Sprintf("Error ensuring Ops Manager user password: %s", err), log, opsManagerExtraStatusParams)
 	}
 
-	// 1. AppDB
+	// 1. Reconcile AppDB
 	emptyResult := reconcile.Result{}
 	appDbReconciler := newAppDBReplicaSetReconciler(r.ReconcileCommonController)
 	result, err := appDbReconciler.Reconcile(opsManager, opsManager.Spec.AppDB, opsManagerUserPassword)
@@ -88,34 +91,86 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 		return result, err
 	}
 
-	// 2. Ops Manager (create and wait)
+	// 2. Reconcile Ops Manager
+	status, omAdmin := r.reconcileOpsManager(opsManager, opsManagerUserPassword, log)
+	if !status.isOk() {
+		opsManagerExtraStatusParams[mdbv1.BaseUrl] = opsManager.CentralURL()
+		return status.updateStatus(&opsManager, r.ReconcileCommonController, log, opsManagerExtraStatusParams)
+	}
+
+	// 3. Reconcile Backup Daemon
+	if opsManager.Spec.Backup.Enabled {
+		if status = r.reconcileBackupDaemon(opsManager, omAdmin, opsManagerUserPassword, log); !status.isOk() {
+			return status.updateStatus(&opsManager, r.ReconcileCommonController, log, mdbv1.NewExtraStatusParams(mdbv1.Backup))
+		}
+	}
+
+	// All statuses are updated by now - we don't need to update any others - just return
+	log.Info("Finished reconciliation for MongoDbOpsManager!")
+	return success()
+}
+
+func (r *OpsManagerReconciler) reconcileOpsManager(opsManager mdbv1.MongoDBOpsManager, opsManagerUserPassword string, log *zap.SugaredLogger) (reconcileStatus, api.Admin) {
+	extraParamsOpsManager := mdbv1.NewExtraStatusParams(mdbv1.OpsManager)
+	extraParamsOpsManager[mdbv1.BaseUrl] = opsManager.CentralURL()
+
+	if err := r.updateReconciling(&opsManager, extraParamsOpsManager); err != nil {
+		log.Errorf("Error setting OpsManager state to reconciling: %s", err)
+		return failedErr(err), nil
+	}
+
+	// Prepare Ops Manager StatefulSet (create and wait)
 	status := r.createOpsManagerStatefulset(opsManager, opsManagerUserPassword, log)
 	if !status.isOk() {
-		return status.updateStatus(&opsManager, r.ReconcileCommonController, log, opsManager.CentralURL())
+		return status, nil
 	}
 
-	// 3. Backup Daemon (create and wait)
-	status = r.createBackupDaemonStatefulset(opsManager, opsManagerUserPassword, log)
-	if !status.isOk() {
-		return status.updateStatus(&opsManager, r.ReconcileCommonController, log, opsManager.CentralURL())
-	}
-
-	// 4. Prepare Ops Manager (ensure the first user is created and public API key saved to secret)
+	// 3. Prepare Ops Manager (ensure the first user is created and public API key saved to secret)
 	var omAdmin api.Admin
 	if status, omAdmin = r.prepareOpsManager(opsManager, log); !status.isOk() {
-		return status.updateStatus(&opsManager, r.ReconcileCommonController, log, opsManager.CentralURL())
+		return status, nil
 	}
 
-	// 5. Prepare Backup Daemon
+	if _, err := r.updateStatusSuccessful(&opsManager, log, extraParamsOpsManager); err != nil {
+		return failedErr(err), nil
+	}
+
+	return status, omAdmin
+}
+
+func (r *OpsManagerReconciler) reconcileBackupDaemon(opsManager mdbv1.MongoDBOpsManager, omAdmin api.Admin, opsManagerUserPassword string, log *zap.SugaredLogger) reconcileStatus {
+	extraStatusParamsBackup := mdbv1.NewExtraStatusParams(mdbv1.Backup)
+	if err := r.updateReconciling(&opsManager, extraStatusParamsBackup); err != nil {
+		log.Errorf("Error setting Backup state to reconciling: %s", err)
+		return failedErr(err)
+	}
+
+	// Prepare Backup Daemon StatefulSet (create and wait)
+	status := r.createBackupDaemonStatefulset(opsManager, opsManagerUserPassword, log)
+	if !status.isOk() {
+		return status
+	}
+
+	// Configure Backup using API
 	if status = r.prepareBackupInOpsManager(opsManager, omAdmin, log); !status.isOk() {
-		return status.updateStatus(&opsManager, r.ReconcileCommonController, log, opsManager.CentralURL())
+		return status
 	}
 
-	if status.isOk() {
-		successStatus := status.(*successStatus)
-		successStatus.warnings = append(successStatus.warnings, opsManager.Status.Warnings...)
+	if _, err := r.updateStatusSuccessful(&opsManager, log, extraStatusParamsBackup); err != nil {
+		return failedErr(err)
 	}
-	return status.updateStatus(&opsManager, r.ReconcileCommonController, log)
+
+	return status
+}
+
+// readOpsManagerResource reads Ops Manager Custom resource into pointer provided
+func (r *OpsManagerReconciler) readOpsManagerResource(request reconcile.Request, ref *mdbv1.MongoDBOpsManager, log *zap.SugaredLogger) (*reconcile.Result, error) {
+	if result, err := r.getResource(request, ref, log); result != nil {
+		return result, err
+	}
+	// Reset warnings so that they are not stale, will populate accurate warnings in reconciliation
+	ref.SetWarnings([]mdbv1.StatusWarning{})
+	return nil, nil
 }
 
 // createOpsManagerStatefulset ensures the gen key secret exists and creates the Ops Manager StatefulSet.
@@ -428,6 +483,10 @@ func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager mdbv1.MongoD
 	// 4. Block store configs
 	status = status.merge(r.ensureBlockStoresInOpsManager(opsManager, omAdmin, log))
 
+	if len(opsManager.Spec.Backup.S3Configs) == 0 && len(opsManager.Spec.Backup.BlockStoreConfigs) == 0 {
+		return status.merge(pendingValidation("Either S3 or Blockstore Snapshot configuration is required for backup"))
+	}
+
 	return status
 }
 
@@ -486,6 +545,10 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(opsManager mdbv1.Mo
 		if err = omAdmin.DeleteOplogStoreConfig(v.Identifier().(string)); err != nil {
 			return failedErr(err)
 		}
+	}
+
+	if len(operatorOplogConfigs) == 0 {
+		return pendingValidation("Oplog Store configuration is required for backup")
 	}
 	return ok()
 }
@@ -600,10 +663,6 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager mdbv
 		if err := omAdmin.DeleteS3Config(config.Identifier().(string)); err != nil {
 			return failedErr(err)
 		}
-	}
-
-	if len(opsManager.Spec.Backup.S3Configs) == 0 || len(opsManager.Spec.Backup.OplogStoreConfigs) == 0 {
-		return ok(mdbv1.S3BackupsNotFullyConfigured)
 	}
 
 	return ok()

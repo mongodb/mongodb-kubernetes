@@ -380,11 +380,7 @@ spec:
       type: string
       description: The version of MongoDBOpsManager.
       JSONPath: .spec.version
-    - name: Version (AppDB)
-      type: string
-      description: The version of Application Database  .
-      JSONPath: .spec.applicationDatabase.version
-    - name: State
+    - name: State (OpsManager)
       type: string
       description: The current state of the MongoDBOpsManager.
       JSONPath: .status.opsManager.phase
@@ -392,6 +388,10 @@ spec:
       type: string
       description: The current state of the MongoDBOpsManager Application Database.
       JSONPath: .status.applicationDatabase.phase
+    - name: State (Backup)
+      type: string
+      description: The current state of the MongoDBOpsManager Backup Daemon.
+      JSONPath: .status.backup.phase
     - name: Age
       type: date
       description: The time since the MongoDBOpsManager resource was created.

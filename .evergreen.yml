@@ -1349,9 +1349,8 @@ tasks:
   commands:
     - func: e2e_test
 
-# e2e_om_ops_manager_scale will not fit 3 OM images + 3 appdb on the same host
-# so it's not run in Kind (in patches)
 - name: e2e_om_ops_manager_scale
+  tags: ["patch-run"]
   exec_timeout_secs: 2800
   commands:
     - func: "e2e_test"

@@ -61,11 +61,17 @@ class TestOpsManagerWorksOkAfterOperatorUpgrade:
         pass
 
     def test_om_ok(self, ops_manager: MongoDBOpsManager):
-        ops_manager.assert_reaches_phase(Phase.Running, timeout=900)
+        # status phases are updated gradually - we need to check for each of them (otherwise "check(Running) for OM"
+        # will return True right away
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Reconciling, timeout=100)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=500)
+        ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=200)
+
         ops_manager.get_om_tester().assert_healthiness()
 
         current_om_image = (
-            ops_manager.get_statefulset().spec.template.spec.containers[0].image
+            ops_manager.read_statefulset().spec.template.spec.containers[0].image
         )
         assert (
             current_om_image != ops_manager["metadata"]["annotations"]["last_om_image"]

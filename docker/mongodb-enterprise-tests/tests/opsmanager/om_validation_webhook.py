@@ -2,17 +2,16 @@
 Ensures that validation warnings for ops manager reflect its current state
 """
 from kubernetes import client
-from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
-from tests.opsmanager.om_base import OpsManagerBase
 
 APPDB_SHARD_COUNT_WARNING = "shardCount field is not configurable for application databases as it is for sharded clusters and appdbs are replica sets"
 
 
 @mark.e2e_om_validation_webhook
-class TestOpsManagerAppDbWrongVersion(OpsManagerBase):
+class TestOpsManagerAppDbWrongVersionShardedCluster(KubernetesTester):
     """
     name: ShardedCluster Fields for AppDB
     description: |
@@ -28,9 +27,9 @@ class TestOpsManagerAppDbWrongVersion(OpsManagerBase):
 
 
 @mark.e2e_om_validation_webhook
-class TestOpsManagerAppDbWrongVersion(OpsManagerBase):
+class TestOpsManagerAppDbWrongVersionConnectivity(KubernetesTester):
     """
-    name: Innapropriate Fields for AppDB
+    name: Inappropriate Fields for AppDB
     description: |
       connectivity field for AppDB should be rejected
     create:
@@ -70,18 +69,27 @@ class TestOpsManagerValidationWarnings:
         )
 
     def test_create_om_pending_with_warnings(self, ops_manager: MongoDBOpsManager):
-        ops_manager.assert_reaches_phase(Phase.Pending, timeout=300)
+        ops_manager.om_status().assert_reaches_phase(Phase.Pending, timeout=300)
         assert APPDB_SHARD_COUNT_WARNING in ops_manager.get_status()["warnings"]
 
     def test_om_running_with_warnings(self, ops_manager: MongoDBOpsManager):
-        ops_manager.assert_reaches_phase(Phase.Running, timeout=900)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
         assert APPDB_SHARD_COUNT_WARNING in ops_manager.get_status()["warnings"]
 
     def test_update_om_with_corrections(self, ops_manager: MongoDBOpsManager):
         del ops_manager["spec"]["applicationDatabase"]["shardCount"]
-        ops_manager.update()
-        ops_manager.assert_reaches_phase(Phase.Running, timeout=900)
+        # TODO add replace() method to kubeobject
+        client.CustomObjectsApi().replace_namespaced_custom_object(
+            ops_manager.group,
+            ops_manager.version,
+            ops_manager.namespace,
+            ops_manager.plural,
+            ops_manager.name,
+            ops_manager.backing_obj,
+        )
+        # ops_manager.update()
+        ops_manager.om_status().assert_reaches_phase(Phase.Reconciling, timeout=200)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
     def test_warnings_reset(self, ops_manager: MongoDBOpsManager):
-        status = ops_manager.get_om_status()
-        assert "warnings" not in status
+        assert "warnings" not in ops_manager.get_status()

@@ -51,7 +51,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 	log.Infow("ReplicaSet.Status", "status", rs.Status)
 
 	if err := rs.ProcessValidationsOnReconcile(); err != nil {
-		return r.updateStatusValidationFailure(rs, err.Error(), log)
+		return r.updateStatusValidationFailure(rs, err.Error(), log, true)
 	}
 
 	projectConfig, err := r.kubeHelper.readProjectConfig(request.Namespace, rs.Spec.GetProject())

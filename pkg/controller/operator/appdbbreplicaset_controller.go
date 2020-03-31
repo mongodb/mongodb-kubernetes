@@ -36,11 +36,10 @@ func newAppDBReplicaSetReconciler(commonController *ReconcileCommonController) *
 func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager mdbv1.MongoDBOpsManager, rs mdbv1.AppDB, opsManagerUserPassword string) (res reconcile.Result, e error) {
 	log := zap.S().With("ReplicaSet (AppDB)", objectKey(opsManager.Namespace, rs.Name()))
 
-	err := r.updateStatus(&opsManager, func(fresh Updatable) {
-		(fresh.(*mdbv1.MongoDBOpsManager)).UpdateReconcilingAppDb()
-	})
+	appDbStatusExtraParams := mdbv1.NewExtraStatusParams(mdbv1.AppDb)
+	err := r.updateReconciling(&opsManager, appDbStatusExtraParams)
 	if err != nil {
-		log.Errorf("Error setting state to reconciling: %s", err)
+		log.Errorf("Error setting AppDB state to reconciling: %s", err)
 		return retry()
 	}
 
@@ -68,22 +67,22 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager mdbv1.MongoDBOpsManager,
 
 	appDbSts, err := replicaBuilder.BuildAppDbStatefulSet()
 	if err != nil {
-		return r.updateStatusFailedAppDb(&opsManager, err.Error(), log)
+		return r.updateStatusFailed(&opsManager, err.Error(), log, appDbStatusExtraParams)
 	}
 
 	config, err := r.buildAppDbAutomationConfig(rs, opsManager, opsManagerUserPassword, appDbSts, log)
 	if err != nil {
-		return r.updateStatusFailedAppDb(&opsManager, err.Error(), log)
+		return r.updateStatusFailed(&opsManager, err.Error(), log, appDbStatusExtraParams)
 	}
 
 	var wasPublished bool
 	if wasPublished, err = r.publishAutomationConfig(rs, opsManager, config, log); err != nil {
-		return r.updateStatusFailedAppDb(&opsManager, err.Error(), log)
+		return r.updateStatusFailed(&opsManager, err.Error(), log, appDbStatusExtraParams)
 	}
 
 	err = replicaBuilder.CreateOrUpdateAppDBInKubernetes()
 	if err != nil {
-		return r.updateStatusFailedAppDb(&opsManager, fmt.Sprintf("Failed to create/update the StatefulSet: %s", err), log)
+		return r.updateStatusFailed(&opsManager, err.Error(), log, appDbStatusExtraParams)
 	}
 
 	// Note that the only case when we need to wait for readiness probe to go from 'true' to 'false' is when we publish
@@ -95,20 +94,12 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager mdbv1.MongoDBOpsManager,
 	}
 
 	if !r.kubeHelper.isStatefulSetUpdated(opsManager.Namespace, opsManager.Name+"-db", log) {
-		return r.updateStatusPendingAppDb(&opsManager, fmt.Sprintf("AppDB Statefulset is not ready yet"), log)
+		return r.updateStatusPending(&opsManager, fmt.Sprintf("AppDB Statefulset is not ready yet"), log, appDbStatusExtraParams)
 	}
 
 	log.Infof("Finished reconciliation for AppDB ReplicaSet!")
 
-	err = r.updateStatus(&opsManager, func(fresh Updatable) {
-		fresh.(*mdbv1.MongoDBOpsManager).UpdateSuccessfulAppDb(&rs)
-	})
-	if err != nil {
-		log.Errorf("Failed to update status for resource to successful: %s", err)
-	} else {
-		log.Infow("Successful update", "spec", rs)
-	}
-	return reconcile.Result{}, nil
+	return r.updateStatusSuccessful(&opsManager, log, appDbStatusExtraParams)
 }
 
 // generateScramShaCredentials generates both ScramSha1Creds and ScramSha256Creds. The ScramSha256Creds
@@ -329,38 +320,6 @@ func (r *ReconcileAppDbReplicaSet) addLatestMongoDBVersions(config *om.Automatio
 	config.SetMongodbVersions(versionManifest.Versions)
 	log.Debugf("Mongodb version manifest %s downloaded, took %s", util.LatestOmVersion, time.Since(start))
 	return nil
-}
-
-func (r *ReconcileAppDbReplicaSet) updateStatusFailedAppDb(resource *mdbv1.MongoDBOpsManager, msg string, log *zap.SugaredLogger) (reconcile.Result, error) {
-	msg = util.UpperCaseFirstChar(msg)
-
-	log.Error(msg)
-	// Resource may be nil if the reconciliation failed very early (on fetching the resource) and panic handling function
-	// took over
-	if resource != nil {
-		err := r.updateStatus(resource, func(fresh Updatable) {
-			fresh.(*mdbv1.MongoDBOpsManager).UpdateErrorAppDb(msg)
-		})
-		if err != nil {
-			log.Errorf("Failed to update resource status: %s", err)
-		}
-	}
-	return retry()
-}
-
-func (r *ReconcileAppDbReplicaSet) updateStatusPendingAppDb(resource *mdbv1.MongoDBOpsManager, msg string, log *zap.SugaredLogger) (reconcile.Result, error) {
-	msg = util.UpperCaseFirstChar(msg)
-
-	log.Info(msg)
-
-	err := r.updateStatus(resource, func(fresh Updatable) {
-		fresh.(*mdbv1.MongoDBOpsManager).UpdatePendingAppDb(msg)
-	})
-
-	if err != nil {
-		return fail(err)
-	}
-	return retry()
 }
 
 func buildReplicaSetFromStatefulSetAppDb(set appsv1.StatefulSet, mdb mdbv1.AppDB, log *zap.SugaredLogger) om.ReplicaSetWithProcesses {

@@ -20,7 +20,7 @@ def opsmanager(namespace: str) -> MongoDBOpsManager:
 
 @mark.e2e_om_external_connectivity
 def test_reaches_goal_state(opsmanager: MongoDBOpsManager):
-    opsmanager.assert_reaches_phase(Phase.Running, timeout=600)
+    opsmanager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
 
     internal, external = opsmanager.services()
     assert internal is not None
@@ -46,8 +46,8 @@ def test_set_external_connectivity(opsmanager: MongoDBOpsManager):
     opsmanager["spec"]["externalConnectivity"] = ext_connectivity
     opsmanager.update()
 
-    opsmanager.assert_abandons_phase(Phase.Running)
-    opsmanager.assert_reaches_phase(Phase.Running)
+    opsmanager.om_status().assert_abandons_phase(Phase.Running)
+    opsmanager.om_status().assert_reaches_phase(Phase.Running)
 
     internal, external = opsmanager.services()
 
@@ -68,8 +68,8 @@ def test_add_annotations(opsmanager: MongoDBOpsManager):
     opsmanager["spec"]["externalConnectivity"]["annotations"] = annotations
     opsmanager.update()
 
-    opsmanager.assert_abandons_phase(Phase.Running)
-    opsmanager.assert_reaches_phase(Phase.Running)
+    opsmanager.om_status().assert_abandons_phase(Phase.Running)
+    opsmanager.om_status().assert_reaches_phase(Phase.Running)
 
     internal, external = opsmanager.services()
 

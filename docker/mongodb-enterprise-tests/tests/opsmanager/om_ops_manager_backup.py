@@ -13,7 +13,6 @@ from kubetester.kubetester import (
 from kubetester.mongodb import Phase
 from kubetester.mongodb_user import MongoDBUser
 from pytest import mark, fixture
-from tests.opsmanager.om_base import OpsManagerBase
 
 HEAD_PATH = "/head/"
 S3_SECRET_NAME = "my-s3-secret"
@@ -69,14 +68,14 @@ def new_om_data_store(
 
 
 @fixture(scope="module")
-def s3_bucket(aws_s3_client: AwsS3Client) -> str:
-    create_aws_secret(aws_s3_client, S3_SECRET_NAME)
+def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
+    create_aws_secret(aws_s3_client, S3_SECRET_NAME, namespace)
     yield from create_s3_bucket(aws_s3_client)
 
 
-def create_aws_secret(aws_s3_client, secret_name: str):
-    OpsManagerBase.create_secret(
-        OpsManagerBase.get_namespace(),
+def create_aws_secret(aws_s3_client, secret_name: str, namespace: str):
+    KubernetesTester.create_secret(
+        namespace,
         secret_name,
         {
             "accessKey": aws_s3_client.aws_access_key,
@@ -188,18 +187,19 @@ class TestOpsManagerCreation:
     """
 
     def test_setup_gp2_storage_class(self):
+        """ This is necessary for Backup HeadDB """
         KubernetesTester.make_default_gp2_storage_class()
 
-    def test_create_om(self, ops_manager):
-        """ creates a s3 bucket, s3 config and an OM resource (waits until gets to Pending state)"""
-        ops_manager.assert_reaches_phase(
+    def test_create_om(self, ops_manager: MongoDBOpsManager):
+        """ creates a s3 bucket, s3 config and an OM resource (waits until Backup gets to Pending state)"""
+        ops_manager.backup_status().assert_reaches_phase(
             Phase.Pending,
             msg_regexp="The MongoDB object .+ doesn't exist",
             timeout=900,
         )
 
     def test_daemon_statefulset(self, ops_manager: MongoDBOpsManager):
-        statefulset = ops_manager.get_backup_statefulset()
+        statefulset = ops_manager.read_backup_statefulset()
         assert statefulset.status.ready_replicas == 1
         assert statefulset.status.current_replicas == 1
 
@@ -211,7 +211,7 @@ class TestOpsManagerCreation:
 
     def test_daemon_pvc(self, ops_manager: MongoDBOpsManager, namespace: str):
         """ Verifies the PVCs mounted to the pod """
-        pod = ops_manager.get_backup_pod()
+        pod = ops_manager.read_backup_pod()
         claims = [
             volume
             for volume in pod.spec.volumes
@@ -268,11 +268,12 @@ class TestBackupDatabasesAdded:
     def test_om_failed_blockstore_no_user_ref(
         self, ops_manager: MongoDBOpsManager, blockstore_user: MongoDBUser
     ):
-        """ Waits until Ops manager is in failed state as blockstore doesn't have reference to the user"""
-        ops_manager.assert_reaches_phase(
+        """ Waits until Backup is in failed state as blockstore doesn't have reference to the user"""
+        ops_manager.backup_status().assert_reaches_phase(
             Phase.Failed,
             msg_regexp=".*is configured to use SCRAM-SHA authentication mode, the user "
             "must be specified using 'mongodbUserRef'",
+            timeout=360,
         )
         ops_manager["spec"]["backup"]["blockStores"][0]["mongodbUserRef"] = {
             "name": blockstore_user.get_user_name()
@@ -281,7 +282,19 @@ class TestBackupDatabasesAdded:
         # As soon as oplog, s3 and blockstores mongodb stores are created Operator will create matching configs in OM and
         # get to Running state. Note, that the OM may quickly get into error state (BACKUP_MONGO_CONNECTION_FAILED)
         # as the backup replica sets may not be completely ready but this will get fixed soon after a retry. """
-        ops_manager.assert_reaches_phase(Phase.Running, timeout=200, ignore_errors=True)
+        try:
+            ops_manager.backup_status().assert_reaches_phase(
+                Phase.Running, timeout=200, ignore_errors=True,
+            )
+        except AssertionError:
+            # some edge case: after the OM gets fully runnning one extra reconciliation happens right away
+            # so the condition "backup == Running -> AppDB == Running" doesn't hold and 'assert_reaches_phase' above
+            # raises an error, we need to wait for the extra reconciliation
+            ops_manager.backup_status().assert_reaches_phase(
+                Phase.Reconciling, timeout=40
+            )
+            ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=40)
+        assert ops_manager.backup_status().get_message() is None
 
     @skip_if_local
     def test_om(
@@ -376,8 +389,8 @@ class TestBackupConfigurationAdditionDeletion:
         )
 
         ops_manager.update()
-        ops_manager.assert_reaches_phase(Phase.Reconciling, timeout=60)
-        ops_manager.assert_reaches_phase(Phase.Running, timeout=600)
+        ops_manager.backup_status().assert_reaches_phase(Phase.Reconciling, timeout=60)
+        ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=600)
 
         om_tester = ops_manager.get_om_tester()
         om_tester.assert_oplog_stores(
@@ -403,9 +416,8 @@ class TestBackupConfigurationAdditionDeletion:
         existing_s3_store["s3BucketName"] = s3_bucket_2
 
         ops_manager.update()
-        ops_manager.assert_reaches_phase(Phase.Reconciling, timeout=60)
-        ops_manager.assert_reaches_phase(Phase.Running, timeout=600)
-
+        ops_manager.backup_status().assert_reaches_phase(Phase.Reconciling, timeout=60)
+        ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=600)
         om_tester = ops_manager.get_om_tester()
 
         om_tester.assert_oplog_stores(
@@ -432,8 +444,8 @@ class TestBackupConfigurationAdditionDeletion:
         ops_manager["spec"]["backup"]["oplogStores"].pop()
         ops_manager.update()
 
-        ops_manager.assert_reaches_phase(Phase.Reconciling, timeout=60)
-        ops_manager.assert_reaches_phase(Phase.Running, timeout=600)
+        ops_manager.backup_status().assert_reaches_phase(Phase.Reconciling, timeout=60)
+        ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=600)
 
         om_tester = ops_manager.get_om_tester()
 
@@ -460,9 +472,9 @@ class TestBackupConfigurationAdditionDeletion:
         ops_manager["spec"]["backup"]["s3Stores"] = []
         ops_manager.update()
 
-        ops_manager.assert_reaches_phase(Phase.Reconciling, timeout=60)
+        ops_manager.backup_status().assert_reaches_phase(Phase.Reconciling, timeout=60)
         try:
-            ops_manager.assert_reaches_phase(
+            ops_manager.backup_status().assert_reaches_phase(
                 Phase.Failed,
                 msg_regexp=".*BACKUP_CANNOT_REMOVE_S3_STORE_CONFIG.*",
                 timeout=150,
@@ -473,4 +485,4 @@ class TestBackupConfigurationAdditionDeletion:
             # There's no way to specify the config to be used when enabling backup for a mongodb deployment.
             # So this means that either the removal of s3 will fail as it's used already or it will succeed as
             # the blockstore snapshot was used instead and the OM would get to Running phase
-            assert ops_manager.get_om_status_phase() == Phase.Running
+            assert ops_manager.backup_status().get_phase() == Phase.Running

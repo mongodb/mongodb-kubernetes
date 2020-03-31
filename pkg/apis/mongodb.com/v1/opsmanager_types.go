@@ -23,6 +23,21 @@ func init() {
 
 //=============== Ops Manager ===========================================
 
+// StatusPart is the logical constant for specific field in status in the MongoDBOpsManager
+type StatusPart int
+
+// ExtraParams is the constant for different properties that can be passed to update status method
+type ExtraParams int
+
+const (
+	AppDb StatusPart = iota
+	OpsManager
+	Backup
+
+	Status ExtraParams = iota
+	BaseUrl
+)
+
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +k8s:openapi-gen=true
 type MongoDBOpsManager struct {
@@ -80,6 +95,12 @@ type MongoDBOpsManagerSecurity struct {
 	} `json:"tls"`
 }
 
+// NewExtraStatusParams is the function to build the extra params container used for updating status field
+// StatusPart is a mandatory parameter as it's necessary to know which part of status needs to be updated
+func NewExtraStatusParams(status StatusPart) map[ExtraParams]interface{} {
+	return map[ExtraParams]interface{}{Status: status}
+}
+
 func (ms MongoDBOpsManagerSpec) GetClusterDomain() string {
 	if ms.ClusterDomain != "" {
 		return ms.ClusterDomain
@@ -130,11 +151,12 @@ type MongoDBOpsManagerBackup struct {
 type MongoDBOpsManagerStatus struct {
 	OpsManagerStatus OpsManagerStatus `json:"opsManager,omitempty"`
 	AppDbStatus      AppDbStatus      `json:"applicationDatabase,omitempty"`
+	BackupStatus     BackupStatus     `json:"backup,omitempty"`
 	Warnings         []StatusWarning  `json:"warnings,omitempty"`
 }
 
 type OpsManagerStatus struct {
-	Version        string `json:"version"`
+	Version        string `json:"version,omitempty"`
 	Replicas       int    `json:"replicas,omitempty"`
 	Phase          Phase  `json:"phase"`
 	Message        string `json:"message,omitempty"`
@@ -144,7 +166,13 @@ type OpsManagerStatus struct {
 
 type AppDbStatus struct {
 	MongoDbStatus
-	PasswordSecretKeyRef *SecretKeyRef `json:"passwordSecretKeyRef,omitempty"`
+}
+
+type BackupStatus struct {
+	Phase          Phase  `json:"phase"`
+	Message        string `json:"message,omitempty"`
+	LastTransition string `json:"lastTransition,omitempty"`
+	Version        string `json:"version,omitempty"`
 }
 
 // DataStoreConfig is the description of the config used to reference to database. Reused by Oplog and Block stores
@@ -306,52 +334,103 @@ func (m *MongoDBOpsManager) AddConfigIfDoesntExist(key, value string) bool {
 	return false
 }
 
-func (m *MongoDBOpsManager) UpdateError(object runtime.Object, msg string) {
+func (m *MongoDBOpsManager) UpdateError(object runtime.Object, msg string, args ...interface{}) {
 	reconciledResource := object.(*MongoDBOpsManager)
-	m.Status.Warnings = reconciledResource.Status.Warnings
-	m.Status.OpsManagerStatus.Message = msg
-	m.Status.OpsManagerStatus.LastTransition = util.Now()
-	m.Status.OpsManagerStatus.Phase = PhaseFailed
+	m.updateStatus(reconciledResource, PhaseFailed, msg, args...)
 }
 
-func (m *MongoDBOpsManager) UpdatePending(object runtime.Object, msg string, args ...string) {
+func (m *MongoDBOpsManager) UpdatePending(object runtime.Object, msg string, args ...interface{}) {
 	reconciledResource := object.(*MongoDBOpsManager)
-	m.Status.Warnings = reconciledResource.Status.Warnings
+	m.updateStatus(reconciledResource, PhasePending, msg, args...)
+}
+
+func (m *MongoDBOpsManager) UpdateReconciling(args ...interface{}) {
+	m.updateStatus(nil, PhaseReconciling, "", args...)
+}
+
+func (m *MongoDBOpsManager) UpdateSuccessful(object runtime.Object, args ...interface{}) {
+	reconciledResource := object.(*MongoDBOpsManager)
+	m.updateStatus(reconciledResource, PhaseRunning, "", args...)
+}
+
+func (m *MongoDBOpsManager) updateStatus(reconciledOpsManager *MongoDBOpsManager, phase Phase, msg string, args ...interface{}) {
+	extraParams := args[0].(map[ExtraParams]interface{})
+
+	switch extraParams[Status].(StatusPart) {
+	case AppDb:
+		m.updateStatusAppDb(reconciledOpsManager, phase, msg)
+	case OpsManager:
+		m.updateStatusOpsManager(reconciledOpsManager, phase, msg, extraParams)
+	case Backup:
+		m.updateStatusBackup(reconciledOpsManager, phase, msg)
+	default:
+		panic("Not clear which status part must be updated!")
+	}
+}
+
+func (m *MongoDBOpsManager) updateStatusAppDb(reconciledOpsManager *MongoDBOpsManager, phase Phase, msg string) {
+	m.Status.AppDbStatus.LastTransition = util.Now()
+	m.Status.AppDbStatus.Phase = phase
+	if reconciledOpsManager != nil {
+		m.Status.Warnings = reconciledOpsManager.Status.Warnings
+	}
+
+	if msg != "" {
+		m.Status.AppDbStatus.Message = msg
+	}
+
+	if phase == PhaseRunning {
+		spec := reconciledOpsManager.Spec.AppDB
+		m.Status.AppDbStatus.Version = spec.GetVersion()
+		m.Status.AppDbStatus.Message = ""
+		m.Status.AppDbStatus.ResourceType = spec.ResourceType
+		m.Status.AppDbStatus.Members = spec.Members
+	}
+}
+
+func (m *MongoDBOpsManager) updateStatusOpsManager(reconciledOpsManager *MongoDBOpsManager, phase Phase, msg string, params map[ExtraParams]interface{}) {
+	m.Status.OpsManagerStatus.LastTransition = util.Now()
+	m.Status.OpsManagerStatus.Phase = phase
+	if reconciledOpsManager != nil {
+		m.Status.Warnings = reconciledOpsManager.Status.Warnings
+	}
+
 	if msg != "" {
 		m.Status.OpsManagerStatus.Message = msg
 	}
-	if m.Status.OpsManagerStatus.Phase != PhasePending {
-		m.Status.OpsManagerStatus.LastTransition = util.Now()
-		m.Status.OpsManagerStatus.Phase = PhasePending
+	if baseUrl, ok := params[BaseUrl]; ok {
+		m.Status.OpsManagerStatus.Url = baseUrl.(string)
 	}
-	if len(args) > 0 {
-		m.Status.OpsManagerStatus.Url = args[0]
+	if phase == PhaseRunning {
+		m.Status.OpsManagerStatus.Replicas = m.Spec.Replicas
+		m.Status.OpsManagerStatus.Version = m.Spec.Version
+		m.Status.OpsManagerStatus.Message = ""
 	}
 }
 
-func (m *MongoDBOpsManager) UpdateReconciling() {
-	m.Status.OpsManagerStatus.LastTransition = util.Now()
-	m.Status.OpsManagerStatus.Phase = PhaseReconciling
-}
-
-func (m *MongoDBOpsManager) UpdateSuccessful(object runtime.Object, args ...string) {
-	reconciledResource := object.(*MongoDBOpsManager)
-	spec := reconciledResource.Spec
-
-	if len(args) > 0 {
-		m.Status.OpsManagerStatus.Url = args[0]
+func (m *MongoDBOpsManager) updateStatusBackup(reconciledOpsManager *MongoDBOpsManager, phase Phase, msg string) {
+	m.Status.BackupStatus.LastTransition = util.Now()
+	m.Status.BackupStatus.Phase = phase
+	if reconciledOpsManager != nil {
+		m.Status.Warnings = reconciledOpsManager.Status.Warnings
 	}
 
-	m.Status.Warnings = reconciledResource.Status.Warnings
-	m.Status.OpsManagerStatus.Replicas = spec.Replicas
-	m.Status.OpsManagerStatus.Version = spec.Version
-	m.Status.OpsManagerStatus.Message = ""
-	m.Status.OpsManagerStatus.LastTransition = util.Now()
-	m.Status.OpsManagerStatus.Phase = PhaseRunning
+	if msg != "" {
+		m.Status.BackupStatus.Message = msg
+	}
+
+	if phase == PhaseRunning {
+		m.Status.BackupStatus.Message = ""
+		m.Status.BackupStatus.Version = m.Spec.Version
+	}
 }
 
 func (m *MongoDBOpsManager) SetWarnings(warnings []StatusWarning) {
 	m.Status.Warnings = warnings
+}
+
+func (m *MongoDBOpsManager) GetWarnings() []StatusWarning {
+	return m.Status.Warnings
 }
 
 func (m *MongoDBOpsManager) AddWarningIfNotExists(warning StatusWarning) {
@@ -367,11 +446,13 @@ func (m *MongoDBOpsManager) GetStatus() interface{} {
 }
 
 func (m *MongoDBOpsManager) GetSpec() interface{} {
-	configuration := m.Spec.Configuration
+	// Do not mutate the original object
+	omCopy := m.DeepCopy()
+	configuration := omCopy.Spec.Configuration
 	if uri, ok := configuration[util.MmsMongoUri]; ok {
 		configuration[util.MmsMongoUri] = util.RedactMongoURI(uri)
 	}
-	return m.Spec
+	return omCopy.Spec
 }
 
 func (m *MongoDBOpsManager) APIKeySecretName() string {
@@ -380,39 +461,6 @@ func (m *MongoDBOpsManager) APIKeySecretName() string {
 
 func (m *MongoDBOpsManager) BackupStatefulSetName() string {
 	return fmt.Sprintf("%s-backup-daemon", m.GetName())
-}
-
-// todo for all methods below - reuse the ones from types.go
-func (m *MongoDBOpsManager) UpdateErrorAppDb(msg string) {
-	m.Status.AppDbStatus.Message = msg
-	m.Status.AppDbStatus.LastTransition = util.Now()
-	m.Status.AppDbStatus.Phase = PhaseFailed
-}
-
-func (m *MongoDBOpsManager) UpdatePendingAppDb(msg string) {
-	if msg != "" {
-		m.Status.AppDbStatus.Message = msg
-	}
-	if m.Status.AppDbStatus.Phase != PhasePending {
-		m.Status.AppDbStatus.LastTransition = util.Now()
-		m.Status.AppDbStatus.Phase = PhasePending
-	}
-}
-
-func (m *MongoDBOpsManager) UpdateReconcilingAppDb() {
-	m.Status.AppDbStatus.LastTransition = util.Now()
-	m.Status.AppDbStatus.Phase = PhaseReconciling
-}
-
-func (m *MongoDBOpsManager) UpdateSuccessfulAppDb(object runtime.Object, _ ...string) {
-	spec := object.(*AppDB)
-
-	m.Status.AppDbStatus.Version = spec.GetVersion()
-	m.Status.AppDbStatus.Message = ""
-	m.Status.AppDbStatus.LastTransition = util.Now()
-	m.Status.AppDbStatus.Phase = PhaseRunning
-	m.Status.AppDbStatus.ResourceType = spec.ResourceType
-	m.Status.AppDbStatus.Members = spec.Members
 }
 
 func (m MongoDBOpsManager) GetSchemePort() (corev1.URIScheme, int) {

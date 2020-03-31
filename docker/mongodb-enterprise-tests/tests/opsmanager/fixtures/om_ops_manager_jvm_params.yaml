@@ -13,8 +13,8 @@ spec:
     persistent: false
 
   podSpec:
-      memoryRequests: "400M"
-      memory: "5G"
+    memoryRequests: "400M"
+    memory: "5G"
 
   backup:
     enabled: true

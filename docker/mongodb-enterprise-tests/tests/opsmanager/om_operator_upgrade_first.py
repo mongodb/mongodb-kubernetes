@@ -91,11 +91,21 @@ class TestOpsManagerInstalledFirst:
     on the second stage"""
 
     def test_om_created(self, ops_manager: MongoDBOpsManager):
-        ops_manager.assert_reaches_phase(
-            Phase.Pending,
-            msg_regexp="The MongoDB object .+ doesn't exist",
-            timeout=1100,
-        )
+        try:
+            ops_manager.backup_status().assert_reaches_phase(
+                Phase.Pending,
+                msg_regexp="The MongoDB object .+ doesn't exist",
+                timeout=900,
+            )
+        except:
+            # Operator versions <= 1.4.4 didn't have "backup" status - so the message about
+            # non-existent backup dbs got into "status.opsManager"
+            assert "backup" not in ops_manager.get_status()
+            ops_manager.om_status().assert_reaches_phase(
+                Phase.Pending,
+                msg_regexp="The MongoDB object .+ doesn't exist",
+                timeout=60,
+            )
 
     def test_backup_enabled(
         self,
@@ -107,13 +117,20 @@ class TestOpsManagerInstalledFirst:
         s3_replica_set.assert_reaches_phase(Phase.Running)
         # We are ignoring any errors as there could be temporary blips in connectivity to backing
         # databases by this time
-        ops_manager.assert_reaches_phase(Phase.Running, timeout=200, ignore_errors=True)
+        try:
+            ops_manager.backup_status().assert_reaches_phase(
+                Phase.Running, timeout=200, ignore_errors=True
+            )
+        except:
+            # failback logic for older versions
+            assert "backup" not in ops_manager.get_status()
+            assert ops_manager.om_status().get_phase() == Phase.Running
 
     @skip_if_local
     def test_om_is_ok(self, ops_manager: MongoDBOpsManager):
         ops_manager.get_om_tester().assert_healthiness()
         # Saving the image url of the OM statefulset to make sure it was changed after upgrade
-        om_image = ops_manager.get_statefulset().spec.template.spec.containers[0].image
+        om_image = ops_manager.read_statefulset().spec.template.spec.containers[0].image
         ops_manager["metadata"]["annotations"] = {"last_om_image": om_image}
         ops_manager.update()
 

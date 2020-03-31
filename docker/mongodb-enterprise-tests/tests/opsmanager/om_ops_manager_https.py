@@ -7,8 +7,6 @@ from kubetester.mongodb import MongoDB, Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.certs import Certificate, Issuer
 
-import time
-
 
 @fixture("module")
 def domain(namespace: str):
@@ -105,10 +103,10 @@ def replicaset1(ops_manager: MongoDBOpsManager, namespace: str):
 @mark.e2e_om_ops_manager_https_enabled
 def test_om_created(ops_manager: MongoDBOpsManager):
     """Ops Manager is started over plain HTTP."""
-    ops_manager.assert_reaches_phase(Phase.Running, timeout=900)
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
-    assert ops_manager["status"]["opsManager"]["url"].startswith("http://")
-    assert ops_manager["status"]["opsManager"]["url"].endswith(":8080")
+    assert ops_manager.om_status().get_url().startswith("http://")
+    assert ops_manager.om_status().get_url().endswith(":8080")
 
 
 @mark.e2e_om_ops_manager_https_enabled
@@ -126,11 +124,11 @@ def test_enable_https_on_opsmanager(
     ops_manager["spec"]["security"] = {"tls": {"secretRef": {"name": ops_manager_cert}}}
     ops_manager.update()
 
-    ops_manager.assert_abandons_phase(Phase.Running)
-    ops_manager.assert_reaches_phase(Phase.Running, timeout=900)
+    ops_manager.om_status().assert_abandons_phase(Phase.Running)
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
-    assert ops_manager.get_om_status_url().startswith("https://")
-    assert ops_manager.get_om_status_url().endswith(":8443")
+    assert ops_manager.om_status().get_url().startswith("https://")
+    assert ops_manager.om_status().get_url().endswith(":8443")
 
 
 @mark.e2e_om_ops_manager_https_enabled

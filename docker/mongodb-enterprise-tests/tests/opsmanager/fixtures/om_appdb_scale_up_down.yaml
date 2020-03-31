@@ -13,3 +13,6 @@ spec:
     persistent: false
     podSpec:
       cpu: '0.25'
+
+  backup:
+    enabled: false

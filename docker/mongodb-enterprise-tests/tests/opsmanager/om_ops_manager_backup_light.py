@@ -28,12 +28,13 @@ as oplog seems to be still required even for OM 4.2 considering MongoDB Checkpoi
 
 
 @fixture(scope="module")
-def s3_bucket(aws_s3_client: AwsS3Client) -> str:
-    create_aws_secret(aws_s3_client, S3_SECRET_NAME)
+def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
+    create_aws_secret(aws_s3_client, S3_SECRET_NAME, namespace)
     yield from create_s3_bucket(aws_s3_client)
 
 
 @fixture(scope="module")
+# def ops_manager(namespace) -> MongoDBOpsManager:
 def ops_manager(namespace, s3_bucket) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_backup_light.yaml"), namespace=namespace
@@ -57,10 +58,14 @@ def oplog_replica_set(ops_manager, namespace) -> MongoDB:
 
 @mark.e2e_om_ops_manager_backup_light
 class TestOpsManagerCreation:
-    def test_create_om(self, ops_manager):
-        """ creates a s3 bucket and an OM resource, the S3 configs get created using AppDB """
-        ops_manager.assert_reaches_phase(Phase.Running, timeout=900)
-        # TODO check for warning
+    def test_create_om(self, ops_manager: MongoDBOpsManager):
+        """ creates a s3 bucket and an OM resource, the S3 configs get created using AppDB. Oplog store is still required. """
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+        ops_manager.backup_status().assert_reaches_phase(
+            Phase.Pending,
+            msg_regexp="Oplog Store configuration is required for backup",
+            timeout=300,
+        )
 
     def test_oplog_mdb_created(
         self, oplog_replica_set: MongoDB,
@@ -68,12 +73,15 @@ class TestOpsManagerCreation:
         oplog_replica_set.assert_reaches_phase(Phase.Running)
 
     def test_add_oplog_config(self, ops_manager: MongoDBOpsManager):
+        ops_manager.load()
         ops_manager["spec"]["backup"]["oplogStores"] = [
             {"name": "oplog1", "mongodbResourceRef": {"name": "my-mongodb-oplog"}}
         ]
         ops_manager.update()
-        ops_manager.assert_abandons_phase(Phase.Running)
-        ops_manager.assert_reaches_phase(Phase.Running, timeout=200, ignore_errors=True)
+        ops_manager.om_status().assert_abandons_phase(Phase.Running)
+        ops_manager.backup_status().assert_reaches_phase(
+            Phase.Running, timeout=200, ignore_errors=True,
+        )
 
     @skip_if_local
     def test_om(

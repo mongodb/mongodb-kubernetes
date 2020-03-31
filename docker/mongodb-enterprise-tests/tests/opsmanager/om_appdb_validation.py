@@ -1,26 +1,34 @@
 import pytest
+from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.kubetester import fixture as yaml_fixture
+from pytest import fixture
 
-from tests.opsmanager.om_base import OpsManagerBase
+from kubetester.mongodb import Phase
 
-
-@pytest.mark.e2e_om_appdb_validation
-class TestOpsManagerAppDbWrongVersion(OpsManagerBase):
-    """
-    name: Wrong version of AppDB
-    description: |
-      AppDB with version < 4.0.0 are not allowed
-    create:
-      file: om_appdb_validation.yaml
-      wait_until: om_in_error_state
-      timeout: 100
-    """
-
-    def test_om_appdb_version_validation(self):
-        assert "must be >= 4.0" in self.om_cr.get_om_status()["message"]
+from kubetester.kubetester import KubernetesTester
 
 
 @pytest.mark.e2e_om_appdb_validation
-class TestOpsManagerAppDbWrongSize(OpsManagerBase):
+class TestOpsManagerAppDbWrongVersion:
+    @classmethod
+    @fixture(scope="class")
+    def ops_manager(cls, namespace: str) -> MongoDBOpsManager:
+        """ The fixture for Ops Manager to be created."""
+        om = MongoDBOpsManager.from_yaml(
+            yaml_fixture("om_appdb_validation.yaml"), namespace=namespace
+        )
+        return om.create()
+
+    def test_wrong_appdb_version(self, ops_manager: MongoDBOpsManager):
+        ops_manager.om_status().assert_reaches_phase(
+            Phase.Failed,
+            msg_regexp="The version of Application Database must be >= 4.0",
+            timeout=20,
+        )
+
+
+@pytest.mark.e2e_om_appdb_validation
+class TestOpsManagerAppDbWrongSize(KubernetesTester):
     """
     name: Wrong size of AppDb
     description: |
@@ -36,7 +44,7 @@ class TestOpsManagerAppDbWrongSize(OpsManagerBase):
 
 
 @pytest.mark.e2e_om_appdb_validation
-class TestOpsManagerBackupEnabledNotSpecified(OpsManagerBase):
+class TestOpsManagerBackupEnabledNotSpecified(KubernetesTester):
     """
     name: Backup 'enabled' check
     description: |
@@ -52,7 +60,7 @@ class TestOpsManagerBackupEnabledNotSpecified(OpsManagerBase):
 
 
 @pytest.mark.e2e_om_appdb_validation
-class TestOpsManagerBackupOplogStoreNameRequired(OpsManagerBase):
+class TestOpsManagerBackupOplogStoreNameRequired(KubernetesTester):
     """
     name: Backup 'enabled' check
     description: |
@@ -68,7 +76,7 @@ class TestOpsManagerBackupOplogStoreNameRequired(OpsManagerBase):
 
 
 @pytest.mark.e2e_om_appdb_validation
-class TestOpsManagerBackupOplogStoreMongodbRefRequired(OpsManagerBase):
+class TestOpsManagerBackupOplogStoreMongodbRefRequired(KubernetesTester):
     """
     name: Backup 'enabled' check
     description: |
@@ -84,7 +92,7 @@ class TestOpsManagerBackupOplogStoreMongodbRefRequired(OpsManagerBase):
 
 
 @pytest.mark.e2e_om_appdb_validation
-class TestOpsManagerS3StoreNameRequired(OpsManagerBase):
+class TestOpsManagerS3StoreNameRequired(KubernetesTester):
     """
     description: |
       S3 store specified but missing 'name' field
@@ -99,7 +107,7 @@ class TestOpsManagerS3StoreNameRequired(OpsManagerBase):
 
 
 @pytest.mark.e2e_om_appdb_validation
-class TestOpsManagerS3StorePathStyleAccessEnabledRequired(OpsManagerBase):
+class TestOpsManagerS3StorePathStyleAccessEnabledRequired(KubernetesTester):
     """
     description: |
       S3 store specified but missing 'pathStyleAccessEnabled' field
@@ -114,7 +122,7 @@ class TestOpsManagerS3StorePathStyleAccessEnabledRequired(OpsManagerBase):
 
 
 @pytest.mark.e2e_om_appdb_validation
-class TestOpsManagerS3StoreS3BucketEndpointRequired(OpsManagerBase):
+class TestOpsManagerS3StoreS3BucketEndpointRequired(KubernetesTester):
     """
     description: |
       S3 store specified but missing 's3BucketEndpoint' field
@@ -129,7 +137,7 @@ class TestOpsManagerS3StoreS3BucketEndpointRequired(OpsManagerBase):
 
 
 @pytest.mark.e2e_om_appdb_validation
-class TestOpsManagerS3StoreS3BucketNameRequired(OpsManagerBase):
+class TestOpsManagerS3StoreS3BucketNameRequired(KubernetesTester):
     """
     description: |
       S3 store specified but missing 's3BucketName' field
@@ -144,7 +152,7 @@ class TestOpsManagerS3StoreS3BucketNameRequired(OpsManagerBase):
 
 
 @pytest.mark.e2e_om_appdb_validation
-class TestOpsManagerS3StoreS3SecretRequired(OpsManagerBase):
+class TestOpsManagerS3StoreS3SecretRequired(KubernetesTester):
     """
     description: |
       S3 store specified but missing 's3SecretRef' field
@@ -159,7 +167,7 @@ class TestOpsManagerS3StoreS3SecretRequired(OpsManagerBase):
 
 
 @pytest.mark.e2e_om_appdb_validation
-class TestOpsManagerExternalConnectivityTypeRequired(OpsManagerBase):
+class TestOpsManagerExternalConnectivityTypeRequired(KubernetesTester):
     """
     description: |
         'spec.externalConnectivity.type' is a required field
@@ -174,7 +182,7 @@ class TestOpsManagerExternalConnectivityTypeRequired(OpsManagerBase):
 
 
 @pytest.mark.e2e_om_appdb_validation
-class TestOpsManagerExternalConnectivityWrongType(OpsManagerBase):
+class TestOpsManagerExternalConnectivityWrongType(KubernetesTester):
     """
     description: |
         'spec.externalConnectivity.type' must be either "LoadBalancer" or "NodePort"

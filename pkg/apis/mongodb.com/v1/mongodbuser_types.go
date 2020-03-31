@@ -109,13 +109,13 @@ func (u *MongoDBUser) ChangedIdentifier() bool {
 	return u.Status.Username != u.Spec.Username || u.Status.Database != u.Spec.Database
 }
 
-func (u *MongoDBUser) UpdateError(_ runtime.Object, msg string) {
+func (u *MongoDBUser) UpdateError(_ runtime.Object, msg string, _ ...interface{}) {
 	u.Status.Message = msg
 	u.Status.LastTransition = util.Now()
 	u.Status.Phase = PhaseFailed
 }
 
-func (u *MongoDBUser) UpdateSuccessful(other runtime.Object, _ ...string) {
+func (u *MongoDBUser) UpdateSuccessful(other runtime.Object, _ ...interface{}) {
 	reconciledUser := other.(*MongoDBUser)
 	u.Status.Roles = reconciledUser.Spec.Roles
 	u.Status.Database = reconciledUser.Spec.Database
@@ -124,19 +124,23 @@ func (u *MongoDBUser) UpdateSuccessful(other runtime.Object, _ ...string) {
 	u.Status.LastTransition = util.Now()
 }
 
-func (u *MongoDBUser) UpdatePending(_ runtime.Object, msg string, args ...string) {
+func (u *MongoDBUser) UpdatePending(_ runtime.Object, msg string, _ ...interface{}) {
 	if msg != "" {
 		u.Status.Message = msg
 	}
 	u.Status.Phase = PhasePending
 }
 
-func (u *MongoDBUser) UpdateReconciling() {
+func (u *MongoDBUser) UpdateReconciling(_ ...interface{}) {
 	u.Status.Phase = PhaseReconciling
 }
 
 func (m *MongoDBUser) SetWarnings(warnings []StatusWarning) {
 	m.Status.Warnings = warnings
+}
+
+func (m *MongoDBUser) GetWarnings() []StatusWarning {
+	return m.Status.Warnings
 }
 
 func (m *MongoDBUser) GetKind() string {

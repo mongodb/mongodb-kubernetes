@@ -335,7 +335,7 @@ type TLSConfig struct {
 	//
 	// SecretRef points to a Secret object containing the certificates to use when enabling
 	// TLS on the AppDB.
-	SecretRef TLSSecretRef `json:"secretRef"`
+	SecretRef TLSSecretRef `json:"secretRef,omitempty"`
 }
 
 // TLSSecretRef contains a reference to a Secret object that contains certificates to
@@ -440,7 +440,7 @@ func (m *MongoDB) ShardRsName(i int) string {
 
 // UpdateError called when the CR object (MongoDB resource) needs to transition to
 // error state.
-func (m *MongoDB) UpdateError(object runtime.Object, msg string) {
+func (m *MongoDB) UpdateError(object runtime.Object, msg string, args ...interface{}) {
 	reconciledResource := object.(*MongoDB)
 	m.Status.Warnings = reconciledResource.Status.Warnings
 	m.Status.Message = msg
@@ -450,7 +450,7 @@ func (m *MongoDB) UpdateError(object runtime.Object, msg string) {
 
 // UpdatePending called when the CR object (MongoDB resource) needs to transition to
 // pending state.
-func (m *MongoDB) UpdatePending(object runtime.Object, msg string, args ...string) {
+func (m *MongoDB) UpdatePending(object runtime.Object, msg string, args ...interface{}) {
 	reconciledResource := object.(*MongoDB)
 	m.Status.Warnings = reconciledResource.Status.Warnings
 	if msg != "" {
@@ -464,7 +464,7 @@ func (m *MongoDB) UpdatePending(object runtime.Object, msg string, args ...strin
 
 // UpdateReconciling called when the CR object (MongoDB resource) needs to transition to
 // reconciling state.
-func (m *MongoDB) UpdateReconciling() {
+func (m *MongoDB) UpdateReconciling(_ ...interface{}) {
 	m.Status.LastTransition = util.Now()
 	m.Status.Phase = PhaseReconciling
 }
@@ -472,13 +472,13 @@ func (m *MongoDB) UpdateReconciling() {
 // UpdateSuccessful called when the CR object (MongoDB resource) needs to transition to
 // successful state. This means that the CR object and the underlying MongoDB deployment
 // are ready to work
-func (m *MongoDB) UpdateSuccessful(object runtime.Object, args ...string) {
+func (m *MongoDB) UpdateSuccessful(object runtime.Object, args ...interface{}) {
 	reconciledResource := object.(*MongoDB)
 	spec := reconciledResource.Spec
 
 	// assign all fields common to the different resource types
 	if len(args) >= DeploymentLinkIndex {
-		m.Status.Link = args[DeploymentLinkIndex]
+		m.Status.Link = args[DeploymentLinkIndex].(string)
 	}
 	m.Status.Version = spec.Version
 	m.Status.Message = ""
@@ -501,6 +501,10 @@ func (m *MongoDB) UpdateSuccessful(object runtime.Object, args ...string) {
 
 func (m *MongoDB) SetWarnings(warnings []StatusWarning) {
 	m.Status.Warnings = warnings
+}
+
+func (m *MongoDB) GetWarnings() []StatusWarning {
+	return m.Status.Warnings
 }
 
 func (m *MongoDB) AddWarningIfNotExists(warning StatusWarning) {

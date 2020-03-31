@@ -21,6 +21,9 @@ spec:
     mms.monitoring.rrd.maintenanceEnabled: "false"
     mms.monitoring.accessLogs.maintenanceEnabled: "false"
     mms.monitoring.slowlogs.maintenanceEnabled: "false"
+  podSpec:
+    # decreasing memory to make 3 pods consume less memory
+    memory: 2500M
 
   applicationDatabase:
     members: 3

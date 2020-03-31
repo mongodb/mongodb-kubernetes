@@ -222,8 +222,10 @@ func TestResourcesAreUpdated_AfterConflictErrors(t *testing.T) {
 		status.Phase = mdbv1.PhaseRunning
 	})
 
-	assert.Equal(t, mdbv1.PhaseRunning, rs.Status.Phase, "The phase should have been updated even after one failure")
-	assert.Equal(t, "new-version", rs.Status.Version, "The version should have been updated even after one failure")
+	rsInKubernetes := mdbv1.MongoDB{}
+	_ = mockedClient.Get(context.TODO(), objectKey(rs.Namespace, rs.Name), &rsInKubernetes)
+	assert.Equal(t, mdbv1.PhaseRunning, rsInKubernetes.Status.Phase, "The phase should have been updated even after one failure")
+	assert.Equal(t, "new-version", rsInKubernetes.Status.Version, "The version should have been updated even after one failure")
 	mockedClient.CheckNumberOfOperations(t, HItem(reflect.ValueOf(mockedClient.Update), rs), 2)
 }
 

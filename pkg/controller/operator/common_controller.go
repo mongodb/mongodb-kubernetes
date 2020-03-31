@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
-
 	"github.com/blang/semver"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
@@ -31,29 +30,32 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// Updatable is an interface for all "operator owned" entities
+// Updatable is an interface for all "operator owned" Custom Resources
 type Updatable interface {
 	runtime.Object
 	metav1.Object
 
 	// UpdateSuccessful called when the Updatable object needs to transition to
 	// successful state. This means that the CR object is ready to work
-	UpdateSuccessful(object runtime.Object, args ...string)
+	UpdateSuccessful(object runtime.Object, args ...interface{})
 
 	// UpdateError called when the Updatable object needs to transition to
 	// error state.
-	UpdateError(object runtime.Object, msg string)
+	UpdateError(object runtime.Object, msg string, args ...interface{})
 
 	// UpdatePending called when the Updatable object needs to transition to
 	// pending state.
-	UpdatePending(object runtime.Object, msg string, args ...string)
+	UpdatePending(object runtime.Object, msg string, args ...interface{})
 
 	// UpdateReconciling called when the Updatable object needs to transition to
 	// reconciling state.
-	UpdateReconciling()
+	UpdateReconciling(args ...interface{})
 
 	// SetWarnings sets the warnings for the Updatable object
 	SetWarnings([]mdbv1.StatusWarning)
+
+	// GetWarnings get the warnings from the Updatable object
+	GetWarnings() []mdbv1.StatusWarning
 
 	// GetKind returns the kind of the object. This
 	// is convenient when setting the owner for K8s objects created by controllers
@@ -252,13 +254,12 @@ func (c *ReconcileCommonController) createAgentKeySecret(objectKey client.Object
 	return c.kubeHelper.createSecret(objectKey, data, map[string]string{}, owner)
 }
 
-func (c *ReconcileCommonController) updateStatusSuccessful(reconciledResource Updatable, log *zap.SugaredLogger, args ...string) (reconcile.Result, error) {
-	old := reconciledResource.DeepCopyObject()
+func (c *ReconcileCommonController) updateStatusSuccessful(reconciledResource Updatable, log *zap.SugaredLogger, args ...interface{}) (reconcile.Result, error) {
 	err := c.updateStatus(reconciledResource, func(fresh Updatable) {
 		// we need to update the Updatable based on the Spec of the reconciled resource
 		// if there has been a change to the spec since, we don't want to change the state
 		// subresource to match an incorrect spec
-		fresh.UpdateSuccessful(old, args...)
+		fresh.UpdateSuccessful(reconciledResource, args...)
 
 	})
 	if err != nil {
@@ -269,15 +270,14 @@ func (c *ReconcileCommonController) updateStatusSuccessful(reconciledResource Up
 	return reconcile.Result{}, nil
 }
 
-func (c *ReconcileCommonController) updateStatusPending(reconciledResource Updatable, msg string, log *zap.SugaredLogger, args ...string) (reconcile.Result, error) {
+func (c *ReconcileCommonController) updateStatusPending(reconciledResource Updatable, msg string, log *zap.SugaredLogger, args ...interface{}) (reconcile.Result, error) {
 	msg = util.UpperCaseFirstChar(msg)
-	old := reconciledResource.DeepCopyObject()
 
 	// Info or warning?
 	log.Info(msg)
 
 	err := c.updateStatus(reconciledResource, func(fresh Updatable) {
-		fresh.UpdatePending(old, msg, args...)
+		fresh.UpdatePending(reconciledResource, msg, args...)
 	})
 	if err != nil {
 		return fail(err)
@@ -285,29 +285,36 @@ func (c *ReconcileCommonController) updateStatusPending(reconciledResource Updat
 	return retry()
 }
 
-func (c *ReconcileCommonController) updateReconciling(reconciledResource Updatable) error {
+func (c *ReconcileCommonController) updateReconciling(reconciledResource Updatable, args ...interface{}) error {
 	return c.updateStatus(reconciledResource, func(fresh Updatable) {
-		fresh.UpdateReconciling()
+		fresh.UpdateReconciling(args...)
 	})
 }
 
 // updateStatusValidationFailure indicates that the resource should enter failed state, but the reconciliation should not
-// be requeued
-func (c *ReconcileCommonController) updateStatusValidationFailure(resource Updatable, msg string, log *zap.SugaredLogger) (reconcile.Result, error) {
-	_, _ = c.updateStatusFailed(resource, msg, log)
+// be requeued as the spec needs to be updated to recover
+func (c *ReconcileCommonController) updateStatusValidationFailure(resource Updatable, msg string, log *zap.SugaredLogger, markFailed bool, args ...interface{}) (reconcile.Result, error) {
+	var err error
+	if markFailed {
+		_, err = c.updateStatusFailed(resource, msg, log, args...)
+	} else {
+		_, err = c.updateStatusPending(resource, msg, log, args...)
+	}
+	if err != nil {
+		log.Errorf("Failed to update resource status: %s", err)
+	}
 	return stop()
 }
 
-func (c *ReconcileCommonController) updateStatusFailed(resource Updatable, msg string, log *zap.SugaredLogger) (reconcile.Result, error) {
+func (c *ReconcileCommonController) updateStatusFailed(resource Updatable, msg string, log *zap.SugaredLogger, args ...interface{}) (reconcile.Result, error) {
 	msg = util.UpperCaseFirstChar(msg)
-	old := resource.DeepCopyObject()
 
 	log.Error(msg)
 	// Resource may be nil if the reconciliation failed very early (on fetching the resource) and panic handling function
 	// took over
 	if resource != nil {
 		err := c.updateStatus(resource, func(fresh Updatable) {
-			fresh.UpdateError(old, msg)
+			fresh.UpdateError(resource, msg, args...)
 		})
 		if err != nil {
 			log.Errorf("Failed to update resource status: %s", err)
@@ -324,20 +331,25 @@ func (c *ReconcileCommonController) updateStatusFailed(resource Updatable, msg s
 // We fetch a fresh version in case any modifications have been made.
 // Note, that this method enforces update ONLY to the status, so the reconciliation events happening because of this
 // can be filtered out by 'controller.shouldReconcile'
-func (c *ReconcileCommonController) updateStatus(reconciledResource Updatable, updateFunc func(fresh Updatable)) error {
+func (c *ReconcileCommonController) updateStatus(reconciledResource Updatable, statusUpdateFunc func(fresh Updatable)) error {
+	// Avoid mutation of the current local resource being reconciled ('reconciledResource')
+	// freshObject will be updated by `c.client.Get`
+	freshObject := reconciledResource.DeepCopyObject().(Updatable)
 	for i := 0; i < 3; i++ {
-		err := c.client.Get(context.TODO(), objectKeyFromApiObject(reconciledResource), reconciledResource)
+		err := c.client.Get(context.TODO(), objectKeyFromApiObject(freshObject), freshObject)
 		if err != nil {
 			return err
 		}
 
-		updateFunc(reconciledResource)
-		err = c.client.Update(context.TODO(), reconciledResource)
+		// updating the status only of the K8s object
+		statusUpdateFunc(freshObject)
+		err = c.client.Update(context.TODO(), freshObject)
 		if err == nil {
 			return nil
 		}
 		// we want to try again if there's a conflict, possible concurrent modification
 		if apiErrors.IsConflict(err) {
+			time.Sleep(500 * time.Millisecond)
 			continue
 		}
 		// otherwise we've got a different error
@@ -354,10 +366,13 @@ func (c *ReconcileCommonController) updateStatus(reconciledResource Updatable, u
 // "requeue after 10 seconds" - this doesn't get to watcher, so will never be filtered out.
 // - the only client making changes to status is the Operator itself and it makes sure that spec stays untouched
 func shouldReconcile(oldResource Updatable, newResource Updatable) bool {
-	return reflect.DeepEqual(oldResource.GetStatus(), newResource.GetStatus())
+	equal := reflect.DeepEqual(oldResource.GetStatus(), newResource.GetStatus())
+	return equal
 }
 
 // getResource populates the provided runtime.Object with some additional error handling
+// Note the logic: any reconcile result different from nil should be considered as "terminal" and will stop reconciliation
+// right away (the pointer will be empty). Otherwise the pointer 'resource' will always reference the existing resource
 func (c *ReconcileCommonController) getResource(request reconcile.Request, resource runtime.Object, log *zap.SugaredLogger) (*reconcile.Result, error) {
 	err := c.client.Get(context.TODO(), request.NamespacedName, resource)
 	if err != nil {

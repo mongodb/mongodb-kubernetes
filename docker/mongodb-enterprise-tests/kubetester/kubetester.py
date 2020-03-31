@@ -115,6 +115,10 @@ class KubernetesTester(object):
     @classmethod
     def read_secret(cls, namespace: str, name: str) -> Dict[str, str]:
         data = cls.clients("corev1").read_namespaced_secret(name, namespace).data
+        return decode_secret(data=data)
+
+    @classmethod
+    def decode_secret(cls, data: Dict[str, str]) -> Dict[str, str]:
         return {k: b64decode(v).decode("utf-8") for (k, v) in data.items()}
 
     @classmethod
@@ -1021,12 +1025,15 @@ class KubernetesTester(object):
             random.choice(string.ascii_lowercase) for _ in range(10)
         )
 
-    def run_command_in_pod_container(self, pod_name: str, cmd: List[str]) -> str:
-        api_client = self.client.CoreV1Api()
+    @staticmethod
+    def run_command_in_pod_container(
+        pod_name: str, namespace: str, cmd: List[str]
+    ) -> str:
+        api_client = client.CoreV1Api()
         api_response = stream(
             api_client.connect_get_namespaced_pod_exec,
             pod_name,
-            self.namespace,
+            namespace,
             command=cmd,
             stdout=True,
         )
@@ -1525,3 +1532,7 @@ def hostname(hostname, idx):
 
 def get_pods(podname_format, qty=3):
     return [podname_format.format(i) for i in range(qty)]
+
+
+def decode_secret(data: Dict[str, str]) -> Dict[str, str]:
+    return {k: b64decode(v).decode("utf-8") for (k, v) in data.items()}

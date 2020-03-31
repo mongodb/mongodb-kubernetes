@@ -17,7 +17,7 @@ type reconcileStatus interface {
 	// from reconciliation loop
 	// TODO additional arguments should be moved to the state (aka "statusVars") and not generic, will be done as part
 	// of CLOUDP-51340
-	updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger, args ...string) (reconcile.Result, error)
+	updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger, args ...interface{}) (reconcile.Result, error)
 
 	// merge performs the merge of current status with the status returned from the other operation and returns the
 	// new status
@@ -51,6 +51,8 @@ type errorStatus struct {
 
 type validationStatus struct {
 	errorStatus
+	// markFailed = false means the status will be set to Pending rather than Failed
+	markFailed bool
 }
 
 func ok(warnings ...mdbv1.StatusWarning) *successStatus {
@@ -74,10 +76,14 @@ func failedErr(err error) *errorStatus {
 }
 
 func failedValidation(msg string, params ...interface{}) *validationStatus {
-	return &validationStatus{errorStatus: *failedErr(fmt.Errorf(msg, params...))}
+	return &validationStatus{errorStatus: *failedErr(fmt.Errorf(msg, params...)), markFailed: true}
 }
 
-func (e *pendingStatus) updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger, args ...string) (reconcile.Result, error) {
+func pendingValidation(msg string, params ...interface{}) *validationStatus {
+	return &validationStatus{errorStatus: *failedErr(fmt.Errorf(msg, params...)), markFailed: false}
+}
+
+func (e *pendingStatus) updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger, args ...interface{}) (reconcile.Result, error) {
 	return c.updateStatusPending(resource, e.msg, log, args...)
 }
 
@@ -105,12 +111,12 @@ func (e *pendingStatus) isOk() bool {
 	return false
 }
 
-func (e *errorStatus) updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger, args ...string) (reconcile.Result, error) {
-	result, error := c.updateStatusFailed(resource, e.err.Error(), log)
+func (e *errorStatus) updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger, args ...interface{}) (reconcile.Result, error) {
+	result, err := c.updateStatusFailed(resource, e.err.Error(), log, args...)
 	if e.retryAfterSeconds != nil {
 		return reconcile.Result{RequeueAfter: time.Second * (*e.retryAfterSeconds)}, nil
 	}
-	return result, error
+	return result, err
 }
 
 func (e *errorStatus) merge(other reconcileStatus) reconcileStatus {
@@ -118,11 +124,28 @@ func (e *errorStatus) merge(other reconcileStatus) reconcileStatus {
 	switch v := other.(type) {
 	case *pendingStatus:
 		return e
-	case *errorStatus, *validationStatus:
+	case *errorStatus:
+		return failed(e.err.Error() + ", " + v.err.Error())
+	case *validationStatus:
+		// any validation results in stop in further reconciliations - they should "win"
 		return v
 	}
 	return e
 }
+
+func (e *validationStatus) merge(other reconcileStatus) reconcileStatus {
+	switch v := other.(type) {
+	case *validationStatus:
+		// validation errors are concatenated
+		if !e.markFailed || !v.markFailed {
+			return pendingValidation(e.err.Error() + ", " + v.err.Error())
+		}
+		return failedValidation(e.err.Error() + ", " + v.err.Error())
+	}
+	// any validation message overrides the others
+	return e
+}
+
 func (e *errorStatus) isOk() bool {
 	return false
 }
@@ -133,8 +156,9 @@ func (e *errorStatus) onErrorPrepend(msg string) reconcileStatus {
 	return e
 }
 
-func (e *successStatus) updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger, args ...string) (reconcile.Result, error) {
-	resource.SetWarnings(e.warnings)
+func (e *successStatus) updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger, args ...interface{}) (reconcile.Result, error) {
+	// ensure the warnings are appended to the ones in the current CR - not overwriting!
+	resource.SetWarnings(append(resource.GetWarnings(), e.warnings...))
 	return c.updateStatusSuccessful(resource, log, args...)
 }
 
@@ -150,8 +174,8 @@ func (e *successStatus) onErrorPrepend(msg string) reconcileStatus {
 	return e
 }
 
-func (e *validationStatus) updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger, args ...string) (reconcile.Result, error) {
-	return c.updateStatusValidationFailure(resource, e.err.Error(), log)
+func (e *validationStatus) updateStatus(resource Updatable, c *ReconcileCommonController, log *zap.SugaredLogger, args ...interface{}) (reconcile.Result, error) {
+	return c.updateStatusValidationFailure(resource, e.err.Error(), log, e.markFailed, args...)
 }
 
 func (e *validationStatus) onErrorPrepend(msg string) reconcileStatus {
