@@ -1632,7 +1632,6 @@ task_groups:
   setup_task:
     - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
-    - func: setup_cloud_qa
   tasks:
     - e2e_om_appdb_scale_up_down
     - e2e_om_appdb_upgrade

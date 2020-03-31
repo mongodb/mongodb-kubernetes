@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-source funcs/printing
+source scripts/funcs/printing
 
 # Configuration of the resources for Ops Manager
 echo "Creating admin secret for the new Ops Manager instance"
@@ -8,7 +8,7 @@ kubectl create secret generic ops-manager-admin-secret  \
     --from-literal=Username="jane.doe@example.com" \
     --from-literal=Password="Passw0rd." \
     --from-literal=FirstName="Jane" \
-    --from-literal=LastName="Doe" -n ${PROJECT_NAMESPACE}
+    --from-literal=LastName="Doe" -n "${PROJECT_NAMESPACE}"
 
 echo "Admin secret created"
 

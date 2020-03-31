@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-source scrints/funcs/checks
-source scrints/funcs/printing
+source scripts/funcs/checks
+source scripts/funcs/printing
 
 [[ "${MODE-}" = "dev" ]] && return
 
