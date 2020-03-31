@@ -5,17 +5,17 @@
 source scripts/funcs/printing
 
 dump_objects() {
-    objects=$1
-    msg=$2
-    to_describe=${3-}
-    if ! kubectl get "$objects" -n "${PROJECT_NAMESPACE}" 2>&1 | grep -q "No resources found"; then
-        header "$msg"
-        if [[ -n $to_describe ]]; then
-            kubectl describe "$objects" -n "${PROJECT_NAMESPACE}"
-        else
-            kubectl get "$objects" -o yaml -n "${PROJECT_NAMESPACE}"
-        fi
+    local objects=$1
+    local msg=$2
+    local action=${3:-get -o yaml}
+
+    if ! kubectl get "${objects}" -n "${PROJECT_NAMESPACE}" &> /dev/null; then
+        return
     fi
+
+    header "${msg}"
+    # shellcheck disable=SC2086
+    kubectl -n "${PROJECT_NAMESPACE}" ${action} "${objects}"
 }
 
 dump_all () {
@@ -37,15 +37,11 @@ dump_all () {
         header "All namespace objects"
         kubectl get all -n "${PROJECT_NAMESPACE}"
         dump_objects "pvc" "Persistent Volume Claims"
-        dump_objects "sts" "StatefulSets" true
+        dump_objects "sts" "StatefulSets" describe
         dump_objects "validatingwebhookconfigurations" "Validating Webhook Configurations"
     } >> "$dump_file"
 
-    {
-        header "Cert Manager Resources"
-        kubectl -n cert-manager get all
-        kubectl -n "${PROJECT_NAMESPACE}" get certificate -o yaml
-    } >> "$dump_file"
+    dump_objects certificates.cert-manager.io "Cert-manager certificates" >> "${dump_file}"
 
     {
         header "All test/namespace CSR";
