@@ -276,7 +276,7 @@ functions:
         BINDIR: ${workdir}/bin
         KUBECONFIG: ${workdir}/${kube_environment_name}_config
       binary: scripts/evergreen/setup_cert_manager
-      
+
 
   "gotest_parse_files":
     - command: gotest.parse_files
@@ -499,6 +499,22 @@ functions:
           KUBECONFIG: ${workdir}/${kube_environment_name}_config
 
         command: "scripts/evergreen/prepare_test_env ${ops_manager_namespace} ${ops_manager_version} ${node_port}"
+  #
+  # Performs some AWS cleanup
+  #
+  prepare_aws:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        add_to_path:
+          - ${workdir}/bin
+        env:
+          AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
+          AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
+          AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
+
+        command: "scripts/evergreen/prepare_aws"
 
 tasks:
 - name: unit_tests
@@ -847,6 +863,14 @@ tasks:
         <<: *kubernetes_environment_vanilla
         cluster_name: e2e.om.mongokubernetes.com
     - func: prepare_test_env
+
+- name: prepare_aws
+  exec_timeout_secs: 600
+  priority: 59
+  commands:
+    - func: clone
+    - func: setup_aws
+    - func: prepare_aws
 
 - name: e2e_op_upgrade_one_deployment
   tags: ["patch-run"]
@@ -1823,6 +1847,7 @@ buildvariants:
   - name: build_om_images_rhel
   - name: prepare_cluster_vanilla
   - name: prepare_cluster_vanilla_om
+  - name: prepare_aws
 
 # Runs on master patches. This will populate the mongodb/mongodb-enterprise-*-prerelease
 # registries with the images that were pushed to master

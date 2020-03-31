@@ -45,42 +45,6 @@ fix_env() {
     for v in $(kubectl get pv -o=custom-columns=NAME:.metadata.name,status:.status.phase | grep Failed | awk '{ print $1 }'); do
         kubectl delete pv ${v}
     done
-
-    echo "##### Detaching the EBS Volumes that are stuck"
-    for v in $(aws ec2 describe-volumes --filters Name=attachment.status,Values=attaching | grep VolumeId | cut -d "\"" -f 4); do
-        set -v
-        aws ec2 detach-volume --volume-id ${v} --force || true
-        set +v
-    done
-
-    echo "##### Removing ESB volumes which are not used any more"
-    # Seems Openshift (sometimes?) doesn't remove the volumes but marks them as available - we need to clean these volumes
-    # manually
-    for v in $(aws ec2 describe-volumes --filters Name=status,Values=available | grep VolumeId | cut -d "\"" -f 4); do
-        set -v
-        aws ec2 delete-volume --volume-id ${v} || true
-        set +v
-    done
-
-    echo "##### Removing old s3 buckets"
-    # note, to run this on mac you need to install coreutils ('brew install coreutils') and use 'gdate' instead
-    yesterday=$(date +%Y-%m-%d -d "yesterday")
-    for bucket in $(aws s3api list-buckets --query 'Buckets[?CreationDate<=`'$yesterday'`&&contains(Name,`test-bucket-`)]' | jq --raw-output '.[].Name'); do
-        aws s3 rb s3://$bucket --force
-    done
-
-}
-
-# The functions checks the size for the ECR repository and recreates it if necessary
-# This may affect some parallel running tests, so should be called quite rarely - when the size exceeds 500
-# (note, that 'aws ecr list-images' for some reasons returns the ~700+ images when in fact there are 1000 of them -
-# so we choose 500 as a some representative number)
-check_and_clean_repo() {
-    if [[ $(aws ecr list-images --repository-name "$1" | grep -c imageDigest) -gt 500 ]]; then
-        echo "Recreating the \"$1\" repo"
-        aws ecr delete-repository --repository-name "$1" --force
-        aws ecr create-repository --repository-name "$1"
-    fi
 }
 
 deploy_cluster_cleaner() {
