@@ -87,6 +87,7 @@ const (
 	PEMKeyFilePathInContainer = "/mongodb-automation/server.pem"
 
 	MmsPemKeyFileDirInContainer = "/opt/mongodb/mms/secrets"
+	MmsCaFileDirInContainer     = "/opt/mongodb/mms/ca/"
 
 	AutomationAgentName         = "mms-automation-agent"
 	AutomationAgentPemSecretKey = AutomationAgentName + "-pem"
@@ -194,10 +195,23 @@ const (
 	// Ops Manager configuration properties
 	MmsCentralUrlPropKey    = "mms.centralUrl"
 	MmsMongoUri             = "mongo.mongoUri"
+	MmsMongoSSL             = "mongo.ssl"
+	MmsMongoCA              = "mongodb.ssl.CAFile"
 	MmsFeatureControls      = "mms.featureControls.enable"
 	MmsHeaderContainVersion = "mms.serviceVersionApiHeader.enabled"
 	MmsVersionsDirectory    = "automation.versions.directory"
 	MmsPEMKeyFile           = "mms.https.PEMKeyFile"
+
+	// SecretVolumeMountPath defines where in the Pod will be the secrets
+	// object mounted.
+	SecretVolumeMountPath = "/var/lib/mongodb-automation/secrets"
+
+	// SecretVolumeName is the name of the volume resource.
+	SecretVolumeName = "secret-certs"
+
+	// ConfigMapVolumeCAMountPath defines where in the Pod will be the secrets
+	// object mounted.
+	ConfigMapVolumeCAMountPath = "/var/lib/mongodb-automation/secrets/ca"
 
 	// Ops Manager authentication constants
 	OpsManagerMongoDBUserName = "mongodb-ops-manager"

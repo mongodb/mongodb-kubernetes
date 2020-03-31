@@ -138,6 +138,9 @@ type OpsManagerStatefulSetHelper struct {
 	// Name of the secret containing the secret to mount.
 	HTTPSCertSecretName string
 
+	// Name of the ConfigMap with a CA that verifies the AppDB TLS certs
+	AppDBTlsCAConfigMapName string
+
 	EnvVars []corev1.EnvVar
 }
 
@@ -399,6 +402,11 @@ func (s *OpsManagerStatefulSetHelper) SetHTTPSCertSecretName(secretName string) 
 	return s
 }
 
+func (s *OpsManagerStatefulSetHelper) SetAppDBTLSCAConfigMapName(cmName string) *OpsManagerStatefulSetHelper {
+	s.AppDBTlsCAConfigMapName = cmName
+	return s
+}
+
 func (s *BackupStatefulSetHelper) SetHeadDbStorageRequirements(persistenceConfig *mdbv1.PersistenceConfig) *BackupStatefulSetHelper {
 	s.HeadDbPersistenceConfig = persistenceConfig
 	return s
@@ -535,7 +543,7 @@ func (s *StatefulSetHelper) needToPublishStateFirst(log *zap.SugaredLogger) bool
 
 	volumeMounts := currentSet.Spec.Template.Spec.Containers[0].VolumeMounts
 	if s.Security != nil {
-		if !s.Security.TLSConfig.Enabled && volumeMountWithNameExists(volumeMounts, SecretVolumeName) {
+		if !s.Security.TLSConfig.Enabled && volumeMountWithNameExists(volumeMounts, util.SecretVolumeName) {
 			log.Debug("About to set `security.tls.enabled` to false. automationConfig needs to be updated first")
 			return true
 		}

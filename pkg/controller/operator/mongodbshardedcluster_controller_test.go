@@ -410,15 +410,15 @@ func TestShardedCustomPodSpecTemplate(t *testing.T) {
 }
 
 func assertPodSpecSts(t *testing.T, sts *appsv1.StatefulSet) {
-	assertPodSpecTemplate(t, "some-node-name", "some-host-name", SecretVolumeName, corev1.RestartPolicyAlways, sts)
+	assertPodSpecTemplate(t, "some-node-name", "some-host-name", util.SecretVolumeName, corev1.RestartPolicyAlways, sts)
 }
 
 func assertMongosSts(t *testing.T, sts *appsv1.StatefulSet) {
-	assertPodSpecTemplate(t, "some-node-name-mongos", "some-host-name-mongos", SecretVolumeName, corev1.RestartPolicyNever, sts)
+	assertPodSpecTemplate(t, "some-node-name-mongos", "some-host-name-mongos", util.SecretVolumeName, corev1.RestartPolicyNever, sts)
 }
 
 func assertConfigSvrSts(t *testing.T, sts *appsv1.StatefulSet) {
-	assertPodSpecTemplate(t, "some-node-name-config", "some-host-name-config", SecretVolumeName, corev1.RestartPolicyOnFailure, sts)
+	assertPodSpecTemplate(t, "some-node-name-config", "some-host-name-config", util.SecretVolumeName, corev1.RestartPolicyOnFailure, sts)
 }
 
 func assertPodSpecTemplate(t *testing.T, nodeName, hostName, volumeName string, restartPolicy corev1.RestartPolicy, sts *appsv1.StatefulSet) {

@@ -1,6 +1,7 @@
 package om
 
 import (
+	"fmt"
 	"path"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
@@ -20,6 +21,14 @@ func NewMongodProcessAppDB(name, hostName string, resource mdbv1.AppDB) Process 
 	p := Process{}
 
 	initDefault(name, hostName, resource.GetVersion(), resource.FeatureCompatibilityVersion, ProcessTypeMongod, p)
+
+	if resource.Security != nil && resource.Security.TLSConfig != nil && resource.Security.TLSConfig.SecretRef.Name != "" {
+		certFile := fmt.Sprintf("%s/%s-pem", util.SecretVolumeMountPath, name)
+
+		// Process for AppDB use the mounted cert in-place and are not required for the certs to be
+		// linked into a given location.
+		p.ConfigureTLS(mdbv1.RequireSSLMode, certFile)
+	}
 
 	// default values for configurable values
 	p.SetDbPath("/data")

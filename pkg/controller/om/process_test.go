@@ -57,30 +57,30 @@ func TestCreateMongodProcess_featureCompatibilityVersion(t *testing.T) {
 func TestConfigureSSL_Process(t *testing.T) {
 	process := Process{}
 
-	process.ConfigureTLS(mdbv1.RequireSSLMode)
-	assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.RequireSSLMode), "PEMKeyFile": "/mongodb-automation/server.pem"}, process.SSLConfig())
+	process.ConfigureTLS(mdbv1.RequireSSLMode, "pem-file0")
+	assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.RequireSSLMode), "PEMKeyFile": "pem-file0"}, process.SSLConfig())
 
 	process = Process{}
-	process.ConfigureTLS("")
-	assert.Equal(t, map[string]interface{}{"mode": "", "PEMKeyFile": "/mongodb-automation/server.pem"}, process.SSLConfig())
+	process.ConfigureTLS("", "pem-file1")
+	assert.Equal(t, map[string]interface{}{"mode": "", "PEMKeyFile": "pem-file1"}, process.SSLConfig())
 
 	process = Process{}
-	process.ConfigureTLS(mdbv1.DisabledSSLMode)
+	process.ConfigureTLS(mdbv1.DisabledSSLMode, "pem-file2")
 	assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.DisabledSSLMode)}, process.SSLConfig())
 }
 
 func TestTlsConfig(t *testing.T) {
 	process := Process{}
-	process.ConfigureTLS(mdbv1.RequireSSLMode)
+	process.ConfigureTLS(mdbv1.RequireSSLMode, "another-pem-file")
 	process.Args()["tls"] = map[string]interface{}{
 		"mode":       "requireSSL",
-		"PEMKeyFile": "/mongodb-automation/server.pem",
+		"PEMKeyFile": "another-pem-file",
 	}
 
 	tlsConfig := process.SSLConfig()
 	assert.NotNil(t, tlsConfig)
 	assert.Equal(t, tlsConfig["mode"], "requireSSL")
-	assert.Equal(t, tlsConfig["PEMKeyFile"], "/mongodb-automation/server.pem")
+	assert.Equal(t, tlsConfig["PEMKeyFile"], "another-pem-file")
 }
 
 func TestConfigureX509_Process(t *testing.T) {

@@ -31,18 +31,6 @@ const (
 	// the same topology key
 	PodAntiAffinityLabelKey = "pod-anti-affinity"
 
-	// SecretVolumeMountPath defines where in the Pod will be the secrets
-	// object mounted.
-	SecretVolumeMountPath = "/var/lib/mongodb-automation/secrets/certs"
-
-	// SecretVolumeName is the name of the volume resource.
-	SecretVolumeName = "secret-certs"
-
-	// TODO: Rename to non secret or change the volume type
-	// SecretVolumeCAMountPath defines where in the Pod will be the secrets
-	// object mounted.
-	SecretVolumeCAMountPath = "/var/lib/mongodb-automation/secrets/ca"
-
 	// SecretVolumeCAName is the name of the volume resource.
 	SecretVolumeCAName = "secret-ca"
 
@@ -321,6 +309,15 @@ func createBaseOpsManagerStatefulSetBuilder(p OpsManagerStatefulSetHelper, conta
 		stsBuilder.AddVolumeAndMount(mountCert, p.ContainerName)
 	}
 
+	if p.AppDBTlsCAConfigMapName != "" {
+		mountCaCert := statefulset.VolumeMountData{
+			Name:      "appdb-ca-certificate",
+			Volume:    statefulset.CreateVolumeFromConfigMap("appdb-ca-certificate", p.AppDBTlsCAConfigMapName),
+			MountPath: util.MmsCaFileDirInContainer,
+		}
+		stsBuilder.AddVolumeAndMount(mountCaCert, p.ContainerName)
+	}
+
 	stsBuilder.AddVolume(
 		corev1.Volume{
 			Name: "ops-manager-scripts",
@@ -521,32 +518,44 @@ func buildJvmEnvVar(customParams []string, containerMemParams string) string {
 // Make sure you keep this updated with `kubehelper.needToPublishStateFirst` as it declares
 // in which order to make changes to StatefulSet and Ops Manager automationConfig
 func mountVolumes(stsBuilder *statefulset.Builder, helper StatefulSetHelper) *statefulset.Builder {
-	// SSL is active
-	if helper.Security != nil && helper.Security.TLSConfig.Enabled {
-		tlsConfig := helper.Security.TLSConfig
-		secretName := fmt.Sprintf("%s-cert", helper.Name)
+	if helper.Security != nil {
+		// TLS configuration is active for this resource.
+		if helper.Security.TLSConfig.Enabled || helper.Security.TLSConfig.SecretRef.Name != "" {
+			tlsConfig := helper.Security.TLSConfig
 
-		stsBuilder.AddVolumeAndMount(
-			statefulset.VolumeMountData{
-				MountPath: SecretVolumeMountPath,
-				Name:      SecretVolumeName,
-				ReadOnly:  true,
-				Volume:    statefulset.CreateVolumeFromSecret(SecretVolumeName, secretName),
-			},
-			helper.ContainerName,
-		)
+			var secretName string
+			var mountPath string
+			if helper.Security.TLSConfig.SecretRef.Name != "" {
+				// From this location, the certificates will be used inplace
+				secretName = helper.Security.TLSConfig.SecretRef.Name
+				mountPath = util.SecretVolumeMountPath
+			} else {
+				// In this location the certificates will be linked -s into server.pem
+				secretName = fmt.Sprintf("%s-cert", helper.Name)
+				mountPath = util.SecretVolumeMountPath + "/certs"
+			}
 
-		if tlsConfig.CA != "" {
 			stsBuilder.AddVolumeAndMount(
 				statefulset.VolumeMountData{
-					// TODO: Rename to non secret or change the volume type
-					MountPath: SecretVolumeCAMountPath,
-					Name:      SecretVolumeCAName,
+					MountPath: mountPath,
+					Name:      util.SecretVolumeName,
 					ReadOnly:  true,
-					Volume:    statefulset.CreateVolumeFromConfigMap(SecretVolumeCAName, tlsConfig.CA),
+					Volume:    statefulset.CreateVolumeFromSecret(util.SecretVolumeName, secretName),
 				},
 				helper.ContainerName,
 			)
+
+			if tlsConfig.CA != "" {
+				stsBuilder.AddVolumeAndMount(
+					statefulset.VolumeMountData{
+						MountPath: util.ConfigMapVolumeCAMountPath,
+						Name:      SecretVolumeCAName,
+						ReadOnly:  true,
+						Volume:    statefulset.CreateVolumeFromConfigMap(SecretVolumeCAName, tlsConfig.CA),
+					},
+					helper.ContainerName,
+				)
+			}
 		}
 	}
 

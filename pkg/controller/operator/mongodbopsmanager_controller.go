@@ -132,6 +132,10 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulset(opsManager mdbv1.Mong
 	if opsManager.Spec.Security.TLS.SecretRef.Name != "" {
 		helper.SetHTTPSCertSecretName(opsManager.Spec.Security.TLS.SecretRef.Name)
 	}
+	if opsManager.Spec.AppDB.Security.TLSConfig.CA != "" {
+		// CA needs to be mounted into OM Pod for the AppDB to be verified.
+		helper.SetAppDBTLSCAConfigMapName(opsManager.Spec.AppDB.Security.TLSConfig.CA)
+	}
 	if err := helper.CreateOrUpdateInKubernetes(); err != nil {
 		return failedErr(err)
 	}
@@ -172,6 +176,11 @@ func (r OpsManagerReconciler) ensureConfiguration(opsManager *mdbv1.MongoDBOpsMa
 	setConfigProperty(opsManager, util.MmsCentralUrlPropKey, opsManager.CentralURL(), log)
 
 	setConfigProperty(opsManager, util.MmsMongoUri, buildMongoConnectionUrl(*opsManager, password), log)
+
+	if opsManager.Spec.AppDB.Security.TLSConfig.SecretRef.Name != "" {
+		setConfigProperty(opsManager, util.MmsMongoSSL, "true", log)
+		setConfigProperty(opsManager, util.MmsMongoCA, util.MmsCaFileDirInContainer+"ca-pem", log)
+	}
 
 	// override the versions directory (defaults to "/opt/mongodb/mms/mongodb-releases/")
 	setConfigProperty(opsManager, util.MmsVersionsDirectory, "/mongodb-ops-manager/mongodb-releases/", log)

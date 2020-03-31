@@ -419,6 +419,19 @@ spec:
             clusterDomain:
               type: string
               format: hostname
+
+            security:
+              type: object
+              properties:
+                tls:
+                  type: object
+                  properties:
+                    secretRef:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+
             externalConnectivity:
               type: object
               properties:
@@ -548,6 +561,19 @@ spec:
                       type: string
                   required:
                     - name
+                security:
+                  type: object
+                  properties:
+                    tls:
+                      type: object
+                      properties:
+                        ca:
+                          type: string
+                        secretRef:
+                          type: object
+                          properties:
+                            name:
+                              type: string
                 members:
                   maximum: 50
                   minimum: 3

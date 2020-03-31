@@ -12,11 +12,6 @@ spec:
     mms.testUtil.enabled: "true"
     automation.versions.source: local
 
-  security:
-    tls:
-      secretRef:
-        name: certs-for-ops-manager
-
   applicationDatabase:
     members: 3
     version: 4.2.0

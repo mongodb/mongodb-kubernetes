@@ -103,15 +103,20 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         self, mongodb_name: str, project_name: str
     ) -> str:
         config_map_name = f"{mongodb_name}-config"
+        data = {"baseUrl": self.get_om_status_url(), "projectName": project_name}
+
         try:
             KubernetesTester.create_configmap(
-                self.namespace,
-                config_map_name,
-                {"baseUrl": self.get_om_status_url(), "projectName": project_name},
+                self.namespace, config_map_name, data,
             )
         except ApiException as e:
             if e.status != 409:
                 raise
+
+            # If the ConfigMap already exist, it will be updated with
+            # an updated status_url()
+            KubernetesTester.update_configmap(self.namespace, config_map_name, data)
+
         return config_map_name
 
     def get_om_tester(self, project_name: Optional[str] = None) -> OMTester:

@@ -319,14 +319,29 @@ func (a *Authentication) GetAgentMechanism() string {
 }
 
 type TLSConfig struct {
+	// Enables TLS for this resource. This will make the operator try to mount a
+	// Secret with a defined name (<resource-name>-cert).
+	// This is only used when enabling TLS on a MongoDB resource, and not on the
+	// AppDB, where TLS is configured by setting `secretRef.Name`.
 	Enabled bool `json:"enabled,omitempty"`
 
 	AdditionalCertificateDomains []string `json:"additionalCertificateDomains,omitempty"`
 
-	// CA corresponds to a Secret containing an entry for the CA certificate (ca.pem)
-	// used to sign the certificates created already.
-	// benelgar: should this read "used to validate"?
+	// CA corresponds to a ConfigMap containing an entry for the CA certificate (ca.pem)
+	// used to validate the certificates created already.
 	CA string `json:"ca,omitempty"`
+
+	// AppDB-only attributes
+	//
+	// SecretRef points to a Secret object containing the certificates to use when enabling
+	// TLS on the AppDB.
+	SecretRef TLSSecretRef `json:"secretRef"`
+}
+
+// TLSSecretRef contains a reference to a Secret object that contains certificates to
+// be mounted. Defining this value will implicitely "enable" TLS on this resource.
+type TLSSecretRef struct {
+	Name string `json:"name,omitempty"`
 }
 
 func (spec MongoDbSpec) GetTLSConfig() *TLSConfig {

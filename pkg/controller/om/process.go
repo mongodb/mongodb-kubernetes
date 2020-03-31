@@ -100,7 +100,7 @@ func NewMongosProcess(name, hostName string, resource *mdbv1.MongoDB) Process {
 
 	// default values for configurable values
 	p.SetLogPath(path.Join(util.PvcMountPathLogs, "/mongodb.log"))
-	p.ConfigureTLS(resource.Spec.GetTLSMode())
+	p.ConfigureTLS(resource.Spec.GetTLSMode(), util.PEMKeyFilePathInContainer)
 	return p
 }
 
@@ -115,7 +115,7 @@ func NewMongodProcess(name, hostName string, resource *mdbv1.MongoDB) Process {
 	// CLOUDP-33467: we put mongod logs to the same directory as AA/Monitoring/Backup ones to provide single mount point
 	// for all types of logs
 	p.SetLogPath(path.Join(util.PvcMountPathLogs, "mongodb.log"))
-	p.ConfigureTLS(resource.Spec.GetTLSMode())
+	p.ConfigureTLS(resource.Spec.GetTLSMode(), util.PEMKeyFilePathInContainer)
 	return p
 }
 
@@ -296,12 +296,12 @@ func initDefault(name, hostName, processVersion string, featureCompatibilityVers
 
 // ConfigureTLS enable TLS for this process. TLS will be always enabled after calling this. This function expects
 // the value of "mode" to be an allowed ssl.mode from OM API perspective.
-func (p Process) ConfigureTLS(mode mdbv1.SSLMode) {
+func (p Process) ConfigureTLS(mode mdbv1.SSLMode, pemKeyFileLocation string) {
 	// Initializing SSL configuration if it's necessary
 	sslConfig := p.EnsureSSLConfig()
 
 	sslConfig["mode"] = string(mode)
-	sslConfig["PEMKeyFile"] = util.PEMKeyFilePathInContainer
+	sslConfig["PEMKeyFile"] = pemKeyFileLocation
 
 	if mode == mdbv1.DisabledSSLMode {
 		delete(sslConfig, "PEMKeyFile")
