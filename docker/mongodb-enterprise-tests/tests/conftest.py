@@ -1,6 +1,8 @@
 import os
 
 import kubernetes
+from kubernetes.client import ApiextensionsV1beta1Api
+
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import KubernetesTester, fixture as _fixture
 from kubetester.certs import Issuer
@@ -25,6 +27,11 @@ def namespace() -> str:
 @fixture(scope="module")
 def aws_s3_client() -> AwsS3Client:
     return AwsS3Client("us-east-1")
+
+
+@fixture(scope="session")
+def crd_api():
+    return ApiextensionsV1beta1Api()
 
 
 @fixture("module")

@@ -923,6 +923,11 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_crd_validation
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_standalone_config_map
   tags: ["patch-run"]
   exec_timeout_secs: 1200
@@ -1411,6 +1416,7 @@ task_groups:
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
   tasks:
+    - e2e_crd_validation
     - e2e_sharded_cluster_long_name
     - e2e_replica_set_long_name
     - e2e_replica_set_config_map

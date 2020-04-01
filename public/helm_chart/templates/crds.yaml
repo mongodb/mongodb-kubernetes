@@ -449,6 +449,8 @@ spec:
                   type: object
               required:
                 - type
+            configuration:
+              type: object
             backup:
               type: object
               properties:
@@ -586,6 +588,8 @@ spec:
                   enum: ["DEBUG", "INFO", "WARN", "ERROR", "FATAL"]
                 persistent:
                   type: boolean
+                podSpec:
+                  type: object
               required:
                 - members
           required:
