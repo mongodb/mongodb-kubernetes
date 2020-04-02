@@ -234,6 +234,8 @@ func (r OpsManagerReconciler) ensureConfiguration(opsManager *mdbv1.MongoDBOpsMa
 
 	if opsManager.Spec.AppDB.Security.TLSConfig.SecretRef.Name != "" {
 		setConfigProperty(opsManager, util.MmsMongoSSL, "true", log)
+	}
+	if opsManager.Spec.AppDB.Security.TLSConfig.CA != "" {
 		setConfigProperty(opsManager, util.MmsMongoCA, util.MmsCaFileDirInContainer+"ca-pem", log)
 	}
 

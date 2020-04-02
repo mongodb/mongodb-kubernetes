@@ -273,15 +273,12 @@ func (m *MongoDBOpsManager) InitDefaultFields() {
 		m.Spec.Backup = newBackup()
 	}
 
-	security := newSecurity()
-	if m.Spec.AppDB.Security != nil {
-		security.TLSConfig = m.Spec.AppDB.Security.TLSConfig
+	security := newSecurityWithSCRAM()
+	if m.Spec.AppDB.Security == nil {
+		m.Spec.AppDB.Security = security
+	} else {
+		m.Spec.AppDB.Security.Authentication = security.Authentication
 	}
-	m.Spec.AppDB.Security = security
-
-	// we always "enable" scram sha authentication
-	// TODO change this when we may move `passwordRef` to `security.authentication`
-	m.Spec.AppDB.Security.Authentication.Modes = append(m.Spec.AppDB.Security.Authentication.Modes, util.SCRAM)
 
 	// setting ops manager name, namespace and ClusterDomain for the appdb (transient fields)
 	m.Spec.AppDB.opsManagerName = m.Name
@@ -296,17 +293,15 @@ func (m *MongoDBOpsManager) MarshalJSON() ([]byte, error) {
 	mdb.Spec.AppDB.opsManagerName = ""
 	mdb.Spec.AppDB.namespace = ""
 	mdb.Spec.AppDB.ClusterDomain = ""
+	mdb.Spec.AppDB.ResourceType = ""
 
 	if reflect.DeepEqual(m.Spec.Backup, newBackup()) {
 		mdb.Spec.Backup = nil
 	}
-	// Authentication is "removed" from the resulting CR because
-	// it is internal and can't be modified by the user.
-	mdb.Spec.AppDB.Security.Authentication = nil
 
-	// TODO change this when we may move `passwordRef` to `security.authentication`
-	// why 'MarshalJSON' in AppDB didn't work??
-	mdb.Spec.AppDB.ResourceType = ""
+	if reflect.DeepEqual(m.Spec.AppDB.Security, newSecurityWithSCRAM()) {
+		mdb.Spec.AppDB.Security = nil
+	}
 
 	if reflect.DeepEqual(mdb.Spec.AppDB.PodSpec, newMongoDbPodSpec()) {
 		mdb.Spec.AppDB.PodSpec = nil

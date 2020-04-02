@@ -310,11 +310,18 @@ func (a *Authentication) IsX509Enabled() bool {
 // The agents will use X509 if it is the only mechanism specified, otherwise they will use SCRAM if specified
 // and no auth if no mechanisms exist.
 func (a *Authentication) GetAgentMechanism() string {
+	if len(a.Modes) == 0 {
+		return ""
+	}
+
 	if len(a.Modes) == 1 && a.Modes[0] == util.X509 {
 		return util.X509
-	} else if util.ContainsString(a.Modes, util.SCRAM) {
+	}
+
+	if util.ContainsString(a.Modes, util.SCRAM) {
 		return util.SCRAM
 	}
+
 	return ""
 }
 
@@ -801,6 +808,12 @@ func newAuthentication() *Authentication {
 
 func newSecurity() *Security {
 	return &Security{TLSConfig: &TLSConfig{}, Authentication: newAuthentication()}
+}
+
+func newSecurityWithSCRAM() *Security {
+	auth := newAuthentication()
+	auth.Modes = append(auth.Modes, util.SCRAM)
+	return &Security{TLSConfig: &TLSConfig{}, Authentication: auth}
 }
 
 func buildConnectionUrl(statefulsetName, serviceName, namespace, userName, password string, spec MongoDbSpec, connectionParams map[string]string) string {

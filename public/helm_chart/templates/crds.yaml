@@ -431,6 +431,8 @@ spec:
                       properties:
                         name:
                           type: string
+                      required:
+                        - name
 
             externalConnectivity:
               type: object
@@ -576,6 +578,10 @@ spec:
                           properties:
                             name:
                               type: string
+                          required:
+                            - name
+                      required:
+                        - secretRef
                 members:
                   maximum: 50
                   minimum: 3
