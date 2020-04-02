@@ -13,25 +13,25 @@ docker_build() {
     prepare_appdb_build
 
     docker build \
-        -t ${repo_name} \
-        --build-arg MDB_URL=${mdb_url} \
-        --build-arg BINARY_NAME=${binary_name} \
-        --build-arg AA_DOWNLOAD_LOCATION=${agent_download_location} \
-        --build-arg AA_VERSION=${agent_version} .
+        -t "${repo_name}" \
+        --build-arg MDB_URL="${mdb_url}" \
+        --build-arg BINARY_NAME="${binary_name}" \
+        --build-arg AA_DOWNLOAD_LOCATION="${agent_download_location}" \
+        --build-arg AA_VERSION="${agent_version}" .
 }
 
 docker_push() {
-    repo_name="$(echo ${full_url} | cut -d "/" -f2-)" # cutting the domain part
+    repo_name="$(echo "${full_url}" | cut -d "/" -f2-)" # cutting the domain part
     docker_build
 
-    docker tag ${repo_name} ${full_url}
-    docker push ${full_url}
+    docker tag "${repo_name}" "${full_url}"
+    docker push "${full_url}"
 }
 submit_kaniko() {
     # note that we disable caching for appdb images as both 0.16.0 and 0.17.1 Kaniko result in the following errors:
     # error building image: error building stage: failed to execute command: extracting fs from image: removing whiteout .wh.dev: unlinkat //dev/pts/ptmx: operation not permitted
     destination=${full_url} \
-        context=s3://operator-kubernetes-build/ops-manager-operator/${version_id}/${IMAGE_TYPE}/contexts/appdb-context.tar.gz \
+        context=s3://operator-kubernetes-build/ops-manager-operator/${version_id:?}/${IMAGE_TYPE}/contexts/appdb-context.tar.gz \
         cache_repo=268558157000.dkr.ecr.us-east-1.amazonaws.com/cache/mongodb-enterprise-appdb \
         label=appdb-${IMAGE_TYPE}-${version_id} \
         build_args="MDB_URL=${mdb_url},BINARY_NAME=${binary_name},AA_DOWNLOAD_LOCATION=${agent_download_location},AA_VERSION=${agent_version}" \

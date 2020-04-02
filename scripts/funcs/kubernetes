@@ -6,7 +6,7 @@ cd "$DIR" || return
 source checks
 source errors
 source printing
-popd || return
+popd > /dev/null || return
 
 ensure_namespace() {
     namespace="${1}"
