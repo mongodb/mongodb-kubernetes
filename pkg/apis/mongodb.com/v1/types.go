@@ -522,6 +522,10 @@ func (m *MongoDB) GetKind() string {
 	return "MongoDB"
 }
 
+func (m MongoDB) GetPlural() string {
+	return "mongodb"
+}
+
 func (m *MongoDB) GetStatus() interface{} {
 	return m.Status
 }

@@ -147,6 +147,10 @@ func (m *MongoDBUser) GetKind() string {
 	return "MongoDBUser"
 }
 
+func (m MongoDBUser) GetPlural() string {
+	return "mongodbusers"
+}
+
 func (u *MongoDBUser) GetStatus() interface{} {
 	return u.Status
 }

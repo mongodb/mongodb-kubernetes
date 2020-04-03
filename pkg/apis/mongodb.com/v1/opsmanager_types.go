@@ -436,6 +436,10 @@ func (m *MongoDBOpsManager) GetKind() string {
 	return "MongoDBOpsManager"
 }
 
+func (m MongoDBOpsManager) GetPlural() string {
+	return "opsmanagers"
+}
+
 func (m *MongoDBOpsManager) GetStatus() interface{} {
 	return m.Status
 }

@@ -1,9 +1,11 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller"
@@ -26,12 +28,39 @@ var (
 	operatorEnvironments = [...]string{"dev", "local", "prod"}
 )
 
+const (
+	mdbWebHookPortEnvName   = "MDB_WEBHOOK_PORT"
+	currentNamespaceEnvName = "CURRENT_NAMESPACE"
+	watchNamespaceEnvName   = "WATCH_NAMESPACE"
+)
+
+// crdsToWatch is a custom Value implementation which can be
+// used to receive command line arguments
+type crdsToWatch []string
+
+func (c *crdsToWatch) Set(value string) error {
+	*c = append(*c, value)
+	return nil
+}
+
+func (c *crdsToWatch) String() string {
+	return strings.Join(*c, ",")
+}
+
+// getCrdsToWatchStr returns a comma separated list of strings which represent which CRDs should be watched
+func getCrdsToWatchStr() string {
+	crds := crdsToWatch{}
+	flag.Var(&crds, "watch-resource", "A Watch Resource specifies if the Operator should watch the given resource")
+	flag.Parse()
+	return crds.String()
+}
+
 func main() {
 
 	initializeEnvironment()
 
 	// get watch namespace from environment variable
-	namespace, nsSpecified := os.LookupEnv("WATCH_NAMESPACE")
+	namespace, nsSpecified := os.LookupEnv(watchNamespaceEnvName)
 
 	// if the watch namespace is not specified - we assume the Operator is watching the current namespace
 	if !nsSpecified {
@@ -71,8 +100,13 @@ func main() {
 	}
 
 	// Setup all Controllers
-	if err := controller.AddToManager(mgr); err != nil {
+	var registeredCRDs []string
+	if registeredCRDs, err = controller.AddToManager(mgr, getCrdsToWatchStr()); err != nil {
 		log.Fatal(err)
+	}
+
+	for _, r := range registeredCRDs {
+		log.Infof("Registered CRD: %s", r)
 	}
 
 	log.Info("Starting the Cmd.")
@@ -87,7 +121,7 @@ func main() {
 // to give people early warning when their MongoDB resources are wrong.
 func setupWebhook(mgr manager.Manager, cfg *rest.Config, log *zap.SugaredLogger) {
 	// set webhook port — 1993 is chosen as Ben's birthday
-	webhookPort := util.ReadEnvVarIntOrDefault("MDB_WEBHOOK_PORT", 1993)
+	webhookPort := util.ReadEnvVarIntOrDefault(mdbWebHookPortEnvName, 1993)
 	mgr.GetWebhookServer().Port = webhookPort
 
 	// this is the default directory on Linux but setting it explicitly helps
@@ -106,7 +140,7 @@ func setupWebhook(mgr manager.Manager, cfg *rest.Config, log *zap.SugaredLogger)
 	// that will be created.
 	webhookServiceLocation := types.NamespacedName{
 		Name:      "operator-webhook",
-		Namespace: util.ReadEnvVarOrPanic("CURRENT_NAMESPACE"),
+		Namespace: util.ReadEnvVarOrPanic(currentNamespaceEnvName),
 	}
 	if err := webhook.Setup(webhookClient, webhookServiceLocation, certDir, webhookPort); err != nil {
 		log.Warnw("could not set up webhook", "error", err)

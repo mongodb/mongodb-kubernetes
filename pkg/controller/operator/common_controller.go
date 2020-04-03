@@ -61,6 +61,9 @@ type Updatable interface {
 	// is convenient when setting the owner for K8s objects created by controllers
 	GetKind() string
 
+	// GetPlural returns the plural of the type
+	GetPlural() string
+
 	// GetStatus returns the status of the object
 	GetStatus() interface{}
 
