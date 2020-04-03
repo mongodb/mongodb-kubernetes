@@ -719,6 +719,8 @@ func opsManagerPodTemplate(labels map[string]string, stsHelper OpsManagerStatefu
 			InitContainers: []corev1.Container{{
 				Name:  "mongodb-enterprise-init-ops-manager",
 				Image: imageUrl,
+				// FIME: temporary to fix evg tests
+				ImagePullPolicy: "Always",
 			}},
 			Containers: []corev1.Container{getContainerWithSecurityContext(containerSpec)},
 			// After discussion with John Morales seems 30 min should be ok

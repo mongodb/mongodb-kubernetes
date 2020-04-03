@@ -1,9 +1,10 @@
 package controller
 
 import (
-	"github.com/stretchr/testify/assert"
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestGetCRDsToWatch(t *testing.T) {

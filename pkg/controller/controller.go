@@ -1,10 +1,11 @@
 package controller
 
 import (
+	"strings"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"strings"
 )
 
 var crdFuncMap map[string][]func(manager.Manager) error
