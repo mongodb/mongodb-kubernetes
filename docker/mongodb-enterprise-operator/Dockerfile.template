@@ -21,8 +21,10 @@ LABEL name="MongoDB Enterprise Operator" \
 {% block packages -%}
 {% endblock -%}
 
-{% block static -%}
-{% endblock -%}
+{% block static %}
+RUN mkdir -p /licenses
+COPY licenses/ /licenses
+{% endblock %}
 
 {% block install_operator %}
 ARG MANIFEST_VERSION
