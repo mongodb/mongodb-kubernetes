@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
+
+source scripts/funcs/checks
+source scripts/funcs/kubernetes
+
+# Building the init image - either to local repo or to the remote one (ECR)
+
+if [[ $(scripts/evergreen/guard_git_repo_is_clean) ]]
+then
+    init_om_version=$(jq --raw-output '.initOpsManagerVersion' < release.json)
+    build_id=$(date +%Y%m%d%H%M)
+    suffix="-b${build_id}"
+else
+    # evg or local build
+    init_om_version="${version_id:-local}"
+    suffix=""
+fi
+
+title "Building Init Ops Manager image (init om version: ${init_om_version})..."
+
+pushd "${PWD}"
+cd docker/mongodb-enterprise-init-ops-manager || exit
+
+if [[ ${REPO_TYPE} = "ecr" ]]; then
+    ensure_ecr_repository "${INIT_OPS_MANAGER_REGISTRY:?}/mongodb-enterprise-init-ops-manager"
+fi
+
+
+name="mongodb-enterprise-init-ops-manager:${init_om_version}${suffix}"
+full_url="${INIT_OPS_MANAGER_REGISTRY}/${name}"
+docker build -t "${name}" --build-arg VERSION="${init_om_version}" .
+docker tag "${name}" "${full_url}"
+docker push "${full_url}"
+title "Init Ops Manager image successfully built and pushed to ${INIT_OPS_MANAGER_REGISTRY} registry"

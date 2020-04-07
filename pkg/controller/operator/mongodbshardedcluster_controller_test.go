@@ -33,7 +33,7 @@ func TestShardedClusterEventMethodsHandlePanic(t *testing.T) {
 	defer InitDefaultEnvVariables()
 
 	// nullifying env variable will result in panic exception raised
-	os.Setenv(util.AutomationAgentImageUrl, "")
+	os.Setenv(util.AutomationAgentImage, "")
 	sc := DefaultClusterBuilder().Build()
 
 	reconciler, client := defaultClusterReconciler(sc)

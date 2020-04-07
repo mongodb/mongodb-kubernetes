@@ -494,7 +494,7 @@ func TestService_mergeAnnotations(t *testing.T) {
 func TestBuildBackupDaemonContainer(t *testing.T) {
 	helper := testDefaultBackupSetHelper()
 	container := buildBackupDaemonContainer(helper)
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-ops-manager:4.2.0-operator9.9.9-test", container.Image)
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-ops-manager:4.2.0", container.Image)
 
 	assert.Equal(t, util.BackupDaemonContainerName, container.Name)
 	assert.Nil(t, container.ReadinessProbe)
@@ -515,7 +515,7 @@ func TestOpsManagerPodTemplate_Container(t *testing.T) {
 	container := template.Spec.Containers[0]
 	assert.Equal(t, util.OpsManagerContainerName, container.Name)
 	// TODO change when we stop using versioning
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-ops-manager:4.2.0-operator9.9.9-test", container.Image)
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-ops-manager:4.2.0", container.Image)
 	assert.Equal(t, corev1.PullNever, container.ImagePullPolicy)
 
 	assert.Equal(t, int32(util.OpsManagerDefaultPortHTTP), container.Ports[0].ContainerPort)

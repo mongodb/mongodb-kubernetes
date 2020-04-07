@@ -104,7 +104,7 @@ func TestStandaloneEventMethodsHandlePanic(t *testing.T) {
 	defer InitDefaultEnvVariables()
 
 	// nullifying env variable will result in panic exception raised
-	os.Setenv(util.AutomationAgentImageUrl, "")
+	os.Setenv(util.AutomationAgentImage, "")
 	st := DefaultStandaloneBuilder().Build()
 
 	reconciler, client := defaultStandaloneReconciler(st)

@@ -181,7 +181,7 @@ func applyPodSpec(podTemplate corev1.PodTemplateSpec, podSpec *mdbv1.PodSpecWrap
 }
 
 func newMongoDBContainer(podVars *PodVars) corev1.Container {
-	return newDbContainer(util.DatabaseContainerName, util.ReadEnvVarOrPanic(util.AutomationAgentImageUrl), baseEnvFrom(podVars), baseReadinessProbe())
+	return newDbContainer(util.DatabaseContainerName, util.ReadEnvVarOrPanic(util.AutomationAgentImage), baseEnvFrom(podVars), baseReadinessProbe())
 }
 
 func newAppDBContainer(statefulSetName, appdbImageUrl string) corev1.Container {
@@ -232,6 +232,22 @@ func buildStatefulSet(p StatefulSetHelper) (appsv1.StatefulSet, error) {
 	}
 
 	return createBaseDatabaseStatefulSetBuilder(p, template).Build()
+}
+
+// TODO: REMOVE ONCE INIT APPDB IS IMPLEMENTED
+// prepareOmAppdbImageUrl builds the full image url for OM/AppDB images
+// It optionally appends the suffix "-operator<operatorVersion" to distinguish the images built for different Operator
+// releases. It's used in production and Evergreen runs (where the new images are built on each Evergreen run)
+// It's not used for local development where the Operator version is just not specified.
+// So far it seems that no other logic depends on the Operator version so we can afford this - we can complicate things
+// if requirements change
+func prepareOmAppdbImageUrl(imageUrl, version string) string {
+	// how does this work when the -operator is appended?
+	fullImageUrl := fmt.Sprintf("%s:%s", imageUrl, version)
+	if util.OperatorVersion != "" {
+		fullImageUrl = fmt.Sprintf("%s-operator%s", fullImageUrl, util.OperatorVersion)
+	}
+	return fullImageUrl
 }
 
 // buildAppDbStatefulSet builds the StatefulSet for AppDB.
@@ -370,7 +386,7 @@ func buildBaseContainerForOpsManagerAndBackup(p OpsManagerStatefulSetHelper) cor
 		})
 	}
 
-	omImageUrl := prepareOmAppdbImageUrl(util.ReadEnvVarOrPanic(util.OpsManagerImageUrl), p.Version)
+	omImageUrl := fmt.Sprintf("%s:%s", util.ReadEnvVarOrPanic(util.OpsManagerImageUrl), p.Version)
 	container := corev1.Container{
 		Image:           omImageUrl,
 		ImagePullPolicy: corev1.PullPolicy(util.ReadEnvVarOrPanic(util.OpsManagerPullPolicy)),
@@ -737,21 +753,6 @@ func opsManagerPodTemplate(labels map[string]string, stsHelper OpsManagerStatefu
 		})
 	}
 	return applyPodSpec(templateSpec, stsHelper.PodSpec, stsHelper.Name)
-}
-
-// prepareOmAppdbImageUrl builds the full image url for OM/AppDB images
-// It optionally appends the suffix "-operator<operatorVersion" to distinguish the images built for different Operator
-// releases. It's used in production and Evergreen runs (where the new images are built on each Evergreen run)
-// It's not used for local development where the Operator version is just not specified.
-// So far it seems that no other logic depends on the Operator version so we can afford this - we can complicate things
-// if requirements change
-func prepareOmAppdbImageUrl(imageUrl, version string) string {
-	// how does this work when the -operator is appended?
-	fullImageUrl := fmt.Sprintf("%s:%s", imageUrl, version)
-	if util.OperatorVersion != "" {
-		fullImageUrl = fmt.Sprintf("%s-operator%s", fullImageUrl, util.OperatorVersion)
-	}
-	return fullImageUrl
 }
 
 func baseLivenessProbe() *corev1.Probe {

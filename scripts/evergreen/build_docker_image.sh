@@ -63,13 +63,13 @@ build_image () {
      --set destination="${destination}" \
      --set context="${context}" \
      --set cache="${cache:-true}" \
-     --set cacheRepo="${cache_repo}" > ${tmp_file}
+     --set cacheRepo="${cache_repo}" > "${tmp_file}"
 
-     cat ${tmp_file}
+     cat "${tmp_file}"
 
-     kubectl -n "construction-site" apply -f ${tmp_file}
+     kubectl -n "construction-site" apply -f "${tmp_file}"
 
-     rm ${tmp_file}
+     rm "${tmp_file}"
 }
 
 build_image "${destination}" "${context}" "${cache_repo}" "${label}"

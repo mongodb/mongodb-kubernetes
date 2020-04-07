@@ -20,21 +20,21 @@ function split_and_slice {
     echo "${sliced[*]}" # equivalent to ",".join(sliced)
 }
 
-labels=$(split_and_slice "${label}")
-query="podbuilderid in (${labels})"
+short_labels=$(split_and_slice "${labels:?}")
+query="podbuilderid in (${short_labels})"
 
-echo "Waiting for label '${query}' to finish"
+echo "Waiting for labels '${query}' to finish"
 all_finished="false"
 
 while [[ $all_finished == "false" ]]; do
     all_finished="true"
     for pod in $(kubectl -n "${building_namespace}" get pods -l "${query}" -o jsonpath='{.items[*].metadata.name}'); do
-        status=$(kubectl get pod $pod -o jsonpath='{.status.phase}' -n "${building_namespace}")
+        status=$(kubectl get pod "${pod}" -o jsonpath='{.status.phase}' -n "${building_namespace}")
         if [[ "$status" == "Failed" ]]; then
             header "Pod $pod failed to build image"
-            kubectl describe -n "${building_namespace}" pod $pod
+            kubectl describe -n "${building_namespace}" pod "${pod}"
             header "Logs"
-            kubectl logs -n "${building_namespace}" $pod
+            kubectl logs -n "${building_namespace}" "${pod}"
             exit 1
         fi
         if [[ "$status" != "Succeeded" ]]; then

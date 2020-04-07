@@ -9,7 +9,7 @@ function evaluate {
     if [ ${#val} -gt 3 ] && [ "${val:0:1}" = "\$" ]; then
         # Removes the first '$(' (dollar + open paren) and the
         # last ')' (closing paren).
-        echo $(eval "${val:2:-1}")
+        echo "$(eval "${val:2:-1}")"
         return
     fi
 
@@ -33,10 +33,11 @@ function docker_pull_tag_push {
 # to be of local images.
 docker login "${DOCKER_REGISTRY}" -u "${DOCKER_LOGIN_USER}" -p "${DOCKER_LOGIN_PASSWORD}"
 
-versions=$(evaluate "${VERSIONS}")
+versions=$(evaluate "${VERSIONS:?}")
+# FIXME: why is version not used?
 for version in $versions; do
-    tag_source=$(evaluate "${TAG_SOURCE}")
-    tag_dest=$(evaluate "${TAG_DEST}")
+    tag_source=$(evaluate "${TAG_SOURCE:?}")
+    tag_dest=$(evaluate "${TAG_DEST:?}")
 
     echo "tag_source: |${tag_source}|"
     echo "tag_dest: |${tag_dest}|"

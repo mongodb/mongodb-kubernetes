@@ -26,14 +26,10 @@ usage:
 	@ echo "  full:                       ('make' is an alias for this command) ensures K8s cluster is up, cleans Kubernetes"
 	@ echo "                              resources, build-push-deploy operator, push-deploy database, create secrets, "
 	@ echo "                              config map, resources etc"
-	@ echo "  om-batch                    builds both Ops Manager and AppDB images for the specified scope. Provide 'scope=all' to build"
-	@ echo "                              all versions from 'release.json'. Or 'scope=4.2.2,4.3.4' to build specific versions only"
+	@ echo "  om-batch                    builds both Init Ops Manager and AppDB images."
 	@ echo "  appdb:                      build and push AppDB image. Specify 'om_version' in format '4.2.1' to provide the already released Ops Manager"
 	@ echo "                              version which will be used to find the matching tag and find the Automation Agent version. Add 'om_branch' "
 	@ echo "                              if Ops Manager is not released yet and you want to have some git branch as the source "
-	@ echo "  om-image:                   builds and pushes the Ops Manager docker image. The download url will be discovered for official releases."
-	@ echo "                              Specify the download url using 'download_url' if you need some custom build. The url must point "
-	@ echo "                              to the Ubuntu 16/18 tar.gz distro"
 	@ echo "  om:                         install Test Ops Manager into Kubernetes if it's not installed yet. Initializes the connection"
 	@ echo "                              parameters in ~/operator-dev/om"
 	@ echo "  om-evg:                     install Ops Manager into Evergreen if it's not installed yet. Initializes the connection"
@@ -88,19 +84,20 @@ database: aws_login
 
 # ensures cluster is up, cleans Kubernetes + OM, build-push-deploy operator,
 # push-deploy database, create secrets, config map, resources etc
-full: ensure-k8s-and-reset build-and-push-images
+full: ensure-k8s-and-reset build-and-push-images om-init-image
 	@ $(MAKE) deploy-and-configure-operator
 	@ scripts/dev/apply_resources
 
 om-batch: aws_login
-	@ om_version=$(om_version) init_om_version=$(init_om_version) scripts/dev/batch_om_appdb_images
+	# FIXME: om_version kept temporary until we move appdb to init container
+	@ om_version=$(om_version) scripts/dev/batch_init_om_appdb_images
 
 # build-push appdb image
 appdb: aws_login
 	@ om_version=$(om_version) scripts/dev/build_push_appdb_image
 
-om-image:
-	@ om_version=$(om_version) init_om_version=$(init_om_version) scripts/dev/build_push_opsmanager_image
+om-init-image:
+	@ scripts/dev/build_push_init_opsmanager_image
 
 # install OM in Kubernetes if it's not running
 om:

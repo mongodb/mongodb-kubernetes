@@ -151,7 +151,7 @@ const (
 	InitOpsManagerImageUrl         = "INIT_OPS_MANAGER_IMAGE_REPOSITORY"
 	InitOpsManagerVersion          = "INIT_OPS_MANAGER_VERSION"
 	OpsManagerPullPolicy           = "OPS_MANAGER_IMAGE_PULL_POLICY"
-	AutomationAgentImageUrl        = "MONGODB_ENTERPRISE_DATABASE_IMAGE"
+	AutomationAgentImage           = "MONGODB_ENTERPRISE_DATABASE_IMAGE"
 	AutomationAgentImagePullPolicy = "IMAGE_PULL_POLICY"
 	ImagePullSecrets               = "IMAGE_PULL_SECRETS"
 	OmOperatorEnv                  = "OPERATOR_ENV"

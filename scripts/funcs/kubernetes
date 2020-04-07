@@ -3,13 +3,17 @@
 pushd "$PWD" > /dev/null || return
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 cd "$DIR" || return
+# shellcheck source=scripts/funcs/checks
 source checks
+# shellcheck source=scripts/funcs/errors
 source errors
+# shellcheck source=scripts/funcs/printing
 source printing
 popd > /dev/null || return
 
 ensure_namespace() {
-    namespace="${1}"
+    local namespace="${1}"
+    local tmp_file
     tmp_file=$(mktemp)
     cat <<EOF > "${tmp_file}"
 apiVersion: v1
@@ -19,7 +23,7 @@ metadata:
   labels:
     evg: task
   annotations:
-    evg/version: "https://evergreen.mongodb.com/version/${VERSION_ID:-'not-specified'}"
+    evg/version: "https://evergreen.mongodb.com/version/${version_id:-'not-specified'}"
     evg/task-name: ${TASK_NAME:-'not-specified'}
     evg/task: "https://evergreen.mongodb.com/task/${TASK_ID:-'not-specified'}"
     evg/mms-version: "${MMS_VERSION:-'not-specified'}"
@@ -37,36 +41,36 @@ EOF
 # the function installs Ops Manager into Kubernetes cluster if it's not installed already
 # Note, that this requires the k8s node with 4 Gb of free memory
 ensure_ops_manager_k8s() {
-    ops_manager_namespace="${1}"
-    ops_manager_version="${2}"
-    node_port="${3}"
+    local ops_manager_namespace="${1}"
+    local ops_manager_version="${2}"
+    local node_port="${3}"
 
-    if [ -z $ops_manager_namespace ]; then
+    if [ -z "${ops_manager_namespace}" ]; then
         error "ops_manager_namespace must be set!"
         exit 1
     fi
-    if [ -z $ops_manager_version ]; then
+    if [ -z "${ops_manager_version}" ]; then
         error "ops_manager_version must be set!"
         exit 1
     fi
-    if [ -z $node_port ]; then
+    if [ -z "${node_port}" ]; then
         error "node_port must be set!"
         exit 1
     fi
 
     echo "##### Installing Ops Manager ${ops_manager_version} (namespace ${ops_manager_namespace} into Kubernetes..."
 
-    if _is_ops_manager_down ${ops_manager_namespace}; then
+    if _is_ops_manager_down "${ops_manager_namespace}"; then
         echo "Ops Manager is not installed in this cluster. Doing it now."
         echo "Run \"make -C docker/mongodb-enterprise-ops-manager-dev IMAGE_VERSION=${ops_manager_version} push\" to update Ops Manager image in ECR if necessary"
 
         echo "Installing Ops Manager ${ops_manager_version}"
 
         helm template -f scripts/evergreen/deployments/values-ops-manager.yaml \
-            --set namespace=${ops_manager_namespace} \
-            --set opsManager.version=${ops_manager_version} \
+            --set namespace="${ops_manager_namespace}" \
+            --set opsManager.version="${ops_manager_version}" \
             --set opsManager.host="ops-manager.${ops_manager_namespace}.svc.cluster.local" \
-            --set opsManager.nodePort=${node_port} \
+            --set opsManager.nodePort="${node_port}" \
             docker/mongodb-enterprise-ops-manager-dev/helm_chart > mongodb-enterprise-ops-manager.yaml
 
         echo
@@ -79,7 +83,7 @@ ensure_ops_manager_k8s() {
         echo "Waiting until Statefulset for Ops Manager is running..."
 
         timeout "1m" bash -c \
-          'while [[ $(kubectl -n '${ops_manager_namespace}' get statefulset mongodb-enterprise-ops-manager -o jsonpath="{.status.currentReplicas}") != "1" ]]; do sleep 1; done'
+          "while [[ $(kubectl -n "${ops_manager_namespace}" get statefulset mongodb-enterprise-ops-manager -o jsonpath="{.status.currentReplicas}") != 1 ]]; do sleep 1; done"
 
         echo "Statefulset is ready, waiting for Ops Manager to start..."
 
@@ -89,7 +93,7 @@ ensure_ops_manager_k8s() {
         timeout "10m" bash -c \
           "while ! kubectl get pod/mongodb-enterprise-ops-manager-0 -o jsonpath=\"{.status.containerStatuses[0].ready}\" -n ${ops_manager_namespace} | grep -q \"true\"; do sleep 4; done" || true
 
-        if ! kubectl get pod/mongodb-enterprise-ops-manager-0 -o jsonpath="{.status.containerStatuses[0].ready}" -n ${ops_manager_namespace} | grep -q "true"; then
+        if ! kubectl get pod/mongodb-enterprise-ops-manager-0 -o jsonpath="{.status.containerStatuses[0].ready}" -n "${ops_manager_namespace}" | grep -q "true"; then
             error "Ops Manager hasn't started!"
             kubectl describe pod/mongodb-enterprise-ops-manager-0 -n "${ops_manager_namespace}"
             exit 1
@@ -118,24 +122,28 @@ ensure_ops_manager_k8s() {
 
     echo "##### Ops Manager is ready"
 
-    _print_om_endpoint "" ${ops_manager_namespace} ${node_port}
+    _print_om_endpoint "" "${ops_manager_namespace}" "${node_port}"
 }
 
 _print_om_endpoint() {
-    ops_manager_namespace="${2}"
+    local ops_manager_namespace="${2}"
     if [ -z "$ops_manager_namespace" ]; then
         error "No ops_manager_namespace set: not able to find Ops Manager external IP"
     else
-        node_port="${3}"
-        external_ip="$(kubectl get nodes -o wide | grep $(kubectl get pods/mongodb-enterprise-ops-manager-0 -n ${ops_manager_namespace} -o wide | tail -n 1 | awk '{print $7}') | awk '{print $7}')"
+        local node_port="${3}"
+        local node_name
+        node_name=$(kubectl get pods/mongodb-enterprise-ops-manager-0 -n "${ops_manager_namespace}" -o wide | tail -n 1 | awk '{print $7}')
+        local external_ip
+        external_ip="$(kubectl get nodes -o wide | grep "${node_name}" | awk '{print $7}')"
 
         echo "Use the following address to access Ops Manager from the browser: http://${external_ip}:${node_port}"
     fi
 }
 
 _ensure_vpc_rules() {
-    region="$1"
-    prefix="$2"
+    local region="$1"
+    local prefix="$2"
+    local group_id
     group_id=$(aws ec2 describe-security-groups --region "${region}" | jq -r '.SecurityGroups[] | select(.GroupName | startswith( "'"$prefix"'")) | .GroupId')
 
     if [[ -z $group_id ]]; then
@@ -145,7 +153,7 @@ _ensure_vpc_rules() {
     # note, that the attempt to add the same rule will result in "already exists" error - so we just ignore errors by now
     # open multiple node ports for different versions of Ops Manager
     for i in $(seq 30039 30043); do
-        aws ec2 authorize-security-group-ingress --region "${region}" --group-id ${group_id} --protocol tcp --port ${i} --cidr "0.0.0.0/0" 2>/dev/null || true
+        aws ec2 authorize-security-group-ingress --region "${region}" --group-id "${group_id}" --protocol tcp --port "${i}" --cidr "0.0.0.0/0" 2>/dev/null || true
         echo "Opened port ${i} in AWS for the security group with prefix $prefix (group id: $group_id)"
     done
 
@@ -154,40 +162,50 @@ _ensure_vpc_rules() {
 # This is supposed to work for concurrent builds when one of the builds is starting Ops Manager (ideally we need to check for 10 minutes
 # but parsing dates in bash is hard :( )
 _is_ops_manager_down() {
-    ! kubectl get namespace/${1} &> /dev/null || \
-    ! kubectl get pod/mongodb-enterprise-ops-manager-0 -n ${1} 2>/dev/null ||
-    kubectl get pod/mongodb-enterprise-ops-manager-0 -o jsonpath="{.status.containerStatuses[0].ready}" -n ${1} | grep -q "false"
+    ! kubectl get "namespace/${1}" &> /dev/null || \
+    ! kubectl get pod/mongodb-enterprise-ops-manager-0 -n "${1}" 2>/dev/null ||
+    kubectl get pod/mongodb-enterprise-ops-manager-0 -o jsonpath="{.status.containerStatuses[0].ready}" -n "${1}" | grep -q "false"
 
 }
 
 delete_operator() {
-    ns="$1"
-    name=${OPERATOR_NAME:=mongodb-enterprise-operator}
+    local ns="$1"
+    local name=${OPERATOR_NAME:=mongodb-enterprise-operator}
 
     title "Removing the Operator deployment ${name}"
     ! kubectl --namespace "${ns}" get deployments | grep -q ${name} \
-        || kubectl delete deployment $name -n ${ns}
+        || kubectl delete deployment $name -n "${ns}"
 }
 
 # Generates kube yaml configuration for the Operator from helm chart and deletes + installs the Operator to the Kubernetes cluster
 deploy_operator() {
-    url="$1"
-    version="${2:-latest}"
-    ns="$3"
-    watch_namespace="${4:-$ns}"
-    pull_policy="${5:-Always}"
-    managed_security_context="${6:-false}"
-    timeout="${7:-1m}"
+    local registry_url="$1"
+    # ideally we make this optional
+    local om_registry="$2"
+    local init_om_registry="$3"
+    local ns="$4"
+    local version="${5:-latest}"
+    local watch_namespace="${6:-$ns}"
+    local pull_policy="${7:-Always}"
+    local managed_security_context="${8:-false}"
+    local timeout="${9:-1m}"
 
-    title "Installing the Operator (registry url: ${url}, version: ${version}, namespace: ${ns}, managed_security_context: ${managed_security_context}), debug: ${DEBUG-}) to ${CLUSTER_NAME:-'e2e cluster'}..."
+    # should we pass init_om_version to the script to avoid having evg env variable leak in here?
+    [[ -z "${init_om_version:-}" ]] && init_om_version="${version_id:-latest}"
+
+    title "Installing the Operator (registry url: ${registry_url}, ops_manager registry: ${om_registry}, initops_manager registry: ${init_om_registry}, initops_manager version: ${init_om_version}, version: ${version}, namespace: ${ns}, managed_security_context: ${managed_security_context}), debug: ${DEBUG-}) to ${CLUSTER_NAME:-'e2e cluster'}..."
 
     check_app "helm" "helm is not installed, run 'make prerequisites' to install all necessary software"
     check_app "timeout" "coreutils is not installed, call \"brew install coreutils\""
 
+    local tmp_file
     tmp_file=$(mktemp)
 
+    local helm_params
     helm_params=(
-         "--set" "registry.repository=${url}"
+         "--set" "registry.operator=${registry_url}"
+         "--set" "registry.opsManager=${om_registry}"
+         "--set" "registry.initOpsManager=${init_om_registry}"
          "--set" "registry.pullPolicy=${pull_policy}"
          "--set" "operator.env=dev"
          "--set" "operator.version=${version}"
@@ -196,6 +214,7 @@ deploy_operator() {
          "--set" "database.name=${DATABASE_NAME:=mongodb-enterprise-database}"
          "--set" "opsManager.name=${OPS_MANAGER_NAME:=mongodb-enterprise-ops-manager}"
          "--set" "initOpsManager.name=${INIT_OPS_MANAGER_NAME:=mongodb-enterprise-init-ops-manager}"
+         "--set" "initOpsManager.version=${init_om_version}"
          "--set" "appDb.name=${APPDB_NAME:=mongodb-enterprise-appdb}"
          "--set" "namespace=${ns}"
          "--set" "managedSecurityContext=${managed_security_context}"
@@ -207,7 +226,7 @@ deploy_operator() {
         echo "Configuring imagePullSecrets to ${ecr_registry_needs_auth}"
         helm_params+=("--set" "registry.imagePullSecrets=${ecr_registry_needs_auth}")
     fi
-    helm template public/helm_chart "${helm_params[@]}"> "${tmp_file}"
+    REVISION="${version}" helm template public/helm_chart "${helm_params[@]}"> "${tmp_file}"
 
     echo "Deploying Operator"
     kubectl apply -f "${tmp_file}"
@@ -218,10 +237,10 @@ deploy_operator() {
 
     # Waiting until there is only one pod left as this could be the upgrade operation (very fast in practice)
     timeout --foreground "1m" bash -c \
-        'while [[ $(kubectl -n '"${ns}"' get pods -l app=${OPERATOR_NAME}  --no-headers 2>/dev/null | wc -l) -gt 1 ]] ; do printf .; sleep 1; done' || true
+        "while [[ $(kubectl -n "${ns}" get pods -l app=${OPERATOR_NAME}  --no-headers 2>/dev/null | wc -l) -gt 1 ]] ; do printf .; sleep 1; done" || true
 
     timeout --foreground "${timeout}" bash -c \
-        'while ! kubectl -n '"${ns}"' get pods -l app=${OPERATOR_NAME} -o jsonpath="{.items[0].status.phase}" 2>/dev/null | grep -q "Running" ; do printf .; sleep 1; done' || true
+        "while ! kubectl -n ${ns} get pods -l app=${OPERATOR_NAME} -o jsonpath={.items[0].status.phase} 2>/dev/null | grep -q Running ; do printf .; sleep 1; done" || true
 
     # In the end let's check again and print the state
     if ! kubectl -n "${ns}" get pods -l "app=${OPERATOR_NAME}" -o jsonpath="{.items[0].status.phase}" | grep -q "Running"; then
@@ -267,9 +286,9 @@ create_kops_cluster() {
 
     echo "Waiting until kops cluster gets ready..."
 
-    timeout "20m" bash -c 'while ! kops validate cluster $cluster_name &>/dev/null ; do printf .; sleep 5; done'
+    timeout "20m" bash -c "while ! kops validate cluster ${cluster_name} &>/dev/null ; do printf .; sleep 5; done"
 
-    title "Kops cluster $cluster_name is ready! Note, that you need to use 'admin' user if you want to ssh to the nodes"
+    title "Kops cluster ${cluster_name} is ready! Note, that you need to use 'admin' user if you want to ssh to the nodes"
 
     # see https://codeandunicorns.com/kubernetes-dashboard-kops/
     # also keep an eye on https://github.com/kubernetes/dashboard/releases - we should use 2.0.0 once it goes to GA
@@ -293,7 +312,7 @@ ensure_ecr_repository() {
     local repo_url=$1
     local repo_name
 
-    repo_name="$(echo ${repo_url} | cut -d "/" -f2-)" # "alis/ubuntu/mongodb-enterprise-appdb"
+    repo_name="$(echo "${repo_url}" | cut -d "/" -f2-)" # "alis/ubuntu/mongodb-enterprise-appdb"
     if ! aws ecr describe-repositories | grep "${repo_name}" > /dev/null; then
         echo "Creating repository ${repo_name} as it doesn't exist"
         aws ecr create-repository --repository-name="${repo_name}"

@@ -23,6 +23,10 @@ database:
 opsManager:
   name: mongodb-enterprise-ops-manager
 
+initOpsManager:
+  name: mongodb-enterprise-init-ops-manager
+  version: latest
+
 appDb:
   name: mongodb-enterprise-appdb
 
@@ -30,7 +34,9 @@ registry:
   # The pull secret must be specified
   imagePullSecrets:
   pullPolicy: Always
-  repository: registry.connect.redhat.com/mongodb
+  operator: registry.connect.redhat.com/mongodb
+  initOpsManager: registry.connect.redhat.com/mongodb
+  opsManager: registry.connect.redhat.com/mongodb
 
 # Set this to true if the operator will require Kubernetes CA
 # infrastructure to generate TLS certificates.

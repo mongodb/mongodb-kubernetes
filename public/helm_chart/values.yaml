@@ -26,16 +26,20 @@ opsManager:
 
 initOpsManager:
   name: mongodb-enterprise-init-ops-manager
-  version: 1.0.0
+  version: latest
 
 appDb:
   name: mongodb-enterprise-appdb
 
 registry:
-  # Specify if images are pulled from private repository
   imagePullSecrets:
+  # TODO: specify for each image and move there?
   pullPolicy: Always
-  repository: quay.io/mongodb
+  # Specify if images are pulled from private registry
+  operator: quay.io/mongodb
+  initOpsManager: quay.io/mongodb
+  opsManager: quay.io/mongodb
+
 
 # Set this to true if the operator will require Kubernetes CA
 # infrastructure to generate TLS certificates.

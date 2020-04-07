@@ -10,7 +10,7 @@ if [[ -n "${KUBECONFIG}" && ! -f "${KUBECONFIG}" ]]; then
 fi
 
 set -uo pipefail
-cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
+cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)" || exit 1
 
 source scripts/funcs/checks
 source scripts/funcs/kubernetes
@@ -20,20 +20,21 @@ source scripts/evergreen/e2e/dump_diagnostic_information
 # Finds the exec_timeout_secs for this task in Evergreen. If it can't find it, will return the general
 # exec_timeout_secs attribute set in top-level evergreen.yaml.
 get_timeout_for_task () {
-    task_name=${1}
+    local task_name=${1}
 
-    timeout=$(grep "name: ${task_name}$" .evergreen.yml -A 3 | grep exec_timeout_secs | awk '{ print $2 }')
-    if [[ $timeout = "" ]]; then
-        timeout=$(grep "^exec_timeout_secs:" .evergreen.yml  | awk '{ print $2 }')
+    local exec_timeout
+    # OMG: really???
+    exec_timeout=$(grep "name: ${task_name}$" .evergreen.yml -A 3 | grep exec_timeout_secs | awk '{ print $2 }')
+    if [[ $exec_timeout = "" ]]; then
+        exec_timeout=$(grep "^exec_timeout_secs:" .evergreen.yml | head -1 | awk '{ print $2 }')
     fi
 
-    echo "$timeout"
+    echo "$exec_timeout"
 }
 
 # Externally Configured Ops Manager (Cloud Manager)
+# shellcheck source=~/.operator-dev/om
 test -f "${OPS_MANAGER_ENV:-}" && source "${OPS_MANAGER_ENV}"
-
-timeout=$(get_timeout_for_task "${TASK_NAME}")
 
 #
 # This is the main entry point for running e2e tests. It can be used both for simple e2e tests (running a single test
@@ -46,7 +47,9 @@ check_env_var "TASK_NAME" "The 'TASK_NAME' must be specified for the Operator e2
 
 # Returns a random string that can be used as a namespace.
 generate_random_namespace() {
+    local random_namespace
     random_namespace=$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 20)
+    local doy
     doy=$(date +'%j')
     echo "a-${doy}-${random_namespace}z"
 }
@@ -73,15 +76,27 @@ export TEST_NAME="${TASK_NAME}"
 delete_operator "${PROJECT_NAMESPACE}"
 
 # 4. (optionally) Preliminary step in the case of Operator upgrade
-if echo "${TASK_NAME}" | egrep -q "^e2e_op_upgrade"; then
+if echo "${TASK_NAME}" | grep -E -q "^e2e_op_upgrade"; then
     export TEST_NAME="${TASK_NAME}_first"
     header "Performing the first stage (${TEST_NAME}) of an Operator upgrade test"
 
-    # If the version of the Operator to upgrade from not specified then we assume it's the latest
-    export REVISION="${OPERATOR_VERSION_UPGRADE_FROM:-"latest"}"
 
     # TODO add support for quay.io UBI images as well
-    REGISTRY="quay.io/mongodb" ./scripts/evergreen/e2e/deploy_operator
+    # FIXME: Registry overridden for ugrade (operator, ops manager, init ops
+    # manager), need to check if we can avoid quay?
+    # FIXME: once quay has init images will be updated
+    # If the version of the Operator to upgrade from not specified then we
+    # assume it's the latest
+    deploy_operator \
+        "quay.io/mongodb" \
+        "quay.io/mongodb" \
+        "${INIT_OPS_MANAGER_REGISTRY}" \
+        "${PROJECT_NAMESPACE}" \
+        "${OPERATOR_VERSION_UPGRADE_FROM:-"latest"}" \
+        "${WATCH_NAMESPACE:-$PROJECT_NAMESPACE}" \
+        "Always" \
+        "${MANAGED_SECURITY_CONTEXT:-}" \
+        "2m"
     if ! ./scripts/evergreen/e2e/single_e2e; then
         dump_all
         scripts/evergreen/e2e/teardown
@@ -95,9 +110,18 @@ fi
 
 # 5. Main test run. In case of Operator upgrade this will be the second test run and
 # the Operator won't be removed - only upgraded
-export REVISION="${OPERATOR_VERSION}"
 
-if ! scripts/evergreen/e2e/deploy_operator; then
+if ! deploy_operator \
+    "${REGISTRY}" \
+    "${OPS_MANAGER_REGISTRY}" \
+    "${INIT_OPS_MANAGER_REGISTRY}" \
+    "${PROJECT_NAMESPACE}" \
+    "${version_id:?}" \
+    "${WATCH_NAMESPACE:-$PROJECT_NAMESPACE}" \
+    "Always" \
+    "${MANAGED_SECURITY_CONTEXT:-}" \
+    "2m"
+then
     echo "Operator failed to start"
     exit 1
 fi
@@ -112,9 +136,12 @@ fi
 #
 current_time=$(date +%s)
 elapsed_time=$((current_time - start_time))
-timeout=$((timeout - elapsed_time - 60))
-echo "This task is allowed to run for ${timeout} seconds"
-timeout --foreground "${timeout}" scripts/evergreen/e2e/single_e2e
+
+task_timeout=$(get_timeout_for_task "${TASK_NAME:?}")
+
+timeout_sec=$((task_timeout - elapsed_time - 60))
+echo "This task is allowed to run for ${timeout_sec} seconds"
+timeout --foreground "${timeout_sec}" scripts/evergreen/e2e/single_e2e
 TEST_RESULTS=$?
 
 # Dump all the information we can from this namespace

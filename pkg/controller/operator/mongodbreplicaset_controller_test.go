@@ -28,7 +28,7 @@ func TestReplicaSetEventMethodsHandlePanic(t *testing.T) {
 	defer InitDefaultEnvVariables()
 
 	// nullifying env variable will result in panic exception raised
-	_ = os.Setenv(util.AutomationAgentImageUrl, "")
+	_ = os.Setenv(util.AutomationAgentImage, "")
 	rs := DefaultReplicaSetBuilder().Build()
 
 	reconciler, client := defaultReplicaSetReconciler(rs)

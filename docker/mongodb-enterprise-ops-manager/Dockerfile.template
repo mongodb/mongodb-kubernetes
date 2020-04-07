@@ -5,6 +5,7 @@
 FROM {{ base_image  }}
 
 {% block labels %}
+# FIXME: pass build_id as release version
 LABEL name="MongoDB Enterprise Ops Manager" \
       maintainer="support@mongodb.com" \
       vendor="MongoDB" \

@@ -22,6 +22,8 @@
 
 export CLUSTER_TYPE=kops
 export CLUSTER_NAME=dev.mongokubernetes.com
-export REPO_URL=268558157000.dkr.ecr.us-east-1.amazonaws.com/myname
+export REPO_URL=268558157000.dkr.ecr.us-east-1.amazonaws.com/myname/ubuntu
+export OPS_MANAGER_REGISTRY=268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
+export INIT_OPS_MANAGER_REGISTRY=268558157000.dkr.ecr.us-east-1.amazonaws.com/myname
 export NAMESPACE=myname
 

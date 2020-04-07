@@ -9,6 +9,7 @@ cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
 source scripts/funcs/errors
 
+# TODO: move after init container for appdb is done
 # prepare_appdb_build builds readiness probe and generates a Dockerfile for AppDB
 # The function is reused from different places so put into 'func'
 # Must be run from docker/mongodb-enterprise-database
@@ -20,12 +21,6 @@ prepare_appdb_build() {
 	../Dockerfile.gen appdb "${IMAGE_TYPE}" > Dockerfile
 }
 
-# prepare_ops_manager_build prepares the dockerfile for Ops Manager.
-# Must be run from docker/mongodb-enterprise-ops-manager
-prepare_ops_manager_build() {
-    ../Dockerfile.gen opsmanager "${IMAGE_TYPE}" > Dockerfile
-}
-
 if [[ -z "${IN_MEMORY_CONTEXT-}" ]]; then
     # Reading context file
     readonly root_dir="$HOME/.operator-dev"
@@ -35,24 +30,28 @@ if [[ -z "${IN_MEMORY_CONTEXT-}" ]]; then
         fatal "File \"${context_file}\" not found! You must init development environment using \"make init\" first"
     fi
 
-    context=$(cat ${context_file})
+    context=$(cat "${context_file}")
 
     if [[ ! -f ${root_dir}/contexts/${context} ]]; then
         fatal "Configuration file \"${root_dir}/contexts/${context}\" not found!"
     fi
 
+
     # reading the 'om' file first and then the context file - this will allow to use custom connectivity parameters
     if [[ -f ${root_dir}/om ]]; then
-        eval "$(cat ${root_dir}/om)"
+        eval "$(cat "${root_dir}/om")"
     fi
 
-    eval "$(cat ${root_dir}/contexts/${context})"
+    eval "$(cat "${root_dir}"/contexts/"${context}")"
 
     # LOCAL_RUN indicates that the make script is run locally. This may affect different build/deploy decisions
     export LOCAL_RUN=true
     # version_id is similar to version_id from Evergreen. Used to differentiate different builds. Can be constant
     # for local run
     export version_id=$USER
+    # TODO: find a better way to do that
+    export init_om_version="latest"
+
 else
     echo "Skipping reading context file. Note that all the configuration information\
          (REPO_URL, CLUSTER_TYPE) must be provided as environment variables!"

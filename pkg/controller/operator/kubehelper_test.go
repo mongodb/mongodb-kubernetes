@@ -175,7 +175,7 @@ func TestSSLOptionsArePassedCorrectly_UseCustomCAConfigMap(t *testing.T) {
 func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
 	defer InitDefaultEnvVariables()
 
-	os.Setenv(util.AutomationAgentImageUrl, "")
+	os.Setenv(util.AutomationAgentImage, "")
 	assert.Panics(t, func() { defaultSetHelper().CreateOrUpdateInKubernetes() })
 	InitDefaultEnvVariables()
 

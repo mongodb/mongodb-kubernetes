@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
+
+source scripts/dev/set_env_context
+source scripts/funcs/printing
+
+if [[ -n "${kaniko-}" ]]; then
+    # Pushing contexts for AppDB
+    header "Preparing Kaniko contexts"
+
+    (cd docker/mongodb-enterprise-database && prepare_appdb_build)
+    docker_dir_name="mongodb-enterprise-database" context="appdb" scripts/evergreen/upload_kaniko_context
+
+fi
+
+header "Building AppDB Image (kaniko=${kaniko:-false})"
+scripts/dev/build_push_appdb_image
+
+if [[ -n "${kaniko-}" ]]; then
+    # need to wait for kaniko builds to finish
+    header "Kaniko jobs submitted, waiting until they finish"
+
+    labels=appdb-${IMAGE_TYPE}-${version_id:?} scripts/evergreen/wait_docker_image.sh
+    labels=init-ops-manager-${IMAGE_TYPE}-${version_id} scripts/evergreen/wait_docker_image.sh
+fi
+
+header "Building Init Ops Manager Image"
+scripts/dev/build_push_init_opsmanager_image

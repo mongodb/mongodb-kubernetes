@@ -11,7 +11,7 @@ managedSecurityContext: false
 
 opsmanager:
   name: mongodb-enterprise-ops-manager
-  version: 4.0.2.50187.20180905T1427Z-1
+  version: 4.2.0
   pullPolicy: IfNotPresent
 
 
