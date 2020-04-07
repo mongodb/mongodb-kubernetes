@@ -82,16 +82,18 @@ ensure_ops_manager_k8s() {
 
         echo "Waiting until Statefulset for Ops Manager is running..."
 
-        timeout "1m" bash -c \
-          "while [[ $(kubectl -n "${ops_manager_namespace}" get statefulset mongodb-enterprise-ops-manager -o jsonpath="{.status.currentReplicas}") != 1 ]]; do sleep 1; done"
+        local cmd
+        cmd="while [[ $(kubectl -n "${ops_manager_namespace}" get statefulset mongodb-enterprise-ops-manager -o jsonpath="{.status.currentReplicas}") != 1 ]]; do sleep 1; done"
+        timeout "1m" bash -c "${cmd}" || true
 
         echo "Statefulset is ready, waiting for Ops Manager to start..."
 
         # We can't communicate with Ops Manager if it is inside Kubernetes, so we just
         # wait for this command to succeed.
         # Note, that for OM check for "status.phase==Running" may not work - we need to check the container status
-        timeout "10m" bash -c \
-          "while ! kubectl get pod/mongodb-enterprise-ops-manager-0 -o jsonpath=\"{.status.containerStatuses[0].ready}\" -n ${ops_manager_namespace} | grep -q \"true\"; do sleep 4; done" || true
+        local cmd
+        cmd="while ! kubectl get pod/mongodb-enterprise-ops-manager-0 -o jsonpath=\"{.status.containerStatuses[0].ready}\" -n ${ops_manager_namespace} | grep -q \"true\"; do sleep 4; done"
+        timeout "10m" bash -c "${cmd}" || true
 
         if ! kubectl get pod/mongodb-enterprise-ops-manager-0 -o jsonpath="{.status.containerStatuses[0].ready}" -n "${ops_manager_namespace}" | grep -q "true"; then
             error "Ops Manager hasn't started!"
@@ -100,8 +102,9 @@ ensure_ops_manager_k8s() {
         fi
         echo "Pod is ready, waiting for the admin to get registered..."
 
-        timeout "4m" bash -c \
-           "while ! kubectl -n ${ops_manager_namespace} exec mongodb-enterprise-ops-manager-0 ls \"/opt/mongodb/mms/env/.ops-manager-env\" &>/dev/null; do sleep 2; done" || true
+        local cmd
+        cmd="while ! kubectl -n ${ops_manager_namespace} exec mongodb-enterprise-ops-manager-0 ls \"/opt/mongodb/mms/env/.ops-manager-env\" &>/dev/null; do sleep 2; done"
+        timeout "4m" bash -c "${cmd}" || true
 
         if ! kubectl -n "${ops_manager_namespace}" exec mongodb-enterprise-ops-manager-0 ls "/opt/mongodb/mms/env/.ops-manager-env" &>/dev/null; then
             error "No env file found in Ops Manager!"
@@ -236,11 +239,13 @@ deploy_operator() {
     export OPERATOR_NAME
 
     # Waiting until there is only one pod left as this could be the upgrade operation (very fast in practice)
-    timeout --foreground "1m" bash -c \
-        "while [[ $(kubectl -n "${ns}" get pods -l app=${OPERATOR_NAME}  --no-headers 2>/dev/null | wc -l) -gt 1 ]] ; do printf .; sleep 1; done" || true
+    local cmd
+    cmd="while [[ $(kubectl -n "${ns}" get pods -l app=${OPERATOR_NAME}  --no-headers 2>/dev/null | wc -l) -gt 1 ]] ; do printf .; sleep 1; done"
+    timeout --foreground "1m" bash -c "${cmd}" || true
 
-    timeout --foreground "${timeout}" bash -c \
-        "while ! kubectl -n ${ns} get pods -l app=${OPERATOR_NAME} -o jsonpath={.items[0].status.phase} 2>/dev/null | grep -q Running ; do printf .; sleep 1; done" || true
+    local cmd
+    cmd="while ! kubectl -n ${ns} get pods -l app=${OPERATOR_NAME} -o jsonpath={.items[0].status.phase} 2>/dev/null | grep -q Running ; do printf .; sleep 1; done"
+    timeout --foreground "${timeout}" bash -c "${cmd}" || true
 
     # In the end let's check again and print the state
     if ! kubectl -n "${ns}" get pods -l "app=${OPERATOR_NAME}" -o jsonpath="{.items[0].status.phase}" | grep -q "Running"; then
@@ -257,12 +262,12 @@ deploy_operator() {
 
 # Creates kops cluster and adds the support for dashboard
 create_kops_cluster() {
-    cluster_name="${1}"
-    node_count=${2}
-    node_volume_size=${3}
-    node_size="${4}"
-    master_size="${5}"
-    zones="${6}"
+    local cluster_name="${1}"
+    local node_count=${2}
+    local node_volume_size=${3}
+    local node_size="${4}"
+    local master_size="${5}"
+    local zones="${6}"
 
     title "Creating kops cluster $cluster_name (master: $master_size, nodes: $master_size, zones: $zones)"
 
@@ -286,7 +291,9 @@ create_kops_cluster() {
 
     echo "Waiting until kops cluster gets ready..."
 
-    timeout "20m" bash -c "while ! kops validate cluster ${cluster_name} &>/dev/null ; do printf .; sleep 5; done"
+    local cmd
+    cmd="while ! kops validate cluster ${cluster_name} &>/dev/null ; do printf .; sleep 5; done"
+    timeout "20m" bash -c "${cmd}"
 
     title "Kops cluster ${cluster_name} is ready! Note, that you need to use 'admin' user if you want to ssh to the nodes"
 
