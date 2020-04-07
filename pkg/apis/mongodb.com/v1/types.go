@@ -814,12 +814,6 @@ func newSecurity() *Security {
 	return &Security{TLSConfig: &TLSConfig{}, Authentication: newAuthentication()}
 }
 
-func newSecurityWithSCRAM() *Security {
-	auth := newAuthentication()
-	auth.Modes = append(auth.Modes, util.SCRAM)
-	return &Security{TLSConfig: &TLSConfig{}, Authentication: auth}
-}
-
 func buildConnectionUrl(statefulsetName, serviceName, namespace, userName, password string, spec MongoDbSpec, connectionParams map[string]string) string {
 	if util.ContainsString(spec.Security.Authentication.Modes, util.SCRAM) && (userName == "" || password == "") {
 		panic("Dev error: UserName and Password must be specified if the resource has SCRAM-SHA enabled")

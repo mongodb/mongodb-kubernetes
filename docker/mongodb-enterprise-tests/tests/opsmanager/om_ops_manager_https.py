@@ -105,6 +105,11 @@ def test_om_created(ops_manager: MongoDBOpsManager):
     """Ops Manager is started over plain HTTP."""
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
+    # 'authentication' is not show for applicationDatabase
+    assert (
+        "authentication" not in ops_manager["spec"]["applicationDatabase"]["security"]
+    )
+
     assert ops_manager.om_status().get_url().startswith("http://")
     assert ops_manager.om_status().get_url().endswith(":8080")
 

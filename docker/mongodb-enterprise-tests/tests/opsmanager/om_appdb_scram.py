@@ -46,6 +46,10 @@ class TestOpsManagerCreation:
     def test_admin_config_map(self, ops_manager: MongoDBOpsManager):
         ops_manager.get_automation_config_tester().reached_version(1)
 
+    def test_ops_manager_spec(self, ops_manager: MongoDBOpsManager):
+        """ security (and authentication inside it) are not show in spec """
+        assert "security" not in ops_manager["spec"]["applicationDatabase"]
+
     @skip_if_local
     def test_mongod(self, ops_manager: MongoDBOpsManager):
         mdb_tester = ops_manager.get_appdb_tester()

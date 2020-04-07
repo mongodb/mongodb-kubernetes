@@ -273,18 +273,22 @@ func (m *MongoDBOpsManager) InitDefaultFields() {
 		m.Spec.Backup = newBackup()
 	}
 
-	security := newSecurityWithSCRAM()
-	if m.Spec.AppDB.Security == nil {
-		m.Spec.AppDB.Security = security
-	} else {
-		m.Spec.AppDB.Security.Authentication = security.Authentication
-	}
+	m.Spec.AppDB.Security = ensureSecurityWithSCRAM(m.Spec.AppDB.Security)
 
 	// setting ops manager name, namespace and ClusterDomain for the appdb (transient fields)
 	m.Spec.AppDB.opsManagerName = m.Name
 	m.Spec.AppDB.namespace = m.Namespace
 	m.Spec.AppDB.ClusterDomain = m.Spec.GetClusterDomain()
 	m.Spec.AppDB.ResourceType = ReplicaSet
+}
+
+func ensureSecurityWithSCRAM(specSecurity *Security) *Security {
+	if specSecurity == nil {
+		specSecurity = &Security{TLSConfig: &TLSConfig{}}
+	}
+	// the only allowed authentication is SCRAM - it's implicit to the user and hidden from him
+	specSecurity.Authentication = &Authentication{Modes: []string{util.SCRAM}}
+	return specSecurity
 }
 
 func (m *MongoDBOpsManager) MarshalJSON() ([]byte, error) {
@@ -299,7 +303,9 @@ func (m *MongoDBOpsManager) MarshalJSON() ([]byte, error) {
 		mdb.Spec.Backup = nil
 	}
 
-	if reflect.DeepEqual(m.Spec.AppDB.Security, newSecurityWithSCRAM()) {
+	// We always nullify authentication as it's not configurable by the user
+	mdb.Spec.AppDB.Security.Authentication = nil
+	if reflect.DeepEqual(*mdb.Spec.AppDB.Security.TLSConfig, TLSConfig{}) {
 		mdb.Spec.AppDB.Security = nil
 	}
 
