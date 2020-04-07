@@ -279,21 +279,11 @@ class TestBackupDatabasesAdded:
             "name": blockstore_user.get_user_name()
         }
         ops_manager.update()
-        # As soon as oplog, s3 and blockstores mongodb stores are created Operator will create matching configs in OM and
-        # get to Running state. Note, that the OM may quickly get into error state (BACKUP_MONGO_CONNECTION_FAILED)
-        # as the backup replica sets may not be completely ready but this will get fixed soon after a retry. """
-        try:
-            ops_manager.backup_status().assert_reaches_phase(
-                Phase.Running, timeout=200, ignore_errors=True,
-            )
-        except AssertionError:
-            # some edge case: after the OM gets fully runnning one extra reconciliation happens right away
-            # so the condition "backup == Running -> AppDB == Running" doesn't hold and 'assert_reaches_phase' above
-            # raises an error, we need to wait for the extra reconciliation
-            ops_manager.backup_status().assert_reaches_phase(
-                Phase.Reconciling, timeout=40
-            )
-            ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=40)
+
+        ops_manager.backup_status().assert_reaches_phase(
+            Phase.Running, timeout=200, ignore_errors=True,
+        )
+
         assert ops_manager.backup_status().get_message() is None
 
     @skip_if_local

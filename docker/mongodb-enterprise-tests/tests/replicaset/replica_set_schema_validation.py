@@ -15,6 +15,7 @@ class TestReplicaSetMembersMissing(KubernetesTester):
       exception: 'Unprocessable Entity'
     """
 
+    @pytest.mark.skip
     def test_validation_ok(self):
         assert True
 

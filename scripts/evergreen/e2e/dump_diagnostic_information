@@ -45,7 +45,7 @@ dump_all () {
 
     {
         header "All test/namespace CSR";
-        kubectl get csr -o wide | grep "${PROJECT_NAMESPACE}" ;
+        kubectl get csr -o wide | grep "${PROJECT_NAMESPACE}" || true ;
         echo "Cluster currently has $(kubectl get csr -o name | wc -l) certificates"
     } >> "$dump_file"
 
@@ -57,7 +57,7 @@ dump_all () {
     for pod in $(kubectl get pods -n "${PROJECT_NAMESPACE}" -o name | grep -v "${OPERATOR_NAME:=mongodb-enterprise-operator}"); do
         header "$pod" >> "$dump_file"
         # in general describe produces shorter output than "get -o yaml" and seems it is enough to diagnose the problem
-        kubectl describe "${pod}" -n "${PROJECT_NAMESPACE}"  >> "$dump_file"
+        kubectl describe "${pod}" -n "${PROJECT_NAMESPACE}"  >> "$dump_file" || true
     done
 
     # 2. Pods logs
@@ -66,27 +66,27 @@ dump_all () {
         for pod in $(kubectl get pods -n "${PROJECT_NAMESPACE}"  -o name | cut -d "/" -f 2 | grep -v "operator-"); do
             if kubectl exec ${pod} -n "${PROJECT_NAMESPACE}" -- ls /var/log/mongodb-mms-automation/automation-agent-verbose.log &>/dev/null; then
                 echo "Writing agent and mongodb logs for pod ${pod} to logs"
-                kubectl cp "${PROJECT_NAMESPACE}/${pod}:var/log/mongodb-mms-automation/automation-agent-verbose.log" "logs/${pod}-agent.log" &> /dev/null
-                kubectl cp "${PROJECT_NAMESPACE}/${pod}:var/log/mongodb-mms-automation/mongodb.log" "logs/${pod}-mongodb.log" &> /dev/null
+                kubectl cp "${PROJECT_NAMESPACE}/${pod}:var/log/mongodb-mms-automation/automation-agent-verbose.log" "logs/${pod}-agent.log" &> /dev/null || true
+                kubectl cp "${PROJECT_NAMESPACE}/${pod}:var/log/mongodb-mms-automation/mongodb.log" "logs/${pod}-mongodb.log" &> /dev/null || true
                 # note that this file may get empty if the logs have already grew too much - seems it's better to have it explicitly empty then just omit
-                kubectl logs -n "${PROJECT_NAMESPACE}" "${pod}" | jq -c -r 'select( .logType == "agent-launcher-script") | .contents' > "logs/${pod}-launcher.log"
+                kubectl logs -n "${PROJECT_NAMESPACE}" "${pod}" | jq -c -r 'select( .logType == "agent-launcher-script") | .contents' > "logs/${pod}-launcher.log" || true
             else
                 echo "Writing log file for pod ${pod} to logs/${pod}.log"
-                kubectl logs -n "${PROJECT_NAMESPACE}" "${pod}" > "logs/${pod}.log"
+                kubectl logs -n "${PROJECT_NAMESPACE}" "${pod}" > "logs/${pod}.log" || true
             fi
 
             # kubectl cp won't create any files if the file doesn't exist in the container
             agent_health_status="logs/${pod}-agent-health-status.json"
-            kubectl cp "${PROJECT_NAMESPACE}/${pod}:var/log/mongodb-mms-automation/agent-health-status.json" "${agent_health_status}" &> /dev/null
-            [ -f "${agent_health_status}" ] && jq < "logs/${pod}-agent-health-status.json" > tmpfile && mv tmpfile "${agent_health_status}"
+            kubectl cp "${PROJECT_NAMESPACE}/${pod}:var/log/mongodb-mms-automation/agent-health-status.json" "${agent_health_status}" &> /dev/null || true
+            [ -f "${agent_health_status}" ] && jq < "logs/${pod}-agent-health-status.json" > tmpfile && mv tmpfile "${agent_health_status}" || true
 
             # cluster-config.json is a mounted volume and the actual file is located in the "..data" directory
             pod_cluster_config="logs/${pod}-cluster-config.json"
-            kubectl cp "${PROJECT_NAMESPACE}/${pod}:var/lib/mongodb-automation/..data/cluster-config.json" "${pod_cluster_config}" &> /dev/null
-            [ -f "${pod_cluster_config}" ] && jq < "logs/${pod}-cluster-config.json" > tmpfile && mv tmpfile "${pod_cluster_config}"
+            kubectl cp "${PROJECT_NAMESPACE}/${pod}:var/lib/mongodb-automation/..data/cluster-config.json" "${pod_cluster_config}" &> /dev/null || true
+            [ -f "${pod_cluster_config}" ] && jq < "logs/${pod}-cluster-config.json" > tmpfile && mv tmpfile "${pod_cluster_config}" || true
 
-            kubectl cp "${PROJECT_NAMESPACE}/${pod}:var/log/mongodb-mms-automation/readiness.log" "logs/${pod}-readiness.log" &> /dev/null
-            kubectl cp "${PROJECT_NAMESPACE}/${pod}:data/automation-mongod.conf" "logs/${pod}-automation-mongod.conf" &> /dev/null
+            kubectl cp "${PROJECT_NAMESPACE}/${pod}:var/log/mongodb-mms-automation/readiness.log" "logs/${pod}-readiness.log" &> /dev/null || true
+            kubectl cp "${PROJECT_NAMESPACE}/${pod}:data/automation-mongod.conf" "logs/${pod}-automation-mongod.conf" &> /dev/null || true
             ((i++))
         done
     fi

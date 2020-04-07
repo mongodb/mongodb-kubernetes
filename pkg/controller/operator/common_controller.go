@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -326,39 +327,41 @@ func (c *ReconcileCommonController) updateStatusFailed(resource Updatable, msg s
 	return retry()
 }
 
-// if the resource is updated externally during an update, it's possible that we get concurrent modification errors
-// when trying to update.
-// E.g: "Operation cannot be fulfilled on mongodbstandalones.mongodb.com : the object has
-// been modified; please apply your changes to the latest version and try again" error - so let's fetch the latest
-// object before updating it.
 // We fetch a fresh version in case any modifications have been made.
 // Note, that this method enforces update ONLY to the status, so the reconciliation events happening because of this
 // can be filtered out by 'controller.shouldReconcile'
+// The "jsonPatch" merge allows to update only status field
 func (c *ReconcileCommonController) updateStatus(reconciledResource Updatable, statusUpdateFunc func(fresh Updatable)) error {
-	// Avoid mutation of the current local resource being reconciled ('reconciledResource')
-	// freshObject will be updated by `c.client.Get`
 	freshObject := reconciledResource.DeepCopyObject().(Updatable)
-	for i := 0; i < 3; i++ {
-		err := c.client.Get(context.TODO(), objectKeyFromApiObject(freshObject), freshObject)
-		if err != nil {
-			return err
-		}
-
-		// updating the status only of the K8s object
-		statusUpdateFunc(freshObject)
-		err = c.client.Update(context.TODO(), freshObject)
-		if err == nil {
-			return nil
-		}
-		// we want to try again if there's a conflict, possible concurrent modification
-		if apiErrors.IsConflict(err) {
-			time.Sleep(500 * time.Millisecond)
-			continue
-		}
-		// otherwise we've got a different error
+	err := c.client.Get(context.TODO(), objectKeyFromApiObject(freshObject), freshObject)
+	if err != nil {
 		return err
 	}
-	return fmt.Errorf("the resource is experiencing some intensive concurrent modifications")
+
+	// updating the status only of the K8s object
+	// TODO the function will be removed soon
+	statusUpdateFunc(freshObject)
+
+	type patchValue struct {
+		Op    string      `json:"op"`
+		Path  string      `json:"path"`
+		Value interface{} `json:"value"`
+	}
+	payload := []patchValue{{
+		Op:    "replace",
+		Path:  "/status",
+		Value: freshObject.GetStatus(),
+	}}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	patch := client.ConstantPatch(types.JSONPatchType, data)
+	err = c.client.Status().Patch(context.TODO(), freshObject, patch)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // shouldReconcile checks if the resource must be reconciled.

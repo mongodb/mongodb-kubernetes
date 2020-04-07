@@ -229,7 +229,11 @@ deploy_operator() {
         echo "Configuring imagePullSecrets to ${ecr_registry_needs_auth}"
         helm_params+=("--set" "registry.imagePullSecrets=${ecr_registry_needs_auth}")
     fi
-    REVISION="${version}" helm template public/helm_chart "${helm_params[@]}"> "${tmp_file}"
+
+    chart_path="public/helm_chart"
+    # this script may be run from public github repo - there's no "public" folder
+    [[ -d "helm_chart" ]] && chart_path="helm_chart"
+    REVISION="${version}" helm template "${chart_path}" "${helm_params[@]}"> "${tmp_file}"
 
     echo "Deploying Operator"
     kubectl apply -f "${tmp_file}"

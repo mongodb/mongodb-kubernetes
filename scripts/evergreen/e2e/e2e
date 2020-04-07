@@ -9,28 +9,14 @@ if [[ -n "${KUBECONFIG}" && ! -f "${KUBECONFIG}" ]]; then
     exit 1
 fi
 
-set -uo pipefail
+set -euo pipefail
 cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)" || exit 1
 
 source scripts/funcs/checks
 source scripts/funcs/kubernetes
 source scripts/funcs/printing
 source scripts/evergreen/e2e/dump_diagnostic_information
-
-# Finds the exec_timeout_secs for this task in Evergreen. If it can't find it, will return the general
-# exec_timeout_secs attribute set in top-level evergreen.yaml.
-get_timeout_for_task () {
-    local task_name=${1}
-
-    local exec_timeout
-    # OMG: really???
-    exec_timeout=$(grep "name: ${task_name}$" .evergreen.yml -A 3 | grep exec_timeout_secs | awk '{ print $2 }')
-    if [[ $exec_timeout = "" ]]; then
-        exec_timeout=$(grep "^exec_timeout_secs:" .evergreen.yml | head -1 | awk '{ print $2 }')
-    fi
-
-    echo "$exec_timeout"
-}
+source scripts/evergreen/e2e/lib
 
 # Externally Configured Ops Manager (Cloud Manager)
 # shellcheck source=~/.operator-dev/om
@@ -44,15 +30,6 @@ test -f "${OPS_MANAGER_ENV:-}" && source "${OPS_MANAGER_ENV}"
 # it should be moved to e2e tests themselves (TODO)
 #
 check_env_var "TASK_NAME" "The 'TASK_NAME' must be specified for the Operator e2e tests"
-
-# Returns a random string that can be used as a namespace.
-generate_random_namespace() {
-    local random_namespace
-    random_namespace=$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 20)
-    local doy
-    doy=$(date +'%j')
-    echo "a-${doy}-${random_namespace}z"
-}
 
 # 1. Ensure the namespace exists - generate its name if not specified
 
@@ -80,6 +57,12 @@ if echo "${TASK_NAME}" | grep -E -q "^e2e_op_upgrade"; then
     export TEST_NAME="${TASK_NAME}_first"
     header "Performing the first stage (${TEST_NAME}) of an Operator upgrade test"
 
+    # We need to checkout the latest (or a specific) release in a separate directory and install
+    # Operator from there
+    tmp_dir=$(mktemp -d)
+    pushd $tmp_dir || return
+
+    checkout_latest_official_branch
 
     # TODO add support for quay.io UBI images as well
     # FIXME: Registry overridden for ugrade (operator, ops manager, init ops
@@ -87,7 +70,7 @@ if echo "${TASK_NAME}" | grep -E -q "^e2e_op_upgrade"; then
     # FIXME: once quay has init images will be updated
     # If the version of the Operator to upgrade from not specified then we
     # assume it's the latest
-    deploy_operator \
+    if ! deploy_operator \
         "quay.io/mongodb" \
         "quay.io/mongodb" \
         "${INIT_OPS_MANAGER_REGISTRY}" \
@@ -97,6 +80,15 @@ if echo "${TASK_NAME}" | grep -E -q "^e2e_op_upgrade"; then
         "Always" \
         "${MANAGED_SECURITY_CONTEXT:-}" \
         "2m"
+    then
+        echo "Operator failed to start"
+        exit 1
+    fi
+
+    rm -rf ${tmp_dir}
+    popd > /dev/null || return
+
+    # Running test
     if ! ./scripts/evergreen/e2e/single_e2e; then
         dump_all
         scripts/evergreen/e2e/teardown
@@ -141,8 +133,7 @@ task_timeout=$(get_timeout_for_task "${TASK_NAME:?}")
 
 timeout_sec=$((task_timeout - elapsed_time - 60))
 echo "This task is allowed to run for ${timeout_sec} seconds"
-timeout --foreground "${timeout_sec}" scripts/evergreen/e2e/single_e2e
-TEST_RESULTS=$?
+timeout --foreground "${timeout_sec}" scripts/evergreen/e2e/single_e2e || TEST_RESULTS=$?
 
 # Dump all the information we can from this namespace
 dump_all

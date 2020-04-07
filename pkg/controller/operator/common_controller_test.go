@@ -12,15 +12,12 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
-	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -201,32 +198,28 @@ func TestPrepareOmConnection_ConfigMapAndSecretWatched(t *testing.T) {
 	assert.Equal(t, expected, reconciler.watchedResources)
 }
 
-// TestResourcesAreUpdated_AfterConflictErrors makes sure that even after a conflict error
-// the resource eventually gets updated
-func TestResourcesAreUpdated_AfterConflictErrors(t *testing.T) {
+// TestUpdateStatus_Patched makes sure that 'ReconcileCommonController.updateStatus()' changes only status for current
+// object in Kubernetes and leaves spec unchanged
+func TestUpdateStatus_Patched(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().Build()
-	mockedClient := newMockedClient().WithResource(rs)
-
-	mockedClient.UpdateFunc = func(ctx context.Context, obj apiruntime.Object) error {
-		mockedClient.UpdateFunc = nil // don't return another error
-		return apiErrors.NewConflict(schema.GroupResource{}, "foo", errors.New("Conflict error!"))
-	}
-
-	manager := newMockedManagerSpecificClient(mockedClient)
+	manager := newMockedManager(rs)
 	controller := newReconcileCommonController(manager, om.NewEmptyMockedOmConnection)
+	reconciledObject := rs.DeepCopy()
+	// The current reconciled object "has diverged" from the one in API server
+	reconciledObject.Spec.Version = "10.0.0"
+	updateFunc := func(fresh Updatable) {
+		fresh.UpdatePending(reconciledObject, "Waiting for statefulset...")
+	}
+	assert.NoError(t, controller.updateStatus(reconciledObject, updateFunc))
 
-	controller.updateStatus(rs, func(updatable Updatable) {
-		toChange := updatable.(*mdbv1.MongoDB)
-		status := &toChange.Status
-		status.Version = "new-version"
-		status.Phase = mdbv1.PhaseRunning
-	})
+	// Verifying that the resource in API server still has correct spec
+	currentRs := mdbv1.MongoDB{}
+	assert.NoError(t, manager.client.Get(context.Background(), rs.ObjectKey(), &currentRs))
 
-	rsInKubernetes := mdbv1.MongoDB{}
-	_ = mockedClient.Get(context.TODO(), objectKey(rs.Namespace, rs.Name), &rsInKubernetes)
-	assert.Equal(t, mdbv1.PhaseRunning, rsInKubernetes.Status.Phase, "The phase should have been updated even after one failure")
-	assert.Equal(t, "new-version", rsInKubernetes.Status.Version, "The version should have been updated even after one failure")
-	mockedClient.CheckNumberOfOperations(t, HItem(reflect.ValueOf(mockedClient.Update), rs), 2)
+	// The spec hasn't changed - only status
+	assert.Equal(t, rs.Spec, currentRs.Spec)
+	assert.Equal(t, mdbv1.PhasePending, currentRs.Status.Phase)
+	assert.Equal(t, "Waiting for statefulset...", currentRs.Status.Message)
 }
 
 func TestShouldReconcile_DoesNotReconcileOnStatusOnlyChange(t *testing.T) {

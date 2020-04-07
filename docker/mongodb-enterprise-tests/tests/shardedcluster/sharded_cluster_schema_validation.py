@@ -12,6 +12,7 @@ class TestShardedClusterValidationMongosMissing(KubernetesTester):
       exception: 'Unprocessable Entity'
     """
 
+    @pytest.mark.skip
     def test_validation_ok(self):
         assert True
 
@@ -26,6 +27,7 @@ class TestShardedClusterValidationShardCountMissing(KubernetesTester):
       exception: 'Unprocessable Entity'
     """
 
+    @pytest.mark.skip
     def test_validation_ok(self):
         assert True
 
@@ -40,6 +42,7 @@ class TestShardedClusterValidationConfigServerCount(KubernetesTester):
       exception: 'Unprocessable Entity'
     """
 
+    @pytest.mark.skip
     def test_validation_ok(self):
         assert True
 
@@ -54,6 +57,7 @@ class TestShardedClusterValidationMongoDsPerShard(KubernetesTester):
       exception: 'Unprocessable Entity'
     """
 
+    @pytest.mark.skip
     def test_validation_ok(self):
         assert True
 

@@ -2,11 +2,13 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"runtime"
 	"testing"
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
+	jsonpatch "github.com/evanphx/json-patch"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -224,6 +226,39 @@ func (k *MockedClient) DeleteAllOf(ctx context.Context, obj apiruntime.Object, o
 }
 
 func (k *MockedClient) Patch(ctx context.Context, obj apiruntime.Object, patch client.Patch, opts ...client.PatchOption) error {
+	// Finding the object to patch
+	resMap := k.getMapForObject(obj)
+	k.addToHistory(reflect.ValueOf(k.Patch), obj)
+	key := objectKeyFromApiObject(obj)
+	if _, exists := resMap[key]; !exists {
+		return &errors.StatusError{ErrStatus: metav1.Status{Reason: metav1.StatusReasonNotFound}}
+	}
+	targetObject := resMap[key]
+
+	// Performing patch (serializing to bytes and then deserializing the result back)
+	patchBytes, err := patch.Data(nil)
+	if err != nil {
+		return err
+	}
+	var jsonPatch jsonpatch.Patch
+	jsonPatch, err = jsonpatch.DecodePatch(patchBytes)
+	if err != nil {
+		return err
+	}
+
+	var jsonObject []byte
+	jsonObject, err = json.Marshal(targetObject)
+	if err != nil {
+		return err
+	}
+	jsonObject, err = jsonPatch.Apply(jsonObject)
+	if err != nil {
+		return err
+	}
+
+	if err = json.Unmarshal(jsonObject, targetObject); err != nil {
+		return err
+	}
 	return nil
 }
 

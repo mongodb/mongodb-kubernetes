@@ -106,9 +106,7 @@ class MongoDB(CustomObject, MongoDBCommon):
     def __repr__(self):
         # FIX: this should be __unicode__
         return "MongoDB ({})| status: {}| message: {}".format(
-            self.name,
-            self["status"].get("phase", ""),
-            self["status"].get("message", ""),
+            self.name, self.get_status_phase(), self.get_status_message()
         )
 
     def configure(self, om, project_name: str):
