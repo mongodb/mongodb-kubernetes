@@ -83,7 +83,7 @@ ensure_ops_manager_k8s() {
         echo "Waiting until Statefulset for Ops Manager is running..."
 
         local cmd
-        cmd="while [[ $(kubectl -n "${ops_manager_namespace}" get statefulset mongodb-enterprise-ops-manager -o jsonpath="{.status.currentReplicas}") != 1 ]]; do sleep 1; done"
+        cmd='while [[ $(kubectl -n '${ops_manager_namespace}' get statefulset mongodb-enterprise-ops-manager -o jsonpath="{.status.currentReplicas}") != "1" ]]; do sleep 1; done'
         timeout "1m" bash -c "${cmd}" || true
 
         echo "Statefulset is ready, waiting for Ops Manager to start..."
@@ -233,7 +233,7 @@ deploy_operator() {
     chart_path="public/helm_chart"
     # this script may be run from public github repo - there's no "public" folder
     [[ -d "helm_chart" ]] && chart_path="helm_chart"
-    REVISION="${version}" helm template "${chart_path}" "${helm_params[@]}"> "${tmp_file}"
+    helm template "${chart_path}" "${helm_params[@]}"> "${tmp_file}"
 
     echo "Deploying Operator"
     kubectl apply -f "${tmp_file}"
@@ -242,12 +242,12 @@ deploy_operator() {
     echo "Waiting until the Operator gets to Running state..."
     export OPERATOR_NAME
 
-    # Waiting until there is only one pod left as this could be the upgrade operation (very fast in practice)
     local cmd
-    cmd="while [[ $(kubectl -n "${ns}" get pods -l app=${OPERATOR_NAME}  --no-headers 2>/dev/null | wc -l) -gt 1 ]] ; do printf .; sleep 1; done"
+
+    # Waiting until there is only one pod left as this could be the upgrade operation (very fast in practice)
+    cmd='while [[ $(kubectl -n '"${ns}"' get pods -l app=${OPERATOR_NAME}  --no-headers 2>/dev/null | wc -l) -gt 1 ]] ; do printf .; sleep 1; done'
     timeout --foreground "1m" bash -c "${cmd}" || true
 
-    local cmd
     cmd="while ! kubectl -n ${ns} get pods -l app=${OPERATOR_NAME} -o jsonpath={.items[0].status.phase} 2>/dev/null | grep -q Running ; do printf .; sleep 1; done"
     timeout --foreground "${timeout}" bash -c "${cmd}" || true
 

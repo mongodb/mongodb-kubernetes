@@ -48,7 +48,7 @@ if [[ -z "${IN_MEMORY_CONTEXT-}" ]]; then
     export LOCAL_RUN=true
     # version_id is similar to version_id from Evergreen. Used to differentiate different builds. Can be constant
     # for local run
-    export version_id=$USER
+    export version_id="latest"
     # TODO: find a better way to do that
     export init_om_version="latest"
 

@@ -19,6 +19,7 @@ variables:
   - &cloud_manager_qa
     ops_manager_version: "cloud_qa"
 
+
     # Openshift v4 Testing Environment
   - &kubernetes_environment_openshift_4
     kube_environment_name: openshift_4
@@ -1429,6 +1430,7 @@ tasks:
     - func: e2e_test
 
 - name: build_and_push_ops_manager_ubuntu
+  patch_only: true
   commands:
     - func: clone
     - func: setup_jq
@@ -1443,6 +1445,7 @@ tasks:
         CLUSTER_TYPE: "kops"
 
 - name: build_and_push_ops_manager_ubi
+  patch_only: true
   commands:
     - func: clone
     - func: setup_jq
@@ -1984,6 +1987,7 @@ buildvariants:
 
 # build OpsManager: to be launched independently of the operator build process
 - name: build_and_push_ops_manager_images
+  display_name: build_and_push_ops_manager_images
   run_on:
   - ubuntu1604-build
   tasks:

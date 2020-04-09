@@ -116,7 +116,7 @@ log:
 # Use 'light=true' parameter to skip Operator rebuilding - use this mode when you are focused on e2e tests development only
 # Note, that this may be not perfectly the same what is done in evergreen e2e tests as the OM instance may be external
 # (in Evergreen)
-e2e: build-and-push-test-image
+e2e: build-and-push-test-image om-init-image
 	@ if [[ -z "$(skip)" ]]; then \
 		$(MAKE) reset; \
 	fi

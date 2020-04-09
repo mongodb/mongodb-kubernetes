@@ -16,15 +16,6 @@ check_env_var "TEST_NAME" "The 'TEST_NAME' must be specified to run the Operator
 deploy_test_app() {
     title "Deploying test application"
 
-    GIT_SHA=$(git rev-parse HEAD)
-
-    # If running in evergreen, prefer the VERSION_ID to avoid GIT_SHA collisions
-    # when people is building images from same commit.
-
-    # evg tests will use version_id, local tests use current git sha
-    # passing TEST_IMAGE_TAG always overrides these values
-    default_test_image_tag="${version_id:-$GIT_SHA}"
-
     helm_template_file=$(mktemp)
     BUNDLED_APP_DB_VERSION="$(jq --raw-output .appDbBundle.mongodbVersion < release.json)"
     # apply the correct configuration of the running OM instance
@@ -36,7 +27,7 @@ deploy_test_app() {
         "--set" "pytest.addopts=${pytest_addopts:-}"
         "--set" "operator.name=${OPERATOR_NAME:-mongodb-enterprise-operator}"
         "--set" "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"
-        "--set" "tag=${TEST_IMAGE_TAG:-$default_test_image_tag}"
+        "--set" "tag=${version_id:-$latest}"
         "--set" "aws.accessKey=${AWS_ACCESS_KEY_ID-}"
         "--set" "aws.secretAccessKey=${AWS_SECRET_ACCESS_KEY:-}"
         "--set" "skipExecution=${SKIP_EXECUTION:-'false'}"
