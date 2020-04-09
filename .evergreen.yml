@@ -1379,6 +1379,12 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_om_ops_manager_backup_tls
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: e2e_test
+
 - name: e2e_om_ops_manager_scale
   tags: ["patch-run"]
   exec_timeout_secs: 2800
@@ -1691,6 +1697,7 @@ task_groups:
     - e2e_om_appdb_scram
     - e2e_om_ops_manager_backup
     - e2e_om_ops_manager_backup_light
+    - e2e_om_ops_manager_backup_tls
     - e2e_om_ops_manager_pod_spec
     - e2e_om_ops_manager_https_enabled
     - e2e_om_ops_manager_scale

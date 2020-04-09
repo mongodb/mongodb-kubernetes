@@ -1,11 +1,9 @@
-from pytest import fixture, mark
-
 import time
-
+from kubetester.certs import Certificate, create_tls_certs
 from kubetester.kubetester import KubernetesTester, fixture as _fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.opsmanager import MongoDBOpsManager
-from kubetester.certs import Certificate, Issuer
+from pytest import fixture, mark
 
 
 @fixture("module")
@@ -13,37 +11,9 @@ def domain(namespace: str):
     return "om-with-https-svc.{}.svc.cluster.local".format(namespace)
 
 
-def generate_cert(namespace, pod, pod_dns, issuer):
-    cert = Certificate(namespace=namespace, name=pod)
-    cert["spec"] = {
-        "dnsNames": [pod, pod_dns],
-        "secretName": pod,
-        "issuerRef": {"name": issuer},
-        "duration": "240h",
-        "renewBefore": "120h",
-        "usages": ["server auth", "client auth"],
-    }
-    return cert.create().block_until_ready()
-
-
 @fixture("module")
-def appdb_certs(namespace: str, issuer):
-    resource_name = "om-with-https-db"
-    pod_fqdn_fstring = "{resource_name}-{index}.{resource_name}-svc.{namespace}.svc.cluster.local".format(
-        resource_name=resource_name, namespace=namespace, index="{}",
-    )
-
-    data = {}
-    for idx in range(3):
-        pod_dns = pod_fqdn_fstring.format(idx)
-        pod_name = f"{resource_name}-{idx}"
-        cert = generate_cert(namespace, pod_name, pod_dns, issuer)
-        secret = KubernetesTester.read_secret(namespace, pod_name)
-        data[pod_name + "-pem"] = secret["tls.key"] + secret["tls.crt"]
-
-    KubernetesTester.create_secret(namespace, "certs-for-appdb", data)
-
-    return "certs-for-appdb"
+def appdb_certs(namespace: str, issuer: str):
+    return create_tls_certs(issuer, namespace, "om-with-https-db", "certs-for-appdb")
 
 
 @fixture("module")

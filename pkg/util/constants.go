@@ -209,9 +209,9 @@ const (
 	// SecretVolumeName is the name of the volume resource.
 	SecretVolumeName = "secret-certs"
 
-	// ConfigMapVolumeCAMountPath defines where in the Pod will be the secrets
-	// object mounted.
-	ConfigMapVolumeCAMountPath = "/var/lib/mongodb-automation/secrets/ca"
+	// ConfigMapVolumeCAMountPath defines where CA root certs will be
+	// mounted in the pod
+	ConfigMapVolumeCAMountPath = SecretVolumeMountPath + "/ca"
 
 	// Ops Manager authentication constants
 	OpsManagerMongoDBUserName = "mongodb-ops-manager"

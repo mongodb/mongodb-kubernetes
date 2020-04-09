@@ -184,13 +184,6 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulset(opsManager mdbv1.Mong
 	if opsManager.Annotations != nil {
 		helper.SetAnnotations(opsManager.Annotations)
 	}
-	if opsManager.Spec.Security.TLS.SecretRef.Name != "" {
-		helper.SetHTTPSCertSecretName(opsManager.Spec.Security.TLS.SecretRef.Name)
-	}
-	if opsManager.Spec.AppDB.Security.TLSConfig.CA != "" {
-		// CA needs to be mounted into OM Pod for the AppDB to be verified.
-		helper.SetAppDBTLSCAConfigMapName(opsManager.Spec.AppDB.Security.TLSConfig.CA)
-	}
 	if err := helper.CreateOrUpdateInKubernetes(); err != nil {
 		return failedErr(err)
 	}

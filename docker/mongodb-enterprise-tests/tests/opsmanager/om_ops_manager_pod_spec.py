@@ -162,6 +162,7 @@ class TestOpsManagerCreation:
 @mark.e2e_om_ops_manager_pod_spec
 class TestOpsManagerUpdate:
     def test_om_updated(self, ops_manager: MongoDBOpsManager):
+        ops_manager.load()
         # adding annotations
         ops_manager["spec"]["applicationDatabase"]["podSpec"]["podTemplate"][
             "metadata"
@@ -177,8 +178,6 @@ class TestOpsManagerUpdate:
         ops_manager["spec"]["backup"]["podSpec"]["podTemplate"]["spec"][
             "terminationGracePeriodSeconds"
         ] = 10
-
-        print(ops_manager["spec"])
 
         ops_manager.update()
         ops_manager.om_status().assert_abandons_phase(Phase.Running)

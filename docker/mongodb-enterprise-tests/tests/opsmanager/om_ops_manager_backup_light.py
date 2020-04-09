@@ -34,7 +34,6 @@ def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
 
 
 @fixture(scope="module")
-# def ops_manager(namespace) -> MongoDBOpsManager:
 def ops_manager(namespace, s3_bucket) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_backup_light.yaml"), namespace=namespace

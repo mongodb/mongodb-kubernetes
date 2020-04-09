@@ -31,8 +31,8 @@ const (
 	// the same topology key
 	PodAntiAffinityLabelKey = "pod-anti-affinity"
 
-	// SecretVolumeCAName is the name of the volume resource.
-	SecretVolumeCAName = "secret-ca"
+	// ConfigMapVolumeCAName is the name of the volume used to mount CA certs
+	ConfigMapVolumeCAName = "secret-ca"
 
 	// CaCertMountPath defines where in the Pod the ca cert will be mounted.
 	CaCertMountPath = "/mongodb-automation/certs"
@@ -441,6 +441,7 @@ func buildBackupDaemonStatefulSet(p BackupStatefulSetHelper) (appsv1.StatefulSet
 		Value: "backup",
 	})
 	container := buildBackupDaemonContainer(p)
+
 	stsBuilder, err := createBaseOpsManagerStatefulSetBuilder(p.OpsManagerStatefulSetHelper, container)
 	if err != nil {
 		return appsv1.StatefulSet{}, err
@@ -540,20 +541,17 @@ func mountVolumes(stsBuilder *statefulset.Builder, helper StatefulSetHelper) *st
 			tlsConfig := helper.Security.TLSConfig
 
 			var secretName string
-			var mountPath string
 			if helper.Security.TLSConfig.SecretRef.Name != "" {
 				// From this location, the certificates will be used inplace
 				secretName = helper.Security.TLSConfig.SecretRef.Name
-				mountPath = util.SecretVolumeMountPath
 			} else {
 				// In this location the certificates will be linked -s into server.pem
 				secretName = fmt.Sprintf("%s-cert", helper.Name)
-				mountPath = util.SecretVolumeMountPath + "/certs"
 			}
 
 			stsBuilder.AddVolumeAndMount(
 				statefulset.VolumeMountData{
-					MountPath: mountPath,
+					MountPath: util.SecretVolumeMountPath + "/certs",
 					Name:      util.SecretVolumeName,
 					ReadOnly:  true,
 					Volume:    statefulset.CreateVolumeFromSecret(util.SecretVolumeName, secretName),
@@ -565,9 +563,9 @@ func mountVolumes(stsBuilder *statefulset.Builder, helper StatefulSetHelper) *st
 				stsBuilder.AddVolumeAndMount(
 					statefulset.VolumeMountData{
 						MountPath: util.ConfigMapVolumeCAMountPath,
-						Name:      SecretVolumeCAName,
+						Name:      ConfigMapVolumeCAName,
 						ReadOnly:  true,
-						Volume:    statefulset.CreateVolumeFromConfigMap(SecretVolumeCAName, tlsConfig.CA),
+						Volume:    statefulset.CreateVolumeFromConfigMap(ConfigMapVolumeCAName, tlsConfig.CA),
 					},
 					helper.ContainerName,
 				)

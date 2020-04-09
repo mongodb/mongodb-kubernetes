@@ -23,7 +23,7 @@ func NewMongodProcessAppDB(name, hostName string, resource mdbv1.AppDB) Process 
 	initDefault(name, hostName, resource.GetVersion(), resource.FeatureCompatibilityVersion, ProcessTypeMongod, p)
 
 	if resource.Security != nil && resource.Security.TLSConfig != nil && resource.Security.TLSConfig.SecretRef.Name != "" {
-		certFile := fmt.Sprintf("%s/%s-pem", util.SecretVolumeMountPath, name)
+		certFile := fmt.Sprintf("%s/certs/%s-pem", util.SecretVolumeMountPath, name)
 
 		// Process for AppDB use the mounted cert in-place and are not required for the certs to be
 		// linked into a given location.

@@ -210,6 +210,10 @@ func (k *KubeHelper) NewOpsManagerStatefulSetHelper(opsManager mdbv1.MongoDBOpsM
 	spec.Default = mdbv1.OpsManagerPodSpecDefaultValues()
 
 	_, port := opsManager.GetSchemePort()
+	tlsSecret := ""
+	if opsManager.Spec.Security != nil {
+		tlsSecret = opsManager.Spec.Security.TLS.SecretRef.Name
+	}
 
 	return &OpsManagerStatefulSetHelper{
 		StatefulSetHelperCommon: StatefulSetHelperCommon{
@@ -224,8 +228,10 @@ func (k *KubeHelper) NewOpsManagerStatefulSetHelper(opsManager mdbv1.MongoDBOpsM
 			Service:       opsManager.SvcName(),
 			PodSpec:       spec,
 		},
-		Spec:    opsManager.Spec,
-		EnvVars: opsManagerConfigurationToEnvVars(opsManager),
+		Spec:                    opsManager.Spec,
+		EnvVars:                 opsManagerConfigurationToEnvVars(opsManager),
+		HTTPSCertSecretName:     tlsSecret,
+		AppDBTlsCAConfigMapName: opsManager.Spec.AppDB.Security.TLSConfig.CA,
 	}
 }
 
@@ -397,16 +403,6 @@ func (s *OpsManagerStatefulSetHelper) SetAnnotations(annotations map[string]stri
 	return s
 }
 
-func (s *OpsManagerStatefulSetHelper) SetHTTPSCertSecretName(secretName string) *OpsManagerStatefulSetHelper {
-	s.HTTPSCertSecretName = secretName
-	return s
-}
-
-func (s *OpsManagerStatefulSetHelper) SetAppDBTLSCAConfigMapName(cmName string) *OpsManagerStatefulSetHelper {
-	s.AppDBTlsCAConfigMapName = cmName
-	return s
-}
-
 func (s *BackupStatefulSetHelper) SetHeadDbStorageRequirements(persistenceConfig *mdbv1.PersistenceConfig) *BackupStatefulSetHelper {
 	s.HeadDbPersistenceConfig = persistenceConfig
 	return s
@@ -548,7 +544,7 @@ func (s *StatefulSetHelper) needToPublishStateFirst(log *zap.SugaredLogger) bool
 			return true
 		}
 
-		if s.Security.TLSConfig.CA == "" && volumeMountWithNameExists(volumeMounts, SecretVolumeCAName) {
+		if s.Security.TLSConfig.CA == "" && volumeMountWithNameExists(volumeMounts, ConfigMapVolumeCAName) {
 			log.Debug("About to set `security.tls.CA` to empty. automationConfig needs to be updated first")
 			return true
 		}
@@ -1094,7 +1090,10 @@ func (k *KubeHelper) ensureSSLCertsForStatefulSet(ss *StatefulSetHelper, log *za
 	}
 
 	secretName := ss.Name + "-cert"
-	if ss.Security.TLSConfig.CA != "" {
+	if ss.Security.TLSConfig.IsSelfManaged() {
+		if ss.Security.TLSConfig.SecretRef.Name != "" {
+			secretName = ss.Security.TLSConfig.SecretRef.Name
+		}
 		return ss.validateSelfManagedSSLCertsForStatefulSet(k, secretName)
 	}
 	return ss.ensureOperatorManagedSSLCertsForStatefulSet(k, secretName, log)

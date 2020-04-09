@@ -2,7 +2,7 @@ import random
 import ssl
 import string
 import threading
-from typing import List
+from typing import List, Optional
 
 import pymongo
 import time
@@ -19,7 +19,13 @@ class MongoTester:
     """ MongoTester is a general abstraction to work with mongo database. It incapsulates the client created in
     the constructor. All general methods non-specific to types of mongodb topologies should reside here. """
 
-    def __init__(self, connection_string: str, use_ssl: bool, insecure=True):
+    def __init__(
+        self,
+        connection_string: str,
+        use_ssl: bool,
+        insecure=True,
+        ca_path: Optional[str] = None,
+    ):
         # SSL is set to true by default if using mongodb+srv, it needs to be explicitely set to false
         # https://docs.mongodb.com/manual/reference/program/mongo/index.html#cmdoption-mongo-host
         options = {"ssl": use_ssl}
@@ -28,7 +34,9 @@ class MongoTester:
             if insecure:
                 options["ssl_cert_reqs"] = ssl.CERT_NONE
             else:
-                options["ssl_ca_certs"] = kubetester.SSL_CA_CERT
+                options["ssl_ca_certs"] = (
+                    kubetester.SSL_CA_CERT if ca_path is None else ca_path
+                )
 
         self.cnx_string = connection_string
         self.client = pymongo.MongoClient(connection_string, **options)
@@ -165,11 +173,18 @@ class MongoTester:
 
 
 class StandaloneTester(MongoTester):
-    def __init__(self, mdb_resource_name: str, ssl: bool = False, srv: bool = False):
+    def __init__(
+        self,
+        mdb_resource_name: str,
+        ssl: bool = False,
+        srv: bool = False,
+        insecure=True,
+        ca_path: Optional[str] = None,
+    ):
         self.cnx_string = build_mongodb_connection_uri(
             mdb_resource_name, KubernetesTester.get_namespace(), 1
         )
-        super().__init__(self.cnx_string, ssl)
+        super().__init__(self.cnx_string, ssl, insecure, ca_path)
 
 
 class ReplicaSetTester(MongoTester):
@@ -179,6 +194,8 @@ class ReplicaSetTester(MongoTester):
         replicas_count: int,
         ssl: bool = False,
         srv: bool = False,
+        insecure=True,
+        ca_path: Optional[str] = None,
     ):
         self.replicas_count = replicas_count
 
@@ -190,7 +207,7 @@ class ReplicaSetTester(MongoTester):
             srv=srv,
         )
 
-        super().__init__(self.cnx_string, ssl)
+        super().__init__(self.cnx_string, ssl, insecure, ca_path)
 
     def assert_connectivity(
         self, wait_for=60, check_every=5, with_srv=False, attempts: int = 5
@@ -218,14 +235,20 @@ class ShardedClusterTester(MongoTester):
         mongos_count: int,
         ssl: bool = False,
         srv: bool = False,
+        insecure=True,
+        ca_path: Optional[str] = None,
     ):
         mdb_name = mdb_resource_name + "-mongos"
         servicename = mdb_resource_name + "-svc"
 
         self.cnx_string = build_mongodb_connection_uri(
-            mdb_name, KubernetesTester.get_namespace(), mongos_count, servicename
+            mdb_name,
+            KubernetesTester.get_namespace(),
+            mongos_count,
+            servicename,
+            srv=srv,
         )
-        super().__init__(self.cnx_string, ssl)
+        super().__init__(self.cnx_string, ssl, insecure, ca_path)
 
     def shard_collection(
         self, shards_pattern, shards_count, key, test_collection=TEST_COLLECTION

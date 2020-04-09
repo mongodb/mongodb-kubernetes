@@ -1,0 +1,162 @@
+from pytest import mark, fixture
+
+from kubetester import MongoDB
+from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
+from kubetester.mongodb import Phase
+from kubetester.opsmanager import MongoDBOpsManager
+from tests.opsmanager.om_ops_manager_backup import (
+    OPLOG_RS_NAME,
+    BLOCKSTORE_RS_NAME,
+    new_om_data_store,
+)
+from tests.opsmanager.om_ops_manager_https import create_tls_certs
+
+CA_PEM_FILE_PATH = "/var/run/secrets/ca-pem"
+
+"""
+This test checks the work with TLS-enabled backing databases (oplog & blockstore)
+"""
+
+
+@fixture("module")
+def appdb_certs_secret(namespace: str, issuer: str):
+    return create_tls_certs(issuer, namespace, "om-backup-tls-db", "certs-for-appdb")
+
+
+@fixture("module")
+def oplog_certs_secret(namespace: str, issuer: str):
+    return create_tls_certs(issuer, namespace, OPLOG_RS_NAME, "certs-for-oplog")
+
+
+@fixture("module")
+def blockstore_certs_secret(namespace: str, issuer: str):
+    return create_tls_certs(
+        issuer, namespace, BLOCKSTORE_RS_NAME, "certs-for-blockstore"
+    )
+
+
+@fixture(scope="module")
+def ops_manager(
+    namespace, issuer_ca_configmap: str, appdb_certs_secret: str
+) -> MongoDBOpsManager:
+    resource = MongoDBOpsManager.from_yaml(
+        yaml_fixture("om_ops_manager_backup_tls.yaml"), namespace=namespace
+    )
+
+    return resource.create()
+
+
+@fixture(scope="module")
+def oplog_replica_set(
+    ops_manager, issuer_ca_configmap: str, oplog_certs_secret: str
+) -> MongoDB:
+    resource = MongoDB.from_yaml(
+        yaml_fixture("replica-set-for-om.yaml"),
+        namespace=ops_manager.namespace,
+        name=OPLOG_RS_NAME,
+    ).configure(ops_manager, "development")
+    resource.configure_custom_tls(issuer_ca_configmap, oplog_certs_secret)
+
+    return resource.create()
+
+
+@fixture(scope="module")
+def blockstore_replica_set(
+    ops_manager, issuer_ca_configmap: str, blockstore_certs_secret: str
+) -> MongoDB:
+    resource = MongoDB.from_yaml(
+        yaml_fixture("replica-set-for-om.yaml"),
+        namespace=ops_manager.namespace,
+        name=BLOCKSTORE_RS_NAME,
+    ).configure(ops_manager, "blockstore")
+    resource.configure_custom_tls(issuer_ca_configmap, blockstore_certs_secret)
+
+    return resource.create()
+
+
+@mark.e2e_om_ops_manager_backup_tls
+class TestOpsManagerCreation:
+    def test_create_om(self, ops_manager: MongoDBOpsManager):
+        ops_manager.backup_status().assert_reaches_phase(
+            Phase.Pending,
+            msg_regexp="The MongoDB object .+ doesn't exist",
+            timeout=900,
+        )
+
+    def test_backing_dbs_created(
+        self, oplog_replica_set: MongoDB, blockstore_replica_set: MongoDB
+    ):
+        oplog_replica_set.assert_reaches_phase(Phase.Running)
+        blockstore_replica_set.assert_reaches_phase(Phase.Running)
+
+    def test_oplog_running(self, oplog_replica_set: MongoDB, issuer_ca_configmap: str):
+        # Write the CA from ConfigMap to local file to test connectivity to database
+        ca = KubernetesTester.read_configmap(
+            oplog_replica_set.namespace, issuer_ca_configmap
+        )["ca-pem"]
+        with open(CA_PEM_FILE_PATH, "w") as f:
+            f.write(ca)
+
+        oplog_replica_set.assert_connectivity(insecure=False, ca_path=CA_PEM_FILE_PATH)
+
+    def test_blockstore_running(self, blockstore_replica_set: MongoDB):
+        blockstore_replica_set.assert_connectivity(
+            insecure=False, ca_path=CA_PEM_FILE_PATH
+        )
+
+    def test_om_is_running(
+        self,
+        ops_manager: MongoDBOpsManager,
+        oplog_replica_set: MongoDB,
+        blockstore_replica_set: MongoDB,
+    ):
+        ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=200)
+        om_tester = ops_manager.get_om_tester()
+        om_tester.assert_healthiness()
+        om_tester.assert_oplog_stores([new_om_data_store(oplog_replica_set, "oplog1")])
+        om_tester.assert_block_stores(
+            [new_om_data_store(blockstore_replica_set, "blockStore1")]
+        )
+
+
+@mark.e2e_om_ops_manager_backup_tls
+class TestBackupForMongodb:
+    """ This part ensures that backup for the client works correctly and the snapshot is created. """
+
+    @fixture(scope="class")
+    def mdb_4_2(self, ops_manager: MongoDBOpsManager, namespace):
+        resource = MongoDB.from_yaml(
+            yaml_fixture("replica-set-for-om.yaml"),
+            namespace=namespace,
+            name="mdb-four-two",
+        ).configure(ops_manager, "firstProject")
+        # MongoD versions greater than 4.2.0 must be enterprise build to enable backup
+        resource["spec"]["version"] = "4.2.2-ent"
+
+        return resource.create()
+
+    @fixture(scope="class")
+    def mdb_4_0(self, ops_manager: MongoDBOpsManager, namespace):
+        resource = MongoDB.from_yaml(
+            yaml_fixture("replica-set-for-om.yaml"),
+            namespace=namespace,
+            name="mdb-four-zero",
+        ).configure(ops_manager, "secondProject")
+        resource["spec"]["version"] = "4.0.16"
+
+        return resource.create()
+
+    def test_mdbs_created(self, mdb_4_2: MongoDB, mdb_4_0: MongoDB):
+        mdb_4_2.assert_reaches_phase(Phase.Running)
+        mdb_4_0.assert_reaches_phase(Phase.Running)
+
+    def test_mdbs_backed_up(self, ops_manager: MongoDBOpsManager):
+        om_tester_first = ops_manager.get_om_tester(project_name="firstProject")
+        om_tester_first.enable_backup()
+
+        om_tester_second = ops_manager.get_om_tester(project_name="secondProject")
+        om_tester_second.enable_backup()
+
+        # wait until a first snapshot is ready for both
+        om_tester_first.wait_until_backup_snapshots_are_ready(expected_count=1)
+        om_tester_second.wait_until_backup_snapshots_are_ready(expected_count=1)

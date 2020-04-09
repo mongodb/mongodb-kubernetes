@@ -87,21 +87,29 @@ class MongoDB(CustomObject, MongoDBCommon):
     def type(self) -> str:
         return self["spec"]["type"]
 
-    def _tester(self) -> MongoTester:
+    def _tester(self, insecure=True, ca_path: Optional[str] = None) -> MongoTester:
         """Returns a Tester instance for this type of deployment."""
         if self.type == "ReplicaSet":
             return ReplicaSetTester(
-                self.name, self["status"]["members"], self.is_tls_enabled()
+                self.name,
+                self["status"]["members"],
+                self.is_tls_enabled(),
+                insecure,
+                ca_path,
             )
         elif self.type == "ShardedCluster":
             return ShardedClusterTester(
-                self.name, self["spec"]["mongosCount"], self.is_tls_enabled()
+                self.name,
+                self["spec"]["mongosCount"],
+                self.is_tls_enabled(),
+                insecure,
+                ca_path,
             )
         elif self.type == "Standalone":
-            return StandaloneTester(self.name, self.is_tls_enabled())
+            return StandaloneTester(self.name, self.is_tls_enabled(), insecure, ca_path)
 
-    def assert_connectivity(self):
-        return self._tester().assert_connectivity()
+    def assert_connectivity(self, insecure=True, ca_path: Optional[str] = None):
+        return self._tester(insecure, ca_path).assert_connectivity()
 
     def __repr__(self):
         # FIX: this should be __unicode__
@@ -120,6 +128,18 @@ class MongoDB(CustomObject, MongoDBCommon):
         ] = om.get_or_create_mongodb_connection_config_map(self.name, project_name)
         self["spec"]["credentials"] = om.api_key_secret()
         return self
+
+    def configure_custom_tls(
+        self, issuer_ca_configmap_name: str, tls_cert_secret_name: str
+    ):
+        if "security" not in self["spec"]:
+            self["spec"]["security"] = {}
+        if "tls" not in self["spec"]["security"]:
+            self["spec"]["security"]["tls"] = {}
+
+        self["spec"]["security"]["tls"]["enabled"] = True
+        self["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap_name
+        self["spec"]["security"]["tls"]["secretRef"] = {"name": tls_cert_secret_name}
 
     def build_list_of_hosts(self):
         """ Returns the list of full_fqdn:27017 for every member of the mongodb resource """

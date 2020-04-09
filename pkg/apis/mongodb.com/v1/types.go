@@ -294,7 +294,7 @@ type Security struct {
 // this MongoDB resource.
 type Authentication struct {
 	Enabled         bool     `json:"enabled"`
-	Modes           []string `json:"modes"`
+	Modes           []string `json:"modes,omitempty"`
 	InternalCluster string   `json:"internalCluster,omitempty"`
 	// IgnoreUnknownUsers maps to the inverse of auth.authoritativeSet
 	IgnoreUnknownUsers bool `json:"ignoreUnknownUsers,omitempty"`
@@ -345,8 +345,13 @@ type TLSConfig struct {
 	SecretRef TLSSecretRef `json:"secretRef,omitempty"`
 }
 
+// IsSelfManaged returns true if the TLS is self-managed (cert provided by the customer), not Operator-managed
+func (t TLSConfig) IsSelfManaged() bool {
+	return t.CA != "" || t.SecretRef.Name != ""
+}
+
 // TLSSecretRef contains a reference to a Secret object that contains certificates to
-// be mounted. Defining this value will implicitely "enable" TLS on this resource.
+// be mounted. Defining this value will implicitly "enable" TLS on this resource.
 type TLSSecretRef struct {
 	Name string `json:"name,omitempty"`
 }

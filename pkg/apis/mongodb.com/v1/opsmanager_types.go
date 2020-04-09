@@ -59,12 +59,16 @@ type MongoDBOpsManagerList struct {
 }
 
 type MongoDBOpsManagerSpec struct {
+	// The configuration properties passed to Ops Manager/Backup Daemon
+	// +optional
 	Configuration map[string]string `json:"configuration,omitempty"`
-	Version       string            `json:"version"`
-	Replicas      int               `json:"replicas"`
+
+	Version  string `json:"version"`
+	Replicas int    `json:"replicas"`
 	// Deprecated: This has been replaced by the ClusterDomain which should be
 	// used instead
-	ClusterName   string `json:"clusterName,omitempty"`
+	ClusterName string `json:"clusterName,omitempty"`
+	// +optional
 	ClusterDomain string `json:"clusterDomain,omitempty"`
 
 	// AdminSecret is the secret for the first admin user to create
@@ -72,27 +76,33 @@ type MongoDBOpsManagerSpec struct {
 	AdminSecret string `json:"adminCredentials,omitempty"`
 	AppDB       AppDB  `json:"applicationDatabase"`
 
+	// Custom JVM parameters passed to the Ops Manager JVM
+	// +optional
 	JVMParams []string `json:"jvmParameters,omitempty"`
 
 	// Backup
+	// +optional
 	Backup *MongoDBOpsManagerBackup `json:"backup,omitempty"`
 
 	// MongoDBOpsManagerExternalConnectivity if sets allows for the creation of a Service for
 	// accessing this Ops Manager resource from outside the Kubernetes cluster.
+	// +optional
 	MongoDBOpsManagerExternalConnectivity *MongoDBOpsManagerServiceDefinition `json:"externalConnectivity,omitempty"`
 
+	// +optional
 	PodSpec *MongoDbPodSpec `json:"podSpec,omitempty"`
 
 	// Configure HTTPS.
-	Security MongoDBOpsManagerSecurity `json:"security,omitempty"`
+	// +optional
+	Security *MongoDBOpsManagerSecurity `json:"security,omitempty"`
 }
 
 type MongoDBOpsManagerSecurity struct {
-	TLS struct {
-		SecretRef struct {
-			Name string `json:"name"`
-		} `json:"secretRef"`
-	} `json:"tls"`
+	TLS MongoDBOpsManagerTLS
+}
+
+type MongoDBOpsManagerTLS struct {
+	SecretRef TLSSecretRef `json:"secretRef"`
 }
 
 // NewExtraStatusParams is the function to build the extra params container used for updating status field
@@ -469,7 +479,7 @@ func (m *MongoDBOpsManager) BackupStatefulSetName() string {
 }
 
 func (m MongoDBOpsManager) GetSchemePort() (corev1.URIScheme, int) {
-	if m.Spec.Security.TLS.SecretRef.Name != "" {
+	if m.Spec.Security != nil && m.Spec.Security.TLS.SecretRef.Name != "" {
 		return SchemePortFromAnnotation("https")
 	}
 	return SchemePortFromAnnotation("http")

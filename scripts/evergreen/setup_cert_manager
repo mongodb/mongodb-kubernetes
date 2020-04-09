@@ -4,15 +4,13 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-if [ "${kube_environment_name-}" = "kind" ]; then
-  # latest=$(curl --silent "https://api.github.com/repos/jetstack/cert-manager/tags" | jq -r '.[0].name')
-  # TODO: an alpha release broke cert-manager, so skipping it for now.
-  latest="v0.14.1"
-  echo "Installing cert-manager ${latest}"
-  kubectl create namespace cert-manager > /dev/null
-  kubectl apply --validate=false -f "https://github.com/jetstack/cert-manager/releases/download/${latest}/cert-manager.yaml" > /dev/null
+# latest=$(curl --silent "https://api.github.com/repos/jetstack/cert-manager/tags" | jq -r '.[0].name')
+# TODO: an alpha release broke cert-manager, so skipping it for now.
+latest="v0.14.1"
+echo "Installing cert-manager ${latest}"
+kubectl create namespace cert-manager > /dev/null
+kubectl apply --validate=false -f "https://github.com/jetstack/cert-manager/releases/download/${latest}/cert-manager.yaml" > /dev/null
 
-  echo "Wait for cert-manager to be ready"
-  while kubectl -n cert-manager get pod -l app=webhook 2>&1 | grep -q "No resources found"; do sleep 2; done
-  kubectl -n cert-manager wait pod --for=condition=ready -l app=webhook --timeout 300s
-fi
+echo "Wait for cert-manager to be ready"
+while kubectl -n cert-manager get pod -l app=webhook 2>&1 | grep -q "No resources found"; do sleep 2; done
+kubectl -n cert-manager wait pod --for=condition=ready -l app=webhook --timeout 300s
