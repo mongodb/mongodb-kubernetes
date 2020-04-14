@@ -2,6 +2,7 @@ import pytest
 
 from kubetester.kubetester import KubernetesTester
 from kubetester.omtester import get_sc_cert_names
+from kubetester.automation_config_tester import AutomationConfigTester
 
 MDB_RESOURCE = "test-x509-all-options-sc"
 
@@ -27,7 +28,12 @@ class TestShardedClusterEnableAllOptions(KubernetesTester):
             self.approve_certificate(cert)
 
     def test_gets_to_running_state(self):
-        self.wait_until(KubernetesTester.in_running_state, 480)
+        self.wait_until(KubernetesTester.in_running_state, 600)
+
+    def test_ops_manager_state_correctly_updated(self):
+        ac_tester = AutomationConfigTester(KubernetesTester.get_automation_config())
+        ac_tester.assert_internal_cluster_authentication_enabled()
+        ac_tester.assert_authentication_enabled()
 
     # TODO: use /mongodb-automation/server.pem but doesn't exist on test pod
     # def test_mdb_is_reachable_with_no_ssl(self):

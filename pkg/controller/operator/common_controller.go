@@ -2,7 +2,11 @@ package operator
 
 import (
 	"context"
+
 	"encoding/json"
+
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"reflect"
 	"strings"
@@ -30,6 +34,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+const ClusterDomain = "cluster.local"
 
 // Updatable is an interface for all "operator owned" Custom Resources
 type Updatable interface {
@@ -466,11 +472,11 @@ func (c *ReconcileCommonController) addWatchedResourceIfNotAdded(name, namespace
 // stop watching resources with input namespace and watched type, if any
 func (c *ReconcileCommonController) removeWatchedResources(namespace string, wType watchedType, dependentResourceNsName types.NamespacedName) {
 	for key := range c.watchedResources {
-		if key.resourceType == wType && key.resource.Namespace == namespace{
+		if key.resourceType == wType && key.resource.Namespace == namespace {
 			index := -1
 			for i, v := range c.watchedResources[key] {
 				if v == dependentResourceNsName {
-					index =i
+					index = i
 				}
 			}
 
@@ -480,22 +486,21 @@ func (c *ReconcileCommonController) removeWatchedResources(namespace string, wTy
 
 			zap.S().Infof("Removing %s from resources dependent on %s", dependentResourceNsName, key)
 
-
 			if index == 0 {
 				if len(c.watchedResources[key]) == 1 {
 					delete(c.watchedResources, key)
 					continue
 				}
-				c.watchedResources[key] = c.watchedResources[key][index + 1:]
+				c.watchedResources[key] = c.watchedResources[key][index+1:]
 				continue
 			}
 
-			if index == len(c.watchedResources[key]){
+			if index == len(c.watchedResources[key]) {
 				c.watchedResources[key] = c.watchedResources[key][:index]
 				continue
 			}
 
-			c.watchedResources[key] = append(c.watchedResources[key][:index],  c.watchedResources[key][index+1:]...)
+			c.watchedResources[key] = append(c.watchedResources[key][:index], c.watchedResources[key][index+1:]...)
 		}
 	}
 }
@@ -593,7 +598,7 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHe
 				csr, err := k.readCSR(csrName, ss.Namespace)
 				if err != nil {
 					certsNeedApproval = true
-					key, err := k.createInternalClusterAuthCSR(csrName, ss.Namespace, []string{host, podnames[idx]}, podnames[idx])
+					key, err := k.createInternalClusterAuthCSR(csrName, ss.Namespace, clusterDomainOrDefault(ss.ClusterDomain), []string{host, podnames[idx]}, podnames[idx])
 					if err != nil {
 						return false, fmt.Errorf("Failed to create CSR, %s", err)
 					}
@@ -632,7 +637,7 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHe
 }
 
 //ensureX509AgentCertsForMongoDBResource will generate all the CSRs for the agents
-func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(authModes []string, useCustomCA bool, namespace string, log *zap.SugaredLogger) (bool, error) {
+func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(mdb *mdbv1.MongoDB, authModes []string, useCustomCA bool, namespace string, log *zap.SugaredLogger) (bool, error) {
 	k := r.kubeHelper
 
 	certsNeedApproval := false
@@ -652,7 +657,7 @@ func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(authM
 
 				// the agentName name will be the same on each host, but we want to ensure there's
 				// a unique name for the CSR created.
-				key, err := k.createAgentCSR(agentName, namespace)
+				key, err := k.createAgentCSR(agentName, namespace, mdb.Spec.GetClusterDomain())
 				if err != nil {
 					return false, fmt.Errorf("failed to create CSR, %s", err)
 				}
@@ -720,10 +725,31 @@ func validateScram(mdb *mdbv1.MongoDB, ac *om.AutomationConfig) reconcileStatus 
 	return ok()
 }
 
+// Use the first "CERTIFICATE" block found in the PEM file.
+func getSubjectFromCertificate(cert string) (string, error) {
+	block, rest := pem.Decode([]byte(cert))
+	if block != nil && block.Type == "CERTIFICATE" {
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return "", err
+		}
+		return cert.Subject.ToRDNSequence().String(), nil
+	}
+	if len(rest) > 0 {
+		block, _ = pem.Decode(rest)
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return "", err
+		}
+		return cert.Subject.ToRDNSequence().String(), nil
+	}
+	return "", fmt.Errorf("unable to extract the subject line from the provided certificate")
+}
+
 // updateOmAuthentication examines the state of Ops Manager and the desired state of the MongoDB resource and
 // enables/disables authentication. If the authentication can't be fully configured, a boolean value indicating that
 // an additional reconciliation needs to be queued up to fully make the authentication changes is returned.
-func updateOmAuthentication(conn om.Connection, processNames []string, mdb *mdbv1.MongoDB, log *zap.SugaredLogger) (status reconcileStatus, multiStageReconciliation bool) {
+func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, processNames []string, mdb *mdbv1.MongoDB, log *zap.SugaredLogger) (status reconcileStatus, multiStageReconciliation bool) {
 
 	// we need to wait for all agents to be ready before configuring any authentication settings
 	if err := om.WaitForReadyState(conn, processNames, log); err != nil {
@@ -747,6 +773,14 @@ func updateOmAuthentication(conn om.Connection, processNames []string, mdb *mdbv
 	wantToEnableAuthentication := mdb.Spec.Security.Authentication.Enabled
 	if wantToEnableAuthentication && canConfigureAuthentication(ac, mdb, log) {
 		log.Info("Configuring authentication for MongoDB resource")
+
+		if mdb.Spec.Security.Authentication.GetAgentMechanism() == util.X509 {
+			authOpts, err = r.configureAgentSubjects(mdb.Namespace, authOpts, log)
+			if err != nil {
+				return failedErr(fmt.Errorf("error configuring agent subjects: %v", err)), false
+			}
+		}
+
 		if err := authentication.Configure(conn, authOpts, log); err != nil {
 			return failedErr(err), false
 		}
@@ -757,11 +791,84 @@ func updateOmAuthentication(conn om.Connection, processNames []string, mdb *mdbv
 		log.Debug("Attempting to enable authentication, but Ops Manager state will not allow this")
 		return ok(), true
 	} else {
+		// Should not fail if the Secret object with agent certs is not found.
+		// It will only exist on x509 client auth enabled deployments.
+		userOpts, err := r.readAgentSubjectsFromSecret(mdb.Namespace, log)
+		err = client.IgnoreNotFound(err)
+		if err != nil {
+			return failedErr(err), true
+		}
+
+		authOpts.UserOptions = userOpts
 		if err := authentication.Disable(conn, authOpts, log); err != nil {
 			return failedErr(err), false
 		}
 	}
 	return ok(), false
+}
+
+// configureAgentSubjects returns a new authentication.Options which has configured the Subject lines for the automation, monitoring
+// and backup agents. The subjects are read from the "agent-certs" secret. This secret is generated by the operator when
+// x509 is configured, but if this secret is provided by the user, custom x509 certificates can be provided and used by the agents.
+// The Ops Manager user names for these agents will be configured based on the contents of the secret.
+func (r *ReconcileCommonController) configureAgentSubjects(namespace string, authOpts authentication.Options, log *zap.SugaredLogger) (authentication.Options, error) {
+	userOpts, err := r.readAgentSubjectsFromSecret(namespace, log)
+	if err != nil {
+		return authentication.Options{}, fmt.Errorf("error reading agent subjects from secret: %v", err)
+	}
+	authOpts.UserOptions = userOpts
+	return authOpts, nil
+}
+
+func (r *ReconcileCommonController) readAgentSubjectsFromSecret(namespace string, log *zap.SugaredLogger) (authentication.UserOptions, error) {
+	userOpts := authentication.UserOptions{}
+	agentCerts, err := r.kubeHelper.readSecret(objectKey(namespace, util.AgentSecretName))
+	if err != nil {
+		return userOpts, err
+	}
+
+	numAgentCerts := len(agentCerts)
+	if numAgentCerts != NumAgents && numAgentCerts != 1 {
+		return userOpts, fmt.Errorf("must provided either 1 or 3 agent certificatesm found %d", numAgentCerts)
+	}
+
+	var automationAgentCert string
+	var ok bool
+	if automationAgentCert, ok = agentCerts[util.AutomationAgentPemSecretKey]; !ok {
+		return userOpts, fmt.Errorf("when there is only one certificate present, it must have a key of %s", util.AutomationAgentPemSecretKey)
+	}
+
+	log.Debugf("Got %d certificate(s) in the Secret", numAgentCerts)
+	var automationAgentSubject, backupAgentSubject, monitoringAgentSubject string
+
+	automationAgentSubject, err = getSubjectFromCertificate(automationAgentCert)
+	if err != nil {
+		return userOpts, fmt.Errorf("error extracting automation agent subject is not present %e", err)
+	}
+
+	monitoringAgentSubject = automationAgentSubject
+	backupAgentSubject = automationAgentSubject
+
+	if numAgentCerts == NumAgents {
+		monitoringAgentSubject, err = getSubjectFromCertificate(agentCerts[util.MonitoringAgentPemSecretKey])
+		if err != nil {
+			return userOpts, fmt.Errorf("error extracting monitoring agent subject from agent-certs %e", err)
+		}
+		backupAgentSubject, err = getSubjectFromCertificate(agentCerts[util.BackupAgentPemSecretKey])
+		if err != nil {
+			return userOpts, fmt.Errorf("error extracting backup agent subject from agent-certs %e", err)
+		}
+	}
+
+	if automationAgentSubject == "" || monitoringAgentSubject == "" || backupAgentSubject == "" {
+		return userOpts, fmt.Errorf("some of the subjects lines are not present")
+	}
+
+	return authentication.UserOptions{
+		AutomationSubject: automationAgentSubject,
+		MonitoringSubject: monitoringAgentSubject,
+		BackupSubject:     backupAgentSubject,
+	}, nil
 }
 
 // canConfigureAuthentication determines if based on the existing state of Ops Manager
@@ -858,4 +965,12 @@ func isFourFour(version semver.Version) bool {
 
 func isMajorMinor(v semver.Version, major, minor uint64) bool {
 	return v.Major == major && v.Minor == minor
+}
+
+func clusterDomainOrDefault(clusterDomain string) string {
+	if clusterDomain == "" {
+		return ClusterDomain
+	}
+
+	return clusterDomain
 }

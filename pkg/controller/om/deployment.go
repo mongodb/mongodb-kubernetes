@@ -5,13 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
-	"regexp"
-	"strings"
-
 	"github.com/blang/semver"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
+	"math"
+	"regexp"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -369,7 +367,6 @@ func (d Deployment) GetProcessNames(kind interface{}, name string) []string {
 // ConfigureInternalClusterAuthentication configures all processes in processNames to have the corresponding
 // clusterAuthenticationMode enabled
 func (d Deployment) ConfigureInternalClusterAuthentication(processNames []string, clusterAuthenticationMode string) {
-	clusterAuthenticationMode = strings.ToLower(clusterAuthenticationMode) // Ops Manager value is "x509"
 	for _, p := range processNames {
 		process := d.getProcessByName(p)
 		if process != nil {

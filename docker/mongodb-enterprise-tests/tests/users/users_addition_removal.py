@@ -1,5 +1,9 @@
 import pytest
 
+from cryptography import x509
+from cryptography.x509.oid import NameOID
+from cryptography.hazmat.backends import default_backend
+
 from kubetester.kubetester import KubernetesTester
 
 MDB_RESOURCE = "test-x509-rs"
@@ -18,17 +22,22 @@ def get_cert_names(namespace, members=3, with_agent_certs=False):
 
 
 def get_subjects(start, end):
-    subjects = [
+    return [
         f"CN=mms-user-{i},OU=cloud,O=MongoDB,L=New York,ST=New York,C=US"
         for i in range(start, end)
     ]
-    subjects.append(
-        "CN=mms-backup-agent,OU=MongoDB Kubernetes Operator,O=mms-backup-agent,L=NY,ST=NY,C=US"
-    )
-    subjects.append(
-        "CN=mms-monitoring-agent,OU=MongoDB Kubernetes Operator,O=mms-monitoring-agent,L=NY,ST=NY,C=US"
-    )
-    return subjects
+
+
+def get_names_from_certificate_attributes(cert):
+    names = {}
+    subject = cert.subject
+    names["O"] = subject.get_attributes_for_oid(NameOID.ORGANIZATION_NAME)[0].value
+    names["OU"] = subject.get_attributes_for_oid(NameOID.ORGANIZATIONAL_UNIT_NAME)[
+        0
+    ].value
+    names["CN"] = subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
+
+    return names
 
 
 @pytest.mark.e2e_tls_x509_users_addition_removal
@@ -46,6 +55,22 @@ class TestReplicaSetUpgradeToTLSWithX509Project(KubernetesTester):
         ):
             self.approve_certificate(cert)
         KubernetesTester.wait_until("in_running_state")
+
+    def test_certificates_have_sane_subject(self, namespace):
+        agent_certs = KubernetesTester.read_secret(namespace, "agent-certs")
+        agent_names = [
+            "mms-{}-agent".format(name)
+            for name in ["automation", "monitoring", "backup"]
+        ]
+
+        for agent in agent_names:
+            bytecert = bytearray(agent_certs[agent + "-pem"], "utf-8")
+            cert = x509.load_pem_x509_certificate(bytecert, default_backend())
+            names = get_names_from_certificate_attributes(cert)
+
+            assert names["CN"] == agent
+            assert names["O"] == "cluster.local-agent"
+            assert names["OU"] == namespace
 
 
 @pytest.mark.e2e_tls_x509_users_addition_removal
@@ -67,13 +92,24 @@ class TestMultipleUsersAreAdded(KubernetesTester):
 
     def test_users_are_added_to_automation_config(self):
         ac = KubernetesTester.get_automation_config()
-        users = sorted(ac["auth"]["usersWanted"], key=lambda user: user["user"])
-        subjects = sorted(get_subjects(1, 7))
+        existing_users = sorted(
+            ac["auth"]["usersWanted"], key=lambda user: user["user"]
+        )
+        expected_users = sorted(get_subjects(1, 7))
+        existing_subjects = [u["user"] for u in ac["auth"]["usersWanted"]]
 
-        assert len(users) == len(subjects)
-        for expected, user in zip(subjects, users):
-            assert user["user"] == expected
-            assert user["db"] == "$external"
+        for expected in expected_users:
+            assert expected in existing_subjects
+
+    def test_automation_users_are_correct(self):
+        ac = KubernetesTester.get_automation_config()
+        backup_names = get_user_pkix_names(ac, "mms-backup-agent")
+        assert backup_names["O"] == "cluster.local-agent"
+        assert backup_names["OU"] == KubernetesTester.get_namespace()
+
+        monitoring_names = get_user_pkix_names(ac, "mms-monitoring-agent")
+        assert monitoring_names["O"] == "cluster.local-agent"
+        assert monitoring_names["OU"] == KubernetesTester.get_namespace()
 
 
 @pytest.mark.e2e_tls_x509_users_addition_removal
@@ -96,3 +132,10 @@ class TestTheCorrectUserIsDeleted(KubernetesTester):
         assert "CN=mms-user-4,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US" not in [
             user["user"] for user in users
         ]
+
+
+def get_user_pkix_names(ac, agent_name: str) -> str:
+    subject = [u["user"] for u in ac["auth"]["usersWanted"] if agent_name in u["user"]][
+        0
+    ]
+    return dict(name.split("=") for name in subject.split(","))

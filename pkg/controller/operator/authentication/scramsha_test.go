@@ -36,7 +36,7 @@ func TestScramSha256_EnableAgentAuthentication(t *testing.T) {
 		assert.True(t, ac.Auth.HasUser(user.Username, user.Database))
 	}
 
-	for _, user := range buildX509AgentUsers() {
+	for _, user := range buildX509AgentUsers(UserOptions{}) {
 		assert.False(t, ac.Auth.HasUser(user.Username, user.Database))
 	}
 
@@ -71,7 +71,7 @@ func TestScramSha1_EnableAgentAuthentication(t *testing.T) {
 		assert.True(t, ac.Auth.HasUser(user.Username, user.Database))
 	}
 
-	for _, user := range buildX509AgentUsers() {
+	for _, user := range buildX509AgentUsers(UserOptions{}) {
 		assert.False(t, ac.Auth.HasUser(user.Username, user.Database))
 	}
 }
@@ -88,10 +88,10 @@ func TestScramSha1_DeploymentConfigured(t *testing.T) {
 
 func TestScramSha1_DisableAgentAuthentication(t *testing.T) {
 	conn, ac := createConnectionAndAutomationConfig()
-	assertAgentAuthenticationDisabled(t, NewConnectionScramSha1(conn, ac))
+	assertAgentAuthenticationDisabled(t, NewConnectionScramSha1(conn, ac), Options{})
 }
 
 func TestScramSha256_DisableAgentAuthentication(t *testing.T) {
 	conn, ac := createConnectionAndAutomationConfig()
-	assertAgentAuthenticationDisabled(t, NewConnectionScramSha256(conn, ac))
+	assertAgentAuthenticationDisabled(t, NewConnectionScramSha256(conn, ac), Options{})
 }

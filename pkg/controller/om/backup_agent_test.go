@@ -31,7 +31,7 @@ func TestFieldsAreUpdatedBackupConfig(t *testing.T) {
 
 func TestBackupFieldsAreNotLost(t *testing.T) {
 	config := getTestBackupConfig()
-	config.EnableX509Authentication()
+	config.EnableX509Authentication("namespace")
 
 	assert.Contains(t, config.BackingMap, "logPath")
 	assert.Contains(t, config.BackingMap, "logRotate")
@@ -48,7 +48,7 @@ func TestBackupFieldsAreNotLost(t *testing.T) {
 func TestNestedFieldsAreNotLost(t *testing.T) {
 	config := getTestBackupConfig()
 
-	config.EnableX509Authentication()
+	config.EnableX509Authentication("namespace")
 
 	config.Apply()
 

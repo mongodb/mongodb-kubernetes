@@ -110,9 +110,6 @@ const (
 	// Authentication
 
 	X509Db                            = "$external"
-	AutomationAgentSubject            = "CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US"
-	BackupAgentSubject                = "CN=mms-backup-agent,OU=MongoDB Kubernetes Operator,O=mms-backup-agent,L=NY,ST=NY,C=US"
-	MonitoringAgentSubject            = "CN=mms-monitoring-agent,OU=MongoDB Kubernetes Operator,O=mms-monitoring-agent,L=NY,ST=NY,C=US"
 	AgentSecretName                   = "agent-certs"
 	AutomationConfigX509Option        = "MONGODB-X509"
 	AutomationConfigScramSha256Option = "SCRAM-SHA-256"

@@ -76,6 +76,11 @@ func TestConfigureX509(t *testing.T) {
 		AuthoritativeSet:    true,
 		ProcessNames:        []string{"process-1", "process-2", "process-3"},
 		Mechanisms:          []string{"X509"},
+		UserOptions: UserOptions{
+			AutomationSubject: validSubject("automation"),
+			BackupSubject:     validSubject("backup"),
+			MonitoringSubject: validSubject("monitoring"),
+		},
 	}
 
 	if err := Configure(conn, opts, zap.S()); err != nil {
@@ -102,6 +107,11 @@ func TestConfigureMultipleAuthenticationMechanisms(t *testing.T) {
 		AuthoritativeSet:    true,
 		ProcessNames:        []string{"process-1", "process-2", "process-3"},
 		Mechanisms:          []string{"X509", "SCRAM"},
+		UserOptions: UserOptions{
+			AutomationSubject: validSubject("automation"),
+			BackupSubject:     validSubject("backup"),
+			MonitoringSubject: validSubject("monitoring"),
+		},
 	}
 
 	if err := Configure(conn, opts, zap.S()); err != nil {
@@ -179,6 +189,11 @@ func TestConfigureAndDisable(t *testing.T) {
 		AuthoritativeSet:    true,
 		ProcessNames:        []string{"process-1", "process-2", "process-3"},
 		Mechanisms:          []string{"SCRAM"},
+		UserOptions: UserOptions{
+			AutomationSubject: validSubject("automation"),
+			BackupSubject:     validSubject("backup"),
+			MonitoringSubject: validSubject("monitoring"),
+		},
 	}
 
 	if err := Configure(conn, opts, zap.S()); err != nil {
@@ -321,8 +336,8 @@ func assertDeploymentMechanismsConfigured(t *testing.T, authMechanism Mechanism)
 	assert.True(t, authMechanism.IsDeploymentAuthenticationConfigured())
 }
 
-func assertAgentAuthenticationDisabled(t *testing.T, authMechanism Mechanism) {
-	_ = authMechanism.EnableAgentAuthentication(Options{}, zap.S())
+func assertAgentAuthenticationDisabled(t *testing.T, authMechanism Mechanism, opts Options) {
+	_ = authMechanism.EnableAgentAuthentication(opts, zap.S())
 	assert.True(t, authMechanism.IsAgentAuthenticationConfigured())
 
 	_ = authMechanism.DisableAgentAuthentication(zap.S())

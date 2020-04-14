@@ -25,9 +25,9 @@ func (m *MonitoringAgentConfig) Apply() error {
 	return nil
 }
 
-func (m *MonitoringAgentConfig) EnableX509Authentication() {
+func (m *MonitoringAgentConfig) EnableX509Authentication(monitoringAgentSubject string) {
 	m.MonitoringAgentTemplate.SSLPemKeyFile = util.MonitoringAgentPemFilePath
-	m.MonitoringAgentTemplate.Username = util.MonitoringAgentSubject
+	m.MonitoringAgentTemplate.Username = monitoringAgentSubject
 }
 
 func (m *MonitoringAgentConfig) DisableX509Authentication() {

@@ -218,7 +218,8 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 		return nil
 	}, nil)
 
-	assert.Equal(t, ok(), updateOmDeploymentShardedCluster(mockOm, sc, newState, zap.S()))
+	r := newShardedClusterReconciler(newMockedManager(sc), om.NewEmptyMockedOmConnection)
+	assert.Equal(t, ok(), r.updateOmDeploymentShardedCluster(mockOm, sc, newState, zap.S()))
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadUpdateDeployment), reflect.ValueOf(mockOm.RemoveHost))
 

@@ -200,7 +200,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 	replicaSet := buildReplicaSetFromStatefulSet(set, rs)
 	processNames := replicaSet.GetProcessNames()
 
-	status, additionalReconciliationRequired := updateOmAuthentication(conn, processNames, rs, log)
+	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, processNames, rs, log)
 	if !status.isOk() {
 		return status
 	}
@@ -297,7 +297,7 @@ func (r *ReconcileCommonController) ensureX509InKubernetes(mdb *mdbv1.MongoDB, h
 	if authEnabled && usingX509 {
 		authModes := mdb.Spec.Security.Authentication.Modes
 		useCustomCA := mdb.Spec.GetTLSConfig().CA != ""
-		successful, err := r.ensureX509AgentCertsForMongoDBResource(authModes, useCustomCA, mdb.Namespace, log)
+		successful, err := r.ensureX509AgentCertsForMongoDBResource(mdb, authModes, useCustomCA, mdb.Namespace, log)
 		if err != nil {
 			return failedErr(err)
 		}

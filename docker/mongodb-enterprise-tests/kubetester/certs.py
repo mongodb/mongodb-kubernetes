@@ -4,7 +4,11 @@ Certificate Custom Resource Definition.
 
 from kubeobject import CustomObject
 import time
+
 from kubetester.kubetester import KubernetesTester
+
+
+ISSUER_CA_NAME = "ca-issuer"
 
 CertificateType = CustomObject.define(
     "Certificate", plural="certificates", group="cert-manager.io", version="v1alpha2"

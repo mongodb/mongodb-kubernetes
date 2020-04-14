@@ -103,7 +103,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 
 	status := runInGivenOrder(anyStatefulSetHelperNeedsToPublishState(kubeState, log),
 		func() reconcileStatus {
-			return updateOmDeploymentShardedCluster(conn, sc, kubeState, log).onErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+			return r.updateOmDeploymentShardedCluster(conn, sc, kubeState, log).onErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() reconcileStatus {
 			return r.createKubernetesResources(sc, kubeState, log).onErrorPrepend("Failed to create/update (Kubernetes reconciliation phase):")
@@ -136,7 +136,7 @@ func (r *ReconcileMongoDbShardedCluster) ensureX509InKubernetes(sc *mdbv1.MongoD
 	if authEnabled && usingX509 {
 		authModes := sc.Spec.Security.Authentication.Modes
 		useCustomCA := sc.Spec.GetTLSConfig().CA != ""
-		successful, err := r.ensureX509AgentCertsForMongoDBResource(authModes, useCustomCA, sc.Namespace, log)
+		successful, err := r.ensureX509AgentCertsForMongoDBResource(sc, authModes, useCustomCA, sc.Namespace, log)
 		if err != nil {
 			return failedErr(err)
 		}
@@ -444,7 +444,7 @@ func isShardsSizeScaleDown(sc *mdbv1.MongoDB) bool {
 // phase 2: remove the "junk" replica sets and their processes, wait for agents to reach the goal.
 // The logic is designed to be idempotent: if the reconciliation is retried the controller will never skip the phase 1
 // until the agents have performed draining
-func updateOmDeploymentShardedCluster(conn om.Connection, sc *mdbv1.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger) reconcileStatus {
+func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn om.Connection, sc *mdbv1.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger) reconcileStatus {
 	err := waitForAgentsToRegister(sc, state, conn, log)
 	if err != nil {
 		return failedErr(err)
@@ -457,7 +457,7 @@ func updateOmDeploymentShardedCluster(conn om.Connection, sc *mdbv1.MongoDB, sta
 
 	processNames := dep.GetProcessNames(om.ShardedCluster{}, sc.Name)
 
-	status, shardsRemoving := publishDeployment(conn, sc, state, log, &processNames, false)
+	status, shardsRemoving := r.publishDeployment(conn, sc, state, log, &processNames, false)
 
 	if !status.isOk() {
 		return status
@@ -472,7 +472,7 @@ func updateOmDeploymentShardedCluster(conn om.Connection, sc *mdbv1.MongoDB, sta
 
 	if shardsRemoving {
 		log.Infof("Some shards were removed from the sharded cluster, we need to remove them from the deployment completely")
-		status, _ = publishDeployment(conn, sc, state, log, &processNames, true)
+		status, _ = r.publishDeployment(conn, sc, state, log, &processNames, true)
 		if !status.isOk() {
 			return status
 		}
@@ -492,7 +492,7 @@ func updateOmDeploymentShardedCluster(conn om.Connection, sc *mdbv1.MongoDB, sta
 	return ok()
 }
 
-func publishDeployment(conn om.Connection, sc *mdbv1.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger,
+func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, sc *mdbv1.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger,
 	processNames *[]string, finalizing bool) (reconcileStatus, bool) {
 
 	sts, err := state.mongosSetHelper.BuildStatefulSet()
@@ -522,7 +522,7 @@ func publishDeployment(conn om.Connection, sc *mdbv1.MongoDB, state ShardedClust
 		shards[i] = buildReplicaSetFromStatefulSet(shardSts, sc)
 	}
 
-	status, additionalReconciliationRequired := updateOmAuthentication(conn, *processNames, sc, log)
+	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, *processNames, sc, log)
 	if !status.isOk() {
 		return status, false
 	}
@@ -545,10 +545,10 @@ func publishDeployment(conn om.Connection, sc *mdbv1.MongoDB, state ShardedClust
 			}
 			d.AddMonitoringAndBackup(mongosProcesses[0].HostName(), log)
 			d.ConfigureTLS(sc.Spec.GetTLSConfig())
+
+			*processNames = d.GetProcessNames(om.ShardedCluster{}, sc.Name)
 			d.ConfigureInternalClusterAuthentication(*processNames, sc.Spec.Security.Authentication.InternalCluster)
 
-			processes := d.GetProcessNames(om.ShardedCluster{}, sc.Name)
-			*processNames = processes
 			return nil
 		},
 		log,

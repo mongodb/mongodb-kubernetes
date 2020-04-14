@@ -1,45 +1,142 @@
 import pytest
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, fixture as _fixture
 from kubetester.omtester import get_rs_cert_names
 from kubetester.mongotester import ReplicaSetTester
-from kubetester.automation_config_tester import (
-    AutomationConfigTester,
-    X509_AGENT_SUBJECT,
-)
+from kubetester.automation_config_tester import AutomationConfigTester
+from kubetester.certs import Certificate, ISSUER_CA_NAME
+from kubetester.mongodb import MongoDB, Phase
+
+import copy
+import re
+import time
+
 
 MDB_RESOURCE = "test-x509-rs"
-BACKUP_AGENT_USER = "CN=mms-backup-agent,OU=MongoDB Kubernetes Operator,O=mms-backup-agent,L=NY,ST=NY,C=US"
-MONITORING_AGENT_USER = "CN=mms-monitoring-agent,OU=MongoDB Kubernetes Operator,O=mms-monitoring-agent,L=NY,ST=NY,C=US"
+X509_AGENT_SUBJECT = "CN=automation,OU={namespace},O=cert-manager"
+
+SUBJECT = {
+    # Organizational Units matches your namespace (to be overriden by test)
+    "organizationalUnits": ["TO-BE-REPLACED"],
+    # Organizations match the cluster name
+    # TODO: Currently cert-manger sets this as organization,
+    # investigate how to change it.
+    "organizations": ["cert-manager"],
+    # For an additional layer of security, the certificates will have a random
+    # (unknown and "unpredictable"), random string. Even if someone was able to
+    # generate the certificates themselves, they would still require this
+    # value to do so.
+    "serialNumber": "TO-BE-REPLACED",
+}
+
+
+def generate_cert(namespace, name, usages=None, subject=None, san=None):
+    if usages is None:
+        usages = ["server auth", "client auth"]
+
+    if subject is None:
+        subject = {}
+
+    if san is None:
+        san = [name]
+
+    cert = Certificate(namespace=namespace, name=name + "-cert")
+    cert["spec"] = {
+        "secretName": name + "-cert-secret",
+        "issuerRef": {"name": ISSUER_CA_NAME},
+        "duration": "240h",
+        "renewBefore": "120h",
+        "usages": usages,
+        "commonName": name,
+        "subject": subject,
+        "dnsNames": san,
+    }
+    cert.create().block_until_ready()
+
+    return name + "-cert-secret"
+
+
+def generate_client_cert(namespace, name):
+    subject = copy.deepcopy(SUBJECT)
+    subject["serialNumber"] = KubernetesTester.random_k8s_name(prefix="sn-")
+    subject["organizationalUnits"] = [namespace]
+
+    return generate_cert(namespace, name, subject=subject, usages=["client auth"])
+
+
+def generate_server_cert(namespace, name, san):
+    return generate_cert(namespace, name, san=san)
+
+
+@pytest.fixture(scope="module")
+def agent_certs(issuer: str, namespace: str):
+    """Creates an 'agent-certs' Secret containing client TLS certs for 3 agents."""
+    agents = ["automation", "monitoring", "backup"]
+
+    for agent in agents:
+        generate_client_cert(namespace, agent)
+
+    time.sleep(10)
+    full_certs = {}
+    for agent in agents:
+        agent_cert = KubernetesTester.read_secret(namespace, agent + "-cert-secret")
+        full_certs["mms-{}-agent-pem".format(agent)] = (
+            agent_cert["tls.crt"] + agent_cert["tls.key"]
+        )
+
+    KubernetesTester.create_secret(namespace, "agent-certs", full_certs)
+
+
+@pytest.fixture(scope="module")
+def server_certs(issuer: str, namespace: str):
+    """Creates one 'test-x509-rs-cert' Secret with server TLS certs for 3 RS members. """
+    resource_name = "test-x509-rs"
+    pod_fqdn_fstring = "{resource_name}-{index}.{resource_name}-svc.{namespace}.svc.cluster.local".format(
+        resource_name=resource_name, namespace=namespace, index="{}",
+    )
+    data = {}
+    for i in range(3):
+        pod_dns = pod_fqdn_fstring.format(i)
+        pod_name = f"{resource_name}-{i}"
+        cert = generate_server_cert(namespace, pod_name, [pod_dns, pod_name])
+        secret = KubernetesTester.read_secret(namespace, cert)
+        data[pod_name + "-pem"] = secret["tls.key"] + secret["tls.crt"]
+
+    KubernetesTester.create_secret(namespace, f"{resource_name}-cert", data)
+
+    return f"{resource_name}-cert"
+
+
+@pytest.fixture(scope="module")
+def replica_set(namespace, agent_certs, server_certs, issuer_ca_configmap):
+    _ = server_certs
+    res = MongoDB.from_yaml(_fixture("test-x509-rs.yaml"), namespace=namespace)
+    res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
+
+    return res.create()
 
 
 @pytest.mark.e2e_tls_x509_user_connectivity
 class TestReplicaSetWithTLSCreation(KubernetesTester):
-    """
-    name: Replica Set With TLS Creation
-    description: |
-      Creates a MongoDB object with the ssl attribute on. The MongoDB object will go to Failed
-      state because of missing certificates.
-    create:
-      file: test-x509-rs.yaml
-      wait_for_message: Not all certificates have been approved by Kubernetes CA
-    """
-
-    def test_approve_certs(self):
-        for cert in self.yield_existing_csrs(
-            get_rs_cert_names(MDB_RESOURCE, self.get_namespace(), with_agent_certs=True)
-        ):
-            self.approve_certificate(cert)
-        KubernetesTester.wait_until("in_running_state", 320)
-
-    def test_users_wanted_is_correct(self):
+    def test_users_wanted_is_correct(self, replica_set, namespace):
         """At this stage we should have 2 members in the usersWanted list,
         monitoring-agent and backup-agent."""
 
-        automation_config = KubernetesTester.get_automation_config()
-        tester = AutomationConfigTester(automation_config)
+        replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
-        tester.assert_has_user(BACKUP_AGENT_USER)
-        tester.assert_has_user(MONITORING_AGENT_USER)
+        automation_config = KubernetesTester.get_automation_config()
+        users = [u["user"] for u in automation_config["auth"]["usersWanted"]]
+
+        for subject in users:
+            names = dict(name.split("=") for name in subject.split(","))
+
+            # unfortunatelly cert-manager sets this to cert-manager instead
+            # assert names["O"] == "cluster.local"
+            assert names["O"] == "cert-manager"
+            assert names["OU"] == namespace
+
+        # exception with IndexError if not found
+        backup = [u for u in users if "CN=backup" in u][0]
+        monitoring = [u for u in users if "CN=monitoring" in u][0]
 
 
 @pytest.mark.e2e_tls_x509_user_connectivity
@@ -80,10 +177,15 @@ class TestX509CertCreationAndApproval(KubernetesTester):
 
 @pytest.mark.e2e_tls_x509_user_connectivity
 class TestX509CorrectlyConfigured(KubernetesTester):
-    def test_om_state_is_correct(self):
-        tester = AutomationConfigTester(
-            KubernetesTester.get_automation_config(), expected_users=3
-        )
+    def test_om_state_is_correct(self, namespace):
+        automation_config = KubernetesTester.get_automation_config()
+        tester = AutomationConfigTester(automation_config, expected_users=3)
 
         tester.assert_authentication_mechanism_enabled("MONGODB-X509")
-        tester.assert_agent_user(X509_AGENT_SUBJECT)
+
+        user = automation_config["auth"]["autoUser"]
+
+        assert "O=cert-manager" in user
+        assert "OU=" + namespace in user
+        assert "SERIALNUMBER=" in user
+        assert "CN=automation" in user

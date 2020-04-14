@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"reflect"
 	"strings"
@@ -261,6 +262,42 @@ func TestShouldUseFeatureControls(t *testing.T) {
 	assert.True(t, shouldUseFeatureControls(toOMVersion("4.3.2")))
 	assert.True(t, shouldUseFeatureControls(toOMVersion("4.4.0")))
 	assert.True(t, shouldUseFeatureControls(toOMVersion("4.4.1")))
+}
+
+func TestReadSubjectFromJustCertificate(t *testing.T) {
+	assertSubjectFromFileSucceeds(t, "CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US", "testdata/certificates/just_certificate")
+}
+
+func TestReadSubjectFromCertificateThenKey(t *testing.T) {
+	assertSubjectFromFileSucceeds(t, "CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US", "testdata/certificates/certificate_then_key")
+}
+
+func TestReadSubjectFromKeyThenCertificate(t *testing.T) {
+	assertSubjectFromFileSucceeds(t, "CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US", "testdata/certificates/key_then_certificate")
+}
+
+func TestReadSubjectNoCertificate(t *testing.T) {
+	assertSubjectFromFileFails(t, "testdata/certificates/just_key")
+}
+
+func assertSubjectFromFileFails(t *testing.T, filePath string) {
+	assertSubjectFromFile(t, "", filePath, false)
+}
+
+func assertSubjectFromFileSucceeds(t *testing.T, expectedSubject, filePath string) {
+	assertSubjectFromFile(t, expectedSubject, filePath, true)
+}
+
+func assertSubjectFromFile(t *testing.T, expectedSubject, filePath string, passes bool) {
+	data, err := ioutil.ReadFile(filePath)
+	assert.NoError(t, err)
+	subject, err := getSubjectFromCertificate(string(data))
+	if passes {
+		assert.NoError(t, err)
+	} else {
+		assert.Error(t, err)
+	}
+	assert.Equal(t, expectedSubject, subject)
 }
 
 func toOMVersion(versionString string) *om.Version {

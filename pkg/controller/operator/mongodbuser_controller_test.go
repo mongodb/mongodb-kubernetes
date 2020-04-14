@@ -240,7 +240,6 @@ func TestX509UserReconciliation_CreatesAgentUsers(t *testing.T) {
 	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().EnableAuth().SetAuthModes([]string{"X509"}).SetName("my-rs").Build())
 	createX509UserControllerConfigMap(client)
 	approveAgentCSRs(client) // pre-approved agent CSRs for x509 authentication
-
 	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
 
 	expected, _ := success()
@@ -250,7 +249,7 @@ func TestX509UserReconciliation_CreatesAgentUsers(t *testing.T) {
 
 	ac, _ := om.CurrMockedConnection.ReadAutomationConfig()
 
-	assert.Len(t, ac.Auth.Users, 3, "users list should contain 1 user just added and 2 agent users")
+	assert.Len(t, ac.Auth.Users, 1, "users list should contain 1 user just added and 2 agent users")
 }
 
 // createUserControllerConfigMap creates a configmap with credentials present

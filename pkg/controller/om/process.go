@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"strings"
 
 	"github.com/blang/semver"
 	"github.com/spf13/cast"
@@ -242,7 +243,7 @@ func (p Process) EnsureSecurity() map[string]interface{} {
 }
 
 func (p Process) ConfigureClusterAuthMode(clusterAuthMode string) Process {
-	if clusterAuthMode == util.X509 {
+	if strings.ToUpper(clusterAuthMode) == util.X509 { // Ops Manager value is "x509"
 		// the individual key per pod will be podname-pem e.g. my-replica-set-0-pem
 		p.setClusterAuthMode("x509")
 		p.setClusterFile(fmt.Sprintf("%s%s-pem", util.InternalClusterAuthMountPath, p.Name()))

@@ -3,7 +3,11 @@ from kubetester.certs import Certificate, create_tls_certs
 from kubetester.kubetester import KubernetesTester, fixture as _fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.opsmanager import MongoDBOpsManager
+
 from pytest import fixture, mark
+
+from kubetester.certs import Certificate
+
 
 
 @fixture("module")

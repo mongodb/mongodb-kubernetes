@@ -24,12 +24,10 @@ var keyUsages = []certsv1.KeyUsage{"digital signature", "key encipherment", "ser
 var clientKeyUsages = []certsv1.KeyUsage{"digital signature", "key encipherment", "client auth"}
 
 const (
-	PrivateKeySize                    = 4096
-	CertificateNameCountry            = "US"
-	CertificateNameState              = "NY"
-	CertificateNameLocation           = "NY"
-	CertificateNameOrganization       = "mongodb"
-	CertificateNameOrganizationalUnit = "MongoDB Kubernetes Operator"
+	PrivateKeySize          = 4096
+	CertificateNameCountry  = "US"
+	CertificateNameState    = "NY"
+	CertificateNameLocation = "NY"
 )
 
 type pemCollection struct {
@@ -203,15 +201,15 @@ func (k *KubeHelper) readCSR(name, namespace string) (*certsv1.CertificateSignin
 	return nil, err
 }
 
-// CreateCSR will send a new CSR to the Kubernetes API
-func (k *KubeHelper) createTlsCsr(name, namespace string, hosts []string, commonName string) (key []byte, err error) {
+// CreateTlsCsr creates a CertificateSigningRequest for Server certificates.
+func (k *KubeHelper) createTlsCsr(name, namespace, clusterDomain string, hosts []string, commonName string) (key []byte, err error) {
 	subject := pkix.Name{
 		CommonName:         commonName,
-		Locality:           []string{CertificateNameLocation},
-		Organization:       []string{CertificateNameOrganization},
+		Organization:       []string{clusterDomain + "-server"},
+		OrganizationalUnit: []string{namespace},
 		Country:            []string{CertificateNameCountry},
 		Province:           []string{CertificateNameState},
-		OrganizationalUnit: []string{CertificateNameOrganizationalUnit},
+		Locality:           []string{CertificateNameLocation},
 	}
 	return k.createCSR(hosts, subject, keyUsages, name, namespace)
 }
@@ -265,26 +263,33 @@ func (k *KubeHelper) createCSR(hosts []string, subject pkix.Name, keyUsages []ce
 	return pemEncodedPrivKey, nil
 }
 
-func (k *KubeHelper) createInternalClusterAuthCSR(name, namespace string, hosts []string, commonName string) ([]byte, error) {
+// createInternalClusterAuthCSR creates CSRs for internal cluster authentication.
+// The certs structure is very strict, more info in:
+// https://docs.mongodb.com/manual/tutorial/configure-x509-member-authentication/index.html
+// For instance, both O and OU need to match O and OU for the server TLS certs.
+func (k *KubeHelper) createInternalClusterAuthCSR(name, namespace, clusterDomain string, hosts []string, commonName string) ([]byte, error) {
 	subject := pkix.Name{
 		CommonName:         commonName,
 		Locality:           []string{CertificateNameLocation},
-		Organization:       []string{CertificateNameOrganization},
+		Organization:       []string{clusterDomain + "-server"},
 		Country:            []string{CertificateNameCountry},
 		Province:           []string{CertificateNameState},
-		OrganizationalUnit: []string{CertificateNameOrganizationalUnit},
+		OrganizationalUnit: []string{namespace},
 	}
 	return k.createCSR(hosts, subject, clientKeyUsages, name, namespace)
 }
 
-func (k *KubeHelper) createAgentCSR(name, namespace string) ([]byte, error) {
+// createAgentCSR creates CSR for the agents.
+// These is regular client based authentication so the requirements for the Subject are less
+// strict than for internal cluster auth.
+func (k *KubeHelper) createAgentCSR(name, namespace, clusterDomain string) ([]byte, error) {
 	subject := pkix.Name{
 		CommonName:         name,
-		Organization:       []string{name}, // Organization must be set to the pod name for X509
+		Organization:       []string{clusterDomain + "-agent"},
 		Locality:           []string{CertificateNameLocation},
 		Country:            []string{CertificateNameCountry},
 		Province:           []string{CertificateNameState},
-		OrganizationalUnit: []string{CertificateNameOrganizationalUnit},
+		OrganizationalUnit: []string{namespace},
 	}
 	return k.createCSR([]string{name}, subject, clientKeyUsages, name, namespace)
 }

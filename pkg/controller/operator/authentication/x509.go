@@ -1,6 +1,7 @@
 package authentication
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
@@ -8,20 +9,22 @@ import (
 	"go.uber.org/zap"
 )
 
-func NewConnectionX509(conn om.Connection, ac *om.AutomationConfig) ConnectionX509 {
+func NewConnectionX509(conn om.Connection, ac *om.AutomationConfig, opts Options) ConnectionX509 {
 	return ConnectionX509{
 		AutomationConfig: ac,
 		Conn:             conn,
+		Options:          opts,
 	}
 }
 
 type ConnectionX509 struct {
 	AutomationConfig *om.AutomationConfig
 	Conn             om.Connection
+	Options          Options
 }
 
 func (x ConnectionX509) EnableAgentAuthentication(opts Options, log *zap.SugaredLogger) error {
-	log.Info("configuring x509 authentication")
+	log.Info("Configuring x509 authentication")
 	err := x.Conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		if err := ac.EnsureKeyFileContents(); err != nil {
 			return err
@@ -45,8 +48,8 @@ func (x ConnectionX509) EnableAgentAuthentication(opts Options, log *zap.Sugared
 			auth.EnsureUserRemoved(user.Username, user.Database)
 		}
 
-		auth.AutoUser = util.AutomationAgentSubject
-		for _, user := range buildX509AgentUsers() {
+		auth.AutoUser = x.Options.AutomationSubject
+		for _, user := range buildX509AgentUsers(x.Options.UserOptions) {
 			auth.EnsureUser(user)
 		}
 
@@ -59,9 +62,9 @@ func (x ConnectionX509) EnableAgentAuthentication(opts Options, log *zap.Sugared
 		return err
 	}
 
-	log.Info("configuring backup agent user")
+	log.Info("Configuring backup agent user")
 	err = x.Conn.ReadUpdateBackupAgentConfig(func(config *om.BackupAgentConfig) error {
-		config.EnableX509Authentication()
+		config.EnableX509Authentication(opts.BackupSubject)
 		return nil
 	}, log)
 
@@ -69,9 +72,9 @@ func (x ConnectionX509) EnableAgentAuthentication(opts Options, log *zap.Sugared
 		return err
 	}
 
-	log.Info("configuring monitoring agent user")
+	log.Info("Configuring monitoring agent user")
 	return x.Conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
-		config.EnableX509Authentication()
+		config.EnableX509Authentication(opts.MonitoringSubject)
 		return nil
 	}, log)
 }
@@ -135,7 +138,7 @@ func (x ConnectionX509) IsAgentAuthenticationConfigured() bool {
 		return false
 	}
 
-	if ac.Auth.AutoUser != util.AutomationAgentSubject || ac.Auth.AutoPwd != util.MergoDelete {
+	if !isValidX509Subject(ac.Auth.AutoUser) || ac.Auth.AutoPwd != util.MergoDelete {
 		return false
 	}
 
@@ -143,7 +146,7 @@ func (x ConnectionX509) IsAgentAuthenticationConfigured() bool {
 		return false
 	}
 
-	for _, user := range buildX509AgentUsers() {
+	for _, user := range buildX509AgentUsers(x.Options.UserOptions) {
 		if !ac.Auth.HasUser(user.Username, user.Database) {
 			return false
 		}
@@ -156,14 +159,33 @@ func (x ConnectionX509) IsDeploymentAuthenticationConfigured() bool {
 	return util.ContainsString(x.AutomationConfig.Auth.DeploymentAuthMechanisms, string(MongoDBX509))
 }
 
+// isValidX509Subject checks the subject contains CommonName, Country and Organizational Unit, Location and State.
+func isValidX509Subject(subject string) bool {
+	expected := []string{"CN", "C", "OU"}
+	for _, name := range expected {
+		matched, err := regexp.MatchString(name+`=\w+`, subject)
+		if err != nil {
+			continue
+		}
+		if !matched {
+			return false
+		}
+	}
+	return true
+}
+
 // buildX509AgentUsers returns the MongoDBUsers with all the required roles
 // for the BackupAgent and the MonitoringAgent
-func buildX509AgentUsers() []om.MongoDBUser {
+func buildX509AgentUsers(options UserOptions) []om.MongoDBUser {
+	// in the case of one agent, we don't need to add these additional agent users
+	if options.AutomationSubject != "" && (options.BackupSubject == options.AutomationSubject && options.MonitoringSubject == options.AutomationSubject) {
+		return []om.MongoDBUser{}
+	}
 	// required roles for Backup Agent
 	// https://docs.opsmanager.mongodb.com/current/reference/required-access-backup-agent/
 	return []om.MongoDBUser{
 		{
-			Username:                   util.BackupAgentSubject,
+			Username:                   options.BackupSubject,
 			Database:                   util.X509Db,
 			AuthenticationRestrictions: []string{},
 			Mechanisms:                 []string{},
@@ -193,7 +215,7 @@ func buildX509AgentUsers() []om.MongoDBUser {
 		// roles for Monitoring Agent
 		// https://docs.opsmanager.mongodb.com/current/reference/required-access-monitoring-agent/
 		{
-			Username:                   util.MonitoringAgentSubject,
+			Username:                   options.MonitoringSubject,
 			Database:                   util.X509Db,
 			AuthenticationRestrictions: []string{},
 			Mechanisms:                 []string{},

@@ -151,7 +151,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 			if err != nil {
 				return failed("Failed to create/update (Ops Manager reconciliation phase): %s", err.Error())
 			}
-			return updateOmDeployment(conn, s, sts, log).onErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+			return r.updateOmDeployment(conn, s, sts, log).onErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() reconcileStatus {
 			if err := standaloneBuilder.CreateOrUpdateInKubernetes(); err != nil {
@@ -175,13 +175,13 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 	return reconcileResult.updateStatus(s, r.ReconcileCommonController, log, DeploymentLink(conn.BaseURL(), conn.GroupID()))
 }
 
-func updateOmDeployment(conn om.Connection, s *mdbv1.MongoDB,
+func (r *ReconcileMongoDbStandalone) updateOmDeployment(conn om.Connection, s *mdbv1.MongoDB,
 	set appsv1.StatefulSet, log *zap.SugaredLogger) reconcileStatus {
 	if err := waitForRsAgentsToRegister(set, s.Spec.GetClusterDomain(), conn, log); err != nil {
 		return failedErr(err)
 	}
 
-	status, additionalReconciliationRequired := updateOmAuthentication(conn, []string{set.Name}, s, log)
+	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, []string{set.Name}, s, log)
 	if !status.isOk() {
 		return status
 	}

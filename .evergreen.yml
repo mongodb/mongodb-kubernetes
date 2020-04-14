@@ -1667,6 +1667,7 @@ task_groups:
     - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
+    - func: setup_cert_manager
   tasks:
     - e2e_configure_tls_and_x509_simultaneously_st
     - e2e_configure_tls_and_x509_simultaneously_rs

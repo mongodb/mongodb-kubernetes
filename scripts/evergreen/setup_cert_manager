@@ -4,11 +4,12 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
+
 # latest=$(curl --silent "https://api.github.com/repos/jetstack/cert-manager/tags" | jq -r '.[0].name')
 # TODO: an alpha release broke cert-manager, so skipping it for now.
 latest="v0.14.1"
 echo "Installing cert-manager ${latest}"
-kubectl create namespace cert-manager > /dev/null
+kubectl create namespace cert-manager &> /dev/null || true
 kubectl apply --validate=false -f "https://github.com/jetstack/cert-manager/releases/download/${latest}/cert-manager.yaml" > /dev/null
 
 echo "Wait for cert-manager to be ready"

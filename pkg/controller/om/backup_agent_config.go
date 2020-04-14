@@ -25,9 +25,9 @@ func (bac *BackupAgentConfig) Apply() error {
 	return nil
 }
 
-func (bac *BackupAgentConfig) EnableX509Authentication() {
+func (bac *BackupAgentConfig) EnableX509Authentication(backupAgentSubject string) {
 	bac.BackupAgentTemplate.SSLPemKeyFile = util.BackupAgentPemFilePath
-	bac.BackupAgentTemplate.Username = util.BackupAgentSubject
+	bac.BackupAgentTemplate.Username = backupAgentSubject
 }
 
 func (bac *BackupAgentConfig) DisableX509Authentication() {

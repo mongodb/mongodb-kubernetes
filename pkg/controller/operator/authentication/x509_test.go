@@ -1,6 +1,7 @@
 package authentication
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -10,7 +11,14 @@ import (
 
 func TestX509EnableAgentAuthentication(t *testing.T) {
 	conn, ac := createConnectionAndAutomationConfig()
-	x := NewConnectionX509(conn, ac)
+	options := Options{
+		UserOptions: UserOptions{
+			AutomationSubject: validSubject("automation"),
+			BackupSubject:     validSubject("backup"),
+			MonitoringSubject: validSubject("monitoring"),
+		},
+	}
+	x := NewConnectionX509(conn, ac, options)
 	if err := x.EnableAgentAuthentication(Options{AuthoritativeSet: true}, zap.S()); err != nil {
 		t.Fatal(err)
 	}
@@ -20,7 +28,7 @@ func TestX509EnableAgentAuthentication(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assert.Equal(t, ac.Auth.AutoUser, util.AutomationAgentSubject)
+	assert.Equal(t, ac.Auth.AutoUser, options.AutomationSubject)
 	assert.Len(t, ac.Auth.AutoAuthMechanisms, 1)
 	assert.Contains(t, ac.Auth.AutoAuthMechanisms, string(MongoDBX509))
 	assert.Equal(t, ac.Auth.AutoPwd, util.MergoDelete)
@@ -32,7 +40,11 @@ func TestX509EnableAgentAuthentication(t *testing.T) {
 	assert.NotEmpty(t, ac.Auth.KeyFileWindows)
 	assert.NotEmpty(t, ac.Auth.KeyFile)
 
-	for _, user := range buildX509AgentUsers() {
+	for _, user := range buildX509AgentUsers(UserOptions{
+		AutomationSubject: validSubject("automation"),
+		BackupSubject:     validSubject("backup"),
+		MonitoringSubject: validSubject("monitoring"),
+	}, ) {
 		assert.True(t, ac.Auth.HasUser(user.Username, user.Database))
 	}
 
@@ -43,11 +55,23 @@ func TestX509EnableAgentAuthentication(t *testing.T) {
 
 func TestX509_DisableAgentAuthentication(t *testing.T) {
 	conn, ac := createConnectionAndAutomationConfig()
-	assertAgentAuthenticationDisabled(t, NewConnectionX509(conn, ac))
+	opts := Options{
+		UserOptions: UserOptions{
+			AutomationSubject: validSubject("automation"),
+			BackupSubject:     validSubject("backup"),
+			MonitoringSubject: validSubject("monitoring"),
+		},
+	}
+	x509 := NewConnectionX509(conn, ac, opts)
+	assertAgentAuthenticationDisabled(t, x509, opts)
 }
 
 func TestX509_DeploymentConfigured(t *testing.T) {
 	conn, ac := createConnectionAndAutomationConfig()
-	assertDeploymentMechanismsConfigured(t, NewConnectionX509(conn, ac))
+	assertDeploymentMechanismsConfigured(t, NewConnectionX509(conn, ac, Options{}))
 	assert.Equal(t, ac.AgentSSL.CAFilePath, util.CAFilePathInContainer)
+}
+
+func validSubject(o string) string {
+	return fmt.Sprintf("CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=%s,L=NY,ST=NY,C=US", o)
 }

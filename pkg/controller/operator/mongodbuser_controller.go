@@ -41,14 +41,14 @@ func (r *MongoDBUserReconciler) getUser(request reconcile.Request, log *zap.Suga
 	return user, nil
 }
 
-func (r *MongoDBUserReconciler) getMongoDBSpec(user mdbv1.MongoDBUser) (mdbv1.MongoDbSpec, error) {
+func (r *MongoDBUserReconciler) getMongoDB(user mdbv1.MongoDBUser) (mdbv1.MongoDB, error) {
 	mdb := mdbv1.MongoDB{}
 	name := objectKey(user.Namespace, user.Spec.MongoDBResourceRef.Name)
 	if err := r.client.Get(context.TODO(), name, &mdb); err != nil {
-		return mdb.Spec, err
+		return mdb, err
 	}
 
-	return mdb.Spec, nil
+	return mdb, nil
 }
 
 func (r *MongoDBUserReconciler) getConnectionSpec(user mdbv1.MongoDBUser, mdbSpec mdbv1.MongoDbSpec) (mdbv1.ConnectionSpec, error) {
@@ -110,15 +110,15 @@ func (r *MongoDBUserReconciler) Reconcile(request reconcile.Request) (res reconc
 	)
 
 	log.Infow("MongoDBUser.Spec", "spec", user.Spec)
-	mdbSpec := mdbv1.MongoDbSpec{}
+	mdb := mdbv1.MongoDB{}
 	if user.Spec.MongoDBResourceRef.Name != "" {
-		if mdbSpec, err = r.getMongoDBSpec(*user); err != nil {
+		if mdb, err = r.getMongoDB(*user); err != nil {
 			return r.updateStatusPending(user, err.Error(), log)
 		}
 	} else {
 		log.Warn("MongoDB reference not specified. Using deprecated project field.")
 	}
-	log.Infow("MongoDBUser MongoDBSpec", "spec", mdbSpec)
+	log.Infow("MongoDBUser MongoDBSpec", "spec", mdb.Spec)
 
 	// this can happen when a user has registered a configmap as watched resource
 	// but the user gets deleted. Reconciliation happens to this user even though it is deleted.
@@ -127,7 +127,7 @@ func (r *MongoDBUserReconciler) Reconcile(request reconcile.Request) (res reconc
 		return stop()
 	}
 
-	connSpec, err := r.getConnectionSpec(*user, mdbSpec)
+	connSpec, err := r.getConnectionSpec(*user, mdb.Spec)
 	if err != nil {
 		return fail(err)
 	}
@@ -138,7 +138,7 @@ func (r *MongoDBUserReconciler) Reconcile(request reconcile.Request) (res reconc
 	}
 
 	if user.Spec.Database == util.X509Db {
-		return r.handleX509User(user, mdbSpec, conn, log)
+		return r.handleX509User(user, mdb, conn, log)
 	} else {
 		return r.handleScramShaUser(user, conn, log)
 	}
@@ -166,12 +166,12 @@ func (r *MongoDBUserReconciler) isX509Enabled(user mdbv1.MongoDBUser, mdbSpec md
 func (r *MongoDBUserReconciler) delete(obj interface{}, log *zap.SugaredLogger) error {
 	user := obj.(*mdbv1.MongoDBUser)
 
-	mdbSpec, err := r.getMongoDBSpec(*user)
+	mdb, err := r.getMongoDB(*user)
 	if err != nil {
 		return err
 	}
 
-	connSpec, err := r.getConnectionSpec(*user, mdbSpec)
+	connSpec, err := r.getConnectionSpec(*user, mdb.Spec)
 	if err != nil {
 		return err
 	}
@@ -268,7 +268,9 @@ func (r *MongoDBUserReconciler) handleScramShaUser(user *mdbv1.MongoDBUser, conn
 		}
 
 		// TODO: this can be removed once https://jira.mongodb.org/browse/CLOUDP-51116 is resolved
-		if err := authentication.EnsureAgentUsers(ac, authentication.ScramSha256); err != nil {
+		// The user.Namespace will not be used in SCRAMSHA context.
+		// No UserOptions are required when configuring SCRAM-SHA authentication
+		if err := authentication.EnsureAgentUsers(authentication.UserOptions{}, ac, authentication.ScramSha256); err != nil {
 			return err
 		}
 
@@ -294,16 +296,16 @@ func (r *MongoDBUserReconciler) handleScramShaUser(user *mdbv1.MongoDBUser, conn
 	return r.updateStatusSuccessful(user, log)
 }
 
-func (r *MongoDBUserReconciler) handleX509User(user *mdbv1.MongoDBUser, mdbSpec mdbv1.MongoDbSpec, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
+func (r *MongoDBUserReconciler) handleX509User(user *mdbv1.MongoDBUser, mdb mdbv1.MongoDB, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
 
-	if x509IsEnabled, err := r.isX509Enabled(*user, mdbSpec); err != nil {
+	if x509IsEnabled, err := r.isX509Enabled(*user, mdb.Spec); err != nil {
 		return fail(err)
 	} else if !x509IsEnabled {
 		log.Info("X509 authentication is not enabled for this project, stopping")
 		return stop()
 	}
 
-	mdbAuth := mdbSpec.Security.Authentication
+	mdbAuth := mdb.Spec.Security.Authentication
 
 	if mdbAuth.GetAgentMechanism() == util.X509 && !r.doAgentX509CertsExist(user.Namespace) {
 		log.Info("Agent certs have not yet been created, cannot add MongoDBUser yet")
@@ -319,7 +321,12 @@ func (r *MongoDBUserReconciler) handleX509User(user *mdbv1.MongoDBUser, mdbSpec 
 
 		if mdbAuth.GetAgentMechanism() == util.X509 {
 			// TODO: this can be removed once https://jira.mongodb.org/browse/CLOUDP-51116 is resolved
-			if err := authentication.EnsureAgentUsers(ac, authentication.MongoDBX509); err != nil {
+
+			userOpts, err := r.readAgentSubjectsFromSecret(mdb.Namespace, log)
+			if err != nil {
+				return fmt.Errorf("error reading agent subjects from secret: %v", err)
+			}
+			if err := authentication.EnsureAgentUsers(userOpts, ac, authentication.MongoDBX509); err != nil {
 				return err
 			}
 		}

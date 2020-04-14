@@ -10,6 +10,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
+	"io/ioutil"
 	"math/big"
 	"testing"
 	"time"
@@ -102,7 +103,8 @@ func TestUpdateOmAuthentication_NoAuthenticationEnabled(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).Build()
 	processNames := []string{"my-rs-0", "my-rs-1", "my-rs-2"}
 
-	updateOmAuthentication(conn, processNames, rs, zap.S())
+	r := newReplicaSetReconciler(newMockedManager(rs), om.NewEmptyMockedOmConnection)
+	r.updateOmAuthentication(conn, processNames, rs, zap.S())
 
 	ac, _ := conn.ReadAutomationConfig()
 
@@ -120,7 +122,8 @@ func TestUpdateOmAuthentication_EnableX509_TlsNotEnabled(t *testing.T) {
 	rs.Spec.Security.Authentication.Enabled = true
 	rs.Spec.Security.TLSConfig.Enabled = true
 
-	status, isMultiStageReconciliation := updateOmAuthentication(conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, zap.S())
+	r := newReplicaSetReconciler(newMockedManager(rs), om.NewEmptyMockedOmConnection)
+	status, isMultiStageReconciliation := r.updateOmAuthentication(conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, zap.S())
 
 	assert.True(t, status.isOk(), "configuring both options at once should not result in a failed status")
 	assert.True(t, isMultiStageReconciliation, "configuring both tls and x509 at once should result in a multi stage reconciliation")
@@ -129,8 +132,9 @@ func TestUpdateOmAuthentication_EnableX509_TlsNotEnabled(t *testing.T) {
 func TestUpdateOmAuthentication_EnableX509_WithTlsAlreadyEnabled(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().Build()
 	conn := om.NewMockedOmConnection(createDeploymentFromReplicaSet(rs))
+	r := newReplicaSetReconciler(newMockedManager(rs), om.NewEmptyMockedOmConnection)
 
-	status, isMultiStageReconciliation := updateOmAuthentication(conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, zap.S())
+	status, isMultiStageReconciliation := r.updateOmAuthentication(conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, zap.S())
 
 	assert.True(t, status.isOk(), "configuring x509 when tls has already been enabled should not result in a failed status")
 	assert.False(t, isMultiStageReconciliation, "if tls is already enabled, we should be able to configure x509 is a single reconciliation")
@@ -140,8 +144,10 @@ func TestUpdateOmAuthentication_EnableX509_FromEmptyDeployment(t *testing.T) {
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 
 	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().EnableAuth().SetAuthModes([]string{"X509"}).Build()
+	r := newReplicaSetReconciler(newMockedManager(rs), om.NewEmptyMockedOmConnection)
 
-	status, isMultiStageReconciliation := updateOmAuthentication(conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, zap.S())
+	configureX509(r.client.(*MockedClient), certsv1.CertificateApproved)
+	status, isMultiStageReconciliation := r.updateOmAuthentication(conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, zap.S())
 
 	assert.True(t, status.isOk(), "configuring x509 and tls when there are no processes should not result in a failed status")
 	assert.False(t, isMultiStageReconciliation, "if we are enabling tls and x509 at once, this should be done in a single reconciliation")
@@ -174,7 +180,7 @@ func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
 	assert.Equal(t, expected, actual)
 
 	ac, _ := om.CurrMockedConnection.ReadAutomationConfig()
-	assert.Equal(t, ac.Auth.AutoUser, util.AutomationAgentSubject)
+	assert.Equal(t, ac.Auth.AutoUser, "CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US")
 }
 
 func TestScramAgentUserIsCorrectlyConfigured(t *testing.T) {
@@ -498,7 +504,13 @@ func approveAgentCSRs(client *MockedClient) {
 // createAgentCSRs creates all the agent CSRs needed for x509 at the specified condition type
 func createAgentCSRs(client *MockedClient, conditionType certsv1.RequestConditionType) {
 	// create the secret the agent certs will exist in
-	client.getMapForObject(&corev1.Secret{})[objectKey(TestNamespace, util.AgentSecretName)] = &corev1.Secret{}
+
+	cert, _ := ioutil.ReadFile("testdata/certificates/certificate_then_key")
+	client.getMapForObject(&corev1.Secret{})[objectKey(TestNamespace, util.AgentSecretName)] = &corev1.Secret{
+		Data: map[string][]byte{
+			util.AutomationAgentPemSecretKey: cert,
+		},
+	}
 
 	addCsrs(client,
 		createCSR("mms-automation-agent", TestNamespace, conditionType),

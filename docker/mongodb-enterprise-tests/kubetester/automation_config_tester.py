@@ -49,6 +49,10 @@ class AutomationConfigTester:
             == expected_num_deployment_auth_mechanisms
         )
 
+    def assert_internal_cluster_authentication_enabled(self):
+        for process in self.automation_config["processes"]:
+            assert process["args2_6"]["security"]["clusterAuthMode"] == "x509"
+
     def assert_authentication_disabled(self, remaining_users: int = 0) -> None:
         assert self.automation_config["auth"]["disabled"]
         assert len(self.automation_config["auth"]["usersWanted"]) == remaining_users
