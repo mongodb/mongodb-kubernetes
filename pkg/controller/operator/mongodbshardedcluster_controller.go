@@ -5,6 +5,7 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
@@ -33,7 +34,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (r
 
 	defer exceptionHandling(
 		func(err interface{}) (reconcile.Result, error) {
-			return r.updateStatusFailed(sc, fmt.Sprintf("Failed to reconcile Sharded Cluster: %s", err), log)
+			return r.updateStatus(sc, workflow.Failed("Failed to reconcile Sharded Cluster: %s", err), log)
 		},
 		func(result reconcile.Result, err error) { res = result; e = err },
 	)
@@ -48,21 +49,21 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (r
 	log.Infow("ShardedCluster.Status", "status", sc.Status)
 
 	conn, status := r.doShardedClusterProcessing(sc, log)
-	if !status.isOk() {
-		return status.updateStatus(sc, r.ReconcileCommonController, log)
+	if !status.IsOK() {
+		return r.updateStatus(sc, status, log)
 	}
 
 	log.Infof("Finished reconciliation for Sharded Cluster! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
-	return status.updateStatus(sc, r.ReconcileCommonController, log, DeploymentLink(conn.BaseURL(), conn.GroupID()))
+	return r.updateStatus(sc, status, log, mdbv1.NewBaseUrlOption(DeploymentLink(conn.BaseURL(), conn.GroupID())))
 }
 
 // implements all the logic to do the sharded cluster thing
-func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interface{}, log *zap.SugaredLogger) (om.Connection, reconcileStatus) {
+func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interface{}, log *zap.SugaredLogger) (om.Connection, workflow.Status) {
 	log.Info("ShardedCluster.doShardedClusterProcessing")
 	sc := obj.(*mdbv1.MongoDB)
 	projectConfig, err := r.kubeHelper.readProjectConfig(sc.Namespace, sc.Spec.GetProject())
 	if err != nil {
-		return nil, failed("error reading project %s", err)
+		return nil, workflow.Failed("error reading project %s", err)
 	}
 
 	sc.Spec.SetParametersFromConfigMap(projectConfig)
@@ -70,46 +71,47 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 	podVars := &PodVars{}
 	conn, err := r.prepareConnection(objectKey(sc.Namespace, sc.Name), sc.Spec.ConnectionSpec, podVars, log)
 	if err != nil {
-		return nil, failedErr(err)
+		return nil, workflow.Failed(err.Error())
 	}
 
 	reconcileResult := checkIfHasExcessProcesses(conn, sc, log)
-	if !reconcileResult.isOk() {
+	if !reconcileResult.IsOK() {
 		return nil, reconcileResult
 	}
 
 	authSpec := sc.Spec.Security.Authentication
+	// TODO move to webhook validations
 	if authSpec.Enabled && authSpec.IsX509Enabled() && !sc.Spec.GetTLSConfig().Enabled {
-		return nil, failedValidation("cannot have a non-tls deployment when x509 authentication is enabled")
+		return nil, workflow.Invalid("cannot have a non-tls deployment when x509 authentication is enabled")
 	}
 
 	kubeState := r.buildKubeObjectsForShardedCluster(sc, podVars, projectConfig, log)
 
 	if err = prepareScaleDownShardedCluster(conn, kubeState, sc, log); err != nil {
-		return nil, failed("failed to perform scale down preliminary actions: %s", err)
+		return nil, workflow.Failed("failed to perform scale down preliminary actions: %s", err)
 	}
 
-	if status := validateMongoDBResource(sc, conn); !status.isOk() {
+	if status := validateMongoDBResource(sc, conn); !status.IsOK() {
 		return nil, status
 	}
 
-	if status := r.ensureSSLCertificates(sc, kubeState, log); !status.isOk() {
+	if status := r.ensureSSLCertificates(sc, kubeState, log); !status.IsOK() {
 		return nil, status
 	}
 
-	if status := r.ensureX509InKubernetes(sc, kubeState, log); !status.isOk() {
+	if status := r.ensureX509InKubernetes(sc, kubeState, log); !status.IsOK() {
 		return nil, status
 	}
 
 	status := runInGivenOrder(anyStatefulSetHelperNeedsToPublishState(kubeState, log),
-		func() reconcileStatus {
-			return r.updateOmDeploymentShardedCluster(conn, sc, kubeState, log).onErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+		func() workflow.Status {
+			return r.updateOmDeploymentShardedCluster(conn, sc, kubeState, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
-		func() reconcileStatus {
-			return r.createKubernetesResources(sc, kubeState, log).onErrorPrepend("Failed to create/update (Kubernetes reconciliation phase):")
+		func() workflow.Status {
+			return r.createKubernetesResources(sc, kubeState, log).OnErrorPrepend("Failed to create/update (Kubernetes reconciliation phase):")
 		})
 
-	if !status.isOk() {
+	if !status.IsOK() {
 		return nil, status
 	}
 
@@ -130,7 +132,7 @@ func anyStatefulSetHelperNeedsToPublishState(kubeState ShardedClusterKubeState, 
 	return false
 }
 
-func (r *ReconcileMongoDbShardedCluster) ensureX509InKubernetes(sc *mdbv1.MongoDB, kubeState ShardedClusterKubeState, log *zap.SugaredLogger) reconcileStatus {
+func (r *ReconcileMongoDbShardedCluster) ensureX509InKubernetes(sc *mdbv1.MongoDB, kubeState ShardedClusterKubeState, log *zap.SugaredLogger) workflow.Status {
 	authEnabled := sc.Spec.Security.Authentication.Enabled
 	usingX509 := sc.Spec.Security.Authentication.GetAgentMechanism() == util.X509
 	if authEnabled && usingX509 {
@@ -138,15 +140,15 @@ func (r *ReconcileMongoDbShardedCluster) ensureX509InKubernetes(sc *mdbv1.MongoD
 		useCustomCA := sc.Spec.GetTLSConfig().CA != ""
 		successful, err := r.ensureX509AgentCertsForMongoDBResource(sc, authModes, useCustomCA, sc.Namespace, log)
 		if err != nil {
-			return failedErr(err)
+			return workflow.Failed(err.Error())
 		}
 		if !successful {
-			return pending("Agent certs have not yet been approved")
+			return workflow.Pending("Agent certs have not yet been approved")
 		}
 		if !sc.Spec.Security.TLSConfig.Enabled {
-			return failed("authentication mode for project is x509 but this MDB resource is not TLS enabled")
+			return workflow.Failed("authentication mode for project is x509 but this MDB resource is not TLS enabled")
 		} else if !r.doAgentX509CertsExist(sc.Namespace) {
-			return pending("agent x509 certificates have not yet been created")
+			return workflow.Pending("agent x509 certificates have not yet been created")
 		}
 
 		if sc.Spec.Security.Authentication.InternalCluster == util.X509 {
@@ -161,14 +163,14 @@ func (r *ReconcileMongoDbShardedCluster) ensureX509InKubernetes(sc *mdbv1.MongoD
 			}
 			// fail only after creating all CSRs
 			if len(errors) > 0 {
-				return failed("failed ensuring internal cluster authentication certs %s", errors[0])
+				return workflow.Failed("failed ensuring internal cluster authentication certs %s", errors[0])
 			} else if !allSuccessful {
-				return pending("not all internal cluster authentication certs have been approved by Kubernetes CA")
+				return workflow.Pending("not all internal cluster authentication certs have been approved by Kubernetes CA")
 			}
 		}
 
 	}
-	return ok()
+	return workflow.OK()
 }
 
 func (r *ReconcileMongoDbShardedCluster) removeUnusedStatefulsets(sc *mdbv1.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger) {
@@ -188,20 +190,20 @@ func (r *ReconcileMongoDbShardedCluster) removeUnusedStatefulsets(sc *mdbv1.Mong
 	}
 }
 
-func (r *ReconcileMongoDbShardedCluster) ensureSSLCertificates(s *mdbv1.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger) reconcileStatus {
+func (r *ReconcileMongoDbShardedCluster) ensureSSLCertificates(s *mdbv1.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger) workflow.Status {
 	tlsConfig := s.Spec.GetTLSConfig()
 
 	if tlsConfig == nil || !s.Spec.GetTLSConfig().Enabled {
-		return ok()
+		return workflow.OK()
 	}
 
-	var status reconcileStatus
-	status = ok()
-	status = status.merge(r.kubeHelper.ensureSSLCertsForStatefulSet(state.mongosSetHelper, log))
-	status = status.merge(r.kubeHelper.ensureSSLCertsForStatefulSet(state.configSrvSetHelper, log))
+	var status workflow.Status
+	status = workflow.OK()
+	status = status.Merge(r.kubeHelper.ensureSSLCertsForStatefulSet(state.mongosSetHelper, log))
+	status = status.Merge(r.kubeHelper.ensureSSLCertsForStatefulSet(state.configSrvSetHelper, log))
 
 	for _, helper := range state.shardsSetsHelpers {
-		status = status.merge(r.kubeHelper.ensureSSLCertsForStatefulSet(helper, log))
+		status = status.Merge(r.kubeHelper.ensureSSLCertsForStatefulSet(helper, log))
 	}
 
 	return status
@@ -211,13 +213,13 @@ func (r *ReconcileMongoDbShardedCluster) ensureSSLCertificates(s *mdbv1.MongoDB,
 // This function returns errorStatus if any errors occured or pendingStatus if the statefulsets are not
 // ready yet
 // Note, that it doesn't remove any existing shards - this will be done later
-func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger) reconcileStatus {
+func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger) workflow.Status {
 	err := state.configSrvSetHelper.CreateOrUpdateInKubernetes()
 	if err != nil {
-		return failed("Failed to create Config Server Stateful Set: %s", err)
+		return workflow.Failed("Failed to create Config Server Stateful Set: %s", err)
 	}
 	if !r.kubeHelper.isStatefulSetUpdated(state.configSrvSetHelper.Namespace, state.configSrvSetHelper.Name, log) {
-		return pending("StatefulSet %s/%s is still pending to start/update", state.configSrvSetHelper.Namespace, state.configSrvSetHelper.Name)
+		return workflow.Pending("StatefulSet %s/%s is still pending to start/update", state.configSrvSetHelper.Namespace, state.configSrvSetHelper.Name)
 	}
 
 	log.Infow("Created/updated StatefulSet for config servers", "name", state.configSrvSetHelper.Name, "servers count", state.configSrvSetHelper.Replicas)
@@ -228,10 +230,10 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 		shardsNames[i] = s.Name
 		err = s.CreateOrUpdateInKubernetes()
 		if err != nil {
-			return failed("Failed to create Stateful Set for shard %s: %s", s.Name, err)
+			return workflow.Failed("Failed to create Stateful Set for shard %s: %s", s.Name, err)
 		}
 		if !r.kubeHelper.isStatefulSetUpdated(s.Namespace, s.Name, log) {
-			return pending("StatefulSet %s/%s is still pending to start/update", s.Namespace, s.Name)
+			return workflow.Pending("StatefulSet %s/%s is still pending to start/update", s.Namespace, s.Name)
 		}
 	}
 
@@ -239,16 +241,16 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 
 	err = state.mongosSetHelper.CreateOrUpdateInKubernetes()
 	if err != nil {
-		return failed("Failed to create Mongos Stateful Set: %s", err)
+		return workflow.Failed("Failed to create Mongos Stateful Set: %s", err)
 	}
 
 	if !r.kubeHelper.isStatefulSetUpdated(state.mongosSetHelper.Namespace, state.mongosSetHelper.Name, log) {
-		return pending("StatefulSet %s/%s is still pending to start/update", state.mongosSetHelper.Namespace, state.mongosSetHelper.Name)
+		return workflow.Pending("StatefulSet %s/%s is still pending to start/update", state.mongosSetHelper.Namespace, state.mongosSetHelper.Name)
 	}
 
 	log.Infow("Created/updated StatefulSet for mongos servers", "name", state.mongosSetHelper.Name, "servers count", state.mongosSetHelper.Replicas)
 
-	return ok()
+	return workflow.OK()
 }
 
 func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mdbv1.MongoDB, podVars *PodVars, projectConfig *mdbv1.ProjectConfig, log *zap.SugaredLogger) ShardedClusterKubeState {
@@ -444,41 +446,41 @@ func isShardsSizeScaleDown(sc *mdbv1.MongoDB) bool {
 // phase 2: remove the "junk" replica sets and their processes, wait for agents to reach the goal.
 // The logic is designed to be idempotent: if the reconciliation is retried the controller will never skip the phase 1
 // until the agents have performed draining
-func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn om.Connection, sc *mdbv1.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger) reconcileStatus {
+func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn om.Connection, sc *mdbv1.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger) workflow.Status {
 	err := waitForAgentsToRegister(sc, state, conn, log)
 	if err != nil {
-		return failedErr(err)
+		return workflow.Failed(err.Error())
 	}
 
 	dep, err := conn.ReadDeployment()
 	if err != nil {
-		return failedErr(err)
+		return workflow.Failed(err.Error())
 	}
 
 	processNames := dep.GetProcessNames(om.ShardedCluster{}, sc.Name)
 
 	status, shardsRemoving := r.publishDeployment(conn, sc, state, log, &processNames, false)
 
-	if !status.isOk() {
+	if !status.IsOK() {
 		return status
 	}
 
 	if err = om.WaitForReadyState(conn, processNames, log); err != nil {
 		if shardsRemoving {
-			return pending("automation agents haven't reached READY state: shards removal in progress")
+			return workflow.Pending("automation agents haven't reached READY state: shards removal in progress")
 		}
-		return failedErr(err)
+		return workflow.Failed(err.Error())
 	}
 
 	if shardsRemoving {
 		log.Infof("Some shards were removed from the sharded cluster, we need to remove them from the deployment completely")
 		status, _ = r.publishDeployment(conn, sc, state, log, &processNames, true)
-		if !status.isOk() {
+		if !status.IsOK() {
 			return status
 		}
 
 		if err = om.WaitForReadyState(conn, processNames, log); err != nil {
-			return failed("automation agents haven't reached READY state while cleaning replica set and processes: %s", err)
+			return workflow.Failed("automation agents haven't reached READY state while cleaning replica set and processes: %s", err)
 		}
 	}
 
@@ -486,18 +488,18 @@ func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn o
 	wantedHosts := getAllHosts(sc, sc.Spec.MongodbShardedClusterSizeConfig)
 
 	if err = calculateDiffAndStopMonitoringHosts(conn, currentHosts, wantedHosts, log); err != nil {
-		return failedErr(err)
+		return workflow.Failed(err.Error())
 	}
 	log.Info("Updated Ops Manager for sharded cluster")
-	return ok()
+	return workflow.OK()
 }
 
 func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, sc *mdbv1.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger,
-	processNames *[]string, finalizing bool) (reconcileStatus, bool) {
+	processNames *[]string, finalizing bool) (workflow.Status, bool) {
 
 	sts, err := state.mongosSetHelper.BuildStatefulSet()
 	if err != nil {
-		return failedErr(err), false
+		return workflow.Failed(err.Error()), false
 	}
 
 	mongosProcesses := createProcesses(
@@ -508,7 +510,7 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 
 	configSvrSts, err := state.configSrvSetHelper.BuildStatefulSet()
 	if err != nil {
-		return failedErr(err), false
+		return workflow.Failed(err.Error()), false
 	}
 
 	configRs := buildReplicaSetFromStatefulSet(configSvrSts, sc)
@@ -517,13 +519,13 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 	for i, s := range state.shardsSetsHelpers {
 		shardSts, err := s.BuildStatefulSet()
 		if err != nil {
-			return failedErr(err), false
+			return workflow.Failed(err.Error()), false
 		}
 		shards[i] = buildReplicaSetFromStatefulSet(shardSts, sc)
 	}
 
 	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, *processNames, sc, log)
-	if !status.isOk() {
+	if !status.IsOK() {
 		return status, false
 	}
 
@@ -555,18 +557,18 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 	)
 
 	if err != nil {
-		return failedErr(err), shardsRemoving
+		return workflow.Failed(err.Error()), shardsRemoving
 	}
 
 	if err := om.WaitForReadyState(conn, *processNames, log); err != nil {
-		return failedErr(err), shardsRemoving
+		return workflow.Failed(err.Error()), shardsRemoving
 	}
 
 	if additionalReconciliationRequired {
-		return pending("Performing multi stage reconciliation"), shardsRemoving
+		return workflow.Pending("Performing multi stage reconciliation"), shardsRemoving
 	}
 
-	return ok(), shardsRemoving
+	return workflow.OK(), shardsRemoving
 }
 
 func getAllProcesses(shards []om.ReplicaSetWithProcesses, configRs om.ReplicaSetWithProcesses, mongosProcesses []om.Process) []om.Process {

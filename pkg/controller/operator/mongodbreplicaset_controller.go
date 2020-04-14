@@ -5,6 +5,7 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
@@ -38,7 +39,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 
 	defer exceptionHandling(
 		func(err interface{}) (reconcile.Result, error) {
-			return r.updateStatusFailed(rs, fmt.Sprintf("Failed to reconcile Mongodb Replica Set: %s", err), log)
+			return r.updateStatus(rs, workflow.Failed("Failed to reconcile Mongodb Replica Set: %s", err), log)
 		},
 		func(result reconcile.Result, err error) { res = result; e = err },
 	)
@@ -51,7 +52,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 	log.Infow("ReplicaSet.Status", "status", rs.Status)
 
 	if err := rs.ProcessValidationsOnReconcile(); err != nil {
-		return r.updateStatusValidationFailure(rs, err.Error(), log, true)
+		return r.updateStatus(rs, workflow.Invalid(err.Error()), log)
 	}
 
 	projectConfig, err := r.kubeHelper.readProjectConfig(request.Namespace, rs.Spec.GetProject())
@@ -65,12 +66,12 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 	podVars := &PodVars{}
 	conn, err := r.prepareConnection(request.NamespacedName, rs.Spec.ConnectionSpec, podVars, log)
 	if err != nil {
-		return r.updateStatusFailed(rs, fmt.Sprintf("Failed to prepare Ops Manager connection: %s", err), log)
+		return r.updateStatus(rs, workflow.Failed("Failed to prepare Ops Manager connection: %s", err), log)
 	}
 
 	reconcileResult := checkIfHasExcessProcesses(conn, rs, log)
-	if !reconcileResult.isOk() {
-		return reconcileResult.updateStatus(rs, r.ReconcileCommonController, log)
+	if !reconcileResult.IsOK() {
+		return r.updateStatus(rs, reconcileResult, log)
 	}
 
 	replicaBuilder := r.kubeHelper.NewStatefulSetHelper(rs).
@@ -83,52 +84,52 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		SetReplicaSetHorizons(rs.Spec.Connectivity.ReplicaSetHorizons)
 	replicaBuilder.SetCertificateHash(replicaBuilder.readPemHashFromSecret())
 
-	if status := validateMongoDBResource(rs, conn); !status.isOk() {
-		return status.updateStatus(rs, r.ReconcileCommonController, log)
+	if status := validateMongoDBResource(rs, conn); !status.IsOK() {
+		return r.updateStatus(rs, status, log)
 	}
 
-	if status := r.kubeHelper.ensureSSLCertsForStatefulSet(replicaBuilder, log); !status.isOk() {
-		return status.updateStatus(rs, r.ReconcileCommonController, log)
+	if status := r.kubeHelper.ensureSSLCertsForStatefulSet(replicaBuilder, log); !status.IsOK() {
+		return r.updateStatus(rs, status, log)
 	}
 
-	if status := r.ensureX509InKubernetes(rs, replicaBuilder, log); !status.isOk() {
-		return status.updateStatus(rs, r.ReconcileCommonController, log)
+	if status := r.ensureX509InKubernetes(rs, replicaBuilder, log); !status.IsOK() {
+		return r.updateStatus(rs, status, log)
 	}
 
 	replicaSetObject, err := replicaBuilder.BuildStatefulSet()
 	if err != nil {
-		return r.updateStatusFailed(rs, err.Error(), log)
+		return r.updateStatus(rs, workflow.Failed(err.Error()), log)
 	}
 
 	if rs.Spec.Members < rs.Status.Members {
 		if err := prepareScaleDownReplicaSet(conn, replicaSetObject, rs.Status.Members, rs, log); err != nil {
-			return r.updateStatusFailed(rs, fmt.Sprintf("Failed to prepare Replica Set for scaling down using Ops Manager: %s", err), log)
+			return r.updateStatus(rs, workflow.Failed("Failed to prepare Replica Set for scaling down using Ops Manager: %s", err), log)
 		}
 	}
 
 	status := runInGivenOrder(replicaBuilder.needToPublishStateFirst(log),
-		func() reconcileStatus {
-			return r.updateOmDeploymentRs(conn, rs.Status.Members, rs, replicaSetObject, log).onErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+		func() workflow.Status {
+			return r.updateOmDeploymentRs(conn, rs.Status.Members, rs, replicaSetObject, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
-		func() reconcileStatus {
+		func() workflow.Status {
 			if err := replicaBuilder.CreateOrUpdateInKubernetes(); err != nil {
-				return failed("Failed to create/update (Kubernetes reconciliation phase): %s", err.Error())
+				return workflow.Failed("Failed to create/update (Kubernetes reconciliation phase): %s", err.Error())
 			}
 
 			if !r.kubeHelper.isStatefulSetUpdated(rs.Namespace, rs.Name, log) {
-				return pending("MongoDB %s resource is still starting", rs.Name)
+				return workflow.Pending("MongoDB %s resource is still starting", rs.Name)
 			}
 
 			log.Info("Updated statefulsets for replica set")
-			return ok()
+			return workflow.OK()
 		})
 
-	if !status.isOk() {
-		return status.updateStatus(rs, r.ReconcileCommonController, log)
+	if !status.IsOK() {
+		return r.updateStatus(rs, status, log)
 	}
 
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
-	return reconcileResult.updateStatus(rs, r.ReconcileCommonController, log, DeploymentLink(conn.BaseURL(), conn.GroupID()))
+	return r.updateStatus(rs, workflow.OK(), log, mdbv1.NewBaseUrlOption(DeploymentLink(conn.BaseURL(), conn.GroupID())))
 }
 
 // AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
@@ -190,18 +191,18 @@ func AddReplicaSetController(mgr manager.Manager) error {
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
 func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, membersNumberBefore int, rs *mdbv1.MongoDB,
-	set appsv1.StatefulSet, log *zap.SugaredLogger) reconcileStatus {
+	set appsv1.StatefulSet, log *zap.SugaredLogger) workflow.Status {
 
 	err := waitForRsAgentsToRegister(set, rs.Spec.GetClusterDomain(), conn, log)
 	if err != nil {
-		return failedErr(err)
+		return workflow.Failed(err.Error())
 	}
 
 	replicaSet := buildReplicaSetFromStatefulSet(set, rs)
 	processNames := replicaSet.GetProcessNames()
 
 	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, processNames, rs, log)
-	if !status.isOk() {
+	if !status.IsOK() {
 		return status
 	}
 
@@ -224,25 +225,25 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 		log,
 	)
 	if err != nil {
-		return failedErr(err)
+		return workflow.Failed(err.Error())
 	}
 
 	if err := om.WaitForReadyState(conn, processNames, log); err != nil {
-		return failedErr(err)
+		return workflow.Failed(err.Error())
 	}
 
 	if additionalReconciliationRequired {
-		return pending("Performing multi stage reconciliation")
+		return workflow.Pending("Performing multi stage reconciliation")
 	}
 
 	hostsBefore := getAllHostsRs(set, rs.Spec.GetClusterDomain(), membersNumberBefore)
 	hostsAfter := getAllHostsRs(set, rs.Spec.GetClusterDomain(), rs.Spec.Members)
 	if err := calculateDiffAndStopMonitoringHosts(conn, hostsBefore, hostsAfter, log); err != nil {
-		return failedErr(err)
+		return workflow.Failed(err.Error())
 	}
 
 	log.Info("Updated Ops Manager for replica set")
-	return ok()
+	return workflow.OK()
 }
 
 func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLogger) error {
@@ -290,7 +291,7 @@ func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLog
 	return nil
 }
 
-func (r *ReconcileCommonController) ensureX509InKubernetes(mdb *mdbv1.MongoDB, helper *StatefulSetHelper, log *zap.SugaredLogger) reconcileStatus {
+func (r *ReconcileCommonController) ensureX509InKubernetes(mdb *mdbv1.MongoDB, helper *StatefulSetHelper, log *zap.SugaredLogger) workflow.Status {
 	spec := mdb.Spec
 	authEnabled := mdb.Spec.Security.Authentication.Enabled
 	usingX509 := mdb.Spec.Security.Authentication.GetAgentMechanism() == util.X509
@@ -299,27 +300,27 @@ func (r *ReconcileCommonController) ensureX509InKubernetes(mdb *mdbv1.MongoDB, h
 		useCustomCA := mdb.Spec.GetTLSConfig().CA != ""
 		successful, err := r.ensureX509AgentCertsForMongoDBResource(mdb, authModes, useCustomCA, mdb.Namespace, log)
 		if err != nil {
-			return failedErr(err)
+			return workflow.Failed(err.Error())
 		}
 		if !successful {
-			return pending("Agent certs have not yet been approved")
+			return workflow.Pending("Agent certs have not yet been approved")
 		}
 
 		if !spec.Security.TLSConfig.Enabled {
-			return failed("Authentication mode for project is x509 but this MDB resource is not TLS enabled")
+			return workflow.Failed("Authentication mode for project is x509 but this MDB resource is not TLS enabled")
 		} else if !r.doAgentX509CertsExist(mdb.Namespace) {
-			return pending("Agent x509 certificates have not yet been created")
+			return workflow.Pending("Agent x509 certificates have not yet been created")
 		}
 
 		if spec.Security.Authentication.InternalCluster == util.X509 {
 			if success, err := r.ensureInternalClusterCerts(helper, log); err != nil {
-				return failed("Failed ensuring internal cluster authentication certs %s", err)
+				return workflow.Failed("Failed ensuring internal cluster authentication certs %s", err)
 			} else if !success {
-				return pending("Not all internal cluster authentication certs have been approved by Kubernetes CA")
+				return workflow.Pending("Not all internal cluster authentication certs have been approved by Kubernetes CA")
 			}
 		}
 	}
-	return ok()
+	return workflow.OK()
 }
 
 func prepareScaleDownReplicaSet(omClient om.Connection, statefulSet appsv1.StatefulSet, oldMembersCount int, new *mdbv1.MongoDB, log *zap.SugaredLogger) error {

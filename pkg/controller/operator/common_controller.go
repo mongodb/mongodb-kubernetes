@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/blang/semver"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
@@ -38,25 +39,12 @@ import (
 const ClusterDomain = "cluster.local"
 
 // Updatable is an interface for all "operator owned" Custom Resources
+// TODO move to `apis` package (and rename to smth like `MongoDbObject`?)
 type Updatable interface {
 	runtime.Object
 	metav1.Object
 
-	// UpdateSuccessful called when the Updatable object needs to transition to
-	// successful state. This means that the CR object is ready to work
-	UpdateSuccessful(object runtime.Object, args ...interface{})
-
-	// UpdateError called when the Updatable object needs to transition to
-	// error state.
-	UpdateError(object runtime.Object, msg string, args ...interface{})
-
-	// UpdatePending called when the Updatable object needs to transition to
-	// pending state.
-	UpdatePending(object runtime.Object, msg string, args ...interface{})
-
-	// UpdateReconciling called when the Updatable object needs to transition to
-	// reconciling state.
-	UpdateReconciling(args ...interface{})
+	UpdateStatus(phase mdbv1.Phase, statusOptions ...mdbv1.StatusOption)
 
 	// SetWarnings sets the warnings for the Updatable object
 	SetWarnings([]mdbv1.StatusWarning)
@@ -264,90 +252,26 @@ func (c *ReconcileCommonController) createAgentKeySecret(objectKey client.Object
 	return c.kubeHelper.createSecret(objectKey, data, map[string]string{}, owner)
 }
 
-func (c *ReconcileCommonController) updateStatusSuccessful(reconciledResource Updatable, log *zap.SugaredLogger, args ...interface{}) (reconcile.Result, error) {
-	err := c.updateStatus(reconciledResource, func(fresh Updatable) {
-		// we need to update the Updatable based on the Spec of the reconciled resource
-		// if there has been a change to the spec since, we don't want to change the state
-		// subresource to match an incorrect spec
-		fresh.UpdateSuccessful(reconciledResource, args...)
+// updateStatus updates the status for the CR using patch operation. Note, that the resource status is mutated and
+// it's important to pass resource by pointer to all methods which invoke current 'updateStatus'.
+func (c *ReconcileCommonController) updateStatus(reconciledResource Updatable, status workflow.Status, log *zap.SugaredLogger, statusOptions ...mdbv1.StatusOption) (reconcile.Result, error) {
+	status.Log(log)
 
-	})
-	if err != nil {
-		log.Errorf("Failed to update status for resource to successful: %s", err)
-	} else {
-		log.Infow("Successful update", "spec", reconciledResource.GetSpec())
-	}
-	return reconcile.Result{}, nil
-}
+	mergedOptions := append(statusOptions, status.StatusOptions()...)
 
-func (c *ReconcileCommonController) updateStatusPending(reconciledResource Updatable, msg string, log *zap.SugaredLogger, args ...interface{}) (reconcile.Result, error) {
-	msg = util.UpperCaseFirstChar(msg)
-
-	// Info or warning?
-	log.Info(msg)
-
-	err := c.updateStatus(reconciledResource, func(fresh Updatable) {
-		fresh.UpdatePending(reconciledResource, msg, args...)
-	})
-	if err != nil {
+	reconciledResource.UpdateStatus(status.Phase(), mergedOptions...)
+	if err := c.patchUpdateStatus(reconciledResource); err != nil {
+		log.Errorf("Error updating status to %s: %s", status.Phase(), err)
 		return fail(err)
 	}
-	return retry()
-}
-
-func (c *ReconcileCommonController) updateReconciling(reconciledResource Updatable, args ...interface{}) error {
-	return c.updateStatus(reconciledResource, func(fresh Updatable) {
-		fresh.UpdateReconciling(args...)
-	})
-}
-
-// updateStatusValidationFailure indicates that the resource should enter failed state, but the reconciliation should not
-// be requeued as the spec needs to be updated to recover
-func (c *ReconcileCommonController) updateStatusValidationFailure(resource Updatable, msg string, log *zap.SugaredLogger, markFailed bool, args ...interface{}) (reconcile.Result, error) {
-	var err error
-	if markFailed {
-		_, err = c.updateStatusFailed(resource, msg, log, args...)
-	} else {
-		_, err = c.updateStatusPending(resource, msg, log, args...)
-	}
-	if err != nil {
-		log.Errorf("Failed to update resource status: %s", err)
-	}
-	return stop()
-}
-
-func (c *ReconcileCommonController) updateStatusFailed(resource Updatable, msg string, log *zap.SugaredLogger, args ...interface{}) (reconcile.Result, error) {
-	msg = util.UpperCaseFirstChar(msg)
-
-	log.Error(msg)
-	// Resource may be nil if the reconciliation failed very early (on fetching the resource) and panic handling function
-	// took over
-	if resource != nil {
-		err := c.updateStatus(resource, func(fresh Updatable) {
-			fresh.UpdateError(resource, msg, args...)
-		})
-		if err != nil {
-			log.Errorf("Failed to update resource status: %s", err)
-		}
-	}
-	return retry()
+	return status.ReconcileResult()
 }
 
 // We fetch a fresh version in case any modifications have been made.
 // Note, that this method enforces update ONLY to the status, so the reconciliation events happening because of this
 // can be filtered out by 'controller.shouldReconcile'
 // The "jsonPatch" merge allows to update only status field
-func (c *ReconcileCommonController) updateStatus(reconciledResource Updatable, statusUpdateFunc func(fresh Updatable)) error {
-	freshObject := reconciledResource.DeepCopyObject().(Updatable)
-	err := c.client.Get(context.TODO(), objectKeyFromApiObject(freshObject), freshObject)
-	if err != nil {
-		return err
-	}
-
-	// updating the status only of the K8s object
-	// TODO the function will be removed soon
-	statusUpdateFunc(freshObject)
-
+func (c *ReconcileCommonController) patchUpdateStatus(resource Updatable) error {
 	type patchValue struct {
 		Op    string      `json:"op"`
 		Path  string      `json:"path"`
@@ -356,14 +280,14 @@ func (c *ReconcileCommonController) updateStatus(reconciledResource Updatable, s
 	payload := []patchValue{{
 		Op:    "replace",
 		Path:  "/status",
-		Value: freshObject.GetStatus(),
+		Value: resource.GetStatus(),
 	}}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
 	patch := client.ConstantPatch(types.JSONPatchType, data)
-	err = c.client.Status().Patch(context.TODO(), freshObject, patch)
+	err = c.client.Status().Patch(context.TODO(), resource, patch)
 	if err != nil {
 		return err
 	}
@@ -401,8 +325,8 @@ func (c *ReconcileCommonController) getResource(request reconcile.Request, resou
 	return nil, nil
 }
 
-// prepareResourceForReconciliation finds the object being reconciled. Returns pointer to 'reconcile.Result' and error
-// If the 'reconcile.Result' pointer is not nil - the client is expected to finish processing
+// prepareResourceForReconciliation finds the object being reconciled. Returns pointer to 'reconcile.Status' and error
+// If the 'reconcile.Status' pointer is not nil - the client is expected to finish processing
 func (c *ReconcileCommonController) prepareResourceForReconciliation(
 	request reconcile.Request, resource Updatable, log *zap.SugaredLogger) (*reconcile.Result, error) {
 	if result, err := c.getResource(request, resource, log); result != nil {
@@ -416,15 +340,14 @@ func (c *ReconcileCommonController) prepareResourceForReconciliation(
 		spec := res.Spec
 		status := res.Status
 		if spec.ResourceType != status.ResourceType && status.ResourceType != "" {
-			c.updateStatusFailed(res, fmt.Sprintf("Changing type is not currently supported, please change the resource back to a %s", status.ResourceType), log)
+			c.updateStatus(res, workflow.Failed("Changing type is not currently supported, please change the resource back to a %s", status.ResourceType), log)
 			return &reconcile.Result{}, nil
 		}
 	}
 
-	updateErr := c.updateReconciling(resource)
-	if updateErr != nil {
-		log.Errorf("Error setting state to reconciling: %s, the resource: %+v", updateErr, resource)
-		return &reconcile.Result{RequeueAfter: 10 * time.Second}, nil
+	result, err := c.updateStatus(resource, workflow.Reconciling(), log)
+	if err != nil {
+		return &result, err
 	}
 
 	// Reset warnings so that they are not stale, will populate accurate warnings in reconciliation
@@ -509,15 +432,15 @@ func (c *ReconcileCommonController) removeWatchedResources(namespace string, wTy
 // Also it removes the tag ExternallyManaged from the project in this case as
 // the user may need to clean the resources from OM UI if they move the
 // resource to another project (as recommended by the migration instructions).
-func checkIfHasExcessProcesses(conn om.Connection, resource *mdbv1.MongoDB, log *zap.SugaredLogger) reconcileStatus {
+func checkIfHasExcessProcesses(conn om.Connection, resource *mdbv1.MongoDB, log *zap.SugaredLogger) workflow.Status {
 	deployment, err := conn.ReadDeployment()
 	if err != nil {
-		return failedErr(err)
+		return workflow.Failed(err.Error())
 	}
 	excessProcesses := deployment.GetNumberOfExcessProcesses(resource.Name)
 	if excessProcesses == 0 {
 		// cluster is empty or this resource is the only one living on it
-		return ok()
+		return workflow.OK()
 	}
 	// remove tags if multiple clusters in project
 	groupWithTags := &om.Project{
@@ -531,7 +454,7 @@ func checkIfHasExcessProcesses(conn om.Connection, resource *mdbv1.MongoDB, log 
 		log.Warnw("could not remove externally managed tag from Ops Manager group", "error", err)
 	}
 
-	return pending("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
+	return workflow.Pending("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 }
 
 // doAgentX509CertsExist looks for the secret "agent-certs" to determine if we can continue with mounting the x509 volumes
@@ -694,24 +617,24 @@ func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(mdb *
 }
 
 // validateMongoDBResource performs validation on the MongoDBResource
-func validateMongoDBResource(mdb *mdbv1.MongoDB, conn om.Connection) reconcileStatus {
+func validateMongoDBResource(mdb *mdbv1.MongoDB, conn om.Connection) workflow.Status {
 	ac, err := conn.ReadAutomationConfig()
 	if err != nil {
-		return failedErr(err)
+		return workflow.Failed(err.Error())
 	}
 
-	if status := validateScram(mdb, ac); !status.isOk() {
+	if status := validateScram(mdb, ac); !status.IsOK() {
 		return status
 	}
 
-	return ok()
+	return workflow.OK()
 }
 
 // validateScram ensures that the SCRAM configuration is valid for the MongoDBResource
-func validateScram(mdb *mdbv1.MongoDB, ac *om.AutomationConfig) reconcileStatus {
+func validateScram(mdb *mdbv1.MongoDB, ac *om.AutomationConfig) workflow.Status {
 	specVersion, err := semver.Make(util.StripEnt(mdb.Spec.GetVersion()))
 	if err != nil {
-		return failedErr(err)
+		return workflow.Failed(err.Error())
 	}
 
 	scram256IsAlreadyEnabled := util.ContainsString(ac.Auth.DeploymentAuthMechanisms, string(authentication.ScramSha256))
@@ -719,10 +642,10 @@ func validateScram(mdb *mdbv1.MongoDB, ac *om.AutomationConfig) reconcileStatus 
 	isDowngradingFromScramSha256ToScramSha1 := attemptingToDowngradeMongoDBVersion && util.ContainsString(mdb.Spec.Security.Authentication.Modes, "SCRAM") && scram256IsAlreadyEnabled
 
 	if isDowngradingFromScramSha256ToScramSha1 {
-		return failed("Unable to downgrade to SCRAM-SHA-1 when SCRAM-SHA-256 has been enabled")
+		return workflow.Invalid("Unable to downgrade to SCRAM-SHA-1 when SCRAM-SHA-256 has been enabled")
 	}
 
-	return ok()
+	return workflow.OK()
 }
 
 // Use the first "CERTIFICATE" block found in the PEM file.
@@ -749,16 +672,16 @@ func getSubjectFromCertificate(cert string) (string, error) {
 // updateOmAuthentication examines the state of Ops Manager and the desired state of the MongoDB resource and
 // enables/disables authentication. If the authentication can't be fully configured, a boolean value indicating that
 // an additional reconciliation needs to be queued up to fully make the authentication changes is returned.
-func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, processNames []string, mdb *mdbv1.MongoDB, log *zap.SugaredLogger) (status reconcileStatus, multiStageReconciliation bool) {
+func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, processNames []string, mdb *mdbv1.MongoDB, log *zap.SugaredLogger) (status workflow.Status, multiStageReconciliation bool) {
 
 	// we need to wait for all agents to be ready before configuring any authentication settings
 	if err := om.WaitForReadyState(conn, processNames, log); err != nil {
-		return failedErr(err), false
+		return workflow.Failed(err.Error()), false
 	}
 
 	ac, err := conn.ReadAutomationConfig()
 	if err != nil {
-		return failedErr(err), false
+		return workflow.Failed(err.Error()), false
 	}
 
 	authOpts := authentication.Options{
@@ -777,34 +700,34 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 		if mdb.Spec.Security.Authentication.GetAgentMechanism() == util.X509 {
 			authOpts, err = r.configureAgentSubjects(mdb.Namespace, authOpts, log)
 			if err != nil {
-				return failedErr(fmt.Errorf("error configuring agent subjects: %v", err)), false
+				return workflow.Failed("error configuring agent subjects: %v", err), false
 			}
 		}
 
 		if err := authentication.Configure(conn, authOpts, log); err != nil {
-			return failedErr(err), false
+			return workflow.Failed(err.Error()), false
 		}
 	} else if wantToEnableAuthentication {
 		// The MongoDB resource has been configured with a type of authentication
 		// but the current state in Ops Manager does not allow a direct transition. This will require
 		// an additional reconciliation after a partial update to Ops Manager.
 		log.Debug("Attempting to enable authentication, but Ops Manager state will not allow this")
-		return ok(), true
+		return workflow.OK(), true
 	} else {
 		// Should not fail if the Secret object with agent certs is not found.
 		// It will only exist on x509 client auth enabled deployments.
 		userOpts, err := r.readAgentSubjectsFromSecret(mdb.Namespace, log)
 		err = client.IgnoreNotFound(err)
 		if err != nil {
-			return failedErr(err), true
+			return workflow.Failed(err.Error()), true
 		}
 
 		authOpts.UserOptions = userOpts
 		if err := authentication.Disable(conn, authOpts, log); err != nil {
-			return failedErr(err), false
+			return workflow.Failed(err.Error()), false
 		}
 	}
-	return ok(), false
+	return workflow.OK(), false
 }
 
 // configureAgentSubjects returns a new authentication.Options which has configured the Subject lines for the automation, monitoring

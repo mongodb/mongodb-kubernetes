@@ -11,7 +11,6 @@ import (
 	"github.com/blang/semver"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -450,64 +449,34 @@ func (m *MongoDB) ShardRsName(i int) string {
 	return fmt.Sprintf("%s-%d", m.Name, i)
 }
 
-// UpdateError called when the CR object (MongoDB resource) needs to transition to
-// error state.
-func (m *MongoDB) UpdateError(object runtime.Object, msg string, args ...interface{}) {
-	reconciledResource := object.(*MongoDB)
-	m.Status.Warnings = reconciledResource.Status.Warnings
-	m.Status.Message = msg
+func (m *MongoDB) UpdateStatus(phase Phase, statusOptions ...StatusOption) {
 	m.Status.LastTransition = util.Now()
-	m.Status.Phase = PhaseFailed
-}
+	m.Status.Phase = phase
 
-// UpdatePending called when the CR object (MongoDB resource) needs to transition to
-// pending state.
-func (m *MongoDB) UpdatePending(object runtime.Object, msg string, args ...interface{}) {
-	reconciledResource := object.(*MongoDB)
-	m.Status.Warnings = reconciledResource.Status.Warnings
-	if msg != "" {
-		m.Status.Message = msg
+	if option, exists := GetStatusOption(statusOptions, MessageOption{}); exists {
+		m.Status.Message = util.UpperCaseFirstChar(option.(MessageOption).Message)
 	}
-	if m.Status.Phase != PhasePending {
-		m.Status.LastTransition = util.Now()
-		m.Status.Phase = PhasePending
+	if option, exists := GetStatusOption(statusOptions, WarningsOption{}); exists {
+		m.Status.Warnings = append(m.Status.Warnings, option.(WarningsOption).Warnings...)
 	}
-}
-
-// UpdateReconciling called when the CR object (MongoDB resource) needs to transition to
-// reconciling state.
-func (m *MongoDB) UpdateReconciling(_ ...interface{}) {
-	m.Status.LastTransition = util.Now()
-	m.Status.Phase = PhaseReconciling
-}
-
-// UpdateSuccessful called when the CR object (MongoDB resource) needs to transition to
-// successful state. This means that the CR object and the underlying MongoDB deployment
-// are ready to work
-func (m *MongoDB) UpdateSuccessful(object runtime.Object, args ...interface{}) {
-	reconciledResource := object.(*MongoDB)
-	spec := reconciledResource.Spec
-
-	// assign all fields common to the different resource types
-	if len(args) >= DeploymentLinkIndex {
-		m.Status.Link = args[DeploymentLinkIndex].(string)
+	if option, exists := GetStatusOption(statusOptions, BaseUrlOption{}); exists {
+		m.Status.Link = option.(BaseUrlOption).BaseUrl
 	}
-	m.Status.Version = spec.Version
-	m.Status.Message = ""
-	m.Status.LastTransition = util.Now()
-	m.Status.Phase = PhaseRunning
-	m.Status.ResourceType = spec.ResourceType
 
-	m.Status.Warnings = reconciledResource.Status.Warnings
+	if phase == PhaseRunning {
+		m.Status.Version = m.Spec.Version
+		m.Status.Message = ""
+		m.Status.ResourceType = m.Spec.ResourceType
 
-	switch spec.ResourceType {
-	case ReplicaSet:
-		m.Status.Members = spec.Members
-	case ShardedCluster:
-		m.Status.MongosCount = spec.MongosCount
-		m.Status.MongodsPerShardCount = spec.MongodsPerShardCount
-		m.Status.ConfigServerCount = spec.ConfigServerCount
-		m.Status.ShardCount = spec.ShardCount
+		switch m.Spec.ResourceType {
+		case ReplicaSet:
+			m.Status.Members = m.Spec.Members
+		case ShardedCluster:
+			m.Status.MongosCount = m.Spec.MongosCount
+			m.Status.MongodsPerShardCount = m.Spec.MongodsPerShardCount
+			m.Status.ConfigServerCount = m.Spec.ConfigServerCount
+			m.Status.ShardCount = m.Spec.ShardCount
+		}
 	}
 }
 

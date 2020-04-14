@@ -6,6 +6,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
@@ -73,7 +74,7 @@ func TestOpsManagerReconciler_prepareOpsManager(t *testing.T) {
 
 	reconcileStatus, _ := reconciler.prepareOpsManager(testOm, zap.S())
 
-	assert.Equal(t, ok(), reconcileStatus)
+	assert.Equal(t, workflow.OK(), reconcileStatus)
 	assert.Equal(t, "jane.doe@g.com-key", admin.PublicAPIKey)
 
 	// the user "created" in Ops Manager
@@ -103,7 +104,7 @@ func TestOpsManagerReconciler_prepareOpsManagerTwoCalls(t *testing.T) {
 
 	// second call is ok - we just don't create the admin user in OM and don't add new secrets
 	reconcileStatus, _ := reconciler.prepareOpsManager(testOm, zap.S())
-	assert.Equal(t, ok(), reconcileStatus)
+	assert.Equal(t, workflow.OK(), reconcileStatus)
 	assert.Equal(t, "jane.doe@g.com-key", admin.PublicAPIKey)
 
 	// the call to the api didn't happen
@@ -131,8 +132,12 @@ func TestOpsManagerReconciler_prepareOpsManagerDuplicatedUser(t *testing.T) {
 	})
 
 	reconcileStatus, admin := reconciler.prepareOpsManager(testOm, zap.S())
-	assert.IsType(t, &errorStatus{}, reconcileStatus)
-	assert.Contains(t, reconcileStatus.(*errorStatus).err.Error(), "USER_ALREADY_EXISTS")
+	assert.Equal(t, mdbv1.PhaseFailed, reconcileStatus.Phase())
+
+	option, exists := mdbv1.GetStatusOption(reconcileStatus.StatusOptions(), mdbv1.MessageOption{})
+	assert.True(t, exists)
+	assert.Contains(t, option.(mdbv1.MessageOption).Message, "USER_ALREADY_EXISTS")
+	reconcileStatus.StatusOptions()
 	assert.Nil(t, admin)
 
 	// the call to the api happened, but the user wasn't added

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 
 	"github.com/stretchr/testify/assert"
@@ -219,7 +220,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 	}, nil)
 
 	r := newShardedClusterReconciler(newMockedManager(sc), om.NewEmptyMockedOmConnection)
-	assert.Equal(t, ok(), r.updateOmDeploymentShardedCluster(mockOm, sc, newState, zap.S()))
+	assert.Equal(t, workflow.OK(), r.updateOmDeploymentShardedCluster(mockOm, sc, newState, zap.S()))
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadUpdateDeployment), reflect.ValueOf(mockOm.RemoveHost))
 

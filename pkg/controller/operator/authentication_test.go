@@ -125,7 +125,7 @@ func TestUpdateOmAuthentication_EnableX509_TlsNotEnabled(t *testing.T) {
 	r := newReplicaSetReconciler(newMockedManager(rs), om.NewEmptyMockedOmConnection)
 	status, isMultiStageReconciliation := r.updateOmAuthentication(conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, zap.S())
 
-	assert.True(t, status.isOk(), "configuring both options at once should not result in a failed status")
+	assert.True(t, status.IsOK(), "configuring both options at once should not result in a failed status")
 	assert.True(t, isMultiStageReconciliation, "configuring both tls and x509 at once should result in a multi stage reconciliation")
 }
 
@@ -136,7 +136,7 @@ func TestUpdateOmAuthentication_EnableX509_WithTlsAlreadyEnabled(t *testing.T) {
 
 	status, isMultiStageReconciliation := r.updateOmAuthentication(conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, zap.S())
 
-	assert.True(t, status.isOk(), "configuring x509 when tls has already been enabled should not result in a failed status")
+	assert.True(t, status.IsOK(), "configuring x509 when tls has already been enabled should not result in a failed status")
 	assert.False(t, isMultiStageReconciliation, "if tls is already enabled, we should be able to configure x509 is a single reconciliation")
 }
 
@@ -149,7 +149,7 @@ func TestUpdateOmAuthentication_EnableX509_FromEmptyDeployment(t *testing.T) {
 	configureX509(r.client.(*MockedClient), certsv1.CertificateApproved)
 	status, isMultiStageReconciliation := r.updateOmAuthentication(conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, zap.S())
 
-	assert.True(t, status.isOk(), "configuring x509 and tls when there are no processes should not result in a failed status")
+	assert.True(t, status.IsOK(), "configuring x509 and tls when there are no processes should not result in a failed status")
 	assert.False(t, isMultiStageReconciliation, "if we are enabling tls and x509 at once, this should be done in a single reconciliation")
 }
 

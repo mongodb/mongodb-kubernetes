@@ -1,0 +1,73 @@
+package workflow
+
+import (
+	"time"
+
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"go.uber.org/zap"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+)
+
+// pendingStatus indicates that the reconciliation process must be suspended and CR should get "Pending" status
+type pendingStatus struct {
+	commonStatus
+	retryInSeconds time.Duration
+}
+
+func Pending(msg string, params ...interface{}) *pendingStatus {
+	return &pendingStatus{commonStatus: newCommonStatus(msg, params...), retryInSeconds: 10}
+}
+
+func (p *pendingStatus) WithWarnings(warnings []mdbv1.StatusWarning) *pendingStatus {
+	p.warnings = warnings
+	return p
+}
+
+func (p *pendingStatus) WithRetry(retryInSeconds time.Duration) *pendingStatus {
+	p.retryInSeconds = retryInSeconds
+	return p
+}
+
+func (p pendingStatus) ReconcileResult() (reconcile.Result, error) {
+	return reconcile.Result{RequeueAfter: time.Second * p.retryInSeconds}, nil
+}
+
+func (p pendingStatus) IsOK() bool {
+	return false
+}
+
+func (p pendingStatus) Merge(other Status) Status {
+	switch v := other.(type) {
+	// Pending messages are just merged together
+	case pendingStatus:
+		return mergedPending(p, v)
+	case failedStatus:
+		return v
+	}
+	return p
+}
+func (p pendingStatus) OnErrorPrepend(msg string) Status {
+	p.commonStatus.prependMsg(msg)
+	return p
+}
+
+func (p pendingStatus) StatusOptions() []mdbv1.StatusOption {
+	options := p.statusOptions()
+	// Add any specific options here
+	return options
+}
+
+func (p pendingStatus) Phase() mdbv1.Phase {
+	return mdbv1.PhasePending
+}
+
+func (f pendingStatus) Log(log *zap.SugaredLogger) {
+	log.Info(util.UpperCaseFirstChar(f.msg))
+}
+
+func mergedPending(p1, p2 pendingStatus) pendingStatus {
+	p := Pending(p1.msg + ", " + p2.msg)
+	p.warnings = append(p1.warnings, p2.warnings...)
+	return *p
+}

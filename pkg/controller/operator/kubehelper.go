@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 
@@ -953,14 +954,14 @@ func (k *KubeHelper) deleteSecret(key client.ObjectKey) error {
 
 // validateSelfManagedSSLCertsForStatefulSet ensures that a stateful set using
 // user-provided certificates has all of the relevant certificates in place.
-func (ss *StatefulSetHelper) validateSelfManagedSSLCertsForStatefulSet(k *KubeHelper, secretName string) reconcileStatus {
+func (ss *StatefulSetHelper) validateSelfManagedSSLCertsForStatefulSet(k *KubeHelper, secretName string) workflow.Status {
 	// A "Certs" attribute has been provided
 	// This means that the customer has provided with a secret name they have
 	// already populated with the certs and keys for this deployment.
 	// Because of the async nature of Kubernetes, this object might not be ready yet,
 	// in which case, we'll keep reconciling until the object is created and is correct.
 	if notReadyCerts := k.verifyCertificatesForStatefulSet(ss, secretName); notReadyCerts > 0 {
-		return failed("The secret object '%s' does not contain all the certificates needed."+
+		return workflow.Failed("The secret object '%s' does not contain all the certificates needed."+
 			"Required: %d, contains: %d", secretName,
 			ss.Replicas,
 			ss.Replicas-notReadyCerts,
@@ -968,20 +969,20 @@ func (ss *StatefulSetHelper) validateSelfManagedSSLCertsForStatefulSet(k *KubeHe
 	}
 
 	if err := k.validateCertificates(secretName, ss.Namespace, false); err != nil {
-		return failedErr(err)
+		return workflow.Failed(err.Error())
 	}
 
-	return ok()
+	return workflow.OK()
 }
 
 // ensureOperatorManagedSSLCertsForStatefulSet ensures that a stateful set
 // using operator-managed certificates has all of the relevant certificates in
 // place.
-func (ss *StatefulSetHelper) ensureOperatorManagedSSLCertsForStatefulSet(k *KubeHelper, secretName string, log *zap.SugaredLogger) reconcileStatus {
+func (ss *StatefulSetHelper) ensureOperatorManagedSSLCertsForStatefulSet(k *KubeHelper, secretName string, log *zap.SugaredLogger) workflow.Status {
 	certsNeedApproval := false
 
 	if err := k.validateCertificates(secretName, ss.Namespace, true); err != nil {
-		return failedErr(err)
+		return workflow.Failed(err.Error())
 	}
 
 	if notReadyCerts := k.verifyCertificatesForStatefulSet(ss, secretName); notReadyCerts > 0 {
@@ -1009,7 +1010,7 @@ func (ss *StatefulSetHelper) ensureOperatorManagedSSLCertsForStatefulSet(k *Kube
 				hostnames = append(hostnames, additionalCertDomains...)
 				key, err := k.createTlsCsr(podnames[idx], ss.Namespace, clusterDomainOrDefault(ss.ClusterDomain), hostnames, host)
 				if err != nil {
-					return failed("Failed to create CSR, %s", err)
+					return workflow.Failed("Failed to create CSR, %s", err)
 				}
 
 				pemFiles.addPrivateKey(podnames[idx], string(key))
@@ -1019,7 +1020,7 @@ func (ss *StatefulSetHelper) ensureOperatorManagedSSLCertsForStatefulSet(k *Kube
 					"requiredDomains", additionalCertDomains,
 					"host", host,
 				)
-				return pending("Certificate request for " + host + " doesn't have all required domains. Please manually remove the CSR in order to proceed.")
+				return workflow.Pending("Certificate request for " + host + " doesn't have all required domains. Please manually remove the CSR in order to proceed.")
 			} else if checkCSRWasApproved(csr.Status.Conditions) {
 				log.Infof("Certificate for Pod %s -> Approved", host)
 				pemFiles.addCertificate(podnames[idx], string(csr.Status.Certificate))
@@ -1043,21 +1044,21 @@ func (ss *StatefulSetHelper) ensureOperatorManagedSSLCertsForStatefulSet(k *Kube
 			// the keys, in which case we return an error, to make it clear what
 			// the error was to customers -- this should end up in the status
 			// message.
-			return failed("Failed to create or update the secret: %s", err)
+			return workflow.Failed("Failed to create or update the secret: %s", err)
 		}
 
 		certsHash, err := pemFiles.getHash()
 		if err != nil {
 			log.Errorw("Could not hash PEM files", "err", err)
-			return failedErr(err)
+			return workflow.Failed(err.Error())
 		}
 		ss.SetCertificateHash(certsHash)
 	}
 
 	if certsNeedApproval {
-		return pending("Not all certificates have been approved by Kubernetes CA for %s", ss.Name)
+		return workflow.Pending("Not all certificates have been approved by Kubernetes CA for %s", ss.Name)
 	}
-	return ok()
+	return workflow.OK()
 }
 
 // readPemHashFromSecret reads the existing Pem from
@@ -1083,10 +1084,10 @@ func (s *StatefulSetHelper) readPemHashFromSecret() string {
 
 // ensureSSLCertsForStatefulSet contains logic to ensure that all of the
 // required SSL certs for a StatefulSet object exist.
-func (k *KubeHelper) ensureSSLCertsForStatefulSet(ss *StatefulSetHelper, log *zap.SugaredLogger) reconcileStatus {
+func (k *KubeHelper) ensureSSLCertsForStatefulSet(ss *StatefulSetHelper, log *zap.SugaredLogger) workflow.Status {
 	if !ss.IsTLSEnabled() {
 		// if there's no SSL certs to generate, return
-		return ok()
+		return workflow.OK()
 	}
 
 	secretName := ss.Name + "-cert"

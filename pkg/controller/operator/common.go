@@ -9,6 +9,7 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/pkg/errors"
 	"github.com/spf13/cast"
@@ -333,19 +334,19 @@ func operatorNamespace() string {
 // runInGivenOrder will execute N functions, passed as varargs as `funcs`. The order of execution will depend on the result
 // of the evaluation of the `shouldRunInOrder` boolean value. If `shouldRunInOrder` is true, the functions will be executed in order; if
 // `shouldRunInOrder` is false, the functions will be executed in reverse order (from last to first)
-func runInGivenOrder(shouldRunInOrder bool, funcs ...func() reconcileStatus) reconcileStatus {
+func runInGivenOrder(shouldRunInOrder bool, funcs ...func() workflow.Status) workflow.Status {
 	if shouldRunInOrder {
 		for _, fn := range funcs {
-			if status := fn(); !status.isOk() {
+			if status := fn(); !status.IsOK() {
 				return status
 			}
 		}
 	} else {
 		for i := len(funcs) - 1; i >= 0; i-- {
-			if status := funcs[i](); !status.isOk() {
+			if status := funcs[i](); !status.IsOK() {
 				return status
 			}
 		}
 	}
-	return ok()
+	return workflow.OK()
 }

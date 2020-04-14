@@ -12,6 +12,7 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -208,10 +209,8 @@ func TestUpdateStatus_Patched(t *testing.T) {
 	reconciledObject := rs.DeepCopy()
 	// The current reconciled object "has diverged" from the one in API server
 	reconciledObject.Spec.Version = "10.0.0"
-	updateFunc := func(fresh Updatable) {
-		fresh.UpdatePending(reconciledObject, "Waiting for statefulset...")
-	}
-	assert.NoError(t, controller.updateStatus(reconciledObject, updateFunc))
+	_, err := controller.updateStatus(reconciledObject, workflow.Pending("Waiting for secret..."), zap.S())
+	assert.NoError(t, err)
 
 	// Verifying that the resource in API server still has correct spec
 	currentRs := mdbv1.MongoDB{}
@@ -220,7 +219,7 @@ func TestUpdateStatus_Patched(t *testing.T) {
 	// The spec hasn't changed - only status
 	assert.Equal(t, rs.Spec, currentRs.Spec)
 	assert.Equal(t, mdbv1.PhasePending, currentRs.Status.Phase)
-	assert.Equal(t, "Waiting for statefulset...", currentRs.Status.Message)
+	assert.Equal(t, "Waiting for secret...", currentRs.Status.Message)
 }
 
 func TestShouldReconcile_DoesNotReconcileOnStatusOnlyChange(t *testing.T) {

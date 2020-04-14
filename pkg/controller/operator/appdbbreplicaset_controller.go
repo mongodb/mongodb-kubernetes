@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
@@ -33,14 +34,13 @@ func newAppDBReplicaSetReconciler(commonController *ReconcileCommonController) *
 }
 
 // Reconcile deploys the "headless" agent, and wait until it reaches the goal state
-func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager mdbv1.MongoDBOpsManager, rs mdbv1.AppDB, opsManagerUserPassword string) (res reconcile.Result, e error) {
+func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *mdbv1.MongoDBOpsManager, rs mdbv1.AppDB, opsManagerUserPassword string) (res reconcile.Result, e error) {
 	log := zap.S().With("ReplicaSet (AppDB)", objectKey(opsManager.Namespace, rs.Name()))
 
-	appDbStatusExtraParams := mdbv1.NewExtraStatusParams(mdbv1.AppDb)
-	err := r.updateReconciling(&opsManager, appDbStatusExtraParams)
+	appDbStatusOption := mdbv1.NewOMStatusPartOption(mdbv1.AppDb)
+	result, err := r.updateStatus(opsManager, workflow.Reconciling(), log, appDbStatusOption)
 	if err != nil {
-		log.Errorf("Error setting AppDB state to reconciling: %s", err)
-		return retry()
+		return result, err
 	}
 
 	log.Info("AppDB ReplicaSet.Reconcile")
@@ -54,7 +54,7 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager mdbv1.MongoDBOpsManager,
 	appdbPodSpec.Default.MemoryRequests = util.DefaultMemoryAppDB
 
 	// It's ok to pass 'opsManager' instance to statefulset constructor as it will be the owner for the appdb statefulset
-	replicaBuilder := r.kubeHelper.NewStatefulSetHelper(&opsManager).
+	replicaBuilder := r.kubeHelper.NewStatefulSetHelper(opsManager).
 		SetName(rs.Name()).
 		SetService(rs.ServiceName()).
 		SetPodVars(&PodVars{}). // TODO remove
@@ -67,22 +67,22 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager mdbv1.MongoDBOpsManager,
 
 	appDbSts, err := replicaBuilder.BuildAppDbStatefulSet()
 	if err != nil {
-		return r.updateStatusFailed(&opsManager, err.Error(), log, appDbStatusExtraParams)
+		return r.updateStatus(opsManager, workflow.Failed(err.Error()), log, appDbStatusOption)
 	}
 
-	config, err := r.buildAppDbAutomationConfig(rs, opsManager, opsManagerUserPassword, appDbSts, log)
+	config, err := r.buildAppDbAutomationConfig(rs, *opsManager, opsManagerUserPassword, appDbSts, log)
 	if err != nil {
-		return r.updateStatusFailed(&opsManager, err.Error(), log, appDbStatusExtraParams)
+		return r.updateStatus(opsManager, workflow.Failed(err.Error()), log, appDbStatusOption)
 	}
 
 	var wasPublished bool
-	if wasPublished, err = r.publishAutomationConfig(rs, opsManager, config, log); err != nil {
-		return r.updateStatusFailed(&opsManager, err.Error(), log, appDbStatusExtraParams)
+	if wasPublished, err = r.publishAutomationConfig(rs, *opsManager, config, log); err != nil {
+		return r.updateStatus(opsManager, workflow.Failed(err.Error()), log, appDbStatusOption)
 	}
 
 	err = replicaBuilder.CreateOrUpdateAppDBInKubernetes()
 	if err != nil {
-		return r.updateStatusFailed(&opsManager, err.Error(), log, appDbStatusExtraParams)
+		return r.updateStatus(opsManager, workflow.Failed(err.Error()), log, appDbStatusOption)
 	}
 
 	// Note that the only case when we need to wait for readiness probe to go from 'true' to 'false' is when we publish
@@ -94,12 +94,12 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager mdbv1.MongoDBOpsManager,
 	}
 
 	if !r.kubeHelper.isStatefulSetUpdated(opsManager.Namespace, opsManager.Name+"-db", log) {
-		return r.updateStatusPending(&opsManager, fmt.Sprintf("AppDB Statefulset is not ready yet"), log, appDbStatusExtraParams)
+		return r.updateStatus(opsManager, workflow.Pending("AppDB Statefulset is not ready yet"), log, appDbStatusOption)
 	}
 
 	log.Infof("Finished reconciliation for AppDB ReplicaSet!")
 
-	return r.updateStatusSuccessful(&opsManager, log, appDbStatusExtraParams)
+	return r.updateStatus(opsManager, workflow.OK(), log, appDbStatusOption)
 }
 
 // generateScramShaCredentials generates both ScramSha1Creds and ScramSha256Creds. The ScramSha256Creds

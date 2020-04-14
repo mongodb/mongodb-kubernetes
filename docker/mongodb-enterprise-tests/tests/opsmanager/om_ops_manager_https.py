@@ -9,7 +9,6 @@ from pytest import fixture, mark
 from kubetester.certs import Certificate
 
 
-
 @fixture("module")
 def domain(namespace: str):
     return "om-with-https-svc.{}.svc.cluster.local".format(namespace)

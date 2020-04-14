@@ -8,6 +8,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
@@ -104,7 +105,7 @@ func (r *MongoDBUserReconciler) Reconcile(request reconcile.Request) (res reconc
 
 	defer exceptionHandling(
 		func(err interface{}) (reconcile.Result, error) {
-			return r.updateStatusFailed(user, "Failed to reconcile MongoDB User", log)
+			return r.updateStatus(user, workflow.Failed("Failed to reconcile MongoDB User"), log)
 		},
 		func(result reconcile.Result, err error) { res = result; e = err },
 	)
@@ -113,7 +114,7 @@ func (r *MongoDBUserReconciler) Reconcile(request reconcile.Request) (res reconc
 	mdb := mdbv1.MongoDB{}
 	if user.Spec.MongoDBResourceRef.Name != "" {
 		if mdb, err = r.getMongoDB(*user); err != nil {
-			return r.updateStatusPending(user, err.Error(), log)
+			return r.updateStatus(user, workflow.Pending(err.Error()), log)
 		}
 	} else {
 		log.Warn("MongoDB reference not specified. Using deprecated project field.")
@@ -134,7 +135,7 @@ func (r *MongoDBUserReconciler) Reconcile(request reconcile.Request) (res reconc
 
 	conn, err := r.prepareConnection(request.NamespacedName, connSpec, nil, log)
 	if err != nil {
-		return r.updateStatusFailed(user, fmt.Sprintf("failed to prepare Ops Manager connection. %s", err), log)
+		return r.updateStatus(user, workflow.Failed("failed to prepare Ops Manager connection. %s", err), log)
 	}
 
 	if user.Spec.Database == util.X509Db {
@@ -289,11 +290,11 @@ func (r *MongoDBUserReconciler) handleScramShaUser(user *mdbv1.MongoDBUser, conn
 	}, log)
 
 	if err != nil {
-		return r.updateStatusFailed(user, fmt.Sprintf("error updating user %s", err), log)
+		return r.updateStatus(user, workflow.Failed("error updating user %s", err), log)
 	}
 
 	log.Infof("Finished reconciliation for MongoDBUser!")
-	return r.updateStatusSuccessful(user, log)
+	return r.updateStatus(user, workflow.OK(), log)
 }
 
 func (r *MongoDBUserReconciler) handleX509User(user *mdbv1.MongoDBUser, mdb mdbv1.MongoDB, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
@@ -349,9 +350,9 @@ func (r *MongoDBUserReconciler) handleX509User(user *mdbv1.MongoDBUser, mdb mdbv
 		return retry()
 	}
 	if err != nil {
-		return r.updateStatusFailed(user, fmt.Sprintf("error updating user %s", err), log)
+		return r.updateStatus(user, workflow.Failed("error updating user %s", err), log)
 	}
 
 	log.Infof("Finished reconciliation for MongoDBUser!")
-	return r.updateStatusSuccessful(user, log)
+	return r.updateStatus(user, workflow.OK(), log)
 }

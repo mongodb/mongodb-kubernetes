@@ -197,7 +197,7 @@ func TestReplicaSetScramUpgradeDowngrade(t *testing.T) {
 
 	_ = client.Update(context.TODO(), rs)
 
-	checkReconcileFailed(t, reconciler, rs, true, "Unable to downgrade to SCRAM-SHA-1 when SCRAM-SHA-256 has been enabled", client)
+	checkReconcileFailed(t, reconciler, rs, false, "Unable to downgrade to SCRAM-SHA-1 when SCRAM-SHA-256 has been enabled", client)
 }
 
 func TestReplicaSetCustomPodSpecTemplate(t *testing.T) {

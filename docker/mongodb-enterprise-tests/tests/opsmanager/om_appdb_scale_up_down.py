@@ -53,6 +53,7 @@ class TestOpsManagerCreation:
         admin_key_resource_version = secret.metadata.resource_version
 
     def test_appdb(self, ops_manager: MongoDBOpsManager):
+        assert ops_manager.appdb_status().get_phase() == Phase.Running
         assert ops_manager.appdb_status().get_members() == 3
         assert ops_manager.appdb_status().get_version() == "4.0.7"
         statefulset = ops_manager.read_appdb_statefulset()

@@ -7,7 +7,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	kubev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -109,30 +108,23 @@ func (u *MongoDBUser) ChangedIdentifier() bool {
 	return u.Status.Username != u.Spec.Username || u.Status.Database != u.Spec.Database
 }
 
-func (u *MongoDBUser) UpdateError(_ runtime.Object, msg string, _ ...interface{}) {
-	u.Status.Message = msg
+func (u *MongoDBUser) UpdateStatus(phase Phase, statusOptions ...StatusOption) {
 	u.Status.LastTransition = util.Now()
-	u.Status.Phase = PhaseFailed
-}
+	u.Status.Phase = phase
 
-func (u *MongoDBUser) UpdateSuccessful(other runtime.Object, _ ...interface{}) {
-	reconciledUser := other.(*MongoDBUser)
-	u.Status.Roles = reconciledUser.Spec.Roles
-	u.Status.Database = reconciledUser.Spec.Database
-	u.Status.Username = reconciledUser.Spec.Username
-	u.Status.Phase = PhaseUpdated
-	u.Status.LastTransition = util.Now()
-}
-
-func (u *MongoDBUser) UpdatePending(_ runtime.Object, msg string, _ ...interface{}) {
-	if msg != "" {
-		u.Status.Message = msg
+	if option, exists := GetStatusOption(statusOptions, MessageOption{}); exists {
+		u.Status.Message = util.UpperCaseFirstChar(option.(MessageOption).Message)
 	}
-	u.Status.Phase = PhasePending
-}
+	if option, exists := GetStatusOption(statusOptions, WarningsOption{}); exists {
+		u.Status.Warnings = append(u.Status.Warnings, option.(WarningsOption).Warnings...)
+	}
 
-func (u *MongoDBUser) UpdateReconciling(_ ...interface{}) {
-	u.Status.Phase = PhaseReconciling
+	if phase == PhaseRunning {
+		u.Status.Phase = PhaseUpdated
+		u.Status.Roles = u.Spec.Roles
+		u.Status.Database = u.Spec.Database
+		u.Status.Username = u.Spec.Username
+	}
 }
 
 func (m *MongoDBUser) SetWarnings(warnings []StatusWarning) {

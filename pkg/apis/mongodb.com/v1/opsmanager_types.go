@@ -345,53 +345,37 @@ func (m *MongoDBOpsManager) AddConfigIfDoesntExist(key, value string) bool {
 	return false
 }
 
-func (m *MongoDBOpsManager) UpdateError(object runtime.Object, msg string, args ...interface{}) {
-	reconciledResource := object.(*MongoDBOpsManager)
-	m.updateStatus(reconciledResource, PhaseFailed, msg, args...)
-}
+func (m *MongoDBOpsManager) UpdateStatus(phase Phase, statusOptions ...StatusOption) {
+	var statusPart StatusPart
+	if option, exists := GetStatusOption(statusOptions, OMStatusPartOption{}); exists {
+		statusPart = option.(OMStatusPartOption).StatusPart
+	}
 
-func (m *MongoDBOpsManager) UpdatePending(object runtime.Object, msg string, args ...interface{}) {
-	reconciledResource := object.(*MongoDBOpsManager)
-	m.updateStatus(reconciledResource, PhasePending, msg, args...)
-}
-
-func (m *MongoDBOpsManager) UpdateReconciling(args ...interface{}) {
-	m.updateStatus(nil, PhaseReconciling, "", args...)
-}
-
-func (m *MongoDBOpsManager) UpdateSuccessful(object runtime.Object, args ...interface{}) {
-	reconciledResource := object.(*MongoDBOpsManager)
-	m.updateStatus(reconciledResource, PhaseRunning, "", args...)
-}
-
-func (m *MongoDBOpsManager) updateStatus(reconciledOpsManager *MongoDBOpsManager, phase Phase, msg string, args ...interface{}) {
-	extraParams := args[0].(map[ExtraParams]interface{})
-
-	switch extraParams[Status].(StatusPart) {
+	switch statusPart {
 	case AppDb:
-		m.updateStatusAppDb(reconciledOpsManager, phase, msg)
+		m.updateStatusAppDb(phase, statusOptions...)
 	case OpsManager:
-		m.updateStatusOpsManager(reconciledOpsManager, phase, msg, extraParams)
+		m.updateStatusOpsManager(phase, statusOptions...)
 	case Backup:
-		m.updateStatusBackup(reconciledOpsManager, phase, msg)
-	default:
-		panic("Not clear which status part must be updated!")
+		m.updateStatusBackup(phase, statusOptions...)
+	}
+
+	// It may make sense to keep separate warnings per status part - this needs some refactoring for
+	// validation layer though (the one shared with validation webhook)
+	if option, exists := GetStatusOption(statusOptions, WarningsOption{}); exists {
+		m.Status.Warnings = append(m.Status.Warnings, option.(WarningsOption).Warnings...)
 	}
 }
 
-func (m *MongoDBOpsManager) updateStatusAppDb(reconciledOpsManager *MongoDBOpsManager, phase Phase, msg string) {
+func (m *MongoDBOpsManager) updateStatusAppDb(phase Phase, statusOptions ...StatusOption) {
 	m.Status.AppDbStatus.LastTransition = util.Now()
 	m.Status.AppDbStatus.Phase = phase
-	if reconciledOpsManager != nil {
-		m.Status.Warnings = reconciledOpsManager.Status.Warnings
-	}
-
-	if msg != "" {
-		m.Status.AppDbStatus.Message = msg
+	if option, exists := GetStatusOption(statusOptions, MessageOption{}); exists {
+		m.Status.AppDbStatus.Message = util.UpperCaseFirstChar(option.(MessageOption).Message)
 	}
 
 	if phase == PhaseRunning {
-		spec := reconciledOpsManager.Spec.AppDB
+		spec := m.Spec.AppDB
 		m.Status.AppDbStatus.Version = spec.GetVersion()
 		m.Status.AppDbStatus.Message = ""
 		m.Status.AppDbStatus.ResourceType = spec.ResourceType
@@ -399,18 +383,14 @@ func (m *MongoDBOpsManager) updateStatusAppDb(reconciledOpsManager *MongoDBOpsMa
 	}
 }
 
-func (m *MongoDBOpsManager) updateStatusOpsManager(reconciledOpsManager *MongoDBOpsManager, phase Phase, msg string, params map[ExtraParams]interface{}) {
+func (m *MongoDBOpsManager) updateStatusOpsManager(phase Phase, statusOptions ...StatusOption) {
 	m.Status.OpsManagerStatus.LastTransition = util.Now()
 	m.Status.OpsManagerStatus.Phase = phase
-	if reconciledOpsManager != nil {
-		m.Status.Warnings = reconciledOpsManager.Status.Warnings
+	if option, exists := GetStatusOption(statusOptions, MessageOption{}); exists {
+		m.Status.OpsManagerStatus.Message = util.UpperCaseFirstChar(option.(MessageOption).Message)
 	}
-
-	if msg != "" {
-		m.Status.OpsManagerStatus.Message = msg
-	}
-	if baseUrl, ok := params[BaseUrl]; ok {
-		m.Status.OpsManagerStatus.Url = baseUrl.(string)
+	if option, exists := GetStatusOption(statusOptions, BaseUrlOption{}); exists {
+		m.Status.OpsManagerStatus.Url = option.(BaseUrlOption).BaseUrl
 	}
 	if phase == PhaseRunning {
 		m.Status.OpsManagerStatus.Replicas = m.Spec.Replicas
@@ -419,15 +399,12 @@ func (m *MongoDBOpsManager) updateStatusOpsManager(reconciledOpsManager *MongoDB
 	}
 }
 
-func (m *MongoDBOpsManager) updateStatusBackup(reconciledOpsManager *MongoDBOpsManager, phase Phase, msg string) {
+func (m *MongoDBOpsManager) updateStatusBackup(phase Phase, statusOptions ...StatusOption) {
 	m.Status.BackupStatus.LastTransition = util.Now()
 	m.Status.BackupStatus.Phase = phase
-	if reconciledOpsManager != nil {
-		m.Status.Warnings = reconciledOpsManager.Status.Warnings
-	}
 
-	if msg != "" {
-		m.Status.BackupStatus.Message = msg
+	if option, exists := GetStatusOption(statusOptions, MessageOption{}); exists {
+		m.Status.BackupStatus.Message = util.UpperCaseFirstChar(option.(MessageOption).Message)
 	}
 
 	if phase == PhaseRunning {

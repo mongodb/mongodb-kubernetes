@@ -5,6 +5,7 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
@@ -85,7 +86,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 
 	defer exceptionHandling(
 		func(err interface{}) (reconcile.Result, error) {
-			return r.updateStatusFailed(s, fmt.Sprintf("Failed to reconcile Mongodb Standalone: %s", err), log)
+			return r.updateStatus(s, workflow.Failed("Failed to reconcile Mongodb Standalone: %s", err), log)
 		},
 		func(result reconcile.Result, err error) { res = result; e = err },
 	)
@@ -109,18 +110,19 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 	podVars := &PodVars{}
 	conn, err := r.prepareConnection(request.NamespacedName, s.Spec.ConnectionSpec, podVars, log)
 	if err != nil {
-		return r.updateStatusFailed(s, fmt.Sprintf("Failed to prepare Ops Manager connection: %s", err), log)
+		return r.updateStatus(s, workflow.Failed("Failed to prepare Ops Manager connection: %s", err), log)
 	}
 
 	reconcileResult := checkIfHasExcessProcesses(conn, s, log)
-	if !reconcileResult.isOk() {
-		return reconcileResult.updateStatus(s, r.ReconcileCommonController, log)
+	if !reconcileResult.IsOK() {
+		return r.updateStatus(s, reconcileResult, log)
 	}
 
 	// cannot have a non-tls deployment in an x509 environment
+	// TODO move to webhook validations
 	authSpec := s.Spec.Security.Authentication
 	if authSpec.Enabled && authSpec.IsX509Enabled() && !s.Spec.GetTLSConfig().Enabled {
-		return r.updateStatusValidationFailure(s, fmt.Sprintf("cannot have a non-tls deployment when x509 authentication is enabled"), log, true)
+		return r.updateStatus(s, workflow.Invalid("cannot have a non-tls deployment when x509 authentication is enabled"), log)
 	}
 
 	standaloneBuilder := r.kubeHelper.NewStatefulSetHelper(s).
@@ -133,56 +135,56 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		SetSecurity(s.Spec.Security)
 	standaloneBuilder.SetCertificateHash(standaloneBuilder.readPemHashFromSecret())
 
-	if status := validateMongoDBResource(s, conn); !status.isOk() {
-		return status.updateStatus(s, r.ReconcileCommonController, log)
+	if status := validateMongoDBResource(s, conn); !status.IsOK() {
+		return r.updateStatus(s, status, log)
 	}
 
-	if status := r.kubeHelper.ensureSSLCertsForStatefulSet(standaloneBuilder, log); !status.isOk() {
-		return status.updateStatus(s, r.ReconcileCommonController, log)
+	if status := r.kubeHelper.ensureSSLCertsForStatefulSet(standaloneBuilder, log); !status.IsOK() {
+		return r.updateStatus(s, status, log)
 	}
 
-	if status := r.ensureX509InKubernetes(s, standaloneBuilder, log); !status.isOk() {
-		return status.updateStatus(s, r.ReconcileCommonController, log)
+	if status := r.ensureX509InKubernetes(s, standaloneBuilder, log); !status.IsOK() {
+		return r.updateStatus(s, status, log)
 	}
 
 	status := runInGivenOrder(standaloneBuilder.needToPublishStateFirst(log),
-		func() reconcileStatus {
+		func() workflow.Status {
 			sts, err := standaloneBuilder.BuildStatefulSet()
 			if err != nil {
-				return failed("Failed to create/update (Ops Manager reconciliation phase): %s", err.Error())
+				return workflow.Failed("Failed to create/update (Ops Manager reconciliation phase): %s", err.Error())
 			}
-			return r.updateOmDeployment(conn, s, sts, log).onErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+			return r.updateOmDeployment(conn, s, sts, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
-		func() reconcileStatus {
+		func() workflow.Status {
 			if err := standaloneBuilder.CreateOrUpdateInKubernetes(); err != nil {
-				return failed("Failed to create/update (Kubernetes reconciliation phase): %s", err.Error())
+				return workflow.Failed("Failed to create/update (Kubernetes reconciliation phase): %s", err.Error())
 			}
 
 			if !r.kubeHelper.isStatefulSetUpdated(standaloneBuilder.Namespace, standaloneBuilder.Name, log) {
-				return pending(fmt.Sprintf("MongoDB %s resource is still starting", standaloneBuilder.Name))
+				return workflow.Pending(fmt.Sprintf("MongoDB %s resource is still starting", standaloneBuilder.Name))
 			}
 
 			log.Info("Updated statefulset for standalone")
-			return ok()
+			return workflow.OK()
 		})
 
-	if !status.isOk() {
-		return status.updateStatus(s, r.ReconcileCommonController, log)
+	if !status.IsOK() {
+		return r.updateStatus(s, status, log)
 	}
 
 	log.Infof("Finished reconciliation for MongoDbStandalone! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 
-	return reconcileResult.updateStatus(s, r.ReconcileCommonController, log, DeploymentLink(conn.BaseURL(), conn.GroupID()))
+	return r.updateStatus(s, status, log, mdbv1.NewBaseUrlOption(DeploymentLink(conn.BaseURL(), conn.GroupID())))
 }
 
 func (r *ReconcileMongoDbStandalone) updateOmDeployment(conn om.Connection, s *mdbv1.MongoDB,
-	set appsv1.StatefulSet, log *zap.SugaredLogger) reconcileStatus {
+	set appsv1.StatefulSet, log *zap.SugaredLogger) workflow.Status {
 	if err := waitForRsAgentsToRegister(set, s.Spec.GetClusterDomain(), conn, log); err != nil {
-		return failedErr(err)
+		return workflow.Failed(err.Error())
 	}
 
 	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, []string{set.Name}, s, log)
-	if !status.isOk() {
+	if !status.IsOK() {
 		return status
 	}
 
@@ -202,19 +204,19 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(conn om.Connection, s *m
 	)
 
 	if err != nil {
-		return failedErr(err)
+		return workflow.Failed(err.Error())
 	}
 
 	if err := om.WaitForReadyState(conn, []string{set.Name}, log); err != nil {
-		return failedErr(err)
+		return workflow.Failed(err.Error())
 	}
 
 	if additionalReconciliationRequired {
-		return pending("Performing multi stage reconciliation")
+		return workflow.Pending("Performing multi stage reconciliation")
 	}
 
 	log.Info("Updated Ops Manager for standalone")
-	return ok()
+	return workflow.OK()
 
 }
 
