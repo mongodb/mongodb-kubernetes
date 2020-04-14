@@ -463,6 +463,43 @@ func (c *ReconcileCommonController) addWatchedResourceIfNotAdded(name, namespace
 	}
 }
 
+// stop watching resources with input namespace and watched type, if any
+func (c *ReconcileCommonController) removeWatchedResources(namespace string, wType watchedType, dependentResourceNsName types.NamespacedName) {
+	for key := range c.watchedResources {
+		if key.resourceType == wType && key.resource.Namespace == namespace{
+			index := -1
+			for i, v := range c.watchedResources[key] {
+				if v == dependentResourceNsName {
+					index =i
+				}
+			}
+
+			if index == -1 {
+				continue
+			}
+
+			zap.S().Infof("Removing %s from resources dependent on %s", dependentResourceNsName, key)
+
+
+			if index == 0 {
+				if len(c.watchedResources[key]) == 1 {
+					delete(c.watchedResources, key)
+					continue
+				}
+				c.watchedResources[key] = c.watchedResources[key][index + 1:]
+				continue
+			}
+
+			if index == len(c.watchedResources[key]){
+				c.watchedResources[key] = c.watchedResources[key][:index]
+				continue
+			}
+
+			c.watchedResources[key] = append(c.watchedResources[key][:index],  c.watchedResources[key][index+1:]...)
+		}
+	}
+}
+
 // checkIfHasExcessProcesses will check if the project has excess processes.
 // Also it removes the tag ExternallyManaged from the project in this case as
 // the user may need to clean the resources from OM UI if they move the

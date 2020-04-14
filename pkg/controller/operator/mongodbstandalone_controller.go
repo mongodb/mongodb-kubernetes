@@ -50,13 +50,13 @@ func AddStandaloneController(mgr manager.Manager) error {
 	  }*/
 
 	err = c.Watch(&source.Kind{Type: &corev1.ConfigMap{}},
-		&ConfigMapAndSecretHandler{resourceType: ConfigMap, trackedResources: reconciler.watchedResources})
+		&WatchedResourcesHandler{resourceType: ConfigMap, trackedResources: reconciler.watchedResources})
 	if err != nil {
 		return err
 	}
 
 	err = c.Watch(&source.Kind{Type: &corev1.Secret{}},
-		&ConfigMapAndSecretHandler{resourceType: Secret, trackedResources: reconciler.watchedResources})
+		&WatchedResourcesHandler{resourceType: Secret, trackedResources: reconciler.watchedResources})
 	if err != nil {
 		return err
 	}

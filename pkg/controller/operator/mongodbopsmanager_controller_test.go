@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"k8s.io/apimachinery/pkg/types"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
@@ -28,6 +30,41 @@ func TestOpsManagerReconciler_performValidation(t *testing.T) {
 	assert.Error(t, performValidation(omWithAppDBVersion("3.4.0")))
 	assert.Error(t, performValidation(omWithAppDBVersion("3.4.0.0.1.2")))
 	assert.Error(t, performValidation(omWithAppDBVersion("foo")))
+}
+
+func TestOpsManagerReconciler_watchedResources(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	otherTestOm:= DefaultOpsManagerBuilder().Build()
+	otherTestOm.Name = "otherOM"
+
+	otherTestOm.Spec.Backup.Enabled = true
+	testOm.Spec.Backup.Enabled = true
+	otherTestOm.Spec.Backup.OplogStoreConfigs = []mdbv1.DataStoreConfig{{MongoDBResourceRef: mdbv1.MongoDBResourceRef{Name: "oplog1"}}}
+	testOm.Spec.Backup.OplogStoreConfigs = []mdbv1.DataStoreConfig{{MongoDBResourceRef: mdbv1.MongoDBResourceRef{Name: "oplog1"}}}
+
+	reconciler, _, _, _ := defaultTestOmReconciler(t, testOm)
+	reconciler.watchMongoDBResourcesReferencedByBackup(testOm)
+	reconciler.watchMongoDBResourcesReferencedByBackup(otherTestOm)
+
+	key := watchedObject{
+		resourceType: MongoDB,
+		resource: types.NamespacedName{
+			Name:      "oplog1",
+			Namespace: testOm.Namespace,
+		},
+	}
+
+	// om watches oplog MDB resource
+	assert.Contains(t, reconciler.watchedResources, key)
+	assert.Contains(t, reconciler.watchedResources[key], objectKeyFromApiObject(&testOm))
+	assert.Contains(t, reconciler.watchedResources[key], objectKeyFromApiObject(&otherTestOm))
+
+	// if backup is disabled, should be removed from watched resources
+	testOm.Spec.Backup.Enabled = false
+	reconciler.watchMongoDBResourcesReferencedByBackup(testOm)
+	assert.Contains(t, reconciler.watchedResources, key)
+	assert.Contains(t, reconciler.watchedResources[key], objectKeyFromApiObject(&otherTestOm))
+	assert.NotContains(t, reconciler.watchedResources[key], objectKeyFromApiObject(&testOm))
 }
 
 func TestOpsManagerReconciler_prepareOpsManager(t *testing.T) {

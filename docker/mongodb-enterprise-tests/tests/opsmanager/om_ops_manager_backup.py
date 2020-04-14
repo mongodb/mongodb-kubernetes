@@ -128,6 +128,15 @@ def oplog_replica_set(ops_manager, namespace) -> MongoDB:
         namespace=namespace,
         name=OPLOG_RS_NAME,
     ).configure(ops_manager, "development")
+    resource["spec"]["version"] = "3.6.10"
+
+    #  TODO: Remove when CLOUDP-60443 is fixed
+    # This test will update oplog to have SCRAM enabled
+    # Currently this results in OM failure when enabling backup for a project, backup seems to do some caching resulting in the
+    # mongoURI not being updated unless pod is killed. This is documented in CLOUDP-60443, once resolved this skip & comment can be deleted
+    resource["spec"]["security"] = {
+        "authentication": {"enabled": True, "modes": ["SCRAM"]}
+    }
 
     yield resource.create()
 
@@ -150,9 +159,6 @@ def blockstore_replica_set(ops_manager, namespace) -> MongoDB:
     ).configure(ops_manager, "blockstore")
     # enabling 3.6.10 to let enable scram-sha (OM until some versions understands scram-sha-1 only)
     resource["spec"]["version"] = "3.6.10"
-    resource["spec"]["security"] = {
-        "authentication": {"enabled": True, "modes": ["SCRAM"]}
-    }
 
     yield resource.create()
 
@@ -164,6 +170,30 @@ def blockstore_user(namespace, blockstore_replica_set: MongoDB) -> MongoDBUser:
         yaml_fixture("scram-sha-user-backing-db.yaml"), namespace=namespace
     )
     resource["spec"]["mongodbResourceRef"]["name"] = blockstore_replica_set.name
+
+    print(
+        f"Creating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} "
+    )
+    KubernetesTester.create_secret(
+        KubernetesTester.get_namespace(),
+        resource.get_secret_name(),
+        {"password": USER_PASSWORD,},
+    )
+
+    yield resource.create()
+
+
+@fixture(scope="module")
+def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
+    """ Creates a password secret and then the user referencing it"""
+    resource = MongoDBUser.from_yaml(
+        yaml_fixture("scram-sha-user-backing-db.yaml"),
+        namespace=namespace,
+        name="mms-user-2",
+    )
+    resource["spec"]["mongodbResourceRef"]["name"] = oplog_replica_set.name
+    resource["spec"]["passwordSecretKeyRef"]["name"] = "mms-user-2-password"
+    resource["spec"]["username"] = "mms-user-2"
 
     print(
         f"Creating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} "
@@ -262,21 +292,28 @@ class TestBackupDatabasesAdded:
         s3_replica_set.assert_reaches_phase(Phase.Running)
         blockstore_replica_set.assert_reaches_phase(Phase.Running)
 
-    def test_blockstore_user_created(self, blockstore_user: MongoDBUser):
-        blockstore_user.assert_reaches_phase(Phase.Updated)
+    def test_oplog_user_created(self, oplog_user: MongoDBUser):
+        oplog_user.assert_reaches_phase(Phase.Updated)
 
-    def test_om_failed_blockstore_no_user_ref(
-        self, ops_manager: MongoDBOpsManager, blockstore_user: MongoDBUser
-    ):
+    @mark.skip(reason="re-enable when bug in CLOUDP-60443 is fixed")
+    def test_oplog_updated_scram_sha_enabled(self, oplog_replica_set: MongoDB):
+        oplog_replica_set["spec"]["security"] = {
+            "authentication": {"enabled": True, "modes": ["SCRAM"]}
+        }
+        oplog_replica_set.update()
+        oplog_replica_set.assert_reaches_phase(Phase.Running)
+
+    def test_om_failed_oplog_no_user_ref(self, ops_manager: MongoDBOpsManager):
         """ Waits until Backup is in failed state as blockstore doesn't have reference to the user"""
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Failed,
             msg_regexp=".*is configured to use SCRAM-SHA authentication mode, the user "
             "must be specified using 'mongodbUserRef'",
-            timeout=360,
         )
-        ops_manager["spec"]["backup"]["blockStores"][0]["mongodbUserRef"] = {
-            "name": blockstore_user.get_user_name()
+
+    def test_fix_om(self, ops_manager: MongoDBOpsManager, oplog_user: MongoDBUser):
+        ops_manager["spec"]["backup"]["oplogStores"][0]["mongodbUserRef"] = {
+            "name": oplog_user.name
         }
         ops_manager.update()
 
@@ -295,6 +332,75 @@ class TestBackupDatabasesAdded:
         oplog_replica_set: MongoDB,
         s3_replica_set: MongoDB,
         blockstore_replica_set: MongoDB,
+        oplog_user: MongoDBUser,
+    ):
+        om_tester = ops_manager.get_om_tester()
+        om_tester.assert_healthiness()
+        # Nothing has changed for daemon
+        om_tester.assert_daemon_enabled(ops_manager.backup_daemon_pod_name(), HEAD_PATH)
+
+        om_tester.assert_block_stores(
+            [new_om_data_store(blockstore_replica_set, "blockStore1")]
+        )
+        # oplog store has authentication enabled
+        om_tester.assert_oplog_stores(
+            [
+                new_om_data_store(
+                    oplog_replica_set,
+                    "oplog1",
+                    user_name=oplog_user.get_user_name(),
+                    password=USER_PASSWORD,
+                )
+            ]
+        )
+        om_tester.assert_s3_stores(
+            [new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)]
+        )
+
+
+@mark.e2e_om_ops_manager_backup
+class TestOpsManagerWatchesBlockStoreUpdates:
+    def test_om_running(self, ops_manager: MongoDBOpsManager):
+        ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=40)
+
+    def test_blockstore_user_created(self, blockstore_user: MongoDBUser):
+        blockstore_user.assert_reaches_phase(Phase.Updated)
+
+    def test_scramsha_enabled_for_blockstore(self, blockstore_replica_set: MongoDB):
+        blockstore_replica_set["spec"]["security"] = {
+            "authentication": {"enabled": True, "modes": ["SCRAM"]}
+        }
+        blockstore_replica_set.update()
+        blockstore_replica_set.assert_reaches_phase(Phase.Running)
+
+    def test_om_failed_oplog_no_user_ref(self, ops_manager: MongoDBOpsManager):
+        """ Waits until Ops manager is in failed state as blockstore doesn't have reference to the user"""
+        ops_manager.backup_status().assert_reaches_phase(
+            Phase.Failed,
+            msg_regexp=".*is configured to use SCRAM-SHA authentication mode, the user "
+            "must be specified using 'mongodbUserRef'",
+        )
+
+    def test_fix_om(self, ops_manager: MongoDBOpsManager, blockstore_user: MongoDBUser):
+        ops_manager["spec"]["backup"]["blockStores"][0]["mongodbUserRef"] = {
+            "name": blockstore_user.name
+        }
+        ops_manager.update()
+        ops_manager.backup_status().assert_reaches_phase(
+            Phase.Running, timeout=200, ignore_errors=True,
+        )
+        assert ops_manager.backup_status().get_message() is None
+
+    @skip_if_local
+    def test_om(
+        self,
+        s3_bucket: str,
+        aws_s3_client: AwsS3Client,
+        ops_manager: MongoDBOpsManager,
+        oplog_replica_set: MongoDB,
+        s3_replica_set: MongoDB,
+        blockstore_replica_set: MongoDB,
+        oplog_user: MongoDBUser,
         blockstore_user: MongoDBUser,
     ):
         om_tester = ops_manager.get_om_tester()
@@ -302,7 +408,6 @@ class TestBackupDatabasesAdded:
         # Nothing has changed for daemon
         om_tester.assert_daemon_enabled(ops_manager.backup_daemon_pod_name(), HEAD_PATH)
 
-        om_tester.assert_oplog_stores([new_om_data_store(oplog_replica_set, "oplog1")])
         # block store has authentication enabled
         om_tester.assert_block_stores(
             [
@@ -310,6 +415,18 @@ class TestBackupDatabasesAdded:
                     blockstore_replica_set,
                     "blockStore1",
                     user_name=blockstore_user.get_user_name(),
+                    password=USER_PASSWORD,
+                )
+            ]
+        )
+
+        # oplog has authentication enabled
+        om_tester.assert_oplog_stores(
+            [
+                new_om_data_store(
+                    oplog_replica_set,
+                    "oplog1",
+                    user_name=oplog_user.get_user_name(),
                     password=USER_PASSWORD,
                 )
             ]
@@ -372,6 +489,7 @@ class TestBackupConfigurationAdditionDeletion:
         aws_s3_client: AwsS3Client,
         oplog_replica_set: MongoDB,
         s3_replica_set: MongoDB,
+        oplog_user: MongoDBUser,
     ):
         ops_manager.reload()
         ops_manager["spec"]["backup"]["oplogStores"].append(
@@ -385,7 +503,12 @@ class TestBackupConfigurationAdditionDeletion:
         om_tester = ops_manager.get_om_tester()
         om_tester.assert_oplog_stores(
             [
-                new_om_data_store(oplog_replica_set, "oplog1"),
+                new_om_data_store(
+                    oplog_replica_set,
+                    "oplog1",
+                    user_name=oplog_user.get_user_name(),
+                    password=USER_PASSWORD,
+                ),
                 new_om_data_store(s3_replica_set, "oplog2"),
             ]
         )
@@ -400,6 +523,7 @@ class TestBackupConfigurationAdditionDeletion:
         aws_s3_client: AwsS3Client,
         oplog_replica_set: MongoDB,
         s3_replica_set: MongoDB,
+        oplog_user: MongoDBUser,
     ):
         ops_manager.reload()
         existing_s3_store = ops_manager["spec"]["backup"]["s3Stores"][0]
@@ -412,7 +536,12 @@ class TestBackupConfigurationAdditionDeletion:
 
         om_tester.assert_oplog_stores(
             [
-                new_om_data_store(oplog_replica_set, "oplog1"),
+                new_om_data_store(
+                    oplog_replica_set,
+                    "oplog1",
+                    user_name=oplog_user.get_user_name(),
+                    password=USER_PASSWORD,
+                ),
                 new_om_data_store(s3_replica_set, "oplog2"),
             ]
         )
@@ -429,6 +558,7 @@ class TestBackupConfigurationAdditionDeletion:
         s3_replica_set: MongoDB,
         blockstore_replica_set: MongoDB,
         blockstore_user: MongoDBUser,
+        oplog_user: MongoDBUser,
     ):
         ops_manager.reload()
         ops_manager["spec"]["backup"]["oplogStores"].pop()
@@ -439,7 +569,16 @@ class TestBackupConfigurationAdditionDeletion:
 
         om_tester = ops_manager.get_om_tester()
 
-        om_tester.assert_oplog_stores([new_om_data_store(oplog_replica_set, "oplog1")])
+        om_tester.assert_oplog_stores(
+            [
+                new_om_data_store(
+                    oplog_replica_set,
+                    "oplog1",
+                    user_name=oplog_user.get_user_name(),
+                    password=USER_PASSWORD,
+                )
+            ]
+        )
         om_tester.assert_s3_stores(
             [new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket_2, aws_s3_client)]
         )

@@ -68,6 +68,7 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 	log.Infow("OpsManager.Status", "status", opsManager.Status)
 
 	// register backup
+	r.watchMongoDBResourcesReferencedByBackup(opsManager)
 
 	if err := opsManager.ProcessValidationsOnReconcile(); err != nil {
 		return r.updateStatusValidationFailure(&opsManager, err.Error(), log, true, opsManagerExtraStatusParams)
@@ -209,7 +210,13 @@ func AddOpsManagerController(mgr manager.Manager) error {
 
 	// watch the secret with the Ops Manager user password
 	err = c.Watch(&source.Kind{Type: &corev1.Secret{}},
-		&ConfigMapAndSecretHandler{resourceType: Secret, trackedResources: reconciler.watchedResources})
+		&WatchedResourcesHandler{resourceType: Secret, trackedResources: reconciler.watchedResources})
+	if err != nil {
+		return err
+	}
+
+	err = c.Watch(&source.Kind{Type: &mdbv1.MongoDB{}},
+		&WatchedResourcesHandler{resourceType: MongoDB, trackedResources: reconciler.watchedResources})
 	if err != nil {
 		return err
 	}
@@ -261,6 +268,49 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(opsManager mdbv1.Mo
 		return pending("Backup Daemon is still starting")
 	}
 	return ok()
+}
+
+func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(opsManager mdbv1.MongoDBOpsManager) {
+	if !opsManager.Spec.Backup.Enabled {
+		r.removeWatchedResources(opsManager.Namespace, MongoDB, objectKeyFromApiObject(&opsManager))
+		return
+	}
+
+	// watch mongodb resources for oplog
+	oplogs := opsManager.Spec.Backup.OplogStoreConfigs
+	for _, oplogConfig := range oplogs {
+		r.addWatchedResourceIfNotAdded(
+			oplogConfig.MongoDBResourceRef.Name,
+			opsManager.Namespace,
+			MongoDB,
+			objectKeyFromApiObject(&opsManager),
+		)
+	}
+
+	// watch mongodb resources for block stores
+	blockstores := opsManager.Spec.Backup.BlockStoreConfigs
+	for _, blockStoreConfig := range blockstores {
+		r.addWatchedResourceIfNotAdded(
+			blockStoreConfig.MongoDBResourceRef.Name,
+			opsManager.Namespace,
+			MongoDB,
+			objectKeyFromApiObject(&opsManager),
+		)
+	}
+
+	// watch mongodb resources for s3 stores
+	s3Stores := opsManager.Spec.Backup.S3Configs
+	for _, s3StoreConfig := range s3Stores {
+		// If S3StoreConfig doesn't have mongodb resource reference, skip it (appdb will be used)
+		if s3StoreConfig.MongoDBResourceRef != nil {
+			r.addWatchedResourceIfNotAdded(
+				s3StoreConfig.MongoDBResourceRef.Name,
+				opsManager.Namespace,
+				MongoDB,
+				objectKeyFromApiObject(&opsManager),
+			)
+		}
+	}
 }
 
 // buildMongoConnectionUrl builds the connection url to the appdb. Note, that it overrides the default authMechanism

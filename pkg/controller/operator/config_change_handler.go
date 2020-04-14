@@ -16,6 +16,7 @@ type watchedType string
 const (
 	ConfigMap watchedType = "ConfigMap"
 	Secret    watchedType = "Secret"
+	MongoDB   watchedType = "MongoDB"
 )
 
 // the  object watched by controller. Includes its type and namespace+name
@@ -28,26 +29,26 @@ func (w watchedObject) String() string {
 	return fmt.Sprintf("%s (%s)", w.resource, w.resourceType)
 }
 
-// ConfigMapAndSecretHandler is a special implementation of 'handler.EventHandler' that checks if the event for
+// WatchedResourcesHandler is a special implementation of 'handler.EventHandler' that checks if the event for
 // ConfigMap/Secret must trigger reconciliation for any Mongodb resource. This is done via consulting the 'trackedResources'
 // map. The map is stored in relevant reconciler which puts pairs [configmap/secret -> mongodb_resource_name] there as
 // soon as reconciliation happens for the resource
-type ConfigMapAndSecretHandler struct {
+type WatchedResourcesHandler struct {
 	resourceType     watchedType
 	trackedResources map[watchedObject][]types.NamespacedName
 }
 
 // Note that we implement Create in addition to Update to be able to handle cases when config map or secret is deleted
 // and then created again.
-func (c *ConfigMapAndSecretHandler) Create(e event.CreateEvent, q workqueue.RateLimitingInterface) {
+func (c *WatchedResourcesHandler) Create(e event.CreateEvent, q workqueue.RateLimitingInterface) {
 	c.doHandle(e.Meta.GetNamespace(), e.Meta.GetName(), q)
 }
 
-func (c *ConfigMapAndSecretHandler) Update(e event.UpdateEvent, q workqueue.RateLimitingInterface) {
+func (c *WatchedResourcesHandler) Update(e event.UpdateEvent, q workqueue.RateLimitingInterface) {
 	c.doHandle(e.MetaOld.GetNamespace(), e.MetaOld.GetName(), q)
 }
 
-func (c *ConfigMapAndSecretHandler) doHandle(namespace, name string, q workqueue.RateLimitingInterface) {
+func (c *WatchedResourcesHandler) doHandle(namespace, name string, q workqueue.RateLimitingInterface) {
 	configMapOrSecret := watchedObject{
 		resourceType: c.resourceType,
 		resource:     types.NamespacedName{Name: name, Namespace: namespace},
@@ -59,6 +60,6 @@ func (c *ConfigMapAndSecretHandler) doHandle(namespace, name string, q workqueue
 }
 
 // Seems we don't need to react on config map/secret removal..
-func (c *ConfigMapAndSecretHandler) Delete(event.DeleteEvent, workqueue.RateLimitingInterface) {}
+func (c *WatchedResourcesHandler) Delete(event.DeleteEvent, workqueue.RateLimitingInterface) {}
 
-func (c *ConfigMapAndSecretHandler) Generic(event.GenericEvent, workqueue.RateLimitingInterface) {}
+func (c *WatchedResourcesHandler) Generic(event.GenericEvent, workqueue.RateLimitingInterface) {}
