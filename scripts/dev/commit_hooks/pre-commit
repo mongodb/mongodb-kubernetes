@@ -1,7 +1,10 @@
 #!/bin/bash
 
+set -Eeuo pipefail
+set -x
+
 # ensure all python files are correctly formatted with black
-if ! which "black" > /dev/null; then
+if ! command -v "black" > /dev/null; then
     pip3 install -r docker/mongodb-enterprise-tests/requirements-dev.txt
 fi
 
@@ -21,8 +24,7 @@ if [[ -z $GOPATH ]]; then
     exit 1
 fi
 
-go_mod_files_changed=$(git diff --cached --name-only --diff-filter=ACM | grep '^go.*' | wc -l)
-if [[ $go_mod_files_changed == "1" ]]; then
+if [[ $(git diff --cached --name-only --diff-filter=ACM | grep -c '^go.*') == "1" ]]; then
   echo 'ERROR: Should change both or neither of go.mod and go.sum'
   exit 1
 fi
@@ -49,29 +51,53 @@ if ! [[ -x "$(command -v staticcheck)" ]]; then
 fi
 
 # check for dead code
-staticcheck -checks U1000,SA4006,ST1019,S1005,S1019 ./pkg/controller/... || exit 1
+staticcheck -checks U1000,SA4006,ST1019,S1005,S1019 ./pkg/controller/...
 
-# some directories are excluded from vetting as they are auto-generated
-vet_exclusions="github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1
-github.com/10gen/ops-manager-kubernetes/pkg/client/"
-go vet $(go list ./... | grep -Fv "$vet_exclusions") || exit 1
+if ! command -v "shellcheck" > /dev/null; then
+    echo "Please install shellcheck"
+    exit 1
+fi
 
-gofiles=$(git ls-files | grep '.go$') 
-unformatted=$(goimports -l $gofiles)
-[[ -z "$unformatted" ]] && exit 0
 
-for fn in $unformatted; do
-        echo >&2 "formatting $PWD/$fn"
-        goimports -w $PWD/$fn
-        # FIXME: using git add in pre-commit hooks is temperamental
-        git add $PWD/$fn
+# run shellcheck on all modified shell scripnts
+for file in $(git diff --cached --name-only --diff-filter=ACM | grep -v '\.go$' | grep -v '\.py' | grep -v '\.yaml' | grep -v '\.json')
+do
+    # check if bash script
+    if head -1 "${file}" | grep "bash" > /dev/null
+    then
+        # see https://vaneyckt.io/posts/safer_bash_scripts_with_set_euxo_pipefail/
+        if ! grep "set -Eeuo pipefail" "${file}" > /dev/null
+        then
+            echo "set opts not set on ${file}"
+            exit 1
+        fi
+        if ! shellcheck -x "${file}"; then
+            echo "shellcheck failed on ${file}"
+            exit 1
+        fi
+    fi
 done
 
-# Run gofmt -s on all modified files
-exitcode=0
-for file in `git diff --cached --name-only --diff-filter=ACM | grep '\.go$'`
+# some directories are excluded from vetting as they are auto-generated
+vet_exclusions="github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned"
+for package in $(go list ./... | grep -Fv "${vet_exclusions}")
 do
-    output=`gofmt -s -w "$file"`
+    go vet "${package}"
+done
+
+# Run gofmt -s on all go modified files
+exitcode=0
+for file in $(git diff --cached --name-only --diff-filter=ACM | grep '\.go$')
+do
+    to_fix=$(goimports -l "${file}")
+    if [[ -n "${to_fix}" ]]
+    then
+        echo "formatting ${to_fix}"
+        goimports -w "${to_fix}"
+        git add "${to_fix}"
+        exitcode=1
+    fi
+    output=$(gofmt -s -w "${file}")
     if test -n "$output"
     then
         echo "$output"
