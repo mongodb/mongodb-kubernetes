@@ -626,15 +626,14 @@ type MongodbShardedClusterSizeConfig struct {
 }
 
 type MongoDbPodSpec struct {
-	Cpu                        string                     `json:"cpu,omitempty"`
-	CpuRequests                string                     `json:"cpuRequests,omitempty"`
-	Memory                     string                     `json:"memory,omitempty"`
-	MemoryRequests             string                     `json:"memoryRequests,omitempty"`
-	PodAffinity                *corev1.PodAffinity        `json:"podAffinity,omitempty"`
-	NodeAffinity               *corev1.NodeAffinity       `json:"nodeAffinity,omitempty"`
-	SecurityContext            *corev1.PodSecurityContext `json:"securityContext,omitempty"`
-	PodTemplate                *corev1.PodTemplateSpec    `json:"podTemplate,omitempty"`
-	PodAntiAffinityTopologyKey string                     `json:"podAntiAffinityTopologyKey,omitempty"`
+	Cpu                        string                  `json:"cpu,omitempty"`
+	CpuRequests                string                  `json:"cpuRequests,omitempty"`
+	Memory                     string                  `json:"memory,omitempty"`
+	MemoryRequests             string                  `json:"memoryRequests,omitempty"`
+	PodAffinity                *corev1.PodAffinity     `json:"podAffinity,omitempty"`
+	NodeAffinity               *corev1.NodeAffinity    `json:"nodeAffinity,omitempty"`
+	PodTemplate                *corev1.PodTemplateSpec `json:"podTemplate,omitempty"`
+	PodAntiAffinityTopologyKey string                  `json:"podAntiAffinityTopologyKey,omitempty"`
 
 	// Note, that this field is used by MongoDB resources only, let's keep it here for simplicity
 	Persistence *Persistence `json:"persistence,omitempty"`
