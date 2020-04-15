@@ -22,7 +22,10 @@ def ops_manager(namespace: str) -> MongoDBOpsManager:
 @mark.e2e_om_ops_manager_pod_spec
 class TestOpsManagerCreation:
     def test_om_created(self, ops_manager: MongoDBOpsManager):
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+        """ backup is not configured properly - but it's ok as we are testing Statefulset only"""
+        ops_manager.backup_status().assert_reaches_phase(
+            Phase.Pending, msg_regexp=".*is required for backup.*", timeout=900
+        )
 
     def test_appdb_pod_template_containers(self, ops_manager: MongoDBOpsManager):
         appdb_sts = ops_manager.read_appdb_statefulset()
@@ -180,8 +183,14 @@ class TestOpsManagerUpdate:
         ] = 10
 
         ops_manager.update()
+        ops_manager.appdb_status().assert_abandons_phase(Phase.Running)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=500)
         ops_manager.om_status().assert_abandons_phase(Phase.Running)
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=500)
+        ops_manager.backup_status().assert_abandons_phase(Phase.Running)
+        ops_manager.backup_status().assert_reaches_phase(
+            Phase.Pending, msg_regexp=".*is required for backup.*", timeout=200
+        )
 
     def test_appdb_pod_template(self, ops_manager: MongoDBOpsManager):
         appdb_sts = ops_manager.read_appdb_statefulset()

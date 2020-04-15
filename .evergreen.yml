@@ -1531,8 +1531,6 @@ task_groups:
   tasks:
     - e2e_all_mongodb_resources_parallel
     - e2e_multiple_cluster_failures
-    - e2e_op_upgrade_replica_set
-    - e2e_op_upgrade_one_deployment
     - e2e_replica_set
     - e2e_replica_set_8_members
     - e2e_replica_set_ent
@@ -1683,8 +1681,27 @@ task_groups:
     - func: teardown_kubernetes_environment
     - func: teardown_cloud_qa
 
-# This task group runs on Kind clusters.
-- name: e2e_ops_manager_task_group
+# e2e_mongodb_kind_only_task_group includes tests that mutate cluster-wide resources so should be
+# run only on Kind
+- name: e2e_mongodb_kind_only_task_group
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
+  tasks:
+    - e2e_op_upgrade_one_deployment
+    - e2e_op_upgrade_replica_set
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+    - func: teardown_cloud_qa
+
+# This task group runs on Kind clusters. In theory ALL Ops Manager tests should be added here
+# including the cluster-wide resources changing
+- name: e2e_ops_manager_kind_only_task_group
   max_hosts: 10
   setup_group:
     - func: clone
@@ -1715,9 +1732,10 @@ task_groups:
     - func: teardown_kubernetes_environment
     - func: teardown_cloud_qa
 
-# This task is identical to e2e_ops_manager_task_group, with the exception that
+# This task is identical to e2e_ops_manager_kind_only_task_group, with the exception that
 # it will run 2 hosts at a time, not more. In shared cluster (Kops/Openshift) this means
 # that the Ops Manager tests will not overload the cluster if run in parallel builds.
+# Operator upgrade tests must not be included here!
 - name: e2e_ops_manager_task_group_safe
   max_hosts: 2
   setup_group:
@@ -1737,7 +1755,6 @@ task_groups:
     - e2e_om_ops_manager_scale
     - e2e_om_ops_manager_upgrade
     - e2e_om_external_connectivity
-    - e2e_op_upgrade_om
     - e2e_om_jvm_params
   teardown_task:
     - func: upload_e2e_logs
@@ -1961,7 +1978,7 @@ buildvariants:
     image_type: rhel
     test_mode: opsmanager
   tasks:
-  - name: e2e_ops_manager_task_group
+  - name: e2e_ops_manager_kind_only_task_group
 
 - name: e2e_kind_cloud_qa
   display_name: e2e_kind_cloud_qa
@@ -1985,6 +2002,7 @@ buildvariants:
   - name: e2e_scram_sha_task_group
   - name: e2e_auth_transitions_task_group
   - name: e2e_webhook_validation_task_group
+  - name: e2e_mongodb_kind_only_task_group
 
 # build OpsManager: to be launched independently of the operator build process
 - name: build_and_push_ops_manager_images

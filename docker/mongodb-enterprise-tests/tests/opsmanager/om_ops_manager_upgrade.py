@@ -148,7 +148,7 @@ class TestOpsManagerVersionUpgrade:
        is released and its version is added to release.json
     """
 
-    def test_scale_app_db_up(self, ops_manager: MongoDBOpsManager):
+    def test_upgrade_om_version(self, ops_manager: MongoDBOpsManager):
         ops_manager.load()
         ops_manager["spec"]["version"] = EXPECTED_VERSION
         ops_manager.update()

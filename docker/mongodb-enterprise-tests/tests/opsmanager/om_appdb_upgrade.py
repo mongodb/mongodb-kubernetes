@@ -91,7 +91,7 @@ class TestOpsManagerAppDbUpgrade:
         ops_manager["spec"]["applicationDatabase"]["version"] = ""
         ops_manager.update()
         ops_manager.appdb_status().assert_abandons_phase(Phase.Running)
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
         # Note, that we don't wait for "OM == reconciling" as this phase passes too quickly
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=100)
 
