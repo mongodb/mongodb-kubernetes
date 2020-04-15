@@ -2,28 +2,46 @@ package api
 
 import (
 	"bytes"
-	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
 	"net/http"
-	"strings"
+	"net/http/httputil"
 	"time"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 )
+
+type Client struct {
+	*http.Client
+
+	// Digest username and password
+	username string
+	password string
+
+	// Enable debugging information on this client
+	debug bool
+}
 
 // NewHTTPClient is a functional options constructor, based on this blog post:
 // https://dave.cheney.net/2014/10/17/functional-options-for-friendly-apis
 // The default clients specifies some important timeouts (some of them are synced with AA one):
 // 10 seconds for connection (TLS/non TLS)
 // 10 minutes for requests (time to get the first response headers)
-func NewHTTPClient(options ...func(*http.Client) error) (*http.Client, error) {
-	client := &http.Client{
+func NewHTTPClient(options ...func(*Client) error) (*Client, error) {
+	client := &Client{
+		Client: newDefaultHTTPClient(),
+	}
+
+	return applyOptions(client, options...)
+}
+
+func newDefaultHTTPClient() *http.Client {
+	return &http.Client{
 		Transport: &http.Transport{
 			ResponseHeaderTimeout: 10 * time.Minute,
 			TLSHandshakeTimeout:   10 * time.Second,
@@ -32,7 +50,9 @@ func NewHTTPClient(options ...func(*http.Client) error) (*http.Client, error) {
 			}).DialContext,
 		},
 	}
+}
 
+func applyOptions(client *Client, options ...func(*Client) error) (*Client, error) {
 	for _, op := range options {
 		err := op(client)
 		if err != nil {
@@ -45,13 +65,30 @@ func NewHTTPClient(options ...func(*http.Client) error) (*http.Client, error) {
 
 // NewHTTPOptions returns a list of options that can be used to construct an
 // *http.Client using `NewHTTPClient`.
-func NewHTTPOptions() []func(*http.Client) error {
-	return make([]func(*http.Client) error, 0)
+func NewHTTPOptions() []func(*Client) error {
+	return make([]func(*Client) error, 0)
+}
+
+// OptionsDigestAuth enables Digest authentication.
+func OptionDigestAuth(username, password string) func(client *Client) error {
+	return func(client *Client) error {
+		client.username = username
+		client.password = password
+
+		return nil
+	}
+}
+
+// OptionDebug enables debug on the http client.
+func OptionDebug(client *Client) error {
+	client.debug = true
+
+	return nil
 }
 
 // OptionSkipVerify will set the Insecure Skip which means that TLS certs will not be
 // verified for validity.
-func OptionSkipVerify(client *http.Client) error {
+func OptionSkipVerify(client *Client) error {
 	TLSClientConfig := &tls.Config{InsecureSkipVerify: true}
 
 	transport := client.Transport.(*http.Transport)
@@ -63,7 +100,7 @@ func OptionSkipVerify(client *http.Client) error {
 
 // OptionCAValidate will use the CA certificate, passed as a string, to validate the
 // certificates presented by Ops Manager.
-func OptionCAValidate(ca string) func(client *http.Client) error {
+func OptionCAValidate(ca string) func(client *Client) error {
 	caCertPool := x509.NewCertPool()
 	caCertPool.AppendCertsFromPEM([]byte(ca))
 	TLSClientConfig := &tls.Config{
@@ -71,7 +108,7 @@ func OptionCAValidate(ca string) func(client *http.Client) error {
 		RootCAs:            caCertPool,
 	}
 
-	return func(client *http.Client) error {
+	return func(client *Client) error {
 		transport := client.Transport.(*http.Transport)
 		transport.TLSClientConfig = TLSClientConfig
 		client.Transport = transport
@@ -80,23 +117,9 @@ func OptionCAValidate(ca string) func(client *http.Client) error {
 	}
 }
 
-// serializeToBuffer takes any object and tries to serialize it to the buffer
-func serializeToBuffer(v interface{}) (io.Reader, error) {
-	var buffer io.Reader
-	if v != nil {
-		b, err := json.Marshal(v)
-		if err != nil {
-			return nil, err
-		}
-		buffer = bytes.NewBuffer(b)
-	}
-	return buffer, nil
-}
-
-// DigestRequest is a generic method allowing to make all types of HTTP digest requests using specific 'client'
-// Note, that it's currently coupled with Ops Manager specific functionality (ApiError) that's why it's put into 'om'
-// package - this can be decoupled to a 'util' package if 'operator' package needs this in future
-func DigestRequest(method, hostname, path string, v interface{}, user string, token string, client *http.Client) ([]byte, http.Header, error) {
+// Request executes an HTTP request, given a series of parameters, over this *Client object.
+// It handles Digest when needed and json marshaling of the `v` struct.
+func (client Client) Request(method, hostname, path string, v interface{}) ([]byte, http.Header, error) {
 	url := hostname + path
 
 	buffer, err := serializeToBuffer(v)
@@ -104,68 +127,76 @@ func DigestRequest(method, hostname, path string, v interface{}, user string, to
 		return nil, nil, NewError(err)
 	}
 
-	// First request is to get authorization information - we are not sending the body
-	req, err := createHTTPRequest(method, url, nil)
-	if err != nil {
-		return nil, nil, NewError(err)
+	var body []byte
+	req, _ := createHTTPRequest(method, url, buffer)
+	if client.username != "" && client.password != "" {
+		// Only add Digest auth when needed.
+		err = client.authorizeRequest(method, hostname, path, req)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
-	var body []byte
-	// Change this to a more flexible solution, depending on the SSL configuration
+	if client.debug {
+		dumpRequest, _ := httputil.DumpRequest(req, false)
+		zap.S().Debugf("Ops Manager request: \n %s", dumpRequest)
+	} else {
+		zap.S().Debugf("Ops Manager request: %s %s", method, url)
+	}
+
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, nil, NewError(err)
+		return nil, nil, NewError(fmt.Errorf("Error sending %s request to %s: %v", method, url, err))
 	}
-	if resp != nil && resp.Body != nil {
+
+	if resp.Body != nil {
 		defer resp.Body.Close()
+		body, err = ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return nil, nil, NewError(fmt.Errorf("Error reading response body from %s to %v status=%v", method, url, resp.StatusCode))
+		}
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		apiError := parseAPIError(resp.StatusCode, method, url, body)
+		return nil, nil, apiError
+	}
+
+	return body, resp.Header, nil
+}
+
+// authorizeRequest executes one request that's meant to be challenged by the
+// server in order to build the next one. The `request` parameter is aggregated
+// with the required `Authorization` header.
+func (client *Client) authorizeRequest(method, hostname, path string, request *http.Request) error {
+	url := hostname + path
+
+	digestRequest, err := http.NewRequest(method, url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := client.Do(digestRequest)
+	if err != nil {
+		return err
 	}
 	if resp.StatusCode != http.StatusUnauthorized {
-		return nil, nil, NewError(
+		return NewError(
 			fmt.Errorf(
 				"Recieved status code '%v' (%v) but expected the '%d', requested url: %v",
 				resp.StatusCode,
 				resp.Status,
 				http.StatusUnauthorized,
-				req.URL,
+				digestRequest.URL,
 			),
 		)
 
 	}
 	digestParts := digestParts(resp)
+	digestAuth := getDigestAuthorization(digestParts, method, path, client.username, client.password)
 
-	// Second request is the real one - we send body as well as digest authorization header
-	req, _ = createHTTPRequest(method, url, buffer)
+	request.Header.Set("Authorization", digestAuth)
 
-	req.Header.Set("Authorization", getDigestAuthorization(digestParts, method, path, user, token))
-
-	// DEV: uncomment this to see full http request. Set to 'true' to to see the request body
-	//dumpRequest, _ := httputil.DumpRequest(req, false)
-	//zap.S().Debugf("Ops Manager request: \n %s", dumpRequest)
-	zap.S().Debugf("Ops Manager request: %s %s", method, url) // pass string(request) to see full http request
-
-	resp, err = client.Do(req)
-
-	if resp != nil {
-		if resp.Body != nil {
-			defer resp.Body.Close()
-			// limit size of response body read to 16MB
-			body, err = util.ReadAtMost(resp.Body, 16*1024*1024)
-			if err != nil {
-				return nil, nil, NewError(fmt.Errorf("Error reading response body from %s to %v status=%v", method, url, resp.StatusCode))
-			}
-		}
-
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			apiError := parseAPIError(resp.StatusCode, method, url, body)
-			return nil, nil, apiError
-		}
-	}
-
-	if err != nil {
-		return body, nil, NewError(fmt.Errorf("Error sending %s request to %s: %v", method, url, err))
-	}
-
-	return body, resp.Header, nil
+	return nil
 }
 
 // createHTTPRequest
@@ -181,59 +212,15 @@ func createHTTPRequest(method string, url string, reader io.Reader) (*http.Reque
 	return req, nil
 }
 
-// parseAPIError
-func parseAPIError(statusCode int, method, url string, body []byte) *Error {
-	// If no body - returning the error object with only HTTP status
-	if body == nil {
-		return &Error{
-			Status: &statusCode,
-			Detail: fmt.Sprintf("%s %v failed with status %d with no response body", method, url, statusCode),
+// serializeToBuffer takes any object and tries to serialize it to the buffer
+func serializeToBuffer(v interface{}) (io.Reader, error) {
+	var buffer io.Reader
+	if v != nil {
+		b, err := json.Marshal(v)
+		if err != nil {
+			return nil, err
 		}
+		buffer = bytes.NewBuffer(b)
 	}
-	// If response body exists - trying to parse it
-	errorObject := &Error{}
-	if err := json.Unmarshal(body, errorObject); err != nil {
-		// If parsing has failed - returning just the general error with status code
-		return &Error{
-			Status: &statusCode,
-			Detail: fmt.Sprintf("%s %v failed with status %d with response body: %s", method, url, statusCode, string(body)),
-		}
-	}
-
-	return errorObject
-}
-
-func digestParts(resp *http.Response) map[string]string {
-	result := map[string]string{}
-	if len(resp.Header["Www-Authenticate"]) > 0 {
-		wantedHeaders := []string{"nonce", "realm", "qop"}
-		responseHeaders := strings.Split(resp.Header["Www-Authenticate"][0], ",")
-		for _, r := range responseHeaders {
-			for _, w := range wantedHeaders {
-				if strings.Contains(r, w) {
-					result[w] = strings.Split(r, `"`)[1]
-					break
-				}
-			}
-		}
-	}
-	return result
-}
-
-func getCnonce() string {
-	b := make([]byte, 8)
-	io.ReadFull(rand.Reader, b)
-	return fmt.Sprintf("%x", b)[:16]
-}
-
-func getDigestAuthorization(digestParts map[string]string, method string, url string, user string, token string) string {
-	d := digestParts
-	ha1 := util.MD5Hex(user + ":" + d["realm"] + ":" + token)
-	ha2 := util.MD5Hex(method + ":" + url)
-	nonceCount := 00000001
-	cnonce := getCnonce()
-	response := util.MD5Hex(fmt.Sprintf("%s:%s:%v:%s:%s:%s", ha1, d["nonce"], nonceCount, cnonce, d["qop"], ha2))
-	authorization := fmt.Sprintf(`Digest username="%s", realm="%s", nonce="%s", uri="%s", cnonce="%s", nc=%v, qop=%s, response="%s", algorithm="MD5"`,
-		user, d["realm"], d["nonce"], url, cnonce, nonceCount, d["qop"], response)
-	return authorization
+	return buffer, nil
 }

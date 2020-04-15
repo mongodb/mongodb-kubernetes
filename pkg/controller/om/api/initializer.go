@@ -3,8 +3,8 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"io/ioutil"
+	"net/http"
 )
 
 // This is a separate om functionality needed for OM controller
@@ -69,14 +69,13 @@ func (o *DefaultInitializer) TryCreateUser(omUrl string, user *User) (string, er
 	var body []byte
 	if resp.Body != nil {
 		defer resp.Body.Close()
-		// limit size of response body read to 16MB
-		body, err = util.ReadAtMost(resp.Body, 16*1024*1024)
+		body, err = ioutil.ReadAll(resp.Body)
 		if err != nil {
 			return "", fmt.Errorf("Error reading response body from %v status=%v", omUrl, resp.StatusCode)
 		}
 	}
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	if resp.StatusCode == http.StatusOK {
 		apiError := parseAPIError(resp.StatusCode, "post", omUrl, body)
 		return "", apiError
 	}

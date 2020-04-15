@@ -216,8 +216,7 @@ func (a *DefaultOmAdmin) delete(path string, params ...interface{}) error {
 }
 
 func (a *DefaultOmAdmin) httpVerb(method, path string, v interface{}, params ...interface{}) ([]byte, error) {
-	// TODO: Add valid configuration as part of CLOUDP-57885.
-	client, err := NewHTTPClient(OptionSkipVerify)
+	client, err := NewHTTPClient(OptionDigestAuth(a.User, a.PublicAPIKey), OptionSkipVerify)
 	if err != nil {
 		return nil, NewError(err)
 	}
@@ -225,6 +224,6 @@ func (a *DefaultOmAdmin) httpVerb(method, path string, v interface{}, params ...
 	path = fmt.Sprintf("/api/public/v1.0/%s", path)
 	path = fmt.Sprintf(path, params...)
 
-	response, _, apiErr := DigestRequest(method, a.BaseURL, path, v, a.User, a.PublicAPIKey, client)
+	response, _, apiErr := client.Request(method, a.BaseURL, path, v)
 	return response, apiErr
 }

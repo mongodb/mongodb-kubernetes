@@ -3,7 +3,6 @@ package om
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"reflect"
 	"strings"
 	"sync"
@@ -697,7 +696,7 @@ func (oc *HTTPOmConnection) httpVerb(method, path string, v interface{}) ([]byte
 		return nil, err
 	}
 
-	response, header, err := api.DigestRequest(method, oc.BaseURL(), path, v, oc.User(), oc.PublicAPIKey(), client)
+	response, header, err := client.Request(method, oc.BaseURL(), path, v)
 	if header != nil {
 		oc.context.Version = getVersionFromVersionString(header.Get("X-MongoDB-Service-Version"))
 	}
@@ -705,7 +704,7 @@ func (oc *HTTPOmConnection) httpVerb(method, path string, v interface{}) ([]byte
 	return response, err
 }
 
-func (oc *HTTPOmConnection) getHTTPClient() (*http.Client, error) {
+func (oc *HTTPOmConnection) getHTTPClient() (*api.Client, error) {
 	opts := api.NewHTTPOptions()
 
 	if oc.context.CACertificate != "" {
@@ -717,6 +716,8 @@ func (oc *HTTPOmConnection) getHTTPClient() (*http.Client, error) {
 		zap.S().Debug("Allowing insecure certs")
 		opts = append(opts, api.OptionSkipVerify)
 	}
+
+	opts = append(opts, api.OptionDigestAuth(oc.User(), oc.PublicAPIKey()))
 
 	return api.NewHTTPClient(opts...)
 }
