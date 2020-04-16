@@ -134,11 +134,14 @@ func anyStatefulSetHelperNeedsToPublishState(kubeState ShardedClusterKubeState, 
 
 func (r *ReconcileMongoDbShardedCluster) ensureX509InKubernetes(sc *mdbv1.MongoDB, kubeState ShardedClusterKubeState, log *zap.SugaredLogger) workflow.Status {
 	authEnabled := sc.Spec.Security.Authentication.Enabled
-	usingX509 := sc.Spec.Security.Authentication.GetAgentMechanism() == util.X509
-	if authEnabled && usingX509 {
-		authModes := sc.Spec.Security.Authentication.Modes
-		useCustomCA := sc.Spec.GetTLSConfig().CA != ""
-		successful, err := r.ensureX509AgentCertsForMongoDBResource(sc, authModes, useCustomCA, sc.Namespace, log)
+	if !authEnabled {
+		return workflow.OK()
+	}
+	usingAgentX509Auth := sc.Spec.Security.Authentication.GetAgentMechanism() == util.X509
+	useCustomCA := sc.Spec.GetTLSConfig().CA != ""
+
+	if usingAgentX509Auth {
+		successful, err := r.ensureX509AgentCertsForMongoDBResource(sc, useCustomCA, sc.Namespace)
 		if err != nil {
 			return workflow.Failed(err.Error())
 		}
@@ -150,25 +153,24 @@ func (r *ReconcileMongoDbShardedCluster) ensureX509InKubernetes(sc *mdbv1.MongoD
 		} else if !r.doAgentX509CertsExist(sc.Namespace) {
 			return workflow.Pending("agent x509 certificates have not yet been created")
 		}
+	}
 
-		if sc.Spec.Security.Authentication.InternalCluster == util.X509 {
-			errors := make([]error, 0)
-			allSuccessful := true
-			for _, helper := range getAllStatefulSetHelpers(kubeState) {
-				if success, err := r.ensureInternalClusterCerts(helper, log); err != nil {
-					errors = append(errors, err)
-				} else if !success {
-					allSuccessful = false
-				}
-			}
-			// fail only after creating all CSRs
-			if len(errors) > 0 {
-				return workflow.Failed("failed ensuring internal cluster authentication certs %s", errors[0])
-			} else if !allSuccessful {
-				return workflow.Pending("not all internal cluster authentication certs have been approved by Kubernetes CA")
+	if sc.Spec.Security.Authentication.InternalCluster == util.X509 {
+		errors := make([]error, 0)
+		allSuccessful := true
+		for _, helper := range getAllStatefulSetHelpers(kubeState) {
+			if success, err := r.ensureInternalClusterCerts(helper, log); err != nil {
+				errors = append(errors, err)
+			} else if !success {
+				allSuccessful = false
 			}
 		}
-
+		// fail only after creating all CSRs
+		if len(errors) > 0 {
+			return workflow.Failed("failed ensuring internal cluster authentication certs %s", errors[0])
+		} else if !allSuccessful {
+			return workflow.Pending("not all internal cluster authentication certs have been approved by Kubernetes CA")
+		}
 	}
 	return workflow.OK()
 }

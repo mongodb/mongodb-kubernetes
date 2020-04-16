@@ -44,6 +44,7 @@ func init() {
 	gob.Register([]ReplicaSetMember{})
 	gob.Register([]ShardedCluster{})
 	gob.Register([]MongoDbVersionConfig{})
+	gob.Register([]Shard{})
 	gob.Register(ProcessTypeMongos)
 	gob.Register(mdbv1.MongoDBHorizonConfig{})
 
@@ -1027,7 +1028,7 @@ func (d Deployment) copyFirstProcessToNewPositions(processes []Process, idxOfFir
 
 func (d Deployment) processesHaveInternalClusterAuthentication(processes []Process) bool {
 	for _, p := range processes {
-		if p.IsInternalClusterAuthentication() {
+		if p.HasInternalClusterAuthentication() {
 			return true
 		}
 	}

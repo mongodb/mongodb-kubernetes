@@ -277,7 +277,6 @@ functions:
         KUBECONFIG: ${workdir}/${kube_environment_name}_config
       binary: scripts/evergreen/setup_cert_manager
 
-
   "gotest_parse_files":
     - command: gotest.parse_files
       type: test
@@ -1321,6 +1320,18 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_replica_set_scram_x509_internal_cluster
+  exec_timeout_secs: 1200
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_scram_x509_internal_cluster
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_configure_tls_and_x509_simultaneously_rs
   exec_timeout_secs: 1200
   commands:
@@ -1589,9 +1600,11 @@ task_groups:
     - e2e_replica_set_scram_sha_256_user_connectivity
     - e2e_replica_set_scram_sha_1_user_connectivity
     - e2e_replica_set_scram_sha_1_upgrade
+    - e2e_replica_set_scram_x509_internal_cluster
     - e2e_sharded_cluster_scram_sha_1_upgrade
     - e2e_sharded_cluster_scram_sha_256_user_connectivity
     - e2e_sharded_cluster_scram_sha_1_user_connectivity
+    - e2e_sharded_cluster_scram_x509_internal_cluster
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -1808,7 +1821,6 @@ buildvariants:
   - name: "e2e_tls_task_group"
   - name: "e2e_scram_sha_task_group"
   - name: "e2e_auth_transitions_task_group"
-  - name: "e2e_x509_task_group"
 
 - name: e2e_openshift4_cloud_qa
   display_name: e2e_openshift4_cloud_qa

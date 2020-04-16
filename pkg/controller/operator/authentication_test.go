@@ -133,7 +133,6 @@ func TestUpdateOmAuthentication_EnableX509_WithTlsAlreadyEnabled(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().Build()
 	conn := om.NewMockedOmConnection(createDeploymentFromReplicaSet(rs))
 	r := newReplicaSetReconciler(newMockedManager(rs), om.NewEmptyMockedOmConnection)
-
 	status, isMultiStageReconciliation := r.updateOmAuthentication(conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, zap.S())
 
 	assert.True(t, status.IsOK(), "configuring x509 when tls has already been enabled should not result in a failed status")
@@ -145,7 +144,6 @@ func TestUpdateOmAuthentication_EnableX509_FromEmptyDeployment(t *testing.T) {
 
 	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().EnableAuth().SetAuthModes([]string{"X509"}).Build()
 	r := newReplicaSetReconciler(newMockedManager(rs), om.NewEmptyMockedOmConnection)
-
 	configureX509(r.client.(*MockedClient), certsv1.CertificateApproved)
 	status, isMultiStageReconciliation := r.updateOmAuthentication(conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, zap.S())
 
@@ -206,6 +204,49 @@ func TestScramAgentUserIsCorrectlyConfigured(t *testing.T) {
 
 	ac, _ := om.CurrMockedConnection.ReadAutomationConfig()
 	assert.Equal(t, ac.Auth.AutoUser, util.AutomationAgentName)
+}
+
+func TestX509InternalClusterAuthentication_CanBeEnabledWithScram_ReplicaSet(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().SetName("my-rs").
+		SetMembers(3).
+		EnableAuth().
+		SetAuthModes([]string{"SCRAM"}).
+		EnableX509InternalClusterAuth().
+		Build()
+
+	manager := newMockedManager(rs)
+	r := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
+	configureX509(r.client.(*MockedClient), certsv1.CertificateApproved)
+	addKubernetesTlsResources(r.client.(*MockedClient), rs)
+
+	checkReconcileSuccessful(t, r, rs, manager.client)
+
+	currConn := om.CurrMockedConnection
+	dep, _ := currConn.ReadDeployment()
+	for _, p := range dep.ProcessesCopy() {
+		assert.Equal(t, p.ClusterAuthMode(), "x509")
+	}
+}
+
+func TestX509InternalClusterAuthentication_CanBeEnabledWithScram_ShardedCluster(t *testing.T) {
+	sc := DefaultClusterBuilder().SetName("my-sc").
+		EnableAuth().
+		SetAuthModes([]string{"SCRAM"}).
+		EnableX509InternalClusterAuth().
+		Build()
+
+	manager := newMockedManager(sc)
+	r := newShardedClusterReconciler(manager, om.NewEmptyMockedOmConnection)
+	configureX509(r.client.(*MockedClient), certsv1.CertificateApproved)
+	addKubernetesTlsResources(r.client.(*MockedClient), sc)
+
+	checkReconcileSuccessful(t, r, sc, manager.client)
+
+	currConn := om.CurrMockedConnection
+	dep, _ := currConn.ReadDeployment()
+	for _, p := range dep.ProcessesCopy() {
+		assert.Equal(t, p.ClusterAuthMode(), "x509")
+	}
 }
 
 /*
@@ -315,6 +356,15 @@ func createCSR(name, ns string, conditionType certsv1.RequestConditionType) cert
 
 // addKubernetesTlsResources ensures all the required TLS secrets exist for the given MongoDB resource
 func addKubernetesTlsResources(client *MockedClient, mdb *mdbv1.MongoDB) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: TestCredentialsSecretName, Namespace: TestNamespace},
+		Data: map[string][]byte{
+			"publicApiKey": []byte("someapi"),
+			"user":         []byte("someuser"),
+		},
+	}
+	_ = client.Update(context.TODO(), secret)
+
 	switch mdb.Spec.ResourceType {
 	case mdbv1.ReplicaSet:
 		createReplicaSetTLSData(client, mdb)
@@ -403,20 +453,8 @@ func createMockCertAndKeyBytes() []byte {
 
 // createReplicaSetTLSData creates and populates secrets required for a TLS enabled ReplicaSet
 func createReplicaSetTLSData(client *MockedClient, mdb *mdbv1.MongoDB) {
-	// First lets create a Credentials Object
+	// Lets create a secret with Certificates and private keys!
 	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: TestCredentialsSecretName, Namespace: TestNamespace},
-	}
-	data := map[string][]byte{
-		"publicApiKey": []byte("someapi"),
-		"user":         []byte("someuser"),
-	}
-
-	secret.Data = data
-	_ = client.Update(context.TODO(), secret)
-
-	// Second, lets create a secret with Certificates and private keys!
-	secret = &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-cert", mdb.Name),
 			Namespace: TestNamespace,

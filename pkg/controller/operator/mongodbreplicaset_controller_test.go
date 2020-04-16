@@ -354,6 +354,11 @@ func (b *ReplicaSetBuilder) SetAuthModes(modes []string) *ReplicaSetBuilder {
 	return b
 }
 
+func (b *ReplicaSetBuilder) EnableX509InternalClusterAuth() *ReplicaSetBuilder {
+	b.Spec.Security.Authentication.InternalCluster = util.X509
+	return b
+}
+
 func (b *ReplicaSetBuilder) SetReplicaSetHorizons(replicaSetHorizons []mdbv1.MongoDBHorizonConfig) *ReplicaSetBuilder {
 	if b.Spec.Connectivity == nil {
 		b.Spec.Connectivity = &mdbv1.MongoDBConnectivity{}

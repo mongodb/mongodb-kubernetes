@@ -588,6 +588,21 @@ func (b *ClusterBuilder) SetClusterAuth(auth string) *ClusterBuilder {
 	return b
 }
 
+func (b *ClusterBuilder) EnableAuth() *ClusterBuilder {
+	b.Spec.Security.Authentication.Enabled = true
+	return b
+}
+
+func (b *ClusterBuilder) SetAuthModes(modes []string) *ClusterBuilder {
+	b.Spec.Security.Authentication.Modes = modes
+	return b
+}
+
+func (b *ClusterBuilder) EnableX509InternalClusterAuth() *ClusterBuilder {
+	b.Spec.Security.Authentication.InternalCluster = util.X509
+	return b
+}
+
 func (b *ClusterBuilder) SetShardPodSpec(spec corev1.PodTemplateSpec) *ClusterBuilder {
 	if b.Spec.ShardPodSpec == nil {
 		b.Spec.ShardPodSpec = &mdbv1.MongoDbPodSpec{}

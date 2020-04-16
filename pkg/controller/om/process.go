@@ -256,8 +256,8 @@ func (p Process) IsTLSEnabled() bool {
 	return ok
 }
 
-func (p Process) IsInternalClusterAuthentication() bool {
-	return p.clusterAuthMode() != ""
+func (p Process) HasInternalClusterAuthentication() bool {
+	return p.ClusterAuthMode() != ""
 }
 
 func (s Process) FeatureCompatibilityVersion() string {
@@ -369,7 +369,7 @@ func (p Process) mergeFrom(operatorProcess Process) {
 	}
 
 	// update authentication mode and clusterFile path for both process types
-	p.ConfigureClusterAuthMode(operatorProcess.clusterAuthMode())
+	p.ConfigureClusterAuthMode(operatorProcess.ClusterAuthMode())
 
 	fcv := operatorProcess.FeatureCompatibilityVersion()
 	initDefault(
@@ -465,7 +465,7 @@ func (p Process) security() map[string]interface{} {
 	return make(map[string]interface{})
 }
 
-func (p Process) clusterAuthMode() string {
+func (p Process) ClusterAuthMode() string {
 	if authMode, ok := p.security()["clusterAuthMode"]; ok {
 		return authMode.(string)
 	}

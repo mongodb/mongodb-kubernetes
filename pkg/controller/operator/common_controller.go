@@ -2,7 +2,6 @@ package operator
 
 import (
 	"context"
-
 	"encoding/json"
 
 	"crypto/x509"
@@ -560,7 +559,7 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHe
 }
 
 //ensureX509AgentCertsForMongoDBResource will generate all the CSRs for the agents
-func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(mdb *mdbv1.MongoDB, authModes []string, useCustomCA bool, namespace string, log *zap.SugaredLogger) (bool, error) {
+func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(mdb *mdbv1.MongoDB, useCustomCA bool, namespace string) (bool, error) {
 	k := r.kubeHelper
 
 	certsNeedApproval := false

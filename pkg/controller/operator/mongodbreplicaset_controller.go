@@ -294,11 +294,14 @@ func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLog
 func (r *ReconcileCommonController) ensureX509InKubernetes(mdb *mdbv1.MongoDB, helper *StatefulSetHelper, log *zap.SugaredLogger) workflow.Status {
 	spec := mdb.Spec
 	authEnabled := mdb.Spec.Security.Authentication.Enabled
-	usingX509 := mdb.Spec.Security.Authentication.GetAgentMechanism() == util.X509
-	if authEnabled && usingX509 {
-		authModes := mdb.Spec.Security.Authentication.Modes
-		useCustomCA := mdb.Spec.GetTLSConfig().CA != ""
-		successful, err := r.ensureX509AgentCertsForMongoDBResource(mdb, authModes, useCustomCA, mdb.Namespace, log)
+	if !authEnabled {
+		return workflow.OK()
+	}
+	useCustomCA := mdb.Spec.GetTLSConfig().CA != ""
+	usingAgentX509Auth := mdb.Spec.Security.Authentication.GetAgentMechanism() == util.X509
+
+	if usingAgentX509Auth {
+		successful, err := r.ensureX509AgentCertsForMongoDBResource(mdb, useCustomCA, mdb.Namespace)
 		if err != nil {
 			return workflow.Failed(err.Error())
 		}
@@ -311,13 +314,13 @@ func (r *ReconcileCommonController) ensureX509InKubernetes(mdb *mdbv1.MongoDB, h
 		} else if !r.doAgentX509CertsExist(mdb.Namespace) {
 			return workflow.Pending("Agent x509 certificates have not yet been created")
 		}
+	}
 
-		if spec.Security.Authentication.InternalCluster == util.X509 {
-			if success, err := r.ensureInternalClusterCerts(helper, log); err != nil {
-				return workflow.Failed("Failed ensuring internal cluster authentication certs %s", err)
-			} else if !success {
-				return workflow.Pending("Not all internal cluster authentication certs have been approved by Kubernetes CA")
-			}
+	if spec.Security.Authentication.InternalCluster == util.X509 {
+		if success, err := r.ensureInternalClusterCerts(helper, log); err != nil {
+			return workflow.Failed("Failed ensuring internal cluster authentication certs %s", err)
+		} else if !success {
+			return workflow.Pending("Not all internal cluster authentication certs have been approved by Kubernetes CA")
 		}
 	}
 	return workflow.OK()
