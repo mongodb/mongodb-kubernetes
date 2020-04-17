@@ -39,7 +39,7 @@ clean: delete_container
 prepare-build:
 	@ GOOS='linux' go build -i -o readiness ../../probe
 	@ mv readiness content/readinessprobe
-	@ ../Dockerfile.gen database "$(IMAGE_TYPE)" > Dockerfile
+	@ ../dockerfile_generator.py database "$(IMAGE_TYPE)" > Dockerfile
 
 build: prepare-build
 	docker build $(EXTRA_PARAM) -t $(IMAGE_PATH) .

@@ -16,7 +16,7 @@ type ConfigMapReader interface {
 	readConfigMap(namespace, configMapName string) (*corev1.ConfigMap, error)
 }
 
-type Health struct {
+type healthStatus struct {
 	Healthiness  map[string]processHealth     `json:"statuses"`
 	ProcessPlans map[string]mmsDirectorStatus `json:"mmsStatus"`
 }
@@ -36,19 +36,19 @@ func (h processHealth) String() string {
 type mmsDirectorStatus struct {
 	Name                              string        `json:"name"`
 	LastGoalStateClusterConfigVersion int64         `json:"lastGoalVersionAchieved"`
-	Plans                             []*PlanStatus `json:"plans"`
+	Plans                             []*planStatus `json:"plans"`
 }
 
-type PlanStatus struct {
-	Moves     []*MoveStatus `json:"moves"`
+type planStatus struct {
+	Moves     []*moveStatus `json:"moves"`
 	Started   *time.Time    `json:"started"`
 	Completed *time.Time    `json:"completed"`
 }
 
-type MoveStatus struct {
-	Steps []*StepStatus `json:"steps"`
+type moveStatus struct {
+	Steps []*stepStatus `json:"steps"`
 }
-type StepStatus struct {
+type stepStatus struct {
 	Step      string     `json:"step"`
 	Started   *time.Time `json:"started"`
 	Completed *time.Time `json:"completed"`
@@ -56,11 +56,11 @@ type StepStatus struct {
 }
 
 // Default production implementation for ConfigMapReader which reads from API server
-type KubernetesConfigMapReader struct {
+type kubernetesConfigMapReader struct {
 	clientset *kubernetes.Clientset
 }
 
-func NewKubernetesConfigMapReader() *KubernetesConfigMapReader {
+func newKubernetesConfigMapReader() *kubernetesConfigMapReader {
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		panic(err.Error())
@@ -70,9 +70,9 @@ func NewKubernetesConfigMapReader() *KubernetesConfigMapReader {
 	if err != nil {
 		panic(err.Error())
 	}
-	return &KubernetesConfigMapReader{clientset: clientset}
+	return &kubernetesConfigMapReader{clientset: clientset}
 }
 
-func (r *KubernetesConfigMapReader) readConfigMap(namespace, configMapName string) (*corev1.ConfigMap, error) {
+func (r *kubernetesConfigMapReader) readConfigMap(namespace, configMapName string) (*corev1.ConfigMap, error) {
 	return r.clientset.CoreV1().ConfigMaps(namespace).Get(configMapName, metav1.GetOptions{})
 }

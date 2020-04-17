@@ -78,7 +78,7 @@ functions:
           <<: *go_options
 
           CONTINUE: "true"
-        binary: scripts/evergreen/build_operator
+        binary: scripts/evergreen/build_operator.sh
 
   "build_operator":
     - command: subprocess.exec
@@ -95,7 +95,7 @@ functions:
           IMAGE_TYPE: ${image_type}
           <<: *go_options
 
-        binary: scripts/evergreen/build_operator
+        binary: scripts/evergreen/build_operator.sh
 
   "build_database":
     - command: subprocess.exec

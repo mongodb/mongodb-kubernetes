@@ -39,6 +39,7 @@ def get_version() -> str:
     release.json file. It find the release.json file in this directory
     and every parent directory up to the root.
     """
+
     def release(p: Path):
         if Path("/") == p:
             return
@@ -64,11 +65,7 @@ def ubuntu() -> Dict[str, Union[str, List[str]]]:
     # determine the current distro
     version = get_version()
 
-    return {
-        "base_image": "ubuntu:16.04",
-        "distro": "ubuntu",
-        "version": version
-    }
+    return {"base_image": "ubuntu:16.04", "distro": "ubuntu", "version": version}
 
 
 def rhel() -> Dict[str, Union[str, List[str]]]:
@@ -153,19 +150,16 @@ def render(image_name: str, distro_name: str, **kwargs):
     env = jinja2.Environment()
     env.loader = jinja2.FileSystemLoader(".")
 
-    return env.get_template(
-        "Dockerfile.{}".format(distro_name)
-    ).render(
-        template_params
-    )
+    return env.get_template("Dockerfile.{}".format(distro_name)).render(template_params)
 
 
 def argument_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("image", help="Type of image for the Dockerfile")
     parser.add_argument("distro", help="Distro this image should be based on")
-    parser.add_argument("--debug", help="Builds a debuggable Operator image",
-                        action="store_true")
+    parser.add_argument(
+        "--debug", help="Builds a debuggable Operator image", action="store_true"
+    )
     return parser.parse_args()
 
 

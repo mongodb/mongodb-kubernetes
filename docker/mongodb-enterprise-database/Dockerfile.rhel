@@ -34,7 +34,3 @@ RUN yum install --disableplugin=subscription-manager -y jq
 
 RUN ln -s /usr/lib64/libsasl2.so.3 /usr/lib64/libsasl2.so.2
 {% endblock %}
-
-{% block static %}
-COPY LICENSE /licenses/mongodb-enterprise-database
-{% endblock %}

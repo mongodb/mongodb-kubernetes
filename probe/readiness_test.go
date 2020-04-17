@@ -60,7 +60,7 @@ func TestReady(t *testing.T) {
 // considered as stuck
 func TestNoDeadlockForDownloadProcess(t *testing.T) {
 	before := time.Now().Add(time.Duration(-30) * time.Second)
-	downloadStatus := &StepStatus{
+	downloadStatus := &stepStatus{
 		Step:      "Download",
 		Started:   &before,
 		Completed: nil,
@@ -74,7 +74,7 @@ func TestNoDeadlockForDownloadProcess(t *testing.T) {
 // it was started < 15 seconds ago
 func TestNoDeadlockForImmediateWaitRs(t *testing.T) {
 	before := time.Now().Add(time.Duration(-10) * time.Second)
-	downloadStatus := &StepStatus{
+	downloadStatus := &stepStatus{
 		Step:      "WaitRsInit",
 		Started:   &before,
 		Completed: nil,
@@ -90,9 +90,9 @@ func TestNoDeadlockForImmediateWaitRs(t *testing.T) {
 // (as Agent doesn't marks all the step statuses finished when it reaches the goal) but this doesn't affect the result
 // as the whole plan is complete already
 func TestHeadlessAgentHasntReachedGoal(t *testing.T) {
-	_ = os.Setenv(HeadlessAgent, "true")
-	_ = os.Setenv(PodNamespaceEnv, "test")
-	_ = os.Setenv(AutomationConfigMapEnv, "om-db-config")
+	_ = os.Setenv(headlessAgent, "true")
+	_ = os.Setenv(podNamespaceEnv, "test")
+	_ = os.Setenv(automationConfigMapEnv, "om-db-config")
 	mockedReader := NewMockedConfigMapReader("test", "om-db-config", 6)
 	assert.False(t, isPodReady("health-status-ok.json", mockedReader))
 }
@@ -100,9 +100,9 @@ func TestHeadlessAgentHasntReachedGoal(t *testing.T) {
 // TestHeadlessAgentReachedGoal verifies that the probe reports "true" if the config version is equal to the
 // last achieved version of the Agent
 func TestHeadlessAgentReachedGoal(t *testing.T) {
-	_ = os.Setenv(HeadlessAgent, "true")
-	_ = os.Setenv(PodNamespaceEnv, "test")
-	_ = os.Setenv(AutomationConfigMapEnv, "om-db-config")
+	_ = os.Setenv(headlessAgent, "true")
+	_ = os.Setenv(podNamespaceEnv, "test")
+	_ = os.Setenv(automationConfigMapEnv, "om-db-config")
 	mockedReader := NewMockedConfigMapReader("test", "om-db-config", 5)
 	assert.True(t, isPodReady("health-status-ok.json", mockedReader))
 }
@@ -111,17 +111,17 @@ func TestHeadlessAgentReachedGoal(t *testing.T) {
 // Must happen only for headless mode
 func TestHeadlessAgentPanicsIfEnvVarsNotSet(t *testing.T) {
 	os.Clearenv()
-	_ = os.Setenv(HeadlessAgent, "true")
+	_ = os.Setenv(headlessAgent, "true")
 
 	mockedReader := NewMockedConfigMapReader("test", "om-db-config", 5)
 	assert.Panics(t, func() { isPodReady("health-status-ok.json", mockedReader) })
 
-	_ = os.Setenv(PodNamespaceEnv, "test")
+	_ = os.Setenv(podNamespaceEnv, "test")
 	// Still panics
 	assert.Panics(t, func() { isPodReady("health-status-ok.json", mockedReader) })
 }
 
-func readHealthinessFile(path string) Health {
+func readHealthinessFile(path string) healthStatus {
 	fd, _ := os.Open(path)
 	health, _ := readAgentHealthStatus(fd)
 	return health

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -Eeuo pipefail
+set -Eeou pipefail
 set -x
 
 # ensure all python files are correctly formatted with black
@@ -66,7 +66,7 @@ do
     if head -1 "${file}" | grep "#!/usr/bin/env bash" > /dev/null
     then
         # see https://vaneyckt.io/posts/safer_bash_scripts_with_set_euxo_pipefail/
-        if ! grep "set -Eeuo pipefail" "${file}" > /dev/null
+        if ! grep "set -Eeou pipefail" "${file}" > /dev/null
         then
             echo "set opts not set on ${file}"
             exit 1

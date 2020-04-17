@@ -8,17 +8,16 @@ import (
 	"os"
 	"time"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/spf13/cast"
 	"go.uber.org/zap"
 )
 
 const (
-	AgentHealthStatusFilePath = "/var/log/mongodb-mms-automation/agent-health-status.json"
-	PodNamespaceEnv           = "POD_NAMESPACE"
-	AutomationConfigMapEnv    = "AUTOMATION_CONFIG_MAP"
-	HeadlessAgent             = "HEADLESS_AGENT"
+	agentHealthStatusFilePath = "/var/log/mongodb-mms-automation/agent-health-status.json"
+	appDBAutomationConfigKey  = "cluster-config.json"
+	podNamespaceEnv           = "POD_NAMESPACE"
+	automationConfigMapEnv    = "AUTOMATION_CONFIG_MAP"
+	headlessAgent             = "HEADLESS_AGENT"
 )
 
 var riskySteps []string
@@ -82,8 +81,8 @@ func isPodReady(healStatusPath string, configMapReader ConfigMapReader) bool {
 	return false
 }
 
-func readAgentHealthStatus(file *os.File) (Health, error) {
-	var health Health
+func readAgentHealthStatus(file *os.File) (healthStatus, error) {
+	var health healthStatus
 
 	data, err := ioutil.ReadAll(file)
 	if err != nil {
@@ -95,7 +94,7 @@ func readAgentHealthStatus(file *os.File) (Health, error) {
 }
 
 // hasDeadlockedSteps returns true if the agent is stuck on waiting for the other agents
-func hasDeadlockedSteps(health Health) bool {
+func hasDeadlockedSteps(health healthStatus) bool {
 	currentStep := findCurrentStep(health.ProcessPlans)
 	if currentStep != nil {
 		return isDeadlocked(currentStep)
@@ -109,8 +108,8 @@ func hasDeadlockedSteps(health Health) bool {
 // (indeed this is not the perfect logic as sometimes the agent doesn't update the 'Started' as well - see
 // 'health-status-ok.json', but seems it works for finding deadlocks still
 //noinspection GoNilness
-func findCurrentStep(processStatuses map[string]mmsDirectorStatus) *StepStatus {
-	var currentPlan *PlanStatus
+func findCurrentStep(processStatuses map[string]mmsDirectorStatus) *stepStatus {
+	var currentPlan *planStatus
 	if len(processStatuses) == 0 {
 		// Seems shouldn't happen but let's check anyway - may be needs to be changed to Info if this happens
 		logger.Warnf("There is no information about Agent process plans")
@@ -135,7 +134,7 @@ func findCurrentStep(processStatuses map[string]mmsDirectorStatus) *StepStatus {
 		return nil
 	}
 
-	var lastStartedStep *StepStatus
+	var lastStartedStep *stepStatus
 	for _, m := range currentPlan.Moves {
 		for _, s := range m.Steps {
 			if s.Started != nil {
@@ -147,7 +146,7 @@ func findCurrentStep(processStatuses map[string]mmsDirectorStatus) *StepStatus {
 	return lastStartedStep
 }
 
-func isDeadlocked(status *StepStatus) bool {
+func isDeadlocked(status *stepStatus) bool {
 	// Some logic behind 15 seconds: the health status file is dumped each 10 seconds so we are sure that if the agent
 	// has been in the the step for 10 seconds - this means it is waiting for the other hosts and they are not available
 	fifteenSecondsAgo := time.Now().Add(time.Duration(-15) * time.Second)
@@ -159,7 +158,7 @@ func isDeadlocked(status *StepStatus) bool {
 	return false
 }
 
-func isInGoalState(health Health, configMapReader ConfigMapReader) (bool, error) {
+func isInGoalState(health healthStatus, configMapReader ConfigMapReader) (bool, error) {
 	if isHeadlessMode() {
 		return performCheckHeadlessMode(health, configMapReader)
 	}
@@ -169,7 +168,7 @@ func isInGoalState(health Health, configMapReader ConfigMapReader) (bool, error)
 
 // performCheckOMMode does a general check if the Agent has reached the goal state - must be called when Agent is in
 // "OM mode"
-func performCheckOMMode(health Health) (bool, error) {
+func performCheckOMMode(health healthStatus) (bool, error) {
 	for _, v := range health.Healthiness {
 		logger.Debug(v)
 		if v.IsInGoalState {
@@ -185,36 +184,41 @@ func performCheckOMMode(health Health) (bool, error) {
 // /var/run/secrets/kubernetes.io/serviceaccount/namespace file (see
 // https://kubernetes.io/docs/tasks/access-application-cluster/access-cluster/#accessing-the-api-from-a-pod)
 // though passing the namespace as an environment variable makes the code simpler for testing and saves an IO operation
-func performCheckHeadlessMode(health Health, configMapReader ConfigMapReader) (bool, error) {
-	namespace := os.Getenv(PodNamespaceEnv)
+func performCheckHeadlessMode(health healthStatus, configMapReader ConfigMapReader) (bool, error) {
+	namespace := os.Getenv(podNamespaceEnv)
 	if namespace == "" {
-		return false, fmt.Errorf("the '%s' environment variable must be set!", PodNamespaceEnv)
+		return false, fmt.Errorf("the '%s' environment variable must be set", podNamespaceEnv)
 	}
-	automationConfigMap := os.Getenv(AutomationConfigMapEnv)
+	automationConfigMap := os.Getenv(automationConfigMapEnv)
 	if automationConfigMap == "" {
-		return false, fmt.Errorf("the '%s' environment variable must be set!", AutomationConfigMapEnv)
+		return false, fmt.Errorf("the '%s' environment variable must be set", automationConfigMapEnv)
 	}
 
 	configMap, err := configMapReader.readConfigMap(namespace, automationConfigMap)
 	if err != nil {
 		return false, err
 	}
-	existingDeployment, err := om.BuildDeploymentFromBytes([]byte(configMap.Data[util.AppDBAutomationConfigKey]))
-	if err != nil {
+	var existingDeployment map[string]interface{}
+	if err := json.Unmarshal([]byte(configMap.Data[appDBAutomationConfigKey]), &existingDeployment); err != nil {
 		return false, err
 	}
 
-	expectedVersion := existingDeployment.Version()
+	version, ok := existingDeployment["version"]
+	if !ok {
+		return false, err
+	}
+	expectedVersion := cast.ToInt64(version)
+
 	for _, v := range health.ProcessPlans {
 		logger.Debugf("Automation Config version: %d, Agent last version: %d", expectedVersion, v.LastGoalStateClusterConfigVersion)
 		return v.LastGoalStateClusterConfigVersion == expectedVersion, nil
 	}
 
-	return false, errors.New("health file doesn't have information about process status!")
+	return false, errors.New("health file doesn't have information about process status")
 }
 
 func isHeadlessMode() bool {
-	return os.Getenv(HeadlessAgent) == "true"
+	return os.Getenv(headlessAgent) == "true"
 }
 
 func containsString(slice []string, s string) bool {
@@ -239,7 +243,7 @@ func main() {
 		panic(err)
 	}
 	logger = log.Sugar()
-	if !isPodReady(AgentHealthStatusFilePath, NewKubernetesConfigMapReader()) {
+	if !isPodReady(agentHealthStatusFilePath, newKubernetesConfigMapReader()) {
 		os.Exit(1)
 	}
 }
