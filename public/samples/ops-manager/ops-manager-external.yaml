@@ -2,18 +2,18 @@
 apiVersion: mongodb.com/v1
 kind: MongoDBOpsManager
 metadata:
-  name: ops-manager
+  name: ops-manager-external
 spec:
   replicas: 1
-  version: 4.2.4
+  version: 4.2.10
   adminCredentials: ops-manager-admin-secret
 
-  # optional, disabled by default. Creates an additional service to make Ops Manager reachable from
+  # optional. Disabled by default. Creates an additional service to make Ops Manager reachable from
   # outside of the Kubernetes cluster.
   externalConnectivity:
     # LoadBalancer|NodePort
     type: LoadBalancer
-    # optional, corresponds to nodePort port
+    # optional. Corresponds to NodePort port
     port: 30100
     # optional
     loadBalancerIP: 123.456.789
@@ -27,5 +27,5 @@ spec:
 
   applicationDatabase:
     members: 3
-    version: 4.2.0
+    version: 4.2.5-ent
     persistent: true
