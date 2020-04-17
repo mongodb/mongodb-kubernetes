@@ -57,7 +57,7 @@ usage:
 
 # install all necessary software, must be run only once
 prerequisites:
-	@ scripts/dev/install
+	@ scripts/dev/install.sh
 
 # prepare default configuration context files
 init:

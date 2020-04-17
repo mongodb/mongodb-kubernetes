@@ -13,7 +13,7 @@ grep -a "GO111MODULE=on" ~/.bashrc || echo "export GO111MODULE=on" >> ~/.bashrc
 grep -a 'GOFLAGS="-mod=vendor"' ~/.bashrc || echo 'export GOFLAGS="-mod=vendor"' >> ~/.bashrc
 grep -a "KOPS_STATE_STORE='s3://kube-om-state-store'" ~/.bashrc || echo "export KOPS_STATE_STORE='s3://kube-om-state-store'" >> ~/.bashrc
 
-if [ $(uname) = "Darwin" ] ; then
+if [ "$(uname)" = "Darwin" ] ; then
   # kubectl 1.16.1
   brew install https://raw.githubusercontent.com/Homebrew/homebrew-core/d9f05abd70f5dc3519a58344f4bd3ec76ccea351/Formula/kubernetes-cli.rb
 
@@ -33,7 +33,7 @@ if [ $(uname) = "Darwin" ] ; then
   # helm
   brew install kubernetes-helm
 
-elif [ $(uname) = "Linux" ] ; then # Ubuntu only
+elif [ "$(uname)" = "Linux" ] ; then # Ubuntu only
   sudo snap install kubectl --classic
 
   curl -Lo minikube "https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64"
@@ -56,6 +56,6 @@ else
 fi
 
 echo "Adding git commit hooks"
-ln -s -f ../../scripts/dev/commit_hooks/pre-commit .git/hooks/pre-commit
+ln -s -f ../../scripts/dev/commit_hooks/pre-commit.sh .git/hooks/pre-commit
 
 title "Tools are installed"
