@@ -117,9 +117,16 @@ func findProjectInsideOrganization(conn om.Connection, projectName string, organ
 	// 1. Trying to find the project by name
 	projects, err := conn.ReadProjectsInOrganizationByName(organization.ID, projectName)
 
-	if err != nil && err.(*api.Error).ErrorCode == api.ProjectNotFound {
-		return nil, nil
+	if err != nil {
+		if v, ok := err.(*api.Error); ok {
+			if v.ErrorCode == api.ProjectNotFound {
+				// ProjectNotFound is an expected condition.
+				return nil, nil
+			}
+		}
+		log.Error(err)
 	}
+
 	if err == nil && len(projects) == 1 {
 		// there is no error so we need to check if the project found has this name
 		// (the project found could be just the page of one single project if the OM is old and "name"
@@ -127,8 +134,6 @@ func findProjectInsideOrganization(conn om.Connection, projectName string, organ
 		if projects[0].Name == projectName {
 			return projects[0], nil
 		}
-	} else if err != nil {
-		log.Error(err)
 	}
 	// 2. At this stage we guess that the "name" filter parameter is not supported or the projects
 	// slice was empty - let's failback to reading the pages (old version of OM?)
@@ -155,9 +160,15 @@ func findOrganizationByName(conn om.Connection, name string, log *zap.SugaredLog
 	// 1. We try to find the ogranization using 'name' filter parameter first
 	organizations, err := conn.ReadOrganizationsByName(name)
 
-	if err != nil && err.(*api.Error).ErrorCode == api.OrganizationNotFound {
-		// the "name" API is supported and the organization not found - returning nil
-		return "", nil
+	if err != nil {
+		if v, ok := err.(*api.Error); ok {
+			if v.ErrorCode == api.OrganizationNotFound {
+				// the "name" API is supported and the organization not found - returning nil
+				return "", nil
+			}
+		}
+
+		log.Error(err)
 	}
 	if err == nil && len(organizations) == 1 {
 		// there is no error so we need to check if the organization found has this name
@@ -166,8 +177,6 @@ func findOrganizationByName(conn om.Connection, name string, log *zap.SugaredLog
 		if organizations[0].Name == name {
 			return organizations[0].ID, nil
 		}
-	} else if err != nil {
-		log.Error(err)
 	}
 
 	// 2. At this stage we guess that the "name" filter parameter is not supported or the organizations slice
@@ -209,21 +218,24 @@ func tryCreateProject(organization *om.Organization, projectName, orgId string, 
 	ans, err := conn.CreateProject(group)
 
 	if err != nil {
-		apiError := err.(*api.Error)
-		if apiError.ErrorCodeIn(api.InvalidAttribute) && strings.Contains(apiError.Detail, "tags") {
-			// Fallback logic: seems that OM version is < 4.0.2 (as it allows to edit group
-			// tags only for GLOBAL_OWNER users), let's try to create group without tags
-			group.Tags = []string{}
-			ans, err = conn.CreateProject(group)
+		if v, ok := err.(*api.Error); ok {
+			if v.ErrorCodeIn(api.InvalidAttribute) && strings.Contains(v.Detail, "tags") {
+				// Fallback logic: seems that OM version is < 4.0.2 (as it allows to edit group
+				// tags only for GLOBAL_OWNER users), let's try to create group without tags
+				group.Tags = []string{}
+				ans, err = conn.CreateProject(group)
 
-			if err != nil {
-				return nil, fmt.Errorf("Error creating project \"%s\" in Ops Manager: %s", group, err)
+				if err != nil {
+					return nil, fmt.Errorf("Error creating project \"%s\" in Ops Manager: %s", group, err)
+				}
+				log.Infow("Created project without tags as current version of Ops Manager forbids tags modification")
 			}
-			log.Infow("Created project without tags as current version of Ops Manager forbids tags modification")
 		} else {
+			// We received a non expected error.
 			return nil, fmt.Errorf("Error creating project \"%s\" in Ops Manager: %s", group, err)
 		}
 	}
+
 	log.Infow("Project successfully created", "id", ans.ID)
 
 	return ans, nil
