@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeou pipefail
 
 cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
 source scripts/dev/set_env_context
-source scripts/funcs/checks
 source scripts/funcs/kubernetes
 
 # Building the init image - either to local repo or to the remote one (ECR)
@@ -23,7 +22,7 @@ fi
 title "Building Init Ops Manager image (init om version: ${init_om_version})..."
 
 pushd "${PWD}"
-cd docker/mongodb-enterprise-init-ops-manager || exit
+cd docker/mongodb-enterprise-init-ops-manager
 
 if [[ ${REPO_TYPE} = "ecr" ]]; then
     ensure_ecr_repository "${INIT_OPS_MANAGER_REGISTRY:?}/mongodb-enterprise-init-ops-manager"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeou pipefail
 
 cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
@@ -11,6 +11,7 @@ source scripts/funcs/printing
 
 docker_build() {
     prepare_appdb_build
+    ../Dockerfile.py appdb "${IMAGE_TYPE}" > Dockerfile
 
     docker build \
         -t "${repo_name}" \

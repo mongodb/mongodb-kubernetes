@@ -6,5 +6,6 @@
     "ubuntuBinaryName": "mongodb-linux-x86_64-enterprise-ubuntu1604-4.2.2.tgz"
   },
   "mongodbOperator": "1.4.4",
-  "initOpsManagerVersion": "1.0.0"
+  "initOpsManagerVersion": "1.0.0",
+  "initAppDbVersion": "1.0.0"
 }

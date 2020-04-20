@@ -349,13 +349,14 @@ functions:
           IN_MEMORY_CONTEXT: "true"
           REPO_URL: ${ecr_registry}/dev
           INIT_OPS_MANAGER_REGISTRY: ${ecr_registry}/dev
+          INIT_APPDB_REGISTRY: ${ecr_registry}/dev
           GITHUB_TOKEN: ${GITHUB_TOKEN}
 
           CLUSTER_TYPE: ${cluster_type}
+          # temporary keeping kaniko until we move to init appdb
           kaniko: "true"
 
-        # temporary keeping om_version until we move to init appdb
-        command: scripts/dev/batch_init_om_appdb_images
+        command: scripts/dev/batch_init_om_appdb_images.sh
 
   setup_cloud_qa:
   - command: subprocess.exec
@@ -468,6 +469,7 @@ functions:
           REGISTRY: ${ecr_registry}/dev/${image_type}
           OPS_MANAGER_REGISTRY: ${ecr_registry}/images/${image_type}
           INIT_OPS_MANAGER_REGISTRY: ${ecr_registry}/dev
+          INIT_APPDB_REGISTRY: ${ecr_registry}/dev
           MANAGED_SECURITY_CONTEXT: ${managed_security_context}
           TASK_ID: ${task_id}
           TASK_NAME: ${task_name}
@@ -2030,4 +2032,4 @@ buildvariants:
     - name: build_and_push_ops_manager_ubi
   expansions:
     # removing 4.2.2, 4.2.5 and 4.2.9 as per https://www.mongodb.com/subscription/downloads/archived
-    VERSIONS: "4.2.0 4.2.1 4.2.3 4.2.4 4.2.6 4.2.7 4.2.8 4.2.10 4.2.11"
+    VERSIONS: "4.2.0 4.2.1 4.2.7 4.2.8 4.2.10 4.2.11"

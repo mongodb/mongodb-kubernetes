@@ -90,14 +90,14 @@ full: ensure-k8s-and-reset build-and-push-images om-init-image
 
 om-batch: aws_login
 	# FIXME: om_version kept temporary until we move appdb to init container
-	@ om_version=$(om_version) scripts/dev/batch_init_om_appdb_images
+	@ om_version=$(om_version) scripts/dev/batch_init_om_appdb_images.sh
 
 # build-push appdb image
 appdb: aws_login
-	@ om_version=$(om_version) scripts/dev/build_push_appdb_image
+	@ om_version=$(om_version) scripts/dev/build_push_appdb_image.sh
 
 om-init-image:
-	@ scripts/dev/build_push_init_opsmanager_image
+	@ scripts/dev/build_push_init_opsmanager_image.sh
 
 # install OM in Kubernetes if it's not running
 om:

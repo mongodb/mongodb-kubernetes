@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeou pipefail
 
 cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
@@ -15,8 +15,9 @@ if [[ -n "${kaniko-}" ]]; then
 
 fi
 
+# FIXME: remove when we switch to static appdb builds
 header "Building AppDB Image (kaniko=${kaniko:-false})"
-scripts/dev/build_push_appdb_image
+scripts/dev/build_push_appdb_image.sh
 
 if [[ -n "${kaniko-}" ]]; then
     # need to wait for kaniko builds to finish
@@ -27,4 +28,6 @@ if [[ -n "${kaniko-}" ]]; then
 fi
 
 header "Building Init Ops Manager Image"
-scripts/dev/build_push_init_opsmanager_image
+scripts/dev/build_push_init_opsmanager_image.sh
+header "Building Init AppDB Image"
+scripts/dev/build_push_init_appdb_image.sh
