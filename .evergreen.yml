@@ -249,7 +249,7 @@ functions:
       include_expansions_in_env:
       - workdir
       - kube_environment_name
-      binary: scripts/evergreen/teardown_kubernetes_environment
+      binary: scripts/evergreen/teardown_kubernetes_environment.sh
 
   # Makes sure a kubectl context is defined.
   setup_kubernetes_environment:
@@ -519,7 +519,7 @@ functions:
           AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
           AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
 
-        command: "scripts/evergreen/prepare_aws"
+        command: scripts/evergreen/prepare_aws.sh
 
   build_and_push_opsmanager_image_generic:
     - command: subprocess.exec

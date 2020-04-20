@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
+set -Eeou pipefail
 
-# shellcheck disable=SC2154
-context_config="${workdir}/${kube_environment_name}_config"
+context_config="${workdir:?}/${kube_environment_name:?}_config"
 
 if [ "${kube_environment_name}" = "kind" ]; then
     echo "Deleting Kind cluster"
