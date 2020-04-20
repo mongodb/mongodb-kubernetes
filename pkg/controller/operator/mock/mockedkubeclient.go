@@ -1,4 +1,4 @@
-package operator
+package mock
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
 	jsonpatch "github.com/evanphx/json-patch"
+	"k8s.io/apimachinery/pkg/types"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -51,7 +52,7 @@ const (
 // MockedClient is the mocked implementation of client.Client from controller-runtime library
 type MockedClient struct {
 
-	// backingMap contains all of the maps of all apiiruntime.Objects. Using the getMapForObject
+	// backingMap contains all of the maps of all apiiruntime.Objects. Using the GetMapForObject
 	// function will dynamically initialize a new map for the type in question
 	backingMap map[reflect.Type]map[client.ObjectKey]apiruntime.Object
 	// mocked client keeps track of all implemented functions called - uses reflection Func for this to enable type-safety
@@ -62,7 +63,7 @@ type MockedClient struct {
 	UpdateFunc             func(ctx context.Context, obj apiruntime.Object) error
 }
 
-func newMockedClient() *MockedClient {
+func NewClient() *MockedClient {
 	api := MockedClient{}
 	api.backingMap = map[reflect.Type]map[client.ObjectKey]apiruntime.Object{}
 
@@ -116,7 +117,7 @@ func (m *MockedClient) AddDefaultMdbConfigResources() *MockedClient {
 // obj must be a struct pointer so that obj can be updated with the response
 // returned by the Server.
 func (k *MockedClient) Get(ctx context.Context, key client.ObjectKey, obj apiruntime.Object) (e error) {
-	resMap := k.getMapForObject(obj)
+	resMap := k.GetMapForObject(obj)
 	k.addToHistory(reflect.ValueOf(k.Get), obj)
 	if _, exists := resMap[key]; !exists {
 		return &errors.StatusError{ErrStatus: metav1.Status{Reason: metav1.StatusReasonNotFound}}
@@ -129,7 +130,7 @@ func (k *MockedClient) Get(ctx context.Context, key client.ObjectKey, obj apirun
 }
 
 func (k *MockedClient) ApproveAllCSRs() {
-	for _, csrObject := range k.getMapForObject(&certsv1.CertificateSigningRequest{}) {
+	for _, csrObject := range k.GetMapForObject(&certsv1.CertificateSigningRequest{}) {
 		csr := csrObject.(*certsv1.CertificateSigningRequest)
 		approvedCondition := certsv1.CertificateSigningRequestCondition{
 			Type: certsv1.CertificateApproved,
@@ -153,7 +154,7 @@ func (k *MockedClient) List(ctx context.Context, list apiruntime.Object, opts ..
 func (k *MockedClient) Create(ctx context.Context, obj apiruntime.Object, opts ...client.CreateOption) error {
 	obj = obj.DeepCopyObject()
 	key := objectKeyFromApiObject(obj)
-	resMap := k.getMapForObject(obj)
+	resMap := k.GetMapForObject(obj)
 	k.addToHistory(reflect.ValueOf(k.Create), obj)
 
 	if err := k.Get(ctx, key, obj); err == nil {
@@ -199,7 +200,7 @@ func (k *MockedClient) Update(ctx context.Context, obj apiruntime.Object, opts .
 func (k *MockedClient) doUpdate(ctx context.Context, obj apiruntime.Object) error {
 	key := objectKeyFromApiObject(obj)
 
-	resMap := k.getMapForObject(obj)
+	resMap := k.GetMapForObject(obj)
 	resMap[key] = obj
 
 	switch v := obj.(type) {
@@ -215,7 +216,7 @@ func (k *MockedClient) Delete(ctx context.Context, obj apiruntime.Object, opts .
 
 	key := objectKeyFromApiObject(obj)
 
-	resMap := k.getMapForObject(obj)
+	resMap := k.GetMapForObject(obj)
 	delete(resMap, key)
 
 	return nil
@@ -227,7 +228,7 @@ func (k *MockedClient) DeleteAllOf(ctx context.Context, obj apiruntime.Object, o
 
 func (k *MockedClient) Patch(ctx context.Context, obj apiruntime.Object, patch client.Patch, opts ...client.PatchOption) error {
 	// Finding the object to patch
-	resMap := k.getMapForObject(obj)
+	resMap := k.GetMapForObject(obj)
 	k.addToHistory(reflect.ValueOf(k.Patch), obj)
 	key := objectKeyFromApiObject(obj)
 	if _, exists := resMap[key]; !exists {
@@ -297,7 +298,7 @@ func (oc *MockedClient) addToHistory(value reflect.Value, obj apiruntime.Object)
 	oc.history = append(oc.history, HItem(value, obj))
 }
 
-func (m *MockedClient) getMapForObject(obj apiruntime.Object) map[client.ObjectKey]apiruntime.Object {
+func (m *MockedClient) GetMapForObject(obj apiruntime.Object) map[client.ObjectKey]apiruntime.Object {
 	t := reflect.TypeOf(obj)
 	if _, ok := m.backingMap[t]; !ok {
 		m.backingMap[t] = map[client.ObjectKey]apiruntime.Object{}
@@ -344,14 +345,8 @@ func (oc *MockedClient) ClearHistory() {
 	oc.history = []*HistoryItem{}
 }
 
-func (oc *MockedClient) getSet(key client.ObjectKey) *appsv1.StatefulSet {
-	return oc.getMapForObject(&appsv1.StatefulSet{})[key].(*appsv1.StatefulSet)
-}
-
-// convenience method to get a helper from the mocked client
-func (oc *MockedClient) helper() *KubeHelper {
-	helper := NewKubeHelper(oc)
-	return &helper
+func (oc *MockedClient) GetSet(key client.ObjectKey) *appsv1.StatefulSet {
+	return oc.GetMapForObject(&appsv1.StatefulSet{})[key].(*appsv1.StatefulSet)
 }
 
 // HistoryItem is an item that describe the invocation of 'client.client' method.
@@ -381,19 +376,19 @@ func (h HistoryItem) String() string {
 // MockedManager is the mock implementation of `Manager` from controller-runtime library. The only interesting method though
 // is `getClient`
 type MockedManager struct {
-	client *MockedClient
+	Client *MockedClient
 }
 
-func newEmptyMockedManager() *MockedManager {
-	return &MockedManager{client: newMockedClient()}
+func NewEmptyManager() *MockedManager {
+	return &MockedManager{Client: NewClient()}
 }
 
-func newMockedManager(object apiruntime.Object) *MockedManager {
-	return &MockedManager{client: newMockedClient().WithResource(object)}
+func NewManager(object apiruntime.Object) *MockedManager {
+	return &MockedManager{Client: NewClient().WithResource(object)}
 }
 
-func newMockedManagerSpecificClient(c *MockedClient) *MockedManager {
-	return &MockedManager{client: c}
+func NewManagerSpecificClient(c *MockedClient) *MockedManager {
+	return &MockedManager{Client: c}
 }
 
 func (m *MockedManager) Add(runnable manager.Runnable) error {
@@ -444,7 +439,7 @@ func (m *MockedManager) GetAPIReader() client.Reader {
 
 // GetClient returns a client configured with the Config
 func (m *MockedManager) GetClient() client.Client {
-	return m.client
+	return m.Client
 }
 
 func (m *MockedManager) GetEventRecorderFor(name string) record.EventRecorder {
@@ -473,4 +468,11 @@ func (m *MockedManager) GetRESTMapper() meta.RESTMapper {
 
 func (m *MockedManager) GetWebhookServer() *webhook.Server {
 	return nil
+}
+
+func objectKeyFromApiObject(obj interface{}) client.ObjectKey {
+	ns := reflect.ValueOf(obj).Elem().FieldByName("Namespace").String()
+	name := reflect.ValueOf(obj).Elem().FieldByName("Name").String()
+
+	return types.NamespacedName{Name: name, Namespace: ns}
 }

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
@@ -49,10 +50,10 @@ func TestCreateReplicaSet(t *testing.T) {
 
 	checkReconcileSuccessful(t, reconciler, rs, client)
 
-	assert.Len(t, client.getMapForObject(&corev1.Service{}), 1)
-	assert.Len(t, client.getMapForObject(&appsv1.StatefulSet{}), 1)
-	assert.Equal(t, *client.getSet(rs.ObjectKey()).Spec.Replicas, int32(3))
-	assert.Len(t, client.getMapForObject(&corev1.Secret{}), 2)
+	assert.Len(t, client.GetMapForObject(&corev1.Service{}), 1)
+	assert.Len(t, client.GetMapForObject(&appsv1.StatefulSet{}), 1)
+	assert.Equal(t, *client.GetSet(rs.ObjectKey()).Spec.Replicas, int32(3))
+	assert.Len(t, client.GetMapForObject(&corev1.Secret{}), 2)
 
 	connection := om.CurrMockedConnection
 	connection.CheckDeployment(t, createDeploymentFromReplicaSet(rs), "auth", "ssl")
@@ -283,11 +284,11 @@ func TestOnlyTagIsAppliedToOlderOpsManager(t *testing.T) {
 // defaultReplicaSetReconciler is the replica set reconciler used in unit test. It "adds" necessary
 // additional K8s objects (rs, connection config map and secrets) necessary for reconciliation
 // so it's possible to call 'reconcile()' on it right away
-func defaultReplicaSetReconciler(rs *mdbv1.MongoDB) (*ReconcileMongoDbReplicaSet, *MockedClient) {
-	manager := newMockedManager(rs)
-	manager.client.AddDefaultMdbConfigResources()
+func defaultReplicaSetReconciler(rs *mdbv1.MongoDB) (*ReconcileMongoDbReplicaSet, *mock.MockedClient) {
+	manager := mock.NewManager(rs)
+	manager.Client.AddDefaultMdbConfigResources()
 
-	return newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection), manager.client
+	return newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection), manager.Client
 }
 
 // TODO remove in favor of '/api/mongodbbuilder.go'
@@ -299,10 +300,10 @@ func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
 		ConnectionSpec: mdbv1.ConnectionSpec{
 			OpsManagerConfig: &mdbv1.PrivateCloudConfig{
 				ConfigMapRef: mdbv1.ConfigMapRef{
-					Name: TestProjectConfigMapName,
+					Name: mock.TestProjectConfigMapName,
 				},
 			},
-			Credentials: TestCredentialsSecretName,
+			Credentials: mock.TestCredentialsSecretName,
 		},
 		ResourceType: mdbv1.ReplicaSet,
 		Members:      3,
@@ -314,7 +315,7 @@ func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
 			},
 		},
 	}
-	rs := &mdbv1.MongoDB{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "temple", Namespace: TestNamespace}}
+	rs := &mdbv1.MongoDB{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "temple", Namespace: mock.TestNamespace}}
 	return &ReplicaSetBuilder{rs}
 }
 

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 
@@ -59,7 +60,7 @@ func TestPublishAutomationConfig_Create(t *testing.T) {
 	builder := DefaultOpsManagerBuilder()
 	opsManager := builder.Build()
 	appdb := opsManager.Spec.AppDB
-	kubeManager := newEmptyMockedManager()
+	kubeManager := mock.NewEmptyManager()
 	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
 	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
 	assert.NoError(t, err)
@@ -70,7 +71,7 @@ func TestPublishAutomationConfig_Create(t *testing.T) {
 	// verify the configmap was created
 	configMap := readAutomationConfigMap(t, kubeManager, opsManager)
 	checkDeploymentEqualToPublished(t, automationConfig.Deployment, configMap)
-	assert.Len(t, kubeManager.client.getMapForObject(&corev1.ConfigMap{}), 1)
+	assert.Len(t, kubeManager.Client.GetMapForObject(&corev1.ConfigMap{}), 1)
 }
 
 // TestPublishAutomationConfig_Update verifies that the automation config map is updated if it has changed
@@ -78,7 +79,7 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 	builder := DefaultOpsManagerBuilder()
 	opsManager := builder.Build()
 	appdb := opsManager.Spec.AppDB
-	kubeManager := newEmptyMockedManager()
+	kubeManager := mock.NewEmptyManager()
 	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
 	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
 	assert.NoError(t, err)
@@ -86,20 +87,20 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 	published, err := reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S())
 	assert.NoError(t, err)
 	assert.True(t, published)
-	kubeManager.client.ClearHistory()
+	kubeManager.Client.ClearHistory()
 
 	// publishing the config without updates should not result in API call
 	published, err = reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S())
 	assert.NoError(t, err)
 	assert.False(t, published)
-	kubeManager.client.CheckOperationsDidntHappen(t, HItem(reflect.ValueOf(kubeManager.client.Update), &corev1.ConfigMap{}))
+	kubeManager.Client.CheckOperationsDidntHappen(t, mock.HItem(reflect.ValueOf(kubeManager.Client.Update), &corev1.ConfigMap{}))
 
 	// publishing changed config will result in update
 	automationConfig.Deployment.AddMonitoringAndBackup("foo", zap.S())
 	published, err = reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S())
 	assert.NoError(t, err)
 	assert.True(t, published)
-	kubeManager.client.CheckOrderOfOperations(t, HItem(reflect.ValueOf(kubeManager.client.Update), &corev1.ConfigMap{}))
+	kubeManager.Client.CheckOrderOfOperations(t, mock.HItem(reflect.ValueOf(kubeManager.Client.Update), &corev1.ConfigMap{}))
 
 	// verify the configmap was updated (the version must get incremented)
 	configMap := readAutomationConfigMap(t, kubeManager, opsManager)
@@ -111,7 +112,7 @@ func TestPublishAutomationConfig_ScramShaConfigured(t *testing.T) {
 	builder := DefaultOpsManagerBuilder()
 	opsManager := builder.Build()
 	appdb := opsManager.Spec.AppDB
-	kubeManager := newEmptyMockedManager()
+	kubeManager := mock.NewEmptyManager()
 	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
 	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
 	assert.NoError(t, err)
@@ -326,10 +327,10 @@ func TestFetchingVersionManifestFails_WhenUsingNonBundledVersion(t *testing.T) {
 
 func buildAutomationConfigForAppDb(builder *mdbv1.OpsManagerBuilder, internetManifestProvider om.VersionManifestProvider) (*om.AutomationConfig, error) {
 	opsManager := builder.Build()
-	kubeManager := newMockedManager(&opsManager)
+	kubeManager := mock.NewManager(&opsManager)
 
 	// ensure the password exists for the Ops Manager User. The Ops Manager controller will have ensured this
-	kubeManager.client.getMapForObject(&corev1.Secret{})[objectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetSecretName())] = &corev1.Secret{
+	kubeManager.Client.GetMapForObject(&corev1.Secret{})[objectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetSecretName())] = &corev1.Secret{
 		StringData: map[string]string{
 			util.OpsManagerPasswordKey: "my-password",
 		},
@@ -350,10 +351,10 @@ func newAppDbReconciler(mgr manager.Manager, internetManifestProvider om.Version
 	return &ReconcileAppDbReplicaSet{newReconcileCommonController(mgr, nil), relativeVersionManifestFixturePath, internetManifestProvider}
 }
 
-func readAutomationConfigMap(t *testing.T, kubeManager *MockedManager, opsManager mdbv1.MongoDBOpsManager) *corev1.ConfigMap {
+func readAutomationConfigMap(t *testing.T, kubeManager *mock.MockedManager, opsManager mdbv1.MongoDBOpsManager) *corev1.ConfigMap {
 	configMap := &corev1.ConfigMap{}
 	key := objectKey(opsManager.Namespace, opsManager.Spec.AppDB.AutomationConfigSecretName())
-	assert.NoError(t, kubeManager.client.Get(context.TODO(), key, configMap))
+	assert.NoError(t, kubeManager.Client.Get(context.TODO(), key, configMap))
 	return configMap
 }
 

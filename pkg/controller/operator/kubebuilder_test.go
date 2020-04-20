@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 
 	"github.com/stretchr/testify/require"
@@ -129,7 +130,7 @@ func TestReadPemHashFromSecret(t *testing.T) {
 	stsHelper := baseSetHelper()
 
 	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: stsHelper.Name + "-cert", Namespace: TestNamespace},
+		ObjectMeta: metav1.ObjectMeta{Name: stsHelper.Name + "-cert", Namespace: mock.TestNamespace},
 		Data:       map[string][]byte{"hello": []byte("world")},
 	}
 
@@ -667,7 +668,7 @@ func TestBaseEnvHelper(t *testing.T) {
 
 func baseSetHelper() *StatefulSetHelper {
 	st := DefaultStandaloneBuilder().Build()
-	mockedClient := newMockedClient().WithResource(st)
+	mockedClient := mock.NewClient().WithResource(st)
 	helper := NewKubeHelper(mockedClient)
 	return helper.NewStatefulSetHelper(st)
 }
@@ -676,7 +677,7 @@ func baseSetHelper() *StatefulSetHelper {
 // This helper will not get to Success state right away, but will take at least `delay`.
 func baseSetHelperDelayed(delay time.Duration) *StatefulSetHelper {
 	st := DefaultStandaloneBuilder().Build()
-	mockedClient := newMockedClient().WithResource(st).WithStsCreationDelay(delay)
+	mockedClient := mock.NewClient().WithResource(st).WithStsCreationDelay(delay)
 	helper := NewKubeHelper(mockedClient)
 	return helper.NewStatefulSetHelper(st)
 }
@@ -698,19 +699,19 @@ func defaultSetHelper() *StatefulSetHelper {
 // defaultAppDbSetHelper builds the default statefulset helper for appdb from Ops Manager resource
 func defaultAppDbSetHelper() *StatefulSetHelper {
 	om := DefaultOpsManagerBuilder().Build()
-	mockedClient := newMockedClient().WithResource(&om)
+	mockedClient := mock.NewClient().WithResource(&om)
 	helper := NewKubeHelper(mockedClient)
 	return helper.NewStatefulSetHelper(&om)
 }
 
 func omSetHelperFromResource(om mdbv1.MongoDBOpsManager) OpsManagerStatefulSetHelper {
-	mockedClient := newMockedClient()
+	mockedClient := mock.NewClient()
 	helper := NewKubeHelper(mockedClient)
 	return *helper.NewOpsManagerStatefulSetHelper(om)
 }
 
 func backupSetHelperFromResource(om mdbv1.MongoDBOpsManager) BackupStatefulSetHelper {
-	mockedClient := newMockedClient()
+	mockedClient := mock.NewClient()
 	helper := NewKubeHelper(mockedClient)
 	return *helper.NewBackupStatefulSetHelper(om)
 }

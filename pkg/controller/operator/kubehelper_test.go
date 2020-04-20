@@ -10,6 +10,7 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
@@ -51,14 +52,14 @@ func TestStatefulsetCreationWaitsForCompletion(t *testing.T) {
 }
 
 func TestSSLOptionsArePassedCorrectly_SSLRequireValidMMSServerCertificates(t *testing.T) {
-	client := newMockedClient()
+	client := mock.NewClient()
 	helper := NewKubeHelper(client)
 
 	cm := defaultConfigMap("cm1")
 	cm.Data[util.SSLRequireValidMMSServerCertificates] = "true"
 	client.Create(context.TODO(), &cm)
 
-	project, err := helper.readProjectConfig(TestNamespace, "cm1")
+	project, err := helper.readProjectConfig(mock.TestNamespace, "cm1")
 
 	assert.NoError(t, err)
 	assert.True(t, project.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
@@ -70,7 +71,7 @@ func TestSSLOptionsArePassedCorrectly_SSLRequireValidMMSServerCertificates(t *te
 	cm.Data[util.SSLRequireValidMMSServerCertificates] = "1"
 	client.Create(context.TODO(), &cm)
 
-	project, err = helper.readProjectConfig(TestNamespace, "cm2")
+	project, err = helper.readProjectConfig(mock.TestNamespace, "cm2")
 
 	assert.NoError(t, err)
 	assert.True(t, project.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
@@ -84,7 +85,7 @@ func TestSSLOptionsArePassedCorrectly_SSLRequireValidMMSServerCertificates(t *te
 	cm.Data[util.SSLRequireValidMMSServerCertificates] = "false"
 	client.Create(context.TODO(), &cm)
 
-	project, err = helper.readProjectConfig(TestNamespace, "cm3")
+	project, err = helper.readProjectConfig(mock.TestNamespace, "cm3")
 
 	assert.NoError(t, err)
 	assert.False(t, project.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
@@ -94,7 +95,7 @@ func TestSSLOptionsArePassedCorrectly_SSLRequireValidMMSServerCertificates(t *te
 }
 
 func TestSSLOptionsArePassedCorrectly_SSLMMSCAConfigMap(t *testing.T) {
-	client := newMockedClient()
+	client := mock.NewClient()
 	helper := NewKubeHelper(client)
 
 	// This represents the ConfigMap holding the CustomCA
@@ -110,7 +111,7 @@ func TestSSLOptionsArePassedCorrectly_SSLMMSCAConfigMap(t *testing.T) {
 	cm.Data[util.SSLRequireValidMMSServerCertificates] = "false"
 	client.Create(context.TODO(), &cm)
 
-	project, err := helper.readProjectConfig(TestNamespace, "cm")
+	project, err := helper.readProjectConfig(mock.TestNamespace, "cm")
 
 	assert.NoError(t, err)
 	assert.False(t, project.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
@@ -120,7 +121,7 @@ func TestSSLOptionsArePassedCorrectly_SSLMMSCAConfigMap(t *testing.T) {
 }
 
 func TestSSLOptionsArePassedCorrectly_UseCustomCAConfigMap(t *testing.T) {
-	client := newMockedClient()
+	client := mock.NewClient()
 	helper := NewKubeHelper(client)
 
 	// Passing "false" results in false to UseCustomCA
@@ -128,7 +129,7 @@ func TestSSLOptionsArePassedCorrectly_UseCustomCAConfigMap(t *testing.T) {
 	cm.Data[util.UseCustomCAConfigMap] = "false"
 	client.Create(context.TODO(), &cm)
 
-	project, err := helper.readProjectConfig(TestNamespace, "cm")
+	project, err := helper.readProjectConfig(mock.TestNamespace, "cm")
 
 	assert.NoError(t, err)
 	assert.False(t, project.UseCustomCA)
@@ -138,7 +139,7 @@ func TestSSLOptionsArePassedCorrectly_UseCustomCAConfigMap(t *testing.T) {
 	cm.Data[util.UseCustomCAConfigMap] = "true"
 	client.Create(context.TODO(), &cm)
 
-	project, err = helper.readProjectConfig(TestNamespace, "cm2")
+	project, err = helper.readProjectConfig(mock.TestNamespace, "cm2")
 
 	assert.NoError(t, err)
 	assert.True(t, project.UseCustomCA)
@@ -148,7 +149,7 @@ func TestSSLOptionsArePassedCorrectly_UseCustomCAConfigMap(t *testing.T) {
 	cm.Data[util.UseCustomCAConfigMap] = ""
 	client.Create(context.TODO(), &cm)
 
-	project, err = helper.readProjectConfig(TestNamespace, "cm3")
+	project, err = helper.readProjectConfig(mock.TestNamespace, "cm3")
 	assert.NoError(t, err)
 	assert.True(t, project.UseCustomCA)
 
@@ -157,7 +158,7 @@ func TestSSLOptionsArePassedCorrectly_UseCustomCAConfigMap(t *testing.T) {
 	cm.Data[util.UseCustomCAConfigMap] = "1"
 	client.Create(context.TODO(), &cm)
 
-	project, err = helper.readProjectConfig(TestNamespace, "cm4")
+	project, err = helper.readProjectConfig(mock.TestNamespace, "cm4")
 	assert.NoError(t, err)
 	assert.True(t, project.UseCustomCA)
 
@@ -168,7 +169,7 @@ func TestSSLOptionsArePassedCorrectly_UseCustomCAConfigMap(t *testing.T) {
 	cm.Data[util.UseCustomCAConfigMap] = "false"
 	client.Create(context.TODO(), &cm)
 
-	project, err = helper.readProjectConfig(TestNamespace, "cm5")
+	project, err = helper.readProjectConfig(mock.TestNamespace, "cm5")
 	assert.NoError(t, err)
 	assert.False(t, project.UseCustomCA)
 }
@@ -187,7 +188,7 @@ func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
 // TestComputeConfigMap_CreateNew checks the "create" features of 'computeConfigMap' function when the configmap is created
 // if it doesn't exist (or the creation is skipped totally)
 func TestComputeConfigMap_CreateNew(t *testing.T) {
-	client := newMockedClient()
+	client := mock.NewClient()
 	helper := NewKubeHelper(client)
 	owner := mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "test"}}
 	key := objectKey("ns", "cfm")
@@ -220,12 +221,12 @@ func TestComputeConfigMap_CreateNew(t *testing.T) {
 }
 
 func TestComputeConfigMap_UpdateExisting(t *testing.T) {
-	client := newMockedClient()
+	client := mock.NewClient()
 	client.AddProjectConfigMap(om.TestGroupName, "")
 	helper := NewKubeHelper(client)
 	owner := mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "test"}}
 
-	key := objectKey(TestNamespace, TestProjectConfigMapName)
+	key := objectKey(mock.TestNamespace, mock.TestProjectConfigMapName)
 
 	// Successful update (data is appended)
 	err := helper.computeConfigMap(key, func(cmap *corev1.ConfigMap) bool {
@@ -259,12 +260,12 @@ func TestComputeConfigMap_UpdateExisting(t *testing.T) {
 	assert.Len(t, cmap.Data, currentSize)
 
 	// The only operation in history is the first update
-	client.CheckNumberOfOperations(t, HItem(reflect.ValueOf(client.Update), cmap), 1)
+	client.CheckNumberOfOperations(t, mock.HItem(reflect.ValueOf(client.Update), cmap), 1)
 }
 
 func TestBuildService(t *testing.T) {
 	mdb := DefaultReplicaSetBuilder().Build()
-	svc := buildService(objectKey(TestNamespace, "my-svc"), mdb, "label", 2000, mdbv1.MongoDBOpsManagerServiceDefinition{
+	svc := buildService(objectKey(mock.TestNamespace, "my-svc"), mdb, "label", 2000, mdbv1.MongoDBOpsManagerServiceDefinition{
 		Type:           corev1.ServiceTypeClusterIP,
 		Port:           2000,
 		LoadBalancerIP: "loadbalancerip",
@@ -273,7 +274,7 @@ func TestBuildService(t *testing.T) {
 	assert.Len(t, svc.OwnerReferences, 1)
 	assert.Equal(t, mdb.Name, svc.OwnerReferences[0].Name)
 	assert.Equal(t, mdb.GetKind(), svc.OwnerReferences[0].Kind)
-	assert.Equal(t, TestNamespace, svc.Namespace)
+	assert.Equal(t, mock.TestNamespace, svc.Namespace)
 	assert.Equal(t, "my-svc", svc.Name)
 	assert.Equal(t, "loadbalancerip", svc.Spec.LoadBalancerIP)
 	assert.Equal(t, "None", svc.Spec.ClusterIP)
@@ -348,7 +349,7 @@ func TestGetCustomStatefulSet(t *testing.T) {
 func defaultConfigMap(name string) corev1.ConfigMap {
 	return configmap.Builder().
 		SetName(name).
-		SetNamespace(TestNamespace).
+		SetNamespace(mock.TestNamespace).
 		SetField(util.OmBaseUrl, "http://mycompany.com:8080").
 		SetField(util.OmProjectName, "my-name").
 		Build()

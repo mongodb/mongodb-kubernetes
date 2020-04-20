@@ -8,6 +8,7 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
@@ -35,10 +36,10 @@ func TestOnAddStandalone(t *testing.T) {
 	omConn := om.CurrMockedConnection
 
 	// seems we don't need very deep checks here as there should be smaller tests specially for those methods
-	assert.Len(t, client.getMapForObject(&corev1.Service{}), 1)
-	assert.Len(t, client.getMapForObject(&appsv1.StatefulSet{}), 1)
-	assert.Equal(t, *client.getMapForObject(&appsv1.StatefulSet{})[st.ObjectKey()].(*appsv1.StatefulSet).Spec.Replicas, int32(1))
-	assert.Len(t, client.getMapForObject(&corev1.Secret{}), 2)
+	assert.Len(t, client.GetMapForObject(&corev1.Service{}), 1)
+	assert.Len(t, client.GetMapForObject(&appsv1.StatefulSet{}), 1)
+	assert.Equal(t, *client.GetMapForObject(&appsv1.StatefulSet{})[st.ObjectKey()].(*appsv1.StatefulSet).Spec.Replicas, int32(1))
+	assert.Len(t, client.GetMapForObject(&corev1.Secret{}), 2)
 
 	omConn.CheckDeployment(t, createDeploymentFromStandalone(st), "auth", "ssl")
 	omConn.CheckNumberOfUpdateRequests(t, 1)
@@ -50,8 +51,8 @@ func TestOnAddStandalone(t *testing.T) {
 func TestOnAddStandaloneWithDelay(t *testing.T) {
 	st := DefaultStandaloneBuilder().SetVersion("4.1.0").SetService("mysvc").Build()
 
-	client := newMockedClient().WithResource(st).WithStsCreationDelay(200).AddDefaultMdbConfigResources()
-	manager := newMockedManagerSpecificClient(client)
+	client := mock.NewClient().WithResource(st).WithStsCreationDelay(200).AddDefaultMdbConfigResources()
+	manager := mock.NewManagerSpecificClient(client)
 
 	reconciler := newStandaloneReconciler(manager, om.NewEmptyMockedOmConnection)
 
@@ -68,8 +69,8 @@ func TestOnAddStandaloneWithDelayPending(t *testing.T) {
 	_ = os.Setenv(util.PodWaitRetriesEnv, "0")
 	st := DefaultStandaloneBuilder().SetVersion("4.1.0").SetService("mysvc").Build()
 
-	client := newMockedClient().WithResource(st).WithStsCreationDelay(200).AddDefaultMdbConfigResources()
-	manager := newMockedManagerSpecificClient(client)
+	client := mock.NewClient().WithResource(st).WithStsCreationDelay(200).AddDefaultMdbConfigResources()
+	manager := mock.NewManagerSpecificClient(client)
 
 	reconciler := newStandaloneReconciler(manager, om.NewEmptyMockedOmConnection)
 
@@ -136,11 +137,11 @@ func TestStandaloneCustomPodSpecTemplate(t *testing.T) {
 // defaultStandaloneReconciler is the standalone reconciler used in unit test. It "adds" necessary
 // additional K8s objects (st, connection config map and secrets) necessary for reconciliation
 // so it's possible to call 'reconcile()' on it right away
-func defaultStandaloneReconciler(rs *mdbv1.MongoDB) (*ReconcileMongoDbStandalone, *MockedClient) {
-	manager := newMockedManager(rs)
-	manager.client.AddDefaultMdbConfigResources()
+func defaultStandaloneReconciler(rs *mdbv1.MongoDB) (*ReconcileMongoDbStandalone, *mock.MockedClient) {
+	manager := mock.NewManager(rs)
+	manager.Client.AddDefaultMdbConfigResources()
 
-	return newStandaloneReconciler(manager, om.NewEmptyMockedOmConnection), manager.client
+	return newStandaloneReconciler(manager, om.NewEmptyMockedOmConnection), manager.Client
 }
 
 // TODO remove in favor of '/api/mongodbbuilder.go'
@@ -156,10 +157,10 @@ func DefaultStandaloneBuilder() *StandaloneBuilder {
 		ConnectionSpec: mdbv1.ConnectionSpec{
 			OpsManagerConfig: &mdbv1.PrivateCloudConfig{
 				ConfigMapRef: mdbv1.ConfigMapRef{
-					Name: TestProjectConfigMapName,
+					Name: mock.TestProjectConfigMapName,
 				},
 			},
-			Credentials: TestCredentialsSecretName,
+			Credentials: mock.TestCredentialsSecretName,
 		},
 		Security: &mdbv1.Security{
 			Authentication: &mdbv1.Authentication{
@@ -169,7 +170,7 @@ func DefaultStandaloneBuilder() *StandaloneBuilder {
 		},
 		ResourceType: mdbv1.Standalone,
 	}
-	resource := &mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "dublin", Namespace: TestNamespace}, Spec: spec}
+	resource := &mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "dublin", Namespace: mock.TestNamespace}, Spec: spec}
 	return &StandaloneBuilder{resource}
 }
 

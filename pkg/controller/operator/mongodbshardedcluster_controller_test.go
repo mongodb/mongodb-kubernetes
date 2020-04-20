@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 
@@ -55,13 +56,13 @@ func TestReconcileCreateShardedCluster(t *testing.T) {
 
 	checkReconcileSuccessful(t, reconciler, sc, client)
 
-	assert.Len(t, client.getMapForObject(&corev1.Secret{}), 2)
-	assert.Len(t, client.getMapForObject(&corev1.Service{}), 3)
-	assert.Len(t, client.getMapForObject(&appsv1.StatefulSet{}), 4)
-	assert.Equal(t, *client.getSet(objectKey(sc.Namespace, sc.ConfigRsName())).Spec.Replicas, int32(sc.Spec.ConfigServerCount))
-	assert.Equal(t, *client.getSet(objectKey(sc.Namespace, sc.MongosRsName())).Spec.Replicas, int32(sc.Spec.MongosCount))
-	assert.Equal(t, *client.getSet(objectKey(sc.Namespace, sc.ShardRsName(0))).Spec.Replicas, int32(sc.Spec.MongodsPerShardCount))
-	assert.Equal(t, *client.getSet(objectKey(sc.Namespace, sc.ShardRsName(1))).Spec.Replicas, int32(sc.Spec.MongodsPerShardCount))
+	assert.Len(t, client.GetMapForObject(&corev1.Secret{}), 2)
+	assert.Len(t, client.GetMapForObject(&corev1.Service{}), 3)
+	assert.Len(t, client.GetMapForObject(&appsv1.StatefulSet{}), 4)
+	assert.Equal(t, *client.GetSet(objectKey(sc.Namespace, sc.ConfigRsName())).Spec.Replicas, int32(sc.Spec.ConfigServerCount))
+	assert.Equal(t, *client.GetSet(objectKey(sc.Namespace, sc.MongosRsName())).Spec.Replicas, int32(sc.Spec.MongosCount))
+	assert.Equal(t, *client.GetSet(objectKey(sc.Namespace, sc.ShardRsName(0))).Spec.Replicas, int32(sc.Spec.MongodsPerShardCount))
+	assert.Equal(t, *client.GetSet(objectKey(sc.Namespace, sc.ShardRsName(1))).Spec.Replicas, int32(sc.Spec.MongodsPerShardCount))
 
 	connection := om.CurrMockedConnection
 	connection.CheckDeployment(t, createDeploymentFromShardedCluster(sc), "auth", "ssl")
@@ -95,7 +96,7 @@ func TestReconcileCreateShardedCluster_ScaleDown(t *testing.T) {
 	connection.CheckDeployment(t, createDeploymentFromShardedCluster(sc), "auth", "ssl")
 
 	// One shard has gone
-	assert.Len(t, client.getMapForObject(&appsv1.StatefulSet{}), 4)
+	assert.Len(t, client.GetMapForObject(&appsv1.StatefulSet{}), 4)
 }
 
 // TestAddDeleteShardedCluster checks that no state is left in OpsManager on removal of the sharded cluster
@@ -219,7 +220,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 		return nil
 	}, nil)
 
-	r := newShardedClusterReconciler(newMockedManager(sc), om.NewEmptyMockedOmConnection)
+	r := newShardedClusterReconciler(mock.NewManager(sc), om.NewEmptyMockedOmConnection)
 	assert.Equal(t, workflow.OK(), r.updateOmDeploymentShardedCluster(mockOm, sc, newState, zap.S()))
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadUpdateDeployment), reflect.ValueOf(mockOm.RemoveHost))
@@ -240,7 +241,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 func TestPodAntiaffinity_MongodsInsideShardAreSpread(t *testing.T) {
 	sc := DefaultClusterBuilder().Build()
 
-	reconciler := newShardedClusterReconciler(newMockedManager(sc), om.NewEmptyMockedOmConnection)
+	reconciler := newShardedClusterReconciler(mock.NewManager(sc), om.NewEmptyMockedOmConnection)
 	state := reconciler.buildKubeObjectsForShardedCluster(sc, defaultPodVars(), &mdbv1.ProjectConfig{}, zap.S())
 
 	shardHelpers := state.shardsSetsHelpers
@@ -268,29 +269,29 @@ func TestShardedCluster_WithTLSEnabled_AndX509Enabled_Succeeds(t *testing.T) {
 	reconciler, client := defaultClusterReconciler(sc)
 
 	cMap := x509ConfigMap()
-	client.getMapForObject(&corev1.ConfigMap{})[objectKey("", om.TestGroupName)] = &cMap
+	client.GetMapForObject(&corev1.ConfigMap{})[objectKey("", om.TestGroupName)] = &cMap
 
 	// create the secret the agent certs will exist in
-	client.getMapForObject(&corev1.Secret{})[objectKey("", util.AgentSecretName)] = &corev1.Secret{}
+	client.GetMapForObject(&corev1.Secret{})[objectKey("", util.AgentSecretName)] = &corev1.Secret{}
 
 	// create pre-approved TLS csrs for the sharded cluster
 	addCsrs(client,
-		createCSR(fmt.Sprintf("%s-mongos-0", sc.Name), TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-mongos-1", sc.Name), TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-mongos-2", sc.Name), TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-mongos-3", sc.Name), TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-config-0", sc.Name), TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-config-1", sc.Name), TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-config-2", sc.Name), TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-0", sc.Name), TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-1", sc.Name), TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-2", sc.Name), TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-0-0", sc.Name), TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-0-1", sc.Name), TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-0-2", sc.Name), TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-1-0", sc.Name), TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-1-1", sc.Name), TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-1-2", sc.Name), TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-mongos-0", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-mongos-1", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-mongos-2", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-mongos-3", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-config-0", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-config-1", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-config-2", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-0", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-1", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-2", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-0-0", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-0-1", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-0-2", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-1-0", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-1-1", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
+		createCSR(fmt.Sprintf("%s-1-2", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
 	)
 
 	actualResult, err := reconciler.Reconcile(requestFromObject(sc))
@@ -300,7 +301,7 @@ func TestShardedCluster_WithTLSEnabled_AndX509Enabled_Succeeds(t *testing.T) {
 	assert.Nil(t, err)
 }
 
-func addCsrs(client *MockedClient, csrs ...certsv1.CertificateSigningRequest) {
+func addCsrs(client *mock.MockedClient, csrs ...certsv1.CertificateSigningRequest) {
 	for _, csr := range csrs {
 		_ = client.Update(context.TODO(), &csr)
 	}
@@ -381,10 +382,10 @@ func TestShardedCustomPodSpecTemplate(t *testing.T) {
 	checkReconcileSuccessful(t, reconciler, sc, client)
 
 	// read the stateful sets that were created by the operator
-	statefulSetSc0 := getStatefulSet(client, objectKey(TestNamespace, "pod-spec-sc-0"))
-	statefulSetSc1 := getStatefulSet(client, objectKey(TestNamespace, "pod-spec-sc-1"))
-	statefulSetScConfig := getStatefulSet(client, objectKey(TestNamespace, "pod-spec-sc-config"))
-	statefulSetMongoS := getStatefulSet(client, objectKey(TestNamespace, "pod-spec-sc-mongos"))
+	statefulSetSc0 := getStatefulSet(client, objectKey(mock.TestNamespace, "pod-spec-sc-0"))
+	statefulSetSc1 := getStatefulSet(client, objectKey(mock.TestNamespace, "pod-spec-sc-1"))
+	statefulSetScConfig := getStatefulSet(client, objectKey(mock.TestNamespace, "pod-spec-sc-config"))
+	statefulSetMongoS := getStatefulSet(client, objectKey(mock.TestNamespace, "pod-spec-sc-mongos"))
 	assertPodSpecSts(t, statefulSetSc0)
 	assertPodSpecSts(t, statefulSetSc1)
 	assertMongosSts(t, statefulSetMongoS)
@@ -474,11 +475,11 @@ func createStateFromResource(updatable Updatable) ShardedClusterKubeState {
 
 // defaultClusterReconciler is the sharded cluster reconciler used in unit test. It "adds" necessary
 // additional K8s objects (connection config map and secrets) necessary for reconciliation
-func defaultClusterReconciler(sc *mdbv1.MongoDB) (*ReconcileMongoDbShardedCluster, *MockedClient) {
-	manager := newMockedManager(sc)
-	manager.client.AddDefaultMdbConfigResources()
+func defaultClusterReconciler(sc *mdbv1.MongoDB) (*ReconcileMongoDbShardedCluster, *mock.MockedClient) {
+	manager := mock.NewManager(sc)
+	manager.Client.AddDefaultMdbConfigResources()
 
-	return newShardedClusterReconciler(manager, om.NewEmptyMockedOmConnection), manager.client
+	return newShardedClusterReconciler(manager, om.NewEmptyMockedOmConnection), manager.Client
 }
 
 type ClusterBuilder struct {
@@ -502,10 +503,10 @@ func DefaultClusterBuilder() *ClusterBuilder {
 		ConnectionSpec: mdbv1.ConnectionSpec{
 			OpsManagerConfig: &mdbv1.PrivateCloudConfig{
 				ConfigMapRef: mdbv1.ConfigMapRef{
-					Name: TestProjectConfigMapName,
+					Name: mock.TestProjectConfigMapName,
 				},
 			},
-			Credentials: TestCredentialsSecretName,
+			Credentials: mock.TestCredentialsSecretName,
 		},
 		Version:                         "3.6.4",
 		ResourceType:                    mdbv1.ShardedCluster,
@@ -519,7 +520,7 @@ func DefaultClusterBuilder() *ClusterBuilder {
 	}
 
 	resource := &mdbv1.MongoDB{
-		ObjectMeta: metav1.ObjectMeta{Name: "slaney", Namespace: TestNamespace},
+		ObjectMeta: metav1.ObjectMeta{Name: "slaney", Namespace: mock.TestNamespace},
 		Status:     status,
 		Spec:       spec,
 	}

@@ -12,6 +12,7 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
@@ -32,8 +33,8 @@ func init() {
 }
 
 func TestEnsureTagAdded(t *testing.T) {
-	manager := newEmptyMockedManager()
-	manager.client.AddDefaultMdbConfigResources()
+	manager := mock.NewEmptyManager()
+	manager.Client.AddDefaultMdbConfigResources()
 	controller := newReconcileCommonController(manager, om.NewEmptyMockedOmConnection)
 	mockOm, _ := prepareConnection(controller, t)
 
@@ -50,8 +51,8 @@ func TestEnsureTagAdded(t *testing.T) {
 }
 
 func TestEnsureTagAddedDuplicates(t *testing.T) {
-	manager := newEmptyMockedManager()
-	manager.client.AddDefaultMdbConfigResources()
+	manager := mock.NewEmptyManager()
+	manager.Client.AddDefaultMdbConfigResources()
 	controller := newReconcileCommonController(manager, om.NewEmptyMockedOmConnection)
 	mockOm, _ := prepareConnection(controller, t)
 	err := ensureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "MYTAG", zap.S())
@@ -67,9 +68,9 @@ func TestEnsureTagAddedDuplicates(t *testing.T) {
 // TestPrepareOmConnection_FindExistingGroup finds existing group when org ID is specified, no new Project or Organization
 // is created
 func TestPrepareOmConnection_FindExistingGroup(t *testing.T) {
-	manager := newEmptyMockedManager()
-	manager.client.AddCredentialsSecret(om.TestUser, om.TestApiKey)
-	manager.client.AddProjectConfigMap(om.TestGroupName, om.TestOrgID)
+	manager := mock.NewEmptyManager()
+	manager.Client.AddCredentialsSecret(om.TestUser, om.TestApiKey)
+	manager.Client.AddProjectConfigMap(om.TestGroupName, om.TestOrgID)
 	reconciler := newReconcileCommonController(manager, omConnGroupInOrganizationWithDifferentName())
 
 	mockOm, _ := prepareConnection(reconciler, t)
@@ -84,8 +85,8 @@ func TestPrepareOmConnection_FindExistingGroup(t *testing.T) {
 // TestPrepareOmConnection_DuplicatedGroups verifies that if there are groups with the same name but in different organization
 // then the new group is created
 func TestPrepareOmConnection_DuplicatedGroups(t *testing.T) {
-	manager := newEmptyMockedManager()
-	manager.client.AddDefaultMdbConfigResources()
+	manager := mock.NewEmptyManager()
+	manager.Client.AddDefaultMdbConfigResources()
 
 	// The only difference from TestPrepareOmConnection_FindExistingGroup above is that the config map contains only project name
 	// but no org ID (see newMockedKubeApi())
@@ -104,8 +105,8 @@ func TestPrepareOmConnection_DuplicatedGroups(t *testing.T) {
 
 // TestPrepareOmConnection_CreateGroup checks that if the group doesn't exist in OM - it is created
 func TestPrepareOmConnection_CreateGroup(t *testing.T) {
-	manager := newEmptyMockedManager()
-	manager.client.AddDefaultMdbConfigResources()
+	manager := mock.NewEmptyManager()
+	manager.Client.AddDefaultMdbConfigResources()
 
 	controller := newReconcileCommonController(manager, om.NewEmptyMockedOmConnectionNoGroup)
 
@@ -116,7 +117,7 @@ func TestPrepareOmConnection_CreateGroup(t *testing.T) {
 	mockOm.CheckGroupInOrganization(t, om.TestGroupName, om.TestGroupName)
 	assert.Len(t, mockOm.OrganizationsWithGroups, 1)
 	assert.Contains(t, mockOm.FindGroup(om.TestGroupName).Tags, util.OmGroupExternallyManagedTag)
-	assert.Contains(t, mockOm.FindGroup(om.TestGroupName).Tags, strings.ToUpper(TestNamespace))
+	assert.Contains(t, mockOm.FindGroup(om.TestGroupName).Tags, strings.ToUpper(mock.TestNamespace))
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadOrganizationsByName), reflect.ValueOf(mockOm.CreateProject))
 	mockOm.CheckOperationsDidntHappen(t, reflect.ValueOf(mockOm.ReadProjectsInOrganization))
@@ -124,27 +125,27 @@ func TestPrepareOmConnection_CreateGroup(t *testing.T) {
 
 // TestPrepareOmConnection_CreateGroupFixTags fixes tags if they are not set for existing group
 func TestPrepareOmConnection_CreateGroupFixTags(t *testing.T) {
-	manager := newEmptyMockedManager()
-	manager.client.AddDefaultMdbConfigResources()
+	manager := mock.NewEmptyManager()
+	manager.Client.AddDefaultMdbConfigResources()
 
 	controller := newReconcileCommonController(manager, omConnGroupWithoutTags())
 
 	mockOm, _ := prepareConnection(controller, t)
 	assert.Contains(t, mockOm.FindGroup(om.TestGroupName).Tags, util.OmGroupExternallyManagedTag)
-	assert.Contains(t, mockOm.FindGroup(om.TestGroupName).Tags, strings.ToUpper(TestNamespace))
+	assert.Contains(t, mockOm.FindGroup(om.TestGroupName).Tags, strings.ToUpper(mock.TestNamespace))
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.UpdateProject))
 }
 
 // TestPrepareOmConnection_PrepareAgentKeys checks that agent key is generated and put to secret
 func TestPrepareOmConnection_PrepareAgentKeys(t *testing.T) {
-	manager := newEmptyMockedManager()
-	manager.client.AddDefaultMdbConfigResources()
+	manager := mock.NewEmptyManager()
+	manager.Client.AddDefaultMdbConfigResources()
 	controller := newReconcileCommonController(manager, om.NewEmptyMockedOmConnection)
 
 	prepareConnection(controller, t)
 
-	key, e := controller.kubeHelper.readAgentApiKeyForProject(TestNamespace, agentApiKeySecretName(om.TestGroupID))
+	key, e := controller.kubeHelper.readAgentApiKeyForProject(mock.TestNamespace, agentApiKeySecretName(om.TestGroupID))
 
 	assert.NoError(t, e)
 	// Unfortunately the key read is not equal to om.TestAgentKey - it's just some set of bytes.
@@ -153,49 +154,49 @@ func TestPrepareOmConnection_PrepareAgentKeys(t *testing.T) {
 	// 'Data' which is binary. May be real kubernetes api reads data as string and updates
 	assert.NotNil(t, key)
 
-	manager.client.CheckOrderOfOperations(t,
-		HItem(reflect.ValueOf(manager.client.Get), &corev1.Secret{}),
-		HItem(reflect.ValueOf(manager.client.Create), &corev1.Secret{}))
+	manager.Client.CheckOrderOfOperations(t,
+		mock.HItem(reflect.ValueOf(manager.Client.Get), &corev1.Secret{}),
+		mock.HItem(reflect.ValueOf(manager.Client.Create), &corev1.Secret{}))
 }
 
 // TestPrepareOmConnection_ConfigMapAndSecretWatched verifies that config map and secret are added to the internal
 // map that allows to watch them for changes
 func TestPrepareOmConnection_ConfigMapAndSecretWatched(t *testing.T) {
-	manager := newEmptyMockedManager()
-	manager.client.AddDefaultMdbConfigResources()
+	manager := mock.NewEmptyManager()
+	manager.Client.AddDefaultMdbConfigResources()
 	reconciler := newReconcileCommonController(manager, om.NewEmptyMockedOmConnection)
 
 	// "create" a secret (config map already exists)
 	credentials := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "mySecret", Namespace: TestNamespace},
+		ObjectMeta: metav1.ObjectMeta{Name: "mySecret", Namespace: mock.TestNamespace},
 		StringData: map[string]string{util.OmUser: "bla@mycompany.com", util.OmPublicApiKey: "2423423gdfgsdf23423sdfds"}}
-	_ = manager.client.Create(context.TODO(), credentials)
+	_ = manager.Client.Create(context.TODO(), credentials)
 
 	// Here we create two replica sets both referencing the same project and credentials
 	vars := &PodVars{}
 	spec := mdbv1.ConnectionSpec{
 		OpsManagerConfig: &mdbv1.PrivateCloudConfig{
 			ConfigMapRef: mdbv1.ConfigMapRef{
-				Name: TestProjectConfigMapName,
+				Name: mock.TestProjectConfigMapName,
 			},
 		},
 		Credentials: "mySecret",
 		LogLevel:    mdbv1.Warn,
 	}
-	_, e := reconciler.prepareConnection(objectKey(TestNamespace, "ReplicaSetOne"), spec, vars, zap.S())
+	_, e := reconciler.prepareConnection(objectKey(mock.TestNamespace, "ReplicaSetOne"), spec, vars, zap.S())
 	assert.NoError(t, e)
-	_, e = reconciler.prepareConnection(objectKey(TestNamespace, "ReplicaSetTwo"), spec, vars, zap.S())
+	_, e = reconciler.prepareConnection(objectKey(mock.TestNamespace, "ReplicaSetTwo"), spec, vars, zap.S())
 	assert.NoError(t, e)
 
 	// This one must not affect the map any way as everything is already registered
-	_, e = reconciler.prepareConnection(objectKey(TestNamespace, "ReplicaSetTwo"), spec, vars, zap.S())
+	_, e = reconciler.prepareConnection(objectKey(mock.TestNamespace, "ReplicaSetTwo"), spec, vars, zap.S())
 	assert.NoError(t, e)
 
 	// we expect to have two entries in the map - each value has length of 2 meaning both replica sets are "registered"
 	// to be reconciled as soon as config map or secret changes
 	expected := map[watchedObject][]types.NamespacedName{
-		{resourceType: ConfigMap, resource: objectKey(TestNamespace, TestProjectConfigMapName)}: {objectKey(TestNamespace, "ReplicaSetOne"), objectKey(TestNamespace, "ReplicaSetTwo")},
-		{resourceType: Secret, resource: objectKey(TestNamespace, "mySecret")}:                  {objectKey(TestNamespace, "ReplicaSetOne"), objectKey(TestNamespace, "ReplicaSetTwo")},
+		{resourceType: ConfigMap, resource: objectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {objectKey(mock.TestNamespace, "ReplicaSetOne"), objectKey(mock.TestNamespace, "ReplicaSetTwo")},
+		{resourceType: Secret, resource: objectKey(mock.TestNamespace, "mySecret")}:                       {objectKey(mock.TestNamespace, "ReplicaSetOne"), objectKey(mock.TestNamespace, "ReplicaSetTwo")},
 	}
 	assert.Equal(t, expected, reconciler.watchedResources)
 }
@@ -204,7 +205,7 @@ func TestPrepareOmConnection_ConfigMapAndSecretWatched(t *testing.T) {
 // object in Kubernetes and leaves spec unchanged
 func TestUpdateStatus_Patched(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().Build()
-	manager := newMockedManager(rs)
+	manager := mock.NewManager(rs)
 	controller := newReconcileCommonController(manager, om.NewEmptyMockedOmConnection)
 	reconciledObject := rs.DeepCopy()
 	// The current reconciled object "has diverged" from the one in API server
@@ -214,7 +215,7 @@ func TestUpdateStatus_Patched(t *testing.T) {
 
 	// Verifying that the resource in API server still has correct spec
 	currentRs := mdbv1.MongoDB{}
-	assert.NoError(t, manager.client.Get(context.Background(), rs.ObjectKey(), &currentRs))
+	assert.NoError(t, manager.Client.Get(context.Background(), rs.ObjectKey(), &currentRs))
 
 	// The spec hasn't changed - only status
 	assert.Equal(t, rs.Spec, currentRs.Spec)
@@ -314,13 +315,13 @@ func prepareConnection(controller *ReconcileCommonController, t *testing.T) (*om
 	spec := mdbv1.ConnectionSpec{
 		OpsManagerConfig: &mdbv1.PrivateCloudConfig{
 			ConfigMapRef: mdbv1.ConfigMapRef{
-				Name: TestProjectConfigMapName,
+				Name: mock.TestProjectConfigMapName,
 			},
 		},
-		Credentials: TestCredentialsSecretName,
+		Credentials: mock.TestCredentialsSecretName,
 		LogLevel:    mdbv1.Warn,
 	}
-	conn, e := controller.prepareConnection(objectKey(TestNamespace, ""), spec, vars, zap.S())
+	conn, e := controller.prepareConnection(objectKey(mock.TestNamespace, ""), spec, vars, zap.S())
 	mockOm := conn.(*om.MockedOmConnection)
 	assert.NoError(t, e)
 	return mockOm, vars
@@ -354,7 +355,7 @@ func requestFromObject(object apiruntime.Object) reconcile.Request {
 	return reconcile.Request{NamespacedName: objectKeyFromApiObject(object)}
 }
 
-func checkReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, client *MockedClient) {
+func checkReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, client *mock.MockedClient) {
 	result, e := reconciler.Reconcile(requestFromObject(object))
 	require.NoError(t, e)
 	require.Equal(t, reconcile.Result{}, result)
@@ -382,7 +383,7 @@ func checkReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, obj
 	}
 }
 
-func checkReconcileFailed(t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, expectedRetry bool, expectedErrorMessage string, client *MockedClient) {
+func checkReconcileFailed(t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, expectedRetry bool, expectedErrorMessage string, client *mock.MockedClient) {
 	failedResult := reconcile.Result{}
 	if expectedRetry {
 		failedResult.RequeueAfter = 10 * time.Second
@@ -397,7 +398,7 @@ func checkReconcileFailed(t *testing.T, reconciler reconcile.Reconciler, object 
 	assert.Contains(t, object.Status.Message, expectedErrorMessage)
 }
 
-func checkReconcilePending(t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, expectedErrorMessage string, client *MockedClient) {
+func checkReconcilePending(t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, expectedErrorMessage string, client *mock.MockedClient) {
 	failedResult := reconcile.Result{RequeueAfter: 10 * time.Second}
 	result, e := reconciler.Reconcile(requestFromObject(object))
 	assert.Nil(t, e, "When pending, error should be nil")

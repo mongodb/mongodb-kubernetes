@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -118,7 +119,7 @@ func TestWiredTigerCacheConversion(t *testing.T) {
 	assert.Nil(t, calculateWiredTigerCache(set, "3.6.13"))
 }
 
-func getStatefulSet(client *MockedClient, name types.NamespacedName) *appsv1.StatefulSet {
+func getStatefulSet(client *mock.MockedClient, name types.NamespacedName) *appsv1.StatefulSet {
 	sts := &appsv1.StatefulSet{}
 	_ = client.Get(context.TODO(), name, sts)
 	return sts

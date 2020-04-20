@@ -857,7 +857,7 @@ func (k *KubeHelper) readAgentApiKeyForProject(namespace, agentKeySecretName str
 	return strings.TrimSuffix(key, "\n"), nil
 }
 
-func (k *KubeHelper) readSecret(nsName client.ObjectKey) (map[string]string, error) {
+func (k KubeHelper) readSecret(nsName client.ObjectKey) (map[string]string, error) {
 	secret := &corev1.Secret{}
 	e := k.client.Get(context.TODO(), nsName, secret)
 	if e != nil {
@@ -969,7 +969,7 @@ func (k *KubeHelper) createOrUpdateSecret(name, namespace string, pemFiles *pemC
 }
 
 // createSecret creates the secret. 'data' must either 'map[string][]byte' or 'map[string]string'
-func (k *KubeHelper) createSecret(nsName client.ObjectKey, data interface{}, labels map[string]string, owner Updatable) error {
+func (k KubeHelper) createSecret(nsName client.ObjectKey, data interface{}, labels map[string]string, owner Updatable) error {
 	secret := &corev1.Secret{}
 	secret.ObjectMeta = metav1.ObjectMeta{
 		Name:      nsName.Name,

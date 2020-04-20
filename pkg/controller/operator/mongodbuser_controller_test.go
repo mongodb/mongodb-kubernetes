@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -16,8 +17,8 @@ import (
 )
 
 func TestSettingUserStatus_ToPending_IsFilteredOut(t *testing.T) {
-	userInUpdatedPhase := &mdbv1.MongoDBUser{ObjectMeta: metav1.ObjectMeta{Name: "mms-user", Namespace: TestNamespace}, Status: mdbv1.MongoDBUserStatus{Phase: mdbv1.PhaseUpdated}}
-	userInPendingPhase := &mdbv1.MongoDBUser{ObjectMeta: metav1.ObjectMeta{Name: "mms-user", Namespace: TestNamespace}, Status: mdbv1.MongoDBUserStatus{Phase: mdbv1.PhasePending}}
+	userInUpdatedPhase := &mdbv1.MongoDBUser{ObjectMeta: metav1.ObjectMeta{Name: "mms-user", Namespace: mock.TestNamespace}, Status: mdbv1.MongoDBUserStatus{Phase: mdbv1.PhaseUpdated}}
+	userInPendingPhase := &mdbv1.MongoDBUser{ObjectMeta: metav1.ObjectMeta{Name: "mms-user", Namespace: mock.TestNamespace}, Status: mdbv1.MongoDBUserStatus{Phase: mdbv1.PhasePending}}
 
 	predicates := predicatesForUser()
 	updateEvent := event.UpdateEvent{
@@ -127,7 +128,7 @@ func TestUserIsReplaced_IfIdentifierFieldsAreChanged_OnSuccessfulReconciliation(
 
 // updateUser applies and updates the changes to the user after getting the most recent version
 // from the mocked client
-func updateUser(user *mdbv1.MongoDBUser, client *MockedClient, updateFunc func(*mdbv1.MongoDBUser)) {
+func updateUser(user *mdbv1.MongoDBUser, client *mock.MockedClient, updateFunc func(*mdbv1.MongoDBUser)) {
 	_ = client.Get(context.TODO(), objectKey(user.Namespace, user.Name), user)
 	updateFunc(user)
 	_ = client.Update(context.TODO(), user)
@@ -253,24 +254,24 @@ func TestX509UserReconciliation_CreatesAgentUsers(t *testing.T) {
 }
 
 // createUserControllerConfigMap creates a configmap with credentials present
-func createUserControllerConfigMap(client *MockedClient) {
+func createUserControllerConfigMap(client *mock.MockedClient) {
 	_ = client.Update(context.TODO(), &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: om.TestGroupName, Namespace: TestNamespace},
+		ObjectMeta: metav1.ObjectMeta{Name: om.TestGroupName, Namespace: mock.TestNamespace},
 		Data: map[string]string{
 			util.OmBaseUrl:     om.TestURL,
 			util.OmProjectName: om.TestGroupName,
-			util.OmCredentials: TestCredentialsSecretName,
+			util.OmCredentials: mock.TestCredentialsSecretName,
 		},
 	})
 }
 
-func createX509UserControllerConfigMap(client *MockedClient) {
+func createX509UserControllerConfigMap(client *mock.MockedClient) {
 	_ = client.Update(context.TODO(), &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: om.TestGroupName, Namespace: TestNamespace},
+		ObjectMeta: metav1.ObjectMeta{Name: om.TestGroupName, Namespace: mock.TestNamespace},
 		Data: map[string]string{
 			util.OmBaseUrl:     om.TestURL,
 			util.OmProjectName: om.TestGroupName,
-			util.OmCredentials: TestCredentialsSecretName,
+			util.OmCredentials: mock.TestCredentialsSecretName,
 			util.OmAuthMode:    util.X509,
 		},
 	})
@@ -284,27 +285,27 @@ func containsNil(users []*om.MongoDBUser) bool {
 	}
 	return false
 }
-func createPasswordSecret(client *MockedClient, secretRef mdbv1.SecretKeyRef, password string) {
+func createPasswordSecret(client *mock.MockedClient, secretRef mdbv1.SecretKeyRef, password string) {
 	_ = client.Update(context.TODO(), &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: secretRef.Name, Namespace: TestNamespace},
+		ObjectMeta: metav1.ObjectMeta{Name: secretRef.Name, Namespace: mock.TestNamespace},
 		Data: map[string][]byte{
 			secretRef.Key: []byte(password),
 		},
 	})
 }
 
-func createMongoDBForUser(client *MockedClient, user mdbv1.MongoDBUser) {
+func createMongoDBForUser(client *mock.MockedClient, user mdbv1.MongoDBUser) {
 	mdb := DefaultReplicaSetBuilder().SetName(user.Spec.MongoDBResourceRef.Name).Build()
 	_ = client.Update(context.TODO(), mdb)
 }
 
 // defaultUserReconciler is the user reconciler used in unit test. It "adds" necessary
 // additional K8s objects (st, connection config map and secrets) necessary for reconciliation
-func defaultUserReconciler(user *mdbv1.MongoDBUser) (*MongoDBUserReconciler, *MockedClient) {
-	manager := newMockedManager(user)
-	manager.client.AddDefaultMdbConfigResources()
+func defaultUserReconciler(user *mdbv1.MongoDBUser) (*MongoDBUserReconciler, *mock.MockedClient) {
+	manager := mock.NewManager(user)
+	manager.Client.AddDefaultMdbConfigResources()
 
-	return newMongoDBUserReconciler(manager, om.NewEmptyMockedOmConnection), manager.client
+	return newMongoDBUserReconciler(manager, om.NewEmptyMockedOmConnection), manager.Client
 }
 
 type MongoDBUserBuilder struct {
@@ -364,14 +365,14 @@ func DefaultMongoDBUserBuilder() *MongoDBUserBuilder {
 			RoleName: "role-3",
 			Database: "admin",
 		}},
-		project: TestProjectConfigMapName,
+		project: mock.TestProjectConfigMapName,
 		passwordRef: mdbv1.SecretKeyRef{
 			Name: "password-secret",
 			Key:  "password",
 		},
 		username:            "my-user",
 		database:            "admin",
-		mongodbResourceName: TestMongoDBName,
+		mongodbResourceName: mock.TestMongoDBName,
 	}
 }
 
@@ -386,7 +387,7 @@ func (b *MongoDBUserBuilder) Build() *mdbv1.MongoDBUser {
 	return &mdbv1.MongoDBUser{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      b.resourceName,
-			Namespace: TestNamespace,
+			Namespace: mock.TestNamespace,
 		},
 		Spec: mdbv1.MongoDBUserSpec{
 			Roles:                b.roles,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
@@ -35,7 +36,7 @@ func TestOpsManagerReconciler_performValidation(t *testing.T) {
 
 func TestOpsManagerReconciler_watchedResources(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().Build()
-	otherTestOm:= DefaultOpsManagerBuilder().Build()
+	otherTestOm := DefaultOpsManagerBuilder().Build()
 	otherTestOm.Name = "otherOM"
 
 	otherTestOm.Spec.Backup.Enabled = true
@@ -85,9 +86,9 @@ func TestOpsManagerReconciler_prepareOpsManager(t *testing.T) {
 	assert.Equal(t, "jane.doe@g.com", initializer.currentUsers[0].Username)
 
 	// One secret was created by the user, another one - by the Operator for the user public key
-	assert.Len(t, client.getMapForObject(&corev1.Secret{}), 2)
+	assert.Len(t, client.GetMapForObject(&corev1.Secret{}), 2)
 	expectedSecretData := map[string]string{"user": "jane.doe@g.com", "publicApiKey": "jane.doe@g.com-key"}
-	existingSecretData, _ := client.helper().readSecret(objectKey(OperatorNamespace, testOm.APIKeySecretName()))
+	existingSecretData, _ := NewKubeHelper(client).readSecret(objectKey(OperatorNamespace, testOm.APIKeySecretName()))
 	assert.Equal(t, expectedSecretData, existingSecretData)
 }
 
@@ -100,7 +101,7 @@ func TestOpsManagerReconciler_prepareOpsManagerTwoCalls(t *testing.T) {
 	reconciler.prepareOpsManager(testOm, zap.S())
 
 	// let's "update" the user admin secret - this must not affect anything
-	client.getMapForObject(&corev1.Secret{})[objectKey(OperatorNamespace, testOm.APIKeySecretName())].(*corev1.Secret).StringData["Username"] = "this-is-not-expected@g.com"
+	client.GetMapForObject(&corev1.Secret{})[objectKey(OperatorNamespace, testOm.APIKeySecretName())].(*corev1.Secret).StringData["Username"] = "this-is-not-expected@g.com"
 
 	// second call is ok - we just don't create the admin user in OM and don't add new secrets
 	reconcileStatus, _ := reconciler.prepareOpsManager(testOm, zap.S())
@@ -112,8 +113,8 @@ func TestOpsManagerReconciler_prepareOpsManagerTwoCalls(t *testing.T) {
 	assert.Len(t, initializer.currentUsers, 1)
 	assert.Equal(t, "jane.doe@g.com", initializer.currentUsers[0].Username)
 
-	assert.Len(t, client.getMapForObject(&corev1.Secret{}), 2)
-	data, _ := client.helper().readSecret(objectKey(OperatorNamespace, testOm.APIKeySecretName()))
+	assert.Len(t, client.GetMapForObject(&corev1.Secret{}), 2)
+	data, _ := NewKubeHelper(client).readSecret(objectKey(OperatorNamespace, testOm.APIKeySecretName()))
 	assert.Equal(t, "jane.doe@g.com", data["user"])
 }
 
@@ -146,8 +147,8 @@ func TestOpsManagerReconciler_prepareOpsManagerDuplicatedUser(t *testing.T) {
 	assert.Equal(t, "jane.doe@g.com", initializer.currentUsers[0].Username)
 
 	// api secret wasn't created
-	assert.Len(t, client.getMapForObject(&corev1.Secret{}), 1)
-	assert.NotContains(t, client.getMapForObject(&corev1.Secret{}), objectKey(OperatorNamespace, testOm.APIKeySecretName()))
+	assert.Len(t, client.GetMapForObject(&corev1.Secret{}), 1)
+	assert.NotContains(t, client.GetMapForObject(&corev1.Secret{}), objectKey(OperatorNamespace, testOm.APIKeySecretName()))
 }
 
 func TestOpsManagerGeneratesAppDBPassword_IfNotProvided(t *testing.T) {
@@ -163,7 +164,7 @@ func TestOpsManagerUsersPassword_SpecifiedInSpec(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").Build()
 	reconciler, client, _, _ := defaultTestOmReconciler(t, testOm)
 
-	client.getMapForObject(&corev1.Secret{})[objectKey(testOm.Namespace, testOm.Spec.AppDB.PasswordSecretKeyRef.Name)] = &corev1.Secret{
+	client.GetMapForObject(&corev1.Secret{})[objectKey(testOm.Namespace, testOm.Spec.AppDB.PasswordSecretKeyRef.Name)] = &corev1.Secret{
 		Data: map[string][]byte{
 			testOm.Spec.AppDB.PasswordSecretKeyRef.Key: []byte("my-password"), // create the secret with the password
 		},
@@ -194,12 +195,12 @@ func TestOpsManagerBackupDaemonHostName(t *testing.T) {
 
 // ******************************************* Helper methods *********************************************************
 
-func defaultTestOmReconciler(t *testing.T, opsManager mdbv1.MongoDBOpsManager) (*OpsManagerReconciler, *MockedClient,
+func defaultTestOmReconciler(t *testing.T, opsManager mdbv1.MongoDBOpsManager) (*OpsManagerReconciler, *mock.MockedClient,
 	*MockedInitializer, *api.MockedOmAdmin) {
-	manager := newMockedManager(&opsManager)
+	manager := mock.NewManager(&opsManager)
 	// create an admin user secret
 	data := map[string]string{"Username": "jane.doe@g.com", "Password": "pwd", "FirstName": "Jane", "LastName": "Doe"}
-	_ = manager.client.helper().createSecret(objectKey(opsManager.Namespace, opsManager.Spec.AdminSecret), data,
+	_ = NewKubeHelper(manager.Client).createSecret(objectKey(opsManager.Namespace, opsManager.Spec.AdminSecret), data,
 		map[string]string{}, &opsManager)
 
 	initializer := &MockedInitializer{expectedOmURL: opsManager.CentralURL(), t: t}
@@ -207,7 +208,7 @@ func defaultTestOmReconciler(t *testing.T, opsManager mdbv1.MongoDBOpsManager) (
 	// It's important to clean the om state as soon as the reconciler is built!
 	admin := api.NewMockedAdmin()
 	return newOpsManagerReconciler(manager, om.NewOpsManagerConnection, initializer, api.NewMockedAdminProvider),
-		manager.client, initializer, admin
+		manager.Client, initializer, admin
 }
 
 func omWithAppDBVersion(version string) mdbv1.MongoDBOpsManager {
@@ -220,7 +221,7 @@ func DefaultOpsManagerBuilder() *mdbv1.OpsManagerBuilder {
 		AppDB:       *mdbv1.DefaultAppDbBuilder().Build(),
 		AdminSecret: "om-admin",
 	}
-	resource := mdbv1.MongoDBOpsManager{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "testOM", Namespace: TestNamespace}}
+	resource := mdbv1.MongoDBOpsManager{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "testOM", Namespace: mock.TestNamespace}}
 	return mdbv1.NewOpsManagerBuilderFromResource(resource)
 }
 
