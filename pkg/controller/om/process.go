@@ -252,8 +252,10 @@ func (p Process) ConfigureClusterAuthMode(clusterAuthMode string) Process {
 }
 
 func (p Process) IsTLSEnabled() bool {
-	_, ok := p.SSLConfig()["PEMKeyFile"]
-	return ok
+	_, keyFile0 := p.SSLConfig()["PEMKeyFile"]
+	_, keyFile1 := p.SSLConfig()["certificateKeyFile"]
+
+	return keyFile0 || keyFile1
 }
 
 func (p Process) HasInternalClusterAuthentication() bool {
@@ -302,10 +304,23 @@ func (p Process) ConfigureTLS(mode mdbv1.SSLMode, pemKeyFileLocation string) {
 	sslConfig := p.EnsureSSLConfig()
 
 	sslConfig["mode"] = string(mode)
-	sslConfig["PEMKeyFile"] = pemKeyFileLocation
 
 	if mode == mdbv1.DisabledSSLMode {
-		delete(sslConfig, "PEMKeyFile")
+		// If these attribute exists, it needs to be removed
+		// PEMKeyFile is older
+		// certificateKeyFile is the current one
+		if _, ok := sslConfig["certificateKeyFile"]; ok {
+			delete(sslConfig, "certificateKeyFile")
+		}
+		if _, ok := sslConfig["PEMKeyFile"]; ok {
+			delete(sslConfig, "PEMKeyFile")
+		}
+	} else {
+		if _, ok := sslConfig["certificateKeyFile"]; ok {
+			sslConfig["certificateKeyFile"] = pemKeyFileLocation
+		} else {
+			sslConfig["PEMKeyFile"] = pemKeyFileLocation
+		}
 	}
 }
 
@@ -388,7 +403,13 @@ func (p Process) mergeFrom(operatorProcess Process) {
 		}
 		// if the mode is specified as disabled, providing "PEMKeyFile" is an invalid config
 		if mode == string(mdbv1.DisabledSSLMode) {
-			delete(p.EnsureSSLConfig(), "PEMKeyFile")
+			sslConfig := p.EnsureSSLConfig()
+			if _, ok := sslConfig["PEMKeyFile"]; ok {
+				delete(sslConfig, "PEMKeyFile")
+			}
+			if _, ok := sslConfig["certificateKeyFile"]; ok {
+				delete(sslConfig, "certificateKeyFile")
+			}
 		}
 	} else {
 		delete(p.EnsureNetConfig(), "ssl")

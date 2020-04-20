@@ -69,6 +69,32 @@ func TestConfigureSSL_Process(t *testing.T) {
 	assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.DisabledSSLMode)}, process.SSLConfig())
 }
 
+func TestConfigureSSL_Process_CertificateKeyFile(t *testing.T) {
+	t.Run("When provided with certificateKeyFile attribute name, it is maintained", func(t *testing.T) {
+		process := Process{}
+		sslConfig := process.EnsureSSLConfig()
+		sslConfig["certificateKeyFile"] = "xxx"
+		process.ConfigureTLS(mdbv1.RequireSSLMode, "pem-file0")
+		assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.RequireSSLMode), "certificateKeyFile": "pem-file0"}, process.SSLConfig())
+	})
+
+	t.Run("A non-defined mode keeps the certificateKeyFile attribute name", func(t *testing.T) {
+		process := Process{}
+		sslConfig := process.EnsureSSLConfig()
+		sslConfig["certificateKeyFile"] = "xxx"
+		process.ConfigureTLS("", "pem-file1")
+		assert.Equal(t, map[string]interface{}{"mode": "", "certificateKeyFile": "pem-file1"}, process.SSLConfig())
+	})
+
+	t.Run("If TLS is disabled, the certificateKeyFile attribute is deleted", func(t *testing.T) {
+		process := Process{}
+		sslConfig := process.EnsureSSLConfig()
+		sslConfig["certificateKeyFile"] = "xxx"
+		process.ConfigureTLS(mdbv1.DisabledSSLMode, "pem-file2")
+		assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.DisabledSSLMode)}, process.SSLConfig())
+	})
+}
+
 func TestTlsConfig(t *testing.T) {
 	process := Process{}
 	process.ConfigureTLS(mdbv1.RequireSSLMode, "another-pem-file")
