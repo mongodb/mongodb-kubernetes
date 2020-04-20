@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	appsv1 "k8s.io/api/apps/v1"
 	"os"
 	"reflect"
 	"testing"
@@ -278,6 +279,70 @@ func TestBuildService(t *testing.T) {
 	assert.Equal(t, "None", svc.Spec.ClusterIP)
 	assert.Equal(t, int32(2000), svc.Spec.Ports[0].Port)
 	assert.Equal(t, "label", svc.Labels[AppLabelKey])
+}
+
+func TestGetCustomStatefulSet(t *testing.T) {
+	t.Run("Configuring StatefulSetSpec returns correct Spec", func(t *testing.T) {
+		podSpecWrapper := mdbv1.NewPodSpecWrapperBuilder().Build()
+		config := &mdbv1.StatefulSetConfiguration{
+			Spec: appsv1.StatefulSetSpec{
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "spec-name",
+						Namespace: "spec-namespace",
+					},
+				},
+			},
+		}
+
+		stsSpec := getCustomStatefulSet(config, *podSpecWrapper)
+		assert.Equal(t, "spec-name", stsSpec.Template.Name)
+		assert.Equal(t, "spec-namespace", stsSpec.Template.Namespace)
+	})
+	t.Run("Configuring PodTemplate returns correct Spec", func(t *testing.T) {
+		podSpecWrapper := mdbv1.NewPodSpecWrapperBuilder().Build()
+		podSpecWrapper.PodTemplate = &corev1.PodTemplateSpec{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "spec-name",
+				Namespace: "spec-namespace",
+			},
+		}
+
+		stsSpec := getCustomStatefulSet(nil, *podSpecWrapper)
+		assert.Equal(t, "spec-name", stsSpec.Template.Name)
+		assert.Equal(t, "spec-namespace", stsSpec.Template.Namespace)
+	})
+
+	t.Run("Configuring Both returns correct Spec", func(t *testing.T) {
+		podSpecWrapper := mdbv1.NewPodSpecWrapperBuilder().Build()
+		config := &mdbv1.StatefulSetConfiguration{
+			Spec: appsv1.StatefulSetSpec{
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "spec-name-sts",
+						Namespace: "spec-namespace-sts",
+					},
+				},
+			},
+		}
+		podSpecWrapper.PodTemplate = &corev1.PodTemplateSpec{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "spec-name-podtemplate",
+				Namespace: "spec-namespace-podtemplate",
+			},
+		}
+
+		stsSpec := getCustomStatefulSet(config, *podSpecWrapper)
+		assert.Equal(t, "spec-name-sts", stsSpec.Template.Name)
+		assert.Equal(t, "spec-namespace-sts", stsSpec.Template.Namespace)
+	})
+	t.Run("Configuring neither returns nil", func(t *testing.T) {
+		podSpecWrapper := mdbv1.NewPodSpecWrapperBuilder().Build()
+		podSpecWrapper.PodTemplate = nil
+
+		stsSpec := getCustomStatefulSet(nil, *podSpecWrapper)
+		assert.Nil(t, stsSpec)
+	})
 }
 
 func defaultConfigMap(name string) corev1.ConfigMap {

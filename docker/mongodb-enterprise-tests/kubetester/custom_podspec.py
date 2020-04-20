@@ -27,4 +27,13 @@ def assert_stateful_set_podspec(
         spec = pod_template_spec.containers[i].to_dict()
         # compare only the expected keys
         for k in expected_spec:
-            assert expected_spec[k] == spec[k]
+            if k == "volume_mounts":
+                expected_volume_mounts = sorted(
+                    expected_spec[k], key=lambda m: (m["name"], m["mount_path"])
+                )
+                actual_volume_mounts = sorted(
+                    spec[k], key=lambda m: (m["name"], m["mount_path"])
+                )
+                assert expected_volume_mounts == actual_volume_mounts
+            else:
+                assert expected_spec[k] == spec[k]

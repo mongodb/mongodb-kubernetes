@@ -597,6 +597,11 @@ spec:
               type: array
               items:
                 type: string
+            statefulSet:
+              type: object
+              properties:
+                spec:
+                  type: object
             podSpec:
               type: object
               properties:
@@ -722,6 +727,11 @@ spec:
                       - s3BucketEndpoint
                       - s3BucketName
                       - s3SecretRef
+                statefulSet:
+                  type: object
+                  properties:
+                    spec:
+                      type: object
                 podSpec:
                   type: object
                   properties:
@@ -789,6 +799,11 @@ spec:
                   enum: ["DEBUG", "INFO", "WARN", "ERROR", "FATAL"]
                 persistent:
                   type: boolean
+                statefulSet:
+                  type: object
+                  properties:
+                    spec:
+                      type: object
                 podSpec:
                   type: object
                   properties:

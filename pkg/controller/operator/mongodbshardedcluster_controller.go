@@ -267,7 +267,9 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 		SetPersistence(util.BooleanRef(false)).
 		SetTLS(s.Spec.GetTLSConfig()).
 		SetProjectConfig(*projectConfig).
-		SetSecurity(s.Spec.Security)
+		SetSecurity(s.Spec.Security).
+		SetStatefulSetConfiguration(nil) // TODO: configure once supported
+		//SetStatefulSetConfiguration(s.Spec.MongosStatefulSetConfiguration)
 
 	mongosBuilder.SetCertificateHash(mongosBuilder.readPemHashFromSecret())
 
@@ -285,7 +287,9 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 		SetLogger(log).
 		SetTLS(s.Spec.GetTLSConfig()).
 		SetProjectConfig(*projectConfig).
-		SetSecurity(s.Spec.Security)
+		SetSecurity(s.Spec.Security).
+		SetStatefulSetConfiguration(nil) // TODO: configure once supported
+		//SetStatefulSetConfiguration(s.Spec.ConfigSrvStatefulSetConfiguration)
 
 	configBuilder.SetCertificateHash(configBuilder.readPemHashFromSecret())
 	// 3. Creates a StatefulSet for each shard in the cluster
@@ -300,7 +304,9 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 			SetLogger(log).
 			SetTLS(s.Spec.GetTLSConfig()).
 			SetProjectConfig(*projectConfig).
-			SetSecurity(s.Spec.Security)
+			SetSecurity(s.Spec.Security).
+			SetStatefulSetConfiguration(nil) // TODO: configure once supported
+			//SetStatefulSetConfiguration(s.Spec.ShardStatefulSetConfiguration)
 		shardsSetHelpers[i].SetCertificateHash(shardsSetHelpers[i].readPemHashFromSecret())
 	}
 

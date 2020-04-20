@@ -107,19 +107,10 @@ func defaultPodLabels(stsHelper StatefulSetHelperCommon) map[string]string {
 	}
 }
 
-// getMergedDefaultPodSpecTemplate merges the user-defined podTemplate into default pod template built by
-// the Operator if provided
-func getMergedDefaultPodSpecTemplate(defaultPodSpecTemplate corev1.PodTemplateSpec, podTemplateOverride *corev1.PodTemplateSpec) (corev1.PodTemplateSpec, error) {
-	if podTemplateOverride == nil {
-		return defaultPodSpecTemplate, nil
-	}
-	// there is a user defined pod spec template, we need to merge in all of the default values
-	return util.MergePodSpecs(*podTemplateOverride, defaultPodSpecTemplate)
-}
 
 // getDatabasePodTemplate returns the pod template for mongodb pod (MongoDB or AppDB)
 func getDatabasePodTemplate(stsHelper StatefulSetHelper,
-	annotations map[string]string, serviceAccountName string, container corev1.Container) (corev1.PodTemplateSpec, error) {
+	annotations map[string]string, serviceAccountName string, container corev1.Container) corev1.PodTemplateSpec {
 	podLabels := defaultPodLabels(stsHelper.StatefulSetHelperCommon)
 	if annotations == nil {
 		annotations = make(map[string]string)
@@ -143,12 +134,12 @@ func getDatabasePodTemplate(stsHelper StatefulSetHelper,
 			Name: val,
 		})
 	}
-	return applyPodSpec(templateSpec, stsHelper.PodSpec, stsHelper.Name)
+	return configureDefaultAffinityAndResources(templateSpec, stsHelper.PodSpec, stsHelper.Name)
 }
 
-// applyPodSpec updates the pod template created by the Operator based on spec.podSpec specified for the CR
+// configureDefaultAffinityAndResources updates the pod template created by the Operator based on spec.podSpec specified for the CR
 // note, that it doesn't deal with podspec persistence (it's actually for statefulset level, not podtemplate)
-func applyPodSpec(podTemplate corev1.PodTemplateSpec, podSpec *mdbv1.PodSpecWrapper, stsName string) (corev1.PodTemplateSpec, error) {
+func configureDefaultAffinityAndResources(podTemplate corev1.PodTemplateSpec, podSpec *mdbv1.PodSpecWrapper, stsName string) corev1.PodTemplateSpec {
 	podTemplate.Spec.Affinity =
 		&corev1.Affinity{
 			NodeAffinity: podSpec.NodeAffinity,
@@ -171,13 +162,7 @@ func applyPodSpec(podTemplate corev1.PodTemplateSpec, podSpec *mdbv1.PodSpecWrap
 		Limits:   buildLimitsRequirements(podSpec),
 		Requests: buildRequestsRequirements(podSpec),
 	}
-
-	// merge user-defined podTemplate into the default template spec if necessary
-	templateSpec, err := getMergedDefaultPodSpecTemplate(podTemplate, podSpec.PodTemplate)
-	if err != nil {
-		return corev1.PodTemplateSpec{}, err
-	}
-	return templateSpec, nil
+	return podTemplate
 }
 
 func newMongoDBContainer(podVars *PodVars) corev1.Container {
@@ -225,11 +210,8 @@ func buildStatefulSet(p StatefulSetHelper) (appsv1.StatefulSet, error) {
 		"certHash": p.CertificateHash,
 	}
 	// podLabels are labels we set to StatefulSet Selector and Template.Meta
-	template, err := getDatabasePodTemplate(p, annotations, util.MongoDBServiceAccount,
+	template := getDatabasePodTemplate(p, annotations, util.MongoDBServiceAccount,
 		newMongoDBContainer(p.PodVars))
-	if err != nil {
-		return appsv1.StatefulSet{}, err
-	}
 
 	return createBaseDatabaseStatefulSetBuilder(p, template).Build()
 }
@@ -253,13 +235,9 @@ func prepareOmAppdbImageUrl(imageUrl, version string) string {
 // buildAppDbStatefulSet builds the StatefulSet for AppDB.
 // It's mostly the same as the normal MongoDB one but has slightly different container and an additional mounting volume
 func buildAppDbStatefulSet(p StatefulSetHelper) (appsv1.StatefulSet, error) {
-	var err error
 	appdbImageUrl := prepareOmAppdbImageUrl(util.ReadEnvVarOrPanic(util.AppDBImageUrl), p.Version)
-	template, err := getDatabasePodTemplate(p, nil, util.AppDBServiceAccount,
+	template := getDatabasePodTemplate(p, nil, util.AppDBServiceAccount,
 		newAppDBContainer(p.Name, appdbImageUrl))
-	if err != nil {
-		return appsv1.StatefulSet{}, err
-	}
 
 	stsBuilder := createBaseDatabaseStatefulSetBuilder(p, template)
 
@@ -283,10 +261,7 @@ func buildAppDbStatefulSet(p StatefulSetHelper) (appsv1.StatefulSet, error) {
 func createBaseOpsManagerStatefulSetBuilder(p OpsManagerStatefulSetHelper, containerSpec corev1.Container) (*statefulset.Builder, error) {
 	labels := defaultPodLabels(p.StatefulSetHelperCommon)
 
-	template, err := opsManagerPodTemplate(labels, p, containerSpec)
-	if err != nil {
-		return nil, err
-	}
+	template := opsManagerPodTemplate(labels, p, containerSpec)
 
 	jvmParamsEnvVars, err := buildJvmParamsEnvVars(p.Spec, template)
 	if err != nil {
@@ -722,7 +697,7 @@ func appdbContainerEnv(statefulSetName string) []corev1.EnvVar {
 
 // opsManagerPodTemplate builds the pod template spec used by both Backup and OM statefulsets
 // In the end it applies the podSpec (and probably podSpec.podTemplate) as the MongoDB and AppDB do.
-func opsManagerPodTemplate(labels map[string]string, stsHelper OpsManagerStatefulSetHelper, containerSpec corev1.Container) (corev1.PodTemplateSpec, error) {
+func opsManagerPodTemplate(labels map[string]string, stsHelper OpsManagerStatefulSetHelper, containerSpec corev1.Container) corev1.PodTemplateSpec {
 	version := util.ReadEnvVarOrDefault(util.InitOpsManagerVersion, "latest")
 	imageUrl := fmt.Sprintf("%s:%s", util.ReadEnvVarOrPanic(util.InitOpsManagerImageUrl), version)
 	templateSpec := corev1.PodTemplateSpec{
@@ -750,7 +725,7 @@ func opsManagerPodTemplate(labels map[string]string, stsHelper OpsManagerStatefu
 			Name: val,
 		})
 	}
-	return applyPodSpec(templateSpec, stsHelper.PodSpec, stsHelper.Name)
+	return configureDefaultAffinityAndResources(templateSpec, stsHelper.PodSpec, stsHelper.Name)
 }
 
 func baseLivenessProbe() *corev1.Probe {

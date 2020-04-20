@@ -3,6 +3,7 @@ package v1
 import (
 	"encoding/json"
 	"fmt"
+	appsv1 "k8s.io/api/apps/v1"
 	"reflect"
 	"sort"
 	"strings"
@@ -131,6 +132,17 @@ type MongoDbSpec struct {
 	Persistent   *bool        `json:"persistent,omitempty"`
 	ResourceType ResourceType `json:"type,omitempty"`
 	// sharded cluster
+
+	// TODO: uncomment once we remove podSpec and support the various statefulSet specs
+	// +optional
+	//ConfigSrvStatefulSetConfiguration *StatefulSetConfiguration `json:"configSrvStatefulSet,omitempty"`
+	// +optional
+	//MongosStatefulSetConfiguration *StatefulSetConfiguration `json:"mongosStatefulSet,omitempty"`
+	// +optional
+	//ShardStatefulSetConfiguration *StatefulSetConfiguration `json:"shardStatefulSet,omitempty"`
+	// +optional
+	//StatefulSetConfiguration *StatefulSetConfiguration `json:"statefulSet,omitempty"`
+
 	ConfigSrvPodSpec *MongoDbPodSpec `json:"configSrvPodSpec,omitempty"`
 	MongosPodSpec    *MongoDbPodSpec `json:"mongosPodSpec,omitempty"`
 	ShardPodSpec     *MongoDbPodSpec `json:"shardPodSpec,omitempty"`
@@ -149,6 +161,12 @@ type MongoDbSpec struct {
 	// configuration file:
 	// https://docs.mongodb.com/manual/reference/configuration-options/
 	AdditionalMongodConfig *AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
+}
+
+// StatefulSetConfiguration holds the optional custom StatefulSet
+// that should be merged into the operator created one.
+type StatefulSetConfiguration struct {
+	Spec appsv1.StatefulSetSpec `json:"spec"`
 }
 
 // GetVersion returns the version of the MongoDB. In the case of the AppDB

@@ -9,60 +9,68 @@ spec:
   configuration:
     mms.testUtil.enabled: "true"
   backup:
+    statefulSet:
+      spec:
+        template:
+          spec:
+            hostAliases:
+              - ip: "1.2.3.4"
+                hostnames: ["hostname"]
     enabled: true
     podSpec:
       cpuRequests: '0.50'
       memoryRequests: 4500M
-      podTemplate:
+
+  statefulSet:
+    spec:
+      template:
+        metadata:
+          annotations:
+            key1: value1
         spec:
-          hostAliases:
-            - ip: "1.2.3.4"
-              hostnames: ["hostname"]
+          volumes:
+            - name: test-volume
+              emptyDir: {}
+          tolerations:
+            - key: "key"
+              operator: "Exists"
+              effect: "NoSchedule"
+          containers:
+            - name: mongodb-ops-manager
+              readinessProbe:
+                failureThreshold: 20
+              volumeMounts:
+                - mountPath: /somewhere
+                  name: test-volume
   podSpec:
     cpu: '0.70'
     memory: 6G
-    podTemplate:
-      metadata:
-        annotations:
-          key1: value1
-      spec:
-        volumes:
-          - name: test-volume
-            emptyDir: {}
-        tolerations:
-          - key: "key"
-            operator: "Exists"
-            effect: "NoSchedule"
-        containers:
-          - name: mongodb-ops-manager
-            readinessProbe:
-              failureThreshold: 20
-            volumeMounts:
-              - mountPath: /somewhere
-                name: test-volume
 
   applicationDatabase:
     members: 3
     version: 4.2.0
+    statefulSet:
+      spec:
+        template:
+          spec:
+            # TO kill sidecar right away
+            terminationGracePeriodSeconds: 3
+            # This container will be added to each pod as a sidecar
+            containers:
+              - name: appdb-sidecar
+                image: busybox
+                command: ["sleep"]
+                args: [ "infinity" ]
+                resources:
+                  limits:
+                    cpu: "1"
+                  requests:
+                    cpu: 500m
+
     podSpec:
       cpu: '0.25'
       memory: 350M
       persistence:
         single:
           storage: 1G
-      podTemplate:
-        spec:
-          # TO kill sidecar right away
-          terminationGracePeriodSeconds: 3
-          # This container will be added to each pod as a sidecar
-          containers:
-            - name: appdb-sidecar
-              image: busybox
-              command: ["sleep"]
-              args: [ "infinity" ]
-              resources:
-                limits:
-                  cpu: "1"
-                requests:
-                  cpu: 500m
 

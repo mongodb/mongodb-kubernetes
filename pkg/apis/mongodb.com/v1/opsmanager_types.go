@@ -41,10 +41,10 @@ const (
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +k8s:openapi-gen=true
 type MongoDBOpsManager struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
-	Spec              MongoDBOpsManagerSpec   `json:"spec"`
-	Status            MongoDBOpsManagerStatus `json:"status"`
+	metav1.TypeMeta          `json:",inline"`
+	metav1.ObjectMeta        `json:"metadata,omitempty"`
+	Spec                     MongoDBOpsManagerSpec   `json:"spec"`
+	Status                   MongoDBOpsManagerStatus `json:"status"`
 }
 
 func (om MongoDBOpsManager) AddValidationToManager(m manager.Manager) error {
@@ -95,6 +95,10 @@ type MongoDBOpsManagerSpec struct {
 	// Configure HTTPS.
 	// +optional
 	Security *MongoDBOpsManagerSecurity `json:"security,omitempty"`
+
+	// Configure custom StatefulSet configuration
+	// +optional
+	StatefulSetConfiguration *StatefulSetConfiguration `json:"statefulSet,omitempty"`
 }
 
 type MongoDBOpsManagerSecurity struct {
@@ -156,6 +160,7 @@ type MongoDBOpsManagerBackup struct {
 	S3Configs         []S3Config        `json:"s3Stores,omitempty"`
 
 	PodSpec *MongoDbPodSpec `json:"podSpec,omitempty"`
+	StatefulSetConfiguration *StatefulSetConfiguration `json:"statefulSet,omitempty"`
 }
 
 type MongoDBOpsManagerStatus struct {
@@ -515,6 +520,10 @@ func SchemePortFromAnnotation(annotation string) (corev1.URIScheme, int) {
 
 type AppDB struct {
 	MongoDbSpec
+
+	// TODO: remove this once MongoDbSpec has it
+	// +optional
+	StatefulSetConfiguration *StatefulSetConfiguration `json:"statefulSet,omitempty"`
 
 	// PasswordSecretKeyRef contains a reference to the secret which contains the password
 	// for the mongodb-ops-manager SCRAM-SHA user

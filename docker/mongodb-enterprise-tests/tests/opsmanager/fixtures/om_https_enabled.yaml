@@ -16,47 +16,48 @@ spec:
     members: 3
     version: 4.2.0
 
-  podSpec:
-    podTemplate:
-      spec:
-        volumes:
-          - name: mongodb-versions
-            emptyDir: {}
-        containers:
-          - name: mongodb-ops-manager
-            volumeMounts:
-              - name: mongodb-versions
-                mountPath: /mongodb-ops-manager/mongodb-releases
+  statefulSet:
+    spec:
+      template:
+        spec:
+          volumes:
+            - name: mongodb-versions
+              emptyDir: {}
+          containers:
+            - name: mongodb-ops-manager
+              volumeMounts:
+                - name: mongodb-versions
+                  mountPath: /mongodb-ops-manager/mongodb-releases
 
-        # The initContainers will download the require 3.6.9 version of MongoDB
-        # allowing Ops Manager to act as download endpoint for the automation agent
-        # for this particular version.
-        # This is required because of public Internet downloads not being
-        # possible after using a custom-ca for the OM HTTPS server.
-        initContainers:
-          - name: setting-up-rhel
-            image: curlimages/curl:latest
-            command:
-            - curl
-            - -L
-            - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel70-3.6.9.tgz
-            - -o
-            - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel70-3.6.9.tgz
-            volumeMounts:
-              - name: mongodb-versions
-                mountPath: /mongodb-ops-manager/mongodb-releases
+          # The initContainers will download the require 3.6.9 version of MongoDB
+          # allowing Ops Manager to act as download endpoint for the automation agent
+          # for this particular version.
+          # This is required because of public Internet downloads not being
+          # possible after using a custom-ca for the OM HTTPS server.
+          initContainers:
+            - name: setting-up-rhel
+              image: curlimages/curl:latest
+              command:
+              - curl
+              - -L
+              - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel70-3.6.9.tgz
+              - -o
+              - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel70-3.6.9.tgz
+              volumeMounts:
+                - name: mongodb-versions
+                  mountPath: /mongodb-ops-manager/mongodb-releases
 
-          - name: setting-up-ubuntu
-            image: curlimages/curl:latest
-            command:
-            - curl
-            - -L
-            - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu1604-3.6.9.tgz
-            - -o
-            - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-ubuntu1604-3.6.9.tgz
-            volumeMounts:
-              - name: mongodb-versions
-                mountPath: /mongodb-ops-manager/mongodb-releases
+            - name: setting-up-ubuntu
+              image: curlimages/curl:latest
+              command:
+              - curl
+              - -L
+              - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu1604-3.6.9.tgz
+              - -o
+              - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-ubuntu1604-3.6.9.tgz
+              volumeMounts:
+                - name: mongodb-versions
+                  mountPath: /mongodb-ops-manager/mongodb-releases
 
   backup:
     enabled: false

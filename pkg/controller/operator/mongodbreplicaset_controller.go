@@ -73,7 +73,6 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 	if !reconcileResult.IsOK() {
 		return r.updateStatus(rs, reconcileResult, log)
 	}
-
 	replicaBuilder := r.kubeHelper.NewStatefulSetHelper(rs).
 		SetService(rs.ServiceName()).
 		SetPodVars(podVars).
@@ -81,7 +80,10 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		SetTLS(rs.Spec.GetTLSConfig()).
 		SetProjectConfig(*projectConfig).
 		SetSecurity(rs.Spec.Security).
-		SetReplicaSetHorizons(rs.Spec.Connectivity.ReplicaSetHorizons)
+		SetReplicaSetHorizons(rs.Spec.Connectivity.ReplicaSetHorizons).
+		SetStatefulSetConfiguration(nil) // TODO: configure once supported
+		//SetStatefulSetConfiguration(rs.Spec.StatefulSetConfiguration)
+
 	replicaBuilder.SetCertificateHash(replicaBuilder.readPemHashFromSecret())
 
 	if status := validateMongoDBResource(rs, conn); !status.IsOK() {

@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 	"net/url"
 	"strings"
 
@@ -68,12 +69,13 @@ type StatefulSetHelperCommon struct {
 
 	// ClusterDomain is the cluster name that's usually 'cluster.local' but it
 	// can be changed by the customer.
-	ClusterDomain string
-	Replicas      int
-	ServicePort   int32
-	Version       string
-	ContainerName string
-	PodSpec       *mdbv1.PodSpecWrapper
+	ClusterDomain            string
+	Replicas                 int
+	ServicePort              int32
+	Version                  string
+	ContainerName            string
+	PodSpec                  *mdbv1.PodSpecWrapper
+	StatefulSetConfiguration *mdbv1.StatefulSetConfiguration
 
 	// Not part of StatefulSet object
 	Helper *KubeHelper
@@ -218,16 +220,17 @@ func (k *KubeHelper) NewOpsManagerStatefulSetHelper(opsManager mdbv1.MongoDBOpsM
 
 	return &OpsManagerStatefulSetHelper{
 		StatefulSetHelperCommon: StatefulSetHelperCommon{
-			Owner:         &opsManager,
-			Name:          opsManager.GetName(),
-			Namespace:     opsManager.GetNamespace(),
-			ContainerName: util.OpsManagerContainerName,
-			Replicas:      opsManager.Spec.Replicas,
-			Helper:        k,
-			ServicePort:   int32(port),
-			Version:       opsManager.Spec.Version,
-			Service:       opsManager.SvcName(),
-			PodSpec:       spec,
+			Owner:                    &opsManager,
+			Name:                     opsManager.GetName(),
+			Namespace:                opsManager.GetNamespace(),
+			ContainerName:            util.OpsManagerContainerName,
+			Replicas:                 opsManager.Spec.Replicas,
+			Helper:                   k,
+			ServicePort:              int32(port),
+			Version:                  opsManager.Spec.Version,
+			Service:                  opsManager.SvcName(),
+			PodSpec:                  spec,
+			StatefulSetConfiguration: opsManager.Spec.StatefulSetConfiguration,
 		},
 		Spec:                    opsManager.Spec,
 		EnvVars:                 opsManagerConfigurationToEnvVars(opsManager),
@@ -244,6 +247,12 @@ func (k *KubeHelper) NewBackupStatefulSetHelper(opsManager mdbv1.MongoDBOpsManag
 	helper.ContainerName = util.BackupDaemonContainerName
 	helper.Service = ""
 	helper.Replicas = 1
+	// unset the default that was configured with Ops Manager
+	helper.StatefulSetConfiguration = nil
+
+	if opsManager.Spec.Backup != nil {
+		helper.StatefulSetConfiguration = opsManager.Spec.Backup.StatefulSetConfiguration
+	}
 	if opsManager.Spec.Backup.HeadDB != nil {
 		helper.HeadDbPersistenceConfig = opsManager.Spec.Backup.HeadDB
 	}
@@ -341,12 +350,39 @@ func (s *StatefulSetHelper) SetContainerName(containerName string) *StatefulSetH
 	return s
 }
 
+func (s *StatefulSetHelper) SetStatefulSetConfiguration(stsConfiguration *mdbv1.StatefulSetConfiguration) *StatefulSetHelper {
+	s.StatefulSetConfiguration = stsConfiguration
+	return s
+}
+
 func (s StatefulSetHelper) BuildStatefulSet() (appsv1.StatefulSet, error) {
-	return buildStatefulSet(s)
+	sts, err := buildStatefulSet(s)
+
+	if err != nil {
+		return appsv1.StatefulSet{}, fmt.Errorf("error building %s StatefulSet: %v", s.Name, err)
+	}
+	return mergeSpec(sts, s.StatefulSetConfiguration, *s.PodSpec)
 }
 
 func (s StatefulSetHelper) BuildAppDbStatefulSet() (appsv1.StatefulSet, error) {
-	return buildAppDbStatefulSet(s)
+	sts, err := buildAppDbStatefulSet(s)
+	if err != nil {
+		return appsv1.StatefulSet{}, fmt.Errorf("error building %s StatefulSet: %v", s.Name, err)
+	}
+	return mergeSpec(sts, s.StatefulSetConfiguration, *s.PodSpec)
+}
+
+// mergeSpec accepts a fully constructed StatefulSet, and returns a new merged StatefulSet
+// based on the provided StatefulSetConfiguration and PodSpecWrapper
+func mergeSpec(sts appsv1.StatefulSet, stsConfig *mdbv1.StatefulSetConfiguration, wrapper mdbv1.PodSpecWrapper) (appsv1.StatefulSet, error) {
+	var err error
+	if customStsSpec := getCustomStatefulSet(stsConfig, wrapper); customStsSpec != nil {
+		sts, err = statefulset.MergeSpec(sts, customStsSpec)
+		if err != nil {
+			return appsv1.StatefulSet{}, fmt.Errorf("error applying StatefulSet override spec: %v", err)
+		}
+	}
+	return sts, nil
 }
 
 // CreateOrUpdateInKubernetes creates (updates if it exists) the StatefulSet with its Service.
@@ -354,8 +390,9 @@ func (s StatefulSetHelper) BuildAppDbStatefulSet() (appsv1.StatefulSet, error) {
 func (s StatefulSetHelper) CreateOrUpdateInKubernetes() error {
 	sts, err := s.BuildStatefulSet()
 	if err != nil {
-		return err
+		return fmt.Errorf("error building stateful set: %v", err)
 	}
+
 	set, err := s.Helper.createOrUpdateStatefulset(
 		s.Namespace,
 		s.Logger,
@@ -382,11 +419,21 @@ func (s StatefulSetHelper) CreateOrUpdateInKubernetes() error {
 }
 
 func (s OpsManagerStatefulSetHelper) BuildStatefulSet() (appsv1.StatefulSet, error) {
-	return buildOpsManagerStatefulSet(s)
+	omSts, err := buildOpsManagerStatefulSet(s)
+
+	if err != nil {
+		return appsv1.StatefulSet{}, fmt.Errorf("error building Ops Manager StatefulSet: %v", err)
+	}
+	return mergeSpec(omSts, s.StatefulSetConfiguration, *s.PodSpec)
 }
 
 func (s BackupStatefulSetHelper) BuildStatefulSet() (appsv1.StatefulSet, error) {
-	return buildBackupDaemonStatefulSet(s)
+	backupSts, err := buildBackupDaemonStatefulSet(s)
+	if err != nil {
+		return appsv1.StatefulSet{}, fmt.Errorf("error building backup daemon StatefulSet")
+	}
+
+	return mergeSpec(backupSts, s.StatefulSetConfiguration, *s.PodSpec)
 }
 
 func (s *OpsManagerStatefulSetHelper) SetService(service string) *OpsManagerStatefulSetHelper {
@@ -422,8 +469,9 @@ func (s *OpsManagerStatefulSetHelper) SetVersion(version string) *OpsManagerStat
 func (s OpsManagerStatefulSetHelper) CreateOrUpdateInKubernetes() error {
 	sts, err := s.BuildStatefulSet()
 	if err != nil {
-		return err
+		return fmt.Errorf("error building OpsManager stateful set: %v", err)
 	}
+
 	set, err := s.Helper.createOrUpdateStatefulset(
 		s.Namespace,
 		s.Logger,
@@ -452,8 +500,9 @@ func (s OpsManagerStatefulSetHelper) CreateOrUpdateInKubernetes() error {
 func (s BackupStatefulSetHelper) CreateOrUpdateInKubernetes() error {
 	sts, err := s.BuildStatefulSet()
 	if err != nil {
-		return err
+		return fmt.Errorf("error building stateful set: %v", err)
 	}
+
 	_, err = s.Helper.createOrUpdateStatefulset(
 		s.Namespace,
 		s.Logger,
@@ -471,7 +520,14 @@ func (s BackupStatefulSetHelper) CreateOrUpdateInKubernetes() error {
 func (s *StatefulSetHelper) CreateOrUpdateAppDBInKubernetes() error {
 	appDbSts, err := s.BuildAppDbStatefulSet()
 	if err != nil {
-		return err
+		return fmt.Errorf("error building stateful set: %v", err)
+	}
+
+	if customStsSpec := getCustomStatefulSet(s.StatefulSetConfiguration, *s.PodSpec); customStsSpec != nil {
+		appDbSts, err = statefulset.MergeSpec(appDbSts, customStsSpec)
+		if err != nil {
+			return fmt.Errorf("error applying override spec: %v", err)
+		}
 	}
 	set, err := s.Helper.createOrUpdateStatefulset(
 		s.Namespace,
@@ -1204,4 +1260,17 @@ func opsManagerConfigurationToEnvVars(m mdbv1.MongoDBOpsManager) []corev1.EnvVar
 		})
 	}
 	return envVars
+}
+
+// getCustomStatefulSet returns the StatefulSetSpec if configured, otherwise
+// if a podTemplate is provided, a StatefulSetSpec is created from that.
+// nil is returned if no custom configuration is provided.
+func getCustomStatefulSet(stsConfig *mdbv1.StatefulSetConfiguration, wrapper mdbv1.PodSpecWrapper) *appsv1.StatefulSetSpec {
+	if stsConfig != nil {
+		return &stsConfig.Spec
+	}
+	if wrapper.PodTemplate != nil {
+		return &appsv1.StatefulSetSpec{Template: *wrapper.PodTemplate}
+	}
+	return nil
 }

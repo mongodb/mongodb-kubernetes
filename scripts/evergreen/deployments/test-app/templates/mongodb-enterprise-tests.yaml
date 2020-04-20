@@ -78,5 +78,5 @@ spec:
     image: {{ .Values.repo }}/mongodb-enterprise-tests:{{ .Values.tag }}
     # Options to pytest command should go in the pytest.ini file.
     command: ["pytest"]
-    args: ["-m", "{{ .Values.taskName }}"]
+    args: ["-vv", "-m", "{{ .Values.taskName }}"]
     imagePullPolicy: Always

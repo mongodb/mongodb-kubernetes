@@ -132,7 +132,8 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		SetLogger(log).
 		SetTLS(s.Spec.GetTLSConfig()).
 		SetProjectConfig(*projectConfig).
-		SetSecurity(s.Spec.Security)
+		SetSecurity(s.Spec.Security).
+		SetStatefulSetConfiguration(nil) // TODO: configure once supported
 	standaloneBuilder.SetCertificateHash(standaloneBuilder.readPemHashFromSecret())
 
 	if status := validateMongoDBResource(s, conn); !status.IsOK() {

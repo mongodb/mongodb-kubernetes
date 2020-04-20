@@ -108,14 +108,6 @@ class TestOpsManagerCreation:
             },
             "volume_mounts": [
                 {
-                    "name": "test-volume",
-                    "mount_path": "/somewhere",
-                    "sub_path": None,
-                    "sub_path_expr": None,
-                    "mount_propagation": None,
-                    "read_only": None,
-                },
-                {
                     "name": "gen-key",
                     "mount_path": "/mongodb-ops-manager/.mongodb-mms",
                     "sub_path": None,
@@ -131,6 +123,14 @@ class TestOpsManagerCreation:
                     "mount_propagation": None,
                     "read_only": True,
                 },
+                {
+                    "name": "test-volume",
+                    "mount_path": "/somewhere",
+                    "sub_path": None,
+                    "sub_path_expr": None,
+                    "mount_propagation": None,
+                    "read_only": None,
+                },
             ],
         }
         for k in expected_spec:
@@ -139,17 +139,16 @@ class TestOpsManagerCreation:
         # new volume was added and the old ones ('gen-key' and 'ops-manager-scripts') stayed there
         assert len(sts.spec.template.spec.volumes) == 3
 
-        assert sts.spec.template.spec.volumes[0].name == "test-volume"
-        assert getattr(sts.spec.template.spec.volumes[0], "empty_dir")
-
-        assert sts.spec.template.spec.volumes[1].name == "gen-key"
+        assert sts.spec.template.spec.volumes[0].name == "gen-key"
         assert (
-            sts.spec.template.spec.volumes[1].secret.secret_name
+            sts.spec.template.spec.volumes[0].secret.secret_name
             == "om-pod-spec-gen-key"
         )
-
-        assert sts.spec.template.spec.volumes[2].name == "ops-manager-scripts"
+        assert sts.spec.template.spec.volumes[2].name == "test-volume"
         assert getattr(sts.spec.template.spec.volumes[2], "empty_dir")
+
+        assert sts.spec.template.spec.volumes[1].name == "ops-manager-scripts"
+        assert getattr(sts.spec.template.spec.volumes[1], "empty_dir")
 
     def test_backup_pod_spec(self, ops_manager: MongoDBOpsManager):
         backup_sts = ops_manager.read_backup_statefulset()
@@ -167,18 +166,18 @@ class TestOpsManagerUpdate:
     def test_om_updated(self, ops_manager: MongoDBOpsManager):
         ops_manager.load()
         # adding annotations
-        ops_manager["spec"]["applicationDatabase"]["podSpec"]["podTemplate"][
+        ops_manager["spec"]["applicationDatabase"]["statefulSet"]["spec"]["template"][
             "metadata"
         ] = {"annotations": {"annotation1": "val"}}
 
         # changing memory and adding labels for OM
-        ops_manager["spec"]["podSpec"]["memory"] = "5G"
-        ops_manager["spec"]["podSpec"]["podTemplate"]["metadata"]["labels"] = {
+        ops_manager["spec"]["statefulSet"]["spec"]["template"]["spec"]["memory"] = "5G"
+        ops_manager["spec"]["statefulSet"]["spec"]["template"]["metadata"]["labels"] = {
             "additional": "foo"
         }
 
         # termination_grace_period_seconds for Backup
-        ops_manager["spec"]["backup"]["podSpec"]["podTemplate"]["spec"][
+        ops_manager["spec"]["backup"]["statefulSet"]["spec"]["template"]["spec"][
             "terminationGracePeriodSeconds"
         ] = 10
 
@@ -206,7 +205,9 @@ class TestOpsManagerUpdate:
         assert len(sts.spec.template.spec.containers) == 1
         om_container = sts.spec.template.spec.containers[0]
         assert om_container.resources.limits["cpu"] == "700m"
-        assert om_container.resources.limits["memory"] == "5G"
+
+        # this is because podSpec is still taking precedence. This will change once removed
+        assert om_container.resources.limits["memory"] == "6G"  # not 5G
 
         assert sts.spec.template.metadata.annotations == {"key1": "value1"}
         assert len(sts.spec.template.metadata.labels) == 4
