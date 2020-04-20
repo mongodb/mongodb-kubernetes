@@ -894,6 +894,7 @@ tasks:
   priority: 59
   commands:
     - func: clone
+    - func: setup_jq
     - func: setup_aws
     - func: prepare_aws
 
