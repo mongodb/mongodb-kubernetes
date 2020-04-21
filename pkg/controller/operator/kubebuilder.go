@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
+
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
@@ -107,7 +109,6 @@ func defaultPodLabels(stsHelper StatefulSetHelperCommon) map[string]string {
 	}
 }
 
-
 // getDatabasePodTemplate returns the pod template for mongodb pod (MongoDB or AppDB)
 func getDatabasePodTemplate(stsHelper StatefulSetHelper,
 	annotations map[string]string, serviceAccountName string, container corev1.Container) corev1.PodTemplateSpec {
@@ -129,7 +130,7 @@ func getDatabasePodTemplate(stsHelper StatefulSetHelper,
 	templateSpec.ObjectMeta.Labels = podLabels
 	templateSpec.Annotations = annotations
 
-	if val, found := util.ReadEnv(util.ImagePullSecrets); found {
+	if val, found := envutil.Read(util.ImagePullSecrets); found {
 		templateSpec.Spec.ImagePullSecrets = append(templateSpec.Spec.ImagePullSecrets, corev1.LocalObjectReference{
 			Name: val,
 		})
@@ -166,7 +167,7 @@ func configureDefaultAffinityAndResources(podTemplate corev1.PodTemplateSpec, po
 }
 
 func newMongoDBContainer(podVars *PodVars) corev1.Container {
-	return newDbContainer(util.DatabaseContainerName, util.ReadEnvVarOrPanic(util.AutomationAgentImage), baseEnvFrom(podVars), baseReadinessProbe())
+	return newDbContainer(util.DatabaseContainerName, envutil.ReadOrPanic(util.AutomationAgentImage), baseEnvFrom(podVars), baseReadinessProbe())
 }
 
 func newAppDBContainer(statefulSetName, appdbImageUrl string) corev1.Container {
@@ -177,7 +178,7 @@ func newDbContainer(containerName, imageUrl string, envVars []corev1.EnvVar, rea
 	container := corev1.Container{
 		Name:  containerName,
 		Image: imageUrl,
-		ImagePullPolicy: corev1.PullPolicy(util.ReadEnvVarOrPanic(
+		ImagePullPolicy: corev1.PullPolicy(envutil.ReadOrPanic(
 			util.AutomationAgentImagePullPolicy)),
 		Env:            envVars,
 		Ports:          []corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort}},
@@ -188,7 +189,7 @@ func newDbContainer(containerName, imageUrl string, envVars []corev1.EnvVar, rea
 }
 
 func getContainerWithSecurityContext(container corev1.Container) corev1.Container {
-	managedSecurityContext, _ := util.ReadBoolEnv(util.ManagedSecurityContextEnv)
+	managedSecurityContext, _ := envutil.ReadBool(util.ManagedSecurityContextEnv)
 	if !managedSecurityContext {
 		container.SecurityContext = &corev1.SecurityContext{
 			RunAsUser:    util.Int64Ref(util.RunAsUser),
@@ -235,7 +236,7 @@ func prepareOmAppdbImageUrl(imageUrl, version string) string {
 // buildAppDbStatefulSet builds the StatefulSet for AppDB.
 // It's mostly the same as the normal MongoDB one but has slightly different container and an additional mounting volume
 func buildAppDbStatefulSet(p StatefulSetHelper) (appsv1.StatefulSet, error) {
-	appdbImageUrl := prepareOmAppdbImageUrl(util.ReadEnvVarOrPanic(util.AppDBImageUrl), p.Version)
+	appdbImageUrl := prepareOmAppdbImageUrl(envutil.ReadOrPanic(util.AppDBImageUrl), p.Version)
 	template := getDatabasePodTemplate(p, nil, util.AppDBServiceAccount,
 		newAppDBContainer(p.Name, appdbImageUrl))
 
@@ -361,10 +362,10 @@ func buildBaseContainerForOpsManagerAndBackup(p OpsManagerStatefulSetHelper) cor
 		})
 	}
 
-	omImageUrl := fmt.Sprintf("%s:%s", util.ReadEnvVarOrPanic(util.OpsManagerImageUrl), p.Version)
+	omImageUrl := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.OpsManagerImageUrl), p.Version)
 	container := corev1.Container{
 		Image:           omImageUrl,
-		ImagePullPolicy: corev1.PullPolicy(util.ReadEnvVarOrPanic(util.OpsManagerPullPolicy)),
+		ImagePullPolicy: corev1.PullPolicy(envutil.ReadOrPanic(util.OpsManagerPullPolicy)),
 		Env:             p.EnvVars,
 		Ports:           []corev1.ContainerPort{{ContainerPort: int32(port)}},
 	}
@@ -669,7 +670,7 @@ func baseOwnerReference(owner Updatable) []metav1.OwnerReference {
 // ensurePodSecurityContext adds the 'SecurityContext' to the pod spec if it's necessary (Openshift doesn't need this
 // as it manages the security by itself)
 func ensurePodSecurityContext(spec *corev1.PodSpec) {
-	managedSecurityContext, _ := util.ReadBoolEnv(util.ManagedSecurityContextEnv)
+	managedSecurityContext, _ := envutil.ReadBool(util.ManagedSecurityContextEnv)
 	if !managedSecurityContext {
 		spec.SecurityContext = &corev1.PodSecurityContext{
 			FSGroup: util.Int64Ref(util.FsGroup),
@@ -698,8 +699,8 @@ func appdbContainerEnv(statefulSetName string) []corev1.EnvVar {
 // opsManagerPodTemplate builds the pod template spec used by both Backup and OM statefulsets
 // In the end it applies the podSpec (and probably podSpec.podTemplate) as the MongoDB and AppDB do.
 func opsManagerPodTemplate(labels map[string]string, stsHelper OpsManagerStatefulSetHelper, containerSpec corev1.Container) corev1.PodTemplateSpec {
-	version := util.ReadEnvVarOrDefault(util.InitOpsManagerVersion, "latest")
-	imageUrl := fmt.Sprintf("%s:%s", util.ReadEnvVarOrPanic(util.InitOpsManagerImageUrl), version)
+	version := envutil.ReadOrDefault(util.InitOpsManagerVersion, "latest")
+	imageUrl := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.InitOpsManagerImageUrl), version)
 	templateSpec := corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels: labels,
@@ -720,7 +721,7 @@ func opsManagerPodTemplate(labels map[string]string, stsHelper OpsManagerStatefu
 	}
 
 	ensurePodSecurityContext(&templateSpec.Spec)
-	if val, found := util.ReadEnv(util.ImagePullSecrets); found {
+	if val, found := envutil.Read(util.ImagePullSecrets); found {
 		templateSpec.Spec.ImagePullSecrets = append(templateSpec.Spec.ImagePullSecrets, corev1.LocalObjectReference{
 			Name: val,
 		})

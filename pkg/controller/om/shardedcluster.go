@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 )
 
 // Representation of one element in "sharding" array in OM json deployment:
@@ -200,7 +200,7 @@ func (s ShardedCluster) addToDraining(rsNames []string) {
 		s.setDraining([]string{})
 	}
 	for _, r := range rsNames {
-		if !util.ContainsString(s.draining(), r) {
+		if !stringutil.Contains(s.draining(), r) {
 			s["draining"] = append(s.draining(), r)
 		}
 	}

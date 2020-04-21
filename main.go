@@ -7,6 +7,9 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -64,7 +67,7 @@ func main() {
 
 	// if the watch namespace is not specified - we assume the Operator is watching the current namespace
 	if !nsSpecified {
-		namespace = util.ReadEnvVarOrPanic(util.CurrentNamespace)
+		namespace = envutil.ReadOrPanic(util.CurrentNamespace)
 	}
 
 	// if namespace is set to the wildcard then use the empty string to represent all namespaces
@@ -74,7 +77,7 @@ func main() {
 	}
 
 	// The case when the Operator is watching only a single namespace different from the current
-	if util.ReadEnvVarOrPanic(util.CurrentNamespace) != namespace {
+	if envutil.ReadOrPanic(util.CurrentNamespace) != namespace {
 		log.Infof("Watching namespace %s", namespace)
 	}
 
@@ -121,7 +124,7 @@ func main() {
 // to give people early warning when their MongoDB resources are wrong.
 func setupWebhook(mgr manager.Manager, cfg *rest.Config, log *zap.SugaredLogger) {
 	// set webhook port — 1993 is chosen as Ben's birthday
-	webhookPort := util.ReadEnvVarIntOrDefault(mdbWebHookPortEnvName, 1993)
+	webhookPort := envutil.ReadIntOrDefault(mdbWebHookPortEnvName, 1993)
 	mgr.GetWebhookServer().Port = webhookPort
 
 	// this is the default directory on Linux but setting it explicitly helps
@@ -140,7 +143,7 @@ func setupWebhook(mgr manager.Manager, cfg *rest.Config, log *zap.SugaredLogger)
 	// that will be created.
 	webhookServiceLocation := types.NamespacedName{
 		Name:      "operator-webhook",
-		Namespace: util.ReadEnvVarOrPanic(currentNamespaceEnvName),
+		Namespace: envutil.ReadOrPanic(currentNamespaceEnvName),
 	}
 	if err := webhook.Setup(webhookClient, webhookServiceLocation, certDir, webhookPort); err != nil {
 		log.Warnw("could not set up webhook", "error", err)
@@ -167,19 +170,33 @@ func initializeEnvironment() {
 	log.Infof("Operator version: %s", util.OperatorVersion)
 	log.Infof("Go Version: %s", runtime.Version())
 	log.Infof("Go OS/Arch: %s/%s", runtime.GOOS, runtime.GOARCH)
-	util.PrintEnvVars()
+
+	printableEnvPrefixes := []string{
+		"BACKUP_WAIT_",
+		"POD_WAIT_",
+		"OPERATOR_ENV",
+		"WATCH_NAMESPACE",
+		"MANAGED_SECURITY_CONTEXT",
+		"IMAGE_PULL_SECRETS",
+		"MONGODB_ENTERPRISE_",
+		"OPS_MANAGER_",
+		"KUBERNETES_",
+	}
+
+	// Only env variables with one of these prefixes will be printed
+	envutil.PrintWithPrefix(printableEnvPrefixes)
 }
 
 // initEnvVariables is the central place in application to initialize default configuration for the application (using
 // env variables). Having the central place to manage defaults increases manageability and transparency of the application
 // Method initializes variables only in case they are not specified already.
 func initEnvVariables(env string) {
-	util.EnsureEnvVar(util.BackupDisableWaitSecondsEnv, util.DefaultBackupDisableWaitSeconds)
-	util.EnsureEnvVar(util.BackupDisableWaitRetriesEnv, util.DefaultBackupDisableWaitRetries)
+	envutil.EnsureVar(util.BackupDisableWaitSecondsEnv, util.DefaultBackupDisableWaitSeconds)
+	envutil.EnsureVar(util.BackupDisableWaitRetriesEnv, util.DefaultBackupDisableWaitRetries)
 }
 
 func validateEnv(env string) bool {
-	return util.ContainsString(operatorEnvironments[:], env)
+	return stringutil.Contains(operatorEnvironments[:], env)
 }
 
 func initLogger(env string) {

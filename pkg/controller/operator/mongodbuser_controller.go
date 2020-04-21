@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
@@ -149,7 +151,7 @@ func (r *MongoDBUserReconciler) Reconcile(request reconcile.Request) (res reconc
 func (r *MongoDBUserReconciler) isX509Enabled(user mdbv1.MongoDBUser, mdbSpec mdbv1.MongoDbSpec) (bool, error) {
 	if user.Spec.MongoDBResourceRef.Name != "" {
 		authEnabled := mdbSpec.Security.Authentication.Enabled
-		usingX509 := util.ContainsString(mdbSpec.Security.Authentication.Modes, util.X509)
+		usingX509 := stringutil.Contains(mdbSpec.Security.Authentication.Modes, util.X509)
 		return authEnabled && usingX509, nil
 	}
 
@@ -315,7 +317,7 @@ func (r *MongoDBUserReconciler) handleX509User(user *mdbv1.MongoDBUser, mdb mdbv
 
 	shouldRetry := false
 	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-		if !util.ContainsString(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) {
+		if !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) {
 			shouldRetry = true
 			return fmt.Errorf("x509 has not yet been configured")
 		}

@@ -3,6 +3,8 @@ package om
 import (
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/pkg/errors"
@@ -159,8 +161,8 @@ func disableBackup(omClient Connection, backupConfig *BackupConfig, log *zap.Sug
 }
 
 func waitUntilBackupReachesStatus(omClient Connection, backupConfig *BackupConfig, status BackupStatus, log *zap.SugaredLogger) bool {
-	waitSeconds := util.ReadEnvVarOrPanicInt(util.BackupDisableWaitSecondsEnv)
-	retries := util.ReadEnvVarOrPanicInt(util.BackupDisableWaitRetriesEnv)
+	waitSeconds := envutil.ReadIntOrPanic(util.BackupDisableWaitSecondsEnv)
+	retries := envutil.ReadIntOrPanic(util.BackupDisableWaitRetriesEnv)
 
 	backupStatusFunc := func() (string, bool) {
 		config, err := omClient.ReadBackupConfig(backupConfig.ClusterId)

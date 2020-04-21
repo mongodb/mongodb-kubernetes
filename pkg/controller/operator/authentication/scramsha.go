@@ -3,6 +3,7 @@ package authentication
 import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	"go.uber.org/zap"
 )
 
@@ -60,18 +61,18 @@ func (s AutomationConfigScramSha) EnableAgentAuthentication(opts Options, log *z
 }
 
 func (s AutomationConfigScramSha) DisableAgentAuthentication(log *zap.SugaredLogger) error {
-	s.automationConfig.Auth.AutoAuthMechanisms = util.RemoveString(s.automationConfig.Auth.AutoAuthMechanisms, string(s.mechanismName))
+	s.automationConfig.Auth.AutoAuthMechanisms = stringutil.Remove(s.automationConfig.Auth.AutoAuthMechanisms, string(s.mechanismName))
 	return nil
 }
 
 func (s AutomationConfigScramSha) DisableDeploymentAuthentication() error {
-	s.automationConfig.Auth.DeploymentAuthMechanisms = util.RemoveString(s.automationConfig.Auth.DeploymentAuthMechanisms, string(s.mechanismName))
+	s.automationConfig.Auth.DeploymentAuthMechanisms = stringutil.Remove(s.automationConfig.Auth.DeploymentAuthMechanisms, string(s.mechanismName))
 	return nil
 }
 
 func (s AutomationConfigScramSha) EnableDeploymentAuthentication() error {
 	auth := s.automationConfig.Auth
-	if !util.ContainsString(auth.DeploymentAuthMechanisms, string(s.mechanismName)) {
+	if !stringutil.Contains(auth.DeploymentAuthMechanisms, string(s.mechanismName)) {
 		auth.DeploymentAuthMechanisms = append(auth.DeploymentAuthMechanisms, string(s.mechanismName))
 	}
 	return nil
@@ -83,7 +84,7 @@ func (s AutomationConfigScramSha) IsAgentAuthenticationConfigured() bool {
 		return false
 	}
 
-	if !util.ContainsString(ac.Auth.AutoAuthMechanisms, string(s.mechanismName)) {
+	if !stringutil.Contains(ac.Auth.AutoAuthMechanisms, string(s.mechanismName)) {
 		return false
 	}
 
@@ -105,7 +106,7 @@ func (s AutomationConfigScramSha) IsAgentAuthenticationConfigured() bool {
 }
 
 func (s AutomationConfigScramSha) IsDeploymentAuthenticationConfigured() bool {
-	return util.ContainsString(s.automationConfig.Auth.DeploymentAuthMechanisms, string(s.mechanismName))
+	return stringutil.Contains(s.automationConfig.Auth.DeploymentAuthMechanisms, string(s.mechanismName))
 }
 
 // ConnectionScramSha is a wrapper around AutomationConfigScramSha which pulls the AutomationConfig

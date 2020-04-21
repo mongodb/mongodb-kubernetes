@@ -6,6 +6,9 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/timeutil"
+
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -41,10 +44,10 @@ const (
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +k8s:openapi-gen=true
 type MongoDBOpsManager struct {
-	metav1.TypeMeta          `json:",inline"`
-	metav1.ObjectMeta        `json:"metadata,omitempty"`
-	Spec                     MongoDBOpsManagerSpec   `json:"spec"`
-	Status                   MongoDBOpsManagerStatus `json:"status"`
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+	Spec              MongoDBOpsManagerSpec   `json:"spec"`
+	Status            MongoDBOpsManagerStatus `json:"status"`
 }
 
 func (om MongoDBOpsManager) AddValidationToManager(m manager.Manager) error {
@@ -159,7 +162,7 @@ type MongoDBOpsManagerBackup struct {
 	BlockStoreConfigs []DataStoreConfig `json:"blockStores,omitempty"`
 	S3Configs         []S3Config        `json:"s3Stores,omitempty"`
 
-	PodSpec *MongoDbPodSpec `json:"podSpec,omitempty"`
+	PodSpec                  *MongoDbPodSpec           `json:"podSpec,omitempty"`
 	StatefulSetConfiguration *StatefulSetConfiguration `json:"statefulSet,omitempty"`
 }
 
@@ -373,10 +376,10 @@ func (m *MongoDBOpsManager) UpdateStatus(phase Phase, statusOptions ...StatusOpt
 }
 
 func (m *MongoDBOpsManager) updateStatusAppDb(phase Phase, statusOptions ...StatusOption) {
-	m.Status.AppDbStatus.LastTransition = util.Now()
+	m.Status.AppDbStatus.LastTransition = timeutil.Now()
 	m.Status.AppDbStatus.Phase = phase
 	if option, exists := GetStatusOption(statusOptions, MessageOption{}); exists {
-		m.Status.AppDbStatus.Message = util.UpperCaseFirstChar(option.(MessageOption).Message)
+		m.Status.AppDbStatus.Message = stringutil.UpperCaseFirstChar(option.(MessageOption).Message)
 	}
 
 	if phase == PhaseRunning {
@@ -389,10 +392,10 @@ func (m *MongoDBOpsManager) updateStatusAppDb(phase Phase, statusOptions ...Stat
 }
 
 func (m *MongoDBOpsManager) updateStatusOpsManager(phase Phase, statusOptions ...StatusOption) {
-	m.Status.OpsManagerStatus.LastTransition = util.Now()
+	m.Status.OpsManagerStatus.LastTransition = timeutil.Now()
 	m.Status.OpsManagerStatus.Phase = phase
 	if option, exists := GetStatusOption(statusOptions, MessageOption{}); exists {
-		m.Status.OpsManagerStatus.Message = util.UpperCaseFirstChar(option.(MessageOption).Message)
+		m.Status.OpsManagerStatus.Message = stringutil.UpperCaseFirstChar(option.(MessageOption).Message)
 	}
 	if option, exists := GetStatusOption(statusOptions, BaseUrlOption{}); exists {
 		m.Status.OpsManagerStatus.Url = option.(BaseUrlOption).BaseUrl
@@ -405,11 +408,11 @@ func (m *MongoDBOpsManager) updateStatusOpsManager(phase Phase, statusOptions ..
 }
 
 func (m *MongoDBOpsManager) updateStatusBackup(phase Phase, statusOptions ...StatusOption) {
-	m.Status.BackupStatus.LastTransition = util.Now()
+	m.Status.BackupStatus.LastTransition = timeutil.Now()
 	m.Status.BackupStatus.Phase = phase
 
 	if option, exists := GetStatusOption(statusOptions, MessageOption{}); exists {
-		m.Status.BackupStatus.Message = util.UpperCaseFirstChar(option.(MessageOption).Message)
+		m.Status.BackupStatus.Message = stringutil.UpperCaseFirstChar(option.(MessageOption).Message)
 	}
 
 	if phase == PhaseRunning {

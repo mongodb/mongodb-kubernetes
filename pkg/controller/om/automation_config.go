@@ -3,6 +3,8 @@ package om
 import (
 	"encoding/json"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/generate"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/spf13/cast"
 )
@@ -262,7 +264,7 @@ type MongoDbVersionConfig struct {
 // EnsureKeyFileContents makes sure a valid keyfile is generated and used for internal cluster authentication
 func (ac *AutomationConfig) EnsureKeyFileContents() error {
 	if ac.Auth.Key == "" || ac.Auth.Key == util.InvalidKeyFileContents {
-		keyfileContents, err := util.GenerateKeyFileContents()
+		keyfileContents, err := generate.KeyFileContents()
 		if err != nil {
 			return err
 		}
@@ -276,7 +278,7 @@ func (ac *AutomationConfig) EnsureKeyFileContents() error {
 // is returned so it can be provided to the other agents
 func (ac *AutomationConfig) EnsurePassword() (string, error) {
 	if ac.Auth.AutoPwd == "" || ac.Auth.AutoPwd == util.InvalidAutomationAgentPassword {
-		automationAgentBackupPassword, err := util.GenerateKeyFileContents()
+		automationAgentBackupPassword, err := generate.KeyFileContents()
 		if err != nil {
 			return "", err
 		}

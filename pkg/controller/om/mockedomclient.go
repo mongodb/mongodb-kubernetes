@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
@@ -491,7 +493,7 @@ func (oc *MockedOmConnection) CheckNumberOfUpdateRequests(t *testing.T, expected
 
 func (oc *MockedOmConnection) CheckDeployment(t *testing.T, expected Deployment, ignoreFields ...string) {
 	for key := range expected {
-		if !util.ContainsString(ignoreFields, key) {
+		if !stringutil.Contains(ignoreFields, key) {
 			assert.Equal(t, expected[key], oc.deployment[key])
 		}
 	}
@@ -657,11 +659,11 @@ func (oc *MockedOmConnection) findOrganization(orgId string) (*Organization, err
 // mechanism will be specified as the "autoAuthMechanisms"
 func updateAutoAuthMechanism(ac *AutomationConfig) {
 	mechanisms := ac.Auth.AutoAuthMechanisms
-	if util.ContainsString(mechanisms, "SCRAM-SHA-256") {
+	if stringutil.Contains(mechanisms, "SCRAM-SHA-256") {
 		ac.Auth.AutoAuthMechanism = "SCRAM-SHA-256"
-	} else if util.ContainsString(mechanisms, "MONGODB-CR") {
+	} else if stringutil.Contains(mechanisms, "MONGODB-CR") {
 		ac.Auth.AutoAuthMechanism = "MONGODB-CR"
-	} else if util.ContainsString(mechanisms, "MONGODB-X509") {
+	} else if stringutil.Contains(mechanisms, "MONGODB-X509") {
 		ac.Auth.AutoAuthMechanism = "MONGODB-X509"
 	}
 }

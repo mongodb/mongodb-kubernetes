@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"hash"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/generate"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/xdg/stringprep"
@@ -54,7 +56,7 @@ func ComputeScramShaCreds(username, password string, salt []byte, name mechanism
 // sha1.New should be used for MONGODB-CR/SCRAM-SHA-1 and sha256.New should be used for SCRAM-SHA-256
 func GenerateSalt(hashConstructor func() hash.Hash) ([]byte, error) {
 	saltSize := hashConstructor().Size() - RFC5802MandatedSaltSize
-	salt, err := util.GenerateRandomFixedLengthStringOfSize(saltSize)
+	salt, err := generate.RandomFixedLengthStringOfSize(saltSize)
 	if err != nil {
 		return nil, err
 	}

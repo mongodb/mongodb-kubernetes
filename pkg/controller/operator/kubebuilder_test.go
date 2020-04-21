@@ -2,11 +2,13 @@ package operator
 
 import (
 	"context"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 	"os"
 	"path"
 	"testing"
 	"time"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
@@ -61,7 +63,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimSingle(t *testing.T) {
 	podSpec := mdbv1.NewPodSpecWrapperBuilder().SetSinglePersistence(persistence).Build()
 	set, _ := defaultSetHelper().SetPodSpec(podSpec).BuildStatefulSet()
 
-	checkPvClaims(t, set, []corev1.PersistentVolumeClaim{pvClaim(util.PvcNameData, "40G", util.StringRef("fast"), labels)})
+	checkPvClaims(t, set, []corev1.PersistentVolumeClaim{pvClaim(util.PvcNameData, "40G", stringutil.Ref("fast"), labels)})
 
 	checkMounts(t, set, []corev1.VolumeMount{
 		volMount(util.PvcNameData, util.PvcMountPathData, util.PvcNameData),
@@ -83,9 +85,9 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultiple(t *testing.T) {
 	set, _ := defaultSetHelper().SetPodSpec(podSpec).BuildStatefulSet()
 
 	checkPvClaims(t, set, []corev1.PersistentVolumeClaim{
-		pvClaim(util.PvcNameData, "40G", util.StringRef("fast"), nil),
-		pvClaim(util.PvcNameJournal, "3G", util.StringRef("slow"), labels1),
-		pvClaim(util.PvcNameLogs, "500M", util.StringRef("fast"), labels2),
+		pvClaim(util.PvcNameData, "40G", stringutil.Ref("fast"), nil),
+		pvClaim(util.PvcNameJournal, "3G", stringutil.Ref("slow"), labels1),
+		pvClaim(util.PvcNameLogs, "500M", stringutil.Ref("fast"), labels2),
 	})
 
 	checkMounts(t, set, []corev1.VolumeMount{
@@ -106,7 +108,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultipleDefaults(t *testing.T) {
 	set, _ := defaultSetHelper().SetPodSpec(podSpec).BuildStatefulSet()
 
 	checkPvClaims(t, set, []corev1.PersistentVolumeClaim{
-		pvClaim(util.PvcNameData, "40G", util.StringRef("fast"), nil),
+		pvClaim(util.PvcNameData, "40G", stringutil.Ref("fast"), nil),
 		pvClaim(util.PvcNameJournal, util.DefaultJournalStorageSize, nil, nil),
 		pvClaim(util.PvcNameLogs, util.DefaultLogsStorageSize, nil, nil),
 	})

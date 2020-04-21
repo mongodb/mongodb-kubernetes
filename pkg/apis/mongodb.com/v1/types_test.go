@@ -3,6 +3,8 @@ package v1
 import (
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
 )
@@ -65,14 +67,14 @@ func TestMinimumMajorVersion(t *testing.T) {
 
 	mdbSpec = MongoDbSpec{
 		Version:                     "4.0.0-ent",
-		FeatureCompatibilityVersion: util.StringRef("3.6"),
+		FeatureCompatibilityVersion: stringutil.Ref("3.6"),
 	}
 
 	assert.Equal(t, mdbSpec.MinimumMajorVersion(), uint64(3))
 
 	mdbSpec = MongoDbSpec{
 		Version:                     "4.0.0",
-		FeatureCompatibilityVersion: util.StringRef("3.6"),
+		FeatureCompatibilityVersion: stringutil.Ref("3.6"),
 	}
 
 	assert.Equal(t, mdbSpec.MinimumMajorVersion(), uint64(3))

@@ -3,9 +3,12 @@ package operator
 import (
 	"context"
 	"fmt"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 	"net/url"
 	"strings"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
@@ -680,11 +683,11 @@ func (k *KubeHelper) createOrUpdateStatefulset(ns string, log *zap.SugaredLogger
 // provide good interactivity for user requests
 func (k *KubeHelper) isStatefulSetUpdated(namespace, name string, log *zap.SugaredLogger) bool {
 	// environment variables are used only for tests
-	waitSeconds := util.ReadEnvVarIntOrDefault(util.PodWaitSecondsEnv, 3)
-	retrials := util.ReadEnvVarIntOrDefault(util.PodWaitRetriesEnv, 5)
+	waitSeconds := envutil.ReadIntOrDefault(util.PodWaitSecondsEnv, 3)
+	retrials := envutil.ReadIntOrDefault(util.PodWaitRetriesEnv, 5)
 	log = log.With("statefulset", objectKey(namespace, name))
 
-	time.Sleep(time.Duration(util.ReadEnvVarIntOrDefault(util.K8sCacheRefreshEnv, util.DefaultK8sCacheRefreshTimeSeconds)) * time.Second)
+	time.Sleep(time.Duration(envutil.ReadIntOrDefault(util.K8sCacheRefreshEnv, util.DefaultK8sCacheRefreshTimeSeconds)) * time.Second)
 
 	return util.DoAndRetry(func() (string, bool) {
 		set := &appsv1.StatefulSet{}
@@ -1219,7 +1222,7 @@ func isValidPemSecret(secret *corev1.Secret, key string, additionalDomains []str
 	}
 
 	for _, domain := range additionalDomains {
-		if !util.ContainsString(cert.DNSNames, domain) {
+		if !stringutil.Contains(cert.DNSNames, domain) {
 			return false
 		}
 	}

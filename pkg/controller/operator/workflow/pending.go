@@ -3,8 +3,9 @@ package workflow
 import (
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -63,7 +64,7 @@ func (p pendingStatus) Phase() mdbv1.Phase {
 }
 
 func (f pendingStatus) Log(log *zap.SugaredLogger) {
-	log.Info(util.UpperCaseFirstChar(f.msg))
+	log.Info(stringutil.UpperCaseFirstChar(f.msg))
 }
 
 func mergedPending(p1, p2 pendingStatus) pendingStatus {

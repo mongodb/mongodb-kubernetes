@@ -14,7 +14,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+
 	certsv1 "k8s.io/api/certificates/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -318,7 +319,7 @@ func checkCSRHasRequiredDomains(csr *certsv1.CertificateSigningRequest, domains 
 	}
 
 	for _, domain := range domains {
-		if !util.ContainsString(csrX509.DNSNames, domain) {
+		if !stringutil.Contains(csrX509.DNSNames, domain) {
 			return false
 		}
 	}

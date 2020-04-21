@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
@@ -87,8 +89,8 @@ func (x ConnectionX509) DisableAgentAuthentication(log *zap.SugaredLogger) error
 			ClientCertificateMode: util.OptionalClientCertficates,
 		}
 
-		if util.ContainsString(ac.Auth.AutoAuthMechanisms, string(MongoDBX509)) {
-			ac.Auth.AutoAuthMechanisms = util.RemoveString(ac.Auth.AutoAuthMechanisms, string(MongoDBX509))
+		if stringutil.Contains(ac.Auth.AutoAuthMechanisms, string(MongoDBX509)) {
+			ac.Auth.AutoAuthMechanisms = stringutil.Remove(ac.Auth.AutoAuthMechanisms, string(MongoDBX509))
 		}
 		return nil
 
@@ -113,7 +115,7 @@ func (x ConnectionX509) DisableAgentAuthentication(log *zap.SugaredLogger) error
 
 func (x ConnectionX509) EnableDeploymentAuthentication() error {
 	ac := x.AutomationConfig
-	if !util.ContainsString(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) {
+	if !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) {
 		ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, string(MongoDBX509))
 	}
 	// AutomationConfig validation requires the CAFile path to be specified in the case of multiple auth
@@ -124,7 +126,7 @@ func (x ConnectionX509) EnableDeploymentAuthentication() error {
 
 func (x ConnectionX509) DisableDeploymentAuthentication() error {
 	ac := x.AutomationConfig
-	ac.Auth.DeploymentAuthMechanisms = util.RemoveString(ac.Auth.DeploymentAuthMechanisms, string(MongoDBX509))
+	ac.Auth.DeploymentAuthMechanisms = stringutil.Remove(ac.Auth.DeploymentAuthMechanisms, string(MongoDBX509))
 	return nil
 }
 
@@ -134,7 +136,7 @@ func (x ConnectionX509) IsAgentAuthenticationConfigured() bool {
 		return false
 	}
 
-	if !util.ContainsString(ac.Auth.AutoAuthMechanisms, string(MongoDBX509)) {
+	if !stringutil.Contains(ac.Auth.AutoAuthMechanisms, string(MongoDBX509)) {
 		return false
 	}
 
@@ -156,7 +158,7 @@ func (x ConnectionX509) IsAgentAuthenticationConfigured() bool {
 }
 
 func (x ConnectionX509) IsDeploymentAuthenticationConfigured() bool {
-	return util.ContainsString(x.AutomationConfig.Auth.DeploymentAuthMechanisms, string(MongoDBX509))
+	return stringutil.Contains(x.AutomationConfig.Auth.DeploymentAuthMechanisms, string(MongoDBX509))
 }
 
 // isValidX509Subject checks the subject contains CommonName, Country and Organizational Unit, Location and State.

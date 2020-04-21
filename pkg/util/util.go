@@ -1,27 +1,20 @@
 package util
 
 import (
-	"encoding/base64"
 	"encoding/hex"
-	"reflect"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
 	"bytes"
 	"encoding/gob"
 
-	"strconv"
-
-	"fmt"
-	"os"
-
 	"crypto/md5"
-	crypto "crypto/rand"
+	"fmt"
 
 	"github.com/blang/semver"
-	"github.com/spf13/cast"
 	"go.uber.org/zap"
 )
 
@@ -32,7 +25,7 @@ import (
 func FindLeftDifference(left, right []string) []string {
 	ans := make([]string, 0)
 	for _, v := range left {
-		if !ContainsString(right, v) {
+		if !stringutil.Contains(right, v) {
 			ans = append(ans, v)
 		}
 	}
@@ -57,10 +50,6 @@ func Float64Ref(i float64) *float64 {
 // BooleanRef is required to return a *bool, which can't be declared as a literal.
 func BooleanRef(b bool) *bool {
 	return &b
-}
-
-func StringRef(s string) *string {
-	return &s
 }
 
 func StripEnt(version string) string {
@@ -151,95 +140,6 @@ func MajorMinorVersion(version string) (string, error) {
 
 // ************ Different functions to work with environment variables **************
 
-func ReadEnvVarOrPanic(key string) string {
-	value := os.Getenv(key)
-	if value == "" {
-		panic(fmt.Sprintf("%s environment variable is not set!", key))
-	}
-	return value
-}
-
-func ReadEnvVarOrPanicInt(key string) int {
-	value := os.Getenv(key)
-	i, e := cast.ToIntE(value)
-	if e != nil {
-		panic(fmt.Sprintf("%s env variable is supposed to be of type int but the value is %s", key, value))
-	}
-	return i
-}
-
-func ReadEnvVarOrDefault(key string, dflt string) string {
-	value, exists := os.LookupEnv(key)
-	if !exists || value == "" {
-		return dflt
-	}
-	return value
-}
-
-func ReadEnvVarIntOrDefault(key string, dflt int) int {
-	value := ReadEnvVarOrDefault(key, strconv.Itoa(dflt))
-	i, e := cast.ToIntE(value)
-	if e != nil {
-		return dflt
-	}
-	return i
-}
-
-func ReadEnv(env string) (string, bool) {
-	return os.LookupEnv(env)
-}
-
-func ReadBoolEnv(env string) (valueAsBool bool, isPresent bool) {
-	value, isPresent := ReadEnv(env)
-	if !isPresent {
-		return false, false
-	}
-	boolValue, err := strconv.ParseBool(value)
-	return boolValue, err == nil
-}
-
-// EnsureEnvVar tests the env variable and sets it if it doesn't exist. We tolerate any errors setting env variable and
-// just log the warning
-func EnsureEnvVar(key, value string) {
-	if _, exist := ReadEnv(key); !exist {
-		if err := os.Setenv(key, value); err != nil {
-			zap.S().Warnf("Failed to set environment variable \"%s\" to \"%s\": %s", key, value, err)
-		}
-	}
-}
-
-// PrintEnvVars prints environment variables to the global SugaredLogger. It will only print the environment variables
-// with a given prefix set inside the function.
-func PrintEnvVars() {
-	// Only env variables with one of these prefixes will be printed
-	printableEnvPrefixes := [...]string{
-		"BACKUP_WAIT_",
-		"POD_WAIT_",
-		"OPERATOR_ENV",
-		"WATCH_NAMESPACE",
-		"MANAGED_SECURITY_CONTEXT",
-		"IMAGE_PULL_SECRETS",
-		"MONGODB_ENTERPRISE_",
-		"OPS_MANAGER_",
-		"KUBERNETES_",
-	}
-
-	zap.S().Info("Environment variables:")
-	envVariables := os.Environ()
-	sort.Strings(envVariables)
-	for _, e := range envVariables {
-		for _, prefix := range printableEnvPrefixes {
-			if strings.HasPrefix(e, prefix) {
-				zap.S().Infof("%s", e)
-			}
-		}
-	}
-}
-
-func Now() string {
-	return time.Now().Format(time.RFC3339)
-}
-
 func MaxInt(x, y int) int {
 	if x > y {
 		return x
@@ -251,45 +151,6 @@ func MaxInt(x, y int) int {
 //
 // Helper functions to check and remove string from a slice of strings.
 //
-
-// ContainsString returns true if there is at least one string in `slice`
-// that is equal to `s`.
-func ContainsString(slice []string, s string) bool {
-	for _, item := range slice {
-		if item == s {
-			return true
-		}
-	}
-	return false
-}
-
-func RemoveString(slice []string, s string) (result []string) {
-	for _, item := range slice {
-		if item == s {
-			continue
-		}
-		result = append(result, item)
-	}
-	return
-}
-
-// UpperCaseFirstChar ensures the message first char is uppercased
-func UpperCaseFirstChar(msg string) string {
-	if msg == "" {
-		return ""
-	}
-	return strings.ToUpper(msg[:1]) + msg[1:]
-}
-
-// final key must be between 6 and at most 1024 characters
-func GenerateKeyFileContents() (string, error) {
-	return generateRandomString(500)
-}
-
-func GenerateRandomFixedLengthStringOfSize(n int) (string, error) {
-	b, err := generateRandomBytes(n)
-	return base64.URLEncoding.EncodeToString(b)[:n], err
-}
 
 // MD5Hex computes the MDB checksum of the given string as per https://golang.org/pkg/crypto/md5/
 func MD5Hex(s string) string {
@@ -313,81 +174,4 @@ func Redact(toRedact interface{}) string {
 		return "nil"
 	}
 	return "<redacted>"
-}
-
-// SetDifference returns all 'Identifiable' elements that are in left slice and not in the right one
-func SetDifference(left, right []Identifiable) []Identifiable {
-	result := make([]Identifiable, 0)
-	for _, l := range left {
-		found := false
-		for _, r := range right {
-			if r.Identifier() == l.Identifier() {
-				found = true
-				break
-			}
-		}
-		if !found {
-			result = append(result, l)
-		}
-	}
-	return result
-}
-
-// SetIntersection returns all 'Identifiable' elements from 'left' and 'right' slice that intersect by 'Identifier()'
-//value. Each intersection is represented as a tuple of two elements - matching elements from 'left' and 'right'
-func SetIntersection(left, right []Identifiable) [][]Identifiable {
-	result := make([][]Identifiable, 0)
-	for _, l := range left {
-		for _, r := range right {
-			if r.Identifier() == l.Identifier() {
-				result = append(result, []Identifiable{l, r})
-			}
-		}
-	}
-	return result
-}
-
-// SetDifferenceGeneric is a convenience function solving lack of covariance in Go: it allows to pass the arrays declared
-// as some types implementing 'Identifiable' and find the difference between them
-// Important: the arrays past must declare types implementing 'Identifiable'!
-func SetDifferenceGeneric(left, right interface{}) []Identifiable {
-	leftIdentifiers := toIdentifiableSlice(left)
-	rightIdentifiers := toIdentifiableSlice(right)
-
-	return SetDifference(leftIdentifiers, rightIdentifiers)
-}
-
-// SetIntersectionGeneric is a convenience function solving lack of covariance in Go: it allows to pass the arrays declared
-// as some types implementing 'Identifiable' and find the intersection between them
-// Important: the arrays past must declare types implementing 'Identifiable'!
-func SetIntersectionGeneric(left, right interface{}) [][]Identifiable {
-	leftIdentifiers := toIdentifiableSlice(left)
-	rightIdentifiers := toIdentifiableSlice(right)
-
-	return SetIntersection(leftIdentifiers, rightIdentifiers)
-}
-
-// toIdentifiableSlice uses reflection to cast the array
-func toIdentifiableSlice(data interface{}) []Identifiable {
-	value := reflect.ValueOf(data)
-
-	result := make([]Identifiable, value.Len())
-	for i := 0; i < value.Len(); i++ {
-		result[i] = value.Index(i).Interface().(Identifiable)
-	}
-	return result
-}
-func generateRandomBytes(size int) ([]byte, error) {
-	b := make([]byte, size)
-	_, err := crypto.Read(b)
-	if err != nil {
-		return nil, err
-	}
-
-	return b, nil
-}
-
-func generateRandomString(numBytes int) (string, error) {
-	b, err := generateRandomBytes(numBytes)
-	return base64.StdEncoding.EncodeToString(b), err
 }

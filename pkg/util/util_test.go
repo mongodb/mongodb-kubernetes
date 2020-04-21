@@ -3,6 +3,9 @@ package util
 import (
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/identifiable"
+
 	"os"
 
 	"github.com/stretchr/testify/assert"
@@ -50,23 +53,23 @@ func TestReadBoolEnv(t *testing.T) {
 	os.Setenv("ENV_3", "TRUE")
 	os.Setenv("NOT_BOOL", "not-true")
 
-	result, present := ReadBoolEnv("ENV_1")
+	result, present := envutil.ReadBool("ENV_1")
 	assert.True(t, present)
 	assert.True(t, result)
 
-	result, present = ReadBoolEnv("ENV_2")
+	result, present = envutil.ReadBool("ENV_2")
 	assert.True(t, present)
 	assert.False(t, result)
 
-	result, present = ReadBoolEnv("ENV_3")
+	result, present = envutil.ReadBool("ENV_3")
 	assert.True(t, present)
 	assert.True(t, result)
 
-	result, present = ReadBoolEnv("NOT_BOOL")
+	result, present = envutil.ReadBool("NOT_BOOL")
 	assert.False(t, present)
 	assert.False(t, result)
 
-	result, present = ReadBoolEnv("NOT_HERE")
+	result, present = envutil.ReadBool("NOT_HERE")
 	assert.False(t, present)
 	assert.False(t, result)
 }
@@ -116,33 +119,33 @@ func TestSetDifference(t *testing.T) {
 	threeRight := newSome("3", "right")
 	fourRight := newSome("4", "right")
 
-	left := []Identifiable{oneLeft, twoLeft}
-	right := []Identifiable{twoRight, threeRight}
+	left := []identifiable.Identifiable{oneLeft, twoLeft}
+	right := []identifiable.Identifiable{twoRight, threeRight}
 
-	assert.Equal(t, []Identifiable{oneLeft}, SetDifference(left, right))
-	assert.Equal(t, []Identifiable{threeRight}, SetDifference(right, left))
+	assert.Equal(t, []identifiable.Identifiable{oneLeft}, identifiable.SetDifference(left, right))
+	assert.Equal(t, []identifiable.Identifiable{threeRight}, identifiable.SetDifference(right, left))
 
-	left = []Identifiable{oneLeft, twoLeft}
-	right = []Identifiable{threeRight, fourRight}
-	assert.Equal(t, left, SetDifference(left, right))
+	left = []identifiable.Identifiable{oneLeft, twoLeft}
+	right = []identifiable.Identifiable{threeRight, fourRight}
+	assert.Equal(t, left, identifiable.SetDifference(left, right))
 
-	left = []Identifiable{}
-	right = []Identifiable{threeRight, fourRight}
-	assert.Empty(t, SetDifference(left, right))
-	assert.Equal(t, right, SetDifference(right, left))
+	left = []identifiable.Identifiable{}
+	right = []identifiable.Identifiable{threeRight, fourRight}
+	assert.Empty(t, identifiable.SetDifference(left, right))
+	assert.Equal(t, right, identifiable.SetDifference(right, left))
 
 	left = nil
-	right = []Identifiable{threeRight, fourRight}
-	assert.Empty(t, SetDifference(left, right))
-	assert.Equal(t, right, SetDifference(right, left))
+	right = []identifiable.Identifiable{threeRight, fourRight}
+	assert.Empty(t, identifiable.SetDifference(left, right))
+	assert.Equal(t, right, identifiable.SetDifference(right, left))
 
 	// check reflection magic to solve lack of covariance in go. The arrays are declared as '[]someId' instead of
 	// '[]Identifiable'
 	leftNotIdentifiable := []someId{oneLeft, twoLeft}
 	rightNotIdentifiable := []someId{twoRight, threeRight}
 
-	assert.Equal(t, []Identifiable{oneLeft}, SetDifferenceGeneric(leftNotIdentifiable, rightNotIdentifiable))
-	assert.Equal(t, []Identifiable{threeRight}, SetDifferenceGeneric(rightNotIdentifiable, leftNotIdentifiable))
+	assert.Equal(t, []identifiable.Identifiable{oneLeft}, identifiable.SetDifferenceGeneric(leftNotIdentifiable, rightNotIdentifiable))
+	assert.Equal(t, []identifiable.Identifiable{threeRight}, identifiable.SetDifferenceGeneric(rightNotIdentifiable, leftNotIdentifiable))
 }
 
 func TestSetIntersection(t *testing.T) {
@@ -153,36 +156,36 @@ func TestSetIntersection(t *testing.T) {
 	threeRight := newSome("3", "right")
 	fourRight := newSome("4", "right")
 
-	left := []Identifiable{oneLeft, twoLeft}
-	right := []Identifiable{twoRight, threeRight}
+	left := []identifiable.Identifiable{oneLeft, twoLeft}
+	right := []identifiable.Identifiable{twoRight, threeRight}
 
-	assert.Equal(t, [][]Identifiable{pair(twoLeft, twoRight)}, SetIntersection(left, right))
-	assert.Equal(t, [][]Identifiable{pair(twoRight, twoLeft)}, SetIntersection(right, left))
+	assert.Equal(t, [][]identifiable.Identifiable{pair(twoLeft, twoRight)}, identifiable.SetIntersection(left, right))
+	assert.Equal(t, [][]identifiable.Identifiable{pair(twoRight, twoLeft)}, identifiable.SetIntersection(right, left))
 
-	left = []Identifiable{oneLeft, twoLeft}
-	right = []Identifiable{threeRight, fourRight}
-	assert.Empty(t, SetIntersection(left, right))
-	assert.Empty(t, SetIntersection(right, left))
+	left = []identifiable.Identifiable{oneLeft, twoLeft}
+	right = []identifiable.Identifiable{threeRight, fourRight}
+	assert.Empty(t, identifiable.SetIntersection(left, right))
+	assert.Empty(t, identifiable.SetIntersection(right, left))
 
-	left = []Identifiable{}
-	right = []Identifiable{threeRight, fourRight}
-	assert.Empty(t, SetIntersection(left, right))
-	assert.Empty(t, SetIntersection(right, left))
+	left = []identifiable.Identifiable{}
+	right = []identifiable.Identifiable{threeRight, fourRight}
+	assert.Empty(t, identifiable.SetIntersection(left, right))
+	assert.Empty(t, identifiable.SetIntersection(right, left))
 
 	left = nil
-	right = []Identifiable{threeRight, fourRight}
-	assert.Empty(t, SetIntersection(left, right))
-	assert.Empty(t, SetIntersection(right, left))
+	right = []identifiable.Identifiable{threeRight, fourRight}
+	assert.Empty(t, identifiable.SetIntersection(left, right))
+	assert.Empty(t, identifiable.SetIntersection(right, left))
 
 	// check reflection magic to solve lack of covariance in go. The arrays are declared as '[]someId' instead of
 	// '[]Identifiable'
 	leftNotIdentifiable := []someId{oneLeft, twoLeft}
 	rightNotIdentifiable := []someId{oneRight, twoRight, threeRight}
 
-	assert.Equal(t, [][]Identifiable{pair(oneLeft, oneRight), pair(twoLeft, twoRight)}, SetIntersectionGeneric(leftNotIdentifiable, rightNotIdentifiable))
-	assert.Equal(t, [][]Identifiable{pair(oneRight, oneLeft), pair(twoRight, twoLeft)}, SetIntersectionGeneric(rightNotIdentifiable, leftNotIdentifiable))
+	assert.Equal(t, [][]identifiable.Identifiable{pair(oneLeft, oneRight), pair(twoLeft, twoRight)}, identifiable.SetIntersectionGeneric(leftNotIdentifiable, rightNotIdentifiable))
+	assert.Equal(t, [][]identifiable.Identifiable{pair(oneRight, oneLeft), pair(twoRight, twoLeft)}, identifiable.SetIntersectionGeneric(rightNotIdentifiable, leftNotIdentifiable))
 }
 
-func pair(left, right Identifiable) []Identifiable {
-	return []Identifiable{left, right}
+func pair(left, right identifiable.Identifiable) []identifiable.Identifiable {
+	return []identifiable.Identifiable{left, right}
 }

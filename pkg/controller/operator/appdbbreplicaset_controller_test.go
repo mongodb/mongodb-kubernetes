@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 
@@ -130,8 +132,8 @@ func TestPublishAutomationConfig_ScramShaConfigured(t *testing.T) {
 	assert.NotEmpty(t, ac.Auth.AutoPwd, "automation agent password should have been generated")
 	assert.False(t, ac.Auth.AuthoritativeSet, "authoritativeSet should be set to false")
 	assert.Equal(t, ac.Auth.AutoUser, util.AutomationAgentName, "agent should have default name")
-	assert.True(t, util.ContainsString(ac.Auth.DeploymentAuthMechanisms, string(authentication.MongoDBCR)), "MONGODB-CR should be configured")
-	assert.True(t, util.ContainsString(ac.Auth.AutoAuthMechanisms, string(authentication.MongoDBCR)), "MONGODB-CR should be configured")
+	assert.True(t, stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(authentication.MongoDBCR)), "MONGODB-CR should be configured")
+	assert.True(t, stringutil.Contains(ac.Auth.AutoAuthMechanisms, string(authentication.MongoDBCR)), "MONGODB-CR should be configured")
 
 	_, omUser := ac.Auth.GetUser(util.OpsManagerMongoDBUserName, util.DefaultUserDatabase)
 	assert.NotNil(t, omUser, "ops manager user should have been created")

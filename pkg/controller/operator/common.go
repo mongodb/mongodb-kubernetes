@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
@@ -118,8 +120,8 @@ func waitForRsAgentsToRegister(set appsv1.StatefulSet, clusterName string, omCon
 func waitUntilAgentsHaveRegistered(omConnection om.Connection, log *zap.SugaredLogger, agentHostnames ...string) bool {
 	log.Infow("Waiting for agents to register with OM", "agent hosts", agentHostnames)
 	// environment variables are used only for tests
-	waitSeconds := util.ReadEnvVarIntOrDefault(util.PodWaitSecondsEnv, 3)
-	retrials := util.ReadEnvVarIntOrDefault(util.PodWaitRetriesEnv, 5)
+	waitSeconds := envutil.ReadIntOrDefault(util.PodWaitSecondsEnv, 3)
+	retrials := envutil.ReadIntOrDefault(util.PodWaitRetriesEnv, 5)
 
 	agentsCheckFunc := func() (string, bool) {
 		registeredCount := 0
@@ -328,7 +330,7 @@ func toInternalClusterAuthName(name string) string {
 
 // operatorNamespace returns the current namespace where the Operator is deployed
 func operatorNamespace() string {
-	return util.ReadEnvVarOrPanic(util.CurrentNamespace)
+	return envutil.ReadOrPanic(util.CurrentNamespace)
 }
 
 // runInGivenOrder will execute N functions, passed as varargs as `funcs`. The order of execution will depend on the result

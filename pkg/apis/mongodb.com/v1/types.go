@@ -3,10 +3,13 @@ package v1
 import (
 	"encoding/json"
 	"fmt"
-	appsv1 "k8s.io/api/apps/v1"
 	"reflect"
 	"sort"
 	"strings"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/timeutil"
+	appsv1 "k8s.io/api/apps/v1"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/blang/semver"
@@ -320,7 +323,7 @@ type Authentication struct {
 // IsX509Enabled determines if X509 is to be enabled at the project level
 // it does not necessarily mean that the agents are using X509 authentication
 func (a *Authentication) IsX509Enabled() bool {
-	return util.ContainsString(a.Modes, util.X509)
+	return stringutil.Contains(a.Modes, util.X509)
 }
 
 // GetAgentMechanism returns the authentication mechanism that the agents will be using.
@@ -335,7 +338,7 @@ func (a *Authentication) GetAgentMechanism() string {
 		return util.X509
 	}
 
-	if util.ContainsString(a.Modes, util.SCRAM) {
+	if stringutil.Contains(a.Modes, util.SCRAM) {
 		return util.SCRAM
 	}
 
@@ -468,11 +471,11 @@ func (m *MongoDB) ShardRsName(i int) string {
 }
 
 func (m *MongoDB) UpdateStatus(phase Phase, statusOptions ...StatusOption) {
-	m.Status.LastTransition = util.Now()
+	m.Status.LastTransition = timeutil.Now()
 	m.Status.Phase = phase
 
 	if option, exists := GetStatusOption(statusOptions, MessageOption{}); exists {
-		m.Status.Message = util.UpperCaseFirstChar(option.(MessageOption).Message)
+		m.Status.Message = stringutil.UpperCaseFirstChar(option.(MessageOption).Message)
 	}
 	if option, exists := GetStatusOption(statusOptions, WarningsOption{}); exists {
 		m.Status.Warnings = append(m.Status.Warnings, option.(WarningsOption).Warnings...)
@@ -806,14 +809,14 @@ func newSecurity() *Security {
 }
 
 func buildConnectionUrl(statefulsetName, serviceName, namespace, userName, password string, spec MongoDbSpec, connectionParams map[string]string) string {
-	if util.ContainsString(spec.Security.Authentication.Modes, util.SCRAM) && (userName == "" || password == "") {
+	if stringutil.Contains(spec.Security.Authentication.Modes, util.SCRAM) && (userName == "" || password == "") {
 		panic("Dev error: UserName and Password must be specified if the resource has SCRAM-SHA enabled")
 	}
 	replicasCount := spec.Replicas()
 
 	hostnames, _ := util.GetDNSNames(statefulsetName, serviceName, namespace, spec.GetClusterDomain(), replicasCount)
 	uri := "mongodb://"
-	if util.ContainsString(spec.Security.Authentication.Modes, util.SCRAM) {
+	if stringutil.Contains(spec.Security.Authentication.Modes, util.SCRAM) {
 		uri += fmt.Sprintf("%s:%s@", userName, password)
 	}
 	for i, h := range hostnames {
@@ -829,7 +832,7 @@ func buildConnectionUrl(statefulsetName, serviceName, namespace, userName, passw
 	if spec.Security.TLSConfig.Enabled {
 		params["ssl"] = "true"
 	}
-	if util.ContainsString(spec.Security.Authentication.Modes, util.SCRAM) {
+	if stringutil.Contains(spec.Security.Authentication.Modes, util.SCRAM) {
 		params["authSource"] = util.DefaultUserDatabase
 
 		comparison, err := util.CompareVersions(spec.GetVersion(), util.MinimumScramSha256MdbVersion)

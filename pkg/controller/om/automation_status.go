@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
@@ -63,7 +65,7 @@ func WaitForReadyState(oc Connection, processNames []string, log *zap.SugaredLog
 // will fix this later)
 func checkAutomationStatusIsGoal(as *AutomationStatus, relevantProcesses []string) bool {
 	for _, p := range as.Processes {
-		if !util.ContainsString(relevantProcesses, p.Name) {
+		if !stringutil.Contains(relevantProcesses, p.Name) {
 			continue
 		}
 		if p.LastGoalVersionAchieved != as.GoalVersion {

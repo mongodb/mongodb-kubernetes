@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"regexp"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	"github.com/blang/semver"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
-	"math"
-	"regexp"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -475,13 +477,13 @@ func (d Deployment) Version() int64 {
 
 // ProcessBelongsToResource determines if `processName` belongs to `resourceName`.
 func (d Deployment) ProcessBelongsToResource(processName, resourceName string) bool {
-	if util.ContainsString(d.GetProcessNames(ShardedCluster{}, resourceName), processName) {
+	if stringutil.Contains(d.GetProcessNames(ShardedCluster{}, resourceName), processName) {
 		return true
 	}
-	if util.ContainsString(d.GetProcessNames(ReplicaSet{}, resourceName), processName) {
+	if stringutil.Contains(d.GetProcessNames(ReplicaSet{}, resourceName), processName) {
 		return true
 	}
-	if util.ContainsString(d.GetProcessNames(Standalone{}, resourceName), processName) {
+	if stringutil.Contains(d.GetProcessNames(Standalone{}, resourceName), processName) {
 		return true
 	}
 
@@ -866,7 +868,7 @@ func (d Deployment) findReplicaSetsRemovedFromShardedCluster(clusterName string)
 	ans := []string{}
 
 	for _, v := range d.getReplicaSets() {
-		if !util.ContainsString(clusterReplicaSets, v.Name()) && isShardOfShardedCluster(clusterName, v.Name()) {
+		if !stringutil.Contains(clusterReplicaSets, v.Name()) && isShardOfShardedCluster(clusterName, v.Name()) {
 			ans = append(ans, v.Name())
 		}
 	}
@@ -910,10 +912,10 @@ func (d Deployment) removeMonitoring(processNames []string) {
 	for _, m := range monitoringVersions {
 		monitoring := m.(map[string]interface{})
 		hostname := monitoring["hostname"].(string)
-		if !util.ContainsString(hostNames, hostname) {
+		if !stringutil.Contains(hostNames, hostname) {
 			updatedMonitoringVersions = append(updatedMonitoringVersions, m)
 		} else {
-			hostNames = util.RemoveString(hostNames, hostname)
+			hostNames = stringutil.Remove(hostNames, hostname)
 		}
 	}
 
@@ -951,10 +953,10 @@ func (d Deployment) removeBackup(processNames []string, log *zap.SugaredLogger) 
 	for _, b := range backupVersions {
 		backup := b.(map[string]interface{})
 		hostname := backup["hostname"].(string)
-		if !util.ContainsString(hostNames, hostname) {
+		if !stringutil.Contains(hostNames, hostname) {
 			updatedBackupVersions = append(updatedBackupVersions, b)
 		} else {
-			hostNames = util.RemoveString(hostNames, hostname)
+			hostNames = stringutil.Remove(hostNames, hostname)
 		}
 	}
 

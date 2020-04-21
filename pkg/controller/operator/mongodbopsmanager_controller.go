@@ -7,6 +7,11 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/generate"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/identifiable"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/backup"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	corev1 "k8s.io/api/core/v1"
@@ -385,7 +390,7 @@ func (r OpsManagerReconciler) getAppDBPassword(opsManager mdbv1.MongoDBOpsManage
 
 	if apiErrors.IsNotFound(err) {
 		// create the password
-		password, err := util.GenerateRandomFixedLengthStringOfSize(12)
+		password, err := generate.RandomFixedLengthStringOfSize(12)
 		if err != nil {
 			return "", err
 		}
@@ -475,7 +480,7 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager mdbv1.MongoDBOpsManag
 
 			// Each "read-after-write" operation needs some timeout after write unfortunately :(
 			// https://github.com/kubernetes-sigs/controller-runtime/issues/343#issuecomment-468402446
-			time.Sleep(time.Duration(util.ReadEnvVarIntOrDefault(util.K8sCacheRefreshEnv, util.DefaultK8sCacheRefreshTimeSeconds)) * time.Second)
+			time.Sleep(time.Duration(envutil.ReadIntOrDefault(util.K8sCacheRefreshEnv, util.DefaultK8sCacheRefreshTimeSeconds)) * time.Second)
 		}
 	}
 
@@ -551,7 +556,7 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(opsManager mdbv1.Mo
 
 	// Creating new configs
 	operatorOplogConfigs := opsManager.Spec.Backup.OplogStoreConfigs
-	configsToCreate := util.SetDifferenceGeneric(operatorOplogConfigs, opsManagerOplogConfigs)
+	configsToCreate := identifiable.SetDifferenceGeneric(operatorOplogConfigs, opsManagerOplogConfigs)
 	for _, v := range configsToCreate {
 		omConfig, status := r.buildOMDatastoreConfig(opsManager, v.(mdbv1.DataStoreConfig))
 		if !status.IsOK() {
@@ -565,7 +570,7 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(opsManager mdbv1.Mo
 
 	// Updating existing configs. It intersects the OM API configs with Operator spec configs and returns pairs
 	//["omConfig", "operatorConfig"].
-	configsToUpdate := util.SetIntersectionGeneric(opsManagerOplogConfigs, operatorOplogConfigs)
+	configsToUpdate := identifiable.SetIntersectionGeneric(opsManagerOplogConfigs, operatorOplogConfigs)
 	for _, v := range configsToUpdate {
 		omConfig := v[0].(backup.DataStoreConfig)
 		operatorConfig := v[1].(mdbv1.DataStoreConfig)
@@ -584,7 +589,7 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(opsManager mdbv1.Mo
 	}
 
 	// Removing non-existing configs
-	configsToRemove := util.SetDifferenceGeneric(opsManagerOplogConfigs, opsManager.Spec.Backup.OplogStoreConfigs)
+	configsToRemove := identifiable.SetDifferenceGeneric(opsManagerOplogConfigs, opsManager.Spec.Backup.OplogStoreConfigs)
 	for _, v := range configsToRemove {
 		log.Debugf("Removing Oplog Store %s from Ops Manager", v.Identifier())
 		if err = omAdmin.DeleteOplogStoreConfig(v.Identifier().(string)); err != nil {
@@ -614,7 +619,7 @@ func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(opsManager mdbv1.Mo
 
 	// Creating new configs
 	operatorBlockStoreConfigs := opsManager.Spec.Backup.BlockStoreConfigs
-	configsToCreate := util.SetDifferenceGeneric(operatorBlockStoreConfigs, opsManagerBlockStoreConfigs)
+	configsToCreate := identifiable.SetDifferenceGeneric(operatorBlockStoreConfigs, opsManagerBlockStoreConfigs)
 	for _, v := range configsToCreate {
 		omConfig, status := r.buildOMDatastoreConfig(opsManager, v.(mdbv1.DataStoreConfig))
 		if !status.IsOK() {
@@ -628,7 +633,7 @@ func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(opsManager mdbv1.Mo
 
 	// Updating existing configs. It intersects the OM API configs with Operator spec configs and returns pairs
 	//["omConfig", "operatorConfig"].
-	configsToUpdate := util.SetIntersectionGeneric(opsManagerBlockStoreConfigs, operatorBlockStoreConfigs)
+	configsToUpdate := identifiable.SetIntersectionGeneric(opsManagerBlockStoreConfigs, operatorBlockStoreConfigs)
 	for _, v := range configsToUpdate {
 		omConfig := v[0].(backup.DataStoreConfig)
 		operatorConfig := v[1].(mdbv1.DataStoreConfig)
@@ -647,7 +652,7 @@ func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(opsManager mdbv1.Mo
 	}
 
 	// Removing non-existing configs
-	configsToRemove := util.SetDifferenceGeneric(opsManagerBlockStoreConfigs, opsManager.Spec.Backup.BlockStoreConfigs)
+	configsToRemove := identifiable.SetDifferenceGeneric(opsManagerBlockStoreConfigs, opsManager.Spec.Backup.BlockStoreConfigs)
 	for _, v := range configsToRemove {
 		log.Debugf("Removing Block Store %s from Ops Manager", v.Identifier())
 		if err = omAdmin.DeleteBlockStoreConfig(v.Identifier().(string)); err != nil {
@@ -669,7 +674,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager mdbv
 	}
 
 	operatorS3Configs := opsManager.Spec.Backup.S3Configs
-	configsToCreate := util.SetDifferenceGeneric(operatorS3Configs, opsManagerS3Configs)
+	configsToCreate := identifiable.SetDifferenceGeneric(operatorS3Configs, opsManagerS3Configs)
 	for _, config := range configsToCreate {
 		omConfig, status := r.buildOMS3Config(opsManager, config.(mdbv1.S3Config), log)
 		if !status.IsOK() {
@@ -684,7 +689,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager mdbv
 
 	// Updating existing configs. It intersects the OM API configs with Operator spec configs and returns pairs
 	//["omConfig", "operatorConfig"].
-	configsToUpdate := util.SetIntersectionGeneric(opsManagerS3Configs, operatorS3Configs)
+	configsToUpdate := identifiable.SetIntersectionGeneric(opsManagerS3Configs, operatorS3Configs)
 	for _, v := range configsToUpdate {
 		omConfig := v[0].(backup.S3Config)
 		operatorConfig := v[1].(mdbv1.S3Config)
@@ -702,7 +707,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager mdbv
 		}
 	}
 
-	configsToRemove := util.SetDifferenceGeneric(opsManagerS3Configs, operatorS3Configs)
+	configsToRemove := identifiable.SetDifferenceGeneric(opsManagerS3Configs, operatorS3Configs)
 	for _, config := range configsToRemove {
 		log.Debugf("Removing S3Config %s from Ops Manager", config.Identifier())
 		if err := omAdmin.DeleteS3Config(config.Identifier().(string)); err != nil {
@@ -802,7 +807,7 @@ func (r *OpsManagerReconciler) getMongoDbForS3Config(opsManager mdbv1.MongoDBOps
 // Note, that we don't worry if the 'mongodbUserRef' is specified but SCRAM-SHA is not enabled - we just ignore the
 // user
 func (r *OpsManagerReconciler) getS3MongoDbUserNameAndPassword(mongodb mdbv1.MongoDB, opsManager mdbv1.MongoDBOpsManager, config mdbv1.S3Config, log *zap.SugaredLogger) (string, string, workflow.Status) {
-	if !util.ContainsString(mongodb.Spec.Security.Authentication.Modes, util.SCRAM) {
+	if !stringutil.Contains(mongodb.Spec.Security.Authentication.Modes, util.SCRAM) {
 		return "", "", workflow.OK()
 	}
 	// If the resource is empty then we need to consider AppDB credentials
@@ -854,7 +859,7 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(opsManager mdbv1.MongoDBOp
 	// Note, that we don't worry if the 'mongodbUserRef' is specified but SCRAM-SHA is not enabled - we just ignore the
 	// user
 	var userName, password string
-	if util.ContainsString(mongodb.Spec.Security.Authentication.Modes, util.SCRAM) {
+	if stringutil.Contains(mongodb.Spec.Security.Authentication.Modes, util.SCRAM) {
 		mongodbUser := &mdbv1.MongoDBUser{}
 		mongodbUserObjectKey := operatorConfig.MongodbUserObjectKey(opsManager.Namespace)
 		err := r.client.Get(context.TODO(), mongodbUserObjectKey, mongodbUser)
@@ -886,11 +891,11 @@ func validateDataStoreConfig(mongodb mdbv1.MongoDB, dataStoreConfig mdbv1.DataSt
 
 func validateConfig(mongodb mdbv1.MongoDB, userRef *mdbv1.MongoDBUserRef, description string) workflow.Status {
 	// validate
-	if !util.ContainsString(mongodb.Spec.Security.Authentication.Modes, util.SCRAM) &&
+	if !stringutil.Contains(mongodb.Spec.Security.Authentication.Modes, util.SCRAM) &&
 		len(mongodb.Spec.Security.Authentication.Modes) > 0 {
 		return workflow.Failed("The only authentication mode supported for the %s is SCRAM-SHA", description)
 	}
-	if util.ContainsString(mongodb.Spec.Security.Authentication.Modes, util.SCRAM) &&
+	if stringutil.Contains(mongodb.Spec.Security.Authentication.Modes, util.SCRAM) &&
 		(userRef == nil || userRef.Name == "") {
 		return workflow.Failed("MongoDB resource %s is configured to use SCRAM-SHA authentication mode, the user must be"+
 			" specified using 'mongodbUserRef'", mongodb.Name)
@@ -899,7 +904,7 @@ func validateConfig(mongodb mdbv1.MongoDB, userRef *mdbv1.MongoDBUserRef, descri
 	if err != nil {
 		return workflow.Failed(err.Error())
 	}
-	if util.ContainsString(mongodb.Spec.Security.Authentication.Modes, util.SCRAM) && comparison >= 0 {
+	if stringutil.Contains(mongodb.Spec.Security.Authentication.Modes, util.SCRAM) && comparison >= 0 {
 		return workflow.Failed("The %s with SCRAM-SHA enabled must have version less than 4.0.0", description)
 	}
 	return workflow.OK()

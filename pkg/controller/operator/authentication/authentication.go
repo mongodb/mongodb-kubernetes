@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
@@ -46,7 +48,7 @@ type UserOptions struct {
 func Configure(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 	log.Infow("ensuring correct deployment mechanisms", "MinimumMajorVersion", opts.MinimumMajorVersion, "ProcessNames", opts.ProcessNames, "Mechanisms", opts.Mechanisms)
 
-	if util.ContainsString(opts.Mechanisms, util.X509) && !canEnableX509(conn) {
+	if stringutil.Contains(opts.Mechanisms, util.X509) && !canEnableX509(conn) {
 		return errors.New("unable to configure X509 with this version of Ops Manager, 4.0.11 is the minimum required version to enable X509")
 	}
 

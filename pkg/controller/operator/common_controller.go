@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -190,7 +192,7 @@ func ensureTagAdded(conn om.Connection, project *om.Project, tag string, log *za
 	// must truncate the tag to at most 32 characters and capitalise as
 	// these are Ops Manager requirements
 	sanitisedTag := strings.ToUpper(fmt.Sprintf("%.32s", tag))
-	alreadyHasTag := util.ContainsString(project.Tags, sanitisedTag)
+	alreadyHasTag := stringutil.Contains(project.Tags, sanitisedTag)
 	if alreadyHasTag {
 		return nil
 	}
@@ -636,9 +638,9 @@ func validateScram(mdb *mdbv1.MongoDB, ac *om.AutomationConfig) workflow.Status 
 		return workflow.Failed(err.Error())
 	}
 
-	scram256IsAlreadyEnabled := util.ContainsString(ac.Auth.DeploymentAuthMechanisms, string(authentication.ScramSha256))
+	scram256IsAlreadyEnabled := stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(authentication.ScramSha256))
 	attemptingToDowngradeMongoDBVersion := ac.Deployment.MinimumMajorVersion() >= 4 && specVersion.Major < 4
-	isDowngradingFromScramSha256ToScramSha1 := attemptingToDowngradeMongoDBVersion && util.ContainsString(mdb.Spec.Security.Authentication.Modes, "SCRAM") && scram256IsAlreadyEnabled
+	isDowngradingFromScramSha256ToScramSha1 := attemptingToDowngradeMongoDBVersion && stringutil.Contains(mdb.Spec.Security.Authentication.Modes, "SCRAM") && scram256IsAlreadyEnabled
 
 	if isDowngradingFromScramSha256ToScramSha1 {
 		return workflow.Invalid("Unable to downgrade to SCRAM-SHA-1 when SCRAM-SHA-256 has been enabled")
@@ -798,7 +800,7 @@ func (r *ReconcileCommonController) readAgentSubjectsFromSecret(namespace string
 // during this reconciliation. This function may return a different value on the next reconciliation
 // if the state of Ops Manager has been changed.
 func canConfigureAuthentication(ac *om.AutomationConfig, mdb *mdbv1.MongoDB, log *zap.SugaredLogger) bool {
-	attemptingToEnableX509 := !util.ContainsString(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) && util.ContainsString(mdb.Spec.Security.Authentication.Modes, util.X509)
+	attemptingToEnableX509 := !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) && stringutil.Contains(mdb.Spec.Security.Authentication.Modes, util.X509)
 	canEnableX509InOpsManager := ac.Deployment.AllProcessesAreTLSEnabled() || ac.Deployment.NumberOfProcesses() == 0
 
 	log.Debugw("canConfigureAuthentication",
