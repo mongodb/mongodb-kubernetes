@@ -161,9 +161,10 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 				return workflow.Failed("Failed to create/update (Kubernetes reconciliation phase): %s", err.Error())
 			}
 
-			if !r.kubeHelper.isStatefulSetUpdated(standaloneBuilder.Namespace, standaloneBuilder.Name, log) {
+			if status := r.getStatefulSetStatus(standaloneBuilder.Namespace, standaloneBuilder.Name); !status.IsOK() {
 				return workflow.Pending(fmt.Sprintf("MongoDB %s resource is still starting", standaloneBuilder.Name))
 			}
+			_, _ = r.updateStatus(s, workflow.Reconciling().WithResourcesNotReady([]mdbv1.ResourceNotReady{}).WithNoMessage(), log)
 
 			log.Info("Updated statefulset for standalone")
 			return workflow.OK()

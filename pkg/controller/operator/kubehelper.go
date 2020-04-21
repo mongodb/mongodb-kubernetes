@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
@@ -17,8 +16,6 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"time"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -670,40 +667,6 @@ func (k *KubeHelper) createOrUpdateStatefulset(ns string, log *zap.SugaredLogger
 	log.Debugf("%s StatefulSet", msg)
 
 	return set, nil
-}
-
-// isStatefulSetUpdated will check if every Replica from the StatefulSet has been updated.
-// The StatefulSet controller updates Pods one at a time, and each one is considered "ready" and
-// "updated". We expect that the StatefulSet is completely Updated when all of the Pods have been
-// updated (moved to latest version) and ready (they have reached Ready state after being updated).
-// This function also sleeps for `K8S_CACHES_REFRESH_TIME_SEC` to somehow avoid fetching a cached
-// result from the Kubernetes API.
-// There is a short loop inside to check everything during 15 seconds. This will allow to discover "ok" result
-// faster for users and tests (as the next reconciliation will happen in 10 seconds), though will still
-// provide good interactivity for user requests
-func (k *KubeHelper) isStatefulSetUpdated(namespace, name string, log *zap.SugaredLogger) bool {
-	// environment variables are used only for tests
-	waitSeconds := envutil.ReadIntOrDefault(util.PodWaitSecondsEnv, 3)
-	retrials := envutil.ReadIntOrDefault(util.PodWaitRetriesEnv, 5)
-	log = log.With("statefulset", objectKey(namespace, name))
-
-	time.Sleep(time.Duration(envutil.ReadIntOrDefault(util.K8sCacheRefreshEnv, util.DefaultK8sCacheRefreshTimeSeconds)) * time.Second)
-
-	return util.DoAndRetry(func() (string, bool) {
-		set := &appsv1.StatefulSet{}
-		err := k.client.Get(context.TODO(), objectKey(namespace, name), set)
-
-		if err != nil {
-			return fmt.Sprintf("Error reading statefulset %s: %s", objectKey(namespace, name), err), false
-		}
-
-		replicas := *set.Spec.Replicas
-		allUpdated := replicas == set.Status.UpdatedReplicas
-		allReady := replicas == set.Status.ReadyReplicas
-
-		return fmt.Sprintf("Replicas count: total %d, updated %d, ready %d", *set.Spec.Replicas,
-			set.Status.UpdatedReplicas, set.Status.ReadyReplicas), allUpdated && allReady
-	}, log, retrials, waitSeconds)
 }
 
 func (k *KubeHelper) deleteStatefulSet(key client.ObjectKey) error {

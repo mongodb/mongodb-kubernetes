@@ -14,7 +14,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,28 +26,6 @@ func TestStatefulsetCreationSuccessful(t *testing.T) {
 	err := helper.CreateOrUpdateInKubernetes()
 	assert.NoError(t, err)
 	assert.True(t, time.Now().Sub(start) < time.Second*4) // we waited only a little (considering 2 seconds of wait as well)
-}
-
-func TestStatefulsetCreationWaitsForCompletion(t *testing.T) {
-	start := time.Now()
-	helper := baseSetHelperDelayed(5000).
-		SetPodSpec(mdbv1.NewPodSpecWrapperBuilder().Build()).
-		SetPodVars(defaultPodVars()).
-		SetService("test-service").
-		SetSecurity(&mdbv1.Security{
-			TLSConfig: &mdbv1.TLSConfig{},
-			Authentication: &mdbv1.Authentication{
-				Modes: []string{},
-			},
-		})
-	err := helper.CreateOrUpdateInKubernetes()
-	assert.NoError(t, err)
-
-	// There was not waiting for the StatefulSet to be ready
-	assert.False(t, time.Now().Sub(start) >= time.Second*2)
-
-	ready := helper.Helper.isStatefulSetUpdated(helper.Namespace, helper.Name, zap.S())
-	assert.False(t, ready)
 }
 
 func TestSSLOptionsArePassedCorrectly_SSLRequireValidMMSServerCertificates(t *testing.T) {

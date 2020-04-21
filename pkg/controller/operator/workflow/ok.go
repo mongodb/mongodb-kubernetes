@@ -8,7 +8,7 @@ import (
 
 // okStatus indicates that the reconciliation process must be suspended and CR should get "Pending" status
 type okStatus struct {
-	warnings []mdbv1.StatusWarning
+	commonStatus
 }
 
 func OK() *okStatus {
@@ -38,7 +38,7 @@ func (o okStatus) OnErrorPrepend(_ string) Status {
 }
 
 func (o okStatus) StatusOptions() []mdbv1.StatusOption {
-	return []mdbv1.StatusOption{mdbv1.NewWarningsOption(o.warnings)}
+	return o.statusOptions()
 }
 
 func (f okStatus) Log(_ *zap.SugaredLogger) {

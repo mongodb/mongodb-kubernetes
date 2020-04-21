@@ -36,8 +36,9 @@ type Status interface {
 }
 
 type commonStatus struct {
-	msg      string
-	warnings []mdbv1.StatusWarning
+	msg               string
+	warnings          []mdbv1.StatusWarning
+	resourcesNotReady []mdbv1.ResourceNotReady
 }
 
 func newCommonStatus(msg string, params ...interface{}) commonStatus {
@@ -49,5 +50,9 @@ func (c *commonStatus) prependMsg(msg string) {
 }
 
 func (c commonStatus) statusOptions() []mdbv1.StatusOption {
-	return []mdbv1.StatusOption{mdbv1.NewMessageOption(c.msg), mdbv1.NewWarningsOption(c.warnings)}
+	return []mdbv1.StatusOption{
+		mdbv1.NewMessageOption(c.msg),
+		mdbv1.NewWarningsOption(c.warnings),
+		mdbv1.NewResourcesNotReadyOption(c.resourcesNotReady),
+	}
 }

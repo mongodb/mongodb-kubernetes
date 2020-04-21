@@ -12,6 +12,7 @@ func (o noOption) value() interface{} {
 	return nil
 }
 
+// MessageOption describes the status message
 type MessageOption struct {
 	Message string
 }
@@ -24,6 +25,7 @@ func (o MessageOption) value() interface{} {
 	return o.Message
 }
 
+// WarningsOption describes the status warnings
 type WarningsOption struct {
 	Warnings []StatusWarning
 }
@@ -36,6 +38,7 @@ func (o WarningsOption) value() interface{} {
 	return o.Warnings
 }
 
+// BaseUrlOption describes the Ops Manager base URL.
 type BaseUrlOption struct {
 	BaseUrl string
 }
@@ -48,6 +51,7 @@ func (o BaseUrlOption) value() interface{} {
 	return o.BaseUrl
 }
 
+// OMStatusPartOption describes the part of Ops Manager resource status to be updated
 type OMStatusPartOption struct {
 	StatusPart StatusPart
 }
@@ -58,6 +62,19 @@ func NewOMStatusPartOption(statusPart StatusPart) OMStatusPartOption {
 
 func (o OMStatusPartOption) value() interface{} {
 	return o.StatusPart
+}
+
+// ResourcesNotReadyOption describes the resources dependent on the resource which are not ready
+type ResourcesNotReadyOption struct {
+	ResourcesNotReady []ResourceNotReady
+}
+
+func NewResourcesNotReadyOption(resourceNotReady []ResourceNotReady) ResourcesNotReadyOption {
+	return ResourcesNotReadyOption{ResourcesNotReady: resourceNotReady}
+}
+
+func (o ResourcesNotReadyOption) value() interface{} {
+	return o.ResourcesNotReady
 }
 
 func GetStatusOption(statusOptions []StatusOption, targetOption StatusOption) (StatusOption, bool) {

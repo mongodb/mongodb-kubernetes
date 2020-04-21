@@ -30,6 +30,11 @@ func (p *pendingStatus) WithRetry(retryInSeconds time.Duration) *pendingStatus {
 	return p
 }
 
+func (p *pendingStatus) WithResourcesNotReady(resourcesNotReady []mdbv1.ResourceNotReady) *pendingStatus {
+	p.resourcesNotReady = resourcesNotReady
+	return p
+}
+
 func (p pendingStatus) ReconcileResult() (reconcile.Result, error) {
 	return reconcile.Result{RequeueAfter: time.Second * p.retryInSeconds}, nil
 }
@@ -55,7 +60,7 @@ func (p pendingStatus) OnErrorPrepend(msg string) Status {
 
 func (p pendingStatus) StatusOptions() []mdbv1.StatusOption {
 	options := p.statusOptions()
-	// Add any specific options here
+	// Add any custom options here
 	return options
 }
 

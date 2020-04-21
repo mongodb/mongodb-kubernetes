@@ -194,8 +194,8 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulset(opsManager mdbv1.Mong
 		return workflow.Failed(err.Error())
 	}
 
-	if !r.kubeHelper.isStatefulSetUpdated(opsManager.Namespace, opsManager.Name, log) {
-		return workflow.Pending("Ops Manager is still starting")
+	if status := r.getStatefulSetStatus(opsManager.Namespace, opsManager.Name); !status.IsOK() {
+		return status
 	}
 
 	return workflow.OK()
@@ -269,8 +269,8 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(opsManager mdbv1.Mo
 		return workflow.Failed(err.Error())
 	}
 	// Note, that this will return true quite soon as we don't have daemon readiness so far
-	if !r.kubeHelper.isStatefulSetUpdated(opsManager.Namespace, opsManager.BackupStatefulSetName(), log) {
-		return workflow.Pending("Backup Daemon is still starting")
+	if status := r.getStatefulSetStatus(opsManager.Namespace, opsManager.BackupStatefulSetName()); !status.IsOK() {
+		return status
 	}
 	return workflow.OK()
 }

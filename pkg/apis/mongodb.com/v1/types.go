@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/timeutil"
 	appsv1 "k8s.io/api/apps/v1"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -105,16 +104,22 @@ type MongoDBConnectivity struct {
 	ReplicaSetHorizons []MongoDBHorizonConfig `json:"replicaSetHorizons,omitempty"`
 }
 
+// CommonStatus is the struct shared by all statuses in existing Custom Resources.
+type CommonStatus struct {
+	Phase             Phase              `json:"phase"`
+	Message           string             `json:"message,omitempty"`
+	LastTransition    string             `json:"lastTransition,omitempty"`
+	ResourcesNotReady []ResourceNotReady `json:"resourcesNotReady,omitempty"`
+}
+
 type MongoDbStatus struct {
+	CommonStatus
 	MongodbShardedClusterSizeConfig
-	Members        int             `json:"members,omitempty"`
-	Version        string          `json:"version"`
-	Phase          Phase           `json:"phase"`
-	Message        string          `json:"message,omitempty"`
-	Link           string          `json:"link,omitempty"`
-	LastTransition string          `json:"lastTransition,omitempty"`
-	ResourceType   ResourceType    `json:"type"`
-	Warnings       []StatusWarning `json:"warnings,omitempty"`
+	Members      int             `json:"members,omitempty"`
+	Version      string          `json:"version"`
+	Link         string          `json:"link,omitempty"`
+	ResourceType ResourceType    `json:"type"`
+	Warnings     []StatusWarning `json:"warnings,omitempty"`
 }
 
 type MongoDbSpec struct {
@@ -164,6 +169,19 @@ type MongoDbSpec struct {
 	// configuration file:
 	// https://docs.mongodb.com/manual/reference/configuration-options/
 	AdditionalMongodConfig *AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
+}
+
+// ResourceNotReady describes the dependent resource which is not ready yet
+type ResourceNotReady struct {
+	Kind    ResourceKind    `json:"kind"`
+	Name    string          `json:"name"`
+	Errors  []ResourceError `json:"errors,omitempty"`
+	Message string          `json:"message,omitempty"`
+}
+
+type ResourceError struct {
+	Reason  string `json:"reason,omitempty"`
+	Message string `json:"message,omitempty"`
 }
 
 // StatefulSetConfiguration holds the optional custom StatefulSet
@@ -237,6 +255,7 @@ type ProjectConfig struct {
 	SSLProjectConfig
 }
 
+// TODO remove as seems not relevant any more
 func (ms *MongoDbSpec) SetParametersFromConfigMap(cm *ProjectConfig) {
 	if cm.AuthMode == util.LegacyX509InConfigMapValue {
 		ms.Security.Authentication.Enabled = true
@@ -471,12 +490,7 @@ func (m *MongoDB) ShardRsName(i int) string {
 }
 
 func (m *MongoDB) UpdateStatus(phase Phase, statusOptions ...StatusOption) {
-	m.Status.LastTransition = timeutil.Now()
-	m.Status.Phase = phase
-
-	if option, exists := GetStatusOption(statusOptions, MessageOption{}); exists {
-		m.Status.Message = stringutil.UpperCaseFirstChar(option.(MessageOption).Message)
-	}
+	m.Status.UpdateCommonFields(phase, statusOptions...)
 	if option, exists := GetStatusOption(statusOptions, WarningsOption{}); exists {
 		m.Status.Warnings = append(m.Status.Warnings, option.(WarningsOption).Warnings...)
 	}

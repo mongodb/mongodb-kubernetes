@@ -1,10 +1,9 @@
 package operator
 
 import (
+	"os"
 	"reflect"
 	"testing"
-
-	"os"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
@@ -45,36 +44,20 @@ func TestOnAddStandalone(t *testing.T) {
 	omConn.CheckNumberOfUpdateRequests(t, 1)
 }
 
-// TestOnAddStandaloneWithDelay checks the reconciliation on standalone creation with a small delay.
-// It emulates the kubernetes work on statefulset creation ('StsCreationDelayMillis') and makes sure
-// the operator waits for this to finish.
+// TestOnAddStandaloneWithDelay checks the reconciliation on standalone creation with some "delay" in getting
+// StatefulSet ready. The first reconciliation gets to Pending while the second reconciliation suceeds
 func TestOnAddStandaloneWithDelay(t *testing.T) {
 	st := DefaultStandaloneBuilder().SetVersion("4.1.0").SetService("mysvc").Build()
 
-	client := mock.NewClient().WithResource(st).WithStsCreationDelay(200).AddDefaultMdbConfigResources()
-	manager := mock.NewManagerSpecificClient(client)
-
-	reconciler := newStandaloneReconciler(manager, om.NewEmptyMockedOmConnection)
-
-	checkReconcileSuccessful(t, reconciler, st, client)
-}
-
-// TestOnAddStandaloneWithDelayPending checks the reconciliation on standalone creation with a small delay
-// if the Operator gives up before the StatefulSet gets ready.
-// It emulates the kubernetes work on statefulset creation ('StsCreationDelayMillis') and makes sure
-// the mongodb resource goes to Pending state
-func TestOnAddStandaloneWithDelayPending(t *testing.T) {
-	defer InitDefaultEnvVariables()
-
-	_ = os.Setenv(util.PodWaitRetriesEnv, "0")
-	st := DefaultStandaloneBuilder().SetVersion("4.1.0").SetService("mysvc").Build()
-
-	client := mock.NewClient().WithResource(st).WithStsCreationDelay(200).AddDefaultMdbConfigResources()
+	client := mock.NewClient().WithResource(st).WithStsReady(false).AddDefaultMdbConfigResources()
 	manager := mock.NewManagerSpecificClient(client)
 
 	reconciler := newStandaloneReconciler(manager, om.NewEmptyMockedOmConnection)
 
 	checkReconcilePending(t, reconciler, st, "MongoDB dublin resource is still starting", client)
+	client.WithStsReady(true)
+
+	checkReconcileSuccessful(t, reconciler, st, client)
 }
 
 // TestAddDeleteStandalone checks that no state is left in OpsManager on removal of the standalone

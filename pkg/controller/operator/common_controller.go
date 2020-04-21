@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
 	"crypto/x509"
@@ -15,8 +16,10 @@ import (
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/inspect"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/blang/semver"
+	appsv1 "k8s.io/api/apps/v1"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
 
@@ -628,6 +631,27 @@ func validateMongoDBResource(mdb *mdbv1.MongoDB, conn om.Connection) workflow.St
 		return status
 	}
 
+	return workflow.OK()
+}
+
+// getStatefulSetStatus returns the workflow.Status based on the status of the StatefulSet.
+// If the StatefulSet is not ready the request will be retried in 3 seconds (instead of the default 10 seconds)
+// allowing to reach "ready" status sooner
+func (r *ReconcileCommonController) getStatefulSetStatus(namespace, name string) workflow.Status {
+	// TODO can we do this without sleeping?
+	time.Sleep(time.Duration(envutil.ReadIntOrDefault(util.K8sCacheRefreshEnv, util.DefaultK8sCacheRefreshTimeSeconds)) * time.Second)
+	set := appsv1.StatefulSet{}
+	err := r.client.Get(context.TODO(), objectKey(namespace, name), &set)
+	if err != nil {
+		return workflow.Failed(err.Error())
+	}
+
+	if statefulSetState := inspect.StatefulSet(set, objectKey(namespace, name)); !statefulSetState.IsReady() {
+		return workflow.
+			Pending(statefulSetState.GetMessage()).
+			WithResourcesNotReady(statefulSetState.GetResourcesNotReadyStatus()).
+			WithRetry(3)
+	}
 	return workflow.OK()
 }
 

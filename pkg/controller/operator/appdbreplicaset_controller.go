@@ -96,8 +96,8 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *mdbv1.MongoDBOpsManager
 		time.Sleep(time.Duration(envutil.ReadIntOrDefault(util.AppDBReadinessWaitEnv, DefaultWaitForReadinessSeconds)) * time.Second)
 	}
 
-	if !r.kubeHelper.isStatefulSetUpdated(opsManager.Namespace, opsManager.Name+"-db", log) {
-		return r.updateStatus(opsManager, workflow.Pending("AppDB Statefulset is not ready yet"), log, appDbStatusOption)
+	if status := r.getStatefulSetStatus(opsManager.Namespace, opsManager.Spec.AppDB.Name()); !status.IsOK() {
+		return r.updateStatus(opsManager, status, log, appDbStatusOption)
 	}
 
 	log.Infof("Finished reconciliation for AppDB ReplicaSet!")

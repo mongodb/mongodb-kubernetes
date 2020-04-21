@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"runtime"
 	"testing"
-	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
 	jsonpatch "github.com/evanphx/json-patch"
@@ -58,17 +57,17 @@ type MockedClient struct {
 	// mocked client keeps track of all implemented functions called - uses reflection Func for this to enable type-safety
 	// and make function names rename easier
 	history []*HistoryItem
-	// the delay for statefulsets "creation"
-	StsCreationDelayMillis time.Duration
-	UpdateFunc             func(ctx context.Context, obj apiruntime.Object) error
+	// if the StatefulSet created must be marked ready right after creation
+	markStsReady bool
+	UpdateFunc   func(ctx context.Context, obj apiruntime.Object) error
 }
 
 func NewClient() *MockedClient {
 	api := MockedClient{}
 	api.backingMap = map[reflect.Type]map[client.ObjectKey]apiruntime.Object{}
 
-	// no delay in creation by default
-	api.StsCreationDelayMillis = 0
+	// mark StatefulSet ready right away by default
+	api.markStsReady = true
 
 	// ugly but seems the only way to clean om global variable for current connection (as golang doesnt' have setup()/teardown()
 	// methods for testing
@@ -103,8 +102,8 @@ func (m *MockedClient) AddCredentialsSecret(omUser, omPublicKey string) *MockedC
 	return m
 }
 
-func (m *MockedClient) WithStsCreationDelay(delayMillis time.Duration) *MockedClient {
-	m.StsCreationDelayMillis = delayMillis
+func (m *MockedClient) WithStsReady(ready bool) *MockedClient {
+	m.markStsReady = ready
 	return m
 }
 
@@ -271,13 +270,8 @@ func (k *MockedClient) Status() client.StatusWriter {
 
 // onStatefulsetUpdate emulates statefulsets reaching their desired state, also OM automation agents get "registered"
 func (k *MockedClient) onStatefulsetUpdate(set *appsv1.StatefulSet) {
-	if k.StsCreationDelayMillis == 0 {
+	if k.markStsReady {
 		markStatefulSetsReady(set)
-	} else {
-		go func() {
-			time.Sleep(k.StsCreationDelayMillis * time.Millisecond)
-			markStatefulSetsReady(set)
-		}()
 	}
 }
 

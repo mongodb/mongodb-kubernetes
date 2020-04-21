@@ -5,7 +5,6 @@ import (
 	"os"
 	"path"
 	"testing"
-	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
@@ -671,15 +670,6 @@ func TestBaseEnvHelper(t *testing.T) {
 func baseSetHelper() *StatefulSetHelper {
 	st := DefaultStandaloneBuilder().Build()
 	mockedClient := mock.NewClient().WithResource(st)
-	helper := NewKubeHelper(mockedClient)
-	return helper.NewStatefulSetHelper(st)
-}
-
-// baseSetHelperDelayed returns a delayed StatefulSetHelper.
-// This helper will not get to Success state right away, but will take at least `delay`.
-func baseSetHelperDelayed(delay time.Duration) *StatefulSetHelper {
-	st := DefaultStandaloneBuilder().Build()
-	mockedClient := mock.NewClient().WithResource(st).WithStsCreationDelay(delay)
 	helper := NewKubeHelper(mockedClient)
 	return helper.NewStatefulSetHelper(st)
 }

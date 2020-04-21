@@ -4,9 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/timeutil"
-
 	kubev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -77,14 +74,12 @@ type MongoDBUserSpec struct {
 }
 
 type MongoDBUserStatus struct {
-	Roles          []Role          `json:"roles,omitempty"`
-	Username       string          `json:"username"`
-	Database       string          `json:"db"`
-	Message        string          `json:"msg,omitempty"`
-	Phase          Phase           `json:"phase"`
-	LastTransition string          `json:"lastTransition"`
-	Project        string          `json:"project"`
-	Warnings       []StatusWarning `json:"warnings,omitempty"`
+	CommonStatus
+	Roles    []Role          `json:"roles,omitempty"`
+	Username string          `json:"username"`
+	Database string          `json:"db"`
+	Project  string          `json:"project"`
+	Warnings []StatusWarning `json:"warnings,omitempty"`
 }
 
 type Role struct {
@@ -111,12 +106,7 @@ func (u *MongoDBUser) ChangedIdentifier() bool {
 }
 
 func (u *MongoDBUser) UpdateStatus(phase Phase, statusOptions ...StatusOption) {
-	u.Status.LastTransition = timeutil.Now()
-	u.Status.Phase = phase
-
-	if option, exists := GetStatusOption(statusOptions, MessageOption{}); exists {
-		u.Status.Message = stringutil.UpperCaseFirstChar(option.(MessageOption).Message)
-	}
+	u.Status.UpdateCommonFields(phase, statusOptions...)
 	if option, exists := GetStatusOption(statusOptions, WarningsOption{}); exists {
 		u.Status.Warnings = append(u.Status.Warnings, option.(WarningsOption).Warnings...)
 	}

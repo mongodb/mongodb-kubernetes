@@ -207,7 +207,8 @@ func initLogger(env string) {
 	case "prod":
 		logger, e = zap.NewProduction()
 	case "dev", "local":
-		logger, e = zap.NewDevelopment()
+		// Overriding the default stacktrace behavior - have them only for errors but not for warnings
+		logger, e = zap.NewDevelopment(zap.AddStacktrace(zap.ErrorLevel))
 	}
 
 	if e != nil {

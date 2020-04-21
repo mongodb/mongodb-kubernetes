@@ -220,23 +220,25 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 	if err != nil {
 		return workflow.Failed("Failed to create Config Server Stateful Set: %s", err)
 	}
-	if !r.kubeHelper.isStatefulSetUpdated(state.configSrvSetHelper.Namespace, state.configSrvSetHelper.Name, log) {
-		return workflow.Pending("StatefulSet %s/%s is still pending to start/update", state.configSrvSetHelper.Namespace, state.configSrvSetHelper.Name)
+	if status := r.getStatefulSetStatus(state.configSrvSetHelper.Namespace, state.configSrvSetHelper.Name); !status.IsOK() {
+		return status
 	}
+	_, _ = r.updateStatus(s, workflow.Reconciling().WithResourcesNotReady([]mdbv1.ResourceNotReady{}).WithNoMessage(), log)
 
 	log.Infow("Created/updated StatefulSet for config servers", "name", state.configSrvSetHelper.Name, "servers count", state.configSrvSetHelper.Replicas)
 
 	shardsNames := make([]string, s.Spec.ShardCount)
 
-	for i, s := range state.shardsSetsHelpers {
-		shardsNames[i] = s.Name
-		err = s.CreateOrUpdateInKubernetes()
+	for i, helper := range state.shardsSetsHelpers {
+		shardsNames[i] = helper.Name
+		err = helper.CreateOrUpdateInKubernetes()
 		if err != nil {
-			return workflow.Failed("Failed to create Stateful Set for shard %s: %s", s.Name, err)
+			return workflow.Failed("Failed to create Stateful Set for shard %s: %s", helper.Name, err)
 		}
-		if !r.kubeHelper.isStatefulSetUpdated(s.Namespace, s.Name, log) {
-			return workflow.Pending("StatefulSet %s/%s is still pending to start/update", s.Namespace, s.Name)
+		if status := r.getStatefulSetStatus(helper.Namespace, helper.Name); !status.IsOK() {
+			return status
 		}
+		_, _ = r.updateStatus(s, workflow.Reconciling().WithResourcesNotReady([]mdbv1.ResourceNotReady{}).WithNoMessage(), log)
 	}
 
 	log.Infow("Created/updated Stateful Sets for shards in Kubernetes", "shards", shardsNames)
@@ -246,9 +248,10 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 		return workflow.Failed("Failed to create Mongos Stateful Set: %s", err)
 	}
 
-	if !r.kubeHelper.isStatefulSetUpdated(state.mongosSetHelper.Namespace, state.mongosSetHelper.Name, log) {
-		return workflow.Pending("StatefulSet %s/%s is still pending to start/update", state.mongosSetHelper.Namespace, state.mongosSetHelper.Name)
+	if status := r.getStatefulSetStatus(state.mongosSetHelper.Namespace, state.mongosSetHelper.Name); !status.IsOK() {
+		return status
 	}
+	_, _ = r.updateStatus(s, workflow.Reconciling().WithResourcesNotReady([]mdbv1.ResourceNotReady{}).WithNoMessage(), log)
 
 	log.Infow("Created/updated StatefulSet for mongos servers", "name", state.mongosSetHelper.Name, "servers count", state.mongosSetHelper.Replicas)
 

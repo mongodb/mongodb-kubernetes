@@ -29,16 +29,15 @@ func init() {
 // StatusPart is the logical constant for specific field in status in the MongoDBOpsManager
 type StatusPart int
 
-// ExtraParams is the constant for different properties that can be passed to update status method
-type ExtraParams int
+// ResourceKind specifies a kind of a Kubernetes resource. Used in status of a Custom Resource
+type ResourceKind string
 
 const (
 	AppDb StatusPart = iota
 	OpsManager
 	Backup
 
-	Status ExtraParams = iota
-	BaseUrl
+	StatefulsetKind ResourceKind = "StatefulSet"
 )
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -112,12 +111,6 @@ type MongoDBOpsManagerTLS struct {
 	SecretRef TLSSecretRef `json:"secretRef"`
 }
 
-// NewExtraStatusParams is the function to build the extra params container used for updating status field
-// StatusPart is a mandatory parameter as it's necessary to know which part of status needs to be updated
-func NewExtraStatusParams(status StatusPart) map[ExtraParams]interface{} {
-	return map[ExtraParams]interface{}{Status: status}
-}
-
 func (ms MongoDBOpsManagerSpec) GetClusterDomain() string {
 	if ms.ClusterDomain != "" {
 		return ms.ClusterDomain
@@ -174,12 +167,10 @@ type MongoDBOpsManagerStatus struct {
 }
 
 type OpsManagerStatus struct {
-	Version        string `json:"version,omitempty"`
-	Replicas       int    `json:"replicas,omitempty"`
-	Phase          Phase  `json:"phase"`
-	Message        string `json:"message,omitempty"`
-	LastTransition string `json:"lastTransition,omitempty"`
-	Url            string `json:"url,omitempty"`
+	CommonStatus
+	Replicas int    `json:"replicas,omitempty"`
+	Version  string `json:"version,omitempty"`
+	Url      string `json:"url,omitempty"`
 }
 
 type AppDbStatus struct {
@@ -187,10 +178,8 @@ type AppDbStatus struct {
 }
 
 type BackupStatus struct {
-	Phase          Phase  `json:"phase"`
-	Message        string `json:"message,omitempty"`
-	LastTransition string `json:"lastTransition,omitempty"`
-	Version        string `json:"version,omitempty"`
+	CommonStatus
+	Version string `json:"version,omitempty"`
 }
 
 // DataStoreConfig is the description of the config used to reference to database. Reused by Oplog and Block stores
@@ -353,6 +342,18 @@ func (m *MongoDBOpsManager) AddConfigIfDoesntExist(key, value string) bool {
 	return false
 }
 
+// UpdateCommonFields is the update function to update common fields used in statuses of all managed CRs
+func (s *CommonStatus) UpdateCommonFields(phase Phase, statusOptions ...StatusOption) {
+	s.Phase = phase
+	s.LastTransition = timeutil.Now()
+	if option, exists := GetStatusOption(statusOptions, MessageOption{}); exists {
+		s.Message = stringutil.UpperCaseFirstChar(option.(MessageOption).Message)
+	}
+	if option, exists := GetStatusOption(statusOptions, ResourcesNotReadyOption{}); exists {
+		s.ResourcesNotReady = option.(ResourcesNotReadyOption).ResourcesNotReady
+	}
+}
+
 func (m *MongoDBOpsManager) UpdateStatus(phase Phase, statusOptions ...StatusOption) {
 	var statusPart StatusPart
 	if option, exists := GetStatusOption(statusOptions, OMStatusPartOption{}); exists {
@@ -376,11 +377,7 @@ func (m *MongoDBOpsManager) UpdateStatus(phase Phase, statusOptions ...StatusOpt
 }
 
 func (m *MongoDBOpsManager) updateStatusAppDb(phase Phase, statusOptions ...StatusOption) {
-	m.Status.AppDbStatus.LastTransition = timeutil.Now()
-	m.Status.AppDbStatus.Phase = phase
-	if option, exists := GetStatusOption(statusOptions, MessageOption{}); exists {
-		m.Status.AppDbStatus.Message = stringutil.UpperCaseFirstChar(option.(MessageOption).Message)
-	}
+	m.Status.AppDbStatus.UpdateCommonFields(phase, statusOptions...)
 
 	if phase == PhaseRunning {
 		spec := m.Spec.AppDB
@@ -392,14 +389,12 @@ func (m *MongoDBOpsManager) updateStatusAppDb(phase Phase, statusOptions ...Stat
 }
 
 func (m *MongoDBOpsManager) updateStatusOpsManager(phase Phase, statusOptions ...StatusOption) {
-	m.Status.OpsManagerStatus.LastTransition = timeutil.Now()
-	m.Status.OpsManagerStatus.Phase = phase
-	if option, exists := GetStatusOption(statusOptions, MessageOption{}); exists {
-		m.Status.OpsManagerStatus.Message = stringutil.UpperCaseFirstChar(option.(MessageOption).Message)
-	}
+	m.Status.OpsManagerStatus.UpdateCommonFields(phase, statusOptions...)
+
 	if option, exists := GetStatusOption(statusOptions, BaseUrlOption{}); exists {
 		m.Status.OpsManagerStatus.Url = option.(BaseUrlOption).BaseUrl
 	}
+
 	if phase == PhaseRunning {
 		m.Status.OpsManagerStatus.Replicas = m.Spec.Replicas
 		m.Status.OpsManagerStatus.Version = m.Spec.Version
@@ -408,12 +403,7 @@ func (m *MongoDBOpsManager) updateStatusOpsManager(phase Phase, statusOptions ..
 }
 
 func (m *MongoDBOpsManager) updateStatusBackup(phase Phase, statusOptions ...StatusOption) {
-	m.Status.BackupStatus.LastTransition = timeutil.Now()
-	m.Status.BackupStatus.Phase = phase
-
-	if option, exists := GetStatusOption(statusOptions, MessageOption{}); exists {
-		m.Status.BackupStatus.Message = stringutil.UpperCaseFirstChar(option.(MessageOption).Message)
-	}
+	m.Status.BackupStatus.UpdateCommonFields(phase, statusOptions...)
 
 	if phase == PhaseRunning {
 		m.Status.BackupStatus.Message = ""

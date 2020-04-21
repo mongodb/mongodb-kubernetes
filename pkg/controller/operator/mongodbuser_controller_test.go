@@ -17,8 +17,8 @@ import (
 )
 
 func TestSettingUserStatus_ToPending_IsFilteredOut(t *testing.T) {
-	userInUpdatedPhase := &mdbv1.MongoDBUser{ObjectMeta: metav1.ObjectMeta{Name: "mms-user", Namespace: mock.TestNamespace}, Status: mdbv1.MongoDBUserStatus{Phase: mdbv1.PhaseUpdated}}
-	userInPendingPhase := &mdbv1.MongoDBUser{ObjectMeta: metav1.ObjectMeta{Name: "mms-user", Namespace: mock.TestNamespace}, Status: mdbv1.MongoDBUserStatus{Phase: mdbv1.PhasePending}}
+	userInUpdatedPhase := &mdbv1.MongoDBUser{ObjectMeta: metav1.ObjectMeta{Name: "mms-user", Namespace: mock.TestNamespace}, Status: mdbv1.MongoDBUserStatus{CommonStatus: mdbv1.CommonStatus{Phase: mdbv1.PhaseUpdated}}}
+	userInPendingPhase := &mdbv1.MongoDBUser{ObjectMeta: metav1.ObjectMeta{Name: "mms-user", Namespace: mock.TestNamespace}, Status: mdbv1.MongoDBUserStatus{CommonStatus: mdbv1.CommonStatus{Phase: mdbv1.PhasePending}}}
 
 	predicates := predicatesForUser()
 	updateEvent := event.UpdateEvent{

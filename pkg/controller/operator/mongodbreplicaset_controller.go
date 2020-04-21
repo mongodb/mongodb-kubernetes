@@ -118,11 +118,12 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 				return workflow.Failed("Failed to create/update (Kubernetes reconciliation phase): %s", err.Error())
 			}
 
-			if !r.kubeHelper.isStatefulSetUpdated(rs.Namespace, rs.Name, log) {
-				return workflow.Pending("MongoDB %s resource is still starting", rs.Name)
+			if status := r.getStatefulSetStatus(rs.Namespace, rs.Name); !status.IsOK() {
+				return status
 			}
+			_, _ = r.updateStatus(rs, workflow.Reconciling().WithResourcesNotReady([]mdbv1.ResourceNotReady{}).WithNoMessage(), log)
 
-			log.Info("Updated statefulsets for replica set")
+			log.Info("Updated StatefulSet for replica set")
 			return workflow.OK()
 		})
 
