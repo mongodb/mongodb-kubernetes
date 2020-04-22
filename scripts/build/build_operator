@@ -28,7 +28,7 @@ fi
 mdb_version="$(jq --raw-output .appDbBundle.mongodbVersion < release.json)"
 echo "Using MongoDB version ${mdb_version} for the AppDB"
 
-if [[ ${DEBUG-} = "True" ]]; then
+if [[ ${DEBUG-} = "true" ]]; then
     echo "Building Operator binary in 'debug' mode..."
     go build -gcflags "-N -l" -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator \
       -ldflags="-X github.com/10gen/ops-manager-kubernetes/pkg/util.OperatorVersion=${RELEASE_VERSION} -X github.com/10gen/ops-manager-kubernetes/pkg/util.LogAutomationConfigDiff=${LOG_AUTOMATION_CONFIG_DIFF} -X github.com/10gen/ops-manager-kubernetes/pkg/util.BundledAppDbMongoDBVersion=${mdb_version}"
