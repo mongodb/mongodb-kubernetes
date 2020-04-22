@@ -419,21 +419,11 @@ func (s StatefulSetHelper) CreateOrUpdateInKubernetes() error {
 }
 
 func (s OpsManagerStatefulSetHelper) BuildStatefulSet() (appsv1.StatefulSet, error) {
-	omSts, err := buildOpsManagerStatefulSet(s)
-
-	if err != nil {
-		return appsv1.StatefulSet{}, fmt.Errorf("error building Ops Manager StatefulSet: %v", err)
-	}
-	return mergeSpec(omSts, s.StatefulSetConfiguration, *s.PodSpec)
+	return buildOpsManagerStatefulSet(s)
 }
 
 func (s BackupStatefulSetHelper) BuildStatefulSet() (appsv1.StatefulSet, error) {
-	backupSts, err := buildBackupDaemonStatefulSet(s)
-	if err != nil {
-		return appsv1.StatefulSet{}, fmt.Errorf("error building backup daemon StatefulSet")
-	}
-
-	return mergeSpec(backupSts, s.StatefulSetConfiguration, *s.PodSpec)
+	return buildBackupDaemonStatefulSet(s)
 }
 
 func (s *OpsManagerStatefulSetHelper) SetService(service string) *OpsManagerStatefulSetHelper {
@@ -807,20 +797,6 @@ func (k *KubeHelper) readCredentials(namespace, name string) (*Credentials, erro
 		User:         user,
 		PublicAPIKey: publicAPIKey,
 	}, nil
-}
-
-func (k *KubeHelper) readAgentApiKeyForProject(namespace, agentKeySecretName string) (string, error) {
-	secret, err := k.readSecret(objectKey(namespace, agentKeySecretName))
-	if err != nil {
-		return "", err
-	}
-
-	key, ok := secret[util.OmAgentApiKey]
-	if !ok {
-		return "", fmt.Errorf("Could not find key \"%s\" in secret %s", util.OmAgentApiKey, agentKeySecretName)
-	}
-
-	return strings.TrimSuffix(key, "\n"), nil
 }
 
 func (k KubeHelper) readSecret(nsName client.ObjectKey) (map[string]string, error) {

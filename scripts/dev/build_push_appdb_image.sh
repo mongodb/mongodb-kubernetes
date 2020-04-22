@@ -88,7 +88,7 @@ fi
 for om_version in 4.2.0 4.2.3 4.2.4 4.2.6 4.2.7 4.2.8 4.2.10 4.2.11
 do
     full_url="${REPO_URL}/mongodb-enterprise-appdb:${om_version}${image_suffix-}"
-
+    sleep 10
     if [[ -n ${kaniko-} ]]; then
         # Note, that before submitting kaniko build the context needs to be uploaded to S3 - this is outside
         # of the scope for current script

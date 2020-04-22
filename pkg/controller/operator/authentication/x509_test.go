@@ -44,7 +44,7 @@ func TestX509EnableAgentAuthentication(t *testing.T) {
 		AutomationSubject: validSubject("automation"),
 		BackupSubject:     validSubject("backup"),
 		MonitoringSubject: validSubject("monitoring"),
-	}, ) {
+	}) {
 		assert.True(t, ac.Auth.HasUser(user.Username, user.Database))
 	}
 

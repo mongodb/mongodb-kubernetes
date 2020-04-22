@@ -7,6 +7,7 @@ from kubernetes import client
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.custom_podspec import assert_volume_mounts_are_equal
 from pytest import fixture, mark
 
 
@@ -134,21 +135,16 @@ class TestOpsManagerCreation:
             ],
         }
         for k in expected_spec:
+            if k == "volume_mounts":
+                continue
             assert om_container[k] == expected_spec[k]
+
+        assert_volume_mounts_are_equal(
+            om_container["volume_mounts"], expected_spec["volume_mounts"]
+        )
 
         # new volume was added and the old ones ('gen-key' and 'ops-manager-scripts') stayed there
         assert len(sts.spec.template.spec.volumes) == 3
-
-        assert sts.spec.template.spec.volumes[0].name == "gen-key"
-        assert (
-            sts.spec.template.spec.volumes[0].secret.secret_name
-            == "om-pod-spec-gen-key"
-        )
-        assert sts.spec.template.spec.volumes[2].name == "test-volume"
-        assert getattr(sts.spec.template.spec.volumes[2], "empty_dir")
-
-        assert sts.spec.template.spec.volumes[1].name == "ops-manager-scripts"
-        assert getattr(sts.spec.template.spec.volumes[1], "empty_dir")
 
     def test_backup_pod_spec(self, ops_manager: MongoDBOpsManager):
         backup_sts = ops_manager.read_backup_statefulset()
@@ -166,12 +162,14 @@ class TestOpsManagerUpdate:
     def test_om_updated(self, ops_manager: MongoDBOpsManager):
         ops_manager.load()
         # adding annotations
-        ops_manager["spec"]["applicationDatabase"]["statefulSet"]["spec"]["template"][
+        ops_manager["spec"]["applicationDatabase"]["podSpec"]["podTemplate"][
             "metadata"
         ] = {"annotations": {"annotation1": "val"}}
 
         # changing memory and adding labels for OM
-        ops_manager["spec"]["statefulSet"]["spec"]["template"]["spec"]["memory"] = "5G"
+        ops_manager["spec"]["statefulSet"]["spec"]["template"]["spec"]["containers"][0][
+            "resources"
+        ]["limits"]["memory"] = "5G"
         ops_manager["spec"]["statefulSet"]["spec"]["template"]["metadata"]["labels"] = {
             "additional": "foo"
         }
@@ -205,9 +203,7 @@ class TestOpsManagerUpdate:
         assert len(sts.spec.template.spec.containers) == 1
         om_container = sts.spec.template.spec.containers[0]
         assert om_container.resources.limits["cpu"] == "700m"
-
-        # this is because podSpec is still taking precedence. This will change once removed
-        assert om_container.resources.limits["memory"] == "6G"  # not 5G
+        assert om_container.resources.limits["memory"] == "5G"
 
         assert sts.spec.template.metadata.annotations == {"key1": "value1"}
         assert len(sts.spec.template.metadata.labels) == 4

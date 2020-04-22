@@ -7,7 +7,7 @@ import (
 
 // MergePodSpecs takes all of the values that exist in defaultPodTemplateSpec, and merges them into
 // customPodTemplateSpec. Values that exist in both will not be touched.
-func mergePodSpecs(customPodTemplateSpec corev1.PodTemplateSpec, defaultPodTemplateSpec corev1.PodTemplateSpec) (corev1.PodTemplateSpec, error) {
+func MergePodSpecs(customPodTemplateSpec corev1.PodTemplateSpec, defaultPodTemplateSpec corev1.PodTemplateSpec) (corev1.PodTemplateSpec, error) {
 	var err error
 	mergedContainers, err := mergeContainers(customPodTemplateSpec.Spec.Containers, defaultPodTemplateSpec.Spec.Containers)
 	mergedInitContainers, err := mergeContainers(customPodTemplateSpec.Spec.InitContainers, defaultPodTemplateSpec.Spec.InitContainers)
@@ -43,6 +43,10 @@ func mergeContainers(customContainers, defaultContainers []corev1.Container) ([]
 			if err = mergo.Merge(&defaultContainer, customContainer, mergo.WithOverride); err != nil {
 				return nil, err
 			}
+			// completely override any resources that were provided
+			// this prevents issues with custom requests giving errors due
+			// to the defaulted limits
+			defaultContainer.Resources = customContainer.Resources
 			defaultContainer.VolumeMounts = mergedVolumeMounts
 		}
 		mergedContainers = append(mergedContainers, defaultContainer)
@@ -101,5 +105,5 @@ func getMergedDefaultPodSpecTemplate(defaultPodSpecTemplate corev1.PodTemplateSp
 		return defaultPodSpecTemplate, nil
 	}
 	// there is a user defined pod spec template, we need to merge in all of the default values
-	return mergePodSpecs(*podTemplateOverride, defaultPodSpecTemplate)
+	return MergePodSpecs(*podTemplateOverride, defaultPodSpecTemplate)
 }

@@ -137,6 +137,20 @@ func TestPrepareOmConnection_CreateGroupFixTags(t *testing.T) {
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.UpdateProject))
 }
 
+func readAgentApiKeyForProject(k KubeHelper, namespace, agentKeySecretName string) (string, error) {
+	secret, err := k.readSecret(objectKey(namespace, agentKeySecretName))
+	if err != nil {
+		return "", err
+	}
+
+	key, ok := secret[util.OmAgentApiKey]
+	if !ok {
+		return "", fmt.Errorf("Could not find key \"%s\" in secret %s", util.OmAgentApiKey, agentKeySecretName)
+	}
+
+	return strings.TrimSuffix(key, "\n"), nil
+}
+
 // TestPrepareOmConnection_PrepareAgentKeys checks that agent key is generated and put to secret
 func TestPrepareOmConnection_PrepareAgentKeys(t *testing.T) {
 	manager := mock.NewEmptyManager()
@@ -145,7 +159,7 @@ func TestPrepareOmConnection_PrepareAgentKeys(t *testing.T) {
 
 	prepareConnection(controller, t)
 
-	key, e := controller.kubeHelper.readAgentApiKeyForProject(mock.TestNamespace, agentApiKeySecretName(om.TestGroupID))
+	key, e := readAgentApiKeyForProject(controller.kubeHelper, mock.TestNamespace, agentApiKeySecretName(om.TestGroupID))
 
 	assert.NoError(t, e)
 	// Unfortunately the key read is not equal to om.TestAgentKey - it's just some set of bytes.

@@ -324,7 +324,7 @@ func TestMergePodSpecsEmptyCustom(t *testing.T) {
 	defaultPodSpec := getDefaultPodSpec()
 	customPodSpecTemplate := corev1.PodTemplateSpec{}
 
-	mergedPodTemplateSpec, err := mergePodSpecs(customPodSpecTemplate, defaultPodSpec)
+	mergedPodTemplateSpec, err := MergePodSpecs(customPodSpecTemplate, defaultPodSpec)
 
 	assert.NoError(t, err)
 	assert.Equal(t, "my-default-service-account", mergedPodTemplateSpec.Spec.ServiceAccountName)
@@ -349,7 +349,7 @@ func TestMergePodSpecsEmptyDefault(t *testing.T) {
 	defaultPodSpec := corev1.PodTemplateSpec{}
 	customPodSpecTemplate := getCustomPodSpec()
 
-	mergedPodTemplateSpec, err := mergePodSpecs(customPodSpecTemplate, defaultPodSpec)
+	mergedPodTemplateSpec, err := MergePodSpecs(customPodSpecTemplate, defaultPodSpec)
 
 	assert.NoError(t, err)
 	assert.Equal(t, "my-service-account-override", mergedPodTemplateSpec.Spec.ServiceAccountName)
@@ -375,7 +375,7 @@ func TestMergePodSpecsBoth(t *testing.T) {
 
 	// multiple merges must give the same result
 	for i := 0; i < 3; i++ {
-		mergedPodTemplateSpec, err = mergePodSpecs(customPodSpecTemplate, defaultPodSpec)
+		mergedPodTemplateSpec, err = MergePodSpecs(customPodSpecTemplate, defaultPodSpec)
 
 		assert.NoError(t, err)
 		// ensure values that were specified in the custom pod spec template remain unchanged
@@ -607,8 +607,7 @@ func assertContainersEqualBarResources(t *testing.T, self corev1.Container, othe
 	assert.True(t, reflect.DeepEqual(self.Ports, other.Ports))
 	assert.True(t, reflect.DeepEqual(self.EnvFrom, other.EnvFrom))
 	assert.True(t, reflect.DeepEqual(self.Env, other.Env))
-	// skip Resources
-	// assert.True(t, reflect.DeepEqual(self.Resources, other.Resources))
+	assert.True(t, reflect.DeepEqual(self.Resources, other.Resources))
 	assert.True(t, reflect.DeepEqual(self.VolumeMounts, other.VolumeMounts))
 	assert.True(t, reflect.DeepEqual(self.VolumeDevices, other.VolumeDevices))
 	assert.Equal(t, self.LivenessProbe, other.LivenessProbe)

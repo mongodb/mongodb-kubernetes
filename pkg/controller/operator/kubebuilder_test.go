@@ -24,22 +24,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func TestApplyPodSpec(t *testing.T) {
-	sts := defaultSetHelper()
-	container := newMongoDBContainer(defaultPodVars())
-	template := getDatabasePodTemplate(*sts, nil, "service-account", container)
-	assert.Equal(t, "default-sts-name", template.Spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0].PodAffinityTerm.LabelSelector.MatchLabels[PodAntiAffinityLabelKey])
-	emptyPodSpecWrapper := mdbv1.NewEmptyPodSpecWrapperBuilder().Build()
-
-	var result corev1.PodTemplateSpec
-	// merge with empty is giving back the original template
-	result = configureDefaultAffinityAndResources(template, emptyPodSpecWrapper, "sts-name")
-	// configureDefaultAffinityAndResources overrides the pod-anti-affinity with the last string parameter
-	// overriding it to allow for equality test
-	template.Spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0].PodAffinityTerm.LabelSelector.MatchLabels[PodAntiAffinityLabelKey] = "sts-name"
-	assert.Equal(t, result, template)
-}
-
 func TestBuildStatefulSet_PersistentFlag(t *testing.T) {
 	set, _ := defaultSetHelper().SetPersistence(nil).BuildStatefulSet()
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
@@ -151,7 +135,7 @@ func TestBasePodSpec_Affinity(t *testing.T) {
 		Build()
 	setHelper := defaultSetHelper().SetName("s").SetPodSpec(podSpec)
 
-	template := getDatabasePodTemplate(*setHelper, nil, "testAccount", corev1.Container{})
+	template := buildMongoDBPodTemplateSpec(*setHelper)
 	spec := template.Spec
 	assert.Equal(t, nodeAffinity, *spec.Affinity.NodeAffinity)
 	assert.Equal(t, podAffinity, *spec.Affinity.PodAffinity)
@@ -169,7 +153,7 @@ func TestBasePodSpec_Affinity(t *testing.T) {
 func TestBasePodSpec_AntiAffinityDefaultTopology(t *testing.T) {
 	helper := defaultSetHelper().SetPodSpec(mdbv1.NewPodSpecWrapperBuilder().Build())
 
-	template := getDatabasePodTemplate(*helper, map[string]string{}, "", corev1.Container{})
+	template := buildMongoDBPodTemplateSpec(*helper)
 	spec := template.Spec
 	term := spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0]
 	assert.Equal(t, int32(100), term.Weight)
@@ -183,19 +167,19 @@ func TestBasePodSpec_ImagePullSecrets(t *testing.T) {
 	// Cleaning the state (there is no tear down in go test :( )
 	defer InitDefaultEnvVariables()
 
-	template := getDatabasePodTemplate(*defaultSetHelper(), map[string]string{}, "", corev1.Container{})
+	template := buildMongoDBPodTemplateSpec(*defaultSetHelper())
 	assert.Nil(t, template.Spec.ImagePullSecrets)
 
 	_ = os.Setenv(util.ImagePullSecrets, "foo")
 
-	template = getDatabasePodTemplate(*defaultSetHelper(), map[string]string{}, "", corev1.Container{})
+	template = buildMongoDBPodTemplateSpec(*defaultSetHelper())
 	assert.Equal(t, []corev1.LocalObjectReference{{Name: "foo"}}, template.Spec.ImagePullSecrets)
 
 }
 
 // TestBasePodSpec_TerminationGracePeriodSeconds verifies that the TerminationGracePeriodSeconds is set to 600 seconds
 func TestBasePodSpec_TerminationGracePeriodSeconds(t *testing.T) {
-	template := getDatabasePodTemplate(*defaultSetHelper(), map[string]string{}, "", corev1.Container{})
+	template := buildMongoDBPodTemplateSpec(*defaultSetHelper())
 	assert.Equal(t, util.Int64Ref(600), template.Spec.TerminationGracePeriodSeconds)
 }
 
@@ -240,8 +224,7 @@ func volMount(pvName, mountPath, subPath string) corev1.VolumeMount {
 func TestDefaultPodSpec_FsGroup(t *testing.T) {
 	defer InitDefaultEnvVariables()
 
-	podSpecTemplate := getDatabasePodTemplate(*defaultSetHelper(), map[string]string{}, "", corev1.Container{})
-
+	podSpecTemplate := buildMongoDBPodTemplateSpec(*defaultSetHelper())
 	spec := podSpecTemplate.Spec
 	assert.Len(t, spec.InitContainers, 0)
 	require.NotNil(t, spec.SecurityContext)
@@ -249,7 +232,7 @@ func TestDefaultPodSpec_FsGroup(t *testing.T) {
 
 	_ = os.Setenv(util.ManagedSecurityContextEnv, "true")
 
-	podSpecTemplate = getDatabasePodTemplate(*defaultSetHelper(), map[string]string{}, "", corev1.Container{})
+	podSpecTemplate = buildMongoDBPodTemplateSpec(*defaultSetHelper())
 	assert.Nil(t, podSpecTemplate.Spec.SecurityContext)
 	// TODO: assert the container security context
 
@@ -265,7 +248,7 @@ func TestPodSpec_Requirements(t *testing.T) {
 
 	setHelper := defaultSetHelper().SetPodSpec(podSpec)
 
-	podSpecTemplate := getDatabasePodTemplate(*setHelper, map[string]string{}, "", newMongoDBContainer(defaultPodVars()))
+	podSpecTemplate := buildMongoDBPodTemplateSpec(*setHelper)
 
 	container := podSpecTemplate.Spec.Containers[0]
 	expectedLimits := corev1.ResourceList{corev1.ResourceCPU: parseQuantityOrZero("0.3"), corev1.ResourceMemory: parseQuantityOrZero("1012M")}
@@ -374,7 +357,8 @@ func TestService_mergeAnnotations(t *testing.T) {
 
 func TestBuildBackupDaemonContainer(t *testing.T) {
 	helper := testDefaultBackupSetHelper()
-	container := buildBackupDaemonContainer(helper)
+	template, _ := buildBackupDaemonPodTemplateSpec(helper)
+	container := template.Spec.Containers[0]
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-ops-manager:4.2.0", container.Image)
 
 	assert.Equal(t, util.BackupDaemonContainerName, container.Name)
@@ -388,9 +372,8 @@ func TestBuildBackupDaemonContainer(t *testing.T) {
 func TestOpsManagerPodTemplate_Container(t *testing.T) {
 	om := DefaultOpsManagerBuilder().Build()
 	helper := omSetHelperFromResource(om)
-	template := opsManagerPodTemplate(map[string]string{"one": "two"}, helper, buildOpsManagerContainer(helper))
+	template, _ := buildOpsManagerPodTemplateSpec(helper)
 
-	assert.Equal(t, map[string]string{"one": "two"}, template.Labels)
 	assert.Len(t, template.Spec.Containers, 1)
 	container := template.Spec.Containers[0]
 	assert.Equal(t, util.OpsManagerContainerName, container.Name)
@@ -409,13 +392,13 @@ func TestOpsManagerPodTemplate_Container(t *testing.T) {
 func TestOpsManagerPodTemplate_ImagePullPolicy(t *testing.T) {
 	defer InitDefaultEnvVariables()
 	testHelper := testDefaultOMSetHelper()
-	podSpecTemplate := opsManagerPodTemplate(map[string]string{}, testHelper, buildOpsManagerContainer(testHelper))
+	podSpecTemplate, _ := buildOpsManagerPodTemplateSpec(testHelper)
 	spec := podSpecTemplate.Spec
 
 	assert.Nil(t, spec.ImagePullSecrets)
 
 	os.Setenv(util.ImagePullSecrets, "my-cool-secret")
-	podSpecTemplate = opsManagerPodTemplate(map[string]string{}, testHelper, buildOpsManagerContainer(testHelper))
+	podSpecTemplate, _ = buildOpsManagerPodTemplateSpec(testHelper)
 	spec = podSpecTemplate.Spec
 
 	assert.NotNil(t, spec.ImagePullSecrets)
@@ -424,8 +407,7 @@ func TestOpsManagerPodTemplate_ImagePullPolicy(t *testing.T) {
 
 func TestOpsManagerPodTemplate_TerminationTimeout(t *testing.T) {
 	testHelper := testDefaultOMSetHelper()
-	podSpecTemplate := opsManagerPodTemplate(map[string]string{}, testHelper, buildOpsManagerContainer(testHelper))
-
+	podSpecTemplate, _ := buildOpsManagerPodTemplateSpec(testHelper)
 	assert.Equal(t, int64(1800), *podSpecTemplate.Spec.TerminationGracePeriodSeconds)
 }
 
@@ -436,7 +418,7 @@ func TestOpsManagerPodTemplate_SecurityContext(t *testing.T) {
 	defer InitDefaultEnvVariables()
 
 	testHelper := testDefaultOMSetHelper()
-	podSpecTemplate := opsManagerPodTemplate(map[string]string{}, testHelper, buildOpsManagerContainer(testHelper))
+	podSpecTemplate, _ := buildOpsManagerPodTemplateSpec(testHelper)
 
 	spec := podSpecTemplate.Spec
 	assert.Len(t, spec.InitContainers, 1)
@@ -446,18 +428,49 @@ func TestOpsManagerPodTemplate_SecurityContext(t *testing.T) {
 
 	_ = os.Setenv(util.ManagedSecurityContextEnv, "true")
 
-	podSpecTemplate = opsManagerPodTemplate(map[string]string{}, testHelper, buildOpsManagerContainer(testHelper))
+	podSpecTemplate, _ = buildOpsManagerPodTemplateSpec(testHelper)
 	assert.Nil(t, podSpecTemplate.Spec.SecurityContext)
+}
+
+func buildStatefulSetFromOpsManager(om mdbv1.MongoDBOpsManager) appsv1.StatefulSet {
+	helper := omSetHelperFromResource(om)
+	spec, _ := buildOpsManagerPodTemplateSpec(helper)
+	return appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: om.Name, Namespace: om.Namespace},
+		Spec: appsv1.StatefulSetSpec{
+			Template: spec,
+		},
+	}
 }
 
 // TestOpsManagerPodTemplate_PodSpec verifies that PodSpec is applied correctly to OpsManager/Backup pod template.
 func TestOpsManagerPodTemplate_PodSpec(t *testing.T) {
-	podSpec := mdbv1.NewPodSpecWrapperBuilder().
-		SetPodAffinity(defaultPodAffinity()).SetNodeAffinity(defaultNodeAffinity()).SetPodAntiAffinityTopologyKey("rack").Build()
-	helper := omSetHelperFromResource(DefaultOpsManagerBuilder().SetPodSpec(*podSpec).Build())
-	template := opsManagerPodTemplate(map[string]string{}, helper, buildOpsManagerContainer(helper))
+	omSts := buildStatefulSetFromOpsManager(DefaultOpsManagerBuilder().Build())
+	resourceLimits := buildSafeResourceList("1.0", "500M")
+	resourceRequests := buildSafeResourceList("0.5", "400M")
+	nodeAffinity := defaultNodeAffinity()
+	podAffinity := defaultPodAffinity()
 
-	spec := template.Spec
+	stsSpecOverride := appsv1.StatefulSetSpec{
+		Template: buildPodTemplateSpec(
+			withAffinity(omSts.Name),
+			withPodAffinity(&podAffinity),
+			withNodeAffinity(&nodeAffinity),
+			withTopologyKey("rack"),
+			withContainers(
+				buildContainer(
+					withContainerName(util.OpsManagerContainerName),
+					withContainerResources(corev1.ResourceRequirements{
+						Limits:   resourceLimits,
+						Requests: resourceRequests,
+					})),
+			),
+		),
+	}
+	mergedSts, err := statefulset.MergeSpec(omSts, &stsSpecOverride)
+	assert.NoError(t, err)
+
+	spec := mergedSts.Spec.Template.Spec
 	assert.Equal(t, defaultNodeAffinity(), *spec.Affinity.NodeAffinity)
 	assert.Equal(t, defaultPodAffinity(), *spec.Affinity.PodAffinity)
 	term := spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0]
@@ -497,7 +510,8 @@ func TestOpsManagerPodTemplate_MergePodTemplate(t *testing.T) {
 	}).Build()
 	om := DefaultOpsManagerBuilder().SetPodSpec(*podSpec).Build()
 	helper := omSetHelperFromResource(om)
-	template := opsManagerPodTemplate(map[string]string{"key": "value"}, helper, buildOpsManagerContainer(helper))
+	template, _ := buildOpsManagerPodTemplateSpec(helper)
+	originalLabels := template.Labels
 
 	operatorSts := appsv1.StatefulSet{
 		Spec: appsv1.StatefulSetSpec{
@@ -518,7 +532,7 @@ func TestOpsManagerPodTemplate_MergePodTemplate(t *testing.T) {
 	assert.Equal(t, newContainer, template.Spec.Containers[1])
 
 	// Some validation that the Operator-made config hasn't suffered
-	assert.Equal(t, map[string]string{"key": "value"}, template.Labels)
+	assert.Equal(t, originalLabels, template.Labels)
 	require.NotNil(t, template.Spec.SecurityContext)
 	assert.Equal(t, util.Int64Ref(util.FsGroup), template.Spec.SecurityContext.FSGroup)
 	assert.Equal(t, util.OpsManagerContainerName, template.Spec.Containers[0].Name)
@@ -544,7 +558,9 @@ func TestBuildOpsManagerStatefulSet_EnvVarsSorted(t *testing.T) {
 		AddConfiguration(util.MmsCentralUrlPropKey, "http://om-svc").
 		AddConfiguration("mms.adminEmailAddr", "cloud-manager-support@mongodb.com").
 		Build()
-	sts, err := buildOpsManagerStatefulSet(omSetHelperFromResource(om))
+
+	helper := omSetHelperFromResource(om)
+	sts, err := buildOpsManagerStatefulSet(helper)
 	assert.NoError(t, err)
 
 	// env vars are in sorted order
@@ -565,14 +581,7 @@ func TestBuildJvmParamsEnvVars_FromDefaultPodSpec(t *testing.T) {
 		Build()
 	helper := omSetHelperFromResource(om)
 
-	labels := defaultPodLabels(helper.StatefulSetHelperCommon)
-
-	newContainer := corev1.Container{
-		Name:  "my-custom-container",
-		Image: "my-custom-image",
-	}
-
-	template := opsManagerPodTemplate(labels, helper, newContainer)
+	template, _ := buildOpsManagerPodTemplateSpec(helper)
 
 	envVar, _ := buildJvmParamsEnvVars(om.Spec, template)
 	// xmx and xms based calculated from  default container memory, requests.mem=limits.mem=5GB
@@ -591,14 +600,7 @@ func TestBuildJvmParamsEnvVars_FromCustomContainerResource(t *testing.T) {
 	om.Spec.JVMParams = []string{"-DFakeOptionEnabled"}
 	helper := omSetHelperFromResource(om)
 
-	labels := defaultPodLabels(helper.StatefulSetHelperCommon)
-
-	newContainer := corev1.Container{
-		Name:  "my-custom-container",
-		Image: "my-custom-image",
-	}
-
-	template := opsManagerPodTemplate(labels, helper, newContainer)
+	template, _ := buildOpsManagerPodTemplateSpec(helper)
 
 	unsetQuantity := *resource.NewQuantity(0, resource.BinarySI)
 
@@ -628,12 +630,12 @@ func TestBuildJvmParamsEnvVars_FromCustomContainerResource(t *testing.T) {
 
 func TestBaseEnvHelper(t *testing.T) {
 	envVars := defaultPodVars()
-	podEnv := baseEnvFrom(envVars)
+	podEnv := databaseEnvVars(envVars)
 	assert.Len(t, podEnv, 5)
 
 	envVars = defaultPodVars()
 	envVars.SSLRequireValidMMSServerCertificates = true
-	podEnv = baseEnvFrom(envVars)
+	podEnv = databaseEnvVars(envVars)
 	assert.Len(t, podEnv, 6)
 	assert.Equal(t, podEnv[5], corev1.EnvVar{
 		Name:  util.EnvVarSSLRequireValidMMSCertificates,
@@ -643,7 +645,7 @@ func TestBaseEnvHelper(t *testing.T) {
 	envVars = defaultPodVars()
 	envVars.SSLMMSCAConfigMap = "custom-ca"
 	trustedCACertLocation := path.Join(CaCertMountPath, CaCertMMS)
-	podEnv = baseEnvFrom(envVars)
+	podEnv = databaseEnvVars(envVars)
 	assert.Len(t, podEnv, 6)
 	assert.Equal(t, podEnv[5], corev1.EnvVar{
 		Name:  util.EnvVarSSLTrustedMMSServerCertificate,
@@ -653,7 +655,7 @@ func TestBaseEnvHelper(t *testing.T) {
 	envVars = defaultPodVars()
 	envVars.SSLRequireValidMMSServerCertificates = true
 	envVars.SSLMMSCAConfigMap = "custom-ca"
-	podEnv = baseEnvFrom(envVars)
+	podEnv = databaseEnvVars(envVars)
 	assert.Len(t, podEnv, 7)
 	assert.Equal(t, podEnv[5], corev1.EnvVar{
 		Name:  util.EnvVarSSLRequireValidMMSCertificates,
@@ -741,4 +743,19 @@ func defaultPodAffinity() corev1.PodAffinity {
 				TopologyKey:   "rack",
 			},
 		}}}
+}
+
+// buildSafeResourceList returns a ResourceList but should not be called
+// with dynamic values. This function ignores errors in the parsing of
+// resource.Quantities and as a result should only be used in tests with
+// pre-set valid values.
+func buildSafeResourceList(cpu, memory string) corev1.ResourceList {
+	res := corev1.ResourceList{}
+	if q := parseQuantityOrZero(cpu); !q.IsZero() {
+		res[corev1.ResourceCPU] = q
+	}
+	if q := parseQuantityOrZero(memory); !q.IsZero() {
+		res[corev1.ResourceMemory] = q
+	}
+	return res
 }

@@ -109,94 +109,163 @@ func defaultPodLabels(stsHelper StatefulSetHelperCommon) map[string]string {
 	}
 }
 
-// getDatabasePodTemplate returns the pod template for mongodb pod (MongoDB or AppDB)
-func getDatabasePodTemplate(stsHelper StatefulSetHelper,
-	annotations map[string]string, serviceAccountName string, container corev1.Container) corev1.PodTemplateSpec {
-	podLabels := defaultPodLabels(stsHelper.StatefulSetHelperCommon)
-	if annotations == nil {
-		annotations = make(map[string]string)
+func defaultPodAnnotations(certHash string) map[string]string {
+	return map[string]string{
+		// this annotation is necessary in order to trigger a pod restart
+		// if the certificate secret is out of date. This happens if
+		// existing certificates have been replaced/rotated/renewed.
+		"certHash": certHash,
 	}
-	templateSpec := corev1.PodTemplateSpec{
-		Spec: corev1.PodSpec{
-			Containers:                    []corev1.Container{container},
-			InitContainers:                []corev1.Container{},
-			ServiceAccountName:            serviceAccountName,
-			TerminationGracePeriodSeconds: util.Int64Ref(util.DefaultPodTerminationPeriodSeconds),
-		},
-	}
-
-	ensurePodSecurityContext(&templateSpec.Spec)
-
-	templateSpec.ObjectMeta.Labels = podLabels
-	templateSpec.Annotations = annotations
-
-	if val, found := envutil.Read(util.ImagePullSecrets); found {
-		templateSpec.Spec.ImagePullSecrets = append(templateSpec.Spec.ImagePullSecrets, corev1.LocalObjectReference{
-			Name: val,
-		})
-	}
-	return configureDefaultAffinityAndResources(templateSpec, stsHelper.PodSpec, stsHelper.Name)
 }
 
-// configureDefaultAffinityAndResources updates the pod template created by the Operator based on spec.podSpec specified for the CR
-// note, that it doesn't deal with podspec persistence (it's actually for statefulset level, not podtemplate)
-func configureDefaultAffinityAndResources(podTemplate corev1.PodTemplateSpec, podSpec *mdbv1.PodSpecWrapper, stsName string) corev1.PodTemplateSpec {
-	podTemplate.Spec.Affinity =
-		&corev1.Affinity{
-			NodeAffinity: podSpec.NodeAffinity,
-			PodAffinity:  podSpec.PodAffinity,
-			PodAntiAffinity: &corev1.PodAntiAffinity{
-				PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{{
-					// Weight thoughts - seems no other affinity rule should be stronger than anti affinity one so putting
-					// it to 100
-					Weight: 100,
-					PodAffinityTerm: corev1.PodAffinityTerm{
-						LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{PodAntiAffinityLabelKey: stsName}},
-						// If PodAntiAffinityTopologyKey config property is empty - then it's ok to use some default (even for standalones)
-						TopologyKey: podSpec.GetTopologyKeyOrDefault(),
-					},
-				}},
-			},
-		}
-
-	podTemplate.Spec.Containers[0].Resources = corev1.ResourceRequirements{
-		Limits:   buildLimitsRequirements(podSpec),
-		Requests: buildRequestsRequirements(podSpec),
-	}
-	return podTemplate
-}
-
-func newMongoDBContainer(podVars *PodVars) corev1.Container {
-	return newDbContainer(util.DatabaseContainerName, envutil.ReadOrPanic(util.AutomationAgentImage), baseEnvFrom(podVars), baseReadinessProbe())
-}
-
-func newAppDBContainer(statefulSetName, appdbImageUrl string) corev1.Container {
-	return newDbContainer(util.AppDbContainerName, appdbImageUrl, appdbContainerEnv(statefulSetName), baseAppDbReadinessProbe())
-}
-
-func newDbContainer(containerName, imageUrl string, envVars []corev1.EnvVar, readinessProbe *corev1.Probe) corev1.Container {
-	container := corev1.Container{
-		Name:  containerName,
-		Image: imageUrl,
-		ImagePullPolicy: corev1.PullPolicy(envutil.ReadOrPanic(
-			util.AutomationAgentImagePullPolicy)),
-		Env:            envVars,
-		Ports:          []corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort}},
-		LivenessProbe:  baseLivenessProbe(),
-		ReadinessProbe: readinessProbe,
-	}
-	return getContainerWithSecurityContext(container)
-}
-
-func getContainerWithSecurityContext(container corev1.Container) corev1.Container {
+// sharedDatabaseConfigurationConfiguration is a function which applies all the shared configuration
+// between the appDb and MongoDB resources
+func sharedDatabaseConfigurationConfiguration(stsHelper StatefulSetHelper) func(podTemplateSpec *corev1.PodTemplateSpec) {
 	managedSecurityContext, _ := envutil.ReadBool(util.ManagedSecurityContextEnv)
-	if !managedSecurityContext {
-		container.SecurityContext = &corev1.SecurityContext{
-			RunAsUser:    util.Int64Ref(util.RunAsUser),
-			RunAsNonRoot: util.BooleanRef(true),
+	modificationFunctions := []func(podTemplateSpec *corev1.PodTemplateSpec){
+		withPodLabels(defaultPodLabels(stsHelper.StatefulSetHelperCommon)),
+		withTerminationGracePeriodSeconds(util.DefaultPodTerminationPeriodSeconds),
+		withSecurityContext(managedSecurityContext),
+		withImagePullSecrets(),
+		withAffinity(stsHelper.Name),
+		withNodeAffinity(stsHelper.PodSpec.NodeAffinity),
+		withPodAffinity(stsHelper.PodSpec.PodAffinity),
+		withTopologyKey(stsHelper.PodSpec.GetTopologyKeyOrDefault()),
+		withContainers(buildContainer(
+			// database uses podSpec as normal
+			// TODO: remove in favour of spec.statefulSet
+			withContainerResources(buildRequirementsFromPodSpec(*stsHelper.PodSpec)),
+			withContainerPorts([]corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort}}),
+			withContainerPullPolicy(corev1.PullPolicy(envutil.ReadOrPanic(util.AutomationAgentImagePullPolicy))),
+			withContainerLivenessProbe(baseLivenessProbe()),
+			withContainerSecurityContext(managedSecurityContext),
+		)),
+	}
+	return func(podTemplateSpec *corev1.PodTemplateSpec) {
+		for _, opt := range modificationFunctions {
+			opt(podTemplateSpec)
 		}
 	}
-	return container
+}
+
+// buildMongoDBPodTemplateSpec constructs the podTemplateSpec for the MongoDB resource
+func buildMongoDBPodTemplateSpec(stsHelper StatefulSetHelper) corev1.PodTemplateSpec {
+	return buildPodTemplateSpec(
+		sharedDatabaseConfigurationConfiguration(stsHelper),
+		withAnnotations(defaultPodAnnotations(stsHelper.CertificateHash)),
+		withServiceAccount(util.MongoDBServiceAccount),
+		editContainer(0,
+			withContainerName(util.DatabaseContainerName),
+			withContainerImage(envutil.ReadOrPanic(util.AutomationAgentImage)),
+			withContainerEnvVars(databaseEnvVars(stsHelper.PodVars)...),
+			withContainerReadinessProbe(buildDatabaseReadinessProbe()),
+		),
+	)
+}
+
+// buildAppDBPodTemplateSpec constructs the appDb podTemplateSpec
+func buildAppDBPodTemplateSpec(stsHelper StatefulSetHelper) corev1.PodTemplateSpec {
+	appdbImageUrl := prepareOmAppdbImageUrl(envutil.ReadOrPanic(util.AppDBImageUrl), stsHelper.Version)
+	return buildPodTemplateSpec(
+		sharedDatabaseConfigurationConfiguration(stsHelper),
+		withAnnotations(map[string]string{}),
+		withServiceAccount(util.AppDBServiceAccount),
+		editContainer(0,
+			withContainerName(util.AppDbContainerName),
+			withContainerImage(appdbImageUrl),
+			withContainerEnvVars(appdbContainerEnv(stsHelper.Name)...),
+			withContainerReadinessProbe(buildAppDbReadinessProbe()),
+		),
+	)
+}
+
+// buildOpsManagerPodTemplateSpec constructs the default Ops Manager podTemplateSpec
+func buildOpsManagerPodTemplateSpec(stsHelper OpsManagerStatefulSetHelper) (corev1.PodTemplateSpec, error) {
+	podTemplateSpec := buildPodTemplateSpec(
+		backupAndOpsManagerConfiguration(stsHelper),
+		editContainer(0,
+			withContainerName(util.OpsManagerContainerName),
+			withContainerReadinessProbe(opsManagerReadinessProbe(getURIScheme(stsHelper.HTTPSCertSecretName))),
+			withContainerLifeCycle(buildOpsManagerLifecycle()),
+		),
+	)
+	if stsHelper.Spec.StatefulSetConfiguration != nil {
+		return buildMergedTemplate(podTemplateSpec, stsHelper.StatefulSetConfiguration.Spec.Template)
+	}
+	return podTemplateSpec, nil
+}
+
+func buildMergedTemplate(podTemplateSpec corev1.PodTemplateSpec, podTemplateSpecOverride corev1.PodTemplateSpec) (corev1.PodTemplateSpec, error) {
+	mergedTemplate, err := statefulset.MergePodSpecs(podTemplateSpecOverride, podTemplateSpec)
+	if err != nil {
+		return corev1.PodTemplateSpec{}, err
+	}
+	return mergedTemplate, nil
+}
+
+// buildBackupDaemonPodTemplateSpec constructs the Backup Daemon podTemplateSpec
+func buildBackupDaemonPodTemplateSpec(stsHelper BackupStatefulSetHelper) (corev1.PodTemplateSpec, error) {
+	podTemplateSpec := buildPodTemplateSpec(
+		backupAndOpsManagerConfiguration(stsHelper.OpsManagerStatefulSetHelper),
+		editContainer(0,
+			withContainerName(util.BackupDaemonContainerName),
+			withContainerEnvVars(backupDaemonEnvVars()...),
+			withContainerLifeCycle(buildBackupDaemonLifecycle()),
+		),
+	)
+	if stsHelper.Spec.Backup.StatefulSetConfiguration != nil {
+		return buildMergedTemplate(podTemplateSpec, stsHelper.Spec.Backup.StatefulSetConfiguration.Spec.Template)
+	}
+	return podTemplateSpec, nil
+}
+
+// backupAndOpsManagerConfiguration returns a function which configures all of the shared
+// options between the backup and Ops Manager podTemplateSpecs
+func backupAndOpsManagerConfiguration(stsHelper OpsManagerStatefulSetHelper) func(podTemplateSpec *corev1.PodTemplateSpec) {
+	omImageUrl := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.OpsManagerImageUrl), stsHelper.Version)
+	managedSecurityContext, _ := envutil.ReadBool(util.ManagedSecurityContextEnv)
+	modificationFunctions := []func(podTemplateSpec *corev1.PodTemplateSpec){
+		withPodLabels(defaultPodLabels(stsHelper.StatefulSetHelperCommon)),
+		withTerminationGracePeriodSeconds(1800),
+		withSecurityContext(managedSecurityContext),
+		withImagePullSecrets(),
+		withAffinity(stsHelper.Name),
+		withTopologyKey(util.DefaultAntiAffinityTopologyKey),
+		withInitContainers(
+			buildOpsManagerAndBackupInitContainer(),
+		),
+		withContainers(buildContainer(
+			withContainerResources(defaultOpsManagerResourceRequirements()),
+			withContainerPorts(buildOpsManagerContainerPorts(stsHelper.HTTPSCertSecretName)),
+			withContainerPullPolicy(corev1.PullPolicy(envutil.ReadOrPanic(util.OpsManagerPullPolicy))),
+			withContainerImage(omImageUrl),
+			withContainerEnvVars(stsHelper.EnvVars...),
+			withContainerEnvVars(getOpsManagerHttpsEnvVars(stsHelper.HTTPSCertSecretName)...),
+			withContainerCommand([]string{"/opt/scripts/docker-entry-point.sh"}),
+		)),
+	}
+	return func(podTemplateSpec *corev1.PodTemplateSpec) {
+		for _, opt := range modificationFunctions {
+			opt(podTemplateSpec)
+		}
+	}
+}
+
+// buildOpsManagerAndBackupInitContainer creates the init container which
+// copies the entry point script in the OM/Backup container
+func buildOpsManagerAndBackupInitContainer() corev1.Container {
+	version := envutil.ReadOrDefault(util.InitOpsManagerVersion, "latest")
+	initContainerImageUrl := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.InitOpsManagerImageUrl), version)
+	return buildContainer(
+		withContainerName("mongodb-enterprise-init-ops-manager"),
+		withContainerImage(initContainerImageUrl),
+		// FIXME: temporary to fix evg tests
+		withContainerPullPolicy(corev1.PullAlways),
+	)
+}
+
+func buildOpsManagerContainerPorts(httpsCertSecretName string) []corev1.ContainerPort {
+	return []corev1.ContainerPort{{ContainerPort: int32(getOpsManagerContainerPort(httpsCertSecretName))}}
 }
 
 // buildStatefulSet builds the StatefulSet of pods containing agent containers. It's a general function used by
@@ -204,16 +273,7 @@ func getContainerWithSecurityContext(container corev1.Container) corev1.Containe
 // This is a convenience method to pass all attributes inside a "parameters" object which is easier to
 // build in client code and avoid passing too many different parameters to `buildStatefulSet`.
 func buildStatefulSet(p StatefulSetHelper) (appsv1.StatefulSet, error) {
-	annotations := map[string]string{
-		// this annotation is necessary in order to trigger a pod restart
-		// if the certificate secret is out of date. This happens if
-		// existing certificates have been replaced/rotated/renewed.
-		"certHash": p.CertificateHash,
-	}
-	// podLabels are labels we set to StatefulSet Selector and Template.Meta
-	template := getDatabasePodTemplate(p, annotations, util.MongoDBServiceAccount,
-		newMongoDBContainer(p.PodVars))
-
+	template := buildMongoDBPodTemplateSpec(p)
 	return createBaseDatabaseStatefulSetBuilder(p, template).Build()
 }
 
@@ -236,10 +296,7 @@ func prepareOmAppdbImageUrl(imageUrl, version string) string {
 // buildAppDbStatefulSet builds the StatefulSet for AppDB.
 // It's mostly the same as the normal MongoDB one but has slightly different container and an additional mounting volume
 func buildAppDbStatefulSet(p StatefulSetHelper) (appsv1.StatefulSet, error) {
-	appdbImageUrl := prepareOmAppdbImageUrl(envutil.ReadOrPanic(util.AppDBImageUrl), p.Version)
-	template := getDatabasePodTemplate(p, nil, util.AppDBServiceAccount,
-		newAppDBContainer(p.Name, appdbImageUrl))
-
+	template := buildAppDBPodTemplateSpec(p)
 	stsBuilder := createBaseDatabaseStatefulSetBuilder(p, template)
 
 	stsBuilder.AddVolumeAndMount(
@@ -259,21 +316,17 @@ func buildAppDbStatefulSet(p StatefulSetHelper) (appsv1.StatefulSet, error) {
 // Shouldn't be called by end users directly
 // Dev note: it's ok to move the different parts to parameters (pod spec could be an example) as the functionality
 // evolves
-func createBaseOpsManagerStatefulSetBuilder(p OpsManagerStatefulSetHelper, containerSpec corev1.Container) (*statefulset.Builder, error) {
-	labels := defaultPodLabels(p.StatefulSetHelperCommon)
-
-	template := opsManagerPodTemplate(labels, p, containerSpec)
-
+func createBaseOpsManagerStatefulSetBuilder(p OpsManagerStatefulSetHelper, template corev1.PodTemplateSpec) (*statefulset.Builder, error) {
 	jvmParamsEnvVars, err := buildJvmParamsEnvVars(p.Spec, template)
 	if err != nil {
 		return nil, err
 	}
-
 	// pass Xmx java parameter to container
 	for _, envVar := range jvmParamsEnvVars {
 		template.Spec.Containers[0].Env = append(template.Spec.Containers[0].Env, envVar)
 	}
 
+	labels := defaultPodLabels(p.StatefulSetHelperCommon)
 	stsBuilder := statefulset.NewBuilder().
 		SetLabels(labels).
 		SetName(p.Name).
@@ -340,85 +393,83 @@ func createBaseOpsManagerStatefulSetBuilder(p OpsManagerStatefulSetHelper, conta
 
 // buildOpsManagerStatefulSet builds the StatefulSet for Ops Manager
 func buildOpsManagerStatefulSet(p OpsManagerStatefulSetHelper) (appsv1.StatefulSet, error) {
-	container := buildOpsManagerContainer(p)
-	stsBuilder, err := createBaseOpsManagerStatefulSetBuilder(p, container)
+	template, err := buildOpsManagerPodTemplateSpec(p)
 	if err != nil {
 		return appsv1.StatefulSet{}, err
 	}
+
+	stsBuilder, err := createBaseOpsManagerStatefulSetBuilder(p, template)
+	if err != nil {
+		return appsv1.StatefulSet{}, err
+	}
+
 	return stsBuilder.Build()
 }
 
-func buildBaseContainerForOpsManagerAndBackup(p OpsManagerStatefulSetHelper) corev1.Container {
-	httpsSecretName := p.HTTPSCertSecretName
+func getOpsManagerHttpsEnvVars(httpsSecretName string) []corev1.EnvVar {
+	if httpsSecretName != "" {
+		// Before creating the podTemplate, we need to add the new PemKeyFile
+		// configuration if required.
+		return []corev1.EnvVar{{
+			Name:  mdbv1.ConvertNameToEnvVarFormat(util.MmsPEMKeyFile),
+			Value: util.MmsPemKeyFileDirInContainer + "/server.pem",
+		}}
+	}
+	return []corev1.EnvVar{}
+}
+
+func getOpsManagerContainerPort(httpsSecretName string) int {
 	_, port := mdbv1.SchemePortFromAnnotation("http")
 	if httpsSecretName != "" {
 		_, port = mdbv1.SchemePortFromAnnotation("https")
-
-		// Before creating the podTemplate, we need to add the new PemKeyFile
-		// configuration if required.
-		p.EnvVars = append(p.EnvVars, corev1.EnvVar{
-			Name:  mdbv1.ConvertNameToEnvVarFormat(util.MmsPEMKeyFile),
-			Value: util.MmsPemKeyFileDirInContainer + "/server.pem",
-		})
 	}
-
-	omImageUrl := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.OpsManagerImageUrl), p.Version)
-	container := corev1.Container{
-		Image:           omImageUrl,
-		ImagePullPolicy: corev1.PullPolicy(envutil.ReadOrPanic(util.OpsManagerPullPolicy)),
-		Env:             p.EnvVars,
-		Ports:           []corev1.ContainerPort{{ContainerPort: int32(port)}},
-	}
-	return container
+	return port
 }
 
-func buildOpsManagerContainer(p OpsManagerStatefulSetHelper) corev1.Container {
-	httpsSecretName := p.HTTPSCertSecretName
+func getURIScheme(httpsCertSecretName string) corev1.URIScheme {
+	httpsSecretName := httpsCertSecretName
 	scheme, _ := mdbv1.SchemePortFromAnnotation("http")
 	if httpsSecretName != "" {
 		scheme, _ = mdbv1.SchemePortFromAnnotation("https")
 	}
-
-	container := buildBaseContainerForOpsManagerAndBackup(p)
-	container.Name = p.ContainerName
-	container.ReadinessProbe = opsManagerReadinessProbe(scheme)
-	container.Lifecycle = &corev1.Lifecycle{
-		PreStop: &corev1.Handler{
-			Exec: &corev1.ExecAction{
-				Command: []string{"/bin/sh", "-c", "/mongodb-ops-manager/bin/mongodb-mms stop_mms"},
-			},
-		},
-	}
-	container.Command = []string{"/opt/scripts/docker-entry-point.sh"}
-	return container
+	return scheme
 }
 
-func buildBackupDaemonContainer(p BackupStatefulSetHelper) corev1.Container {
-	container := buildBaseContainerForOpsManagerAndBackup(p.OpsManagerStatefulSetHelper)
-	container.Name = p.ContainerName
-	container.Lifecycle = &corev1.Lifecycle{
+func buildLifecycle(cmd []string) corev1.Lifecycle {
+	return corev1.Lifecycle{
 		PreStop: &corev1.Handler{
 			Exec: &corev1.ExecAction{
-				Command: []string{"/bin/sh", "-c", "/mongodb-ops-manager/bin/mongodb-mms stop_backup_daemon"},
+				Command: cmd,
 			},
 		},
 	}
-	container.Command = []string{"/opt/scripts/docker-entry-point.sh"}
-	return container
+}
+
+func buildBackupDaemonLifecycle() corev1.Lifecycle {
+	return buildLifecycle([]string{"/bin/sh", "-c", "/mongodb-ops-manager/bin/mongodb-mms stop_backup_daemon"})
+}
+
+func buildOpsManagerLifecycle() corev1.Lifecycle {
+	return buildLifecycle([]string{"/bin/sh", "-c", "/mongodb-ops-manager/bin/mongodb-mms stop_mms"})
+}
+
+func backupDaemonEnvVars() []corev1.EnvVar {
+	return []corev1.EnvVar{{
+		// For the OM Docker image to run as Backup Daemon, the BACKUP_DAEMON env variable
+		// needs to be passed with any value.configureJvmParams
+		Name:  util.ENV_BACKUP_DAEMON,
+		Value: "backup",
+	}}
 }
 
 // buildBackupDaemonStatefulSet builds the StatefulSet for backup daemon. It shares most of the configuration with
 // OpsManager StatefulSet adding something on top of it
 func buildBackupDaemonStatefulSet(p BackupStatefulSetHelper) (appsv1.StatefulSet, error) {
-	p.EnvVars = append(p.EnvVars, corev1.EnvVar{
-		// For the OM Docker image to run as Backup Daemon, the BACKUP_DAEMON env variable
-		// needs to be passed with any value.
-		Name:  util.ENV_BACKUP_DAEMON,
-		Value: "backup",
-	})
-	container := buildBackupDaemonContainer(p)
-
-	stsBuilder, err := createBaseOpsManagerStatefulSetBuilder(p.OpsManagerStatefulSetHelper, container)
+	template, err := buildBackupDaemonPodTemplateSpec(p)
+	if err != nil {
+		return appsv1.StatefulSet{}, err
+	}
+	stsBuilder, err := createBaseOpsManagerStatefulSetBuilder(p.OpsManagerStatefulSetHelper, template)
 	if err != nil {
 		return appsv1.StatefulSet{}, err
 	}
@@ -667,17 +718,6 @@ func baseOwnerReference(owner Updatable) []metav1.OwnerReference {
 	}
 }
 
-// ensurePodSecurityContext adds the 'SecurityContext' to the pod spec if it's necessary (Openshift doesn't need this
-// as it manages the security by itself)
-func ensurePodSecurityContext(spec *corev1.PodSpec) {
-	managedSecurityContext, _ := envutil.ReadBool(util.ManagedSecurityContextEnv)
-	if !managedSecurityContext {
-		spec.SecurityContext = &corev1.PodSecurityContext{
-			FSGroup: util.Int64Ref(util.FsGroup),
-		}
-	}
-}
-
 func appdbContainerEnv(statefulSetName string) []corev1.EnvVar {
 	return []corev1.EnvVar{
 		{
@@ -696,41 +736,8 @@ func appdbContainerEnv(statefulSetName string) []corev1.EnvVar {
 	}
 }
 
-// opsManagerPodTemplate builds the pod template spec used by both Backup and OM statefulsets
-// In the end it applies the podSpec (and probably podSpec.podTemplate) as the MongoDB and AppDB do.
-func opsManagerPodTemplate(labels map[string]string, stsHelper OpsManagerStatefulSetHelper, containerSpec corev1.Container) corev1.PodTemplateSpec {
-	version := envutil.ReadOrDefault(util.InitOpsManagerVersion, "latest")
-	imageUrl := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.InitOpsManagerImageUrl), version)
-	templateSpec := corev1.PodTemplateSpec{
-		ObjectMeta: metav1.ObjectMeta{
-			Labels: labels,
-		},
-		Spec: corev1.PodSpec{
-			InitContainers: []corev1.Container{{
-				Name:  "mongodb-enterprise-init-ops-manager",
-				Image: imageUrl,
-				// FIME: temporary to fix evg tests
-				ImagePullPolicy: "Always",
-			}},
-			Containers: []corev1.Container{getContainerWithSecurityContext(containerSpec)},
-			// After discussion with John Morales seems 30 min should be ok
-			// Note, that the OM (as of current version 4.2.8) has internal timeout of 20 seconds for 'stop_mms' and
-			// backup daemon doesn't have graceful timeout for 'stop_backup_daemon' at all
-			TerminationGracePeriodSeconds: util.Int64Ref(1800),
-		},
-	}
-
-	ensurePodSecurityContext(&templateSpec.Spec)
-	if val, found := envutil.Read(util.ImagePullSecrets); found {
-		templateSpec.Spec.ImagePullSecrets = append(templateSpec.Spec.ImagePullSecrets, corev1.LocalObjectReference{
-			Name: val,
-		})
-	}
-	return configureDefaultAffinityAndResources(templateSpec, stsHelper.PodSpec, stsHelper.Name)
-}
-
-func baseLivenessProbe() *corev1.Probe {
-	return &corev1.Probe{
+func baseLivenessProbe() corev1.Probe {
+	return corev1.Probe{
 		Handler: corev1.Handler{
 			Exec: &corev1.ExecAction{Command: []string{util.LivenessProbe}},
 		},
@@ -744,12 +751,12 @@ func baseLivenessProbe() *corev1.Probe {
 
 // opsManagerReadinessProbe creates the readiness probe.
 // Note on 'PeriodSeconds': /monitor/health is a super lightweight method not doing any IO so we can make it more often.
-func opsManagerReadinessProbe(scheme corev1.URIScheme) *corev1.Probe {
+func opsManagerReadinessProbe(scheme corev1.URIScheme) corev1.Probe {
 	port := 8080
 	if scheme == corev1.URISchemeHTTPS {
 		port = 8443
 	}
-	return &corev1.Probe{
+	return corev1.Probe{
 		Handler: corev1.Handler{
 			HTTPGet: &corev1.HTTPGetAction{Scheme: scheme, Port: intstr.FromInt(port), Path: "/monitor/health"},
 		},
@@ -761,8 +768,8 @@ func opsManagerReadinessProbe(scheme corev1.URIScheme) *corev1.Probe {
 	}
 }
 
-func baseReadinessProbe() *corev1.Probe {
-	return &corev1.Probe{
+func buildDatabaseReadinessProbe() corev1.Probe {
+	return corev1.Probe{
 		Handler: corev1.Handler{
 			Exec: &corev1.ExecAction{Command: []string{util.ReadinessProbe}},
 		},
@@ -774,8 +781,8 @@ func baseReadinessProbe() *corev1.Probe {
 		PeriodSeconds:       5,
 	}
 }
-func baseAppDbReadinessProbe() *corev1.Probe {
-	return &corev1.Probe{
+func buildAppDbReadinessProbe() corev1.Probe {
+	return corev1.Probe{
 		Handler: corev1.Handler{
 			Exec: &corev1.ExecAction{Command: []string{util.ReadinessProbe}},
 		},
@@ -789,7 +796,7 @@ func baseAppDbReadinessProbe() *corev1.Probe {
 	}
 }
 
-func baseEnvFrom(podVars *PodVars) []corev1.EnvVar {
+func databaseEnvVars(podVars *PodVars) []corev1.EnvVar {
 	vars := []corev1.EnvVar{
 		{
 			Name:  util.ENV_VAR_BASE_URL,

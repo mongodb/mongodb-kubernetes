@@ -49,9 +49,13 @@ spec:
   applicationDatabase:
     members: 3
     version: 4.2.5-ent
-    statefulSet:
-      spec:
-        template:
+    podSpec:
+      cpu: '0.25'
+      memory: 350M
+      persistence:
+        single:
+          storage: 1G
+      podTemplate:
           spec:
             # This container will be added to each pod as a sidecar
             containers:
@@ -64,10 +68,3 @@ spec:
                     cpu: "1"
                   requests:
                     cpu: 500m
-
-    podSpec:
-      cpu: '0.25'
-      memory: 350M
-      persistence:
-        single:
-          storage: 1G
