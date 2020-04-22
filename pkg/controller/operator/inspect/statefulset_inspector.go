@@ -5,6 +5,7 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	appsv1 "k8s.io/api/apps/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -41,9 +42,9 @@ func (s StatefulSetState) IsReady() bool {
 	return s.updated == s.ready && s.ready == s.total
 }
 
-func StatefulSet(set appsv1.StatefulSet, stsName client.ObjectKey) StatefulSetState {
+func StatefulSet(set appsv1.StatefulSet) StatefulSetState {
 	state := StatefulSetState{
-		statefulSetKey: stsName,
+		statefulSetKey: types.NamespacedName{Namespace: set.Namespace, Name: set.Name},
 		updated:        set.Status.UpdatedReplicas,
 		ready:          set.Status.ReadyReplicas,
 		total:          *set.Spec.Replicas,

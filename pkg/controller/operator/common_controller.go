@@ -646,7 +646,7 @@ func (r *ReconcileCommonController) getStatefulSetStatus(namespace, name string)
 		return workflow.Failed(err.Error())
 	}
 
-	if statefulSetState := inspect.StatefulSet(set, objectKey(namespace, name)); !statefulSetState.IsReady() {
+	if statefulSetState := inspect.StatefulSet(set); !statefulSetState.IsReady() {
 		return workflow.
 			Pending(statefulSetState.GetMessage()).
 			WithResourcesNotReady(statefulSetState.GetResourcesNotReadyStatus()).
