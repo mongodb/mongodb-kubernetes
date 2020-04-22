@@ -225,15 +225,15 @@ func tryCreateProject(organization *om.Organization, projectName, orgId string, 
 				group.Tags = []string{}
 				ans, err = conn.CreateProject(group)
 
-				if err != nil {
-					return nil, fmt.Errorf("Error creating project \"%s\" in Ops Manager: %s", group, err)
+				if err == nil {
+					log.Infow("Created project without tags as current version of Ops Manager forbids tags modification")
 				}
-				log.Infow("Created project without tags as current version of Ops Manager forbids tags modification")
 			}
-		} else {
-			// We received a non expected error.
-			return nil, fmt.Errorf("Error creating project \"%s\" in Ops Manager: %s", group, err)
 		}
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("Error creating project \"%s\" in Ops Manager: %s", group, err)
 	}
 
 	log.Infow("Project successfully created", "id", ans.ID)
