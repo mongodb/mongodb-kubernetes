@@ -323,6 +323,9 @@ class OMTester(object):
             "get", f"/groups/{self.context.project_id}/clusters/{cluster_id}/snapshots"
         ).json()["results"]
 
+    def api_remove_group(self):
+        return self.om_request("delete", f"/groups/{self.context.project_id}")
+
 
 class OMBackgroundTester(BackgroundHealthChecker):
     """Note, that it may return sporadic 500 when the appdb is being restarted, we won't fail because of this so checking

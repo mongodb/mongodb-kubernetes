@@ -1,64 +1,58 @@
-import time
 import pytest
-
-from kubernetes.client import V1ConfigMap
 from kubernetes import client
+from kubernetes.client import V1ConfigMap
+from pytest import fixture
+
 from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.mongodb import MongoDB, Phase
 
-project_name = ""
+
+@fixture(scope="module")
+def standalone(namespace: str) -> MongoDB:
+    resource = MongoDB.from_yaml(yaml_fixture("standalone.yaml"), namespace=namespace)
+    return resource.create()
+
+
+@fixture(scope="module")
+def new_project_name(standalone: MongoDB) -> str:
+    yield KubernetesTester.random_k8s_name()
+    # Cleaning the new group in any case - the updated config map will be used to get the new name
+    print("\nRemoving the generated group from Ops Manager/Cloud Manager")
+    standalone.get_om_tester().api_remove_group()
 
 
 @pytest.mark.e2e_standalone_config_map
-class TestStandaloneListensConfigMap(KubernetesTester):
-    """
-    name: Standalone tracks configmap changes
-    description: |
-      Creates a standalone, then changes configmap (renames the project) and
-      checks that the reconciliation for the standalone happened.
-    create:
-      file: standalone.yaml
-      wait_until: in_running_state
-      timeout: 120
-    """
+class TestStandaloneListensConfigMap:
+    group_id = ""
 
-    def test_patch_config_map(self):
-        global project_name
-        project_name = KubernetesTester.random_k8s_name()
-        config_map = V1ConfigMap(data={"projectName": project_name})
-        self.clients("corev1").patch_namespaced_config_map(
-            "my-project", self.get_namespace(), config_map
+    def test_create_standalone(self, standalone: MongoDB):
+        standalone.assert_reaches_phase(Phase.Running, timeout=150)
+
+    def test_patch_config_map(self, standalone: MongoDB, new_project_name: str):
+        # saving the group id for later check
+        TestStandaloneListensConfigMap.group_id = (
+            standalone.get_om_tester().find_group_id()
         )
 
-        print('Patched the ConfigMap - changed group name to "{}"'.format(project_name))
-
-        # Sleeping for short to make sure the standalone has gone to Pending
-        # state
-        time.sleep(5)
-        assert KubernetesTester.check_phase(
-            KubernetesTester.namespace,
-            KubernetesTester.kind,
-            KubernetesTester.name,
-            "Reconciling",
+        config_map = V1ConfigMap(data={"projectName": new_project_name})
+        client.CoreV1Api().patch_namespaced_config_map(
+            standalone.config_map_name, standalone.namespace, config_map
         )
-        KubernetesTester.wait_until("in_running_state", 120)
 
+        print(
+            '\nPatched the ConfigMap - changed group name to "{}"'.format(
+                new_project_name
+            )
+        )
+
+    def test_standalone_handles_changes(self, standalone: MongoDB):
+        standalone.assert_abandons_phase(phase=Phase.Running)
+        standalone.assert_reaches_phase(Phase.Running, timeout=200)
+
+    def test_new_group_was_created(self, standalone: MongoDB):
         # Checking that the new group was created in OM
-        orgid = KubernetesTester.get_om_org_id()
-        new_group_id = KubernetesTester.query_group(project_name, orgid)["id"]
-        assert new_group_id is not None
-
-
-@pytest.mark.e2e_standalone_config_map
-class TestStandaloneListensConfigMapDelete(KubernetesTester):
-    """
-    name: Standalone MDB resource is removed
-    delete:
-      file: standalone.yaml
-      wait_for: 120
-    """
-
-    def test_replica_set_sts_doesnt_exist(self):
-        with pytest.raises(client.rest.ApiException):
-            self.appsv1.read_namespaced_stateful_set("standalone", self.namespace)
-
-        KubernetesTester.remove_group_by_name(project_name)
+        assert (
+            standalone.get_om_tester().find_group_id()
+            != TestStandaloneListensConfigMap.group_id
+        )
