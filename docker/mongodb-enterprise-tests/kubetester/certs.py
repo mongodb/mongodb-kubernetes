@@ -2,6 +2,8 @@
 Certificate Custom Resource Definition.
 """
 
+import collections
+from typing import Optional, Dict
 from kubeobject import CustomObject
 import time
 
@@ -9,6 +11,12 @@ from kubetester.kubetester import KubernetesTester
 
 
 ISSUER_CA_NAME = "ca-issuer"
+
+
+# Defines properties of a set of servers, like a Shard, or Replica Set holding config servers.
+# This is almost equivalent to the StatefulSet created.
+SetProperties = collections.namedtuple("SetProperties", ["name", "service", "replicas"])
+
 
 CertificateType = CustomObject.define(
     "Certificate", plural="certificates", group="cert-manager.io", version="v1alpha2"
@@ -48,31 +56,57 @@ class Issuer(IssuerType, WaitForConditions):
     Reason = "KeyPairVerified"
 
 
-def generate_cert(namespace, pod, pod_dns, issuer):
-    cert = Certificate(namespace=namespace, name=pod)
+def generate_cert(
+    namespace: str, pod: str, pod_dns: str, issuer: str, spec: Optional[Dict] = None
+):
+    if spec is None:
+        spec = dict()
+
+    secret_name = "{}-{}".format(pod, KubernetesTester.random_k8s_name(prefix="")[:4])
+    cert = Certificate(namespace=namespace, name=secret_name)
     cert["spec"] = {
         "dnsNames": [pod, pod_dns],
-        "secretName": pod,
+        "secretName": secret_name,
         "issuerRef": {"name": issuer},
         "duration": "240h",
         "renewBefore": "120h",
         "usages": ["server auth", "client auth"],
     }
-    return cert.create().block_until_ready()
+    cert["spec"].update(spec)
+    cert.create().block_until_ready()
+
+    # Make sure the Secret names used have a random part
+    return secret_name
 
 
 def create_tls_certs(
-    issuer: str, namespace: str, resource_name: str, secret_name: str, replicas: int = 3
+    issuer: str,
+    namespace: str,
+    resource_name: str,
+    bundle_secret_name: str,
+    replicas: int = 3,
+    service_name: str = None,
+    spec: Optional[Dict] = None,
 ):
-    pod_fqdn_fstring = "{resource_name}-{index}.{resource_name}-svc.{namespace}.svc.cluster.local".format(
-        resource_name=resource_name, namespace=namespace, index="{}",
+    if service_name is None:
+        service_name = resource_name + "-svc"
+
+    if spec is None:
+        spec = dict()
+
+    pod_fqdn_fstring = "{resource_name}-{index}.{service_name}.{namespace}.svc.cluster.local".format(
+        resource_name=resource_name,
+        service_name=service_name,
+        namespace=namespace,
+        index="{}",
     )
     data = {}
     for idx in range(replicas):
         pod_dns = pod_fqdn_fstring.format(idx)
         pod_name = f"{resource_name}-{idx}"
-        generate_cert(namespace, pod_name, pod_dns, issuer)
-        secret = KubernetesTester.read_secret(namespace, pod_name)
+        cert_secret_name = generate_cert(namespace, pod_name, pod_dns, issuer, spec)
+        secret = KubernetesTester.read_secret(namespace, cert_secret_name)
         data[pod_name + "-pem"] = secret["tls.key"] + secret["tls.crt"]
-    KubernetesTester.create_secret(namespace, secret_name, data)
-    return secret_name
+
+    KubernetesTester.create_secret(namespace, bundle_secret_name, data)
+    return bundle_secret_name

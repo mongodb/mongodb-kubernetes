@@ -70,3 +70,14 @@ def issuer_ca_configmap(namespace: str) -> str:
     KubernetesTester.create_configmap(namespace, "issuer-ca", data)
 
     return "issuer-ca"
+
+
+@fixture("module")
+def ca_path() -> str:
+    """Returns a relative path to a file containing the CA.
+    This is required to test TLS enabled connections to MongoDB like:
+
+    def test_connect(replica_set: MongoDB, ca_path: str)
+        replica_set.assert_connectivity(ca_path=ca_path)
+    """
+    return _fixture("ca-tls.crt")

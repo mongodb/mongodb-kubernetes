@@ -1347,6 +1347,18 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_replica_set_scram_x509_ic_manual_certs
+  exec_timeout_secs: 1320
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_scram_x509_ic_manual_certs
+  exec_timeout_secs: 1320
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_sharded_cluster_scram_x509_internal_cluster
   tags: ["patch-run"]
   exec_timeout_secs: 1320
@@ -1662,6 +1674,30 @@ task_groups:
     - func: teardown_kubernetes_environment
     - func: teardown_cloud_qa
 
+- name: e2e_scram_sha_task_group_with_manually_generated_certs
+  max_hosts: 3
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
+    - func: setup_cert_manager
+  tasks:
+    - e2e_replica_set_scram_sha_256_user_connectivity
+    - e2e_replica_set_scram_sha_1_user_connectivity
+    - e2e_replica_set_scram_sha_1_upgrade
+    - e2e_replica_set_scram_x509_ic_manual_certs
+    - e2e_sharded_cluster_scram_sha_1_upgrade
+    - e2e_sharded_cluster_scram_sha_256_user_connectivity
+    - e2e_sharded_cluster_scram_sha_1_user_connectivity
+    - e2e_sharded_cluster_scram_x509_ic_manual_certs
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+    - func: teardown_cloud_qa
+
 - name: e2e_auth_transitions_task_group
   max_hosts: 3
   setup_group:
@@ -1890,7 +1926,7 @@ buildvariants:
     image_type: rhel
   tasks:
   - name: e2e_kube_only_task_group
-  - name: e2e_scram_sha_task_group
+  - name: e2e_scram_sha_task_group_with_manually_generated_certs
 
 - name: e2e_kube_vanilla_ops_manager
   display_name: "e2e_kube_vanilla_ops_manager"
@@ -2063,7 +2099,7 @@ buildvariants:
   - name: e2e_tls_task_group
   - name: e2e_om_4_2_plus_only_task_group
   - name: e2e_x509_task_group
-  - name: e2e_scram_sha_task_group
+  - name: e2e_scram_sha_task_group_with_manually_generated_certs
   - name: e2e_auth_transitions_task_group
   - name: e2e_webhook_validation_task_group
   - name: e2e_mongodb_kind_only_task_group
