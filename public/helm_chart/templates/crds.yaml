@@ -602,30 +602,6 @@ spec:
               properties:
                 spec:
                   type: object
-            podSpec:
-              type: object
-              properties:
-                podTemplate:
-                  type: object
-                  properties:
-                    metadata:
-                      type: object
-                    spec:
-                      type: object
-                podAntiAffinityTopologyKey:
-                  type: string
-                cpu:
-                  type: string
-                cpuRequests:
-                  type: string
-                memory:
-                  type: string
-                memoryRequests:
-                  type: string
-                podAffinity:
-                  type: object
-                nodeAffinity:
-                  type: object
             backup:
               type: object
               properties:
@@ -731,30 +707,6 @@ spec:
                   type: object
                   properties:
                     spec:
-                      type: object
-                podSpec:
-                  type: object
-                  properties:
-                    podTemplate:
-                      type: object
-                      properties:
-                        metadata:
-                          type: object
-                        spec:
-                          type: object
-                    podAntiAffinityTopologyKey:
-                      type: string
-                    cpu:
-                      type: string
-                    cpuRequests:
-                      type: string
-                    memory:
-                      type: string
-                    memoryRequests:
-                      type: string
-                    podAffinity:
-                      type: object
-                    nodeAffinity:
                       type: object
               required:
                 - enabled

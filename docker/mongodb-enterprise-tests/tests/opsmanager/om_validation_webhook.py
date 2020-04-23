@@ -17,12 +17,44 @@ class TestOpsManagerAppDbWrongVersionShardedCluster(KubernetesTester):
     description: |
       sharCount field for AppDB should be rejected
     create:
-      file: om_appdb_validation.yaml
+      file: om_validation.yaml
       patch: '[{"op":"add","path":"/spec/applicationDatabase/shardCount","value":2}]'
       exception: 'shardCount field is not configurable for application databases as it is for sharded clusters and appdbs are replica sets'
     """
 
     def test_om_appdb_version_validation(self):
+        assert True
+
+
+@mark.e2e_om_validation_webhook
+class TestOpsManagerPodSpecIsRejected(KubernetesTester):
+    """
+    name: PodSpec for Ops Manager
+    description: |
+      podSpec field for Ops Manager should be rejected
+    create:
+      file: om_validation.yaml
+      patch: '[{"op":"add","path":"/spec/podSpec","value":{}}]'
+      exception: 'podSpec field is not configurable for Ops Manager'
+    """
+
+    def test_om_podspec_validation(self):
+        assert True
+
+
+@mark.e2e_om_validation_webhook
+class TestOpsManagerPodSpecIsRejected(KubernetesTester):
+    """
+    name: PodSpec for Ops Manager
+    description: |
+      podSpec field for Ops Manager should be rejected
+    create:
+      file: om_validation.yaml
+      patch: '[{"op":"add","path":"/spec/backup/podSpec","value":{}}]'
+      exception: 'podSpec field is not configurable for Ops Manager Backup'
+    """
+
+    def test_backup_podspec_validation(self):
         assert True
 
 
@@ -33,7 +65,7 @@ class TestOpsManagerAppDbWrongVersionConnectivity(KubernetesTester):
     description: |
       connectivity field for AppDB should be rejected
     create:
-      file: om_appdb_validation.yaml
+      file: om_validation.yaml
       patch: '[{"op":"add","path":"/spec/applicationDatabase/connectivity", "value": {"replicaSetHorizons": [{"test-horizon": "dfdfdf"}]}}]'
       exception: 'connectivity field is not configurable for application databases'
     """

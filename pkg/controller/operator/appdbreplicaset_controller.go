@@ -65,8 +65,9 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *mdbv1.MongoDBOpsManager
 		SetClusterName(opsManager.ClusterName).
 		SetSecurity(rs.Security).
 		SetVersion(opsManager.Spec.Version). // the version of the appdb image must match the OM image one
-		SetContainerName(util.AppDbContainerName).
-		SetStatefulSetConfiguration(opsManager.Spec.AppDB.StatefulSetConfiguration)
+		SetContainerName(util.AppDbContainerName)
+		// TODO: configure once StatefulSetConfiguration is supported for appDb
+		//SetStatefulSetConfiguration(opsManager.Spec.AppDB.StatefulSetConfiguration)
 
 	appDbSts, err := replicaBuilder.BuildAppDbStatefulSet()
 	if err != nil {

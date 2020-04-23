@@ -1,4 +1,4 @@
-package operator
+package podtemplatespec
 
 import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -7,9 +7,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type podTemplateSpecConfigurationFunc func(podTemplateSpec *corev1.PodTemplateSpec)
+type ConfigurationFunc func(podTemplateSpec *corev1.PodTemplateSpec)
 
-func buildPodTemplateSpec(opts ...podTemplateSpecConfigurationFunc) corev1.PodTemplateSpec {
+func Build(opts ...ConfigurationFunc) corev1.PodTemplateSpec {
 	spec := corev1.PodTemplateSpec{}
 	for _, opt := range opts {
 		opt(&spec)
@@ -17,7 +17,7 @@ func buildPodTemplateSpec(opts ...podTemplateSpecConfigurationFunc) corev1.PodTe
 	return spec
 }
 
-func withAnnotations(annotations map[string]string) func(podTemplateSpec *corev1.PodTemplateSpec) {
+func WithAnnotations(annotations map[string]string) ConfigurationFunc {
 	if annotations == nil {
 		annotations = map[string]string{}
 	}
@@ -26,7 +26,13 @@ func withAnnotations(annotations map[string]string) func(podTemplateSpec *corev1
 	}
 }
 
-func withPodLabels(labels map[string]string) func(podTemplateSpec *corev1.PodTemplateSpec) {
+func WithTolerations(tolerations []corev1.Toleration) ConfigurationFunc {
+	return func(podTemplateSpec *corev1.PodTemplateSpec) {
+		podTemplateSpec.Spec.Tolerations = tolerations
+	}
+}
+
+func WithPodLabels(labels map[string]string) ConfigurationFunc {
 	if labels == nil {
 		labels = map[string]string{}
 	}
@@ -35,19 +41,19 @@ func withPodLabels(labels map[string]string) func(podTemplateSpec *corev1.PodTem
 	}
 }
 
-func withServiceAccount(serviceAccountName string) func(podTemplateSpec *corev1.PodTemplateSpec) {
+func WithServiceAccount(serviceAccountName string) ConfigurationFunc {
 	return func(podTemplateSpec *corev1.PodTemplateSpec) {
 		podTemplateSpec.Spec.ServiceAccountName = serviceAccountName
 	}
 }
 
-func withContainers(containers ...corev1.Container) func(podTemplateSpec *corev1.PodTemplateSpec) {
+func WithContainers(containers ...corev1.Container) ConfigurationFunc {
 	return func(podTemplateSpec *corev1.PodTemplateSpec) {
 		podTemplateSpec.Spec.Containers = append(podTemplateSpec.Spec.Containers, containers...)
 	}
 }
 
-func editContainer(index int, funcs ...func(container *corev1.Container)) func(podTemplateSpec *corev1.PodTemplateSpec) {
+func EditContainer(index int, funcs ...func(container *corev1.Container)) func(podTemplateSpec *corev1.PodTemplateSpec) {
 	return func(podTemplateSpec *corev1.PodTemplateSpec) {
 		c := &podTemplateSpec.Spec.Containers[index]
 		for _, f := range funcs {
@@ -56,20 +62,20 @@ func editContainer(index int, funcs ...func(container *corev1.Container)) func(p
 	}
 }
 
-func withInitContainers(containers ...corev1.Container) func(podTemplateSpec *corev1.PodTemplateSpec) {
+func WithInitContainers(containers ...corev1.Container) ConfigurationFunc {
 	return func(podTemplateSpec *corev1.PodTemplateSpec) {
 		podTemplateSpec.Spec.InitContainers = append(podTemplateSpec.Spec.InitContainers, containers...)
 	}
 }
 
-func withTerminationGracePeriodSeconds(seconds int64) func(podTemplateSpec *corev1.PodTemplateSpec) {
+func WithTerminationGracePeriodSeconds(seconds int64) ConfigurationFunc {
 	s := seconds
 	return func(podTemplateSpec *corev1.PodTemplateSpec) {
 		podTemplateSpec.Spec.TerminationGracePeriodSeconds = &s
 	}
 }
 
-func withSecurityContext(managedSecurityContext bool) func(podTemplateSpec *corev1.PodTemplateSpec) {
+func WithSecurityContext(managedSecurityContext bool) ConfigurationFunc {
 	return func(podTemplateSpec *corev1.PodTemplateSpec) {
 		spec := &podTemplateSpec.Spec
 		if !managedSecurityContext {
@@ -79,7 +85,7 @@ func withSecurityContext(managedSecurityContext bool) func(podTemplateSpec *core
 		}
 	}
 }
-func withImagePullSecrets() func(podTemplateSpec *corev1.PodTemplateSpec) {
+func WithImagePullSecrets() ConfigurationFunc {
 	return func(podTemplateSpec *corev1.PodTemplateSpec) {
 		if val, found := envutil.Read(util.ImagePullSecrets); found {
 			podTemplateSpec.Spec.ImagePullSecrets = append(podTemplateSpec.Spec.ImagePullSecrets, corev1.LocalObjectReference{
@@ -89,7 +95,7 @@ func withImagePullSecrets() func(podTemplateSpec *corev1.PodTemplateSpec) {
 	}
 }
 
-func withAffinity(stsName string) func(podTemplateSpec *corev1.PodTemplateSpec) {
+func WithAffinity(stsName, antiAffinityLabelKey string) ConfigurationFunc {
 	return func(podTemplateSpec *corev1.PodTemplateSpec) {
 		podTemplateSpec.Spec.Affinity =
 			&corev1.Affinity{
@@ -99,7 +105,7 @@ func withAffinity(stsName string) func(podTemplateSpec *corev1.PodTemplateSpec) 
 						// it to 100
 						Weight: 100,
 						PodAffinityTerm: corev1.PodAffinityTerm{
-							LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{PodAntiAffinityLabelKey: stsName}},
+							LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{antiAffinityLabelKey: stsName}},
 							// If PodAntiAffinityTopologyKey config property is empty - then it's ok to use some default (even for standalones)
 						},
 					}},
@@ -108,27 +114,27 @@ func withAffinity(stsName string) func(podTemplateSpec *corev1.PodTemplateSpec) 
 	}
 }
 
-func withNodeAffinity(nodeAffinity *corev1.NodeAffinity) func(podTemplateSpec *corev1.PodTemplateSpec) {
+func WithNodeAffinity(nodeAffinity *corev1.NodeAffinity) ConfigurationFunc {
 	return func(podTemplateSpec *corev1.PodTemplateSpec) {
 		podTemplateSpec.Spec.Affinity.NodeAffinity = nodeAffinity
 	}
 }
 
-func withPodAffinity(podAffinity *corev1.PodAffinity) func(podTemplateSpec *corev1.PodTemplateSpec) {
+func WithPodAffinity(podAffinity *corev1.PodAffinity) ConfigurationFunc {
 	return func(podTemplateSpec *corev1.PodTemplateSpec) {
 		podTemplateSpec.Spec.Affinity.PodAffinity = podAffinity
 	}
 }
 
-func withTopologyKey(topologyKey string) func(podTemplateSpec *corev1.PodTemplateSpec) {
+func WithTopologyKey(topologyKey string) ConfigurationFunc {
 	return func(podTemplateSpec *corev1.PodTemplateSpec) {
 		podTemplateSpec.Spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0].PodAffinityTerm.TopologyKey = topologyKey
 	}
 }
 
-type containerConfigurationFunc func(container *corev1.Container)
+type ContainerConfigurationFunc func(container *corev1.Container)
 
-func buildContainer(opts ...containerConfigurationFunc) corev1.Container {
+func BuildContainer(opts ...ContainerConfigurationFunc) corev1.Container {
 	container := corev1.Container{}
 	for _, opt := range opts {
 		opt(&container)
@@ -136,70 +142,70 @@ func buildContainer(opts ...containerConfigurationFunc) corev1.Container {
 	return container
 }
 
-func withContainerResources(resourceRequirements corev1.ResourceRequirements) func(container *corev1.Container) {
+func WithContainerResources(resourceRequirements corev1.ResourceRequirements) ContainerConfigurationFunc {
 	return func(container *corev1.Container) {
 		container.Resources = resourceRequirements
 	}
 }
 
-func withContainerLifeCycle(lifeCycle corev1.Lifecycle) func(container *corev1.Container) {
+func WithContainerLifeCycle(lifeCycle corev1.Lifecycle) ContainerConfigurationFunc {
 	lc := lifeCycle
 	return func(container *corev1.Container) {
 		container.Lifecycle = &lc
 	}
 }
 
-func withContainerCommand(cmd []string) func(container *corev1.Container) {
+func WithContainerCommand(cmd []string) ContainerConfigurationFunc {
 	return func(container *corev1.Container) {
 		container.Command = cmd
 	}
 }
 
-func withContainerName(name string) func(container *corev1.Container) {
+func WithContainerName(name string) ContainerConfigurationFunc {
 	return func(container *corev1.Container) {
 		container.Name = name
 	}
 }
 
-func withContainerImage(image string) func(container *corev1.Container) {
+func WithContainerImage(image string) ContainerConfigurationFunc {
 	return func(container *corev1.Container) {
 		container.Image = image
 	}
 }
 
-func withContainerEnvVars(envVars ...corev1.EnvVar) func(container *corev1.Container) {
+func WithContainerEnvVars(envVars ...corev1.EnvVar) ContainerConfigurationFunc {
 	return func(container *corev1.Container) {
 		container.Env = append(container.Env, envVars...)
 	}
 }
 
-func withContainerPorts(ports []corev1.ContainerPort) func(container *corev1.Container) {
+func WithContainerPorts(ports []corev1.ContainerPort) ContainerConfigurationFunc {
 	return func(container *corev1.Container) {
 		container.Ports = ports
 	}
 }
 
-func withContainerPullPolicy(pullPolicy corev1.PullPolicy) func(container *corev1.Container) {
+func WithContainerPullPolicy(pullPolicy corev1.PullPolicy) ContainerConfigurationFunc {
 	return func(container *corev1.Container) {
 		container.ImagePullPolicy = pullPolicy
 	}
 }
 
-func withContainerReadinessProbe(readinessProve corev1.Probe) func(container *corev1.Container) {
+func WithContainerReadinessProbe(readinessProve corev1.Probe) ContainerConfigurationFunc {
 	probe := readinessProve
 	return func(container *corev1.Container) {
 		container.ReadinessProbe = &probe
 	}
 }
 
-func withContainerLivenessProbe(readinessProve corev1.Probe) func(container *corev1.Container) {
+func WithContainerLivenessProbe(readinessProve corev1.Probe) ContainerConfigurationFunc {
 	probe := readinessProve
 	return func(container *corev1.Container) {
 		container.LivenessProbe = &probe
 	}
 }
 
-func withContainerSecurityContext(managedSecurityContext bool) func(container *corev1.Container) {
+func WithContainerSecurityContext(managedSecurityContext bool) ContainerConfigurationFunc {
 	return func(container *corev1.Container) {
 		if !managedSecurityContext {
 			container.SecurityContext = &corev1.SecurityContext{

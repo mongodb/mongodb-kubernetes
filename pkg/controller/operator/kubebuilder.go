@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/podtemplatespec"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
 
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -123,22 +125,22 @@ func defaultPodAnnotations(certHash string) map[string]string {
 func sharedDatabaseConfigurationConfiguration(stsHelper StatefulSetHelper) func(podTemplateSpec *corev1.PodTemplateSpec) {
 	managedSecurityContext, _ := envutil.ReadBool(util.ManagedSecurityContextEnv)
 	modificationFunctions := []func(podTemplateSpec *corev1.PodTemplateSpec){
-		withPodLabels(defaultPodLabels(stsHelper.StatefulSetHelperCommon)),
-		withTerminationGracePeriodSeconds(util.DefaultPodTerminationPeriodSeconds),
-		withSecurityContext(managedSecurityContext),
-		withImagePullSecrets(),
-		withAffinity(stsHelper.Name),
-		withNodeAffinity(stsHelper.PodSpec.NodeAffinity),
-		withPodAffinity(stsHelper.PodSpec.PodAffinity),
-		withTopologyKey(stsHelper.PodSpec.GetTopologyKeyOrDefault()),
-		withContainers(buildContainer(
+		podtemplatespec.WithPodLabels(defaultPodLabels(stsHelper.StatefulSetHelperCommon)),
+		podtemplatespec.WithTerminationGracePeriodSeconds(util.DefaultPodTerminationPeriodSeconds),
+		podtemplatespec.WithSecurityContext(managedSecurityContext),
+		podtemplatespec.WithImagePullSecrets(),
+		podtemplatespec.WithAffinity(stsHelper.Name, PodAntiAffinityLabelKey),
+		podtemplatespec.WithNodeAffinity(stsHelper.PodSpec.NodeAffinity),
+		podtemplatespec.WithPodAffinity(stsHelper.PodSpec.PodAffinity),
+		podtemplatespec.WithTopologyKey(stsHelper.PodSpec.GetTopologyKeyOrDefault()),
+		podtemplatespec.WithContainers(podtemplatespec.BuildContainer(
 			// database uses podSpec as normal
 			// TODO: remove in favour of spec.statefulSet
-			withContainerResources(buildRequirementsFromPodSpec(*stsHelper.PodSpec)),
-			withContainerPorts([]corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort}}),
-			withContainerPullPolicy(corev1.PullPolicy(envutil.ReadOrPanic(util.AutomationAgentImagePullPolicy))),
-			withContainerLivenessProbe(baseLivenessProbe()),
-			withContainerSecurityContext(managedSecurityContext),
+			podtemplatespec.WithContainerResources(buildRequirementsFromPodSpec(*stsHelper.PodSpec)),
+			podtemplatespec.WithContainerPorts([]corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort}}),
+			podtemplatespec.WithContainerPullPolicy(corev1.PullPolicy(envutil.ReadOrPanic(util.AutomationAgentImagePullPolicy))),
+			podtemplatespec.WithContainerLivenessProbe(baseLivenessProbe()),
+			podtemplatespec.WithContainerSecurityContext(managedSecurityContext),
 		)),
 	}
 	return func(podTemplateSpec *corev1.PodTemplateSpec) {
@@ -150,15 +152,15 @@ func sharedDatabaseConfigurationConfiguration(stsHelper StatefulSetHelper) func(
 
 // buildMongoDBPodTemplateSpec constructs the podTemplateSpec for the MongoDB resource
 func buildMongoDBPodTemplateSpec(stsHelper StatefulSetHelper) corev1.PodTemplateSpec {
-	return buildPodTemplateSpec(
+	return podtemplatespec.Build(
 		sharedDatabaseConfigurationConfiguration(stsHelper),
-		withAnnotations(defaultPodAnnotations(stsHelper.CertificateHash)),
-		withServiceAccount(util.MongoDBServiceAccount),
-		editContainer(0,
-			withContainerName(util.DatabaseContainerName),
-			withContainerImage(envutil.ReadOrPanic(util.AutomationAgentImage)),
-			withContainerEnvVars(databaseEnvVars(stsHelper.PodVars)...),
-			withContainerReadinessProbe(buildDatabaseReadinessProbe()),
+		podtemplatespec.WithAnnotations(defaultPodAnnotations(stsHelper.CertificateHash)),
+		podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
+		podtemplatespec.EditContainer(0,
+			podtemplatespec.WithContainerName(util.DatabaseContainerName),
+			podtemplatespec.WithContainerImage(envutil.ReadOrPanic(util.AutomationAgentImage)),
+			podtemplatespec.WithContainerEnvVars(databaseEnvVars(stsHelper.PodVars)...),
+			podtemplatespec.WithContainerReadinessProbe(buildDatabaseReadinessProbe()),
 		),
 	)
 }
@@ -166,27 +168,27 @@ func buildMongoDBPodTemplateSpec(stsHelper StatefulSetHelper) corev1.PodTemplate
 // buildAppDBPodTemplateSpec constructs the appDb podTemplateSpec
 func buildAppDBPodTemplateSpec(stsHelper StatefulSetHelper) corev1.PodTemplateSpec {
 	appdbImageUrl := prepareOmAppdbImageUrl(envutil.ReadOrPanic(util.AppDBImageUrl), stsHelper.Version)
-	return buildPodTemplateSpec(
+	return podtemplatespec.Build(
 		sharedDatabaseConfigurationConfiguration(stsHelper),
-		withAnnotations(map[string]string{}),
-		withServiceAccount(util.AppDBServiceAccount),
-		editContainer(0,
-			withContainerName(util.AppDbContainerName),
-			withContainerImage(appdbImageUrl),
-			withContainerEnvVars(appdbContainerEnv(stsHelper.Name)...),
-			withContainerReadinessProbe(buildAppDbReadinessProbe()),
+		podtemplatespec.WithAnnotations(map[string]string{}),
+		podtemplatespec.WithServiceAccount(util.AppDBServiceAccount),
+		podtemplatespec.EditContainer(0,
+			podtemplatespec.WithContainerName(util.AppDbContainerName),
+			podtemplatespec.WithContainerImage(appdbImageUrl),
+			podtemplatespec.WithContainerEnvVars(appdbContainerEnv(stsHelper.Name)...),
+			podtemplatespec.WithContainerReadinessProbe(buildAppDbReadinessProbe()),
 		),
 	)
 }
 
 // buildOpsManagerPodTemplateSpec constructs the default Ops Manager podTemplateSpec
 func buildOpsManagerPodTemplateSpec(stsHelper OpsManagerStatefulSetHelper) (corev1.PodTemplateSpec, error) {
-	podTemplateSpec := buildPodTemplateSpec(
+	podTemplateSpec := podtemplatespec.Build(
 		backupAndOpsManagerConfiguration(stsHelper),
-		editContainer(0,
-			withContainerName(util.OpsManagerContainerName),
-			withContainerReadinessProbe(opsManagerReadinessProbe(getURIScheme(stsHelper.HTTPSCertSecretName))),
-			withContainerLifeCycle(buildOpsManagerLifecycle()),
+		podtemplatespec.EditContainer(0,
+			podtemplatespec.WithContainerName(util.OpsManagerContainerName),
+			podtemplatespec.WithContainerReadinessProbe(opsManagerReadinessProbe(getURIScheme(stsHelper.HTTPSCertSecretName))),
+			podtemplatespec.WithContainerLifeCycle(buildOpsManagerLifecycle()),
 		),
 	)
 	if stsHelper.Spec.StatefulSetConfiguration != nil {
@@ -205,12 +207,12 @@ func buildMergedTemplate(podTemplateSpec corev1.PodTemplateSpec, podTemplateSpec
 
 // buildBackupDaemonPodTemplateSpec constructs the Backup Daemon podTemplateSpec
 func buildBackupDaemonPodTemplateSpec(stsHelper BackupStatefulSetHelper) (corev1.PodTemplateSpec, error) {
-	podTemplateSpec := buildPodTemplateSpec(
+	podTemplateSpec := podtemplatespec.Build(
 		backupAndOpsManagerConfiguration(stsHelper.OpsManagerStatefulSetHelper),
-		editContainer(0,
-			withContainerName(util.BackupDaemonContainerName),
-			withContainerEnvVars(backupDaemonEnvVars()...),
-			withContainerLifeCycle(buildBackupDaemonLifecycle()),
+		podtemplatespec.EditContainer(0,
+			podtemplatespec.WithContainerName(util.BackupDaemonContainerName),
+			podtemplatespec.WithContainerEnvVars(backupDaemonEnvVars()...),
+			podtemplatespec.WithContainerLifeCycle(buildBackupDaemonLifecycle()),
 		),
 	)
 	if stsHelper.Spec.Backup.StatefulSetConfiguration != nil {
@@ -225,23 +227,23 @@ func backupAndOpsManagerConfiguration(stsHelper OpsManagerStatefulSetHelper) fun
 	omImageUrl := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.OpsManagerImageUrl), stsHelper.Version)
 	managedSecurityContext, _ := envutil.ReadBool(util.ManagedSecurityContextEnv)
 	modificationFunctions := []func(podTemplateSpec *corev1.PodTemplateSpec){
-		withPodLabels(defaultPodLabels(stsHelper.StatefulSetHelperCommon)),
-		withTerminationGracePeriodSeconds(1800),
-		withSecurityContext(managedSecurityContext),
-		withImagePullSecrets(),
-		withAffinity(stsHelper.Name),
-		withTopologyKey(util.DefaultAntiAffinityTopologyKey),
-		withInitContainers(
+		podtemplatespec.WithPodLabels(defaultPodLabels(stsHelper.StatefulSetHelperCommon)),
+		podtemplatespec.WithTerminationGracePeriodSeconds(1800),
+		podtemplatespec.WithSecurityContext(managedSecurityContext),
+		podtemplatespec.WithImagePullSecrets(),
+		podtemplatespec.WithAffinity(stsHelper.Name, PodAntiAffinityLabelKey),
+		podtemplatespec.WithTopologyKey(util.DefaultAntiAffinityTopologyKey),
+		podtemplatespec.WithInitContainers(
 			buildOpsManagerAndBackupInitContainer(),
 		),
-		withContainers(buildContainer(
-			withContainerResources(defaultOpsManagerResourceRequirements()),
-			withContainerPorts(buildOpsManagerContainerPorts(stsHelper.HTTPSCertSecretName)),
-			withContainerPullPolicy(corev1.PullPolicy(envutil.ReadOrPanic(util.OpsManagerPullPolicy))),
-			withContainerImage(omImageUrl),
-			withContainerEnvVars(stsHelper.EnvVars...),
-			withContainerEnvVars(getOpsManagerHttpsEnvVars(stsHelper.HTTPSCertSecretName)...),
-			withContainerCommand([]string{"/opt/scripts/docker-entry-point.sh"}),
+		podtemplatespec.WithContainers(podtemplatespec.BuildContainer(
+			podtemplatespec.WithContainerResources(defaultOpsManagerResourceRequirements()),
+			podtemplatespec.WithContainerPorts(buildOpsManagerContainerPorts(stsHelper.HTTPSCertSecretName)),
+			podtemplatespec.WithContainerPullPolicy(corev1.PullPolicy(envutil.ReadOrPanic(util.OpsManagerPullPolicy))),
+			podtemplatespec.WithContainerImage(omImageUrl),
+			podtemplatespec.WithContainerEnvVars(stsHelper.EnvVars...),
+			podtemplatespec.WithContainerEnvVars(getOpsManagerHttpsEnvVars(stsHelper.HTTPSCertSecretName)...),
+			podtemplatespec.WithContainerCommand([]string{"/opt/scripts/docker-entry-point.sh"}),
 		)),
 	}
 	return func(podTemplateSpec *corev1.PodTemplateSpec) {
@@ -256,11 +258,11 @@ func backupAndOpsManagerConfiguration(stsHelper OpsManagerStatefulSetHelper) fun
 func buildOpsManagerAndBackupInitContainer() corev1.Container {
 	version := envutil.ReadOrDefault(util.InitOpsManagerVersion, "latest")
 	initContainerImageUrl := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.InitOpsManagerImageUrl), version)
-	return buildContainer(
-		withContainerName("mongodb-enterprise-init-ops-manager"),
-		withContainerImage(initContainerImageUrl),
+	return podtemplatespec.BuildContainer(
+		podtemplatespec.WithContainerName("mongodb-enterprise-init-ops-manager"),
+		podtemplatespec.WithContainerImage(initContainerImageUrl),
 		// FIXME: temporary to fix evg tests
-		withContainerPullPolicy(corev1.PullAlways),
+		podtemplatespec.WithContainerPullPolicy(corev1.PullAlways),
 	)
 }
 

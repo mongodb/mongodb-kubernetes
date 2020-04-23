@@ -43,6 +43,14 @@ func warningNotConfigurableForAppDB(field string) ValidationResult {
 	return validationWarning(fmt.Sprintf("%s field is not configurable for application databases", field))
 }
 
+func warningNotConfigurableForOpsManager(field string) ValidationResult {
+	return validationWarning(fmt.Sprintf("%s field is not configurable for Ops Manager", field))
+}
+
+func warningNotConfigurableForBackup(field string) ValidationResult {
+	return validationWarning(fmt.Sprintf("%s field is not configurable for Ops Manager Backup", field))
+}
+
 func warningShardedClusterFieldsNotConfigurableForAppDB(field string) ValidationResult {
 	return validationWarning(fmt.Sprintf("%s field is not configurable for application databases as it is for sharded clusters and appdbs are replica sets", field))
 }
@@ -147,6 +155,20 @@ func s3StoreMongodbUserSpecifiedNoMongoResource(os MongoDBOpsManagerSpec) Valida
 	return validationSuccess()
 }
 
+func podSpecIsNotConfigurable(os MongoDBOpsManagerSpec) ValidationResult {
+	if os.PodSpec != nil {
+		return warningNotConfigurableForOpsManager("podSpec")
+	}
+	return validationSuccess()
+}
+
+func podSpecIsNotConfigurableBackup(os MongoDBOpsManagerSpec) ValidationResult {
+	if os.Backup.PodSpec != nil {
+		return warningNotConfigurableForBackup("podSpec")
+	}
+	return validationSuccess()
+}
+
 func (om MongoDBOpsManager) RunValidations() []ValidationResult {
 	validators := []func(m MongoDBOpsManagerSpec) ValidationResult{
 		connectivityIsNotConfigurable,
@@ -162,6 +184,8 @@ func (om MongoDBOpsManager) RunValidations() []ValidationResult {
 		mongosCountIsNotConfigurable,
 		configServerCountIsNotConfigurable,
 		s3StoreMongodbUserSpecifiedNoMongoResource,
+		podSpecIsNotConfigurable,
+		podSpecIsNotConfigurableBackup,
 	}
 	var validationResults []ValidationResult
 

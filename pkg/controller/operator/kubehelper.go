@@ -209,9 +209,6 @@ func (k *KubeHelper) NewStatefulSetHelper(obj Updatable) *StatefulSetHelper {
 }
 
 func (k *KubeHelper) NewOpsManagerStatefulSetHelper(opsManager mdbv1.MongoDBOpsManager) *OpsManagerStatefulSetHelper {
-	spec := mdbv1.NewPodSpecWrapperBuilderFromSpec(opsManager.Spec.PodSpec).Build()
-	spec.Default = mdbv1.OpsManagerPodSpecDefaultValues()
-
 	_, port := opsManager.GetSchemePort()
 	tlsSecret := ""
 	if opsManager.Spec.Security != nil {
@@ -229,7 +226,6 @@ func (k *KubeHelper) NewOpsManagerStatefulSetHelper(opsManager mdbv1.MongoDBOpsM
 			ServicePort:              int32(port),
 			Version:                  opsManager.Spec.Version,
 			Service:                  opsManager.SvcName(),
-			PodSpec:                  spec,
 			StatefulSetConfiguration: opsManager.Spec.StatefulSetConfiguration,
 		},
 		Spec:                    opsManager.Spec,
@@ -256,9 +252,6 @@ func (k *KubeHelper) NewBackupStatefulSetHelper(opsManager mdbv1.MongoDBOpsManag
 	if opsManager.Spec.Backup.HeadDB != nil {
 		helper.HeadDbPersistenceConfig = opsManager.Spec.Backup.HeadDB
 	}
-	spec := mdbv1.NewPodSpecWrapperBuilderFromSpec(opsManager.Spec.Backup.PodSpec).Build()
-	spec.Default = mdbv1.OpsManagerPodSpecDefaultValues()
-	helper.PodSpec = spec
 	return &helper
 }
 
@@ -418,6 +411,9 @@ func (s StatefulSetHelper) CreateOrUpdateInKubernetes() error {
 	return err
 }
 
+// BuildStatefulSet builds the StatefulSet for the Ops Manager resource.
+// TODO: currently only the spec.statefulSet.spec.template is merged. Other in the custom
+// spec are not used.
 func (s OpsManagerStatefulSetHelper) BuildStatefulSet() (appsv1.StatefulSet, error) {
 	return buildOpsManagerStatefulSet(s)
 }

@@ -15,7 +15,7 @@ class TestOpsManagerAppDbWrongVersion:
     def ops_manager(cls, namespace: str) -> MongoDBOpsManager:
         """ The fixture for Ops Manager to be created."""
         om = MongoDBOpsManager.from_yaml(
-            yaml_fixture("om_appdb_validation.yaml"), namespace=namespace
+            yaml_fixture("om_validation.yaml"), namespace=namespace
         )
         return om.create()
 
@@ -34,7 +34,7 @@ class TestOpsManagerAppDbWrongSize(KubernetesTester):
     description: |
       AppDB with members < 3 is not allowed
     create:
-      file: om_appdb_validation.yaml
+      file: om_validation.yaml
       patch: '[{"op":"replace","path":"/spec/applicationDatabase/members","value":2}]'
       exception: 'spec.applicationDatabase.members in body should be greater than or equal to 3'
     """
@@ -50,7 +50,7 @@ class TestOpsManagerBackupEnabledNotSpecified(KubernetesTester):
     description: |
       Backup specified but 'enabled' field is missing - it is required
     create:
-      file: om_appdb_validation.yaml
+      file: om_validation.yaml
       patch: '[{"op":"add","path":"/spec/backup","value":{}}]'
       exception: 'spec.backup.enabled in body is required'
     """
@@ -66,7 +66,7 @@ class TestOpsManagerBackupOplogStoreNameRequired(KubernetesTester):
     description: |
       Backup oplog store specified but missing 'name' field
     create:
-      file: om_appdb_validation.yaml
+      file: om_validation.yaml
       patch: '[{"op":"add","path":"/spec/backup","value":{"enabled": true, "opLogStores": [{"mongodbResourceRef": {}}]}}]'
       exception: 'spec.backup.opLogStores.name in body is required'
     """
@@ -82,7 +82,7 @@ class TestOpsManagerBackupOplogStoreMongodbRefRequired(KubernetesTester):
     description: |
       Backup oplog store specified but missing 'mongodbResourceRef' field
     create:
-      file: om_appdb_validation.yaml
+      file: om_validation.yaml
       patch: '[{"op":"add","path":"/spec/backup","value":{"enabled": true, "opLogStores": [{"name": "foo"}]}}]'
       exception: 'spec.backup.opLogStores.mongodbResourceRef in body is required'
     """
@@ -172,7 +172,7 @@ class TestOpsManagerExternalConnectivityTypeRequired(KubernetesTester):
     description: |
         'spec.externalConnectivity.type' is a required field
     create:
-      file: om_appdb_validation.yaml
+      file: om_validation.yaml
       patch: '[{"op":"add","path":"/spec/externalConnectivity","value":{}}]'
       exception: 'spec.externalConnectivity.type in body is required'
     """
@@ -187,7 +187,7 @@ class TestOpsManagerExternalConnectivityWrongType(KubernetesTester):
     description: |
         'spec.externalConnectivity.type' must be either "LoadBalancer" or "NodePort"
     create:
-      file: om_appdb_validation.yaml
+      file: om_validation.yaml
       patch: '[{"op":"add","path":"/spec/externalConnectivity","value":{"type": "nginx"}}]'
       exception: 'spec.externalConnectivity.type in body should be one of [LoadBalancer NodePort]'
     """

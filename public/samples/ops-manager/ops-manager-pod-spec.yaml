@@ -17,9 +17,12 @@ spec:
             hostAliases:
               - ip: "1.2.3.4"
                 hostnames: ["hostname"]
-    podSpec:
-      cpuRequests: '0.50'
-      memoryRequests: 4500M
+            containers:
+              - name: mongodb-backup-daemon
+                resources:
+                  requests:
+                    cpu: '0.50'
+                    memory: 4500M
 
   statefulSet:
     spec:
@@ -37,14 +40,14 @@ spec:
               volumeMounts:
                 - mountPath: /mongodb-ops-manager/mongodb-releases/
                   name: mongod-binaries-volume
+              resources:
+                limits:
+                  cpu: '0.70'
+                  memory: 6G
           tolerations:
             - key: "key"
               operator: "Exists"
               effect: "NoSchedule"
-
-  podSpec:
-    cpu: '0.70'
-    memory: 6G
 
   applicationDatabase:
     members: 3

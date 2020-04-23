@@ -6,6 +6,8 @@ import (
 	"path"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/podtemplatespec"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
@@ -452,15 +454,15 @@ func TestOpsManagerPodTemplate_PodSpec(t *testing.T) {
 	podAffinity := defaultPodAffinity()
 
 	stsSpecOverride := appsv1.StatefulSetSpec{
-		Template: buildPodTemplateSpec(
-			withAffinity(omSts.Name),
-			withPodAffinity(&podAffinity),
-			withNodeAffinity(&nodeAffinity),
-			withTopologyKey("rack"),
-			withContainers(
-				buildContainer(
-					withContainerName(util.OpsManagerContainerName),
-					withContainerResources(corev1.ResourceRequirements{
+		Template: podtemplatespec.Build(
+			podtemplatespec.WithAffinity(omSts.Name, PodAntiAffinityLabelKey),
+			podtemplatespec.WithPodAffinity(&podAffinity),
+			podtemplatespec.WithNodeAffinity(&nodeAffinity),
+			podtemplatespec.WithTopologyKey("rack"),
+			podtemplatespec.WithContainers(
+				podtemplatespec.BuildContainer(
+					podtemplatespec.WithContainerName(util.OpsManagerContainerName),
+					podtemplatespec.WithContainerResources(corev1.ResourceRequirements{
 						Limits:   resourceLimits,
 						Requests: resourceRequests,
 					})),
@@ -500,15 +502,15 @@ func TestOpsManagerPodTemplate_MergePodTemplate(t *testing.T) {
 		Name:  "my-custom-container",
 		Image: "my-custom-image",
 	}
-	podSpec := mdbv1.NewPodSpecWrapperBuilder().SetPodTemplate(&corev1.PodTemplateSpec{
-		ObjectMeta: metav1.ObjectMeta{Annotations: expectedAnnotations},
-		Spec: corev1.PodSpec{
-			ServiceAccountName: "test-account",
-			Tolerations:        expectedTolerations,
-			Containers:         []corev1.Container{newContainer},
-		},
-	}).Build()
-	om := DefaultOpsManagerBuilder().SetPodSpec(*podSpec).Build()
+
+	podTemplateSpec := podtemplatespec.Build(
+		podtemplatespec.WithAnnotations(expectedAnnotations),
+		podtemplatespec.WithServiceAccount("test-account"),
+		podtemplatespec.WithContainers(newContainer),
+		podtemplatespec.WithTolerations(expectedTolerations),
+	)
+
+	om := DefaultOpsManagerBuilder().Build()
 	helper := omSetHelperFromResource(om)
 	template, _ := buildOpsManagerPodTemplateSpec(helper)
 	originalLabels := template.Labels
@@ -520,7 +522,7 @@ func TestOpsManagerPodTemplate_MergePodTemplate(t *testing.T) {
 	}
 
 	mergedSts, err := statefulset.MergeSpec(operatorSts, &appsv1.StatefulSetSpec{
-		Template: *podSpec.PodTemplate,
+		Template: podTemplateSpec,
 	})
 	assert.NoError(t, err)
 	template = mergedSts.Spec.Template

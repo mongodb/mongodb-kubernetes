@@ -7,6 +7,9 @@ spec:
   version: 4.2.0
   adminCredentials: ops-manager-admin-secret
 
+  backup:
+    enabled: false
+
   applicationDatabase:
     members: 3
     version: 3.6.12

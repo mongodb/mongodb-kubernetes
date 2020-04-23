@@ -92,6 +92,7 @@ type MongoDBOpsManagerSpec struct {
 	MongoDBOpsManagerExternalConnectivity *MongoDBOpsManagerServiceDefinition `json:"externalConnectivity,omitempty"`
 
 	// +optional
+	// Deprecated: This field has been removed, it is only here to perform validations
 	PodSpec *MongoDbPodSpec `json:"podSpec,omitempty"`
 
 	// Configure HTTPS.
@@ -154,7 +155,7 @@ type MongoDBOpsManagerBackup struct {
 	OplogStoreConfigs []DataStoreConfig `json:"oplogStores,omitempty"`
 	BlockStoreConfigs []DataStoreConfig `json:"blockStores,omitempty"`
 	S3Configs         []S3Config        `json:"s3Stores,omitempty"`
-
+	// Deprecated: this field has been removed, it is only here to perform validations
 	PodSpec                  *MongoDbPodSpec           `json:"podSpec,omitempty"`
 	StatefulSetConfiguration *StatefulSetConfiguration `json:"statefulSet,omitempty"`
 }
@@ -486,16 +487,6 @@ func ConvertNameToEnvVarFormat(propertyFormat string) string {
 	return strings.Replace(withPrefix, ".", "_", -1)
 }
 
-// OpsManagerPodSpecDefaultValues specifies default values for PodSpec for Ops Manager
-// 5G is the default pod memory size (OM binary requires by default Xmx = 4.2+ G)
-func OpsManagerPodSpecDefaultValues() MongoDbPodSpec {
-	return NewEmptyPodSpecWrapperBuilder().
-		SetMemory(util.DefaultMemoryOpsManager).
-		SetPodAntiAffinityTopologyKey(util.DefaultAntiAffinityTopologyKey).
-		Build().
-		MongoDbPodSpec
-}
-
 func SchemePortFromAnnotation(annotation string) (corev1.URIScheme, int) {
 	scheme := corev1.URISchemeHTTP
 	port := util.OpsManagerDefaultPortHTTP
@@ -513,10 +504,6 @@ func SchemePortFromAnnotation(annotation string) (corev1.URIScheme, int) {
 
 type AppDB struct {
 	MongoDbSpec
-
-	// TODO: remove this once MongoDbSpec has it
-	// +optional
-	StatefulSetConfiguration *StatefulSetConfiguration `json:"statefulSet,omitempty"`
 
 	// PasswordSecretKeyRef contains a reference to the secret which contains the password
 	// for the mongodb-ops-manager SCRAM-SHA user
