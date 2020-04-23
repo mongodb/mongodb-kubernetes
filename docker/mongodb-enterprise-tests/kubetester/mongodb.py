@@ -1,6 +1,6 @@
 import re
 from enum import Enum
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, Tuple, List
 
 import time
 from kubeobject import CustomObject
@@ -81,6 +81,17 @@ class MongoDB(CustomObject, MongoDBCommon):
     def assert_abandons_phase(self, phase: Phase, timeout=None):
         return self.wait_for(
             lambda s: s.get_status_phase() != phase, timeout, should_raise=True
+        )
+
+    def assert_status_resource_not_ready(
+        self, name: str, kind: str = "StatefulSet", msg_regexp=None, idx=0
+    ):
+        """Checks the element in 'resources_not_ready' field by index 'idx' """
+        assert self.get_status_resources_not_ready()[idx]["kind"] == kind
+        assert self.get_status_resources_not_ready()[idx]["name"] == name
+        assert (
+            re.search(msg_regexp, self.get_status_resources_not_ready()[idx]["message"])
+            is not None
         )
 
     @property
@@ -227,6 +238,12 @@ class MongoDB(CustomObject, MongoDBCommon):
     def get_status_message(self) -> Optional[str]:
         try:
             return self["status"]["message"]
+        except KeyError:
+            return None
+
+    def get_status_resources_not_ready(self) -> Optional[List[Dict]]:
+        try:
+            return self["status"]["resourcesNotReady"]
         except KeyError:
             return None
 

@@ -33,10 +33,7 @@ class TestStandaloneRecoversBadPvConfiguration(KubernetesTester):
         mrs = KubernetesTester.get_resource()
 
         # MDB resource will be stuck in reconciling, waiting for the StatefulSet to reach goal state.
-        assert (
-            mrs["status"]["message"]
-            == "MongoDB my-replica-set-vol-broken resource is still starting"
-        )
+        assert mrs["status"]["message"] == "StatefulSet not ready"
 
     def test_recovery(self):
         KubernetesTester.create_storage_class(self.__class__.random_storage_name)

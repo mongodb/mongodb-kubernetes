@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import os
-from typing import List, Optional
+import re
+from typing import List, Optional, Dict
 
 from kubeobject import CustomObject
 from kubernetes import client
@@ -234,6 +235,20 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                 lambda s: self.get_phase() != phase, timeout, should_raise=True
             )
 
+        def assert_status_resource_not_ready(
+            self, name: str, kind: str = "StatefulSet", msg_regexp=None, idx=0
+        ):
+            """Checks the element in 'resources_not_ready' field by index 'idx' """
+            assert self.get_resources_not_ready()[idx]["kind"] == kind
+            assert self.get_resources_not_ready()[idx]["name"] == name
+            assert (
+                re.search(msg_regexp, self.get_resources_not_ready()[idx]["message"])
+                is not None
+            )
+
+        def assert_empty_status_resources_not_ready(self):
+            assert self.get_resources_not_ready() is None
+
     class BackupStatus(StatusCommon):
         def __init__(self, ops_manager: MongoDBOpsManager):
             self.ops_manager = ops_manager
@@ -247,6 +262,12 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         def get_message(self) -> Optional[str]:
             try:
                 return self.ops_manager.get_status()["backup"]["message"]
+            except (KeyError, TypeError):
+                return None
+
+        def get_resources_not_ready(self) -> Optional[List[Dict]]:
+            try:
+                return self.ops_manager.get_status()["backup"]["resourcesNotReady"]
             except (KeyError, TypeError):
                 return None
 
@@ -296,6 +317,14 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             except (KeyError, TypeError):
                 return None
 
+        def get_resources_not_ready(self) -> Optional[List[Dict]]:
+            try:
+                return self.ops_manager.get_status()["applicationDatabase"][
+                    "resourcesNotReady"
+                ]
+            except (KeyError, TypeError):
+                return None
+
     class OmStatus(StatusCommon):
         def __init__(self, ops_manager: MongoDBOpsManager):
             self.ops_manager = ops_manager
@@ -327,6 +356,12 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         def get_replicas(self) -> Optional[int]:
             try:
                 return self.ops_manager.get_status()["opsManager"]["replicas"]
+            except (KeyError, TypeError):
+                return None
+
+        def get_resources_not_ready(self) -> Optional[List[Dict]]:
+            try:
+                return self.ops_manager.get_status()["opsManager"]["resourcesNotReady"]
             except (KeyError, TypeError):
                 return None
 

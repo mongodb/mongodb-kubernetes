@@ -47,7 +47,7 @@ func TestX509CannotBeEnabled_IfAgentCertsAreNotApproved(t *testing.T) {
 
 	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
 	expectedError := fmt.Sprintf("Agent certs have not yet been approved")
-	checkReconcilePending(t, reconciler, rs, expectedError, manager.Client)
+	checkReconcilePending(t, reconciler, rs, expectedError, manager.Client, 10)
 }
 
 func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ReplicaSet(t *testing.T) {

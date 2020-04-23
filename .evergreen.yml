@@ -1076,6 +1076,12 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_replica_set_statefulset_status
+  tags: ["patch-run"]
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_replica_set_update_delete_parallel
   tags: ["patch-run"]
   exec_timeout_secs: 1200
@@ -1139,6 +1145,12 @@ tasks:
 - name: e2e_sharded_cluster_scale_shards
   tags: ["patch-run"]
   exec_timeout_secs: 720
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_statefulset_status
+  tags: ["patch-run"]
+  exec_timeout_secs: 600
   commands:
     - func: "e2e_test"
 
@@ -1562,9 +1574,11 @@ task_groups:
     - e2e_replica_set_pv
     - e2e_replica_set_pv_multiple
     - e2e_replica_set_schema_validation
+    - e2e_replica_set_statefulset_status
     - e2e_sharded_cluster_pv
     - e2e_sharded_cluster_recovery
     - e2e_sharded_cluster_schema_validation
+    - e2e_sharded_cluster_statefulset_status
     - e2e_standalone_config_map
     - e2e_standalone_recovery
     - e2e_standalone_recovery_k8s

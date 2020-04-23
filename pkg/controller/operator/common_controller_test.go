@@ -412,8 +412,8 @@ func checkReconcileFailed(t *testing.T, reconciler reconcile.Reconciler, object 
 	assert.Contains(t, object.Status.Message, expectedErrorMessage)
 }
 
-func checkReconcilePending(t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, expectedErrorMessage string, client *mock.MockedClient) {
-	failedResult := reconcile.Result{RequeueAfter: 10 * time.Second}
+func checkReconcilePending(t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, expectedErrorMessage string, client *mock.MockedClient, requeueAfter time.Duration) {
+	failedResult := reconcile.Result{RequeueAfter: requeueAfter * time.Second}
 	result, e := reconciler.Reconcile(requestFromObject(object))
 	assert.Nil(t, e, "When pending, error should be nil")
 	assert.Equal(t, failedResult, result)

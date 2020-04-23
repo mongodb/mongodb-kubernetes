@@ -157,16 +157,16 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 			return r.updateOmDeployment(conn, s, sts, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
-			if err := standaloneBuilder.CreateOrUpdateInKubernetes(); err != nil {
+			if err = standaloneBuilder.CreateOrUpdateInKubernetes(); err != nil {
 				return workflow.Failed("Failed to create/update (Kubernetes reconciliation phase): %s", err.Error())
 			}
 
 			if status := r.getStatefulSetStatus(standaloneBuilder.Namespace, standaloneBuilder.Name); !status.IsOK() {
-				return workflow.Pending(fmt.Sprintf("MongoDB %s resource is still starting", standaloneBuilder.Name))
+				return status
 			}
 			_, _ = r.updateStatus(s, workflow.Reconciling().WithResourcesNotReady([]mdbv1.ResourceNotReady{}).WithNoMessage(), log)
 
-			log.Info("Updated statefulset for standalone")
+			log.Info("Updated StatefulSet for standalone")
 			return workflow.OK()
 		})
 

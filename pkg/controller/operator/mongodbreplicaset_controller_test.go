@@ -123,7 +123,7 @@ func TestCreateReplicaSet_TLS(t *testing.T) {
 
 	reconciler, client := defaultReplicaSetReconciler(rs)
 
-	checkReconcilePending(t, reconciler, rs, "Not all certificates have been approved by Kubernetes CA for temple", client)
+	checkReconcilePending(t, reconciler, rs, "Not all certificates have been approved by Kubernetes CA for temple", client, 10)
 	client.ApproveAllCSRs()
 	checkReconcileSuccessful(t, reconciler, rs, client)
 
