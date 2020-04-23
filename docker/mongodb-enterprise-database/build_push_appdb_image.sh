@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -Eeou pipefail
+set -x
+
+git_root="$(git rev-parse --show-toplevel)"
+cd "${git_root}"
+
+source scripts/dev/set_env_context
+source scripts/funcs/checks
+source scripts/funcs/errors
+source scripts/funcs/kubernetes
+source scripts/funcs/printing
+
+title "Building AppDB image..."
+
+# 1. First we need to collect all the parameters necessary for image build:
+# bundled_mdb_url, bundled_mdb_binary_name
+
+mdb_url=$(jq --raw-output .appDbBundle.baseUrl < release.json)
+binary_name=$(jq --raw-output ".appDbBundle.${IMAGE_TYPE}BinaryName" < release.json)
+
+aa_download_url="https://cloud.mongodb.com/download/agent/automation/mongodb-mms-automation-agent-latest.linux_x86_64.tar.gz"
+
+echo "Data used for building the image: bundled_mdb_url=${mdb_url}, binary_name=${binary_name}"
+
+# 2. Building the image - either to local repo or to the remote one (ECR)
+
+if [[ ${REPO_TYPE} = "ecr" ]]; then
+    ensure_ecr_repository "${REPO_URL}/mongodb-enterprise-appdb"
+fi
+
+# FIXME: fetch AA version from new API when CLOUDP-58178 is deployed
+# final_aa_download_url="$(curl --silent --show-error --fail --retry 3 -I ${aa_download_url} | grep -sE '^location: ' | cut -d' ' -f2 | tr -d '\r')"
+# aa_version="$(echo -n "${final_aa_download_url}" | cut -d'/' -f7 | sed -e 's/^mongodb-mms-automation-agent-//' -e 's/.linux_x86_64.tar.gz$//')"
+
+# ugly but latest automation agent requires mongoDbTools field that we currently don't pass and is not supported in OpsManager 4.2 anyways
+aa_version="10.2.15.5958-1"
+aa_download_url="https://s3.amazonaws.com/mciuploads/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod/mongodb-mms-automation-agent-${aa_version}.linux_x86_64.tar.gz"
+
+
+
+full_url="${REPO_URL}/mongodb-enterprise-appdb:${aa_version}"
+repo_name="$(echo "${full_url}" | cut -d "/" -f2-)" # cutting the domain part
+
+
+(
+    # all this happens in the docker directory
+    cd docker/mongodb-enterprise-database
+    ../dockerfile_generator.py appdb "${IMAGE_TYPE}" > Dockerfile
+
+    build_id="b$(date -u +%Y%m%d%H%M)"
+    docker build \
+        -t "${repo_name}" \
+        -t "${full_url}" \
+        -t "${full_url}-${build_id}" \
+        --build-arg AA_VERSION="${aa_version}" \
+        --build-arg AA_DOWNLOAD_URL="${aa_download_url}" \
+        --build-arg MDB_URL="${mdb_url}" \
+        --build-arg BINARY_NAME="${binary_name}" .
+
+    docker tag "${repo_name}" "${full_url}"
+    docker push "${full_url}"
+
+    # also tag and push with the build_id
+    docker tag "${repo_name}" "${full_url}-${build_id}"
+    docker push "${full_url}-${build_id}"
+
+)
+
+title "Database image successfully built and pushed to ${REPO_TYPE} registry"

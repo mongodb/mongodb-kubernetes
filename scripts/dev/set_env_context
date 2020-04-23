@@ -9,18 +9,6 @@ cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
 source scripts/funcs/errors
 
-# TODO: move after init container for appdb is done
-# prepare_appdb_build builds readiness probe and generates a Dockerfile for AppDB
-# The function is reused from different places so put into 'func'
-# Must be run from docker/mongodb-enterprise-database
-prepare_appdb_build() {
-	GOOS='linux' go build -i -o readiness ../../probe || \
-	   (../../scripts/build/prepare_build_environment && GOOS='linux' go build -i -o readiness ../../probe)
-	mv readiness content/readinessprobe
-
-	../dockerfile_generator.py appdb "${IMAGE_TYPE}" > Dockerfile
-}
-
 if [[ -z "${IN_MEMORY_CONTEXT-}" ]]; then
     # Reading context file
     readonly root_dir="$HOME/.operator-dev"

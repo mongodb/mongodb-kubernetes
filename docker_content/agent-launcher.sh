@@ -60,7 +60,6 @@ declare -r base_url
 if [[ -n "${base_url}" ]]; then
     download_agent
 fi
-AGENT_VERSION="$(cat "${MMS_HOME}"/files/agent-version)"
 
 # Start the Automation Agent
 agentOpts=(
@@ -69,16 +68,8 @@ agentOpts=(
     "-maxLogFileDurationHrs" "24"
     "-logLevel" "${LOG_LEVEL:-INFO}"
     "-logFile" "${MMS_LOG_DIR}/automation-agent.log"
+    "-healthCheckFilePath" "${MMS_LOG_DIR}/agent-health-status.json"
 )
-script_log "Automation Agent version: ${AGENT_VERSION}"
-
-# this is the version of Automation Agent which has fixes for health file bugs
-set +e
-compare_versions "${AGENT_VERSION}" 10.2.3.5866-1
-if [[ $? -le 1 ]]; then
-  agentOpts+=("-healthCheckFilePath" "${MMS_LOG_DIR}/agent-health-status.json")
-fi
-set -e
 
 if [[ -n "${base_url}" ]]; then
     agentOpts+=("-mmsBaseUrl" "${base_url}")

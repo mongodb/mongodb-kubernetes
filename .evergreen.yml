@@ -523,6 +523,25 @@ functions:
 
         command: scripts/evergreen/prepare_aws.sh
 
+  build_and_push_appdb_image_generic:
+    - command: subprocess.exec
+      params:
+        env:
+          AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
+          AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
+          AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
+          IN_MEMORY_CONTEXT: "true"
+          KUBECONFIG: ${workdir}/${kube_environment_name}_config
+          REPO_URL: ${ecr_registry}/images
+        include_expansions_in_env:
+        - CLUSTER_TYPE
+        - ecr_registry
+        - version_id
+        add_to_path:
+          - ${workdir}/bin
+        command: docker/mongodb-enterprise-database/build_push_appdb_image.sh
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+
   build_and_push_opsmanager_image_generic:
     - command: subprocess.exec
       params:
@@ -535,7 +554,6 @@ functions:
           REPO_URL: ${ecr_registry}/images
         include_expansions_in_env:
         - CLUSTER_TYPE
-        - VERSIONS
         - ecr_registry
         - version_id
         add_to_path:
@@ -1446,6 +1464,34 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: build_and_push_appdb_ubuntu
+  patch_only: true
+  commands:
+    - func: clone
+    - func: setup_jq
+    - func: setup_aws
+    - func: download_kube_tools
+      vars:
+        <<: *kubernetes_environment_vanilla
+    - func: setup_ecr_login_helper
+    - func: build_and_push_appdb_image_generic
+      vars:
+        CLUSTER_TYPE: "kops"
+
+- name: build_and_push_appdb_ubi
+  patch_only: true
+  commands:
+    - func: clone
+    - func: setup_jq
+    - func: setup_aws
+    - func: download_kube_tools
+      vars:
+        <<: *kubernetes_environment_vanilla
+    - func: setup_ecr_login_helper
+    - func: build_and_push_appdb_image_generic
+      vars:
+        CLUSTER_TYPE: "openshift"
+
 - name: build_and_push_ops_manager_ubuntu
   patch_only: true
   commands:
@@ -2021,6 +2067,15 @@ buildvariants:
   - name: e2e_auth_transitions_task_group
   - name: e2e_webhook_validation_task_group
   - name: e2e_mongodb_kind_only_task_group
+
+# build AppDB: to be launched independently of the operator build process
+- name: build_and_push_appdb_images
+  display_name: build_and_push_appdb_images
+  run_on:
+  - ubuntu1604-build
+  tasks:
+    - name: build_and_push_appdb_ubuntu
+    - name: build_and_push_appdb_ubi
 
 # build OpsManager: to be launched independently of the operator build process
 - name: build_and_push_ops_manager_images

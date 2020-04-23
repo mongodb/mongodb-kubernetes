@@ -10,8 +10,7 @@ header "Preparing Kaniko contexts for OpsManager"
 
 echo "REPO_URL: $REPO_URL"
 
-build_id=$(date -u +%Y%m%d%H%M)
-export build_id="${build_id:-1}"
+build_id="b$(date -u +%Y%m%d%H%M)"
 
 declare -a labels=()
 

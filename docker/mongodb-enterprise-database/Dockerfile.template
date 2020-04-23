@@ -11,15 +11,16 @@ ENV MDB_DIR /var/lib/mongodb-mms-automation/downloads
 
 ARG MDB_URL
 ARG BINARY_NAME
+ARG AA_DOWNLOAD_URL
 ARG AA_VERSION
-ARG AA_DOWNLOAD_LOCATION
+
 {% endblock %}
 
 {% block labels %}
 LABEL name="MongoDB Enterprise Database" \
       maintainer="support@mongodb.com" \
       vendor="MongoDB" \
-      version="{{ version }}" \
+      version="${AA_VERSION}" \
       release="1" \
       summary="MongoDB Enterprise Database Image" \
       description="MongoDB Enterprise Database Image"
@@ -31,11 +32,15 @@ COPY LICENSE /licenses/mongodb-enterprise-database
 {% block packages %}
 {% endblock %}
 
+RUN mkdir -p "${MMS_HOME}/files/"
+
+# TODO: remove once database is using init container
 COPY content/ "${MMS_HOME}"/files/
 
 {% if is_appdb -%}
 
-# Download and extract the MongoDB archive. The agent will download MongoDB from the internet unless it is extracted.
+# Download and extract the MongoDB archive and put it where the automation agent expects to find it.
+# So an AppDB agent will download MongoDB from the internet only if the version does not match the version we have put inside the container.
 RUN curl --fail --retry 3 -L -o "${BINARY_NAME}" "${MDB_URL}${BINARY_NAME}" \
     && mkdir -p "${MDB_DIR}" \
     && tar -xzf "${BINARY_NAME}" \
@@ -44,13 +49,20 @@ RUN curl --fail --retry 3 -L -o "${BINARY_NAME}" "${MDB_URL}${BINARY_NAME}" \
     && mv "${BINARY_NAME%.*}" "${MDB_DIR}" \
     && chmod -R 0775 "${MDB_DIR}"
 
-# Download the Automation Agent binary (only if the argument provided meaning this is the image for the appdb)
-RUN curl --fail -L -o automation-agent.tar.gz "${AA_DOWNLOAD_LOCATION}/mongodb-mms-automation-agent-${AA_VERSION}.linux_x86_64.tar.gz"  \
+# Download the latest Automation Agent binary
+
+RUN curl --fail --retry 3 -L -o automation-agent.tar.gz "${AA_DOWNLOAD_URL}"  \
     && tar -xzf automation-agent.tar.gz \
-    && echo "${AA_VERSION}" > "${MMS_HOME}/files/agent-version" \
     && mv mongodb-mms-automation-agent-*/mongodb-mms-automation-agent "${MMS_HOME}/files/" \
     && chmod +x "${MMS_HOME}/files/mongodb-mms-automation-agent" \
-    && rm -rf automation-agent.tar.gz mongodb-mms-automation-agent-*.linux_x86_64
+    && rm -rf automation-agent.tar.gz "mongodb-mms-automation-agent-*/"
+
+    # would prefer to have specific versions instead of *
+    # && mv "./mongodb-mms-automation-agent-${AA_VERSION}.linux_x86_64/mongodb-mms-automation-agent" "${MMS_HOME}/files/" \
+    # && rm -rf automation-agent.tar.gz "mongodb-mms-automation-agent-${AA_VERSION}.linux_x86_64/"
+
+# Remove when we move to init appdb
+RUN echo "${AA_VERSION}" > "${MMS_HOME}/files/agent-version"
 
 {% endif %}
 
