@@ -89,8 +89,7 @@ full: ensure-k8s-and-reset build-and-push-images om-init-image
 	@ scripts/dev/apply_resources
 
 om-batch: aws_login
-	# FIXME: om_version kept temporary until we move appdb to init container
-	@ om_version=$(om_version) scripts/dev/batch_init_om_appdb_images.sh
+	@ scripts/dev/batch_init_om_appdb_images.sh
 
 # build-push appdb image
 appdb: aws_login
@@ -178,7 +177,7 @@ build-and-push-test-image: aws_login
 build-and-push-images: build-and-push-database-image build-and-push-operator-image
 
 deploy-operator:
-	@ scripts/dev/deploy_operator $(debug)
+	@ scripts/dev/deploy_operator.sh $(debug)
 
 configure-operator:
 	@ scripts/dev/configure_operator

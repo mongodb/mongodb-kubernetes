@@ -328,8 +328,7 @@ functions:
         KUBECONFIG: ${workdir}/${kube_environment_name}_config
       binary: scripts/evergreen/wait_docker_image.sh
 
-  # todo: change after init appdb is done
-  "build_and_push_om_test_images":
+  "build_and_push_init_test_images_for_om_and_appdb":
     - command: subprocess.exec
       type: setup
       params:
@@ -353,8 +352,6 @@ functions:
           GITHUB_TOKEN: ${GITHUB_TOKEN}
 
           CLUSTER_TYPE: ${cluster_type}
-          # temporary keeping kaniko until we move to init appdb
-          kaniko: "true"
 
         command: scripts/dev/batch_init_om_appdb_images.sh
 
@@ -429,7 +426,6 @@ functions:
           AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
           AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
 
-          VERSIONS: ${versions}
           TAG_SOURCE: ${tag_source}
           TAG_DEST: ${tag_dest}
           IMAGE_SOURCE: ${image_source}
@@ -468,6 +464,7 @@ functions:
         env:
           REGISTRY: ${ecr_registry}/dev/${image_type}
           OPS_MANAGER_REGISTRY: ${ecr_registry}/images/${image_type}
+          APPDB_REGISTRY: ${ecr_registry}/images/${image_type}
           INIT_OPS_MANAGER_REGISTRY: ${ecr_registry}/dev
           INIT_APPDB_REGISTRY: ${ecr_registry}/dev
           MANAGED_SECURITY_CONTEXT: ${managed_security_context}
@@ -486,7 +483,7 @@ functions:
           TEST_MODE: ${test_mode}
           KUBECONFIG: ${workdir}/${kube_environment_name}_config
 
-        binary: scripts/evergreen/e2e/e2e
+        binary: scripts/evergreen/e2e/e2e.sh
 
   #
   # Performs some K8s cluster fixing things and also deploys a cluster cleaner.
@@ -558,7 +555,7 @@ functions:
         - version_id
         add_to_path:
           - ${workdir}/bin
-        command: "docker/mongodb-enterprise-ops-manager/batch_om_images"
+        command: docker/mongodb-enterprise-ops-manager/batch_om_images.sh
         working_dir: src/github.com/10gen/ops-manager-kubernetes
 
 tasks:
@@ -592,19 +589,13 @@ tasks:
 #
 #    - func: release_docker_image_to_registry
 #      vars:
-#        versions: '$(jq --raw-output ".opsManagerImages[] | .version" < release.json)'
-#        tag_source: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
-#        tag_dest: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
-#        image_source: ${ecr_registry}/dev/rhel/mongodb-enterprise-ops-manager
+#        image_source: ${ecr_registry}/dev/mongodb-enterprise-init-ops-manager
 #        image_target: scan.connect.redhat.com/ospid-b419ca35-17b4-4655-adee-a34e704a6835/mongodb-enterprise-ops-manager
 #        docker_password: ${rhc_om_pid}
 #
 #    - func: release_docker_image_to_registry
 #      vars:
-#        versions: '$(jq --raw-output ".opsManagerImages[] | .version" < release.json)'
-#        tag_source: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
-#        tag_dest: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
-#        image_source: ${ecr_registry}/dev/rhel/mongodb-enterprise-appdb
+#        image_source: ${ecr_registry}/dev/mongodb-enterprise-init-appdb
 #        image_target: scan.connect.redhat.com/ospid-31c2f102-af15-4e15-87b9-30710586d9ad/mongodb-enterprise-appdb
 #        docker_password: ${rhc_appdb_pid}
 
@@ -618,8 +609,7 @@ tasks:
 
     - func: release_docker_image_to_registry
       vars:
-        versions: ${version_id}
-        tag_source: '$(echo $version)'
+        tag_source: ${version_id}
         tag_dest: '$(git describe --dirty)'
         image_source: ${ecr_registry}/dev/rhel/mongodb-enterprise-operator
         image_target: scan.connect.redhat.com/ospid-5558a531-617e-46d7-9320-e84d3458768a/mongodb-enterprise-operator
@@ -627,8 +617,7 @@ tasks:
 
     - func: release_docker_image_to_registry
       vars:
-        versions: ${version_id}
-        tag_source: '$(echo $version)'
+        tag_source: ${version_id}
         tag_dest: '$(git describe --dirty)'
         image_source: ${ecr_registry}/dev/rhel/mongodb-enterprise-database
         image_target: scan.connect.redhat.com/ospid-239de277-d8bb-44b4-8593-73753752317f/mongodb-enterprise-database
@@ -644,23 +633,20 @@ tasks:
     # pushing init ops manager image at the same time as operator release for now
     - func: release_docker_image_to_registry
       vars:
-        # FIXME: check why we would need this?
-        versions: '$(jq --raw-output ".initOpsManagerVersion" < release.json)'
-        tag_source: "$version"
-        tag_dest: "$version"
+        tag_source: '$(jq --raw-output ".initOpsManagerVersion" < release.json)'
+        tag_dest: '$(jq --raw-output ".initOpsManagerVersion" < release.json)'
         image_source: ${ecr_registry}/dev/mongodb-enterprise-init-ops-manager
         image_target: quay.io/mongodb/mongodb-enterprise-init-ops-manager
         docker_username: ${quay_prod_username}
         docker_password: ${quay_prod_robot_token}
 
-    # TODO: adjust after appdb init container is implemented
+    # pushing init appdb image at the same time as operator release for now
     - func: release_docker_image_to_registry
       vars:
-        versions: '$(jq --raw-output ".opsManagerImages[] | .version" < release.json)'
-        tag_source: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
-        tag_dest: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
-        image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-appdb
-        image_target: quay.io/mongodb/mongodb-enterprise-appdb${suffix}
+        tag_source: '$(jq --raw-output ".initAppDbVersion" < release.json)'
+        tag_dest: '$(jq --raw-output ".initAppDbVersion" < release.json)'
+        image_source: ${ecr_registry}/dev/mongodb-enterprise-init-appdb
+        image_target: quay.io/mongodb/mongodb-enterprise-appdb
         docker_username: ${quay_prod_username}
         docker_password: ${quay_prod_robot_token}
 
@@ -673,8 +659,7 @@ tasks:
 
     - func: release_docker_image_to_registry
       vars:
-        versions: ${version_id}
-        tag_source: '$(echo $version)'
+        tag_source: ${version_id}
         tag_dest: '$(git describe --dirty)'
         image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-operator
         image_target: quay.io/mongodb/mongodb-enterprise-operator${suffix}
@@ -683,8 +668,7 @@ tasks:
 
     - func: release_docker_image_to_registry
       vars:
-        versions: ${version_id}
-        tag_source: '$(echo $version)'
+        tag_source: ${version_id}
         tag_dest: '$(git describe --dirty)'
         image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-database
         image_target: quay.io/mongodb/mongodb-enterprise-database${suffix}
@@ -699,8 +683,7 @@ tasks:
 
     - func: release_docker_image_to_registry
       vars:
-        versions: ${version_id}
-        tag_source: '$(echo $version)'
+        tag_source: ${version_id}
         tag_dest: '$(git describe --dirty)'
         image_source: ${ecr_registry}/dev/ubuntu/mongodb-enterprise-operator
         image_target: quay.io/mongodb/mongodb-enterprise-operator-prerelease
@@ -709,8 +692,7 @@ tasks:
 
     - func: release_docker_image_to_registry
       vars:
-        versions: ${version_id}
-        tag_source: '$(echo $version)'
+        tag_source: ${version_id}
         tag_dest: '$(git describe --dirty)'
         image_source: ${ecr_registry}/dev/ubuntu/mongodb-enterprise-database
         image_target: quay.io/mongodb/mongodb-enterprise-database-prerelease
@@ -719,21 +701,19 @@ tasks:
 
     - func: release_docker_image_to_registry
       vars:
-        versions: '$(jq --raw-output ".opsManagerImages[] | .version" < release.json)'
-        tag_source: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
-        tag_dest: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
-        image_source: ${ecr_registry}/dev/ubuntu/mongodb-enterprise-ops-manager
-        image_target: quay.io/mongodb/mongodb-enterprise-ops-manager-prerelease
+        tag_source: ${version_id}
+        tag_dest: '$(git describe --dirty)'
+        image_source: ${ecr_registry}/dev/mongodb-enterprise-init-ops-manager
+        image_target: quay.io/mongodb/mongodb-enterprise-init-ops-manager-prerelease
         docker_username: ${quay_prod_username}
         docker_password: ${quay_prod_robot_token}
 
     - func: release_docker_image_to_registry
       vars:
-        versions: '$(jq --raw-output ".opsManagerImages[] | .version" < release.json)'
-        tag_source: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
-        tag_dest: '$(join "-" $version $(echo "operator$(git describe --dirty)"))'
-        image_source: ${ecr_registry}/dev/ubuntu/mongodb-enterprise-appdb
-        image_target: quay.io/mongodb/mongodb-enterprise-appdb-prerelease
+        tag_source: ${version_id}
+        tag_dest: '$(git describe --dirty)'
+        image_source: ${ecr_registry}/dev/mongodb-enterprise-init-appdb
+        image_target: quay.io/mongodb/mongodb-enterprise-init-appdb-prerelease
         docker_username: ${quay_prod_username}
         docker_password: ${quay_prod_robot_token}
 
@@ -841,7 +821,7 @@ tasks:
     vars:
       labels: 'ubuntu-operator-${version_id}, ubuntu-database-${version_id}'
 
-- name: build_om_images_rhel
+- name: build_init_om_images_rhel
   priority: 60
   commands:
   - func: clone
@@ -856,11 +836,11 @@ tasks:
   - func: build_operator
     vars:
       image_type: rhel
-  - func: build_and_push_om_test_images
+  - func: build_and_push_init_test_images_for_om_and_appdb
     vars:
       cluster_type: "openshift"
 
-- name: build_om_images_ubuntu
+- name: build_init_om_images_ubuntu
   commands:
   - func: clone
   - func: setup_aws
@@ -874,7 +854,7 @@ tasks:
   - func: build_operator
     vars:
       image_type: ubuntu
-  - func: build_and_push_om_test_images
+  - func: build_and_push_init_test_images_for_om_and_appdb
     vars:
       cluster_type: "kops"
 
@@ -1956,7 +1936,7 @@ buildvariants:
       variant: init_test_run
     - name: build_test_image
       variant: init_test_run
-    - name: build_om_images_ubuntu
+    - name: build_init_om_images_ubuntu
       variant: init_test_run
     - name: prepare_cluster_vanilla_om
       variant: init_test_run
@@ -1979,7 +1959,7 @@ buildvariants:
       variant: init_test_run
     - name: build_test_image
       variant: init_test_run
-    - name: build_om_images_rhel
+    - name: build_init_om_images_rhel
       variant: init_test_run
   run_on:
     - archlinux-test
@@ -2052,8 +2032,8 @@ buildvariants:
   - name: build_images_rhel
   - name: build_images_ubuntu
   - name: build_test_image
-  - name: build_om_images_ubuntu
-  - name: build_om_images_rhel
+  - name: build_init_om_images_ubuntu
+  - name: build_init_om_images_rhel
   - name: prepare_cluster_vanilla
   - name: prepare_cluster_vanilla_om
   - name: prepare_aws
@@ -2067,7 +2047,7 @@ buildvariants:
   depends_on:
   - name: build_images_ubuntu
     variant: init_test_run
-  - name: build_om_images_ubuntu
+  - name: build_init_om_images_ubuntu
     variant: init_test_run
   expansions:
     docker_registry: quay.io
@@ -2092,7 +2072,7 @@ buildvariants:
     variant: init_test_run
   - name: build_test_image
     variant: init_test_run
-  - name: build_om_images_rhel
+  - name: build_init_om_images_rhel
     variant: init_test_run
   expansions:
     <<: *kubernetes_environment_kind
@@ -2143,5 +2123,5 @@ buildvariants:
     - name: build_and_push_ops_manager_ubuntu
     - name: build_and_push_ops_manager_ubi
   expansions:
-    # removing 4.2.2, 4.2.5 and 4.2.9 as per https://www.mongodb.com/subscription/downloads/archived
-    VERSIONS: "4.2.0 4.2.1 4.2.7 4.2.8 4.2.10 4.2.11"
+    # removing deprecated versions as per https://www.mongodb.com/subscription/downloads/archived
+    VERSIONS: "4.2.0 4.2.1 4.2.3 4.2.4 4.2.6 4.2.7 4.2.8 4.2.10 4.2.12"

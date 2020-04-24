@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
+set -Eeou pipefail
 
 cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
@@ -26,7 +26,7 @@ for om_version in ${VERSIONS}; do
     header "Building Ops Manager Image $om_version with kaniko"
     full_url="${base_url}:${om_version}-${build_id}"
     label="ops-manager-${om_version}-${build_id}-${IMAGE_TYPE}-${version_id:?}"
-    label="$label" full_url="$full_url" om_version="${om_version}" docker/mongodb-enterprise-ops-manager/build_push_opsmanager_image
+    label="$label" full_url="$full_url" om_version="${om_version}" docker/mongodb-enterprise-ops-manager/build_push_opsmanager_image.sh
     labels+=("${label}")
 done
 

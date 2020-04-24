@@ -66,10 +66,14 @@ spec:
           value: {{ .Values.registry.initOpsManager }}/{{ .Values.initOpsManager.name }}
         - name: INIT_OPS_MANAGER_VERSION
           value: {{ .Values.initOpsManager.version }}
+        - name: INIT_APPDB_IMAGE_REPOSITORY
+          value: {{ .Values.registry.initAppDb }}/{{ .Values.initAppDb.name }}
+        - name: INIT_APPDB_VERSION
+          value: {{ .Values.initAppDb.version }}
         - name: OPS_MANAGER_IMAGE_PULL_POLICY
           value: {{ .Values.registry.pullPolicy }}
-        - name: APP_DB_IMAGE_REPOSITORY
-          value: {{ .Values.registry.operator }}/{{ .Values.appDb.name }}
+        - name: APPDB_IMAGE_REPOSITORY
+          value: {{ .Values.registry.appDb }}/{{ .Values.appDb.name }}
 
 {{- if .Values.registry.imagePullSecrets }}
         - name: IMAGE_PULL_SECRETS

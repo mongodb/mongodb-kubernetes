@@ -83,4 +83,5 @@ RUN    mkdir -p "${MMS_LOG_DIR}" \
 # and the number in this configuration is not relevant.
 USER 2000
 
+# TODO: make entrypoint be a sleep infinity once MDB is using init container
 ENTRYPOINT ["/mongodb-automation/files/agent-launcher.sh"]

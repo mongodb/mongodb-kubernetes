@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -Eeou pipefail
 
 start_time=$(date +%s)
 
@@ -20,6 +21,7 @@ source scripts/evergreen/e2e/lib
 
 # Externally Configured Ops Manager (Cloud Manager)
 # shellcheck source=~/.operator-dev/om
+# shellcheck disable=SC1090
 test -f "${OPS_MANAGER_ENV:-}" && source "${OPS_MANAGER_ENV}"
 
 #
@@ -49,7 +51,7 @@ ensure_namespace "${PROJECT_NAMESPACE}"
 # 3. Configure Operator resources
 . scripts/evergreen/e2e/configure_operator
 
-export TEST_NAME="${TASK_NAME}"
+export TEST_NAME="${TASK_NAME:?}"
 delete_operator "${PROJECT_NAMESPACE}"
 
 # 4. (optionally) Preliminary step in the case of Operator upgrade
@@ -60,7 +62,7 @@ if echo "${TASK_NAME}" | grep -E -q "^e2e_op_upgrade"; then
     # We need to checkout the latest (or a specific) release in a separate directory and install
     # Operator from there
     tmp_dir=$(mktemp -d)
-    pushd $tmp_dir || return
+    pushd "${tmp_dir}"
 
     checkout_latest_official_branch
 
@@ -73,7 +75,9 @@ if echo "${TASK_NAME}" | grep -E -q "^e2e_op_upgrade"; then
     if ! deploy_operator \
         "quay.io/mongodb" \
         "quay.io/mongodb" \
+        "quay.io/mongodb" \
         "${INIT_OPS_MANAGER_REGISTRY}" \
+        "${INIT_APPDB_REGISTRY:?}" \
         "${PROJECT_NAMESPACE}" \
         "${OPERATOR_VERSION_UPGRADE_FROM:-"latest"}" \
         "${WATCH_NAMESPACE:-$PROJECT_NAMESPACE}" \
@@ -85,7 +89,7 @@ if echo "${TASK_NAME}" | grep -E -q "^e2e_op_upgrade"; then
         exit 1
     fi
 
-    rm -rf ${tmp_dir}
+    rm -rf "${tmp_dir}"
     popd > /dev/null || return
 
     # Running test
@@ -106,7 +110,9 @@ fi
 if ! deploy_operator \
     "${REGISTRY}" \
     "${OPS_MANAGER_REGISTRY}" \
+    "${APPDB_REGISTRY:?}" \
     "${INIT_OPS_MANAGER_REGISTRY}" \
+    "${INIT_APPDB_REGISTRY}" \
     "${PROJECT_NAMESPACE}" \
     "${version_id:?}" \
     "${WATCH_NAMESPACE:-$PROJECT_NAMESPACE}" \

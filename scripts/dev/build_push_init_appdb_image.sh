@@ -27,10 +27,10 @@ if [[ ${REPO_TYPE} = "ecr" ]]; then
     ensure_ecr_repository "${INIT_APPDB_REGISTRY:?}/mongodb-enterprise-init-appdb"
 fi
 
-name="mongodb-enterprise-init-appdb:${init_appdb_version}${suffix}"
-full_url="${INIT_APPDB_REGISTRY}/${name}"
+base_url="${INIT_APPDB_REGISTRY}/mongodb-enterprise-init-appdb"
+version="${init_appdb_version}${suffix}"
+full_url="${base_url}:${version}"
 # needs to be launched from the root for docker to be able to copy the probe directory
-docker build -t "${name}" --build-arg VERSION="${init_appdb_version}" -f docker/mongodb-enterprise-init-appdb/Dockerfile .
-docker tag "${name}" "${full_url}"
+docker build -t "${base_url}" -t "${full_url}" --build-arg VERSION="${init_appdb_version}" -f docker/mongodb-enterprise-init-appdb/Dockerfile .
 docker push "${full_url}"
 title "Init AppDB image successfully built and pushed to ${INIT_APPDB_REGISTRY} registry"

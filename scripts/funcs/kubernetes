@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -Eeou pipefail
+
 pushd "$PWD" > /dev/null || return
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 cd "$DIR" || return
@@ -83,6 +85,7 @@ ensure_ops_manager_k8s() {
         echo "Waiting until Statefulset for Ops Manager is running..."
 
         local cmd
+        # shellcheck disable=SC2016
         cmd='while [[ $(kubectl -n '${ops_manager_namespace}' get statefulset mongodb-enterprise-ops-manager -o jsonpath="{.status.currentReplicas}") != "1" ]]; do sleep 1; done'
         timeout "1m" bash -c "${cmd}" || true
 
@@ -185,18 +188,22 @@ deploy_operator() {
     local registry_url="$1"
     # ideally we make this optional
     local om_registry="$2"
-    local init_om_registry="$3"
-    local ns="$4"
-    local version="${5:-latest}"
-    local watch_namespace="${6:-$ns}"
-    local pull_policy="${7:-Always}"
-    local managed_security_context="${8:-false}"
-    local timeout="${9:-1m}"
+    local appdb_registry="$3"
+    local init_om_registry="$4"
+    local init_appdb_registry="$5"
+    local ns="$6"
+    local version="${7:-latest}"
+    local watch_namespace="${8:-$ns}"
+    local pull_policy="${9:-Always}"
+    local managed_security_context="${10:-false}"
+    local timeout="${11:-1m}"
 
     # should we pass init_om_version to the script to avoid having evg env variable leak in here?
     [[ -z "${init_om_version:-}" ]] && init_om_version="${version_id:-latest}"
 
-    title "Installing the Operator (registry url: ${registry_url}, ops_manager registry: ${om_registry}, initops_manager registry: ${init_om_registry}, initops_manager version: ${init_om_version}, version: ${version}, namespace: ${ns}, managed_security_context: ${managed_security_context}), debug: ${DEBUG-}) to ${CLUSTER_NAME:-'e2e cluster'}..."
+    [[ -z "${init_appdb_version:-}" ]] && init_appdb_version="${version_id:-latest}"
+
+    title "Installing the Operator (registry url: ${registry_url}, ops_manager registry: ${om_registry}, init_ops_manager registry: ${init_om_registry}, init_ops_manager version: ${init_om_version}, appdb registry: ${appdb_registry}, init_appdb registry: ${init_appdb_registry}, init_appdb version: ${init_appdb_version}, version: ${version}, namespace: ${ns}, managed_security_context: ${managed_security_context}), debug: ${DEBUG-}) to ${CLUSTER_NAME:-'e2e cluster'}..."
 
     check_app "helm" "helm is not installed, run 'make prerequisites' to install all necessary software"
     check_app "timeout" "coreutils is not installed, call \"brew install coreutils\""
@@ -209,6 +216,8 @@ deploy_operator() {
          "--set" "registry.operator=${registry_url}"
          "--set" "registry.opsManager=${om_registry}"
          "--set" "registry.initOpsManager=${init_om_registry}"
+         "--set" "registry.appDb=${appdb_registry}"
+         "--set" "registry.initAppDb=${init_appdb_registry}"
          "--set" "registry.pullPolicy=${pull_policy}"
          "--set" "operator.env=dev"
          "--set" "operator.version=${version}"
@@ -218,6 +227,8 @@ deploy_operator() {
          "--set" "opsManager.name=${OPS_MANAGER_NAME:=mongodb-enterprise-ops-manager}"
          "--set" "initOpsManager.name=${INIT_OPS_MANAGER_NAME:=mongodb-enterprise-init-ops-manager}"
          "--set" "initOpsManager.version=${init_om_version}"
+         "--set" "initAppDb.name=${INIT_APPDB_NAME:=mongodb-enterprise-init-appdb}"
+         "--set" "initAppDb.version=${init_appdb_version}"
          "--set" "appDb.name=${APPDB_NAME:=mongodb-enterprise-appdb}"
          "--set" "namespace=${ns}"
          "--set" "managedSecurityContext=${managed_security_context}"
@@ -245,6 +256,7 @@ deploy_operator() {
     local cmd
 
     # Waiting until there is only one pod left as this could be the upgrade operation (very fast in practice)
+    # shellcheck disable=SC2016
     cmd='while [[ $(kubectl -n '"${ns}"' get pods -l app=${OPERATOR_NAME}  --no-headers 2>/dev/null | wc -l) -gt 1 ]] ; do printf .; sleep 1; done'
     timeout --foreground "1m" bash -c "${cmd}" || true
 
@@ -329,4 +341,3 @@ ensure_ecr_repository() {
         aws ecr create-repository --repository-name="${repo_name}"
     fi
 }
-

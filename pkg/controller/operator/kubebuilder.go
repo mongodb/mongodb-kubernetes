@@ -30,7 +30,7 @@ import (
 
 const (
 	AppLabelKey = "app"
-	// The label that defines the anti affinity rule label. The main rule is to spread entities inside one statefulset
+	// PodAntiAffinityLabelKey defines the anti affinity rule label. The main rule is to spread entities inside one statefulset
 	// (aka replicaset) to different locations, so pods having the same label shouldn't coexist on the node that has
 	// the same topology key
 	PodAntiAffinityLabelKey = "pod-anti-affinity"
@@ -47,7 +47,7 @@ const (
 	// CaCertMMS is the name of the CA file provided for MMS.
 	CaCertMMS = "mms-ca.crt"
 
-	// CaCertVolumeName is the name of the volume with the CA Cert
+	// CaCertName is the name of the volume with the CA Cert
 	CaCertName = "ca-cert-volume"
 
 	// AgentLibPath defines the base path for agent configuration files including the automation
@@ -167,17 +167,35 @@ func buildMongoDBPodTemplateSpec(stsHelper StatefulSetHelper) corev1.PodTemplate
 
 // buildAppDBPodTemplateSpec constructs the appDb podTemplateSpec
 func buildAppDBPodTemplateSpec(stsHelper StatefulSetHelper) corev1.PodTemplateSpec {
-	appdbImageUrl := prepareOmAppdbImageUrl(envutil.ReadOrPanic(util.AppDBImageUrl), stsHelper.Version)
+	// AppDB only uses the automation agent in headless mode, let's use the latest version
+	appdbImageURL := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.AppDBImageUrl),
+		envutil.ReadOrDefault(util.AppDBAutomationAgentVersion, "latest"))
 	return podtemplatespec.Build(
 		sharedDatabaseConfigurationConfiguration(stsHelper),
 		podtemplatespec.WithAnnotations(map[string]string{}),
 		podtemplatespec.WithServiceAccount(util.AppDBServiceAccount),
+		podtemplatespec.WithInitContainers(
+			buildAppdbInitContainer(),
+		),
 		podtemplatespec.EditContainer(0,
 			podtemplatespec.WithContainerName(util.AppDbContainerName),
-			podtemplatespec.WithContainerImage(appdbImageUrl),
+			podtemplatespec.WithContainerImage(appdbImageURL),
 			podtemplatespec.WithContainerEnvVars(appdbContainerEnv(stsHelper.Name)...),
 			podtemplatespec.WithContainerReadinessProbe(buildAppDbReadinessProbe()),
+			podtemplatespec.WithContainerLivenessProbe(baseAppDbLivenessProbe()),
+			podtemplatespec.WithContainerCommand([]string{"/opt/scripts/agent-launcher.sh"}),
 		),
+	)
+}
+
+// buildAppdbInitContainer creates the init container which
+// copies the entry point script in the AppDB container
+func buildAppdbInitContainer() corev1.Container {
+	version := envutil.ReadOrDefault(util.InitAppdbVersion, "latest")
+	initContainerImageURL := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.InitAppdbImageUrl), version)
+	return podtemplatespec.BuildContainer(
+		podtemplatespec.WithContainerName(util.InitAppDbContainerName),
+		podtemplatespec.WithContainerImage(initContainerImageURL),
 	)
 }
 
@@ -224,7 +242,7 @@ func buildBackupDaemonPodTemplateSpec(stsHelper BackupStatefulSetHelper) (corev1
 // backupAndOpsManagerConfiguration returns a function which configures all of the shared
 // options between the backup and Ops Manager podTemplateSpecs
 func backupAndOpsManagerConfiguration(stsHelper OpsManagerStatefulSetHelper) func(podTemplateSpec *corev1.PodTemplateSpec) {
-	omImageUrl := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.OpsManagerImageUrl), stsHelper.Version)
+	omImageURL := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.OpsManagerImageUrl), stsHelper.Version)
 	managedSecurityContext, _ := envutil.ReadBool(util.ManagedSecurityContextEnv)
 	modificationFunctions := []func(podTemplateSpec *corev1.PodTemplateSpec){
 		podtemplatespec.WithPodLabels(defaultPodLabels(stsHelper.StatefulSetHelperCommon)),
@@ -240,9 +258,9 @@ func backupAndOpsManagerConfiguration(stsHelper OpsManagerStatefulSetHelper) fun
 			podtemplatespec.WithContainerResources(defaultOpsManagerResourceRequirements()),
 			podtemplatespec.WithContainerPorts(buildOpsManagerContainerPorts(stsHelper.HTTPSCertSecretName)),
 			podtemplatespec.WithContainerPullPolicy(corev1.PullPolicy(envutil.ReadOrPanic(util.OpsManagerPullPolicy))),
-			podtemplatespec.WithContainerImage(omImageUrl),
+			podtemplatespec.WithContainerImage(omImageURL),
 			podtemplatespec.WithContainerEnvVars(stsHelper.EnvVars...),
-			podtemplatespec.WithContainerEnvVars(getOpsManagerHttpsEnvVars(stsHelper.HTTPSCertSecretName)...),
+			podtemplatespec.WithContainerEnvVars(getOpsManagerHTTPSEnvVars(stsHelper.HTTPSCertSecretName)...),
 			podtemplatespec.WithContainerCommand([]string{"/opt/scripts/docker-entry-point.sh"}),
 		)),
 	}
@@ -257,12 +275,10 @@ func backupAndOpsManagerConfiguration(stsHelper OpsManagerStatefulSetHelper) fun
 // copies the entry point script in the OM/Backup container
 func buildOpsManagerAndBackupInitContainer() corev1.Container {
 	version := envutil.ReadOrDefault(util.InitOpsManagerVersion, "latest")
-	initContainerImageUrl := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.InitOpsManagerImageUrl), version)
+	initContainerImageURL := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.InitOpsManagerImageUrl), version)
 	return podtemplatespec.BuildContainer(
-		podtemplatespec.WithContainerName("mongodb-enterprise-init-ops-manager"),
-		podtemplatespec.WithContainerImage(initContainerImageUrl),
-		// FIXME: temporary to fix evg tests
-		podtemplatespec.WithContainerPullPolicy(corev1.PullAlways),
+		podtemplatespec.WithContainerName(util.InitOpsManagerContainerName),
+		podtemplatespec.WithContainerImage(initContainerImageURL),
 	)
 }
 
@@ -279,22 +295,6 @@ func buildStatefulSet(p StatefulSetHelper) (appsv1.StatefulSet, error) {
 	return createBaseDatabaseStatefulSetBuilder(p, template).Build()
 }
 
-// TODO: REMOVE ONCE INIT APPDB IS IMPLEMENTED
-// prepareOmAppdbImageUrl builds the full image url for OM/AppDB images
-// It optionally appends the suffix "-operator<operatorVersion" to distinguish the images built for different Operator
-// releases. It's used in production and Evergreen runs (where the new images are built on each Evergreen run)
-// It's not used for local development where the Operator version is just not specified.
-// So far it seems that no other logic depends on the Operator version so we can afford this - we can complicate things
-// if requirements change
-func prepareOmAppdbImageUrl(imageUrl, version string) string {
-	// how does this work when the -operator is appended?
-	fullImageUrl := fmt.Sprintf("%s:%s", imageUrl, version)
-	if util.OperatorVersion != "" {
-		fullImageUrl = fmt.Sprintf("%s-operator%s", fullImageUrl, util.OperatorVersion)
-	}
-	return fullImageUrl
-}
-
 // buildAppDbStatefulSet builds the StatefulSet for AppDB.
 // It's mostly the same as the normal MongoDB one but has slightly different container and an additional mounting volume
 func buildAppDbStatefulSet(p StatefulSetHelper) (appsv1.StatefulSet, error) {
@@ -309,6 +309,30 @@ func buildAppDbStatefulSet(p StatefulSetHelper) (appsv1.StatefulSet, error) {
 			Volume:    statefulset.CreateVolumeFromConfigMap(ClusterConfigVolumeName, p.Name+"-config"),
 		},
 		p.ContainerName,
+	)
+	stsBuilder.AddVolume(
+		corev1.Volume{
+			Name: "appdb-scripts",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		},
+	)
+	stsBuilder.AddVolumeMount(
+		"mongodb-enterprise-init-appdb",
+		corev1.VolumeMount{
+			Name:      "appdb-scripts",
+			MountPath: "/opt/scripts",
+			ReadOnly:  false,
+		},
+	)
+	stsBuilder.AddVolumeMount(
+		p.ContainerName,
+		corev1.VolumeMount{
+			Name:      "appdb-scripts",
+			MountPath: "/opt/scripts",
+			ReadOnly:  true,
+		},
 	)
 
 	return stsBuilder.Build()
@@ -408,7 +432,7 @@ func buildOpsManagerStatefulSet(p OpsManagerStatefulSetHelper) (appsv1.StatefulS
 	return stsBuilder.Build()
 }
 
-func getOpsManagerHttpsEnvVars(httpsSecretName string) []corev1.EnvVar {
+func getOpsManagerHTTPSEnvVars(httpsSecretName string) []corev1.EnvVar {
 	if httpsSecretName != "" {
 		// Before creating the podTemplate, we need to add the new PemKeyFile
 		// configuration if required.
@@ -751,6 +775,12 @@ func baseLivenessProbe() corev1.Probe {
 	}
 }
 
+func baseAppDbLivenessProbe() corev1.Probe {
+	baseProbe := baseLivenessProbe()
+	baseProbe.Handler.Exec = &corev1.ExecAction{Command: []string{util.AppDbLivenessProbe}}
+	return baseProbe
+}
+
 // opsManagerReadinessProbe creates the readiness probe.
 // Note on 'PeriodSeconds': /monitor/health is a super lightweight method not doing any IO so we can make it more often.
 func opsManagerReadinessProbe(scheme corev1.URIScheme) corev1.Probe {
@@ -786,7 +816,7 @@ func buildDatabaseReadinessProbe() corev1.Probe {
 func buildAppDbReadinessProbe() corev1.Probe {
 	return corev1.Probe{
 		Handler: corev1.Handler{
-			Exec: &corev1.ExecAction{Command: []string{util.ReadinessProbe}},
+			Exec: &corev1.ExecAction{Command: []string{util.AppDbReadinessProbe}},
 		},
 		// Need to set to 1 to make readiness "interactive" and to indicate whether the agent has reached the goal or not
 		FailureThreshold: 1,

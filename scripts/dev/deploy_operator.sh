@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -Eeou pipefail
 
 cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
@@ -45,7 +45,9 @@ delete_operator "${NAMESPACE:-mongodb}"
 deploy_operator \
     "${REPO_URL:?}" \
     "${OPS_MANAGER_REGISTRY:?}" \
+    "${APPDB_REGISTRY:?}" \
     "${INIT_OPS_MANAGER_REGISTRY:?}" \
+    "${INIT_APPDB_REGISTRY:?}" \
     "${NAMESPACE:-mongodb}" \
     "${OPERATOR_VERSION:-latest}" \
     "${watch_namespace:-$NAMESPACE}" \

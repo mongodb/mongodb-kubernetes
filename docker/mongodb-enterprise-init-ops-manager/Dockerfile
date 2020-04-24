@@ -2,11 +2,11 @@
 # Dockerfile for Init Ops Manager Image.
 #
 
-FROM golang:alpine as builder
+FROM golang:1.13-alpine as builder
 RUN mkdir /build
 ADD . /build/
 WORKDIR /build
-RUN GOOS=linux go build -i -o mmsconfiguration ./mmsconfiguration
+RUN GOOS=linux GOARCH=386 go build -i -buildmode=exe -o mmsconfiguration ./mmsconfiguration
 
 FROM busybox
 

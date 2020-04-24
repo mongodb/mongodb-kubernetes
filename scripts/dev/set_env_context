@@ -39,6 +39,7 @@ if [[ -z "${IN_MEMORY_CONTEXT-}" ]]; then
     export version_id="latest"
     # TODO: find a better way to do that
     export init_om_version="latest"
+    export init_appdb_version="latest"
 
 else
     echo "Skipping reading context file. Note that all the configuration information\

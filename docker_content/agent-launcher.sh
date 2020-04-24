@@ -5,7 +5,7 @@ set -Eeou pipefail
 # FIXME: remove the scripts from docker/mongodb-enterprise-database/content once database builds also uses multi-stage builds
 
 # shellcheck source=docker_content/agent-launcher-lib.sh
-source agent-launcher-lib.sh
+source /opt/scripts/agent-launcher-lib.sh
 
 # The path to the automation config file in case the agent is run in headless mode
 cluster_config_file="/var/lib/mongodb-automation/cluster-config.json"

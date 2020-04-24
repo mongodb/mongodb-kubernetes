@@ -31,6 +31,10 @@ initOpsManager:
 appDb:
   name: mongodb-enterprise-appdb
 
+initAppDb:
+  name: mongodb-enterprise-init-appdb
+  version: 1.0.0
+
 registry:
   imagePullSecrets:
   # TODO: specify for each image and move there?
@@ -39,6 +43,8 @@ registry:
   operator: quay.io/mongodb
   initOpsManager: quay.io/mongodb
   opsManager: quay.io/mongodb
+  initAppDb: quay.io/mongodb
+  appDb: quay.io/mongodb
 
 
 # Set this to true if the operator will require Kubernetes CA

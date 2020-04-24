@@ -109,6 +109,8 @@ func TestBuildAppDbStatefulSetDefault(t *testing.T) {
 	appDbSts, err := defaultAppDbSetHelper().BuildAppDbStatefulSet()
 	assert.NoError(t, err)
 	podSpecTemplate := appDbSts.Spec.Template.Spec
+	assert.Len(t, podSpecTemplate.InitContainers, 1)
+	assert.Equal(t, podSpecTemplate.InitContainers[0].Name, "mongodb-enterprise-init-appdb")
 	assert.Len(t, podSpecTemplate.Containers, 1, "Should have only the db")
 	assert.Equal(t, "mongodb-enterprise-appdb", podSpecTemplate.Containers[0].Name, "Database container should always be first")
 }

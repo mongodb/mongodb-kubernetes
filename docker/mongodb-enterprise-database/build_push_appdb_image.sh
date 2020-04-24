@@ -39,8 +39,8 @@ aa_download_url="https://s3.amazonaws.com/mciuploads/mms-automation/mongodb-mms-
 
 
 
-full_url="${REPO_URL}/mongodb-enterprise-appdb:${aa_version}"
-repo_name="$(echo "${full_url}" | cut -d "/" -f2-)" # cutting the domain part
+base_url="${REPO_URL}/mongodb-enterprise-appdb"
+repo_name="$(echo "${base_url}" | cut -d "/" -f2-)" # cutting the domain part
 
 
 (
@@ -51,20 +51,18 @@ repo_name="$(echo "${full_url}" | cut -d "/" -f2-)" # cutting the domain part
     build_id="b$(date -u +%Y%m%d%H%M)"
     docker build \
         -t "${repo_name}" \
-        -t "${full_url}" \
-        -t "${full_url}-${build_id}" \
+        -t "${base_url}:${aa_version}" \
+        -t "${base_url}:${aa_version}-${build_id}" \
+        -t "${base_url}:latest" \
         --build-arg AA_VERSION="${aa_version}" \
         --build-arg AA_DOWNLOAD_URL="${aa_download_url}" \
         --build-arg MDB_URL="${mdb_url}" \
         --build-arg BINARY_NAME="${binary_name}" .
 
-    docker tag "${repo_name}" "${full_url}"
-    docker push "${full_url}"
-
-    # also tag and push with the build_id
-    docker tag "${repo_name}" "${full_url}-${build_id}"
-    docker push "${full_url}-${build_id}"
-
+    for version in "${aa_version}" "${aa_version}-${build_id}" "latest"
+    do
+        docker push "${base_url}:${version}"
+    done
 )
 
 title "Database image successfully built and pushed to ${REPO_TYPE} registry"
