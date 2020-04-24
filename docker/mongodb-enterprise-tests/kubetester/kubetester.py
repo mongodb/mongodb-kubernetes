@@ -127,6 +127,11 @@ class KubernetesTester(object):
         return cls.clients("corev1").read_namespaced_config_map(name, namespace).data
 
     @classmethod
+    def read_pod(cls, namespace: str, name: str) -> Dict[str, str]:
+        """Reads a ConfigMap and returns its contents"""
+        return cls.clients("corev1").read_namespaced_pod(name, namespace)
+
+    @classmethod
     def create_configmap(cls, namespace: str, name: str, data: Dict[str, str]):
         """Create a ConfigMap in a given namespace with the given name and data—handles base64 encoding."""
         configmap = cls.clients("client").V1ConfigMap(
@@ -154,6 +159,27 @@ class KubernetesTester(object):
             metadata=cls.clients("client").V1ObjectMeta(name=namespace_name)
         )
         cls.clients("corev1").create_namespace(namespace)
+
+    @classmethod
+    def create_pod(cls, namespace: str, body: Dict):
+        cls.clients("corev1").create_namespaced_pod(body=body, namespace=namespace)
+
+    @classmethod
+    def delete_pod(cls, namespace: str, name: str):
+        """Delete a Pod in a given namespace with the given name."""
+        cls.clients("corev1").delete_namespaced_pod(name, namespace)
+
+    @classmethod
+    def create_pvc(cls, namespace: str, body: Dict):
+        cls.clients("corev1").create_namespaced_persistent_volume_claim(
+            body=body, namespace=namespace
+        )
+
+    @classmethod
+    def delete_pvc(cls, namespace: str, name: str):
+        cls.clients("corev1").delete_namespaced_persistent_volume_claim(
+            name, namespace=namespace
+        )
 
     @classmethod
     def delete_namespace(cls, name):

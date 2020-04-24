@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mongodb-downloader
+spec:
+  restartPolicy: Never
+  volumes:
+    - name: mongodb-versions
+      persistentVolumeClaim:
+        claimName: mongodb-versions-claim
+  securityContext:
+    fsGroup: 0
+  containers:
+    - name: rhel-downloader
+      image: curlimages/curl:latest
+      command:
+        - curl
+        - -L
+        - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel70-4.0.2.tgz
+        - -o
+        - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel70-4.0.2.tgz
+      volumeMounts:
+        - name: mongodb-versions
+          mountPath: /mongodb-ops-manager/mongodb-releases
+    - name: ubuntu-downloader
+      image: curlimages/curl:latest
+      command:
+        - curl
+        - -L
+        - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu1604-4.0.2.tgz
+        - -o
+        - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-ubuntu1604-4.0.2.tgz
+      volumeMounts:
+        - name: mongodb-versions
+          mountPath: /mongodb-ops-manager/mongodb-releases

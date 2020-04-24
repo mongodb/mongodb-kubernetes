@@ -1,0 +1,34 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: om-localmode
+spec:
+  replicas: 2
+  version: 4.2.0
+  adminCredentials: ops-manager-admin-secret
+  configuration:
+    mms.testUtil.enabled: "true"
+    automation.versions.source: local
+
+  statefulSet:
+    spec:
+      template:
+        spec:
+          volumes:
+            - name: mongodb-versions
+              persistentVolumeClaim:
+                claimName: mongodb-versions-claim
+          containers:
+            - name: mongodb-ops-manager
+              volumeMounts:
+                - name: mongodb-versions
+                  mountPath: /mongodb-ops-manager/mongodb-releases
+
+  backup:
+    enabled: false
+
+  applicationDatabase:
+    members: 3
+    persistent: true
+
+
