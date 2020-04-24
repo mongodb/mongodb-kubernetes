@@ -5,8 +5,13 @@ metadata:
   name: ops-manager-external
 spec:
   replicas: 1
-  version: 4.2.10
+  version: 4.2.12
   adminCredentials: ops-manager-admin-secret
+
+  configuration:
+    # set this property to allow Ops Manager to manage deployments outside of
+    # Kubernetes cluster. This must be equal to an externally connectible DNS
+    mms.centralUrl: http://<external_hostname_and_port>
 
   # optional. Disabled by default. Creates an additional service to make Ops Manager reachable from
   # outside of the Kubernetes cluster.
@@ -27,5 +32,5 @@ spec:
 
   applicationDatabase:
     members: 3
-    version: 4.2.5-ent
+    version: 4.2.6-ent
     persistent: true
