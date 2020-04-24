@@ -4,7 +4,7 @@ metadata:
   name: om-backup
 spec:
   replicas: 1
-  version: 4.2.8
+  version: 4.2.10
   adminCredentials: ops-manager-admin-secret
   backup:
     enabled: true
@@ -18,6 +18,23 @@ spec:
 
   applicationDatabase:
     members: 3
-    version: 4.2.0-ent
+    version: 4.2.6-ent
     persistent: false
 
+  # Dev: adding this just to avoid wizard when opening OM UI
+  # (note, that to debug issues in OM you need to add 'spec.externalConnectivity.type=NodePort'
+  # and specify some port: 'port: 32400'. Don't forget to open it in AWS)
+  configuration:
+    # this property is critical to make backup S3 work in OM 4.2.10 and 4.2.12
+    brs.s3.validation.testing: disabled
+
+    automation.versions.source: mongodb
+    mms.adminEmailAddr: cloud-manager-support@mongodb.com
+    mms.fromEmailAddr: cloud-manager-support@mongodb.com
+    mms.ignoreInitialUiSetup: "true"
+    mms.mail.hostname: email-smtp.us-east-1.amazonaws.com
+    mms.mail.port: "465"
+    mms.mail.ssl: "true"
+    mms.mail.transport: smtp
+    mms.minimumTLSVersion: TLSv1.2
+    mms.replyToEmailAddr: cloud-manager-support@mongodb.com

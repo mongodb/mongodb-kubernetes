@@ -127,7 +127,7 @@ class TestBackupForMongodb:
             name="mdb-four-two",
         ).configure(ops_manager, "firstProject")
         # MongoD versions greater than 4.2.0 must be enterprise build to enable backup
-        resource["spec"]["version"] = "4.2.2-ent"
+        resource["spec"]["version"] = "4.2.6-ent"
 
         return resource.create()
 
@@ -138,7 +138,7 @@ class TestBackupForMongodb:
             namespace=namespace,
             name="mdb-four-zero",
         ).configure(ops_manager, "secondProject")
-        resource["spec"]["version"] = "4.0.16"
+        resource["spec"]["version"] = "4.0.18"
 
         return resource.create()
 
