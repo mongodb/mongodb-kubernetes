@@ -463,8 +463,8 @@ functions:
           - version_id
         env:
           REGISTRY: ${ecr_registry}/dev/${image_type}
-          OPS_MANAGER_REGISTRY: ${ecr_registry}/images/${image_type}
-          APPDB_REGISTRY: ${ecr_registry}/images/${image_type}
+          OPS_MANAGER_REGISTRY: quay.io/mongodb/mongodb-enterprise-ops-manager${ubi}
+          APPDB_REGISTRY: quay.io/mongodb/mongodb-enterprise-appdb${ubi}
           INIT_OPS_MANAGER_REGISTRY: ${ecr_registry}/dev
           INIT_APPDB_REGISTRY: ${ecr_registry}/dev
           MANAGED_SECURITY_CONTEXT: ${managed_security_context}
@@ -553,6 +553,7 @@ functions:
         - CLUSTER_TYPE
         - ecr_registry
         - version_id
+        - VERSIONS
         add_to_path:
           - ${workdir}/bin
         command: docker/mongodb-enterprise-ops-manager/batch_om_images.sh
@@ -1968,6 +1969,7 @@ buildvariants:
     <<: *kubernetes_environment_openshift_4
     test_mode: opsmanager
     image_type: rhel
+    ubi: "-ubi"
     always_remove_testing_namespace: "true"
   tasks:
     - name: e2e_ops_manager_task_group_safe
@@ -2077,6 +2079,7 @@ buildvariants:
   expansions:
     <<: *kubernetes_environment_kind
     image_type: rhel
+    ubi: "-ubi"
     test_mode: opsmanager
   tasks:
   - name: e2e_ops_manager_kind_only_task_group
