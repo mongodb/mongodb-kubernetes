@@ -962,7 +962,7 @@ func (ss *StatefulSetHelper) validateSelfManagedSSLCertsForStatefulSet(k *KubeHe
 		)
 	}
 
-	if err := k.validateCertificates(secretName, ss.Namespace, false); err != nil {
+	if err := k.validateCertificates(secretName, ss.Namespace); err != nil {
 		return workflow.Failed(err.Error())
 	}
 
@@ -975,7 +975,7 @@ func (ss *StatefulSetHelper) validateSelfManagedSSLCertsForStatefulSet(k *KubeHe
 func (ss *StatefulSetHelper) ensureOperatorManagedSSLCertsForStatefulSet(k *KubeHelper, secretName string, log *zap.SugaredLogger) workflow.Status {
 	certsNeedApproval := false
 
-	if err := k.validateCertificates(secretName, ss.Namespace, true); err != nil {
+	if err := k.validateCertificates(secretName, ss.Namespace); err != nil {
 		return workflow.Failed(err.Error())
 	}
 
@@ -1006,6 +1006,9 @@ func (ss *StatefulSetHelper) ensureOperatorManagedSSLCertsForStatefulSet(k *Kube
 				if err != nil {
 					return workflow.Failed("Failed to create CSR, %s", err)
 				}
+
+				// This note was added on Release 1.5.1 of the Operator.
+				log.Warn("The Operator is generating TLS certificates for server authentication. " + TLSGenerationDeprecationWarning)
 
 				pemFiles.addPrivateKey(podnames[idx], string(key))
 			} else if !checkCSRHasRequiredDomains(csr, additionalCertDomains) {
@@ -1095,7 +1098,7 @@ func (k *KubeHelper) ensureSSLCertsForStatefulSet(ss *StatefulSetHelper, log *za
 }
 
 // validateCertificate verifies the Secret containing the certificates and the keys is valid.
-func (k *KubeHelper) validateCertificates(name, namespace string, destroy bool) error {
+func (k *KubeHelper) validateCertificates(name, namespace string) error {
 	secret := &corev1.Secret{}
 	err := k.client.Get(context.TODO(), objectKey(namespace, name), secret)
 	if err == nil {
@@ -1103,18 +1106,8 @@ func (k *KubeHelper) validateCertificates(name, namespace string, destroy bool) 
 		for _, value := range secret.Data {
 			pemFile := newPemFileFromData(value)
 			if !pemFile.isValid() {
-				// if this is an invalid secret (it does not have a key), remove the
-				// secret and start from scratch
-				if destroy {
-					err := k.client.Delete(context.TODO(), secret)
-					if err != nil {
-						return fmt.Errorf("The secret %s is invalid, as it does not contain valid private keys for the certificates. "+
-							"We tried to remove it but another error occured. %s", name, err)
-					}
-				}
-
-				return fmt.Errorf("The Secret %s containing certificates has been removed, because it was invalid. "+
-					"Remove the matching CSRs manually to let Operator generate them again.", name)
+				return fmt.Errorf("The Secret %s containing certificates is not valid. "+
+					"Entries must contain a certificate and a private key.", name)
 			}
 		}
 	}

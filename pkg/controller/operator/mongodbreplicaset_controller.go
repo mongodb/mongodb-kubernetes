@@ -304,7 +304,7 @@ func (r *ReconcileCommonController) ensureX509InKubernetes(mdb *mdbv1.MongoDB, h
 	usingAgentX509Auth := mdb.Spec.Security.Authentication.GetAgentMechanism() == util.X509
 
 	if usingAgentX509Auth {
-		successful, err := r.ensureX509AgentCertsForMongoDBResource(mdb, useCustomCA, mdb.Namespace)
+		successful, err := r.ensureX509AgentCertsForMongoDBResource(mdb, useCustomCA, mdb.Namespace, log)
 		if err != nil {
 			return workflow.Failed(err.Error())
 		}

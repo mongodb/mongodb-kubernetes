@@ -31,6 +31,22 @@ SSL_CA_CERT = "/var/run/secrets/kubernetes.io/serviceaccount/..data/ca.crt"
 ENVIRONMENT_FILES = ("~/.operator-dev/om", "~/.operator-dev/contexts/{}")
 ENVIRONMENT_FILE_CURRENT = os.path.expanduser("~/.operator-dev/current")
 
+DEPRECATION_WARNING = (
+    "This feature has been DEPRECATED and should only be used in testing environments."
+)
+AGENT_WARNING = (
+    "The Operator is generating TLS x509 certificates for agent authentication. "
+    + DEPRECATION_WARNING
+)
+MEMBER_AUTH_WARNING = (
+    "The Operator is generating TLS x509 certificates for internal cluster authentication. "
+    + DEPRECATION_WARNING
+)
+SERVER_WARNING = (
+    "The Operator is generating TLS certificates for server authentication. "
+    + DEPRECATION_WARNING
+)
+
 plural_map = {
     "MongoDB": "mongodb",
     "MongoDBUser": "mongodbusers",
@@ -130,6 +146,26 @@ class KubernetesTester(object):
     def read_pod(cls, namespace: str, name: str) -> Dict[str, str]:
         """Reads a ConfigMap and returns its contents"""
         return cls.clients("corev1").read_namespaced_pod(name, namespace)
+
+    @classmethod
+    def read_pod_logs(cls, namespace: str, name: str) -> str:
+        return cls.clients("corev1").read_namespaced_pod_log(
+            name=name, namespace=namespace
+        )
+
+    @classmethod
+    def read_operator_pod(cls, namespace: str) -> Dict[str, str]:
+        label_selector = "app=mongodb-enterprise-operator"
+        return cls.read_pod_labels(namespace, label_selector).items[0]
+
+    @classmethod
+    def read_pod_labels(
+        cls, namespace: str, label_selector: Optional[Dict[str, str]] = None
+    ) -> Dict[str, str]:
+        """Reads a Pod by labels."""
+        return cls.clients("corev1").list_namespaced_pod(
+            namespace=namespace, label_selector=label_selector
+        )
 
     @classmethod
     def create_configmap(cls, namespace: str, name: str, data: Dict[str, str]):

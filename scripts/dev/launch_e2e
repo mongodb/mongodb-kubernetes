@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -Eeou pipefail
 
 cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
 # The script launches e2e test. Note, that the Operator and necessary resources are deployed
 # inside the test
 
+# shellcheck source=scripts/dev/set_env_context
 source scripts/dev/set_env_context
+# shellcheck source=scripts/funcs/printing
 source scripts/funcs/printing
 
 
@@ -15,6 +17,7 @@ source scripts/funcs/printing
 export PROJECT_NAMESPACE=${NAMESPACE}
 export OM_BASE_URL=${OM_HOST}
 
+# shellcheck disable=SC2154
 title "Running the e2e test ${test}..."
 
 if [[ ${CLUSTER_TYPE} = "openshift" ]]; then
@@ -24,7 +27,7 @@ fi
 [[ ${skip:-} = "true" ]] && export SKIP_EXECUTION="'true'"
 
 if [[ -n "${local:-}" ]]; then
-    pytest -m ${test} docker/mongodb-enterprise-tests --disable-pytest-warnings
+    pytest -m "${test}" docker/mongodb-enterprise-tests --disable-pytest-warnings
 else
     TASK_NAME=${test} \
     WAIT_TIMEOUT="4m" \
@@ -33,7 +36,7 @@ else
     MANAGED_SECURITY_CONTEXT=${managed_security_context:-} \
     REGISTRY=${REPO_URL} \
     DEBUG=${debug-} \
-    ./scripts/evergreen/e2e/e2e
+    ./scripts/evergreen/e2e/e2e.sh
 fi
 
 title "E2e test ${test} is finished"

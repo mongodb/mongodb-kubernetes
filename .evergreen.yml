@@ -1911,6 +1911,7 @@ buildvariants:
   - name: "e2e_tls_task_group"
   - name: "e2e_scram_sha_task_group"
   - name: "e2e_auth_transitions_task_group"
+  - name: "e2e_tls_custom_ca_task_group"
 
 - name: e2e_openshift4_cloud_qa
   display_name: e2e_openshift4_cloud_qa

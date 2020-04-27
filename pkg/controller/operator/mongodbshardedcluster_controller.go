@@ -141,7 +141,7 @@ func (r *ReconcileMongoDbShardedCluster) ensureX509InKubernetes(sc *mdbv1.MongoD
 	useCustomCA := sc.Spec.GetTLSConfig().CA != ""
 
 	if usingAgentX509Auth {
-		successful, err := r.ensureX509AgentCertsForMongoDBResource(sc, useCustomCA, sc.Namespace)
+		successful, err := r.ensureX509AgentCertsForMongoDBResource(sc, useCustomCA, sc.Namespace, log)
 		if err != nil {
 			return workflow.Failed(err.Error())
 		}

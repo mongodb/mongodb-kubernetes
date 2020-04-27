@@ -40,7 +40,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const ClusterDomain = "cluster.local"
+const (
+	ClusterDomain                   = "cluster.local"
+	TLSGenerationDeprecationWarning = "This feature has been DEPRECATED and should only be used in testing environments."
+)
 
 // Updatable is an interface for all "operator owned" Custom Resources
 // TODO move to `apis` package (and rename to smth like `MongoDbObject`?)
@@ -494,13 +497,13 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHe
 		}
 
 		// Validates that the secret is valid
-		if err := k.validateCertificates(secretName, ss.Namespace, false); err != nil {
+		if err := k.validateCertificates(secretName, ss.Namespace); err != nil {
 			return false, err
 		}
 	} else {
 
-		// Validates that the secret is valid, and removes it if it is not
-		if err := k.validateCertificates(secretName, ss.Namespace, true); err != nil {
+		// Validates that the secret is valid
+		if err := k.validateCertificates(secretName, ss.Namespace); err != nil {
 			return false, err
 		}
 
@@ -529,6 +532,9 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHe
 					if err != nil {
 						return false, fmt.Errorf("Failed to create CSR, %s", err)
 					}
+
+					// This note was added on Release 1.5.1 of the Operator.
+					log.Warn("The Operator is generating TLS x509 certificates for internal cluster authentication. " + TLSGenerationDeprecationWarning)
 
 					pemFiles.addPrivateKey(podnames[idx], string(key))
 				} else {
@@ -564,7 +570,7 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHe
 }
 
 //ensureX509AgentCertsForMongoDBResource will generate all the CSRs for the agents
-func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(mdb *mdbv1.MongoDB, useCustomCA bool, namespace string) (bool, error) {
+func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(mdb *mdbv1.MongoDB, useCustomCA bool, namespace string, log *zap.SugaredLogger) (bool, error) {
 	k := r.kubeHelper
 
 	certsNeedApproval := false
@@ -588,6 +594,9 @@ func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(mdb *
 				if err != nil {
 					return false, fmt.Errorf("failed to create CSR, %s", err)
 				}
+
+				// This note was added on Release 1.5.1 of the Operator.
+				log.Warn("The Operator is generating TLS x509 certificates for agent authentication. " + TLSGenerationDeprecationWarning)
 
 				pemFiles.addPrivateKey(agentName, string(key))
 			} else {
