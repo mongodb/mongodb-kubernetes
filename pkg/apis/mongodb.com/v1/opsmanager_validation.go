@@ -43,12 +43,12 @@ func warningNotConfigurableForAppDB(field string) ValidationResult {
 	return validationWarning(fmt.Sprintf("%s field is not configurable for application databases", field))
 }
 
-func warningNotConfigurableForOpsManager(field string) ValidationResult {
-	return validationWarning(fmt.Sprintf("%s field is not configurable for Ops Manager", field))
+func deprecationWarningForOpsManager(deprecatedField, replacedWith string) ValidationResult {
+	return validationWarning(fmt.Sprintf("%s field is not configurable for Ops Manager, use the %s field instead", deprecatedField, replacedWith))
 }
 
-func warningNotConfigurableForBackup(field string) ValidationResult {
-	return validationWarning(fmt.Sprintf("%s field is not configurable for Ops Manager Backup", field))
+func deprecationWarningForBackup(deprecatedField, replacedWith string) ValidationResult {
+	return validationWarning(fmt.Sprintf("%s field is not configurable for Ops Manager Backup, use the %s field instead", deprecatedField, replacedWith))
 }
 
 func warningShardedClusterFieldsNotConfigurableForAppDB(field string) ValidationResult {
@@ -157,14 +157,14 @@ func s3StoreMongodbUserSpecifiedNoMongoResource(os MongoDBOpsManagerSpec) Valida
 
 func podSpecIsNotConfigurable(os MongoDBOpsManagerSpec) ValidationResult {
 	if os.PodSpec != nil {
-		return warningNotConfigurableForOpsManager("podSpec")
+		return deprecationWarningForOpsManager("podSpec", "statefulSet")
 	}
 	return validationSuccess()
 }
 
 func podSpecIsNotConfigurableBackup(os MongoDBOpsManagerSpec) ValidationResult {
 	if os.Backup.PodSpec != nil {
-		return warningNotConfigurableForBackup("podSpec")
+		return deprecationWarningForBackup("podSpec", "backup.statefulSet")
 	}
 	return validationSuccess()
 }

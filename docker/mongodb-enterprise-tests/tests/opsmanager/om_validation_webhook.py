@@ -35,7 +35,7 @@ class TestOpsManagerPodSpecIsRejected(KubernetesTester):
     create:
       file: om_validation.yaml
       patch: '[{"op":"add","path":"/spec/podSpec","value":{}}]'
-      exception: 'podSpec field is not configurable for Ops Manager'
+      exception: 'podSpec field is not configurable for Ops Manager, use the statefulSet field instead'
     """
 
     def test_om_podspec_validation(self):
@@ -51,7 +51,7 @@ class TestOpsManagerPodSpecIsRejected(KubernetesTester):
     create:
       file: om_validation.yaml
       patch: '[{"op":"add","path":"/spec/backup/podSpec","value":{}}]'
-      exception: 'podSpec field is not configurable for Ops Manager Backup'
+      exception: 'podSpec field is not configurable for Ops Manager Backup, use the backup.statefulSet field instead'
     """
 
     def test_backup_podspec_validation(self):
