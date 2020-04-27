@@ -74,8 +74,6 @@ if echo "${TASK_NAME}" | grep -E -q "^e2e_op_upgrade"; then
     # assume it's the latest
     if ! deploy_operator \
         "quay.io/mongodb" \
-        "quay.io/mongodb" \
-        "quay.io/mongodb" \
         "${INIT_OPS_MANAGER_REGISTRY}" \
         "${INIT_APPDB_REGISTRY:?}" \
         "${PROJECT_NAMESPACE}" \
@@ -109,8 +107,6 @@ fi
 
 if ! deploy_operator \
     "${REGISTRY}" \
-    "${OPS_MANAGER_REGISTRY}" \
-    "${APPDB_REGISTRY:?}" \
     "${INIT_OPS_MANAGER_REGISTRY}" \
     "${INIT_APPDB_REGISTRY}" \
     "${PROJECT_NAMESPACE}" \

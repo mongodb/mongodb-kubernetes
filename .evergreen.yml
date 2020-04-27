@@ -463,8 +463,8 @@ functions:
           - version_id
         env:
           REGISTRY: ${ecr_registry}/dev/${image_type}
-          OPS_MANAGER_REGISTRY: quay.io/mongodb/mongodb-enterprise-ops-manager${ubi}
-          APPDB_REGISTRY: quay.io/mongodb/mongodb-enterprise-appdb${ubi}
+          OPS_MANAGER_NAME: mongodb-enterprise-ops-manager${ubi}
+          APPDB_NAME: mongodb-enterprise-appdb${ubi}
           INIT_OPS_MANAGER_REGISTRY: ${ecr_registry}/dev
           INIT_APPDB_REGISTRY: ${ecr_registry}/dev
           MANAGED_SECURITY_CONTEXT: ${managed_security_context}

@@ -3,7 +3,8 @@
 set -Eeou pipefail
 
 # script prepares environment variables relevant for the current context
-# TODO add the context overriding via parameter
+# If it's run locally ($IN_MEMORY_CONTEXT is defined) then the context variables
+# are read from ~/.operator_dev/contexts/$current_context
 
 cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
@@ -37,10 +38,6 @@ if [[ -z "${IN_MEMORY_CONTEXT-}" ]]; then
     # version_id is similar to version_id from Evergreen. Used to differentiate different builds. Can be constant
     # for local run
     export version_id="latest"
-    # TODO: find a better way to do that
-    export init_om_version="latest"
-    export init_appdb_version="latest"
-
 else
     echo "Skipping reading context file. Note that all the configuration information\
          (REPO_URL, CLUSTER_TYPE) must be provided as environment variables!"
@@ -66,6 +63,7 @@ fi
 
 # Appending image type (ubuntu/rhel) to the registry url (unless it's already appended)
 [[ "$REPO_URL" != *${IMAGE_TYPE} ]] && export REPO_URL=${REPO_URL}/${IMAGE_TYPE}
+
 export NAMESPACE=${NAMESPACE:-mongodb}
 
 if [[ -z "${IN_MEMORY_CONTEXT-}" ]]; then
