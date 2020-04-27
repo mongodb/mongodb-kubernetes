@@ -3,7 +3,6 @@ package v1
 import (
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
@@ -297,31 +296,6 @@ func ensureSecurityWithSCRAM(specSecurity *Security) *Security {
 	// the only allowed authentication is SCRAM - it's implicit to the user and hidden from him
 	specSecurity.Authentication = &Authentication{Modes: []string{util.SCRAM}}
 	return specSecurity
-}
-
-func (m *MongoDBOpsManager) MarshalJSON() ([]byte, error) {
-	mdb := m.DeepCopyObject().(*MongoDBOpsManager) // prevent mutation of the original object
-
-	mdb.Spec.AppDB.opsManagerName = ""
-	mdb.Spec.AppDB.namespace = ""
-	mdb.Spec.AppDB.ClusterDomain = ""
-	mdb.Spec.AppDB.ResourceType = ""
-
-	if reflect.DeepEqual(m.Spec.Backup, newBackup()) {
-		mdb.Spec.Backup = nil
-	}
-
-	// We always nullify authentication as it's not configurable by the user
-	mdb.Spec.AppDB.Security.Authentication = nil
-	if reflect.DeepEqual(*mdb.Spec.AppDB.Security.TLSConfig, TLSConfig{}) {
-		mdb.Spec.AppDB.Security = nil
-	}
-
-	if reflect.DeepEqual(mdb.Spec.AppDB.PodSpec, newMongoDbPodSpec()) {
-		mdb.Spec.AppDB.PodSpec = nil
-	}
-
-	return json.Marshal(*mdb)
 }
 
 func (m *MongoDBOpsManager) SvcName() string {

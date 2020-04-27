@@ -3,7 +3,6 @@ package v1
 import (
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"sort"
 	"strings"
 
@@ -401,50 +400,6 @@ func (spec MongoDbSpec) GetTLSConfig() *TLSConfig {
 	}
 
 	return spec.Security.TLSConfig
-}
-
-// when we marshal a MongoDB, we don't want to marshal any "empty" fields
-// by setting them to nil, they will be left out with `omitempty`
-func (m *MongoDB) MarshalJSON() ([]byte, error) {
-	type MongoDBJSON MongoDB
-
-	mdb := m.DeepCopyObject().(*MongoDB) // prevent mutation of the original object
-	if reflect.DeepEqual(m.Spec.PodSpec, newMongoDbPodSpec()) {
-		mdb.Spec.PodSpec = nil
-	}
-	if mdb.Spec.ResourceType == ShardedCluster {
-		if reflect.DeepEqual(m.Spec.ConfigSrvPodSpec, newMongoDbPodSpec()) {
-			mdb.Spec.ConfigSrvPodSpec = nil
-		}
-		if reflect.DeepEqual(m.Spec.MongosPodSpec, newMongoDbPodSpec()) {
-			mdb.Spec.MongosPodSpec = nil
-		}
-		if reflect.DeepEqual(m.Spec.ShardPodSpec, newMongoDbPodSpec()) {
-			mdb.Spec.ShardPodSpec = nil
-		}
-	}
-
-	if reflect.DeepEqual(mdb.Spec.AdditionalMongodConfig, newAdditionalMongodConfig()) {
-		mdb.Spec.AdditionalMongodConfig = nil
-	}
-
-	if reflect.DeepEqual(mdb.Spec.OpsManagerConfig, newOpsManagerConfig()) {
-		mdb.Spec.OpsManagerConfig = nil
-	}
-
-	if reflect.DeepEqual(mdb.Spec.CloudManagerConfig, newOpsManagerConfig()) {
-		mdb.Spec.CloudManagerConfig = nil
-	}
-
-	if reflect.DeepEqual(mdb.Spec.Security, newSecurity()) || reflect.DeepEqual(mdb.Spec.Security, &Security{}) {
-		mdb.Spec.Security = nil
-	}
-
-	if reflect.DeepEqual(mdb.Spec.Connectivity, newConnectivity()) {
-		mdb.Spec.Connectivity = nil
-	}
-
-	return json.Marshal((MongoDBJSON)(*mdb))
 }
 
 // when unmarshaling a MongoDB instance, we don't want to have any nil references
