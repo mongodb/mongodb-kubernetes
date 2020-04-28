@@ -10,7 +10,7 @@ RUN mkdir /build
 COPY ./probe /build/
 COPY ./probe_go_mod /build/
 WORKDIR /build
-RUN GOOS=linux GOARCH=386 go build -i -buildmode=exe -o readinessprobe .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=386 go build -a -i -o readinessprobe .
 
 FROM busybox
 

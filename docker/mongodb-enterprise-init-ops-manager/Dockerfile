@@ -6,7 +6,7 @@ FROM golang:1.13-alpine as builder
 RUN mkdir /build
 ADD . /build/
 WORKDIR /build
-RUN GOOS=linux GOARCH=386 go build -i -buildmode=exe -o mmsconfiguration ./mmsconfiguration
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=386 go build -a -i -o mmsconfiguration ./mmsconfiguration
 
 FROM busybox
 
