@@ -40,7 +40,7 @@ EOF
     fi
 }
 
-# the function installs Ops Manager into Kubernetes cluster if it's not installed already
+# the function installs Ops Manager (legacy dev version) into Kubernetes cluster if it's not installed already
 # Note, that this requires the k8s node with 4 Gb of free memory
 ensure_ops_manager_k8s() {
     local ops_manager_namespace="${1}"

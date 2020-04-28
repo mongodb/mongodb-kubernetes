@@ -3,9 +3,7 @@ set -Eeou pipefail
 
 start_time=$(date +%s)
 
-# shellcheck disable=SC1091
-
-if [[ -n "${KUBECONFIG}" && ! -f "${KUBECONFIG}" ]]; then
+if [[ -n "${KUBECONFIG:-}" && ! -f "${KUBECONFIG}" ]]; then
     echo "Kube configuration file does not exist!"
     exit 1
 fi

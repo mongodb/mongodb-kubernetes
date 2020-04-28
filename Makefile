@@ -38,8 +38,8 @@ usage:
 	@ echo "                              to perform a \"light\" cleanup - delete only Mongodb resources"
 	@ echo "  e2e:                        runs the e2e test, e.g. 'make e2e test=e2e_sharded_cluster_pv'. The Operator is redeployed before"
 	@ echo "                              the test, the namespace is cleaned. The e2e app image is built and pushed. Use a 'light=true'"
-	@ echo "                              in case you are developing tests and not changing the Operator code - this will allow to"
-	@ echo "                              avoid redeploying the Operator. Use 'debug=true' to run operator in debug mode."
+	@ echo "                              in case you are developing tests and not changing the application code - this will allow to"
+	@ echo "                              avoid rebuilding Operator/Database/Init images. Use 'debug=true' to run operator in debug mode."
 	@ echo "                              Use a 'local=true' to run the test locally using 'pytest'."
 	@ echo "                              Use a 'skip=true' to skip cleaning resources (this may help developing long-running tests like for Ops Manager)"
 	@ echo "  recreate-e2e-kops:          deletes and creates a specified e2e cluster 'cluster' using kops (note, that you don't need to switch to the correct"
@@ -84,7 +84,7 @@ database: aws_login
 
 # ensures cluster is up, cleans Kubernetes + OM, build-push-deploy operator,
 # push-deploy database, create secrets, config map, resources etc
-full: ensure-k8s-and-reset build-and-push-images om-init-image
+full: ensure-k8s-and-reset build-and-push-images
 	@ $(MAKE) deploy-and-configure-operator
 	@ scripts/dev/apply_resources
 
@@ -95,13 +95,6 @@ om-batch: aws_login
 appdb: aws_login
 	@ om_version=$(om_version) scripts/dev/build_push_appdb_image.sh
 
-om-init-image:
-	@ scripts/dev/build_push_init_opsmanager_image.sh
-
-# install OM in Kubernetes if it's not running
-om:
-	@ scripts/dev/ensure_ops_manager_k8s $(namespace) $(version) $(node_port)
-
 # install OM in Evergreen
 om-evg:
 	@ scripts/dev/ensure_ops_manager_evg $(url)
@@ -111,16 +104,14 @@ log:
 	@ kubectl logs -f deployment/mongodb-enterprise-operator --tail=1000
 
 # runs the e2e test: make e2e test=e2e_sharded_cluster_pv. The Operator is redeployed before the test, the namespace is cleaned.
-# The e2e app image is built and pushed.
-# Use 'light=true' parameter to skip Operator rebuilding - use this mode when you are focused on e2e tests development only
-# Note, that this may be not perfectly the same what is done in evergreen e2e tests as the OM instance may be external
-# (in Evergreen)
-e2e: build-and-push-test-image om-init-image
+# The e2e test image is built and pushed together with all main ones (operator, database, init containers)
+# Use 'light=true' parameter to skip images rebuilding - use this mode when you are focused on e2e tests development only
+e2e: build-and-push-test-image
 	@ if [[ -z "$(skip)" ]]; then \
 		$(MAKE) reset; \
 	fi
 	@ if [[ -z "$(light)" ]]; then \
-		$(MAKE) build-and-push-operator-image; \
+		$(MAKE) build-and-push-images; \
 	fi
 	@ scripts/dev/launch_e2e
 
@@ -174,7 +165,14 @@ build-and-push-test-image: aws_login
 		scripts/dev/build_push_tests_image; \
 	fi
 
-build-and-push-images: build-and-push-database-image build-and-push-operator-image
+# builds all app images in parallel
+build-and-push-images: build-and-push-database-image build-and-push-operator-image appdb-init-image om-init-image
+
+appdb-init-image:
+	@ scripts/dev/build_push_init_appdb_image.sh
+
+om-init-image:
+	@ scripts/dev/build_push_init_opsmanager_image.sh
 
 deploy-operator:
 	@ scripts/dev/deploy_operator.sh $(debug)
@@ -189,3 +187,4 @@ ensure-k8s:
 
 ensure-k8s-and-reset: ensure-k8s
 	@ $(MAKE) reset
+
