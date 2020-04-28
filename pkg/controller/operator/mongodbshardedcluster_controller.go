@@ -79,9 +79,9 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return nil, reconcileResult
 	}
 
-	authSpec := sc.Spec.Security.Authentication
+	security := sc.Spec.Security
 	// TODO move to webhook validations
-	if authSpec.Enabled && authSpec.IsX509Enabled() && !sc.Spec.GetTLSConfig().Enabled {
+	if security.Authentication != nil && security.Authentication.Enabled && security.Authentication.IsX509Enabled() && !sc.Spec.GetTLSConfig().Enabled {
 		return nil, workflow.Invalid("cannot have a non-tls deployment when x509 authentication is enabled")
 	}
 
@@ -133,11 +133,11 @@ func anyStatefulSetHelperNeedsToPublishState(kubeState ShardedClusterKubeState, 
 }
 
 func (r *ReconcileMongoDbShardedCluster) ensureX509InKubernetes(sc *mdbv1.MongoDB, kubeState ShardedClusterKubeState, log *zap.SugaredLogger) workflow.Status {
-	authEnabled := sc.Spec.Security.Authentication.Enabled
-	if !authEnabled {
+	security := sc.Spec.Security
+	if security.Authentication != nil && !security.Authentication.Enabled {
 		return workflow.OK()
 	}
-	usingAgentX509Auth := sc.Spec.Security.Authentication.GetAgentMechanism() == util.X509
+	usingAgentX509Auth := sc.Spec.Security.GetAgentMechanism() == util.X509
 	useCustomCA := sc.Spec.GetTLSConfig().CA != ""
 
 	if usingAgentX509Auth {
@@ -155,7 +155,7 @@ func (r *ReconcileMongoDbShardedCluster) ensureX509InKubernetes(sc *mdbv1.MongoD
 		}
 	}
 
-	if sc.Spec.Security.Authentication.InternalCluster == util.X509 {
+	if sc.Spec.Security.GetInternalClusterAuthenticationMode() == util.X509 {
 		errors := make([]error, 0)
 		allSuccessful := true
 		for _, helper := range getAllStatefulSetHelpers(kubeState) {
@@ -272,7 +272,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 		SetProjectConfig(*projectConfig).
 		SetSecurity(s.Spec.Security).
 		SetStatefulSetConfiguration(nil) // TODO: configure once supported
-		//SetStatefulSetConfiguration(s.Spec.MongosStatefulSetConfiguration)
+	//SetStatefulSetConfiguration(s.Spec.MongosStatefulSetConfiguration)
 
 	mongosBuilder.SetCertificateHash(mongosBuilder.readPemHashFromSecret())
 
@@ -292,7 +292,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 		SetProjectConfig(*projectConfig).
 		SetSecurity(s.Spec.Security).
 		SetStatefulSetConfiguration(nil) // TODO: configure once supported
-		//SetStatefulSetConfiguration(s.Spec.ConfigSrvStatefulSetConfiguration)
+	//SetStatefulSetConfiguration(s.Spec.ConfigSrvStatefulSetConfiguration)
 
 	configBuilder.SetCertificateHash(configBuilder.readPemHashFromSecret())
 	// 3. Creates a StatefulSet for each shard in the cluster
@@ -309,7 +309,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 			SetProjectConfig(*projectConfig).
 			SetSecurity(s.Spec.Security).
 			SetStatefulSetConfiguration(nil) // TODO: configure once supported
-			//SetStatefulSetConfiguration(s.Spec.ShardStatefulSetConfiguration)
+		//SetStatefulSetConfiguration(s.Spec.ShardStatefulSetConfiguration)
 		shardsSetHelpers[i].SetCertificateHash(shardsSetHelpers[i].readPemHashFromSecret())
 	}
 
@@ -545,7 +545,7 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 		func(d om.Deployment) error {
 			// it is not possible to disable internal cluster authentication once enabled
 			allProcesses := getAllProcesses(shards, configRs, mongosProcesses)
-			if sc.Spec.Security.Authentication.InternalCluster == "" && d.ExistingProcessesHaveInternalClusterAuthentication(allProcesses) {
+			if sc.Spec.Security.GetInternalClusterAuthenticationMode() == "" && d.ExistingProcessesHaveInternalClusterAuthentication(allProcesses) {
 				return fmt.Errorf("cannot disable x509 internal cluster authentication")
 			}
 			numberOfOtherMembers := d.GetNumberOfExcessProcesses(sc.Name)
@@ -560,7 +560,7 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 			d.ConfigureTLS(sc.Spec.GetTLSConfig())
 
 			*processNames = d.GetProcessNames(om.ShardedCluster{}, sc.Name)
-			d.ConfigureInternalClusterAuthentication(*processNames, sc.Spec.Security.Authentication.InternalCluster)
+			d.ConfigureInternalClusterAuthentication(*processNames, sc.Spec.Security.GetInternalClusterAuthenticationMode())
 
 			return nil
 		},

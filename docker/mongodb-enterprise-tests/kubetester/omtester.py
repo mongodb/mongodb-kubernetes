@@ -293,11 +293,11 @@ class OMTester(object):
     def api_get_hosts(self) -> Dict:
         return self.om_request("get", f"/groups/{self.context.project_id}/hosts").json()
 
-    def get_automation_config_tester(self) -> AutomationConfigTester:
+    def get_automation_config_tester(self, **kwargs) -> AutomationConfigTester:
         json = self.om_request(
             "get", f"/groups/{self.context.project_id}/automationConfig"
         ).json()
-        return AutomationConfigTester(json)
+        return AutomationConfigTester(json, **kwargs)
 
     def api_read_backup_configs(self) -> List:
         return self.om_request(

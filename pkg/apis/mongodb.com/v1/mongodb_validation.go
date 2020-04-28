@@ -56,6 +56,9 @@ func horizonsMustEqualMembers(ms MongoDbSpec) ValidationResult {
 
 func deploymentsMustHaveTLSInX509Env(ms MongoDbSpec) ValidationResult {
 	authSpec := ms.Security.Authentication
+	if authSpec == nil {
+		return validationSuccess()
+	}
 	if authSpec.Enabled && authSpec.IsX509Enabled() && !ms.GetTLSConfig().Enabled {
 		return validationError("Cannot have a non-tls deployment when x509 authentication is enabled")
 	}

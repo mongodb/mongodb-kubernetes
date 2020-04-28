@@ -639,7 +639,7 @@ func mountVolumes(stsBuilder *statefulset.Builder, helper StatefulSetHelper) *st
 	}
 
 	if helper.Security != nil {
-		if helper.Security.Authentication.GetAgentMechanism() == util.X509 {
+		if helper.Security.GetAgentMechanism() == util.X509 {
 			stsBuilder.AddVolumeAndMount(
 				statefulset.VolumeMountData{
 					MountPath: AgentCertMountPath,
@@ -652,7 +652,7 @@ func mountVolumes(stsBuilder *statefulset.Builder, helper StatefulSetHelper) *st
 		}
 
 		// add volume for x509 cert used in internal cluster authentication
-		if helper.Security.Authentication.InternalCluster == util.X509 {
+		if helper.Security.GetInternalClusterAuthenticationMode() == util.X509 {
 			stsBuilder.AddVolumeAndMount(
 				statefulset.VolumeMountData{
 					MountPath: util.InternalClusterAuthMountPath,

@@ -14,7 +14,6 @@ func TestEnsureSecurity_WithAllNilValues(t *testing.T) {
 	ensureSecurity(spec)
 	assert.NotNil(t, spec.Security)
 	assert.NotNil(t, spec.Security.TLSConfig)
-	assert.NotNil(t, spec.Security.Authentication)
 }
 
 func TestEnsureSecurity_WithNilTlsConfig(t *testing.T) {
@@ -22,15 +21,6 @@ func TestEnsureSecurity_WithNilTlsConfig(t *testing.T) {
 	ensureSecurity(spec)
 	assert.NotNil(t, spec.Security)
 	assert.NotNil(t, spec.Security.TLSConfig)
-	assert.NotNil(t, spec.Security.Authentication)
-}
-
-func TestEnsureSecurity_WithNilAuthentication(t *testing.T) {
-	spec := &MongoDbSpec{Security: &Security{TLSConfig: &TLSConfig{}, Authentication: nil}}
-	ensureSecurity(spec)
-	assert.NotNil(t, spec.Security)
-	assert.NotNil(t, spec.Security.TLSConfig)
-	assert.NotNil(t, spec.Security.Authentication)
 }
 
 func TestEnsureSecurity_EmptySpec(t *testing.T) {
@@ -38,23 +28,22 @@ func TestEnsureSecurity_EmptySpec(t *testing.T) {
 	ensureSecurity(spec)
 	assert.NotNil(t, spec.Security)
 	assert.NotNil(t, spec.Security.TLSConfig)
-	assert.NotNil(t, spec.Security.Authentication)
 }
 
 func TestGetAgentAuthentication(t *testing.T) {
-	auth := newAuthentication()
+	sec := newSecurity()
+	sec.Authentication = newAuthentication()
+	assert.Len(t, sec.Authentication.Modes, 0)
+	assert.Empty(t, sec.GetAgentMechanism())
 
-	assert.Len(t, auth.Modes, 0)
-	assert.Empty(t, auth.GetAgentMechanism())
+	sec.Authentication.Modes = append(sec.Authentication.Modes, util.X509)
+	assert.Len(t, sec.Authentication.Modes, 1)
+	assert.Equal(t, util.X509, sec.GetAgentMechanism())
 
-	auth.Modes = append(auth.Modes, util.X509)
-	assert.Len(t, auth.Modes, 1)
-	assert.Equal(t, util.X509, auth.GetAgentMechanism())
+	sec.Authentication.Modes = append(sec.Authentication.Modes, util.SCRAM)
 
-	auth.Modes = append(auth.Modes, util.SCRAM)
-
-	assert.Len(t, auth.Modes, 2)
-	assert.Equal(t, util.SCRAM, auth.GetAgentMechanism())
+	assert.Len(t, sec.Authentication.Modes, 2)
+	assert.Equal(t, util.SCRAM, sec.GetAgentMechanism())
 }
 
 func TestMinimumMajorVersion(t *testing.T) {

@@ -308,9 +308,9 @@ func (r *MongoDBUserReconciler) handleX509User(user *mdbv1.MongoDBUser, mdb mdbv
 		return stop()
 	}
 
-	mdbAuth := mdb.Spec.Security.Authentication
+	security := mdb.Spec.Security
 
-	if mdbAuth.GetAgentMechanism() == util.X509 && !r.doAgentX509CertsExist(user.Namespace) {
+	if security.GetAgentMechanism() == util.X509 && !r.doAgentX509CertsExist(user.Namespace) {
 		log.Info("Agent certs have not yet been created, cannot add MongoDBUser yet")
 		return retry()
 	}
@@ -322,7 +322,7 @@ func (r *MongoDBUserReconciler) handleX509User(user *mdbv1.MongoDBUser, mdb mdbv
 			return fmt.Errorf("x509 has not yet been configured")
 		}
 
-		if mdbAuth.GetAgentMechanism() == util.X509 {
+		if security.GetAgentMechanism() == util.X509 {
 			// TODO: this can be removed once https://jira.mongodb.org/browse/CLOUDP-51116 is resolved
 
 			userOpts, err := r.readAgentSubjectsFromSecret(mdb.Namespace, log)

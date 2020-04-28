@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
 
@@ -138,6 +140,82 @@ func TestUpdateOmAuthentication_EnableX509_WithTlsAlreadyEnabled(t *testing.T) {
 
 	assert.True(t, status.IsOK(), "configuring x509 when tls has already been enabled should not result in a failed status")
 	assert.False(t, isMultiStageReconciliation, "if tls is already enabled, we should be able to configure x509 is a single reconciliation")
+}
+
+func TestUpdateOmAuthentication_AuthenticationIsNotConfigured_IfAuthIsNotSet(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().SetAuthentication(nil).Build()
+
+	rs.Spec.Security.Authentication = nil
+
+	conn := om.NewMockedOmConnection(createDeploymentFromReplicaSet(rs))
+	r := newReplicaSetReconciler(mock.NewManager(rs), func(context *om.OMContext) om.Connection {
+		return conn
+	})
+
+	status, _ := r.updateOmAuthentication(conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, zap.S())
+	assert.True(t, status.IsOK(), "no authentication should have been configured")
+
+	ac, _ := conn.ReadAutomationConfig()
+
+	// authentication has not been touched
+	assert.True(t, ac.Auth.Disabled)
+	assert.Len(t, ac.Auth.Users, 0)
+	assert.Equal(t, "MONGODB-CR", ac.Auth.AutoAuthMechanism)
+}
+
+func TestUpdateOmAuthentication_DoesNotDisableAuth_IfAuthIsNotSet(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().
+		EnableTLS().
+		EnableAuth().
+		EnableX509().
+		Build()
+
+	manager := mock.NewManager(rs)
+	manager.Client.AddDefaultMdbConfigResources()
+	reconciler, client := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection), manager.Client
+
+	addKubernetesTlsResources(client, rs)
+	approveAgentCSRs(client)
+
+	checkReconcileSuccessful(t, reconciler, rs, client)
+
+	ac, _ := om.CurrMockedConnection.ReadAutomationConfig()
+	// x509 auth has been enabled
+	assert.True(t, ac.Auth.IsEnabled())
+	assert.Contains(t, ac.Auth.AutoAuthMechanism, authentication.MongoDBX509)
+
+	rs.Spec.Security.Authentication = nil
+
+	manager = mock.NewManagerSpecificClient(client)
+	reconciler = newReplicaSetReconciler(manager, func(context *om.OMContext) om.Connection {
+		return om.CurrMockedConnection
+	})
+
+	checkReconcileSuccessful(t, reconciler, rs, client)
+
+	ac, _ = om.CurrMockedConnection.ReadAutomationConfig()
+	assert.True(t, ac.Auth.IsEnabled())
+	assert.Contains(t, ac.Auth.AutoAuthMechanism, authentication.MongoDBX509)
+}
+
+func TestCanConfigureAuthenticationDisabled_WithNoModes(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().
+		EnableTLS().
+		SetAuthentication(
+			&mdbv1.Authentication{
+				Enabled: false,
+				Modes:   nil,
+			}).
+		Build()
+
+	manager := mock.NewManager(rs)
+	manager.Client.AddDefaultMdbConfigResources()
+	reconciler, client := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection), manager.Client
+
+	addKubernetesTlsResources(client, rs)
+	approveAgentCSRs(client)
+
+	checkReconcileSuccessful(t, reconciler, rs, client)
 }
 
 func TestUpdateOmAuthentication_EnableX509_FromEmptyDeployment(t *testing.T) {

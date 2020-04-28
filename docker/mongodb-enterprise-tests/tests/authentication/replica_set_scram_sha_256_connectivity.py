@@ -3,6 +3,7 @@ import pytest
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongotester import ReplicaSetTester
 from kubetester.automation_config_tester import AutomationConfigTester
+from kubetester.mongodb import MongoDB, Phase
 
 MDB_RESOURCE = "my-replica-set"
 USER_NAME = "mms-user-1"
@@ -127,3 +128,37 @@ class TestCanChangePassword(KubernetesTester):
             username="mms-user-1",
             auth_mechanism="SCRAM-SHA-256",
         )
+
+
+@pytest.mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_authentication_is_still_configured_after_remove_authentication(namespace: str):
+    replica_set = MongoDB(name=MDB_RESOURCE, namespace=namespace).load()
+    replica_set["spec"]["security"]["authentication"] = None
+    replica_set.update()
+    replica_set.assert_reaches_phase(Phase.Running, timeout=600)
+
+    tester = replica_set.get_automation_config_tester(
+        expected_users=3, authoritative_set=False
+    )
+    # authentication remains enabled as the operator is not configuring it when
+    # spec.security.authentication is not configured
+    tester.assert_has_user(USER_NAME)
+    tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
+    tester.assert_authentication_enabled()
+
+
+@pytest.mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_authentication_can_be_disabled_without_modes(namespace: str):
+    replica_set = MongoDB(name=MDB_RESOURCE, namespace=namespace).load()
+    replica_set["spec"]["security"]["authentication"] = {
+        "enabled": False,
+    }
+    replica_set.update()
+    replica_set.assert_reaches_phase(Phase.Running, timeout=600)
+    tester = replica_set.get_automation_config_tester(
+        expected_users=3, authoritative_set=False
+    )
+
+    # we have explicitly set authentication to be disabled
+    tester.assert_has_user(USER_NAME)
+    tester.assert_authentication_disabled(remaining_users=1)

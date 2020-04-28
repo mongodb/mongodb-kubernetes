@@ -74,6 +74,9 @@ func (b *MongoDBBuilder) SetSecurityTLSEnabled() *MongoDBBuilder {
 }
 
 func (b *MongoDBBuilder) EnableAuth(modes []string) *MongoDBBuilder {
+	if b.mdb.Spec.Security.Authentication == nil {
+		b.mdb.Spec.Security.Authentication = &Authentication{}
+	}
 	b.mdb.Spec.Security.Authentication.Enabled = true
 	b.mdb.Spec.Security.Authentication.Modes = modes
 	return b

@@ -257,9 +257,9 @@ class MongoDB(CustomObject, MongoDBCommon):
         )
         return OMTester(OMContext.build_from_config_map_and_secret(config_map, secret))
 
-    def get_automation_config_tester(self):
+    def get_automation_config_tester(self, **kwargs):
         """ This is just a shortcut for getting automation config tester for replica set"""
-        return self.get_om_tester().get_automation_config_tester()
+        return self.get_om_tester().get_automation_config_tester(**kwargs)
 
     @property
     def config_map_name(self) -> str:

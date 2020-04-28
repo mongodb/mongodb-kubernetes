@@ -285,10 +285,14 @@ func TestOnlyTagIsAppliedToOlderOpsManager(t *testing.T) {
 // additional K8s objects (rs, connection config map and secrets) necessary for reconciliation
 // so it's possible to call 'reconcile()' on it right away
 func defaultReplicaSetReconciler(rs *mdbv1.MongoDB) (*ReconcileMongoDbReplicaSet, *mock.MockedClient) {
+	return replicaSetReconcilerWithConnection(rs, om.NewEmptyMockedOmConnection)
+}
+
+func replicaSetReconcilerWithConnection(rs *mdbv1.MongoDB, connectionFunc func(ctx *om.OMContext) om.Connection) (*ReconcileMongoDbReplicaSet, *mock.MockedClient) {
 	manager := mock.NewManager(rs)
 	manager.Client.AddDefaultMdbConfigResources()
 
-	return newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection), manager.Client
+	return newReplicaSetReconciler(manager, connectionFunc), manager.Client
 }
 
 // TODO remove in favor of '/api/mongodbbuilder.go'
@@ -342,6 +346,14 @@ func (b *ReplicaSetBuilder) SetMembers(m int) *ReplicaSetBuilder {
 
 func (b *ReplicaSetBuilder) SetSecurity(security mdbv1.Security) *ReplicaSetBuilder {
 	b.Spec.Security = &security
+	return b
+}
+
+func (b *ReplicaSetBuilder) SetAuthentication(auth *mdbv1.Authentication) *ReplicaSetBuilder {
+	if b.Spec.Security == nil {
+		b.Spec.Security = &mdbv1.Security{}
+	}
+	b.Spec.Security.Authentication = auth
 	return b
 }
 

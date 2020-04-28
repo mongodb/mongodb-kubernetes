@@ -82,7 +82,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		SetSecurity(rs.Spec.Security).
 		SetReplicaSetHorizons(rs.Spec.Connectivity.ReplicaSetHorizons).
 		SetStatefulSetConfiguration(nil) // TODO: configure once supported
-		//SetStatefulSetConfiguration(rs.Spec.StatefulSetConfiguration)
+	//SetStatefulSetConfiguration(rs.Spec.StatefulSetConfiguration)
 
 	replicaBuilder.SetCertificateHash(replicaBuilder.readPemHashFromSecret())
 
@@ -212,7 +212,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			// it is not possible to disable internal cluster authentication once enabled
-			if d.ExistingProcessesHaveInternalClusterAuthentication(replicaSet.Processes) && rs.Spec.Security.Authentication.InternalCluster == "" {
+			if d.ExistingProcessesHaveInternalClusterAuthentication(replicaSet.Processes) && rs.Spec.Security.GetInternalClusterAuthenticationMode() == "" {
 				return fmt.Errorf("cannot disable x509 internal cluster authentication")
 			}
 			excessProcesses := d.GetNumberOfExcessProcesses(rs.Name)
@@ -222,7 +222,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 			d.MergeReplicaSet(replicaSet, nil)
 			d.AddMonitoringAndBackup(replicaSet.Processes[0].HostName(), log)
 			d.ConfigureTLS(rs.Spec.GetTLSConfig())
-			d.ConfigureInternalClusterAuthentication(processNames, rs.Spec.Security.Authentication.InternalCluster)
+			d.ConfigureInternalClusterAuthentication(processNames, rs.Spec.Security.GetInternalClusterAuthenticationMode())
 			return nil
 		},
 		log,
@@ -295,13 +295,12 @@ func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLog
 }
 
 func (r *ReconcileCommonController) ensureX509InKubernetes(mdb *mdbv1.MongoDB, helper *StatefulSetHelper, log *zap.SugaredLogger) workflow.Status {
-	spec := mdb.Spec
-	authEnabled := mdb.Spec.Security.Authentication.Enabled
-	if !authEnabled {
+	authSpec := mdb.Spec.Security.Authentication
+	if authSpec == nil || !mdb.Spec.Security.Authentication.Enabled {
 		return workflow.OK()
 	}
 	useCustomCA := mdb.Spec.GetTLSConfig().CA != ""
-	usingAgentX509Auth := mdb.Spec.Security.Authentication.GetAgentMechanism() == util.X509
+	usingAgentX509Auth := mdb.Spec.Security.GetAgentMechanism() == util.X509
 
 	if usingAgentX509Auth {
 		successful, err := r.ensureX509AgentCertsForMongoDBResource(mdb, useCustomCA, mdb.Namespace, log)
@@ -312,14 +311,14 @@ func (r *ReconcileCommonController) ensureX509InKubernetes(mdb *mdbv1.MongoDB, h
 			return workflow.Pending("Agent certs have not yet been approved")
 		}
 
-		if !spec.Security.TLSConfig.Enabled {
+		if !mdb.Spec.Security.TLSConfig.Enabled {
 			return workflow.Failed("Authentication mode for project is x509 but this MDB resource is not TLS enabled")
 		} else if !r.doAgentX509CertsExist(mdb.Namespace) {
 			return workflow.Pending("Agent x509 certificates have not yet been created")
 		}
 	}
 
-	if spec.Security.Authentication.InternalCluster == util.X509 {
+	if mdb.Spec.Security.GetInternalClusterAuthenticationMode() == util.X509 {
 		if success, err := r.ensureInternalClusterCerts(helper, log); err != nil {
 			return workflow.Failed("Failed ensuring internal cluster authentication certs %s", err)
 		} else if !success {

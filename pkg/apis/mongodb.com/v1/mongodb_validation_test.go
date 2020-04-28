@@ -35,8 +35,7 @@ func TestMongoDB_ProcessValidations_HorizonsWithoutTLS(t *testing.T) {
 
 func TestMongoDB_ProcessValidationsOnReconcile_X509WithoutTls(t *testing.T) {
 	rs := NewReplicaSetBuilder().Build()
-	rs.Spec.Security.Authentication.Enabled = true
-	rs.Spec.Security.Authentication.Modes = []string{"X509"}
+	rs.Spec.Security.Authentication = &Authentication{Enabled: true, Modes: []string{"X509"}}
 	err := rs.ProcessValidationsOnReconcile()
 	assert.Equal(t, "Cannot have a non-tls deployment when x509 authentication is enabled", err.Error())
 }

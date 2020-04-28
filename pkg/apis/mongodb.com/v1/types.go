@@ -328,6 +328,44 @@ type Security struct {
 	ClusterAuthMode string `json:"clusterAuthenticationMode,omitempty"`
 }
 
+// GetAgentMechanism returns the authentication mechanism that the agents will be using.
+// The agents will use X509 if it is the only mechanism specified, otherwise they will use SCRAM if specified
+// and no auth if no mechanisms exist.
+func (s *Security) GetAgentMechanism() string {
+
+	if s == nil || s.Authentication == nil {
+		return ""
+	}
+
+	auth := s.Authentication
+	if len(auth.Modes) == 0 {
+		return ""
+	}
+
+	if len(auth.Modes) == 1 && auth.Modes[0] == util.X509 {
+		return util.X509
+	}
+
+	if stringutil.Contains(auth.Modes, util.SCRAM) {
+		return util.SCRAM
+	}
+
+	return ""
+}
+
+func (s *Security) GetInternalClusterAuthenticationMode() string {
+	if s == nil || s.Authentication == nil {
+		return ""
+	}
+	if s.Authentication.InternalCluster != "" {
+		return s.Authentication.InternalCluster
+	}
+	if s.ClusterAuthMode != "" {
+		return s.ClusterAuthMode
+	}
+	return ""
+}
+
 // Authentication holds various authentication related settings that affect
 // this MongoDB resource.
 type Authentication struct {
@@ -341,26 +379,16 @@ type Authentication struct {
 // IsX509Enabled determines if X509 is to be enabled at the project level
 // it does not necessarily mean that the agents are using X509 authentication
 func (a *Authentication) IsX509Enabled() bool {
-	return stringutil.Contains(a.Modes, util.X509)
+	return stringutil.Contains(a.GetModes(), util.X509)
 }
 
-// GetAgentMechanism returns the authentication mechanism that the agents will be using.
-// The agents will use X509 if it is the only mechanism specified, otherwise they will use SCRAM if specified
-// and no auth if no mechanisms exist.
-func (a *Authentication) GetAgentMechanism() string {
-	if len(a.Modes) == 0 {
-		return ""
+// GetModes returns the modes of the Authentication instance of an empty
+// list if it is nil
+func (a *Authentication) GetModes() []string {
+	if a == nil {
+		return []string{}
 	}
-
-	if len(a.Modes) == 1 && a.Modes[0] == util.X509 {
-		return util.X509
-	}
-
-	if stringutil.Contains(a.Modes, util.SCRAM) {
-		return util.SCRAM
-	}
-
-	return ""
+	return a.Modes
 }
 
 type TLSConfig struct {
@@ -543,11 +571,6 @@ func (m *MongoDB) InitDefaults() {
 	}
 
 	ensureSecurity(&m.Spec)
-
-	if m.Spec.Security.Authentication.InternalCluster == "" {
-		// old value was lowercase, new value is uppercase
-		m.Spec.Security.Authentication.InternalCluster = strings.ToUpper(m.Spec.Security.ClusterAuthMode)
-	}
 
 	if m.Spec.OpsManagerConfig == nil {
 		m.Spec.OpsManagerConfig = newOpsManagerConfig()
@@ -764,9 +787,6 @@ func ensureSecurity(spec *MongoDbSpec) {
 		spec.Security.TLSConfig = &TLSConfig{}
 	}
 
-	if spec.Security.Authentication == nil {
-		spec.Security.Authentication = newAuthentication()
-	}
 }
 
 func newAuthentication() *Authentication {
@@ -774,18 +794,18 @@ func newAuthentication() *Authentication {
 }
 
 func newSecurity() *Security {
-	return &Security{TLSConfig: &TLSConfig{}, Authentication: newAuthentication()}
+	return &Security{TLSConfig: &TLSConfig{}}
 }
 
 func buildConnectionUrl(statefulsetName, serviceName, namespace, userName, password string, spec MongoDbSpec, connectionParams map[string]string) string {
-	if stringutil.Contains(spec.Security.Authentication.Modes, util.SCRAM) && (userName == "" || password == "") {
+	if stringutil.Contains(spec.Security.Authentication.GetModes(), util.SCRAM) && (userName == "" || password == "") {
 		panic("Dev error: UserName and Password must be specified if the resource has SCRAM-SHA enabled")
 	}
 	replicasCount := spec.Replicas()
 
 	hostnames, _ := util.GetDNSNames(statefulsetName, serviceName, namespace, spec.GetClusterDomain(), replicasCount)
 	uri := "mongodb://"
-	if stringutil.Contains(spec.Security.Authentication.Modes, util.SCRAM) {
+	if stringutil.Contains(spec.Security.Authentication.GetModes(), util.SCRAM) {
 		uri += fmt.Sprintf("%s:%s@", userName, password)
 	}
 	for i, h := range hostnames {
@@ -801,7 +821,7 @@ func buildConnectionUrl(statefulsetName, serviceName, namespace, userName, passw
 	if spec.Security.TLSConfig.Enabled {
 		params["ssl"] = "true"
 	}
-	if stringutil.Contains(spec.Security.Authentication.Modes, util.SCRAM) {
+	if stringutil.Contains(spec.Security.Authentication.GetModes(), util.SCRAM) {
 		params["authSource"] = util.DefaultUserDatabase
 
 		comparison, err := util.CompareVersions(spec.GetVersion(), util.MinimumScramSha256MdbVersion)

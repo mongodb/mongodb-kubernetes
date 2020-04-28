@@ -807,7 +807,7 @@ func (r *OpsManagerReconciler) getMongoDbForS3Config(opsManager mdbv1.MongoDBOps
 // Note, that we don't worry if the 'mongodbUserRef' is specified but SCRAM-SHA is not enabled - we just ignore the
 // user
 func (r *OpsManagerReconciler) getS3MongoDbUserNameAndPassword(mongodb mdbv1.MongoDB, opsManager mdbv1.MongoDBOpsManager, config mdbv1.S3Config, log *zap.SugaredLogger) (string, string, workflow.Status) {
-	if !stringutil.Contains(mongodb.Spec.Security.Authentication.Modes, util.SCRAM) {
+	if !stringutil.Contains(mongodb.Spec.Security.Authentication.GetModes(), util.SCRAM) {
 		return "", "", workflow.OK()
 	}
 	// If the resource is empty then we need to consider AppDB credentials
@@ -859,7 +859,7 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(opsManager mdbv1.MongoDBOp
 	// Note, that we don't worry if the 'mongodbUserRef' is specified but SCRAM-SHA is not enabled - we just ignore the
 	// user
 	var userName, password string
-	if stringutil.Contains(mongodb.Spec.Security.Authentication.Modes, util.SCRAM) {
+	if stringutil.Contains(mongodb.Spec.Security.Authentication.GetModes(), util.SCRAM) {
 		mongodbUser := &mdbv1.MongoDBUser{}
 		mongodbUserObjectKey := operatorConfig.MongodbUserObjectKey(opsManager.Namespace)
 		err := r.client.Get(context.TODO(), mongodbUserObjectKey, mongodbUser)
@@ -891,11 +891,11 @@ func validateDataStoreConfig(mongodb mdbv1.MongoDB, dataStoreConfig mdbv1.DataSt
 
 func validateConfig(mongodb mdbv1.MongoDB, userRef *mdbv1.MongoDBUserRef, description string) workflow.Status {
 	// validate
-	if !stringutil.Contains(mongodb.Spec.Security.Authentication.Modes, util.SCRAM) &&
-		len(mongodb.Spec.Security.Authentication.Modes) > 0 {
+	if !stringutil.Contains(mongodb.Spec.Security.Authentication.GetModes(), util.SCRAM) &&
+		len(mongodb.Spec.Security.Authentication.GetModes()) > 0 {
 		return workflow.Failed("The only authentication mode supported for the %s is SCRAM-SHA", description)
 	}
-	if stringutil.Contains(mongodb.Spec.Security.Authentication.Modes, util.SCRAM) &&
+	if stringutil.Contains(mongodb.Spec.Security.Authentication.GetModes(), util.SCRAM) &&
 		(userRef == nil || userRef.Name == "") {
 		return workflow.Failed("MongoDB resource %s is configured to use SCRAM-SHA authentication mode, the user must be"+
 			" specified using 'mongodbUserRef'", mongodb.Name)
@@ -904,7 +904,7 @@ func validateConfig(mongodb mdbv1.MongoDB, userRef *mdbv1.MongoDBUserRef, descri
 	if err != nil {
 		return workflow.Failed(err.Error())
 	}
-	if stringutil.Contains(mongodb.Spec.Security.Authentication.Modes, util.SCRAM) && comparison >= 0 {
+	if stringutil.Contains(mongodb.Spec.Security.Authentication.GetModes(), util.SCRAM) && comparison >= 0 {
 		return workflow.Failed("The %s with SCRAM-SHA enabled must have version less than 4.0.0", description)
 	}
 	return workflow.OK()

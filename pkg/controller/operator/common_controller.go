@@ -673,7 +673,7 @@ func validateScram(mdb *mdbv1.MongoDB, ac *om.AutomationConfig) workflow.Status 
 
 	scram256IsAlreadyEnabled := stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(authentication.ScramSha256))
 	attemptingToDowngradeMongoDBVersion := ac.Deployment.MinimumMajorVersion() >= 4 && specVersion.Major < 4
-	isDowngradingFromScramSha256ToScramSha1 := attemptingToDowngradeMongoDBVersion && stringutil.Contains(mdb.Spec.Security.Authentication.Modes, "SCRAM") && scram256IsAlreadyEnabled
+	isDowngradingFromScramSha256ToScramSha1 := attemptingToDowngradeMongoDBVersion && stringutil.Contains(mdb.Spec.Security.Authentication.GetModes(), "SCRAM") && scram256IsAlreadyEnabled
 
 	if isDowngradingFromScramSha256ToScramSha1 {
 		return workflow.Invalid("Unable to downgrade to SCRAM-SHA-1 when SCRAM-SHA-256 has been enabled")
@@ -707,6 +707,10 @@ func getSubjectFromCertificate(cert string) (string, error) {
 // enables/disables authentication. If the authentication can't be fully configured, a boolean value indicating that
 // an additional reconciliation needs to be queued up to fully make the authentication changes is returned.
 func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, processNames []string, mdb *mdbv1.MongoDB, log *zap.SugaredLogger) (status workflow.Status, multiStageReconciliation bool) {
+	// don't touch authentication settings if resource has not been configured with them
+	if mdb.Spec.Security == nil || mdb.Spec.Security.Authentication == nil {
+		return workflow.OK(), false
+	}
 
 	// we need to wait for all agents to be ready before configuring any authentication settings
 	if err := om.WaitForReadyState(conn, processNames, log); err != nil {
@@ -731,7 +735,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 	if wantToEnableAuthentication && canConfigureAuthentication(ac, mdb, log) {
 		log.Info("Configuring authentication for MongoDB resource")
 
-		if mdb.Spec.Security.Authentication.GetAgentMechanism() == util.X509 {
+		if mdb.Spec.Security.GetAgentMechanism() == util.X509 {
 			authOpts, err = r.configureAgentSubjects(mdb.Namespace, authOpts, log)
 			if err != nil {
 				return workflow.Failed("error configuring agent subjects: %v", err), false
@@ -833,13 +837,13 @@ func (r *ReconcileCommonController) readAgentSubjectsFromSecret(namespace string
 // during this reconciliation. This function may return a different value on the next reconciliation
 // if the state of Ops Manager has been changed.
 func canConfigureAuthentication(ac *om.AutomationConfig, mdb *mdbv1.MongoDB, log *zap.SugaredLogger) bool {
-	attemptingToEnableX509 := !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) && stringutil.Contains(mdb.Spec.Security.Authentication.Modes, util.X509)
+	attemptingToEnableX509 := !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) && stringutil.Contains(mdb.Spec.Security.Authentication.GetModes(), util.X509)
 	canEnableX509InOpsManager := ac.Deployment.AllProcessesAreTLSEnabled() || ac.Deployment.NumberOfProcesses() == 0
 
 	log.Debugw("canConfigureAuthentication",
 		"attemptingToEnableX509", attemptingToEnableX509,
 		"deploymentAuthMechanisms", ac.Auth.DeploymentAuthMechanisms,
-		"modes", mdb.Spec.Security.Authentication.Modes,
+		"modes", mdb.Spec.Security.Authentication.GetModes(),
 		"canEnableX509InOpsManager", canEnableX509InOpsManager,
 		"allProcessesAreTLSEnabled", ac.Deployment.AllProcessesAreTLSEnabled(),
 		"numberOfProcesses", ac.Deployment.NumberOfProcesses())
