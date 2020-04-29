@@ -21,16 +21,25 @@ fi
 
 title "Building Init Ops Manager image (init om version: ${init_om_version})..."
 
-pushd "${PWD}"
-cd docker/mongodb-enterprise-init-ops-manager
+repository_name="mongodb-enterprise-init-ops-manager"
+repository_url="${INIT_OPS_MANAGER_REGISTRY:?}/${IMAGE_TYPE:?}/${repository_name}"
+ensure_ecr_repository "${repository_url}"
 
-if [[ ${REPO_TYPE} = "ecr" ]]; then
-    ensure_ecr_repository "${INIT_OPS_MANAGER_REGISTRY:?}/mongodb-enterprise-init-ops-manager"
-fi
+versioned_image="${repository_url}:${init_om_version}"
+versioned_image_with_build="${versioned_image}${suffix}"
 
-name="mongodb-enterprise-init-ops-manager:${init_om_version}${suffix}"
-full_url="${INIT_OPS_MANAGER_REGISTRY}/${name}"
-docker build -t "${name}" --build-arg VERSION="${init_om_version}" .
-docker tag "${name}" "${full_url}"
-docker push "${full_url}"
-title "Init Ops Manager image successfully built and pushed to ${INIT_OPS_MANAGER_REGISTRY} registry"
+(
+    [[ "${CLUSTER_TYPE}" = "openshift" ]] && base_image="ubi_minimal" || base_image="busybox"
+    cd docker/mongodb-enterprise-init-ops-manager
+    ../dockerfile_generator.py init_ops_manager "${base_image}" > Dockerfile
+
+    # The images are tagged at build time with:
+    #
+    # - {ecr_registry}/dev/[rhel|ubuntu]/mongodb-enterprise-init-ops-manager:1.0.0
+    # - {ecr_registry}/dev/[rhel|ubuntu]/mongodb-enterprise-init-ops-manager:1.0.0-b202004271010
+    #
+    docker build -t "${versioned_image}" -t "${versioned_image_with_build}" --build-arg VERSION="${init_om_version}" .
+    docker push "${versioned_image}"
+    docker push "${versioned_image_with_build}"
+    title "Init Ops Manager image successfully built and pushed to ${repository_url} registry"
+)

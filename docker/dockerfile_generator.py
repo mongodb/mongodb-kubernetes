@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 #
-# * Dockerfile.gen
+# * dockerfile_generator.py
 #
 # Generates a Dockerfile by using `Dockerfile.template` and the values
 # for `ubuntu`, `rhel` or `dcar` distros.  It needs to be called with first
@@ -13,7 +13,7 @@
 #
 # * Usage:
 #
-#     ../Dockerfile.gen [-h] [-d] image distro
+#     ../dockerfile_generator.py [-h] [-d] image distro
 #
 # [-h]      help
 # [-d]      enable debug mode for operator image
@@ -42,7 +42,7 @@ def get_version() -> str:
 
     def release(p: Path):
         if Path("/") == p:
-            return
+            raise ValueError("release.json not found!")
 
         # os.path.join won't work on PosixPath on Python 3.5, which
         # is installed in Ubuntu16 by default, that's why it needs to be
@@ -77,6 +77,18 @@ def rhel() -> Dict[str, Union[str, List[str]]]:
         "base_image": "registry.access.redhat.com/ubi7/ubi:7.7-310",
         "distro": "rhel",
         "version": get_version(),
+    }
+
+
+def ubi_minimal() -> Dict[str, Union[str, List[str]]]:
+    return {
+        "base_image": "registry.access.redhat.com/ubi7/ubi-minimal",
+    }
+
+
+def busybox() -> Dict[str, Union[str, List[str]]]:
+    return {
+        "base_image": "busybox",
     }
 
 
@@ -120,12 +132,22 @@ def database(distro: Callable):
     return distro()
 
 
+def init_appdb(distro: Callable):
+    return distro()
+
+
+def init_ops_manager(distro: Callable):
+    return distro()
+
+
 def render(image_name: str, distro_name: str, **kwargs):
     """Renders a Dockerfile for a `image_type` on a `distro`."""
     distros = {
         "rhel": rhel,
         "ubuntu": ubuntu,
         "dcar": dcar,
+        "ubi_minimal": ubi_minimal,
+        "busybox": busybox,
     }
 
     image_types = {
@@ -133,6 +155,8 @@ def render(image_name: str, distro_name: str, **kwargs):
         "appdb": appdb,
         "operator": operator,
         "database": database,
+        "init_appdb": init_appdb,
+        "init_ops_manager": init_ops_manager,
     }
 
     if distro_name not in distros.keys():

@@ -13,18 +13,24 @@ ARG MDB_URL
 ARG BINARY_NAME
 ARG AA_DOWNLOAD_URL
 ARG AA_VERSION
-
 {% endblock %}
 
-{% block labels %}
-LABEL name="MongoDB Enterprise Database" \
-      maintainer="support@mongodb.com" \
-      vendor="MongoDB" \
+{%- if is_appdb %}
+LABEL name="MongoDB Enterprise AppDB" \
       version="${AA_VERSION}" \
-      release="1" \
+      summary="MongoDB Enterprise AppDB" \
+      description="MongoDB Enterprise AppDB" \
+  {%- else %}
+LABEL name="MongoDB Enterprise Database" \
+      version="{{ version }}" \
       summary="MongoDB Enterprise Database Image" \
-      description="MongoDB Enterprise Database Image"
-{% endblock %}
+      description="MongoDB Enterprise Database Image" \
+{%- endif %}
+      vendor="MongoDB" \
+      release="1" \
+      maintainer="support@mongodb.com"
+
+
 
 RUN mkdir -p /licenses
 COPY LICENSE /licenses/mongodb-enterprise-database

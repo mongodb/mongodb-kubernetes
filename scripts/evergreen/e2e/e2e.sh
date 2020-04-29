@@ -52,6 +52,9 @@ ensure_namespace "${PROJECT_NAMESPACE}"
 export TEST_NAME="${TASK_NAME:?}"
 delete_operator "${PROJECT_NAMESPACE}"
 
+ops_manager_init_registry="${INIT_OPS_MANAGER_REGISTRY:?}/${IMAGE_TYPE}"
+appdb_init_registry="${INIT_APPDB_REGISTRY:?}/${IMAGE_TYPE}"
+
 # 4. (optionally) Preliminary step in the case of Operator upgrade
 if echo "${TASK_NAME}" | grep -E -q "^e2e_op_upgrade"; then
     export TEST_NAME="${TASK_NAME}_first"
@@ -72,8 +75,8 @@ if echo "${TASK_NAME}" | grep -E -q "^e2e_op_upgrade"; then
     # assume it's the latest
     if ! deploy_operator \
         "quay.io/mongodb" \
-        "${INIT_OPS_MANAGER_REGISTRY}" \
-        "${INIT_APPDB_REGISTRY:?}" \
+        "${ops_manager_init_registry}" \
+        "${appdb_init_registry}" \
         "${PROJECT_NAMESPACE}" \
         "${OPERATOR_VERSION_UPGRADE_FROM:-"latest"}" \
         "${WATCH_NAMESPACE:-$PROJECT_NAMESPACE}" \
@@ -105,8 +108,8 @@ fi
 
 if ! deploy_operator \
     "${REGISTRY}" \
-    "${INIT_OPS_MANAGER_REGISTRY}" \
-    "${INIT_APPDB_REGISTRY}" \
+    "${ops_manager_init_registry}" \
+    "${appdb_init_registry}" \
     "${PROJECT_NAMESPACE}" \
     "${version_id:?}" \
     "${WATCH_NAMESPACE:-$PROJECT_NAMESPACE}" \

@@ -6,9 +6,9 @@ FROM golang:1.13-alpine as builder
 RUN mkdir /build
 ADD . /build/
 WORKDIR /build
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=386 go build -a -i -o mmsconfiguration ./mmsconfiguration
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=386 go build -a -i -o ./output/mmsconfiguration ./mmsconfiguration
 
-FROM busybox
+FROM {{ base_image|default("busybox") }}
 
 ARG VERSION
 
@@ -22,7 +22,10 @@ LABEL name="MongoDB Enterprise Ops Manager Init" \
 
 
 RUN mkdir /scripts
-COPY --from=builder /build/mmsconfiguration /scripts/
+COPY --from=builder /build/output/mmsconfiguration /scripts/
 COPY scripts/docker-entry-point.sh /scripts/
+
+RUN mkdir -p /licenses
+COPY LICENSE /licenses/mongodb-enterprise-ops-manager
 
 ENTRYPOINT [ "/bin/cp", "-f", "/scripts/docker-entry-point.sh", "/scripts/mmsconfiguration", "/opt/scripts/" ]

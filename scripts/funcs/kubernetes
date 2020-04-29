@@ -336,9 +336,11 @@ ensure_ecr_repository() {
     local repo_url=$1
     local repo_name
 
-    repo_name="$(echo "${repo_url}" | cut -d "/" -f2-)" # "alis/ubuntu/mongodb-enterprise-appdb"
-    if ! aws ecr describe-repositories | grep "${repo_name}" > /dev/null; then
-        echo "Creating repository ${repo_name} as it doesn't exist"
-        aws ecr create-repository --repository-name="${repo_name}"
+    if [[ ${REPO_TYPE} = "ecr" ]]; then
+        repo_name="$(echo "${repo_url}" | cut -d "/" -f2-)" # "alis/ubuntu/mongodb-enterprise-appdb"
+        if ! aws ecr describe-repositories | grep "${repo_name}" > /dev/null; then
+            echo "Creating repository ${repo_name} as it doesn't exist"
+            aws ecr create-repository --repository-name="${repo_name}"
+        fi
     fi
 }

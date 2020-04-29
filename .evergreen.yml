@@ -482,6 +482,7 @@ functions:
           STATIC_NAMESPACE: ${static_namespace}
           TEST_MODE: ${test_mode}
           KUBECONFIG: ${workdir}/${kube_environment_name}_config
+          IMAGE_TYPE: ${image_type}
 
         binary: scripts/evergreen/e2e/e2e.sh
 
@@ -624,6 +625,46 @@ tasks:
         image_target: scan.connect.redhat.com/ospid-239de277-d8bb-44b4-8593-73753752317f/mongodb-enterprise-database
         docker_password: ${rhc_database_pid}
 
+- name: release_init_rh_connect
+  commands:
+    - func: clone
+    - func: guard_git_repo_is_clean
+    - func: setup_jq
+    - func: setup_ecr_login_helper
+
+    # - func: release_docker_image_to_registry
+    #   vars:
+    #     tag_source: ${version_id}
+    #     tag_dest: '$(jq --raw-output ".initOpsManagerVersion" < release.json)'
+    #     image_source: ${ecr_registry}/dev/rhel/mongodb-enterprise-init-ops-manager
+    #     image_target: scan.connect.redhat.com/ospid-5fd87aa5-54cc-41d1-8620-f54f8ffea993/mongodb-enterprise-init-ops-manager
+    #     docker_password: ${rhc_init_om_pid}
+
+    # - func: release_docker_image_to_registry
+    #   vars:
+    #     tag_source: ${version_id}
+    #     tag_dest: '$(jq --raw-output ".initAppDbVersion" < release.json)'
+    #     image_source: ${ecr_registry}/dev/rhel/mongodb-enterprise-init-appdb
+    #     image_target: scan.connect.redhat.com/ospid-db689935-fcb9-4bf9-a076-d3c480525524/mongodb-enterprise-init-appdb
+    #     docker_password: ${rhc_init_appdb_pid}
+
+    # The following 2 functions will push the TAGs with the BUILD part
+    - func: release_docker_image_to_registry
+      vars:
+        tag_source: ${version_id}
+        tag_dest: '$(echo "$(jq --raw-output ".initOpsManagerVersion" < release.json)-b$(date +%Y%m%d%H%M)")'
+        image_source: ${ecr_registry}/dev/rhel/mongodb-enterprise-init-ops-manager
+        image_target: scan.connect.redhat.com/ospid-5fd87aa5-54cc-41d1-8620-f54f8ffea993/mongodb-enterprise-init-ops-manager
+        docker_password: ${rhc_init_om_pid}
+
+    - func: release_docker_image_to_registry
+      vars:
+        tag_source: ${version_id}
+        tag_dest: '$(echo "$(jq --raw-output ".initAppDbVersion" < release.json)-b$(date +%Y%m%d%H%M)")'
+        image_source: ${ecr_registry}/dev/rhel/mongodb-enterprise-init-appdb
+        image_target: scan.connect.redhat.com/ospid-db689935-fcb9-4bf9-a076-d3c480525524/mongodb-enterprise-init-appdb
+        docker_password: ${rhc_init_appdb_pid}
+
 - name: release_ops_manager_quay
   commands:
     - func: clone
@@ -673,6 +714,50 @@ tasks:
         tag_dest: '$(git describe --dirty)'
         image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-database
         image_target: quay.io/mongodb/mongodb-enterprise-database${suffix}
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
+
+# Releases init images to Quay
+- name: release_init_quay
+  commands:
+    - func: clone
+    - func: guard_git_repo_is_clean
+    - func: setup_jq
+    - func: setup_ecr_login_helper
+
+    - func: release_docker_image_to_registry
+      vars:
+        tag_source: ${version_id}
+        tag_dest: '$(echo "$(jq --raw-output ".initOpsManagerVersion" < release.json)")'
+        image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-init-ops-manager
+        image_target: quay.io/mongodb/mongodb-enterprise-init-ops-manager${suffix}
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
+
+    - func: release_docker_image_to_registry
+      vars:
+        tag_source: ${version_id}
+        tag_dest: '$(echo "$(jq --raw-output ".initOpsManagerVersion" < release.json)-b$(date +%Y%m%d%H%M)")'
+        image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-init-ops-manager
+        image_target: quay.io/mongodb/mongodb-enterprise-init-ops-manager${suffix}
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
+
+    - func: release_docker_image_to_registry
+      vars:
+        tag_source: ${version_id}
+        tag_dest: '$(echo "$(jq --raw-output ".initAppDbVersion" < release.json)")'
+        image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-init-appdb
+        image_target: quay.io/mongodb/mongodb-enterprise-init-appdb${suffix}
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
+
+    - func: release_docker_image_to_registry
+      vars:
+        tag_source: ${version_id}
+        tag_dest: '$(echo "$(jq --raw-output ".initAppDbVersion" < release.json)-b$(date +%Y%m%d%H%M)")'
+        image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-init-appdb
+        image_target: quay.io/mongodb/mongodb-enterprise-init-appdb${suffix}
         docker_username: ${quay_prod_username}
         docker_password: ${quay_prod_robot_token}
 
@@ -1988,6 +2073,7 @@ buildvariants:
   tasks:
     # - name: release_ops_manager_rh_connect
     - name: release_operator_rh_connect
+    - name: release_init_rh_connect
 
 - name: release_quay_ubuntu
   display_name: release_quay_ubuntu
@@ -2003,6 +2089,7 @@ buildvariants:
   tasks:
     - name: release_ops_manager_quay
     - name: release_operator_quay
+    - name: release_init_quay
 
 - name: release_quay_ubi
   display_name: release_quay_ubi
@@ -2018,6 +2105,7 @@ buildvariants:
   tasks:
     - name: release_ops_manager_quay
     - name: release_operator_quay
+    - name: release_init_quay
 
 - name: release_blocker
   display_name: release_blocker

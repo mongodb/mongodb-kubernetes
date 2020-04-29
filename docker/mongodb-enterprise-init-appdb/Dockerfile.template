@@ -12,7 +12,7 @@ COPY ./probe_go_mod /build/
 WORKDIR /build
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=386 go build -a -i -o readinessprobe .
 
-FROM busybox
+FROM {{ base_image|default("busybox") }}
 
 ARG VERSION
 
@@ -32,5 +32,8 @@ COPY ./docker_content/probe.sh /probes/
 RUN mkdir /scripts
 COPY ./docker_content/agent-launcher-lib.sh /scripts/
 COPY ./docker_content/agent-launcher.sh /scripts/
+
+RUN mkdir -p /licenses
+COPY ./docker_content/LICENSE /licenses/mongodb-enterprise-appdb
 
 ENTRYPOINT [ "/bin/cp", "-f", "/scripts/agent-launcher.sh", "/scripts/agent-launcher-lib.sh", "/probes/readinessprobe", "/probes/probe.sh", "/opt/scripts/" ]

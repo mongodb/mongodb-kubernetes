@@ -21,16 +21,21 @@ fi
 
 title "Building Init AppDB image (init appdb version: ${init_appdb_version})..."
 
-pushd "${PWD}"
+repository_name="mongodb-enterprise-init-appdb"
+repository_url="${INIT_APPDB_REGISTRY:?}/${IMAGE_TYPE:?}/${repository_name}"
+ensure_ecr_repository "${repository_url}"
 
-if [[ ${REPO_TYPE} = "ecr" ]]; then
-    ensure_ecr_repository "${INIT_APPDB_REGISTRY:?}/mongodb-enterprise-init-appdb"
-fi
+versioned_image="${repository_url}:${init_appdb_version}"
+versioned_image_with_build="${versioned_image}${suffix}"
 
-base_url="${INIT_APPDB_REGISTRY}/mongodb-enterprise-init-appdb"
-version="${init_appdb_version}${suffix}"
-full_url="${base_url}:${version}"
+(
+    [[ "${CLUSTER_TYPE}" = "openshift" ]] && base_image="ubi_minimal" || base_image="busybox"
+    cd docker/mongodb-enterprise-init-appdb
+    ../dockerfile_generator.py init_appdb "${base_image}" > Dockerfile
+)
+
 # needs to be launched from the root for docker to be able to copy the probe directory
-docker build -t "${base_url}" -t "${full_url}" --build-arg VERSION="${init_appdb_version}" -f docker/mongodb-enterprise-init-appdb/Dockerfile .
-docker push "${full_url}"
-title "Init AppDB image successfully built and pushed to ${INIT_APPDB_REGISTRY} registry"
+docker build -t "${versioned_image}" -t "${versioned_image_with_build}" --build-arg VERSION="${init_appdb_version}" -f docker/mongodb-enterprise-init-appdb/Dockerfile .
+docker push "${versioned_image}"
+docker push "${versioned_image_with_build}"
+title "Init AppDB image successfully built and pushed to ${repository_url} registry"
