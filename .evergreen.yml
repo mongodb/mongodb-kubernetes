@@ -771,7 +771,7 @@ tasks:
       vars:
         tag_source: ${version_id}
         tag_dest: '$(git describe --dirty)'
-        image_source: ${ecr_registry}/dev/ubuntu/mongodb-enterprise-operator
+        image_source: ${ecr_registry}/dev/${image_type}/mongodb-enterprise-operator
         image_target: quay.io/mongodb/mongodb-enterprise-operator-prerelease
         docker_username: ${quay_prod_username}
         docker_password: ${quay_prod_robot_token}
@@ -780,7 +780,7 @@ tasks:
       vars:
         tag_source: ${version_id}
         tag_dest: '$(git describe --dirty)'
-        image_source: ${ecr_registry}/dev/ubuntu/mongodb-enterprise-database
+        image_source: ${ecr_registry}/dev/${image_type}/mongodb-enterprise-database
         image_target: quay.io/mongodb/mongodb-enterprise-database-prerelease
         docker_username: ${quay_prod_username}
         docker_password: ${quay_prod_robot_token}
@@ -789,7 +789,7 @@ tasks:
       vars:
         tag_source: ${version_id}
         tag_dest: '$(git describe --dirty)'
-        image_source: ${ecr_registry}/dev/mongodb-enterprise-init-ops-manager
+        image_source: ${ecr_registry}/dev/${image_type}/mongodb-enterprise-init-ops-manager
         image_target: quay.io/mongodb/mongodb-enterprise-init-ops-manager-prerelease
         docker_username: ${quay_prod_username}
         docker_password: ${quay_prod_robot_token}
@@ -798,7 +798,7 @@ tasks:
       vars:
         tag_source: ${version_id}
         tag_dest: '$(git describe --dirty)'
-        image_source: ${ecr_registry}/dev/mongodb-enterprise-init-appdb
+        image_source: ${ecr_registry}/dev/${image_type}/mongodb-enterprise-init-appdb
         image_target: quay.io/mongodb/mongodb-enterprise-init-appdb-prerelease
         docker_username: ${quay_prod_username}
         docker_password: ${quay_prod_robot_token}
@@ -2142,6 +2142,7 @@ buildvariants:
     variant: init_test_run
   expansions:
     docker_registry: quay.io
+    image_type: ubuntu
   tasks:
   - name: prerelease_master_images
 
