@@ -7,23 +7,51 @@ import (
 
 // MergePodSpecs takes all of the values that exist in defaultPodTemplateSpec, and merges them into
 // customPodTemplateSpec. Values that exist in both will not be touched.
+//
+// Important note on merge strategy: we use 'mergo.WithAppendSlice' strategy which means the slices won't be overridden
+// but items will be appended. This seems to be OK in most situations (e.g. metadata.labels, metadata.annotations) as
+// allows to preserve any items set by the Operator. There are some exclusions though: containers, initContainers and
+// affinity.podAntiAffinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution where the logic must be
+// different - it's done manually
 func MergePodSpecs(customPodTemplateSpec corev1.PodTemplateSpec, defaultPodTemplateSpec corev1.PodTemplateSpec) (corev1.PodTemplateSpec, error) {
 	var err error
 	mergedContainers, err := mergeContainers(customPodTemplateSpec.Spec.Containers, defaultPodTemplateSpec.Spec.Containers)
+	if err != nil {
+		return corev1.PodTemplateSpec{}, err
+	}
 	mergedInitContainers, err := mergeContainers(customPodTemplateSpec.Spec.InitContainers, defaultPodTemplateSpec.Spec.InitContainers)
 	if err != nil {
 		return corev1.PodTemplateSpec{}, err
 	}
-	mergedPodTemplateSpec := corev1.PodTemplateSpec{}
-	if err = mergo.Merge(&mergedPodTemplateSpec, defaultPodTemplateSpec); err != nil {
+	mergedAffinity, err := mergeAffinity(customPodTemplateSpec.Spec.Affinity, defaultPodTemplateSpec.Spec.Affinity)
+	if err != nil {
 		return corev1.PodTemplateSpec{}, err
 	}
+	mergedPodTemplateSpec := *defaultPodTemplateSpec.DeepCopy()
 	if err = mergo.Merge(&mergedPodTemplateSpec, customPodTemplateSpec, mergo.WithOverride, mergo.WithAppendSlice); err != nil {
 		return corev1.PodTemplateSpec{}, err
 	}
 	mergedPodTemplateSpec.Spec.Containers = mergedContainers
 	mergedPodTemplateSpec.Spec.InitContainers = mergedInitContainers
+	mergedPodTemplateSpec.Spec.Affinity = mergedAffinity
 	return mergedPodTemplateSpec, nil
+}
+
+// mergeAffinity performs the merge of affinity rules overriding any slices set by the Operator instead of appending,
+// otherwise it will be not possible for the user to override rules (for example the Operator sets the pod anti affinity
+// rule with weight 100 and the second rule may not take over)
+func mergeAffinity(customAffinity *corev1.Affinity, defaultAffinity *corev1.Affinity) (*corev1.Affinity, error) {
+	if defaultAffinity == nil {
+		return customAffinity, nil
+	}
+	if customAffinity == nil {
+		return defaultAffinity, nil
+	}
+	mergedAffinity := defaultAffinity.DeepCopy()
+	if err := mergo.Merge(mergedAffinity, *customAffinity, mergo.WithOverride); err != nil {
+		return nil, err
+	}
+	return mergedAffinity, nil
 }
 
 // mergeContainers merges containers identified by their name

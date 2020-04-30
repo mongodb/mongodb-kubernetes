@@ -287,6 +287,7 @@ func getDefaultPodSpec() corev1.PodTemplateSpec {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-default-name",
 			Namespace: "my-default-namespace",
+			Labels:    map[string]string{"app": "operator"},
 		},
 		Spec: corev1.PodSpec{
 			NodeSelector: map[string]string{
@@ -297,6 +298,26 @@ func getDefaultPodSpec() corev1.PodTemplateSpec {
 			ActiveDeadlineSeconds:         int64Ref(10),
 			Containers:                    []corev1.Container{getDefaultContainer()},
 			InitContainers:                []corev1.Container{initContainer},
+			Affinity:                      affinity("hostname", "default"),
+		},
+	}
+}
+
+func affinity(antiAffinityKey, nodeAffinityKey string) *corev1.Affinity {
+	return &corev1.Affinity{
+		PodAntiAffinity: &corev1.PodAntiAffinity{
+			PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{{
+				PodAffinityTerm: corev1.PodAffinityTerm{
+					TopologyKey: antiAffinityKey,
+				},
+			}},
+		},
+		NodeAffinity: &corev1.NodeAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+				MatchFields: []corev1.NodeSelectorRequirement{{
+					Key: nodeAffinityKey,
+				}},
+			}}},
 		},
 	}
 }
@@ -305,6 +326,9 @@ func getCustomPodSpec() corev1.PodTemplateSpec {
 	initContainer := getCustomContainer()
 	initContainer.Name = "init-container-custom"
 	return corev1.PodTemplateSpec{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{"custom": "some"},
+		},
 		Spec: corev1.PodSpec{
 			NodeSelector: map[string]string{
 				"node-1": "node-1",
@@ -312,9 +336,10 @@ func getCustomPodSpec() corev1.PodTemplateSpec {
 			ServiceAccountName:            "my-service-account-override",
 			TerminationGracePeriodSeconds: int64Ref(11),
 			NodeName:                      "my-node-name",
-			RestartPolicy:                 corev1.RestartPolicy("Always"),
+			RestartPolicy:                 corev1.RestartPolicyAlways,
 			Containers:                    []corev1.Container{getCustomContainer()},
 			InitContainers:                []corev1.Container{initContainer},
+			Affinity:                      affinity("zone", "custom"),
 		},
 	}
 }
@@ -401,6 +426,17 @@ func TestMergePodSpecsBoth(t *testing.T) {
 		assert.Len(t, mergedPodTemplateSpec.Spec.InitContainers, 2)
 		assert.Equal(t, "init-container-default", mergedPodTemplateSpec.Spec.InitContainers[0].Name)
 		assert.Equal(t, "init-container-custom", mergedPodTemplateSpec.Spec.InitContainers[1].Name)
+
+		// ensure labels were appended
+		assert.Len(t, mergedPodTemplateSpec.Labels, 2)
+		assert.Contains(t, mergedPodTemplateSpec.Labels, "app")
+		assert.Contains(t, mergedPodTemplateSpec.Labels, "custom")
+
+		// ensure the pointers are not the same
+		assert.NotEqual(t, mergedPodTemplateSpec.Spec.Affinity, defaultPodSpec.Spec.Affinity)
+
+		// ensure the affinity rules slices were overridden
+		assert.Equal(t, affinity("zone", "custom"), mergedPodTemplateSpec.Spec.Affinity)
 	}
 }
 

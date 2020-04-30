@@ -2,6 +2,7 @@ package statefulset
 
 import (
 	"fmt"
+
 	"github.com/imdario/mergo"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -66,7 +67,7 @@ func mergeStatefulSetSpec(defaultStatefulSetSpec appsv1.StatefulSetSpec, overrid
 		return appsv1.StatefulSetSpec{}, fmt.Errorf("error merging volume claim templates: %v", err)
 	}
 
-	if err := mergo.Merge(&defaultStatefulSetSpec, overrideStatefulSetSpec, mergo.WithOverride); err != nil {
+	if err = mergo.Merge(&defaultStatefulSetSpec, overrideStatefulSetSpec, mergo.WithOverride); err != nil {
 		return appsv1.StatefulSetSpec{}, fmt.Errorf("error merging statefulsets: %v", err)
 	}
 	defaultStatefulSetSpec.Template = mergedPodSpecTemplate
