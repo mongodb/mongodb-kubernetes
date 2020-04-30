@@ -67,22 +67,18 @@ if echo "${TASK_NAME}" | grep -E -q "^e2e_op_upgrade"; then
 
     checkout_latest_official_branch
 
+    # This installation procedure must match our docs in https://docs.mongodb.com/kubernetes-operator/stable/tutorial/install-k8s-operator/
     # TODO add support for quay.io UBI images as well
-    # FIXME: Registry overridden for ugrade (operator, ops manager, init ops
-    # manager), need to check if we can avoid quay?
-    # FIXME: once quay has init images will be updated
-    # If the version of the Operator to upgrade from not specified then we
-    # assume it's the latest
-    if ! deploy_operator \
-        "quay.io/mongodb" \
-        "${ops_manager_init_registry}" \
-        "${appdb_init_registry}" \
-        "${PROJECT_NAMESPACE}" \
-        "${OPERATOR_VERSION_UPGRADE_FROM:-"latest"}" \
-        "${WATCH_NAMESPACE:-$PROJECT_NAMESPACE}" \
-        "Always" \
-        "${MANAGED_SECURITY_CONTEXT:-}" \
-        "2m"
+    tmp_file=$(mktemp)
+    helm template --set namespace="${PROJECT_NAMESPACE}" \
+        --set operator.env=dev \
+        --set managedSecurityContext="${MANAGED_SECURITY_CONTEXT:-false}" \
+        helm_chart > "${tmp_file}" -- values helm_chart/values.yaml
+
+    kubectl apply -f "${tmp_file}"
+    rm "${tmp_file}"
+
+    if ! wait_for_operator_start "${PROJECT_NAMESPACE}"
     then
         echo "Operator failed to start"
         exit 1
@@ -105,8 +101,8 @@ fi
 
 # 5. Main test run. In case of Operator upgrade this will be the second test run and
 # the Operator won't be removed - only upgraded
-
-if ! deploy_operator \
+# shellcheck disable=SC2153
+deploy_operator \
     "${REGISTRY}" \
     "${ops_manager_init_registry}" \
     "${appdb_init_registry}" \
@@ -115,7 +111,8 @@ if ! deploy_operator \
     "${WATCH_NAMESPACE:-$PROJECT_NAMESPACE}" \
     "Always" \
     "${MANAGED_SECURITY_CONTEXT:-}" \
-    "2m"
+
+if ! wait_for_operator_start "${PROJECT_NAMESPACE}"
 then
     echo "Operator failed to start"
     exit 1

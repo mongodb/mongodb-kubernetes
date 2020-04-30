@@ -194,9 +194,8 @@ deploy_operator() {
     local watch_namespace="${6:-$ns}"
     local pull_policy="${7:-Always}"
     local managed_security_context="${8:-false}"
-    local timeout="${9:-1m}"
-    local om_repository="${10:-quay.io/mongodb}"
-    local appdb_repository="${11:-quay.io/mongodb}"
+    local om_repository="${9:-quay.io/mongodb}"
+    local appdb_repository="${10:-quay.io/mongodb}"
 
     # should we pass init_om_version to the script to avoid having evg env variable leak in here?
     [[ -z "${init_om_version:-}" ]] && init_om_version="${version_id:-latest}"
@@ -250,7 +249,12 @@ deploy_operator() {
     echo "Deploying Operator"
     kubectl apply -f "${tmp_file}"
     rm "${tmp_file}"
+}
 
+# wait_for_operator waits for the Operator to start
+wait_for_operator_start() {
+    local ns="$1"
+    local timeout="${2:-2m}"
     echo "Waiting until the Operator gets to Running state..."
     export OPERATOR_NAME
 

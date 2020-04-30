@@ -49,8 +49,14 @@ deploy_operator \
     "${REPO_URL:?}" \
     "${INIT_OPS_MANAGER_REGISTRY:?}" \
     "${INIT_APPDB_REGISTRY:?}" \
-    "${NAMESPACE:-mongodb}" \
+    "${NAMESPACE}" \
     "${OPERATOR_VERSION:-latest}" \
     "${watch_namespace:-$NAMESPACE}" \
     "${pull_policy:-}" \
     "${managed_security_context:-}"
+
+if ! wait_for_operator_start "${NAMESPACE}" "1m"
+then
+    echo "Operator failed to start"
+    exit 1
+fi
