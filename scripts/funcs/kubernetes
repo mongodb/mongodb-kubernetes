@@ -188,14 +188,15 @@ deploy_operator() {
     local registry_url="$1"
     local init_om_registry="$2"
     local init_appdb_registry="$3"
-    local ns="$4"
+    local om_repository="$4"
+    local appdb_repository="${5}"
+    local ns="$6"
     # optional fields
-    local version="${5:-latest}"
-    local watch_namespace="${6:-$ns}"
-    local pull_policy="${7:-Always}"
-    local managed_security_context="${8:-false}"
-    local om_repository="${9:-quay.io/mongodb}"
-    local appdb_repository="${10:-quay.io/mongodb}"
+    local version="${7:-latest}"
+    local watch_namespace="${8:-$ns}"
+    local pull_policy="${9:-Always}"
+    local managed_security_context="${10:-false}"
+
 
     # should we pass init_om_version to the script to avoid having evg env variable leak in here?
     [[ -z "${init_om_version:-}" ]] && init_om_version="${version_id:-latest}"
@@ -214,7 +215,6 @@ deploy_operator() {
     helm_params=(
          "--set" "registry.operator=${registry_url}"
          "--set" "registry.opsManager=${om_repository}"
-         "--set" "registry.initOpsManager=${init_om_registry}"
          "--set" "registry.initOpsManager=${init_om_registry}"
          "--set" "registry.appDb=${appdb_repository}"
          "--set" "registry.initAppDb=${init_appdb_registry}"

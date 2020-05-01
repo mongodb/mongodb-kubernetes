@@ -101,16 +101,17 @@ fi
 
 # 5. Main test run. In case of Operator upgrade this will be the second test run and
 # the Operator won't be removed - only upgraded
-# shellcheck disable=SC2153
 deploy_operator \
     "${REGISTRY}" \
     "${ops_manager_init_registry}" \
     "${appdb_init_registry}" \
+    "${OPS_MANAGER_REGISTRY}" \
+    "${APPDB_REGISTRY:?}" \
     "${PROJECT_NAMESPACE}" \
     "${version_id:?}" \
     "${WATCH_NAMESPACE:-$PROJECT_NAMESPACE}" \
     "Always" \
-    "${MANAGED_SECURITY_CONTEXT:-}" \
+    "${MANAGED_SECURITY_CONTEXT:-}"
 
 if ! wait_for_operator_start "${PROJECT_NAMESPACE}"
 then
