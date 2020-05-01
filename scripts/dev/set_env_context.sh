@@ -3,35 +3,37 @@
 set -Eeou pipefail
 
 # script prepares environment variables relevant for the current context
-# If it's run locally ($IN_MEMORY_CONTEXT is defined) then the context variables
-# are read from ~/.operator_dev/contexts/$current_context
+# If it's run locally ($IN_MEMORY_CONTEXT is not defined) then the context variables
+# are read from ~/.operator_dev/context
 
-cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
+cd "$(git rev-parse --show-toplevel)"
 
+# shellcheck disable=1091
 source scripts/funcs/errors
 
 if [[ -z "${IN_MEMORY_CONTEXT-}" ]]; then
     # Reading context file
     readonly root_dir="$HOME/.operator-dev"
-    readonly context_file="$root_dir/current"
+    readonly context_file="$root_dir/context"
+
+    if [[ -f "${root_dir}/current" ]] && [[ ! -f ${context_file} ]]; then
+        # Transform old 'current' file into sumbolic link
+        # shellcheck disable=SC2086
+        ln -s "${root_dir}/contexts/$(<"${root_dir}/current")" "${context_file}"
+    fi
 
     if [[ ! -f ${context_file} ]]; then
-        fatal "File \"${context_file}\" not found! You must init development environment using \"make init\" first"
+        fatal "File ${context_file} not found! You must init development environment using 'make init' first."
     fi
-
-    context=$(cat "${context_file}")
-
-    if [[ ! -f ${root_dir}/contexts/${context} ]]; then
-        fatal "Configuration file \"${root_dir}/contexts/${context}\" not found!"
-    fi
-
 
     # reading the 'om' file first and then the context file - this will allow to use custom connectivity parameters
     if [[ -f ${root_dir}/om ]]; then
-        eval "$(cat "${root_dir}/om")"
+        # shellcheck disable=SC1090
+        source "${root_dir}/om"
     fi
 
-    eval "$(cat "${root_dir}"/contexts/"${context}")"
+    # shellcheck disable=SC1090
+    source "${context_file}"
 
     # LOCAL_RUN indicates that the make script is run locally. This may affect different build/deploy decisions
     export LOCAL_RUN=true
@@ -39,8 +41,9 @@ if [[ -z "${IN_MEMORY_CONTEXT-}" ]]; then
     # for local run
     export version_id="latest"
 else
-    echo "Skipping reading context file. Note that all the configuration information\
-         (REPO_URL, CLUSTER_TYPE) must be provided as environment variables!"
+    echo "Skipping reading context file."
+    echo "Note that all the configuration information \
+        (REPO_URL, CLUSTER_TYPE) must be provided as environment variables!"
 
     # LOCAL_RUN=false indicates that the make script is run by Evergreen. This may affect different build/deploy decisions
     export LOCAL_RUN=false
@@ -67,6 +70,9 @@ fi
 export NAMESPACE=${NAMESPACE:-mongodb}
 
 if [[ -z "${IN_MEMORY_CONTEXT-}" ]]; then
-    export OPERATOR_DIR=${root_dir}
-    export CURRENT_CONTEXT=${context}
+    OPERATOR_DIR="${root_dir}"
+    CURRENT_CONTEXT="$(readlink "${context_file}")"
+
+    export OPERATOR_DIR
+    export CURRENT_CONTEXT
 fi

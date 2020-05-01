@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -Eeou pipefail
 
-cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
+cd "$(git rev-parse --show-toplevel)"
 
-source scripts/dev/read_context
-
+source scripts/dev/read_context.sh
 source scripts/funcs/kubernetes
 source scripts/funcs/printing
 
@@ -20,7 +19,9 @@ kubectl delete mdb --all -n "${NAMESPACE}" || true
 kubectl delete mdbu --all -n "${NAMESPACE}" || true
 
 # Hack: remove the statefulset for backup daemon first - otherwise it may get stuck on removal if AppDB is removed first
-kubectl delete $(kubectl get sts -o name -n "${NAMESPACE}" | grep "backup-daemon") 2>/dev/null || true
+kubectl delete "$(kubectl get sts -o name -n "${NAMESPACE}" | grep "backup-daemon")" 2>/dev/null || true
+
+# shellcheck disable=SC2016,SC2086
 timeout "30s" bash -c \
           'while [[ $(kubectl -n '${NAMESPACE}' get pods | grep "backup-daemon-0" | wc -l) -gt 0 ]]; do sleep 1; done' \
            || echo "Warning: failed to remove backup daemon statefulset"
@@ -28,7 +29,7 @@ timeout "30s" bash -c \
 kubectl delete opsmanager --all -n "${NAMESPACE}" || true
 kubectl delete pvc --all -n "${NAMESPACE}"
 
-kubectl delete $(kubectl get csr -o name | grep ${NAMESPACE}) 2>/dev/null || true
+kubectl delete "$(kubectl get csr -o name | grep "${NAMESPACE}")" 2>/dev/null || true
 
 kubectl delete secrets --all -n "${NAMESPACE}"
 kubectl delete svc --all -n "${NAMESPACE}"

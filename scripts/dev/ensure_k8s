@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -Eeou pipefail
 
 # script checks if kubectl has the matching contexts - if not - then tries to create Kube cluster
 
 cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
-source scripts/dev/read_context
+source scripts/dev/read_context.sh
 source scripts/funcs/checks
 source scripts/funcs/kubernetes
 source scripts/funcs/printing
@@ -24,7 +24,7 @@ if [[ ${CLUSTER_TYPE} = "kops" ]] && ! kops validate cluster "${CLUSTER_NAME}" ;
 
 	echo "Kops cluster \"${CLUSTER_NAME}\" doesn't exist"
 
-	create_kops_cluster ${CLUSTER_NAME} 3 16 "t2.large" "t2.small" "${KOPS_ZONES:-us-east-2a,us-east-2b,us-east-2c}"
+	create_kops_cluster "${CLUSTER_NAME}" 3 16 "t2.large" "t2.small" "${KOPS_ZONES:-us-east-2a,us-east-2b,us-east-2c}"
 
 elif [[ ${CLUSTER_TYPE} = "openshift" ]]; then
 	echo "openshift is TODO"
@@ -35,7 +35,7 @@ elif [[ ${CLUSTER_TYPE} = "kind" ]]; then
 
   ecr_registry="268558157000.dkr.ecr.us-east-1.amazonaws.com"
   scripts/dev/setup_kind "${ecr_registry}"
-  kind create cluster --config $HOME/.operator-dev/kind-ecr-config.yaml
+  kind create cluster --config "$HOME/.operator-dev/kind-ecr-config.yaml"
 fi
 
-title "Kubernetes cluster \"${CLUSTER_NAME}\" is up"
+title "Kubernetes cluster ${CLUSTER_NAME} is up"

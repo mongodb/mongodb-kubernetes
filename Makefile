@@ -67,7 +67,7 @@ init:
 	@ echo "Now you need to switch to a context"
 
 switch:
-	@ scripts/dev/switch_context $(context)
+	@ scripts/dev/switch_context.sh $(context)
 
 # prints all current contexts
 contexts:
@@ -100,7 +100,7 @@ om-evg:
 	@ scripts/dev/ensure_ops_manager_evg $(url)
 
 log:
-	@ . scripts/dev/read_context
+	@ . scripts/dev/read_context.sh
 	@ kubectl logs -f deployment/mongodb-enterprise-operator --tail=1000
 
 # runs the e2e test: make e2e test=e2e_sharded_cluster_pv. The Operator is redeployed before the test, the namespace is cleaned.

@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -Eeou pipefail
 
-cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
+cd "$(git rev-parse --show-toplevel)"
 
 # TODO replace in favour of 'evergreen/e2e/configure_operator'
-source scripts/dev/set_env_context
-
+source scripts/dev/set_env_context.sh
 source scripts/funcs/kubernetes
 source scripts/funcs/printing
 
@@ -23,8 +22,8 @@ if [[ -z ${OM_HOST} ]]; then
     echo "(Ignore this if you are working with MongoDBOpsManager custom resource)"
 else
     config_map_name="my-project"
-    kubectl delete configmap ${config_map_name} -n ${NAMESPACE} 2>/dev/null || true
-    kubectl create configmap ${config_map_name} --from-literal orgId="${OM_ORGID-}" --from-literal projectName=${NAMESPACE} --from-literal baseUrl=${OM_HOST} -n ${NAMESPACE}
+    kubectl delete configmap ${config_map_name} -n "${NAMESPACE}" 2>/dev/null || true
+    kubectl create configmap ${config_map_name} --from-literal orgId="${OM_ORGID-}" --from-literal "projectName=${NAMESPACE}" --from-literal "baseUrl=${OM_HOST}" -n "${NAMESPACE}"
 fi
 
 if [[ -z ${OM_USER} ]] || [[ -z ${OM_API_KEY} ]]; then
@@ -34,19 +33,20 @@ if [[ -z ${OM_USER} ]] || [[ -z ${OM_API_KEY} ]]; then
     echo "(Ignore this if you are working with MongoDBOpsManager custom resource)"
 else
     secret_name="my-credentials"
-    kubectl delete secret ${secret_name} -n ${NAMESPACE} 2>/dev/null || true
-    kubectl create secret generic ${secret_name}  --from-literal=user=${OM_USER} --from-literal=publicApiKey=${OM_API_KEY} -n ${NAMESPACE}
+    kubectl delete secret ${secret_name} -n "${NAMESPACE}" 2>/dev/null || true
+    kubectl create secret generic ${secret_name}  --from-literal=user="${OM_USER}" --from-literal=publicApiKey="${OM_API_KEY}" -n "${NAMESPACE}"
 fi
 
 # this is the secret for OpsManager CR
 om_admin_secret="ops-manager-admin-secret"
-kubectl delete secret ${om_admin_secret} -n ${NAMESPACE} 2>/dev/null || true
-kubectl create secret generic ${om_admin_secret}  --from-literal=Username="jane.doe@example.com" --from-literal=Password="Passw0rd."  --from-literal=FirstName="Jane" --from-literal=LastName="Doe" -n ${NAMESPACE}
+kubectl delete secret ${om_admin_secret} -n "${NAMESPACE}" 2>/dev/null || true
+kubectl create secret generic ${om_admin_secret}  --from-literal=Username="jane.doe@example.com" --from-literal=Password="Passw0rd."  --from-literal=FirstName="Jane" --from-literal=LastName="Doe" -n "${NAMESPACE}"
 
 if [[ -n "${ecr_registry_needs_auth-}" ]]; then
 	# Need to configure ECR Pull Secrets!
     docker_config=$(mktemp)
-    scripts/dev/configure_docker "${ecr_registry}" > "${docker_config}"
+
+    scripts/dev/configure_docker "${ecr_registry-}" > "${docker_config}"
 
     echo "Creating pull secret from docker configured file"
     oc -n "${PROJECT_NAMESPACE}" create secret generic "${ecr_registry_needs_auth}" \

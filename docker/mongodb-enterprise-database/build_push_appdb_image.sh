@@ -2,10 +2,9 @@
 set -Eeou pipefail
 set -x
 
-git_root="$(git rev-parse --show-toplevel)"
-cd "${git_root}"
+cd "$(git rev-parse --show-toplevel)"
 
-source scripts/dev/set_env_context
+source scripts/dev/set_env_context.sh
 source scripts/funcs/checks
 source scripts/funcs/errors
 source scripts/funcs/kubernetes
