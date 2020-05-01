@@ -8,8 +8,7 @@ if [[ -n "${KUBECONFIG:-}" && ! -f "${KUBECONFIG}" ]]; then
     exit 1
 fi
 
-set -euo pipefail
-cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)" || exit 1
+cd "$(git rev-parse --show-toplevel)"
 
 source scripts/funcs/checks
 source scripts/funcs/kubernetes
@@ -47,7 +46,7 @@ ensure_namespace "${PROJECT_NAMESPACE}"
 . scripts/evergreen/e2e/fetch_om_information
 
 # 3. Configure Operator resources
-. scripts/evergreen/e2e/configure_operator
+. scripts/evergreen/e2e/configure_operator.sh
 
 export TEST_NAME="${TASK_NAME:?}"
 delete_operator "${PROJECT_NAMESPACE}"
@@ -134,6 +133,7 @@ task_timeout=$(get_timeout_for_task "${TASK_NAME:?}")
 
 timeout_sec=$((task_timeout - elapsed_time - 60))
 echo "This task is allowed to run for ${timeout_sec} seconds"
+TEST_RESULTS=0
 timeout --foreground "${timeout_sec}" scripts/evergreen/e2e/single_e2e || TEST_RESULTS=$?
 
 # Dump all the information we can from this namespace
@@ -154,4 +154,4 @@ else
 fi
 
 # We exit with the test result to surface status to Evergreen.
-exit $TEST_RESULTS
+exit ${TEST_RESULTS}
