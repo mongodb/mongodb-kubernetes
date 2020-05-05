@@ -37,13 +37,14 @@ func createWebhookService(client client.Client, location types.NamespacedName, w
 
 	// create the service if it doesn't already exist
 	existingService := &corev1.Service{}
-	if err := client.Get(context.TODO(), location, existingService); apiErrors.IsNotFound(err) {
-		if client.Create(context.Background(), &svc) != nil {
-			return err
-		}
+	err := client.Get(context.TODO(), location, existingService)
+	if apiErrors.IsNotFound(err) {
+		return client.Create(context.Background(), &svc)
+	} else if err != nil {
+		return err
 	}
 
-	// resource version and cluster IP must be current so update them
+	// Update existing client with resource version and cluster IP
 	svc.ResourceVersion = existingService.ResourceVersion
 	svc.Spec.ClusterIP = existingService.Spec.ClusterIP
 	return client.Update(context.Background(), &svc)
