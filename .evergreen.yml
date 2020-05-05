@@ -667,33 +667,6 @@ tasks:
         image_target: scan.connect.redhat.com/ospid-db689935-fcb9-4bf9-a076-d3c480525524/mongodb-enterprise-init-appdb
         docker_password: ${rhc_init_appdb_pid}
 
-- name: release_ops_manager_quay
-  commands:
-    - func: clone
-    - func: guard_git_repo_is_clean
-    - func: setup_jq
-    - func: setup_ecr_login_helper
-
-    # pushing init ops manager image at the same time as operator release for now
-    - func: release_docker_image_to_registry
-      vars:
-        tag_source: '$(jq --raw-output ".initOpsManagerVersion" < release.json)'
-        tag_dest: '$(jq --raw-output ".initOpsManagerVersion" < release.json)'
-        image_source: ${ecr_registry}/dev/mongodb-enterprise-init-ops-manager
-        image_target: quay.io/mongodb/mongodb-enterprise-init-ops-manager
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
-
-    # pushing init appdb image at the same time as operator release for now
-    - func: release_docker_image_to_registry
-      vars:
-        tag_source: '$(jq --raw-output ".initAppDbVersion" < release.json)'
-        tag_dest: '$(jq --raw-output ".initAppDbVersion" < release.json)'
-        image_source: ${ecr_registry}/dev/mongodb-enterprise-init-appdb
-        image_target: quay.io/mongodb/mongodb-enterprise-appdb
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
-
 - name: release_operator_quay
   commands:
     - func: clone
@@ -2089,7 +2062,6 @@ buildvariants:
     distro: ubuntu
     suffix: ""
   tasks:
-    - name: release_ops_manager_quay
     - name: release_operator_quay
     - name: release_init_quay
 
@@ -2105,7 +2077,6 @@ buildvariants:
     distro: rhel
     suffix: -ubi
   tasks:
-    - name: release_ops_manager_quay
     - name: release_operator_quay
     - name: release_init_quay
 
