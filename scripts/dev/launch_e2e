@@ -2,7 +2,6 @@
 
 set -Eeou pipefail
 
-cd "$(git rev-parse --show-toplevel)"
 
 # The script launches e2e test. Note, that the Operator and necessary resources are deployed
 # inside the test

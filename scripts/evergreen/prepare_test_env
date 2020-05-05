@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-
-set -euo pipefail
+set -Eeou pipefail
 
 KUBECONFIG_SAVED="${KUBECONFIG}"
 unset KUBECONFIG
@@ -13,10 +12,6 @@ fi
 
 KUBECONFIG="${KUBECONFIG_SAVED}"
 export KUBECONFIG
-
-# This trick comes from https://stackoverflow.com/a/4774063/222470
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-cd "$(${DIR}/../gitroot)"
 
 source scripts/funcs/kubernetes
 
@@ -43,7 +38,7 @@ fix_env() {
     # Note, that these volumes will be removed from EBS eventually (during a couple of hours), most of all they are stuck
     # in attaching - this results in nodes getting taints "NoSchedule"
     for v in $(kubectl get pv -o=custom-columns=NAME:.metadata.name,status:.status.phase | grep Failed | awk '{ print $1 }'); do
-        kubectl delete pv ${v}
+        kubectl delete pv "${v}"
     done
 }
 

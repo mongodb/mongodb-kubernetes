@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -Eeou pipefail
 
-cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
 # Only create ECR credentials (as a Secret object) when the passed parameters have changed from
 # what is stored in the currently existing aws-secret Secret object.

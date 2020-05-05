@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -Eeou pipefail
 
 ##
 ## The script deploys a single test application and waits until it finishes.
 ## All the Operator deployment, configuration and teardown work is done in 'e2e' script
 ##
 
-cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 source scripts/funcs/checks
 source scripts/funcs/printing
 
@@ -75,7 +74,6 @@ test_app_ended() {
 # Will run the test application and wait for its completion.
 run_tests() {
     local task_name=${1}
-    local timeout=${2}
 
     TEST_APP_PODNAME=mongodb-enterprise-operator-tests
 

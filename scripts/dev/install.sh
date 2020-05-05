@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-
-set -euo pipefail
-
-cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
+set -Eeou pipefail
 
 source scripts/funcs/printing
 

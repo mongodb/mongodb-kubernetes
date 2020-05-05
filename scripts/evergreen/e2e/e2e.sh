@@ -8,8 +8,6 @@ if [[ -n "${KUBECONFIG:-}" && ! -f "${KUBECONFIG}" ]]; then
     exit 1
 fi
 
-cd "$(git rev-parse --show-toplevel)"
-
 source scripts/funcs/checks
 source scripts/funcs/kubernetes
 source scripts/funcs/printing

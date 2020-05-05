@@ -1,31 +1,31 @@
 #!/usr/bin/env bash
 set -Eeou pipefail
 
-cd "$(git rev-parse --show-toplevel)"
 
 source scripts/dev/set_env_context.sh
 source scripts/funcs/kubernetes
 source scripts/funcs/printing
 
 build_and_push() {
-    pushd docker/mongodb-enterprise-operator 2> /dev/null
-
     local debug_flag=${DEBUG:+"--debug"}
     local manifest_version
     local repo_name
-    manifest_version=$(jq --raw-output .appDbBundle.mongodbVersion < ../../release.json | cut  -d. -f-2)
+    manifest_version=$(jq --raw-output .appDbBundle.mongodbVersion < release.json | cut  -d. -f-2)
     repo_name="$(echo "${full_url}" | cut -d "/" -f2-)" # cutting the domain part
 
     # (debug_flag doesn't work with double quotes)
     # shellcheck disable=SC2086
-    ../dockerfile_generator.py operator "${IMAGE_TYPE}" ${debug_flag} > Dockerfile
-    ../../scripts/build/build_operator || (../../scripts/build/prepare_build_environment && ../../scripts/build/build_operator)
-	docker build --build-arg MANIFEST_VERSION="${manifest_version}" -t "${repo_name}" .
-	docker tag "${repo_name}" "${full_url}"
-	docker push "${full_url}"
+    (cd docker/mongodb-enterprise-operator && ../dockerfile_generator.py operator "${IMAGE_TYPE}" ${debug_flag} > Dockerfile)
+    scripts/build/build_operator || (scripts/build/prepare_build_environment && scripts/build/build_operator)
 
-	popd 2> /dev/null
+    (
+        cd docker/mongodb-enterprise-operator
+        docker build --build-arg MANIFEST_VERSION="${manifest_version}" -t "${repo_name}" .
+        docker tag "${repo_name}" "${full_url}"
+        docker push "${full_url}"
+    )
 }
+
 export DEBUG="${1-}"
 
 title "Building Operator image... (debug: ${DEBUG:-'false'})"

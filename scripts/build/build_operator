@@ -4,7 +4,6 @@ set -o nounset
 set -o errexit
 set -Eeou pipefail
 
-cd "$(git rev-parse --show-toplevel)"
 
 # --dirty to flag changes to your working tree
 RELEASE_VERSION=$(git describe --dirty)

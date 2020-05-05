@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 
+set -Eeou pipefail
+
 # Opens Kubernetes dashboard
 # todo for some reasons the convenient way of accessing https://api.e2e.mongokubernetes.com/ui
 # as recommended in https://github.com/kubernetes/kops/blob/master/docs/addons.md#dashboard didn't work out...
 # so using 'kubectl proxy' approach
-
-set -euo pipefail
-
-cd "$(git rev-parse --show-toplevel || echo "Failed to find git root"; exit 1)"
 
 
 if ! lsof -i -P -n | grep LISTEN | grep -q 8001; then
@@ -26,7 +24,7 @@ open_web_location () {
     fi
 }
 
-secret=$(kubectl get secret -n default $(kubectl get serviceaccount dashboard -n default -o jsonpath="{.secrets[0].name}") -o jsonpath="{.data.token}" | base64 --decode)
+secret=$(kubectl get secret -n default "$(kubectl get serviceaccount dashboard -n default -o jsonpath="{.secrets[0].name}")" -o jsonpath="{.data.token}" | base64 --decode)
 
 if [[ -z "${secret}" ]]; then
   echo "Secret was not found!"
@@ -35,7 +33,7 @@ fi
 
 if [ "$(uname)" = "Linux" ]; then
     if which xclip &> /dev/null; then
-        echo $secret | xclip -selection clipboard
+        echo "$secret" | xclip -selection clipboard
         echo "The login token is copied to clipboard - use it to login to the dashboard"
     else
         echo "Use this password to access the dashboard: $secret"

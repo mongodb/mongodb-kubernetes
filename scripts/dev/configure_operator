@@ -2,7 +2,6 @@
 
 set -Eeou pipefail
 
-cd "$(git rev-parse --show-toplevel)"
 
 # TODO replace in favour of 'evergreen/e2e/configure_operator'
 source scripts/dev/set_env_context.sh

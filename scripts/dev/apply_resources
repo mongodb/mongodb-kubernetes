@@ -4,7 +4,6 @@ set -Eeou pipefail
 
 # script checks if kubectl has the matching contexts - if not - then tries to create Kube cluster
 
-cd "$(git rev-parse --show-toplevel)"
 
 source scripts/dev/read_context.sh
 source scripts/funcs/printing

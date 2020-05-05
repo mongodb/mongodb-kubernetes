@@ -2,7 +2,6 @@
 
 set -Eeou pipefail
 
-cd "$(git rev-parse --show-toplevel)"
 
 source scripts/dev/set_env_context.sh
 source scripts/funcs/errors

@@ -6,7 +6,6 @@ set -Eeou pipefail
 # directory for# later usage
 
 
-cd "$(git rev-parse --show-toplevel)"
 
 source scripts/funcs/checks
 source scripts/funcs/printing

@@ -6,7 +6,6 @@ set -Eeou pipefail
 # If it's run locally ($IN_MEMORY_CONTEXT is not defined) then the context variables
 # are read from ~/.operator_dev/context
 
-cd "$(git rev-parse --show-toplevel)"
 
 # shellcheck disable=1091
 source scripts/funcs/errors

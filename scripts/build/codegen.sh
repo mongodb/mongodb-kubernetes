@@ -3,8 +3,7 @@
 set -euo pipefail
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-pushd "${DIR}" &> /dev/null
-cd "$(../gitroot)/vendor/k8s.io/code-generator"
+cd "vendor/k8s.io/code-generator"
 
 ROOT_PACKAGE="github.com/10gen/ops-manager-kubernetes"
 
