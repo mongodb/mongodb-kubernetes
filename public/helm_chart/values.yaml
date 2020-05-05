@@ -18,6 +18,12 @@ operator:
   # Version of mongodb-enterprise-operator and mongodb-enterprise-database images
   version: 1.5.1
 
+  # The Custom Resources that will be watched by the Operator. Needs to be changed if only some of the CRDs are installed
+  watchedResources:
+    - mongodb
+    - opsmanagers
+    - mongodbusers
+
 database:
   name: mongodb-enterprise-database
 

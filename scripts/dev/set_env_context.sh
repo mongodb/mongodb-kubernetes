@@ -65,6 +65,8 @@ fi
 
 # Appending image type (ubuntu/rhel) to the registry url (unless it's already appended)
 [[ "$REPO_URL" != *${IMAGE_TYPE} ]] && export REPO_URL=${REPO_URL}/${IMAGE_TYPE}
+[[ -z "${OPS_MANAGER_REGISTRY-}" ]] && export OPS_MANAGER_REGISTRY="quay.io/mongodb"
+[[ -z "${APPDB_REGISTRY-}" ]] && export APPDB_REGISTRY="quay.io/mongodb"
 
 export NAMESPACE=${NAMESPACE:-mongodb}
 
