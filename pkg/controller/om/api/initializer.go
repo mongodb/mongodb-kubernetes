@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"net/http"
 )
 
 // This is a separate om functionality needed for OM controller
@@ -75,13 +74,13 @@ func (o *DefaultInitializer) TryCreateUser(omUrl string, user *User) (string, er
 		}
 	}
 
-	if resp.StatusCode == http.StatusOK {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		apiError := parseAPIError(resp.StatusCode, "post", omUrl, body)
 		return "", apiError
 	}
 
 	u := &UserKeys{}
-	if err := json.Unmarshal(body, u); err != nil {
+	if err = json.Unmarshal(body, u); err != nil {
 		return "", err
 	}
 	return u.ApiKey, nil

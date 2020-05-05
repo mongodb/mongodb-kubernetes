@@ -188,6 +188,9 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def get_replicas(self) -> int:
         return self["spec"]["replicas"]
 
+    def get_admin_secret_name(self) -> str:
+        return self["spec"]["adminCredentials"]
+
     def get_status(self) -> Optional:
         if "status" not in self:
             return None

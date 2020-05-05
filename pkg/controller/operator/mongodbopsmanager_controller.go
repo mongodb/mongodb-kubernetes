@@ -456,7 +456,9 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager mdbv1.MongoDBOpsManag
 	if apiErrors.IsNotFound(err) {
 		apiKey, err := r.omInitializer.TryCreateUser(opsManager.CentralURL(), user)
 		if err != nil {
-			return workflow.Failed("failed to create an admin user in Ops Manager: %s", err), nil
+			// Will wait more than usual (10 seconds) as most of all the problem needs to get fixed by the user
+			// by modifying the credentials secret
+			return workflow.Failed("failed to create an admin user in Ops Manager: %s", err).WithRetry(30), nil
 		}
 
 		// Recreate an admin key secret in the Operator namespace if the user was created
@@ -474,7 +476,7 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager mdbv1.MongoDBOpsManag
 			if err = r.kubeHelper.createSecret(adminKeySecretName, secretData, map[string]string{}, &opsManager); err != nil {
 				// TODO see above
 				return workflow.Failed("failed to create a secret for admin public api key. %s. The error : %s",
-					detailedMsg, err).WithRetry(300), nil
+					detailedMsg, err).WithRetry(30), nil
 			}
 			log.Infof("Created a secret for admin public api key %s", adminKeySecretName)
 
@@ -490,7 +492,7 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager mdbv1.MongoDBOpsManag
 	_, err = r.kubeHelper.readSecret(adminKeySecretName)
 	if err != nil {
 		return workflow.Failed("admin API key secret for Ops Manager doesn't exit - was it removed accidentally? %s. The error : %s",
-			detailedMsg, err).WithRetry(300), nil
+			detailedMsg, err).WithRetry(30), nil
 	}
 	cred, err := r.kubeHelper.readCredentials(operatorNamespace(), opsManager.APIKeySecretName())
 	if err != nil {
