@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cast"
@@ -13,11 +14,14 @@ import (
 )
 
 const (
-	agentHealthStatusFilePath = "/var/log/mongodb-mms-automation/agent-health-status.json"
-	appDBAutomationConfigKey  = "cluster-config.json"
-	podNamespaceEnv           = "POD_NAMESPACE"
-	automationConfigMapEnv    = "AUTOMATION_CONFIG_MAP"
-	headlessAgent             = "HEADLESS_AGENT"
+	defaultAgentHealthStatusFilePath = "/var/log/mongodb-mms-automation/agent-health-status.json"
+	defaultLogPath                   = "/var/log/mongodb-mms-automation/readiness.log"
+	appDBAutomationConfigKey         = "cluster-config.json"
+	podNamespaceEnv                  = "POD_NAMESPACE"
+	automationConfigMapEnv           = "AUTOMATION_CONFIG_MAP"
+	headlessAgent                    = "HEADLESS_AGENT"
+	agentHealthStatusFilePathEnv     = "AGENT_STATUS_FILEPATH"
+	logPathEnv                       = "LOG_FILE_PATH"
 )
 
 var riskySteps []string
@@ -230,20 +234,36 @@ func containsString(slice []string, s string) bool {
 	return false
 }
 
+func getEnvOrDefault(envVar, defaultValue string) string {
+	value := strings.TrimSpace(os.Getenv(envVar))
+	if value == "" {
+		return defaultValue
+	}
+	return value
+}
+
+func getHealthStatusFilePath() string {
+	return getEnvOrDefault(agentHealthStatusFilePathEnv, defaultAgentHealthStatusFilePath)
+}
+
+func getLogFilePath() string {
+	return getEnvOrDefault(logPathEnv, defaultLogPath)
+}
+
 // Main entry point to the readiness script. All configurations are specific to production environment so
 // the method should not be directly called from unit tests
 func main() {
 	cfg := zap.NewDevelopmentConfig()
 	// In "production" we log to the file
 	cfg.OutputPaths = []string{
-		"/var/log/mongodb-mms-automation/readiness.log",
+		getLogFilePath(),
 	}
 	log, err := cfg.Build()
 	if err != nil {
 		panic(err)
 	}
 	logger = log.Sugar()
-	if !isPodReady(agentHealthStatusFilePath, newKubernetesConfigMapReader()) {
+	if !isPodReady(getHealthStatusFilePath(), newKubernetesConfigMapReader()) {
 		os.Exit(1)
 	}
 }

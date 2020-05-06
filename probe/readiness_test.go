@@ -12,6 +12,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+func initEnv() {
+	os.Setenv(logPathEnv, defaultLogPath)
+	os.Setenv(agentHealthStatusFilePathEnv, defaultAgentHealthStatusFilePath)
+}
+
 // TestDeadlockDetection verifies that if the agent is stuck in "WaitAllRsMembersUp" phase (started > 15 seconds ago)
 // then the function returns "ready"
 func TestDeadlockDetection(t *testing.T) {
@@ -119,6 +124,39 @@ func TestHeadlessAgentPanicsIfEnvVarsNotSet(t *testing.T) {
 	_ = os.Setenv(podNamespaceEnv, "test")
 	// Still panics
 	assert.Panics(t, func() { isPodReady("health-status-ok.json", mockedReader) })
+}
+
+func TestSetCustomHealthFilePath(t *testing.T) {
+	defer initEnv()
+	t.Run("Setting Custom Path", func(t *testing.T) {
+		os.Setenv(agentHealthStatusFilePathEnv, "/some/path")
+		assert.Equal(t, "/some/path", getHealthStatusFilePath())
+	})
+	t.Run("Setting Empty Value", func(t *testing.T) {
+		os.Setenv(agentHealthStatusFilePathEnv, "")
+		assert.Equal(t, defaultAgentHealthStatusFilePath, getHealthStatusFilePath())
+	})
+
+	t.Run("Setting Empty Value With Spaces", func(t *testing.T) {
+		os.Setenv(agentHealthStatusFilePathEnv, "    ")
+		assert.Equal(t, defaultAgentHealthStatusFilePath, getHealthStatusFilePath())
+	})
+}
+
+func TestSetCustomLogPathPath(t *testing.T) {
+	defer initEnv()
+	t.Run("Setting Custom Path", func(t *testing.T) {
+		os.Setenv(logPathEnv, "/some/log/path")
+		assert.Equal(t, "/some/log/path", getLogFilePath())
+	})
+	t.Run("Setting Empty Value", func(t *testing.T) {
+		os.Setenv(logPathEnv, "")
+		assert.Equal(t, defaultLogPath, getLogFilePath())
+	})
+	t.Run("Setting Empty Value With Spaces", func(t *testing.T) {
+		os.Setenv(logPathEnv, "   ")
+		assert.Equal(t, defaultLogPath, getLogFilePath())
+	})
 }
 
 func readHealthinessFile(path string) healthStatus {
