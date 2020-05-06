@@ -447,7 +447,7 @@ func buildStatefulSetFromOpsManager(om mdbv1.MongoDBOpsManager) appsv1.StatefulS
 	}
 }
 
-// TestOpsManagerPodTemplate_PodSpec verifies that PodSpec is applied correctly to OpsManager/Backup pod template.
+// TestOpsManagerPodTemplate_PodSpec verifies that StatefulSetSpec is applied correctly to OpsManager/Backup pod template.
 func TestOpsManagerPodTemplate_PodSpec(t *testing.T) {
 	omSts := buildStatefulSetFromOpsManager(DefaultOpsManagerBuilder().Build())
 	resourceLimits := buildSafeResourceList("1.0", "500M")
@@ -472,11 +472,13 @@ func TestOpsManagerPodTemplate_PodSpec(t *testing.T) {
 		),
 	}
 	mergedSts, err := statefulset.MergeSpec(omSts, &stsSpecOverride)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	spec := mergedSts.Spec.Template.Spec
 	assert.Equal(t, defaultNodeAffinity(), *spec.Affinity.NodeAffinity)
 	assert.Equal(t, defaultPodAffinity(), *spec.Affinity.PodAffinity)
+	assert.Len(t, spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution, 1)
+	// the pod anti affinity term was overridden
 	term := spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0]
 	assert.Equal(t, "rack", term.PodAffinityTerm.TopologyKey)
 
@@ -557,25 +559,55 @@ func Test_buildBackupDaemonStatefulSet(t *testing.T) {
 	assert.Nil(t, sts.Spec.Template.Spec.Containers[0].ReadinessProbe)
 }
 
-func TestBuildOpsManagerStatefulSet_EnvVarsSorted(t *testing.T) {
-	om := DefaultOpsManagerBuilder().
-		AddConfiguration(util.MmsCentralUrlPropKey, "http://om-svc").
-		AddConfiguration("mms.adminEmailAddr", "cloud-manager-support@mongodb.com").
-		Build()
+func TestBuildOpsManagerStatefulSet(t *testing.T) {
+	t.Run("Env Vars Sorted", func(t *testing.T) {
+		om := DefaultOpsManagerBuilder().
+			AddConfiguration(util.MmsCentralUrlPropKey, "http://om-svc").
+			AddConfiguration("mms.adminEmailAddr", "cloud-manager-support@mongodb.com").
+			Build()
 
-	helper := omSetHelperFromResource(om)
-	sts, err := buildOpsManagerStatefulSet(helper)
-	assert.NoError(t, err)
+		helper := omSetHelperFromResource(om)
+		sts, err := buildOpsManagerStatefulSet(helper)
+		assert.NoError(t, err)
 
-	// env vars are in sorted order
-	expectedVars := []corev1.EnvVar{
-		{Name: "CUSTOM_JAVA_DAEMON_OPTS", Value: "-Xmx4291m -Xms4291m"},
-		{Name: "CUSTOM_JAVA_MMS_UI_OPTS", Value: "-Xmx4291m -Xms4291m"},
-		{Name: "OM_PROP_mms_adminEmailAddr", Value: "cloud-manager-support@mongodb.com"},
-		{Name: "OM_PROP_mms_centralUrl", Value: "http://om-svc"},
-	}
-	env := sts.Spec.Template.Spec.Containers[0].Env
-	assert.Equal(t, expectedVars, env)
+		// env vars are in sorted order
+		expectedVars := []corev1.EnvVar{
+			{Name: "OM_PROP_mms_adminEmailAddr", Value: "cloud-manager-support@mongodb.com"},
+			{Name: "OM_PROP_mms_centralUrl", Value: "http://om-svc"},
+			{Name: "CUSTOM_JAVA_MMS_UI_OPTS", Value: "-Xmx4291m -Xms4291m"},
+			{Name: "CUSTOM_JAVA_DAEMON_OPTS", Value: "-Xmx4291m -Xms4291m"},
+		}
+		env := sts.Spec.Template.Spec.Containers[0].Env
+		assert.Equal(t, expectedVars, env)
+	})
+	t.Run("JVM params applied after StatefulSet merge", func(t *testing.T) {
+		requirements := corev1.ResourceRequirements{
+			Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("6G")},
+			Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("400M")},
+		}
+		statefulSet, err := statefulset.NewBuilder().
+			SetPodTemplateSpec(podtemplatespec.Build(
+				podtemplatespec.WithContainers(podtemplatespec.BuildContainer(
+					podtemplatespec.WithContainerName(util.OpsManagerContainerName),
+					podtemplatespec.WithContainerResources(requirements),
+				)),
+			)).Build()
+		require.NoError(t, err)
+		om := DefaultOpsManagerBuilder().
+			SetStatefulSetSpec(statefulSet.Spec).
+			Build()
+
+		helper := omSetHelperFromResource(om)
+		sts, err := buildOpsManagerStatefulSet(helper)
+		assert.NoError(t, err)
+		expectedVars := []corev1.EnvVar{
+			{Name: "CUSTOM_JAVA_MMS_UI_OPTS", Value: "-Xmx5149m -Xms343m"},
+			{Name: "CUSTOM_JAVA_DAEMON_OPTS", Value: "-Xmx5149m -Xms343m"},
+		}
+		env := sts.Spec.Template.Spec.Containers[0].Env
+		assert.Equal(t, expectedVars, env)
+	})
+
 }
 
 func TestBuildJvmParamsEnvVars_FromDefaultPodSpec(t *testing.T) {

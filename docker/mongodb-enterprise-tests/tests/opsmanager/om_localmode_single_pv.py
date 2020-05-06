@@ -1,8 +1,4 @@
-"""
-The fist stage of an Operator-upgrade test.
-It creates an OM instance with maximum features (backup, scram etc).
-Also it creates a MongoDB referencing the OM.
-"""
+import yaml
 from kubetester.kubetester import (
     fixture as yaml_fixture,
     skip_if_local,
@@ -11,7 +7,6 @@ from kubetester.kubetester import (
 from kubetester.mongodb import Phase, MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
-import yaml
 
 BUNDLED_APP_DB_VERSION = "4.2.2-ent"
 
@@ -52,7 +47,7 @@ def ops_manager(namespace: str) -> MongoDBOpsManager:
 
     """ The fixture for Ops Manager to be created."""
     om = MongoDBOpsManager.from_yaml(
-        yaml_fixture("om_ops_manager_localmode.yaml"), namespace=namespace
+        yaml_fixture("om_localmode-single-pv.yaml"), namespace=namespace
     )
     yield om.create()
 

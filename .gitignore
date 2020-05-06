@@ -30,3 +30,5 @@ ops-manager-kubernetes
 docker/mongodb-enterprise-operator/Dockerfile
 docker/mongodb-enterprise-database/Dockerfile
 docker/mongodb-enterprise-ops-manager/Dockerfile
+docker/mongodb-enterprise-init-appdb/Dockerfile
+docker/mongodb-enterprise-init-ops-manager/Dockerfile

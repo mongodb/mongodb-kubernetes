@@ -209,18 +209,7 @@ func buildOpsManagerPodTemplateSpec(stsHelper OpsManagerStatefulSetHelper) (core
 			podtemplatespec.WithContainerLifeCycle(buildOpsManagerLifecycle()),
 		),
 	)
-	if stsHelper.Spec.StatefulSetConfiguration != nil {
-		return buildMergedTemplate(podTemplateSpec, stsHelper.StatefulSetConfiguration.Spec.Template)
-	}
 	return podTemplateSpec, nil
-}
-
-func buildMergedTemplate(podTemplateSpec corev1.PodTemplateSpec, podTemplateSpecOverride corev1.PodTemplateSpec) (corev1.PodTemplateSpec, error) {
-	mergedTemplate, err := statefulset.MergePodSpecs(podTemplateSpecOverride, podTemplateSpec)
-	if err != nil {
-		return corev1.PodTemplateSpec{}, err
-	}
-	return mergedTemplate, nil
 }
 
 // buildBackupDaemonPodTemplateSpec constructs the Backup Daemon podTemplateSpec
@@ -233,9 +222,6 @@ func buildBackupDaemonPodTemplateSpec(stsHelper BackupStatefulSetHelper) (corev1
 			podtemplatespec.WithContainerLifeCycle(buildBackupDaemonLifecycle()),
 		),
 	)
-	if stsHelper.Spec.Backup.StatefulSetConfiguration != nil {
-		return buildMergedTemplate(podTemplateSpec, stsHelper.Spec.Backup.StatefulSetConfiguration.Spec.Template)
-	}
 	return podTemplateSpec, nil
 }
 
@@ -292,7 +278,14 @@ func buildOpsManagerContainerPorts(httpsCertSecretName string) []corev1.Containe
 // build in client code and avoid passing too many different parameters to `buildStatefulSet`.
 func buildStatefulSet(p StatefulSetHelper) (appsv1.StatefulSet, error) {
 	template := buildMongoDBPodTemplateSpec(p)
-	return createBaseDatabaseStatefulSetBuilder(p, template).Build()
+	sts, err := createBaseDatabaseStatefulSetBuilder(p, template).Build()
+	if err != nil {
+		return appsv1.StatefulSet{}, err
+	}
+	if p.PodSpec != nil && p.PodSpec.PodTemplate != nil {
+		return statefulset.MergeSpec(sts, &appsv1.StatefulSetSpec{Template: *p.PodSpec.PodTemplate})
+	}
+	return sts, err
 }
 
 // buildAppDbStatefulSet builds the StatefulSet for AppDB.
@@ -335,7 +328,14 @@ func buildAppDbStatefulSet(p StatefulSetHelper) (appsv1.StatefulSet, error) {
 		},
 	)
 
-	return stsBuilder.Build()
+	sts, err := stsBuilder.Build()
+	if err != nil {
+		return appsv1.StatefulSet{}, err
+	}
+	if p.PodSpec != nil && p.PodSpec.PodTemplate != nil {
+		return statefulset.MergeSpec(sts, &appsv1.StatefulSetSpec{Template: *p.PodSpec.PodTemplate})
+	}
+	return sts, nil
 }
 
 // createBaseOpsManagerStatefulSetBuilder is the base method for building StatefulSet shared by Ops Manager and Backup Daemon.
@@ -343,15 +343,6 @@ func buildAppDbStatefulSet(p StatefulSetHelper) (appsv1.StatefulSet, error) {
 // Dev note: it's ok to move the different parts to parameters (pod spec could be an example) as the functionality
 // evolves
 func createBaseOpsManagerStatefulSetBuilder(p OpsManagerStatefulSetHelper, template corev1.PodTemplateSpec) (*statefulset.Builder, error) {
-	jvmParamsEnvVars, err := buildJvmParamsEnvVars(p.Spec, template)
-	if err != nil {
-		return nil, err
-	}
-	// pass Xmx java parameter to container
-	for _, envVar := range jvmParamsEnvVars {
-		template.Spec.Containers[0].Env = append(template.Spec.Containers[0].Env, envVar)
-	}
-
 	labels := defaultPodLabels(p.StatefulSetHelperCommon)
 	stsBuilder := statefulset.NewBuilder().
 		SetLabels(labels).
@@ -424,12 +415,40 @@ func buildOpsManagerStatefulSet(p OpsManagerStatefulSetHelper) (appsv1.StatefulS
 		return appsv1.StatefulSet{}, err
 	}
 
-	stsBuilder, err := createBaseOpsManagerStatefulSetBuilder(p, template)
+	builder, err := createBaseOpsManagerStatefulSetBuilder(p, template)
 	if err != nil {
 		return appsv1.StatefulSet{}, err
 	}
+	sts, err := builder.Build()
+	if err != nil {
+		return appsv1.StatefulSet{}, err
+	}
+	if p.StatefulSetConfiguration != nil {
+		sts, err = statefulset.MergeSpec(sts, &p.StatefulSetConfiguration.Spec)
+		if err != nil {
+			return appsv1.StatefulSet{}, nil
+		}
+	}
+	if err = setJvmArgsEnvVars(p.Spec, &sts); err != nil {
+		return appsv1.StatefulSet{}, err
+	}
+	return sts, nil
+}
 
-	return stsBuilder.Build()
+// setJvmArgsEnvVars sets the correct environment variables for JVM size parameters.
+// This method must be invoked on the final version of the StatefulSet (after user statefulSet spec
+// was merged)
+func setJvmArgsEnvVars(m mdbv1.MongoDBOpsManagerSpec, sts *appsv1.StatefulSet) error {
+	jvmParamsEnvVars, err := buildJvmParamsEnvVars(m, sts.Spec.Template)
+	if err != nil {
+		return err
+	}
+	// pass Xmx java parameter to container (note, that we don't need to sort the env variables again
+	// as the jvm params order is consistent)
+	for _, envVar := range jvmParamsEnvVars {
+		sts.Spec.Template.Spec.Containers[0].Env = append(sts.Spec.Template.Spec.Containers[0].Env, envVar)
+	}
+	return nil
 }
 
 func getOpsManagerHTTPSEnvVars(httpsSecretName string) []corev1.EnvVar {
@@ -461,11 +480,11 @@ func getURIScheme(httpsCertSecretName string) corev1.URIScheme {
 	return scheme
 }
 
-func buildLifecycle(cmd []string) corev1.Lifecycle {
+func buildLifecycle(preStopCmd []string) corev1.Lifecycle {
 	return corev1.Lifecycle{
 		PreStop: &corev1.Handler{
 			Exec: &corev1.ExecAction{
-				Command: cmd,
+				Command: preStopCmd,
 			},
 		},
 	}
@@ -511,7 +530,24 @@ func buildBackupDaemonStatefulSet(p BackupStatefulSetHelper) (appsv1.StatefulSet
 			[]corev1.VolumeMount{statefulset.CreateVolumeMount(util.PvcNameHeadDb, util.PvcMountPathHeadDb, "")},
 		)
 
-	return stsBuilder.Build()
+	sts, err := stsBuilder.Build()
+	if err != nil {
+		return appsv1.StatefulSet{}, err
+	}
+
+	if p.StatefulSetConfiguration != nil {
+		sts, err = statefulset.MergeSpec(sts, &p.StatefulSetConfiguration.Spec)
+		if err != nil {
+			return appsv1.StatefulSet{}, nil
+		}
+	}
+	// We need to calculate JVM memory parameters after the StatefulSet is merged
+	// One idea for future: we can use the functional approach instead of Builder for Statefulset
+	// and jvm mutation callbacks to the builder
+	if err = setJvmArgsEnvVars(p.Spec, &sts); err != nil {
+		return appsv1.StatefulSet{}, err
+	}
+	return sts, nil
 }
 
 func buildJvmParamsEnvVars(m mdbv1.MongoDBOpsManagerSpec, template corev1.PodTemplateSpec) ([]corev1.EnvVar, error) {

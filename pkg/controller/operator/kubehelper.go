@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
@@ -354,26 +353,13 @@ func (s StatefulSetHelper) BuildStatefulSet() (appsv1.StatefulSet, error) {
 	if err != nil {
 		return appsv1.StatefulSet{}, fmt.Errorf("error building %s StatefulSet: %v", s.Name, err)
 	}
-	return mergeSpec(sts, s.StatefulSetConfiguration, *s.PodSpec)
+	return sts, nil
 }
 
 func (s StatefulSetHelper) BuildAppDbStatefulSet() (appsv1.StatefulSet, error) {
 	sts, err := buildAppDbStatefulSet(s)
 	if err != nil {
 		return appsv1.StatefulSet{}, fmt.Errorf("error building %s StatefulSet: %v", s.Name, err)
-	}
-	return mergeSpec(sts, s.StatefulSetConfiguration, *s.PodSpec)
-}
-
-// mergeSpec accepts a fully constructed StatefulSet, and returns a new merged StatefulSet
-// based on the provided StatefulSetConfiguration and PodSpecWrapper
-func mergeSpec(sts appsv1.StatefulSet, stsConfig *mdbv1.StatefulSetConfiguration, wrapper mdbv1.PodSpecWrapper) (appsv1.StatefulSet, error) {
-	var err error
-	if customStsSpec := getCustomStatefulSet(stsConfig, wrapper); customStsSpec != nil {
-		sts, err = statefulset.MergeSpec(sts, customStsSpec)
-		if err != nil {
-			return appsv1.StatefulSet{}, fmt.Errorf("error applying StatefulSet override spec: %v", err)
-		}
 	}
 	return sts, nil
 }
@@ -509,12 +495,6 @@ func (s *StatefulSetHelper) CreateOrUpdateAppDBInKubernetes() error {
 		return fmt.Errorf("error building stateful set: %v", err)
 	}
 
-	if customStsSpec := getCustomStatefulSet(s.StatefulSetConfiguration, *s.PodSpec); customStsSpec != nil {
-		appDbSts, err = statefulset.MergeSpec(appDbSts, customStsSpec)
-		if err != nil {
-			return fmt.Errorf("error applying override spec: %v", err)
-		}
-	}
 	set, err := s.Helper.createOrUpdateStatefulset(
 		s.Namespace,
 		s.Logger,
@@ -1191,17 +1171,4 @@ func opsManagerConfigurationToEnvVars(m mdbv1.MongoDBOpsManager) []corev1.EnvVar
 		})
 	}
 	return envVars
-}
-
-// getCustomStatefulSet returns the StatefulSetSpec if configured, otherwise
-// if a podTemplate is provided, a StatefulSetSpec is created from that.
-// nil is returned if no custom configuration is provided.
-func getCustomStatefulSet(stsConfig *mdbv1.StatefulSetConfiguration, wrapper mdbv1.PodSpecWrapper) *appsv1.StatefulSetSpec {
-	if stsConfig != nil {
-		return &stsConfig.Spec
-	}
-	if wrapper.PodTemplate != nil {
-		return &appsv1.StatefulSetSpec{Template: *wrapper.PodTemplate}
-	}
-	return nil
 }

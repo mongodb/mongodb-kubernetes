@@ -1,5 +1,7 @@
 package v1
 
+import appsv1 "k8s.io/api/apps/v1"
+
 type OpsManagerBuilder struct {
 	om MongoDBOpsManager
 }
@@ -34,6 +36,11 @@ func (b *OpsManagerBuilder) SetAppDbMembers(members int) *OpsManagerBuilder {
 
 func (b *OpsManagerBuilder) SetAppDbFeatureCompatibility(version string) *OpsManagerBuilder {
 	b.om.Spec.AppDB.FeatureCompatibilityVersion = &version
+	return b
+}
+
+func (b *OpsManagerBuilder) SetStatefulSetSpec(customSpec appsv1.StatefulSetSpec) *OpsManagerBuilder {
+	b.om.Spec.StatefulSetConfiguration = &StatefulSetConfiguration{Spec: customSpec}
 	return b
 }
 

@@ -29,7 +29,7 @@ class TestOpsManagerCreationWithJvmParams:
         )
 
     def test_om_jvm_params_configured(self, ops_manager: MongoDBOpsManager):
-        pod_name = ops_manager["metadata"]["name"] + "-0"
+        pod_name = ops_manager.read_om_pods()[0].metadata.name
         cmd = ["/bin/sh", "-c", "cat " + OM_CONF_PATH_DIR]
 
         result = KubernetesTester.run_command_in_pod_container(
@@ -40,7 +40,7 @@ class TestOpsManagerCreationWithJvmParams:
         assert "-Xms343m" in java_params
 
     def test_om_process_mem_scales(self, ops_manager: MongoDBOpsManager):
-        pod_name = ops_manager["metadata"]["name"] + "-0"
+        pod_name = ops_manager.read_om_pods()[0].metadata.name
         cmd = ["/bin/sh", "-c", "ps aux"]
         result = KubernetesTester.run_command_in_pod_container(
             pod_name, ops_manager.namespace, cmd
@@ -52,7 +52,7 @@ class TestOpsManagerCreationWithJvmParams:
         assert int(rss) / 1024 > 400
 
     def test_om_jvm_backup_params_configured(self, ops_manager: MongoDBOpsManager):
-        pod_name = ops_manager["metadata"]["name"] + "-backup-daemon-0"
+        pod_name = ops_manager.backup_daemon_pod_name()
         cmd = ["/bin/sh", "-c", "cat " + OM_CONF_PATH_DIR]
 
         result = KubernetesTester.run_command_in_pod_container(

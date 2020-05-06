@@ -2,6 +2,7 @@ package statefulset
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/imdario/mergo"
 	appsv1 "k8s.io/api/apps/v1"
@@ -104,6 +105,9 @@ func mergeVolumeClaimTemplates(defaultTemplates []corev1.PersistentVolumeClaim, 
 		}
 		mergedVolumes = append(mergedVolumes, customMount)
 	}
+	sort.SliceStable(mergedVolumes, func(i, j int) bool {
+		return mergedVolumes[i].Name < mergedVolumes[j].Name
+	})
 	return mergedVolumes, nil
 }
 
