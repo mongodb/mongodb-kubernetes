@@ -7,5 +7,5 @@
   },
   "mongodbOperator": "1.5.1",
   "initOpsManagerVersion": "1.0.0",
-  "initAppDbVersion": "1.0.0"
+  "initAppDbVersion": "1.0.1"
 }
