@@ -53,3 +53,7 @@ registry:
 # Set this to true if the operator will require Kubernetes CA
 # infrastructure to generate TLS certificates.
 needsCAInfrastructure: true
+
+# Set this to false to disable subresource utilization
+# It might be required on some versions of Openshift
+subresourceEnabled: true

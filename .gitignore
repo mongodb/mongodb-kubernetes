@@ -32,3 +32,5 @@ docker/mongodb-enterprise-database/Dockerfile
 docker/mongodb-enterprise-ops-manager/Dockerfile
 docker/mongodb-enterprise-init-appdb/Dockerfile
 docker/mongodb-enterprise-init-ops-manager/Dockerfile
+
+.shellcheckrc

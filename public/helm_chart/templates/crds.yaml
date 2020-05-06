@@ -32,8 +32,10 @@ spec:
       type: date
       description: The time since the MongoDB resource was created.
       JSONPath: .metadata.creationTimestamp
+{{- if .Values.subresourceEnabled }}
   subresources:
     status: {}
+{{- end }}
   validation:
     openAPIV3Schema:
       type: object
@@ -438,8 +440,10 @@ spec:
       type: date
       description: The time since the MongoDB User resource was created
       JSONPath: .metadata.creationTimestamp
+{{- if .Values.subresourceEnabled }}
   subresources:
     status: {}
+{{- end }}
   validation:
       openAPIV3Schema:
         type: object
@@ -541,8 +545,10 @@ spec:
       type: string
       description: Warnings
       JSONPath: .status.warnings
+{{- if .Values.subresourceEnabled }}
   subresources:
     status: {}
+{{- end }}
   validation:
     openAPIV3Schema:
       type: object

@@ -293,11 +293,18 @@ func (c *ReconcileCommonController) patchUpdateStatus(resource Updatable) error 
 	if err != nil {
 		return err
 	}
+
 	patch := client.ConstantPatch(types.JSONPatchType, data)
 	err = c.client.Status().Patch(context.TODO(), resource, patch)
 	if err != nil {
+		if apiErrors.IsNotFound(err) || apiErrors.IsForbidden(err) {
+			// IsNotFound: If the subresource is not defined on the CRD.
+			// IsForbidden: If the /status resource does not appear in roles.
+			return c.client.Patch(context.TODO(), resource, patch)
+		}
 		return err
 	}
+
 	return nil
 }
 
