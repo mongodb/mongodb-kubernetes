@@ -16,19 +16,26 @@ require (
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/imdario/mergo v0.3.9
 	github.com/json-iterator/go v1.1.9 // indirect
+	github.com/mailru/easyjson v0.7.1 // indirect
+	github.com/mongodb/mongodb-kubernetes-operator v0.0.3 // indirect
+	github.com/operator-framework/operator-sdk v0.17.0 // indirect
 	github.com/pkg/errors v0.9.1
-	github.com/prometheus/client_golang v0.9.4 // indirect
 	github.com/prometheus/procfs v0.0.11 // indirect
 	github.com/spf13/cast v1.3.1
 	github.com/stretchr/testify v1.4.0
 	github.com/xdg/stringprep v1.0.0
-	go.uber.org/atomic v1.5.1 // indirect
-	go.uber.org/zap v1.13.0
-	k8s.io/api v0.16.9
-	k8s.io/apimachinery v0.16.9
-	k8s.io/client-go v0.16.9
-	k8s.io/code-generator v0.16.9
-	sigs.k8s.io/controller-runtime v0.4.0
+	go.uber.org/zap v1.14.1
+	k8s.io/api v0.17.5
+	k8s.io/apiextensions-apiserver v0.17.5 // indirect
+	k8s.io/apimachinery v0.17.5
+	k8s.io/client-go v12.0.0+incompatible
+	k8s.io/code-generator v0.17.5
+	sigs.k8s.io/controller-runtime v0.5.2
+	sigs.k8s.io/testing_frameworks v0.1.2 // indirect
 )
 
 go 1.13
+
+replace k8s.io/client-go => k8s.io/client-go v0.17.5
+
+//replace github.com/mongodb/mongodb-kubernetes-operator => ../../mongodb/mongodb-kubernetes-operator
