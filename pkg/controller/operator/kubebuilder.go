@@ -234,6 +234,7 @@ func backupAndOpsManagerConfiguration(stsHelper OpsManagerStatefulSetHelper) fun
 		podtemplatespec.WithPodLabels(defaultPodLabels(stsHelper.StatefulSetHelperCommon)),
 		podtemplatespec.WithTerminationGracePeriodSeconds(1800),
 		podtemplatespec.WithSecurityContext(managedSecurityContext),
+		podtemplatespec.WithServiceAccount(util.OpsManagerServiceAccount),
 		podtemplatespec.WithImagePullSecrets(),
 		podtemplatespec.WithAffinity(stsHelper.Name, PodAntiAffinityLabelKey),
 		podtemplatespec.WithTopologyKey(util.DefaultAntiAffinityTopologyKey),

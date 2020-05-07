@@ -104,9 +104,12 @@ const (
 	BackupAgentPemFilePath      = "/mongodb-automation/" + AgentSecretName + "/" + BackupAgentPemSecretKey
 	RunAsUser                   = 2000
 	FsGroup                     = 2000
-	AppDBServiceAccount         = "mongodb-enterprise-appdb"
-	MongoDBServiceAccount       = "mongodb-enterprise-database-pods"
 	AgentDownloadsDir           = "/var/lib/mongodb-mms-automation/downloads"
+
+	// Service accounts
+	AppDBServiceAccount      = "mongodb-enterprise-appdb"
+	OpsManagerServiceAccount = "mongodb-enterprise-ops-manager"
+	MongoDBServiceAccount    = "mongodb-enterprise-database-pods"
 
 	// Operator Filesystem constants
 	VersionManifestFilePath = "/var/lib/mongodb-enterprise-operator/version_manifest.json"

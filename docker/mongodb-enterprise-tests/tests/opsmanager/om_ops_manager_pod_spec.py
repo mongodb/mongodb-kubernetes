@@ -61,6 +61,11 @@ class TestOpsManagerCreation:
         appdb_sts = ops_manager.read_appdb_statefulset()
         assert len(appdb_sts.spec.template.spec.containers) == 2
 
+        assert (
+            appdb_sts.spec.template.spec.service_account_name
+            == "mongodb-enterprise-appdb"
+        )
+
         appdb_container = appdb_sts.spec.template.spec.containers[0]
         assert appdb_container.name == "mongodb-enterprise-appdb"
         assert appdb_container.resources.limits["cpu"] == "250m"
@@ -102,6 +107,11 @@ class TestOpsManagerCreation:
 
     def test_om_pod_spec(self, ops_manager: MongoDBOpsManager):
         sts = ops_manager.read_statefulset()
+        assert (
+            sts.spec.template.spec.service_account_name
+            == "mongodb-enterprise-ops-manager"
+        )
+
         assert len(sts.spec.template.spec.containers) == 1
         om_container = sts.spec.template.spec.containers[0]
         assert om_container.resources.limits["cpu"] == "700m"
@@ -177,6 +187,11 @@ class TestOpsManagerCreation:
 
     def test_backup_pod_spec(self, ops_manager: MongoDBOpsManager):
         backup_sts = ops_manager.read_backup_statefulset()
+        assert (
+            backup_sts.spec.template.spec.service_account_name
+            == "mongodb-enterprise-ops-manager"
+        )
+
         assert len(backup_sts.spec.template.spec.containers) == 1
         om_container = backup_sts.spec.template.spec.containers[0]
         assert om_container.resources.requests["cpu"] == "500m"
