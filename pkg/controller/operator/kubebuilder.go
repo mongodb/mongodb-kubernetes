@@ -203,6 +203,8 @@ func buildAppdbInitContainer() corev1.Container {
 func buildOpsManagerPodTemplateSpec(stsHelper OpsManagerStatefulSetHelper) (corev1.PodTemplateSpec, error) {
 	podTemplateSpec := podtemplatespec.Build(
 		backupAndOpsManagerConfiguration(stsHelper),
+		// 5 minutes for Ops Manager just in case (its internal timeout is 20 seconds anyway)
+		podtemplatespec.WithTerminationGracePeriodSeconds(300),
 		podtemplatespec.EditContainer(0,
 			podtemplatespec.WithContainerName(util.OpsManagerContainerName),
 			podtemplatespec.WithContainerReadinessProbe(opsManagerReadinessProbe(getURIScheme(stsHelper.HTTPSCertSecretName))),
@@ -216,6 +218,8 @@ func buildOpsManagerPodTemplateSpec(stsHelper OpsManagerStatefulSetHelper) (core
 func buildBackupDaemonPodTemplateSpec(stsHelper BackupStatefulSetHelper) (corev1.PodTemplateSpec, error) {
 	podTemplateSpec := podtemplatespec.Build(
 		backupAndOpsManagerConfiguration(stsHelper.OpsManagerStatefulSetHelper),
+		// 70 minutes for Backup Damon (internal timeout is 65 minutes, see CLOUDP-61849)
+		podtemplatespec.WithTerminationGracePeriodSeconds(4200),
 		podtemplatespec.EditContainer(0,
 			podtemplatespec.WithContainerName(util.BackupDaemonContainerName),
 			podtemplatespec.WithContainerEnvVars(backupDaemonEnvVars()...),
@@ -232,7 +236,6 @@ func backupAndOpsManagerConfiguration(stsHelper OpsManagerStatefulSetHelper) fun
 	managedSecurityContext, _ := envutil.ReadBool(util.ManagedSecurityContextEnv)
 	modificationFunctions := []func(podTemplateSpec *corev1.PodTemplateSpec){
 		podtemplatespec.WithPodLabels(defaultPodLabels(stsHelper.StatefulSetHelperCommon)),
-		podtemplatespec.WithTerminationGracePeriodSeconds(1800),
 		podtemplatespec.WithSecurityContext(managedSecurityContext),
 		podtemplatespec.WithServiceAccount(util.OpsManagerServiceAccount),
 		podtemplatespec.WithImagePullSecrets(),

@@ -412,7 +412,13 @@ func TestOpsManagerPodTemplate_ImagePullPolicy(t *testing.T) {
 func TestOpsManagerPodTemplate_TerminationTimeout(t *testing.T) {
 	testHelper := testDefaultOMSetHelper()
 	podSpecTemplate, _ := buildOpsManagerPodTemplateSpec(testHelper)
-	assert.Equal(t, int64(1800), *podSpecTemplate.Spec.TerminationGracePeriodSeconds)
+	assert.Equal(t, int64(300), *podSpecTemplate.Spec.TerminationGracePeriodSeconds)
+}
+
+func TestBackupPodTemplate_TerminationTimeout(t *testing.T) {
+	testHelper := testDefaultBackupSetHelper()
+	podSpecTemplate, _ := buildBackupDaemonPodTemplateSpec(testHelper)
+	assert.Equal(t, int64(4200), *podSpecTemplate.Spec.TerminationGracePeriodSeconds)
 }
 
 // TestOpsManagerPodTemplate_SecurityContext verifies that security context is created correctly
