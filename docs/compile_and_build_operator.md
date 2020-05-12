@@ -11,7 +11,7 @@
 ## Compile Operator ##
 
 ```
-./scripts/build/build_operator
+./scripts/build/build_operator.sh
 ```
 
 This script will **only compile** operator but not create an image.

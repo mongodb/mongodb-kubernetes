@@ -25,4 +25,4 @@ export BUILD_ENVIRONMENT_READY=true
 if [ -z "${SKIP_TESTING:-}" ]; then
     ./scripts/build/test_operator "$*"
 fi
-./scripts/build/build_operator "$*"
+./scripts/build/build_operator.sh "$*"

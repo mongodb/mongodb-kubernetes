@@ -614,7 +614,7 @@ tasks:
     - func: release_docker_image_to_registry
       vars:
         tag_source: ${version_id}
-        tag_dest: '$(git describe --dirty)'
+        tag_dest: '$(git describe)'
         image_source: ${ecr_registry}/dev/rhel/mongodb-enterprise-operator
         image_target: scan.connect.redhat.com/ospid-5558a531-617e-46d7-9320-e84d3458768a/mongodb-enterprise-operator
         docker_password: ${rhc_operator_pid}
@@ -622,7 +622,7 @@ tasks:
     - func: release_docker_image_to_registry
       vars:
         tag_source: ${version_id}
-        tag_dest: '$(git describe --dirty)'
+        tag_dest: '$(git describe)'
         image_source: ${ecr_registry}/dev/rhel/mongodb-enterprise-database
         image_target: scan.connect.redhat.com/ospid-239de277-d8bb-44b4-8593-73753752317f/mongodb-enterprise-database
         docker_password: ${rhc_database_pid}
@@ -670,14 +670,13 @@ tasks:
 - name: release_operator_quay
   commands:
     - func: clone
-    - func: guard_git_repo_is_clean
     - func: setup_jq
     - func: setup_ecr_login_helper
 
     - func: release_docker_image_to_registry
       vars:
         tag_source: ${version_id}
-        tag_dest: '$(git describe --dirty)'
+        tag_dest: '$(git describe)'
         image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-operator
         image_target: quay.io/mongodb/mongodb-enterprise-operator${suffix}
         docker_username: ${quay_prod_username}
@@ -686,7 +685,7 @@ tasks:
     - func: release_docker_image_to_registry
       vars:
         tag_source: ${version_id}
-        tag_dest: '$(git describe --dirty)'
+        tag_dest: '$(git describe)'
         image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-database
         image_target: quay.io/mongodb/mongodb-enterprise-database${suffix}
         docker_username: ${quay_prod_username}

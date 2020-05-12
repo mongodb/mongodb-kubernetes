@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
 
-set -o nounset
-set -o errexit
 set -Eeou pipefail
 
 
 # --dirty to flag changes to your working tree
-RELEASE_VERSION=$(git describe --dirty)
+RELEASE_VERSION=$(git describe)
 
 # for running Operator locally we don't specify version (as the Operator version affects the OM/AppDB image used when
 # deploying OM resource)

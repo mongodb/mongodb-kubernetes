@@ -16,7 +16,7 @@ build_and_push() {
     # (debug_flag doesn't work with double quotes)
     # shellcheck disable=SC2086
     (cd docker/mongodb-enterprise-operator && ../dockerfile_generator.py operator "${IMAGE_TYPE}" ${debug_flag} > Dockerfile)
-    scripts/build/build_operator || (scripts/build/prepare_build_environment && scripts/build/build_operator)
+    scripts/build/build_operator.sh || (scripts/build/prepare_build_environment && scripts/build/build_operator.sh)
 
     (
         cd docker/mongodb-enterprise-operator
