@@ -49,6 +49,11 @@ func (b *OpsManagerBuilder) SetAppDBPassword(secretName, key string) *OpsManager
 	return b
 }
 
+func (b *OpsManagerBuilder) SetBackup(backup MongoDBOpsManagerBackup) *OpsManagerBuilder {
+	b.om.Spec.Backup = &backup
+	return b
+}
+
 func (b *OpsManagerBuilder) AddConfiguration(key, value string) *OpsManagerBuilder {
 	b.om.AddConfigIfDoesntExist(key, value)
 	return b

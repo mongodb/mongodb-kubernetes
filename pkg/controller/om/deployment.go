@@ -119,7 +119,7 @@ func NewDeployment() Deployment {
 // ConfigureTLS configures the deployment's TLS settings from the TLS
 // specification provided by the user in the mongodb resource spec.
 func (d Deployment) ConfigureTLS(tlsSpec *mdbv1.TLSConfig) {
-	if tlsSpec == nil || !tlsSpec.Enabled {
+	if !tlsSpec.IsEnabled() {
 		delete(d, "ssl") // unset SSL config
 		return
 	}

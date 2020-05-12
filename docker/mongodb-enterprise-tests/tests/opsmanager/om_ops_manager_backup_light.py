@@ -159,3 +159,16 @@ class TestBackupForMongodb:
         # wait until a first snapshot is ready for both
         om_tester_first.wait_until_backup_snapshots_are_ready(expected_count=1)
         om_tester_second.wait_until_backup_snapshots_are_ready(expected_count=1)
+
+
+@mark.e2e_om_ops_manager_backup_light
+def test_backup_statefulset_remains_after_disabling_backup(
+    ops_manager: MongoDBOpsManager,
+):
+    ops_manager["spec"]["backup"]["enabled"] = False
+    ops_manager.update()
+    ops_manager.om_status().assert_abandons_phase(Phase.Running)
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=200)
+
+    # the backup statefulset should still exist even after we disable authentication
+    ops_manager.read_backup_statefulset()

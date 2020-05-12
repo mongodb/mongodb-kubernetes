@@ -31,8 +31,8 @@ type ReconcileAppDbReplicaSet struct {
 	InternetManifestProvider om.VersionManifestProvider
 }
 
-func newAppDBReplicaSetReconciler(commonController *ReconcileCommonController) *ReconcileAppDbReplicaSet {
-	return &ReconcileAppDbReplicaSet{ReconcileCommonController: commonController, VersionManifestFilePath: util.VersionManifestFilePath, InternetManifestProvider: om.InternetManifestProvider{}}
+func newAppDBReplicaSetReconciler(commonController *ReconcileCommonController, appDbVersionManifestPath string) *ReconcileAppDbReplicaSet {
+	return &ReconcileAppDbReplicaSet{ReconcileCommonController: commonController, VersionManifestFilePath: appDbVersionManifestPath, InternetManifestProvider: om.InternetManifestProvider{}}
 }
 
 // Reconcile deploys the "headless" agent, and wait until it reaches the goal state
@@ -66,8 +66,8 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *mdbv1.MongoDBOpsManager
 		SetSecurity(rs.Security).
 		SetVersion(opsManager.Spec.Version). // the version of the appdb image must match the OM image one
 		SetContainerName(util.AppDbContainerName)
-		// TODO: configure once StatefulSetConfiguration is supported for appDb
-		//SetStatefulSetConfiguration(opsManager.Spec.AppDB.StatefulSetConfiguration)
+	// TODO: configure once StatefulSetConfiguration is supported for appDb
+	//SetStatefulSetConfiguration(opsManager.Spec.AppDB.StatefulSetConfiguration)
 
 	appDbSts, err := replicaBuilder.BuildAppDbStatefulSet()
 	if err != nil {

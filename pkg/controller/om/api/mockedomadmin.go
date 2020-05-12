@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/backup"
 )
@@ -65,14 +66,12 @@ func (a *MockedOmAdmin) ReadDaemonConfig(hostName, headDbDir string) (backup.Dae
 
 func (a *MockedOmAdmin) CreateDaemonConfig(hostName, headDbDir string) error {
 	config := backup.NewDaemonConfig(hostName, headDbDir)
-	// Unfortunately backup API for daemon configs is a bit weird: if headdb dir is not empty - this is an update
-	// as (hostname, headdb) is a composite key
-	if headDbDir != "" {
-		_, err := a.ReadDaemonConfig(hostName, headDbDir)
-		if err != nil {
-			return NewError(err)
+
+	for _, dConf := range a.daemonConfigs {
+		// Ops Manager should never be performing Update Operations, only Creations
+		if dConf.Machine.HeadRootDirectory == headDbDir && dConf.Machine.MachineHostName == hostName {
+			panic(fmt.Sprintf("Config %s, %s already exists", hostName, headDbDir))
 		}
-		panic("Updates are not supported!")
 	}
 
 	a.daemonConfigs = append(a.daemonConfigs, config)

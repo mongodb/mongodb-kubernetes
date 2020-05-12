@@ -350,7 +350,7 @@ func checkDeploymentEqualToPublished(t *testing.T, expected om.Deployment, confi
 }
 
 func newAppDbReconciler(mgr manager.Manager, internetManifestProvider om.VersionManifestProvider) *ReconcileAppDbReplicaSet {
-	return &ReconcileAppDbReplicaSet{newReconcileCommonController(mgr, nil), relativeVersionManifestFixturePath, internetManifestProvider}
+	return &ReconcileAppDbReplicaSet{ReconcileCommonController: newReconcileCommonController(mgr, nil), VersionManifestFilePath: relativeVersionManifestFixturePath, InternetManifestProvider: internetManifestProvider}
 }
 
 func readAutomationConfigMap(t *testing.T, kubeManager *mock.MockedManager, opsManager mdbv1.MongoDBOpsManager) *corev1.ConfigMap {

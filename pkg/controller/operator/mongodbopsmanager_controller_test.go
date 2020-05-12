@@ -176,6 +176,38 @@ func TestOpsManagerUsersPassword_SpecifiedInSpec(t *testing.T) {
 	assert.Equal(t, password, "my-password", "the password specified by the SecretRef should have been returned when specified")
 }
 
+func TestBackupStatefulSetIsNotRemoved_WhenDisabled(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").SetBackup(mdbv1.MongoDBOpsManagerBackup{
+		Enabled: true,
+	}).Build()
+	reconciler, client, _, _ := defaultTestOmReconciler(t, testOm)
+
+	_ = reconciler.kubeHelper.createSecret(objectKey(testOm.Namespace, testOm.Spec.AppDB.PasswordSecretKeyRef.Name), map[string][]byte{
+		"password": []byte("password"),
+	}, nil, &testOm)
+
+	res, err := reconciler.Reconcile(requestFromObject(&testOm))
+
+	expected, _ := success()
+	assert.Equal(t, expected, res)
+	assert.NoError(t, err)
+
+	backupSts := appsv1.StatefulSet{}
+	err = client.Get(context.TODO(), objectKey(testOm.Namespace, testOm.BackupStatefulSetName()), &backupSts)
+	assert.NoError(t, err, "Backup StatefulSet should have been created when backup is enabled")
+
+	testOm.Spec.Backup.Enabled = false
+	_ = client.Update(context.TODO(), &testOm)
+
+	res, err = reconciler.Reconcile(requestFromObject(&testOm))
+	assert.Equal(t, expected, res)
+	assert.NoError(t, err)
+
+	backupSts = appsv1.StatefulSet{}
+	err = client.Get(context.TODO(), objectKey(testOm.Namespace, testOm.BackupStatefulSetName()), &backupSts)
+	assert.NoError(t, err, "Backup StatefulSet should not be removed when backup is disabled")
+}
+
 // TODO move this test to 'opsmanager_types_test.go' when the builder is moved to 'apis' package
 func TestOpsManagerCentralUrl(t *testing.T) {
 	assert.Equal(t, "http://testOM-svc.my-namespace.svc.cluster.local:8080",
@@ -207,7 +239,7 @@ func defaultTestOmReconciler(t *testing.T, opsManager mdbv1.MongoDBOpsManager) (
 
 	// It's important to clean the om state as soon as the reconciler is built!
 	admin := api.NewMockedAdmin()
-	return newOpsManagerReconciler(manager, om.NewOpsManagerConnection, initializer, api.NewMockedAdminProvider),
+	return newOpsManagerReconciler(manager, om.NewOpsManagerConnection, initializer, api.NewMockedAdminProvider, relativeVersionManifestFixturePath),
 		manager.Client, initializer, admin
 }
 

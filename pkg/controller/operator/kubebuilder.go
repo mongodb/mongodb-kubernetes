@@ -630,7 +630,7 @@ func buildJvmEnvVar(customParams []string, containerMemParams string) string {
 func mountVolumes(stsBuilder *statefulset.Builder, helper StatefulSetHelper) *statefulset.Builder {
 	if helper.Security != nil {
 		// TLS configuration is active for this resource.
-		if helper.Security.TLSConfig.Enabled || helper.Security.TLSConfig.SecretRef.Name != "" {
+		if helper.Security.TLSConfig.IsEnabled() {
 			tlsConfig := helper.Security.TLSConfig
 
 			var secretName string

@@ -32,17 +32,19 @@ import (
 
 type OpsManagerReconciler struct {
 	*ReconcileCommonController
-	omInitializer   api.Initializer
-	omAdminProvider api.AdminProvider
+	omInitializer            api.Initializer
+	omAdminProvider          api.AdminProvider
+	appDbVersionManifestPath string
 }
 
 var _ reconcile.Reconciler = &OpsManagerReconciler{}
 
-func newOpsManagerReconciler(mgr manager.Manager, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider) *OpsManagerReconciler {
+func newOpsManagerReconciler(mgr manager.Manager, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider, appDbVersionManifestPath string) *OpsManagerReconciler {
 	return &OpsManagerReconciler{
 		ReconcileCommonController: newReconcileCommonController(mgr, omFunc),
 		omInitializer:             initializer,
 		omAdminProvider:           adminProvider,
+		appDbVersionManifestPath:  appDbVersionManifestPath,
 	}
 }
 
@@ -93,7 +95,7 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 
 	// 1. Reconcile AppDB
 	emptyResult := reconcile.Result{}
-	appDbReconciler := newAppDBReplicaSetReconciler(r.ReconcileCommonController)
+	appDbReconciler := newAppDBReplicaSetReconciler(r.ReconcileCommonController, r.appDbVersionManifestPath)
 	result, err := appDbReconciler.Reconcile(opsManager, opsManager.Spec.AppDB, opsManagerUserPassword)
 	if err != nil || result != emptyResult {
 		return result, err
@@ -202,7 +204,7 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulset(opsManager mdbv1.Mong
 }
 
 func AddOpsManagerController(mgr manager.Manager) error {
-	reconciler := newOpsManagerReconciler(mgr, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin)
+	reconciler := newOpsManagerReconciler(mgr, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin, util.VersionManifestFilePath)
 	c, err := controller.New(util.MongoDbOpsManagerController, mgr, controller.Options{Reconciler: reconciler})
 	if err != nil {
 		return err
@@ -237,10 +239,11 @@ func (r OpsManagerReconciler) ensureConfiguration(opsManager *mdbv1.MongoDBOpsMa
 
 	setConfigProperty(opsManager, util.MmsMongoUri, buildMongoConnectionUrl(*opsManager, password), log)
 
-	if opsManager.Spec.AppDB.Security.TLSConfig.SecretRef.Name != "" {
+	tlsConfig := opsManager.Spec.AppDB.Security.TLSConfig
+	if tlsConfig != nil && tlsConfig.SecretRef.Name != "" {
 		setConfigProperty(opsManager, util.MmsMongoSSL, "true", log)
 	}
-	if opsManager.Spec.AppDB.Security.TLSConfig.CA != "" {
+	if tlsConfig != nil && tlsConfig.CA != "" {
 		setConfigProperty(opsManager, util.MmsMongoCA, util.MmsCaFileDirInContainer+"ca-pem", log)
 	}
 

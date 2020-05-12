@@ -411,6 +411,13 @@ type TLSConfig struct {
 	SecretRef TLSSecretRef `json:"secretRef,omitempty"`
 }
 
+func (t *TLSConfig) IsEnabled() bool {
+	if t == nil {
+		return false
+	}
+	return t.Enabled || t.SecretRef.Name != ""
+}
+
 // IsSelfManaged returns true if the TLS is self-managed (cert provided by the customer), not Operator-managed
 func (t TLSConfig) IsSelfManaged() bool {
 	return t.CA != "" || t.SecretRef.Name != ""
@@ -717,7 +724,7 @@ func newMongoDbPodSpec() *MongoDbPodSpec {
 }
 
 func (spec MongoDbSpec) GetTLSMode() SSLMode {
-	if spec.Security == nil || spec.Security.TLSConfig == nil || !spec.Security.TLSConfig.Enabled {
+	if spec.Security == nil || !spec.Security.TLSConfig.IsEnabled() {
 		return DisabledSSLMode
 	}
 
@@ -818,7 +825,7 @@ func buildConnectionUrl(statefulsetName, serviceName, namespace, userName, passw
 	if spec.ResourceType == ReplicaSet {
 		params["replicaSet"] = statefulsetName
 	}
-	if spec.Security.TLSConfig.Enabled {
+	if spec.Security.TLSConfig.IsEnabled() {
 		params["ssl"] = "true"
 	}
 	if stringutil.Contains(spec.Security.Authentication.GetModes(), util.SCRAM) {
