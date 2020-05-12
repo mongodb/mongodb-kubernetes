@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -Eeou pipefail
+
 # This file is used to push a GPG signed tar file with the binaries produced (operator and
 # readinessprobe) for third parties (customers) to use it.
 #
@@ -8,10 +10,10 @@
 # Evergreen).
 
 release="$(jq --raw-output .mongodbOperator < release.json)"
-version=$(git describe --dirty)
+version=$(git describe)
 
 # For testing purposes set this variable to the current version of the operator.
-# version="1.4.1"
+# version="1.5.1"
 
 if [ "${release}" != "${version}" ]; then
     echo "Not releasing intermediate version"
@@ -22,7 +24,7 @@ shred_file() {
     # Makes sure the contents of the file passed as argument are
     # replaced by zeroes.
    if command -v shred > /dev/null ; then
-        shred -uz $1
+        shred -uz "$1"
     fi
 }
 
@@ -32,23 +34,26 @@ mkdir -p releases/
 # Please note:
 # Every binary produced needs to be saved and packaged into the tar.gz file.
 #
-mv docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator .
-mv docker/mongodb-enterprise-database/content/readinessprobe .
+temp_dir=$(mktemp -d)
+cp docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator "${temp_dir}"
+cp docker/mongodb-enterprise-database/content/readinessprobe "${temp_dir}"
+cp docker_content/* "${temp_dir}"
+current=$(pwd)
+(
+    cd "${temp_dir}"
+    tar -czf "${current}/releases/mongodb-enterprise-operator-binaries-release-$release.tar.gz" ./*
+)
 
-tar -czf "releases/mongodb-enterprise-operator-binaries-release-$release.tar.gz" \
-    mongodb-enterprise-operator \
-    readinessprobe
-
-echo "${private_gpg_key}" > private.b64.asc
+echo "${private_gpg_key:?}" > private.b64.asc
 base64 --decode private.b64.asc > private.key
-echo "${private_gpg_passphrase}" > passphrase
+echo "${private_gpg_passphrase:?}" > passphrase
 
 echo "== Importing key"
 gpg --batch --import private.key
 
 echo "== Trusting key"
 echo -e "trust\n5\ny" > x.cmd
-gpg --batch --command-file x.cmd --edit-key "${private_gpg_id}" trust quit
+gpg --batch --command-file x.cmd --edit-key "${private_gpg_id:?}" trust quit
 
 echo "== Exporting public key"
 gpg --export --armor "${private_gpg_id}" > releases/mongodb_public_gpg.key
@@ -72,9 +77,3 @@ sha256sum "releases/mongodb-enterprise-operator-binaries-release-$release.tar.gz
 
 shred_file "private.key"
 shred_file "passphrase"
-
-if [ $? -ne 0 ]; then
-    echo "The signature could not be verified."
-    exit 1
- fi
-
