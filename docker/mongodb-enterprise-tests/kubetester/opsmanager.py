@@ -191,6 +191,9 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def get_admin_secret_name(self) -> str:
         return self["spec"]["adminCredentials"]
 
+    def get_version(self) -> str:
+        return self["spec"]["version"]
+
     def get_status(self) -> Optional:
         if "status" not in self:
             return None

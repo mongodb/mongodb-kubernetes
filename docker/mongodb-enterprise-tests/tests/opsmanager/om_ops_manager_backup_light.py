@@ -1,3 +1,5 @@
+from os import environ
+
 from kubetester import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.awss3client import AwsS3Client
@@ -38,7 +40,8 @@ def ops_manager(namespace, s3_bucket) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_backup_light.yaml"), namespace=namespace
     )
-
+    if "CUSTOM_OM_VERSION" in environ:
+        resource["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
 
     return resource.create()

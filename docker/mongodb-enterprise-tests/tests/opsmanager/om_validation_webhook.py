@@ -1,6 +1,8 @@
 """
 Ensures that validation warnings for ops manager reflect its current state
 """
+from os import environ
+
 from kubernetes import client
 from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
 from kubetester.mongodb import Phase
@@ -79,6 +81,8 @@ def ops_manager(namespace: str) -> MongoDBOpsManager:
     om = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace
     )
+    if "CUSTOM_OM_VERSION" in environ:
+        om["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
     om["spec"]["applicationDatabase"]["shardCount"] = 3
     return om.create()
 

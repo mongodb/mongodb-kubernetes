@@ -40,6 +40,11 @@ deploy_test_app() {
         echo "Configuring imagePullSecrets to ${ecr_registry_needs_auth}"
         helm_params+=("--set" "imagePullSecrets=${ecr_registry_needs_auth}")
     fi
+    if [[ -n "${custom_om_version:-}" ]]; then
+        # The test needs to create an OM resource with specific version
+        helm_params+=("--set" "customOmVersion=${custom_om_version}")
+    fi
+
 
     helm template "scripts/evergreen/deployments/test-app" "${helm_params[@]}" > "${helm_template_file}" || exit 1
 

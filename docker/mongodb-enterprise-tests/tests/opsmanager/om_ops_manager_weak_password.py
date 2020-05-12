@@ -1,3 +1,5 @@
+from os import environ
+
 import pytest
 from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
 from kubetester.mongodb import Phase
@@ -10,6 +12,8 @@ def ops_manager(namespace) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace
     )
+    if "CUSTOM_OM_VERSION" in environ:
+        resource["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
 
     return resource.create()
 

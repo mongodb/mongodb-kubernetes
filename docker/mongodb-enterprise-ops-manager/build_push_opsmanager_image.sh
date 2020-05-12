@@ -32,7 +32,7 @@ om_download_url() {
 
 title "Building Ops Manager image (om version: ${om_version})..."
 
-download_url="$(om_download_url "$om_version")"
+[[ -z "${download_url}" ]] && download_url="$(om_download_url "$om_version")"
 
 echo "The download url for ${om_version} is ${download_url}"
 

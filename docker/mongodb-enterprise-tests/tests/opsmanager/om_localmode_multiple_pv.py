@@ -1,4 +1,5 @@
 from operator import attrgetter
+from os import environ
 
 from kubetester.kubetester import (
     fixture as yaml_fixture,
@@ -13,9 +14,12 @@ from pytest import fixture, mark
 def ops_manager(namespace: str) -> MongoDBOpsManager:
     KubernetesTester.make_default_gp2_storage_class()
 
-    return MongoDBOpsManager.from_yaml(
+    resource = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_localmode-multiple-pv.yaml"), namespace=namespace
-    ).create()
+    )
+    if "CUSTOM_OM_VERSION" in environ:
+        resource["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
+    return resource.create()
 
 
 @fixture(scope="module")

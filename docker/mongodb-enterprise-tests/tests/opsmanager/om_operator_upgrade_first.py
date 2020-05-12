@@ -3,6 +3,8 @@ The fist stage of an Operator-upgrade test.
 It creates an OM instance with maximum features (backup, scram etc).
 Also it creates a MongoDB referencing the OM.
 """
+from os import environ
+
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import (
     skip_if_local,
@@ -43,6 +45,8 @@ def ops_manager(namespace: str, s3_bucket) -> MongoDBOpsManager:
     om = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_full.yaml"), namespace=namespace
     )
+    if "CUSTOM_OM_VERSION" in environ:
+        om["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
     om["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
     return om.create()
 
@@ -129,10 +133,6 @@ class TestOpsManagerInstalledFirst:
     @skip_if_local
     def test_om_is_ok(self, ops_manager: MongoDBOpsManager):
         ops_manager.get_om_tester().assert_healthiness()
-        # Saving the image url of the OM statefulset to make sure it was changed after upgrade
-        om_image = ops_manager.read_statefulset().spec.template.spec.containers[0].image
-        ops_manager["metadata"]["annotations"] = {"last_om_image": om_image}
-        ops_manager.update()
 
     def test_mdb_created(self, some_mdb: MongoDB):
         some_mdb.assert_reaches_phase(Phase.Running)

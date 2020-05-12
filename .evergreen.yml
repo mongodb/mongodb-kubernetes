@@ -461,11 +461,12 @@ functions:
           - ecr_registry_needs_auth
           - kube_environment_name
           - version_id
+          - custom_om_version
         env:
           REGISTRY: ${ecr_registry}/dev/${image_type}
-          OPS_MANAGER_REGISTRY: quay.io/mongodb
+          OPS_MANAGER_REGISTRY: ${ops_manager_registry|quay.io/mongodb}
           OPS_MANAGER_NAME: mongodb-enterprise-ops-manager${ubi}
-          APPDB_REGISTRY: quay.io/mongodb
+          APPDB_REGISTRY: ${appdb_registry|quay.io/mongodb}
           APPDB_NAME: mongodb-enterprise-appdb${ubi}
           INIT_OPS_MANAGER_REGISTRY: ${ecr_registry}/dev
           INIT_APPDB_REGISTRY: ${ecr_registry}/dev
@@ -2163,6 +2164,28 @@ buildvariants:
   tasks:
   - name: e2e_ops_manager_kind_only_task_group
 
+# Isolated Ops Manager Tests for 4.4 version
+- name: e2e_kind_ops_manager_4_4
+  display_name: e2e_kind_ops_manager_4_4
+  run_on:
+  - ubuntu1604-build
+  depends_on:
+  - name: build_images_ubuntu
+    variant: init_test_run
+  - name: build_test_image
+    variant: init_test_run
+  - name: build_init_om_images_ubuntu
+    variant: init_test_run
+  expansions:
+    <<: *kubernetes_environment_kind
+    image_type: ubuntu
+    test_mode: opsmanager
+    custom_om_version: 4.4.0-rc1
+    # TODO using expansion here results in "'${ecr_registry}/images/ubuntu' contains an unclosed expansion"
+    ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
+  tasks:
+  - name: e2e_ops_manager_kind_only_task_group
+
 - name: e2e_kind_cloud_qa
   display_name: e2e_kind_cloud_qa
   run_on:
@@ -2206,4 +2229,4 @@ buildvariants:
     - name: build_and_push_ops_manager_ubi
   expansions:
     # removing deprecated versions as per https://www.mongodb.com/subscription/downloads/archived
-    VERSIONS: "4.2.0 4.2.1 4.2.3 4.2.4 4.2.6 4.2.7 4.2.8 4.2.10 4.2.12"
+    VERSIONS: "4.2.0 4.2.1 4.2.3 4.2.4 4.2.6 4.2.7 4.2.8 4.2.10 4.2.12 4.4.0-rc1|https://s3.amazonaws.com/mongodb-mms-build-onprem/cce6cc1a2ec96e3e0a0c68424fd71877b49eeec2/mongodb-mms-4.4.0-rc1.100.20200506T1706Z-1.x86_64.tar.gz"

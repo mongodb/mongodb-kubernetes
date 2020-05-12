@@ -1,3 +1,5 @@
+from os import environ
+
 from pytest import mark, fixture
 
 from kubetester import MongoDB
@@ -42,7 +44,8 @@ def ops_manager(
     resource = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_backup_tls.yaml"), namespace=namespace
     )
-
+    if "CUSTOM_OM_VERSION" in environ:
+        resource["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
     return resource.create()
 
 

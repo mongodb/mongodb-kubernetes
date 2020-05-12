@@ -1,3 +1,5 @@
+from os import environ
+
 import pytest
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.kubetester import fixture as yaml_fixture
@@ -17,6 +19,8 @@ class TestOpsManagerAppDbWrongVersion:
         om = MongoDBOpsManager.from_yaml(
             yaml_fixture("om_validation.yaml"), namespace=namespace
         )
+        if "CUSTOM_OM_VERSION" in environ:
+            om["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
         return om.create()
 
     def test_wrong_appdb_version(self, ops_manager: MongoDBOpsManager):

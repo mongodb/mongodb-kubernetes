@@ -1,3 +1,5 @@
+from os import environ
+
 from time import sleep
 
 import pytest
@@ -151,6 +153,8 @@ class TestOpsManagerVersionUpgrade:
     def test_upgrade_om_version(self, ops_manager: MongoDBOpsManager):
         ops_manager.load()
         ops_manager["spec"]["version"] = EXPECTED_VERSION
+        if "CUSTOM_OM_VERSION" in environ:
+            ops_manager["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
         ops_manager.update()
         ops_manager.om_status().assert_abandons_phase(Phase.Running)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
@@ -158,7 +162,7 @@ class TestOpsManagerVersionUpgrade:
     def test_image_url(self, ops_manager: MongoDBOpsManager):
         pods = ops_manager.read_om_pods()
         assert len(pods) == 1
-        assert EXPECTED_VERSION in pods[0].spec.containers[0].image
+        assert ops_manager.get_version() in pods[0].spec.containers[0].image
 
     @skip_if_local
     def test_om(self, ops_manager: MongoDBOpsManager):

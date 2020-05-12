@@ -1,3 +1,5 @@
+from os import environ
+
 import time
 from kubetester.certs import Certificate, create_tls_certs
 from kubetester.kubetester import KubernetesTester, fixture as _fixture
@@ -47,6 +49,8 @@ def ops_manager(
     om = MongoDBOpsManager.from_yaml(
         _fixture("om_https_enabled.yaml"), namespace=namespace
     )
+    if "CUSTOM_OM_VERSION" in environ:
+        om["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
     om["spec"]["applicationDatabase"]["security"] = {
         "tls": {"ca": issuer_ca_configmap, "secretRef": {"name": appdb_certs}}
     }

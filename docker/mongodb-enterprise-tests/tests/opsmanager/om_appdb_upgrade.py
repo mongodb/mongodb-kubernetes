@@ -1,3 +1,5 @@
+from os import environ
+
 import pytest
 from pytest import fixture
 
@@ -17,6 +19,8 @@ def ops_manager(namespace) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_appdb_upgrade.yaml"), namespace=namespace
     )
+    if "CUSTOM_OM_VERSION" in environ:
+        resource["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
 
     return resource.create()
 

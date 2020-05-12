@@ -1,4 +1,5 @@
 import json
+from os import environ
 
 import pytest
 from kubetester.kubetester import (
@@ -22,6 +23,8 @@ def ops_manager(namespace) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_appdb_scale_up_down.yaml"), namespace=namespace
     )
+    if "CUSTOM_OM_VERSION" in environ:
+        resource["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
 
     return resource.create()
 

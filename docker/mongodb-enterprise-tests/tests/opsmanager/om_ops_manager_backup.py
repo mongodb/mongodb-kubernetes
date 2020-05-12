@@ -1,4 +1,5 @@
 from operator import attrgetter
+from os import environ
 from typing import Optional, Dict
 
 from kubernetes import client
@@ -103,6 +104,8 @@ def ops_manager(namespace, s3_bucket) -> MongoDBOpsManager:
     )
 
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
+    if "CUSTOM_OM_VERSION" in environ:
+        resource["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
 
     yield resource.create()
 

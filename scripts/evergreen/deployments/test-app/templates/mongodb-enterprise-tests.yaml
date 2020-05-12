@@ -68,6 +68,10 @@ spec:
       value: 'mongodb-enterprise-operator-testing-pod'
     - name: BUNDLED_APP_DB_VERSION
       value: {{ .Values.bundledAppDbVersion }}
+    {{ if .Values.customOmVersion }}
+    - name: CUSTOM_OM_VERSION
+      value: {{ .Values.customOmVersion }}
+    {{ end }}
 {{ if .Values.managedSecurityContext }}
     - name: MANAGED_SECURITY_CONTEXT
       value: 'true'

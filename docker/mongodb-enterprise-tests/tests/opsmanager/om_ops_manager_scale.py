@@ -1,3 +1,5 @@
+from os import environ
+
 import pytest
 from kubernetes import client
 
@@ -26,7 +28,6 @@ def ops_manager(namespace) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_scale.yaml"), namespace=namespace
     )
-
     return resource.create()
 
 
@@ -114,6 +115,8 @@ class TestOpsManagerVersionUpgrade:
         _ = background_tester
         ops_manager.load()
         ops_manager["spec"]["version"] = "4.2.3"
+        if "CUSTOM_OM_VERSION" in environ:
+            ops_manager["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
         ops_manager.update()
         ops_manager.om_status().assert_abandons_phase(Phase.Running)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
@@ -122,8 +125,8 @@ class TestOpsManagerVersionUpgrade:
         """All pods in statefulset are referencing the correct image"""
         pods = ops_manager.read_om_pods()
         assert len(pods) == 2
-        assert "4.2.3" in pods[0].spec.containers[0].image
-        assert "4.2.3" in pods[1].spec.containers[0].image
+        assert ops_manager.get_version() in pods[0].spec.containers[0].image
+        assert ops_manager.get_version() in pods[1].spec.containers[0].image
 
     @skip_if_local
     def test_om_has_been_up_during_upgrade(self, background_tester: OMBackgroundTester):

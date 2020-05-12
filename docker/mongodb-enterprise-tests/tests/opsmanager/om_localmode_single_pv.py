@@ -1,3 +1,5 @@
+from os import environ
+
 import yaml
 from kubetester.kubetester import (
     fixture as yaml_fixture,
@@ -49,6 +51,8 @@ def ops_manager(namespace: str) -> MongoDBOpsManager:
     om = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_localmode-single-pv.yaml"), namespace=namespace
     )
+    if "CUSTOM_OM_VERSION" in environ:
+        om["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
     yield om.create()
 
     KubernetesTester.delete_pvc(namespace, "mongodb-versions-claim")

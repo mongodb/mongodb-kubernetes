@@ -70,16 +70,6 @@ class TestOpsManagerWorksOkAfterOperatorUpgrade:
 
         ops_manager.get_om_tester().assert_healthiness()
 
-        current_om_image = (
-            ops_manager.read_statefulset().spec.template.spec.containers[0].image
-        )
-        assert (
-            current_om_image != ops_manager["metadata"]["annotations"]["last_om_image"]
-        )
-        print(
-            "The reconciliation happened on Operator upgrade and the OM image was updated"
-        )
-
     def test_some_mdb_ok(
         self, some_mdb: MongoDB, some_mdb_health_checker: MongoDBBackgroundTester
     ):

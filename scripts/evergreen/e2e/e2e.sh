@@ -65,11 +65,12 @@ if echo "${TASK_NAME}" | grep -E -q "^e2e_op_upgrade"; then
     checkout_latest_official_branch
 
     # This installation procedure must match our docs in https://docs.mongodb.com/kubernetes-operator/stable/tutorial/install-k8s-operator/
-    # TODO add support for quay.io UBI images as well
     tmp_file=$(mktemp)
     helm template --set namespace="${PROJECT_NAMESPACE}" \
         --set operator.env=dev \
         --set managedSecurityContext="${MANAGED_SECURITY_CONTEXT:-false}" \
+        --set registry.opsManager="${OPS_MANAGER_REGISTRY}" \
+        --set opsManager.name="${OPS_MANAGER_NAME:=mongodb-enterprise-ops-manager}" \
         helm_chart > "${tmp_file}" -- values helm_chart/values.yaml
 
     kubectl apply -f "${tmp_file}"
