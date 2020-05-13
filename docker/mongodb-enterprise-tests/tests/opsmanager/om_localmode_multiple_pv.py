@@ -69,24 +69,8 @@ class TestOpsManagerCreation:
         # distros for local mode - so just wait until the agents don't reach goal state
         replica_set.assert_reaches_phase(Phase.Failed, timeout=300)
 
-    def test_add_mongodb_distros(self, ops_manager: MongoDBOpsManager):
-        """ Downloads mongodb binary in each OM pod """
-        for pod in ops_manager.read_om_pods():
-            for distro in [
-                "mongodb-linux-x86_64-rhel70-4.2.0.tgz",
-                "mongodb-linux-x86_64-ubuntu1604-4.2.0.tgz",
-            ]:
-                cmd = [
-                    "curl",
-                    "-L",
-                    f"https://fastdl.mongodb.org/linux/{distro}",
-                    "-o",
-                    f"/mongodb-ops-manager/mongodb-releases/{distro}",
-                ]
-
-                result = KubernetesTester.run_command_in_pod_container(
-                    pod.metadata.name, ops_manager.namespace, cmd
-                )
+    def test_add_mongodb_distros_and_tools(self, ops_manager: MongoDBOpsManager):
+        ops_manager.download_mongodb_binaries_and_tools("4.2.0")
 
     def test_replica_set_reaches_running_phase(self, replica_set: MongoDB):
         replica_set.assert_reaches_phase(Phase.Running, timeout=300)

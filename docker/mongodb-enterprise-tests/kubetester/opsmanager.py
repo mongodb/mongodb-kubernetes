@@ -220,6 +220,46 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def external_svc_name(self) -> str:
         return self.name + "-svc-ext"
 
+    def download_mongodb_binaries_and_tools(self, version: str):
+        """ Downloads mongodb binary in each OM pod, optional downloads MongoDB Tools """
+        distros = [
+            f"mongodb-linux-x86_64-rhel70-{version}.tgz",
+            f"mongodb-linux-x86_64-ubuntu1604-{version}.tgz",
+        ]
+
+        tools = [
+            "mongodb-database-tools-rhel70-x86_64-100.0.1.tgz",
+            "mongodb-database-tools-ubuntu1604-x86_64-100.0.1.tgz",
+        ]
+
+        for pod in self.read_om_pods():
+            for distro in distros:
+                cmd = [
+                    "curl",
+                    "-L",
+                    f"https://fastdl.mongodb.org/linux/{distro}",
+                    "-o",
+                    f"/mongodb-ops-manager/mongodb-releases/{distro}",
+                ]
+
+                KubernetesTester.run_command_in_pod_container(
+                    pod.metadata.name, self.namespace, cmd
+                )
+
+            if self.get_version().startswith("4.4"):
+                for tool in tools:
+                    cmd = [
+                        "curl",
+                        "-L",
+                        f"https://fastdl.mongodb.org/tools/db/{tool}",
+                        "-o",
+                        f"/mongodb-ops-manager/mongodb-releases/{tool}",
+                    ]
+
+                    KubernetesTester.run_command_in_pod_container(
+                        pod.metadata.name, self.namespace, cmd
+                    )
+
     class StatusCommon:
         def assert_reaches_phase(
             self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False,
