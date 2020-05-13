@@ -4,9 +4,6 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
-
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -14,6 +11,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/inspect"
@@ -71,6 +71,12 @@ type Updatable interface {
 
 	// GetSpec returns the spec of the object
 	GetSpec() interface{}
+}
+
+type patchValue struct {
+	Op    string      `json:"op"`
+	Path  string      `json:"path"`
+	Value interface{} `json:"value"`
 }
 
 // ensure our types are all Updatable
@@ -279,11 +285,7 @@ func (c *ReconcileCommonController) updateStatus(reconciledResource Updatable, s
 // can be filtered out by 'controller.shouldReconcile'
 // The "jsonPatch" merge allows to update only status field
 func (c *ReconcileCommonController) patchUpdateStatus(resource Updatable) error {
-	type patchValue struct {
-		Op    string      `json:"op"`
-		Path  string      `json:"path"`
-		Value interface{} `json:"value"`
-	}
+
 	payload := []patchValue{{
 		Op:    "replace",
 		Path:  "/status",
@@ -298,13 +300,46 @@ func (c *ReconcileCommonController) patchUpdateStatus(resource Updatable) error 
 	err = c.client.Status().Patch(context.TODO(), resource, patch)
 	if err != nil {
 		if apiErrors.IsNotFound(err) || apiErrors.IsForbidden(err) {
-			// IsNotFound: If the subresource is not defined on the CRD.
-			// IsForbidden: If the /status resource does not appear in roles.
-			return c.client.Patch(context.TODO(), resource, patch)
+			zap.S().Debugf("Patching the status subresource is not supported - will patch the whole object (error: %s)", err)
+			return c.patchStatusLegacy(resource, patch)
 		}
 		return err
 	}
 
+	return nil
+}
+
+// patchStatusLegacy performs status update if the subresources endpoint is not supported
+// TODO Remove when we stop supporting Openshift 3.11 and K8s 1.11
+func (c *ReconcileCommonController) patchStatusLegacy(resource Updatable, patch client.Patch) error {
+	err := c.client.Patch(context.TODO(), resource, patch)
+	if err != nil {
+		zap.S().Debugf("Failed to apply patch to the status - the field may not exist, we'll add it (error: %s)", err)
+		// The replace for status fails if 'status' field doesn't exist may result
+		// in "the server rejected our request due to an error in our request" or
+		// "jsonpatch replace operation does not apply: doc is missing key: /status"
+		// the fix is to first create the 'status' field and the second to patch it
+		// Note, that this is quite safe to do as will happen only once for the very first reconciliation of the custom resource
+		// see https://github.com/mongodb/mongodb-enterprise-kubernetes/issues/99
+		// see https://stackoverflow.com/questions/57480205/error-while-applying-json-patch-to-kubernetes-custom-resource
+		emptyPatchPayload := []patchValue{{
+			Op:    "add",
+			Path:  "/status",
+			Value: mdbv1.MongoDBOpsManagerStatus{},
+		}}
+		data, err := json.Marshal(emptyPatchPayload)
+		if err != nil {
+			return err
+		}
+		emptyPatch := client.ConstantPatch(types.JSONPatchType, data)
+		err = c.client.Patch(context.TODO(), resource, emptyPatch)
+		if err != nil {
+			return err
+		}
+		zap.S().Debugf("Added status field, patching it now")
+		// Second patch will perform the normal operation
+		return c.client.Patch(context.TODO(), resource, patch)
+	}
 	return nil
 }
 
