@@ -3,11 +3,9 @@
 module github.com/10gen/ops-manager-kubernetes
 
 require (
-	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/emicklei/go-restful v2.9.6+incompatible // indirect
 	github.com/evanphx/json-patch v4.5.0+incompatible
-	github.com/go-openapi/jsonreference v0.19.3 // indirect
 	github.com/go-openapi/spec v0.19.7 // indirect
 	github.com/go-openapi/swag v0.19.9 // indirect
 	github.com/golang/protobuf v1.3.5 // indirect
@@ -15,7 +13,6 @@ require (
 	github.com/hashicorp/go-multierror v1.0.0
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/imdario/mergo v0.3.9
-	github.com/json-iterator/go v1.1.9 // indirect
 	github.com/mailru/easyjson v0.7.1 // indirect
 	github.com/mongodb/mongodb-kubernetes-operator v0.0.4 // indirect
 	github.com/operator-framework/operator-sdk v0.17.0 // indirect
