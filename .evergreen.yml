@@ -651,21 +651,20 @@ tasks:
     #     image_target: scan.connect.redhat.com/ospid-db689935-fcb9-4bf9-a076-d3c480525524/mongodb-enterprise-init-appdb
     #     docker_password: ${rhc_init_appdb_pid}
 
-    # The following 2 functions will push the TAGs with the BUILD part
     - func: release_docker_image_to_registry
       vars:
         tag_source: ${version_id}
-        tag_dest: '$(echo "$(jq --raw-output ".initOpsManagerVersion" < release.json)-b$(date +%Y%m%d%H%M)")'
+        tag_dest: '$(jq --raw-output ".initOpsManagerVersion" < release.json)'
         image_source: ${ecr_registry}/dev/rhel/mongodb-enterprise-init-ops-manager
-        image_target: scan.connect.redhat.com/ospid-5fd87aa5-54cc-41d1-8620-f54f8ffea993/mongodb-enterprise-init-ops-manager
+        image_target: scan.connect.redhat.com/ospid-7da92b80-396f-4298-9de5-909165ba0c9e/mongodb-enterprise-init-ops-manager
         docker_password: ${rhc_init_om_pid}
 
     - func: release_docker_image_to_registry
       vars:
         tag_source: ${version_id}
-        tag_dest: '$(echo "$(jq --raw-output ".initAppDbVersion" < release.json)-b$(date +%Y%m%d%H%M)")'
+        tag_dest: '$(jq --raw-output ".initAppDbVersion" < release.json)'
         image_source: ${ecr_registry}/dev/rhel/mongodb-enterprise-init-appdb
-        image_target: scan.connect.redhat.com/ospid-db689935-fcb9-4bf9-a076-d3c480525524/mongodb-enterprise-init-appdb
+        image_target: scan.connect.redhat.com/ospid-053baed4-c625-44bb-a9bf-a3a5585a17e8/mongodb-enterprise-init-appdb
         docker_password: ${rhc_init_appdb_pid}
 
 - name: release_operator_quay
