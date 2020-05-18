@@ -6,6 +6,13 @@ from kubetester.omtester import skip_if_cloud_manager
 from kubernetes import client
 
 
+def _get_group_id(envs) -> str:
+    for e in envs:
+        if e.name == "GROUP_ID":
+            return e.value
+    return ""
+
+
 @pytest.mark.e2e_replica_set
 class TestReplicaSetCreation(KubernetesTester):
     """
@@ -99,11 +106,19 @@ class TestReplicaSetCreation(KubernetesTester):
             pod = self.corev1.read_namespaced_pod(podname, self.namespace)
             c0 = pod.spec.containers[0]
             for envvar in c0.env:
+                if envvar.name == "AGENT_API_KEY":
+                    assert envvar.value is None, "cannot configure value and value_from"
+                    assert (
+                        envvar.value_from.secret_key_ref.name
+                        == f"{_get_group_id(c0.env)}-group-secret"
+                    )
+                    assert envvar.value_from.secret_key_ref.key == "agentApiKey"
+                    continue
+
                 assert envvar.name in [
                     "BASE_URL",
                     "GROUP_ID",
                     "USER_LOGIN",
-                    "AGENT_API_KEY",
                     "LOG_LEVEL",
                     "SSL_TRUSTED_MMS_SERVER_CERTIFICATE",
                     "SSL_REQUIRE_VALID_MMS_CERTIFICATES",
@@ -406,11 +421,19 @@ class TestReplicaSetUpdate(KubernetesTester):
             pod = self.corev1.read_namespaced_pod(podname, self.namespace)
             c0 = pod.spec.containers[0]
             for envvar in c0.env:
+                if envvar.name == "AGENT_API_KEY":
+                    assert envvar.value is None, "cannot configure value and value_from"
+                    assert (
+                        envvar.value_from.secret_key_ref.name
+                        == f"{_get_group_id(c0.env)}-group-secret"
+                    )
+                    assert envvar.value_from.secret_key_ref.key == "agentApiKey"
+                    continue
+
                 assert envvar.name in [
                     "BASE_URL",
                     "GROUP_ID",
                     "USER_LOGIN",
-                    "AGENT_API_KEY",
                     "LOG_LEVEL",
                     "SSL_TRUSTED_MMS_SERVER_CERTIFICATE",
                     "SSL_REQUIRE_VALID_MMS_CERTIFICATES",

@@ -121,7 +121,7 @@ class TestOpsManagerCreation:
         assert om_container.resources.limits["cpu"] == "700m"
         assert om_container.resources.limits["memory"] == "6G"
 
-        assert sts.spec.template.metadata.annotations == {"key1": "value1"}
+        assert sts.spec.template.metadata.annotations["key1"] == "value1"
         assert len(sts.spec.template.spec.tolerations) == 1
         assert sts.spec.template.spec.tolerations[0].key == "key"
         assert sts.spec.template.spec.tolerations[0].operator == "Exists"
@@ -279,7 +279,7 @@ class TestOpsManagerUpdate:
         assert om_container.resources.limits["cpu"] == "700m"
         assert om_container.resources.limits["memory"] == "5G"
 
-        assert sts.spec.template.metadata.annotations == {"key1": "value1"}
+        assert sts.spec.template.metadata.annotations["key1"] == "value1"
         assert len(sts.spec.template.metadata.labels) == 4
         assert sts.spec.template.metadata.labels["additional"] == "foo"
         assert len(sts.spec.template.spec.tolerations) == 1

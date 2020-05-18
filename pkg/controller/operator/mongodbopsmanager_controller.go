@@ -2,6 +2,8 @@ package operator
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base32"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -181,14 +183,47 @@ func (r *OpsManagerReconciler) readOpsManagerResource(request reconcile.Request,
 	return nil, nil
 }
 
+// ensureAppDBConnectionString ensures that the AppDB Connection String exists in a secret.
+func (r *OpsManagerReconciler) ensureAppDBConnectionString(opsManager mdbv1.MongoDBOpsManager, computedConnectionString string, log *zap.SugaredLogger) error {
+	secret := &corev1.Secret{}
+	err := r.client.Get(context.TODO(), objectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()), secret)
+	connectionString := map[string]string{
+		util.AppDbConnectionStringKey: computedConnectionString,
+	}
+	if err != nil {
+		if apiErrors.IsNotFound(err) {
+			log.Debugf("AppDB connection string secret was not found, creating %s now", objectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()))
+			// assume the secret was not found, need to create it
+			return r.kubeHelper.createSecret(objectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()), connectionString, nil, nil)
+		}
+		log.Warnf("Error getting connection string secret: %s", err)
+		return err
+	}
+	secret.StringData = connectionString
+	log.Debugf("Connection string secret already exists, updating %s", objectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()))
+	return r.client.Update(context.TODO(), secret)
+}
+
+func hashConnectionString(connectionString string) string {
+	bytes := []byte(connectionString)
+	hashBytes := sha256.Sum256(bytes)
+	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(hashBytes[:])
+}
+
 // createOpsManagerStatefulset ensures the gen key secret exists and creates the Ops Manager StatefulSet.
 func (r *OpsManagerReconciler) createOpsManagerStatefulset(opsManager mdbv1.MongoDBOpsManager, opsManagerUserPassword string, log *zap.SugaredLogger) workflow.Status {
 	if err := r.ensureGenKey(opsManager, log); err != nil {
 		return workflow.Failed(err.Error())
 	}
-	r.ensureConfiguration(&opsManager, opsManagerUserPassword, log)
 
-	helper := r.kubeHelper.NewOpsManagerStatefulSetHelper(opsManager).SetLogger(log)
+	connectionString := buildMongoConnectionUrl(opsManager, opsManagerUserPassword)
+	if err := r.ensureAppDBConnectionString(opsManager, connectionString, log); err != nil {
+		return workflow.Failed(err.Error())
+	}
+
+	r.ensureConfiguration(&opsManager, log)
+
+	helper := r.kubeHelper.NewOpsManagerStatefulSetHelper(opsManager).SetLogger(log).SetAppDBConnectionStringHash(hashConnectionString(connectionString))
 	if opsManager.Annotations != nil {
 		helper.SetAnnotations(opsManager.Annotations)
 	}
@@ -233,11 +268,9 @@ func AddOpsManagerController(mgr manager.Manager) error {
 }
 
 // ensureConfiguration makes sure the mandatory configuration is specified.
-func (r OpsManagerReconciler) ensureConfiguration(opsManager *mdbv1.MongoDBOpsManager, password string, log *zap.SugaredLogger) {
+func (r OpsManagerReconciler) ensureConfiguration(opsManager *mdbv1.MongoDBOpsManager, log *zap.SugaredLogger) {
 	// update the central URL
 	setConfigProperty(opsManager, util.MmsCentralUrlPropKey, opsManager.CentralURL(), log)
-
-	setConfigProperty(opsManager, util.MmsMongoUri, buildMongoConnectionUrl(*opsManager, password), log)
 
 	tlsConfig := opsManager.Spec.AppDB.Security.TLSConfig
 	if tlsConfig != nil && tlsConfig.SecretRef.Name != "" {
@@ -263,9 +296,15 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(opsManager mdbv1.Mo
 	if !opsManager.Spec.Backup.Enabled {
 		return workflow.OK()
 	}
-	r.ensureConfiguration(&opsManager, opsManagerUserPassword, log)
+	connectionString := buildMongoConnectionUrl(opsManager, opsManagerUserPassword)
+	if err := r.ensureAppDBConnectionString(opsManager, connectionString, log); err != nil {
+		return workflow.Failed(err.Error())
+	}
+
+	r.ensureConfiguration(&opsManager, log)
 
 	backupHelper := r.kubeHelper.NewBackupStatefulSetHelper(opsManager)
+	backupHelper.OpsManagerStatefulSetHelper.SetAppDBConnectionStringHash(hashConnectionString(connectionString))
 	backupHelper.SetLogger(log)
 
 	if err := backupHelper.CreateOrUpdateInKubernetes(); err != nil {

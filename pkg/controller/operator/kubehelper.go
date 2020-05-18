@@ -144,6 +144,10 @@ type OpsManagerStatefulSetHelper struct {
 	AppDBTlsCAConfigMapName string
 
 	EnvVars []corev1.EnvVar
+
+	// AppDBConnectionStringHash is the hash of the contents of the AppDB Connection String
+	// if this changes in the secret, a rolling restart must be triggered.
+	AppDBConnectionStringHash string
 }
 
 type BackupStatefulSetHelper struct {
@@ -440,6 +444,11 @@ func (s *OpsManagerStatefulSetHelper) SetLogger(log *zap.SugaredLogger) *OpsMana
 
 func (s *OpsManagerStatefulSetHelper) SetVersion(version string) *OpsManagerStatefulSetHelper {
 	s.Version = version
+	return s
+}
+
+func (s *OpsManagerStatefulSetHelper) SetAppDBConnectionStringHash(hash string) *OpsManagerStatefulSetHelper {
+	s.AppDBConnectionStringHash = hash
 	return s
 }
 
@@ -1175,5 +1184,23 @@ func opsManagerConfigurationToEnvVars(m mdbv1.MongoDBOpsManager) []corev1.EnvVar
 			Name: mdbv1.ConvertNameToEnvVarFormat(name), Value: value,
 		})
 	}
+	// Configure the AppDB Connection String property from a secret
+	envVars = append(envVars, envVarFromSecret(mdbv1.ConvertNameToEnvVarFormat(util.MmsMongoUri), m.AppDBMongoConnectionStringSecretName(), util.AppDbConnectionStringKey))
 	return envVars
+}
+
+// envVarFromSecret returns a corev1.EnvVar that is a reference to a secret with the field
+// "secretKey" being used
+func envVarFromSecret(envVarName, secretName, secretKey string) corev1.EnvVar {
+	return corev1.EnvVar{
+		Name: envVarName,
+		ValueFrom: &corev1.EnvVarSource{
+			SecretKeyRef: &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: secretName,
+				},
+				Key: secretKey,
+			},
+		},
+	}
 }

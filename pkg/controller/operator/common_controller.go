@@ -157,8 +157,7 @@ func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedNam
 		return nil, err
 	}
 
-	agentAPIKey, err := c.ensureAgentKeySecretExists(conn, nsName.Namespace, project.AgentAPIKey, log)
-	if err != nil {
+	if err := c.ensureAgentKeySecretExists(conn, nsName.Namespace, project.AgentAPIKey, log); err != nil {
 		return nil, err
 	}
 
@@ -167,9 +166,7 @@ func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedNam
 		podVars.BaseURL = conn.BaseURL()
 		podVars.ProjectID = conn.GroupID()
 		podVars.User = conn.User()
-		podVars.AgentAPIKey = agentAPIKey
 		podVars.LogLevel = spec.LogLevel
-
 		podVars.SSLProjectConfig = projectConfig.SSLProjectConfig
 	}
 	return conn, nil
@@ -226,7 +223,7 @@ func ensureTagAdded(conn om.Connection, project *om.Project, tag string, log *za
 // a rare operation as the group creation api generates agent key already (so the only possible situation is when the group
 // was created externally and agent key wasn't generated before)
 // Returns the api key existing/generated
-func (c *ReconcileCommonController) ensureAgentKeySecretExists(conn om.Connection, nameSpace, agentKey string, log *zap.SugaredLogger) (string, error) {
+func (c *ReconcileCommonController) ensureAgentKeySecretExists(conn om.Connection, nameSpace, agentKey string, log *zap.SugaredLogger) error {
 	secretName := agentApiKeySecretName(conn.GroupID())
 	log = log.With("secret", secretName)
 	secret := &corev1.Secret{}
@@ -239,7 +236,7 @@ func (c *ReconcileCommonController) ensureAgentKeySecretExists(conn om.Connectio
 
 			agentKey, err = conn.GenerateAgentKey()
 			if err != nil {
-				return "", fmt.Errorf("Failed to generate agent key in OM: %s", err)
+				return fmt.Errorf("Failed to generate agent key in OM: %s", err)
 			}
 			log.Info("Agent key was successfully generated")
 		}
@@ -247,17 +244,15 @@ func (c *ReconcileCommonController) ensureAgentKeySecretExists(conn om.Connectio
 		// todo pass a real owner in a next PR
 		if err = c.createAgentKeySecret(objectKey(nameSpace, secretName), agentKey, nil); err != nil {
 			if apiErrors.IsAlreadyExists(err) {
-				// some strange race conditions may happen now in e2e - sometimes we get
-				// "secrets "5d4946ebf78174008e74978b-group-secret" already exists" in e2e tests
-				return agentKey, nil
+				return nil
 			}
-			return "", fmt.Errorf("Failed to create Secret: %s", err)
+			return fmt.Errorf("Failed to create Secret: %s", err)
 		}
 		log.Infof("Project agent key is saved in Kubernetes Secret for later usage")
-		return agentKey, nil
+		return nil
 	}
 
-	return strings.TrimSuffix(string(secret.Data[util.OmAgentApiKey]), "\n"), nil
+	return nil
 }
 
 func (c *ReconcileCommonController) createAgentKeySecret(objectKey client.ObjectKey, agentKey string, owner Updatable) error {

@@ -1547,6 +1547,12 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_om_ops_manager_secure_config
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
 - name: build_and_push_appdb_ubuntu
   patch_only: true
   commands:
@@ -1904,6 +1910,7 @@ task_groups:
     - e2e_om_ops_manager_upgrade
     - e2e_op_upgrade_om
     - e2e_om_validation_webhook
+    - e2e_om_ops_manager_secure_config
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -1936,6 +1943,7 @@ task_groups:
     - e2e_om_ops_manager_pod_spec
     - e2e_om_ops_manager_scale
     - e2e_om_ops_manager_upgrade
+    - e2e_om_ops_manager_secure_config
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment

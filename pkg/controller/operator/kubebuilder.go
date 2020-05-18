@@ -235,6 +235,9 @@ func backupAndOpsManagerConfiguration(stsHelper OpsManagerStatefulSetHelper) fun
 	omImageURL := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.OpsManagerImageUrl), stsHelper.Version)
 	managedSecurityContext, _ := envutil.ReadBool(util.ManagedSecurityContextEnv)
 	modificationFunctions := []func(podTemplateSpec *corev1.PodTemplateSpec){
+		podtemplatespec.WithAnnotations(map[string]string{
+			"connectionStringHash": stsHelper.AppDBConnectionStringHash,
+		}),
 		podtemplatespec.WithPodLabels(defaultPodLabels(stsHelper.StatefulSetHelperCommon)),
 		podtemplatespec.WithSecurityContext(managedSecurityContext),
 		podtemplatespec.WithServiceAccount(util.OpsManagerServiceAccount),
@@ -882,10 +885,7 @@ func databaseEnvVars(podVars *PodVars) []corev1.EnvVar {
 			Name:  util.ENV_VAR_USER,
 			Value: podVars.User,
 		},
-		{
-			Name:  util.ENV_VAR_AGENT_API_KEY,
-			Value: podVars.AgentAPIKey,
-		},
+		envVarFromSecret(util.ENV_VAR_AGENT_API_KEY, agentApiKeySecretName(podVars.ProjectID), util.OmAgentApiKey),
 		{
 			Name:  util.ENV_VAR_LOG_LEVEL,
 			Value: string(podVars.LogLevel),

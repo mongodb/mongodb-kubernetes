@@ -198,6 +198,7 @@ const (
 	LatestOmVersion            = "4.2"
 	AppDBAutomationConfigKey   = "cluster-config.json"
 	DefaultAppDbPasswordKey    = "password"
+	AppDbConnectionStringKey   = "connectionString"
 
 	// Ops Manager configuration properties
 	MmsCentralUrlPropKey    = "mms.centralUrl"

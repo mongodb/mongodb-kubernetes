@@ -185,6 +185,9 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def get_appdb_members_count(self) -> int:
         return self["spec"]["applicationDatabase"]["members"]
 
+    def get_appdb_connection_url_secret_name(self):
+        return f"{self.app_db_name()}-connection-string"
+
     def get_replicas(self) -> int:
         return self["spec"]["replicas"]
 

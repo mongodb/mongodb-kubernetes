@@ -208,6 +208,81 @@ func TestBackupStatefulSetIsNotRemoved_WhenDisabled(t *testing.T) {
 	assert.NoError(t, err, "Backup StatefulSet should not be removed when backup is disabled")
 }
 
+func TestOpsManagerPodTemplateSpec_IsAnnotatedWithHash(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").SetBackup(mdbv1.MongoDBOpsManagerBackup{
+		Enabled: false,
+	}).Build()
+	reconciler, client, _, _ := defaultTestOmReconciler(t, testOm)
+
+	_ = reconciler.kubeHelper.createSecret(objectKey(testOm.Namespace, testOm.Spec.AppDB.PasswordSecretKeyRef.Name), map[string][]byte{
+		"password": []byte("password"),
+	}, nil, &testOm)
+
+	res, err := reconciler.Reconcile(requestFromObject(&testOm))
+	expected, _ := success()
+
+	assert.Equal(t, expected, res)
+	assert.NoError(t, err)
+
+	connectionString, err := reconciler.kubeHelper.readSecretKey(objectKey(testOm.Namespace, testOm.AppDBMongoConnectionStringSecretName()), util.AppDbConnectionStringKey)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, connectionString)
+
+	sts := appsv1.StatefulSet{}
+	err = client.Get(context.TODO(), objectKey(testOm.Namespace, testOm.Name), &sts)
+	assert.NoError(t, err)
+
+	podTemplate := sts.Spec.Template
+	assert.Contains(t, podTemplate.Annotations, "connectionStringHash")
+	assert.Equal(t, podTemplate.Annotations["connectionStringHash"], hashConnectionString(buildMongoConnectionUrl(testOm, "password")))
+
+	testOm.Spec.AppDB.Members = 5
+	assert.NotEqual(t, podTemplate.Annotations["connectionStringHash"], hashConnectionString(buildMongoConnectionUrl(testOm, "password")),
+		"Changing the number of members should result in a different Connection String and different hash")
+
+	testOm.Spec.AppDB.Members = 3
+	testOm.Spec.AppDB.Version = "4.2.0"
+
+	assert.Equal(t, podTemplate.Annotations["connectionStringHash"], hashConnectionString(buildMongoConnectionUrl(testOm, "password")),
+		"Changing version should not change connection string and so the hash should stay the same")
+}
+
+func TestOpsManagerConnectionString_IsPassedAsSecretRef(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").SetBackup(mdbv1.MongoDBOpsManagerBackup{
+		Enabled: false,
+	}).Build()
+	reconciler, client, _, _ := defaultTestOmReconciler(t, testOm)
+
+	_ = reconciler.kubeHelper.createSecret(objectKey(testOm.Namespace, testOm.Spec.AppDB.PasswordSecretKeyRef.Name), map[string][]byte{
+		"password": []byte("password"),
+	}, nil, &testOm)
+
+	res, err := reconciler.Reconcile(requestFromObject(&testOm))
+	expected, _ := success()
+	assert.Equal(t, expected, res)
+	assert.NoError(t, err)
+
+	sts := appsv1.StatefulSet{}
+	err = client.Get(context.TODO(), objectKey(testOm.Namespace, testOm.Name), &sts)
+	assert.NoError(t, err)
+
+	envs := sts.Spec.Template.Spec.Containers[0].Env
+	var uriEnv corev1.EnvVar
+	for _, e := range envs {
+		if e.Name == mdbv1.ConvertNameToEnvVarFormat(util.MmsMongoUri) {
+			uriEnv = e
+			break
+		}
+	}
+	assert.NotEmpty(t, uriEnv.Name, "MmsMongoUri env var should have been present!")
+
+	assert.NotNil(t, uriEnv.ValueFrom)
+	assert.NotNil(t, uriEnv.ValueFrom.SecretKeyRef)
+	assert.Equal(t, uriEnv.ValueFrom.SecretKeyRef.Name, testOm.AppDBMongoConnectionStringSecretName())
+	assert.Equal(t, uriEnv.ValueFrom.SecretKeyRef.Key, util.AppDbConnectionStringKey)
+	assert.Empty(t, uriEnv.Value, "if ValueFrom is specified, you cannot also specify 'Value'")
+}
+
 // TODO move this test to 'opsmanager_types_test.go' when the builder is moved to 'apis' package
 func TestOpsManagerCentralUrl(t *testing.T) {
 	assert.Equal(t, "http://testOM-svc.my-namespace.svc.cluster.local:8080",

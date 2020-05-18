@@ -506,7 +506,7 @@ func TestOpsManagerPodTemplate_PodSpec(t *testing.T) {
 // TestOpsManagerPodTemplate_MergePodTemplate checks the custom pod template provided by the user.
 // It's supposed to override the values produced by the Operator and leave everything else as is
 func TestOpsManagerPodTemplate_MergePodTemplate(t *testing.T) {
-	expectedAnnotations := map[string]string{"customKey": "customVal"}
+	expectedAnnotations := map[string]string{"customKey": "customVal", "connectionStringHash": ""}
 	expectedTolerations := []corev1.Toleration{{Key: "dedicated", Value: "database"}}
 	newContainer := corev1.Container{
 		Name:  "my-custom-container",
@@ -580,6 +580,7 @@ func TestBuildOpsManagerStatefulSet(t *testing.T) {
 		expectedVars := []corev1.EnvVar{
 			{Name: "OM_PROP_mms_adminEmailAddr", Value: "cloud-manager-support@mongodb.com"},
 			{Name: "OM_PROP_mms_centralUrl", Value: "http://om-svc"},
+			envVarFromSecret("OM_PROP_mongo_mongoUri", om.AppDBMongoConnectionStringSecretName(), "connectionString"),
 			{Name: "CUSTOM_JAVA_MMS_UI_OPTS", Value: "-Xmx4291m -Xms4291m"},
 			{Name: "CUSTOM_JAVA_DAEMON_OPTS", Value: "-Xmx4291m -Xms4291m"},
 		}
@@ -607,6 +608,7 @@ func TestBuildOpsManagerStatefulSet(t *testing.T) {
 		sts, err := buildOpsManagerStatefulSet(helper)
 		assert.NoError(t, err)
 		expectedVars := []corev1.EnvVar{
+			envVarFromSecret("OM_PROP_mongo_mongoUri", om.AppDBMongoConnectionStringSecretName(), "connectionString"),
 			{Name: "CUSTOM_JAVA_MMS_UI_OPTS", Value: "-Xmx5149m -Xms343m"},
 			{Name: "CUSTOM_JAVA_DAEMON_OPTS", Value: "-Xmx5149m -Xms343m"},
 		}
@@ -762,7 +764,7 @@ func testDefaultBackupSetHelper() BackupStatefulSetHelper {
 }
 
 func defaultPodVars() *PodVars {
-	return &PodVars{AgentAPIKey: "a", BaseURL: "http://localhost:8080", ProjectID: "myProject", User: "user@some.com"}
+	return &PodVars{BaseURL: "http://localhost:8080", ProjectID: "myProject", User: "user@some.com"}
 }
 
 func defaultNodeAffinity() corev1.NodeAffinity {
