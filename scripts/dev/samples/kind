@@ -1,0 +1,12 @@
+# This is a configuration file for working with Operator locally using Kind
+# The docker builds (based on Ubuntu image) are pushed to the local registry
+#
+# See 'scripts/dev/samples/README.md' for full description of configuration parameters
+
+# IMPORTANT: this file is just an example, you need to change the values proper way
+
+export CLUSTER_TYPE=kind
+export CLUSTER_NAME=kind
+export REPO_URL=localhost:5000
+export INIT_OPS_MANAGER_REGISTRY=localhost:5000
+export INIT_APPDB_REGISTRY=localhost:5000

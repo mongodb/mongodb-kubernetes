@@ -62,9 +62,9 @@ prerequisites:
 # prepare default configuration context files
 init:
 	@ mkdir -p ~/.operator-dev/contexts
-	@ cp scripts/dev/templates/* ~/.operator-dev/contexts
+	@ cp scripts/dev/samples/* ~/.operator-dev/contexts
 	@ echo "Initialized dev environment (~/.operator-dev)"
-	@ echo "Now you need to switch to a context"
+	@ make switch context=dev
 
 switch:
 	@ scripts/dev/switch_context.sh $(context)

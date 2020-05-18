@@ -23,7 +23,7 @@ if [[ ${CLUSTER_TYPE} = "kops" ]] && ! kops validate cluster "${CLUSTER_NAME}" ;
 
 	echo "Kops cluster \"${CLUSTER_NAME}\" doesn't exist"
 
-	create_kops_cluster "${CLUSTER_NAME}" 3 16 "t2.large" "t2.small" "${KOPS_ZONES:-us-east-2a,us-east-2b,us-east-2c}"
+	create_kops_cluster "${CLUSTER_NAME}" 3 16 "t2.large" "t2.small" "${KOPS_ZONES:-us-east-2a}" "${KOPS_K8S_VERSION:-}"
 
 elif [[ ${CLUSTER_TYPE} = "openshift" ]]; then
 	echo "openshift is TODO"
