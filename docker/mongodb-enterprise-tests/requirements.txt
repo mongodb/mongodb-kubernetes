@@ -1,6 +1,6 @@
 chardet==3.0.4
 jsonpatch==1.23
-# TODO upgrade to 11.0.0 (requires some changes to tests for deletion functions)
+# TODO upgrade to 12.0.0 (requires some changes to tests for deletion functions)
 kubernetes==10.0.1
 pymongo==3.7.1
 pytest==4.3.1
