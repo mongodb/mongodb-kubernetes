@@ -14,6 +14,9 @@ operator:
   # Name that will be assigned to most of internal Kubernetes objects like Deployment, ServiceAccount, Role etc.
   name: enterprise-operator
 
+  # Name of the deployment of the operator pod
+  deployment_name: mongodb-enterprise-operator
+
   # Version of mongodb-enterprise-operator and mongodb-enterprise-database images
   version: 1.5.2
 

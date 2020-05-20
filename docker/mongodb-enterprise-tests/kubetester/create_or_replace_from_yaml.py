@@ -63,6 +63,7 @@ def create_or_replace_from_yaml_single_item(
             # https://github.com/kubernetes-client/python/issues/1022
             pass
 
+
 def patch_from_yaml_single_item(k8s_client, yml_object, namespace="default", **kwargs):
     k8s_api = get_k8s_api(k8s_client, yml_object)
     kind = get_kind(yml_object)
