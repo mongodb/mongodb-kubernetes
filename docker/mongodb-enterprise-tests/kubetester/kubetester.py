@@ -189,6 +189,11 @@ class KubernetesTester(object):
         cls.clients("corev1").delete_namespaced_config_map(name, namespace)
 
     @classmethod
+    def delete_service(cls, namespace: str, name: str):
+        """Delete a Service in a given namespace with the given name."""
+        cls.clients("corev1").delete_namespaced_service(name, namespace)
+
+    @classmethod
     def create_namespace(cls, namespace_name):
         """Create a namespace with the given name."""
         namespace = cls.clients("client").V1Namespace(
@@ -204,6 +209,16 @@ class KubernetesTester(object):
     def delete_pod(cls, namespace: str, name: str):
         """Delete a Pod in a given namespace with the given name."""
         cls.clients("corev1").delete_namespaced_pod(name, namespace)
+
+    @classmethod
+    def create_deployment(cls, namespace: str, body: Dict):
+        cls.clients("appsv1").create_namespaced_deployment(
+            body=body, namespace=namespace
+        )
+
+    @classmethod
+    def create_service(cls, namespace: str, body: Dict):
+        cls.clients("corev1").create_namespaced_service(body=body, namespace=namespace)
 
     @classmethod
     def create_pvc(cls, namespace: str, body: Dict):
@@ -223,6 +238,10 @@ class KubernetesTester(object):
         cls.clients("corev1").delete_namespace(
             name, body=cls.clients("client").V1DeleteOptions()
         )
+
+    @classmethod
+    def delete_deployment(cls, namespace: str, name):
+        cls.clients("appsv1").delete_namespaced_deployment(name, namespace)
 
     @staticmethod
     def clients(name):

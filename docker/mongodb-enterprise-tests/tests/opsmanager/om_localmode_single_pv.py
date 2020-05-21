@@ -11,6 +11,8 @@ from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 
 BUNDLED_APP_DB_VERSION = "4.2.2-ent"
+VERSION_IN_OPS_MANAGER = "4.0.2"
+VERSION_NOT_IN_OPS_MANAGER = "4.0.0"
 
 
 @fixture(scope="module")
@@ -63,7 +65,7 @@ def replica_set(ops_manager: MongoDBOpsManager, namespace: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"), namespace=namespace,
     ).configure(ops_manager, "my-replica-set")
-    resource["spec"]["version"] = "4.0.0"  # invalid version
+    resource["spec"]["version"] = VERSION_IN_OPS_MANAGER
     yield resource.create()
 
 
@@ -84,7 +86,7 @@ def test_admin_config_map(ops_manager: MongoDBOpsManager):
 def test_mongod(ops_manager: MongoDBOpsManager):
     mdb_tester = ops_manager.get_appdb_tester()
     mdb_tester.assert_connectivity()
-    mdb_tester.assert_version("4.2.2")
+    mdb_tester.assert_version(BUNDLED_APP_DB_VERSION.rstrip("-ent"))
 
 
 @mark.e2e_om_localmode
@@ -110,19 +112,26 @@ def test_ops_manager_reaches_running_phase(ops_manager: MongoDBOpsManager):
 
 
 @mark.e2e_om_localmode
+def test_replica_set_reaches_running_phase(replica_set: MongoDB):
+    replica_set.assert_reaches_phase(Phase.Running, timeout=600)
+
+
+@mark.e2e_om_localmode
 def test_replica_set_reaches_failed_phase(replica_set: MongoDB):
+    replica_set["spec"]["version"] = VERSION_NOT_IN_OPS_MANAGER
+    replica_set.update()
     replica_set.assert_reaches_phase(
         Phase.Failed,
-        msg_regexp=".*Invalid config: MongoDB version 4.0.0 is not available.*",
+        msg_regexp=f".*Invalid config: MongoDB version {VERSION_NOT_IN_OPS_MANAGER} is not available.*",
     )
 
 
 @mark.e2e_om_localmode
-def test_replica_set_reaches_running_phase(replica_set: MongoDB):
-    replica_set["spec"]["version"] = "4.0.2"  # the version in the pv
+def test_replica_set_recovers(replica_set: MongoDB):
+    replica_set["spec"]["version"] = VERSION_IN_OPS_MANAGER
     replica_set.update()
     replica_set.assert_abandons_phase(Phase.Failed)
-    replica_set.assert_reaches_phase(Phase.Running, timeout=300)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @skip_if_local

@@ -1541,6 +1541,12 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_om_remotemode
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
 - name: e2e_om_localmode_multiple_pv
   tags: ["patch-run"]
   exec_timeout_secs: 2800
@@ -1916,6 +1922,20 @@ task_groups:
     - func: teardown_kubernetes_environment
     - func: teardown_cloud_qa
 
+- name: e2e_ops_manager_4_4_only
+  max_hosts: 1
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+  tasks:
+    - e2e_om_remotemode
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+
 # This task is identical to e2e_ops_manager_kind_only_task_group, with the exception that
 # it will run 2 hosts at a time, not more. In shared cluster (Kops/Openshift) this means
 # that the Ops Manager tests will not overload the cluster if run in parallel builds.
@@ -2193,6 +2213,7 @@ buildvariants:
     ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
   tasks:
   - name: e2e_ops_manager_kind_only_task_group
+  - name: e2e_ops_manager_4_4_only
 
 - name: e2e_kind_cloud_qa
   display_name: e2e_kind_cloud_qa

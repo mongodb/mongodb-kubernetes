@@ -1,0 +1,15 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: om-remotemode
+spec:
+  replicas: 1
+  version: 4.4.0-rc2 # OM version with "remote" mode support
+  adminCredentials: ops-manager-admin-secret
+  configuration: {}
+  backup:
+    enabled: false
+
+  applicationDatabase:
+    members: 3
+    persistent: true
