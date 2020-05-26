@@ -1,6 +1,7 @@
 import pytest
+import time
 from kubernetes import client
-from kubernetes.client import V1ConfigMap
+from kubernetes.client import V1ConfigMap, V1ObjectMeta
 from pytest import fixture
 
 from kubetester.kubetester import KubernetesTester
@@ -28,6 +29,20 @@ class TestStandaloneListensConfigMap:
 
     def test_create_standalone(self, standalone: MongoDB):
         standalone.assert_reaches_phase(Phase.Running, timeout=150)
+
+    def test_no_watch_for_config_map_metadata_change(self, standalone: MongoDB):
+        """ Verifies that the changes to ConfigMap other than to 'data' field are not watched """
+        old_resource_version = standalone["metadata"]["resourceVersion"]
+        config_map = V1ConfigMap(
+            metadata=V1ObjectMeta(annotations={"annotation1": "val"})
+        )
+        client.CoreV1Api().patch_namespaced_config_map(
+            standalone.config_map_name, standalone.namespace, config_map
+        )
+        time.sleep(10)
+        standalone.load()
+        # there will be no updates to MongoDB resource from the Operator
+        assert old_resource_version == standalone["metadata"]["resourceVersion"]
 
     def test_patch_config_map(self, standalone: MongoDB, new_project_name: str):
         # saving the group id for later check

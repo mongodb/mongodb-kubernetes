@@ -2,8 +2,10 @@ package operator
 
 import (
 	"fmt"
+	"reflect"
 
 	"go.uber.org/zap"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -30,8 +32,9 @@ func (w watchedObject) String() string {
 }
 
 // WatchedResourcesHandler is a special implementation of 'handler.EventHandler' that checks if the event for
-// ConfigMap/Secret must trigger reconciliation for any Mongodb resource. This is done via consulting the 'trackedResources'
-// map. The map is stored in relevant reconciler which puts pairs [configmap/secret -> mongodb_resource_name] there as
+// K8s resource must trigger reconciliation for any Operator managed resource (MongoDB, MongoDBOpsManager). This is
+// done via consulting the 'trackedResources' map. The map is stored in relevant reconciler which puts pairs
+// [K8s_resource_name -> operator_managed_resource_name] there as
 // soon as reconciliation happens for the resource
 type WatchedResourcesHandler struct {
 	resourceType     watchedType
@@ -45,7 +48,22 @@ func (c *WatchedResourcesHandler) Create(e event.CreateEvent, q workqueue.RateLi
 }
 
 func (c *WatchedResourcesHandler) Update(e event.UpdateEvent, q workqueue.RateLimitingInterface) {
+	if !shouldHandleUpdate(e) {
+		return
+	}
 	c.doHandle(e.MetaOld.GetNamespace(), e.MetaOld.GetName(), q)
+}
+
+// shouldHandleUpdate return true if the update event must be handled. This shouldn't happen if data for watched
+// ConfigMap or Secret hasn't changed
+func shouldHandleUpdate(e event.UpdateEvent) bool {
+	switch v := e.ObjectOld.(type) {
+	case *v1.ConfigMap:
+		return !reflect.DeepEqual(v.Data, e.ObjectNew.(*v1.ConfigMap).Data)
+	case *v1.Secret:
+		return !reflect.DeepEqual(v.Data, e.ObjectNew.(*v1.Secret).Data)
+	}
+	return true
 }
 
 func (c *WatchedResourcesHandler) doHandle(namespace, name string, q workqueue.RateLimitingInterface) {
