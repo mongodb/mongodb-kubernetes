@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/generate"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/identifiable"
@@ -246,19 +247,19 @@ func AddOpsManagerController(mgr manager.Manager) error {
 	}
 
 	// watch for changes to the Ops Manager resources
-	if err = c.Watch(&source.Kind{Type: &mdbv1.MongoDBOpsManager{}}, &handler.EnqueueRequestForObject{}, predicatesForOpsManager()); err != nil {
+	if err = c.Watch(&source.Kind{Type: &mdbv1.MongoDBOpsManager{}}, &handler.EnqueueRequestForObject{}, watch.PredicatesForOpsManager()); err != nil {
 		return err
 	}
 
 	// watch the secret with the Ops Manager user password
 	err = c.Watch(&source.Kind{Type: &corev1.Secret{}},
-		&WatchedResourcesHandler{resourceType: Secret, trackedResources: reconciler.watchedResources})
+		&watch.ResourcesHandler{ResourceType: watch.Secret, TrackedResources: reconciler.watchedResources})
 	if err != nil {
 		return err
 	}
 
 	err = c.Watch(&source.Kind{Type: &mdbv1.MongoDB{}},
-		&WatchedResourcesHandler{resourceType: MongoDB, trackedResources: reconciler.watchedResources})
+		&watch.ResourcesHandler{ResourceType: watch.MongoDB, TrackedResources: reconciler.watchedResources})
 	if err != nil {
 		return err
 	}
@@ -319,7 +320,7 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(opsManager mdbv1.Mo
 
 func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(opsManager mdbv1.MongoDBOpsManager) {
 	if !opsManager.Spec.Backup.Enabled {
-		r.removeWatchedResources(opsManager.Namespace, MongoDB, objectKeyFromApiObject(&opsManager))
+		r.removeWatchedResources(opsManager.Namespace, watch.MongoDB, objectKeyFromApiObject(&opsManager))
 		return
 	}
 
@@ -329,7 +330,7 @@ func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(opsManage
 		r.addWatchedResourceIfNotAdded(
 			oplogConfig.MongoDBResourceRef.Name,
 			opsManager.Namespace,
-			MongoDB,
+			watch.MongoDB,
 			objectKeyFromApiObject(&opsManager),
 		)
 	}
@@ -340,7 +341,7 @@ func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(opsManage
 		r.addWatchedResourceIfNotAdded(
 			blockStoreConfig.MongoDBResourceRef.Name,
 			opsManager.Namespace,
-			MongoDB,
+			watch.MongoDB,
 			objectKeyFromApiObject(&opsManager),
 		)
 	}
@@ -353,7 +354,7 @@ func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(opsManage
 			r.addWatchedResourceIfNotAdded(
 				s3StoreConfig.MongoDBResourceRef.Name,
 				opsManager.Namespace,
-				MongoDB,
+				watch.MongoDB,
 				objectKeyFromApiObject(&opsManager),
 			)
 		}
@@ -412,7 +413,7 @@ func (r OpsManagerReconciler) getAppDBPassword(opsManager mdbv1.MongoDBOpsManage
 		r.addWatchedResourceIfNotAdded(
 			passwordRef.Name,
 			opsManager.Namespace,
-			Secret,
+			watch.Secret,
 			objectKeyFromApiObject(&opsManager),
 		)
 

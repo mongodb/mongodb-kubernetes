@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
@@ -48,9 +49,9 @@ func TestOpsManagerReconciler_watchedResources(t *testing.T) {
 	reconciler.watchMongoDBResourcesReferencedByBackup(testOm)
 	reconciler.watchMongoDBResourcesReferencedByBackup(otherTestOm)
 
-	key := watchedObject{
-		resourceType: MongoDB,
-		resource: types.NamespacedName{
+	key := watch.Object{
+		ResourceType: watch.MongoDB,
+		Resource: types.NamespacedName{
 			Name:      "oplog1",
 			Namespace: testOm.Namespace,
 		},

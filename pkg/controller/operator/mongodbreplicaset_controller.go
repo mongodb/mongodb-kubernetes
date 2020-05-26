@@ -5,6 +5,7 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
@@ -148,7 +149,7 @@ func AddReplicaSetController(mgr manager.Manager) error {
 	// watch for changes to replica set MongoDB resources
 	eventHandler := MongoDBResourceEventHandler{reconciler: reconciler}
 	// Watch for changes to primary resource MongoDbReplicaSet
-	err = c.Watch(&source.Kind{Type: &mdbv1.MongoDB{}}, &eventHandler, predicatesFor(mdbv1.ReplicaSet))
+	err = c.Watch(&source.Kind{Type: &mdbv1.MongoDB{}}, &eventHandler, watch.PredicatesForMongoDB(mdbv1.ReplicaSet))
 
 	if err != nil {
 		return err
@@ -175,13 +176,13 @@ func AddReplicaSetController(mgr manager.Manager) error {
 	//	}*/
 	//
 	err = c.Watch(&source.Kind{Type: &corev1.ConfigMap{}},
-		&WatchedResourcesHandler{resourceType: ConfigMap, trackedResources: reconciler.watchedResources})
+		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, TrackedResources: reconciler.watchedResources})
 	if err != nil {
 		return err
 	}
 
 	err = c.Watch(&source.Kind{Type: &corev1.Secret{}},
-		&WatchedResourcesHandler{resourceType: Secret, trackedResources: reconciler.watchedResources})
+		&watch.ResourcesHandler{ResourceType: watch.Secret, TrackedResources: reconciler.watchedResources})
 	if err != nil {
 		return err
 	}

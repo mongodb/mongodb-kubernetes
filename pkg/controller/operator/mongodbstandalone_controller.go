@@ -5,6 +5,7 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
@@ -28,7 +29,7 @@ func AddStandaloneController(mgr manager.Manager) error {
 
 	// watch for changes to standalone MongoDB resources
 	eventHandler := MongoDBResourceEventHandler{reconciler: reconciler}
-	err = c.Watch(&source.Kind{Type: &mdbv1.MongoDB{}}, &eventHandler, predicatesFor(mdbv1.Standalone))
+	err = c.Watch(&source.Kind{Type: &mdbv1.MongoDB{}}, &eventHandler, watch.PredicatesForMongoDB(mdbv1.Standalone))
 	if err != nil {
 		return err
 	}
@@ -51,13 +52,13 @@ func AddStandaloneController(mgr manager.Manager) error {
 	  }*/
 
 	err = c.Watch(&source.Kind{Type: &corev1.ConfigMap{}},
-		&WatchedResourcesHandler{resourceType: ConfigMap, trackedResources: reconciler.watchedResources})
+		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, TrackedResources: reconciler.watchedResources})
 	if err != nil {
 		return err
 	}
 
 	err = c.Watch(&source.Kind{Type: &corev1.Secret{}},
-		&WatchedResourcesHandler{resourceType: Secret, trackedResources: reconciler.watchedResources})
+		&watch.ResourcesHandler{ResourceType: watch.Secret, TrackedResources: reconciler.watchedResources})
 	if err != nil {
 		return err
 	}

@@ -13,6 +13,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
@@ -208,9 +209,9 @@ func TestPrepareOmConnection_ConfigMapAndSecretWatched(t *testing.T) {
 
 	// we expect to have two entries in the map - each value has length of 2 meaning both replica sets are "registered"
 	// to be reconciled as soon as config map or secret changes
-	expected := map[watchedObject][]types.NamespacedName{
-		{resourceType: ConfigMap, resource: objectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {objectKey(mock.TestNamespace, "ReplicaSetOne"), objectKey(mock.TestNamespace, "ReplicaSetTwo")},
-		{resourceType: Secret, resource: objectKey(mock.TestNamespace, "mySecret")}:                       {objectKey(mock.TestNamespace, "ReplicaSetOne"), objectKey(mock.TestNamespace, "ReplicaSetTwo")},
+	expected := map[watch.Object][]types.NamespacedName{
+		{ResourceType: watch.ConfigMap, Resource: objectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {objectKey(mock.TestNamespace, "ReplicaSetOne"), objectKey(mock.TestNamespace, "ReplicaSetTwo")},
+		{ResourceType: watch.Secret, Resource: objectKey(mock.TestNamespace, "mySecret")}:                       {objectKey(mock.TestNamespace, "ReplicaSetOne"), objectKey(mock.TestNamespace, "ReplicaSetTwo")},
 	}
 	assert.Equal(t, expected, reconciler.watchedResources)
 }
@@ -235,24 +236,6 @@ func TestUpdateStatus_Patched(t *testing.T) {
 	assert.Equal(t, rs.Spec, currentRs.Spec)
 	assert.Equal(t, mdbv1.PhasePending, currentRs.Status.Phase)
 	assert.Equal(t, "Waiting for secret...", currentRs.Status.Message)
-}
-
-func TestShouldReconcile_DoesNotReconcileOnStatusOnlyChange(t *testing.T) {
-	rsOld := DefaultReplicaSetBuilder().Build()
-
-	rsNew := DefaultReplicaSetBuilder().Build()
-	rsNew.Status.Version = "123"
-
-	assert.False(t, shouldReconcile(rsOld, rsNew), "should not reconcile when only status changes")
-}
-
-func TestShouldReconcile_DoesReconcileOnSpecChange(t *testing.T) {
-	rsOld := DefaultReplicaSetBuilder().Build()
-
-	rsNew := DefaultReplicaSetBuilder().Build()
-	rsNew.Spec.Version = "123"
-
-	assert.True(t, shouldReconcile(rsOld, rsNew), "should reconcile when spec changes")
 }
 
 func TestShouldUseFeatureControls(t *testing.T) {

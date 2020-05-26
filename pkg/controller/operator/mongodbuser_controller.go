@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
@@ -200,20 +201,20 @@ func AddMongoDBUserController(mgr manager.Manager) error {
 	}
 
 	err = c.Watch(&source.Kind{Type: &corev1.ConfigMap{}},
-		&WatchedResourcesHandler{resourceType: ConfigMap, trackedResources: reconciler.watchedResources})
+		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, TrackedResources: reconciler.watchedResources})
 	if err != nil {
 		return err
 	}
 
 	err = c.Watch(&source.Kind{Type: &corev1.Secret{}},
-		&WatchedResourcesHandler{resourceType: Secret, trackedResources: reconciler.watchedResources})
+		&watch.ResourcesHandler{ResourceType: watch.Secret, TrackedResources: reconciler.watchedResources})
 	if err != nil {
 		return err
 	}
 
 	// watch for changes to MongoDBUser resources
 	eventHandler := MongoDBUserEventHandler{reconciler: reconciler}
-	err = c.Watch(&source.Kind{Type: &mdbv1.MongoDBUser{}}, &eventHandler, predicatesForUser())
+	err = c.Watch(&source.Kind{Type: &mdbv1.MongoDBUser{}}, &eventHandler, watch.PredicatesForUser())
 	if err != nil {
 		return err
 	}
@@ -258,7 +259,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(user *mdbv1.MongoDBUser, conn
 		r.addWatchedResourceIfNotAdded(
 			user.Spec.PasswordSecretKeyRef.Name,
 			user.Namespace,
-			Secret,
+			watch.Secret,
 			userNamespacedName,
 		)
 	}

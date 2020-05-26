@@ -7,11 +7,11 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"reflect"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
@@ -96,7 +96,7 @@ type ReconcileCommonController struct {
 	omConnectionFactory om.ConnectionFactory
 	// internal multimap mapping watched resources to mongodb resources they are used in
 	// (example: config map 'c1' is used in 2 mongodb replica sets 'm1', 'm2', so the map will be [c1]->[m1, m2])
-	watchedResources map[watchedObject][]types.NamespacedName
+	watchedResources map[watch.Object][]types.NamespacedName
 	// this map keeps the locks for the resources the current controller is responsible for
 	// This allows to serialize processing logic (edit and removal) and necessary because
 	// we don't use reconciliation queue for removal operations
@@ -109,7 +109,7 @@ func newReconcileCommonController(mgr manager.Manager, omFunc om.ConnectionFacto
 		scheme:              mgr.GetScheme(),
 		kubeHelper:          NewKubeHelper(mgr.GetClient()),
 		omConnectionFactory: omFunc,
-		watchedResources:    map[watchedObject][]types.NamespacedName{},
+		watchedResources:    map[watch.Object][]types.NamespacedName{},
 		reconcileLocks:      sync.Map{},
 	}
 }
@@ -338,18 +338,6 @@ func (c *ReconcileCommonController) patchStatusLegacy(resource Updatable, patch 
 	return nil
 }
 
-// shouldReconcile checks if the resource must be reconciled.
-// We never reconcile on statuses changes, only on spec/metadata ones
-//
-// Important notes about why we can just check statuses/finalizers and be sure that we don't miss the reconciliation:
-// - the watchers receive signals only about any changes to *CR*. If the reconciliation failed and a reconciler returned
-// "requeue after 10 seconds" - this doesn't get to watcher, so will never be filtered out.
-// - the only client making changes to status is the Operator itself and it makes sure that spec stays untouched
-func shouldReconcile(oldResource Updatable, newResource Updatable) bool {
-	equal := reflect.DeepEqual(oldResource.GetStatus(), newResource.GetStatus())
-	return equal
-}
-
 // getResource populates the provided runtime.Object with some additional error handling
 // Note the logic: any reconcile result different from nil should be considered as "terminal" and will stop reconciliation
 // right away (the pointer will be empty). Otherwise the pointer 'resource' will always reference the existing resource
@@ -405,18 +393,18 @@ func (c *ReconcileCommonController) prepareResourceForReconciliation(
 func (c *ReconcileCommonController) registerWatchedResources(mongodbResourceNsName types.NamespacedName, configMap string, secret string) {
 	defaultNamespace := mongodbResourceNsName.Namespace
 
-	c.addWatchedResourceIfNotAdded(configMap, defaultNamespace, ConfigMap, mongodbResourceNsName)
-	c.addWatchedResourceIfNotAdded(secret, defaultNamespace, Secret, mongodbResourceNsName)
+	c.addWatchedResourceIfNotAdded(configMap, defaultNamespace, watch.ConfigMap, mongodbResourceNsName)
+	c.addWatchedResourceIfNotAdded(secret, defaultNamespace, watch.Secret, mongodbResourceNsName)
 }
 
 // addWatchedResourceIfNotAdded adds the given resource to the list of watched
 // resources. A watched resource is a resource that, when changed, will trigger
 // a reconciliation for its dependent resource.
 func (c *ReconcileCommonController) addWatchedResourceIfNotAdded(name, namespace string,
-	wType watchedType, dependentResourceNsName types.NamespacedName) {
-	key := watchedObject{
-		resourceType: wType,
-		resource: types.NamespacedName{
+	wType watch.Type, dependentResourceNsName types.NamespacedName) {
+	key := watch.Object{
+		ResourceType: wType,
+		Resource: types.NamespacedName{
 			Name:      name,
 			Namespace: namespace,
 		},
@@ -437,9 +425,9 @@ func (c *ReconcileCommonController) addWatchedResourceIfNotAdded(name, namespace
 }
 
 // stop watching resources with input namespace and watched type, if any
-func (c *ReconcileCommonController) removeWatchedResources(namespace string, wType watchedType, dependentResourceNsName types.NamespacedName) {
+func (c *ReconcileCommonController) removeWatchedResources(namespace string, wType watch.Type, dependentResourceNsName types.NamespacedName) {
 	for key := range c.watchedResources {
-		if key.resourceType == wType && key.resource.Namespace == namespace {
+		if key.ResourceType == wType && key.Resource.Namespace == namespace {
 			index := -1
 			for i, v := range c.watchedResources[key] {
 				if v == dependentResourceNsName {
