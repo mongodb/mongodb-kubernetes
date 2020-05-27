@@ -741,7 +741,7 @@ func buildPersistentVolumeClaims(p StatefulSetHelper) ([]corev1.PersistentVolume
 // This function will update a Service object if passed, or return a new one if passed nil, this is to be able to update
 // Services and to not change any attribute they might already have that needs to be maintained.
 //
-func buildService(namespacedName types.NamespacedName, owner Updatable, label string, port int32, mongoServiceDefinition mdbv1.MongoDBOpsManagerServiceDefinition) corev1.Service {
+func buildService(namespacedName types.NamespacedName, owner mdbv1.CustomResourceReadWriter, label string, port int32, mongoServiceDefinition mdbv1.MongoDBOpsManagerServiceDefinition) corev1.Service {
 	svcBuilder := service.Builder().
 		SetNamespace(namespacedName.Namespace).
 		SetName(namespacedName.Name).
@@ -777,12 +777,12 @@ func buildService(namespacedName types.NamespacedName, owner Updatable, label st
 	return svcBuilder.Build()
 }
 
-func baseOwnerReference(owner Updatable) []metav1.OwnerReference {
+func baseOwnerReference(owner mdbv1.CustomResourceReadWriter) []metav1.OwnerReference {
 	return []metav1.OwnerReference{
 		*metav1.NewControllerRef(owner, schema.GroupVersionKind{
 			Group:   mdbv1.SchemeGroupVersion.Group,
 			Version: mdbv1.SchemeGroupVersion.Version,
-			Kind:    owner.GetKind(),
+			Kind:    owner.GetObjectKind().GroupVersionKind().Kind,
 		}),
 	}
 }

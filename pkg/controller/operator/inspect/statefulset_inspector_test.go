@@ -3,7 +3,7 @@ package inspect
 import (
 	"testing"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 
 	"github.com/stretchr/testify/assert"
@@ -32,7 +32,7 @@ func TestStatefulSetInspector(t *testing.T) {
 	assert.False(t, state.IsReady())
 	assert.Len(t, state.GetResourcesNotReadyStatus(), 1)
 	assert.Contains(t, state.GetResourcesNotReadyStatus()[0].Message, "Not all the Pods are ready")
-	assert.Equal(t, state.GetResourcesNotReadyStatus()[0].Kind, mdbv1.StatefulsetKind)
+	assert.Equal(t, state.GetResourcesNotReadyStatus()[0].Kind, status.StatefulsetKind)
 	assert.Equal(t, state.GetResourcesNotReadyStatus()[0].Name, "sts")
 
 	// StatefulSet "got" to ready state

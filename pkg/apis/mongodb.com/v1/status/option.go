@@ -1,8 +1,10 @@
-package v1
+package status
 
-import "reflect"
+import (
+	"reflect"
+)
 
-type StatusOption interface {
+type Option interface {
 	value() interface{}
 }
 
@@ -27,10 +29,10 @@ func (o MessageOption) value() interface{} {
 
 // WarningsOption describes the status warnings
 type WarningsOption struct {
-	Warnings []StatusWarning
+	Warnings []Warning
 }
 
-func NewWarningsOption(warnings []StatusWarning) WarningsOption {
+func NewWarningsOption(warnings []Warning) WarningsOption {
 	return WarningsOption{Warnings: warnings}
 }
 
@@ -51,16 +53,16 @@ func (o BaseUrlOption) value() interface{} {
 	return o.BaseUrl
 }
 
-// OMStatusPartOption describes the part of Ops Manager resource status to be updated
-type OMStatusPartOption struct {
-	StatusPart StatusPart
+// OMPartOption describes the part of Ops Manager resource status to be updated
+type OMPartOption struct {
+	StatusPart Part
 }
 
-func NewOMStatusPartOption(statusPart StatusPart) OMStatusPartOption {
-	return OMStatusPartOption{StatusPart: statusPart}
+func NewOMPartOption(statusPart Part) OMPartOption {
+	return OMPartOption{StatusPart: statusPart}
 }
 
-func (o OMStatusPartOption) value() interface{} {
+func (o OMPartOption) value() interface{} {
 	return o.StatusPart
 }
 
@@ -77,7 +79,7 @@ func (o ResourcesNotReadyOption) value() interface{} {
 	return o.ResourcesNotReady
 }
 
-func GetStatusOption(statusOptions []StatusOption, targetOption StatusOption) (StatusOption, bool) {
+func GetOption(statusOptions []Option, targetOption Option) (Option, bool) {
 	for _, s := range statusOptions {
 		if reflect.TypeOf(s) == reflect.TypeOf(targetOption) {
 			return s, true

@@ -3,7 +3,7 @@ package inspect
 import (
 	"fmt"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -18,13 +18,13 @@ type StatefulSetState struct {
 }
 
 // GetResourcesNotReadyStatus returns the status of dependent resources which have any problems
-func (s StatefulSetState) GetResourcesNotReadyStatus() []mdbv1.ResourceNotReady {
+func (s StatefulSetState) GetResourcesNotReadyStatus() []status.ResourceNotReady {
 	if s.IsReady() {
-		return []mdbv1.ResourceNotReady{}
+		return []status.ResourceNotReady{}
 	}
 	msg := fmt.Sprintf("Not all the Pods are ready (total: %d, updated: %d, ready: %d)", s.total, s.updated, s.ready)
-	return []mdbv1.ResourceNotReady{{
-		Kind:    mdbv1.StatefulsetKind,
+	return []status.ResourceNotReady{{
+		Kind:    status.StatefulsetKind,
 		Name:    s.statefulSetKey.Name,
 		Message: msg,
 	}}

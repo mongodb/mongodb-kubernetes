@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"k8s.io/apimachinery/pkg/types"
@@ -134,11 +135,11 @@ func TestOpsManagerReconciler_prepareOpsManagerDuplicatedUser(t *testing.T) {
 	})
 
 	reconcileStatus, admin := reconciler.prepareOpsManager(testOm, zap.S())
-	assert.Equal(t, mdbv1.PhaseFailed, reconcileStatus.Phase())
+	assert.Equal(t, status.PhaseFailed, reconcileStatus.Phase())
 
-	option, exists := mdbv1.GetStatusOption(reconcileStatus.StatusOptions(), mdbv1.MessageOption{})
+	option, exists := status.GetOption(reconcileStatus.StatusOptions(), status.MessageOption{})
 	assert.True(t, exists)
-	assert.Contains(t, option.(mdbv1.MessageOption).Message, "USER_ALREADY_EXISTS")
+	assert.Contains(t, option.(status.MessageOption).Message, "USER_ALREADY_EXISTS")
 	reconcileStatus.StatusOptions()
 	assert.Nil(t, admin)
 

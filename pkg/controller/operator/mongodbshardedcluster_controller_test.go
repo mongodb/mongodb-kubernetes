@@ -25,11 +25,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func init() {
-	// Setting this to 0 to make sure the tests run immediately and do not wait for Kubernetes caches to refreh
-	os.Setenv("K8S_CACHES_REFRESH_TIME_SEC", "0")
-}
-
 func TestShardedClusterEventMethodsHandlePanic(t *testing.T) {
 	// restoring
 	defer InitDefaultEnvVariables()
@@ -435,7 +430,7 @@ func assertPodSpecTemplate(t *testing.T, nodeName, hostName, volumeName string, 
 	assert.Equal(t, volumeName, podSpecTemplate.Containers[0].VolumeMounts[0].Name, "Operator mounted volume should be present, not custom volume")
 }
 
-func createDeploymentFromShardedCluster(updatable Updatable) om.Deployment {
+func createDeploymentFromShardedCluster(updatable mdbv1.CustomResourceReadWriter) om.Deployment {
 	sh := updatable.(*mdbv1.MongoDB)
 	state := createStateFromResource(sh)
 	mongosSts, _ := state.mongosSetHelper.BuildStatefulSet()
@@ -461,7 +456,7 @@ func createDeploymentFromShardedCluster(updatable Updatable) om.Deployment {
 
 // createStateFromResource creates the kube state for the sharded cluster. Note, that it uses the `Status` of cluster
 // instead of `Spec` as it tries to reflect the CURRENT state
-func createStateFromResource(updatable Updatable) ShardedClusterKubeState {
+func createStateFromResource(updatable mdbv1.CustomResourceReadWriter) ShardedClusterKubeState {
 	sh := updatable.(*mdbv1.MongoDB)
 	shardHelpers := make([]*StatefulSetHelper, sh.Status.ShardCount)
 	for i := 0; i < sh.Status.ShardCount; i++ {

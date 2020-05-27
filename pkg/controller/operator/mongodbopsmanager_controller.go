@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
+	mdbstatus "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/generate"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/identifiable"
@@ -62,7 +63,7 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 
 	opsManager := &mdbv1.MongoDBOpsManager{}
 
-	opsManagerExtraStatusParams := mdbv1.NewOMStatusPartOption(mdbv1.OpsManager)
+	opsManagerExtraStatusParams := mdbstatus.NewOMPartOption(mdbstatus.OpsManager)
 	defer exceptionHandling(
 		func(err interface{}) (reconcile.Result, error) {
 			return r.updateStatus(opsManager, workflow.Failed("Failed to reconcile Ops Manager: %s", err), log, opsManagerExtraStatusParams)
@@ -107,13 +108,13 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 	// 2. Reconcile Ops Manager
 	status, omAdmin := r.reconcileOpsManager(opsManager, opsManagerUserPassword, log)
 	if !status.IsOK() {
-		return r.updateStatus(opsManager, status, log, opsManagerExtraStatusParams, mdbv1.NewBaseUrlOption(opsManager.CentralURL()))
+		return r.updateStatus(opsManager, status, log, opsManagerExtraStatusParams, mdbstatus.NewBaseUrlOption(opsManager.CentralURL()))
 	}
 
 	// 3. Reconcile Backup Daemon
 	if opsManager.Spec.Backup.Enabled {
 		if status = r.reconcileBackupDaemon(opsManager, omAdmin, opsManagerUserPassword, log); !status.IsOK() {
-			return r.updateStatus(opsManager, status, log, mdbv1.NewOMStatusPartOption(mdbv1.Backup))
+			return r.updateStatus(opsManager, status, log, mdbstatus.NewOMPartOption(mdbstatus.Backup))
 		}
 	}
 
@@ -123,7 +124,7 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 }
 
 func (r *OpsManagerReconciler) reconcileOpsManager(opsManager *mdbv1.MongoDBOpsManager, opsManagerUserPassword string, log *zap.SugaredLogger) (workflow.Status, api.Admin) {
-	statusOptions := []mdbv1.StatusOption{mdbv1.NewOMStatusPartOption(mdbv1.OpsManager), mdbv1.NewBaseUrlOption(opsManager.CentralURL())}
+	statusOptions := []mdbstatus.Option{mdbstatus.NewOMPartOption(mdbstatus.OpsManager), mdbstatus.NewBaseUrlOption(opsManager.CentralURL())}
 
 	_, err := r.updateStatus(opsManager, workflow.Reconciling(), log, statusOptions...)
 	if err != nil {
@@ -150,7 +151,7 @@ func (r *OpsManagerReconciler) reconcileOpsManager(opsManager *mdbv1.MongoDBOpsM
 }
 
 func (r *OpsManagerReconciler) reconcileBackupDaemon(opsManager *mdbv1.MongoDBOpsManager, omAdmin api.Admin, opsManagerUserPassword string, log *zap.SugaredLogger) workflow.Status {
-	backupStatusPartOption := mdbv1.NewOMStatusPartOption(mdbv1.Backup)
+	backupStatusPartOption := mdbstatus.NewOMPartOption(mdbstatus.Backup)
 
 	_, err := r.updateStatus(opsManager, workflow.Reconciling(), log, backupStatusPartOption)
 	if err != nil {
@@ -180,7 +181,7 @@ func (r *OpsManagerReconciler) readOpsManagerResource(request reconcile.Request,
 		return result, err
 	}
 	// Reset warnings so that they are not stale, will populate accurate warnings in reconciliation
-	ref.SetWarnings([]mdbv1.StatusWarning{})
+	ref.SetWarnings([]mdbstatus.Warning{})
 	return nil, nil
 }
 
@@ -579,7 +580,7 @@ func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager mdbv1.MongoD
 	status = status.Merge(r.ensureBlockStoresInOpsManager(opsManager, omAdmin, log))
 
 	if len(opsManager.Spec.Backup.S3Configs) == 0 && len(opsManager.Spec.Backup.BlockStoreConfigs) == 0 {
-		return status.Merge(workflow.Invalid("Either S3 or Blockstore Snapshot configuration is required for backup").WithTargetPhase(mdbv1.PhasePending))
+		return status.Merge(workflow.Invalid("Either S3 or Blockstore Snapshot configuration is required for backup").WithTargetPhase(mdbstatus.PhasePending))
 	}
 
 	return status
@@ -643,7 +644,7 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(opsManager mdbv1.Mo
 	}
 
 	if len(operatorOplogConfigs) == 0 {
-		return workflow.Invalid("Oplog Store configuration is required for backup").WithTargetPhase(mdbv1.PhasePending)
+		return workflow.Invalid("Oplog Store configuration is required for backup").WithTargetPhase(mdbstatus.PhasePending)
 	}
 	return workflow.OK()
 }

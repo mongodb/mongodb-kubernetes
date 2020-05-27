@@ -3,7 +3,7 @@ package workflow
 import (
 	"fmt"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"go.uber.org/zap"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -23,10 +23,10 @@ type Status interface {
 	OnErrorPrepend(msg string) Status
 
 	// Returns options that can be used to populate the CR status
-	StatusOptions() []mdbv1.StatusOption
+	StatusOptions() []status.Option
 
 	// Phase is the phase the status should get
-	Phase() mdbv1.Phase
+	Phase() status.Phase
 
 	// ReconcileResult returns the result of reconciliation to be returned by main controller
 	ReconcileResult() (reconcile.Result, error)
@@ -37,8 +37,8 @@ type Status interface {
 
 type commonStatus struct {
 	msg               string
-	warnings          []mdbv1.StatusWarning
-	resourcesNotReady []mdbv1.ResourceNotReady
+	warnings          []status.Warning
+	resourcesNotReady []status.ResourceNotReady
 }
 
 func newCommonStatus(msg string, params ...interface{}) commonStatus {
@@ -49,10 +49,10 @@ func (c *commonStatus) prependMsg(msg string) {
 	c.msg = msg + " " + c.msg
 }
 
-func (c commonStatus) statusOptions() []mdbv1.StatusOption {
-	return []mdbv1.StatusOption{
-		mdbv1.NewMessageOption(c.msg),
-		mdbv1.NewWarningsOption(c.warnings),
-		mdbv1.NewResourcesNotReadyOption(c.resourcesNotReady),
+func (c commonStatus) statusOptions() []status.Option {
+	return []status.Option{
+		status.NewMessageOption(c.msg),
+		status.NewWarningsOption(c.warnings),
+		status.NewResourcesNotReadyOption(c.resourcesNotReady),
 	}
 }

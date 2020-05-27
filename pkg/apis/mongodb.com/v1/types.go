@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	appsv1 "k8s.io/api/apps/v1"
 
@@ -23,7 +24,6 @@ func init() {
 }
 
 type LogLevel string
-type Phase string
 
 type ResourceType string
 
@@ -35,22 +35,6 @@ const (
 	Warn  LogLevel = "WARN"
 	Error LogLevel = "ERROR"
 	Fatal LogLevel = "FATAL"
-
-	// PhaseReconciling means the controller is in the middle of reconciliation process
-	PhaseReconciling Phase = "Reconciling"
-
-	// PhasePending means the reconciliation has finished but the resource is neither in Error nor Running state -
-	// most of all waiting for some event to happen (CSRs approved, shard rebalanced etc)
-	PhasePending Phase = "Pending"
-
-	// PhaseRunning means the Mongodb Resource is in a running state
-	PhaseRunning Phase = "Running"
-
-	// PhaseFailed means the Mongodb Resource is in a failed state
-	PhaseFailed Phase = "Failed"
-
-	// PhaseUpdated means a MongoDBUser was successfully updated
-	PhaseUpdated Phase = "Updated"
 
 	Standalone     ResourceType = "Standalone"
 	ReplicaSet     ResourceType = "ReplicaSet"
@@ -105,20 +89,20 @@ type MongoDBConnectivity struct {
 
 // CommonStatus is the struct shared by all statuses in existing Custom Resources.
 type CommonStatus struct {
-	Phase             Phase              `json:"phase"`
-	Message           string             `json:"message,omitempty"`
-	LastTransition    string             `json:"lastTransition,omitempty"`
-	ResourcesNotReady []ResourceNotReady `json:"resourcesNotReady,omitempty"`
+	Phase             status.Phase              `json:"phase"`
+	Message           string                    `json:"message,omitempty"`
+	LastTransition    string                    `json:"lastTransition,omitempty"`
+	ResourcesNotReady []status.ResourceNotReady `json:"resourcesNotReady,omitempty"`
 }
 
 type MongoDbStatus struct {
 	CommonStatus
 	MongodbShardedClusterSizeConfig
-	Members      int             `json:"members,omitempty"`
-	Version      string          `json:"version"`
-	Link         string          `json:"link,omitempty"`
-	ResourceType ResourceType    `json:"type"`
-	Warnings     []StatusWarning `json:"warnings,omitempty"`
+	Members      int              `json:"members,omitempty"`
+	Version      string           `json:"version"`
+	Link         string           `json:"link,omitempty"`
+	ResourceType ResourceType     `json:"type"`
+	Warnings     []status.Warning `json:"warnings,omitempty"`
 }
 
 type MongoDbSpec struct {
@@ -168,19 +152,6 @@ type MongoDbSpec struct {
 	// configuration file:
 	// https://docs.mongodb.com/manual/reference/configuration-options/
 	AdditionalMongodConfig *AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
-}
-
-// ResourceNotReady describes the dependent resource which is not ready yet
-type ResourceNotReady struct {
-	Kind    ResourceKind    `json:"kind"`
-	Name    string          `json:"name"`
-	Errors  []ResourceError `json:"errors,omitempty"`
-	Message string          `json:"message,omitempty"`
-}
-
-type ResourceError struct {
-	Reason  string `json:"reason,omitempty"`
-	Message string `json:"message,omitempty"`
 }
 
 // StatefulSetConfiguration holds the optional custom StatefulSet
@@ -479,16 +450,16 @@ func (m *MongoDB) ShardRsName(i int) string {
 	return fmt.Sprintf("%s-%d", m.Name, i)
 }
 
-func (m *MongoDB) UpdateStatus(phase Phase, statusOptions ...StatusOption) {
+func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {
 	m.Status.UpdateCommonFields(phase, statusOptions...)
-	if option, exists := GetStatusOption(statusOptions, WarningsOption{}); exists {
-		m.Status.Warnings = append(m.Status.Warnings, option.(WarningsOption).Warnings...)
+	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
+		m.Status.Warnings = append(m.Status.Warnings, option.(status.WarningsOption).Warnings...)
 	}
-	if option, exists := GetStatusOption(statusOptions, BaseUrlOption{}); exists {
-		m.Status.Link = option.(BaseUrlOption).BaseUrl
+	if option, exists := status.GetOption(statusOptions, status.BaseUrlOption{}); exists {
+		m.Status.Link = option.(status.BaseUrlOption).BaseUrl
 	}
 
-	if phase == PhaseRunning {
+	if phase == status.PhaseRunning {
 		m.Status.Version = m.Spec.Version
 		m.Status.Message = ""
 		m.Status.ResourceType = m.Spec.ResourceType
@@ -505,20 +476,12 @@ func (m *MongoDB) UpdateStatus(phase Phase, statusOptions ...StatusOption) {
 	}
 }
 
-func (m *MongoDB) SetWarnings(warnings []StatusWarning) {
+func (m *MongoDB) SetWarnings(warnings []status.Warning) {
 	m.Status.Warnings = warnings
 }
 
-func (m *MongoDB) GetWarnings() []StatusWarning {
-	return m.Status.Warnings
-}
-
-func (m *MongoDB) AddWarningIfNotExists(warning StatusWarning) {
-	m.Status.Warnings = StatusWarnings(m.Status.Warnings).AddIfNotExists(warning)
-}
-
-func (m *MongoDB) GetKind() string {
-	return "MongoDB"
+func (m *MongoDB) AddWarningIfNotExists(warning status.Warning) {
+	m.Status.Warnings = status.Warnings(m.Status.Warnings).AddIfNotExists(warning)
 }
 
 func (m MongoDB) GetPlural() string {
@@ -527,10 +490,6 @@ func (m MongoDB) GetPlural() string {
 
 func (m *MongoDB) GetStatus() interface{} {
 	return m.Status
-}
-
-func (m *MongoDB) GetSpec() interface{} {
-	return m.Spec
 }
 
 // GetProject returns the name of the ConfigMap containing the information about connection to OM/CM

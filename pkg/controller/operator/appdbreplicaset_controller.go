@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
@@ -39,7 +40,7 @@ func newAppDBReplicaSetReconciler(commonController *ReconcileCommonController, a
 func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *mdbv1.MongoDBOpsManager, rs mdbv1.AppDB, opsManagerUserPassword string) (res reconcile.Result, e error) {
 	log := zap.S().With("ReplicaSet (AppDB)", objectKey(opsManager.Namespace, rs.Name()))
 
-	appDbStatusOption := mdbv1.NewOMStatusPartOption(mdbv1.AppDb)
+	appDbStatusOption := status.NewOMPartOption(status.AppDb)
 	result, err := r.updateStatus(opsManager, workflow.Reconciling(), log, appDbStatusOption)
 	if err != nil {
 		return result, err
@@ -93,8 +94,9 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *mdbv1.MongoDBOpsManager
 	// the new config map - in this case we need to wait for some time to make sure the readiness probe has updated
 	// the state (usually takes up to 5 seconds). Let's be safe and wait for a bit more
 	if wasPublished {
-		log.Debugf("Waiting for %d seconds to make sure readiness status is up-to-date", DefaultWaitForReadinessSeconds+util.DefaultK8sCacheRefreshTimeSeconds)
-		time.Sleep(time.Duration(envutil.ReadIntOrDefault(util.AppDBReadinessWaitEnv, DefaultWaitForReadinessSeconds)) * time.Second)
+		waitTimeout := envutil.ReadIntOrDefault(util.AppDBReadinessWaitEnv, DefaultWaitForReadinessSeconds)
+		log.Debugf("Waiting for %d seconds to make sure readiness status is up-to-date", waitTimeout+util.DefaultK8sCacheRefreshTimeSeconds)
+		time.Sleep(time.Duration(waitTimeout) * time.Second)
 	}
 
 	if status := r.getStatefulSetStatus(opsManager.Namespace, opsManager.Spec.AppDB.Name()); !status.IsOK() {

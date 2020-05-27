@@ -1,7 +1,7 @@
 package workflow
 
 import (
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	"go.uber.org/zap"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -10,21 +10,21 @@ import (
 // invalidStatus indicates that the reconciliation process must be suspended and CR should get "Pending" status
 type invalidStatus struct {
 	commonStatus
-	targetPhase mdbv1.Phase
+	targetPhase status.Phase
 }
 
 func Invalid(msg string, params ...interface{}) *invalidStatus {
-	return &invalidStatus{commonStatus: newCommonStatus(msg, params...), targetPhase: mdbv1.PhaseFailed}
+	return &invalidStatus{commonStatus: newCommonStatus(msg, params...), targetPhase: status.PhaseFailed}
 }
 
-func (f *invalidStatus) WithWarnings(warnings []mdbv1.StatusWarning) *invalidStatus {
+func (f *invalidStatus) WithWarnings(warnings []status.Warning) *invalidStatus {
 	f.warnings = warnings
 	return f
 }
 
 // WithTargetPhase allows to override the default phase for "invalid" (Failed) to another one.
 // Most of all it may be Pending
-func (f *invalidStatus) WithTargetPhase(targetPhase mdbv1.Phase) *invalidStatus {
+func (f *invalidStatus) WithTargetPhase(targetPhase status.Phase) *invalidStatus {
 	f.targetPhase = targetPhase
 	return f
 }
@@ -52,13 +52,13 @@ func (f invalidStatus) OnErrorPrepend(msg string) Status {
 	return f
 }
 
-func (f invalidStatus) StatusOptions() []mdbv1.StatusOption {
+func (f invalidStatus) StatusOptions() []status.Option {
 	options := f.statusOptions()
 	// Add any specific options here
 	return options
 }
 
-func (f invalidStatus) Phase() mdbv1.Phase {
+func (f invalidStatus) Phase() status.Phase {
 	return f.targetPhase
 }
 

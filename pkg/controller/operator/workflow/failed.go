@@ -3,9 +3,9 @@ package workflow
 import (
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"go.uber.org/zap"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -20,7 +20,7 @@ func Failed(msg string, params ...interface{}) *failedStatus {
 	return &failedStatus{commonStatus: newCommonStatus(msg, params...), retryInSeconds: 10}
 }
 
-func (f *failedStatus) WithWarnings(warnings []mdbv1.StatusWarning) *failedStatus {
+func (f *failedStatus) WithWarnings(warnings []status.Warning) *failedStatus {
 	f.warnings = warnings
 	return f
 }
@@ -53,14 +53,14 @@ func (f failedStatus) OnErrorPrepend(msg string) Status {
 	return f
 }
 
-func (f failedStatus) StatusOptions() []mdbv1.StatusOption {
+func (f failedStatus) StatusOptions() []status.Option {
 	options := f.statusOptions()
 	// Add any specific options here
 	return options
 }
 
-func (f failedStatus) Phase() mdbv1.Phase {
-	return mdbv1.PhaseFailed
+func (f failedStatus) Phase() status.Phase {
+	return status.PhaseFailed
 }
 
 func (f failedStatus) Log(log *zap.SugaredLogger) {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbstatus "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
@@ -55,7 +56,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (r
 	}
 
 	log.Infof("Finished reconciliation for Sharded Cluster! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
-	return r.updateStatus(sc, status, log, mdbv1.NewBaseUrlOption(DeploymentLink(conn.BaseURL(), conn.GroupID())))
+	return r.updateStatus(sc, status, log, mdbstatus.NewBaseUrlOption(DeploymentLink(conn.BaseURL(), conn.GroupID())))
 }
 
 // implements all the logic to do the sharded cluster thing
@@ -224,7 +225,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 	if status := r.getStatefulSetStatus(state.configSrvSetHelper.Namespace, state.configSrvSetHelper.Name); !status.IsOK() {
 		return status
 	}
-	_, _ = r.updateStatus(s, workflow.Reconciling().WithResourcesNotReady([]mdbv1.ResourceNotReady{}).WithNoMessage(), log)
+	_, _ = r.updateStatus(s, workflow.Reconciling().WithResourcesNotReady([]mdbstatus.ResourceNotReady{}).WithNoMessage(), log)
 
 	log.Infow("Created/updated StatefulSet for config servers", "name", state.configSrvSetHelper.Name, "servers count", state.configSrvSetHelper.Replicas)
 
@@ -239,7 +240,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 		if status := r.getStatefulSetStatus(helper.Namespace, helper.Name); !status.IsOK() {
 			return status
 		}
-		_, _ = r.updateStatus(s, workflow.Reconciling().WithResourcesNotReady([]mdbv1.ResourceNotReady{}).WithNoMessage(), log)
+		_, _ = r.updateStatus(s, workflow.Reconciling().WithResourcesNotReady([]mdbstatus.ResourceNotReady{}).WithNoMessage(), log)
 	}
 
 	log.Infow("Created/updated Stateful Sets for shards in Kubernetes", "shards", shardsNames)
@@ -252,7 +253,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 	if status := r.getStatefulSetStatus(state.mongosSetHelper.Namespace, state.mongosSetHelper.Name); !status.IsOK() {
 		return status
 	}
-	_, _ = r.updateStatus(s, workflow.Reconciling().WithResourcesNotReady([]mdbv1.ResourceNotReady{}).WithNoMessage(), log)
+	_, _ = r.updateStatus(s, workflow.Reconciling().WithResourcesNotReady([]mdbstatus.ResourceNotReady{}).WithNoMessage(), log)
 
 	log.Infow("Created/updated StatefulSet for mongos servers", "name", state.mongosSetHelper.Name, "servers count", state.mongosSetHelper.Replicas)
 

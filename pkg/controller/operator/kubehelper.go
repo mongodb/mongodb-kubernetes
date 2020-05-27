@@ -61,7 +61,7 @@ type Credentials struct {
 // StatefulSetHelperCommon is the basic struct the same for all Statefulset helpers (MongoDB, OpsManager)
 type StatefulSetHelperCommon struct {
 	// Attributes that are part of StatefulSet
-	Owner     Updatable
+	Owner     mdbv1.CustomResourceReadWriter
 	Name      string
 	Service   string
 	Namespace string
@@ -178,7 +178,7 @@ type ShardedClusterKubeState struct {
 // Note, that it's the same for both MongodbResource Statefulset and AppDB Statefulset. So the object passed
 // can be either 'MongoDB' or 'MongoDBOpsManager' - in the latter case the configuration for AppDB is used.
 // We pass the 'MongoDBOpsManager' instead of 'AppDB' as the former is the owner of the object - no AppDB CR exists
-func (k *KubeHelper) NewStatefulSetHelper(obj Updatable) *StatefulSetHelper {
+func (k *KubeHelper) NewStatefulSetHelper(obj mdbv1.CustomResourceReadWriter) *StatefulSetHelper {
 	var containerName string
 	var mongodbSpec mdbv1.MongoDbSpec
 	switch v := obj.(type) {
@@ -269,7 +269,7 @@ func (s *StatefulSetHelper) SetName(name string) *StatefulSetHelper {
 	s.Name = name
 	return s
 }
-func (s *StatefulSetHelper) SetOwner(obj Updatable) *StatefulSetHelper {
+func (s *StatefulSetHelper) SetOwner(obj mdbv1.CustomResourceReadWriter) *StatefulSetHelper {
 	s.Owner = obj
 	return s
 }
@@ -820,7 +820,7 @@ func (k *KubeHelper) readSecretKey(nsName client.ObjectKey, key string) (string,
 // computeConfigMap fetches the existing config map and applies the computation function to it and pushes changes back
 // The computation function is expected to update the data in config map or return false if no update/create is needed
 // (Name for the function is chosen as an analogy to Map.compute() function in Java)
-func (k *KubeHelper) computeConfigMap(nsName client.ObjectKey, callback func(*corev1.ConfigMap) bool, owner Updatable) error {
+func (k *KubeHelper) computeConfigMap(nsName client.ObjectKey, callback func(*corev1.ConfigMap) bool, owner mdbv1.CustomResourceReadWriter) error {
 	existingConfigMap, err := k.configmapClient.Get(objectKey(nsName.Namespace, nsName.Name))
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
@@ -852,7 +852,7 @@ func (k *KubeHelper) computeConfigMap(nsName client.ObjectKey, callback func(*co
 
 // TODO: leave this because the OM controller might end up using this:
 // https://github.com/10gen/ops-manager-kubernetes/pull/469/files#r340725250
-//func (k *KubeHelper) createOrUpdateConfigMap(nsName client.ObjectKey, data map[string]string, owner Updatable) error {
+//func (k *KubeHelper) createOrUpdateConfigMap(nsName client.ObjectKey, data map[string]string, owner CustomResourceReadWriter) error {
 //existingConfigMap := &corev1.ConfigMap{}
 //newConfigMap := &corev1.ConfigMap{
 //Data: data,
@@ -901,7 +901,7 @@ func (k *KubeHelper) createOrUpdateSecret(name, namespace string, pemFiles *pemC
 }
 
 // createSecret creates the secret. 'data' must either 'map[string][]byte' or 'map[string]string'
-func (k KubeHelper) createSecret(nsName client.ObjectKey, data interface{}, labels map[string]string, owner Updatable) error {
+func (k KubeHelper) createSecret(nsName client.ObjectKey, data interface{}, labels map[string]string, owner mdbv1.CustomResourceReadWriter) error {
 	secret := &corev1.Secret{}
 	secret.ObjectMeta = metav1.ObjectMeta{
 		Name:      nsName.Name,

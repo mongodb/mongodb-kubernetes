@@ -1,7 +1,7 @@
 package workflow
 
 import (
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"go.uber.org/zap"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -18,7 +18,7 @@ func Reconciling() *reconcilingStatus {
 
 // WithResourcesNotReady is intended to explicitly remove resourcesNotReady field from status as soon
 // as the resources are ready
-func (p *reconcilingStatus) WithResourcesNotReady(resourcesNotReady []mdbv1.ResourceNotReady) *reconcilingStatus {
+func (p *reconcilingStatus) WithResourcesNotReady(resourcesNotReady []status.ResourceNotReady) *reconcilingStatus {
 	p.resourcesNotReady = resourcesNotReady
 	return p
 }
@@ -48,14 +48,14 @@ func (o reconcilingStatus) OnErrorPrepend(_ string) Status {
 	return o
 }
 
-func (o reconcilingStatus) StatusOptions() []mdbv1.StatusOption {
-	options := []mdbv1.StatusOption{}
+func (o reconcilingStatus) StatusOptions() []status.Option {
+	options := []status.Option{}
 	// We will override fields only if they were specified explicitly
 	if o.resourcesNotReady != nil {
-		options = append(options, mdbv1.NewResourcesNotReadyOption(o.resourcesNotReady))
+		options = append(options, status.NewResourcesNotReadyOption(o.resourcesNotReady))
 	}
 	if o.eraseMessage {
-		options = append(options, mdbv1.NewMessageOption(""))
+		options = append(options, status.NewMessageOption(""))
 	}
 	return options
 }
@@ -64,6 +64,6 @@ func (f reconcilingStatus) Log(_ *zap.SugaredLogger) {
 	// Doing no logging - the reconciler will do instead
 }
 
-func (o reconcilingStatus) Phase() mdbv1.Phase {
-	return mdbv1.PhaseReconciling
+func (o reconcilingStatus) Phase() status.Phase {
+	return status.PhaseReconciling
 }

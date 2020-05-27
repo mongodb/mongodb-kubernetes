@@ -1,7 +1,7 @@
 package workflow
 
 import (
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"go.uber.org/zap"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -15,7 +15,7 @@ func OK() *okStatus {
 	return &okStatus{}
 }
 
-func (o *okStatus) WithWarnings(warnings []mdbv1.StatusWarning) *okStatus {
+func (o *okStatus) WithWarnings(warnings []status.Warning) *okStatus {
 	o.warnings = warnings
 	return o
 }
@@ -37,7 +37,7 @@ func (o okStatus) OnErrorPrepend(_ string) Status {
 	return o
 }
 
-func (o okStatus) StatusOptions() []mdbv1.StatusOption {
+func (o okStatus) StatusOptions() []status.Option {
 	return o.statusOptions()
 }
 
@@ -45,6 +45,6 @@ func (f okStatus) Log(_ *zap.SugaredLogger) {
 	// Doing no logging - the reconciler will do instead
 }
 
-func (o okStatus) Phase() mdbv1.Phase {
-	return mdbv1.PhaseRunning
+func (o okStatus) Phase() status.Phase {
+	return status.PhaseRunning
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/timeutil"
 
@@ -24,20 +25,6 @@ func init() {
 }
 
 //=============== Ops Manager ===========================================
-
-// StatusPart is the logical constant for specific field in status in the MongoDBOpsManager
-type StatusPart int
-
-// ResourceKind specifies a kind of a Kubernetes resource. Used in status of a Custom Resource
-type ResourceKind string
-
-const (
-	AppDb StatusPart = iota
-	OpsManager
-	Backup
-
-	StatefulsetKind ResourceKind = "StatefulSet"
-)
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +k8s:openapi-gen=true
@@ -163,7 +150,7 @@ type MongoDBOpsManagerStatus struct {
 	OpsManagerStatus OpsManagerStatus `json:"opsManager,omitempty"`
 	AppDbStatus      AppDbStatus      `json:"applicationDatabase,omitempty"`
 	BackupStatus     BackupStatus     `json:"backup,omitempty"`
-	Warnings         []StatusWarning  `json:"warnings,omitempty"`
+	Warnings         []status.Warning `json:"warnings,omitempty"`
 }
 
 type OpsManagerStatus struct {
@@ -322,43 +309,43 @@ func (m *MongoDBOpsManager) AddConfigIfDoesntExist(key, value string) bool {
 }
 
 // UpdateCommonFields is the update function to update common fields used in statuses of all managed CRs
-func (s *CommonStatus) UpdateCommonFields(phase Phase, statusOptions ...StatusOption) {
+func (s *CommonStatus) UpdateCommonFields(phase status.Phase, statusOptions ...status.Option) {
 	s.Phase = phase
 	s.LastTransition = timeutil.Now()
-	if option, exists := GetStatusOption(statusOptions, MessageOption{}); exists {
-		s.Message = stringutil.UpperCaseFirstChar(option.(MessageOption).Message)
+	if option, exists := status.GetOption(statusOptions, status.MessageOption{}); exists {
+		s.Message = stringutil.UpperCaseFirstChar(option.(status.MessageOption).Message)
 	}
-	if option, exists := GetStatusOption(statusOptions, ResourcesNotReadyOption{}); exists {
-		s.ResourcesNotReady = option.(ResourcesNotReadyOption).ResourcesNotReady
+	if option, exists := status.GetOption(statusOptions, status.ResourcesNotReadyOption{}); exists {
+		s.ResourcesNotReady = option.(status.ResourcesNotReadyOption).ResourcesNotReady
 	}
 }
 
-func (m *MongoDBOpsManager) UpdateStatus(phase Phase, statusOptions ...StatusOption) {
-	var statusPart StatusPart
-	if option, exists := GetStatusOption(statusOptions, OMStatusPartOption{}); exists {
-		statusPart = option.(OMStatusPartOption).StatusPart
+func (m *MongoDBOpsManager) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {
+	var statusPart status.Part
+	if option, exists := status.GetOption(statusOptions, status.OMPartOption{}); exists {
+		statusPart = option.(status.OMPartOption).StatusPart
 	}
 
 	switch statusPart {
-	case AppDb:
+	case status.AppDb:
 		m.updateStatusAppDb(phase, statusOptions...)
-	case OpsManager:
+	case status.OpsManager:
 		m.updateStatusOpsManager(phase, statusOptions...)
-	case Backup:
+	case status.Backup:
 		m.updateStatusBackup(phase, statusOptions...)
 	}
 
 	// It may make sense to keep separate warnings per status part - this needs some refactoring for
 	// validation layer though (the one shared with validation webhook)
-	if option, exists := GetStatusOption(statusOptions, WarningsOption{}); exists {
-		m.Status.Warnings = append(m.Status.Warnings, option.(WarningsOption).Warnings...)
+	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
+		m.Status.Warnings = append(m.Status.Warnings, option.(status.WarningsOption).Warnings...)
 	}
 }
 
-func (m *MongoDBOpsManager) updateStatusAppDb(phase Phase, statusOptions ...StatusOption) {
+func (m *MongoDBOpsManager) updateStatusAppDb(phase status.Phase, statusOptions ...status.Option) {
 	m.Status.AppDbStatus.UpdateCommonFields(phase, statusOptions...)
 
-	if phase == PhaseRunning {
+	if phase == status.PhaseRunning {
 		spec := m.Spec.AppDB
 		m.Status.AppDbStatus.Version = spec.GetVersion()
 		m.Status.AppDbStatus.Message = ""
@@ -367,43 +354,35 @@ func (m *MongoDBOpsManager) updateStatusAppDb(phase Phase, statusOptions ...Stat
 	}
 }
 
-func (m *MongoDBOpsManager) updateStatusOpsManager(phase Phase, statusOptions ...StatusOption) {
+func (m *MongoDBOpsManager) updateStatusOpsManager(phase status.Phase, statusOptions ...status.Option) {
 	m.Status.OpsManagerStatus.UpdateCommonFields(phase, statusOptions...)
 
-	if option, exists := GetStatusOption(statusOptions, BaseUrlOption{}); exists {
-		m.Status.OpsManagerStatus.Url = option.(BaseUrlOption).BaseUrl
+	if option, exists := status.GetOption(statusOptions, status.BaseUrlOption{}); exists {
+		m.Status.OpsManagerStatus.Url = option.(status.BaseUrlOption).BaseUrl
 	}
 
-	if phase == PhaseRunning {
+	if phase == status.PhaseRunning {
 		m.Status.OpsManagerStatus.Replicas = m.Spec.Replicas
 		m.Status.OpsManagerStatus.Version = m.Spec.Version
 		m.Status.OpsManagerStatus.Message = ""
 	}
 }
 
-func (m *MongoDBOpsManager) updateStatusBackup(phase Phase, statusOptions ...StatusOption) {
+func (m *MongoDBOpsManager) updateStatusBackup(phase status.Phase, statusOptions ...status.Option) {
 	m.Status.BackupStatus.UpdateCommonFields(phase, statusOptions...)
 
-	if phase == PhaseRunning {
+	if phase == status.PhaseRunning {
 		m.Status.BackupStatus.Message = ""
 		m.Status.BackupStatus.Version = m.Spec.Version
 	}
 }
 
-func (m *MongoDBOpsManager) SetWarnings(warnings []StatusWarning) {
+func (m *MongoDBOpsManager) SetWarnings(warnings []status.Warning) {
 	m.Status.Warnings = warnings
 }
 
-func (m *MongoDBOpsManager) GetWarnings() []StatusWarning {
-	return m.Status.Warnings
-}
-
-func (m *MongoDBOpsManager) AddWarningIfNotExists(warning StatusWarning) {
-	m.Status.Warnings = StatusWarnings(m.Status.Warnings).AddIfNotExists(warning)
-}
-
-func (m *MongoDBOpsManager) GetKind() string {
-	return "MongoDBOpsManager"
+func (m *MongoDBOpsManager) AddWarningIfNotExists(warning status.Warning) {
+	m.Status.Warnings = status.Warnings(m.Status.Warnings).AddIfNotExists(warning)
 }
 
 func (m MongoDBOpsManager) GetPlural() string {
@@ -412,16 +391,6 @@ func (m MongoDBOpsManager) GetPlural() string {
 
 func (m *MongoDBOpsManager) GetStatus() interface{} {
 	return m.Status
-}
-
-func (m *MongoDBOpsManager) GetSpec() interface{} {
-	// Do not mutate the original object
-	omCopy := m.DeepCopy()
-	configuration := omCopy.Spec.Configuration
-	if uri, ok := configuration[util.MmsMongoUri]; ok {
-		configuration[util.MmsMongoUri] = util.RedactMongoURI(uri)
-	}
-	return omCopy.Spec
 }
 
 func (m *MongoDBOpsManager) APIKeySecretName() string {

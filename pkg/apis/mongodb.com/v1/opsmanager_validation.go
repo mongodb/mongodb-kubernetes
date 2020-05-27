@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 )
@@ -206,7 +207,7 @@ func (m *MongoDBOpsManager) ProcessValidationsOnReconcile() error {
 		}
 
 		if res.Level == WarningLevel {
-			m.AddWarningIfNotExists(StatusWarning(res.Msg))
+			m.AddWarningIfNotExists(status.Warning(res.Msg))
 		}
 	}
 

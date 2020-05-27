@@ -11,6 +11,7 @@ import (
 	"time"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
@@ -234,7 +235,7 @@ func TestUpdateStatus_Patched(t *testing.T) {
 
 	// The spec hasn't changed - only status
 	assert.Equal(t, rs.Spec, currentRs.Spec)
-	assert.Equal(t, mdbv1.PhasePending, currentRs.Status.Phase)
+	assert.Equal(t, status.PhasePending, currentRs.Status.Phase)
 	assert.Equal(t, "Waiting for secret...", currentRs.Status.Message)
 }
 
@@ -359,7 +360,7 @@ func checkReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, obj
 
 	// also need to make sure the object status is updated to successful
 	assert.NoError(t, client.Get(context.TODO(), objectKeyFromApiObject(object), object))
-	assert.Equal(t, mdbv1.PhaseRunning, object.Status.Phase)
+	assert.Equal(t, status.PhaseRunning, object.Status.Phase)
 
 	expectedLink := DeploymentLink(om.TestURL, om.TestGroupID)
 
@@ -391,7 +392,7 @@ func checkReconcileFailed(t *testing.T, reconciler reconcile.Reconciler, object 
 
 	// also need to make sure the object status is updated to failed
 	assert.NoError(t, client.Get(context.TODO(), objectKeyFromApiObject(object), object))
-	assert.Equal(t, mdbv1.PhaseFailed, object.Status.Phase)
+	assert.Equal(t, status.PhaseFailed, object.Status.Phase)
 	assert.Contains(t, object.Status.Message, expectedErrorMessage)
 }
 
@@ -403,6 +404,6 @@ func checkReconcilePending(t *testing.T, reconciler reconcile.Reconciler, object
 
 	// also need to make sure the object status is updated to failed
 	assert.NoError(t, client.Get(context.TODO(), objectKeyFromApiObject(object), object))
-	assert.Equal(t, mdbv1.PhasePending, object.Status.Phase)
+	assert.Equal(t, status.PhasePending, object.Status.Phase)
 	assert.Contains(t, object.Status.Message, expectedErrorMessage)
 }

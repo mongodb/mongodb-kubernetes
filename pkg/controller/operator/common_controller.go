@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
@@ -29,8 +30,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
@@ -45,44 +44,11 @@ const (
 	TLSGenerationDeprecationWarning = "This feature has been DEPRECATED and should only be used in testing environments."
 )
 
-// Updatable is an interface for all "operator owned" Custom Resources
-// TODO move to `apis` package (and rename to smth like `MongoDbObject`?)
-type Updatable interface {
-	runtime.Object
-	metav1.Object
-
-	UpdateStatus(phase mdbv1.Phase, statusOptions ...mdbv1.StatusOption)
-
-	// SetWarnings sets the warnings for the Updatable object
-	SetWarnings([]mdbv1.StatusWarning)
-
-	// GetWarnings get the warnings from the Updatable object
-	GetWarnings() []mdbv1.StatusWarning
-
-	// GetKind returns the kind of the object. This
-	// is convenient when setting the owner for K8s objects created by controllers
-	GetKind() string
-
-	// GetPlural returns the plural of the type
-	GetPlural() string
-
-	// GetStatus returns the status of the object
-	GetStatus() interface{}
-
-	// GetSpec returns the spec of the object
-	GetSpec() interface{}
-}
-
 type patchValue struct {
 	Op    string      `json:"op"`
 	Path  string      `json:"path"`
 	Value interface{} `json:"value"`
 }
-
-// ensure our types are all Updatable
-var _ Updatable = &mdbv1.MongoDB{}
-var _ Updatable = &mdbv1.MongoDBUser{}
-var _ Updatable = &mdbv1.MongoDBOpsManager{}
 
 // ReconcileCommonController is the "parent" controller that is included into each specific controller and allows
 // to reuse the common functionality
@@ -255,14 +221,14 @@ func (c *ReconcileCommonController) ensureAgentKeySecretExists(conn om.Connectio
 	return nil
 }
 
-func (c *ReconcileCommonController) createAgentKeySecret(objectKey client.ObjectKey, agentKey string, owner Updatable) error {
+func (c *ReconcileCommonController) createAgentKeySecret(objectKey client.ObjectKey, agentKey string, owner mdbv1.CustomResourceReadWriter) error {
 	data := map[string]string{util.OmAgentApiKey: agentKey}
 	return c.kubeHelper.createSecret(objectKey, data, map[string]string{}, owner)
 }
 
 // updateStatus updates the status for the CR using patch operation. Note, that the resource status is mutated and
 // it's important to pass resource by pointer to all methods which invoke current 'updateStatus'.
-func (c *ReconcileCommonController) updateStatus(reconciledResource Updatable, status workflow.Status, log *zap.SugaredLogger, statusOptions ...mdbv1.StatusOption) (reconcile.Result, error) {
+func (c *ReconcileCommonController) updateStatus(reconciledResource mdbv1.CustomResourceReadWriter, status workflow.Status, log *zap.SugaredLogger, statusOptions ...status.Option) (reconcile.Result, error) {
 	status.Log(log)
 
 	mergedOptions := append(statusOptions, status.StatusOptions()...)
@@ -279,7 +245,7 @@ func (c *ReconcileCommonController) updateStatus(reconciledResource Updatable, s
 // Note, that this method enforces update ONLY to the status, so the reconciliation events happening because of this
 // can be filtered out by 'controller.shouldReconcile'
 // The "jsonPatch" merge allows to update only status field
-func (c *ReconcileCommonController) patchUpdateStatus(resource Updatable) error {
+func (c *ReconcileCommonController) patchUpdateStatus(resource mdbv1.CustomResourceReadWriter) error {
 
 	payload := []patchValue{{
 		Op:    "replace",
@@ -306,7 +272,7 @@ func (c *ReconcileCommonController) patchUpdateStatus(resource Updatable) error 
 
 // patchStatusLegacy performs status update if the subresources endpoint is not supported
 // TODO Remove when we stop supporting Openshift 3.11 and K8s 1.11
-func (c *ReconcileCommonController) patchStatusLegacy(resource Updatable, patch client.Patch) error {
+func (c *ReconcileCommonController) patchStatusLegacy(resource mdbv1.CustomResourceReadWriter, patch client.Patch) error {
 	err := c.client.Patch(context.TODO(), resource, patch)
 	if err != nil {
 		zap.S().Debugf("Failed to apply patch to the status - the field may not exist, we'll add it (error: %s)", err)
@@ -360,7 +326,7 @@ func (c *ReconcileCommonController) getResource(request reconcile.Request, resou
 // prepareResourceForReconciliation finds the object being reconciled. Returns pointer to 'reconcile.Status' and error
 // If the 'reconcile.Status' pointer is not nil - the client is expected to finish processing
 func (c *ReconcileCommonController) prepareResourceForReconciliation(
-	request reconcile.Request, resource Updatable, log *zap.SugaredLogger) (*reconcile.Result, error) {
+	request reconcile.Request, resource mdbv1.CustomResourceReadWriter, log *zap.SugaredLogger) (*reconcile.Result, error) {
 	if result, err := c.getResource(request, resource, log); result != nil {
 		return result, err
 	}
@@ -383,7 +349,7 @@ func (c *ReconcileCommonController) prepareResourceForReconciliation(
 	}
 
 	// Reset warnings so that they are not stale, will populate accurate warnings in reconciliation
-	resource.SetWarnings([]mdbv1.StatusWarning{})
+	resource.SetWarnings([]status.Warning{})
 
 	return nil, nil
 }

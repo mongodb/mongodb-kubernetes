@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbstatus "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
@@ -122,7 +123,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 			if status := r.getStatefulSetStatus(rs.Namespace, rs.Name); !status.IsOK() {
 				return status
 			}
-			_, _ = r.updateStatus(rs, workflow.Reconciling().WithResourcesNotReady([]mdbv1.ResourceNotReady{}).WithNoMessage(), log)
+			_, _ = r.updateStatus(rs, workflow.Reconciling().WithResourcesNotReady([]mdbstatus.ResourceNotReady{}).WithNoMessage(), log)
 
 			log.Info("Updated StatefulSet for replica set")
 			return workflow.OK()
@@ -133,7 +134,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 	}
 
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
-	return r.updateStatus(rs, workflow.OK(), log, mdbv1.NewBaseUrlOption(DeploymentLink(conn.BaseURL(), conn.GroupID())))
+	return r.updateStatus(rs, workflow.OK(), log, mdbstatus.NewBaseUrlOption(DeploymentLink(conn.BaseURL(), conn.GroupID())))
 }
 
 // AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller

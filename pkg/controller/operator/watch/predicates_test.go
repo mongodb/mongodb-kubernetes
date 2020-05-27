@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/stretchr/testify/assert"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 )
@@ -14,7 +15,7 @@ func TestPredicatesForUser(t *testing.T) {
 			Status: mdbv1.MongoDBUserStatus{},
 		}
 		newUser := oldUser.DeepCopy()
-		newUser.Status.Phase = mdbv1.PhaseReconciling
+		newUser.Status.Phase = status.PhaseReconciling
 		assert.False(t, PredicatesForUser().Update(event.UpdateEvent{ObjectOld: oldUser, ObjectNew: newUser}))
 	})
 	t.Run("Reconciliation happens for MongoDBUser if statuses are equal", func(t *testing.T) {
@@ -32,7 +33,7 @@ func TestPredicatesForOpsManager(t *testing.T) {
 		oldOm := mdbv1.NewOpsManagerBuilder().Build()
 		newOm := oldOm.DeepCopy()
 		newOm.Spec.Replicas = 2
-		newOm.Status = mdbv1.MongoDBOpsManagerStatus{Warnings: []mdbv1.StatusWarning{"warning"}}
+		newOm.Status = mdbv1.MongoDBOpsManagerStatus{Warnings: []status.Warning{"warning"}}
 		assert.False(t, PredicatesForOpsManager().Update(event.UpdateEvent{ObjectOld: &oldOm, ObjectNew: newOm}))
 	})
 	t.Run("Reconciliation happens for MongoDBOpsManager if statuses are equal", func(t *testing.T) {

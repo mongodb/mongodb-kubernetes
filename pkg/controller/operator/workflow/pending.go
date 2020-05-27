@@ -3,9 +3,9 @@ package workflow
 import (
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"go.uber.org/zap"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -20,7 +20,7 @@ func Pending(msg string, params ...interface{}) *pendingStatus {
 	return &pendingStatus{commonStatus: newCommonStatus(msg, params...), retryInSeconds: 10}
 }
 
-func (p *pendingStatus) WithWarnings(warnings []mdbv1.StatusWarning) *pendingStatus {
+func (p *pendingStatus) WithWarnings(warnings []status.Warning) *pendingStatus {
 	p.warnings = warnings
 	return p
 }
@@ -30,7 +30,7 @@ func (p *pendingStatus) WithRetry(retryInSeconds time.Duration) *pendingStatus {
 	return p
 }
 
-func (p *pendingStatus) WithResourcesNotReady(resourcesNotReady []mdbv1.ResourceNotReady) *pendingStatus {
+func (p *pendingStatus) WithResourcesNotReady(resourcesNotReady []status.ResourceNotReady) *pendingStatus {
 	p.resourcesNotReady = resourcesNotReady
 	return p
 }
@@ -58,14 +58,14 @@ func (p pendingStatus) OnErrorPrepend(msg string) Status {
 	return p
 }
 
-func (p pendingStatus) StatusOptions() []mdbv1.StatusOption {
+func (p pendingStatus) StatusOptions() []status.Option {
 	options := p.statusOptions()
 	// Add any custom options here
 	return options
 }
 
-func (p pendingStatus) Phase() mdbv1.Phase {
-	return mdbv1.PhasePending
+func (p pendingStatus) Phase() status.Phase {
+	return status.PhasePending
 }
 
 func (f pendingStatus) Log(log *zap.SugaredLogger) {

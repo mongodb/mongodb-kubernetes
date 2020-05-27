@@ -249,7 +249,7 @@ func TestBuildService(t *testing.T) {
 
 	assert.Len(t, svc.OwnerReferences, 1)
 	assert.Equal(t, mdb.Name, svc.OwnerReferences[0].Name)
-	assert.Equal(t, mdb.GetKind(), svc.OwnerReferences[0].Kind)
+	assert.Equal(t, mdb.GetObjectKind().GroupVersionKind().Kind, svc.OwnerReferences[0].Kind)
 	assert.Equal(t, mock.TestNamespace, svc.Namespace)
 	assert.Equal(t, "my-svc", svc.Name)
 	assert.Equal(t, "loadbalancerip", svc.Spec.LoadBalancerIP)

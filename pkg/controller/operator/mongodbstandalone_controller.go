@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbstatus "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
@@ -165,7 +166,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 			if status := r.getStatefulSetStatus(standaloneBuilder.Namespace, standaloneBuilder.Name); !status.IsOK() {
 				return status
 			}
-			_, _ = r.updateStatus(s, workflow.Reconciling().WithResourcesNotReady([]mdbv1.ResourceNotReady{}).WithNoMessage(), log)
+			_, _ = r.updateStatus(s, workflow.Reconciling().WithResourcesNotReady([]mdbstatus.ResourceNotReady{}).WithNoMessage(), log)
 
 			log.Info("Updated StatefulSet for standalone")
 			return workflow.OK()
@@ -177,7 +178,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 
 	log.Infof("Finished reconciliation for MongoDbStandalone! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 
-	return r.updateStatus(s, status, log, mdbv1.NewBaseUrlOption(DeploymentLink(conn.BaseURL(), conn.GroupID())))
+	return r.updateStatus(s, status, log, mdbstatus.NewBaseUrlOption(DeploymentLink(conn.BaseURL(), conn.GroupID())))
 }
 
 func (r *ReconcileMongoDbStandalone) updateOmDeployment(conn om.Connection, s *mdbv1.MongoDB,

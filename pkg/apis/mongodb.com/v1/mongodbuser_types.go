@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	kubev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -75,11 +76,11 @@ type MongoDBUserSpec struct {
 
 type MongoDBUserStatus struct {
 	CommonStatus
-	Roles    []Role          `json:"roles,omitempty"`
-	Username string          `json:"username"`
-	Database string          `json:"db"`
-	Project  string          `json:"project"`
-	Warnings []StatusWarning `json:"warnings,omitempty"`
+	Roles    []Role           `json:"roles,omitempty"`
+	Username string           `json:"username"`
+	Database string           `json:"db"`
+	Project  string           `json:"project"`
+	Warnings []status.Warning `json:"warnings,omitempty"`
 }
 
 type Role struct {
@@ -105,30 +106,22 @@ func (u *MongoDBUser) ChangedIdentifier() bool {
 	return u.Status.Username != u.Spec.Username || u.Status.Database != u.Spec.Database
 }
 
-func (u *MongoDBUser) UpdateStatus(phase Phase, statusOptions ...StatusOption) {
+func (u *MongoDBUser) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {
 	u.Status.UpdateCommonFields(phase, statusOptions...)
-	if option, exists := GetStatusOption(statusOptions, WarningsOption{}); exists {
-		u.Status.Warnings = append(u.Status.Warnings, option.(WarningsOption).Warnings...)
+	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
+		u.Status.Warnings = append(u.Status.Warnings, option.(status.WarningsOption).Warnings...)
 	}
 
-	if phase == PhaseRunning {
-		u.Status.Phase = PhaseUpdated
+	if phase == status.PhaseRunning {
+		u.Status.Phase = status.PhaseUpdated
 		u.Status.Roles = u.Spec.Roles
 		u.Status.Database = u.Spec.Database
 		u.Status.Username = u.Spec.Username
 	}
 }
 
-func (m *MongoDBUser) SetWarnings(warnings []StatusWarning) {
+func (m *MongoDBUser) SetWarnings(warnings []status.Warning) {
 	m.Status.Warnings = warnings
-}
-
-func (m *MongoDBUser) GetWarnings() []StatusWarning {
-	return m.Status.Warnings
-}
-
-func (m *MongoDBUser) GetKind() string {
-	return "MongoDBUser"
 }
 
 func (m MongoDBUser) GetPlural() string {
@@ -137,8 +130,4 @@ func (m MongoDBUser) GetPlural() string {
 
 func (u *MongoDBUser) GetStatus() interface{} {
 	return u.Status
-}
-
-func (u *MongoDBUser) GetSpec() interface{} {
-	return u.Spec
 }

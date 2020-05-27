@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
@@ -18,8 +19,8 @@ import (
 )
 
 func TestSettingUserStatus_ToPending_IsFilteredOut(t *testing.T) {
-	userInUpdatedPhase := &mdbv1.MongoDBUser{ObjectMeta: metav1.ObjectMeta{Name: "mms-user", Namespace: mock.TestNamespace}, Status: mdbv1.MongoDBUserStatus{CommonStatus: mdbv1.CommonStatus{Phase: mdbv1.PhaseUpdated}}}
-	userInPendingPhase := &mdbv1.MongoDBUser{ObjectMeta: metav1.ObjectMeta{Name: "mms-user", Namespace: mock.TestNamespace}, Status: mdbv1.MongoDBUserStatus{CommonStatus: mdbv1.CommonStatus{Phase: mdbv1.PhasePending}}}
+	userInUpdatedPhase := &mdbv1.MongoDBUser{ObjectMeta: metav1.ObjectMeta{Name: "mms-user", Namespace: mock.TestNamespace}, Status: mdbv1.MongoDBUserStatus{CommonStatus: mdbv1.CommonStatus{Phase: status.PhaseUpdated}}}
+	userInPendingPhase := &mdbv1.MongoDBUser{ObjectMeta: metav1.ObjectMeta{Name: "mms-user", Namespace: mock.TestNamespace}, Status: mdbv1.MongoDBUserStatus{CommonStatus: mdbv1.CommonStatus{Phase: status.PhasePending}}}
 
 	predicates := watch.PredicatesForUser()
 	updateEvent := event.UpdateEvent{
