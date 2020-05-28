@@ -1,4 +1,4 @@
-package operator
+package project
 
 import (
 	"fmt"
@@ -21,10 +21,10 @@ then Operator won't find it as the names don't match.
 
 Note, that the method is performed holding the "groupName+orgId" mutex which allows to avoid race conditions and avoid
 duplicated groups/organizations creation. So if for example the standalone and the replica set which reference the same
-configMap are created in parallel - this function will be invoked sequantaly and the second caller will see the group
+configMap are created in parallel - this function will be invoked sequentially and the second caller will see the group
 created on the first call
 */
-func (c *ReconcileCommonController) readOrCreateProject(projectName string, config *mdbv1.ProjectConfig, credentials *Credentials, log *zap.SugaredLogger) (*om.Project, om.Connection, error) {
+func ReadOrCreateProject(projectName string, config mdbv1.ProjectConfig, credentials mdbv1.Credentials, connectionFactory om.ConnectionFactory, log *zap.SugaredLogger) (*om.Project, om.Connection, error) {
 	mutex := om.GetMutex(projectName, config.OrgID)
 	mutex.Lock()
 	defer mutex.Unlock()
@@ -49,7 +49,7 @@ func (c *ReconcileCommonController) readOrCreateProject(projectName string, conf
 		CACertificate: config.SSLMMSCAConfigMapContents,
 	}
 
-	conn := c.omConnectionFactory(&omContext)
+	conn := connectionFactory(&omContext)
 
 	org, err := findOrganization(config.OrgID, projectName, conn, log)
 	if err != nil {

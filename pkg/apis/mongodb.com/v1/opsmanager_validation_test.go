@@ -44,9 +44,9 @@ func TestOpsManager_RunValidations_AppDWithCloudManagerConfig(t *testing.T) {
 
 func TestOpsManager_RunValidations_AppDWithProjectName(t *testing.T) {
 	om := NewOpsManagerBuilder().Build()
-	om.Spec.AppDB.ProjectName = "something"
+	om.Spec.AppDB.Project = "something"
 	assert.Nil(t, om.ProcessValidationsOnReconcile())
-	assert.Contains(t, om.Status.Warnings, status.Warning("projectName field is not configurable for application databases"))
+	assert.Contains(t, om.Status.Warnings, status.Warning("project field is not configurable for application databases"))
 }
 
 func TestOpsManager_RunValidations_AppDWithConfigSrvPodSpec(t *testing.T) {
@@ -107,8 +107,8 @@ func TestOpsManager_RunValidations_S3StoreUserResourceRef(t *testing.T) {
 
 func TestOpsManager_RunValidations_MultipleWarnings(t *testing.T) {
 	om := NewOpsManagerBuilder().Build()
-	om.Spec.AppDB.ProjectName = "something"
+	om.Spec.AppDB.Project = "something"
 	om.Spec.AppDB.ConfigServerCount = 1
 	assert.Nil(t, om.ProcessValidationsOnReconcile())
-	assert.Equal(t, fmt.Sprintf("%s", om.Status.Warnings), "[projectName field is not configurable for application databases; configServerCount field is not configurable for application databases as it is for sharded clusters and appdbs are replica sets]")
+	assert.Equal(t, fmt.Sprintf("%s", om.Status.Warnings), "[project field is not configurable for application databases; configServerCount field is not configurable for application databases as it is for sharded clusters and appdbs are replica sets]")
 }

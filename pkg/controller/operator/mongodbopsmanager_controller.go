@@ -9,8 +9,9 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	mdbstatus "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/project"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/generate"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/identifiable"
@@ -538,7 +539,8 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager mdbv1.MongoDBOpsManag
 		return workflow.Failed("admin API key secret for Ops Manager doesn't exit - was it removed accidentally? %s. The error : %s",
 			detailedMsg, err).WithRetry(30), nil
 	}
-	cred, err := r.kubeHelper.readCredentials(operatorNamespace(), opsManager.APIKeySecretName())
+	// Ops Manager api key Secret has the same structure as the MongoDB credentials secret
+	cred, err := project.ReadCredentials(r.client, objectKey(operatorNamespace(), opsManager.APIKeySecretName()))
 	if err != nil {
 		return workflow.Failed(err.Error()), nil
 	}

@@ -688,7 +688,7 @@ func TestBaseEnvHelper(t *testing.T) {
 
 	envVars = defaultPodVars()
 	envVars.SSLMMSCAConfigMap = "custom-ca"
-	trustedCACertLocation := path.Join(CaCertMountPath, CaCertMMS)
+	trustedCACertLocation := path.Join(CaCertMountPath, util.CaCertMMS)
 	podEnv = databaseEnvVars(envVars)
 	assert.Len(t, podEnv, 6)
 	assert.Equal(t, podEnv[5], corev1.EnvVar{

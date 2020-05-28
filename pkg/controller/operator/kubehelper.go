@@ -13,7 +13,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
@@ -47,16 +46,6 @@ type AuthMode string
 const (
 	NumAgents = 3
 )
-
-// Credentials contains the configuration expected from the `credentials` (Secret)` attribute in
-// `.spec.credentials`.
-type Credentials struct {
-	// +required
-	User string
-
-	// +required
-	PublicAPIKey string
-}
 
 // StatefulSetHelperCommon is the basic struct the same for all Statefulset helpers (MongoDB, OpsManager)
 type StatefulSetHelperCommon struct {
@@ -688,105 +677,6 @@ func (k *KubeHelper) createOrUpdateService(desiredService corev1.Service, log *z
 
 	log.Debugw(fmt.Sprintf("%s Service", method), "type", desiredService.Spec.Type, "port", desiredService.Spec.Ports[0])
 	return nil
-}
-
-// readProjectConfig returns a "Project" config which is a ConfigMap with a series of attributes
-// like `projectName`, `baseUrl` and a series of attributes related to SSL.
-func (k *KubeHelper) readProjectConfig(namespace, name string) (*mdbv1.ProjectConfig, error) {
-	data, err := k.configmapClient.GetData(objectKey(namespace, name))
-	if err != nil {
-		return nil, err
-	}
-
-	baseURL, ok := data[util.OmBaseUrl]
-	if !ok {
-		return nil, fmt.Errorf(`Property "%s" is not specified in config map %s`, util.OmBaseUrl, name)
-	}
-	projectName := data[util.OmProjectName]
-	orgID := data[util.OmOrgId]
-
-	sslRequireValid := true
-	sslRequireValidData, ok := data[util.SSLRequireValidMMSServerCertificates]
-	if ok {
-		sslRequireValid = sslRequireValidData != "false"
-	}
-
-	sslCaConfigMap, ok := data[util.SSLMMSCAConfigMap]
-	caFile := ""
-	if ok {
-		cacrt, err := k.configmapClient.GetData(objectKey(namespace, sslCaConfigMap))
-		if err != nil {
-			return nil, fmt.Errorf("Could not read the specified ConfigMap %s/%s (%e)", namespace, sslCaConfigMap, err)
-		}
-		for k, v := range cacrt {
-			if k == CaCertMMS {
-				caFile = v
-				break
-			}
-		}
-	}
-
-	var useCustomCA bool
-	useCustomCAData, ok := data[util.UseCustomCAConfigMap]
-	if ok {
-		useCustomCA = useCustomCAData != "false"
-	}
-
-	return &mdbv1.ProjectConfig{
-		BaseURL:     baseURL,
-		ProjectName: projectName,
-		OrgID:       orgID,
-
-		// Options related with SSL on OM side.
-		SSLProjectConfig: mdbv1.SSLProjectConfig{
-			// Relevant to
-			// + operator (via golang http configuration)
-			// + curl (via command line argument [--insecure])
-			// + automation-agent (via env variable configuration [SSL_REQUIRE_VALID_MMS_CERTIFICATES])
-			// + EnvVarSSLRequireValidMMSCertificates and automation agent option
-			// + -sslRequireValidMMSServerCertificates
-			SSLRequireValidMMSServerCertificates: sslRequireValid,
-
-			// SSLMMSCAConfigMap is name of the configmap with the CA. This CM
-			// will be mounted in the database Pods.
-			SSLMMSCAConfigMap: sslCaConfigMap,
-
-			// This needs to be passed for the operator itself to be able to
-			// recognize the CA -- as it can't be mounted on an already running
-			// Pod.
-			SSLMMSCAConfigMapContents: caFile,
-		},
-
-		AuthMode:    data[util.OmAuthMode],
-		Credentials: data[util.OmCredentials],
-
-		UseCustomCA: useCustomCA,
-	}, nil
-}
-
-func (k *KubeHelper) readCredentials(namespace, name string) (*Credentials, error) {
-	location := types.NamespacedName{
-		Name:      name,
-		Namespace: namespace,
-	}
-	secret, err := k.readSecret(location)
-	if err != nil {
-		return nil, fmt.Errorf("Error getting secret %s: %s", name, err)
-	}
-
-	publicAPIKey, ok := secret[util.OmPublicApiKey]
-	if !ok {
-		return nil, fmt.Errorf("Property \"%s\" is not specified in secret %s", util.OmPublicApiKey, name)
-	}
-	user, ok := secret[util.OmUser]
-	if !ok {
-		return nil, fmt.Errorf("Property \"%s\" is not specified in secret %s", util.OmUser, name)
-	}
-
-	return &Credentials{
-		User:         user,
-		PublicAPIKey: publicAPIKey,
-	}, nil
 }
 
 func (k KubeHelper) readSecret(nsName client.ObjectKey) (map[string]string, error) {

@@ -10,6 +10,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/project"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
@@ -29,31 +30,30 @@ func TestStatefulsetCreationSuccessful(t *testing.T) {
 
 func TestSSLOptionsArePassedCorrectly_SSLRequireValidMMSServerCertificates(t *testing.T) {
 	client := mock.NewClient()
-	helper := NewKubeHelper(client)
 
 	cm := defaultConfigMap("cm1")
 	cm.Data[util.SSLRequireValidMMSServerCertificates] = "true"
 	client.Create(context.TODO(), &cm)
 
-	project, err := helper.readProjectConfig(mock.TestNamespace, "cm1")
+	projectConfig, err := project.ReadProjectConfig(client, objectKey(mock.TestNamespace, "cm1"))
 
 	assert.NoError(t, err)
-	assert.True(t, project.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
+	assert.True(t, projectConfig.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
 
-	assert.Equal(t, project.SSLMMSCAConfigMap, "")
-	assert.Equal(t, project.SSLMMSCAConfigMapContents, "")
+	assert.Equal(t, projectConfig.SSLMMSCAConfigMap, "")
+	assert.Equal(t, projectConfig.SSLMMSCAConfigMapContents, "")
 
 	cm = defaultConfigMap("cm2")
 	cm.Data[util.SSLRequireValidMMSServerCertificates] = "1"
 	client.Create(context.TODO(), &cm)
 
-	project, err = helper.readProjectConfig(mock.TestNamespace, "cm2")
+	projectConfig, err = project.ReadProjectConfig(client, objectKey(mock.TestNamespace, "cm2"))
 
 	assert.NoError(t, err)
-	assert.True(t, project.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
+	assert.True(t, projectConfig.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
 
-	assert.Equal(t, project.SSLMMSCAConfigMap, "")
-	assert.Equal(t, project.SSLMMSCAConfigMapContents, "")
+	assert.Equal(t, projectConfig.SSLMMSCAConfigMap, "")
+	assert.Equal(t, projectConfig.SSLMMSCAConfigMapContents, "")
 
 	cm = defaultConfigMap("cm3")
 	// Setting this attribute to "false" will make it false, any other
@@ -61,18 +61,17 @@ func TestSSLOptionsArePassedCorrectly_SSLRequireValidMMSServerCertificates(t *te
 	cm.Data[util.SSLRequireValidMMSServerCertificates] = "false"
 	client.Create(context.TODO(), &cm)
 
-	project, err = helper.readProjectConfig(mock.TestNamespace, "cm3")
+	projectConfig, err = project.ReadProjectConfig(client, objectKey(mock.TestNamespace, "cm3"))
 
 	assert.NoError(t, err)
-	assert.False(t, project.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
+	assert.False(t, projectConfig.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
 
-	assert.Equal(t, project.SSLMMSCAConfigMap, "")
-	assert.Equal(t, project.SSLMMSCAConfigMapContents, "")
+	assert.Equal(t, projectConfig.SSLMMSCAConfigMap, "")
+	assert.Equal(t, projectConfig.SSLMMSCAConfigMapContents, "")
 }
 
 func TestSSLOptionsArePassedCorrectly_SSLMMSCAConfigMap(t *testing.T) {
 	client := mock.NewClient()
-	helper := NewKubeHelper(client)
 
 	// This represents the ConfigMap holding the CustomCA
 	cm := defaultConfigMap("configmap-with-ca-entry")
@@ -87,56 +86,55 @@ func TestSSLOptionsArePassedCorrectly_SSLMMSCAConfigMap(t *testing.T) {
 	cm.Data[util.SSLRequireValidMMSServerCertificates] = "false"
 	client.Create(context.TODO(), &cm)
 
-	project, err := helper.readProjectConfig(mock.TestNamespace, "cm")
+	projectConfig, err := project.ReadProjectConfig(client, objectKey(mock.TestNamespace, "cm"))
 
 	assert.NoError(t, err)
-	assert.False(t, project.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
+	assert.False(t, projectConfig.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
 
-	assert.Equal(t, project.SSLMMSCAConfigMap, "configmap-with-ca-entry")
-	assert.Equal(t, project.SSLMMSCAConfigMapContents, "---- some cert ----")
+	assert.Equal(t, projectConfig.SSLMMSCAConfigMap, "configmap-with-ca-entry")
+	assert.Equal(t, projectConfig.SSLMMSCAConfigMapContents, "---- some cert ----")
 }
 
 func TestSSLOptionsArePassedCorrectly_UseCustomCAConfigMap(t *testing.T) {
 	client := mock.NewClient()
-	helper := NewKubeHelper(client)
 
 	// Passing "false" results in false to UseCustomCA
 	cm := defaultConfigMap("cm")
 	cm.Data[util.UseCustomCAConfigMap] = "false"
 	client.Create(context.TODO(), &cm)
 
-	project, err := helper.readProjectConfig(mock.TestNamespace, "cm")
+	projectConfig, err := project.ReadProjectConfig(client, objectKey(mock.TestNamespace, "cm"))
 
 	assert.NoError(t, err)
-	assert.False(t, project.UseCustomCA)
+	assert.False(t, projectConfig.UseCustomCA)
 
 	// Passing "true" results in true to UseCustomCA
 	cm = defaultConfigMap("cm2")
 	cm.Data[util.UseCustomCAConfigMap] = "true"
 	client.Create(context.TODO(), &cm)
 
-	project, err = helper.readProjectConfig(mock.TestNamespace, "cm2")
+	projectConfig, err = project.ReadProjectConfig(client, objectKey(mock.TestNamespace, "cm2"))
 
 	assert.NoError(t, err)
-	assert.True(t, project.UseCustomCA)
+	assert.True(t, projectConfig.UseCustomCA)
 
 	// Passing any value different than "false" results in true.
 	cm = defaultConfigMap("cm3")
 	cm.Data[util.UseCustomCAConfigMap] = ""
 	client.Create(context.TODO(), &cm)
 
-	project, err = helper.readProjectConfig(mock.TestNamespace, "cm3")
+	projectConfig, err = project.ReadProjectConfig(client, objectKey(mock.TestNamespace, "cm3"))
 	assert.NoError(t, err)
-	assert.True(t, project.UseCustomCA)
+	assert.True(t, projectConfig.UseCustomCA)
 
 	// "1" also results in a true value
 	cm = defaultConfigMap("cm4")
 	cm.Data[util.UseCustomCAConfigMap] = "1"
 	client.Create(context.TODO(), &cm)
 
-	project, err = helper.readProjectConfig(mock.TestNamespace, "cm4")
+	projectConfig, err = project.ReadProjectConfig(client, objectKey(mock.TestNamespace, "cm4"))
 	assert.NoError(t, err)
-	assert.True(t, project.UseCustomCA)
+	assert.True(t, projectConfig.UseCustomCA)
 
 	// This last section only tests that the unit test is working fine
 	// and having multiple ConfigMaps in the mocked client will not
@@ -145,9 +143,9 @@ func TestSSLOptionsArePassedCorrectly_UseCustomCAConfigMap(t *testing.T) {
 	cm.Data[util.UseCustomCAConfigMap] = "false"
 	client.Create(context.TODO(), &cm)
 
-	project, err = helper.readProjectConfig(mock.TestNamespace, "cm5")
+	projectConfig, err = project.ReadProjectConfig(client, objectKey(mock.TestNamespace, "cm5"))
 	assert.NoError(t, err)
-	assert.False(t, project.UseCustomCA)
+	assert.False(t, projectConfig.UseCustomCA)
 }
 
 func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {

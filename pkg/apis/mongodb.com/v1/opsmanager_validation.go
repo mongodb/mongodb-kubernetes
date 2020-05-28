@@ -86,8 +86,8 @@ func cloudManagerConfigIsNotConfigurable(os MongoDBOpsManagerSpec) ValidationRes
 }
 
 func projectNameIsNotConfigurable(os MongoDBOpsManagerSpec) ValidationResult {
-	if os.AppDB.ProjectName != "" {
-		return warningNotConfigurableForAppDB("projectName")
+	if os.AppDB.Project != "" {
+		return warningNotConfigurableForAppDB("project")
 	}
 	return validationSuccess()
 }

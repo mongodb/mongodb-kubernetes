@@ -48,6 +48,8 @@ const (
 
 	// SSLMMSCALocation Specifies where the CA certificate should be mounted.
 	SSLMMSCALocation = "/mongodb-automation/certs/ca.crt"
+	// CaCertMMS is the name of the CA file provided for MMS.
+	CaCertMMS = "mms-ca.crt"
 
 	// Env variables names for pods
 	ENV_VAR_BASE_URL          = "BASE_URL"
@@ -167,6 +169,7 @@ const (
 	AppDBImageUrl                  = "APPDB_IMAGE_REPOSITORY"
 	AppDBAutomationAgentVersion    = "APPDB_AUTOMATION_AGENT_VERSION"
 	CurrentNamespace               = "CURRENT_NAMESPACE"
+	WatchNamespace                 = "WATCH_NAMESPACE"
 
 	// Different default configuration values
 	DefaultMongodStorageSize           = "16G"

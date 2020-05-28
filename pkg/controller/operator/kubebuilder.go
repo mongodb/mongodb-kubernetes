@@ -44,9 +44,6 @@ const (
 	// AgentCertMountPath defines where in the Pod the ca cert will be mounted.
 	AgentCertMountPath = "/mongodb-automation/" + util.AgentSecretName
 
-	// CaCertMMS is the name of the CA file provided for MMS.
-	CaCertMMS = "mms-ca.crt"
-
 	// CaCertName is the name of the volume with the CA Cert
 	CaCertName = "ca-cert-volume"
 
@@ -903,7 +900,7 @@ func databaseEnvVars(podVars *PodVars) []corev1.EnvVar {
 
 	if podVars.SSLMMSCAConfigMap != "" {
 		// A custom CA has been provided, point the trusted CA to the location of custom CAs
-		trustedCACertLocation := path.Join(CaCertMountPath, CaCertMMS)
+		trustedCACertLocation := path.Join(CaCertMountPath, util.CaCertMMS)
 		vars = append(vars,
 			corev1.EnvVar{
 				Name:  util.EnvVarSSLTrustedMMSServerCertificate,

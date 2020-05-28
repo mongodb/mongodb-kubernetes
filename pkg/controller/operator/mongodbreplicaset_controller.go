@@ -6,6 +6,8 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	mdbstatus "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/agents"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/project"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -57,7 +59,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		return r.updateStatus(rs, workflow.Invalid(err.Error()), log)
 	}
 
-	projectConfig, err := r.kubeHelper.readProjectConfig(request.Namespace, rs.Spec.GetProject())
+	projectConfig, err := project.ReadProjectConfig(r.client, objectKey(request.Namespace, rs.Spec.GetProject()))
 	if err != nil {
 		log.Infof("error reading project %s", err)
 		return retry()
@@ -80,7 +82,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		SetPodVars(podVars).
 		SetLogger(log).
 		SetTLS(rs.Spec.GetTLSConfig()).
-		SetProjectConfig(*projectConfig).
+		SetProjectConfig(projectConfig).
 		SetSecurity(rs.Spec.Security).
 		SetReplicaSetHorizons(rs.Spec.Connectivity.ReplicaSetHorizons).
 		SetStatefulSetConfiguration(nil) // TODO: configure once supported
@@ -134,6 +136,9 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 	}
 
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
+
+	agents.UpgradeAll(r.client, r.omConnectionFactory, getWatchedNamespace())
+
 	return r.updateStatus(rs, workflow.OK(), log, mdbstatus.NewBaseUrlOption(DeploymentLink(conn.BaseURL(), conn.GroupID())))
 }
 

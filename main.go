@@ -32,9 +32,7 @@ var (
 )
 
 const (
-	mdbWebHookPortEnvName   = "MDB_WEBHOOK_PORT"
-	currentNamespaceEnvName = "CURRENT_NAMESPACE"
-	watchNamespaceEnvName   = "WATCH_NAMESPACE"
+	mdbWebHookPortEnvName = "MDB_WEBHOOK_PORT"
 )
 
 // crdsToWatch is a custom Value implementation which can be
@@ -63,7 +61,7 @@ func main() {
 	initializeEnvironment()
 
 	// get watch namespace from environment variable
-	namespace, nsSpecified := os.LookupEnv(watchNamespaceEnvName)
+	namespace, nsSpecified := os.LookupEnv(util.WatchNamespace)
 
 	// if the watch namespace is not specified - we assume the Operator is watching the current namespace
 	if !nsSpecified {
@@ -143,7 +141,7 @@ func setupWebhook(mgr manager.Manager, cfg *rest.Config, log *zap.SugaredLogger)
 	// that will be created.
 	webhookServiceLocation := types.NamespacedName{
 		Name:      "operator-webhook",
-		Namespace: envutil.ReadOrPanic(currentNamespaceEnvName),
+		Namespace: envutil.ReadOrPanic(util.CurrentNamespace),
 	}
 	if err := webhook.Setup(webhookClient, webhookServiceLocation, certDir, webhookPort); err != nil {
 		log.Warnw("could not set up webhook", "error", err)

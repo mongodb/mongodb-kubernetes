@@ -211,7 +211,7 @@ type SSLProjectConfig struct {
 type ProjectConfig struct {
 	// +required
 	BaseURL string
-	// +required
+	// +optional
 	ProjectName string
 	// +optional
 	OrgID string
@@ -225,8 +225,18 @@ type ProjectConfig struct {
 	SSLProjectConfig
 }
 
+// Credentials contains the configuration expected from the `credentials` (Secret)` attribute in
+// `.spec.credentials`.
+type Credentials struct {
+	// +required
+	User string
+
+	// +required
+	PublicAPIKey string
+}
+
 // TODO remove as seems not relevant any more
-func (ms *MongoDbSpec) SetParametersFromConfigMap(cm *ProjectConfig) {
+func (ms *MongoDbSpec) SetParametersFromConfigMap(cm ProjectConfig) {
 	if cm.AuthMode == util.LegacyX509InConfigMapValue {
 		ms.Security.Authentication.Enabled = true
 		ms.Security.Authentication.Modes = []string{util.X509}
@@ -253,7 +263,11 @@ type PrivateCloudConfig struct {
 // note, that the fields are marked as 'omitempty' as otherwise they are shown for AppDB
 // which is not good
 type ConnectionSpec struct {
+	// Transient field - the name of the project. By default is equal to the name of the resource
+	// though can be overridden if the ConfigMap specifies a different name
 	ProjectName string `json:"-"` // ignore when marshalling
+
+	// Name of the Secret holding credentials information
 	Credentials string `json:"credentials,omitempty"`
 
 	// Dev note: don't reference these two fields directly - use the `getProject` method instead

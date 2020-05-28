@@ -258,6 +258,7 @@ func exceptionHandling(errHandlingFunc func(err interface{}) (reconcile.Result, 
 
 // objectKey creates the 'client.ObjectKey' object from namespace and name of the resource. It's the object used in
 // some of 'client.Client' calls
+// TODO move somewhere else (subpackage? external package?) to be able to reuse the method from everywhere
 func objectKey(namespace, name string) client.ObjectKey {
 	return types.NamespacedName{Name: name, Namespace: namespace}
 }

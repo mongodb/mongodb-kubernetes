@@ -6,6 +6,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	mdbstatus "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/project"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -63,7 +64,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (r
 func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interface{}, log *zap.SugaredLogger) (om.Connection, workflow.Status) {
 	log.Info("ShardedCluster.doShardedClusterProcessing")
 	sc := obj.(*mdbv1.MongoDB)
-	projectConfig, err := r.kubeHelper.readProjectConfig(sc.Namespace, sc.Spec.GetProject())
+	projectConfig, err := project.ReadProjectConfig(r.client, objectKey(sc.Namespace, sc.Spec.GetProject()))
 	if err != nil {
 		return nil, workflow.Failed("error reading project %s", err)
 	}
@@ -260,7 +261,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 	return workflow.OK()
 }
 
-func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mdbv1.MongoDB, podVars *PodVars, projectConfig *mdbv1.ProjectConfig, log *zap.SugaredLogger) ShardedClusterKubeState {
+func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mdbv1.MongoDB, podVars *PodVars, projectConfig mdbv1.ProjectConfig, log *zap.SugaredLogger) ShardedClusterKubeState {
 	// 1. Create the mongos StatefulSet
 	mongosBuilder := r.kubeHelper.NewStatefulSetHelper(s).
 		SetName(s.MongosRsName()).
@@ -271,7 +272,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 		SetLogger(log).
 		SetPersistence(util.BooleanRef(false)).
 		SetTLS(s.Spec.GetTLSConfig()).
-		SetProjectConfig(*projectConfig).
+		SetProjectConfig(projectConfig).
 		SetSecurity(s.Spec.Security).
 		SetStatefulSetConfiguration(nil) // TODO: configure once supported
 	//SetStatefulSetConfiguration(s.Spec.MongosStatefulSetConfiguration)
@@ -291,7 +292,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 		SetPodVars(podVars).
 		SetLogger(log).
 		SetTLS(s.Spec.GetTLSConfig()).
-		SetProjectConfig(*projectConfig).
+		SetProjectConfig(projectConfig).
 		SetSecurity(s.Spec.Security).
 		SetStatefulSetConfiguration(nil) // TODO: configure once supported
 	//SetStatefulSetConfiguration(s.Spec.ConfigSrvStatefulSetConfiguration)
@@ -308,7 +309,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 			SetPodVars(podVars).
 			SetLogger(log).
 			SetTLS(s.Spec.GetTLSConfig()).
-			SetProjectConfig(*projectConfig).
+			SetProjectConfig(projectConfig).
 			SetSecurity(s.Spec.Security).
 			SetStatefulSetConfiguration(nil) // TODO: configure once supported
 		//SetStatefulSetConfiguration(s.Spec.ShardStatefulSetConfiguration)

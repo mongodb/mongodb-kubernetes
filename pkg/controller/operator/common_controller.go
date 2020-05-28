@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"encoding/json"
+	"os"
 
 	"crypto/x509"
 	"encoding/pem"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/project"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
@@ -89,7 +91,7 @@ func (c *ReconcileCommonController) GetMutex(resourceName types.NamespacedName) 
 // prepareConnection reads project config map and credential secrets and uses these values to communicate with Ops Manager:
 // create or read the project and optionally request an agent key (it could have been returned by group api call)
 func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedName, spec mdbv1.ConnectionSpec, podVars *PodVars, log *zap.SugaredLogger) (om.Connection, error) {
-	projectConfig, err := c.kubeHelper.readProjectConfig(nsName.Namespace, spec.GetProject())
+	projectConfig, err := project.ReadProjectConfig(c.client, objectKey(nsName.Namespace, spec.GetProject()))
 	if err != nil {
 		return nil, fmt.Errorf("Error reading Project Config: %s", err)
 	}
@@ -97,14 +99,14 @@ func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedNam
 		spec.ProjectName = projectConfig.ProjectName
 	}
 
-	credsConfig, err := c.kubeHelper.readCredentials(nsName.Namespace, spec.Credentials)
+	credsConfig, err := project.ReadCredentials(c.client, objectKey(nsName.Namespace, spec.Credentials))
 	if err != nil {
 		return nil, fmt.Errorf("Error reading Credentials secret: %s", err)
 	}
 
 	c.registerWatchedResources(nsName, spec.GetProject(), spec.Credentials)
 
-	project, conn, err := c.readOrCreateProject(spec.ProjectName, projectConfig, credsConfig, log)
+	omProject, conn, err := project.ReadOrCreateProject(spec.ProjectName, projectConfig, credsConfig, c.omConnectionFactory, log)
 	if err != nil {
 		return nil, fmt.Errorf("Error reading or creating project in Ops Manager: %s", err)
 	}
@@ -114,16 +116,16 @@ func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedNam
 		log.Infof("Using Ops Manager version %s", omVersion)
 	}
 
-	if err := c.updateControlledFeatureAndTag(conn, project, nsName.Namespace, log); err != nil {
+	if err = c.updateControlledFeatureAndTag(conn, omProject, nsName.Namespace, log); err != nil {
 		return nil, err
 	}
 
 	// adds the namespace as a tag to the Ops Manager project
-	if err := ensureTagAdded(conn, project, nsName.Namespace, log); err != nil {
+	if err = ensureTagAdded(conn, omProject, nsName.Namespace, log); err != nil {
 		return nil, err
 	}
 
-	if err := c.ensureAgentKeySecretExists(conn, nsName.Namespace, project.AgentAPIKey, log); err != nil {
+	if err = c.ensureAgentKeySecretExists(conn, nsName.Namespace, omProject.AgentAPIKey, log); err != nil {
 		return nil, err
 	}
 
@@ -653,6 +655,18 @@ func (r *ReconcileCommonController) getStatefulSetStatus(namespace, name string)
 			WithRetry(3)
 	}
 	return workflow.OK()
+}
+
+func getWatchedNamespace() string {
+	// get watch namespace from environment variable
+	namespace, nsSpecified := os.LookupEnv(util.WatchNamespace)
+
+	// if the watch namespace is not specified - we assume the Operator is watching the current namespace
+	if !nsSpecified {
+		// the current namespace is expected to be always specified as main.go performs the hard check of this
+		namespace = envutil.ReadOrDefault(util.CurrentNamespace, "")
+	}
+	return namespace
 }
 
 // validateScram ensures that the SCRAM configuration is valid for the MongoDBResource

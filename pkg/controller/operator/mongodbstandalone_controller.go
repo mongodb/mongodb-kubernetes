@@ -6,6 +6,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	mdbstatus "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/project"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -101,7 +102,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 	log.Infow("Standalone.Spec", "spec", s.Spec)
 	log.Infow("Standalone.Status", "status", s.Status)
 
-	projectConfig, err := r.kubeHelper.readProjectConfig(request.Namespace, s.Spec.GetProject())
+	projectConfig, err := project.ReadProjectConfig(r.client, objectKey(request.Namespace, s.Spec.GetProject()))
 	if err != nil {
 		log.Infof("error reading project %s", err)
 		return retry()
@@ -133,7 +134,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		SetPodVars(podVars).
 		SetLogger(log).
 		SetTLS(s.Spec.GetTLSConfig()).
-		SetProjectConfig(*projectConfig).
+		SetProjectConfig(projectConfig).
 		SetSecurity(s.Spec.Security).
 		SetStatefulSetConfiguration(nil) // TODO: configure once supported
 	standaloneBuilder.SetCertificateHash(standaloneBuilder.readPemHashFromSecret())
