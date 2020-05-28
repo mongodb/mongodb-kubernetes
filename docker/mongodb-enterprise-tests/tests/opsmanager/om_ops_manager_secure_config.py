@@ -1,13 +1,11 @@
 import pytest
 from pytest import fixture
+from tests.opsmanager.om_ops_manager_backup import BLOCKSTORE_RS_NAME, OPLOG_RS_NAME
 
-from kubetester.kubetester import (
-    fixture as yaml_fixture,
-    KubernetesTester,
-)
-from kubetester.mongodb import Phase, MongoDB
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.mongodb import MongoDB, Phase
 from kubetester.opsmanager import MongoDBOpsManager
-from tests.opsmanager.om_ops_manager_backup import OPLOG_RS_NAME, BLOCKSTORE_RS_NAME
 
 MONGO_URI_ENV_NAME = "OM_PROP_mongo_mongoUri"
 
@@ -152,9 +150,8 @@ def test_no_unnecessary_rolling_upgrades_happen(ops_manager: MongoDBOpsManager):
     ), "no change should have happened to the backup stateful set"
     assert (
         backup_sts.spec.template.metadata.annotations["connectionStringHash"]
-        == old_backup_hash,
-        "connection string hash should have remained the same",
-    )
+        == old_backup_hash
+    ), "connection string hash should have remained the same"
 
 
 @pytest.mark.e2e_om_ops_manager_secure_config
