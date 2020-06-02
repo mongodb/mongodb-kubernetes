@@ -177,7 +177,7 @@ func buildAppDBPodTemplateSpec(stsHelper StatefulSetHelper) corev1.PodTemplateSp
 		podtemplatespec.EditContainer(0,
 			podtemplatespec.WithContainerName(util.AppDbContainerName),
 			podtemplatespec.WithContainerImage(appdbImageURL),
-			podtemplatespec.WithContainerEnvVars(appdbContainerEnv(stsHelper.Name)...),
+			podtemplatespec.WithContainerEnvVars(appdbContainerEnv(stsHelper.Name, stsHelper.PodVars)...),
 			podtemplatespec.WithContainerReadinessProbe(buildAppDbReadinessProbe()),
 			podtemplatespec.WithContainerLivenessProbe(baseAppDbLivenessProbe()),
 			podtemplatespec.WithContainerCommand([]string{"/opt/scripts/agent-launcher.sh"}),
@@ -784,8 +784,8 @@ func baseOwnerReference(owner mdbv1.CustomResourceReadWriter) []metav1.OwnerRefe
 	}
 }
 
-func appdbContainerEnv(statefulSetName string) []corev1.EnvVar {
-	return []corev1.EnvVar{
+func appdbContainerEnv(statefulSetName string, podVars *PodVars) []corev1.EnvVar {
+	envVars := []corev1.EnvVar{
 		{
 			Name:      util.ENV_POD_NAMESPACE,
 			ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"}},
@@ -800,6 +800,21 @@ func appdbContainerEnv(statefulSetName string) []corev1.EnvVar {
 			Value: "true",
 		},
 	}
+
+	// These env vars are required to configure Monitoring of the AppDB
+	if podVars.ProjectID != "" {
+		envVars = append(envVars, envVarFromSecret(util.ENV_VAR_AGENT_API_KEY, agentApiKeySecretName(podVars.ProjectID), util.OmAgentApiKey))
+		envVars = append(envVars, corev1.EnvVar{
+			Name:  util.ENV_VAR_PROJECT_ID,
+			Value: podVars.ProjectID,
+		})
+		envVars = append(envVars, corev1.EnvVar{
+			Name:  util.ENV_VAR_USER,
+			Value: podVars.User,
+		})
+	}
+
+	return envVars
 }
 
 func baseLivenessProbe() corev1.Probe {

@@ -739,7 +739,7 @@ func defaultAppDbSetHelper() *StatefulSetHelper {
 	om := DefaultOpsManagerBuilder().Build()
 	mockedClient := mock.NewClient().WithResource(&om)
 	helper := NewKubeHelper(mockedClient)
-	return helper.NewStatefulSetHelper(&om)
+	return helper.NewStatefulSetHelper(&om).SetPodVars(&PodVars{})
 }
 
 func omSetHelperFromResource(om mdbv1.MongoDBOpsManager) OpsManagerStatefulSetHelper {

@@ -2,7 +2,10 @@ package operator
 
 import (
 	"context"
+	"os"
 	"testing"
+
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
@@ -21,6 +24,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+func init() {
+	os.Setenv(util.AppDBReadinessWaitEnv, "0")
+}
 
 func TestOpsManagerReconciler_performValidation(t *testing.T) {
 	assert.NoError(t, performValidation(omWithAppDBVersion("4.0.0")))
@@ -188,21 +195,17 @@ func TestBackupStatefulSetIsNotRemoved_WhenDisabled(t *testing.T) {
 		"password": []byte("password"),
 	}, nil, &testOm)
 
-	res, err := reconciler.Reconcile(requestFromObject(&testOm))
-
-	expected, _ := success()
-	assert.Equal(t, expected, res)
-	assert.NoError(t, err)
+	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
 
 	backupSts := appsv1.StatefulSet{}
-	err = client.Get(context.TODO(), objectKey(testOm.Namespace, testOm.BackupStatefulSetName()), &backupSts)
+	err := client.Get(context.TODO(), objectKey(testOm.Namespace, testOm.BackupStatefulSetName()), &backupSts)
 	assert.NoError(t, err, "Backup StatefulSet should have been created when backup is enabled")
 
 	testOm.Spec.Backup.Enabled = false
 	_ = client.Update(context.TODO(), &testOm)
 
-	res, err = reconciler.Reconcile(requestFromObject(&testOm))
-	assert.Equal(t, expected, res)
+	res, err := reconciler.Reconcile(requestFromObject(&testOm))
+	assert.Equal(t, reconcile.Result{}, res)
 	assert.NoError(t, err)
 
 	backupSts = appsv1.StatefulSet{}
@@ -220,11 +223,7 @@ func TestOpsManagerPodTemplateSpec_IsAnnotatedWithHash(t *testing.T) {
 		"password": []byte("password"),
 	}, nil, &testOm)
 
-	res, err := reconciler.Reconcile(requestFromObject(&testOm))
-	expected, _ := success()
-
-	assert.Equal(t, expected, res)
-	assert.NoError(t, err)
+	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
 
 	connectionString, err := reconciler.kubeHelper.readSecretKey(objectKey(testOm.Namespace, testOm.AppDBMongoConnectionStringSecretName()), util.AppDbConnectionStringKey)
 	assert.NoError(t, err)
@@ -259,13 +258,10 @@ func TestOpsManagerConnectionString_IsPassedAsSecretRef(t *testing.T) {
 		"password": []byte("password"),
 	}, nil, &testOm)
 
-	res, err := reconciler.Reconcile(requestFromObject(&testOm))
-	expected, _ := success()
-	assert.Equal(t, expected, res)
-	assert.NoError(t, err)
+	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
 
 	sts := appsv1.StatefulSet{}
-	err = client.Get(context.TODO(), objectKey(testOm.Namespace, testOm.Name), &sts)
+	err := client.Get(context.TODO(), objectKey(testOm.Namespace, testOm.Name), &sts)
 	assert.NoError(t, err)
 
 	envs := sts.Spec.Template.Spec.Containers[0].Env
@@ -316,7 +312,7 @@ func defaultTestOmReconciler(t *testing.T, opsManager mdbv1.MongoDBOpsManager) (
 
 	// It's important to clean the om state as soon as the reconciler is built!
 	admin := api.NewMockedAdmin()
-	return newOpsManagerReconciler(manager, om.NewOpsManagerConnection, initializer, api.NewMockedAdminProvider, relativeVersionManifestFixturePath),
+	return newOpsManagerReconciler(manager, om.NewEmptyMockedOmConnection, initializer, api.NewMockedAdminProvider, relativeVersionManifestFixturePath),
 		manager.Client, initializer, admin
 }
 

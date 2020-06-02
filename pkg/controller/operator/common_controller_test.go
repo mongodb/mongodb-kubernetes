@@ -381,6 +381,18 @@ func checkReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, obj
 	}
 }
 
+func checkOMReconcilliationSuccessful(t *testing.T, reconciler reconcile.Reconciler, om *mdbv1.MongoDBOpsManager) {
+	res, err := reconciler.Reconcile(requestFromObject(om))
+	expected := reconcile.Result{Requeue: true}
+	assert.Equal(t, expected, res)
+	assert.NoError(t, err)
+
+	res, err = reconciler.Reconcile(requestFromObject(om))
+	expected, _ = success()
+	assert.Equal(t, expected, res)
+	assert.NoError(t, err)
+}
+
 func checkReconcileFailed(t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, expectedRetry bool, expectedErrorMessage string, client *mock.MockedClient) {
 	failedResult := reconcile.Result{}
 	if expectedRetry {

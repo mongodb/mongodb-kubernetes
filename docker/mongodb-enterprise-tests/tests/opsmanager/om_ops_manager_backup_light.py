@@ -66,7 +66,7 @@ class TestOpsManagerCreation:
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Pending,
             msg_regexp="Oplog Store configuration is required for backup",
-            timeout=300,
+            timeout=600,
         )
 
     def test_oplog_mdb_created(
@@ -97,6 +97,9 @@ class TestOpsManagerCreation:
         om_tester.assert_healthiness()
         om_tester.assert_daemon_enabled(ops_manager.backup_daemon_pod_name(), HEAD_PATH)
         om_tester.assert_oplog_stores([new_om_data_store(oplog_replica_set, "oplog1")])
+
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+        ops_manager.assert_appdb_monitoring_group_was_created()
 
         # making sure the s3 config pushed to OM references the appdb
         appdb_replica_set = ops_manager.get_appdb_resource()
@@ -165,6 +168,7 @@ class TestBackupForMongodb:
 def test_backup_statefulset_remains_after_disabling_backup(
     ops_manager: MongoDBOpsManager,
 ):
+    ops_manager.load()
     ops_manager["spec"]["backup"]["enabled"] = False
     ops_manager.update()
     ops_manager.om_status().assert_abandons_phase(Phase.Running)

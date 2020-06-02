@@ -9,6 +9,7 @@ import (
 // okStatus indicates that the reconciliation process must be suspended and CR should get "Pending" status
 type okStatus struct {
 	commonStatus
+	requeue bool
 }
 
 func OK() *okStatus {
@@ -21,10 +22,13 @@ func (o *okStatus) WithWarnings(warnings []status.Warning) *okStatus {
 }
 
 func (o okStatus) ReconcileResult() (reconcile.Result, error) {
-	return reconcile.Result{}, nil
+	return reconcile.Result{Requeue: o.requeue}, nil
 }
 
 func (o okStatus) IsOK() bool {
+	if o.requeue {
+		return false
+	}
 	return true
 }
 
@@ -47,4 +51,9 @@ func (f okStatus) Log(_ *zap.SugaredLogger) {
 
 func (o okStatus) Phase() status.Phase {
 	return status.PhaseRunning
+}
+
+func (o *okStatus) Requeue() Status {
+	o.requeue = true
+	return o
 }

@@ -52,6 +52,13 @@ def test_om_creation(ops_manager: MongoDBOpsManager):
 
 
 @pytest.mark.e2e_om_ops_manager_secure_config
+def test_appdb_monitoring_configured(ops_manager: MongoDBOpsManager):
+    ops_manager.appdb_status().assert_abandons_phase(Phase.Running)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
+    ops_manager.assert_appdb_monitoring_group_was_created()
+
+
+@pytest.mark.e2e_om_ops_manager_secure_config
 def test_backing_dbs_created(
     oplog_replica_set: MongoDB, blockstore_replica_set: MongoDB
 ):
@@ -115,6 +122,9 @@ def test_changing_app_db_password_triggers_rolling_restart(
     ops_manager.om_status().assert_abandons_phase(phase=Phase.Running)
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
+    ops_manager.backup_status().assert_abandons_phase(phase=Phase.Running)
+    ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=200)
+
 
 @pytest.mark.e2e_om_ops_manager_secure_config
 def test_no_unnecessary_rolling_upgrades_happen(ops_manager: MongoDBOpsManager):
@@ -130,6 +140,7 @@ def test_no_unnecessary_rolling_upgrades_happen(ops_manager: MongoDBOpsManager):
 
     assert old_backup_hash == old_hash
 
+    ops_manager.load()
     ops_manager["spec"]["applicationDatabase"]["version"] = "4.2.0"
     ops_manager.update()
 

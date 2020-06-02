@@ -47,6 +47,8 @@ class TestOpsManagerCreation:
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=500)
         ops_manager.om_status().assert_empty_status_resources_not_ready()
 
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+
     def test_backup_pending(self, ops_manager: MongoDBOpsManager):
         """ backup is not configured properly - but it's ok as we are testing Statefulset only"""
         ops_manager.backup_status().assert_reaches_phase(

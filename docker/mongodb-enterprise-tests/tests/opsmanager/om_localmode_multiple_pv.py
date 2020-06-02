@@ -83,6 +83,7 @@ class TestOpsManagerCreation:
 @mark.e2e_om_localmode_multiple_pv
 class TestOpsManagerRestarted:
     def test_restart_ops_manager_pod(self, ops_manager: MongoDBOpsManager):
+        ops_manager.load()
         ops_manager["spec"]["configuration"]["mms.testUtil.enabled"] = "false"
         ops_manager.update()
         ops_manager.om_status().assert_abandons_phase(Phase.Running)

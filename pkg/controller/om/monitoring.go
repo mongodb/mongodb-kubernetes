@@ -1,44 +1,36 @@
 package om
 
 import (
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/host"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 )
-
-type Host struct {
-	Results []HostList `json:"results"`
-}
-
-type HostList struct {
-	Id       string `json:"id"`
-	Hostname string `json:"hostname"`
-}
 
 // StopMonitoring will stop OM monitoring of hosts, which will then
 // make OM stop displaying old hosts from Processes view.
 // Note, that the method tries to delete as many hosts as possible and doesn't give up on errors, returns
 // the last error instead
-func StopMonitoring(omClient Connection, hostnames []string, log *zap.SugaredLogger) error {
+func StopMonitoring(hostClient host.Client, hostnames []string, log *zap.SugaredLogger) error {
 	if len(hostnames) == 0 {
 		return nil
 	}
 
-	hosts, err := omClient.GetHosts()
+	hosts, err := hostClient.GetHosts()
 	if err != nil {
 		return err
 	}
 	errorHappened := false
 	for _, hostname := range hostnames {
 		found := false
-		for _, host := range hosts.Results {
-			if host.Hostname == hostname {
+		for _, h := range hosts.Results {
+			if h.Hostname == hostname {
 				found = true
-				err = omClient.RemoveHost(host.Id)
+				err = hostClient.RemoveHost(h.Id)
 				if err != nil {
-					log.Warnf("Failed to remove host %s from monitoring in Ops Manager: %s", host.Hostname, err)
+					log.Warnf("Failed to remove host %s from monitoring in Ops Manager: %s", h.Hostname, err)
 					errorHappened = true
 				} else {
-					log.Debugf("Removed the host %s from monitoring in Ops Manager", host.Hostname)
+					log.Debugf("Removed the host %s from monitoring in Ops Manager", h.Hostname)
 				}
 				break
 			}

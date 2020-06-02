@@ -166,8 +166,10 @@ func TestBuildAppDbAutomationConfig(t *testing.T) {
 	// no sharded clusters
 	assert.Empty(t, deployment.ShardedClustersCopy())
 
-	// monitoring and backup agents have not been configured
-	assert.Len(t, deployment.MonitoringVersionsCopy(), 0)
+	// monitoring agent has been configured
+	assert.Len(t, deployment.MonitoringVersionsCopy(), 1)
+
+	// backup agents have not been configured
 	assert.Len(t, deployment.BackupVersionsCopy(), 0)
 
 	// options
@@ -323,6 +325,99 @@ func TestFetchingVersionManifestFails_WhenUsingNonBundledVersion(t *testing.T) {
 		SetAppDbFeatureCompatibility("4.0")
 	_, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
 	assert.Error(t, err)
+}
+
+func TestRegisterAppDBHostsWithProject(t *testing.T) {
+	builder := DefaultOpsManagerBuilder()
+	opsManager := builder.Build()
+	kubeManager := mock.NewEmptyManager()
+	client := kubeManager.Client
+	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
+	conn := om.NewMockedOmConnection(om.NewDeployment())
+
+	appDbSts, err := buildAppDbStatefulSet(*defaultAppDbSetHelper().SetName(opsManager.Spec.AppDB.Name()).SetReplicas(3))
+
+	t.Run("Ensure all hosts are added", func(t *testing.T) {
+		assert.NoError(t, err)
+
+		_ = client.Update(context.TODO(), &appDbSts)
+
+		err = reconciler.registerAppDBHostsWithProject(&opsManager, conn, "password", zap.S())
+		assert.NoError(t, err)
+
+		hosts, _ := conn.GetHosts()
+		assert.Len(t, hosts.Results, 3)
+	})
+
+	t.Run("Ensure hosts are added when scaled up", func(t *testing.T) {
+		appDbSts.Spec.Replicas = util.Int32Ref(5)
+		_ = client.Update(context.TODO(), &appDbSts)
+
+		err = reconciler.registerAppDBHostsWithProject(&opsManager, conn, "password", zap.S())
+		assert.NoError(t, err)
+
+		hosts, _ := conn.GetHosts()
+		assert.Len(t, hosts.Results, 5)
+	})
+}
+
+func TestEnsureAppDbAgentApiKey(t *testing.T) {
+	builder := DefaultOpsManagerBuilder()
+	opsManager := builder.Build()
+	kubeManager := mock.NewEmptyManager()
+	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
+
+	conn := om.NewMockedOmConnection(om.NewDeployment())
+	conn.AgentAPIKey = "my-api-key"
+	err := reconciler.ensureAppDbAgentApiKey(&opsManager, conn, zap.S())
+	assert.NoError(t, err)
+
+	secretName := agentApiKeySecretName(conn.GroupID())
+	apiKey, err := reconciler.kubeHelper.readSecretKey(objectKey(opsManager.Namespace, secretName), util.OmAgentApiKey)
+	assert.NoError(t, err)
+	assert.Equal(t, "my-api-key", apiKey)
+}
+
+func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
+	builder := DefaultOpsManagerBuilder()
+	opsManager := builder.Build()
+	kubeManager := mock.NewEmptyManager()
+	client := kubeManager.Client
+	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
+
+	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
+		return om.NewEmptyMockedOmConnection(context)
+	}
+
+	// attempt configuring monitoring when there is no api key secret
+	podVars, err := reconciler.tryConfigureMonitoringInOpsManager(&opsManager, "password", zap.S())
+	assert.NoError(t, err)
+
+	assert.Empty(t, podVars.ProjectID)
+	assert.Empty(t, podVars.User)
+
+	appDbSts, err := buildAppDbStatefulSet(*defaultAppDbSetHelper().SetName(opsManager.Spec.AppDB.Name()).SetReplicas(5))
+	assert.NoError(t, err)
+	_ = client.Update(context.TODO(), &appDbSts)
+
+	// create the apiKey and OM user
+	data := map[string]string{
+		util.OmPublicApiKey: "apiKey",
+		util.OmUser:         "omUser",
+	}
+
+	err = reconciler.kubeHelper.createSecret(objectKey(operatorNamespace(), opsManager.APIKeySecretName()), data, nil, nil)
+	assert.NoError(t, err)
+
+	// once the secret exists, monitoring should be fully configured
+	podVars, err = reconciler.tryConfigureMonitoringInOpsManager(&opsManager, "password", zap.S())
+	assert.NoError(t, err)
+
+	assert.Equal(t, om.TestGroupID, podVars.ProjectID)
+	assert.Equal(t, "omUser", podVars.User)
+
+	hosts, _ := om.CurrMockedConnection.GetHosts()
+	assert.Len(t, hosts.Results, 5, "the AppDB hosts should have been added")
 }
 
 // ***************** Helper methods *******************************

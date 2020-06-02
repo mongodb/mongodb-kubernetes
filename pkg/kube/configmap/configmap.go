@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
+
 	corev1 "k8s.io/api/core/v1"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -70,4 +73,17 @@ func (c Client) ReadKey(key string, objectKey k8sclient.ObjectKey) (string, erro
 		return val, nil
 	}
 	return "", fmt.Errorf("key \"%s\" not present in ConfigMap %s/%s", key, objectKey.Namespace, objectKey.Name)
+}
+
+// CreateOrUpdate creates the given ConfigMap if it doesn't exist,
+// or updates it if it does.
+func (c Client) CreateOrUpdate(cm corev1.ConfigMap) error {
+	cMap, err := c.Get(types.NamespacedName{Name: cm.Name, Namespace: cm.Namespace})
+	if err != nil {
+		if apiErrors.IsNotFound(err) {
+			return c.Create(cm)
+		}
+		return err
+	}
+	return c.Update(cMap)
 }

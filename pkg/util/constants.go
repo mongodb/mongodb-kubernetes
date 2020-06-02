@@ -202,6 +202,7 @@ const (
 	AppDBAutomationConfigKey   = "cluster-config.json"
 	DefaultAppDbPasswordKey    = "password"
 	AppDbConnectionStringKey   = "connectionString"
+	AppDbProjectIdKey          = "projectId"
 
 	// Ops Manager configuration properties
 	MmsCentralUrlPropKey    = "mms.centralUrl"

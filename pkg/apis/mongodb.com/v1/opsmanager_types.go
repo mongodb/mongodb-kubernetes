@@ -39,6 +39,14 @@ func (om MongoDBOpsManager) AddValidationToManager(m manager.Manager) error {
 	return ctrl.NewWebhookManagedBy(m).For(&om).Complete()
 }
 
+func (om MongoDBOpsManager) GetAppDBProjectConfig() ProjectConfig {
+	return ProjectConfig{
+		BaseURL:     om.CentralURL(),
+		ProjectName: om.Spec.AppDB.Name(),
+		Credentials: om.APIKeySecretName(),
+	}
+}
+
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type MongoDBOpsManagerList struct {
 	metav1.TypeMeta `json:",inline"`
@@ -509,6 +517,10 @@ func (m *AppDB) UnmarshalJSON(data []byte) error {
 
 func (m AppDB) Name() string {
 	return m.opsManagerName + "-db"
+}
+
+func (m AppDB) ProjectIDConfigMapName() string {
+	return m.Name() + "-project-id"
 }
 
 func (m AppDB) ServiceName() string {

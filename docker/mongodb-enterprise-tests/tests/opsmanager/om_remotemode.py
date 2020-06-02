@@ -108,6 +108,7 @@ def test_client_can_connect_to_mongodb(replica_set: MongoDB):
 
 @mark.e2e_om_remotemode
 def test_restart_ops_manager_pod(ops_manager: MongoDBOpsManager):
+    ops_manager.load()
     ops_manager["spec"]["configuration"]["mms.testUtil.enabled"] = "false"
     ops_manager.update()
     ops_manager.om_status().assert_abandons_phase(Phase.Running)

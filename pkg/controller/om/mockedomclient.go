@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/host"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
@@ -63,7 +65,8 @@ type MockedOmConnection struct {
 	controlledFeature     *controlledfeature.ControlledFeature
 	// hosts are used for both automation agents and monitoring endpoints.
 	// They are necessary for emulating "agents" are ready behavior as operator checks for hosts for agents to exist
-	hosts                   *Host
+	hostResults *host.Result
+
 	numRequestsSent         int
 	AgentAPIKey             string
 	OrganizationsWithGroups map[*Organization][]*Project
@@ -114,7 +117,7 @@ func NewEmptyMockedOmConnectionWithDelay(ctx *OMContext) Connection {
 // partial functionality (not the "full cycle" controller), for example read-update operation for the deployment
 func NewMockedOmConnection(d Deployment) *MockedOmConnection {
 	connection := MockedOmConnection{deployment: d}
-	connection.hosts = buildHostsFromDeployment(d)
+	connection.hostResults = buildHostsFromDeployment(d)
 	connection.BackupConfigs = make(map[*BackupConfig]*HostCluster)
 	// By default we don't wait for agents to reach goal
 	connection.AgentsDelayCount = 0
@@ -230,6 +233,15 @@ func (oc *MockedOmConnection) ReadUpdateAutomationConfig(acFunc func(ac *Automat
 	return err
 }
 
+func (oc *MockedOmConnection) AddHost(host host.Host) error {
+	oc.hostResults.Results = append(oc.hostResults.Results, host)
+	return nil
+}
+
+func (oc *MockedOmConnection) MarkProjectAsBackingDatabase(_ BackingDatabaseType) error {
+	return nil
+}
+
 func (oc *MockedOmConnection) ReadBackupAgentConfig() (*BackupAgentConfig, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadBackupAgentConfig))
 	if oc.backupAgentConfig == nil {
@@ -291,26 +303,26 @@ func (oc *MockedOmConnection) ReadAutomationAgents(pageNum int) (Paginated, erro
 	oc.addToHistory(reflect.ValueOf(oc.ReadAutomationAgents))
 
 	results := make([]AgentStatus, 0)
-	for _, r := range oc.hosts.Results {
+	for _, r := range oc.hostResults.Results {
 		results = append(results,
 			AgentStatus{Hostname: r.Hostname, LastConf: time.Now().Add(time.Second * -1).Format(time.RFC3339)})
 	}
 	// todo extend this for real testing
 	return automationAgentStatusResponse{AutomationAgents: results}, nil
 }
-func (oc *MockedOmConnection) GetHosts() (*Host, error) {
+func (oc *MockedOmConnection) GetHosts() (*host.Result, error) {
 	oc.addToHistory(reflect.ValueOf(oc.GetHosts))
-	return oc.hosts, nil
+	return oc.hostResults, nil
 }
 func (oc *MockedOmConnection) RemoveHost(hostID string) error {
 	oc.addToHistory(reflect.ValueOf(oc.RemoveHost))
-	toKeep := make([]HostList, 0)
-	for _, v := range oc.hosts.Results {
+	toKeep := make([]host.Host, 0)
+	for _, v := range oc.hostResults.Results {
 		if v.Id != hostID {
 			toKeep = append(toKeep, v)
 		}
 	}
-	oc.hosts = &Host{toKeep}
+	oc.hostResults = &host.Result{Results: toKeep}
 	return nil
 }
 
@@ -460,7 +472,7 @@ func (oc *MockedOmConnection) GetControlledFeature() (*controlledfeature.Control
 // ************* These are native methods of Mocked client (not implementation of OmConnection)
 
 func (oc *MockedOmConnection) CheckMonitoredHostsRemoved(t *testing.T, removedHosts []string) {
-	for _, v := range oc.hosts.Results {
+	for _, v := range oc.hostResults.Results {
 		for _, e := range removedHosts {
 			assert.NotEqual(t, e, v.Hostname, "Host %s is expected to be removed from monitored", e)
 		}
@@ -515,7 +527,7 @@ func (oc *MockedOmConnection) CheckResourcesAndBackupDeleted(t *testing.T, resou
 	assert.Empty(t, oc.deployment.getShardedClusters())
 	assert.Empty(t, oc.deployment.getMonitoringVersions())
 	assert.Empty(t, oc.deployment.getBackupVersions())
-	assert.Empty(t, oc.hosts.Results)
+	assert.Empty(t, oc.hostResults.Results)
 
 	if resourceName != "" {
 		assert.NotEmpty(t, oc.BackupConfigs)
@@ -566,7 +578,7 @@ func (oc *MockedOmConnection) CheckOperationsDidntHappen(t *testing.T, value ...
 // this is internal method only for testing, used by kubernetes mocked client
 func (oc *MockedOmConnection) AddHosts(hostnames []string) {
 	for i, p := range hostnames {
-		oc.hosts.Results = append(oc.hosts.Results, HostList{Id: strconv.Itoa(i), Hostname: p})
+		oc.hostResults.Results = append(oc.hostResults.Results, host.Host{Id: strconv.Itoa(i), Hostname: p})
 	}
 }
 
@@ -597,14 +609,14 @@ func (oc *MockedOmConnection) addToHistory(value reflect.Value) {
 	oc.history = append(oc.history, runtime.FuncForPC(value.Pointer()))
 }
 
-func buildHostsFromDeployment(d Deployment) *Host {
-	hosts := make([]HostList, 0)
+func buildHostsFromDeployment(d Deployment) *host.Result {
+	hosts := make([]host.Host, 0)
 	if d != nil {
 		for i, p := range d.getProcesses() {
-			hosts = append(hosts, HostList{Id: strconv.Itoa(i), Hostname: p.HostName()})
+			hosts = append(hosts, host.Host{Id: strconv.Itoa(i), Hostname: p.HostName()})
 		}
 	}
-	return &Host{Results: hosts}
+	return &host.Result{Results: hosts}
 }
 
 func (oc *MockedOmConnection) buildAutomationStatusFromDeployment(d Deployment, reached bool) *AutomationStatus {

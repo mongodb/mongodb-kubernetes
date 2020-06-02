@@ -31,6 +31,13 @@ def test_reaches_goal_state(opsmanager: MongoDBOpsManager):
 
 
 @mark.e2e_om_external_connectivity
+def test_appdb_monitoring_group_was_created(opsmanager: MongoDBOpsManager):
+    opsmanager.appdb_status().assert_abandons_phase(Phase.Running)
+    opsmanager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
+    opsmanager.assert_appdb_monitoring_group_was_created()
+
+
+@mark.e2e_om_external_connectivity
 def test_set_external_connectivity(opsmanager: MongoDBOpsManager):
     # TODO: The loadBalancerIP being set to 1.2.3.4 will not allow for this
     # LoadBalancer to work in Kops.
@@ -43,6 +50,7 @@ def test_set_external_connectivity(opsmanager: MongoDBOpsManager):
             "second-annotation": "second-value",
         },
     }
+    opsmanager.load()
     opsmanager["spec"]["externalConnectivity"] = ext_connectivity
     opsmanager.update()
 

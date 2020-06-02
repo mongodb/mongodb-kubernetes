@@ -228,13 +228,18 @@ func (d Deployment) MergeShardedCluster(name string, mongosProcesses []Process, 
 // Note, that these two are deliberately combined together as all clients (standalone, rs etc) need both backup and monitoring
 // together
 func (d Deployment) AddMonitoringAndBackup(hostName string, log *zap.SugaredLogger) {
-
 	if len(d.getProcesses()) == 0 {
 		return
 	}
-
 	d.addMonitoring(hostName, log)
 	d.addBackup(log)
+}
+
+func (d Deployment) AddMonitoring(hostName string, log *zap.SugaredLogger) {
+	if len(d.getProcesses()) == 0 {
+		return
+	}
+	d.addMonitoring(hostName, log)
 }
 
 // RemoveMonitoringAndBackup removes both monitoring and backup agent configurations. This must be called when the

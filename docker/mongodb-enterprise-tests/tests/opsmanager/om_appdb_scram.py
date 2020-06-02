@@ -42,7 +42,7 @@ class TestOpsManagerCreation:
     """
 
     def test_appdb(self, ops_manager: MongoDBOpsManager):
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
         assert ops_manager.appdb_status().get_members() == 3
         assert ops_manager.appdb_status().get_version() == "4.0.0"
@@ -90,6 +90,8 @@ class TestChangeOpsManagerUserPassword:
 
     def test_upgrade_om(self, ops_manager: MongoDBOpsManager):
         ops_manager.om_status().assert_reaches_phase(phase=Phase.Running, timeout=700)
+        ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
         KubernetesTester.create_secret(
             ops_manager.namespace, "my-password", {"new-key": USER_DEFINED_PASSWORD}
@@ -213,6 +215,7 @@ class TestOpsManagerGeneratesNewPasswordIfNoneSpecified:
     """
 
     def test_upgrade_om(self, ops_manager: MongoDBOpsManager):
+        ops_manager.load()
         ops_manager["spec"]["applicationDatabase"]["passwordSecretKeyRef"] = {
             "name": "",
             "key": "",

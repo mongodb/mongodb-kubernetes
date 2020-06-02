@@ -32,7 +32,7 @@ class TestOpsManagerCreation:
     """
 
     def test_appdb(self, ops_manager: MongoDBOpsManager):
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
         assert ops_manager.appdb_status().get_members() == 3
         assert ops_manager.appdb_status().get_version() == "4.0.0"
@@ -77,8 +77,13 @@ class TestOpsManagerCreation:
             auth_mechanism="SCRAM-SHA-1",
         )
 
+    def test_appdb_monitoring_is_configured(self, ops_manager: MongoDBOpsManager):
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
+        ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+        ops_manager.assert_appdb_monitoring_group_was_created()
+
     def test_om_running(self, ops_manager: MongoDBOpsManager):
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=400)
         ops_manager.get_om_tester().assert_healthiness()
 
     # TODO check the persistent volumes created
@@ -95,7 +100,7 @@ class TestOpsManagerAppDbUpgrade:
         ops_manager["spec"]["applicationDatabase"]["version"] = ""
         ops_manager.update()
         ops_manager.appdb_status().assert_abandons_phase(Phase.Running)
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
         # Note, that we don't wait for "OM == reconciling" as this phase passes too quickly
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=100)
 
@@ -142,6 +147,7 @@ class TestOpsManagerAppDbUpdateMemory:
 
     @skip_if_local
     def test_om_is_running(self, ops_manager: MongoDBOpsManager):
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=400)
         ops_manager.get_om_tester().assert_healthiness()
 
 

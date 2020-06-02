@@ -36,7 +36,8 @@ class TestOpsManagerCreation:
     """
 
     def test_create_om(self, ops_manager: MongoDBOpsManager):
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1200)
 
     def test_gen_key_secret(self, ops_manager: MongoDBOpsManager):
         global gen_key_resource_version
@@ -56,12 +57,16 @@ class TestOpsManagerCreation:
         admin_key_resource_version = secret.metadata.resource_version
 
     def test_appdb(self, ops_manager: MongoDBOpsManager):
-        assert ops_manager.appdb_status().get_phase() == Phase.Running
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=200)
         assert ops_manager.appdb_status().get_members() == 3
         assert ops_manager.appdb_status().get_version() == "4.0.7"
         statefulset = ops_manager.read_appdb_statefulset()
         assert statefulset.status.ready_replicas == 3
         assert statefulset.status.current_replicas == 3
+
+    def test_appdb_monitoring_group_was_created(self, ops_manager: MongoDBOpsManager):
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=200)
+        ops_manager.assert_appdb_monitoring_group_was_created()
 
     def test_admin_config_map(self, ops_manager: MongoDBOpsManager):
         ops_manager.get_automation_config_tester().reached_version(1)
@@ -82,6 +87,10 @@ class TestOpsManagerAppDbScaleUp:
         ops_manager.load()
         ops_manager["spec"]["applicationDatabase"]["members"] = 5
         ops_manager.update()
+
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Pending)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+
         ops_manager.om_status().assert_abandons_phase(Phase.Running)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
 

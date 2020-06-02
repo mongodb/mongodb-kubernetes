@@ -19,7 +19,6 @@ spec:
   applicationDatabase:
     members: 3
     version: 4.2.0-ent
-    persistent: false
 
   # adding this just to avoid wizard when opening OM UI
   configuration:

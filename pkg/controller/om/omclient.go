@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/host"
+
 	"github.com/blang/semver"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
@@ -33,8 +35,7 @@ type Connection interface {
 	GenerateAgentKey() (string, error)
 	ReadAutomationStatus() (*AutomationStatus, error)
 	ReadAutomationAgents(page int) (Paginated, error)
-	GetHosts() (*Host, error)
-	RemoveHost(hostID string) error
+	MarkProjectAsBackingDatabase(databaseType BackingDatabaseType) error
 
 	ReadOrganizationsByName(name string) ([]*Organization, error)
 	// ReadOrganizations returns all organizations at specified page
@@ -56,6 +57,8 @@ type Connection interface {
 	AutomationConfigConnection
 	MonitoringConfigConnection
 	BackupConfigConnection
+
+	host.Client
 
 	UpdateControlledFeature(cf *controlledfeature.ControlledFeature) error
 	GetControlledFeature() (*controlledfeature.ControlledFeature, error)
@@ -107,6 +110,14 @@ func GetMutex(projectName, orgId string) *sync.Mutex {
 	mutex, _ := omMutexes.LoadOrStore(lockName, &sync.Mutex{})
 	return mutex.(*sync.Mutex)
 }
+
+type BackingDatabaseType string
+
+const (
+	AppDBDatabaseType      BackingDatabaseType = "APP_DB"
+	BlockStoreDatabaseType BackingDatabaseType = "BLOCKSTORE_DB"
+	OplogDatabaseType      BackingDatabaseType = "OPLOG_DB"
+)
 
 // ConnectionFactory type defines a function to create a connection to Ops Manager API.
 // That's the way we implement some kind of Template Factory pattern to create connections using some incoming parameters
@@ -358,15 +369,21 @@ func (oc *HTTPOmConnection) ReadAutomationStatus() (*AutomationStatus, error) {
 	return status, api.NewError(e)
 }
 
+// AddHost adds the given host to the project
+func (oc *HTTPOmConnection) AddHost(host host.Host) error {
+	_, err := oc.post(fmt.Sprintf("/api/public/v1.0/groups/%s/hosts", oc.GroupID()), host)
+	return err
+}
+
 // GetHosts return the hosts in this group
-func (oc *HTTPOmConnection) GetHosts() (*Host, error) {
+func (oc *HTTPOmConnection) GetHosts() (*host.Result, error) {
 	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/hosts/", oc.GroupID())
 	res, err := oc.get(mPath)
 	if err != nil {
 		return nil, err
 	}
 
-	hosts := &Host{}
+	hosts := &host.Result{}
 	if err := json.Unmarshal(res, hosts); err != nil {
 		return nil, api.NewError(err)
 	}
@@ -424,6 +441,19 @@ func (oc *HTTPOmConnection) ReadOrganization(orgID string) (*Organization, error
 	}
 
 	return organization, nil
+}
+
+func (oc *HTTPOmConnection) MarkProjectAsBackingDatabase(backingType BackingDatabaseType) error {
+	_, err := oc.post(fmt.Sprintf("/api/private/v1.0/groups/%s/markAsBackingDatabase", oc.GroupID()), string(backingType))
+	if err != nil {
+		if apiErr, ok := err.(*api.Error); ok {
+			if apiErr.Status != nil && *apiErr.Status == 400 && strings.Contains(apiErr.Detail, "INVALID_DOCUMENT") {
+				return nil
+			}
+		}
+		return err
+	}
+	return nil
 }
 
 func (oc *HTTPOmConnection) ReadProjectsInOrganizationByName(orgID string, name string) ([]*Project, error) {

@@ -100,9 +100,10 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 
 	// 1. Reconcile AppDB
 	emptyResult := reconcile.Result{}
+	retryResult := reconcile.Result{Requeue: true}
 	appDbReconciler := newAppDBReplicaSetReconciler(r.ReconcileCommonController, r.appDbVersionManifestPath)
 	result, err := appDbReconciler.Reconcile(opsManager, opsManager.Spec.AppDB, opsManagerUserPassword)
-	if err != nil || result != emptyResult {
+	if err != nil || (result != emptyResult && result != retryResult) {
 		return result, err
 	}
 
@@ -110,6 +111,13 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 	status, omAdmin := r.reconcileOpsManager(opsManager, opsManagerUserPassword, log)
 	if !status.IsOK() {
 		return r.updateStatus(opsManager, status, log, opsManagerExtraStatusParams, mdbstatus.NewBaseUrlOption(opsManager.CentralURL()))
+	}
+
+	// the AppDB still needs to configure monitoring, now that Ops Manager has been created
+	// we can finish this configuration.
+	if result.Requeue {
+		log.Infof("Requeuing reconciliation to configure AppDB monitoring in Ops Manager.")
+		return result, nil
 	}
 
 	// 3. Reconcile Backup Daemon

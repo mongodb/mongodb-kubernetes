@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/host"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
@@ -217,12 +219,12 @@ func prepareScaleDown(omClient om.Connection, rsMembers map[string][]string, log
 }
 
 // stopMonitoringHosts removes monitoring for this list of hosts from Ops Manager.
-func stopMonitoringHosts(conn om.Connection, hosts []string, log *zap.SugaredLogger) error {
+func stopMonitoringHosts(hostClient host.Client, hosts []string, log *zap.SugaredLogger) error {
 	if len(hosts) == 0 {
 		return nil
 	}
 
-	if err := om.StopMonitoring(conn, hosts, log); err != nil {
+	if err := om.StopMonitoring(hostClient, hosts, log); err != nil {
 		return fmt.Errorf("Failed to stop monitoring on hosts %s: %s", hosts, err)
 	}
 
@@ -231,8 +233,8 @@ func stopMonitoringHosts(conn om.Connection, hosts []string, log *zap.SugaredLog
 
 // calculateDiffAndStopMonitoringHosts checks hosts that are present in hostsBefore but not hostsAfter, and removes
 // monitoring from them.
-func calculateDiffAndStopMonitoringHosts(conn om.Connection, hostsBefore, hostsAfter []string, log *zap.SugaredLogger) error {
-	return stopMonitoringHosts(conn, util.FindLeftDifference(hostsBefore, hostsAfter), log)
+func calculateDiffAndStopMonitoringHosts(hostClient host.Client, hostsBefore, hostsAfter []string, log *zap.SugaredLogger) error {
+	return stopMonitoringHosts(hostClient, util.FindLeftDifference(hostsBefore, hostsAfter), log)
 }
 
 // agentApiKeySecretName for a given ProjectID (`project`) returns the name of

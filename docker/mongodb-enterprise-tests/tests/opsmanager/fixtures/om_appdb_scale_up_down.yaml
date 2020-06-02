@@ -10,7 +10,6 @@ spec:
   applicationDatabase:
     members: 3
     version: 4.0.7
-    persistent: false
     podSpec:
       cpu: '0.25'
 

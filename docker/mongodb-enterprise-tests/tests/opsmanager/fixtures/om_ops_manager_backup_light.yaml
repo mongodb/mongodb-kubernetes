@@ -19,7 +19,6 @@ spec:
   applicationDatabase:
     members: 3
     version: 4.2.6-ent
-    persistent: false
 
   # Dev: adding this just to avoid wizard when opening OM UI
   # (note, that to debug issues in OM you need to add 'spec.externalConnectivity.type=NodePort'

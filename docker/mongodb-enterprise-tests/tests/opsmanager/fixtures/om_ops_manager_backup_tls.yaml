@@ -20,7 +20,6 @@ spec:
   applicationDatabase:
     members: 3
     version: 4.2.0-ent
-    persistent: false
     security:
       tls:
         ca: issuer-ca

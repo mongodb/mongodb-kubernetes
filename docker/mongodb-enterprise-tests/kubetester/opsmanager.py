@@ -39,6 +39,26 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def assert_reaches(self, fn, timeout=None):
         return self.wait_for(fn, timeout=timeout, should_raise=True)
 
+    def assert_appdb_monitoring_group_was_created(self):
+        tester = self.get_om_tester(self.app_db_name())
+        tester.assert_group_exists()
+        hosts = tester.api_get_hosts()["results"]
+
+        appdb_resource = self.get_appdb_resource()
+        resource_name = appdb_resource["metadata"]["name"]
+        service_name = f"{resource_name}-svc"
+        namespace = appdb_resource["metadata"]["namespace"]
+
+        appdb_hostnames = []
+        for index in range(appdb_resource["spec"]["members"]):
+            appdb_hostnames.append(
+                f"{resource_name}-{index}.{service_name}.{namespace}.svc.cluster.local"
+            )
+
+        hostnames = [host["hostname"] for host in hosts]
+        for hn in appdb_hostnames:
+            assert hn in hostnames
+
     def get_appdb_resource(self) -> MongoDB:
         mdb = MongoDB(name=self.app_db_name(), namespace=self.namespace)
         # We "artificially" add SCRAM authentication to make syntax match the normal MongoDB -
