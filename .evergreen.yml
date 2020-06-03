@@ -631,7 +631,6 @@ tasks:
 - name: release_init_rh_connect
   commands:
     - func: clone
-    - func: guard_git_repo_is_clean
     - func: setup_jq
     - func: setup_ecr_login_helper
 
@@ -695,7 +694,6 @@ tasks:
 - name: release_init_quay
   commands:
     - func: clone
-    - func: guard_git_repo_is_clean
     - func: setup_jq
     - func: setup_ecr_login_helper
 
