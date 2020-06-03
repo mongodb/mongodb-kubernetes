@@ -762,7 +762,8 @@ tasks:
     - func: release_docker_image_to_registry
       vars:
         tag_source: ${version_id}
-        tag_dest: '$(git describe --dirty)'
+        # sorry
+        tag_dest: '$(echo "$(jq --raw-output ".initOpsManagerVersion" < release.json)"-"$(git describe --dirty|cut -d\- -f2-)")'
         image_source: ${ecr_registry}/dev/${image_type}/mongodb-enterprise-init-ops-manager
         image_target: quay.io/mongodb/mongodb-enterprise-init-ops-manager-prerelease
         docker_username: ${quay_prod_username}
@@ -771,7 +772,8 @@ tasks:
     - func: release_docker_image_to_registry
       vars:
         tag_source: ${version_id}
-        tag_dest: '$(git describe --dirty)'
+        # sorry
+        tag_dest: '$(echo "$(jq --raw-output ".initAppDbVersion" < release.json)"-"$(git describe --dirty|cut -d\- -f2-)")'
         image_source: ${ecr_registry}/dev/${image_type}/mongodb-enterprise-init-appdb
         image_target: quay.io/mongodb/mongodb-enterprise-init-appdb-prerelease
         docker_username: ${quay_prod_username}
