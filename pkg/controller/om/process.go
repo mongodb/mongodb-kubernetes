@@ -428,15 +428,6 @@ func readMapValueAsInterface(m map[string]interface{}, keys ...string) interface
 		currentMap = currentMap[k].(map[string]interface{})
 	}
 	return nil
-	/*if _, ok := m[key]; !ok {
-		return ""
-	}
-	secondMap := m[key].(map[string]interface{})
-
-	if _, ok := secondMap[secondKey]; !ok {
-		return ""
-	}
-	return secondMap[secondKey].(string)*/
 }
 
 func readMapValueAsString(m map[string]interface{}, keys ...string) string {

@@ -8,7 +8,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/timeutil"
-
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"

@@ -10,9 +10,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// ReadProjectConfig returns a "Project" config which is a ConfigMap with a series of attributes
+// ReadProjectConfig returns a "Project" config build from a ConfigMap with a series of attributes
 // like `projectName`, `baseUrl` and a series of attributes related to SSL.
-func ReadProjectConfig(client client.Client, projectConfigMap client.ObjectKey) (mdbv1.ProjectConfig, error) {
+// If configMap doesn't have a projectName defined - the name of MongoDB resource is used as a name of project
+func ReadProjectConfig(client client.Client, projectConfigMap client.ObjectKey, mdbName string) (mdbv1.ProjectConfig, error) {
 	configMapClient := configmap.NewClient(client)
 	data, err := configMapClient.GetData(projectConfigMap)
 	if err != nil {
@@ -21,9 +22,12 @@ func ReadProjectConfig(client client.Client, projectConfigMap client.ObjectKey) 
 
 	baseURL, ok := data[util.OmBaseUrl]
 	if !ok {
-		return mdbv1.ProjectConfig{}, fmt.Errorf(`Property "%s" is not specified in ConfigMap %s`, util.OmBaseUrl, projectConfigMap)
+		return mdbv1.ProjectConfig{}, fmt.Errorf(`property "%s" is not specified in ConfigMap %s`, util.OmBaseUrl, projectConfigMap)
 	}
 	projectName := data[util.OmProjectName]
+	if projectName == "" {
+		projectName = mdbName
+	}
 	orgID := data[util.OmOrgId]
 
 	sslRequireValid := true
@@ -38,7 +42,7 @@ func ReadProjectConfig(client client.Client, projectConfigMap client.ObjectKey) 
 		sslCaConfigMapKey := types.NamespacedName{Name: sslCaConfigMap, Namespace: projectConfigMap.Namespace}
 		cacrt, err := configMapClient.GetData(sslCaConfigMapKey)
 		if err != nil {
-			return mdbv1.ProjectConfig{}, fmt.Errorf("Could not read the specified ConfigMap %s (%e)", sslCaConfigMapKey, err)
+			return mdbv1.ProjectConfig{}, fmt.Errorf("failed to read the specified ConfigMap %s (%e)", sslCaConfigMapKey, err)
 		}
 		for k, v := range cacrt {
 			if k == util.CaCertMMS {

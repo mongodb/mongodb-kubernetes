@@ -6,6 +6,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	mdbstatus "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/project"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
@@ -80,6 +81,8 @@ type ReconcileMongoDbStandalone struct {
 }
 
 func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
+	agents.UpgradeAllIfNeeded(r.client, r.omConnectionFactory, getWatchedNamespace())
+
 	log := zap.S().With("Standalone", request.NamespacedName)
 	s := &mdbv1.MongoDB{}
 
@@ -102,13 +105,11 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 	log.Infow("Standalone.Spec", "spec", s.Spec)
 	log.Infow("Standalone.Status", "status", s.Status)
 
-	projectConfig, err := project.ReadProjectConfig(r.client, objectKey(request.Namespace, s.Spec.GetProject()))
+	projectConfig, err := project.ReadProjectConfig(r.client, objectKey(request.Namespace, s.Spec.GetProject()), s.Name)
 	if err != nil {
 		log.Infof("error reading project %s", err)
 		return retry()
 	}
-
-	s.Spec.SetParametersFromConfigMap(projectConfig)
 
 	podVars := &PodVars{}
 	conn, err := r.prepareConnection(request.NamespacedName, s.Spec.ConnectionSpec, podVars, log)

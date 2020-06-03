@@ -10,11 +10,13 @@ import (
 	"time"
 
 	mdbstatus "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/project"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/generate"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/identifiable"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/backup"
@@ -152,11 +154,37 @@ func (r *OpsManagerReconciler) reconcileOpsManager(opsManager *mdbv1.MongoDBOpsM
 		return status, nil
 	}
 
-	if _, err := r.updateStatus(opsManager, workflow.OK(), log, statusOptions...); err != nil {
+	// 4. Trigger agents upgrade if necessary
+	if err = triggerOmChangedEventIfNeeded(*opsManager, log); err != nil {
+		log.Warn("Not triggering an Ops Manager version changed event: %s", err)
+	}
+
+	if _, err = r.updateStatus(opsManager, workflow.OK(), log, statusOptions...); err != nil {
 		return workflow.Failed(err.Error()), nil
 	}
 
 	return status, omAdmin
+}
+
+// triggerOmChangedEventIfNeeded triggers upgrade process for all the MongoDB agents in the system if the major/minor version upgrade
+// happened for Ops Manager
+func triggerOmChangedEventIfNeeded(opsManager mdbv1.MongoDBOpsManager, log *zap.SugaredLogger) error {
+	if opsManager.Spec.Version == opsManager.Status.OpsManagerStatus.Version {
+		return nil
+	}
+	newVersion, err := semver.Parse(opsManager.Spec.Version)
+	if err != nil {
+		return fmt.Errorf("Failed to parse Ops Manager version %s: %s", opsManager.Spec.Version, err)
+	}
+	oldVersion, err := semver.Parse(opsManager.Status.OpsManagerStatus.Version)
+	if err != nil {
+		return fmt.Errorf("Failed to parse Ops Manager status version %s: %s", opsManager.Status.OpsManagerStatus.Version, err)
+	}
+	if newVersion.Major != oldVersion.Major || newVersion.Minor != oldVersion.Minor {
+		log.Infof("Ops Manager version has upgraded from %s to %s - scheduling the upgrade for all the Agents in the system", oldVersion, newVersion)
+		agents.ScheduleUpgrade()
+	}
+	return nil
 }
 
 func (r *OpsManagerReconciler) reconcileBackupDaemon(opsManager *mdbv1.MongoDBOpsManager, omAdmin api.Admin, opsManagerUserPassword string, log *zap.SugaredLogger) workflow.Status {
@@ -330,7 +358,7 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(opsManager mdbv1.Mo
 
 func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(opsManager mdbv1.MongoDBOpsManager) {
 	if !opsManager.Spec.Backup.Enabled {
-		r.removeWatchedResources(opsManager.Namespace, watch.MongoDB, objectKeyFromApiObject(&opsManager))
+		r.removeWatchedResources(opsManager.Namespace, watch.MongoDB, kube.ObjectKeyFromApiObject(&opsManager))
 		return
 	}
 
@@ -341,7 +369,7 @@ func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(opsManage
 			oplogConfig.MongoDBResourceRef.Name,
 			opsManager.Namespace,
 			watch.MongoDB,
-			objectKeyFromApiObject(&opsManager),
+			kube.ObjectKeyFromApiObject(&opsManager),
 		)
 	}
 
@@ -352,7 +380,7 @@ func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(opsManage
 			blockStoreConfig.MongoDBResourceRef.Name,
 			opsManager.Namespace,
 			watch.MongoDB,
-			objectKeyFromApiObject(&opsManager),
+			kube.ObjectKeyFromApiObject(&opsManager),
 		)
 	}
 
@@ -365,7 +393,7 @@ func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(opsManage
 				s3StoreConfig.MongoDBResourceRef.Name,
 				opsManager.Namespace,
 				watch.MongoDB,
-				objectKeyFromApiObject(&opsManager),
+				kube.ObjectKeyFromApiObject(&opsManager),
 			)
 		}
 	}
@@ -424,7 +452,7 @@ func (r OpsManagerReconciler) getAppDBPassword(opsManager mdbv1.MongoDBOpsManage
 			passwordRef.Name,
 			opsManager.Namespace,
 			watch.Secret,
-			objectKeyFromApiObject(&opsManager),
+			kube.ObjectKeyFromApiObject(&opsManager),
 		)
 
 		// delete the auto generated password, we don't need it anymore. We can just generate a new one if

@@ -22,7 +22,6 @@ import (
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	apiruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -349,7 +348,7 @@ func omConnGroupInOrganizationWithDifferentName() om.ConnectionFactory {
 	}
 }
 
-func requestFromObject(object apiruntime.Object) reconcile.Request {
+func requestFromObject(object metav1.Object) reconcile.Request {
 	return reconcile.Request{NamespacedName: objectKeyFromApiObject(object)}
 }
 

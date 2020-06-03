@@ -39,7 +39,7 @@ def test_update_delete_in_parallel(replica_set: MongoDB):
 
     def om_is_clean():
         try:
-            om_tester.assert_empty()
+            om_tester.assert_hosts_empty()
             return True
         except AssertionError:
             return False

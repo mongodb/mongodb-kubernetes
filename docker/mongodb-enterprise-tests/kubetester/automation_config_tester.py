@@ -93,3 +93,10 @@ class AutomationConfigTester:
 
     def reached_version(self, version: int) -> bool:
         return self.automation_config["version"] == version
+
+    def get_agent_version(self) -> str:
+        try:
+            return self.automation_config["agentVersion"]["name"]
+        except KeyError:
+            # the agent version can be empty if the /automationConfig/upgrade endpoint hasn't been called yet
+            return ""

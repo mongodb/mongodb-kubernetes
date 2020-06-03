@@ -91,12 +91,9 @@ func (c *ReconcileCommonController) GetMutex(resourceName types.NamespacedName) 
 // prepareConnection reads project config map and credential secrets and uses these values to communicate with Ops Manager:
 // create or read the project and optionally request an agent key (it could have been returned by group api call)
 func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedName, spec mdbv1.ConnectionSpec, podVars *PodVars, log *zap.SugaredLogger) (om.Connection, error) {
-	projectConfig, err := project.ReadProjectConfig(c.client, objectKey(nsName.Namespace, spec.GetProject()))
+	projectConfig, err := project.ReadProjectConfig(c.client, objectKey(nsName.Namespace, spec.GetProject()), nsName.Name)
 	if err != nil {
 		return nil, fmt.Errorf("Error reading Project Config: %s", err)
-	}
-	if projectConfig.ProjectName != "" {
-		spec.ProjectName = projectConfig.ProjectName
 	}
 
 	credsConfig, err := project.ReadCredentials(c.client, objectKey(nsName.Namespace, spec.Credentials))
@@ -106,7 +103,7 @@ func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedNam
 
 	c.registerWatchedResources(nsName, spec.GetProject(), spec.Credentials)
 
-	omProject, conn, err := project.ReadOrCreateProject(spec.ProjectName, projectConfig, credsConfig, c.omConnectionFactory, log)
+	omProject, conn, err := project.ReadOrCreateProject(projectConfig, credsConfig, c.omConnectionFactory, log)
 	if err != nil {
 		return nil, fmt.Errorf("Error reading or creating project in Ops Manager: %s", err)
 	}

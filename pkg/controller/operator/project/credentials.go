@@ -15,15 +15,15 @@ import (
 func ReadCredentials(client client.Client, credentialsSecret client.ObjectKey) (mdbv1.Credentials, error) {
 	secret, err := readSecret(client, credentialsSecret)
 	if err != nil {
-		return mdbv1.Credentials{}, fmt.Errorf("Error getting secret %s: %s", credentialsSecret, err)
+		return mdbv1.Credentials{}, fmt.Errorf("error getting secret %s: %s", credentialsSecret, err)
 	}
 	publicAPIKey, ok := secret[util.OmPublicApiKey]
 	if !ok {
-		return mdbv1.Credentials{}, fmt.Errorf("Property \"%s\" is not specified in Secret %s", util.OmPublicApiKey, credentialsSecret)
+		return mdbv1.Credentials{}, fmt.Errorf(`property "%s" is not specified in Secret %s`, util.OmPublicApiKey, credentialsSecret)
 	}
 	user, ok := secret[util.OmUser]
 	if !ok {
-		return mdbv1.Credentials{}, fmt.Errorf("Property \"%s\" is not specified in Secret %s", util.OmUser, credentialsSecret)
+		return mdbv1.Credentials{}, fmt.Errorf(`property "%s" is not specified in Secret %s`, util.OmUser, credentialsSecret)
 	}
 
 	return mdbv1.Credentials{

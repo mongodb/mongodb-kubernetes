@@ -6,6 +6,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	mdbstatus "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/project"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
@@ -28,6 +29,8 @@ func newShardedClusterReconciler(mgr manager.Manager, omFunc om.ConnectionFactor
 }
 
 func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
+	agents.UpgradeAllIfNeeded(r.client, r.omConnectionFactory, getWatchedNamespace())
+
 	log := zap.S().With("ShardedCluster", request.NamespacedName)
 	sc := &mdbv1.MongoDB{}
 
@@ -64,12 +67,10 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (r
 func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interface{}, log *zap.SugaredLogger) (om.Connection, workflow.Status) {
 	log.Info("ShardedCluster.doShardedClusterProcessing")
 	sc := obj.(*mdbv1.MongoDB)
-	projectConfig, err := project.ReadProjectConfig(r.client, objectKey(sc.Namespace, sc.Spec.GetProject()))
+	projectConfig, err := project.ReadProjectConfig(r.client, objectKey(sc.Namespace, sc.Spec.GetProject()), sc.Name)
 	if err != nil {
 		return nil, workflow.Failed("error reading project %s", err)
 	}
-
-	sc.Spec.SetParametersFromConfigMap(projectConfig)
 
 	podVars := &PodVars{}
 	conn, err := r.prepareConnection(objectKey(sc.Namespace, sc.Name), sc.Spec.ConnectionSpec, podVars, log)

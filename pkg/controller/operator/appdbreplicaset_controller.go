@@ -410,7 +410,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager
 	}
 
 	projectConfig := opsManager.GetAppDBProjectConfig()
-	_, conn, err := project.ReadOrCreateProject(projectConfig.ProjectName, projectConfig, cred, r.omConnectionFactory, log)
+	_, conn, err := project.ReadOrCreateProject(projectConfig, cred, r.omConnectionFactory, log)
 	if err != nil {
 		return existingPodVars, fmt.Errorf("error reading/creating project: %s", err)
 	}

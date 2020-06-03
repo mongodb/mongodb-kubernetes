@@ -24,7 +24,8 @@ duplicated groups/organizations creation. So if for example the standalone and t
 configMap are created in parallel - this function will be invoked sequentially and the second caller will see the group
 created on the first call
 */
-func ReadOrCreateProject(projectName string, config mdbv1.ProjectConfig, credentials mdbv1.Credentials, connectionFactory om.ConnectionFactory, log *zap.SugaredLogger) (*om.Project, om.Connection, error) {
+func ReadOrCreateProject(config mdbv1.ProjectConfig, credentials mdbv1.Credentials, connectionFactory om.ConnectionFactory, log *zap.SugaredLogger) (*om.Project, om.Connection, error) {
+	projectName := config.ProjectName
 	mutex := om.GetMutex(projectName, config.OrgID)
 	mutex.Lock()
 	defer mutex.Unlock()

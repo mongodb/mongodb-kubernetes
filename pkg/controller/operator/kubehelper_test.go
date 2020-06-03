@@ -35,7 +35,7 @@ func TestSSLOptionsArePassedCorrectly_SSLRequireValidMMSServerCertificates(t *te
 	cm.Data[util.SSLRequireValidMMSServerCertificates] = "true"
 	client.Create(context.TODO(), &cm)
 
-	projectConfig, err := project.ReadProjectConfig(client, objectKey(mock.TestNamespace, "cm1"))
+	projectConfig, err := project.ReadProjectConfig(client, objectKey(mock.TestNamespace, "cm1"), "")
 
 	assert.NoError(t, err)
 	assert.True(t, projectConfig.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
@@ -47,7 +47,7 @@ func TestSSLOptionsArePassedCorrectly_SSLRequireValidMMSServerCertificates(t *te
 	cm.Data[util.SSLRequireValidMMSServerCertificates] = "1"
 	client.Create(context.TODO(), &cm)
 
-	projectConfig, err = project.ReadProjectConfig(client, objectKey(mock.TestNamespace, "cm2"))
+	projectConfig, err = project.ReadProjectConfig(client, objectKey(mock.TestNamespace, "cm2"), "")
 
 	assert.NoError(t, err)
 	assert.True(t, projectConfig.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
@@ -61,7 +61,7 @@ func TestSSLOptionsArePassedCorrectly_SSLRequireValidMMSServerCertificates(t *te
 	cm.Data[util.SSLRequireValidMMSServerCertificates] = "false"
 	client.Create(context.TODO(), &cm)
 
-	projectConfig, err = project.ReadProjectConfig(client, objectKey(mock.TestNamespace, "cm3"))
+	projectConfig, err = project.ReadProjectConfig(client, objectKey(mock.TestNamespace, "cm3"), "")
 
 	assert.NoError(t, err)
 	assert.False(t, projectConfig.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
@@ -86,7 +86,7 @@ func TestSSLOptionsArePassedCorrectly_SSLMMSCAConfigMap(t *testing.T) {
 	cm.Data[util.SSLRequireValidMMSServerCertificates] = "false"
 	client.Create(context.TODO(), &cm)
 
-	projectConfig, err := project.ReadProjectConfig(client, objectKey(mock.TestNamespace, "cm"))
+	projectConfig, err := project.ReadProjectConfig(client, objectKey(mock.TestNamespace, "cm"), "")
 
 	assert.NoError(t, err)
 	assert.False(t, projectConfig.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
@@ -103,7 +103,7 @@ func TestSSLOptionsArePassedCorrectly_UseCustomCAConfigMap(t *testing.T) {
 	cm.Data[util.UseCustomCAConfigMap] = "false"
 	client.Create(context.TODO(), &cm)
 
-	projectConfig, err := project.ReadProjectConfig(client, objectKey(mock.TestNamespace, "cm"))
+	projectConfig, err := project.ReadProjectConfig(client, objectKey(mock.TestNamespace, "cm"), "")
 
 	assert.NoError(t, err)
 	assert.False(t, projectConfig.UseCustomCA)
@@ -113,7 +113,7 @@ func TestSSLOptionsArePassedCorrectly_UseCustomCAConfigMap(t *testing.T) {
 	cm.Data[util.UseCustomCAConfigMap] = "true"
 	client.Create(context.TODO(), &cm)
 
-	projectConfig, err = project.ReadProjectConfig(client, objectKey(mock.TestNamespace, "cm2"))
+	projectConfig, err = project.ReadProjectConfig(client, objectKey(mock.TestNamespace, "cm2"), "")
 
 	assert.NoError(t, err)
 	assert.True(t, projectConfig.UseCustomCA)
@@ -123,7 +123,7 @@ func TestSSLOptionsArePassedCorrectly_UseCustomCAConfigMap(t *testing.T) {
 	cm.Data[util.UseCustomCAConfigMap] = ""
 	client.Create(context.TODO(), &cm)
 
-	projectConfig, err = project.ReadProjectConfig(client, objectKey(mock.TestNamespace, "cm3"))
+	projectConfig, err = project.ReadProjectConfig(client, objectKey(mock.TestNamespace, "cm3"), "")
 	assert.NoError(t, err)
 	assert.True(t, projectConfig.UseCustomCA)
 
@@ -132,7 +132,7 @@ func TestSSLOptionsArePassedCorrectly_UseCustomCAConfigMap(t *testing.T) {
 	cm.Data[util.UseCustomCAConfigMap] = "1"
 	client.Create(context.TODO(), &cm)
 
-	projectConfig, err = project.ReadProjectConfig(client, objectKey(mock.TestNamespace, "cm4"))
+	projectConfig, err = project.ReadProjectConfig(client, objectKey(mock.TestNamespace, "cm4"), "")
 	assert.NoError(t, err)
 	assert.True(t, projectConfig.UseCustomCA)
 
@@ -143,7 +143,7 @@ func TestSSLOptionsArePassedCorrectly_UseCustomCAConfigMap(t *testing.T) {
 	cm.Data[util.UseCustomCAConfigMap] = "false"
 	client.Create(context.TODO(), &cm)
 
-	projectConfig, err = project.ReadProjectConfig(client, objectKey(mock.TestNamespace, "cm5"))
+	projectConfig, err = project.ReadProjectConfig(client, objectKey(mock.TestNamespace, "cm5"), "")
 	assert.NoError(t, err)
 	assert.False(t, projectConfig.UseCustomCA)
 }

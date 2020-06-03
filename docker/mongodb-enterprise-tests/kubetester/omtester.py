@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import urllib.parse
+
+import semver
 import time
 from datetime import datetime
 from enum import Enum
@@ -60,7 +62,7 @@ class OMContext(object):
             base_url=connection_config_map["baseUrl"],
             project_id=None,
             project_name=connection_config_map["projectName"],
-            org_id=connection_config_map["orgId"],
+            org_id=connection_config_map.get("orgId", ""),
             user=connection_secret["user"],
             public_key=connection_secret["publicApiKey"],
         )
@@ -273,10 +275,13 @@ class OMTester(object):
             expected_s3_stores, "/admin/backup/snapshot/s3Configs", "s3"
         )
 
-    def assert_empty(self):
+    def assert_hosts_empty(self):
         self.get_automation_config_tester().assert_empty()
         hosts = self.api_get_hosts()
         assert len(hosts["results"]) == 0
+
+    def assert_om_version(self, expected_version: str):
+        assert self.api_get_om_version() == expected_version
 
     @staticmethod
     def do_assert_healthiness(base_url: str):
@@ -329,6 +334,16 @@ class OMTester(object):
                 f"Group with name {self.context.group_name} not found in organization {self.context.org_id}!"
             )
         return group_id
+
+    def api_get_om_version(self) -> str:
+        # This can be any API request - we just need the header in the response
+        response = self.om_request(
+            "get", f"/groups/{self.context.project_id}/backupConfigs"
+        )
+        version_header = response.headers["X-MongoDB-Service-Version"]
+        version = version_header.split("versionString=")[1]
+        parsed_version = semver.VersionInfo.parse(version)
+        return f"{parsed_version.major}.{parsed_version.minor}.{parsed_version.patch}"
 
     def api_get_organization_id(self, org_name: str) -> str:
         json = self.om_request("get", f"/orgs?name={org_name}").json()

@@ -516,6 +516,13 @@ func (d Deployment) GetNumberOfExcessProcesses(resourceName string) int {
 	return excessProcesses
 }
 
+// GetAgentVersion returns the current version of all Agents in the deployment. It's empty until the
+// 'automationConfig/updateAgentVersions' endpoint is called the first time
+func (d Deployment) GetAgentVersion() string {
+	agentVersionMap := util.ReadOrCreateMap(d, "agentVersion")
+	return readMapValueAsString(agentVersionMap, "name")
+}
+
 // Debug
 func (d Deployment) Debug(l *zap.SugaredLogger) {
 	dep := Deployment{}

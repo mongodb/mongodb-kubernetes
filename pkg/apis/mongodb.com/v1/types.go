@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	appsv1 "k8s.io/api/apps/v1"
 
@@ -233,22 +234,6 @@ type Credentials struct {
 
 	// +required
 	PublicAPIKey string
-}
-
-// TODO remove as seems not relevant any more
-func (ms *MongoDbSpec) SetParametersFromConfigMap(cm ProjectConfig) {
-	if cm.AuthMode == util.LegacyX509InConfigMapValue {
-		ms.Security.Authentication.Enabled = true
-		ms.Security.Authentication.Modes = []string{util.X509}
-	}
-
-	if ms.Credentials == "" {
-		ms.Credentials = cm.Credentials
-	}
-
-	if cm.ProjectName != "" {
-		ms.ProjectName = cm.ProjectName
-	}
 }
 
 type ConfigMapRef struct {
@@ -565,7 +550,7 @@ func (m *MongoDB) InitDefaults() {
 }
 
 func (m *MongoDB) ObjectKey() client.ObjectKey {
-	return client.ObjectKey{Name: m.Name, Namespace: m.Namespace}
+	return kube.ObjectKey(m.Namespace, m.Name)
 }
 
 // ConnectionURL returns connection url to the MongoDB based on its internal state. Username and password are

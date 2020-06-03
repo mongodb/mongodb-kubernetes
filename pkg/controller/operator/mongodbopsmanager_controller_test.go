@@ -8,6 +8,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"k8s.io/apimachinery/pkg/types"
@@ -296,6 +297,29 @@ func TestOpsManagerBackupDaemonHostName(t *testing.T) {
 	// The host name doesn't depend on cluster domain
 	assert.Equal(t, "testOM-backup-daemon-0",
 		DefaultOpsManagerBuilder().SetClusterDomain("some.domain").Build().BackupDaemonHostName())
+}
+
+func TestTriggerOmChangedEventIfNeeded(t *testing.T) {
+	t.Run("Om changed event got triggered, major version update", func(t *testing.T) {
+		nextScheduledTime := agents.NextScheduledUpgradeTime()
+		assert.NoError(t, triggerOmChangedEventIfNeeded(mdbv1.NewOpsManagerBuilder().SetVersion("5.2.13").SetOMStatusVersion("4.2.13").Build(), zap.S()))
+		assert.NotEqual(t, nextScheduledTime, agents.NextScheduledUpgradeTime())
+	})
+	t.Run("Om changed event got triggered, minor version update", func(t *testing.T) {
+		nextScheduledTime := agents.NextScheduledUpgradeTime()
+		assert.NoError(t, triggerOmChangedEventIfNeeded(mdbv1.NewOpsManagerBuilder().SetVersion("4.4.0").SetOMStatusVersion("4.2.13").Build(), zap.S()))
+		assert.NotEqual(t, nextScheduledTime, agents.NextScheduledUpgradeTime())
+	})
+	t.Run("Om changed event got triggered, minor version update, candidate version", func(t *testing.T) {
+		nextScheduledTime := agents.NextScheduledUpgradeTime()
+		assert.NoError(t, triggerOmChangedEventIfNeeded(mdbv1.NewOpsManagerBuilder().SetVersion("4.4.0-rc2").SetOMStatusVersion("4.2.13").Build(), zap.S()))
+		assert.NotEqual(t, nextScheduledTime, agents.NextScheduledUpgradeTime())
+	})
+	t.Run("Om changed event not triggered, patch version update", func(t *testing.T) {
+		nextScheduledTime := agents.NextScheduledUpgradeTime()
+		assert.NoError(t, triggerOmChangedEventIfNeeded(mdbv1.NewOpsManagerBuilder().SetVersion("4.4.10").SetOMStatusVersion("4.4.0").Build(), zap.S()))
+		assert.Equal(t, nextScheduledTime, agents.NextScheduledUpgradeTime())
+	})
 }
 
 // ******************************************* Helper methods *********************************************************

@@ -70,7 +70,14 @@ func (b *OpsManagerBuilder) AddS3SnapshotStore(config S3Config) *OpsManagerBuild
 	return b
 }
 
+func (b *OpsManagerBuilder) SetOMStatusVersion(version string) *OpsManagerBuilder {
+	b.om.Status.OpsManagerStatus.Version = version
+	return b
+}
+
 func (b *OpsManagerBuilder) Build() MongoDBOpsManager {
 	b.om.InitDefaultFields()
 	return *b.om.DeepCopy()
 }
+
+// ************************* Private methods ************************************

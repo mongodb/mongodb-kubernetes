@@ -80,6 +80,12 @@ class TestOpsManagerCreation:
             OM_USER_NAME, AUTO_GENERATED_PASSWORD, auth_mechanism="SCRAM-SHA-1"
         )
 
+    def test_om_is_created(self, ops_manager: MongoDBOpsManager):
+        ops_manager.om_status().assert_reaches_phase(phase=Phase.Running, timeout=700)
+        # Let the monitoring get registered
+        ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=300)
+
 
 @pytest.mark.e2e_om_appdb_scram
 class TestChangeOpsManagerUserPassword:
@@ -89,10 +95,6 @@ class TestChangeOpsManagerUserPassword:
     """
 
     def test_upgrade_om(self, ops_manager: MongoDBOpsManager):
-        ops_manager.om_status().assert_reaches_phase(phase=Phase.Running, timeout=700)
-        ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
-
         KubernetesTester.create_secret(
             ops_manager.namespace, "my-password", {"new-key": USER_DEFINED_PASSWORD}
         )
@@ -102,6 +104,8 @@ class TestChangeOpsManagerUserPassword:
             "key": "new-key",
         }
         ops_manager.update()
+        ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
         ops_manager.om_status().assert_abandons_phase(Phase.Running)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=800)
 

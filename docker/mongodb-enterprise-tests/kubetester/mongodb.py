@@ -247,7 +247,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         except KeyError:
             return None
 
-    def get_om_tester(self):
+    def get_om_tester(self) -> OMTester:
         """ Returns the OMTester instance based on MongoDB connectivity parameters """
         config_map = KubernetesTester.read_configmap(
             self.namespace, self.config_map_name

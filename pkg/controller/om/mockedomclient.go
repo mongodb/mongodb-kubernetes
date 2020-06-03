@@ -242,6 +242,11 @@ func (oc *MockedOmConnection) MarkProjectAsBackingDatabase(_ BackingDatabaseType
 	return nil
 }
 
+func (oc *MockedOmConnection) UpgradeAgentsToLatest() (string, error) {
+	oc.addToHistory(reflect.ValueOf(oc.UpgradeAgentsToLatest))
+	return "new-version", nil
+}
+
 func (oc *MockedOmConnection) ReadBackupAgentConfig() (*BackupAgentConfig, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadBackupAgentConfig))
 	if oc.backupAgentConfig == nil {

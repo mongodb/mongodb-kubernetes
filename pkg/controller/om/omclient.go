@@ -98,6 +98,9 @@ type AutomationConfigConnection interface {
 	// Note, that this method calls *the same* api endpoint as the `OmConnection.ReadDeployment` - just wraps the answer
 	// to the different object
 	ReadUpdateAutomationConfig(acFunc func(ac *AutomationConfig) error, log *zap.SugaredLogger) error
+
+	// Calls the API to update all the MongoDB Agents in the project to latest. Returns the new version
+	UpgradeAgentsToLatest() (string, error)
 }
 
 // omMutexes is the synchronous map of mutexes that provide strict serializability for operations "read-modify-write"
@@ -325,6 +328,22 @@ func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(acFunc func(ac *Automatio
 		return api.NewError(err)
 	}
 	return nil
+}
+
+func (oc *HTTPOmConnection) UpgradeAgentsToLatest() (string, error) {
+	ans, err := oc.post(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/updateAgentVersions", oc.GroupID()), nil)
+
+	if err != nil {
+		return "", err
+	}
+	type updateAgentsVersionsResponse struct {
+		AutomationAgentVersion string `json:"automationAgentVersion"`
+	}
+	var response updateAgentsVersionsResponse
+	if err = json.Unmarshal(ans, &response); err != nil {
+		return "", api.NewError(err)
+	}
+	return response.AutomationAgentVersion, nil
 }
 
 // GenerateAgentKey
