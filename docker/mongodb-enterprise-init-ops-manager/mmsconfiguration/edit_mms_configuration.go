@@ -117,7 +117,6 @@ func updateMmsProperties(lines []string, newProperties map[string]string) []stri
 		key := strings.Split(line, "=")[0]
 		if newVal, ok := newProperties[key]; ok {
 			lines[i] = fmt.Sprintf("%s=%s", key, newVal)
-			fmt.Printf("Setting %s=%s\n", key, newVal)
 			seenProperties[key] = true
 		}
 	}
@@ -126,7 +125,6 @@ func updateMmsProperties(lines []string, newProperties map[string]string) []stri
 	for key, val := range newProperties {
 		if _, ok := seenProperties[key]; !ok {
 			lines = append(lines, fmt.Sprintf("%s=%s", key, val))
-			fmt.Printf("Added %s=%s\n", key, val)
 		}
 	}
 	return lines
