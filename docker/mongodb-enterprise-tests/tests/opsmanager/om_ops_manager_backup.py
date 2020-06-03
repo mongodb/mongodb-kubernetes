@@ -1,7 +1,9 @@
+import datetime
 from operator import attrgetter
 from os import environ
 from typing import Optional, Dict
 
+import time
 from kubernetes import client
 from kubetester import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
@@ -24,10 +26,8 @@ BLOCKSTORE_RS_NAME = "my-mongodb-blockstore"
 USER_PASSWORD = "qwerty"
 
 """
-Current test focuses on backup capabilities
-Note the strategy for Ops Manager testing: the tests should have more than 1 updates - this is because the initial
-creation of Ops Manager takes too long, so we try to avoid fine-grained test cases and combine different
-updates in one test.
+Current test focuses on backup capabilities. It creates an explicit MDBs for S3 snapshot metadata, Blockstore and Oplog
+databases. Tests backup enabled for both MDB 4.0 and 4.2, snapshots created
 """
 
 
@@ -175,7 +175,7 @@ def blockstore_user(namespace, blockstore_replica_set: MongoDB) -> MongoDBUser:
     resource["spec"]["mongodbResourceRef"]["name"] = blockstore_replica_set.name
 
     print(
-        f"Creating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} "
+        f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} "
     )
     KubernetesTester.create_secret(
         KubernetesTester.get_namespace(),
@@ -199,7 +199,7 @@ def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
     resource["spec"]["username"] = "mms-user-2"
 
     print(
-        f"Creating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} "
+        f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} "
     )
     KubernetesTester.create_secret(
         KubernetesTester.get_namespace(),

@@ -98,7 +98,7 @@ class MongoDB(CustomObject, MongoDBCommon):
     def type(self) -> str:
         return self["spec"]["type"]
 
-    def _tester(self, insecure=True, ca_path: Optional[str] = None) -> MongoTester:
+    def tester(self, insecure=True, ca_path: Optional[str] = None) -> MongoTester:
         """Returns a Tester instance for this type of deployment."""
         if self.type == "ReplicaSet":
             return ReplicaSetTester(
@@ -120,7 +120,7 @@ class MongoDB(CustomObject, MongoDBCommon):
             return StandaloneTester(self.name, self.is_tls_enabled(), insecure, ca_path)
 
     def assert_connectivity(self, insecure=True, ca_path: Optional[str] = None):
-        return self._tester(insecure, ca_path).assert_connectivity()
+        return self.tester(insecure, ca_path).assert_connectivity()
 
     def __repr__(self):
         # FIX: this should be __unicode__

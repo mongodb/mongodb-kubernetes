@@ -24,8 +24,7 @@ DEFAULT_APPDB_USER_NAME = "mongodb-ops-manager"
 
 """
 This test checks the backup if no separate S3 Metadata database is created and AppDB is used for this.
-(just for history): initially the plan was to omit oplog storage as well but this failed 
-as oplog seems to be still required even for OM 4.2 considering MongoDB Checkpoints 
+Note, that it doesn't check for mongodb backup as it's done in 'e2e_om_ops_manager_backup_restore'" 
 """
 
 
@@ -118,50 +117,6 @@ class TestOpsManagerCreation:
                 )
             ]
         )
-
-
-@mark.e2e_om_ops_manager_backup_light
-class TestBackupForMongodb:
-    """ This part ensures that backup for the client works correctly and the snapshot is created.
-    Both Mdb 4.0 and 4.2 are tested (as the backup process for them differs significantly) """
-
-    @fixture(scope="class")
-    def mdb_4_2(self, ops_manager: MongoDBOpsManager, namespace):
-        resource = MongoDB.from_yaml(
-            yaml_fixture("replica-set-for-om.yaml"),
-            namespace=namespace,
-            name="mdb-four-two",
-        ).configure(ops_manager, "firstProject")
-        # MongoD versions greater than 4.2.0 must be enterprise build to enable backup
-        resource["spec"]["version"] = "4.2.6-ent"
-
-        return resource.create()
-
-    @fixture(scope="class")
-    def mdb_4_0(self, ops_manager: MongoDBOpsManager, namespace):
-        resource = MongoDB.from_yaml(
-            yaml_fixture("replica-set-for-om.yaml"),
-            namespace=namespace,
-            name="mdb-four-zero",
-        ).configure(ops_manager, "secondProject")
-        resource["spec"]["version"] = "4.0.18"
-
-        return resource.create()
-
-    def test_mdbs_created(self, mdb_4_2: MongoDB, mdb_4_0: MongoDB):
-        mdb_4_2.assert_reaches_phase(Phase.Running)
-        mdb_4_0.assert_reaches_phase(Phase.Running)
-
-    def test_mdbs_backuped(self, ops_manager: MongoDBOpsManager):
-        om_tester_first = ops_manager.get_om_tester(project_name="firstProject")
-        om_tester_first.enable_backup()
-
-        om_tester_second = ops_manager.get_om_tester(project_name="secondProject")
-        om_tester_second.enable_backup()
-
-        # wait until a first snapshot is ready for both
-        om_tester_first.wait_until_backup_snapshots_are_ready(expected_count=1)
-        om_tester_second.wait_until_backup_snapshots_are_ready(expected_count=1)
 
 
 @mark.e2e_om_ops_manager_backup_light

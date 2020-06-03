@@ -77,7 +77,7 @@ class TestOpsManagerCreation:
 
     def test_client_can_connect_to_mongodb(self, replica_set: MongoDB):
         replica_set.assert_connectivity()
-        replica_set._tester().assert_version("4.2.0")
+        replica_set.tester().assert_version("4.2.0")
 
 
 @mark.e2e_om_localmode_multiple_pv

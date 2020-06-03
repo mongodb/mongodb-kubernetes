@@ -1492,6 +1492,12 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_om_ops_manager_backup_restore
+  tags: ["patch-run"]
+  exec_timeout_secs: 2400
+  commands:
+    - func: e2e_test
+
 - name: e2e_om_ops_manager_scale
   tags: ["patch-run"]
   exec_timeout_secs: 2800
@@ -1888,7 +1894,7 @@ task_groups:
 # This task group runs on Kind clusters. In theory ALL Ops Manager tests should be added here
 # including the cluster-wide resources changing
 - name: e2e_ops_manager_kind_only_task_group
-  max_hosts: 10
+  max_hosts: 15
   setup_group:
     - func: clone
     - func: download_kube_tools
@@ -1923,7 +1929,7 @@ task_groups:
     - func: teardown_cloud_qa
 
 - name: e2e_ops_manager_4_4_only
-  max_hosts: 1
+  max_hosts: 10
   setup_group:
     - func: clone
     - func: download_kube_tools
@@ -1932,6 +1938,8 @@ task_groups:
     - func: setup_kubernetes_environment
   tasks:
     - e2e_om_remotemode
+    # TODO move it to OM 4.2
+    - e2e_om_ops_manager_backup_restore
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -2208,7 +2216,7 @@ buildvariants:
     <<: *kubernetes_environment_kind
     image_type: ubuntu
     test_mode: opsmanager
-    custom_om_version: 4.4.0-rc1
+    custom_om_version: 4.4.0-rc2
     # TODO using expansion here results in "'${ecr_registry}/images/ubuntu' contains an unclosed expansion"
     ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
   tasks:
@@ -2258,4 +2266,4 @@ buildvariants:
     - name: build_and_push_ops_manager_ubi
   expansions:
     # removing deprecated versions as per https://www.mongodb.com/subscription/downloads/archived
-    VERSIONS: "4.2.0 4.2.1 4.2.3 4.2.4 4.2.6 4.2.7 4.2.8 4.2.10 4.2.12 4.4.0-rc1|https://s3.amazonaws.com/mongodb-mms-build-onprem/cce6cc1a2ec96e3e0a0c68424fd71877b49eeec2/mongodb-mms-4.4.0-rc1.100.20200506T1706Z-1.x86_64.tar.gz"
+    VERSIONS: "4.2.0 4.2.1 4.2.3 4.2.4 4.2.6 4.2.7 4.2.8 4.2.10 4.2.12 4.2.13 4.4.0-rc2|https://s3.amazonaws.com/mongodb-mms-build-onprem/c613227239c8dc0041fc89fa0630836dc2a86c8f/mongodb-mms-4.4.0-rc2.100.20200513T1205Z-1.x86_64.tar.gz"

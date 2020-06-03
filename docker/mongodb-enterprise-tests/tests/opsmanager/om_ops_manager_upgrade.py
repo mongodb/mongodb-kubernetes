@@ -102,7 +102,7 @@ class TestOpsManagerWithMongoDB:
         mdb.assert_abandons_phase(Phase.Running)
         mdb.assert_reaches_phase(Phase.Running)
         mdb.assert_connectivity()
-        mdb._tester().assert_version("4.2.1")
+        mdb.tester().assert_version("4.2.1")
 
 
 @pytest.mark.e2e_om_ops_manager_upgrade

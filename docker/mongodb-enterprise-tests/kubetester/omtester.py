@@ -88,13 +88,39 @@ class OMTester(object):
         self.api_patch_backup(configs[0]["clusterId"], BackupStatus.STARTED)
         print(f"\nEnabled backup for mdb resource (project: {self.context.group_name})")
 
+    def create_restore_job_snapshot(self, snapshot_id: Optional[str] = None) -> str:
+        """ restores the mongodb cluster to some version using the snapshot. If 'snapshot_id' omitted then the
+        latest snapshot will be used. """
+        cluster_id = self.get_backup_cluster_id()
+        if snapshot_id is None:
+            snapshots = self.api_get_snapshots(cluster_id)
+            snapshot_id = snapshots[-1]["id"]
+
+        return self.api_create_restore_job_from_snapshot(cluster_id, snapshot_id)["id"]
+
+    def create_restore_job_pit(self, pit_milliseconds: int, retry: int = 120):
+        """ creates a restore job to restore the mongodb cluster to some version specified by the parameter."""
+        cluster_id = self.get_backup_cluster_id()
+
+        while retry > 0:
+            try:
+                self.api_create_restore_job_pit(cluster_id, pit_milliseconds)
+                return
+            except Exception as e:
+                # this exception is usually raised for some time (some oplog slices not received or whatever)
+                # but eventually is gone and restore job is started..
+                if "Invalid restore point:" not in str(e):
+                    raise e
+            retry -= 1
+            time.sleep(1)
+        raise Exception("Failed to create a restore job!")
+
     def wait_until_backup_snapshots_are_ready(
         self, expected_count: int, timeout: int = 1500
     ):
         """ waits until at least 'expected_count' backup snapshots is in complete state"""
         start_time = time.time()
-        configs = self.api_read_backup_configs()
-        assert len(configs) == 1
+        cluster_id = self.get_backup_cluster_id()
 
         if expected_count == 1:
             print(f"Waiting until 1 snapshot is ready (can take a while)")
@@ -105,7 +131,7 @@ class OMTester(object):
 
         initial_timeout = timeout
         while timeout > 0:
-            snapshots = self.api_get_snapshots(configs[0]["clusterId"])
+            snapshots = self.api_get_snapshots(cluster_id)
             if len([s for s in snapshots if s["complete"]]) >= expected_count:
                 print(
                     f"Snapshots are ready, project: {self.context.group_name}, time: {time.time() - start_time} sec"
@@ -114,13 +140,45 @@ class OMTester(object):
             time.sleep(3)
             timeout -= 3
 
-        snapshots = self.api_get_snapshots(configs[0]["clusterId"])
+        snapshots = self.api_get_snapshots(cluster_id)
         print(f"Current Backup Snapshots: {snapshots}")
 
         raise Exception(
-            f"Timeout ({initial_timeout}) reached while waiting for {expected_count} snapshot(s) to be ready for "
+            f"Timeout ({initial_timeout}) reached while waiting for {expected_count} snapshot(s) to be ready for the "
             f"project {self.context.group_name} "
         )
+
+    def wait_until_restore_job_is_ready(self, job_id: str, timeout: int = 1500):
+        """ waits until there's one finished restore job in the project"""
+        start_time = time.time()
+        cluster_id = self.get_backup_cluster_id()
+
+        print(f"Waiting until restore job with id {job_id} is finished")
+
+        initial_timeout = timeout
+        while timeout > 0:
+            job = self.api_get_restore_job_by_id(cluster_id, job_id)
+            if job["statusName"] == "FINISHED":
+                print(
+                    f"Restore job is finished, project: {self.context.group_name}, time: {time.time() - start_time} sec"
+                )
+                return
+            time.sleep(3)
+            timeout -= 3
+
+        jobs = self.api_get_restore_jobs(cluster_id)
+        print(f"Current Restore Jobs: {jobs}")
+
+        raise AssertionError(
+            f"Timeout ({initial_timeout}) reached while waiting for the restore job to finish for the "
+            f"project {self.context.group_name} "
+        )
+
+    def get_backup_cluster_id(self) -> str:
+        configs = self.api_read_backup_configs()
+        assert len(configs) == 1
+        # we can use the first config as there's only one MongoDB in deployment
+        return configs[0]["clusterId"]
 
     def assert_healthiness(self):
         self.do_assert_healthiness(self.context.base_url)
@@ -305,7 +363,7 @@ class OMTester(object):
         ).json()["results"]
 
     def api_patch_backup(self, cluster_id: str, status: BackupStatus):
-        """Changes the backup config to the specified status. E.g. passing 'STARTED' will result in continious backup
+        """Changes the backup config to the specified status. E.g. passing 'STARTED' will result in continuous backup
         activated """
         data = {
             "statusName": status,
@@ -323,8 +381,52 @@ class OMTester(object):
             "get", f"/groups/{self.context.project_id}/clusters/{cluster_id}/snapshots"
         ).json()["results"]
 
+    def api_create_restore_job_pit(self, cluster_id: str, pit_milliseconds: int):
+        """ Creates a restore job that reverts a mongodb cluster to some time defined by 'pit_milliseconds' """
+        data = self._restore_job_payload(cluster_id)
+        data["pointInTimeUTCMillis"] = pit_milliseconds
+        return self.om_request(
+            "post",
+            f"/groups/{self.context.project_id}/clusters/{cluster_id}/restoreJobs",
+            data,
+        )
+
+    def api_create_restore_job_from_snapshot(
+        self, cluster_id: str, snapshot_id: str
+    ) -> Dict:
+        """ Creates a restore job that uses an existing snapshot as the source """
+        data = self._restore_job_payload(cluster_id)
+        data["snapshotId"] = snapshot_id
+        # Strange API: the create request returns the list of jobs consisting only of one job just created
+        return self.om_request(
+            "post",
+            f"/groups/{self.context.project_id}/clusters/{cluster_id}/restoreJobs",
+            data,
+        ).json()["results"][0]
+
+    def api_get_restore_jobs(self, cluster_id: str) -> List:
+        return self.om_request(
+            "get",
+            f"/groups/{self.context.project_id}/clusters/{cluster_id}/restoreJobs",
+        ).json()["results"]
+
+    def api_get_restore_job_by_id(self, cluster_id: str, id: str) -> Dict:
+        return self.om_request(
+            "get",
+            f"/groups/{self.context.project_id}/clusters/{cluster_id}/restoreJobs/{id}",
+        ).json()
+
     def api_remove_group(self):
         return self.om_request("delete", f"/groups/{self.context.project_id}")
+
+    def _restore_job_payload(self, cluster_id) -> Dict:
+        return {
+            "delivery": {
+                "methodName": "AUTOMATED_RESTORE",
+                "targetGroupId": self.context.project_id,
+                "targetClusterId": cluster_id,
+            },
+        }
 
 
 class OMBackgroundTester(BackgroundHealthChecker):

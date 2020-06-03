@@ -4,7 +4,7 @@ metadata:
   name: om-backup
 spec:
   replicas: 1
-  version: 4.2.10
+  version: 4.2.13
   adminCredentials: ops-manager-admin-secret
   backup:
     enabled: true

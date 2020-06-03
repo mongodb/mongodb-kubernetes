@@ -43,7 +43,7 @@ def some_mdb(ops_manager, namespace) -> MongoDB:
 @fixture(scope="module")
 def some_mdb_health_checker(some_mdb) -> MongoDBBackgroundTester:
     # TODO increasing allowed_sequential_failures to 5 to remove flakiness until CLOUDP-56877 is solved
-    return MongoDBBackgroundTester(some_mdb._tester(), allowed_sequential_failures=5)
+    return MongoDBBackgroundTester(some_mdb.tester(), allowed_sequential_failures=5)
 
 
 @mark.e2e_op_upgrade_om_second
