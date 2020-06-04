@@ -58,9 +58,9 @@ pip3 install -r scripts/evergreen/requirements.txt
 ```
 
 ```bash
-./scripts/evergreen/update_release_version.py <version>
+./scripts/evergreen/update_release_version.py --operator_version <operator_version> --init_opsmanager_version <init_om_version> --init_appdb_version <init_appdb_version>
 ```
-This will update all relevant files with a new version
+This will update all relevant files with a new version (you can specify only the containers that have changed)
 Push the PR changes
 
 ## Get the release PR approved and merge the branch to Master
