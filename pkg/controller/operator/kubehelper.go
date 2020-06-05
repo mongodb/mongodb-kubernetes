@@ -87,10 +87,11 @@ type StatefulSetHelper struct {
 	// visible from outside the Kubernetes cluster.
 	ExposedExternally bool
 
-	Project            mdbv1.ProjectConfig
-	Security           *mdbv1.Security
-	ReplicaSetHorizons []mdbv1.MongoDBHorizonConfig
-	CertificateHash    string
+	Project                   mdbv1.ProjectConfig
+	Security                  *mdbv1.Security
+	ReplicaSetHorizons        []mdbv1.MongoDBHorizonConfig
+	CertificateHash           string
+	CurrentAgentAuthMechanism string
 }
 
 func (ss StatefulSetHelper) hasHorizons() bool {
@@ -530,6 +531,11 @@ func (s *StatefulSetHelper) getDNSNames() ([]string, []string) {
 
 func (s *StatefulSetHelper) SetCertificateHash(certHash string) *StatefulSetHelper {
 	s.CertificateHash = certHash
+	return s
+}
+
+func (s *StatefulSetHelper) SetCurrentAgentAuthMechanism(agentAuth string) *StatefulSetHelper {
+	s.CurrentAgentAuthMechanism = agentAuth
 	return s
 }
 

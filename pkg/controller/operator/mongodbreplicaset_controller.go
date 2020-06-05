@@ -77,6 +77,12 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 	if !reconcileResult.IsOK() {
 		return r.updateStatus(rs, reconcileResult, log)
 	}
+
+	currentAgentAuthMode, err := conn.GetAgentAuthMode()
+	if err != nil {
+		return r.updateStatus(rs, workflow.Failed(err.Error()), log)
+	}
+
 	replicaBuilder := r.kubeHelper.NewStatefulSetHelper(rs).
 		SetService(rs.ServiceName()).
 		SetPodVars(podVars).
@@ -85,6 +91,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		SetProjectConfig(projectConfig).
 		SetSecurity(rs.Spec.Security).
 		SetReplicaSetHorizons(rs.Spec.Connectivity.ReplicaSetHorizons).
+		SetCurrentAgentAuthMechanism(currentAgentAuthMode).
 		SetStatefulSetConfiguration(nil) // TODO: configure once supported
 	//SetStatefulSetConfiguration(rs.Spec.StatefulSetConfiguration)
 
@@ -305,9 +312,7 @@ func (r *ReconcileCommonController) ensureX509InKubernetes(mdb *mdbv1.MongoDB, h
 		return workflow.OK()
 	}
 	useCustomCA := mdb.Spec.GetTLSConfig().CA != ""
-	usingAgentX509Auth := mdb.Spec.Security.GetAgentMechanism() == util.X509
-
-	if usingAgentX509Auth {
+	if mdb.Spec.Security.ShouldUseX509(helper.CurrentAgentAuthMechanism) {
 		successful, err := r.ensureX509AgentCertsForMongoDBResource(mdb, useCustomCA, mdb.Namespace, log)
 		if err != nil {
 			return workflow.Failed(err.Error())

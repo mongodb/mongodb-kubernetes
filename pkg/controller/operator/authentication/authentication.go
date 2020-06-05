@@ -318,7 +318,7 @@ func removeUnusedAuthenticationMechanisms(conn om.Connection, opts Options, log 
 
 	automationConfigAuthMechanismNames := getMechanismNames(ac, opts.MinimumMajorVersion, opts.Mechanisms)
 
-	agentAuthMechanismName := getAgentAuthenticationMechanism(automationConfigAuthMechanismNames)
+	agentAuthMechanismName := getAgentAuthenticationMechanism(automationConfigAuthMechanismNames, ac)
 	unrequiredMechanisms := mechanismsToDisable(automationConfigAuthMechanismNames)
 
 	log.Infow("configuring agent authentication mechanisms", "enabled", agentAuthMechanismName, "disabling", unrequiredMechanisms)
@@ -351,7 +351,7 @@ func enableAgentAuthentication(conn om.Connection, opts Options, log *zap.Sugare
 
 	// depending on the selected authentication mechanisms, we determine which mechanism
 	// will be used by the agent(s)
-	agentAuthMechanism := getAgentAuthenticationMechanism(automationConfigAuthMechanismNames)
+	agentAuthMechanism := getAgentAuthenticationMechanism(automationConfigAuthMechanismNames, ac)
 
 	// we then configure the agent authentication for that type
 	if err := ensureAgentAuthenticationIsConfigured(conn, opts, agentAuthMechanism, log); err != nil {
@@ -460,7 +460,12 @@ func mechanismsToDisable(desiredMechanisms []mechanismName) []mechanismName {
 
 // getAgentAuthenticationMechanism returns the authentication mechanism that the agents will
 // use given the set of desired mechanisms
-func getAgentAuthenticationMechanism(mechanisms []mechanismName) mechanismName {
+func getAgentAuthenticationMechanism(mechanisms []mechanismName, ac *om.AutomationConfig) mechanismName {
+	// If the agent has been configured to use X509 auth, we cannot transition away from this
+	// so even if we want to change to SCRAM, we can't and need to stay with X509
+	if stringutil.Contains(ac.Auth.AutoAuthMechanisms, string(MongoDBX509)) {
+		return MongoDBX509
+	}
 	// x509 is only used for agent auth if it is the only authentication mechanism specified
 	if len(mechanisms) == 1 && containsMechanismName(mechanisms, MongoDBX509) {
 		return MongoDBX509

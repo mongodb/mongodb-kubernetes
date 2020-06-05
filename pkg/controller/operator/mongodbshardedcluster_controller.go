@@ -89,7 +89,12 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return nil, workflow.Invalid("cannot have a non-tls deployment when x509 authentication is enabled")
 	}
 
-	kubeState := r.buildKubeObjectsForShardedCluster(sc, podVars, projectConfig, log)
+	currentAgentAuthMode, err := conn.GetAgentAuthMode()
+	if err != nil {
+		return nil, workflow.Failed(err.Error())
+	}
+
+	kubeState := r.buildKubeObjectsForShardedCluster(sc, podVars, projectConfig, currentAgentAuthMode, log)
 
 	if err = prepareScaleDownShardedCluster(conn, kubeState, sc, log); err != nil {
 		return nil, workflow.Failed("failed to perform scale down preliminary actions: %s", err)
@@ -141,10 +146,9 @@ func (r *ReconcileMongoDbShardedCluster) ensureX509InKubernetes(sc *mdbv1.MongoD
 	if security.Authentication != nil && !security.Authentication.Enabled {
 		return workflow.OK()
 	}
-	usingAgentX509Auth := sc.Spec.Security.GetAgentMechanism() == util.X509
 	useCustomCA := sc.Spec.GetTLSConfig().CA != ""
 
-	if usingAgentX509Auth {
+	if sc.Spec.Security.ShouldUseX509(kubeState.shardsSetsHelpers[0].CurrentAgentAuthMechanism) {
 		successful, err := r.ensureX509AgentCertsForMongoDBResource(sc, useCustomCA, sc.Namespace, log)
 		if err != nil {
 			return workflow.Failed(err.Error())
@@ -262,7 +266,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 	return workflow.OK()
 }
 
-func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mdbv1.MongoDB, podVars *PodVars, projectConfig mdbv1.ProjectConfig, log *zap.SugaredLogger) ShardedClusterKubeState {
+func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mdbv1.MongoDB, podVars *PodVars, projectConfig mdbv1.ProjectConfig, currentAgentAuthMechanism string, log *zap.SugaredLogger) ShardedClusterKubeState {
 	// 1. Create the mongos StatefulSet
 	mongosBuilder := r.kubeHelper.NewStatefulSetHelper(s).
 		SetName(s.MongosRsName()).
@@ -275,6 +279,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 		SetTLS(s.Spec.GetTLSConfig()).
 		SetProjectConfig(projectConfig).
 		SetSecurity(s.Spec.Security).
+		SetCurrentAgentAuthMechanism(currentAgentAuthMechanism).
 		SetStatefulSetConfiguration(nil) // TODO: configure once supported
 	//SetStatefulSetConfiguration(s.Spec.MongosStatefulSetConfiguration)
 
@@ -295,6 +300,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 		SetTLS(s.Spec.GetTLSConfig()).
 		SetProjectConfig(projectConfig).
 		SetSecurity(s.Spec.Security).
+		SetCurrentAgentAuthMechanism(currentAgentAuthMechanism).
 		SetStatefulSetConfiguration(nil) // TODO: configure once supported
 	//SetStatefulSetConfiguration(s.Spec.ConfigSrvStatefulSetConfiguration)
 
@@ -312,6 +318,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 			SetTLS(s.Spec.GetTLSConfig()).
 			SetProjectConfig(projectConfig).
 			SetSecurity(s.Spec.Security).
+			SetCurrentAgentAuthMechanism(currentAgentAuthMechanism).
 			SetStatefulSetConfiguration(nil) // TODO: configure once supported
 		//SetStatefulSetConfiguration(s.Spec.ShardStatefulSetConfiguration)
 		shardsSetHelpers[i].SetCertificateHash(shardsSetHelpers[i].readPemHashFromSecret())

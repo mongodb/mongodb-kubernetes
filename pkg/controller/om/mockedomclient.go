@@ -74,6 +74,7 @@ type MockedOmConnection struct {
 	UpdateGroupFunc         func(group *Project) (*Project, error)
 	BackupConfigs           map[*BackupConfig]*HostCluster
 	UpdateBackupStatusFunc  func(clusterId string, status BackupStatus) error
+	AgentAuthMechanism      string
 
 	// UpdateMonitoringAgentConfigFunc is delegated to if not nil when UpdateMonitoringAgentConfig is called
 	UpdateMonitoringAgentConfigFunc func(mac *MonitoringAgentConfig, log *zap.SugaredLogger) ([]byte, error)
@@ -472,6 +473,10 @@ func (oc *MockedOmConnection) GetControlledFeature() (*controlledfeature.Control
 		oc.controlledFeature = &controlledfeature.ControlledFeature{}
 	}
 	return oc.controlledFeature, nil
+}
+
+func (oc *MockedOmConnection) GetAgentAuthMode() (string, error) {
+	return oc.AgentAuthMechanism, nil
 }
 
 // ************* These are native methods of Mocked client (not implementation of OmConnection)

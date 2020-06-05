@@ -141,8 +141,13 @@ func (r *MongoDBUserReconciler) Reconcile(request reconcile.Request) (res reconc
 		return r.updateStatus(user, workflow.Failed("failed to prepare Ops Manager connection. %s", err), log)
 	}
 
+	currentAuthMode, err := conn.GetAgentAuthMode()
+	if err != nil {
+		return r.updateStatus(user, workflow.Failed(err.Error()), log)
+	}
+
 	if user.Spec.Database == util.X509Db {
-		return r.handleX509User(user, mdb, conn, log)
+		return r.handleX509User(user, mdb, conn, currentAuthMode, log)
 	} else {
 		return r.handleScramShaUser(user, conn, log)
 	}
@@ -300,7 +305,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(user *mdbv1.MongoDBUser, conn
 	return r.updateStatus(user, workflow.OK(), log)
 }
 
-func (r *MongoDBUserReconciler) handleX509User(user *mdbv1.MongoDBUser, mdb mdbv1.MongoDB, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
+func (r *MongoDBUserReconciler) handleX509User(user *mdbv1.MongoDBUser, mdb mdbv1.MongoDB, conn om.Connection, currentAuthMode string, log *zap.SugaredLogger) (reconcile.Result, error) {
 
 	if x509IsEnabled, err := r.isX509Enabled(*user, mdb.Spec); err != nil {
 		return fail(err)
@@ -311,7 +316,7 @@ func (r *MongoDBUserReconciler) handleX509User(user *mdbv1.MongoDBUser, mdb mdbv
 
 	security := mdb.Spec.Security
 
-	if security.GetAgentMechanism() == util.X509 && !r.doAgentX509CertsExist(user.Namespace) {
+	if security.ShouldUseX509(currentAuthMode) && !r.doAgentX509CertsExist(user.Namespace) {
 		log.Info("Agent certs have not yet been created, cannot add MongoDBUser yet")
 		return retry()
 	}
@@ -323,7 +328,7 @@ func (r *MongoDBUserReconciler) handleX509User(user *mdbv1.MongoDBUser, mdb mdbv
 			return fmt.Errorf("x509 has not yet been configured")
 		}
 
-		if security.GetAgentMechanism() == util.X509 {
+		if security.ShouldUseX509(currentAuthMode) {
 			// TODO: this can be removed once https://jira.mongodb.org/browse/CLOUDP-51116 is resolved
 
 			userOpts, err := r.readAgentSubjectsFromSecret(mdb.Namespace, log)

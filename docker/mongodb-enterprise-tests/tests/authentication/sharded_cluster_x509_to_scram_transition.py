@@ -5,10 +5,18 @@ from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongotester import ShardedClusterTester
 
+from kubetester.mongodb import MongoDB, Phase
+from pytest import fixture
+
 MDB_RESOURCE = "sharded-cluster-x509-to-scram-256"
 USER_NAME = "mms-user-1"
 PASSWORD_SECRET_NAME = "mms-user-1-password"
 USER_PASSWORD = "my-password"
+
+
+@fixture(scope="module")
+def sharded_cluster(namespace: str) -> MongoDB:
+    return MongoDB(MDB_RESOURCE, namespace=namespace).load()
 
 
 @pytest.mark.e2e_sharded_cluster_x509_to_scram_transition
@@ -41,6 +49,25 @@ class TestEnableX509ForShardedCluster(KubernetesTester):
         tester = AutomationConfigTester(KubernetesTester.get_automation_config())
         tester.assert_authentication_mechanism_enabled("MONGODB-X509")
         tester.assert_authentication_enabled()
+
+
+@pytest.mark.e2e_sharded_cluster_x509_to_scram_transition
+def test_enable_scram_and_x509(sharded_cluster: MongoDB):
+    sharded_cluster.load()
+    sharded_cluster["spec"]["security"]["authentication"]["modes"] = ["X509", "SCRAM"]
+    sharded_cluster.update()
+    sharded_cluster.assert_abandons_phase(Phase.Running)
+    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=900)
+
+
+@pytest.mark.e2e_sharded_cluster_x509_to_scram_transition
+def test_x509_is_still_configured():
+    tester = AutomationConfigTester(KubernetesTester.get_automation_config())
+    tester.assert_authentication_mechanism_enabled("MONGODB-X509")
+    tester.assert_authentication_mechanism_enabled(
+        "SCRAM-SHA-256", active_auth_mechanism=False
+    )
+    tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=2)
 
 
 @pytest.mark.e2e_sharded_cluster_x509_to_scram_transition

@@ -323,6 +323,14 @@ func (s *Security) GetAgentMechanism() string {
 	return ""
 }
 
+// ShouldUseX509 determines if the deployment should have X509 authentication configured
+// whether it was configured explicitly or if it required as it would be performing
+// an illegal transition otherwise.
+func (s *Security) ShouldUseX509(currentAgentAuthMode string) bool {
+	mechanism := s.GetAgentMechanism()
+	return mechanism == util.X509 || currentAgentAuthMode == "MONGODB-X509"
+}
+
 func (s *Security) GetInternalClusterAuthenticationMode() string {
 	if s == nil || s.Authentication == nil {
 		return ""

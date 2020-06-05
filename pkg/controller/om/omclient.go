@@ -57,6 +57,7 @@ type Connection interface {
 	AutomationConfigConnection
 	MonitoringConfigConnection
 	BackupConfigConnection
+	HasAgentAuthMode
 
 	host.Client
 
@@ -85,6 +86,10 @@ type BackupConfigConnection interface {
 	ReadBackupAgentConfig() (*BackupAgentConfig, error)
 	UpdateBackupAgentConfig(mat *BackupAgentConfig, log *zap.SugaredLogger) ([]byte, error)
 	ReadUpdateBackupAgentConfig(matFunc func(*BackupAgentConfig) error, log *zap.SugaredLogger) error
+}
+
+type HasAgentAuthMode interface {
+	GetAgentAuthMode() (string, error)
 }
 
 // AutomationConfigConnection is an interface that only deals with reading/updating of the AutomationConfig
@@ -151,6 +156,17 @@ type OMContext struct {
 // HTTPOmConnection
 type HTTPOmConnection struct {
 	context *OMContext
+}
+
+func (oc *HTTPOmConnection) GetAgentAuthMode() (string, error) {
+	ac, err := oc.ReadAutomationConfig()
+	if err != nil {
+		return "", err
+	}
+	if ac.Auth == nil {
+		return "", nil
+	}
+	return ac.Auth.AutoAuthMechanism, nil
 }
 
 var _ Connection = &HTTPOmConnection{}

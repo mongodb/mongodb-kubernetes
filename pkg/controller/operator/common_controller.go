@@ -737,7 +737,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 	if wantToEnableAuthentication && canConfigureAuthentication(ac, mdb, log) {
 		log.Info("Configuring authentication for MongoDB resource")
 
-		if mdb.Spec.Security.GetAgentMechanism() == util.X509 {
+		if mdb.Spec.Security.ShouldUseX509(ac.Auth.AutoAuthMechanism) {
 			authOpts, err = r.configureAgentSubjects(mdb.Namespace, authOpts, log)
 			if err != nil {
 				return workflow.Failed("error configuring agent subjects: %v", err), false

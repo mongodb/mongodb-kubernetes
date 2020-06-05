@@ -129,6 +129,11 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		return r.updateStatus(s, workflow.Invalid("cannot have a non-tls deployment when x509 authentication is enabled"), log)
 	}
 
+	currentAgentAuthMode, err := conn.GetAgentAuthMode()
+	if err != nil {
+		return r.updateStatus(s, workflow.Failed(err.Error()), log)
+	}
+
 	standaloneBuilder := r.kubeHelper.NewStatefulSetHelper(s).
 		SetReplicas(1).
 		SetService(s.ServiceName()).
@@ -137,6 +142,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		SetTLS(s.Spec.GetTLSConfig()).
 		SetProjectConfig(projectConfig).
 		SetSecurity(s.Spec.Security).
+		SetCurrentAgentAuthMechanism(currentAgentAuthMode).
 		SetStatefulSetConfiguration(nil) // TODO: configure once supported
 	standaloneBuilder.SetCertificateHash(standaloneBuilder.readPemHashFromSecret())
 

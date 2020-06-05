@@ -679,7 +679,7 @@ func mountVolumes(stsBuilder *statefulset.Builder, helper StatefulSetHelper) *st
 	}
 
 	if helper.Security != nil {
-		if helper.Security.GetAgentMechanism() == util.X509 {
+		if helper.Security.ShouldUseX509(helper.CurrentAgentAuthMechanism) {
 			stsBuilder.AddVolumeAndMount(
 				statefulset.VolumeMountData{
 					MountPath: AgentCertMountPath,

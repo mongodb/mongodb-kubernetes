@@ -5,10 +5,18 @@ from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongotester import ReplicaSetTester
 
+from kubetester.mongodb import MongoDB, Phase
+from pytest import fixture
+
 MDB_RESOURCE = "replica-set-x509-to-scram-256"
 USER_NAME = "mms-user-1"
 PASSWORD_SECRET_NAME = "mms-user-1-password"
 USER_PASSWORD = "my-password"
+
+
+@fixture(scope="module")
+def replica_set(namespace: str) -> MongoDB:
+    return MongoDB(MDB_RESOURCE, namespace=namespace).load()
 
 
 @pytest.mark.e2e_replica_set_x509_to_scram_transition
@@ -36,6 +44,25 @@ class TestEnableX509ForReplicaSet(KubernetesTester):
 
 
 @pytest.mark.e2e_replica_set_x509_to_scram_transition
+def test_enable_scram_and_x509(replica_set: MongoDB):
+    replica_set.load()
+    replica_set["spec"]["security"]["authentication"]["modes"] = ["X509", "SCRAM"]
+    replica_set.update()
+    replica_set.assert_reaches_phase(Phase.Running, timeout=900)
+
+
+@pytest.mark.e2e_replica_set_x509_to_scram_transition
+def test_x509_is_still_configured(replica_set: MongoDB):
+    replica_set.assert_reaches_phase(Phase.Running, timeout=300)
+    tester = AutomationConfigTester(KubernetesTester.get_automation_config())
+    tester.assert_authentication_mechanism_enabled("MONGODB-X509")
+    tester.assert_authentication_mechanism_enabled(
+        "SCRAM-SHA-256", active_auth_mechanism=False
+    )
+    tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=2)
+
+
+@pytest.mark.e2e_replica_set_x509_to_scram_transition
 class TestReplicaSetDisableAuthentication(KubernetesTester):
     """
     description: |
@@ -52,6 +79,7 @@ class TestReplicaSetDisableAuthentication(KubernetesTester):
     def test_ops_manager_state_updated_correctly(self):
         tester = AutomationConfigTester(KubernetesTester.get_automation_config())
         tester.assert_authentication_mechanism_disabled("MONGODB-X509")
+        tester.assert_authentication_mechanism_disabled("SCRAM-SHA-256")
         tester.assert_authentication_disabled()
 
 
