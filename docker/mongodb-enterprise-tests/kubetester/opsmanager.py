@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from typing import List, Optional, Dict
 
 from kubeobject import CustomObject
@@ -55,9 +56,21 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                 f"{resource_name}-{index}.{service_name}.{namespace}.svc.cluster.local"
             )
 
+        def agents_have_registered() -> bool:
+            return len(tester.api_read_monitoring_agents()) == 1
+
+        KubernetesTester.wait_until(agents_have_registered, timeout=20, sleep_time=5)
+
+        registered_automation_agents = tester.api_read_automation_agents()
+        assert len(registered_automation_agents) == 0
+
+        registered_agents = tester.api_read_monitoring_agents()
         hostnames = [host["hostname"] for host in hosts]
         for hn in appdb_hostnames:
             assert hn in hostnames
+
+        assert registered_agents[0]["stateName"] == "ACTIVE"
+        assert appdb_hostnames[0] == registered_agents[0]["hostname"]
 
     def get_appdb_resource(self) -> MongoDB:
         mdb = MongoDB(name=self.app_db_name(), namespace=self.namespace)

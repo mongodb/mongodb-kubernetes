@@ -219,12 +219,12 @@ func prepareScaleDown(omClient om.Connection, rsMembers map[string][]string, log
 }
 
 // stopMonitoringHosts removes monitoring for this list of hosts from Ops Manager.
-func stopMonitoringHosts(hostClient host.Client, hosts []string, log *zap.SugaredLogger) error {
+func stopMonitoringHosts(getRemover host.GetRemover, hosts []string, log *zap.SugaredLogger) error {
 	if len(hosts) == 0 {
 		return nil
 	}
 
-	if err := om.StopMonitoring(hostClient, hosts, log); err != nil {
+	if err := host.StopMonitoring(getRemover, hosts, log); err != nil {
 		return fmt.Errorf("Failed to stop monitoring on hosts %s: %s", hosts, err)
 	}
 
@@ -233,8 +233,8 @@ func stopMonitoringHosts(hostClient host.Client, hosts []string, log *zap.Sugare
 
 // calculateDiffAndStopMonitoringHosts checks hosts that are present in hostsBefore but not hostsAfter, and removes
 // monitoring from them.
-func calculateDiffAndStopMonitoringHosts(hostClient host.Client, hostsBefore, hostsAfter []string, log *zap.SugaredLogger) error {
-	return stopMonitoringHosts(hostClient, util.FindLeftDifference(hostsBefore, hostsAfter), log)
+func calculateDiffAndStopMonitoringHosts(getRemover host.GetRemover, hostsBefore, hostsAfter []string, log *zap.SugaredLogger) error {
+	return stopMonitoringHosts(getRemover, util.FindLeftDifference(hostsBefore, hostsAfter), log)
 }
 
 // agentApiKeySecretName for a given ProjectID (`project`) returns the name of

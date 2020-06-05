@@ -80,7 +80,7 @@ class TestOpsManagerCreation:
     def test_appdb_monitoring_is_configured(self, ops_manager: MongoDBOpsManager):
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
         ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=300)
         ops_manager.assert_appdb_monitoring_group_was_created()
 
     def test_om_running(self, ops_manager: MongoDBOpsManager):

@@ -377,6 +377,18 @@ class OMTester(object):
             "get", f"/groups/{self.context.project_id}/backupConfigs"
         ).json()["results"]
 
+    def api_read_monitoring_agents(self) -> List:
+        return self._read_agents("MONITORING")
+
+    def api_read_automation_agents(self) -> List:
+        return self._read_agents("AUTOMATION")
+
+    def _read_agents(self, agent_type: str, page_num: int = 1):
+        return self.om_request(
+            "get",
+            f"/groups/{self.context.project_id}/agents/{agent_type}?pageNum={page_num}",
+        ).json()["results"]
+
     def api_patch_backup(self, cluster_id: str, status: BackupStatus):
         """Changes the backup config to the specified status. E.g. passing 'STARTED' will result in continuous backup
         activated """

@@ -1,8 +1,7 @@
-package om
+package host
 
 import (
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/host"
-	"github.com/pkg/errors"
+	"errors"
 	"go.uber.org/zap"
 )
 
@@ -10,12 +9,12 @@ import (
 // make OM stop displaying old hosts from Processes view.
 // Note, that the method tries to delete as many hosts as possible and doesn't give up on errors, returns
 // the last error instead
-func StopMonitoring(hostClient host.Client, hostnames []string, log *zap.SugaredLogger) error {
+func StopMonitoring(getRemover GetRemover, hostnames []string, log *zap.SugaredLogger) error {
 	if len(hostnames) == 0 {
 		return nil
 	}
 
-	hosts, err := hostClient.GetHosts()
+	hosts, err := getRemover.GetHosts()
 	if err != nil {
 		return err
 	}
@@ -25,7 +24,7 @@ func StopMonitoring(hostClient host.Client, hostnames []string, log *zap.Sugared
 		for _, h := range hosts.Results {
 			if h.Hostname == hostname {
 				found = true
-				err = hostClient.RemoveHost(h.Id)
+				err = getRemover.RemoveHost(h.Id)
 				if err != nil {
 					log.Warnf("Failed to remove host %s from monitoring in Ops Manager: %s", h.Hostname, err)
 					errorHappened = true

@@ -761,14 +761,14 @@ class KubernetesTester(object):
             cls.wait_until(phase, int(action.get("timeout", 0)) / len(wait_phases))
 
     @classmethod
-    def wait_until(cls, action, timeout=0):
+    def wait_until(cls, action, timeout=0, **kwargs):
         func = None
         # if passed a function directly, we can use it
         if callable(action):
             func = action
         else:  # otherwise find a function of that name
             func = getattr(cls, action)
-        return run_periodically(func, timeout=timeout)
+        return run_periodically(func, timeout=timeout, **kwargs)
 
     @classmethod
     def wait_for_condition_string(cls, condition):

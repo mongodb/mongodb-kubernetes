@@ -33,7 +33,7 @@ def test_reaches_goal_state(opsmanager: MongoDBOpsManager):
 @mark.e2e_om_external_connectivity
 def test_appdb_monitoring_group_was_created(opsmanager: MongoDBOpsManager):
     opsmanager.appdb_status().assert_abandons_phase(Phase.Running)
-    opsmanager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
+    opsmanager.appdb_status().assert_reaches_phase(Phase.Running, timeout=300)
     opsmanager.assert_appdb_monitoring_group_was_created()
 
 

@@ -3,6 +3,8 @@ package operator
 import (
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/host"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	mdbstatus "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
@@ -368,7 +370,7 @@ func (r *ReconcileMongoDbShardedCluster) delete(obj interface{}, log *zap.Sugare
 	hostsToRemove := getAllHosts(sc, sizeConfig)
 	log.Infow("Stop monitoring removed hosts in Ops Manager", "hostsToBeRemoved", hostsToRemove)
 
-	if err = om.StopMonitoring(conn, hostsToRemove, log); err != nil {
+	if err = host.StopMonitoring(conn, hostsToRemove, log); err != nil {
 		return err
 	}
 

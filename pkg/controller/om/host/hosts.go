@@ -1,11 +1,5 @@
 package host
 
-type Client interface {
-	AddHost(host Host) error
-	GetHosts() (*Result, error)
-	RemoveHost(hostID string) error
-}
-
 type Host struct {
 	Password          string `json:"password"`
 	Username          string `json:"username"`
@@ -17,6 +11,28 @@ type Host struct {
 
 type Result struct {
 	Results []Host `json:"results"`
+}
+
+type Getter interface {
+	GetHosts() (*Result, error)
+}
+
+type Adder interface {
+	AddHost(host Host) error
+}
+
+type Remover interface {
+	RemoveHost(hostID string) error
+}
+
+type GetRemover interface {
+	Getter
+	Remover
+}
+
+type GetAdder interface {
+	Getter
+	Adder
 }
 
 // Contains accepts a slice of Hosts and a host to look for

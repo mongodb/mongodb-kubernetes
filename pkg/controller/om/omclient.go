@@ -59,7 +59,8 @@ type Connection interface {
 	BackupConfigConnection
 	HasAgentAuthMode
 
-	host.Client
+	host.Adder
+	host.GetRemover
 
 	UpdateControlledFeature(cf *controlledfeature.ControlledFeature) error
 	GetControlledFeature() (*controlledfeature.ControlledFeature, error)

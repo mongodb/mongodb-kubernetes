@@ -3,6 +3,8 @@ package operator
 import (
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/host"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	mdbstatus "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
@@ -265,7 +267,7 @@ func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLog
 
 	hostsToRemove, _ := util.GetDNSNames(s.Name, s.ServiceName(), s.Namespace, s.Spec.GetClusterDomain(), 1)
 	log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
-	if err = om.StopMonitoring(conn, hostsToRemove, log); err != nil {
+	if err = host.StopMonitoring(conn, hostsToRemove, log); err != nil {
 		return err
 	}
 	log.Info("Removed standalone from Ops Manager!")
