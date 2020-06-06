@@ -53,8 +53,17 @@ const (
 	DeploymentLinkIndex = 0
 )
 
+// MongoDB resources allow you to deploy Standalones, ReplicaSets or SharedClusters
+// to your Kubernetes cluster
+
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +k8s:openapi-gen=true
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:path=mongodb,scope=Namespaced,shortName=mdb
+// +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="Current state of the MongoDB deployment."
+// +kubebuilder:printcolumn:name="Version",type="string",JSONPath=".status.version",description="Version of MongoDB server."
+// +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".status.type",description="The type of MongoDB deployment. One of 'ReplicaSet', 'ShardedCluster' and 'Standalone'."
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="The time since the MongoDB resource was created."
 type MongoDB struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -97,13 +106,13 @@ type CommonStatus struct {
 }
 
 type MongoDbStatus struct {
-	CommonStatus
-	MongodbShardedClusterSizeConfig
-	Members      int              `json:"members,omitempty"`
-	Version      string           `json:"version"`
-	Link         string           `json:"link,omitempty"`
-	ResourceType ResourceType     `json:"type"`
-	Warnings     []status.Warning `json:"warnings,omitempty"`
+	CommonStatus                    `json:",inline"`
+	MongodbShardedClusterSizeConfig `json:",inline"`
+	Members                         int              `json:"members,omitempty"`
+	Version                         string           `json:"version"`
+	Link                            string           `json:"link,omitempty"`
+	ResourceType                    ResourceType     `json:"type"`
+	Warnings                        []status.Warning `json:"warnings,omitempty"`
 }
 
 type MongoDbSpec struct {
@@ -118,11 +127,11 @@ type MongoDbSpec struct {
 
 	// Deprecated: This has been replaced by the ClusterDomain which should be
 	// used instead
-	ClusterName   string `json:"clusterName,omitempty"`
-	ClusterDomain string `json:"clusterDomain,omitempty"`
-	ConnectionSpec
-	Persistent   *bool        `json:"persistent,omitempty"`
-	ResourceType ResourceType `json:"type,omitempty"`
+	ClusterName    string `json:"clusterName,omitempty"`
+	ClusterDomain  string `json:"clusterDomain,omitempty"`
+	ConnectionSpec `json:",inline"`
+	Persistent     *bool        `json:"persistent,omitempty"`
+	ResourceType   ResourceType `json:"type,omitempty"`
 	// sharded cluster
 
 	// TODO: uncomment once we remove podSpec and support the various statefulSet specs
@@ -135,10 +144,10 @@ type MongoDbSpec struct {
 	// +optional
 	//StatefulSetConfiguration *StatefulSetConfiguration `json:"statefulSet,omitempty"`
 
-	ConfigSrvPodSpec *MongoDbPodSpec `json:"configSrvPodSpec,omitempty"`
-	MongosPodSpec    *MongoDbPodSpec `json:"mongosPodSpec,omitempty"`
-	ShardPodSpec     *MongoDbPodSpec `json:"shardPodSpec,omitempty"`
-	MongodbShardedClusterSizeConfig
+	ConfigSrvPodSpec                *MongoDbPodSpec `json:"configSrvPodSpec,omitempty"`
+	MongosPodSpec                   *MongoDbPodSpec `json:"mongosPodSpec,omitempty"`
+	ShardPodSpec                    *MongoDbPodSpec `json:"shardPodSpec,omitempty"`
+	MongodbShardedClusterSizeConfig `json:",inline"`
 
 	// replica set
 	Members int             `json:"members,omitempty"`

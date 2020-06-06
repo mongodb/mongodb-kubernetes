@@ -14,8 +14,14 @@ func init() {
 	SchemeBuilder.Register(&MongoDBUser{}, &MongoDBUserList{})
 }
 
+// The MongoDBUser resource allows you to create, deletion and configure
+// users for your MongoDB deployments
+
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +k8s:openapi-gen=true
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="The current state of the MongoDB User."
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="The time since the MongoDB User resource was created."
 type MongoDBUser struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -75,12 +81,12 @@ type MongoDBUserSpec struct {
 }
 
 type MongoDBUserStatus struct {
-	CommonStatus
-	Roles    []Role           `json:"roles,omitempty"`
-	Username string           `json:"username"`
-	Database string           `json:"db"`
-	Project  string           `json:"project"`
-	Warnings []status.Warning `json:"warnings,omitempty"`
+	CommonStatus `json:",inline"`
+	Roles        []Role           `json:"roles,omitempty"`
+	Username     string           `json:"username"`
+	Database     string           `json:"db"`
+	Project      string           `json:"project"`
+	Warnings     []status.Warning `json:"warnings,omitempty"`
 }
 
 type Role struct {

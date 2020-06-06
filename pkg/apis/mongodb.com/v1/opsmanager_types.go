@@ -23,10 +23,18 @@ func init() {
 	SchemeBuilder.Register(&MongoDBOpsManager{}, &MongoDBOpsManagerList{})
 }
 
-//=============== Ops Manager ===========================================
+// The MongoDBOpsManager resource allows you to deploy Ops Manager within your Kubernetes cluster
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +k8s:openapi-gen=true
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Replicas",type="integer",JSONPath=".spec.replicas",description="The number of replicas of MongoDBOpsManager."
+// +kubebuilder:printcolumn:name="Version",type="string",JSONPath=".spec.version",description="The version of MongoDBOpsManager."
+// +kubebuilder:printcolumn:name="State (OpsManager)",type="string",JSONPath=".status.opsManager.phase",description="The current state of the MongoDBOpsManager."
+// +kubebuilder:printcolumn:name="State (AppDB)",type="string",JSONPath=".status.applicationDatabase.phase",description="The current state of the MongoDBOpsManager Application Database."
+// +kubebuilder:printcolumn:name="State (Backup)",type="string",JSONPath=".status.backup.phase",description="The current state of the MongoDBOpsManager Backup Daemon."
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="The time since the MongoDBOpsManager resource was created."
+// +kubebuilder:printcolumn:name="Warnings",type="string",JSONPath=".status.warnings",description="Warnings."
 type MongoDBOpsManager struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -98,7 +106,7 @@ type MongoDBOpsManagerSpec struct {
 }
 
 type MongoDBOpsManagerSecurity struct {
-	TLS MongoDBOpsManagerTLS
+	TLS MongoDBOpsManagerTLS `json:"tls"`
 }
 
 type MongoDBOpsManagerTLS struct {
@@ -161,19 +169,19 @@ type MongoDBOpsManagerStatus struct {
 }
 
 type OpsManagerStatus struct {
-	CommonStatus
-	Replicas int    `json:"replicas,omitempty"`
-	Version  string `json:"version,omitempty"`
-	Url      string `json:"url,omitempty"`
+	CommonStatus `json:",inline"`
+	Replicas     int    `json:"replicas,omitempty"`
+	Version      string `json:"version,omitempty"`
+	Url          string `json:"url,omitempty"`
 }
 
 type AppDbStatus struct {
-	MongoDbStatus
+	MongoDbStatus `json:",inline"`
 }
 
 type BackupStatus struct {
-	CommonStatus
-	Version string `json:"version,omitempty"`
+	CommonStatus `json:",inline"`
+	Version      string `json:"version,omitempty"`
 }
 
 // DataStoreConfig is the description of the config used to reference to database. Reused by Oplog and Block stores
@@ -277,8 +285,8 @@ func (m *MongoDBOpsManager) InitDefaultFields() {
 	m.Spec.AppDB.Security = ensureSecurityWithSCRAM(m.Spec.AppDB.Security)
 
 	// setting ops manager name, namespace and ClusterDomain for the appdb (transient fields)
-	m.Spec.AppDB.opsManagerName = m.Name
-	m.Spec.AppDB.namespace = m.Namespace
+	m.Spec.AppDB.OpsManagerName = m.Name
+	m.Spec.AppDB.Namespace = m.Namespace
 	m.Spec.AppDB.ClusterDomain = m.Spec.GetClusterDomain()
 	m.Spec.AppDB.ResourceType = ReplicaSet
 }
@@ -457,7 +465,7 @@ func SchemePortFromAnnotation(annotation string) (corev1.URIScheme, int) {
 // Note, that as of beta the AppDB has a limited schema comparing with a MongoDB struct
 
 type AppDB struct {
-	MongoDbSpec
+	MongoDbSpec `json:",inline"`
 
 	// PasswordSecretKeyRef contains a reference to the secret which contains the password
 	// for the mongodb-ops-manager SCRAM-SHA user
@@ -466,8 +474,9 @@ type AppDB struct {
 	// transient fields. These fields are cleaned before serialization, see 'MarshalJSON()'
 	// note, that we cannot include the 'OpsManager' instance here as this creates circular dependency and problems with
 	// 'DeepCopy'
-	opsManagerName string
-	namespace      string
+
+	OpsManagerName string `json:"-"`
+	Namespace      string `json:"-"`
 }
 
 type AppDbBuilder struct {
@@ -515,7 +524,7 @@ func (m *AppDB) UnmarshalJSON(data []byte) error {
 }
 
 func (m AppDB) Name() string {
-	return m.opsManagerName + "-db"
+	return m.OpsManagerName + "-db"
 }
 
 func (m AppDB) ProjectIDConfigMapName() string {
@@ -535,7 +544,7 @@ func (m AppDB) AutomationConfigSecretName() string {
 
 // ConnectionURL returns the connection url to the AppDB
 func (m AppDB) ConnectionURL(userName, password string, connectionParams map[string]string) string {
-	return buildConnectionUrl(m.Name(), m.ServiceName(), m.namespace, userName, password, m.MongoDbSpec, connectionParams)
+	return buildConnectionUrl(m.Name(), m.ServiceName(), m.Namespace, userName, password, m.MongoDbSpec, connectionParams)
 }
 
 // todo these two methods are added only to make AppDB implement runtime.Object
