@@ -132,19 +132,55 @@ Change the Docker registry from Quay to RedHat Connect:
 
 * Change  `quay.io/mongodb/mongodb-enterprise-` to
   `registry.connect.redhat.com/mongodb/enterprise-`. for the Operator and Database
-* Change  `quay.io/mongodb` to `registry.connect.redhat.com/mongodb` for `OPS_MANAGER_IMAGE_REPOSITORY`
-and `APP_DB_IMAGE_REPOSITORY`
+* Change  `quay.io/mongodb` to `registry.connect.redhat.com/mongodb` for `OPS_MANAGER_IMAGE_REPOSITORY`, 
+`APP_DB_IMAGE_REPOSITORY`, `INIT_OPS_MANAGER_IMAGE_REPOSITORY`, `INIT_APPDB_IMAGE_REPOSITORY` and `INIT_APPDB_VERSION`
   
+  
+* Ensure each resource has a `status` example
+```json
+"status": {
+    "phase": "Running",
+    "type": "ReplicaSet"
+}
+
+"status": {
+    "phase": "Running",
+    "type": "ReplicaSet"
+}
+
+"status": {
+    "phase": "Updated"
+}
+```
+* Ensure any instance of `statusDescriptions` is updated to be `statusDescriptors`
 
 ## Compress and Upload
 
 After the new file has been updated, it needs to be compressed as a zip
-file:
+file alone with everything else in in the mongodb-enterprise directory:
 
-    zip -r mongodb-enterprise.vX.Y.Z.zip mongodb-enterprise.vX.Y.Z.clusterserviceversion.yaml
+    zip -r mongodb-enterprise.vX.Y.Z.zip .
+
+it should be in the following format
+```bash
+.
+|-- ... all of the previous versions
+├── 1.5.2
+│   ├── mongodb-enterprise.v1.5.2.clusterserviceversion.yaml
+│   ├── mongodb.mongodb.com.crd.yaml
+│   ├── mongodbusers.mongodb.com.crd.yaml
+│   └── opsmanagers.mongodb.com.crd.yaml
+├── 1.5.3
+│   ├── mongodb-enterprise.v1.5.3.clusterserviceversion.yaml
+│   ├── mongodb.mongodb.com.crd.yaml
+│   ├── mongodbusers.mongodb.com.crd.yaml
+│   └── opsmanagers.mongodb.com.crd.yaml
+└── mongodb-enterprise.package.yaml
+```
+
 
 Finally, the zip file needs to be uploaded to the [Operator
 Metadata](https://connect.redhat.com/project/850021/operator-metadata)
 section in RedHat connect.
 
-The process of verification takes around 1 hour.
+The process of verification can take between 30 minutes and 5 hours.
