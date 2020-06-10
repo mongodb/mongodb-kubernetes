@@ -106,42 +106,41 @@ class TestOpsManagerWithMongoDB:
         mdb.tester().assert_version("4.2.1")
 
 
-#
-# @pytest.mark.e2e_om_ops_manager_upgrade
-# class TestOpsManagerConfigurationChange:
-#     """
-#       The OM configuration changes: one property is removed, another is added.
-#       Note, that this is quite artificial change to make it testable, these properties affect the behavior of different
-#       endpoints in Ops Manager, so we can then check if the changes were propagated to OM
-#     """
-#
-#     def test_scale_app_db_up(self, ops_manager: MongoDBOpsManager):
-#         ops_manager.load()
-#         ops_manager["spec"]["configuration"]["mms.testUtil.enabled"] = ""
-#         ops_manager["spec"]["configuration"]["mms.helpAndSupportPage.enabled"] = "true"
-#         ops_manager.update()
-#         ops_manager.om_status().assert_abandons_phase(Phase.Running)
-#         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=500)
-#
-#     def test_keys_not_modified(self, ops_manager: MongoDBOpsManager):
-#         """Making sure that the new reconciliation hasn't tried to generate new gen and api keys """
-#         gen_key_secret = ops_manager.read_gen_key_secret()
-#         api_key_secret = ops_manager.read_api_key_secret()
-#
-#         assert gen_key_secret.metadata.resource_version == gen_key_resource_version
-#         assert api_key_secret.metadata.resource_version == admin_key_resource_version
-#
-#     @skip_if_local
-#     def test_om(self, ops_manager: MongoDBOpsManager):
-#         """Checks that the OM is responsive and test service is not available"""
-#         om_tester = ops_manager.get_om_tester()
-#         om_tester.assert_healthiness()
-#         om_tester.assert_support_page_enabled()
-#         try:
-#             om_tester.assert_test_service()
-#             pytest.xfail("mms.testUtil.enabled is expected to be false")
-#         except AssertionError:
-#             pass
+@pytest.mark.e2e_om_ops_manager_upgrade
+class TestOpsManagerConfigurationChange:
+    """
+      The OM configuration changes: one property is removed, another is added.
+      Note, that this is quite artificial change to make it testable, these properties affect the behavior of different
+      endpoints in Ops Manager, so we can then check if the changes were propagated to OM
+    """
+
+    def test_scale_app_db_up(self, ops_manager: MongoDBOpsManager):
+        ops_manager.load()
+        ops_manager["spec"]["configuration"]["mms.testUtil.enabled"] = ""
+        ops_manager["spec"]["configuration"]["mms.helpAndSupportPage.enabled"] = "true"
+        ops_manager.update()
+        ops_manager.om_status().assert_abandons_phase(Phase.Running)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=500)
+
+    def test_keys_not_modified(self, ops_manager: MongoDBOpsManager):
+        """Making sure that the new reconciliation hasn't tried to generate new gen and api keys """
+        gen_key_secret = ops_manager.read_gen_key_secret()
+        api_key_secret = ops_manager.read_api_key_secret()
+
+        assert gen_key_secret.metadata.resource_version == gen_key_resource_version
+        assert api_key_secret.metadata.resource_version == admin_key_resource_version
+
+    @skip_if_local
+    def test_om(self, ops_manager: MongoDBOpsManager):
+        """Checks that the OM is responsive and test service is not available"""
+        om_tester = ops_manager.get_om_tester()
+        om_tester.assert_healthiness()
+        om_tester.assert_support_page_enabled()
+        try:
+            om_tester.assert_test_service()
+            pytest.xfail("mms.testUtil.enabled is expected to be false")
+        except AssertionError:
+            pass
 
 
 @pytest.mark.e2e_om_ops_manager_upgrade
