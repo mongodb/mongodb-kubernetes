@@ -1,9 +1,30 @@
 #!/usr/bin/env bash
 
+set -Eeou pipefail
+
+source scripts/funcs/checks
+
 ecr_registry=${1}
 # First we need to create proper "auths" entry for our ECR registry,
+check_app docker-credential-ecr-login "You need to install the 'docker-credential-ecr-login' application, see 'install.sh'"
+
+# Creates credsStore configuration for Docker for ECR
+mkdir -p "${HOME}/.docker"
+cat <<EOF > "${HOME}/.docker/config.json"
+{
+	"credHelpers": {
+		"${ecr_registry}": "ecr-login"
+	}
+}
+EOF
+
 # using docker-credential-ecr-login (which is faster to install than Python + aws-cli).
 secret=$(echo "${ecr_registry}" | docker-credential-ecr-login get | jq -r .Secret)
-auth=$(echo "AWS:${secret}" | base64 -w0)
+if [[ "$(uname)" = "Darwin" ]] ; then
+    auth=$(echo "AWS:${secret}" | base64)
+else
+    auth=$(echo "AWS:${secret}" | base64 -w0)
+fi
 
+# shellcheck disable=SC2086
 echo '{"auths":{"'${ecr_registry}'":{"auth":"'${auth}'"}}}'

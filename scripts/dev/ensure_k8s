@@ -28,11 +28,11 @@ if [[ ${CLUSTER_TYPE} = "kops" ]] && ! kops validate cluster "${CLUSTER_NAME}" ;
 elif [[ ${CLUSTER_TYPE} = "openshift" ]]; then
 	echo "openshift is TODO"
 elif [[ ${CLUSTER_TYPE} = "kind" ]]; then
-  echo "deleting existing kind cluster"
+  echo "Deleting existing kind cluster"
   kind delete cluster
-  echo "creating kind cluster"
+  echo "Creating kind cluster"
 
-  ecr_registry="268558157000.dkr.ecr.us-east-1.amazonaws.com"
+  ecr_registry=$(echo "${REPO_URL}" | cut -d "/" -f 1) # "268558157000.dkr.ecr.eu-west-1.amazonaws.com"
   scripts/dev/setup_kind "${ecr_registry}"
   kind create cluster --config "$HOME/.operator-dev/kind-ecr-config.yaml"
 fi

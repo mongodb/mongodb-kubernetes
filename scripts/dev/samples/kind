@@ -6,7 +6,7 @@
 # IMPORTANT: this file is just an example, you need to change the values proper way
 
 export CLUSTER_TYPE=kind
-export CLUSTER_NAME=kind
+export CLUSTER_NAME=kind-kind
 export REPO_URL=localhost:5000
 export INIT_OPS_MANAGER_REGISTRY=localhost:5000
 export INIT_APPDB_REGISTRY=localhost:5000
