@@ -9,8 +9,14 @@ set -Eeou pipefail
 
 source scripts/funcs/checks
 source scripts/funcs/printing
+source scripts/funcs/errors
 
 check_env_var "TEST_NAME" "The 'TEST_NAME' must be specified to run the Operator single e2e test"
+
+# TODO: remove
+ops_manager_init_registry="${INIT_OPS_MANAGER_REGISTRY:?}/${IMAGE_TYPE}"
+appdb_init_registry="${INIT_APPDB_REGISTRY:?}/${IMAGE_TYPE}"
+
 
 deploy_test_app() {
     title "Deploying test application"
@@ -20,7 +26,7 @@ deploy_test_app() {
     # apply the correct configuration of the running OM instance
     # note, that the 4 last parameters are used only for Mongodb resource testing - not for Ops Manager
     helm_params=(
-        "--set" "repo=${REPO_URL:=268558157000.dkr.ecr.us-east-1.amazonaws.com/dev}"
+        "--set" "repo=${TEST_APP_REGISTRY:=268558157000.dkr.ecr.us-east-1.amazonaws.com/dev}"
         "--set" "namespace=${PROJECT_NAMESPACE}"
         "--set" "taskName=${task_name}"
         "--set" "pytest.addopts=${pytest_addopts:-}"
@@ -35,6 +41,14 @@ deploy_test_app() {
         "--set" "apiUser=${OM_USER:-admin}"
         "--set" "bundledAppDbVersion=${BUNDLED_APP_DB_VERSION}"
         "--set" "orgId=${OM_ORGID:-}"
+        "--set" "operator.version=${version_id:-$latest}"
+        "--set" "registry.operator=${REGISTRY}"
+        "--set" "registry.initOpsManager=${ops_manager_init_registry}"
+        "--set" "registry.initAppDb=${appdb_init_registry}"
+        "--set" "registry.opsManager=${OPS_MANAGER_REGISTRY}"
+        "--set" "registry.appDb=${APPDB_REGISTRY}"
+        "--set" "opsManager.name=${OPS_MANAGER_NAME:=mongodb-enterprise-ops-manager}"
+        "--set" "appDb.name=${APPDB_NAME:=mongodb-enterprise-appdb}"
     )
     if [[ -n "${ecr_registry_needs_auth:-}" ]]; then
         echo "Configuring imagePullSecrets to ${ecr_registry_needs_auth}"
@@ -60,14 +74,15 @@ wait_until_pod_is_running_or_failed_or_succeeded() {
     # Note that the pod may jump to Failed/Completed state quickly - so we need to give up waiting on this as well
     echo "Waiting until the test application gets to Running state..."
 
-    while ! test_app_running_or_ended; do printf .; sleep 1; done;
+    is_running_cmd="kubectl -n ${PROJECT_NAMESPACE} get pod ${TEST_APP_PODNAME} -o jsonpath={.status.phase} | grep -q 'Running'"
+    timeout --foreground "1m" bash -c "while ! ${is_running_cmd}; do printf .; sleep 1; done;"
     echo
-}
 
-test_app_running_or_ended() {
-    local status
-    status="$(kubectl -n "${PROJECT_NAMESPACE}" get pod "${TEST_APP_PODNAME}" -o jsonpath="{.status.phase}")"
-    [[ "${status}" = "Running" || "${status}" = "Failed" || "${status}" = "Succeeded" ]]
+    if ! eval "${is_running_cmd}"; then
+        error "Test application failed to start on time!"
+        kubectl -n "${PROJECT_NAMESPACE}"  describe pod "${TEST_APP_PODNAME}"
+        fatal "Failed to run test application - exiting"
+    fi
 }
 
 test_app_ended() {
@@ -112,7 +127,7 @@ run_tests() {
 mkdir -p logs/
 
 TESTS_OK=0
-run_tests "${TEST_NAME}" "${WAIT_TIMEOUT:-400}" || TESTS_OK=1
+run_tests "${TEST_NAME}" || TESTS_OK=1
 
 echo "Tests have finished with the following exit code: ${TESTS_OK}"
 

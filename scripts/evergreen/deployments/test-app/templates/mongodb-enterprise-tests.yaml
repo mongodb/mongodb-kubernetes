@@ -72,13 +72,30 @@ spec:
     - name: CUSTOM_OM_VERSION
       value: {{ .Values.customOmVersion }}
     {{ end }}
-{{ if .Values.managedSecurityContext }}
+    # Operator installation parameters
+    - name: OPERATOR_VERSION
+      value: {{ .Values.operator.version }}
+    - name: OPERATOR_REGISTRY_URL
+      value: {{ .Values.registry.operator }}
+    - name: OPS_MANAGER_INIT_REGISTRY_URL
+      value: {{ .Values.registry.initOpsManager }}
+    - name: APPDB_INIT_REGISTRY_URL
+      value: {{ .Values.registry.initAppDb }}
+    - name: OPS_MANAGER_REGISTRY_URL
+      value: {{ .Values.registry.opsManager }}
+    - name: APPDB_REGISTRY_URL
+      value: {{ .Values.registry.appDb }}
+    - name: OPS_MANAGER_NAME
+      value: {{ .Values.opsManager.name }}
+    - name: APPDB_NAME
+      value: {{ .Values.appDb.name }}
+    {{ if .Values.managedSecurityContext }}
     - name: MANAGED_SECURITY_CONTEXT
       value: 'true'
-{{ else }}
+    {{ else }}
     - name: MANAGED_SECURITY_CONTEXT
       value: 'false'
-{{  end }}
+    {{  end }}
     image: {{ .Values.repo }}/mongodb-enterprise-tests:{{ .Values.tag }}
     # Options to pytest command should go in the pytest.ini file.
     command: ["pytest"]

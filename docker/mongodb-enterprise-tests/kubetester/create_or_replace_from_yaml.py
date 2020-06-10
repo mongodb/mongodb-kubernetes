@@ -54,7 +54,9 @@ def create_or_replace_from_yaml_single_item(
     k8s_client, yml_object, namespace="default", **kwargs
 ):
     try:
-        create_from_yaml_single_item(k8s_client, yml_object, namespace, **kwargs)
+        create_from_yaml_single_item(
+            k8s_client, yml_object, verbose=False, namespace=namespace, **kwargs
+        )
     except client.rest.ApiException:
         patch_from_yaml_single_item(k8s_client, yml_object, namespace, **kwargs)
     except ValueError:

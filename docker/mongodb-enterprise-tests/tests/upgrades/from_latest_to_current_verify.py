@@ -4,7 +4,6 @@ This is a multi stage test. Referenced on .evergreen.yml as e2e_operator_upgrade
 Stage 1: e2e_latest_to_current_build
 Stage 2 (this): e2e_latest_to_current_verify
 """
-
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB, Phase
 from pytest import fixture, mark

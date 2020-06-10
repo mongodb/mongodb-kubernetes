@@ -3,7 +3,6 @@ This is a multi stage test. Referenced on .evergreen.yml as e2e_operator_upgrade
 
 This is stage 2 (verification): e2e_operator_upgrade_scale_and_verify_deployment
 """
-
 from kubetester.mongodb import MongoDB, Phase
 from pytest import fixture, mark
 

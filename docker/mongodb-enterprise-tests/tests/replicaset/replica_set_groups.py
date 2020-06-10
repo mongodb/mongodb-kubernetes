@@ -4,7 +4,6 @@ from kubetester.kubetester import KubernetesTester, fixture
 from kubetester.omtester import skip_if_cloud_manager
 
 
-@skip_if_cloud_manager
 @pytest.mark.e2e_replica_set_groups
 class TestReplicaSetOrganizationsPagination(KubernetesTester):
     """

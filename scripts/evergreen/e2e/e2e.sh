@@ -49,9 +49,6 @@ ensure_namespace "${PROJECT_NAMESPACE}"
 export TEST_NAME="${TASK_NAME:?}"
 delete_operator "${PROJECT_NAMESPACE}"
 
-ops_manager_init_registry="${INIT_OPS_MANAGER_REGISTRY:?}/${IMAGE_TYPE}"
-appdb_init_registry="${INIT_APPDB_REGISTRY:?}/${IMAGE_TYPE}"
-
 # 4. (optionally) Preliminary step in the case of Operator upgrade
 if echo "${TASK_NAME}" | grep -E -q "^e2e_op_upgrade"; then
     export TEST_NAME="${TASK_NAME}_first"
@@ -86,7 +83,7 @@ if echo "${TASK_NAME}" | grep -E -q "^e2e_op_upgrade"; then
     popd > /dev/null || return
 
     # Running test
-    if ! ./scripts/evergreen/e2e/single_e2e; then
+    if ! ./scripts/evergreen/e2e/single_e2e.sh; then
         dump_all
         scripts/evergreen/e2e/teardown
         exit 1
@@ -97,26 +94,7 @@ if echo "${TASK_NAME}" | grep -E -q "^e2e_op_upgrade"; then
     header "Performing the second stage (${TEST_NAME})"
 fi
 
-# 5. Main test run. In case of Operator upgrade this will be the second test run and
-# the Operator won't be removed - only upgraded
-deploy_operator \
-    "${REGISTRY}" \
-    "${ops_manager_init_registry}" \
-    "${appdb_init_registry}" \
-    "${OPS_MANAGER_REGISTRY}" \
-    "${APPDB_REGISTRY:?}" \
-    "${PROJECT_NAMESPACE}" \
-    "${version_id:?}" \
-    "${WATCH_NAMESPACE:-$PROJECT_NAMESPACE}" \
-    "Always" \
-    "${MANAGED_SECURITY_CONTEXT:-}"
-
-if ! wait_for_operator_start "${PROJECT_NAMESPACE}"
-then
-    echo "Operator failed to start"
-    exit 1
-fi
-
+# 5. Main test run.
 
 # We'll have the task running for the allocated time, minus the time it took us
 # to get all the way here, assuming configuring and deploying the operator can
@@ -133,7 +111,7 @@ task_timeout=$(get_timeout_for_task "${TASK_NAME:?}")
 timeout_sec=$((task_timeout - elapsed_time - 60))
 echo "This task is allowed to run for ${timeout_sec} seconds"
 TEST_RESULTS=0
-timeout --foreground "${timeout_sec}" scripts/evergreen/e2e/single_e2e || TEST_RESULTS=$?
+timeout --foreground "${timeout_sec}" scripts/evergreen/e2e/single_e2e.sh || TEST_RESULTS=$?
 
 # Dump all the information we can from this namespace
 dump_all

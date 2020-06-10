@@ -59,7 +59,7 @@ else
 fi
 
 export IMAGE_TYPE="ubuntu"
-if [[ "${CLUSTER_TYPE}" = "openshift" ]]; then
+if [[ "${CLUSTER_TYPE-}" = "openshift" ]]; then
     export IMAGE_TYPE="rhel"
 fi
 
@@ -67,6 +67,9 @@ fi
 [[ "$REPO_URL" != *${IMAGE_TYPE} ]] && export REPO_URL=${REPO_URL}/${IMAGE_TYPE}
 [[ -z "${OPS_MANAGER_REGISTRY-}" ]] && export OPS_MANAGER_REGISTRY="quay.io/mongodb"
 [[ -z "${APPDB_REGISTRY-}" ]] && export APPDB_REGISTRY="quay.io/mongodb"
+
+# Cutting the last part from the registry url for the test app as it's the only image not dependent on env
+[[ -z "${TEST_APP_REGISTRY-}" ]] && export TEST_APP_REGISTRY="${REPO_URL%/*}"
 
 export NAMESPACE=${NAMESPACE:-mongodb}
 

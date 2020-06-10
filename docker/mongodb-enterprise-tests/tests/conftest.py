@@ -1,11 +1,16 @@
 import os
+import pathlib
+from typing import List
 
 import kubernetes
+import pytest
+from _pytest.nodes import Node
 from kubernetes.client import ApiextensionsV1beta1Api
 
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import KubernetesTester, fixture as _fixture
 from kubetester.certs import Issuer
+from kubetester.operator import Operator
 from pytest import fixture
 
 try:
@@ -16,12 +21,52 @@ except Exception:
 
 @fixture(scope="module")
 def namespace() -> str:
-    namespace = os.getenv("PROJECT_NAMESPACE", None)
+    return get_env_variable_or_fail("PROJECT_NAMESPACE")
 
-    if namespace is None:
-        raise Exception("PROJECT_NAMESPACE needs to be defined")
 
-    return namespace
+@fixture(scope="module")
+def operator_version() -> str:
+    return get_env_variable_or_fail("OPERATOR_VERSION")
+
+
+@fixture(scope="module")
+def operator_registry_url() -> str:
+    return get_env_variable_or_fail("OPERATOR_REGISTRY_URL")
+
+
+@fixture(scope="module")
+def om_init_registry_url() -> str:
+    return get_env_variable_or_fail("OPS_MANAGER_INIT_REGISTRY_URL")
+
+
+@fixture(scope="module")
+def appdb_init_registry_url() -> str:
+    return get_env_variable_or_fail("APPDB_INIT_REGISTRY_URL")
+
+
+@fixture(scope="module")
+def om_registry_url() -> str:
+    return get_env_variable_or_fail("OPS_MANAGER_REGISTRY_URL")
+
+
+@fixture(scope="module")
+def appdb_registry_url() -> str:
+    return get_env_variable_or_fail("APPDB_REGISTRY_URL")
+
+
+@fixture(scope="module")
+def ops_manager_name() -> str:
+    return get_env_variable_or_fail("OPS_MANAGER_NAME")
+
+
+@fixture(scope="module")
+def appdb_name() -> str:
+    return get_env_variable_or_fail("APPDB_NAME")
+
+
+@fixture(scope="module")
+def managed_security_context() -> bool:
+    return get_env_variable_or_fail("MANAGED_SECURITY_CONTEXT") == "true"
 
 
 @fixture(scope="module")
@@ -81,3 +126,42 @@ def ca_path() -> str:
         replica_set.assert_connectivity(ca_path=ca_path)
     """
     return _fixture("ca-tls.crt")
+
+
+@fixture("module")
+def default_operator(
+    namespace: str,
+    operator_version: str,
+    operator_registry_url: str,
+    om_init_registry_url: str,
+    appdb_init_registry_url: str,
+    om_registry_url: str,
+    appdb_registry_url: str,
+    ops_manager_name: str,
+    appdb_name: str,
+    managed_security_context: bool,
+) -> Operator:
+    """ Installs/upgrades a default Operator used by any test not interested in some custom Operator setting.
+    TODO we use the helm template | kubectl apply -f process so far as Helm install/upgrade needs more refactoring in
+    the shared environment"""
+    return Operator(
+        namespace=namespace,
+        operator_version=operator_version,
+        operator_registry_url=operator_registry_url,
+        init_om_registry_url=om_init_registry_url,
+        init_appdb_registry_url=appdb_init_registry_url,
+        ops_manager_registry_url=om_registry_url,
+        appdb_registry_url=appdb_registry_url,
+        ops_manager_name=ops_manager_name,
+        appdb_name=appdb_name,
+        managed_security_context=managed_security_context,
+    ).install_from_template()
+
+
+def get_env_variable_or_fail(env_var_name: str) -> str:
+    value = os.getenv(env_var_name, None)
+
+    if value is None:
+        raise ValueError(f"{env_var_name} needs to be defined")
+
+    return value

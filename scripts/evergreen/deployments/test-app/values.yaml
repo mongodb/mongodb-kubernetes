@@ -1,7 +1,12 @@
 namespace: ${PROJECT_NAMESPACE}
 registry:
-  repository: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
   pullPolicy: Always
+  operator: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
+  initOpsManager: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
+  initAppDb: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
+  opsManager: quay.io/mongodb
+  appDb: quay.io/mongodb
+
 operator:
   name: mongodb-enterprise-operator
   version: ${REVISION}

@@ -328,6 +328,28 @@ functions:
         KUBECONFIG: ${workdir}/${kube_environment_name}_config
       binary: scripts/evergreen/wait_docker_image.sh
 
+  build_and_push_test_image:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        add_to_path:
+          - *go_bin
+          - ${workdir}/bin
+        add_expansions_to_env: true
+        env:
+          <<: *go_options
+
+          AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
+          AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
+          AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
+          KUBECONFIG: ${workdir}/${kube_environment_name}_config
+
+          IN_MEMORY_CONTEXT: "true"
+          REPO_URL: ${ecr_registry}/dev
+
+        command: scripts/dev/build_push_tests_image
+
   "build_and_push_init_test_images_for_om_and_appdb":
     - command: subprocess.exec
       type: setup
@@ -462,6 +484,7 @@ functions:
           - kube_environment_name
           - version_id
           - custom_om_version
+          - install_operator_in_python
         env:
           REGISTRY: ${ecr_registry}/dev/${image_type}
           OPS_MANAGER_REGISTRY: ${ops_manager_registry|quay.io/mongodb}
@@ -778,32 +801,14 @@ tasks:
         docker_password: ${quay_prod_robot_token}
 
 - name: build_test_image
-  exec_timeout_secs: 600
+  exec_timeout_secs: 200
   priority: 60
   commands:
   - func: clone
   - func: setup_docker
-  - func: download_kube_tools
-    vars:
-      <<: *kubernetes_environment_kind
   - func: setup_aws
-  - func: setup_kubernetes_environment
-    vars:
-      <<: *kubernetes_environment_kind
-  - func: upload_e2e_build_context
-    vars:
-      image_type: scratch
-      context: tests
-  - func: kaniko_build
-    vars:
-      destination: ${ecr_registry}/dev/mongodb-enterprise-tests:${version_id}
-      context: s3://ops-manager-kubernetes-build/ops-manager-operator/${version_id}:scratch/contexts/tests-context.tar.gz
-      cache_repo: ${ecr_registry}/cache/mongodb-enterprise-tests
-      label: tests-${version_id}
-  # kaniko_wait will block until all the Pods with 'labels' are in Succeeded state.
-  - func: kaniko_wait
-    vars:
-      labels: 'tests-${version_id}'
+  - func: setup_ecr_login_helper
+  - func: build_and_push_test_image
 
 - name: build_images_rhel
   exec_timeout_secs: 600
@@ -1700,7 +1705,6 @@ task_groups:
     - e2e_replica_set
     - e2e_replica_set_8_members
     - e2e_replica_set_ent
-    - e2e_replica_set_groups
     - e2e_replica_set_recovery
     - e2e_replica_set_upgrade_downgrade
     - e2e_replica_set_custom_podspec
@@ -1708,7 +1712,6 @@ task_groups:
     - e2e_sharded_cluster_secret
     - e2e_sharded_cluster_upgrade_downgrade
     - e2e_sharded_cluster_custom_podspec
-    - e2e_standalone_groups
     - e2e_standalone_type_change_recovery
     - e2e_standalone_upgrade_downgrade
     - e2e_standalone_custom_podspec
@@ -1891,8 +1894,24 @@ task_groups:
     - func: teardown_kubernetes_environment
     - func: teardown_cloud_qa
 
+# e2e_mongodb_non_cloudqa_task_group includes tests that cannot be run using cloud-qa - only using an explicit OM
+- name: e2e_mongodb_non_cloudqa_task_group
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+  tasks:
+    - e2e_standalone_groups
+    - e2e_replica_set_groups
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+
+
 # This task group runs on Kind clusters. In theory ALL Ops Manager tests should be added here
-# including the cluster-wide resources changing
+# including the cluster-wide resources changing. Uses Cloud-qa.
 - name: e2e_ops_manager_kind_only_task_group
   max_hosts: 15
   setup_group:
@@ -1920,7 +1939,8 @@ task_groups:
     - e2e_om_ops_manager_https_enabled
     - e2e_om_ops_manager_scale
     - e2e_om_ops_manager_upgrade
-    - e2e_op_upgrade_om
+    # TODO fix operator upgrade tests
+    # - e2e_op_upgrade_om
     - e2e_om_validation_webhook
     - e2e_om_ops_manager_secure_config
   teardown_task:
@@ -1998,10 +2018,8 @@ buildvariants:
   tasks:
   - name: "e2e_core_task_group"
   - name: "e2e_tls_task_group"
+  - name: "e2e_mongodb_non_cloudqa_task_group"
 
-# Note that both kops (current build variant) and openshift (next build variant) work with the same version of OM
-# so in general they shouldn't intersect on OM-related tasks. Currently they intersect only on 'e2e_kube_only_task_group'
-# and 'e2e_om_4_2_plus_only_task_group' as the latter must be run on both kops and openshift
 - name: e2e_kube_vanilla_om_42_current
   display_name: "e2e_kube_vanilla_om_42_current"
   depends_on:
@@ -2025,6 +2043,7 @@ buildvariants:
   - name: "e2e_scram_sha_task_group"
   - name: "e2e_auth_transitions_task_group"
   - name: "e2e_tls_custom_ca_task_group"
+  - name: "e2e_mongodb_non_cloudqa_task_group"
 
 - name: e2e_openshift4_cloud_qa
   display_name: e2e_openshift4_cloud_qa
@@ -2245,7 +2264,8 @@ buildvariants:
   - name: e2e_scram_sha_task_group_with_manually_generated_certs
   - name: e2e_auth_transitions_task_group
   - name: e2e_webhook_validation_task_group
-  - name: e2e_mongodb_kind_only_task_group
+  # TODO fix the operator upgrade tests
+  # - name: e2e_mongodb_kind_only_task_group
 
 # build AppDB: to be launched independently of the operator build process
 - name: build_and_push_appdb_images
