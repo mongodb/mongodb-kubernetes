@@ -18,12 +18,12 @@ The release process is documented below:
 
 ## Update Jira to reflect the patches in the release (Tuesday)
 
-Update any finished tickets in [kube-next](https://jira.mongodb.org/issues/?jql=project%20%3D%20CLOUDP%20AND%20component%20%3D%20Kubernetes%20AND%20status%20in%20(Resolved%2C%20Closed)%20and%20fixVersion%3D%20kube-next%20%20ORDER%20BY%20resolved%20) to have the version of the release you're doing (kube-x.y)
+Update any finished tickets in [kube-enterprise-next](https://jira.mongodb.org/issues/?jql=project%20%3D%20CLOUDP%20AND%20component%20%3D%20Kubernetes%20AND%20status%20in%20(Resolved%2C%20Closed)%20and%20fixVersion%3D%20kube-enterprise-next%20%20ORDER%20BY%20resolved%20) to have the version of the release you're doing (kube-x.y)
 
 ## Prepare Release Notes (Tuesday)
 
 Draft the release notes describing the tickets in the current
-[fixVersion](https://jira.mongodb.org/issues/?jql=project%20%3D%20CLOUDP%20AND%20component%20%3D%20Kubernetes%20AND%20status%20in%20(Resolved%2C%20Closed)%20and%20fixVersion%3D%20kube-next%20).
+[fixVersion](https://jira.mongodb.org/issues/?jql=project%20%3D%20CLOUDP%20AND%20component%20%3D%20Kubernetes%20AND%20status%20in%20(Resolved%2C%20Closed)%20and%20fixVersion%3D%20kube-enterprise-next%20).
 
 Submit the proposed release notes in the team Slack channel
 ([#k8s-operator-devs](https://mongodb.slack.com/messages/CGLP6R2PQ)) for peer
