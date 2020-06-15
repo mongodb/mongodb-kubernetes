@@ -126,7 +126,7 @@ recreate-e2e-openshift:
 
 # clean all kubernetes cluster resources and OM state. "light=true" to clean only Mongodb resources
 reset:
-	@ scripts/dev/reset $(light)
+	@ scripts/dev/reset.sh $(light)
 
 status:
 	@ scripts/dev/status

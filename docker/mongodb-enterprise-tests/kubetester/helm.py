@@ -2,8 +2,6 @@ import subprocess
 import uuid
 from typing import Dict, Optional, List
 
-HELM_RELEASE_NAMESPACE = "helm-release-namespace"
-
 
 def helm_template(
     helm_args: Dict,
@@ -59,15 +57,11 @@ def helm_upgrade(
 
 
 def _create_helm_args(helm_args) -> List[str]:
-    # helm_args["namespace"] = namespace
     command_args = []
     for (key, value) in helm_args.items():
         command_args.append("--set")
         command_args.append("{}={}".format(key, value))
 
-    # add release namespace - it must be a single namespace for a cluster so that helm
-    # upgrades worked
     command_args.append("--create-namespace")
-    command_args.append("--namespace")
-    command_args.append(HELM_RELEASE_NAMESPACE)
+
     return command_args

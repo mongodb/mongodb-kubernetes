@@ -155,7 +155,7 @@ def default_operator(
         ops_manager_name=ops_manager_name,
         appdb_name=appdb_name,
         managed_security_context=managed_security_context,
-    ).install_from_template()
+    ).install()
 
 
 def get_env_variable_or_fail(env_var_name: str) -> str:

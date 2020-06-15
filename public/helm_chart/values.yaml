@@ -1,6 +1,3 @@
-# Create the CustomerResourceDefinition for MongoDB custom types.
-createCrds: true
-
 # Name of the Namespace to use
 namespace: mongodb
 

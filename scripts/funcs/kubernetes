@@ -248,11 +248,9 @@ deploy_operator() {
     chart_path="public/helm_chart"
     # this script may be run from public github repo - there's no "public" folder
     [[ -d "helm_chart" ]] && chart_path="helm_chart"
-    helm template "${chart_path}" "${helm_params[@]}"> "${tmp_file}"
 
     echo "Deploying Operator"
-    kubectl apply -f "${tmp_file}"
-    rm "${tmp_file}"
+    helm upgrade --install  "${helm_params[@]}" mongodb-enterprise-operator "${chart_path}"
 }
 
 # wait_for_operator waits for the Operator to start

@@ -85,7 +85,7 @@ if echo "${TASK_NAME}" | grep -E -q "^e2e_op_upgrade"; then
     # Running test
     if ! ./scripts/evergreen/e2e/single_e2e.sh; then
         dump_all
-        scripts/evergreen/e2e/teardown
+        scripts/evergreen/e2e/teardown.sh
         exit 1
     fi
     # Setting the second test to be run after the Operator upgrade after 'if' block
@@ -123,11 +123,11 @@ if [[ "${TEST_RESULTS}" -ne 0 ]]; then
     if [ "${always_remove_testing_namespace-}" = "true" ]; then
         # Failed namespaces might cascade into more failures if the namespaces
         # are not being removed soon enough.
-        scripts/evergreen/e2e/teardown
+        scripts/evergreen/e2e/teardown.sh
     fi
 else
     # If the test pass, then the namespace is removed
-    scripts/evergreen/e2e/teardown
+    scripts/evergreen/e2e/teardown.sh
 fi
 
 # We exit with the test result to surface status to Evergreen.

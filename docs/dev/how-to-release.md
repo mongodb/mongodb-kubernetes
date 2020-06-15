@@ -120,7 +120,7 @@ with any changes that have yet to be copied over.
 
 Then run
 
-    scripts/evergreen/update_public_repo <path_to_public_repo_root>
+    scripts/evergreen/update_public_repo.sh <path_to_public_repo_root>
 
 This will copy the contents of the `public` directory in the `10gen/ops-manager-kubernetes` into
 the root of the `mongodb/mongodb-enterprise-kubernetes`, the public repo and will commit changes (not push!)

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import subprocess
-import uuid
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import time
 from kubernetes import client
