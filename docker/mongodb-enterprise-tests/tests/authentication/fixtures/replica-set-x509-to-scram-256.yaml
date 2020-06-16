@@ -15,5 +15,7 @@ spec:
     tls:
       enabled: true
     authentication:
+      agents:
+        mode: X509
       enabled: true
       modes: ["X509"]

@@ -48,6 +48,7 @@ def test_enable_scram_and_x509(replica_set: MongoDB):
     replica_set.load()
     replica_set["spec"]["security"]["authentication"]["modes"] = ["X509", "SCRAM"]
     replica_set.update()
+    replica_set.assert_abandons_phase(Phase.Running, timeout=100)
     replica_set.assert_reaches_phase(Phase.Running, timeout=900)
 
 
@@ -64,17 +65,15 @@ def test_x509_is_still_configured(replica_set: MongoDB):
 
 @pytest.mark.e2e_replica_set_x509_to_scram_transition
 class TestReplicaSetDisableAuthentication(KubernetesTester):
-    """
-    description: |
-      Disables X509 authentication for the Replica Set
-    update:
-      patch: '[{"op":"replace","path":"/spec/security/authentication/enabled", "value" : false }]'
-      file: replica-set-x509-to-scram-256.yaml
-      wait_until: in_running_state
-    """
+    def test_disable_auth(self, replica_set: MongoDB):
+        replica_set.load()
+        replica_set["spec"]["security"]["authentication"]["enabled"] = False
+        replica_set.update()
+        replica_set.assert_abandons_phase(Phase.Running, timeout=100)
+        replica_set.assert_reaches_phase(Phase.Running, timeout=900)
 
-    def test_assert_connectivity(self):
-        ReplicaSetTester(MDB_RESOURCE, 3, ssl=True).assert_connectivity()
+    def test_assert_connectivity(self, replica_set: MongoDB):
+        replica_set.tester().assert_connectivity()
 
     def test_ops_manager_state_updated_correctly(self):
         tester = AutomationConfigTester(KubernetesTester.get_automation_config())
@@ -84,15 +83,15 @@ class TestReplicaSetDisableAuthentication(KubernetesTester):
 
 
 @pytest.mark.e2e_replica_set_x509_to_scram_transition
-class TestCanEnableScramSha256(KubernetesTester):
-    """
-    description: |
-      Disables X509 authentication for the Replica Set
-    update:
-      patch: '[{"op":"replace","path":"/spec/security/authentication/enabled", "value" : true }, {"op":"replace","path":"/spec/security/authentication/modes", "value" : ["SCRAM"] }]'
-      file: replica-set-x509-to-scram-256.yaml
-      wait_until: in_running_state
-    """
+class TestCanEnableScramSha256:
+    def test_can_enable_scram_sha_256(self, replica_set: MongoDB):
+        replica_set.load()
+        replica_set["spec"]["security"]["authentication"]["enabled"] = True
+        replica_set["spec"]["security"]["authentication"]["modes"] = ["SCRAM"]
+        replica_set["spec"]["security"]["authentication"]["agents"]["mode"] = "SCRAM"
+        replica_set.update()
+        replica_set.assert_abandons_phase(Phase.Running, timeout=100)
+        replica_set.assert_reaches_phase(Phase.Running, timeout=900)
 
     def test_assert_connectivity(self):
         ReplicaSetTester(MDB_RESOURCE, 3, ssl=True).assert_connectivity()

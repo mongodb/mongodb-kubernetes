@@ -162,7 +162,6 @@ def blockstore_replica_set(ops_manager, namespace) -> MongoDB:
     ).configure(ops_manager, "blockstore")
     # enabling 3.6.10 to let enable scram-sha (OM until some versions understands scram-sha-1 only)
     resource["spec"]["version"] = "3.6.10"
-
     yield resource.create()
 
 
@@ -367,7 +366,9 @@ class TestOpsManagerWatchesBlockStoreUpdates:
         ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=40)
 
     def test_blockstore_user_created(self, blockstore_user: MongoDBUser):
-        blockstore_user.assert_reaches_phase(Phase.Updated)
+        blockstore_user.assert_reaches_phase(
+            Phase.Pending
+        )  # pending phase as auth has not yet been enabled
 
     def test_scramsha_enabled_for_blockstore(self, blockstore_replica_set: MongoDB):
         blockstore_replica_set["spec"]["security"] = {
@@ -375,6 +376,9 @@ class TestOpsManagerWatchesBlockStoreUpdates:
         }
         blockstore_replica_set.update()
         blockstore_replica_set.assert_reaches_phase(Phase.Running)
+
+    def test_blockstore_user_was_added_to_om(self, blockstore_user: MongoDBUser):
+        blockstore_user.assert_reaches_phase(Phase.Updated)
 
     def test_om_failed_oplog_no_user_ref(self, ops_manager: MongoDBOpsManager):
         """ Waits until Ops manager is in failed state as blockstore doesn't have reference to the user"""

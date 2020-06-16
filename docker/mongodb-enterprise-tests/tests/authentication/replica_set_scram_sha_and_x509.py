@@ -2,6 +2,7 @@ import pytest
 
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongotester import ReplicaSetTester
+from kubetester.mongodb import MongoDB, Phase
 from kubetester.omtester import get_rs_cert_names
 from kubetester.automation_config_tester import AutomationConfigTester
 
@@ -66,6 +67,11 @@ class TestCreateMongoDBUser(KubernetesTester):
         pass
 
 
+@pytest.fixture(scope="module")
+def replica_set(namespace: str) -> MongoDB:
+    return MongoDB(MDB_RESOURCE, namespace).load()
+
+
 @pytest.mark.e2e_replica_set_scram_sha_and_x509
 class TestScramUserCanAuthenticate(KubernetesTester):
     def test_user_cannot_authenticate_with_incorrect_password(self):
@@ -86,22 +92,18 @@ class TestScramUserCanAuthenticate(KubernetesTester):
             auth_mechanism="SCRAM-SHA-256",
         )
 
+    def test_enable_x509(self, replica_set: MongoDB):
+        replica_set.load()
+        replica_set["spec"]["security"]["authentication"]["modes"].append("X509")
+        replica_set.update()
+        replica_set.assert_abandons_phase(Phase.Running, timeout=50)
+        replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
-@pytest.mark.e2e_replica_set_scram_sha_and_x509
-class TestEnableX509(KubernetesTester):
-    """
-    update:
-      file: replica-set-tls-scram-sha-256.yaml
-      patch: '[{"op":"replace","path":"/spec/security/authentication/modes", "value": ["X509", "SCRAM"]}]'
-      wait_until: in_running_state
-    """
-
-    # important note that no CSRs for the agents should have been created
-    def test_ops_manager_state_correctly_updated(self):
+    def test_automation_config_was_updated(self):
         tester = AutomationConfigTester(
             KubernetesTester.get_automation_config(), expected_users=3
         )
-        # when both scram and x509 are enabled, agents should be using scram
+        # when both agents.mode is set to SCRAM, X509 should not be used as agent auth
         tester.assert_authentication_mechanism_enabled(
             "MONGODB-X509", active_auth_mechanism=False
         )

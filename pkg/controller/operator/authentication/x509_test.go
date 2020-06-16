@@ -12,6 +12,8 @@ import (
 func TestX509EnableAgentAuthentication(t *testing.T) {
 	conn, ac := createConnectionAndAutomationConfig()
 	options := Options{
+		AgentMechanism:     "X509",
+		ClientCertificates: util.RequireClientCertificates,
 		UserOptions: UserOptions{
 			AutomationSubject: validSubject("automation"),
 			BackupSubject:     validSubject("backup"),
@@ -68,7 +70,7 @@ func TestX509_DisableAgentAuthentication(t *testing.T) {
 
 func TestX509_DeploymentConfigured(t *testing.T) {
 	conn, ac := createConnectionAndAutomationConfig()
-	assertDeploymentMechanismsConfigured(t, NewConnectionX509(conn, ac, Options{}))
+	assertDeploymentMechanismsConfigured(t, NewConnectionX509(conn, ac, Options{AgentMechanism: "SCRAM"}))
 	assert.Equal(t, ac.AgentSSL.CAFilePath, util.CAFilePathInContainer)
 }
 

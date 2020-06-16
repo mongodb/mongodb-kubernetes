@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
@@ -253,6 +255,40 @@ func toOmUser(spec mdbv1.MongoDBUserSpec, password string) (om.MongoDBUser, erro
 	return user, nil
 }
 
+// ensureAgentUsers makes sure that the correct agent users are present in the Automation Config.
+// it is not possible to assume the agent users are using the same authentication mechanism as the user being added
+func (r *MongoDBUserReconciler) ensureAgentUsers(ac *om.AutomationConfig, user mdbv1.MongoDBUser, log *zap.SugaredLogger) error {
+	mdb, err := r.getMongoDB(user)
+	if err != nil {
+		return fmt.Errorf("error reading MongoDB resource: %s", err)
+	}
+	log = log.With("MongoDB", mdb.ObjectKey())
+
+	// if we are dealing with X509 agent users, or ever had X509 agent users, the secret containing the subjects should exist
+	userOpts, err := r.readAgentSubjectsFromSecret(mdb.Namespace, log)
+	err = client.IgnoreNotFound(err)
+	if err != nil {
+		return fmt.Errorf("error reading agent subjects from secret: %s", err)
+	}
+
+	// determine the agent auth mechanism based on the MongoDB resource
+	currentMode := mdb.Spec.Security.GetAgentMechanism(ac.Auth.AutoAuthMechanism)
+	if currentMode == "" {
+		log.Infof("no authentication currently configured for resource, not ensuring agent users")
+		return nil
+	}
+
+	var mn authentication.MechanismName
+	if currentMode == util.X509 {
+		mn = authentication.MongoDBX509
+	} else if currentMode == util.SCRAM {
+		mn = authentication.ScramSha256
+	}
+
+	log.Debugf("ensuring agent users, using %s authentication", string(mn))
+	return authentication.EnsureAgentUsers(userOpts, ac, mn)
+}
+
 func (r *MongoDBUserReconciler) handleScramShaUser(user *mdbv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (res reconcile.Result, e error) {
 	// watch the password secret in order to trigger reconciliation if the
 	// password is updated
@@ -269,18 +305,20 @@ func (r *MongoDBUserReconciler) handleScramShaUser(user *mdbv1.MongoDBUser, conn
 		)
 	}
 
+	shouldRetry := false
 	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		if !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigScramSha256Option) && !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigScramSha1Option) {
+			shouldRetry = true
+			return fmt.Errorf("scram Sha has not yet been configured")
+		}
 
 		password, err := user.GetPassword(r.client)
 		if err != nil {
 			return err
 		}
 
-		// TODO: this can be removed once https://jira.mongodb.org/browse/CLOUDP-51116 is resolved
-		// The user.Namespace will not be used in SCRAMSHA context.
-		// No UserOptions are required when configuring SCRAM-SHA authentication
-		if err := authentication.EnsureAgentUsers(authentication.UserOptions{}, ac, authentication.ScramSha256); err != nil {
-			return err
+		if err := r.ensureAgentUsers(ac, *user, log); err != nil {
+			return fmt.Errorf("error ensuring agent users: %s", err)
 		}
 
 		auth := ac.Auth
@@ -298,6 +336,9 @@ func (r *MongoDBUserReconciler) handleScramShaUser(user *mdbv1.MongoDBUser, conn
 	}, log)
 
 	if err != nil {
+		if shouldRetry {
+			return r.updateStatus(user, workflow.Pending(err.Error()).WithRetry(10), log)
+		}
 		return r.updateStatus(user, workflow.Failed("error updating user %s", err), log)
 	}
 
@@ -328,16 +369,8 @@ func (r *MongoDBUserReconciler) handleX509User(user *mdbv1.MongoDBUser, mdb mdbv
 			return fmt.Errorf("x509 has not yet been configured")
 		}
 
-		if security.ShouldUseX509(currentAuthMode) {
-			// TODO: this can be removed once https://jira.mongodb.org/browse/CLOUDP-51116 is resolved
-
-			userOpts, err := r.readAgentSubjectsFromSecret(mdb.Namespace, log)
-			if err != nil {
-				return fmt.Errorf("error reading agent subjects from secret: %v", err)
-			}
-			if err := authentication.EnsureAgentUsers(userOpts, ac, authentication.MongoDBX509); err != nil {
-				return err
-			}
+		if err := r.ensureAgentUsers(ac, *user, log); err != nil {
+			return fmt.Errorf("error ensuring agent users: %s", err)
 		}
 
 		auth := ac.Auth
@@ -353,14 +386,13 @@ func (r *MongoDBUserReconciler) handleX509User(user *mdbv1.MongoDBUser, mdb mdbv
 		return nil
 	}, log)
 
-	if shouldRetry {
-		log.Info("x509 has not yet been configured")
-		return retry()
-	}
 	if err != nil {
+		if shouldRetry {
+			return r.updateStatus(user, workflow.Pending(err.Error()).WithRetry(10), log)
+		}
 		return r.updateStatus(user, workflow.Failed("error updating user %s", err), log)
 	}
 
-	log.Infof("Finished reconciliation for MongoDBUser!")
+	log.Infow("Finished reconciliation for MongoDBUser!")
 	return r.updateStatus(user, workflow.OK(), log)
 }

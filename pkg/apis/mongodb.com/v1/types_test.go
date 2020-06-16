@@ -34,17 +34,20 @@ func TestEnsureSecurity_EmptySpec(t *testing.T) {
 func TestGetAgentAuthentication(t *testing.T) {
 	sec := newSecurity()
 	sec.Authentication = newAuthentication()
+	sec.Authentication.Agents.Mode = "SCRAM"
 	assert.Len(t, sec.Authentication.Modes, 0)
-	assert.Empty(t, sec.GetAgentMechanism())
+	assert.Empty(t, sec.GetAgentMechanism(""))
+	assert.Equal(t, "", sec.GetAgentMechanism("MONGODB-X509"))
 
+	sec.Authentication.Enabled = true
 	sec.Authentication.Modes = append(sec.Authentication.Modes, util.X509)
-	assert.Len(t, sec.Authentication.Modes, 1)
-	assert.Equal(t, util.X509, sec.GetAgentMechanism())
+	assert.Equal(t, util.X509, sec.GetAgentMechanism("MONGODB-X509"), "if x509 was enabled before, it needs to stay as is")
 
 	sec.Authentication.Modes = append(sec.Authentication.Modes, util.SCRAM)
+	assert.Equal(t, util.SCRAM, sec.GetAgentMechanism("SCRAM-SHA-256"), "if scram was enabled, scram will be chosen")
 
-	assert.Len(t, sec.Authentication.Modes, 2)
-	assert.Equal(t, util.SCRAM, sec.GetAgentMechanism())
+	sec.Authentication.Agents.Mode = "X509"
+	assert.Equal(t, util.X509, sec.GetAgentMechanism("SCRAM-SHA-256"), "transitioning from SCRAM -> X509 is allowed")
 }
 
 func TestMinimumMajorVersion(t *testing.T) {

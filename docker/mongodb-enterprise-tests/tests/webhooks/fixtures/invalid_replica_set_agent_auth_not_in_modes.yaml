@@ -2,20 +2,20 @@
 apiVersion: mongodb.com/v1
 kind: MongoDB
 metadata:
-  name: my-replica-set-scram-sha-1
+  name: test-rs-invalid-agent-auth-not-in-modes
 spec:
   members: 3
-  # versions < 4.0 will use SCRAM-SHA-1
-  # pre 3.6.7 versions might hit https://jira.mongodb.org/browse/SERVER-32639
-  version: 3.6.7
+  version: 4.0.12
   type: ReplicaSet
   project: my-project
   credentials: my-credentials
   logLevel: DEBUG
+
   persistent: false
+
   security:
     authentication:
       agents:
-        mode: SCRAM
+        mode: X509
       enabled: true
       modes: ["SCRAM"]

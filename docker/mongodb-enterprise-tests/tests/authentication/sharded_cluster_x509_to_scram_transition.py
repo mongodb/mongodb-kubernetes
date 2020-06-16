@@ -72,15 +72,12 @@ def test_x509_is_still_configured():
 
 @pytest.mark.e2e_sharded_cluster_x509_to_scram_transition
 class TestShardedClusterDisableAuthentication(KubernetesTester):
-    """
-    description: |
-      Disables X509 authentication for the Sharded Cluster
-    update:
-      patch: '[{"op":"replace","path":"/spec/security/authentication/enabled", "value" : false }]'
-      file: sharded-cluster-x509-to-scram-256.yaml
-      wait_until: in_running_state
-      timeout: 720
-    """
+    def test_disable_auth(self, sharded_cluster: MongoDB):
+        sharded_cluster.load()
+        sharded_cluster["spec"]["security"]["authentication"]["enabled"] = False
+        sharded_cluster.update()
+        sharded_cluster.assert_abandons_phase(Phase.Running)
+        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=900)
 
     def test_assert_connectivity(self):
         ShardedClusterTester(MDB_RESOURCE, 1, ssl=True).assert_connectivity()
@@ -92,16 +89,19 @@ class TestShardedClusterDisableAuthentication(KubernetesTester):
 
 
 @pytest.mark.e2e_sharded_cluster_x509_to_scram_transition
-class TestCanEnableScramSha256(KubernetesTester):
-    """
-    description: |
-      Enables SCRAM-SHA-256 authentication for the Sharded Cluster
-    update:
-      patch: '[{"op":"replace","path":"/spec/security/authentication/enabled", "value" : true }, {"op":"replace","path":"/spec/security/authentication/modes", "value" : ["SCRAM"] }]'
-      file: sharded-cluster-x509-to-scram-256.yaml
-      wait_until: in_running_state
-      timeout: 1200
-    """
+class TestCanEnableScramSha256:
+    def test_can_enable_scram_sha_256(self, sharded_cluster: MongoDB):
+        sharded_cluster.load()
+        sharded_cluster["spec"]["security"]["authentication"]["enabled"] = True
+        sharded_cluster["spec"]["security"]["authentication"]["modes"] = [
+            "SCRAM",
+        ]
+        sharded_cluster["spec"]["security"]["authentication"]["agents"][
+            "mode"
+        ] = "SCRAM"
+        sharded_cluster.update()
+        sharded_cluster.assert_abandons_phase(Phase.Running, timeout=100)
+        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1200)
 
     def test_assert_connectivity(self):
         ShardedClusterTester(MDB_RESOURCE, 1, ssl=True).assert_connectivity(attempts=25)

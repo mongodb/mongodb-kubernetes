@@ -8,6 +8,8 @@ package v1
 import (
 	"errors"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -66,11 +68,39 @@ func deploymentsMustHaveTLSInX509Env(ms MongoDbSpec) ValidationResult {
 	return validationSuccess()
 }
 
+func deploymentsMustHaveAgentModesIfAuthIsEnabled(ms MongoDbSpec) ValidationResult {
+	authSpec := ms.Security.Authentication
+	if authSpec == nil {
+		return validationSuccess()
+	}
+	if authSpec.Enabled && len(authSpec.Modes) == 0 {
+		return validationError("Cannot enable authentication without modes specified")
+	}
+	return validationSuccess()
+}
+
+func deploymentsMustHaveAgentModeInAuthModes(ms MongoDbSpec) ValidationResult {
+	authSpec := ms.Security.Authentication
+	if authSpec == nil {
+		return validationSuccess()
+	}
+	if !authSpec.Enabled {
+		return validationSuccess()
+	}
+
+	if authSpec.Agents.Mode != "" && !stringutil.Contains(authSpec.Modes, authSpec.Agents.Mode) {
+		return validationError("Cannot configure an Agent authentication mechanism that is not specified in authentication modes")
+	}
+	return validationSuccess()
+}
+
 func (m MongoDB) RunValidations() []ValidationResult {
 	validators := []func(ms MongoDbSpec) ValidationResult{
 		replicaSetHorizonsRequireTLS,
 		horizonsMustEqualMembers,
 		deploymentsMustHaveTLSInX509Env,
+		deploymentsMustHaveAgentModesIfAuthIsEnabled,
+		deploymentsMustHaveAgentModeInAuthModes,
 	}
 
 	var validationResults []ValidationResult

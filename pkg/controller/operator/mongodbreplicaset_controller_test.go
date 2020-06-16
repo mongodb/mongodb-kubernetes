@@ -362,6 +362,18 @@ func (b *ReplicaSetBuilder) EnableAuth() *ReplicaSetBuilder {
 	return b
 }
 
+func (b *ReplicaSetBuilder) AgentAuth(mode string) *ReplicaSetBuilder {
+	if b.Spec.Security == nil {
+		b.Spec.Security = &mdbv1.Security{}
+	}
+
+	if b.Spec.Security.Authentication == nil {
+		b.Spec.Security.Authentication = &mdbv1.Authentication{}
+	}
+	b.Spec.Security.Authentication.Agents = mdbv1.AgentAuthentication{Mode: mode}
+	return b
+}
+
 func (b *ReplicaSetBuilder) SetAuthModes(modes []string) *ReplicaSetBuilder {
 	b.Spec.Security.Authentication.Modes = modes
 	return b

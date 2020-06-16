@@ -178,6 +178,14 @@ spec:
                 authentication:
                   type: object
                   properties:
+                    agents:
+                      type: object
+                      properties:
+                        mode:
+                          type: string
+                          enum: ["SCRAM", "X509"]
+                      required:
+                        - mode
                     enabled:
                       type: boolean
                     modes:

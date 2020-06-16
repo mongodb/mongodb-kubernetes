@@ -588,7 +588,7 @@ func (s *StatefulSetHelper) needToPublishStateFirst(log *zap.SugaredLogger) bool
 		return true
 	}
 
-	if s.Security.GetAgentMechanism() != util.X509 && volumeMountWithNameExists(volumeMounts, util.AgentSecretName) {
+	if s.Security.GetAgentMechanism(s.CurrentAgentAuthMechanism) != util.X509 && volumeMountWithNameExists(volumeMounts, util.AgentSecretName) {
 		log.Debug("About to set `project.AuthMode` to empty. automationConfig needs to be updated first")
 		return true
 	}

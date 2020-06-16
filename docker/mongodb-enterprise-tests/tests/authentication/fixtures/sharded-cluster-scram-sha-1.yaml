@@ -16,5 +16,7 @@ spec:
   persistent: false
   security:
     authentication:
+      agents:
+        mode: SCRAM
       enabled: true
       modes: ["SCRAM"]

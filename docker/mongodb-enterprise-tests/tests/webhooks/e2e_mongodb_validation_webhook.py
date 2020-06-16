@@ -35,6 +35,26 @@ class TestWebhookValidation(KubernetesTester):
             exception_reason="Cannot have a non-tls deployment when x509 authentication is enabled",
         )
 
+    def test_auth_without_modes(self):
+        resource = yaml.safe_load(
+            open(yaml_fixture("invalid_replica_set_agent_auth_not_in_modes.yaml"))
+        )
+        self.create_custom_resource_from_object(
+            self.get_namespace(),
+            resource,
+            exception_reason="Cannot configure an Agent authentication mechanism that is not specified in authentication modes",
+        )
+
+    def test_agent_auth_enabled_with_no_modes(self):
+        resource = yaml.safe_load(
+            open(yaml_fixture("invalid_replica_set_auth_no_modes.yaml"))
+        )
+        self.create_custom_resource_from_object(
+            self.get_namespace(),
+            resource,
+            exception_reason="Cannot enable authentication without modes specified",
+        )
+
     def test_horizons_without_tls_validates_without_webhook(self):
         self._assert_validates_without_webhook(
             "mdbpolicy.mongodb.com",

@@ -32,10 +32,11 @@ func TestSettingUserStatus_ToPending_IsFilteredOut(t *testing.T) {
 
 func TestUserIsAdded_ToAutomationConfig_OnSuccessfulReconciliation(t *testing.T) {
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
-	reconciler, client := defaultUserReconciler(user)
+	reconciler, client := userReconcilerWithAuthMode(user, util.AutomationConfigScramSha256Option)
 
 	// initialize resources required for the tests
-	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().SetName("my-rs").Build())
+	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().EnableAuth().AgentAuth("SCRAM").
+		SetName("my-rs").Build())
 	createUserControllerConfigMap(client)
 	createPasswordSecret(client, user.Spec.PasswordSecretKeyRef, "password")
 
@@ -60,10 +61,11 @@ func TestUserIsAdded_ToAutomationConfig_OnSuccessfulReconciliation(t *testing.T)
 
 func TestUserIsUpdated_IfNonIdentifierFieldIsUpdated_OnSuccessfulReconciliation(t *testing.T) {
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
-	reconciler, client := defaultUserReconciler(user)
+	reconciler, client := userReconcilerWithAuthMode(user, util.AutomationConfigScramSha256Option)
 
 	// initialize resources required for the tests
-	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().SetName("my-rs").Build())
+	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().SetName("my-rs").EnableAuth().AgentAuth("SCRAM").
+		Build())
 	createUserControllerConfigMap(client)
 	createPasswordSecret(client, user.Spec.PasswordSecretKeyRef, "password")
 
@@ -93,10 +95,10 @@ func TestUserIsUpdated_IfNonIdentifierFieldIsUpdated_OnSuccessfulReconciliation(
 
 func TestUserIsReplaced_IfIdentifierFieldsAreChanged_OnSuccessfulReconciliation(t *testing.T) {
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
-	reconciler, client := defaultUserReconciler(user)
+	reconciler, client := userReconcilerWithAuthMode(user, util.AutomationConfigScramSha256Option)
 
 	// initialize resources required for the tests
-	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().SetName("my-rs").Build())
+	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().SetName("my-rs").EnableAuth().AgentAuth("SCRAM").Build())
 	createUserControllerConfigMap(client)
 	createPasswordSecret(client, user.Spec.PasswordSecretKeyRef, "password")
 
@@ -182,13 +184,7 @@ func TestRetriesReconciliation_IfPasswordSecretExists_ButHasNoPassword(t *testin
 
 func TestX509User_DoesntRequirePassword(t *testing.T) {
 	user := DefaultMongoDBUserBuilder().SetDatabase(util.X509Db).Build()
-	reconciler, client := defaultUserReconciler(user)
-	reconciler.omConnectionFactory = func(ctx *om.OMContext) om.Connection {
-		connection := om.NewEmptyMockedOmConnectionWithAutomationConfigChanges(ctx, func(ac *om.AutomationConfig) {
-			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option)
-		})
-		return connection
-	}
+	reconciler, client := userReconcilerWithAuthMode(user, util.AutomationConfigX509Option)
 
 	// initialize resources required for x590 tests
 	createMongoDBForUser(client, *user)
@@ -210,10 +206,10 @@ func TestX509User_DoesntRequirePassword(t *testing.T) {
 
 func TestScramShaUserReconciliation_CreatesAgentUsers(t *testing.T) {
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
-	reconciler, client := defaultUserReconciler(user)
+	reconciler, client := userReconcilerWithAuthMode(user, util.AutomationConfigScramSha256Option)
 
 	// initialize resources required for the tests
-	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().SetName("my-rs").Build())
+	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().AgentAuth("SCRAM").EnableAuth().SetName("my-rs").Build())
 	createUserControllerConfigMap(client)
 	createPasswordSecret(client, user.Spec.PasswordSecretKeyRef, "password")
 
@@ -240,7 +236,7 @@ func TestX509UserReconciliation_CreatesAgentUsers(t *testing.T) {
 	}
 
 	// initialize resources required for x590 tests
-	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().EnableAuth().SetAuthModes([]string{"X509"}).SetName("my-rs").Build())
+	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().EnableAuth().SetAuthModes([]string{"X509"}).AgentAuth("X509").SetName("my-rs").Build())
 	createX509UserControllerConfigMap(client)
 	approveAgentCSRs(client) // pre-approved agent CSRs for x509 authentication
 	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
@@ -308,6 +304,18 @@ func defaultUserReconciler(user *mdbv1.MongoDBUser) (*MongoDBUserReconciler, *mo
 	manager.Client.AddDefaultMdbConfigResources()
 
 	return newMongoDBUserReconciler(manager, om.NewEmptyMockedOmConnection), manager.Client
+}
+
+func userReconcilerWithAuthMode(user *mdbv1.MongoDBUser, authMode string) (*MongoDBUserReconciler, *mock.MockedClient) {
+	manager := mock.NewManager(user)
+	manager.Client.AddDefaultMdbConfigResources()
+	reconciler := newMongoDBUserReconciler(manager, func(context *om.OMContext) om.Connection {
+		connection := om.NewEmptyMockedOmConnectionWithAutomationConfigChanges(context, func(ac *om.AutomationConfig) {
+			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, authMode)
+		})
+		return connection
+	})
+	return reconciler, manager.Client
 }
 
 type MongoDBUserBuilder struct {

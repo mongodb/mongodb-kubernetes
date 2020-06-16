@@ -40,7 +40,7 @@ func (x ConnectionX509) EnableAgentAuthentication(opts Options, log *zap.Sugared
 		ac.AgentSSL = &om.AgentSSL{
 			AutoPEMKeyFilePath:    util.AutomationAgentPemFilePath,
 			CAFilePath:            util.CAFilePathInContainer,
-			ClientCertificateMode: util.RequireClientCertificates,
+			ClientCertificateMode: opts.ClientCertificates,
 		}
 
 		// we want to ensure we don't have any SCRAM-1/256 agent users

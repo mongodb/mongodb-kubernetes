@@ -31,7 +31,7 @@ const (
 
 // ComputeScramShaCreds takes a plain text password and a specified mechanism name and generates
 // the ScramShaCreds which will be embedded into a MongoDBUser.
-func ComputeScramShaCreds(username, password string, salt []byte, name mechanismName) (*om.ScramShaCreds, error) {
+func ComputeScramShaCreds(username, password string, salt []byte, name MechanismName) (*om.ScramShaCreds, error) {
 	var hashConstructor func() hash.Hash
 	iterations := 0
 	if name == ScramSha256 {

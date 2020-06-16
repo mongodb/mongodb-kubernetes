@@ -122,6 +122,7 @@ const (
 	AgentSecretName                   = "agent-certs"
 	AutomationConfigX509Option        = "MONGODB-X509"
 	AutomationConfigScramSha256Option = "SCRAM-SHA-256"
+	AutomationConfigScramSha1Option   = "MONGODB-CR"
 	AutomationAgentUserName           = "mms-automation-agent"
 	RequireClientCertificates         = "REQUIRE"
 	OptionalClientCertficates         = "OPTIONAL"

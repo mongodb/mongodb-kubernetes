@@ -724,11 +724,18 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 		return workflow.Failed(err.Error()), false
 	}
 
+	clientCerts := util.OptionalClientCertficates
+	if len(mdb.Spec.Security.Authentication.Modes) == 1 && stringutil.Contains(mdb.Spec.Security.Authentication.Modes, util.X509) {
+		clientCerts = util.RequireClientCertificates
+	}
+
 	authOpts := authentication.Options{
 		MinimumMajorVersion: mdb.Spec.MinimumMajorVersion(),
 		Mechanisms:          mdb.Spec.Security.Authentication.Modes,
 		ProcessNames:        processNames,
 		AuthoritativeSet:    !mdb.Spec.Security.Authentication.IgnoreUnknownUsers,
+		AgentMechanism:      mdb.Spec.Security.GetAgentMechanism(ac.Auth.AutoAuthMechanism),
+		ClientCertificates:  clientCerts,
 	}
 
 	log.Debugf("Using authentication options %+v", authOpts)
@@ -743,7 +750,6 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 				return workflow.Failed("error configuring agent subjects: %v", err), false
 			}
 		}
-
 		if err := authentication.Configure(conn, authOpts, log); err != nil {
 			return workflow.Failed(err.Error()), false
 		}
@@ -792,7 +798,7 @@ func (r *ReconcileCommonController) readAgentSubjectsFromSecret(namespace string
 
 	numAgentCerts := len(agentCerts)
 	if numAgentCerts != NumAgents && numAgentCerts != 1 {
-		return userOpts, fmt.Errorf("must provided either 1 or 3 agent certificatesm found %d", numAgentCerts)
+		return userOpts, fmt.Errorf("must provided either 1 or 3 agent certificates found %d", numAgentCerts)
 	}
 
 	var automationAgentCert string

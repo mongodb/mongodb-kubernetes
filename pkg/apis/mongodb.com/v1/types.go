@@ -310,34 +310,34 @@ type Security struct {
 // GetAgentMechanism returns the authentication mechanism that the agents will be using.
 // The agents will use X509 if it is the only mechanism specified, otherwise they will use SCRAM if specified
 // and no auth if no mechanisms exist.
-func (s *Security) GetAgentMechanism() string {
-
+func (s *Security) GetAgentMechanism(currentMechanism string) string {
 	if s == nil || s.Authentication == nil {
 		return ""
 	}
-
 	auth := s.Authentication
-	if len(auth.Modes) == 0 {
+	if !s.Authentication.Enabled {
 		return ""
 	}
 
-	if len(auth.Modes) == 1 && auth.Modes[0] == util.X509 {
+	if currentMechanism == "MONGODB-X509" {
 		return util.X509
 	}
 
-	if stringutil.Contains(auth.Modes, util.SCRAM) {
-		return util.SCRAM
+	if auth.Agents.Mode == "" {
+		if len(s.Authentication.Modes) == 0 {
+			return ""
+		}
+		return s.Authentication.Modes[0]
 	}
 
-	return ""
+	return auth.Agents.Mode
 }
 
 // ShouldUseX509 determines if the deployment should have X509 authentication configured
 // whether it was configured explicitly or if it required as it would be performing
 // an illegal transition otherwise.
 func (s *Security) ShouldUseX509(currentAgentAuthMode string) bool {
-	mechanism := s.GetAgentMechanism()
-	return mechanism == util.X509 || currentAgentAuthMode == "MONGODB-X509"
+	return s.GetAgentMechanism(currentAgentAuthMode) == util.X509
 }
 
 func (s *Security) GetInternalClusterAuthenticationMode() string {
@@ -361,6 +361,13 @@ type Authentication struct {
 	InternalCluster string   `json:"internalCluster,omitempty"`
 	// IgnoreUnknownUsers maps to the inverse of auth.authoritativeSet
 	IgnoreUnknownUsers bool `json:"ignoreUnknownUsers,omitempty"`
+	// Agents contains authentication configuration properties for the agents
+	Agents AgentAuthentication `json:"agents"`
+}
+
+type AgentAuthentication struct {
+	// Mode is the desired Authentication mode that the agents will use
+	Mode string `json:"mode"`
 }
 
 // IsX509Enabled determines if X509 is to be enabled at the project level

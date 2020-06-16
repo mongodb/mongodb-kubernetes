@@ -23,6 +23,7 @@ func TestConfigureScramSha1(t *testing.T) {
 		AuthoritativeSet:    true,
 		ProcessNames:        []string{"process-1", "process-2", "process-3"},
 		Mechanisms:          []string{"SCRAM"},
+		AgentMechanism:      "SCRAM",
 	}
 
 	if err := Configure(conn, opts, zap.S()); err != nil {
@@ -50,6 +51,7 @@ func TestConfigureScramSha256(t *testing.T) {
 		AuthoritativeSet:    true,
 		ProcessNames:        []string{"process-1", "process-2", "process-3"},
 		Mechanisms:          []string{"SCRAM"},
+		AgentMechanism:      "SCRAM",
 	}
 
 	if err := Configure(conn, opts, zap.S()); err != nil {
@@ -76,6 +78,8 @@ func TestConfigureX509(t *testing.T) {
 		AuthoritativeSet:    true,
 		ProcessNames:        []string{"process-1", "process-2", "process-3"},
 		Mechanisms:          []string{"X509"},
+		AgentMechanism:      "X509",
+		ClientCertificates:  util.RequireClientCertificates,
 		UserOptions: UserOptions{
 			AutomationSubject: validSubject("automation"),
 			BackupSubject:     validSubject("backup"),
@@ -107,6 +111,7 @@ func TestConfigureMultipleAuthenticationMechanisms(t *testing.T) {
 		AuthoritativeSet:    true,
 		ProcessNames:        []string{"process-1", "process-2", "process-3"},
 		Mechanisms:          []string{"X509", "SCRAM"},
+		AgentMechanism:      "SCRAM",
 		UserOptions: UserOptions{
 			AutomationSubject: validSubject("automation"),
 			BackupSubject:     validSubject("backup"),
@@ -144,6 +149,7 @@ func TestScramSha1MongoDBUpgrade(t *testing.T) {
 		AuthoritativeSet:    true,
 		ProcessNames:        []string{"process-1", "process-2", "process-3"},
 		Mechanisms:          []string{"SCRAM"},
+		AgentMechanism:      "SCRAM",
 	}
 
 	if err := Configure(conn, opts, zap.S()); err != nil {
@@ -164,6 +170,7 @@ func TestScramSha1MongoDBUpgrade(t *testing.T) {
 		AuthoritativeSet:    true,
 		ProcessNames:        []string{"process-1", "process-2", "process-3"},
 		Mechanisms:          []string{"SCRAM"},
+		AgentMechanism:      "SCRAM",
 	}
 
 	if err := Configure(conn, opts, zap.S()); err != nil {
@@ -189,6 +196,7 @@ func TestConfigureAndDisable(t *testing.T) {
 		AuthoritativeSet:    true,
 		ProcessNames:        []string{"process-1", "process-2", "process-3"},
 		Mechanisms:          []string{"SCRAM"},
+		AgentMechanism:      "SCRAM",
 		UserOptions: UserOptions{
 			AutomationSubject: validSubject("automation"),
 			BackupSubject:     validSubject("backup"),
@@ -252,17 +260,17 @@ func TestGetCorrectAuthMechanismFromVersion(t *testing.T) {
 	mechanismNames := getMechanismNames(ac, 3, []string{"X509"})
 
 	assert.Len(t, mechanismNames, 1)
-	assert.Contains(t, mechanismNames, mechanismName("MONGODB-X509"))
+	assert.Contains(t, mechanismNames, MechanismName("MONGODB-X509"))
 
 	mechanismNames = getMechanismNames(ac, 3, []string{"SCRAM", "X509"})
 
-	assert.Contains(t, mechanismNames, mechanismName("MONGODB-CR"))
-	assert.Contains(t, mechanismNames, mechanismName("MONGODB-X509"))
+	assert.Contains(t, mechanismNames, MechanismName("MONGODB-CR"))
+	assert.Contains(t, mechanismNames, MechanismName("MONGODB-X509"))
 
 	mechanismNames = getMechanismNames(ac, 4, []string{"SCRAM", "X509"})
 
-	assert.Contains(t, mechanismNames, mechanismName("SCRAM-SHA-256"))
-	assert.Contains(t, mechanismNames, mechanismName("MONGODB-X509"))
+	assert.Contains(t, mechanismNames, MechanismName("SCRAM-SHA-256"))
+	assert.Contains(t, mechanismNames, MechanismName("MONGODB-X509"))
 
 	// enable MONGODB-CR
 	ac.Auth.AutoAuthMechanism = "MONGODB-CR"
@@ -270,8 +278,8 @@ func TestGetCorrectAuthMechanismFromVersion(t *testing.T) {
 
 	mechanismNames = getMechanismNames(ac, 4, []string{"SCRAM", "X509"})
 
-	assert.Contains(t, mechanismNames, mechanismName("MONGODB-CR"))
-	assert.Contains(t, mechanismNames, mechanismName("MONGODB-X509"))
+	assert.Contains(t, mechanismNames, MechanismName("MONGODB-CR"))
+	assert.Contains(t, mechanismNames, MechanismName("MONGODB-X509"))
 }
 
 func TestOneAgentOption(t *testing.T) {
@@ -283,6 +291,7 @@ func TestOneAgentOption(t *testing.T) {
 		ProcessNames:        []string{"process-1", "process-2", "process-3"},
 		Mechanisms:          []string{"SCRAM"},
 		OneAgent:            true,
+		AgentMechanism:      "SCRAM",
 	}
 
 	if err := Configure(conn, opts, zap.S()); err != nil {
