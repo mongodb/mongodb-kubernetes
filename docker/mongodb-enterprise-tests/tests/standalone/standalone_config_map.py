@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import pytest
 import time
 from kubernetes import client
@@ -17,10 +19,14 @@ def standalone(namespace: str) -> MongoDB:
 
 @fixture(scope="module")
 def new_project_name(standalone: MongoDB) -> str:
-    yield KubernetesTester.random_k8s_name()
+    current_day_of_year = int(datetime.now().strftime("%j"))
+    # Aligning the name with our common namespace (and project) convention so that GC process could remove it
+    # if it's left for some reasons
+    prefix = f"a-{current_day_of_year}-"
+    yield KubernetesTester.random_k8s_name(prefix)
     # Cleaning the new group in any case - the updated config map will be used to get the new name
     print("\nRemoving the generated group from Ops Manager/Cloud Manager")
-    standalone.get_om_tester().api_remove_group()
+    print(standalone.get_om_tester().api_remove_group())
 
 
 @pytest.mark.e2e_standalone_config_map

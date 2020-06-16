@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-
-from typing import List, Tuple
+import os
 import random
 import re
-import os
-import sys
-import time
+from datetime import datetime
+from typing import List, Tuple, Dict
 
 import requests
+import sys
+import time
 from requests.auth import HTTPDigestAuth
-
 
 ALLOWED_OPS_MANAGER_VERSION = "cloud_qa"
 
@@ -127,6 +126,32 @@ def get_group_id_by_name(name: str, retry=3) -> str:
     return groups.json()["id"]
 
 
+def was_created_before(group_name: str, age: int) -> bool:
+    try:
+        group_day_of_year = int(
+            group_name.split("-")[1]
+        )  # a-147-yr3jzt3v7bsltaowzc2lz -> 147
+        current_day_of_year = int(datetime.now().strftime("%j"))
+    except Exception as e:
+        print(e)
+        return False
+    return group_day_of_year + age <= current_day_of_year
+
+
+def get_projects_oder_than(org_id: str, age: int = 0) -> List[Dict]:
+    """Returns the project ids which are older than 'age' days ago """
+    base_url = os.getenv(BASE_URL)
+    url = "{}/api/public/v1.0/orgs/{}/groups".format(base_url, org_id)
+
+    groups = requests.get(url, auth=get_auth())
+
+    json = groups.json()
+
+    return [
+        group for group in json["results"] if was_created_before(group["name"], age)
+    ]
+
+
 def remove_group_by_id(group_id: str, retry=3):
     """Removes a group with a given Id."""
     base_url = os.getenv(BASE_URL)
@@ -213,6 +238,15 @@ def configure():
         fd.write("export OM_EXTERNALLY_CONFIGURED=true\n")
 
 
+def clean_unused_projects(org_id: str):
+    """ Iterates over all existing projects in the organization and removes the leftovers """
+    projects = get_projects_oder_than(org_id, age=3)
+
+    for project in projects:
+        print("Removing the project {} ({})".format(project["id"], project["name"]))
+        remove_group_by_id(project["id"])
+
+
 def unconfigure():
     """Tries to remove the project and API Key from Cloud-QA"""
     env = read_env_file()
@@ -233,6 +267,8 @@ def unconfigure():
         delete_api_key(org, key_id)
     except Exception as e:
         print("Got an exception trying to remove Api Key", e)
+
+    clean_unused_projects(org)
 
 
 def argv_error() -> int:
