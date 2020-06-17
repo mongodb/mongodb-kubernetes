@@ -40,7 +40,6 @@ class TestShardedClusterCreation(KubernetesTester):
 
     def test_ops_manager_state_correctly_updated(self):
         tester = AutomationConfigTester(KubernetesTester.get_automation_config())
-        tester.assert_authentication_mechanism_enabled("MONGODB-X509")
         tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
         tester.assert_authentication_enabled()
 
@@ -111,7 +110,7 @@ class TestEnableX509(KubernetesTester):
         tester.assert_authentication_mechanism_enabled(
             "MONGODB-X509", active_auth_mechanism=False
         )
-        tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256",)
+        tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
         tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=2)
 
 
