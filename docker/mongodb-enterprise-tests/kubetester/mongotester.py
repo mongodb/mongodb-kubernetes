@@ -180,10 +180,12 @@ class StandaloneTester(MongoTester):
         srv: bool = False,
         insecure=True,
         ca_path: Optional[str] = None,
+        namespace: Optional[str] = None,
     ):
-        self.cnx_string = build_mongodb_connection_uri(
-            mdb_resource_name, KubernetesTester.get_namespace(), 1
-        )
+        if namespace is None:
+            namespace = KubernetesTester.get_namespace()
+
+        self.cnx_string = build_mongodb_connection_uri(mdb_resource_name, namespace, 1)
         super().__init__(self.cnx_string, ssl, insecure, ca_path)
 
 
@@ -196,15 +198,16 @@ class ReplicaSetTester(MongoTester):
         srv: bool = False,
         insecure=True,
         ca_path: Optional[str] = None,
+        namespace: Optional[str] = None,
     ):
+        if namespace is None:
+            # backward compatibility with docstring tests
+            namespace = KubernetesTester.get_namespace()
+
         self.replicas_count = replicas_count
 
         self.cnx_string = build_mongodb_connection_uri(
-            mdb_resource_name,
-            KubernetesTester.get_namespace(),
-            replicas_count,
-            servicename=None,
-            srv=srv,
+            mdb_resource_name, namespace, replicas_count, servicename=None, srv=srv,
         )
 
         super().__init__(self.cnx_string, ssl, insecure, ca_path)
@@ -237,16 +240,17 @@ class ShardedClusterTester(MongoTester):
         srv: bool = False,
         insecure=True,
         ca_path: Optional[str] = None,
+        namespace: Optional[str] = None,
     ):
         mdb_name = mdb_resource_name + "-mongos"
         servicename = mdb_resource_name + "-svc"
 
+        if namespace is None:
+            # backward compatibility with docstring tests
+            namespace = KubernetesTester.get_namespace()
+
         self.cnx_string = build_mongodb_connection_uri(
-            mdb_name,
-            KubernetesTester.get_namespace(),
-            mongos_count,
-            servicename,
-            srv=srv,
+            mdb_name, namespace, mongos_count, servicename, srv=srv,
         )
         super().__init__(self.cnx_string, ssl, insecure, ca_path)
 

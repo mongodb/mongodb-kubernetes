@@ -14,7 +14,7 @@ def helm_template(
     command_args = _create_helm_args(helm_args, helm_options)
 
     if templates is not None:
-        command_args.append("-x")
+        command_args.append("--show-only")
         command_args.append(templates)
 
     args = ("helm", "template", *(command_args), helm_chart_name)

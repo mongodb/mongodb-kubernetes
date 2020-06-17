@@ -4,6 +4,8 @@ from typing import Optional, Dict, Tuple, List
 
 import time
 from kubeobject import CustomObject
+from kubernetes import client
+
 from kubetester.kubetester import KubernetesTester, build_host_fqdn
 from kubetester.omtester import OMTester, OMContext
 
@@ -107,6 +109,7 @@ class MongoDB(CustomObject, MongoDBCommon):
                 self.is_tls_enabled(),
                 insecure,
                 ca_path,
+                namespace=self.namespace,
             )
         elif self.type == "ShardedCluster":
             return ShardedClusterTester(
@@ -115,9 +118,16 @@ class MongoDB(CustomObject, MongoDBCommon):
                 self.is_tls_enabled(),
                 insecure,
                 ca_path,
+                namespace=self.namespace,
             )
         elif self.type == "Standalone":
-            return StandaloneTester(self.name, self.is_tls_enabled(), insecure, ca_path)
+            return StandaloneTester(
+                self.name,
+                self.is_tls_enabled(),
+                insecure,
+                ca_path,
+                namespace=self.namespace,
+            )
 
     def assert_connectivity(self, insecure=True, ca_path: Optional[str] = None):
         return self.tester(insecure, ca_path).assert_connectivity()
@@ -136,7 +146,11 @@ class MongoDB(CustomObject, MongoDBCommon):
 
         self["spec"]["opsManager"]["configMapRef"][
             "name"
-        ] = om.get_or_create_mongodb_connection_config_map(self.name, project_name)
+        ] = om.get_or_create_mongodb_connection_config_map(
+            self.name, project_name, self.namespace
+        )
+        # Note that if the MongoDB object is created in a different namespace than the Operator
+        # then the secret needs to be copied there manually
         self["spec"]["credentials"] = om.api_key_secret()
         return self
 
@@ -164,6 +178,11 @@ class MongoDB(CustomObject, MongoDBCommon):
             )
             for idx in range(self.get_members())
         ]
+
+    def read_statefulset(self) -> client.V1StatefulSet:
+        return client.AppsV1Api().read_namespaced_stateful_set(
+            self.name, self.namespace
+        )
 
     def mongo_uri(
         self, user_name: Optional[str] = None, password: Optional[str] = None

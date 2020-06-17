@@ -90,7 +90,6 @@ def patch_from_yaml_single_item(k8s_client, yml_object, namespace="default", **k
     namespaced = hasattr(k8s_api, "{}_namespaced_{}".format("create", kind))
     url_path = get_url_path(namespaced, method)
 
-    print("{}".format(url_path.format(kind)))
     if namespaced:
         # Note that patch the deployment can result in
         # "Invalid value: \"\": may not be specified when `value` is not empty","field":"spec.template.spec.containers[0].env[1].valueFrom"

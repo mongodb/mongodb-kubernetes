@@ -9,9 +9,8 @@ from typing import List, Optional, Dict
 from kubeobject import CustomObject
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.kubetester import KubernetesTester, build_list_of_hosts, decode_secret
+from kubetester.kubetester import KubernetesTester, build_list_of_hosts
 from kubetester.mongodb import MongoDBCommon, Phase, in_desired_state, MongoDB, get_pods
 from kubetester.mongotester import ReplicaSetTester
 from kubetester.omtester import OMTester, OMContext
@@ -138,9 +137,14 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             self.name + "-gen-key", self.namespace
         )
 
-    def read_api_key_secret(self) -> client.V1Secret:
+    def read_api_key_secret(self, namespace=None) -> client.V1Secret:
+        """ Reads the API key secret for the global admin created by the Operator. Note, that the secret is
+        located in the Operator namespace - not Ops Manager one, so the 'namespace' parameter must be passed
+        if the Ops Manager is installed in a separate namespace """
+        if namespace is None:
+            namespace = self.namespace
         return client.CoreV1Api().read_namespaced_secret(
-            self.api_key_secret(), self.namespace
+            self.api_key_secret(), namespace
         )
 
     def read_appdb_generated_password_secret(self) -> client.V1Secret:
@@ -151,6 +155,23 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def read_appdb_generated_password(self) -> str:
         data = self.read_appdb_generated_password_secret().data
         return KubernetesTester.decode_secret(data)["password"]
+
+    def create_admin_secret(
+        self,
+        user_name="jane.doe@example.com",
+        password="Passw0rd.",
+        first_name="Jane",
+        last_name="Doe",
+    ):
+        data = {
+            "Username": user_name,
+            "Password": password,
+            "FirstName": first_name,
+            "LastName": last_name,
+        }
+        KubernetesTester.create_secret(
+            self.namespace, self.get_admin_secret_name(), data
+        )
 
     def get_automation_config_tester(self, **kwargs) -> AutomationConfigTester:
         cm = (
@@ -163,14 +184,17 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         return AutomationConfigTester(config_json, **kwargs)
 
     def get_or_create_mongodb_connection_config_map(
-        self, mongodb_name: str, project_name: str
+        self, mongodb_name: str, project_name: str, namespace=None
     ) -> str:
         config_map_name = f"{mongodb_name}-config"
         data = {"baseUrl": self.om_status().get_url(), "projectName": project_name}
 
+        # the namespace can be different from OM one if the MongoDB is created in a separate namespace
+        if namespace is None:
+            namespace = self.namespace
         try:
             KubernetesTester.create_configmap(
-                self.namespace, config_map_name, data,
+                namespace, config_map_name, data,
             )
         except ApiException as e:
             if e.status != 409:
@@ -178,7 +202,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
             # If the ConfigMap already exist, it will be updated with
             # an updated status_url()
-            KubernetesTester.update_configmap(self.namespace, config_map_name, data)
+            KubernetesTester.update_configmap(namespace, config_map_name, data)
 
         return config_map_name
 

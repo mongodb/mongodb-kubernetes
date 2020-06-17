@@ -1050,6 +1050,14 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_operator_clusterwide
+  tags: ["patch-run"]
+  exec_timeout_secs: 1500
+  commands:
+    - func: "e2e_test"
+      vars:
+        install_operator_in_python: true
+
 - name: e2e_replica_set
   tags: ["patch-run"]
   exec_timeout_secs: 1200
@@ -1882,9 +1890,10 @@ task_groups:
     - func: teardown_kubernetes_environment
     - func: teardown_cloud_qa
 
-# e2e_mongodb_kind_only_task_group includes tests that mutate cluster-wide resources so should be
-# run only on Kind
-- name: e2e_mongodb_kind_only_task_group
+# e2e_operator_task_group includes the tests for the specific Operator configuration/behavior. They may deal with
+# cluster-wise resources so should be run in isolated K8s clusters only (Kind)
+- name: e2e_operator_task_group
+  max_hosts: 2
   setup_group:
     - func: clone
     - func: download_kube_tools
@@ -1897,6 +1906,7 @@ task_groups:
     #- e2e_op_upgrade_one_deployment
     #- e2e_op_upgrade_replica_set
     - e2e_operator_partial_crd
+    - e2e_operator_clusterwide
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -2250,8 +2260,8 @@ buildvariants:
   - name: e2e_ops_manager_kind_only_task_group
   - name: e2e_ops_manager_4_4_only
 
-- name: e2e_kind_cloud_qa
-  display_name: e2e_kind_cloud_qa
+- name: e2e_kind_mongodb_cloud_qa
+  display_name: e2e_kind_mongodb_cloud_qa
   run_on:
   - ubuntu1604-build
   depends_on:
@@ -2272,7 +2282,25 @@ buildvariants:
   - name: e2e_scram_sha_task_group_with_manually_generated_certs
   - name: e2e_auth_transitions_task_group
   - name: e2e_webhook_validation_task_group
-  - name: e2e_mongodb_kind_only_task_group
+
+- name: e2e_kind_operator_cloud_qa
+  display_name: e2e_kind_operator_cloud_qa
+  run_on:
+  - ubuntu1604-build
+  depends_on:
+  - name: build_images_ubuntu
+    variant: init_test_run
+  - name: build_init_om_images_ubuntu
+    variant: init_test_run
+  - name: build_test_image
+    variant: init_test_run
+  expansions:
+    <<: *cloud_manager_qa
+    <<: *kubernetes_environment_kind
+    image_type: ubuntu
+  tasks:
+  - name: e2e_operator_task_group
+
 
 # build AppDB: to be launched independently of the operator build process
 - name: build_and_push_appdb_images
