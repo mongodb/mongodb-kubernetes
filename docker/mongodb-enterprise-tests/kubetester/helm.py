@@ -7,10 +7,11 @@ def helm_template(
     helm_args: Dict,
     helm_chart_name: Optional[str] = "helm_chart",
     templates: Optional[str] = None,
+    helm_options: Optional[List[str]] = None,
 ) -> str:
     """ generates yaml file using Helm and returns its name. Provide 'templates' if you need to run
      a specific template from the helm chart """
-    command_args = _create_helm_args(helm_args)
+    command_args = _create_helm_args(helm_args, helm_options)
 
     if templates is not None:
         command_args.append("-x")
@@ -27,9 +28,12 @@ def helm_template(
 
 
 def helm_install(
-    name: str, helm_args: Dict, helm_chart_name: Optional[str] = "helm_chart"
+    name: str,
+    helm_args: Dict,
+    helm_chart_name: Optional[str] = "helm_chart",
+    helm_options: Optional[List[str]] = None,
 ):
-    command_args = _create_helm_args(helm_args)
+    command_args = _create_helm_args(helm_args, helm_options)
     args = ("helm", "install", *(command_args), name, helm_chart_name)
     print()
     print(args)
@@ -44,8 +48,9 @@ def helm_upgrade(
     helm_args: Dict,
     install: bool = True,
     helm_chart_name: Optional[str] = "helm_chart",
+    helm_options: Optional[List[str]] = None,
 ):
-    command_args = _create_helm_args(helm_args)
+    command_args = _create_helm_args(helm_args, helm_options)
     if install:
         # the helm chart will be installed if it doesn't exist yet
         command_args.append("--install")
@@ -56,12 +61,23 @@ def helm_upgrade(
     subprocess.run(args, check=True)
 
 
-def _create_helm_args(helm_args) -> List[str]:
+def helm_uninstall(name):
+    args = ("helm", "uninstall", name)
+    print()
+    print(args)
+
+    subprocess.run(args, check=True)
+
+
+def _create_helm_args(helm_args, helm_options: Optional[List[str]] = None) -> List[str]:
     command_args = []
     for (key, value) in helm_args.items():
         command_args.append("--set")
         command_args.append("{}={}".format(key, value))
 
     command_args.append("--create-namespace")
+
+    if helm_options:
+        command_args.extend(helm_options)
 
     return command_args

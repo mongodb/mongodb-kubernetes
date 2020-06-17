@@ -7,7 +7,7 @@ from kubernetes import client
 from kubernetes.client import V1Pod, V1beta1CustomResourceDefinition, V1Deployment
 from kubernetes.client.rest import ApiException
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
-from kubetester.helm import helm_install, helm_upgrade, helm_template
+from kubetester.helm import helm_install, helm_upgrade, helm_template, helm_uninstall
 
 OPERATOR_CRDS = (
     "mongodb.mongodb.com",
@@ -33,6 +33,7 @@ class Operator(object):
         appdb_name: str,
         managed_security_context: bool,
         helm_args: Optional[Dict] = None,
+        helm_options: Optional[List[str]] = None,
     ):
         if helm_args is None:
             helm_args = {}
@@ -56,6 +57,7 @@ class Operator(object):
         if managed_security_context:
             helm_args["registry.imagePullSecrets"] = "ecr-registry"
         self.helm_arguments = helm_args
+        self.helm_options = helm_options
         self.name = "mongodb-enterprise-operator"
 
     def install_from_template(self):
@@ -67,22 +69,23 @@ class Operator(object):
 
     def install(self) -> Operator:
         """ Installs the Operator to Kubernetes cluster using 'kubectl apply', waits until it's running """
-        # we can use the python client instead of kubectl when the CRD creation issue is fixed in 1.12
-        # TODO there are problems using helm to install in the shared environment
-
-        helm_install(self.name, self.helm_arguments)
+        helm_install(self.name, self.helm_arguments, helm_options=self.helm_options)
         self._wait_for_operator_ready()
 
         return self
 
     def upgrade(self, install: bool = True) -> Operator:
-        # TODO there are problems using helm to install in the shared environment
-        helm_upgrade(self.name, self.helm_arguments, install)
+        helm_upgrade(
+            self.name, self.helm_arguments, install, helm_options=self.helm_options
+        )
         self._wait_for_operator_ready()
 
         return self
 
-    def delete(self):
+    def uninstall(self):
+        helm_uninstall(self.name)
+
+    def delete_operator_deployment(self):
         """ Deletes the Operator deployment from K8s cluster. """
         client.AppsV1Api().delete_namespaced_deployment(self.name, self.namespace)
 

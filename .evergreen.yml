@@ -1044,6 +1044,12 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_operator_partial_crd
+  tags: ["patch-run"]
+  exec_timeout_secs: 300
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_replica_set
   tags: ["patch-run"]
   exec_timeout_secs: 1200
@@ -1887,8 +1893,10 @@ task_groups:
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
   tasks:
-    - e2e_op_upgrade_one_deployment
-    - e2e_op_upgrade_replica_set
+    # TODO fix operator upgrade tests
+    #- e2e_op_upgrade_one_deployment
+    #- e2e_op_upgrade_replica_set
+    - e2e_operator_partial_crd
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -2264,8 +2272,7 @@ buildvariants:
   - name: e2e_scram_sha_task_group_with_manually_generated_certs
   - name: e2e_auth_transitions_task_group
   - name: e2e_webhook_validation_task_group
-  # TODO fix the operator upgrade tests
-  # - name: e2e_mongodb_kind_only_task_group
+  - name: e2e_mongodb_kind_only_task_group
 
 # build AppDB: to be launched independently of the operator build process
 - name: build_and_push_appdb_images
