@@ -729,6 +729,12 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 		clientCerts = util.RequireClientCertificates
 	}
 
+	scramAgentUserName := util.AutomationAgentUserName
+	// only use the default name if there is not already a configure user name
+	if ac.Auth.AutoUser != "" && ac.Auth.AutoUser != scramAgentUserName {
+		scramAgentUserName = ac.Auth.AutoUser
+	}
+
 	authOpts := authentication.Options{
 		MinimumMajorVersion: mdb.Spec.MinimumMajorVersion(),
 		Mechanisms:          mdb.Spec.Security.Authentication.Modes,
@@ -736,6 +742,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 		AuthoritativeSet:    !mdb.Spec.Security.Authentication.IgnoreUnknownUsers,
 		AgentMechanism:      mdb.Spec.Security.GetAgentMechanism(ac.Auth.AutoAuthMechanism),
 		ClientCertificates:  clientCerts,
+		AutoUser:            scramAgentUserName,
 	}
 
 	log.Debugf("Using authentication options %+v", authOpts)

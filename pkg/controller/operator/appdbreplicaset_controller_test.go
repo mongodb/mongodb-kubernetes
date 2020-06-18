@@ -131,7 +131,7 @@ func TestPublishAutomationConfig_ScramShaConfigured(t *testing.T) {
 	assert.NotEmpty(t, ac.Auth.Key, "key file content should have been generated")
 	assert.NotEmpty(t, ac.Auth.AutoPwd, "automation agent password should have been generated")
 	assert.False(t, ac.Auth.AuthoritativeSet, "authoritativeSet should be set to false")
-	assert.Equal(t, ac.Auth.AutoUser, util.AutomationAgentName, "agent should have default name")
+	assert.Equal(t, util.AutomationAgentName, ac.Auth.AutoUser, "agent should have default name")
 	assert.True(t, stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(authentication.MongoDBCR)), "MONGODB-CR should be configured")
 	assert.True(t, stringutil.Contains(ac.Auth.AutoAuthMechanisms, string(authentication.MongoDBCR)), "MONGODB-CR should be configured")
 

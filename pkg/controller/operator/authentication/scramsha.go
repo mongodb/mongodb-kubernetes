@@ -190,7 +190,9 @@ func configureScramAgentUsers(ac *om.AutomationConfig, authOpts Options) error {
 		return err
 	}
 	auth := ac.Auth
-	auth.AutoUser = util.AutomationAgentUserName
+	if auth.AutoUser == "" {
+		auth.AutoUser = authOpts.AutoUser
+	}
 	auth.AutoPwd = agentPassword
 
 	threeAgentEnv := !authOpts.OneAgent

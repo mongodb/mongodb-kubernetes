@@ -285,6 +285,25 @@ func TestScramAgentUserIsCorrectlyConfigured(t *testing.T) {
 	assert.Equal(t, ac.Auth.AutoUser, util.AutomationAgentName)
 }
 
+func TestScramAgentUser_IsNotOverridden(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableAuth().SetAuthModes([]string{"SCRAM"}).Build()
+	manager := mock.NewManager(rs)
+	manager.Client.AddDefaultMdbConfigResources()
+	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
+	reconciler.omConnectionFactory = func(ctx *om.OMContext) om.Connection {
+		connection := om.NewEmptyMockedOmConnectionWithAutomationConfigChanges(ctx, func(ac *om.AutomationConfig) {
+			ac.Auth.AutoUser = "my-custom-agent-name"
+		})
+		return connection
+	}
+
+	checkReconcileSuccessful(t, reconciler, rs, manager.Client)
+
+	ac, _ := om.CurrMockedConnection.ReadAutomationConfig()
+
+	assert.Equal(t, "my-custom-agent-name", ac.Auth.AutoUser)
+}
+
 func TestX509InternalClusterAuthentication_CanBeEnabledWithScram_ReplicaSet(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().SetName("my-rs").
 		SetMembers(3).

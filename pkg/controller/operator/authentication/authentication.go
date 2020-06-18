@@ -41,6 +41,8 @@ type Options struct {
 	// so it is possible to use other auth mechanisms without needing to provide client certs.
 	ClientCertificates string
 	UserOptions
+
+	AutoUser string
 }
 
 // UserOptions is a struct that contains the different user names
