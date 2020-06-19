@@ -313,6 +313,11 @@ class OMTester(object):
 
         return response
 
+    def get_feature_controls(self):
+        return self.om_request(
+            "get", f"/groups/{self.context.project_id}/controlledFeature"
+        ).json()
+
     def find_group_id(self):
         """
         Obtains the group id of the group with specified name.

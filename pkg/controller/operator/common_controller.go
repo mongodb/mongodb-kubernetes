@@ -13,12 +13,12 @@ import (
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/project"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/inspect"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/blang/semver"
@@ -113,10 +113,6 @@ func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedNam
 		log.Infof("Using Ops Manager version %s", omVersion)
 	}
 
-	if err = c.updateControlledFeatureAndTag(conn, omProject, nsName.Namespace, log); err != nil {
-		return nil, err
-	}
-
 	// adds the namespace as a tag to the Ops Manager project
 	if err = ensureTagAdded(conn, omProject, nsName.Namespace, log); err != nil {
 		return nil, err
@@ -137,34 +133,34 @@ func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedNam
 	return conn, nil
 }
 
-// updateControlledFeatureAndTag will configure the project to use feature controls, and set the
-// EXTERNALLY_MANAGED_BY_KUBERNETES tag. The tag will be ignored if feature controls are enabled
-func (c *ReconcileCommonController) updateControlledFeatureAndTag(
-	conn om.Connection,
-	project *om.Project,
-	resourceNamespace string,
-	log *zap.SugaredLogger,
-) error {
-
-	// TODO: for now, always ensure the tag, once feature controls are enabled by default we can stop apply the tag
-	// the tag will have no impact if feature controls are enabled. It's either/or
-	if err := ensureTagAdded(conn, project, util.OmGroupExternallyManagedTag, log); err != nil {
-		return err
+func (r *ReconcileCommonController) ensureFeatureControls(mdb *mdbv1.MongoDB, conn om.Connection, log *zap.SugaredLogger) workflow.Status {
+	authSpec := mdb.Spec.Security.Authentication
+	var cf *controlledfeature.ControlledFeature
+	if authSpec == nil {
+		cf = controlledfeature.NewControlledFeature(controlledfeature.OptionExternallyManaged)
+	} else {
+		cf = controlledfeature.FullyRestrictive()
 	}
-
 	if shouldUseFeatureControls(conn.OMVersion()) {
 		log.Debug("Configuring feature controls")
-		if err := conn.UpdateControlledFeature(controlledfeature.FullyRestrictive()); err != nil {
-			return err
+		if err := conn.UpdateControlledFeature(cf); err != nil {
+			return workflow.Failed(err.Error())
 		}
+	} else {
+		log.Debugf("Ops Manager version is %s, which does not support Feature Controls API", conn.OMVersion())
 	}
 
-	return nil
+	return workflow.OK()
 }
 
 func ensureTagAdded(conn om.Connection, project *om.Project, tag string, log *zap.SugaredLogger) error {
 	// must truncate the tag to at most 32 characters and capitalise as
 	// these are Ops Manager requirements
+
+	if shouldUseFeatureControls(conn.OMVersion()) {
+		return nil
+	}
+
 	sanitisedTag := strings.ToUpper(fmt.Sprintf("%.32s", tag))
 	alreadyHasTag := stringutil.Contains(project.Tags, sanitisedTag)
 	if alreadyHasTag {

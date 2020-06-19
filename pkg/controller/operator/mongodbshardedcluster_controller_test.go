@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -407,6 +408,57 @@ func TestShardedCustomPodSpecTemplate(t *testing.T) {
 	assert.Equal(t, "my-custom-container-config", podSpecTemplateScConfig.Containers[1].Name, "Custom container should be second")
 }
 
+func TestFeatureControlsNoAuth(t *testing.T) {
+	sc := DefaultClusterBuilder().RemoveAuth().Build()
+	reconciler, client := defaultClusterReconciler(sc)
+	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
+		context.Version = "4.2.2"
+		conn := om.NewEmptyMockedOmConnection(context)
+		return conn
+	}
+
+	checkReconcileSuccessful(t, reconciler, sc, client)
+
+	mockedConn := om.CurrMockedConnection
+	cf, _ := mockedConn.GetControlledFeature()
+
+	assert.Len(t, cf.Policies, 1)
+
+	assert.Equal(t, cf.ManagementSystem.Version, util.OperatorVersion)
+	assert.Equal(t, cf.ManagementSystem.Name, util.OperatorName)
+	assert.Equal(t, cf.Policies[0].PolicyType, controlledfeature.ExternallyManaged)
+	assert.Len(t, cf.Policies[0].DisabledParams, 0)
+
+}
+
+func TestFeatureControlsAuthEnabled(t *testing.T) {
+	sc := DefaultClusterBuilder().Build()
+	reconciler, client := defaultClusterReconciler(sc)
+	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
+		context.Version = "4.2.2"
+		conn := om.NewEmptyMockedOmConnection(context)
+		return conn
+	}
+
+	checkReconcileSuccessful(t, reconciler, sc, client)
+
+	mockedConn := om.CurrMockedConnection
+	cf, _ := mockedConn.GetControlledFeature()
+
+	assert.Len(t, cf.Policies, 2)
+
+	assert.Equal(t, cf.ManagementSystem.Version, util.OperatorVersion)
+	assert.Equal(t, cf.ManagementSystem.Name, util.OperatorName)
+
+	var policies []controlledfeature.PolicyType
+	for _, p := range cf.Policies {
+		policies = append(policies, p.PolicyType)
+	}
+
+	assert.Contains(t, policies, controlledfeature.ExternallyManaged)
+	assert.Contains(t, policies, controlledfeature.DisableAuthenticationMechanisms)
+}
+
 func assertPodSpecSts(t *testing.T, sts *appsv1.StatefulSet) {
 	assertPodSpecTemplate(t, "some-node-name", "some-host-name", util.SecretVolumeName, corev1.RestartPolicyAlways, sts)
 }
@@ -581,6 +633,12 @@ func (b *ClusterBuilder) EnableX509() *ClusterBuilder {
 
 func (b *ClusterBuilder) SetClusterAuth(auth string) *ClusterBuilder {
 	b.Spec.Security.ClusterAuthMode = auth
+	return b
+}
+
+func (b *ClusterBuilder) RemoveAuth() *ClusterBuilder {
+	b.Spec.Security.Authentication = nil
+
 	return b
 }
 

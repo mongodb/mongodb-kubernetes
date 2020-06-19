@@ -24,21 +24,29 @@ type Policy struct {
 	DisabledParams []string   `json:"disabledParams"`
 }
 
-func FullyRestrictive() *ControlledFeature {
-	return &ControlledFeature{
+func NewControlledFeature(options ...func(*ControlledFeature)) *ControlledFeature {
+	cf := &ControlledFeature{
 		ManagementSystem: ManagementSystem{
 			Name:    util.OperatorName,
 			Version: util.OperatorVersion,
 		},
-		Policies: []Policy{
-			{
-				PolicyType:     ExternallyManaged,
-				DisabledParams: make([]string, 0),
-			},
-			{
-				PolicyType:     DisableAuthenticationMechanisms,
-				DisabledParams: make([]string, 0),
-			},
-		},
 	}
+
+	for _, op := range options {
+		op(cf)
+	}
+
+	return cf
+}
+
+func FullyRestrictive() *ControlledFeature {
+	return NewControlledFeature(OptionExternallyManaged, OptionDisableAuthenticationMechanism)
+}
+
+func OptionExternallyManaged(cf *ControlledFeature) {
+	cf.Policies = append(cf.Policies, Policy{PolicyType: ExternallyManaged, DisabledParams: make([]string, 0)})
+}
+
+func OptionDisableAuthenticationMechanism(cf *ControlledFeature) {
+	cf.Policies = append(cf.Policies, Policy{PolicyType: DisableAuthenticationMechanisms, DisabledParams: make([]string, 0)})
 }

@@ -7,6 +7,7 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
@@ -80,6 +81,59 @@ func TestAddDeleteStandalone(t *testing.T) {
 	omConn.CheckOrderOfOperations(t,
 		reflect.ValueOf(omConn.ReadUpdateDeployment), reflect.ValueOf(omConn.ReadAutomationStatus),
 		reflect.ValueOf(omConn.ReadAutomationStatus), reflect.ValueOf(omConn.GetHosts), reflect.ValueOf(omConn.RemoveHost))
+
+}
+
+func TestStandaloneAuthenticationOwnedByOpsManager(t *testing.T) {
+	stBuilder := DefaultStandaloneBuilder()
+	stBuilder.Spec.Security = nil
+	st := stBuilder.Build()
+
+	reconciler, client := defaultStandaloneReconciler(st)
+	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
+		context.Version = "4.2.2"
+		conn := om.NewEmptyMockedOmConnection(context)
+		return conn
+	}
+
+	checkReconcileSuccessful(t, reconciler, st, client)
+
+	mockedConn := om.CurrMockedConnection
+	cf, _ := mockedConn.GetControlledFeature()
+
+	assert.Len(t, cf.Policies, 1)
+	assert.Equal(t, cf.ManagementSystem.Version, util.OperatorVersion)
+	assert.Equal(t, cf.ManagementSystem.Name, util.OperatorName)
+	assert.Equal(t, cf.Policies[0].PolicyType, controlledfeature.ExternallyManaged)
+	assert.Len(t, cf.Policies[0].DisabledParams, 0)
+}
+
+func TestStandaloneAuthenticationOwnedByOperator(t *testing.T) {
+	st := DefaultStandaloneBuilder().Build()
+
+	reconciler, client := defaultStandaloneReconciler(st)
+	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
+		context.Version = "4.2.2"
+		conn := om.NewEmptyMockedOmConnection(context)
+		return conn
+	}
+
+	checkReconcileSuccessful(t, reconciler, st, client)
+
+	mockedConn := om.CurrMockedConnection
+	cf, _ := mockedConn.GetControlledFeature()
+
+	assert.Len(t, cf.Policies, 2)
+	assert.Equal(t, cf.ManagementSystem.Version, util.OperatorVersion)
+	assert.Equal(t, cf.ManagementSystem.Name, util.OperatorName)
+
+	var policies []controlledfeature.PolicyType
+	for _, p := range cf.Policies {
+		policies = append(policies, p.PolicyType)
+	}
+
+	assert.Contains(t, policies, controlledfeature.ExternallyManaged)
+	assert.Contains(t, policies, controlledfeature.DisableAuthenticationMechanisms)
 
 }
 

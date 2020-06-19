@@ -110,6 +110,10 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return nil, status
 	}
 
+	if status := r.ensureFeatureControls(sc, conn, log); !status.IsOK() {
+		return nil, status
+	}
+
 	if status := r.ensureX509InKubernetes(sc, kubeState, log); !status.IsOK() {
 		return nil, status
 	}

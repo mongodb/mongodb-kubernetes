@@ -107,6 +107,10 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		return r.updateStatus(rs, status, log)
 	}
 
+	if status := r.ensureFeatureControls(rs, conn, log); !status.IsOK() {
+		return r.updateStatus(rs, status, log)
+	}
+
 	if status := r.ensureX509InKubernetes(rs, replicaBuilder, log); !status.IsOK() {
 		return r.updateStatus(rs, status, log)
 	}

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
@@ -255,6 +256,31 @@ func TestFeatureControlPolicyAndTagAddedWithNewerOpsManager(t *testing.T) {
 
 	project := mockedConn.FindGroup("my-project")
 	assert.Contains(t, project.Tags, util.OmGroupExternallyManagedTag)
+}
+
+func TestFeatureControlPolicyNoAuthNewerOpsManager(t *testing.T) {
+	rsBuilder := DefaultReplicaSetBuilder()
+	rsBuilder.Spec.Security = nil
+
+	rs := rsBuilder.Build()
+
+	reconciler, client := defaultReplicaSetReconciler(rs)
+	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
+		context.Version = "4.2.2"
+		conn := om.NewEmptyMockedOmConnection(context)
+		return conn
+	}
+
+	checkReconcileSuccessful(t, reconciler, rs, client)
+
+	mockedConn := om.CurrMockedConnection
+	cf, _ := mockedConn.GetControlledFeature()
+
+	assert.Len(t, cf.Policies, 1)
+	assert.Equal(t, cf.ManagementSystem.Version, util.OperatorVersion)
+	assert.Equal(t, cf.ManagementSystem.Name, util.OperatorName)
+	assert.Equal(t, cf.Policies[0].PolicyType, controlledfeature.ExternallyManaged)
+	assert.Len(t, cf.Policies[0].DisabledParams, 0)
 }
 
 func TestOnlyTagIsAppliedToOlderOpsManager(t *testing.T) {
