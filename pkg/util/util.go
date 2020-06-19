@@ -76,7 +76,10 @@ func DoAndRetry(f func() (string, bool), log *zap.SugaredLogger, count, interval
 // MapDeepCopy is a quick implementation of deep copy mechanism for any Go structures, it uses Go serialization and
 // deserialization mechanisms so will always be slower than any manual copy
 // https://rosettacode.org/wiki/Deepcopy#Go
+// TODO move to maputil
 func MapDeepCopy(m map[string]interface{}) (map[string]interface{}, error) {
+	gob.Register(map[string]interface{}{})
+
 	var buf bytes.Buffer
 	enc := gob.NewEncoder(&buf)
 	dec := gob.NewDecoder(&buf)

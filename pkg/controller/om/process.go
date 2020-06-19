@@ -416,6 +416,7 @@ func (p Process) mergeFrom(operatorProcess Process) {
 	}
 }
 
+// TODO remove in favor of `maputil`
 func readMapValueAsInterface(m map[string]interface{}, keys ...string) interface{} {
 	currentMap := m
 	for i, k := range keys {
@@ -430,6 +431,7 @@ func readMapValueAsInterface(m map[string]interface{}, keys ...string) interface
 	return nil
 }
 
+// TODO remove in favor of `maputil`
 func readMapValueAsString(m map[string]interface{}, keys ...string) string {
 	res := readMapValueAsInterface(m, keys...)
 

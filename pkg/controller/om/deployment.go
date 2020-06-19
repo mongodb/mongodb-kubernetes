@@ -36,6 +36,7 @@ func init() {
 	// as part of a "process" object embedded within a deployment—then it must be
 	// registered below as otherwise the operator will successfully compile and
 	// run but be completely broken.
+	// TODO should we move this to main.go?
 	gob.Register(map[string]interface{}{})
 	gob.Register([]interface{}{})
 	gob.Register(map[string]int{})

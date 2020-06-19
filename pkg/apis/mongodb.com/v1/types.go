@@ -6,8 +6,10 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mongod"
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	appsv1 "k8s.io/api/apps/v1"
 
@@ -161,7 +163,7 @@ type MongoDbSpec struct {
 	// each data-bearing mongod at runtime. Uses the same structure as the mongod
 	// configuration file:
 	// https://docs.mongodb.com/manual/reference/configuration-options/
-	AdditionalMongodConfig *AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
+	AdditionalMongodConfig mongod.AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
 }
 
 // StatefulSetConfiguration holds the optional custom StatefulSet
@@ -274,28 +276,6 @@ type ConnectionSpec struct {
 
 	// FIXME: LogLevel is not a required field for creating an Ops Manager connection, it should not be here.
 	LogLevel LogLevel `json:"logLevel,omitempty"`
-}
-
-type AdditionalMongodConfig struct {
-	Net NetSpec `json:"net"`
-}
-
-type NetSpec struct {
-	SSL SSLSpec `json:"ssl"`
-}
-
-type SSLSpec struct {
-	Mode SSLMode `json:"mode,omitempty"`
-
-	// Below are parameters that may be useful but that haven't been tested with
-	// the automation config so are commented out
-	//AllowInvalidCertificates bool   `json:"allowInvalidCertificates,omitempty"`
-	//AllowInvalidHostnames    bool   `json:"allowInvalidHostnames,omitempty"`
-	//DisabledProtocols        string `json:"disabledProtocols,omitempty"`
-	//FIPSMode                 bool   `json:"FIPSMode,omitempty"`
-
-	// allowConnectionsWithoutCertificates has been omitted as it is not
-	// respected by the automation agent.
 }
 
 type Security struct {
@@ -555,10 +535,6 @@ func (m *MongoDB) InitDefaults() {
 		m.Spec.Connectivity = newConnectivity()
 	}
 
-	if m.Spec.AdditionalMongodConfig == nil {
-		m.Spec.AdditionalMongodConfig = newAdditionalMongodConfig()
-	}
-
 	ensureSecurity(&m.Spec)
 
 	if m.Spec.OpsManagerConfig == nil {
@@ -710,11 +686,15 @@ func (spec MongoDbSpec) GetTLSMode() SSLMode {
 		return DisabledSSLMode
 	}
 
+	// spec.Security.TLSConfig.IsEnabled() is true -> requireSSLMode
 	if spec.AdditionalMongodConfig == nil {
 		return RequireSSLMode
 	}
-
-	return validModeOrDefault(spec.AdditionalMongodConfig.Net.SSL.Mode)
+	mode := maputil.ReadMapValueAsString(spec.AdditionalMongodConfig, "net", "ssl", "mode")
+	if mode == "" {
+		return RequireSSLMode
+	}
+	return validModeOrDefault(SSLMode(mode))
 }
 
 // Replicas returns the number of "user facing" replicas of the MongoDB resource. This method can be used for
@@ -754,12 +734,6 @@ func validModeOrDefault(mode SSLMode) SSLMode {
 
 func newConnectivity() *MongoDBConnectivity {
 	return &MongoDBConnectivity{}
-}
-
-// Returns an empty `AdditionalMongodConfig` object for marshalling/unmarshalling
-// json representation of the MDB object.
-func newAdditionalMongodConfig() *AdditionalMongodConfig {
-	return &AdditionalMongodConfig{}
 }
 
 // PrivateCloudConfig returns and empty `PrivateCloudConfig` object
