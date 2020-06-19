@@ -1,18 +1,18 @@
 # Operator Release
 
-The release procedure means building all necessary images and pushing them to image repositories. 
-Also all relevant places are upgraded (Openshift Marketplace, public Github repository) and 
+The release procedure means building all necessary images and pushing them to image repositories.
+Also all relevant places are upgraded (Openshift Marketplace, public Github repository) and
 release notes are published.
 
 The images released are:
 - operator
 - database
 - ops manager
-- appdb  
+- appdb
 
 The Operator and the Database image follow a simple versioning schema (1.2.0, 1.2.1...).
-The Ops Manager and AppDB images use a composite versioning schema <OM_version>-operator<Operator_version> 
-Each release publishes a new set of all supported Ops Manager + AppDB images.  
+The Ops Manager and AppDB images use a composite versioning schema <OM_version>-operator<Operator_version>
+Each release publishes a new set of all supported Ops Manager + AppDB images.
 
 The release process is documented below:
 
@@ -85,11 +85,11 @@ git push origin $(jq --raw-output .mongodbOperator < release.json)
 
 The following images are expected to get released by the end of this procedure:
 * Operator
-* Database 
+* Database
 * Ops Manager (all supported versions)
 * AppDB (all supported versions)
 
-To perform release it's necessary to manually override dependencies in the tasks in the following 
+To perform release it's necessary to manually override dependencies in the tasks in the following
 Evergreen build variants (after the release branch was merged):
 * release_quay (will deploy all images to quay.io)
 * release_rh_connect (will deploy all images to Red Hat Connect)

@@ -28,7 +28,6 @@ def update_helm_values(
         doc = yaml.load(fd)
     doc[key][value] = new_release
     # Make sure we are writing a valid values.yaml file.
-    assert "createCrds" in doc
     assert "operator" in doc
     assert "registry" in doc
     with open(values_yaml_path, "w") as fd:
