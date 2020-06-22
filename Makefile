@@ -152,7 +152,9 @@ ac:
 # Note, that we login to the default configured region. This means that if ECR_registry is in "eu_west_1" - then
 # "eu_west_1" must be the default region for the aws account
 aws_login:
+ifndef SKIP_AWS_LOGIN
 	@ eval "$(shell aws ecr get-login --no-include-email)"  &> /dev/null || true
+endif
 
 build-and-push-operator-image: aws_login
 	@ scripts/dev/build_push_operator_image.sh $(debug)
