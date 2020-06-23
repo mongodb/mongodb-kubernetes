@@ -117,7 +117,7 @@ func TestPrepareOmConnection_CreateGroup(t *testing.T) {
 	assert.Equal(t, om.TestGroupID, mockOm.GroupID())
 	mockOm.CheckGroupInOrganization(t, om.TestGroupName, om.TestGroupName)
 	assert.Len(t, mockOm.OrganizationsWithGroups, 1)
-	assert.NotContains(t, mockOm.FindGroup(om.TestGroupName).Tags, util.OmGroupExternallyManagedTag)
+	assert.Contains(t, mockOm.FindGroup(om.TestGroupName).Tags, util.OmGroupExternallyManagedTag)
 	assert.Contains(t, mockOm.FindGroup(om.TestGroupName).Tags, strings.ToUpper(mock.TestNamespace))
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadOrganizationsByName), reflect.ValueOf(mockOm.CreateProject))
@@ -132,7 +132,7 @@ func TestPrepareOmConnection_CreateGroupFixTags(t *testing.T) {
 	controller := newReconcileCommonController(manager, omConnGroupWithoutTags())
 
 	mockOm, _ := prepareConnection(controller, t)
-	assert.NotContains(t, mockOm.FindGroup(om.TestGroupName).Tags, util.OmGroupExternallyManagedTag)
+	assert.Contains(t, mockOm.FindGroup(om.TestGroupName).Tags, util.OmGroupExternallyManagedTag)
 	assert.Contains(t, mockOm.FindGroup(om.TestGroupName).Tags, strings.ToUpper(mock.TestNamespace))
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.UpdateProject))

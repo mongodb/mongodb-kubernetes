@@ -118,6 +118,13 @@ func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedNam
 		return nil, err
 	}
 
+	// adds the externally_managed tag if feature controls is not available.
+	if !shouldUseFeatureControls(conn.OMVersion()) {
+		if err = ensureTagAdded(conn, omProject, util.OmGroupExternallyManagedTag, log); err != nil {
+			return nil, err
+		}
+	}
+
 	if err = c.ensureAgentKeySecretExists(conn, nsName.Namespace, omProject.AgentAPIKey, log); err != nil {
 		return nil, err
 	}
@@ -134,6 +141,11 @@ func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedNam
 }
 
 func (r *ReconcileCommonController) ensureFeatureControls(mdb *mdbv1.MongoDB, conn om.Connection, log *zap.SugaredLogger) workflow.Status {
+	if !shouldUseFeatureControls(conn.OMVersion()) {
+		log.Debugf("Ops Manager version is %s, which does not support Feature Controls API", conn.OMVersion())
+		return workflow.OK()
+	}
+
 	authSpec := mdb.Spec.Security.Authentication
 	var cf *controlledfeature.ControlledFeature
 	if authSpec == nil {
@@ -141,13 +153,10 @@ func (r *ReconcileCommonController) ensureFeatureControls(mdb *mdbv1.MongoDB, co
 	} else {
 		cf = controlledfeature.FullyRestrictive()
 	}
-	if shouldUseFeatureControls(conn.OMVersion()) {
-		log.Debug("Configuring feature controls")
-		if err := conn.UpdateControlledFeature(cf); err != nil {
-			return workflow.Failed(err.Error())
-		}
-	} else {
-		log.Debugf("Ops Manager version is %s, which does not support Feature Controls API", conn.OMVersion())
+
+	log.Debug("Configuring feature controls")
+	if err := conn.UpdateControlledFeature(cf); err != nil {
+		return workflow.Failed(err.Error())
 	}
 
 	return workflow.OK()
@@ -156,10 +165,6 @@ func (r *ReconcileCommonController) ensureFeatureControls(mdb *mdbv1.MongoDB, co
 func ensureTagAdded(conn om.Connection, project *om.Project, tag string, log *zap.SugaredLogger) error {
 	// must truncate the tag to at most 32 characters and capitalise as
 	// these are Ops Manager requirements
-
-	if shouldUseFeatureControls(conn.OMVersion()) {
-		return nil
-	}
 
 	sanitisedTag := strings.ToUpper(fmt.Sprintf("%.32s", tag))
 	alreadyHasTag := stringutil.Contains(project.Tags, sanitisedTag)

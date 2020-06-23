@@ -1,7 +1,12 @@
+import re
+
 import pytest
 
 from kubetester.kubetester import KubernetesTester, fixture
-from kubetester.omtester import skip_if_cloud_manager
+from kubetester.omtester import skip_if_cloud_manager, should_include_tag
+
+EXTERNALLY_MANAGED_TAG = "EXTERNALLY_MANAGED_BY_KUBERNETES"
+MAX_TAG_LEN = 32
 
 
 @pytest.mark.e2e_standalone_groups
@@ -74,6 +79,10 @@ class TestStandaloneOrganizationSpecified(KubernetesTester):
         page = self.get_groups_in_organization_first_page(self.__class__.org_id)
         group = page["results"][0]
 
-        assert sorted(group["tags"]) == sorted(
-            ["EXTERNALLY_MANAGED_BY_KUBERNETES", self.namespace.upper()[:32]]
-        )
+        version = KubernetesTester.om_version()
+        expected_tags = [self.namespace[:MAX_TAG_LEN].upper()]
+
+        if should_include_tag(version):
+            expected_tags.append(EXTERNALLY_MANAGED_TAG)
+
+        assert sorted(group["tags"]) == sorted(expected_tags)

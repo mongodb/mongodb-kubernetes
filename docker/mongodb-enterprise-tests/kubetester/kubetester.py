@@ -1039,6 +1039,19 @@ class KubernetesTester(object):
         return response
 
     @staticmethod
+    def om_version() -> Optional[Dict[str, str]]:
+        "Gets the X-MongoDB-Service-Version"
+        response = KubernetesTester.om_request(
+            "get", KubernetesTester.get_om_base_url()
+        )
+
+        version = response.headers.get("X-MongoDB-Service-Version")
+        if version is None:
+            return None
+
+        return dict(attr.split("=", 1) for attr in version.split("; "))
+
+    @staticmethod
     def check_om_state_cleaned():
         """Checks that OM state is cleaned: Automation config is empty, monitoring hosts are removed"""
 

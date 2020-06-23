@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import json
 import urllib.parse
 
@@ -573,3 +574,30 @@ def get_sc_cert_names(
         names.extend(get_agent_cert_names(namespace))
 
     return names
+
+
+def should_include_tag(version: Optional[Dict[str, str]]) -> bool:
+    """Checks if the Ops Manager version API includes the EXTERNALLY_MANAGED tag.
+    This is, the version of Ops Manager is greater or equals than 4.2.2 or Cloud
+    Manager.
+
+    """
+    feature_controls_enabled_version = "4.2.2"
+    if version is None:
+        return True
+
+    if "versionString" not in version:
+        return True
+
+    if re.match("^v\d+", version["versionString"]):
+        # Cloud Manager supports Feature Controls
+        return False
+
+    match = re.match(r"^(\d{1,2}\.\d{1,2}\.\d{1,2}).*", version["versionString"])
+    if match:
+        version_string = match.group(1)
+
+        # version_string is lower than 4.2.2
+        return semver.compare(version_string, feature_controls_enabled_version) < 0
+
+    return True
