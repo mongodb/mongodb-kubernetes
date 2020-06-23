@@ -28,8 +28,10 @@ timeout "30s" bash -c \
 kubectl delete opsmanager --all -n "${NAMESPACE}" || true
 kubectl delete pvc --all -n "${NAMESPACE}"
 
-kubectl delete "$(kubectl get csr -o name | grep "${NAMESPACE}")" 2>/dev/null || true
+helm uninstall mongodb-enterprise-operator || true
 
+# shellcheck disable=SC2046
+kubectl delete $(kubectl get csr -o name | grep "${NAMESPACE}")
 kubectl delete secrets --all -n "${NAMESPACE}"
 kubectl delete svc --all -n "${NAMESPACE}"
 kubectl delete configmaps --all -n "${NAMESPACE}"
@@ -37,4 +39,3 @@ kubectl delete validatingwebhookconfigurations --all -n "${NAMESPACE}"
 kubectl delete certificates --all -n "${NAMESPACE}" || true
 kubectl delete issuers --all -n "${NAMESPACE}" || true
 
-helm delete mongodb-enterprise-operator || true
