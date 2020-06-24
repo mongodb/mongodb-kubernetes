@@ -12,14 +12,20 @@ generate_standalone_yaml() {
 
     helm template -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}"
 
-    cat "${charttmpdir}/mongodb-enterprise-operator/templates/{operator-roles.yaml,database-roles.yaml,operator.yaml}" > mongodb-enterprise.yaml
-    cat "${charttmpdir}/mongodb-enterprise-operator/crds/*" > crds.yaml
+    cat "${charttmpdir}/mongodb-enterprise-operator/templates/"{operator-roles.yaml,database-roles.yaml,operator.yaml} > mongodb-enterprise.yaml
+
+    cat "helm_chart/crds/"* > crds.yaml
+
+    if ! kubectl apply -f crds.yaml --dry-run; then
+        echo "Genereted CRDs were invalid!"
+        exit 1
+    fi
 
     rm -rf "${charttmpdir:?}/*"
 
     helm template -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-openshift.yaml
 
-    cat "${charttmpdir}/mongodb-enterprise-operator/templates/{operator-roles.yaml,database-roles.yaml,operator.yaml}" > mongodb-enterprise-openshift.yaml
+    cat "${charttmpdir}/mongodb-enterprise-operator/templates/"{operator-roles.yaml,database-roles.yaml,operator.yaml} > mongodb-enterprise-openshift.yaml
 }
 
 PUBLIC_REPO="$1"
