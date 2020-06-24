@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -Eeou pipefail
+
 # shellcheck disable=SC2154
 context_config="${workdir}/${kube_environment_name}_config"
 if [ -f "${context_config}" ]; then
@@ -18,18 +20,18 @@ if [ "${kube_environment_name}" = "openshift_4" ]; then
 
     # This uses a kubeconfig yaml file stored in the Evergreen project instead of the old token login
     # to avoid having to keep the tokens valid forever.
-    echo "${openshift43_cluster_kubeconfig}" | base64 --decode > "${context_config}"
+    echo "${openshift43_cluster_kubeconfig:?}" | base64 --decode > "${context_config}"
 
 elif [ "${kube_environment_name}" = "vanilla" ]; then
-    if [ -n "${cluster_name}" ]; then
+    if [ -n "${cluster_name-}" ]; then
         export CLUSTER=${cluster_name}
     else
         export CLUSTER=e2e.mongokubernetes.com
     fi
 
-    export AWS_ACCESS_KEY_ID="${mms_eng_test_aws_access_key}"
-    export AWS_SECRET_ACCESS_KEY="${mms_eng_test_aws_secret}"
-    export AWS_DEFAULT_REGION="${mms_eng_test_aws_region}"
+    export AWS_ACCESS_KEY_ID="${mms_eng_test_aws_access_key:?}"
+    export AWS_SECRET_ACCESS_KEY="${mms_eng_test_aws_secret:?}"
+    export AWS_DEFAULT_REGION="${mms_eng_test_aws_region:?}"
     export KOPS_STATE_STORE=s3://kube-om-state-store
 
     echo "Downloading kops"
@@ -49,7 +51,9 @@ elif [ "${kube_environment_name}" = "vanilla" ]; then
 
 elif [ "${kube_environment_name}" = "kind" ]; then
     echo "Starting Kind"
+    kubernetes_image="kindest/node:v1.16.9@sha256:b91a2c2317a000f3a783489dfb755064177dbc3a0b2f4147d50f04825d016f55"
     kind create cluster \
+        --image "${kubernetes_image}" \
         --config "${HOME}/.operator-dev/kind-ecr-config.yaml" \
         --kubeconfig "${context_config}"
 else

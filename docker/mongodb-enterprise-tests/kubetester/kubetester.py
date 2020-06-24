@@ -459,35 +459,23 @@ class KubernetesTester(object):
             KubernetesTester.clients("customv1").create_namespaced_custom_object(
                 group, version, namespace, plural(kind), resource
             )
-            if exception_reason:
-                raise AssertionError(
-                    "Expected ApiException, but create operation succeeded!"
-                )
-
         except ApiException as e:
             if isinstance(e.body, str):
                 # In Kubernetes v1.16+ the result body is a json string that needs to be parsed, according to
                 # whatever exception_reason was passed.
                 try:
                     body_json = json.loads(e.body)
-                    field, reason = None, None
-                    if "in body is required" in exception_reason:
-                        field = exception_reason.split()[0]  # gets the actual field
-                        reason = "FieldValueRequired"
-                    elif "in body should be one of" in exception_reason:
-                        field = exception_reason.split()[0]
-                        reason = "FieldValueNotSupported"
-                    elif "in body must be of type" in exception_reason:
-                        field = exception_reason.split()[0]
-                        reason = "FieldValueInvalid"
+                except json.decoder.JSONDecodeError:
+                    # The API did not return a JSON string
+                    pass
+                else:
+                    reason = validation_reason_from_exception(exception_reason)
 
-                    if field and reason:
+                    if reason is not None:
+                        field = exception_reason.split()[0]
                         for cause in body_json["details"]["causes"]:
                             if cause["reason"] == reason and cause["field"] == field:
                                 return None, None
-
-                except json.decoder.JSONDecodeError:
-                    pass
 
             if exception_reason:
                 assert (
@@ -502,6 +490,12 @@ class KubernetesTester(object):
 
             print("Failed to create a resource ({}): \n {}".format(e, resource))
             raise
+
+        else:
+            if exception_reason:
+                raise AssertionError(
+                    "Expected ApiException, but create operation succeeded!"
+                )
 
         print(
             "Created resource {} {} {}".format(
@@ -1630,3 +1624,15 @@ def get_pods(podname_format, qty=3):
 
 def decode_secret(data: Dict[str, str]) -> Dict[str, str]:
     return {k: b64decode(v).decode("utf-8") for (k, v) in data.items()}
+
+
+def validation_reason_from_exception(exception_msg):
+    reasons = [
+        ("in body is required", "FieldValueRequired"),
+        ("in body should be one of", "FieldValueNotSupported"),
+        ("in body must be of type", "FieldValueInvalid"),
+    ]
+
+    for reason in reasons:
+        if reason[0] in exception_msg:
+            return reason[1]

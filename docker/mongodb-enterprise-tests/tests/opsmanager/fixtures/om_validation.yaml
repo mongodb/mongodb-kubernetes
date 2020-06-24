@@ -13,4 +13,4 @@ spec:
   applicationDatabase:
     members: 3
     version: 3.6.12
-    persistent: false
+    persistent: true
