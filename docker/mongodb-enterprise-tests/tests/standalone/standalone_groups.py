@@ -2,11 +2,13 @@ import re
 
 import pytest
 
-from kubetester.kubetester import KubernetesTester, fixture
+from kubetester.kubetester import (
+    KubernetesTester,
+    fixture,
+    MAX_TAG_LEN,
+    EXTERNALLY_MANAGED_TAG,
+)
 from kubetester.omtester import skip_if_cloud_manager, should_include_tag
-
-EXTERNALLY_MANAGED_TAG = "EXTERNALLY_MANAGED_BY_KUBERNETES"
-MAX_TAG_LEN = 32
 
 
 @pytest.mark.e2e_standalone_groups

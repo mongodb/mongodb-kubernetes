@@ -1,7 +1,12 @@
 import pytest
 
-from kubetester.kubetester import KubernetesTester, fixture
-from kubetester.omtester import skip_if_cloud_manager
+from kubetester.kubetester import (
+    KubernetesTester,
+    fixture,
+    EXTERNALLY_MANAGED_TAG,
+    MAX_TAG_LEN,
+)
+from kubetester.omtester import skip_if_cloud_manager, should_include_tag
 
 
 @pytest.mark.e2e_replica_set_groups
@@ -76,9 +81,15 @@ class TestReplicaSetOrganizationsPagination(KubernetesTester):
         group = self.query_group(self.__class__.group_name)
         assert group is not None
         assert group["orgId"] == self.__class__.org_id
-        assert sorted(group["tags"]) == sorted(
-            ["EXTERNALLY_MANAGED_BY_KUBERNETES", self.namespace[:32].upper()]
-        )
+
+        version = KubernetesTester.om_version()
+        expected_tags = [self.namespace[:MAX_TAG_LEN].upper()]
+
+        if should_include_tag(version):
+            expected_tags.append(EXTERNALLY_MANAGED_TAG)
+
+        assert sorted(group["tags"]) == sorted(expected_tags)
+
         print(
             'Only one group with name "{}" exists (as expected)'.format(
                 self.__class__.group_name

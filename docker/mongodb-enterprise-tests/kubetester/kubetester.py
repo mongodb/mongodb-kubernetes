@@ -30,6 +30,8 @@ from kubetester.crypto import wait_for_certs_to_be_issued
 SSL_CA_CERT = "/var/run/secrets/kubernetes.io/serviceaccount/..data/ca.crt"
 ENVIRONMENT_FILES = ("~/.operator-dev/om", "~/.operator-dev/contexts/{}")
 ENVIRONMENT_FILE_CURRENT = os.path.expanduser("~/.operator-dev/current")
+EXTERNALLY_MANAGED_TAG = "EXTERNALLY_MANAGED_BY_KUBERNETES"
+MAX_TAG_LEN = 32
 
 DEPRECATION_WARNING = (
     "This feature has been DEPRECATED and should only be used in testing environments."
