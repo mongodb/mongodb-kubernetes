@@ -1,4 +1,4 @@
-package v1
+package mdb
 
 // IMPORTANT: this package is intended to contain only "simple" validation—in
 // other words, validation that is based only on the properties in the MongoDB
@@ -8,6 +8,7 @@ package v1
 import (
 	"errors"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
@@ -32,7 +33,7 @@ func (mdb MongoDB) validate() error {
 	if len(validationResults) == 0 {
 		return nil
 	}
-	return buildValidationFailure(validationResults)
+	return v1.BuildValidationFailure(validationResults)
 }
 
 // ValidateDelete does nothing as we assume validation on deletion is
@@ -41,61 +42,61 @@ func (mdb *MongoDB) ValidateDelete() error {
 	return nil
 }
 
-func replicaSetHorizonsRequireTLS(ms MongoDbSpec) ValidationResult {
+func replicaSetHorizonsRequireTLS(ms MongoDbSpec) v1.ValidationResult {
 	if len(ms.Connectivity.ReplicaSetHorizons) > 0 && !ms.Security.TLSConfig.Enabled {
 		msg := "TLS must be enabled in order to use replica set horizons"
-		return validationError(msg)
+		return v1.ValidationError(msg)
 	}
-	return validationSuccess()
+	return v1.ValidationSuccess()
 }
 
-func horizonsMustEqualMembers(ms MongoDbSpec) ValidationResult {
+func horizonsMustEqualMembers(ms MongoDbSpec) v1.ValidationResult {
 	numHorizonMembers := len(ms.Connectivity.ReplicaSetHorizons)
 	if numHorizonMembers > 0 && numHorizonMembers != ms.Members {
-		return validationError("Number of horizons must be equal to number of members in replica set")
+		return v1.ValidationError("Number of horizons must be equal to number of members in replica set")
 	}
-	return validationSuccess()
+	return v1.ValidationSuccess()
 }
 
-func deploymentsMustHaveTLSInX509Env(ms MongoDbSpec) ValidationResult {
+func deploymentsMustHaveTLSInX509Env(ms MongoDbSpec) v1.ValidationResult {
 	authSpec := ms.Security.Authentication
 	if authSpec == nil {
-		return validationSuccess()
+		return v1.ValidationSuccess()
 	}
 	if authSpec.Enabled && authSpec.IsX509Enabled() && !ms.GetTLSConfig().Enabled {
-		return validationError("Cannot have a non-tls deployment when x509 authentication is enabled")
+		return v1.ValidationError("Cannot have a non-tls deployment when x509 authentication is enabled")
 	}
-	return validationSuccess()
+	return v1.ValidationSuccess()
 }
 
-func deploymentsMustHaveAgentModesIfAuthIsEnabled(ms MongoDbSpec) ValidationResult {
+func deploymentsMustHaveAgentModesIfAuthIsEnabled(ms MongoDbSpec) v1.ValidationResult {
 	authSpec := ms.Security.Authentication
 	if authSpec == nil {
-		return validationSuccess()
+		return v1.ValidationSuccess()
 	}
 	if authSpec.Enabled && len(authSpec.Modes) == 0 {
-		return validationError("Cannot enable authentication without modes specified")
+		return v1.ValidationError("Cannot enable authentication without modes specified")
 	}
-	return validationSuccess()
+	return v1.ValidationSuccess()
 }
 
-func deploymentsMustHaveAgentModeInAuthModes(ms MongoDbSpec) ValidationResult {
+func deploymentsMustHaveAgentModeInAuthModes(ms MongoDbSpec) v1.ValidationResult {
 	authSpec := ms.Security.Authentication
 	if authSpec == nil {
-		return validationSuccess()
+		return v1.ValidationSuccess()
 	}
 	if !authSpec.Enabled {
-		return validationSuccess()
+		return v1.ValidationSuccess()
 	}
 
 	if authSpec.Agents.Mode != "" && !stringutil.Contains(authSpec.Modes, authSpec.Agents.Mode) {
-		return validationError("Cannot configure an Agent authentication mechanism that is not specified in authentication modes")
+		return v1.ValidationError("Cannot configure an Agent authentication mechanism that is not specified in authentication modes")
 	}
-	return validationSuccess()
+	return v1.ValidationSuccess()
 }
 
-func (m MongoDB) RunValidations() []ValidationResult {
-	validators := []func(ms MongoDbSpec) ValidationResult{
+func (m MongoDB) RunValidations() []v1.ValidationResult {
+	validators := []func(ms MongoDbSpec) v1.ValidationResult{
 		replicaSetHorizonsRequireTLS,
 		horizonsMustEqualMembers,
 		deploymentsMustHaveTLSInX509Env,
@@ -103,7 +104,7 @@ func (m MongoDB) RunValidations() []ValidationResult {
 		deploymentsMustHaveAgentModeInAuthModes,
 	}
 
-	var validationResults []ValidationResult
+	var validationResults []v1.ValidationResult
 
 	for _, validator := range validators {
 		res := validator(m.Spec)
@@ -116,11 +117,11 @@ func (m MongoDB) RunValidations() []ValidationResult {
 
 func (m *MongoDB) ProcessValidationsOnReconcile() error {
 	for _, res := range m.RunValidations() {
-		if res.Level == ErrorLevel {
+		if res.Level == v1.ErrorLevel {
 			return errors.New(res.Msg)
 		}
 
-		if res.Level == WarningLevel {
+		if res.Level == v1.WarningLevel {
 			m.AddWarningIfNotExists(status.Warning(res.Msg))
 		}
 	}

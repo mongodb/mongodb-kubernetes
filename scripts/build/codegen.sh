@@ -3,12 +3,19 @@
 set -euo pipefail
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-cd "vendor/k8s.io/code-generator"
+
 
 ROOT_PACKAGE="github.com/10gen/ops-manager-kubernetes"
+input_dirs="${ROOT_PACKAGE}/pkg/apis/mongodb.com/v1"
+
+for dir in pkg/apis/mongodb.com/v1/*/; do
+    input_dirs="${input_dirs},${ROOT_PACKAGE}/${dir}"
+done
+
+cd "vendor/k8s.io/code-generator"
 
 # overriding go modules and GOFLAGS, because code-generator does not support go modules
-input_dirs="${ROOT_PACKAGE}/pkg/apis/mongodb.com/v1,${ROOT_PACKAGE}/pkg/apis/mongodb.com/v1/status"
+
 GO111MODULE=off GOFLAGS="" bash ./generate-groups.sh client,lister,informer ${ROOT_PACKAGE}/pkg/client \
     ${ROOT_PACKAGE}/pkg/apis "mongodb.com:v1" --go-header-file "${DIR}/boilerplate.go.txt"
 

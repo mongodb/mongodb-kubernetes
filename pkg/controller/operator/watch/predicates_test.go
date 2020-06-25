@@ -3,24 +3,26 @@ package watch
 import (
 	"testing"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
+	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/user"
 	"github.com/stretchr/testify/assert"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 )
 
 func TestPredicatesForUser(t *testing.T) {
 	t.Run("No reconciliation for MongoDBUser if statuses are not equal", func(t *testing.T) {
-		oldUser := &mdbv1.MongoDBUser{
-			Status: mdbv1.MongoDBUserStatus{},
+		oldUser := &user.MongoDBUser{
+			Status: user.MongoDBUserStatus{},
 		}
 		newUser := oldUser.DeepCopy()
 		newUser.Status.Phase = status.PhaseReconciling
 		assert.False(t, PredicatesForUser().Update(event.UpdateEvent{ObjectOld: oldUser, ObjectNew: newUser}))
 	})
 	t.Run("Reconciliation happens for MongoDBUser if statuses are equal", func(t *testing.T) {
-		oldUser := &mdbv1.MongoDBUser{
-			Status: mdbv1.MongoDBUserStatus{},
+		oldUser := &user.MongoDBUser{
+			Status: user.MongoDBUserStatus{},
 		}
 		newUser := oldUser.DeepCopy()
 		newUser.Spec.Username = "test"
@@ -30,14 +32,14 @@ func TestPredicatesForUser(t *testing.T) {
 
 func TestPredicatesForOpsManager(t *testing.T) {
 	t.Run("No reconciliation for MongoDBOpsManager if statuses are not equal", func(t *testing.T) {
-		oldOm := mdbv1.NewOpsManagerBuilder().Build()
+		oldOm := omv1.NewOpsManagerBuilder().Build()
 		newOm := oldOm.DeepCopy()
 		newOm.Spec.Replicas = 2
-		newOm.Status = mdbv1.MongoDBOpsManagerStatus{Warnings: []status.Warning{"warning"}}
+		newOm.Status = omv1.MongoDBOpsManagerStatus{Warnings: []status.Warning{"warning"}}
 		assert.False(t, PredicatesForOpsManager().Update(event.UpdateEvent{ObjectOld: &oldOm, ObjectNew: newOm}))
 	})
 	t.Run("Reconciliation happens for MongoDBOpsManager if statuses are equal", func(t *testing.T) {
-		oldOm := mdbv1.NewOpsManagerBuilder().Build()
+		oldOm := omv1.NewOpsManagerBuilder().Build()
 		newOm := oldOm.DeepCopy()
 		newOm.Spec.Replicas = 2
 		assert.True(t, PredicatesForOpsManager().Update(event.UpdateEvent{ObjectOld: &oldOm, ObjectNew: newOm}))

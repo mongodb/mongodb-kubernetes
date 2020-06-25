@@ -1,4 +1,4 @@
-package mongod
+package mdb
 
 import (
 	"strings"

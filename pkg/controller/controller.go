@@ -3,7 +3,9 @@ package controller
 import (
 	"strings"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
+	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/user"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
@@ -12,8 +14,8 @@ var crdFuncMap map[string][]func(manager.Manager) error
 
 var (
 	mdb  = &mdbv1.MongoDB{}
-	mdbu = &mdbv1.MongoDBUser{}
-	om   = mdbv1.MongoDBOpsManager{}
+	mdbu = &user.MongoDBUser{}
+	om   = omv1.MongoDBOpsManager{}
 )
 
 func init() {

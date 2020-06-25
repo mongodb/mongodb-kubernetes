@@ -1,7 +1,6 @@
-package v1
+package mdb
 
 import (
-	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mongod"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -64,7 +63,7 @@ func (b *MongoDBBuilder) SetClusterDomain(m string) *MongoDBBuilder {
 	return b
 }
 
-func (b *MongoDBBuilder) SetAdditionalConfig(c mongod.AdditionalMongodConfig) *MongoDBBuilder {
+func (b *MongoDBBuilder) SetAdditionalConfig(c AdditionalMongodConfig) *MongoDBBuilder {
 	b.mdb.Spec.AdditionalMongodConfig = c
 	return b
 }

@@ -4,10 +4,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mongod"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"github.com/stretchr/testify/assert"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
@@ -135,7 +134,7 @@ func TestConfigureX509_Process(t *testing.T) {
 }
 
 func TestCreateMongodProcess_SSL(t *testing.T) {
-	additionalConfig := mongod.NewAdditionalMongodConfig("net.ssl.mode", string(mdbv1.PreferSSLMode))
+	additionalConfig := mdbv1.NewAdditionalMongodConfig("net.ssl.mode", string(mdbv1.PreferSSLMode))
 
 	mdb := mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).Build()
 	process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdb)
@@ -151,7 +150,7 @@ func TestCreateMongodProcess_SSL(t *testing.T) {
 }
 
 func TestCreateMongosProcess_SSL(t *testing.T) {
-	additionalConfig := mongod.NewAdditionalMongodConfig("net.ssl.mode", string(mdbv1.AllowSSLMode))
+	additionalConfig := mdbv1.NewAdditionalMongodConfig("net.ssl.mode", string(mdbv1.AllowSSLMode))
 	mdb := mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).
 		SetSecurityTLSEnabled().Build()
 	process := NewMongosProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdb)
@@ -162,12 +161,12 @@ func TestCreateMongosProcess_SSL(t *testing.T) {
 // TestMergeMongodProcess_SSL verifies that merging for the process SSL settings keeps the Operator "owned" properties
 // and doesn't overwrite the other Ops Manager initiated configuration
 func TestMergeMongodProcess_SSL(t *testing.T) {
-	additionalConfig := mongod.NewAdditionalMongodConfig("net.ssl.mode", string(mdbv1.RequireSSLMode))
+	additionalConfig := mdbv1.NewAdditionalMongodConfig("net.ssl.mode", string(mdbv1.RequireSSLMode))
 	operatorMdb := mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").
 		SetAdditionalConfig(additionalConfig).SetSecurityTLSEnabled().Build()
 
 	omMdb := mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").
-		SetAdditionalConfig(mongod.NewEmptyAdditionalMongodConfig()).Build()
+		SetAdditionalConfig(mdbv1.NewEmptyAdditionalMongodConfig()).Build()
 
 	operatorProcess := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", operatorMdb)
 	omProcess := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", omMdb)

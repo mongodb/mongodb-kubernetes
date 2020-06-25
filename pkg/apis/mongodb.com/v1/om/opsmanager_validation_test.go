@@ -1,9 +1,10 @@
-package v1
+package om
 
 import (
 	"fmt"
 	"testing"
 
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/stretchr/testify/assert"
 )
@@ -16,7 +17,7 @@ func TestOpsManager_RunValidations_OpsManager(t *testing.T) {
 
 func TestOpsManager_RunValidations_AppDWithConnectivity(t *testing.T) {
 	om := NewOpsManagerBuilder().Build()
-	om.Spec.AppDB.Connectivity = &MongoDBConnectivity{[]MongoDBHorizonConfig{}}
+	om.Spec.AppDB.Connectivity = &mdbv1.MongoDBConnectivity{ReplicaSetHorizons: []mdbv1.MongoDBHorizonConfig{}}
 	assert.Nil(t, om.ProcessValidationsOnReconcile())
 	assert.Contains(t, om.Status.Warnings, status.Warning("connectivity field is not configurable for application databases"))
 }
@@ -30,14 +31,14 @@ func TestOpsManager_RunValidations_AppDWithCredentials(t *testing.T) {
 
 func TestOpsManager_RunValidations_AppDWithOpsManagerConfig(t *testing.T) {
 	om := NewOpsManagerBuilder().Build()
-	om.Spec.AppDB.OpsManagerConfig = &PrivateCloudConfig{}
+	om.Spec.AppDB.OpsManagerConfig = &mdbv1.PrivateCloudConfig{}
 	assert.Nil(t, om.ProcessValidationsOnReconcile())
 	assert.Contains(t, om.Status.Warnings, status.Warning("opsManager field is not configurable for application databases"))
 }
 
 func TestOpsManager_RunValidations_AppDWithCloudManagerConfig(t *testing.T) {
 	om := NewOpsManagerBuilder().Build()
-	om.Spec.AppDB.CloudManagerConfig = &PrivateCloudConfig{}
+	om.Spec.AppDB.CloudManagerConfig = &mdbv1.PrivateCloudConfig{}
 	assert.Nil(t, om.ProcessValidationsOnReconcile())
 	assert.Contains(t, om.Status.Warnings, status.Warning("cloudManager field is not configurable for application databases"))
 }
@@ -51,21 +52,21 @@ func TestOpsManager_RunValidations_AppDWithProjectName(t *testing.T) {
 
 func TestOpsManager_RunValidations_AppDWithConfigSrvPodSpec(t *testing.T) {
 	om := NewOpsManagerBuilder().Build()
-	om.Spec.AppDB.ConfigSrvPodSpec = &MongoDbPodSpec{}
+	om.Spec.AppDB.ConfigSrvPodSpec = &mdbv1.MongoDbPodSpec{}
 	assert.Nil(t, om.ProcessValidationsOnReconcile())
 	assert.Contains(t, om.Status.Warnings, status.Warning("configSrvPodSpec field is not configurable for application databases as it is for sharded clusters and appdbs are replica sets"))
 }
 
 func TestOpsManager_RunValidations_AppDWithMongosPodSpec(t *testing.T) {
 	om := NewOpsManagerBuilder().Build()
-	om.Spec.AppDB.MongosPodSpec = &MongoDbPodSpec{}
+	om.Spec.AppDB.MongosPodSpec = &mdbv1.MongoDbPodSpec{}
 	assert.Nil(t, om.ProcessValidationsOnReconcile())
 	assert.Contains(t, om.Status.Warnings, status.Warning("mongosPodSpec field is not configurable for application databases as it is for sharded clusters and appdbs are replica sets"))
 }
 
 func TestOpsManager_RunValidations_AppDWithShardPodSpec(t *testing.T) {
 	om := NewOpsManagerBuilder().Build()
-	om.Spec.AppDB.ShardPodSpec = &MongoDbPodSpec{}
+	om.Spec.AppDB.ShardPodSpec = &mdbv1.MongoDbPodSpec{}
 	assert.Nil(t, om.ProcessValidationsOnReconcile())
 	assert.Contains(t, om.Status.Warnings, status.Warning("shardPodSpec field is not configurable for application databases as it is for sharded clusters and appdbs are replica sets"))
 }

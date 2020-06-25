@@ -1,7 +1,7 @@
 package om
 
 import (
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 )
 
 // ReplicaSetWithProcesses is a wrapper for replica set and processes that match to it

@@ -8,12 +8,12 @@ import (
 	"math"
 	"regexp"
 
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	"github.com/blang/semver"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 

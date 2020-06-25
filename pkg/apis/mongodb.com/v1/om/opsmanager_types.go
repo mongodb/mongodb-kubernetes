@@ -1,13 +1,14 @@
-package v1
+package om
 
 import (
 	"encoding/json"
 	"fmt"
 	"strings"
 
+	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/timeutil"
+	userv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/user"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -20,11 +21,12 @@ import (
 )
 
 func init() {
-	SchemeBuilder.Register(&MongoDBOpsManager{}, &MongoDBOpsManagerList{})
+	v1.SchemeBuilder.Register(&MongoDBOpsManager{}, &MongoDBOpsManagerList{})
 }
 
 // The MongoDBOpsManager resource allows you to deploy Ops Manager within your Kubernetes cluster
 
+// +k8s:deepcopy-gen=true
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +k8s:openapi-gen=true
 // +kubebuilder:subresource:status
@@ -46,14 +48,15 @@ func (om MongoDBOpsManager) AddValidationToManager(m manager.Manager) error {
 	return ctrl.NewWebhookManagedBy(m).For(&om).Complete()
 }
 
-func (om MongoDBOpsManager) GetAppDBProjectConfig() ProjectConfig {
-	return ProjectConfig{
+func (om MongoDBOpsManager) GetAppDBProjectConfig() mdbv1.ProjectConfig {
+	return mdbv1.ProjectConfig{
 		BaseURL:     om.CentralURL(),
 		ProjectName: om.Spec.AppDB.Name(),
 		Credentials: om.APIKeySecretName(),
 	}
 }
 
+// +k8s:deepcopy-gen=true
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type MongoDBOpsManagerList struct {
 	metav1.TypeMeta `json:",inline"`
@@ -94,7 +97,7 @@ type MongoDBOpsManagerSpec struct {
 
 	// +optional
 	// Deprecated: This field has been removed, it is only here to perform validations
-	PodSpec *MongoDbPodSpec `json:"podSpec,omitempty"`
+	PodSpec *mdbv1.MongoDbPodSpec `json:"podSpec,omitempty"`
 
 	// Configure HTTPS.
 	// +optional
@@ -102,7 +105,7 @@ type MongoDBOpsManagerSpec struct {
 
 	// Configure custom StatefulSet configuration
 	// +optional
-	StatefulSetConfiguration *StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	StatefulSetConfiguration *mdbv1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 }
 
 type MongoDBOpsManagerSecurity struct {
@@ -110,7 +113,7 @@ type MongoDBOpsManagerSecurity struct {
 }
 
 type MongoDBOpsManagerTLS struct {
-	SecretRef TLSSecretRef `json:"secretRef"`
+	SecretRef mdbv1.TLSSecretRef `json:"secretRef"`
 }
 
 func (ms MongoDBOpsManagerSpec) GetClusterDomain() string {
@@ -149,16 +152,16 @@ type MongoDBOpsManagerBackup struct {
 	Enabled bool `json:"enabled"`
 
 	// HeadDB specifies configuration options for the HeadDB
-	HeadDB    *PersistenceConfig `json:"headDB,omitempty"`
-	JVMParams []string           `json:"jvmParameters,omitempty"`
+	HeadDB    *mdbv1.PersistenceConfig `json:"headDB,omitempty"`
+	JVMParams []string                 `json:"jvmParameters,omitempty"`
 
 	// OplogStoreConfigs describes the list of oplog store configs used for backup
 	OplogStoreConfigs []DataStoreConfig `json:"oplogStores,omitempty"`
 	BlockStoreConfigs []DataStoreConfig `json:"blockStores,omitempty"`
 	S3Configs         []S3Config        `json:"s3Stores,omitempty"`
 	// Deprecated: this field has been removed, it is only here to perform validations
-	PodSpec                  *MongoDbPodSpec           `json:"podSpec,omitempty"`
-	StatefulSetConfiguration *StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	PodSpec                  *mdbv1.MongoDbPodSpec           `json:"podSpec,omitempty"`
+	StatefulSetConfiguration *mdbv1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 }
 
 type MongoDBOpsManagerStatus struct {
@@ -169,27 +172,27 @@ type MongoDBOpsManagerStatus struct {
 }
 
 type OpsManagerStatus struct {
-	CommonStatus `json:",inline"`
-	Replicas     int    `json:"replicas,omitempty"`
-	Version      string `json:"version,omitempty"`
-	Url          string `json:"url,omitempty"`
+	status.Common `json:",inline"`
+	Replicas      int    `json:"replicas,omitempty"`
+	Version       string `json:"version,omitempty"`
+	Url           string `json:"url,omitempty"`
 }
 
 type AppDbStatus struct {
-	MongoDbStatus `json:",inline"`
+	mdbv1.MongoDbStatus `json:",inline"`
 }
 
 type BackupStatus struct {
-	CommonStatus `json:",inline"`
-	Version      string `json:"version,omitempty"`
+	status.Common `json:",inline"`
+	Version       string `json:"version,omitempty"`
 }
 
 // DataStoreConfig is the description of the config used to reference to database. Reused by Oplog and Block stores
 // Optionally references the user if the Mongodb is configured with authentication
 type DataStoreConfig struct {
-	Name               string             `json:"name"`
-	MongoDBResourceRef MongoDBResourceRef `json:"mongodbResourceRef"`
-	MongoDBUserRef     *MongoDBUserRef    `json:"mongodbUserRef,omitempty"`
+	Name               string                    `json:"name"`
+	MongoDBResourceRef userv1.MongoDBResourceRef `json:"mongodbResourceRef"`
+	MongoDBUserRef     *MongoDBUserRef           `json:"mongodbUserRef,omitempty"`
 }
 
 func (f DataStoreConfig) Identifier() interface{} {
@@ -201,13 +204,13 @@ type SecretRef struct {
 }
 
 type S3Config struct {
-	MongoDBResourceRef     *MongoDBResourceRef `json:"mongodbResourceRef,omitempty"`
-	MongoDBUserRef         *MongoDBUserRef     `json:"mongodbUserRef,omitempty"`
-	S3SecretRef            SecretRef           `json:"s3SecretRef"`
-	Name                   string              `json:"name"`
-	PathStyleAccessEnabled bool                `json:"pathStyleAccessEnabled"`
-	S3BucketEndpoint       string              `json:"s3BucketEndpoint"`
-	S3BucketName           string              `json:"s3BucketName"`
+	MongoDBResourceRef     *userv1.MongoDBResourceRef `json:"mongodbResourceRef,omitempty"`
+	MongoDBUserRef         *MongoDBUserRef            `json:"mongodbUserRef,omitempty"`
+	S3SecretRef            SecretRef                  `json:"s3SecretRef"`
+	Name                   string                     `json:"name"`
+	PathStyleAccessEnabled bool                       `json:"pathStyleAccessEnabled"`
+	S3BucketEndpoint       string                     `json:"s3BucketEndpoint"`
+	S3BucketName           string                     `json:"s3BucketName"`
 }
 
 func (s S3Config) Identifier() interface{} {
@@ -288,15 +291,15 @@ func (m *MongoDBOpsManager) InitDefaultFields() {
 	m.Spec.AppDB.OpsManagerName = m.Name
 	m.Spec.AppDB.Namespace = m.Namespace
 	m.Spec.AppDB.ClusterDomain = m.Spec.GetClusterDomain()
-	m.Spec.AppDB.ResourceType = ReplicaSet
+	m.Spec.AppDB.ResourceType = mdbv1.ReplicaSet
 }
 
-func ensureSecurityWithSCRAM(specSecurity *Security) *Security {
+func ensureSecurityWithSCRAM(specSecurity *mdbv1.Security) *mdbv1.Security {
 	if specSecurity == nil {
-		specSecurity = &Security{TLSConfig: &TLSConfig{}}
+		specSecurity = &mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{}}
 	}
 	// the only allowed authentication is SCRAM - it's implicit to the user and hidden from him
-	specSecurity.Authentication = &Authentication{Modes: []string{util.SCRAM}}
+	specSecurity.Authentication = &mdbv1.Authentication{Modes: []string{util.SCRAM}}
 	return specSecurity
 }
 
@@ -321,18 +324,6 @@ func (m *MongoDBOpsManager) AddConfigIfDoesntExist(key, value string) bool {
 		return true
 	}
 	return false
-}
-
-// UpdateCommonFields is the update function to update common fields used in statuses of all managed CRs
-func (s *CommonStatus) UpdateCommonFields(phase status.Phase, statusOptions ...status.Option) {
-	s.Phase = phase
-	s.LastTransition = timeutil.Now()
-	if option, exists := status.GetOption(statusOptions, status.MessageOption{}); exists {
-		s.Message = stringutil.UpperCaseFirstChar(option.(status.MessageOption).Message)
-	}
-	if option, exists := status.GetOption(statusOptions, status.ResourcesNotReadyOption{}); exists {
-		s.ResourcesNotReady = option.(status.ResourcesNotReadyOption).ResourcesNotReady
-	}
 }
 
 func (m *MongoDBOpsManager) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {
@@ -464,12 +455,13 @@ func SchemePortFromAnnotation(annotation string) (corev1.URIScheme, int) {
 
 // Note, that as of beta the AppDB has a limited schema comparing with a MongoDB struct
 
+// +k8s:deepcopy-gen=true
 type AppDB struct {
-	MongoDbSpec `json:",inline"`
+	mdbv1.MongoDbSpec `json:",inline"`
 
 	// PasswordSecretKeyRef contains a reference to the secret which contains the password
 	// for the mongodb-ops-manager SCRAM-SHA user
-	PasswordSecretKeyRef *SecretKeyRef `json:"passwordSecretKeyRef,omitempty"`
+	PasswordSecretKeyRef *userv1.SecretKeyRef `json:"passwordSecretKeyRef,omitempty"`
 
 	// transient fields. These fields are cleaned before serialization, see 'MarshalJSON()'
 	// note, that we cannot include the 'OpsManager' instance here as this creates circular dependency and problems with
@@ -485,8 +477,8 @@ type AppDbBuilder struct {
 
 func DefaultAppDbBuilder() *AppDbBuilder {
 	appDb := &AppDB{
-		MongoDbSpec:          MongoDbSpec{Version: "", Members: 3, PodSpec: &MongoDbPodSpec{}},
-		PasswordSecretKeyRef: &SecretKeyRef{},
+		MongoDbSpec:          mdbv1.MongoDbSpec{Version: "", Members: 3, PodSpec: &mdbv1.MongoDbPodSpec{}},
+		PasswordSecretKeyRef: &userv1.SecretKeyRef{},
 	}
 	return &AppDbBuilder{appDb: appDb}
 }
@@ -518,7 +510,7 @@ func (m *AppDB) UnmarshalJSON(data []byte) error {
 	m.ConnectionSpec.Project = ""
 	// all resources have a pod spec
 	if m.PodSpec == nil {
-		m.PodSpec = newMongoDbPodSpec()
+		m.PodSpec = mdbv1.NewMongoDbPodSpec()
 	}
 	return nil
 }
@@ -544,7 +536,7 @@ func (m AppDB) AutomationConfigSecretName() string {
 
 // ConnectionURL returns the connection url to the AppDB
 func (m AppDB) ConnectionURL(userName, password string, connectionParams map[string]string) string {
-	return buildConnectionUrl(m.Name(), m.ServiceName(), m.Namespace, userName, password, m.MongoDbSpec, connectionParams)
+	return mdbv1.BuildConnectionUrl(m.Name(), m.ServiceName(), m.Namespace, userName, password, m.MongoDbSpec, connectionParams)
 }
 
 // todo these two methods are added only to make AppDB implement runtime.Object

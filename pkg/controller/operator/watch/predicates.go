@@ -3,7 +3,9 @@ package watch
 import (
 	"reflect"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
+	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
+	userv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/user"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
@@ -12,8 +14,8 @@ func PredicatesForUser() predicate.Funcs {
 	return predicate.Funcs{
 		// don't update users on status changes
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			oldResource := e.ObjectOld.(*mdbv1.MongoDBUser)
-			newResource := e.ObjectNew.(*mdbv1.MongoDBUser)
+			oldResource := e.ObjectOld.(*userv1.MongoDBUser)
+			newResource := e.ObjectNew.(*userv1.MongoDBUser)
 			return reflect.DeepEqual(oldResource.GetStatus(), newResource.GetStatus())
 		},
 	}
@@ -23,8 +25,8 @@ func PredicatesForOpsManager() predicate.Funcs {
 	return predicate.Funcs{
 		// don't update ops manager on status changes
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			oldResource := e.ObjectOld.(*mdbv1.MongoDBOpsManager)
-			newResource := e.ObjectNew.(*mdbv1.MongoDBOpsManager)
+			oldResource := e.ObjectOld.(*omv1.MongoDBOpsManager)
+			newResource := e.ObjectNew.(*omv1.MongoDBOpsManager)
 			return reflect.DeepEqual(oldResource.GetStatus(), newResource.GetStatus())
 		},
 	}

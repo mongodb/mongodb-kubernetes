@@ -9,7 +9,10 @@ import (
 	"math/rand"
 	"time"
 
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
+	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
 	mdbstatus "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/user"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/project"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
@@ -26,7 +29,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -64,7 +66,7 @@ func newOpsManagerReconciler(mgr manager.Manager, omFunc om.ConnectionFactory, i
 func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
 	log := zap.S().With("OpsManager", request.NamespacedName)
 
-	opsManager := &mdbv1.MongoDBOpsManager{}
+	opsManager := &omv1.MongoDBOpsManager{}
 
 	opsManagerExtraStatusParams := mdbstatus.NewOMPartOption(mdbstatus.OpsManager)
 	defer exceptionHandling(
@@ -134,7 +136,7 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 	return success()
 }
 
-func (r *OpsManagerReconciler) reconcileOpsManager(opsManager *mdbv1.MongoDBOpsManager, opsManagerUserPassword string, log *zap.SugaredLogger) (workflow.Status, api.Admin) {
+func (r *OpsManagerReconciler) reconcileOpsManager(opsManager *omv1.MongoDBOpsManager, opsManagerUserPassword string, log *zap.SugaredLogger) (workflow.Status, api.Admin) {
 	statusOptions := []mdbstatus.Option{mdbstatus.NewOMPartOption(mdbstatus.OpsManager), mdbstatus.NewBaseUrlOption(opsManager.CentralURL())}
 
 	_, err := r.updateStatus(opsManager, workflow.Reconciling(), log, statusOptions...)
@@ -168,7 +170,7 @@ func (r *OpsManagerReconciler) reconcileOpsManager(opsManager *mdbv1.MongoDBOpsM
 
 // triggerOmChangedEventIfNeeded triggers upgrade process for all the MongoDB agents in the system if the major/minor version upgrade
 // happened for Ops Manager
-func triggerOmChangedEventIfNeeded(opsManager mdbv1.MongoDBOpsManager, log *zap.SugaredLogger) error {
+func triggerOmChangedEventIfNeeded(opsManager omv1.MongoDBOpsManager, log *zap.SugaredLogger) error {
 	if opsManager.Spec.Version == opsManager.Status.OpsManagerStatus.Version {
 		return nil
 	}
@@ -187,7 +189,7 @@ func triggerOmChangedEventIfNeeded(opsManager mdbv1.MongoDBOpsManager, log *zap.
 	return nil
 }
 
-func (r *OpsManagerReconciler) reconcileBackupDaemon(opsManager *mdbv1.MongoDBOpsManager, omAdmin api.Admin, opsManagerUserPassword string, log *zap.SugaredLogger) workflow.Status {
+func (r *OpsManagerReconciler) reconcileBackupDaemon(opsManager *omv1.MongoDBOpsManager, omAdmin api.Admin, opsManagerUserPassword string, log *zap.SugaredLogger) workflow.Status {
 	backupStatusPartOption := mdbstatus.NewOMPartOption(mdbstatus.Backup)
 
 	_, err := r.updateStatus(opsManager, workflow.Reconciling(), log, backupStatusPartOption)
@@ -213,7 +215,7 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(opsManager *mdbv1.MongoDBOp
 }
 
 // readOpsManagerResource reads Ops Manager Custom resource into pointer provided
-func (r *OpsManagerReconciler) readOpsManagerResource(request reconcile.Request, ref *mdbv1.MongoDBOpsManager, log *zap.SugaredLogger) (*reconcile.Result, error) {
+func (r *OpsManagerReconciler) readOpsManagerResource(request reconcile.Request, ref *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (*reconcile.Result, error) {
 	if result, err := r.getResource(request, ref, log); result != nil {
 		return result, err
 	}
@@ -223,7 +225,7 @@ func (r *OpsManagerReconciler) readOpsManagerResource(request reconcile.Request,
 }
 
 // ensureAppDBConnectionString ensures that the AppDB Connection String exists in a secret.
-func (r *OpsManagerReconciler) ensureAppDBConnectionString(opsManager mdbv1.MongoDBOpsManager, computedConnectionString string, log *zap.SugaredLogger) error {
+func (r *OpsManagerReconciler) ensureAppDBConnectionString(opsManager omv1.MongoDBOpsManager, computedConnectionString string, log *zap.SugaredLogger) error {
 	secret := &corev1.Secret{}
 	err := r.client.Get(context.TODO(), objectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()), secret)
 	connectionString := map[string]string{
@@ -250,7 +252,7 @@ func hashConnectionString(connectionString string) string {
 }
 
 // createOpsManagerStatefulset ensures the gen key secret exists and creates the Ops Manager StatefulSet.
-func (r *OpsManagerReconciler) createOpsManagerStatefulset(opsManager mdbv1.MongoDBOpsManager, opsManagerUserPassword string, log *zap.SugaredLogger) workflow.Status {
+func (r *OpsManagerReconciler) createOpsManagerStatefulset(opsManager omv1.MongoDBOpsManager, opsManagerUserPassword string, log *zap.SugaredLogger) workflow.Status {
 	if err := r.ensureGenKey(opsManager, log); err != nil {
 		return workflow.Failed(err.Error())
 	}
@@ -285,7 +287,7 @@ func AddOpsManagerController(mgr manager.Manager) error {
 	}
 
 	// watch for changes to the Ops Manager resources
-	if err = c.Watch(&source.Kind{Type: &mdbv1.MongoDBOpsManager{}}, &handler.EnqueueRequestForObject{}, watch.PredicatesForOpsManager()); err != nil {
+	if err = c.Watch(&source.Kind{Type: &omv1.MongoDBOpsManager{}}, &handler.EnqueueRequestForObject{}, watch.PredicatesForOpsManager()); err != nil {
 		return err
 	}
 
@@ -307,7 +309,7 @@ func AddOpsManagerController(mgr manager.Manager) error {
 }
 
 // ensureConfiguration makes sure the mandatory configuration is specified.
-func (r OpsManagerReconciler) ensureConfiguration(opsManager *mdbv1.MongoDBOpsManager, log *zap.SugaredLogger) {
+func (r OpsManagerReconciler) ensureConfiguration(opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) {
 	// update the central URL
 	setConfigProperty(opsManager, util.MmsCentralUrlPropKey, opsManager.CentralURL(), log)
 
@@ -330,7 +332,7 @@ func (r OpsManagerReconciler) ensureConfiguration(opsManager *mdbv1.MongoDBOpsMa
 // Note, that the idea of creating two statefulsets for Ops Manager and Backup Daemon in parallel hasn't worked out
 // as the daemon in this case just hangs silently (in practice it's ok to start it in ~1 min after start of OM though
 // we will just start them sequentially)
-func (r *OpsManagerReconciler) createBackupDaemonStatefulset(opsManager mdbv1.MongoDBOpsManager,
+func (r *OpsManagerReconciler) createBackupDaemonStatefulset(opsManager omv1.MongoDBOpsManager,
 	opsManagerUserPassword string, log *zap.SugaredLogger) workflow.Status {
 	if !opsManager.Spec.Backup.Enabled {
 		return workflow.OK()
@@ -356,7 +358,7 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(opsManager mdbv1.Mo
 	return workflow.OK()
 }
 
-func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(opsManager mdbv1.MongoDBOpsManager) {
+func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(opsManager omv1.MongoDBOpsManager) {
 	if !opsManager.Spec.Backup.Enabled {
 		r.removeWatchedResources(opsManager.Namespace, watch.MongoDB, kube.ObjectKeyFromApiObject(&opsManager))
 		return
@@ -401,12 +403,12 @@ func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(opsManage
 
 // buildMongoConnectionUrl builds the connection url to the appdb. Note, that it overrides the default authMechanism
 // (which internally depends on the mongodb version)
-func buildMongoConnectionUrl(opsManager mdbv1.MongoDBOpsManager, password string) string {
+func buildMongoConnectionUrl(opsManager omv1.MongoDBOpsManager, password string) string {
 	return opsManager.Spec.AppDB.ConnectionURL(util.OpsManagerMongoDBUserName, password,
 		map[string]string{"authMechanism": "SCRAM-SHA-1"})
 }
 
-func setConfigProperty(opsManager *mdbv1.MongoDBOpsManager, key, value string, log *zap.SugaredLogger) {
+func setConfigProperty(opsManager *omv1.MongoDBOpsManager, key, value string, log *zap.SugaredLogger) {
 	if opsManager.AddConfigIfDoesntExist(key, value) {
 		if key == util.MmsMongoUri {
 			log.Debugw("Configured property", key, util.RedactMongoURI(value))
@@ -417,7 +419,7 @@ func setConfigProperty(opsManager *mdbv1.MongoDBOpsManager, key, value string, l
 }
 
 // ensureGenKey
-func (r OpsManagerReconciler) ensureGenKey(om mdbv1.MongoDBOpsManager, log *zap.SugaredLogger) error {
+func (r OpsManagerReconciler) ensureGenKey(om omv1.MongoDBOpsManager, log *zap.SugaredLogger) error {
 	objectKey := objectKey(om.Namespace, om.Name+"-gen-key")
 	_, err := r.kubeHelper.readSecret(objectKey)
 	if apiErrors.IsNotFound(err) {
@@ -437,7 +439,7 @@ func (r OpsManagerReconciler) ensureGenKey(om mdbv1.MongoDBOpsManager, log *zap.
 
 // getAppDBPassword will return the password that was specified by the user, or the auto generated password stored in
 // the secret (generate it and store in secret otherwise)
-func (r OpsManagerReconciler) getAppDBPassword(opsManager mdbv1.MongoDBOpsManager, log *zap.SugaredLogger) (string, error) {
+func (r OpsManagerReconciler) getAppDBPassword(opsManager omv1.MongoDBOpsManager, log *zap.SugaredLogger) (string, error) {
 	passwordRef := opsManager.Spec.AppDB.PasswordSecretKeyRef
 	if passwordRef != nil && passwordRef.Name != "" { // there is a secret specified for the Ops Manager user
 
@@ -503,7 +505,7 @@ func (r OpsManagerReconciler) getAppDBPassword(opsManager mdbv1.MongoDBOpsManage
 // asking the user to fix this manually.
 // Theoretically the Operator could remove the appdb StatefulSet (as the OM must be empty without any user data) and
 // allow the db to get recreated but seems this is a quite radical operation.
-func (r OpsManagerReconciler) prepareOpsManager(opsManager mdbv1.MongoDBOpsManager, log *zap.SugaredLogger) (workflow.Status, api.Admin) {
+func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManager, log *zap.SugaredLogger) (workflow.Status, api.Admin) {
 	// We won't support cross-namespace secrets until CLOUDP-46636 is resolved
 	secret := objectKey(opsManager.Namespace, opsManager.Spec.AdminSecret)
 
@@ -585,7 +587,7 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager mdbv1.MongoDBOpsManag
 }
 
 // prepareBackupInOpsManager makes the changes to backup admin configuration based on the Ops Manager spec
-func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager mdbv1.MongoDBOpsManager, omAdmin api.Admin,
+func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager omv1.MongoDBOpsManager, omAdmin api.Admin,
 	log *zap.SugaredLogger) workflow.Status {
 	if !opsManager.Spec.Backup.Enabled {
 		return workflow.OK()
@@ -628,7 +630,7 @@ func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager mdbv1.MongoD
 // and removes the non-existing ones. Note that there's no update operation as so far the Operator manages only one field
 // 'path'. This will allow users to make any additional changes to the file system stores using Ops Manager UI and the
 // Operator won't override them
-func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(opsManager mdbv1.MongoDBOpsManager, omAdmin api.Admin, log *zap.SugaredLogger) workflow.Status {
+func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(opsManager omv1.MongoDBOpsManager, omAdmin api.Admin, log *zap.SugaredLogger) workflow.Status {
 	if !opsManager.Spec.Backup.Enabled {
 		return workflow.OK()
 	}
@@ -642,7 +644,7 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(opsManager mdbv1.Mo
 	operatorOplogConfigs := opsManager.Spec.Backup.OplogStoreConfigs
 	configsToCreate := identifiable.SetDifferenceGeneric(operatorOplogConfigs, opsManagerOplogConfigs)
 	for _, v := range configsToCreate {
-		omConfig, status := r.buildOMDatastoreConfig(opsManager, v.(mdbv1.DataStoreConfig))
+		omConfig, status := r.buildOMDatastoreConfig(opsManager, v.(omv1.DataStoreConfig))
 		if !status.IsOK() {
 			return status
 		}
@@ -657,7 +659,7 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(opsManager mdbv1.Mo
 	configsToUpdate := identifiable.SetIntersectionGeneric(opsManagerOplogConfigs, operatorOplogConfigs)
 	for _, v := range configsToUpdate {
 		omConfig := v[0].(backup.DataStoreConfig)
-		operatorConfig := v[1].(mdbv1.DataStoreConfig)
+		operatorConfig := v[1].(omv1.DataStoreConfig)
 		operatorView, status := r.buildOMDatastoreConfig(opsManager, operatorConfig)
 		if !status.IsOK() {
 			return status
@@ -691,7 +693,7 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(opsManager mdbv1.Mo
 // and removes the non-existing ones. Note that there's no update operation as so far the Operator manages only one field
 // 'path'. This will allow users to make any additional changes to the file system stores using Ops Manager UI and the
 // Operator won't override them
-func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(opsManager mdbv1.MongoDBOpsManager, omAdmin api.Admin, log *zap.SugaredLogger) workflow.Status {
+func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(opsManager omv1.MongoDBOpsManager, omAdmin api.Admin, log *zap.SugaredLogger) workflow.Status {
 	if !opsManager.Spec.Backup.Enabled {
 		return workflow.OK()
 	}
@@ -705,7 +707,7 @@ func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(opsManager mdbv1.Mo
 	operatorBlockStoreConfigs := opsManager.Spec.Backup.BlockStoreConfigs
 	configsToCreate := identifiable.SetDifferenceGeneric(operatorBlockStoreConfigs, opsManagerBlockStoreConfigs)
 	for _, v := range configsToCreate {
-		omConfig, status := r.buildOMDatastoreConfig(opsManager, v.(mdbv1.DataStoreConfig))
+		omConfig, status := r.buildOMDatastoreConfig(opsManager, v.(omv1.DataStoreConfig))
 		if !status.IsOK() {
 			return status
 		}
@@ -720,7 +722,7 @@ func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(opsManager mdbv1.Mo
 	configsToUpdate := identifiable.SetIntersectionGeneric(opsManagerBlockStoreConfigs, operatorBlockStoreConfigs)
 	for _, v := range configsToUpdate {
 		omConfig := v[0].(backup.DataStoreConfig)
-		operatorConfig := v[1].(mdbv1.DataStoreConfig)
+		operatorConfig := v[1].(omv1.DataStoreConfig)
 		operatorView, status := r.buildOMDatastoreConfig(opsManager, operatorConfig)
 		if !status.IsOK() {
 			return status
@@ -746,7 +748,7 @@ func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(opsManager mdbv1.Mo
 	return workflow.OK()
 }
 
-func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager mdbv1.MongoDBOpsManager, omAdmin api.Admin,
+func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager omv1.MongoDBOpsManager, omAdmin api.Admin,
 	log *zap.SugaredLogger) workflow.Status {
 	if !opsManager.Spec.Backup.Enabled {
 		return workflow.OK()
@@ -760,7 +762,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager mdbv
 	operatorS3Configs := opsManager.Spec.Backup.S3Configs
 	configsToCreate := identifiable.SetDifferenceGeneric(operatorS3Configs, opsManagerS3Configs)
 	for _, config := range configsToCreate {
-		omConfig, status := r.buildOMS3Config(opsManager, config.(mdbv1.S3Config), log)
+		omConfig, status := r.buildOMS3Config(opsManager, config.(omv1.S3Config), log)
 		if !status.IsOK() {
 			return status
 		}
@@ -776,7 +778,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager mdbv
 	configsToUpdate := identifiable.SetIntersectionGeneric(opsManagerS3Configs, operatorS3Configs)
 	for _, v := range configsToUpdate {
 		omConfig := v[0].(backup.S3Config)
-		operatorConfig := v[1].(mdbv1.S3Config)
+		operatorConfig := v[1].(omv1.S3Config)
 		operatorView, status := r.buildOMS3Config(opsManager, operatorConfig, log)
 		if !status.IsOK() {
 			return status
@@ -828,7 +830,7 @@ func (r *OpsManagerReconciler) readS3Credentials(s3SecretName, namespace string)
 
 // buildOMS3Config builds the OM API S3 config from the Operator OM CR configuration. This involves some logic to
 // get the mongo URI which points to either the external resource or to the AppDB
-func (r *OpsManagerReconciler) buildOMS3Config(opsManager mdbv1.MongoDBOpsManager, config mdbv1.S3Config,
+func (r *OpsManagerReconciler) buildOMS3Config(opsManager omv1.MongoDBOpsManager, config omv1.S3Config,
 	log *zap.SugaredLogger) (backup.S3Config, workflow.Status) {
 	mongodb, status := r.getMongoDbForS3Config(opsManager, config)
 	if !status.IsOK() {
@@ -868,7 +870,7 @@ func (r *OpsManagerReconciler) buildOMS3Config(opsManager mdbv1.MongoDBOpsManage
 	return backup.NewS3Config(config.Name, uri, bucket, *s3Creds), workflow.OK()
 }
 
-func (r *OpsManagerReconciler) getMongoDbForS3Config(opsManager mdbv1.MongoDBOpsManager, config mdbv1.S3Config) (mdbv1.MongoDB, workflow.Status) {
+func (r *OpsManagerReconciler) getMongoDbForS3Config(opsManager omv1.MongoDBOpsManager, config omv1.S3Config) (mdbv1.MongoDB, workflow.Status) {
 	if config.MongoDBResourceRef == nil {
 		// having no mongodb reference means the AppDB should be used as a metadata storage
 		// We need to build a fake MongoDB resource
@@ -890,7 +892,7 @@ func (r *OpsManagerReconciler) getMongoDbForS3Config(opsManager mdbv1.MongoDBOps
 // getS3MongoDbUserNameAndPassword returns userName and password if MongoDB resource has scram-sha enabled.
 // Note, that we don't worry if the 'mongodbUserRef' is specified but SCRAM-SHA is not enabled - we just ignore the
 // user
-func (r *OpsManagerReconciler) getS3MongoDbUserNameAndPassword(mongodb mdbv1.MongoDB, opsManager mdbv1.MongoDBOpsManager, config mdbv1.S3Config, log *zap.SugaredLogger) (string, string, workflow.Status) {
+func (r *OpsManagerReconciler) getS3MongoDbUserNameAndPassword(mongodb mdbv1.MongoDB, opsManager omv1.MongoDBOpsManager, config omv1.S3Config, log *zap.SugaredLogger) (string, string, workflow.Status) {
 	if !stringutil.Contains(mongodb.Spec.Security.Authentication.GetModes(), util.SCRAM) {
 		return "", "", workflow.OK()
 	}
@@ -903,7 +905,7 @@ func (r *OpsManagerReconciler) getS3MongoDbUserNameAndPassword(mongodb mdbv1.Mon
 		return util.OpsManagerMongoDBUserName, password, workflow.OK()
 	}
 	// Otherwise we are fetching the MongoDBUser entity and a related password
-	mongodbUser := &mdbv1.MongoDBUser{}
+	mongodbUser := &user.MongoDBUser{}
 	mongodbUserObjectKey := config.MongodbUserObjectKey(opsManager.Namespace)
 	err := r.client.Get(context.TODO(), mongodbUserObjectKey, mongodbUser)
 	if apiErrors.IsNotFound(err) {
@@ -922,7 +924,7 @@ func (r *OpsManagerReconciler) getS3MongoDbUserNameAndPassword(mongodb mdbv1.Mon
 
 // buildOMDatastoreConfig builds the OM API datastore config based on the Kubernetes OM resource one.
 // To do this it may need to read the Mongodb User and its password to build mongodb url correctly
-func (r *OpsManagerReconciler) buildOMDatastoreConfig(opsManager mdbv1.MongoDBOpsManager, operatorConfig mdbv1.DataStoreConfig) (backup.DataStoreConfig, workflow.Status) {
+func (r *OpsManagerReconciler) buildOMDatastoreConfig(opsManager omv1.MongoDBOpsManager, operatorConfig omv1.DataStoreConfig) (backup.DataStoreConfig, workflow.Status) {
 	mongodb := &mdbv1.MongoDB{}
 	mongodbObjectKey := operatorConfig.MongodbResourceObjectKey(opsManager.Namespace)
 	err := r.client.Get(context.TODO(), mongodbObjectKey, mongodb)
@@ -944,7 +946,7 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(opsManager mdbv1.MongoDBOp
 	// user
 	var userName, password string
 	if stringutil.Contains(mongodb.Spec.Security.Authentication.GetModes(), util.SCRAM) {
-		mongodbUser := &mdbv1.MongoDBUser{}
+		mongodbUser := &user.MongoDBUser{}
 		mongodbUserObjectKey := operatorConfig.MongodbUserObjectKey(opsManager.Namespace)
 		err := r.client.Get(context.TODO(), mongodbUserObjectKey, mongodbUser)
 		if apiErrors.IsNotFound(err) {
@@ -965,15 +967,15 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(opsManager mdbv1.MongoDBOp
 	return backup.NewDataStoreConfig(operatorConfig.Name, mongoUri, tls), workflow.OK()
 }
 
-func validateS3Config(mongodb mdbv1.MongoDB, s3Config mdbv1.S3Config) workflow.Status {
+func validateS3Config(mongodb mdbv1.MongoDB, s3Config omv1.S3Config) workflow.Status {
 	return validateConfig(mongodb, s3Config.MongoDBUserRef, "S3 metadata database")
 }
 
-func validateDataStoreConfig(mongodb mdbv1.MongoDB, dataStoreConfig mdbv1.DataStoreConfig) workflow.Status {
+func validateDataStoreConfig(mongodb mdbv1.MongoDB, dataStoreConfig omv1.DataStoreConfig) workflow.Status {
 	return validateConfig(mongodb, dataStoreConfig.MongoDBUserRef, "Oplog/Blockstore databases")
 }
 
-func validateConfig(mongodb mdbv1.MongoDB, userRef *mdbv1.MongoDBUserRef, description string) workflow.Status {
+func validateConfig(mongodb mdbv1.MongoDB, userRef *omv1.MongoDBUserRef, description string) workflow.Status {
 	// validate
 	if !stringutil.Contains(mongodb.Spec.Security.Authentication.GetModes(), util.SCRAM) &&
 		len(mongodb.Spec.Security.Authentication.GetModes()) > 0 {
@@ -997,7 +999,7 @@ func validateConfig(mongodb mdbv1.MongoDB, userRef *mdbv1.MongoDBUserRef, descri
 // performValidation makes some validation of Ops Manager spec. So far this validation mostly follows the restrictions
 // for the app db in ops manager, see MongoConnectionConfigurationCheck
 // Ideally it must be done in an admission web hook
-func performValidation(opsManager mdbv1.MongoDBOpsManager) error {
+func performValidation(opsManager omv1.MongoDBOpsManager) error {
 	version := opsManager.Spec.AppDB.GetVersion()
 	v, err := semver.Make(version)
 	if err != nil {

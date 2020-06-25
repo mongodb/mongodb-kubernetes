@@ -19,19 +19,19 @@ type ValidationResult struct {
 	Level validationLevel
 }
 
-func validationSuccess() ValidationResult {
+func ValidationSuccess() ValidationResult {
 	return ValidationResult{Level: SuccessLevel}
 }
 
-func validationWarning(msg string, params ...interface{}) ValidationResult {
+func ValidationWarning(msg string, params ...interface{}) ValidationResult {
 	return ValidationResult{Msg: fmt.Sprintf(msg, params...), Level: WarningLevel}
 }
 
-func validationError(msg string, params ...interface{}) ValidationResult {
+func ValidationError(msg string, params ...interface{}) ValidationResult {
 	return ValidationResult{Msg: fmt.Sprintf(msg, params...), Level: ErrorLevel}
 }
 
-func buildValidationFailure(results []ValidationResult) error {
+func BuildValidationFailure(results []ValidationResult) error {
 	var errorMsg []string
 	if len(results) == 1 {
 		return errors.New(results[0].Msg)

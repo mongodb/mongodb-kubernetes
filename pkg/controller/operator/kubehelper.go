@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 
+	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
@@ -15,7 +16,8 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
+	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
@@ -50,7 +52,7 @@ const (
 // StatefulSetHelperCommon is the basic struct the same for all Statefulset helpers (MongoDB, OpsManager)
 type StatefulSetHelperCommon struct {
 	// Attributes that are part of StatefulSet
-	Owner     mdbv1.CustomResourceReadWriter
+	Owner     v1.CustomResourceReadWriter
 	Name      string
 	Service   string
 	Namespace string
@@ -122,7 +124,7 @@ type OpsManagerStatefulSetHelper struct {
 	StatefulSetHelperCommon
 
 	// MongoDBOpsManagerSpec reference to the actual Spec received.
-	Spec mdbv1.MongoDBOpsManagerSpec
+	Spec omv1.MongoDBOpsManagerSpec
 
 	// Annotations passed to the Ops Manager resource
 	Annotations map[string]string
@@ -168,14 +170,14 @@ type ShardedClusterKubeState struct {
 // Note, that it's the same for both MongodbResource Statefulset and AppDB Statefulset. So the object passed
 // can be either 'MongoDB' or 'MongoDBOpsManager' - in the latter case the configuration for AppDB is used.
 // We pass the 'MongoDBOpsManager' instead of 'AppDB' as the former is the owner of the object - no AppDB CR exists
-func (k *KubeHelper) NewStatefulSetHelper(obj mdbv1.CustomResourceReadWriter) *StatefulSetHelper {
+func (k *KubeHelper) NewStatefulSetHelper(obj v1.CustomResourceReadWriter) *StatefulSetHelper {
 	var containerName string
 	var mongodbSpec mdbv1.MongoDbSpec
 	switch v := obj.(type) {
 	case *mdbv1.MongoDB:
 		containerName = util.DatabaseContainerName
 		mongodbSpec = v.Spec
-	case *mdbv1.MongoDBOpsManager:
+	case *omv1.MongoDBOpsManager:
 		containerName = util.AppDbContainerName
 		mongodbSpec = v.Spec.AppDB.MongoDbSpec
 	default:
@@ -201,7 +203,7 @@ func (k *KubeHelper) NewStatefulSetHelper(obj mdbv1.CustomResourceReadWriter) *S
 	}
 }
 
-func (k *KubeHelper) NewOpsManagerStatefulSetHelper(opsManager mdbv1.MongoDBOpsManager) *OpsManagerStatefulSetHelper {
+func (k *KubeHelper) NewOpsManagerStatefulSetHelper(opsManager omv1.MongoDBOpsManager) *OpsManagerStatefulSetHelper {
 	_, port := opsManager.GetSchemePort()
 	tlsSecret := ""
 	if opsManager.Spec.Security != nil {
@@ -233,7 +235,7 @@ func (k *KubeHelper) NewOpsManagerStatefulSetHelper(opsManager mdbv1.MongoDBOpsM
 	}
 }
 
-func (k *KubeHelper) NewBackupStatefulSetHelper(opsManager mdbv1.MongoDBOpsManager) *BackupStatefulSetHelper {
+func (k *KubeHelper) NewBackupStatefulSetHelper(opsManager omv1.MongoDBOpsManager) *BackupStatefulSetHelper {
 	helper := BackupStatefulSetHelper{
 		OpsManagerStatefulSetHelper: *k.NewOpsManagerStatefulSetHelper(opsManager),
 	}
@@ -259,7 +261,7 @@ func (s *StatefulSetHelper) SetName(name string) *StatefulSetHelper {
 	s.Name = name
 	return s
 }
-func (s *StatefulSetHelper) SetOwner(obj mdbv1.CustomResourceReadWriter) *StatefulSetHelper {
+func (s *StatefulSetHelper) SetOwner(obj v1.CustomResourceReadWriter) *StatefulSetHelper {
 	s.Owner = obj
 	return s
 }
@@ -381,7 +383,7 @@ func (s StatefulSetHelper) CreateOrUpdateInKubernetes() error {
 	}
 
 	namespacedName := objectKey(s.Namespace, set.Spec.ServiceName)
-	internalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, mdbv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
 	err = s.Helper.createOrUpdateService(internalService, s.Logger)
 	if err != nil {
 		return err
@@ -389,7 +391,7 @@ func (s StatefulSetHelper) CreateOrUpdateInKubernetes() error {
 
 	if s.ExposedExternally {
 		namespacedName := objectKey(s.Namespace, set.Spec.ServiceName+"-external")
-		externalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, mdbv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeNodePort})
+		externalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeNodePort})
 		err = s.Helper.createOrUpdateService(externalService, s.Logger)
 	}
 
@@ -458,7 +460,7 @@ func (s OpsManagerStatefulSetHelper) CreateOrUpdateInKubernetes() error {
 	}
 
 	namespacedName := objectKey(s.Namespace, set.Spec.ServiceName)
-	internalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, mdbv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
 	err = s.Helper.createOrUpdateService(internalService, s.Logger)
 	if err != nil {
 		return err
@@ -509,7 +511,7 @@ func (s *StatefulSetHelper) CreateOrUpdateAppDBInKubernetes() error {
 	}
 
 	namespacedName := objectKey(s.Namespace, set.Spec.ServiceName)
-	internalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, mdbv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
 	err = s.Helper.createOrUpdateService(internalService, s.Logger)
 	return err
 }
@@ -716,7 +718,7 @@ func (k *KubeHelper) readSecretKey(nsName client.ObjectKey, key string) (string,
 // computeConfigMap fetches the existing config map and applies the computation function to it and pushes changes back
 // The computation function is expected to update the data in config map or return false if no update/create is needed
 // (Name for the function is chosen as an analogy to Map.compute() function in Java)
-func (k *KubeHelper) computeConfigMap(nsName client.ObjectKey, callback func(*corev1.ConfigMap) bool, owner mdbv1.CustomResourceReadWriter) error {
+func (k *KubeHelper) computeConfigMap(nsName client.ObjectKey, callback func(*corev1.ConfigMap) bool, owner v1.CustomResourceReadWriter) error {
 	existingConfigMap, err := k.configmapClient.Get(objectKey(nsName.Namespace, nsName.Name))
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
@@ -797,7 +799,7 @@ func (k *KubeHelper) createOrUpdateSecret(name, namespace string, pemFiles *pemC
 }
 
 // createSecret creates the secret. 'data' must either 'map[string][]byte' or 'map[string]string'
-func (k KubeHelper) createSecret(nsName client.ObjectKey, data interface{}, labels map[string]string, owner mdbv1.CustomResourceReadWriter) error {
+func (k KubeHelper) createSecret(nsName client.ObjectKey, data interface{}, labels map[string]string, owner v1.CustomResourceReadWriter) error {
 	secret := &corev1.Secret{}
 	secret.ObjectMeta = metav1.ObjectMeta{
 		Name:      nsName.Name,
@@ -1073,15 +1075,15 @@ func (k *KubeHelper) verifyCertificatesForStatefulSet(ss *StatefulSetHelper, sec
 
 // EnvVars returns a list of corev1.EnvVar which should be passed
 // to the container running Ops Manager
-func opsManagerConfigurationToEnvVars(m mdbv1.MongoDBOpsManager) []corev1.EnvVar {
+func opsManagerConfigurationToEnvVars(m omv1.MongoDBOpsManager) []corev1.EnvVar {
 	var envVars []corev1.EnvVar
 	for name, value := range m.Spec.Configuration {
 		envVars = append(envVars, corev1.EnvVar{
-			Name: mdbv1.ConvertNameToEnvVarFormat(name), Value: value,
+			Name: omv1.ConvertNameToEnvVarFormat(name), Value: value,
 		})
 	}
 	// Configure the AppDB Connection String property from a secret
-	envVars = append(envVars, envVarFromSecret(mdbv1.ConvertNameToEnvVarFormat(util.MmsMongoUri), m.AppDBMongoConnectionStringSecretName(), util.AppDbConnectionStringKey))
+	envVars = append(envVars, envVarFromSecret(omv1.ConvertNameToEnvVarFormat(util.MmsMongoUri), m.AppDBMongoConnectionStringSecretName(), util.AppDbConnectionStringKey))
 	return envVars
 }
 

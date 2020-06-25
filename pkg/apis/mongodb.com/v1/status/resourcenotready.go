@@ -7,7 +7,6 @@ const (
 	StatefulsetKind ResourceKind = "StatefulSet"
 )
 
-// +k8s:deepcopy-gen=true
 // ResourceNotReady describes the dependent resource which is not ready yet
 type ResourceNotReady struct {
 	Kind    ResourceKind    `json:"kind"`

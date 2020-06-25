@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
@@ -13,7 +14,6 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
@@ -422,7 +422,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 
 // ***************** Helper methods *******************************
 
-func buildAutomationConfigForAppDb(builder *mdbv1.OpsManagerBuilder, internetManifestProvider om.VersionManifestProvider) (*om.AutomationConfig, error) {
+func buildAutomationConfigForAppDb(builder *omv1.OpsManagerBuilder, internetManifestProvider om.VersionManifestProvider) (*om.AutomationConfig, error) {
 	opsManager := builder.Build()
 	kubeManager := mock.NewManager(&opsManager)
 
@@ -448,7 +448,7 @@ func newAppDbReconciler(mgr manager.Manager, internetManifestProvider om.Version
 	return &ReconcileAppDbReplicaSet{ReconcileCommonController: newReconcileCommonController(mgr, nil), VersionManifestFilePath: relativeVersionManifestFixturePath, InternetManifestProvider: internetManifestProvider}
 }
 
-func readAutomationConfigMap(t *testing.T, kubeManager *mock.MockedManager, opsManager mdbv1.MongoDBOpsManager) *corev1.ConfigMap {
+func readAutomationConfigMap(t *testing.T, kubeManager *mock.MockedManager, opsManager omv1.MongoDBOpsManager) *corev1.ConfigMap {
 	configMap := &corev1.ConfigMap{}
 	key := objectKey(opsManager.Namespace, opsManager.Spec.AppDB.AutomationConfigSecretName())
 	assert.NoError(t, kubeManager.Client.Get(context.TODO(), key, configMap))

@@ -7,7 +7,8 @@ import (
 	"testing"
 	"time"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
+	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/project"
@@ -239,7 +240,7 @@ func TestComputeConfigMap_UpdateExisting(t *testing.T) {
 
 func TestBuildService(t *testing.T) {
 	mdb := DefaultReplicaSetBuilder().Build()
-	svc := buildService(objectKey(mock.TestNamespace, "my-svc"), mdb, "label", 2000, mdbv1.MongoDBOpsManagerServiceDefinition{
+	svc := buildService(objectKey(mock.TestNamespace, "my-svc"), mdb, "label", 2000, omv1.MongoDBOpsManagerServiceDefinition{
 		Type:           corev1.ServiceTypeClusterIP,
 		Port:           2000,
 		LoadBalancerIP: "loadbalancerip",

@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
 
-	mongodb "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
@@ -265,14 +265,14 @@ func (r ReplicaSet) protocolVersion() string {
 	return r["protocolVersion"].(string)
 }
 
-func (r ReplicaSetMember) getHorizonConfig() mongodb.MongoDBHorizonConfig {
+func (r ReplicaSetMember) getHorizonConfig() mdbv1.MongoDBHorizonConfig {
 	if horizons, okay := r["horizons"]; okay {
-		return horizons.(mongodb.MongoDBHorizonConfig)
+		return horizons.(mdbv1.MongoDBHorizonConfig)
 	}
-	return mongodb.MongoDBHorizonConfig{}
+	return mdbv1.MongoDBHorizonConfig{}
 }
 
-func (r ReplicaSetMember) setHorizonConfig(horizonConfig mongodb.MongoDBHorizonConfig) ReplicaSetMember {
+func (r ReplicaSetMember) setHorizonConfig(horizonConfig mdbv1.MongoDBHorizonConfig) ReplicaSetMember {
 	// must not set empty horizon config
 	if len(horizonConfig) > 0 {
 		r["horizons"] = horizonConfig

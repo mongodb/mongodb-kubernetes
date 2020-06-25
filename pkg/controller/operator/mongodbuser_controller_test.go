@@ -5,13 +5,13 @@ import (
 	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
+	userv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/user"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -19,8 +19,8 @@ import (
 )
 
 func TestSettingUserStatus_ToPending_IsFilteredOut(t *testing.T) {
-	userInUpdatedPhase := &mdbv1.MongoDBUser{ObjectMeta: metav1.ObjectMeta{Name: "mms-user", Namespace: mock.TestNamespace}, Status: mdbv1.MongoDBUserStatus{CommonStatus: mdbv1.CommonStatus{Phase: status.PhaseUpdated}}}
-	userInPendingPhase := &mdbv1.MongoDBUser{ObjectMeta: metav1.ObjectMeta{Name: "mms-user", Namespace: mock.TestNamespace}, Status: mdbv1.MongoDBUserStatus{CommonStatus: mdbv1.CommonStatus{Phase: status.PhasePending}}}
+	userInUpdatedPhase := &userv1.MongoDBUser{ObjectMeta: metav1.ObjectMeta{Name: "mms-user", Namespace: mock.TestNamespace}, Status: userv1.MongoDBUserStatus{Common: status.Common{Phase: status.PhaseUpdated}}}
+	userInPendingPhase := &userv1.MongoDBUser{ObjectMeta: metav1.ObjectMeta{Name: "mms-user", Namespace: mock.TestNamespace}, Status: userv1.MongoDBUserStatus{Common: status.Common{Phase: status.PhasePending}}}
 
 	predicates := watch.PredicatesForUser()
 	updateEvent := event.UpdateEvent{
@@ -77,8 +77,8 @@ func TestUserIsUpdated_IfNonIdentifierFieldIsUpdated_OnSuccessfulReconciliation(
 	assert.Equal(t, expected, actual, "there should be a successful reconciliation if the password is a valid reference")
 
 	// remove roles from the same user
-	updateUser(user, client, func(user *mdbv1.MongoDBUser) {
-		user.Spec.Roles = []mdbv1.Role{}
+	updateUser(user, client, func(user *userv1.MongoDBUser) {
+		user.Spec.Roles = []userv1.Role{}
 	})
 
 	actual, err = reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
@@ -110,7 +110,7 @@ func TestUserIsReplaced_IfIdentifierFieldsAreChanged_OnSuccessfulReconciliation(
 	assert.Equal(t, expected, actual, "there should be a successful reconciliation if the password is a valid reference")
 
 	// change the username and database (these are the values used to identify a user)
-	updateUser(user, client, func(user *mdbv1.MongoDBUser) {
+	updateUser(user, client, func(user *userv1.MongoDBUser) {
 		user.Spec.Username = "changed-name"
 		user.Spec.Database = "changed-db"
 	})
@@ -132,7 +132,7 @@ func TestUserIsReplaced_IfIdentifierFieldsAreChanged_OnSuccessfulReconciliation(
 
 // updateUser applies and updates the changes to the user after getting the most recent version
 // from the mocked client
-func updateUser(user *mdbv1.MongoDBUser, client *mock.MockedClient, updateFunc func(*mdbv1.MongoDBUser)) {
+func updateUser(user *userv1.MongoDBUser, client *mock.MockedClient, updateFunc func(*userv1.MongoDBUser)) {
 	_ = client.Get(context.TODO(), objectKey(user.Namespace, user.Name), user)
 	updateFunc(user)
 	_ = client.Update(context.TODO(), user)
@@ -168,7 +168,7 @@ func TestRetriesReconciliation_IfPasswordSecretExists_ButHasNoPassword(t *testin
 	createUserControllerConfigMap(client)
 
 	// use the wrong key to store the password
-	createPasswordSecret(client, mdbv1.SecretKeyRef{Name: user.Spec.PasswordSecretKeyRef.Name, Key: "non-existent-key"}, "password")
+	createPasswordSecret(client, userv1.SecretKeyRef{Name: user.Spec.PasswordSecretKeyRef.Name, Key: "non-existent-key"}, "password")
 
 	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
 
@@ -283,7 +283,7 @@ func containsNil(users []*om.MongoDBUser) bool {
 	}
 	return false
 }
-func createPasswordSecret(client *mock.MockedClient, secretRef mdbv1.SecretKeyRef, password string) {
+func createPasswordSecret(client *mock.MockedClient, secretRef userv1.SecretKeyRef, password string) {
 	_ = client.Update(context.TODO(), &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: secretRef.Name, Namespace: mock.TestNamespace},
 		Data: map[string][]byte{
@@ -292,21 +292,21 @@ func createPasswordSecret(client *mock.MockedClient, secretRef mdbv1.SecretKeyRe
 	})
 }
 
-func createMongoDBForUser(client *mock.MockedClient, user mdbv1.MongoDBUser) {
+func createMongoDBForUser(client *mock.MockedClient, user userv1.MongoDBUser) {
 	mdb := DefaultReplicaSetBuilder().SetName(user.Spec.MongoDBResourceRef.Name).Build()
 	_ = client.Update(context.TODO(), mdb)
 }
 
 // defaultUserReconciler is the user reconciler used in unit test. It "adds" necessary
 // additional K8s objects (st, connection config map and secrets) necessary for reconciliation
-func defaultUserReconciler(user *mdbv1.MongoDBUser) (*MongoDBUserReconciler, *mock.MockedClient) {
+func defaultUserReconciler(user *userv1.MongoDBUser) (*MongoDBUserReconciler, *mock.MockedClient) {
 	manager := mock.NewManager(user)
 	manager.Client.AddDefaultMdbConfigResources()
 
 	return newMongoDBUserReconciler(manager, om.NewEmptyMockedOmConnection), manager.Client
 }
 
-func userReconcilerWithAuthMode(user *mdbv1.MongoDBUser, authMode string) (*MongoDBUserReconciler, *mock.MockedClient) {
+func userReconcilerWithAuthMode(user *userv1.MongoDBUser, authMode string) (*MongoDBUserReconciler, *mock.MockedClient) {
 	manager := mock.NewManager(user)
 	manager.Client.AddDefaultMdbConfigResources()
 	reconciler := newMongoDBUserReconciler(manager, func(context *om.OMContext) om.Connection {
@@ -320,8 +320,8 @@ func userReconcilerWithAuthMode(user *mdbv1.MongoDBUser, authMode string) (*Mong
 
 type MongoDBUserBuilder struct {
 	project             string
-	passwordRef         mdbv1.SecretKeyRef
-	roles               []mdbv1.Role
+	passwordRef         userv1.SecretKeyRef
+	roles               []userv1.Role
 	username            string
 	database            string
 	resourceName        string
@@ -329,7 +329,7 @@ type MongoDBUserBuilder struct {
 }
 
 func (b *MongoDBUserBuilder) SetPasswordRef(secretName, key string) *MongoDBUserBuilder {
-	b.passwordRef = mdbv1.SecretKeyRef{Name: secretName, Key: key}
+	b.passwordRef = userv1.SecretKeyRef{Name: secretName, Key: key}
 	return b
 }
 
@@ -358,14 +358,14 @@ func (b *MongoDBUserBuilder) SetResourceName(resourceName string) *MongoDBUserBu
 	return b
 }
 
-func (b *MongoDBUserBuilder) SetRoles(roles []mdbv1.Role) *MongoDBUserBuilder {
+func (b *MongoDBUserBuilder) SetRoles(roles []userv1.Role) *MongoDBUserBuilder {
 	b.roles = roles
 	return b
 }
 
 func DefaultMongoDBUserBuilder() *MongoDBUserBuilder {
 	return &MongoDBUserBuilder{
-		roles: []mdbv1.Role{{
+		roles: []userv1.Role{{
 			RoleName: "role-1",
 			Database: "admin",
 		}, {
@@ -376,7 +376,7 @@ func DefaultMongoDBUserBuilder() *MongoDBUserBuilder {
 			Database: "admin",
 		}},
 		project: mock.TestProjectConfigMapName,
-		passwordRef: mdbv1.SecretKeyRef{
+		passwordRef: userv1.SecretKeyRef{
 			Name: "password-secret",
 			Key:  "password",
 		},
@@ -386,26 +386,26 @@ func DefaultMongoDBUserBuilder() *MongoDBUserBuilder {
 	}
 }
 
-func (b *MongoDBUserBuilder) Build() *mdbv1.MongoDBUser {
+func (b *MongoDBUserBuilder) Build() *userv1.MongoDBUser {
 	if b.roles == nil {
-		b.roles = make([]mdbv1.Role, 0)
+		b.roles = make([]userv1.Role, 0)
 	}
 	if b.resourceName == "" {
 		b.resourceName = b.username
 	}
 
-	return &mdbv1.MongoDBUser{
+	return &userv1.MongoDBUser{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      b.resourceName,
 			Namespace: mock.TestNamespace,
 		},
-		Spec: mdbv1.MongoDBUserSpec{
+		Spec: userv1.MongoDBUserSpec{
 			Roles:                b.roles,
 			Project:              b.project,
 			PasswordSecretKeyRef: b.passwordRef,
 			Username:             b.username,
 			Database:             b.database,
-			MongoDBResourceRef: mdbv1.MongoDBResourceRef{
+			MongoDBResourceRef: userv1.MongoDBResourceRef{
 				Name: b.mongodbResourceName,
 			},
 		},

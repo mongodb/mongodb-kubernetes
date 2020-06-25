@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
@@ -23,7 +24,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	certsv1 "k8s.io/api/certificates/v1beta1"

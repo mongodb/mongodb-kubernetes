@@ -1,9 +1,10 @@
-package v1
+package om
 
 import (
 	"errors"
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -31,7 +32,7 @@ func (m MongoDBOpsManager) validate() error {
 	if len(validationResults) == 0 {
 		return nil
 	}
-	return buildValidationFailure(validationResults)
+	return v1.BuildValidationFailure(validationResults)
 }
 
 // ValidateDelete does nothing as we assume validation on deletion is
@@ -40,138 +41,138 @@ func (m *MongoDBOpsManager) ValidateDelete() error {
 	return nil
 }
 
-func warningNotConfigurableForAppDB(field string) ValidationResult {
-	return validationWarning(fmt.Sprintf("%s field is not configurable for application databases", field))
+func warningNotConfigurableForAppDB(field string) v1.ValidationResult {
+	return v1.ValidationWarning(fmt.Sprintf("%s field is not configurable for application databases", field))
 }
 
-func deprecationWarningForOpsManager(deprecatedField, replacedWith string) ValidationResult {
-	return validationWarning(fmt.Sprintf("%s field is not configurable for Ops Manager, use the %s field instead", deprecatedField, replacedWith))
+func deprecationWarningForOpsManager(deprecatedField, replacedWith string) v1.ValidationResult {
+	return v1.ValidationWarning(fmt.Sprintf("%s field is not configurable for Ops Manager, use the %s field instead", deprecatedField, replacedWith))
 }
 
-func deprecationWarningForBackup(deprecatedField, replacedWith string) ValidationResult {
-	return validationWarning(fmt.Sprintf("%s field is not configurable for Ops Manager Backup, use the %s field instead", deprecatedField, replacedWith))
+func deprecationWarningForBackup(deprecatedField, replacedWith string) v1.ValidationResult {
+	return v1.ValidationWarning(fmt.Sprintf("%s field is not configurable for Ops Manager Backup, use the %s field instead", deprecatedField, replacedWith))
 }
 
-func warningShardedClusterFieldsNotConfigurableForAppDB(field string) ValidationResult {
-	return validationWarning(fmt.Sprintf("%s field is not configurable for application databases as it is for sharded clusters and appdbs are replica sets", field))
+func warningShardedClusterFieldsNotConfigurableForAppDB(field string) v1.ValidationResult {
+	return v1.ValidationWarning(fmt.Sprintf("%s field is not configurable for application databases as it is for sharded clusters and appdbs are replica sets", field))
 }
 
-func connectivityIsNotConfigurable(os MongoDBOpsManagerSpec) ValidationResult {
+func connectivityIsNotConfigurable(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	if os.AppDB.Connectivity != nil {
 		return warningNotConfigurableForAppDB("connectivity")
 	}
-	return validationSuccess()
+	return v1.ValidationSuccess()
 }
 
 // ConnectionSpec fields
-func credentialsIsNotConfigurable(os MongoDBOpsManagerSpec) ValidationResult {
+func credentialsIsNotConfigurable(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	if os.AppDB.Credentials != "" {
 		return warningNotConfigurableForAppDB("credentials")
 	}
-	return validationSuccess()
+	return v1.ValidationSuccess()
 }
 
-func opsManagerConfigIsNotConfigurable(os MongoDBOpsManagerSpec) ValidationResult {
+func opsManagerConfigIsNotConfigurable(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	if os.AppDB.OpsManagerConfig != nil {
 		return warningNotConfigurableForAppDB("opsManager")
 	}
-	return validationSuccess()
+	return v1.ValidationSuccess()
 }
 
-func cloudManagerConfigIsNotConfigurable(os MongoDBOpsManagerSpec) ValidationResult {
+func cloudManagerConfigIsNotConfigurable(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	if os.AppDB.CloudManagerConfig != nil {
 		return warningNotConfigurableForAppDB("cloudManager")
 	}
-	return validationSuccess()
+	return v1.ValidationSuccess()
 }
 
-func projectNameIsNotConfigurable(os MongoDBOpsManagerSpec) ValidationResult {
+func projectNameIsNotConfigurable(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	if os.AppDB.Project != "" {
 		return warningNotConfigurableForAppDB("project")
 	}
-	return validationSuccess()
+	return v1.ValidationSuccess()
 }
 
 // sharded cluster fields
-func configSrvPodSpecIsNotConfigurable(os MongoDBOpsManagerSpec) ValidationResult {
+func configSrvPodSpecIsNotConfigurable(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	if os.AppDB.ConfigSrvPodSpec != nil {
 		return warningShardedClusterFieldsNotConfigurableForAppDB("configSrvPodSpec")
 	}
-	return validationSuccess()
+	return v1.ValidationSuccess()
 }
 
-func mongosPodSpecIsNotConfigurable(os MongoDBOpsManagerSpec) ValidationResult {
+func mongosPodSpecIsNotConfigurable(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	if os.AppDB.MongosPodSpec != nil {
 		return warningShardedClusterFieldsNotConfigurableForAppDB("mongosPodSpec")
 	}
-	return validationSuccess()
+	return v1.ValidationSuccess()
 }
 
-func shardPodSpecIsNotConfigurable(os MongoDBOpsManagerSpec) ValidationResult {
+func shardPodSpecIsNotConfigurable(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	if os.AppDB.ShardPodSpec != nil {
 		return warningShardedClusterFieldsNotConfigurableForAppDB("shardPodSpec")
 	}
-	return validationSuccess()
+	return v1.ValidationSuccess()
 }
 
-func shardCountIsNotConfigurable(os MongoDBOpsManagerSpec) ValidationResult {
+func shardCountIsNotConfigurable(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	if os.AppDB.ShardCount != 0 {
 		return warningShardedClusterFieldsNotConfigurableForAppDB("shardCount")
 	}
-	return validationSuccess()
+	return v1.ValidationSuccess()
 }
 
-func mongodsPerShardCountIsNotConfigurable(os MongoDBOpsManagerSpec) ValidationResult {
+func mongodsPerShardCountIsNotConfigurable(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	if os.AppDB.MongodsPerShardCount != 0 {
 		return warningShardedClusterFieldsNotConfigurableForAppDB("mongodsPerShardCount")
 	}
-	return validationSuccess()
+	return v1.ValidationSuccess()
 }
 
-func mongosCountIsNotConfigurable(os MongoDBOpsManagerSpec) ValidationResult {
+func mongosCountIsNotConfigurable(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	if os.AppDB.MongosCount != 0 {
 		return warningShardedClusterFieldsNotConfigurableForAppDB("mongosCount")
 	}
-	return validationSuccess()
+	return v1.ValidationSuccess()
 }
 
-func configServerCountIsNotConfigurable(os MongoDBOpsManagerSpec) ValidationResult {
+func configServerCountIsNotConfigurable(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	if os.AppDB.ConfigServerCount != 0 {
 		return warningShardedClusterFieldsNotConfigurableForAppDB("configServerCount")
 	}
-	return validationSuccess()
+	return v1.ValidationSuccess()
 }
 
 // s3StoreMongodbUserSpecifiedNoMongoResource checks that 'mongodbResourceRef' is provided if 'mongodbUserRef' is configured
-func s3StoreMongodbUserSpecifiedNoMongoResource(os MongoDBOpsManagerSpec) ValidationResult {
+func s3StoreMongodbUserSpecifiedNoMongoResource(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	if !os.Backup.Enabled || len(os.Backup.S3Configs) == 0 {
-		return validationSuccess()
+		return v1.ValidationSuccess()
 	}
 	for _, config := range os.Backup.S3Configs {
 		if config.MongoDBUserRef != nil && config.MongoDBResourceRef == nil {
-			return validationWarning(
+			return v1.ValidationWarning(
 				"'mongodbResourceRef' must be specified if 'mongodbUserRef' is configured (S3 Store: %s)", config.Name)
 		}
 	}
-	return validationSuccess()
+	return v1.ValidationSuccess()
 }
 
-func podSpecIsNotConfigurable(os MongoDBOpsManagerSpec) ValidationResult {
+func podSpecIsNotConfigurable(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	if os.PodSpec != nil {
 		return deprecationWarningForOpsManager("podSpec", "statefulSet")
 	}
-	return validationSuccess()
+	return v1.ValidationSuccess()
 }
 
-func podSpecIsNotConfigurableBackup(os MongoDBOpsManagerSpec) ValidationResult {
+func podSpecIsNotConfigurableBackup(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	if os.Backup.PodSpec != nil {
 		return deprecationWarningForBackup("podSpec", "backup.statefulSet")
 	}
-	return validationSuccess()
+	return v1.ValidationSuccess()
 }
 
-func (om MongoDBOpsManager) RunValidations() []ValidationResult {
-	validators := []func(m MongoDBOpsManagerSpec) ValidationResult{
+func (om MongoDBOpsManager) RunValidations() []v1.ValidationResult {
+	validators := []func(m MongoDBOpsManagerSpec) v1.ValidationResult{
 		connectivityIsNotConfigurable,
 		projectNameIsNotConfigurable,
 		cloudManagerConfigIsNotConfigurable,
@@ -188,7 +189,7 @@ func (om MongoDBOpsManager) RunValidations() []ValidationResult {
 		podSpecIsNotConfigurable,
 		podSpecIsNotConfigurableBackup,
 	}
-	var validationResults []ValidationResult
+	var validationResults []v1.ValidationResult
 
 	for _, validator := range validators {
 		res := validator(om.Spec)
@@ -202,11 +203,11 @@ func (om MongoDBOpsManager) RunValidations() []ValidationResult {
 
 func (m *MongoDBOpsManager) ProcessValidationsOnReconcile() error {
 	for _, res := range m.RunValidations() {
-		if res.Level == ErrorLevel {
+		if res.Level == v1.ErrorLevel {
 			return errors.New(res.Msg)
 		}
 
-		if res.Level == WarningLevel {
+		if res.Level == v1.WarningLevel {
 			m.AddWarningIfNotExists(status.Warning(res.Msg))
 		}
 	}

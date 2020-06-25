@@ -1,6 +1,10 @@
-package v1
+package om
 
-import appsv1 "k8s.io/api/apps/v1"
+import (
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
+	userv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/user"
+	appsv1 "k8s.io/api/apps/v1"
+)
 
 type OpsManagerBuilder struct {
 	om MongoDBOpsManager
@@ -40,12 +44,12 @@ func (b *OpsManagerBuilder) SetAppDbFeatureCompatibility(version string) *OpsMan
 }
 
 func (b *OpsManagerBuilder) SetStatefulSetSpec(customSpec appsv1.StatefulSetSpec) *OpsManagerBuilder {
-	b.om.Spec.StatefulSetConfiguration = &StatefulSetConfiguration{Spec: customSpec}
+	b.om.Spec.StatefulSetConfiguration = &mdbv1.StatefulSetConfiguration{Spec: customSpec}
 	return b
 }
 
 func (b *OpsManagerBuilder) SetAppDBPassword(secretName, key string) *OpsManagerBuilder {
-	b.om.Spec.AppDB.PasswordSecretKeyRef = &SecretKeyRef{Name: secretName, Key: key}
+	b.om.Spec.AppDB.PasswordSecretKeyRef = &userv1.SecretKeyRef{Name: secretName, Key: key}
 	return b
 }
 

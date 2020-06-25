@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
@@ -17,7 +18,7 @@ import (
 
 	"fmt"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
@@ -482,7 +483,7 @@ func assertPodSpecTemplate(t *testing.T, nodeName, hostName, volumeName string, 
 	assert.Equal(t, volumeName, podSpecTemplate.Containers[0].VolumeMounts[0].Name, "Operator mounted volume should be present, not custom volume")
 }
 
-func createDeploymentFromShardedCluster(updatable mdbv1.CustomResourceReadWriter) om.Deployment {
+func createDeploymentFromShardedCluster(updatable v1.CustomResourceReadWriter) om.Deployment {
 	sh := updatable.(*mdbv1.MongoDB)
 	state := createStateFromResource(sh)
 	mongosSts, _ := state.mongosSetHelper.BuildStatefulSet()
@@ -508,7 +509,7 @@ func createDeploymentFromShardedCluster(updatable mdbv1.CustomResourceReadWriter
 
 // createStateFromResource creates the kube state for the sharded cluster. Note, that it uses the `Status` of cluster
 // instead of `Spec` as it tries to reflect the CURRENT state
-func createStateFromResource(updatable mdbv1.CustomResourceReadWriter) ShardedClusterKubeState {
+func createStateFromResource(updatable v1.CustomResourceReadWriter) ShardedClusterKubeState {
 	sh := updatable.(*mdbv1.MongoDB)
 	shardHelpers := make([]*StatefulSetHelper, sh.Status.ShardCount)
 	for i := 0; i < sh.Status.ShardCount; i++ {

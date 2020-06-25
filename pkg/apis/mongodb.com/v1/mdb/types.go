@@ -1,4 +1,4 @@
-package v1
+package mdb
 
 import (
 	"encoding/json"
@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mongod"
+	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
@@ -23,7 +23,7 @@ import (
 )
 
 func init() {
-	SchemeBuilder.Register(&MongoDB{}, &MongoDBList{})
+	v1.SchemeBuilder.Register(&MongoDB{}, &MongoDBList{})
 }
 
 type LogLevel string
@@ -99,16 +99,8 @@ type MongoDBConnectivity struct {
 	ReplicaSetHorizons []MongoDBHorizonConfig `json:"replicaSetHorizons,omitempty"`
 }
 
-// CommonStatus is the struct shared by all statuses in existing Custom Resources.
-type CommonStatus struct {
-	Phase             status.Phase              `json:"phase"`
-	Message           string                    `json:"message,omitempty"`
-	LastTransition    string                    `json:"lastTransition,omitempty"`
-	ResourcesNotReady []status.ResourceNotReady `json:"resourcesNotReady,omitempty"`
-}
-
 type MongoDbStatus struct {
-	CommonStatus                    `json:",inline"`
+	status.Common                   `json:",inline"`
 	MongodbShardedClusterSizeConfig `json:",inline"`
 	Members                         int              `json:"members,omitempty"`
 	Version                         string           `json:"version"`
@@ -163,7 +155,7 @@ type MongoDbSpec struct {
 	// each data-bearing mongod at runtime. Uses the same structure as the mongod
 	// configuration file:
 	// https://docs.mongodb.com/manual/reference/configuration-options/
-	AdditionalMongodConfig mongod.AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
+	AdditionalMongodConfig AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
 }
 
 // StatefulSetConfiguration holds the optional custom StatefulSet
@@ -516,18 +508,18 @@ func (c *ConnectionSpec) GetProject() string {
 func (m *MongoDB) InitDefaults() {
 	// al resources have a pod spec
 	if m.Spec.PodSpec == nil {
-		m.Spec.PodSpec = newMongoDbPodSpec()
+		m.Spec.PodSpec = NewMongoDbPodSpec()
 	}
 
 	if m.Spec.ResourceType == ShardedCluster {
 		if m.Spec.ConfigSrvPodSpec == nil {
-			m.Spec.ConfigSrvPodSpec = newMongoDbPodSpec()
+			m.Spec.ConfigSrvPodSpec = NewMongoDbPodSpec()
 		}
 		if m.Spec.MongosPodSpec == nil {
-			m.Spec.MongosPodSpec = newMongoDbPodSpec()
+			m.Spec.MongosPodSpec = NewMongoDbPodSpec()
 		}
 		if m.Spec.ShardPodSpec == nil {
-			m.Spec.ShardPodSpec = newMongoDbPodSpec()
+			m.Spec.ShardPodSpec = NewMongoDbPodSpec()
 		}
 	}
 
@@ -560,7 +552,7 @@ func (m *MongoDB) ConnectionURL(userName, password string, connectionParams map[
 	if m.Spec.ResourceType == ShardedCluster {
 		statefulsetName = m.MongosRsName()
 	}
-	return buildConnectionUrl(statefulsetName, m.ServiceName(), m.Namespace, userName, password, m.Spec, connectionParams)
+	return BuildConnectionUrl(statefulsetName, m.ServiceName(), m.Namespace, userName, password, m.Spec, connectionParams)
 }
 
 // MongodbShardedClusterSizeConfig describes the numbers and sizes of replica sets inside
@@ -677,7 +669,7 @@ func GetStorageOrDefault(config *PersistenceConfig, defaultConfig PersistenceCon
 // Create a MongoDbPodSpec reference without any nil references
 // used to initialize any MongoDbPodSpec fields with valid values
 // in order to prevent panicking at runtime.
-func newMongoDbPodSpec() *MongoDbPodSpec {
+func NewMongoDbPodSpec() *MongoDbPodSpec {
 	return &MongoDbPodSpec{}
 }
 
@@ -760,7 +752,7 @@ func newSecurity() *Security {
 	return &Security{TLSConfig: &TLSConfig{}}
 }
 
-func buildConnectionUrl(statefulsetName, serviceName, namespace, userName, password string, spec MongoDbSpec, connectionParams map[string]string) string {
+func BuildConnectionUrl(statefulsetName, serviceName, namespace, userName, password string, spec MongoDbSpec, connectionParams map[string]string) string {
 	if stringutil.Contains(spec.Security.Authentication.GetModes(), util.SCRAM) && (userName == "" || password == "") {
 		panic("Dev error: UserName and Password must be specified if the resource has SCRAM-SHA enabled")
 	}

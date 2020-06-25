@@ -3,7 +3,7 @@ package project
 import (
 	"fmt"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"k8s.io/apimachinery/pkg/types"

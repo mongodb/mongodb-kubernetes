@@ -10,7 +10,8 @@ import (
 	"testing"
 	"time"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
+	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
@@ -380,7 +381,7 @@ func checkReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, obj
 	}
 }
 
-func checkOMReconcilliationSuccessful(t *testing.T, reconciler reconcile.Reconciler, om *mdbv1.MongoDBOpsManager) {
+func checkOMReconcilliationSuccessful(t *testing.T, reconciler reconcile.Reconciler, om *omv1.MongoDBOpsManager) {
 	res, err := reconciler.Reconcile(requestFromObject(om))
 	expected := reconcile.Result{Requeue: true}
 	assert.Equal(t, expected, res)

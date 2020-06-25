@@ -1,4 +1,4 @@
-package v1
+package mdb
 
 import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -6,7 +6,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// TODO move this to a separate package ("mongodb") if we decide this is a good idea
+// TODO remove the wrapper in favor of podSpecBuilder
 type PodSpecWrapperBuilder struct {
 	spec PodSpecWrapper
 }

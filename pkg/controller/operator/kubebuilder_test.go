@@ -19,7 +19,8 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/resource"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
+	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
@@ -442,7 +443,7 @@ func TestOpsManagerPodTemplate_SecurityContext(t *testing.T) {
 	assert.Nil(t, podSpecTemplate.Spec.SecurityContext)
 }
 
-func buildStatefulSetFromOpsManager(om mdbv1.MongoDBOpsManager) appsv1.StatefulSet {
+func buildStatefulSetFromOpsManager(om omv1.MongoDBOpsManager) appsv1.StatefulSet {
 	helper := omSetHelperFromResource(om)
 	spec, _ := buildOpsManagerPodTemplateSpec(helper)
 	return appsv1.StatefulSet{
@@ -742,13 +743,13 @@ func defaultAppDbSetHelper() *StatefulSetHelper {
 	return helper.NewStatefulSetHelper(&om).SetPodVars(&PodVars{})
 }
 
-func omSetHelperFromResource(om mdbv1.MongoDBOpsManager) OpsManagerStatefulSetHelper {
+func omSetHelperFromResource(om omv1.MongoDBOpsManager) OpsManagerStatefulSetHelper {
 	mockedClient := mock.NewClient()
 	helper := NewKubeHelper(mockedClient)
 	return *helper.NewOpsManagerStatefulSetHelper(om)
 }
 
-func backupSetHelperFromResource(om mdbv1.MongoDBOpsManager) BackupStatefulSetHelper {
+func backupSetHelperFromResource(om omv1.MongoDBOpsManager) BackupStatefulSetHelper {
 	mockedClient := mock.NewClient()
 	helper := NewKubeHelper(mockedClient)
 	return *helper.NewBackupStatefulSetHelper(om)

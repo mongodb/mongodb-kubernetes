@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"time"
 
+	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/project"
@@ -23,7 +24,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
@@ -46,7 +46,7 @@ func newAppDBReplicaSetReconciler(commonController *ReconcileCommonController, a
 }
 
 // Reconcile deploys the "headless" agent, and wait until it reaches the goal state
-func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *mdbv1.MongoDBOpsManager, rs mdbv1.AppDB, opsManagerUserPassword string) (res reconcile.Result, e error) {
+func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager, rs omv1.AppDB, opsManagerUserPassword string) (res reconcile.Result, e error) {
 	log := zap.S().With("ReplicaSet (AppDB)", objectKey(opsManager.Namespace, rs.Name()))
 
 	appDbStatusOption := status.NewOMPartOption(status.AppDb)
@@ -133,7 +133,7 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *mdbv1.MongoDBOpsManager
 // generateScramShaCredentials generates both ScramSha1Creds and ScramSha256Creds. The ScramSha256Creds
 // will not be used, but it makes comparisons with the deployment simpler to generate them both, and would make
 // changing to use ScramSha256 trivial once supported by the Java driver.
-func generateScramShaCredentials(password string, opsManager mdbv1.MongoDBOpsManager) (*om.ScramShaCreds, *om.ScramShaCreds, error) {
+func generateScramShaCredentials(password string, opsManager omv1.MongoDBOpsManager) (*om.ScramShaCreds, *om.ScramShaCreds, error) {
 	sha256Creds, err := authentication.ComputeScramShaCreds(util.OpsManagerMongoDBUserName, password, getOpsManagerUserSalt(opsManager, sha256.New), authentication.ScramSha256)
 	if err != nil {
 		return nil, nil, err
@@ -148,7 +148,7 @@ func generateScramShaCredentials(password string, opsManager mdbv1.MongoDBOpsMan
 
 // getOpsManagerUserSalt returns a deterministic salt based on the name of the resource.
 // the required number of characters will be taken based on the requirements for the SCRAM-SHA-1/MONGODB-CR algorithm
-func getOpsManagerUserSalt(om mdbv1.MongoDBOpsManager, hashConstructor func() hash.Hash) []byte {
+func getOpsManagerUserSalt(om omv1.MongoDBOpsManager, hashConstructor func() hash.Hash) []byte {
 	sha256bytes32 := sha256.Sum256([]byte(fmt.Sprintf("%s-mongodbopsmanager", om.Name)))
 	return sha256bytes32[:hashConstructor().Size()-authentication.RFC5802MandatedSaltSize]
 }
@@ -186,8 +186,8 @@ func ensureConsistentAgentAuthenticationCredentials(newAutomationConfig *om.Auto
 // Method returns 'bool' to indicate if the config was published.
 // No optimistic concurrency control is done - there cannot be a concurrent reconciliation for the same Ops Manager
 // object and the probability that the user will edit the config map manually in the same time is extremely low
-func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(rs mdbv1.AppDB,
-	opsManager mdbv1.MongoDBOpsManager, automationConfig *om.AutomationConfig, log *zap.SugaredLogger) (bool, error) {
+func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(rs omv1.AppDB,
+	opsManager omv1.MongoDBOpsManager, automationConfig *om.AutomationConfig, log *zap.SugaredLogger) (bool, error) {
 	wasPublished := false
 	if err := r.kubeHelper.computeConfigMap(objectKey(opsManager.Namespace, rs.AutomationConfigSecretName()),
 		func(existingMap *corev1.ConfigMap) bool {
@@ -238,7 +238,7 @@ func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(rs mdbv1.AppDB,
 	return wasPublished, nil
 }
 
-func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(rs mdbv1.AppDB, opsManager mdbv1.MongoDBOpsManager, opsManagerUserPassword string, set appsv1.StatefulSet, log *zap.SugaredLogger) (*om.AutomationConfig, error) {
+func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(rs omv1.AppDB, opsManager omv1.MongoDBOpsManager, opsManagerUserPassword string, set appsv1.StatefulSet, log *zap.SugaredLogger) (*om.AutomationConfig, error) {
 	d := om.NewDeployment()
 
 	replicaSet := buildReplicaSetFromStatefulSetAppDb(set, rs, log)
@@ -323,7 +323,7 @@ func buildOpsManagerUser(scramSha1Creds, scramSha256Creds *om.ScramShaCreds) om.
 	}
 }
 
-func (r ReconcileAppDbReplicaSet) configureMongoDBVersions(config *om.AutomationConfig, rs mdbv1.AppDB, log *zap.SugaredLogger) error {
+func (r ReconcileAppDbReplicaSet) configureMongoDBVersions(config *om.AutomationConfig, rs omv1.AppDB, log *zap.SugaredLogger) error {
 	if rs.GetVersion() == util.BundledAppDbMongoDBVersion {
 		versionManifest, err := om.FileVersionManifestProvider{FilePath: r.VersionManifestFilePath}.GetVersionManifest()
 		if err != nil {
@@ -349,7 +349,7 @@ func (r *ReconcileAppDbReplicaSet) addLatestMongoDBVersions(config *om.Automatio
 }
 
 // registerAppDBHostsWithProject uses the Hosts API to add each process in the AppBD to the project
-func (r *ReconcileAppDbReplicaSet) registerAppDBHostsWithProject(opsManager *mdbv1.MongoDBOpsManager, conn om.Connection, opsManagerPassword string, log *zap.SugaredLogger) error {
+func (r *ReconcileAppDbReplicaSet) registerAppDBHostsWithProject(opsManager *omv1.MongoDBOpsManager, conn om.Connection, opsManagerPassword string, log *zap.SugaredLogger) error {
 	appDbStatefulSet := appsv1.StatefulSet{}
 	if err := r.client.Get(context.TODO(), objectKey(opsManager.Namespace, opsManager.Spec.AppDB.Name()), &appDbStatefulSet); err != nil {
 		return err
@@ -381,7 +381,7 @@ func (r *ReconcileAppDbReplicaSet) registerAppDBHostsWithProject(opsManager *mdb
 }
 
 // ensureAppDbAgentApiKey makes sure there is an agent API key for the AppDB automation agent
-func (r *ReconcileAppDbReplicaSet) ensureAppDbAgentApiKey(opsManager *mdbv1.MongoDBOpsManager, conn om.Connection, log *zap.SugaredLogger) error {
+func (r *ReconcileAppDbReplicaSet) ensureAppDbAgentApiKey(opsManager *omv1.MongoDBOpsManager, conn om.Connection, log *zap.SugaredLogger) error {
 	agentKeyFromSecret, err := r.kubeHelper.readSecretKey(objectKey(opsManager.Namespace, agentApiKeySecretName(conn.GroupID())), util.OmAgentApiKey)
 	err = client.IgnoreNotFound(err)
 	if err != nil {
@@ -396,7 +396,7 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbAgentApiKey(opsManager *mdbv1.Mong
 
 // tryConfigureMonitoringInOpsManager attempts to configure monitoring in Ops Manager. This might not be possible if Ops Manager
 // has not been created yet, if that is the case, an empty PodVars will be returned.
-func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager *mdbv1.MongoDBOpsManager, opsManagerUserPassword string, log *zap.SugaredLogger) (*PodVars, error) {
+func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager *omv1.MongoDBOpsManager, opsManagerUserPassword string, log *zap.SugaredLogger) (*PodVars, error) {
 	cred, _ := project.ReadCredentials(r.client, objectKey(operatorNamespace(), opsManager.APIKeySecretName()))
 	if cred.PublicAPIKey == "" || cred.User == "" {
 		log.Debugf("Ops Manager has not yet been created, not configuring monitoring.")
@@ -450,7 +450,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager
 // In such a case, we cannot read the groupId from OM, so we fall back to the ConfigMap we created
 // before hand. This is required as with empty PodVars this would trigger an unintentional
 // rolling restart of the AppDB.
-func (r *ReconcileAppDbReplicaSet) readExistingPodVars(om mdbv1.MongoDBOpsManager) (*PodVars, error) {
+func (r *ReconcileAppDbReplicaSet) readExistingPodVars(om omv1.MongoDBOpsManager) (*PodVars, error) {
 	cm, err := r.kubeHelper.configmapClient.Get(objectKey(om.Namespace, om.Spec.AppDB.ProjectIDConfigMapName()))
 	if err != nil {
 		return nil, err
@@ -493,7 +493,7 @@ func markAppDBAsBackingProject(conn om.Connection, log *zap.SugaredLogger) error
 	return nil
 }
 
-func buildReplicaSetFromStatefulSetAppDb(set appsv1.StatefulSet, mdb mdbv1.AppDB, log *zap.SugaredLogger) om.ReplicaSetWithProcesses {
+func buildReplicaSetFromStatefulSetAppDb(set appsv1.StatefulSet, mdb omv1.AppDB, log *zap.SugaredLogger) om.ReplicaSetWithProcesses {
 	members := createProcessesAppDb(set, om.ProcessTypeMongod, mdb)
 	replicaSet := om.NewReplicaSet(set.Name, mdb.GetVersion())
 	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members)
@@ -501,7 +501,7 @@ func buildReplicaSetFromStatefulSetAppDb(set appsv1.StatefulSet, mdb mdbv1.AppDB
 }
 
 func createProcessesAppDb(set appsv1.StatefulSet, mongoType om.MongoType,
-	mdb mdbv1.AppDB) []om.Process {
+	mdb omv1.AppDB) []om.Process {
 
 	hostnames, names := util.GetDnsForStatefulSet(set, mdb.GetClusterDomain())
 	processes := make([]om.Process, len(hostnames))

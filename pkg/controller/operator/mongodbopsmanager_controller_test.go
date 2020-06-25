@@ -5,6 +5,8 @@ import (
 	"os"
 	"testing"
 
+	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
+	userv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/user"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
@@ -16,7 +18,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
 	"github.com/stretchr/testify/assert"
@@ -51,8 +52,8 @@ func TestOpsManagerReconciler_watchedResources(t *testing.T) {
 
 	otherTestOm.Spec.Backup.Enabled = true
 	testOm.Spec.Backup.Enabled = true
-	otherTestOm.Spec.Backup.OplogStoreConfigs = []mdbv1.DataStoreConfig{{MongoDBResourceRef: mdbv1.MongoDBResourceRef{Name: "oplog1"}}}
-	testOm.Spec.Backup.OplogStoreConfigs = []mdbv1.DataStoreConfig{{MongoDBResourceRef: mdbv1.MongoDBResourceRef{Name: "oplog1"}}}
+	otherTestOm.Spec.Backup.OplogStoreConfigs = []omv1.DataStoreConfig{{MongoDBResourceRef: userv1.MongoDBResourceRef{Name: "oplog1"}}}
+	testOm.Spec.Backup.OplogStoreConfigs = []omv1.DataStoreConfig{{MongoDBResourceRef: userv1.MongoDBResourceRef{Name: "oplog1"}}}
 
 	reconciler, _, _, _ := defaultTestOmReconciler(t, testOm)
 	reconciler.watchMongoDBResourcesReferencedByBackup(testOm)
@@ -187,7 +188,7 @@ func TestOpsManagerUsersPassword_SpecifiedInSpec(t *testing.T) {
 }
 
 func TestBackupStatefulSetIsNotRemoved_WhenDisabled(t *testing.T) {
-	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").SetBackup(mdbv1.MongoDBOpsManagerBackup{
+	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").SetBackup(omv1.MongoDBOpsManagerBackup{
 		Enabled: true,
 	}).Build()
 	reconciler, client, _, _ := defaultTestOmReconciler(t, testOm)
@@ -215,7 +216,7 @@ func TestBackupStatefulSetIsNotRemoved_WhenDisabled(t *testing.T) {
 }
 
 func TestOpsManagerPodTemplateSpec_IsAnnotatedWithHash(t *testing.T) {
-	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").SetBackup(mdbv1.MongoDBOpsManagerBackup{
+	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").SetBackup(omv1.MongoDBOpsManagerBackup{
 		Enabled: false,
 	}).Build()
 	reconciler, client, _, _ := defaultTestOmReconciler(t, testOm)
@@ -250,7 +251,7 @@ func TestOpsManagerPodTemplateSpec_IsAnnotatedWithHash(t *testing.T) {
 }
 
 func TestOpsManagerConnectionString_IsPassedAsSecretRef(t *testing.T) {
-	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").SetBackup(mdbv1.MongoDBOpsManagerBackup{
+	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").SetBackup(omv1.MongoDBOpsManagerBackup{
 		Enabled: false,
 	}).Build()
 	reconciler, client, _, _ := defaultTestOmReconciler(t, testOm)
@@ -268,7 +269,7 @@ func TestOpsManagerConnectionString_IsPassedAsSecretRef(t *testing.T) {
 	envs := sts.Spec.Template.Spec.Containers[0].Env
 	var uriEnv corev1.EnvVar
 	for _, e := range envs {
-		if e.Name == mdbv1.ConvertNameToEnvVarFormat(util.MmsMongoUri) {
+		if e.Name == omv1.ConvertNameToEnvVarFormat(util.MmsMongoUri) {
 			uriEnv = e
 			break
 		}
@@ -302,29 +303,29 @@ func TestOpsManagerBackupDaemonHostName(t *testing.T) {
 func TestTriggerOmChangedEventIfNeeded(t *testing.T) {
 	t.Run("Om changed event got triggered, major version update", func(t *testing.T) {
 		nextScheduledTime := agents.NextScheduledUpgradeTime()
-		assert.NoError(t, triggerOmChangedEventIfNeeded(mdbv1.NewOpsManagerBuilder().SetVersion("5.2.13").SetOMStatusVersion("4.2.13").Build(), zap.S()))
+		assert.NoError(t, triggerOmChangedEventIfNeeded(omv1.NewOpsManagerBuilder().SetVersion("5.2.13").SetOMStatusVersion("4.2.13").Build(), zap.S()))
 		assert.NotEqual(t, nextScheduledTime, agents.NextScheduledUpgradeTime())
 	})
 	t.Run("Om changed event got triggered, minor version update", func(t *testing.T) {
 		nextScheduledTime := agents.NextScheduledUpgradeTime()
-		assert.NoError(t, triggerOmChangedEventIfNeeded(mdbv1.NewOpsManagerBuilder().SetVersion("4.4.0").SetOMStatusVersion("4.2.13").Build(), zap.S()))
+		assert.NoError(t, triggerOmChangedEventIfNeeded(omv1.NewOpsManagerBuilder().SetVersion("4.4.0").SetOMStatusVersion("4.2.13").Build(), zap.S()))
 		assert.NotEqual(t, nextScheduledTime, agents.NextScheduledUpgradeTime())
 	})
 	t.Run("Om changed event got triggered, minor version update, candidate version", func(t *testing.T) {
 		nextScheduledTime := agents.NextScheduledUpgradeTime()
-		assert.NoError(t, triggerOmChangedEventIfNeeded(mdbv1.NewOpsManagerBuilder().SetVersion("4.4.0-rc2").SetOMStatusVersion("4.2.13").Build(), zap.S()))
+		assert.NoError(t, triggerOmChangedEventIfNeeded(omv1.NewOpsManagerBuilder().SetVersion("4.4.0-rc2").SetOMStatusVersion("4.2.13").Build(), zap.S()))
 		assert.NotEqual(t, nextScheduledTime, agents.NextScheduledUpgradeTime())
 	})
 	t.Run("Om changed event not triggered, patch version update", func(t *testing.T) {
 		nextScheduledTime := agents.NextScheduledUpgradeTime()
-		assert.NoError(t, triggerOmChangedEventIfNeeded(mdbv1.NewOpsManagerBuilder().SetVersion("4.4.10").SetOMStatusVersion("4.4.0").Build(), zap.S()))
+		assert.NoError(t, triggerOmChangedEventIfNeeded(omv1.NewOpsManagerBuilder().SetVersion("4.4.10").SetOMStatusVersion("4.4.0").Build(), zap.S()))
 		assert.Equal(t, nextScheduledTime, agents.NextScheduledUpgradeTime())
 	})
 }
 
 // ******************************************* Helper methods *********************************************************
 
-func defaultTestOmReconciler(t *testing.T, opsManager mdbv1.MongoDBOpsManager) (*OpsManagerReconciler, *mock.MockedClient,
+func defaultTestOmReconciler(t *testing.T, opsManager omv1.MongoDBOpsManager) (*OpsManagerReconciler, *mock.MockedClient,
 	*MockedInitializer, *api.MockedOmAdmin) {
 	manager := mock.NewManager(&opsManager)
 	// create an admin user secret
@@ -340,21 +341,21 @@ func defaultTestOmReconciler(t *testing.T, opsManager mdbv1.MongoDBOpsManager) (
 		manager.Client, initializer, admin
 }
 
-func omWithAppDBVersion(version string) mdbv1.MongoDBOpsManager {
+func omWithAppDBVersion(version string) omv1.MongoDBOpsManager {
 	return DefaultOpsManagerBuilder().SetAppDbVersion(version).Build()
 }
 
-func DefaultOpsManagerBuilder() *mdbv1.OpsManagerBuilder {
-	spec := mdbv1.MongoDBOpsManagerSpec{
+func DefaultOpsManagerBuilder() *omv1.OpsManagerBuilder {
+	spec := omv1.MongoDBOpsManagerSpec{
 		Version:     "4.2.0",
-		AppDB:       *mdbv1.DefaultAppDbBuilder().Build(),
+		AppDB:       *omv1.DefaultAppDbBuilder().Build(),
 		AdminSecret: "om-admin",
 	}
-	resource := mdbv1.MongoDBOpsManager{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "testOM", Namespace: mock.TestNamespace}}
-	return mdbv1.NewOpsManagerBuilderFromResource(resource)
+	resource := omv1.MongoDBOpsManager{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "testOM", Namespace: mock.TestNamespace}}
+	return omv1.NewOpsManagerBuilderFromResource(resource)
 }
 
-func BuildTestStatefulSet(opsManager mdbv1.MongoDBOpsManager) (appsv1.StatefulSet, error) {
+func BuildTestStatefulSet(opsManager omv1.MongoDBOpsManager) (appsv1.StatefulSet, error) {
 	rs := opsManager.Spec.AppDB
 	return (&KubeHelper{}).NewStatefulSetHelper(&opsManager).
 		SetName(rs.Name()).

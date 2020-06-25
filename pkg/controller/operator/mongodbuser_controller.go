@@ -10,7 +10,8 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
+	userv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/user"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
@@ -32,8 +33,8 @@ func newMongoDBUserReconciler(mgr manager.Manager, omFunc om.ConnectionFactory) 
 	return &MongoDBUserReconciler{newReconcileCommonController(mgr, omFunc)}
 }
 
-func (r *MongoDBUserReconciler) getUser(request reconcile.Request, log *zap.SugaredLogger) (*mdbv1.MongoDBUser, error) {
-	user := &mdbv1.MongoDBUser{}
+func (r *MongoDBUserReconciler) getUser(request reconcile.Request, log *zap.SugaredLogger) (*userv1.MongoDBUser, error) {
+	user := &userv1.MongoDBUser{}
 	if _, err := r.getResource(request, user, log); err != nil {
 		return nil, err
 	}
@@ -47,7 +48,7 @@ func (r *MongoDBUserReconciler) getUser(request reconcile.Request, log *zap.Suga
 	return user, nil
 }
 
-func (r *MongoDBUserReconciler) getMongoDB(user mdbv1.MongoDBUser) (mdbv1.MongoDB, error) {
+func (r *MongoDBUserReconciler) getMongoDB(user userv1.MongoDBUser) (mdbv1.MongoDB, error) {
 	mdb := mdbv1.MongoDB{}
 	name := objectKey(user.Namespace, user.Spec.MongoDBResourceRef.Name)
 	if err := r.client.Get(context.TODO(), name, &mdb); err != nil {
@@ -57,7 +58,7 @@ func (r *MongoDBUserReconciler) getMongoDB(user mdbv1.MongoDBUser) (mdbv1.MongoD
 	return mdb, nil
 }
 
-func (r *MongoDBUserReconciler) getConnectionSpec(user mdbv1.MongoDBUser, mdbSpec mdbv1.MongoDbSpec) (mdbv1.ConnectionSpec, error) {
+func (r *MongoDBUserReconciler) getConnectionSpec(user userv1.MongoDBUser, mdbSpec mdbv1.MongoDbSpec) (mdbv1.ConnectionSpec, error) {
 	if user.Spec.MongoDBResourceRef.Name != "" {
 		return mdbSpec.ConnectionSpec, nil
 	}
@@ -156,7 +157,7 @@ func (r *MongoDBUserReconciler) Reconcile(request reconcile.Request) (res reconc
 
 }
 
-func (r *MongoDBUserReconciler) isX509Enabled(user mdbv1.MongoDBUser, mdbSpec mdbv1.MongoDbSpec) (bool, error) {
+func (r *MongoDBUserReconciler) isX509Enabled(user userv1.MongoDBUser, mdbSpec mdbv1.MongoDbSpec) (bool, error) {
 	if user.Spec.MongoDBResourceRef.Name != "" {
 		authEnabled := mdbSpec.Security.Authentication.Enabled
 		usingX509 := stringutil.Contains(mdbSpec.Security.Authentication.Modes, util.X509)
@@ -175,7 +176,7 @@ func (r *MongoDBUserReconciler) isX509Enabled(user mdbv1.MongoDBUser, mdbSpec md
 }
 
 func (r *MongoDBUserReconciler) delete(obj interface{}, log *zap.SugaredLogger) error {
-	user := obj.(*mdbv1.MongoDBUser)
+	user := obj.(*userv1.MongoDBUser)
 
 	mdb, err := r.getMongoDB(*user)
 	if err != nil {
@@ -221,7 +222,7 @@ func AddMongoDBUserController(mgr manager.Manager) error {
 
 	// watch for changes to MongoDBUser resources
 	eventHandler := MongoDBUserEventHandler{reconciler: reconciler}
-	err = c.Watch(&source.Kind{Type: &mdbv1.MongoDBUser{}}, &eventHandler, watch.PredicatesForUser())
+	err = c.Watch(&source.Kind{Type: &userv1.MongoDBUser{}}, &eventHandler, watch.PredicatesForUser())
 	if err != nil {
 		return err
 	}
@@ -233,7 +234,7 @@ func AddMongoDBUserController(mgr manager.Manager) error {
 // toOmUser converts a MongoDBUser specification and optional password into an
 // automation config MongoDB user. If the user has no password then a blank
 // password should be provided.
-func toOmUser(spec mdbv1.MongoDBUserSpec, password string) (om.MongoDBUser, error) {
+func toOmUser(spec userv1.MongoDBUserSpec, password string) (om.MongoDBUser, error) {
 	user := om.MongoDBUser{
 		Database:                   spec.Database,
 		Username:                   spec.Username,
@@ -257,7 +258,7 @@ func toOmUser(spec mdbv1.MongoDBUserSpec, password string) (om.MongoDBUser, erro
 
 // ensureAgentUsers makes sure that the correct agent users are present in the Automation Config.
 // it is not possible to assume the agent users are using the same authentication mechanism as the user being added
-func (r *MongoDBUserReconciler) ensureAgentUsers(ac *om.AutomationConfig, user mdbv1.MongoDBUser, log *zap.SugaredLogger) error {
+func (r *MongoDBUserReconciler) ensureAgentUsers(ac *om.AutomationConfig, user userv1.MongoDBUser, log *zap.SugaredLogger) error {
 	mdb, err := r.getMongoDB(user)
 	if err != nil {
 		return fmt.Errorf("error reading MongoDB resource: %s", err)
@@ -289,7 +290,7 @@ func (r *MongoDBUserReconciler) ensureAgentUsers(ac *om.AutomationConfig, user m
 	return authentication.EnsureAgentUsers(userOpts, ac, mn)
 }
 
-func (r *MongoDBUserReconciler) handleScramShaUser(user *mdbv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (res reconcile.Result, e error) {
+func (r *MongoDBUserReconciler) handleScramShaUser(user *userv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (res reconcile.Result, e error) {
 	// watch the password secret in order to trigger reconciliation if the
 	// password is updated
 	if user.Spec.PasswordSecretKeyRef.Name != "" {
@@ -346,7 +347,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(user *mdbv1.MongoDBUser, conn
 	return r.updateStatus(user, workflow.OK(), log)
 }
 
-func (r *MongoDBUserReconciler) handleX509User(user *mdbv1.MongoDBUser, mdb mdbv1.MongoDB, conn om.Connection, currentAuthMode string, log *zap.SugaredLogger) (reconcile.Result, error) {
+func (r *MongoDBUserReconciler) handleX509User(user *userv1.MongoDBUser, mdb mdbv1.MongoDB, conn om.Connection, currentAuthMode string, log *zap.SugaredLogger) (reconcile.Result, error) {
 
 	if x509IsEnabled, err := r.isX509Enabled(*user, mdb.Spec); err != nil {
 		return fail(err)

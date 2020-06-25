@@ -3,13 +3,14 @@ package om
 import (
 	"testing"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
+	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
 )
 
-func defaultMongoDBAppDBVersioned(version string) mdbv1.AppDB {
-	appdb := *mdbv1.DefaultAppDbBuilder().Build()
+func defaultMongoDBAppDBVersioned(version string) omv1.AppDB {
+	appdb := *omv1.DefaultAppDbBuilder().Build()
 	appdb.Version = version
 
 	return appdb

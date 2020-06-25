@@ -1,9 +1,10 @@
-package v1
+package user
 
 import (
 	"context"
 	"fmt"
 
+	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	kubev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -11,7 +12,7 @@ import (
 )
 
 func init() {
-	SchemeBuilder.Register(&MongoDBUser{}, &MongoDBUserList{})
+	v1.SchemeBuilder.Register(&MongoDBUser{}, &MongoDBUserList{})
 }
 
 // The MongoDBUser resource allows you to create, deletion and configure
@@ -81,12 +82,12 @@ type MongoDBUserSpec struct {
 }
 
 type MongoDBUserStatus struct {
-	CommonStatus `json:",inline"`
-	Roles        []Role           `json:"roles,omitempty"`
-	Username     string           `json:"username"`
-	Database     string           `json:"db"`
-	Project      string           `json:"project"`
-	Warnings     []status.Warning `json:"warnings,omitempty"`
+	status.Common `json:",inline"`
+	Roles         []Role           `json:"roles,omitempty"`
+	Username      string           `json:"username"`
+	Database      string           `json:"db"`
+	Project       string           `json:"project"`
+	Warnings      []status.Warning `json:"warnings,omitempty"`
 }
 
 type Role struct {

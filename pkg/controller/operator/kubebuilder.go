@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/podtemplatespec"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
@@ -18,7 +19,8 @@ import (
 
 	"fmt"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
+	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -442,7 +444,7 @@ func buildOpsManagerStatefulSet(p OpsManagerStatefulSetHelper) (appsv1.StatefulS
 // setJvmArgsEnvVars sets the correct environment variables for JVM size parameters.
 // This method must be invoked on the final version of the StatefulSet (after user statefulSet spec
 // was merged)
-func setJvmArgsEnvVars(m mdbv1.MongoDBOpsManagerSpec, sts *appsv1.StatefulSet) error {
+func setJvmArgsEnvVars(m omv1.MongoDBOpsManagerSpec, sts *appsv1.StatefulSet) error {
 	jvmParamsEnvVars, err := buildJvmParamsEnvVars(m, sts.Spec.Template)
 	if err != nil {
 		return err
@@ -460,7 +462,7 @@ func getOpsManagerHTTPSEnvVars(httpsSecretName string) []corev1.EnvVar {
 		// Before creating the podTemplate, we need to add the new PemKeyFile
 		// configuration if required.
 		return []corev1.EnvVar{{
-			Name:  mdbv1.ConvertNameToEnvVarFormat(util.MmsPEMKeyFile),
+			Name:  omv1.ConvertNameToEnvVarFormat(util.MmsPEMKeyFile),
 			Value: util.MmsPemKeyFileDirInContainer + "/server.pem",
 		}}
 	}
@@ -468,18 +470,18 @@ func getOpsManagerHTTPSEnvVars(httpsSecretName string) []corev1.EnvVar {
 }
 
 func getOpsManagerContainerPort(httpsSecretName string) int {
-	_, port := mdbv1.SchemePortFromAnnotation("http")
+	_, port := omv1.SchemePortFromAnnotation("http")
 	if httpsSecretName != "" {
-		_, port = mdbv1.SchemePortFromAnnotation("https")
+		_, port = omv1.SchemePortFromAnnotation("https")
 	}
 	return port
 }
 
 func getURIScheme(httpsCertSecretName string) corev1.URIScheme {
 	httpsSecretName := httpsCertSecretName
-	scheme, _ := mdbv1.SchemePortFromAnnotation("http")
+	scheme, _ := omv1.SchemePortFromAnnotation("http")
 	if httpsSecretName != "" {
-		scheme, _ = mdbv1.SchemePortFromAnnotation("https")
+		scheme, _ = omv1.SchemePortFromAnnotation("https")
 	}
 	return scheme
 }
@@ -554,7 +556,7 @@ func buildBackupDaemonStatefulSet(p BackupStatefulSetHelper) (appsv1.StatefulSet
 	return sts, nil
 }
 
-func buildJvmParamsEnvVars(m mdbv1.MongoDBOpsManagerSpec, template corev1.PodTemplateSpec) ([]corev1.EnvVar, error) {
+func buildJvmParamsEnvVars(m omv1.MongoDBOpsManagerSpec, template corev1.PodTemplateSpec) ([]corev1.EnvVar, error) {
 	mmsJvmEnvVar := corev1.EnvVar{Name: util.MmsJvmParamEnvVar}
 	backupJvmEnvVar := corev1.EnvVar{Name: util.BackupDaemonJvmParamEnvVar}
 
@@ -738,7 +740,7 @@ func buildPersistentVolumeClaims(p StatefulSetHelper) ([]corev1.PersistentVolume
 // This function will update a Service object if passed, or return a new one if passed nil, this is to be able to update
 // Services and to not change any attribute they might already have that needs to be maintained.
 //
-func buildService(namespacedName types.NamespacedName, owner mdbv1.CustomResourceReadWriter, label string, port int32, mongoServiceDefinition mdbv1.MongoDBOpsManagerServiceDefinition) corev1.Service {
+func buildService(namespacedName types.NamespacedName, owner v1.CustomResourceReadWriter, label string, port int32, mongoServiceDefinition omv1.MongoDBOpsManagerServiceDefinition) corev1.Service {
 	svcBuilder := service.Builder().
 		SetNamespace(namespacedName.Namespace).
 		SetName(namespacedName.Name).
@@ -774,11 +776,11 @@ func buildService(namespacedName types.NamespacedName, owner mdbv1.CustomResourc
 	return svcBuilder.Build()
 }
 
-func baseOwnerReference(owner mdbv1.CustomResourceReadWriter) []metav1.OwnerReference {
+func baseOwnerReference(owner v1.CustomResourceReadWriter) []metav1.OwnerReference {
 	return []metav1.OwnerReference{
 		*metav1.NewControllerRef(owner, schema.GroupVersionKind{
-			Group:   mdbv1.SchemeGroupVersion.Group,
-			Version: mdbv1.SchemeGroupVersion.Version,
+			Group:   v1.SchemeGroupVersion.Group,
+			Version: v1.SchemeGroupVersion.Version,
 			Kind:    owner.GetObjectKind().GroupVersionKind().Kind,
 		}),
 	}
