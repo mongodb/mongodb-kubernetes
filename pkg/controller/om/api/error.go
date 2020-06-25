@@ -2,9 +2,6 @@ package api
 
 import (
 	"fmt"
-	"strings"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 const (
@@ -56,10 +53,6 @@ func NewErrorNonNil(err error) *Error {
 // NewErrorWithCode returns the Error initialized with the code passed. This is convenient for testing.
 func NewErrorWithCode(code string) *Error {
 	return &Error{ErrorCode: code}
-}
-
-func (e *Error) IsGeneric() bool {
-	return strings.Contains(e.Error(), util.GenericErrorMessage)
 }
 
 // Error

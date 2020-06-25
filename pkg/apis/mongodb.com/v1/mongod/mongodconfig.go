@@ -44,3 +44,14 @@ func (in *AdditionalMongodConfig) DeepCopyInto(out *AdditionalMongodConfig) {
 	config := AdditionalMongodConfig(cp)
 	*out = config
 }
+
+// ToMap creates a copy of the config as a map (Go is quite restrictive to types and sometimes we need to
+// explicitly declare the type as map :( )
+func (c AdditionalMongodConfig) ToMap() map[string]interface{} {
+	cp, err := util.MapDeepCopy(c)
+	if err != nil {
+		zap.S().Errorf("Failed to copy the map: %s", err)
+		return nil
+	}
+	return cp
+}

@@ -13,7 +13,7 @@ class TestShardedClusterScaleShardsCreate(KubernetesTester):
     create:
       file: sharded-cluster-scale-shards.yaml
       wait_until: in_running_state
-      timeout: 180
+      timeout: 240
     """
 
     def test_db_connectable(self):

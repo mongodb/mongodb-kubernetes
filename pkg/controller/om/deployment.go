@@ -536,7 +536,7 @@ func (d Deployment) Debug(l *zap.SugaredLogger) {
 	if err != nil {
 		fmt.Println("error:", err)
 	}
-	l.Debug(">> Deployment: ", string(b))
+	l.Debugf(">> Deployment: \n %s \n", string(b))
 }
 
 // ProcessesCopy returns the COPY of processes in the deployment.

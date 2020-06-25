@@ -6,12 +6,12 @@ import (
 	"path"
 	"strings"
 
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
 	"github.com/blang/semver"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
-
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 // MongoType refers to the type of the Mongo process, `mongos` or `mongod`.
@@ -97,7 +97,7 @@ func NewProcessFromInterface(i interface{}) Process {
 func NewMongosProcess(name, hostName string, resource *mdbv1.MongoDB) Process {
 	p := Process{}
 
-	initDefault(name, hostName, resource.Spec.GetVersion(), resource.Spec.FeatureCompatibilityVersion, ProcessTypeMongos, p)
+	initDefault(name, hostName, ProcessTypeMongos, p, resource.Spec)
 
 	// default values for configurable values
 	p.SetLogPath(path.Join(util.PvcMountPathLogs, "/mongodb.log"))
@@ -109,7 +109,7 @@ func NewMongosProcess(name, hostName string, resource *mdbv1.MongoDB) Process {
 func NewMongodProcess(name, hostName string, resource *mdbv1.MongoDB) Process {
 	p := Process{}
 
-	initDefault(name, hostName, resource.Spec.GetVersion(), resource.Spec.FeatureCompatibilityVersion, ProcessTypeMongod, p)
+	initDefault(name, hostName, ProcessTypeMongod, p, resource.Spec)
 
 	// default values for configurable values
 	p.SetDbPath("/data")
@@ -117,6 +117,7 @@ func NewMongodProcess(name, hostName string, resource *mdbv1.MongoDB) Process {
 	// for all types of logs
 	p.SetLogPath(path.Join(util.PvcMountPathLogs, "mongodb.log"))
 	p.ConfigureTLS(resource.Spec.GetTLSMode(), util.PEMKeyFilePathInContainer)
+
 	return p
 }
 
@@ -276,12 +277,16 @@ func (p Process) String() string {
 
 // ****************** These ones are private methods not exposed to other packages *************************************
 
-// initDefault initializes a process. It's called during "merge" process when the Operator view is merged with OM one -
-// it's supposed to override all the OM provided information. So the easiest way to ensure no fields are overriden by
-// OM is to set them in this method
-func initDefault(name, hostName, processVersion string, featureCompatibilityVersion *string, processType MongoType, process Process) {
+// initDefault initializes a process. It's a common initialization done for both mongos and mongod processes
+func initDefault(name, hostName string, processType MongoType, process Process, resourceSpec mdbv1.MongoDbSpec) {
+	// Applying the user-defined options if any
+	// TODO this should be improved for sharded cluster
+	process["args2_6"] = resourceSpec.AdditionalMongodConfig.ToMap()
+
+	processVersion := resourceSpec.GetVersion()
 	process["version"] = processVersion
 	process["authSchemaVersion"] = calculateAuthSchemaVersion(processVersion)
+	featureCompatibilityVersion := resourceSpec.FeatureCompatibilityVersion
 	if featureCompatibilityVersion == nil {
 		computedFcv := calculateFeatureCompatibilityVersion(processVersion)
 		featureCompatibilityVersion = &computedFcv
@@ -361,40 +366,10 @@ func calculateAuthSchemaVersion(version string) int {
 // mergeFrom merges the Operator version of process ('operatorProcess') into OM one ('p').
 // Considers the type of process and rewrites only relevant fields
 func (p Process) mergeFrom(operatorProcess Process) {
-	p.SetLogPath(operatorProcess.LogPath())
-
-	if operatorProcess.ProcessType() == ProcessTypeMongod {
-		p.SetDbPath(operatorProcess.DbPath())
-		if operatorProcess.replicaSetName() != "" {
-			p.setReplicaSetName(operatorProcess.replicaSetName())
-		}
-		// we override clusterRole only if it is set to "configsvr" - otherwise we leave the OM value
-		if operatorProcess.isClusterRoleConfigSrvSet() {
-			p.setClusterRoleConfigSrv()
-		}
-		// This one is controversial. From some point users may want to change this through UI. From the other - if the
-		// kube mongodb resource memory is increased - wired tiger cache must be increased as well automatically, so merge
-		// must happen. We leave this even after SERVER-16571 is fixed as we should support manual setting of the cache
-		// for earlier versions of mongodb
-		if operatorProcess.WiredTigerCache() != nil {
-			p.SetWiredTigerCache(*operatorProcess.WiredTigerCache())
-		}
-	} else {
-		p.setCluster(operatorProcess.cluster())
-	}
-
-	// update authentication mode and clusterFile path for both process types
-	p.ConfigureClusterAuthMode(operatorProcess.ClusterAuthMode())
-
-	fcv := operatorProcess.FeatureCompatibilityVersion()
-	initDefault(
-		operatorProcess.Name(),
-		operatorProcess.HostName(),
-		operatorProcess.Version(),
-		&fcv,
-		operatorProcess.ProcessType(),
-		p,
-	)
+	// Dev note: merging the maps overrides/add map keys+value but doesn't remove the existing ones
+	// If there are any keys that need to be removed explicitly (to ensure OM changes haven't sneaked through)
+	// this must be done manually
+	maputil.MergeMaps(p, operatorProcess)
 
 	// Merge SSL configuration (update if it's specified - delete otherwise)
 	if mode, ok := operatorProcess.SSLConfig()["mode"]; ok {
@@ -491,10 +466,6 @@ func (p Process) ClusterAuthMode() string {
 func (s Process) setClusterRoleConfigSrv() Process {
 	util.ReadOrCreateMap(s.Args(), "sharding")["clusterRole"] = "configsvr"
 	return s
-}
-
-func (s Process) isClusterRoleConfigSrvSet() bool {
-	return readMapValueAsString(s.Args(), "sharding", "clusterRole") == "configsvr"
 }
 
 // These methods are ONLY FOR MONGOS types!

@@ -22,3 +22,12 @@ func ReadMapValueAsString(m map[string]interface{}, keys ...string) string {
 	}
 	return res.(string)
 }
+
+func ReadMapValueAsMap(m map[string]interface{}, keys ...string) map[string]interface{} {
+	res := ReadMapValueAsInterface(m, keys...)
+
+	if res == nil {
+		return nil
+	}
+	return res.(map[string]interface{})
+}

@@ -20,7 +20,7 @@ import (
 func NewMongodProcessAppDB(name, hostName string, resource mdbv1.AppDB) Process {
 	p := Process{}
 
-	initDefault(name, hostName, resource.GetVersion(), resource.FeatureCompatibilityVersion, ProcessTypeMongod, p)
+	initDefault(name, hostName, ProcessTypeMongod, p, resource.MongoDbSpec)
 
 	if resource.Security != nil && resource.Security.TLSConfig != nil && resource.Security.TLSConfig.SecretRef.Name != "" {
 		certFile := fmt.Sprintf("%s/certs/%s-pem", util.SecretVolumeMountPath, name)

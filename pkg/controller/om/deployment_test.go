@@ -62,7 +62,7 @@ func TestMergeReplicaSet(t *testing.T) {
 	// Now the deployment "gets updated" from external - new node is added and one is removed - this should be fixed
 	// by merge
 	newProcess := NewMongodProcess("foo", "bar", mdbv1.NewStandaloneBuilder().Build())
-	d.getProcesses()[0]["processType"] = "mongos"                          // this will be overriden
+	d.getProcesses()[0]["processType"] = ProcessTypeMongos                 // this will be overriden
 	d.getProcesses()[1].EnsureNetConfig()["MaxIncomingConnections"] = 20   // this will be left as-is
 	d.getReplicaSets()[0]["protocolVersion"] = 10                          // this field will be overriden by Operator
 	d.getReplicaSets()[0].setMembers(d.getReplicaSets()[0].members()[0:2]) // "removing" the last node in replicaset

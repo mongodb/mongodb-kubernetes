@@ -273,14 +273,12 @@ func (oc *HTTPOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error,
 	} else {
 		_, err = oc.UpdateDeployment(deployment)
 		if err != nil {
-			if v, ok := err.(*api.Error); ok {
-				if util.ShouldLogAutomationConfigDiff() && v.IsGeneric() {
-					var originalDeployment Deployment = original
-					log.Debug("Current Automation Config")
-					originalDeployment.Debug(log)
-					log.Debug("Invalid Automation Config")
-					deployment.Debug(log)
-				}
+			if util.ShouldLogAutomationConfigDiff() {
+				var originalDeployment Deployment = original
+				log.Debug("Current Automation Config")
+				originalDeployment.Debug(log)
+				log.Debug("Invalid Automation Config")
+				deployment.Debug(log)
 			}
 
 			return err
@@ -332,14 +330,12 @@ func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(acFunc func(ac *Automatio
 
 	err = oc.UpdateAutomationConfig(ac, log)
 	if err != nil {
-		if v, ok := err.(*api.Error); ok {
-			if util.ShouldLogAutomationConfigDiff() && v.IsGeneric() {
-				var originalDeployment Deployment = original
-				log.Debug("Current Automation Config")
-				originalDeployment.Debug(log)
-				log.Debug("Invalid Automation Config")
-				ac.Deployment.Debug(log)
-			}
+		if util.ShouldLogAutomationConfigDiff() {
+			var originalDeployment Deployment = original
+			log.Debug("Current Automation Config")
+			originalDeployment.Debug(log)
+			log.Debug("Invalid Automation Config")
+			ac.Deployment.Debug(log)
 		}
 		log.Errorf("error updating automation config. %s", err)
 		return api.NewError(err)
