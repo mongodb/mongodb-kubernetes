@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
 	"go.uber.org/zap"
 )
 
@@ -12,17 +13,16 @@ type AdditionalMongodConfig map[string]interface{}
 func NewEmptyAdditionalMongodConfig() AdditionalMongodConfig {
 	return make(map[string]interface{}, 0)
 }
-func NewAdditionalMongodConfig(key, value string) AdditionalMongodConfig {
-	keys := strings.Split(key, ".")
+func NewAdditionalMongodConfig(key string, value interface{}) AdditionalMongodConfig {
 	config := NewEmptyAdditionalMongodConfig()
-	current := config
-	for _, k := range keys[0 : len(keys)-1] {
-		current[k] = make(map[string]interface{})
-		current = current[k].(map[string]interface{})
-	}
-	last := keys[len(keys)-1]
-	current[last] = value
+	config.AddOption(key, value)
 	return config
+}
+
+func (c AdditionalMongodConfig) AddOption(key string, value interface{}) AdditionalMongodConfig {
+	keys := strings.Split(key, ".")
+	maputil.SetMapValue(c, value, keys...)
+	return c
 }
 
 // DeepCopy is defined manually as codegen utility cannot generate copy methods for 'interface{}'

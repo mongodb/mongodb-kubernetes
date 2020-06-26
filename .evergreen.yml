@@ -1242,6 +1242,12 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_replica_set_mongod_options
+  tags: ["patch-run"]
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_sharded_cluster_custom_podspec
   tags: ["patch-run"]
   exec_timeout_secs: 1200
@@ -1723,9 +1729,10 @@ task_groups:
     - e2e_replica_set
     - e2e_replica_set_8_members
     - e2e_replica_set_ent
+    - e2e_replica_set_custom_podspec
+    - e2e_replica_set_mongod_options
     - e2e_replica_set_recovery
     - e2e_replica_set_upgrade_downgrade
-    - e2e_replica_set_custom_podspec
     - e2e_sharded_cluster
     - e2e_sharded_cluster_secret
     - e2e_sharded_cluster_upgrade_downgrade

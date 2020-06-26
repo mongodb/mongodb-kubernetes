@@ -31,11 +31,10 @@ kubectl delete pvc --all -n "${NAMESPACE}"
 helm uninstall mongodb-enterprise-operator || true
 
 # shellcheck disable=SC2046
-kubectl delete $(kubectl get csr -o name | grep "${NAMESPACE}")
+kubectl delete $(kubectl get csr -o name | grep "${NAMESPACE}") || true
 kubectl delete secrets --all -n "${NAMESPACE}"
 kubectl delete svc --all -n "${NAMESPACE}"
 kubectl delete configmaps --all -n "${NAMESPACE}"
 kubectl delete validatingwebhookconfigurations --all -n "${NAMESPACE}"
 kubectl delete certificates --all -n "${NAMESPACE}" || true
 kubectl delete issuers --all -n "${NAMESPACE}" || true
-

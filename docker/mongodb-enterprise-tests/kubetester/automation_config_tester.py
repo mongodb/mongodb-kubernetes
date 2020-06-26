@@ -1,4 +1,4 @@
-from typing import Dict, Set, Tuple
+from typing import Dict, Set, Tuple, List
 
 X509_AGENT_SUBJECT = "CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US"
 SCRAM_AGENT_USER = "mms-automation-agent"
@@ -17,6 +17,18 @@ class AutomationConfigTester:
         self.automation_config = ac
         self.expected_users = expected_users
         self.authoritative_set = authoritative_set
+
+    def get_replica_set_processes(self, rs_name: str) -> List[Dict]:
+        """ Returns all processes for the specified replica set"""
+        replica_set = (
+            [rs for rs in self.automation_config["replicaSets"] if rs["_id"] == rs_name]
+        )[0]
+        rs_processes_name = [member["host"] for member in replica_set["members"]]
+        return [
+            process
+            for process in self.automation_config["processes"]
+            if process["name"] in rs_processes_name
+        ]
 
     def assert_authentication_mechanism_enabled(
         self, mechanism: str, active_auth_mechanism: bool = True
@@ -90,6 +102,12 @@ class AutomationConfigTester:
         self.assert_processes_size(0)
         self.assert_replica_sets_size(0)
         self.assert_sharding_size(0)
+
+    def assert_mdb_option(self, process: Dict, value, *keys):
+        current = process["args2_6"]
+        for k in keys[:-1]:
+            current = current[k]
+        assert current[keys[-1]] == value
 
     def reached_version(self, version: int) -> bool:
         return self.automation_config["version"] == version

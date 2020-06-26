@@ -8,24 +8,39 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
 )
 
 func TestCreateMongodProcess(t *testing.T) {
-	process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", defaultMongoDBVersioned("4.0.5"))
+	t.Run("Create Mongod", func(t *testing.T) {
+		process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", defaultMongoDBVersioned("4.0.5"))
 
-	assert.Equal(t, "trinity", process.Name())
-	assert.Equal(t, "trinity-0.trinity-svc.svc.cluster.local", process.HostName())
-	assert.Equal(t, "4.0.5", process.Version())
-	assert.Equal(t, "4.0", process.FeatureCompatibilityVersion())
-	assert.Equal(t, "/data", process.DbPath())
-	assert.Equal(t, "/var/log/mongodb-mms-automation/mongodb.log", process.LogPath())
-	assert.Equal(t, 5, process.authSchemaVersion())
-	assert.Equal(t, "", process.replicaSetName())
+		assert.Equal(t, "trinity", process.Name())
+		assert.Equal(t, "trinity-0.trinity-svc.svc.cluster.local", process.HostName())
+		assert.Equal(t, "4.0.5", process.Version())
+		assert.Equal(t, "4.0", process.FeatureCompatibilityVersion())
+		assert.Equal(t, "/data", process.DbPath())
+		assert.Equal(t, "/var/log/mongodb-mms-automation/mongodb.log", process.LogPath())
+		assert.Equal(t, 5, process.authSchemaVersion())
+		assert.Equal(t, "", process.replicaSetName())
 
-	expectedMap := map[string]interface{}{"port": util.MongoDbDefaultPort, "ssl": map[string]interface{}{
-		"mode": "disabled",
-	}}
-	assert.Equal(t, expectedMap, process.EnsureNetConfig())
+		expectedMap := map[string]interface{}{"port": util.MongoDbDefaultPort, "ssl": map[string]interface{}{
+			"mode": "disabled",
+		}}
+		assert.Equal(t, expectedMap, process.EnsureNetConfig())
+	})
+	t.Run("Create with Mongodb options", func(t *testing.T) {
+		config := mdbv1.NewAdditionalMongodConfig("storage.engine", "inMemory").
+			AddOption("setParameter.connPoolMaxConnsPerHost", 500).
+			AddOption("storage.dbPath", "/some/other/data") // this will be overridden
+		rs := mdbv1.NewReplicaSetBuilder().SetAdditionalConfig(config).Build()
+
+		process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", rs)
+
+		assert.Equal(t, "inMemory", maputil.ReadMapValueAsInterface(process.Args(), "storage", "engine"))
+		assert.Equal(t, 500, maputil.ReadMapValueAsInterface(process.Args(), "setParameter", "connPoolMaxConnsPerHost"))
+		assert.Equal(t, "/data", process.DbPath())
+	})
 }
 
 func TestCreateMongodProcess_authSchemaVersion(t *testing.T) {
@@ -183,5 +198,41 @@ func TestMergeMongodProcess_SSL(t *testing.T) {
 		"sslOnNormalPorts": "true",
 		"PEMKeyPassword":   "qwerty",
 	}
-	assert.Equal(t, expectedSSLConfig, readMapValueAsInterface(omProcess, "args2_6", "net", "ssl"))
+	assert.Equal(t, expectedSSLConfig, maputil.ReadMapValueAsInterface(omProcess, "args2_6", "net", "ssl"))
+}
+
+func TestMergeMongodProcess_MongodbOptions(t *testing.T) {
+	omMdb := mdbv1.NewStandaloneBuilder().SetAdditionalConfig(
+		mdbv1.NewAdditionalMongodConfig("storage.wiredTiger.engineConfig.cacheSizeGB", 3)).Build()
+	omProcess := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", omMdb)
+
+	operatorMdb := mdbv1.NewStandaloneBuilder().SetAdditionalConfig(
+		mdbv1.NewAdditionalMongodConfig("storage.wiredTiger.engineConfig.directoryForIndexes", "/some/dir")).Build()
+	operatorProcess := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", operatorMdb)
+
+	omProcess.mergeFrom(operatorProcess)
+
+	expectedArgs := map[string]interface{}{
+		"net": map[string]interface{}{
+			"port": 27017,
+			"ssl": map[string]interface{}{
+				"mode": "disabled",
+			},
+		},
+		"storage": map[string]interface{}{
+			"dbPath": "/data",
+			"wiredTiger": map[string]interface{}{
+				"engineConfig": map[string]interface{}{
+					"cacheSizeGB":         3,           // This is the native OM configuration
+					"directoryForIndexes": "/some/dir", // This is the configuration set by MongoDB spec
+				},
+			},
+		},
+		"systemLog": map[string]interface{}{
+			"destination": "file",
+			"path":        "/var/log/mongodb-mms-automation/mongodb.log",
+		},
+	}
+
+	assert.Equal(t, expectedArgs, omProcess.Args())
 }

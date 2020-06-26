@@ -1,5 +1,7 @@
 package maputil
 
+// ReadMapValueAsInterface traverses the nested maps inside the 'm' map following the 'keys' path and returns the last element
+// as an 'interface{}'
 func ReadMapValueAsInterface(m map[string]interface{}, keys ...string) interface{} {
 	currentMap := m
 	for i, k := range keys {
@@ -14,6 +16,8 @@ func ReadMapValueAsInterface(m map[string]interface{}, keys ...string) interface
 	return nil
 }
 
+// ReadMapValueAsString traverses the nested maps inside the 'm' map following the 'keys' path and returns the last element
+// as a 'string'
 func ReadMapValueAsString(m map[string]interface{}, keys ...string) string {
 	res := ReadMapValueAsInterface(m, keys...)
 
@@ -23,6 +27,8 @@ func ReadMapValueAsString(m map[string]interface{}, keys ...string) string {
 	return res.(string)
 }
 
+// ReadMapValueAsMap traverses the nested maps inside the 'm' map following the 'keys' path and returns the last element
+// as a 'map[string]interface{}'
 func ReadMapValueAsMap(m map[string]interface{}, keys ...string) map[string]interface{} {
 	res := ReadMapValueAsInterface(m, keys...)
 
@@ -30,4 +36,18 @@ func ReadMapValueAsMap(m map[string]interface{}, keys ...string) map[string]inte
 		return nil
 	}
 	return res.(map[string]interface{})
+}
+
+// SetMapValue traverses the nested maps inside the 'm' map following the 'keys' path and sets the value 'value' to the
+// final key. The key -> nested map entry will be created if doesn't exist
+func SetMapValue(m map[string]interface{}, value interface{}, keys ...string) {
+	current := m
+	for _, k := range keys[0 : len(keys)-1] {
+		if _, ok := current[k]; !ok {
+			current[k] = map[string]interface{}{}
+		}
+		current = current[k].(map[string]interface{})
+	}
+	last := keys[len(keys)-1]
+	current[last] = value
 }

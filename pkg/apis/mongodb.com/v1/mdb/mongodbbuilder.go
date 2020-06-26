@@ -111,6 +111,11 @@ func (b *MongoDBBuilder) SetMongosCountSpec(count int) *MongoDBBuilder {
 	return b
 }
 
+func (b *MongoDBBuilder) SetAdditionalOptions(config AdditionalMongodConfig) *MongoDBBuilder {
+	b.mdb.Spec.AdditionalMongodConfig = config
+	return b
+}
+
 func (b *MongoDBBuilder) Build() *MongoDB {
 	b.mdb.InitDefaults()
 	return b.mdb.DeepCopy()
