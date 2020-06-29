@@ -27,7 +27,7 @@ metadata:
   annotations:
     evg/version: "https://evergreen.mongodb.com/version/${version_id:-'not-specified'}"
     evg/task-name: ${TASK_NAME:-'not-specified'}
-    evg/task: "https://evergreen.mongodb.com/task/${TASK_ID:-'not-specified'}"
+    evg/task: "https://evergreen.mongodb.com/task/${task_id:-'not-specified'}"
     evg/mms-version: "${MMS_VERSION:-'not-specified'}"
 EOF
 

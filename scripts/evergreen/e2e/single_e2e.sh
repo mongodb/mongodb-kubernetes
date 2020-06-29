@@ -26,6 +26,7 @@ deploy_test_app() {
     # apply the correct configuration of the running OM instance
     # note, that the 4 last parameters are used only for Mongodb resource testing - not for Ops Manager
     helm_params=(
+        "--set" "taskId=${task_id:-'not-specified'}"
         "--set" "repo=${TEST_APP_REGISTRY:=268558157000.dkr.ecr.us-east-1.amazonaws.com/dev}"
         "--set" "namespace=${PROJECT_NAMESPACE}"
         "--set" "taskName=${task_name}"

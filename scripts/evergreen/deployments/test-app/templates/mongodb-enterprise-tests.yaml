@@ -41,6 +41,8 @@ spec:
   containers:
   - name: mongodb-enterprise-operator-tests
     env:
+    - name: TASK_ID
+      value: {{ .Values.taskId }}
     - name: OM_HOST
       value: {{ .Values.baseUrl }}
     - name: OM_API_KEY

@@ -483,6 +483,7 @@ functions:
           - version_id
           - custom_om_version
           - install_operator_in_python
+          - task_id
         env:
           REGISTRY: ${ecr_registry}/dev/${image_type}
           OPS_MANAGER_REGISTRY: ${ops_manager_registry|quay.io/mongodb}
@@ -492,7 +493,6 @@ functions:
           INIT_OPS_MANAGER_REGISTRY: ${ecr_registry}/dev
           INIT_APPDB_REGISTRY: ${ecr_registry}/dev
           MANAGED_SECURITY_CONTEXT: ${managed_security_context}
-          TASK_ID: ${task_id}
           TASK_NAME: ${task_name}
           OPS_MANAGER_NAMESPACE: ${ops_manager_namespace}
           OPS_MANAGER_ENV: ${workdir}/.ops-manager-env

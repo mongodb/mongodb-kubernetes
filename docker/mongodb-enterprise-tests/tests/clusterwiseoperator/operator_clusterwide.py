@@ -1,16 +1,19 @@
 import pytest
 import time
-from kubernetes.client import V1ObjectMeta
+from kubernetes import client
 from kubernetes.client.rest import ApiException
+from pytest import fixture
 
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
 from kubetester.helm import helm_template
-from pytest import fixture, fail
-from kubernetes import client
+from kubetester.kubetester import (
+    fixture as yaml_fixture,
+    KubernetesTester,
+    create_testing_namespace,
+)
+from kubetester.mongodb import Phase, MongoDB
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
-from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
-from kubetester.mongodb import Phase, MongoDB
 
 """
 This is the test that verifies the procedure of configuring Operator in cluster-wide scope.
@@ -48,25 +51,15 @@ def operator_clusterwide(
 
 
 @fixture(scope="module")
-def ops_manager_namespace() -> str:
+def ops_manager_namespace(evergreen_task_id: str) -> str:
     # Note, that it's safe to create the namespace with constant name as the test must be run in isolated environment
     # and no collisions may happen
-    test_ns = client.V1Namespace(metadata=V1ObjectMeta(name="om-namespace"))
-    client.CoreV1Api().create_namespace(test_ns)
-    yield test_ns.metadata.name
-
-    print("\nDeleting namespace ", test_ns.metadata.name)
-    client.CoreV1Api().delete_namespace(test_ns.metadata.name)
+    return create_testing_namespace(evergreen_task_id, "om-namespace")
 
 
 @fixture(scope="module")
-def mdb_namespace() -> str:
-    test_ns = client.V1Namespace(metadata=V1ObjectMeta(name="mdb-namespace"))
-    client.CoreV1Api().create_namespace(test_ns)
-    yield test_ns.metadata.name
-
-    print("\nDeleting namespace ", test_ns.metadata.name)
-    client.CoreV1Api().delete_namespace(test_ns.metadata.name)
+def mdb_namespace(evergreen_task_id: str) -> str:
+    return create_testing_namespace(evergreen_task_id, "mdb-namespace")
 
 
 @fixture(scope="module")
@@ -76,7 +69,6 @@ def ops_manager(ops_manager_namespace) -> MongoDBOpsManager:
     )
     resource["spec"]["backup"]["enabled"] = True
 
-    # return resource.load()
     return resource.create()
 
 

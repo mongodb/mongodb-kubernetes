@@ -70,6 +70,11 @@ def managed_security_context() -> bool:
 
 
 @fixture(scope="module")
+def evergreen_task_id() -> str:
+    return get_env_variable_or_fail("TASK_ID")
+
+
+@fixture(scope="module")
 def aws_s3_client() -> AwsS3Client:
     return AwsS3Client("us-east-1")
 

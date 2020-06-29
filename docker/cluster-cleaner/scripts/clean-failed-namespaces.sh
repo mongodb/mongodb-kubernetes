@@ -10,7 +10,7 @@ if [ -z ${LABELS+x} ]; then
     exit 1
 fi
 
-echo "Deleting evg tasks that are older than ${DELETE_OLDER_THAN_AMOUNT} ${DELETE_OLDER_THAN_UNIT} with label ${LABELS}"
+echo "Deleting namespaces for evg tasks that are older than ${DELETE_OLDER_THAN_AMOUNT} ${DELETE_OLDER_THAN_UNIT} with label ${LABELS}"
 for namespace in $(kubectl get namespace -l "${LABELS}" -o name); do
     creation_time=$(kubectl get "${namespace}" -o jsonpath='{.metadata.creationTimestamp}')
 

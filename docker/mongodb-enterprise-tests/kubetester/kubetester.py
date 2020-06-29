@@ -22,6 +22,7 @@ import yaml
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from kubernetes import client, config
+from kubernetes.client import V1ObjectMeta
 from kubernetes.stream import stream
 from kubernetes.client.rest import ApiException
 from requests.auth import HTTPDigestAuth
@@ -1638,3 +1639,19 @@ def validation_reason_from_exception(exception_msg):
     for reason in reasons:
         if reason[0] in exception_msg:
             return reason[1]
+
+
+def create_testing_namespace(evergreen_task_id: str, name: str) -> str:
+    """ creates the namespace that is used by the test. Marks it with necessary labels and annotations so that
+    it would be handled by configuration scripts correctly (cluster cleaner, dumping the diagnostics information) """
+    test_ns = client.V1Namespace(
+        metadata=V1ObjectMeta(
+            name=name,
+            labels={"evg": "task"},
+            annotations={
+                "evg/task": f"https://evergreen.mongodb.com/task/{evergreen_task_id}"
+            },
+        )
+    )
+    client.CoreV1Api().create_namespace(test_ns)
+    return name
