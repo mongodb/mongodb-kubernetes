@@ -39,10 +39,15 @@ fi
 
 if [[ ${CLUSTER_TYPE} = "openshift" ]]; then
     managed_security_context=true
+
     # for Openshift we use images from UBI repos (the same registry quay.io though)
-    OPS_MANAGER_NAME=mongodb-enterprise-ops-manager-ubi
-    APPDB_NAME=mongodb-enterprise-appdb-ubi
+    #
+    # The following 2 variables are set here and read from the `deploy_operator`
+    # function.
+    OPS_MANAGER_NAME=mongodb-enterprise-ops-manager
+    APPDB_NAME=mongodb-enterprise-appdb
 fi
+
 delete_operator "${NAMESPACE:-mongodb}"
 deploy_operator \
     "${REPO_URL:?}" \

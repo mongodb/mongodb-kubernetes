@@ -5,6 +5,11 @@ kind: ServiceAccount
 metadata:
   name: operator-tests-service-account
   namespace: {{ .Values.namespace }}
+{{- if .Values.imagePullSecrets}}
+imagePullSecrets:
+  - name: {{ .Values.imagePullSecrets }}
+{{- end }}
+
 
 ---
 kind: ClusterRoleBinding
@@ -32,11 +37,6 @@ spec:
   serviceAccountName: operator-tests-service-account
   restartPolicy: Never
   terminationGracePeriodSeconds: 0
-
-{{- if .Values.imagePullSecrets}}
-  imagePullSecrets:
-  - name: {{ .Values.imagePullSecrets }}
-{{- end }}
 
   containers:
   - name: mongodb-enterprise-operator-tests
@@ -98,6 +98,10 @@ spec:
     - name: MANAGED_SECURITY_CONTEXT
       value: 'false'
     {{  end }}
+    {{- if .Values.imagePullSecrets}}
+    - name: IMAGE_PULL_SECRETS
+      value: {{ .Values.imagePullSecrets }}
+    {{- end }}
     image: {{ .Values.repo }}/mongodb-enterprise-tests:{{ .Values.tag }}
     # Options to pytest command should go in the pytest.ini file.
     command: ["pytest"]

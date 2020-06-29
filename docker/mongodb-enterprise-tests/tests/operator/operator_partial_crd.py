@@ -35,6 +35,7 @@ def operator_only_ops_manager_and_mongodb(
     ops_manager_name: str,
     appdb_name: str,
     managed_security_context: bool,
+    image_pull_secrets: str,
 ) -> Operator:
     return Operator(
         namespace=namespace,
@@ -47,6 +48,7 @@ def operator_only_ops_manager_and_mongodb(
         ops_manager_name=ops_manager_name,
         appdb_name=appdb_name,
         managed_security_context=managed_security_context,
+        image_pull_secrets=image_pull_secrets,
         helm_args={"operator.watchedResources": "{opsmanagers,mongodb}"},
         helm_options=["--skip-crds"],
     ).install()
@@ -73,6 +75,7 @@ def operator_only_mongodb(
     ops_manager_name: str,
     appdb_name: str,
     managed_security_context: bool,
+    image_pull_secrets: str,
 ) -> Operator:
     return Operator(
         namespace=namespace,
@@ -85,6 +88,7 @@ def operator_only_mongodb(
         ops_manager_name=ops_manager_name,
         appdb_name=appdb_name,
         managed_security_context=managed_security_context,
+        image_pull_secrets=image_pull_secrets,
         helm_args={"operator.watchedResources": "{mongodb}"},
         helm_options=["--skip-crds"],
     ).install()

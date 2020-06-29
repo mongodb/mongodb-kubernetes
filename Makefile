@@ -75,7 +75,7 @@ contexts:
 
 # builds the Operator binary file and docker image and pushes it to the remote registry if using a remote registry. Deploys it to
 # k8s cluster
-operator: build-and-push-operator-image
+operator: configure-operator build-and-push-operator-image
 	@ $(MAKE) deploy-operator
 
 # build-push, (todo) restart database

@@ -34,6 +34,7 @@ def operator_clusterwide(
     ops_manager_name: str,
     appdb_name: str,
     managed_security_context: bool,
+    image_pull_secrets: str,
 ) -> Operator:
     return Operator(
         namespace=namespace,
@@ -46,6 +47,7 @@ def operator_clusterwide(
         ops_manager_name=ops_manager_name,
         appdb_name=appdb_name,
         managed_security_context=managed_security_context,
+        image_pull_secrets=image_pull_secrets,
         helm_args={"operator.watchNamespace": "*"},
     ).install()
 

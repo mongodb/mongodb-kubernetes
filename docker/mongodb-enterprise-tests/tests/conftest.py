@@ -65,6 +65,11 @@ def appdb_name() -> str:
 
 
 @fixture(scope="module")
+def image_pull_secrets() -> str:
+    return os.environ.get("IMAGE_PULL_SECRETS", "")
+
+
+@fixture(scope="module")
 def managed_security_context() -> bool:
     return get_env_variable_or_fail("MANAGED_SECURITY_CONTEXT") == "true"
 
@@ -145,6 +150,7 @@ def default_operator(
     ops_manager_name: str,
     appdb_name: str,
     managed_security_context: bool,
+    image_pull_secrets: str,
 ) -> Operator:
     """ Installs/upgrades a default Operator used by any test not interested in some custom Operator setting.
     TODO we use the helm template | kubectl apply -f process so far as Helm install/upgrade needs more refactoring in
@@ -160,6 +166,7 @@ def default_operator(
         ops_manager_name=ops_manager_name,
         appdb_name=appdb_name,
         managed_security_context=managed_security_context,
+        image_pull_secrets=image_pull_secrets,
     ).install()
 
 

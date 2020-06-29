@@ -48,7 +48,7 @@ if [[ -n "${ecr_registry_needs_auth-}" ]]; then
     scripts/dev/configure_docker "${ecr_registry-}" > "${docker_config}"
 
     echo "Creating pull secret from docker configured file"
-    oc -n "${PROJECT_NAMESPACE}" create secret generic "${ecr_registry_needs_auth}" \
+    oc -n "${NAMESPACE}" create secret generic "${ecr_registry_needs_auth}" \
 		--from-file=.dockerconfigjson="${docker_config}" --type=kubernetes.io/dockerconfigjson || true
     rm "${docker_config}"
 else

@@ -32,6 +32,7 @@ class Operator(object):
         ops_manager_name: str,
         appdb_name: str,
         managed_security_context: bool,
+        image_pull_secrets: str,
         helm_args: Optional[Dict] = None,
         helm_options: Optional[List[str]] = None,
     ):
@@ -54,8 +55,8 @@ class Operator(object):
         helm_args["initOpsManager.version"] = operator_version
         helm_args["initAppDb.version"] = operator_version
 
-        if managed_security_context:
-            helm_args["registry.imagePullSecrets"] = "ecr-registry"
+        helm_args["registry.imagePullSecrets"] = image_pull_secrets
+
         self.helm_arguments = helm_args
         self.helm_options = helm_options
         self.name = "mongodb-enterprise-operator"
