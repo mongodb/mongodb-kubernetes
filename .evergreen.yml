@@ -1730,7 +1730,6 @@ task_groups:
     - e2e_replica_set_8_members
     - e2e_replica_set_ent
     - e2e_replica_set_custom_podspec
-    - e2e_replica_set_mongod_options
     - e2e_replica_set_recovery
     - e2e_replica_set_upgrade_downgrade
     - e2e_sharded_cluster
@@ -1872,6 +1871,7 @@ task_groups:
     - e2e_tls_rs_external_access_tls_transition
     - e2e_replica_set_update_delete_parallel
     - e2e_feature_controls_authentication
+    - e2e_replica_set_mongod_options
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -2050,7 +2050,7 @@ buildvariants:
   - name: "e2e_tls_task_group"
   - name: "e2e_mongodb_non_cloudqa_task_group"
 
-- name: e2e_kube_vanilla_om_current
+- name: e2e_kube_vanilla_om_42_current
   display_name: "e2e_kube_vanilla_om_42_current"
   depends_on:
     - name: build_images_ubuntu

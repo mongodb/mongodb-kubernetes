@@ -164,6 +164,28 @@ older versions of Kubernetes:
 This will create a new K8s cluster in AWS using kops (only on the first run), will create all necessary secrets and 
 config maps and build+deploy the Operator there. Now it's possible to either create new CRs there or run e2e tests.
 
+#### Testing on Ops Manager 4.0
+If there's an E2E test failing only on Ops Manager 4.0 build variant - there's no need to start the 4.0 OpsManager anywhere
+(also Ops Manager 4.0 is not supported in Kubernetes)
+The easy solution is to reuse the Kops cluster used for e2e tests which already has an Ops Manager 4.0 instance running.
+This is an example of the context file that you may edit :
+```
+export CLUSTER_TYPE=kops
+export CLUSTER_NAME=e2e.mongokubernetes.com
+export REPO_URL=268558157000.dkr.ecr.eu-west-1.amazonaws.com/alis
+export INIT_OPS_MANAGER_REGISTRY=${REPO_URL}
+export INIT_APPDB_REGISTRY=${REPO_URL}
+export NAMESPACE=anton
+export OM_HOST=http://ops-manager.operator-testing-40-first.svc.cluster.local:8080
+export OM_USER=admin
+export OM_API_KEY=b26dfb22-3e14-472a-a0e6-e04982a57192
+```
+Note, that for the `OM_USER` and `OM_API_KEY` may look different way - you can check the output of the test of the test
+in evergreen.
+After this you can run `make e2e test=<name>` for the context above and this way it's possible to debug problems with 
+Ops Manager 4.0. The test will be run in an isolated namespace (`anton` for this example) and won't affect the existing 
+namespaces
+
 ### Troubleshooting
 
 If you encounter an error like the following when running `make` or otherwise
