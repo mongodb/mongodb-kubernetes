@@ -124,7 +124,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		return r.updateStatus(s, reconcileResult, log)
 	}
 
-	if status := r.ensureFeatureControls(s, conn, log); !status.IsOK() {
+	if status := r.ensureFeatureControls(*s, conn, log); !status.IsOK() {
 		return r.updateStatus(s, status, log)
 	}
 

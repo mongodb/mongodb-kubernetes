@@ -1,6 +1,7 @@
 package mdb
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -23,6 +24,14 @@ func (c AdditionalMongodConfig) AddOption(key string, value interface{}) Additio
 	keys := strings.Split(key, ".")
 	maputil.SetMapValue(c, value, keys...)
 	return c
+}
+
+// ToFlatList returns all mongodb options as a sorted list of string values.
+// It performs a recursive traversal of maps and dumps the current config to the final list of configs
+func (c AdditionalMongodConfig) ToFlatList() []string {
+	result := traverse(c.ToMap(), []string{})
+	sort.Strings(result)
+	return result
 }
 
 // DeepCopy is defined manually as codegen utility cannot generate copy methods for 'interface{}'
@@ -54,4 +63,23 @@ func (c AdditionalMongodConfig) ToMap() map[string]interface{} {
 		return nil
 	}
 	return cp
+}
+
+func traverse(currentValue interface{}, currentPath []string) []string {
+	switch v := currentValue.(type) {
+	case map[string]interface{}:
+		{
+			allPaths := []string{}
+			for key, value := range v {
+				allPaths = append(allPaths, traverse(value, append(currentPath, key))...)
+			}
+			return allPaths
+		}
+	default:
+		{
+			// We found the "terminal" node in the map - need to dump the current path
+			path := strings.Join(currentPath, ".")
+			return []string{path}
+		}
+	}
 }

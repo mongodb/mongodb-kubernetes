@@ -48,3 +48,24 @@ def test_sharded_cluster_mongodb_options_shards(sharded_cluster: MongoDB):
             assert "verbosity" not in process["args2_6"]["systemLog"]
             assert "logAppend" not in process["args2_6"]["systemLog"]
             assert "operationProfiling" not in process["args2_6"]
+
+
+@mark.e2e_sharded_cluster_mongod_options
+def test_sharded_cluster_feature_controls(sharded_cluster: MongoDB):
+    fc = sharded_cluster.get_om_tester().get_feature_controls()
+    assert fc["externalManagementSystem"]["name"] == "mongodb-enterprise-operator"
+
+    assert len(fc["policies"]) == 2
+    # unfortunately OM uses a HashSet for policies...
+    policies = sorted(fc["policies"], key=lambda policy: policy["policy"])
+    assert policies[0]["policy"] == "DISABLE_SET_MONGOD_CONFIG"
+    assert policies[1]["policy"] == "EXTERNALLY_MANAGED_LOCK"
+    # OM stores the params into a set - we need to sort to compare
+    disabled_params = sorted(policies[0]["disabledParams"])
+    assert disabled_params == [
+        "net.port",
+        "operationProfiling.mode",
+        "storage.journal.commitIntervalMs",
+        "systemLog.logAppend",
+        "systemLog.verbosity",
+    ]

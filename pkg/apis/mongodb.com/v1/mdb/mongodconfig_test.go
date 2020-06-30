@@ -16,3 +16,17 @@ func TestDeepCopy(t *testing.T) {
 	// The value in the first config hasn't changed
 	assert.Equal(t, "value", config["first"].(map[string]interface{})["second"])
 }
+
+func TestToFlatList(t *testing.T) {
+	config := NewAdditionalMongodConfig("one.two.three", "v1")
+	config.AddOption("one.two.four", 5)
+	config.AddOption("one.five", true)
+	config.AddOption("six.seven.eight", "v2")
+	config.AddOption("six.nine", "v3")
+
+	list := config.ToFlatList()
+
+	expectedStrings := []string{"one.five", "one.two.four", "one.two.three", "six.nine", "six.seven.eight"}
+	assert.Equal(t, expectedStrings, list)
+
+}

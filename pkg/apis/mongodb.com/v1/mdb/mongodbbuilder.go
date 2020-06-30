@@ -68,6 +68,30 @@ func (b *MongoDBBuilder) SetAdditionalConfig(c AdditionalMongodConfig) *MongoDBB
 	return b
 }
 
+func (b *MongoDBBuilder) SetMongosAdditionalConfig(c AdditionalMongodConfig) *MongoDBBuilder {
+	if b.mdb.Spec.MongosSpec == nil {
+		b.mdb.Spec.MongosSpec = &ShardedClusterComponentSpec{}
+	}
+	b.mdb.Spec.MongosSpec.AdditionalMongodConfig = c
+	return b
+}
+
+func (b *MongoDBBuilder) SetConfigSrvAdditionalConfig(c AdditionalMongodConfig) *MongoDBBuilder {
+	if b.mdb.Spec.ConfigSrvSpec == nil {
+		b.mdb.Spec.ConfigSrvSpec = &ShardedClusterComponentSpec{}
+	}
+	b.mdb.Spec.ConfigSrvSpec.AdditionalMongodConfig = c
+	return b
+}
+
+func (b *MongoDBBuilder) SetShardAdditionalConfig(c AdditionalMongodConfig) *MongoDBBuilder {
+	if b.mdb.Spec.ShardSpec == nil {
+		b.mdb.Spec.ShardSpec = &ShardedClusterComponentSpec{}
+	}
+	b.mdb.Spec.ShardSpec.AdditionalMongodConfig = c
+	return b
+}
+
 func (b *MongoDBBuilder) SetSecurityTLSEnabled() *MongoDBBuilder {
 	b.mdb.Spec.Security.TLSConfig.Enabled = true
 	return b

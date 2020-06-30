@@ -111,7 +111,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return nil, status
 	}
 
-	if status := r.ensureFeatureControls(sc, conn, log); !status.IsOK() {
+	if status := r.ensureFeatureControls(*sc, conn, log); !status.IsOK() {
 		return nil, status
 	}
 

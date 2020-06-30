@@ -17,6 +17,7 @@ type PolicyType string
 const (
 	ExternallyManaged               PolicyType = "EXTERNALLY_MANAGED_LOCK"
 	DisableAuthenticationMechanisms PolicyType = "DISABLE_AUTHENTICATION_MECHANISMS"
+	DisableMongodConfig             PolicyType = "DISABLE_SET_MONGOD_CONFIG"
 )
 
 type Policy struct {
@@ -24,7 +25,7 @@ type Policy struct {
 	DisabledParams []string   `json:"disabledParams"`
 }
 
-func NewControlledFeature(options ...func(*ControlledFeature)) *ControlledFeature {
+func newControlledFeature(options ...func(*ControlledFeature)) *ControlledFeature {
 	cf := &ControlledFeature{
 		ManagementSystem: ManagementSystem{
 			Name:    util.OperatorName,
@@ -39,14 +40,16 @@ func NewControlledFeature(options ...func(*ControlledFeature)) *ControlledFeatur
 	return cf
 }
 
-func FullyRestrictive() *ControlledFeature {
-	return NewControlledFeature(OptionExternallyManaged, OptionDisableAuthenticationMechanism)
-}
-
 func OptionExternallyManaged(cf *ControlledFeature) {
 	cf.Policies = append(cf.Policies, Policy{PolicyType: ExternallyManaged, DisabledParams: make([]string, 0)})
 }
 
 func OptionDisableAuthenticationMechanism(cf *ControlledFeature) {
 	cf.Policies = append(cf.Policies, Policy{PolicyType: DisableAuthenticationMechanisms, DisabledParams: make([]string, 0)})
+}
+
+func OptionDisableMongodbConfig(disabledParams []string) func(*ControlledFeature) {
+	return func(cf *ControlledFeature) {
+		cf.Policies = append(cf.Policies, Policy{PolicyType: DisableMongodConfig, DisabledParams: disabledParams})
+	}
 }

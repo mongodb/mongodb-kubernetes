@@ -142,19 +142,13 @@ func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedNam
 	return conn, nil
 }
 
-func (r *ReconcileCommonController) ensureFeatureControls(mdb *mdbv1.MongoDB, conn om.Connection, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileCommonController) ensureFeatureControls(mdb mdbv1.MongoDB, conn om.Connection, log *zap.SugaredLogger) workflow.Status {
 	if !shouldUseFeatureControls(conn.OMVersion()) {
 		log.Debugf("Ops Manager version is %s, which does not support Feature Controls API", conn.OMVersion())
 		return workflow.OK()
 	}
 
-	authSpec := mdb.Spec.Security.Authentication
-	var cf *controlledfeature.ControlledFeature
-	if authSpec == nil {
-		cf = controlledfeature.NewControlledFeature(controlledfeature.OptionExternallyManaged)
-	} else {
-		cf = controlledfeature.FullyRestrictive()
-	}
+	cf := controlledfeature.BuildFeatureControlsByMdb(mdb)
 
 	log.Debug("Configuring feature controls")
 	if err := conn.UpdateControlledFeature(cf); err != nil {
