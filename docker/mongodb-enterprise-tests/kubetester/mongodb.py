@@ -286,6 +286,14 @@ class MongoDB(CustomObject, MongoDBCommon):
             return self["spec"]["opsManager"]["configMapRef"]["name"]
         return self["spec"]["project"]
 
+    def config_srv_statefulset_name(self) -> str:
+        return self.name + "-config"
+
+    def shards_statefulsets_names(self) -> List[str]:
+        return [
+            "{}-{}".format(self.name, i) for i in range(1, self["spec"]["shardCount"])
+        ]
+
     class Types:
         REPLICA_SET = "ReplicaSet"
         SHARDED_CLUSTER = "ShardedCluster"

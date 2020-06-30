@@ -68,7 +68,7 @@ func TestCreateProcessesWiredTigerCache(t *testing.T) {
 
 	setHelper := defaultSetHelper().SetReplicas(3)
 	set, _ := setHelper.BuildStatefulSet()
-	processes := createProcesses(set, om.ProcessTypeMongod, st)
+	processes := createMongodProcesses(set, st)
 
 	assert.Len(t, processes, 3)
 	for _, p := range processes {
@@ -79,7 +79,7 @@ func TestCreateProcessesWiredTigerCache(t *testing.T) {
 	setHelper.SetPodSpec(mdbv1.NewPodSpecWrapperBuilder().SetMemory("3G").Build())
 
 	set, _ = setHelper.BuildStatefulSet()
-	processes = createProcesses(set, om.ProcessTypeMongod, st)
+	processes = createMongodProcesses(set, st)
 
 	assert.Len(t, processes, 3)
 	for _, p := range processes {

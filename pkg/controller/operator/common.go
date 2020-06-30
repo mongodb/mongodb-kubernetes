@@ -56,29 +56,25 @@ func DeploymentLink(url, groupId string) string {
 }
 
 func buildReplicaSetFromStatefulSet(set appsv1.StatefulSet, mdb *mdbv1.MongoDB) om.ReplicaSetWithProcesses {
-	members := createProcesses(set, om.ProcessTypeMongod, mdb)
+	members := createMongodProcesses(set, mdb)
 	replicaSet := om.NewReplicaSet(set.Name, mdb.Spec.GetVersion())
 	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members)
 	rsWithProcesses.SetHorizons(mdb.Spec.Connectivity.ReplicaSetHorizons)
 	return rsWithProcesses
 }
 
-func createProcesses(set appsv1.StatefulSet, mongoType om.MongoType, mdb *mdbv1.MongoDB) []om.Process {
+// createMongodProcesses builds the slice of processes based on 'StatefulSet' and 'MongoDB' spec.
+// Note, that it's not applicable for sharded cluster processes as each of them may have their own mongod
+// options configuration, also mongos process is different
+func createMongodProcesses(set appsv1.StatefulSet, mdb *mdbv1.MongoDB) []om.Process {
 	hostnames, names := util.GetDnsForStatefulSet(set, mdb.Spec.GetClusterDomain())
 	processes := make([]om.Process, len(hostnames))
 	wiredTigerCache := calculateWiredTigerCache(set, mdb.Spec.GetVersion())
 
 	for idx, hostname := range hostnames {
-		switch mongoType {
-		case om.ProcessTypeMongod:
-			processes[idx] = om.NewMongodProcess(names[idx], hostname, mdb)
-			if wiredTigerCache != nil {
-				processes[idx].SetWiredTigerCache(*wiredTigerCache)
-			}
-		case om.ProcessTypeMongos:
-			processes[idx] = om.NewMongosProcess(names[idx], hostname, mdb)
-		default:
-			panic("Dev error: Wrong process type passed!")
+		processes[idx] = om.NewMongodProcess(names[idx], hostname, mdb.Spec.AdditionalMongodConfig, mdb)
+		if wiredTigerCache != nil {
+			processes[idx].SetWiredTigerCache(*wiredTigerCache)
 		}
 	}
 

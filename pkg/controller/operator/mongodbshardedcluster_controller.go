@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/host"
+	appsv1 "k8s.io/api/apps/v1"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	mdbstatus "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
@@ -525,31 +526,29 @@ func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn o
 func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, sc *mdbv1.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger,
 	processNames *[]string, finalizing bool) (workflow.Status, bool) {
 
+	// mongos
 	sts, err := state.mongosSetHelper.BuildStatefulSet()
 	if err != nil {
 		return workflow.Failed(err.Error()), false
 	}
 
-	mongosProcesses := createProcesses(
-		sts,
-		om.ProcessTypeMongos,
-		sc,
-	)
+	mongosProcesses := createMongosProcesses(sts, sc)
 
+	// config server
 	configSvrSts, err := state.configSrvSetHelper.BuildStatefulSet()
 	if err != nil {
 		return workflow.Failed(err.Error()), false
 	}
+	configRs := buildReplicaSetFromProcesses(configSvrSts.Name, createConfigSrvProcesses(configSvrSts, sc), sc)
 
-	configRs := buildReplicaSetFromStatefulSet(configSvrSts, sc)
-
+	// shards
 	shards := make([]om.ReplicaSetWithProcesses, len(state.shardsSetsHelpers))
 	for i, s := range state.shardsSetsHelpers {
 		shardSts, err := s.BuildStatefulSet()
 		if err != nil {
 			return workflow.Failed(err.Error()), false
 		}
-		shards[i] = buildReplicaSetFromStatefulSet(shardSts, sc)
+		shards[i] = buildReplicaSetFromProcesses(shardSts.Name, createShardProcesses(shardSts, sc), sc)
 	}
 
 	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, *processNames, sc, log)
@@ -676,4 +675,54 @@ func getAllStatefulSetHelpers(kubeState ShardedClusterKubeState) []*StatefulSetH
 	stsHelpers = append(stsHelpers, kubeState.mongosSetHelper)
 	stsHelpers = append(stsHelpers, kubeState.configSrvSetHelper)
 	return stsHelpers
+}
+
+func createMongosProcesses(set appsv1.StatefulSet, mdb *mdbv1.MongoDB) []om.Process {
+	hostnames, names := util.GetDnsForStatefulSet(set, mdb.Spec.GetClusterDomain())
+	processes := make([]om.Process, len(hostnames))
+
+	for idx, hostname := range hostnames {
+		processes[idx] = om.NewMongosProcess(names[idx], hostname, mdb)
+	}
+
+	return processes
+}
+func createConfigSrvProcesses(set appsv1.StatefulSet, mdb *mdbv1.MongoDB) []om.Process {
+	var configSrvAdditionalConfig mdbv1.AdditionalMongodConfig
+	if mdb.Spec.ConfigSrvSpec != nil {
+		configSrvAdditionalConfig = mdb.Spec.ConfigSrvSpec.AdditionalMongodConfig
+	}
+
+	return createMongodProcessForShardedCluster(set, configSrvAdditionalConfig, mdb)
+}
+func createShardProcesses(set appsv1.StatefulSet, mdb *mdbv1.MongoDB) []om.Process {
+	var shardAdditionalConfig mdbv1.AdditionalMongodConfig
+	if mdb.Spec.ShardSpec != nil {
+		shardAdditionalConfig = mdb.Spec.ShardSpec.AdditionalMongodConfig
+	}
+
+	return createMongodProcessForShardedCluster(set, shardAdditionalConfig, mdb)
+}
+func createMongodProcessForShardedCluster(set appsv1.StatefulSet, additionalMongodConfig mdbv1.AdditionalMongodConfig, mdb *mdbv1.MongoDB) []om.Process {
+	hostnames, names := util.GetDnsForStatefulSet(set, mdb.Spec.GetClusterDomain())
+	processes := make([]om.Process, len(hostnames))
+	wiredTigerCache := calculateWiredTigerCache(set, mdb.Spec.GetVersion())
+
+	for idx, hostname := range hostnames {
+		processes[idx] = om.NewMongodProcess(names[idx], hostname, additionalMongodConfig, mdb)
+		if wiredTigerCache != nil {
+			processes[idx].SetWiredTigerCache(*wiredTigerCache)
+		}
+	}
+
+	return processes
+}
+
+// buildReplicaSetFromProcesses creates the 'ReplicaSetWithProcesses' with specified processes. This is of use only
+// for sharded cluster (config server, shards)
+func buildReplicaSetFromProcesses(name string, members []om.Process, mdb *mdbv1.MongoDB) om.ReplicaSetWithProcesses {
+	replicaSet := om.NewReplicaSet(name, mdb.Spec.GetVersion())
+	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members)
+	rsWithProcesses.SetHorizons(mdb.Spec.Connectivity.ReplicaSetHorizons)
+	return rsWithProcesses
 }

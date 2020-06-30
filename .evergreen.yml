@@ -1248,6 +1248,12 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_sharded_cluster_mongod_options
+  tags: ["patch-run"]
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_sharded_cluster_custom_podspec
   tags: ["patch-run"]
   exec_timeout_secs: 1200
@@ -1865,13 +1871,14 @@ task_groups:
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
   tasks:
-    - e2e_sharded_cluster_scale_shards
-    - e2e_replica_set_readiness_probe
-    - e2e_tls_rs_external_access
-    - e2e_tls_rs_external_access_tls_transition
-    - e2e_replica_set_update_delete_parallel
     - e2e_feature_controls_authentication
     - e2e_replica_set_mongod_options
+    - e2e_replica_set_readiness_probe
+    - e2e_replica_set_update_delete_parallel
+    - e2e_sharded_cluster_scale_shards
+    - e2e_sharded_cluster_mongod_options
+    - e2e_tls_rs_external_access
+    - e2e_tls_rs_external_access_tls_transition
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment

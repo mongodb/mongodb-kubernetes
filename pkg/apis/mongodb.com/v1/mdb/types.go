@@ -110,6 +110,8 @@ type MongoDbStatus struct {
 }
 
 type MongoDbSpec struct {
+	ShardedClusterSpec `json:",inline"`
+
 	Version                     string  `json:"version,omitempty"`
 	FeatureCompatibilityVersion *string `json:"featureCompatibilityVersion,omitempty"`
 
@@ -138,9 +140,6 @@ type MongoDbSpec struct {
 	// +optional
 	//StatefulSetConfiguration *StatefulSetConfiguration `json:"statefulSet,omitempty"`
 
-	ConfigSrvPodSpec                *MongoDbPodSpec `json:"configSrvPodSpec,omitempty"`
-	MongosPodSpec                   *MongoDbPodSpec `json:"mongosPodSpec,omitempty"`
-	ShardPodSpec                    *MongoDbPodSpec `json:"shardPodSpec,omitempty"`
 	MongodbShardedClusterSizeConfig `json:",inline"`
 
 	// replica set
@@ -553,15 +552,6 @@ func (m *MongoDB) ConnectionURL(userName, password string, connectionParams map[
 		statefulsetName = m.MongosRsName()
 	}
 	return BuildConnectionUrl(statefulsetName, m.ServiceName(), m.Namespace, userName, password, m.Spec, connectionParams)
-}
-
-// MongodbShardedClusterSizeConfig describes the numbers and sizes of replica sets inside
-// sharded cluster
-type MongodbShardedClusterSizeConfig struct {
-	ShardCount           int `json:"shardCount,omitempty"`
-	MongodsPerShardCount int `json:"mongodsPerShardCount,omitempty"`
-	MongosCount          int `json:"mongosCount,omitempty"`
-	ConfigServerCount    int `json:"configServerCount,omitempty"`
 }
 
 type MongoDbPodSpec struct {

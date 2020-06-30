@@ -487,18 +487,14 @@ func createDeploymentFromShardedCluster(updatable v1.CustomResourceReadWriter) o
 	sh := updatable.(*mdbv1.MongoDB)
 	state := createStateFromResource(sh)
 	mongosSts, _ := state.mongosSetHelper.BuildStatefulSet()
-	mongosProcesses := createProcesses(
-		mongosSts,
-		om.ProcessTypeMongos,
-		sh,
-	)
+	mongosProcesses := createMongosProcesses(mongosSts, sh)
 
 	configSvrSts, _ := state.configSrvSetHelper.BuildStatefulSet()
-	configRs := buildReplicaSetFromStatefulSet(configSvrSts, sh)
+	configRs := buildReplicaSetFromProcesses(configSvrSts.Name, createConfigSrvProcesses(configSvrSts, sh), sh)
 	shards := make([]om.ReplicaSetWithProcesses, len(state.shardsSetsHelpers))
 	for i, s := range state.shardsSetsHelpers {
 		shardSts, _ := s.BuildStatefulSet()
-		shards[i] = buildReplicaSetFromStatefulSet(shardSts, sh)
+		shards[i] = buildReplicaSetFromProcesses(shardSts.Name, createShardProcesses(shardSts, sh), sh)
 	}
 
 	d := om.NewDeployment()

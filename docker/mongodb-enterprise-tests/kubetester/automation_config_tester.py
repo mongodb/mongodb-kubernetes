@@ -30,6 +30,15 @@ class AutomationConfigTester:
             if process["name"] in rs_processes_name
         ]
 
+    def get_mongos_processes(self):
+        """" Returns all mongos processes in deployment. We don't need to filter by sharded cluster name as
+        we have only a single resource per deployment """
+        return [
+            process
+            for process in self.automation_config["processes"]
+            if process["processType"] == "mongos"
+        ]
+
     def assert_authentication_mechanism_enabled(
         self, mechanism: str, active_auth_mechanism: bool = True
     ) -> None:
