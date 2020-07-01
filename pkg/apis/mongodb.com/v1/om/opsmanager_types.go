@@ -453,8 +453,6 @@ func SchemePortFromAnnotation(annotation string) (corev1.URIScheme, int) {
 
 //=============== AppDB ===========================================
 
-// Note, that as of beta the AppDB has a limited schema comparing with a MongoDB struct
-
 // +k8s:deepcopy-gen=true
 type AppDB struct {
 	mdbv1.MongoDbSpec `json:",inline"`
@@ -502,8 +500,6 @@ func (m *AppDB) UnmarshalJSON(data []byte) error {
 		m.PasswordSecretKeyRef.Key = util.DefaultAppDbPasswordKey
 	}
 
-	// No AdditionalMongodConfig as of beta
-	m.AdditionalMongodConfig = nil
 	m.ConnectionSpec.Credentials = ""
 	m.ConnectionSpec.CloudManagerConfig = nil
 	m.ConnectionSpec.OpsManagerConfig = nil

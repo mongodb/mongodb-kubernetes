@@ -50,9 +50,6 @@ class TestOpsManagerCreation:
         mdb_tester.assert_connectivity()
         mdb_tester.assert_version("4.0.0")
 
-        # then we need to wait until Ops Manager is ready (only AppDB is ready so far) for the next test
-        # self.wait_until("om_in_running_state", 900)
-
     def test_appdb_automation_config(self, ops_manager: MongoDBOpsManager):
         expected_roles = {
             ("admin", "readWriteAnyDatabase"),
@@ -76,6 +73,13 @@ class TestOpsManagerCreation:
             ops_manager.read_appdb_generated_password(),
             auth_mechanism="SCRAM-SHA-1",
         )
+
+    def test_appdb_mongodb_options(self, ops_manager: MongoDBOpsManager):
+        automation_config_tester = ops_manager.get_automation_config_tester()
+        for process in automation_config_tester.get_replica_set_processes(
+            ops_manager.app_db_name()
+        ):
+            assert process["args2_6"]["operationProfiling"]["mode"] == "slowOp"
 
     def test_appdb_monitoring_is_configured(self, ops_manager: MongoDBOpsManager):
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
