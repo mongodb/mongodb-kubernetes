@@ -21,6 +21,10 @@ def opsmanager(namespace: str) -> MongoDBOpsManager:
 @mark.e2e_om_external_connectivity
 def test_reaches_goal_state(opsmanager: MongoDBOpsManager):
     opsmanager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
+    # some time for monitoring to be finished
+    opsmanager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
+    opsmanager.appdb_status().assert_reaches_phase(Phase.Running, timeout=300)
+    opsmanager.om_status().assert_reaches_phase(Phase.Running, timeout=50)
 
     internal, external = opsmanager.services()
     assert internal is not None
@@ -28,13 +32,6 @@ def test_reaches_goal_state(opsmanager: MongoDBOpsManager):
 
     assert internal.spec.type == "ClusterIP"
     assert internal.spec.cluster_ip == "None"
-
-
-@mark.e2e_om_external_connectivity
-def test_appdb_monitoring_group_was_created(opsmanager: MongoDBOpsManager):
-    opsmanager.appdb_status().assert_abandons_phase(Phase.Running)
-    opsmanager.appdb_status().assert_reaches_phase(Phase.Running, timeout=300)
-    opsmanager.assert_appdb_monitoring_group_was_created()
 
 
 @mark.e2e_om_external_connectivity
