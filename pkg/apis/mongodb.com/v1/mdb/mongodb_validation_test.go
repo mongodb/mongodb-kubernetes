@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMongoDB_ProcessValidations_BadHorizonsMemberCount(t *testing.T) {
@@ -57,4 +58,25 @@ func TestMongoDB_ValidateCreate_Error(t *testing.T) {
 func TestMongoDB_ProcessValidations(t *testing.T) {
 	rs := NewReplicaSetBuilder().Build()
 	assert.Equal(t, rs.ProcessValidationsOnReconcile(), nil)
+}
+
+func TestMongoDB_ValidateAdditionalMongodConfig(t *testing.T) {
+	t.Run("No sharded cluster additional config for replica set", func(t *testing.T) {
+		rs := NewReplicaSetBuilder().SetConfigSrvAdditionalConfig(NewAdditionalMongodConfig("systemLog.verbosity", 5)).Build()
+		err := rs.ValidateCreate()
+		require.Error(t, err)
+		assert.Equal(t, "'spec.mongos', 'spec.configSrv', 'spec.shard' cannot be specified if type of MongoDB is ReplicaSet", err.Error())
+	})
+	t.Run("No sharded cluster additional config for standalone", func(t *testing.T) {
+		rs := NewStandaloneBuilder().SetMongosAdditionalConfig(NewAdditionalMongodConfig("systemLog.verbosity", 5)).Build()
+		err := rs.ValidateCreate()
+		require.Error(t, err)
+		assert.Equal(t, "'spec.mongos', 'spec.configSrv', 'spec.shard' cannot be specified if type of MongoDB is Standalone", err.Error())
+	})
+	t.Run("No replica set additional config for sharded cluster", func(t *testing.T) {
+		rs := NewClusterBuilder().SetAdditionalConfig(NewAdditionalMongodConfig("systemLog.verbosity", 5)).Build()
+		err := rs.ValidateCreate()
+		require.Error(t, err)
+		assert.Equal(t, "'spec.additionalMongodConfig' cannot be specified if type of MongoDB is ShardedCluster", err.Error())
+	})
 }

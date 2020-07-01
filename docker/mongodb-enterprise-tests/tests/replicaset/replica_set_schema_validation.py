@@ -55,13 +55,13 @@ class TestReplicaSetInvalidLogLevel(KubernetesTester):
 
 
 @pytest.mark.e2e_replica_set_schema_validation
-class TestReplicaSetSchemaInvalidSSL(KubernetesTester):
+class TestReplicaSetSchemaShardedClusterMongodConfig(KubernetesTester):
     """
-    name: Replica Set Validation (invalid ssl mode)
+    name: Replica Set Validation (sharded cluster additional mongod config)
     create:
-      file: standalone.yaml
-      patch: '[{"op":"add","path":"/spec","value":{"additionalMongodConfig":{"net":{"ssl":{"mode": "AllowDisallowSSL"}}}}}]'
-      exception: 'Unprocessable Entity'
+      file: replica-set.yaml
+      patch: '[{"op":"add","path":"/spec/mongos","value":{"additionalMongodConfig":{"net":{"ssl":{"mode": "AllowSSL"}}}}}]'
+      exception: 'cannot be specified if type of MongoDB is ReplicaSet'
     """
 
     def test_validation_ok(self):

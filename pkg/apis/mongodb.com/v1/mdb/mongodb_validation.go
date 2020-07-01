@@ -8,10 +8,9 @@ package mdb
 import (
 	"errors"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
-
+	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 )
@@ -95,6 +94,20 @@ func deploymentsMustHaveAgentModeInAuthModes(ms MongoDbSpec) v1.ValidationResult
 	return v1.ValidationSuccess()
 }
 
+func additionalMongodConfig(ms MongoDbSpec) v1.ValidationResult {
+	if ms.ResourceType == ShardedCluster {
+		if ms.AdditionalMongodConfig != nil && len(ms.AdditionalMongodConfig) > 0 {
+			return v1.ValidationError("'spec.additionalMongodConfig' cannot be specified if type of MongoDB is %s", ShardedCluster)
+		}
+		return v1.ValidationSuccess()
+	}
+	// Standalone or ReplicaSet
+	if ms.ShardSpec != nil || ms.ConfigSrvSpec != nil || ms.MongosSpec != nil {
+		return v1.ValidationError("'spec.mongos', 'spec.configSrv', 'spec.shard' cannot be specified if type of MongoDB is %s", ms.ResourceType)
+	}
+	return v1.ValidationSuccess()
+}
+
 func (m MongoDB) RunValidations() []v1.ValidationResult {
 	validators := []func(ms MongoDbSpec) v1.ValidationResult{
 		replicaSetHorizonsRequireTLS,
@@ -102,6 +115,7 @@ func (m MongoDB) RunValidations() []v1.ValidationResult {
 		deploymentsMustHaveTLSInX509Env,
 		deploymentsMustHaveAgentModesIfAuthIsEnabled,
 		deploymentsMustHaveAgentModeInAuthModes,
+		additionalMongodConfig,
 	}
 
 	var validationResults []v1.ValidationResult

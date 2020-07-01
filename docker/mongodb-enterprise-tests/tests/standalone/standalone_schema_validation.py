@@ -73,13 +73,13 @@ class TestStandaloneSchemaInvalidLogLevel(KubernetesTester):
 
 
 @pytest.mark.e2e_standalone_schema_validation
-class TestStandaloneSchemaInvalidSSL(KubernetesTester):
+class TestStandaloneSchemaShardedClusterMongodConfig(KubernetesTester):
     """
-    name: Validation for standalone (invalid ssl mode)
+    name: Validation for standalone (sharded cluster additional mongod config)
     create:
       file: standalone.yaml
-      patch: '[{"op":"add","path":"/spec","value":{"additionalMongodConfig":{"net":{"ssl":{"mode": "AllowDisallowSSL"}}}}}]'
-      exception: 'Unprocessable Entity'
+      patch: '[{"op":"add","path":"/spec/shard","value":{"operationProfiling":{"mode":true}}}]'
+      exception: 'cannot be specified if type of MongoDB is Standalone'
     """
 
     def test_validation_ok(self):

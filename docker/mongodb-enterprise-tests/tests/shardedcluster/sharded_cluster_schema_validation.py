@@ -91,13 +91,13 @@ class TestShardedClusterValidationInvalidLogLevel(KubernetesTester):
 
 
 @pytest.mark.e2e_sharded_cluster_schema_validation
-class TestShardedClusterSchemaInvalidSSL(KubernetesTester):
+class TestShardedClusterSchemaAdditionalMongodConfigNotAllowed(KubernetesTester):
     """
-    name: Sharded Cluster Validation (invalid ssl mode)
+    name: Sharded Cluster Validation (additional Mongod Config not allowed)
     create:
       file: sharded-cluster.yaml
-      patch: '[{"op":"add","path":"/spec","value":{"additionalMongodConfig":{"net":{"ssl":{"mode": "disabledSSL"}}}}}]'
-      exception: 'Unprocessable Entity'
+      patch: '[{"op":"add","path":"/spec/additionalMongodConfig","value":{"net":{"ssl":{"mode": "disabled"}}}}]'
+      exception: 'cannot be specified if type of MongoDB is ShardedCluster'
     """
 
     def test_validation_ok(self):
