@@ -70,45 +70,10 @@ def replica_set(ops_manager: MongoDBOpsManager, namespace: str) -> MongoDB:
 
 
 @mark.e2e_om_localmode
-def test_appdb(ops_manager: MongoDBOpsManager):
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
-    assert ops_manager.appdb_status().get_members() == 3
-    assert ops_manager.appdb_status().get_version() == BUNDLED_APP_DB_VERSION
-
-
-@mark.e2e_om_localmode
-def test_admin_config_map(ops_manager: MongoDBOpsManager):
-    ops_manager.get_automation_config_tester().reached_version(1)
-
-
-@skip_if_local
-@mark.e2e_om_localmode
-def test_mongod(ops_manager: MongoDBOpsManager):
-    mdb_tester = ops_manager.get_appdb_tester()
-    mdb_tester.assert_connectivity()
-    mdb_tester.assert_version(BUNDLED_APP_DB_VERSION.rstrip("-ent"))
-
-
-@mark.e2e_om_localmode
-def test_appdb_automation_config(ops_manager: MongoDBOpsManager):
-    expected_roles = {
-        ("admin", "readWriteAnyDatabase"),
-        ("admin", "dbAdminAnyDatabase"),
-        ("admin", "clusterMonitor"),
-    }
-
-    # only user should be the Ops Manager user
-    tester = ops_manager.get_automation_config_tester(
-        expected_users=1, authoritative_set=False,
-    )
-    tester.assert_authentication_mechanism_enabled("MONGODB-CR")
-    tester.assert_has_user("mongodb-ops-manager")
-    tester.assert_user_has_roles("mongodb-ops-manager", expected_roles)
-
-
-@mark.e2e_om_localmode
 def test_ops_manager_reaches_running_phase(ops_manager: MongoDBOpsManager):
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+    ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
 
 
 @mark.e2e_om_localmode
@@ -117,7 +82,7 @@ def test_replica_set_reaches_running_phase(replica_set: MongoDB):
 
 
 @mark.e2e_om_localmode
-def test_replica_set_reaches_failed_phase(replica_set: MongoDB):
+def test_replica_set_version_upgraded_reaches_failed_phase(replica_set: MongoDB):
     replica_set["spec"]["version"] = VERSION_NOT_IN_OPS_MANAGER
     replica_set.update()
     replica_set.assert_reaches_phase(
@@ -151,6 +116,7 @@ def test_restart_ops_manager_pod(ops_manager: MongoDBOpsManager):
 
 @mark.e2e_om_localmode
 def test_can_scale_replica_set(replica_set: MongoDB):
+    replica_set.load()
     replica_set["spec"]["members"] = 5
     replica_set.update()
     replica_set.assert_abandons_phase(Phase.Running)

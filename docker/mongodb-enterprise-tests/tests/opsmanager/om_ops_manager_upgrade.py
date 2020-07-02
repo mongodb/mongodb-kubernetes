@@ -53,6 +53,8 @@ class TestOpsManagerCreation:
 
     def test_create_om(self, ops_manager: MongoDBOpsManager):
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+        ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=50)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=300)
 
     def test_gen_key_secret(self, ops_manager: MongoDBOpsManager):
         global gen_key_resource_version
@@ -234,7 +236,8 @@ class TestOpsManagerRemoved:
 
         run_periodically(om_is_clean, timeout=180)
         # Some strange race conditions/caching - the api key secret is still queryable right after OM removal
-        sleep(5)
+        # (in openshift mainly)
+        sleep(20)
 
     def test_api_key_removed(self, ops_manager: MongoDBOpsManager):
         with pytest.raises(ApiException):

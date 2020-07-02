@@ -73,7 +73,10 @@ class TestOpsManagerCreation:
         ops_manager.download_mongodb_binaries_and_tools("4.2.0")
 
     def test_replica_set_reaches_running_phase(self, replica_set: MongoDB):
-        replica_set.assert_reaches_phase(Phase.Running, timeout=300)
+        # note that the Replica Set may sometimes still get to Failed error
+        # ("Status: 400 (Bad Request), Detail: Invalid config: MongoDB version 4.2.0 is not available.")
+        # so we are ingoring errors during this wait
+        replica_set.assert_reaches_phase(Phase.Running, timeout=300, ignore_errors=True)
 
     def test_client_can_connect_to_mongodb(self, replica_set: MongoDB):
         replica_set.assert_connectivity()
