@@ -221,26 +221,41 @@ func (d Deployment) MergeShardedCluster(name string, mongosProcesses []Process, 
 	return shardsScheduledForRemoval, nil
 }
 
-// AddMonitoringAndBackup adds only one monitoring agent on the specified hostname if it isn't configured yet.
-// The logic for choosing the right host name is as following: each resources (standalone, RS, SC) must choose the consistent
-// process and use its hostname to install monitoring agent. So each resource in OM Deployment will have a single monitoring
-// agent installed
-// Also the backup agent is added to each server
+// AddMonitoringAndBackup adds monitoring and backup agents to each process
+// The automation agent will update the agents versions to the latest version automatically
 // Note, that these two are deliberately combined together as all clients (standalone, rs etc) need both backup and monitoring
 // together
-func (d Deployment) AddMonitoringAndBackup(hostName string, log *zap.SugaredLogger) {
+func (d Deployment) AddMonitoringAndBackup(log *zap.SugaredLogger) {
 	if len(d.getProcesses()) == 0 {
 		return
 	}
-	d.addMonitoring(hostName, log)
+	d.AddMonitoring(log)
 	d.addBackup(log)
 }
 
-func (d Deployment) AddMonitoring(hostName string, log *zap.SugaredLogger) {
+// AddMonitoring adds monitoring agents for all processes in the deployment
+func (d Deployment) AddMonitoring(log *zap.SugaredLogger) {
 	if len(d.getProcesses()) == 0 {
 		return
 	}
-	d.addMonitoring(hostName, log)
+	monitoringVersions := d.getMonitoringVersions()
+	for _, p := range d.getProcesses() {
+		found := false
+		for _, m := range monitoringVersions {
+			monitoring := m.(map[string]interface{})
+			if monitoring["hostname"] == p.HostName() {
+				found = true
+				break
+			}
+		}
+		if !found {
+			monitoringVersions = append(monitoringVersions,
+				map[string]interface{}{"hostname": p.HostName(), "name": MonitoringAgentDefaultVersion})
+
+			log.Debugw("Added monitoring agent configuration", "host", p.HostName())
+		}
+	}
+	d.setMonitoringVersions(monitoringVersions)
 }
 
 // RemoveMonitoringAndBackup removes both monitoring and backup agent configurations. This must be called when the
@@ -892,27 +907,6 @@ func isShardOfShardedCluster(clusterName, rsName string) bool {
 	return regexp.MustCompile(`^` + clusterName + `-[0-9]+$`).MatchString(rsName)
 }
 
-// addMonitoring adds one single monitoring agent for the specified host name.
-// Note that automation agent will update the monitoring agent to the latest version automatically
-func (d Deployment) addMonitoring(hostName string, log *zap.SugaredLogger) {
-	monitoringVersions := d.getMonitoringVersions()
-	found := false
-	for _, b := range monitoringVersions {
-		monitoring := b.(map[string]interface{})
-		if monitoring["hostname"] == hostName {
-			found = true
-			break
-		}
-	}
-	if !found {
-		monitoringVersions = append(monitoringVersions,
-			map[string]interface{}{"hostname": hostName, "name": MonitoringAgentDefaultVersion})
-		d.setMonitoringVersions(monitoringVersions)
-
-		log.Debugw("Added monitoring agent configuration", "host", hostName)
-	}
-}
-
 // removeMonitoring removes the monitoring agent configuration that match any of processes hosts 'processNames' parameter
 // Note, that by contract there will be only one monitoring agent, but the method tries to be maximum safe and clean
 // all matches (may be someone "hacked" the automation config manually and added the monitoring agents there)
@@ -950,11 +944,11 @@ func (d Deployment) addBackup(log *zap.SugaredLogger) {
 		if !found {
 			backupVersions = append(backupVersions,
 				map[string]interface{}{"hostname": p.HostName(), "name": BackupAgentDefaultVersion})
-			d.setBackupVersions(backupVersions)
 
 			log.Debugw("Added backup agent configuration", "host", p.HostName())
 		}
 	}
+	d.setBackupVersions(backupVersions)
 }
 
 // removeBackup removes the backup versions from Deployment that are in 'hosts' array parameter

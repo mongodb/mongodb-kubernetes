@@ -56,7 +56,10 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             )
 
         def agents_have_registered() -> bool:
-            return len(tester.api_read_monitoring_agents()) == 1
+            return (
+                len(tester.api_read_monitoring_agents())
+                == self.get_appdb_members_count()
+            )
 
         KubernetesTester.wait_until(agents_have_registered, timeout=20, sleep_time=5)
 
@@ -68,8 +71,8 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         for hn in appdb_hostnames:
             assert hn in hostnames
 
-        assert registered_agents[0]["stateName"] == "ACTIVE"
-        assert appdb_hostnames[0] == registered_agents[0]["hostname"]
+        for ra in registered_agents:
+            assert ra["hostname"] in appdb_hostnames
 
     def get_appdb_resource(self) -> MongoDB:
         mdb = MongoDB(name=self.app_db_name(), namespace=self.namespace)

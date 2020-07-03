@@ -44,6 +44,28 @@ class TestShardedClusterCreation(KubernetesTester):
     def test_shard0_was_configured_with_srv(self):
         ShardedClusterTester("sh001-base", 1, ssl=False, srv=True).assert_connectivity()
 
+    def test_monitoring_versions(self):
+        """ Verifies that monitoring agent is configured for each process in the deployment """
+        config = self.get_automation_config()
+        mv = config["monitoringVersions"]
+        assert len(mv) == 8
+
+        for process in config["processes"]:
+            assert any(
+                agent for agent in mv if agent["hostname"] == process["hostname"]
+            )
+
+    def test_backup_versions(self):
+        """ Verifies that backup agent is configured for each process in the deployment """
+        config = self.get_automation_config()
+        mv = config["backupVersions"]
+        assert len(mv) == 8
+
+        for process in config["processes"]:
+            assert any(
+                agent for agent in mv if agent["hostname"] == process["hostname"]
+            )
+
 
 @pytest.mark.e2e_sharded_cluster
 class TestShardedClusterUpdate(KubernetesTester):
@@ -69,6 +91,28 @@ class TestShardedClusterUpdate(KubernetesTester):
         primary, secondaries = self.wait_for_rs_is_ready(hosts)
         assert primary is not None
         assert len(secondaries) == 2
+
+    def test_monitoring_versions(self):
+        """ Verifies that monitoring agent is configured for each process in the deployment """
+        config = self.get_automation_config()
+        mv = config["monitoringVersions"]
+        assert len(mv) == 11
+
+        for process in config["processes"]:
+            assert any(
+                agent for agent in mv if agent["hostname"] == process["hostname"]
+            )
+
+    def test_backup_versions(self):
+        """ Verifies that backup agent is configured for each process in the deployment """
+        config = self.get_automation_config()
+        mv = config["backupVersions"]
+        assert len(mv) == 11
+
+        for process in config["processes"]:
+            assert any(
+                agent for agent in mv if agent["hostname"] == process["hostname"]
+            )
 
 
 @pytest.mark.e2e_sharded_cluster

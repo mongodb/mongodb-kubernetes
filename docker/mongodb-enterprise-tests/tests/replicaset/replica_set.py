@@ -1,9 +1,11 @@
 import pytest
-
+from kubernetes import client
 from kubetester.kubetester import KubernetesTester, skip_if_local, get_env_var_or_fail
 from kubetester.mongotester import ReplicaSetTester
-from kubetester.omtester import skip_if_cloud_manager
-from kubernetes import client
+
+DEFAULT_BACKUP_VERSION = "6.6.0.959-1"
+
+DEFAULT_MONITORING_AGENT_VERSION = "6.4.0.433-1"
 
 
 def _get_group_id(envs) -> str:
@@ -296,47 +298,35 @@ class TestReplicaSetCreation(KubernetesTester):
         assert m2["buildIndexes"] is True
         assert m2["host"] == "my-replica-set-2"
 
-    @skip_if_cloud_manager
     def test_monitoring_versions(self):
         config = self.get_automation_config()
         mv = config["monitoringVersions"]
+        assert len(mv) == 3
 
-        # baseUrl is not present in Cloud Manager response
-        if "baseUrl" in mv[0]:
-            assert mv[0]["baseUrl"] is None
-        # Monitoring agent is installed in first host
-        hostname = "my-replica-set-0.my-replica-set-svc.{}.svc.cluster.local".format(
-            self.namespace
-        )
-        assert mv[0]["hostname"] == hostname
-
-        # TODO: from where should we get this version?
-        assert mv[0]["name"] == "6.4.0.433-1"
+        # Monitoring agent is installed on all hosts
+        for i in range(0, 3):
+            # baseUrl is not present in Cloud Manager response
+            if "baseUrl" in mv[i]:
+                assert mv[i]["baseUrl"] is None
+            hostname = "my-replica-set-{}.my-replica-set-svc.{}.svc.cluster.local".format(
+                i, self.namespace
+            )
+            assert mv[i]["hostname"] == hostname
+            assert mv[i]["name"] == DEFAULT_MONITORING_AGENT_VERSION
 
     def test_backup(self):
         config = self.get_automation_config()
         # 1 backup agent per host
-        assert len(config["backupVersions"]) == 3
         bkp = config["backupVersions"]
+        assert len(bkp) == 3
 
-        # TODO: from where should we get this version?
-        assert bkp[0]["name"] == "6.6.0.959-1"
-        hostname = "my-replica-set-0.my-replica-set-svc.{}.svc.cluster.local".format(
-            self.namespace
-        )
-        assert bkp[0]["hostname"] == hostname
-
-        assert bkp[1]["name"] == "6.6.0.959-1"
-        hostname = "my-replica-set-1.my-replica-set-svc.{}.svc.cluster.local".format(
-            self.namespace
-        )
-        assert bkp[1]["hostname"] == hostname
-
-        assert bkp[2]["name"] == "6.6.0.959-1"
-        hostname = "my-replica-set-2.my-replica-set-svc.{}.svc.cluster.local".format(
-            self.namespace
-        )
-        assert bkp[2]["hostname"] == hostname
+        # Backup agent is installed on all hosts
+        for i in range(0, 3):
+            hostname = "my-replica-set-{}.my-replica-set-svc.{}.svc.cluster.local".format(
+                i, self.namespace
+            )
+            assert bkp[i]["hostname"] == hostname
+            assert bkp[i]["name"] == DEFAULT_BACKUP_VERSION
 
     @skip_if_local
     def test_replica_set_was_configured(self):
@@ -631,65 +621,34 @@ class TestReplicaSetUpdate(KubernetesTester):
         assert m4["buildIndexes"] is True
         assert m4["host"] == "my-replica-set-4"
 
-    @skip_if_cloud_manager
     def test_monitoring_versions(self):
         config = self.get_automation_config()
         mv = config["monitoringVersions"]
+        assert len(mv) == 5
 
-        # baseUrl is not set in Cloud Manager
-        if "baseUrl" in mv[0]:
-            assert mv[0]["baseUrl"] is None
-        # Monitoring agent is installed in first host
-        assert mv[0][
-            "hostname"
-        ] == "my-replica-set-0.my-replica-set-svc.{}.svc.cluster.local".format(
-            self.namespace
-        )
-
-        # TODO: from where should we get this version?
-        assert mv[0]["name"] == "6.4.0.433-1"
+        # Monitoring agent is installed on all hosts
+        for i in range(0, 5):
+            if "baseUrl" in mv[i]:
+                assert mv[i]["baseUrl"] is None
+            hostname = "my-replica-set-{}.my-replica-set-svc.{}.svc.cluster.local".format(
+                i, self.namespace
+            )
+            assert mv[i]["hostname"] == hostname
+            assert mv[i]["name"] == DEFAULT_MONITORING_AGENT_VERSION
 
     def test_backup(self):
         config = self.get_automation_config()
         # 1 backup agent per host
-        assert len(config["backupVersions"]) == 5
         bkp = config["backupVersions"]
+        assert len(bkp) == 5
 
-        # TODO: from where should we get this version?
-        assert bkp[0]["name"] == "6.6.0.959-1"
-        assert bkp[0][
-            "hostname"
-        ] == "my-replica-set-0.my-replica-set-svc.{}.svc.cluster.local".format(
-            self.namespace
-        )
-
-        assert bkp[1]["name"] == "6.6.0.959-1"
-        assert bkp[1][
-            "hostname"
-        ] == "my-replica-set-1.my-replica-set-svc.{}.svc.cluster.local".format(
-            self.namespace
-        )
-
-        assert bkp[2]["name"] == "6.6.0.959-1"
-        assert bkp[2][
-            "hostname"
-        ] == "my-replica-set-2.my-replica-set-svc.{}.svc.cluster.local".format(
-            self.namespace
-        )
-
-        assert bkp[3]["name"] == "6.6.0.959-1"
-        assert bkp[3][
-            "hostname"
-        ] == "my-replica-set-3.my-replica-set-svc.{}.svc.cluster.local".format(
-            self.namespace
-        )
-
-        assert bkp[4]["name"] == "6.6.0.959-1"
-        assert bkp[4][
-            "hostname"
-        ] == "my-replica-set-4.my-replica-set-svc.{}.svc.cluster.local".format(
-            self.namespace
-        )
+        # Backup agent is installed on all hosts
+        for i in range(0, 5):
+            hostname = "my-replica-set-{}.my-replica-set-svc.{}.svc.cluster.local".format(
+                i, self.namespace
+            )
+            assert bkp[i]["hostname"] == hostname
+            assert bkp[i]["name"] == DEFAULT_BACKUP_VERSION
 
 
 @pytest.mark.e2e_replica_set

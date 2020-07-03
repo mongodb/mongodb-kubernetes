@@ -568,11 +568,10 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 			if numberOfOtherMembers > 0 {
 				return fmt.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 			}
-			var err error
 			if shardsRemoving, err = d.MergeShardedCluster(sc.Name, mongosProcesses, configRs, shards, finalizing); err != nil {
 				return err
 			}
-			d.AddMonitoringAndBackup(mongosProcesses[0].HostName(), log)
+			d.AddMonitoringAndBackup(log)
 			d.ConfigureTLS(sc.Spec.GetTLSConfig())
 
 			*processNames = d.GetProcessNames(om.ShardedCluster{}, sc.Name)

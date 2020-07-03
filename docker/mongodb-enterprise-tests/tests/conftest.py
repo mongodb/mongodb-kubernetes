@@ -167,7 +167,7 @@ def default_operator(
         appdb_name=appdb_name,
         managed_security_context=managed_security_context,
         image_pull_secrets=image_pull_secrets,
-    ).install()
+    ).upgrade(install=True)
 
 
 def get_env_variable_or_fail(env_var_name: str) -> str:

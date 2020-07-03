@@ -98,7 +98,7 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 	kubeManager.Client.CheckOperationsDidntHappen(t, mock.HItem(reflect.ValueOf(kubeManager.Client.Update), &corev1.ConfigMap{}))
 
 	// publishing changed config will result in update
-	automationConfig.Deployment.AddMonitoringAndBackup("foo", zap.S())
+	automationConfig.Deployment.AddMonitoringAndBackup(zap.S())
 	published, err = reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S())
 	assert.NoError(t, err)
 	assert.True(t, published)
@@ -167,7 +167,7 @@ func TestBuildAppDbAutomationConfig(t *testing.T) {
 	assert.Empty(t, deployment.ShardedClustersCopy())
 
 	// monitoring agent has been configured
-	assert.Len(t, deployment.MonitoringVersionsCopy(), 1)
+	assert.Len(t, deployment.MonitoringVersionsCopy(), 2)
 
 	// backup agents have not been configured
 	assert.Len(t, deployment.BackupVersionsCopy(), 0)

@@ -450,12 +450,11 @@ func createDeploymentFromReplicaSet(rs *mdbv1.MongoDB) om.Deployment {
 
 	sts, _ := helper.BuildStatefulSet()
 	d := om.NewDeployment()
-	hostnames, _ := util.GetDnsForStatefulSet(sts, rs.Spec.GetClusterDomain())
 	d.MergeReplicaSet(
 		buildReplicaSetFromStatefulSet(sts, rs),
 		nil,
 	)
-	d.AddMonitoringAndBackup(hostnames[0], zap.S())
+	d.AddMonitoringAndBackup(zap.S())
 	d.ConfigureTLS(rs.Spec.GetTLSConfig())
 	return d
 }

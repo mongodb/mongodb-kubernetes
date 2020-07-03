@@ -499,7 +499,7 @@ func createDeploymentFromShardedCluster(updatable v1.CustomResourceReadWriter) o
 
 	d := om.NewDeployment()
 	d.MergeShardedCluster(sh.Name, mongosProcesses, configRs, shards, false)
-	d.AddMonitoringAndBackup(mongosProcesses[0].HostName(), zap.S())
+	d.AddMonitoringAndBackup(zap.S())
 	return d
 }
 

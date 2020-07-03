@@ -248,7 +248,7 @@ func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(rs omv1.AppDB, opsM
 	automationConfig := om.NewAutomationConfig(d)
 	automationConfig.SetOptions(util.AgentDownloadsDir)
 
-	d.AddMonitoring(replicaSet.Processes[0].HostName(), log)
+	d.AddMonitoring(log)
 	automationConfig.SetBaseUrlForAgents(opsManager.CentralURL())
 
 	sha1Creds, sha256Creds, err := generateScramShaCredentials(opsManagerUserPassword, opsManager)

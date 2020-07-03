@@ -418,6 +418,45 @@ func TestConfiguringTlsProcessFromOpsManager(t *testing.T) {
 	}
 }
 
+func TestAddMonitoring(t *testing.T) {
+	d := NewDeployment()
+
+	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
+	d.MergeReplicaSet(rs0, zap.S())
+	d.AddMonitoring(zap.S())
+
+	expectedMonitoringVersions := []interface{}{
+		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion},
+		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion},
+		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion},
+	}
+	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
+
+	// adding again - nothing changes
+	d.AddMonitoring(zap.S())
+	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
+}
+
+func TestAddBackup(t *testing.T) {
+	d := NewDeployment()
+
+	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
+	d.MergeReplicaSet(rs0, zap.S())
+	d.addBackup(zap.S())
+
+	expectedBackupVersions := []interface{}{
+		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": BackupAgentDefaultVersion},
+		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": BackupAgentDefaultVersion},
+		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": BackupAgentDefaultVersion},
+	}
+	assert.Equal(t, expectedBackupVersions, d.getBackupVersions())
+
+	// adding again - nothing changes
+	d.addBackup(zap.S())
+	assert.Equal(t, expectedBackupVersions, d.getBackupVersions())
+
+}
+
 // ************************   Methods for checking deployment units
 
 func checkShardedCluster(t *testing.T, d Deployment, expectedCluster ShardedCluster, replicaSetWithProcesses []ReplicaSetWithProcesses) {
