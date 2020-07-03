@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-#
-#
+set -Eeou pipefail
 
 if [[ "${kube_environment_name-}" != "kind" ]]; then
   echo "Skiping download of kind"
@@ -13,12 +12,13 @@ if docker info 2>/dev/null | grep "Docker Root Dir" | grep -q "/var/lib/docker";
   echo "Trying with /etc/docker/daemon.json file"
   sudo mkdir -p /etc/docker
   sudo chmod o+w /etc/docker
-  cat <<EOF > /etc/docker/daemon.json
+  cat <<EOF > "${HOME}/daemon.json"
 {
     "graph": "/data/docker",
     "storage-driver": "overlay2"
 }
 EOF
+  sudo mv "${HOME}/daemon.json" /etc/docker/daemon.json
 
 
   sudo systemctl restart docker
@@ -51,4 +51,4 @@ fi
 
 mkdir -p "${HOME}/.docker"
 
-scripts/dev/setup_kind "${ecr_registry:?}"
+scripts/dev/setup_kind.sh "${ecr_registry:?}"

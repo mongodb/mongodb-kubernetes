@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-
-set -o errexit
-set -o nounset
-set -o pipefail
+set -Eeou pipefail
 
 
 # latest=$(curl --silent "https://api.github.com/repos/jetstack/cert-manager/tags" | jq -r '.[0].name')

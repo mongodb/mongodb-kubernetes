@@ -48,10 +48,11 @@ functions:
       type: test
       params:
         add_to_path:
-          - *go_bin
+        - *go_bin
         working_dir: src/github.com/10gen/ops-manager-kubernetes
+        include_expansions_in_env:
+        - workdir
         env:
-          WORKDIR: ${workdir}
           <<: *go_options
         binary: scripts/evergreen/lint_code.sh
 
@@ -70,11 +71,12 @@ functions:
       type: test
       params:
         add_to_path:
-          - *go_bin
-          - ${workdir}/bin
+        - *go_bin
+        - ${workdir}/bin
         working_dir: src/github.com/10gen/ops-manager-kubernetes
+        include_expansions_in_env:
+        - workdir
         env:
-          WORKDIR: ${workdir}
           <<: *go_options
 
           CONTINUE: "true"
@@ -88,11 +90,12 @@ functions:
         - *go_bin
         - ${workdir}/bin
         working_dir: src/github.com/10gen/ops-manager-kubernetes
+        include_expansions_in_env:
+        - workdir
+        - image_type
         env:
-          WORKDIR: ${workdir}
           SKIP_TESTING: "true"
 
-          IMAGE_TYPE: ${image_type}
           <<: *go_options
 
         binary: scripts/evergreen/build_operator.sh
@@ -103,7 +106,7 @@ functions:
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         add_to_path:
-          - *go_bin
+        - *go_bin
         env:
           <<: *go_options
         command: "make -C docker/mongodb-enterprise-database prepare-build IMAGE_TYPE=${image_type}"
@@ -127,11 +130,11 @@ functions:
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         add_to_path:
-          - ${workdir}/bin
-        env:
-          private_gpg_key: ${private_gpg_key}
-          private_gpg_passphrase: ${private_gpg_passphrase}
-          private_gpg_id: ${private_gpg_id}
+        - ${workdir}/bin
+        include_expansions_in_env:
+        - private_gpg_key
+        - private_gpg_passphrase
+        - private_gpg_id
         binary: scripts/evergreen/push_versioned_binaries.sh
 
     - command: s3.put
@@ -177,65 +180,70 @@ functions:
   # `aws ecr get login`. This is a binary that should run on every image_type.
   # BIN_PATH is used to define where to save the binary. This is added to the $PATH
   # in subsequent functions that need this program.
-  setup_ecr_login_helper:
+  setup_ecr_login_helper: &setup_ecr_login_helper
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      include_expansions_in_env:
+      - workdir
+      binary: scripts/evergreen/setup_ecr_login_helper.sh
+
+  setup_jq: &setup_jq
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      include_expansions_in_env:
+      - workdir
+      binary: scripts/evergreen/setup_jq.sh
+
+  setup_aws:
     - command: subprocess.exec
       type: setup
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
-        binary: scripts/evergreen/setup_ecr_login_helper
+        include_expansions_in_env:
+        - workdir
+        binary: scripts/evergreen/setup_aws.sh
 
-  "setup_jq":
+  setup_docker:
     - command: subprocess.exec
       type: setup
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
-        add_expansions_to_env: true
-        binary: scripts/evergreen/setup_jq.sh
-
-  "setup_aws":
-    - command: subprocess.exec
-      type: setup
-      params:
-        binary: src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/setup_aws
-
-  "setup_docker":
-    - command: subprocess.exec
-      type: setup
-      params:
-        binary: src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/setup_docker
+        include_expansions_in_env:
+        - workdir
+        binary: scripts/evergreen/setup_docker.sh
 
   download_kube_tools:
     - command: subprocess.exec
       type: setup
       params:
-        add_expansions_to_env: true
-        binary: src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/setup_kubectl
+        include_expansions_in_env:
+        - workdir
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        binary: scripts/evergreen/setup_kubectl.sh
 
-    - command: subprocess.exec
-      type: setup
-      params:
-        add_expansions_to_env: true
-        binary: src/github.com/10gen/ops-manager-kubernetes/scripts/evergreen/setup_jq.sh
+    - *setup_jq
+
+    - *setup_ecr_login_helper
 
     - command: subprocess.exec
       type: setup
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
-        add_expansions_to_env: true
-        binary: scripts/evergreen/setup_ecr_login_helper
-
-    - command: subprocess.exec
-      type: setup
-      params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
-        add_expansions_to_env: true
+        include_expansions_in_env:
+        - workdir
+        - ecr_registry
+        - kube_environment_name
         add_to_path:
-          - ${workdir}/bin
+        - ${workdir}/bin
         env:
           AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
           AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
           AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
-        binary: scripts/evergreen/setup_kind
+        binary: scripts/evergreen/setup_kind.sh
 
   teardown_kubernetes_environment:
   - command: subprocess.exec
@@ -245,8 +253,8 @@ functions:
       add_to_path:
       - ${workdir}/bin
       include_expansions_in_env:
-      - workdir
       - kube_environment_name
+      - workdir
       binary: scripts/evergreen/teardown_kubernetes_environment.sh
 
   # Makes sure a kubectl context is defined.
@@ -255,27 +263,30 @@ functions:
     type: setup
     params:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
-      add_expansions_to_env: true
+      include_expansions_in_env:
+      - cluster_name
+      - kube_environment_name
+      - mms_eng_test_aws_access_key
+      - mms_eng_test_aws_secret
+      - mms_eng_test_aws_region
+      - openshift43_cluster_kubeconfig
+      - workdir
       add_to_path:
-        - ${workdir}/bin
-      env:
-        BINDIR: ${workdir}/bin
-      binary: scripts/evergreen/setup_kubernetes_environment
+      - ${workdir}/bin
+      binary: scripts/evergreen/setup_kubernetes_environment.sh
 
   setup_cert_manager:
   - command: subprocess.exec
     type: setup
     params:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
-      add_expansions_to_env: true
       add_to_path:
-        - ${workdir}/bin
+      - ${workdir}/bin
       env:
-        BINDIR: ${workdir}/bin
         KUBECONFIG: ${workdir}/${kube_environment_name}_config
-      binary: scripts/evergreen/setup_cert_manager
+      binary: scripts/evergreen/setup_cert_manager.sh
 
-  "gotest_parse_files":
+  gotest_parse_files:
     - command: gotest.parse_files
       type: test
       params:
@@ -286,7 +297,8 @@ functions:
   - command: subprocess.exec
     params:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
-      add_expansions_to_env: true
+      include_expansions_in_env:
+      - context
       binary: scripts/evergreen/upload_e2e_build_context.sh
   - command: s3.put
     params:
@@ -309,7 +321,11 @@ functions:
         AWS_REGION: ${mms_eng_test_aws_region}
         KUBECONFIG: ${workdir}/${kube_environment_name}_config
       working_dir: src/github.com/10gen/ops-manager-kubernetes
-      add_expansions_to_env: true
+      include_expansions_in_env:
+      - context
+      - destination
+      - cache_repo
+      - label
       add_to_path:
       - ${workdir}/bin
       binary: scripts/evergreen/build_docker_image.sh
@@ -319,7 +335,8 @@ functions:
     type: setup
     params:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
-      add_expansions_to_env: true
+      include_expansions_in_env:
+      - labels
       add_to_path:
       - ${workdir}/bin
       env:
@@ -348,15 +365,16 @@ functions:
 
         command: scripts/dev/build_push_tests_image
 
-  "build_and_push_init_test_images_for_om_and_appdb":
+  build_and_push_init_test_images_for_om_and_appdb:
     - command: subprocess.exec
       type: setup
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
+        include_expansions_in_env:
+        - version_id
         add_to_path:
-          - *go_bin
-          - ${workdir}/bin
-        add_expansions_to_env: true
+        - *go_bin
+        - ${workdir}/bin
         env:
           <<: *go_options
 
@@ -398,6 +416,8 @@ functions:
     type: setup
     params:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+      - ${workdir}/bin
       include_expansions_in_env:
       - e2e_cloud_qa_baseurl
       - e2e_cloud_qa_orgid_owner
@@ -438,18 +458,18 @@ functions:
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         add_to_path:
-          - ${workdir}/bin
+        - ${workdir}/bin
+        include_expansions_in_env:
+        - tag_source
+        - tag_dest
+        - image_source
+        - image_target
+        - docker_registry
+        - docker_username
+        - docker_password
         env:
-          DOCKER_REGISTRY: ${docker_registry}
-          DOCKER_LOGIN_USER: ${docker_username}
-          DOCKER_LOGIN_PASSWORD: ${docker_password}
           AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
           AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
-
-          TAG_SOURCE: ${tag_source}
-          TAG_DEST: ${tag_dest}
-          IMAGE_SOURCE: ${image_source}
-          IMAGE_TARGET: ${image_target}
 
         binary: scripts/evergreen/tag_push_docker_image.sh
 
@@ -474,12 +494,14 @@ functions:
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         add_to_path:
-          - ${workdir}/bin
+        - ${workdir}/bin
         include_expansions_in_env:
           - always_remove_testing_namespace
+          - custom_om_version
           - ecr_registry
           - ecr_registry_needs_auth
           - kube_environment_name
+          - ops_manager_version
           - version_id
           - custom_om_version
           - install_operator_in_python
@@ -520,7 +542,7 @@ functions:
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         add_to_path:
-          - ${workdir}/bin
+        - ${workdir}/bin
         env:
           AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
           AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
@@ -537,7 +559,7 @@ functions:
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         add_to_path:
-          - ${workdir}/bin
+        - ${workdir}/bin
         env:
           AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
           AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
@@ -560,7 +582,7 @@ functions:
         - ecr_registry
         - version_id
         add_to_path:
-          - ${workdir}/bin
+        - ${workdir}/bin
         command: docker/mongodb-enterprise-database/build_push_appdb_image.sh
         working_dir: src/github.com/10gen/ops-manager-kubernetes
 
@@ -580,7 +602,7 @@ functions:
         - version_id
         - VERSIONS
         add_to_path:
-          - ${workdir}/bin
+        - ${workdir}/bin
         command: docker/mongodb-enterprise-ops-manager/batch_om_images.sh
         working_dir: src/github.com/10gen/ops-manager-kubernetes
 
@@ -602,29 +624,6 @@ tasks:
   - func: clone
   - func: release_blocker
 
-# release_ops_manager_rhel Releases the just build Docker image
-# with a release image tag.
-# The registry location (variable with name `image_target`) is obtained from RedHat Connect.
-#- name: release_ops_manager_rh_connect
-#  exec_timeout_secs: 7200 # can take quite long
-#  commands:
-#    - func: clone
-#    - func: guard_git_repo_is_clean
-#    - func: setup_jq
-#    - func: setup_ecr_login_helper
-#
-#    - func: release_docker_image_to_registry
-#      vars:
-#        image_source: ${ecr_registry}/dev/mongodb-enterprise-init-ops-manager
-#        image_target: scan.connect.redhat.com/ospid-b419ca35-17b4-4655-adee-a34e704a6835/mongodb-enterprise-ops-manager
-#        docker_password: ${rhc_om_pid}
-#
-#    - func: release_docker_image_to_registry
-#      vars:
-#        image_source: ${ecr_registry}/dev/mongodb-enterprise-init-appdb
-#        image_target: scan.connect.redhat.com/ospid-31c2f102-af15-4e15-87b9-30710586d9ad/mongodb-enterprise-appdb
-#        docker_password: ${rhc_appdb_pid}
-
 # release_operator_rh_connect Releases the Operator and Database image to RH Connect.
 - name: release_operator_rh_connect
   commands:
@@ -639,7 +638,6 @@ tasks:
         tag_dest: '$(git describe)'
         image_source: ${ecr_registry}/dev/rhel/mongodb-enterprise-operator
         image_target: scan.connect.redhat.com/ospid-5558a531-617e-46d7-9320-e84d3458768a/mongodb-enterprise-operator
-        docker_password: ${rhc_operator_pid}
 
     - func: release_docker_image_to_registry
       vars:
@@ -647,7 +645,6 @@ tasks:
         tag_dest: '$(git describe)'
         image_source: ${ecr_registry}/dev/rhel/mongodb-enterprise-database
         image_target: scan.connect.redhat.com/ospid-239de277-d8bb-44b4-8593-73753752317f/mongodb-enterprise-database
-        docker_password: ${rhc_database_pid}
 
 - name: release_init_rh_connect
   commands:
@@ -655,29 +652,12 @@ tasks:
     - func: setup_jq
     - func: setup_ecr_login_helper
 
-    # - func: release_docker_image_to_registry
-    #   vars:
-    #     tag_source: ${version_id}
-    #     tag_dest: '$(jq --raw-output ".initOpsManagerVersion" < release.json)'
-    #     image_source: ${ecr_registry}/dev/rhel/mongodb-enterprise-init-ops-manager
-    #     image_target: scan.connect.redhat.com/ospid-5fd87aa5-54cc-41d1-8620-f54f8ffea993/mongodb-enterprise-init-ops-manager
-    #     docker_password: ${rhc_init_om_pid}
-
-    # - func: release_docker_image_to_registry
-    #   vars:
-    #     tag_source: ${version_id}
-    #     tag_dest: '$(jq --raw-output ".initAppDbVersion" < release.json)'
-    #     image_source: ${ecr_registry}/dev/rhel/mongodb-enterprise-init-appdb
-    #     image_target: scan.connect.redhat.com/ospid-db689935-fcb9-4bf9-a076-d3c480525524/mongodb-enterprise-init-appdb
-    #     docker_password: ${rhc_init_appdb_pid}
-
     - func: release_docker_image_to_registry
       vars:
         tag_source: ${version_id}
         tag_dest: '$(jq --raw-output ".initOpsManagerVersion" < release.json)'
         image_source: ${ecr_registry}/dev/rhel/mongodb-enterprise-init-ops-manager
         image_target: scan.connect.redhat.com/ospid-7da92b80-396f-4298-9de5-909165ba0c9e/mongodb-enterprise-init-ops-manager
-        docker_password: ${rhc_init_om_pid}
 
     - func: release_docker_image_to_registry
       vars:
@@ -685,7 +665,6 @@ tasks:
         tag_dest: '$(jq --raw-output ".initAppDbVersion" < release.json)'
         image_source: ${ecr_registry}/dev/rhel/mongodb-enterprise-init-appdb
         image_target: scan.connect.redhat.com/ospid-053baed4-c625-44bb-a9bf-a3a5585a17e8/mongodb-enterprise-init-appdb
-        docker_password: ${rhc_init_appdb_pid}
 
 - name: release_operator_quay
   commands:
@@ -699,8 +678,6 @@ tasks:
         tag_dest: '$(git describe)'
         image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-operator
         image_target: quay.io/mongodb/mongodb-enterprise-operator${suffix}
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
 
     - func: release_docker_image_to_registry
       vars:
@@ -708,8 +685,6 @@ tasks:
         tag_dest: '$(git describe)'
         image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-database
         image_target: quay.io/mongodb/mongodb-enterprise-database${suffix}
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
 
 # Releases init images to Quay
 - name: release_init_quay
@@ -724,8 +699,6 @@ tasks:
         tag_dest: '$(echo "$(jq --raw-output ".initOpsManagerVersion" < release.json)")'
         image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-init-ops-manager
         image_target: quay.io/mongodb/mongodb-enterprise-init-ops-manager${suffix}
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
 
     - func: release_docker_image_to_registry
       vars:
@@ -733,8 +706,6 @@ tasks:
         tag_dest: '$(echo "$(jq --raw-output ".initOpsManagerVersion" < release.json)-b$(date +%Y%m%d%H%M)")'
         image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-init-ops-manager
         image_target: quay.io/mongodb/mongodb-enterprise-init-ops-manager${suffix}
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
 
     - func: release_docker_image_to_registry
       vars:
@@ -742,8 +713,6 @@ tasks:
         tag_dest: '$(echo "$(jq --raw-output ".initAppDbVersion" < release.json)")'
         image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-init-appdb
         image_target: quay.io/mongodb/mongodb-enterprise-init-appdb${suffix}
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
 
     - func: release_docker_image_to_registry
       vars:
@@ -751,8 +720,6 @@ tasks:
         tag_dest: '$(echo "$(jq --raw-output ".initAppDbVersion" < release.json)-b$(date +%Y%m%d%H%M)")'
         image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-init-appdb
         image_target: quay.io/mongodb/mongodb-enterprise-init-appdb${suffix}
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
 
 - name: prerelease_master_images
   commands:
@@ -766,8 +733,6 @@ tasks:
         tag_dest: '$(git describe --dirty)'
         image_source: ${ecr_registry}/dev/${image_type}/mongodb-enterprise-operator
         image_target: quay.io/mongodb/mongodb-enterprise-operator-prerelease
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
 
     - func: release_docker_image_to_registry
       vars:
@@ -775,8 +740,6 @@ tasks:
         tag_dest: '$(git describe --dirty)'
         image_source: ${ecr_registry}/dev/${image_type}/mongodb-enterprise-database
         image_target: quay.io/mongodb/mongodb-enterprise-database-prerelease
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
 
     - func: release_docker_image_to_registry
       vars:
@@ -785,8 +748,6 @@ tasks:
         tag_dest: '$(echo "$(jq --raw-output ".initOpsManagerVersion" < release.json)"-"$(git describe --dirty|cut -d\- -f2-)")'
         image_source: ${ecr_registry}/dev/${image_type}/mongodb-enterprise-init-ops-manager
         image_target: quay.io/mongodb/mongodb-enterprise-init-ops-manager-prerelease
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
 
     - func: release_docker_image_to_registry
       vars:
@@ -795,8 +756,6 @@ tasks:
         tag_dest: '$(echo "$(jq --raw-output ".initAppDbVersion" < release.json)"-"$(git describe --dirty|cut -d\- -f2-)")'
         image_source: ${ecr_registry}/dev/${image_type}/mongodb-enterprise-init-appdb
         image_target: quay.io/mongodb/mongodb-enterprise-init-appdb-prerelease
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
 
 - name: build_test_image
   exec_timeout_secs: 200
@@ -1664,7 +1623,6 @@ tasks:
       vars:
         CLUSTER_TYPE: "openshift"
 
-
 task_groups:
 - name: unit_task_group
   setup_group:
@@ -2176,6 +2134,7 @@ buildvariants:
   expansions:
     docker_registry: scan.connect.redhat.com
     docker_username: unused
+    docker_password: ${rhc_init_appdb_pid}
   tasks:
     # - name: release_ops_manager_rh_connect
     - name: release_operator_rh_connect
@@ -2190,6 +2149,8 @@ buildvariants:
     - ubuntu1604-test
   expansions:
     docker_registry: quay.io
+    docker_username: ${quay_prod_username}
+    docker_password: ${quay_prod_robot_token}
     distro: ubuntu
     suffix: ""
   tasks:
@@ -2205,6 +2166,8 @@ buildvariants:
     - ubuntu1604-test
   expansions:
     docker_registry: quay.io
+    docker_username: ${quay_prod_username}
+    docker_password: ${quay_prod_robot_token}
     distro: rhel
     suffix: -ubi
   tasks:

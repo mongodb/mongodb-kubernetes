@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-
-set -euo pipefail
+set -Eeou pipefail
 
 echo "Installing docker repository and client...."
 

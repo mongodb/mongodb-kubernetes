@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -Eeou pipefail
 
 #
 # Configures docker-credential-ecr-login which allows for accessing
@@ -6,13 +7,13 @@
 # installing `aws` Python client.
 #
 
-BIN_PATH="${workdir}/bin"
-mkdir -p "${BIN_PATH}" || true
+bindir="${workdir:?}/bin"
+mkdir -p "${bindir}"
 
 curl --retry 3 --silent -LO https://amazon-ecr-credential-helper-releases.s3.us-east-2.amazonaws.com/0.3.1/linux-amd64/docker-credential-ecr-login
 chmod +x docker-credential-ecr-login
 
-sudo mv docker-credential-ecr-login "${BIN_PATH}"
+sudo mv docker-credential-ecr-login "${bindir}"
 
 # Creates credsStore configuration for Docker for ECR
 mkdir -p "${HOME}/.docker"

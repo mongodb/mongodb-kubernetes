@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-
 set -Eeou pipefail
 
-# shellcheck disable=SC2154
-context_config="${workdir}/${kube_environment_name}_config"
+context_config="${workdir:?}/${kube_environment_name:?}_config"
+bindir="${workdir}/bin"
 if [ -f "${context_config}" ]; then
     echo "Context configuration already exist, host was not clearly cleaned up!"
     rm "${context_config}"
@@ -16,14 +15,14 @@ if [ "${kube_environment_name}" = "openshift_4" ]; then
     OC_PKG=oc-linux.tar.gz
     curl --fail --retry 3 -s -L https://mirror.openshift.com/pub/openshift-v4/clients/ocp/4.3.1/openshift-client-linux-4.3.1.tar.gz --output $OC_PKG
     tar xfz $OC_PKG &> /dev/null
-    mv oc "$BINDIR"
+    mv oc "${bindir}"
 
     # This uses a kubeconfig yaml file stored in the Evergreen project instead of the old token login
     # to avoid having to keep the tokens valid forever.
     echo "${openshift43_cluster_kubeconfig:?}" | base64 --decode > "${context_config}"
 
 elif [ "${kube_environment_name}" = "vanilla" ]; then
-    if [ -n "${cluster_name-}" ]; then
+    if [ -n "${cluster_name:-}" ]; then
         export CLUSTER=${cluster_name}
     else
         export CLUSTER=e2e.mongokubernetes.com
@@ -37,7 +36,7 @@ elif [ "${kube_environment_name}" = "vanilla" ]; then
     echo "Downloading kops"
     curl -s -L https://github.com/kubernetes/kops/releases/download/1.14.0/kops-linux-amd64 -o kops
     chmod +x kops
-    mv kops "$BINDIR"
+    mv kops "${bindir}"
 
     if ! kops get clusters | grep -q $CLUSTER; then
         echo "Cluster $CLUSTER not found, exiting..."

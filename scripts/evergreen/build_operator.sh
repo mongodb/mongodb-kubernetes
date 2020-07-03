@@ -9,12 +9,12 @@ set -Eeou pipefail
 set -x
 
 # ${WORKDIR} refers to the MCI working directory
-GOPATH="${WORKDIR}"
+GOPATH="${workdir:?}"
 export GOPATH
 
-if [ ! -f "docker/mongodb-enterprise-operator/Dockerfile" ] && [ -n "${IMAGE_TYPE:-}" ]; then
-    echo "Generating Dockerfile for ${IMAGE_TYPE}"
-    ( cd docker/mongodb-enterprise-operator && ../dockerfile_generator.py operator "${IMAGE_TYPE}" > Dockerfile )
+if [ ! -f "docker/mongodb-enterprise-operator/Dockerfile" ] && [ -n "${image_type:-}" ]; then
+    echo "Generating Dockerfile for ${image_type}"
+    ( cd docker/mongodb-enterprise-operator && ../dockerfile_generator.py operator "${image_type}" > Dockerfile )
 fi
 
 ./scripts/build/prepare_build_environment
