@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/ldap"
+
 	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
@@ -311,6 +313,10 @@ func (s *Security) ShouldUseX509(currentAgentAuthMode string) bool {
 	return s.GetAgentMechanism(currentAgentAuthMode) == util.X509
 }
 
+func (s *Security) ShouldUseLDAP(currentAgentAuthMode string) bool {
+	return s.GetAgentMechanism(currentAgentAuthMode) == util.LDAP
+}
+
 func (s *Security) GetInternalClusterAuthenticationMode() string {
 	if s == nil || s.Authentication == nil {
 		return ""
@@ -331,7 +337,8 @@ type Authentication struct {
 	Modes           []string `json:"modes,omitempty"`
 	InternalCluster string   `json:"internalCluster,omitempty"`
 	// IgnoreUnknownUsers maps to the inverse of auth.authoritativeSet
-	IgnoreUnknownUsers bool `json:"ignoreUnknownUsers,omitempty"`
+	IgnoreUnknownUsers bool  `json:"ignoreUnknownUsers,omitempty"`
+	Ldap               *Ldap `json:"ldap"`
 	// Agents contains authentication configuration properties for the agents
 	Agents AgentAuthentication `json:"agents"`
 }
@@ -354,6 +361,12 @@ func (a *Authentication) GetModes() []string {
 		return []string{}
 	}
 	return a.Modes
+}
+
+type Ldap struct {
+	BindQueryUser      string       `json:"bindQueryUser"`
+	Servers            string       `json:"servers"`
+	BindQuerySecretRef TLSSecretRef `json:"bindQueryPasswordSecretRef"`
 }
 
 type TLSConfig struct {
@@ -442,6 +455,13 @@ func (m *MongoDB) ShardRsName(i int) string {
 	// Unfortunately the pattern used by OM (name_idx) doesn't work as Kubernetes doesn't create the stateful set with an
 	// exception: "a DNS-1123 subdomain must consist of lower case alphanumeric characters, '-' or '.'"
 	return fmt.Sprintf("%s-%d", m.Name, i)
+}
+
+func (m MongoDB) IsLDAPEnabled() bool {
+	if m.Spec.Security == nil || m.Spec.Security.Authentication == nil {
+		return false
+	}
+	return stringutil.Contains(m.Spec.Security.Authentication.Modes, util.LDAP)
 }
 
 func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {
@@ -551,7 +571,26 @@ func (m *MongoDB) ConnectionURL(userName, password string, connectionParams map[
 	if m.Spec.ResourceType == ShardedCluster {
 		statefulsetName = m.MongosRsName()
 	}
+
 	return BuildConnectionUrl(statefulsetName, m.ServiceName(), m.Namespace, userName, password, m.Spec, connectionParams)
+}
+
+func (m MongoDB) GetLDAP(password string) *ldap.Ldap {
+	if !m.IsLDAPEnabled() {
+		return nil
+	}
+	mdbLdap := m.Spec.Security.Authentication.Ldap
+	return &ldap.Ldap{
+		AuthzQueryTemplate:       "",
+		BindMethod:               "simple",
+		BindQueryUser:            mdbLdap.BindQueryUser,
+		BindSaslMechanisms:       "",
+		Servers:                  mdbLdap.Servers,
+		TransportSecurity:        "none",
+		UserToDnMapping:          "",
+		ValidateLDAPServerConfig: true,
+		BindQueryPassword:        password,
+	}
 }
 
 type MongoDbPodSpec struct {

@@ -6,25 +6,37 @@
 #
 # Ref: https://cryptography.io/en/latest/installation/#building-cryptography-on-linux
 #
-FROM python:3.7-slim
+FROM python:3.7-slim as builder
 
-ENV HELM_NAME "helm-v3.2.0-linux-amd64.tar.gz"
 
 RUN apt-get -qq update \
         && apt-get -y -qq install \
-        curl
+        curl libldap2-dev libsasl2-dev build-essential
 
+COPY requirements.txt requirements.txt
+
+RUN python3 -m venv /venv && . /venv/bin/activate && python3 -m pip install -r requirements.txt
+
+
+FROM python:3.7-slim
+
+RUN apt-get -qq update \
+        && apt-get -y -qq install \
+        curl libldap2-dev libsasl2-dev
+
+ENV HELM_NAME "helm-v3.2.4-linux-amd64.tar.gz"
 # install Helm
 RUN curl --fail --retry 3 -L -o "${HELM_NAME}" "https://get.helm.sh/${HELM_NAME}" \
     && tar -xzf "${HELM_NAME}" \
     && rm "${HELM_NAME}" \
     && mv "linux-amd64/helm" "/usr/local/bin/helm"
 
+COPY --from=builder /venv /venv
+
+ENV PATH="/venv/bin:${PATH}"
+
 RUN mkdir /tests
 WORKDIR /tests
-COPY requirements.txt /tests/
-
-RUN python3 -m pip install -r requirements.txt
 
 # copying the test files after python build, otherwise pip install will be called each time the tests change
 COPY . /tests

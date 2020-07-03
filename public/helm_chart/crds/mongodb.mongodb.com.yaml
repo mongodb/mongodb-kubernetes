@@ -183,7 +183,7 @@ spec:
                       type: array
                       items:
                         type: string
-                        enum: ["SCRAM", "X509"]
+                        enum: ["SCRAM", "X509", "LDAP"]
                     ignoreUnknownUsers:
                       type: boolean
                 tls:

@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	userv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/user"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
@@ -35,7 +37,7 @@ func TestUserIsAdded_ToAutomationConfig_OnSuccessfulReconciliation(t *testing.T)
 	reconciler, client := userReconcilerWithAuthMode(user, util.AutomationConfigScramSha256Option)
 
 	// initialize resources required for the tests
-	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().EnableAuth().AgentAuth("SCRAM").
+	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().EnableAuth().AgentAuthMode("SCRAM").
 		SetName("my-rs").Build())
 	createUserControllerConfigMap(client)
 	createPasswordSecret(client, user.Spec.PasswordSecretKeyRef, "password")
@@ -64,7 +66,7 @@ func TestUserIsUpdated_IfNonIdentifierFieldIsUpdated_OnSuccessfulReconciliation(
 	reconciler, client := userReconcilerWithAuthMode(user, util.AutomationConfigScramSha256Option)
 
 	// initialize resources required for the tests
-	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().SetName("my-rs").EnableAuth().AgentAuth("SCRAM").
+	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().SetName("my-rs").EnableAuth().AgentAuthMode("SCRAM").
 		Build())
 	createUserControllerConfigMap(client)
 	createPasswordSecret(client, user.Spec.PasswordSecretKeyRef, "password")
@@ -98,7 +100,7 @@ func TestUserIsReplaced_IfIdentifierFieldsAreChanged_OnSuccessfulReconciliation(
 	reconciler, client := userReconcilerWithAuthMode(user, util.AutomationConfigScramSha256Option)
 
 	// initialize resources required for the tests
-	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().SetName("my-rs").EnableAuth().AgentAuth("SCRAM").Build())
+	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().SetName("my-rs").EnableAuth().AgentAuthMode("SCRAM").Build())
 	createUserControllerConfigMap(client)
 	createPasswordSecret(client, user.Spec.PasswordSecretKeyRef, "password")
 
@@ -183,11 +185,11 @@ func TestRetriesReconciliation_IfPasswordSecretExists_ButHasNoPassword(t *testin
 }
 
 func TestX509User_DoesntRequirePassword(t *testing.T) {
-	user := DefaultMongoDBUserBuilder().SetDatabase(util.X509Db).Build()
+	user := DefaultMongoDBUserBuilder().SetDatabase(util.ExternalAuthenticationDB).Build()
 	reconciler, client := userReconcilerWithAuthMode(user, util.AutomationConfigX509Option)
 
 	// initialize resources required for x590 tests
-	createMongoDBForUser(client, *user)
+	createMongoDBForUserWithAuth(client, *user, util.X509)
 
 	createX509UserControllerConfigMap(client)
 	approveAgentCSRs(client) // pre-approved agent CSRs for x509 authentication
@@ -209,11 +211,11 @@ func TestScramShaUserReconciliation_CreatesAgentUsers(t *testing.T) {
 	reconciler, client := userReconcilerWithAuthMode(user, util.AutomationConfigScramSha256Option)
 
 	// initialize resources required for the tests
-	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().AgentAuth("SCRAM").EnableAuth().SetName("my-rs").Build())
+	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().AgentAuthMode("SCRAM").EnableAuth().SetName("my-rs").Build())
 	createUserControllerConfigMap(client)
 	createPasswordSecret(client, user.Spec.PasswordSecretKeyRef, "password")
 
-	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
+	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 	expected, _ := success()
 
 	assert.NoError(t, err)
@@ -236,7 +238,7 @@ func TestX509UserReconciliation_CreatesAgentUsers(t *testing.T) {
 	}
 
 	// initialize resources required for x590 tests
-	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().EnableAuth().SetAuthModes([]string{"X509"}).AgentAuth("X509").SetName("my-rs").Build())
+	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().EnableAuth().SetAuthModes([]string{"X509"}).AgentAuthMode("X509").SetName("my-rs").Build())
 	createX509UserControllerConfigMap(client)
 	approveAgentCSRs(client) // pre-approved agent CSRs for x509 authentication
 	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
@@ -292,9 +294,10 @@ func createPasswordSecret(client *mock.MockedClient, secretRef userv1.SecretKeyR
 	})
 }
 
-func createMongoDBForUser(client *mock.MockedClient, user userv1.MongoDBUser) {
-	mdb := DefaultReplicaSetBuilder().SetName(user.Spec.MongoDBResourceRef.Name).Build()
-	_ = client.Update(context.TODO(), mdb)
+func createMongoDBForUserWithAuth(client *mock.MockedClient, user userv1.MongoDBUser, authModes ...string) {
+	mdbBuilder := DefaultReplicaSetBuilder().SetName(user.Spec.MongoDBResourceRef.Name)
+
+	_ = client.Update(context.TODO(), mdbBuilder.SetAuthModes(authModes).Build())
 }
 
 // defaultUserReconciler is the user reconciler used in unit test. It "adds" necessary

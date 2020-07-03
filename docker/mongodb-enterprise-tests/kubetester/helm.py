@@ -38,8 +38,26 @@ def helm_install(
     print()
     print(args)
 
-    # we use Helm binary installed in the image instead of PyHelm as the latter seems to be quite limited
-    # and not active
+    subprocess.run(args, check=True)
+
+
+def helm_install_from_chart(
+    namespace: str, release: str, chart: str, version: str = ""
+):
+    args = [
+        "helm",
+        "install",
+        "--name-template={}".format(release),
+        "--namespace={}".format(namespace),
+        chart,
+    ]
+
+    if version != "":
+        args.append("--version=" + version)
+
+    subprocess.run(
+        "helm repo add stable https://kubernetes-charts.storage.googleapis.com".split()
+    )
     subprocess.run(args, check=True)
 
 

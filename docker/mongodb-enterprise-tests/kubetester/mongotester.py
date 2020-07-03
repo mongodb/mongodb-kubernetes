@@ -151,6 +151,28 @@ class MongoTester:
                     fail(msg=f"unable to authenticate after {total_attempts} attempts")
                 time.sleep(5)
 
+    def assert_ldap_authentication(
+        self, username: str, password: str, attempts: int = 5
+    ):
+        options = {}
+        total_attempts = attempts
+
+        while True:
+            attempts -= 1
+            try:
+                client = pymongo.MongoClient(self.cnx_string, **options)
+                client.admin.authenticate(
+                    username, password, source="$external", mechanism="PLAIN"
+                )
+
+                client["admin"]["myCol"].insert_one({"data": "I need to exist!"})
+
+                return
+            except OperationFailure:
+                if attempts <= 0:
+                    fail(msg=f"unable to authenticate after {total_attempts} attempts")
+                time.sleep(5)
+
     def upload_random_data(self, count, test_collection=TEST_COLLECTION):
         """ Generates random json documents and uploads them to database. This data can be later checked for
         integrity """

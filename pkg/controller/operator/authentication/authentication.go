@@ -9,6 +9,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/ldap"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 )
@@ -42,7 +43,20 @@ type Options struct {
 	ClientCertificates string
 	UserOptions
 
+	// Ldap is the LDAP configuration that will be passed to the Automation Config.
+	// Only required if LDAP is configured as an authentication mechanism
+	Ldap *ldap.Ldap
+
 	AutoUser string
+}
+
+func Redact(o Options) Options {
+	if o.Ldap != nil && o.Ldap.BindQueryPassword != "" {
+		ldapCopy := *o.Ldap
+		o.Ldap = &ldapCopy
+		o.Ldap.BindQueryPassword = "<redacted>"
+	}
+	return o
 }
 
 // UserOptions is a struct that contains the different user names
@@ -289,6 +303,8 @@ func getMechanismName(mongodbResourceMode string, ac *om.AutomationConfig, minim
 	switch mongodbResourceMode {
 	case util.X509:
 		return MongoDBX509
+	case util.LDAP:
+		return LDAPPlain
 	case util.SCRAM:
 		// if we have already configured authentication and it has been set to MONGODB-CR/SCRAM-SHA-1
 		// we can not transition. This needs to be done in the UI
@@ -313,7 +329,7 @@ func getMechanismName(mongodbResourceMode string, ac *om.AutomationConfig, minim
 type Mechanism interface {
 	EnableAgentAuthentication(opts Options, log *zap.SugaredLogger) error
 	DisableAgentAuthentication(log *zap.SugaredLogger) error
-	EnableDeploymentAuthentication() error
+	EnableDeploymentAuthentication(opts Options) error
 	DisableDeploymentAuthentication() error
 	IsAgentAuthenticationConfigured() bool
 	IsDeploymentAuthenticationConfigured() bool
@@ -424,6 +440,7 @@ type MechanismName string
 const (
 	ScramSha256 MechanismName = "SCRAM-SHA-256"
 	MongoDBX509 MechanismName = "MONGODB-X509"
+	LDAPPlain   MechanismName = "PLAIN"
 
 	// MONGODB-CR is an umbrella term for SCRAM-SHA-1 and MONGODB-CR for legacy reasons, once MONGODB-CR
 	// is enabled, users can auth with SCRAM-SHA-1 credentials
@@ -436,7 +453,7 @@ const (
 // supportedMechanisms returns a list of all the authentication mechanisms
 // that can be configured by the Operator
 func supportedMechanisms() []MechanismName {
-	return []MechanismName{ScramSha256, MongoDBCR, MongoDBX509}
+	return []MechanismName{ScramSha256, MongoDBCR, MongoDBX509, LDAPPlain}
 }
 
 // fromName returns an implementation of mechanism from the string value
@@ -449,6 +466,8 @@ func fromName(name MechanismName, ac *om.AutomationConfig, conn om.Connection, o
 		return NewConnectionScramSha256(conn, ac)
 	case MongoDBX509:
 		return NewConnectionX509(conn, ac, opts)
+	case LDAPPlain:
+		return NewLdap(conn, ac, opts)
 	}
 	panic(fmt.Errorf("unknown authentication mechanism %s. Supported mechanisms are %+v", name, supportedMechanisms()))
 }
@@ -507,7 +526,7 @@ func ensureDeploymentMechanisms(conn om.Connection, desiredDeploymentAuthMechani
 	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		for _, mechanismName := range desiredDeploymentAuthMechanisms {
 			log.Debugf("enabling deployment mechanism %s", mechanismName)
-			if err := fromName(mechanismName, ac, conn, opts).EnableDeploymentAuthentication(); err != nil {
+			if err := fromName(mechanismName, ac, conn, opts).EnableDeploymentAuthentication(opts); err != nil {
 				return fmt.Errorf("error enabling deployment authentication: %s", err)
 			}
 		}

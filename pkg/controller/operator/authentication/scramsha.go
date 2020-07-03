@@ -70,7 +70,7 @@ func (s AutomationConfigScramSha) DisableDeploymentAuthentication() error {
 	return nil
 }
 
-func (s AutomationConfigScramSha) EnableDeploymentAuthentication() error {
+func (s AutomationConfigScramSha) EnableDeploymentAuthentication(Options) error {
 	auth := s.automationConfig.Auth
 	if !stringutil.Contains(auth.DeploymentAuthMechanisms, string(s.mechanismName)) {
 		auth.DeploymentAuthMechanisms = append(auth.DeploymentAuthMechanisms, string(s.mechanismName))

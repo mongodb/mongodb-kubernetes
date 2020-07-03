@@ -388,7 +388,7 @@ func (b *ReplicaSetBuilder) EnableAuth() *ReplicaSetBuilder {
 	return b
 }
 
-func (b *ReplicaSetBuilder) AgentAuth(mode string) *ReplicaSetBuilder {
+func (b *ReplicaSetBuilder) AgentAuthMode(agentMode string) *ReplicaSetBuilder {
 	if b.Spec.Security == nil {
 		b.Spec.Security = &mdbv1.Security{}
 	}
@@ -396,7 +396,12 @@ func (b *ReplicaSetBuilder) AgentAuth(mode string) *ReplicaSetBuilder {
 	if b.Spec.Security.Authentication == nil {
 		b.Spec.Security.Authentication = &mdbv1.Authentication{}
 	}
-	b.Spec.Security.Authentication.Agents = mdbv1.AgentAuthentication{Mode: mode}
+	b.Spec.Security.Authentication.Agents = mdbv1.AgentAuthentication{Mode: agentMode}
+	return b
+}
+
+func (b *ReplicaSetBuilder) LDAP(ldap mdbv1.Ldap) *ReplicaSetBuilder {
+	b.Spec.Security.Authentication.Ldap = &ldap
 	return b
 }
 

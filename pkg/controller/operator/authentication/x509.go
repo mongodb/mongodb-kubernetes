@@ -113,7 +113,7 @@ func (x ConnectionX509) DisableAgentAuthentication(log *zap.SugaredLogger) error
 	}, log)
 }
 
-func (x ConnectionX509) EnableDeploymentAuthentication() error {
+func (x ConnectionX509) EnableDeploymentAuthentication(Options) error {
 	ac := x.AutomationConfig
 	if !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) {
 		ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, string(MongoDBX509))

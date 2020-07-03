@@ -119,8 +119,10 @@ const (
 	// Authentication
 
 	X509Db                            = "$external"
+	ExternalAuthenticationDB          = "$external"
 	AgentSecretName                   = "agent-certs"
 	AutomationConfigX509Option        = "MONGODB-X509"
+	AutomationConfigLDAPOption        = "PLAIN"
 	AutomationConfigScramSha256Option = "SCRAM-SHA-256"
 	AutomationConfigScramSha1Option   = "MONGODB-CR"
 	AutomationAgentUserName           = "mms-automation-agent"
@@ -131,6 +133,7 @@ const (
 	DefaultUserDatabase               = "admin"
 	X509                              = "X509"
 	SCRAM                             = "SCRAM"
+	LDAP                              = "LDAP"
 	MinimumScramSha256MdbVersion      = "4.0.0"
 
 	// uses a lowercase 'x' and will take precedence over the value specified in

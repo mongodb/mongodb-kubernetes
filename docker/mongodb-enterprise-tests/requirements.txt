@@ -13,3 +13,4 @@ kubeobject==0.1.8
 boto3==1.10.34
 python-dateutil==2.8.0
 semver==2.10.1
+python-ldap==3.3.1

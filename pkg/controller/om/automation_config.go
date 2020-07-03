@@ -3,6 +3,7 @@ package om
 import (
 	"encoding/json"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/ldap"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/generate"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -18,6 +19,7 @@ type AutomationConfig struct {
 	Auth       *Auth
 	AgentSSL   *AgentSSL
 	Deployment Deployment
+	Ldap       *ldap.Ldap
 }
 
 // Apply merges the state of all concrete structs into the Deployment (map[string]interface{})
@@ -38,6 +40,14 @@ func (a *AutomationConfig) Apply() error {
 			return err
 		}
 		a.Deployment["ssl"] = mergedSsl
+	}
+
+	if _, ok := a.Deployment["ldap"]; ok {
+		mergedLdap, err := util.MergeWith(a.Ldap, a.Deployment["ldap"].(map[string]interface{}), &util.AutomationConfigTransformer{})
+		if err != nil {
+			return err
+		}
+		a.Deployment["ldap"] = mergedLdap
 	}
 	return nil
 }

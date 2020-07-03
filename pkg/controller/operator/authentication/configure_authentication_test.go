@@ -313,12 +313,16 @@ func TestOneAgentOption(t *testing.T) {
 }
 
 func assertAuthenticationEnabled(t *testing.T, auth *om.Auth) {
+	assertAuthenticationEnabledWithUsers(t, auth, 2)
+}
+
+func assertAuthenticationEnabledWithUsers(t *testing.T, auth *om.Auth, numUsers int) {
 	assert.True(t, auth.AuthoritativeSet)
 	assert.False(t, auth.Disabled)
 	assert.NotEmpty(t, auth.Key)
 	assert.NotEmpty(t, auth.KeyFileWindows)
 	assert.NotEmpty(t, auth.KeyFile)
-	assert.Len(t, auth.Users, 2)
+	assert.Len(t, auth.Users, numUsers)
 	assert.True(t, noneNil(auth.Users))
 }
 
@@ -341,7 +345,7 @@ func assertAuthenticationMechanism(t *testing.T, auth *om.Auth, mechanism string
 }
 
 func assertDeploymentMechanismsConfigured(t *testing.T, authMechanism Mechanism) {
-	_ = authMechanism.EnableDeploymentAuthentication()
+	_ = authMechanism.EnableDeploymentAuthentication(Options{})
 	assert.True(t, authMechanism.IsDeploymentAuthenticationConfigured())
 }
 

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"os"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -742,7 +744,15 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 		AutoUser:            scramAgentUserName,
 	}
 
-	log.Debugf("Using authentication options %+v", authOpts)
+	if mdb.IsLDAPEnabled() {
+		bindUserPassword, err := r.kubeHelper.readSecretKey(kube.ObjectKey(mdb.Namespace, mdb.Spec.Security.Authentication.Ldap.BindQuerySecretRef.Name), "password")
+		if err != nil {
+			return workflow.Failed(fmt.Sprintf("error reading bind user password: %s", err)), false
+		}
+		authOpts.Ldap = mdb.GetLDAP(bindUserPassword)
+	}
+
+	log.Debugf("Using authentication options %+v", authentication.Redact(authOpts))
 
 	wantToEnableAuthentication := mdb.Spec.Security.Authentication.Enabled
 	if wantToEnableAuthentication && canConfigureAuthentication(ac, mdb, log) {

@@ -276,7 +276,7 @@ func configureScramShaAuthentication(automationConfig *om.AutomationConfig, sha1
 	scramSha1 := authentication.NewAutomationConfigScramSha1(automationConfig)
 
 	// scram deployment mechanisms need to be configured before agent auth can be configured
-	if err := scramSha1.EnableDeploymentAuthentication(); err != nil {
+	if err := scramSha1.EnableDeploymentAuthentication(authentication.Options{}); err != nil {
 		return err
 	}
 

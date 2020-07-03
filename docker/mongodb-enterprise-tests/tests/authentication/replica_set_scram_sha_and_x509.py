@@ -12,6 +12,11 @@ PASSWORD_SECRET_NAME = "mms-user-1-password"
 USER_PASSWORD = "my-password"
 
 
+@pytest.fixture(scope="module")
+def replica_set(namespace: str) -> MongoDB:
+    return MongoDB(MDB_RESOURCE, namespace).load()
+
+
 @pytest.mark.e2e_replica_set_scram_sha_and_x509
 class TestReplicaSetCreation(KubernetesTester):
     """

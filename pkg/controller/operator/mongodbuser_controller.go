@@ -149,12 +149,33 @@ func (r *MongoDBUserReconciler) Reconcile(request reconcile.Request) (res reconc
 		return r.updateStatus(user, workflow.Failed(err.Error()), log)
 	}
 
-	if user.Spec.Database == util.X509Db {
-		return r.handleX509User(user, mdb, conn, currentAuthMode, log)
+	if user.Spec.Database == util.ExternalAuthenticationDB {
+		return r.handleExternalAuthDatabaseUser(user, mdb, conn, currentAuthMode, log)
 	} else {
 		return r.handleScramShaUser(user, conn, log)
 	}
 
+}
+
+func (r *MongoDBUserReconciler) handleExternalAuthDatabaseUser(user *userv1.MongoDBUser, mdb mdbv1.MongoDB, conn om.Connection, currentAuthMode string, log *zap.SugaredLogger) (reconcile.Result, error) {
+	x509Enabled := stringutil.Contains(mdb.Spec.Security.Authentication.Modes, util.X509)
+	ldapEnabled := stringutil.Contains(mdb.Spec.Security.Authentication.Modes, util.LDAP)
+	if x509Enabled && !ldapEnabled {
+		return r.handleX509User(user, mdb, conn, currentAuthMode, log)
+	}
+	if ldapEnabled && !x509Enabled {
+		return r.handleLDAPUser(user, mdb, conn, log)
+	}
+	log.Infof("Authentication.Modes: %+v", mdb.Spec.Security.Authentication.Modes)
+
+	// TODO: Handle case where both LDAP and x509 authentication mechanisms exists
+	// maybe decouple the x509 setup from the user creation, this is, making
+	// $external users generic. It is up to MongoDB to see which backed to use.
+
+	if x509Enabled && ldapEnabled {
+		return fail(errors.New("attempted to create user on $external database, but there are multiple $external databases enabled"))
+	}
+	return fail(errors.New("attempted to create user on $external database, but there are no backends enabled (LDAP or x509)"))
 }
 
 func (r *MongoDBUserReconciler) isX509Enabled(user userv1.MongoDBUser, mdbSpec mdbv1.MongoDbSpec) (bool, error) {
@@ -387,6 +408,40 @@ func (r *MongoDBUserReconciler) handleX509User(user *userv1.MongoDBUser, mdb mdb
 		return nil
 	}, log)
 
+	if err != nil {
+		if shouldRetry {
+			return r.updateStatus(user, workflow.Pending(err.Error()).WithRetry(10), log)
+		}
+		return r.updateStatus(user, workflow.Failed("error updating user %s", err), log)
+	}
+
+	log.Infow("Finished reconciliation for MongoDBUser!")
+	return r.updateStatus(user, workflow.OK(), log)
+}
+
+func (r *MongoDBUserReconciler) handleLDAPUser(user *userv1.MongoDBUser, mdb mdbv1.MongoDB, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
+	desiredUser, err := toOmUser(user.Spec, "")
+	if err != nil {
+		return r.updateStatus(user, workflow.Failed("error updating user %s", err), log)
+	}
+
+	shouldRetry := false
+	updateFunction := func(ac *om.AutomationConfig) error {
+		if !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigLDAPOption) {
+			shouldRetry = true
+			return fmt.Errorf("LDAP has not yet been configured")
+		}
+
+		auth := ac.Auth
+		if user.ChangedIdentifier() {
+			auth.RemoveUser(user.Status.Username, user.Status.Database)
+		}
+
+		auth.EnsureUser(desiredUser)
+		return nil
+	}
+
+	err = conn.ReadUpdateAutomationConfig(updateFunction, log)
 	if err != nil {
 		if shouldRetry {
 			return r.updateStatus(user, workflow.Pending(err.Error()).WithRetry(10), log)

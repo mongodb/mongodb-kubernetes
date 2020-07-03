@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
 
@@ -345,6 +347,41 @@ func TestX509InternalClusterAuthentication_CanBeEnabledWithScram_ShardedCluster(
 	for _, p := range dep.ProcessesCopy() {
 		assert.Equal(t, p.ClusterAuthMode(), "x509")
 	}
+}
+
+func TestConfigureLdapDeploymentAuthentication_WithScramAgentAuthentication(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().
+		SetName("my-rs").
+		SetMembers(3).
+		EnableAuth().
+		AgentAuthMode("SCRAM").
+		SetAuthModes([]string{"LDAP", "SCRAM"}).
+		LDAP(
+			mdbv1.Ldap{
+				BindQueryUser: "bindQueryUser",
+				Servers:       "servers",
+				BindQuerySecretRef: mdbv1.TLSSecretRef{
+					Name: "bind-query-password",
+				},
+			},
+		).
+		Build()
+
+	manager := mock.NewManager(rs)
+	manager.Client.AddDefaultMdbConfigResources()
+	r := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
+	data := map[string]string{
+		"password": "password123",
+	}
+	_ = r.kubeHelper.createSecret(kube.ObjectKey(mock.TestNamespace, "bind-query-password"), data, nil, rs)
+	checkReconcileSuccessful(t, r, rs, manager.Client)
+
+	ac, _ := om.CurrMockedConnection.ReadAutomationConfig()
+	assert.Equal(t, "password123", ac.Ldap.BindQueryPassword)
+	assert.Equal(t, "bindQueryUser", ac.Ldap.BindQueryUser)
+	assert.Equal(t, "servers", ac.Ldap.Servers)
+	assert.Contains(t, ac.Auth.DeploymentAuthMechanisms, "PLAIN")
+	assert.Contains(t, ac.Auth.DeploymentAuthMechanisms, "SCRAM-SHA-256")
 }
 
 /*
