@@ -2210,6 +2210,8 @@ buildvariants:
   expansions:
     docker_registry: quay.io
     image_type: ubuntu
+    docker_username: ${quay_prod_username}
+    docker_password: ${quay_prod_robot_token}
   tasks:
   - name: prerelease_master_images
 
