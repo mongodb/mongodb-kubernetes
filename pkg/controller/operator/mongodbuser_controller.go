@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -106,7 +107,7 @@ func (r *MongoDBUserReconciler) Reconcile(request reconcile.Request) (res reconc
 	user, err := r.getUser(request, log)
 	if err != nil {
 		log.Warnf("error getting user %s", err)
-		return retry()
+		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, nil
 	}
 
 	defer exceptionHandling(
@@ -131,12 +132,13 @@ func (r *MongoDBUserReconciler) Reconcile(request reconcile.Request) (res reconc
 	// but the user gets deleted. Reconciliation happens to this user even though it is deleted.
 	// TODO: unregister config map upon MongoDBUser deletion
 	if user.Namespace == "" && user.Name == "" {
-		return stop()
+		// stop reconciliation
+		return reconcile.Result{}, nil
 	}
 
 	connSpec, err := r.getConnectionSpec(*user, mdb.Spec)
 	if err != nil {
-		return fail(err)
+		return reconcile.Result{}, err
 	}
 
 	conn, err := r.prepareConnection(request.NamespacedName, connSpec, nil, log)
@@ -173,9 +175,9 @@ func (r *MongoDBUserReconciler) handleExternalAuthDatabaseUser(user *userv1.Mong
 	// $external users generic. It is up to MongoDB to see which backed to use.
 
 	if x509Enabled && ldapEnabled {
-		return fail(errors.New("attempted to create user on $external database, but there are multiple $external databases enabled"))
+		return reconcile.Result{}, errors.New("attempted to create user on $external database, but there are multiple $external databases enabled")
 	}
-	return fail(errors.New("attempted to create user on $external database, but there are no backends enabled (LDAP or x509)"))
+	return reconcile.Result{}, errors.New("attempted to create user on $external database, but there are no backends enabled (LDAP or x509)")
 }
 
 func (r *MongoDBUserReconciler) isX509Enabled(user userv1.MongoDBUser, mdbSpec mdbv1.MongoDbSpec) (bool, error) {
@@ -371,17 +373,17 @@ func (r *MongoDBUserReconciler) handleScramShaUser(user *userv1.MongoDBUser, con
 func (r *MongoDBUserReconciler) handleX509User(user *userv1.MongoDBUser, mdb mdbv1.MongoDB, conn om.Connection, currentAuthMode string, log *zap.SugaredLogger) (reconcile.Result, error) {
 
 	if x509IsEnabled, err := r.isX509Enabled(*user, mdb.Spec); err != nil {
-		return fail(err)
+		return reconcile.Result{}, err
 	} else if !x509IsEnabled {
 		log.Info("X509 authentication is not enabled for this project, stopping")
-		return stop()
+		return reconcile.Result{}, nil
 	}
 
 	security := mdb.Spec.Security
 
 	if security.ShouldUseX509(currentAuthMode) && !r.doAgentX509CertsExist(user.Namespace) {
 		log.Info("Agent certs have not yet been created, cannot add MongoDBUser yet")
-		return retry()
+		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, nil
 	}
 
 	shouldRetry := false

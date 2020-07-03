@@ -2,6 +2,7 @@ package operator
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/host"
 
@@ -110,7 +111,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 	projectConfig, err := project.ReadProjectConfig(r.client, objectKey(request.Namespace, s.Spec.GetProject()), s.Name)
 	if err != nil {
 		log.Infof("error reading project %s", err)
-		return retry()
+		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, nil
 	}
 
 	podVars := &PodVars{}

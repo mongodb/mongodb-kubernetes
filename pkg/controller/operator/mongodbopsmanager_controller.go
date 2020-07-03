@@ -133,7 +133,8 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 
 	// All statuses are updated by now - we don't need to update any others - just return
 	log.Info("Finished reconciliation for MongoDbOpsManager!")
-	return success()
+	// success
+	return reconcile.Result{}, nil
 }
 
 func (r *OpsManagerReconciler) reconcileOpsManager(opsManager *omv1.MongoDBOpsManager, opsManagerUserPassword string, log *zap.SugaredLogger) (workflow.Status, api.Admin) {

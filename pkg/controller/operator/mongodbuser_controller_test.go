@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 
@@ -44,7 +45,7 @@ func TestUserIsAdded_ToAutomationConfig_OnSuccessfulReconciliation(t *testing.T)
 
 	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
 
-	expected, _ := success()
+	expected := reconcile.Result{}
 
 	assert.Nil(t, err, "there should be no error on successful reconciliation")
 	assert.Equal(t, expected, actual, "there should be a successful reconciliation if the password is a valid reference")
@@ -73,7 +74,7 @@ func TestUserIsUpdated_IfNonIdentifierFieldIsUpdated_OnSuccessfulReconciliation(
 
 	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
 
-	expected, _ := success()
+	expected := reconcile.Result{}
 
 	assert.Nil(t, err, "there should be no error on successful reconciliation")
 	assert.Equal(t, expected, actual, "there should be a successful reconciliation if the password is a valid reference")
@@ -106,7 +107,7 @@ func TestUserIsReplaced_IfIdentifierFieldsAreChanged_OnSuccessfulReconciliation(
 
 	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
 
-	expected, _ := success()
+	expected := reconcile.Result{}
 
 	assert.Nil(t, err, "there should be no error on successful reconciliation")
 	assert.Equal(t, expected, actual, "there should be a successful reconciliation if the password is a valid reference")
@@ -151,7 +152,7 @@ func TestRetriesReconciliation_IfNoPasswordSecretExists(t *testing.T) {
 	// No password has been created
 	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
 
-	expected, _ := retry()
+	expected := reconcile.Result{RequeueAfter: time.Second * 10}
 	assert.Nil(t, err, "should be no error on retry")
 	assert.Equal(t, expected, actual, "the reconciliation should be retried as there is no password")
 
@@ -174,7 +175,7 @@ func TestRetriesReconciliation_IfPasswordSecretExists_ButHasNoPassword(t *testin
 
 	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
 
-	expected, _ := retry()
+	expected := reconcile.Result{RequeueAfter: time.Second * 10}
 	assert.Nil(t, err, "should be no error on retry")
 	assert.Equal(t, expected, actual, "the reconciliation should be retried as there is a secret, but the key contains no password")
 
@@ -200,7 +201,7 @@ func TestX509User_DoesntRequirePassword(t *testing.T) {
 	// pre-configure the connection
 	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
 
-	expected, _ := success()
+	expected := reconcile.Result{}
 
 	assert.Nil(t, err, "should be no error on successful reconciliation")
 	assert.Equal(t, expected, actual, "the reconciliation should be successful as x509 does not require a password")
@@ -216,7 +217,7 @@ func TestScramShaUserReconciliation_CreatesAgentUsers(t *testing.T) {
 	createPasswordSecret(client, user.Spec.PasswordSecretKeyRef, "password")
 
 	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
-	expected, _ := success()
+	expected := reconcile.Result{}
 
 	assert.NoError(t, err)
 	assert.Equal(t, expected, actual)
@@ -243,7 +244,7 @@ func TestX509UserReconciliation_CreatesAgentUsers(t *testing.T) {
 	approveAgentCSRs(client) // pre-approved agent CSRs for x509 authentication
 	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
 
-	expected, _ := success()
+	expected := reconcile.Result{}
 
 	assert.NoError(t, err)
 	assert.Equal(t, expected, actual)

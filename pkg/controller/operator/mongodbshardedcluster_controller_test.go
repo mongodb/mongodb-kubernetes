@@ -9,6 +9,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/stretchr/testify/assert"
 
@@ -292,7 +293,7 @@ func TestShardedCluster_WithTLSEnabled_AndX509Enabled_Succeeds(t *testing.T) {
 	)
 
 	actualResult, err := reconciler.Reconcile(requestFromObject(sc))
-	expectedResult, _ := success()
+	expectedResult := reconcile.Result{}
 
 	assert.Equal(t, expectedResult, actualResult)
 	assert.Nil(t, err)
@@ -313,7 +314,7 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 	reconciler, client := defaultClusterReconciler(sc)
 	addKubernetesTlsResources(client, sc)
 	actualResult, err := reconciler.Reconcile(requestFromObject(sc))
-	expectedResult, _ := success()
+	expectedResult := reconcile.Result{}
 
 	assert.Equal(t, expectedResult, actualResult)
 	assert.Nil(t, err)

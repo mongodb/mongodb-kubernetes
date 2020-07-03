@@ -243,6 +243,8 @@ const (
 	OmGroupExternallyManagedTag = "EXTERNALLY_MANAGED_BY_KUBERNETES"
 	GenericErrorMessage         = "Something went wrong validating your Automation Config"
 	MethodNotAllowed            = "405 (Method Not Allowed)"
+
+	RetryTimeSec = 10
 )
 
 // ***** These variables are set at compile time

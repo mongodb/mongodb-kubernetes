@@ -388,7 +388,7 @@ func checkOMReconcilliationSuccessful(t *testing.T, reconciler reconcile.Reconci
 	assert.NoError(t, err)
 
 	res, err = reconciler.Reconcile(requestFromObject(om))
-	expected, _ = success()
+	expected = reconcile.Result{}
 	assert.Equal(t, expected, res)
 	assert.NoError(t, err)
 }

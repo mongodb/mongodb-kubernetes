@@ -19,6 +19,7 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
@@ -253,7 +254,7 @@ func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
 	})
 
 	actual, err := userReconciler.Reconcile(requestFromObject(x509User))
-	expected, _ := success()
+	expected := reconcile.Result{}
 
 	assert.NoError(t, err)
 	assert.Equal(t, expected, actual)
@@ -278,7 +279,7 @@ func TestScramAgentUserIsCorrectlyConfigured(t *testing.T) {
 	})
 
 	actual, err := userReconciler.Reconcile(requestFromObject(x509User))
-	expected, _ := success()
+	expected := reconcile.Result{}
 
 	assert.NoError(t, err)
 	assert.Equal(t, expected, actual)
@@ -421,7 +422,7 @@ func TestX509CannotBeEnabled_WhenThereAreBothTlsAndNonTlsDeployments_ReplicaSet(
 	projectController := newProjectReconciler(manager, connectionFunc)
 	projectResult, projectErr := projectController.Reconcile(requestFromObject(cMap))
 
-	expectedResult, _ := retry()
+	expected := reconcile.Result{RequeueAfter: time.Second * 10}
 	assert.Nil(t, projectErr, "it should not be possible to enable x509 at the project level when not all deployments are tls enabled")
 	assert.Equal(t, expectedResult, projectResult, "the request should have been requeued")
 
@@ -457,7 +458,7 @@ func TestX509CannotBeEnabled_WhenThereAreBothTlsAndNonTlsDeployments_ShardedClus
 	projectController := newProjectReconciler(manager, connectionFunc)
 	projectResult, projectErr := projectController.Reconcile(requestFromObject(cMap))
 
-	expectedResult, _ := retry()
+	expected := reconcile.Result{RequeueAfter: time.Second * 10}
 	assert.Nil(t, projectErr, "it should not be possible to enable x509 at the project level when not all deployments are tls enabled")
 	assert.Equal(t, expectedResult, projectResult, "the request should have been requeued")
 

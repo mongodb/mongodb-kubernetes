@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 	"sync"
-	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/host"
 
@@ -295,29 +294,6 @@ func (eh *MongoDBResourceEventHandler) Delete(e event.DeleteEvent, _ workqueue.R
 		return
 	}
 	logger.Info("Removed MongoDB resource from Kubernetes and Ops Manager")
-}
-
-// Reconciliation results returned during reconciliation
-
-// success indicates we have successfully completed reconciliation
-func success() (reconcile.Result, error) {
-	return reconcile.Result{}, nil
-}
-
-// retry requeues the result after 10 seconds. If a non nil error is returned,
-// the time is not respected and the event is immediately requeued.
-func retry() (reconcile.Result, error) {
-	return reconcile.Result{RequeueAfter: time.Second * 10}, nil
-}
-
-// stop is functionally identical to success (we stop trying) but exists to show intent.
-func stop() (reconcile.Result, error) {
-	return success()
-}
-
-// fail fails with the given error
-func fail(err error) (reconcile.Result, error) {
-	return reconcile.Result{}, err
 }
 
 // toInternalClusterAuthName takes a hostname e.g. my-replica-set and converts

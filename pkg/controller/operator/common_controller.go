@@ -234,7 +234,7 @@ func (c *ReconcileCommonController) updateStatus(reconciledResource v1.CustomRes
 	reconciledResource.UpdateStatus(status.Phase(), mergedOptions...)
 	if err := c.patchUpdateStatus(reconciledResource); err != nil {
 		log.Errorf("Error updating status to %s: %s", status.Phase(), err)
-		return fail(err)
+		return reconcile.Result{}, err
 	}
 	return status.ReconcileResult()
 }
