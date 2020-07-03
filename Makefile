@@ -113,7 +113,7 @@ e2e: build-and-push-test-image
 	@ if [[ -z "$(light)" ]]; then \
 		$(MAKE) build-and-push-images; \
 	fi
-	@ scripts/dev/launch_e2e
+	@ scripts/dev/launch_e2e.sh
 
 # deletes and creates a kops e2e cluster
 recreate-e2e-kops:

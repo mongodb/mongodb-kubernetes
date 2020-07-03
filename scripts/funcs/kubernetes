@@ -250,6 +250,7 @@ deploy_operator() {
     [[ -d "helm_chart" ]] && chart_path="helm_chart"
 
     echo "Deploying Operator"
+    kubectl replace -f "${chart_path}/crds"
     helm upgrade --install  "${helm_params[@]}" mongodb-enterprise-operator "${chart_path}"
 }
 

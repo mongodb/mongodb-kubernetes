@@ -28,6 +28,10 @@ fi
 if [[ -n "${local:-}" ]]; then
     pytest -m "${test}" docker/mongodb-enterprise-tests --disable-pytest-warnings
 else
+    # e2e test application doesn't update CRDs if they exist (as Helm 3 doesn't do this anymore)
+    # so we need to make sure the CRDs are upgraded when run locally
+    kubectl replace -f "public/helm_chart/crds"
+
     TASK_NAME=${test} \
     WAIT_TIMEOUT="4m" \
     MODE="dev" \

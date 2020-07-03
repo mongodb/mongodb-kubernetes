@@ -527,7 +527,7 @@ functions:
           AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
           KUBECONFIG: ${workdir}/${kube_environment_name}_config
 
-        command: "scripts/evergreen/prepare_test_env ${ops_manager_namespace} ${ops_manager_version} ${node_port}"
+        command: "scripts/evergreen/prepare_test_env.sh ${ops_manager_namespace} ${ops_manager_version} ${node_port}"
   #
   # Performs some AWS cleanup
   #

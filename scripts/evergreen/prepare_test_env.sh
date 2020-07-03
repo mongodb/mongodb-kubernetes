@@ -42,10 +42,6 @@ fix_env() {
     done
 }
 
-upgrade_crds() {
-    kubectl apply -f public/helm_chart/crds
-}
-
 deploy_cluster_cleaner() {
     ops_manager_namespace="${1}"
     cleaner_namespace="cluster-cleaner"
@@ -77,7 +73,7 @@ echo "Deploying cluster-cleaner"
 deploy_cluster_cleaner "${ops_manager_namespace}"
 
 echo "Installing/Upgrading all CRDs"
-upgrade_crds
+kubectl replace -f public/helm_chart/crds
 
 if [[ "${OM_EXTERNALLY_CONFIGURED:-}" != "true" ]] && [[ -n "${ops_manager_namespace}" ]]; then
     ensure_ops_manager_k8s "${ops_manager_namespace}" "${ops_manager_version}" "${node_port}"

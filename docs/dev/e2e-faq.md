@@ -188,15 +188,15 @@ which happens after successful test or during namespaces cleanup). Dynamic remov
 (default one - `gp2`) declares the `Delete` reclaim policy.
 * Usually this works fine, but sometimes the EBS volumes can get stuck in attaching and not removed even if PVs are removed:
  ![stuck-volumes](stuck-volumes.png)
- Such PVs get the status `Failed` and must be removed manually. This is done in `prepare_test_env`. It's still unclear
+ Such PVs get the status `Failed` and must be removed manually. This is done in `prepare_test_env.sh`. It's still unclear
  if AWS removes the corresponding volumes eventually (seems no) so it's necessary to go the the UI and "force detach" them
  and delete then
 * Seems there are problems cleaning volumes for Openshift (sometimes?). Volumes tend to stay in AWS but get status `available`:
  ![available-volumes](available-volumes.png)
- These volumes are removed automatically in `scripts/evergreen/prepare_test_env` script
+ These volumes are removed automatically in `scripts/evergreen/prepare_test_env.sh` script
 * One quite common and annoying thing is taint `NodeWithImpairedVolumes` that is sometimes added to the Kubernetes nodes.
 It means that there are some stuck volumes. The fixes above try to fix all stuck volumes (though the taint is not removed automatically).
-Also the taint is removed in `prepare_test_env`. This doesn't mean that the problem is solved completely (AWS is quite
+Also the taint is removed in `prepare_test_env.sh`. This doesn't mean that the problem is solved completely (AWS is quite
 unpredictable) but may help sometimes avoid complete rebuilds of the cluster
 * Sometimes deleting of the PVC/PV may get stuck. Even more - "Force detach" for the Volume in AWS console may get stuck as well.
 Seems there are no well-knows ways of solving this except for recreating kops cluster...
