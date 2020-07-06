@@ -5,6 +5,7 @@ from typing import Optional, Dict, Tuple, List
 import time
 from kubeobject import CustomObject
 from kubernetes import client
+from kubernetes.client import V1ConfigMap
 
 from kubetester.kubetester import KubernetesTester, build_host_fqdn
 from kubetester.omtester import OMTester, OMContext
@@ -184,6 +185,9 @@ class MongoDB(CustomObject, MongoDBCommon):
             self.name, self.namespace
         )
 
+    def read_configmap(self) -> Dict[str, str]:
+        return KubernetesTester.read_configmap(self.namespace, self.config_map_name)
+
     def mongo_uri(
         self, user_name: Optional[str] = None, password: Optional[str] = None
     ) -> str:
@@ -268,9 +272,7 @@ class MongoDB(CustomObject, MongoDBCommon):
 
     def get_om_tester(self) -> OMTester:
         """ Returns the OMTester instance based on MongoDB connectivity parameters """
-        config_map = KubernetesTester.read_configmap(
-            self.namespace, self.config_map_name
-        )
+        config_map = self.read_configmap()
         secret = KubernetesTester.read_secret(
             self.namespace, self["spec"]["credentials"]
         )

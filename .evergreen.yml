@@ -1201,6 +1201,12 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_replica_set_project_whitespaces
+  tags: ["patch-run"]
+  exec_timeout_secs: 300
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_replica_set_mongod_options
   tags: ["patch-run"]
   exec_timeout_secs: 600
@@ -1647,6 +1653,7 @@ task_groups:
     - e2e_replica_set_long_name
     - e2e_replica_set_config_map
     - e2e_replica_set_exposed_externally
+    - e2e_replica_set_project_whitespaces
     - e2e_replica_set_pv
     - e2e_replica_set_pv_multiple
     - e2e_replica_set_schema_validation

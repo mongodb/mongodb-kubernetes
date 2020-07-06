@@ -352,7 +352,8 @@ class OMTester(object):
         return f"{parsed_version.major}.{parsed_version.minor}.{parsed_version.patch}"
 
     def api_get_organization_id(self, org_name: str) -> str:
-        json = self.om_request("get", f"/orgs?name={org_name}").json()
+        encoded_org_name = urllib.parse.quote_plus(org_name)
+        json = self.om_request("get", f"/orgs?name={encoded_org_name}").json()
         if len(json["results"]) > 1:
             # It seems that OM version is 4.0 - so the API doesn't support filtering by name
             # and we need to iterate over all the pages to find the organization
@@ -362,7 +363,10 @@ class OMTester(object):
         return json["results"][0]["id"]
 
     def api_get_group_in_organization(self, org_id: str, group_name: str) -> str:
-        json = self.om_request("get", f"/orgs/{org_id}/groups?name={group_name}").json()
+        encoded_group_name = urllib.parse.quote_plus(group_name)
+        json = self.om_request(
+            "get", f"/orgs/{org_id}/groups?name={encoded_group_name}"
+        ).json()
         if len(json["results"]) == 0:
             return ""
         if len(json["results"]) > 1:

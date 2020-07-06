@@ -1117,6 +1117,18 @@ class KubernetesTester(object):
         )
 
     @staticmethod
+    def random_om_project_name() -> str:
+        """Generates the name for the projects with our common namespace (and project) convention so that
+        GC process could remove it if it's left for some reasons. Always has a whitespace. """
+        current_day_of_year = int(datetime.now().strftime("%j"))
+        prefix = f"a-{current_day_of_year}-"
+
+        return "{} {}".format(
+            KubernetesTester.random_k8s_name(prefix),
+            KubernetesTester.random_k8s_name(""),
+        )
+
+    @staticmethod
     def run_command_in_pod_container(
         pod_name: str, namespace: str, cmd: List[str]
     ) -> str:

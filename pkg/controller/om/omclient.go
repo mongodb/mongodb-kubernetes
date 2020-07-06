@@ -3,6 +3,7 @@ package om
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"reflect"
 	"strings"
 	"sync"
@@ -432,7 +433,7 @@ func (oc *HTTPOmConnection) RemoveHost(hostID string) error {
 // ReadOrganizationsByName finds the organizations by name. It uses the same endpoint as the 'ReadOrganizations' but
 // 'name' and 'page' parameters are not supposed to be used together so having a separate endpoint allows
 func (oc *HTTPOmConnection) ReadOrganizationsByName(name string) ([]*Organization, error) {
-	mPath := fmt.Sprintf("/api/public/v1.0/orgs?name=%s", name)
+	mPath := fmt.Sprintf("/api/public/v1.0/orgs?name=%s", url.QueryEscape(name))
 	res, err := oc.get(mPath)
 	if err != nil {
 		return nil, err
@@ -489,7 +490,7 @@ func (oc *HTTPOmConnection) MarkProjectAsBackingDatabase(backingType BackingData
 }
 
 func (oc *HTTPOmConnection) ReadProjectsInOrganizationByName(orgID string, name string) ([]*Project, error) {
-	mPath := fmt.Sprintf("/api/public/v1.0/orgs/%s/groups?name=%s", orgID, name)
+	mPath := fmt.Sprintf("/api/public/v1.0/orgs/%s/groups?name=%s", orgID, url.QueryEscape(name))
 	res, err := oc.get(mPath)
 	if err != nil {
 		return nil, err
