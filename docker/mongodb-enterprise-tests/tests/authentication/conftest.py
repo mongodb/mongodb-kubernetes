@@ -33,17 +33,22 @@ def get_ldap_pod_when_ready(namespace: str) -> client.V1Pod:
     When this happens the LDAP server has already started and ready to work.
     """
     while True:
+        time.sleep(3)
+
         try:
-            pod = KubernetesTester.read_pod_labels(namespace, LDAP_POD_LABEL).items[0]
+            pods = KubernetesTester.read_pod_labels(namespace, LDAP_POD_LABEL)
+            if pods is None:
+                continue
+
+            pod = pods.items[0]
             for condition in pod.status.conditions:
                 if condition.type == "Ready" and condition.status == "True":
                     return pod
+
         except client.rest.ApiException as e:
             # The Pod might not exist in Kubernetes yet so skip any 404
             if e.status != 404:
                 raise
-
-        time.sleep(3)
 
 
 @fixture(scope="module")
