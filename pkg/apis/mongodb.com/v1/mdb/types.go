@@ -322,10 +322,10 @@ func (s *Security) GetInternalClusterAuthenticationMode() string {
 		return ""
 	}
 	if s.Authentication.InternalCluster != "" {
-		return s.Authentication.InternalCluster
+		return strings.ToUpper(s.Authentication.InternalCluster)
 	}
 	if s.ClusterAuthMode != "" {
-		return s.ClusterAuthMode
+		return strings.ToUpper(s.ClusterAuthMode)
 	}
 	return ""
 }

@@ -41,18 +41,6 @@ func CreateVolumeFromSecret(name, sourceName string) corev1.Volume {
 	}
 }
 
-// CreateVolumeMount convenience function to build a VolumeMount.
-func CreateVolumeMount(name, path, subpath string) corev1.VolumeMount {
-	volumeMount := corev1.VolumeMount{
-		Name:      name,
-		MountPath: path,
-	}
-	if subpath != "" {
-		volumeMount.SubPath = subpath
-	}
-	return volumeMount
-}
-
 func mergeStatefulSetSpec(defaultStatefulSetSpec appsv1.StatefulSetSpec, overrideStatefulSetSpec *appsv1.StatefulSetSpec) (appsv1.StatefulSetSpec, error) {
 	if overrideStatefulSetSpec == nil {
 		return defaultStatefulSetSpec, nil

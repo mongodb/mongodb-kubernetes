@@ -52,15 +52,11 @@ const (
 	CaCertMMS = "mms-ca.crt"
 
 	// Env variables names for pods
-	ENV_VAR_BASE_URL          = "BASE_URL"
-	ENV_VAR_PROJECT_ID        = "GROUP_ID"
-	ENV_VAR_USER              = "USER_LOGIN"
-	ENV_VAR_AGENT_API_KEY     = "AGENT_API_KEY"
-	ENV_VAR_LOG_LEVEL         = "LOG_LEVEL"
-	ENV_POD_NAMESPACE         = "POD_NAMESPACE"
-	ENV_AUTOMATION_CONFIG_MAP = "AUTOMATION_CONFIG_MAP"
-	ENV_HEADLESS_AGENT        = "HEADLESS_AGENT"
-	ENV_BACKUP_DAEMON         = "BACKUP_DAEMON"
+	ENV_VAR_BASE_URL      = "BASE_URL"
+	ENV_VAR_PROJECT_ID    = "GROUP_ID"
+	ENV_VAR_USER          = "USER_LOGIN"
+	ENV_VAR_AGENT_API_KEY = "AGENT_API_KEY"
+	ENV_VAR_LOG_LEVEL     = "LOG_LEVEL"
 
 	// EnvVarSSLRequireValidMMSCertificates bla bla
 	EnvVarSSLRequireValidMMSCertificates = "SSL_REQUIRE_VALID_MMS_CERTIFICATES"
@@ -75,12 +71,7 @@ const (
 	DatabaseContainerName       = "mongodb-enterprise-database"
 	AppDbContainerName          = "mongodb-enterprise-appdb"
 	OmControllerLabel           = "mongodb-enterprise-operator"
-	InitAppDbContainerName      = "mongodb-enterprise-init-appdb"
 	InitOpsManagerContainerName = "mongodb-enterprise-init-ops-manager"
-	LivenessProbe               = "/mongodb-automation/files/probe.sh"
-	AppDbLivenessProbe          = "/opt/scripts/probe.sh"
-	ReadinessProbe              = "/mongodb-automation/files/readinessprobe"
-	AppDbReadinessProbe         = "/opt/scripts/readinessprobe"
 	PvcNameData                 = "data"
 	PvcMountPathData            = "/data"
 	PvcNameJournal              = "journal"
@@ -109,7 +100,6 @@ const (
 	AgentDownloadsDir           = "/var/lib/mongodb-mms-automation/downloads"
 
 	// Service accounts
-	AppDBServiceAccount      = "mongodb-enterprise-appdb"
 	OpsManagerServiceAccount = "mongodb-enterprise-ops-manager"
 	MongoDBServiceAccount    = "mongodb-enterprise-database-pods"
 
@@ -161,7 +151,6 @@ const (
 	InitOpsManagerImageUrl         = "INIT_OPS_MANAGER_IMAGE_REPOSITORY"
 	InitOpsManagerVersion          = "INIT_OPS_MANAGER_VERSION"
 	InitAppdbImageUrl              = "INIT_APPDB_IMAGE_REPOSITORY"
-	InitAppdbVersion               = "INIT_APPDB_VERSION"
 	OpsManagerPullPolicy           = "OPS_MANAGER_IMAGE_PULL_POLICY"
 	AutomationAgentImage           = "MONGODB_ENTERPRISE_DATABASE_IMAGE"
 	AutomationAgentImagePullPolicy = "IMAGE_PULL_POLICY"
@@ -171,7 +160,6 @@ const (
 	BackupDisableWaitRetriesEnv    = "BACKUP_WAIT_RETRIES"
 	ManagedSecurityContextEnv      = "MANAGED_SECURITY_CONTEXT"
 	AppDBImageUrl                  = "APPDB_IMAGE_REPOSITORY"
-	AppDBAutomationAgentVersion    = "APPDB_AUTOMATION_AGENT_VERSION"
 	CurrentNamespace               = "CURRENT_NAMESPACE"
 	WatchNamespace                 = "WATCH_NAMESPACE"
 

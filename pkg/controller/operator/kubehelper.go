@@ -96,6 +96,91 @@ type StatefulSetHelper struct {
 	CurrentAgentAuthMechanism string
 }
 
+func (ss StatefulSetHelper) GetOwnerRefs() []metav1.OwnerReference {
+	return baseOwnerReference(ss.Owner)
+}
+
+func (ss StatefulSetHelper) GetName() string {
+	return ss.Name
+}
+
+func (ss StatefulSetHelper) GetService() string {
+	return ss.Service
+}
+
+func (ss StatefulSetHelper) GetNamespace() string {
+	return ss.Namespace
+}
+
+func (ss StatefulSetHelper) GetReplicas() int {
+	return ss.Replicas
+}
+
+func (ss StatefulSetHelper) GetBaseUrl() string {
+	if ss.PodVars == nil {
+		return ""
+	}
+	return ss.PodVars.BaseURL
+}
+
+func (ss StatefulSetHelper) GetProjectID() string {
+	if ss.PodVars == nil {
+		return ""
+	}
+	return ss.PodVars.ProjectID
+}
+
+func (ss StatefulSetHelper) GetUser() string {
+	if ss.PodVars == nil {
+		return ""
+	}
+	return ss.PodVars.User
+}
+
+func (ss StatefulSetHelper) GetLogLevel() string {
+	if ss.PodVars == nil {
+		return ""
+	}
+	return string(ss.PodVars.LogLevel)
+}
+
+func (ss StatefulSetHelper) SSLRequireValidMMSServerCertificates() bool {
+	if ss.PodVars == nil {
+		return false
+	}
+	return ss.PodVars.SSLRequireValidMMSServerCertificates
+}
+
+func (ss StatefulSetHelper) GetSSLMMSCAConfigMap() string {
+	if ss.PodVars == nil {
+		return ""
+	}
+	return ss.PodVars.SSLMMSCAConfigMap
+}
+
+func (ss StatefulSetHelper) GetCertificateHash() string {
+	if ss.PodVars == nil {
+		return ""
+	}
+	return ss.CertificateHash
+}
+
+func (ss StatefulSetHelper) GetPodSpec() *mdbv1.PodSpecWrapper {
+	return ss.PodSpec
+}
+
+func (ss StatefulSetHelper) GetSecurity() *mdbv1.Security {
+	return ss.Security
+}
+
+func (ss StatefulSetHelper) IsPersistent() *bool {
+	return ss.Persistent
+}
+
+func (ss StatefulSetHelper) GetCurrentAgentAuthMechanism() string {
+	return ss.CertificateHash
+}
+
 func (ss StatefulSetHelper) hasHorizons() bool {
 	return len(ss.ReplicaSetHorizons) > 0
 }
@@ -142,10 +227,61 @@ type OpsManagerStatefulSetHelper struct {
 	AppDBConnectionStringHash string
 }
 
+func (s OpsManagerStatefulSetHelper) GetOwnerRefs() []metav1.OwnerReference {
+	return baseOwnerReference(s.Owner)
+}
+
+func (s OpsManagerStatefulSetHelper) GetNamespace() string {
+	return s.Namespace
+}
+
+func (s OpsManagerStatefulSetHelper) GetReplicas() int {
+	return s.Replicas
+}
+
+func (s OpsManagerStatefulSetHelper) GetOwnerName() string {
+	if s.Owner == nil {
+		return ""
+	}
+	return s.Owner.GetName()
+}
+
+func (s OpsManagerStatefulSetHelper) GetHTTPSCertSecretName() string {
+	return s.HTTPSCertSecretName
+}
+
+func (s OpsManagerStatefulSetHelper) GetAppDBTlsCAConfigMapName() string {
+	return s.AppDBTlsCAConfigMapName
+}
+
+func (s OpsManagerStatefulSetHelper) GetAppDBConnectionStringHash() string {
+	return s.AppDBConnectionStringHash
+}
+
+func (s OpsManagerStatefulSetHelper) GetEnvVars() []corev1.EnvVar {
+	return s.EnvVars
+}
+
+func (s OpsManagerStatefulSetHelper) GetVersion() string {
+	return s.Version
+}
+
+func (s OpsManagerStatefulSetHelper) GetName() string {
+	return s.Name
+}
+
+func (s OpsManagerStatefulSetHelper) GetService() string {
+	return s.Service
+}
+
 type BackupStatefulSetHelper struct {
 	OpsManagerStatefulSetHelper
 
 	HeadDbPersistenceConfig *mdbv1.PersistenceConfig
+}
+
+func (s BackupStatefulSetHelper) GetHeadDbPersistenceConfig() *mdbv1.PersistenceConfig {
+	return s.HeadDbPersistenceConfig
 }
 
 // ShardedClusterKubeState holds the Kubernetes configuration for the set of StatefulSets composing
