@@ -638,6 +638,7 @@ tasks:
         tag_dest: '$(git describe)'
         image_source: ${ecr_registry}/dev/rhel/mongodb-enterprise-operator
         image_target: scan.connect.redhat.com/ospid-5558a531-617e-46d7-9320-e84d3458768a/mongodb-enterprise-operator
+        docker_password: ${rhc_init_appdb_pid}
 
     - func: release_docker_image_to_registry
       vars:
@@ -645,6 +646,7 @@ tasks:
         tag_dest: '$(git describe)'
         image_source: ${ecr_registry}/dev/rhel/mongodb-enterprise-database
         image_target: scan.connect.redhat.com/ospid-239de277-d8bb-44b4-8593-73753752317f/mongodb-enterprise-database
+        docker_password: ${rhc_init_appdb_pid}
 
 - name: release_init_rh_connect
   commands:
@@ -658,6 +660,7 @@ tasks:
         tag_dest: '$(jq --raw-output ".initOpsManagerVersion" < release.json)'
         image_source: ${ecr_registry}/dev/rhel/mongodb-enterprise-init-ops-manager
         image_target: scan.connect.redhat.com/ospid-7da92b80-396f-4298-9de5-909165ba0c9e/mongodb-enterprise-init-ops-manager
+        docker_password: ${rhc_init_appdb_pid}
 
     - func: release_docker_image_to_registry
       vars:
@@ -665,6 +668,7 @@ tasks:
         tag_dest: '$(jq --raw-output ".initAppDbVersion" < release.json)'
         image_source: ${ecr_registry}/dev/rhel/mongodb-enterprise-init-appdb
         image_target: scan.connect.redhat.com/ospid-053baed4-c625-44bb-a9bf-a3a5585a17e8/mongodb-enterprise-init-appdb
+        docker_password: ${rhc_init_appdb_pid}
 
 - name: release_operator_quay
   commands:
@@ -678,6 +682,8 @@ tasks:
         tag_dest: '$(git describe)'
         image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-operator
         image_target: quay.io/mongodb/mongodb-enterprise-operator${suffix}
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
 
     - func: release_docker_image_to_registry
       vars:
@@ -685,6 +691,8 @@ tasks:
         tag_dest: '$(git describe)'
         image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-database
         image_target: quay.io/mongodb/mongodb-enterprise-database${suffix}
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
 
 # Releases init images to Quay
 - name: release_init_quay
@@ -699,6 +707,8 @@ tasks:
         tag_dest: '$(echo "$(jq --raw-output ".initOpsManagerVersion" < release.json)")'
         image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-init-ops-manager
         image_target: quay.io/mongodb/mongodb-enterprise-init-ops-manager${suffix}
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
 
     - func: release_docker_image_to_registry
       vars:
@@ -706,6 +716,8 @@ tasks:
         tag_dest: '$(echo "$(jq --raw-output ".initOpsManagerVersion" < release.json)-b$(date +%Y%m%d%H%M)")'
         image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-init-ops-manager
         image_target: quay.io/mongodb/mongodb-enterprise-init-ops-manager${suffix}
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
 
     - func: release_docker_image_to_registry
       vars:
@@ -713,6 +725,8 @@ tasks:
         tag_dest: '$(echo "$(jq --raw-output ".initAppDbVersion" < release.json)")'
         image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-init-appdb
         image_target: quay.io/mongodb/mongodb-enterprise-init-appdb${suffix}
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
 
     - func: release_docker_image_to_registry
       vars:
@@ -720,6 +734,8 @@ tasks:
         tag_dest: '$(echo "$(jq --raw-output ".initAppDbVersion" < release.json)-b$(date +%Y%m%d%H%M)")'
         image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-init-appdb
         image_target: quay.io/mongodb/mongodb-enterprise-init-appdb${suffix}
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
 
 - name: prerelease_master_images
   commands:
@@ -733,6 +749,8 @@ tasks:
         tag_dest: '$(git describe --dirty)'
         image_source: ${ecr_registry}/dev/${image_type}/mongodb-enterprise-operator
         image_target: quay.io/mongodb/mongodb-enterprise-operator-prerelease
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
 
     - func: release_docker_image_to_registry
       vars:
@@ -740,6 +758,8 @@ tasks:
         tag_dest: '$(git describe --dirty)'
         image_source: ${ecr_registry}/dev/${image_type}/mongodb-enterprise-database
         image_target: quay.io/mongodb/mongodb-enterprise-database-prerelease
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
 
     - func: release_docker_image_to_registry
       vars:
@@ -748,6 +768,8 @@ tasks:
         tag_dest: '$(echo "$(jq --raw-output ".initOpsManagerVersion" < release.json)"-"$(git describe --dirty|cut -d\- -f2-)")'
         image_source: ${ecr_registry}/dev/${image_type}/mongodb-enterprise-init-ops-manager
         image_target: quay.io/mongodb/mongodb-enterprise-init-ops-manager-prerelease
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
 
     - func: release_docker_image_to_registry
       vars:
@@ -756,6 +778,8 @@ tasks:
         tag_dest: '$(echo "$(jq --raw-output ".initAppDbVersion" < release.json)"-"$(git describe --dirty|cut -d\- -f2-)")'
         image_source: ${ecr_registry}/dev/${image_type}/mongodb-enterprise-init-appdb
         image_target: quay.io/mongodb/mongodb-enterprise-init-appdb-prerelease
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
 
 - name: build_test_image
   exec_timeout_secs: 200
@@ -2141,7 +2165,6 @@ buildvariants:
   expansions:
     docker_registry: scan.connect.redhat.com
     docker_username: unused
-    docker_password: ${rhc_init_appdb_pid}
   tasks:
     # - name: release_ops_manager_rh_connect
     - name: release_operator_rh_connect
@@ -2156,8 +2179,6 @@ buildvariants:
     - ubuntu1604-test
   expansions:
     docker_registry: quay.io
-    docker_username: ${quay_prod_username}
-    docker_password: ${quay_prod_robot_token}
     distro: ubuntu
     suffix: ""
   tasks:
@@ -2173,8 +2194,6 @@ buildvariants:
     - ubuntu1604-test
   expansions:
     docker_registry: quay.io
-    docker_username: ${quay_prod_username}
-    docker_password: ${quay_prod_robot_token}
     distro: rhel
     suffix: -ubi
   tasks:
