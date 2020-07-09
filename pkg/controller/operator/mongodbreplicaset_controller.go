@@ -37,7 +37,7 @@ func newReplicaSetReconciler(mgr manager.Manager, omFunc om.ConnectionFactory) *
 // Reconcile reads that state of the cluster for a MongoDbReplicaSet object and makes changes based on the state read
 // and what is in the MongoDbReplicaSet.Spec
 func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
-	agents.UpgradeAllIfNeeded(r.client, r.omConnectionFactory, getWatchedNamespace())
+	agents.UpgradeAllIfNeeded(r.kubeHelper.client, r.omConnectionFactory, getWatchedNamespace())
 
 	log := zap.S().With("ReplicaSet", request.NamespacedName)
 	rs := &mdbv1.MongoDB{}
@@ -64,7 +64,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		return r.updateStatus(rs, workflow.Invalid(err.Error()), log)
 	}
 
-	projectConfig, err := project.ReadProjectConfig(r.client, objectKey(request.Namespace, rs.Spec.GetProject()), rs.Name)
+	projectConfig, err := project.ReadProjectConfig(r.kubeHelper.client, objectKey(request.Namespace, rs.Spec.GetProject()), rs.Name)
 	if err != nil {
 		log.Infof("error reading project %s", err)
 		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, nil

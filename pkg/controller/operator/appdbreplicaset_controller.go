@@ -1,7 +1,6 @@
 package operator
 
 import (
-	"context"
 	"crypto/sha1"
 	"crypto/sha256"
 	"fmt"
@@ -9,8 +8,12 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
+
 	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/project"
 
@@ -350,8 +353,8 @@ func (r *ReconcileAppDbReplicaSet) addLatestMongoDBVersions(config *om.Automatio
 
 // registerAppDBHostsWithProject uses the Hosts API to add each process in the AppBD to the project
 func (r *ReconcileAppDbReplicaSet) registerAppDBHostsWithProject(opsManager *omv1.MongoDBOpsManager, conn om.Connection, opsManagerPassword string, log *zap.SugaredLogger) error {
-	appDbStatefulSet := appsv1.StatefulSet{}
-	if err := r.client.Get(context.TODO(), objectKey(opsManager.Namespace, opsManager.Spec.AppDB.Name()), &appDbStatefulSet); err != nil {
+	appDbStatefulSet, err := r.client.GetStatefulSet(kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.Name()))
+	if err != nil {
 		return err
 	}
 
@@ -382,7 +385,7 @@ func (r *ReconcileAppDbReplicaSet) registerAppDBHostsWithProject(opsManager *omv
 
 // ensureAppDbAgentApiKey makes sure there is an agent API key for the AppDB automation agent
 func (r *ReconcileAppDbReplicaSet) ensureAppDbAgentApiKey(opsManager *omv1.MongoDBOpsManager, conn om.Connection, log *zap.SugaredLogger) error {
-	agentKeyFromSecret, err := r.kubeHelper.readSecretKey(objectKey(opsManager.Namespace, agentApiKeySecretName(conn.GroupID())), util.OmAgentApiKey)
+	agentKeyFromSecret, err := secret.ReadKey(r.client, util.OmAgentApiKey, kube.ObjectKey(opsManager.Namespace, agentApiKeySecretName(conn.GroupID())))
 	err = client.IgnoreNotFound(err)
 	if err != nil {
 		return fmt.Errorf("error reading secret %s: %s", objectKey(opsManager.Namespace, agentApiKeySecretName(conn.GroupID())), err)
@@ -397,9 +400,9 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbAgentApiKey(opsManager *omv1.Mongo
 // tryConfigureMonitoringInOpsManager attempts to configure monitoring in Ops Manager. This might not be possible if Ops Manager
 // has not been created yet, if that is the case, an empty PodVars will be returned.
 func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager *omv1.MongoDBOpsManager, opsManagerUserPassword string, log *zap.SugaredLogger) (*PodVars, error) {
-	cred, _ := project.ReadCredentials(r.client, objectKey(operatorNamespace(), opsManager.APIKeySecretName()))
-	if cred.PublicAPIKey == "" || cred.User == "" {
-		log.Debugf("Ops Manager has not yet been created, not configuring monitoring.")
+	cred, err := project.ReadCredentials(r.kubeHelper.client, kube.ObjectKey(operatorNamespace(), opsManager.APIKeySecretName()))
+	if err != nil {
+		log.Debugf("Ops Manager has not yet been created, not configuring monitoring: %s", err)
 		return &PodVars{}, nil
 	}
 	log.Debugf("Ensuring monitoring of AppDB is configured in Ops Manager")
@@ -433,7 +436,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager
 		SetField(util.AppDbProjectIdKey, conn.GroupID()).
 		Build()
 
-	if err := r.kubeHelper.configmapClient.CreateOrUpdate(cm); err != nil {
+	if err := configmap.CreateOrUpdate(r.kubeHelper.client, cm); err != nil {
 		return existingPodVars, fmt.Errorf("error creating ConfigMap: %s", err)
 	}
 
@@ -451,7 +454,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager
 // before hand. This is required as with empty PodVars this would trigger an unintentional
 // rolling restart of the AppDB.
 func (r *ReconcileAppDbReplicaSet) readExistingPodVars(om omv1.MongoDBOpsManager) (*PodVars, error) {
-	cm, err := r.kubeHelper.configmapClient.Get(objectKey(om.Namespace, om.Spec.AppDB.ProjectIDConfigMapName()))
+	cm, err := r.kubeHelper.client.GetConfigMap(objectKey(om.Namespace, om.Spec.AppDB.ProjectIDConfigMapName()))
 	if err != nil {
 		return nil, err
 	}
@@ -460,7 +463,7 @@ func (r *ReconcileAppDbReplicaSet) readExistingPodVars(om omv1.MongoDBOpsManager
 		return nil, fmt.Errorf("ConfigMap %s did not have the key %s", om.Spec.AppDB.ProjectIDConfigMapName(), util.AppDbProjectIdKey)
 	}
 
-	cred, err := project.ReadCredentials(r.client, objectKey(operatorNamespace(), om.APIKeySecretName()))
+	cred, err := project.ReadCredentials(r.kubeHelper.client, objectKey(operatorNamespace(), om.APIKeySecretName()))
 	if err != nil {
 		return nil, fmt.Errorf("error reading credentials: %s", err)
 	}

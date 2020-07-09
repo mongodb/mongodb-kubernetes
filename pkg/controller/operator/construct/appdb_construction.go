@@ -58,7 +58,7 @@ func buildAppDBPodTemplateSpecFunc(mdbBuilder DatabaseBuilder) podtemplatespec.M
 	appDbScriptsVolumeMount := appDbScriptsVolumeMount(true)
 
 	return podtemplatespec.Apply(
-		sharedDatabaseConfigurationConfiguration(mdbBuilder),
+		sharedDatabaseConfiguration(mdbBuilder),
 		podtemplatespec.WithAnnotations(map[string]string{}),
 		podtemplatespec.WithServiceAccount(appDBServiceAccount),
 		podtemplatespec.WithVolume(scriptsVolume),

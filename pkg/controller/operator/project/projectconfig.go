@@ -2,9 +2,9 @@ package project
 
 import (
 	"fmt"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -13,9 +13,8 @@ import (
 // ReadProjectConfig returns a "Project" config build from a ConfigMap with a series of attributes
 // like `projectName`, `baseUrl` and a series of attributes related to SSL.
 // If configMap doesn't have a projectName defined - the name of MongoDB resource is used as a name of project
-func ReadProjectConfig(client client.Client, projectConfigMap client.ObjectKey, mdbName string) (mdbv1.ProjectConfig, error) {
-	configMapClient := configmap.NewClient(client)
-	data, err := configMapClient.GetData(projectConfigMap)
+func ReadProjectConfig(cmGetter configmap.Getter, projectConfigMap client.ObjectKey, mdbName string) (mdbv1.ProjectConfig, error) {
+	data, err := configmap.ReadData(cmGetter, projectConfigMap)
 	if err != nil {
 		return mdbv1.ProjectConfig{}, err
 	}
@@ -40,7 +39,8 @@ func ReadProjectConfig(client client.Client, projectConfigMap client.ObjectKey, 
 	caFile := ""
 	if ok {
 		sslCaConfigMapKey := types.NamespacedName{Name: sslCaConfigMap, Namespace: projectConfigMap.Namespace}
-		cacrt, err := configMapClient.GetData(sslCaConfigMapKey)
+
+		cacrt, err := configmap.ReadData(cmGetter, sslCaConfigMapKey)
 		if err != nil {
 			return mdbv1.ProjectConfig{}, fmt.Errorf("failed to read the specified ConfigMap %s (%e)", sslCaConfigMapKey, err)
 		}

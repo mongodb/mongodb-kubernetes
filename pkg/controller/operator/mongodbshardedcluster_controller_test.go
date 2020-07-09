@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+
 	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
@@ -299,7 +301,7 @@ func TestShardedCluster_WithTLSEnabled_AndX509Enabled_Succeeds(t *testing.T) {
 	assert.Nil(t, err)
 }
 
-func addCsrs(client *mock.MockedClient, csrs ...certsv1.CertificateSigningRequest) {
+func addCsrs(client kubernetesClient.Client, csrs ...certsv1.CertificateSigningRequest) {
 	for _, csr := range csrs {
 		_ = client.Update(context.TODO(), &csr)
 	}

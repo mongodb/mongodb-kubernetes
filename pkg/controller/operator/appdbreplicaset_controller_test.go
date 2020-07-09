@@ -6,6 +6,10 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
+
 	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
@@ -373,7 +377,7 @@ func TestEnsureAppDbAgentApiKey(t *testing.T) {
 	assert.NoError(t, err)
 
 	secretName := agentApiKeySecretName(conn.GroupID())
-	apiKey, err := reconciler.kubeHelper.readSecretKey(objectKey(opsManager.Namespace, secretName), util.OmAgentApiKey)
+	apiKey, err := secret.ReadKey(reconciler.kubeHelper.client, util.OmAgentApiKey, kube.ObjectKey(opsManager.Namespace, secretName))
 	assert.NoError(t, err)
 	assert.Equal(t, "my-api-key", apiKey)
 }
@@ -406,7 +410,13 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 		util.OmUser:         "omUser",
 	}
 
-	err = reconciler.kubeHelper.createSecret(objectKey(operatorNamespace(), opsManager.APIKeySecretName()), data, nil, nil)
+	apiKeySecret := secret.Builder().
+		SetNamespace(operatorNamespace()).
+		SetName(opsManager.APIKeySecretName()).
+		SetStringData(data).
+		Build()
+
+	err = reconciler.kubeHelper.client.CreateSecret(apiKeySecret)
 	assert.NoError(t, err)
 
 	// once the secret exists, monitoring should be fully configured

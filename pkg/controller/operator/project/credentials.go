@@ -1,19 +1,18 @@
 package project
 
 import (
-	"context"
 	"fmt"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 	"strings"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // ReadCredentials reads the Secret containing the credentials to authenticate in Ops Manager and creates a matching 'Credentials' object
-func ReadCredentials(client client.Client, credentialsSecret client.ObjectKey) (mdbv1.Credentials, error) {
-	secret, err := readSecret(client, credentialsSecret)
+func ReadCredentials(secretGetter secret.Getter, credentialsSecret client.ObjectKey) (mdbv1.Credentials, error) {
+	secret, err := readSecret(secretGetter, credentialsSecret)
 	if err != nil {
 		return mdbv1.Credentials{}, fmt.Errorf("error getting secret %s: %s", credentialsSecret, err)
 	}
@@ -33,15 +32,13 @@ func ReadCredentials(client client.Client, credentialsSecret client.ObjectKey) (
 }
 
 // TODO use a SecretsClient the same we do for ConfigMapClient
-func readSecret(client client.Client, nsName client.ObjectKey) (map[string]string, error) {
-	secret := &corev1.Secret{}
-	e := client.Get(context.TODO(), nsName, secret)
-	if e != nil {
-		return nil, e
-	}
-
+func readSecret(secretGetter secret.Getter, nsName client.ObjectKey) (map[string]string, error) {
 	secrets := make(map[string]string)
-	for k, v := range secret.Data {
+	stringData, err := secret.ReadStringData(secretGetter, nsName)
+	if err != nil {
+		return nil, err
+	}
+	for k, v := range stringData  {
 		secrets[k] = strings.TrimSuffix(string(v[:]), "\n")
 	}
 	return secrets, nil

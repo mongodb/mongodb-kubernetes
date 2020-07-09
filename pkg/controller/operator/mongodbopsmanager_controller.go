@@ -9,6 +9,8 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
 	mdbstatus "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
@@ -227,23 +229,29 @@ func (r *OpsManagerReconciler) readOpsManagerResource(request reconcile.Request,
 
 // ensureAppDBConnectionString ensures that the AppDB Connection String exists in a secret.
 func (r *OpsManagerReconciler) ensureAppDBConnectionString(opsManager omv1.MongoDBOpsManager, computedConnectionString string, log *zap.SugaredLogger) error {
-	secret := &corev1.Secret{}
-	err := r.client.Get(context.TODO(), objectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()), secret)
-	connectionString := map[string]string{
-		util.AppDbConnectionStringKey: computedConnectionString,
-	}
+	connectionStringSecret, err := r.kubeHelper.client.GetSecret(kube.ObjectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()))
+
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			log.Debugf("AppDB connection string secret was not found, creating %s now", objectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()))
 			// assume the secret was not found, need to create it
-			return r.kubeHelper.createSecret(objectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()), connectionString, nil, nil)
+
+			connectionStringSecret = secret.Builder().
+				SetName(opsManager.AppDBMongoConnectionStringSecretName()).
+				SetNamespace(opsManager.Namespace).
+				SetField(util.AppDbConnectionStringKey, computedConnectionString).
+				Build()
+
+			return r.kubeHelper.client.CreateSecret(connectionStringSecret)
 		}
 		log.Warnf("Error getting connection string secret: %s", err)
 		return err
 	}
-	secret.StringData = connectionString
+	connectionStringSecret.StringData = map[string]string{
+		util.AppDbConnectionStringKey: computedConnectionString,
+	}
 	log.Debugf("Connection string secret already exists, updating %s", objectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()))
-	return r.client.Update(context.TODO(), secret)
+	return r.kubeHelper.client.UpdateSecret(connectionStringSecret)
 }
 
 func hashConnectionString(connectionString string) string {
@@ -422,7 +430,8 @@ func setConfigProperty(opsManager *omv1.MongoDBOpsManager, key, value string, lo
 // ensureGenKey
 func (r OpsManagerReconciler) ensureGenKey(om omv1.MongoDBOpsManager, log *zap.SugaredLogger) error {
 	objectKey := objectKey(om.Namespace, om.Name+"-gen-key")
-	_, err := r.kubeHelper.readSecret(objectKey)
+	_, err := r.kubeHelper.client.GetSecret(objectKey)
+
 	if apiErrors.IsNotFound(err) {
 		// todo if the key is not found but the AppDB is initialized - OM will fail to start as preflight
 		// check will complain that keys are different - we need to validate against this here
@@ -433,7 +442,15 @@ func (r OpsManagerReconciler) ensureGenKey(om omv1.MongoDBOpsManager, log *zap.S
 		keyMap := map[string][]byte{"gen.key": token}
 
 		log.Infof("Creating secret %s", objectKey)
-		return r.kubeHelper.createSecret(objectKey, keyMap, map[string]string{}, nil)
+
+		genKeySecret := secret.Builder().
+			SetName(objectKey.Name).
+			SetNamespace(objectKey.Namespace).
+			SetLabels(map[string]string{}).
+			SetByteData(keyMap).
+			Build()
+
+		return r.kubeHelper.client.CreateSecret(genKeySecret)
 	}
 	return err
 }
@@ -444,7 +461,7 @@ func (r OpsManagerReconciler) getAppDBPassword(opsManager omv1.MongoDBOpsManager
 	passwordRef := opsManager.Spec.AppDB.PasswordSecretKeyRef
 	if passwordRef != nil && passwordRef.Name != "" { // there is a secret specified for the Ops Manager user
 
-		password, err := r.kubeHelper.readSecretKey(objectKey(opsManager.Namespace, passwordRef.Name), passwordRef.Key)
+		password, err := secret.ReadKey(r.kubeHelper.client, passwordRef.Key, kube.ObjectKey(opsManager.Namespace, passwordRef.Name))
 		if err != nil {
 			return "", err
 		}
@@ -461,7 +478,7 @@ func (r OpsManagerReconciler) getAppDBPassword(opsManager omv1.MongoDBOpsManager
 		// delete the auto generated password, we don't need it anymore. We can just generate a new one if
 		// the user password is deleted
 		log.Debugf("Deleting Operator managed password secret/%s from namespace", opsManager.Spec.AppDB.GetSecretName(), opsManager.Namespace)
-		if err := r.kubeHelper.deleteSecret(objectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetSecretName())); err != nil && !apiErrors.IsNotFound(err) {
+		if err := r.kubeHelper.client.DeleteSecret(kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetSecretName())); err != nil && !apiErrors.IsNotFound(err) {
 			return "", err
 		}
 
@@ -469,8 +486,8 @@ func (r OpsManagerReconciler) getAppDBPassword(opsManager omv1.MongoDBOpsManager
 	}
 
 	// otherwise we'll ensure the auto generated password exists
-	secretObjectKey := objectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetSecretName())
-	secret, err := r.kubeHelper.readSecret(secretObjectKey)
+	secretObjectKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetSecretName())
+	appDbPasswordSecretStringData, err := secret.ReadStringData(r.kubeHelper.client, secretObjectKey)
 
 	if apiErrors.IsNotFound(err) {
 		// create the password
@@ -484,7 +501,15 @@ func (r OpsManagerReconciler) getAppDBPassword(opsManager omv1.MongoDBOpsManager
 		}
 
 		log.Infof("Creating mongodb-ops-manager password in secret/%s in namespace %s", secretObjectKey.Name, secretObjectKey.Namespace)
-		if err = r.kubeHelper.createSecret(secretObjectKey, passwordData, nil, &opsManager); err != nil {
+
+		appDbPasswordSecret := secret.Builder().
+			SetName(secretObjectKey.Name).
+			SetNamespace(secretObjectKey.Namespace).
+			SetStringData(passwordData).
+			SetOwnerReferences(baseOwnerReference(&opsManager)).
+			Build()
+
+		if err := r.kubeHelper.client.CreateSecret(appDbPasswordSecret); err != nil {
 			return "", err
 		}
 
@@ -496,7 +521,7 @@ func (r OpsManagerReconciler) getAppDBPassword(opsManager omv1.MongoDBOpsManager
 	}
 
 	log.Debugf("Using auto generated AppDB password stored in secret/%s", opsManager.Spec.AppDB.GetSecretName())
-	return secret[util.OpsManagerPasswordKey], nil
+	return appDbPasswordSecretStringData[util.OpsManagerPasswordKey], nil
 }
 
 // prepareOpsManager ensures the admin user is created and the admin public key exists. It returns the instance of
@@ -508,21 +533,21 @@ func (r OpsManagerReconciler) getAppDBPassword(opsManager omv1.MongoDBOpsManager
 // allow the db to get recreated but seems this is a quite radical operation.
 func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManager, log *zap.SugaredLogger) (workflow.Status, api.Admin) {
 	// We won't support cross-namespace secrets until CLOUDP-46636 is resolved
-	secret := objectKey(opsManager.Namespace, opsManager.Spec.AdminSecret)
+	adminObjectKey := objectKey(opsManager.Namespace, opsManager.Spec.AdminSecret)
 
 	// 1. Read the admin secret
-	userData, err := r.kubeHelper.readSecret(secret)
+	userData, err := r.kubeHelper.readSecret(adminObjectKey)
 
 	if apiErrors.IsNotFound(err) {
 		// This requires user actions - let's wait a bit longer than 10 seconds
-		return workflow.Failed("the secret %s doesn't exist - you need to create it to finish Ops Manager initialization", secret).WithRetry(60), nil
+		return workflow.Failed("the secret %s doesn't exist - you need to create it to finish Ops Manager initialization", adminObjectKey).WithRetry(60), nil
 	} else if err != nil {
 		return workflow.Failed(err.Error()), nil
 	}
 
 	user, err := newUserFromSecret(userData)
 	if err != nil {
-		return workflow.Failed("failed to read user data from the secret %s: %s", secret, err), nil
+		return workflow.Failed("failed to read user data from the secret %s: %s", adminObjectKey, err), nil
 	}
 
 	adminKeySecretName := objectKey(operatorNamespace(), opsManager.APIKeySecretName())
@@ -552,12 +577,21 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 			// The structure matches the structure of a credentials secret used by normal mongodb resources
 			secretData := map[string]string{util.OmPublicApiKey: apiKey, util.OmUser: user.Username}
 
-			if err = r.kubeHelper.deleteSecret(adminKeySecretName); err != nil && !apiErrors.IsNotFound(err) {
+			if err = r.kubeHelper.client.DeleteSecret(adminKeySecretName); err != nil && !apiErrors.IsNotFound(err) {
 				// TODO our desired behavior is not to fail but just append the warning to the status (CLOUDP-51340)
 				return workflow.Failed("failed to replace a secret for admin public api key. %s. The error : %s",
 					detailedMsg, err).WithRetry(300), nil
 			}
-			if err = r.kubeHelper.createSecret(adminKeySecretName, secretData, map[string]string{}, &opsManager); err != nil {
+
+			adminSecret := secret.Builder().
+				SetNamespace(adminKeySecretName.Namespace).
+				SetName(adminKeySecretName.Name).
+				SetStringData(secretData).
+				SetOwnerReferences(baseOwnerReference(&opsManager)).
+				SetLabels(map[string]string{}).
+				Build()
+
+			if err := r.kubeHelper.client.CreateSecret(adminSecret); err != nil {
 				// TODO see above
 				return workflow.Failed("failed to create a secret for admin public api key. %s. The error : %s",
 					detailedMsg, err).WithRetry(30), nil
@@ -579,7 +613,7 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 			detailedMsg, err).WithRetry(30), nil
 	}
 	// Ops Manager api key Secret has the same structure as the MongoDB credentials secret
-	cred, err := project.ReadCredentials(r.client, objectKey(operatorNamespace(), opsManager.APIKeySecretName()))
+	cred, err := project.ReadCredentials(r.kubeHelper.client, objectKey(operatorNamespace(), opsManager.APIKeySecretName()))
 	if err != nil {
 		return workflow.Failed(err.Error()), nil
 	}

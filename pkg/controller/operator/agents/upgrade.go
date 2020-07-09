@@ -6,6 +6,10 @@ import (
 	"sync"
 	"time"
 
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/project"
@@ -34,7 +38,7 @@ func init() {
 // for all existing MongoDB resources before proceeding. This could be a critical thing when the major version OM upgrade
 // happens and all existing MongoDBs are required to get agents upgraded (otherwise the "You need to upgrade the
 // automation agent before publishing other changes" error happens for automation config pushes from the Operator)
-func UpgradeAllIfNeeded(client client.Client, omConnectionFactory om.ConnectionFactory, watchNamespace string) {
+func UpgradeAllIfNeeded(client kubernetesClient.Client, omConnectionFactory om.ConnectionFactory, watchNamespace string) {
 	mux.Lock()
 	defer mux.Unlock()
 
@@ -71,7 +75,7 @@ func NextScheduledUpgradeTime() time.Time {
 	return nextScheduledTime
 }
 
-func doUpgrade(cl client.Client, factory om.ConnectionFactory, mdbs []mdbv1.MongoDB) error {
+func doUpgrade(cl kubernetesClient.Client, factory om.ConnectionFactory, mdbs []mdbv1.MongoDB) error {
 	for _, mdb := range mdbs {
 		log := zap.S().With(string(mdb.Spec.ResourceType), mdb.ObjectKey())
 		conn, err := connectToMongoDB(cl, factory, mdb, log)
@@ -124,12 +128,17 @@ func readAllMongoDBs(cl client.Client, watchNamespace string) ([]mdbv1.MongoDB, 
 	return mdbs, nil
 }
 
-func connectToMongoDB(cl client.Client, factory om.ConnectionFactory, mdb mdbv1.MongoDB, log *zap.SugaredLogger) (om.Connection, error) {
-	projectConfig, err := project.ReadProjectConfig(cl, kube.ObjectKey(mdb.Namespace, mdb.Spec.GetProject()), mdb.Name)
+type secretAndConfigMapGetter interface {
+	configmap.Getter
+	secret.Getter
+}
+
+func connectToMongoDB(getter secretAndConfigMapGetter, factory om.ConnectionFactory, mdb mdbv1.MongoDB, log *zap.SugaredLogger) (om.Connection, error) {
+	projectConfig, err := project.ReadProjectConfig(getter, kube.ObjectKey(mdb.Namespace, mdb.Spec.GetProject()), mdb.Name)
 	if err != nil {
 		return nil, fmt.Errorf("Error reading Project Config: %s", err)
 	}
-	credsConfig, err := project.ReadCredentials(cl, kube.ObjectKey(mdb.Namespace, mdb.Spec.Credentials))
+	credsConfig, err := project.ReadCredentials(getter, kube.ObjectKey(mdb.Namespace, mdb.Spec.Credentials))
 	if err != nil {
 		return nil, fmt.Errorf("Error reading Credentials secret: %s", err)
 	}

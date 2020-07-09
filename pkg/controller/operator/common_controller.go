@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"os"
 
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 
 	"crypto/x509"
 	"encoding/pem"
@@ -24,12 +27,10 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/inspect"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/blang/semver"
-	appsv1 "k8s.io/api/apps/v1"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
 
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -38,7 +39,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
-	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -62,7 +62,7 @@ type patchValue struct {
 type ReconcileCommonController struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
-	client              client.Client
+	client              kubernetesClient.Client
 	scheme              *runtime.Scheme
 	kubeHelper          KubeHelper
 	omConnectionFactory om.ConnectionFactory
@@ -77,7 +77,7 @@ type ReconcileCommonController struct {
 
 func newReconcileCommonController(mgr manager.Manager, omFunc om.ConnectionFactory) *ReconcileCommonController {
 	return &ReconcileCommonController{
-		client:              mgr.GetClient(),
+		client:              kubernetesClient.NewClient(mgr.GetClient()),
 		scheme:              mgr.GetScheme(),
 		kubeHelper:          NewKubeHelper(mgr.GetClient()),
 		omConnectionFactory: omFunc,
@@ -95,12 +95,12 @@ func (c *ReconcileCommonController) GetMutex(resourceName types.NamespacedName) 
 // prepareConnection reads project config map and credential secrets and uses these values to communicate with Ops Manager:
 // create or read the project and optionally request an agent key (it could have been returned by group api call)
 func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedName, spec mdbv1.ConnectionSpec, podVars *PodVars, log *zap.SugaredLogger) (om.Connection, error) {
-	projectConfig, err := project.ReadProjectConfig(c.client, objectKey(nsName.Namespace, spec.GetProject()), nsName.Name)
+	projectConfig, err := project.ReadProjectConfig(c.kubeHelper.client, objectKey(nsName.Namespace, spec.GetProject()), nsName.Name)
 	if err != nil {
 		return nil, fmt.Errorf("Error reading Project Config: %s", err)
 	}
 
-	credsConfig, err := project.ReadCredentials(c.client, objectKey(nsName.Namespace, spec.Credentials))
+	credsConfig, err := project.ReadCredentials(c.kubeHelper.client, objectKey(nsName.Namespace, spec.Credentials))
 	if err != nil {
 		return nil, fmt.Errorf("Error reading Credentials secret: %s", err)
 	}
@@ -190,10 +190,7 @@ func ensureTagAdded(conn om.Connection, project *om.Project, tag string, log *za
 func (c *ReconcileCommonController) ensureAgentKeySecretExists(conn om.Connection, nameSpace, agentKey string, log *zap.SugaredLogger) error {
 	secretName := agentApiKeySecretName(conn.GroupID())
 	log = log.With("secret", secretName)
-	secret := &corev1.Secret{}
-	err := c.client.Get(context.TODO(),
-		objectKey(nameSpace, secretName),
-		secret)
+	_, err := c.kubeHelper.client.GetSecret(kube.ObjectKey(nameSpace, secretName))
 	if err != nil {
 		if agentKey == "" {
 			log.Info("Generating agent key as current project doesn't have it")
@@ -220,8 +217,13 @@ func (c *ReconcileCommonController) ensureAgentKeySecretExists(conn om.Connectio
 }
 
 func (c *ReconcileCommonController) createAgentKeySecret(objectKey client.ObjectKey, agentKey string, owner v1.CustomResourceReadWriter) error {
-	data := map[string]string{util.OmAgentApiKey: agentKey}
-	return c.kubeHelper.createSecret(objectKey, data, map[string]string{}, owner)
+	agentKeySecret := secret.Builder().
+		SetField(util.OmAgentApiKey, agentKey).
+		SetOwnerReferences(baseOwnerReference(owner)).
+		SetName(objectKey.Name).
+		SetNamespace(objectKey.Namespace).
+		Build()
+	return c.kubeHelper.client.CreateSecret(agentKeySecret)
 }
 
 // updateStatus updates the status for the CR using patch operation. Note, that the resource status is mutated and
@@ -455,8 +457,7 @@ func checkIfHasExcessProcesses(conn om.Connection, resource *mdbv1.MongoDB, log 
 
 // doAgentX509CertsExist looks for the secret "agent-certs" to determine if we can continue with mounting the x509 volumes
 func (r *ReconcileCommonController) doAgentX509CertsExist(namespace string) bool {
-	secret := &corev1.Secret{}
-	err := r.kubeHelper.client.Get(context.TODO(), objectKey(namespace, util.AgentSecretName), secret)
+	_, err := r.kubeHelper.client.GetSecret(kube.ObjectKey(namespace, util.AgentSecretName))
 	if err != nil {
 		return false
 	}
@@ -638,8 +639,8 @@ func validateMongoDBResource(mdb *mdbv1.MongoDB, conn om.Connection) workflow.St
 func (r *ReconcileCommonController) getStatefulSetStatus(namespace, name string) workflow.Status {
 	// TODO can we do this without sleeping?
 	time.Sleep(time.Duration(envutil.ReadIntOrDefault(util.K8sCacheRefreshEnv, util.DefaultK8sCacheRefreshTimeSeconds)) * time.Second)
-	set := appsv1.StatefulSet{}
-	err := r.client.Get(context.TODO(), objectKey(namespace, name), &set)
+
+	set, err := r.client.GetStatefulSet(kube.ObjectKey(namespace, name))
 	if err != nil {
 		return workflow.Failed(err.Error())
 	}
@@ -745,7 +746,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 	}
 
 	if mdb.IsLDAPEnabled() {
-		bindUserPassword, err := r.kubeHelper.readSecretKey(kube.ObjectKey(mdb.Namespace, mdb.Spec.Security.Authentication.Ldap.BindQuerySecretRef.Name), "password")
+		bindUserPassword, err := secret.ReadKey(r.client, "password", kube.ObjectKey(mdb.Namespace, mdb.Spec.Security.Authentication.Ldap.BindQuerySecretRef.Name))
 		if err != nil {
 			return workflow.Failed(fmt.Sprintf("error reading bind user password: %s", err)), false
 		}

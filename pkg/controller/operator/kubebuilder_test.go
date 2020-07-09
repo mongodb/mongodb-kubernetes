@@ -6,6 +6,8 @@ import (
 	"path"
 	"testing"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 
@@ -16,7 +18,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
@@ -269,7 +270,6 @@ func TestPodSpec_Requirements(t *testing.T) {
 func TestService_merge0(t *testing.T) {
 	dst := corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"}}
 	src := corev1.Service{}
-
 	dst = service.Merge(dst, src)
 	assert.Equal(t, "my-service", dst.ObjectMeta.Name)
 	assert.Equal(t, "my-namespace", dst.ObjectMeta.Namespace)

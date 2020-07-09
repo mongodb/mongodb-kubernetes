@@ -84,7 +84,7 @@ type ReconcileMongoDbStandalone struct {
 }
 
 func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
-	agents.UpgradeAllIfNeeded(r.client, r.omConnectionFactory, getWatchedNamespace())
+	agents.UpgradeAllIfNeeded(r.kubeHelper.client, r.omConnectionFactory, getWatchedNamespace())
 
 	log := zap.S().With("Standalone", request.NamespacedName)
 	s := &mdbv1.MongoDB{}
@@ -108,7 +108,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 	log.Infow("Standalone.Spec", "spec", s.Spec)
 	log.Infow("Standalone.Status", "status", s.Status)
 
-	projectConfig, err := project.ReadProjectConfig(r.client, objectKey(request.Namespace, s.Spec.GetProject()), s.Name)
+	projectConfig, err := project.ReadProjectConfig(r.kubeHelper.client, objectKey(request.Namespace, s.Spec.GetProject()), s.Name)
 	if err != nil {
 		log.Infof("error reading project %s", err)
 		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, nil

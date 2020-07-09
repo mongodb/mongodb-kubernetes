@@ -164,7 +164,7 @@ func TestStandaloneCustomPodSpecTemplate(t *testing.T) {
 
 	checkReconcileSuccessful(t, reconciler, st, client)
 
-	statefulSet := getStatefulSet(client, objectKeyFromApiObject(st))
+	statefulSet := getStatefulSet(client, mock.ObjectKeyFromApiObject(st))
 
 	expectedLabels := map[string]string{"app": "dublin-svc", "controller": "mongodb-enterprise-operator",
 		"first": "val", "pod-anti-affinity": "dublin"}

@@ -9,11 +9,10 @@ import (
 
 	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
 
 	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 	"k8s.io/apimachinery/pkg/api/resource"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 
 	"fmt"
 
@@ -249,6 +248,9 @@ func buildService(namespacedName types.NamespacedName, owner v1.CustomResourceRe
 }
 
 func baseOwnerReference(owner v1.CustomResourceReadWriter) []metav1.OwnerReference {
+	if owner == nil {
+		return []metav1.OwnerReference{}
+	}
 	return []metav1.OwnerReference{
 		*metav1.NewControllerRef(owner, schema.GroupVersionKind{
 			Group:   v1.SchemeGroupVersion.Group,
@@ -259,6 +261,7 @@ func baseOwnerReference(owner v1.CustomResourceReadWriter) []metav1.OwnerReferen
 }
 
 // TODO: delete this and move unit tests into construction_test.go
+//lint:ignore U1000 currently only used in tests,
 func databaseEnvVars(podVars *PodVars) []corev1.EnvVar {
 	vars := []corev1.EnvVar{
 		{

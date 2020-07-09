@@ -5,6 +5,10 @@ import (
 	"os"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
+
 	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
 	userv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/user"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -69,15 +73,15 @@ func TestOpsManagerReconciler_watchedResources(t *testing.T) {
 
 	// om watches oplog MDB resource
 	assert.Contains(t, reconciler.watchedResources, key)
-	assert.Contains(t, reconciler.watchedResources[key], objectKeyFromApiObject(&testOm))
-	assert.Contains(t, reconciler.watchedResources[key], objectKeyFromApiObject(&otherTestOm))
+	assert.Contains(t, reconciler.watchedResources[key], mock.ObjectKeyFromApiObject(&testOm))
+	assert.Contains(t, reconciler.watchedResources[key], mock.ObjectKeyFromApiObject(&otherTestOm))
 
 	// if backup is disabled, should be removed from watched resources
 	testOm.Spec.Backup.Enabled = false
 	reconciler.watchMongoDBResourcesReferencedByBackup(testOm)
 	assert.Contains(t, reconciler.watchedResources, key)
-	assert.Contains(t, reconciler.watchedResources[key], objectKeyFromApiObject(&otherTestOm))
-	assert.NotContains(t, reconciler.watchedResources[key], objectKeyFromApiObject(&testOm))
+	assert.Contains(t, reconciler.watchedResources[key], mock.ObjectKeyFromApiObject(&otherTestOm))
+	assert.NotContains(t, reconciler.watchedResources[key], mock.ObjectKeyFromApiObject(&testOm))
 }
 
 func TestOpsManagerReconciler_prepareOpsManager(t *testing.T) {
@@ -112,7 +116,7 @@ func TestOpsManagerReconciler_prepareOpsManagerTwoCalls(t *testing.T) {
 	reconciler.prepareOpsManager(testOm, zap.S())
 
 	// let's "update" the user admin secret - this must not affect anything
-	client.GetMapForObject(&corev1.Secret{})[objectKey(OperatorNamespace, testOm.APIKeySecretName())].(*corev1.Secret).StringData["Username"] = "this-is-not-expected@g.com"
+	client.GetMapForObject(&corev1.Secret{})[objectKey(OperatorNamespace, testOm.APIKeySecretName())].(*corev1.Secret).Data["Username"] = []byte("this-is-not-expected@g.com")
 
 	// second call is ok - we just don't create the admin user in OM and don't add new secrets
 	reconcileStatus, _ := reconciler.prepareOpsManager(testOm, zap.S())
@@ -193,18 +197,26 @@ func TestBackupStatefulSetIsNotRemoved_WhenDisabled(t *testing.T) {
 	}).Build()
 	reconciler, client, _, _ := defaultTestOmReconciler(t, testOm)
 
-	_ = reconciler.kubeHelper.createSecret(objectKey(testOm.Namespace, testOm.Spec.AppDB.PasswordSecretKeyRef.Name), map[string][]byte{
-		"password": []byte("password"),
-	}, nil, &testOm)
+	s := secret.Builder().
+		SetName(testOm.Spec.AppDB.PasswordSecretKeyRef.Name).
+		SetNamespace(testOm.Namespace).
+		SetByteData(map[string][]byte{
+			"password": []byte("password"),
+		}).SetOwnerReferences(baseOwnerReference(&testOm)).
+		Build()
+
+	err := reconciler.kubeHelper.client.CreateSecret(s)
+	assert.NoError(t, err)
 
 	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
 
 	backupSts := appsv1.StatefulSet{}
-	err := client.Get(context.TODO(), objectKey(testOm.Namespace, testOm.BackupStatefulSetName()), &backupSts)
+	err = client.Get(context.TODO(), objectKey(testOm.Namespace, testOm.BackupStatefulSetName()), &backupSts)
 	assert.NoError(t, err, "Backup StatefulSet should have been created when backup is enabled")
 
 	testOm.Spec.Backup.Enabled = false
-	_ = client.Update(context.TODO(), &testOm)
+	err = client.Update(context.TODO(), &testOm)
+	assert.NoError(t, err)
 
 	res, err := reconciler.Reconcile(requestFromObject(&testOm))
 	assert.Equal(t, reconcile.Result{}, res)
@@ -221,13 +233,20 @@ func TestOpsManagerPodTemplateSpec_IsAnnotatedWithHash(t *testing.T) {
 	}).Build()
 	reconciler, client, _, _ := defaultTestOmReconciler(t, testOm)
 
-	_ = reconciler.kubeHelper.createSecret(objectKey(testOm.Namespace, testOm.Spec.AppDB.PasswordSecretKeyRef.Name), map[string][]byte{
-		"password": []byte("password"),
-	}, nil, &testOm)
+	s := secret.Builder().
+		SetName(testOm.Spec.AppDB.PasswordSecretKeyRef.Name).
+		SetNamespace(testOm.Namespace).
+		SetOwnerReferences(baseOwnerReference(&testOm)).
+		SetByteData(map[string][]byte{
+			"password": []byte("password"),
+		}).Build()
+
+	err := reconciler.kubeHelper.client.CreateSecret(s)
+	assert.NoError(t, err)
 
 	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
 
-	connectionString, err := reconciler.kubeHelper.readSecretKey(objectKey(testOm.Namespace, testOm.AppDBMongoConnectionStringSecretName()), util.AppDbConnectionStringKey)
+	connectionString, err := secret.ReadKey(reconciler.kubeHelper.client, util.AppDbConnectionStringKey, kube.ObjectKey(testOm.Namespace, testOm.AppDBMongoConnectionStringSecretName()))
 	assert.NoError(t, err)
 	assert.NotEmpty(t, connectionString)
 
@@ -256,14 +275,21 @@ func TestOpsManagerConnectionString_IsPassedAsSecretRef(t *testing.T) {
 	}).Build()
 	reconciler, client, _, _ := defaultTestOmReconciler(t, testOm)
 
-	_ = reconciler.kubeHelper.createSecret(objectKey(testOm.Namespace, testOm.Spec.AppDB.PasswordSecretKeyRef.Name), map[string][]byte{
-		"password": []byte("password"),
-	}, nil, &testOm)
+	s := secret.Builder().
+		SetName(testOm.Spec.AppDB.PasswordSecretKeyRef.Name).
+		SetNamespace(testOm.Namespace).
+		SetByteData(map[string][]byte{
+			"password": []byte("password"),
+		}).SetOwnerReferences(baseOwnerReference(&testOm)).
+		Build()
+
+	err := reconciler.kubeHelper.client.CreateSecret(s)
+	assert.NoError(t, err)
 
 	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
 
 	sts := appsv1.StatefulSet{}
-	err := client.Get(context.TODO(), objectKey(testOm.Namespace, testOm.Name), &sts)
+	err = client.Get(context.TODO(), objectKey(testOm.Namespace, testOm.Name), &sts)
 	assert.NoError(t, err)
 
 	envs := sts.Spec.Template.Spec.Containers[0].Env
@@ -330,8 +356,17 @@ func defaultTestOmReconciler(t *testing.T, opsManager omv1.MongoDBOpsManager) (*
 	manager := mock.NewManager(&opsManager)
 	// create an admin user secret
 	data := map[string]string{"Username": "jane.doe@g.com", "Password": "pwd", "FirstName": "Jane", "LastName": "Doe"}
-	_ = NewKubeHelper(manager.Client).createSecret(objectKey(opsManager.Namespace, opsManager.Spec.AdminSecret), data,
-		map[string]string{}, &opsManager)
+
+	s := secret.Builder().
+		SetName(opsManager.Spec.AdminSecret).
+		SetNamespace(opsManager.Namespace).
+		SetStringData(data).
+		SetLabels(map[string]string{}).
+		SetOwnerReferences(baseOwnerReference(&opsManager)).
+		Build()
+
+	err := NewKubeHelper(manager.Client).client.CreateSecret(s)
+	assert.NoError(t, err)
 
 	initializer := &MockedInitializer{expectedOmURL: opsManager.CentralURL(), t: t}
 

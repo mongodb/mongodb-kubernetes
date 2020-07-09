@@ -255,7 +255,7 @@ func getVolumesAndVolumeMounts(mdbBuilder DatabaseBuilder) ([]corev1.Volume, []c
 // buildMongoDBPodTemplateSpec constructs the podTemplateSpec for the MongoDB resource
 func buildMongoDBPodTemplateSpec(mdbBuilder DatabaseBuilder) podtemplatespec.Modification {
 	return podtemplatespec.Apply(
-		sharedDatabaseConfigurationConfiguration(mdbBuilder),
+		sharedDatabaseConfiguration(mdbBuilder),
 		podtemplatespec.WithAnnotations(defaultPodAnnotations(mdbBuilder.GetCertificateHash())),
 		podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
 		podtemplatespec.WithContainerByIndex(0,
@@ -268,9 +268,9 @@ func buildMongoDBPodTemplateSpec(mdbBuilder DatabaseBuilder) podtemplatespec.Mod
 	)
 }
 
-// sharedDatabaseConfigurationConfiguration is a function which applies all the shared configuration
+// sharedDatabaseConfiguration is a function which applies all the shared configuration
 // between the appDb and MongoDB resources
-func sharedDatabaseConfigurationConfiguration(mdbBuilder DatabaseBuilder) podtemplatespec.Modification {
+func sharedDatabaseConfiguration(mdbBuilder DatabaseBuilder) podtemplatespec.Modification {
 	managedSecurityContext, _ := envutil.ReadBool(util.ManagedSecurityContextEnv)
 
 	configurePodSpecSecurityContext := podtemplatespec.NOOP()

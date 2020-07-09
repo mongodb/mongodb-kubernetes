@@ -99,7 +99,7 @@ func TestScaleUpReplicaSet(t *testing.T) {
 
 	checkReconcileSuccessful(t, reconciler, rs, client)
 	set := &appsv1.StatefulSet{}
-	_ = client.Get(context.TODO(), objectKeyFromApiObject(rs), set)
+	_ = client.Get(context.TODO(), mock.ObjectKeyFromApiObject(rs), set)
 
 	// Now scale up to 5 nodes
 	rs = DefaultReplicaSetBuilder().SetMembers(5).Build()
@@ -108,7 +108,7 @@ func TestScaleUpReplicaSet(t *testing.T) {
 	checkReconcileSuccessful(t, reconciler, rs, client)
 
 	updatedSet := &appsv1.StatefulSet{}
-	_ = client.Get(context.TODO(), objectKeyFromApiObject(rs), updatedSet)
+	_ = client.Get(context.TODO(), mock.ObjectKeyFromApiObject(rs), updatedSet)
 
 	// Statefulset is expected to be the same - only number of replicas changed
 	set.Spec.Replicas = util.Int32Ref(int32(5))
@@ -225,7 +225,7 @@ func TestReplicaSetCustomPodSpecTemplate(t *testing.T) {
 	checkReconcileSuccessful(t, reconciler, rs, client)
 
 	// read the stateful set that was created by the operator
-	statefulSet := getStatefulSet(client, objectKeyFromApiObject(rs))
+	statefulSet := getStatefulSet(client, mock.ObjectKeyFromApiObject(rs))
 
 	assertPodSpecSts(t, statefulSet)
 

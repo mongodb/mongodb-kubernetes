@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 	"os"
 	"reflect"
 	"testing"
@@ -12,7 +13,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/project"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"

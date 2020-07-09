@@ -350,7 +350,7 @@ func omConnGroupInOrganizationWithDifferentName() om.ConnectionFactory {
 }
 
 func requestFromObject(object metav1.Object) reconcile.Request {
-	return reconcile.Request{NamespacedName: objectKeyFromApiObject(object)}
+	return reconcile.Request{NamespacedName: mock.ObjectKeyFromApiObject(object)}
 }
 
 func checkReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, client *mock.MockedClient) {
@@ -359,7 +359,7 @@ func checkReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, obj
 	require.Equal(t, reconcile.Result{}, result)
 
 	// also need to make sure the object status is updated to successful
-	assert.NoError(t, client.Get(context.TODO(), objectKeyFromApiObject(object), object))
+	assert.NoError(t, client.Get(context.TODO(), mock.ObjectKeyFromApiObject(object), object))
 	assert.Equal(t, status.PhaseRunning, object.Status.Phase)
 
 	expectedLink := DeploymentLink(om.TestURL, om.TestGroupID)
@@ -403,7 +403,7 @@ func checkReconcileFailed(t *testing.T, reconciler reconcile.Reconciler, object 
 	assert.Equal(t, failedResult, result)
 
 	// also need to make sure the object status is updated to failed
-	assert.NoError(t, client.Get(context.TODO(), objectKeyFromApiObject(object), object))
+	assert.NoError(t, client.Get(context.TODO(), mock.ObjectKeyFromApiObject(object), object))
 	assert.Equal(t, status.PhaseFailed, object.Status.Phase)
 	assert.Contains(t, object.Status.Message, expectedErrorMessage)
 }
@@ -415,7 +415,7 @@ func checkReconcilePending(t *testing.T, reconciler reconcile.Reconciler, object
 	assert.Equal(t, failedResult, result)
 
 	// also need to make sure the object status is updated to failed
-	assert.NoError(t, client.Get(context.TODO(), objectKeyFromApiObject(object), object))
+	assert.NoError(t, client.Get(context.TODO(), mock.ObjectKeyFromApiObject(object), object))
 	assert.Equal(t, status.PhasePending, object.Status.Phase)
 	assert.Contains(t, object.Status.Message, expectedErrorMessage)
 }

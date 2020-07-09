@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
@@ -73,7 +75,7 @@ func (r *MongoDBUserReconciler) getConnectionSpec(user userv1.MongoDBUser, mdbSp
 	}
 
 	//lint:ignore SA1019 need to use deprecated Project to ensure backwards compatibility
-	projectConfig, err := r.kubeHelper.configmapClient.GetData(objectKey(user.Namespace, user.Spec.Project))
+	projectConfig, err := configmap.ReadData(r.kubeHelper.client, kube.ObjectKey(user.Namespace, user.Spec.Project))
 	if err != nil {
 		return mdbv1.ConnectionSpec{}, err
 	}
@@ -191,7 +193,8 @@ func (r *MongoDBUserReconciler) isX509Enabled(user userv1.MongoDBUser, mdbSpec m
 	// versions of the operator <1.3 is no longer required
 
 	//lint:ignore SA1019 need to use deprecated Project to ensure backwards compatibility
-	omAuthMode, err := r.kubeHelper.configmapClient.ReadKey(util.OmAuthMode, objectKey(user.Namespace, user.Spec.Project))
+
+	omAuthMode, err := configmap.ReadKey(r.kubeHelper.client, util.OmAuthMode, kube.ObjectKey(user.Namespace, user.Spec.Project))
 	if err != nil {
 		return false, err
 	}

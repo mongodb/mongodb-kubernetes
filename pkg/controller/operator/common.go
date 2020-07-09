@@ -12,12 +12,10 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	"github.com/pkg/errors"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -259,11 +257,6 @@ func exceptionHandling(errHandlingFunc func(err interface{}) (reconcile.Result, 
 // Deprecated: use 'kube.ObjectKey' instead
 func objectKey(namespace, name string) client.ObjectKey {
 	return types.NamespacedName{Name: name, Namespace: namespace}
-}
-
-// Deprecated: use 'kube.ObjectKeyFromApiObject' instead
-func objectKeyFromApiObject(obj metav1.Object) client.ObjectKey {
-	return kube.ObjectKey(obj.GetNamespace(), obj.GetName())
 }
 
 // MongoDBResourceEventHandler is a custom event handler that extends the

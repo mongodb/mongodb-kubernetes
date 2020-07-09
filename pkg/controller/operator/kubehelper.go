@@ -1,17 +1,22 @@
 package operator
 
 import (
-	"context"
 	"fmt"
 	"net/url"
 	"strings"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -22,24 +27,19 @@ import (
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // KubeHelper is the helper for dealing with Kubernetes. If any Kubernetes logic requires more than some trivial operation
 // - it should be put here
 type KubeHelper struct {
-	client          client.Client
-	serviceClient   service.Client
-	configmapClient configmap.Client
+	client kubernetesClient.Client
 }
 
 // NewKubeHelper constructs an instance of KubeHelper with all clients initialized
 // using the same instance of client
 func NewKubeHelper(client client.Client) KubeHelper {
 	return KubeHelper{
-		client:          client,
-		configmapClient: configmap.NewClient(client),
-		serviceClient:   service.NewClient(client),
+		client: kubernetesClient.NewClient(client),
 	}
 }
 
@@ -692,10 +692,8 @@ func (s *StatefulSetHelper) SetSecurity(security *mdbv1.Security) *StatefulSetHe
 // required anymore before we unmount them, or the automation-agent and readiness probe will never
 // reach goal state.
 func (s *StatefulSetHelper) needToPublishStateFirst(log *zap.SugaredLogger) bool {
-	currentSet := appsv1.StatefulSet{}
 	namespacedName := objectKey(s.Namespace, s.Name)
-	err := s.Helper.client.Get(context.TODO(), namespacedName, &currentSet)
-
+	currentSts, err := s.Helper.client.GetStatefulSet(namespacedName)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			// No need to publish state as this is a new StatefulSet
@@ -707,7 +705,7 @@ func (s *StatefulSetHelper) needToPublishStateFirst(log *zap.SugaredLogger) bool
 		return false
 	}
 
-	volumeMounts := currentSet.Spec.Template.Spec.Containers[0].VolumeMounts
+	volumeMounts := currentSts.Spec.Template.Spec.Containers[0].VolumeMounts
 	if s.Security != nil {
 		if !s.Security.TLSConfig.Enabled && volumeMountWithNameExists(volumeMounts, util.SecretVolumeName) {
 			log.Debug("About to set `security.tls.enabled` to false. automationConfig needs to be updated first")
@@ -755,10 +753,10 @@ func volumeMountWithNameExists(mounts []corev1.VolumeMount, volumeName string) b
 func (k *KubeHelper) createOrUpdateStatefulset(ns string, log *zap.SugaredLogger, set *appsv1.StatefulSet) (*appsv1.StatefulSet, error) {
 	log = log.With("statefulset", objectKey(ns, set.Name))
 	var msg string
-	existingStatefulSet := appsv1.StatefulSet{}
-	if err := k.client.Get(context.TODO(), objectKey(ns, set.Name), &existingStatefulSet); err != nil {
+	existingStatefulSet, err := k.client.GetStatefulSet(kube.ObjectKey(ns, set.Name))
+	if err != nil {
 		if apiErrors.IsNotFound(err) {
-			if err = k.client.Create(context.TODO(), set); err != nil {
+			if err = k.client.CreateStatefulSet(*set); err != nil {
 				return nil, err
 			}
 		} else {
@@ -772,7 +770,7 @@ func (k *KubeHelper) createOrUpdateStatefulset(ns string, log *zap.SugaredLogger
 		if existingCertHash != "" && newCertHash == "" {
 			set.Spec.Template.Annotations["certHash"] = existingCertHash
 		}
-		if err = k.client.Update(context.TODO(), set); err != nil {
+		if err := k.client.UpdateStatefulSet(*set); err != nil {
 			return nil, err
 		}
 		msg = "Updated"
@@ -782,27 +780,15 @@ func (k *KubeHelper) createOrUpdateStatefulset(ns string, log *zap.SugaredLogger
 	return set, nil
 }
 
-func (k *KubeHelper) deleteStatefulSet(key client.ObjectKey) error {
-	set := &appsv1.StatefulSet{}
-	if err := k.client.Get(context.TODO(), key, set); err != nil {
-		return err
-	}
-
-	if err := k.client.Delete(context.TODO(), set); err != nil {
-		return err
-	}
-	return nil
-}
-
 func (k *KubeHelper) createOrUpdateService(desiredService corev1.Service, log *zap.SugaredLogger) error {
 	log = log.With("service", desiredService.ObjectMeta.Name)
 	namespacedName := objectKey(desiredService.ObjectMeta.Namespace, desiredService.ObjectMeta.Name)
 
-	existingService, err := k.serviceClient.Get(namespacedName)
+	existingService, err := k.client.GetService(namespacedName)
 	method := ""
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
-			err = k.serviceClient.Create(desiredService)
+			err = k.client.CreateService(desiredService)
 			if err != nil {
 				return err
 			}
@@ -812,7 +798,7 @@ func (k *KubeHelper) createOrUpdateService(desiredService corev1.Service, log *z
 		method = "Created"
 	} else {
 		mergedService := service.Merge(existingService, desiredService)
-		err = k.serviceClient.Update(mergedService)
+		err = k.client.UpdateService(mergedService)
 		if err != nil {
 			return err
 		}
@@ -824,38 +810,24 @@ func (k *KubeHelper) createOrUpdateService(desiredService corev1.Service, log *z
 }
 
 func (k KubeHelper) readSecret(nsName client.ObjectKey) (map[string]string, error) {
-	secret := &corev1.Secret{}
-	e := k.client.Get(context.TODO(), nsName, secret)
-	if e != nil {
-		return nil, e
-	}
-
-	secrets := make(map[string]string)
-	for k, v := range secret.Data {
-		secrets[k] = strings.TrimSuffix(string(v[:]), "\n")
-	}
-	return secrets, nil
-}
-
-// readSecretKey returns the value stored with the corresponding key from the provided
-// ObjectKey
-func (k *KubeHelper) readSecretKey(nsName client.ObjectKey, key string) (string, error) {
-	secretData, err := k.readSecret(nsName)
+	s, err := k.client.GetSecret(nsName)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	if val, ok := secretData[key]; !ok {
-		return "", fmt.Errorf("secret/%s did not contain the key %s", nsName.Name, key)
-	} else {
-		return val, nil
+
+	// TODO: can we delete this?
+	secretStringData := make(map[string]string)
+	for k, v := range s.Data {
+		secretStringData[k] = strings.TrimSuffix(string(v[:]), "\n")
 	}
+	return secretStringData, nil
 }
 
 // computeConfigMap fetches the existing config map and applies the computation function to it and pushes changes back
 // The computation function is expected to update the data in config map or return false if no update/create is needed
 // (Name for the function is chosen as an analogy to Map.compute() function in Java)
 func (k *KubeHelper) computeConfigMap(nsName client.ObjectKey, callback func(*corev1.ConfigMap) bool, owner v1.CustomResourceReadWriter) error {
-	existingConfigMap, err := k.configmapClient.Get(objectKey(nsName.Namespace, nsName.Name))
+	existingConfigMap, err := k.client.GetConfigMap(objectKey(nsName.Namespace, nsName.Name))
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			existingConfigMap = configmap.Builder().
@@ -867,7 +839,7 @@ func (k *KubeHelper) computeConfigMap(nsName client.ObjectKey, callback func(*co
 			if !callback(&existingConfigMap) {
 				return nil
 			}
-			if err := k.configmapClient.Create(existingConfigMap); err != nil {
+			if err := k.client.CreateConfigMap(existingConfigMap); err != nil {
 				return err
 			}
 		} else {
@@ -877,7 +849,7 @@ func (k *KubeHelper) computeConfigMap(nsName client.ObjectKey, callback func(*co
 		if !callback(&existingConfigMap) {
 			return nil
 		}
-		if err := k.configmapClient.Update(existingConfigMap); err != nil {
+		if err := k.client.UpdateConfigMap(existingConfigMap); err != nil {
 			return err
 		}
 	}
@@ -914,13 +886,17 @@ func (k *KubeHelper) computeConfigMap(nsName client.ObjectKey, callback func(*co
 
 // CreateOrUpdateSecret will create (if it does not exist) or update (if it does) a secret.
 func (k *KubeHelper) createOrUpdateSecret(name, namespace string, pemFiles *pemCollection, labels map[string]string) error {
-	secret := &corev1.Secret{}
-	err := k.client.Get(context.TODO(), objectKey(namespace, name), secret)
+	secretToCreate, err := k.client.GetSecret(kube.ObjectKey(namespace, name))
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
+			pemFilesSecret := secret.Builder().
+				SetName(name).
+				SetNamespace(namespace).
+				SetStringData(pemFiles.merge()).
+				Build()
 			// assume the secret was not found, need to create it
-			// passing 'nil' as an owner reference as we haven't decided yet if we need to remove certificates
-			return k.createSecret(objectKey(namespace, name), pemFiles.merge(), labels, nil)
+			// leave a nil owner reference as we haven't decided yet if we need to remove certificates
+			return k.client.CreateSecret(pemFilesSecret)
 		}
 		return err
 	}
@@ -929,49 +905,9 @@ func (k *KubeHelper) createOrUpdateSecret(name, namespace string, pemFiles *pemC
 	// for each Pod we'll have the key and the certificate, but we might also have the
 	// certificate added in several stages. If a certificate/key exists, and this
 
-	pemData := pemFiles.mergeWith(secret.Data)
-	secret.StringData = pemData
-	return k.client.Update(context.TODO(), secret)
-}
-
-// createSecret creates the secret. 'data' must either 'map[string][]byte' or 'map[string]string'
-func (k KubeHelper) createSecret(nsName client.ObjectKey, data interface{}, labels map[string]string, owner v1.CustomResourceReadWriter) error {
-	secret := &corev1.Secret{}
-	secret.ObjectMeta = metav1.ObjectMeta{
-		Name:      nsName.Name,
-		Namespace: nsName.Namespace,
-	}
-	if len(labels) > 0 {
-		secret.ObjectMeta.Labels = labels
-	}
-	if owner != nil {
-		secret.ObjectMeta.OwnerReferences = baseOwnerReference(owner)
-	}
-
-	switch v := data.(type) {
-	case map[string][]byte:
-		secret.Data = v
-	case map[string]string:
-		secret.StringData = v
-	default:
-		panic("Dev error: wrong type is passed!")
-	}
-
-	return k.client.Create(context.TODO(), secret)
-}
-
-// deleteSecret deletes the secret. Unfortunately we cannot use 'client.Delete' directly from clients as
-// it requires the object
-func (k *KubeHelper) deleteSecret(key client.ObjectKey) error {
-	secret := &corev1.Secret{}
-	if err := k.client.Get(context.TODO(), key, secret); err != nil {
-		return err
-	}
-
-	if err := k.client.Delete(context.TODO(), secret); err != nil {
-		return err
-	}
-	return nil
+	pemData := pemFiles.mergeWith(secretToCreate.Data)
+	secretToCreate.StringData = pemData
+	return k.client.UpdateSecret(secretToCreate)
 }
 
 // validateSelfManagedSSLCertsForStatefulSet ensures that a stateful set using
@@ -1127,11 +1063,10 @@ func (k *KubeHelper) ensureSSLCertsForStatefulSet(ss *StatefulSetHelper, log *za
 
 // validateCertificate verifies the Secret containing the certificates and the keys is valid.
 func (k *KubeHelper) validateCertificates(name, namespace string) error {
-	secret := &corev1.Secret{}
-	err := k.client.Get(context.TODO(), objectKey(namespace, name), secret)
+	byteData, err := secret.ReadByteData(k.client, kube.ObjectKey(namespace, name))
 	if err == nil {
 		// Validate that the secret contains the keys, if it contains the certs.
-		for _, value := range secret.Data {
+		for _, value := range byteData {
 			pemFile := newPemFileFromData(value)
 			if !pemFile.isValid() {
 				return fmt.Errorf("The Secret %s containing certificates is not valid. "+
@@ -1144,8 +1079,7 @@ func (k *KubeHelper) validateCertificates(name, namespace string) error {
 }
 
 func (k *KubeHelper) verifyClientCertificatesForAgents(name, namespace string) int {
-	secret := &corev1.Secret{}
-	err := k.client.Get(context.TODO(), objectKey(namespace, name), secret)
+	s, err := k.client.GetSecret(kube.ObjectKey(namespace, name))
 	if err != nil {
 		return NumAgents
 	}
@@ -1153,7 +1087,7 @@ func (k *KubeHelper) verifyClientCertificatesForAgents(name, namespace string) i
 	certsNotReady := 0
 	for _, agentSecretKey := range []string{util.AutomationAgentPemSecretKey, util.MonitoringAgentPemSecretKey, util.BackupAgentPemSecretKey} {
 		additionalDomains := []string{} // agents have no additional domains
-		if !isValidPemSecret(secret, agentSecretKey, additionalDomains) {
+		if !isValidPemSecret(&s, agentSecretKey, additionalDomains) {
 			certsNotReady++
 		}
 	}
@@ -1189,8 +1123,7 @@ func isValidPemSecret(secret *corev1.Secret, key string, additionalDomains []str
 // not ready (approved and issued) yet, if all the certificates and keys required for
 // the StatefulSet `ss` exist in the secret with name `secretName`
 func (k *KubeHelper) verifyCertificatesForStatefulSet(ss *StatefulSetHelper, secretName string) int {
-	secret := &corev1.Secret{}
-	err := k.client.Get(context.TODO(), objectKey(ss.Namespace, secretName), secret)
+	s, err := k.client.GetSecret(kube.ObjectKey(ss.Namespace, secretName))
 	if err != nil {
 		return ss.Replicas
 	}
@@ -1201,7 +1134,7 @@ func (k *KubeHelper) verifyCertificatesForStatefulSet(ss *StatefulSetHelper, sec
 	for i, pod := range podnames {
 		pem := fmt.Sprintf("%s-pem", pod)
 		additionalDomains := ss.getAdditionalCertDomainsForMember(i)
-		if !isValidPemSecret(secret, pem, additionalDomains) {
+		if !isValidPemSecret(&s, pem, additionalDomains) {
 			certsNotReady++
 		}
 	}

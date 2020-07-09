@@ -32,7 +32,7 @@ func newShardedClusterReconciler(mgr manager.Manager, omFunc om.ConnectionFactor
 }
 
 func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
-	agents.UpgradeAllIfNeeded(r.client, r.omConnectionFactory, getWatchedNamespace())
+	agents.UpgradeAllIfNeeded(r.kubeHelper.client, r.omConnectionFactory, getWatchedNamespace())
 
 	log := zap.S().With("ShardedCluster", request.NamespacedName)
 	sc := &mdbv1.MongoDB{}
@@ -70,7 +70,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (r
 func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interface{}, log *zap.SugaredLogger) (om.Connection, workflow.Status) {
 	log.Info("ShardedCluster.doShardedClusterProcessing")
 	sc := obj.(*mdbv1.MongoDB)
-	projectConfig, err := project.ReadProjectConfig(r.client, objectKey(sc.Namespace, sc.Spec.GetProject()), sc.Name)
+	projectConfig, err := project.ReadProjectConfig(r.kubeHelper.client, objectKey(sc.Namespace, sc.Spec.GetProject()), sc.Name)
 	if err != nil {
 		return nil, workflow.Failed("error reading project %s", err)
 	}
@@ -197,7 +197,7 @@ func (r *ReconcileMongoDbShardedCluster) removeUnusedStatefulsets(sc *mdbv1.Mong
 	// we iterate over last 'statefulsetsToRemove' shards if any
 	for i := shardsCount - statefulsetsToRemove; i < shardsCount; i++ {
 		key := objectKey(sc.Namespace, sc.ShardRsName(i))
-		err := r.kubeHelper.deleteStatefulSet(key)
+		err := r.kubeHelper.client.DeleteStatefulSet(key)
 		if err != nil {
 			// Most of all the error won't be recoverable, also our sharded cluster is in good shape - we can just warn
 			// the error and leave the cleanup work for the admins

@@ -6,7 +6,10 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube/configmap"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
+
 	jsonpatch "github.com/evanphx/json-patch"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -48,9 +51,156 @@ const (
 	TestMongoDBName           = "my-mongodb"
 )
 
+type MockedConfigMapClient struct {
+	client client.Client
+}
+
+// GetConfigMap provides a thin wrapper and client.client to access corev1.ConfigMap types
+func (c *MockedConfigMapClient) GetConfigMap(objectKey client.ObjectKey) (corev1.ConfigMap, error) {
+	cm := corev1.ConfigMap{}
+	if err := c.client.Get(context.TODO(), objectKey, &cm); err != nil {
+		return corev1.ConfigMap{}, err
+	}
+	return cm, nil
+}
+
+// UpdateConfigMap provides a thin wrapper and client.Client to update corev1.ConfigMap types
+func (c *MockedConfigMapClient) UpdateConfigMap(cm corev1.ConfigMap) error {
+	if err := c.client.Update(context.TODO(), &cm); err != nil {
+		return err
+	}
+	return nil
+}
+
+// CreateConfigMap provides a thin wrapper and client.Client to create corev1.ConfigMap types
+func (c *MockedConfigMapClient) CreateConfigMap(cm corev1.ConfigMap) error {
+	if err := c.client.Create(context.TODO(), &cm); err != nil {
+		return err
+	}
+	return nil
+}
+
+type MockedSecretClient struct {
+	client client.Client
+}
+
+// GetSecret provides a thin wrapper and client.Client to access corev1.Secret types
+func (c *MockedSecretClient) GetSecret(objectKey client.ObjectKey) (corev1.Secret, error) {
+	s := corev1.Secret{}
+	if err := c.client.Get(context.TODO(), objectKey, &s); err != nil {
+		return corev1.Secret{}, err
+	}
+	return s, nil
+}
+
+// UpdateSecret provides a thin wrapper and client.Client to update corev1.Secret types
+func (c *MockedSecretClient) UpdateSecret(secret corev1.Secret) error {
+	if err := c.client.Update(context.TODO(), &secret); err != nil {
+		return err
+	}
+	return nil
+}
+
+// CreateSecret provides a thin wrapper and client.Client to create corev1.Secret types
+func (c *MockedSecretClient) CreateSecret(secret corev1.Secret) error {
+	if err := c.client.Create(context.TODO(), &secret); err != nil {
+		return err
+	}
+	return nil
+}
+
+// DeleteSecret provides a thin wrapper and client.Client to delete corev1.Secret types
+func (c *MockedSecretClient) DeleteSecret(key client.ObjectKey) error {
+	s := corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      key.Name,
+			Namespace: key.Namespace,
+		},
+	}
+	if err := c.client.Delete(context.TODO(), &s); err != nil {
+		return err
+	}
+	return nil
+}
+
+type MockedServiceClient struct {
+	client client.Client
+}
+
+// GetService provides a thin wrapper and client.Client to access corev1.Service types
+func (c *MockedServiceClient) GetService(objectKey client.ObjectKey) (corev1.Service, error) {
+	s := corev1.Service{}
+	if err := c.client.Get(context.TODO(), objectKey, &s); err != nil {
+		return corev1.Service{}, err
+	}
+	return s, nil
+}
+
+// UpdateService provides a thin wrapper and client.Client to update corev1.Service types
+func (c *MockedServiceClient) UpdateService(secret corev1.Service) error {
+	if err := c.client.Update(context.TODO(), &secret); err != nil {
+		return err
+	}
+	return nil
+}
+
+// CreateService provides a thin wrapper and client.Client to create corev1.Service types
+func (c *MockedServiceClient) CreateService(s corev1.Service) error {
+	if err := c.client.Create(context.TODO(), &s); err != nil {
+		return err
+	}
+	return nil
+}
+
+type MockedStatefulSetClient struct {
+	client client.Client
+}
+
+// GetService provides a thin wrapper and client.Client to access appsv1.StatefulSet types
+func (c *MockedStatefulSetClient) GetStatefulSet(objectKey client.ObjectKey) (appsv1.StatefulSet, error) {
+	sts := appsv1.StatefulSet{}
+	if err := c.client.Get(context.TODO(), objectKey, &sts); err != nil {
+		return appsv1.StatefulSet{}, err
+	}
+	return sts, nil
+}
+
+// UpdateStatefulSet provides a thin wrapper and client.Client to update appsv1.StatefulSet types
+func (c *MockedStatefulSetClient) UpdateStatefulSet(sts appsv1.StatefulSet) error {
+	if err := c.client.Update(context.TODO(), &sts); err != nil {
+		return err
+	}
+	return nil
+}
+
+// CreateStatefulSet provides a thin wrapper and client.Client to create appsv1.StatefulSet types
+func (c *MockedStatefulSetClient) CreateStatefulSet(sts appsv1.StatefulSet) error {
+	if err := c.client.Create(context.TODO(), &sts); err != nil {
+		return err
+	}
+	return nil
+}
+
+// DeleteStatefulSet provides a thin wrapper and client.Client to delete appsv1.StatefulSet types
+func (c *MockedStatefulSetClient) DeleteStatefulSet(key client.ObjectKey) error {
+	sts := appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      key.Name,
+			Namespace: key.Namespace,
+		},
+	}
+	if err := c.client.Delete(context.TODO(), &sts); err != nil {
+		return err
+	}
+	return nil
+}
+
 // MockedClient is the mocked implementation of client.Client from controller-runtime library
 type MockedClient struct {
-
+	*MockedConfigMapClient
+	*MockedSecretClient
+	*MockedServiceClient
+	*MockedStatefulSetClient
 	// backingMap contains all of the maps of all apiiruntime.Objects. Using the GetMapForObject
 	// function will dynamically initialize a new map for the type in question
 	backingMap map[reflect.Type]map[client.ObjectKey]apiruntime.Object
@@ -62,8 +212,15 @@ type MockedClient struct {
 	UpdateFunc   func(ctx context.Context, obj apiruntime.Object) error
 }
 
+var _ kubernetesClient.Client = &MockedClient{}
+
 func NewClient() *MockedClient {
 	api := MockedClient{}
+	api.MockedConfigMapClient = &MockedConfigMapClient{client: &api}
+	api.MockedSecretClient = &MockedSecretClient{client: &api}
+	api.MockedServiceClient = &MockedServiceClient{client: &api}
+	api.MockedStatefulSetClient = &MockedStatefulSetClient{client: &api}
+
 	api.backingMap = map[reflect.Type]map[client.ObjectKey]apiruntime.Object{}
 
 	// mark StatefulSet ready right away by default
@@ -152,7 +309,7 @@ func (k *MockedClient) List(ctx context.Context, list apiruntime.Object, opts ..
 // Create saves the object obj in the Kubernetes cluster.
 func (k *MockedClient) Create(ctx context.Context, obj apiruntime.Object, opts ...client.CreateOption) error {
 	obj = obj.DeepCopyObject()
-	key := objectKeyFromApiObject(obj)
+	key := ObjectKeyFromApiObject(obj)
 	resMap := k.GetMapForObject(obj)
 	k.addToHistory(reflect.ValueOf(k.Create), obj)
 
@@ -197,7 +354,7 @@ func (k *MockedClient) Update(ctx context.Context, obj apiruntime.Object, opts .
 }
 
 func (k *MockedClient) doUpdate(ctx context.Context, obj apiruntime.Object) error {
-	key := objectKeyFromApiObject(obj)
+	key := ObjectKeyFromApiObject(obj)
 
 	resMap := k.GetMapForObject(obj)
 	resMap[key] = obj
@@ -213,7 +370,7 @@ func (k *MockedClient) doUpdate(ctx context.Context, obj apiruntime.Object) erro
 func (k *MockedClient) Delete(ctx context.Context, obj apiruntime.Object, opts ...client.DeleteOption) error {
 	k.addToHistory(reflect.ValueOf(k.Delete), obj)
 
-	key := objectKeyFromApiObject(obj)
+	key := ObjectKeyFromApiObject(obj)
 
 	resMap := k.GetMapForObject(obj)
 	delete(resMap, key)
@@ -229,7 +386,7 @@ func (k *MockedClient) Patch(ctx context.Context, obj apiruntime.Object, patch c
 	// Finding the object to patch
 	resMap := k.GetMapForObject(obj)
 	k.addToHistory(reflect.ValueOf(k.Patch), obj)
-	key := objectKeyFromApiObject(obj)
+	key := ObjectKeyFromApiObject(obj)
 	if _, exists := resMap[key]; !exists {
 		return &errors.StatusError{ErrStatus: metav1.Status{Reason: metav1.StatusReasonNotFound}}
 	}
@@ -266,6 +423,16 @@ func (k *MockedClient) Status() client.StatusWriter {
 	// MockedClient also implements StatusWriter and the Update function does what we need
 	k.addToHistory(reflect.ValueOf(k.Status), nil)
 	return k
+}
+
+// Not used in enterprise, these only exist in community.
+func (k *MockedClient) GetAndUpdate(nsName types.NamespacedName, obj apiruntime.Object, updateFunc func()) error {
+	return nil
+}
+
+// Not used in enterprise, these only exist in community.
+func (k *MockedClient) CreateOrUpdate(obj apiruntime.Object) error {
+	return nil
 }
 
 // onStatefulsetUpdate emulates statefulsets reaching their desired state, also OM automation agents get "registered"
@@ -464,7 +631,7 @@ func (m *MockedManager) GetWebhookServer() *webhook.Server {
 	return nil
 }
 
-func objectKeyFromApiObject(obj interface{}) client.ObjectKey {
+func ObjectKeyFromApiObject(obj interface{}) client.ObjectKey {
 	ns := reflect.ValueOf(obj).Elem().FieldByName("Namespace").String()
 	name := reflect.ValueOf(obj).Elem().FieldByName("Name").String()
 
