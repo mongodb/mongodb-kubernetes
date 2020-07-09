@@ -35,7 +35,7 @@ require (
 	k8s.io/kube-openapi v0.0.0-20200410163147-594e756bea31 // indirect
 	sigs.k8s.io/controller-runtime v0.5.7
 	sigs.k8s.io/yaml v1.2.0 // indirect
-	github.com/mongodb/mongodb-kubernetes-operator v0.0.8-prerelease
+	github.com/mongodb/mongodb-kubernetes-operator v0.0.8-prerelease-2
 )
 
 go 1.13
