@@ -161,7 +161,7 @@ func TestCreateDeleteReplicaSet(t *testing.T) {
 
 	omConn.CheckOrderOfOperations(t,
 		reflect.ValueOf(omConn.ReadUpdateDeployment), reflect.ValueOf(omConn.ReadAutomationStatus),
-		reflect.ValueOf(omConn.ReadBackupConfigs), reflect.ValueOf(omConn.GetHosts), reflect.ValueOf(omConn.RemoveHost))
+		reflect.ValueOf(omConn.GetHosts), reflect.ValueOf(omConn.RemoveHost))
 
 }
 

@@ -366,11 +366,6 @@ func (r *ReconcileMongoDbShardedCluster) delete(obj interface{}, log *zap.Sugare
 		return err
 	}
 
-	err = om.StopBackupIfEnabled(conn, sc.Name, om.ShardedClusterType, log)
-	if err != nil {
-		return err
-	}
-
 	sizeConfig := getMaxShardedClusterSizeConfig(sc.Spec.MongodbShardedClusterSizeConfig, sc.Status.MongodbShardedClusterSizeConfig)
 	hostsToRemove := getAllHosts(sc, sizeConfig)
 	log.Infow("Stop monitoring removed hosts in Ops Manager", "hostsToBeRemoved", hostsToRemove)
