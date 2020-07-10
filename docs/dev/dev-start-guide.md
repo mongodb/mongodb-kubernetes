@@ -15,13 +15,16 @@ export GOPATH=$HOME/go
  must be checked out into `/Users/user/go/src/github.com/10gen/ops-manager-kubernetes`
 * [Docker](https://docs.docker.com/docker-for-mac/install/)
 * [Evergreen command line client](https://evergreen.mongodb.com/settings)
-* [mms-utils](https://wiki.corp.mongodb.com/display/MMS/Ops+Manager+Release+setup+guide#OpsManagerReleasesetupguide-First-timeonly)
+* [mms-utils](https://github.com/10gen/mms/tree/master/scripts/python#one-time-set-up). You will need to clone the `mms` project.
 * [Generate a github token](https://github.com/settings/tokens/new) with "repo" permissions and set `GITHUB_TOKEN`
 environment variable in `~/.bashrc`
 * AWS 
-    * `brew install awscli` 
+    * You will need a version previous to `1.17.10`
+    * You can get one with the following command:
+        * `brew install https://raw.githubusercontent.com/Homebrew/homebrew-core/ecf3e17d8506b24b59bdaf286d3689e62bded185/Formula/awscli.rb`
     * Get the access to AWS account  "MMS Engineering Test" (268558157000)":
-        1. Ask your colleagues to add the user (and have them to send you your password), and then
+        1. Ask your colleagues to add the user (and have them to send you your password)
+           * You will have to be connected to the VPN to change your password
         2. Generate the access and secret keys for your user and save them in ~/.aws/credentials under **default** section. 
         (or use `aws configure`) Ask your colleagues which AWS region to choose - it should match the region where the K8s cluster and ECR registries
         are located (some regions could reach VPC capacity).
@@ -57,7 +60,8 @@ Edit the file:
   * change "us-east-1" to the AWS zone where the kops cluster will be created
   * change "myname" to something more meaningful (we usually use some last name abbreviation)
 2. Change the `CLUSTER_NAME` to `<myname>.mongokubernetes.com` 
-3. (optionally) Set `KOPS_ZONES` to the AWS zone with available VPCs. "us-east-2a" is used by default
+3. (optionally) Set `KOPS_ZONES` to the AWS zone with available VPCs. `us-east-2a` is used by default. 
+  * Note that if you set this you will need to provide the full zone and not just the region name (if your AWS zone is `eu-west-1` you should have, for example, `eu-west-1a`)
 
 You can edit the other context files or copy them to new ones.
 
@@ -94,7 +98,7 @@ export NAMESPACE=cloudqa
 If the custom version of Ops Manager needs to be tested it's possible to start a standalone Ops Manager in Evergreen:
 
 ```bash
-# spawn Ops Manager in Evergreen. This will take up to 20 minitues
+# spawn Ops Manager in Evergreen. This will take up to 20 minutes
 # the best is to extend host expiration via UI later to avoid frequent spawning
 # (automatic expiration extending is not implemented by EG CLI: https://jira.mongodb.org/browse/EVG-5725)
 make om-evg
@@ -142,8 +146,17 @@ make status
 
 ```
 
+Please note that you will have to be connected to the VPN to succesfully run `make` the first time, when the `kops` cluster is created.
+
 If kops cluster fails to get created because of VPC limits, you can change KOPS_ZONES in `~/.operator-dev/contexts/dev` 
 (or the context you are currently using) to point to the other zones which have free VPCs (look at the values in `scripts/dev/ensure_k8s`).
+
+At the end of the script you might get the following error:
+
+`Unable to connect to the server: dial tcp: lookup api.<yourname>.mongokubernetes.com on 8.8.8.8:53: no such host`
+
+This is normal as it will take a few minutes for the DNS to behave correctly.
+You can try to run `kops validate cluster <yourname>.mongokubernetes.com` a few times: if the DNS is still flaky it will sometimes return this `tcp` error.
 
 ### Examples
 #### Using an Openshift cluster to run E2E tests
@@ -188,6 +201,21 @@ namespaces
 
 ### Troubleshooting
 
+#### Error with find
+If you run into the following error while running `make`:
+
+`find: -printf: unknown primary or operator`
+
+you have to make sure to use GNU's `find`:
+
+`brew install findutils`
+
+and then add it to your `PATH` by adding the following line to your `.zshrc` (or analogous if you are using a shell different from `zsh`):
+
+`PATH="/usr/local/opt/findutils/libexec/gnubin:$PATH"`
+
+
+#### Not enough free space
 If you encounter an error like the following when running `make` or otherwise
 building docker images locally, this means that docker has run out of space for
 more images.

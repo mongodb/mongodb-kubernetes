@@ -250,7 +250,7 @@ deploy_operator() {
     [[ -d "helm_chart" ]] && chart_path="helm_chart"
 
     echo "Deploying Operator"
-    kubectl replace -f "${chart_path}/crds"
+    kubectl create  -f "${chart_path}/crds" 2>/dev/null || kubectl replace -f "${chart_path}/crds"
     helm upgrade --install  "${helm_params[@]}" mongodb-enterprise-operator "${chart_path}"
 }
 
@@ -292,7 +292,11 @@ create_kops_cluster() {
     local node_size="${4}"
     local master_size="${5}"
     local zones="${6}"
-    local k8s_version="${7:'v1.15.10'}"
+    local k8s_version="${7:-}"
+
+    if [[ -z "${k8s_version}" ]]; then
+        k8s_version='v1.15.10'
+    fi
 
     title "Creating kops cluster $cluster_name (master: $master_size, nodes: $master_size, zones: $zones)"
 
