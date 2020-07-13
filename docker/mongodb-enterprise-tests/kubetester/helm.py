@@ -42,7 +42,11 @@ def helm_install(
 
 
 def helm_install_from_chart(
-    namespace: str, release: str, chart: str, version: str = ""
+    namespace: str,
+    release: str,
+    chart: str,
+    version: str = "",
+    helm_args: Optional[Dict[str, str]] = None,
 ):
     args = [
         "helm",
@@ -54,6 +58,11 @@ def helm_install_from_chart(
 
     if version != "":
         args.append("--version=" + version)
+
+    if helm_args is not None:
+        args += _create_helm_args(helm_args)
+        if "--create-namespace" in args:
+            args.remove("--create-namespace")
 
     subprocess.run(
         "helm repo add stable https://kubernetes-charts.storage.googleapis.com".split()

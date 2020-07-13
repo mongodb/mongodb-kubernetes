@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cast"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/ldap"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
 )
@@ -636,4 +637,35 @@ func getVersionBuilds(deployment map[string]interface{}, versionIndex int) []int
 
 func getVersionBuild(deployment map[string]interface{}, versionIndex, buildIndex int) map[string]interface{} {
 	return getVersionBuilds(deployment, versionIndex)[buildIndex].(map[string]interface{})
+}
+
+func TestLDAPIsMerged(t *testing.T) {
+	ac := getTestAutomationConfig()
+	ac.Ldap = &ldap.Ldap{
+		AuthzQueryTemplate:       "AuthzQueryTemplate",
+		BindMethod:               "",
+		BindQueryUser:            "BindQueryUser",
+		BindSaslMechanisms:       "BindSaslMechanisms",
+		Servers:                  "",
+		TransportSecurity:        "TransportSecurity",
+		UserToDnMapping:          "UserToDnMapping",
+		ValidateLDAPServerConfig: false,
+		BindQueryPassword:        "",
+		CaFileContents:           "",
+	}
+	if err := ac.Apply(); err != nil {
+		t.Fatal(err)
+	}
+	ldapMap := cast.ToStringMap(ac.Deployment["ldap"])
+	assert.Equal(t, "AuthzQueryTemplate", ldapMap["authzQueryTemplate"])
+	assert.Equal(t, "BindQueryUser", ldapMap["bindQueryUser"])
+	assert.Equal(t, "BindSaslMechanisms", ldapMap["bindSaslMechanisms"])
+	assert.Equal(t, "TransportSecurity", ldapMap["transportSecurity"])
+	assert.Equal(t, "UserToDnMapping", ldapMap["userToDNMapping"])
+	// ensure zero value fields are added
+	assert.Contains(t, ldapMap, "bindMethod")
+	assert.Contains(t, ldapMap, "servers")
+	assert.Contains(t, ldapMap, "validateLDAPServerConfig")
+	assert.Contains(t, ldapMap, "bindQueryPassword")
+	assert.Contains(t, ldapMap, "CAFileContents")
 }

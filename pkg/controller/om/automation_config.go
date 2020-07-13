@@ -334,6 +334,20 @@ func BuildAutomationConfigFromDeployment(deployment Deployment) (*AutomationConf
 		}
 		finalAutomationConfig.AgentSSL = ssl
 	}
+
+	ldapMap, ok := deployment["ldap"]
+	if ok {
+		ldapStr, err := json.Marshal(ldapMap)
+		if err != nil {
+			return nil, err
+		}
+		ldap := &ldap.Ldap{}
+		if err := json.Unmarshal([]byte(ldapStr), ldap); err != nil {
+			return nil, err
+		}
+		finalAutomationConfig.Ldap = ldap
+	}
+
 	return finalAutomationConfig, nil
 }
 

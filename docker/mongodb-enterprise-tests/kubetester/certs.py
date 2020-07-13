@@ -65,7 +65,7 @@ def generate_cert(
     secret_name = "{}-{}".format(pod, KubernetesTester.random_k8s_name(prefix="")[:4])
     cert = Certificate(namespace=namespace, name=secret_name)
     cert["spec"] = {
-        "dnsNames": [pod, pod_dns],
+        "dnsNames": [pod_dns, pod],
         "secretName": secret_name,
         "issuerRef": {"name": issuer},
         "duration": "240h",

@@ -34,6 +34,8 @@ type ResourceType string
 
 type SSLMode string
 
+type TransportSecurity string
+
 const (
 	Debug LogLevel = "DEBUG"
 	Info  LogLevel = "INFO"
@@ -55,6 +57,9 @@ const (
 	AllowTLSMode   SSLMode = "allowTLS"
 
 	DeploymentLinkIndex = 0
+
+	TransportSecurityNone TransportSecurity = "none"
+	TransportSecurityTLS  TransportSecurity = "tls"
 )
 
 // MongoDB resources allow you to deploy Standalones, ReplicaSets or SharedClusters
@@ -364,8 +369,16 @@ func (a *Authentication) GetModes() []string {
 }
 
 type Ldap struct {
+	Servers string `json:"servers"`
+
+	// +kubebuilder:validation:Enum=tls;none
+	TransportSecurity        *TransportSecurity `json:"transportSecurity"`
+	ValidateLDAPServerConfig *bool              `json:"validateLDAPServerConfig"`
+
+	// Allows to point at a ConfigMap/key with a CA file to mount on the Pod
+	CAConfigMapRef *corev1.ConfigMapKeySelector `json:"caConfigMapRef,omitempty"`
+
 	BindQueryUser      string       `json:"bindQueryUser"`
-	Servers            string       `json:"servers"`
 	BindQuerySecretRef TLSSecretRef `json:"bindQueryPasswordSecretRef"`
 }
 
@@ -575,22 +588,39 @@ func (m *MongoDB) ConnectionURL(userName, password string, connectionParams map[
 	return BuildConnectionUrl(statefulsetName, m.ServiceName(), m.Namespace, userName, password, m.Spec, connectionParams)
 }
 
-func (m MongoDB) GetLDAP(password string) *ldap.Ldap {
+func (m MongoDB) GetLDAP(password, caContents string) *ldap.Ldap {
 	if !m.IsLDAPEnabled() {
 		return nil
 	}
+
 	mdbLdap := m.Spec.Security.Authentication.Ldap
-	return &ldap.Ldap{
-		AuthzQueryTemplate:       "",
-		BindMethod:               "simple",
-		BindQueryUser:            mdbLdap.BindQueryUser,
-		BindSaslMechanisms:       "",
-		Servers:                  mdbLdap.Servers,
-		TransportSecurity:        "none",
-		UserToDnMapping:          "",
-		ValidateLDAPServerConfig: true,
-		BindQueryPassword:        password,
+	transportSecurity := TransportSecurityNone
+	if mdbLdap.TransportSecurity != nil {
+		transportSecurity = TransportSecurityTLS
 	}
+
+	validateServerConfig := true
+	if mdbLdap.ValidateLDAPServerConfig != nil {
+		validateServerConfig = *mdbLdap.ValidateLDAPServerConfig
+	}
+
+	return &ldap.Ldap{
+		BindQueryUser:            mdbLdap.BindQueryUser,
+		BindQueryPassword:        password,
+		Servers:                  mdbLdap.Servers,
+		TransportSecurity:        string(transportSecurity),
+		CaFileContents:           caContents,
+		ValidateLDAPServerConfig: validateServerConfig,
+
+		// Related to LDAP Authorization
+		AuthzQueryTemplate: "",
+		UserToDnMapping:    "",
+
+		// TODO: Enable LDAP SASL bind method
+		BindMethod:         "simple",
+		BindSaslMechanisms: "",
+	}
+
 }
 
 type MongoDbPodSpec struct {

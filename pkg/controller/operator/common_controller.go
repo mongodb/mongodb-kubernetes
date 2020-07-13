@@ -6,6 +6,7 @@ import (
 	"os"
 
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
@@ -750,7 +751,18 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 		if err != nil {
 			return workflow.Failed(fmt.Sprintf("error reading bind user password: %s", err)), false
 		}
-		authOpts.Ldap = mdb.GetLDAP(bindUserPassword)
+
+		caContents := ""
+		ca := mdb.Spec.Security.Authentication.Ldap.CAConfigMapRef
+		if ca != nil {
+			log.Debugf("Sending CA file to Pods via AutomationConfig: %s/%s/%s", mdb.GetNamespace(), ca.Name, ca.Key)
+			caContents, err = configmap.ReadKey(r.client, ca.Key, types.NamespacedName{Name: ca.Name, Namespace: mdb.GetNamespace()})
+			if err != nil {
+				return workflow.Failed(fmt.Sprintf("error reading CA configmap: %s", err)), false
+			}
+		}
+
+		authOpts.Ldap = mdb.GetLDAP(bindUserPassword, caContents)
 	}
 
 	log.Debugf("Using authentication options %+v", authentication.Redact(authOpts))

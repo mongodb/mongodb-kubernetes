@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import ldap
 import ldap.modlist
 
+from typing import Optional
 
 LDAP_BASE = "dc=example,dc=org"
 
@@ -12,6 +13,10 @@ class OpenLDAP:
     host: str
     admin_password: str
     ldap_base: str = LDAP_BASE
+
+    @property
+    def servers(self):
+        return self.host.partition("//")[2]
 
 
 @dataclass(init=True)
@@ -25,8 +30,13 @@ class LDAPUser:
         return "uid={},{}".format(self.uid, self.ldap_base)
 
 
-def create_ldap_user(server: OpenLDAP, user: LDAPUser):
+def create_user(server: OpenLDAP, user: LDAPUser, ca_path: Optional[str] = None):
     con = ldap.initialize(server.host)
+
+    if server.host.startswith("ldaps://") and ca_path is not None:
+        con.set_option(ldap.OPT_X_TLS_CACERTFILE, ca_path)
+        con.set_option(ldap.OPT_X_TLS_NEWCTX, 0)
+
     dn_admin = "cn=admin," + server.ldap_base
     con.simple_bind_s(dn_admin, server.admin_password)
 

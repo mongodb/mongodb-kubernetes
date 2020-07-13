@@ -122,9 +122,12 @@ def issuer_ca_configmap(namespace: str) -> str:
     # The operator expects the CA that validates Ops Manager is contained in
     # an entry with a name of "mms-ca.crt"
     data = {"ca-pem": ca, "mms-ca.crt": ca}
-    KubernetesTester.create_configmap(namespace, "issuer-ca", data)
 
-    return "issuer-ca"
+    name = "issuer-ca"
+    KubernetesTester.create_configmap(namespace, name, data)
+    yield name
+
+    KubernetesTester.delete_configmap(namespace, name)
 
 
 @fixture("module")

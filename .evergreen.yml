@@ -1408,6 +1408,11 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_replica_set_ldap_tls
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_feature_controls_authentication
   tags: ["patch-run"]
   exec_timeout_secs: 2400
@@ -1720,8 +1725,10 @@ task_groups:
     - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
+    - func: setup_cert_manager
   tasks:
     - e2e_replica_set_ldap
+    - e2e_replica_set_ldap_tls
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment

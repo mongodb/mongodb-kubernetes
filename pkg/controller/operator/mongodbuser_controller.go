@@ -175,6 +175,7 @@ func (r *MongoDBUserReconciler) handleExternalAuthDatabaseUser(user *userv1.Mong
 	// TODO: Handle case where both LDAP and x509 authentication mechanisms exists
 	// maybe decouple the x509 setup from the user creation, this is, making
 	// $external users generic. It is up to MongoDB to see which backed to use.
+	// This will be done as part of CLOUDP-67052.
 
 	if x509Enabled && ldapEnabled {
 		return reconcile.Result{}, errors.New("attempted to create user on $external database, but there are multiple $external databases enabled")
