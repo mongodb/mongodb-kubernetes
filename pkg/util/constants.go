@@ -107,9 +107,6 @@ const (
 	VersionManifestFilePath = "/var/lib/mongodb-enterprise-operator/version_manifest.json"
 
 	// Authentication
-
-	X509Db                            = "$external"
-	ExternalAuthenticationDB          = "$external"
 	AgentSecretName                   = "agent-certs"
 	AutomationConfigX509Option        = "MONGODB-X509"
 	AutomationConfigLDAPOption        = "PLAIN"

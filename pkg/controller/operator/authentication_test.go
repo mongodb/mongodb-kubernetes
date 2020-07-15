@@ -237,7 +237,7 @@ func TestUpdateOmAuthentication_EnableX509_FromEmptyDeployment(t *testing.T) {
 
 func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().EnableAuth().SetAuthModes([]string{"X509"}).Build()
-	x509User := DefaultMongoDBUserBuilder().SetDatabase(util.X509Db).SetMongoDBResourceName("my-rs").Build()
+	x509User := DefaultMongoDBUserBuilder().SetDatabase(authentication.ExternalDB).SetMongoDBResourceName("my-rs").Build()
 
 	manager := mock.NewManager(rs)
 	manager.Client.AddDefaultMdbConfigResources()

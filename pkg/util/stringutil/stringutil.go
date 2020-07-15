@@ -19,6 +19,16 @@ func Contains(slice []string, s string) bool {
 	return false
 }
 
+func ContainsAny(slice []string, ss ...string) bool {
+	for _, s := range ss {
+		if Contains(slice, s) {
+			return true
+		}
+	}
+
+	return false
+}
+
 func Remove(slice []string, s string) (result []string) {
 	for _, item := range slice {
 		if item == s {

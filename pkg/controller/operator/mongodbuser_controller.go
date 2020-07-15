@@ -8,7 +8,6 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
@@ -148,58 +147,19 @@ func (r *MongoDBUserReconciler) Reconcile(request reconcile.Request) (res reconc
 		return r.updateStatus(user, workflow.Failed("failed to prepare Ops Manager connection. %s", err), log)
 	}
 
-	currentAuthMode, err := conn.GetAgentAuthMode()
+	err = conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		return r.ensureAgentUsers(ac, mdb, log)
+	}, log)
 	if err != nil {
-		return r.updateStatus(user, workflow.Failed(err.Error()), log)
+		return r.updateStatus(user, workflow.Failed("failed to create agent users. %s", err), log)
 	}
 
-	if user.Spec.Database == util.ExternalAuthenticationDB {
-		return r.handleExternalAuthDatabaseUser(user, mdb, conn, currentAuthMode, log)
+	if user.Spec.Database == authentication.ExternalDB {
+		return r.handleExternalAuthUser(user, mdb, conn, log)
 	} else {
 		return r.handleScramShaUser(user, conn, log)
 	}
 
-}
-
-func (r *MongoDBUserReconciler) handleExternalAuthDatabaseUser(user *userv1.MongoDBUser, mdb mdbv1.MongoDB, conn om.Connection, currentAuthMode string, log *zap.SugaredLogger) (reconcile.Result, error) {
-	x509Enabled := stringutil.Contains(mdb.Spec.Security.Authentication.Modes, util.X509)
-	ldapEnabled := stringutil.Contains(mdb.Spec.Security.Authentication.Modes, util.LDAP)
-	if x509Enabled && !ldapEnabled {
-		return r.handleX509User(user, mdb, conn, currentAuthMode, log)
-	}
-	if ldapEnabled && !x509Enabled {
-		return r.handleLDAPUser(user, mdb, conn, log)
-	}
-	log.Infof("Authentication.Modes: %+v", mdb.Spec.Security.Authentication.Modes)
-
-	// TODO: Handle case where both LDAP and x509 authentication mechanisms exists
-	// maybe decouple the x509 setup from the user creation, this is, making
-	// $external users generic. It is up to MongoDB to see which backed to use.
-	// This will be done as part of CLOUDP-67052.
-
-	if x509Enabled && ldapEnabled {
-		return reconcile.Result{}, errors.New("attempted to create user on $external database, but there are multiple $external databases enabled")
-	}
-	return reconcile.Result{}, errors.New("attempted to create user on $external database, but there are no backends enabled (LDAP or x509)")
-}
-
-func (r *MongoDBUserReconciler) isX509Enabled(user userv1.MongoDBUser, mdbSpec mdbv1.MongoDbSpec) (bool, error) {
-	if user.Spec.MongoDBResourceRef.Name != "" {
-		authEnabled := mdbSpec.Security.Authentication.Enabled
-		usingX509 := stringutil.Contains(mdbSpec.Security.Authentication.Modes, util.X509)
-		return authEnabled && usingX509, nil
-	}
-
-	// TODO: remove the rest of this function when backwards compatibility with
-	// versions of the operator <1.3 is no longer required
-
-	//lint:ignore SA1019 need to use deprecated Project to ensure backwards compatibility
-
-	omAuthMode, err := configmap.ReadKey(r.kubeHelper.client, util.OmAuthMode, kube.ObjectKey(user.Namespace, user.Spec.Project))
-	if err != nil {
-		return false, err
-	}
-	return omAuthMode == util.LegacyX509InConfigMapValue, nil
 }
 
 func (r *MongoDBUserReconciler) delete(obj interface{}, log *zap.SugaredLogger) error {
@@ -271,7 +231,7 @@ func toOmUser(spec userv1.MongoDBUserSpec, password string) (om.MongoDBUser, err
 	}
 
 	// only specify password if we're dealing with non-x509 users
-	if spec.Database != util.X509Db {
+	if spec.Database != authentication.ExternalDB {
 		if err := authentication.ConfigureScramCredentials(&user, password); err != nil {
 			return om.MongoDBUser{}, fmt.Errorf("error generating SCRAM credentials: %s", err)
 		}
@@ -285,32 +245,37 @@ func toOmUser(spec userv1.MongoDBUserSpec, password string) (om.MongoDBUser, err
 
 // ensureAgentUsers makes sure that the correct agent users are present in the Automation Config.
 // it is not possible to assume the agent users are using the same authentication mechanism as the user being added
-func (r *MongoDBUserReconciler) ensureAgentUsers(ac *om.AutomationConfig, user userv1.MongoDBUser, log *zap.SugaredLogger) error {
-	mdb, err := r.getMongoDB(user)
-	if err != nil {
-		return fmt.Errorf("error reading MongoDB resource: %s", err)
-	}
+func (r *MongoDBUserReconciler) ensureAgentUsers(ac *om.AutomationConfig, mdb mdbv1.MongoDB, log *zap.SugaredLogger) error {
 	log = log.With("MongoDB", mdb.ObjectKey())
-
-	// if we are dealing with X509 agent users, or ever had X509 agent users, the secret containing the subjects should exist
-	userOpts, err := r.readAgentSubjectsFromSecret(mdb.Namespace, log)
-	err = client.IgnoreNotFound(err)
-	if err != nil {
-		return fmt.Errorf("error reading agent subjects from secret: %s", err)
-	}
 
 	// determine the agent auth mechanism based on the MongoDB resource
 	currentMode := mdb.Spec.Security.GetAgentMechanism(ac.Auth.AutoAuthMechanism)
-	if currentMode == "" {
-		log.Infof("no authentication currently configured for resource, not ensuring agent users")
-		return nil
-	}
-
+	var err error
+	userOpts := authentication.UserOptions{}
 	var mn authentication.MechanismName
-	if currentMode == util.X509 {
+	switch currentMode {
+	case util.X509:
+		// if we are dealing with X509 agent users, or ever had X509 agent users, the secret containing the subjects should exist
+		userOpts, err = r.readAgentSubjectsFromSecret(mdb.Namespace, log)
+		if err != nil {
+			return fmt.Errorf("error reading agent subjects from secret: %s", err)
+		}
+
+		if !r.doAgentX509CertsExist(mdb.GetNamespace()) {
+			return fmt.Errorf("error reading agent certs for x509 agents: %s", err)
+		}
+
 		mn = authentication.MongoDBX509
-	} else if currentMode == util.SCRAM {
+	case util.SCRAM:
 		mn = authentication.ScramSha256
+	// case util.LDAP:
+	// 	// LDAP agent auth not implemented yet
+	// 	mn = authentication.LDAPPlain
+	case "":
+		log.Info("no authentication currently configured for resource, not ensuring agent users")
+		return nil
+	default:
+		return fmt.Errorf("agent auth mechanism %s not supported", currentMode)
 	}
 
 	log.Debugf("ensuring agent users, using %s authentication", string(mn))
@@ -345,10 +310,6 @@ func (r *MongoDBUserReconciler) handleScramShaUser(user *userv1.MongoDBUser, con
 			return err
 		}
 
-		if err := r.ensureAgentUsers(ac, *user, log); err != nil {
-			return fmt.Errorf("error ensuring agent users: %s", err)
-		}
-
 		auth := ac.Auth
 		if user.ChangedIdentifier() { // we've changed username or database, we need to remove the old user before adding new
 			auth.RemoveUser(user.Status.Username, user.Status.Database)
@@ -374,58 +335,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(user *userv1.MongoDBUser, con
 	return r.updateStatus(user, workflow.OK(), log)
 }
 
-func (r *MongoDBUserReconciler) handleX509User(user *userv1.MongoDBUser, mdb mdbv1.MongoDB, conn om.Connection, currentAuthMode string, log *zap.SugaredLogger) (reconcile.Result, error) {
-
-	if x509IsEnabled, err := r.isX509Enabled(*user, mdb.Spec); err != nil {
-		return reconcile.Result{}, err
-	} else if !x509IsEnabled {
-		log.Info("X509 authentication is not enabled for this project, stopping")
-		return reconcile.Result{}, nil
-	}
-
-	security := mdb.Spec.Security
-
-	if security.ShouldUseX509(currentAuthMode) && !r.doAgentX509CertsExist(user.Namespace) {
-		log.Info("Agent certs have not yet been created, cannot add MongoDBUser yet")
-		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, nil
-	}
-
-	shouldRetry := false
-	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-		if !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) {
-			shouldRetry = true
-			return fmt.Errorf("x509 has not yet been configured")
-		}
-
-		if err := r.ensureAgentUsers(ac, *user, log); err != nil {
-			return fmt.Errorf("error ensuring agent users: %s", err)
-		}
-
-		auth := ac.Auth
-		if user.ChangedIdentifier() { // we've changed username or database, we need to remove the old user before adding new
-			auth.RemoveUser(user.Status.Username, user.Status.Database)
-		}
-
-		desiredUser, err := toOmUser(user.Spec, "")
-		if err != nil {
-			return err
-		}
-		auth.EnsureUser(desiredUser)
-		return nil
-	}, log)
-
-	if err != nil {
-		if shouldRetry {
-			return r.updateStatus(user, workflow.Pending(err.Error()).WithRetry(10), log)
-		}
-		return r.updateStatus(user, workflow.Failed("error updating user %s", err), log)
-	}
-
-	log.Infow("Finished reconciliation for MongoDBUser!")
-	return r.updateStatus(user, workflow.OK(), log)
-}
-
-func (r *MongoDBUserReconciler) handleLDAPUser(user *userv1.MongoDBUser, mdb mdbv1.MongoDB, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
+func (r *MongoDBUserReconciler) handleExternalAuthUser(user *userv1.MongoDBUser, mdb mdbv1.MongoDB, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
 	desiredUser, err := toOmUser(user.Spec, "")
 	if err != nil {
 		return r.updateStatus(user, workflow.Failed("error updating user %s", err), log)
@@ -433,9 +343,9 @@ func (r *MongoDBUserReconciler) handleLDAPUser(user *userv1.MongoDBUser, mdb mdb
 
 	shouldRetry := false
 	updateFunction := func(ac *om.AutomationConfig) error {
-		if !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigLDAPOption) {
+		if !externalAuthMechanismsAvailable(ac.Auth.DeploymentAuthMechanisms) {
 			shouldRetry = true
-			return fmt.Errorf("LDAP has not yet been configured")
+			return fmt.Errorf("no external authentication mechanisms (LDAP or x509) have been configured")
 		}
 
 		auth := ac.Auth
@@ -457,4 +367,8 @@ func (r *MongoDBUserReconciler) handleLDAPUser(user *userv1.MongoDBUser, mdb mdb
 
 	log.Infow("Finished reconciliation for MongoDBUser!")
 	return r.updateStatus(user, workflow.OK(), log)
+}
+
+func externalAuthMechanismsAvailable(mechanisms []string) bool {
+	return stringutil.ContainsAny(mechanisms, util.AutomationConfigLDAPOption, util.AutomationConfigX509Option)
 }

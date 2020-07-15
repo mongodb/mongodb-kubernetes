@@ -6,11 +6,14 @@ import (
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	userv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/user"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -186,7 +189,7 @@ func TestRetriesReconciliation_IfPasswordSecretExists_ButHasNoPassword(t *testin
 }
 
 func TestX509User_DoesntRequirePassword(t *testing.T) {
-	user := DefaultMongoDBUserBuilder().SetDatabase(util.ExternalAuthenticationDB).Build()
+	user := DefaultMongoDBUserBuilder().SetDatabase(authentication.ExternalDB).Build()
 	reconciler, client := userReconcilerWithAuthMode(user, util.AutomationConfigX509Option)
 
 	// initialize resources required for x590 tests
@@ -207,12 +210,34 @@ func TestX509User_DoesntRequirePassword(t *testing.T) {
 	assert.Equal(t, expected, actual, "the reconciliation should be successful as x509 does not require a password")
 }
 
+func AssertAuthModeTest(t *testing.T, mode string) {
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
+
+	reconciler, client := defaultUserReconciler(user)
+	err := client.Update(context.TODO(), DefaultReplicaSetBuilder().EnableAuth().SetAuthModes([]string{mode}).SetName("my-rs0").Build())
+	assert.NoError(t, err)
+	createUserControllerConfigMap(client)
+	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
+
+	// reconciles if a $external user creation is attempted with no configured backends.
+	expected := reconcile.Result{Requeue: false, RequeueAfter: 10 * time.Second}
+
+	assert.NoError(t, err)
+	assert.Equal(t, expected, actual)
+}
+
+func TestExternalAuthUserReconciliation_RequiresExternalAuthConfigured(t *testing.T) {
+	AssertAuthModeTest(t, "LDAP")
+	AssertAuthModeTest(t, "X509")
+}
+
 func TestScramShaUserReconciliation_CreatesAgentUsers(t *testing.T) {
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
 	reconciler, client := userReconcilerWithAuthMode(user, util.AutomationConfigScramSha256Option)
 
 	// initialize resources required for the tests
-	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().AgentAuthMode("SCRAM").EnableAuth().SetName("my-rs").Build())
+	err := client.Update(context.TODO(), DefaultReplicaSetBuilder().AgentAuthMode("SCRAM").EnableAuth().SetName("my-rs").Build())
+	assert.NoError(t, err)
 	createUserControllerConfigMap(client)
 	createPasswordSecret(client, user.Spec.PasswordSecretKeyRef, "password")
 
@@ -222,13 +247,14 @@ func TestScramShaUserReconciliation_CreatesAgentUsers(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, expected, actual)
 
-	ac, _ := om.CurrMockedConnection.ReadAutomationConfig()
+	ac, err := om.CurrMockedConnection.ReadAutomationConfig()
+	assert.NoError(t, err)
 
 	assert.Len(t, ac.Auth.Users, 3, "users list should contain 1 user just added and 2 agent users")
 }
 
 func TestX509UserReconciliation_CreatesAgentUsers(t *testing.T) {
-	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(util.X509Db).Build()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
 
 	reconciler, client := defaultUserReconciler(user)
 	reconciler.omConnectionFactory = func(ctx *om.OMContext) om.Connection {
@@ -239,9 +265,130 @@ func TestX509UserReconciliation_CreatesAgentUsers(t *testing.T) {
 	}
 
 	// initialize resources required for x590 tests
-	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().EnableAuth().SetAuthModes([]string{"X509"}).AgentAuthMode("X509").SetName("my-rs").Build())
+	err := client.Update(context.TODO(), DefaultReplicaSetBuilder().EnableAuth().SetAuthModes([]string{"X509"}).AgentAuthMode("X509").SetName("my-rs").Build())
+	assert.NoError(t, err)
 	createX509UserControllerConfigMap(client)
-	approveAgentCSRs(client) // pre-approved agent CSRs for x509 authentication
+	approveAgentCSRs(client)
+
+	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
+	assert.NoError(t, err)
+
+	expected := reconcile.Result{}
+	assert.Equal(t, expected, actual)
+
+	ac, err := om.CurrMockedConnection.ReadAutomationConfig()
+	assert.NoError(t, err)
+
+	assert.Len(t, ac.Auth.Users, 1, "users list should contain 1 user only")
+	assert.Equal(t, ac.Auth.AutoUser, "CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US")
+}
+
+func TestExternalUserReconciliation_CreatesExternalUser(t *testing.T) {
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
+
+	reconciler, client := defaultUserReconciler(user)
+	reconciler.omConnectionFactory = func(ctx *om.OMContext) om.Connection {
+		connection := om.NewEmptyMockedOmConnectionWithAutomationConfigChanges(ctx, func(ac *om.AutomationConfig) {
+			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigLDAPOption)
+		})
+		return connection
+	}
+
+	err := client.Update(context.TODO(), DefaultReplicaSetBuilder().EnableAuth().SetAuthModes([]string{"LDAP"}).SetName("my-rs").Build())
+	assert.NoError(t, err)
+
+	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
+	assert.NoError(t, err)
+
+	createUserControllerConfigMap(client)
+	expected := reconcile.Result{}
+	assert.Equal(t, expected, actual)
+
+	ac, err := om.CurrMockedConnection.ReadAutomationConfig()
+	assert.NoError(t, err)
+
+	assert.Len(t, ac.Auth.Users, 1, "users list should contain 1 user only")
+	assert.Equal(t, "$external", ac.Auth.Users[0].Database)
+
+	// The automation agent user uses SCRAM
+	assert.Equal(t, "mms-automation-agent", ac.Auth.AutoUser)
+}
+
+func TestExternalUserReconciliation_AgentAuth(t *testing.T) {
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
+
+	reconciler, client := defaultUserReconciler(user)
+	reconciler.omConnectionFactory = func(ctx *om.OMContext) om.Connection {
+		connection := om.NewEmptyMockedOmConnectionWithAutomationConfigChanges(ctx, func(ac *om.AutomationConfig) {
+			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigLDAPOption)
+		})
+		return connection
+	}
+
+	err := client.Update(context.TODO(), DefaultReplicaSetBuilder().EnableAuth().SetAuthModes([]string{"LDAP"}).AgentAuthMode("X509").SetName("my-rs").Build())
+	assert.NoError(t, err)
+	approveAgentCSRs(client)
+	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
+	assert.NoError(t, err)
+
+	// createUserControllerConfigMap(client)
+	expected := reconcile.Result{}
+	assert.Equal(t, expected, actual)
+
+	ac, err := om.CurrMockedConnection.ReadAutomationConfig()
+	assert.NoError(t, err)
+
+	assert.Len(t, ac.Auth.Users, 1, "users list should contain 1 user only")
+	assert.Equal(t, "$external", ac.Auth.Users[0].Database)
+	assert.Equal(t, "CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US", ac.Auth.AutoUser)
+}
+
+func TestExternalUserReconciliation_DifferentAuthModes_CreatesUser(t *testing.T) {
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
+
+	reconciler, client := defaultUserReconciler(user)
+	reconciler.omConnectionFactory = func(ctx *om.OMContext) om.Connection {
+		connection := om.NewEmptyMockedOmConnectionWithAutomationConfigChanges(ctx, func(ac *om.AutomationConfig) {
+			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigLDAPOption)
+		})
+		return connection
+	}
+
+	err := client.Update(context.TODO(), DefaultReplicaSetBuilder().EnableAuth().SetAuthModes([]string{"LDAP", "X509"}).SetName("my-rs").Build())
+	assert.NoError(t, err)
+	approveAgentCSRs(client)
+	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
+	assert.NoError(t, err)
+	createUserControllerConfigMap(client)
+
+	expected := reconcile.Result{}
+	assert.Equal(t, expected, actual)
+
+	ac, err := om.CurrMockedConnection.ReadAutomationConfig()
+	assert.NoError(t, err)
+
+	// If LDAP and X509 is enabled, X509 is used as agent auth
+	assert.Len(t, ac.Auth.Users, 1, "users list should contain 1 user")
+	assert.Equal(t, "$external", ac.Auth.Users[0].Database)
+	assert.Equal(t, ac.Auth.AutoUser, "CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US")
+}
+
+func TestX509UserReconciliation_CreateAgentUsers(t *testing.T) {
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
+
+	reconciler, client := defaultUserReconciler(user)
+	reconciler.omConnectionFactory = func(ctx *om.OMContext) om.Connection {
+		connection := om.NewEmptyMockedOmConnectionWithAutomationConfigChanges(ctx, func(ac *om.AutomationConfig) {
+			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option)
+		})
+		return connection
+	}
+
+	// initialize resources required for x590 tests
+	err := client.Update(context.TODO(), DefaultReplicaSetBuilder().EnableAuth().SetAuthModes([]string{"X509"}).SetName("my-rs").Build())
+	assert.NoError(t, err)
+	approveAgentCSRs(client)
+	createX509UserControllerConfigMap(client)
 	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
 
 	expected := reconcile.Result{}
@@ -249,9 +396,80 @@ func TestX509UserReconciliation_CreatesAgentUsers(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, expected, actual)
 
-	ac, _ := om.CurrMockedConnection.ReadAutomationConfig()
+	ac, err := om.CurrMockedConnection.ReadAutomationConfig()
+	assert.NoError(t, err)
 
-	assert.Len(t, ac.Auth.Users, 1, "users list should contain 1 user just added and 2 agent users")
+	assert.Len(t, ac.Auth.Users, 1, "users list should contain 1 user only")
+	assert.Equal(t, "$external", ac.Auth.Users[0].Database)
+	assert.Equal(t, ac.Auth.AutoUser, "CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US")
+}
+
+func TestMultipleAuthMethodsChoosesFirstOneForAgent_CreateAgentUsers(t *testing.T) {
+	t.Run("When SCRAM and X509 auth modes are enabled, 3 users are created", func(t *testing.T) {
+		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigX509Option, "", []string{"SCRAM", "X509"})
+
+		assert.Equal(t, ac.Auth.AutoUser, "mms-automation-agent")
+		assert.Len(t, ac.Auth.Users, 3, "users list should contain 3 users, created user, and 2 agent users")
+
+		expectedUsernames := []string{"mms-backup-agent", "mms-monitoring-agent", "my-user"}
+		for _, user := range ac.Auth.Users {
+			assert.True(t, stringutil.Contains(expectedUsernames, user.Username))
+		}
+	})
+
+	t.Run("When X509 and SCRAM auth modes are enabled, 1 user is created", func(t *testing.T) {
+		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigX509Option, "", []string{"X509", "SCRAM"})
+		assert.Equal(t, ac.Auth.AutoUser, "CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US")
+		assert.Len(t, ac.Auth.Users, 1, "users list should contain only 1 user")
+		assert.Equal(t, "$external", ac.Auth.Users[0].Database)
+		assert.Equal(t, "my-user", ac.Auth.Users[0].Username)
+	})
+
+	t.Run("When X509 and SCRAM auth modes are enabled, SCRAM is AgentAuthMode, 3 users are created", func(t *testing.T) {
+		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigX509Option, "SCRAM", []string{"X509", "SCRAM"})
+
+		assert.Equal(t, ac.Auth.AutoUser, "mms-automation-agent")
+		assert.Len(t, ac.Auth.Users, 3, "users list should contain only 3 users: actual user and 2 automation users")
+
+		expectedUsernames := []string{"mms-backup-agent", "mms-monitoring-agent", "my-user"}
+		for _, user := range ac.Auth.Users {
+			assert.True(t, stringutil.Contains(expectedUsernames, user.Username))
+		}
+	})
+}
+
+// BuildAuthenticationEnabledReplicaSet returns a AutomationConfig after creating a Replica Set with a set of
+// different Authentication values. It should be used to test different combination of authentication modes enabled
+// and agent authentication modes.
+func BuildAuthenticationEnabledReplicaSet(t *testing.T, automationConfigOption string, agentAuthMode string, authModes []string) *om.AutomationConfig {
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
+
+	reconciler, client := defaultUserReconciler(user)
+	reconciler.omConnectionFactory = func(ctx *om.OMContext) om.Connection {
+		connection := om.NewEmptyMockedOmConnectionWithAutomationConfigChanges(ctx, func(ac *om.AutomationConfig) {
+			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, automationConfigOption)
+		})
+		return connection
+	}
+
+	builder := DefaultReplicaSetBuilder().EnableAuth().SetAuthModes(authModes).SetName("my-rs")
+	if agentAuthMode != "" {
+		builder.AgentAuthMode(agentAuthMode)
+	}
+
+	err := client.Update(context.TODO(), builder.Build())
+	assert.NoError(t, err)
+	if authModes[0] == "X509" {
+		approveAgentCSRs(client)
+	}
+	createX509UserControllerConfigMap(client)
+	_, err = reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
+	assert.NoError(t, err)
+
+	ac, err := om.CurrMockedConnection.ReadAutomationConfig()
+	assert.NoError(t, err)
+
+	return ac
 }
 
 // createUserControllerConfigMap creates a configmap with credentials present

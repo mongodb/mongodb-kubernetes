@@ -11,6 +11,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const ExternalDB = "$external"
+
 func NewConnectionX509(conn om.Connection, ac *om.AutomationConfig, opts Options) ConnectionX509 {
 	return ConnectionX509{
 		AutomationConfig: ac,
@@ -188,7 +190,7 @@ func buildX509AgentUsers(options UserOptions) []om.MongoDBUser {
 	return []om.MongoDBUser{
 		{
 			Username:                   options.BackupSubject,
-			Database:                   util.X509Db,
+			Database:                   ExternalDB,
 			AuthenticationRestrictions: []string{},
 			Mechanisms:                 []string{},
 			Roles: []*om.Role{
@@ -218,7 +220,7 @@ func buildX509AgentUsers(options UserOptions) []om.MongoDBUser {
 		// https://docs.opsmanager.mongodb.com/current/reference/required-access-monitoring-agent/
 		{
 			Username:                   options.MonitoringSubject,
-			Database:                   util.X509Db,
+			Database:                   ExternalDB,
 			AuthenticationRestrictions: []string{},
 			Mechanisms:                 []string{},
 			Roles: []*om.Role{

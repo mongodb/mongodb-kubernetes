@@ -305,7 +305,13 @@ func (s *Security) GetAgentMechanism(currentMechanism string) string {
 		if len(s.Authentication.Modes) == 0 {
 			return ""
 		}
-		return s.Authentication.Modes[0]
+
+		for _, mode := range s.Authentication.Modes {
+			// Do not allow LDAP agent auth for now.
+			if mode != "LDAP" {
+				return mode
+			}
+		}
 	}
 
 	return auth.Agents.Mode
