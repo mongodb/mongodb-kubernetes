@@ -1,8 +1,10 @@
 import pytest
 
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, run_periodically
 from kubetester.mongotester import ShardedClusterTester
 from kubetester.automation_config_tester import AutomationConfigTester
+from kubetester.mongodb import MongoDB, Phase
+from kubernetes.client.rest import ApiException
 
 MDB_RESOURCE = "my-sharded-cluster-scram-sha-1"
 USER_NAME = "mms-user-1"
@@ -119,3 +121,24 @@ class TestCanChangePassword(KubernetesTester):
             username="mms-user-1",
             auth_mechanism="SCRAM-SHA-1",
         )
+
+
+@pytest.mark.e2e_sharded_cluster_scram_sha_1_user_connectivity
+def test_authentication_is_disabled_once_resource_is_deleted(namespace: str):
+    resource = MongoDB(MDB_RESOURCE, namespace=namespace).load()
+    resource.delete()
+
+    def resource_is_deleted() -> bool:
+        try:
+            resource.load()
+            return False
+        except ApiException:
+            return True
+
+    # wait until the resource is deleted
+    run_periodically(resource_is_deleted, timeout=300)
+
+    def authentication_was_disabled() -> bool:
+        return KubernetesTester.get_automation_config()["auth"]["disabled"]
+
+    run_periodically(authentication_was_disabled, timeout=60)

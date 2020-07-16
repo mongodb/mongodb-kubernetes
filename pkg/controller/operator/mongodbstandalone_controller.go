@@ -275,6 +275,9 @@ func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLog
 	if err = host.StopMonitoring(conn, hostsToRemove, log); err != nil {
 		return err
 	}
+	if err := r.clearProjectAuthenticationSettings(conn, s, processNames, log); err != nil {
+		return err
+	}
 	log.Info("Removed standalone from Ops Manager!")
 	return nil
 }

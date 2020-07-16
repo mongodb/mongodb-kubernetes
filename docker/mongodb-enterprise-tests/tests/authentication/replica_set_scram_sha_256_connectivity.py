@@ -155,10 +155,3 @@ def test_authentication_can_be_disabled_without_modes(namespace: str):
     }
     replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
-    tester = replica_set.get_automation_config_tester(
-        expected_users=3, authoritative_set=False
-    )
-
-    # we have explicitly set authentication to be disabled
-    tester.assert_has_user(USER_NAME)
-    tester.assert_authentication_disabled(remaining_users=1)

@@ -217,7 +217,7 @@ func TestConfigureAndDisable(t *testing.T) {
 	assertAuthenticationEnabled(t, ac.Auth)
 	assertAuthenticationMechanism(t, ac.Auth, "MONGODB-CR")
 
-	if err := Disable(conn, opts, zap.S()); err != nil {
+	if err := Disable(conn, opts, true, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -240,7 +240,7 @@ func TestDisableAuthentication(t *testing.T) {
 		return nil
 	}, zap.S())
 
-	if err := Disable(conn, Options{}, zap.S()); err != nil {
+	if err := Disable(conn, Options{}, true, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 

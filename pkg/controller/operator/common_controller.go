@@ -796,7 +796,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 		}
 
 		authOpts.UserOptions = userOpts
-		if err := authentication.Disable(conn, authOpts, log); err != nil {
+		if err := authentication.Disable(conn, authOpts, false, log); err != nil {
 			return workflow.Failed(err.Error()), false
 		}
 	}
@@ -865,6 +865,22 @@ func (r *ReconcileCommonController) readAgentSubjectsFromSecret(namespace string
 		MonitoringSubject: monitoringAgentSubject,
 		BackupSubject:     backupAgentSubject,
 	}, nil
+}
+
+func (r *ReconcileCommonController) clearProjectAuthenticationSettings(conn om.Connection, mdb *mdbv1.MongoDB, processNames []string, log *zap.SugaredLogger) error {
+	userOpts, err := r.readAgentSubjectsFromSecret(mdb.Namespace, log)
+	err = client.IgnoreNotFound(err)
+	if err != nil {
+		return err
+	}
+
+	log.Infof("Disabling authentication for thi project: %s", conn.GroupName())
+	disableOpts := authentication.Options{
+		ProcessNames: processNames,
+		UserOptions:  userOpts,
+	}
+
+	return authentication.Disable(conn, disableOpts, true, log)
 }
 
 // canConfigureAuthentication determines if based on the existing state of Ops Manager

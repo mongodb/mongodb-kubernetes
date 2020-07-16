@@ -60,5 +60,6 @@ class TestReplicaSetDeleted(KubernetesTester):
       timeout: 120
     """
 
-    def test_noop(self):
-        pass
+    def test_authentication_was_disabled(self):
+        tester = AutomationConfigTester(KubernetesTester.get_automation_config())
+        tester.assert_authentication_disabled()

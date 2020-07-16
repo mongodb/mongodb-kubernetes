@@ -305,6 +305,10 @@ func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLog
 		return err
 	}
 
+	if err := r.clearProjectAuthenticationSettings(conn, rs, processNames, log); err != nil {
+		return err
+	}
+
 	log.Info("Removed replica set from Ops Manager!")
 	return nil
 }

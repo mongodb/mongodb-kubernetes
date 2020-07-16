@@ -233,7 +233,7 @@ func ConfigureScramCredentials(user *om.MongoDBUser, password string) error {
 
 // Disable disables all authentication mechanisms, and waits for the agents to reach goal state. It is still required to provide
 // automation agent user name, password and keyfile contents to ensure a valid Automation Config.
-func Disable(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+func Disable(conn om.Connection, opts Options, deleteUsers bool, log *zap.SugaredLogger) error {
 	ac, err := conn.ReadAutomationConfig()
 	if err != nil {
 		return fmt.Errorf("error reading automation config: %s", err)
@@ -249,6 +249,11 @@ func Disable(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 				return fmt.Errorf("error ensuring agent password: %s", err)
 			}
 
+			// we don't always want to delete the users. This can result in the agents getting stuck
+			// certain situations around auth transitions.
+			if deleteUsers {
+				ac.Auth.Users = []*om.MongoDBUser{}
+			}
 			ac.Auth.AutoAuthMechanisms = []string{}
 			ac.Auth.DeploymentAuthMechanisms = []string{}
 			ac.Auth.Disabled = true
@@ -299,6 +304,7 @@ func Disable(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 	}
 	return nil
 }
+
 func getMechanismName(mongodbResourceMode string, ac *om.AutomationConfig, minimumMajorVersion uint64) MechanismName {
 	switch mongodbResourceMode {
 	case util.X509:

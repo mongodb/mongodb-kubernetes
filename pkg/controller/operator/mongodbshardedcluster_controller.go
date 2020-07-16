@@ -374,6 +374,10 @@ func (r *ReconcileMongoDbShardedCluster) delete(obj interface{}, log *zap.Sugare
 		return err
 	}
 
+	if err := r.clearProjectAuthenticationSettings(conn, sc, processNames, log); err != nil {
+		return err
+	}
+
 	log.Info("Removed sharded cluster from Ops Manager!")
 
 	return nil
