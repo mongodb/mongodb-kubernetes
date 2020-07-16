@@ -78,6 +78,7 @@ class MongoTester:
         auth_mechanism: str,
         attempts: int = 5,
         ssl: bool = False,
+        **kwargs,
     ) -> None:
         assert attempts > 0
         assert auth_mechanism in {"SCRAM-SHA-256", "SCRAM-SHA-1"}
@@ -85,7 +86,7 @@ class MongoTester:
         for i in reversed(range(attempts)):
             try:
                 self._authenticate_with_scram(
-                    username, password, auth_mechanism=auth_mechanism, ssl=ssl
+                    username, password, auth_mechanism=auth_mechanism, ssl=ssl, **kwargs
                 )
                 return
             except OperationFailure as e:
@@ -96,7 +97,12 @@ class MongoTester:
                 time.sleep(5)
 
     def assert_scram_sha_authentication_fails(
-        self, username: str, password: str, retries: int = 5, **kwargs
+        self,
+        username: str,
+        password: str,
+        retries: int = 5,
+        ssl: bool = False,
+        **kwargs,
     ):
         """
         If a password has changed, it could take some time for the user changes to propagate, meaning
@@ -106,7 +112,7 @@ class MongoTester:
         """
         for i in range(retries):
             try:
-                self._authenticate_with_scram(username, password, **kwargs)
+                self._authenticate_with_scram(username, password, ssl=ssl, **kwargs)
             except OperationFailure:
                 return
             time.sleep(5)
@@ -115,7 +121,12 @@ class MongoTester:
         )
 
     def _authenticate_with_scram(
-        self, username: str, password: str, auth_mechanism: str, ssl: bool = False
+        self,
+        username: str,
+        password: str,
+        auth_mechanism: str,
+        ssl: bool = False,
+        **kwargs,
     ):
         options = {
             "ssl": ssl,
@@ -124,20 +135,22 @@ class MongoTester:
             "username": username,
         }
         if ssl:
-            options["ssl_ca_certs"] = kubetester.SSL_CA_CERT
+            options["ssl_ca_certs"] = kwargs.get("ssl_ca_certs", kubetester.SSL_CA_CERT)
 
         conn = pymongo.MongoClient(self.cnx_string, **options)
         # authentication doesn't actually happen until we interact with a database
         conn["admin"]["myCol"].insert_one({})
 
-    def assert_x509_authentication(self, cert_file_name: str, attempts: int = 5):
+    def assert_x509_authentication(
+        self, cert_file_name: str, attempts: int = 5, **kwargs
+    ):
         assert attempts > 0
         options = {
             "ssl": True,
             "authMechanism": "MONGODB-X509",
             "ssl_certfile": cert_file_name,
             "ssl_cert_reqs": ssl.CERT_REQUIRED,
-            "ssl_ca_certs": "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
+            "ssl_ca_certs": kwargs.get("ssl_ca_certs", kubetester.SSL_CA_CERT),
         }
 
         total_attempts = attempts
@@ -152,9 +165,16 @@ class MongoTester:
                 time.sleep(5)
 
     def assert_ldap_authentication(
-        self, username: str, password: str, attempts: int = 5
+        self,
+        username: str,
+        password: str,
+        ssl_ca_certs: Optional[str] = None,
+        attempts: int = 5,
     ):
         options = {}
+        if ssl_ca_certs is not None:
+            options["ssl"] = True
+            options["ssl_ca_certs"] = ssl_ca_certs
         total_attempts = attempts
 
         while True:

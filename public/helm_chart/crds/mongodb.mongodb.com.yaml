@@ -193,6 +193,11 @@ spec:
                       type: boolean
                     ca:
                       type: string
+                    secretRef:
+                      type: object
+                      properties:
+                        name:
+                          type: string
                     additionalCertificateDomains:
                       type: array
                       items:

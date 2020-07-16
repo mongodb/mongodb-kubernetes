@@ -261,10 +261,6 @@ func (r *MongoDBUserReconciler) ensureAgentUsers(ac *om.AutomationConfig, mdb md
 			return fmt.Errorf("error reading agent subjects from secret: %s", err)
 		}
 
-		if !r.doAgentX509CertsExist(mdb.GetNamespace()) {
-			return fmt.Errorf("error reading agent certs for x509 agents: %s", err)
-		}
-
 		mn = authentication.MongoDBX509
 	case util.SCRAM:
 		mn = authentication.ScramSha256
