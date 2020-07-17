@@ -40,6 +40,7 @@ def replica_set(
     resource["spec"]["security"]["authentication"]["ldap"] = {
         "servers": openldap.servers,
         "bindQueryPasswordSecretRef": {"name": bind_query_password_secret,},
+        "bindQueryUser": "cn=admin,dc=example,dc=org",
     }
     resource["spec"]["security"]["authentication"]["modes"] = ["LDAP", "SCRAM", "X509"]
     resource["spec"]["security"]["tls"] = {

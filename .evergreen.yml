@@ -1412,6 +1412,12 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_sharded_cluster_ldap
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_replica_set_ldap_tls
   tags: ["patch-run"]
   commands:
@@ -1732,6 +1738,7 @@ task_groups:
     - func: setup_cert_manager
   tasks:
     - e2e_replica_set_ldap
+    - e2e_sharded_cluster_ldap
     - e2e_replica_set_ldap_tls
   teardown_task:
     - func: upload_e2e_logs
