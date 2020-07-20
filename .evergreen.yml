@@ -275,17 +275,6 @@ functions:
       - ${workdir}/bin
       binary: scripts/evergreen/setup_kubernetes_environment.sh
 
-  setup_cert_manager:
-  - command: subprocess.exec
-    type: setup
-    params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
-      add_to_path:
-      - ${workdir}/bin
-      env:
-        KUBECONFIG: ${workdir}/${kube_environment_name}_config
-      binary: scripts/evergreen/setup_cert_manager.sh
-
   gotest_parse_files:
     - command: gotest.parse_files
       type: test
@@ -1735,7 +1724,6 @@ task_groups:
     - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
-    - func: setup_cert_manager
   tasks:
     - e2e_replica_set_ldap
     - e2e_sharded_cluster_ldap
@@ -1835,7 +1823,6 @@ task_groups:
     - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
-    - func: setup_cert_manager
   tasks:
     - e2e_replica_set_scram_sha_256_user_connectivity
     - e2e_replica_set_scram_sha_1_user_connectivity
@@ -1921,7 +1908,6 @@ task_groups:
     - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
-    - func: setup_cert_manager
   tasks:
     - e2e_configure_tls_and_x509_simultaneously_st
     - e2e_configure_tls_and_x509_simultaneously_rs
@@ -1986,7 +1972,6 @@ task_groups:
     - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
-    - func: setup_cert_manager
   tasks:
     - e2e_om_appdb_scale_up_down
     - e2e_om_appdb_upgrade

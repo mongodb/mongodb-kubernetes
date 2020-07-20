@@ -1,6 +1,6 @@
 import subprocess
 import uuid
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Tuple
 
 
 def helm_template(
@@ -46,13 +46,22 @@ def helm_install_from_chart(
     release: str,
     chart: str,
     version: str = "",
+    custom_repo: Tuple[str, str] = (
+        "stable",
+        "https://kubernetes-charts.storage.googleapis.com",
+    ),
     helm_args: Optional[Dict[str, str]] = None,
 ):
+    """Installs a helm chart from a repo. It can accept a new custom_repo to add before the
+    chart is installed. Also `helm_args` accepts a dictionary that will be passed as --set
+    arguments to `helm install`."""
+
     args = [
         "helm",
-        "install",
-        "--name-template={}".format(release),
-        "--namespace={}".format(namespace),
+        "upgrade",
+        "--install",
+        release,
+        f"--namespace={namespace}",
         chart,
     ]
 
@@ -61,12 +70,9 @@ def helm_install_from_chart(
 
     if helm_args is not None:
         args += _create_helm_args(helm_args)
-        if "--create-namespace" in args:
-            args.remove("--create-namespace")
 
-    subprocess.run(
-        "helm repo add stable https://kubernetes-charts.storage.googleapis.com".split()
-    )
+    process = "helm repo add {} {}".format(custom_repo[0], custom_repo[1])
+    subprocess.run(process.split())
     subprocess.run(args, check=True)
 
 

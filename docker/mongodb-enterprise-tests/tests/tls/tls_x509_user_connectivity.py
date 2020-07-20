@@ -17,10 +17,6 @@ X509_AGENT_SUBJECT = "CN=automation,OU={namespace},O=cert-manager"
 SUBJECT = {
     # Organizational Units matches your namespace (to be overriden by test)
     "organizationalUnits": ["TO-BE-REPLACED"],
-    # Organizations match the cluster name
-    # TODO: Currently cert-manger sets this as organization,
-    # investigate how to change it.
-    "organizations": ["cert-manager"],
     # For an additional layer of security, the certificates will have a random
     # (unknown and "unpredictable"), random string. Even if someone was able to
     # generate the certificates themselves, they would still require this
@@ -129,10 +125,9 @@ class TestReplicaSetWithTLSCreation(KubernetesTester):
         for subject in users:
             names = dict(name.split("=") for name in subject.split(","))
 
-            # unfortunatelly cert-manager sets this to cert-manager instead
-            # assert names["O"] == "cluster.local"
-            assert names["O"] == "cert-manager"
-            assert names["OU"] == namespace
+            assert "SERIALNUMBER" in names
+            assert "OU" in names
+            assert "CN" in names
 
         # exception with IndexError if not found
         backup = [u for u in users if "CN=backup" in u][0]
@@ -184,8 +179,7 @@ class TestX509CorrectlyConfigured(KubernetesTester):
         tester.assert_authentication_mechanism_enabled("MONGODB-X509")
 
         user = automation_config["auth"]["autoUser"]
+        names = dict(name.split("=") for name in user.split(","))
 
-        assert "O=cert-manager" in user
-        assert "OU=" + namespace in user
-        assert "SERIALNUMBER=" in user
+        assert "OU" in names
         assert "CN=automation" in user

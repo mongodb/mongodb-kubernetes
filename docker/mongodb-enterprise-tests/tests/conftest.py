@@ -1,16 +1,23 @@
 import os
 import pathlib
 from typing import List
+import time
 
 import kubernetes
 import pytest
 from _pytest.nodes import Node
+
+from kubernetes import client
 from kubernetes.client import ApiextensionsV1beta1Api
 
+from kubetester.helm import helm_install_from_chart
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import KubernetesTester, fixture as _fixture
 from kubetester.certs import Issuer
 from kubetester.operator import Operator
+
+from kubetester import get_pod_when_ready
+
 from pytest import fixture
 
 try:
@@ -90,7 +97,29 @@ def crd_api():
 
 
 @fixture("module")
-def issuer(namespace: str) -> str:
+def cert_manager(namespace: str) -> str:
+    """Installs cert-manager v0.15.2 using Helm."""
+    name = "cert-manager"
+    helm_install_from_chart(
+        name,  # cert-manager is installed on a specific namespace
+        name,
+        f"jetstack/{name}",
+        version="v0.15.2",
+        custom_repo=("jetstack", "https://charts.jetstack.io"),
+        helm_args={"installCRDs": "true"},
+    )
+
+    # waits until the cert-manager webhook is Ready, otherwise creating Certificate
+    # Custom Resources will fail.
+    get_pod_when_ready(
+        name, f"app.kubernetes.io/instance={name},app.kubernetes.io/component=webhook",
+    )
+
+    return name
+
+
+@fixture("module")
+def issuer(cert_manager: str, namespace: str) -> str:
     """
     This fixture creates an "Issuer" in the testing namespace. This requires cert-manager
     to be installed in the cluster.
