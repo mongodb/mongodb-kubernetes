@@ -39,7 +39,7 @@ func configureX509(client kubernetesClient.Client, condition certsv1.RequestCond
 	cMap := x509ConfigMap()
 
 	_ = client.CreateConfigMap(cMap)
-	createAgentCSRs(client, condition)
+	createAgentCSRs(1, client, condition)
 }
 
 func TestX509CannotBeEnabled_IfAgentCertsAreNotApproved(t *testing.T) {
@@ -180,7 +180,7 @@ func TestUpdateOmAuthentication_DoesNotDisableAuth_IfAuthIsNotSet(t *testing.T) 
 	reconciler, client := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection), manager.Client
 
 	addKubernetesTlsResources(client, rs)
-	approveAgentCSRs(client)
+	approveAgentCSRs(client, 1)
 
 	checkReconcileSuccessful(t, reconciler, rs, client)
 
@@ -218,7 +218,7 @@ func TestCanConfigureAuthenticationDisabled_WithNoModes(t *testing.T) {
 	reconciler, client := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection), manager.Client
 
 	addKubernetesTlsResources(client, rs)
-	approveAgentCSRs(client)
+	approveAgentCSRs(client, 1)
 
 	checkReconcileSuccessful(t, reconciler, rs, client)
 }
@@ -244,7 +244,7 @@ func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
 
 	// configure x509/tls resources
 	addKubernetesTlsResources(manager.Client, rs)
-	createAgentCSRs(manager.Client, certsv1.CertificateApproved)
+	createAgentCSRs(1, manager.Client, certsv1.CertificateApproved)
 	approveCSRs(manager.Client, rs)
 
 	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
@@ -262,7 +262,7 @@ func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
 	assert.Equal(t, expected, actual)
 
 	ac, _ := om.CurrMockedConnection.ReadAutomationConfig()
-	assert.Equal(t, ac.Auth.AutoUser, "CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US")
+	assert.Equal(t, ac.Auth.AutoUser, "CN=mms-automation-agent,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US")
 }
 
 func TestScramAgentUserIsCorrectlyConfigured(t *testing.T) {
@@ -678,22 +678,32 @@ func createShardedClusterTLSData(client kubernetesClient.Client, mdb *mdbv1.Mong
 }
 
 // approveAgentCSRs approves all the agent certs needed for x509 authentication
-func approveAgentCSRs(client *mock.MockedClient) {
+func approveAgentCSRs(client *mock.MockedClient, howMany int) {
 	// create the secret the agent certs will exist in
-	createAgentCSRs(client, certsv1.CertificateApproved)
+	createAgentCSRs(howMany, client, certsv1.CertificateApproved)
 }
 
 // createAgentCSRs creates all the agent CSRs needed for x509 at the specified condition type
-func createAgentCSRs(client kubernetesClient.Client, conditionType certsv1.RequestConditionType) {
+func createAgentCSRs(numAgents int, client kubernetesClient.Client, conditionType certsv1.RequestConditionType) {
+	if numAgents != 1 && numAgents != 3 {
+		return
+	}
 	// create the secret the agent certs will exist in
 
-	cert, _ := ioutil.ReadFile("testdata/certificates/certificate_then_key")
+	certAuto, _ := ioutil.ReadFile("testdata/certificates/cert_auto")
+	certMonitoring, _ := ioutil.ReadFile("testdata/certificates/cert_monitoring")
+	certBackup, _ := ioutil.ReadFile("testdata/certificates/cert_backup")
 
-	_ = client.CreateSecret(secret.Builder().
+	builder := secret.Builder().
 		SetNamespace(mock.TestNamespace).
 		SetName(util.AgentSecretName).
-		SetField(util.AutomationAgentPemSecretKey, string(cert)).
-		Build())
+		SetField(util.AutomationAgentPemSecretKey, string(certAuto))
+
+	if numAgents == 3 {
+		builder.SetField(util.MonitoringAgentPemSecretKey, string(certMonitoring)).
+			SetField(util.BackupAgentPemSecretKey, string(certBackup))
+	}
+	client.CreateSecret(builder.Build())
 
 	addCsrs(client,
 		createCSR("mms-automation-agent", mock.TestNamespace, conditionType),

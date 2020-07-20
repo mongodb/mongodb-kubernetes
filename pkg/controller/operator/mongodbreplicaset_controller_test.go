@@ -179,7 +179,7 @@ func TestX509IsNotEnabledWithOlderVersionsOfOpsManager(t *testing.T) {
 	}
 
 	addKubernetesTlsResources(client, rs)
-	approveAgentCSRs(client)
+	approveAgentCSRs(client, 1)
 
 	checkReconcileFailed(t, reconciler, rs, true, "unable to configure X509 with this version of Ops Manager", client)
 }
