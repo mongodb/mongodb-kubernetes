@@ -1,7 +1,7 @@
 #
-# Dockerfile for Init Ops Manager Image.
+# Dockerfile for Init Image for Database or AppDB.
 # to be called from github root (to be able to include probe code):
-# …/10gen/ops-manager-kubernetes] docker build -f docker/mongodb-enterprise-init-appdb/Dockerfile .
+# …/10gen/ops-manager-kubernetes] docker build -f docker/mongodb-enterprise-init-database/Dockerfile .
 #
 
 FROM golang:1.13-alpine as builder
@@ -16,13 +16,20 @@ FROM {{ base_image|default("busybox") }}
 
 ARG VERSION
 
+{%- if is_appdb %}
 LABEL name="MongoDB Enterprise Init AppDB" \
-      maintainer="support@mongodb.com" \
-      vendor="MongoDB" \
       version="mongodb-enterprise-init-appdb-${VERSION}" \
-      release="1" \
       summary="MongoDB Enterprise AppDB Init Image" \
-      description="Startup Scripts for MongoDB Enterprise Application Database for Ops Manager"
+      description="Startup Scripts for MongoDB Enterprise Application Database for Ops Manager" \
+{%- else %}
+LABEL name="MongoDB Enterprise Init Database" \
+      version="mongodb-enterprise-init-database-${VERSION}" \
+      summary="MongoDB Enterprise Database Init Image" \
+      description="Startup Scripts for MongoDB Enterprise Database" \
+{%- endif %}
+      release="1" \
+      vendor="MongoDB" \
+      maintainer="support@mongodb.com"
 
 
 RUN mkdir /probes

@@ -167,8 +167,11 @@ build-and-push-test-image: aws_login
 		scripts/dev/build_push_tests_image; \
 	fi
 
-# builds all app images in parallel
-build-and-push-images: build-and-push-database-image build-and-push-operator-image appdb-init-image om-init-image
+# builds all app images in parallel (TODO remove build-and-push-database-image as soon as it uses init image)
+build-and-push-images: build-and-push-database-image build-and-push-operator-image appdb-init-image om-init-image database-init-image
+
+database-init-image:
+	@ scripts/dev/build_push_init_database_image.sh
 
 appdb-init-image:
 	@ scripts/dev/build_push_init_appdb_image.sh

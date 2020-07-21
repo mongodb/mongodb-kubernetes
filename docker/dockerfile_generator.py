@@ -133,6 +133,12 @@ def database(distro: Callable):
 
 
 def init_appdb(distro: Callable):
+    params = distro()
+    params["is_appdb"] = True
+    return params
+
+
+def init_database(distro: Callable):
     return distro()
 
 
@@ -156,6 +162,7 @@ def render(image_name: str, distro_name: str, **kwargs):
         "operator": operator,
         "database": database,
         "init_appdb": init_appdb,
+        "init_database": init_database,
         "init_ops_manager": init_ops_manager,
     }
 

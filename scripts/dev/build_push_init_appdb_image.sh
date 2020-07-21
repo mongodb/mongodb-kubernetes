@@ -5,10 +5,11 @@ set -Eeou pipefail
 source scripts/dev/set_env_context.sh
 source scripts/funcs/kubernetes
 
-# Building the init image - either to local repo or to the remote one (ECR)
+# Building the init image for AppDB - either to local repo or to the remote one (ECR)
 
 if [[ $(scripts/evergreen/guard_git_repo_is_clean) ]]
 then
+    # releasing the init database image
     init_appdb_version=$(jq --raw-output '.initAppDbVersion' < release.json)
     build_id=$(date +%Y%m%d%H%M)
     suffix="-b${build_id}"
@@ -29,12 +30,12 @@ versioned_image_with_build="${versioned_image}${suffix}"
 
 (
     [[ "${CLUSTER_TYPE}" = "openshift" ]] && base_image="ubi_minimal" || base_image="busybox"
-    cd docker/mongodb-enterprise-init-appdb
+    cd docker/mongodb-enterprise-init-database
     ../dockerfile_generator.py init_appdb "${base_image}" > Dockerfile
 )
 
 # needs to be launched from the root for docker to be able to copy the probe directory
-docker build -t "${versioned_image}" -t "${versioned_image_with_build}" --build-arg VERSION="${init_appdb_version}" -f docker/mongodb-enterprise-init-appdb/Dockerfile .
+docker build -t "${versioned_image}" -t "${versioned_image_with_build}" --build-arg VERSION="${init_appdb_version}" -f docker/mongodb-enterprise-init-database/Dockerfile .
 docker push "${versioned_image}"
 docker push "${versioned_image_with_build}"
 title "Init AppDB image successfully built and pushed to ${repository_url} registry"

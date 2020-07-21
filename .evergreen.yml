@@ -376,11 +376,33 @@ functions:
           REPO_URL: ${ecr_registry}/dev
           INIT_OPS_MANAGER_REGISTRY: ${ecr_registry}/dev
           INIT_APPDB_REGISTRY: ${ecr_registry}/dev
-          GITHUB_TOKEN: ${GITHUB_TOKEN}
-
           CLUSTER_TYPE: ${cluster_type}
 
         command: scripts/dev/batch_init_om_appdb_images.sh
+
+  build_and_push_init_test_images_for_database:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        include_expansions_in_env:
+        - version_id
+        add_to_path:
+        - *go_bin
+        - ${workdir}/bin
+        env:
+          <<: *go_options
+
+          AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
+          AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
+          AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
+          KUBECONFIG: ${workdir}/${kube_environment_name}_config
+
+          IN_MEMORY_CONTEXT: "true"
+          REPO_URL: ${ecr_registry}/dev
+          CLUSTER_TYPE: ${cluster_type}
+
+        command: scripts/dev/build_push_init_database_image.sh
 
   setup_cloud_qa:
   - command: subprocess.exec
@@ -867,15 +889,8 @@ tasks:
   - func: clone
   - func: setup_aws
   - func: setup_docker
-  - func: download_kube_tools
-    vars:
-      <<: *kubernetes_environment_vanilla
-  - func: setup_kubernetes_environment
-    vars:
-      <<: *kubernetes_environment_vanilla
-  - func: build_operator
-    vars:
-      image_type: rhel
+  - func: setup_jq
+  - func: setup_ecr_login_helper
   - func: build_and_push_init_test_images_for_om_and_appdb
     vars:
       cluster_type: "openshift"
@@ -885,18 +900,34 @@ tasks:
   - func: clone
   - func: setup_aws
   - func: setup_docker
-  - func: download_kube_tools
-    vars:
-      <<: *kubernetes_environment_vanilla
-  - func: setup_kubernetes_environment
-    vars:
-      <<: *kubernetes_environment_vanilla
-  - func: build_operator
-    vars:
-      image_type: ubuntu
+  - func: setup_jq
+  - func: setup_ecr_login_helper
   - func: build_and_push_init_test_images_for_om_and_appdb
     vars:
       cluster_type: "kops"
+
+- name: build_init_database_image_rhel
+  commands:
+  - func: clone
+  - func: setup_aws
+  - func: setup_docker
+  - func: setup_jq
+  - func: setup_ecr_login_helper
+  - func: build_and_push_init_test_images_for_database
+    vars:
+      cluster_type: "openshift"
+
+- name: build_init_database_image_ubuntu
+  commands:
+  - func: clone
+  - func: setup_aws
+  - func: setup_docker
+  - func: setup_jq
+  - func: setup_ecr_login_helper
+  - func: build_and_push_init_test_images_for_database
+    vars:
+      cluster_type: "kops"
+
 
 - name: prepare_cluster_vanilla
   exec_timeout_secs: 1200
@@ -2054,6 +2085,8 @@ buildvariants:
   depends_on:
     - name: build_images_ubuntu
       variant: init_test_run
+    - name: build_init_database_image_ubuntu
+      variant: init_test_run
     - name: build_test_image
       variant: init_test_run
     - name: prepare_cluster_vanilla
@@ -2074,6 +2107,8 @@ buildvariants:
   display_name: "e2e_kube_vanilla_om_42_current"
   depends_on:
     - name: build_images_ubuntu
+      variant: init_test_run
+    - name: build_init_database_image_ubuntu
       variant: init_test_run
     - name: build_test_image
       variant: init_test_run
@@ -2100,6 +2135,8 @@ buildvariants:
   display_name: e2e_openshift4_cloud_qa
   depends_on:
     - name: build_images_rhel
+      variant: init_test_run
+    - name: build_init_database_image_rhel
       variant: init_test_run
     - name: build_test_image
       variant: init_test_run
@@ -2220,6 +2257,8 @@ buildvariants:
   - name: build_test_image
   - name: build_init_om_images_ubuntu
   - name: build_init_om_images_rhel
+  - name: build_init_database_image_ubuntu
+  - name: build_init_database_image_rhel
   - name: prepare_cluster_vanilla
   - name: prepare_cluster_vanilla_om
   - name: prepare_aws
@@ -2299,6 +2338,8 @@ buildvariants:
   depends_on:
   - name: build_images_ubuntu
     variant: init_test_run
+  - name: build_init_database_image_ubuntu
+    variant: init_test_run
   - name: build_test_image
     variant: init_test_run
   expansions:
@@ -2322,6 +2363,8 @@ buildvariants:
   - ubuntu1604-build
   depends_on:
   - name: build_images_ubuntu
+    variant: init_test_run
+  - name: build_init_database_image_ubuntu
     variant: init_test_run
   - name: build_init_om_images_ubuntu
     variant: init_test_run
