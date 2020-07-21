@@ -1,4 +1,4 @@
-from typing import Dict, Set, Tuple, List
+from typing import Dict, Set, Tuple, List, Optional
 
 X509_AGENT_SUBJECT = "CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US"
 SCRAM_AGENT_USER = "mms-automation-agent"
@@ -11,12 +11,8 @@ class AutomationConfigTester:
     users in MongoDB to be the ones defined in the Automation Config.
     """
 
-    def __init__(
-        self, ac: Dict, expected_users: int = 2, authoritative_set: bool = True
-    ):
+    def __init__(self, ac: Dict):
         self.automation_config = ac
-        self.expected_users = expected_users
-        self.authoritative_set = authoritative_set
 
     def get_replica_set_processes(self, rs_name: str) -> List[Dict]:
         """ Returns all processes for the specified replica set"""
@@ -39,17 +35,20 @@ class AutomationConfigTester:
             if process["processType"] == "mongos"
         ]
 
+    def assert_expected_users(self, expected_users: int):
+        assert len(self.automation_config["auth"]["usersWanted"]) == expected_users
+
+    def assert_authoritative_set(self, authoritative_set: bool):
+        assert self.automation_config["auth"]["authoritativeSet"] == authoritative_set
+
     def assert_authentication_mechanism_enabled(
         self, mechanism: str, active_auth_mechanism: bool = True
     ) -> None:
         auth: dict = self.automation_config["auth"]
         assert mechanism in auth.get("deploymentAuthMechanisms", [])
-        assert auth["authoritativeSet"] == self.authoritative_set
         if active_auth_mechanism:
             assert mechanism in auth.get("autoAuthMechanisms", [])
             assert auth["autoAuthMechanism"] == mechanism
-
-        assert len(auth["usersWanted"]) == self.expected_users
 
     def assert_authentication_mechanism_disabled(self, mechanism: str) -> None:
         auth = self.automation_config["auth"]
@@ -61,7 +60,7 @@ class AutomationConfigTester:
         self, expected_num_deployment_auth_mechanisms: int = 1
     ) -> None:
         assert not self.automation_config["auth"]["disabled"]
-        assert len(self.automation_config["auth"]["usersWanted"]) == self.expected_users
+
         actual_num_deployment_auth_mechanisms = len(
             self.automation_config["auth"].get("deploymentAuthMechanisms", [])
         )

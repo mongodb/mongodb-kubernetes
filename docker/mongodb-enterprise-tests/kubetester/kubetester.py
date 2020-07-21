@@ -108,7 +108,10 @@ class KubernetesTester(object):
 
     @classmethod
     def create_secret(cls, namespace: str, name: str, data: Dict[str, str]):
-        """Create a secret in a given namespace with the given name and data—handles base64 encoding."""
+        """
+        Deprecated: use kubetester.create_secret instead.
+
+        Create a secret in a given namespace with the given name and data—handles base64 encoding."""
         secret = cls.clients("client").V1Secret(
             metadata=cls.clients("client").V1ObjectMeta(name=name), string_data=data
         )
@@ -1112,6 +1115,7 @@ class KubernetesTester(object):
 
     @staticmethod
     def random_k8s_name(prefix="test-"):
+        """Deprecated: user kubetester.random_k8s_name instead."""
         return prefix + "".join(
             random.choice(string.ascii_lowercase) for _ in range(10)
         )
@@ -1143,8 +1147,10 @@ class KubernetesTester(object):
         return api_response
 
     def approve_certificate(self, name):
-        body = self.certificates.read_certificate_signing_request_status(name)
-        conditions = self.client.V1beta1CertificateSigningRequestCondition(
+        body = client.CertificatesV1beta1Api().read_certificate_signing_request_status(
+            name
+        )
+        conditions = client.V1beta1CertificateSigningRequestCondition(
             last_update_time=datetime.now(timezone.utc).astimezone(),
             message="This certificate was approved by E2E testing framework",
             reason="E2ETestingFramework",
@@ -1152,10 +1158,16 @@ class KubernetesTester(object):
         )
 
         body.status.conditions = [conditions]
-        self.certificates.replace_certificate_signing_request_approval(name, body)
+        client.CertificatesV1beta1Api().replace_certificate_signing_request_approval(
+            name, body
+        )
 
     def generate_certfile(
-        self, csr_name: str, certificate_request_fixture: str, server_pem_fixture: str
+        self,
+        csr_name: str,
+        certificate_request_fixture: str,
+        server_pem_fixture: str,
+        namespace: Optional[str] = None,
     ):
         """
         generate_certfile create a temporary file object that is created from a certificate request fixture
@@ -1170,19 +1182,22 @@ class KubernetesTester(object):
         with open(fixture(certificate_request_fixture), "r") as f:
             encoded_request = b64encode(f.read().encode("utf-8")).decode("utf-8")
 
-        csr_body = self.client.V1beta1CertificateSigningRequest(
-            metadata=self.client.V1ObjectMeta(name=csr_name, namespace=self.namespace),
-            spec=self.client.V1beta1CertificateSigningRequestSpec(
+        if namespace is None:
+            namespace = self.namespace
+
+        csr_body = client.V1beta1CertificateSigningRequest(
+            metadata=client.V1ObjectMeta(name=csr_name, namespace=namespace),
+            spec=client.V1beta1CertificateSigningRequestSpec(
                 groups=["system:authenticated"],
                 usages=["digital signature", "key encipherment", "client auth"],
                 request=encoded_request,
             ),
         )
 
-        self.certificates.create_certificate_signing_request(csr_body)
+        client.CertificatesV1beta1Api().create_certificate_signing_request(csr_body)
         self.approve_certificate(csr_name)
         wait_for_certs_to_be_issued([csr_name])
-        csr = self.certificates.read_certificate_signing_request(csr_name)
+        csr = client.CertificatesV1beta1Api().read_certificate_signing_request(csr_name)
         certificate = b64decode(csr.status.certificate)
 
         tmp = tempfile.NamedTemporaryFile()

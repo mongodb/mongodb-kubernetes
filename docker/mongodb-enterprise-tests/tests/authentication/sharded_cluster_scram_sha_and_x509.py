@@ -104,14 +104,13 @@ class TestEnableX509(KubernetesTester):
 
     # important note that no CSRs for the agents should have been created
     def test_ops_manager_state_correctly_updated(self):
-        tester = AutomationConfigTester(
-            KubernetesTester.get_automation_config(), expected_users=3
-        )
+        tester = AutomationConfigTester(KubernetesTester.get_automation_config())
         tester.assert_authentication_mechanism_enabled(
             "MONGODB-X509", active_auth_mechanism=False
         )
         tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
         tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=2)
+        tester.assert_expected_users(3)
 
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_and_x509

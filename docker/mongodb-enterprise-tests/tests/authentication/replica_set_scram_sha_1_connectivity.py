@@ -27,6 +27,8 @@ class TestReplicaSetCreation(KubernetesTester):
         tester = AutomationConfigTester(KubernetesTester.get_automation_config())
         tester.assert_authentication_mechanism_enabled("MONGODB-CR")
         tester.assert_authentication_enabled()
+        tester.assert_expected_users(2)
+        tester.assert_authoritative_set(True)
 
 
 @pytest.mark.e2e_replica_set_scram_sha_1_user_connectivity
@@ -70,13 +72,13 @@ class TestReplicaSetIsUpdatedWithNewUser(KubernetesTester):
             ("admin", "userAdminAnyDatabase"),
         }
 
-        tester = AutomationConfigTester(
-            KubernetesTester.get_automation_config(), expected_users=3
-        )
+        tester = AutomationConfigTester(KubernetesTester.get_automation_config())
         tester.assert_has_user(USER_NAME)
         tester.assert_user_has_roles(USER_NAME, expected_roles)
         tester.assert_authentication_mechanism_enabled("MONGODB-CR")
         tester.assert_authentication_enabled()
+        tester.assert_expected_users(3)
+        tester.assert_authoritative_set(True)
 
     def test_user_cannot_authenticate_with_incorrect_password(self):
         tester = ReplicaSetTester(MDB_RESOURCE, 3)

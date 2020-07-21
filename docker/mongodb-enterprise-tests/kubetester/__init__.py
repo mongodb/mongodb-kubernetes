@@ -1,9 +1,25 @@
+import random
+import string
 import time
-
-from kubernetes import client
+from typing import Dict
 
 from .mongodb import MongoDB
 from .certs import Certificate
+from .kubetester import fixture as find_fixture
+
+from kubernetes import client
+
+
+def create_secret(name: str, namespace: str, data: Dict[str, str]) -> str:
+    """Creates a Secret with `name` in `namespace`. String contents are passed as the `data` parameter."""
+    secret = client.V1Secret(metadata=client.V1ObjectMeta(name=name), string_data=data)
+    client.CoreV1Api().create_namespaced_secret(namespace, secret)
+
+    return name
+
+
+def random_k8s_name(prefix=""):
+    return prefix + "".join(random.choice(string.ascii_lowercase) for _ in range(10))
 
 
 def get_pod_when_ready(namespace: str, label_selector: str) -> client.V1Pod:

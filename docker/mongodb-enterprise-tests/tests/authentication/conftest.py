@@ -63,12 +63,11 @@ def openldap_tls(namespace: str, openldap_cert: str) -> OpenLDAP:
 
 
 @fixture(scope="module")
-def ldap_mongodb_users_tls(openldap_tls: OpenLDAP, ca_path: str) -> List[LDAPUser]:
-    user_list = [LDAPUser("mdb0", LDAP_DUMMY_PASSWORD)]
-    for user in user_list:
-        create_user(openldap_tls, user, ca_path=ca_path)
+def ldap_mongodb_user_tls(openldap_tls: OpenLDAP, ca_path: str) -> LDAPUser:
+    user = LDAPUser("mdb0", LDAP_DUMMY_PASSWORD)
+    create_user(openldap_tls, user, ca_path=ca_path)
 
-    return user_list
+    return user
 
 
 @fixture(scope="module")

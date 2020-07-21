@@ -25,6 +25,9 @@ class TestCreateScramSha1ReplicaSet(KubernetesTester):
         tester.assert_authentication_mechanism_enabled("MONGODB-CR")
         tester.assert_authentication_enabled()
 
+        tester.assert_expected_users(2)
+        tester.assert_authoritative_set(True)
+
 
 @pytest.mark.e2e_replica_set_scram_sha_1_upgrade
 class TestUpgradeReplicaSetToMongoDB40(KubernetesTester):
@@ -47,6 +50,9 @@ class TestUpgradeReplicaSetToMongoDB40(KubernetesTester):
         tester.assert_authentication_mechanism_disabled("SCRAM-SHA-256")
         tester.assert_authentication_mechanism_enabled("MONGODB-CR")
         tester.assert_authentication_enabled()
+
+        tester.assert_expected_users(2)
+        tester.assert_authoritative_set(True)
 
 
 @pytest.mark.e2e_replica_set_scram_sha_1_upgrade

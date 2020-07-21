@@ -6,6 +6,7 @@ import ldap.modlist
 from typing import Optional
 
 LDAP_BASE = "dc=example,dc=org"
+LDAP_AUTHENTICATION_MECHANISM = "PLAIN"
 
 
 @dataclass(init=True)

@@ -4,15 +4,18 @@ from typing import List
 from kubernetes import client
 from pytest import mark, fixture
 
-from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
+from kubetester import find_fixture, create_secret
+
 from kubetester.automation_config_tester import AutomationConfigTester
 
 from kubetester.certs import create_tls_certs
 from kubetester.mongotester import ReplicaSetTester
 from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb_user import MongoDBUser, generic_user, Role
 from kubetester.helm import helm_install_from_chart
-from kubetester.ldap import OpenLDAP, LDAPUser
+from kubetester.ldap import OpenLDAP, LDAPUser, LDAP_AUTHENTICATION_MECHANISM
 
+from kubetester.kubetester import KubernetesTester
 
 USER_NAME = "mms-user-1"
 PASSWORD = "my-password"
@@ -28,19 +31,17 @@ def server_certs(namespace: str, issuer: str):
 def replica_set(
     openldap: OpenLDAP, issuer_ca_configmap: str, server_certs: str, namespace: str
 ) -> MongoDB:
-    bind_query_password_secret = "bind-query-password"
     resource = MongoDB.from_yaml(
-        yaml_fixture("ldap/ldap-replica-set.yaml"), namespace=namespace
+        find_fixture("ldap/ldap-replica-set.yaml"), namespace=namespace
     )
 
-    KubernetesTester.create_secret(
-        namespace, bind_query_password_secret, {"password": openldap.admin_password}
-    )
+    secret_name = "bind-query-password"
+    create_secret(secret_name, namespace, {"password": openldap.admin_password})
 
     resource["spec"]["security"]["authentication"]["ldap"] = {
         "servers": openldap.servers,
-        "bindQueryPasswordSecretRef": {"name": bind_query_password_secret,},
         "bindQueryUser": "cn=admin,dc=example,dc=org",
+        "bindQueryPasswordSecretRef": {"name": secret_name},
     }
     resource["spec"]["security"]["authentication"]["modes"] = ["LDAP", "SCRAM", "X509"]
     resource["spec"]["security"]["tls"] = {
@@ -52,160 +53,197 @@ def replica_set(
     return resource.create()
 
 
+@fixture(scope="module")
+def user_ldap(
+    replica_set: MongoDB, namespace: str, ldap_mongodb_users: List[LDAPUser]
+) -> MongoDBUser:
+    mongodb_user = ldap_mongodb_users[0]
+    user = generic_user(
+        namespace,
+        username=mongodb_user.username,
+        db="$external",
+        password=mongodb_user.password,
+        mongodb_resource=replica_set,
+    )
+    user.add_roles(
+        [
+            Role(db="admin", role="clusterAdmin"),
+            Role(db="admin", role="readWriteAnyDatabase"),
+            Role(db="admin", role="dbAdminAnyDatabase"),
+        ]
+    )
+
+    return user.create()
+
+
+@fixture(scope="module")
+def user_scram(replica_set: MongoDB, namespace: str) -> MongoDBUser:
+    user = generic_user(
+        namespace, username="mms-user-1", db="admin", mongodb_resource=replica_set,
+    )
+    secret_name = "user-password"
+    secret_key = "password"
+    create_secret(
+        secret_name, namespace, {secret_key: "my-password"},
+    )
+    user["spec"]["passwordSecretKeyRef"] = {
+        "name": secret_name,
+        "key": secret_key,
+    }
+
+    user.add_roles(
+        [
+            Role(db="admin", role="clusterAdmin"),
+            Role(db="admin", role="readWriteAnyDatabase"),
+            Role(db="admin", role="dbAdminAnyDatabase"),
+        ]
+    )
+
+    return user.create()
+
+
 @mark.e2e_replica_set_ldap
 def test_replica_set(replica_set: MongoDB, ldap_mongodb_users: List[LDAPUser]):
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 
-# TODO: Move to a MongoDBUsers (based on KubeObject) for this user creation.
 @mark.e2e_replica_set_ldap
-class TestAddLDAPUsers(KubernetesTester):
-    """
-    name: Create LDAP Users
-    create_many:
-      file: ldap/ldap-user.yaml
-      wait_until: all_users_ready
-    """
+def test_create_ldap_user(replica_set: MongoDB, user_ldap: MongoDBUser):
+    user_ldap.assert_reaches_phase(Phase.Updated)
 
-    def test_users_ready(self):
-        pass
-
-    @staticmethod
-    def all_users_ready():
-        ac = KubernetesTester.get_automation_config()
-        return len(ac["auth"]["usersWanted"]) == 3
+    ac = replica_set.get_automation_config_tester()
+    ac.assert_authentication_mechanism_enabled(
+        LDAP_AUTHENTICATION_MECHANISM, active_auth_mechanism=False
+    )
+    ac.assert_expected_users(3)
 
 
 @mark.e2e_replica_set_ldap
-def test_new_mdb_users_are_created(
-    replica_set: MongoDB, ldap_mongodb_users: List[LDAPUser], ca_path: str
+def test_new_mdb_users_are_created_and_can_authenticate(
+    replica_set: MongoDB, user_ldap: MongoDBUser, ca_path: str
 ):
-    # the users take a bit to be added to the servers.
-    # TODO: remove this sleep
-    time.sleep(30)
-    tester = ReplicaSetTester(replica_set.name, 3)
+    tester = replica_set.tester()
 
-    # We should be able to connect to the database as the
-    # different users that were created.
-    for ldap_user in ldap_mongodb_users:
-        print(
-            "Trying to connect to {} with password {}".format(
-                ldap_user.username, ldap_user.password
-            )
-        )
-        tester.assert_ldap_authentication(
-            ldap_user.username, ldap_user.password, ca_path
-        )
+    tester.assert_ldap_authentication(
+        user_ldap["spec"]["username"], user_ldap.password, ca_path, attempts=10
+    )
 
 
 @mark.e2e_replica_set_ldap
-class TestCreateScramShaMongoDBUser(KubernetesTester):
-    """
-    description: |
-      Creates a ScramSha Authenticated MongoDBUser
-    create:
-      file: scram-sha-user-ldap.yaml
-      wait_until: all_users_ready
-      timeout: 150
-    """
+def test_create_scram_user(replica_set: MongoDB, user_scram: MongoDBUser):
+    user_scram.assert_reaches_phase(Phase.Updated)
 
-    @classmethod
-    def setup_class(cls):
-        print(
-            "creating password for MongoDBUser mms-user-1 in secret/mms-user-1-password"
-        )
-        KubernetesTester.create_secret(
-            KubernetesTester.get_namespace(),
-            "mms-user-1-password",
-            {"password": PASSWORD,},
-        )
-        super().setup_class()
-
-    @staticmethod
-    def all_users_ready():
-        ac = KubernetesTester.get_automation_config()
-        return len(ac["auth"]["usersWanted"]) == 4
-
-    def test_replica_set_connectivity(self, ca_path: str):
-        ReplicaSetTester(
-            "ldap-replica-set", 3, ssl=True, insecure=False, ca_path=ca_path
-        ).assert_connectivity()
-
-    def test_ops_manager_state_correctly_updated(self):
-        expected_roles = {
-            ("admin", "clusterAdmin"),
-            ("admin", "userAdminAnyDatabase"),
-            ("admin", "readWrite"),
-            ("admin", "userAdminAnyDatabase"),
-        }
-
-        tester = AutomationConfigTester(
-            KubernetesTester.get_automation_config(),
-            expected_users=4,
-            authoritative_set=True,
-        )
-        tester.assert_has_user(USER_NAME)
-        tester.assert_user_has_roles(USER_NAME, expected_roles)
-
-        # The following test should be moved to the start of the test.
-        tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
-        tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=3)
-
-    def test_user_cannot_authenticate_with_incorrect_password(self, ca_path: str):
-        tester = ReplicaSetTester(MDB_RESOURCE, 3)
-        tester.assert_scram_sha_authentication_fails(
-            password="invalid-password",
-            username="mms-user-1",
-            auth_mechanism="SCRAM-SHA-256",
-            ssl=True,
-            ssl_ca_certs=ca_path,
-        )
-
-    def test_user_can_authenticate_with_correct_password(self, ca_path: str):
-        tester = ReplicaSetTester(MDB_RESOURCE, 3)
-        tester.assert_scram_sha_authentication(
-            password=PASSWORD,
-            username="mms-user-1",
-            auth_mechanism="SCRAM-SHA-256",
-            ssl=True,
-            ssl_ca_certs=ca_path,
-        )
+    ac = replica_set.get_automation_config_tester()
+    ac.assert_authentication_mechanism_enabled(
+        "SCRAM-SHA-256", active_auth_mechanism=False
+    )
+    ac.assert_expected_users(4)
 
 
 @mark.e2e_replica_set_ldap
-class TestCreateX509MongoDBUser(KubernetesTester):
-    """
-    description: |
-      Creates a x509 Authenticated MongoDBUser
-    create:
-      file: test-x509-user.yaml
-      patch: '[{"op": "replace", "path": "/spec/mongodbResourceRef/name", "value": "ldap-replica-set" }]'
-      wait_until: user_exists
-    """
-
-    def test_add_user(self):
-        assert True
-
-    @staticmethod
-    def user_exists():
-        ac = KubernetesTester.get_automation_config()
-        users = ac["auth"]["usersWanted"]
-        return "CN=x509-testing-user" in [user["user"] for user in users]
+def test_replica_set_connectivity(replica_set: MongoDB, ca_path: str):
+    tester = replica_set.tester(ca_path=ca_path)
+    tester.assert_connectivity()
 
 
 @mark.e2e_replica_set_ldap
-class TestCreateX509MongoDBUserCreatesClientCert(KubernetesTester):
-    def setup(self):
-        cert_name = "x509-testing-user." + self.get_namespace()
-        self.cert_file = self.generate_certfile(
-            cert_name, "x509-testing-user.csr", "server-key.pem"
-        )
+def test_ops_manager_state_correctly_updated(
+    replica_set: MongoDB, user_ldap: MongoDBUser
+):
+    expected_roles = {
+        ("admin", "clusterAdmin"),
+        ("admin", "readWriteAnyDatabase"),
+        ("admin", "dbAdminAnyDatabase"),
+    }
 
-    def teardown(self):
-        self.cert_file.close()
+    tester = replica_set.get_automation_config_tester()
+    tester.assert_expected_users(4)
+    tester.assert_has_user(user_ldap["spec"]["username"])
+    tester.assert_user_has_roles(user_ldap["spec"]["username"], expected_roles)
 
-    def test_can_authenticate_with_added_user(self, ca_path: str):
-        tester = ReplicaSetTester(MDB_RESOURCE, 3)
-        tester.assert_x509_authentication(
-            cert_file_name=self.cert_file.name, ssl_ca_certs=ca_path
-        )
+    tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
+    tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=3)
+
+
+@mark.e2e_replica_set_ldap
+def test_user_cannot_authenticate_with_incorrect_password(
+    replica_set: MongoDB, ca_path: str
+):
+    tester = replica_set.tester(ca_path=ca_path)
+
+    tester.assert_scram_sha_authentication_fails(
+        password="invalid-password",
+        username="mms-user-1",
+        auth_mechanism="SCRAM-SHA-256",
+        ssl=True,
+        ssl_ca_certs=ca_path,
+    )
+
+
+@mark.e2e_replica_set_ldap
+def test_user_can_authenticate_with_correct_password(
+    replica_set: MongoDB, ca_path: str
+):
+    tester = replica_set.tester(ca_path=ca_path)
+    tester.assert_scram_sha_authentication(
+        password=PASSWORD,
+        username="mms-user-1",
+        auth_mechanism="SCRAM-SHA-256",
+        ssl=True,
+        ssl_ca_certs=ca_path,
+    )
+
+
+@fixture(scope="module")
+def user_x509(replica_set: MongoDB, namespace: str) -> MongoDBUser:
+    user = generic_user(
+        namespace,
+        username="CN=x509-testing-user",
+        db="$external",
+        mongodb_resource=replica_set,
+    )
+
+    user.add_roles(
+        [
+            Role(db="admin", role="clusterAdmin"),
+            Role(db="admin", role="readWriteAnyDatabase"),
+            Role(db="admin", role="dbAdminAnyDatabase"),
+        ]
+    )
+
+    return user.create()
+
+
+@mark.e2e_replica_set_ldap
+def test_x509_user_created(replica_set: MongoDB, user_x509: MongoDBUser):
+    user_x509.assert_reaches_phase(Phase.Updated)
+
+    expected_roles = {
+        ("admin", "clusterAdmin"),
+        ("admin", "readWriteAnyDatabase"),
+        ("admin", "dbAdminAnyDatabase"),
+    }
+
+    tester = replica_set.get_automation_config_tester()
+    tester.assert_expected_users(5)
+    tester.assert_has_user(user_x509["spec"]["username"])
+
+    tester.assert_authentication_mechanism_enabled(
+        "MONGODB-X509", active_auth_mechanism=False
+    )
+
+
+@mark.e2e_replica_set_ldap
+def test_x509_user_connectivity(
+    namespace: str, ca_path: str, replica_set: MongoDB, user_x509: MongoDBUser
+):
+    cert_name = "x509-testing-user." + namespace
+    kt = KubernetesTester()
+    cert_file = kt.generate_certfile(
+        cert_name, "x509-testing-user.csr", "server-key.pem", namespace=namespace
+    )
+
+    tester = replica_set.tester()
+    tester.assert_x509_authentication(
+        cert_file_name=cert_file.name, ssl_ca_certs=ca_path
+    )

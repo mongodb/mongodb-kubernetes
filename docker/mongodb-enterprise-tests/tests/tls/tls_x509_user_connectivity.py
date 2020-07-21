@@ -174,9 +174,11 @@ class TestX509CertCreationAndApproval(KubernetesTester):
 class TestX509CorrectlyConfigured(KubernetesTester):
     def test_om_state_is_correct(self, namespace):
         automation_config = KubernetesTester.get_automation_config()
-        tester = AutomationConfigTester(automation_config, expected_users=3)
+        tester = AutomationConfigTester(automation_config)
 
         tester.assert_authentication_mechanism_enabled("MONGODB-X509")
+        tester.assert_authoritative_set(True)
+        tester.assert_expected_users(3)
 
         user = automation_config["auth"]["autoUser"]
         names = dict(name.split("=") for name in user.split(","))

@@ -58,12 +58,12 @@ class TestOpsManagerCreation:
         }
 
         # only user should be the Ops Manager user
-        tester = ops_manager.get_automation_config_tester(
-            expected_users=1, authoritative_set=False,
-        )
+        tester = ops_manager.get_automation_config_tester()
         tester.assert_authentication_mechanism_enabled("MONGODB-CR")
         tester.assert_has_user("mongodb-ops-manager")
         tester.assert_user_has_roles("mongodb-ops-manager", expected_roles)
+        tester.assert_expected_users(1)
+        tester.assert_authoritative_set(False)
 
     @skip_if_local
     def test_appdb_scram_sha(self, ops_manager: MongoDBOpsManager):

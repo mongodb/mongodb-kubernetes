@@ -62,12 +62,12 @@ class TestOpsManagerCreation:
 
     def test_appdb_automation_config(self, ops_manager: MongoDBOpsManager):
         # only user should be the Ops Manager user
-        tester = ops_manager.get_automation_config_tester(
-            expected_users=1, authoritative_set=False,
-        )
+        tester = ops_manager.get_automation_config_tester()
         tester.assert_authentication_mechanism_enabled("MONGODB-CR")
         tester.assert_has_user(OM_USER_NAME)
         tester.assert_user_has_roles(OM_USER_NAME, EXPECTED_OM_USER_ROLES)
+        tester.assert_expected_users(1)
+        tester.assert_authoritative_set(False)
 
     @skip_if_local
     def test_appdb_scram_sha(self, ops_manager: MongoDBOpsManager):
@@ -120,12 +120,12 @@ class TestChangeOpsManagerUserPassword:
         ops_manager.get_automation_config_tester().reached_version(2)
 
     def test_appdb_automation_config(self, ops_manager: MongoDBOpsManager):
-        tester = ops_manager.get_automation_config_tester(
-            expected_users=1, authoritative_set=False,
-        )
+        tester = ops_manager.get_automation_config_tester()
         tester.assert_authentication_mechanism_enabled("MONGODB-CR")
         tester.assert_has_user(OM_USER_NAME)
         tester.assert_user_has_roles(OM_USER_NAME, EXPECTED_OM_USER_ROLES)
+        tester.assert_expected_users(1)
+        tester.assert_authoritative_set(False)
 
     @skip_if_local
     def test_authenticate_with_user_password(self, ops_manager: MongoDBOpsManager):
@@ -176,12 +176,12 @@ class TestChangeOpsManagerExistingUserPassword:
         assert ops_manager.get_automation_config_tester().reached_version(3)
 
     def test_appdb_automation_config(self, ops_manager: MongoDBOpsManager):
-        tester = ops_manager.get_automation_config_tester(
-            expected_users=1, authoritative_set=False,
-        )
+        tester = ops_manager.get_automation_config_tester()
         tester.assert_authentication_mechanism_enabled("MONGODB-CR")
         tester.assert_has_user(OM_USER_NAME)
         tester.assert_user_has_roles(OM_USER_NAME, EXPECTED_OM_USER_ROLES)
+        tester.assert_authoritative_set(False)
+        tester.assert_expected_users(1)
 
     @skip_if_local
     def test_authenticate_with_user_password(self, ops_manager: MongoDBOpsManager):

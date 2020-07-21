@@ -1,9 +1,11 @@
-from typing import Optional
+from __future__ import annotations
+from typing import Optional, Union, Tuple, List
 import re
-
+from dataclasses import dataclass
 
 from kubeobject import CustomObject
-from kubetester.mongodb import MongoDBCommon, Phase, in_desired_state
+from kubetester.mongodb import MongoDB, MongoDBCommon, Phase, in_desired_state
+from kubetester import random_k8s_name
 
 
 class MongoDBUser(CustomObject, MongoDBCommon):
@@ -16,6 +18,10 @@ class MongoDBUser(CustomObject, MongoDBCommon):
         }
         with_defaults.update(kwargs)
         super(MongoDBUser, self).__init__(*args, **with_defaults)
+
+    @property
+    def password(self):
+        return self._password
 
     def assert_reaches_phase(
         self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False
@@ -49,3 +55,39 @@ class MongoDBUser(CustomObject, MongoDBCommon):
             return self["status"]["msg"]
         except KeyError:
             return None
+
+    def add_role(self, role: Role) -> MongoDBUser:
+        self["spec"]["roles"] = self["spec"].get("roles", [])
+        self["spec"]["roles"].append({"db": role.db, "name": role.role})
+
+    def add_roles(self, roles: List[Role]):
+        for role in roles:
+            self.add_role(role)
+
+
+@dataclass(init=True)
+class Role:
+    db: str
+    role: str
+
+
+def generic_user(
+    namespace: str,
+    username: str,
+    db: str = "admin",
+    password: Optional[str] = None,
+    mongodb_resource: Optional[MongoDB] = None,
+) -> MongoDBUser:
+    """Returns a generic User with a username and a pseudo-random k8s name."""
+    user = MongoDBUser(name=random_k8s_name("user-"), namespace=namespace)
+    user["spec"] = {
+        "username": username,
+        "db": db,
+    }
+
+    if mongodb_resource is not None:
+        user["spec"]["mongodbResourceRef"] = {"name": mongodb_resource.name}
+
+    user._password = password
+
+    return user

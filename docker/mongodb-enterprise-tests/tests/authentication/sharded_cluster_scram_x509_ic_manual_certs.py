@@ -75,3 +75,6 @@ def test_ops_manager_state_was_updated_correctly(sharded_cluster: MongoDB):
     ac_tester.assert_authentication_enabled()
     ac_tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
     ac_tester.assert_internal_cluster_authentication_enabled()
+
+    ac_tester.assert_expected_users(2)
+    ac_tester.assert_authoritative_set(True)

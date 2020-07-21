@@ -105,15 +105,15 @@ class TestScramUserCanAuthenticate(KubernetesTester):
         replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
     def test_automation_config_was_updated(self):
-        tester = AutomationConfigTester(
-            KubernetesTester.get_automation_config(), expected_users=3
-        )
+        tester = AutomationConfigTester(KubernetesTester.get_automation_config())
         # when both agents.mode is set to SCRAM, X509 should not be used as agent auth
         tester.assert_authentication_mechanism_enabled(
             "MONGODB-X509", active_auth_mechanism=False
         )
         tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
         tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=2)
+
+        tester.assert_expected_users(3)
 
 
 @pytest.mark.e2e_replica_set_scram_sha_and_x509

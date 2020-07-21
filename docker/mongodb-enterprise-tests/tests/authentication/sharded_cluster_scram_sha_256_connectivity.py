@@ -70,13 +70,12 @@ class TestShardedClusterIsUpdatedWithNewUser(KubernetesTester):
             ("admin", "userAdminAnyDatabase"),
         }
 
-        tester = AutomationConfigTester(
-            KubernetesTester.get_automation_config(), expected_users=3
-        )
+        tester = AutomationConfigTester(KubernetesTester.get_automation_config())
         tester.assert_has_user(USER_NAME)
         tester.assert_user_has_roles(USER_NAME, expected_roles)
         tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
         tester.assert_authentication_enabled()
+        tester.assert_expected_users(3)
 
     def test_user_cannot_authenticate_with_incorrect_password(self):
         tester = ShardedClusterTester(MDB_RESOURCE, 2)

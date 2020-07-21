@@ -26,11 +26,11 @@ class TestReplicaSetCreation(KubernetesTester):
         ReplicaSetTester(MDB_RESOURCE, 3).assert_connectivity()
 
     def test_ops_manager_state_correctly_updated(self):
-        tester = AutomationConfigTester(
-            KubernetesTester.get_automation_config(), authoritative_set=False
-        )
+        tester = AutomationConfigTester(KubernetesTester.get_automation_config())
         tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
         tester.assert_authentication_enabled()
+        tester.assert_expected_users(2)
+        tester.assert_authoritative_set(False)
 
 
 @pytest.mark.e2e_replica_set_scram_sha_256_user_connectivity
@@ -73,15 +73,13 @@ class TestReplicaSetIsUpdatedWithNewUser(KubernetesTester):
             ("admin", "userAdminAnyDatabase"),
         }
 
-        tester = AutomationConfigTester(
-            KubernetesTester.get_automation_config(),
-            expected_users=3,
-            authoritative_set=False,
-        )
+        tester = AutomationConfigTester(KubernetesTester.get_automation_config())
         tester.assert_has_user(USER_NAME)
         tester.assert_user_has_roles(USER_NAME, expected_roles)
         tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
         tester.assert_authentication_enabled()
+        tester.assert_expected_users(3)
+        tester.assert_authoritative_set(False)
 
     def test_user_cannot_authenticate_with_incorrect_password(self):
         tester = ReplicaSetTester(MDB_RESOURCE, 3)
@@ -137,14 +135,14 @@ def test_authentication_is_still_configured_after_remove_authentication(namespac
     replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
-    tester = replica_set.get_automation_config_tester(
-        expected_users=3, authoritative_set=False
-    )
+    tester = replica_set.get_automation_config_tester()
     # authentication remains enabled as the operator is not configuring it when
     # spec.security.authentication is not configured
     tester.assert_has_user(USER_NAME)
     tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
     tester.assert_authentication_enabled()
+    tester.assert_expected_users(3)
+    tester.assert_authoritative_set(False)
 
 
 @pytest.mark.e2e_replica_set_scram_sha_256_user_connectivity
@@ -155,3 +153,8 @@ def test_authentication_can_be_disabled_without_modes(namespace: str):
     }
     replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
+
+    tester = replica_set.get_automation_config_tester()
+    # we have explicitly set authentication to be disabled
+    tester.assert_has_user(USER_NAME)
+    tester.assert_authentication_disabled(remaining_users=1)
