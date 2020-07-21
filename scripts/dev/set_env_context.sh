@@ -65,8 +65,13 @@ fi
 
 # Appending image type (ubuntu/rhel) to the registry url (unless it's already appended)
 [[ "$REPO_URL" != *${IMAGE_TYPE} ]] && export REPO_URL=${REPO_URL}/${IMAGE_TYPE}
+
+# By default all "raw" (meaning there are no startup scripts or extra binaries) images are read from
+# quay.io as they are not rebuilt during building process
 [[ -z "${OPS_MANAGER_REGISTRY-}" ]] && export OPS_MANAGER_REGISTRY="quay.io/mongodb"
 [[ -z "${APPDB_REGISTRY-}" ]] && export APPDB_REGISTRY="quay.io/mongodb"
+[[ -z "${DATABASE_REGISTRY-}" ]] && export DATABASE_REGISTRY="quay.io/mongodb"
+
 [[ -z "${INIT_DATABASE_REGISTRY-}" ]] && export INIT_DATABASE_REGISTRY="${REPO_URL}"
 
 # Cutting the last part from the registry url for the test app as it's the only image not dependent on env

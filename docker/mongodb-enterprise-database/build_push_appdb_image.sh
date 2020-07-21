@@ -63,4 +63,4 @@ repo_name="$(echo "${base_url}" | cut -d "/" -f2-)" # cutting the domain part
     done
 )
 
-title "Database image successfully built and pushed to ${REPO_TYPE} registry"
+title "AppDB image successfully built and pushed to ${REPO_URL} registry"

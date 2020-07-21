@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -Eeou pipefail
 
+# TODO remove this script as soon as we completely move to the init database approach
 
 source scripts/dev/set_env_context.sh
 source scripts/funcs/kubernetes

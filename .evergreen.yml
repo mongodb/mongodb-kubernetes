@@ -591,10 +591,27 @@ functions:
         include_expansions_in_env:
         - CLUSTER_TYPE
         - ecr_registry
-        - version_id
         add_to_path:
         - ${workdir}/bin
         command: docker/mongodb-enterprise-database/build_push_appdb_image.sh
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+
+  build_and_push_database_image_generic:
+    - command: subprocess.exec
+      params:
+        env:
+          AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
+          AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
+          AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
+          IN_MEMORY_CONTEXT: "true"
+          KUBECONFIG: ${workdir}/${kube_environment_name}_config
+          REPO_URL: ${ecr_registry}/images
+        include_expansions_in_env:
+        - CLUSTER_TYPE
+        - database_version
+        add_to_path:
+        - ${workdir}/bin
+        command: docker/mongodb-enterprise-database/build_push_database_image.sh
         working_dir: src/github.com/10gen/ops-manager-kubernetes
 
   build_and_push_opsmanager_image_generic:
@@ -883,7 +900,7 @@ tasks:
     vars:
       labels: 'ubuntu-operator-${version_id}, ubuntu-database-${version_id}'
 
-- name: build_init_om_images_rhel
+- name: build_init_om_images_ubi
   priority: 60
   commands:
   - func: clone
@@ -906,7 +923,7 @@ tasks:
     vars:
       cluster_type: "kops"
 
-- name: build_init_database_image_rhel
+- name: build_init_database_image_ubi
   commands:
   - func: clone
   - func: setup_aws
@@ -1636,9 +1653,6 @@ tasks:
     - func: clone
     - func: setup_jq
     - func: setup_aws
-    - func: download_kube_tools
-      vars:
-        <<: *kubernetes_environment_vanilla
     - func: setup_ecr_login_helper
     - func: build_and_push_appdb_image_generic
       vars:
@@ -1655,6 +1669,28 @@ tasks:
         <<: *kubernetes_environment_vanilla
     - func: setup_ecr_login_helper
     - func: build_and_push_appdb_image_generic
+      vars:
+        CLUSTER_TYPE: "openshift"
+
+- name: build_and_push_database_ubuntu
+  patch_only: true
+  commands:
+    - func: clone
+    - func: setup_jq
+    - func: setup_aws
+    - func: setup_ecr_login_helper
+    - func: build_and_push_database_image_generic
+      vars:
+        CLUSTER_TYPE: "kops"
+
+- name: build_and_push_database_ubi
+  patch_only: true
+  commands:
+    - func: clone
+    - func: setup_jq
+    - func: setup_aws
+    - func: setup_ecr_login_helper
+    - func: build_and_push_database_image_generic
       vars:
         CLUSTER_TYPE: "openshift"
 
@@ -2136,7 +2172,7 @@ buildvariants:
   depends_on:
     - name: build_images_rhel
       variant: init_test_run
-    - name: build_init_database_image_rhel
+    - name: build_init_database_image_ubi
       variant: init_test_run
     - name: build_test_image
       variant: init_test_run
@@ -2181,7 +2217,7 @@ buildvariants:
       variant: init_test_run
     - name: build_test_image
       variant: init_test_run
-    - name: build_init_om_images_rhel
+    - name: build_init_om_images_ubi
       variant: init_test_run
   run_on:
     - archlinux-test
@@ -2256,9 +2292,9 @@ buildvariants:
   - name: build_images_ubuntu
   - name: build_test_image
   - name: build_init_om_images_ubuntu
-  - name: build_init_om_images_rhel
+  - name: build_init_om_images_ubi
   - name: build_init_database_image_ubuntu
-  - name: build_init_database_image_rhel
+  - name: build_init_database_image_ubi
   - name: prepare_cluster_vanilla
   - name: prepare_cluster_vanilla_om
   - name: prepare_aws
@@ -2298,7 +2334,7 @@ buildvariants:
     variant: init_test_run
   - name: build_test_image
     variant: init_test_run
-  - name: build_init_om_images_rhel
+  - name: build_init_om_images_ubi
     variant: init_test_run
   expansions:
     <<: *kubernetes_environment_kind
@@ -2378,7 +2414,18 @@ buildvariants:
   - name: e2e_operator_task_group
 
 
-# build AppDB: to be launched independently of the operator build process
+# build Database: to be launched independently of the operator build process (evergreen patch)
+- name: build_and_push_database_images
+  display_name: build_and_push_database_images
+  run_on:
+  - ubuntu1604-build
+  tasks:
+    - name: build_and_push_database_ubuntu
+    - name: build_and_push_database_ubi
+  expansions:
+    database_version: 10.0.0
+
+# build AppDB: to be launched independently of the operator build process (evergreen patch)
 - name: build_and_push_appdb_images
   display_name: build_and_push_appdb_images
   run_on:
@@ -2387,7 +2434,7 @@ buildvariants:
     - name: build_and_push_appdb_ubuntu
     - name: build_and_push_appdb_ubi
 
-# build OpsManager: to be launched independently of the operator build process
+# build OpsManager: to be launched independently of the operator build process (evergreen patch)
 - name: build_and_push_ops_manager_images
   display_name: build_and_push_ops_manager_images
   run_on:
