@@ -1,0 +1,16 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: test-tls-rs-external-access-multiple-horizons
+spec:
+  members: 3
+  version: 4.0.12
+  type: ReplicaSet
+  project: my-project
+  credentials: my-credentials
+
+  security:
+    authentication:
+      enabled: true
+      modes: ["LDAP"]

@@ -356,6 +356,7 @@ func TestConfigureLdapDeploymentAuthentication_WithScramAgentAuthentication(t *t
 	rs := DefaultReplicaSetBuilder().
 		SetName("my-rs").
 		SetMembers(3).
+		SetVersion("4.0.0-ent").
 		EnableAuth().
 		AgentAuthMode("SCRAM").
 		SetAuthModes([]string{"LDAP", "SCRAM"}).

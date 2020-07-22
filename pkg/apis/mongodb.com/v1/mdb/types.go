@@ -365,6 +365,11 @@ func (a *Authentication) IsX509Enabled() bool {
 	return stringutil.Contains(a.GetModes(), util.X509)
 }
 
+// IsLDAPEnabled determines if LDAP is to be enabled at the project level
+func (a *Authentication) isLDAPEnabled() bool {
+	return stringutil.Contains(a.GetModes(), util.LDAP)
+}
+
 // GetModes returns the modes of the Authentication instance of an empty
 // list if it is nil
 func (a *Authentication) GetModes() []string {

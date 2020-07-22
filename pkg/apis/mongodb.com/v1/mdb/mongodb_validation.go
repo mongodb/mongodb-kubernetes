@@ -7,6 +7,7 @@ package mdb
 
 import (
 	"errors"
+	"strings"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
@@ -94,6 +95,14 @@ func deploymentsMustHaveAgentModeInAuthModes(ms MongoDbSpec) v1.ValidationResult
 	return v1.ValidationSuccess()
 }
 
+func ldapAuthRequiresEnterprise(ms MongoDbSpec) v1.ValidationResult {
+	authSpec := ms.Security.Authentication
+	if authSpec != nil && authSpec.isLDAPEnabled() && !strings.HasSuffix(ms.Version, "-ent") {
+		return v1.ValidationError("Cannot enable LDAP authentication with MongoDB Community Builds")
+	}
+	return v1.ValidationSuccess()
+}
+
 func additionalMongodConfig(ms MongoDbSpec) v1.ValidationResult {
 	if ms.ResourceType == ShardedCluster {
 		if ms.AdditionalMongodConfig != nil && len(ms.AdditionalMongodConfig) > 0 {
@@ -116,6 +125,7 @@ func (m MongoDB) RunValidations() []v1.ValidationResult {
 		deploymentsMustHaveAgentModesIfAuthIsEnabled,
 		deploymentsMustHaveAgentModeInAuthModes,
 		additionalMongodConfig,
+		ldapAuthRequiresEnterprise,
 	}
 
 	var validationResults []v1.ValidationResult
