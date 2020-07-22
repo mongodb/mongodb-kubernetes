@@ -1,12 +1,9 @@
-import datetime
 from operator import attrgetter
 from os import environ
 from typing import Optional, Dict
 
-import time
 from kubernetes import client
 from kubetester import MongoDB
-from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.awss3client import AwsS3Client, s3_endpoint
 from kubetester.kubetester import (
     skip_if_local,
@@ -15,6 +12,7 @@ from kubetester.kubetester import (
 )
 from kubetester.mongodb import Phase
 from kubetester.mongodb_user import MongoDBUser
+from kubetester.opsmanager import MongoDBOpsManager
 from pytest import mark, fixture
 
 HEAD_PATH = "/head/"
@@ -365,16 +363,14 @@ class TestOpsManagerWatchesBlockStoreUpdates:
     def test_om_running(self, ops_manager: MongoDBOpsManager):
         ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=40)
 
-    def test_blockstore_user_created(self, blockstore_user: MongoDBUser):
-        blockstore_user.assert_reaches_phase(
-            Phase.Pending
-        )  # pending phase as auth has not yet been enabled
-
     def test_scramsha_enabled_for_blockstore(self, blockstore_replica_set: MongoDB):
+        """ Enables SCRAM for the blockstore replica set. Note that until CLOUDP-67736 is fixed
+         the order of operations (scram first, MongoDBUser - next) is important"""
         blockstore_replica_set["spec"]["security"] = {
             "authentication": {"enabled": True, "modes": ["SCRAM"]}
         }
         blockstore_replica_set.update()
+        blockstore_replica_set.assert_abandons_phase(Phase.Running)
         blockstore_replica_set.assert_reaches_phase(Phase.Running)
 
     def test_blockstore_user_was_added_to_om(self, blockstore_user: MongoDBUser):
