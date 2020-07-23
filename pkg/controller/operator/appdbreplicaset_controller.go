@@ -99,6 +99,10 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 		return r.updateStatus(opsManager, workflow.Failed(err.Error()), log, appDbStatusOption)
 	}
 
+	if err := ensureLegacyConfigMapRemoved(r.client, rs); err != nil {
+		return r.updateStatus(opsManager, workflow.Failed(err.Error()), log, appDbStatusOption)
+	}
+
 	var wasPublished bool
 	if wasPublished, err = r.publishAutomationConfig(rs, *opsManager, config, log); err != nil {
 		return r.updateStatus(opsManager, workflow.Failed(err.Error()), log, appDbStatusOption)
@@ -131,6 +135,13 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 	}
 
 	return r.updateStatus(opsManager, workflow.OK(), log, appDbStatusOption)
+}
+
+// ensureLegacyConfigMapRemoved makes sure that the ConfigMap which stored the automation config
+// is removed. It is now stored in a Secret instead.
+func ensureLegacyConfigMapRemoved(deleter configmap.Deleter, rs omv1.AppDB) error {
+	err := deleter.DeleteConfigMap(kube.ObjectKey(rs.Namespace, rs.AutomationConfigSecretName()))
+	return client.IgnoreNotFound(err)
 }
 
 // generateScramShaCredentials generates both ScramSha1Creds and ScramSha256Creds. The ScramSha256Creds
@@ -184,7 +195,7 @@ func ensureConsistentAgentAuthenticationCredentials(newAutomationConfig *om.Auto
 	return newAutomationConfig.Apply()
 }
 
-// publishAutomationConfig publishes the automation config to the ConfigMap if necessary. Note that it's done only
+// publishAutomationConfig publishes the automation config to the Secret if necessary. Note that it's done only
 // if the automation config has changed - the version is incremented in this case.
 // Method returns 'bool' to indicate if the config was published.
 // No optimistic concurrency control is done - there cannot be a concurrent reconciliation for the same Ops Manager
@@ -192,11 +203,11 @@ func ensureConsistentAgentAuthenticationCredentials(newAutomationConfig *om.Auto
 func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(rs omv1.AppDB,
 	opsManager omv1.MongoDBOpsManager, automationConfig *om.AutomationConfig, log *zap.SugaredLogger) (bool, error) {
 	wasPublished := false
-	if err := r.kubeHelper.computeConfigMap(objectKey(opsManager.Namespace, rs.AutomationConfigSecretName()),
-		func(existingMap *corev1.ConfigMap) bool {
-			if len(existingMap.Data) == 0 {
+	if err := r.kubeHelper.computeSecret(objectKey(opsManager.Namespace, rs.AutomationConfigSecretName()),
+		func(existingSecret *corev1.Secret) bool {
+			if len(existingSecret.Data) == 0 {
 				log.Debugf("ConfigMap for the Automation Config doesn't exist, it will be created")
-			} else if existingAutomationConfig, err := om.BuildAutomationConfigFromBytes([]byte(existingMap.Data[util.AppDBAutomationConfigKey])); err != nil {
+			} else if existingAutomationConfig, err := om.BuildAutomationConfigFromBytes([]byte(existingSecret.Data[util.AppDBAutomationConfigKey])); err != nil {
 				// in case of any problems deserializing the existing AutomationConfig - just ignore the error and update
 				log.Warnf("There were problems deserializing existing automation config - it will be overwritten (%s)", err.Error())
 			} else {
@@ -231,7 +242,7 @@ func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(rs omv1.AppDB,
 				// to error state
 				panic(err)
 			}
-			existingMap.Data = map[string]string{util.AppDBAutomationConfigKey: string(bytes)}
+			existingSecret.Data = map[string][]byte{util.AppDBAutomationConfigKey: bytes}
 			wasPublished = true
 
 			return true

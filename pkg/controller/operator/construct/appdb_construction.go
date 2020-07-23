@@ -44,8 +44,8 @@ func buildAppDBPodTemplateSpecFunc(mdbBuilder DatabaseBuilder) podtemplatespec.M
 	appdbImageURL := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.AppDBImageUrl),
 		envutil.ReadOrDefault(appDBAutomationAgentVersionEnv, "latest"))
 
-	// automationConfigVolume is only required by the AppDB databsae container
-	automationConfigVolume := statefulset.CreateVolumeFromConfigMap(clusterConfigVolumeName, mdbBuilder.GetName()+"-config")
+	// automationConfigVolume is only required by the AppDB database container
+	automationConfigVolume := statefulset.CreateVolumeFromSecret(clusterConfigVolumeName, mdbBuilder.GetName()+"-config")
 	automationConfigVolumeMount := corev1.VolumeMount{
 		Name:      automationConfigVolume.Name,
 		MountPath: agentLibPath,

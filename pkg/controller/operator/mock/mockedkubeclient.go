@@ -80,6 +80,19 @@ func (c *MockedConfigMapClient) CreateConfigMap(cm corev1.ConfigMap) error {
 	return nil
 }
 
+func (m *MockedConfigMapClient) DeleteConfigMap(key client.ObjectKey) error {
+	cm := corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      key.Name,
+			Namespace: key.Namespace,
+		},
+	}
+	if err := m.client.Delete(context.TODO(), &cm); err != nil {
+		return err
+	}
+	return nil
+}
+
 type MockedSecretClient struct {
 	client client.Client
 }

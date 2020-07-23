@@ -46,7 +46,7 @@ func init() {
 // - if AppDB: the 'mmsStatus[0].lastGoalVersionAchieved' field is compared with the one from mounted automation config
 // Additionally if the previous check hasn't returned 'true' the "deadlock" case is checked to make sure the Agent is
 // not waiting for the other members.
-func isPodReady(healStatusPath string, configMapReader ConfigMapReader) bool {
+func isPodReady(healStatusPath string, secretReader SecretReader) bool {
 	fd, err := os.Open(healStatusPath)
 	if err != nil {
 		logger.Warn("No health status file exists, assuming the Automation agent is old")
@@ -67,7 +67,7 @@ func isPodReady(healStatusPath string, configMapReader ConfigMapReader) bool {
 	}
 
 	// If the agent has reached the goal state - returning true
-	ok, err := isInGoalState(health, configMapReader)
+	ok, err := isInGoalState(health, secretReader)
 
 	if err != nil {
 		logger.Errorf("There was problem checking the health status: %s", err)
@@ -162,9 +162,9 @@ func isDeadlocked(status *stepStatus) bool {
 	return false
 }
 
-func isInGoalState(health healthStatus, configMapReader ConfigMapReader) (bool, error) {
+func isInGoalState(health healthStatus, secretReader SecretReader) (bool, error) {
 	if isHeadlessMode() {
-		return performCheckHeadlessMode(health, configMapReader)
+		return performCheckHeadlessMode(health, secretReader)
 	}
 	return performCheckOMMode(health)
 
@@ -188,7 +188,7 @@ func performCheckOMMode(health healthStatus) (bool, error) {
 // /var/run/secrets/kubernetes.io/serviceaccount/namespace file (see
 // https://kubernetes.io/docs/tasks/access-application-cluster/access-cluster/#accessing-the-api-from-a-pod)
 // though passing the namespace as an environment variable makes the code simpler for testing and saves an IO operation
-func performCheckHeadlessMode(health healthStatus, configMapReader ConfigMapReader) (bool, error) {
+func performCheckHeadlessMode(health healthStatus, secretReader SecretReader) (bool, error) {
 	namespace := os.Getenv(podNamespaceEnv)
 	if namespace == "" {
 		return false, fmt.Errorf("the '%s' environment variable must be set", podNamespaceEnv)
@@ -198,12 +198,12 @@ func performCheckHeadlessMode(health healthStatus, configMapReader ConfigMapRead
 		return false, fmt.Errorf("the '%s' environment variable must be set", automationConfigMapEnv)
 	}
 
-	configMap, err := configMapReader.readConfigMap(namespace, automationConfigMap)
+	configMap, err := secretReader.readSecret(namespace, automationConfigMap)
 	if err != nil {
 		return false, err
 	}
 	var existingDeployment map[string]interface{}
-	if err := json.Unmarshal([]byte(configMap.Data[appDBAutomationConfigKey]), &existingDeployment); err != nil {
+	if err := json.Unmarshal(configMap.Data[appDBAutomationConfigKey], &existingDeployment); err != nil {
 		return false, err
 	}
 
@@ -263,7 +263,7 @@ func main() {
 		panic(err)
 	}
 	logger = log.Sugar()
-	if !isPodReady(getHealthStatusFilePath(), newKubernetesConfigMapReader()) {
+	if !isPodReady(getHealthStatusFilePath(), newKubernetesSecretReader()) {
 		os.Exit(1)
 	}
 }

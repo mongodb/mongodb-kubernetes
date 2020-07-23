@@ -9,7 +9,6 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
 
@@ -823,33 +822,33 @@ func (k KubeHelper) readSecret(nsName client.ObjectKey) (map[string]string, erro
 	return secretStringData, nil
 }
 
-// computeConfigMap fetches the existing config map and applies the computation function to it and pushes changes back
+// computeSecret fetches the existing config map and applies the computation function to it and pushes changes back
 // The computation function is expected to update the data in config map or return false if no update/create is needed
 // (Name for the function is chosen as an analogy to Map.compute() function in Java)
-func (k *KubeHelper) computeConfigMap(nsName client.ObjectKey, callback func(*corev1.ConfigMap) bool, owner v1.CustomResourceReadWriter) error {
-	existingConfigMap, err := k.client.GetConfigMap(objectKey(nsName.Namespace, nsName.Name))
+func (k *KubeHelper) computeSecret(nsName client.ObjectKey, callback func(*corev1.Secret) bool, owner v1.CustomResourceReadWriter) error {
+	existingSecret, err := k.client.GetSecret(nsName)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
-			existingConfigMap = configmap.Builder().
+			existingSecret = secret.Builder().
 				SetName(nsName.Name).
 				SetNamespace(nsName.Namespace).
 				SetOwnerReferences(baseOwnerReference(owner)).
 				Build()
 
-			if !callback(&existingConfigMap) {
+			if !callback(&existingSecret) {
 				return nil
 			}
-			if err := k.client.CreateConfigMap(existingConfigMap); err != nil {
+			if err := k.client.CreateSecret(existingSecret); err != nil {
 				return err
 			}
 		} else {
 			return err
 		}
 	} else {
-		if !callback(&existingConfigMap) {
+		if !callback(&existingSecret) {
 			return nil
 		}
-		if err := k.client.UpdateConfigMap(existingConfigMap); err != nil {
+		if err := k.client.UpdateSecret(existingSecret); err != nil {
 			return err
 		}
 	}

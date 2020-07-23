@@ -6,6 +6,9 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
@@ -66,6 +69,34 @@ func TestMongoDB_ConnectionURL_OtherCluster_AppDB(t *testing.T) {
 		appdb.ConnectionURL("user", "passwd", map[string]string{"connectTimeoutMS": "30000", "readPreference": "secondary"}))
 }
 
+// TestAutomationConfig_IsCreatedInSecret verifies that the automation config config map is deleted
+// and that the config exists in the secret instead.
+func TestAutomationConfig_IsCreatedInSecret(t *testing.T) {
+	builder := DefaultOpsManagerBuilder()
+	opsManager := builder.Build()
+	appdb := opsManager.Spec.AppDB
+	kubeManager := mock.NewManager(&opsManager)
+	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
+
+	// pre-populate with a configmap that would store the automation config
+	err := kubeManager.Client.CreateConfigMap(
+		configmap.Builder().
+			SetName(appdb.AutomationConfigSecretName()).
+			SetNamespace(opsManager.Namespace).
+			Build(),
+	)
+	assert.NoError(t, err)
+
+	_, err = reconciler.Reconcile(&opsManager, appdb, "MBPYfkAj5ZM0l9uw6C7ggw")
+	assert.NoError(t, err)
+
+	_, err = kubeManager.Client.GetConfigMap(kube.ObjectKey(opsManager.Namespace, appdb.AutomationConfigSecretName()))
+	assert.True(t, apiErrors.IsNotFound(err), "Config Map should have been deleted!")
+
+	_, err = kubeManager.Client.GetSecret(kube.ObjectKey(opsManager.Namespace, appdb.AutomationConfigSecretName()))
+	assert.NoError(t, err, "The Automation Config should have been created in a secret instead!")
+}
+
 // TestPublishAutomationConfig_Create verifies that the automation config map is created if it doesn't exist
 func TestPublishAutomationConfig_Create(t *testing.T) {
 	builder := DefaultOpsManagerBuilder()
@@ -82,7 +113,7 @@ func TestPublishAutomationConfig_Create(t *testing.T) {
 	// verify the configmap was created
 	configMap := readAutomationConfigMap(t, kubeManager, opsManager)
 	checkDeploymentEqualToPublished(t, automationConfig.Deployment, configMap)
-	assert.Len(t, kubeManager.Client.GetMapForObject(&corev1.ConfigMap{}), 1)
+	assert.Len(t, kubeManager.Client.GetMapForObject(&corev1.Secret{}), 1)
 }
 
 // TestPublishAutomationConfig_Update verifies that the automation config map is updated if it has changed
@@ -104,14 +135,14 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 	published, err = reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S())
 	assert.NoError(t, err)
 	assert.False(t, published)
-	kubeManager.Client.CheckOperationsDidntHappen(t, mock.HItem(reflect.ValueOf(kubeManager.Client.Update), &corev1.ConfigMap{}))
+	kubeManager.Client.CheckOperationsDidntHappen(t, mock.HItem(reflect.ValueOf(kubeManager.Client.Update), &corev1.Secret{}))
 
 	// publishing changed config will result in update
 	automationConfig.Deployment.AddMonitoringAndBackup(zap.S())
 	published, err = reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S())
 	assert.NoError(t, err)
 	assert.True(t, published)
-	kubeManager.Client.CheckOrderOfOperations(t, mock.HItem(reflect.ValueOf(kubeManager.Client.Update), &corev1.ConfigMap{}))
+	kubeManager.Client.CheckOrderOfOperations(t, mock.HItem(reflect.ValueOf(kubeManager.Client.Update), &corev1.Secret{}))
 
 	// verify the configmap was updated (the version must get incremented)
 	configMap := readAutomationConfigMap(t, kubeManager, opsManager)
@@ -453,8 +484,8 @@ func buildAutomationConfigForAppDb(builder *omv1.OpsManagerBuilder, internetMani
 	return reconciler.buildAppDbAutomationConfig(opsManager.Spec.AppDB, opsManager, "my-pass", sts, zap.S())
 }
 
-func checkDeploymentEqualToPublished(t *testing.T, expected om.Deployment, configMap *corev1.ConfigMap) {
-	publishedDeployment, err := om.BuildDeploymentFromBytes([]byte(configMap.Data["cluster-config.json"]))
+func checkDeploymentEqualToPublished(t *testing.T, expected om.Deployment, s *corev1.Secret) {
+	publishedDeployment, err := om.BuildDeploymentFromBytes(s.Data["cluster-config.json"])
 	assert.NoError(t, err)
 	assert.Equal(t, expected.ToCanonicalForm(), publishedDeployment)
 }
@@ -463,11 +494,11 @@ func newAppDbReconciler(mgr manager.Manager, internetManifestProvider om.Version
 	return &ReconcileAppDbReplicaSet{ReconcileCommonController: newReconcileCommonController(mgr, nil), VersionManifestFilePath: relativeVersionManifestFixturePath, InternetManifestProvider: internetManifestProvider}
 }
 
-func readAutomationConfigMap(t *testing.T, kubeManager *mock.MockedManager, opsManager omv1.MongoDBOpsManager) *corev1.ConfigMap {
-	configMap := &corev1.ConfigMap{}
-	key := objectKey(opsManager.Namespace, opsManager.Spec.AppDB.AutomationConfigSecretName())
-	assert.NoError(t, kubeManager.Client.Get(context.TODO(), key, configMap))
-	return configMap
+func readAutomationConfigMap(t *testing.T, kubeManager *mock.MockedManager, opsManager omv1.MongoDBOpsManager) *corev1.Secret {
+	s := &corev1.Secret{}
+	key := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.AutomationConfigSecretName())
+	assert.NoError(t, kubeManager.Client.Get(context.TODO(), key, s))
+	return s
 }
 
 // AlwaysFailingManifestProvider mimics not having an internet connection

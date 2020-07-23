@@ -98,7 +98,7 @@ func TestHeadlessAgentHasntReachedGoal(t *testing.T) {
 	_ = os.Setenv(headlessAgent, "true")
 	_ = os.Setenv(podNamespaceEnv, "test")
 	_ = os.Setenv(automationConfigMapEnv, "om-db-config")
-	mockedReader := NewMockedConfigMapReader("test", "om-db-config", 6)
+	mockedReader := NewMockedSecretReader("test", "om-db-config", 6)
 	assert.False(t, isPodReady("health-status-ok.json", mockedReader))
 }
 
@@ -108,7 +108,7 @@ func TestHeadlessAgentReachedGoal(t *testing.T) {
 	_ = os.Setenv(headlessAgent, "true")
 	_ = os.Setenv(podNamespaceEnv, "test")
 	_ = os.Setenv(automationConfigMapEnv, "om-db-config")
-	mockedReader := NewMockedConfigMapReader("test", "om-db-config", 5)
+	mockedReader := NewMockedSecretReader("test", "om-db-config", 5)
 	assert.True(t, isPodReady("health-status-ok.json", mockedReader))
 }
 
@@ -118,7 +118,7 @@ func TestHeadlessAgentPanicsIfEnvVarsNotSet(t *testing.T) {
 	os.Clearenv()
 	_ = os.Setenv(headlessAgent, "true")
 
-	mockedReader := NewMockedConfigMapReader("test", "om-db-config", 5)
+	mockedReader := NewMockedSecretReader("test", "om-db-config", 5)
 	assert.Panics(t, func() { isPodReady("health-status-ok.json", mockedReader) })
 
 	_ = os.Setenv(podNamespaceEnv, "test")
@@ -165,22 +165,22 @@ func readHealthinessFile(path string) healthStatus {
 	return health
 }
 
-// MockedConfigMapReader is a mocked implementation of ConfigMapReader
-type MockedConfigMapReader struct {
-	configMap *corev1.ConfigMap
+// MockedSecretReader is a mocked implementation of ConfigMapReader
+type MockedSecretReader struct {
+	secret *corev1.Secret
 }
 
-func NewMockedConfigMapReader(namespace, name string, version int) *MockedConfigMapReader {
+func NewMockedSecretReader(namespace, name string, version int) *MockedSecretReader {
 	// We don't need to create a full automation config - just the json with version field is enough
 	deployment := fmt.Sprintf("{\"version\": %d}", version)
-	configMap := &corev1.ConfigMap{Data: map[string]string{"cluster-config.json": deployment}}
-	configMap.ObjectMeta = metav1.ObjectMeta{Namespace: namespace, Name: name}
-	return &MockedConfigMapReader{configMap: configMap}
+	secret := &corev1.Secret{Data: map[string][]byte{"cluster-config.json": []byte(deployment)}}
+	secret.ObjectMeta = metav1.ObjectMeta{Namespace: namespace, Name: name}
+	return &MockedSecretReader{secret: secret}
 }
 
-func (r *MockedConfigMapReader) readConfigMap(namespace, configMapName string) (*corev1.ConfigMap, error) {
-	if r != nil && r.configMap.Namespace == namespace && r.configMap.Name == configMapName {
-		return r.configMap, nil
+func (r *MockedSecretReader) readSecret(namespace, configMapName string) (*corev1.Secret, error) {
+	if r != nil && r.secret.Namespace == namespace && r.secret.Name == configMapName {
+		return r.secret, nil
 	}
 	return nil, &errors.StatusError{ErrStatus: metav1.Status{Reason: metav1.StatusReasonNotFound}}
 }

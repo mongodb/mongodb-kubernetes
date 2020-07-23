@@ -5,7 +5,7 @@ import os
 import re
 import time
 from typing import List, Optional, Dict
-
+from base64 import b64decode
 from kubeobject import CustomObject
 from kubernetes import client
 from kubernetes.client.rest import ApiException
@@ -177,12 +177,12 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         )
 
     def get_automation_config_tester(self, **kwargs) -> AutomationConfigTester:
-        cm = (
+        secret = (
             client.CoreV1Api()
-            .read_namespaced_config_map(self.app_db_name() + "-config", self.namespace)
+            .read_namespaced_secret(self.app_db_name() + "-config", self.namespace)
             .data
         )
-        automation_config_str = cm["cluster-config.json"]
+        automation_config_str = b64decode(secret["cluster-config.json"]).decode("utf-8")
         config_json = json.loads(automation_config_str)
         return AutomationConfigTester(config_json, **kwargs)
 

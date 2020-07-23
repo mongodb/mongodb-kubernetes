@@ -10,10 +10,10 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-// ConfigMapReader is an interface which allows to read the config map
+// SecretReader is an interface which allows to read the secret
 // Needed mainly for unit testing as it seems there is no easy way to mock out 'kubernetes.Clientset'
-type ConfigMapReader interface {
-	readConfigMap(namespace, configMapName string) (*corev1.ConfigMap, error)
+type SecretReader interface {
+	readSecret(namespace, secretName string) (*corev1.Secret, error)
 }
 
 type healthStatus struct {
@@ -55,12 +55,12 @@ type stepStatus struct {
 	Result    string     `json:"result"`
 }
 
-// Default production implementation for ConfigMapReader which reads from API server
-type kubernetesConfigMapReader struct {
+// Default production implementation for SecretReader which reads from API server
+type kubernetesSecretReader struct {
 	clientset *kubernetes.Clientset
 }
 
-func newKubernetesConfigMapReader() *kubernetesConfigMapReader {
+func newKubernetesSecretReader() *kubernetesSecretReader {
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		panic(err.Error())
@@ -70,9 +70,9 @@ func newKubernetesConfigMapReader() *kubernetesConfigMapReader {
 	if err != nil {
 		panic(err.Error())
 	}
-	return &kubernetesConfigMapReader{clientset: clientset}
+	return &kubernetesSecretReader{clientset: clientset}
 }
 
-func (r *kubernetesConfigMapReader) readConfigMap(namespace, configMapName string) (*corev1.ConfigMap, error) {
-	return r.clientset.CoreV1().ConfigMaps(namespace).Get(configMapName, metav1.GetOptions{})
+func (r *kubernetesSecretReader) readSecret(namespace, secretName string) (*corev1.Secret, error) {
+	return r.clientset.CoreV1().Secrets(namespace).Get(secretName, metav1.GetOptions{})
 }

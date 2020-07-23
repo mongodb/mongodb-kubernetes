@@ -2,15 +2,17 @@ package operator
 
 import (
 	"context"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 	"os"
 	"reflect"
 	"testing"
 	"time"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/project"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -160,82 +162,92 @@ func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
 	assert.Panics(t, func() { defaultSetHelper().CreateOrUpdateInKubernetes() })
 }
 
-// TestComputeConfigMap_CreateNew checks the "create" features of 'computeConfigMap' function when the configmap is created
+// TestComputeSecret_CreateNew checks the "create" features of 'computeSecret' function when the secret is created
 // if it doesn't exist (or the creation is skipped totally)
-func TestComputeConfigMap_CreateNew(t *testing.T) {
+func TestComputeSecret_CreateNew(t *testing.T) {
 	client := mock.NewClient()
 	helper := NewKubeHelper(client)
 	owner := mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "test"}}
 	key := objectKey("ns", "cfm")
-	testData := map[string]string{"foo": "bar"}
+	testData := map[string][]byte{"foo": []byte("bar")}
 
 	// Successful creation
-	err := helper.computeConfigMap(key, func(cmap *corev1.ConfigMap) bool {
-		cmap.Data = testData
+	err := helper.computeSecret(key, func(secret *corev1.Secret) bool {
+		secret.Data = testData
 		return true
 	}, &owner)
 
 	assert.NoError(t, err)
 
-	cmap := &corev1.ConfigMap{}
-	err = client.Get(context.TODO(), key, cmap)
+	s := &corev1.Secret{}
+	err = client.Get(context.TODO(), key, s)
 	assert.NoError(t, err)
-	assert.Equal(t, key.Name, cmap.Name)
-	assert.Equal(t, key.Namespace, cmap.Namespace)
-	assert.Equal(t, "test", cmap.OwnerReferences[0].Name)
-	assert.Equal(t, testData, cmap.Data)
+	assert.Equal(t, key.Name, s.Name)
+	assert.Equal(t, key.Namespace, s.Namespace)
+	assert.Equal(t, "test", s.OwnerReferences[0].Name)
+	assert.Equal(t, testData, s.Data)
 
 	// Creation skipped
 	key2 := objectKey("ns", "cfm2")
-	_ = helper.computeConfigMap(key2, func(cmap *corev1.ConfigMap) bool {
+	_ = helper.computeSecret(key2, func(s *corev1.Secret) bool {
 		return false
 	}, &owner)
 
-	err = client.Get(context.TODO(), key2, cmap)
+	err = client.Get(context.TODO(), key2, s)
 	assert.True(t, apiErrors.IsNotFound(err))
 }
 
-func TestComputeConfigMap_UpdateExisting(t *testing.T) {
+func TestComputeSecret_UpdateExisting(t *testing.T) {
 	client := mock.NewClient()
-	client.AddProjectConfigMap(om.TestGroupName, "")
+	err := client.CreateSecret(secret.Builder().
+		SetNamespace(mock.TestNamespace).
+		SetName("secret-name").
+		SetField(util.OmBaseUrl, "http://mycompany.com:8080").
+		SetField(util.OmProjectName, "project-name").
+		SetField(util.OmOrgId, "org-id").
+		Build(),
+	)
+	assert.NoError(t, err)
+
+	//client.AddProjectConfigMap(om.TestGroupName, "")
 	helper := NewKubeHelper(client)
 	owner := mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "test"}}
 
-	key := objectKey(mock.TestNamespace, mock.TestProjectConfigMapName)
+	key := objectKey(mock.TestNamespace, "secret-name")
 
 	// Successful update (data is appended)
-	err := helper.computeConfigMap(key, func(cmap *corev1.ConfigMap) bool {
-		cmap.Data["foo"] = "bla"
+	err = helper.computeSecret(key, func(s *corev1.Secret) bool {
+		s.Data["foo"] = []byte("bla")
 		return true
 	}, &owner)
 
 	assert.NoError(t, err)
 
-	cmap := &corev1.ConfigMap{}
-	err = client.Get(context.TODO(), key, cmap)
+	s := &corev1.Secret{}
+	err = client.Get(context.TODO(), key, s)
 	assert.NoError(t, err)
 	// We don't change the owner in case of update
-	assert.Empty(t, cmap.OwnerReferences)
+	assert.Empty(t, s.OwnerReferences)
 	// We added one key-value but the other must stay in the config map
-	assert.True(t, len(cmap.Data) > 1)
+	assert.True(t, len(s.Data) > 1)
 
-	currentSize := len(cmap.Data)
+	currentSize := len(s.Data)
 
 	// Update skipped
-	err = helper.computeConfigMap(key, func(cmap *corev1.ConfigMap) bool {
+	err = helper.computeSecret(key, func(s *corev1.Secret) bool {
 		return false
 	}, &owner)
 
 	assert.NoError(t, err)
 
-	cmap = &corev1.ConfigMap{}
-	err = client.Get(context.TODO(), key, cmap)
+	s = &corev1.Secret{}
+	err = client.Get(context.TODO(), key, s)
 	assert.NoError(t, err)
 	// The size of data must not change as there was no update
-	assert.Len(t, cmap.Data, currentSize)
+	assert.Len(t, s.Data, currentSize)
 
 	// The only operation in history is the first update
-	client.CheckNumberOfOperations(t, mock.HItem(reflect.ValueOf(client.Update), cmap), 1)
+	client.CheckNumberOfOperations(t, mock.HItem(reflect.ValueOf(client.Update), s), 1)
 }
 
 func TestBuildService(t *testing.T) {
