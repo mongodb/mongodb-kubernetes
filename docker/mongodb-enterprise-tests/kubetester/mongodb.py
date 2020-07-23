@@ -68,6 +68,9 @@ class MongoDB(CustomObject, MongoDBCommon):
             "Some agents failed to register",
             # Sometimes Cloud-QA timeouts so we anticipate to this
             "Error sending GET request to",
+            # "Get https://cloud-qa.mongodb.com/api/public/v1.0/groups/5f186b406c835e37e6160aef/automationConfig:
+            # read tcp 10.244.0.6:33672->75.2.105.99:443: read: connection reset by peer"
+            "read: connection reset by peer",
         )
         return self.wait_for(
             lambda s: in_desired_state(
