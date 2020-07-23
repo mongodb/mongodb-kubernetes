@@ -392,6 +392,9 @@ type Ldap struct {
 
 	BindQueryUser      string       `json:"bindQueryUser"`
 	BindQuerySecretRef TLSSecretRef `json:"bindQueryPasswordSecretRef"`
+
+	AuthzQueryTemplate string `json:"authzQueryTemplate"`
+	UserToDNMapping    string `json:"userToDNMapping"`
 }
 
 type TLSConfig struct {
@@ -625,8 +628,8 @@ func (m MongoDB) GetLDAP(password, caContents string) *ldap.Ldap {
 		ValidateLDAPServerConfig: validateServerConfig,
 
 		// Related to LDAP Authorization
-		AuthzQueryTemplate: "",
-		UserToDnMapping:    "",
+		AuthzQueryTemplate: mdbLdap.AuthzQueryTemplate,
+		UserToDnMapping:    mdbLdap.UserToDNMapping,
 
 		// TODO: Enable LDAP SASL bind method
 		BindMethod:         "simple",

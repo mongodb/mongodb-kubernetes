@@ -395,6 +395,56 @@ func TestConfigureLdapDeploymentAuthentication_WithScramAgentAuthentication(t *t
 	assert.Contains(t, ac.Auth.DeploymentAuthMechanisms, "SCRAM-SHA-256")
 }
 
+func TestConfigureLdapDeploymentAuthentication_WithAuthzQueryTemplate_AndUserToDnMapping(t *testing.T) {
+
+	userMapping := `[
+                     {
+ 	               match: "(.+)",
+                       substitution: "uid={0},dc=example,dc=org"
+                     }
+                   ]`
+	authzTemplate := "{USER}?memberOf?base"
+	rs := DefaultReplicaSetBuilder().
+		SetName("my-rs").
+		SetMembers(3).
+		SetVersion("4.0.0-ent").
+		EnableAuth().
+		AgentAuthMode("SCRAM").
+		SetAuthModes([]string{"LDAP", "SCRAM"}).
+		LDAP(
+			mdbv1.Ldap{
+				BindQueryUser: "bindQueryUser",
+				Servers:       "servers",
+				BindQuerySecretRef: mdbv1.TLSSecretRef{
+					Name: "bind-query-password",
+				},
+				AuthzQueryTemplate: authzTemplate,
+				UserToDNMapping:    userMapping,
+			},
+		).
+		Build()
+
+	manager := mock.NewManager(rs)
+	manager.Client.AddDefaultMdbConfigResources()
+	r := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
+	data := map[string]string{
+		"password": "LITZTOd6YiCV8j",
+	}
+	err := secret.CreateOrUpdate(r.client, secret.Builder().
+		SetName("bind-query-password").
+		SetNamespace(mock.TestNamespace).
+		SetStringData(data).
+		Build(),
+	)
+	assert.NoError(t, err)
+	checkReconcileSuccessful(t, r, rs, manager.Client)
+
+	ac, err := om.CurrMockedConnection.ReadAutomationConfig()
+	assert.NoError(t, err)
+	assert.Equal(t, authzTemplate, ac.Ldap.AuthzQueryTemplate)
+	assert.Equal(t, userMapping, ac.Ldap.UserToDnMapping)
+}
+
 /*
 
 // TODO: Design a strategy for this particular case. These tests are going to be reworked as part of the
