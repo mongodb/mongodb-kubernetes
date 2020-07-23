@@ -40,6 +40,11 @@ func TestMongoDB_ConnectionURL_DefaultCluster_AppDB(t *testing.T) {
 		"testOM-db-1.testOM-db-svc.my-namespace.svc.cluster.local:27017,testOM-db-2.testOM-db-svc.my-namespace.svc.cluster.local:27017/"+
 		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=testOM-db&serverSelectionTimeoutMS=20000", appdb.ConnectionURL("user", "passwd", nil))
 
+	// Special symbols in the url
+	assert.Equal(t, "mongodb://special%2Fuser%23:%40passw%21@testOM-db-0.testOM-db-svc.my-namespace.svc.cluster.local:27017,"+
+		"testOM-db-1.testOM-db-svc.my-namespace.svc.cluster.local:27017,testOM-db-2.testOM-db-svc.my-namespace.svc.cluster.local:27017/"+
+		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=testOM-db&serverSelectionTimeoutMS=20000", appdb.ConnectionURL("special/user#", "@passw!", nil))
+
 	// Connection parameters. The default one is overridden
 	assert.Equal(t, "mongodb://user:passwd@testOM-db-0.testOM-db-svc.my-namespace.svc.cluster.local:27017,"+
 		"testOM-db-1.testOM-db-svc.my-namespace.svc.cluster.local:27017,testOM-db-2.testOM-db-svc.my-namespace.svc.cluster.local:27017/"+

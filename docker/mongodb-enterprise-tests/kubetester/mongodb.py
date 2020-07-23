@@ -1,5 +1,6 @@
 import re
 from enum import Enum
+import urllib.parse
 from typing import Optional, Dict, Tuple, List
 
 import time
@@ -201,7 +202,10 @@ class MongoDB(CustomObject, MongoDBCommon):
         auth = ""
         params = {"connectTimeoutMS": "20000", "serverSelectionTimeoutMS": "20000"}
         if "SCRAM" in self.get_authentication_modes():
-            auth = f"{user_name}:{password}@"
+            auth = "{}:{}@".format(
+                urllib.parse.quote(user_name, safe=""),
+                urllib.parse.quote(password, safe=""),
+            )
             params["authSource"] = "admin"
             # TODO check the version for correct auth mechanism
             params["authMechanism"] = "SCRAM-SHA-1"

@@ -13,7 +13,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 
 OM_RESOURCE_NAME = "om-scram"
 OM_USER_NAME = "mongodb-ops-manager"
-USER_DEFINED_PASSWORD = "my-scram-password"
+USER_DEFINED_PASSWORD = "@my-scram-password#:"
 UPDATED_USER_DEFINED_PASSWORD = f"updated-{USER_DEFINED_PASSWORD}"
 AUTO_GENERATED_PASSWORD = ""
 EXPECTED_OM_USER_ROLES = {

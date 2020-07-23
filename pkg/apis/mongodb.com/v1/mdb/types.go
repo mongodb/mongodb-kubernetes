@@ -3,6 +3,7 @@ package mdb
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 
@@ -831,7 +832,7 @@ func BuildConnectionUrl(statefulsetName, serviceName, namespace, userName, passw
 	hostnames, _ := util.GetDNSNames(statefulsetName, serviceName, namespace, spec.GetClusterDomain(), replicasCount)
 	uri := "mongodb://"
 	if stringutil.Contains(spec.Security.Authentication.GetModes(), util.SCRAM) {
-		uri += fmt.Sprintf("%s:%s@", userName, password)
+		uri += fmt.Sprintf("%s:%s@", url.QueryEscape(userName), url.QueryEscape(password))
 	}
 	for i, h := range hostnames {
 		hostnames[i] = fmt.Sprintf("%s:%d", h, util.MongoDbDefaultPort)

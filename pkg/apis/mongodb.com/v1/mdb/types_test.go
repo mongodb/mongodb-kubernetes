@@ -126,6 +126,13 @@ func TestMongoDB_ConnectionURL_Secure(t *testing.T) {
 		"connectTimeoutMS=20000&replicaSet=testMDB&serverSelectionTimeoutMS=20000",
 		rs.ConnectionURL("the_user", "the_passwd", nil))
 
+	// Special symbols in user/password must be encoded
+	rs = NewReplicaSetBuilder().SetMembers(2).EnableAuth([]string{util.SCRAM}).Build()
+	assert.Equal(t, "mongodb://user%2F%40:pwd%23%21%40@testMDB-0.testMDB-svc.testNS.svc.cluster.local:27017,"+
+		"testMDB-1.testMDB-svc.testNS.svc.cluster.local:27017/?authMechanism=SCRAM-SHA-256&authSource=admin&"+
+		"connectTimeoutMS=20000&replicaSet=testMDB&serverSelectionTimeoutMS=20000",
+		rs.ConnectionURL("user/@", "pwd#!@", nil))
+
 	// Caller can override any connection parameters, e.g."authMechanism"
 	rs = NewReplicaSetBuilder().SetMembers(2).EnableAuth([]string{util.SCRAM}).Build()
 	assert.Equal(t, "mongodb://the_user:the_passwd@testMDB-0.testMDB-svc.testNS.svc.cluster.local:27017,"+

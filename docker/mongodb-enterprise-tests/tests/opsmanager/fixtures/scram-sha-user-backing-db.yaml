@@ -7,7 +7,7 @@ spec:
   passwordSecretKeyRef:
     name: mms-user-1-password
     key: password
-  username: "mms-user-1"
+  username: "mms-user-1@/"
   db: "admin"
   mongodbResourceRef:
     name: "my-replica-set"

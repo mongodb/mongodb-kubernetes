@@ -21,7 +21,7 @@ AWS_REGION = "us-east-1"
 OPLOG_RS_NAME = "my-mongodb-oplog"
 S3_RS_NAME = "my-mongodb-s3"
 BLOCKSTORE_RS_NAME = "my-mongodb-blockstore"
-USER_PASSWORD = "qwerty"
+USER_PASSWORD = "/qwerty@!#:"
 
 """
 Current test focuses on backup capabilities. It creates an explicit MDBs for S3 snapshot metadata, Blockstore and Oplog
