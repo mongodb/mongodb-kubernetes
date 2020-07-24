@@ -1,4 +1,5 @@
 import pytest
+import time
 
 from kubetester.kubetester import KubernetesTester
 from kubernetes import client
@@ -168,7 +169,9 @@ class TestReplicaSetPersistentVolumeDelete(KubernetesTester):
     """
 
     def test_replica_set_sts_doesnt_exist(self):
-        "StatefulSet should not exist"
+        """ The StatefulSet must be removed by Kubernetes as soon as the MongoDB resource is removed.
+        Note, that this may lag sometimes (caching or whatever?) and it's more safe to wait a bit """
+        time.sleep(15)
         with pytest.raises(client.rest.ApiException):
             self.appsv1.read_namespaced_stateful_set("rs001-pv", self.namespace)
 
