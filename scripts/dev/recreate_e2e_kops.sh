@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -Eeou pipefail
 
 source scripts/funcs/errors
 source scripts/funcs/kubernetes
@@ -8,6 +8,8 @@ source scripts/funcs/printing
 
 recreate="${1-}"
 CLUSTER="${2:-e2e.mongokubernetes.com}"
+
+title "Deleting kops cluster $CLUSTER"
 
 if [[ "${recreate}" != "yes" ]]; then
 	fatal "Exiting as \"imsure=yes\" parameter is not specified"
@@ -21,7 +23,6 @@ if (( major != 1 || minor < 14 )); then
         fatal "kops must be of version >= 1.14.0!"
 fi
 
-title "Deleting kops cluster $CLUSTER"
 
 # wait until the cluster is removed (could be removed already)
 kops delete cluster $CLUSTER --yes || true
@@ -36,8 +37,12 @@ if [[ "${CLUSTER}" = "e2e.mongokubernetes.com" ]]; then
 elif [[ "${CLUSTER}" = "e2e.om.mongokubernetes.com" ]]; then
     # this one is for Ops Manager e2e tests
     create_kops_cluster ${CLUSTER} 4 32 "t2.2xlarge" "t2.medium" "us-west-2a"
-else
-    # we're creating a smaller cluster for specific tests
-    # the only known "other" namespace is "e2e.multinamespace.mongokubernetes.com"
-    create_kops_cluster ${CLUSTER} 2 16 "t2.medium" "t2.medium" "us-west-2a,us-west-2b,us-west-2c"
+else [[ "${CLUSTER}" = "e2e.legacy.mongokubernetes.com" ]];
+    # we're recreating a "legacy" cluster on K8s 1.11 to perform basic check.
+    # This version is used by Openshift 3.11 and allows to more or less emulate 3.11 environment
+    # Dev note: if you need to deploy Operator to this cluster you'll need to make two things before calling 'make'
+    # 1. remove "subresources" field from each CRD
+    # 2. remove "kubeVersion" field from Chart.yaml
+    # TODO Ideally we should automatically run some tests on this cluster
+    create_kops_cluster ${CLUSTER} 2 16 "t2.medium" "t2.medium" "us-west-2a,us-west-2b,us-west-2c" "v1.11.10"
 fi

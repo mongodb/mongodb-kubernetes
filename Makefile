@@ -117,7 +117,7 @@ e2e: build-and-push-test-image
 
 # deletes and creates a kops e2e cluster
 recreate-e2e-kops:
-	@ scripts/dev/recreate_e2e_kops $(imsure) $(cluster)
+	@ scripts/dev/recreate_e2e_kops.sh $(imsure) $(cluster)
 
 # TODO: Automate this process
 # deletes and creates a openshift e2e cluster
