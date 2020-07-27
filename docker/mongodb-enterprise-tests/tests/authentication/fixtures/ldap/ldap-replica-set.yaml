@@ -20,7 +20,7 @@ spec:
       enabled: true
       modes: ["LDAP", "SCRAM"]
       ldap:
-        bindQueryUser: "cn=admin,dc=example,dc=org"
+        bindQueryUser: "<filled-by-test>"
         servers: "<filled-by-test>"
         bindQueryPasswordSecretRef:
           name: "<filled-by-test>"

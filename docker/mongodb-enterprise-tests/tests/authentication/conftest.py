@@ -1,7 +1,16 @@
 import time
 from typing import List
 
-from kubetester.ldap import create_user, OpenLDAP, LDAPUser
+
+from kubetester.ldap import (
+    create_user,
+    create_organizational_unit,
+    create_group,
+    add_user_to_group,
+    OpenLDAP,
+    LDAPUser,
+)
+
 from kubetester.helm import helm_install_from_chart, helm_uninstall
 from kubetester.kubetester import KubernetesTester
 from kubetester import get_pod_when_ready
@@ -66,6 +75,19 @@ def openldap_tls(namespace: str, openldap_cert: str) -> OpenLDAP:
 def ldap_mongodb_user_tls(openldap_tls: OpenLDAP, ca_path: str) -> LDAPUser:
     user = LDAPUser("mdb0", LDAP_DUMMY_PASSWORD)
     create_user(openldap_tls, user, ca_path=ca_path)
+
+    return user
+
+
+@fixture(scope="module")
+def ldap_mongodb_user(openldap: OpenLDAP) -> LDAPUser:
+    user = LDAPUser("mdb0", LDAP_DUMMY_PASSWORD)
+
+    create_organizational_unit(openldap, "groups")
+    create_user(openldap, user, ou="groups")
+
+    create_group(openldap, cn="users", ou="groups")
+    add_user_to_group(openldap, user="mdb0", group_cn="users", ou="groups")
 
     return user
 

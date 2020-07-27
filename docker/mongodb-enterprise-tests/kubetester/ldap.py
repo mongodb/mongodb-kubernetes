@@ -25,10 +25,11 @@ class LDAPUser:
     uid: str
     password: str
     ldap_base: str = LDAP_BASE
+    ou: str = None
 
     @property
     def username(self):
-        return "uid={},{}".format(self.uid, self.ldap_base)
+        return build_dn(uid=self.uid, ou=self.ou, base=self.ldap_base)
 
 
 def create_user(
