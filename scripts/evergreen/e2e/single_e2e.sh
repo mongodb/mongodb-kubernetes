@@ -76,7 +76,10 @@ wait_until_pod_is_running_or_failed_or_succeeded() {
     echo "Waiting until the test application gets to Running state..."
 
     is_running_cmd="kubectl -n ${PROJECT_NAMESPACE} get pod ${TEST_APP_PODNAME} -o jsonpath={.status.phase} | grep -q 'Running'"
-    timeout --foreground "1m" bash -c "while ! ${is_running_cmd}; do printf .; sleep 1; done;"
+
+    # test app usually starts instantly but sometimes (quite rarely though) may require more than a min to start
+    # in Evergreen so let's wait for 2m
+    timeout --foreground "2m" bash -c "while ! ${is_running_cmd}; do printf .; sleep 1; done;"
     echo
 
     if ! eval "${is_running_cmd}"; then
