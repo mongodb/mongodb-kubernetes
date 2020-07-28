@@ -3,15 +3,22 @@
 set -Eeou pipefail
 set -x
 
-# ensure all python files are correctly formatted with black
-if ! command -v "black" > /dev/null; then
-    pip3 install -r docker/mongodb-enterprise-tests/requirements-dev.txt
-fi
+function black_formatting()
+{
+    # installing Black
+    if ! command -v "black" > /dev/null; then
+        pip3 install -r docker/mongodb-enterprise-tests/requirements-dev.txt
+    fi
 
-if ! black --check --quiet .; then
-    echo "Python formatting with black failed! Ensure black is installed and python files are correctly formatted."
-    exit 1
-fi
+    # Black formatting of every python file that was changed
+    for file in $(git diff --cached --name-only --diff-filter=ACM | grep '\.py$')
+    do
+        black -q "$file"
+        git add "$file"
+    done
+}
+
+black_formatting
 
 # pre-commit hook will go vet all the files being committed
 # and also format them with go imports
@@ -58,7 +65,6 @@ if ! command -v "shellcheck" > /dev/null; then
     exit 1
 fi
 
-
 # run shellcheck on all modified shell scripnts
 for file in $(git diff --cached --name-only --diff-filter=ACM | grep -v '\.go$' | grep -v '\.py' | grep -v '\.yaml' | grep -v '\.json')
 do
@@ -78,17 +84,11 @@ do
     fi
 done
 
-# some directories are excluded from vetting as they are auto-generated
-vet_exclusions="github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned"
-for package in $(go list ./... | grep -Fv "${vet_exclusions}")
-do
-    go vet "${package}"
-done
-
-# Run gofmt -s on all go modified files
+# Run goimports and go vet on all go modified files
 exitcode=0
 for file in $(git diff --cached --name-only --diff-filter=ACM | grep '\.go$')
 do
+    # goimports
     to_fix=$(goimports -l "${file}")
     if [[ -n "${to_fix}" ]]
     then
@@ -97,7 +97,8 @@ do
         git add "${to_fix}"
         exitcode=1
     fi
-    output=$(gofmt -s -w "${file}")
+    # govet
+    output=$(go vet "${file}")
     if test -n "$output"
     then
         echo "$output"
