@@ -74,7 +74,7 @@ def rhel() -> Dict[str, Union[str, List[str]]]:
         # TODO as of today (18/03/20) the "latest" points to 7.7-358 version which doesn't work for us
         # (systemd = 219-67.el7_7.3 package not found) - so using the specific image - this needs to be
         # addressed later
-        "base_image": "registry.access.redhat.com/ubi7/ubi:7.7-310",
+        "base_image": "registry.access.redhat.com/ubi7/ubi",
         "distro": "rhel",
         "version": get_version(),
     }
@@ -112,7 +112,7 @@ def ops_manager(distro: Callable):
     if params["base_image"].startswith("registry.access.redhat.com"):
         # We don't want ubi-minimal for Ops Manager, get the
         # full thing instead.
-        params["base_image"] = "registry.access.redhat.com/ubi7/ubi:7.7-310"
+        params["base_image"] = "registry.access.redhat.com/ubi7/ubi"
 
     return params
 
