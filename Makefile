@@ -183,7 +183,7 @@ deploy-operator:
 	@ scripts/dev/deploy_operator.sh $(debug)
 
 configure-operator:
-	@ scripts/dev/configure_operator
+	@ scripts/dev/configure_operator.sh
 
 deploy-and-configure-operator: deploy-operator configure-operator
 

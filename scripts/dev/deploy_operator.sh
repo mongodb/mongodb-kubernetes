@@ -44,8 +44,23 @@ if [[ ${CLUSTER_TYPE} = "openshift" ]]; then
     #
     # The following 2 variables are set here and read from the `deploy_operator`
     # function.
-    OPS_MANAGER_NAME=mongodb-enterprise-ops-manager
-    APPDB_NAME=mongodb-enterprise-appdb
+    OPS_MANAGER_NAME=mongodb-enterprise-ops-manager-ubi
+    APPDB_NAME=mongodb-enterprise-appdb-ubi
+fi
+
+# For any cluster except for kops (Kind, Openshift) access to ECR registry needs authorization - hence
+# creating the image pull secret
+if [[ ${CLUSTER_TYPE} != "kops" ]] && [[ ${REPO_URL} == *".ecr."* ]]; then
+    export ecr_registry_needs_auth="ecr-registry-secret"
+    docker_config=$(mktemp)
+
+    scripts/dev/configure_docker "${REPO_URL}" > "${docker_config}"
+
+    echo "Creating/updating pull secret from docker configured file"
+    kubectl -n "${NAMESPACE}" create secret generic "ecr-registry-secret" \
+		--from-file=.dockerconfigjson="${docker_config}" --type=kubernetes.io/dockerconfigjson --dry-run -o yaml | \
+		 kubectl apply -f -
+    rm "${docker_config}"
 fi
 
 delete_operator "${NAMESPACE:-mongodb}"

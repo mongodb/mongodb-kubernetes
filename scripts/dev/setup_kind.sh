@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeou pipefail
 
-# setup_kind configures ecr credentials and placee them in
+# setup_kind configures ecr credentials and places them in
 # ~/.docker/kind_config.json a config file in ~/.operator-dev/kind-ecr-config.yaml
 # which can be used to with the --config flag when creating a kind cluster
 

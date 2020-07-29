@@ -41,18 +41,4 @@ om_admin_secret="ops-manager-admin-secret"
 kubectl delete secret ${om_admin_secret} -n "${NAMESPACE}" 2>/dev/null || true
 kubectl create secret generic ${om_admin_secret}  --from-literal=Username="jane.doe@example.com" --from-literal=Password="Passw0rd."  --from-literal=FirstName="Jane" --from-literal=LastName="Doe" -n "${NAMESPACE}"
 
-if [[ -n "${ecr_registry_needs_auth-}" ]]; then
-	# Need to configure ECR Pull Secrets!
-    docker_config=$(mktemp)
-
-    scripts/dev/configure_docker "${ecr_registry-}" > "${docker_config}"
-
-    echo "Creating pull secret from docker configured file"
-    oc -n "${NAMESPACE}" create secret generic "${ecr_registry_needs_auth}" \
-		--from-file=.dockerconfigjson="${docker_config}" --type=kubernetes.io/dockerconfigjson || true
-    rm "${docker_config}"
-else
-    echo "ECR registry authentication not manually configured"
-fi
-
 title "All necessary ConfigMaps and Secrets for the Operator are configured"

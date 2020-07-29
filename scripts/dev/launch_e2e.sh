@@ -21,6 +21,16 @@ title "Running the e2e test ${test}..."
 
 if [[ ${CLUSTER_TYPE} = "openshift" ]]; then
     managed_security_context=true
+    export OPS_MANAGER_NAME=mongodb-enterprise-ops-manager-ubi
+    export APPDB_NAME=mongodb-enterprise-appdb-ubi
+fi
+
+# For any cluster except for kops (Kind, Openshift) access to ECR registry needs authorization - it will be handled
+# later in single_e2e.sh
+if [[ ${CLUSTER_TYPE} != "kops" ]] && [[ ${REPO_URL} == *".ecr."* ]]; then
+    export ecr_registry_needs_auth="ecr-registry-secret"
+    ecr_registry="$(echo "${REPO_URL}" | cut -d "/" -f 1)"
+    export ecr_registry
 fi
 
 [[ ${skip:-} = "true" ]] && export SKIP_EXECUTION="'true'"

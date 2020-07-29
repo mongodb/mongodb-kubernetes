@@ -31,10 +31,16 @@ kubectl delete pvc --all -n "${NAMESPACE}"
 helm uninstall mongodb-enterprise-operator || true
 
 # shellcheck disable=SC2046
-kubectl delete $(kubectl get csr -o name | grep "${NAMESPACE}") || true
+for csr in $(kubectl get csr -o name | grep "${NAMESPACE}"); do
+    kubectl delete "${csr}"
+done
+# note, that "kubectl delete .. -all" always enables "--ignore-not-found=true" option so there's no need to tolerate
+# failures explicitly (" || true")
 kubectl delete secrets --all -n "${NAMESPACE}"
 kubectl delete svc --all -n "${NAMESPACE}"
 kubectl delete configmaps --all -n "${NAMESPACE}"
-kubectl delete validatingwebhookconfigurations --all -n "${NAMESPACE}"
+kubectl delete validatingwebhookconfigurations mdbpolicy.mongodb.com --ignore-not-found=true
+
+# certificates and issuers may not be installed
 kubectl delete certificates --all -n "${NAMESPACE}" || true
 kubectl delete issuers --all -n "${NAMESPACE}" || true
