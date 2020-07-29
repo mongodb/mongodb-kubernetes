@@ -312,6 +312,7 @@ class TestBackupDatabasesAdded:
         )
 
     def test_fix_om(self, ops_manager: MongoDBOpsManager, oplog_user: MongoDBUser):
+        ops_manager.load()
         ops_manager["spec"]["backup"]["oplogStores"][0]["mongodbUserRef"] = {
             "name": oplog_user.name
         }
