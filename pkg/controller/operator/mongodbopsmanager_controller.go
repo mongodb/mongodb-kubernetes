@@ -174,7 +174,7 @@ func (r *OpsManagerReconciler) reconcileOpsManager(opsManager *omv1.MongoDBOpsMa
 // triggerOmChangedEventIfNeeded triggers upgrade process for all the MongoDB agents in the system if the major/minor version upgrade
 // happened for Ops Manager
 func triggerOmChangedEventIfNeeded(opsManager omv1.MongoDBOpsManager, log *zap.SugaredLogger) error {
-	if opsManager.Spec.Version == opsManager.Status.OpsManagerStatus.Version {
+	if opsManager.Spec.Version == opsManager.Status.OpsManagerStatus.Version || opsManager.Status.OpsManagerStatus.Version == "" {
 		return nil
 	}
 	newVersion, err := semver.Parse(opsManager.Spec.Version)
