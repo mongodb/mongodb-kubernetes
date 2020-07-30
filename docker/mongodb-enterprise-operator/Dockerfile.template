@@ -22,7 +22,6 @@ LABEL name="MongoDB Enterprise Operator" \
 {% endblock -%}
 
 {% block static %}
-RUN mkdir -p /licenses
 COPY licenses/ /licenses
 {% endblock %}
 

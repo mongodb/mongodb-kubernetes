@@ -8,22 +8,14 @@ COPY content/RPM-GPG-KEY-EPEL-7 /etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-7
 
 {% block packages %}
 RUN yum update -y && yum install \
-        curl \
-        cyrus-sasl \
-        cyrus-sasl-gssapi \
-        cyrus-sasl-plain \
-        krb5-libs \
-        libcurl \
         libpcap \
         lm_sensors-libs \
         net-snmp \
         net-snmp-agent-libs \
-        openldap \
-        openssl \
         rpm-libs \
         tcp_wrappers-libs \
         nss_wrapper; \
-        yum clean all
+        yum clean all; \
+        ln -s /usr/lib64/libsasl2.so.3 /usr/lib64/libsasl2.so.2
 
-RUN ln -s /usr/lib64/libsasl2.so.3 /usr/lib64/libsasl2.so.2
 {% endblock %}

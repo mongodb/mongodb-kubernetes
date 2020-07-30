@@ -30,15 +30,10 @@ LABEL name="MongoDB Enterprise Database" \
       release="1" \
       maintainer="support@mongodb.com"
 
-
-
-RUN mkdir -p /licenses
 COPY LICENSE /licenses/mongodb-enterprise-database
 
 {% block packages %}
 {% endblock %}
-
-RUN mkdir -p "${MMS_HOME}/files/"
 
 # TODO: remove once database is using init container
 COPY content/ "${MMS_HOME}"/files/

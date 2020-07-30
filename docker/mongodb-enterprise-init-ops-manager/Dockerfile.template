@@ -21,11 +21,9 @@ LABEL name="MongoDB Enterprise Ops Manager Init" \
       description="Startup Scripts for MongoDB Enterprise Ops Manager"
 
 
-RUN mkdir /scripts
 COPY --from=builder /build/output/mmsconfiguration /scripts/
 COPY scripts/docker-entry-point.sh /scripts/
 
-RUN mkdir -p /licenses
 COPY LICENSE /licenses/mongodb-enterprise-ops-manager
 
 ENTRYPOINT [ "/bin/cp", "-f", "/scripts/docker-entry-point.sh", "/scripts/mmsconfiguration", "/opt/scripts/" ]

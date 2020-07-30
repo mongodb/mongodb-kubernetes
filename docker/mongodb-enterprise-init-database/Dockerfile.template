@@ -6,7 +6,6 @@
 
 FROM golang:1.13-alpine as builder
 
-RUN mkdir /build
 COPY ./probe /build/
 COPY ./probe_go_mod /build/
 WORKDIR /build
@@ -32,15 +31,12 @@ LABEL name="MongoDB Enterprise Init Database" \
       maintainer="support@mongodb.com"
 
 
-RUN mkdir /probes
 COPY --from=builder /build/readinessprobe /probes/
 COPY ./docker_content/probe.sh /probes/
 
-RUN mkdir /scripts
 COPY ./docker_content/agent-launcher-lib.sh /scripts/
 COPY ./docker_content/agent-launcher.sh /scripts/
 
-RUN mkdir -p /licenses
 COPY ./docker_content/LICENSE /licenses/mongodb-enterprise-appdb
 
 ENTRYPOINT [ "/bin/cp", "-f", "/scripts/agent-launcher.sh", "/scripts/agent-launcher-lib.sh", "/probes/readinessprobe", "/probes/probe.sh", "/opt/scripts/" ]
