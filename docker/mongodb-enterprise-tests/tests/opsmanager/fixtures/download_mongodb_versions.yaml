@@ -55,3 +55,25 @@ spec:
       volumeMounts:
         - name: mongodb-versions
           mountPath: /mongodb-ops-manager/mongodb-releases
+    - name: rhel-mongod-tools-downloader-100-0-2
+      image: curlimages/curl:latest
+      command:
+        - curl
+        - -L
+        - https://fastdl.mongodb.org/tools/db/mongodb-database-tools-rhel70-x86_64-100.0.2.tgz
+        - -o
+        - /mongodb-ops-manager/mongodb-releases/mongodb-database-tools-rhel70-x86_64-100.0.2.tgz
+      volumeMounts:
+        - name: mongodb-versions
+          mountPath: /mongodb-ops-manager/mongodb-releases
+    - name: ubuntu-mongo-tools-downloader-100-0-2
+      image: curlimages/curl:latest
+      command:
+        - curl
+        - -L
+        - https://fastdl.mongodb.org/tools/db/mongodb-database-tools-ubuntu1604-x86_64-100.0.2.tgz
+        - -o
+        - /mongodb-ops-manager/mongodb-releases/mongodb-database-tools-ubuntu1604-x86_64-100.0.2.tgz
+      volumeMounts:
+        - name: mongodb-versions
+          mountPath: /mongodb-ops-manager/mongodb-releases

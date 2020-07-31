@@ -514,7 +514,6 @@ functions:
           - kube_environment_name
           - ops_manager_version
           - version_id
-          - custom_om_version
           - install_operator_in_python
           - task_id
         env:
@@ -2366,7 +2365,7 @@ buildvariants:
     <<: *kubernetes_environment_kind
     image_type: ubuntu
     test_mode: opsmanager
-    custom_om_version: 4.4.0-rc2
+    custom_om_version: 4.4.0
     # TODO using expansion here results in "'${ecr_registry}/images/ubuntu' contains an unclosed expansion"
     ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
   tasks:

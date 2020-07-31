@@ -902,7 +902,7 @@ func (r *OpsManagerReconciler) buildOMS3Config(opsManager omv1.MongoDBOpsManager
 		Name:     config.S3BucketName,
 	}
 
-	return backup.NewS3Config(config.Name, uri, bucket, *s3Creds), workflow.OK()
+	return backup.NewS3Config(opsManager, config.Name, uri, bucket, *s3Creds), workflow.OK()
 }
 
 func (r *OpsManagerReconciler) getMongoDbForS3Config(opsManager omv1.MongoDBOpsManager, config omv1.S3Config) (mdbv1.MongoDB, workflow.Status) {

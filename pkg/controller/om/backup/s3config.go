@@ -2,7 +2,9 @@ package backup
 
 import (
 	"fmt"
+	"strings"
 
+	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
@@ -50,6 +52,9 @@ type S3Config struct {
 	// Flag indicating whether this S3 blockstore enables server-side encryption.
 	SseEnabled bool `json:"sseEnabled"`
 
+	// Required for OM 4.4
+	DisableProxyS3 *bool `json:"disableProxyS3,omitempty"`
+
 	// Flag indicating whether this S3 blockstore only accepts connections encrypted using TLS.
 	Ssl bool `json:"ssl"`
 }
@@ -69,13 +74,14 @@ type S3Credentials struct {
 	SecretKey string `json:"awsSecretKey"`
 }
 
-func NewS3Config(id, uri string, bucket S3Bucket, s3Creds S3Credentials) S3Config {
-	return S3Config{
+func NewS3Config(opsManager omv1.MongoDBOpsManager, id, uri string, bucket S3Bucket, s3Creds S3Credentials) S3Config {
+	config := S3Config{
 		S3Bucket:               bucket,
 		S3Credentials:          s3Creds,
 		AcceptedTos:            true,
 		AssignmentEnabled:      true, // default to enabled. This will not be overridden on merge so it can be manually disabled in UI.
 		SseEnabled:             false,
+		DisableProxyS3:         nil,
 		Id:                     id,
 		Uri:                    uri,
 		MaxConnections:         util.DefaultS3MaxConnections, // can be configured in UI
@@ -83,6 +89,13 @@ func NewS3Config(id, uri string, bucket S3Bucket, s3Creds S3Credentials) S3Confi
 		EncryptedCredentials:   false,
 		PathStyleAccessEnabled: true,
 	}
+
+	if strings.HasPrefix(opsManager.Spec.Version, "4.4.") {
+		// DisableProxyS3 is only available in 4.4 version of Ops Manager.
+		config.DisableProxyS3 = util.BooleanRef(false)
+	}
+
+	return config
 }
 
 func (s S3Config) Identifier() interface{} {
