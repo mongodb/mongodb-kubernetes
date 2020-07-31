@@ -284,6 +284,15 @@ type Security struct {
 	// Deprecated: This has been replaced by Authentication.InternalCluster which
 	// should be used instead
 	ClusterAuthMode string `json:"clusterAuthenticationMode,omitempty"`
+
+	Roles []MongoDbRole `json:"roles,omitempty"`
+}
+
+func (spec MongoDbSpec) GetSecurity() *Security {
+	if spec.Security == nil {
+		return &Security{}
+	}
+	return spec.Security
 }
 
 // GetAgentMechanism returns the authentication mechanism that the agents will be using.
@@ -353,6 +362,35 @@ type Authentication struct {
 	Ldap               *Ldap `json:"ldap"`
 	// Agents contains authentication configuration properties for the agents
 	Agents AgentAuthentication `json:"agents"`
+}
+
+type AuthenticationRestriction struct {
+	ClientSource  []string `json:"clientSource,omitempty"`
+	ServerAddress []string `json:"serverAddress,omitempty"`
+}
+
+type Resource struct {
+	Db         string `json:"db"`
+	Collection string `json:"collection"`
+	Cluster    *bool  `json:"cluster,omitempty"`
+}
+
+type Privilege struct {
+	Actions  []string `json:"actions"`
+	Resource Resource `json:"resource"`
+}
+
+type InheritedRole struct {
+	Db   string `json:"db"`
+	Role string `json:"role"`
+}
+
+type MongoDbRole struct {
+	Role                       string                      `json:"role"`
+	AuthenticationRestrictions []AuthenticationRestriction `json:"authenticationRestrictions,omitempty"`
+	Db                         string                      `json:"db"`
+	Privileges                 []Privilege                 `json:"privileges,omitempty"`
+	Roles                      []InheritedRole             `json:"roles,omitempty"`
 }
 
 type AgentAuthentication struct {
@@ -815,7 +853,9 @@ func ensureSecurity(spec *MongoDbSpec) {
 	if spec.Security.TLSConfig == nil {
 		spec.Security.TLSConfig = &TLSConfig{}
 	}
-
+	if spec.Security.Roles == nil {
+		spec.Security.Roles = make([]MongoDbRole, 0)
+	}
 }
 
 func newAuthentication() *Authentication {

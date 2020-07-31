@@ -165,6 +165,10 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		return r.updateStatus(s, status, log)
 	}
 
+	if status := r.ensureRoles(s.Spec.GetSecurity().Roles, conn, log); !status.IsOK() {
+		return r.updateStatus(s, status, log)
+	}
+
 	status := runInGivenOrder(standaloneBuilder.needToPublishStateFirst(log),
 		func() workflow.Status {
 			sts, err := standaloneBuilder.BuildStatefulSet()

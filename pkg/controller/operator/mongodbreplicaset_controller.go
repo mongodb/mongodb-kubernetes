@@ -121,6 +121,10 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		return r.updateStatus(rs, workflow.Failed(err.Error()), log)
 	}
 
+	if status := r.ensureRoles(rs.Spec.GetSecurity().Roles, conn, log); !status.IsOK() {
+		return r.updateStatus(rs, status, log)
+	}
+
 	if rs.Spec.Members < rs.Status.Members {
 		if err := prepareScaleDownReplicaSet(conn, replicaSetObject, rs.Status.Members, rs, log); err != nil {
 			return r.updateStatus(rs, workflow.Failed("Failed to prepare Replica Set for scaling down using Ops Manager: %s", err), log)

@@ -168,6 +168,8 @@ class MongoTester:
         self,
         username: str,
         password: str,
+        db: str = "admin",
+        collection: str = "myCol",
         ssl_ca_certs: Optional[str] = None,
         attempts: int = 5,
     ):
@@ -185,7 +187,7 @@ class MongoTester:
                     username, password, source="$external", mechanism="PLAIN"
                 )
 
-                client["admin"]["myCol"].insert_one({"data": "I need to exist!"})
+                client[db][collection].insert_one({"data": "I need to exist!"})
 
                 return
             except OperationFailure:

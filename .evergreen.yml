@@ -1464,6 +1464,12 @@ tasks:
   commands:
     - func: "e2e_test"
 
+
+- name: e2e_replica_set_custom_roles
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_feature_controls_authentication
   tags: ["patch-run"]
   exec_timeout_secs: 2400
@@ -1800,6 +1806,7 @@ task_groups:
     - e2e_sharded_cluster_ldap
     - e2e_replica_set_ldap_tls
     - e2e_replica_set_ldap_user_to_dn_mapping
+    - e2e_replica_set_custom_roles
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment

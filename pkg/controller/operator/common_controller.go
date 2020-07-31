@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"reflect"
 
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
@@ -143,6 +144,28 @@ func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedNam
 		podVars.SSLProjectConfig = projectConfig.SSLProjectConfig
 	}
 	return conn, nil
+}
+
+func (r *ReconcileCommonController) ensureRoles(roles []mdbv1.MongoDbRole, conn om.Connection, log *zap.SugaredLogger) workflow.Status {
+	d, err := conn.ReadDeployment()
+	if err != nil {
+		return workflow.Failed(err.Error())
+	}
+	dRoles := d.GetRoles()
+	if reflect.DeepEqual(dRoles, roles) {
+		return workflow.OK()
+	}
+	err = conn.ReadUpdateDeployment(
+		func(d om.Deployment) error {
+			d.SetRoles(roles)
+			return nil
+		},
+		log,
+	)
+	if err != nil {
+		return workflow.Failed(err.Error())
+	}
+	return workflow.OK()
 }
 
 func (r *ReconcileCommonController) ensureFeatureControls(mdb mdbv1.MongoDB, conn om.Connection, log *zap.SugaredLogger) workflow.Status {

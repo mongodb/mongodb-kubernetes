@@ -117,6 +117,14 @@ class AutomationConfigTester:
             current = current[k]
         assert current[keys[-1]] == value
 
+    def assert_has_expected_number_of_roles(self, expected_roles: int):
+        roles = self.automation_config["roles"]
+        assert len(roles) == expected_roles
+
+    def assert_expected_role(self, role_index: int, expected_value: dict):
+        role = self.automation_config["roles"][role_index]
+        assert role == expected_value
+
     def reached_version(self, version: int) -> bool:
         return self.automation_config["version"] == version
 

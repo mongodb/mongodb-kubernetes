@@ -125,7 +125,10 @@ def test_new_mdb_users_are_created_and_can_authenticate(
     tester = replica_set.tester()
 
     tester.assert_ldap_authentication(
-        user_ldap["spec"]["username"], user_ldap.password, ca_path, attempts=10
+        username=user_ldap["spec"]["username"],
+        password=user_ldap.password,
+        ssl_ca_certs=ca_path,
+        attempts=10,
     )
 
 

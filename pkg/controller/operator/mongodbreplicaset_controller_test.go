@@ -343,6 +343,7 @@ func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
 			Authentication: &mdbv1.Authentication{
 				Modes: []string{},
 			},
+			Roles: []mdbv1.MongoDbRole{},
 		},
 	}
 	rs := &mdbv1.MongoDB{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "temple", Namespace: mock.TestNamespace}}
@@ -380,6 +381,14 @@ func (b *ReplicaSetBuilder) SetAuthentication(auth *mdbv1.Authentication) *Repli
 		b.Spec.Security = &mdbv1.Security{}
 	}
 	b.Spec.Security.Authentication = auth
+	return b
+}
+
+func (b *ReplicaSetBuilder) SetRoles(roles []mdbv1.MongoDbRole) *ReplicaSetBuilder {
+	if b.Spec.Security == nil {
+		b.Spec.Security = &mdbv1.Security{}
+	}
+	b.Spec.Security.Roles = roles
 	return b
 }
 

@@ -119,6 +119,10 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return nil, status
 	}
 
+	if status := r.ensureRoles(sc.Spec.GetSecurity().Roles, conn, log); !status.IsOK() {
+		return nil, status
+	}
+
 	status := runInGivenOrder(anyStatefulSetHelperNeedsToPublishState(kubeState, log),
 		func() workflow.Status {
 			return r.updateOmDeploymentShardedCluster(conn, sc, kubeState, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")

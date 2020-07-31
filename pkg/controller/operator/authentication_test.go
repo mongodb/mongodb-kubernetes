@@ -395,6 +395,57 @@ func TestConfigureLdapDeploymentAuthentication_WithScramAgentAuthentication(t *t
 	assert.Contains(t, ac.Auth.DeploymentAuthMechanisms, "SCRAM-SHA-256")
 }
 
+func TestConfigureLdapDeploymentAuthentication_WithCustomRole(t *testing.T) {
+
+	customRoles := []mdbv1.MongoDbRole{{
+		Db:    "admin",
+		Role:  "customRole",
+		Roles: []mdbv1.InheritedRole{{Db: "Admin", Role: "inheritedrole"}}},
+	}
+
+	rs := DefaultReplicaSetBuilder().
+		SetName("my-rs").
+		SetMembers(3).
+		SetVersion("4.0.0-ent").
+		EnableAuth().
+		AgentAuthMode("SCRAM").
+		SetAuthModes([]string{"LDAP", "SCRAM"}).
+		LDAP(
+			mdbv1.Ldap{
+				BindQueryUser: "bindQueryUser",
+				Servers:       "servers",
+				BindQuerySecretRef: mdbv1.TLSSecretRef{
+					Name: "bind-query-password",
+				},
+			},
+		).
+		SetRoles(customRoles).
+		Build()
+
+	manager := mock.NewManager(rs)
+	manager.Client.AddDefaultMdbConfigResources()
+	r := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
+	data := map[string]string{
+		"password": "LITZTOd6YiCV8j",
+	}
+	err := secret.CreateOrUpdate(r.client, secret.Builder().
+		SetName("bind-query-password").
+		SetNamespace(mock.TestNamespace).
+		SetStringData(data).
+		Build(),
+	)
+	assert.NoError(t, err)
+	checkReconcileSuccessful(t, r, rs, manager.Client)
+
+	ac, err := om.CurrMockedConnection.ReadAutomationConfig()
+	assert.NoError(t, err)
+
+	roles := ac.Deployment["roles"].([]mdbv1.MongoDbRole)
+	assert.Len(t, roles, 1)
+	assert.Equal(t, customRoles, roles)
+
+}
+
 func TestConfigureLdapDeploymentAuthentication_WithAuthzQueryTemplate_AndUserToDnMapping(t *testing.T) {
 
 	userMapping := `[

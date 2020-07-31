@@ -55,6 +55,7 @@ func init() {
 	gob.Register(mdbv1.PreferSSLMode)
 	gob.Register(mdbv1.AllowSSLMode)
 	gob.Register(mdbv1.DisabledSSLMode)
+	gob.Register([]mdbv1.MongoDbRole{})
 }
 
 // Deployment is a map representing the automation agent's cluster configuration.
@@ -530,6 +531,18 @@ func (d Deployment) GetNumberOfExcessProcesses(resourceName string) int {
 	}
 
 	return excessProcesses
+}
+
+func (d Deployment) SetRoles(roles []mdbv1.MongoDbRole) {
+	d["roles"] = roles
+}
+
+func (d Deployment) GetRoles() []mdbv1.MongoDbRole {
+	val, ok := d["roles"].([]mdbv1.MongoDbRole)
+	if !ok {
+		return []mdbv1.MongoDbRole{}
+	}
+	return val
 }
 
 // GetAgentVersion returns the current version of all Agents in the deployment. It's empty until the
