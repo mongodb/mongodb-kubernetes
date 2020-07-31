@@ -22,6 +22,7 @@ OPLOG_RS_NAME = "my-mongodb-oplog"
 S3_RS_NAME = "my-mongodb-s3"
 BLOCKSTORE_RS_NAME = "my-mongodb-blockstore"
 USER_PASSWORD = "/qwerty@!#:"
+MDB_3_6_VERSION = "3.6.19"
 
 """
 Current test focuses on backup capabilities. It creates an explicit MDBs for S3 snapshot metadata, Blockstore and Oplog
@@ -129,7 +130,7 @@ def oplog_replica_set(ops_manager, namespace) -> MongoDB:
         namespace=namespace,
         name=OPLOG_RS_NAME,
     ).configure(ops_manager, "development")
-    resource["spec"]["version"] = "3.6.10"
+    resource["spec"]["version"] = MDB_3_6_VERSION
 
     #  TODO: Remove when CLOUDP-60443 is fixed
     # This test will update oplog to have SCRAM enabled
@@ -158,8 +159,8 @@ def blockstore_replica_set(ops_manager, namespace) -> MongoDB:
         namespace=namespace,
         name=BLOCKSTORE_RS_NAME,
     ).configure(ops_manager, "blockstore")
-    # enabling 3.6.10 to let enable scram-sha (OM until some versions understands scram-sha-1 only)
-    resource["spec"]["version"] = "3.6.10"
+    # enabling 3.6.19 to let enable scram-sha (OM until some versions understands scram-sha-1 only)
+    resource["spec"]["version"] = MDB_3_6_VERSION
     yield resource.create()
 
 

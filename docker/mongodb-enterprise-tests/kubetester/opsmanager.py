@@ -286,14 +286,14 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def download_mongodb_binaries_and_tools(self, version: str):
         """ Downloads mongodb binary in each OM pod, optional downloads MongoDB Tools """
         distros = [
-            f"mongodb-linux-x86_64-rhel70-{version}.tgz",
+            f"mongodb-linux-x86_64-rhel80-{version}.tgz",
             f"mongodb-linux-x86_64-ubuntu1604-{version}.tgz",
         ]
 
         tools = [
-            "mongodb-database-tools-rhel70-x86_64-100.0.1.tgz",
+            "mongodb-database-tools-rhel80-x86_64-100.0.1.tgz",
             "mongodb-database-tools-ubuntu1604-x86_64-100.0.1.tgz",
-            "mongodb-database-tools-rhel70-x86_64-100.0.2.tgz",
+            "mongodb-database-tools-rhel80-x86_64-100.0.2.tgz",
             "mongodb-database-tools-ubuntu1604-x86_64-100.0.2.tgz",
         ]
 

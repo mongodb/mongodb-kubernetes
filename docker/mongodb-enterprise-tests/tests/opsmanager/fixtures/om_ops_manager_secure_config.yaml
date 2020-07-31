@@ -18,7 +18,7 @@ spec:
           name: my-mongodb-blockstore
   applicationDatabase:
     members: 3
-    version: 4.2.0-ent
+    version: 4.2.2-ent
 
   # adding this just to avoid wizard when opening OM UI
   configuration:

@@ -105,6 +105,9 @@ dump_namespace() {
                 echo "Writing log file for pod ${pod} to logs/${pod}.log"
                 kubectl logs -n "${namespace}" "${pod}" > "logs/${pod}.log" || true
             fi
+            if kubectl exec "${pod}" -n "${namespace}" -- ls /var/log/mongodb-mms-automation/automation-agent-stderr.log &>/dev/null; then
+                kubectl cp "${namespace}/${pod}:var/log/mongodb-mms-automation/automation-agent-stderr.log" "logs/${pod}-agent-stderr.log" &> /dev/null || true
+            fi
 
             # kubectl cp won't create any files if the file doesn't exist in the container
             agent_health_status="logs/${pod}-agent-health-status.json"

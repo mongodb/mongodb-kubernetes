@@ -198,7 +198,7 @@ class TestReplicaSetCreation(KubernetesTester):
         # First Process
         assert p0["name"] == "my-replica-set-0"
         assert p0["processType"] == "mongod"
-        assert p0["version"] == "3.6.9"
+        assert p0["version"] == "3.6.17"
         assert p0["authSchemaVersion"] == 5
         assert p0["featureCompatibilityVersion"] == "3.6"
         assert p0[
@@ -220,7 +220,7 @@ class TestReplicaSetCreation(KubernetesTester):
         # Second Process
         assert p1["name"] == "my-replica-set-1"
         assert p1["processType"] == "mongod"
-        assert p1["version"] == "3.6.9"
+        assert p1["version"] == "3.6.17"
         assert p1["authSchemaVersion"] == 5
         assert p1["featureCompatibilityVersion"] == "3.6"
         assert p1[
@@ -242,7 +242,7 @@ class TestReplicaSetCreation(KubernetesTester):
         # Third Process
         assert p2["name"] == "my-replica-set-2"
         assert p2["processType"] == "mongod"
-        assert p2["version"] == "3.6.9"
+        assert p2["version"] == "3.6.17"
         assert p2["authSchemaVersion"] == 5
         assert p2["featureCompatibilityVersion"] == "3.6"
         assert p2[
@@ -455,7 +455,7 @@ class TestReplicaSetUpdate(KubernetesTester):
         # First Process
         assert p0["name"] == "my-replica-set-0"
         assert p0["processType"] == "mongod"
-        assert p0["version"] == "3.6.9"
+        assert p0["version"] == "3.6.17"
         assert p0["authSchemaVersion"] == 5
         assert p0["featureCompatibilityVersion"] == "3.6"
         assert p0[
@@ -477,7 +477,7 @@ class TestReplicaSetUpdate(KubernetesTester):
         # Second Process
         assert p1["name"] == "my-replica-set-1"
         assert p1["processType"] == "mongod"
-        assert p1["version"] == "3.6.9"
+        assert p1["version"] == "3.6.17"
         assert p1["authSchemaVersion"] == 5
         assert p1["featureCompatibilityVersion"] == "3.6"
         assert p1[
@@ -499,7 +499,7 @@ class TestReplicaSetUpdate(KubernetesTester):
         # Third Process
         assert p2["name"] == "my-replica-set-2"
         assert p2["processType"] == "mongod"
-        assert p2["version"] == "3.6.9"
+        assert p2["version"] == "3.6.17"
         assert p2["authSchemaVersion"] == 5
         assert p2["featureCompatibilityVersion"] == "3.6"
         assert p2[
@@ -521,7 +521,7 @@ class TestReplicaSetUpdate(KubernetesTester):
         # Fourth Process
         assert p3["name"] == "my-replica-set-3"
         assert p3["processType"] == "mongod"
-        assert p3["version"] == "3.6.9"
+        assert p3["version"] == "3.6.17"
         assert p3["authSchemaVersion"] == 5
         assert p3["featureCompatibilityVersion"] == "3.6"
         assert p3[
@@ -543,7 +543,7 @@ class TestReplicaSetUpdate(KubernetesTester):
         # Fifth Process
         assert p4["name"] == "my-replica-set-4"
         assert p4["processType"] == "mongod"
-        assert p4["version"] == "3.6.9"
+        assert p4["version"] == "3.6.17"
         assert p4["authSchemaVersion"] == 5
         assert p4["featureCompatibilityVersion"] == "3.6"
         assert p4[

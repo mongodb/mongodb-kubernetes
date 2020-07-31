@@ -95,6 +95,7 @@ class TestChangeOpsManagerUserPassword:
     """
 
     def test_upgrade_om(self, ops_manager: MongoDBOpsManager):
+        ops_manager.load()
         KubernetesTester.create_secret(
             ops_manager.namespace, "my-password", {"new-key": USER_DEFINED_PASSWORD}
         )

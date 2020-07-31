@@ -37,4 +37,4 @@ class TestShardedClusterRecoversBadOmConfiguration(KubernetesTester):
             "my-credentials", self.get_namespace(), secret
         )
 
-        KubernetesTester.in_running_state_failures_possible()
+        KubernetesTester.wait_until(KubernetesTester.in_running_state_failures_possible)

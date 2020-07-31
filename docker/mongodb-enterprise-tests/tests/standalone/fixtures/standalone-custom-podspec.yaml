@@ -4,7 +4,7 @@ kind: MongoDB
 metadata:
   name: my-standalone-custom-podspec
 spec:
-  version: 4.0.2
+  version: 4.0.17
   type: Standalone
   project: my-project
   credentials: my-credentials

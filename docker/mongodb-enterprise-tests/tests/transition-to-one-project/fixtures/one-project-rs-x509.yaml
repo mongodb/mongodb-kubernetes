@@ -5,7 +5,7 @@ metadata:
   name: one-project-transition
 spec:
   members: 3
-  version: 3.6.8
+  version: 3.6.17
   type: ReplicaSet
   project: my-project
   credentials: my-credentials

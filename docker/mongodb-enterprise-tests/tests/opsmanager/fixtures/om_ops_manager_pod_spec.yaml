@@ -52,7 +52,7 @@ spec:
 
   applicationDatabase:
     members: 3
-    version: 4.2.0
+    version: 4.2.2
     podSpec:
       cpu: '0.25'
       memory: 350M

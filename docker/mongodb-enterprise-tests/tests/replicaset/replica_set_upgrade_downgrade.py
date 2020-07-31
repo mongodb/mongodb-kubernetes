@@ -20,7 +20,7 @@ class TestReplicaSetUpgradeDowngradeCreate(KubernetesTester):
 
     def test_db_connectable(self):
         mongod_tester = ReplicaSetTester("my-replica-set-downgrade", 3)
-        mongod_tester.assert_version("3.6.0")
+        mongod_tester.assert_version("3.6.17")
 
 
 @pytest.mark.e2e_replica_set_upgrade_downgrade
@@ -31,14 +31,14 @@ class TestReplicaSetUpgradeDowngradeUpdate(KubernetesTester):
       Updates a ReplicaSet to bigger version, leaving feature compatibility version as it was
     update:
       file: replica-set-downgrade.yaml
-      patch: '[{"op":"replace","path":"/spec/version", "value": "4.0.9"}, {"op":"add","path":"/spec/featureCompatibilityVersion", "value": "3.6"}]'
+      patch: '[{"op":"replace","path":"/spec/version", "value": "4.0.15"}, {"op":"add","path":"/spec/featureCompatibilityVersion", "value": "3.6"}]'
       wait_until: in_running_state
       timeout: 150
     """
 
     def test_db_connectable(self):
         mongod_tester = ReplicaSetTester("my-replica-set-downgrade", 3)
-        mongod_tester.assert_version("4.0.9")
+        mongod_tester.assert_version("4.0.15")
 
 
 @pytest.mark.e2e_replica_set_upgrade_downgrade
@@ -55,4 +55,4 @@ class TestReplicaSetUpgradeDowngradeRevert(KubernetesTester):
 
     def test_db_connectable(self):
         mongod_tester = ReplicaSetTester("my-replica-set-downgrade", 3)
-        mongod_tester.assert_version("3.6.0")
+        mongod_tester.assert_version("3.6.17")

@@ -1743,6 +1743,7 @@ task_groups:
     - unit_tests_lint
 
 # This is the task group for Kubernetes-related e2e tests which focus on testing Kubernetes features instead of Automation Config
+# This task group is run only on OM 4.2 and CloudQA
 - name: e2e_kube_only_task_group
   max_hosts: 4
   setup_group:
@@ -2061,7 +2062,6 @@ task_groups:
     - e2e_om_localmode
     - e2e_om_localmode_multiple_pv
     - e2e_om_weak_password
-    - e2e_om_ops_manager_backup
     - e2e_om_ops_manager_backup_light
     - e2e_om_ops_manager_backup_tls
     - e2e_om_ops_manager_pod_spec
@@ -2077,7 +2077,7 @@ task_groups:
     - func: teardown_kubernetes_environment
     - func: teardown_cloud_qa
 
-- name: e2e_ops_manager_4_4_only
+- name: e2e_ops_manager_kind_4_4_only_task_group
   max_hosts: 10
   setup_group:
     - func: clone
@@ -2089,6 +2089,9 @@ task_groups:
     - e2e_om_remotemode
     # TODO move it to OM 4.2
     - e2e_om_ops_manager_backup_restore
+    # The task has problems running in e2e_kind_ops_manager_ubi build variant - so running only on e2e_kind_ops_manager_4_4
+    # (it's ubuntu based)
+    - e2e_om_ops_manager_backup
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -2338,7 +2341,7 @@ buildvariants:
 
 # Isolated Ops Manager Tests
 - name: e2e_kind_ops_manager
-  display_name: e2e_kind_ops_manager
+  display_name: e2e_kind_ops_manager_ubi
   run_on:
   - ubuntu1604-build
   depends_on:
@@ -2377,7 +2380,7 @@ buildvariants:
     ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
   tasks:
   - name: e2e_ops_manager_kind_only_task_group
-  - name: e2e_ops_manager_4_4_only
+  - name: e2e_ops_manager_kind_4_4_only_task_group
 
 - name: e2e_kind_mongodb_cloud_qa
   display_name: e2e_kind_mongodb_cloud_qa

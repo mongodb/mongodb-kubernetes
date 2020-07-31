@@ -9,7 +9,7 @@ spec:
   mongodsPerShardCount: 3
   mongosCount: 2
   configServerCount: 3
-  version: 3.6.9 # versions < 4.0 will use SCRAM-SHA-1
+  version: 3.6.17 # versions < 4.0 will use SCRAM-SHA-1
   project: my-project
   credentials: my-credentials
   logLevel: WARN

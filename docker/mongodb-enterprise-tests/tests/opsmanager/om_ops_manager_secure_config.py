@@ -141,7 +141,7 @@ def test_no_unnecessary_rolling_upgrades_happen(ops_manager: MongoDBOpsManager):
     assert old_backup_hash == old_hash
 
     ops_manager.load()
-    ops_manager["spec"]["applicationDatabase"]["version"] = "4.2.0"
+    ops_manager["spec"]["applicationDatabase"]["version"] = "4.2.2"
     ops_manager.update()
 
     ops_manager.appdb_status().assert_abandons_phase(phase=Phase.Running)

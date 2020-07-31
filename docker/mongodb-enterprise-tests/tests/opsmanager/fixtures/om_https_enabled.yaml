@@ -5,7 +5,7 @@ metadata:
 
 spec:
   replicas: 1
-  version: 4.2.0
+  version: 4.2.15
   adminCredentials: ops-manager-admin-secret
 
   configuration:
@@ -29,7 +29,7 @@ spec:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
 
-          # The initContainers will download the require 3.6.9 version of MongoDB
+          # The initContainers will download the require 4.2.1 version of MongoDB
           # allowing Ops Manager to act as download endpoint for the automation agent
           # for this particular version.
           # This is required because of public Internet downloads not being
@@ -40,9 +40,9 @@ spec:
               command:
                 - curl
                 - -L
-                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel70-3.6.9.tgz
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel80-4.2.1.tgz
                 - -o
-                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel70-3.6.9.tgz
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel80-4.2.1.tgz
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
@@ -51,9 +51,9 @@ spec:
               command:
                 - curl
                 - -L
-                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu1604-3.6.9.tgz
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu1604-4.2.1.tgz
                 - -o
-                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-ubuntu1604-3.6.9.tgz
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-ubuntu1604-4.2.1.tgz
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
@@ -62,9 +62,9 @@ spec:
               command:
                 - curl
                 - -L
-                - https://fastdl.mongodb.org/tools/db/mongodb-database-tools-rhel70-x86_64-100.0.1.tgz
+                - https://fastdl.mongodb.org/tools/db/mongodb-database-tools-rhel80-x86_64-100.0.1.tgz
                 - -o
-                - /mongodb-ops-manager/mongodb-releases/mongodb-database-tools-rhel70-x86_64-100.0.1.tgz
+                - /mongodb-ops-manager/mongodb-releases/mongodb-database-tools-rhel80-x86_64-100.0.1.tgz
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
@@ -84,9 +84,9 @@ spec:
               command:
                 - curl
                 - -L
-                - https://fastdl.mongodb.org/tools/db/mongodb-database-tools-rhel70-x86_64-100.0.2.tgz
+                - https://fastdl.mongodb.org/tools/db/mongodb-database-tools-rhel80-x86_64-100.0.2.tgz
                 - -o
-                - /mongodb-ops-manager/mongodb-releases/mongodb-database-tools-rhel70-x86_64-100.0.2.tgz
+                - /mongodb-ops-manager/mongodb-releases/mongodb-database-tools-rhel80-x86_64-100.0.2.tgz
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases

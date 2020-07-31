@@ -11,8 +11,8 @@ from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 
 BUNDLED_APP_DB_VERSION = "4.2.2-ent"
-VERSION_IN_OPS_MANAGER = "4.0.2"
-VERSION_NOT_IN_OPS_MANAGER = "4.0.0"
+VERSION_IN_OPS_MANAGER = "4.2.2"
+VERSION_NOT_IN_OPS_MANAGER = "4.2.1"
 
 
 @fixture(scope="module")

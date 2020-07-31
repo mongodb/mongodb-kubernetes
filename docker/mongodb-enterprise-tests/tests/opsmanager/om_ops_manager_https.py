@@ -1,14 +1,14 @@
 from os import environ
 
 import time
-from kubetester.certs import Certificate, create_tls_certs
+from kubetester.certs import Certificate
+from kubetester.certs import create_tls_certs
 from kubetester.kubetester import KubernetesTester, fixture as _fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.opsmanager import MongoDBOpsManager
-
 from pytest import fixture, mark
 
-from kubetester.certs import Certificate
+MDB_VERSION = "4.2.1"
 
 
 @fixture("module")
@@ -63,6 +63,7 @@ def replicaset0(ops_manager: MongoDBOpsManager, namespace: str):
     resource = MongoDB.from_yaml(
         _fixture("replica-set.yaml"), name="replicaset0", namespace=namespace
     ).configure(ops_manager, "replicaset0")
+    resource["spec"]["version"] = MDB_VERSION
 
     return resource.create()
 
@@ -73,6 +74,7 @@ def replicaset1(ops_manager: MongoDBOpsManager, namespace: str):
     resource = MongoDB.from_yaml(
         _fixture("replica-set.yaml"), name="replicaset1", namespace=namespace
     ).configure(ops_manager, "replicaset1")
+    resource["spec"]["version"] = MDB_VERSION
 
     return resource.create()
 
@@ -82,7 +84,7 @@ def test_om_created(ops_manager: MongoDBOpsManager):
     """Ops Manager is started over plain HTTP."""
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
-    # 'authentication' is not show for applicationDatabase
+    # 'authentication' is not shown for applicationDatabase
     assert (
         "authentication" not in ops_manager["spec"]["applicationDatabase"]["security"]
     )

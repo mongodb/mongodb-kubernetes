@@ -7,6 +7,13 @@ COPY content/RPM-GPG-KEY-EPEL-7 /etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-7
 {% endblock %}
 
 {% block packages %}
+# these are the packages needed for the agent
+RUN yum install \
+        hostname \
+        nss_wrapper \
+        procps
+
+
 RUN yum update -y && yum install \
         libpcap \
         lm_sensors-libs \

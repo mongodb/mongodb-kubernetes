@@ -1,23 +1,23 @@
 from os import environ
 
-import time
-from time import sleep
-
 import pytest
+import semver
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from pytest import fixture
-
 from kubetester import MongoDB
 from kubetester.kubetester import fixture as yaml_fixture, run_periodically
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
-import semver
+from pytest import fixture
+from time import sleep
 
 gen_key_resource_version = None
 admin_key_resource_version = None
-EXPECTED_VERSION = "4.2.8"
+OM_CURRENT_VERSION = "4.2.13"
+OM_NEW_VERSION = "4.2.15"
+MDB_CURRENT_VERSION = "4.2.1"
+MDB_NEW_VERSION = "4.2.2"
 
 
 # Current test should contain all kinds of upgrades to Ops Manager as a sequence of tests
@@ -28,21 +28,21 @@ def ops_manager(namespace) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_upgrade.yaml"), namespace=namespace
     )
+    resource["spec"]["version"] = OM_CURRENT_VERSION
 
     return resource.create()
 
 
 @fixture(scope="module")
 def mdb(ops_manager: MongoDBOpsManager) -> MongoDB:
-    return (
-        MongoDB.from_yaml(
-            yaml_fixture("replica-set-for-om.yaml"),
-            namespace=ops_manager.namespace,
-            name="my-replica-set",
-        )
-        .configure(ops_manager, "development")
-        .create()
+    resource = MongoDB.from_yaml(
+        yaml_fixture("replica-set-for-om.yaml"),
+        namespace=ops_manager.namespace,
+        name="my-replica-set",
     )
+    resource["spec"]["version"] = MDB_CURRENT_VERSION
+    resource.configure(ops_manager, "development")
+    return resource.create()
 
 
 @pytest.mark.e2e_om_ops_manager_upgrade
@@ -83,6 +83,7 @@ class TestOpsManagerCreation:
         """Checks that the OM is responsive and test service is available (enabled by 'mms.testUtil.enabled')."""
         om_tester = ops_manager.get_om_tester()
         om_tester.assert_healthiness()
+        om_tester.assert_version(OM_CURRENT_VERSION)
 
         om_tester.assert_test_service()
         try:
@@ -97,15 +98,16 @@ class TestOpsManagerWithMongoDB:
     def test_mongodb_create(self, mdb: MongoDB):
         mdb.assert_reaches_phase(Phase.Running, timeout=350)
         mdb.assert_connectivity()
+        mdb.tester().assert_version(MDB_CURRENT_VERSION)
 
     def test_mongodb_upgrade(self, mdb: MongoDB):
-        mdb["spec"]["version"] = "4.2.1"
+        mdb["spec"]["version"] = MDB_NEW_VERSION
 
         mdb.update()
         mdb.assert_abandons_phase(Phase.Running)
         mdb.assert_reaches_phase(Phase.Running)
         mdb.assert_connectivity()
-        mdb.tester().assert_version("4.2.1")
+        mdb.tester().assert_version(MDB_NEW_VERSION)
 
 
 @pytest.mark.e2e_om_ops_manager_upgrade
@@ -162,7 +164,7 @@ class TestOpsManagerVersionUpgrade:
 
     def test_upgrade_om_version(self, ops_manager: MongoDBOpsManager):
         ops_manager.load()
-        ops_manager["spec"]["version"] = EXPECTED_VERSION
+        ops_manager["spec"]["version"] = OM_NEW_VERSION
         if "CUSTOM_OM_VERSION" in environ:
             ops_manager["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
         ops_manager.update()
@@ -189,24 +191,20 @@ class TestOpsManagerVersionUpgrade:
         is enforced before MongoDB reconciliation (the OM reconciliation happened above will drop the 'agents.nextScheduledTime'
         counter)
         """
-        mdb["spec"]["version"] = "4.2.2"
+        mdb["spec"]["version"] = "4.2.3"
 
         mdb.update()
         mdb.assert_abandons_phase(Phase.Running)
         mdb.assert_reaches_phase(Phase.Running)
         mdb.assert_connectivity()
-        mdb.tester().assert_version("4.2.2")
+        mdb.tester().assert_version("4.2.3")
 
     def test_agents_upgraded(self, mdb: MongoDB, ops_manager: MongoDBOpsManager):
         print(id(self))
         """ The agents were requested to get upgraded immediately after Ops Manager upgrade.
         Note, that this happens only for OM major/minor upgrade, so we need to check only this case
         TODO CLOUDP-64622: we need to check the periodic agents upgrade as well - this can be done through Operator custom configuration """
-        prev_version = semver.VersionInfo.parse(
-            MongoDBOpsManager.from_yaml(
-                yaml_fixture("om_ops_manager_upgrade.yaml"), namespace=mdb.namespace
-            ).get_version()
-        )
+        prev_version = semver.VersionInfo.parse(OM_CURRENT_VERSION)
         new_version = semver.VersionInfo.parse(ops_manager.get_version())
         if (
             prev_version.major != new_version.major

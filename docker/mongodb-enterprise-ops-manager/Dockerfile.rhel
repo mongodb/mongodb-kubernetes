@@ -19,6 +19,5 @@ RUN yum install --disableplugin=subscription-manager -y \
   net-snmp-agent-libs \
   openldap \
   openssl \
-  rpm-libs \
-  tcp_wrappers-libs
+  rpm-libs
 {% endblock %}

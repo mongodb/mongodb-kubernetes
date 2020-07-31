@@ -83,7 +83,7 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
         # First Process
         assert p0["name"] == "rs001-pv-0"
         assert p0["processType"] == "mongod"
-        assert p0["version"] == "4.0.2"
+        assert p0["version"] == "4.0.15"
         assert p0["authSchemaVersion"] == 5
         assert p0["featureCompatibilityVersion"] == "4.0"
         assert p0["hostname"] == "rs001-pv-0.rs001-pv-svc.{}.svc.cluster.local".format(
@@ -103,7 +103,7 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
         # Second Process
         assert p1["name"] == "rs001-pv-1"
         assert p1["processType"] == "mongod"
-        assert p1["version"] == "4.0.2"
+        assert p1["version"] == "4.0.15"
         assert p1["authSchemaVersion"] == 5
         assert p1["featureCompatibilityVersion"] == "4.0"
         assert p1["hostname"] == "rs001-pv-1.rs001-pv-svc.{}.svc.cluster.local".format(
@@ -123,7 +123,7 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
         # Third Process
         assert p2["name"] == "rs001-pv-2"
         assert p2["processType"] == "mongod"
-        assert p2["version"] == "4.0.2"
+        assert p2["version"] == "4.0.15"
         assert p2["authSchemaVersion"] == 5
         assert p2["featureCompatibilityVersion"] == "4.0"
         assert p2["hostname"] == "rs001-pv-2.rs001-pv-svc.{}.svc.cluster.local".format(

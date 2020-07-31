@@ -1,4 +1,3 @@
-from operator import attrgetter
 from os import environ
 
 from kubetester.kubetester import (
@@ -27,7 +26,7 @@ def replica_set(ops_manager: MongoDBOpsManager, namespace: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"), namespace=namespace,
     ).configure(ops_manager, "my-replica-set")
-    resource["spec"]["version"] = "4.2.0"
+    resource["spec"]["version"] = "4.2.2"
     resource["spec"]["members"] = 2
     yield resource.create()
 
@@ -70,7 +69,7 @@ class TestOpsManagerCreation:
         replica_set.assert_reaches_phase(Phase.Failed, timeout=300)
 
     def test_add_mongodb_distros_and_tools(self, ops_manager: MongoDBOpsManager):
-        ops_manager.download_mongodb_binaries_and_tools("4.2.0")
+        ops_manager.download_mongodb_binaries_and_tools("4.2.2")
 
     def test_replica_set_reaches_running_phase(self, replica_set: MongoDB):
         # note that the Replica Set may sometimes still get to Failed error
@@ -80,7 +79,7 @@ class TestOpsManagerCreation:
 
     def test_client_can_connect_to_mongodb(self, replica_set: MongoDB):
         replica_set.assert_connectivity()
-        replica_set.tester().assert_version("4.2.0")
+        replica_set.tester().assert_version("4.2.2")
 
 
 @mark.e2e_om_localmode_multiple_pv

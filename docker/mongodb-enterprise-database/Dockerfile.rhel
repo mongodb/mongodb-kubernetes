@@ -4,24 +4,27 @@
 
 RUN yum update -y && rm -rf /var/cache/yum
 
-# nss_wrapper needs cmake3 on UBI7
-RUN yum install --disableplugin=subscription-manager -y cmake3 nss_wrapper
-
+# these are the packages needed for the agent
 RUN yum install --disableplugin=subscription-manager -y \
-        curl \
+        hostname \
+        nss_wrapper \
+        procps
+
+
+# these are the packages needed for MongoDB
+# (https://docs.mongodb.com/manual/tutorial/install-mongodb-enterprise-on-red-hat-tarball/ "RHEL/CentOS 8" tab)
+RUN yum install --disableplugin=subscription-manager -y \
         cyrus-sasl \
         cyrus-sasl-gssapi \
         cyrus-sasl-plain \
         krb5-libs \
         libcurl \
-        libpcap \
         lm_sensors-libs \
         net-snmp \
         net-snmp-agent-libs \
         openldap \
-        openssl \
-        rpm-libs \
-        tcp_wrappers-libs
+        openssl
+
 
 # epel repo needs to be enabled, but not before installing the regular packages!
 COPY content/epel.repo /etc/yum.repos.d/epel.repo

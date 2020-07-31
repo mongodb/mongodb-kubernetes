@@ -71,10 +71,7 @@ def ubuntu() -> Dict[str, Union[str, List[str]]]:
 def rhel() -> Dict[str, Union[str, List[str]]]:
     """RHEL distro data (only for the Database image)"""
     return {
-        # TODO as of today (18/03/20) the "latest" points to 7.7-358 version which doesn't work for us
-        # (systemd = 219-67.el7_7.3 package not found) - so using the specific image - this needs to be
-        # addressed later
-        "base_image": "registry.access.redhat.com/ubi7/ubi",
+        "base_image": "registry.access.redhat.com/ubi8/ubi",
         "distro": "rhel",
         "version": get_version(),
     }
@@ -82,7 +79,7 @@ def rhel() -> Dict[str, Union[str, List[str]]]:
 
 def ubi_minimal() -> Dict[str, Union[str, List[str]]]:
     return {
-        "base_image": "registry.access.redhat.com/ubi7/ubi-minimal",
+        "base_image": "registry.access.redhat.com/ubi8/ubi-minimal",
     }
 
 
@@ -97,8 +94,8 @@ def dcar() -> Dict[str, Union[str, List[str]]]:
     # dcar release for disconnected network, avoid packages with epel
     # dependencies
     return {
-        # base image is hardened ubi7 provided by dsop
-        "base_image": "nexus-docker.52.61.140.4.nip.io/dsop/ubi7",
+        # base image is hardened ubi8 provided by dsop
+        "base_image": "nexus-docker.52.61.140.4.nip.io/dsop/ubi8",
         "distro": "dcar",
         "local_repo": "nexus.52.61.140.4.nip.io/repository",
         "version": get_version(),
@@ -112,7 +109,7 @@ def ops_manager(distro: Callable):
     if params["base_image"].startswith("registry.access.redhat.com"):
         # We don't want ubi-minimal for Ops Manager, get the
         # full thing instead.
-        params["base_image"] = "registry.access.redhat.com/ubi7/ubi"
+        params["base_image"] = "registry.access.redhat.com/ubi8/ubi"
 
     return params
 
