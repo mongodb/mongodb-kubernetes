@@ -126,6 +126,7 @@ func (m MongoDB) RunValidations() []v1.ValidationResult {
 		deploymentsMustHaveAgentModeInAuthModes,
 		additionalMongodConfig,
 		ldapAuthRequiresEnterprise,
+		rolesAttributeisCorrectlyConfigured,
 	}
 
 	var validationResults []v1.ValidationResult

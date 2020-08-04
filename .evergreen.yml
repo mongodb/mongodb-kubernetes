@@ -1091,6 +1091,12 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_mongodb_roles_validation_webhook
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_replica_set_recovery
   tags: ["patch-run"]
   exec_timeout_secs: 1200
@@ -1788,6 +1794,7 @@ task_groups:
     - func: setup_cloud_qa
   tasks:
     - e2e_mongodb_validation_webhook
+    - e2e_mongodb_roles_validation_webhook
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment

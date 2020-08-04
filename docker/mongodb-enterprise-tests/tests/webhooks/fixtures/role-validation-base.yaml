@@ -1,0 +1,28 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: test-tls-rs-external-access-invalid-action
+spec:
+  members: 3
+  version: 4.0.12
+  type: ReplicaSet
+  project: my-projects
+  credentials: my-credentials
+
+  security:
+    role: ""
+    db: ""
+    privileges:
+      actions:
+      resource:
+        db:
+        collection:
+        cluster:
+    authenticationRestrictions:
+      clientSource:
+      serverAddress:
+    roles:
+      name:
+      db:
+
