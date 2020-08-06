@@ -2382,7 +2382,7 @@ buildvariants:
     <<: *kubernetes_environment_kind
     image_type: ubuntu
     test_mode: opsmanager
-    custom_om_version: 4.4.0
+    custom_om_version: 4.4.1
     # TODO using expansion here results in "'${ecr_registry}/images/ubuntu' contains an unclosed expansion"
     ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
   tasks:
@@ -2466,4 +2466,4 @@ buildvariants:
     - name: build_and_push_ops_manager_ubi
   expansions:
     # removing deprecated versions as per https://www.mongodb.com/subscription/downloads/archived
-    VERSIONS: "4.2.0 4.2.1 4.2.3 4.2.4 4.2.6 4.2.7 4.2.8 4.2.10 4.2.12 4.2.13 4.4.0-rc2|https://s3.amazonaws.com/mongodb-mms-build-onprem/c613227239c8dc0041fc89fa0630836dc2a86c8f/mongodb-mms-4.4.0-rc2.100.20200513T1205Z-1.x86_64.tar.gz"
+    VERSIONS: "4.2.0 4.2.1 4.2.3 4.2.4 4.2.6 4.2.7 4.2.8 4.2.10 4.2.12 4.2.13 4.4.1"
