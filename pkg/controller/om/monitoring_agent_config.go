@@ -13,6 +13,7 @@ type MonitoringAgentConfig struct {
 
 type MonitoringAgentTemplate struct {
 	Username      string `json:"username,omitempty"`
+	Password      string `json:"password"`
 	SSLPemKeyFile string `json:"sslPEMKeyFile,omitempty"`
 }
 
@@ -25,14 +26,40 @@ func (m *MonitoringAgentConfig) Apply() error {
 	return nil
 }
 
-func (m *MonitoringAgentConfig) EnableX509Authentication(monitoringAgentSubject string) {
+func (m *MonitoringAgentConfig) SetAgentUserName(MonitoringAgentSubject string) {
+	m.MonitoringAgentTemplate.Username = MonitoringAgentSubject
+}
+
+func (m *MonitoringAgentConfig) UnsetAgentUsername() {
+	m.MonitoringAgentTemplate.Username = util.MergoDelete
+}
+
+func (m *MonitoringAgentConfig) SetAgentPassword(pwd string) {
+	m.MonitoringAgentTemplate.Password = pwd
+}
+
+func (m *MonitoringAgentConfig) UnsetAgentPassword() {
+	m.MonitoringAgentTemplate.Password = util.MergoDelete
+}
+
+func (m *MonitoringAgentConfig) EnableX509Authentication(MonitoringAgentSubject string) {
 	m.MonitoringAgentTemplate.SSLPemKeyFile = util.MonitoringAgentPemFilePath
-	m.MonitoringAgentTemplate.Username = monitoringAgentSubject
+	m.SetAgentUserName(MonitoringAgentSubject)
 }
 
 func (m *MonitoringAgentConfig) DisableX509Authentication() {
 	m.MonitoringAgentTemplate.SSLPemKeyFile = util.MergoDelete
-	m.MonitoringAgentTemplate.Username = util.MergoDelete
+	m.UnsetAgentUsername()
+}
+
+func (m *MonitoringAgentConfig) EnableLdapAuthentication(monitoringAgentSubject string, monitoringAgentPwd string) {
+	m.SetAgentUserName(monitoringAgentSubject)
+	m.SetAgentPassword(monitoringAgentPwd)
+}
+
+func (m *MonitoringAgentConfig) DisableLdapAuthentication() {
+	m.UnsetAgentUsername()
+	m.UnsetAgentPassword()
 }
 
 // BuildMonitoringAgentConfigFromBytes

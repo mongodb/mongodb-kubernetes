@@ -8,6 +8,7 @@ import (
 
 type BackupAgentTemplate struct {
 	Username      string `json:"username"`
+	Password      string `json:"password"`
 	SSLPemKeyFile string `json:"sslPEMKeyFile"`
 }
 
@@ -25,14 +26,40 @@ func (bac *BackupAgentConfig) Apply() error {
 	return nil
 }
 
+func (bac *BackupAgentConfig) SetAgentUserName(backupAgentSubject string) {
+	bac.BackupAgentTemplate.Username = backupAgentSubject
+}
+
+func (bac *BackupAgentConfig) UnsetAgentUsername() {
+	bac.BackupAgentTemplate.Username = util.MergoDelete
+}
+
+func (bac *BackupAgentConfig) SetAgentPassword(pwd string) {
+	bac.BackupAgentTemplate.Password = pwd
+}
+
+func (bac *BackupAgentConfig) UnsetAgentPassword() {
+	bac.BackupAgentTemplate.Password = util.MergoDelete
+}
+
 func (bac *BackupAgentConfig) EnableX509Authentication(backupAgentSubject string) {
 	bac.BackupAgentTemplate.SSLPemKeyFile = util.BackupAgentPemFilePath
-	bac.BackupAgentTemplate.Username = backupAgentSubject
+	bac.SetAgentUserName(backupAgentSubject)
 }
 
 func (bac *BackupAgentConfig) DisableX509Authentication() {
 	bac.BackupAgentTemplate.SSLPemKeyFile = util.MergoDelete
-	bac.BackupAgentTemplate.Username = util.MergoDelete
+	bac.UnsetAgentUsername()
+}
+
+func (bac *BackupAgentConfig) EnableLdapAuthentication(backupAgentSubject string, backupAgentPwd string) {
+	bac.SetAgentUserName(backupAgentSubject)
+	bac.SetAgentPassword(backupAgentPwd)
+}
+
+func (bac *BackupAgentConfig) DisableLdapAuthentication() {
+	bac.UnsetAgentUsername()
+	bac.UnsetAgentPassword()
 }
 
 // BuildBackupAgentConfigFromBytes

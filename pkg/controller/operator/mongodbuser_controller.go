@@ -264,9 +264,8 @@ func (r *MongoDBUserReconciler) ensureAgentUsers(ac *om.AutomationConfig, mdb md
 		mn = authentication.MongoDBX509
 	case util.SCRAM:
 		mn = authentication.ScramSha256
-	// case util.LDAP:
-	// 	// LDAP agent auth not implemented yet
-	// 	mn = authentication.LDAPPlain
+	case util.LDAP:
+		mn = authentication.LDAPPlain
 	case "":
 		log.Info("no authentication currently configured for resource, not ensuring agent users")
 		return nil

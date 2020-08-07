@@ -90,7 +90,6 @@ spec:
 
             additionalMongodConfig:
               type: object
-
             exposedExternally:
               type: boolean
 
@@ -174,7 +173,16 @@ spec:
                       properties:
                         mode:
                           type: string
-                          enum: ["SCRAM", "X509"]
+                          enum: ["SCRAM", "X509", "LDAP"]
+                        automationUsername:
+                          type: string
+                        automationPasswordSecretRef:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            key:
+                              type: string
                       required:
                         - mode
                     enabled:
@@ -288,7 +296,6 @@ spec:
                                 cluster:
                                   type: boolean
                                   description: "True for cluster-wide privileges"
-                          
 
             # Sharded Cluster properties
             shardPodSpec:
@@ -516,4 +523,3 @@ spec:
               properties:
                 additionalMongodConfig:
                   type: object
-

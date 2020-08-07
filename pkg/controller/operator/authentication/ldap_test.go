@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/ldap"
+	"go.uber.org/zap"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/stretchr/testify/assert"
@@ -35,4 +36,49 @@ func TestLdapDeploymentMechanism(t *testing.T) {
 
 	assert.NotContains(t, ac.Auth.DeploymentAuthMechanisms, string(LDAPPlain))
 	assert.Nil(t, ac.Ldap)
+}
+
+func TestLdapEnableAgentAuthentication(t *testing.T) {
+	conn, ac := createConnectionAndAutomationConfig()
+	options := Options{
+		AgentMechanism: "LDAP",
+		UserOptions: UserOptions{
+			AutomationSubject: ("mms-automation"),
+		},
+	}
+
+	l := NewLdap(conn, ac, options)
+
+	if err := l.EnableAgentAuthentication(Options{AuthoritativeSet: true, AutoPwd: "LDAPPassword."}, zap.S()); err != nil {
+		t.Fatal(err)
+	}
+
+	ac, err := conn.ReadAutomationConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assert.Equal(t, ac.Auth.AutoUser, options.AutomationSubject)
+	assert.Len(t, ac.Auth.AutoAuthMechanisms, 1)
+	assert.Contains(t, ac.Auth.AutoAuthMechanisms, string(LDAPPlain))
+	assert.Equal(t, "LDAPPassword.", ac.Auth.AutoPwd)
+	assert.False(t, ac.Auth.Disabled)
+
+	assert.True(t, ac.Auth.AuthoritativeSet)
+
+	for _, user := range buildScramAgentUsers("") {
+		assert.False(t, ac.Auth.HasUser(user.Username, user.Database))
+	}
+}
+
+func TestLDAP_DisableAgentAuthentication(t *testing.T) {
+	conn, ac := createConnectionAndAutomationConfig()
+	opts := Options{
+		AutoPwd: "LDAPPassword.",
+		UserOptions: UserOptions{
+			AutomationSubject: validSubject("automation"),
+		},
+	}
+	ldap := NewLdap(conn, ac, opts)
+	assertAgentAuthenticationDisabled(t, ldap, opts)
 }

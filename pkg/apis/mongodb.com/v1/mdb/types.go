@@ -396,6 +396,10 @@ type MongoDbRole struct {
 type AgentAuthentication struct {
 	// Mode is the desired Authentication mode that the agents will use
 	Mode string `json:"mode"`
+
+	AutomationUserName string `json:"automationUserName"`
+
+	AutomationPasswordSecretRef corev1.SecretKeySelector `json:"automationPasswordSecretRef"`
 }
 
 // IsX509Enabled determines if X509 is to be enabled at the project level

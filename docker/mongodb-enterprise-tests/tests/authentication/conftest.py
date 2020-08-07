@@ -4,8 +4,8 @@ from typing import List
 
 from kubetester.ldap import (
     create_user,
-    create_organizational_unit,
-    create_group,
+    ensure_organizational_unit,
+    ensure_group,
     add_user_to_group,
     OpenLDAP,
     LDAPUser,
@@ -20,7 +20,7 @@ from pytest import fixture
 from kubernetes import client
 
 
-LDAP_DUMMY_PASSWORD = "DummyPassword."
+LDAP_PASSWORD = "LDAPPassword."
 LDAP_NAME = "openldap"
 LDAP_POD_LABEL = "app=openldap"
 LDAP_PORT_PLAIN = 389
@@ -73,20 +73,35 @@ def openldap_tls(namespace: str, openldap_cert: str) -> OpenLDAP:
 
 @fixture(scope="module")
 def ldap_mongodb_user_tls(openldap_tls: OpenLDAP, ca_path: str) -> LDAPUser:
-    user = LDAPUser("mdb0", LDAP_DUMMY_PASSWORD)
+    user = LDAPUser("mdb0", LDAP_PASSWORD)
     create_user(openldap_tls, user, ca_path=ca_path)
 
     return user
 
 
 @fixture(scope="module")
-def ldap_mongodb_user(openldap: OpenLDAP) -> LDAPUser:
-    user = LDAPUser("mdb0", LDAP_DUMMY_PASSWORD)
+def ldap_mongodb_agent_user(openldap: OpenLDAP) -> LDAPUser:
+    user = LDAPUser("mms-automation-agent", LDAP_PASSWORD)
 
-    create_organizational_unit(openldap, "groups")
+    ensure_organizational_unit(openldap, "groups")
     create_user(openldap, user, ou="groups")
 
-    create_group(openldap, cn="users", ou="groups")
+    ensure_group(openldap, cn="users", ou="groups")
+    add_user_to_group(
+        openldap, user="mms-automation-agent", group_cn="users", ou="groups"
+    )
+
+    return user
+
+
+@fixture(scope="module")
+def ldap_mongodb_user(openldap: OpenLDAP) -> LDAPUser:
+    user = LDAPUser("mdb0", LDAP_PASSWORD)
+
+    ensure_organizational_unit(openldap, "groups")
+    create_user(openldap, user, ou="groups")
+
+    ensure_group(openldap, cn="users", ou="groups")
     add_user_to_group(openldap, user="mdb0", group_cn="users", ou="groups")
 
     return user
@@ -94,7 +109,7 @@ def ldap_mongodb_user(openldap: OpenLDAP) -> LDAPUser:
 
 @fixture(scope="module")
 def ldap_mongodb_users(openldap: OpenLDAP) -> List[LDAPUser]:
-    user_list = [LDAPUser("mdb0", LDAP_DUMMY_PASSWORD)]
+    user_list = [LDAPUser("mdb0", LDAP_PASSWORD)]
     for user in user_list:
         create_user(openldap, user)
 

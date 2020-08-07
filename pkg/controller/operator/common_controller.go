@@ -800,6 +800,20 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 				return workflow.Failed("error configuring agent subjects: %v", err), false
 			}
 		}
+		if mdb.Spec.Security.ShouldUseLDAP(ac.Auth.AutoAuthMechanism) {
+			secretRef := mdb.Spec.Security.Authentication.Agents.AutomationPasswordSecretRef
+			autoConfigPassword, err := secret.ReadKey(r.client, secretRef.Key, kube.ObjectKey(mdb.Namespace, secretRef.Name))
+			if err != nil {
+				return workflow.Failed(fmt.Sprintf("error reading automation config  password: %s", err)), false
+			}
+			authOpts.AutoPwd = autoConfigPassword
+			userOpts := authentication.UserOptions{}
+			agentName := mdb.Spec.Security.Authentication.Agents.AutomationUserName
+			userOpts.AutomationSubject = agentName
+			userOpts.MonitoringSubject = agentName
+			userOpts.BackupSubject = agentName
+			authOpts.UserOptions = userOpts
+		}
 		if err := authentication.Configure(conn, authOpts, log); err != nil {
 			return workflow.Failed(err.Error()), false
 		}

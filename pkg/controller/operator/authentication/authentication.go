@@ -48,6 +48,8 @@ type Options struct {
 	Ldap *ldap.Ldap
 
 	AutoUser string
+
+	AutoPwd string
 }
 
 func Redact(o Options) Options {

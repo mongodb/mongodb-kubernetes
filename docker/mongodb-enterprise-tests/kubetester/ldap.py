@@ -52,12 +52,19 @@ def create_user(
     con.add_s(dn, ldapmodlist)
 
 
-def create_organizational_unit(
+def ensure_organizational_unit(
     server: OpenLDAP, ou: str, ca_path: Optional[str] = None
 ):
-    """Creates an organizational unit."""
+    """If an organizational unit with the provided name does not exists, it creates one."""
     con = ldap_initialize(server, ca_path)
 
+    result = con.search_s(server.ldap_base, ldap.SCOPE_SUBTREE, filterstr="ou=" + ou)
+    if result is None:
+        raise Exception(
+            f"Error when trying to check for organizationalUnit {ou} in the ldap server"
+        )
+    if len(result) != 0:
+        return
     modlist = {"objectClass": [b"top", b"organizationalUnit"], "ou": [str.encode(ou)]}
 
     ldapmodlist = ldap.modlist.addModlist(modlist)
@@ -66,11 +73,16 @@ def create_organizational_unit(
     con.add_s(dn, ldapmodlist)
 
 
-def create_group(server: OpenLDAP, cn: str, ou: str, ca_path: Optional[str] = None):
-    """Creates a group in the LDAP database, that also belongs to an organizational unit. By default, it adds
-    the admin user to it."""
+def ensure_group(server: OpenLDAP, cn: str, ou: str, ca_path: Optional[str] = None):
+    """If a group with the provided name does not exists, it creates a group in the LDAP database,
+    that also belongs to an organizational unit. By default, it adds the admin user to it."""
     con = ldap_initialize(server, ca_path)
 
+    result = con.search_s(server.ldap_base, ldap.SCOPE_SUBTREE, filterstr="cn=" + cn)
+    if result is None:
+        raise Exception(f"Error when trying to check for group {cn} in the ldap server")
+    if len(result) != 0:
+        return
     unique_member = build_dn(base=server.ldap_base, uid="admin", ou=ou)
     modlist = {
         "objectClass": [b"top", b"groupOfUniqueNames"],
@@ -80,6 +92,7 @@ def create_group(server: OpenLDAP, cn: str, ou: str, ca_path: Optional[str] = No
     ldapmodlist = ldap.modlist.addModlist(modlist)
 
     dn = build_dn(base=server.ldap_base, cn=cn, ou=ou)
+
     con.add_s(dn, ldapmodlist)
 
 

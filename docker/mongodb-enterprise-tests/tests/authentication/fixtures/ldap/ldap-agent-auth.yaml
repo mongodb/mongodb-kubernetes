@@ -1,0 +1,27 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: ldap-replica-set
+spec:
+  type: ReplicaSet
+  members: 3
+  version: 4.0.4-ent
+
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+
+  security:
+    authentication:
+      agents:
+        mode: "<filled-by-test>"
+      enabled: true
+      modes: ["LDAP", "SCRAM"]
+      ldap:
+        bindQueryUser: "<filled-by-test>"
+        servers: "<filled-by-test>"
+        bindQueryPasswordSecretRef:
+          name: "<filled-by-test>"
+        transportSecurity: "<filled-by-test>"
