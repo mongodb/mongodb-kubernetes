@@ -45,6 +45,8 @@ const (
 	OneMB = 1048576
 
 	OpsManagerPodMemPercentage = 90
+
+	controllerLabelName = "controller"
 )
 
 // PodVars is a convenience struct to pass environment variables to Pods as needed.
@@ -212,16 +214,18 @@ func buildJvmEnvVar(customParams []string, containerMemParams string) string {
 // This function will update a Service object if passed, or return a new one if passed nil, this is to be able to update
 // Services and to not change any attribute they might already have that needs to be maintained.
 func buildService(namespacedName types.NamespacedName, owner v1.CustomResourceReadWriter, label string, port int32, mongoServiceDefinition omv1.MongoDBOpsManagerServiceDefinition) corev1.Service {
+	labels := map[string]string{
+		AppLabelKey:         label,
+		controllerLabelName: util.OperatorName,
+	}
 	svcBuilder := service.Builder().
 		SetNamespace(namespacedName.Namespace).
 		SetName(namespacedName.Name).
 		SetPort(port).
 		SetOwnerReferences(baseOwnerReference(owner)).
-		SetLabels(map[string]string{
-			AppLabelKey: label,
-		}).SetSelector(map[string]string{
-		AppLabelKey: label,
-	}).SetServiceType(mongoServiceDefinition.Type)
+		SetLabels(labels).
+		SetSelector(labels).
+		SetServiceType(mongoServiceDefinition.Type)
 
 	serviceType := mongoServiceDefinition.Type
 	if serviceType == corev1.ServiceTypeNodePort || serviceType == corev1.ServiceTypeLoadBalancer {

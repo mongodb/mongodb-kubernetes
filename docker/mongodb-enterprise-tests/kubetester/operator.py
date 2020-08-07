@@ -94,7 +94,7 @@ class Operator(object):
         return (
             client.CoreV1Api()
             .list_namespaced_pod(
-                self.namespace, label_selector="app={}".format(self.name)
+                self.namespace, label_selector="controller={}".format(self.name)
             )
             .items
         )

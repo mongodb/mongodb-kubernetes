@@ -132,13 +132,16 @@ class TestReplicaSetCreation(KubernetesTester):
         svc = self.corev1.read_namespaced_service("my-replica-set-svc", self.namespace)
         assert svc
 
-    def test_nodeport_service_not_exists(self):
+    def test_clusterip_service_exists(self):
         """Test that replica set is not exposed externally."""
-        services = self.clients("corev1").list_namespaced_service(self.get_namespace())
+        services = self.clients("corev1").list_namespaced_service(
+            self.get_namespace(),
+            label_selector="controller=mongodb-enterprise-operator",
+        )
 
-        # 1 for replica set and 1 for validation webhook
-        assert len(services.items) == 2
-        assert len([s for s in services.items if s.spec.type == "NodePort"]) == 0
+        # 1 for replica set
+        assert len(services.items) == 1
+        assert services.items[0].spec.type == "ClusterIP"
 
     def test_security_context_pods(self):
         for podname in self._get_pods("my-replica-set-{}", 3):

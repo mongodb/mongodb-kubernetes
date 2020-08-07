@@ -29,6 +29,8 @@ const (
 
 	databaseLivenessProbeCommand  = "/mongodb-automation/files/probe.sh"
 	databaseReadinessProbeCommand = "/mongodb-automation/files/readinessprobe"
+
+	controllerLabelName = "controller"
 )
 
 type DatabaseBuilder interface {
@@ -60,7 +62,7 @@ func DatabaseStatefulSet(mdbBuilder DatabaseBuilder) appsv1.StatefulSet {
 func buildDatabaseStatefulSetConfigurationFunction(mdbBuilder DatabaseBuilder, podTemplateSpecFunc podtemplatespec.Modification) statefulset.Modification {
 	podLabels := map[string]string{
 		appLabelKey:             mdbBuilder.GetService(),
-		"controller":            util.OmControllerLabel,
+		controllerLabelName:     util.OperatorName,
 		podAntiAffinityLabelKey: mdbBuilder.GetName(),
 	}
 

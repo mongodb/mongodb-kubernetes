@@ -4,6 +4,7 @@ import (
 	"context"
 	"io/ioutil"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	admissionv1beta "k8s.io/api/admissionregistration/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
@@ -12,6 +13,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+const controllerLabelName = "controller"
 
 // createWebhookService creates a Kubernetes service for the webhook.
 func createWebhookService(client client.Client, location types.NamespacedName, webhookPort int) error {
@@ -30,7 +33,7 @@ func createWebhookService(client client.Client, location types.NamespacedName, w
 				},
 			},
 			Selector: map[string]string{
-				"app": "mongodb-enterprise-operator",
+				controllerLabelName: util.OperatorName,
 			},
 		},
 	}

@@ -70,7 +70,6 @@ const (
 	BackupDaemonContainerName   = "mongodb-backup-daemon"
 	DatabaseContainerName       = "mongodb-enterprise-database"
 	AppDbContainerName          = "mongodb-enterprise-appdb"
-	OmControllerLabel           = "mongodb-enterprise-operator"
 	InitOpsManagerContainerName = "mongodb-enterprise-init-ops-manager"
 	PvcNameData                 = "data"
 	PvcMountPathData            = "/data"
