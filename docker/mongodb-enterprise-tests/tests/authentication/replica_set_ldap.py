@@ -1,18 +1,12 @@
-import time
 from typing import List
 
-from kubernetes import client
 from pytest import mark, fixture
 
 from kubetester import find_fixture, create_secret
 
-from kubetester.automation_config_tester import AutomationConfigTester
-
 from kubetester.certs import create_tls_certs
-from kubetester.mongotester import ReplicaSetTester
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_user import MongoDBUser, generic_user, Role
-from kubetester.helm import helm_install_from_chart
 from kubetester.ldap import OpenLDAP, LDAPUser, LDAP_AUTHENTICATION_MECHANISM
 
 from kubetester.kubetester import KubernetesTester
@@ -29,7 +23,11 @@ def server_certs(namespace: str, issuer: str):
 
 @fixture(scope="module")
 def replica_set(
-    openldap: OpenLDAP, issuer_ca_configmap: str, server_certs: str, namespace: str
+    openldap: OpenLDAP,
+    issuer_ca_configmap: str,
+    ldap_mongodb_agent_user: LDAPUser,
+    server_certs: str,
+    namespace: str,
 ) -> MongoDB:
     resource = MongoDB.from_yaml(
         find_fixture("ldap/ldap-replica-set.yaml"), namespace=namespace
@@ -37,17 +35,36 @@ def replica_set(
 
     secret_name = "bind-query-password"
     create_secret(secret_name, namespace, {"password": openldap.admin_password})
+    ac_secret_name = "automation-config-password"
+    create_secret(
+        ac_secret_name,
+        namespace,
+        {"automationConfigPassword": ldap_mongodb_agent_user.password},
+    )
 
-    resource["spec"]["security"]["authentication"]["ldap"] = {
-        "servers": openldap.servers,
-        "bindQueryUser": "cn=admin,dc=example,dc=org",
-        "bindQueryPasswordSecretRef": {"name": secret_name},
-    }
-    resource["spec"]["security"]["authentication"]["modes"] = ["LDAP", "SCRAM", "X509"]
-    resource["spec"]["security"]["tls"] = {
-        "enabled": True,
-        "ca": issuer_ca_configmap,
-        "secretRef": {"name": server_certs},
+    resource["spec"]["security"] = {
+        "tls": {
+            "enabled": True,
+            "ca": issuer_ca_configmap,
+            "secretRef": {"name": server_certs},
+        },
+        "authentication": {
+            "enabled": True,
+            "modes": ["LDAP", "SCRAM", "X509"],
+            "ldap": {
+                "servers": openldap.servers,
+                "bindQueryUser": "cn=admin,dc=example,dc=org",
+                "bindQueryPasswordSecretRef": {"name": secret_name},
+            },
+            "agents": {
+                "mode": "LDAP",
+                "automationPasswordSecretRef": {
+                    "name": ac_secret_name,
+                    "key": "automationConfigPassword",
+                },
+                "automationUserName": ldap_mongodb_agent_user.uid,
+            },
+        },
     }
 
     return resource.create()
@@ -113,9 +130,9 @@ def test_create_ldap_user(replica_set: MongoDB, user_ldap: MongoDBUser):
 
     ac = replica_set.get_automation_config_tester()
     ac.assert_authentication_mechanism_enabled(
-        LDAP_AUTHENTICATION_MECHANISM, active_auth_mechanism=False
+        LDAP_AUTHENTICATION_MECHANISM, active_auth_mechanism=True
     )
-    ac.assert_expected_users(3)
+    ac.assert_expected_users(1)
 
 
 @mark.e2e_replica_set_ldap
@@ -140,7 +157,7 @@ def test_create_scram_user(replica_set: MongoDB, user_scram: MongoDBUser):
     ac.assert_authentication_mechanism_enabled(
         "SCRAM-SHA-256", active_auth_mechanism=False
     )
-    ac.assert_expected_users(4)
+    ac.assert_expected_users(2)
 
 
 @mark.e2e_replica_set_ldap
@@ -160,11 +177,13 @@ def test_ops_manager_state_correctly_updated(
     }
 
     tester = replica_set.get_automation_config_tester()
-    tester.assert_expected_users(4)
+    tester.assert_expected_users(2)
     tester.assert_has_user(user_ldap["spec"]["username"])
     tester.assert_user_has_roles(user_ldap["spec"]["username"], expected_roles)
 
-    tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
+    tester.assert_authentication_mechanism_enabled(
+        "SCRAM-SHA-256", active_auth_mechanism=False
+    )
     tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=3)
 
 
@@ -228,7 +247,7 @@ def test_x509_user_created(replica_set: MongoDB, user_x509: MongoDBUser):
     }
 
     tester = replica_set.get_automation_config_tester()
-    tester.assert_expected_users(5)
+    tester.assert_expected_users(3)
     tester.assert_has_user(user_x509["spec"]["username"])
 
     tester.assert_authentication_mechanism_enabled(
