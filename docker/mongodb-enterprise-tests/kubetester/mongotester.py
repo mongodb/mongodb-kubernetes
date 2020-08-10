@@ -215,6 +215,29 @@ class MongoTester:
             target.insert_many(buf)
         print("Data inserted")
 
+    def assert_deployment_reachable(self, attempts: int = 5):
+        """ See: https://jira.mongodb.org/browse/CLOUDP-68873
+        the agents might report being in goal state, the MDB resource
+        would report no errors but the deployment would be unreachable
+        The workaround is to use the public API to get the list of
+        hosts and check the typeName field of each host.
+        This would be NO_DATA if the hosts are not reachable
+        See docs: https://docs.opsmanager.mongodb.com/current/reference/api/hosts/get-all-hosts-in-group/#response-document
+        at the "typeName" field
+        """
+        while True:
+            hosts_unreachable = 0
+            attempts -= 1
+            hosts = KubernetesTester.get_hosts()
+            for host in hosts["results"]:
+                if host["typeName"] == "NO_DATA":
+                    hosts_unreachable += 1
+            if hosts_unreachable == 0:
+                return
+            if attempts <= 0:
+                fail(msg="Some hosts still report NO_DATA state")
+            time.sleep(5)
+
 
 class StandaloneTester(MongoTester):
     def __init__(

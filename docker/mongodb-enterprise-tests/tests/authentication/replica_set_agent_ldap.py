@@ -1,6 +1,6 @@
 from pytest import mark, fixture
 
-from kubetester import find_fixture, create_secret
+from kubetester import create_secret, find_fixture
 
 from kubetester.mongotester import ReplicaSetTester
 from kubetester.mongodb import MongoDB, Phase
@@ -91,6 +91,19 @@ def test_new_ldap_users_can_authenticate(
 
 
 @mark.e2e_replica_set_ldap_agent_auth
+def test_deployment_is_reachable_with_ldap_agent(
+    replica_set: MongoDB, ldap_user_mongodb: MongoDBUser
+):
+    tester = replica_set.tester()
+    # Due to what we found out in
+    # https://jira.mongodb.org/browse/CLOUDP-68873
+    # the agents might report being in goal state, the MDB resource
+    # would report no errors but the deployment would be unreachable
+    # See the comment inside the function for further details
+    tester.assert_deployment_reachable(attempts=10)
+
+
+@mark.e2e_replica_set_ldap_agent_auth
 def test_scale_replica_test(replica_set: MongoDB, ldap_user_mongodb: MongoDBUser):
     replica_set.reload()
     replica_set["spec"]["members"] = 5
@@ -131,6 +144,14 @@ def test_replica_set_connectivity_with_no_auth(replica_set: MongoDB):
 
 
 @mark.e2e_replica_set_ldap_agent_auth
+def test_deployment_is_reachable_with_no_auth(
+    replica_set: MongoDB, ldap_user_mongodb: MongoDBUser
+):
+    tester = replica_set.tester()
+    tester.assert_deployment_reachable(attempts=10)
+
+
+@mark.e2e_replica_set_ldap_agent_auth
 def test_change_version_to_4_2_2(replica_set: MongoDB, ldap_user_mongodb: MongoDBUser):
     replica_set.reload()
     replica_set["spec"]["version"] = "4.2.2-ent"
@@ -143,6 +164,14 @@ def test_change_version_to_4_2_2(replica_set: MongoDB, ldap_user_mongodb: MongoD
 def test_replica_set_connectivity_after_version_change_no_auth(replica_set: MongoDB):
     tester = replica_set.tester()
     tester.assert_connectivity()
+
+
+@mark.e2e_replica_set_ldap_agent_auth
+def test_deployment_is_reachable_after_version_change(
+    replica_set: MongoDB, ldap_user_mongodb: MongoDBUser
+):
+    tester = replica_set.tester()
+    tester.assert_deployment_reachable(attempts=10)
 
 
 @mark.e2e_replica_set_ldap_agent_auth
@@ -176,3 +205,11 @@ def test_change_version_to_4_2_8(replica_set: MongoDB, ldap_user_mongodb: MongoD
 def test_replica_set_connectivity_after_version_change_SCRAM(replica_set: MongoDB):
     tester = replica_set.tester()
     tester.assert_connectivity()
+
+
+@mark.e2e_replica_set_ldap_agent_auth
+def test_deployment_is_reachable_after_version_change_SCRAM(
+    replica_set: MongoDB, ldap_user_mongodb: MongoDBUser
+):
+    tester = replica_set.tester()
+    tester.assert_deployment_reachable(attempts=10)
