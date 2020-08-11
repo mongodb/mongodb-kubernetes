@@ -62,11 +62,17 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 	log.Infow("ReplicaSet.Spec", "spec", rs)
 	log.Infow("ReplicaSet.Status", "status", opsManager.Status.AppDbStatus)
 
-	podVars, err := r.tryConfigureMonitoringInOpsManager(opsManager, opsManagerUserPassword, log)
-	// it's possible that Ops Manager will not be available when we attempt to configure AppDB monitoring
-	// in Ops Manager. This is not a blocker to continue with the reset of the reconcilliation.
-	if err != nil {
-		log.Warnf("Unable to configure monitoring of AppDB: %s, configuration will be attempted next reconcilliation.", err)
+	podVars := &PodVars{}
+
+	// TODO: Can be removed once https://jira.mongodb.org/browse/CLOUDP-68634 is resolved
+	tlsEnabled := rs.Security != nil && rs.Security.TLSConfig != nil && rs.Security.TLSConfig.Enabled
+	if !tlsEnabled {
+		podVars, err = r.tryConfigureMonitoringInOpsManager(opsManager, opsManagerUserPassword, log)
+		// it's possible that Ops Manager will not be available when we attempt to configure AppDB monitoring
+		// in Ops Manager. This is not a blocker to continue with the reset of the reconcilliation.
+		if err != nil {
+			log.Warnf("Unable to configure monitoring of AppDB: %s, configuration will be attempted next reconcilliation.", err)
+		}
 	}
 
 	// Providing the default size of pod as otherwise sometimes the agents in pod complain about not enough memory
