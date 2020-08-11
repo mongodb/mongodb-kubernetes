@@ -3,10 +3,12 @@ import time
 from kubernetes import client
 from kubetester.kubetester import KubernetesTester, skip_if_local, get_env_var_or_fail
 from kubetester.mongotester import ReplicaSetTester
+from kubetester.mongodb import MongoDB, Phase
+
 
 DEFAULT_BACKUP_VERSION = "6.6.0.959-1"
-
 DEFAULT_MONITORING_AGENT_VERSION = "6.4.0.433-1"
+RESOURCE_NAME = "my-replica-set"
 
 
 def _get_group_id(envs) -> str:
@@ -26,15 +28,15 @@ class TestReplicaSetCreation(KubernetesTester):
     create:
       file: replica-set.yaml
       wait_until: in_running_state
-      timeout: 150
+      timeout: 300
     """
 
     def test_replica_set_sts_exists(self):
-        sts = self.appsv1.read_namespaced_stateful_set("my-replica-set", self.namespace)
+        sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
         assert sts
 
     def test_sts_creation(self):
-        sts = self.appsv1.read_namespaced_stateful_set("my-replica-set", self.namespace)
+        sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
 
         assert sts.api_version == "apps/v1"
         assert sts.kind == "StatefulSet"
@@ -42,22 +44,22 @@ class TestReplicaSetCreation(KubernetesTester):
         assert sts.status.ready_replicas == 3
 
     def test_sts_metadata(self):
-        sts = self.appsv1.read_namespaced_stateful_set("my-replica-set", self.namespace)
+        sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
 
-        assert sts.metadata.name == "my-replica-set"
+        assert sts.metadata.name == RESOURCE_NAME
         assert sts.metadata.labels["app"] == "my-replica-set-svc"
         assert sts.metadata.namespace == self.namespace
         owner_ref0 = sts.metadata.owner_references[0]
         assert owner_ref0.api_version == "mongodb.com/v1"
         assert owner_ref0.kind == "MongoDB"
-        assert owner_ref0.name == "my-replica-set"
+        assert owner_ref0.name == RESOURCE_NAME
 
     def test_sts_replicas(self):
-        sts = self.appsv1.read_namespaced_stateful_set("my-replica-set", self.namespace)
+        sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
         assert sts.spec.replicas == 3
 
     def test_sts_template(self):
-        sts = self.appsv1.read_namespaced_stateful_set("my-replica-set", self.namespace)
+        sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
 
         tmpl = sts.spec.template
         assert tmpl.metadata.labels["app"] == "my-replica-set-svc"
@@ -210,7 +212,7 @@ class TestReplicaSetCreation(KubernetesTester):
             self.namespace
         )
         assert p0["args2_6"]["net"]["port"] == 27017
-        assert p0["args2_6"]["replication"]["replSetName"] == "my-replica-set"
+        assert p0["args2_6"]["replication"]["replSetName"] == RESOURCE_NAME
         assert p0["args2_6"]["storage"]["dbPath"] == "/data"
         assert p0["args2_6"]["systemLog"]["destination"] == "file"
         assert (
@@ -232,7 +234,7 @@ class TestReplicaSetCreation(KubernetesTester):
             self.namespace
         )
         assert p1["args2_6"]["net"]["port"] == 27017
-        assert p1["args2_6"]["replication"]["replSetName"] == "my-replica-set"
+        assert p1["args2_6"]["replication"]["replSetName"] == RESOURCE_NAME
         assert p1["args2_6"]["storage"]["dbPath"] == "/data"
         assert p1["args2_6"]["systemLog"]["destination"] == "file"
         assert (
@@ -254,7 +256,7 @@ class TestReplicaSetCreation(KubernetesTester):
             self.namespace
         )
         assert p2["args2_6"]["net"]["port"] == 27017
-        assert p2["args2_6"]["replication"]["replSetName"] == "my-replica-set"
+        assert p2["args2_6"]["replication"]["replSetName"] == RESOURCE_NAME
         assert p2["args2_6"]["storage"]["dbPath"] == "/data"
         assert p2["args2_6"]["systemLog"]["destination"] == "file"
         assert (
@@ -267,7 +269,7 @@ class TestReplicaSetCreation(KubernetesTester):
     def test_om_replica_set(self):
         config = self.get_automation_config()
         rs = config["replicaSets"]
-        assert rs[0]["_id"] == "my-replica-set"
+        assert rs[0]["_id"] == RESOURCE_NAME
         m0 = rs[0]["members"][0]
         m1 = rs[0]["members"][1]
         m2 = rs[0]["members"][2]
@@ -334,11 +336,34 @@ class TestReplicaSetCreation(KubernetesTester):
 
     @skip_if_local
     def test_replica_set_was_configured(self):
-        ReplicaSetTester("my-replica-set", 3, ssl=False).assert_connectivity()
+        ReplicaSetTester(RESOURCE_NAME, 3, ssl=False).assert_connectivity()
 
     @skip_if_local
     def test_replica_set_was_configured_with_srv(self):
-        ReplicaSetTester("my-replica-set", 3, ssl=False, srv=True).assert_connectivity()
+        ReplicaSetTester(RESOURCE_NAME, 3, ssl=False, srv=True).assert_connectivity()
+
+
+@pytest.mark.e2e_replica_set
+def test_replica_set_can_be_scaled_to_single_member(namespace: str):
+    """Scaling to 1 member somehow changes the way the Replica Set is represented and there
+    will be no more a "Primary" or "Secondaries" in the client, so the test does not check
+    Replica Set state. An additional test `test_replica_set_can_be_scaled_down_and_connectable`
+    scales down to 3 (from 5) and makes sure the Replica is connectable with "Primary" and
+    "Secondaries" set."""
+    mdb: MongoDB = MongoDB(name=RESOURCE_NAME, namespace=namespace).load()
+    mdb["spec"]["members"] = 1
+    mdb.update()
+
+    mdb.assert_abandons_phase(Phase.Running)
+    mdb.assert_reaches_phase(Phase.Running)
+
+    actester = mdb.get_automation_config_tester()
+    # we should have only 1 process on the replica-set
+    assert len(actester.get_replica_set_processes(RESOURCE_NAME)) == 1
+
+    assert mdb["status"]["members"] == 1
+
+    mdb.assert_connectivity()
 
 
 @pytest.mark.e2e_replica_set
@@ -352,15 +377,15 @@ class TestReplicaSetUpdate(KubernetesTester):
       file: replica-set.yaml
       patch: '[{"op":"replace","path":"/spec/members","value":5}]'
       wait_until: in_running_state
-      timeout: 150
+      timeout: 300
     """
 
     def test_replica_set_sts_should_exist(self):
-        sts = self.appsv1.read_namespaced_stateful_set("my-replica-set", self.namespace)
+        sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
         assert sts
 
     def test_sts_update(self):
-        sts = self.appsv1.read_namespaced_stateful_set("my-replica-set", self.namespace)
+        sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
 
         assert sts.api_version == "apps/v1"
         assert sts.kind == "StatefulSet"
@@ -368,18 +393,18 @@ class TestReplicaSetUpdate(KubernetesTester):
         assert sts.status.ready_replicas == 5
 
     def test_sts_metadata(self):
-        sts = self.appsv1.read_namespaced_stateful_set("my-replica-set", self.namespace)
+        sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
 
-        assert sts.metadata.name == "my-replica-set"
+        assert sts.metadata.name == RESOURCE_NAME
         assert sts.metadata.labels["app"] == "my-replica-set-svc"
         assert sts.metadata.namespace == self.namespace
         owner_ref0 = sts.metadata.owner_references[0]
         assert owner_ref0.api_version == "mongodb.com/v1"
         assert owner_ref0.kind == "MongoDB"
-        assert owner_ref0.name == "my-replica-set"
+        assert owner_ref0.name == RESOURCE_NAME
 
     def test_sts_replicas(self):
-        sts = self.appsv1.read_namespaced_stateful_set("my-replica-set", self.namespace)
+        sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
         assert sts.spec.replicas == 5
 
     def _get_pods(self, podname, qty):
@@ -467,7 +492,7 @@ class TestReplicaSetUpdate(KubernetesTester):
             self.namespace
         )
         assert p0["args2_6"]["net"]["port"] == 27017
-        assert p0["args2_6"]["replication"]["replSetName"] == "my-replica-set"
+        assert p0["args2_6"]["replication"]["replSetName"] == RESOURCE_NAME
         assert p0["args2_6"]["storage"]["dbPath"] == "/data"
         assert p0["args2_6"]["systemLog"]["destination"] == "file"
         assert (
@@ -489,7 +514,7 @@ class TestReplicaSetUpdate(KubernetesTester):
             self.namespace
         )
         assert p1["args2_6"]["net"]["port"] == 27017
-        assert p1["args2_6"]["replication"]["replSetName"] == "my-replica-set"
+        assert p1["args2_6"]["replication"]["replSetName"] == RESOURCE_NAME
         assert p1["args2_6"]["storage"]["dbPath"] == "/data"
         assert p1["args2_6"]["systemLog"]["destination"] == "file"
         assert (
@@ -511,7 +536,7 @@ class TestReplicaSetUpdate(KubernetesTester):
             self.namespace
         )
         assert p2["args2_6"]["net"]["port"] == 27017
-        assert p2["args2_6"]["replication"]["replSetName"] == "my-replica-set"
+        assert p2["args2_6"]["replication"]["replSetName"] == RESOURCE_NAME
         assert p2["args2_6"]["storage"]["dbPath"] == "/data"
         assert p2["args2_6"]["systemLog"]["destination"] == "file"
         assert (
@@ -533,7 +558,7 @@ class TestReplicaSetUpdate(KubernetesTester):
             self.namespace
         )
         assert p3["args2_6"]["net"]["port"] == 27017
-        assert p3["args2_6"]["replication"]["replSetName"] == "my-replica-set"
+        assert p3["args2_6"]["replication"]["replSetName"] == RESOURCE_NAME
         assert p3["args2_6"]["storage"]["dbPath"] == "/data"
         assert p3["args2_6"]["systemLog"]["destination"] == "file"
         assert (
@@ -555,7 +580,7 @@ class TestReplicaSetUpdate(KubernetesTester):
             self.namespace
         )
         assert p4["args2_6"]["net"]["port"] == 27017
-        assert p4["args2_6"]["replication"]["replSetName"] == "my-replica-set"
+        assert p4["args2_6"]["replication"]["replSetName"] == RESOURCE_NAME
         assert p4["args2_6"]["storage"]["dbPath"] == "/data"
         assert p4["args2_6"]["systemLog"]["destination"] == "file"
         assert (
@@ -568,7 +593,7 @@ class TestReplicaSetUpdate(KubernetesTester):
     def test_om_replica_set(self):
         config = self.get_automation_config()
         rs = config["replicaSets"]
-        assert rs[0]["_id"] == "my-replica-set"
+        assert rs[0]["_id"] == RESOURCE_NAME
         m0 = rs[0]["members"][0]
         m1 = rs[0]["members"][1]
         m2 = rs[0]["members"][2]
@@ -648,11 +673,29 @@ class TestReplicaSetUpdate(KubernetesTester):
 
         # Backup agent is installed on all hosts
         for i in range(0, 5):
-            hostname = "my-replica-set-{}.my-replica-set-svc.{}.svc.cluster.local".format(
-                i, self.namespace
+            hostname = "{resource_name}-{idx}.{resource_name}-svc.{namespace}.svc.cluster.local".format(
+                resource_name=RESOURCE_NAME, idx=i, namespace=self.namespace
             )
             assert bkp[i]["hostname"] == hostname
             assert bkp[i]["name"] == DEFAULT_BACKUP_VERSION
+
+
+@pytest.mark.e2e_replica_set
+def test_replica_set_can_be_scaled_down_and_connectable(namespace: str):
+    """Makes sure that scaling down 5->3 members still reaches a Running & connectable state."""
+    mdb: MongoDB = MongoDB(name=RESOURCE_NAME, namespace=namespace).load()
+    mdb["spec"]["members"] = 3
+    mdb.update()
+
+    mdb.assert_abandons_phase(Phase.Running)
+    mdb.assert_reaches_phase(Phase.Running)
+
+    actester = mdb.get_automation_config_tester()
+    assert len(actester.get_replica_set_processes(RESOURCE_NAME)) == 3
+
+    assert mdb["status"]["members"] == 3
+
+    mdb.assert_connectivity()
 
 
 @pytest.mark.e2e_replica_set
@@ -672,8 +715,8 @@ class TestReplicaSetDelete(KubernetesTester):
         Note, that this may lag sometimes (caching or whatever?) and it's more safe to wait a bit """
         time.sleep(15)
         with pytest.raises(client.rest.ApiException):
-            self.appsv1.read_namespaced_stateful_set("my-replica-set", self.namespace)
+            self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
 
     def test_service_does_not_exist(self):
         with pytest.raises(client.rest.ApiException):
-            self.corev1.read_namespaced_service("my-replica-set-svc", self.namespace)
+            self.corev1.read_namespaced_service(RESOURCE_NAME + "-svc", self.namespace)

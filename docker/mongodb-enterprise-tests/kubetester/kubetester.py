@@ -166,7 +166,7 @@ class KubernetesTester(object):
 
     @classmethod
     def read_pod_labels(
-        cls, namespace: str, label_selector: Optional[Dict[str, str]] = None
+        cls, namespace: str, label_selector: Optional[str] = None
     ) -> Dict[str, str]:
         """Reads a Pod by labels."""
         return cls.clients("corev1").list_namespaced_pod(

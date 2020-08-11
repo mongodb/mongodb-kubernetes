@@ -285,6 +285,12 @@ class ReplicaSetTester(MongoTester):
         """ For replica sets in addition to is_master() we need to make sure all replicas are up """
         super().assert_connectivity(attempts=attempts)
 
+        if self.replicas_count == 1:
+            # On 1 member replica-set, there won't be a "primary" and secondaries will be `set()`
+            assert self.client.primary is None
+            assert len(self.client.secondaries) == 0
+            return
+
         check_times = wait_for // check_every
 
         while (

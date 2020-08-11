@@ -728,6 +728,11 @@ func (s *StatefulSetHelper) needToPublishStateFirst(log *zap.SugaredLogger) bool
 		return true
 	}
 
+	if int32(s.Replicas) < *currentSts.Spec.Replicas {
+		log.Debug("Scaling down operation. automationConfig needs to be updated first")
+		return true
+	}
+
 	return false
 }
 
