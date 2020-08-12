@@ -10,13 +10,16 @@ check_app docker-credential-ecr-login "You need to install the 'docker-credentia
 
 # Creates credsStore configuration for Docker for ECR
 mkdir -p "${HOME}/.docker"
-cat <<EOF > "${HOME}/.docker/config.json"
+
+if [ ! -f "${HOME}/.docker/config.json" ]; then
+    cat <<EOF > "${HOME}/.docker/config.json"
 {
-	"credHelpers": {
-		"${ecr_registry}": "ecr-login"
-	}
+  "credHelpers": {
+    "${ecr_registry}": "ecr-login"
+  }
 }
 EOF
+fi
 
 # using docker-credential-ecr-login (which is faster to install than Python + aws-cli).
 secret=$(echo "${ecr_registry}" | docker-credential-ecr-login get | jq -r .Secret)
