@@ -363,7 +363,7 @@ func TestConfigureLdapDeploymentAuthentication_WithScramAgentAuthentication(t *t
 		LDAP(
 			mdbv1.Ldap{
 				BindQueryUser: "bindQueryUser",
-				Servers:       "servers",
+				Servers:       []string{"server0:1234", "server1:9876"},
 				BindQuerySecretRef: mdbv1.TLSSecretRef{
 					Name: "bind-query-password",
 				},
@@ -390,7 +390,7 @@ func TestConfigureLdapDeploymentAuthentication_WithScramAgentAuthentication(t *t
 	assert.NoError(t, err)
 	assert.Equal(t, "LITZTOd6YiCV8j", ac.Ldap.BindQueryPassword)
 	assert.Equal(t, "bindQueryUser", ac.Ldap.BindQueryUser)
-	assert.Equal(t, "servers", ac.Ldap.Servers)
+	assert.Equal(t, "server0:1234,server1:9876", ac.Ldap.Servers)
 	assert.Contains(t, ac.Auth.DeploymentAuthMechanisms, "PLAIN")
 	assert.Contains(t, ac.Auth.DeploymentAuthMechanisms, "SCRAM-SHA-256")
 }
@@ -413,7 +413,7 @@ func TestConfigureLdapDeploymentAuthentication_WithCustomRole(t *testing.T) {
 		LDAP(
 			mdbv1.Ldap{
 				BindQueryUser: "bindQueryUser",
-				Servers:       "servers",
+				Servers:       []string{"server0:1234"},
 				BindQuerySecretRef: mdbv1.TLSSecretRef{
 					Name: "bind-query-password",
 				},
@@ -439,11 +439,11 @@ func TestConfigureLdapDeploymentAuthentication_WithCustomRole(t *testing.T) {
 
 	ac, err := om.CurrMockedConnection.ReadAutomationConfig()
 	assert.NoError(t, err)
+	assert.Equal(t, "server0:1234", ac.Ldap.Servers)
 
 	roles := ac.Deployment["roles"].([]mdbv1.MongoDbRole)
 	assert.Len(t, roles, 1)
 	assert.Equal(t, customRoles, roles)
-
 }
 
 func TestConfigureLdapDeploymentAuthentication_WithAuthzQueryTemplate_AndUserToDnMapping(t *testing.T) {
@@ -465,7 +465,7 @@ func TestConfigureLdapDeploymentAuthentication_WithAuthzQueryTemplate_AndUserToD
 		LDAP(
 			mdbv1.Ldap{
 				BindQueryUser: "bindQueryUser",
-				Servers:       "servers",
+				Servers:       []string{"server0:0000,server1:1111,server2:2222"},
 				BindQuerySecretRef: mdbv1.TLSSecretRef{
 					Name: "bind-query-password",
 				},
@@ -492,6 +492,8 @@ func TestConfigureLdapDeploymentAuthentication_WithAuthzQueryTemplate_AndUserToD
 
 	ac, err := om.CurrMockedConnection.ReadAutomationConfig()
 	assert.NoError(t, err)
+	assert.Equal(t, "server0:0000,server1:1111,server2:2222", ac.Ldap.Servers)
+
 	assert.Equal(t, authzTemplate, ac.Ldap.AuthzQueryTemplate)
 	assert.Equal(t, userMapping, ac.Ldap.UserToDnMapping)
 }

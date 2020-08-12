@@ -217,7 +217,9 @@ spec:
                     bindQueryUser:
                       type: string
                     servers:
-                      type: string
+                      type: array
+                      items:
+                        type: string
                     transportSecurity:
                       type: string
                       enum: ["none", "tls"]

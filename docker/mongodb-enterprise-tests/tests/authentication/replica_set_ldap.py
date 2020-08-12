@@ -52,7 +52,7 @@ def replica_set(
             "enabled": True,
             "modes": ["LDAP", "SCRAM", "X509"],
             "ldap": {
-                "servers": openldap.servers,
+                "servers": [openldap.servers],
                 "bindQueryUser": "cn=admin,dc=example,dc=org",
                 "bindQueryPasswordSecretRef": {"name": secret_name},
             },
@@ -249,6 +249,7 @@ def test_x509_user_created(replica_set: MongoDB, user_x509: MongoDBUser):
     tester = replica_set.get_automation_config_tester()
     tester.assert_expected_users(3)
     tester.assert_has_user(user_x509["spec"]["username"])
+    tester.assert_user_has_roles(user_x509["spec"]["username"], expected_roles)
 
     tester.assert_authentication_mechanism_enabled(
         "MONGODB-X509", active_auth_mechanism=False

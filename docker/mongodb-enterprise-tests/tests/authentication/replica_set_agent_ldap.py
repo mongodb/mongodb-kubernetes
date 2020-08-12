@@ -2,7 +2,6 @@ from pytest import mark, fixture
 
 from kubetester import create_secret, find_fixture
 
-from kubetester.mongotester import ReplicaSetTester
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_user import MongoDBUser, generic_user, Role
 from kubetester.ldap import OpenLDAP, LDAPUser
@@ -27,7 +26,7 @@ def replica_set(openldap: OpenLDAP, namespace: str) -> MongoDB:
     )
 
     resource["spec"]["security"]["authentication"]["ldap"] = {
-        "servers": openldap.servers,
+        "servers": [openldap.servers],
         "bindQueryUser": "cn=admin,dc=example,dc=org",
         "bindQueryPasswordSecretRef": {"name": secret_name},
         "userToDNMapping": '[{match: "(.+)",substitution: "uid={0},ou=groups,dc=example,dc=org"}]',

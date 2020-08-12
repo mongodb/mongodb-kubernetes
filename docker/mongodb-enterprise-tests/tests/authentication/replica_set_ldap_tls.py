@@ -1,7 +1,3 @@
-import time
-from typing import List, Union
-
-from kubernetes import client
 from pytest import mark, fixture
 
 from kubetester import create_secret, find_fixture
@@ -25,7 +21,7 @@ def replica_set(
     create_secret(secret_name, namespace, {"password": openldap_tls.admin_password})
 
     resource["spec"]["security"]["authentication"]["ldap"] = {
-        "servers": openldap_tls.servers,
+        "servers": [openldap_tls.servers],
         "bindQueryPasswordSecretRef": {"name": secret_name},
         "transportSecurity": "tls",
         "validateLDAPServerConfig": True,

@@ -423,7 +423,7 @@ func (a *Authentication) GetModes() []string {
 }
 
 type Ldap struct {
-	Servers string `json:"servers"`
+	Servers []string `json:"servers"`
 
 	// +kubebuilder:validation:Enum=tls;none
 	TransportSecurity        *TransportSecurity `json:"transportSecurity"`
@@ -664,7 +664,7 @@ func (m MongoDB) GetLDAP(password, caContents string) *ldap.Ldap {
 	return &ldap.Ldap{
 		BindQueryUser:            mdbLdap.BindQueryUser,
 		BindQueryPassword:        password,
-		Servers:                  mdbLdap.Servers,
+		Servers:                  strings.Join(mdbLdap.Servers, ","),
 		TransportSecurity:        string(transportSecurity),
 		CaFileContents:           caContents,
 		ValidateLDAPServerConfig: validateServerConfig,

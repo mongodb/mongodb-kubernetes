@@ -1,14 +1,11 @@
-import time
 from typing import List
 
-from kubernetes import client
 from pytest import mark, fixture
 
 from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
 
 from kubetester.mongotester import ShardedClusterTester
 from kubetester.mongodb import MongoDB, Phase
-from kubetester.helm import helm_install_from_chart
 from kubetester.ldap import OpenLDAP, LDAPUser
 
 
@@ -24,7 +21,7 @@ def sharded_cluster(openldap: OpenLDAP, namespace: str) -> MongoDB:
     )
 
     resource["spec"]["security"]["authentication"]["ldap"] = {
-        "servers": openldap.servers,
+        "servers": [openldap.servers],
         "bindQueryPasswordSecretRef": {"name": bind_query_password_secret,},
     }
     resource["spec"]["security"]["authentication"]["modes"] = ["LDAP", "SCRAM"]
