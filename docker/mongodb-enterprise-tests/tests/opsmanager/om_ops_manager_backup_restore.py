@@ -1,7 +1,7 @@
 import datetime
-from os import environ
 
 import time
+from typing import Optional
 from kubetester import MongoDB
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import fixture as yaml_fixture
@@ -31,13 +31,14 @@ def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
 
 
 @fixture(scope="module")
-def ops_manager(namespace, s3_bucket) -> MongoDBOpsManager:
+def ops_manager(
+    namespace: str, s3_bucket: str, custom_version: Optional[str]
+) -> MongoDBOpsManager:
     # TODO we need to use 4.2.13 OM in order to check PIT restore - so far the test is run in OM 4.4+ only
-    resource = MongoDBOpsManager.from_yaml(
+    resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_backup_light.yaml"), namespace=namespace
     )
-    if "CUSTOM_OM_VERSION" in environ:
-        resource["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
+    resource.set_version(custom_version)
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
 
     return resource.create()

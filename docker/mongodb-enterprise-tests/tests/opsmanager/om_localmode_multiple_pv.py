@@ -1,4 +1,4 @@
-from os import environ
+from typing import Optional
 
 from kubetester.kubetester import (
     fixture as yaml_fixture,
@@ -10,14 +10,13 @@ from pytest import fixture, mark
 
 
 @fixture(scope="module")
-def ops_manager(namespace: str) -> MongoDBOpsManager:
+def ops_manager(namespace: str, custom_version: Optional[str]) -> MongoDBOpsManager:
     KubernetesTester.make_default_gp2_storage_class()
 
-    resource = MongoDBOpsManager.from_yaml(
+    resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_localmode-multiple-pv.yaml"), namespace=namespace
     )
-    if "CUSTOM_OM_VERSION" in environ:
-        resource["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
+    resource.set_version(custom_version)
     return resource.create()
 
 

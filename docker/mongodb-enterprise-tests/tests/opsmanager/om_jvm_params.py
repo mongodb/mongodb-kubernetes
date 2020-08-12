@@ -1,4 +1,4 @@
-from os import environ
+from typing import Optional
 
 from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
 from kubetester.mongodb import Phase
@@ -12,13 +12,13 @@ JAVA_DAEMON_OPTS = "JAVA_DAEMON_OPTS"
 
 
 @fixture(scope="module")
-def ops_manager(namespace: str) -> MongoDBOpsManager:
+def ops_manager(namespace: str, custom_version: Optional[str]) -> MongoDBOpsManager:
     """ The fixture for Ops Manager to be created."""
     om = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_jvm_params.yaml"), namespace=namespace
     )
-    if "CUSTOM_OM_VERSION" in environ:
-        om["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
+    om.set_version(custom_version)
+
     return om.create()
 
 

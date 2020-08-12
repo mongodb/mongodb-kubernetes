@@ -1,5 +1,4 @@
 from operator import attrgetter
-from os import environ
 from typing import Optional, Dict
 
 from kubernetes import client
@@ -97,14 +96,15 @@ def create_s3_bucket(aws_s3_client, bucket_prefix: str = "test-bucket-"):
 
 
 @fixture(scope="module")
-def ops_manager(namespace, s3_bucket) -> MongoDBOpsManager:
-    resource = MongoDBOpsManager.from_yaml(
+def ops_manager(
+    namespace: str, s3_bucket: str, custom_version: Optional[str]
+) -> MongoDBOpsManager:
+    resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_backup.yaml"), namespace=namespace
     )
 
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
-    if "CUSTOM_OM_VERSION" in environ:
-        resource["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
+    resource.set_version(custom_version)
 
     yield resource.create()
 

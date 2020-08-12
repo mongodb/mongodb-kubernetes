@@ -2373,8 +2373,8 @@ buildvariants:
   - name: e2e_ops_manager_kind_only_task_group
 
 # Isolated Ops Manager Tests for 4.4 version
-- name: e2e_kind_ops_manager_4_4
-  display_name: e2e_kind_ops_manager_4_4
+- name: e2e_om_custom_version_kind_ubuntu
+  display_name: e2e_om_custom_version_kind_ubuntu
   run_on:
   - ubuntu1604-build
   depends_on:
@@ -2391,6 +2391,30 @@ buildvariants:
     custom_om_version: 4.4.1
     # TODO using expansion here results in "'${ecr_registry}/images/ubuntu' contains an unclosed expansion"
     ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
+  tasks:
+  - name: e2e_ops_manager_kind_only_task_group
+  - name: e2e_ops_manager_kind_4_4_only_task_group
+
+- name: e2e_om_custom_version_kind_ubi
+  display_name: e2e_om_custom_version_kind_ubi
+  run_on:
+  - ubuntu1604-build
+  depends_on:
+  - name: build_images_rhel
+    variant: init_test_run
+  - name: build_test_image
+    variant: init_test_run
+  - name: build_init_om_images_ubi
+    variant: init_test_run
+  expansions:
+    # The ubi checks also run on kind because of memory problems on Openshift!
+    # A few tests of these at any given time and the Nodes in the Openshift cluster
+    # will run out of mem.
+    <<: *kubernetes_environment_kind
+    image_type: rhel
+    test_mode: opsmanager
+    custom_om_version: 4.4.1
+    ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/rhel
   tasks:
   - name: e2e_ops_manager_kind_only_task_group
   - name: e2e_ops_manager_kind_4_4_only_task_group

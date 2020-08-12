@@ -3,7 +3,8 @@ The fist stage of an Operator-upgrade test.
 It creates an OM instance with maximum features (backup, scram etc).
 Also it creates a MongoDB referencing the OM.
 """
-from os import environ
+
+from typing import Optional
 
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import (
@@ -39,14 +40,15 @@ def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
 
 
 @fixture(scope="module")
-def ops_manager(namespace: str, s3_bucket) -> MongoDBOpsManager:
+def ops_manager(
+    namespace: str, s3_bucket: str, custom_version: Optional[str]
+) -> MongoDBOpsManager:
     """ The fixture for Ops Manager to be created. Also results in a new s3 bucket
     created and used in OM spec"""
-    om = MongoDBOpsManager.from_yaml(
+    om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_full.yaml"), namespace=namespace
     )
-    if "CUSTOM_OM_VERSION" in environ:
-        om["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
+    om.set_version(custom_version)
     om["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
     return om.create()
 

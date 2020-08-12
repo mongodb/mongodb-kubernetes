@@ -1,4 +1,4 @@
-from os import environ
+from typing import Optional
 
 import pytest
 from kubernetes import client
@@ -109,14 +109,17 @@ class TestOpsManagerVersionUpgrade:
     """
 
     def test_upgrade_om(
-        self, ops_manager: MongoDBOpsManager, background_tester: OMBackgroundTester
+        self,
+        ops_manager: MongoDBOpsManager,
+        background_tester: OMBackgroundTester,
+        custom_version: Optional[str],
     ):
         # Adding fixture just to start background tester
         _ = background_tester
         ops_manager.load()
         ops_manager["spec"]["version"] = "4.2.3"
-        if "CUSTOM_OM_VERSION" in environ:
-            ops_manager["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
+        ops_manager.set_version(custom_version)
+
         ops_manager.update()
         ops_manager.om_status().assert_abandons_phase(Phase.Running)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)

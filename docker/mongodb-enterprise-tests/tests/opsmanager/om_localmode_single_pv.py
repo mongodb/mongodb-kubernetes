@@ -1,4 +1,4 @@
-from os import environ
+from typing import Optional
 
 import yaml
 from kubetester.kubetester import (
@@ -16,7 +16,7 @@ VERSION_NOT_IN_OPS_MANAGER = "4.2.1"
 
 
 @fixture(scope="module")
-def ops_manager(namespace: str) -> MongoDBOpsManager:
+def ops_manager(namespace: str, custom_version: Optional[str]) -> MongoDBOpsManager:
     KubernetesTester.make_default_gp2_storage_class()
 
     with open(yaml_fixture("mongodb_versions_claim.yaml"), "r") as f:
@@ -50,11 +50,10 @@ def ops_manager(namespace: str) -> MongoDBOpsManager:
     KubernetesTester.delete_pod(namespace, pod_body["metadata"]["name"])
 
     """ The fixture for Ops Manager to be created."""
-    om = MongoDBOpsManager.from_yaml(
+    om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_localmode-single-pv.yaml"), namespace=namespace
     )
-    if "CUSTOM_OM_VERSION" in environ:
-        om["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
+    om.set_version(custom_version)
     yield om.create()
 
     KubernetesTester.delete_pvc(namespace, "mongodb-versions-claim")

@@ -2,7 +2,7 @@
 Ensures that validation warnings for ops manager reflect its current state
 """
 import time
-from os import environ
+from typing import Optional
 
 from kubernetes import client
 from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
@@ -103,12 +103,11 @@ class TestOpsManagerAppDbWrongVersionConnectivity(KubernetesTester):
 
 
 @fixture(scope="module")
-def ops_manager(namespace: str) -> MongoDBOpsManager:
-    om = MongoDBOpsManager.from_yaml(
+def ops_manager(namespace: str, custom_version: Optional[str]) -> MongoDBOpsManager:
+    om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace
     )
-    if "CUSTOM_OM_VERSION" in environ:
-        om["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
+    om.set_version(custom_version)
     om["spec"]["applicationDatabase"]["shardCount"] = 3
     return om.create()
 

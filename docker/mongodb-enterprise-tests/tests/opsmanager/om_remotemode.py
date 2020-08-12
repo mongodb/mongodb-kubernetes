@@ -1,4 +1,4 @@
-from os import environ
+from typing import Optional
 
 import yaml
 from kubetester.kubetester import (
@@ -16,7 +16,7 @@ VERSION_NOT_IN_WEB_SERVER = "4.2.1"
 
 
 @fixture(scope="module")
-def ops_manager(namespace: str) -> MongoDBOpsManager:
+def ops_manager(namespace: str, custom_version: Optional[str]) -> MongoDBOpsManager:
     with open(yaml_fixture("remote_fixtures/nginx-config.yaml"), "r") as f:
         config_body = yaml.safe_load(f.read())
     KubernetesTester.clients("corev1").create_namespaced_config_map(
@@ -32,7 +32,7 @@ def ops_manager(namespace: str) -> MongoDBOpsManager:
     KubernetesTester.create_service(namespace, body=service_body)
 
     """ The fixture for Ops Manager to be created."""
-    om = MongoDBOpsManager.from_yaml(
+    om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("remote_fixtures/om_remotemode.yaml"), namespace=namespace,
     )
     om["spec"]["configuration"]["automation.versions.source"] = "remote"
@@ -40,8 +40,7 @@ def ops_manager(namespace: str) -> MongoDBOpsManager:
         "automation.versions.download.baseUrl"
     ] = f"http://nginx-svc.{namespace}.svc.cluster.local:80"
 
-    if "CUSTOM_OM_VERSION" in environ:
-        om["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
+    om.set_version(custom_version)
     yield om.create()
 
     KubernetesTester.delete_configmap(namespace, "nginx-conf")

@@ -1,4 +1,5 @@
-from os import environ
+from time import sleep
+from typing import Optional
 
 import pytest
 import semver
@@ -10,7 +11,6 @@ from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
-from time import sleep
 
 gen_key_resource_version = None
 admin_key_resource_version = None
@@ -162,11 +162,13 @@ class TestOpsManagerVersionUpgrade:
             mdb.get_automation_config_tester().get_agent_version()
         )
 
-    def test_upgrade_om_version(self, ops_manager: MongoDBOpsManager):
+    def test_upgrade_om_version(
+        self, ops_manager: MongoDBOpsManager, custom_version: Optional[str]
+    ):
         ops_manager.load()
         ops_manager["spec"]["version"] = OM_NEW_VERSION
-        if "CUSTOM_OM_VERSION" in environ:
-            ops_manager["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
+        ops_manager.set_version(custom_version)
+
         ops_manager.update()
         ops_manager.om_status().assert_abandons_phase(Phase.Running)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)

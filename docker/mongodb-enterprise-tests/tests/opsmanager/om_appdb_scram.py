@@ -1,4 +1,4 @@
-from os import environ
+from typing import Optional
 
 import pytest
 from pytest import fixture
@@ -24,12 +24,11 @@ EXPECTED_OM_USER_ROLES = {
 
 
 @fixture(scope="module")
-def ops_manager(namespace) -> MongoDBOpsManager:
-    resource = MongoDBOpsManager.from_yaml(
+def ops_manager(namespace: str, custom_version: Optional[str]) -> MongoDBOpsManager:
+    resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_appdb_scram.yaml"), namespace=namespace
     )
-    if "CUSTOM_OM_VERSION" in environ:
-        resource["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
+    resource.set_version(custom_version)
 
     return resource.create()
 

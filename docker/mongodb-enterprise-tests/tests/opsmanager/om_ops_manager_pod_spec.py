@@ -3,7 +3,8 @@ The fist stage of an Operator-upgrade test.
 It creates an OM instance with maximum features (backup, scram etc).
 Also it creates a MongoDB referencing the OM.
 """
-from os import environ
+
+from typing import Optional
 
 from kubernetes import client
 from kubetester.kubetester import fixture as yaml_fixture
@@ -14,13 +15,12 @@ from pytest import fixture, mark
 
 
 @fixture(scope="module")
-def ops_manager(namespace: str) -> MongoDBOpsManager:
+def ops_manager(namespace: str, custom_version: Optional[str]) -> MongoDBOpsManager:
     """ The fixture for Ops Manager to be created."""
-    om = MongoDBOpsManager.from_yaml(
+    om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_pod_spec.yaml"), namespace=namespace
     )
-    if "CUSTOM_OM_VERSION" in environ:
-        om["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
+    om.set_version(custom_version)
     return om.create()
 
 

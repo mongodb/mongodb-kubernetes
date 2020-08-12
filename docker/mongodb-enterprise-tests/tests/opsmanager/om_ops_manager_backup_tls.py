@@ -1,4 +1,4 @@
-from os import environ
+from typing import Optional
 
 from pytest import mark, fixture
 
@@ -39,13 +39,15 @@ def blockstore_certs_secret(namespace: str, issuer: str):
 
 @fixture(scope="module")
 def ops_manager(
-    namespace, issuer_ca_configmap: str, appdb_certs_secret: str
+    namespace,
+    issuer_ca_configmap: str,
+    appdb_certs_secret: str,
+    custom_version: Optional[str],
 ) -> MongoDBOpsManager:
-    resource = MongoDBOpsManager.from_yaml(
+    resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_backup_tls.yaml"), namespace=namespace
     )
-    if "CUSTOM_OM_VERSION" in environ:
-        resource["spec"]["version"] = environ.get("CUSTOM_OM_VERSION")
+    resource.set_version(custom_version)
     return resource.create()
 
 

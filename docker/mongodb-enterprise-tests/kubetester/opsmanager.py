@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import time
 from typing import List, Optional, Dict
 from base64 import b64decode
 from kubeobject import CustomObject
@@ -237,6 +236,11 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                 self.name, self.namespace, self.get_replicas(), port=8080
             )
         ]
+
+    def set_version(self, version: Optional[str]):
+        """Sets a specific `version` if set. If `version` is None, then skip."""
+        if version is not None:
+            self["spec"]["version"] = version
 
     def __repr__(self):
         # FIX: this should be __unicode__
