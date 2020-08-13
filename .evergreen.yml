@@ -813,7 +813,7 @@ tasks:
         docker_password: ${quay_prod_robot_token}
 
 - name: build_test_image
-  exec_timeout_secs: 200
+  exec_timeout_secs: 600
   priority: 60
   commands:
   - func: clone
