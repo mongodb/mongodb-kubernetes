@@ -52,4 +52,12 @@ for om_version in ${VERSIONS}; do
     stable_url="${base_url}:${om_version}"
     docker tag "${image_id}" "$stable_url"
     docker push "${stable_url}"
+
+    if [[ -n "${PUBLISH_TO-}" ]]; then
+        docker tag "${image_id}" "${PUBLISH_TO}:${om_version}"
+        docker tag "${image_id}" "${PUBLISH_TO}:${om_version}-${build_id}"
+
+        docker push "${PUBLISH_TO}:${om_version}"
+        docker push "${PUBLISH_TO}:${om_version}-${build_id}"
+    fi
 done

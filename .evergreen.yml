@@ -175,6 +175,12 @@ functions:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
       command: "rm -rf logs/"
 
+  docker_login:
+  - command: subprocess.exec
+    type: setup
+    params:
+      command: "docker login ${docker_registry} -u ${docker_username} -p ${docker_password}"
+
   # Install and configures ecr-login-helper, allowing for accessing the ECR registry
   # without calling docker login and in the ECR case, avoiding also calling
   # `aws ecr get login`. This is a binary that should run on every image_type.
@@ -624,6 +630,7 @@ functions:
           KUBECONFIG: ${workdir}/${kube_environment_name}_config
           REPO_URL: ${ecr_registry}/images
         include_expansions_in_env:
+        - PUBLISH_TO
         - CLUSTER_TYPE
         - ecr_registry
         - version_id
@@ -1726,9 +1733,16 @@ tasks:
       vars:
         <<: *kubernetes_environment_vanilla
     - func: setup_ecr_login_helper
+    - func: docker_login
+      vars:
+        docker_registry: quay.io
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
+
     - func: build_and_push_opsmanager_image_generic
       vars:
         CLUSTER_TYPE: "kops"
+        PUBLISH_TO: quay.io/mongodb/mongodb-enterprise-ops-manager
 
 - name: build_and_push_ops_manager_ubi
   patch_only: true
@@ -1741,9 +1755,16 @@ tasks:
       vars:
         <<: *kubernetes_environment_vanilla
     - func: setup_ecr_login_helper
+    - func: docker_login
+      vars:
+        docker_registry: quay.io
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
+
     - func: build_and_push_opsmanager_image_generic
       vars:
         CLUSTER_TYPE: "openshift"
+        PUBLISH_TO: quay.io/mongodb/mongodb-enterprise-ops-manager-ubi
 
 task_groups:
 - name: unit_task_group
@@ -2487,6 +2508,12 @@ buildvariants:
     - name: build_and_push_appdb_ubi
 
 # build OpsManager: to be launched independently of the operator build process (evergreen patch)
+# This will rebuild every OM image on VERSIONS. A new static "build" (b-DATE) will be tagged and
+# pushed, and the corresponding rolling tag will be pointed at this "build" one. To perform the
+# build, you can use the following `evergreen` command:
+#
+#     evergreen patch -v build_and_push_ops_manager_images -t all -y -f -d "Building all version of OM"
+#
 - name: build_and_push_ops_manager_images
   display_name: build_and_push_ops_manager_images
   run_on:
