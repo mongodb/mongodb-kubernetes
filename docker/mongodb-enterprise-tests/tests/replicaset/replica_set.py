@@ -1,7 +1,9 @@
 import pytest
 import time
+
 from kubernetes import client
 from kubetester.kubetester import KubernetesTester, skip_if_local, get_env_var_or_fail
+from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.mongotester import ReplicaSetTester
 from kubetester.mongodb import MongoDB, Phase
 
@@ -357,7 +359,8 @@ def test_replica_set_can_be_scaled_to_single_member(namespace: str):
     mdb.assert_abandons_phase(Phase.Running)
     mdb.assert_reaches_phase(Phase.Running)
 
-    actester = mdb.get_automation_config_tester()
+    actester = AutomationConfigTester(KubernetesTester.get_automation_config())
+
     # we should have only 1 process on the replica-set
     assert len(actester.get_replica_set_processes(RESOURCE_NAME)) == 1
 
@@ -690,7 +693,8 @@ def test_replica_set_can_be_scaled_down_and_connectable(namespace: str):
     mdb.assert_abandons_phase(Phase.Running)
     mdb.assert_reaches_phase(Phase.Running)
 
-    actester = mdb.get_automation_config_tester()
+    actester = AutomationConfigTester(KubernetesTester.get_automation_config())
+
     assert len(actester.get_replica_set_processes(RESOURCE_NAME)) == 3
 
     assert mdb["status"]["members"] == 3
