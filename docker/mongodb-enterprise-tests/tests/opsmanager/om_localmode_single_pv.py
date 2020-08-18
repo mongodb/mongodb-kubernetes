@@ -11,7 +11,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 
 BUNDLED_APP_DB_VERSION = "4.2.2-ent"
-VERSION_IN_OPS_MANAGER = "4.2.2"
+VERSION_IN_OPS_MANAGER = "4.2.8-ent"
 VERSION_NOT_IN_OPS_MANAGER = "4.2.1"
 
 
@@ -22,32 +22,6 @@ def ops_manager(namespace: str, custom_version: Optional[str]) -> MongoDBOpsMana
     with open(yaml_fixture("mongodb_versions_claim.yaml"), "r") as f:
         pvc_body = yaml.safe_load(f.read())
     KubernetesTester.create_pvc(namespace, body=pvc_body)
-
-    with open(yaml_fixture("download_mongodb_versions.yaml"), "r") as f:
-        pod_body = yaml.safe_load(f.read())
-    pod_body["metadata"]["name"] = pod_body["metadata"]["name"] + "-" + namespace
-    KubernetesTester.create_pod(namespace, body=pod_body)
-
-    def pod_is_completed() -> bool:
-        try:
-            pod = KubernetesTester.read_pod(namespace, pod_body["metadata"]["name"])
-            conditions = pod.status.conditions
-            completed_pods = [
-                cond
-                for cond in conditions
-                if (cond.reason == "PodCompleted" and cond.status == "True")
-            ]
-            return len(completed_pods) == 1
-        except Exception:
-            return False
-
-    # we need to wait for the pod to be completed before we continue with using the persistent volume
-    # with Ops Manager. "pod has unbound immediate PersistentVolumeClaims"
-    # Once this Pod is completed, the required mongodb versions are copied into the pv.
-    KubernetesTester.wait_until(pod_is_completed, timeout=300)
-
-    # remove the pod as soon as it has completed, as we don't need it for anything else
-    KubernetesTester.delete_pod(namespace, pod_body["metadata"]["name"])
 
     """ The fixture for Ops Manager to be created."""
     om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(

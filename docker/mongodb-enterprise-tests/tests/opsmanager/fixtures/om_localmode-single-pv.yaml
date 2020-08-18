@@ -4,7 +4,7 @@ metadata:
   name: om-localmode-single-pv
 spec:
   replicas: 1
-  version: 4.2.15
+  version: 4.4.1
   adminCredentials: ops-manager-admin-secret
   configuration:
     mms.testUtil.enabled: "true"
@@ -23,6 +23,31 @@ spec:
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
+          initContainers:
+            - name: mongod-binaries-ubuntu-init-container
+              image: quay.io/mongodb/mongodb-enterprise-init-mongod-ubuntu1604:4.2.8
+              imagePullPolicy: Always
+              command:
+                - cp
+                - -a
+                - /binaries/.
+                - /mongodb-ops-manager/mongodb-releases/
+              volumeMounts:
+                - name: mongodb-versions
+                  mountPath: /mongodb-ops-manager/mongodb-releases
+            - name: mongod-binaries-ubi7-init-container
+              image: quay.io/mongodb/mongodb-enterprise-init-mongod-rhel80:4.2.8
+              imagePullPolicy: Always
+              command:
+                - cp
+                - -a
+                - /binaries/.
+                - /mongodb-ops-manager/mongodb-releases/
+              volumeMounts:
+                - name: mongodb-versions
+                  mountPath: /mongodb-ops-manager/mongodb-releases
+
+
 
   backup:
     enabled: false
