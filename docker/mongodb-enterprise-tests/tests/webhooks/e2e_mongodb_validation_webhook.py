@@ -65,6 +65,16 @@ class TestWebhookValidation(KubernetesTester):
             exception_reason="Cannot enable LDAP authentication with MongoDB Community Builds",
         )
 
+    def test_ldap_auth_with_mongodb_community(self):
+        resource = yaml.safe_load(
+            open(yaml_fixture("invalid_replica_set_no_agent_mode.yaml"))
+        )
+        self.create_custom_resource_from_object(
+            self.get_namespace(),
+            resource,
+            exception_reason="spec.security.authentication.agents.mode must be specified if more than one entry is present in spec.security.authentication.modes",
+        )
+
     def test_horizons_without_tls_validates_without_webhook(self):
         self._assert_validates_without_webhook(
             "mdbpolicy.mongodb.com",

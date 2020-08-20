@@ -311,19 +311,15 @@ func (s *Security) GetAgentMechanism(currentMechanism string) string {
 		return util.X509
 	}
 
-	if auth.Agents.Mode == "" {
-		if len(s.Authentication.Modes) == 0 {
-			return ""
-		}
-
-		for _, mode := range s.Authentication.Modes {
-			// Do not allow LDAP agent auth for now.
-			if mode != "LDAP" {
-				return mode
-			}
-		}
+	// If we arrive here, this should
+	//  ALWAYS be true, as we do not allow
+	// agents.mode to be empty
+	// if more than one mode in specified in
+	// spec.authentication.modes
+	// The check is done in the validation webhook
+	if len(s.Authentication.Modes) == 1 {
+		return s.Authentication.Modes[0]
 	}
-
 	return auth.Agents.Mode
 }
 

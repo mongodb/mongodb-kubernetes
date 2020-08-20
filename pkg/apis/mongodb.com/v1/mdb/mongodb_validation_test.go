@@ -55,6 +55,20 @@ func TestMongoDB_ValidateCreate_Error(t *testing.T) {
 	assert.Equal(t, "TLS must be enabled in order to use replica set horizons", err.Error())
 }
 
+func TestMongoDB_MultipleAuthsButNoAgentAuth_Error(t *testing.T) {
+	rs := NewReplicaSetBuilder().Build()
+	rs.Spec.Version = "4.0.2-ent"
+	rs.Spec.Security = &Security{
+		TLSConfig: &TLSConfig{Enabled: true},
+		Authentication: &Authentication{
+			Enabled: true,
+			Modes:   []string{"LDAP", "X509"},
+		},
+	}
+	err := rs.ValidateCreate()
+	assert.Equal(t, "spec.security.authentication.agents.mode must be specified if more than one entry is present in spec.security.authentication.modes", err.Error())
+}
+
 func TestMongoDB_ProcessValidations(t *testing.T) {
 	rs := NewReplicaSetBuilder().Build()
 	assert.Equal(t, rs.ProcessValidationsOnReconcile(), nil)

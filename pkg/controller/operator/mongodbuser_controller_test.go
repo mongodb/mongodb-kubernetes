@@ -253,9 +253,9 @@ func TestScramShaUserReconciliation_CreatesAgentUsers(t *testing.T) {
 	assert.Len(t, ac.Auth.Users, 3, "users list should contain 1 user just added and 2 agent users")
 }
 
-func TestMultipleAuthMethodsChoosesFirstOneForAgent_CreateAgentUsers(t *testing.T) {
-	t.Run("When SCRAM and X509 auth modes are enabled, 3 users are created", func(t *testing.T) {
-		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigX509Option, 0, "", []string{"SCRAM", "X509"})
+func TestMultipleAuthMethod_CreateAgentUsers(t *testing.T) {
+	t.Run("When SCRAM and X509 auth modes are enabled, and agent mode is SCRAM, 3 users are created", func(t *testing.T) {
+		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigX509Option, 0, "SCRAM", []string{"SCRAM", "X509"})
 
 		assert.Equal(t, ac.Auth.AutoUser, "mms-automation-agent")
 		assert.Len(t, ac.Auth.Users, 3, "users list should contain 3 users, created user, and 2 agent users")
@@ -266,24 +266,12 @@ func TestMultipleAuthMethodsChoosesFirstOneForAgent_CreateAgentUsers(t *testing.
 		}
 	})
 
-	t.Run("When X509 and SCRAM auth modes are enabled, 1 user is created", func(t *testing.T) {
-		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigX509Option, 1, "", []string{"X509", "SCRAM"})
+	t.Run("When X509 and SCRAM auth modes are enabled, and agent mode is X509, 1 user is created", func(t *testing.T) {
+		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigX509Option, 1, "X509", []string{"X509", "SCRAM"})
 		assert.Equal(t, ac.Auth.AutoUser, "CN=mms-automation-agent,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US")
 		assert.Len(t, ac.Auth.Users, 1, "users list should contain only 1 user")
 		assert.Equal(t, "$external", ac.Auth.Users[0].Database)
 		assert.Equal(t, "my-user", ac.Auth.Users[0].Username)
-	})
-
-	t.Run("When X509 and SCRAM auth modes are enabled, SCRAM is AgentAuthMode, 3 users are created", func(t *testing.T) {
-		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigX509Option, 0, "SCRAM", []string{"X509", "SCRAM"})
-
-		assert.Equal(t, ac.Auth.AutoUser, "mms-automation-agent")
-		assert.Len(t, ac.Auth.Users, 3, "users list should contain only 3 users: actual user and 2 automation users")
-
-		expectedUsernames := []string{"mms-backup-agent", "mms-monitoring-agent", "my-user"}
-		for _, user := range ac.Auth.Users {
-			assert.True(t, stringutil.Contains(expectedUsernames, user.Username))
-		}
 	})
 
 	t.Run("When X509 auth mode is enabled, 3 agents will be created", func(t *testing.T) {
@@ -317,7 +305,7 @@ func TestMultipleAuthMethodsChoosesFirstOneForAgent_CreateAgentUsers(t *testing.
 	})
 
 	t.Run("When LDAP is enabled, 1 SCRAM agent will be created", func(t *testing.T) {
-		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigLDAPOption, 0, "", []string{"LDAP"})
+		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigLDAPOption, 0, "LDAP", []string{"LDAP"})
 		assert.Equal(t, "mms-automation-agent", ac.Auth.AutoUser)
 
 		assert.Len(t, ac.Auth.Users, 1, "users list should contain only 1 user")
@@ -325,20 +313,6 @@ func TestMultipleAuthMethodsChoosesFirstOneForAgent_CreateAgentUsers(t *testing.
 		assert.Equal(t, "$external", ac.Auth.Users[0].Database)
 	})
 
-	t.Run("When LDAP is enabled and X509 is set as agent auth.", func(t *testing.T) {
-		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigLDAPOption, 3, "X509", []string{"LDAP"})
-		assert.Equal(t, ac.Auth.AutoUser, "CN=mms-automation-agent,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US")
-		assert.Len(t, ac.Auth.Users, 3, "users list should contain only 3 users: actual user and 2 automation users")
-
-		expectedUsernames := []string{
-			"CN=mms-backup-agent,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US",
-			"CN=mms-monitoring-agent,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US",
-			"my-user",
-		}
-		for _, user := range ac.Auth.Users {
-			assert.True(t, stringutil.Contains(expectedUsernames, user.Username))
-		}
-	})
 }
 
 // BuildAuthenticationEnabledReplicaSet returns a AutomationConfig after creating a Replica Set with a set of

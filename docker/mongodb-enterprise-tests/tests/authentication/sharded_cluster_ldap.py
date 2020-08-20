@@ -24,6 +24,7 @@ def sharded_cluster(openldap: OpenLDAP, namespace: str) -> MongoDB:
         "servers": [openldap.servers],
         "bindQueryPasswordSecretRef": {"name": bind_query_password_secret,},
     }
+    resource["spec"]["security"]["authentication"]["agents"] = {"mode": "SCRAM"}
     resource["spec"]["security"]["authentication"]["modes"] = ["LDAP", "SCRAM"]
 
     return resource.create()

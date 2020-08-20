@@ -117,6 +117,16 @@ func additionalMongodConfig(ms MongoDbSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
+func agentModeIsSetIfMoreThanADeploymentAuthModeIsSet(ms MongoDbSpec) v1.ValidationResult {
+	if ms.Security == nil || ms.Security.Authentication == nil {
+		return v1.ValidationSuccess()
+	}
+	if len(ms.Security.Authentication.Modes) > 1 && ms.Security.Authentication.Agents.Mode == "" {
+		return v1.ValidationError("spec.security.authentication.agents.mode must be specified if more than one entry is present in spec.security.authentication.modes")
+	}
+	return v1.ValidationSuccess()
+}
+
 func (m MongoDB) RunValidations() []v1.ValidationResult {
 	validators := []func(ms MongoDbSpec) v1.ValidationResult{
 		replicaSetHorizonsRequireTLS,
@@ -127,6 +137,7 @@ func (m MongoDB) RunValidations() []v1.ValidationResult {
 		additionalMongodConfig,
 		ldapAuthRequiresEnterprise,
 		rolesAttributeisCorrectlyConfigured,
+		agentModeIsSetIfMoreThanADeploymentAuthModeIsSet,
 	}
 
 	var validationResults []v1.ValidationResult
