@@ -30,7 +30,9 @@ import (
 
 const relativeVersionManifestFixturePath = "testdata/version_manifest.json"
 
-const gitVersionFromTestData = "a0bbbff6ada159e19298d37946ac8dc4b497eadf"
+const gitVersionFromTestData = "a57d8e71e6998a2d0afde7edc11bd23e5661c915"
+const firstMdbVersionInTestManifest = "3.6.0"
+const numberOfBuildsInFirstVersion = 2
 
 func init() {
 	util.BundledAppDbMongoDBVersion = "4.2.2-ent"
@@ -216,24 +218,23 @@ func TestBuildAppDbAutomationConfig(t *testing.T) {
 	assert.Equal(t, map[string]string{"downloadBase": util.AgentDownloadsDir}, deployment["options"])
 
 	// we have only the bundled version here
-	assert.Len(t, automationConfig.MongodbVersions(), 1)
+	assert.Len(t, automationConfig.MongodbVersions(), 3)
 
-	fourTwoTwoEnt := automationConfig.MongodbVersions()[0]
+	threeSixZero := automationConfig.MongodbVersions()[0]
 
-	assert.Equal(t, "4.2.2-ent", fourTwoTwoEnt.Name)
-	// test version_manifest.json has 6 builds
-	assert.Len(t, fourTwoTwoEnt.Builds, 6)
+	assert.Equal(t, firstMdbVersionInTestManifest, threeSixZero.Name)
+	assert.Len(t, threeSixZero.Builds, numberOfBuildsInFirstVersion)
 
 	// only checking 1st build data matches
-	firstBuild := fourTwoTwoEnt.Builds[0]
+	firstBuild := threeSixZero.Builds[0]
 	assert.Equal(t, "linux", firstBuild.Platform)
 	assert.Equal(t, gitVersionFromTestData, firstBuild.GitVersion)
-	assert.Equal(t, "ppc64le", firstBuild.Architecture)
-	assert.Equal(t, "rhel", firstBuild.Flavor)
-	assert.Equal(t, "7.0", firstBuild.MinOsVersion)
-	assert.Equal(t, "8.0", firstBuild.MaxOsVersion)
-	assert.Equal(t, "https://downloads.mongodb.com/linux/mongodb-linux-ppc64le-enterprise-rhel71-4.2.2.tgz", firstBuild.Url)
-	assert.Equal(t, firstBuild.Modules, []string{"enterprise"})
+	assert.Equal(t, "amd64", firstBuild.Architecture)
+	assert.Equal(t, "ubuntu", firstBuild.Flavor)
+	assert.Equal(t, "14.04", firstBuild.MinOsVersion)
+	assert.Equal(t, "15.04", firstBuild.MaxOsVersion)
+	assert.Equal(t, "https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu1404-3.6.0.tgz", firstBuild.Url)
+	assert.Empty(t, firstBuild.Modules)
 
 }
 
@@ -263,23 +264,6 @@ func TestGenerateScramCredentials(t *testing.T) {
 	assert.NotEqual(t, differentNameScram256Creds, firstScram256Creds, "a different name should generate different scram 256 credentials even with the same password")
 }
 
-func TestBundledVersionManifestIsUsed_WhenCorrespondingVersionIsUsed(t *testing.T) {
-	builder := DefaultOpsManagerBuilder().
-		SetAppDbMembers(2).
-		SetAppDbVersion("4.2.2-ent").
-		SetAppDbFeatureCompatibility("4.0")
-	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
-	assert.NoError(t, err)
-	mongodbVersion := automationConfig.MongodbVersions()[0]
-	mongodbBuilds := mongodbVersion.Builds
-	firstBuild := mongodbBuilds[0]
-
-	assert.Equal(t, firstBuild.Platform, "linux")
-	assert.Equal(t, firstBuild.GitVersion, gitVersionFromTestData)
-	assert.Equal(t, mongodbVersion.Name, "4.2.2-ent")
-	assert.Len(t, mongodbBuilds, 6)
-}
-
 func TestBundledVersionManifestIsUsed_WhenSpecified(t *testing.T) {
 	builder := DefaultOpsManagerBuilder().
 		SetAppDbMembers(2).
@@ -293,8 +277,8 @@ func TestBundledVersionManifestIsUsed_WhenSpecified(t *testing.T) {
 
 	assert.Equal(t, firstBuild.Platform, "linux")
 	assert.Equal(t, firstBuild.GitVersion, gitVersionFromTestData)
-	assert.Equal(t, mongodbVersion.Name, "4.2.2-ent")
-	assert.Len(t, mongodbBuilds, 6)
+	assert.Equal(t, mongodbVersion.Name, firstMdbVersionInTestManifest)
+	assert.Len(t, mongodbBuilds, numberOfBuildsInFirstVersion)
 }
 
 func TestBundledVersionManifestIsUsed_WhenVersionIsEmpty(t *testing.T) {
@@ -310,8 +294,8 @@ func TestBundledVersionManifestIsUsed_WhenVersionIsEmpty(t *testing.T) {
 
 	assert.Equal(t, firstBuild.Platform, "linux")
 	assert.Equal(t, firstBuild.GitVersion, gitVersionFromTestData)
-	assert.Equal(t, mongodbVersion.Name, "4.2.2-ent")
-	assert.Len(t, mongodbBuilds, 6)
+	assert.Equal(t, mongodbVersion.Name, firstMdbVersionInTestManifest)
+	assert.Len(t, mongodbBuilds, numberOfBuildsInFirstVersion)
 }
 
 func TestVersionManifestIsDownloaded_WhenNotUsingBundledVersion(t *testing.T) {
@@ -322,20 +306,22 @@ func TestVersionManifestIsDownloaded_WhenNotUsingBundledVersion(t *testing.T) {
 	automationConfig, err := buildAutomationConfigForAppDb(builder, om.InternetManifestProvider{})
 	if err != nil {
 		// if failing, checking that the error is connectivity only
-		assert.Equal(t, err.Error(), "Get https://opsmanager.mongodb.com/static/version_manifest/4.2.json: dial tcp: lookup opsmanager.mongodb.com: no such host")
+		assert.Contains(t, err.Error(), "dial tcp: lookup opsmanager.mongodb.com: no such host")
 		return
 	}
 
-	// mongodb versions (as of OM 4.2.2 version manifests contains 235 entries)
-	assert.True(t, len(automationConfig.MongodbVersions()) > 234)
+	// mongodb versions (as of OM 4.4.1 version manifest contains 162 entries if all up to 3.6 are removed)
+	assert.True(t, len(automationConfig.MongodbVersions()) > 160)
 
-	twoSix := automationConfig.MongodbVersions()[0]
-	assert.Equal(t, "2.6.0", twoSix.Name)
-	assert.Equal(t, "linux", twoSix.Builds[0].Platform)
-	assert.Equal(t, "1c1c76aeca21c5983dc178920f5052c298db616c", twoSix.Builds[0].GitVersion)
-	assert.Equal(t, "amd64", twoSix.Builds[0].Architecture)
-	assert.Equal(t, "https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-2.6.0.tgz", twoSix.Builds[0].Url)
-	assert.Len(t, twoSix.Builds[0].Modules, 0)
+	// All versions before 3.6.0 are removed
+	threeSix := automationConfig.MongodbVersions()[0]
+	assert.Equal(t, "3.6.0", threeSix.Name)
+	assert.Equal(t, "linux", threeSix.Builds[0].Platform)
+	assert.Equal(t, "a57d8e71e6998a2d0afde7edc11bd23e5661c915", threeSix.Builds[0].GitVersion)
+	assert.Equal(t, "amd64", threeSix.Builds[0].Architecture)
+	assert.Equal(t, "https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-3.6.0.tgz", threeSix.Builds[0].Url)
+	assert.Len(t, threeSix.Builds, 13)
+	assert.Len(t, threeSix.Builds[0].Modules, 0)
 
 	var fourTwoEnt om.MongoDbVersionConfig
 	// seems like we cannot rely on the build by index - there used to be the "4.2.0-ent" on 234 position in the
@@ -468,7 +454,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 
 // ***************** Helper methods *******************************
 
-func buildAutomationConfigForAppDb(builder *omv1.OpsManagerBuilder, internetManifestProvider om.VersionManifestProvider) (*om.AutomationConfig, error) {
+func buildAutomationConfigForAppDb(builder *omv1.OpsManagerBuilder, internetManifestProvider om.ManifestProvider) (*om.AutomationConfig, error) {
 	opsManager := builder.Build()
 	kubeManager := mock.NewManager(&opsManager)
 
@@ -490,7 +476,7 @@ func checkDeploymentEqualToPublished(t *testing.T, expected om.Deployment, s *co
 	assert.Equal(t, expected.ToCanonicalForm(), publishedDeployment)
 }
 
-func newAppDbReconciler(mgr manager.Manager, internetManifestProvider om.VersionManifestProvider) *ReconcileAppDbReplicaSet {
+func newAppDbReconciler(mgr manager.Manager, internetManifestProvider om.ManifestProvider) *ReconcileAppDbReplicaSet {
 	return &ReconcileAppDbReplicaSet{ReconcileCommonController: newReconcileCommonController(mgr, nil), VersionManifestFilePath: relativeVersionManifestFixturePath, InternetManifestProvider: internetManifestProvider}
 }
 
@@ -505,6 +491,6 @@ func readAutomationConfigMap(t *testing.T, kubeManager *mock.MockedManager, opsM
 // by failing to fetch the version manifest
 type AlwaysFailingManifestProvider struct{}
 
-func (AlwaysFailingManifestProvider) GetVersionManifest() (*om.VersionManifest, error) {
+func (AlwaysFailingManifestProvider) GetVersion() (*om.Manifest, error) {
 	return nil, errors.New("failed to get version manifest")
 }

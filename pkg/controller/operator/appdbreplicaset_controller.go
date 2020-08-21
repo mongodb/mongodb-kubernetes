@@ -41,7 +41,7 @@ const DefaultWaitForReadinessSeconds = 13
 type ReconcileAppDbReplicaSet struct {
 	*ReconcileCommonController
 	VersionManifestFilePath  string
-	InternetManifestProvider om.VersionManifestProvider
+	InternetManifestProvider om.ManifestProvider
 }
 
 func newAppDBReplicaSetReconciler(commonController *ReconcileCommonController, appDbVersionManifestPath string) *ReconcileAppDbReplicaSet {
@@ -345,7 +345,7 @@ func buildOpsManagerUser(scramSha1Creds, scramSha256Creds *om.ScramShaCreds) om.
 
 func (r ReconcileAppDbReplicaSet) configureMongoDBVersions(config *om.AutomationConfig, rs omv1.AppDB, log *zap.SugaredLogger) error {
 	if rs.GetVersion() == util.BundledAppDbMongoDBVersion {
-		versionManifest, err := om.FileVersionManifestProvider{FilePath: r.VersionManifestFilePath}.GetVersionManifest()
+		versionManifest, err := om.FileManifestProvider{FilePath: r.VersionManifestFilePath}.GetVersion()
 		if err != nil {
 			return err
 		}
@@ -359,7 +359,7 @@ func (r ReconcileAppDbReplicaSet) configureMongoDBVersions(config *om.Automation
 
 func (r *ReconcileAppDbReplicaSet) addLatestMongoDBVersions(config *om.AutomationConfig, log *zap.SugaredLogger) error {
 	start := time.Now()
-	versionManifest, err := r.InternetManifestProvider.GetVersionManifest()
+	versionManifest, err := r.InternetManifestProvider.GetVersion()
 	if err != nil {
 		return err
 	}

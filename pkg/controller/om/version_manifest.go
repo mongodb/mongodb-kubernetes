@@ -8,39 +8,39 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/blang/semver"
+	"go.uber.org/zap"
 )
 
-type VersionManifest struct {
+// Important: 3.6.0 won't work here as semver library will consider 3.6.0-ent as lower than
+// 3.6.0 (considers it to be an RC?)!
+const MINIMUM_ALLOWED_MDB_VERSION = "3.5.0"
+
+type Manifest struct {
 	Updated  int                    `json:"updated"`
 	Versions []MongoDbVersionConfig `json:"versions"`
 }
 
-type VersionManifestProvider interface {
-	GetVersionManifest() (*VersionManifest, error)
+type ManifestProvider interface {
+	GetVersion() (*Manifest, error)
 }
 
-type FileVersionManifestProvider struct {
+type FileManifestProvider struct {
 	FilePath string
 }
 
-func (p FileVersionManifestProvider) GetVersionManifest() (*VersionManifest, error) {
+func (p FileManifestProvider) GetVersion() (*Manifest, error) {
 	data, err := ioutil.ReadFile(p.FilePath)
 	if err != nil {
 		return nil, err
 	}
 
-	versionManifest := &VersionManifest{}
-	err = json.Unmarshal(data, &versionManifest)
-	if err != nil {
-		return nil, err
-	}
-	fixLinksAndBuildModules(versionManifest.Versions)
-	return versionManifest, nil
+	return readManifest(data)
 }
 
 type InternetManifestProvider struct{}
 
-func (InternetManifestProvider) GetVersionManifest() (*VersionManifest, error) {
+func (InternetManifestProvider) GetVersion() (*Manifest, error) {
 	client, err := api.NewHTTPClient()
 	if err != nil {
 		return nil, err
@@ -55,13 +55,37 @@ func (InternetManifestProvider) GetVersionManifest() (*VersionManifest, error) {
 		return nil, err
 	}
 
-	versionManifest := &VersionManifest{}
-	err = json.Unmarshal(body, &versionManifest)
+	return readManifest(body)
+}
+
+// readManifest deserializes and proceses the manifest (filters out legacy versions and fixes links)
+func readManifest(data []byte) (*Manifest, error) {
+	versionManifest := &Manifest{}
+	err := json.Unmarshal(data, &versionManifest)
 	if err != nil {
 		return nil, err
 	}
+
+	versionManifest.Versions = cutLegacyVersions(versionManifest.Versions, MINIMUM_ALLOWED_MDB_VERSION)
 	fixLinksAndBuildModules(versionManifest.Versions)
 	return versionManifest, nil
+}
+
+// cutLegacyVersions filters out the old Mongodb versions from version manifest - otherwise the automation config
+// may get too big
+func cutLegacyVersions(configs []MongoDbVersionConfig, firstAllowedVersion string) []MongoDbVersionConfig {
+	minimumAllowedVersion, _ := semver.Make(firstAllowedVersion)
+	var versions []MongoDbVersionConfig
+
+	for _, version := range configs {
+		manifestVersion, err := semver.Make(version.Name)
+		if err != nil {
+			zap.S().Warnf("Failed to parse version from version manifest: %s", err)
+		} else if manifestVersion.GE(minimumAllowedVersion) {
+			versions = append(versions, version)
+		}
+	}
+	return versions
 }
 
 // fixLinksAndBuildModules iterates over build links and prefixes them with a correct domain

@@ -265,7 +265,6 @@ func baseOwnerReference(owner v1.CustomResourceReadWriter) []metav1.OwnerReferen
 }
 
 // TODO: delete this and move unit tests into construction_test.go
-//lint:ignore U1000 currently only used in tests,
 func databaseEnvVars(podVars *PodVars) []corev1.EnvVar {
 	vars := []corev1.EnvVar{
 		{
