@@ -113,6 +113,7 @@ class TestCanChangePassword(KubernetesTester):
             password="my-new-password",
             username="mms-user-1",
             auth_mechanism="SCRAM-SHA-256",
+            attempts=20,
         )
 
     def test_user_cannot_authenticate_with_old_password(self):
