@@ -127,6 +127,17 @@ func agentModeIsSetIfMoreThanADeploymentAuthModeIsSet(ms MongoDbSpec) v1.Validat
 	return v1.ValidationSuccess()
 }
 
+func ldapGroupDnIsSetIfLdapAuthzIsEnabledAndAgentsAreExternal(ms MongoDbSpec) v1.ValidationResult {
+	if ms.Security == nil || ms.Security.Authentication == nil || ms.Security.Authentication.Ldap == nil {
+		return v1.ValidationSuccess()
+	}
+	auth := ms.Security.Authentication
+	if auth.Ldap.AuthzQueryTemplate != "" && auth.Agents.AutomationLdapGroupDN == "" && stringutil.Contains([]string{"X509", "LDAP"}, auth.Agents.Mode) {
+		return v1.ValidationError("automationLdapGroupDN must be specified if LDAP authorization is used and agent auth mode is $external (x509 or LDAP)")
+	}
+	return v1.ValidationSuccess()
+}
+
 func (m MongoDB) RunValidations() []v1.ValidationResult {
 	validators := []func(ms MongoDbSpec) v1.ValidationResult{
 		replicaSetHorizonsRequireTLS,
@@ -138,6 +149,7 @@ func (m MongoDB) RunValidations() []v1.ValidationResult {
 		ldapAuthRequiresEnterprise,
 		rolesAttributeisCorrectlyConfigured,
 		agentModeIsSetIfMoreThanADeploymentAuthModeIsSet,
+		ldapGroupDnIsSetIfLdapAuthzIsEnabledAndAgentsAreExternal,
 	}
 
 	var validationResults []v1.ValidationResult

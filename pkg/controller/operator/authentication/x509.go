@@ -44,7 +44,6 @@ func (x ConnectionX509) EnableAgentAuthentication(opts Options, log *zap.Sugared
 			CAFilePath:            util.CAFilePathInContainer,
 			ClientCertificateMode: opts.ClientCertificates,
 		}
-
 		// we want to ensure we don't have any SCRAM-1/256 agent users
 		// present. We want the final set of agent users to be the 2 agent
 		// x509 users
@@ -56,7 +55,7 @@ func (x ConnectionX509) EnableAgentAuthentication(opts Options, log *zap.Sugared
 		for _, user := range buildX509AgentUsers(x.Options.UserOptions) {
 			auth.EnsureUser(user)
 		}
-
+		auth.LdapGroupDN = opts.AutoLdapGroupDN
 		auth.AutoAuthMechanisms = []string{string(MongoDBX509)}
 
 		return nil
@@ -69,6 +68,7 @@ func (x ConnectionX509) EnableAgentAuthentication(opts Options, log *zap.Sugared
 	log.Info("Configuring backup agent user")
 	err = x.Conn.ReadUpdateBackupAgentConfig(func(config *om.BackupAgentConfig) error {
 		config.EnableX509Authentication(opts.BackupSubject)
+		config.SetLdapGroupDN(opts.AutoLdapGroupDN)
 		return nil
 	}, log)
 
@@ -79,6 +79,7 @@ func (x ConnectionX509) EnableAgentAuthentication(opts Options, log *zap.Sugared
 	log.Info("Configuring monitoring agent user")
 	return x.Conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
 		config.EnableX509Authentication(opts.MonitoringSubject)
+		config.SetLdapGroupDN(opts.AutoLdapGroupDN)
 		return nil
 	}, log)
 }

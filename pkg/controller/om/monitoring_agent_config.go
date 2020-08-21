@@ -15,6 +15,7 @@ type MonitoringAgentTemplate struct {
 	Username      string `json:"username,omitempty"`
 	Password      string `json:"password"`
 	SSLPemKeyFile string `json:"sslPEMKeyFile,omitempty"`
+	LdapGroupDN   string `json:"ldapGroupDN"`
 }
 
 func (m *MonitoringAgentConfig) Apply() error {
@@ -60,6 +61,15 @@ func (m *MonitoringAgentConfig) EnableLdapAuthentication(monitoringAgentSubject 
 func (m *MonitoringAgentConfig) DisableLdapAuthentication() {
 	m.UnsetAgentUsername()
 	m.UnsetAgentPassword()
+	m.UnsetLdapGroupDN()
+}
+
+func (m *MonitoringAgentConfig) SetLdapGroupDN(ldapGroupDn string) {
+	m.MonitoringAgentTemplate.LdapGroupDN = ldapGroupDn
+}
+
+func (m *MonitoringAgentConfig) UnsetLdapGroupDN() {
+	m.MonitoringAgentTemplate.LdapGroupDN = util.MergoDelete
 }
 
 // BuildMonitoringAgentConfigFromBytes

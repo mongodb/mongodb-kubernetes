@@ -1482,8 +1482,17 @@ tasks:
   commands:
     - func: "e2e_test"
 
-
 - name: e2e_replica_set_custom_roles
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_ldap_group_dn
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_ldap_group_dn_with_x509_agent
   tags: ["patch-run"]
   commands:
     - func: "e2e_test"
@@ -1844,6 +1853,8 @@ task_groups:
     - e2e_replica_set_ldap_user_to_dn_mapping
     - e2e_replica_set_ldap_agent_auth
     - e2e_replica_set_custom_roles
+    - e2e_replica_set_ldap_group_dn
+    - e2e_replica_set_ldap_group_dn_with_x509_agent
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment

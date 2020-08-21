@@ -43,6 +43,7 @@ func (l *ldapAuthMechanism) EnableAgentAuthentication(opts Options, log *zap.Sug
 		}
 
 		auth.AutoUser = l.Options.AutomationSubject
+		auth.LdapGroupDN = opts.AutoLdapGroupDN
 		auth.AutoAuthMechanisms = []string{string(LDAPPlain)}
 		return nil
 	}, log)
@@ -54,6 +55,7 @@ func (l *ldapAuthMechanism) EnableAgentAuthentication(opts Options, log *zap.Sug
 	log.Info("Configuring backup agent user")
 	err = l.Conn.ReadUpdateBackupAgentConfig(func(config *om.BackupAgentConfig) error {
 		config.EnableLdapAuthentication(l.Options.BackupSubject, opts.AutoPwd)
+		config.SetLdapGroupDN(opts.AutoLdapGroupDN)
 		return nil
 	}, log)
 
@@ -64,6 +66,7 @@ func (l *ldapAuthMechanism) EnableAgentAuthentication(opts Options, log *zap.Sug
 	log.Info("Configuring monitoring agent user")
 	return l.Conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
 		config.EnableLdapAuthentication(l.Options.MonitoringSubject, opts.AutoPwd)
+		config.SetLdapGroupDN(opts.AutoLdapGroupDN)
 		return nil
 	}, log)
 }

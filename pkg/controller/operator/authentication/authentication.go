@@ -50,6 +50,8 @@ type Options struct {
 	AutoUser string
 
 	AutoPwd string
+
+	AutoLdapGroupDN string
 }
 
 func Redact(o Options) Options {

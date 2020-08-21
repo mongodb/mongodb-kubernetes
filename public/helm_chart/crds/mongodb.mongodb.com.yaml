@@ -183,6 +183,8 @@ spec:
                               type: string
                             key:
                               type: string
+                        automationLdapGroupDN:
+                          type: string
                       required:
                         - mode
                     enabled:

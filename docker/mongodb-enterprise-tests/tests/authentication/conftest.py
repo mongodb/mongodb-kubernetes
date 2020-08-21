@@ -6,6 +6,7 @@ from kubetester.ldap import (
     create_user,
     ensure_organizational_unit,
     ensure_group,
+    ensure_organization,
     add_user_to_group,
     OpenLDAP,
     LDAPUser,
@@ -27,6 +28,8 @@ LDAP_PORT_PLAIN = 389
 LDAP_PORT_TLS = 636
 LDAP_PROTO_PLAIN = "ldap"
 LDAP_PROTO_TLS = "ldaps"
+
+AUTOMATION_AGENT_NAME = "mms-automation-agent"
 
 
 @fixture(scope="module")
@@ -80,15 +83,47 @@ def ldap_mongodb_user_tls(openldap_tls: OpenLDAP, ca_path: str) -> LDAPUser:
 
 
 @fixture(scope="module")
+def ldap_mongodb_x509_agent_user(
+    openldap: OpenLDAP, namespace: str, ca_path: str
+) -> LDAPUser:
+    organization_name = "cluster.local-agent"
+    user = LDAPUser(AUTOMATION_AGENT_NAME, LDAP_PASSWORD,)
+
+    ensure_organization(openldap, organization_name, ca_path=ca_path)
+
+    ensure_organizational_unit(
+        openldap, namespace, o=organization_name, ca_path=ca_path
+    )
+    create_user(openldap, user, ou=namespace, o=organization_name)
+
+    ensure_group(
+        openldap,
+        cn=AUTOMATION_AGENT_NAME,
+        ou=namespace,
+        o=organization_name,
+        ca_path=ca_path,
+    )
+
+    add_user_to_group(
+        openldap,
+        user=AUTOMATION_AGENT_NAME,
+        group_cn=AUTOMATION_AGENT_NAME,
+        ou=namespace,
+        o=organization_name,
+    )
+    return user
+
+
+@fixture(scope="module")
 def ldap_mongodb_agent_user(openldap: OpenLDAP) -> LDAPUser:
-    user = LDAPUser("mms-automation-agent", LDAP_PASSWORD)
+    user = LDAPUser(AUTOMATION_AGENT_NAME, LDAP_PASSWORD)
 
     ensure_organizational_unit(openldap, "groups")
     create_user(openldap, user, ou="groups")
 
-    ensure_group(openldap, cn="users", ou="groups")
+    ensure_group(openldap, cn="agents", ou="groups")
     add_user_to_group(
-        openldap, user="mms-automation-agent", group_cn="users", ou="groups"
+        openldap, user=AUTOMATION_AGENT_NAME, group_cn="agents", ou="groups"
     )
 
     return user

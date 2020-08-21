@@ -10,6 +10,7 @@ type BackupAgentTemplate struct {
 	Username      string `json:"username"`
 	Password      string `json:"password"`
 	SSLPemKeyFile string `json:"sslPEMKeyFile"`
+	LdapGroupDN   string `json:"ldapGroupDN"`
 }
 
 type BackupAgentConfig struct {
@@ -60,6 +61,15 @@ func (bac *BackupAgentConfig) EnableLdapAuthentication(backupAgentSubject string
 func (bac *BackupAgentConfig) DisableLdapAuthentication() {
 	bac.UnsetAgentUsername()
 	bac.UnsetAgentPassword()
+	bac.UnsetLdapGroupDN()
+}
+
+func (bac *BackupAgentConfig) SetLdapGroupDN(ldapGroupDn string) {
+	bac.BackupAgentTemplate.LdapGroupDN = ldapGroupDn
+}
+
+func (bac *BackupAgentConfig) UnsetLdapGroupDN() {
+	bac.BackupAgentTemplate.LdapGroupDN = util.MergoDelete
 }
 
 // BuildBackupAgentConfigFromBytes

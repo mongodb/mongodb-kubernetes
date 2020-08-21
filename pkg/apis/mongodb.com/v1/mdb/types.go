@@ -396,6 +396,8 @@ type AgentAuthentication struct {
 	AutomationUserName string `json:"automationUserName"`
 
 	AutomationPasswordSecretRef corev1.SecretKeySelector `json:"automationPasswordSecretRef"`
+
+	AutomationLdapGroupDN string `json:"automationLdapGroupDN"`
 }
 
 // IsX509Enabled determines if X509 is to be enabled at the project level

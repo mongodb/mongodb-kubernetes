@@ -767,6 +767,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 		AgentMechanism:      mdb.Spec.Security.GetAgentMechanism(ac.Auth.AutoAuthMechanism),
 		ClientCertificates:  clientCerts,
 		AutoUser:            scramAgentUserName,
+		AutoLdapGroupDN:     mdb.Spec.Security.Authentication.Agents.AutomationLdapGroupDN,
 	}
 
 	if mdb.IsLDAPEnabled() {

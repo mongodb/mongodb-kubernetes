@@ -37,6 +37,7 @@ def create_user(
     user: LDAPUser,
     ca_path: Optional[str] = None,
     ou: Optional[str] = None,
+    o: Optional[str] = None,
 ):
     """Creates a new user in the LDAP database. It might include an optional organizational unit (ou)."""
     con = ldap_initialize(server, ca_path)
@@ -48,12 +49,31 @@ def create_user(
     }
     ldapmodlist = ldap.modlist.addModlist(modlist)
 
-    dn = build_dn(uid=user.uid, ou=ou, base=server.ldap_base)
+    dn = build_dn(uid=user.uid, ou=ou, o=o, base=server.ldap_base)
+    con.add_s(dn, ldapmodlist)
+
+
+def ensure_organization(server: OpenLDAP, o: str, ca_path: Optional[str] = None):
+    """If an organizational unit with the provided name does not exists, it creates one."""
+    con = ldap_initialize(server, ca_path)
+
+    result = con.search_s(server.ldap_base, ldap.SCOPE_SUBTREE, filterstr="o=" + o)
+    if result is None:
+        raise Exception(
+            f"Error when trying to check for organization {o} in the ldap server"
+        )
+    if len(result) != 0:
+        return
+    modlist = {"objectClass": [b"top", b"organization"], "o": [str.encode(o)]}
+
+    ldapmodlist = ldap.modlist.addModlist(modlist)
+
+    dn = build_dn(o=o, base=server.ldap_base)
     con.add_s(dn, ldapmodlist)
 
 
 def ensure_organizational_unit(
-    server: OpenLDAP, ou: str, ca_path: Optional[str] = None
+    server: OpenLDAP, ou: str, o: Optional[str] = None, ca_path: Optional[str] = None
 ):
     """If an organizational unit with the provided name does not exists, it creates one."""
     con = ldap_initialize(server, ca_path)
@@ -69,11 +89,17 @@ def ensure_organizational_unit(
 
     ldapmodlist = ldap.modlist.addModlist(modlist)
 
-    dn = build_dn(ou=ou, base=server.ldap_base)
+    dn = build_dn(ou=ou, o=o, base=server.ldap_base)
     con.add_s(dn, ldapmodlist)
 
 
-def ensure_group(server: OpenLDAP, cn: str, ou: str, ca_path: Optional[str] = None):
+def ensure_group(
+    server: OpenLDAP,
+    cn: str,
+    ou: str,
+    o: Optional[str] = None,
+    ca_path: Optional[str] = None,
+):
     """If a group with the provided name does not exists, it creates a group in the LDAP database,
     that also belongs to an organizational unit. By default, it adds the admin user to it."""
     con = ldap_initialize(server, ca_path)
@@ -83,7 +109,7 @@ def ensure_group(server: OpenLDAP, cn: str, ou: str, ca_path: Optional[str] = No
         raise Exception(f"Error when trying to check for group {cn} in the ldap server")
     if len(result) != 0:
         return
-    unique_member = build_dn(base=server.ldap_base, uid="admin", ou=ou)
+    unique_member = build_dn(base=server.ldap_base, uid="admin", ou=ou, o=o)
     modlist = {
         "objectClass": [b"top", b"groupOfUniqueNames"],
         "cn": str.encode(cn),
@@ -91,22 +117,27 @@ def ensure_group(server: OpenLDAP, cn: str, ou: str, ca_path: Optional[str] = No
     }
     ldapmodlist = ldap.modlist.addModlist(modlist)
 
-    dn = build_dn(base=server.ldap_base, cn=cn, ou=ou)
+    dn = build_dn(base=server.ldap_base, cn=cn, ou=ou, o=o)
 
     con.add_s(dn, ldapmodlist)
 
 
 def add_user_to_group(
-    server: OpenLDAP, user: str, group_cn: str, ou: str, ca_path: Optional[str] = None
+    server: OpenLDAP,
+    user: str,
+    group_cn: str,
+    ou: str,
+    o: Optional[str] = None,
+    ca_path: Optional[str] = None,
 ):
     """Adds a new uniqueMember to a group, this is equivalent to add a user to the group."""
     con = ldap_initialize(server, ca_path)
 
-    unique_member = build_dn(uid=user, ou=ou, base=server.ldap_base)
+    unique_member = build_dn(uid=user, ou=ou, o=o, base=server.ldap_base)
     modlist = {"uniqueMember": [str.encode(unique_member)]}
     ldapmodlist = ldap.modlist.modifyModlist({}, modlist)
 
-    dn = build_dn(cn=group_cn, ou=ou, base=server.ldap_base)
+    dn = build_dn(cn=group_cn, ou=ou, o=o, base=server.ldap_base)
     con.modify_s(dn, ldapmodlist)
 
 
