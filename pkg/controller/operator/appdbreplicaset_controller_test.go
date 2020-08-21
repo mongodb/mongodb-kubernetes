@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/manifest"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
@@ -303,7 +304,7 @@ func TestVersionManifestIsDownloaded_WhenNotUsingBundledVersion(t *testing.T) {
 		SetAppDbMembers(2).
 		SetAppDbVersion("4.1.2-ent").
 		SetAppDbFeatureCompatibility("4.0")
-	automationConfig, err := buildAutomationConfigForAppDb(builder, om.InternetManifestProvider{})
+	automationConfig, err := buildAutomationConfigForAppDb(builder, manifest.InternetProvider{})
 	if err != nil {
 		// if failing, checking that the error is connectivity only
 		assert.Contains(t, err.Error(), "dial tcp: lookup opsmanager.mongodb.com: no such host")
@@ -454,7 +455,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 
 // ***************** Helper methods *******************************
 
-func buildAutomationConfigForAppDb(builder *omv1.OpsManagerBuilder, internetManifestProvider om.ManifestProvider) (*om.AutomationConfig, error) {
+func buildAutomationConfigForAppDb(builder *omv1.OpsManagerBuilder, internetManifestProvider manifest.Provider) (*om.AutomationConfig, error) {
 	opsManager := builder.Build()
 	kubeManager := mock.NewManager(&opsManager)
 
@@ -476,7 +477,7 @@ func checkDeploymentEqualToPublished(t *testing.T, expected om.Deployment, s *co
 	assert.Equal(t, expected.ToCanonicalForm(), publishedDeployment)
 }
 
-func newAppDbReconciler(mgr manager.Manager, internetManifestProvider om.ManifestProvider) *ReconcileAppDbReplicaSet {
+func newAppDbReconciler(mgr manager.Manager, internetManifestProvider manifest.Provider) *ReconcileAppDbReplicaSet {
 	return &ReconcileAppDbReplicaSet{ReconcileCommonController: newReconcileCommonController(mgr, nil), VersionManifestFilePath: relativeVersionManifestFixturePath, InternetManifestProvider: internetManifestProvider}
 }
 
@@ -491,6 +492,6 @@ func readAutomationConfigMap(t *testing.T, kubeManager *mock.MockedManager, opsM
 // by failing to fetch the version manifest
 type AlwaysFailingManifestProvider struct{}
 
-func (AlwaysFailingManifestProvider) GetVersion() (*om.Manifest, error) {
+func (AlwaysFailingManifestProvider) GetVersion() (*manifest.Manifest, error) {
 	return nil, errors.New("failed to get version manifest")
 }

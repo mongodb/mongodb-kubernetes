@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/manifest"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
@@ -41,11 +42,11 @@ const DefaultWaitForReadinessSeconds = 13
 type ReconcileAppDbReplicaSet struct {
 	*ReconcileCommonController
 	VersionManifestFilePath  string
-	InternetManifestProvider om.ManifestProvider
+	InternetManifestProvider manifest.Provider
 }
 
 func newAppDBReplicaSetReconciler(commonController *ReconcileCommonController, appDbVersionManifestPath string) *ReconcileAppDbReplicaSet {
-	return &ReconcileAppDbReplicaSet{ReconcileCommonController: commonController, VersionManifestFilePath: appDbVersionManifestPath, InternetManifestProvider: om.InternetManifestProvider{}}
+	return &ReconcileAppDbReplicaSet{ReconcileCommonController: commonController, VersionManifestFilePath: appDbVersionManifestPath, InternetManifestProvider: manifest.InternetProvider{}}
 }
 
 // Reconcile deploys the "headless" agent, and wait until it reaches the goal state
@@ -349,7 +350,7 @@ func buildOpsManagerUser(scramSha1Creds, scramSha256Creds *om.ScramShaCreds) om.
 
 func (r ReconcileAppDbReplicaSet) configureMongoDBVersions(config *om.AutomationConfig, rs omv1.AppDB, log *zap.SugaredLogger) error {
 	if rs.GetVersion() == util.BundledAppDbMongoDBVersion {
-		versionManifest, err := om.FileManifestProvider{FilePath: r.VersionManifestFilePath}.GetVersion()
+		versionManifest, err := manifest.FileProvider{FilePath: r.VersionManifestFilePath}.GetVersion()
 		if err != nil {
 			return err
 		}

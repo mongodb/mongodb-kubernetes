@@ -1,4 +1,4 @@
-package om
+package manifest
 
 import (
 	"encoding/json"
@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/blang/semver"
@@ -17,19 +18,19 @@ import (
 const MINIMUM_ALLOWED_MDB_VERSION = "3.5.0"
 
 type Manifest struct {
-	Updated  int                    `json:"updated"`
-	Versions []MongoDbVersionConfig `json:"versions"`
+	Updated  int                       `json:"updated"`
+	Versions []om.MongoDbVersionConfig `json:"versions"`
 }
 
-type ManifestProvider interface {
+type Provider interface {
 	GetVersion() (*Manifest, error)
 }
 
-type FileManifestProvider struct {
+type FileProvider struct {
 	FilePath string
 }
 
-func (p FileManifestProvider) GetVersion() (*Manifest, error) {
+func (p FileProvider) GetVersion() (*Manifest, error) {
 	data, err := ioutil.ReadFile(p.FilePath)
 	if err != nil {
 		return nil, err
@@ -38,9 +39,9 @@ func (p FileManifestProvider) GetVersion() (*Manifest, error) {
 	return readManifest(data)
 }
 
-type InternetManifestProvider struct{}
+type InternetProvider struct{}
 
-func (InternetManifestProvider) GetVersion() (*Manifest, error) {
+func (InternetProvider) GetVersion() (*Manifest, error) {
 	client, err := api.NewHTTPClient()
 	if err != nil {
 		return nil, err
@@ -73,9 +74,9 @@ func readManifest(data []byte) (*Manifest, error) {
 
 // cutLegacyVersions filters out the old Mongodb versions from version manifest - otherwise the automation config
 // may get too big
-func cutLegacyVersions(configs []MongoDbVersionConfig, firstAllowedVersion string) []MongoDbVersionConfig {
+func cutLegacyVersions(configs []om.MongoDbVersionConfig, firstAllowedVersion string) []om.MongoDbVersionConfig {
 	minimumAllowedVersion, _ := semver.Make(firstAllowedVersion)
-	var versions []MongoDbVersionConfig
+	var versions []om.MongoDbVersionConfig
 
 	for _, version := range configs {
 		manifestVersion, err := semver.Make(version.Name)
@@ -91,7 +92,7 @@ func cutLegacyVersions(configs []MongoDbVersionConfig, firstAllowedVersion strin
 // fixLinksAndBuildModules iterates over build links and prefixes them with a correct domain
 // (see mms AutomationMongoDbVersionSvc#buildRemoteUrl) and ensures that build.Modules has
 // a non-nil value as this will cause the agent to fail cluster validation
-func fixLinksAndBuildModules(configs []MongoDbVersionConfig) {
+func fixLinksAndBuildModules(configs []om.MongoDbVersionConfig) {
 	for _, version := range configs {
 		for _, build := range version.Builds {
 			if strings.HasSuffix(version.Name, "-ent") {
