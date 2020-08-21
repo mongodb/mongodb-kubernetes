@@ -111,6 +111,8 @@ Finally publish the images manually:
 (note, that the last published image gets the tag "latest" so you should make sure that you publish Ops Manager
  and AppDB images in the ascending order of versions (e.g. `4.2.3` before `4.2.4`))
 
+The RedHat projects have been configured to auto-publish the images but this does not work, so after uploading you need to go to the webpage and publish the new version of the image in the web UI.
+
 
 ## Publish public repo
 

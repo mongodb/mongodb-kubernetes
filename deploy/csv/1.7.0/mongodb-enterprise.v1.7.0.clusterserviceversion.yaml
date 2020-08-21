@@ -20,8 +20,8 @@ metadata:
               }
             },
             "type": "ReplicaSet",
-            "version": "4.4.0-ent"
-            "persistent": "true"
+            "version": "4.4.0-ent",
+            "persistent": true
           },
           "status": {
             "phase": "Running",
@@ -93,7 +93,7 @@ metadata:
               "type": "LoadBalancer"
             },
             "applicationDatabase": {
-              "members": 3,              
+              "members": 3,
               "persistent": true,
               "podSpec": {
                 "cpu": "1"
@@ -105,8 +105,8 @@ metadata:
     capabilities: Deep Insights
     categories: Database
     certified: 'true'
-    containerImage: registry.connect.redhat.com/mongodb/enterprise-operator:1.5.4
-    createdAt: 2020-08-12T15:27:04Z
+    containerImage: registry.connect.redhat.com/mongodb/enterprise-operator:1.7.0
+    createdAt: 2020-08-18T09:03:46Z
     description: The MongoDB Enterprise Kubernetes Operator enables easy deploys of
       MongoDB into Kubernetes clusters, using our management, monitoring and backup
       platforms, Ops Manager and Cloud Manager.
@@ -173,12 +173,12 @@ spec:
           x-descriptors:
             - 'urn:alm:descriptor:com.tectonic.ui:text'
         - path: security.tls.enabled
-          displayName: Enable TLS 
+          displayName: Enable TLS
           x-descriptors:
             - 'urn:alm:descriptor:com.tectonic.ui:fieldGroup:security'
             - 'urn:alm:descriptor:com.tectonic.ui:booleanSwitch'
         - path: security.tls.ca
-          displayName: Custome CA Config Map 
+          displayName: Custom CA Config Map
           x-descriptors:
             - 'urn:alm:descriptor:com.tectonic.ui:fieldGroup:security'
             - 'urn:alm:descriptor:io.kubernetes:ConfigMap'
@@ -188,7 +188,7 @@ spec:
             - 'urn:alm:descriptor:com.tectonic.ui:fieldGroup:Authentication'
             - 'urn:alm:descriptor:com.tectonic.ui:booleanSwitch'
         - path: security.authentication.modes
-          displayName: Authentication Mode 
+          displayName: Authentication Mode
           x-descriptors:
             - 'urn:alm:descriptor:com.tectonic.ui:fieldGroup:Authentication'
             - 'urn:alm:descriptor:com.tectonic.ui:select:X509'
@@ -231,11 +231,11 @@ spec:
           name: ''
       specDescriptors:
         - path: username
-          displayName: Name of the database user.          
+          displayName: Name of the database user.
           x-descriptors:
             - 'urn:alm:descriptor:com.tectonic.ui:text'
         - path: db
-          displayName: Name of the database that stores usernames.          
+          displayName: Name of the database that stores usernames.
           x-descriptors:
             - 'urn:alm:descriptor:com.tectonic.ui:text'
         - path: passwordSecretKeyRef.name
@@ -275,51 +275,51 @@ spec:
           name: ''
       specDescriptors:
         - path: version
-          displayName: The version of Ops Manager to deploy.          
+          displayName: The version of Ops Manager to deploy.
           x-descriptors:
             - 'urn:alm:descriptor:com.tectonic.ui:number'
             - 'urn:alm:descriptor:com.tectonic.ui:fieldGroup:OpsManagerConfiguration'
         - path: replicas
-          displayName: The number of Ops Manager instances.          
+          displayName: The number of Ops Manager instances.
           x-descriptors:
             - 'urn:alm:descriptor:com.tectonic.ui:number'
             - 'urn:alm:descriptor:com.tectonic.ui:fieldGroup:OpsManagerConfiguration'
         - path: adminCredentials
-          displayName: Secret containing admin user credentials.          
+          displayName: Secret containing admin user credentials.
           x-descriptors:
             - 'urn:alm:descriptor:io.kubernetes:Secret'
             - 'urn:alm:descriptor:com.tectonic.ui:fieldGroup:OpsManagerConfiguration'
         - path: security.tls.secretRef.name
-          displayName: Secret to enable TLS for Ops Manager allowing it to serve traffic over HTTPS.          
+          displayName: Secret to enable TLS for Ops Manager allowing it to serve traffic over HTTPS.
           x-descriptors:
             - 'urn:alm:descriptor:io.kubernetes:Secret'
-            - 'urn:alm:descriptor:com.tectonic.ui:fieldGroup:OpsManagerConfiguration'        
+            - 'urn:alm:descriptor:com.tectonic.ui:fieldGroup:OpsManagerConfiguration'
 
         - path: applicationDatabase.members
-          displayName: Number of ReplicaSet nodes for Application Database.           
+          displayName: Number of ReplicaSet nodes for Application Database.
           x-descriptors:
             - 'urn:alm:descriptor:com.tectonic.ui:number'
-            - 'urn:alm:descriptor:com.tectonic.ui:fieldGroup:ApplicationDatabase'  
+            - 'urn:alm:descriptor:com.tectonic.ui:fieldGroup:ApplicationDatabase'
         - path: applicationDatabase.persistent
-          displayName: Enable Persistence         
+          displayName: Enable Persistence
           x-descriptors:
             - 'urn:alm:descriptor:com.tectonic.ui:booleanSwitch'
-            - 'urn:alm:descriptor:com.tectonic.ui:fieldGroup:ApplicationDatabase' 
+            - 'urn:alm:descriptor:com.tectonic.ui:fieldGroup:ApplicationDatabase'
         - path: applicationDatabase.security.tls.secretRef.name
-          displayName: Secret containing the TLS certificate signed by known or custom CA.          
+          displayName: Secret containing the TLS certificate signed by known or custom CA.
           x-descriptors:
             - 'urn:alm:descriptor:io.kubernetes:Secret'
-            - 'urn:alm:descriptor:com.tectonic.ui:fieldGroup:ApplicationDatabase'               
+            - 'urn:alm:descriptor:com.tectonic.ui:fieldGroup:ApplicationDatabase'
         - path: applicationDatabase.security.tls.ca
-          displayName: ConfigMap with CA for Custom TLS Certificate          
+          displayName: ConfigMap with CA for Custom TLS Certificate
           x-descriptors:
             - 'urn:alm:descriptor:io.kubernetes:ConfigMap'
-            - 'urn:alm:descriptor:com.tectonic.ui:fieldGroup:ApplicationDatabase'  
+            - 'urn:alm:descriptor:com.tectonic.ui:fieldGroup:ApplicationDatabase'
         - path: backup.enabled
-          displayName: Enable Backup Infrastructure          
+          displayName: Enable Backup Infrastructure
           x-descriptors:
             - 'urn:alm:descriptor:com.tectonic.ui:booleanSwitch'
-            - 'urn:alm:descriptor:com.tectonic.ui:fieldGroup:BackupInfrastructure'  
+            - 'urn:alm:descriptor:com.tectonic.ui:fieldGroup:BackupInfrastructure'
   description: |
     The MongoDB Enterprise Kubernetes Operator enables easy deploys of MongoDB
     into Kubernetes clusters, using our management, monitoring and backup
@@ -340,7 +340,7 @@ spec:
     ## Required Parameters
 
     * `opsManager` or `cloudManager` - Enter the name of the ConfigMap containing project information
-    * `credentials` - Enter the name of the Secret containing your OpsManager credentials	
+    * `credentials` - Enter the name of the Secret containing your OpsManager credentials
     * `type` - Enter MongoDB Deployment Types ("Standalone", "ReplicaSet", "ShardedCluster"
 
     ## Supported MongoDB Deployment Types ##
@@ -367,9 +367,9 @@ spec:
     The operator can enable TLS for all traffic between servers and also between
     clients and servers. Before enabling `security.tls.enabled` to `true` you
     should create your certificates.  or you can leave the operator to create all
-    the certificates for you. The operator ability to create certs is been 
+    the certificates for you. The operator ability to create certs is been
     depricted due to Kuberentes API changes.
-    
+
     For more information, please read the official MongoDB
     Kubernetes Operator  [docs](https://docs.mongodb.com/kubernetes-operator/stable/).
 
@@ -439,7 +439,7 @@ spec:
                 - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
                   value: registry.connect.redhat.com/mongodb/mongodb-enterprise-init-ops-manager
                 - name: INIT_OPS_MANAGER_VERSION
-                  value: 1.0.1-b202006191242
+                  value: 1.0.1
                 - name: INIT_APPDB_IMAGE_REPOSITORY
                   value: registry.connect.redhat.com/mongodb/mongodb-enterprise-init-appdb
                 - name: INIT_APPDB_VERSION

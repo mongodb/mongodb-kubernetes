@@ -18,6 +18,7 @@ sed -i 's/1.5.5/1.6.0/g' mongodb-enterprise.v1.6.1.clusterserviceversion.yaml
 cp ../../../public/helm_chart/crds/mongodb.mongodb.com.yaml mongodb.mongodb.com.crd.yaml
 cp ../../../public/helm_chart/crds/mongodbusers.mongodb.com.yaml mongodbusers.mongodb.com.crd.yaml
 cp ../../../public/helm_chart/crds/opsmanagers.mongodb.com.yaml opsmanagers.mongodb.com.crd.yaml
+cd ..
 ```
 
 Check the following sections in the clusterserviceversion file.
@@ -48,7 +49,9 @@ Copy the `rules` from roles in `roles.yaml` to the `permissions.rules` element t
 After the new file has been updated, it needs to be compressed as a zip
 file alone with everything else in in the mongodb-enterprise directory:
 
-    zip -r mongodb-enterprise.vX.Y.Z.zip .
+    cd deploy/csv
+    zip -r ../redhat_connect_zip_files/mongodb-enterprise.vX.Y.Z.zip .
+    git add ../redhat_connect_zip_files/mongodb-enterprise.vX.Y.Z.zip
 
 it should be in the following format
 ```bash
@@ -72,7 +75,10 @@ Finally, the zip file needs to be uploaded to the [Operator
 Metadata](https://connect.redhat.com/project/850021/operator-metadata)
 section in RedHat connect.
 
-The process of verification can take between 30 minutes and 5 hours.
+The process of verification can take between 30 minutes and 2 hours. If after one retry it still fails, contact RedHat through https://connect.redhat.com/support/technology-partner/, the previous support email was connect-tech@redhat.com.
+
+
+We keep the zip file checked into our repository so that we can send it to RedHat for Operator certification.
 
 # RedHat Community Operators
 
@@ -144,7 +150,6 @@ Change the Docker registry from Quay to RedHat Connect:
   for the Operator and Database
 * Change `registry.connect.redhat.com/mongodb` to `quay.io/mongodb` for `OPS_MANAGER_IMAGE_REPOSITORY`,
 `APP_DB_IMAGE_REPOSITORY`, `INIT_OPS_MANAGER_IMAGE_REPOSITORY`, `INIT_APPDB_IMAGE_REPOSITORY` and `INIT_APPDB_VERSION`
-* Ensure any instance of `statusDescriptors` is updated to be `statusDescriptions`
 
 ## Package
 
