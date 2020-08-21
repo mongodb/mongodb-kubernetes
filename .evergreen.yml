@@ -2167,8 +2167,18 @@ task_groups:
 
 
 buildvariants:
-- name: e2e_kube_vanilla_om_40_first
-  display_name: "e2e_kube_vanilla_om_40_first"
+
+## Build variants for E2E tests
+
+# The pattern for naming build variants for E2E tests:
+# e2e_<type>_<cluster>_<distro>[<om_version>]
+# where <type> is any of mdb|om<version>|operator
+# where <cluster> is any of kind|vanilla|openshift
+# where <distro> is any of ubuntu|ubi
+# where <om_version> denotes the OM version tested (e.g. om40, om44, cloudqa) - used only for MDB tests
+
+- name: e2e_mdb_vanilla_ubuntu_om40
+  display_name: "e2e_mdb_vanilla_ubuntu_om40"
   depends_on:
     - name: build_images_ubuntu
       variant: init_test_run
@@ -2190,8 +2200,8 @@ buildvariants:
   - name: "e2e_tls_task_group"
   - name: "e2e_mongodb_non_cloudqa_task_group"
 
-- name: e2e_kube_vanilla_om_42_current
-  display_name: "e2e_kube_vanilla_om_42_current"
+- name: e2e_mdb_vanilla_ubuntu_om42
+  display_name: "e2e_mdb_vanilla_ubuntu_om42"
   depends_on:
     - name: build_images_ubuntu
       variant: init_test_run
@@ -2218,8 +2228,8 @@ buildvariants:
   - name: "e2e_tls_custom_ca_task_group"
   - name: "e2e_mongodb_non_cloudqa_task_group"
 
-- name: e2e_openshift4_cloud_qa
-  display_name: e2e_openshift4_cloud_qa
+- name: e2e_mdb_openshift_ubi_cloudqa
+  display_name: e2e_mdb_openshift_ubi_cloudqa
   depends_on:
     - name: build_images_rhel
       variant: init_test_run
@@ -2238,8 +2248,8 @@ buildvariants:
   - name: e2e_kube_only_task_group
   - name: e2e_scram_sha_task_group_with_manually_generated_certs
 
-- name: e2e_kube_vanilla_ops_manager
-  display_name: "e2e_kube_vanilla_ops_manager"
+- name: e2e_om42_vanilla_ubuntu
+  display_name: "e2e_om42_vanilla_ubuntu"
   depends_on:
     - name: build_images_ubuntu
       variant: init_test_run
@@ -2261,8 +2271,8 @@ buildvariants:
   tasks:
     - name: e2e_ops_manager_task_group_safe
 
-- name: e2e_openshift4_ops_manager
-  display_name: e2e_openshift4_ops_manager
+- name: e2e_om42_openshift_ubi
+  display_name: e2e_om42_openshift_ubi
   depends_on:
     - name: build_images_rhel
       variant: init_test_run
@@ -2281,6 +2291,123 @@ buildvariants:
     always_remove_testing_namespace: "true"
   tasks:
     - name: e2e_ops_manager_task_group_safe
+
+# Isolated Ops Manager Tests
+- name: e2e_om42_kind_ubuntu
+  display_name: e2e_om42_kind_ubuntu
+  run_on:
+  - ubuntu1604-build
+  depends_on:
+  - name: build_images_rhel
+    variant: init_test_run
+  - name: build_test_image
+    variant: init_test_run
+  - name: build_init_om_images_ubi
+    variant: init_test_run
+  expansions:
+    <<: *kubernetes_environment_kind
+    image_type: rhel
+    ubi: "-ubi"
+    test_mode: opsmanager
+  tasks:
+  - name: e2e_ops_manager_kind_only_task_group
+
+# Isolated Ops Manager Tests for 4.4 version
+- name: e2e_om44_kind_ubuntu
+  display_name: e2e_om44_kind_ubuntu
+  run_on:
+  - ubuntu1604-build
+  depends_on:
+  - name: build_images_ubuntu
+    variant: init_test_run
+  - name: build_test_image
+    variant: init_test_run
+  - name: build_init_om_images_ubuntu
+    variant: init_test_run
+  expansions:
+    <<: *kubernetes_environment_kind
+    image_type: ubuntu
+    test_mode: opsmanager
+    custom_om_version: 4.4.1
+    # TODO using expansion here results in "'${ecr_registry}/images/ubuntu' contains an unclosed expansion"
+    ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
+  tasks:
+  - name: e2e_ops_manager_kind_only_task_group
+  - name: e2e_ops_manager_kind_4_4_only_task_group
+
+- name: e2e_om44_kind_ubi
+  display_name: e2e_om44_kind_ubi
+  run_on:
+  - ubuntu1604-build
+  depends_on:
+  - name: build_images_rhel
+    variant: init_test_run
+  - name: build_test_image
+    variant: init_test_run
+  - name: build_init_om_images_ubi
+    variant: init_test_run
+  expansions:
+    # The ubi checks also run on kind because of memory problems on Openshift!
+    # A few tests of these at any given time and the Nodes in the Openshift cluster
+    # will run out of mem.
+    <<: *kubernetes_environment_kind
+    image_type: rhel
+    test_mode: opsmanager
+    custom_om_version: 4.4.1
+    ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/rhel
+  tasks:
+  - name: e2e_ops_manager_kind_only_task_group
+  - name: e2e_ops_manager_kind_4_4_only_task_group
+
+- name: e2e_mdb_kind_ubuntu_cloud_qa
+  display_name: e2e_mdb_kind_ubuntu_cloud_qa
+  run_on:
+  - ubuntu1604-build
+  depends_on:
+  - name: build_images_ubuntu
+    variant: init_test_run
+  - name: build_init_database_image_ubuntu
+    variant: init_test_run
+  - name: build_test_image
+    variant: init_test_run
+  expansions:
+    <<: *cloud_manager_qa
+    <<: *kubernetes_environment_kind
+    image_type: ubuntu
+  tasks:
+  - name: e2e_kube_only_task_group
+  - name: e2e_core_task_group
+  - name: e2e_tls_task_group
+  - name: e2e_om_4_2_plus_only_task_group
+  - name: e2e_x509_task_group
+  - name: e2e_ldap_task_group
+  - name: e2e_scram_sha_task_group_with_manually_generated_certs
+  - name: e2e_auth_transitions_task_group
+  - name: e2e_webhook_validation_task_group
+
+- name: e2e_operator_kind_ubuntu_cloud_qa
+  display_name: e2e_operator_kind_ubuntu_cloud_qa
+  run_on:
+  - ubuntu1604-build
+  depends_on:
+  - name: build_images_ubuntu
+    variant: init_test_run
+  - name: build_init_database_image_ubuntu
+    variant: init_test_run
+  - name: build_init_om_images_ubuntu
+    variant: init_test_run
+  - name: build_test_image
+    variant: init_test_run
+  expansions:
+    <<: *cloud_manager_qa
+    <<: *kubernetes_environment_kind
+    image_type: ubuntu
+  tasks:
+  - name: e2e_operator_task_group
+
+### End of build variants for E2E
+
+### Release build variants
 
 - name: release_rh_connect
   display_name: release_rh_connect
@@ -2329,165 +2456,53 @@ buildvariants:
 - name: release_blocker
   display_name: release_blocker
   run_on:
-  - ubuntu1604-packer  # Note: cheapest machine I found
+    - ubuntu1604-packer  # Note: cheapest machine I found
   tasks:
-  - name: release_blocker
+    - name: release_blocker
 
 - name: init_test_run
   display_name: init_test_run
   run_on:
-  - archlinux-test
+    - archlinux-test
   stepback: false
   tasks:
-  - name: build_images_rhel
-  - name: build_images_ubuntu
-  - name: build_test_image
-  - name: build_init_om_images_ubuntu
-  - name: build_init_om_images_ubi
-  - name: build_init_database_image_ubuntu
-  - name: build_init_database_image_ubi
-  - name: prepare_cluster_vanilla
-  - name: prepare_cluster_vanilla_om
-  - name: prepare_aws
+    - name: build_images_rhel
+    - name: build_images_ubuntu
+    - name: build_test_image
+    - name: build_init_om_images_ubuntu
+    - name: build_init_om_images_ubi
+    - name: build_init_database_image_ubuntu
+    - name: build_init_database_image_ubi
+    - name: prepare_cluster_vanilla
+    - name: prepare_cluster_vanilla_om
+    - name: prepare_aws
 
-# Runs on master patches. This will populate the mongodb/mongodb-enterprise-*-prerelease
-# registries with the images that were pushed to master
+  # Runs on master patches. This will populate the mongodb/mongodb-enterprise-*-prerelease
+  # registries with the images that were pushed to master
 - name: prerelease_master_images
   display_name: prerelease_master_images
   run_on:
-  - ubuntu1604-test
+    - ubuntu1604-test
   depends_on:
-  - name: build_images_ubuntu
-    variant: init_test_run
-  - name: build_init_om_images_ubuntu
-    variant: init_test_run
+    - name: build_images_ubuntu
+      variant: init_test_run
+    - name: build_init_om_images_ubuntu
+      variant: init_test_run
   expansions:
     docker_registry: quay.io
     image_type: ubuntu
   tasks:
-  - name: prerelease_master_images
+    - name: prerelease_master_images
 
 - name: go_unit_tests
   display_name: "go_unit_tests"
   run_on:
-  - archlinux-test
+    - archlinux-test
   stepback: false
   tasks:
     - name: "unit_task_group"
 
-# Isolated Ops Manager Tests
-- name: e2e_kind_ops_manager
-  display_name: e2e_kind_ops_manager_ubi
-  run_on:
-  - ubuntu1604-build
-  depends_on:
-  - name: build_images_rhel
-    variant: init_test_run
-  - name: build_test_image
-    variant: init_test_run
-  - name: build_init_om_images_ubi
-    variant: init_test_run
-  expansions:
-    <<: *kubernetes_environment_kind
-    image_type: rhel
-    ubi: "-ubi"
-    test_mode: opsmanager
-  tasks:
-  - name: e2e_ops_manager_kind_only_task_group
-
-# Isolated Ops Manager Tests for 4.4 version
-- name: e2e_om_custom_version_kind_ubuntu
-  display_name: e2e_om_custom_version_kind_ubuntu
-  run_on:
-  - ubuntu1604-build
-  depends_on:
-  - name: build_images_ubuntu
-    variant: init_test_run
-  - name: build_test_image
-    variant: init_test_run
-  - name: build_init_om_images_ubuntu
-    variant: init_test_run
-  expansions:
-    <<: *kubernetes_environment_kind
-    image_type: ubuntu
-    test_mode: opsmanager
-    custom_om_version: 4.4.1
-    # TODO using expansion here results in "'${ecr_registry}/images/ubuntu' contains an unclosed expansion"
-    ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
-  tasks:
-  - name: e2e_ops_manager_kind_only_task_group
-  - name: e2e_ops_manager_kind_4_4_only_task_group
-
-- name: e2e_om_custom_version_kind_ubi
-  display_name: e2e_om_custom_version_kind_ubi
-  run_on:
-  - ubuntu1604-build
-  depends_on:
-  - name: build_images_rhel
-    variant: init_test_run
-  - name: build_test_image
-    variant: init_test_run
-  - name: build_init_om_images_ubi
-    variant: init_test_run
-  expansions:
-    # The ubi checks also run on kind because of memory problems on Openshift!
-    # A few tests of these at any given time and the Nodes in the Openshift cluster
-    # will run out of mem.
-    <<: *kubernetes_environment_kind
-    image_type: rhel
-    test_mode: opsmanager
-    custom_om_version: 4.4.1
-    ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/rhel
-  tasks:
-  - name: e2e_ops_manager_kind_only_task_group
-  - name: e2e_ops_manager_kind_4_4_only_task_group
-
-- name: e2e_kind_mongodb_cloud_qa
-  display_name: e2e_kind_mongodb_cloud_qa
-  run_on:
-  - ubuntu1604-build
-  depends_on:
-  - name: build_images_ubuntu
-    variant: init_test_run
-  - name: build_init_database_image_ubuntu
-    variant: init_test_run
-  - name: build_test_image
-    variant: init_test_run
-  expansions:
-    <<: *cloud_manager_qa
-    <<: *kubernetes_environment_kind
-    image_type: ubuntu
-  tasks:
-  - name: e2e_kube_only_task_group
-  - name: e2e_core_task_group
-  - name: e2e_tls_task_group
-  - name: e2e_om_4_2_plus_only_task_group
-  - name: e2e_x509_task_group
-  - name: e2e_ldap_task_group
-  - name: e2e_scram_sha_task_group_with_manually_generated_certs
-  - name: e2e_auth_transitions_task_group
-  - name: e2e_webhook_validation_task_group
-
-- name: e2e_kind_operator_cloud_qa
-  display_name: e2e_kind_operator_cloud_qa
-  run_on:
-  - ubuntu1604-build
-  depends_on:
-  - name: build_images_ubuntu
-    variant: init_test_run
-  - name: build_init_database_image_ubuntu
-    variant: init_test_run
-  - name: build_init_om_images_ubuntu
-    variant: init_test_run
-  - name: build_test_image
-    variant: init_test_run
-  expansions:
-    <<: *cloud_manager_qa
-    <<: *kubernetes_environment_kind
-    image_type: ubuntu
-  tasks:
-  - name: e2e_operator_task_group
-
+### Build variants for manual patch only
 
 # build Database: to be launched independently of the operator build process (evergreen patch)
 - name: build_and_push_database_images
