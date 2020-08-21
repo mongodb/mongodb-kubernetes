@@ -4,6 +4,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	userv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/user"
 	appsv1 "k8s.io/api/apps/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 type OpsManagerBuilder struct {
@@ -25,6 +26,51 @@ func (b *OpsManagerBuilder) SetVersion(version string) *OpsManagerBuilder {
 
 func (b *OpsManagerBuilder) SetAppDbVersion(version string) *OpsManagerBuilder {
 	b.om.Spec.AppDB.Version = version
+	return b
+}
+
+func (b *OpsManagerBuilder) SetAppDBTLSConfig(config mdbv1.TLSConfig) *OpsManagerBuilder {
+	if b.om.Spec.AppDB.Security == nil {
+		b.om.Spec.AppDB.Security = &mdbv1.Security{}
+	}
+
+	b.om.Spec.AppDB.Security.TLSConfig = &config
+	return b
+}
+
+func (b *OpsManagerBuilder) AddS3Config(s3ConfigName, credentialsName string) *OpsManagerBuilder {
+	if b.om.Spec.Backup == nil {
+		b.om.Spec.Backup = &MongoDBOpsManagerBackup{Enabled: true}
+	}
+	if b.om.Spec.Backup.S3Configs == nil {
+		b.om.Spec.Backup.S3Configs = []S3Config{}
+	}
+	b.om.Spec.Backup.S3Configs = append(b.om.Spec.Backup.S3Configs, S3Config{
+		S3SecretRef: SecretRef{
+			Name: credentialsName,
+		},
+		Name: s3ConfigName,
+	})
+	return b
+}
+
+func (b *OpsManagerBuilder) AddOplogStoreConfig(oplogStoreName, userName string, mdbNsName types.NamespacedName) *OpsManagerBuilder {
+	if b.om.Spec.Backup == nil {
+		b.om.Spec.Backup = &MongoDBOpsManagerBackup{Enabled: true}
+	}
+	if b.om.Spec.Backup.OplogStoreConfigs == nil {
+		b.om.Spec.Backup.OplogStoreConfigs = []DataStoreConfig{}
+	}
+	b.om.Spec.Backup.OplogStoreConfigs = append(b.om.Spec.Backup.OplogStoreConfigs, DataStoreConfig{
+		Name: oplogStoreName,
+		MongoDBResourceRef: userv1.MongoDBResourceRef{
+			Name:      mdbNsName.Name,
+			Namespace: mdbNsName.Namespace,
+		},
+		MongoDBUserRef: &MongoDBUserRef{
+			Name: userName,
+		},
+	})
 	return b
 }
 

@@ -65,8 +65,7 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 	podVars := &PodVars{}
 
 	// TODO: Can be removed once https://jira.mongodb.org/browse/CLOUDP-68634 is resolved
-	tlsEnabled := rs.Security != nil && rs.Security.TLSConfig != nil && rs.Security.TLSConfig.Enabled
-	if !tlsEnabled {
+	if wantToConfigureMonitoring(rs) {
 		podVars, err = r.tryConfigureMonitoringInOpsManager(opsManager, opsManagerUserPassword, log)
 		// it's possible that Ops Manager will not be available when we attempt to configure AppDB monitoring
 		// in Ops Manager. This is not a blocker to continue with the reset of the reconcilliation.
@@ -134,13 +133,18 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 
 	log.Infof("Finished reconciliation for AppDB ReplicaSet!")
 
-	if podVars.ProjectID == "" {
+	// TODO: remove this check once TLS is configured properly
+	if wantToConfigureMonitoring(rs) && podVars.ProjectID == "" {
 		// this doesn't requeue the reconcilliation immediately, the calling OM controller
 		// requeues after Ops Manager has been fully configured.
 		return r.updateStatus(opsManager, workflow.OK().Requeue(), log, appDbStatusOption)
 	}
 
 	return r.updateStatus(opsManager, workflow.OK(), log, appDbStatusOption)
+}
+
+func wantToConfigureMonitoring(rs omv1.AppDB) bool {
+	return rs.Security == nil || rs.Security.TLSConfig == nil || !rs.Security.TLSConfig.IsEnabled()
 }
 
 // ensureLegacyConfigMapRemoved makes sure that the ConfigMap which stored the automation config

@@ -2,8 +2,10 @@ package operator
 
 import (
 	"context"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 
@@ -347,6 +349,70 @@ func TestTriggerOmChangedEventIfNeeded(t *testing.T) {
 		assert.NoError(t, triggerOmChangedEventIfNeeded(omv1.NewOpsManagerBuilder().SetVersion("4.4.10").SetOMStatusVersion("4.4.0").Build(), zap.S()))
 		assert.Equal(t, nextScheduledTime, agents.NextScheduledUpgradeTime())
 	})
+}
+
+func TestBackupIsStillConfigured_WhenAppDBIsConfigured_WithTls(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().AddS3Config("s3-config", "s3-secret").
+		AddOplogStoreConfig("oplog-store-0", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		SetAppDBTLSConfig(mdbv1.TLSConfig{Enabled: true}).
+		Build()
+
+	reconciler, mockedClient, _, _ := defaultTestOmReconciler(t, testOm)
+
+	configureBackupResources(mockedClient, testOm)
+
+	res, err := reconciler.Reconcile(requestFromObject(&testOm))
+
+	assert.NoError(t, err)
+	assert.Equal(t, false, res.Requeue)
+	assert.Equal(t, time.Duration(0), res.RequeueAfter)
+
+}
+
+// configureBackupResources ensures all of the dependent resources for the Backup configuration
+// are created in the mocked client. This includes MongoDB resources for OplogStores, S3 credentials secrets
+// MongodbUsers and their credentials secrets.
+func configureBackupResources(m *mock.MockedClient, testOm omv1.MongoDBOpsManager) {
+	// configure S3 Secret
+	for _, s3Config := range testOm.Spec.Backup.S3Configs {
+		s3Creds := secret.Builder().
+			SetName(s3Config.S3SecretRef.Name).
+			SetNamespace(testOm.Namespace).
+			SetField(util.S3AccessKey, "s3AccessKey").
+			SetField(util.S3SecretKey, "s3SecretKey").
+			Build()
+		_ = m.CreateSecret(s3Creds)
+	}
+
+	// create MDB resource for oplog configs
+	for _, oplogConfig := range testOm.Spec.Backup.OplogStoreConfigs {
+		oplogStoreResource := mdbv1.NewReplicaSetBuilder().
+			SetName(oplogConfig.MongoDBResourceRef.Name).
+			SetNamespace(testOm.Namespace).
+			SetVersion("3.6.9").
+			SetMembers(3).
+			EnableAuth([]string{util.SCRAM}).
+			Build()
+
+		_ = m.Update(context.TODO(), oplogStoreResource)
+
+		// create user for mdb resource
+		oplogStoreUser := DefaultMongoDBUserBuilder().
+			SetResourceName(oplogConfig.MongoDBUserRef.Name).
+			SetNamespace(testOm.Namespace).
+			Build()
+
+		_ = m.Update(context.TODO(), oplogStoreUser)
+
+		// create secret for user
+		userPasswordSecret := secret.Builder().
+			SetNamespace(testOm.Namespace).
+			SetName(oplogStoreUser.Spec.PasswordSecretKeyRef.Name).
+			SetField(oplogStoreUser.Spec.PasswordSecretKeyRef.Key, "KeJfV1ucQ_vZl").
+			Build()
+
+		_ = m.CreateSecret(userPasswordSecret)
+	}
 }
 
 // ******************************************* Helper methods *********************************************************

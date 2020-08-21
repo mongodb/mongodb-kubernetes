@@ -423,6 +423,7 @@ type MongoDBUserBuilder struct {
 	database            string
 	resourceName        string
 	mongodbResourceName string
+	namespace           string
 }
 
 func (b *MongoDBUserBuilder) SetPasswordRef(secretName, key string) *MongoDBUserBuilder {
@@ -437,6 +438,11 @@ func (b *MongoDBUserBuilder) SetMongoDBResourceName(name string) *MongoDBUserBui
 
 func (b *MongoDBUserBuilder) SetUsername(username string) *MongoDBUserBuilder {
 	b.username = username
+	return b
+}
+
+func (b *MongoDBUserBuilder) SetNamespace(namespace string) *MongoDBUserBuilder {
+	b.namespace = namespace
 	return b
 }
 
@@ -480,6 +486,7 @@ func DefaultMongoDBUserBuilder() *MongoDBUserBuilder {
 		username:            "my-user",
 		database:            "admin",
 		mongodbResourceName: mock.TestMongoDBName,
+		namespace:           mock.TestNamespace,
 	}
 }
 
@@ -494,7 +501,7 @@ func (b *MongoDBUserBuilder) Build() *userv1.MongoDBUser {
 	return &userv1.MongoDBUser{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      b.resourceName,
-			Namespace: mock.TestNamespace,
+			Namespace: b.namespace,
 		},
 		Spec: userv1.MongoDBUserSpec{
 			Roles:                b.roles,
