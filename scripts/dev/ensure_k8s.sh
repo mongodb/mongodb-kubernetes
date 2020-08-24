@@ -21,9 +21,14 @@ fi
 if [[ ${CLUSTER_TYPE} = "kops" ]] && ! kops validate cluster "${CLUSTER_NAME}" ; then
 	check_app "timeout" "coreutils is not installed, call \"brew install coreutils\""
 
-	echo "Kops cluster \"${CLUSTER_NAME}\" doesn't exist"
+  # does cluster exist but just not imported to ~/.kube ?
+  kops export kubecfg "${CLUSTER_NAME}"
 
-	create_kops_cluster "${CLUSTER_NAME}" 3 16 "t2.large" "t2.small" "${KOPS_ZONES:-us-east-2a}" "${KOPS_K8S_VERSION:-}"
+  if ! kops validate cluster "${CLUSTER_NAME}"; then
+    echo "Kops cluster \"${CLUSTER_NAME}\" doesn't exist"
+
+    create_kops_cluster "${CLUSTER_NAME}" 3 16 "t2.large" "t2.small" "${KOPS_ZONES:-us-east-2a}" "${KOPS_K8S_VERSION:-}"
+  fi
 
 elif [[ ${CLUSTER_TYPE} = "openshift" ]]; then
 	echo "openshift is TODO"

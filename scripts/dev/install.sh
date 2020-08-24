@@ -33,6 +33,8 @@ if [ "$(uname)" = "Darwin" ] ; then
   # docker-credential-helper-ecr
   brew install docker-credential-helper-ecr
 
+  brew install shellcheck
+
 elif [ "$(uname)" = "Linux" ] ; then # Ubuntu only
   sudo snap install kubectl --classic  || true
 
@@ -52,10 +54,15 @@ elif [ "$(uname)" = "Linux" ] ; then # Ubuntu only
   chmod +x docker-credential-ecr-login
   mv docker-credential-ecr-login /usr/local/bin
 
+  sudo snap install --channel=edge shellcheck
+
 else
   echo "This only works on OSX & Ubuntu - please install the tools yourself. Sorry!"
   exit 1
 fi
+
+echo "Installing Python packages"
+pip3 install -r docker/mongodb-enterprise-tests/requirements-dev.txt
 
 echo "Adding git commit hooks"
 ln -s -f ../../scripts/dev/commit_hooks/pre-commit.sh .git/hooks/pre-commit

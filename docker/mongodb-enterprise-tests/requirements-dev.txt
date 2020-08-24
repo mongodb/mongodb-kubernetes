@@ -4,3 +4,4 @@ rope
 black
 flake8
 autopep8
+jinja2

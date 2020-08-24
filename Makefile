@@ -62,7 +62,7 @@ prerequisites:
 # prepare default configuration context files
 init:
 	@ mkdir -p ~/.operator-dev/contexts
-	@ cp scripts/dev/samples/* ~/.operator-dev/contexts
+	@ cp -n scripts/dev/samples/* ~/.operator-dev/contexts || true
 	@ echo "Initialized dev environment (~/.operator-dev)"
 	@ make switch context=dev
 
@@ -188,7 +188,7 @@ configure-operator:
 deploy-and-configure-operator: deploy-operator configure-operator
 
 ensure-k8s:
-	@ scripts/dev/ensure_k8s
+	@ scripts/dev/ensure_k8s.sh
 
 ensure-k8s-and-reset: ensure-k8s
 	@ $(MAKE) reset

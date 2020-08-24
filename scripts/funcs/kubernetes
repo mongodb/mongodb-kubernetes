@@ -265,16 +265,16 @@ wait_for_operator_start() {
 
     # Waiting until there is only one pod left as this could be the upgrade operation (very fast in practice)
     # shellcheck disable=SC2016
-    cmd='while [[ $(kubectl -n '"${ns}"' get pods -l app=${OPERATOR_NAME}  --no-headers 2>/dev/null | wc -l) -gt 1 ]] ; do printf .; sleep 1; done'
+    cmd='while [[ $(kubectl -n '"${ns}"' get pods -l controller=${OPERATOR_NAME}  --no-headers 2>/dev/null | wc -l) -gt 1 ]] ; do printf .; sleep 1; done'
     timeout --foreground "1m" bash -c "${cmd}" || true
 
-    cmd="while ! kubectl -n ${ns} get pods -l app=${OPERATOR_NAME} -o jsonpath={.items[0].status.phase} 2>/dev/null | grep -q Running ; do printf .; sleep 1; done"
+    cmd="while ! kubectl -n ${ns} get pods -l controller=${OPERATOR_NAME} -o jsonpath={.items[0].status.phase} 2>/dev/null | grep -q Running ; do printf .; sleep 1; done"
     timeout --foreground "${timeout}" bash -c "${cmd}" || true
 
     # In the end let's check again and print the state
-    if ! kubectl -n "${ns}" get pods -l "app=${OPERATOR_NAME}" -o jsonpath="{.items[0].status.phase}" | grep -q "Running"; then
+    if ! kubectl -n "${ns}" get pods -l "controller=${OPERATOR_NAME}" -o jsonpath="{.items[0].status.phase}" | grep -q "Running"; then
         error "Operator hasn't reached RUNNING state after ${timeout}. The full yaml configuration for the pod is:"
-        kubectl -n "${ns}" get pods -l "app=${OPERATOR_NAME}" -o yaml
+        kubectl -n "${ns}" get pods -l "controller=${OPERATOR_NAME}" -o yaml
 
         title "Operator failed to start, exiting"
         return 1

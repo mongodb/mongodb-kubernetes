@@ -4,15 +4,19 @@ This is a guide about setting all necessary environment for developing the Mongo
 
 ### Prerequisites
 
-* [Go](https://golang.org/doc/install): (we use the latest `1.13.*` version)
-* Ensure environment variables `GOROOT` and `GOPATH` are specified in your `~/.bashrc`. The most common values are:
+* [Go](https://golang.org/doc/install): (the latest version is usually fine)
+* *(double check) GOPATH may not be required anymore - try not setting it and let's see how it goes...*
+    * Ensure environment variables `GOROOT` and `GOPATH` are specified in your `~/.bashrc`. The most common values are:
 ```bash
 export GOROOT=/usr/local/go
 export GOPATH=$HOME/go
 ```
-* Checkout this project into the `src/github.com/10gen` folder in the `$GOPATH` directory as described
- [here](https://golang.org/doc/code.html). So if your `$GOPATH` variable points to `/home/user/go` then the project
- must be checked out into `/Users/user/go/src/github.com/10gen/ops-manager-kubernetes`
+* Checkout this project into the the `$GOPATH` directory:
+```bash
+mkdir -p $GOPATH/src/github.com/10gen/
+cd $GOPATH/src/github.com/10gen/
+git clone git@github.com:10gen/ops-manager-kubernetes.git
+```
 * [Docker](https://docs.docker.com/docker-for-mac/install/)
 * [Evergreen command line client](https://evergreen.mongodb.com/settings)
 * [mms-utils](https://github.com/10gen/mms/tree/master/scripts/python#one-time-set-up). You will need to clone the `mms` project.
@@ -22,6 +26,7 @@ environment variable in `~/.bashrc`
     * You will need a version previous to `1.17.10`
     * You can get one with the following command:
         * `brew install https://raw.githubusercontent.com/Homebrew/homebrew-core/ecf3e17d8506b24b59bdaf286d3689e62bded185/Formula/awscli.rb`
+        * `aws --version # aws-cli/1.17.9...`
     * Get the access to AWS account  "MMS Engineering Test" (268558157000)":
         1. Ask your colleagues to add the user (and have them to send you your password)
            * You will have to be connected to the VPN to change your password
@@ -37,7 +42,7 @@ Execute `make usage` to see detailed description of all targets
 
 #### Install necessary tools and commit hook
 
-This will install different tools used for development: kubectl, kops, helm, coreutils, also initiaze necessary 
+This will install different tools used for development: kubectl, kops, helm, coreutils, also initialise necessary 
 environment variables
 
 ```bash
@@ -149,7 +154,7 @@ make status
 Please note that you will have to be connected to the VPN to succesfully run `make` the first time, when the `kops` cluster is created.
 
 If kops cluster fails to get created because of VPC limits, you can change KOPS_ZONES in `~/.operator-dev/contexts/dev` 
-(or the context you are currently using) to point to the other zones which have free VPCs (look at the values in `scripts/dev/ensure_k8s`).
+(or the context you are currently using) to point to the other zones which have free VPCs (look at the values in `scripts/dev/ensure_k8s.sh`).
 
 At the end of the script you might get the following error:
 
