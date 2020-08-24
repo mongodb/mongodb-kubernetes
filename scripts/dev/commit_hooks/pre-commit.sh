@@ -97,14 +97,30 @@ do
         git add "${to_fix}"
         exitcode=1
     fi
-    # govet
-    output=$(go vet "${file}")
-    if test -n "$output"
-    then
-        echo "$output"
-        exitcode=1
-    fi
+    # govet: build list of packages to analyze
+    packages_to_analyze+=("$(dirname "${file}")" )
     git add "$file"
 done
+
+# go vet is ran on whole directories as it can't be run on individual files
+# If a package is split into multiple files go vet has no knowledge of it
+# and will complain about undefined names that are instead defined in other files
+packages_to_analyze=()
+repo_root=`git rev-parse --show-toplevel`
+if [ ${#packages_to_analyze[@]} -ne 0 ]; then
+    # Remove duplicate directories
+    packages_to_analyze=($(echo "${packages_to_analyze[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' '))
+    for directory in $packages_to_analyze
+    do
+        output=$(go vet "${repo_root}/${directory}")
+        if test -n "$output"
+        then
+            echo "$output"
+            exitcode=1
+        fi
+    done
+fi
+
+
 
 exit $exitcode
