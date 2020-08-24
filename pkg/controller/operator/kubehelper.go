@@ -177,7 +177,7 @@ func (ss StatefulSetHelper) IsPersistent() *bool {
 }
 
 func (ss StatefulSetHelper) GetCurrentAgentAuthMechanism() string {
-	return ss.CertificateHash
+	return ss.CurrentAgentAuthMechanism
 }
 
 func (ss StatefulSetHelper) hasHorizons() bool {
