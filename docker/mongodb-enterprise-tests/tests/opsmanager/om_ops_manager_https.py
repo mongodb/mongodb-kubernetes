@@ -8,8 +8,6 @@ from kubetester.mongodb import MongoDB, Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 
-MDB_VERSION = "4.2.1"
-
 
 @fixture("module")
 def domain(namespace: str):
@@ -63,23 +61,27 @@ def ops_manager(
 
 
 @fixture("module")
-def replicaset0(ops_manager: MongoDBOpsManager, namespace: str):
+def replicaset0(
+    ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str
+):
     """First replicaset to be created before Ops Manager is configured with HTTPS."""
     resource = MongoDB.from_yaml(
         _fixture("replica-set.yaml"), name="replicaset0", namespace=namespace
     ).configure(ops_manager, "replicaset0")
-    resource["spec"]["version"] = MDB_VERSION
+    resource["spec"]["version"] = custom_mdb_version
 
     return resource.create()
 
 
 @fixture("module")
-def replicaset1(ops_manager: MongoDBOpsManager, namespace: str):
+def replicaset1(
+    ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str
+):
     """Second replicaset to be created when Ops Manager was restarted with HTTPS."""
     resource = MongoDB.from_yaml(
         _fixture("replica-set.yaml"), name="replicaset1", namespace=namespace
     ).configure(ops_manager, "replicaset1")
-    resource["spec"]["version"] = MDB_VERSION
+    resource["spec"]["version"] = custom_mdb_version
 
     return resource.create()
 

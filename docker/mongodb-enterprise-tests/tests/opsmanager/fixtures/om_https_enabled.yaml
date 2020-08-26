@@ -29,7 +29,7 @@ spec:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
 
-          # The initContainers will download the require 4.2.1 version of MongoDB
+          # The initContainers will download the require 4.2+ and 4.4+ versions of MongoDB
           # allowing Ops Manager to act as download endpoint for the automation agent
           # for this particular version.
           # This is required because of public Internet downloads not being
@@ -40,9 +40,9 @@ spec:
               command:
                 - curl
                 - -L
-                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel80-4.2.1.tgz
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel80-4.2.8.tgz
                 - -o
-                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel80-4.2.1.tgz
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel80-4.2.8.tgz
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
@@ -51,9 +51,31 @@ spec:
               command:
                 - curl
                 - -L
-                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu1604-4.2.1.tgz
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu1604-4.2.8.tgz
                 - -o
-                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-ubuntu1604-4.2.1.tgz
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-ubuntu1604-4.2.8.tgz
+              volumeMounts:
+                - name: mongodb-versions
+                  mountPath: /mongodb-ops-manager/mongodb-releases
+            - name: setting-up-rhel-mongodb-4-4
+              image: curlimages/curl:latest
+              command:
+                - curl
+                - -L
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel80-4.4.0.tgz
+                - -o
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel80-4.4.0.tgz
+              volumeMounts:
+                - name: mongodb-versions
+                  mountPath: /mongodb-ops-manager/mongodb-releases
+            - name: setting-up-ubuntu-mongodb-4-4
+              image: curlimages/curl:latest
+              command:
+                - curl
+                - -L
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu1604-4.4.0.tgz
+                - -o
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-ubuntu1604-4.4.0.tgz
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases

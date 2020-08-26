@@ -13,6 +13,7 @@ from kubetester.mongodb import Phase
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import mark, fixture
+from tests.opsmanager.conftest import ensure_ent_version
 
 HEAD_PATH = "/head/"
 S3_SECRET_NAME = "my-s3-secret"
@@ -97,7 +98,10 @@ def create_s3_bucket(aws_s3_client, bucket_prefix: str = "test-bucket-"):
 
 @fixture(scope="module")
 def ops_manager(
-    namespace: str, s3_bucket: str, custom_version: Optional[str]
+    namespace: str,
+    s3_bucket: str,
+    custom_version: Optional[str],
+    custom_appdb_version: str,
 ) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_backup.yaml"), namespace=namespace
@@ -105,6 +109,7 @@ def ops_manager(
 
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
     resource.set_version(custom_version)
+    resource.set_appdb_version(custom_appdb_version)
 
     yield resource.create()
 
@@ -444,34 +449,37 @@ class TestOpsManagerWatchesBlockStoreUpdates:
 @mark.e2e_om_ops_manager_backup
 class TestBackupForMongodb:
     """ This part ensures that backup for the client works correctly and the snapshot is created.
-    Both Mdb 4.0 and 4.2 are tested (as the backup process for them differs significantly) """
+    Both latest and the one before the latest are tested (as the backup process for them may differ significantly) """
 
     @fixture(scope="class")
-    def mdb_4_2(self, ops_manager: MongoDBOpsManager, namespace):
+    def mdb_latest(
+        self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_version: str
+    ):
         resource = MongoDB.from_yaml(
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,
             name="mdb-four-two",
         ).configure(ops_manager, "firstProject")
-        # MongoD versions greater than 4.2.0 must be enterprise build to enable backup
-        resource["spec"]["version"] = "4.2.2-ent"
+        resource["spec"]["version"] = ensure_ent_version(custom_mdb_version)
 
         return resource.create()
 
     @fixture(scope="class")
-    def mdb_4_0(self, ops_manager: MongoDBOpsManager, namespace):
+    def mdb_prev(
+        self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_prev_version: str
+    ):
         resource = MongoDB.from_yaml(
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,
             name="mdb-four-zero",
         ).configure(ops_manager, "secondProject")
-        resource["spec"]["version"] = "4.0.16"
+        resource["spec"]["version"] = ensure_ent_version(custom_mdb_prev_version)
 
         return resource.create()
 
-    def test_mdbs_created(self, mdb_4_2: MongoDB, mdb_4_0: MongoDB):
-        mdb_4_2.assert_reaches_phase(Phase.Running)
-        mdb_4_0.assert_reaches_phase(Phase.Running)
+    def test_mdbs_created(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
+        mdb_latest.assert_reaches_phase(Phase.Running)
+        mdb_prev.assert_reaches_phase(Phase.Running)
 
     def test_mdbs_backuped(self, ops_manager: MongoDBOpsManager):
         om_tester_first = ops_manager.get_om_tester(project_name="firstProject")

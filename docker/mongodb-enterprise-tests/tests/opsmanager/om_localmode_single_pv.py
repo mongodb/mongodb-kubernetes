@@ -11,8 +11,8 @@ from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 
 BUNDLED_APP_DB_VERSION = "4.2.2-ent"
-# To avoid constants we can use the same approach as in om_localmode_multiple_pv.py and download the
-# binaries in runtime instead of gluing into yaml spec
+# we can use the custom_mdb_version fixture when we release mongodb-enterprise-init-mongod-rhel and
+# mongodb-enterprise-init-mongod-ubuntu1604 for 4.4+ versions, so far let's use the constant
 VERSION_IN_OPS_MANAGER = "4.2.8-ent"
 VERSION_NOT_IN_OPS_MANAGER = "4.2.1"
 

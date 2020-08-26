@@ -11,7 +11,6 @@ from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 
 BUNDLED_APP_DB_VERSION = "4.2.2-ent"
-VERSION_IN_WEB_SERVER = "4.2.2"
 VERSION_NOT_IN_WEB_SERVER = "4.2.1"
 
 
@@ -49,11 +48,13 @@ def ops_manager(namespace: str, custom_version: Optional[str]) -> MongoDBOpsMana
 
 
 @fixture(scope="module")
-def replica_set(ops_manager: MongoDBOpsManager, namespace: str) -> MongoDB:
+def replica_set(
+    ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str
+) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"), namespace=namespace,
     ).configure(ops_manager, "my-replica-set")
-    resource["spec"]["version"] = VERSION_IN_WEB_SERVER
+    resource["spec"]["version"] = custom_mdb_version
     yield resource.create()
 
 
@@ -66,7 +67,7 @@ def test_appdb(ops_manager: MongoDBOpsManager):
 
 @skip_if_local
 @mark.e2e_om_remotemode
-def test_mongod(ops_manager: MongoDBOpsManager):
+def test_appdb_mongod(ops_manager: MongoDBOpsManager):
     mdb_tester = ops_manager.get_appdb_tester()
     mdb_tester.assert_connectivity()
     mdb_tester.assert_version(BUNDLED_APP_DB_VERSION.rstrip("-ent"))
@@ -92,8 +93,8 @@ def test_replica_set_reaches_failed_phase(replica_set: MongoDB):
 
 
 @mark.e2e_om_remotemode
-def test_replica_set_recovers(replica_set: MongoDB):
-    replica_set["spec"]["version"] = VERSION_IN_WEB_SERVER
+def test_replica_set_recovers(replica_set: MongoDB, custom_mdb_version: str):
+    replica_set["spec"]["version"] = custom_mdb_version
     replica_set.update()
     replica_set.assert_abandons_phase(Phase.Failed)
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
