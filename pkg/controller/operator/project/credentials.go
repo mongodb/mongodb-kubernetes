@@ -2,8 +2,9 @@ package project
 
 import (
 	"fmt"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 	"strings"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -38,7 +39,7 @@ func readSecret(secretGetter secret.Getter, nsName client.ObjectKey) (map[string
 	if err != nil {
 		return nil, err
 	}
-	for k, v := range stringData  {
+	for k, v := range stringData {
 		secrets[k] = strings.TrimSuffix(string(v[:]), "\n")
 	}
 	return secrets, nil

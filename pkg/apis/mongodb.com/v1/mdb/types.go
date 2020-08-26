@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/scale"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/ldap"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
@@ -163,6 +165,14 @@ type MongoDbSpec struct {
 	// configuration file:
 	// https://docs.mongodb.com/manual/reference/configuration-options/
 	AdditionalMongodConfig AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
+}
+
+func (m *MongoDB) DesiredReplicaSetMembers() int {
+	return m.Spec.Members
+}
+
+func (m *MongoDB) CurrentReplicaSetMembers() int {
+	return m.Status.Members
 }
 
 // StatefulSetConfiguration holds the optional custom StatefulSet
@@ -540,6 +550,9 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 	if option, exists := status.GetOption(statusOptions, status.BaseUrlOption{}); exists {
 		m.Status.Link = option.(status.BaseUrlOption).BaseUrl
 	}
+	if option, exists := status.GetOption(statusOptions, scale.ReplicaSetMembersOption{}); exists {
+		m.Status.Members = option.(scale.ReplicaSetMembersOption).Members
+	}
 
 	if phase == status.PhaseRunning {
 		m.Status.Version = m.Spec.Version
@@ -548,7 +561,6 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 
 		switch m.Spec.ResourceType {
 		case ReplicaSet:
-			m.Status.Members = m.Spec.Members
 		case ShardedCluster:
 			m.Status.MongosCount = m.Spec.MongosCount
 			m.Status.MongodsPerShardCount = m.Spec.MongodsPerShardCount

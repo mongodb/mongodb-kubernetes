@@ -8,6 +8,9 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/scale"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/manifest"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
@@ -33,7 +36,6 @@ import (
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 const DefaultWaitForReadinessSeconds = 13
@@ -83,6 +85,7 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 
 	// It's ok to pass 'opsManager' instance to statefulset constructor as it will be the owner for the appdb statefulset
 	replicaBuilder := r.kubeHelper.NewStatefulSetHelper(opsManager).
+		SetReplicas(scale.ReplicasThisReconciliation(opsManager)).
 		SetName(rs.Name()).
 		SetService(rs.ServiceName()).
 		SetPodVars(podVars).
@@ -132,16 +135,22 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 		return r.updateStatus(opsManager, status, log, appDbStatusOption)
 	}
 
-	log.Infof("Finished reconciliation for AppDB ReplicaSet!")
-
 	// TODO: remove this check once TLS is configured properly
-	if wantToConfigureMonitoring(rs) && podVars.ProjectID == "" {
+	if wantToConfigureMonitoring(rs) && podVars != nil && podVars.ProjectID == "" {
 		// this doesn't requeue the reconcilliation immediately, the calling OM controller
 		// requeues after Ops Manager has been fully configured.
-		return r.updateStatus(opsManager, workflow.OK().Requeue(), log, appDbStatusOption)
+		log.Infof("Requeuing reconciliation to configure Monitoring in Ops Manager.")
+		return r.updateStatus(opsManager, workflow.OK().Requeue(), log, appDbStatusOption, scale.MembersOption(opsManager))
 	}
 
-	return r.updateStatus(opsManager, workflow.OK(), log, appDbStatusOption)
+	if scale.IsStillScaling(opsManager) {
+		return r.updateStatus(opsManager, workflow.Pending("Continuing scaling operation on AppDB desiredMembers=%d, currentMembers=%d",
+			opsManager.DesiredReplicaSetMembers(), scale.ReplicasThisReconciliation(opsManager)), log, appDbStatusOption, scale.MembersOption(opsManager))
+	}
+
+	log.Infof("Finished reconciliation for AppDB ReplicaSet!")
+
+	return r.updateStatus(opsManager, workflow.OK(), log, appDbStatusOption, scale.MembersOption(opsManager))
 }
 
 func wantToConfigureMonitoring(rs omv1.AppDB) bool {
@@ -266,7 +275,7 @@ func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(rs omv1.AppDB,
 func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(rs omv1.AppDB, opsManager omv1.MongoDBOpsManager, opsManagerUserPassword string, set appsv1.StatefulSet, log *zap.SugaredLogger) (*om.AutomationConfig, error) {
 	d := om.NewDeployment()
 
-	replicaSet := buildReplicaSetFromStatefulSetAppDb(set, rs, log)
+	replicaSet := buildReplicaSetFromStatefulSetAppDb(set, rs)
 
 	d.MergeReplicaSet(replicaSet, nil)
 
@@ -518,7 +527,7 @@ func markAppDBAsBackingProject(conn om.Connection, log *zap.SugaredLogger) error
 	return nil
 }
 
-func buildReplicaSetFromStatefulSetAppDb(set appsv1.StatefulSet, mdb omv1.AppDB, log *zap.SugaredLogger) om.ReplicaSetWithProcesses {
+func buildReplicaSetFromStatefulSetAppDb(set appsv1.StatefulSet, mdb omv1.AppDB) om.ReplicaSetWithProcesses {
 	members := createProcessesAppDb(set, om.ProcessTypeMongod, mdb)
 	replicaSet := om.NewReplicaSet(set.Name, mdb.GetVersion())
 	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members)

@@ -5,6 +5,9 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
+
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/manifest"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
@@ -451,6 +454,130 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 
 	hosts, _ := om.CurrMockedConnection.GetHosts()
 	assert.Len(t, hosts.Results, 5, "the AppDB hosts should have been added")
+}
+
+func TestBuildReplicaSetFromStatefulSetAppDb(t *testing.T) {
+	for i := 0; i < 10; i++ {
+		appDbSts, err := defaultAppDbSetHelper().SetReplicas(i).BuildAppDbStatefulSet()
+		assert.NoError(t, err)
+		omRs := buildReplicaSetFromStatefulSetAppDb(appDbSts, omv1.AppDB{})
+		assert.Len(t, omRs.Processes, i)
+	}
+}
+
+func TestAppDBScaleUp_HappensIncrementally(t *testing.T) {
+	performAppDBScalingTest(t, 1, 5)
+}
+
+func TestAppDBScaleDown_HappensIncrementally(t *testing.T) {
+	performAppDBScalingTest(t, 5, 1)
+}
+
+func TestAppDBScaleUp_HappensIncrementally_FullOpsManagerReconcile(t *testing.T) {
+
+	opsManager := DefaultOpsManagerBuilder().
+		SetBackup(omv1.MongoDBOpsManagerBackup{Enabled: false}).
+		SetAppDbMembers(1).
+		Build()
+	omReconciler, client, _, _ := defaultTestOmReconciler(t, opsManager)
+
+	checkOMReconcilliationSuccessful(t, omReconciler, &opsManager)
+
+	err := client.Get(context.TODO(), types.NamespacedName{Name: opsManager.Name, Namespace: opsManager.Namespace}, &opsManager)
+	assert.NoError(t, err)
+
+	opsManager.Spec.AppDB.Members = 3
+
+	err = client.Update(context.TODO(), &opsManager)
+	assert.NoError(t, err)
+
+	checkOMReconcilliationPending(t, omReconciler, &opsManager)
+
+	err = client.Get(context.TODO(), types.NamespacedName{Name: opsManager.Name, Namespace: opsManager.Namespace}, &opsManager)
+	assert.NoError(t, err)
+
+	assert.Equal(t, 2, opsManager.Status.AppDbStatus.Members)
+
+	res, err := omReconciler.Reconcile(requestFromObject(&opsManager))
+	assert.NoError(t, err)
+	assert.Equal(t, time.Duration(0), res.RequeueAfter)
+	assert.Equal(t, false, res.Requeue)
+
+	err = client.Get(context.TODO(), types.NamespacedName{Name: opsManager.Name, Namespace: opsManager.Namespace}, &opsManager)
+	assert.NoError(t, err)
+
+	assert.Equal(t, 3, opsManager.Status.AppDbStatus.Members)
+
+}
+
+func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
+	builder := DefaultOpsManagerBuilder().SetAppDbMembers(startingMembers)
+	opsManager := builder.Build()
+	kubeManager := mock.NewEmptyManager()
+	client := kubeManager.Client
+	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
+
+	// create the apiKey and OM user
+	data := map[string]string{
+		util.OmPublicApiKey: "apiKey",
+		util.OmUser:         "omUser",
+	}
+
+	apiKeySecret := secret.Builder().
+		SetNamespace(operatorNamespace()).
+		SetName(opsManager.APIKeySecretName()).
+		SetStringData(data).
+		Build()
+
+	err := reconciler.kubeHelper.client.CreateSecret(apiKeySecret)
+	assert.NoError(t, err)
+
+	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
+		return om.NewEmptyMockedOmConnection(context)
+	}
+
+	err = client.Create(context.TODO(), &opsManager)
+	assert.NoError(t, err)
+
+	res, err := reconciler.Reconcile(&opsManager, opsManager.Spec.AppDB, "i6ocEoHYJTteoNTX")
+
+	assert.NoError(t, err)
+	assert.Equal(t, time.Duration(0), res.RequeueAfter)
+	assert.Equal(t, false, res.Requeue)
+
+	// Scale the AppDB
+	opsManager.Spec.AppDB.Members = finalMembers
+
+	if startingMembers < finalMembers {
+		for i := startingMembers; i < finalMembers-1; i++ {
+			err = client.Update(context.TODO(), &opsManager)
+			assert.NoError(t, err)
+
+			res, err = reconciler.Reconcile(&opsManager, opsManager.Spec.AppDB, "i6ocEoHYJTteoNTX")
+
+			assert.NoError(t, err)
+			assert.Equal(t, time.Duration(10000000000), res.RequeueAfter)
+		}
+	} else {
+		for i := startingMembers; i > finalMembers+1; i-- {
+			err = client.Update(context.TODO(), &opsManager)
+			assert.NoError(t, err)
+
+			res, err = reconciler.Reconcile(&opsManager, opsManager.Spec.AppDB, "i6ocEoHYJTteoNTX")
+
+			assert.NoError(t, err)
+			assert.Equal(t, time.Duration(10000000000), res.RequeueAfter)
+		}
+	}
+
+	res, err = reconciler.Reconcile(&opsManager, opsManager.Spec.AppDB, "i6ocEoHYJTteoNTX")
+	assert.NoError(t, err)
+	assert.Equal(t, time.Duration(0), res.RequeueAfter)
+
+	err = client.Get(context.TODO(), types.NamespacedName{Name: opsManager.Name, Namespace: opsManager.Namespace}, &opsManager)
+	assert.NoError(t, err)
+
+	assert.Equal(t, finalMembers, opsManager.Status.AppDbStatus.Members)
 }
 
 // ***************** Helper methods *******************************

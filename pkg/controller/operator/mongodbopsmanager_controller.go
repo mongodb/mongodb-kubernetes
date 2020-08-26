@@ -43,8 +43,8 @@ import (
 
 type OpsManagerReconciler struct {
 	*ReconcileCommonController
-	omInitializer            api.Initializer
-	omAdminProvider          api.AdminProvider
+	omInitializer   api.Initializer
+	omAdminProvider api.AdminProvider
 	// this version manifest is used for offline mode when the agent uses the bundled MongoDB and Operator
 	// must avoid downloading version manifest from the Internet
 	appDbVersionManifestPath string

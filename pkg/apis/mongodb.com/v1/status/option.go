@@ -5,12 +5,12 @@ import (
 )
 
 type Option interface {
-	value() interface{}
+	Value() interface{}
 }
 
 type noOption struct{}
 
-func (o noOption) value() interface{} {
+func (o noOption) Value() interface{} {
 	return nil
 }
 
@@ -23,7 +23,7 @@ func NewMessageOption(message string) MessageOption {
 	return MessageOption{Message: message}
 }
 
-func (o MessageOption) value() interface{} {
+func (o MessageOption) Value() interface{} {
 	return o.Message
 }
 
@@ -36,7 +36,7 @@ func NewWarningsOption(warnings []Warning) WarningsOption {
 	return WarningsOption{Warnings: warnings}
 }
 
-func (o WarningsOption) value() interface{} {
+func (o WarningsOption) Value() interface{} {
 	return o.Warnings
 }
 
@@ -49,7 +49,7 @@ func NewBaseUrlOption(baseUrl string) BaseUrlOption {
 	return BaseUrlOption{BaseUrl: baseUrl}
 }
 
-func (o BaseUrlOption) value() interface{} {
+func (o BaseUrlOption) Value() interface{} {
 	return o.BaseUrl
 }
 
@@ -62,7 +62,7 @@ func NewOMPartOption(statusPart Part) OMPartOption {
 	return OMPartOption{StatusPart: statusPart}
 }
 
-func (o OMPartOption) value() interface{} {
+func (o OMPartOption) Value() interface{} {
 	return o.StatusPart
 }
 
@@ -75,7 +75,7 @@ func NewResourcesNotReadyOption(resourceNotReady []ResourceNotReady) ResourcesNo
 	return ResourcesNotReadyOption{ResourcesNotReady: resourceNotReady}
 }
 
-func (o ResourcesNotReadyOption) value() interface{} {
+func (o ResourcesNotReadyOption) Value() interface{} {
 	return o.ResourcesNotReady
 }
 

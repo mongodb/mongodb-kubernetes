@@ -393,6 +393,12 @@ func checkOMReconcilliationSuccessful(t *testing.T, reconciler reconcile.Reconci
 	assert.NoError(t, err)
 }
 
+func checkOMReconcilliationPending(t *testing.T, reconciler reconcile.Reconciler, om *omv1.MongoDBOpsManager) {
+	res, err := reconciler.Reconcile(requestFromObject(om))
+	assert.NoError(t, err)
+	assert.True(t, res.Requeue || res.RequeueAfter == time.Duration(10000000000))
+}
+
 func checkReconcileFailed(t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, expectedRetry bool, expectedErrorMessage string, client *mock.MockedClient) {
 	failedResult := reconcile.Result{}
 	if expectedRetry {

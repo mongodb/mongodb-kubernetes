@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/scale"
+
 	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
@@ -349,12 +351,15 @@ func (m *MongoDBOpsManager) UpdateStatus(phase status.Phase, statusOptions ...st
 func (m *MongoDBOpsManager) updateStatusAppDb(phase status.Phase, statusOptions ...status.Option) {
 	m.Status.AppDbStatus.UpdateCommonFields(phase, statusOptions...)
 
+	if option, exists := status.GetOption(statusOptions, scale.ReplicaSetMembersOption{}); exists {
+		m.Status.AppDbStatus.Members = option.(scale.ReplicaSetMembersOption).Members
+	}
+
 	if phase == status.PhaseRunning {
 		spec := m.Spec.AppDB
 		m.Status.AppDbStatus.Version = spec.GetVersion()
 		m.Status.AppDbStatus.Message = ""
 		m.Status.AppDbStatus.ResourceType = spec.ResourceType
-		m.Status.AppDbStatus.Members = spec.Members
 	}
 }
 
@@ -418,6 +423,14 @@ func (m MongoDBOpsManager) CentralURL() string {
 
 	// TODO use url.URL to build the url
 	return fmt.Sprintf("%s://%s:%d", strings.ToLower(string(scheme)), fqdn, port)
+}
+
+func (m *MongoDBOpsManager) DesiredReplicaSetMembers() int {
+	return m.Spec.AppDB.Members
+}
+
+func (m *MongoDBOpsManager) CurrentReplicaSetMembers() int {
+	return m.Status.AppDbStatus.Members
 }
 
 func (m MongoDBOpsManager) BackupDaemonHostName() string {

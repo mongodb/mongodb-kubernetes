@@ -2,6 +2,7 @@ package project
 
 import (
 	"fmt"
+
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"

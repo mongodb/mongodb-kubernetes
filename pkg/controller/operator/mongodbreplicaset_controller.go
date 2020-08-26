@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/scale"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/host"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
@@ -57,7 +59,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 	}
 
 	log.Info("-> ReplicaSet.Reconcile")
-	log.Infow("ReplicaSet.Spec", "spec", rs.Spec)
+	log.Infow("ReplicaSet.Spec", "spec", rs.Spec, "desiredReplicas", scale.ReplicasThisReconciliation(rs), "isScaling", scale.IsStillScaling(rs))
 	log.Infow("ReplicaSet.Status", "status", rs.Status)
 
 	if err := rs.ProcessValidationsOnReconcile(); err != nil {
@@ -87,6 +89,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 	}
 
 	replicaBuilder := r.kubeHelper.NewStatefulSetHelper(rs).
+		SetReplicas(scale.ReplicasThisReconciliation(rs)).
 		SetService(rs.ServiceName()).
 		SetPodVars(podVars).
 		SetLogger(log).
@@ -125,8 +128,8 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		return r.updateStatus(rs, status, log)
 	}
 
-	if rs.Spec.Members < rs.Status.Members {
-		if err := prepareScaleDownReplicaSet(conn, replicaSetObject, rs.Status.Members, rs, log); err != nil {
+	if scale.ReplicasThisReconciliation(rs) < rs.Status.Members {
+		if err := prepareScaleDownReplicaSet(conn, replicaSetObject, rs, log); err != nil {
 			return r.updateStatus(rs, workflow.Failed("Failed to prepare Replica Set for scaling down using Ops Manager: %s", err), log)
 		}
 	}
@@ -153,9 +156,13 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		return r.updateStatus(rs, status, log)
 	}
 
-	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
+	if scale.IsStillScaling(rs) {
+		return r.updateStatus(rs, workflow.Pending("Continuing scaling operation for ReplicaSet %s, desiredMembers=%d, currentMembers=%d", rs.ObjectKey(), rs.DesiredReplicaSetMembers(), scale.MembersOption(rs)), log,
+			scale.MembersOption(rs))
+	}
 
-	return r.updateStatus(rs, workflow.OK(), log, mdbstatus.NewBaseUrlOption(DeploymentLink(conn.BaseURL(), conn.GroupID())))
+	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
+	return r.updateStatus(rs, workflow.OK(), log, mdbstatus.NewBaseUrlOption(DeploymentLink(conn.BaseURL(), conn.GroupID())), scale.MembersOption(rs))
 }
 
 // AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
@@ -263,7 +270,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 	}
 
 	hostsBefore := getAllHostsRs(set, rs.Spec.GetClusterDomain(), membersNumberBefore)
-	hostsAfter := getAllHostsRs(set, rs.Spec.GetClusterDomain(), rs.Spec.Members)
+	hostsAfter := getAllHostsRs(set, rs.Spec.GetClusterDomain(), scale.ReplicasThisReconciliation(rs))
 	if err := calculateDiffAndStopMonitoringHosts(conn, hostsBefore, hostsAfter, log); err != nil {
 		return workflow.Failed(err.Error())
 	}
@@ -349,11 +356,16 @@ func (r *ReconcileCommonController) ensureX509InKubernetes(mdb *mdbv1.MongoDB, h
 	return workflow.OK()
 }
 
-func prepareScaleDownReplicaSet(omClient om.Connection, statefulSet appsv1.StatefulSet, oldMembersCount int, new *mdbv1.MongoDB, log *zap.SugaredLogger) error {
-	_, podNames := util.GetDnsForStatefulSetReplicasSpecified(statefulSet, new.Spec.GetClusterDomain(), oldMembersCount)
-	podNames = podNames[new.Spec.Members:oldMembersCount]
+func prepareScaleDownReplicaSet(omClient om.Connection, statefulSet appsv1.StatefulSet, rs *mdbv1.MongoDB, log *zap.SugaredLogger) error {
+	_, podNames := util.GetDnsForStatefulSetReplicasSpecified(statefulSet, rs.Spec.GetClusterDomain(), rs.Status.Members)
+	podNames = podNames[scale.ReplicasThisReconciliation(rs):rs.Status.Members]
 
-	return prepareScaleDown(omClient, map[string][]string{new.Name: podNames}, log)
+	if len(podNames) != 1 {
+		return fmt.Errorf("dev error: the number of members being scaled down was > 1, scaling more than one member at a time is not possible! %s", podNames)
+	}
+
+	log.Debugw("Setting votes to 0 for members", "members", podNames)
+	return prepareScaleDown(omClient, map[string][]string{rs.Name: podNames}, log)
 }
 
 func getAllHostsRs(set appsv1.StatefulSet, clusterName string, membersCount int) []string {
