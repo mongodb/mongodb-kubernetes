@@ -19,6 +19,16 @@ variables:
   - &cloud_manager_qa
     ops_manager_version: "cloud_qa"
 
+    # These are OM/MDB versions used in OM e2e tests (build variants for 4.2/4.4 OM) - change them occasionally
+  - &ops_manager_44_latest
+    custom_om_version: 4.4.1
+  - &ops_manager_42_latest
+    custom_om_version: 4.2.15
+  - &mdb_44_latest 4.4.0
+  - &mdb_42_latest 4.2.8
+  - &mdb_40_latest 4.0.20
+
+
 
     # Openshift v4 Testing Environment
   - &kubernetes_environment_openshift_4
@@ -515,6 +525,8 @@ functions:
         include_expansions_in_env:
           - always_remove_testing_namespace
           - custom_om_version
+          - custom_mdb_version
+          - custom_mdb_prev_version
           - ecr_registry
           - ecr_registry_needs_auth
           - kube_environment_name
@@ -2259,6 +2271,7 @@ buildvariants:
   - name: e2e_kube_only_task_group
   - name: e2e_scram_sha_task_group_with_manually_generated_certs
 
+# Ops Manager 4.2
 - name: e2e_om42_vanilla_ubuntu
   display_name: "e2e_om42_vanilla_ubuntu"
   depends_on:
@@ -2279,9 +2292,13 @@ buildvariants:
     test_mode: "opsmanager"
     image_type: ubuntu
     always_remove_testing_namespace: "true"
+    <<: *ops_manager_42_latest
+    custom_mdb_version: *mdb_42_latest
+    custom_mdb_prev_version: *mdb_40_latest
   tasks:
     - name: e2e_ops_manager_task_group_safe
 
+# Ops Manager 4.2
 - name: e2e_om42_openshift_ubi
   display_name: e2e_om42_openshift_ubi
   depends_on:
@@ -2300,10 +2317,13 @@ buildvariants:
     image_type: rhel
     ubi: "-ubi"
     always_remove_testing_namespace: "true"
+    <<: *ops_manager_42_latest
+    custom_mdb_version: *mdb_42_latest
+    custom_mdb_prev_version: *mdb_40_latest
   tasks:
     - name: e2e_ops_manager_task_group_safe
 
-# Isolated Ops Manager Tests
+# Isolated Ops Manager Tests for 4.2 version
 - name: e2e_om42_kind_ubuntu
   display_name: e2e_om42_kind_ubuntu
   run_on:
@@ -2320,6 +2340,9 @@ buildvariants:
     image_type: rhel
     ubi: "-ubi"
     test_mode: opsmanager
+    <<: *ops_manager_42_latest
+    custom_mdb_version: *mdb_42_latest
+    custom_mdb_prev_version: *mdb_40_latest
   tasks:
   - name: e2e_ops_manager_kind_only_task_group
 
@@ -2339,7 +2362,9 @@ buildvariants:
     <<: *kubernetes_environment_kind
     image_type: ubuntu
     test_mode: opsmanager
-    custom_om_version: 4.4.1
+    <<: *ops_manager_44_latest
+    custom_mdb_version: *mdb_44_latest
+    custom_mdb_prev_version: *mdb_42_latest
     # TODO using expansion here results in "'${ecr_registry}/images/ubuntu' contains an unclosed expansion"
     ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
   tasks:
@@ -2364,7 +2389,9 @@ buildvariants:
     <<: *kubernetes_environment_kind
     image_type: rhel
     test_mode: opsmanager
-    custom_om_version: 4.4.1
+    <<: *ops_manager_44_latest
+    custom_mdb_version: *mdb_44_latest
+    custom_mdb_prev_version: *mdb_42_latest
     ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/rhel
   tasks:
   - name: e2e_ops_manager_kind_only_task_group

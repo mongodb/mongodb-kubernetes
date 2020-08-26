@@ -395,7 +395,7 @@ func (oc *MockedOmConnection) CreateProject(project *Project) (*Project, error) 
 	project.ID = TestGroupID
 
 	// We emulate the behavior of Ops Manager: we create the organization with random id and the name matching the project
-	organization := &Organization{ID: string(rand.Int()), Name: project.Name}
+	organization := &Organization{ID: strconv.Itoa(rand.Int()), Name: project.Name}
 	if _, exists := oc.OrganizationsWithGroups[organization]; !exists {
 		oc.OrganizationsWithGroups[organization] = make([]*Project, 0)
 	}

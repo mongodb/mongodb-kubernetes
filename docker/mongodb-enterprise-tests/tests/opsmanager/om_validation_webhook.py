@@ -103,11 +103,14 @@ class TestOpsManagerAppDbWrongVersionConnectivity(KubernetesTester):
 
 
 @fixture(scope="module")
-def ops_manager(namespace: str, custom_version: Optional[str]) -> MongoDBOpsManager:
+def ops_manager(
+    namespace: str, custom_version: Optional[str], custom_appdb_version: str
+) -> MongoDBOpsManager:
     om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace
     )
     om.set_version(custom_version)
+    om.set_appdb_version(custom_appdb_version)
     om["spec"]["applicationDatabase"]["shardCount"] = 3
     return om.create()
 

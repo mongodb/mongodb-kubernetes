@@ -14,6 +14,7 @@ from pytest import fixture
 
 gen_key_resource_version = None
 admin_key_resource_version = None
+OM_CURRENT_VERSION = "4.2.13"
 
 
 # Note the strategy for Ops Manager testing: the tests should have more than 1 updates - this is because the initial
@@ -24,10 +25,12 @@ admin_key_resource_version = None
 
 
 @fixture(scope="module")
-def ops_manager(namespace) -> MongoDBOpsManager:
+def ops_manager(namespace, custom_appdb_version: str) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_scale.yaml"), namespace=namespace
     )
+    resource.set_version(OM_CURRENT_VERSION)
+    resource.set_appdb_version(custom_appdb_version)
     return resource.create()
 
 
@@ -112,12 +115,11 @@ class TestOpsManagerVersionUpgrade:
         self,
         ops_manager: MongoDBOpsManager,
         background_tester: OMBackgroundTester,
-        custom_version: Optional[str],
+        custom_version: str,
     ):
         # Adding fixture just to start background tester
         _ = background_tester
         ops_manager.load()
-        ops_manager["spec"]["version"] = "4.2.3"
         ops_manager.set_version(custom_version)
 
         ops_manager.update()

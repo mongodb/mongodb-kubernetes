@@ -49,11 +49,13 @@ def ops_manager(
     issuer_ca_configmap: str,
     appdb_certs: str,
     custom_version: Optional[str],
+    custom_appdb_version: str,
 ) -> MongoDBOpsManager:
     om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         _fixture("om_https_enabled.yaml"), namespace=namespace
     )
     om.set_version(custom_version)
+    om.set_appdb_version(custom_appdb_version)
     om["spec"]["applicationDatabase"]["security"] = {
         "tls": {"ca": issuer_ca_configmap, "secretRef": {"name": appdb_certs}}
     }

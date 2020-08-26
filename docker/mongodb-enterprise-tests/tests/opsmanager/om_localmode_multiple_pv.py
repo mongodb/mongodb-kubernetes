@@ -10,22 +10,27 @@ from pytest import fixture, mark
 
 
 @fixture(scope="module")
-def ops_manager(namespace: str, custom_version: Optional[str]) -> MongoDBOpsManager:
+def ops_manager(
+    namespace: str, custom_version: Optional[str], custom_appdb_version: str
+) -> MongoDBOpsManager:
     KubernetesTester.make_default_gp2_storage_class()
 
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_localmode-multiple-pv.yaml"), namespace=namespace
     )
     resource.set_version(custom_version)
+    resource.set_appdb_version(custom_appdb_version)
     return resource.create()
 
 
 @fixture(scope="module")
-def replica_set(ops_manager: MongoDBOpsManager, namespace: str) -> MongoDB:
+def replica_set(
+    ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str
+) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"), namespace=namespace,
     ).configure(ops_manager, "my-replica-set")
-    resource["spec"]["version"] = "4.2.2"
+    resource["spec"]["version"] = custom_mdb_version
     resource["spec"]["members"] = 2
     yield resource.create()
 
@@ -67,8 +72,10 @@ class TestOpsManagerCreation:
         # distros for local mode - so just wait until the agents don't reach goal state
         replica_set.assert_reaches_phase(Phase.Failed, timeout=300)
 
-    def test_add_mongodb_distros_and_tools(self, ops_manager: MongoDBOpsManager):
-        ops_manager.download_mongodb_binaries_and_tools("4.2.2")
+    def test_add_mongodb_distros_and_tools(
+        self, ops_manager: MongoDBOpsManager, custom_mdb_version: str
+    ):
+        ops_manager.download_mongodb_binaries_and_tools(custom_mdb_version)
 
     def test_replica_set_reaches_running_phase(self, replica_set: MongoDB):
         # note that the Replica Set may sometimes still get to Failed error
@@ -76,9 +83,11 @@ class TestOpsManagerCreation:
         # so we are ingoring errors during this wait
         replica_set.assert_reaches_phase(Phase.Running, timeout=300, ignore_errors=True)
 
-    def test_client_can_connect_to_mongodb(self, replica_set: MongoDB):
+    def test_client_can_connect_to_mongodb(
+        self, replica_set: MongoDB, custom_mdb_version: str
+    ):
         replica_set.assert_connectivity()
-        replica_set.tester().assert_version("4.2.2")
+        replica_set.tester().assert_version(custom_mdb_version)
 
 
 @mark.e2e_om_localmode_multiple_pv
@@ -91,7 +100,7 @@ class TestOpsManagerRestarted:
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
     def test_can_scale_replica_set(self, replica_set: MongoDB):
-        replica_set["spec"]["members"] = 3
+        replica_set["spec"]["members"] = 4
         replica_set.update()
         replica_set.assert_abandons_phase(Phase.Running)
         replica_set.assert_reaches_phase(Phase.Running, timeout=200)

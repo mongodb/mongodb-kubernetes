@@ -276,6 +276,12 @@ class MongoDB(CustomObject, MongoDBCommon):
         except KeyError:
             return None
 
+    def get_status_members(self) -> Optional[str]:
+        try:
+            return self["status"]["members"]
+        except KeyError:
+            return None
+
     def get_status_resources_not_ready(self) -> Optional[List[Dict]]:
         try:
             return self["status"]["resourcesNotReady"]

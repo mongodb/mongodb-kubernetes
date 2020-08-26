@@ -1,3 +1,5 @@
+from typing import Optional
+
 import pytest
 from pytest import fixture
 from tests.opsmanager.om_ops_manager_backup import BLOCKSTORE_RS_NAME, OPLOG_RS_NAME
@@ -11,7 +13,9 @@ MONGO_URI_ENV_NAME = "OM_PROP_mongo_mongoUri"
 
 
 @fixture(scope="module")
-def ops_manager(namespace: str) -> MongoDBOpsManager:
+def ops_manager(
+    namespace: str, custom_version: Optional[str], custom_appdb_version: str
+) -> MongoDBOpsManager:
     KubernetesTester.create_secret(namespace, "my-password", {"password": "password"})
 
     resource = MongoDBOpsManager.from_yaml(
@@ -21,6 +25,8 @@ def ops_manager(namespace: str) -> MongoDBOpsManager:
     resource["spec"]["applicationDatabase"]["passwordSecretKeyRef"] = {
         "name": "my-password",
     }
+    resource.set_version(custom_version)
+    resource.set_appdb_version(custom_appdb_version)
 
     return resource.create()
 

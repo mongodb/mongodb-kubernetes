@@ -15,12 +15,15 @@ from pytest import fixture, mark
 
 
 @fixture(scope="module")
-def ops_manager(namespace: str, custom_version: Optional[str]) -> MongoDBOpsManager:
+def ops_manager(
+    namespace: str, custom_version: Optional[str], custom_appdb_version: str
+) -> MongoDBOpsManager:
     """ The fixture for Ops Manager to be created."""
     om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_pod_spec.yaml"), namespace=namespace
     )
     om.set_version(custom_version)
+    om.set_appdb_version(custom_appdb_version)
     return om.create()
 
 

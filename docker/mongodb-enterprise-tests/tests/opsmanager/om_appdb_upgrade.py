@@ -12,6 +12,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 
 gen_key_resource_version = None
 admin_key_resource_version = None
+INITIAL_APPDB_VERSION = "4.0.0"
 
 
 @fixture(scope="module")
@@ -34,7 +35,7 @@ class TestOpsManagerCreation:
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
         assert ops_manager.appdb_status().get_members() == 3
-        assert ops_manager.appdb_status().get_version() == "4.0.0"
+        assert ops_manager.appdb_status().get_version() == INITIAL_APPDB_VERSION
         db_pods = ops_manager.read_appdb_pods()
         for pod in db_pods:
             # the appdb pods by default have 500M
@@ -47,7 +48,7 @@ class TestOpsManagerCreation:
     def test_mongod(self, ops_manager: MongoDBOpsManager):
         mdb_tester = ops_manager.get_appdb_tester()
         mdb_tester.assert_connectivity()
-        mdb_tester.assert_version("4.0.0")
+        mdb_tester.assert_version(INITIAL_APPDB_VERSION)
 
     def test_appdb_automation_config(self, ops_manager: MongoDBOpsManager):
         expected_roles = {
@@ -104,7 +105,7 @@ class TestOpsManagerAppDbUpgrade:
 
     def test_appdb_bundled_version(self, ops_manager: MongoDBOpsManager):
         ops_manager.load()
-        ops_manager["spec"]["applicationDatabase"]["version"] = ""
+        ops_manager.set_appdb_version("")
         ops_manager.update()
         ops_manager.appdb_status().assert_abandons_phase(Phase.Running)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
@@ -164,9 +165,11 @@ class TestOpsManagerMixed:
       Performs changes to both AppDB and Ops Manager spec
     """
 
-    def test_appdb_and_om_updated(self, ops_manager: MongoDBOpsManager):
+    def test_appdb_and_om_updated(
+        self, ops_manager: MongoDBOpsManager, custom_appdb_version: str
+    ):
         ops_manager.load()
-        ops_manager["spec"]["applicationDatabase"]["version"] = "4.2.1"
+        ops_manager.set_appdb_version(custom_appdb_version)
         ops_manager["spec"]["configuration"] = {
             "mms.helpAndSupportPage.enabled": "true"
         }
@@ -179,15 +182,15 @@ class TestOpsManagerMixed:
         # no backup status
         assert ops_manager.backup_status().get_phase() is None
 
-    def test_appdb(self, ops_manager: MongoDBOpsManager):
+    def test_appdb(self, ops_manager: MongoDBOpsManager, custom_appdb_version: str):
         assert ops_manager.appdb_status().get_members() == 3
-        assert ops_manager.appdb_status().get_version() == "4.2.1"
+        assert ops_manager.appdb_status().get_version() == custom_appdb_version
 
     @skip_if_local
-    def test_mongod(self, ops_manager: MongoDBOpsManager):
+    def test_mongod(self, ops_manager: MongoDBOpsManager, custom_appdb_version: str):
         mdb_tester = ops_manager.get_appdb_tester()
         mdb_tester.assert_connectivity()
-        mdb_tester.assert_version("4.2.1")
+        mdb_tester.assert_version(custom_appdb_version)
 
     @skip_if_local
     def test_om_connectivity(self, ops_manager: MongoDBOpsManager):

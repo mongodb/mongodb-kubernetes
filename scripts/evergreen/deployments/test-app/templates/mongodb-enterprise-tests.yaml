@@ -74,6 +74,14 @@ spec:
     - name: CUSTOM_OM_VERSION
       value: {{ .Values.customOmVersion }}
     {{ end }}
+    {{ if .Values.customOmMdbVersion }}
+    - name: CUSTOM_MDB_VERSION
+      value: {{ .Values.customOmMdbVersion }}
+    {{ end }}
+    {{ if .Values.customOmMdbPrevVersion }}
+    - name: CUSTOM_MDB_PREV_VERSION
+      value: {{ .Values.customOmMdbPrevVersion }}
+    {{ end }}
     # Operator installation parameters
     - name: OPERATOR_VERSION
       value: {{ .Values.operator.version }}

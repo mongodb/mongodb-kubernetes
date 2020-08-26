@@ -12,12 +12,15 @@ JAVA_DAEMON_OPTS = "JAVA_DAEMON_OPTS"
 
 
 @fixture(scope="module")
-def ops_manager(namespace: str, custom_version: Optional[str]) -> MongoDBOpsManager:
+def ops_manager(
+    namespace: str, custom_version: Optional[str], custom_appdb_version: str
+) -> MongoDBOpsManager:
     """ The fixture for Ops Manager to be created."""
     om = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_jvm_params.yaml"), namespace=namespace
     )
     om.set_version(custom_version)
+    om.set_appdb_version(custom_appdb_version)
 
     return om.create()
 

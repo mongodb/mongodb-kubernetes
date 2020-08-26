@@ -11,12 +11,16 @@ from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 
 BUNDLED_APP_DB_VERSION = "4.2.2-ent"
+# To avoid constants we can use the same approach as in om_localmode_multiple_pv.py and download the
+# binaries in runtime instead of gluing into yaml spec
 VERSION_IN_OPS_MANAGER = "4.2.8-ent"
 VERSION_NOT_IN_OPS_MANAGER = "4.2.1"
 
 
 @fixture(scope="module")
-def ops_manager(namespace: str, custom_version: Optional[str]) -> MongoDBOpsManager:
+def ops_manager(
+    namespace: str, custom_version: Optional[str], custom_appdb_version: str
+) -> MongoDBOpsManager:
     KubernetesTester.make_default_gp2_storage_class()
 
     with open(yaml_fixture("mongodb_versions_claim.yaml"), "r") as f:
@@ -28,6 +32,7 @@ def ops_manager(namespace: str, custom_version: Optional[str]) -> MongoDBOpsMana
         yaml_fixture("om_localmode-single-pv.yaml"), namespace=namespace
     )
     om.set_version(custom_version)
+    om.set_appdb_version(custom_appdb_version)
     yield om.create()
 
     KubernetesTester.delete_pvc(namespace, "mongodb-versions-claim")

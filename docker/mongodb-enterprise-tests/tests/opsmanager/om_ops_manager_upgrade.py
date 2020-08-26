@@ -15,12 +15,12 @@ from pytest import fixture
 gen_key_resource_version = None
 admin_key_resource_version = None
 OM_CURRENT_VERSION = "4.2.13"
-OM_NEW_VERSION = "4.2.15"
 MDB_CURRENT_VERSION = "4.2.1"
-MDB_NEW_VERSION = "4.2.2"
 
 
-# Current test should contain all kinds of upgrades to Ops Manager as a sequence of tests
+# Current test focuses on Ops Manager upgrade which involves upgrade for both OpsManager and AppDB.
+# MongoDBs are also upgraded. In case of minor OM version upgrade (4.2 -> 4.4) agents are expected to be upgraded
+# for the existing MongoDBs.
 
 
 @fixture(scope="module")
@@ -28,7 +28,8 @@ def ops_manager(namespace) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_upgrade.yaml"), namespace=namespace
     )
-    resource["spec"]["version"] = OM_CURRENT_VERSION
+    resource.set_version(OM_CURRENT_VERSION)
+    resource.set_appdb_version(MDB_CURRENT_VERSION)
 
     return resource.create()
 
@@ -101,13 +102,15 @@ class TestOpsManagerWithMongoDB:
         mdb.tester().assert_version(MDB_CURRENT_VERSION)
 
     def test_mongodb_upgrade(self, mdb: MongoDB):
-        mdb["spec"]["version"] = MDB_NEW_VERSION
+        """ Scales up the mongodb. Note, that we are not upgrading the Mongodb version at this stage as it can be
+        the major update (e.g. 4.2 -> 4.4) and this requires OM upgrade as well - this happens later. """
+        mdb["spec"]["members"] = 4
 
         mdb.update()
         mdb.assert_abandons_phase(Phase.Running)
         mdb.assert_reaches_phase(Phase.Running)
         mdb.assert_connectivity()
-        mdb.tester().assert_version(MDB_NEW_VERSION)
+        assert mdb.get_status_members() == 4
 
 
 @pytest.mark.e2e_om_ops_manager_upgrade
@@ -163,11 +166,14 @@ class TestOpsManagerVersionUpgrade:
         )
 
     def test_upgrade_om_version(
-        self, ops_manager: MongoDBOpsManager, custom_version: Optional[str]
+        self,
+        ops_manager: MongoDBOpsManager,
+        custom_version: Optional[str],
+        custom_appdb_version: str,
     ):
         ops_manager.load()
-        ops_manager["spec"]["version"] = OM_NEW_VERSION
         ops_manager.set_version(custom_version)
+        ops_manager.set_appdb_version(custom_appdb_version)
 
         ops_manager.update()
         ops_manager.om_status().assert_abandons_phase(Phase.Running)
@@ -184,8 +190,16 @@ class TestOpsManagerVersionUpgrade:
         om_tester.assert_healthiness()
         om_tester.assert_version(ops_manager.get_version())
 
-    def test_mongodb_upgrade(self, mdb: MongoDB):
-        """ Ensures that the existing MongoDB works fine with the new Ops Manager.
+    def test_appdb(self, ops_manager: MongoDBOpsManager, custom_appdb_version: str):
+        mdb_tester = ops_manager.get_appdb_tester()
+        mdb_tester.assert_connectivity()
+        mdb_tester.assert_version(custom_appdb_version)
+
+
+@pytest.mark.e2e_om_ops_manager_upgrade
+class TestMongoDbsVersionUpgrade:
+    def test_mongodb_upgrade(self, mdb: MongoDB, custom_mdb_version: str):
+        """ Ensures that the existing MongoDB works fine with the new Ops Manager (scales up one member)
         Some details:
         - in case of patch upgrade of OM the existing agent is guaranteed to work with the new OM - we don't require
         the upgrade of all the agents
@@ -193,13 +207,13 @@ class TestOpsManagerVersionUpgrade:
         is enforced before MongoDB reconciliation (the OM reconciliation happened above will drop the 'agents.nextScheduledTime'
         counter)
         """
-        mdb["spec"]["version"] = "4.2.3"
+        mdb["spec"]["version"] = custom_mdb_version
 
         mdb.update()
         mdb.assert_abandons_phase(Phase.Running)
         mdb.assert_reaches_phase(Phase.Running)
         mdb.assert_connectivity()
-        mdb.tester().assert_version("4.2.3")
+        mdb.tester().assert_version(custom_mdb_version)
 
     def test_agents_upgraded(self, mdb: MongoDB, ops_manager: MongoDBOpsManager):
         print(id(self))

@@ -8,11 +8,14 @@ from pytest import fixture, mark
 
 
 @fixture(scope="module")
-def opsmanager(namespace: str, custom_version: Optional[str]) -> MongoDBOpsManager:
+def opsmanager(
+    namespace: str, custom_version: Optional[str], custom_appdb_version: str
+) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace
     )
     resource.set_version(custom_version)
+    resource.set_appdb_version(custom_appdb_version)
 
     yield resource.create()
 

@@ -59,6 +59,14 @@ deploy_test_app() {
         # The test needs to create an OM resource with specific version
         helm_params+=("--set" "customOmVersion=${custom_om_version}")
     fi
+    if [[ -n "${custom_mdb_version:-}" ]]; then
+        # The test needs to test MongoDB of a specific version
+        helm_params+=("--set" "customOmMdbVersion=${custom_mdb_version}")
+    fi
+    if [[ -n "${custom_mdb_prev_version:-}" ]]; then
+        # The test needs to test MongoDB of a previous version
+        helm_params+=("--set" "customOmMdbPrevVersion=${custom_mdb_prev_version}")
+    fi
 
 
     helm template "scripts/evergreen/deployments/test-app" "${helm_params[@]}" > "${helm_template_file}" || exit 1

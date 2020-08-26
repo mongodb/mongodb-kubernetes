@@ -24,11 +24,14 @@ EXPECTED_OM_USER_ROLES = {
 
 
 @fixture(scope="module")
-def ops_manager(namespace: str, custom_version: Optional[str]) -> MongoDBOpsManager:
+def ops_manager(
+    namespace: str, custom_version: Optional[str], custom_appdb_version: str
+) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_appdb_scram.yaml"), namespace=namespace
     )
     resource.set_version(custom_version)
+    resource.set_appdb_version(custom_appdb_version)
 
     return resource.create()
 
@@ -40,11 +43,11 @@ class TestOpsManagerCreation:
       is ready to avoid changing password before Ops Manager has reached ready state
     """
 
-    def test_appdb(self, ops_manager: MongoDBOpsManager):
+    def test_appdb(self, ops_manager: MongoDBOpsManager, custom_appdb_version: str):
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
         assert ops_manager.appdb_status().get_members() == 3
-        assert ops_manager.appdb_status().get_version() == "4.0.0"
+        assert ops_manager.appdb_status().get_version() == custom_appdb_version
 
     def test_admin_config_map(self, ops_manager: MongoDBOpsManager):
         ops_manager.get_automation_config_tester().reached_version(1)
@@ -54,10 +57,10 @@ class TestOpsManagerCreation:
         assert "security" not in ops_manager["spec"]["applicationDatabase"]
 
     @skip_if_local
-    def test_mongod(self, ops_manager: MongoDBOpsManager):
+    def test_mongod(self, ops_manager: MongoDBOpsManager, custom_appdb_version: str):
         mdb_tester = ops_manager.get_appdb_tester()
         mdb_tester.assert_connectivity()
-        mdb_tester.assert_version("4.0.0")
+        mdb_tester.assert_version(custom_appdb_version)
 
     def test_appdb_automation_config(self, ops_manager: MongoDBOpsManager):
         # only user should be the Ops Manager user

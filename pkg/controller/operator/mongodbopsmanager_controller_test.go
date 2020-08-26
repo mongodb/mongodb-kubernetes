@@ -2,10 +2,11 @@ package operator
 
 import (
 	"context"
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"os"
 	"testing"
 	"time"
+
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 

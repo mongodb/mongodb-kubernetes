@@ -18,11 +18,14 @@ admin_key_resource_version = None
 
 
 @fixture(scope="module")
-def ops_manager(namespace: str, custom_version: Optional[str]) -> MongoDBOpsManager:
+def ops_manager(
+    namespace: str, custom_version: Optional[str], custom_appdb_version: str
+) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_appdb_scale_up_down.yaml"), namespace=namespace
     )
     resource.set_version(custom_version)
+    resource.set_appdb_version(custom_appdb_version)
 
     return resource.create()
 
@@ -57,9 +60,9 @@ class TestOpsManagerCreation:
         # saving the resource version for later checks against updates
         admin_key_resource_version = secret.metadata.resource_version
 
-    def test_appdb(self, ops_manager: MongoDBOpsManager):
+    def test_appdb(self, ops_manager: MongoDBOpsManager, custom_appdb_version: str):
         assert ops_manager.appdb_status().get_members() == 3
-        assert ops_manager.appdb_status().get_version() == "4.0.7"
+        assert ops_manager.appdb_status().get_version() == custom_appdb_version
         statefulset = ops_manager.read_appdb_statefulset()
         assert statefulset.status.ready_replicas == 3
         assert statefulset.status.current_replicas == 3
@@ -101,9 +104,9 @@ class TestOpsManagerAppDbScaleUp:
         assert gen_key_secret.metadata.resource_version == gen_key_resource_version
         assert api_key_secret.metadata.resource_version == admin_key_resource_version
 
-    def test_appdb(self, ops_manager: MongoDBOpsManager):
+    def test_appdb(self, ops_manager: MongoDBOpsManager, custom_appdb_version: str):
         assert ops_manager.appdb_status().get_members() == 5
-        assert ops_manager.appdb_status().get_version() == "4.0.7"
+        assert ops_manager.appdb_status().get_version() == custom_appdb_version
 
         statefulset = ops_manager.read_appdb_statefulset()
         assert statefulset.status.ready_replicas == 5

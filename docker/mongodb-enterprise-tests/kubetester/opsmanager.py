@@ -242,6 +242,9 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         if version is not None:
             self["spec"]["version"] = version
 
+    def set_appdb_version(self, version: str):
+        self["spec"]["applicationDatabase"]["version"] = version
+
     def __repr__(self):
         # FIX: this should be __unicode__
         return "MongoDBOpsManager| status:".format(self.get_status())
