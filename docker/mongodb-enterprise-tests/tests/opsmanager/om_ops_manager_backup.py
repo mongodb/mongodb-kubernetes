@@ -129,13 +129,16 @@ def s3_bucket_2(aws_s3_client: AwsS3Client) -> str:
 
 
 @fixture(scope="module")
-def oplog_replica_set(ops_manager, namespace) -> MongoDB:
+def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=OPLOG_RS_NAME,
     ).configure(ops_manager, "development")
-    resource["spec"]["version"] = MDB_3_6_VERSION
+    if ops_manager.get_version().startswith("4.2"):
+        resource["spec"]["version"] = MDB_3_6_VERSION
+    else:
+        resource["spec"]["version"] = custom_mdb_version
 
     #  TODO: Remove when CLOUDP-60443 is fixed
     # This test will update oplog to have SCRAM enabled
@@ -158,14 +161,17 @@ def s3_replica_set(ops_manager, namespace) -> MongoDB:
 
 
 @fixture(scope="module")
-def blockstore_replica_set(ops_manager, namespace) -> MongoDB:
+def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=BLOCKSTORE_RS_NAME,
     ).configure(ops_manager, "blockstore")
-    # enabling 3.6.19 to let enable scram-sha (OM until some versions understands scram-sha-1 only)
-    resource["spec"]["version"] = MDB_3_6_VERSION
+    if ops_manager.get_version().startswith("4.2"):
+        # enabling 3.6.19 to let enable scram-sha (OM until 4.4 understands scram-sha-1 only)
+        resource["spec"]["version"] = MDB_3_6_VERSION
+    else:
+        resource["spec"]["version"] = custom_mdb_version
     yield resource.create()
 
 

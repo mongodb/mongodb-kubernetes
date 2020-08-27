@@ -210,8 +210,10 @@ class MongoDB(CustomObject, MongoDBCommon):
                 urllib.parse.quote(password, safe=""),
             )
             params["authSource"] = "admin"
-            # TODO check the version for correct auth mechanism
-            params["authMechanism"] = "SCRAM-SHA-1"
+            if self.get_version().startswith("3.6"):
+                params["authMechanism"] = "SCRAM-SHA-1"
+            else:
+                params["authMechanism"] = "SCRAM-SHA-256"
 
         hosts = ",".join(self.build_list_of_hosts())
 
@@ -229,6 +231,9 @@ class MongoDB(CustomObject, MongoDBCommon):
 
     def get_members(self) -> int:
         return self["spec"]["members"]
+
+    def get_version(self) -> str:
+        return self["spec"]["version"]
 
     def get_service(self) -> str:
         try:

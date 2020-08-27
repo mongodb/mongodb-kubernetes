@@ -877,7 +877,7 @@ func (r *OpsManagerReconciler) buildOMS3Config(opsManager omv1.MongoDBOpsManager
 	isAppDB := config.MongoDBResourceRef == nil
 
 	if !isAppDB {
-		if status = validateS3Config(mongodb, config); !status.IsOK() {
+		if status = validateS3Config(opsManager, mongodb, config); !status.IsOK() {
 			return backup.S3Config{}, status
 		}
 	}
@@ -973,7 +973,7 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(opsManager omv1.MongoDBOps
 		return backup.DataStoreConfig{}, workflow.Failed(err.Error())
 	}
 
-	status := validateDataStoreConfig(*mongodb, operatorConfig)
+	status := validateDataStoreConfig(opsManager, *mongodb, operatorConfig)
 	if !status.IsOK() {
 		return backup.DataStoreConfig{}, status
 	}
@@ -1004,15 +1004,15 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(opsManager omv1.MongoDBOps
 	return backup.NewDataStoreConfig(operatorConfig.Name, mongoUri, tls), workflow.OK()
 }
 
-func validateS3Config(mongodb mdbv1.MongoDB, s3Config omv1.S3Config) workflow.Status {
-	return validateConfig(mongodb, s3Config.MongoDBUserRef, "S3 metadata database")
+func validateS3Config(opsManager omv1.MongoDBOpsManager, mongodb mdbv1.MongoDB, s3Config omv1.S3Config) workflow.Status {
+	return validateConfig(opsManager, mongodb, s3Config.MongoDBUserRef, "S3 metadata database")
 }
 
-func validateDataStoreConfig(mongodb mdbv1.MongoDB, dataStoreConfig omv1.DataStoreConfig) workflow.Status {
-	return validateConfig(mongodb, dataStoreConfig.MongoDBUserRef, "Oplog/Blockstore databases")
+func validateDataStoreConfig(opsManager omv1.MongoDBOpsManager, mongodb mdbv1.MongoDB, dataStoreConfig omv1.DataStoreConfig) workflow.Status {
+	return validateConfig(opsManager, mongodb, dataStoreConfig.MongoDBUserRef, "Oplog/Blockstore databases")
 }
 
-func validateConfig(mongodb mdbv1.MongoDB, userRef *omv1.MongoDBUserRef, description string) workflow.Status {
+func validateConfig(opsManager omv1.MongoDBOpsManager, mongodb mdbv1.MongoDB, userRef *omv1.MongoDBUserRef, description string) workflow.Status {
 	// validate
 	if !stringutil.Contains(mongodb.Spec.Security.Authentication.GetModes(), util.SCRAM) &&
 		len(mongodb.Spec.Security.Authentication.GetModes()) > 0 {
@@ -1022,6 +1022,14 @@ func validateConfig(mongodb mdbv1.MongoDB, userRef *omv1.MongoDBUserRef, descrip
 		(userRef == nil || userRef.Name == "") {
 		return workflow.Failed("MongoDB resource %s is configured to use SCRAM-SHA authentication mode, the user must be"+
 			" specified using 'mongodbUserRef'", mongodb.Name)
+	}
+	omVersionComparison, err := util.CompareVersions(opsManager.Spec.Version, "4.4.0")
+	if err != nil {
+		return workflow.Failed(err.Error())
+	}
+	// We perform the check for mongodb version + SCRAM-SHA only if Ops Manager version is <= 4.2.0
+	if omVersionComparison >= 0 {
+		return workflow.OK()
 	}
 	comparison, err := util.CompareVersions(mongodb.Spec.GetVersion(), util.MinimumScramSha256MdbVersion)
 	if err != nil {

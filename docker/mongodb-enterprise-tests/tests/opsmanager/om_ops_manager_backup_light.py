@@ -105,23 +105,24 @@ class TestOpsManagerCreation:
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
         ops_manager.assert_appdb_monitoring_group_was_created()
 
+        # TODO uncomment when CLOUDP-70468 is fixed and AppDB supports scram-sha-256
         # making sure the s3 config pushed to OM references the appdb
-        appdb_replica_set = ops_manager.get_appdb_resource()
-        appdb_password = KubernetesTester.read_secret(
-            ops_manager.namespace, ops_manager.app_db_password_secret_name()
-        )["password"]
-        om_tester.assert_s3_stores(
-            [
-                new_om_s3_store(
-                    appdb_replica_set,
-                    "s3Store1",
-                    s3_bucket,
-                    aws_s3_client,
-                    user_name=DEFAULT_APPDB_USER_NAME,
-                    password=appdb_password,
-                )
-            ]
-        )
+        # appdb_replica_set = ops_manager.get_appdb_resource()
+        # appdb_password = KubernetesTester.read_secret(
+        #     ops_manager.namespace, ops_manager.app_db_password_secret_name()
+        # )["password"]
+        # om_tester.assert_s3_stores(
+        #     [
+        #         new_om_s3_store(
+        #             appdb_replica_set,
+        #             "s3Store1",
+        #             s3_bucket,
+        #             aws_s3_client,
+        #             user_name=DEFAULT_APPDB_USER_NAME,
+        #             password=appdb_password,
+        #         )
+        #     ]
+        # )
 
 
 @mark.e2e_om_ops_manager_backup_light
