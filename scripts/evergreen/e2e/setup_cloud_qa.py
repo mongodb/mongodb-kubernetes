@@ -240,7 +240,7 @@ def configure():
 
 def clean_unused_projects(org_id: str):
     """ Iterates over all existing projects in the organization and removes the leftovers """
-    projects = get_projects_oder_than(org_id, age=3)
+    projects = get_projects_oder_than(org_id, age=2)
 
     for project in projects:
         print("Removing the project {} ({})".format(project["id"], project["name"]))
