@@ -11,10 +11,10 @@ variables:
     ops_manager_version: "4.0.11.50485.20190502T1847Z-1_test"
     ops_manager_namespace: "operator-testing-40-first"
     node_port: 30041
-  - &ops_manager_42_current
-    ops_manager_version: "4.2.4.56729.20191105T2247Z-1"
-    ops_manager_namespace: "operator-testing-42-current"
-    node_port: 30043
+  - &ops_manager_44_current
+    ops_manager_version: "4.4.1.101.20200805T0050Z-1"
+    ops_manager_namespace: "operator-testing-44-current"
+    node_port: 30044
 
   - &cloud_manager_qa
     ops_manager_version: "cloud_qa"
@@ -976,11 +976,10 @@ tasks:
         <<: *kubernetes_environment_vanilla
     - func: prepare_test_env
       vars:
-        <<: *ops_manager_40_first
-
+        <<: *ops_manager_44_current
     - func: prepare_test_env
       vars:
-        <<: *ops_manager_42_current
+        <<: *ops_manager_40_first
 
 - name: prepare_cluster_vanilla_om
   exec_timeout_secs: 600
@@ -1340,12 +1339,12 @@ tasks:
 
 - name: e2e_replica_set_tls_require
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
+  exec_timeout_secs: 1800
   commands:
   - func: "e2e_test"
 
 - name: e2e_replica_set_tls_require_custom_ca
-  exec_timeout_secs: 1200
+  exec_timeout_secs: 1800
   commands:
   - func: "e2e_test"
 
@@ -1362,6 +1361,7 @@ tasks:
   - func: "e2e_test"
 
 - name: e2e_replica_set_tls_require_and_disable
+  tags: ["patch-run"]
   exec_timeout_secs: 1800
   commands:
   - func: "e2e_test"
@@ -1917,13 +1917,10 @@ task_groups:
   tasks:
     - e2e_replica_set_tls_allow
     - e2e_replica_set_tls_prefer
-    - e2e_replica_set_tls_require
     - e2e_replica_set_tls_require_upgrade
-    - e2e_replica_set_tls_require_and_disable
     - e2e_tls_rs_additional_certs
     - e2e_tls_sc_additional_certs
     - e2e_tls_sc_additional_certs_transition
-    - e2e_sharded_cluster_tls_require
     - e2e_standalone_no_tls_no_status_is_set
   teardown_task:
     - func: upload_e2e_logs
@@ -2014,8 +2011,8 @@ task_groups:
     - func: teardown_kubernetes_environment
     - func: teardown_cloud_qa
 
-# The "others" tasks are those which cannot be run on 4.0 - only on 4.2+
-- name: e2e_om_4_2_plus_only_task_group
+# The "others" tasks are those which cannot be run on 4.0 - only on 4.4+
+- name: e2e_om_4_4_plus_only_task_group
   max_hosts: 1
   setup_group:
     - func: clone
@@ -2033,6 +2030,10 @@ task_groups:
     - e2e_sharded_cluster_mongod_options
     - e2e_tls_rs_external_access
     - e2e_tls_rs_external_access_tls_transition
+    - e2e_sharded_cluster_tls_require
+    # these tests are moved here from tls task group as they used to fail in MDB 4.4 and should not be run with OM 4.0
+    - e2e_replica_set_tls_require
+    - e2e_replica_set_tls_require_and_disable
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -2217,14 +2218,15 @@ buildvariants:
   expansions:
     <<: *ops_manager_40_first
     <<: *kubernetes_environment_vanilla
+    custom_mdb_version: *mdb_40_latest
     image_type: ubuntu
   tasks:
   - name: "e2e_core_task_group"
   - name: "e2e_tls_task_group"
   - name: "e2e_mongodb_non_cloudqa_task_group"
 
-- name: e2e_mdb_vanilla_ubuntu_om42
-  display_name: "e2e_mdb_vanilla_ubuntu_om42"
+- name: e2e_mdb_vanilla_ubuntu_om44
+  display_name: "e2e_mdb_vanilla_ubuntu_om44"
   depends_on:
     - name: build_images_ubuntu
       variant: init_test_run
@@ -2238,12 +2240,13 @@ buildvariants:
   - archlinux-test
   stepback: false
   expansions:
-    <<: *ops_manager_42_current
+    <<: *ops_manager_44_current
     <<: *kubernetes_environment_vanilla
+    custom_mdb_version: *mdb_44_latest
     image_type: ubuntu
   tasks:
   - name: "e2e_kube_only_task_group"
-  - name: "e2e_om_4_2_plus_only_task_group"
+  - name: "e2e_om_4_4_plus_only_task_group"
   - name: "e2e_tls_task_group"
   - name: "e2e_scram_sha_task_group"
   - name: "e2e_ldap_task_group"
@@ -2266,6 +2269,7 @@ buildvariants:
   expansions:
     <<: *cloud_manager_qa
     <<: *kubernetes_environment_openshift_4
+    custom_mdb_version: *mdb_44_latest
     image_type: rhel
   tasks:
   - name: e2e_kube_only_task_group
@@ -2411,12 +2415,13 @@ buildvariants:
   expansions:
     <<: *cloud_manager_qa
     <<: *kubernetes_environment_kind
+    custom_mdb_version: *mdb_44_latest
     image_type: ubuntu
   tasks:
   - name: e2e_kube_only_task_group
   - name: e2e_core_task_group
   - name: e2e_tls_task_group
-  - name: e2e_om_4_2_plus_only_task_group
+  - name: e2e_om_4_4_plus_only_task_group
   - name: e2e_x509_task_group
   - name: e2e_ldap_task_group
   - name: e2e_scram_sha_task_group_with_manually_generated_certs

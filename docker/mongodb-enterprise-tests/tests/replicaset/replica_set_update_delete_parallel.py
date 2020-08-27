@@ -12,11 +12,11 @@ from time import sleep
 
 
 @fixture(scope="module")
-def replica_set(namespace: str) -> MongoDB:
-
+def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-single.yaml"), "my-replica-set", namespace
     )
+    resource.set_version(custom_mdb_version)
     resource.create()
 
     return resource

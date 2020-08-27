@@ -170,6 +170,13 @@ def ca_path() -> str:
     return _fixture("ca-tls.crt")
 
 
+@fixture(scope="module")
+def custom_mdb_version() -> str:
+    """Returns a CUSTOM_MDB_VERSION for Mongodb to be created/upgraded to for testing.
+    Defaults to 4.4.0 (simplifies testing locally)"""
+    return os.getenv("CUSTOM_MDB_VERSION", "4.4.0")
+
+
 @fixture("module")
 def default_operator(
     namespace: str,

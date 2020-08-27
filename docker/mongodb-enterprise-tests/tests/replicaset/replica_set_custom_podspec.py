@@ -10,10 +10,11 @@ from kubetester.custom_podspec import assert_stateful_set_podspec
 
 
 @fixture(scope="module")
-def replica_set(namespace: str) -> MongoDB:
+def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-custom-podspec.yaml"), namespace=namespace
     )
+    resource.set_version(custom_mdb_version)
     yield resource.create()
     resource.delete()
 

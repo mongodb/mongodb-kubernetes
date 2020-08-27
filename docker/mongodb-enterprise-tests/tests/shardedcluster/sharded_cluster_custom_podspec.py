@@ -17,10 +17,11 @@ CONFIG_TOPOLOGY_KEY = "config"
 
 
 @fixture(scope="module")
-def sharded_cluster(namespace: str) -> MongoDB:
+def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("sharded-cluster-custom-podspec.yaml"), namespace=namespace
     )
+    resource.set_version(custom_mdb_version)
     return resource.create()
 
 

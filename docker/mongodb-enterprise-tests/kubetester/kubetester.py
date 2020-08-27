@@ -1045,7 +1045,8 @@ class KubernetesTester(object):
     def om_version() -> Optional[Dict[str, str]]:
         "Gets the X-MongoDB-Service-Version"
         response = KubernetesTester.om_request(
-            "get", KubernetesTester.get_om_base_url()
+            "get",
+            "{}/api/public/v1.0/groups".format(KubernetesTester.get_om_base_url()),
         )
 
         version = response.headers.get("X-MongoDB-Service-Version")

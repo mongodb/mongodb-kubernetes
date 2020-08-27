@@ -5,10 +5,11 @@ from pytest import fixture, mark
 
 
 @fixture(scope="module")
-def standalone(namespace: str) -> MongoDB:
+def standalone(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("standalone-custom-podspec.yaml"), namespace=namespace
     )
+    resource.set_version(custom_mdb_version)
     return resource.create()
 
 

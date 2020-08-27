@@ -33,7 +33,7 @@ class TestReplicaSetExposedExternallyUpdate(KubernetesTester):
         Tests that a NodePort service preserves its node port after replica set update
     update:
       file: replica-set-externally-exposed.yaml
-      patch: '[{"op":"replace","path":"/spec/version", "value": "4.0.9"}]'
+      patch: '[{"op":"replace","path":"/spec/members", "value": 2}]'
       wait_until: in_running_state
       timeout: 150
     """

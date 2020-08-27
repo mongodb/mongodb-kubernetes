@@ -252,6 +252,9 @@ class MongoDB(CustomObject, MongoDBCommon):
         except KeyError:
             return False
 
+    def set_version(self, version: str):
+        self["spec"]["version"] = version
+
     def get_authentication(self) -> Optional[Dict]:
         try:
             return self["spec"]["security"]["authentication"]

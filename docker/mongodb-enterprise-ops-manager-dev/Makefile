@@ -1,9 +1,9 @@
 IMAGE = mongodb-enterprise-ops-manager
 # Image version can be picked from the download url - just remove "mongodb-mms_" prefix and "_x86_64.deb" suffix
-IMAGE_VERSION = 4.2.4.56729.20191105T2247Z-1
+IMAGE_VERSION = 4.4.1.101.20200805T0050Z-1
 IMAGE_REVISION =
 CONTAINER = ops_manager
-MONGODB_VERSION = 4.0.0
+MONGODB_VERSION = 4.4.0
 AWS_IMAGE_HOST = 268558157000.dkr.ecr.us-east-1.amazonaws.com
 AWS_IMAGE_REPO = dev
 AWS_REGION = us-east-1

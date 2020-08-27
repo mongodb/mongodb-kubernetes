@@ -8,7 +8,7 @@ spec:
   mongodsPerShardCount: 1
   mongosCount: 1
   configServerCount: 1
-  version: 4.0.16
+  version: 4.4.0
   project: my-project
   credentials: my-credentials
   persistent: false

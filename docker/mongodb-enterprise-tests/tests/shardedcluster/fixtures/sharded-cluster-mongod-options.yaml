@@ -4,7 +4,7 @@ metadata:
   name: my-sharded-cluster-options
 spec:
   members: 3
-  version: 4.2.8-ent
+  version: 4.4.0-ent
   type: ShardedCluster
   opsManager:
     configMapRef:

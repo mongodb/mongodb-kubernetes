@@ -4,12 +4,13 @@ from kubetester.mongodb import MongoDB, Phase
 
 
 @fixture(scope="module")
-def sharded_cluster(namespace: str) -> MongoDB:
+def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("sharded-cluster-single.yaml"),
         namespace=namespace,
         name="sharded-cluster-status",
     )
+    resource.set_version(custom_mdb_version)
     resource["spec"]["shardCount"] = 2
     return resource.create()
 

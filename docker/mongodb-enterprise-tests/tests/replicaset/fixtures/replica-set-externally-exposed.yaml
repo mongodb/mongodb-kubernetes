@@ -4,7 +4,7 @@ metadata:
   name: my-replica-set-externally-exposed
 spec:
   members: 1
-  version: 4.0.15
+  version: 4.4.0
   type: ReplicaSet
   project: my-project
   credentials: my-credentials
