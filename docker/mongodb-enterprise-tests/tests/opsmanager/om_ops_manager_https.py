@@ -53,10 +53,14 @@ def ops_manager(
         _fixture("om_https_enabled.yaml"), namespace=namespace
     )
     om.set_version(custom_version)
-    om.set_appdb_version(custom_appdb_version)
+
+    # configure CA + tls secrets for AppDB members to community with each other
     om["spec"]["applicationDatabase"]["security"] = {
         "tls": {"ca": issuer_ca_configmap, "secretRef": {"name": appdb_certs}}
     }
+
+    # configure the CA that will be used to communicate with Ops Manager
+    om["spec"]["security"] = {"tls": {"ca": issuer_ca_configmap}}
     return om.create()
 
 
@@ -99,9 +103,8 @@ def test_om_created(ops_manager: MongoDBOpsManager):
     assert ops_manager.om_status().get_url().startswith("http://")
     assert ops_manager.om_status().get_url().endswith(":8080")
 
-    # TODO: uncomment once TLS Monitoring Fix is merged
-    # ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
-    # ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+    ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1200)
 
 
 @mark.e2e_om_ops_manager_https_enabled
@@ -113,11 +116,13 @@ def test_replica_set_over_non_https_ops_manager(replicaset0: MongoDB):
 
 @mark.e2e_om_ops_manager_https_enabled
 def test_enable_https_on_opsmanager(
-    ops_manager: MongoDBOpsManager, ops_manager_cert: str
+    ops_manager: MongoDBOpsManager, issuer_ca_configmap: str, ops_manager_cert: str
 ):
     """Ops Manager is restarted with HTTPS enabled."""
     ops_manager.load()
-    ops_manager["spec"]["security"] = {"tls": {"secretRef": {"name": ops_manager_cert}}}
+    ops_manager["spec"]["security"] = {
+        "tls": {"ca": issuer_ca_configmap, "secretRef": {"name": ops_manager_cert}}
+    }
     ops_manager.update()
 
     ops_manager.om_status().assert_abandons_phase(Phase.Running)

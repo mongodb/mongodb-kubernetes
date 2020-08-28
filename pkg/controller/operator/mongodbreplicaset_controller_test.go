@@ -532,7 +532,7 @@ func createDeploymentFromReplicaSet(rs *mdbv1.MongoDB) om.Deployment {
 		buildReplicaSetFromStatefulSet(sts, rs),
 		nil,
 	)
-	d.AddMonitoringAndBackup(zap.S())
+	d.AddMonitoringAndBackup(zap.S(), rs.Spec.GetTLSConfig().IsEnabled())
 	d.ConfigureTLS(rs.Spec.GetTLSConfig())
 	return d
 }

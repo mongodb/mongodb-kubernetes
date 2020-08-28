@@ -50,7 +50,7 @@ def ops_manager(
         yaml_fixture("om_ops_manager_backup_tls.yaml"), namespace=namespace
     )
     resource.set_version(custom_version)
-    resource.set_appdb_version(custom_appdb_version)
+    # resource.set_appdb_version(custom_appdb_version)
     return resource.create()
 
 
@@ -85,6 +85,14 @@ def blockstore_replica_set(
 @mark.e2e_om_ops_manager_backup_tls
 class TestOpsManagerCreation:
     def test_create_om(self, ops_manager: MongoDBOpsManager):
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
+
+        # appdb rolling restart for configuring monitoring
+        ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=200)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Pending,
             msg_regexp="The MongoDB object .+ doesn't exist",

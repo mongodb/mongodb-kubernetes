@@ -114,6 +114,7 @@ type MongoDBOpsManagerSecurity struct {
 
 type MongoDBOpsManagerTLS struct {
 	SecretRef mdbv1.TLSSecretRef `json:"secretRef"`
+	CA        string             `json:"ca"`
 }
 
 func (ms MongoDBOpsManagerSpec) GetClusterDomain() string {
@@ -124,6 +125,13 @@ func (ms MongoDBOpsManagerSpec) GetClusterDomain() string {
 		return ms.ClusterName
 	}
 	return "cluster.local"
+}
+
+func (ms MongoDBOpsManagerSpec) GetOpsManagerCA() string {
+	if ms.Security != nil {
+		return ms.Security.TLS.CA
+	}
+	return ""
 }
 
 // MongoDBOpsManagerServiceDefinition struct that defines the mechanism by which this Ops Manager resource

@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
+
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/manifest"
@@ -144,7 +146,7 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 	kubeManager.Client.CheckOperationsDidntHappen(t, mock.HItem(reflect.ValueOf(kubeManager.Client.Update), &corev1.Secret{}))
 
 	// publishing changed config will result in update
-	automationConfig.Deployment.AddMonitoringAndBackup(zap.S())
+	automationConfig.Deployment.AddMonitoringAndBackup(zap.S(), appdb.GetTLSConfig().IsEnabled())
 	published, err = reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S())
 	assert.NoError(t, err)
 	assert.True(t, published)
@@ -537,6 +539,17 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 	}
 
 	err = client.Create(context.TODO(), &opsManager)
+	assert.NoError(t, err)
+
+	// app db sts should exist before monitoring is configured
+	appDbSts, err := statefulset.NewBuilder().
+		SetName(opsManager.Spec.AppDB.Name()).
+		SetNamespace(opsManager.Namespace).
+		SetReplicas(util.Int32Ref(int32(startingMembers))).
+		Build()
+
+	assert.NoError(t, err)
+	err = client.CreateStatefulSet(appDbSts)
 	assert.NoError(t, err)
 
 	res, err := reconciler.Reconcile(&opsManager, opsManager.Spec.AppDB, "i6ocEoHYJTteoNTX")

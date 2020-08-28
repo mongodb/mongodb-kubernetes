@@ -1,26 +1,21 @@
 apiVersion: mongodb.com/v1
 kind: MongoDBOpsManager
 metadata:
-  name: om-backup-tls
+  name: om-tls-monitored-appdb
 spec:
   replicas: 1
-  version: 4.2.10
+  version: 4.4.1
   adminCredentials: ops-manager-admin-secret
-  backup:
-    enabled: true
-    oplogStores:
-      - name: oplog1
-        mongodbResourceRef:
-          name: my-mongodb-oplog
-    blockStores:
-      - name: blockStore1
-        mongodbResourceRef:
-          name: my-mongodb-blockstore
   security:
     tls:
+      secretRef:
+        name: certs-for-ops-manager
       ca: issuer-ca
+  backup:
+    enabled: false
   applicationDatabase:
     members: 3
+    version: 4.2.2-ent
     security:
       tls:
         ca: issuer-ca

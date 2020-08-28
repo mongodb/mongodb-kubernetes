@@ -75,6 +75,8 @@ spec:
                       properties:
                         name:
                           type: string
+                        ca:
+                          type: string
                       required:
                         - name
 

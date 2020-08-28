@@ -226,16 +226,16 @@ func (d Deployment) MergeShardedCluster(name string, mongosProcesses []Process, 
 // The automation agent will update the agents versions to the latest version automatically
 // Note, that these two are deliberately combined together as all clients (standalone, rs etc) need both backup and monitoring
 // together
-func (d Deployment) AddMonitoringAndBackup(log *zap.SugaredLogger) {
+func (d Deployment) AddMonitoringAndBackup(log *zap.SugaredLogger, tls bool) {
 	if len(d.getProcesses()) == 0 {
 		return
 	}
-	d.AddMonitoring(log)
+	d.AddMonitoring(log, tls)
 	d.addBackup(log)
 }
 
 // AddMonitoring adds monitoring agents for all processes in the deployment
-func (d Deployment) AddMonitoring(log *zap.SugaredLogger) {
+func (d Deployment) AddMonitoring(log *zap.SugaredLogger, tls bool) {
 	if len(d.getProcesses()) == 0 {
 		return
 	}
@@ -249,11 +249,28 @@ func (d Deployment) AddMonitoring(log *zap.SugaredLogger) {
 				break
 			}
 		}
-		if !found {
-			monitoringVersions = append(monitoringVersions,
-				map[string]interface{}{"hostname": p.HostName(), "name": MonitoringAgentDefaultVersion})
 
-			log.Debugw("Added monitoring agent configuration", "host", p.HostName())
+		if !found {
+			monitoringVersion := map[string]interface{}{
+				"hostname": p.HostName(),
+				"name":     MonitoringAgentDefaultVersion,
+			}
+			if tls {
+				additionalParams := map[string]string{
+					"useSslForAllConnections":      "true",
+					"sslTrustedServerCertificates": util.CAFilePathInContainer,
+				}
+
+				pemKeyFile := p.EnsureSSLConfig()["PEMKeyFile"]
+				if pemKeyFile != nil {
+					additionalParams["sslClientCertificate"] = pemKeyFile.(string)
+				}
+
+				monitoringVersion["additionalParams"] = additionalParams
+
+			}
+			log.Debugw("Added monitoring agent configuration", "host", p.HostName(), "tls", tls)
+			monitoringVersions = append(monitoringVersions, monitoringVersion)
 		}
 	}
 	d.setMonitoringVersions(monitoringVersions)

@@ -2,6 +2,7 @@ package construct
 
 import (
 	"fmt"
+	"path"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
@@ -44,25 +45,45 @@ func buildAppDBPodTemplateSpecFunc(mdbBuilder DatabaseBuilder) podtemplatespec.M
 	appdbImageURL := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.AppDBImageUrl),
 		envutil.ReadOrDefault(appDBAutomationAgentVersionEnv, "latest"))
 
-	// automationConfigVolume is only required by the AppDB database container
+	var volumeMounts []corev1.VolumeMount
+	var volumes []corev1.Volume
+
 	automationConfigVolume := statefulset.CreateVolumeFromSecret(clusterConfigVolumeName, mdbBuilder.GetName()+"-config")
-	automationConfigVolumeMount := corev1.VolumeMount{
+	// automationConfigVolume is only required by the AppDB database container
+	volumes = append(volumes, automationConfigVolume)
+	volumeMounts = append(volumeMounts, corev1.VolumeMount{
 		Name:      automationConfigVolume.Name,
 		MountPath: agentLibPath,
 		ReadOnly:  true,
-	}
+	})
 
 	// scripts volume is shared by the init container and the AppDB so the startup
 	// script can be copied over
 	scriptsVolume := statefulset.CreateVolumeFromEmptyDir("appdb-scripts")
-	appDbScriptsVolumeMount := appDbScriptsVolumeMount(true)
+	volumes = append(volumes, scriptsVolume)
+	volumeMounts = append(volumeMounts, appDbScriptsVolumeMount(true))
+
+	if mdbBuilder.GetSSLMMSCAConfigMap() != "" {
+		caCertVolume := statefulset.CreateVolumeFromConfigMap(caCertName, mdbBuilder.GetSSLMMSCAConfigMap())
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			MountPath: caCertMountPath,
+			Name:      caCertVolume.Name,
+			ReadOnly:  true,
+		})
+		volumes = append(volumes, caCertVolume)
+	}
+
+	addVolumes := func(spec *corev1.PodTemplateSpec) {
+		for _, v := range volumes {
+			podtemplatespec.WithVolume(v)(spec)
+		}
+	}
 
 	return podtemplatespec.Apply(
 		sharedDatabaseConfiguration(mdbBuilder),
 		podtemplatespec.WithAnnotations(map[string]string{}),
 		podtemplatespec.WithServiceAccount(appDBServiceAccount),
-		podtemplatespec.WithVolume(scriptsVolume),
-		podtemplatespec.WithVolume(automationConfigVolume),
+		addVolumes,
 		withInitContainerByIndex(0,
 			buildAppdbInitContainer(),
 		),
@@ -74,7 +95,7 @@ func buildAppDBPodTemplateSpecFunc(mdbBuilder DatabaseBuilder) podtemplatespec.M
 				container.WithReadinessProbe(buildAppDbReadinessProbe()),
 				container.WithLivenessProbe(buildAppDbLivenessProbe()),
 				container.WithCommand([]string{"/opt/scripts/agent-launcher.sh"}),
-				withVolumeMounts([]corev1.VolumeMount{automationConfigVolumeMount, appDbScriptsVolumeMount}),
+				withVolumeMounts(volumeMounts),
 			),
 		),
 	)
@@ -130,6 +151,18 @@ func appdbContainerEnv(mdbBuilder DatabaseBuilder) []corev1.EnvVar {
 			Name:  util.ENV_VAR_USER,
 			Value: mdbBuilder.GetUser(),
 		})
+
+		if mdbBuilder.GetSSLMMSCAConfigMap() != "" {
+			// A custom CA has been provided, point the trusted CA to the location of custom CAs
+			trustedCACertLocation := path.Join(caCertMountPath, util.CaCertMMS)
+			envVars = append(envVars,
+				corev1.EnvVar{
+					Name:  util.EnvVarSSLTrustedMMSServerCertificate,
+					Value: trustedCACertLocation,
+				},
+			)
+		}
+
 	}
 
 	return envVars

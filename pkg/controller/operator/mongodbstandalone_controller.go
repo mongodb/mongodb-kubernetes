@@ -219,7 +219,7 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(conn om.Connection, s *m
 				return fmt.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 			}
 			d.MergeStandalone(standaloneOmObject, nil)
-			d.AddMonitoringAndBackup(log)
+			d.AddMonitoringAndBackup(log, s.Spec.GetTLSConfig().IsEnabled())
 			d.ConfigureTLS(s.Spec.GetTLSConfig())
 			return nil
 		},

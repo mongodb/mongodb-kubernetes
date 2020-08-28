@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -423,7 +425,7 @@ func TestAddMonitoring(t *testing.T) {
 
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
 	d.MergeReplicaSet(rs0, zap.S())
-	d.AddMonitoring(zap.S())
+	d.AddMonitoring(zap.S(), false)
 
 	expectedMonitoringVersions := []interface{}{
 		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion},
@@ -433,7 +435,31 @@ func TestAddMonitoring(t *testing.T) {
 	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
 
 	// adding again - nothing changes
-	d.AddMonitoring(zap.S())
+	d.AddMonitoring(zap.S(), false)
+	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
+}
+
+func TestAddMonitoringTls(t *testing.T) {
+	d := NewDeployment()
+
+	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
+	d.MergeReplicaSet(rs0, zap.S())
+	d.AddMonitoring(zap.S(), true)
+
+	expectedAdditionalParams := map[string]string{
+		"useSslForAllConnections":      "true",
+		"sslTrustedServerCertificates": util.CAFilePathInContainer,
+	}
+
+	expectedMonitoringVersions := []interface{}{
+		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
+		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
+		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
+	}
+	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
+
+	// adding again - nothing changes
+	d.AddMonitoring(zap.S(), true)
 	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
 }
 

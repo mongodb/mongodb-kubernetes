@@ -362,7 +362,13 @@ func TestBackupIsStillConfigured_WhenAppDBIsConfigured_WithTls(t *testing.T) {
 
 	configureBackupResources(mockedClient, testOm)
 
+	// initially requeued as monitoring needs to be configured
 	res, err := reconciler.Reconcile(requestFromObject(&testOm))
+	assert.NoError(t, err)
+	assert.Equal(t, true, res.Requeue)
+
+	// monitoring is configured successfully
+	res, err = reconciler.Reconcile(requestFromObject(&testOm))
 
 	assert.NoError(t, err)
 	assert.Equal(t, false, res.Requeue)

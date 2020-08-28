@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"time"
 
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/scale"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -65,16 +66,11 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 	log.Infow("ReplicaSet.Spec", "spec", rs)
 	log.Infow("ReplicaSet.Status", "status", opsManager.Status.AppDbStatus)
 
-	podVars := &PodVars{}
-
-	// TODO: Can be removed once https://jira.mongodb.org/browse/CLOUDP-68634 is resolved
-	if wantToConfigureMonitoring(rs) {
-		podVars, err = r.tryConfigureMonitoringInOpsManager(opsManager, opsManagerUserPassword, log)
-		// it's possible that Ops Manager will not be available when we attempt to configure AppDB monitoring
-		// in Ops Manager. This is not a blocker to continue with the reset of the reconcilliation.
-		if err != nil {
-			log.Warnf("Unable to configure monitoring of AppDB: %s, configuration will be attempted next reconcilliation.", err)
-		}
+	podVars, err := r.tryConfigureMonitoringInOpsManager(opsManager, opsManagerUserPassword, log)
+	// it's possible that Ops Manager will not be available when we attempt to configure AppDB monitoring
+	// in Ops Manager. This is not a blocker to continue with the reset of the reconcilliation.
+	if err != nil {
+		log.Warnf("Unable to configure monitoring of AppDB: %s, configuration will be attempted next reconcilliation.", err)
 	}
 
 	// Providing the default size of pod as otherwise sometimes the agents in pod complain about not enough memory
@@ -135,8 +131,7 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 		return r.updateStatus(opsManager, status, log, appDbStatusOption)
 	}
 
-	// TODO: remove this check once TLS is configured properly
-	if wantToConfigureMonitoring(rs) && podVars != nil && podVars.ProjectID == "" {
+	if podVars.ProjectID == "" {
 		// this doesn't requeue the reconcilliation immediately, the calling OM controller
 		// requeues after Ops Manager has been fully configured.
 		log.Infof("Requeuing reconciliation to configure Monitoring in Ops Manager.")
@@ -151,10 +146,6 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 	log.Infof("Finished reconciliation for AppDB ReplicaSet!")
 
 	return r.updateStatus(opsManager, workflow.OK(), log, appDbStatusOption, scale.MembersOption(opsManager))
-}
-
-func wantToConfigureMonitoring(rs omv1.AppDB) bool {
-	return rs.Security == nil || rs.Security.TLSConfig == nil || !rs.Security.TLSConfig.IsEnabled()
 }
 
 // ensureLegacyConfigMapRemoved makes sure that the ConfigMap which stored the automation config
@@ -282,7 +273,7 @@ func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(rs omv1.AppDB, opsM
 	automationConfig := om.NewAutomationConfig(d)
 	automationConfig.SetOptions(util.AgentDownloadsDir)
 
-	d.AddMonitoring(log)
+	d.AddMonitoring(log, rs.GetTLSConfig().IsEnabled())
 	automationConfig.SetBaseUrlForAgents(opsManager.CentralURL())
 
 	sha1Creds, sha256Creds, err := generateScramShaCredentials(opsManagerUserPassword, opsManager)
@@ -471,7 +462,10 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager
 		return existingPodVars, fmt.Errorf("error creating ConfigMap: %s", err)
 	}
 
-	return &PodVars{User: conn.User(), ProjectID: conn.GroupID()}, nil
+	return &PodVars{User: conn.User(), ProjectID: conn.GroupID(), SSLProjectConfig: mdbv1.SSLProjectConfig{
+		SSLMMSCAConfigMap: opsManager.Spec.GetOpsManagerCA(),
+	},
+	}, nil
 }
 
 // readExistingPodVars is a backup function which provides the required podVars for the AppDB
@@ -502,6 +496,9 @@ func (r *ReconcileAppDbReplicaSet) readExistingPodVars(om omv1.MongoDBOpsManager
 	return &PodVars{
 		User:      cred.User,
 		ProjectID: projectId,
+		SSLProjectConfig: mdbv1.SSLProjectConfig{
+			SSLMMSCAConfigMap: om.Spec.GetOpsManagerCA(),
+		},
 	}, nil
 }
 

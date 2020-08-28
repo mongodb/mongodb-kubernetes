@@ -38,6 +38,11 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def assert_reaches(self, fn, timeout=None):
         return self.wait_for(fn, timeout=timeout, should_raise=True)
 
+    def get_appdb_hosts(self):
+        tester = self.get_om_tester(self.app_db_name())
+        tester.assert_group_exists()
+        return tester.api_get_hosts()["results"]
+
     def assert_appdb_monitoring_group_was_created(self):
         tester = self.get_om_tester(self.app_db_name())
         tester.assert_group_exists()
@@ -55,9 +60,30 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             )
 
         def agents_have_registered() -> bool:
+            monitoring_agents = tester.api_read_monitoring_agents()
+            expected_number_of_agents_in_standby = (
+                len(
+                    [
+                        agent
+                        for agent in monitoring_agents
+                        if agent["stateName"] == "STANDBY"
+                    ]
+                )
+                == self.get_appdb_members_count() - 1
+            )
+            expected_number_of_agents_are_active = (
+                len(
+                    [
+                        agent
+                        for agent in monitoring_agents
+                        if agent["stateName"] == "ACTIVE"
+                    ]
+                )
+                == 1
+            )
             return (
-                len(tester.api_read_monitoring_agents())
-                == self.get_appdb_members_count()
+                expected_number_of_agents_in_standby
+                and expected_number_of_agents_are_active
             )
 
         KubernetesTester.wait_until(agents_have_registered, timeout=20, sleep_time=5)

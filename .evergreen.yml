@@ -1570,6 +1570,11 @@ tasks:
     - func: "e2e_test"
 
 # E2E tests for Ops Manager (sorted alphabetically):
+- name: e2e_om_appdb_monitoring_tls
+  tags: ["patch-run"]
+  exec_timeout_secs: 2400
+  commands:
+    - func: "e2e_test"
 
 - name: e2e_om_appdb_scale_up_down
   tags: ["patch-run"]
@@ -2113,6 +2118,7 @@ task_groups:
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
   tasks:
+    - e2e_om_appdb_monitoring_tls
     - e2e_om_appdb_scale_up_down
     - e2e_om_appdb_upgrade
     - e2e_om_appdb_validation
@@ -2169,6 +2175,7 @@ task_groups:
     - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
   tasks:
+    - e2e_om_appdb_monitoring_tls
     - e2e_om_appdb_scale_up_down
     - e2e_om_appdb_upgrade
     - e2e_om_appdb_validation

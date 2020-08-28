@@ -345,11 +345,6 @@ func (k *KubeHelper) NewOpsManagerStatefulSetHelper(opsManager omv1.MongoDBOpsMa
 		tlsSecret = opsManager.Spec.Security.TLS.SecretRef.Name
 	}
 
-	appDbCa := ""
-	if opsManager.Spec.AppDB.Security.TLSConfig != nil {
-		appDbCa = opsManager.Spec.AppDB.Security.TLSConfig.CA
-	}
-
 	return &OpsManagerStatefulSetHelper{
 		StatefulSetHelperCommon: StatefulSetHelperCommon{
 			Owner:                    &opsManager,
@@ -366,7 +361,7 @@ func (k *KubeHelper) NewOpsManagerStatefulSetHelper(opsManager omv1.MongoDBOpsMa
 		Spec:                    opsManager.Spec,
 		EnvVars:                 opsManagerConfigurationToEnvVars(opsManager),
 		HTTPSCertSecretName:     tlsSecret,
-		AppDBTlsCAConfigMapName: appDbCa,
+		AppDBTlsCAConfigMapName: opsManager.Spec.GetOpsManagerCA(),
 	}
 }
 

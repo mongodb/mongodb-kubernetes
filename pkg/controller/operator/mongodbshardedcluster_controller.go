@@ -574,7 +574,7 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 			if shardsRemoving, err = d.MergeShardedCluster(sc.Name, mongosProcesses, configRs, shards, finalizing); err != nil {
 				return err
 			}
-			d.AddMonitoringAndBackup(log)
+			d.AddMonitoringAndBackup(log, sc.Spec.GetTLSConfig().IsEnabled())
 			d.ConfigureTLS(sc.Spec.GetTLSConfig())
 
 			*processNames = d.GetProcessNames(om.ShardedCluster{}, sc.Name)

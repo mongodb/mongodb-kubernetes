@@ -387,6 +387,21 @@ class OMTester(object):
             "get", f"/groups/{self.context.project_id}/backupConfigs"
         ).json()["results"]
 
+    def api_read_monitoring_measurements(
+        self,
+        database_name: Optional[str] = None,
+        host_id: Optional[str] = None,
+        project_id: Optional[str] = None,
+    ):
+        if host_id is None:
+            raise ValueError("host id was not specified!")
+        if database_name is None:
+            database_name = "admin"
+        return self.om_request(
+            "get",
+            f"/groups/{project_id}/hosts/{host_id}/databases/{database_name}/measurements?granularity=PT30S&period=P1DT12H",
+        ).json()["measurements"]
+
     def api_read_monitoring_agents(self) -> List:
         return self._read_agents("MONITORING")
 
