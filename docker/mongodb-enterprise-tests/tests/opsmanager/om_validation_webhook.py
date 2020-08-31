@@ -101,6 +101,19 @@ class TestOpsManagerAppDbWrongVersionConnectivity(KubernetesTester):
     def test_om_appdb_version_validation(self):
         assert True
 
+@mark.e2e_om_validation_webhook
+class TestOpsManagerVersion(KubernetesTester):
+    """
+    name: Wrong version for Ops Manager
+    create:
+      file: om_validation.yaml
+      patch: '[{"op":"replace","path":"/spec/version","value": "4.4.4.4" }]'
+      exception: 'is an invalid value for spec.version'
+    """
+
+    def test_om_version_validation(self):
+        assert True
+
 
 @fixture(scope="module")
 def ops_manager(

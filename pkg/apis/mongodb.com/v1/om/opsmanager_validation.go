@@ -3,6 +3,7 @@ package om
 import (
 	"errors"
 	"fmt"
+	"github.com/blang/semver"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
@@ -57,12 +58,21 @@ func warningShardedClusterFieldsNotConfigurableForAppDB(field string) mdbv1.Vali
 	return mdbv1.ValidationWarning(fmt.Sprintf("%s field is not configurable for application databases as it is for sharded clusters and appdbs are replica sets", field))
 }
 
+func validOmVersion(os MongoDBOpsManagerSpec) mdbv1.ValidationResult {
+	_, err := semver.Make(os.Version)
+	if err != nil {
+		return mdbv1.ValidationError("'%s' is an invalid value for spec.version: %s", os.Version, err)
+	}
+	return mdbv1.ValidationSuccess()
+}
+
 func connectivityIsNotConfigurable(os MongoDBOpsManagerSpec) mdbv1.ValidationResult {
 	if os.AppDB.Connectivity != nil {
 		return warningNotConfigurableForAppDB("connectivity")
 	}
 	return mdbv1.ValidationSuccess()
 }
+
 
 // ConnectionSpec fields
 func credentialsIsNotConfigurable(os MongoDBOpsManagerSpec) mdbv1.ValidationResult {
@@ -173,6 +183,7 @@ func podSpecIsNotConfigurableBackup(os MongoDBOpsManagerSpec) mdbv1.ValidationRe
 
 func (om MongoDBOpsManager) RunValidations() []mdbv1.ValidationResult {
 	validators := []func(m MongoDBOpsManagerSpec) mdbv1.ValidationResult{
+		validOmVersion,
 		connectivityIsNotConfigurable,
 		projectNameIsNotConfigurable,
 		cloudManagerConfigIsNotConfigurable,
