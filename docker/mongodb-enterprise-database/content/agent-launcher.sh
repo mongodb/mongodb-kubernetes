@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-set -o nounset
-set -o errexit
-set -o pipefail
+set -Eeou pipefail
 
+
+# shellcheck source=/dev/null
 source "${MMS_HOME}/files/agent-launcher-lib.sh"
 
 # The path to the automation config file in case the agent is run in headless mode
@@ -33,7 +33,7 @@ fi
 # to copy it to the correct location first and remove a directory
 if [[ -d /data/journal ]] && [[ ! -L /data/journal ]]; then
     script_log "The journal directory /data/journal already exists - moving its content to /journal"
-    if [[ $(ls -1 /data/journal | wc -l) -gt 0 ]]; then
+    if [[ $(find /data/journal -maxdepth 1 | wc -l) -gt 0 ]]; then
         mv /data/journal/* /journal
     fi
     rm -rf /data/journal
@@ -46,7 +46,7 @@ script_log "Created symlink: /data/journal -> $(readlink -f /data/journal)"
 # let's try to copy it to a new directory
 if [[ -f /data/mongodb.log ]] && [[ ! -f "${MMS_LOG_DIR}/mongodb.log" ]]; then
     script_log "The mongodb log file /data/mongodb.log already exists - moving it to ${MMS_LOG_DIR}"
-    mv /data/mongodb.log ${MMS_LOG_DIR}
+    mv /data/mongodb.log "${MMS_LOG_DIR}"
 fi
 
 base_url="${BASE_URL-}" # If unassigned, set to empty string to avoid set-u errors
@@ -58,7 +58,7 @@ declare -r base_url
 if [[ -n "${base_url}" ]]; then
     download_agent
 fi
-AGENT_VERSION="$(cat ${MMS_HOME}/files/agent-version)"
+AGENT_VERSION="$(cat "${MMS_HOME}"/files/agent-version)"
 
 # Start the Automation Agent
 agentOpts=(
@@ -105,9 +105,10 @@ script_log "Launching automation agent with following arguments: ${agentOpts[*]}
 
 agentOpts+=("-mmsApiKey" "${AGENT_API_KEY-}")
 
+rm /tmp/mongodb-mms-automation-cluster-backup.json || true
 # Note, that we do logging in subshell - this allows us to save the сorrect PID to variable (not the logging one)
 "${MMS_HOME}/files/mongodb-mms-automation-agent" "${agentOpts[@]}" 2>> "${MMS_LOG_DIR}/automation-agent-stderr.log" > >(json_log "automation-agent-stdout") &
-agentPid=$!
+export agentPid=$!
 
 trap cleanup SIGTERM
 
