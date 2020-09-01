@@ -3,6 +3,8 @@ package operator
 import (
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/scale"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/host"
 	appsv1 "k8s.io/api/apps/v1"
 
@@ -25,10 +27,13 @@ import (
 // ReconcileMongoDbShardedCluster
 type ReconcileMongoDbShardedCluster struct {
 	*ReconcileCommonController
+	configSrvScaler       shardedClusterScaler
+	mongosScaler          shardedClusterScaler
+	mongodsPerShardScaler shardedClusterScaler
 }
 
 func newShardedClusterReconciler(mgr manager.Manager, omFunc om.ConnectionFactory) *ReconcileMongoDbShardedCluster {
-	return &ReconcileMongoDbShardedCluster{newReconcileCommonController(mgr, omFunc)}
+	return &ReconcileMongoDbShardedCluster{ReconcileCommonController: newReconcileCommonController(mgr, omFunc)}
 }
 
 func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
@@ -53,17 +58,60 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (r
 		return *reconcileResult, err
 	}
 
+	r.initCountsForThisReconciliation(*sc)
+
 	log.Info("-> ShardedCluster.Reconcile")
 	log.Infow("ShardedCluster.Spec", "spec", sc.Spec)
 	log.Infow("ShardedCluster.Status", "status", sc.Status)
+	log.Infow("ShardedClusterScaling", "mongosScaler", r.mongosScaler, "configSrvScaler", r.configSrvScaler, "mongodsPerShardScaler", r.mongodsPerShardScaler, "desiredShards", sc.Spec.ShardCount, "currentShards", sc.Status.ShardCount)
 
 	conn, status := r.doShardedClusterProcessing(sc, log)
 	if !status.IsOK() {
 		return r.updateStatus(sc, status, log)
 	}
 
+	if scale.AnyAreStillScaling(r.mongodsPerShardScaler, r.configSrvScaler, r.mongosScaler) {
+		return r.updateStatus(sc, workflow.Pending("Continuing scaling operation for ShardedCluster %s mongodsPerShardCount %+v, mongosCount %+v, configServerCount %+v",
+			sc.ObjectKey(),
+			r.mongodsPerShardScaler,
+			r.mongosScaler,
+			r.configSrvScaler,
+		),
+			log,
+			scale.MongodsPerShardOption(r.mongodsPerShardScaler),
+			scale.ConfigServerOption(r.configSrvScaler),
+			scale.MongosCountOption(r.mongosScaler),
+		)
+	}
+
+	// only remove any stateful sets if we are scaling down
+	// Note: we should only remove unused stateful sets once we are fully complete
+	// removing members 1 at a time.
+	if sc.Spec.ShardCount < sc.Status.ShardCount {
+		r.removeUnusedStatefulsets(sc, log)
+	}
+
 	log.Infof("Finished reconciliation for Sharded Cluster! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
-	return r.updateStatus(sc, status, log, mdbstatus.NewBaseUrlOption(DeploymentLink(conn.BaseURL(), conn.GroupID())))
+	return r.updateStatus(sc, status, log, mdbstatus.NewBaseUrlOption(DeploymentLink(conn.BaseURL(), conn.GroupID())),
+		scale.MongodsPerShardOption(r.mongodsPerShardScaler), scale.ConfigServerOption(r.configSrvScaler), scale.MongosCountOption(r.mongosScaler))
+}
+
+func (r *ReconcileMongoDbShardedCluster) initCountsForThisReconciliation(sc mdbv1.MongoDB) {
+	r.mongosScaler = shardedClusterScaler{CurrentMembers: sc.Status.MongosCount, DesiredMembers: sc.Spec.MongosCount}
+	r.configSrvScaler = shardedClusterScaler{CurrentMembers: sc.Status.ConfigServerCount, DesiredMembers: sc.Spec.ConfigServerCount}
+	r.mongodsPerShardScaler = shardedClusterScaler{CurrentMembers: sc.Status.MongodsPerShardCount, DesiredMembers: sc.Spec.MongodsPerShardCount}
+}
+
+func (r *ReconcileMongoDbShardedCluster) getConfigSrvCountThisReconciliation() int {
+	return scale.ReplicasThisReconciliation(r.configSrvScaler)
+}
+
+func (r *ReconcileMongoDbShardedCluster) getMongosCountThisReconciliation() int {
+	return scale.ReplicasThisReconciliation(r.mongosScaler)
+}
+
+func (r *ReconcileMongoDbShardedCluster) getMongodsPerShardCountThisReconciliation() int {
+	return scale.ReplicasThisReconciliation(r.mongodsPerShardScaler)
 }
 
 // implements all the logic to do the sharded cluster thing
@@ -99,7 +147,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 
 	kubeState := r.buildKubeObjectsForShardedCluster(sc, podVars, projectConfig, currentAgentAuthMode, log)
 
-	if err = prepareScaleDownShardedCluster(conn, kubeState, sc, log); err != nil {
+	if err = r.prepareScaleDownShardedCluster(conn, kubeState, sc, log); err != nil {
 		return nil, workflow.Failed("failed to perform scale down preliminary actions: %s", err)
 	}
 
@@ -134,8 +182,6 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 	if !status.IsOK() {
 		return nil, status
 	}
-
-	r.removeUnusedStatefulsets(sc, kubeState, log)
 	return conn, reconcileResult
 
 }
@@ -194,8 +240,8 @@ func (r *ReconcileMongoDbShardedCluster) ensureX509InKubernetes(sc *mdbv1.MongoD
 	return workflow.OK()
 }
 
-func (r *ReconcileMongoDbShardedCluster) removeUnusedStatefulsets(sc *mdbv1.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger) {
-	statefulsetsToRemove := sc.Status.MongodbShardedClusterSizeConfig.ShardCount - sc.Spec.MongodbShardedClusterSizeConfig.ShardCount
+func (r *ReconcileMongoDbShardedCluster) removeUnusedStatefulsets(sc *mdbv1.MongoDB, log *zap.SugaredLogger) {
+	statefulsetsToRemove := sc.Status.ShardCount - sc.Spec.ShardCount
 	shardsCount := sc.Status.MongodbShardedClusterSizeConfig.ShardCount
 
 	// we iterate over last 'statefulsetsToRemove' shards if any
@@ -287,7 +333,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 	mongosBuilder := r.kubeHelper.NewStatefulSetHelper(s).
 		SetName(s.MongosRsName()).
 		SetService(s.ServiceName()).
-		SetReplicas(s.Spec.MongosCount).
+		SetReplicas(r.getMongosCountThisReconciliation()).
 		SetPodSpec(NewDefaultPodSpecWrapper(*s.Spec.MongosPodSpec)).
 		SetPodVars(podVars).
 		SetStartupParameters(mongosStartupParameters).
@@ -313,7 +359,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 	configBuilder := r.kubeHelper.NewStatefulSetHelper(s).
 		SetName(s.ConfigRsName()).
 		SetService(s.ConfigSrvServiceName()).
-		SetReplicas(s.Spec.ConfigServerCount).
+		SetReplicas(r.getConfigSrvCountThisReconciliation()).
 		SetPodSpec(podSpec).
 		SetPodVars(podVars).
 		SetStartupParameters(configStartupParameters).
@@ -336,7 +382,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 		shardsSetHelpers[i] = r.kubeHelper.NewStatefulSetHelper(s).
 			SetName(s.ShardRsName(i)).
 			SetService(s.ShardServiceName()).
-			SetReplicas(s.Spec.MongodsPerShardCount).
+			SetReplicas(r.getMongodsPerShardCountThisReconciliation()).
 			SetPodSpec(NewDefaultPodSpecWrapper(*s.Spec.ShardPodSpec)).
 			SetPodVars(podVars).
 			SetStartupParameters(shardStartupParameters).
@@ -385,7 +431,21 @@ func (r *ReconcileMongoDbShardedCluster) delete(obj interface{}, log *zap.Sugare
 		return err
 	}
 
-	sizeConfig := getMaxShardedClusterSizeConfig(sc.Spec.MongodbShardedClusterSizeConfig, sc.Status.MongodbShardedClusterSizeConfig)
+	currentCount := mdbv1.MongodbShardedClusterSizeConfig{
+		MongodsPerShardCount: sc.Status.MongodsPerShardCount,
+		MongosCount:          sc.Status.MongosCount,
+		ShardCount:           sc.Status.ShardCount,
+		ConfigServerCount:    sc.Status.ConfigServerCount,
+	}
+
+	desiredCountThisReconciliation := mdbv1.MongodbShardedClusterSizeConfig{
+		MongodsPerShardCount: r.getMongodsPerShardCountThisReconciliation(),
+		MongosCount:          r.getMongosCountThisReconciliation(),
+		ShardCount:           sc.Spec.ShardCount,
+		ConfigServerCount:    r.getConfigSrvCountThisReconciliation(),
+	}
+
+	sizeConfig := getMaxShardedClusterSizeConfig(desiredCountThisReconciliation, currentCount)
 	hostsToRemove := getAllHosts(sc, sizeConfig)
 	log.Infow("Stop monitoring removed hosts in Ops Manager", "hostsToBeRemoved", hostsToRemove)
 
@@ -443,29 +503,29 @@ func AddShardedClusterController(mgr manager.Manager) error {
 	return nil
 }
 
-func prepareScaleDownShardedCluster(omClient om.Connection, state ShardedClusterKubeState, sc *mdbv1.MongoDB, log *zap.SugaredLogger) error {
+func (r *ReconcileMongoDbShardedCluster) prepareScaleDownShardedCluster(omClient om.Connection, state ShardedClusterKubeState, sc *mdbv1.MongoDB, log *zap.SugaredLogger) error {
 	membersToScaleDown := make(map[string][]string)
 	clusterName := sc.Spec.GetClusterDomain()
 
 	// Scaledown amount of replicas in ConfigServer
-	if isConfigServerScaleDown(sc) {
+	if r.isConfigServerScaleDown() {
 		sts, err := state.configSrvSetHelper.BuildStatefulSet()
 		if err != nil {
 			return err
 		}
 		_, podNames := util.GetDnsForStatefulSetReplicasSpecified(sts, clusterName, sc.Status.ConfigServerCount)
-		membersToScaleDown[state.configSrvSetHelper.Name] = podNames[sc.Spec.ConfigServerCount:sc.Status.ConfigServerCount]
+		membersToScaleDown[state.configSrvSetHelper.Name] = podNames[r.getConfigSrvCountThisReconciliation():sc.Status.ConfigServerCount]
 	}
 
 	// Scaledown size of each shard
-	if isShardsSizeScaleDown(sc) {
-		for _, s := range state.shardsSetsHelpers[:sc.Status.ShardCount] {
+	if r.isShardsSizeScaleDown() {
+		for _, s := range state.shardsSetsHelpers[:sc.Spec.ShardCount] {
 			sts, err := s.BuildStatefulSet()
 			if err != nil {
 				return err
 			}
 			_, podNames := util.GetDnsForStatefulSetReplicasSpecified(sts, clusterName, sc.Status.MongodsPerShardCount)
-			membersToScaleDown[s.Name] = podNames[sc.Spec.MongodsPerShardCount:sc.Status.MongodsPerShardCount]
+			membersToScaleDown[s.Name] = podNames[r.getMongodsPerShardCountThisReconciliation():sc.Status.MongodsPerShardCount]
 		}
 	}
 
@@ -477,12 +537,12 @@ func prepareScaleDownShardedCluster(omClient om.Connection, state ShardedCluster
 	return nil
 }
 
-func isConfigServerScaleDown(sc *mdbv1.MongoDB) bool {
-	return sc.Spec.ConfigServerCount < sc.Status.ConfigServerCount
+func (r *ReconcileMongoDbShardedCluster) isConfigServerScaleDown() bool {
+	return scale.ReplicasThisReconciliation(r.configSrvScaler) < r.configSrvScaler.CurrentReplicaSetMembers()
 }
 
-func isShardsSizeScaleDown(sc *mdbv1.MongoDB) bool {
-	return sc.Spec.MongodsPerShardCount < sc.Status.MongodsPerShardCount
+func (r *ReconcileMongoDbShardedCluster) isShardsSizeScaleDown() bool {
+	return scale.ReplicasThisReconciliation(r.mongodsPerShardScaler) < r.mongodsPerShardScaler.CurrentReplicaSetMembers()
 }
 
 // updateOmDeploymentShardedCluster performs OM registration operation for the sharded cluster. So the changes will be finally propagated
@@ -531,8 +591,22 @@ func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn o
 		}
 	}
 
-	currentHosts := getAllHosts(sc, sc.Status.MongodbShardedClusterSizeConfig)
-	wantedHosts := getAllHosts(sc, sc.Spec.MongodbShardedClusterSizeConfig)
+	currentCount := mdbv1.MongodbShardedClusterSizeConfig{
+		MongodsPerShardCount: sc.Status.MongodsPerShardCount,
+		MongosCount:          sc.Status.MongosCount,
+		ShardCount:           sc.Status.ShardCount,
+		ConfigServerCount:    sc.Status.ConfigServerCount,
+	}
+
+	desiredCount := mdbv1.MongodbShardedClusterSizeConfig{
+		MongodsPerShardCount: r.getMongodsPerShardCountThisReconciliation(),
+		MongosCount:          r.getMongosCountThisReconciliation(),
+		ShardCount:           sc.Spec.ShardCount,
+		ConfigServerCount:    r.getConfigSrvCountThisReconciliation(),
+	}
+
+	currentHosts := getAllHosts(sc, currentCount)
+	wantedHosts := getAllHosts(sc, desiredCount)
 
 	if err = calculateDiffAndStopMonitoringHosts(conn, currentHosts, wantedHosts, log); err != nil {
 		return workflow.Failed(err.Error())
@@ -742,4 +816,19 @@ func buildReplicaSetFromProcesses(name string, members []om.Process, mdb *mdbv1.
 	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members)
 	rsWithProcesses.SetHorizons(mdb.Spec.Connectivity.ReplicaSetHorizons)
 	return rsWithProcesses
+}
+
+// shardedClusterScaler keeps track of each individual value being scaled on the sharded cluster
+// and ensures these values are only incremented or decremented by one
+type shardedClusterScaler struct {
+	DesiredMembers int
+	CurrentMembers int
+}
+
+func (r shardedClusterScaler) DesiredReplicaSetMembers() int {
+	return r.DesiredMembers
+}
+
+func (r shardedClusterScaler) CurrentReplicaSetMembers() int {
+	return r.CurrentMembers
 }

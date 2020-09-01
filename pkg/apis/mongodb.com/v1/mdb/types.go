@@ -558,8 +558,21 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 	if option, exists := status.GetOption(statusOptions, status.BaseUrlOption{}); exists {
 		m.Status.Link = option.(status.BaseUrlOption).BaseUrl
 	}
-	if option, exists := status.GetOption(statusOptions, scale.ReplicaSetMembersOption{}); exists {
-		m.Status.Members = option.(scale.ReplicaSetMembersOption).Members
+	switch m.Spec.ResourceType {
+	case ReplicaSet:
+		if option, exists := status.GetOption(statusOptions, scale.ReplicaSetMembersOption{}); exists {
+			m.Status.Members = option.(scale.ReplicaSetMembersOption).Members
+		}
+	case ShardedCluster:
+		if option, exists := status.GetOption(statusOptions, scale.ShardedClusterConfigServerOption{}); exists {
+			m.Status.ConfigServerCount = option.(scale.ShardedClusterConfigServerOption).Members
+		}
+		if option, exists := status.GetOption(statusOptions, scale.ShardedClusterMongodsPerShardCountOption{}); exists {
+			m.Status.MongodsPerShardCount = option.(scale.ShardedClusterMongodsPerShardCountOption).Members
+		}
+		if option, exists := status.GetOption(statusOptions, scale.ShardedClusterMongosOption{}); exists {
+			m.Status.MongosCount = option.(scale.ShardedClusterMongosOption).Members
+		}
 	}
 
 	if phase == status.PhaseRunning {
@@ -568,11 +581,7 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 		m.Status.ResourceType = m.Spec.ResourceType
 
 		switch m.Spec.ResourceType {
-		case ReplicaSet:
 		case ShardedCluster:
-			m.Status.MongosCount = m.Spec.MongosCount
-			m.Status.MongodsPerShardCount = m.Spec.MongodsPerShardCount
-			m.Status.ConfigServerCount = m.Spec.ConfigServerCount
 			m.Status.ShardCount = m.Spec.ShardCount
 		}
 	}

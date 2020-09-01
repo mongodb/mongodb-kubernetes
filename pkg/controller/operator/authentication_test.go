@@ -338,8 +338,7 @@ func TestX509InternalClusterAuthentication_CanBeEnabledWithScram_ShardedCluster(
 		EnableX509InternalClusterAuth().
 		Build()
 
-	manager := mock.NewManager(sc)
-	r := newShardedClusterReconciler(manager, om.NewEmptyMockedOmConnection)
+	r, manager := newShardedClusterReconcilerFromResource(*sc, om.NewEmptyMockedOmConnection)
 	configureX509(r.client, certsv1.CertificateApproved)
 	addKubernetesTlsResources(r.client, sc)
 

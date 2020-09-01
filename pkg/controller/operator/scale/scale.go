@@ -33,8 +33,29 @@ func isScalingDown(replicaSetScaler ReplicaSetScaler) bool {
 	return replicaSetScaler.DesiredReplicaSetMembers() < replicaSetScaler.CurrentReplicaSetMembers()
 }
 
+// AnyAreStillScaling reports true if any of one the provided members is still scaling
+func AnyAreStillScaling(scalers ...ReplicaSetScaler) bool {
+	for _, s := range scalers {
+		if IsStillScaling(s) {
+			return true
+		}
+	}
+	return false
+}
+
 func MembersOption(replicaSetScaler ReplicaSetScaler) status.Option {
 	return ReplicaSetMembersOption{Members: ReplicasThisReconciliation(replicaSetScaler)}
+}
+
+func MongosCountOption(replicaSetScaler ReplicaSetScaler) status.Option {
+	return ShardedClusterMongosOption{Members: ReplicasThisReconciliation(replicaSetScaler)}
+}
+func ConfigServerOption(replicaSetScaler ReplicaSetScaler) status.Option {
+	return ShardedClusterConfigServerOption{Members: ReplicasThisReconciliation(replicaSetScaler)}
+}
+
+func MongodsPerShardOption(replicaSetScaler ReplicaSetScaler) status.Option {
+	return ShardedClusterMongodsPerShardCountOption{Members: ReplicasThisReconciliation(replicaSetScaler)}
 }
 
 // ReplicaSetMembersOption is required in order to ensure that the status of a resource
@@ -45,5 +66,29 @@ type ReplicaSetMembersOption struct {
 }
 
 func (o ReplicaSetMembersOption) Value() interface{} {
+	return o.Members
+}
+
+type ShardedClusterMongodsPerShardCountOption struct {
+	Members int
+}
+
+func (o ShardedClusterMongodsPerShardCountOption) Value() interface{} {
+	return o.Members
+}
+
+type ShardedClusterConfigServerOption struct {
+	Members int
+}
+
+func (o ShardedClusterConfigServerOption) Value() interface{} {
+	return o.Members
+}
+
+type ShardedClusterMongosOption struct {
+	Members int
+}
+
+func (o ShardedClusterMongosOption) Value() interface{} {
 	return o.Members
 }
