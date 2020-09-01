@@ -169,44 +169,6 @@ func allAgentUsers(options UserOptions, scramPassword string) []om.MongoDBUser {
 	return allAgentUsers
 }
 
-// EnsureAgentUsers makes sure that the correct agent users are present in the
-// provided AutomationConfig
-func EnsureAgentUsers(userOpts UserOptions, ac *om.AutomationConfig, mn MechanismName) error {
-
-	if !containsMechanismName(supportedMechanisms(), mn) {
-		return fmt.Errorf("unknown mechanism name specified %s", mn)
-	}
-
-	if err := ac.EnsureKeyFileContents(); err != nil {
-		return fmt.Errorf("error ensuring keyfile contents: %s", err)
-	}
-
-	if _, err := ac.EnsurePassword(); err != nil {
-		return fmt.Errorf("error ensuring password: %s", err)
-	}
-
-	if mn == MongoDBX509 {
-		ac.Auth.AutoUser = userOpts.AutomationSubject
-	} else {
-		ac.Auth.AutoUser = util.AutomationAgentName
-	}
-
-	ac.Auth.KeyFile = util.AutomationAgentKeyFilePathInContainer
-	ac.Auth.KeyFileWindows = util.AutomationAgentWindowsKeyFilePath
-
-	switch mn {
-	case MongoDBCR, ScramSha256:
-		for _, user := range buildScramAgentUsers(ac.Auth.AutoPwd) {
-			ac.Auth.EnsureUser(user)
-		}
-	case MongoDBX509:
-		for _, user := range buildX509AgentUsers(userOpts) {
-			ac.Auth.EnsureUser(user)
-		}
-	}
-	return nil
-}
-
 // ConfigureScramCredentials creates both SCRAM-SHA-1 and SCRAM-SHA-256 credentials. This ensures
 // that changes to the authentication settings on the MongoDB resources won't leave MongoDBUsers without
 // the correct credentials.
@@ -406,7 +368,7 @@ func ensureDeploymentsMechanismsExist(conn om.Connection, opts Options, log *zap
 	// We need to convert this to the list of strings the automation config expects.
 	automationConfigMechanismNames := getMechanismNames(ac, opts.MinimumMajorVersion, opts.Mechanisms)
 
-	log.Debugf("automation config authentication mechanisms %+v", automationConfigMechanismNames)
+	log.Debugf("Automation config authentication mechanisms: %+v", automationConfigMechanismNames)
 	if err := ensureDeploymentMechanisms(conn, automationConfigMechanismNames, opts, log); err != nil {
 		return fmt.Errorf("error ensuring deployment mechanisms: %s", err)
 	}
@@ -503,11 +465,11 @@ func ensureAgentAuthenticationIsConfigured(conn om.Connection, opts Options, des
 
 	m := fromName(desiredAgentAuthMechanismName, ac, conn, opts)
 	if m.IsAgentAuthenticationConfigured() {
-		log.Infof("agent authentication mechanism %s is already configured", desiredAgentAuthMechanismName)
+		log.Infof("Agent authentication mechanism %s is already configured", desiredAgentAuthMechanismName)
 		return nil
 	}
 
-	log.Infof("enabling %s agent authentication", desiredAgentAuthMechanismName)
+	log.Infof("Enabling %s agent authentication", desiredAgentAuthMechanismName)
 	return m.EnableAgentAuthentication(opts, log)
 }
 
@@ -524,18 +486,18 @@ func ensureDeploymentMechanisms(conn om.Connection, desiredDeploymentAuthMechani
 		if !fromName(mn, ac, conn, opts).IsDeploymentAuthenticationConfigured() {
 			allRequiredDeploymentMechanismsAreConfigured = false
 		} else {
-			log.Debugf("deployment mechanism %s is already configured", mn)
+			log.Debugf("Deployment mechanism %s is already configured", mn)
 		}
 	}
 
 	if allRequiredDeploymentMechanismsAreConfigured {
-		log.Info("all required deployment authentication mechanisms are configured")
+		log.Info("All required deployment authentication mechanisms are configured")
 		return nil
 	}
 
 	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		for _, mechanismName := range desiredDeploymentAuthMechanisms {
-			log.Debugf("enabling deployment mechanism %s", mechanismName)
+			log.Debugf("Enabling deployment mechanism %s", mechanismName)
 			if err := fromName(mechanismName, ac, conn, opts).EnableDeploymentAuthentication(opts); err != nil {
 				return fmt.Errorf("error enabling deployment authentication: %s", err)
 			}

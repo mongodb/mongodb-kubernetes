@@ -57,7 +57,7 @@ func TestUserIsAdded_ToAutomationConfig_OnSuccessfulReconciliation(t *testing.T)
 	ac, _ := connection.ReadAutomationConfig()
 
 	// the automation config should have been updated during reconciliation
-	assert.Len(t, ac.Auth.Users, 3, "the MongoDBUser and agent users should have been added to the AutomationConfig")
+	assert.Len(t, ac.Auth.Users, 1, "the MongoDBUser should have been added to the AutomationConfig")
 
 	_, createdUser := ac.Auth.GetUser("my-user", "admin")
 	assert.Equal(t, user.Spec.Username, createdUser.Username)
@@ -94,7 +94,7 @@ func TestUserIsUpdated_IfNonIdentifierFieldIsUpdated_OnSuccessfulReconciliation(
 
 	ac, _ := om.CurrMockedConnection.ReadAutomationConfig()
 
-	assert.Len(t, ac.Auth.Users, 3, "we should still have a single MongoDBUser and the 2 agent users, no users should have been deleted")
+	assert.Len(t, ac.Auth.Users, 1, "we should still have a single MongoDBUser, no users should have been deleted")
 	_, updatedUser := ac.Auth.GetUser("my-user", "admin")
 	assert.Len(t, updatedUser.Roles, 0)
 }
@@ -128,7 +128,7 @@ func TestUserIsReplaced_IfIdentifierFieldsAreChanged_OnSuccessfulReconciliation(
 
 	ac, _ := om.CurrMockedConnection.ReadAutomationConfig()
 
-	assert.Len(t, ac.Auth.Users, 4, "we should have a new user with the updated fields and a nil value for the deleted user, and 2 agent users")
+	assert.Len(t, ac.Auth.Users, 2, "we should have a new user with the updated fields and a nil value for the deleted user")
 	assert.False(t, ac.Auth.HasUser("my-user", "admin"), "the deleted user should no longer be present")
 	assert.True(t, containsNil(ac.Auth.Users), "the deleted user should have been assigned a nil value")
 	_, updatedUser := ac.Auth.GetUser("changed-name", "changed-db")
@@ -250,7 +250,7 @@ func TestScramShaUserReconciliation_CreatesAgentUsers(t *testing.T) {
 	ac, err := om.CurrMockedConnection.ReadAutomationConfig()
 	assert.NoError(t, err)
 
-	assert.Len(t, ac.Auth.Users, 3, "users list should contain 1 user just added and 2 agent users")
+	assert.Len(t, ac.Auth.Users, 1, "users list should contain 1 user just added")
 }
 
 func TestMultipleAuthMethod_CreateAgentUsers(t *testing.T) {
@@ -258,7 +258,7 @@ func TestMultipleAuthMethod_CreateAgentUsers(t *testing.T) {
 		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigX509Option, 0, "SCRAM", []string{"SCRAM", "X509"})
 
 		assert.Equal(t, ac.Auth.AutoUser, "mms-automation-agent")
-		assert.Len(t, ac.Auth.Users, 3, "users list should contain 3 users, created user, and 2 agent users")
+		assert.Len(t, ac.Auth.Users, 1, "users list should contain a created user")
 
 		expectedUsernames := []string{"mms-backup-agent", "mms-monitoring-agent", "my-user"}
 		for _, user := range ac.Auth.Users {
@@ -268,20 +268,26 @@ func TestMultipleAuthMethod_CreateAgentUsers(t *testing.T) {
 
 	t.Run("When X509 and SCRAM auth modes are enabled, and agent mode is X509, 1 user is created", func(t *testing.T) {
 		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigX509Option, 1, "X509", []string{"X509", "SCRAM"})
-		assert.Equal(t, ac.Auth.AutoUser, "CN=mms-automation-agent,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US")
+		assert.Equal(t, util.AutomationAgentName, ac.Auth.AutoUser)
 		assert.Len(t, ac.Auth.Users, 1, "users list should contain only 1 user")
 		assert.Equal(t, "$external", ac.Auth.Users[0].Database)
 		assert.Equal(t, "my-user", ac.Auth.Users[0].Username)
 	})
 
-	t.Run("When X509 auth mode is enabled, 3 agents will be created", func(t *testing.T) {
+	t.Run("When X509 and SCRAM auth modes are enabled, SCRAM is AgentAuthMode, 3 users are created", func(t *testing.T) {
+		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigX509Option, 0, "SCRAM", []string{"X509", "SCRAM"})
+
+		assert.Equal(t, ac.Auth.AutoUser, "mms-automation-agent")
+		assert.Len(t, ac.Auth.Users, 1, "users list should contain only one actual user")
+		assert.Equal(t, "my-user", ac.Auth.Users[0].Username)
+	})
+
+	t.Run("When X509 auth mode is enabled, 1 user will be created", func(t *testing.T) {
 		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigX509Option, 3, "X509", []string{"X509"})
-		assert.Equal(t, ac.Auth.AutoUser, "CN=mms-automation-agent,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US")
-		assert.Len(t, ac.Auth.Users, 3, "users list should contain only 3 users: actual user and 2 automation users")
+		assert.Equal(t, util.AutomationAgentName, ac.Auth.AutoUser)
+		assert.Len(t, ac.Auth.Users, 1, "users list should contain only an actual user")
 
 		expectedUsernames := []string{
-			"CN=mms-backup-agent,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US",
-			"CN=mms-monitoring-agent,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US",
 			"my-user",
 		}
 		for _, user := range ac.Auth.Users {
@@ -289,14 +295,12 @@ func TestMultipleAuthMethod_CreateAgentUsers(t *testing.T) {
 		}
 	})
 
-	t.Run("When LDAP and X509 are enabled, 3 X509 agents will be created", func(t *testing.T) {
+	t.Run("When LDAP and X509 are enabled, 1 X509 user will be created", func(t *testing.T) {
 		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigLDAPOption, 3, "X509", []string{"LDAP", "X509"})
-		assert.Equal(t, ac.Auth.AutoUser, "CN=mms-automation-agent,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US")
-		assert.Len(t, ac.Auth.Users, 3, "users list should contain only 3 users: actual user and 2 automation users")
+		assert.Equal(t, util.AutomationAgentName, ac.Auth.AutoUser)
+		assert.Len(t, ac.Auth.Users, 1, "users list should contain only an actual user")
 
 		expectedUsernames := []string{
-			"CN=mms-backup-agent,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US",
-			"CN=mms-monitoring-agent,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US",
 			"my-user",
 		}
 		for _, user := range ac.Auth.Users {
@@ -409,6 +413,8 @@ func userReconcilerWithAuthMode(user *userv1.MongoDBUser, authMode string) (*Mon
 	reconciler := newMongoDBUserReconciler(manager, func(context *om.OMContext) om.Connection {
 		connection := om.NewEmptyMockedOmConnectionWithAutomationConfigChanges(context, func(ac *om.AutomationConfig) {
 			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, authMode)
+			// Enabling auth as it's required to be enabled for the user controller to proceed
+			ac.Auth.Disabled = false
 		})
 		return connection
 	})

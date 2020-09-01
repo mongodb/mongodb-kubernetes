@@ -20,7 +20,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -147,15 +146,8 @@ func (r *MongoDBUserReconciler) Reconcile(request reconcile.Request) (res reconc
 		return r.updateStatus(user, workflow.Failed("failed to prepare Ops Manager connection. %s", err), log)
 	}
 
-	err = conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-		return r.ensureAgentUsers(ac, mdb, log)
-	}, log)
-	if err != nil {
-		return r.updateStatus(user, workflow.Failed("failed to create agent users. %s", err), log)
-	}
-
 	if user.Spec.Database == authentication.ExternalDB {
-		return r.handleExternalAuthUser(user, mdb, conn, log)
+		return r.handleExternalAuthUser(user, conn, log)
 	} else {
 		return r.handleScramShaUser(user, conn, log)
 	}
@@ -243,59 +235,22 @@ func toOmUser(spec userv1.MongoDBUserSpec, password string) (om.MongoDBUser, err
 	return user, nil
 }
 
-// ensureAgentUsers makes sure that the correct agent users are present in the Automation Config.
-// it is not possible to assume the agent users are using the same authentication mechanism as the user being added
-func (r *MongoDBUserReconciler) ensureAgentUsers(ac *om.AutomationConfig, mdb mdbv1.MongoDB, log *zap.SugaredLogger) error {
-	log = log.With("MongoDB", mdb.ObjectKey())
-
-	// determine the agent auth mechanism based on the MongoDB resource
-	currentMode := mdb.Spec.Security.GetAgentMechanism(ac.Auth.AutoAuthMechanism)
-	var err error
-	userOpts := authentication.UserOptions{}
-	var mn authentication.MechanismName
-	switch currentMode {
-	case util.X509:
-		// if we are dealing with X509 agent users, or ever had X509 agent users, the secret containing the subjects should exist
-		userOpts, err = r.readAgentSubjectsFromSecret(mdb.Namespace, log)
-		if err != nil {
-			return fmt.Errorf("error reading agent subjects from secret: %s", err)
-		}
-
-		mn = authentication.MongoDBX509
-	case util.SCRAM:
-		mn = authentication.ScramSha256
-	case util.LDAP:
-		mn = authentication.LDAPPlain
-	case "":
-		log.Info("no authentication currently configured for resource, not ensuring agent users")
-		return nil
-	default:
-		return fmt.Errorf("agent auth mechanism %s not supported", currentMode)
-	}
-
-	log.Debugf("ensuring agent users, using %s authentication", string(mn))
-	return authentication.EnsureAgentUsers(userOpts, ac, mn)
-}
-
 func (r *MongoDBUserReconciler) handleScramShaUser(user *userv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (res reconcile.Result, e error) {
 	// watch the password secret in order to trigger reconciliation if the
 	// password is updated
 	if user.Spec.PasswordSecretKeyRef.Name != "" {
-		userNamespacedName := types.NamespacedName{
-			Name:      user.Name,
-			Namespace: user.Namespace,
-		}
 		r.addWatchedResourceIfNotAdded(
 			user.Spec.PasswordSecretKeyRef.Name,
 			user.Namespace,
 			watch.Secret,
-			userNamespacedName,
+			kube.ObjectKey(user.Namespace, user.Name),
 		)
 	}
 
 	shouldRetry := false
 	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-		if !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigScramSha256Option) && !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigScramSha1Option) {
+		if ac.Auth.Disabled ||
+			(!stringutil.ContainsAny(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigScramSha256Option, util.AutomationConfigScramSha1Option)){
 			shouldRetry = true
 			return fmt.Errorf("scram Sha has not yet been configured")
 		}
@@ -330,7 +285,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(user *userv1.MongoDBUser, con
 	return r.updateStatus(user, workflow.OK(), log)
 }
 
-func (r *MongoDBUserReconciler) handleExternalAuthUser(user *userv1.MongoDBUser, mdb mdbv1.MongoDB, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
+func (r *MongoDBUserReconciler) handleExternalAuthUser(user *userv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
 	desiredUser, err := toOmUser(user.Spec, "")
 	if err != nil {
 		return r.updateStatus(user, workflow.Failed("error updating user %s", err), log)

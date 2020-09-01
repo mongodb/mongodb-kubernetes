@@ -1443,6 +1443,12 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_replica_set_scram_sha_256_user_first
+  tags: ["patch-run"]
+  exec_timeout_secs: 400
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_replica_set_scram_sha_1_user_connectivity
   tags: ["patch-run"]
   exec_timeout_secs: 1200
@@ -1960,7 +1966,7 @@ task_groups:
     - func: teardown_cloud_qa
 
 - name: e2e_scram_sha_task_group
-  max_hosts: 3
+  max_hosts: 5
   setup_group:
     - func: clone
     - func: download_kube_tools
@@ -1970,6 +1976,7 @@ task_groups:
     - func: setup_cloud_qa
   tasks:
     - e2e_replica_set_scram_sha_256_user_connectivity
+    - e2e_replica_set_scram_sha_256_user_first
     - e2e_replica_set_scram_sha_1_user_connectivity
     - e2e_replica_set_scram_sha_1_upgrade
     - e2e_replica_set_scram_x509_internal_cluster
@@ -1983,7 +1990,7 @@ task_groups:
     - func: teardown_cloud_qa
 
 - name: e2e_scram_sha_task_group_with_manually_generated_certs
-  max_hosts: 3
+  max_hosts: 5
   setup_group:
     - func: clone
     - func: download_kube_tools
@@ -1993,6 +2000,7 @@ task_groups:
     - func: setup_cloud_qa
   tasks:
     - e2e_replica_set_scram_sha_256_user_connectivity
+    - e2e_replica_set_scram_sha_256_user_first
     - e2e_replica_set_scram_sha_1_user_connectivity
     - e2e_replica_set_scram_sha_1_upgrade
     - e2e_replica_set_scram_x509_ic_manual_certs
