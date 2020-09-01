@@ -265,6 +265,13 @@ spec:
                   properties:
                     spec:
                       type: object
+
+                agent:
+                  type: object
+                  properties:
+                    startupOptions:
+                      type: object
+
                 podSpec:
                   type: object
                   properties:

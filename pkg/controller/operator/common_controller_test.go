@@ -189,7 +189,7 @@ func TestPrepareOmConnection_ConfigMapAndSecretWatched(t *testing.T) {
 	_ = manager.Client.Create(context.TODO(), credentials)
 
 	// Here we create two replica sets both referencing the same project and credentials
-	vars := &PodVars{}
+	vars := &PodEnvVars{}
 	spec := mdbv1.ConnectionSpec{
 		OpsManagerConfig: &mdbv1.PrivateCloudConfig{
 			ConfigMapRef: mdbv1.ConfigMapRef{
@@ -308,8 +308,8 @@ func toOMVersion(versionString string) *om.Version {
 	}
 }
 
-func prepareConnection(controller *ReconcileCommonController, t *testing.T) (*om.MockedOmConnection, *PodVars) {
-	vars := &PodVars{}
+func prepareConnection(controller *ReconcileCommonController, t *testing.T) (*om.MockedOmConnection, *PodEnvVars) {
+	vars := &PodEnvVars{}
 	spec := mdbv1.ConnectionSpec{
 		OpsManagerConfig: &mdbv1.PrivateCloudConfig{
 			ConfigMapRef: mdbv1.ConfigMapRef{

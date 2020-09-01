@@ -9,6 +9,7 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
 
@@ -78,7 +79,9 @@ type StatefulSetHelper struct {
 	StatefulSetHelperCommon
 
 	Persistent *bool
-	PodVars    *PodVars
+	PodVars    *PodEnvVars
+
+	StartupOptions mdbv1.StartupParameters
 
 	ResourceType mdbv1.ResourceType
 
@@ -178,6 +181,10 @@ func (ss StatefulSetHelper) IsPersistent() *bool {
 
 func (ss StatefulSetHelper) GetCurrentAgentAuthMechanism() string {
 	return ss.CurrentAgentAuthMechanism
+}
+
+func (ss StatefulSetHelper) GetStartupParameters() mdbv1.StartupParameters {
+	return ss.StartupOptions
 }
 
 func (ss StatefulSetHelper) hasHorizons() bool {
@@ -416,8 +423,13 @@ func (s *StatefulSetHelper) SetPodSpec(podSpec *mdbv1.PodSpecWrapper) *StatefulS
 	return s
 }
 
-func (s *StatefulSetHelper) SetPodVars(podVars *PodVars) *StatefulSetHelper {
+func (s *StatefulSetHelper) SetPodVars(podVars *PodEnvVars) *StatefulSetHelper {
 	s.PodVars = podVars
+	return s
+}
+
+func (s *StatefulSetHelper) SetStartupParameters(parameters mdbv1.StartupParameters) *StatefulSetHelper {
+	s.StartupOptions = parameters
 	return s
 }
 

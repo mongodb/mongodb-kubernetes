@@ -49,9 +49,9 @@ const (
 	controllerLabelName = "controller"
 )
 
-// PodVars is a convenience struct to pass environment variables to Pods as needed.
+// PodEnvVars is a convenience struct to pass environment variables to Pods as needed.
 // They are used by the automation agent to connect to Ops/Cloud Manager.
-type PodVars struct {
+type PodEnvVars struct {
 	BaseURL     string
 	ProjectID   string
 	User        string
@@ -265,7 +265,7 @@ func baseOwnerReference(owner v1.CustomResourceReadWriter) []metav1.OwnerReferen
 }
 
 // TODO: delete this and move unit tests into construction_test.go
-func databaseEnvVars(podVars *PodVars) []corev1.EnvVar {
+func databaseEnvVars(podVars *PodEnvVars) []corev1.EnvVar {
 	vars := []corev1.EnvVar{
 		{
 			Name:  util.ENV_VAR_BASE_URL,

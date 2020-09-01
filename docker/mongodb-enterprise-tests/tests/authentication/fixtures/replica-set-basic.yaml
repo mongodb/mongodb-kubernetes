@@ -10,4 +10,6 @@ spec:
   credentials: my-credentials
   project: my-project
   persistent: false
-
+  agent:
+    startupOptions:
+      a: "b"

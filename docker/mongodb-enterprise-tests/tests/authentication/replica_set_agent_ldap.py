@@ -67,9 +67,7 @@ def ldap_user_mongodb(
 
 @mark.e2e_replica_set_ldap_agent_auth
 @mark.usefixtures("ldap_mongodb_agent_user", "ldap_user_mongodb")
-def test_replica_set(
-    replica_set: MongoDB,
-):
+def test_replica_set(replica_set: MongoDB):
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 
@@ -89,9 +87,7 @@ def test_new_ldap_users_can_authenticate(
 
 
 @mark.e2e_replica_set_ldap_agent_auth
-def test_deployment_is_reachable_with_ldap_agent(
-    replica_set: MongoDB
-):
+def test_deployment_is_reachable_with_ldap_agent(replica_set: MongoDB):
     tester = replica_set.tester()
     # Due to what we found out in
     # https://jira.mongodb.org/browse/CLOUDP-68873
@@ -142,9 +138,7 @@ def test_replica_set_connectivity_with_no_auth(replica_set: MongoDB):
 
 
 @mark.e2e_replica_set_ldap_agent_auth
-def test_deployment_is_reachable_with_no_auth(
-    replica_set: MongoDB
-):
+def test_deployment_is_reachable_with_no_auth(replica_set: MongoDB):
     tester = replica_set.tester()
     tester.assert_deployment_reachable(attempts=10)
 
@@ -165,9 +159,7 @@ def test_replica_set_connectivity_after_version_change_no_auth(replica_set: Mong
 
 
 @mark.e2e_replica_set_ldap_agent_auth
-def test_deployment_is_reachable_after_version_change(
-    replica_set: MongoDB
-):
+def test_deployment_is_reachable_after_version_change(replica_set: MongoDB):
     tester = replica_set.tester()
     tester.assert_deployment_reachable(attempts=10)
 
@@ -206,8 +198,6 @@ def test_replica_set_connectivity_after_version_change_SCRAM(replica_set: MongoD
 
 
 @mark.e2e_replica_set_ldap_agent_auth
-def test_deployment_is_reachable_after_version_change_SCRAM(
-    replica_set: MongoDB
-):
+def test_deployment_is_reachable_after_version_change_SCRAM(replica_set: MongoDB):
     tester = replica_set.tester()
     tester.assert_deployment_reachable(attempts=10)

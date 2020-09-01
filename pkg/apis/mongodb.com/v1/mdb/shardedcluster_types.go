@@ -14,6 +14,7 @@ type ShardedClusterSpec struct {
 
 type ShardedClusterComponentSpec struct {
 	AdditionalMongodConfig AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
+	Agent                  AgentConfig            `json:"agent,omitempty"`
 }
 
 // MongodbShardedClusterSizeConfig describes the numbers and sizes of replica sets inside

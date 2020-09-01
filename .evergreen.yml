@@ -1259,6 +1259,24 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_sharded_cluster_agent_flags
+  tags: ["patch-run"]
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_standalone_agent_flags
+  tags: ["patch-run"]
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_agent_flags
+  tags: ["patch-run"]
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_standalone_type_change_recovery
   tags: ["patch-run"]
   exec_timeout_secs: 1200
@@ -1570,6 +1588,12 @@ tasks:
     - func: "e2e_test"
 
 # E2E tests for Ops Manager (sorted alphabetically):
+- name: e2e_om_appdb_agent_flags
+  tags: ["patch-run"]
+  exec_timeout_secs: 2400
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_om_appdb_monitoring_tls
   tags: ["patch-run"]
   exec_timeout_secs: 2400
@@ -1898,13 +1922,16 @@ task_groups:
     - e2e_replica_set_custom_podspec
     - e2e_replica_set_recovery
     - e2e_replica_set_upgrade_downgrade
+    - e2e_replica_set_agent_flags
     - e2e_sharded_cluster
     - e2e_sharded_cluster_secret
     - e2e_sharded_cluster_upgrade_downgrade
     - e2e_sharded_cluster_custom_podspec
+    - e2e_sharded_cluster_agent_flags
     - e2e_standalone_type_change_recovery
     - e2e_standalone_upgrade_downgrade
     - e2e_standalone_custom_podspec
+    - e2e_standalone_agent_flags
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -2118,6 +2145,7 @@ task_groups:
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
   tasks:
+    - e2e_om_appdb_agent_flags
     - e2e_om_appdb_monitoring_tls
     - e2e_om_appdb_scale_up_down
     - e2e_om_appdb_upgrade
@@ -2175,6 +2203,7 @@ task_groups:
     - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
   tasks:
+    - e2e_om_appdb_agent_flags
     - e2e_om_appdb_monitoring_tls
     - e2e_om_appdb_scale_up_down
     - e2e_om_appdb_upgrade

@@ -469,7 +469,7 @@ func BuildTestStatefulSet(opsManager omv1.MongoDBOpsManager) (appsv1.StatefulSet
 		SetName(rs.Name()).
 		SetService(rs.ServiceName()).
 		SetPodSpec(NewDefaultPodSpecWrapper(*rs.PodSpec)).
-		SetPodVars(&PodVars{}). // TODO remove
+		SetPodVars(&PodEnvVars{}). // TODO remove
 		SetClusterName(opsManager.ClusterName).
 		SetVersion(opsManager.Spec.Version).
 		SetContainerName(util.DatabaseContainerName).

@@ -72,7 +72,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, nil
 	}
 
-	podVars := &PodVars{}
+	podVars := &PodEnvVars{}
 	conn, err := r.prepareConnection(request.NamespacedName, rs.Spec.ConnectionSpec, podVars, log)
 	if err != nil {
 		return r.updateStatus(rs, workflow.Failed("Failed to prepare Ops Manager connection: %s", err), log)
@@ -92,6 +92,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		SetReplicas(scale.ReplicasThisReconciliation(rs)).
 		SetService(rs.ServiceName()).
 		SetPodVars(podVars).
+		SetStartupParameters(rs.Spec.Agent.StartupParameters).
 		SetLogger(log).
 		SetTLS(rs.Spec.GetTLSConfig()).
 		SetProjectConfig(projectConfig).

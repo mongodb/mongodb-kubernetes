@@ -728,6 +728,34 @@ func TestBaseEnvHelper(t *testing.T) {
 	})
 }
 
+func TestAgentFlags(t *testing.T) {
+	agentStartupParameters := mdbv1.StartupParameters{
+		"Key1": "Value1",
+		"Key2": "Value2",
+	}
+
+	stsHelper := defaultSetHelper().SetStartupParameters(agentStartupParameters)
+	envVars := construct.DatabaseStatefulSet(stsHelper)
+	variablesMap := envVariablesAsMap(envVars.Spec.Template.Spec.Containers[0].Env...)
+	val, ok := variablesMap["AGENT_FLAGS"]
+	assert.True(t, ok)
+	assert.Contains(t, val, " -Key1 Value1", " -Key2 Value2")
+
+}
+
+func TestAppDBAgentFlags(t *testing.T) {
+	agentStartupParameters := mdbv1.StartupParameters{
+		"Key1": "Value1",
+		"Key2": "Value2",
+	}
+	stsHelper := defaultAppDbSetHelper().SetStartupParameters(agentStartupParameters)
+	envVars := construct.AppDbStatefulSet(stsHelper)
+	variablesMap := envVariablesAsMap(envVars.Spec.Template.Spec.Containers[0].Env...)
+	val, ok := variablesMap["AGENT_FLAGS"]
+	assert.True(t, ok)
+	assert.Contains(t, val, " -Key1 Value1", " -Key2 Value2")
+}
+
 // ******************************** Helper methods *******************************************
 
 func baseSetHelper() *StatefulSetHelper {
@@ -756,7 +784,7 @@ func defaultAppDbSetHelper() *StatefulSetHelper {
 	om := DefaultOpsManagerBuilder().Build()
 	mockedClient := mock.NewClient().WithResource(&om)
 	helper := NewKubeHelper(mockedClient)
-	return helper.NewStatefulSetHelper(&om).SetPodVars(&PodVars{})
+	return helper.NewStatefulSetHelper(&om).SetPodVars(&PodEnvVars{})
 }
 
 func omSetHelperFromResource(om omv1.MongoDBOpsManager) OpsManagerStatefulSetHelper {
@@ -780,8 +808,8 @@ func testDefaultBackupSetHelper() BackupStatefulSetHelper {
 	return backupSetHelperFromResource(om)
 }
 
-func defaultPodVars() *PodVars {
-	return &PodVars{BaseURL: "http://localhost:8080", ProjectID: "myProject", User: "user@some.com"}
+func defaultPodVars() *PodEnvVars {
+	return &PodEnvVars{BaseURL: "http://localhost:8080", ProjectID: "myProject", User: "user@some.com"}
 }
 
 func defaultNodeAffinity() corev1.NodeAffinity {
@@ -827,4 +855,12 @@ func getOpsManagerTemplateSpec(helper OpsManagerStatefulSetHelper) corev1.PodTem
 
 func getMongoDBTemplateSpec(helper StatefulSetHelper) corev1.PodTemplateSpec {
 	return construct.DatabaseStatefulSet(helper).Spec.Template
+}
+
+func envVariablesAsMap(vars ...corev1.EnvVar) map[string]string {
+	variablesMap := map[string]string{}
+	for _, envVar := range vars {
+		variablesMap[envVar.Name] = envVar.Value
+	}
+	return variablesMap
 }

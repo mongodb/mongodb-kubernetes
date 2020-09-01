@@ -94,14 +94,14 @@ if [[ "${SSL_REQUIRE_VALID_MMS_CERTIFICATES-}" != "false" ]]; then
     agentOpts+=("-sslRequireValidMMSServerCertificates")
 fi
 
-script_log "Launching automation agent with following arguments: ${agentOpts[*]} -mmsApiKey ${AGENT_API_KEY+<hidden>}"
+script_log "Launching automation agent with following arguments: ${agentOpts[*]} -mmsApiKey ${AGENT_API_KEY+<hidden>} ${AGENT_FLAGS}"
 
 agentOpts+=("-mmsApiKey" "${AGENT_API_KEY-}")
 
 
 rm /tmp/mongodb-mms-automation-cluster-backup.json || true
 # Note, that we do logging in subshell - this allows us to save the сorrect PID to variable (not the logging one)
-"${MMS_HOME}/files/mongodb-mms-automation-agent" "${agentOpts[@]}" 2>> "${MMS_LOG_DIR}/automation-agent-stderr.log" > >(json_log "automation-agent-stdout") &
+"${MMS_HOME}/files/mongodb-mms-automation-agent" "${agentOpts[@]}" "${AGENT_FLAGS}" 2>> "${MMS_LOG_DIR}/automation-agent-stderr.log" > >(json_log "automation-agent-stdout") &
 export agentPid=$!
 
 trap cleanup SIGTERM

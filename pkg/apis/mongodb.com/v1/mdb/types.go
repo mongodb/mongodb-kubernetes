@@ -138,7 +138,7 @@ type MongoDbSpec struct {
 	ConnectionSpec `json:",inline"`
 	Persistent     *bool        `json:"persistent,omitempty"`
 	ResourceType   ResourceType `json:"type,omitempty"`
-	// sharded cluster
+	// sharded clusters
 
 	// TODO: uncomment once we remove podSpec and support the various statefulSet specs
 	// +optional
@@ -151,6 +151,8 @@ type MongoDbSpec struct {
 	//StatefulSetConfiguration *StatefulSetConfiguration `json:"statefulSet,omitempty"`
 
 	MongodbShardedClusterSizeConfig `json:",inline"`
+
+	Agent AgentConfig `json:"agent,omitempty"`
 
 	// replica set
 	Members int             `json:"members,omitempty"`
@@ -166,6 +168,12 @@ type MongoDbSpec struct {
 	// https://docs.mongodb.com/manual/reference/configuration-options/
 	AdditionalMongodConfig AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
 }
+
+type AgentConfig struct {
+	StartupParameters StartupParameters `json:"startupOptions"`
+}
+
+type StartupParameters map[string]string
 
 func (m *MongoDB) DesiredReplicaSetMembers() int {
 	return m.Spec.Members

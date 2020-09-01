@@ -123,6 +123,7 @@ class TestReplicaSetCreation(KubernetesTester):
                     continue
 
                 assert envvar.name in [
+                    "AGENT_FLAGS",
                     "BASE_URL",
                     "GROUP_ID",
                     "USER_LOGIN",
@@ -130,7 +131,7 @@ class TestReplicaSetCreation(KubernetesTester):
                     "SSL_TRUSTED_MMS_SERVER_CERTIFICATE",
                     "SSL_REQUIRE_VALID_MMS_CERTIFICATES",
                 ]
-                assert envvar.value is not None
+                assert envvar.value is not None or envvar.name == "AGENT_FLAGS"
 
     def test_service_is_created(self):
         svc = self.corev1.read_namespaced_service("my-replica-set-svc", self.namespace)
@@ -453,6 +454,7 @@ class TestReplicaSetUpdate(KubernetesTester):
                     continue
 
                 assert envvar.name in [
+                    "AGENT_FLAGS",
                     "BASE_URL",
                     "GROUP_ID",
                     "USER_LOGIN",
@@ -460,7 +462,7 @@ class TestReplicaSetUpdate(KubernetesTester):
                     "SSL_TRUSTED_MMS_SERVER_CERTIFICATE",
                     "SSL_REQUIRE_VALID_MMS_CERTIFICATES",
                 ]
-                assert envvar.value is not None
+                assert envvar.value is not None or envvar.name == "AGENT_FLAGS"
 
     def test_service_is_created(self):
         svc = self.corev1.read_namespaced_service("my-replica-set-svc", self.namespace)

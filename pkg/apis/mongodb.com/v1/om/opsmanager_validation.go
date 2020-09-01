@@ -3,6 +3,7 @@ package om
 import (
 	"errors"
 	"fmt"
+
 	"github.com/blang/semver"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
@@ -72,7 +73,6 @@ func connectivityIsNotConfigurable(os MongoDBOpsManagerSpec) mdbv1.ValidationRes
 	}
 	return mdbv1.ValidationSuccess()
 }
-
 
 // ConnectionSpec fields
 func credentialsIsNotConfigurable(os MongoDBOpsManagerSpec) mdbv1.ValidationResult {

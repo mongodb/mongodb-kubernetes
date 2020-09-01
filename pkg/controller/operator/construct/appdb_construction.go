@@ -33,7 +33,7 @@ const (
 	agentApiKeyEnv                 = "AGENT_API_KEY"
 )
 
-// AppDbStatefulSet fully constructs teh AppDB StatefulSet
+// AppDbStatefulSet fully constructs the AppDB StatefulSet
 func AppDbStatefulSet(mdbBuilder DatabaseBuilder) appsv1.StatefulSet {
 	templateFunc := buildAppDBPodTemplateSpecFunc(mdbBuilder)
 	return statefulset.New(buildDatabaseStatefulSetConfigurationFunction(mdbBuilder, templateFunc))

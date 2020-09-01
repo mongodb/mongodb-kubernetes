@@ -75,7 +75,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return nil, workflow.Failed("error reading project %s", err)
 	}
 
-	podVars := &PodVars{}
+	podVars := &PodEnvVars{}
 	conn, err := r.prepareConnection(objectKey(sc.Namespace, sc.Name), sc.Spec.ConnectionSpec, podVars, log)
 	if err != nil {
 		return nil, workflow.Failed(err.Error())
@@ -277,7 +277,12 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 	return workflow.OK()
 }
 
-func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mdbv1.MongoDB, podVars *PodVars, projectConfig mdbv1.ProjectConfig, currentAgentAuthMechanism string, log *zap.SugaredLogger) ShardedClusterKubeState {
+func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mdbv1.MongoDB, podVars *PodEnvVars, projectConfig mdbv1.ProjectConfig, currentAgentAuthMechanism string, log *zap.SugaredLogger) ShardedClusterKubeState {
+
+	mongosStartupParameters := mdbv1.StartupParameters{}
+	if s.Spec.MongosSpec != nil {
+		mongosStartupParameters = s.Spec.MongosSpec.Agent.StartupParameters
+	}
 	// 1. Create the mongos StatefulSet
 	mongosBuilder := r.kubeHelper.NewStatefulSetHelper(s).
 		SetName(s.MongosRsName()).
@@ -285,6 +290,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 		SetReplicas(s.Spec.MongosCount).
 		SetPodSpec(NewDefaultPodSpecWrapper(*s.Spec.MongosPodSpec)).
 		SetPodVars(podVars).
+		SetStartupParameters(mongosStartupParameters).
 		SetLogger(log).
 		SetPersistence(util.BooleanRef(false)).
 		SetTLS(s.Spec.GetTLSConfig()).
@@ -300,13 +306,17 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 	podSpec := NewDefaultPodSpecWrapper(*s.Spec.ConfigSrvPodSpec)
 	// We override the default persistence value for Config Server
 	podSpec.Default.Persistence.SingleConfig.Storage = util.DefaultConfigSrvStorageSize
-
+	configStartupParameters := mdbv1.StartupParameters{}
+	if s.Spec.ConfigSrvSpec != nil {
+		configStartupParameters = s.Spec.ConfigSrvSpec.Agent.StartupParameters
+	}
 	configBuilder := r.kubeHelper.NewStatefulSetHelper(s).
 		SetName(s.ConfigRsName()).
 		SetService(s.ConfigSrvServiceName()).
 		SetReplicas(s.Spec.ConfigServerCount).
 		SetPodSpec(podSpec).
 		SetPodVars(podVars).
+		SetStartupParameters(configStartupParameters).
 		SetLogger(log).
 		SetTLS(s.Spec.GetTLSConfig()).
 		SetProjectConfig(projectConfig).
@@ -317,6 +327,10 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 
 	configBuilder.SetCertificateHash(configBuilder.readPemHashFromSecret())
 	// 3. Creates a StatefulSet for each shard in the cluster
+	shardStartupParameters := mdbv1.StartupParameters{}
+	if s.Spec.ShardSpec != nil {
+		shardStartupParameters = s.Spec.ShardSpec.Agent.StartupParameters
+	}
 	shardsSetHelpers := make([]*StatefulSetHelper, s.Spec.ShardCount)
 	for i := 0; i < s.Spec.ShardCount; i++ {
 		shardsSetHelpers[i] = r.kubeHelper.NewStatefulSetHelper(s).
@@ -325,6 +339,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 			SetReplicas(s.Spec.MongodsPerShardCount).
 			SetPodSpec(NewDefaultPodSpecWrapper(*s.Spec.ShardPodSpec)).
 			SetPodVars(podVars).
+			SetStartupParameters(shardStartupParameters).
 			SetLogger(log).
 			SetTLS(s.Spec.GetTLSConfig()).
 			SetProjectConfig(projectConfig).

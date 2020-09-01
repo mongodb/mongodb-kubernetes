@@ -101,6 +101,7 @@ class TestOpsManagerAppDbWrongVersionConnectivity(KubernetesTester):
     def test_om_appdb_version_validation(self):
         assert True
 
+
 @mark.e2e_om_validation_webhook
 class TestOpsManagerVersion(KubernetesTester):
     """

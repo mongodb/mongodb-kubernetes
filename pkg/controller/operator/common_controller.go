@@ -96,7 +96,7 @@ func (c *ReconcileCommonController) GetMutex(resourceName types.NamespacedName) 
 
 // prepareConnection reads project config map and credential secrets and uses these values to communicate with Ops Manager:
 // create or read the project and optionally request an agent key (it could have been returned by group api call)
-func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedName, spec mdbv1.ConnectionSpec, podVars *PodVars, log *zap.SugaredLogger) (om.Connection, error) {
+func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedName, spec mdbv1.ConnectionSpec, podVars *PodEnvVars, log *zap.SugaredLogger) (om.Connection, error) {
 	projectConfig, err := project.ReadProjectConfig(c.kubeHelper.client, objectKey(nsName.Namespace, spec.GetProject()), nsName.Name)
 	if err != nil {
 		return nil, fmt.Errorf("Error reading Project Config: %s", err)

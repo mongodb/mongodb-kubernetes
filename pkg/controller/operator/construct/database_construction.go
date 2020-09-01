@@ -9,6 +9,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
+
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/persistentvolumeclaim"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
@@ -50,6 +51,7 @@ type DatabaseBuilder interface {
 	SSLRequireValidMMSServerCertificates() bool
 	GetSSLMMSCAConfigMap() string
 	GetLogLevel() string
+	GetStartupParameters() mdbv1.StartupParameters
 }
 
 // DatabaseStatefulSet fully constructs the database StatefulSet
@@ -308,10 +310,23 @@ func sharedDatabaseConfiguration(mdbBuilder DatabaseBuilder) podtemplatespec.Mod
 				container.WithPorts([]corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort}}),
 				container.WithImagePullPolicy(corev1.PullPolicy(envutil.ReadOrPanic(util.AutomationAgentImagePullPolicy))),
 				container.WithLivenessProbe(databaseLivenessProbe()),
+				container.WithEnvs(startupParametersToAgentFlag(mdbBuilder.GetStartupParameters())),
 				configureContainerSecurityContext,
 			),
 		),
 	)
+}
+
+// StartupParametersToAgentFlag takes a map representing key-value paris
+// of startup parameters
+// and concatenates them into a single string that is then
+// returned as env variable AGENT_FLAGS
+func startupParametersToAgentFlag(parameters mdbv1.StartupParameters) corev1.EnvVar {
+	agentParams := ""
+	for key, value := range parameters {
+		agentParams += " -" + key + " " + value
+	}
+	return corev1.EnvVar{Name: "AGENT_FLAGS", Value: agentParams}
 }
 
 func databaseEnvVars(databaseBuilder DatabaseBuilder) []corev1.EnvVar {

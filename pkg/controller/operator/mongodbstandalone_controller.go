@@ -114,7 +114,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, nil
 	}
 
-	podVars := &PodVars{}
+	podVars := &PodEnvVars{}
 	conn, err := r.prepareConnection(request.NamespacedName, s.Spec.ConnectionSpec, podVars, log)
 	if err != nil {
 		return r.updateStatus(s, workflow.Failed("Failed to prepare Ops Manager connection: %s", err), log)
@@ -145,6 +145,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		SetReplicas(1).
 		SetService(s.ServiceName()).
 		SetPodVars(podVars).
+		SetStartupParameters(s.Spec.Agent.StartupParameters).
 		SetLogger(log).
 		SetTLS(s.Spec.GetTLSConfig()).
 		SetProjectConfig(projectConfig).
