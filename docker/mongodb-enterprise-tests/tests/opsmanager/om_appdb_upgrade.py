@@ -59,7 +59,7 @@ class TestOpsManagerCreation:
 
         # only user should be the Ops Manager user
         tester = ops_manager.get_automation_config_tester()
-        tester.assert_authentication_mechanism_enabled("MONGODB-CR")
+        tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256", False)
         tester.assert_has_user("mongodb-ops-manager")
         tester.assert_user_has_roles("mongodb-ops-manager", expected_roles)
         tester.assert_expected_users(1)
@@ -71,7 +71,7 @@ class TestOpsManagerCreation:
         app_db_tester.assert_scram_sha_authentication(
             "mongodb-ops-manager",
             ops_manager.read_appdb_generated_password(),
-            auth_mechanism="SCRAM-SHA-1",
+            auth_mechanism="SCRAM-SHA-256",
         )
 
     def test_appdb_mongodb_options(self, ops_manager: MongoDBOpsManager):

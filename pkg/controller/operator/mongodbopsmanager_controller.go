@@ -41,6 +41,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
+const omVersionWithNewDriver = "4.4.0"
+
 type OpsManagerReconciler struct {
 	*ReconcileCommonController
 	omInitializer   api.Initializer
@@ -415,8 +417,13 @@ func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(opsManage
 // buildMongoConnectionUrl builds the connection url to the appdb. Note, that it overrides the default authMechanism
 // (which internally depends on the mongodb version)
 func buildMongoConnectionUrl(opsManager omv1.MongoDBOpsManager, password string) string {
+	scramShaMechanism := "SCRAM-SHA-1"
+	if omSupportsScramSha256(opsManager.Spec.Version) {
+		scramShaMechanism = "SCRAM-SHA-256"
+	}
+
 	return opsManager.Spec.AppDB.ConnectionURL(util.OpsManagerMongoDBUserName, password,
-		map[string]string{"authMechanism": "SCRAM-SHA-1"})
+		map[string]string{"authMechanism": scramShaMechanism})
 }
 
 func setConfigProperty(opsManager *omv1.MongoDBOpsManager, key, value string, log *zap.SugaredLogger) {
@@ -1023,14 +1030,10 @@ func validateConfig(opsManager omv1.MongoDBOpsManager, mongodb mdbv1.MongoDB, us
 		return workflow.Failed("MongoDB resource %s is configured to use SCRAM-SHA authentication mode, the user must be"+
 			" specified using 'mongodbUserRef'", mongodb.Name)
 	}
-	omVersionComparison, err := util.CompareVersions(opsManager.Spec.Version, "4.4.0")
-	if err != nil {
-		return workflow.Failed(err.Error())
-	}
-	// We perform the check for mongodb version + SCRAM-SHA only if Ops Manager version is <= 4.2.0
-	if omVersionComparison >= 0 {
+	if omSupportsScramSha256(opsManager.Spec.Version) {
 		return workflow.OK()
 	}
+	// This validation is only for 4.2 OM version which doesn't support ScramSha256
 	comparison, err := util.CompareVersions(mongodb.Spec.GetVersion(), util.MinimumScramSha256MdbVersion)
 	if err != nil {
 		return workflow.Failed(err.Error())
@@ -1071,4 +1074,10 @@ func newUserFromSecret(data map[string]string) (*api.User, error) {
 		LastName:  data["LastName"],
 	}
 	return user, nil
+}
+
+// omSupportsScramSha256 returns true if OM supports scram sha 256.
+func omSupportsScramSha256(omVersion string) bool {
+	omVersionComparison, err := util.CompareVersions(omVersion, omVersionWithNewDriver)
+	return err == nil && omVersionComparison >= 0
 }

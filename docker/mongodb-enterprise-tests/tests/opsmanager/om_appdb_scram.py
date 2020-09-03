@@ -65,7 +65,7 @@ class TestOpsManagerCreation:
     def test_appdb_automation_config(self, ops_manager: MongoDBOpsManager):
         # only user should be the Ops Manager user
         tester = ops_manager.get_automation_config_tester()
-        tester.assert_authentication_mechanism_enabled("MONGODB-CR")
+        tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256", False)
         tester.assert_has_user(OM_USER_NAME)
         tester.assert_user_has_roles(OM_USER_NAME, EXPECTED_OM_USER_ROLES)
         tester.assert_expected_users(1)
@@ -79,7 +79,7 @@ class TestOpsManagerCreation:
         AUTO_GENERATED_PASSWORD = ops_manager.read_appdb_generated_password()
         # should be possible to auth as the operator will have auto generated a password
         app_db_tester.assert_scram_sha_authentication(
-            OM_USER_NAME, AUTO_GENERATED_PASSWORD, auth_mechanism="SCRAM-SHA-1"
+            OM_USER_NAME, AUTO_GENERATED_PASSWORD, auth_mechanism="SCRAM-SHA-256"
         )
 
     def test_om_is_created(self, ops_manager: MongoDBOpsManager):
@@ -124,7 +124,7 @@ class TestChangeOpsManagerUserPassword:
 
     def test_appdb_automation_config(self, ops_manager: MongoDBOpsManager):
         tester = ops_manager.get_automation_config_tester()
-        tester.assert_authentication_mechanism_enabled("MONGODB-CR")
+        tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256", False)
         tester.assert_has_user(OM_USER_NAME)
         tester.assert_user_has_roles(OM_USER_NAME, EXPECTED_OM_USER_ROLES)
         tester.assert_expected_users(1)
@@ -138,7 +138,7 @@ class TestChangeOpsManagerUserPassword:
         ]
         assert password == USER_DEFINED_PASSWORD
         app_db_tester.assert_scram_sha_authentication(
-            OM_USER_NAME, password, auth_mechanism="SCRAM-SHA-1"
+            OM_USER_NAME, password, auth_mechanism="SCRAM-SHA-256"
         )
 
     @skip_if_local
@@ -147,7 +147,7 @@ class TestChangeOpsManagerUserPassword:
     ):
         app_db_tester = ops_manager.get_appdb_tester()
         app_db_tester.assert_scram_sha_authentication_fails(
-            OM_USER_NAME, AUTO_GENERATED_PASSWORD, auth_mechanism="SCRAM-SHA-1"
+            OM_USER_NAME, AUTO_GENERATED_PASSWORD, auth_mechanism="SCRAM-SHA-256"
         )
 
 
@@ -180,7 +180,7 @@ class TestChangeOpsManagerExistingUserPassword:
 
     def test_appdb_automation_config(self, ops_manager: MongoDBOpsManager):
         tester = ops_manager.get_automation_config_tester()
-        tester.assert_authentication_mechanism_enabled("MONGODB-CR")
+        tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256", False)
         tester.assert_has_user(OM_USER_NAME)
         tester.assert_user_has_roles(OM_USER_NAME, EXPECTED_OM_USER_ROLES)
         tester.assert_authoritative_set(False)
@@ -194,7 +194,7 @@ class TestChangeOpsManagerExistingUserPassword:
         ]
         assert password == UPDATED_USER_DEFINED_PASSWORD
         app_db_tester.assert_scram_sha_authentication(
-            OM_USER_NAME, password, auth_mechanism="SCRAM-SHA-1"
+            OM_USER_NAME, password, auth_mechanism="SCRAM-SHA-256"
         )
 
     @skip_if_local
@@ -203,7 +203,7 @@ class TestChangeOpsManagerExistingUserPassword:
     ):
         app_db_tester = ops_manager.get_appdb_tester()
         app_db_tester.assert_scram_sha_authentication_fails(
-            OM_USER_NAME, AUTO_GENERATED_PASSWORD, auth_mechanism="SCRAM-SHA-1"
+            OM_USER_NAME, AUTO_GENERATED_PASSWORD, auth_mechanism="SCRAM-SHA-256"
         )
 
 
@@ -244,7 +244,7 @@ class TestOpsManagerGeneratesNewPasswordIfNoneSpecified:
     ):
         app_db_tester = ops_manager.get_appdb_tester()
         app_db_tester.assert_scram_sha_authentication_fails(
-            OM_USER_NAME, USER_DEFINED_PASSWORD, auth_mechanism="SCRAM-SHA-1"
+            OM_USER_NAME, USER_DEFINED_PASSWORD, auth_mechanism="SCRAM-SHA-256"
         )
 
     @skip_if_local
@@ -255,5 +255,5 @@ class TestOpsManagerGeneratesNewPasswordIfNoneSpecified:
             password != AUTO_GENERATED_PASSWORD
         ), "new password should have been generated"
         app_db_tester.assert_scram_sha_authentication(
-            OM_USER_NAME, password, auth_mechanism="SCRAM-SHA-1"
+            OM_USER_NAME, password, auth_mechanism="SCRAM-SHA-256"
         )

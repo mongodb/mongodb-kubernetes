@@ -34,6 +34,13 @@ func NewAutomationConfigScramSha1(ac *om.AutomationConfig) AutomationConfigScram
 	}
 }
 
+func NewAutomationConfigScramSha256(ac *om.AutomationConfig) AutomationConfigScramSha {
+	return AutomationConfigScramSha{
+		automationConfig: ac,
+		mechanismName:    ScramSha256,
+	}
+}
+
 // AutomationConfigScramSha applies all the changes required to configure SCRAM-SHA authentication
 // directly to an AutomationConfig struct. This implementation does not communicate with Ops Manager in any way.
 type AutomationConfigScramSha struct {

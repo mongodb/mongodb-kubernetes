@@ -11,6 +11,7 @@ from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
+from tests.opsmanager.om_appdb_scram import OM_USER_NAME
 
 gen_key_resource_version = None
 admin_key_resource_version = None
@@ -93,6 +94,19 @@ class TestOpsManagerCreation:
         except AssertionError:
             pass
 
+    def test_appdb_scram_sha(self, ops_manager: MongoDBOpsManager):
+        """ Checks that 4.2 OM has SCRAM-SHA-1 enabled """
+        auto_generated_password = ops_manager.read_appdb_generated_password()
+        automation_config_tester = ops_manager.get_automation_config_tester()
+        automation_config_tester.assert_authentication_mechanism_enabled("MONGODB-CR", False)
+        automation_config_tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256", False)
+        ops_manager.get_appdb_tester().assert_scram_sha_authentication(
+            OM_USER_NAME, auto_generated_password, auth_mechanism="SCRAM-SHA-1"
+        )
+        ops_manager.get_appdb_tester().assert_scram_sha_authentication(
+            OM_USER_NAME, auto_generated_password, auth_mechanism="SCRAM-SHA-256"
+        )
+
 
 @pytest.mark.e2e_om_ops_manager_upgrade
 class TestOpsManagerWithMongoDB:
@@ -154,8 +168,6 @@ class TestOpsManagerConfigurationChange:
 class TestOpsManagerVersionUpgrade:
     """
       The OM version is upgraded - this means the new image is deployed for both OM and appdb.
-      >> Dev note: Please change the value of the new version to the latest one as soon as the new OM
-       is released and its version is added to release.json
     """
 
     agent_version = None
@@ -195,6 +207,19 @@ class TestOpsManagerVersionUpgrade:
         mdb_tester.assert_connectivity()
         mdb_tester.assert_version(custom_appdb_version)
 
+    def test_appdb_scram_sha(self, ops_manager: MongoDBOpsManager):
+        """ Right after OM was upgraded from 4.2 the AppDB still uses both SCRAM methods"""
+        auto_generated_password = ops_manager.read_appdb_generated_password()
+        automation_config_tester = ops_manager.get_automation_config_tester()
+        automation_config_tester.assert_authentication_mechanism_enabled("MONGODB-CR", False)
+        automation_config_tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256", False)
+        ops_manager.get_appdb_tester().assert_scram_sha_authentication(
+            OM_USER_NAME, auto_generated_password, auth_mechanism="SCRAM-SHA-1"
+        )
+        ops_manager.get_appdb_tester().assert_scram_sha_authentication(
+            OM_USER_NAME, auto_generated_password, auth_mechanism="SCRAM-SHA-256"
+        )
+
 
 @pytest.mark.e2e_om_ops_manager_upgrade
 class TestMongoDbsVersionUpgrade:
@@ -216,7 +241,6 @@ class TestMongoDbsVersionUpgrade:
         mdb.tester().assert_version(custom_mdb_version)
 
     def test_agents_upgraded(self, mdb: MongoDB, ops_manager: MongoDBOpsManager):
-        print(id(self))
         """ The agents were requested to get upgraded immediately after Ops Manager upgrade.
         Note, that this happens only for OM major/minor upgrade, so we need to check only this case
         TODO CLOUDP-64622: we need to check the periodic agents upgrade as well - this can be done through Operator custom configuration """
@@ -230,6 +254,22 @@ class TestMongoDbsVersionUpgrade:
                 TestOpsManagerVersionUpgrade.agent_version
                 != mdb.get_automation_config_tester().get_agent_version()
             )
+
+@pytest.mark.e2e_om_ops_manager_upgrade
+class TestAppDBScramShaUpdated:
+    def test_appdb_reconcile(self, ops_manager: MongoDBOpsManager):
+        ops_manager.load()
+        ops_manager["spec"]["applicationDatabase"]["logLevel"] = "DEBUG"
+        ops_manager.update()
+        ops_manager.appdb_status().assert_abandons_phase(Phase.Running)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
+
+    def test_appdb_scram_sha_(self, ops_manager: MongoDBOpsManager):
+        """ In case of upgrade OM 4.2 -> OM 4.4 the AppDB scram-sha method must be upgraded as well """
+        auto_generated_password = ops_manager.read_appdb_generated_password()
+        automation_config_tester = ops_manager.get_automation_config_tester()
+        automation_config_tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256", False)
+        automation_config_tester.assert_authentication_mechanism_disabled("MONGODB-CR", False)
 
 
 @pytest.mark.e2e_om_ops_manager_upgrade
