@@ -126,19 +126,23 @@ def get_group_id_by_name(name: str, retry=3) -> str:
     return groups.json()["id"]
 
 
-def was_created_before(group_name: str, age: int) -> bool:
+def was_created_before(group_name: str, minutes_interval: int) -> bool:
+    """ Returns True if the group was created before 'current_time() - minutes_interval' """
     try:
-        group_day_of_year = int(
+        group_seconds_epoch = int(
             group_name.split("-")[1]
-        )  # a-147-yr3jzt3v7bsltaowzc2lz -> 147
-        current_day_of_year = int(datetime.now().strftime("%j"))
+        )  # a-1598972093-yr3jzt3v7bsl -> 1598972093
+        # TODO remove this - just for transient period when we have old schema (days since start of year)
+        if group_seconds_epoch in (245, 246):
+            return False
     except Exception as e:
         print(e)
         return False
-    return group_day_of_year + age <= current_day_of_year
+    current_seconds_epoch = time.time()
+    return group_seconds_epoch + (minutes_interval * 60) <= current_seconds_epoch
 
 
-def get_projects_oder_than(org_id: str, age: int = 0) -> List[Dict]:
+def get_projects_oder_than(org_id: str, minutes_interval: int = 0) -> List[Dict]:
     """Returns the project ids which are older than 'age' days ago """
     base_url = os.getenv(BASE_URL)
     url = "{}/api/public/v1.0/orgs/{}/groups".format(base_url, org_id)
@@ -148,7 +152,7 @@ def get_projects_oder_than(org_id: str, age: int = 0) -> List[Dict]:
     json = groups.json()
 
     return [
-        group for group in json["results"] if was_created_before(group["name"], age)
+        group for group in json["results"] if was_created_before(group["name"], minutes_interval)
     ]
 
 
@@ -240,7 +244,7 @@ def configure():
 
 def clean_unused_projects(org_id: str):
     """ Iterates over all existing projects in the organization and removes the leftovers """
-    projects = get_projects_oder_than(org_id, age=2)
+    projects = get_projects_oder_than(org_id, minutes_interval=180)
 
     for project in projects:
         print("Removing the project {} ({})".format(project["id"], project["name"]))

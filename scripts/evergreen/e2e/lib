@@ -18,10 +18,10 @@ get_timeout_for_task () {
 # Returns a random string that can be used as a namespace.
 generate_random_namespace() {
     local random_namespace
-    random_namespace=$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 20)
-    local doy
-    doy=$(date +'%j')
-    echo "a-${doy}-${random_namespace}z"
+    random_namespace=$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 10)
+    local seconds_epoch
+    seconds_epoch=$(date +'%s')
+    echo "a-${seconds_epoch}-${random_namespace}z"
 }
 
 # checkout_latest_official_branch peforms the checkout of the last release (or the specified one)
