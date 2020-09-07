@@ -1121,15 +1121,15 @@ class KubernetesTester(object):
     def random_k8s_name(prefix="test-"):
         """Deprecated: user kubetester.random_k8s_name instead."""
         return prefix + "".join(
-            random.choice(string.ascii_lowercase) for _ in range(10)
+            random.choice(string.ascii_lowercase) for _ in range(5)
         )
 
     @staticmethod
     def random_om_project_name() -> str:
         """Generates the name for the projects with our common namespace (and project) convention so that
         GC process could remove it if it's left for some reasons. Always has a whitespace. """
-        current_day_of_year = int(datetime.now().strftime("%j"))
-        prefix = f"a-{current_day_of_year}-"
+        current_seconds_epoch = int(time.time())
+        prefix = f"a-{current_seconds_epoch}-"
 
         return "{} {}".format(
             KubernetesTester.random_k8s_name(prefix),
