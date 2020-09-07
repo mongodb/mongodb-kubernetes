@@ -18,6 +18,7 @@ import jsonpatch
 import pymongo
 import pytest
 import requests
+import semver
 import yaml
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
@@ -1686,3 +1687,8 @@ def create_testing_namespace(evergreen_task_id: str, name: str) -> str:
     )
     client.CoreV1Api().create_namespace(test_ns)
     return name
+
+
+def fcv_from_version(version: str) -> str:
+    parsed_version = semver.VersionInfo.parse(version)
+    return f"{parsed_version.major}.{parsed_version.minor}"

@@ -50,7 +50,9 @@ class AutomationConfigTester:
             assert mechanism in auth.get("autoAuthMechanisms", [])
             assert auth["autoAuthMechanism"] == mechanism
 
-    def assert_authentication_mechanism_disabled(self, mechanism: str, check_auth_mechanism: bool = True) -> None:
+    def assert_authentication_mechanism_disabled(
+        self, mechanism: str, check_auth_mechanism: bool = True
+    ) -> None:
         auth = self.automation_config["auth"]
         assert mechanism not in auth.get("deploymentAuthMechanisms", [])
         assert mechanism not in auth.get("autoAuthMechanisms", [])

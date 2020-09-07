@@ -98,8 +98,12 @@ class TestOpsManagerCreation:
         """ Checks that 4.2 OM has SCRAM-SHA-1 enabled """
         auto_generated_password = ops_manager.read_appdb_generated_password()
         automation_config_tester = ops_manager.get_automation_config_tester()
-        automation_config_tester.assert_authentication_mechanism_enabled("MONGODB-CR", False)
-        automation_config_tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256", False)
+        automation_config_tester.assert_authentication_mechanism_enabled(
+            "MONGODB-CR", False
+        )
+        automation_config_tester.assert_authentication_mechanism_enabled(
+            "SCRAM-SHA-256", False
+        )
         ops_manager.get_appdb_tester().assert_scram_sha_authentication(
             OM_USER_NAME, auto_generated_password, auth_mechanism="SCRAM-SHA-1"
         )
@@ -211,8 +215,12 @@ class TestOpsManagerVersionUpgrade:
         """ Right after OM was upgraded from 4.2 the AppDB still uses both SCRAM methods"""
         auto_generated_password = ops_manager.read_appdb_generated_password()
         automation_config_tester = ops_manager.get_automation_config_tester()
-        automation_config_tester.assert_authentication_mechanism_enabled("MONGODB-CR", False)
-        automation_config_tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256", False)
+        automation_config_tester.assert_authentication_mechanism_enabled(
+            "MONGODB-CR", False
+        )
+        automation_config_tester.assert_authentication_mechanism_enabled(
+            "SCRAM-SHA-256", False
+        )
         ops_manager.get_appdb_tester().assert_scram_sha_authentication(
             OM_USER_NAME, auto_generated_password, auth_mechanism="SCRAM-SHA-1"
         )
@@ -255,6 +263,7 @@ class TestMongoDbsVersionUpgrade:
                 != mdb.get_automation_config_tester().get_agent_version()
             )
 
+
 @pytest.mark.e2e_om_ops_manager_upgrade
 class TestAppDBScramShaUpdated:
     def test_appdb_reconcile(self, ops_manager: MongoDBOpsManager):
@@ -268,8 +277,12 @@ class TestAppDBScramShaUpdated:
         """ In case of upgrade OM 4.2 -> OM 4.4 the AppDB scram-sha method must be upgraded as well """
         auto_generated_password = ops_manager.read_appdb_generated_password()
         automation_config_tester = ops_manager.get_automation_config_tester()
-        automation_config_tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256", False)
-        automation_config_tester.assert_authentication_mechanism_disabled("MONGODB-CR", False)
+        automation_config_tester.assert_authentication_mechanism_enabled(
+            "SCRAM-SHA-256", False
+        )
+        automation_config_tester.assert_authentication_mechanism_disabled(
+            "MONGODB-CR", False
+        )
 
 
 @pytest.mark.e2e_om_ops_manager_upgrade

@@ -152,7 +152,9 @@ def get_projects_oder_than(org_id: str, minutes_interval: int = 0) -> List[Dict]
     json = groups.json()
 
     return [
-        group for group in json["results"] if was_created_before(group["name"], minutes_interval)
+        group
+        for group in json["results"]
+        if was_created_before(group["name"], minutes_interval)
     ]
 
 

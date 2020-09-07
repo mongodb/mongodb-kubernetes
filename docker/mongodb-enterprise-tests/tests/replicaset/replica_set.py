@@ -1,12 +1,18 @@
-import pytest
 import time
 
+import pytest
 from kubernetes import client
-from kubetester.kubetester import KubernetesTester, skip_if_local, get_env_var_or_fail
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.mongotester import ReplicaSetTester
+from kubetester.kubetester import (
+    fixture as yaml_fixture,
+    KubernetesTester,
+    skip_if_local,
+    get_env_var_or_fail,
+    fcv_from_version,
+)
 from kubetester.mongodb import MongoDB, Phase
-
+from kubetester.mongotester import ReplicaSetTester
+from pytest import fixture
 
 DEFAULT_BACKUP_VERSION = "6.6.0.959-1"
 DEFAULT_MONITORING_AGENT_VERSION = "6.4.0.433-1"
@@ -20,18 +26,21 @@ def _get_group_id(envs) -> str:
     return ""
 
 
+@fixture(scope="module")
+def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
+    resource = MongoDB.from_yaml(
+        yaml_fixture("replica-set.yaml"), "my-replica-set", namespace
+    )
+    resource.set_version(custom_mdb_version)
+    resource.create()
+
+    return resource
+
+
 @pytest.mark.e2e_replica_set
 class TestReplicaSetCreation(KubernetesTester):
-    """
-    name: Replica Set Creation
-    tags: replica-set, creation
-    description: |
-      Creates a Replica set and checks everything is created as expected.
-    create:
-      file: replica-set.yaml
-      wait_until: in_running_state
-      timeout: 300
-    """
+    def test_mdb_created(self, replica_set: MongoDB):
+        replica_set.assert_reaches_phase(Phase.Running, timeout=300)
 
     def test_replica_set_sts_exists(self):
         sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
@@ -196,116 +205,49 @@ class TestReplicaSetCreation(KubernetesTester):
         config = self.get_automation_config()
         assert len(config["replicaSets"]) == 1
 
-    def test_om_processes(self):
+    def test_om_processes(self, custom_mdb_version: str):
         config = self.get_automation_config()
         processes = config["processes"]
-        p0 = processes[0]
-        p1 = processes[1]
-        p2 = processes[2]
 
-        # First Process
-        assert p0["name"] == "my-replica-set-0"
-        assert p0["processType"] == "mongod"
-        assert p0["version"] == "3.6.19"
-        assert p0["authSchemaVersion"] == 5
-        assert p0["featureCompatibilityVersion"] == "3.6"
-        assert p0[
-            "hostname"
-        ] == "my-replica-set-0.my-replica-set-svc.{}.svc.cluster.local".format(
-            self.namespace
-        )
-        assert p0["args2_6"]["net"]["port"] == 27017
-        assert p0["args2_6"]["replication"]["replSetName"] == RESOURCE_NAME
-        assert p0["args2_6"]["storage"]["dbPath"] == "/data"
-        assert p0["args2_6"]["systemLog"]["destination"] == "file"
-        assert (
-            p0["args2_6"]["systemLog"]["path"]
-            == "/var/log/mongodb-mms-automation/mongodb.log"
-        )
-        assert p0["logRotate"]["sizeThresholdMB"] == 1000
-        assert p0["logRotate"]["timeThresholdHrs"] == 24
-
-        # Second Process
-        assert p1["name"] == "my-replica-set-1"
-        assert p1["processType"] == "mongod"
-        assert p1["version"] == "3.6.19"
-        assert p1["authSchemaVersion"] == 5
-        assert p1["featureCompatibilityVersion"] == "3.6"
-        assert p1[
-            "hostname"
-        ] == "my-replica-set-1.my-replica-set-svc.{}.svc.cluster.local".format(
-            self.namespace
-        )
-        assert p1["args2_6"]["net"]["port"] == 27017
-        assert p1["args2_6"]["replication"]["replSetName"] == RESOURCE_NAME
-        assert p1["args2_6"]["storage"]["dbPath"] == "/data"
-        assert p1["args2_6"]["systemLog"]["destination"] == "file"
-        assert (
-            p1["args2_6"]["systemLog"]["path"]
-            == "/var/log/mongodb-mms-automation/mongodb.log"
-        )
-        assert p1["logRotate"]["sizeThresholdMB"] == 1000
-        assert p1["logRotate"]["timeThresholdHrs"] == 24
-
-        # Third Process
-        assert p2["name"] == "my-replica-set-2"
-        assert p2["processType"] == "mongod"
-        assert p2["version"] == "3.6.19"
-        assert p2["authSchemaVersion"] == 5
-        assert p2["featureCompatibilityVersion"] == "3.6"
-        assert p2[
-            "hostname"
-        ] == "my-replica-set-2.my-replica-set-svc.{}.svc.cluster.local".format(
-            self.namespace
-        )
-        assert p2["args2_6"]["net"]["port"] == 27017
-        assert p2["args2_6"]["replication"]["replSetName"] == RESOURCE_NAME
-        assert p2["args2_6"]["storage"]["dbPath"] == "/data"
-        assert p2["args2_6"]["systemLog"]["destination"] == "file"
-        assert (
-            p2["args2_6"]["systemLog"]["path"]
-            == "/var/log/mongodb-mms-automation/mongodb.log"
-        )
-        assert p2["logRotate"]["sizeThresholdMB"] == 1000
-        assert p2["logRotate"]["timeThresholdHrs"] == 24
+        for idx in range(0, 2):
+            name = f"my-replica-set-{idx}"
+            p = processes[idx]
+            assert p["name"] == name
+            assert p["processType"] == "mongod"
+            assert p["version"] == custom_mdb_version
+            assert p["authSchemaVersion"] == 5
+            assert p["featureCompatibilityVersion"] == fcv_from_version(
+                custom_mdb_version
+            )
+            assert p["hostname"] == "{}.my-replica-set-svc.{}.svc.cluster.local".format(
+                name, self.namespace
+            )
+            assert p["args2_6"]["net"]["port"] == 27017
+            assert p["args2_6"]["replication"]["replSetName"] == RESOURCE_NAME
+            assert p["args2_6"]["storage"]["dbPath"] == "/data"
+            assert p["args2_6"]["systemLog"]["destination"] == "file"
+            assert (
+                p["args2_6"]["systemLog"]["path"]
+                == "/var/log/mongodb-mms-automation/mongodb.log"
+            )
+            assert p["logRotate"]["sizeThresholdMB"] == 1000
+            assert p["logRotate"]["timeThresholdHrs"] == 24
 
     def test_om_replica_set(self):
         config = self.get_automation_config()
         rs = config["replicaSets"]
         assert rs[0]["_id"] == RESOURCE_NAME
-        m0 = rs[0]["members"][0]
-        m1 = rs[0]["members"][1]
-        m2 = rs[0]["members"][2]
 
-        # First Member
-        assert m0["_id"] == 0
-        assert m0["arbiterOnly"] is False
-        assert m0["hidden"] is False
-        assert m0["priority"] == 1
-        assert m0["slaveDelay"] == 0
-        assert m0["votes"] == 1
-        assert m0["buildIndexes"] is True
-        assert m0["host"] == "my-replica-set-0"
-
-        # Second Member
-        assert m1["_id"] == 1
-        assert m1["arbiterOnly"] is False
-        assert m1["hidden"] is False
-        assert m1["priority"] == 1
-        assert m1["slaveDelay"] == 0
-        assert m1["votes"] == 1
-        assert m1["buildIndexes"] is True
-        assert m1["host"] == "my-replica-set-1"
-
-        # Third Member
-        assert m2["_id"] == 2
-        assert m2["arbiterOnly"] is False
-        assert m2["hidden"] is False
-        assert m2["priority"] == 1
-        assert m2["slaveDelay"] == 0
-        assert m2["votes"] == 1
-        assert m2["buildIndexes"] is True
-        assert m2["host"] == "my-replica-set-2"
+        for idx in range(0, 2):
+            m = rs[0]["members"][idx]
+            assert m["_id"] == idx
+            assert m["arbiterOnly"] is False
+            assert m["hidden"] is False
+            assert m["priority"] == 1
+            assert m["slaveDelay"] == 0
+            assert m["votes"] == 1
+            assert m["buildIndexes"] is True
+            assert m["host"] == f"my-replica-set-{idx}"
 
     def test_monitoring_versions(self):
         config = self.get_automation_config()
@@ -347,42 +289,35 @@ class TestReplicaSetCreation(KubernetesTester):
 
 
 @pytest.mark.e2e_replica_set
-def test_replica_set_can_be_scaled_to_single_member(namespace: str):
+def test_replica_set_can_be_scaled_to_single_member(replica_set: MongoDB):
     """Scaling to 1 member somehow changes the way the Replica Set is represented and there
     will be no more a "Primary" or "Secondaries" in the client, so the test does not check
     Replica Set state. An additional test `test_replica_set_can_be_scaled_down_and_connectable`
     scales down to 3 (from 5) and makes sure the Replica is connectable with "Primary" and
     "Secondaries" set."""
-    mdb: MongoDB = MongoDB(name=RESOURCE_NAME, namespace=namespace).load()
-    mdb["spec"]["members"] = 1
-    mdb.update()
+    replica_set["spec"]["members"] = 1
+    replica_set.update()
 
-    mdb.assert_abandons_phase(Phase.Running)
-    mdb.assert_reaches_phase(Phase.Running)
+    replica_set.assert_abandons_phase(Phase.Running)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=500)
 
     actester = AutomationConfigTester(KubernetesTester.get_automation_config())
 
     # we should have only 1 process on the replica-set
-    assert len(actester.get_replica_set_processes(RESOURCE_NAME)) == 1
+    assert len(actester.get_replica_set_processes(replica_set.name)) == 1
 
-    assert mdb["status"]["members"] == 1
+    assert replica_set["status"]["members"] == 1
 
-    mdb.assert_connectivity()
+    replica_set.assert_connectivity()
 
 
 @pytest.mark.e2e_replica_set
-class TestReplicaSetUpdate(KubernetesTester):
-    """
-    name: Replica Set Updates
-    tags: replica-set, scale, update
-    description: |
-      Updates a Replica Set to 5 members.
-    update:
-      file: replica-set.yaml
-      patch: '[{"op":"replace","path":"/spec/members","value":5}]'
-      wait_until: in_running_state
-      timeout: 300
-    """
+class TestReplicaSetScaleUp(KubernetesTester):
+    def test_mdb_updated(self, replica_set: MongoDB):
+        replica_set["spec"]["members"] = 5
+        replica_set.update()
+        replica_set.assert_abandons_phase(Phase.Running)
+        replica_set.assert_reaches_phase(Phase.Running, timeout=300)
 
     def test_replica_set_sts_should_exist(self):
         sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
@@ -476,184 +411,48 @@ class TestReplicaSetUpdate(KubernetesTester):
         config = self.get_automation_config()
         assert len(config["replicaSets"]) == 1
 
-    def test_om_processes(self):
+    def test_om_processes(self, custom_mdb_version: str):
         config = self.get_automation_config()
         processes = config["processes"]
-        p0 = processes[0]
-        p1 = processes[1]
-        p2 = processes[2]
-        p3 = processes[3]
-        p4 = processes[4]
-
-        # First Process
-        assert p0["name"] == "my-replica-set-0"
-        assert p0["processType"] == "mongod"
-        assert p0["version"] == "3.6.19"
-        assert p0["authSchemaVersion"] == 5
-        assert p0["featureCompatibilityVersion"] == "3.6"
-        assert p0[
-            "hostname"
-        ] == "my-replica-set-0.my-replica-set-svc.{}.svc.cluster.local".format(
-            self.namespace
-        )
-        assert p0["args2_6"]["net"]["port"] == 27017
-        assert p0["args2_6"]["replication"]["replSetName"] == RESOURCE_NAME
-        assert p0["args2_6"]["storage"]["dbPath"] == "/data"
-        assert p0["args2_6"]["systemLog"]["destination"] == "file"
-        assert (
-            p0["args2_6"]["systemLog"]["path"]
-            == "/var/log/mongodb-mms-automation/mongodb.log"
-        )
-        assert p0["logRotate"]["sizeThresholdMB"] == 1000
-        assert p0["logRotate"]["timeThresholdHrs"] == 24
-
-        # Second Process
-        assert p1["name"] == "my-replica-set-1"
-        assert p1["processType"] == "mongod"
-        assert p1["version"] == "3.6.19"
-        assert p1["authSchemaVersion"] == 5
-        assert p1["featureCompatibilityVersion"] == "3.6"
-        assert p1[
-            "hostname"
-        ] == "my-replica-set-1.my-replica-set-svc.{}.svc.cluster.local".format(
-            self.namespace
-        )
-        assert p1["args2_6"]["net"]["port"] == 27017
-        assert p1["args2_6"]["replication"]["replSetName"] == RESOURCE_NAME
-        assert p1["args2_6"]["storage"]["dbPath"] == "/data"
-        assert p1["args2_6"]["systemLog"]["destination"] == "file"
-        assert (
-            p1["args2_6"]["systemLog"]["path"]
-            == "/var/log/mongodb-mms-automation/mongodb.log"
-        )
-        assert p1["logRotate"]["sizeThresholdMB"] == 1000
-        assert p1["logRotate"]["timeThresholdHrs"] == 24
-
-        # Third Process
-        assert p2["name"] == "my-replica-set-2"
-        assert p2["processType"] == "mongod"
-        assert p2["version"] == "3.6.19"
-        assert p2["authSchemaVersion"] == 5
-        assert p2["featureCompatibilityVersion"] == "3.6"
-        assert p2[
-            "hostname"
-        ] == "my-replica-set-2.my-replica-set-svc.{}.svc.cluster.local".format(
-            self.namespace
-        )
-        assert p2["args2_6"]["net"]["port"] == 27017
-        assert p2["args2_6"]["replication"]["replSetName"] == RESOURCE_NAME
-        assert p2["args2_6"]["storage"]["dbPath"] == "/data"
-        assert p2["args2_6"]["systemLog"]["destination"] == "file"
-        assert (
-            p2["args2_6"]["systemLog"]["path"]
-            == "/var/log/mongodb-mms-automation/mongodb.log"
-        )
-        assert p2["logRotate"]["sizeThresholdMB"] == 1000
-        assert p2["logRotate"]["timeThresholdHrs"] == 24
-
-        # Fourth Process
-        assert p3["name"] == "my-replica-set-3"
-        assert p3["processType"] == "mongod"
-        assert p3["version"] == "3.6.19"
-        assert p3["authSchemaVersion"] == 5
-        assert p3["featureCompatibilityVersion"] == "3.6"
-        assert p3[
-            "hostname"
-        ] == "my-replica-set-3.my-replica-set-svc.{}.svc.cluster.local".format(
-            self.namespace
-        )
-        assert p3["args2_6"]["net"]["port"] == 27017
-        assert p3["args2_6"]["replication"]["replSetName"] == RESOURCE_NAME
-        assert p3["args2_6"]["storage"]["dbPath"] == "/data"
-        assert p3["args2_6"]["systemLog"]["destination"] == "file"
-        assert (
-            p3["args2_6"]["systemLog"]["path"]
-            == "/var/log/mongodb-mms-automation/mongodb.log"
-        )
-        assert p3["logRotate"]["sizeThresholdMB"] == 1000
-        assert p3["logRotate"]["timeThresholdHrs"] == 24
-
-        # Fifth Process
-        assert p4["name"] == "my-replica-set-4"
-        assert p4["processType"] == "mongod"
-        assert p4["version"] == "3.6.19"
-        assert p4["authSchemaVersion"] == 5
-        assert p4["featureCompatibilityVersion"] == "3.6"
-        assert p4[
-            "hostname"
-        ] == "my-replica-set-4.my-replica-set-svc.{}.svc.cluster.local".format(
-            self.namespace
-        )
-        assert p4["args2_6"]["net"]["port"] == 27017
-        assert p4["args2_6"]["replication"]["replSetName"] == RESOURCE_NAME
-        assert p4["args2_6"]["storage"]["dbPath"] == "/data"
-        assert p4["args2_6"]["systemLog"]["destination"] == "file"
-        assert (
-            p4["args2_6"]["systemLog"]["path"]
-            == "/var/log/mongodb-mms-automation/mongodb.log"
-        )
-        assert p4["logRotate"]["sizeThresholdMB"] == 1000
-        assert p4["logRotate"]["timeThresholdHrs"] == 24
+        for idx in range(0, 4):
+            name = f"my-replica-set-{idx}"
+            p = processes[idx]
+            assert p["name"] == name
+            assert p["processType"] == "mongod"
+            assert p["version"] == custom_mdb_version
+            assert p["authSchemaVersion"] == 5
+            assert p["featureCompatibilityVersion"] == fcv_from_version(
+                custom_mdb_version
+            )
+            assert p["hostname"] == "{}.my-replica-set-svc.{}.svc.cluster.local".format(
+                name, self.namespace
+            )
+            assert p["args2_6"]["net"]["port"] == 27017
+            assert p["args2_6"]["replication"]["replSetName"] == RESOURCE_NAME
+            assert p["args2_6"]["storage"]["dbPath"] == "/data"
+            assert p["args2_6"]["systemLog"]["destination"] == "file"
+            assert (
+                p["args2_6"]["systemLog"]["path"]
+                == "/var/log/mongodb-mms-automation/mongodb.log"
+            )
+            assert p["logRotate"]["sizeThresholdMB"] == 1000
+            assert p["logRotate"]["timeThresholdHrs"] == 24
 
     def test_om_replica_set(self):
         config = self.get_automation_config()
         rs = config["replicaSets"]
         assert rs[0]["_id"] == RESOURCE_NAME
-        m0 = rs[0]["members"][0]
-        m1 = rs[0]["members"][1]
-        m2 = rs[0]["members"][2]
-        m3 = rs[0]["members"][3]
-        m4 = rs[0]["members"][4]
 
-        # First Member
-        assert m0["_id"] == 0
-        assert m0["arbiterOnly"] is False
-        assert m0["hidden"] is False
-        assert m0["priority"] == 1
-        assert m0["slaveDelay"] == 0
-        assert m0["votes"] == 1
-        assert m0["buildIndexes"] is True
-        assert m0["host"] == "my-replica-set-0"
-
-        # Second Member
-        assert m1["_id"] == 1
-        assert m1["arbiterOnly"] is False
-        assert m1["hidden"] is False
-        assert m1["priority"] == 1
-        assert m1["slaveDelay"] == 0
-        assert m1["votes"] == 1
-        assert m1["buildIndexes"] is True
-        assert m1["host"] == "my-replica-set-1"
-
-        # Third Member
-        assert m2["_id"] == 2
-        assert m2["arbiterOnly"] is False
-        assert m2["hidden"] is False
-        assert m2["priority"] == 1
-        assert m2["slaveDelay"] == 0
-        assert m2["votes"] == 1
-        assert m2["buildIndexes"] is True
-        assert m2["host"] == "my-replica-set-2"
-
-        # Fourth Member
-        assert m3["_id"] == 3
-        assert m3["arbiterOnly"] is False
-        assert m3["hidden"] is False
-        assert m3["priority"] == 1
-        assert m3["slaveDelay"] == 0
-        assert m3["votes"] == 1
-        assert m3["buildIndexes"] is True
-        assert m3["host"] == "my-replica-set-3"
-
-        # Fifth Member
-        assert m4["_id"] == 4
-        assert m4["arbiterOnly"] is False
-        assert m4["hidden"] is False
-        assert m4["priority"] == 1
-        assert m4["slaveDelay"] == 0
-        assert m4["votes"] == 1
-        assert m4["buildIndexes"] is True
-        assert m4["host"] == "my-replica-set-4"
+        for idx in range(0, 4):
+            m = rs[0]["members"][idx]
+            assert m["_id"] == idx
+            assert m["arbiterOnly"] is False
+            assert m["hidden"] is False
+            assert m["priority"] == 1
+            assert m["slaveDelay"] == 0
+            assert m["votes"] == 1
+            assert m["buildIndexes"] is True
+            assert m["host"] == f"my-replica-set-{idx}"
 
     def test_monitoring_versions(self):
         config = self.get_automation_config()
@@ -686,22 +485,21 @@ class TestReplicaSetUpdate(KubernetesTester):
 
 
 @pytest.mark.e2e_replica_set
-def test_replica_set_can_be_scaled_down_and_connectable(namespace: str):
+def test_replica_set_can_be_scaled_down_and_connectable(replica_set: MongoDB):
     """Makes sure that scaling down 5->3 members still reaches a Running & connectable state."""
-    mdb: MongoDB = MongoDB(name=RESOURCE_NAME, namespace=namespace).load()
-    mdb["spec"]["members"] = 3
-    mdb.update()
+    replica_set["spec"]["members"] = 3
+    replica_set.update()
 
-    mdb.assert_abandons_phase(Phase.Running)
-    mdb.assert_reaches_phase(Phase.Running)
+    replica_set.assert_abandons_phase(Phase.Running)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=500)
 
     actester = AutomationConfigTester(KubernetesTester.get_automation_config())
 
     assert len(actester.get_replica_set_processes(RESOURCE_NAME)) == 3
 
-    assert mdb["status"]["members"] == 3
+    assert replica_set["status"]["members"] == 3
 
-    mdb.assert_connectivity()
+    replica_set.assert_connectivity()
 
 
 @pytest.mark.e2e_replica_set

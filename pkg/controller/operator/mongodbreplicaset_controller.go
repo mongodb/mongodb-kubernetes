@@ -158,7 +158,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 	}
 
 	if scale.IsStillScaling(rs) {
-		return r.updateStatus(rs, workflow.Pending("Continuing scaling operation for ReplicaSet %s, desiredMembers=%d, currentMembers=%d", rs.ObjectKey(), rs.DesiredReplicaSetMembers(), scale.MembersOption(rs)), log,
+		return r.updateStatus(rs, workflow.Pending("Continuing scaling operation for ReplicaSet %s, desiredMembers=%d, currentMembers=%d", rs.ObjectKey(), rs.DesiredReplicaSetMembers(), scale.ReplicasThisReconciliation(rs)), log,
 			scale.MembersOption(rs))
 	}
 

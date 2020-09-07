@@ -1099,7 +1099,7 @@ tasks:
 
 - name: e2e_replica_set
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
+  exec_timeout_secs: 1800
   commands:
     - func: "e2e_test"
 
@@ -1922,7 +1922,6 @@ task_groups:
   tasks:
     - e2e_all_mongodb_resources_parallel
     - e2e_multiple_cluster_failures
-    - e2e_replica_set
     - e2e_replica_set_8_members
     - e2e_replica_set_ent
     - e2e_replica_set_custom_podspec
@@ -2063,6 +2062,7 @@ task_groups:
     - func: setup_cloud_qa
   tasks:
     - e2e_feature_controls_authentication
+    - e2e_replica_set
     - e2e_replica_set_mongod_options
     - e2e_replica_set_readiness_probe
     - e2e_replica_set_update_delete_parallel
