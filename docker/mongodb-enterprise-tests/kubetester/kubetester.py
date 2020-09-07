@@ -599,7 +599,7 @@ class KubernetesTester(object):
         del_options = KubernetesTester.clients("client").V1DeleteOptions()
 
         KubernetesTester.clients("customv1").delete_namespaced_custom_object(
-            group, version, namespace, plural(kind), name, del_options
+            group, version, namespace, plural(kind), name, body=del_options
         )
         print("Deleted resource {} {}".format(kind, name))
 

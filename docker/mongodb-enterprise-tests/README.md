@@ -196,7 +196,7 @@ def test_mdb_object_is_removed(self):
     delete_opts = client.V1DeleteOptions()
 
     mdb = client.CustomObjectsApi().delete_namespaced_custom_object(
-                "mongodb.com", "v1", self.namespace, "mongodb", mdb_object_name, delete_opts
+                "mongodb.com", "v1", self.namespace, "mongodb", mdb_object_name, body=delete_opts
     )
 
     assert mdb["status"] == "Success"
