@@ -103,10 +103,12 @@ site manually specifying the new version (increase the patch part, e.g. `0.7.1`)
 eventually.
 
 Finally publish the images manually:
-* https://connect.redhat.com/project/850021/view (Operator)
-* https://connect.redhat.com/project/851701/view (Database)
-* https://connect.redhat.com/project/2207181/view (Ops Manager)
-* https://connect.redhat.com/project/2207271/view (Ops Manager AppDB)
+* https://connect.redhat.com/project/850021/images (Operator)
+* https://connect.redhat.com/project/851701/images (Database)
+* https://connect.redhat.com/project/2207181/images (Ops Manager)
+* https://connect.redhat.com/project/4276491/images (Init Ops Manager)
+* https://connect.redhat.com/project/2207271/images (AppDB)
+* https://connect.redhat.com/project/4276451/images (Init AppDB)
 
 (note, that the last published image gets the tag "latest" so you should make sure that you publish Ops Manager
  and AppDB images in the ascending order of versions (e.g. `4.2.3` before `4.2.4`))

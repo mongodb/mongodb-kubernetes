@@ -6,14 +6,14 @@ We need to produce a zip file with all the versions of the operator: this involv
 
 ``` bash
 cd deploy/csv
-sed -i 's/1.6.0/1.6.1/g' mongodb-enterprise.package.yaml
+sed -i '' 's/1.6.0/1.6.1/g' mongodb-enterprise.package.yaml
 cp -r 1.6.0 1.6.1
 cd 1.6.1
 mv mongodb-enterprise.v1.6.0.clusterserviceversion.yaml mongodb-enterprise.v1.6.1.clusterserviceversion.yaml
 # update all references to the new version
-sed -i 's/1.6.0/1.6.1/g' mongodb-enterprise.v1.6.1.clusterserviceversion.yaml
+sed -i '' 's/1.6.0/1.6.1/g' mongodb-enterprise.v1.6.1.clusterserviceversion.yaml
 # update reference to the previous version
-sed -i 's/1.5.5/1.6.0/g' mongodb-enterprise.v1.6.1.clusterserviceversion.yaml
+sed -i '' 's/1.5.5/1.6.0/g' mongodb-enterprise.v1.6.1.clusterserviceversion.yaml
 # update the CRDs
 cp ../../../public/helm_chart/crds/mongodb.mongodb.com.yaml mongodb.mongodb.com.crd.yaml
 cp ../../../public/helm_chart/crds/mongodbusers.mongodb.com.yaml mongodbusers.mongodb.com.crd.yaml
