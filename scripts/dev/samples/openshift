@@ -7,9 +7,8 @@
 
 # IMPORTANT: this file is just an example, you need to change the values proper way
 
+export IMAGE_TYPE=ubi
 export CLUSTER_TYPE=openshift
 export CLUSTER_NAME=default/api-openshift-mongokubernetes-com:6443/kube:admin
-export REPO_URL=268558157000.dkr.ecr.us-east-1.amazonaws.com/myname
-export INIT_OPS_MANAGER_REGISTRY=268558157000.dkr.ecr.us-east-1.amazonaws.com/myname
-export INIT_APPDB_REGISTRY=268558157000.dkr.ecr.us-east-1.amazonaws.com/myname
+export BASE_REPO_URL=268558157000.dkr.ecr.us-east-1.amazonaws.com/myname
 export NAMESPACE=myname

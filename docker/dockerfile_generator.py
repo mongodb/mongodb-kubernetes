@@ -5,7 +5,7 @@
 # * dockerfile_generator.py
 #
 # Generates a Dockerfile by using `Dockerfile.template` and the values
-# for `ubuntu`, `rhel` or `dcar` distros.  It needs to be called with first
+# for `ubuntu`, `ubi` or `dcar` distros.  It needs to be called with first
 # argument being one of the supported distros.
 #
 # The result of the execution will be printed to stdout so it needs to
@@ -18,7 +18,7 @@
 # [-h]      help
 # [-d]      enable debug mode for operator image
 # <image>   can be any of: operator, database, appdb, opsmanager
-# <distro>  can be any of: ubuntu, rhel, dcar
+# <distro>  can be any of: ubuntu, ubi, dcar
 #
 # It is required that the `Dockerfile.template` to exist in the
 # current working directory.
@@ -68,11 +68,11 @@ def ubuntu() -> Dict[str, Union[str, List[str]]]:
     return {"base_image": "ubuntu:16.04", "distro": "ubuntu", "version": version}
 
 
-def rhel() -> Dict[str, Union[str, List[str]]]:
+def ubi() -> Dict[str, Union[str, List[str]]]:
     """RHEL distro data (only for the Database image)"""
     return {
         "base_image": "registry.access.redhat.com/ubi8/ubi",
-        "distro": "rhel",
+        "distro": "ubi",
         "version": get_version(),
     }
 
@@ -146,7 +146,7 @@ def init_ops_manager(distro: Callable):
 def render(image_name: str, distro_name: str, **kwargs):
     """Renders a Dockerfile for a `image_type` on a `distro`."""
     distros = {
-        "rhel": rhel,
+        "ubi": ubi,
         "ubuntu": ubuntu,
         "dcar": dcar,
         "ubi_minimal": ubi_minimal,

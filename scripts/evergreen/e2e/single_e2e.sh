@@ -13,10 +13,17 @@ source scripts/funcs/errors
 
 check_env_var "TEST_NAME" "The 'TEST_NAME' must be specified to run the Operator single e2e test"
 
-# TODO: remove
-ops_manager_init_registry="${INIT_OPS_MANAGER_REGISTRY:?}/${IMAGE_TYPE}"
-appdb_init_registry="${INIT_APPDB_REGISTRY:?}/${IMAGE_TYPE}"
-
+if [[ "${IMAGE_TYPE}" = "ubi" ]]; then
+    if [[ "${OPS_MANAGER_REGISTRY}" == quay.io* ]]; then
+      OPS_MANAGER_NAME=mongodb-enterprise-ops-manager-ubi
+    fi
+    if [[ "${APPDB_REGISTRY}" == quay.io* ]]; then
+      APPDB_NAME=mongodb-enterprise-appdb-ubi
+    fi
+    if [[ "${DATABASE_REGISTRY}" == quay.io* ]]; then
+      DATABASE_NAME=mongodb-enterprise-database-ubi
+    fi
+fi
 
 deploy_test_app() {
     title "Deploying test application"
@@ -44,8 +51,8 @@ deploy_test_app() {
         "--set" "orgId=${OM_ORGID:-}"
         "--set" "operator.version=${version_id:-$latest}"
         "--set" "registry.operator=${REGISTRY}"
-        "--set" "registry.initOpsManager=${ops_manager_init_registry}"
-        "--set" "registry.initAppDb=${appdb_init_registry}"
+        "--set" "registry.initOpsManager=${INIT_OPS_MANAGER_REGISTRY}"
+        "--set" "registry.initAppDb=${INIT_APPDB_REGISTRY}"
         "--set" "registry.initDatabase=${INIT_DATABASE_REGISTRY}"
         "--set" "registry.opsManager=${OPS_MANAGER_REGISTRY}"
         "--set" "registry.appDb=${APPDB_REGISTRY}"

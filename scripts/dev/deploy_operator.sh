@@ -39,13 +39,19 @@ fi
 
 if [[ ${CLUSTER_TYPE} = "openshift" ]]; then
     managed_security_context=true
+fi
 
-    # for Openshift we use images from UBI repos (the same registry quay.io though)
-    #
-    # The following 2 variables are set here and read from the `deploy_operator`
-    # function.
-    OPS_MANAGER_NAME=mongodb-enterprise-ops-manager-ubi
-    APPDB_NAME=mongodb-enterprise-appdb-ubi
+if [[ ${IMAGE_TYPE} = "ubi" ]]; then
+    # we should use the UBI images with special names if quay.io is used as a source
+    if [[ "${OPS_MANAGER_REGISTRY}" == quay.io* ]]; then
+      OPS_MANAGER_NAME=mongodb-enterprise-ops-manager-ubi
+    fi
+    if [[ "${APPDB_REGISTRY}" == quay.io* ]]; then
+      APPDB_NAME=mongodb-enterprise-appdb-ubi
+    fi
+    if [[ "${DATABASE_REGISTRY}" == quay.io* ]]; then
+      DATABASE_NAME=mongodb-enterprise-database-ubi
+    fi
 fi
 
 # For any cluster except for kops (Kind, Openshift) access to ECR registry needs authorization - hence

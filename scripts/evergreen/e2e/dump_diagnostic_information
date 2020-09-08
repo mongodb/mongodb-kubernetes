@@ -84,8 +84,7 @@ dump_namespace() {
         kubectl describe $(kubectl get crd -o name | grep mongodb.com) > logs/crd.log
     }
 
-    # we don't output pods for the operator and tests (they will be output if they didn't manage to start)
-    for pod in $(kubectl get pods -n "${namespace}" -o name | grep -v "${OPERATOR_NAME:=mongodb-enterprise-operator}"); do
+    for pod in $(kubectl get pods -n "${namespace}" -o name); do
         header "$pod" >> "$dump_file"
         # in general describe produces shorter output than "get -o yaml" and seems it is enough to diagnose the problem
         kubectl describe "${pod}" -n "${namespace}"  >> "$dump_file" || true

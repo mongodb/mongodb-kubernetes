@@ -50,21 +50,21 @@ fi
 
 # guessing type of registry by url
 # regular expression matching (https://www.tldp.org/LDP/abs/html/string-manipulation.html)
-if [[ $(expr "${REPO_URL}" : '^localhost.*') -gt 0 ]]; then
+if [[ $(expr "${BASE_REPO_URL}" : '^localhost.*') -gt 0 ]]; then
     export REPO_TYPE="local"
-elif [[ $(expr "${REPO_URL}" : '.*\.ecr\..*') -gt 0 ]]; then
+elif [[ $(expr "${BASE_REPO_URL}" : '.*\.ecr\..*') -gt 0 ]]; then
     export REPO_TYPE="ecr"
 else
     fatal "Failed to guess repository type based on url \"${REPO_URL}\""
 fi
 
-export IMAGE_TYPE="ubuntu"
-if [[ "${CLUSTER_TYPE-}" = "openshift" ]]; then
-    export IMAGE_TYPE="rhel"
+# IMAGE_TYPE is mandatory
+if [[ "${IMAGE_TYPE}" != "ubuntu" ]] && [[ "${IMAGE_TYPE}" != "ubi" ]]; then
+    fatal "'IMAGE_TYPE' env var must one of 'ubuntu' or 'ubi'"
 fi
 
-# Appending image type (ubuntu/rhel) to the registry url (unless it's already appended)
-[[ "$REPO_URL" != *${IMAGE_TYPE} ]] && export REPO_URL=${REPO_URL}/${IMAGE_TYPE}
+# Appending image type (ubuntu/ubi) to the registry url (unless it's already appended)
+export REPO_URL=${BASE_REPO_URL}/${IMAGE_TYPE}
 
 # By default all "raw" (meaning there are no startup scripts or extra binaries) images are read from
 # quay.io as they are not rebuilt during building process
@@ -74,11 +74,12 @@ fi
 #[[ -z "${DATABASE_REGISTRY-}" ]] && export DATABASE_REGISTRY="quay.io/mongodb"
 [[ -z "${DATABASE_REGISTRY-}" ]] && export DATABASE_REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/images"/${IMAGE_TYPE}
 
-
 [[ -z "${INIT_DATABASE_REGISTRY-}" ]] && export INIT_DATABASE_REGISTRY="${REPO_URL}"
+[[ -z "${INIT_APPDB_REGISTRY-}" ]] && export INIT_APPDB_REGISTRY="${REPO_URL}"
+[[ -z "${INIT_OPS_MANAGER_REGISTRY-}" ]] && export INIT_OPS_MANAGER_REGISTRY="${REPO_URL}"
 
-# Cutting the last part from the registry url for the test app as it's the only image not dependent on env
-[[ -z "${TEST_APP_REGISTRY-}" ]] && export TEST_APP_REGISTRY="${REPO_URL%/*}"
+# Test app as it's the only image not dependent on image type
+[[ -z "${TEST_APP_REGISTRY-}" ]] && export TEST_APP_REGISTRY="${BASE_REPO_URL}"
 
 export NAMESPACE=${NAMESPACE:-mongodb}
 

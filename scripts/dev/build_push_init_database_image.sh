@@ -29,7 +29,7 @@ versioned_image="${repository_url}:${init_database_version}"
 versioned_image_with_build="${versioned_image}${suffix}"
 
 (
-    [[ "${CLUSTER_TYPE}" = "openshift" ]] && base_image="ubi_minimal" || base_image="busybox"
+    [[ "${IMAGE_TYPE}" = "ubi" ]] && base_image="ubi_minimal" || base_image="busybox"
     cd docker/mongodb-enterprise-init-database
     ../dockerfile_generator.py init_database "${base_image}" > Dockerfile
 )

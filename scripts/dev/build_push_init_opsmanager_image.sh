@@ -28,14 +28,14 @@ versioned_image="${repository_url}:${init_om_version}"
 versioned_image_with_build="${versioned_image}${suffix}"
 
 (
-    [[ "${CLUSTER_TYPE}" = "openshift" ]] && base_image="ubi_minimal" || base_image="busybox"
+    [[ "${IMAGE_TYPE}" = "ubi" ]] && base_image="ubi_minimal" || base_image="busybox"
     cd docker/mongodb-enterprise-init-ops-manager
     ../dockerfile_generator.py init_ops_manager "${base_image}" > Dockerfile
 
     # The images are tagged at build time with:
     #
-    # - {ecr_registry}/dev/[rhel|ubuntu]/mongodb-enterprise-init-ops-manager:1.0.0
-    # - {ecr_registry}/dev/[rhel|ubuntu]/mongodb-enterprise-init-ops-manager:1.0.0-b202004271010
+    # - {ecr_registry}/dev/[ubi|ubuntu]/mongodb-enterprise-init-ops-manager:1.0.0
+    # - {ecr_registry}/dev/[ubi|ubuntu]/mongodb-enterprise-init-ops-manager:1.0.0-b202004271010
     #
     docker build -t "${versioned_image}" -t "${versioned_image_with_build}" --build-arg VERSION="${init_om_version}" .
     docker push "${versioned_image}"
