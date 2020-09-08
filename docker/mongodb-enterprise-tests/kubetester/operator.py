@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import time
 from kubernetes import client
@@ -27,10 +27,13 @@ class Operator(object):
         operator_registry_url: str,
         init_om_registry_url: str,
         init_appdb_registry_url: str,
+        init_database_registry_url: str,
         ops_manager_registry_url: str,
         appdb_registry_url: str,
+        database_registry_url: str,
         ops_manager_name: str,
         appdb_name: str,
+        database_name: str,
         managed_security_context: bool,
         image_pull_secrets: str,
         helm_args: Optional[Dict] = None,
@@ -46,14 +49,18 @@ class Operator(object):
         helm_args["registry.operator"] = operator_registry_url
         helm_args["registry.initOpsManager"] = init_om_registry_url
         helm_args["registry.initAppDb"] = init_appdb_registry_url
+        helm_args["registry.initDatabase"] = init_database_registry_url
         helm_args["registry.opsManager"] = ops_manager_registry_url
         helm_args["registry.appDb"] = appdb_registry_url
+        helm_args["registry.database"] = database_registry_url
         helm_args["opsManager.name"] = ops_manager_name
         helm_args["appDb.name"] = appdb_name
+        helm_args["database.name"] = database_name
         # For e2e tests we always rebuild init containers with the EVG version_id - so we can reuse the version
         # If this is changed - the new parameter can be passed explicitly
         helm_args["initOpsManager.version"] = operator_version
         helm_args["initAppDb.version"] = operator_version
+        helm_args["initDatabase.version"] = operator_version
 
         helm_args["registry.imagePullSecrets"] = image_pull_secrets
 

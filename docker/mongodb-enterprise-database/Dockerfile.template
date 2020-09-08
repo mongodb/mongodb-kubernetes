@@ -35,8 +35,6 @@ COPY LICENSE /licenses/mongodb-enterprise-database
 {% block packages %}
 {% endblock %}
 
-# TODO: remove once database is using init container
-COPY content/ "${MMS_HOME}"/files/
 
 {% if is_appdb -%}
 
@@ -76,6 +74,7 @@ RUN    mkdir -p "${MMS_LOG_DIR}" \
         && chmod 0775 /data \
         && mkdir -p /journal \
         && chmod 0775 /journal \
+        && mkdir -p "${MMS_HOME}" \
         && chmod -R 0775 "${MMS_HOME}"
 
 # USER needs to be set for this image to pass RedHat verification. Some customers have these requirements as well
@@ -84,5 +83,7 @@ RUN    mkdir -p "${MMS_LOG_DIR}" \
 # and the number in this configuration is not relevant.
 USER 2000
 
-# TODO: make entrypoint be a sleep infinity once MDB is using init container
-ENTRYPOINT ["/mongodb-automation/files/agent-launcher.sh"]
+# The docker image doesn't have any scripts so by default does nothing
+# The script will be copied in runtime from init containers and the operator is expected
+# to override the COMMAND
+ENTRYPOINT ["sleep infinity"]

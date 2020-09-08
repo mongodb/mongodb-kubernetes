@@ -84,7 +84,7 @@ func buildAppDBPodTemplateSpecFunc(mdbBuilder DatabaseBuilder) podtemplatespec.M
 		podtemplatespec.WithAnnotations(map[string]string{}),
 		podtemplatespec.WithServiceAccount(appDBServiceAccount),
 		addVolumes,
-		withInitContainerByIndex(0,
+		podtemplatespec.WithInitContainerByIndex(0,
 			buildAppdbInitContainer(),
 		),
 		podtemplatespec.WithContainerByIndex(0,

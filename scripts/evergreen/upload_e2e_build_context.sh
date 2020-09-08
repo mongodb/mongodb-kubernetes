@@ -9,7 +9,6 @@ set -x
 
 if [ "${context:-}" = "operator" ]; then
     tar -C docker/mongodb-enterprise-operator -zcvf operator-context.tar.gz .
-    tar -C docker/mongodb-enterprise-database -zcvf database-context.tar.gz .
 fi
 
 if [ "${context:-}" = "tests" ]; then

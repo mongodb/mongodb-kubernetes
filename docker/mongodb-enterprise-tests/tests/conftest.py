@@ -52,6 +52,11 @@ def appdb_init_registry_url() -> str:
 
 
 @fixture(scope="module")
+def database_init_registry_url() -> str:
+    return get_env_variable_or_fail("DATABASE_INIT_REGISTRY_URL")
+
+
+@fixture(scope="module")
 def om_registry_url() -> str:
     return get_env_variable_or_fail("OPS_MANAGER_REGISTRY_URL")
 
@@ -62,6 +67,11 @@ def appdb_registry_url() -> str:
 
 
 @fixture(scope="module")
+def database_registry_url() -> str:
+    return get_env_variable_or_fail("DATABASE_REGISTRY_URL")
+
+
+@fixture(scope="module")
 def ops_manager_name() -> str:
     return get_env_variable_or_fail("OPS_MANAGER_NAME")
 
@@ -69,6 +79,11 @@ def ops_manager_name() -> str:
 @fixture(scope="module")
 def appdb_name() -> str:
     return get_env_variable_or_fail("APPDB_NAME")
+
+
+@fixture(scope="module")
+def database_name() -> str:
+    return get_env_variable_or_fail("DATABASE_NAME")
 
 
 @fixture(scope="module")
@@ -184,10 +199,13 @@ def default_operator(
     operator_registry_url: str,
     om_init_registry_url: str,
     appdb_init_registry_url: str,
+    database_init_registry_url: str,
     om_registry_url: str,
     appdb_registry_url: str,
+    database_registry_url: str,
     ops_manager_name: str,
     appdb_name: str,
+    database_name: str,
     managed_security_context: bool,
     image_pull_secrets: str,
 ) -> Operator:
@@ -200,10 +218,13 @@ def default_operator(
         operator_registry_url=operator_registry_url,
         init_om_registry_url=om_init_registry_url,
         init_appdb_registry_url=appdb_init_registry_url,
+        init_database_registry_url=database_init_registry_url,
         ops_manager_registry_url=om_registry_url,
         appdb_registry_url=appdb_registry_url,
+        database_registry_url=database_registry_url,
         ops_manager_name=ops_manager_name,
         appdb_name=appdb_name,
+        database_name=database_name,
         managed_security_context=managed_security_context,
         image_pull_secrets=image_pull_secrets,
     ).upgrade(install=True)

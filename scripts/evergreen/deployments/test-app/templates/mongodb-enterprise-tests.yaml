@@ -82,21 +82,30 @@ spec:
     - name: CUSTOM_MDB_PREV_VERSION
       value: {{ .Values.customOmMdbPrevVersion }}
     {{ end }}
-    # Operator installation parameters
+    ### Operator installation parameters
     - name: OPERATOR_VERSION
       value: {{ .Values.operator.version }}
     - name: OPERATOR_REGISTRY_URL
       value: {{ .Values.registry.operator }}
+    # Ops Manager
     - name: OPS_MANAGER_INIT_REGISTRY_URL
       value: {{ .Values.registry.initOpsManager }}
-    - name: APPDB_INIT_REGISTRY_URL
-      value: {{ .Values.registry.initAppDb }}
     - name: OPS_MANAGER_REGISTRY_URL
       value: {{ .Values.registry.opsManager }}
-    - name: APPDB_REGISTRY_URL
-      value: {{ .Values.registry.appDb }}
     - name: OPS_MANAGER_NAME
       value: {{ .Values.opsManager.name }}
+    # Database
+    - name: DATABASE_INIT_REGISTRY_URL
+      value: {{ .Values.registry.initDatabase }}
+    - name: DATABASE_REGISTRY_URL
+      value: {{ .Values.registry.database }}
+    - name: DATABASE_NAME
+      value: {{ .Values.database.name }}
+    # AppDB
+    - name: APPDB_INIT_REGISTRY_URL
+      value: {{ .Values.registry.initAppDb }}
+    - name: APPDB_REGISTRY_URL
+      value: {{ .Values.registry.appDb }}
     - name: APPDB_NAME
       value: {{ .Values.appDb.name }}
     {{ if .Values.managedSecurityContext }}

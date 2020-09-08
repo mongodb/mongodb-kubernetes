@@ -136,7 +136,7 @@ func backupAndOpsManagerSharedConfiguration(omBuilder OpsManagerBuilder) statefu
 				podtemplatespec.WithServiceAccount(util.OpsManagerServiceAccount),
 				podtemplatespec.WithAffinity(omBuilder.GetName(), podAntiAffinityLabelKey, 100),
 				podtemplatespec.WithTopologyKey(util.DefaultAntiAffinityTopologyKey, 0),
-				withInitContainerByIndex(0,
+				podtemplatespec.WithInitContainerByIndex(0,
 					buildOpsManagerAndBackupInitContainer(),
 				),
 				podtemplatespec.WithContainerByIndex(0,

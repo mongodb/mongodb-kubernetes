@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
 	"testing"
 	"time"
 
@@ -633,18 +634,18 @@ func TestFeatureControlsAuthEnabled(t *testing.T) {
 }
 
 func assertPodSpecSts(t *testing.T, sts *appsv1.StatefulSet) {
-	assertPodSpecTemplate(t, "some-node-name", "some-host-name", util.SecretVolumeName, corev1.RestartPolicyAlways, sts)
+	assertPodSpecTemplate(t, "some-node-name", "some-host-name", corev1.RestartPolicyAlways, sts)
 }
 
 func assertMongosSts(t *testing.T, sts *appsv1.StatefulSet) {
-	assertPodSpecTemplate(t, "some-node-name-mongos", "some-host-name-mongos", util.SecretVolumeName, corev1.RestartPolicyNever, sts)
+	assertPodSpecTemplate(t, "some-node-name-mongos", "some-host-name-mongos", corev1.RestartPolicyNever, sts)
 }
 
 func assertConfigSvrSts(t *testing.T, sts *appsv1.StatefulSet) {
-	assertPodSpecTemplate(t, "some-node-name-config", "some-host-name-config", util.SecretVolumeName, corev1.RestartPolicyOnFailure, sts)
+	assertPodSpecTemplate(t, "some-node-name-config", "some-host-name-config", corev1.RestartPolicyOnFailure, sts)
 }
 
-func assertPodSpecTemplate(t *testing.T, nodeName, hostName, volumeName string, restartPolicy corev1.RestartPolicy, sts *appsv1.StatefulSet) {
+func assertPodSpecTemplate(t *testing.T, nodeName, hostName string, restartPolicy corev1.RestartPolicy, sts *appsv1.StatefulSet) {
 	podSpecTemplate := sts.Spec.Template.Spec
 	// ensure values were passed to the stateful set
 	assert.Equal(t, nodeName, podSpecTemplate.NodeName)
@@ -652,7 +653,7 @@ func assertPodSpecTemplate(t *testing.T, nodeName, hostName, volumeName string, 
 	assert.Equal(t, restartPolicy, podSpecTemplate.RestartPolicy)
 
 	assert.Equal(t, util.DatabaseContainerName, podSpecTemplate.Containers[0].Name, "Database container should always be first")
-	assert.Equal(t, volumeName, podSpecTemplate.Containers[0].VolumeMounts[0].Name, "Operator mounted volume should be present, not custom volume")
+	assert.Equal(t, construct.PvcNameDatabaseScripts, podSpecTemplate.Containers[0].VolumeMounts[0].Name, "Operator mounted volume should be present, not custom volume")
 }
 
 func createDeploymentFromShardedCluster(updatable v1.CustomResourceReadWriter) om.Deployment {

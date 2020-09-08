@@ -167,8 +167,10 @@ build-and-push-test-image: aws_login
 		scripts/dev/build_push_tests_image; \
 	fi
 
-# builds all app images in parallel (TODO remove build-and-push-database-image as soon as it uses init image)
-build-and-push-images: build-and-push-database-image build-and-push-operator-image appdb-init-image om-init-image database-init-image
+# builds all app images in parallel
+# note that we cannot build both appdb and database init images in parallel as they change the same docker file
+build-and-push-images: build-and-push-operator-image appdb-init-image om-init-image
+	@ $(MAKE) database-init-image
 
 database-init-image:
 	@ scripts/dev/build_push_init_database_image.sh

@@ -21,6 +21,10 @@ import (
 )
 
 const (
+	// Volume constants
+	PvcNameDatabaseScripts = "database-scripts"
+	PvcMountPathScripts = "/opt/scripts"
+
 	caCertMountPath       = "/mongodb-automation/certs"
 	configMapVolumeCAName = "secret-ca"
 	// caCertName is the name of the volume with the CA Cert
@@ -28,10 +32,15 @@ const (
 	// AgentCertMountPath defines where in the Pod the ca cert will be mounted.
 	agentCertMountPath = "/mongodb-automation/" + util.AgentSecretName
 
-	databaseLivenessProbeCommand  = "/mongodb-automation/files/probe.sh"
-	databaseReadinessProbeCommand = "/mongodb-automation/files/readinessprobe"
+	databaseLivenessProbeCommand  = "/opt/scripts/probe.sh"
+	databaseReadinessProbeCommand = "/opt/scripts/readinessprobe"
 
 	controllerLabelName = "controller"
+	initDatabaseContainerName     = "mongodb-enterprise-init-database"
+
+	// Database environment variable names
+	initDatabaseVersionEnv  = "INIT_DATABASE_VERSION"
+	databaseVersionEnv  = "DATABASE_VERSION"
 )
 
 type DatabaseBuilder interface {
@@ -258,15 +267,29 @@ func getVolumesAndVolumeMounts(mdbBuilder DatabaseBuilder) ([]corev1.Volume, []c
 
 // buildMongoDBPodTemplateSpec constructs the podTemplateSpec for the MongoDB resource
 func buildMongoDBPodTemplateSpec(mdbBuilder DatabaseBuilder) podtemplatespec.Modification {
+	// Database image version, should be a specific version to avoid using stale 'non-empty' versions (before versioning)
+	databaseImageVersion := envutil.ReadOrDefault(databaseVersionEnv, "latest")
+	databaseImageUrl := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.AutomationAgentImage), databaseImageVersion)
+	// scripts volume is shared by the init container and the AppDB so the startup
+	// script can be copied over
+	scriptsVolume := statefulset.CreateVolumeFromEmptyDir("database-scripts")
+	databaseScriptsVolumeMount := databaseScriptsVolumeMount(true)
+
 	return podtemplatespec.Apply(
 		sharedDatabaseConfiguration(mdbBuilder),
 		podtemplatespec.WithAnnotations(defaultPodAnnotations(mdbBuilder.GetCertificateHash())),
 		podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
+		podtemplatespec.WithVolume(scriptsVolume),
+		podtemplatespec.WithInitContainerByIndex(0,
+			buildDatabaseInitContainer(),
+		),
 		podtemplatespec.WithContainerByIndex(0,
 			container.Apply(
 				container.WithName(util.DatabaseContainerName),
-				container.WithImage(envutil.ReadOrPanic(util.AutomationAgentImage)),
+				container.WithImage(databaseImageUrl),
 				container.WithEnvs(databaseEnvVars(mdbBuilder)...),
+				container.WithCommand([]string{"/opt/scripts/agent-launcher.sh"}),
+				container.WithVolumeMounts([]corev1.VolumeMount{databaseScriptsVolumeMount}),
 			),
 		),
 	)
@@ -327,6 +350,29 @@ func startupParametersToAgentFlag(parameters mdbv1.StartupParameters) corev1.Env
 		agentParams += " -" + key + " " + value
 	}
 	return corev1.EnvVar{Name: "AGENT_FLAGS", Value: agentParams}
+}
+
+// databaseScriptsVolumeMount constructs the VolumeMount for the Database scripts
+// this should be readonly for the Database, and not read only for the init container.
+func databaseScriptsVolumeMount(readOnly bool) corev1.VolumeMount {
+	return corev1.VolumeMount{
+		Name:      PvcNameDatabaseScripts,
+		MountPath: PvcMountPathScripts,
+		ReadOnly:  readOnly,
+	}
+}
+
+// buildDatabaseInitContainer builds the container specification for mongodb-enterprise-init-database image
+func buildDatabaseInitContainer() container.Modification {
+	version := envutil.ReadOrDefault(initDatabaseVersionEnv, "latest")
+	initContainerImageURL := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.InitDatabaseImageUrlEnv), version)
+	return container.Apply(
+		container.WithName(initDatabaseContainerName),
+		container.WithImage(initContainerImageURL),
+		withVolumeMounts([]corev1.VolumeMount{
+			databaseScriptsVolumeMount(false),
+		}),
+	)
 }
 
 func databaseEnvVars(databaseBuilder DatabaseBuilder) []corev1.EnvVar {

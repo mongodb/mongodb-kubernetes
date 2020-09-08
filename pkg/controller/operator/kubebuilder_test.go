@@ -35,15 +35,16 @@ import (
 func TestBuildStatefulSet_PersistentFlag(t *testing.T) {
 	set, _ := defaultSetHelper().SetPersistence(nil).BuildStatefulSet()
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
-	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 3)
+	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 4)
 
 	set, _ = defaultSetHelper().SetPersistence(util.BooleanRef(true)).BuildStatefulSet()
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
-	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 3)
+	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 4)
 
+	// If no persistence is set then we still mount init scripts
 	set, _ = defaultSetHelper().SetPersistence(util.BooleanRef(false)).BuildStatefulSet()
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 0)
-	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 0)
+	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 1)
 }
 
 // TestBuildStatefulSet_PersistentVolumeClaimSingle checks that one persistent volume claim is created that is mounted by
@@ -57,9 +58,10 @@ func TestBuildStatefulSet_PersistentVolumeClaimSingle(t *testing.T) {
 	checkPvClaims(t, set, []corev1.PersistentVolumeClaim{pvClaim(util.PvcNameData, "40G", stringutil.Ref("fast"), labels)})
 
 	checkMounts(t, set, []corev1.VolumeMount{
-		volMount(util.PvcNameData, util.PvcMountPathData, util.PvcNameData),
-		volMount(util.PvcNameData, util.PvcMountPathJournal, util.PvcNameJournal),
-		volMount(util.PvcNameData, util.PvcMountPathLogs, util.PvcNameLogs),
+		{Name: util.PvcNameData, MountPath: util.PvcMountPathData, SubPath: util.PvcNameData},
+		{Name: util.PvcNameData, MountPath: util.PvcMountPathJournal, SubPath: util.PvcNameJournal},
+		{Name: util.PvcNameData, MountPath: util.PvcMountPathLogs, SubPath: util.PvcNameLogs},
+		{Name: construct.PvcNameDatabaseScripts, MountPath: construct.PvcMountPathScripts, ReadOnly: true},
 	})
 }
 
@@ -82,9 +84,10 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultiple(t *testing.T) {
 	})
 
 	checkMounts(t, set, []corev1.VolumeMount{
-		volMount(util.PvcNameData, util.PvcMountPathData, ""),
-		volMount(util.PvcNameJournal, util.PvcMountPathJournal, ""),
-		volMount(util.PvcNameLogs, util.PvcMountPathLogs, ""),
+		{Name: util.PvcNameData, MountPath: util.PvcMountPathData},
+		{Name: construct.PvcNameDatabaseScripts, MountPath: construct.PvcMountPathScripts, ReadOnly: true},
+		{Name: util.PvcNameJournal, MountPath:  util.PvcMountPathJournal},
+		{Name: util.PvcNameLogs, MountPath: util.PvcMountPathLogs},
 	})
 }
 
@@ -105,9 +108,10 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultipleDefaults(t *testing.T) {
 	})
 
 	checkMounts(t, set, []corev1.VolumeMount{
-		volMount(util.PvcNameData, util.PvcMountPathData, ""),
-		volMount(util.PvcNameJournal, util.PvcMountPathJournal, ""),
-		volMount(util.PvcNameLogs, util.PvcMountPathLogs, ""),
+		{Name: util.PvcNameData, MountPath: util.PvcMountPathData},
+		{Name: construct.PvcNameDatabaseScripts, MountPath: construct.PvcMountPathScripts, ReadOnly: true},
+		{Name: util.PvcNameJournal, MountPath:  util.PvcMountPathJournal},
+		{Name: util.PvcNameLogs, MountPath: util.PvcMountPathLogs},
 	})
 }
 
@@ -227,16 +231,12 @@ func pvClaim(pvName, size string, storageClass *string, labels map[string]string
 	return expectedClaim
 }
 
-func volMount(pvName, mountPath, subPath string) corev1.VolumeMount {
-	return corev1.VolumeMount{Name: pvName, MountPath: mountPath, SubPath: subPath}
-}
-
 func TestDefaultPodSpec_FsGroup(t *testing.T) {
 	defer InitDefaultEnvVariables()
 
 	podSpecTemplate := getMongoDBTemplateSpec(*defaultSetHelper())
 	spec := podSpecTemplate.Spec
-	assert.Len(t, spec.InitContainers, 0)
+	assert.Len(t, spec.InitContainers, 1)
 	require.NotNil(t, spec.SecurityContext)
 	assert.Equal(t, util.Int64Ref(util.FsGroup), spec.SecurityContext.FSGroup)
 

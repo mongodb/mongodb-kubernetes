@@ -14,6 +14,7 @@ import (
 // we can delete them and use the fixed implementations from community.
 
 // withVolumeMounts sets the VolumeMounts
+// TODO remove in favor or community operator
 func withVolumeMounts(volumeMounts []corev1.VolumeMount) container.Modification {
 	volumesMountsCopy := make([]corev1.VolumeMount, len(volumeMounts))
 	copy(volumesMountsCopy, volumeMounts)
@@ -50,20 +51,6 @@ func withImagePullSecrets(name string) podtemplatespec.Modification {
 		podTemplateSpec.Spec.ImagePullSecrets = append(podTemplateSpec.Spec.ImagePullSecrets, corev1.LocalObjectReference{
 			Name: name,
 		})
-	}
-}
-
-// WithInitContainerByIndex applies the modifications to the container with the provided index
-// if the index is out of range, a new container is added to accept these changes.
-func withInitContainerByIndex(index int, funcs ...func(container *corev1.Container)) func(podTemplateSpec *corev1.PodTemplateSpec) {
-	return func(podTemplateSpec *corev1.PodTemplateSpec) {
-		if index >= len(podTemplateSpec.Spec.InitContainers) {
-			podTemplateSpec.Spec.InitContainers = append(podTemplateSpec.Spec.InitContainers, corev1.Container{})
-		}
-		c := &podTemplateSpec.Spec.InitContainers[index]
-		for _, f := range funcs {
-			f(c)
-		}
 	}
 }
 

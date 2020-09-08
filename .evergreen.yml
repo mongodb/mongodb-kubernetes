@@ -540,8 +540,12 @@ functions:
           OPS_MANAGER_NAME: mongodb-enterprise-ops-manager${ubi}
           APPDB_REGISTRY: ${appdb_registry|quay.io/mongodb}
           APPDB_NAME: mongodb-enterprise-appdb${ubi}
+          # TODO CLOUDP-70845: replace with quay.io/mongodb when we release database
+          DATABASE_REGISTRY: ${ecr_registry}/images/${image_type}
+          DATABASE_NAME: mongodb-enterprise-database${ubi}
           INIT_OPS_MANAGER_REGISTRY: ${ecr_registry}/dev
           INIT_APPDB_REGISTRY: ${ecr_registry}/dev
+          INIT_DATABASE_REGISTRY: ${ecr_registry}/dev/${image_type}
           MANAGED_SECURITY_CONTEXT: ${managed_security_context}
           TASK_NAME: ${task_name}
           OPS_MANAGER_NAMESPACE: ${ops_manager_namespace}
@@ -853,9 +857,6 @@ tasks:
   - func: build_operator
     vars:
       image_type: rhel
-  - func: build_database
-    vars:
-      image_type: rhel
   - func: push_versioned_binaries
   - func: upload_e2e_build_context
     vars:
@@ -870,15 +871,9 @@ tasks:
       context: s3://ops-manager-kubernetes-build/ops-manager-operator/${version_id}:rhel/contexts/operator-context.tar.gz
       cache_repo: ${ecr_registry}/cache/mongodb-enterprise-operator
       label: rhel-operator-${version_id}
-  - func: kaniko_build
-    vars:
-      destination: ${ecr_registry}/dev/rhel/mongodb-enterprise-database:${version_id}
-      context: s3://ops-manager-kubernetes-build/ops-manager-operator/${version_id}:rhel/contexts/database-context.tar.gz
-      cache_repo: ${ecr_registry}/cache/mongodb-enterprise-database
-      label: rhel-database-${version_id}
   - func: kaniko_wait
     vars:
-      labels: 'rhel-operator-${version_id}, rhel-database-${version_id}'
+      labels: 'rhel-operator-${version_id}'
 
 - name: build_images_ubuntu
   priority: 60
@@ -890,9 +885,6 @@ tasks:
     vars:
       <<: *kubernetes_environment_kind
   - func: build_operator
-    vars:
-      image_type: ubuntu
-  - func: build_database
     vars:
       image_type: ubuntu
   - func: upload_e2e_build_context
@@ -908,15 +900,9 @@ tasks:
       context: s3://ops-manager-kubernetes-build/ops-manager-operator/${version_id}:ubuntu/contexts/operator-context.tar.gz
       cache_repo: ${ecr_registry}/cache/mongodb-enterprise-operator
       label: ubuntu-operator-${version_id}
-  - func: kaniko_build
-    vars:
-      destination: ${ecr_registry}/dev/ubuntu/mongodb-enterprise-database:${version_id}
-      context: s3://ops-manager-kubernetes-build/ops-manager-operator/${version_id}:ubuntu/contexts/database-context.tar.gz
-      cache_repo: ${ecr_registry}/cache/mongodb-enterprise-database
-      label: ubuntu-database-${version_id}
   - func: kaniko_wait
     vars:
-      labels: 'ubuntu-operator-${version_id}, ubuntu-database-${version_id}'
+      labels: 'ubuntu-operator-${version_id}'
 
 - name: build_init_om_images_ubi
   priority: 60
@@ -2600,7 +2586,7 @@ buildvariants:
     - name: build_and_push_database_ubuntu
     - name: build_and_push_database_ubi
   expansions:
-    database_version: 10.0.0
+    database_version: 2.0.0
 
 # build AppDB: to be launched independently of the operator build process (evergreen patch)
 - name: build_and_push_appdb_images

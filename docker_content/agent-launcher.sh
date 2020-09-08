@@ -68,8 +68,19 @@ agentOpts=(
     "-maxLogFileDurationHrs" "24"
     "-logLevel" "${LOG_LEVEL:-INFO}"
     "-logFile" "${MMS_LOG_DIR}/automation-agent.log"
-    "-healthCheckFilePath" "${MMS_LOG_DIR}/agent-health-status.json"
 )
+# TODO we need to compare the Agent version until we support OM 4.0, then this check can be removed
+AGENT_VERSION="$(cat "${MMS_HOME}"/files/agent-version)"
+script_log "Automation Agent version: ${AGENT_VERSION}"
+
+# this is the version of Automation Agent which has fixes for health file bugs
+set +e
+compare_versions "${AGENT_VERSION}" 10.2.3.5866-1
+if [[ $? -le 1 ]]; then
+  agentOpts+=("-healthCheckFilePath" "${MMS_LOG_DIR}/agent-health-status.json")
+fi
+set -e
+
 
 if [[ -n "${base_url}" ]]; then
     agentOpts+=("-mmsBaseUrl" "${base_url}")

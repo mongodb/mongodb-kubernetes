@@ -16,7 +16,6 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     )
     resource.set_version(custom_mdb_version)
     yield resource.create()
-    resource.delete()
 
 
 @mark.e2e_replica_set_custom_podspec
@@ -33,6 +32,14 @@ def test_stateful_set_spec_updated(replica_set, namespace):
             "name": "mongodb-enterprise-database",
             "resources": {"limits": {"cpu": "2",}, "requests": {"cpu": "1",},},
             "volume_mounts": [
+                {
+                    "name": "database-scripts",
+                    "mount_path": "/opt/scripts",
+                    "sub_path": None,
+                    "sub_path_expr": None,
+                    "mount_propagation": None,
+                    "read_only": True,
+                },
                 {
                     "name": "test-volume",
                     "mount_path": "/somewhere",

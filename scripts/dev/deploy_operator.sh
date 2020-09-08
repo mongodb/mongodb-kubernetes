@@ -68,8 +68,10 @@ deploy_operator \
     "${REPO_URL:?}" \
     "${INIT_OPS_MANAGER_REGISTRY:?}" \
     "${INIT_APPDB_REGISTRY:?}" \
+    "${INIT_DATABASE_REGISTRY:?}" \
     "${OPS_MANAGER_REGISTRY}" \
     "${APPDB_REGISTRY:?}" \
+    "${DATABASE_REGISTRY:?}" \
     "${NAMESPACE}" \
     "${OPERATOR_VERSION:-latest}" \
     "${watch_namespace:-$NAMESPACE}" \

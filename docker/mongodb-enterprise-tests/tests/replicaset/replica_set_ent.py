@@ -1,6 +1,7 @@
 import pytest
 import time
 
+from kubernetes.client import V1VolumeMount, V1Volume, V1EmptyDirVolumeSource
 from kubetester.kubetester import KubernetesTester
 from kubernetes import client
 
@@ -54,6 +55,20 @@ class TestReplicaSetEnterpriseCreation(KubernetesTester):
         assert tmpl.spec.affinity.node_affinity is None
         assert tmpl.spec.affinity.pod_affinity is None
         assert tmpl.spec.affinity.pod_anti_affinity is not None
+
+    def test_init_containers(self):
+        sts = self.appsv1.read_namespaced_stateful_set("rs001-ent", self.namespace)
+        tmpl = sts.spec.template.spec
+
+        assert len(tmpl.init_containers) == 1
+        assert tmpl.init_containers[0].name == "mongodb-enterprise-init-database"
+        assert tmpl.init_containers[0].volume_mounts == [
+            V1VolumeMount(mount_path="/opt/scripts", name="database-scripts",)
+        ]
+
+        assert tmpl.volumes == [
+            V1Volume(name="database-scripts", empty_dir=V1EmptyDirVolumeSource())
+        ]
 
     def test_replica_set_was_configured(self):
         "Should connect to one of the mongods and check the replica set was correctly configured."

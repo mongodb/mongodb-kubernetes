@@ -46,10 +46,13 @@ deploy_test_app() {
         "--set" "registry.operator=${REGISTRY}"
         "--set" "registry.initOpsManager=${ops_manager_init_registry}"
         "--set" "registry.initAppDb=${appdb_init_registry}"
+        "--set" "registry.initDatabase=${INIT_DATABASE_REGISTRY}"
         "--set" "registry.opsManager=${OPS_MANAGER_REGISTRY}"
         "--set" "registry.appDb=${APPDB_REGISTRY}"
+        "--set" "registry.database=${DATABASE_REGISTRY}"
         "--set" "opsManager.name=${OPS_MANAGER_NAME:=mongodb-enterprise-ops-manager}"
         "--set" "appDb.name=${APPDB_NAME:=mongodb-enterprise-appdb}"
+        "--set" "database.name=${DATABASE_NAME:=mongodb-enterprise-database}"
     )
     if [[ -n "${ecr_registry_needs_auth:-}" ]]; then
         echo "Configuring imagePullSecrets to ${ecr_registry_needs_auth}"
