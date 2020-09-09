@@ -1688,6 +1688,11 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_om_ops_manager_https_enabled_internet_mode
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
+
 - name: e2e_om_jvm_params
   tags: ["patch-run"]
   exec_timeout_secs: 2800
@@ -2153,6 +2158,7 @@ task_groups:
     - e2e_om_ops_manager_backup_tls
     - e2e_om_ops_manager_pod_spec
     - e2e_om_ops_manager_https_enabled
+    - e2e_om_ops_manager_https_enabled_internet_mode
     - e2e_om_ops_manager_scale
     - e2e_om_ops_manager_upgrade
     # TODO fix operator upgrade tests

@@ -175,6 +175,28 @@ def issuer_ca_configmap(namespace: str) -> str:
 
 
 @fixture("module")
+def issuer_ca_plus(namespace: str) -> str:
+    """Returns the name of a ConfigMap which includes a custom CA and the full
+    certificate chain for downloads.mongodb.com, fastdl.mongodb.org,
+    downloads.mongodb.org. This allows for the use of a custom CA while still
+    allowing the agent to download from MongoDB servers.
+
+    """
+    ca = open(_fixture("ca-tls.crt")).read()
+    plus_ca = open(_fixture("downloads.mongodb.com.chained+root.crt")).read()
+
+    # The operator expects the CA that validates Ops Manager is contained in
+    # an entry with a name of "mms-ca.crt"
+    data = {"ca-pem": ca + plus_ca, "mms-ca.crt": ca + plus_ca}
+
+    name = "issuer-plus-ca"
+    KubernetesTester.create_configmap(namespace, name, data)
+    yield name
+
+    KubernetesTester.delete_configmap(namespace, name)
+
+
+@fixture("module")
 def ca_path() -> str:
     """Returns a relative path to a file containing the CA.
     This is required to test TLS enabled connections to MongoDB like:
