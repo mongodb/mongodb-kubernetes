@@ -141,7 +141,7 @@ func (r *MongoDBUserReconciler) Reconcile(request reconcile.Request) (res reconc
 		return reconcile.Result{}, err
 	}
 
-	conn, err := r.prepareConnection(request.NamespacedName, connSpec, nil, log)
+	conn, err := r.prepareConnection(mdb.ObjectKey(), connSpec, nil, log)
 	if err != nil {
 		return r.updateStatus(user, workflow.Failed("failed to prepare Ops Manager connection. %s", err), log)
 	}
@@ -250,7 +250,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(user *userv1.MongoDBUser, con
 	shouldRetry := false
 	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		if ac.Auth.Disabled ||
-			(!stringutil.ContainsAny(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigScramSha256Option, util.AutomationConfigScramSha1Option)){
+			(!stringutil.ContainsAny(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigScramSha256Option, util.AutomationConfigScramSha1Option)) {
 			shouldRetry = true
 			return fmt.Errorf("scram Sha has not yet been configured")
 		}
