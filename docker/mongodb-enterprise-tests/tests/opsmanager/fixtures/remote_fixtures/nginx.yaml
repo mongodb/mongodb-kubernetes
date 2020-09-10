@@ -93,6 +93,28 @@ spec:
           volumeMounts:
             - name: mongodb-tools
               mountPath: /tools/db/
+        - name: setting-up-rhel-mongodb-tools-100-1-0
+          image: curlimages/curl:latest
+          command:
+            - curl
+            - -L
+            - https://fastdl.mongodb.org/tools/db/mongodb-database-tools-rhel80-x86_64-100.1.0.tgz
+            - -o
+            - /tools/db/mongodb-database-tools-rhel80-x86_64-100.1.0.tgz
+          volumeMounts:
+            - name: mongodb-tools
+              mountPath: /tools/db/
+        - name: setting-up-ubuntu-mongodb-tools-100-1-0
+          image: curlimages/curl:latest
+          command:
+            - curl
+            - -L
+            - https://fastdl.mongodb.org/tools/db/mongodb-database-tools-ubuntu1604-x86_64-100.1.0.tgz
+            - -o
+            - /tools/db/mongodb-database-tools-ubuntu1604-x86_64-100.1.0.tgz
+          volumeMounts:
+            - name: mongodb-tools
+              mountPath: /tools/db/
       restartPolicy: Always
       securityContext: {}
       terminationGracePeriodSeconds: 30

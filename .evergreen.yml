@@ -21,7 +21,7 @@ variables:
 
     # These are OM/MDB versions used in OM e2e tests (build variants for 4.2/4.4 OM) - change them occasionally
   - &ops_manager_44_latest
-    custom_om_version: 4.4.1
+    custom_om_version: 4.4.2
   - &ops_manager_42_latest
     custom_om_version: 4.2.15
   - &mdb_44_latest 4.4.0

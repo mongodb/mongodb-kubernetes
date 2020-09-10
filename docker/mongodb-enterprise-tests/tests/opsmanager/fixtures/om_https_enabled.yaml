@@ -100,7 +100,7 @@ spec:
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
-            - name: setting-up-rhel-mongodb-tools-100-2
+            - name: setting-up-rhel-mongodb-tools-100-0-2
               image: curlimages/curl:latest
               command:
                 - curl
@@ -111,7 +111,7 @@ spec:
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
-            - name: setting-up-ubuntu-mongodb-tools-100-2
+            - name: setting-up-ubuntu-mongodb-tools-100-0-2
               image: curlimages/curl:latest
               command:
                 - curl
@@ -119,6 +119,28 @@ spec:
                 - https://fastdl.mongodb.org/tools/db/mongodb-database-tools-ubuntu1604-x86_64-100.0.2.tgz
                 - -o
                 - /mongodb-ops-manager/mongodb-releases/mongodb-database-tools-ubuntu1604-x86_64-100.0.2.tgz
+              volumeMounts:
+                - name: mongodb-versions
+                  mountPath: /mongodb-ops-manager/mongodb-releases
+            - name: setting-up-rhel-mongodb-tools-100-1-0
+              image: curlimages/curl:latest
+              command:
+                - curl
+                - -L
+                - https://fastdl.mongodb.org/tools/db/mongodb-database-tools-rhel80-x86_64-100.1.0.tgz
+                - -o
+                - /mongodb-ops-manager/mongodb-releases/mongodb-database-tools-rhel80-x86_64-100.1.0.tgz
+              volumeMounts:
+                - name: mongodb-versions
+                  mountPath: /mongodb-ops-manager/mongodb-releases
+            - name: setting-up-ubuntu-mongodb-tools-100-1-0
+              image: curlimages/curl:latest
+              command:
+                - curl
+                - -L
+                - https://fastdl.mongodb.org/tools/db/mongodb-database-tools-ubuntu1604-x86_64-100.1.0.tgz
+                - -o
+                - /mongodb-ops-manager/mongodb-releases/mongodb-database-tools-ubuntu1604-x86_64-100.1.0.tgz
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases

@@ -328,6 +328,8 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             "mongodb-database-tools-ubuntu1604-x86_64-100.0.1.tgz",
             "mongodb-database-tools-rhel80-x86_64-100.0.2.tgz",
             "mongodb-database-tools-ubuntu1604-x86_64-100.0.2.tgz",
+            "mongodb-database-tools-rhel80-x86_64-100.1.0.tgz",
+            "mongodb-database-tools-ubuntu1604-x86_64-100.1.0.tgz",
         ]
 
         for pod in self.read_om_pods():
