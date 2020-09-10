@@ -84,6 +84,27 @@ func (m AppDB) AutomationConfigSecretName() string {
 	return m.Name() + "-config"
 }
 
+// GetCAConfigMapName returns the name of the ConfigMap which contains
+// the CA which will recognize the certificates used to connect to the AppDB
+// deployment
+func (a AppDB) GetCAConfigMapName() string {
+	security := a.Security
+	if security != nil && security.TLSConfig != nil {
+		return security.TLSConfig.CA
+	}
+	return ""
+}
+
+// GetTlsCertificatesSecretName returns the name of the secret
+// which holds the certificates used to connect to the AppDB
+func (a AppDB) GetTlsCertificatesSecretName() string {
+	security := a.Security
+	if security != nil && security.TLSConfig != nil {
+		return security.TLSConfig.SecretRef.Name
+	}
+	return ""
+}
+
 // ConnectionURL returns the connection url to the AppDB
 func (m AppDB) ConnectionURL(userName, password string, connectionParams map[string]string) string {
 	return mdbv1.BuildConnectionUrl(m.Name(), m.ServiceName(), m.Namespace, userName, password, m.MongoDbSpec, connectionParams)

@@ -18,10 +18,10 @@ import (
 // - after this all the Operator/OpsManager methods dealing with 'mongodb.MongoDB' can be switched to this new interface
 
 // NewMongodProcess
-func NewMongodProcessAppDB(name, hostName string, resource omv1.AppDB) Process {
-	p := createDefaultProcess(name, hostName, ProcessTypeMongod, resource.MongoDbSpec.AdditionalMongodConfig, resource.MongoDbSpec)
+func NewMongodProcessAppDB(name, hostName string, appdb omv1.AppDB) Process {
+	p := createDefaultProcess(name, hostName, ProcessTypeMongod, appdb.MongoDbSpec.AdditionalMongodConfig, appdb.MongoDbSpec)
 
-	if resource.Security != nil && resource.Security.TLSConfig != nil && resource.Security.TLSConfig.SecretRef.Name != "" {
+	if appdb.GetTlsCertificatesSecretName() != "" {
 		certFile := fmt.Sprintf("%s/certs/%s-pem", util.SecretVolumeMountPath, name)
 
 		// Process for AppDB use the mounted cert in-place and are not required for the certs to be

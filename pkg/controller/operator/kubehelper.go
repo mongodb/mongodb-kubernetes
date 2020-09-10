@@ -368,7 +368,7 @@ func (k *KubeHelper) NewOpsManagerStatefulSetHelper(opsManager omv1.MongoDBOpsMa
 		Spec:                    opsManager.Spec,
 		EnvVars:                 opsManagerConfigurationToEnvVars(opsManager),
 		HTTPSCertSecretName:     tlsSecret,
-		AppDBTlsCAConfigMapName: opsManager.Spec.GetOpsManagerCA(),
+		AppDBTlsCAConfigMapName: opsManager.Spec.AppDB.GetCAConfigMapName(),
 	}
 }
 

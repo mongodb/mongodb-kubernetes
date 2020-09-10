@@ -326,11 +326,10 @@ func (r OpsManagerReconciler) ensureConfiguration(opsManager *omv1.MongoDBOpsMan
 	// update the central URL
 	setConfigProperty(opsManager, util.MmsCentralUrlPropKey, opsManager.CentralURL(), log)
 
-	tlsConfig := opsManager.Spec.AppDB.Security.TLSConfig
-	if tlsConfig != nil && tlsConfig.SecretRef.Name != "" {
+	if opsManager.Spec.AppDB.GetTlsCertificatesSecretName() != "" {
 		setConfigProperty(opsManager, util.MmsMongoSSL, "true", log)
 	}
-	if tlsConfig != nil && tlsConfig.CA != "" {
+	if opsManager.Spec.AppDB.GetCAConfigMapName() != "" {
 		setConfigProperty(opsManager, util.MmsMongoCA, util.MmsCaFileDirInContainer+"ca-pem", log)
 	}
 
