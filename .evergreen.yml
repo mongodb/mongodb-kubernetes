@@ -480,7 +480,7 @@ functions:
   # needs to exist before it can be pushed to a remote registry.
   # It is expected that IMAGE_SOURCE is accessible with no authentication (like a
   # local image), and the IMAGE_TARGET will be authenticated with DOCKER_* series of
-  # environemnt variables.
+  # environment variables.
   release_docker_image_to_registry:
     - command: subprocess.exec
       type: system
@@ -493,7 +493,6 @@ functions:
         - tag_dest
         - image_source
         - image_target
-        - docker_registry
         - docker_username
         - docker_password
         env:
@@ -628,6 +627,7 @@ functions:
           BASE_REPO_URL: ${ecr_registry}/images
         include_expansions_in_env:
         - IMAGE_TYPE
+        - PUBLISH_TO
         - database_version
         add_to_path:
         - ${workdir}/bin
@@ -685,19 +685,10 @@ tasks:
       vars:
         tag_source: ${version_id}
         tag_dest: '$(git describe)'
-        image_source: ${ecr_registry}/dev/rhel/mongodb-enterprise-operator
+        image_source: ${ecr_registry}/dev/ubi/mongodb-enterprise-operator
         image_target: scan.connect.redhat.com/ospid-5558a531-617e-46d7-9320-e84d3458768a/mongodb-enterprise-operator
         docker_username: unused
-        docker_password: ${rhc_init_appdb_pid}
-
-    - func: release_docker_image_to_registry
-      vars:
-        tag_source: ${version_id}
-        tag_dest: '$(git describe)'
-        image_source: ${ecr_registry}/dev/rhel/mongodb-enterprise-database
-        image_target: scan.connect.redhat.com/ospid-239de277-d8bb-44b4-8593-73753752317f/mongodb-enterprise-database
-        docker_username: unused
-        docker_password: ${rhc_init_appdb_pid}
+        docker_password: ${rhc_operator_pid}
 
 - name: release_init_rh_connect
   commands:
@@ -709,19 +700,28 @@ tasks:
       vars:
         tag_source: ${version_id}
         tag_dest: '$(jq --raw-output ".initOpsManagerVersion" < release.json)'
-        image_source: ${ecr_registry}/dev/rhel/mongodb-enterprise-init-ops-manager
+        image_source: ${ecr_registry}/dev/ubi/mongodb-enterprise-init-ops-manager
         image_target: scan.connect.redhat.com/ospid-7da92b80-396f-4298-9de5-909165ba0c9e/mongodb-enterprise-init-ops-manager
+        docker_username: unused
+        docker_password: ${rhc_init_om_pid}
+
+    - func: release_docker_image_to_registry
+      vars:
+        tag_source: ${version_id}
+        tag_dest: '$(jq --raw-output ".initAppDbVersion" < release.json)'
+        image_source: ${ecr_registry}/dev/ubi/mongodb-enterprise-init-appdb
+        image_target: scan.connect.redhat.com/ospid-053baed4-c625-44bb-a9bf-a3a5585a17e8/mongodb-enterprise-init-appdb
         docker_username: unused
         docker_password: ${rhc_init_appdb_pid}
 
     - func: release_docker_image_to_registry
       vars:
         tag_source: ${version_id}
-        tag_dest: '$(jq --raw-output ".initAppDbVersion" < release.json)'
-        image_source: ${ecr_registry}/dev/rhel/mongodb-enterprise-init-appdb
-        image_target: scan.connect.redhat.com/ospid-053baed4-c625-44bb-a9bf-a3a5585a17e8/mongodb-enterprise-init-appdb
+        tag_dest: '$(jq --raw-output ".initDatabaseVersion" < release.json)'
+        image_source: ${ecr_registry}/dev/ubi/mongodb-enterprise-init-database
+        image_target: scan.connect.redhat.com/ospid-51ba77b6-1737-427b-93cb-fdef720d4b44/mongodb-enterprise-init-database
         docker_username: unused
-        docker_password: ${rhc_init_appdb_pid}
+        docker_password: ${rhc_init_database_pid}
 
 - name: release_operator_quay
   commands:
@@ -735,15 +735,6 @@ tasks:
         tag_dest: '$(git describe)'
         image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-operator
         image_target: quay.io/mongodb/mongodb-enterprise-operator${suffix}
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
-
-    - func: release_docker_image_to_registry
-      vars:
-        tag_source: ${version_id}
-        tag_dest: '$(git describe)'
-        image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-database
-        image_target: quay.io/mongodb/mongodb-enterprise-database${suffix}
         docker_username: ${quay_prod_username}
         docker_password: ${quay_prod_robot_token}
 
@@ -790,6 +781,24 @@ tasks:
         docker_username: ${quay_prod_username}
         docker_password: ${quay_prod_robot_token}
 
+    - func: release_docker_image_to_registry
+      vars:
+        tag_source: ${version_id}
+        tag_dest: '$(echo "$(jq --raw-output ".initDatabaseVersion" < release.json)")'
+        image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-init-database
+        image_target: quay.io/mongodb/mongodb-enterprise-init-database${suffix}
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
+
+    - func: release_docker_image_to_registry
+      vars:
+        tag_source: ${version_id}
+        tag_dest: '$(echo "$(jq --raw-output ".initDatabaseVersion" < release.json)-b$(date +%Y%m%d%H%M)")'
+        image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-init-database
+        image_target: quay.io/mongodb/mongodb-enterprise-init-database${suffix}
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
+
 - name: prerelease_master_images
   commands:
     - func: clone
@@ -802,15 +811,6 @@ tasks:
         tag_dest: '$(git describe --dirty)'
         image_source: ${ecr_registry}/dev/${image_type}/mongodb-enterprise-operator
         image_target: quay.io/mongodb/mongodb-enterprise-operator-prerelease
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
-
-    - func: release_docker_image_to_registry
-      vars:
-        tag_source: ${version_id}
-        tag_dest: '$(git describe --dirty)'
-        image_source: ${ecr_registry}/dev/${image_type}/mongodb-enterprise-database
-        image_target: quay.io/mongodb/mongodb-enterprise-database-prerelease
         docker_username: ${quay_prod_username}
         docker_password: ${quay_prod_robot_token}
 
@@ -834,6 +834,16 @@ tasks:
         docker_username: ${quay_prod_username}
         docker_password: ${quay_prod_robot_token}
 
+    - func: release_docker_image_to_registry
+      vars:
+        tag_source: ${version_id}
+        # sorry
+        tag_dest: '$(echo "$(jq --raw-output ".initDatabaseVersion" < release.json)"-"$(git describe --dirty|cut -d\- -f2-)")'
+        image_source: ${ecr_registry}/dev/${image_type}/mongodb-enterprise-init-database
+        image_target: quay.io/mongodb/mongodb-enterprise-init-database-prerelease
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
+
 - name: build_test_image
   exec_timeout_secs: 600
   priority: 60
@@ -844,7 +854,7 @@ tasks:
   - func: setup_ecr_login_helper
   - func: build_and_push_test_image
 
-- name: build_images_ubi
+- name: build_operator_ubi
   exec_timeout_secs: 600
   priority: 60
   commands:
@@ -874,7 +884,7 @@ tasks:
     vars:
       labels: 'rhel-operator-${version_id}'
 
-- name: build_images_ubuntu
+- name: build_operator_ubuntu
   priority: 60
   exec_timeout_secs: 600
   commands:
@@ -1758,6 +1768,22 @@ tasks:
     - func: build_and_push_database_image_generic
       vars:
         IMAGE_TYPE: "ubuntu"
+    - func: release_docker_image_to_registry
+      vars:
+        tag_source: ${database_version}
+        tag_dest: ${database_version}
+        image_source: ${ecr_registry}/images/ubuntu/mongodb-enterprise-database
+        image_target: quay.io/mongodb/mongodb-enterprise-database
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
+    - func: release_docker_image_to_registry
+      vars:
+        tag_source: ${database_version}
+        tag_dest: '$(echo ${database_version}-b$(date +%Y%m%d%H%M))'
+        image_source: ${ecr_registry}/images/ubuntu/mongodb-enterprise-database
+        image_target: quay.io/mongodb/mongodb-enterprise-database
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
 
 - name: build_and_push_database_ubi
   patch_only: true
@@ -1769,6 +1795,30 @@ tasks:
     - func: build_and_push_database_image_generic
       vars:
         IMAGE_TYPE: "ubi"
+    - func: release_docker_image_to_registry
+      vars:
+        tag_source: ${database_version}
+        tag_dest: ${database_version}
+        image_source: ${ecr_registry}/images/ubi/mongodb-enterprise-database
+        image_target: quay.io/mongodb/mongodb-enterprise-database-ubi
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
+    - func: release_docker_image_to_registry
+      vars:
+        tag_source: ${database_version}
+        tag_dest: '$(echo ${database_version}-b$(date +%Y%m%d%H%M))'
+        image_source: ${ecr_registry}/images/ubi/mongodb-enterprise-database
+        image_target: quay.io/mongodb/mongodb-enterprise-database-ubi
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
+    - func: release_docker_image_to_registry
+      vars:
+        tag_source: ${database_version}
+        tag_dest: ${database_version}
+        image_source: ${ecr_registry}/images/ubi/mongodb-enterprise-database
+        image_target: scan.connect.redhat.com/ospid-239de277-d8bb-44b4-8593-73753752317f/mongodb-enterprise-database
+        docker_username: unused
+        docker_password: ${rhc_database_pid}
 
 - name: build_and_push_ops_manager_ubuntu
   patch_only: true
@@ -1783,7 +1833,6 @@ tasks:
     - func: setup_ecr_login_helper
     - func: docker_login
       vars:
-        docker_registry: quay.io
         docker_username: ${quay_prod_username}
         docker_password: ${quay_prod_robot_token}
 
@@ -1805,7 +1854,6 @@ tasks:
     - func: setup_ecr_login_helper
     - func: docker_login
       vars:
-        docker_registry: quay.io
         docker_username: ${quay_prod_username}
         docker_password: ${quay_prod_robot_token}
 
@@ -2239,7 +2287,7 @@ buildvariants:
 - name: e2e_mdb_vanilla_ubuntu_om40
   display_name: "e2e_mdb_vanilla_ubuntu_om40"
   depends_on:
-    - name: build_images_ubuntu
+    - name: build_operator_ubuntu
       variant: init_test_run
     - name: build_init_database_image_ubuntu
       variant: init_test_run
@@ -2263,7 +2311,7 @@ buildvariants:
 - name: e2e_mdb_vanilla_ubuntu_om44
   display_name: "e2e_mdb_vanilla_ubuntu_om44"
   depends_on:
-    - name: build_images_ubuntu
+    - name: build_operator_ubuntu
       variant: init_test_run
     - name: build_init_database_image_ubuntu
       variant: init_test_run
@@ -2292,7 +2340,7 @@ buildvariants:
 - name: e2e_mdb_openshift_ubi_cloudqa
   display_name: e2e_mdb_openshift_ubi_cloudqa
   depends_on:
-    - name: build_images_ubi
+    - name: build_operator_ubi
       variant: init_test_run
     - name: build_init_database_image_ubi
       variant: init_test_run
@@ -2314,7 +2362,7 @@ buildvariants:
 - name: e2e_om42_vanilla_ubuntu
   display_name: "e2e_om42_vanilla_ubuntu"
   depends_on:
-    - name: build_images_ubuntu
+    - name: build_operator_ubuntu
       variant: init_test_run
     - name: build_test_image
       variant: init_test_run
@@ -2343,7 +2391,7 @@ buildvariants:
 - name: e2e_om42_openshift_ubi
   display_name: e2e_om42_openshift_ubi
   depends_on:
-    - name: build_images_ubi
+    - name: build_operator_ubi
       variant: init_test_run
     - name: build_test_image
       variant: init_test_run
@@ -2371,7 +2419,7 @@ buildvariants:
   run_on:
   - ubuntu1604-build
   depends_on:
-  - name: build_images_ubi
+  - name: build_operator_ubi
     variant: init_test_run
   - name: build_test_image
     variant: init_test_run
@@ -2395,7 +2443,7 @@ buildvariants:
   run_on:
   - ubuntu1604-build
   depends_on:
-  - name: build_images_ubuntu
+  - name: build_operator_ubuntu
     variant: init_test_run
   - name: build_test_image
     variant: init_test_run
@@ -2421,7 +2469,7 @@ buildvariants:
   run_on:
   - ubuntu1604-build
   depends_on:
-  - name: build_images_ubi
+  - name: build_operator_ubi
     variant: init_test_run
   - name: build_test_image
     variant: init_test_run
@@ -2444,12 +2492,12 @@ buildvariants:
   - name: e2e_ops_manager_kind_only_task_group
   - name: e2e_ops_manager_kind_4_4_only_task_group
 
-- name: e2e_mdb_kind_ubuntu_cloud_qa
-  display_name: e2e_mdb_kind_ubuntu_cloud_qa
+- name: e2e_mdb_kind_ubuntu_cloudqa
+  display_name: e2e_mdb_kind_ubuntu_cloudqa
   run_on:
   - ubuntu1604-build
   depends_on:
-  - name: build_images_ubuntu
+  - name: build_operator_ubuntu
     variant: init_test_run
   - name: build_init_database_image_ubuntu
     variant: init_test_run
@@ -2471,12 +2519,12 @@ buildvariants:
   - name: e2e_auth_transitions_task_group
   - name: e2e_webhook_validation_task_group
 
-- name: e2e_operator_kind_ubuntu_cloud_qa
-  display_name: e2e_operator_kind_ubuntu_cloud_qa
+- name: e2e_operator_kind_ubuntu_cloudqa
+  display_name: e2e_operator_kind_ubuntu_cloudqa
   run_on:
   - ubuntu1604-build
   depends_on:
-  - name: build_images_ubuntu
+  - name: build_operator_ubuntu
     variant: init_test_run
   - name: build_init_database_image_ubuntu
     variant: init_test_run
@@ -2502,10 +2550,7 @@ buildvariants:
       variant: release_blocker
   run_on:
     - ubuntu1604-test
-  expansions:
-    docker_registry: scan.connect.redhat.com
   tasks:
-    # - name: release_ops_manager_rh_connect
     - name: release_operator_rh_connect
     - name: release_init_rh_connect
 
@@ -2517,7 +2562,6 @@ buildvariants:
   run_on:
     - ubuntu1604-test
   expansions:
-    docker_registry: quay.io
     distro: ubuntu
     suffix: ""
   tasks:
@@ -2532,8 +2576,7 @@ buildvariants:
   run_on:
     - ubuntu1604-test
   expansions:
-    docker_registry: quay.io
-    distro: rhel
+    distro: ubi
     suffix: -ubi
   tasks:
     - name: release_operator_quay
@@ -2552,8 +2595,8 @@ buildvariants:
     - archlinux-test
   stepback: false
   tasks:
-    - name: build_images_ubi
-    - name: build_images_ubuntu
+    - name: build_operator_ubi
+    - name: build_operator_ubuntu
     - name: build_test_image
     - name: build_init_om_images_ubuntu
     - name: build_init_om_images_ubi
@@ -2570,12 +2613,13 @@ buildvariants:
   run_on:
     - ubuntu1604-test
   depends_on:
-    - name: build_images_ubuntu
+    - name: build_operator_ubuntu
       variant: init_test_run
     - name: build_init_om_images_ubuntu
       variant: init_test_run
+    - name: build_init_database_image_ubuntu
+      variant: init_test_run
   expansions:
-    docker_registry: quay.io
     image_type: ubuntu
   tasks:
     - name: prerelease_master_images

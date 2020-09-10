@@ -14,10 +14,11 @@ function evaluate {
     echo "${val}"
 }
 
-# We login into the destination registry because for now it is the Redhat Connect one
+# We login into the destination registry for Redhat Connect or quay.
 # The source registry is expected to be configured with a login manager (like ECR) or
 # to be of local images.
-docker login "${docker_registry:?}" -u "${docker_username:?}" -p "${docker_password:?}"
+docker_registry="$(echo "${image_target:?}"| cut -d / -f1)"
+docker login "${docker_registry}" -u "${docker_username:?}" -p "${docker_password:?}"
 
 final_tag_source=$(evaluate "${tag_source:?}")
 final_tag_dest=$(evaluate "${tag_dest:?}")
