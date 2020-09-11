@@ -48,4 +48,5 @@ RUN chmod -R 0775 "${MMS_LOG_DIR}" \
 USER 2000
 {% endblock %}
 
-ENTRYPOINT [ "/mongodb-ops-manager/bin/mongodb-mms start_mms" ]
+# operator to change the entrypoint to: /mongodb-ops-manager/bin/mongodb-mms start_mms (or a wrapper around this)
+ENTRYPOINT [ "sleep infinity" ]

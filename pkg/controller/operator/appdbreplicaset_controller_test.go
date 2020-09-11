@@ -316,8 +316,8 @@ func TestVersionManifestIsDownloaded_WhenNotUsingBundledVersion(t *testing.T) {
 		return
 	}
 
-	// mongodb versions (as of OM 4.4.1 version manifest contains 162 entries if all up to 3.6 are removed)
-	assert.True(t, len(automationConfig.MongodbVersions()) > 160)
+	// mongodb versions should be non empty
+	assert.Greater(t, len(automationConfig.MongodbVersions()), 0)
 
 	// All versions before 3.6.0 are removed
 	threeSix := automationConfig.MongodbVersions()[0]

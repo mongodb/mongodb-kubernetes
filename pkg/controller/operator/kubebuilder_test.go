@@ -395,6 +395,7 @@ func TestOpsManagerPodTemplate_Container(t *testing.T) {
 	assert.Equal(t, "/monitor/health", container.ReadinessProbe.Handler.HTTPGet.Path)
 	assert.Equal(t, int32(8080), container.ReadinessProbe.Handler.HTTPGet.Port.IntVal)
 
+	assert.Equal(t, []string{"/opt/scripts/docker-entry-point.sh"}, container.Command)
 	assert.Equal(t, []string{"/bin/sh", "-c", "/mongodb-ops-manager/bin/mongodb-mms stop_mms"},
 		container.Lifecycle.PreStop.Exec.Command)
 }
@@ -566,6 +567,8 @@ func Test_buildOpsManagerStatefulSet(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "testOM", sts.ObjectMeta.Name)
 	assert.Equal(t, util.OpsManagerContainerName, sts.Spec.Template.Spec.Containers[0].Name)
+	assert.Equal(t, []string{"/opt/scripts/docker-entry-point.sh"},
+		sts.Spec.Template.Spec.Containers[0].Command)
 }
 
 func Test_buildBackupDaemonStatefulSet(t *testing.T) {

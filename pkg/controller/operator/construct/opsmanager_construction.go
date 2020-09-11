@@ -24,6 +24,7 @@ const (
 	podAntiAffinityLabelKey = "pod-anti-affinity"
 )
 
+// OpsManagerBuilder is an interface with the methods to construct OpsManager
 type OpsManagerBuilder interface {
 	GetOwnerRefs() []metav1.OwnerReference
 	GetHTTPSCertSecretName() string
@@ -38,7 +39,7 @@ type OpsManagerBuilder interface {
 	GetOwnerName() string
 }
 
-// createBaseOpsManagerStatefulSetBuilder is the base method for building StatefulSet shared by Ops Manager and Backup Daemon.
+// OpsManagerStatefulSet is the base method for building StatefulSet shared by Ops Manager and Backup Daemon.
 // Shouldn't be called by end users directly
 // Dev note: it's ok to move the different parts to parameters (pod spec could be an example) as the functionality
 // evolves
@@ -56,6 +57,7 @@ func opsManagerStatefulSetFunc(omBuilder OpsManagerBuilder) statefulset.Modifica
 				podtemplatespec.WithTerminationGracePeriodSeconds(300),
 				podtemplatespec.WithContainerByIndex(0,
 					container.Apply(
+						container.WithCommand([]string{"/opt/scripts/docker-entry-point.sh"}),
 						container.WithName(util.OpsManagerContainerName),
 						container.WithReadinessProbe(opsManagerReadinessProbe(getURIScheme(omBuilder.GetHTTPSCertSecretName()))),
 						container.WithLifecycle(buildOpsManagerLifecycle()),
@@ -92,22 +94,22 @@ func backupAndOpsManagerSharedConfiguration(omBuilder OpsManagerBuilder) statefu
 	}
 	omVolumeMounts = append(omVolumeMounts, genKeyVolumeMount)
 
-	omHttpsVolumeFunc := podtemplatespec.NOOP()
+	omHTTPSVolumeFunc := podtemplatespec.NOOP()
 	if omBuilder.GetHTTPSCertSecretName() != "" {
-		omHttpsCertificateVolume := statefulset.CreateVolumeFromSecret("om-https-certificate", omBuilder.GetHTTPSCertSecretName())
-		omHttpsVolumeFunc = podtemplatespec.WithVolume(omHttpsCertificateVolume)
+		omHTTPSCertificateVolume := statefulset.CreateVolumeFromSecret("om-https-certificate", omBuilder.GetHTTPSCertSecretName())
+		omHTTPSVolumeFunc = podtemplatespec.WithVolume(omHTTPSCertificateVolume)
 		omVolumeMounts = append(omVolumeMounts, corev1.VolumeMount{
-			Name:      omHttpsCertificateVolume.Name,
+			Name:      omHTTPSCertificateVolume.Name,
 			MountPath: util.MmsPemKeyFileDirInContainer,
 		})
 	}
 
-	appDbTlsConfigMapVolumeFunc := podtemplatespec.NOOP()
+	appDbTLSConfigMapVolumeFunc := podtemplatespec.NOOP()
 	if omBuilder.GetAppDBTlsCAConfigMapName() != "" {
-		appDbTlsVolume := statefulset.CreateVolumeFromConfigMap("appdb-ca-certificate", omBuilder.GetAppDBTlsCAConfigMapName())
-		appDbTlsConfigMapVolumeFunc = podtemplatespec.WithVolume(appDbTlsVolume)
+		appDbTLSVolume := statefulset.CreateVolumeFromConfigMap("appdb-ca-certificate", omBuilder.GetAppDBTlsCAConfigMapName())
+		appDbTLSConfigMapVolumeFunc = podtemplatespec.WithVolume(appDbTLSVolume)
 		omVolumeMounts = append(omVolumeMounts, corev1.VolumeMount{
-			Name:      appDbTlsVolume.Name,
+			Name:      appDbTLSVolume.Name,
 			MountPath: util.MmsCaFileDirInContainer,
 		})
 	}
@@ -123,8 +125,8 @@ func backupAndOpsManagerSharedConfiguration(omBuilder OpsManagerBuilder) statefu
 		statefulset.WithServiceName(omBuilder.GetService()),
 		statefulset.WithPodSpecTemplate(
 			podtemplatespec.Apply(
-				omHttpsVolumeFunc,
-				appDbTlsConfigMapVolumeFunc,
+				omHTTPSVolumeFunc,
+				appDbTLSConfigMapVolumeFunc,
 				podtemplatespec.WithVolume(omScriptsVolume),
 				podtemplatespec.WithVolume(genKeyVolume),
 				podtemplatespec.WithAnnotations(map[string]string{
