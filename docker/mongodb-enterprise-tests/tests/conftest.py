@@ -1,23 +1,17 @@
 import os
-import pathlib
-from typing import List
-import time
+import tempfile
+from typing import Optional
 
 import kubernetes
-import pytest
-from _pytest.nodes import Node
-
-from kubernetes import client
+import requests
 from kubernetes.client import ApiextensionsV1beta1Api
-
-from kubetester.helm import helm_install_from_chart
-from kubetester.awss3client import AwsS3Client
-from kubetester.kubetester import KubernetesTester, fixture as _fixture
-from kubetester.certs import Issuer
-from kubetester.operator import Operator
-
 from kubetester import get_pod_when_ready
-
+from kubetester.awss3client import AwsS3Client
+from kubetester.certs import Issuer
+from kubetester.git import clone_and_checkout
+from kubetester.helm import helm_install_from_chart
+from kubetester.kubetester import KubernetesTester, fixture as _fixture
+from kubetester.operator import Operator
 from pytest import fixture
 
 try:
@@ -99,6 +93,11 @@ def managed_security_context() -> bool:
 @fixture(scope="module")
 def evergreen_task_id() -> str:
     return get_env_variable_or_fail("TASK_ID")
+
+
+@fixture(scope="module")
+def custom_operator_release_version() -> Optional[str]:
+    return os.environ.get("CUSTOM_OPERATOR_RELEASE_VERSION")
 
 
 @fixture(scope="module")
@@ -236,6 +235,7 @@ def default_operator(
     the shared environment"""
     return Operator(
         namespace=namespace,
+        managed_security_context=managed_security_context,
         operator_version=operator_version,
         operator_registry_url=operator_registry_url,
         init_om_registry_url=om_init_registry_url,
@@ -247,9 +247,40 @@ def default_operator(
         ops_manager_name=ops_manager_name,
         appdb_name=appdb_name,
         database_name=database_name,
-        managed_security_context=managed_security_context,
         image_pull_secrets=image_pull_secrets,
     ).upgrade(install=True)
+
+
+@fixture("module")
+def official_operator(
+    custom_operator_release_version: Optional[str],
+    namespace: str,
+    managed_security_context: bool,
+) -> Operator:
+    """ Installs the Operator from the official GitHub repository. The version of the Operator is either passed to the
+    function or the latest version is fetched from the repository.
+    The configuration properties are not overridden - this can be added to the fixture parameters if necessary. """
+    temp_dir = tempfile.mkdtemp()
+    if custom_operator_release_version is None:
+        custom_operator_release_version = fetch_latest_released_operator_version()
+
+    clone_and_checkout(
+        "https://github.com/mongodb/mongodb-enterprise-kubernetes",
+        temp_dir,
+        custom_operator_release_version,
+    )
+    print()
+    print(
+        "Checked out official Operator version {} to {}".format(
+            custom_operator_release_version, temp_dir
+        )
+    )
+
+    return Operator(
+        namespace=namespace,
+        managed_security_context=managed_security_context,
+        helm_chart_path=os.path.join(temp_dir, "helm_chart"),
+    ).install()
 
 
 def get_env_variable_or_fail(env_var_name: str) -> str:
@@ -259,3 +290,16 @@ def get_env_variable_or_fail(env_var_name: str) -> str:
         raise ValueError(f"{env_var_name} needs to be defined")
 
     return value
+
+
+def fetch_latest_released_operator_version() -> str:
+    response = requests.request(
+        "get",
+        "https://api.github.com/repos/mongodb/mongodb-enterprise-kubernetes/releases/latest",
+    )
+    if response.status_code != 200:
+        raise Exception(
+            f"Failed to find out the latest Operator version, response: {response}"
+        )
+
+    return response.json()["tag_name"]

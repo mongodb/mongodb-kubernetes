@@ -1089,8 +1089,12 @@ tasks:
   exec_timeout_secs: 1500
   commands:
     - func: "e2e_test"
-      vars:
-        install_operator_in_python: true
+
+- name: e2e_operator_upgrade_replica_set
+  tags: ["patch-run"]
+  exec_timeout_secs: 900
+  commands:
+    - func: "e2e_test"
 
 - name: e2e_replica_set
   tags: ["patch-run"]
@@ -2155,7 +2159,7 @@ task_groups:
   tasks:
     # TODO fix operator upgrade tests
     #- e2e_op_upgrade_one_deployment
-    #- e2e_op_upgrade_replica_set
+    - e2e_operator_upgrade_replica_set
     - e2e_operator_partial_crd
     - e2e_operator_clusterwide
   teardown_task:

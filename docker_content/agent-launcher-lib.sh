@@ -120,12 +120,12 @@ download_agent () {
 }
 #https://stackoverflow.com/a/4025065/614239
 compare_versions () {
-    if [[ $1 == $2 ]]
+    if [[ $1 == "$2" ]]
     then
         return 0
     fi
     local IFS=.
-    local i ver1=($1) ver2=($2)
+    local i ver1=("$1") ver2=("$2")
     # fill empty fields in ver1 with zeros
     for ((i=${#ver1[@]}; i<${#ver2[@]}; i++))
     do

@@ -86,7 +86,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultiple(t *testing.T) {
 	checkMounts(t, set, []corev1.VolumeMount{
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathData},
 		{Name: construct.PvcNameDatabaseScripts, MountPath: construct.PvcMountPathScripts, ReadOnly: true},
-		{Name: util.PvcNameJournal, MountPath:  util.PvcMountPathJournal},
+		{Name: util.PvcNameJournal, MountPath: util.PvcMountPathJournal},
 		{Name: util.PvcNameLogs, MountPath: util.PvcMountPathLogs},
 	})
 }
@@ -110,7 +110,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultipleDefaults(t *testing.T) {
 	checkMounts(t, set, []corev1.VolumeMount{
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathData},
 		{Name: construct.PvcNameDatabaseScripts, MountPath: construct.PvcMountPathScripts, ReadOnly: true},
-		{Name: util.PvcNameJournal, MountPath:  util.PvcMountPathJournal},
+		{Name: util.PvcNameJournal, MountPath: util.PvcMountPathJournal},
 		{Name: util.PvcNameLogs, MountPath: util.PvcMountPathLogs},
 	})
 }

@@ -1,12 +1,13 @@
 package construct
 
 import (
+	"os"
+	"testing"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
-	"os"
-	"testing"
 )
 
 func init() {
@@ -25,8 +26,8 @@ func Test_buildDatabaseInitContainer(t *testing.T) {
 		ReadOnly:  false,
 	}}
 	expectedContainer := &corev1.Container{
-		Name: initDatabaseContainerName,
-		Image: "quay.io/mongodb/mongodb-enterprise-init-database:latest",
+		Name:         initDatabaseContainerName,
+		Image:        "quay.io/mongodb/mongodb-enterprise-init-database:latest",
 		VolumeMounts: expectedVolumeMounts}
 	assert.Equal(t, expectedContainer, container)
 

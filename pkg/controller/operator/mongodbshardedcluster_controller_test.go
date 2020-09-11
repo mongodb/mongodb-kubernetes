@@ -2,9 +2,10 @@ package operator
 
 import (
 	"context"
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
 	"testing"
 	"time"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 

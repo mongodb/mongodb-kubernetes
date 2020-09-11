@@ -23,7 +23,7 @@ import (
 const (
 	// Volume constants
 	PvcNameDatabaseScripts = "database-scripts"
-	PvcMountPathScripts = "/opt/scripts"
+	PvcMountPathScripts    = "/opt/scripts"
 
 	caCertMountPath       = "/mongodb-automation/certs"
 	configMapVolumeCAName = "secret-ca"
@@ -35,12 +35,12 @@ const (
 	databaseLivenessProbeCommand  = "/opt/scripts/probe.sh"
 	databaseReadinessProbeCommand = "/opt/scripts/readinessprobe"
 
-	controllerLabelName = "controller"
-	initDatabaseContainerName     = "mongodb-enterprise-init-database"
+	controllerLabelName       = "controller"
+	initDatabaseContainerName = "mongodb-enterprise-init-database"
 
 	// Database environment variable names
-	initDatabaseVersionEnv  = "INIT_DATABASE_VERSION"
-	databaseVersionEnv  = "DATABASE_VERSION"
+	initDatabaseVersionEnv = "INIT_DATABASE_VERSION"
+	databaseVersionEnv     = "DATABASE_VERSION"
 )
 
 type DatabaseBuilder interface {

@@ -1121,9 +1121,7 @@ class KubernetesTester(object):
     @staticmethod
     def random_k8s_name(prefix="test-"):
         """Deprecated: user kubetester.random_k8s_name instead."""
-        return prefix + "".join(
-            random.choice(string.ascii_lowercase) for _ in range(5)
-        )
+        return prefix + "".join(random.choice(string.ascii_lowercase) for _ in range(5))
 
     @staticmethod
     def random_om_project_name() -> str:

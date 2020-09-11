@@ -5,7 +5,7 @@ from typing import Dict, Optional, List, Tuple
 
 def helm_template(
     helm_args: Dict,
-    helm_chart_name: Optional[str] = "helm_chart",
+    helm_chart_path: Optional[str] = "helm_chart",
     templates: Optional[str] = None,
     helm_options: Optional[List[str]] = None,
 ) -> str:
@@ -17,7 +17,7 @@ def helm_template(
         command_args.append("--show-only")
         command_args.append(templates)
 
-    args = ("helm", "template", *(command_args), helm_chart_name)
+    args = ("helm", "template", *(command_args), helm_chart_path)
     print()
     print(args)
 
@@ -30,11 +30,11 @@ def helm_template(
 def helm_install(
     name: str,
     helm_args: Dict,
-    helm_chart_name: Optional[str] = "helm_chart",
+    helm_chart_path: Optional[str] = "helm_chart",
     helm_options: Optional[List[str]] = None,
 ):
     command_args = _create_helm_args(helm_args, helm_options)
-    args = ("helm", "install", *(command_args), name, helm_chart_name)
+    args = ("helm", "install", *(command_args), name, helm_chart_path)
     print()
     print(args)
 
@@ -80,14 +80,14 @@ def helm_upgrade(
     name: str,
     helm_args: Dict,
     install: bool = True,
-    helm_chart_name: Optional[str] = "helm_chart",
+    helm_chart_path: Optional[str] = "helm_chart",
     helm_options: Optional[List[str]] = None,
 ):
     command_args = _create_helm_args(helm_args, helm_options)
     if install:
         # the helm chart will be installed if it doesn't exist yet
         command_args.append("--install")
-    args = ("helm", "upgrade", *(command_args), name, helm_chart_name)
+    args = ("helm", "upgrade", *(command_args), name, helm_chart_path)
     print()
     print(args)
 

@@ -23,21 +23,22 @@ class Operator(object):
     def __init__(
         self,
         namespace: str,
-        operator_version: str,
-        operator_registry_url: str,
-        init_om_registry_url: str,
-        init_appdb_registry_url: str,
-        init_database_registry_url: str,
-        ops_manager_registry_url: str,
-        appdb_registry_url: str,
-        database_registry_url: str,
-        ops_manager_name: str,
-        appdb_name: str,
-        database_name: str,
         managed_security_context: bool,
-        image_pull_secrets: str,
+        operator_version: Optional[str] = None,
+        operator_registry_url: Optional[str] = None,
+        init_om_registry_url: Optional[str] = None,
+        init_appdb_registry_url: Optional[str] = None,
+        init_database_registry_url: Optional[str] = None,
+        ops_manager_registry_url: Optional[str] = None,
+        appdb_registry_url: Optional[str] = None,
+        database_registry_url: Optional[str] = None,
+        ops_manager_name: Optional[str] = None,
+        appdb_name: Optional[str] = None,
+        database_name: Optional[str] = None,
+        image_pull_secrets: Optional[str] = None,
         helm_args: Optional[Dict] = None,
         helm_options: Optional[List[str]] = None,
+        helm_chart_path: Optional[str] = "helm_chart",
     ):
         if helm_args is None:
             helm_args = {}
@@ -45,46 +46,74 @@ class Operator(object):
         helm_args["namespace"] = namespace
         helm_args["operator.env"] = "dev"
         helm_args["managedSecurityContext"] = managed_security_context
-        helm_args["operator.version"] = operator_version
-        helm_args["registry.operator"] = operator_registry_url
-        helm_args["registry.initOpsManager"] = init_om_registry_url
-        helm_args["registry.initAppDb"] = init_appdb_registry_url
-        helm_args["registry.initDatabase"] = init_database_registry_url
-        helm_args["registry.opsManager"] = ops_manager_registry_url
-        helm_args["registry.appDb"] = appdb_registry_url
-        helm_args["registry.database"] = database_registry_url
-        helm_args["opsManager.name"] = ops_manager_name
-        helm_args["appDb.name"] = appdb_name
-        helm_args["database.name"] = database_name
-        # For e2e tests we always rebuild init containers with the EVG version_id - so we can reuse the version
-        # If this is changed - the new parameter can be passed explicitly
-        helm_args["initOpsManager.version"] = operator_version
-        helm_args["initAppDb.version"] = operator_version
-        helm_args["initDatabase.version"] = operator_version
+        if operator_registry_url is not None:
+            helm_args["registry.operator"] = operator_registry_url
+        if init_om_registry_url is not None:
+            helm_args["registry.initOpsManager"] = init_om_registry_url
+        if init_appdb_registry_url is not None:
+            helm_args["registry.initAppDb"] = init_appdb_registry_url
+        if init_database_registry_url is not None:
+            helm_args["registry.initDatabase"] = init_database_registry_url
+        if ops_manager_registry_url is not None:
+            helm_args["registry.opsManager"] = ops_manager_registry_url
+        if appdb_registry_url is not None:
+            helm_args["registry.appDb"] = appdb_registry_url
+        if database_registry_url is not None:
+            helm_args["registry.database"] = database_registry_url
+        if ops_manager_name is not None:
+            helm_args["opsManager.name"] = ops_manager_name
+        if appdb_name is not None:
+            helm_args["appDb.name"] = appdb_name
+        if database_name is not None:
+            helm_args["database.name"] = database_name
 
-        helm_args["registry.imagePullSecrets"] = image_pull_secrets
+        if operator_version is not None:
+            helm_args["operator.version"] = operator_version
+            # For e2e tests we always rebuild init containers with the EVG version_id (or 'latest' if running locally) -
+            # so we can reuse the version if this is changed - the new parameter can be passed explicitly
+            helm_args["initOpsManager.version"] = operator_version
+            helm_args["initAppDb.version"] = operator_version
+            helm_args["initDatabase.version"] = operator_version
+
+        if image_pull_secrets is not None:
+            helm_args["registry.imagePullSecrets"] = image_pull_secrets
 
         self.helm_arguments = helm_args
         self.helm_options = helm_options
+        self.helm_chart_path = helm_chart_path
         self.name = "mongodb-enterprise-operator"
 
     def install_from_template(self):
-        yaml_file = helm_template(self.helm_arguments)
+        """ Uses helm to generate yaml specification and then uses python K8s client to apply them to the cluster
+        This is equal to helm template...| kubectl apply - """
+        yaml_file = helm_template(
+            self.helm_arguments, helm_chart_path=self.helm_chart_path
+        )
         create_or_replace_from_yaml(client.api_client.ApiClient(), yaml_file)
         self._wait_for_operator_ready()
 
         return self
 
     def install(self) -> Operator:
-        """ Installs the Operator to Kubernetes cluster using 'kubectl apply', waits until it's running """
-        helm_install(self.name, self.helm_arguments, helm_options=self.helm_options)
+        """ Installs the Operator to Kubernetes cluster using 'helm install', waits until it's running """
+        helm_install(
+            self.name,
+            self.helm_arguments,
+            helm_chart_path=self.helm_chart_path,
+            helm_options=self.helm_options,
+        )
         self._wait_for_operator_ready()
 
         return self
 
     def upgrade(self, install: bool = True) -> Operator:
+        """ Upgrades the Operator in Kubernetes cluster using 'helm upgrade', waits until it's running """
         helm_upgrade(
-            self.name, self.helm_arguments, install, helm_options=self.helm_options
+            self.name,
+            self.helm_arguments,
+            install,
+            helm_chart_path=self.helm_chart_path,
+            helm_options=self.helm_options,
         )
         self._wait_for_operator_ready()
 

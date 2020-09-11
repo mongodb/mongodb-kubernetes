@@ -22,7 +22,10 @@ FROM python:3.7-slim
 
 RUN apt-get -qq update \
         && apt-get -y -qq install \
-        curl libldap2-dev libsasl2-dev
+        curl \
+        libldap2-dev \
+        libsasl2-dev \
+        git
 
 ENV HELM_NAME "helm-v3.2.4-linux-amd64.tar.gz"
 # install Helm
@@ -40,5 +43,6 @@ WORKDIR /tests
 
 # copying the test files after python build, otherwise pip install will be called each time the tests change
 COPY . /tests
+# copying the helm_chart directory as well to support installation of the Operator from the test application
 COPY helm_chart /helm_chart
 
