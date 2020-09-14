@@ -223,15 +223,6 @@ functions:
         - workdir
         binary: scripts/evergreen/setup_aws.sh
 
-  setup_docker:
-    - command: subprocess.exec
-      type: setup
-      params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
-        include_expansions_in_env:
-        - workdir
-        binary: scripts/evergreen/setup_docker.sh
-
   download_kube_tools:
     - command: subprocess.exec
       type: setup
@@ -849,7 +840,6 @@ tasks:
   priority: 60
   commands:
   - func: clone
-  - func: setup_docker
   - func: setup_aws
   - func: setup_ecr_login_helper
   - func: build_and_push_test_image
@@ -859,7 +849,6 @@ tasks:
   priority: 60
   commands:
   - func: clone
-  - func: setup_docker
   - func: download_kube_tools
     vars:
       <<: *kubernetes_environment_kind
@@ -889,7 +878,6 @@ tasks:
   exec_timeout_secs: 600
   commands:
   - func: clone
-  - func: setup_docker
   - func: download_kube_tools
     vars:
       <<: *kubernetes_environment_kind
@@ -918,7 +906,6 @@ tasks:
   commands:
   - func: clone
   - func: setup_aws
-  - func: setup_docker
   - func: setup_jq
   - func: setup_ecr_login_helper
   - func: build_and_push_init_test_images_for_om_and_appdb
@@ -929,7 +916,6 @@ tasks:
   commands:
   - func: clone
   - func: setup_aws
-  - func: setup_docker
   - func: setup_jq
   - func: setup_ecr_login_helper
   - func: build_and_push_init_test_images_for_om_and_appdb
@@ -940,7 +926,6 @@ tasks:
   commands:
   - func: clone
   - func: setup_aws
-  - func: setup_docker
   - func: setup_jq
   - func: setup_ecr_login_helper
   - func: build_and_push_init_test_images_for_database
@@ -951,7 +936,6 @@ tasks:
   commands:
   - func: clone
   - func: setup_aws
-  - func: setup_docker
   - func: setup_jq
   - func: setup_ecr_login_helper
   - func: build_and_push_init_test_images_for_database
@@ -2596,7 +2580,7 @@ buildvariants:
 - name: init_test_run
   display_name: init_test_run
   run_on:
-    - archlinux-test
+    - ubuntu1604-test
   stepback: false
   tasks:
     - name: build_operator_ubi

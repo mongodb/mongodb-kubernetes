@@ -1,7 +1,7 @@
 #
 # Dockerfile for Init Image for Database or AppDB.
 # to be called from github root (to be able to include probe code):
-# …/10gen/ops-manager-kubernetes] docker build -f docker/mongodb-enterprise-init-database/Dockerfile .
+# /10gen/ops-manager-kubernetes] docker build -f docker/mongodb-enterprise-init-database/Dockerfile .
 #
 
 FROM golang:1.13-alpine as builder
