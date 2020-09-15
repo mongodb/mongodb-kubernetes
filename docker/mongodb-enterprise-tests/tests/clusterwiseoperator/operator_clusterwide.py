@@ -14,6 +14,7 @@ from kubetester.kubetester import (
 from kubetester.mongodb import Phase, MongoDB
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
+from typing import Dict
 
 """
 This is the test that verifies the procedure of configuring Operator in cluster-wide scope.
@@ -24,38 +25,11 @@ See https://docs.mongodb.com/kubernetes-operator/stable/tutorial/plan-k8s-operat
 
 @fixture(scope="module")
 def operator_clusterwide(
-    namespace: str,
-    operator_version: str,
-    operator_registry_url: str,
-    om_init_registry_url: str,
-    appdb_init_registry_url: str,
-    database_init_registry_url: str,
-    om_registry_url: str,
-    appdb_registry_url: str,
-    database_registry_url: str,
-    ops_manager_name: str,
-    appdb_name: str,
-    database_name: str,
-    managed_security_context: bool,
-    image_pull_secrets: str,
+    namespace: str, operator_installation_config: Dict[str, str],
 ) -> Operator:
-    return Operator(
-        namespace=namespace,
-        operator_version=operator_version,
-        operator_registry_url=operator_registry_url,
-        init_om_registry_url=om_init_registry_url,
-        init_appdb_registry_url=appdb_init_registry_url,
-        init_database_registry_url=database_init_registry_url,
-        ops_manager_registry_url=om_registry_url,
-        appdb_registry_url=appdb_registry_url,
-        database_registry_url=database_registry_url,
-        ops_manager_name=ops_manager_name,
-        appdb_name=appdb_name,
-        database_name=database_name,
-        managed_security_context=managed_security_context,
-        image_pull_secrets=image_pull_secrets,
-        helm_args={"operator.watchNamespace": "*"},
-    ).install()
+    helm_args = operator_installation_config.copy()
+    helm_args["operator.watchNamespace"] = "*"
+    return Operator(namespace=namespace, helm_args=helm_args).install()
 
 
 @fixture(scope="module")

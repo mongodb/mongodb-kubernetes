@@ -1,6 +1,6 @@
 import os
 import tempfile
-from typing import Optional
+from typing import Optional, Dict
 
 import kubernetes
 import requests
@@ -26,68 +26,10 @@ def namespace() -> str:
 
 
 @fixture(scope="module")
-def operator_version() -> str:
-    return get_env_variable_or_fail("OPERATOR_VERSION")
-
-
-@fixture(scope="module")
-def operator_registry_url() -> str:
-    return get_env_variable_or_fail("OPERATOR_REGISTRY_URL")
-
-
-@fixture(scope="module")
-def om_init_registry_url() -> str:
-    return get_env_variable_or_fail("OPS_MANAGER_INIT_REGISTRY_URL")
-
-
-@fixture(scope="module")
-def appdb_init_registry_url() -> str:
-    return get_env_variable_or_fail("APPDB_INIT_REGISTRY_URL")
-
-
-@fixture(scope="module")
-def database_init_registry_url() -> str:
-    return get_env_variable_or_fail("DATABASE_INIT_REGISTRY_URL")
-
-
-@fixture(scope="module")
-def om_registry_url() -> str:
-    return get_env_variable_or_fail("OPS_MANAGER_REGISTRY_URL")
-
-
-@fixture(scope="module")
-def appdb_registry_url() -> str:
-    return get_env_variable_or_fail("APPDB_REGISTRY_URL")
-
-
-@fixture(scope="module")
-def database_registry_url() -> str:
-    return get_env_variable_or_fail("DATABASE_REGISTRY_URL")
-
-
-@fixture(scope="module")
-def ops_manager_name() -> str:
-    return get_env_variable_or_fail("OPS_MANAGER_NAME")
-
-
-@fixture(scope="module")
-def appdb_name() -> str:
-    return get_env_variable_or_fail("APPDB_NAME")
-
-
-@fixture(scope="module")
-def database_name() -> str:
-    return get_env_variable_or_fail("DATABASE_NAME")
-
-
-@fixture(scope="module")
-def image_pull_secrets() -> str:
-    return os.environ.get("IMAGE_PULL_SECRETS", "")
-
-
-@fixture(scope="module")
-def managed_security_context() -> bool:
-    return get_env_variable_or_fail("MANAGED_SECURITY_CONTEXT") == "true"
+def operator_installation_config(namespace: str) -> Dict[str, str]:
+    """ Returns the ConfigMap containing configuration data for the Operator to be created.
+    Created in the single_e2e.sh """
+    return KubernetesTester.read_configmap(namespace, "operator-installation-config")
 
 
 @fixture(scope="module")
@@ -215,47 +157,21 @@ def custom_mdb_version() -> str:
 
 @fixture("module")
 def default_operator(
-    namespace: str,
-    operator_version: str,
-    operator_registry_url: str,
-    om_init_registry_url: str,
-    appdb_init_registry_url: str,
-    database_init_registry_url: str,
-    om_registry_url: str,
-    appdb_registry_url: str,
-    database_registry_url: str,
-    ops_manager_name: str,
-    appdb_name: str,
-    database_name: str,
-    managed_security_context: bool,
-    image_pull_secrets: str,
+    namespace: str, operator_installation_config: Dict[str, str],
 ) -> Operator:
     """ Installs/upgrades a default Operator used by any test not interested in some custom Operator setting.
     TODO we use the helm template | kubectl apply -f process so far as Helm install/upgrade needs more refactoring in
     the shared environment"""
     return Operator(
-        namespace=namespace,
-        managed_security_context=managed_security_context,
-        operator_version=operator_version,
-        operator_registry_url=operator_registry_url,
-        init_om_registry_url=om_init_registry_url,
-        init_appdb_registry_url=appdb_init_registry_url,
-        init_database_registry_url=database_init_registry_url,
-        ops_manager_registry_url=om_registry_url,
-        appdb_registry_url=appdb_registry_url,
-        database_registry_url=database_registry_url,
-        ops_manager_name=ops_manager_name,
-        appdb_name=appdb_name,
-        database_name=database_name,
-        image_pull_secrets=image_pull_secrets,
+        namespace=namespace, helm_args=operator_installation_config,
     ).upgrade(install=True)
 
 
 @fixture("module")
 def official_operator(
-    custom_operator_release_version: Optional[str],
     namespace: str,
-    managed_security_context: bool,
+    operator_installation_config: Dict[str, str],
+    custom_operator_release_version: Optional[str],
 ) -> Operator:
     """ Installs the Operator from the official GitHub repository. The version of the Operator is either passed to the
     function or the latest version is fetched from the repository.
@@ -275,11 +191,18 @@ def official_operator(
             custom_operator_release_version, temp_dir
         )
     )
+    helm_options = []
+    if operator_installation_config["managedSecurityContext"] == "true":
+        # for openshift we need to use the non-default values file
+        helm_options = [
+            "--values",
+            os.path.join(temp_dir, "helm_chart", "values-openshift.yaml"),
+        ]
 
     return Operator(
         namespace=namespace,
-        managed_security_context=managed_security_context,
         helm_chart_path=os.path.join(temp_dir, "helm_chart"),
+        helm_options=helm_options,
     ).install()
 
 

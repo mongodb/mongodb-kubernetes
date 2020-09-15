@@ -18,66 +18,20 @@ OPERATOR_CRDS = (
 
 class Operator(object):
     """Operator is an abstraction over some Operator and relevant  resources. It allows to create and delete
-    the Operator deployment and K8s resources. """
+    the Operator deployment and K8s resources.  """
 
     def __init__(
         self,
         namespace: str,
-        managed_security_context: bool,
-        operator_version: Optional[str] = None,
-        operator_registry_url: Optional[str] = None,
-        init_om_registry_url: Optional[str] = None,
-        init_appdb_registry_url: Optional[str] = None,
-        init_database_registry_url: Optional[str] = None,
-        ops_manager_registry_url: Optional[str] = None,
-        appdb_registry_url: Optional[str] = None,
-        database_registry_url: Optional[str] = None,
-        ops_manager_name: Optional[str] = None,
-        appdb_name: Optional[str] = None,
-        database_name: Optional[str] = None,
-        image_pull_secrets: Optional[str] = None,
         helm_args: Optional[Dict] = None,
         helm_options: Optional[List[str]] = None,
         helm_chart_path: Optional[str] = "helm_chart",
     ):
         if helm_args is None:
             helm_args = {}
-        self.namespace = namespace
+
         helm_args["namespace"] = namespace
-        helm_args["operator.env"] = "dev"
-        helm_args["managedSecurityContext"] = managed_security_context
-        if operator_registry_url is not None:
-            helm_args["registry.operator"] = operator_registry_url
-        if init_om_registry_url is not None:
-            helm_args["registry.initOpsManager"] = init_om_registry_url
-        if init_appdb_registry_url is not None:
-            helm_args["registry.initAppDb"] = init_appdb_registry_url
-        if init_database_registry_url is not None:
-            helm_args["registry.initDatabase"] = init_database_registry_url
-        if ops_manager_registry_url is not None:
-            helm_args["registry.opsManager"] = ops_manager_registry_url
-        if appdb_registry_url is not None:
-            helm_args["registry.appDb"] = appdb_registry_url
-        if database_registry_url is not None:
-            helm_args["registry.database"] = database_registry_url
-        if ops_manager_name is not None:
-            helm_args["opsManager.name"] = ops_manager_name
-        if appdb_name is not None:
-            helm_args["appDb.name"] = appdb_name
-        if database_name is not None:
-            helm_args["database.name"] = database_name
-
-        if operator_version is not None:
-            helm_args["operator.version"] = operator_version
-            # For e2e tests we always rebuild init containers with the EVG version_id (or 'latest' if running locally) -
-            # so we can reuse the version if this is changed - the new parameter can be passed explicitly
-            helm_args["initOpsManager.version"] = operator_version
-            helm_args["initAppDb.version"] = operator_version
-            helm_args["initDatabase.version"] = operator_version
-
-        if image_pull_secrets is not None:
-            helm_args["registry.imagePullSecrets"] = image_pull_secrets
-
+        self.namespace = namespace
         self.helm_arguments = helm_args
         self.helm_options = helm_options
         self.helm_chart_path = helm_chart_path

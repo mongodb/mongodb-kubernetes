@@ -25,6 +25,36 @@ if [[ "${IMAGE_TYPE}" = "ubi" ]]; then
     fi
 fi
 
+prepare_operator_config_map() {
+    title "Preparing the ConfigMap with Operator installation configuration"
+
+    kubectl delete configmap operator-installation-config --ignore-not-found
+
+    kubectl create configmap operator-installation-config -n "${PROJECT_NAMESPACE}" \
+      --from-literal managedSecurityContext="${MANAGED_SECURITY_CONTEXT:-false}" \
+      --from-literal isOpenshift="${MANAGED_SECURITY_CONTEXT:-false}" \
+      --from-literal registry.operator="${REGISTRY}" \
+      --from-literal registry.imagePullSecrets="${ecr_registry_needs_auth-}" \
+      --from-literal registry.initOpsManager="${INIT_OPS_MANAGER_REGISTRY}" \
+      --from-literal registry.initAppDb="${INIT_APPDB_REGISTRY}" \
+      --from-literal registry.initDatabase="${INIT_DATABASE_REGISTRY}" \
+      --from-literal registry.opsManager="${OPS_MANAGER_REGISTRY}" \
+      --from-literal registry.appDb="${APPDB_REGISTRY}" \
+      --from-literal registry.database="${DATABASE_REGISTRY}" \
+      --from-literal opsManager.name="${OPS_MANAGER_NAME:=mongodb-enterprise-ops-manager}" \
+      --from-literal appDb.name="${APPDB_NAME:=mongodb-enterprise-appdb}" \
+      --from-literal database.name="${DATABASE_NAME:=mongodb-enterprise-database}" \
+      --from-literal operator.version="${version_id:-latest}" \
+      --from-literal initOpsManager.version="${version_id:-latest}" \
+      --from-literal initAppDb.version="${version_id:-latest}" \
+      --from-literal initDatabase.version="${version_id:-$latest}"
+
+    # for some reasons the previous 'create' command doesn't return >0 in case of failures...
+    ! kubectl get configmap operator-installation-config -n "${PROJECT_NAMESPACE}" && \
+          fatal "Failed to create ConfigMap operator-installation-config"
+
+}
+
 deploy_test_app() {
     title "Deploying test application"
 
@@ -38,8 +68,6 @@ deploy_test_app() {
         "--set" "namespace=${PROJECT_NAMESPACE}"
         "--set" "taskName=${task_name}"
         "--set" "pytest.addopts=${pytest_addopts:-}"
-        "--set" "operator.name=${OPERATOR_NAME:-mongodb-enterprise-operator}"
-        "--set" "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"
         "--set" "tag=${version_id:-$latest}"
         "--set" "aws.accessKey=${AWS_ACCESS_KEY_ID-}"
         "--set" "aws.secretAccessKey=${AWS_SECRET_ACCESS_KEY:-}"
@@ -49,17 +77,6 @@ deploy_test_app() {
         "--set" "apiUser=${OM_USER:-admin}"
         "--set" "bundledAppDbVersion=${BUNDLED_APP_DB_VERSION}"
         "--set" "orgId=${OM_ORGID:-}"
-        "--set" "operator.version=${version_id:-$latest}"
-        "--set" "registry.operator=${REGISTRY}"
-        "--set" "registry.initOpsManager=${INIT_OPS_MANAGER_REGISTRY}"
-        "--set" "registry.initAppDb=${INIT_APPDB_REGISTRY}"
-        "--set" "registry.initDatabase=${INIT_DATABASE_REGISTRY}"
-        "--set" "registry.opsManager=${OPS_MANAGER_REGISTRY}"
-        "--set" "registry.appDb=${APPDB_REGISTRY}"
-        "--set" "registry.database=${DATABASE_REGISTRY}"
-        "--set" "opsManager.name=${OPS_MANAGER_NAME:=mongodb-enterprise-ops-manager}"
-        "--set" "appDb.name=${APPDB_NAME:=mongodb-enterprise-appdb}"
-        "--set" "database.name=${DATABASE_NAME:=mongodb-enterprise-database}"
     )
     if [[ -n "${ecr_registry_needs_auth:-}" ]]; then
         echo "Configuring imagePullSecrets to ${ecr_registry_needs_auth}"
@@ -118,6 +135,8 @@ run_tests() {
     local task_name=${1}
 
     TEST_APP_PODNAME=mongodb-enterprise-operator-tests
+
+    prepare_operator_config_map
 
     deploy_test_app
 

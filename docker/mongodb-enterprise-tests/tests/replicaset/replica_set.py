@@ -1,4 +1,5 @@
 import time
+from typing import Dict
 
 import pytest
 from kubernetes import client
@@ -7,7 +8,6 @@ from kubetester.kubetester import (
     fixture as yaml_fixture,
     KubernetesTester,
     skip_if_local,
-    get_env_var_or_fail,
     fcv_from_version,
 )
 from kubetester.mongodb import MongoDB, Phase
@@ -157,12 +157,12 @@ class TestReplicaSetCreation(KubernetesTester):
         assert len(services.items) == 1
         assert services.items[0].spec.type == "ClusterIP"
 
-    def test_security_context_pods(self):
+    def test_security_context_pods(self, operator_installation_config: Dict[str, str]):
         for podname in self._get_pods("my-replica-set-{}", 3):
             pod = self.corev1.read_namespaced_pod(podname, self.namespace)
             pod_security_context = pod.spec.security_context
             security_context = pod.spec.containers[0].security_context
-            if get_env_var_or_fail("MANAGED_SECURITY_CONTEXT") == "false":
+            if operator_installation_config["managedSecurityContext"] == "false":
                 assert security_context.run_as_user == 2000
                 assert security_context.run_as_non_root
                 assert pod_security_context.fs_group == 2000
@@ -175,7 +175,9 @@ class TestReplicaSetCreation(KubernetesTester):
                 assert pod_security_context.fs_group is not None
                 assert pod_security_context.fs_group != 2000
 
-    def test_security_context_operator(self):
+    def test_security_context_operator(
+        self, operator_installation_config: Dict[str, str]
+    ):
         # todo there should be a better way to find the pods for deployment
         response = self.corev1.list_namespaced_pod(self.namespace)
         operator_pod = [
@@ -184,7 +186,7 @@ class TestReplicaSetCreation(KubernetesTester):
             if pod.metadata.name.startswith("mongodb-enterprise-operator-")
         ][0]
         security_context = operator_pod.spec.security_context
-        if get_env_var_or_fail("MANAGED_SECURITY_CONTEXT") == "false":
+        if operator_installation_config["managedSecurityContext"] == "false":
             assert security_context.run_as_user == 2000
             assert security_context.run_as_non_root
             assert security_context.fs_group is None

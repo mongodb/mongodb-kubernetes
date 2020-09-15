@@ -6,6 +6,7 @@ from pytest import fixture
 from kubetester.operator import Operator, delete_operator_crds, list_operator_crds
 
 # Dev note: remove all the CRDs before running the test locally!
+from typing import Dict
 
 
 @fixture(scope="module")
@@ -26,37 +27,13 @@ def ops_manager_and_mongodb_crds():
 def operator_only_ops_manager_and_mongodb(
     ops_manager_and_mongodb_crds,
     namespace: str,
-    operator_version: str,
-    operator_registry_url: str,
-    om_init_registry_url: str,
-    appdb_init_registry_url: str,
-    database_init_registry_url: str,
-    om_registry_url: str,
-    appdb_registry_url: str,
-    database_registry_url: str,
-    ops_manager_name: str,
-    appdb_name: str,
-    database_name: str,
-    managed_security_context: bool,
-    image_pull_secrets: str,
+    operator_installation_config: Dict[str, str],
 ) -> Operator:
+    helm_args = operator_installation_config.copy()
+    helm_args["operator.watchedResources"] = "{opsmanagers,mongodb}"
+
     return Operator(
-        namespace=namespace,
-        operator_version=operator_version,
-        operator_registry_url=operator_registry_url,
-        init_om_registry_url=om_init_registry_url,
-        init_appdb_registry_url=appdb_init_registry_url,
-        init_database_registry_url=database_init_registry_url,
-        ops_manager_registry_url=om_registry_url,
-        appdb_registry_url=appdb_registry_url,
-        database_registry_url=database_registry_url,
-        ops_manager_name=ops_manager_name,
-        appdb_name=appdb_name,
-        database_name=database_name,
-        managed_security_context=managed_security_context,
-        image_pull_secrets=image_pull_secrets,
-        helm_args={"operator.watchedResources": "{opsmanagers,mongodb}"},
-        helm_options=["--skip-crds"],
+        namespace=namespace, helm_args=helm_args, helm_options=["--skip-crds"],
     ).install()
 
 
@@ -70,39 +47,13 @@ def mongodb_crds():
 
 @fixture(scope="module")
 def operator_only_mongodb(
-    mongodb_crds,
-    namespace: str,
-    operator_version: str,
-    operator_registry_url: str,
-    om_init_registry_url: str,
-    appdb_init_registry_url: str,
-    database_init_registry_url: str,
-    om_registry_url: str,
-    appdb_registry_url: str,
-    database_registry_url: str,
-    ops_manager_name: str,
-    appdb_name: str,
-    database_name: str,
-    managed_security_context: bool,
-    image_pull_secrets: str,
+    mongodb_crds, namespace: str, operator_installation_config: Dict[str, str],
 ) -> Operator:
+    helm_args = operator_installation_config.copy()
+    helm_args["operator.watchedResources"] = "{mongodb}"
+
     return Operator(
-        namespace=namespace,
-        operator_version=operator_version,
-        operator_registry_url=operator_registry_url,
-        init_om_registry_url=om_init_registry_url,
-        init_appdb_registry_url=appdb_init_registry_url,
-        init_database_registry_url=database_init_registry_url,
-        ops_manager_registry_url=om_registry_url,
-        appdb_registry_url=appdb_registry_url,
-        database_registry_url=database_registry_url,
-        ops_manager_name=ops_manager_name,
-        appdb_name=appdb_name,
-        database_name=database_name,
-        managed_security_context=managed_security_context,
-        image_pull_secrets=image_pull_secrets,
-        helm_args={"operator.watchedResources": "{mongodb}"},
-        helm_options=["--skip-crds"],
+        namespace=namespace, helm_args=helm_args, helm_options=["--skip-crds"],
     ).install()
 
 

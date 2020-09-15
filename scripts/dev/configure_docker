@@ -23,11 +23,7 @@ fi
 
 # using docker-credential-ecr-login (which is faster to install than Python + aws-cli).
 secret=$(echo "${ecr_registry}" | docker-credential-ecr-login get | jq -r .Secret)
-if [[ "$(uname)" = "Darwin" ]] ; then
-    auth=$(echo "AWS:${secret}" | base64)
-else
-    auth=$(echo "AWS:${secret}" | base64 -w0)
-fi
+auth=$(echo "AWS:${secret}" | base64 -w0)
 
 # shellcheck disable=SC2086
 echo '{"auths":{"'${ecr_registry}'":{"auth":"'${auth}'"}}}'

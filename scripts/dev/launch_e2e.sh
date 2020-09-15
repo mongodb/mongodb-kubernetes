@@ -20,7 +20,7 @@ export OM_BASE_URL=${OM_HOST}
 title "Running the e2e test ${test}..."
 
 if [[ ${CLUSTER_TYPE} = "openshift" ]]; then
-    managed_security_context=true
+    export managed_security_context=true
 fi
 
 if [[ "${IMAGE_TYPE}" = "ubi" ]]; then
