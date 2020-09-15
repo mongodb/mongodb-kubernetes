@@ -14,6 +14,7 @@ title "Deploying the Operator to Kubernetes cluster..."
 
 # checking the status of k8s cluster
 if [[ ${CLUSTER_TYPE} = "kops" ]]; then
+    # shellcheck disable=2153
     if kops validate cluster "${CLUSTER_NAME}" | grep -q "not found"; then
         fatal "kops cluster is not running, call \"make\" to create it"
     fi
@@ -69,20 +70,57 @@ if [[ ${CLUSTER_TYPE} != "kops" ]] && [[ ${REPO_URL} == *".ecr."* ]]; then
     rm "${docker_config}"
 fi
 
+## Delete Operator
 delete_operator "${NAMESPACE:-mongodb}"
-deploy_operator \
-    "${REPO_URL:?}" \
-    "${INIT_OPS_MANAGER_REGISTRY:?}" \
-    "${INIT_APPDB_REGISTRY:?}" \
-    "${INIT_DATABASE_REGISTRY:?}" \
-    "${OPS_MANAGER_REGISTRY}" \
-    "${APPDB_REGISTRY:?}" \
-    "${DATABASE_REGISTRY:?}" \
-    "${NAMESPACE}" \
-    "${OPERATOR_VERSION:-latest}" \
-    "${watch_namespace:-$NAMESPACE}" \
-    "${pull_policy:-}" \
-    "${managed_security_context:-}"
+
+## Deploy Operator using Helm
+title "Installing the Operator to ${CLUSTER_NAME:-'e2e cluster'}..."
+
+check_app "helm" "helm is not installed, run 'make prerequisites' to install all necessary software"
+check_app "timeout" "coreutils is not installed, call \"brew install coreutils\""
+
+helm_params=(
+     "--set" "registry.operator=${REPO_URL:?}"
+     "--set" "registry.opsManager=${OPS_MANAGER_REGISTRY:?}"
+     "--set" "registry.appDb=${APPDB_REGISTRY:?}"
+     "--set" "registry.database=${DATABASE_REGISTRY:?}"
+     "--set" "registry.initOpsManager=${INIT_OPS_MANAGER_REGISTRY:?}"
+     "--set" "registry.initAppDb=${INIT_APPDB_REGISTRY:?}"
+     "--set" "registry.initDatabase=${INIT_DATABASE_REGISTRY:?}"
+     "--set" "registry.pullPolicy=${pull_policy:-}"
+     "--set" "operator.env=dev"
+     "--set" "operator.version=${OPERATOR_VERSION:-latest}"
+     "--set" "operator.watchNamespace=${watch_namespace:-$NAMESPACE}"
+     "--set" "operator.name=${OPERATOR_NAME:=mongodb-enterprise-operator}"
+     "--set" "database.name=${DATABASE_NAME:=mongodb-enterprise-database}"
+     "--set" "opsManager.name=${OPS_MANAGER_NAME:=mongodb-enterprise-ops-manager}"
+     "--set" "appDb.name=${APPDB_NAME:=mongodb-enterprise-appdb}"
+     "--set" "initDatabase.version=latest"
+     "--set" "initOpsManager.name=${INIT_OPS_MANAGER_NAME:=mongodb-enterprise-init-ops-manager}"
+     "--set" "initOpsManager.version=latest"
+     "--set" "initAppDb.name=${INIT_APPDB_NAME:=mongodb-enterprise-init-appdb}"
+     "--set" "initAppDb.version=latest"
+     "--set" "namespace=${NAMESPACE}"
+     "--set" "managedSecurityContext=${managed_security_context:-false}"
+     "--set" "debug=${DEBUG-}"
+     "--set" "debugPort=${DEBUG_PORT:-30042}"
+)
+
+if [[ -n "${ecr_registry_needs_auth-}" ]]; then
+    echo "Configuring imagePullSecrets to ${ecr_registry_needs_auth}"
+    helm_params+=("--set" "registry.imagePullSecrets=${ecr_registry_needs_auth}")
+fi
+
+# setting an empty watched resource to avoid endpoint overriding - this allows to use debug
+[[ -n "${DEBUG-}" ]] && helm_params+=("--set" "operator.watchedResources=")
+
+chart_path="public/helm_chart"
+
+echo "Deploying Operator, helm arguments:" "${helm_params[@]}"
+kubectl create  -f "${chart_path}/crds" 2>/dev/null || kubectl replace -f "${chart_path}/crds"
+helm upgrade --install  "${helm_params[@]}" mongodb-enterprise-operator "${chart_path}"
+
+## Wait for the Operator to start
 
 if ! wait_for_operator_start "${NAMESPACE}" "1m"
 then
