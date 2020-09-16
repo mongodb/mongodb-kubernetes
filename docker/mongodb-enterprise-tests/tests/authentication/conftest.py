@@ -1,7 +1,9 @@
-import time
 from typing import List
 
-
+from kubetester import get_pod_when_ready
+from kubetester.certs import generate_cert
+from kubetester.helm import helm_install_from_chart, helm_uninstall
+from kubetester.kubetester import KubernetesTester
 from kubetester.ldap import (
     create_user,
     ensure_organizational_unit,
@@ -11,15 +13,7 @@ from kubetester.ldap import (
     OpenLDAP,
     LDAPUser,
 )
-
-from kubetester.helm import helm_install_from_chart, helm_uninstall
-from kubetester.kubetester import KubernetesTester
-from kubetester import get_pod_when_ready
-from kubetester.certs import generate_cert
-
 from pytest import fixture
-from kubernetes import client
-
 
 LDAP_PASSWORD = "LDAPPassword."
 LDAP_NAME = "openldap"
@@ -30,6 +24,12 @@ LDAP_PROTO_PLAIN = "ldap"
 LDAP_PROTO_TLS = "ldaps"
 
 AUTOMATION_AGENT_NAME = "mms-automation-agent"
+
+
+def pytest_runtest_setup(item):
+    """ This allows to automatically install the default Operator before running any test """
+    if "default_operator" not in item.fixturenames:
+        item.fixturenames.insert(0, "default_operator")
 
 
 @fixture(scope="module")
