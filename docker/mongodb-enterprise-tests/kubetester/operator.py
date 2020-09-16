@@ -18,7 +18,7 @@ OPERATOR_CRDS = (
 
 class Operator(object):
     """Operator is an abstraction over some Operator and relevant  resources. It allows to create and delete
-    the Operator deployment and K8s resources.  """
+    the Operator deployment and K8s resources. """
 
     def __init__(
         self,
@@ -31,6 +31,8 @@ class Operator(object):
             helm_args = {}
 
         helm_args["namespace"] = namespace
+        helm_args["operator.env"] = "dev"
+
         self.namespace = namespace
         self.helm_arguments = helm_args
         self.helm_options = helm_options
@@ -81,13 +83,16 @@ class Operator(object):
         client.AppsV1Api().delete_namespaced_deployment(self.name, self.namespace)
 
     def list_operator_pods(self) -> List[V1Pod]:
-        return (
+        pods = (
             client.CoreV1Api()
             .list_namespaced_pod(
                 self.namespace, label_selector="controller={}".format(self.name)
             )
             .items
         )
+        # as now 'controller' label is added to non-operator pods as well we cannot find the controller just by this
+        # label, let's check the number of labels
+        return [pod for pod in pods if len(pod.metadata.labels) == 2]
 
     def read_deployment(self) -> V1Deployment:
         return client.AppsV1Api().read_namespaced_deployment(self.name, self.namespace)
@@ -106,7 +111,8 @@ class Operator(object):
         """ waits until the Operator deployment is ready. """
         # we need to give some time for the new pod to start instead of the existing one (if any)
         time.sleep(4)
-        while retries > 0:
+        retry_count = retries
+        while retry_count > 0:
             pods = self.list_operator_pods()
             if len(pods) == 1:
                 if (
@@ -119,7 +125,7 @@ class Operator(object):
                         "Operator failed to start: {}".format(pods[0].status.phase)
                     )
             time.sleep(1)
-            retries = retries - 1
+            retry_count = retry_count - 1
 
         # Operator hasn't started - printing some debug information
         self.printDiagnostics()
@@ -132,9 +138,11 @@ class Operator(object):
         print("Operator Deployment: ")
         print(self.read_deployment())
 
-        if len(self.list_operator_pods()) > 0:
-            print("Operator spec: ", self.list_operator_pods()[0].spec)
-            print("Operator status: ", self.list_operator_pods()[0].status)
+        pods = self.list_operator_pods()
+        if len(pods) > 0:
+            print("Operator pods: ", len(pods))
+            print("Operator spec: ", pods[0].spec)
+            print("Operator status: ", pods[0].status)
 
 
 def delete_operator_crds():
