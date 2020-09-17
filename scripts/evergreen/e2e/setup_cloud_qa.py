@@ -126,23 +126,40 @@ def get_group_id_by_name(name: str, retry=3) -> str:
     return groups.json()["id"]
 
 
-def was_created_before(group_name: str, minutes_interval: int) -> bool:
+def project_was_created_before(group_name: str, minutes_interval: int) -> bool:
     """ Returns True if the group was created before 'current_time() - minutes_interval' """
     try:
         group_seconds_epoch = int(
             group_name.split("-")[1]
         )  # a-1598972093-yr3jzt3v7bsl -> 1598972093
-        # TODO remove this - just for transient period when we have old schema (days since start of year)
-        if group_seconds_epoch in (245, 246):
-            return False
     except Exception as e:
         print(e)
         return False
+    return is_before(group_seconds_epoch, minutes_interval)
+
+
+def key_is_older_than(key_description: str, minutes_interval: int) -> bool:
+    """ Returns True if the key was created before 'current_time() - minutes_interval' """
+    try:
+        key_seconds_epoch = int(key_description)
+    except Exception as e:
+        print(e)
+        # any keys with the wrong description format (old/manual?) need to be removed as well
+        return True
+    return is_before(key_seconds_epoch, minutes_interval)
+
+
+def is_before(time_since_epoch: int, minutes_interval: int) -> bool:
     current_seconds_epoch = time.time()
-    return group_seconds_epoch + (minutes_interval * 60) <= current_seconds_epoch
+    return time_since_epoch + (minutes_interval * 60) <= current_seconds_epoch
 
 
-def get_projects_oder_than(org_id: str, minutes_interval: int = 0) -> List[Dict]:
+def generate_key_description() -> str:
+    """ Returns the programmatic key description: it's the seconds after Unix epoch """
+    return str(int(time.time()))
+
+
+def get_projects_older_than(org_id: str, minutes_interval: int = 0) -> List[Dict]:
     """Returns the project ids which are older than 'age' days ago """
     base_url = os.getenv(BASE_URL)
     url = "{}/api/public/v1.0/orgs/{}/groups".format(base_url, org_id)
@@ -154,7 +171,23 @@ def get_projects_oder_than(org_id: str, minutes_interval: int = 0) -> List[Dict]
     return [
         group
         for group in json["results"]
-        if was_created_before(group["name"], minutes_interval)
+        if project_was_created_before(group["name"], minutes_interval)
+    ]
+
+
+def get_keys_older_than(org_id: str, minutes_interval: int = 0) -> List[Dict]:
+    """Returns the programmatic keys which are older than 'minutes_interval' ago """
+    base_url = os.getenv(BASE_URL)
+    url = "{}/api/public/v1.0/orgs/{}/apiKeys".format(base_url, org_id)
+
+    groups = requests.get(url, auth=get_auth())
+
+    json = groups.json()
+
+    return [
+        key
+        for key in json["results"]
+        if key_is_older_than(key["desc"], minutes_interval)
     ]
 
 
@@ -219,12 +252,11 @@ def read_env_file():
 def configure():
     """Creates a programmatic API Key, and whitelist it. This function also
     creates a sourceable file with the Cloud QA configuration,
-    unfortunatelly, that's the only way of passing data from one command to
+    unfortunately, that's the only way of passing data from one command to
     the next.
     """
-    task_name = os.getenv("task_name", "Unknown task name")
     org = os.getenv(ORG_ID)
-    response = create_api_key(org, "Testing: {}".format(task_name))
+    response = create_api_key(org, generate_key_description())
 
     # we will use key_id to remove this key
     key_id = response["id"]
@@ -244,9 +276,24 @@ def configure():
         fd.write("export OM_EXTERNALLY_CONFIGURED=true\n")
 
 
+def clean_unused_keys(org_id: str):
+    """ Iterates over all existing projects in the organization and removes the leftovers """
+    keys = get_keys_older_than(org_id, minutes_interval=180)
+
+    for key in keys:
+        if not keep_the_key(key):
+            print("Removing the key {} ({})".format(key["publicKey"], key["desc"]))
+            delete_api_key(org_id, key["id"])
+
+
+def keep_the_key(key: Dict) -> bool:
+    """ Returns True if the key shouldn't be removed """
+    return key["publicKey"] == os.getenv(USER_OWNER).lower()
+
+
 def clean_unused_projects(org_id: str):
     """ Iterates over all existing projects in the organization and removes the leftovers """
-    projects = get_projects_oder_than(org_id, minutes_interval=180)
+    projects = get_projects_older_than(org_id, minutes_interval=180)
 
     for project in projects:
         print("Removing the project {} ({})".format(project["id"], project["name"]))
@@ -275,6 +322,7 @@ def unconfigure():
         print("Got an exception trying to remove Api Key", e)
 
     clean_unused_projects(org)
+    clean_unused_keys(org)
 
 
 def argv_error() -> int:
