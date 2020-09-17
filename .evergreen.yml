@@ -383,8 +383,8 @@ functions:
 
           IN_MEMORY_CONTEXT: "true"
           BASE_REPO_URL: ${ecr_registry}/dev
-          INIT_OPS_MANAGER_REGISTRY: ${ecr_registry}/dev
-          INIT_APPDB_REGISTRY: ${ecr_registry}/dev
+          INIT_OPS_MANAGER_REGISTRY: ${ecr_registry}/dev/${image_type}
+          INIT_APPDB_REGISTRY: ${ecr_registry}/dev/${image_type}
           IMAGE_TYPE: ${image_type}
 
         command: scripts/dev/batch_init_om_appdb_images.sh

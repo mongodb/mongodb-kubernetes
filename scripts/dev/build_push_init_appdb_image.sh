@@ -22,7 +22,7 @@ fi
 title "Building Init AppDB image (init appdb version: ${init_appdb_version})..."
 
 repository_name="mongodb-enterprise-init-appdb"
-repository_url="${INIT_APPDB_REGISTRY:?}/${IMAGE_TYPE:?}/${repository_name}"
+repository_url="${INIT_APPDB_REGISTRY:?}/${repository_name}"
 ensure_ecr_repository "${repository_url}"
 
 versioned_image="${repository_url}:${init_appdb_version}"

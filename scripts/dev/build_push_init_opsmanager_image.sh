@@ -21,7 +21,7 @@ fi
 title "Building Init Ops Manager image (init om version: ${init_om_version})..."
 
 repository_name="mongodb-enterprise-init-ops-manager"
-repository_url="${INIT_OPS_MANAGER_REGISTRY:?}/${IMAGE_TYPE:?}/${repository_name}"
+repository_url="${INIT_OPS_MANAGER_REGISTRY:?}/${repository_name}"
 ensure_ecr_repository "${repository_url}"
 
 versioned_image="${repository_url}:${init_om_version}"
