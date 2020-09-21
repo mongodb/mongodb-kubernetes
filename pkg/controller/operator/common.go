@@ -21,7 +21,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 // This is a collection of some common methods that may be shared by operator code
@@ -239,16 +238,6 @@ func agentApiKeySecretName(project string) string {
 // completionMessage is just a general message printed in the logs after mongodb resource is created/updated
 func completionMessage(url, projectID string) string {
 	return fmt.Sprintf("Please check the link %s/v2/%s to see the status of the deployment", url, projectID)
-}
-
-// exceptionHandling is the basic panic handling function that recovers from panic, logs the error, updates the resource status and updates the
-// reconcile result and error parameters (as reconcile logic will return it later)
-// passing result and error as an argument and updating the pointer of it didn't work (thanks Go), had to use ugly function
-func exceptionHandling(errHandlingFunc func(err interface{}) (reconcile.Result, error), errUpdateFunc func(res reconcile.Result, err error)) {
-	if r := recover(); r != nil {
-		result, e := errHandlingFunc(r)
-		errUpdateFunc(result, e)
-	}
 }
 
 // objectKey creates the 'client.ObjectKey' object from namespace and name of the resource. It's the object used in

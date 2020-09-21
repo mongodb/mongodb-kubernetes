@@ -110,13 +110,6 @@ func (r *MongoDBUserReconciler) Reconcile(request reconcile.Request) (res reconc
 		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, nil
 	}
 
-	defer exceptionHandling(
-		func(err interface{}) (reconcile.Result, error) {
-			return r.updateStatus(user, workflow.Failed("Failed to reconcile MongoDB User"), log)
-		},
-		func(result reconcile.Result, err error) { res = result; e = err },
-	)
-
 	log.Infow("MongoDBUser.Spec", "spec", user.Spec)
 	mdb := mdbv1.MongoDB{}
 	if user.Spec.MongoDBResourceRef.Name != "" {

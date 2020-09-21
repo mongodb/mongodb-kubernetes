@@ -75,12 +75,6 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 	opsManager := &omv1.MongoDBOpsManager{}
 
 	opsManagerExtraStatusParams := mdbstatus.NewOMPartOption(mdbstatus.OpsManager)
-	defer exceptionHandling(
-		func(err interface{}) (reconcile.Result, error) {
-			return r.updateStatus(opsManager, workflow.Failed("Failed to reconcile Ops Manager: %s", err), log, opsManagerExtraStatusParams)
-		},
-		func(result reconcile.Result, err error) { res = result; e = err },
-	)
 
 	if reconcileResult, err := r.readOpsManagerResource(request, opsManager, log); reconcileResult != nil {
 		return *reconcileResult, err

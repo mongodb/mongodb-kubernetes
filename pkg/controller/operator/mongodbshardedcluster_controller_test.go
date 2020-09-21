@@ -23,8 +23,6 @@ import (
 
 	"reflect"
 
-	"os"
-
 	"fmt"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
@@ -35,25 +33,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
-
-func TestShardedClusterEventMethodsHandlePanic(t *testing.T) {
-	// restoring
-	defer InitDefaultEnvVariables()
-
-	// nullifying env variable will result in panic exception raised
-	os.Setenv(util.AutomationAgentImage, "")
-	sc := DefaultClusterBuilder().Build()
-
-	reconciler, client := defaultClusterReconciler(sc)
-	checkReconcileFailed(t,
-		reconciler,
-		sc,
-		true,
-		"Failed to reconcile Sharded Cluster: MONGODB_ENTERPRISE_DATABASE_IMAGE environment variable is not set!",
-		client,
-	)
-
-}
 
 func TestReconcileCreateShardedCluster(t *testing.T) {
 	sc := DefaultClusterBuilder().Build()

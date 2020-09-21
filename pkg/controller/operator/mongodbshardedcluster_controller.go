@@ -46,13 +46,6 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (r
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	defer exceptionHandling(
-		func(err interface{}) (reconcile.Result, error) {
-			return r.updateStatus(sc, workflow.Failed("Failed to reconcile Sharded Cluster: %s", err), log)
-		},
-		func(result reconcile.Result, err error) { res = result; e = err },
-	)
-
 	reconcileResult, err := r.prepareResourceForReconciliation(request, sc, log)
 	if reconcileResult != nil {
 		return *reconcileResult, err

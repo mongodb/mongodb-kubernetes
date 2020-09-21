@@ -3,7 +3,6 @@ package operator
 import (
 	"context"
 	"fmt"
-	"os"
 	"reflect"
 	"testing"
 	"time"
@@ -24,25 +23,6 @@ import (
 
 type ReplicaSetBuilder struct {
 	*mdbv1.MongoDB
-}
-
-func TestReplicaSetEventMethodsHandlePanic(t *testing.T) {
-	// restoring
-	defer InitDefaultEnvVariables()
-
-	// nullifying env variable will result in panic exception raised
-	_ = os.Setenv(util.AutomationAgentImage, "")
-	rs := DefaultReplicaSetBuilder().Build()
-
-	reconciler, client := defaultReplicaSetReconciler(rs)
-	checkReconcileFailed(
-		t,
-		reconciler,
-		rs,
-		true,
-		"Failed to reconcile Mongodb Replica Set: MONGODB_ENTERPRISE_DATABASE_IMAGE environment variable is not set!",
-		client)
-
 }
 
 func TestCreateReplicaSet(t *testing.T) {

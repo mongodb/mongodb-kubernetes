@@ -1,7 +1,6 @@
 package operator
 
 import (
-	"os"
 	"reflect"
 	"testing"
 
@@ -135,24 +134,6 @@ func TestStandaloneAuthenticationOwnedByOperator(t *testing.T) {
 	assert.Contains(t, policies, controlledfeature.ExternallyManaged)
 	assert.Contains(t, policies, controlledfeature.DisableAuthenticationMechanisms)
 
-}
-
-func TestStandaloneEventMethodsHandlePanic(t *testing.T) {
-	// restoring
-	defer InitDefaultEnvVariables()
-
-	// nullifying env variable will result in panic exception raised
-	os.Setenv(util.AutomationAgentImage, "")
-	st := DefaultStandaloneBuilder().Build()
-
-	reconciler, client := defaultStandaloneReconciler(st)
-	checkReconcileFailed(t,
-		reconciler,
-		st,
-		true,
-		"Failed to reconcile Mongodb Standalone: MONGODB_ENTERPRISE_DATABASE_IMAGE environment variable is not set!",
-		client,
-	)
 }
 
 func TestStandaloneCustomPodSpecTemplate(t *testing.T) {

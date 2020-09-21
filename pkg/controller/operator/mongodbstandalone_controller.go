@@ -93,13 +93,6 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	defer exceptionHandling(
-		func(err interface{}) (reconcile.Result, error) {
-			return r.updateStatus(s, workflow.Failed("Failed to reconcile Mongodb Standalone: %s", err), log)
-		},
-		func(result reconcile.Result, err error) { res = result; e = err },
-	)
-
 	if reconcileResult, err := r.prepareResourceForReconciliation(request, s, log); reconcileResult != nil {
 		return *reconcileResult, err
 	}
