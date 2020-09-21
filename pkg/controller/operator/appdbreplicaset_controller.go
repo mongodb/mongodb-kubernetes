@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"time"
 
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/scale"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -100,35 +102,21 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 		return r.updateStatus(opsManager, workflow.Failed(err.Error()), log, appDbStatusOption)
 	}
 
-	config, err := r.buildAppDbAutomationConfig(rs, *opsManager, opsManagerUserPassword, appDbSts, log)
-	if err != nil {
-		return r.updateStatus(opsManager, workflow.Failed(err.Error()), log, appDbStatusOption)
-	}
-
-	if err := ensureLegacyConfigMapRemoved(r.client, rs); err != nil {
-		return r.updateStatus(opsManager, workflow.Failed(err.Error()), log, appDbStatusOption)
-	}
-
-	var wasPublished bool
-	if wasPublished, err = r.publishAutomationConfig(rs, *opsManager, config, log); err != nil {
-		return r.updateStatus(opsManager, workflow.Failed(err.Error()), log, appDbStatusOption)
-	}
-
-	err = replicaBuilder.CreateOrUpdateAppDBInKubernetes()
-	if err != nil {
-		return r.updateStatus(opsManager, workflow.Failed(err.Error()), log, appDbStatusOption)
+	status, wasPublished := r.deployAutomationConfig(opsManager, rs, opsManagerUserPassword, appDbSts, log)
+	if !status.IsOK() {
+		return r.updateStatus(opsManager, status, log, appDbStatusOption)
 	}
 
 	// Note that the only case when we need to wait for readiness probe to go from 'true' to 'false' is when we publish
 	// the new config map - in this case we need to wait for some time to make sure the readiness probe has updated
-	// the state (usually takes up to 5 seconds). Let's be safe and wait for a bit more
+	// the state (usually takes up to 5 seconds).
 	if wasPublished {
 		waitTimeout := envutil.ReadIntOrDefault(util.AppDBReadinessWaitEnv, DefaultWaitForReadinessSeconds)
 		log.Debugf("Waiting for %d seconds to make sure readiness status is up-to-date", waitTimeout+util.DefaultK8sCacheRefreshTimeSeconds)
 		time.Sleep(time.Duration(waitTimeout) * time.Second)
 	}
 
-	if status := r.getStatefulSetStatus(opsManager.Namespace, opsManager.Spec.AppDB.Name()); !status.IsOK() {
+	if status := r.deployStatefulSet(opsManager, replicaBuilder); !status.IsOK() {
 		return r.updateStatus(opsManager, status, log, appDbStatusOption)
 	}
 
@@ -321,7 +309,7 @@ func configureScramShaAuthentication(automationConfig *om.AutomationConfig, sha1
 	automationConfig.Auth.AddUser(opsManagerUser)
 
 	omVersion := opsManager.Status.OpsManagerStatus.Version
-	if  omVersion == "" {
+	if omVersion == "" {
 		// During the creation the status is empty - so we should take the version from the spec
 		omVersion = opsManager.Spec.Version
 	}
@@ -518,6 +506,41 @@ func (r *ReconcileAppDbReplicaSet) readExistingPodVars(om omv1.MongoDBOpsManager
 			SSLMMSCAConfigMap: om.Spec.GetOpsManagerCA(),
 		},
 	}, nil
+}
+
+// deployAutomationConfig updates the Automation Config secret if necessary and waits for the pods to fall to "not ready"
+// In this case the next StatefulSet update will be safe as the rolling upgrade will wait for the pods to get ready
+func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(opsManager *omv1.MongoDBOpsManager, rs omv1.AppDB, opsManagerUserPassword string, appDbSts appsv1.StatefulSet, log *zap.SugaredLogger) (workflow.Status, bool) {
+	config, err := r.buildAppDbAutomationConfig(rs, *opsManager, opsManagerUserPassword, appDbSts, log)
+	if err != nil {
+		return workflow.Failed(err.Error()), false
+	}
+
+	// TODO remove in some later Operator releases
+	_ = ensureLegacyConfigMapRemoved(r.client, rs)
+
+	var wasPublished bool
+	if wasPublished, err = r.publishAutomationConfig(rs, *opsManager, config, log); err != nil {
+		return workflow.Failed(err.Error()), false
+	}
+
+	_, err = r.client.GetStatefulSet(kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.Name()))
+	if err != nil && apiErrors.IsNotFound(err) {
+		// This seems to be the new resource and StatefulSet doesn't exist yet so no further actions needed, also
+		// we don't need to wait
+		return workflow.OK(), false
+	}
+
+	return workflow.OK(), wasPublished
+}
+
+// deployStatefulSet updates the StatefulSet spec and returns its status (if it's ready or not)
+func (r *ReconcileAppDbReplicaSet) deployStatefulSet(opsManager *omv1.MongoDBOpsManager, replicaBuilder *StatefulSetHelper) workflow.Status {
+	if err := replicaBuilder.CreateOrUpdateAppDBInKubernetes(); err != nil {
+		return workflow.Failed(err.Error())
+	}
+
+	return r.getStatefulSetStatus(opsManager.Namespace, opsManager.Spec.AppDB.Name())
 }
 
 // markAppDBAsBackingProject will configure the AppDB project to be read only. Errors are ignored

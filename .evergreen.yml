@@ -1589,6 +1589,12 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_om_appdb_multi_change
+  tags: ["patch-run"]
+  exec_timeout_secs: 2400
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_om_appdb_scale_up_down
   tags: ["patch-run"]
   exec_timeout_secs: 2400
@@ -2181,6 +2187,7 @@ task_groups:
   tasks:
     - e2e_om_appdb_agent_flags
     - e2e_om_appdb_monitoring_tls
+    - e2e_om_appdb_multi_change
     - e2e_om_appdb_scale_up_down
     - e2e_om_appdb_upgrade
     - e2e_om_appdb_validation
@@ -2240,6 +2247,7 @@ task_groups:
   tasks:
     - e2e_om_appdb_agent_flags
     - e2e_om_appdb_monitoring_tls
+    - e2e_om_appdb_multi_change
     - e2e_om_appdb_scale_up_down
     - e2e_om_appdb_upgrade
     - e2e_om_appdb_validation
