@@ -44,9 +44,7 @@ RUN chmod -R 0775 "${MMS_LOG_DIR}" \
     && mkdir "${MMS_HOME}/mongodb-releases/" \
     && chmod -R 0775 "${MMS_HOME}/mongodb-releases"
 
-{% block user %}
 USER 2000
-{% endblock %}
 
 # operator to change the entrypoint to: /mongodb-ops-manager/bin/mongodb-mms start_mms (or a wrapper around this)
 ENTRYPOINT [ "sleep infinity" ]

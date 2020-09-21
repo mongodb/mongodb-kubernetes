@@ -26,4 +26,5 @@ COPY scripts/docker-entry-point.sh /scripts/
 
 COPY LICENSE /licenses/mongodb-enterprise-ops-manager
 
+USER 2000
 ENTRYPOINT [ "/bin/cp", "-f", "/scripts/docker-entry-point.sh", "/scripts/mmsconfiguration", "/opt/scripts/" ]
