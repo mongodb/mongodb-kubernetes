@@ -43,6 +43,8 @@ And for the MongoDB Enterprise Database
 https://quay.io/repository/mongodb/mongodb-enterprise-database?tab=tags
 ```
 
+If this is a major-version release, include the EOL date in the Release Notes so that the docs team update our [Support Lifecycle page](https://docs.mongodb.com/kubernetes-operator/master/reference/support-lifecycle/#k8s-support-lifecycle)
+
 
 ## Release ticket, branch and PR
 
