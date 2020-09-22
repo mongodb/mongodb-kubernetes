@@ -95,7 +95,7 @@ class TestOpsManagerCreation:
             pass
 
     def test_appdb_scram_sha(self, ops_manager: MongoDBOpsManager):
-        """ Checks that 4.2 OM has SCRAM-SHA-1 enabled """
+        """ Checks that 4.2 OM has both SCRAM-SHA-1 and SCRAM-SHA-256 enabled """
         auto_generated_password = ops_manager.read_appdb_generated_password()
         automation_config_tester = ops_manager.get_automation_config_tester()
         automation_config_tester.assert_authentication_mechanism_enabled(
@@ -273,6 +273,9 @@ class TestAppDBScramShaUpdated:
         ops_manager.appdb_status().assert_abandons_phase(Phase.Running)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
 
+    @pytest.mark.skip(
+        reason="re-enable when only SCRAM-SHA-256 is supported for the AppDB"
+    )
     def test_appdb_scram_sha_(self, ops_manager: MongoDBOpsManager):
         """ In case of upgrade OM 4.2 -> OM 4.4 the AppDB scram-sha method must be upgraded as well """
         auto_generated_password = ops_manager.read_appdb_generated_password()

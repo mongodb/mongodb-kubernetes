@@ -155,6 +155,13 @@ def custom_mdb_version() -> str:
     return os.getenv("CUSTOM_MDB_VERSION", "4.4.0")
 
 
+@fixture(scope="module")
+def custom_version() -> str:
+    """Returns a CUSTOM_OM_VERSION for OM.
+    Defaults to 4.4+ (for development)"""
+    return os.getenv("CUSTOM_OM_VERSION", "4.4.1")
+
+
 @fixture("module")
 def default_operator(
     namespace: str, operator_installation_config: Dict[str, str],

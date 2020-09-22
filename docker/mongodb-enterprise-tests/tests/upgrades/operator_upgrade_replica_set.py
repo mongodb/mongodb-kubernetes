@@ -19,11 +19,15 @@ def rs_certs_secret(namespace: str, issuer: str):
 
 @fixture(scope="module")
 def replica_set(
-    namespace: str, issuer_ca_configmap: str, rs_certs_secret: str
+    namespace: str,
+    issuer_ca_configmap: str,
+    rs_certs_secret: str,
+    custom_mdb_version: str,
 ) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set.yaml"), namespace=namespace, name=RS_NAME,
     )
+    resource["spec"]["version"] = custom_mdb_version
     # TLS
     resource.configure_custom_tls(issuer_ca_configmap, rs_certs_secret)
 
@@ -61,7 +65,7 @@ def replica_set_user(replica_set: MongoDB) -> MongoDBUser:
 
 
 @pytest.mark.e2e_operator_upgrade_replica_set
-def test_install_latest_operator(official_operator: Operator):
+def test_install_latest_official_operator(official_operator: Operator):
     official_operator.assert_is_running()
 
 

@@ -283,44 +283,34 @@ func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(rs omv1.AppDB, opsM
 	return automationConfig, nil
 }
 
-// configureScramShaAuthentication configures agent and deployment authentication mechanisms using:
-// * SCRAM-SHA-1 + SCRAM-SHA-256 if current OM is 4.2.*
-// * SCRAM-SHA-256 only if current OM is 4.4+
-// and also adds the Ops Manager MongoDB user to the automation config.
-// Note, that right after OM is upgraded from 4.2 to 4.4 the combination of SCRAM mechanisms will exist
-// until the next reconciliation
+// configureScramShaAuthentication configures agent and deployment authentication mechanisms using both SHA-1 and SHA-256
+// mechanisms. This is actual for 1.8.0 version of the Operator and needs to be changed after 3-4 versions released -
+// the OM 4.4 should get support for SHA-256 only.
+// Unfortunately we cannot move to SHA-256 right away due to Agent limitation which requires to do a stepped move
+// (SHA-1 -> SHA-1, SHA-256, SHA-256)
 func configureScramShaAuthentication(automationConfig *om.AutomationConfig, sha1Creds, sha256Creds *om.ScramShaCreds, opsManager omv1.MongoDBOpsManager, log *zap.SugaredLogger) error {
-	scramSha := authentication.NewAutomationConfigScramSha256(automationConfig)
+	scramSha1 := authentication.NewAutomationConfigScramSha1(automationConfig)
 
-	// scram deployment mechanisms need to be configured before agent auth can be configured
-	if err := scramSha.EnableDeploymentAuthentication(authentication.Options{}); err != nil {
+	if err := scramSha1.EnableDeploymentAuthentication(authentication.Options{}); err != nil {
 		return err
 	}
+	scramSha256 := authentication.NewAutomationConfigScramSha256(automationConfig)
+	if err := scramSha256.EnableDeploymentAuthentication(authentication.Options{}); err != nil {
+		return err
+	}
+	// Adding SCRAM-SHA-256 to the list of mechanisms for the agent
+	automationConfig.Auth.AutoAuthMechanisms = append(automationConfig.Auth.AutoAuthMechanisms, string(authentication.ScramSha256))
 
 	// we set AuthoritativeSet to false which ensures that it is possible to add additional AppDB
 	// MongoDB users if required which will not be deleted by the operator. We will never be dealing with
 	// a multi agent environment here.
 	authOpts := authentication.Options{AuthoritativeSet: false, OneAgent: true}
-	if err := scramSha.EnableAgentAuthentication(authOpts, log); err != nil {
+	if err := scramSha1.EnableAgentAuthentication(authOpts, log); err != nil {
 		return err
 	}
 
 	opsManagerUser := buildOpsManagerUser(sha1Creds, sha256Creds)
 	automationConfig.Auth.AddUser(opsManagerUser)
-
-	omVersion := opsManager.Status.OpsManagerStatus.Version
-	if omVersion == "" {
-		// During the creation the status is empty - so we should take the version from the spec
-		omVersion = opsManager.Spec.Version
-	}
-	if !omSupportsScramSha256(omVersion) {
-		scramSha1 := authentication.NewAutomationConfigScramSha1(automationConfig)
-		if err := scramSha1.EnableDeploymentAuthentication(authentication.Options{}); err != nil {
-			return err
-		}
-		// Also we need to add SCRAM-SHA-1 to the list of mechanisms for the agent
-		automationConfig.Auth.AutoAuthMechanisms = append(automationConfig.Auth.AutoAuthMechanisms, string(authentication.MongoDBCR))
-	}
 
 	// update the underlying deployment with the changes made
 	return automationConfig.Apply()

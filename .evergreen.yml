@@ -1080,6 +1080,12 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_operator_upgrade_ops_manager
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_replica_set
   tags: ["patch-run"]
   exec_timeout_secs: 1800
@@ -2161,9 +2167,8 @@ task_groups:
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
   tasks:
-    # TODO fix operator upgrade tests
-    #- e2e_op_upgrade_one_deployment
     - e2e_operator_upgrade_replica_set
+    - e2e_operator_upgrade_ops_manager
     - e2e_operator_partial_crd
     - e2e_operator_clusterwide
   teardown_task:
@@ -2546,6 +2551,8 @@ buildvariants:
     <<: *cloud_manager_qa
     <<: *kubernetes_environment_kind
     image_type: ubuntu
+    <<: *ops_manager_44_latest
+    custom_mdb_version: *mdb_44_latest
   tasks:
   - name: e2e_operator_task_group
 

@@ -12,13 +12,6 @@ def pytest_runtest_setup(item):
 
 
 @fixture(scope="module")
-def custom_version() -> str:
-    """Returns a CUSTOM_OM_VERSION for OM.
-    Defaults to 4.4+ (for development)"""
-    return os.getenv("CUSTOM_OM_VERSION", "4.4.1")
-
-
-@fixture(scope="module")
 def custom_mdb_prev_version() -> str:
     """Returns a CUSTOM_MDB_PREV_VERSION for Mongodb to be created/upgraded to for testing.
     Used for backup mainly (to test backup for different mdb versions).
