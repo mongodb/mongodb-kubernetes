@@ -70,6 +70,10 @@ def cert_manager(namespace: str) -> str:
     get_pod_when_ready(
         name, f"app.kubernetes.io/instance={name},app.kubernetes.io/component=webhook",
     )
+    get_pod_when_ready(
+        name,
+        f"app.kubernetes.io/instance={name},app.kubernetes.io/component=controller",
+    )
 
     return name
 
