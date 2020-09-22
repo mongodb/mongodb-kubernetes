@@ -74,7 +74,7 @@ func backupAndOpsManagerSharedConfiguration(omBuilder OpsManagerBuilder) statefu
 	omImageURL := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.OpsManagerImageUrl), omBuilder.GetVersion())
 	configurePodSpecSecurityContext := podtemplatespec.NOOP()
 	if !managedSecurityContext {
-		configurePodSpecSecurityContext = podtemplatespec.WithFsGroup(util.FsGroup)
+		configurePodSpecSecurityContext = podtemplatespec.WithSecurityContext(corev1.PodSecurityContext{FSGroup: util.Int64Ref(util.FsGroup)})
 	}
 	pullSecretsConfigurationFunc := podtemplatespec.NOOP()
 	if pullSecrets, ok := envutil.Read(util.ImagePullSecrets); ok {

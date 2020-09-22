@@ -1326,6 +1326,18 @@ tasks:
   commands:
   - func: "e2e_test"
 
+- name: e2e_replica_set_tls_default
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+  - func: "e2e_test"
+
+- name: e2e_replica_set_tls_override
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+  - func: "e2e_test"
+
 - name: e2e_replica_set_tls_allow
   tags: ["patch-run"]
   exec_timeout_secs: 1200
@@ -1895,6 +1907,8 @@ task_groups:
     - e2e_standalone_recovery_k8s
     - e2e_standalone_schema_validation
     - e2e_users_schema_validation
+    - e2e_replica_set_tls_default
+    - e2e_replica_set_tls_override
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment

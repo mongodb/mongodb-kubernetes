@@ -81,7 +81,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdbBuilder DatabaseBuilder, p
 
 	configurePodSpecSecurityContext := podtemplatespec.NOOP()
 	if !managedSecurityContext {
-		configurePodSpecSecurityContext = podtemplatespec.WithFsGroup(util.FsGroup)
+		configurePodSpecSecurityContext = podtemplatespec.WithSecurityContext(corev1.PodSecurityContext{FSGroup: util.Int64Ref(util.FsGroup)})
 	}
 
 	configureContainerSecurityContext := container.NOOP()
@@ -302,7 +302,7 @@ func sharedDatabaseConfiguration(mdbBuilder DatabaseBuilder) podtemplatespec.Mod
 
 	configurePodSpecSecurityContext := podtemplatespec.NOOP()
 	if !managedSecurityContext {
-		configurePodSpecSecurityContext = podtemplatespec.WithFsGroup(util.FsGroup)
+		configurePodSpecSecurityContext = podtemplatespec.WithSecurityContext(corev1.PodSecurityContext{FSGroup: util.Int64Ref(util.FsGroup)})
 	}
 
 	configureContainerSecurityContext := container.NOOP()

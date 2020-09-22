@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/imdario/mergo"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 )
@@ -45,7 +46,7 @@ func mergeStatefulSetSpec(defaultStatefulSetSpec appsv1.StatefulSetSpec, overrid
 	if overrideStatefulSetSpec == nil {
 		return defaultStatefulSetSpec, nil
 	}
-	mergedPodSpecTemplate, err := getMergedDefaultPodSpecTemplate(defaultStatefulSetSpec.Template, &overrideStatefulSetSpec.Template)
+	mergedPodSpecTemplate, err := podtemplatespec.MergePodTemplateSpecs(defaultStatefulSetSpec.Template, overrideStatefulSetSpec.Template)
 	if err != nil {
 		return appsv1.StatefulSetSpec{}, fmt.Errorf("error merging podSpecTemplate: %v", err)
 	}

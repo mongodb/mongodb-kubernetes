@@ -13,7 +13,7 @@ require (
 	github.com/hashicorp/go-multierror v1.0.0
 	github.com/imdario/mergo v0.3.9
 	github.com/mailru/easyjson v0.7.1 // indirect
-	github.com/mongodb/mongodb-kubernetes-operator v0.1.0-prerelease
+	github.com/mongodb/mongodb-kubernetes-operator v0.2.2-prerelease2
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/cast v1.3.1
 	github.com/stretchr/testify v1.4.0
