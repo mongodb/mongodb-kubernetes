@@ -49,52 +49,7 @@ ensure_namespace "${PROJECT_NAMESPACE}"
 export TEST_NAME="${TASK_NAME:?}"
 delete_operator "${PROJECT_NAMESPACE}"
 
-# 4. (optionally) Preliminary step in the case of Operator upgrade
-if echo "${TASK_NAME}" | grep -E -q "^e2e_op_upgrade"; then
-    export TEST_NAME="${TASK_NAME}_first"
-    header "Performing the first stage (${TEST_NAME}) of an Operator upgrade test"
-
-    # We need to checkout the latest (or a specific) release in a separate directory and install
-    # Operator from there
-    tmp_dir=$(mktemp -d)
-    pushd "${tmp_dir}"
-
-    checkout_latest_official_branch
-
-    # This installation procedure must match our docs in https://docs.mongodb.com/kubernetes-operator/stable/tutorial/install-k8s-operator/
-    tmp_file=$(mktemp)
-    helm template --set namespace="${PROJECT_NAMESPACE}" \
-        --set operator.env=dev \
-        --set managedSecurityContext="${MANAGED_SECURITY_CONTEXT:-false}" \
-        --set registry.opsManager="${OPS_MANAGER_REGISTRY}" \
-        --set opsManager.name="${OPS_MANAGER_NAME:=mongodb-enterprise-ops-manager}" \
-        helm_chart > "${tmp_file}" -- values helm_chart/values.yaml
-
-    kubectl apply -f "${tmp_file}"
-    rm "${tmp_file}"
-
-    if ! wait_for_operator_start "${PROJECT_NAMESPACE}"
-    then
-        echo "Operator failed to start"
-        exit 1
-    fi
-
-    rm -rf "${tmp_dir}"
-    popd > /dev/null || return
-
-    # Running test
-    if ! ./scripts/evergreen/e2e/single_e2e.sh; then
-        dump_all
-        scripts/evergreen/e2e/teardown.sh
-        exit 1
-    fi
-    # Setting the second test to be run after the Operator upgrade after 'if' block
-    # Note, that in this case the second Operator will be upgraded, not deleted-created
-    export TEST_NAME="${TASK_NAME}_second"
-    header "Performing the second stage (${TEST_NAME})"
-fi
-
-# 5. Main test run.
+# 4. Main test run.
 
 # We'll have the task running for the allocated time, minus the time it took us
 # to get all the way here, assuming configuring and deploying the operator can

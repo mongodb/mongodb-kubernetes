@@ -982,22 +982,6 @@ tasks:
     - func: setup_aws
     - func: prepare_aws
 
-- name: e2e_op_upgrade_one_deployment
-  tags: ["patch-run"]
-  exec_timeout_secs: 2400
-  commands:
-    - func: e2e_test
-      vars:
-        from_version: 1.2.2
-
-- name: e2e_op_upgrade_replica_set
-  tags: ["patch-run"]
-  exec_timeout_secs: 1200
-  commands:
-    - func: e2e_test
-      vars:
-        from_version: latest
-
 - name: e2e_multiple_cluster_failures
   tags: ["patch-run"]
   commands:
@@ -1690,14 +1674,6 @@ tasks:
   exec_timeout_secs: 2800
   commands:
     - func: e2e_test
-
-- name: e2e_op_upgrade_om
-  tags: ["patch-run"]
-  exec_timeout_secs: 2800
-  commands:
-    - func: e2e_test
-      vars:
-        from_version: latest
 
 - name: e2e_om_validation_webhook
   tags: ["patch-run"]
