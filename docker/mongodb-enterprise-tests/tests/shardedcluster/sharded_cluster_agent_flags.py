@@ -14,13 +14,25 @@ def sharded_cluster(namespace: str) -> MongoDB:
     )
 
     resource["spec"]["configSrv"] = {
-        "agent": {"startupOptions": {"fooKeySrv": "fooValSrv"}}
+        "agent": {
+            "startupOptions": {
+                "logFile": "/var/log/mongodb-mms-automation/customLogFileSrv"
+            }
+        }
     }
     resource["spec"]["mongos"] = {
-        "agent": {"startupOptions": {"fooKeyMongos": "fooValMongos"}}
+        "agent": {
+            "startupOptions": {
+                "logFile": "/var/log/mongodb-mms-automation/customLogFileMongos"
+            }
+        }
     }
     resource["spec"]["shard"] = {
-        "agent": {"startupOptions": {"fooKeyShard": "fooValShard"}}
+        "agent": {
+            "startupOptions": {
+                "logFile": "/var/log/mongodb-mms-automation/customLogFileShard"
+            }
+        }
     }
 
     return resource.create()
@@ -33,23 +45,33 @@ def test_sharded_cluster(sharded_cluster: MongoDB):
 
 @mark.e2e_sharded_cluster_agent_flags
 def test_sharded_cluster_has_agent_flags(sharded_cluster: MongoDB, namespace: str):
-    cmd = [
-        "/bin/sh",
-        "-c",
-        "pgrep -f -a /mongodb-automation/files/mongodb-mms-automation-agent",
-    ]
     for i in range(3):
+        cmd = [
+            "/bin/sh",
+            "-c",
+            "ls /var/log/mongodb-mms-automation/customLogFileShard* | wc -l",
+        ]
         result = KubernetesTester.run_command_in_pod_container(
             f"sh001-base-0-{i}", namespace, cmd,
         )
-        assert " -fooKeyShard fooValShard" in result
+        assert result != "0"
     for i in range(3):
+        cmd = [
+            "/bin/sh",
+            "-c",
+            "ls /var/log/mongodb-mms-automation/customLogFileSrv* | wc -l",
+        ]
         result = KubernetesTester.run_command_in_pod_container(
             f"sh001-base-config-{i}", namespace, cmd,
         )
-        assert " -fooKeySrv fooValSrv" in result
+        assert result != "0"
     for i in range(2):
+        cmd = [
+            "/bin/sh",
+            "-c",
+            "ls /var/log/mongodb-mms-automation/customLogFileMongos* | wc -l",
+        ]
         result = KubernetesTester.run_command_in_pod_container(
             f"sh001-base-mongos-{i}", namespace, cmd,
         )
-        assert " -fooKeyMongos fooValMongos" in result
+        assert result != "0"

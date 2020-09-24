@@ -67,7 +67,6 @@ agentOpts=(
     "-pidfilepath" "${MMS_HOME}/mongodb-mms-automation-agent.pid"
     "-maxLogFileDurationHrs" "24"
     "-logLevel" "${LOG_LEVEL:-INFO}"
-    "-logFile" "${MMS_LOG_DIR}/automation-agent.log"
 )
 # TODO we need to compare the Agent version until we support OM 4.0, then this check can be removed
 AGENT_VERSION="$(cat "${MMS_HOME}"/files/agent-version)"
@@ -105,14 +104,20 @@ if [[ "${SSL_REQUIRE_VALID_MMS_CERTIFICATES-}" != "false" ]]; then
     agentOpts+=("-sslRequireValidMMSServerCertificates")
 fi
 
-script_log "Launching automation agent with following arguments: ${agentOpts[*]} -mmsApiKey ${AGENT_API_KEY+<hidden>} ${AGENT_FLAGS}"
+# we can't directly use readarray as this bash version doesn't support
+# the delimiter option
+splittedAgentFlags=();
+while read -rd,; do
+    splittedAgentFlags+=("$REPLY")
+done <<<"$AGENT_FLAGS";
+
+script_log "Launching automation agent with following arguments: ${agentOpts[*]} -mmsApiKey ${AGENT_API_KEY+<hidden>} ${splittedAgentFlags[*]}"
 
 agentOpts+=("-mmsApiKey" "${AGENT_API_KEY-}")
 
-
 rm /tmp/mongodb-mms-automation-cluster-backup.json || true
 # Note, that we do logging in subshell - this allows us to save the сorrect PID to variable (not the logging one)
-"${MMS_HOME}/files/mongodb-mms-automation-agent" "${agentOpts[@]}" "${AGENT_FLAGS}" 2>> "${MMS_LOG_DIR}/automation-agent-stderr.log" > >(json_log "automation-agent-stdout") &
+"${MMS_HOME}/files/mongodb-mms-automation-agent" "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2>> "${MMS_LOG_DIR}/automation-agent-stderr.log" > >(json_log "automation-agent-stdout") &
 export agentPid=$!
 
 trap cleanup SIGTERM

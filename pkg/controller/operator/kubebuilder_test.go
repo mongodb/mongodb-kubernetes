@@ -742,7 +742,7 @@ func TestAgentFlags(t *testing.T) {
 	variablesMap := envVariablesAsMap(envVars.Spec.Template.Spec.Containers[0].Env...)
 	val, ok := variablesMap["AGENT_FLAGS"]
 	assert.True(t, ok)
-	assert.Contains(t, val, " -Key1 Value1", " -Key2 Value2")
+	assert.Contains(t, val, "-Key1,Value1", "-Key2,Value2")
 
 }
 
@@ -756,7 +756,7 @@ func TestAppDBAgentFlags(t *testing.T) {
 	variablesMap := envVariablesAsMap(envVars.Spec.Template.Spec.Containers[0].Env...)
 	val, ok := variablesMap["AGENT_FLAGS"]
 	assert.True(t, ok)
-	assert.Contains(t, val, " -Key1 Value1", " -Key2 Value2")
+	assert.Contains(t, val, "-Key1,Value1", "-Key2,Value2")
 }
 
 // ******************************** Helper methods *******************************************

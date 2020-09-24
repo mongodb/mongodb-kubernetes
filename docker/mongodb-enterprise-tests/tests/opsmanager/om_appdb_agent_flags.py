@@ -17,7 +17,7 @@ def appdb(namespace: str) -> MongoDBOpsManager:
     )
 
     resource["spec"]["applicationDatabase"]["agent"] = {
-        "startupOptions": {"maxLogFiles": "30"}
+        "startupOptions": {"logFile": "/var/log/mongodb-mms-automation/customLogFile"}
     }
     resource["spec"]["applicationDatabase"]["version"] = "4.1.0"
 
@@ -34,10 +34,10 @@ def test_appdb_has_agent_flags(appdb: MongoDBOpsManager, namespace: str):
     cmd = [
         "/bin/sh",
         "-c",
-        "pgrep -f -a /mongodb-automation/files/mongodb-mms-automation-agent",
+        "ls /var/log/mongodb-mms-automation/customLogFile* | wc -l",
     ]
     for i in range(3):
         result = KubernetesTester.run_command_in_pod_container(
             f"om-validate-db-{i}", namespace, cmd,
         )
-        assert "-maxLogFiles 30" in result
+        assert result != "0"

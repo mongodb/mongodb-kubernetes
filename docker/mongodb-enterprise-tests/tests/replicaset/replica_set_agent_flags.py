@@ -13,7 +13,9 @@ def replica_set(namespace: str) -> MongoDB:
         find_fixture("replica-set-basic.yaml"), namespace=namespace
     )
 
-    resource["spec"]["agent"] = {"startupOptions": {"maxLogFiles": "30"}}
+    resource["spec"]["agent"] = {
+        "startupOptions": {"logFile": "/var/log/mongodb-mms-automation/customLogFile"}
+    }
     resource["spec"]["version"] = "4.0.0"
 
     return resource.create()
@@ -29,10 +31,10 @@ def test_replica_set_has_agent_flags(replica_set: MongoDB, namespace: str):
     cmd = [
         "/bin/sh",
         "-c",
-        "pgrep -f -a /mongodb-automation/files/mongodb-mms-automation-agent",
+        "ls /var/log/mongodb-mms-automation/customLogFile* | wc -l",
     ]
     for i in range(3):
         result = KubernetesTester.run_command_in_pod_container(
             f"replica-set-{i}", namespace, cmd,
         )
-        assert " -maxLogFiles 30" in result
+        assert result != "0"

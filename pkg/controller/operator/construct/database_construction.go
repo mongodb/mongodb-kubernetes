@@ -346,10 +346,24 @@ func sharedDatabaseConfiguration(mdbBuilder DatabaseBuilder) podtemplatespec.Mod
 // returned as env variable AGENT_FLAGS
 func startupParametersToAgentFlag(parameters mdbv1.StartupParameters) corev1.EnvVar {
 	agentParams := ""
-	for key, value := range parameters {
-		agentParams += " -" + key + " " + value
+	for key, value := range defaultAgentParameters() {
+		if _, ok := parameters[key]; !ok {
+			// add the default parameter
+			agentParams += "-" + key + "," + value + ","
+		}
+		// Skip as this has it will be set by custom flags
 	}
+	for key, value := range parameters {
+		// Using comma as delimiter to split the string later
+		// in the agentlauncher script
+		agentParams += "-" + key + "," + value + ","
+	}
+
 	return corev1.EnvVar{Name: "AGENT_FLAGS", Value: agentParams}
+}
+
+func defaultAgentParameters() mdbv1.StartupParameters {
+	return map[string]string{"logFile": "/var/log/mongodb-mms-automation/automation-agent.log"}
 }
 
 // databaseScriptsVolumeMount constructs the VolumeMount for the Database scripts

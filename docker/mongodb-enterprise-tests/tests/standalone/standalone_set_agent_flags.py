@@ -11,7 +11,9 @@ from kubetester.kubetester import KubernetesTester
 def standalone(namespace: str) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("standalone.yaml"), namespace=namespace)
 
-    resource["spec"]["agent"] = {"startupOptions": {"fooKey": "fooVal"}}
+    resource["spec"]["agent"] = {
+        "startupOptions": {"logFile": "/var/log/mongodb-mms-automation/customLogFile"}
+    }
 
     return resource.create()
 
@@ -26,9 +28,9 @@ def test_standalone_has_agent_flags(standalone: MongoDB, namespace: str):
     cmd = [
         "/bin/sh",
         "-c",
-        "pgrep -f -a /mongodb-automation/files/mongodb-mms-automation-agent",
+        "ls /var/log/mongodb-mms-automation/customLogFile* | wc -l",
     ]
     result = KubernetesTester.run_command_in_pod_container(
         "my-standalone-0", namespace, cmd,
     )
-    assert " -fooKey fooVal" in result
+    assert result != "0"
