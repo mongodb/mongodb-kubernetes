@@ -240,8 +240,8 @@ func getVolumesAndVolumeMounts(mdbBuilder DatabaseBuilder) ([]corev1.Volume, []c
 	}
 
 	if mdbBuilder.GetSecurity() != nil {
-		if mdbBuilder.GetSecurity().ShouldUseX509(mdbBuilder.GetCurrentAgentAuthMechanism()) {
-			agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, util.AgentSecretName)
+		if mdbBuilder.GetSecurity().ShouldUseX509(mdbBuilder.GetCurrentAgentAuthMechanism()) || mdbBuilder.GetSecurity().ShouldUseClientCertificates() {
+			agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, mdbBuilder.GetSecurity().AgentClientCertificateSecretName().Name)
 			volumeMounts = append(volumeMounts, corev1.VolumeMount{
 				MountPath: agentCertMountPath,
 				Name:      agentSecretVolume.Name,

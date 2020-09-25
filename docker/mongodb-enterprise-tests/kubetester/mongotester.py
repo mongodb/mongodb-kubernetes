@@ -171,12 +171,15 @@ class MongoTester:
         db: str = "admin",
         collection: str = "myCol",
         ssl_ca_certs: Optional[str] = None,
+        ssl_certfile: str = None,
         attempts: int = 5,
     ):
         options = {}
         if ssl_ca_certs is not None:
             options["ssl"] = True
             options["ssl_ca_certs"] = ssl_ca_certs
+        if ssl_certfile is not None:
+            options["ssl_certfile"] = ssl_certfile
         total_attempts = attempts
 
         while True:

@@ -3,6 +3,8 @@ import string
 import time
 from typing import Dict
 
+from base64 import b64decode, b64encode
+
 from .mongodb import MongoDB
 from .certs import Certificate
 from .kubetester import fixture as find_fixture
@@ -16,6 +18,16 @@ def create_secret(name: str, namespace: str, data: Dict[str, str]) -> str:
     client.CoreV1Api().create_namespaced_secret(namespace, secret)
 
     return name
+
+
+def read_secret(name: str, namespace: str) -> Dict[str, str]:
+    return decode_secret(
+        client.CoreV1Api().read_namespaced_secret(name, namespace).data
+    )
+
+
+def delete_secret(name: str, namespace: str):
+    client.CoreV1Api().delete_namespaced_secret(name, namespace)
 
 
 def random_k8s_name(prefix=""):
@@ -47,3 +59,7 @@ def get_pod_when_ready(namespace: str, label_selector: str) -> client.V1Pod:
             # The Pod might not exist in Kubernetes yet so skip any 404
             if e.status != 404:
                 raise
+
+
+def decode_secret(data: Dict[str, str]) -> Dict[str, str]:
+    return {k: b64decode(v).decode("utf-8") for (k, v) in data.items()}

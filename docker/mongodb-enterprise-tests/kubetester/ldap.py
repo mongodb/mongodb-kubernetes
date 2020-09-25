@@ -1,4 +1,3 @@
-import os
 from dataclasses import dataclass
 import ldap
 import ldap.modlist

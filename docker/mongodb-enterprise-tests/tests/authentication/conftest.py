@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Generator
 
 from kubetester import get_pod_when_ready
 from kubetester.certs import generate_cert
@@ -33,7 +33,7 @@ def pytest_runtest_setup(item):
 
 
 @fixture(scope="module")
-def openldap(namespace: str) -> OpenLDAP:
+def openldap(namespace: str) -> Generator[OpenLDAP, None, None]:
     """Installs a OpenLDAP server and returns a reference to it."""
     helm_install_from_chart(namespace, LDAP_NAME, "stable/openldap", "1.2.4")
 
@@ -52,7 +52,7 @@ def openldap_cert(namespace: str, issuer: str) -> str:
 
 
 @fixture(scope="module")
-def openldap_tls(namespace: str, openldap_cert: str) -> OpenLDAP:
+def openldap_tls(namespace: str, openldap_cert: str) -> Generator[OpenLDAP, None, None]:
     """Installs an OpenLDAP server with TLS configured and returns a reference to it."""
     helm_args = {
         "tls.enabled": "true",

@@ -137,6 +137,9 @@ class KubernetesTester(object):
 
     @classmethod
     def read_secret(cls, namespace: str, name: str) -> Dict[str, str]:
+        """
+        Deprecated: use kubetester.read_secret instead.
+        """
         data = cls.clients("corev1").read_namespaced_secret(name, namespace).data
         return decode_secret(data=data)
 

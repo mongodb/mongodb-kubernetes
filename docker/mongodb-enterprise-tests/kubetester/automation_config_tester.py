@@ -128,6 +128,9 @@ class AutomationConfigTester:
         role = self.automation_config["roles"][role_index]
         assert role == expected_value
 
+    def assert_tls_client_certificate_mode(self, mode: str):
+        assert self.automation_config["tls"]["clientCertificateMode"] == mode
+
     def reached_version(self, version: int) -> bool:
         return self.automation_config["version"] == version
 

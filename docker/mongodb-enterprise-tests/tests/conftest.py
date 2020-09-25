@@ -65,8 +65,8 @@ def cert_manager(namespace: str) -> str:
         helm_args={"installCRDs": "true"},
     )
 
-    # waits until the cert-manager webhook is Ready, otherwise creating Certificate
-    # Custom Resources will fail.
+    # waits until the cert-manager webhook and controller are Ready, otherwise creating
+    # Certificate Custom Resources will fail.
     get_pod_when_ready(
         name, f"app.kubernetes.io/instance={name},app.kubernetes.io/component=webhook",
     )

@@ -37,10 +37,14 @@ type Options struct {
 	// I.e. X509, SCRAM and not MONGODB-X509 or SCRAM-SHA-256
 	AgentMechanism string
 
-	// ClientCertificates configures whether or not Clint Certificates are required or optional.
-	// If X509 is the only mechanism, they must be Reequired, otherwise they should be Optional
+	// ClientCertificates configures whether or not Client Certificates are required or optional.
+	// If X509 is the only mechanism, they must be Required, otherwise they should be Optional
 	// so it is possible to use other auth mechanisms without needing to provide client certs.
 	ClientCertificates string
+
+	// Use Agent Client Auth
+	AgentsShouldUseClientAuthentication bool
+
 	UserOptions
 
 	// Ldap is the LDAP configuration that will be passed to the Automation Config.
@@ -116,8 +120,21 @@ func Configure(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 		return fmt.Errorf("error removing unrequired deployment mechanisms: %s", err)
 	}
 
+	if err := om.WaitForReadyState(conn, opts.ProcessNames, log); err != nil {
+		return fmt.Errorf("error waiting for ready state: %s", err)
+	}
+
+	// Adding a client certificate for agents
+	if err := addOrRemoveAgentClientCertificate(conn, opts, log); err != nil {
+		return fmt.Errorf("error adding client certificates for the agents: %s", err)
+	}
+
+	if err := om.WaitForReadyState(conn, opts.ProcessNames, log); err != nil {
+		return fmt.Errorf("error waiting for ready state: %s", err)
+	}
+
 	if err := removeUnusedAgentUsers(opts.UserOptions, conn, log); err != nil {
-		return fmt.Errorf("error remomving unused agent users: %s", err)
+		return fmt.Errorf("error removing unused agent users: %s", err)
 	}
 
 	if err := om.WaitForReadyState(conn, opts.ProcessNames, log); err != nil {
@@ -395,6 +412,36 @@ func removeUnrequiredDeploymentMechanisms(conn om.Connection, opts Options, log 
 	}
 
 	return nil
+}
+
+// addOrRemoveAgentClientCertificate changes the automation config so it enables or disables
+// client TLS authentication.
+// This function will not change the automation config if x509 agent authentication has been
+// enabled already (by the x509 auth package).
+func addOrRemoveAgentClientCertificate(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+	// If x509 is not enabled but still Client Certificates are, this automation config update
+	// will add the required configuration.
+	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		if getMechanismName(opts.AgentMechanism, ac, opts.MinimumMajorVersion) == MongoDBX509 {
+			// If TLS client authentication is managed by x509, we won't disable or enable it
+			// in here.
+			return nil
+		}
+
+		if opts.AgentsShouldUseClientAuthentication {
+			ac.AgentSSL = &om.AgentSSL{
+				AutoPEMKeyFilePath:    util.AutomationAgentPemFilePath,
+				CAFilePath:            util.CAFilePathInContainer,
+				ClientCertificateMode: opts.ClientCertificates,
+			}
+		} else {
+			ac.AgentSSL = &om.AgentSSL{
+				AutoPEMKeyFilePath:    util.MergoDelete,
+				ClientCertificateMode: util.OptionalClientCertficates,
+			}
+		}
+		return nil
+	}, log)
 }
 
 func getMechanismNames(ac *om.AutomationConfig, minimumMajorVersion uint64, mechanisms []string) []MechanismName {

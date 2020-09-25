@@ -15,9 +15,11 @@ spec:
 
   security:
     authentication:
+      enabled: true
+
       agents:
         mode: "<filled-by-test>"
-      enabled: true
+
       modes: ["LDAP", "SCRAM"]
       ldap:
         bindQueryUser: "<filled-by-test>"

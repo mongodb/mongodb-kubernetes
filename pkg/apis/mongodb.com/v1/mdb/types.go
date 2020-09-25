@@ -348,6 +348,43 @@ func (s *Security) ShouldUseX509(currentAgentAuthMode string) bool {
 	return s.GetAgentMechanism(currentAgentAuthMode) == util.X509
 }
 
+// AgentClientCertificateSecretName returns the name of the Secret that holds the agent
+// client TLS certificates.
+// If no custom name has been defined, it returns the default one.
+func (s Security) AgentClientCertificateSecretName() corev1.SecretKeySelector {
+	secretName := util.AgentSecretName
+	if s.ShouldUseClientCertificates() {
+		secretName = s.Authentication.Agents.ClientCertificateSecretRef.Name
+	}
+
+	return corev1.SecretKeySelector{
+		Key:                  util.AutomationAgentPemSecretKey,
+		LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+	}
+}
+
+// The customer has set ClientCertificateSecretRef. This signals that client certs are required,
+// even when no x509 agent-auth has been enabled.
+func (s Security) ShouldUseClientCertificates() bool {
+	return s.Authentication != nil && s.Authentication.Agents.ClientCertificateSecretRef.Name != ""
+}
+
+// RequiresClientTLSAuthentication checks if client TLS authentication is required, depending
+// on a set of defined attributes in the MongoDB resource. This can be explicitly set, setting
+// `Authentication.RequiresClientTLSAuthentication` to true or implicitly by setting x509 auth
+//  as the only auth mechanism.
+func (s Security) RequiresClientTLSAuthentication() bool {
+	if s.Authentication == nil {
+		return false
+	}
+
+	if len(s.Authentication.Modes) == 1 && stringutil.Contains(s.Authentication.Modes, util.X509) {
+		return true
+	}
+
+	return s.Authentication.RequiresClientTLSAuthentication
+}
+
 func (s *Security) ShouldUseLDAP(currentAgentAuthMode string) bool {
 	return s.GetAgentMechanism(currentAgentAuthMode) == util.LDAP
 }
@@ -372,10 +409,16 @@ type Authentication struct {
 	Modes           []string `json:"modes,omitempty"`
 	InternalCluster string   `json:"internalCluster,omitempty"`
 	// IgnoreUnknownUsers maps to the inverse of auth.authoritativeSet
-	IgnoreUnknownUsers bool  `json:"ignoreUnknownUsers,omitempty"`
-	Ldap               *Ldap `json:"ldap"`
+	IgnoreUnknownUsers bool `json:"ignoreUnknownUsers,omitempty"`
+
+	// LDAP
+	Ldap *Ldap `json:"ldap"`
+
 	// Agents contains authentication configuration properties for the agents
 	Agents AgentAuthentication `json:"agents"`
+
+	// Clients should present valid TLS certificates
+	RequiresClientTLSAuthentication bool `json:"requireClientTLSAuthentication,omitempty"`
 }
 
 type AuthenticationRestriction struct {
@@ -416,6 +459,8 @@ type AgentAuthentication struct {
 	AutomationPasswordSecretRef corev1.SecretKeySelector `json:"automationPasswordSecretRef"`
 
 	AutomationLdapGroupDN string `json:"automationLdapGroupDN"`
+
+	ClientCertificateSecretRef corev1.SecretKeySelector `json:"clientCertificateSecretRef,omitempty"`
 }
 
 // IsX509Enabled determines if X509 is to be enabled at the project level
