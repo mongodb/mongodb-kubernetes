@@ -92,6 +92,7 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 		SetPodSpec(appdbPodSpec).
 		SetClusterName(opsManager.ClusterName).
 		SetSecurity(rs.Security).
+		//TODO Remove?
 		SetVersion(opsManager.Spec.Version). // the version of the appdb image must match the OM image one
 		SetContainerName(util.AppDbContainerName)
 	// TODO: configure once StatefulSetConfiguration is supported for appDb

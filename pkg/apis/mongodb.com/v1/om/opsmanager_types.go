@@ -3,9 +3,11 @@ package om
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/scale"
+	"github.com/blang/semver"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
@@ -19,6 +21,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+var semverRegex *regexp.Regexp
 
 func init() {
 	v1.SchemeBuilder.Register(&MongoDBOpsManager{}, &MongoDBOpsManagerList{})
@@ -134,6 +138,10 @@ func (ms MongoDBOpsManagerSpec) GetOpsManagerCA() string {
 	return ""
 }
 
+func (ms MongoDBOpsManagerSpec) GetVersion() (semver.Version, error) {
+	return getOmVersion(ms.Version)
+}
+
 // MongoDBOpsManagerServiceDefinition struct that defines the mechanism by which this Ops Manager resource
 // is exposed, via a Service, to the outside of the Kubernetes Cluster.
 type MongoDBOpsManagerServiceDefinition struct {
@@ -184,6 +192,10 @@ type OpsManagerStatus struct {
 	Replicas      int    `json:"replicas,omitempty"`
 	Version       string `json:"version,omitempty"`
 	Url           string `json:"url,omitempty"`
+}
+
+func (os OpsManagerStatus) GetVersion() (semver.Version, error) {
+	return getOmVersion(os.Version)
 }
 
 type AppDbStatus struct {
@@ -468,4 +480,22 @@ func SchemePortFromAnnotation(annotation string) (corev1.URIScheme, int) {
 	}
 
 	return scheme, port
+}
+
+func getOmVersion(version string) (semver.Version, error) {
+	v, err := semver.Make(version)
+	if err != nil {
+		// Regex adapted from https://semver.org/#is-there-a-suggested-regular-expression-regex-to-check-a-semver-string
+		// but removing the parts after the patch
+		if semverRegex == nil {
+			semverRegex = regexp.MustCompile(`^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)?(-|$)`)
+		}
+		result := semverRegex.FindStringSubmatch(version)
+		if result == nil || len(result) < 4 {
+			return semver.Version{}, fmt.Errorf("Ops Manager Status spec.version %s is invalid", version)
+		}
+		// Concatenate Major.Minor.Patch
+		v, err = semver.Make(result[1] + "." + result[2] + "." + result[3])
+	}
+	return v, err
 }

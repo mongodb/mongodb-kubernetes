@@ -109,7 +109,33 @@ func TestOpsManager_RunValidations_S3StoreUserResourceRef(t *testing.T) {
 
 func TestOpsManager_RunValidations_InvalidVersion(t *testing.T) {
 	om := NewOpsManagerBuilder().SetVersion("4.4").Build()
-	assert.Equal(t, errors.New("'4.4' is an invalid value for spec.version: No Major.Minor.Patch elements found"), om.ProcessValidationsOnReconcile())
+	assert.Equal(t, errors.New("'4.4' is an invalid value for spec.version: Ops Manager Status spec.version 4.4 is invalid"), om.ProcessValidationsOnReconcile())
+}
+
+func TestOpsManager_RunValidations_InvalidPrerelease(t *testing.T) {
+	om := NewOpsManagerBuilder().SetVersion("3.5.0-1193-x86_64").Build()
+	version, err := om.Spec.GetVersion()
+	assert.NoError(t, om.ProcessValidationsOnReconcile())
+	assert.NoError(t, err)
+	assert.Equal(t, uint64(3), version.Major)
+	assert.Equal(t, uint64(5), version.Minor)
+	assert.Equal(t, uint64(0), version.Patch)
+
+}
+
+func TestOpsManager_RunValidations_InvalidMajor(t *testing.T) {
+	om := NewOpsManagerBuilder().SetVersion("4_4.4.0").Build()
+	assert.Equal(t, errors.New("'4_4.4.0' is an invalid value for spec.version: Ops Manager Status spec.version 4_4.4.0 is invalid"), om.ProcessValidationsOnReconcile())
+}
+
+func TestOpsManager_RunValidations_InvalidMinor(t *testing.T) {
+	om := NewOpsManagerBuilder().SetVersion("4.4_4.0").Build()
+	assert.Equal(t, errors.New("'4.4_4.0' is an invalid value for spec.version: Ops Manager Status spec.version 4.4_4.0 is invalid"), om.ProcessValidationsOnReconcile())
+}
+
+func TestOpsManager_RunValidations_InvalidPatch(t *testing.T) {
+	om := NewOpsManagerBuilder().SetVersion("4.4.4_0").Build()
+	assert.Equal(t, errors.New("'4.4.4_0' is an invalid value for spec.version: Ops Manager Status spec.version 4.4.4_0 is invalid"), om.ProcessValidationsOnReconcile())
 }
 
 func TestOpsManager_RunValidations_MultipleWarnings(t *testing.T) {

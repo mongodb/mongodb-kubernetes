@@ -2,7 +2,6 @@ package backup
 
 import (
 	"fmt"
-	"strings"
 
 	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -90,7 +89,8 @@ func NewS3Config(opsManager omv1.MongoDBOpsManager, id, uri string, bucket S3Buc
 		PathStyleAccessEnabled: true,
 	}
 
-	if strings.HasPrefix(opsManager.Spec.Version, "4.4.") {
+	version, err := opsManager.Spec.GetVersion()
+	if err == nil && version.Major == 4 && version.Minor == 4 {
 		// DisableProxyS3 is only available in 4.4 version of Ops Manager.
 		config.DisableProxyS3 = util.BooleanRef(false)
 	}

@@ -175,11 +175,11 @@ func triggerOmChangedEventIfNeeded(opsManager omv1.MongoDBOpsManager, log *zap.S
 	if opsManager.Spec.Version == opsManager.Status.OpsManagerStatus.Version || opsManager.Status.OpsManagerStatus.Version == "" {
 		return nil
 	}
-	newVersion, err := semver.Parse(opsManager.Spec.Version)
+	newVersion, err := opsManager.Spec.GetVersion()
 	if err != nil {
 		return fmt.Errorf("Failed to parse Ops Manager version %s: %s", opsManager.Spec.Version, err)
 	}
-	oldVersion, err := semver.Parse(opsManager.Status.OpsManagerStatus.Version)
+	oldVersion, err := opsManager.Status.OpsManagerStatus.GetVersion()
 	if err != nil {
 		return fmt.Errorf("Failed to parse Ops Manager status version %s: %s", opsManager.Status.OpsManagerStatus.Version, err)
 	}
@@ -411,7 +411,7 @@ func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(opsManage
 // (which internally depends on the mongodb version)
 func buildMongoConnectionUrl(opsManager omv1.MongoDBOpsManager, password string) string {
 	scramShaMechanism := "SCRAM-SHA-1"
-	if omSupportsScramSha256(opsManager.Spec.Version) {
+	if omSupportsScramSha256(opsManager.Spec) {
 		scramShaMechanism = "SCRAM-SHA-256"
 	}
 
@@ -1023,7 +1023,7 @@ func validateConfig(opsManager omv1.MongoDBOpsManager, mongodb mdbv1.MongoDB, us
 		return workflow.Failed("MongoDB resource %s is configured to use SCRAM-SHA authentication mode, the user must be"+
 			" specified using 'mongodbUserRef'", mongodb.Name)
 	}
-	if omSupportsScramSha256(opsManager.Spec.Version) {
+	if omSupportsScramSha256(opsManager.Spec) {
 		return workflow.OK()
 	}
 	// This validation is only for 4.2 OM version which doesn't support ScramSha256
@@ -1070,7 +1070,14 @@ func newUserFromSecret(data map[string]string) (*api.User, error) {
 }
 
 // omSupportsScramSha256 returns true if OM supports scram sha 256.
-func omSupportsScramSha256(omVersion string) bool {
-	omVersionComparison, err := util.CompareVersions(omVersion, omVersionWithNewDriver)
-	return err == nil && omVersionComparison >= 0
+func omSupportsScramSha256(omSpec omv1.MongoDBOpsManagerSpec) bool {
+	v1, err := omSpec.GetVersion()
+	if err != nil {
+		return false
+	}
+	v2, err := semver.Make(omVersionWithNewDriver)
+	if err != nil {
+		return false
+	}
+	return v1.GTE(v2)
 }

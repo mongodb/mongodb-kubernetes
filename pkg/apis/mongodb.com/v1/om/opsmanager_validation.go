@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/blang/semver"
-
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -60,7 +58,7 @@ func warningShardedClusterFieldsNotConfigurableForAppDB(field string) mdbv1.Vali
 }
 
 func validOmVersion(os MongoDBOpsManagerSpec) mdbv1.ValidationResult {
-	_, err := semver.Make(os.Version)
+	_, err := os.GetVersion()
 	if err != nil {
 		return mdbv1.ValidationError("'%s' is an invalid value for spec.version: %s", os.Version, err)
 	}
