@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Dict, List, Optional
 
 import time
+import logging
+
 from kubernetes import client
 from kubernetes.client import V1Pod, V1beta1CustomResourceDefinition, V1Deployment
 from kubernetes.client.rest import ApiException
@@ -128,21 +130,21 @@ class Operator(object):
             retry_count = retry_count - 1
 
         # Operator hasn't started - printing some debug information
-        self.printDiagnostics()
+        self.print_diagnostics()
 
         raise Exception(
             f"Operator hasn't started in specified time after {retries} retries."
         )
 
-    def printDiagnostics(self):
-        print("Operator Deployment: ")
-        print(self.read_deployment())
+    def print_diagnostics(self):
+        logging.info("Operator Deployment: ")
+        logging.info(self.read_deployment())
 
         pods = self.list_operator_pods()
         if len(pods) > 0:
-            print("Operator pods: ", len(pods))
-            print("Operator spec: ", pods[0].spec)
-            print("Operator status: ", pods[0].status)
+            logging.info("Operator pods: ", len(pods))
+            logging.info("Operator spec: ", pods[0].spec)
+            logging.info("Operator status: ", pods[0].status)
 
 
 def delete_operator_crds():

@@ -52,15 +52,16 @@ def crd_api():
     return ApiextensionsV1beta1Api()
 
 
-@fixture("module")
+@fixture(scope="module")
 def cert_manager(namespace: str) -> str:
     """Installs cert-manager v0.15.2 using Helm."""
     name = "cert-manager"
+    version = "v0.15.2"
     helm_install_from_chart(
         name,  # cert-manager is installed on a specific namespace
         name,
         f"jetstack/{name}",
-        version="v0.15.2",
+        version=version,
         custom_repo=("jetstack", "https://charts.jetstack.io"),
         helm_args={"installCRDs": "true"},
     )
@@ -78,7 +79,7 @@ def cert_manager(namespace: str) -> str:
     return name
 
 
-@fixture("module")
+@fixture(scope="module")
 def issuer(cert_manager: str, namespace: str) -> str:
     """
     This fixture creates an "Issuer" in the testing namespace. This requires cert-manager
@@ -103,7 +104,7 @@ def issuer(cert_manager: str, namespace: str) -> str:
     return "ca-issuer"
 
 
-@fixture("module")
+@fixture(scope="module")
 def issuer_ca_configmap(namespace: str) -> str:
     """This is the CA file which verifies the certificates signed by it."""
     ca = open(_fixture("ca-tls.crt")).read()
@@ -119,7 +120,7 @@ def issuer_ca_configmap(namespace: str) -> str:
     KubernetesTester.delete_configmap(namespace, name)
 
 
-@fixture("module")
+@fixture(scope="module")
 def issuer_ca_plus(namespace: str) -> str:
     """Returns the name of a ConfigMap which includes a custom CA and the full
     certificate chain for downloads.mongodb.com, fastdl.mongodb.org,
@@ -141,7 +142,7 @@ def issuer_ca_plus(namespace: str) -> str:
     KubernetesTester.delete_configmap(namespace, name)
 
 
-@fixture("module")
+@fixture(scope="module")
 def ca_path() -> str:
     """Returns a relative path to a file containing the CA.
     This is required to test TLS enabled connections to MongoDB like:
@@ -166,7 +167,7 @@ def custom_version() -> str:
     return os.getenv("CUSTOM_OM_VERSION", "4.4.1")
 
 
-@fixture("module")
+@fixture(scope="module")
 def default_operator(
     namespace: str, operator_installation_config: Dict[str, str],
 ) -> Operator:
@@ -178,7 +179,7 @@ def default_operator(
     ).upgrade(install=True)
 
 
-@fixture("module")
+@fixture(scope="module")
 def official_operator(
     namespace: str,
     operator_installation_config: Dict[str, str],

@@ -12,7 +12,7 @@ CA_PEM_FILE_PATH = "/var/run/secrets/ca-pem"
 USER_PASSWORD = "/qwerty@!#:"
 
 
-@fixture("module")
+@fixture(scope="module")
 def rs_certs_secret(namespace: str, issuer: str):
     return create_tls_certs(issuer, namespace, RS_NAME, "certs-for-replicaset")
 

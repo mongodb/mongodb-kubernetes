@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 import time
 
 
-@fixture("module")
+@fixture(scope="module")
 def certs_secret(namespace: str, issuer: str):
     return create_tls_certs(issuer, namespace, "test-tls-base-rs", "certs")
 

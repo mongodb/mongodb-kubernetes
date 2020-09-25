@@ -25,6 +25,9 @@ LDAP_PROTO_TLS = "ldaps"
 
 AUTOMATION_AGENT_NAME = "mms-automation-agent"
 
+OPENLDAP_NAME = "stable/openldap"
+OPENLDAP_VERSION = "1.2.4"
+
 
 def pytest_runtest_setup(item):
     """ This allows to automatically install the default Operator before running any test """
@@ -35,9 +38,9 @@ def pytest_runtest_setup(item):
 @fixture(scope="module")
 def openldap(namespace: str) -> Generator[OpenLDAP, None, None]:
     """Installs a OpenLDAP server and returns a reference to it."""
-    helm_install_from_chart(namespace, LDAP_NAME, "stable/openldap", "1.2.4")
+    helm_install_from_chart(namespace, LDAP_NAME, OPENLDAP_NAME, OPENLDAP_VERSION)
 
-    pod = get_pod_when_ready(namespace, LDAP_POD_LABEL)
+    get_pod_when_ready(namespace, LDAP_POD_LABEL)
 
     yield OpenLDAP(ldap_url(namespace), ldap_admin_password(namespace))
 
@@ -61,7 +64,7 @@ def openldap_tls(namespace: str, openldap_cert: str) -> Generator[OpenLDAP, None
         "env.LDAP_TLS_VERIFY_CLIENT": "never",
     }
     helm_install_from_chart(
-        namespace, LDAP_NAME, "stable/openldap", "1.2.4", helm_args=helm_args
+        namespace, LDAP_NAME, OPENLDAP_NAME, OPENLDAP_VERSION, helm_args=helm_args
     )
 
     pod = get_pod_when_ready(namespace, LDAP_POD_LABEL)

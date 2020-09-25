@@ -16,7 +16,7 @@ PASSWORD = "my-password"
 MDB_RESOURCE = "ldap-replica-set"
 
 
-@fixture("module")
+@fixture(scope="module")
 def server_certs(namespace: str, issuer: str):
     return create_tls_certs(issuer, namespace, "ldap-replica-set", "server-certs")
 

@@ -9,17 +9,17 @@ from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 
 
-@fixture("module")
+@fixture(scope="module")
 def domain(namespace: str):
     return "om-with-https-svc.{}.svc.cluster.local".format(namespace)
 
 
-@fixture("module")
+@fixture(scope="module")
 def appdb_certs(namespace: str, issuer: str):
     return create_tls_certs(issuer, namespace, "om-with-https-db", "certs-for-appdb")
 
 
-@fixture("module")
+@fixture(scope="module")
 def ops_manager_cert(domain: str, namespace: str, issuer: str):
     cert = Certificate(name="om-https-cert", namespace=namespace)
     cert["spec"] = {
@@ -40,7 +40,7 @@ def ops_manager_cert(domain: str, namespace: str, issuer: str):
     return "certs-for-ops-manager"
 
 
-@fixture("module")
+@fixture(scope="module")
 def ops_manager(
     domain: str,
     namespace: str,
@@ -64,7 +64,7 @@ def ops_manager(
     return om.create()
 
 
-@fixture("module")
+@fixture(scope="module")
 def replicaset0(
     ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str
 ):
@@ -77,7 +77,7 @@ def replicaset0(
     return resource.create()
 
 
-@fixture("module")
+@fixture(scope="module")
 def replicaset1(
     ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str
 ):

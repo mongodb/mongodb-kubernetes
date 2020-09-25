@@ -21,17 +21,17 @@ This test checks the work with TLS-enabled backing databases (oplog & blockstore
 """
 
 
-@fixture("module")
+@fixture(scope="module")
 def appdb_certs_secret(namespace: str, issuer: str):
     return create_tls_certs(issuer, namespace, "om-backup-tls-db", "certs-for-appdb")
 
 
-@fixture("module")
+@fixture(scope="module")
 def oplog_certs_secret(namespace: str, issuer: str):
     return create_tls_certs(issuer, namespace, OPLOG_RS_NAME, "certs-for-oplog")
 
 
-@fixture("module")
+@fixture(scope="module")
 def blockstore_certs_secret(namespace: str, issuer: str):
     return create_tls_certs(
         issuer, namespace, BLOCKSTORE_RS_NAME, "certs-for-blockstore"

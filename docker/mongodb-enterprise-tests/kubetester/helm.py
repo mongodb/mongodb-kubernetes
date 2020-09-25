@@ -1,6 +1,7 @@
 import subprocess
 import uuid
 from typing import Dict, Optional, List, Tuple
+import logging
 
 
 def helm_template(
@@ -18,12 +19,11 @@ def helm_template(
         command_args.append(templates)
 
     args = ("helm", "template", *(command_args), helm_chart_path)
-    print()
-    print(args)
 
     yaml_file_name = "{}.yaml".format(str(uuid.uuid4()))
     with open(yaml_file_name, "w") as output:
         subprocess.run(args, stdout=output, check=True)
+
     return yaml_file_name
 
 
@@ -35,10 +35,9 @@ def helm_install(
 ):
     command_args = _create_helm_args(helm_args, helm_options)
     args = ("helm", "install", *(command_args), name, helm_chart_path)
-    print()
-    print(args)
+    logging.info(args)
 
-    subprocess.run(args, check=True)
+    process_check(subprocess.run(args, check=True, capture_output=True))
 
 
 def helm_install_from_chart(
@@ -71,9 +70,22 @@ def helm_install_from_chart(
     if helm_args is not None:
         args += _create_helm_args(helm_args)
 
-    process = "helm repo add {} {}".format(custom_repo[0], custom_repo[1])
-    subprocess.run(process.split())
-    subprocess.run(args, check=True)
+    helm_repo_add = "helm repo add {} {}".format(custom_repo[0], custom_repo[1]).split()
+    logging.info(helm_repo_add)
+    process_check(subprocess.run(helm_repo_add, capture_output=True))
+    logging.info(args)
+    process_check(subprocess.run(args, check=True, capture_output=True))
+
+
+def process_check(completed_process: subprocess.CompletedProcess):
+    try:
+        completed_process.check_returncode()
+    except subprocess.CalledProcessError:
+        logging.info(completed_process.stdout)
+        logging.info(completed_process.stderr)
+        raise
+
+    return completed_process
 
 
 def helm_upgrade(
@@ -88,18 +100,15 @@ def helm_upgrade(
         # the helm chart will be installed if it doesn't exist yet
         command_args.append("--install")
     args = ("helm", "upgrade", *(command_args), name, helm_chart_path)
-    print()
-    print(args)
+    logging.info(args)
 
-    subprocess.run(args, check=True)
+    process_check(subprocess.run(args, check=True, capture_output=True))
 
 
 def helm_uninstall(name):
     args = ("helm", "uninstall", name)
-    print()
-    print(args)
-
-    subprocess.run(args, check=True)
+    logging.info(args)
+    process_check(subprocess.run(args, check=True, capture_output=True))
 
 
 def _create_helm_args(helm_args, helm_options: Optional[List[str]] = None) -> List[str]:

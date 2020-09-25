@@ -9,17 +9,17 @@ from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 
 
-@fixture("module")
+@fixture(scope="module")
 def domain(namespace: str):
     return "om-with-https-svc.{}.svc.cluster.local".format(namespace)
 
 
-@fixture("module")
+@fixture(scope="module")
 def appdb_certs(namespace: str, issuer: str):
     return create_tls_certs(issuer, namespace, "om-with-https-db", "certs-for-appdb")
 
 
-@fixture("module")
+@fixture(scope="module")
 def ops_manager_cert(domain: str, namespace: str, issuer: str):
     cert = Certificate(name="om-https-cert", namespace=namespace)
     cert["spec"] = {
@@ -40,7 +40,7 @@ def ops_manager_cert(domain: str, namespace: str, issuer: str):
     return "certs-for-ops-manager"
 
 
-@fixture("module")
+@fixture(scope="module")
 def ops_manager(
     domain: str,
     namespace: str,
@@ -71,7 +71,7 @@ def ops_manager(
     return om.create()
 
 
-@fixture("module")
+@fixture(scope="module")
 def replicaset0(ops_manager: MongoDBOpsManager, namespace: str):
     resource = MongoDB.from_yaml(
         _fixture("replica-set.yaml"), name="replicaset0", namespace=namespace
@@ -81,7 +81,7 @@ def replicaset0(ops_manager: MongoDBOpsManager, namespace: str):
     return resource.create()
 
 
-@fixture("module")
+@fixture(scope="module")
 def replicaset1(ops_manager: MongoDBOpsManager, namespace: str):
     resource = MongoDB.from_yaml(
         _fixture("replica-set.yaml"), name="replicaset1", namespace=namespace

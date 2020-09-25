@@ -12,12 +12,12 @@ CA_FILE_PATH_IN_TEST_POD = "/tests/ca.crt"
 OM_NAME = "om-tls-monitored-appdb"
 
 
-@fixture("module")
+@fixture(scope="module")
 def domain(namespace: str):
     return "{}-svc.{}.svc.cluster.local".format(OM_NAME, namespace)
 
 
-@fixture("module")
+@fixture(scope="module")
 def ops_manager_cert(domain: str, namespace: str, issuer: str):
     cert = Certificate(name=f"{OM_NAME}-cert", namespace=namespace)
     cert["spec"] = {
@@ -38,12 +38,12 @@ def ops_manager_cert(domain: str, namespace: str, issuer: str):
     return "certs-for-ops-manager"
 
 
-@fixture("module")
+@fixture(scope="module")
 def appdb_certs(namespace: str, issuer: str):
     return create_tls_certs(issuer, namespace, f"{OM_NAME}-db", "certs-for-appdb")
 
 
-@fixture("module")
+@fixture(scope="module")
 @mark.usefixtures("appdb_certs", "ops_manager_cert", "issuer_ca_configmap")
 def ops_manager(
     namespace: str,
