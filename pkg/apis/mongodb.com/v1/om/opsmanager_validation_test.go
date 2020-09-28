@@ -7,6 +7,7 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -114,7 +115,7 @@ func TestOpsManager_RunValidations_InvalidVersion(t *testing.T) {
 
 func TestOpsManager_RunValidations_InvalidPrerelease(t *testing.T) {
 	om := NewOpsManagerBuilder().SetVersion("3.5.0-1193-x86_64").Build()
-	version, err := om.Spec.GetVersion()
+	version, err := versionutil.StringToSemverVersion(om.Spec.Version)
 	assert.NoError(t, om.ProcessValidationsOnReconcile())
 	assert.NoError(t, err)
 	assert.Equal(t, uint64(3), version.Major)

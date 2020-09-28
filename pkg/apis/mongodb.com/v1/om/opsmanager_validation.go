@@ -6,6 +6,7 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 )
@@ -58,7 +59,7 @@ func warningShardedClusterFieldsNotConfigurableForAppDB(field string) mdbv1.Vali
 }
 
 func validOmVersion(os MongoDBOpsManagerSpec) mdbv1.ValidationResult {
-	_, err := os.GetVersion()
+	_, err := versionutil.StringToSemverVersion(os.Version)
 	if err != nil {
 		return mdbv1.ValidationError("'%s' is an invalid value for spec.version: %s", os.Version, err)
 	}

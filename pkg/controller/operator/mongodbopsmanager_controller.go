@@ -23,6 +23,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/identifiable"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/backup"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
@@ -175,11 +176,11 @@ func triggerOmChangedEventIfNeeded(opsManager omv1.MongoDBOpsManager, log *zap.S
 	if opsManager.Spec.Version == opsManager.Status.OpsManagerStatus.Version || opsManager.Status.OpsManagerStatus.Version == "" {
 		return nil
 	}
-	newVersion, err := opsManager.Spec.GetVersion()
+	newVersion, err := versionutil.StringToSemverVersion(opsManager.Spec.Version)
 	if err != nil {
 		return fmt.Errorf("Failed to parse Ops Manager version %s: %s", opsManager.Spec.Version, err)
 	}
-	oldVersion, err := opsManager.Status.OpsManagerStatus.GetVersion()
+	oldVersion, err := versionutil.StringToSemverVersion(opsManager.Status.OpsManagerStatus.Version)
 	if err != nil {
 		return fmt.Errorf("Failed to parse Ops Manager status version %s: %s", opsManager.Status.OpsManagerStatus.Version, err)
 	}
@@ -1071,7 +1072,7 @@ func newUserFromSecret(data map[string]string) (*api.User, error) {
 
 // omSupportsScramSha256 returns true if OM supports scram sha 256.
 func omSupportsScramSha256(omSpec omv1.MongoDBOpsManagerSpec) bool {
-	v1, err := omSpec.GetVersion()
+	v1, err := versionutil.StringToSemverVersion(omSpec.Version)
 	if err != nil {
 		return false
 	}
