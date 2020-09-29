@@ -40,6 +40,7 @@ class TestReplicaSetEnableAllOptions(KubernetesTester):
         ac_tester.assert_internal_cluster_authentication_enabled()
         ac_tester.assert_authentication_enabled()
 
+    # TODO refactor the test to use the Operator class instead
     def test_operator_logs_tls_certificate_warnings(self, namespace):
         operator_pod = KubernetesTester.read_operator_pod(namespace)
         logs = KubernetesTester.read_pod_logs(namespace, operator_pod.metadata.name)

@@ -45,8 +45,6 @@ const (
 	OneMB = 1048576
 
 	OpsManagerPodMemPercentage = 90
-
-	controllerLabelName = "controller"
 )
 
 // PodEnvVars is a convenience struct to pass environment variables to Pods as needed.
@@ -215,8 +213,8 @@ func buildJvmEnvVar(customParams []string, containerMemParams string) string {
 // Services and to not change any attribute they might already have that needs to be maintained.
 func buildService(namespacedName types.NamespacedName, owner v1.CustomResourceReadWriter, label string, port int32, mongoServiceDefinition omv1.MongoDBOpsManagerServiceDefinition) corev1.Service {
 	labels := map[string]string{
-		AppLabelKey:         label,
-		controllerLabelName: util.OperatorName,
+		AppLabelKey:                   label,
+		construct.ControllerLabelName: util.OperatorName,
 	}
 	svcBuilder := service.Builder().
 		SetNamespace(namespacedName.Namespace).

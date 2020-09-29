@@ -10,11 +10,15 @@ spec:
   replicas: 1
   selector:
       matchLabels:
-        controller: {{ .Values.operator.name }}
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/name: {{ .Values.operator.name }}
+        app.kubernetes.io/instance: {{ .Values.operator.name }}
   template:
     metadata:
       labels:
-        controller: {{ .Values.operator.name }}
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/name: {{ .Values.operator.name }}
+        app.kubernetes.io/instance: {{ .Values.operator.name }}
     spec:
       serviceAccountName: {{ .Values.operator.name }}
 {{- if not .Values.managedSecurityContext }}

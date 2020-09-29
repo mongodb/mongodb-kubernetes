@@ -14,7 +14,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const controllerLabelName = "controller"
+// This label must match the label used for Operator deployment
+const controllerLabelName = "app.kubernetes.io/name"
 
 // createWebhookService creates a Kubernetes service for the webhook.
 func createWebhookService(client client.Client, location types.NamespacedName, webhookPort int) error {

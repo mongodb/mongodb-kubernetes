@@ -88,13 +88,12 @@ class Operator(object):
         pods = (
             client.CoreV1Api()
             .list_namespaced_pod(
-                self.namespace, label_selector="controller={}".format(self.name)
+                self.namespace,
+                label_selector="app.kubernetes.io/name={}".format(self.name),
             )
             .items
         )
-        # as now 'controller' label is added to non-operator pods as well we cannot find the controller just by this
-        # label, let's check the number of labels
-        return [pod for pod in pods if len(pod.metadata.labels) == 2]
+        return pods
 
     def read_deployment(self) -> V1Deployment:
         return client.AppsV1Api().read_namespaced_deployment(self.name, self.namespace)

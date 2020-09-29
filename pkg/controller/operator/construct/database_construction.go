@@ -35,7 +35,7 @@ const (
 	databaseLivenessProbeCommand  = "/opt/scripts/probe.sh"
 	databaseReadinessProbeCommand = "/opt/scripts/readinessprobe"
 
-	controllerLabelName       = "controller"
+	ControllerLabelName       = "controller"
 	initDatabaseContainerName = "mongodb-enterprise-init-database"
 
 	// Database environment variable names
@@ -73,7 +73,7 @@ func DatabaseStatefulSet(mdbBuilder DatabaseBuilder) appsv1.StatefulSet {
 func buildDatabaseStatefulSetConfigurationFunction(mdbBuilder DatabaseBuilder, podTemplateSpecFunc podtemplatespec.Modification) statefulset.Modification {
 	podLabels := map[string]string{
 		appLabelKey:             mdbBuilder.GetService(),
-		controllerLabelName:     util.OperatorName,
+		ControllerLabelName:     util.OperatorName,
 		podAntiAffinityLabelKey: mdbBuilder.GetName(),
 	}
 
