@@ -667,7 +667,7 @@ func (r *ReconcileCommonController) getStatefulSetStatus(namespace, name string)
 
 	// Sometimes it is possible that the StatefulSet which has just been created
 	// returns a not found error when getting it too soon afterwards.
-	for apiErrors.IsNotFound(err) || i < 10 {
+	for apiErrors.IsNotFound(err) && i < 10 {
 		i++
 		zap.S().Debugf("StatefulSet was not found: %s, attempt %d", err, i)
 		time.Sleep(1)
