@@ -11,10 +11,12 @@ import (
 
 // StatefulSetState is an entity encapsulating all the information about StatefulSet state
 type StatefulSetState struct {
-	statefulSetKey client.ObjectKey
-	updated        int32
-	ready          int32
-	total          int32
+	statefulSetKey     client.ObjectKey
+	updated            int32
+	ready              int32
+	total              int32
+	generation         int64
+	observedGeneration int64
 }
 
 // GetResourcesNotReadyStatus returns the status of dependent resources which have any problems
@@ -39,15 +41,17 @@ func (s StatefulSetState) GetMessage() string {
 }
 
 func (s StatefulSetState) IsReady() bool {
-	return s.updated == s.ready && s.ready == s.total
+	return s.updated == s.ready && s.ready == s.total && s.observedGeneration == s.generation
 }
 
 func StatefulSet(set appsv1.StatefulSet) StatefulSetState {
 	state := StatefulSetState{
-		statefulSetKey: types.NamespacedName{Namespace: set.Namespace, Name: set.Name},
-		updated:        set.Status.UpdatedReplicas,
-		ready:          set.Status.ReadyReplicas,
-		total:          *set.Spec.Replicas,
+		statefulSetKey:     types.NamespacedName{Namespace: set.Namespace, Name: set.Name},
+		updated:            set.Status.UpdatedReplicas,
+		ready:              set.Status.ReadyReplicas,
+		total:              *set.Spec.Replicas,
+		observedGeneration: set.Status.ObservedGeneration,
+		generation:         set.Generation,
 	}
 	return state
 }

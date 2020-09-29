@@ -53,6 +53,7 @@ def test_set_external_connectivity(opsmanager: MongoDBOpsManager):
     opsmanager["spec"]["externalConnectivity"] = ext_connectivity
     opsmanager.update()
 
+    # TODO: This is hanging forever and will be fixed in CLOUDP-73900
     opsmanager.om_status().assert_abandons_phase(Phase.Running)
     opsmanager.om_status().assert_reaches_phase(Phase.Running)
 
@@ -72,6 +73,7 @@ def test_set_external_connectivity(opsmanager: MongoDBOpsManager):
 def test_add_annotations(opsmanager: MongoDBOpsManager):
     """Makes sure annotations are updated properly."""
     annotations = {"second-annotation": "edited-value", "added-annotation": "new-value"}
+    opsmanager.load()
     opsmanager["spec"]["externalConnectivity"]["annotations"] = annotations
     opsmanager.update()
 
@@ -100,9 +102,7 @@ def test_service_set_node_port(opsmanager: MongoDBOpsManager):
     }
     opsmanager.update()
 
-    opsmanager.assert_reaches(
-        lambda x: service_is_changed_to_nodeport(opsmanager.services())
-    )
+    opsmanager.assert_reaches(lambda om: service_is_changed_to_nodeport(om))
 
     internal, external = opsmanager.services()
     assert internal.spec.type == "ClusterIP"
@@ -114,18 +114,16 @@ def test_service_set_node_port(opsmanager: MongoDBOpsManager):
     }
     opsmanager.update()
 
-    opsmanager.assert_reaches(
-        lambda x: service_is_changed_to_loadbalancer(opsmanager.services())
-    )
+    opsmanager.assert_reaches(lambda om: service_is_changed_to_loadbalancer(om))
 
     _, external = opsmanager.services()
     assert external.spec.type == "LoadBalancer"
     assert external.spec.ports[0].node_port == node_port
 
 
-def service_is_changed_to_nodeport(services):
-    return services[1].spec.type == "NodePort"
+def service_is_changed_to_nodeport(om: MongoDBOpsManager) -> bool:
+    return om.services()[1].spec.type == "NodePort"
 
 
-def service_is_changed_to_loadbalancer(services):
-    return services[1].spec.type == "LoadBalancer"
+def service_is_changed_to_loadbalancer(om: MongoDBOpsManager) -> bool:
+    return om.services()[1].spec.type == "LoadBalancer"

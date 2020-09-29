@@ -18,8 +18,9 @@ func TestStatefulSetInspector(t *testing.T) {
 			Replicas: util.Int32Ref(3),
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "sts",
-			Namespace: "ns",
+			Name:       "sts",
+			Namespace:  "ns",
+			Generation: 1,
 		},
 		Status: appsv1.StatefulSetStatus{
 			Replicas:        3,
@@ -38,6 +39,7 @@ func TestStatefulSetInspector(t *testing.T) {
 	// StatefulSet "got" to ready state
 	statefulSet.Status.UpdatedReplicas = 3
 	statefulSet.Status.ReadyReplicas = 3
+	statefulSet.Status.ObservedGeneration = 1
 
 	state = StatefulSet(statefulSet)
 	assert.True(t, state.IsReady())

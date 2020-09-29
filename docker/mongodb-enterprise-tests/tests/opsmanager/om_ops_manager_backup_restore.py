@@ -127,7 +127,6 @@ class TestOpsManagerCreation:
             {"name": "oplog1", "mongodbResourceRef": {"name": "my-mongodb-oplog"}}
         ]
         ops_manager.update()
-        ops_manager.om_status().assert_abandons_phase(Phase.Running)
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Running, timeout=200, ignore_errors=True,
         )

@@ -620,6 +620,8 @@ github.com/mongodb/mongodb-kubernetes-operator v0.1.0-prerelease h1:gKiFvE0Syj4e
 github.com/mongodb/mongodb-kubernetes-operator v0.1.0-prerelease/go.mod h1:Zx9jUfX47O1PtdDSLRXT3z3chf9jUWT5IKkRY+RwwDQ=
 github.com/mongodb/mongodb-kubernetes-operator v0.2.2-prerelease h1:tkeuf9V8xlLQ7aJOCdlwccw5vuayLuTWxTz/hCrYdDA=
 github.com/mongodb/mongodb-kubernetes-operator v0.2.2-prerelease/go.mod h1:XjbJHv4lniq4SnrtjDgNg5DtMmzP1SvCC1/EnAWc4vg=
+github.com/mongodb/mongodb-kubernetes-operator v0.2.2-prerelease-3 h1:HVET8s9+eLJddnxVmjtLh4AsE9mm0383IUB3s9MdL7Y=
+github.com/mongodb/mongodb-kubernetes-operator v0.2.2-prerelease-3/go.mod h1:XjbJHv4lniq4SnrtjDgNg5DtMmzP1SvCC1/EnAWc4vg=
 github.com/mongodb/mongodb-kubernetes-operator v0.2.2-prerelease2 h1:Vu5UyUMWViCRBYXXyqJBFnuYbxYD05qwCitzwHgEpyc=
 github.com/mongodb/mongodb-kubernetes-operator v0.2.2-prerelease2/go.mod h1:XjbJHv4lniq4SnrtjDgNg5DtMmzP1SvCC1/EnAWc4vg=
 github.com/montanaflynn/stats v0.0.0-20171201202039-1bf9dbcd8cbe/go.mod h1:wL8QJuTMNUDYhXwkmfOly8iTdp5TEcJFWZD2D7SIkUc=

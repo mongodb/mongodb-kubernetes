@@ -722,7 +722,6 @@ func (s *StatefulSetHelper) needToPublishStateFirst(log *zap.SugaredLogger) bool
 			log.Debug("About to set `security.tls.CA` to empty. automationConfig needs to be updated first")
 			return true
 		}
-
 	}
 
 	if s.PodVars.SSLMMSCAConfigMap == "" && volumeMountWithNameExists(volumeMounts, CaCertName) {
@@ -761,34 +760,33 @@ func volumeMountWithNameExists(mounts []corev1.VolumeMount, volumeName string) b
 // (the random port will be allocated by Kubernetes) otherwise only one service of type "ClusterIP" is created and it
 // won't be connectible from external (unless pods in statefulset expose themselves to outside using "hostNetwork: true")
 // Function returns the service port number assigned
-func (k *KubeHelper) createOrUpdateStatefulset(ns string, log *zap.SugaredLogger, set *appsv1.StatefulSet) (*appsv1.StatefulSet, error) {
-	log = log.With("statefulset", objectKey(ns, set.Name))
-	var msg string
-	existingStatefulSet, err := k.client.GetStatefulSet(kube.ObjectKey(ns, set.Name))
+func (k *KubeHelper) createOrUpdateStatefulset(ns string, log *zap.SugaredLogger, statefulSetToCreate *appsv1.StatefulSet) (*appsv1.StatefulSet, error) {
+	log = log.With("statefulset", kube.ObjectKey(ns, statefulSetToCreate.Name))
+	existingStatefulSet, err := k.client.GetStatefulSet(kube.ObjectKey(ns, statefulSetToCreate.Name))
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
-			if err = k.client.CreateStatefulSet(*set); err != nil {
+			if err = k.client.CreateStatefulSet(*statefulSetToCreate); err != nil {
 				return nil, err
 			}
 		} else {
 			return nil, err
 		}
-		msg = "Created"
-	} else {
-		// preserve existing certificate hash if new one is not set
-		existingCertHash := existingStatefulSet.Spec.Template.Annotations["certHash"]
-		newCertHash := set.Spec.Template.Annotations["certHash"]
-		if existingCertHash != "" && newCertHash == "" {
-			set.Spec.Template.Annotations["certHash"] = existingCertHash
-		}
-		if err := k.client.UpdateStatefulSet(*set); err != nil {
-			return nil, err
-		}
-		msg = "Updated"
+		log.Debugf("Created StatefulSet")
+		return statefulSetToCreate, nil
 	}
-	log.Debugf("%s StatefulSet", msg)
 
-	return set, nil
+	// preserve existing certificate hash if new one is not statefulSetToCreate
+	existingCertHash := existingStatefulSet.Spec.Template.Annotations["certHash"]
+	newCertHash := statefulSetToCreate.Spec.Template.Annotations["certHash"]
+	if existingCertHash != "" && newCertHash == "" {
+		statefulSetToCreate.Spec.Template.Annotations["certHash"] = existingCertHash
+	}
+
+	updatedSts, err := k.client.UpdateStatefulSet(*statefulSetToCreate)
+	if err != nil {
+		return nil, err
+	}
+	return &updatedSts, nil
 }
 
 func (k *KubeHelper) createOrUpdateService(desiredService corev1.Service, log *zap.SugaredLogger) error {

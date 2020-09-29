@@ -620,12 +620,11 @@ class TestBackupConfigurationAdditionDeletion:
         ops_manager["spec"]["backup"]["s3Stores"] = []
         ops_manager.update()
 
-        ops_manager.backup_status().assert_reaches_phase(Phase.Reconciling, timeout=60)
         try:
             ops_manager.backup_status().assert_reaches_phase(
                 Phase.Failed,
                 msg_regexp=".*BACKUP_CANNOT_REMOVE_S3_STORE_CONFIG.*",
-                timeout=150,
+                timeout=200,
             )
         except Exception:
             # Some backup internal logic: if more than 1 snapshot stores are configured in OM (CM?) then

@@ -270,7 +270,7 @@ class TestAppDBScramShaUpdated:
         ops_manager.load()
         ops_manager["spec"]["applicationDatabase"]["logLevel"] = "DEBUG"
         ops_manager.update()
-        ops_manager.appdb_status().assert_abandons_phase(Phase.Running)
+
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
 
     @pytest.mark.skip(

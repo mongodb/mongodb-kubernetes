@@ -179,11 +179,12 @@ func (c *MockedStatefulSetClient) GetStatefulSet(objectKey client.ObjectKey) (ap
 }
 
 // UpdateStatefulSet provides a thin wrapper and client.Client to update appsv1.StatefulSet types
-func (c *MockedStatefulSetClient) UpdateStatefulSet(sts appsv1.StatefulSet) error {
-	if err := c.client.Update(context.TODO(), &sts); err != nil {
-		return err
+func (c *MockedStatefulSetClient) UpdateStatefulSet(sts appsv1.StatefulSet) (appsv1.StatefulSet, error) {
+	updatesSts := sts
+	if err := c.client.Update(context.TODO(), &updatesSts); err != nil {
+		return appsv1.StatefulSet{}, err
 	}
-	return nil
+	return updatesSts, nil
 }
 
 // CreateStatefulSet provides a thin wrapper and client.Client to create appsv1.StatefulSet types

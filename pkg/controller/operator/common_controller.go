@@ -662,10 +662,18 @@ func validateMongoDBResource(mdb *mdbv1.MongoDB, conn om.Connection) workflow.St
 // If the StatefulSet is not ready the request will be retried in 3 seconds (instead of the default 10 seconds)
 // allowing to reach "ready" status sooner
 func (r *ReconcileCommonController) getStatefulSetStatus(namespace, name string) workflow.Status {
-	// TODO can we do this without sleeping?
-	time.Sleep(time.Duration(envutil.ReadIntOrDefault(util.K8sCacheRefreshEnv, util.DefaultK8sCacheRefreshTimeSeconds)) * time.Second)
-
 	set, err := r.client.GetStatefulSet(kube.ObjectKey(namespace, name))
+	i := 0
+
+	// Sometimes it is possible that the StatefulSet which has just been created
+	// returns a not found error when getting it too soon afterwards.
+	for apiErrors.IsNotFound(err) || i < 10 {
+		i++
+		zap.S().Debugf("StatefulSet was not found: %s, attempt %d", err, i)
+		time.Sleep(1)
+		set, err = r.client.GetStatefulSet(kube.ObjectKey(namespace, name))
+	}
+
 	if err != nil {
 		return workflow.Failed(err.Error())
 	}

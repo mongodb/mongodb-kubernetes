@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Callable
 from base64 import b64decode
 from kubeobject import CustomObject
 from kubernetes import client
@@ -35,7 +35,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def backup_status(self) -> MongoDBOpsManager.BackupStatus:
         return self.BackupStatus(self)
 
-    def assert_reaches(self, fn, timeout=None):
+    def assert_reaches(self, fn: Callable[[MongoDBOpsManager], bool], timeout=None):
         return self.wait_for(fn, timeout=timeout, should_raise=True)
 
     def get_appdb_hosts(self):
@@ -109,7 +109,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         mdb["spec"]["security"] = {"authentication": {"modes": ["SCRAM"]}}
         return mdb
 
-    def services(self) -> List[client.V1Service]:
+    def services(self) -> List[Optional[client.V1Service]]:
         """Returns a two element list with internal and external Services.
 
         Any of them might be None if the Service is not found.
@@ -124,7 +124,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             except ApiException:
                 services.append(None)
 
-        return services[0], services[1]
+        return [services[0], services[1]]
 
     def read_statefulset(self) -> client.V1StatefulSet:
         return client.AppsV1Api().read_namespaced_stateful_set(

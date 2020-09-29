@@ -171,8 +171,11 @@ class TestOpsManagerValidationWarnings:
             ops_manager.backing_obj,
         )
 
-        ops_manager.om_status().assert_reaches_phase(Phase.Reconciling, timeout=300)
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+        def has_no_warnings(om: MongoDBOpsManager) -> bool:
+            return "warnings" not in om.get_status()
+
+        ops_manager.assert_reaches(has_no_warnings, timeout=1200)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=300)
 
     def test_warnings_reset(self, ops_manager: MongoDBOpsManager):
         assert "warnings" not in ops_manager.get_status()

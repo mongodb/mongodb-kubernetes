@@ -6,12 +6,10 @@ from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import (
     skip_if_local,
     fixture as yaml_fixture,
-    KubernetesTester,
 )
 from kubetester.mongodb import Phase
 from pytest import mark, fixture
 from tests.opsmanager.om_ops_manager_backup import (
-    new_om_s3_store,
     HEAD_PATH,
     OPLOG_RS_NAME,
     new_om_data_store,
@@ -84,7 +82,7 @@ class TestOpsManagerCreation:
             {"name": "oplog1", "mongodbResourceRef": {"name": "my-mongodb-oplog"}}
         ]
         ops_manager.update()
-        ops_manager.om_status().assert_abandons_phase(Phase.Running)
+
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Running, timeout=200, ignore_errors=True,
         )
@@ -132,8 +130,8 @@ def test_backup_statefulset_remains_after_disabling_backup(
     ops_manager.load()
     ops_manager["spec"]["backup"]["enabled"] = False
     ops_manager.update()
-    ops_manager.om_status().assert_abandons_phase(Phase.Running)
+
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=200)
 
-    # the backup statefulset should still exist even after we disable authentication
+    # the backup statefulset should still exist even after we disable backup
     ops_manager.read_backup_statefulset()
