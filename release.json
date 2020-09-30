@@ -5,8 +5,8 @@
     "rhelBinaryName": "mongodb-linux-x86_64-enterprise-rhel70-4.2.2.tgz",
     "ubuntuBinaryName": "mongodb-linux-x86_64-enterprise-ubuntu1604-4.2.2.tgz"
   },
-  "mongodbOperator": "1.7.1",
+  "mongodbOperator": "1.8.0",
   "initDatabaseVersion": "1.0.0",
-  "initOpsManagerVersion": "1.0.1",
+  "initOpsManagerVersion": "1.0.2",
   "initAppDbVersion": "1.0.3"
 }
