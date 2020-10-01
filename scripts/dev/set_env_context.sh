@@ -70,9 +70,7 @@ export REPO_URL=${BASE_REPO_URL}/${IMAGE_TYPE}
 # quay.io as they are not rebuilt during building process
 [[ -z "${OPS_MANAGER_REGISTRY-}" ]] && export OPS_MANAGER_REGISTRY="quay.io/mongodb"
 [[ -z "${APPDB_REGISTRY-}" ]] && export APPDB_REGISTRY="quay.io/mongodb"
-# TODO CLOUDP-70845: uncomment when we release the database 2.0.0
-#[[ -z "${DATABASE_REGISTRY-}" ]] && export DATABASE_REGISTRY="quay.io/mongodb"
-[[ -z "${DATABASE_REGISTRY-}" ]] && export DATABASE_REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/images"/${IMAGE_TYPE}
+[[ -z "${DATABASE_REGISTRY-}" ]] && export DATABASE_REGISTRY="quay.io/mongodb"
 
 [[ -z "${INIT_DATABASE_REGISTRY-}" ]] && export INIT_DATABASE_REGISTRY="${REPO_URL}"
 [[ -z "${INIT_APPDB_REGISTRY-}" ]] && export INIT_APPDB_REGISTRY="${REPO_URL}"

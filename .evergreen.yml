@@ -530,8 +530,7 @@ functions:
           REGISTRY: ${ecr_registry}/dev/${image_type}
           OPS_MANAGER_REGISTRY: ${ops_manager_registry|quay.io/mongodb}
           APPDB_REGISTRY: ${appdb_registry|quay.io/mongodb}
-          # TODO CLOUDP-70845: replace with quay.io/mongodb when we release database
-          DATABASE_REGISTRY: ${ecr_registry}/images/${image_type}
+          DATABASE_REGISTRY: ${database_registry|quay.io/mongodb}
           INIT_OPS_MANAGER_REGISTRY: ${ecr_registry}/dev/${image_type}
           INIT_APPDB_REGISTRY: ${ecr_registry}/dev/${image_type}
           INIT_DATABASE_REGISTRY: ${ecr_registry}/dev/${image_type}
