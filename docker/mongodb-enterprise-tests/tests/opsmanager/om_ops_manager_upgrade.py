@@ -278,7 +278,6 @@ class TestAppDBScramShaUpdated:
     )
     def test_appdb_scram_sha_(self, ops_manager: MongoDBOpsManager):
         """ In case of upgrade OM 4.2 -> OM 4.4 the AppDB scram-sha method must be upgraded as well """
-        auto_generated_password = ops_manager.read_appdb_generated_password()
         automation_config_tester = ops_manager.get_automation_config_tester()
         automation_config_tester.assert_authentication_mechanism_enabled(
             "SCRAM-SHA-256", False

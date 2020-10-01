@@ -113,7 +113,7 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 	// the state (usually takes up to 5 seconds).
 	if wasPublished {
 		waitTimeout := envutil.ReadIntOrDefault(util.AppDBReadinessWaitEnv, DefaultWaitForReadinessSeconds)
-		log.Debugf("Waiting for %d seconds to make sure readiness status is up-to-date", waitTimeout+util.DefaultK8sCacheRefreshTimeSeconds)
+		log.Debugf("Waiting for %d seconds to make sure readiness status is up-to-date", waitTimeout)
 		time.Sleep(time.Duration(waitTimeout) * time.Second)
 	}
 
