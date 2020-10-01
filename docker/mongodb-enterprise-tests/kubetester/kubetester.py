@@ -1152,7 +1152,8 @@ class KubernetesTester(object):
         )
         return api_response
 
-    def approve_certificate(self, name):
+    @staticmethod
+    def approve_certificate(name: str):
         body = client.CertificatesV1beta1Api().read_certificate_signing_request_status(
             name
         )
@@ -1266,7 +1267,8 @@ class KubernetesTester(object):
         KubernetesTester.create_storage_class("gp2")
         KubernetesTester.storage_class_make_not_default("standard")
 
-    def yield_existing_csrs(self, csr_names, timeout=300):
+    @staticmethod
+    def yield_existing_csrs(csr_names, timeout=300):
         """Returns certificates as they start appearing in the Kubernetes API."""
         csr_names = csr_names.copy()
         total_csrs = len(csr_names)

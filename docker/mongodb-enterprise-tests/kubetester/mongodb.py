@@ -106,14 +106,18 @@ class MongoDB(CustomObject, MongoDBCommon):
         return self["spec"]["type"]
 
     def tester(
-        self, insecure=True, ca_path: Optional[str] = None, srv: bool = False
+        self,
+        insecure=True,
+        ca_path: Optional[str] = None,
+        srv: bool = False,
+        use_ssl: Optional[bool] = None,
     ) -> MongoTester:
         """Returns a Tester instance for this type of deployment."""
         if self.type == "ReplicaSet":
             return ReplicaSetTester(
                 mdb_resource_name=self.name,
                 replicas_count=self["status"]["members"],
-                ssl=self.is_tls_enabled(),
+                ssl=self.is_tls_enabled() if use_ssl is None else use_ssl,
                 srv=srv,
                 insecure=insecure,
                 ca_path=ca_path,
@@ -123,7 +127,7 @@ class MongoDB(CustomObject, MongoDBCommon):
             return ShardedClusterTester(
                 mdb_resource_name=self.name,
                 mongos_count=self["spec"]["mongosCount"],
-                ssl=self.is_tls_enabled(),
+                ssl=self.is_tls_enabled() if use_ssl is None else use_ssl,
                 srv=srv,
                 insecure=insecure,
                 ca_path=ca_path,
@@ -132,7 +136,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         elif self.type == "Standalone":
             return StandaloneTester(
                 mdb_resource_name=self.name,
-                ssl=self.is_tls_enabled(),
+                ssl=self.is_tls_enabled() if use_ssl is None else use_ssl,
                 srv=srv,
                 insecure=insecure,
                 ca_path=ca_path,
