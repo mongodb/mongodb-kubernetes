@@ -8,5 +8,5 @@
   "mongodbOperator": "1.8.0",
   "initDatabaseVersion": "1.0.0",
   "initOpsManagerVersion": "1.0.2",
-  "initAppDbVersion": "1.0.3"
+  "initAppDbVersion": "1.0.4"
 }

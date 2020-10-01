@@ -5,15 +5,20 @@
 We need to produce a zip file with all the versions of the operator: this involves copying the directory and modifying the clusterserviceversion file.
 
 ``` bash
+
+release_before_last="1.7.0"
+prev_release="1.7.1"
+current_release="1.8.0"
+
 cd deploy/csv
-sed -i '' 's/1.6.0/1.6.1/g' mongodb-enterprise.package.yaml
-cp -r 1.6.0 1.6.1
-cd 1.6.1
-mv mongodb-enterprise.v1.6.0.clusterserviceversion.yaml mongodb-enterprise.v1.6.1.clusterserviceversion.yaml
+sed -i '' "s/${prev_release}/${current_release}/g" mongodb-enterprise.package.yaml
+cp -r ${prev_release} ${current_release}
+cd ${current_release}
+mv mongodb-enterprise.v${prev_release}.clusterserviceversion.yaml mongodb-enterprise.v${current_release}.clusterserviceversion.yaml
 # update all references to the new version
-sed -i '' 's/1.6.0/1.6.1/g' mongodb-enterprise.v1.6.1.clusterserviceversion.yaml
+sed -i '' "s/${prev_release}/${current_release}/g" mongodb-enterprise.v${current_release}.clusterserviceversion.yaml
 # update reference to the previous version
-sed -i '' 's/1.5.5/1.6.0/g' mongodb-enterprise.v1.6.1.clusterserviceversion.yaml
+sed -i '' "s/${release_before_last}/${prev_release}/g" mongodb-enterprise.v${current_release}.clusterserviceversion.yaml
 # update the CRDs
 cp ../../../public/helm_chart/crds/mongodb.mongodb.com.yaml mongodb.mongodb.com.crd.yaml
 cp ../../../public/helm_chart/crds/mongodbusers.mongodb.com.yaml mongodbusers.mongodb.com.crd.yaml
@@ -91,7 +96,7 @@ point to Quay.io and not to the RedHat Connect catalog.
 
 ## Fork/pull changes from community-operators
 ### If you do this the first time
-Fork the following repo into you own:
+Fork the following repo into your own:
 
     https://github.com/operator-framework/community-operators/tree/master/upstream-community-operators
 
