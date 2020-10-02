@@ -1,4 +1,4 @@
-{% extends "Dockerfile.template" %}
+{% extends "Dockerfile.ubi" %}
 
 # In DCAR enviornment, the operator will be copied from the internal nexus server.
 {% block external_packages %}
@@ -11,4 +11,8 @@
 
 {% block install_operator %}
   RUN mv ./mongodb-enterprise-operator /usr/local/bin/
+{% endblock %}
+
+{% block healthcheck %}
+HEALTHCHECK --timeout=30s CMD which mongodb-enterprise-operator || exit 1
 {% endblock %}

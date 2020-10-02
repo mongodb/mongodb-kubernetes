@@ -7,7 +7,7 @@ COPY LICENSE /licenses/mongodb-enterprise-ops-manager
 {% endblock %}
 
 {% block packages %}
-RUN yum install --disableplugin=subscription-manager -y \
+RUN yum install --disableplugin=subscription-manager \
   cyrus-sasl \
   cyrus-sasl-gssapi \
   cyrus-sasl-plain \

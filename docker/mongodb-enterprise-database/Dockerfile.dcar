@@ -1,28 +1,20 @@
-{% extends "Dockerfile.template" %}
+{% extends "Dockerfile.ubi" %}
 
-{% block static %}
-COPY licenses /licenses
-COPY content/epel.repo /etc/yum.repos.d/epel.repo
-COPY content/RPM-GPG-KEY-EPEL-7 /etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-7
-{% endblock %}
-
-{% block packages %}
-# these are the packages needed for the agent
-RUN yum install \
-        hostname \
-        nss_wrapper \
-        procps
-
+{% block extra_dcar_packages %}
 
 RUN yum update -y && yum install \
         libpcap \
-        lm_sensors-libs \
-        net-snmp \
-        net-snmp-agent-libs \
         rpm-libs \
         tcp_wrappers-libs \
-        nss_wrapper; \
-        yum clean all; \
-        ln -s /usr/lib64/libsasl2.so.3 /usr/lib64/libsasl2.so.2
+        nss_wrapper
 
+{% endblock %}
+
+
+{% block healthcheck %}
+{%- if is_appdb %}
+HEALTHCHECK --timeout=30s CMD ls /mongodb-automation/files/agent-launcher.sh || exit 1
+{%- else %}
+HEALTHCHECK --timeout=30s CMD ls "${MMS_HOME}"/files/probe.sh || exit 1
+{%- endif %}
 {% endblock %}

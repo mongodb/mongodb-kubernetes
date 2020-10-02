@@ -1,1 +1,5 @@
-{% extends "Dockerfile.rhel" %}
+{% extends "Dockerfile.ubi" %}
+
+{% block healthcheck %}
+HEALTHCHECK --timeout=30s CMD ls /mongodb-ops-manager/bin/mongodb-mms || exit 1
+{% endblock %}

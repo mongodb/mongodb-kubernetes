@@ -24,6 +24,8 @@ ENV MMS_LOG_DIR ${MMS_HOME}/logs
 
 EXPOSE 8080
 
+# OpsManager docker image needs to have the MongoDB dependencies because the
+# backup daemon is running its database locally
 {% block packages %}
 {% endblock %}
 
@@ -48,3 +50,6 @@ USER 2000
 
 # operator to change the entrypoint to: /mongodb-ops-manager/bin/mongodb-mms start_mms (or a wrapper around this)
 ENTRYPOINT [ "sleep infinity" ]
+
+{% block healthcheck %}
+{% endblock %}

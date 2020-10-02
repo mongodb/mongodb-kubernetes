@@ -21,8 +21,8 @@ LABEL name="MongoDB Enterprise Operator" \
 {% block packages -%}
 {% endblock -%}
 
-{% block static %}
 COPY licenses/ /licenses
+{% block static %}
 {% endblock %}
 
 {% block install_operator %}
@@ -45,3 +45,6 @@ USER 2000
 ENTRYPOINT exec /usr/local/bin/mongodb-enterprise-operator
 
 {% endif %}
+
+{% block healthcheck %}
+{% endblock %}

@@ -32,6 +32,9 @@ LABEL name="MongoDB Enterprise Database" \
 
 COPY LICENSE /licenses/mongodb-enterprise-database
 
+{% block extra_dcar_packages %}
+{% endblock %}
+
 {% block packages %}
 {% endblock %}
 
@@ -87,3 +90,6 @@ USER 2000
 # The script will be copied in runtime from init containers and the operator is expected
 # to override the COMMAND
 ENTRYPOINT ["sleep infinity"]
+
+{% block healthcheck %}
+{% endblock %}
