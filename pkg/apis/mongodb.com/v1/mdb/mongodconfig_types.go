@@ -34,6 +34,22 @@ func (c AdditionalMongodConfig) ToFlatList() []string {
 	return result
 }
 
+// GetPortOrDefault returns the port that should be used for the mongo process.
+// if no port is specified in the additional mongo args, the default
+// port of 27017 will be used
+func (c AdditionalMongodConfig) GetPortOrDefault() int32 {
+	if c == nil {
+		return util.MongoDbDefaultPort
+	}
+	// https://golang.org/pkg/encoding/json/#Unmarshal
+	// the port will be stored as a float64
+	port := maputil.ReadMapValueAsFloat64(c, "net", "port")
+	if port == 0 {
+		return util.MongoDbDefaultPort
+	}
+	return int32(port)
+}
+
 // DeepCopy is defined manually as codegen utility cannot generate copy methods for 'interface{}'
 func (in *AdditionalMongodConfig) DeepCopy() *AdditionalMongodConfig {
 	if in == nil {

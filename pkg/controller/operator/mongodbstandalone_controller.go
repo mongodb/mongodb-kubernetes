@@ -137,6 +137,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 	standaloneBuilder := r.kubeHelper.NewStatefulSetHelper(s).
 		SetReplicas(1).
 		SetService(s.ServiceName()).
+		SetServicePort(s.Spec.AdditionalMongodConfig.GetPortOrDefault()).
 		SetPodVars(podVars).
 		SetStartupParameters(s.Spec.Agent.StartupParameters).
 		SetLogger(log).

@@ -25,7 +25,7 @@ def test_replica_set_mongodb_options(replica_set: MongoDB):
         assert process["args2_6"]["systemLog"]["verbosity"] == 4
         assert process["args2_6"]["systemLog"]["logAppend"]
         assert process["args2_6"]["operationProfiling"]["mode"] == "slowOp"
-        assert process["args2_6"]["net"]["port"] == 27017
+        assert process["args2_6"]["net"]["port"] == 30000
 
 
 @mark.e2e_replica_set_mongod_options
@@ -73,7 +73,7 @@ def test_replica_set_mongodb_options_were_updated(replica_set: MongoDB):
         assert process["args2_6"]["systemLog"]["verbosity"] == 2
         assert process["args2_6"]["systemLog"]["logAppend"]
         assert process["args2_6"]["net"]["maxIncomingConnections"] == 100
-        assert process["args2_6"]["net"]["port"] == 27017
+        assert process["args2_6"]["net"]["port"] == 30000
         # operationProfiling is still there - we don't remove the unknown options during merge
         assert process["args2_6"]["operationProfiling"]["mode"] == "slowOp"
 

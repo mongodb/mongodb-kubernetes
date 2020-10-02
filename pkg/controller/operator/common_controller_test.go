@@ -353,6 +353,17 @@ func requestFromObject(object metav1.Object) reconcile.Request {
 	return reconcile.Request{NamespacedName: mock.ObjectKeyFromApiObject(object)}
 }
 
+func testConnectionSpec() mdbv1.ConnectionSpec {
+	return mdbv1.ConnectionSpec{
+		OpsManagerConfig: &mdbv1.PrivateCloudConfig{
+			ConfigMapRef: mdbv1.ConfigMapRef{
+				Name: mock.TestProjectConfigMapName,
+			},
+		},
+		Credentials: mock.TestCredentialsSecretName,
+	}
+}
+
 func checkReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, client *mock.MockedClient) {
 	result, e := reconciler.Reconcile(requestFromObject(object))
 	require.NoError(t, e)

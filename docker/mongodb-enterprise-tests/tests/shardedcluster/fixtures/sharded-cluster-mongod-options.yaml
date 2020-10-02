@@ -17,6 +17,8 @@ spec:
   configServerCount: 1
   mongos:
     additionalMongodConfig:
+      net:
+        port: 30003
       systemLog:
         logAppend: true
         verbosity: 4
@@ -24,10 +26,12 @@ spec:
     additionalMongodConfig:
       operationProfiling:
         mode: slowOp
+      net:
+        port: 30002
   shard:
     additionalMongodConfig:
       storage:
         journal:
           commitIntervalMs: 50
       net:
-        port: 30000 # this one will be overridden by the Operator
+        port: 30001

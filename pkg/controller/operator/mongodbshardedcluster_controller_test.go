@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
 
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -613,6 +615,42 @@ func TestFeatureControlsAuthEnabled(t *testing.T) {
 	assert.Contains(t, policies, controlledfeature.DisableAuthenticationMechanisms)
 }
 
+func TestShardedClusterPortsAreConfigurable_WithAdditionalMongoConfig(t *testing.T) {
+	configSrvConfig := mdbv1.NewAdditionalMongodConfig("net.port", 30000)
+	mongosConfig := mdbv1.NewAdditionalMongodConfig("net.port", 30001)
+	shardConfig := mdbv1.NewAdditionalMongodConfig("net.port", 30002)
+
+	sc := mdbv1.NewClusterBuilder().
+		SetNamespace(mock.TestNamespace).
+		SetConnectionSpec(testConnectionSpec()).
+		SetConfigSrvAdditionalConfig(configSrvConfig).
+		SetMongosAdditionalConfig(mongosConfig).
+		SetShardAdditionalConfig(shardConfig).
+		Build()
+
+	reconciler, client := defaultClusterReconciler(sc)
+
+	checkReconcileSuccessful(t, reconciler, sc, client)
+
+	t.Run("Config Server Port is configured", func(t *testing.T) {
+		configSrvSvc, err := client.GetService(kube.ObjectKey(sc.Namespace, sc.ConfigSrvServiceName()))
+		assert.NoError(t, err)
+		assert.Equal(t, int32(30000), configSrvSvc.Spec.Ports[0].Port)
+	})
+
+	t.Run("Mongos Port is configured", func(t *testing.T) {
+		mongosSvc, err := client.GetService(kube.ObjectKey(sc.Namespace, sc.ServiceName()))
+		assert.NoError(t, err)
+		assert.Equal(t, int32(30001), mongosSvc.Spec.Ports[0].Port)
+	})
+
+	t.Run("Shard Port is configured", func(t *testing.T) {
+		shardSvc, err := client.GetService(kube.ObjectKey(sc.Namespace, sc.ShardServiceName()))
+		assert.NoError(t, err)
+		assert.Equal(t, int32(30002), shardSvc.Spec.Ports[0].Port)
+	})
+}
+
 func assertPodSpecSts(t *testing.T, sts *appsv1.StatefulSet) {
 	assertPodSpecTemplate(t, "some-node-name", "some-host-name", corev1.RestartPolicyAlways, sts)
 }
@@ -734,6 +772,11 @@ func DefaultClusterBuilder() *ClusterBuilder {
 			Authentication: &mdbv1.Authentication{
 				Modes: []string{},
 			},
+		},
+		ShardedClusterSpec: mdbv1.ShardedClusterSpec{
+			ConfigSrvSpec: &mdbv1.ShardedClusterComponentSpec{},
+			MongosSpec:    &mdbv1.ShardedClusterComponentSpec{},
+			ShardSpec:     &mdbv1.ShardedClusterComponentSpec{},
 		},
 	}
 

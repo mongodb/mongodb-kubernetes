@@ -85,6 +85,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 	replicaBuilder := r.kubeHelper.NewStatefulSetHelper(rs).
 		SetReplicas(scale.ReplicasThisReconciliation(rs)).
 		SetService(rs.ServiceName()).
+		SetServicePort(rs.Spec.AdditionalMongodConfig.GetPortOrDefault()).
 		SetPodVars(podVars).
 		SetStartupParameters(rs.Spec.Agent.StartupParameters).
 		SetLogger(log).

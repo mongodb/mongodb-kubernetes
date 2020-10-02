@@ -17,6 +17,13 @@ type ShardedClusterComponentSpec struct {
 	Agent                  AgentConfig            `json:"agent,omitempty"`
 }
 
+func (s *ShardedClusterComponentSpec) GetAdditionalMongodConfig() AdditionalMongodConfig {
+	if s == nil {
+		return nil
+	}
+	return s.AdditionalMongodConfig
+}
+
 // MongodbShardedClusterSizeConfig describes the numbers and sizes of replica sets inside
 // sharded cluster
 type MongodbShardedClusterSizeConfig struct {

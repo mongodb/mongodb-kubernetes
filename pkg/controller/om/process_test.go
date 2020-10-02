@@ -25,7 +25,7 @@ func TestCreateMongodProcess(t *testing.T) {
 		assert.Equal(t, 5, process.authSchemaVersion())
 		assert.Equal(t, "", process.replicaSetName())
 
-		expectedMap := map[string]interface{}{"port": util.MongoDbDefaultPort, "ssl": map[string]interface{}{
+		expectedMap := map[string]interface{}{"port": int32(util.MongoDbDefaultPort), "ssl": map[string]interface{}{
 			"mode": "disabled",
 		}}
 		assert.Equal(t, expectedMap, process.EnsureNetConfig())
@@ -213,7 +213,7 @@ func TestMergeMongodProcess_MongodbOptions(t *testing.T) {
 
 	expectedArgs := map[string]interface{}{
 		"net": map[string]interface{}{
-			"port": 27017,
+			"port": int32(27017),
 			"ssl": map[string]interface{}{
 				"mode": "disabled",
 			},

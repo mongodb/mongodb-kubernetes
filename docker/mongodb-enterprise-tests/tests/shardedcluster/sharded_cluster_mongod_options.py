@@ -25,6 +25,7 @@ def test_sharded_cluster_mongodb_options_mongos(sharded_cluster: MongoDB):
         assert process["args2_6"]["systemLog"]["logAppend"]
         assert "operationProfiling" not in process["args2_6"]
         assert "storage" not in process["args2_6"]
+        assert process["args2_6"]["net"]["port"] == 30003
 
 
 @mark.e2e_sharded_cluster_mongod_options
@@ -37,6 +38,7 @@ def test_sharded_cluster_mongodb_options_config_srv(sharded_cluster: MongoDB):
         assert "verbosity" not in process["args2_6"]["systemLog"]
         assert "logAppend" not in process["args2_6"]["systemLog"]
         assert "journal" not in process["args2_6"]["storage"]
+        assert process["args2_6"]["net"]["port"] == 30002
 
 
 @mark.e2e_sharded_cluster_mongod_options
@@ -48,6 +50,7 @@ def test_sharded_cluster_mongodb_options_shards(sharded_cluster: MongoDB):
             assert "verbosity" not in process["args2_6"]["systemLog"]
             assert "logAppend" not in process["args2_6"]["systemLog"]
             assert "operationProfiling" not in process["args2_6"]
+            assert process["args2_6"]["net"]["port"] == 30001
 
 
 @mark.e2e_sharded_cluster_mongod_options

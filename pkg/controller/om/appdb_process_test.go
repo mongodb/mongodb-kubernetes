@@ -28,7 +28,7 @@ func TestCreateMongodProcessAppDB(t *testing.T) {
 	assert.Equal(t, 5, process.authSchemaVersion())
 	assert.Equal(t, "", process.replicaSetName())
 
-	expectedMap := map[string]interface{}{"port": util.MongoDbDefaultPort}
+	expectedMap := map[string]interface{}{"port": int32(util.MongoDbDefaultPort)}
 	assert.Equal(t, expectedMap, process.EnsureNetConfig())
 }
 
@@ -53,7 +53,7 @@ func TestCreateProcessWithTLSEnabled(t *testing.T) {
 	process := NewMongodProcessAppDB("tls-process-1", "tls-process-1.cluster.local", appdb)
 
 	pemKeyFile := "/var/lib/mongodb-automation/secrets/certs/tls-process-1-pem"
-	expectedMap := map[string]interface{}{"port": 27017, "ssl": map[string]interface{}{"mode": "requireSSL", "PEMKeyFile": pemKeyFile}}
+	expectedMap := map[string]interface{}{"port": int32(27017), "ssl": map[string]interface{}{"mode": "requireSSL", "PEMKeyFile": pemKeyFile}}
 	args := process["args2_6"].(map[string]interface{})
 	net := args["net"]
 	assert.Equal(t, expectedMap, net)

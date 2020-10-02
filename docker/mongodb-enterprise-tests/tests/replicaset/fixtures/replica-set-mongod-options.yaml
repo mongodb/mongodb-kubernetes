@@ -18,4 +18,4 @@ spec:
     operationProfiling:
       mode: slowOp
     net:
-      port: 30000 # this one will be overridden by the Operator
+      port: 30000

@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
@@ -338,6 +340,23 @@ func TestScalingScalesOneMemberAtATime_WhenScalingUp(t *testing.T) {
 	assert.NoError(t, err)
 
 	assertCorrectNumberOfMembersAndProcesses(t, 3, rs, client, "Once we reach the target value, we should not scale anymore")
+}
+
+func TestReplicaSetPortIsConfigurable_WithAdditionalMongoConfig(t *testing.T) {
+	config := mdbv1.NewAdditionalMongodConfig("net.port", 30000)
+	rs := mdbv1.NewReplicaSetBuilder().
+		SetNamespace(mock.TestNamespace).
+		SetAdditionalConfig(config).
+		SetConnectionSpec(testConnectionSpec()).
+		Build()
+
+	reconciler, client := defaultReplicaSetReconciler(rs)
+
+	checkReconcileSuccessful(t, reconciler, rs, client)
+
+	svc, err := client.GetService(kube.ObjectKey(rs.Namespace, rs.ServiceName()))
+	assert.NoError(t, err)
+	assert.Equal(t, int32(30000), svc.Spec.Ports[0].Port)
 }
 
 // assertCorrectNumberOfMembersAndProcesses ensures that both the mongodb resource and the Ops Manager deployment

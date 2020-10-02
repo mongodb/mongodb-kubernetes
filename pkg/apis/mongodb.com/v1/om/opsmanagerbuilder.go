@@ -88,6 +88,11 @@ func (b *OpsManagerBuilder) SetAppDbMembers(members int) *OpsManagerBuilder {
 	return b
 }
 
+func (b *OpsManagerBuilder) SetAdditionalMongodbConfig(config mdbv1.AdditionalMongodConfig) *OpsManagerBuilder {
+	b.om.Spec.AppDB.AdditionalMongodConfig = config
+	return b
+}
+
 func (b *OpsManagerBuilder) SetAppDbFeatureCompatibility(version string) *OpsManagerBuilder {
 	b.om.Spec.AppDB.FeatureCompatibilityVersion = &version
 	return b

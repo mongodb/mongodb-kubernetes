@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -510,6 +512,21 @@ func TestAppDBScaleUp_HappensIncrementally_FullOpsManagerReconcile(t *testing.T)
 
 	assert.Equal(t, 3, opsManager.Status.AppDbStatus.Members)
 
+}
+
+func TestAppDbPortIsConfigurable_WithAdditionalMongoConfig(t *testing.T) {
+	opsManager := DefaultOpsManagerBuilder().
+		SetBackup(omv1.MongoDBOpsManagerBackup{Enabled: false}).
+		SetAppDbMembers(1).
+		SetAdditionalMongodbConfig(mdb.NewAdditionalMongodConfig("net.port", 30000)).
+		Build()
+	omReconciler, client, _, _ := defaultTestOmReconciler(t, opsManager)
+
+	checkOMReconcilliationSuccessful(t, omReconciler, &opsManager)
+
+	appdbSvc, err := client.GetService(kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.ServiceName()))
+	assert.NoError(t, err)
+	assert.Equal(t, int32(30000), appdbSvc.Spec.Ports[0].Port)
 }
 
 func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {

@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
@@ -136,6 +138,23 @@ func TestStandaloneAuthenticationOwnedByOperator(t *testing.T) {
 
 }
 
+func TestStandalonePortIsConfigurable_WithAdditionalMongoConfig(t *testing.T) {
+	config := mdbv1.NewAdditionalMongodConfig("net.port", 30000)
+	st := mdbv1.NewStandaloneBuilder().
+		SetNamespace(mock.TestNamespace).
+		SetAdditionalConfig(config).
+		SetConnectionSpec(testConnectionSpec()).
+		Build()
+
+	reconciler, client := defaultStandaloneReconciler(st)
+
+	checkReconcileSuccessful(t, reconciler, st, client)
+
+	svc, err := client.GetService(kube.ObjectKey(st.Namespace, st.ServiceName()))
+	assert.NoError(t, err)
+	assert.Equal(t, int32(30000), svc.Spec.Ports[0].Port)
+}
+
 func TestStandaloneCustomPodSpecTemplate(t *testing.T) {
 	st := DefaultStandaloneBuilder().SetPodSpecTemplate(corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"first": "val"}},
@@ -208,6 +227,7 @@ func (b *StandaloneBuilder) SetService(s string) *StandaloneBuilder {
 	b.Spec.Service = s
 	return b
 }
+
 func (b *StandaloneBuilder) SetPodSpecTemplate(spec corev1.PodTemplateSpec) *StandaloneBuilder {
 	if b.Spec.PodSpec == nil {
 		b.Spec.PodSpec = &mdbv1.MongoDbPodSpec{}

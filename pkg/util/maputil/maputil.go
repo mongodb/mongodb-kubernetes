@@ -27,6 +27,14 @@ func ReadMapValueAsString(m map[string]interface{}, keys ...string) string {
 	return res.(string)
 }
 
+func ReadMapValueAsFloat64(m map[string]interface{}, keys ...string) float64 {
+	res := ReadMapValueAsInterface(m, keys...)
+	if res == nil {
+		return 0
+	}
+	return res.(float64)
+}
+
 // ReadMapValueAsMap traverses the nested maps inside the 'm' map following the 'keys' path and returns the last element
 // as a 'map[string]interface{}'
 func ReadMapValueAsMap(m map[string]interface{}, keys ...string) map[string]interface{} {

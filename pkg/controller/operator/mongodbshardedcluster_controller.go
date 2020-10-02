@@ -326,6 +326,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 	mongosBuilder := r.kubeHelper.NewStatefulSetHelper(s).
 		SetName(s.MongosRsName()).
 		SetService(s.ServiceName()).
+		SetServicePort(s.Spec.MongosSpec.GetAdditionalMongodConfig().GetPortOrDefault()).
 		SetReplicas(r.getMongosCountThisReconciliation()).
 		SetPodSpec(NewDefaultPodSpecWrapper(*s.Spec.MongosPodSpec)).
 		SetPodVars(podVars).
@@ -352,6 +353,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 	configBuilder := r.kubeHelper.NewStatefulSetHelper(s).
 		SetName(s.ConfigRsName()).
 		SetService(s.ConfigSrvServiceName()).
+		SetServicePort(s.Spec.ConfigSrvSpec.GetAdditionalMongodConfig().GetPortOrDefault()).
 		SetReplicas(r.getConfigSrvCountThisReconciliation()).
 		SetPodSpec(podSpec).
 		SetPodVars(podVars).
@@ -375,6 +377,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 		shardsSetHelpers[i] = r.kubeHelper.NewStatefulSetHelper(s).
 			SetName(s.ShardRsName(i)).
 			SetService(s.ShardServiceName()).
+			SetServicePort(s.Spec.ShardSpec.GetAdditionalMongodConfig().GetPortOrDefault()).
 			SetReplicas(r.getMongodsPerShardCountThisReconciliation()).
 			SetPodSpec(NewDefaultPodSpecWrapper(*s.Spec.ShardPodSpec)).
 			SetPodVars(podVars).

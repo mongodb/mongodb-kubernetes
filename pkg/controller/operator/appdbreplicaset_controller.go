@@ -86,6 +86,7 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 		SetReplicas(scale.ReplicasThisReconciliation(opsManager)).
 		SetName(rs.Name()).
 		SetService(rs.ServiceName()).
+		SetServicePort(rs.MongoDbSpec.AdditionalMongodConfig.GetPortOrDefault()).
 		SetPodVars(podVars).
 		SetStartupParameters(rs.Agent.StartupParameters).
 		SetLogger(log).

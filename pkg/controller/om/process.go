@@ -95,11 +95,13 @@ func NewProcessFromInterface(i interface{}) Process {
 
 // NewMongosProcess
 func NewMongosProcess(name, hostName string, resource *mdbv1.MongoDB) Process {
-	var additionalMongoConfig mdbv1.AdditionalMongodConfig
-	if resource.Spec.MongosSpec != nil {
-		additionalMongoConfig = resource.Spec.MongosSpec.AdditionalMongodConfig
-	}
-	p := createDefaultProcess(name, hostName, ProcessTypeMongos, additionalMongoConfig, resource.Spec)
+	p := createProcess(
+		WithName(name),
+		WithHostname(hostName),
+		WithProcessType(ProcessTypeMongos),
+		WithAdditionalMongodConfig(resource.Spec.MongosSpec.GetAdditionalMongodConfig()),
+		WithResourceSpec(resource.Spec),
+	)
 
 	// default values for configurable values
 	p.SetLogPath(path.Join(util.PvcMountPathLogs, "/mongodb.log"))
@@ -109,7 +111,13 @@ func NewMongosProcess(name, hostName string, resource *mdbv1.MongoDB) Process {
 
 // NewMongodProcess
 func NewMongodProcess(name, hostName string, additionalConfig mdbv1.AdditionalMongodConfig, resource *mdbv1.MongoDB) Process {
-	p := createDefaultProcess(name, hostName, ProcessTypeMongod, additionalConfig, resource.Spec)
+	p := createProcess(
+		WithName(name),
+		WithHostname(hostName),
+		WithProcessType(ProcessTypeMongod),
+		WithAdditionalMongodConfig(additionalConfig),
+		WithResourceSpec(resource.Spec),
+	)
 
 	// default values for configurable values
 	p.SetDbPath("/data")
@@ -277,31 +285,55 @@ func (p Process) String() string {
 
 // ****************** These ones are private methods not exposed to other packages *************************************
 
-// createDefaultProcess initializes a process. It's a common initialization done for both mongos and mongod processes
-func createDefaultProcess(name, hostName string, processType MongoType, additionalConfig mdbv1.AdditionalMongodConfig, resourceSpec mdbv1.MongoDbSpec) Process {
+// createProcess initializes a process. It's a common initialization done for both mongos and mongod processes
+func createProcess(opts ...ProcessOption) Process {
 	process := Process{}
-	// Applying the user-defined options if any
-	process["args2_6"] = additionalConfig.ToMap()
-
-	processVersion := resourceSpec.GetVersion()
-	process["version"] = processVersion
-	process["authSchemaVersion"] = calculateAuthSchemaVersion(processVersion)
-	featureCompatibilityVersion := resourceSpec.FeatureCompatibilityVersion
-	if featureCompatibilityVersion == nil {
-		computedFcv := calculateFeatureCompatibilityVersion(processVersion)
-		featureCompatibilityVersion = &computedFcv
+	for _, opt := range opts {
+		opt(process)
 	}
-
-	process["featureCompatibilityVersion"] = *featureCompatibilityVersion
-	process["processType"] = processType
-	process["name"] = name
-	process["hostname"] = hostName
-
-	// Implementation note: seems we can easily use the default port for any process (mongos/configSrv/mongod) as all
-	// processes are run in isolated containers and no conflicts can happen
-	process.EnsureNetConfig()["port"] = util.MongoDbDefaultPort
-
 	return process
+}
+
+type ProcessOption func(process Process)
+
+func WithResourceSpec(resourceSpec mdbv1.MongoDbSpec) ProcessOption {
+	return func(process Process) {
+		processVersion := resourceSpec.GetVersion()
+		process["version"] = processVersion
+		process["authSchemaVersion"] = calculateAuthSchemaVersion(processVersion)
+		featureCompatibilityVersion := resourceSpec.FeatureCompatibilityVersion
+		if featureCompatibilityVersion == nil {
+			computedFcv := calculateFeatureCompatibilityVersion(processVersion)
+			featureCompatibilityVersion = &computedFcv
+		}
+		process["featureCompatibilityVersion"] = *featureCompatibilityVersion
+	}
+}
+
+func WithName(name string) ProcessOption {
+	return func(process Process) {
+		process["name"] = name
+
+	}
+}
+func WithHostname(hostname string) ProcessOption {
+	return func(process Process) {
+		process["hostname"] = hostname
+	}
+}
+
+func WithProcessType(processType MongoType) ProcessOption {
+	return func(process Process) {
+		process["processType"] = processType
+	}
+}
+
+func WithAdditionalMongodConfig(additionalConfig mdbv1.AdditionalMongodConfig) ProcessOption {
+	return func(process Process) {
+		// Applying the user-defined options if any
+		process["args2_6"] = additionalConfig.ToMap()
+		process.EnsureNetConfig()["port"] = additionalConfig.GetPortOrDefault()
+	}
 }
 
 // ConfigureTLS enable TLS for this process. TLS will be always enabled after calling this. This function expects

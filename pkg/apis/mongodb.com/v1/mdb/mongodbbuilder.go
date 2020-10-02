@@ -12,11 +12,11 @@ type MongoDBBuilder struct {
 }
 
 func NewReplicaSetBuilder() *MongoDBBuilder {
-	return defaultMongoDB().setType(ReplicaSet).SetMembers(3)
+	return defaultMongoDB(ReplicaSet).SetMembers(3)
 }
 
 func NewStandaloneBuilder() *MongoDBBuilder {
-	return defaultMongoDB().setType(Standalone)
+	return defaultMongoDB(Standalone)
 }
 
 func NewClusterBuilder() *MongoDBBuilder {
@@ -26,7 +26,7 @@ func NewClusterBuilder() *MongoDBBuilder {
 		ConfigServerCount:    4,
 		MongosCount:          2,
 	}
-	mongodb := defaultMongoDB().setType(ShardedCluster)
+	mongodb := defaultMongoDB(ShardedCluster)
 	mongodb.mdb.Spec.MongodbShardedClusterSizeConfig = sizeConfig
 	return mongodb
 }
@@ -140,6 +140,11 @@ func (b *MongoDBBuilder) SetAdditionalOptions(config AdditionalMongodConfig) *Mo
 	return b
 }
 
+func (b *MongoDBBuilder) SetConnectionSpec(spec ConnectionSpec) *MongoDBBuilder {
+	b.mdb.Spec.ConnectionSpec = spec
+	return b
+}
+
 func (b *MongoDBBuilder) Build() *MongoDB {
 	b.mdb.InitDefaults()
 	return b.mdb.DeepCopy()
@@ -147,9 +152,10 @@ func (b *MongoDBBuilder) Build() *MongoDB {
 
 // ************************* Package private methods *********************************************************
 
-func defaultMongoDB() *MongoDBBuilder {
+func defaultMongoDB(resourceType ResourceType) *MongoDBBuilder {
 	spec := MongoDbSpec{
-		Version: "4.0.0",
+		Version:      "4.0.0",
+		ResourceType: resourceType,
 	}
 	mdb := &MongoDB{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "testMDB", Namespace: "testNS"}}
 	mdb.InitDefaults()
