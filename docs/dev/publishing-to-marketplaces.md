@@ -80,7 +80,9 @@ Finally, the zip file needs to be uploaded to the [Operator
 Metadata](https://connect.redhat.com/project/850021/operator-metadata)
 section in RedHat connect.
 
-The process of verification can take between 30 minutes and 2 hours. If after one retry it still fails, contact RedHat through https://connect.redhat.com/support/technology-partner/, the previous support email was connect-tech@redhat.com.
+The process of verification can take between 30 minutes and 2 hours. If after one retry it still fails, contact RedHat through 
+https://connect.redhat.com/support/technology-partner/, the previous support email was connect-tech@redhat.com.
+Also there is a possibility to start a more formal support case following these [instructions](https://access.redhat.com/start/how-to-engage-red-hat-support)
 
 
 We keep the zip file checked into our repository so that we can send it to RedHat for Operator certification.
