@@ -3,11 +3,15 @@ Certificate Custom Resource Definition.
 """
 
 import collections
-from typing import Optional, Dict
+
+from datetime import datetime, timezone
+from kubernetes import client
+from kubernetes.client.rest import ApiException
+from kubetester import random_k8s_name, create_secret, read_secret
+from typing import Optional, Dict, List, Generator
 from kubeobject import CustomObject
 import time
-
-from kubetester.kubetester import KubernetesTester
+import random
 
 
 ISSUER_CA_NAME = "ca-issuer"
@@ -61,8 +65,7 @@ def generate_cert(
 ):
     if spec is None:
         spec = dict()
-
-    secret_name = "{}-{}".format(pod, KubernetesTester.random_k8s_name(prefix="")[:4])
+    secret_name = "{}-{}".format(pod, random_k8s_name(prefix="")[:4])
     cert = Certificate(namespace=namespace, name=secret_name)
     cert["spec"] = {
         "dnsNames": [pod_dns, pod],
@@ -105,8 +108,55 @@ def create_tls_certs(
         pod_dns = pod_fqdn_fstring.format(idx)
         pod_name = f"{resource_name}-{idx}"
         cert_secret_name = generate_cert(namespace, pod_name, pod_dns, issuer, spec)
-        secret = KubernetesTester.read_secret(namespace, cert_secret_name)
+        secret = read_secret(cert_secret_name, namespace)
         data[pod_name + "-pem"] = secret["tls.key"] + secret["tls.crt"]
 
-    KubernetesTester.create_secret(namespace, bundle_secret_name, data)
+    create_secret(bundle_secret_name, namespace, data)
     return bundle_secret_name
+
+
+def approve_certificate(name: str) -> None:
+    """Approves the CertificateSigningRequest with the provided name"""
+    body = client.CertificatesV1beta1Api().read_certificate_signing_request_status(name)
+    conditions = client.V1beta1CertificateSigningRequestCondition(
+        last_update_time=datetime.now(timezone.utc).astimezone(),
+        message="This certificate was approved by E2E testing framework",
+        reason="E2ETestingFramework",
+        type="Approved",
+    )
+
+    body.status.conditions = [conditions]
+    client.CertificatesV1beta1Api().replace_certificate_signing_request_approval(
+        name, body
+    )
+
+
+def yield_existing_csrs(
+    csr_names: List[str], timeout: int = 300
+) -> Generator[str, None, None]:
+    """Returns certificate names as they start appearing in the Kubernetes API."""
+    csr_names = csr_names.copy()
+    total_csrs = len(csr_names)
+    seen_csrs = 0
+    stop_time = time.time() + timeout
+
+    while len(csr_names) > 0 and time.time() < stop_time:
+        csr = random.choice(csr_names)
+        try:
+            client.CertificatesV1beta1Api().read_certificate_signing_request_status(csr)
+        except ApiException:
+            time.sleep(3)
+            continue
+
+        seen_csrs += 1
+        csr_names.remove(csr)
+        yield csr
+
+    if len(csr_names) == 0:
+        # All the certificates have been "consumed" and yielded back to the user.
+        return
+
+    # we didn't find all of the expected csrs after the timeout period
+    raise AssertionError(
+        f"Expected to find {total_csrs} csrs, but only found {seen_csrs} after {timeout} seconds. Expected csrs {csr_names}"
+    )

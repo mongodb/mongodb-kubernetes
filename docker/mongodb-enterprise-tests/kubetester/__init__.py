@@ -1,12 +1,13 @@
 import random
 import string
 import time
+
+from kubernetes.client.rest import ApiException
 from typing import Dict
 
-from base64 import b64decode, b64encode
+from base64 import b64decode
 
 from .mongodb import MongoDB
-from .certs import Certificate
 from .kubetester import fixture as find_fixture
 
 from kubernetes import client

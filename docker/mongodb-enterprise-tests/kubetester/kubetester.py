@@ -5,10 +5,9 @@ import string
 import sys
 import time
 import ssl
-import warnings
+
 import json
 from base64 import b64decode, b64encode
-from datetime import datetime, timezone
 
 from typing import Dict, List, Optional
 
@@ -20,6 +19,8 @@ import pytest
 import requests
 import semver
 import yaml
+import warnings
+
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from kubernetes import client, config
@@ -1154,20 +1155,15 @@ class KubernetesTester(object):
 
     @staticmethod
     def approve_certificate(name: str):
-        body = client.CertificatesV1beta1Api().read_certificate_signing_request_status(
-            name
+        warnings.warn(
+            DeprecationWarning(
+                "KubernetesTester.approve_certificate is deprecated, use kubetester.certs.approve_certificate instead!"
+            )
         )
-        conditions = client.V1beta1CertificateSigningRequestCondition(
-            last_update_time=datetime.now(timezone.utc).astimezone(),
-            message="This certificate was approved by E2E testing framework",
-            reason="E2ETestingFramework",
-            type="Approved",
-        )
+        # TODO: remove this method entirely
+        from kubetester.certs import approve_certificate
 
-        body.status.conditions = [conditions]
-        client.CertificatesV1beta1Api().replace_certificate_signing_request_approval(
-            name, body
-        )
+        return approve_certificate(name)
 
     def generate_certfile(
         self,
@@ -1269,34 +1265,15 @@ class KubernetesTester(object):
 
     @staticmethod
     def yield_existing_csrs(csr_names, timeout=300):
-        """Returns certificates as they start appearing in the Kubernetes API."""
-        csr_names = csr_names.copy()
-        total_csrs = len(csr_names)
-        seen_csrs = 0
-        stop_time = time.time() + timeout
-
-        while len(csr_names) > 0 and time.time() < stop_time:
-            csr = random.choice(csr_names)
-            try:
-                client.CertificatesV1beta1Api().read_certificate_signing_request_status(
-                    csr
-                )
-            except ApiException:
-                time.sleep(3)
-                continue
-
-            seen_csrs += 1
-            csr_names.remove(csr)
-            yield csr
-
-        if len(csr_names) == 0:
-            # All the certificates have been "consumed" and yielded back to the user.
-            return
-
-        # we didn't find all of the expected csrs after the timeout period
-        raise AssertionError(
-            f"Expected to find {total_csrs} csrs, but only found {seen_csrs} after {timeout} seconds. Expected csrs {csr_names}"
+        warnings.warn(
+            DeprecationWarning(
+                "KubernetesTester.yield_existing_csrs is deprecated, use kubetester.certs.yield_existing_csrs instead!"
+            )
         )
+        # TODO: remove this method entirely
+        from kubetester.certs import yield_existing_csrs
+
+        return yield_existing_csrs(csr_names, timeout)
 
     # TODO eventually replace all usages of this function with "ReplicaSetTester(mdb_resource, 3).assert_connectivity()"
     def wait_for_rs_is_ready(self, hosts, wait_for=60, check_every=5, ssl=False):

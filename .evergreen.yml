@@ -1481,6 +1481,12 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_sharded_cluster_internal_cluster_transition
+  tags: ["patch-run"]
+  exec_timeout_secs: 3000
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_replica_set_ldap
   tags: ["patch-run"]
   exec_timeout_secs: 1200
@@ -2067,6 +2073,7 @@ task_groups:
     - e2e_replica_set_x509_to_scram_transition
     - e2e_sharded_cluster_scram_sha_and_x509
     - e2e_sharded_cluster_x509_to_scram_transition
+    - e2e_sharded_cluster_internal_cluster_transition
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
