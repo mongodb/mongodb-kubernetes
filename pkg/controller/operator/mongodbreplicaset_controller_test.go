@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
@@ -223,7 +224,9 @@ func TestFeatureControlPolicyAndTagAddedWithNewerOpsManager(t *testing.T) {
 
 	reconciler, client := defaultReplicaSetReconciler(rs)
 	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
-		context.Version = "4.2.2"
+		context.Version = versionutil.OpsManagerVersion{
+			VersionString: "4.2.2",
+		}
 		conn := om.NewEmptyMockedOmConnection(context)
 		return conn
 	}
@@ -249,7 +252,9 @@ func TestFeatureControlPolicyNoAuthNewerOpsManager(t *testing.T) {
 
 	reconciler, client := defaultReplicaSetReconciler(rs)
 	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
-		context.Version = "4.2.2"
+		context.Version = versionutil.OpsManagerVersion{
+			VersionString: "4.2.2",
+		}
 		conn := om.NewEmptyMockedOmConnection(context)
 		return conn
 	}
@@ -271,7 +276,9 @@ func TestOnlyTagIsAppliedToOlderOpsManager(t *testing.T) {
 
 	reconciler, client := defaultReplicaSetReconciler(rs)
 	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
-		context.Version = "4.2.1"
+		context.Version = versionutil.OpsManagerVersion{
+			VersionString: "4.2.1",
+		}
 		conn := om.NewEmptyMockedOmConnection(context)
 		return conn
 	}

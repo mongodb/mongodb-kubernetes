@@ -12,7 +12,7 @@ func TestBuildFeatureControlsByMdb_MongodbParams(t *testing.T) {
 	t.Run("Feature controls for replica set additional params", func(t *testing.T) {
 		config := mdbv1.NewAdditionalMongodConfig("storage.journal.enabled", true).AddOption("storage.indexBuildRetry", true)
 		rs := mdbv1.NewReplicaSetBuilder().SetAdditionalConfig(config).Build()
-		controlledFeature := BuildFeatureControlsByMdb(*rs)
+		controlledFeature := buildFeatureControlsByMdb(*rs)
 
 		expectedControlledFeature := &ControlledFeature{
 			ManagementSystem: ManagementSystem{
@@ -38,7 +38,7 @@ func TestBuildFeatureControlsByMdb_MongodbParams(t *testing.T) {
 			SetMongosAdditionalConfig(mongosConfig).
 			SetConfigSrvAdditionalConfig(configSrvConfig).
 			Build()
-		controlledFeature := BuildFeatureControlsByMdb(*rs)
+		controlledFeature := buildFeatureControlsByMdb(*rs)
 
 		expectedControlledFeature := &ControlledFeature{
 			ManagementSystem: ManagementSystem{

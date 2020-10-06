@@ -239,29 +239,6 @@ func TestUpdateStatus_Patched(t *testing.T) {
 	assert.Equal(t, "Waiting for secret...", currentRs.Status.Message)
 }
 
-func TestShouldUseFeatureControls(t *testing.T) {
-
-	// older versions which do not support policy control
-	assert.False(t, shouldUseFeatureControls(toOMVersion("4.2.1")))
-	assert.False(t, shouldUseFeatureControls(toOMVersion("4.3.0")))
-
-	// if we don't know the version, use the tag
-	assert.False(t, shouldUseFeatureControls(toOMVersion("")))
-
-	// older version we don't know about, we assume a tag
-	assert.False(t, shouldUseFeatureControls(toOMVersion("3.6.0")))
-	assert.False(t, shouldUseFeatureControls(toOMVersion("3.6.2")))
-	assert.False(t, shouldUseFeatureControls(toOMVersion("3.6.3")))
-
-	// minimum versions that support policy control
-	assert.True(t, shouldUseFeatureControls(toOMVersion("4.2.2")))
-	assert.True(t, shouldUseFeatureControls(toOMVersion("4.2.3")))
-	assert.True(t, shouldUseFeatureControls(toOMVersion("4.3.1")))
-	assert.True(t, shouldUseFeatureControls(toOMVersion("4.3.2")))
-	assert.True(t, shouldUseFeatureControls(toOMVersion("4.4.0")))
-	assert.True(t, shouldUseFeatureControls(toOMVersion("4.4.1")))
-}
-
 func TestReadSubjectFromJustCertificate(t *testing.T) {
 	assertSubjectFromFileSucceeds(t, "CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US", "testdata/certificates/just_certificate")
 }
@@ -296,16 +273,6 @@ func assertSubjectFromFile(t *testing.T, expectedSubject, filePath string, passe
 		assert.Error(t, err)
 	}
 	assert.Equal(t, expectedSubject, subject)
-}
-
-func toOMVersion(versionString string) *om.Version {
-	if versionString == "" {
-		return &om.Version{}
-	}
-
-	return &om.Version{
-		VersionString: fmt.Sprintf("%s.56729.20191105T2247Z", versionString),
-	}
 }
 
 func prepareConnection(controller *ReconcileCommonController, t *testing.T) (*om.MockedOmConnection, *PodEnvVars) {

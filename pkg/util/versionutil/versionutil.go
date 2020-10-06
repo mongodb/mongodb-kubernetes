@@ -3,6 +3,7 @@ package versionutil
 import (
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/blang/semver"
 )
@@ -25,4 +26,55 @@ func StringToSemverVersion(version string) (semver.Version, error) {
 		v, err = semver.Make(result[1] + "." + result[2] + "." + result[3])
 	}
 	return v, err
+}
+
+type OpsManagerVersion struct {
+	VersionString string
+}
+
+func (v OpsManagerVersion) Semver() (semver.Version, error) {
+	if v.IsCloudManager() {
+		return semver.Version{}, nil
+	}
+
+	versionParts := strings.Split(v.VersionString, ".") // [4 2 4 56729 20191105T2247Z]
+	if len(versionParts) < 3 {
+		return semver.Version{}, nil
+	}
+
+	sv, err := semver.Make(strings.Join(versionParts[:3], "."))
+	if err != nil {
+		return semver.Version{}, err
+	}
+
+	return sv, nil
+}
+
+func (v OpsManagerVersion) IsCloudManager() bool {
+	return strings.HasPrefix(strings.ToLower(v.VersionString), "v")
+}
+
+func (v OpsManagerVersion) IsUnknown() bool {
+	return v.VersionString == ""
+}
+
+func (v OpsManagerVersion) String() string {
+	return v.VersionString
+}
+
+// GetVersionFromOpsManagerApiHeader returns the major, minor and patch version from the string
+// which is returned in the header of all Ops Manager responses in the form of:
+// gitHash=f7bdac406b7beceb1415fd32c81fc64501b6e031; versionString=4.2.4.56729.20191105T2247Z
+func GetVersionFromOpsManagerApiHeader(versionString string) string {
+	if versionString == "" || !strings.Contains(versionString, "versionString=") {
+		return ""
+	}
+
+	splitString := strings.Split(versionString, "versionString=")
+
+	if len(splitString) == 2 {
+		return splitString[1]
+	}
+
+	return ""
 }

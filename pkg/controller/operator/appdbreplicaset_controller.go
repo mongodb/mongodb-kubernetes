@@ -545,8 +545,8 @@ func markAppDBAsBackingProject(conn om.Connection, log *zap.SugaredLogger) error
 			opsManagerDoesNotSupportApi := apiErr.Status != nil && *apiErr.Status == 404 && apiErr.ErrorCode == "RESOURCE_NOT_FOUND"
 			if opsManagerDoesNotSupportApi {
 				msg := "This version of Ops Manager does not support the markAsBackingDatabase API."
-				if !conn.OMVersion().IsUnknown() {
-					msg += fmt.Sprintf(" Version=%s", conn.OMVersion())
+				if !conn.OpsManagerVersion().IsUnknown() {
+					msg += fmt.Sprintf(" Version=%s", conn.OpsManagerVersion())
 				}
 				log.Debug(msg)
 				return nil

@@ -3,6 +3,8 @@ package operator
 import (
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/scale"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/host"
@@ -152,7 +154,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return nil, status
 	}
 
-	if status := r.ensureFeatureControls(*sc, conn, log); !status.IsOK() {
+	if status := controlledfeature.EnsureFeatureControls(*sc, conn, conn.OpsManagerVersion(), log); !status.IsOK() {
 		return nil, status
 	}
 
@@ -160,7 +162,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return nil, status
 	}
 
-	if status := r.ensureRoles(sc.Spec.GetSecurity().Roles, conn, log); !status.IsOK() {
+	if status := ensureRoles(sc.Spec.GetSecurity().Roles, conn, log); !status.IsOK() {
 		return nil, status
 	}
 

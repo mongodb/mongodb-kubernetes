@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/host"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
@@ -118,7 +120,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		return r.updateStatus(s, reconcileResult, log)
 	}
 
-	if status := r.ensureFeatureControls(*s, conn, log); !status.IsOK() {
+	if status := controlledfeature.EnsureFeatureControls(*s, conn, conn.OpsManagerVersion(), log); !status.IsOK() {
 		return r.updateStatus(s, status, log)
 	}
 
@@ -160,7 +162,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		return r.updateStatus(s, status, log)
 	}
 
-	if status := r.ensureRoles(s.Spec.GetSecurity().Roles, conn, log); !status.IsOK() {
+	if status := ensureRoles(s.Spec.GetSecurity().Roles, conn, log); !status.IsOK() {
 		return r.updateStatus(s, status, log)
 	}
 

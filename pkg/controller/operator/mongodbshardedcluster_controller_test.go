@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
 
@@ -414,7 +415,9 @@ func TestFeatureControlsNoAuth(t *testing.T) {
 	sc := DefaultClusterBuilder().RemoveAuth().Build()
 	reconciler, client := defaultClusterReconciler(sc)
 	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
-		context.Version = "4.2.2"
+		context.Version = versionutil.OpsManagerVersion{
+			VersionString: "4.2.2",
+		}
 		conn := om.NewEmptyMockedOmConnection(context)
 		return conn
 	}
@@ -591,7 +594,9 @@ func TestFeatureControlsAuthEnabled(t *testing.T) {
 	sc := DefaultClusterBuilder().Build()
 	reconciler, client := defaultClusterReconciler(sc)
 	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
-		context.Version = "4.2.2"
+		context.Version = versionutil.OpsManagerVersion{
+			VersionString: "4.2.2",
+		}
 		conn := om.NewEmptyMockedOmConnection(context)
 		return conn
 	}

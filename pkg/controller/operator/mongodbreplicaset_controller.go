@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/scale"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/host"
@@ -107,7 +109,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		return r.updateStatus(rs, status, log)
 	}
 
-	if status := r.ensureFeatureControls(*rs, conn, log); !status.IsOK() {
+	if status := controlledfeature.EnsureFeatureControls(*rs, conn, conn.OpsManagerVersion(), log); !status.IsOK() {
 		return r.updateStatus(rs, status, log)
 	}
 
@@ -120,7 +122,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		return r.updateStatus(rs, workflow.Failed(err.Error()), log)
 	}
 
-	if status := r.ensureRoles(rs.Spec.GetSecurity().Roles, conn, log); !status.IsOK() {
+	if status := ensureRoles(rs.Spec.GetSecurity().Roles, conn, log); !status.IsOK() {
 		return r.updateStatus(rs, status, log)
 	}
 

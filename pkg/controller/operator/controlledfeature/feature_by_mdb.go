@@ -7,8 +7,8 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 )
 
-// BuildFeatureControlsByMdb builds the controlled feature by MongoDB resource
-func BuildFeatureControlsByMdb(mdb mdbv1.MongoDB) *ControlledFeature {
+// buildFeatureControlsByMdb builds the controlled feature by MongoDB resource
+func buildFeatureControlsByMdb(mdb mdbv1.MongoDB) *ControlledFeature {
 	var cf *ControlledFeature
 	controlledFeatures := []func(*ControlledFeature){OptionExternallyManaged}
 	controlledFeatures = append(controlledFeatures, authentication(mdb)...)

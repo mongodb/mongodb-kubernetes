@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
@@ -92,7 +93,9 @@ func TestStandaloneAuthenticationOwnedByOpsManager(t *testing.T) {
 
 	reconciler, client := defaultStandaloneReconciler(st)
 	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
-		context.Version = "4.2.2"
+		context.Version = versionutil.OpsManagerVersion{
+			VersionString: "4.2.2",
+		}
 		conn := om.NewEmptyMockedOmConnection(context)
 		return conn
 	}
@@ -114,7 +117,9 @@ func TestStandaloneAuthenticationOwnedByOperator(t *testing.T) {
 
 	reconciler, client := defaultStandaloneReconciler(st)
 	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
-		context.Version = "4.2.2"
+		context.Version = versionutil.OpsManagerVersion{
+			VersionString: "4.2.2",
+		}
 		conn := om.NewEmptyMockedOmConnection(context)
 		return conn
 	}
