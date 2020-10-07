@@ -9,6 +9,8 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/apierror"
+
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
@@ -633,11 +635,11 @@ func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager omv1.MongoDB
 	// 1. Enabling Daemon Config if necessary
 	backupHostName := opsManager.BackupDaemonHostName()
 	_, err := omAdmin.ReadDaemonConfig(backupHostName, util.PvcMountPathHeadDb)
-	if api.NewErrorNonNil(err).ErrorCode == api.BackupDaemonConfigNotFound {
+	if apierror.NewNonNil(err).ErrorCode == apierror.BackupDaemonConfigNotFound {
 		log.Infow("Backup Daemon is not configured, enabling it", "hostname", backupHostName, "headDB", util.PvcMountPathHeadDb)
 
 		err = omAdmin.CreateDaemonConfig(backupHostName, util.PvcMountPathHeadDb)
-		if api.NewErrorNonNil(err).ErrorCode == api.BackupDaemonConfigNotFound {
+		if apierror.NewNonNil(err).ErrorCode == apierror.BackupDaemonConfigNotFound {
 			// Unfortunately by this time backup daemon may not have been started yet and we don't have proper
 			// mechanism to ensure this using readiness probe so we just retry
 			return workflow.Pending("BackupDaemon hasn't started yet")

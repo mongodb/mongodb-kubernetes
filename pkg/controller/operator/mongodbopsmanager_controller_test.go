@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/apierror"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
@@ -478,7 +480,7 @@ func BuildTestStatefulSet(opsManager omv1.MongoDBOpsManager) (appsv1.StatefulSet
 
 type MockedInitializer struct {
 	currentUsers     []*api.User
-	expectedAPIError *api.Error
+	expectedAPIError *apierror.Error
 	expectedOmURL    string
 	t                *testing.T
 	numberOfCalls    int
@@ -494,7 +496,7 @@ func (o *MockedInitializer) TryCreateUser(omUrl string, user *api.User) (string,
 	// OM logic: any number of users is created. But we cannot of course create the user with the same name
 	for _, v := range o.currentUsers {
 		if v.Username == user.Username {
-			return "", api.NewErrorWithCode(api.UserAlreadyExists)
+			return "", apierror.NewErrorWithCode(apierror.UserAlreadyExists)
 		}
 	}
 	o.currentUsers = append(o.currentUsers, user)

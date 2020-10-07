@@ -9,13 +9,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/apierror"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/backup"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/host"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -72,8 +75,8 @@ type MockedOmConnection struct {
 	OrganizationsWithGroups map[*Organization][]*Project
 	CreateGroupFunc         func(group *Project) (*Project, error)
 	UpdateGroupFunc         func(group *Project) (*Project, error)
-	BackupConfigs           map[*BackupConfig]*HostCluster
-	UpdateBackupStatusFunc  func(clusterId string, status BackupStatus) error
+	BackupConfigs           map[*backup.Config]*backup.HostCluster
+	UpdateBackupStatusFunc  func(clusterId string, status backup.Status) error
 	AgentAuthMechanism      string
 
 	// UpdateMonitoringAgentConfigFunc is delegated to if not nil when UpdateMonitoringAgentConfig is called
@@ -119,7 +122,7 @@ func NewEmptyMockedOmConnectionWithDelay(ctx *OMContext) Connection {
 func NewMockedOmConnection(d Deployment) *MockedOmConnection {
 	connection := MockedOmConnection{deployment: d}
 	connection.hostResults = buildHostsFromDeployment(d)
-	connection.BackupConfigs = make(map[*BackupConfig]*HostCluster)
+	connection.BackupConfigs = make(map[*backup.Config]*backup.HostCluster)
 	// By default we don't wait for agents to reach goal
 	connection.AgentsDelayCount = 0
 	// We use a simplified version of context as this is the only thing needed to get lock for the update
@@ -341,7 +344,7 @@ func (oc *MockedOmConnection) ReadOrganizationsByName(name string) ([]*Organizat
 		}
 	}
 	if len(allOrgs) == 0 {
-		return nil, api.NewErrorWithCode(api.OrganizationNotFound)
+		return nil, apierror.NewErrorWithCode(apierror.OrganizationNotFound)
 	}
 	return allOrgs, nil
 }
@@ -421,16 +424,16 @@ func (oc *MockedOmConnection) UpdateProject(project *Project) (*Project, error) 
 	return nil, fmt.Errorf("Failed to find project")
 }
 
-func (oc *MockedOmConnection) ReadBackupConfigs() (*BackupConfigsResponse, error) {
+func (oc *MockedOmConnection) ReadBackupConfigs() (*backup.ConfigsResponse, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadBackupConfigs))
 
-	keys := make([]*BackupConfig, 0, len(oc.BackupConfigs))
+	keys := make([]*backup.Config, 0, len(oc.BackupConfigs))
 	for k := range oc.BackupConfigs {
 		keys = append(keys, k)
 	}
-	return &BackupConfigsResponse{Configs: keys}, nil
+	return &backup.ConfigsResponse{Configs: keys}, nil
 }
-func (oc *MockedOmConnection) ReadBackupConfig(clusterId string) (*BackupConfig, error) {
+func (oc *MockedOmConnection) ReadBackupConfig(clusterId string) (*backup.Config, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadBackupConfig))
 
 	for k := range oc.BackupConfigs {
@@ -438,10 +441,10 @@ func (oc *MockedOmConnection) ReadBackupConfig(clusterId string) (*BackupConfig,
 			return k, nil
 		}
 	}
-	return nil, api.NewError(errors.New("Failed to find backup config"))
+	return nil, apierror.New(errors.New("Failed to find backup config"))
 }
 
-func (oc *MockedOmConnection) ReadHostCluster(clusterId string) (*HostCluster, error) {
+func (oc *MockedOmConnection) ReadHostCluster(clusterId string) (*backup.HostCluster, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadHostCluster))
 
 	for k := range oc.BackupConfigs {
@@ -449,10 +452,10 @@ func (oc *MockedOmConnection) ReadHostCluster(clusterId string) (*HostCluster, e
 			return oc.BackupConfigs[k], nil
 		}
 	}
-	return nil, api.NewError(errors.New("Failed to find host cluster"))
+	return nil, apierror.New(errors.New("Failed to find host cluster"))
 }
 
-func (oc *MockedOmConnection) UpdateBackupStatus(clusterId string, newStatus BackupStatus) error {
+func (oc *MockedOmConnection) UpdateBackupStatus(clusterId string, newStatus backup.Status) error {
 	oc.addToHistory(reflect.ValueOf(oc.UpdateBackupStatus))
 
 	if oc.UpdateBackupStatusFunc != nil {
@@ -489,7 +492,7 @@ func (oc *MockedOmConnection) CheckMonitoredHostsRemoved(t *testing.T, removedHo
 	}
 }
 
-func (oc *MockedOmConnection) doUpdateBackupStatus(clusterID string, newStatus BackupStatus) {
+func (oc *MockedOmConnection) doUpdateBackupStatus(clusterID string, newStatus backup.Status) {
 	for k := range oc.BackupConfigs {
 		if k.ClusterId == clusterID {
 			if newStatus == "TERMINATING" {
@@ -545,7 +548,7 @@ func (oc *MockedOmConnection) CheckResourcesAndBackupDeleted(t *testing.T, resou
 		found := false
 		for k, v := range oc.BackupConfigs {
 			if v.ClusterName == resourceName {
-				assert.Equal(t, BackupStatus("INACTIVE"), k.Status)
+				assert.Equal(t, backup.Inactive, k.Status)
 				found = true
 			}
 		}
@@ -592,25 +595,25 @@ func (oc *MockedOmConnection) AddHosts(hostnames []string) {
 	}
 }
 
-func (oc *MockedOmConnection) EnableBackup(resourceName string, resourceType MongoDbResourceType) {
-	if resourceType == ReplicaSetType {
-		config := BackupConfig{ClusterId: uuid.New().String(), Status: Started}
-		cluster := HostCluster{TypeName: "REPLICA_SET", ClusterName: resourceName, ReplicaSetName: resourceName}
+func (oc *MockedOmConnection) EnableBackup(resourceName string, resourceType backup.MongoDbResourceType) {
+	if resourceType == backup.ReplicaSetType {
+		config := backup.Config{ClusterId: uuid.New().String(), Status: backup.Started}
+		cluster := backup.HostCluster{TypeName: "REPLICA_SET", ClusterName: resourceName, ReplicaSetName: resourceName}
 		oc.BackupConfigs[&config] = &cluster
 	} else {
-		config := BackupConfig{ClusterId: uuid.New().String(), Status: Started}
-		cluster := HostCluster{TypeName: "SHARDED_REPLICA_SET", ClusterName: resourceName, ShardName: resourceName}
+		config := backup.Config{ClusterId: uuid.New().String(), Status: backup.Started}
+		cluster := backup.HostCluster{TypeName: "SHARDED_REPLICA_SET", ClusterName: resourceName, ShardName: resourceName}
 		oc.BackupConfigs[&config] = &cluster
 
 		// adding some host clusters for one shard and one config server - we don't care about relevance as they are
 		// expected top be ignored by Operator
 
-		config1 := BackupConfig{ClusterId: uuid.New().String(), Status: Inactive}
-		cluster1 := HostCluster{TypeName: "REPLICA_SET", ClusterName: resourceName, ShardName: resourceName + "-0"}
+		config1 := backup.Config{ClusterId: uuid.New().String(), Status: backup.Inactive}
+		cluster1 := backup.HostCluster{TypeName: "REPLICA_SET", ClusterName: resourceName, ShardName: resourceName + "-0"}
 		oc.BackupConfigs[&config1] = &cluster1
 
-		config2 := BackupConfig{ClusterId: uuid.New().String(), Status: Inactive}
-		cluster2 := HostCluster{TypeName: "REPLICA_SET", ClusterName: resourceName, ShardName: resourceName + "-config-rs-0"}
+		config2 := backup.Config{ClusterId: uuid.New().String(), Status: backup.Inactive}
+		cluster2 := backup.HostCluster{TypeName: "REPLICA_SET", ClusterName: resourceName, ShardName: resourceName + "-config-rs-0"}
 		oc.BackupConfigs[&config2] = &cluster2
 	}
 }
@@ -674,7 +677,7 @@ func (oc *MockedOmConnection) findOrganization(orgId string) (*Organization, err
 			return k, nil
 		}
 	}
-	return nil, api.NewError(fmt.Errorf("Organization with id %s not found", orgId))
+	return nil, apierror.New(fmt.Errorf("Organization with id %s not found", orgId))
 }
 
 // updateAutoAuthMechanism simulates the changes made by Ops Manager and the agents in deciding which

@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/apierror"
+
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
@@ -24,7 +26,6 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/project"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/host"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -541,7 +542,7 @@ func markAppDBAsBackingProject(conn om.Connection, log *zap.SugaredLogger) error
 	log.Debugf("Configuring the project as a backing database project.")
 	err := conn.MarkProjectAsBackingDatabase(om.AppDBDatabaseType)
 	if err != nil {
-		if apiErr, ok := err.(*api.Error); ok {
+		if apiErr, ok := err.(*apierror.Error); ok {
 			opsManagerDoesNotSupportApi := apiErr.Status != nil && *apiErr.Status == 404 && apiErr.ErrorCode == "RESOURCE_NOT_FOUND"
 			if opsManagerDoesNotSupportApi {
 				msg := "This version of Ops Manager does not support the markAsBackingDatabase API."

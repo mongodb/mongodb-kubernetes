@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/apierror"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/backup"
 )
 
@@ -61,7 +63,7 @@ func (a *MockedOmAdmin) ReadDaemonConfig(hostName, headDbDir string) (backup.Dae
 			return v, nil
 		}
 	}
-	return backup.DaemonConfig{}, NewErrorWithCode(BackupDaemonConfigNotFound)
+	return backup.DaemonConfig{}, apierror.NewErrorWithCode(apierror.BackupDaemonConfigNotFound)
 }
 
 func (a *MockedOmAdmin) CreateDaemonConfig(hostName, headDbDir string) error {

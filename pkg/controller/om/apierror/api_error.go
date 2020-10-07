@@ -1,4 +1,4 @@
-package api
+package apierror
 
 import (
 	"fmt"
@@ -26,8 +26,8 @@ type Error struct {
 	ErrorCode string `json:"errorCode"`
 }
 
-// NewError returns either the error itself if it's of type 'api.Error' or an 'Error' created from a normal string
-func NewError(err error) error {
+// New returns either the error itself if it's of type 'api.Error' or an 'Error' created from a normal string
+func New(err error) error {
 	if err == nil {
 		return nil
 	}
@@ -39,15 +39,15 @@ func NewError(err error) error {
 	}
 }
 
-// NewErrorNonNil returns empty 'Error' if the incoming parameter is nil. This allows to perform the checks for
+// NewNonNil returns empty 'Error' if the incoming parameter is nil. This allows to perform the checks for
 // error code without risks to get nil pointer
 // Unfortunately we have to do this as we cannot return *Error directly in our method signatures
 // (https://golang.org/doc/faq#nil_error)
-func NewErrorNonNil(err error) *Error {
+func NewNonNil(err error) *Error {
 	if err == nil {
 		return &Error{}
 	}
-	return NewError(err).(*Error)
+	return New(err).(*Error)
 }
 
 // NewErrorWithCode returns the Error initialized with the code passed. This is convenient for testing.

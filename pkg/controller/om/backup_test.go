@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/backup"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 
 	"go.uber.org/zap"
@@ -17,8 +19,8 @@ func TestBackupWaitsForTermination(t *testing.T) {
 	os.Setenv(util.BackupDisableWaitRetriesEnv, "3")
 
 	connection := NewMockedOmConnection(NewDeployment())
-	connection.EnableBackup("test", ReplicaSetType)
-	connection.UpdateBackupStatusFunc = func(clusterId string, status BackupStatus) error {
+	connection.EnableBackup("test", backup.ReplicaSetType)
+	connection.UpdateBackupStatusFunc = func(clusterId string, status backup.Status) error {
 		go func() {
 			// adding slight delay for each update
 			time.Sleep(200 * time.Millisecond)
@@ -26,7 +28,7 @@ func TestBackupWaitsForTermination(t *testing.T) {
 		}()
 		return nil
 	}
-	StopBackupIfEnabled(connection, "test", ReplicaSetType, zap.S())
+	backup.StopBackupIfEnabled(connection, connection, "test", backup.ReplicaSetType, zap.S())
 
 	connection.CheckResourcesAndBackupDeleted(t, "test")
 }

@@ -8,6 +8,9 @@ import (
 	"strings"
 	"sync"
 
+	apierror "github.com/10gen/ops-manager-kubernetes/pkg/controller/om/apierror"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/backup"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/host"
@@ -48,12 +51,11 @@ type Connection interface {
 	ReadProjectsInOrganization(orgID string, page int) (Paginated, error)
 	CreateProject(project *Project) (*Project, error)
 	UpdateProject(project *Project) (*Project, error)
-	// ReadBackupConfigs returns all host clusters registered in OM. If there's no backup enabled the status is supposed
-	// to be Inactive
-	ReadBackupConfigs() (*BackupConfigsResponse, error)
-	ReadBackupConfig(clusterID string) (*BackupConfig, error)
-	ReadHostCluster(clusterID string) (*HostCluster, error)
-	UpdateBackupStatus(clusterID string, status BackupStatus) error
+
+	backup.HostClusterReader
+
+	backup.ConfigReader
+	backup.ConfigUpdater
 
 	OpsManagerVersion() versionutil.OpsManagerVersion
 
@@ -234,7 +236,7 @@ func (oc *HTTPOmConnection) ReadDeployment() (Deployment, error) {
 		return nil, err
 	}
 	d, e := BuildDeploymentFromBytes(ans)
-	return d, api.NewError(e)
+	return d, apierror.New(e)
 }
 
 func (oc *HTTPOmConnection) ReadAutomationConfig() (*AutomationConfig, error) {
@@ -246,7 +248,7 @@ func (oc *HTTPOmConnection) ReadAutomationConfig() (*AutomationConfig, error) {
 
 	ac, err := BuildAutomationConfigFromBytes(ans)
 
-	return ac, api.NewError(err)
+	return ac, apierror.New(err)
 }
 
 // ReadUpdateDeployment performs the "read-modify-update" operation on OpsManager Deployment.
@@ -267,7 +269,7 @@ func (oc *HTTPOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error,
 		return err
 	}
 	if err := depFunc(deployment); err != nil {
-		return api.NewError(err)
+		return apierror.New(err)
 	}
 
 	if reflect.DeepEqual(original, deployment) {
@@ -327,7 +329,7 @@ func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(acFunc func(ac *Automatio
 		return err
 	}
 	if err := acFunc(ac); err != nil {
-		return api.NewError(err)
+		return apierror.New(err)
 	}
 
 	err = oc.UpdateAutomationConfig(ac, log)
@@ -340,7 +342,7 @@ func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(acFunc func(ac *Automatio
 			ac.Deployment.Debug(log)
 		}
 		log.Errorf("error updating automation config. %s", err)
-		return api.NewError(err)
+		return apierror.New(err)
 	}
 	return nil
 }
@@ -356,7 +358,7 @@ func (oc *HTTPOmConnection) UpgradeAgentsToLatest() (string, error) {
 	}
 	var response updateAgentsVersionsResponse
 	if err = json.Unmarshal(ans, &response); err != nil {
-		return "", api.NewError(err)
+		return "", apierror.New(err)
 	}
 	return response.AutomationAgentVersion, nil
 }
@@ -372,7 +374,7 @@ func (oc *HTTPOmConnection) GenerateAgentKey() (string, error) {
 
 	var keyInfo map[string]interface{}
 	if err := json.Unmarshal(ans, &keyInfo); err != nil {
-		return "", api.NewError(err)
+		return "", apierror.New(err)
 	}
 	return keyInfo["key"].(string), nil
 }
@@ -389,7 +391,7 @@ func (oc *HTTPOmConnection) ReadAutomationAgents(pageNum int) (Paginated, error)
 	if err := json.Unmarshal(ans, &resp); err != nil {
 		return nil, err
 	}
-	return resp, api.NewError(err)
+	return resp, apierror.New(err)
 }
 
 // ReadAutomationStatus returns the state of the automation status, this includes if the agents
@@ -400,7 +402,7 @@ func (oc *HTTPOmConnection) ReadAutomationStatus() (*AutomationStatus, error) {
 		return nil, err
 	}
 	status, e := buildAutomationStatusFromBytes(ans)
-	return status, api.NewError(e)
+	return status, apierror.New(e)
 }
 
 // AddHost adds the given host to the project
@@ -419,7 +421,7 @@ func (oc *HTTPOmConnection) GetHosts() (*host.Result, error) {
 
 	hosts := &host.Result{}
 	if err := json.Unmarshal(res, hosts); err != nil {
-		return nil, api.NewError(err)
+		return nil, apierror.New(err)
 	}
 
 	return hosts, nil
@@ -442,7 +444,7 @@ func (oc *HTTPOmConnection) ReadOrganizationsByName(name string) ([]*Organizatio
 
 	orgsResponse := &OrganizationsResponse{}
 	if err = json.Unmarshal(res, orgsResponse); err != nil {
-		return nil, api.NewError(err)
+		return nil, apierror.New(err)
 	}
 
 	return orgsResponse.Organizations, nil
@@ -458,7 +460,7 @@ func (oc *HTTPOmConnection) ReadOrganizations(page int) (Paginated, error) {
 
 	orgsResponse := &OrganizationsResponse{}
 	if err := json.Unmarshal(res, orgsResponse); err != nil {
-		return nil, api.NewError(err)
+		return nil, apierror.New(err)
 	}
 
 	return orgsResponse, nil
@@ -471,7 +473,7 @@ func (oc *HTTPOmConnection) ReadOrganization(orgID string) (*Organization, error
 	}
 	organization := &Organization{}
 	if err := json.Unmarshal(ans, organization); err != nil {
-		return nil, api.NewError(err)
+		return nil, apierror.New(err)
 	}
 
 	return organization, nil
@@ -480,7 +482,7 @@ func (oc *HTTPOmConnection) ReadOrganization(orgID string) (*Organization, error
 func (oc *HTTPOmConnection) MarkProjectAsBackingDatabase(backingType BackingDatabaseType) error {
 	_, err := oc.post(fmt.Sprintf("/api/private/v1.0/groups/%s/markAsBackingDatabase", oc.GroupID()), string(backingType))
 	if err != nil {
-		if apiErr, ok := err.(*api.Error); ok {
+		if apiErr, ok := err.(*apierror.Error); ok {
 			if apiErr.Status != nil && *apiErr.Status == 400 && strings.Contains(apiErr.Detail, "INVALID_DOCUMENT") {
 				return nil
 			}
@@ -499,7 +501,7 @@ func (oc *HTTPOmConnection) ReadProjectsInOrganizationByName(orgID string, name 
 
 	projectsResponse := &ProjectsResponse{}
 	if err := json.Unmarshal(res, projectsResponse); err != nil {
-		return nil, api.NewError(err)
+		return nil, apierror.New(err)
 	}
 
 	return projectsResponse.Groups, nil
@@ -515,7 +517,7 @@ func (oc *HTTPOmConnection) ReadProjectsInOrganization(orgID string, page int) (
 
 	projectsResponse := &ProjectsResponse{}
 	if err := json.Unmarshal(res, projectsResponse); err != nil {
-		return nil, api.NewError(err)
+		return nil, apierror.New(err)
 	}
 
 	return projectsResponse, nil
@@ -531,7 +533,7 @@ func (oc *HTTPOmConnection) CreateProject(project *Project) (*Project, error) {
 
 	g := &Project{}
 	if err := json.Unmarshal(res, g); err != nil {
-		return nil, api.NewError(err)
+		return nil, apierror.New(err)
 	}
 
 	return g, nil
@@ -548,68 +550,83 @@ func (oc *HTTPOmConnection) UpdateProject(project *Project) (*Project, error) {
 
 	g := &Project{}
 	if err := json.Unmarshal(res, g); err != nil {
-		return nil, api.NewError(err)
+		return nil, apierror.New(err)
 	}
 
 	return project, nil
 }
 
 // ReadBackupConfigs
-func (oc *HTTPOmConnection) ReadBackupConfigs() (*BackupConfigsResponse, error) {
+func (oc *HTTPOmConnection) ReadBackupConfigs() (*backup.ConfigsResponse, error) {
 	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/backupConfigs", oc.GroupID())
 	res, err := oc.get(mPath)
 	if err != nil {
 		return nil, err
 	}
 
-	response := &BackupConfigsResponse{}
+	response := &backup.ConfigsResponse{}
 	if err := json.Unmarshal(res, response); err != nil {
-		return nil, api.NewError(err)
+		return nil, apierror.New(err)
 	}
 
 	return response, nil
 }
 
 // ReadBackupConfig
-func (oc *HTTPOmConnection) ReadBackupConfig(clusterID string) (*BackupConfig, error) {
+func (oc *HTTPOmConnection) ReadBackupConfig(clusterID string) (*backup.Config, error) {
 	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/backupConfigs/%s", oc.GroupID(), clusterID)
 	res, err := oc.get(mPath)
 	if err != nil {
 		return nil, err
 	}
 
-	response := &BackupConfig{}
+	response := &backup.Config{}
 	if err := json.Unmarshal(res, response); err != nil {
-		return nil, api.NewError(err)
+		return nil, apierror.New(err)
 	}
 
 	return response, nil
 }
 
+// UpdateBackupConfig
+func (oc *HTTPOmConnection) UpdateBackupConfig(config *backup.Config) (*backup.Config, error) {
+	path := fmt.Sprintf("/api/public/v1.0/groups/%s/backupConfigs/%s", oc.GroupID(), config.ClusterId)
+	res, err := oc.patch(path, config)
+	if err != nil {
+		return nil, err
+	}
+
+	response := &backup.Config{}
+	if err := json.Unmarshal(res, response); err != nil {
+		return nil, apierror.New(err)
+	}
+	return response, nil
+}
+
 // ReadHostCluster
-func (oc *HTTPOmConnection) ReadHostCluster(clusterID string) (*HostCluster, error) {
+func (oc *HTTPOmConnection) ReadHostCluster(clusterID string) (*backup.HostCluster, error) {
 	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/clusters/%s", oc.GroupID(), clusterID)
 	res, err := oc.get(mPath)
 	if err != nil {
 		return nil, err
 	}
 
-	cluster := &HostCluster{}
+	cluster := &backup.HostCluster{}
 	if err := json.Unmarshal(res, cluster); err != nil {
-		return nil, api.NewError(err)
+		return nil, apierror.New(err)
 	}
 
 	return cluster, nil
 }
 
 // UpdateBackupStatus
-func (oc *HTTPOmConnection) UpdateBackupStatus(clusterID string, status BackupStatus) error {
+func (oc *HTTPOmConnection) UpdateBackupStatus(clusterID string, status backup.Status) error {
 	path := fmt.Sprintf("/api/public/v1.0/groups/%s/backupConfigs/%s", oc.GroupID(), clusterID)
 
 	_, err := oc.patch(path, map[string]interface{}{"statusName": status})
 
 	if err != nil {
-		return api.NewError(err)
+		return apierror.New(err)
 	}
 
 	return nil
@@ -729,7 +746,7 @@ func (oc *HTTPOmConnection) GetControlledFeature() (*controlledfeature.Controlle
 	}
 	cf := &controlledfeature.ControlledFeature{}
 	if err := json.Unmarshal(res, cf); err != nil {
-		return nil, api.NewError(err)
+		return nil, apierror.New(err)
 	}
 	return cf, nil
 }

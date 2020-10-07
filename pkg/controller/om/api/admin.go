@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/url"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/apierror"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/backup"
 )
 
@@ -80,7 +82,7 @@ func (a *DefaultOmAdmin) ReadDaemonConfig(hostName, headDbDir string) (backup.Da
 	}
 	daemonConfig := &backup.DaemonConfig{}
 	if err := json.Unmarshal(ans, daemonConfig); err != nil {
-		return backup.DaemonConfig{}, NewError(err)
+		return backup.DaemonConfig{}, apierror.New(err)
 	}
 
 	return *daemonConfig, nil
@@ -107,7 +109,7 @@ func (a *DefaultOmAdmin) ReadOplogStoreConfigs() ([]backup.DataStoreConfig, erro
 
 	dataStoreConfigResponse := &backup.DataStoreConfigResponse{}
 	if err = json.Unmarshal(res, dataStoreConfigResponse); err != nil {
-		return nil, NewError(err)
+		return nil, apierror.New(err)
 	}
 
 	return dataStoreConfigResponse.DataStoreConfigs, nil
@@ -141,7 +143,7 @@ func (a *DefaultOmAdmin) ReadBlockStoreConfigs() ([]backup.DataStoreConfig, erro
 
 	dataStoreConfigResponse := &backup.DataStoreConfigResponse{}
 	if err = json.Unmarshal(res, dataStoreConfigResponse); err != nil {
-		return nil, NewError(err)
+		return nil, apierror.New(err)
 	}
 
 	return dataStoreConfigResponse.DataStoreConfigs, nil
@@ -178,11 +180,11 @@ func (a *DefaultOmAdmin) UpdateS3Config(s3Config backup.S3Config) error {
 func (a *DefaultOmAdmin) ReadS3Configs() ([]backup.S3Config, error) {
 	res, err := a.get("admin/backup/snapshot/s3Configs")
 	if err != nil {
-		return nil, NewError(err)
+		return nil, apierror.New(err)
 	}
 	s3ConfigResponse := &backup.S3ConfigResponse{}
 	if err = json.Unmarshal(res, s3ConfigResponse); err != nil {
-		return nil, NewError(err)
+		return nil, apierror.New(err)
 	}
 
 	return s3ConfigResponse.S3Configs, nil
@@ -218,7 +220,7 @@ func (a *DefaultOmAdmin) delete(path string, params ...interface{}) error {
 func (a *DefaultOmAdmin) httpVerb(method, path string, v interface{}, params ...interface{}) ([]byte, error) {
 	client, err := NewHTTPClient(OptionDigestAuth(a.User, a.PublicAPIKey), OptionSkipVerify)
 	if err != nil {
-		return nil, NewError(err)
+		return nil, apierror.New(err)
 	}
 
 	path = fmt.Sprintf("/api/public/v1.0/%s", path)

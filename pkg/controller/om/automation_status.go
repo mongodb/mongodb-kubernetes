@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/apierror"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 )
@@ -51,7 +52,7 @@ func WaitForReadyState(oc Connection, processNames []string, log *zap.SugaredLog
 		return "MongoDB agents haven't reached READY state", false
 	}
 	if !util.DoAndRetry(reachStateFunc, log, 30, 3) {
-		return api.NewError(fmt.Errorf("automation agents haven't reached READY state during defined interval"))
+		return apierror.New(fmt.Errorf("automation agents haven't reached READY state during defined interval"))
 	}
 	log.Info("MongoDB agents have reached READY state")
 	return nil

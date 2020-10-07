@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/apierror"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/api"
 	"go.uber.org/zap"
 )
 
@@ -119,8 +120,8 @@ func findProjectInsideOrganization(conn om.Connection, projectName string, organ
 	projects, err := conn.ReadProjectsInOrganizationByName(organization.ID, projectName)
 
 	if err != nil {
-		if v, ok := err.(*api.Error); ok {
-			if v.ErrorCode == api.ProjectNotFound {
+		if v, ok := err.(*apierror.Error); ok {
+			if v.ErrorCode == apierror.ProjectNotFound {
 				// ProjectNotFound is an expected condition.
 				return nil, nil
 			}
@@ -162,8 +163,8 @@ func findOrganizationByName(conn om.Connection, name string, log *zap.SugaredLog
 	organizations, err := conn.ReadOrganizationsByName(name)
 
 	if err != nil {
-		if v, ok := err.(*api.Error); ok {
-			if v.ErrorCode == api.OrganizationNotFound {
+		if v, ok := err.(*apierror.Error); ok {
+			if v.ErrorCode == apierror.OrganizationNotFound {
 				// the "name" API is supported and the organization not found - returning nil
 				return "", nil
 			}
@@ -219,8 +220,8 @@ func tryCreateProject(organization *om.Organization, projectName, orgId string, 
 	ans, err := conn.CreateProject(group)
 
 	if err != nil {
-		if v, ok := err.(*api.Error); ok {
-			if v.ErrorCodeIn(api.InvalidAttribute) && strings.Contains(v.Detail, "tags") {
+		if v, ok := err.(*apierror.Error); ok {
+			if v.ErrorCodeIn(apierror.InvalidAttribute) && strings.Contains(v.Detail, "tags") {
 				// Fallback logic: seems that OM version is < 4.0.2 (as it allows to edit group
 				// tags only for GLOBAL_OWNER users), let's try to create group without tags
 				group.Tags = []string{}

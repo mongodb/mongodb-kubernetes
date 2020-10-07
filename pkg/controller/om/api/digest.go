@@ -8,23 +8,25 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/apierror"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 // parseAPIError
-func parseAPIError(statusCode int, method, url string, body []byte) *Error {
+func parseAPIError(statusCode int, method, url string, body []byte) *apierror.Error {
 	// If no body - returning the error object with only HTTP status
 	if body == nil {
-		return &Error{
+		return &apierror.Error{
 			Status: &statusCode,
 			Detail: fmt.Sprintf("%s %v failed with status %d with no response body", method, url, statusCode),
 		}
 	}
 	// If response body exists - trying to parse it
-	errorObject := &Error{}
+	errorObject := &apierror.Error{}
 	if err := json.Unmarshal(body, errorObject); err != nil {
 		// If parsing has failed - returning just the general error with status code
-		return &Error{
+		return &apierror.Error{
 			Status: &statusCode,
 			Detail: fmt.Sprintf("%s %v failed with status %d with response body: %s", method, url, statusCode, string(body)),
 		}

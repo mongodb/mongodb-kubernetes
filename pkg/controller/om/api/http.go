@@ -13,6 +13,8 @@ import (
 	"net/http/httputil"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/apierror"
+
 	"go.uber.org/zap"
 )
 
@@ -124,7 +126,7 @@ func (client Client) Request(method, hostname, path string, v interface{}) ([]by
 
 	buffer, err := serializeToBuffer(v)
 	if err != nil {
-		return nil, nil, NewError(err)
+		return nil, nil, apierror.New(err)
 	}
 
 	var body []byte
@@ -146,14 +148,14 @@ func (client Client) Request(method, hostname, path string, v interface{}) ([]by
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, nil, NewError(fmt.Errorf("Error sending %s request to %s: %v", method, url, err))
+		return nil, nil, apierror.New(fmt.Errorf("Error sending %s request to %s: %v", method, url, err))
 	}
 
 	if resp.Body != nil {
 		defer resp.Body.Close()
 		body, err = ioutil.ReadAll(resp.Body)
 		if err != nil {
-			return nil, nil, NewError(fmt.Errorf("Error reading response body from %s to %v status=%v", method, url, resp.StatusCode))
+			return nil, nil, apierror.New(fmt.Errorf("Error reading response body from %s to %v status=%v", method, url, resp.StatusCode))
 		}
 	}
 
@@ -180,7 +182,7 @@ func (client *Client) authorizeRequest(method, hostname, path string, request *h
 		return err
 	}
 	if resp.StatusCode != http.StatusUnauthorized {
-		return NewError(
+		return apierror.New(
 			fmt.Errorf(
 				"Recieved status code '%v' (%v) but expected the '%d', requested url: %v",
 				resp.StatusCode,
