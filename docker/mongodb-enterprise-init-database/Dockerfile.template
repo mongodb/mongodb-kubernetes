@@ -30,14 +30,13 @@ LABEL name="MongoDB Enterprise Init Database" \
       vendor="MongoDB" \
       maintainer="support@mongodb.com"
 
-
 COPY --from=builder /build/readinessprobe /probes/
-COPY ./docker_content/probe.sh /probes/
+COPY ./docker/mongodb-enterprise-init-database/content/probe.sh /probes/
 
-COPY ./docker_content/agent-launcher-lib.sh /scripts/
-COPY ./docker_content/agent-launcher.sh /scripts/
+COPY ./docker/mongodb-enterprise-init-database/content/agent-launcher-lib.sh /scripts/
+COPY ./docker/mongodb-enterprise-init-database/content/agent-launcher.sh /scripts/
 
-COPY ./docker_content/LICENSE /licenses/mongodb-enterprise-appdb
+COPY ./docker/mongodb-enterprise-init-database/content/LICENSE /licenses/mongodb-enterprise-appdb
 
 ENTRYPOINT [ "/bin/cp", "-f", "/scripts/agent-launcher.sh", "/scripts/agent-launcher-lib.sh", "/probes/readinessprobe", "/probes/probe.sh", "/opt/scripts/" ]
 
