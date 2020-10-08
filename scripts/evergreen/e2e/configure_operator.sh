@@ -21,19 +21,11 @@ else
   BASE_URL="http://ops-manager.${OPS_MANAGER_NAMESPACE:-}.svc.cluster.local:8080"
 fi
 
-if [[ -n "${ecr_registry_needs_auth:-}" ]]; then
-  # Need to configure ECR Pull Secrets!
-  docker_config=$(mktemp)
-  scripts/dev/configure_docker "${ecr_registry:?}" > "${docker_config}"
-
-  echo "Creating pull secret from docker configured file"
-  oc -n "${PROJECT_NAMESPACE}" create secret generic "${ecr_registry_needs_auth}" \
-    --from-file=.dockerconfigjson="${docker_config}" --type=kubernetes.io/dockerconfigjson
-  rm "${docker_config}"
-
-else
-  echo "ECR registry authentication not manually configured"
-fi
+# We always create the image pull secret from the docker config.json which gives access to all necessary image repositories
+echo "Creating/updating pull secret from docker configured file"
+kubectl -n "${PROJECT_NAMESPACE}" delete secret image-registries-secret --ignore-not-found
+kubectl -n "${PROJECT_NAMESPACE}" create secret generic image-registries-secret \
+  --from-file=.dockerconfigjson="${HOME}/.docker/config.json" --type=kubernetes.io/dockerconfigjson
 
 # delete `my-project` if it exists
 kubectl --namespace "${PROJECT_NAMESPACE}" delete configmap my-project --ignore-not-found

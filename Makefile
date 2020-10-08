@@ -151,12 +151,9 @@ ac:
 # dev note on '&> /dev/null || true': if the 'aws_login' is run in parallel (e.g. 'make' launches builds for images
 # in parallel and both call 'aws_login') then Docker login may return an error "Error saving credentials:..The
 # specified item already exists in the keychain". Seems this allows to ignore the error
-# Note, that we login to the default configured region. This means that if ECR_registry is in "eu_west_1" - then
-# "eu_west_1" must be the default region for the aws account
 aws_login:
-ifndef SKIP_AWS_LOGIN
-	@ eval "$(shell aws ecr get-login --no-include-email)"  &> /dev/null || true
-endif
+	@ . scripts/dev/set_env_context.sh; \
+ 	  scripts/dev/configure_docker_auth.sh
 
 build-and-push-operator-image: aws_login
 	@ scripts/dev/build_push_operator_image.sh $(debug)

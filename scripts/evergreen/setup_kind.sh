@@ -48,7 +48,3 @@ else
   echo "Kind is already present in this host"
   kind version
 fi
-
-mkdir -p "${HOME}/.docker"
-
-scripts/dev/setup_kind.sh "${ecr_registry:?}"

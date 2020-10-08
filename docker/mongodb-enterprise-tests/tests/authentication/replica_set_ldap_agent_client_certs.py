@@ -28,14 +28,14 @@ def server_certs(issuer: str, namespace: str):
         pod_dns = pod_fqdn_fstring.format(i)
         pod_name = f"{resource_name}-{i}"
         cert = generate_cert(namespace, pod_dns, pod_name, issuer)
-        secret = read_secret(cert, namespace)
+        secret = read_secret(namespace, cert)
         data[pod_name + "-pem"] = secret["tls.key"] + secret["tls.crt"]
 
-    create_secret(f"{resource_name}-cert", namespace, data)
+    create_secret(namespace, f"{resource_name}-cert", data)
 
     yield f"{resource_name}-cert"
 
-    delete_secret(f"{resource_name}-cert", namespace)
+    delete_secret(namespace, f"{resource_name}-cert")
 
 
 @fixture(scope="module")
@@ -48,7 +48,7 @@ def client_cert_path(issuer: str, namespace: str):
     client_secret = generate_cert(
         namespace, "client-cert", "client-cert", issuer, spec=spec,
     )
-    client_cert = read_secret(client_secret, namespace)
+    client_cert = read_secret(namespace, client_secret)
     cert_file = tempfile.NamedTemporaryFile()
     with open(cert_file.name, "w") as f:
         f.write(client_cert["tls.key"] + client_cert["tls.crt"])
@@ -72,12 +72,12 @@ def agent_client_cert(issuer: str, namespace: str) -> str:
         issuer,
         spec=spec,
     )
-    automation_agent_cert = read_secret(client_certificate_secret, namespace)
+    automation_agent_cert = read_secret(namespace, client_certificate_secret)
 
     # creates a secret that combines key and crt
     create_secret(
-        "agent-client-cert",
         namespace,
+        "agent-client-cert",
         {
             "mms-automation-agent-pem": automation_agent_cert["tls.key"]
             + automation_agent_cert["tls.crt"],
@@ -86,7 +86,7 @@ def agent_client_cert(issuer: str, namespace: str) -> str:
 
     yield "agent-client-cert"
 
-    delete_secret("agent-client-cert", namespace)
+    delete_secret(namespace, "agent-client-cert")
 
 
 @fixture(scope="module")
@@ -103,11 +103,11 @@ def replica_set(
     )
 
     secret_name = "bind-query-password"
-    create_secret(secret_name, namespace, {"password": openldap.admin_password})
+    create_secret(namespace, secret_name, {"password": openldap.admin_password})
 
     ac_secret_name = "automation-config-password"
     create_secret(
-        ac_secret_name, namespace, {"automationConfigPassword": "LDAPPassword."}
+        namespace, ac_secret_name, {"automationConfigPassword": "LDAPPassword."}
     )
 
     resource["spec"]["security"]["tls"] = {

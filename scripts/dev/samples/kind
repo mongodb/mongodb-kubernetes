@@ -9,3 +9,4 @@ export IMAGE_TYPE=ubuntu
 export CLUSTER_TYPE=kind
 export CLUSTER_NAME=kind-kind
 export BASE_REPO_URL=localhost:5000
+export RED_HAT_TOKEN=

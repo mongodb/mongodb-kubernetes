@@ -44,6 +44,8 @@ variables:
   - &kubernetes_environment_kind
     kube_environment_name: kind
 
+  - &kubernetes_environment_minikube minikube
+
   - &go_bin
     "/opt/golang/go1.13/bin"
 
@@ -191,19 +193,22 @@ functions:
     params:
       command: "docker login ${docker_registry} -u ${docker_username} -p ${docker_password}"
 
-  # Install and configures ecr-login-helper, allowing for accessing the ECR registry
-  # without calling docker login and in the ECR case, avoiding also calling
-  # `aws ecr get login`. This is a binary that should run on every image_type.
-  # BIN_PATH is used to define where to save the binary. This is added to the $PATH
-  # in subsequent functions that need this program.
-  setup_ecr_login_helper: &setup_ecr_login_helper
+  # Logs into all used registries
+  configure_docker_auth: &configure_docker_auth
     command: subprocess.exec
     type: setup
     params:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+      - ${workdir}/bin
       include_expansions_in_env:
       - workdir
-      binary: scripts/evergreen/setup_ecr_login_helper.sh
+      - RED_HAT_TOKEN
+      env:
+        AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
+        AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
+        AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
+      binary: scripts/dev/configure_docker_auth.sh
 
   setup_jq: &setup_jq
     command: subprocess.exec
@@ -214,15 +219,46 @@ functions:
       - workdir
       binary: scripts/evergreen/setup_jq.sh
 
-  setup_aws:
-    - command: subprocess.exec
-      type: setup
-      params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
-        include_expansions_in_env:
-        - workdir
-        binary: scripts/evergreen/setup_aws.sh
+  setup_aws: &setup_aws
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      include_expansions_in_env:
+      - workdir
+      binary: scripts/evergreen/setup_aws.sh
 
+  # configures Docker size, installs the Kind binary (if necessary)
+  setup_kind: &setup_kind
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      include_expansions_in_env:
+        - workdir
+        - kube_environment_name
+      binary: scripts/evergreen/setup_kind.sh
+
+
+  # installs the Minikube binary (if necessary)
+  setup_minikube: &setup_minikube
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      include_expansions_in_env:
+        - workdir
+        - kube_environment_name
+      binary: scripts/evergreen/setup_minikube.sh
+
+  # the task configures the set of tools necessary for any task working with K8 cluster:
+  # installs kubectl, jq, kind (if necessary), configures docker authentication
   download_kube_tools:
     - command: subprocess.exec
       type: setup
@@ -233,24 +269,13 @@ functions:
         binary: scripts/evergreen/setup_kubectl.sh
 
     - *setup_jq
+      # we need aws to configure docker authentication
+    - *setup_aws
 
-    - *setup_ecr_login_helper
+    - *configure_docker_auth
+    - *setup_minikube
 
-    - command: subprocess.exec
-      type: setup
-      params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
-        include_expansions_in_env:
-        - workdir
-        - ecr_registry
-        - kube_environment_name
-        add_to_path:
-        - ${workdir}/bin
-        env:
-          AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
-          AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
-          AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
-        binary: scripts/evergreen/setup_kind.sh
+    - *setup_kind
 
   teardown_kubernetes_environment:
   - command: subprocess.exec
@@ -354,7 +379,6 @@ functions:
           AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
           AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
           AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
-          KUBECONFIG: ${workdir}/${kube_environment_name}_config
 
           IN_MEMORY_CONTEXT: "true"
           BASE_REPO_URL: ${ecr_registry}/dev
@@ -370,6 +394,7 @@ functions:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         include_expansions_in_env:
         - version_id
+        - RED_HAT_TOKEN
         add_to_path:
         - *go_bin
         - ${workdir}/bin
@@ -396,6 +421,7 @@ functions:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         include_expansions_in_env:
         - version_id
+        - RED_HAT_TOKEN
         add_to_path:
         - *go_bin
         - ${workdir}/bin
@@ -526,6 +552,7 @@ functions:
           - version_id
           - install_operator_in_python
           - task_id
+          - RED_HAT_TOKEN
         env:
           REGISTRY: ${ecr_registry}/dev/${image_type}
           OPS_MANAGER_REGISTRY: ${ops_manager_registry|quay.io/mongodb}
@@ -600,6 +627,7 @@ functions:
         include_expansions_in_env:
         - IMAGE_TYPE
         - ecr_registry
+        - RED_HAT_TOKEN
         add_to_path:
         - ${workdir}/bin
         command: docker/mongodb-enterprise-database/build_push_appdb_image.sh
@@ -619,6 +647,7 @@ functions:
         - IMAGE_TYPE
         - PUBLISH_TO
         - database_version
+        - RED_HAT_TOKEN
         add_to_path:
         - ${workdir}/bin
         command: docker/mongodb-enterprise-database/build_push_database_image.sh
@@ -640,6 +669,7 @@ functions:
         - ecr_registry
         - version_id
         - VERSIONS
+        - RED_HAT_TOKEN
         add_to_path:
         - ${workdir}/bin
         command: docker/mongodb-enterprise-ops-manager/batch_om_images.sh
@@ -669,7 +699,7 @@ tasks:
     - func: clone
     - func: guard_git_repo_is_clean
     - func: setup_jq
-    - func: setup_ecr_login_helper
+    - func: configure_docker_auth
 
     - func: release_docker_image_to_registry
       vars:
@@ -684,7 +714,7 @@ tasks:
   commands:
     - func: clone
     - func: setup_jq
-    - func: setup_ecr_login_helper
+    - func: configure_docker_auth
 
     - func: release_docker_image_to_registry
       vars:
@@ -717,7 +747,7 @@ tasks:
   commands:
     - func: clone
     - func: setup_jq
-    - func: setup_ecr_login_helper
+    - func: configure_docker_auth
 
     - func: release_docker_image_to_registry
       vars:
@@ -733,7 +763,7 @@ tasks:
   commands:
     - func: clone
     - func: setup_jq
-    - func: setup_ecr_login_helper
+    - func: configure_docker_auth
 
     - func: release_docker_image_to_registry
       vars:
@@ -793,7 +823,7 @@ tasks:
   commands:
     - func: clone
     - func: setup_jq
-    - func: setup_ecr_login_helper
+    - func: configure_docker_auth
 
     - func: release_docker_image_to_registry
       vars:
@@ -840,7 +870,7 @@ tasks:
   commands:
   - func: clone
   - func: setup_aws
-  - func: setup_ecr_login_helper
+  - func: configure_docker_auth
   - func: build_and_push_test_image
 
 - name: build_operator_ubi
@@ -906,7 +936,7 @@ tasks:
   - func: clone
   - func: setup_aws
   - func: setup_jq
-  - func: setup_ecr_login_helper
+  - func: configure_docker_auth
   - func: build_and_push_init_test_images_for_om_and_appdb
     vars:
       image_type: "ubi"
@@ -916,7 +946,7 @@ tasks:
   - func: clone
   - func: setup_aws
   - func: setup_jq
-  - func: setup_ecr_login_helper
+  - func: configure_docker_auth
   - func: build_and_push_init_test_images_for_om_and_appdb
     vars:
       image_type: "ubuntu"
@@ -926,7 +956,7 @@ tasks:
   - func: clone
   - func: setup_aws
   - func: setup_jq
-  - func: setup_ecr_login_helper
+  - func: configure_docker_auth
   - func: build_and_push_init_test_images_for_database
     vars:
       image_type: "ubi"
@@ -936,7 +966,7 @@ tasks:
   - func: clone
   - func: setup_aws
   - func: setup_jq
-  - func: setup_ecr_login_helper
+  - func: configure_docker_auth
   - func: build_and_push_init_test_images_for_database
     vars:
       image_type: "ubuntu"
@@ -947,7 +977,6 @@ tasks:
   priority: 59
   commands:
     - func: clone
-    - func: setup_aws
     - func: download_kube_tools
     - func: setup_kubernetes_environment
       vars:
@@ -965,7 +994,6 @@ tasks:
   commands:
     - func: clone
     - func: download_kube_tools
-    - func: setup_aws
     - func: setup_kubernetes_environment
       vars:
         <<: *kubernetes_environment_vanilla
@@ -1743,7 +1771,7 @@ tasks:
     - func: clone
     - func: setup_jq
     - func: setup_aws
-    - func: setup_ecr_login_helper
+    - func: configure_docker_auth
     - func: build_and_push_appdb_image_generic
       vars:
         IMAGE_TYPE: "ubuntu"
@@ -1754,10 +1782,9 @@ tasks:
     - func: clone
     - func: setup_jq
     - func: setup_aws
-    - func: download_kube_tools
+    - func: configure_docker_auth
       vars:
         <<: *kubernetes_environment_vanilla
-    - func: setup_ecr_login_helper
     - func: build_and_push_appdb_image_generic
       vars:
         IMAGE_TYPE: "ubi"
@@ -1768,7 +1795,7 @@ tasks:
     - func: clone
     - func: setup_jq
     - func: setup_aws
-    - func: setup_ecr_login_helper
+    - func: configure_docker_auth
     - func: build_and_push_database_image_generic
       vars:
         IMAGE_TYPE: "ubuntu"
@@ -1795,7 +1822,7 @@ tasks:
     - func: clone
     - func: setup_jq
     - func: setup_aws
-    - func: setup_ecr_login_helper
+    - func: configure_docker_auth
     - func: build_and_push_database_image_generic
       vars:
         IMAGE_TYPE: "ubi"
@@ -1828,13 +1855,10 @@ tasks:
   patch_only: true
   commands:
     - func: clone
-    - func: setup_jq
-    - func: setup_aws
     - func: download_kube_tools
     - func: setup_kubernetes_environment
       vars:
         <<: *kubernetes_environment_vanilla
-    - func: setup_ecr_login_helper
     - func: docker_login
       vars:
         docker_registry: quay.io
@@ -1850,13 +1874,10 @@ tasks:
   patch_only: true
   commands:
     - func: clone
-    - func: setup_jq
-    - func: setup_aws
     - func: download_kube_tools
     - func: setup_kubernetes_environment
       vars:
         <<: *kubernetes_environment_vanilla
-    - func: setup_ecr_login_helper
     - func: docker_login
       vars:
         docker_registry: quay.io
@@ -2548,6 +2569,28 @@ buildvariants:
     <<: *cloud_manager_qa
     <<: *kubernetes_environment_kind
     image_type: ubuntu
+    <<: *ops_manager_44_latest
+    custom_mdb_version: *mdb_44_latest
+  tasks:
+  - name: e2e_operator_task_group
+
+- name: e2e_operator_minikube_ubi_cloudqa
+  display_name: e2e_operator_minikube_ubi_cloudqa
+  run_on:
+  - ubuntu1604-build
+  depends_on:
+  - name: build_operator_ubi
+    variant: init_test_run
+  - name: build_init_database_image_ubi
+    variant: init_test_run
+  - name: build_init_om_images_ubi
+    variant: init_test_run
+  - name: build_test_image
+    variant: init_test_run
+  expansions:
+    <<: *cloud_manager_qa
+    kube_environment_name: *kubernetes_environment_minikube
+    image_type: ubi
     <<: *ops_manager_44_latest
     custom_mdb_version: *mdb_44_latest
   tasks:

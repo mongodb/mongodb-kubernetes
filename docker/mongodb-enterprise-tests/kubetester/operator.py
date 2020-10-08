@@ -28,6 +28,7 @@ class Operator(object):
         helm_args: Optional[Dict] = None,
         helm_options: Optional[List[str]] = None,
         helm_chart_path: Optional[str] = "helm_chart",
+        name: Optional[str] = "mongodb-enterprise-operator",
     ):
         if helm_args is None:
             helm_args = {}
@@ -39,7 +40,7 @@ class Operator(object):
         self.helm_arguments = helm_args
         self.helm_options = helm_options
         self.helm_chart_path = helm_chart_path
-        self.name = "mongodb-enterprise-operator"
+        self.name = name
 
     def install_from_template(self):
         """ Uses helm to generate yaml specification and then uses python K8s client to apply them to the cluster
@@ -55,7 +56,7 @@ class Operator(object):
     def install(self) -> Operator:
         """ Installs the Operator to Kubernetes cluster using 'helm install', waits until it's running """
         helm_install(
-            self.name,
+            "mongodb-enterprise-operator",
             self.helm_arguments,
             helm_chart_path=self.helm_chart_path,
             helm_options=self.helm_options,
@@ -141,9 +142,9 @@ class Operator(object):
 
         pods = self.list_operator_pods()
         if len(pods) > 0:
-            logging.info("Operator pods: ", len(pods))
-            logging.info("Operator spec: ", pods[0].spec)
-            logging.info("Operator status: ", pods[0].status)
+            logging.info("Operator pods: %d", len(pods))
+            logging.info("Operator spec: %s", pods[0].spec)
+            logging.info("Operator status: %s", pods[0].status)
 
 
 def delete_operator_crds():

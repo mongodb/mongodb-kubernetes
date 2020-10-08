@@ -14,23 +14,13 @@ source scripts/funcs/printing
 
 title "Building e2e tests application image..."
 
-if [[ ${REPO_TYPE} = "ecr" ]]; then
-    # note that 'aws login' should be called before - 'make' takes care of it
-    ensure_ecr_repository "${TEST_APP_REGISTRY}/mongodb-enterprise-tests"
-fi
+ensure_ecr_repository "${TEST_APP_REGISTRY}/mongodb-enterprise-tests"
 
 cp -r public/helm_chart docker/mongodb-enterprise-tests
 image="${TEST_APP_REGISTRY}/mongodb-enterprise-tests:${version_id:-latest}"
 docker build docker/mongodb-enterprise-tests -t "${image}"
 rm -rf docker/mongodb-enterprise-tests/helm_chart
 
-if [ "${CLUSTER_TYPE:-}" = "kind" ]; then
-    echo "Kind cluster, pushing docker image"
-    kind load docker-image "${image}" --name hake-default
-else
-    docker push "${image}"
-fi
+docker push "${image}"
 
-
-
-title "Enterprise tests successfully built and pushed to ${REPO_TYPE} registry"
+title "Enterprise tests successfully built and pushed to ${REPO_URL} registry"

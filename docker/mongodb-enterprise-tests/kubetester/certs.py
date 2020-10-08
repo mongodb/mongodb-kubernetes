@@ -108,10 +108,10 @@ def create_tls_certs(
         pod_dns = pod_fqdn_fstring.format(idx)
         pod_name = f"{resource_name}-{idx}"
         cert_secret_name = generate_cert(namespace, pod_name, pod_dns, issuer, spec)
-        secret = read_secret(cert_secret_name, namespace)
+        secret = read_secret(namespace, cert_secret_name)
         data[pod_name + "-pem"] = secret["tls.key"] + secret["tls.crt"]
 
-    create_secret(bundle_secret_name, namespace, data)
+    create_secret(namespace, bundle_secret_name, data)
     return bundle_secret_name
 
 

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -Eeou pipefail
 
-context_config="${workdir:?}/${kube_environment_name:?}_config"
+set -x
+
+  context_config="${workdir:?}/${kube_environment_name:?}_config"
 bindir="${workdir}/bin"
 if [ -f "${context_config}" ]; then
     echo "Context configuration already exist, host was not clearly cleaned up!"
@@ -50,11 +52,15 @@ elif [ "${kube_environment_name}" = "vanilla" ]; then
 
 elif [ "${kube_environment_name}" = "kind" ]; then
     echo "Starting Kind"
-    kubernetes_image="kindest/node:v1.16.9@sha256:b91a2c2317a000f3a783489dfb755064177dbc3a0b2f4147d50f04825d016f55"
+    kubernetes_image="kindest/node:v1.16.15"
     kind create cluster \
         --image "${kubernetes_image}" \
-        --config "${HOME}/.operator-dev/kind-ecr-config.yaml" \
         --kubeconfig "${context_config}"
+
+elif [[ "${kube_environment_name}" = "minikube" ]]; then
+    echo "Starting Minikube"
+    minikube start --driver=docker --kubernetes-version=v1.16.15 --memory=16g
+    mv "${HOME}"/.kube/config "${context_config}"
 else
     echo "kube_environment_name not recognized"
     echo "value is <<${kube_environment_name}>>. If empty it means it was not set"

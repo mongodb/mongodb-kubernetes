@@ -31,21 +31,20 @@ export DEBUG="${1-}"
 title "Building Operator image... (debug: ${DEBUG:-'false'})"
 
 full_url="${REPO_URL}/mongodb-enterprise-operator"
-if [[ ${REPO_TYPE} = "ecr" ]] ; then
-    ensure_ecr_repository "$full_url"
+ensure_ecr_repository "$full_url"
 
-    if [[ -n "${DEBUG-}" ]]; then
-        echo "Ensuring Security Group vpc for debug-svc"
-        prefix="$(echo "nodes.${CLUSTER_NAME}" | sed s/.mongokubernetes.com//)"
-        # extract the aws region from the kops output
-        region="$(kops get cluster "${CLUSTER_NAME}" | awk '{ print $3 }' | tail -1 | cut -d ',' -f1)"
-        region="${region%?}" # strip out the last "a", "b" or "c"
-        group_id=$(aws ec2 describe-security-groups --region "${region}" | jq -r '.SecurityGroups[] | select(.GroupName | startswith( "'"$prefix"'")) | .GroupId')
-        aws ec2 authorize-security-group-ingress --region "${region}" --group-id "${group_id}" --protocol tcp --port 30042 --cidr "0.0.0.0/0" 2>/dev/null || true
-        echo "Building Operator Image in 'debug' mode"
-    fi
+if [[ -n "${DEBUG-}" ]]; then
+    echo "Ensuring Security Group vpc for debug-svc"
+    # shellcheck disable=2153
+    prefix="$(echo "nodes.${CLUSTER_NAME}" | sed s/.mongokubernetes.com//)"
+    # extract the aws region from the kops output
+    region="$(kops get cluster "${CLUSTER_NAME}" | awk '{ print $3 }' | tail -1 | cut -d ',' -f1)"
+    region="${region%?}" # strip out the last "a", "b" or "c"
+    group_id=$(aws ec2 describe-security-groups --region "${region}" | jq -r '.SecurityGroups[] | select(.GroupName | startswith( "'"$prefix"'")) | .GroupId')
+    aws ec2 authorize-security-group-ingress --region "${region}" --group-id "${group_id}" --protocol tcp --port 30042 --cidr "0.0.0.0/0" 2>/dev/null || true
+    echo "Building Operator Image in 'debug' mode"
 fi
 
 build_and_push
 
-title "Operator image successfully built and pushed to the ${REPO_TYPE} registry"
+title "Operator image successfully built and pushed to the ${REPO_URL} registry"

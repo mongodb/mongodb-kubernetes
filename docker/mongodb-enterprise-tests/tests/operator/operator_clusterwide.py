@@ -1,20 +1,20 @@
-import pytest
 import time
+from typing import Dict
+
+import pytest
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from pytest import fixture
-
+from kubetester import read_secret, create_secret
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
 from kubetester.helm import helm_template
 from kubetester.kubetester import (
     fixture as yaml_fixture,
-    KubernetesTester,
     create_testing_namespace,
 )
 from kubetester.mongodb import Phase, MongoDB
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
-from typing import Dict
+from pytest import fixture
 
 """
 This is the test that verifies the procedure of configuring Operator in cluster-wide scope.
@@ -57,8 +57,8 @@ def ops_manager(ops_manager_namespace) -> MongoDBOpsManager:
 @fixture(scope="module")
 def mdb(ops_manager: MongoDBOpsManager, mdb_namespace: str, namespace: str):
     # we need to copy credentials secret - as the global api key secret exists in Operator namespace only
-    data = KubernetesTester.read_secret(namespace, ops_manager.api_key_secret())
-    KubernetesTester.create_secret(mdb_namespace, ops_manager.api_key_secret(), data)
+    data = read_secret(namespace, ops_manager.api_key_secret())
+    create_secret(mdb_namespace, ops_manager.api_key_secret(), data)
 
     return (
         MongoDB.from_yaml(
@@ -87,12 +87,37 @@ def test_configure_ops_manager_namespace(ops_manager_namespace: str):
 
 
 @pytest.mark.e2e_operator_clusterwide
+def test_create_image_pull_secret_ops_manager_namespace(
+    namespace: str,
+    ops_manager_namespace: str,
+    operator_installation_config: Dict[str, str],
+):
+    """ We need to copy image pull secrets to om namespace """
+    secret_name = operator_installation_config["registry.imagePullSecrets"]
+    data = read_secret(namespace, secret_name)
+    create_secret(
+        ops_manager_namespace, secret_name, data, type="kubernetes.io/dockerconfigjson"
+    )
+
+
+@pytest.mark.e2e_operator_clusterwide
 def test_configure_mdb_namespace(mdb_namespace: str):
     yaml_file = helm_template(
         helm_args={"namespace": mdb_namespace},
         templates="templates/database-roles.yaml",
     )
     create_or_replace_from_yaml(client.api_client.ApiClient(), yaml_file)
+
+
+@pytest.mark.e2e_operator_clusterwide
+def test_create_image_pull_secret_mdb_namespace(
+    namespace: str, mdb_namespace: str, operator_installation_config: Dict[str, str]
+):
+    secret_name = operator_installation_config["registry.imagePullSecrets"]
+    data = read_secret(namespace, secret_name)
+    create_secret(
+        mdb_namespace, secret_name, data, type="kubernetes.io/dockerconfigjson"
+    )
 
 
 @pytest.mark.e2e_operator_clusterwide

@@ -18,7 +18,7 @@ def replica_set(
     )
 
     secret_name = "bind-query-password"
-    create_secret(secret_name, namespace, {"password": openldap_tls.admin_password})
+    create_secret(namespace, secret_name, {"password": openldap_tls.admin_password})
 
     resource["spec"]["security"]["authentication"]["ldap"] = {
         "servers": [openldap_tls.servers],

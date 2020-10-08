@@ -32,9 +32,8 @@ prepare_operator_config_map() {
 
     kubectl create configmap operator-installation-config -n "${PROJECT_NAMESPACE}" \
       --from-literal managedSecurityContext="${MANAGED_SECURITY_CONTEXT:-false}" \
-      --from-literal isOpenshift="${MANAGED_SECURITY_CONTEXT:-false}" \
       --from-literal registry.operator="${REGISTRY}" \
-      --from-literal registry.imagePullSecrets="${ecr_registry_needs_auth-}" \
+      --from-literal registry.imagePullSecrets="image-registries-secret" \
       --from-literal registry.initOpsManager="${INIT_OPS_MANAGER_REGISTRY}" \
       --from-literal registry.initAppDb="${INIT_APPDB_REGISTRY}" \
       --from-literal registry.initDatabase="${INIT_DATABASE_REGISTRY}" \
@@ -77,11 +76,10 @@ deploy_test_app() {
         "--set" "apiUser=${OM_USER:-admin}"
         "--set" "bundledAppDbVersion=${BUNDLED_APP_DB_VERSION}"
         "--set" "orgId=${OM_ORGID:-}"
+        "--set" "imageType=${IMAGE_TYPE}"
+        "--set" "imagePullSecrets=image-registries-secret"
+
     )
-    if [[ -n "${ecr_registry_needs_auth:-}" ]]; then
-        echo "Configuring imagePullSecrets to ${ecr_registry_needs_auth}"
-        helm_params+=("--set" "imagePullSecrets=${ecr_registry_needs_auth}")
-    fi
     if [[ -n "${custom_om_version:-}" ]]; then
         # The test needs to create an OM resource with specific version
         helm_params+=("--set" "customOmVersion=${custom_om_version}")

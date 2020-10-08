@@ -68,6 +68,7 @@ dump_namespace() {
         kubectl get all -n "${namespace}"
         dump_objects "pvc" "Persistent Volume Claims" "${namespace}"
         dump_objects "sts" "StatefulSets" "${namespace}" describe
+        dump_objects "serviceaccounts" "ServiceAccounts" "${namespace}"
         dump_objects "validatingwebhookconfigurations" "Validating Webhook Configurations" "${namespace}"
     } >> "$dump_file"
 

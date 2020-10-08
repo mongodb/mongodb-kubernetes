@@ -1,33 +1,35 @@
 import random
 import string
 import time
-
-from kubernetes.client.rest import ApiException
-from typing import Dict
-
 from base64 import b64decode
-
-from .mongodb import MongoDB
-from .kubetester import fixture as find_fixture
+from typing import Dict, Optional
 
 from kubernetes import client
+from kubernetes.client.rest import ApiException
+
+from .kubetester import fixture as find_fixture
+from .mongodb import MongoDB
 
 
-def create_secret(name: str, namespace: str, data: Dict[str, str]) -> str:
+def create_secret(
+    namespace: str, name: str, data: Dict[str, str], type: Optional[str] = "Opaque"
+) -> str:
     """Creates a Secret with `name` in `namespace`. String contents are passed as the `data` parameter."""
-    secret = client.V1Secret(metadata=client.V1ObjectMeta(name=name), string_data=data)
+    secret = client.V1Secret(
+        metadata=client.V1ObjectMeta(name=name), string_data=data, type=type
+    )
     client.CoreV1Api().create_namespaced_secret(namespace, secret)
 
     return name
 
 
-def read_secret(name: str, namespace: str) -> Dict[str, str]:
+def read_secret(namespace: str, name: str) -> Dict[str, str]:
     return decode_secret(
         client.CoreV1Api().read_namespaced_secret(name, namespace).data
     )
 
 
-def delete_secret(name: str, namespace: str):
+def delete_secret(namespace: str, name: str):
     client.CoreV1Api().delete_namespaced_secret(name, namespace)
 
 

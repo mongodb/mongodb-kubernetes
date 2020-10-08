@@ -23,9 +23,7 @@ echo "Data used for building the image: bundled_mdb_url=${mdb_url}, binary_name=
 
 # 2. Building the image - either to local repo or to the remote one (ECR)
 
-if [[ ${REPO_TYPE} = "ecr" ]]; then
-    ensure_ecr_repository "${REPO_URL}/mongodb-enterprise-appdb"
-fi
+ensure_ecr_repository "${REPO_URL}/mongodb-enterprise-appdb"
 
 # FIXME: fetch AA version from new API when CLOUDP-58178 is deployed
 # final_aa_download_url="$(curl --silent --show-error --fail --retry 3 -I ${aa_download_url} | grep -sE '^location: ' | cut -d' ' -f2 | tr -d '\r')"

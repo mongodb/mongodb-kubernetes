@@ -13,9 +13,7 @@ source scripts/funcs/kubernetes
 
 title "Building Database image (version: ${database_version:?})..."
 
-if [[ ${REPO_TYPE} = "ecr" ]]; then
-    ensure_ecr_repository "${REPO_URL}/mongodb-enterprise-database"
-fi
+ensure_ecr_repository "${REPO_URL}/mongodb-enterprise-database"
 
 base_url="${REPO_URL}/mongodb-enterprise-database"
 repo_name="$(echo "${base_url}" | cut -d "/" -f2-)" # cutting the domain part

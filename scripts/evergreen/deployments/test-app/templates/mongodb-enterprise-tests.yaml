@@ -82,6 +82,10 @@ spec:
     - name: CUSTOM_MDB_PREV_VERSION
       value: {{ .Values.customOmMdbPrevVersion }}
     {{ end }}
+    {{ if .Values.imageType }}
+    - name: IMAGE_TYPE
+      value: {{ .Values.imageType }}
+    {{ end }}
     image: {{ .Values.repo }}/mongodb-enterprise-tests:{{ .Values.tag }}
     # Options to pytest command should go in the pytest.ini file.
     command: ["pytest"]

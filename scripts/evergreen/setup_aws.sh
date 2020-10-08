@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 set -Eeou pipefail
-
+set -x
 #
 # This script should be run from the root evergreen work dir
 
 INSTALL_DIR="${workdir:?}/.local/lib/aws"
-BIN_LOCATION="${workdir}/bin/aws"
+BIN_LOCATION="${workdir}/bin"
 
-curl -s "https://s3.amazonaws.com/aws-cli/awscli-bundle.zip" -o "awscli-bundle.zip"
-unzip awscli-bundle.zip &> /dev/null
-./awscli-bundle/install --bin-location "${BIN_LOCATION}" --install-dir "${INSTALL_DIR}"
+mkdir -p "${BIN_LOCATION}"
+
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip &> /dev/null
+sudo ./aws/install --bin-dir "${BIN_LOCATION}" --install-dir "${INSTALL_DIR}"

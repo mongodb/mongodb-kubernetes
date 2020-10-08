@@ -23,10 +23,7 @@ git clone git@github.com:10gen/ops-manager-kubernetes.git
 * [Generate a github token](https://github.com/settings/tokens/new) with "repo" permissions and set `GITHUB_TOKEN`
 environment variable in `~/.bashrc`
 * AWS 
-    * You will need a version previous to `1.17.10`
-    * You can get one with the following command:
-        * `brew install https://raw.githubusercontent.com/Homebrew/homebrew-core/ecf3e17d8506b24b59bdaf286d3689e62bded185/Formula/awscli.rb`
-        * `aws --version # aws-cli/1.17.9...`
+    * Install the latest version of AWS CLI: `brew install awscli`
     * Get the access to AWS account  "MMS Engineering Test" (268558157000)":
         1. Ask your colleagues to add the user (and have them to send you your password)
            * You will have to be connected to the VPN to change your password
@@ -59,18 +56,19 @@ make init
 ```
 
 #### Edit the context file
+
 `~/.operator-dev/contexts/dev` context file is configured to work with kops clusters by default.
 Edit the file:
-1. Change all ECR registry URLs:
-  * change "us-east-1" to the AWS zone where the kops cluster will be created
-  * change "myname" to something more meaningful (we usually use some last name abbreviation)
-2. Change the `CLUSTER_NAME` to `<myname>.mongokubernetes.com` 
-3. (optionally) Set `KOPS_ZONES` to the AWS zone with available VPCs. `us-east-2a` is used by default. 
+1. Change all ECR registry URLs: change "myname" to something more meaningful (we usually use some last name abbreviation)
+2. Change the `CLUSTER_NAME` to `<myname>.mongokubernetes.com`
+3. Specify the `RED_HAT_TOKEN` property ("Token" on https://access.redhat.com/terms-based-registry/#/token/openshift3-test-cluster - ask your colleagues for credentials) 
+4. (optionally) Set `KOPS_ZONES` to the AWS zone with available VPCs. `us-east-2a` is used by default. 
   * Note that if you set this you will need to provide the full zone and not just the region name (if your AWS zone is `eu-west-1` you should have, for example, `eu-west-1a`)
 
 You can edit the other context files or copy them to new ones.
 
 #### Switching between contexts 
+
 This will update the symlink `~/.operator-dev/context` to point to the relevant context file in `~/.operator-dev/contexts` -
 it will be used by all `make` commands for building and deploying images
 ```bash

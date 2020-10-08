@@ -18,11 +18,11 @@ def replica_set(openldap: OpenLDAP, namespace: str) -> MongoDB:
     )
 
     secret_name = "bind-query-password"
-    create_secret(secret_name, namespace, {"password": openldap.admin_password})
+    create_secret(namespace, secret_name, {"password": openldap.admin_password})
 
     ac_secret_name = "automation-config-password"
     create_secret(
-        ac_secret_name, namespace, {"automationConfigPassword": "LDAPPassword."}
+        namespace, ac_secret_name, {"automationConfigPassword": "LDAPPassword."}
     )
 
     resource["spec"]["security"]["authentication"]["ldap"] = {

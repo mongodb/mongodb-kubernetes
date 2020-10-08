@@ -37,9 +37,8 @@ elif [[ ${CLUSTER_TYPE} = "kind" ]]; then
   kind delete cluster
   echo "Creating kind cluster"
 
-  ecr_registry=$(echo "${REPO_URL}" | cut -d "/" -f 1) # "268558157000.dkr.ecr.eu-west-1.amazonaws.com"
-  scripts/dev/setup_kind.sh "${ecr_registry}"
-  kind create cluster --config "$HOME/.operator-dev/kind-ecr-config.yaml"
+  # K8s version is aligned with the one used in our E2E tests
+  kind create cluster --image kindest/node:v1.16.9 # --config "$HOME/.operator-dev/kind-ecr-config.yaml"
 fi
 
 title "Kubernetes cluster ${CLUSTER_NAME} is up"

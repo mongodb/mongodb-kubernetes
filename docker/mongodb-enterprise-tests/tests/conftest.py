@@ -1,3 +1,4 @@
+import logging
 import os
 import tempfile
 from typing import Optional, Dict
@@ -22,7 +23,7 @@ except Exception:
 
 @fixture(scope="module")
 def namespace() -> str:
-    return get_env_variable_or_fail("PROJECT_NAMESPACE")
+    return os.environ["PROJECT_NAMESPACE"]
 
 
 @fixture(scope="module")
@@ -34,7 +35,12 @@ def operator_installation_config(namespace: str) -> Dict[str, str]:
 
 @fixture(scope="module")
 def evergreen_task_id() -> str:
-    return get_env_variable_or_fail("TASK_ID")
+    return os.environ["TASK_ID"]
+
+
+@fixture(scope="module")
+def image_type() -> str:
+    return os.environ["IMAGE_TYPE"]
 
 
 @fixture(scope="module")
@@ -182,6 +188,7 @@ def default_operator(
 @fixture(scope="module")
 def official_operator(
     namespace: str,
+    image_type: str,
     operator_installation_config: Dict[str, str],
     custom_operator_release_version: Optional[str],
 ) -> Operator:
@@ -197,34 +204,37 @@ def official_operator(
         temp_dir,
         custom_operator_release_version,
     )
-    print()
-    print(
+    logging.info(
         "Checked out official Operator version {} to {}".format(
             custom_operator_release_version, temp_dir
         )
     )
     helm_options = []
-    if operator_installation_config["managedSecurityContext"] == "true":
-        # for openshift we need to use the non-default values file
+    helm_args = {
+        "registry.imagePullSecrets": operator_installation_config[
+            "registry.imagePullSecrets"
+        ]
+    }
+    name = "mongodb-enterprise-operator"
+    # Note, that we don't intend to install the official Operator to standalone clusters (kops/openshift) as we want to
+    # avoid damaged CRDs. But we may need to install the "openshift like" environment to Kind instead if the "ubi" images
+    # are used for installing the dev Operator
+    if image_type == "ubi":
         helm_options = [
             "--values",
             os.path.join(temp_dir, "helm_chart", "values-openshift.yaml"),
         ]
+        # on the other side we still need to manage the security context by ourselves
+        helm_args["managedSecurityContext"] = "true"
+        name = "enterprise-operator"
 
     return Operator(
         namespace=namespace,
+        helm_args=helm_args,
         helm_chart_path=os.path.join(temp_dir, "helm_chart"),
         helm_options=helm_options,
+        name=name,
     ).install()
-
-
-def get_env_variable_or_fail(env_var_name: str) -> str:
-    value = os.getenv(env_var_name, None)
-
-    if value is None:
-        raise ValueError(f"{env_var_name} needs to be defined")
-
-    return value
 
 
 def fetch_latest_released_operator_version() -> str:

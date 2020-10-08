@@ -19,6 +19,7 @@ def helm_template(
         command_args.append(templates)
 
     args = ("helm", "template", *(command_args), helm_chart_path)
+    logging.info(args)
 
     yaml_file_name = "{}.yaml".format(str(uuid.uuid4()))
     with open(yaml_file_name, "w") as output:

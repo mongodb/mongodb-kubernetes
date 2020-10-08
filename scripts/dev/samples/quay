@@ -11,3 +11,4 @@ export INIT_OPS_MANAGER_REGISTRY=quay.io/mongodb
 export INIT_APPDB_REGISTRY=quay.io/mongodb
 export NAMESPACE=public
 export OPERATOR_VERSION=1.5.2
+export RED_HAT_TOKEN=

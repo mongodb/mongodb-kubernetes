@@ -34,11 +34,11 @@ def replica_set(
     )
 
     secret_name = "bind-query-password"
-    create_secret(secret_name, namespace, {"password": openldap.admin_password})
+    create_secret(namespace, secret_name, {"password": openldap.admin_password})
     ac_secret_name = "automation-config-password"
     create_secret(
-        ac_secret_name,
         namespace,
+        ac_secret_name,
         {"automationConfigPassword": ldap_mongodb_agent_user.password},
     )
 
@@ -100,9 +100,7 @@ def user_scram(replica_set: MongoDB, namespace: str) -> MongoDBUser:
     )
     secret_name = "user-password"
     secret_key = "password"
-    create_secret(
-        secret_name, namespace, {secret_key: "my-password"},
-    )
+    create_secret(namespace, secret_name, {secret_key: "my-password"})
     user["spec"]["passwordSecretKeyRef"] = {
         "name": secret_name,
         "key": secret_key,

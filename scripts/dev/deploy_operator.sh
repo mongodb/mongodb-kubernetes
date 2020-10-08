@@ -34,10 +34,6 @@ fi
 ensure_namespace "${NAMESPACE}"
 
 #installing the operator
-if [[ ${REPO_TYPE} = "local" ]]; then
-    pull_policy="Never"
-fi
-
 if [[ ${CLUSTER_TYPE} = "openshift" ]]; then
     managed_security_context=true
 fi
@@ -55,20 +51,11 @@ if [[ ${IMAGE_TYPE} = "ubi" ]]; then
     fi
 fi
 
-# For any cluster except for kops (Kind, Openshift) access to ECR registry needs authorization - hence
-# creating the image pull secret
-if [[ ${CLUSTER_TYPE} != "kops" ]] && [[ ${REPO_URL} == *".ecr."* ]]; then
-    export ecr_registry_needs_auth="ecr-registry-secret"
-    docker_config=$(mktemp)
-
-    scripts/dev/configure_docker "${REPO_URL}" > "${docker_config}"
-
-    echo "Creating/updating pull secret from docker configured file"
-    kubectl -n "${NAMESPACE}" create secret generic "ecr-registry-secret" \
-		--from-file=.dockerconfigjson="${docker_config}" --type=kubernetes.io/dockerconfigjson --dry-run -o yaml | \
-		 kubectl apply -f -
-    rm "${docker_config}"
-fi
+# We always create the image pull secret from the docker config.json which gives access to all necesary image repositories
+echo "Creating/updating pull secret from docker configured file"
+kubectl -n "${NAMESPACE}" delete secret image-registries-secret --ignore-not-found
+kubectl -n "${NAMESPACE}" create secret generic image-registries-secret \
+  --from-file=.dockerconfigjson="${HOME}/.docker/config.json" --type=kubernetes.io/dockerconfigjson
 
 ## Delete Operator
 delete_operator "${NAMESPACE:-mongodb}"
@@ -104,12 +91,8 @@ helm_params=(
      "--set" "managedSecurityContext=${managed_security_context:-false}"
      "--set" "debug=${DEBUG-}"
      "--set" "debugPort=${DEBUG_PORT:-30042}"
+     "--set" "registry.imagePullSecrets=image-registries-secret"
 )
-
-if [[ -n "${ecr_registry_needs_auth-}" ]]; then
-    echo "Configuring imagePullSecrets to ${ecr_registry_needs_auth}"
-    helm_params+=("--set" "registry.imagePullSecrets=${ecr_registry_needs_auth}")
-fi
 
 # setting an empty watched resource to avoid endpoint overriding - this allows to use debug
 [[ -n "${DEBUG-}" ]] && helm_params+=("--set" "operator.watchedResources=")

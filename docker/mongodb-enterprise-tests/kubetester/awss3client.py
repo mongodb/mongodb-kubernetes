@@ -16,6 +16,7 @@ class AwsS3Client:
 
     def delete_s3_bucket(self, name: str):
         v = self.s3_client.list_objects_v2(Bucket=name)
+        print(v)
         if v is not None and "Contents" in v:
             for x in v["Contents"]:
                 self.s3_client.delete_object(Bucket=name, Key=x["Key"])
