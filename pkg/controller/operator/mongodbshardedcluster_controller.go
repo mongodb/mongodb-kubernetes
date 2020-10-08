@@ -3,6 +3,8 @@ package operator
 import (
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/connection"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/scale"
@@ -14,7 +16,6 @@ import (
 	mdbstatus "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/agents"
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/project"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -29,13 +30,19 @@ import (
 // ReconcileMongoDbShardedCluster
 type ReconcileMongoDbShardedCluster struct {
 	*ReconcileCommonController
+	watch.ResourceWatcher
 	configSrvScaler       shardedClusterScaler
 	mongosScaler          shardedClusterScaler
 	mongodsPerShardScaler shardedClusterScaler
+	omConnectionFactory   om.ConnectionFactory
 }
 
 func newShardedClusterReconciler(mgr manager.Manager, omFunc om.ConnectionFactory) *ReconcileMongoDbShardedCluster {
-	return &ReconcileMongoDbShardedCluster{ReconcileCommonController: newReconcileCommonController(mgr, omFunc)}
+	return &ReconcileMongoDbShardedCluster{
+		ReconcileCommonController: newReconcileCommonController(mgr),
+		ResourceWatcher:           watch.NewResourceWatcher(),
+		omConnectionFactory:       omFunc,
+	}
 }
 
 func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
@@ -113,16 +120,17 @@ func (r *ReconcileMongoDbShardedCluster) getMongodsPerShardCountThisReconciliati
 func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interface{}, log *zap.SugaredLogger) (om.Connection, workflow.Status) {
 	log.Info("ShardedCluster.doShardedClusterProcessing")
 	sc := obj.(*mdbv1.MongoDB)
-	projectConfig, err := project.ReadProjectConfig(r.kubeHelper.client, objectKey(sc.Namespace, sc.Spec.GetProject()), sc.Name)
-	if err != nil {
-		return nil, workflow.Failed("error reading project %s", err)
-	}
 
-	podVars := &PodEnvVars{}
-	conn, err := r.prepareConnection(objectKey(sc.Namespace, sc.Name), sc.Spec.ConnectionSpec, podVars, log)
+	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.kubeHelper.client, *sc)
 	if err != nil {
 		return nil, workflow.Failed(err.Error())
 	}
+
+	conn, err := connection.PrepareOpsManagerConnection(r.kubeHelper.client, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, log)
+	if err != nil {
+		return nil, workflow.Failed(err.Error())
+	}
+	r.RegisterWatchedResources(sc.ObjectKey(), sc.Spec.GetProject(), sc.Spec.Credentials)
 
 	reconcileResult := checkIfHasExcessProcesses(conn, sc, log)
 	if !reconcileResult.IsOK() {
@@ -140,7 +148,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return nil, workflow.Failed(err.Error())
 	}
 
-	kubeState := r.buildKubeObjectsForShardedCluster(sc, podVars, projectConfig, currentAgentAuthMode, log)
+	kubeState := r.buildKubeObjectsForShardedCluster(sc, newPodVars(conn, projectConfig, sc.Spec.ConnectionSpec), projectConfig, currentAgentAuthMode, log)
 
 	if err = r.prepareScaleDownShardedCluster(conn, kubeState, sc, log); err != nil {
 		return nil, workflow.Failed("failed to perform scale down preliminary actions: %s", err)
@@ -406,10 +414,16 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 func (r *ReconcileMongoDbShardedCluster) delete(obj interface{}, log *zap.SugaredLogger) error {
 	sc := obj.(*mdbv1.MongoDB)
 
-	conn, err := r.prepareConnection(objectKey(sc.Namespace, sc.Name), sc.Spec.ConnectionSpec, nil, log)
+	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.kubeHelper.client, *sc)
 	if err != nil {
 		return err
 	}
+
+	conn, err := connection.PrepareOpsManagerConnection(r.kubeHelper.client, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, log)
+	if err != nil {
+		return err
+	}
+
 	processNames := make([]string, 0)
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
@@ -485,13 +499,13 @@ func AddShardedClusterController(mgr manager.Manager) error {
 	  }*/
 
 	err = c.Watch(&source.Kind{Type: &corev1.ConfigMap{}},
-		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, TrackedResources: reconciler.watchedResources})
+		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, TrackedResources: reconciler.WatchedResources})
 	if err != nil {
 		return err
 	}
 
 	err = c.Watch(&source.Kind{Type: &corev1.Secret{}},
-		&watch.ResourcesHandler{ResourceType: watch.Secret, TrackedResources: reconciler.watchedResources})
+		&watch.ResourcesHandler{ResourceType: watch.Secret, TrackedResources: reconciler.WatchedResources})
 	if err != nil {
 		return err
 	}

@@ -7,6 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
+	"k8s.io/apimachinery/pkg/types"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
 
@@ -364,6 +367,23 @@ func TestReplicaSetPortIsConfigurable_WithAdditionalMongoConfig(t *testing.T) {
 	svc, err := client.GetService(kube.ObjectKey(rs.Namespace, rs.ServiceName()))
 	assert.NoError(t, err)
 	assert.Equal(t, int32(30000), svc.Spec.Ports[0].Port)
+}
+
+//TestReplicaSet_ConfigMapAndSecretWatched verifies that config map and secret are added to the internal
+//map that allows to watch them for changes
+func TestReplicaSet_ConfigMapAndSecretWatched(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().Build()
+
+	reconciler, client := defaultReplicaSetReconciler(rs)
+
+	checkReconcileSuccessful(t, reconciler, rs, client)
+
+	expected := map[watch.Object][]types.NamespacedName{
+		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, rs.Spec.Credentials)}:              {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+	}
+
+	assert.Equal(t, reconciler.WatchedResources, expected)
 }
 
 // assertCorrectNumberOfMembersAndProcesses ensures that both the mongodb resource and the Ops Manager deployment

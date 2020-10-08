@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/agents"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/apierror"
 
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
@@ -49,10 +51,16 @@ type ReconcileAppDbReplicaSet struct {
 	*ReconcileCommonController
 	VersionManifestFilePath  string
 	InternetManifestProvider manifest.Provider
+	omConnectionFactory      om.ConnectionFactory
 }
 
-func newAppDBReplicaSetReconciler(commonController *ReconcileCommonController, appDbVersionManifestPath string) *ReconcileAppDbReplicaSet {
-	return &ReconcileAppDbReplicaSet{ReconcileCommonController: commonController, VersionManifestFilePath: appDbVersionManifestPath, InternetManifestProvider: manifest.InternetProvider{}}
+func newAppDBReplicaSetReconciler(commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, appDbVersionManifestPath string) *ReconcileAppDbReplicaSet {
+	return &ReconcileAppDbReplicaSet{
+		ReconcileCommonController: commonController,
+		VersionManifestFilePath:   appDbVersionManifestPath,
+		InternetManifestProvider:  manifest.InternetProvider{},
+		omConnectionFactory:       omConnectionFactory,
+	}
 }
 
 // Reconcile deploys the "headless" agent, and wait until it reaches the goal state
@@ -412,9 +420,10 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbAgentApiKey(opsManager *omv1.Mongo
 		return fmt.Errorf("error reading secret %s: %s", objectKey(opsManager.Namespace, agentApiKeySecretName(conn.GroupID())), err)
 	}
 
-	if err := r.ensureAgentKeySecretExists(conn, opsManager.Namespace, agentKeyFromSecret, log); err != nil {
+	if err := agents.EnsureAgentKeySecretExists(r.kubeHelper.client, conn, opsManager.Namespace, agentKeyFromSecret, conn.GroupID(), log); err != nil {
 		return fmt.Errorf("error ensuring agent key secret exists: %s", err)
 	}
+
 	return nil
 }
 

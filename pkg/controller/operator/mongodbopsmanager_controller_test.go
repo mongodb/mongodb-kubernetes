@@ -77,16 +77,16 @@ func TestOpsManagerReconciler_watchedResources(t *testing.T) {
 	}
 
 	// om watches oplog MDB resource
-	assert.Contains(t, reconciler.watchedResources, key)
-	assert.Contains(t, reconciler.watchedResources[key], mock.ObjectKeyFromApiObject(&testOm))
-	assert.Contains(t, reconciler.watchedResources[key], mock.ObjectKeyFromApiObject(&otherTestOm))
+	assert.Contains(t, reconciler.WatchedResources, key)
+	assert.Contains(t, reconciler.WatchedResources[key], mock.ObjectKeyFromApiObject(&testOm))
+	assert.Contains(t, reconciler.WatchedResources[key], mock.ObjectKeyFromApiObject(&otherTestOm))
 
 	// if backup is disabled, should be removed from watched resources
 	testOm.Spec.Backup.Enabled = false
 	reconciler.watchMongoDBResourcesReferencedByBackup(testOm)
-	assert.Contains(t, reconciler.watchedResources, key)
-	assert.Contains(t, reconciler.watchedResources[key], mock.ObjectKeyFromApiObject(&otherTestOm))
-	assert.NotContains(t, reconciler.watchedResources[key], mock.ObjectKeyFromApiObject(&testOm))
+	assert.Contains(t, reconciler.WatchedResources, key)
+	assert.Contains(t, reconciler.WatchedResources[key], mock.ObjectKeyFromApiObject(&otherTestOm))
+	assert.NotContains(t, reconciler.WatchedResources[key], mock.ObjectKeyFromApiObject(&testOm))
 }
 
 func TestOpsManagerReconciler_prepareOpsManager(t *testing.T) {

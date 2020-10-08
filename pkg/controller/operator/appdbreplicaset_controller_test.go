@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
-
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -635,7 +634,12 @@ func checkDeploymentEqualToPublished(t *testing.T, expected om.Deployment, s *co
 }
 
 func newAppDbReconciler(mgr manager.Manager, internetManifestProvider manifest.Provider) *ReconcileAppDbReplicaSet {
-	return &ReconcileAppDbReplicaSet{ReconcileCommonController: newReconcileCommonController(mgr, nil), VersionManifestFilePath: relativeVersionManifestFixturePath, InternetManifestProvider: internetManifestProvider}
+	return &ReconcileAppDbReplicaSet{
+		ReconcileCommonController: newReconcileCommonController(mgr),
+		VersionManifestFilePath:   relativeVersionManifestFixturePath,
+		InternetManifestProvider:  internetManifestProvider,
+		omConnectionFactory:       om.NewEmptyMockedOmConnection,
+	}
 }
 
 func readAutomationConfigMap(t *testing.T, kubeManager *mock.MockedManager, opsManager omv1.MongoDBOpsManager) *corev1.Secret {

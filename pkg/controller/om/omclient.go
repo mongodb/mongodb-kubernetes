@@ -36,7 +36,6 @@ type Connection interface {
 	ReadUpdateDeployment(depFunc func(Deployment) error, log *zap.SugaredLogger) error
 
 	//WaitForReadyState(processNames []string, log *zap.SugaredLogger) error
-	GenerateAgentKey() (string, error)
 	ReadAutomationStatus() (*AutomationStatus, error)
 	ReadAutomationAgents(page int) (Paginated, error)
 	MarkProjectAsBackingDatabase(databaseType BackingDatabaseType) error
@@ -58,6 +57,8 @@ type Connection interface {
 	backup.ConfigUpdater
 
 	OpsManagerVersion() versionutil.OpsManagerVersion
+
+	AgentKeyGenerator
 
 	AutomationConfigConnection
 	MonitoringConfigConnection
@@ -95,6 +96,10 @@ type BackupConfigConnection interface {
 
 type HasAgentAuthMode interface {
 	GetAgentAuthMode() (string, error)
+}
+
+type AgentKeyGenerator interface {
+	GenerateAgentKey() (string, error)
 }
 
 // AutomationConfigConnection is an interface that only deals with reading/updating of the AutomationConfig

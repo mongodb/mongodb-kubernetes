@@ -2,8 +2,8 @@ package operator
 
 import (
 	"fmt"
-	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/connection"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/scale"
@@ -14,7 +14,6 @@ import (
 	mdbstatus "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/agents"
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/project"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -30,12 +29,18 @@ import (
 // ReconcileMongoDbReplicaSet reconciles a MongoDB with a type of ReplicaSet
 type ReconcileMongoDbReplicaSet struct {
 	*ReconcileCommonController
+	watch.ResourceWatcher
+	omConnectionFactory om.ConnectionFactory
 }
 
 var _ reconcile.Reconciler = &ReconcileMongoDbReplicaSet{}
 
 func newReplicaSetReconciler(mgr manager.Manager, omFunc om.ConnectionFactory) *ReconcileMongoDbReplicaSet {
-	return &ReconcileMongoDbReplicaSet{newReconcileCommonController(mgr, omFunc)}
+	return &ReconcileMongoDbReplicaSet{
+		ReconcileCommonController: newReconcileCommonController(mgr),
+		ResourceWatcher:           watch.NewResourceWatcher(),
+		omConnectionFactory:       omFunc,
+	}
 }
 
 // Reconcile reads that state of the cluster for a MongoDbReplicaSet object and makes changes based on the state read
@@ -62,17 +67,16 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		return r.updateStatus(rs, workflow.Invalid(err.Error()), log)
 	}
 
-	projectConfig, err := project.ReadProjectConfig(r.kubeHelper.client, objectKey(request.Namespace, rs.Spec.GetProject()), rs.Name)
+	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.kubeHelper.client, *rs)
 	if err != nil {
-		log.Infof("error reading project %s", err)
-		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, nil
+		return r.updateStatus(rs, workflow.Failed(err.Error()), log)
 	}
 
-	podVars := &PodEnvVars{}
-	conn, err := r.prepareConnection(request.NamespacedName, rs.Spec.ConnectionSpec, podVars, log)
+	conn, err := connection.PrepareOpsManagerConnection(r.kubeHelper.client, projectConfig, credsConfig, r.omConnectionFactory, rs.Namespace, log)
 	if err != nil {
 		return r.updateStatus(rs, workflow.Failed("Failed to prepare Ops Manager connection: %s", err), log)
 	}
+	r.RegisterWatchedResources(rs.ObjectKey(), rs.Spec.GetProject(), rs.Spec.Credentials)
 
 	reconcileResult := checkIfHasExcessProcesses(conn, rs, log)
 	if !reconcileResult.IsOK() {
@@ -88,7 +92,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		SetReplicas(scale.ReplicasThisReconciliation(rs)).
 		SetService(rs.ServiceName()).
 		SetServicePort(rs.Spec.AdditionalMongodConfig.GetPortOrDefault()).
-		SetPodVars(podVars).
+		SetPodVars(newPodVars(conn, projectConfig, rs.Spec.ConnectionSpec)).
 		SetStartupParameters(rs.Spec.Agent.StartupParameters).
 		SetLogger(log).
 		SetTLS(rs.Spec.GetTLSConfig()).
@@ -203,13 +207,13 @@ func AddReplicaSetController(mgr manager.Manager) error {
 	//	}*/
 	//
 	err = c.Watch(&source.Kind{Type: &corev1.ConfigMap{}},
-		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, TrackedResources: reconciler.watchedResources})
+		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, TrackedResources: reconciler.WatchedResources})
 	if err != nil {
 		return err
 	}
 
 	err = c.Watch(&source.Kind{Type: &corev1.Secret{}},
-		&watch.ResourcesHandler{ResourceType: watch.Secret, TrackedResources: reconciler.watchedResources})
+		&watch.ResourcesHandler{ResourceType: watch.Secret, TrackedResources: reconciler.WatchedResources})
 	if err != nil {
 		return err
 	}
@@ -280,8 +284,13 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLogger) error {
 	rs := obj.(*mdbv1.MongoDB)
 
+	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.kubeHelper.client, *rs)
+	if err != nil {
+		return err
+	}
+
 	log.Infow("Removing replica set from Ops Manager", "config", rs.Spec)
-	conn, err := r.prepareConnection(objectKey(rs.Namespace, rs.Name), rs.Spec.ConnectionSpec, nil, log)
+	conn, err := connection.PrepareOpsManagerConnection(r.kubeHelper.client, projectConfig, credsConfig, r.omConnectionFactory, rs.Namespace, log)
 	if err != nil {
 		return err
 	}

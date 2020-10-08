@@ -6,7 +6,7 @@ import (
 	"os"
 	"reflect"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/project"
 
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
@@ -25,8 +25,6 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/project"
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
@@ -66,27 +64,22 @@ type patchValue struct {
 type ReconcileCommonController struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
-	client              kubernetesClient.Client
-	scheme              *runtime.Scheme
-	kubeHelper          KubeHelper
-	omConnectionFactory om.ConnectionFactory
-	// internal multimap mapping watched resources to mongodb resources they are used in
-	// (example: config map 'c1' is used in 2 mongodb replica sets 'm1', 'm2', so the map will be [c1]->[m1, m2])
-	watchedResources map[watch.Object][]types.NamespacedName
+	client     kubernetesClient.Client
+	scheme     *runtime.Scheme
+	kubeHelper KubeHelper
 	// this map keeps the locks for the resources the current controller is responsible for
 	// This allows to serialize processing logic (edit and removal) and necessary because
 	// we don't use reconciliation queue for removal operations
 	reconcileLocks sync.Map
 }
 
-func newReconcileCommonController(mgr manager.Manager, omFunc om.ConnectionFactory) *ReconcileCommonController {
+func newReconcileCommonController(mgr manager.Manager) *ReconcileCommonController {
+	newClient := kubernetesClient.NewClient(mgr.GetClient())
 	return &ReconcileCommonController{
-		client:              kubernetesClient.NewClient(mgr.GetClient()),
-		scheme:              mgr.GetScheme(),
-		kubeHelper:          NewKubeHelper(mgr.GetClient()),
-		omConnectionFactory: omFunc,
-		watchedResources:    map[watch.Object][]types.NamespacedName{},
-		reconcileLocks:      sync.Map{},
+		client:         newClient,
+		scheme:         mgr.GetScheme(),
+		kubeHelper:     NewKubeHelper(mgr.GetClient()),
+		reconcileLocks: sync.Map{},
 	}
 }
 
@@ -94,58 +87,6 @@ func newReconcileCommonController(mgr manager.Manager, omFunc om.ConnectionFacto
 func (c *ReconcileCommonController) GetMutex(resourceName types.NamespacedName) *sync.Mutex {
 	mutex, _ := c.reconcileLocks.LoadOrStore(resourceName, &sync.Mutex{})
 	return mutex.(*sync.Mutex)
-}
-
-// prepareConnection reads project config map and credential secrets and uses these values to communicate with Ops Manager:
-// create or read the project and optionally request an agent key (it could have been returned by group api call)
-func (c *ReconcileCommonController) prepareConnection(nsName types.NamespacedName, spec mdbv1.ConnectionSpec, podVars *PodEnvVars, log *zap.SugaredLogger) (om.Connection, error) {
-	projectConfig, err := project.ReadProjectConfig(c.kubeHelper.client, objectKey(nsName.Namespace, spec.GetProject()), nsName.Name)
-	if err != nil {
-		return nil, fmt.Errorf("Error reading Project Config: %s", err)
-	}
-
-	credsConfig, err := project.ReadCredentials(c.kubeHelper.client, objectKey(nsName.Namespace, spec.Credentials))
-	if err != nil {
-		return nil, fmt.Errorf("Error reading Credentials secret: %s", err)
-	}
-
-	c.registerWatchedResources(nsName, spec.GetProject(), spec.Credentials)
-
-	omProject, conn, err := project.ReadOrCreateProject(projectConfig, credsConfig, c.omConnectionFactory, log)
-	if err != nil {
-		return nil, fmt.Errorf("Error reading or creating project in Ops Manager: %s", err)
-	}
-
-	omVersion := conn.OpsManagerVersion()
-	if omVersion.VersionString != "" { // older versions of Ops Manager will not include the version in the header
-		log.Infof("Using Ops Manager version %s", omVersion)
-	}
-
-	// adds the namespace as a tag to the Ops Manager project
-	if err = ensureTagAdded(conn, omProject, nsName.Namespace, log); err != nil {
-		return nil, err
-	}
-
-	// adds the externally_managed tag if feature controls is not available.
-	if !controlledfeature.ShouldUseFeatureControls(conn.OpsManagerVersion()) {
-		if err = ensureTagAdded(conn, omProject, util.OmGroupExternallyManagedTag, log); err != nil {
-			return nil, err
-		}
-	}
-
-	if err = c.ensureAgentKeySecretExists(conn, nsName.Namespace, omProject.AgentAPIKey, log); err != nil {
-		return nil, err
-	}
-
-	if podVars != nil {
-		// Register podVars if user passed a valid reference to a PodVars object
-		podVars.BaseURL = conn.BaseURL()
-		podVars.ProjectID = conn.GroupID()
-		podVars.User = conn.User()
-		podVars.LogLevel = spec.LogLevel
-		podVars.SSLProjectConfig = projectConfig.SSLProjectConfig
-	}
-	return conn, nil
 }
 
 func ensureRoles(roles []mdbv1.MongoDbRole, conn om.Connection, log *zap.SugaredLogger) workflow.Status {
@@ -190,50 +131,6 @@ func ensureTagAdded(conn om.Connection, project *om.Project, tag string, log *za
 		log.Info("Project tags are fixed")
 	}
 	return err
-}
-
-// ensureAgentKeySecretExists checks if the Secret with specified name (<groupId>-group-secret) exists, otherwise tries to
-// generate agent key using OM public API and create Secret containing this key. Generation of a key is expected to be
-// a rare operation as the group creation api generates agent key already (so the only possible situation is when the group
-// was created externally and agent key wasn't generated before)
-// Returns the api key existing/generated
-func (c *ReconcileCommonController) ensureAgentKeySecretExists(conn om.Connection, nameSpace, agentKey string, log *zap.SugaredLogger) error {
-	secretName := agentApiKeySecretName(conn.GroupID())
-	log = log.With("secret", secretName)
-	_, err := c.kubeHelper.client.GetSecret(kube.ObjectKey(nameSpace, secretName))
-	if err != nil {
-		if agentKey == "" {
-			log.Info("Generating agent key as current project doesn't have it")
-
-			agentKey, err = conn.GenerateAgentKey()
-			if err != nil {
-				return fmt.Errorf("Failed to generate agent key in OM: %s", err)
-			}
-			log.Info("Agent key was successfully generated")
-		}
-
-		// todo pass a real owner in a next PR
-		if err = c.createAgentKeySecret(objectKey(nameSpace, secretName), agentKey, nil); err != nil {
-			if apiErrors.IsAlreadyExists(err) {
-				return nil
-			}
-			return fmt.Errorf("Failed to create Secret: %s", err)
-		}
-		log.Infof("Project agent key is saved in Kubernetes Secret for later usage")
-		return nil
-	}
-
-	return nil
-}
-
-func (c *ReconcileCommonController) createAgentKeySecret(objectKey client.ObjectKey, agentKey string, owner v1.CustomResourceReadWriter) error {
-	agentKeySecret := secret.Builder().
-		SetField(util.OmAgentApiKey, agentKey).
-		SetOwnerReferences(baseOwnerReference(owner)).
-		SetName(objectKey.Name).
-		SetNamespace(objectKey.Namespace).
-		Build()
-	return c.kubeHelper.client.CreateSecret(agentKeySecret)
 }
 
 // updateStatus updates the status for the CR using patch operation. Note, that the resource status is mutated and
@@ -362,78 +259,6 @@ func (c *ReconcileCommonController) prepareResourceForReconciliation(
 	resource.SetWarnings([]status.Warning{})
 
 	return nil, nil
-}
-
-// registerWatchedResources adds the secret/configMap -> mongodb resource pair to internal reconciler map. This allows
-// to start watching for the events for this secret/configMap and trigger reconciliation for all depending mongodb resources
-func (c *ReconcileCommonController) registerWatchedResources(mongodbResourceNsName types.NamespacedName, configMap string, secret string) {
-	defaultNamespace := mongodbResourceNsName.Namespace
-
-	c.addWatchedResourceIfNotAdded(configMap, defaultNamespace, watch.ConfigMap, mongodbResourceNsName)
-	c.addWatchedResourceIfNotAdded(secret, defaultNamespace, watch.Secret, mongodbResourceNsName)
-}
-
-// addWatchedResourceIfNotAdded adds the given resource to the list of watched
-// resources. A watched resource is a resource that, when changed, will trigger
-// a reconciliation for its dependent resource.
-func (c *ReconcileCommonController) addWatchedResourceIfNotAdded(name, namespace string,
-	wType watch.Type, dependentResourceNsName types.NamespacedName) {
-	key := watch.Object{
-		ResourceType: wType,
-		Resource: types.NamespacedName{
-			Name:      name,
-			Namespace: namespace,
-		},
-	}
-	if _, ok := c.watchedResources[key]; !ok {
-		c.watchedResources[key] = make([]types.NamespacedName, 0)
-	}
-	found := false
-	for _, v := range c.watchedResources[key] {
-		if v == dependentResourceNsName {
-			found = true
-		}
-	}
-	if !found {
-		c.watchedResources[key] = append(c.watchedResources[key], dependentResourceNsName)
-		zap.S().Debugf("Watching %s to trigger reconciliation for %s", key, dependentResourceNsName)
-	}
-}
-
-// stop watching resources with input namespace and watched type, if any
-func (c *ReconcileCommonController) removeWatchedResources(namespace string, wType watch.Type, dependentResourceNsName types.NamespacedName) {
-	for key := range c.watchedResources {
-		if key.ResourceType == wType && key.Resource.Namespace == namespace {
-			index := -1
-			for i, v := range c.watchedResources[key] {
-				if v == dependentResourceNsName {
-					index = i
-				}
-			}
-
-			if index == -1 {
-				continue
-			}
-
-			zap.S().Infof("Removing %s from resources dependent on %s", dependentResourceNsName, key)
-
-			if index == 0 {
-				if len(c.watchedResources[key]) == 1 {
-					delete(c.watchedResources, key)
-					continue
-				}
-				c.watchedResources[key] = c.watchedResources[key][index+1:]
-				continue
-			}
-
-			if index == len(c.watchedResources[key]) {
-				c.watchedResources[key] = c.watchedResources[key][:index]
-				continue
-			}
-
-			c.watchedResources[key] = append(c.watchedResources[key][:index], c.watchedResources[key][index+1:]...)
-		}
-	}
 }
 
 // checkIfHasExcessProcesses will check if the project has excess processes.
@@ -950,4 +775,28 @@ func clusterDomainOrDefault(clusterDomain string) string {
 	}
 
 	return clusterDomain
+}
+
+func readProjectConfigAndCredentials(client kubernetesClient.Client, mdb mdbv1.MongoDB) (mdbv1.ProjectConfig, mdbv1.Credentials, error) {
+	projectConfig, err := project.ReadProjectConfig(client, objectKey(mdb.Namespace, mdb.Spec.GetProject()), mdb.Name)
+	if err != nil {
+		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, fmt.Errorf("error reading project %s", err)
+	}
+	credsConfig, err := project.ReadCredentials(client, kube.ObjectKey(mdb.Namespace, mdb.Spec.Credentials))
+	if err != nil {
+		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, fmt.Errorf("error reading Credentials secret: %s", err)
+	}
+	return projectConfig, credsConfig, nil
+}
+
+// newPodVars initializes a PodEnvVars instance based on the values of the provided Ops Manager connection, project config
+// and connection spec
+func newPodVars(conn om.Connection, projectConfig mdbv1.ProjectConfig, spec mdbv1.ConnectionSpec) *PodEnvVars {
+	podVars := &PodEnvVars{}
+	podVars.BaseURL = conn.BaseURL()
+	podVars.ProjectID = conn.GroupID()
+	podVars.User = conn.User()
+	podVars.LogLevel = spec.LogLevel
+	podVars.SSLProjectConfig = projectConfig.SSLProjectConfig
+	return podVars
 }

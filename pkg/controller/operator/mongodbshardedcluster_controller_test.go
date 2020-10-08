@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
 
@@ -656,6 +658,23 @@ func TestShardedClusterPortsAreConfigurable_WithAdditionalMongoConfig(t *testing
 	})
 }
 
+//TestShardedCluster_ConfigMapAndSecretWatched verifies that config map and secret are added to the internal
+//map that allows to watch them for changes
+func TestShardedCluster_ConfigMapAndSecretWatched(t *testing.T) {
+	sc := DefaultClusterBuilder().Build()
+
+	reconciler, client := defaultClusterReconciler(sc)
+
+	checkReconcileSuccessful(t, reconciler, sc, client)
+
+	expected := map[watch.Object][]types.NamespacedName{
+		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {kube.ObjectKey(mock.TestNamespace, sc.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, sc.Spec.Credentials)}:              {kube.ObjectKey(mock.TestNamespace, sc.Name)},
+	}
+
+	assert.Equal(t, reconciler.WatchedResources, expected)
+}
+
 func assertPodSpecSts(t *testing.T, sts *appsv1.StatefulSet) {
 	assertPodSpecTemplate(t, "some-node-name", "some-host-name", corev1.RestartPolicyAlways, sts)
 }
@@ -738,7 +757,11 @@ func defaultClusterReconciler(sc *mdbv1.MongoDB) (*ReconcileMongoDbShardedCluste
 
 func newShardedClusterReconcilerFromResource(sc mdbv1.MongoDB, omFunc om.ConnectionFactory) (*ReconcileMongoDbShardedCluster, *mock.MockedManager) {
 	mgr := mock.NewManager(&sc)
-	r := &ReconcileMongoDbShardedCluster{ReconcileCommonController: newReconcileCommonController(mgr, omFunc)}
+	r := &ReconcileMongoDbShardedCluster{
+		ReconcileCommonController: newReconcileCommonController(mgr),
+		ResourceWatcher:           watch.NewResourceWatcher(),
+		omConnectionFactory:       omFunc,
+	}
 	r.initCountsForThisReconciliation(sc)
 	return r, mgr
 }

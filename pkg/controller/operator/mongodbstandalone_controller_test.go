@@ -4,6 +4,9 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
+	"k8s.io/apimachinery/pkg/types"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
 
@@ -174,6 +177,22 @@ func TestStandaloneCustomPodSpecTemplate(t *testing.T) {
 	expectedLabels := map[string]string{"app": "dublin-svc", "controller": "mongodb-enterprise-operator",
 		"first": "val", "pod-anti-affinity": "dublin"}
 	assert.Equal(t, expectedLabels, statefulSet.Spec.Template.Labels)
+}
+
+// TestStandalone_ConfigMapAndSecretWatched
+func TestStandalone_ConfigMapAndSecretWatched(t *testing.T) {
+	s := DefaultStandaloneBuilder().Build()
+
+	reconciler, client := defaultStandaloneReconciler(s)
+
+	checkReconcileSuccessful(t, reconciler, s, client)
+
+	expected := map[watch.Object][]types.NamespacedName{
+		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {kube.ObjectKey(mock.TestNamespace, s.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, s.Spec.Credentials)}:               {kube.ObjectKey(mock.TestNamespace, s.Name)},
+	}
+
+	assert.Equal(t, reconciler.WatchedResources, expected)
 }
 
 // defaultStandaloneReconciler is the standalone reconciler used in unit test. It "adds" necessary

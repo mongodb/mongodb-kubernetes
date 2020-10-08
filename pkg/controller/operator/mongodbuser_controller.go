@@ -2,14 +2,13 @@ package operator
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/connection"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
@@ -28,10 +27,16 @@ import (
 
 type MongoDBUserReconciler struct {
 	*ReconcileCommonController
+	watch.ResourceWatcher
+	omConnectionFactory om.ConnectionFactory
 }
 
 func newMongoDBUserReconciler(mgr manager.Manager, omFunc om.ConnectionFactory) *MongoDBUserReconciler {
-	return &MongoDBUserReconciler{newReconcileCommonController(mgr, omFunc)}
+	return &MongoDBUserReconciler{
+		ReconcileCommonController: newReconcileCommonController(mgr),
+		ResourceWatcher:           watch.NewResourceWatcher(),
+		omConnectionFactory:       omFunc,
+	}
 }
 
 func (r *MongoDBUserReconciler) getUser(request reconcile.Request, log *zap.SugaredLogger) (*userv1.MongoDBUser, error) {
@@ -52,52 +57,11 @@ func (r *MongoDBUserReconciler) getUser(request reconcile.Request, log *zap.Suga
 func (r *MongoDBUserReconciler) getMongoDB(user userv1.MongoDBUser) (mdbv1.MongoDB, error) {
 	mdb := mdbv1.MongoDB{}
 	name := objectKey(user.Namespace, user.Spec.MongoDBResourceRef.Name)
-	if err := r.client.Get(context.TODO(), name, &mdb); err != nil {
+	if err := r.kubeHelper.client.Get(context.TODO(), name, &mdb); err != nil {
 		return mdb, err
 	}
 
 	return mdb, nil
-}
-
-func (r *MongoDBUserReconciler) getConnectionSpec(user userv1.MongoDBUser, mdbSpec mdbv1.MongoDbSpec) (mdbv1.ConnectionSpec, error) {
-	if user.Spec.MongoDBResourceRef.Name != "" {
-		return mdbSpec.ConnectionSpec, nil
-	}
-
-	// TODO: once we no longer need to support transition to from operator
-	// versions <1.3 then we should be able to remove the rest of this function
-
-	//lint:ignore SA1019 need to use deprecated Project to ensure backwards compatibility
-	if user.Spec.Project == "" {
-		return mdbv1.ConnectionSpec{}, errors.New("either mongodb reference or project must be defined in user")
-	}
-
-	//lint:ignore SA1019 need to use deprecated Project to ensure backwards compatibility
-	projectConfig, err := configmap.ReadData(r.kubeHelper.client, kube.ObjectKey(user.Namespace, user.Spec.Project))
-	if err != nil {
-		return mdbv1.ConnectionSpec{}, err
-	}
-
-	// these parameters both existed in the old config map but are no longer
-	// required for one project
-	if _, hasProjectName := projectConfig["projectName"]; !hasProjectName {
-		return mdbv1.ConnectionSpec{}, errors.New("if using project config map, a project name must be defined")
-	}
-
-	if _, hasCredentials := projectConfig["credentials"]; !hasCredentials {
-		return mdbv1.ConnectionSpec{}, errors.New("if using project config map, credentials must be defined")
-	}
-
-	return mdbv1.ConnectionSpec{
-		OpsManagerConfig: &mdbv1.PrivateCloudConfig{
-			ConfigMapRef: mdbv1.ConfigMapRef{
-				//lint:ignore SA1019 need to use deprecated Project to ensure backwards compatibility
-				Name: user.Spec.Project,
-			},
-		},
-		Credentials: projectConfig["credentials"],
-		ProjectName: projectConfig["projectName"],
-	}, nil
 }
 
 func (r *MongoDBUserReconciler) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
@@ -129,16 +93,16 @@ func (r *MongoDBUserReconciler) Reconcile(request reconcile.Request) (res reconc
 		return reconcile.Result{}, nil
 	}
 
-	connSpec, err := r.getConnectionSpec(*user, mdb.Spec)
+	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.kubeHelper.client, mdb)
 	if err != nil {
-		return reconcile.Result{}, err
+		return r.updateStatus(user, workflow.Failed(err.Error()), log)
 	}
 
-	conn, err := r.prepareConnection(mdb.ObjectKey(), connSpec, nil, log)
-	if err != nil {
-		return r.updateStatus(user, workflow.Failed("failed to prepare Ops Manager connection. %s", err), log)
-	}
+	conn, err := connection.PrepareOpsManagerConnection(r.kubeHelper.client, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, log)
 
+	if err != nil {
+		return r.updateStatus(user, workflow.Failed("Failed to prepare Ops Manager connection: %s", err), log)
+	}
 	if user.Spec.Database == authentication.ExternalDB {
 		return r.handleExternalAuthUser(user, conn, log)
 	} else {
@@ -155,14 +119,14 @@ func (r *MongoDBUserReconciler) delete(obj interface{}, log *zap.SugaredLogger) 
 		return err
 	}
 
-	connSpec, err := r.getConnectionSpec(*user, mdb.Spec)
+	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.kubeHelper.client, mdb)
 	if err != nil {
 		return err
 	}
 
-	conn, err := r.prepareConnection(objectKey(user.Namespace, user.Name), connSpec, nil, log)
+	conn, err := connection.PrepareOpsManagerConnection(r.kubeHelper.client, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, log)
 	if err != nil {
-		log.Errorf("error preparing connection to Ops Manager: %s", err)
+		log.Errorf("Failed to prepare Ops Manager connection: %s", err)
 		return err
 	}
 
@@ -181,13 +145,13 @@ func AddMongoDBUserController(mgr manager.Manager) error {
 	}
 
 	err = c.Watch(&source.Kind{Type: &corev1.ConfigMap{}},
-		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, TrackedResources: reconciler.watchedResources})
+		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, TrackedResources: reconciler.WatchedResources})
 	if err != nil {
 		return err
 	}
 
 	err = c.Watch(&source.Kind{Type: &corev1.Secret{}},
-		&watch.ResourcesHandler{ResourceType: watch.Secret, TrackedResources: reconciler.watchedResources})
+		&watch.ResourcesHandler{ResourceType: watch.Secret, TrackedResources: reconciler.WatchedResources})
 	if err != nil {
 		return err
 	}
@@ -232,7 +196,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(user *userv1.MongoDBUser, con
 	// watch the password secret in order to trigger reconciliation if the
 	// password is updated
 	if user.Spec.PasswordSecretKeyRef.Name != "" {
-		r.addWatchedResourceIfNotAdded(
+		r.AddWatchedResourceIfNotAdded(
 			user.Spec.PasswordSecretKeyRef.Name,
 			user.Namespace,
 			watch.Secret,
@@ -248,7 +212,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(user *userv1.MongoDBUser, con
 			return fmt.Errorf("scram Sha has not yet been configured")
 		}
 
-		password, err := user.GetPassword(r.client)
+		password, err := user.GetPassword(r.kubeHelper.client)
 		if err != nil {
 			return err
 		}

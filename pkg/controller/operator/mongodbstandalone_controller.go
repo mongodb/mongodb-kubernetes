@@ -2,8 +2,8 @@ package operator
 
 import (
 	"fmt"
-	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/connection"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/host"
@@ -12,7 +12,6 @@ import (
 	mdbstatus "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/agents"
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/project"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -60,13 +59,13 @@ func AddStandaloneController(mgr manager.Manager) error {
 	  }*/
 
 	err = c.Watch(&source.Kind{Type: &corev1.ConfigMap{}},
-		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, TrackedResources: reconciler.watchedResources})
+		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, TrackedResources: reconciler.WatchedResources})
 	if err != nil {
 		return err
 	}
 
 	err = c.Watch(&source.Kind{Type: &corev1.Secret{}},
-		&watch.ResourcesHandler{ResourceType: watch.Secret, TrackedResources: reconciler.watchedResources})
+		&watch.ResourcesHandler{ResourceType: watch.Secret, TrackedResources: reconciler.WatchedResources})
 	if err != nil {
 		return err
 	}
@@ -77,12 +76,18 @@ func AddStandaloneController(mgr manager.Manager) error {
 }
 
 func newStandaloneReconciler(mgr manager.Manager, omFunc om.ConnectionFactory) *ReconcileMongoDbStandalone {
-	return &ReconcileMongoDbStandalone{newReconcileCommonController(mgr, omFunc)}
+	return &ReconcileMongoDbStandalone{
+		ReconcileCommonController: newReconcileCommonController(mgr),
+		ResourceWatcher:           watch.NewResourceWatcher(),
+		omConnectionFactory:       omFunc,
+	}
 }
 
 // ReconcileMongoDbStandalone reconciles a MongoDbStandalone object
 type ReconcileMongoDbStandalone struct {
 	*ReconcileCommonController
+	watch.ResourceWatcher
+	omConnectionFactory om.ConnectionFactory
 }
 
 func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
@@ -103,17 +108,16 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 	log.Infow("Standalone.Spec", "spec", s.Spec)
 	log.Infow("Standalone.Status", "status", s.Status)
 
-	projectConfig, err := project.ReadProjectConfig(r.kubeHelper.client, objectKey(request.Namespace, s.Spec.GetProject()), s.Name)
+	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.kubeHelper.client, *s)
 	if err != nil {
-		log.Infof("error reading project %s", err)
-		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, nil
+		return r.updateStatus(s, workflow.Failed(err.Error()), log)
 	}
 
-	podVars := &PodEnvVars{}
-	conn, err := r.prepareConnection(request.NamespacedName, s.Spec.ConnectionSpec, podVars, log)
+	conn, err := connection.PrepareOpsManagerConnection(r.kubeHelper.client, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, log)
 	if err != nil {
 		return r.updateStatus(s, workflow.Failed("Failed to prepare Ops Manager connection: %s", err), log)
 	}
+	r.RegisterWatchedResources(s.ObjectKey(), s.Spec.GetProject(), s.Spec.Credentials)
 
 	reconcileResult := checkIfHasExcessProcesses(conn, s, log)
 	if !reconcileResult.IsOK() {
@@ -140,7 +144,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		SetReplicas(1).
 		SetService(s.ServiceName()).
 		SetServicePort(s.Spec.AdditionalMongodConfig.GetPortOrDefault()).
-		SetPodVars(podVars).
+		SetPodVars(newPodVars(conn, projectConfig, s.Spec.ConnectionSpec)).
 		SetStartupParameters(s.Spec.Agent.StartupParameters).
 		SetLogger(log).
 		SetTLS(s.Spec.GetTLSConfig()).
@@ -245,7 +249,12 @@ func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLog
 
 	log.Infow("Removing standalone from Ops Manager", "config", s.Spec)
 
-	conn, err := r.prepareConnection(objectKey(s.Namespace, s.Name), s.Spec.ConnectionSpec, nil, log)
+	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.kubeHelper.client, *s)
+	if err != nil {
+		return err
+	}
+
+	conn, err := connection.PrepareOpsManagerConnection(r.kubeHelper.client, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, log)
 	if err != nil {
 		return err
 	}

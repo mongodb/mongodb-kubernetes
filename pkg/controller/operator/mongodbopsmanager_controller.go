@@ -48,8 +48,10 @@ const omVersionWithNewDriver = "4.4.0"
 
 type OpsManagerReconciler struct {
 	*ReconcileCommonController
-	omInitializer   api.Initializer
-	omAdminProvider api.AdminProvider
+	watch.ResourceWatcher
+	omInitializer       api.Initializer
+	omAdminProvider     api.AdminProvider
+	omConnectionFactory om.ConnectionFactory
 	// this version manifest is used for offline mode when the agent uses the bundled MongoDB and Operator
 	// must avoid downloading version manifest from the Internet
 	appDbVersionManifestPath string
@@ -59,10 +61,12 @@ var _ reconcile.Reconciler = &OpsManagerReconciler{}
 
 func newOpsManagerReconciler(mgr manager.Manager, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider, appDbVersionManifestPath string) *OpsManagerReconciler {
 	return &OpsManagerReconciler{
-		ReconcileCommonController: newReconcileCommonController(mgr, omFunc),
+		ReconcileCommonController: newReconcileCommonController(mgr),
+		omConnectionFactory:       omFunc,
 		omInitializer:             initializer,
 		omAdminProvider:           adminProvider,
 		appDbVersionManifestPath:  appDbVersionManifestPath,
+		ResourceWatcher:           watch.NewResourceWatcher(),
 	}
 }
 
@@ -108,7 +112,7 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 	// 1. Reconcile AppDB
 	emptyResult := reconcile.Result{}
 	retryResult := reconcile.Result{Requeue: true}
-	appDbReconciler := newAppDBReplicaSetReconciler(r.ReconcileCommonController, r.appDbVersionManifestPath)
+	appDbReconciler := newAppDBReplicaSetReconciler(r.ReconcileCommonController, r.omConnectionFactory, r.appDbVersionManifestPath)
 	result, err := appDbReconciler.Reconcile(opsManager, opsManager.Spec.AppDB, opsManagerUserPassword)
 	if err != nil || (result != emptyResult && result != retryResult) {
 		return result, err
@@ -303,13 +307,13 @@ func AddOpsManagerController(mgr manager.Manager) error {
 
 	// watch the secret with the Ops Manager user password
 	err = c.Watch(&source.Kind{Type: &corev1.Secret{}},
-		&watch.ResourcesHandler{ResourceType: watch.Secret, TrackedResources: reconciler.watchedResources})
+		&watch.ResourcesHandler{ResourceType: watch.Secret, TrackedResources: reconciler.WatchedResources})
 	if err != nil {
 		return err
 	}
 
 	err = c.Watch(&source.Kind{Type: &mdbv1.MongoDB{}},
-		&watch.ResourcesHandler{ResourceType: watch.MongoDB, TrackedResources: reconciler.watchedResources})
+		&watch.ResourcesHandler{ResourceType: watch.MongoDB, TrackedResources: reconciler.WatchedResources})
 	if err != nil {
 		return err
 	}
@@ -369,14 +373,14 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(opsManager omv1.Mon
 
 func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(opsManager omv1.MongoDBOpsManager) {
 	if !opsManager.Spec.Backup.Enabled {
-		r.removeWatchedResources(opsManager.Namespace, watch.MongoDB, kube.ObjectKeyFromApiObject(&opsManager))
+		r.RemoveWatchedResources(opsManager.Namespace, watch.MongoDB, kube.ObjectKeyFromApiObject(&opsManager))
 		return
 	}
 
 	// watch mongodb resources for oplog
 	oplogs := opsManager.Spec.Backup.OplogStoreConfigs
 	for _, oplogConfig := range oplogs {
-		r.addWatchedResourceIfNotAdded(
+		r.AddWatchedResourceIfNotAdded(
 			oplogConfig.MongoDBResourceRef.Name,
 			opsManager.Namespace,
 			watch.MongoDB,
@@ -387,7 +391,7 @@ func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(opsManage
 	// watch mongodb resources for block stores
 	blockstores := opsManager.Spec.Backup.BlockStoreConfigs
 	for _, blockStoreConfig := range blockstores {
-		r.addWatchedResourceIfNotAdded(
+		r.AddWatchedResourceIfNotAdded(
 			blockStoreConfig.MongoDBResourceRef.Name,
 			opsManager.Namespace,
 			watch.MongoDB,
@@ -400,7 +404,7 @@ func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(opsManage
 	for _, s3StoreConfig := range s3Stores {
 		// If S3StoreConfig doesn't have mongodb resource reference, skip it (appdb will be used)
 		if s3StoreConfig.MongoDBResourceRef != nil {
-			r.addWatchedResourceIfNotAdded(
+			r.AddWatchedResourceIfNotAdded(
 				s3StoreConfig.MongoDBResourceRef.Name,
 				opsManager.Namespace,
 				watch.MongoDB,
@@ -473,7 +477,7 @@ func (r OpsManagerReconciler) getAppDBPassword(opsManager omv1.MongoDBOpsManager
 		log.Debugf("Reading password from secret/%s", passwordRef.Name)
 
 		// watch for any changes on the user provided password
-		r.addWatchedResourceIfNotAdded(
+		r.AddWatchedResourceIfNotAdded(
 			passwordRef.Name,
 			opsManager.Namespace,
 			watch.Secret,
