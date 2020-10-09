@@ -1897,10 +1897,9 @@ task_groups:
     - unit_tests
     - unit_tests_lint
 
-# This is the task group for Kubernetes-related e2e tests which focus on testing Kubernetes features instead of Automation Config
-# This task group is run only on OM 4.2 and CloudQA
-- name: e2e_kube_only_task_group
-  max_hosts: 4
+# This is the task group that contains all the tests run in the e2e_mdb_kind_ubuntu_cloudqa build variant
+- name: e2e_mdb_kind_ubuntu_cloudqa_task_group
+  max_hosts: 30
   setup_group:
     - func: clone
     - func: download_kube_tools
@@ -1909,6 +1908,7 @@ task_groups:
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
   tasks:
+    # e2e_kube_only_task_group
     - e2e_crd_validation
     - e2e_sharded_cluster_long_name
     - e2e_replica_set_long_name
@@ -1930,64 +1930,7 @@ task_groups:
     - e2e_users_schema_validation
     - e2e_replica_set_tls_default
     - e2e_replica_set_tls_override
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-    - func: teardown_cloud_qa
-
-- name: e2e_webhook_validation_task_group
-  max_hosts: 4
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-  setup_task:
-    - func: setup_kubernetes_environment
-    - func: setup_cloud_qa
-  tasks:
-    - e2e_mongodb_validation_webhook
-    - e2e_mongodb_roles_validation_webhook
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-    - func: teardown_cloud_qa
-
-- name: e2e_ldap_task_group
-  max_hosts: 3
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
-    - func: setup_cloud_qa
-  tasks:
-    - e2e_replica_set_ldap
-    - e2e_sharded_cluster_ldap
-    - e2e_replica_set_ldap_tls
-    - e2e_replica_set_ldap_user_to_dn_mapping
-    - e2e_replica_set_ldap_agent_auth
-    - e2e_replica_set_ldap_agent_client_certs
-    - e2e_replica_set_custom_roles
-    - e2e_replica_set_ldap_group_dn
-    - e2e_replica_set_ldap_group_dn_with_x509_agent
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-    - func: teardown_cloud_qa
-
-  # This is the general task group which is supposed to be tested on ALL OM versions. Please don't add tests here which
-  # don't test anything special in automation config and more focused on Kubernetes features - such tests should go to
-  # 'e2e_kube_only_task_group' task group
-- name: e2e_core_task_group
-  max_hosts: 4
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
-    - func: setup_cloud_qa
-  tasks:
+    # e2e_core_task_group
     - e2e_all_mongodb_resources_parallel
     - e2e_multiple_cluster_failures
     - e2e_replica_set_8_members
@@ -2005,21 +1948,7 @@ task_groups:
     - e2e_standalone_upgrade_downgrade
     - e2e_standalone_custom_podspec
     - e2e_standalone_agent_flags
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-    - func: teardown_cloud_qa
-
-- name: e2e_tls_task_group
-  max_hosts: 3
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
-    - func: setup_cloud_qa
-  tasks:
+    # e2e_tls_task_group
     - e2e_replica_set_tls_allow
     - e2e_replica_set_tls_prefer
     - e2e_replica_set_tls_require_upgrade
@@ -2027,37 +1956,67 @@ task_groups:
     - e2e_tls_sc_additional_certs
     - e2e_tls_sc_additional_certs_transition
     - e2e_standalone_no_tls_no_status_is_set
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-    - func: teardown_cloud_qa
-
-- name: e2e_scram_sha_task_group
-  max_hosts: 5
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
-    - func: setup_cloud_qa
-  tasks:
+    # e2e_om_4_4_plus_only_task_group
+    - e2e_feature_controls_authentication
+    - e2e_replica_set
+    - e2e_replica_set_mongod_options
+    - e2e_replica_set_readiness_probe
+    - e2e_replica_set_update_delete_parallel
+    - e2e_sharded_cluster_scale_shards
+    - e2e_sharded_cluster_mongod_options
+    - e2e_tls_rs_external_access
+    - e2e_tls_rs_external_access_tls_transition
+    - e2e_sharded_cluster_tls_require
+    - e2e_replica_set_tls_require
+    - e2e_replica_set_tls_require_and_disable
+    # e2e_x509_task_group
+    - e2e_configure_tls_and_x509_simultaneously_st
+    - e2e_configure_tls_and_x509_simultaneously_rs
+    - e2e_configure_tls_and_x509_simultaneously_sc
+    - e2e_tls_x509_rs
+    - e2e_tls_x509_sc
+    - e2e_tls_x509_configure_all_options_rs
+    - e2e_tls_x509_configure_all_options_sc
+    - e2e_tls_x509_user_connectivity
+    - e2e_tls_x509_users_addition_removal
+    # e2e_ldap_task_group
+    - e2e_replica_set_ldap
+    - e2e_sharded_cluster_ldap
+    - e2e_replica_set_ldap_tls
+    - e2e_replica_set_ldap_user_to_dn_mapping
+    - e2e_replica_set_ldap_agent_auth
+    - e2e_replica_set_ldap_agent_client_certs
+    - e2e_replica_set_custom_roles
+    - e2e_replica_set_ldap_group_dn
+    - e2e_replica_set_ldap_group_dn_with_x509_agent
+    # e2e_scram_sha_task_group_with_manually_generated_certs
     - e2e_replica_set_scram_sha_256_user_connectivity
     - e2e_replica_set_scram_sha_256_user_first
     - e2e_replica_set_scram_sha_1_user_connectivity
     - e2e_replica_set_scram_sha_1_upgrade
-    - e2e_replica_set_scram_x509_internal_cluster
+    - e2e_replica_set_scram_x509_ic_manual_certs
     - e2e_sharded_cluster_scram_sha_1_upgrade
     - e2e_sharded_cluster_scram_sha_256_user_connectivity
     - e2e_sharded_cluster_scram_sha_1_user_connectivity
-    - e2e_sharded_cluster_scram_x509_internal_cluster
+    - e2e_sharded_cluster_scram_x509_ic_manual_certs
+    # e2e_auth_transitions_task_group
+    - e2e_replica_set_scram_sha_and_x509
+    - e2e_replica_set_x509_to_scram_transition
+    - e2e_sharded_cluster_scram_sha_and_x509
+    - e2e_sharded_cluster_x509_to_scram_transition
+    - e2e_sharded_cluster_internal_cluster_transition
+    # e2e_webhook_validation_task_group
+    - e2e_mongodb_validation_webhook
+    - e2e_mongodb_roles_validation_webhook
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
     - func: teardown_cloud_qa
 
-- name: e2e_scram_sha_task_group_with_manually_generated_certs
-  max_hosts: 5
+# This is the task group that contains all the tests run in the e2e_mdb_openshift_ubi_cloudqa build variant
+- name: e2e_mdb_openshift_ubi_cloudqa_task_group
+  # OM tests are also run on the same Openshift cluster so we shouldn't go too high
+  max_hosts: 8
   setup_group:
     - func: clone
     - func: download_kube_tools
@@ -2066,6 +2025,29 @@ task_groups:
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
   tasks:
+    # e2e_kube_only_task_group
+    - e2e_crd_validation
+    - e2e_sharded_cluster_long_name
+    - e2e_replica_set_long_name
+    - e2e_replica_set_config_map
+    - e2e_replica_set_exposed_externally
+    - e2e_replica_set_project_whitespaces
+    - e2e_replica_set_pv
+    - e2e_replica_set_pv_multiple
+    - e2e_replica_set_schema_validation
+    - e2e_replica_set_statefulset_status
+    - e2e_sharded_cluster_pv
+    - e2e_sharded_cluster_recovery
+    - e2e_sharded_cluster_schema_validation
+    - e2e_sharded_cluster_statefulset_status
+    - e2e_standalone_config_map
+    - e2e_standalone_recovery
+    - e2e_standalone_recovery_k8s
+    - e2e_standalone_schema_validation
+    - e2e_users_schema_validation
+    - e2e_replica_set_tls_default
+    - e2e_replica_set_tls_override
+    # e2e_scram_sha_task_group_with_manually_generated_certs
     - e2e_replica_set_scram_sha_256_user_connectivity
     - e2e_replica_set_scram_sha_256_user_first
     - e2e_replica_set_scram_sha_1_user_connectivity
@@ -2080,8 +2062,10 @@ task_groups:
     - func: teardown_kubernetes_environment
     - func: teardown_cloud_qa
 
-- name: e2e_auth_transitions_task_group
-  max_hosts: 3
+# This is the task group that contains all the tests run in the e2e_mdb_vanilla_ubuntu_om40 build variant
+- name: e2e_mdb_vanilla_ubuntu_om40_task_group
+  # These tests are run on the same kops cluster as om44 ones
+  max_hosts: 4
   setup_group:
     - func: clone
     - func: download_kube_tools
@@ -2090,19 +2074,43 @@ task_groups:
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
   tasks:
-    - e2e_replica_set_scram_sha_and_x509
-    - e2e_replica_set_x509_to_scram_transition
-    - e2e_sharded_cluster_scram_sha_and_x509
-    - e2e_sharded_cluster_x509_to_scram_transition
-    - e2e_sharded_cluster_internal_cluster_transition
+    # "e2e_core_task_group"
+    - e2e_all_mongodb_resources_parallel
+    - e2e_multiple_cluster_failures
+    - e2e_replica_set_8_members
+    - e2e_replica_set_ent
+    - e2e_replica_set_custom_podspec
+    - e2e_replica_set_recovery
+    - e2e_replica_set_upgrade_downgrade
+    - e2e_replica_set_agent_flags
+    - e2e_sharded_cluster
+    - e2e_sharded_cluster_secret
+    - e2e_sharded_cluster_upgrade_downgrade
+    - e2e_sharded_cluster_custom_podspec
+    - e2e_sharded_cluster_agent_flags
+    - e2e_standalone_type_change_recovery
+    - e2e_standalone_upgrade_downgrade
+    - e2e_standalone_custom_podspec
+    - e2e_standalone_agent_flags
+    # "e2e_tls_task_group"
+    - e2e_replica_set_tls_allow
+    - e2e_replica_set_tls_prefer
+    - e2e_replica_set_tls_require_upgrade
+    - e2e_tls_rs_additional_certs
+    - e2e_tls_sc_additional_certs
+    - e2e_tls_sc_additional_certs_transition
+    - e2e_standalone_no_tls_no_status_is_set
+    # "e2e_mongodb_non_cloudqa_task_group"
+    - e2e_standalone_groups
+    - e2e_replica_set_groups
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
     - func: teardown_cloud_qa
 
-# e2e_tls_custom_ca_task_group tests if the operator works with custom
-# certificate authorities. This is not run on patch builds.
-- name: e2e_tls_custom_ca_task_group
+# This is the task group that contains all the tests run in the e2e_mdb_vanilla_ubuntu_om44 build variant
+- name: e2e_mdb_vanilla_ubuntu_om44_task_group
+  max_hosts: 12
   setup_group:
     - func: clone
     - func: download_kube_tools
@@ -2111,26 +2119,29 @@ task_groups:
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
   tasks:
-    - e2e_replica_set_tls_require_custom_ca
-    - e2e_replica_set_tls_require_to_allow
-    - e2e_sharded_cluster_tls_require_custom_ca
-    - e2e_tls_x509_sc_custom_ca
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-    - func: teardown_cloud_qa
-
-# The "others" tasks are those which cannot be run on 4.0 - only on 4.4+
-- name: e2e_om_4_4_plus_only_task_group
-  max_hosts: 1
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
-    - func: setup_cloud_qa
-  tasks:
+    # e2e_kube_only_task_group
+    - e2e_crd_validation
+    - e2e_sharded_cluster_long_name
+    - e2e_replica_set_long_name
+    - e2e_replica_set_config_map
+    - e2e_replica_set_exposed_externally
+    - e2e_replica_set_project_whitespaces
+    - e2e_replica_set_pv
+    - e2e_replica_set_pv_multiple
+    - e2e_replica_set_schema_validation
+    - e2e_replica_set_statefulset_status
+    - e2e_sharded_cluster_pv
+    - e2e_sharded_cluster_recovery
+    - e2e_sharded_cluster_schema_validation
+    - e2e_sharded_cluster_statefulset_status
+    - e2e_standalone_config_map
+    - e2e_standalone_recovery
+    - e2e_standalone_recovery_k8s
+    - e2e_standalone_schema_validation
+    - e2e_users_schema_validation
+    - e2e_replica_set_tls_default
+    - e2e_replica_set_tls_override
+    # e2e_om_4_4_plus_only_task_group
     - e2e_feature_controls_authentication
     - e2e_replica_set
     - e2e_replica_set_mongod_options
@@ -2144,30 +2155,48 @@ task_groups:
     # these tests are moved here from tls task group as they used to fail in MDB 4.4 and should not be run with OM 4.0
     - e2e_replica_set_tls_require
     - e2e_replica_set_tls_require_and_disable
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-    - func: teardown_cloud_qa
-
-- name: e2e_x509_task_group
-  max_hosts: 3
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
-    - func: setup_cloud_qa
-  tasks:
-    - e2e_configure_tls_and_x509_simultaneously_st
-    - e2e_configure_tls_and_x509_simultaneously_rs
-    - e2e_configure_tls_and_x509_simultaneously_sc
-    - e2e_tls_x509_rs
-    - e2e_tls_x509_sc
-    - e2e_tls_x509_configure_all_options_rs
-    - e2e_tls_x509_configure_all_options_sc
-    - e2e_tls_x509_user_connectivity
-    - e2e_tls_x509_users_addition_removal
+    # e2e_tls_task_group
+    - e2e_replica_set_tls_allow
+    - e2e_replica_set_tls_prefer
+    - e2e_replica_set_tls_require_upgrade
+    - e2e_tls_rs_additional_certs
+    - e2e_tls_sc_additional_certs
+    - e2e_tls_sc_additional_certs_transition
+    - e2e_standalone_no_tls_no_status_is_set
+    # e2e_scram_sha_task_group
+    - e2e_replica_set_scram_sha_256_user_connectivity
+    - e2e_replica_set_scram_sha_256_user_first
+    - e2e_replica_set_scram_sha_1_user_connectivity
+    - e2e_replica_set_scram_sha_1_upgrade
+    - e2e_replica_set_scram_x509_internal_cluster
+    - e2e_sharded_cluster_scram_sha_1_upgrade
+    - e2e_sharded_cluster_scram_sha_256_user_connectivity
+    - e2e_sharded_cluster_scram_sha_1_user_connectivity
+    - e2e_sharded_cluster_scram_x509_internal_cluster
+    # e2e_ldap_task_group
+    - e2e_replica_set_ldap
+    - e2e_sharded_cluster_ldap
+    - e2e_replica_set_ldap_tls
+    - e2e_replica_set_ldap_user_to_dn_mapping
+    - e2e_replica_set_ldap_agent_auth
+    - e2e_replica_set_ldap_agent_client_certs
+    - e2e_replica_set_custom_roles
+    - e2e_replica_set_ldap_group_dn
+    - e2e_replica_set_ldap_group_dn_with_x509_agent
+    # e2e_auth_transitions_task_group
+    - e2e_replica_set_scram_sha_and_x509
+    - e2e_replica_set_x509_to_scram_transition
+    - e2e_sharded_cluster_scram_sha_and_x509
+    - e2e_sharded_cluster_x509_to_scram_transition
+    - e2e_sharded_cluster_internal_cluster_transition
+    # e2e_tls_custom_ca_task_group
+    - e2e_replica_set_tls_require_custom_ca
+    - e2e_replica_set_tls_require_to_allow
+    - e2e_sharded_cluster_tls_require_custom_ca
+    - e2e_tls_x509_sc_custom_ca
+    # e2e_mongodb_non_cloudqa_task_group
+    - e2e_standalone_groups
+    - e2e_replica_set_groups
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -2193,21 +2222,6 @@ task_groups:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
     - func: teardown_cloud_qa
-
-# e2e_mongodb_non_cloudqa_task_group includes tests that cannot be run using cloud-qa - only using an explicit OM
-- name: e2e_mongodb_non_cloudqa_task_group
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
-  tasks:
-    - e2e_standalone_groups
-    - e2e_replica_set_groups
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
 
 
 # This task group runs on Kind clusters. In theory ALL Ops Manager tests should be added here
@@ -2241,8 +2255,6 @@ task_groups:
     - e2e_om_ops_manager_https_enabled_internet_mode
     - e2e_om_ops_manager_scale
     - e2e_om_ops_manager_upgrade
-    # TODO fix operator upgrade tests
-    # - e2e_op_upgrade_om
     - e2e_om_validation_webhook
     - e2e_om_ops_manager_secure_config
   teardown_task:
@@ -2317,6 +2329,27 @@ buildvariants:
 # where <distro> is any of ubuntu|ubi
 # where <om_version> denotes the OM version tested (e.g. om40, om44, cloudqa) - used only for MDB tests
 
+## MongoDB build variants
+
+- name: e2e_mdb_kind_ubuntu_cloudqa
+  display_name: e2e_mdb_kind_ubuntu_cloudqa
+  run_on:
+    - ubuntu1604-build
+  depends_on:
+    - name: build_operator_ubuntu
+      variant: init_test_run
+    - name: build_init_database_image_ubuntu
+      variant: init_test_run
+    - name: build_test_image
+      variant: init_test_run
+  expansions:
+    <<: *cloud_manager_qa
+    <<: *kubernetes_environment_kind
+    custom_mdb_version: *mdb_44_latest
+    image_type: ubuntu
+  tasks:
+    - name: e2e_mdb_kind_ubuntu_cloudqa_task_group
+
 - name: e2e_mdb_vanilla_ubuntu_om40
   display_name: "e2e_mdb_vanilla_ubuntu_om40"
   depends_on:
@@ -2329,7 +2362,7 @@ buildvariants:
     - name: prepare_cluster_vanilla
       variant: init_test_run
   run_on:
-  - archlinux-test
+  - ubuntu1604-test
   stepback: false
   expansions:
     <<: *ops_manager_40_first
@@ -2337,9 +2370,7 @@ buildvariants:
     custom_mdb_version: *mdb_40_latest
     image_type: ubuntu
   tasks:
-  - name: "e2e_core_task_group"
-  - name: "e2e_tls_task_group"
-  - name: "e2e_mongodb_non_cloudqa_task_group"
+  - name: e2e_mdb_vanilla_ubuntu_om40_task_group
 
 - name: e2e_mdb_vanilla_ubuntu_om44
   display_name: "e2e_mdb_vanilla_ubuntu_om44"
@@ -2353,7 +2384,7 @@ buildvariants:
     - name: prepare_cluster_vanilla
       variant: init_test_run
   run_on:
-  - archlinux-test
+  - ubuntu1604-test
   stepback: false
   expansions:
     <<: *ops_manager_44_current
@@ -2361,14 +2392,7 @@ buildvariants:
     custom_mdb_version: *mdb_44_latest
     image_type: ubuntu
   tasks:
-  - name: "e2e_kube_only_task_group"
-  - name: "e2e_om_4_4_plus_only_task_group"
-  - name: "e2e_tls_task_group"
-  - name: "e2e_scram_sha_task_group"
-  - name: "e2e_ldap_task_group"
-  - name: "e2e_auth_transitions_task_group"
-  - name: "e2e_tls_custom_ca_task_group"
-  - name: "e2e_mongodb_non_cloudqa_task_group"
+  - name: e2e_mdb_vanilla_ubuntu_om44_task_group
 
 - name: e2e_mdb_openshift_ubi_cloudqa
   display_name: e2e_mdb_openshift_ubi_cloudqa
@@ -2380,7 +2404,7 @@ buildvariants:
     - name: build_test_image
       variant: init_test_run
   run_on:
-  - archlinux-test
+  - ubuntu1604-test
   stepback: false
   expansions:
     <<: *cloud_manager_qa
@@ -2388,10 +2412,10 @@ buildvariants:
     custom_mdb_version: *mdb_44_latest
     image_type: ubi
   tasks:
-  - name: e2e_kube_only_task_group
-  - name: e2e_scram_sha_task_group_with_manually_generated_certs
+  - name: e2e_mdb_openshift_ubi_cloudqa_task_group
 
-# Ops Manager 4.2
+## Ops Manager build variants
+
 - name: e2e_om42_vanilla_ubuntu
   display_name: "e2e_om42_vanilla_ubuntu"
   depends_on:
@@ -2406,7 +2430,7 @@ buildvariants:
     - name: prepare_cluster_vanilla_om
       variant: init_test_run
   run_on:
-    - archlinux-test
+    - ubuntu1604-test
   stepback: false
   expansions:
     cluster_name: "e2e.om.mongokubernetes.com"
@@ -2420,7 +2444,6 @@ buildvariants:
   tasks:
     - name: e2e_ops_manager_task_group_safe
 
-# Ops Manager 4.2
 - name: e2e_om42_openshift_ubi
   display_name: e2e_om42_openshift_ubi
   depends_on:
@@ -2433,7 +2456,7 @@ buildvariants:
     - name: build_init_database_image_ubi
       variant: init_test_run
   run_on:
-    - archlinux-test
+    - ubuntu1604-test
   stepback: false
   expansions:
     <<: *kubernetes_environment_openshift_4
@@ -2525,32 +2548,7 @@ buildvariants:
   - name: e2e_ops_manager_kind_only_task_group
   - name: e2e_ops_manager_kind_4_4_only_task_group
 
-- name: e2e_mdb_kind_ubuntu_cloudqa
-  display_name: e2e_mdb_kind_ubuntu_cloudqa
-  run_on:
-  - ubuntu1604-build
-  depends_on:
-  - name: build_operator_ubuntu
-    variant: init_test_run
-  - name: build_init_database_image_ubuntu
-    variant: init_test_run
-  - name: build_test_image
-    variant: init_test_run
-  expansions:
-    <<: *cloud_manager_qa
-    <<: *kubernetes_environment_kind
-    custom_mdb_version: *mdb_44_latest
-    image_type: ubuntu
-  tasks:
-  - name: e2e_kube_only_task_group
-  - name: e2e_core_task_group
-  - name: e2e_tls_task_group
-  - name: e2e_om_4_4_plus_only_task_group
-  - name: e2e_x509_task_group
-  - name: e2e_ldap_task_group
-  - name: e2e_scram_sha_task_group_with_manually_generated_certs
-  - name: e2e_auth_transitions_task_group
-  - name: e2e_webhook_validation_task_group
+## Operator tests build variants
 
 - name: e2e_operator_kind_ubuntu_cloudqa
   display_name: e2e_operator_kind_ubuntu_cloudqa
@@ -2684,7 +2682,7 @@ buildvariants:
 - name: go_unit_tests
   display_name: "go_unit_tests"
   run_on:
-    - archlinux-test
+    - ubuntu1604-test
   stepback: false
   tasks:
     - name: "unit_task_group"
