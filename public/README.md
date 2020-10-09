@@ -156,7 +156,7 @@ A MongoDB resource in Kubernetes is a MongoDB (short name `mdb`). We are going t
 
 If you have a correctly created Project with the name `my-project` and Credentials stored in a secret called `my-credentials` then, after applying this file then everything should be running and a new Replica Set with 3 members should soon appear in Ops Manager UI.
 
-    kubectl apply -f samples/mongodb/minimal/replica-set.yaml
+    kubectl apply -f samples/mongodb/minimal/replica-set.yaml -n mongodb
 
 ## MongoDBOpsManager Resource ##
 
