@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
@@ -18,6 +17,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
@@ -25,6 +25,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 type ReplicaSetBuilder struct {
@@ -367,6 +368,70 @@ func TestReplicaSetPortIsConfigurable_WithAdditionalMongoConfig(t *testing.T) {
 	svc, err := client.GetService(kube.ObjectKey(rs.Namespace, rs.ServiceName()))
 	assert.NoError(t, err)
 	assert.Equal(t, int32(30000), svc.Spec.Ports[0].Port)
+}
+
+func TestReplicaSetSettingDeprecatedFieldsAddsWarning(t *testing.T) {
+	rs := mdbv1.NewReplicaSetBuilder().
+		SetNamespace(mock.TestNamespace).
+		SetConnectionSpec(testConnectionSpec()).
+		Build()
+	reconciler, client := defaultReplicaSetReconciler(rs)
+
+	t.Run("Warnings should be added to status if using shortcut resources", func(t *testing.T) {
+		err := client.Get(context.TODO(), types.NamespacedName{Name: rs.Name, Namespace: rs.Namespace}, rs)
+		assert.NoError(t, err)
+		rs.Spec.PodSpec.Cpu = "1"
+
+		err = client.Update(context.TODO(), rs)
+		assert.NoError(t, err)
+
+		checkReconcileSuccessful(t, reconciler, rs, client)
+
+		assert.NotEmpty(t, rs.Status.Warnings)
+		assert.Subset(t, rs.Status.Warnings, []status.Warning{mdbv1.UseOfDeprecatedShortcutFieldsWarning})
+	})
+
+	t.Run("Checks Warnings are removed when removing shortcut resources", func(t *testing.T) {
+		err := client.Get(context.TODO(), types.NamespacedName{Name: rs.Name, Namespace: rs.Namespace}, rs)
+		assert.NoError(t, err)
+
+		rs.Spec.PodSpec.Cpu = ""
+
+		err = client.Update(context.TODO(), rs)
+		assert.NoError(t, err)
+
+		checkReconcileSuccessful(t, reconciler, rs, client)
+		assert.Empty(t, rs.Status.Warnings)
+	})
+
+	t.Run("A new shortcut resource, will add a new warning", func(t *testing.T) {
+		err := client.Get(context.TODO(), types.NamespacedName{Name: rs.Name, Namespace: rs.Namespace}, rs)
+		assert.NoError(t, err)
+
+		rs.Spec.PodSpec.Memory = "1"
+		err = client.Update(context.TODO(), rs)
+		assert.NoError(t, err)
+
+		// Reconciles and makes sure we get a warning
+		checkReconcileSuccessful(t, reconciler, rs, client)
+		assert.NotEmpty(t, rs.Status.Warnings)
+		assert.Subset(t, rs.Status.Warnings, []status.Warning{mdbv1.UseOfDeprecatedShortcutFieldsWarning})
+	})
+
+	t.Run("The shortcut resource is removed a new one is added, warnings stay", func(t *testing.T) {
+		err := client.Get(context.TODO(), types.NamespacedName{Name: rs.Name, Namespace: rs.Namespace}, rs)
+		assert.NoError(t, err)
+
+		rs.Spec.PodSpec.Memory = ""
+		rs.Spec.PodSpec.Cpu = "1"
+
+		err = client.Update(context.TODO(), rs)
+		assert.NoError(t, err)
+
+		checkReconcileSuccessful(t, reconciler, rs, client)
+		assert.NotEmpty(t, rs.Status.Warnings)
+		assert.Subset(t, rs.Status.Warnings, []status.Warning{mdbv1.UseOfDeprecatedShortcutFieldsWarning})
+	})
 }
 
 //TestReplicaSet_ConfigMapAndSecretWatched verifies that config map and secret are added to the internal

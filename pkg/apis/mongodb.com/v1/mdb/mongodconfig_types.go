@@ -41,12 +41,18 @@ func (c AdditionalMongodConfig) GetPortOrDefault() int32 {
 	if c == nil {
 		return util.MongoDbDefaultPort
 	}
+
 	// https://golang.org/pkg/encoding/json/#Unmarshal
-	// the port will be stored as a float64
-	port := maputil.ReadMapValueAsFloat64(c, "net", "port")
+	// the port will be stored as a float64.
+	// However, on unit tests, and because of the way the deserialization
+	// works, this value is returned as an int. That's why we read the
+	// port as Int which uses the `cast` library to cast both float32 and int
+	// types into Int.
+	port := maputil.ReadMapValueAsInt(c, "net", "port")
 	if port == 0 {
 		return util.MongoDbDefaultPort
 	}
+
 	return int32(port)
 }
 

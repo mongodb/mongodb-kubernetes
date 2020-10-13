@@ -427,9 +427,12 @@ func (k *MockedClient) Patch(ctx context.Context, obj apiruntime.Object, patch c
 		return err
 	}
 
-	if err = json.Unmarshal(jsonObject, targetObject); err != nil {
+	newObject := obj.DeepCopyObject()
+	if err = json.Unmarshal(jsonObject, newObject); err != nil {
 		return err
 	}
+	resMap[key] = newObject
+
 	return nil
 }
 

@@ -21,6 +21,7 @@ class TestOpsManagerAppDbWrongVersion:
         om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
             yaml_fixture("om_validation.yaml"), namespace=namespace
         )
+        om["spec"]["applicationDatabase"]["version"] = "3.6.12"
         om.set_version(custom_version)
         return om.create()
 

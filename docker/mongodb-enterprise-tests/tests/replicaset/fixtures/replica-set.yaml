@@ -11,8 +11,3 @@ spec:
   credentials: my-credentials
   logLevel: DEBUG
   persistent: false
-  podSpec:
-    memory: 700M
-    memoryRequests: 300M
-    cpu: '0.5'
-    cpuRequests: '0.2'

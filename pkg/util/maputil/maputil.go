@@ -1,5 +1,7 @@
 package maputil
 
+import "github.com/spf13/cast"
+
 // ReadMapValueAsInterface traverses the nested maps inside the 'm' map following the 'keys' path and returns the last element
 // as an 'interface{}'
 func ReadMapValueAsInterface(m map[string]interface{}, keys ...string) interface{} {
@@ -33,6 +35,14 @@ func ReadMapValueAsFloat64(m map[string]interface{}, keys ...string) float64 {
 		return 0
 	}
 	return res.(float64)
+}
+
+func ReadMapValueAsInt(m map[string]interface{}, keys ...string) int {
+	res := ReadMapValueAsInterface(m, keys...)
+	if res == nil {
+		return 0
+	}
+	return cast.ToInt(res)
 }
 
 // ReadMapValueAsMap traverses the nested maps inside the 'm' map following the 'keys' path and returns the last element

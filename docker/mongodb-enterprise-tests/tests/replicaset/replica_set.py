@@ -32,6 +32,15 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
         yaml_fixture("replica-set.yaml"), "my-replica-set", namespace
     )
     resource.set_version(custom_mdb_version)
+
+    # Setting podSpec shortcut values here to test they are still
+    # added as resources when needed.
+    resource["spec"]["podSpec"] = {
+        "cpu": "0.5",
+        "cpuRequests": "0.2",
+        "memory": "700M",
+        "memoryRequests": "300M",
+    }
     resource.create()
 
     return resource

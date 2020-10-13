@@ -18,22 +18,17 @@ import (
 
 var _ webhook.Validator = &MongoDB{}
 
+const UseOfDeprecatedShortcutFieldsWarning = `The use of the spec.podSpec to set cpu, cpuLimits, memory or memoryLimits has been DEPRECATED.
+Use spec.podSpec.podTemplate.spec.containers[].resources instead.`
+
 // ValidateCreate and ValidateUpdate should be the same if we intend to do this
 // on every reconciliation as well
 func (mdb *MongoDB) ValidateCreate() error {
-	return mdb.validate()
+	return mdb.ProcessValidationsOnReconcile()
 }
 
 func (mdb *MongoDB) ValidateUpdate(old runtime.Object) error {
-	return mdb.validate()
-}
-
-func (mdb MongoDB) validate() error {
-	validationResults := mdb.RunValidations()
-	if len(validationResults) == 0 {
-		return nil
-	}
-	return v1.BuildValidationFailure(validationResults)
+	return mdb.ProcessValidationsOnReconcile()
 }
 
 // ValidateDelete does nothing as we assume validation on deletion is
@@ -138,6 +133,27 @@ func ldapGroupDnIsSetIfLdapAuthzIsEnabledAndAgentsAreExternal(ms MongoDbSpec) v1
 	return v1.ValidationSuccess()
 }
 
+func usesShortcutResource(ms MongoDbSpec) v1.ValidationResult {
+	if ms.ResourceType == Standalone || ms.ResourceType == ReplicaSet {
+		if UsesDeprecatedResourceFields(*ms.PodSpec) {
+			return v1.ValidationWarning(UseOfDeprecatedShortcutFieldsWarning)
+		}
+		return v1.ValidationSuccess()
+	}
+
+	if UsesDeprecatedResourceFields(*ms.ConfigSrvPodSpec) ||
+		UsesDeprecatedResourceFields(*ms.MongosPodSpec) ||
+		UsesDeprecatedResourceFields(*ms.ShardPodSpec) {
+		return v1.ValidationWarning(UseOfDeprecatedShortcutFieldsWarning)
+	}
+	return v1.ValidationSuccess()
+}
+
+func UsesDeprecatedResourceFields(podSpec MongoDbPodSpec) bool {
+	return podSpec.Cpu != "" || podSpec.CpuRequests != "" ||
+		podSpec.Memory != "" || podSpec.MemoryRequests != ""
+}
+
 func (m MongoDB) RunValidations() []v1.ValidationResult {
 	validators := []func(ms MongoDbSpec) v1.ValidationResult{
 		replicaSetHorizonsRequireTLS,
@@ -150,6 +166,7 @@ func (m MongoDB) RunValidations() []v1.ValidationResult {
 		rolesAttributeisCorrectlyConfigured,
 		agentModeIsSetIfMoreThanADeploymentAuthModeIsSet,
 		ldapGroupDnIsSetIfLdapAuthzIsEnabledAndAgentsAreExternal,
+		usesShortcutResource,
 	}
 
 	var validationResults []v1.ValidationResult

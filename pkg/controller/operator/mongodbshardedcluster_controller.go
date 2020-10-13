@@ -60,6 +60,10 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (r
 		return *reconcileResult, err
 	}
 
+	if err := sc.ProcessValidationsOnReconcile(); err != nil {
+		return r.updateStatus(sc, workflow.Invalid(err.Error()), log)
+	}
+
 	r.initCountsForThisReconciliation(*sc)
 
 	log.Info("-> ShardedCluster.Reconcile")

@@ -753,10 +753,15 @@ func (m MongoDB) GetLDAP(password, caContents string) *ldap.Ldap {
 }
 
 type MongoDbPodSpec struct {
-	Cpu                        string                  `json:"cpu,omitempty"`
-	CpuRequests                string                  `json:"cpuRequests,omitempty"`
-	Memory                     string                  `json:"memory,omitempty"`
-	MemoryRequests             string                  `json:"memoryRequests,omitempty"`
+	// DEPRECATED. Please set this value using `spec.podTemplate` instead.
+	Cpu string `json:"cpu,omitempty"`
+	// DEPRECATED. Please set this value using `spec.podTemplate` instead.
+	CpuRequests string `json:"cpuRequests,omitempty"`
+	// DEPRECATED. Please set this value using `spec.podTemplate` instead.
+	Memory string `json:"memory,omitempty"`
+	// DEPRECATED. Please set this value using `spec.podTemplate` instead.
+	MemoryRequests string `json:"memoryRequests,omitempty"`
+
 	PodAffinity                *corev1.PodAffinity     `json:"podAffinity,omitempty"`
 	NodeAffinity               *corev1.NodeAffinity    `json:"nodeAffinity,omitempty"`
 	PodTemplate                *corev1.PodTemplateSpec `json:"podTemplate,omitempty"`
