@@ -79,9 +79,9 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 
 	podVars, err := r.tryConfigureMonitoringInOpsManager(opsManager, opsManagerUserPassword, log)
 	// it's possible that Ops Manager will not be available when we attempt to configure AppDB monitoring
-	// in Ops Manager. This is not a blocker to continue with the reset of the reconcilliation.
+	// in Ops Manager. This is not a blocker to continue with the reset of the reconciliation.
 	if err != nil {
-		log.Warnf("Unable to configure monitoring of AppDB: %s, configuration will be attempted next reconcilliation.", err)
+		log.Errorf("Unable to configure monitoring of AppDB: %s, configuration will be attempted next reconciliation.", err)
 	}
 
 	// Providing the default size of pod as otherwise sometimes the agents in pod complain about not enough memory
@@ -96,7 +96,7 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 		SetName(rs.Name()).
 		SetService(rs.ServiceName()).
 		SetServicePort(rs.MongoDbSpec.AdditionalMongodConfig.GetPortOrDefault()).
-		SetPodVars(podVars).
+		SetPodVars(&podVars).
 		SetStartupParameters(rs.Agent.StartupParameters).
 		SetLogger(log).
 		SetPodSpec(appdbPodSpec).
@@ -132,7 +132,7 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 	}
 
 	if podVars.ProjectID == "" {
-		// this doesn't requeue the reconcilliation immediately, the calling OM controller
+		// this doesn't requeue the reconciliation immediately, the calling OM controller
 		// requeues after Ops Manager has been fully configured.
 		log.Infof("Requeuing reconciliation to configure Monitoring in Ops Manager.")
 		return r.updateStatus(opsManager, workflow.OK().Requeue(), log, appDbStatusOption, scale.MembersOption(opsManager))
@@ -429,17 +429,17 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbAgentApiKey(opsManager *omv1.Mongo
 
 // tryConfigureMonitoringInOpsManager attempts to configure monitoring in Ops Manager. This might not be possible if Ops Manager
 // has not been created yet, if that is the case, an empty PodVars will be returned.
-func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager *omv1.MongoDBOpsManager, opsManagerUserPassword string, log *zap.SugaredLogger) (*PodEnvVars, error) {
+func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager *omv1.MongoDBOpsManager, opsManagerUserPassword string, log *zap.SugaredLogger) (PodEnvVars, error) {
 	cred, err := project.ReadCredentials(r.kubeHelper.client, kube.ObjectKey(operatorNamespace(), opsManager.APIKeySecretName()))
 	if err != nil {
 		log.Debugf("Ops Manager has not yet been created, not configuring monitoring: %s", err)
-		return &PodEnvVars{}, nil
+		return PodEnvVars{}, nil
 	}
 	log.Debugf("Ensuring monitoring of AppDB is configured in Ops Manager")
 
 	existingPodVars, err := r.readExistingPodVars(*opsManager)
 	if client.IgnoreNotFound(err) != nil {
-		return &PodEnvVars{}, fmt.Errorf("error reading existing podVars: %s", err)
+		return PodEnvVars{}, fmt.Errorf("error reading existing podVars: %s", err)
 	}
 
 	projectConfig := opsManager.GetAppDBProjectConfig()
@@ -466,11 +466,12 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager
 		SetField(util.AppDbProjectIdKey, conn.GroupID()).
 		Build()
 
+	// Saving the "backup" ConfigMap which contains the project id
 	if err := configmap.CreateOrUpdate(r.kubeHelper.client, cm); err != nil {
 		return existingPodVars, fmt.Errorf("error creating ConfigMap: %s", err)
 	}
 
-	return &PodEnvVars{User: conn.User(), ProjectID: conn.GroupID(), SSLProjectConfig: mdbv1.SSLProjectConfig{
+	return PodEnvVars{User: conn.User(), ProjectID: conn.GroupID(), SSLProjectConfig: mdbv1.SSLProjectConfig{
 		SSLMMSCAConfigMap: opsManager.Spec.GetOpsManagerCA(),
 	},
 	}, nil
@@ -486,22 +487,22 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager
 // In such a case, we cannot read the groupId from OM, so we fall back to the ConfigMap we created
 // before hand. This is required as with empty PodVars this would trigger an unintentional
 // rolling restart of the AppDB.
-func (r *ReconcileAppDbReplicaSet) readExistingPodVars(om omv1.MongoDBOpsManager) (*PodEnvVars, error) {
+func (r *ReconcileAppDbReplicaSet) readExistingPodVars(om omv1.MongoDBOpsManager) (PodEnvVars, error) {
 	cm, err := r.kubeHelper.client.GetConfigMap(objectKey(om.Namespace, om.Spec.AppDB.ProjectIDConfigMapName()))
 	if err != nil {
-		return nil, err
+		return PodEnvVars{}, err
 	}
 	var projectId string
 	if projectId = cm.Data[util.AppDbProjectIdKey]; projectId == "" {
-		return nil, fmt.Errorf("ConfigMap %s did not have the key %s", om.Spec.AppDB.ProjectIDConfigMapName(), util.AppDbProjectIdKey)
+		return PodEnvVars{}, fmt.Errorf("ConfigMap %s did not have the key %s", om.Spec.AppDB.ProjectIDConfigMapName(), util.AppDbProjectIdKey)
 	}
 
 	cred, err := project.ReadCredentials(r.kubeHelper.client, objectKey(operatorNamespace(), om.APIKeySecretName()))
 	if err != nil {
-		return nil, fmt.Errorf("error reading credentials: %s", err)
+		return PodEnvVars{}, fmt.Errorf("error reading credentials: %s", err)
 	}
 
-	return &PodEnvVars{
+	return PodEnvVars{
 		User:      cred.User,
 		ProjectID: projectId,
 		SSLProjectConfig: mdbv1.SSLProjectConfig{
