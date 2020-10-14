@@ -33,5 +33,6 @@ spec:
         ca: issuer-ca-config-map
         # secret containing the TLS certificate signed by known or custom CA. The secret must have a key "server.pem"
         # and value of .pem file containing private key and TLS certificate
-        secretRef: certs-for-appdb
+        secretRef: 
+          name: certs-for-appdb
 

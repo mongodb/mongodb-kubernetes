@@ -22,15 +22,13 @@ git clone git@github.com:10gen/ops-manager-kubernetes.git
 * [mms-utils](https://github.com/10gen/mms/tree/master/scripts/python#one-time-set-up). You will need to clone the `mms` project.
 * [Generate a github token](https://github.com/settings/tokens/new) with "repo" permissions and set `GITHUB_TOKEN`
 environment variable in `~/.bashrc`
+* [Set up git commit signing](https://wiki.corp.mongodb.com/display/MMS/Setup+Git+Commit+Signing)
 * AWS 
     * Install the latest version of AWS CLI: `brew install awscli`
     * Get the access to AWS account  "MMS Engineering Test" (268558157000)":
         1. Ask your colleagues to add the user (and have them to send you your password)
            * You will have to be connected to the VPN to change your password
-        2. Generate the access and secret keys for your user and save them in ~/.aws/credentials under **default** section. 
-        (or use `aws configure`) Ask your colleagues which AWS region to choose - it should match the region where the K8s cluster and ECR registries
-        are located (some regions could reach VPC capacity).
-
+        2. Generate the access and secret keys for your user and save them in ~/.aws/credentials under   **default** section. (or use `aws configure`) Please specify `eu-west-1` as the default region in `~/.aws/config`.
 ### Development workflow
 
 The development workflow is almost fully automated - just use `make` from the root of the project.
@@ -62,7 +60,7 @@ Edit the file:
 1. Change all ECR registry URLs: change "myname" to something more meaningful (we usually use some last name abbreviation)
 2. Change the `CLUSTER_NAME` to `<myname>.mongokubernetes.com`
 3. Specify the `RED_HAT_TOKEN` property ("Token" on https://access.redhat.com/terms-based-registry/#/token/openshift3-test-cluster - ask your colleagues for credentials) 
-4. (optionally) Set `KOPS_ZONES` to the AWS zone with available VPCs. `us-east-2a` is used by default. 
+4. Set `KOPS_ZONES` to the AWS zone with available VPCs. (Specify the zone that you selected to create the cluster) 
   * Note that if you set this you will need to provide the full zone and not just the region name (if your AWS zone is `eu-west-1` you should have, for example, `eu-west-1a`)
 
 You can edit the other context files or copy them to new ones.
@@ -76,10 +74,16 @@ make switch context=e2e-openshift
 ```
 
 #### Cloud-qa integration
+First of all, follow [this doc](https://wiki.corp.mongodb.com/display/MMS/Cloud+IAM%27s+Okta+Usage) to set up `cloud-qa` account if you haven't already.
 
 The easiest way to test MongoDB resources is by using cloud-qa environment instead of the custom Ops Manager.
 To do this login to https://cloud-qa.mongodb.com/ and create a test organization.
-Generate the programmatic API keys and put all the relevant information into either `~/.operator-dev/om` (so it will
+
+Generate the programmatic API keys. Add the following two masks in the `whitelist` option:
+* `0.0.0.0/1`
+* `128.0.0.0/1` 
+
+Put all the relevant information into either `~/.operator-dev/om` (so it will
 be used by all contexts) or append to a specific context file:
 
 ```bash

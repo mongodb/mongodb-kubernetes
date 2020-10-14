@@ -7,7 +7,8 @@
 
 export IMAGE_TYPE=ubuntu
 export CLUSTER_TYPE=kops
-export CLUSTER_NAME=dev.mongokubernetes.com
+export CLUSTER_NAME=myname.mongokubernetes.com
 export BASE_REPO_URL=268558157000.dkr.ecr.eu-west-1.amazonaws.com/myname
 export NAMESPACE=myname
+export KOPS_ZONES=
 export RED_HAT_TOKEN=

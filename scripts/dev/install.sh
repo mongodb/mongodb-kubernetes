@@ -12,9 +12,8 @@ grep -a "KOPS_STATE_STORE='s3://kube-om-state-store'" ~/.bashrc || echo "export 
 grep -a "/usr/local/opt/coreutils/libexec/gnubin:\$PATH" ~/.bashrc || echo "PATH=\"/usr/local/opt/coreutils/libexec/gnubin:\$PATH\"" >> ~/.bashrc
 
 if [ "$(uname)" = "Darwin" ] ; then
-  # kubectl 1.16.1
-  brew install https://raw.githubusercontent.com/Homebrew/homebrew-core/d9f05abd70f5dc3519a58344f4bd3ec76ccea351/Formula/kubernetes-cli.rb || true
-
+  # kubectl latest
+  curl -LO "https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/darwin/amd64/kubectl" || true
   # kops
   brew install kops  || true
 
@@ -30,10 +29,9 @@ if [ "$(uname)" = "Darwin" ] ; then
   # jq
   brew install jq
 
-  # docker-credential-helper-ecr
-  brew install docker-credential-helper-ecr
-
   brew install shellcheck
+
+  brew install staticcheck
 
 elif [ "$(uname)" = "Linux" ] ; then # Ubuntu only
   sudo snap install kubectl --classic  || true
@@ -48,11 +46,6 @@ elif [ "$(uname)" = "Linux" ] ; then # Ubuntu only
 
   # Kind
   go get sigs.k8s.io/kind
-
-  # docker-credential-helper-ecr
-  curl --retry 3 --silent -LO https://amazon-ecr-credential-helper-releases.s3.us-east-2.amazonaws.com/0.3.1/linux-amd64/docker-credential-ecr-login
-  chmod +x docker-credential-ecr-login
-  mv docker-credential-ecr-login /usr/local/bin
 
   sudo snap install --channel=edge shellcheck
 

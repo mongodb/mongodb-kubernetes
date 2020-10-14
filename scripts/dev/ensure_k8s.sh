@@ -22,7 +22,7 @@ if [[ ${CLUSTER_TYPE} = "kops" ]] && ! kops validate cluster "${CLUSTER_NAME}" ;
 	check_app "timeout" "coreutils is not installed, call \"brew install coreutils\""
 
   # does cluster exist but just not imported to ~/.kube ?
-  kops export kubecfg "${CLUSTER_NAME}"
+  kops export kubecfg "${CLUSTER_NAME}" || true
 
   if ! kops validate cluster "${CLUSTER_NAME}"; then
     echo "Kops cluster \"${CLUSTER_NAME}\" doesn't exist"

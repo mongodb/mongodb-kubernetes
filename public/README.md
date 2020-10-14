@@ -110,8 +110,9 @@ credentials. More information about the way to create them using Ops Manager UI 
   * Username and Public API key. More information about the way to create them using Ops Manager UI can be found
  [here](https://docs.opsmanager.mongodb.com/current/tutorial/configure-public-api-access/#personal-api-keys-deprecated)
 
-Note that you must whitelist the IP
-range of your Kubernetes cluster so that the Operator could make API requests to Ops Manager
+Note: that you must whitelist the Pod IP range of your Kubernetes cluster so that the Operator could make API requests to Ops Manager.
+You can get the Pod IP range of your kubernetes cluster by executing the command: ```kubectl cluster-info dump | grep -m 1 cluster-cidr```
+
 
 This is documented in greater detail in our [installation guide](https://docs.opsmanager.mongodb.com/current/tutorial/install-k8s-operator)
 
@@ -147,7 +148,7 @@ For a user to be able to create or update objects in this Ops Manager Project th
 Programmatic API Key. These will be held by Kubernetes as a `Secret` object. You can create this Secret with the following command:
 
 ``` bash
-$ kubectl -n mongodb create secret generic my-credentials --from-literal="user=some@example.com" --from-literal="publicApiKey=my-public-api-key"
+$ kubectl -n mongodb create secret generic my-credentials --from-literal="user=my-public-api-key" --from-literal="publicApiKey=my-private-api-key"
 ```
 
 ### Creating a MongoDB Resource ###
