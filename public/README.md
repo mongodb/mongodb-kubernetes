@@ -181,7 +181,7 @@ change the password using Ops Manager UI after the Ops Manager object was create
 Use the file `samples/ops-manager/ops-manager.yaml`. Edit the fields and create the object in Kubernetes:
 
 ```bash
-$ kubectl apply -f samples/ops-manager/ops-manager.yaml
+$ kubectl apply -f samples/ops-manager/ops-manager.yaml -n <namespace>
 ```
 
 Note, that it takes up to 8 minutes to initialize the Application Database and start Ops Manager.
