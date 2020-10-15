@@ -90,7 +90,7 @@ def create_tls_certs(
     replicas: int = 3,
     service_name: str = None,
     spec: Optional[Dict] = None,
-):
+) -> str:
     if service_name is None:
         service_name = resource_name + "-svc"
 

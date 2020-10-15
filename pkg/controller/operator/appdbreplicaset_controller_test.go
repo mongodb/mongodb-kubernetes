@@ -96,7 +96,7 @@ func TestAutomationConfig_IsCreatedInSecret(t *testing.T) {
 	)
 	assert.NoError(t, err)
 
-	_, err = reconciler.Reconcile(&opsManager, appdb, "MBPYfkAj5ZM0l9uw6C7ggw")
+	_, err = reconciler.Reconcile(&opsManager, "MBPYfkAj5ZM0l9uw6C7ggw")
 	assert.NoError(t, err)
 
 	_, err = kubeManager.Client.GetConfigMap(kube.ObjectKey(opsManager.Namespace, appdb.AutomationConfigSecretName()))
@@ -568,7 +568,7 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 	err = client.CreateStatefulSet(appDbSts)
 	assert.NoError(t, err)
 
-	res, err := reconciler.Reconcile(&opsManager, opsManager.Spec.AppDB, "i6ocEoHYJTteoNTX")
+	res, err := reconciler.Reconcile(&opsManager, "i6ocEoHYJTteoNTX")
 
 	assert.NoError(t, err)
 	assert.Equal(t, time.Duration(0), res.RequeueAfter)
@@ -582,7 +582,7 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 			err = client.Update(context.TODO(), &opsManager)
 			assert.NoError(t, err)
 
-			res, err = reconciler.Reconcile(&opsManager, opsManager.Spec.AppDB, "i6ocEoHYJTteoNTX")
+			res, err = reconciler.Reconcile(&opsManager, "i6ocEoHYJTteoNTX")
 
 			assert.NoError(t, err)
 			assert.Equal(t, time.Duration(10000000000), res.RequeueAfter)
@@ -592,14 +592,14 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 			err = client.Update(context.TODO(), &opsManager)
 			assert.NoError(t, err)
 
-			res, err = reconciler.Reconcile(&opsManager, opsManager.Spec.AppDB, "i6ocEoHYJTteoNTX")
+			res, err = reconciler.Reconcile(&opsManager, "i6ocEoHYJTteoNTX")
 
 			assert.NoError(t, err)
 			assert.Equal(t, time.Duration(10000000000), res.RequeueAfter)
 		}
 	}
 
-	res, err = reconciler.Reconcile(&opsManager, opsManager.Spec.AppDB, "i6ocEoHYJTteoNTX")
+	res, err = reconciler.Reconcile(&opsManager, "i6ocEoHYJTteoNTX")
 	assert.NoError(t, err)
 	assert.Equal(t, time.Duration(0), res.RequeueAfter)
 

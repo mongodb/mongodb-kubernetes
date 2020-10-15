@@ -8,7 +8,6 @@ from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
 from pytest import fixture
 
 RS_NAME = "my-replica-set"
-CA_PEM_FILE_PATH = "/var/run/secrets/ca-pem"
 USER_PASSWORD = "/qwerty@!#:"
 
 
@@ -91,15 +90,8 @@ def test_replicaset_reconciled(replica_set: MongoDB):
 
 
 @pytest.mark.e2e_operator_upgrade_replica_set
-def test_replicaset_connectivity(replica_set: MongoDB, issuer_ca_configmap: str):
-    # Write the CA from ConfigMap to local file to test connectivity to database
-    ca = KubernetesTester.read_configmap(replica_set.namespace, issuer_ca_configmap)[
-        "ca-pem"
-    ]
-    with open(CA_PEM_FILE_PATH, "w") as f:
-        f.write(ca)
-
-    tester = replica_set.tester(insecure=False, ca_path=CA_PEM_FILE_PATH)
+def test_replicaset_connectivity(replica_set: MongoDB, ca_path: str):
+    tester = replica_set.tester(insecure=False, ca_path=ca_path)
     tester.assert_connectivity()
 
     # TODO refactor tester to flexibly test tls + custom CA + scram

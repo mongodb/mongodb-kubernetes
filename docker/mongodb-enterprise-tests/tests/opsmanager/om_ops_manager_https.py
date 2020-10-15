@@ -15,7 +15,7 @@ def domain(namespace: str):
 
 
 @fixture(scope="module")
-def appdb_certs(namespace: str, issuer: str):
+def appdb_certs(namespace: str, issuer: str) -> str:
     return create_tls_certs(issuer, namespace, "om-with-https-db", "certs-for-appdb")
 
 
@@ -54,13 +54,6 @@ def ops_manager(
     )
     om.set_version(custom_version)
 
-    # configure CA + tls secrets for AppDB members to community with each other
-    om["spec"]["applicationDatabase"]["security"] = {
-        "tls": {"ca": issuer_ca_configmap, "secretRef": {"name": appdb_certs}}
-    }
-
-    # configure the CA that will be used to communicate with Ops Manager
-    om["spec"]["security"] = {"tls": {"ca": issuer_ca_configmap}}
     return om.create()
 
 
@@ -91,20 +84,47 @@ def replicaset1(
 
 
 @mark.e2e_om_ops_manager_https_enabled
-def test_om_created(ops_manager: MongoDBOpsManager):
-    """Ops Manager is started over plain HTTP."""
+def test_om_created_no_tls(ops_manager: MongoDBOpsManager):
+    """Ops Manager is started over plain HTTP. AppDB also doesn't have TLS enabled"""
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
-
-    # 'authentication' is not shown for applicationDatabase
-    assert (
-        "authentication" not in ops_manager["spec"]["applicationDatabase"]["security"]
-    )
 
     assert ops_manager.om_status().get_url().startswith("http://")
     assert ops_manager.om_status().get_url().endswith(":8080")
 
     ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1200)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
+
+
+@mark.e2e_om_ops_manager_https_enabled
+def test_appdb_running_no_tls(ops_manager: MongoDBOpsManager):
+    ops_manager.get_appdb_tester(insecure=False).assert_connectivity()
+
+
+@mark.e2e_om_ops_manager_https_enabled
+def test_appdb_enable_tls(
+    ops_manager: MongoDBOpsManager, issuer_ca_configmap: str, appdb_certs: str
+):
+    """ Enable TLS for the AppDB (not for OM though). """
+    ops_manager.load()
+    ops_manager["spec"]["applicationDatabase"]["security"] = {
+        "tls": {"ca": issuer_ca_configmap, "secretRef": {"name": appdb_certs}}
+    }
+    ops_manager.update()
+    ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=60)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=400)
+
+
+@mark.e2e_om_ops_manager_https_enabled
+def test_appdb_running_over_tls(ops_manager: MongoDBOpsManager, ca_path: str):
+    ops_manager.get_appdb_tester(
+        ssl=True, insecure=False, ca_path=ca_path
+    ).assert_connectivity()
+
+
+@mark.e2e_om_ops_manager_https_enabled
+def test_appdb_not_connectibel_without_tls(ops_manager: MongoDBOpsManager):
+    ops_manager.get_appdb_tester(insecure=False).assert_no_connection()
 
 
 @mark.e2e_om_ops_manager_https_enabled

@@ -113,7 +113,7 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 	emptyResult := reconcile.Result{}
 	retryResult := reconcile.Result{Requeue: true}
 	appDbReconciler := newAppDBReplicaSetReconciler(r.ReconcileCommonController, r.omConnectionFactory, r.appDbVersionManifestPath)
-	result, err := appDbReconciler.Reconcile(opsManager, opsManager.Spec.AppDB, opsManagerUserPassword)
+	result, err := appDbReconciler.Reconcile(opsManager, opsManagerUserPassword)
 	if err != nil || (result != emptyResult && result != retryResult) {
 		return result, err
 	}

@@ -14,8 +14,6 @@ from tests.opsmanager.om_ops_manager_backup import (
 )
 from tests.opsmanager.om_ops_manager_https import create_tls_certs
 
-CA_PEM_FILE_PATH = "/var/run/secrets/ca-pem"
-
 """
 This test checks the work with TLS-enabled backing databases (oplog & blockstore)
 """
@@ -105,20 +103,11 @@ class TestOpsManagerCreation:
         oplog_replica_set.assert_reaches_phase(Phase.Running)
         blockstore_replica_set.assert_reaches_phase(Phase.Running)
 
-    def test_oplog_running(self, oplog_replica_set: MongoDB, issuer_ca_configmap: str):
-        # Write the CA from ConfigMap to local file to test connectivity to database
-        ca = KubernetesTester.read_configmap(
-            oplog_replica_set.namespace, issuer_ca_configmap
-        )["ca-pem"]
-        with open(CA_PEM_FILE_PATH, "w") as f:
-            f.write(ca)
+    def test_oplog_running(self, oplog_replica_set: MongoDB, ca_path: str):
+        oplog_replica_set.assert_connectivity(insecure=False, ca_path=ca_path)
 
-        oplog_replica_set.assert_connectivity(insecure=False, ca_path=CA_PEM_FILE_PATH)
-
-    def test_blockstore_running(self, blockstore_replica_set: MongoDB):
-        blockstore_replica_set.assert_connectivity(
-            insecure=False, ca_path=CA_PEM_FILE_PATH
-        )
+    def test_blockstore_running(self, blockstore_replica_set: MongoDB, ca_path: str):
+        blockstore_replica_set.assert_connectivity(insecure=False, ca_path=ca_path)
 
     def test_om_is_running(
         self,

@@ -121,9 +121,7 @@ def issuer_ca_configmap(namespace: str) -> str:
 
     name = "issuer-ca"
     KubernetesTester.create_configmap(namespace, name, data)
-    yield name
-
-    KubernetesTester.delete_configmap(namespace, name)
+    return name
 
 
 @fixture(scope="module")

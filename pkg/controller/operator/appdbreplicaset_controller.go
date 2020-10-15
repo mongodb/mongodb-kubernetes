@@ -64,7 +64,8 @@ func newAppDBReplicaSetReconciler(commonController *ReconcileCommonController, o
 }
 
 // Reconcile deploys the "headless" agent, and wait until it reaches the goal state
-func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager, rs omv1.AppDB, opsManagerUserPassword string) (res reconcile.Result, e error) {
+func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager, opsManagerUserPassword string) (res reconcile.Result, e error) {
+	rs := opsManager.Spec.AppDB
 	log := zap.S().With("ReplicaSet (AppDB)", objectKey(opsManager.Namespace, rs.Name()))
 
 	appDbStatusOption := status.NewOMPartOption(status.AppDb)
@@ -91,7 +92,7 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 	appdbPodSpec.Default.MemoryRequests = util.DefaultMemoryAppDB
 
 	// It's ok to pass 'opsManager' instance to statefulset constructor as it will be the owner for the appdb statefulset
-	replicaBuilder := r.kubeHelper.NewStatefulSetHelper(opsManager).
+	replicaBuilder := *r.kubeHelper.NewStatefulSetHelper(opsManager).
 		SetReplicas(scale.ReplicasThisReconciliation(opsManager)).
 		SetName(rs.Name()).
 		SetService(rs.ServiceName()).
@@ -108,27 +109,8 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 	// TODO: configure once StatefulSetConfiguration is supported for appDb
 	//SetStatefulSetConfiguration(opsManager.Spec.AppDB.StatefulSetConfiguration)
 
-	appDbSts, err := replicaBuilder.BuildAppDbStatefulSet()
-	if err != nil {
-		return r.updateStatus(opsManager, workflow.Failed(err.Error()), log, appDbStatusOption)
-	}
-
-	status, wasPublished := r.deployAutomationConfig(opsManager, rs, opsManagerUserPassword, appDbSts, log)
-	if !status.IsOK() {
-		return r.updateStatus(opsManager, status, log, appDbStatusOption)
-	}
-
-	// Note that the only case when we need to wait for readiness probe to go from 'true' to 'false' is when we publish
-	// the new config map - in this case we need to wait for some time to make sure the readiness probe has updated
-	// the state (usually takes up to 5 seconds).
-	if wasPublished {
-		waitTimeout := envutil.ReadIntOrDefault(util.AppDBReadinessWaitEnv, DefaultWaitForReadinessSeconds)
-		log.Debugf("Waiting for %d seconds to make sure readiness status is up-to-date", waitTimeout)
-		time.Sleep(time.Duration(waitTimeout) * time.Second)
-	}
-
-	if status := r.deployStatefulSet(opsManager, replicaBuilder); !status.IsOK() {
-		return r.updateStatus(opsManager, status, log, appDbStatusOption)
+	if workflowStatus := r.doReconcile(opsManager, replicaBuilder, opsManagerUserPassword, log); !workflowStatus.IsOK() {
+		return r.updateStatus(opsManager, workflowStatus, log, appDbStatusOption, scale.MembersOption(opsManager))
 	}
 
 	if podVars.ProjectID == "" {
@@ -146,6 +128,42 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 	log.Infof("Finished reconciliation for AppDB ReplicaSet!")
 
 	return r.updateStatus(opsManager, workflow.OK(), log, appDbStatusOption, scale.MembersOption(opsManager))
+}
+
+// doReconcile performs the reconciliation for the AppDB: update the AutomationConfig Secret if necessary and
+// update the StatefulSet. It does it in the necessary order depending on the changes to the spec
+func (r *ReconcileAppDbReplicaSet) doReconcile(opsManager *omv1.MongoDBOpsManager, replicaBuilder StatefulSetHelper, opsManagerUserPassword string, log *zap.SugaredLogger) workflow.Status {
+	rs := opsManager.Spec.AppDB
+	appDbSts, err := replicaBuilder.BuildAppDbStatefulSet()
+	if err != nil {
+		return workflow.Failed(err.Error())
+	}
+	automationConfigFirst := true
+	// The only case when we push the StatefulSet first is when we are ensuring TLS for the already existing AppDB
+	_, err = r.client.GetStatefulSet(kube.ObjectKey(replicaBuilder.GetNamespace(), replicaBuilder.GetName()))
+	if err == nil && opsManager.Spec.AppDB.GetSecurity().TLSConfig.IsEnabled() {
+		automationConfigFirst = false
+	}
+	return runInGivenOrder(automationConfigFirst,
+		func() workflow.Status {
+			workflowStatus, wasPublished := r.deployAutomationConfig(opsManager, rs, opsManagerUserPassword, appDbSts, log)
+			if !workflowStatus.IsOK() {
+				return workflowStatus
+			}
+
+			// Note that the only case when we need to wait for readiness probe to go from 'true' to 'false' is when we publish
+			// the new config map - in this case we need to wait for some time to make sure the readiness probe has updated
+			// the state (usually takes up to 5 seconds).
+			if wasPublished {
+				waitTimeout := envutil.ReadIntOrDefault(util.AppDBReadinessWaitEnv, DefaultWaitForReadinessSeconds)
+				log.Debugf("Waiting for %d seconds to make sure readiness status is up-to-date", waitTimeout)
+				time.Sleep(time.Duration(waitTimeout) * time.Second)
+			}
+			return workflow.OK()
+		},
+		func() workflow.Status {
+			return r.deployStatefulSet(opsManager, replicaBuilder)
+		})
 }
 
 // ensureLegacyConfigMapRemoved makes sure that the ConfigMap which stored the automation config
@@ -538,7 +556,7 @@ func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(opsManager *omv1.Mongo
 }
 
 // deployStatefulSet updates the StatefulSet spec and returns its status (if it's ready or not)
-func (r *ReconcileAppDbReplicaSet) deployStatefulSet(opsManager *omv1.MongoDBOpsManager, replicaBuilder *StatefulSetHelper) workflow.Status {
+func (r *ReconcileAppDbReplicaSet) deployStatefulSet(opsManager *omv1.MongoDBOpsManager, replicaBuilder StatefulSetHelper) workflow.Status {
 	if err := replicaBuilder.CreateOrUpdateAppDBInKubernetes(); err != nil {
 		return workflow.Failed(err.Error())
 	}
