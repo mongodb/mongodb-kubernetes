@@ -5,7 +5,7 @@ ignore:
 stepback: true
 
 # Ops Manager image building & pushing takes a long time
-exec_timeout_secs: 3600
+exec_timeout_secs: 4500
 variables:
   - &ops_manager_40_first
     ops_manager_version: "4.0.11.50485.20190502T1847Z-1_test"
@@ -21,7 +21,7 @@ variables:
 
     # These are OM/MDB versions used in OM e2e tests (build variants for 4.2/4.4 OM) - change them occasionally
   - &ops_manager_44_latest
-    custom_om_version: 4.4.3
+    custom_om_version: 4.4.4
   - &ops_manager_42_latest
     custom_om_version: 4.2.18
   - &mdb_44_latest 4.4.0
@@ -2725,4 +2725,4 @@ buildvariants:
     - name: build_and_push_ops_manager_ubi
   expansions:
     # removing deprecated versions as per https://www.mongodb.com/subscription/downloads/archived
-    VERSIONS: "4.2.0 4.2.1 4.2.3 4.2.4 4.2.6 4.2.7 4.2.8 4.2.10 4.2.12 4.2.13 4.4.1"
+    VERSIONS: "4.2.0 4.2.1 4.2.3 4.2.4 4.2.6 4.2.7 4.2.8 4.2.10 4.2.12 4.2.13 4.2.18 4.4.1 4.4.2 4.4.2 4.4.4"
