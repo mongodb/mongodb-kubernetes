@@ -54,7 +54,7 @@ def test_replica_set_gets_into_running_state(namespace: str, tls_replica_set: Mo
 @pytest.mark.e2e_replica_set_tls_require_and_disable
 @skip_if_local()
 def test_replica_set_is_not_reachable_without_tls(tls_replica_set: MongoDB):
-    tester = tls_replica_set.tester(insecure=False, use_ssl=False)
+    tester = tls_replica_set.tester(use_ssl=False)
     tester.assert_no_connection()
 
 

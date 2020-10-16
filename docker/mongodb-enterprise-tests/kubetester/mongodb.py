@@ -107,7 +107,6 @@ class MongoDB(CustomObject, MongoDBCommon):
 
     def tester(
         self,
-        insecure=True,
         ca_path: Optional[str] = None,
         srv: bool = False,
         use_ssl: Optional[bool] = None,
@@ -119,7 +118,6 @@ class MongoDB(CustomObject, MongoDBCommon):
                 replicas_count=self["status"]["members"],
                 ssl=self.is_tls_enabled() if use_ssl is None else use_ssl,
                 srv=srv,
-                insecure=insecure,
                 ca_path=ca_path,
                 namespace=self.namespace,
             )
@@ -129,7 +127,6 @@ class MongoDB(CustomObject, MongoDBCommon):
                 mongos_count=self["spec"]["mongosCount"],
                 ssl=self.is_tls_enabled() if use_ssl is None else use_ssl,
                 srv=srv,
-                insecure=insecure,
                 ca_path=ca_path,
                 namespace=self.namespace,
             )
@@ -138,13 +135,12 @@ class MongoDB(CustomObject, MongoDBCommon):
                 mdb_resource_name=self.name,
                 ssl=self.is_tls_enabled() if use_ssl is None else use_ssl,
                 srv=srv,
-                insecure=insecure,
                 ca_path=ca_path,
                 namespace=self.namespace,
             )
 
-    def assert_connectivity(self, insecure=True, ca_path: Optional[str] = None):
-        return self.tester(insecure, ca_path).assert_connectivity()
+    def assert_connectivity(self, ca_path: Optional[str] = None):
+        return self.tester(ca_path).assert_connectivity()
 
     def __repr__(self):
         # FIX: this should be __unicode__

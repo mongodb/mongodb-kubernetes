@@ -91,7 +91,7 @@ def test_replicaset_reconciled(replica_set: MongoDB):
 
 @pytest.mark.e2e_operator_upgrade_replica_set
 def test_replicaset_connectivity(replica_set: MongoDB, ca_path: str):
-    tester = replica_set.tester(insecure=False, ca_path=ca_path)
+    tester = replica_set.tester(use_ssl=True, ca_path=ca_path)
     tester.assert_connectivity()
 
     # TODO refactor tester to flexibly test tls + custom CA + scram

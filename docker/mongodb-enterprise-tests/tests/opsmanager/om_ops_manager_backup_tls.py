@@ -104,10 +104,10 @@ class TestOpsManagerCreation:
         blockstore_replica_set.assert_reaches_phase(Phase.Running)
 
     def test_oplog_running(self, oplog_replica_set: MongoDB, ca_path: str):
-        oplog_replica_set.assert_connectivity(insecure=False, ca_path=ca_path)
+        oplog_replica_set.assert_connectivity(ca_path=ca_path)
 
     def test_blockstore_running(self, blockstore_replica_set: MongoDB, ca_path: str):
-        blockstore_replica_set.assert_connectivity(insecure=False, ca_path=ca_path)
+        blockstore_replica_set.assert_connectivity(ca_path=ca_path)
 
     def test_om_is_running(
         self,

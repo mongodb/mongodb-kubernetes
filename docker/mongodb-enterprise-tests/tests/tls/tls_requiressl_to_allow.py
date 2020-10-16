@@ -64,7 +64,7 @@ def test_replica_set_is_not_reachable_without_tls(tls_replica_set: MongoDB):
 @pytest.mark.e2e_replica_set_tls_require_to_allow
 @skip_if_local()
 def test_replica_set_is_reachable_with_tls(tls_replica_set: MongoDB, ca_path: str):
-    tester = tls_replica_set.tester(use_ssl=True, insecure=False, ca_path=ca_path)
+    tester = tls_replica_set.tester(use_ssl=True, ca_path=ca_path)
     tester.assert_connectivity()
 
 
@@ -94,5 +94,5 @@ def test_replica_set_is_reachable_without_tls_allow_ssl(tls_replica_set: MongoDB
 def test_replica_set_is_reachable_with_tls_allow_ssl(
     tls_replica_set: MongoDB, ca_path: str
 ):
-    tester = tls_replica_set.tester(use_ssl=True, insecure=False, ca_path=ca_path)
+    tester = tls_replica_set.tester(use_ssl=True, ca_path=ca_path)
     tester.assert_connectivity()

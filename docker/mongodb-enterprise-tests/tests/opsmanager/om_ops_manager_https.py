@@ -97,7 +97,7 @@ def test_om_created_no_tls(ops_manager: MongoDBOpsManager):
 
 @mark.e2e_om_ops_manager_https_enabled
 def test_appdb_running_no_tls(ops_manager: MongoDBOpsManager):
-    ops_manager.get_appdb_tester(insecure=False).assert_connectivity()
+    ops_manager.get_appdb_tester().assert_connectivity()
 
 
 @mark.e2e_om_ops_manager_https_enabled
@@ -118,13 +118,13 @@ def test_appdb_enable_tls(
 @mark.e2e_om_ops_manager_https_enabled
 def test_appdb_running_over_tls(ops_manager: MongoDBOpsManager, ca_path: str):
     ops_manager.get_appdb_tester(
-        ssl=True, insecure=False, ca_path=ca_path
+        ssl=True, ca_path=ca_path
     ).assert_connectivity()
 
 
 @mark.e2e_om_ops_manager_https_enabled
 def test_appdb_not_connectibel_without_tls(ops_manager: MongoDBOpsManager):
-    ops_manager.get_appdb_tester(insecure=False).assert_no_connection()
+    ops_manager.get_appdb_tester().assert_no_connection()
 
 
 @mark.e2e_om_ops_manager_https_enabled
