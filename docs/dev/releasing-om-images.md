@@ -14,8 +14,9 @@ evergreen patch -v build_and_push_ops_manager_images -t all -y -f -d "Building O
 If the evergreen patch is successful, create a PR with the following changes:
 
 1. Make sure to **ADD** (and not replace) `X.Y.Z` to the `VERSIONS` expansion in the [evergreen file](../../.evergreen.yml)
-1. Change the variable `custom_om_version` to `X.Y.Z` (note: there are two variables with that name, one is under `ops_manager_44_latest`, the other under `ops_manager_42_latest`, change the one that matches the new released image)
+1. Change the variable `ops_manager_44_latest` or `ops_manager_42_latest` (whatever you are releasing) to `X.Y.Z`
 1. Change the `ops-manager` samples to use the new version ([ops-manager.yaml](../../deploy/crds/samples/ops-manager.yaml) and the files in [this directory](../../public/samples/ops-manager))
+1. Change the default version for the fixture `custom_version` in [conftest.py](../../docker/mongodb-enterprise-tests/tests/conftest.py). This will allow developers to run by local tests using the same OM version.
 
 ## Wait for tests to finish and complete the release
 1. When the tests that use the new `custom_om_version` are all green, go to step 2
