@@ -59,10 +59,14 @@ Ensure the required dependencies are installed
 pip3 install -r scripts/evergreen/requirements.txt
 ```
 
+Run the script in an interactive mode and fill the details for the versions of the images to be released.
+Note, that Operator is always released but "init" images are released only if there were changes in the content
+since the last release. The script will check this and will ask for new versions if necessary.
+
 ```bash
-./scripts/evergreen/release/update_release_version.py --operator_version <operator_version> --init_opsmanager_version <init_om_version> --init_appdb_version <init_appdb_version>
+./scripts/evergreen/release/update_release_version.py
 ```
-This will update all relevant files with a new version (you can specify only the containers that have changed)
+
 Push the PR changes
 
 ## Get the release PR approved and merge the branch to Master

@@ -4,3 +4,4 @@ docopt==0.6.2
 PyYAML==5.3.1
 ruamel.yaml==0.16.5
 semver==2.10.2
+GitPython==3.1.9
