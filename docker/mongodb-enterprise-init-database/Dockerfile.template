@@ -4,12 +4,30 @@
 # /10gen/ops-manager-kubernetes] docker build -f docker/mongodb-enterprise-init-database/Dockerfile .
 #
 
+# The step #1: building the readiness probe binary from go sources
+
 FROM golang:1.13-alpine as builder
 
 COPY ./probe /build/
 COPY ./probe_go_mod /build/
 WORKDIR /build
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=386 go build -a -i -o readinessprobe .
+
+# The step #2: downloading and extracting the mongodb tools (note that this is not included into step 3 as neither
+# busybox nor ubi-minimal include curl/tar)
+
+FROM alpine as tools-provider
+ARG MONGODB_TOOLS_URL
+
+RUN apk --no-cache add curl
+
+# Install MongoDB tools. The agent will automatically search the folder and find the binaries.
+RUN curl --fail --retry 3 --silent "${MONGODB_TOOLS_URL}" -o mongodb-tools.tgz \
+    && mkdir /tools \
+    && tar xfz mongodb-tools.tgz --directory /tools \
+    && rm mongodb-tools.tgz
+
+# The step #3: (the main image) copying all the artifacts to the destination folder
 
 FROM {{ base_image|default("busybox") }}
 
@@ -30,7 +48,9 @@ LABEL name="MongoDB Enterprise Init Database" \
       vendor="MongoDB" \
       maintainer="support@mongodb.com"
 
+
 COPY --from=builder /build/readinessprobe /probes/
+COPY --from=tools-provider /tools/ /tools/
 COPY ./docker/mongodb-enterprise-init-database/content/probe.sh /probes/
 
 COPY ./docker/mongodb-enterprise-init-database/content/agent-launcher-lib.sh /scripts/
@@ -38,7 +58,7 @@ COPY ./docker/mongodb-enterprise-init-database/content/agent-launcher.sh /script
 
 COPY ./docker/mongodb-enterprise-init-database/content/LICENSE /licenses/mongodb-enterprise-appdb
 
-ENTRYPOINT [ "/bin/cp", "-f", "/scripts/agent-launcher.sh", "/scripts/agent-launcher-lib.sh", "/probes/readinessprobe", "/probes/probe.sh", "/opt/scripts/" ]
+ENTRYPOINT [ "/bin/cp", "-f", "-r", "/scripts/agent-launcher.sh", "/scripts/agent-launcher-lib.sh", "/probes/readinessprobe", "/probes/probe.sh", "/tools", "/opt/scripts/" ]
 
 {% block healthcheck %}
 {% endblock %}

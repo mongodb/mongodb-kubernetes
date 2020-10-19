@@ -34,8 +34,16 @@ versioned_image_with_build="${versioned_image}${suffix}"
     ../dockerfile_generator.py init_appdb "${base_image}" > Dockerfile
 )
 
+# The mongodb tools url (is there the way to fetch the latest binary automatically?)
+tools_binary_name=$(jq --raw-output ".mongodbToolsBundle.${IMAGE_TYPE}BinaryName" < release.json)
+mongodb_tools_url="https://fastdl.mongodb.org/tools/db/${tools_binary_name}"
+
 # needs to be launched from the root for docker to be able to copy the probe directory
-docker build -t "${versioned_image}" -t "${versioned_image_with_build}" --build-arg VERSION="${init_appdb_version}" -f docker/mongodb-enterprise-init-database/Dockerfile .
+docker build -t "${versioned_image}" \
+      -t "${versioned_image_with_build}" \
+      --build-arg VERSION="${init_appdb_version}" \
+      --build-arg MONGODB_TOOLS_URL="${mongodb_tools_url}" \
+      -f docker/mongodb-enterprise-init-database/Dockerfile .
 docker push "${versioned_image}"
 docker push "${versioned_image_with_build}"
 title "Init AppDB image successfully built and pushed to ${repository_url} registry"

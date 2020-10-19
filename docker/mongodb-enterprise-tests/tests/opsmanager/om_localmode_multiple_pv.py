@@ -72,10 +72,10 @@ class TestOpsManagerCreation:
         # distros for local mode - so just wait until the agents don't reach goal state
         replica_set.assert_reaches_phase(Phase.Failed, timeout=300)
 
-    def test_add_mongodb_distros_and_tools(
+    def test_add_mongodb_distros(
         self, ops_manager: MongoDBOpsManager, custom_mdb_version: str
     ):
-        ops_manager.download_mongodb_binaries_and_tools(custom_mdb_version)
+        ops_manager.download_mongodb_binaries(custom_mdb_version)
 
     def test_replica_set_reaches_running_phase(self, replica_set: MongoDB):
         # note that the Replica Set may sometimes still get to Failed error

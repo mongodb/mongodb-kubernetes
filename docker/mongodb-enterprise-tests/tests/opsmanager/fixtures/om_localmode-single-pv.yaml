@@ -46,26 +46,6 @@ spec:
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
-            - name: setting-up-rhel-mongodb-tools-100-1-0
-              image: busybox:latest
-              command:
-                - wget
-                - -O
-                - /mongodb-ops-manager/mongodb-releases/mongodb-database-tools-rhel80-x86_64-100.1.0.tgz
-                - https://fastdl.mongodb.org/tools/db/mongodb-database-tools-rhel80-x86_64-100.1.0.tgz
-              volumeMounts:
-                - name: mongodb-versions
-                  mountPath: /mongodb-ops-manager/mongodb-releases
-            - name: setting-up-ubuntu-mongodb-tools-100-1-0
-              image: busybox:latest
-              command:
-                - wget
-                - -O
-                - /mongodb-ops-manager/mongodb-releases/mongodb-database-tools-ubuntu1604-x86_64-100.1.0.tgz
-                - https://fastdl.mongodb.org/tools/db/mongodb-database-tools-ubuntu1604-x86_64-100.1.0.tgz
-              volumeMounts:
-                - name: mongodb-versions
-                  mountPath: /mongodb-ops-manager/mongodb-releases
 
   backup:
     enabled: false

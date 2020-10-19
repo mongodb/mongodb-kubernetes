@@ -1,20 +1,22 @@
 #!/usr/bin/env bash
 set -Eeou pipefail
 
-# current copy of docker/mongodb-enterprise-database/content
-# FIXME: remove the scripts from docker/mongodb-enterprise-database/content once database builds also uses multi-stage builds
-
-# shellcheck source=docker_content/agent-launcher-lib.sh
+# shellcheck disable=SC1091
 source /opt/scripts/agent-launcher-lib.sh
+
+# This is the directory corresponding to 'options.downloadBase' in the automation config - the directory where
+# the agent will extract MongoDB binaries to
+mdb_downloads_dir="/var/lib/mongodb-mms-automation"
 
 # The path to the automation config file in case the agent is run in headless mode
 cluster_config_file="/var/lib/mongodb-automation/cluster-config.json"
 
+# Always copy the tools provided by the init container to the directory where the agent looks for all binaries
+cp -r /opt/scripts/tools/* "${mdb_downloads_dir}"
+
 # file required by Automation Agents of authentication is enabled.
-keyfile_dir="/var/lib/mongodb-mms-automation"
-mkdir -p ${keyfile_dir}
-touch "${keyfile_dir}/keyfile"
-chmod 600 "${keyfile_dir}/keyfile"
+touch "${mdb_downloads_dir}/keyfile"
+chmod 600 "${mdb_downloads_dir}/keyfile"
 
 ensure_certs_symlinks
 
@@ -68,18 +70,23 @@ agentOpts=(
     "-maxLogFileDurationHrs" "24"
     "-logLevel" "${LOG_LEVEL:-INFO}"
 )
-# TODO we need to compare the Agent version until we support OM 4.0, then this check can be removed
 AGENT_VERSION="$(cat "${MMS_HOME}"/files/agent-version)"
 script_log "Automation Agent version: ${AGENT_VERSION}"
 
 # this is the version of Automation Agent which has fixes for health file bugs
+# TODO we need to compare the Agent version until we support OM 4.0, then this check can be removed
 set +e
 compare_versions "${AGENT_VERSION}" 10.2.3.5866-1
 if [[ $? -le 1 ]]; then
   agentOpts+=("-healthCheckFilePath" "${MMS_LOG_DIR}/agent-health-status.json")
 fi
-set -e
 
+# this is the version of Automation Agent which has support for local mongodb tools
+compare_versions "${AGENT_VERSION}" 10.14.15.6432-1
+if [[ $? -le 1 ]]; then
+  agentOpts+=("-useLocalMongoDbTools")
+fi
+set -e
 
 if [[ -n "${base_url}" ]]; then
     agentOpts+=("-mmsBaseUrl" "${base_url}")
