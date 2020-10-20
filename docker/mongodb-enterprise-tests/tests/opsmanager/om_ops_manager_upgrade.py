@@ -55,6 +55,7 @@ class TestOpsManagerCreation:
 
     def test_create_om(self, ops_manager: MongoDBOpsManager):
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+        # Monitoring
         ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=50)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=300)
 
@@ -111,6 +112,12 @@ class TestOpsManagerCreation:
             OM_USER_NAME, auto_generated_password, auth_mechanism="SCRAM-SHA-256"
         )
 
+    def test_generations(self, ops_manager: MongoDBOpsManager):
+        assert ops_manager.appdb_status().get_observed_generation() == 1
+        assert ops_manager.om_status().get_observed_generation() == 1
+        # backup is not enabled - thus no observed generation there
+        assert ops_manager.backup_status().get_observed_generation() is None
+
 
 @pytest.mark.e2e_om_ops_manager_upgrade
 class TestOpsManagerWithMongoDB:
@@ -125,7 +132,6 @@ class TestOpsManagerWithMongoDB:
         mdb["spec"]["members"] = 4
 
         mdb.update()
-        mdb.assert_abandons_phase(Phase.Running)
         mdb.assert_reaches_phase(Phase.Running)
         mdb.assert_connectivity()
         assert mdb.get_status_members() == 4
@@ -144,7 +150,6 @@ class TestOpsManagerConfigurationChange:
         ops_manager["spec"]["configuration"]["mms.testUtil.enabled"] = ""
         ops_manager["spec"]["configuration"]["mms.helpAndSupportPage.enabled"] = "true"
         ops_manager.update()
-        ops_manager.om_status().assert_abandons_phase(Phase.Running)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=500)
 
     def test_keys_not_modified(self, ops_manager: MongoDBOpsManager):
@@ -166,6 +171,12 @@ class TestOpsManagerConfigurationChange:
             pytest.xfail("mms.testUtil.enabled is expected to be false")
         except AssertionError:
             pass
+
+    def test_generations(self, ops_manager: MongoDBOpsManager):
+        assert ops_manager.appdb_status().get_observed_generation() == 2
+        assert ops_manager.om_status().get_observed_generation() == 2
+        # backup is not enabled - thus no observed generation there
+        assert ops_manager.backup_status().get_observed_generation() is None
 
 
 @pytest.mark.e2e_om_ops_manager_upgrade
@@ -192,7 +203,6 @@ class TestOpsManagerVersionUpgrade:
         ops_manager.set_appdb_version(custom_appdb_version)
 
         ops_manager.update()
-        ops_manager.om_status().assert_abandons_phase(Phase.Running)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
     def test_image_url(self, ops_manager: MongoDBOpsManager):
@@ -243,7 +253,6 @@ class TestMongoDbsVersionUpgrade:
         mdb["spec"]["version"] = custom_mdb_version
 
         mdb.update()
-        mdb.assert_abandons_phase(Phase.Running)
         mdb.assert_reaches_phase(Phase.Running)
         mdb.assert_connectivity()
         mdb.tester().assert_version(custom_mdb_version)

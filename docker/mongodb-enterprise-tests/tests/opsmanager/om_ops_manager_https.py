@@ -143,7 +143,6 @@ def test_enable_https_on_opsmanager(
     }
     ops_manager.update()
 
-    ops_manager.om_status().assert_abandons_phase(Phase.Running)
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
     assert ops_manager.om_status().get_url().startswith("https://")

@@ -107,7 +107,6 @@ class TestOpsManagerAppDbUpgrade:
         ops_manager.load()
         ops_manager.set_appdb_version("")
         ops_manager.update()
-        ops_manager.appdb_status().assert_abandons_phase(Phase.Running)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
         # Note, that we don't wait for "OM == reconciling" as this phase passes too quickly
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=100)
@@ -139,7 +138,6 @@ class TestOpsManagerAppDbUpdateMemory:
         ops_manager.load()
         ops_manager["spec"]["applicationDatabase"]["podSpec"] = {"memory": "350M"}
         ops_manager.update()
-        ops_manager.appdb_status().assert_abandons_phase(Phase.Running)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
         # Note, that we don't wait for "OM == reconciling" as this phase passes too quickly
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=100)
@@ -174,9 +172,7 @@ class TestOpsManagerMixed:
             "mms.helpAndSupportPage.enabled": "true"
         }
         ops_manager.update()
-        ops_manager.appdb_status().assert_abandons_phase(Phase.Running)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
-        ops_manager.om_status().assert_abandons_phase(Phase.Running)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=400)
 
         # no backup status

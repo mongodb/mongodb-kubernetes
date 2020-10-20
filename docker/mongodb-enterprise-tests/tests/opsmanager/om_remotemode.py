@@ -96,7 +96,6 @@ def test_replica_set_reaches_failed_phase(replica_set: MongoDB):
 def test_replica_set_recovers(replica_set: MongoDB, custom_mdb_version: str):
     replica_set["spec"]["version"] = custom_mdb_version
     replica_set.update()
-    replica_set.assert_abandons_phase(Phase.Failed)
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
 
@@ -111,7 +110,6 @@ def test_restart_ops_manager_pod(ops_manager: MongoDBOpsManager):
     ops_manager.load()
     ops_manager["spec"]["configuration"]["mms.testUtil.enabled"] = "false"
     ops_manager.update()
-    ops_manager.om_status().assert_abandons_phase(Phase.Running)
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
 
@@ -120,7 +118,6 @@ def test_can_scale_replica_set(replica_set: MongoDB):
     replica_set.load()
     replica_set["spec"]["members"] = 5
     replica_set.update()
-    replica_set.assert_abandons_phase(Phase.Running)
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
 

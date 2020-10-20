@@ -1,3 +1,4 @@
+import time
 from typing import Optional
 
 import pytest
@@ -125,10 +126,11 @@ def test_changing_app_db_password_triggers_rolling_restart(
     KubernetesTester.update_secret(
         ops_manager.namespace, "my-password", {"password": "new-password",},
     )
-    ops_manager.om_status().assert_abandons_phase(phase=Phase.Running)
+    # unfortunately changing the external secret doesn't change the metadata.generation so we cannot track
+    # when the Operator started working on the spec - let's just wait for a bit
+    time.sleep(5)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
-
-    ops_manager.backup_status().assert_abandons_phase(phase=Phase.Running)
     ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=200)
 
 
@@ -150,7 +152,6 @@ def test_no_unnecessary_rolling_upgrades_happen(ops_manager: MongoDBOpsManager):
     ops_manager["spec"]["applicationDatabase"]["version"] = "4.2.2"
     ops_manager.update()
 
-    ops_manager.appdb_status().assert_abandons_phase(phase=Phase.Running)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=300)
 
     sts = ops_manager.read_statefulset()

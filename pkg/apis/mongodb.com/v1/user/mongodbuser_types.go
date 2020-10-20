@@ -114,7 +114,7 @@ func (u *MongoDBUser) ChangedIdentifier() bool {
 }
 
 func (u *MongoDBUser) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {
-	u.Status.UpdateCommonFields(phase, statusOptions...)
+	u.Status.UpdateCommonFields(phase, u.GetGeneration(), statusOptions...)
 	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
 		u.Status.Warnings = append(u.Status.Warnings, option.(status.WarningsOption).Warnings...)
 	}

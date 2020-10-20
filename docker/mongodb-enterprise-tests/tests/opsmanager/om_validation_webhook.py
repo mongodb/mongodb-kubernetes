@@ -128,6 +128,7 @@ class TestOpsManagerValidationWarnings:
         default_operator.disable_webhook()
 
     def test_create_om_failed_with_message(self, ops_manager: MongoDBOpsManager):
+        """ Sending the incorrect specification will move the OM resource to Failed state """
         ops_manager.om_status().assert_reaches_phase(Phase.Failed, timeout=300)
 
         assert APPDB_SHARD_COUNT_WARNING == ops_manager.om_status().get_message()
@@ -136,6 +137,7 @@ class TestOpsManagerValidationWarnings:
         assert "warnings" not in ops_manager.get_status()
 
     def test_update_om_with_corrections(self, ops_manager: MongoDBOpsManager):
+        """ After the spec is corrected the OM reconciles successfully """
         del ops_manager["spec"]["applicationDatabase"]["shardCount"]
         # TODO add replace() method to kubeobject
         client.CustomObjectsApi().replace_namespaced_custom_object(
@@ -146,12 +148,5 @@ class TestOpsManagerValidationWarnings:
             ops_manager.name,
             ops_manager.backing_obj,
         )
-
-        def has_no_warnings(om: MongoDBOpsManager) -> bool:
-            return "warnings" not in om.get_status()
-
-        ops_manager.assert_reaches(has_no_warnings, timeout=1200)
-        ops_manager.om_status().assert_reaches_phase(Phase.Failed, timeout=300)
-
-    def test_warnings_reset(self, ops_manager: MongoDBOpsManager):
-        assert "warnings" not in ops_manager.get_status()
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=700)
+        assert "message" not in ops_manager.get_status()

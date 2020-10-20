@@ -90,10 +90,7 @@ class TestOpsManagerAppDbScaleUp:
         ops_manager["spec"]["applicationDatabase"]["members"] = 5
         ops_manager.update()
 
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Pending)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
-
-        ops_manager.om_status().assert_abandons_phase(Phase.Running)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
 
     def test_keys_not_touched(self, ops_manager: MongoDBOpsManager):
@@ -130,7 +127,6 @@ class TestOpsManagerAppDbScaleDown:
         ops_manager.load()
         ops_manager["spec"]["applicationDatabase"]["members"] = 3
         ops_manager.update()
-        ops_manager.om_status().assert_abandons_phase(Phase.Running)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
 
     def test_appdb(self, ops_manager: MongoDBOpsManager):

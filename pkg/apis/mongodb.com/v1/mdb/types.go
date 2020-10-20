@@ -594,7 +594,8 @@ func (m MongoDB) IsLDAPEnabled() bool {
 }
 
 func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {
-	m.Status.UpdateCommonFields(phase, statusOptions...)
+	m.Status.UpdateCommonFields(phase, m.GetGeneration(), statusOptions...)
+
 	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
 		m.Status.Warnings = append(m.Status.Warnings, option.(status.WarningsOption).Warnings...)
 	}

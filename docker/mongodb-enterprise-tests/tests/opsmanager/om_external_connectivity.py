@@ -53,8 +53,6 @@ def test_set_external_connectivity(opsmanager: MongoDBOpsManager):
     opsmanager["spec"]["externalConnectivity"] = ext_connectivity
     opsmanager.update()
 
-    # TODO: This is hanging forever and will be fixed in CLOUDP-73900
-    opsmanager.om_status().assert_abandons_phase(Phase.Running)
     opsmanager.om_status().assert_reaches_phase(Phase.Running)
 
     internal, external = opsmanager.services()
@@ -77,7 +75,6 @@ def test_add_annotations(opsmanager: MongoDBOpsManager):
     opsmanager["spec"]["externalConnectivity"]["annotations"] = annotations
     opsmanager.update()
 
-    opsmanager.om_status().assert_abandons_phase(Phase.Running)
     opsmanager.om_status().assert_reaches_phase(Phase.Running)
 
     internal, external = opsmanager.services()

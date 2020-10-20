@@ -354,10 +354,11 @@ func (m *MongoDBOpsManager) UpdateStatus(phase status.Phase, statusOptions ...st
 	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
 		m.Status.Warnings = append(m.Status.Warnings, option.(status.WarningsOption).Warnings...)
 	}
+
 }
 
 func (m *MongoDBOpsManager) updateStatusAppDb(phase status.Phase, statusOptions ...status.Option) {
-	m.Status.AppDbStatus.UpdateCommonFields(phase, statusOptions...)
+	m.Status.AppDbStatus.UpdateCommonFields(phase, m.GetGeneration(), statusOptions...)
 
 	if option, exists := status.GetOption(statusOptions, scale.ReplicaSetMembersOption{}); exists {
 		m.Status.AppDbStatus.Members = option.(scale.ReplicaSetMembersOption).Members
@@ -372,7 +373,7 @@ func (m *MongoDBOpsManager) updateStatusAppDb(phase status.Phase, statusOptions 
 }
 
 func (m *MongoDBOpsManager) updateStatusOpsManager(phase status.Phase, statusOptions ...status.Option) {
-	m.Status.OpsManagerStatus.UpdateCommonFields(phase, statusOptions...)
+	m.Status.OpsManagerStatus.UpdateCommonFields(phase, m.GetGeneration(), statusOptions...)
 
 	if option, exists := status.GetOption(statusOptions, status.BaseUrlOption{}); exists {
 		m.Status.OpsManagerStatus.Url = option.(status.BaseUrlOption).BaseUrl
@@ -386,7 +387,7 @@ func (m *MongoDBOpsManager) updateStatusOpsManager(phase status.Phase, statusOpt
 }
 
 func (m *MongoDBOpsManager) updateStatusBackup(phase status.Phase, statusOptions ...status.Option) {
-	m.Status.BackupStatus.UpdateCommonFields(phase, statusOptions...)
+	m.Status.BackupStatus.UpdateCommonFields(phase, m.GetGeneration(), statusOptions...)
 
 	if phase == status.PhaseRunning {
 		m.Status.BackupStatus.Message = ""

@@ -3,6 +3,8 @@ package inspect
 import (
 	"fmt"
 
+	"go.uber.org/zap"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -41,6 +43,7 @@ func (s StatefulSetState) GetMessage() string {
 }
 
 func (s StatefulSetState) IsReady() bool {
+	zap.S().Debugf("StatefulSet %s (total: %d, ready: %d, updated: %d, generation: %d, observedGeneration: %d)", s.statefulSetKey.Name, s.total, s.ready, s.updated, s.generation, s.observedGeneration)
 	return s.updated == s.ready && s.ready == s.total && s.observedGeneration == s.generation
 }
 

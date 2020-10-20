@@ -96,13 +96,11 @@ class TestOpsManagerRestarted:
         ops_manager.load()
         ops_manager["spec"]["configuration"]["mms.testUtil.enabled"] = "false"
         ops_manager.update()
-        ops_manager.om_status().assert_abandons_phase(Phase.Running)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
     def test_can_scale_replica_set(self, replica_set: MongoDB):
         replica_set["spec"]["members"] = 4
         replica_set.update()
-        replica_set.assert_abandons_phase(Phase.Running)
         replica_set.assert_reaches_phase(Phase.Running, timeout=200)
 
     def test_client_can_still_connect(self, replica_set: MongoDB):

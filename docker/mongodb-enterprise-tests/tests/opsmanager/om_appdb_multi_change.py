@@ -32,7 +32,6 @@ def test_change_appdb(ops_manager: MongoDBOpsManager):
         "operationProfiling": {"mode": "slowOp"}
     }
     ops_manager.update()
-    ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=60)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=500)
 
 

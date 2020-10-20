@@ -291,6 +291,11 @@ class TestOpsManagerCreation:
         om_tester.assert_oplog_stores([])
         om_tester.assert_s3_stores([])
 
+    def test_generations(self, ops_manager: MongoDBOpsManager):
+        assert ops_manager.appdb_status().get_observed_generation() == 1
+        assert ops_manager.om_status().get_observed_generation() == 1
+        assert ops_manager.backup_status().get_observed_generation() == 1
+
     def test_security_contexts_appdb(
         self,
         ops_manager: MongoDBOpsManager,
@@ -394,6 +399,12 @@ class TestBackupDatabasesAdded:
             [new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)]
         )
 
+    def test_generations(self, ops_manager: MongoDBOpsManager):
+        """ There have been an update to the OM spec - all observed generations are expected to be updated """
+        assert ops_manager.appdb_status().get_observed_generation() == 2
+        assert ops_manager.om_status().get_observed_generation() == 2
+        assert ops_manager.backup_status().get_observed_generation() == 2
+
     def test_security_contexts_backup(
         self,
         ops_manager: MongoDBOpsManager,
@@ -417,7 +428,6 @@ class TestOpsManagerWatchesBlockStoreUpdates:
             "authentication": {"enabled": True, "modes": ["SCRAM"]}
         }
         blockstore_replica_set.update()
-        blockstore_replica_set.assert_abandons_phase(Phase.Running)
         blockstore_replica_set.assert_reaches_phase(Phase.Running)
 
     def test_blockstore_user_was_added_to_om(self, blockstore_user: MongoDBUser):

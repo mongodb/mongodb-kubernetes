@@ -19,16 +19,18 @@ type Reader interface {
 
 // Common is the struct shared by all statuses in existing Custom Resources.
 type Common struct {
-	Phase             Phase              `json:"phase"`
-	Message           string             `json:"message,omitempty"`
-	LastTransition    string             `json:"lastTransition,omitempty"`
-	ResourcesNotReady []ResourceNotReady `json:"resourcesNotReady,omitempty"`
+	Phase              Phase              `json:"phase"`
+	Message            string             `json:"message,omitempty"`
+	LastTransition     string             `json:"lastTransition,omitempty"`
+	ResourcesNotReady  []ResourceNotReady `json:"resourcesNotReady,omitempty"`
+	ObservedGeneration int64              `json:"observedGeneration,omitempty"`
 }
 
 // UpdateCommonFields is the update function to update common fields used in statuses of all managed CRs
-func (s *Common) UpdateCommonFields(phase Phase, statusOptions ...Option) {
+func (s *Common) UpdateCommonFields(phase Phase, generation int64, statusOptions ...Option) {
 	s.Phase = phase
 	s.LastTransition = timeutil.Now()
+	s.ObservedGeneration = generation
 	if option, exists := GetOption(statusOptions, MessageOption{}); exists {
 		s.Message = stringutil.UpperCaseFirstChar(option.(MessageOption).Message)
 	}

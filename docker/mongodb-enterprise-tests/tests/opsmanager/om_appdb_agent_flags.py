@@ -60,7 +60,6 @@ def test_appdb_flags_changed(ops_manager: MongoDBOpsManager):
         "dialTimeoutSeconds"
     ] = "70"
     ops_manager.update()
-    ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=30)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
 
 

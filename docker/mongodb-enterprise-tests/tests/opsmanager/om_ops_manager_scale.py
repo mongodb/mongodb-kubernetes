@@ -123,7 +123,6 @@ class TestOpsManagerVersionUpgrade:
         ops_manager.set_version(custom_version)
 
         ops_manager.update()
-        ops_manager.om_status().assert_abandons_phase(Phase.Running)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
     def test_image_url(self, ops_manager: MongoDBOpsManager):
@@ -148,7 +147,6 @@ class TestOpsManagerScaleUp:
         ops_manager.load()
         ops_manager["spec"]["replicas"] = 3
         ops_manager.update()
-        ops_manager.om_status().assert_abandons_phase(Phase.Running)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=500)
 
     def test_number_of_replicas(self, ops_manager: MongoDBOpsManager):

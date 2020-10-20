@@ -39,7 +39,6 @@ def test_db_data_the_same_count(sharded_cluster: MongoDB):
     sharded_cluster["spec"]["configServerCount"] = 1
     sharded_cluster.update()
 
-    sharded_cluster.assert_abandons_phase(Phase.Running, timeout=60)
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1200)
 
     mongod_tester = sharded_cluster.tester()

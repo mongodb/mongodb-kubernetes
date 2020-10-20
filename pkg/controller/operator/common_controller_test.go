@@ -358,6 +358,8 @@ func checkReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, obj
 	assert.NotNil(t, object.Status.LastTransition)
 	assert.NotEqual(t, object.Status.LastTransition, "")
 
+	assert.Equal(t, object.GetGeneration(), object.Status.ObservedGeneration)
+
 	switch object.Spec.ResourceType {
 	case mdbv1.ReplicaSet:
 		assert.Equal(t, object.Spec.Members, object.Status.Members)

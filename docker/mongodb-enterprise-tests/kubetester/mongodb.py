@@ -48,6 +48,9 @@ class MongoDBCommon:
                 )
             )
 
+    def get_generation(self) -> int:
+        return self.backing_obj["metadata"]["generation"]
+
 
 class MongoDB(CustomObject, MongoDBCommon):
     def __init__(self, *args, **kwargs):
@@ -74,9 +77,11 @@ class MongoDB(CustomObject, MongoDBCommon):
         )
         return self.wait_for(
             lambda s: in_desired_state(
-                self.get_status_phase(),
-                phase,
-                self.get_status_message(),
+                current_state=self.get_status_phase(),
+                desired_state=phase,
+                current_generation=self.get_generation(),
+                observed_generation=self.get_status_observed_generation(),
+                current_message=self.get_status_message(),
                 msg_regexp=msg_regexp,
                 ignore_errors=ignore_errors,
                 intermediate_events=intermediate_events,
@@ -284,6 +289,12 @@ class MongoDB(CustomObject, MongoDBCommon):
         except KeyError:
             return None
 
+    def get_status_observed_generation(self) -> Optional[int]:
+        try:
+            return self["status"]["observedGeneration"]
+        except KeyError:
+            return None
+
     def get_status_members(self) -> Optional[str]:
         try:
             return self["status"]["members"]
@@ -335,6 +346,8 @@ def get_pods(podname, qty):
 def in_desired_state(
     current_state: Phase,
     desired_state: Phase,
+    current_generation: int,
+    observed_generation: int,
     current_message: str,
     msg_regexp: Optional[str] = None,
     ignore_errors=False,
@@ -344,6 +357,11 @@ def in_desired_state(
     """ Returns true if the current_state is equal to desired state, fails fast if got into Failed error.
      Optionally checks if the message matches the specified regexp expression"""
     if current_state is None:
+        return False
+
+    # TODO remove the first condition after 1.8.1 is released (this is needed to make operator_upgrade tests work as 1.8.0 doesn't have 'observedGeneration')
+    if observed_generation is not None and current_generation != observed_generation:
+        # We shouldn't check the status further if the Operator hasn't started working on the new spec yet
         return False
 
     if (

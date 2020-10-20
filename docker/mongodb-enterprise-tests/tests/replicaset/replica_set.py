@@ -309,7 +309,6 @@ def test_replica_set_can_be_scaled_to_single_member(replica_set: MongoDB):
     replica_set["spec"]["members"] = 1
     replica_set.update()
 
-    replica_set.assert_abandons_phase(Phase.Running)
     replica_set.assert_reaches_phase(Phase.Running, timeout=500)
 
     actester = AutomationConfigTester(KubernetesTester.get_automation_config())
@@ -327,7 +326,6 @@ class TestReplicaSetScaleUp(KubernetesTester):
     def test_mdb_updated(self, replica_set: MongoDB):
         replica_set["spec"]["members"] = 5
         replica_set.update()
-        replica_set.assert_abandons_phase(Phase.Running)
         replica_set.assert_reaches_phase(Phase.Running, timeout=300)
 
     def test_replica_set_sts_should_exist(self):
@@ -501,7 +499,6 @@ def test_replica_set_can_be_scaled_down_and_connectable(replica_set: MongoDB):
     replica_set["spec"]["members"] = 3
     replica_set.update()
 
-    replica_set.assert_abandons_phase(Phase.Running)
     replica_set.assert_reaches_phase(Phase.Running, timeout=500)
 
     actester = AutomationConfigTester(KubernetesTester.get_automation_config())

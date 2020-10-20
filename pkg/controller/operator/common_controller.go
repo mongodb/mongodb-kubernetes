@@ -480,7 +480,7 @@ func (r *ReconcileCommonController) getStatefulSetStatus(namespace, name string)
 	for apiErrors.IsNotFound(err) && i < 10 {
 		i++
 		zap.S().Debugf("StatefulSet was not found: %s, attempt %d", err, i)
-		time.Sleep(1)
+		time.Sleep(time.Second * 1)
 		set, err = r.client.GetStatefulSet(kube.ObjectKey(namespace, name))
 	}
 

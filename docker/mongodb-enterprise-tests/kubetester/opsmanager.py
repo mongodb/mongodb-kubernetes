@@ -343,9 +343,11 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         ):
             self.ops_manager.wait_for(
                 lambda s: in_desired_state(
-                    self.get_phase(),
-                    phase,
-                    self.get_message(),
+                    current_state=self.get_phase(),
+                    desired_state=phase,
+                    current_generation=self.ops_manager.get_generation(),
+                    observed_generation=self.get_observed_generation(),
+                    current_message=self.get_message(),
                     msg_regexp=msg_regexp,
                     ignore_errors=ignore_errors,
                 ),
@@ -385,6 +387,12 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         def get_message(self) -> Optional[str]:
             try:
                 return self.ops_manager.get_status()["backup"]["message"]
+            except (KeyError, TypeError):
+                return None
+
+        def get_observed_generation(self) -> Optional[int]:
+            try:
+                return self.ops_manager.get_status()["backup"]["observedGeneration"]
             except (KeyError, TypeError):
                 return None
 
@@ -428,6 +436,14 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             except (KeyError, TypeError):
                 return None
 
+        def get_observed_generation(self) -> Optional[int]:
+            try:
+                return self.ops_manager.get_status()["applicationDatabase"][
+                    "observedGeneration"
+                ]
+            except (KeyError, TypeError):
+                return None
+
         def get_version(self) -> Optional[str]:
             try:
                 return self.ops_manager.get_status()["applicationDatabase"]["version"]
@@ -461,6 +477,12 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         def get_message(self) -> Optional[str]:
             try:
                 return self.ops_manager.get_status()["opsManager"]["message"]
+            except (KeyError, TypeError):
+                return None
+
+        def get_observed_generation(self) -> Optional[int]:
+            try:
+                return self.ops_manager.get_status()["opsManager"]["observedGeneration"]
             except (KeyError, TypeError):
                 return None
 

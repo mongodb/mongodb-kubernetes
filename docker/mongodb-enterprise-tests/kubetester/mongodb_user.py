@@ -28,9 +28,11 @@ class MongoDBUser(CustomObject, MongoDBCommon):
     ):
         return self.wait_for(
             lambda s: in_desired_state(
-                self.get_status_phase(),
-                phase,
-                self.get_status_message(),
+                current_state=self.get_status_phase(),
+                desired_state=phase,
+                current_generation=self.get_generation(),
+                observed_generation=self.get_status_observed_generation(),
+                current_message=self.get_status_message(),
                 msg_regexp=msg_regexp,
                 ignore_errors=ignore_errors,
             ),
@@ -53,6 +55,12 @@ class MongoDBUser(CustomObject, MongoDBCommon):
     def get_status_message(self) -> Optional[str]:
         try:
             return self["status"]["msg"]
+        except KeyError:
+            return None
+
+    def get_status_observed_generation(self) -> Optional[int]:
+        try:
+            return self["status"]["observedGeneration"]
         except KeyError:
             return None
 

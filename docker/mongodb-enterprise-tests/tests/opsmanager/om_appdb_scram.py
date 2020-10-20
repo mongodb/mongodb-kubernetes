@@ -107,9 +107,7 @@ class TestChangeOpsManagerUserPassword:
             "key": "new-key",
         }
         ops_manager.update()
-        ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
-        ops_manager.om_status().assert_abandons_phase(Phase.Running)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=800)
 
     @pytest.mark.xfail(
@@ -228,7 +226,6 @@ class TestOpsManagerGeneratesNewPasswordIfNoneSpecified:
             "key": "",
         }
         ops_manager.update()
-        ops_manager.om_status().assert_abandons_phase(Phase.Running)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
     def test_new_password_was_created(self, ops_manager: MongoDBOpsManager):

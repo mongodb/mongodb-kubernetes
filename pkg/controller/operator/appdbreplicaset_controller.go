@@ -110,7 +110,7 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 	//SetStatefulSetConfiguration(opsManager.Spec.AppDB.StatefulSetConfiguration)
 
 	if workflowStatus := r.doReconcile(opsManager, replicaBuilder, opsManagerUserPassword, log); !workflowStatus.IsOK() {
-		return r.updateStatus(opsManager, workflowStatus, log, appDbStatusOption, scale.MembersOption(opsManager))
+		return r.updateStatus(opsManager, workflowStatus, log, appDbStatusOption)
 	}
 
 	if podVars.ProjectID == "" {
