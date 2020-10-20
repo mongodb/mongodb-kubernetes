@@ -1,36 +1,27 @@
 from typing import Optional
 
 import pytest
-from kubetester.opsmanager import MongoDBOpsManager
-from kubetester.kubetester import fixture as yaml_fixture
-from pytest import fixture
-
-from kubetester.mongodb import Phase
-
+from kubernetes.client import ApiException
 from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.opsmanager import MongoDBOpsManager
+
+
+def om_resource(namespace: str) -> MongoDBOpsManager:
+    return MongoDBOpsManager.from_yaml(
+        yaml_fixture("om_validation.yaml"), namespace=namespace
+    )
 
 
 @pytest.mark.e2e_om_appdb_validation
-class TestOpsManagerAppDbWrongVersion:
-    @classmethod
-    @fixture(scope="class")
-    def ops_manager(
-        cls, namespace: str, custom_version: Optional[str]
-    ) -> MongoDBOpsManager:
-        """ The fixture for Ops Manager to be created."""
-        om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
-            yaml_fixture("om_validation.yaml"), namespace=namespace
-        )
-        om["spec"]["applicationDatabase"]["version"] = "3.6.12"
-        om.set_version(custom_version)
-        return om.create()
-
-    def test_wrong_appdb_version(self, ops_manager: MongoDBOpsManager):
-        ops_manager.om_status().assert_reaches_phase(
-            Phase.Failed,
-            msg_regexp="The version of Application Database must be >= 4.0",
-            timeout=20,
-        )
+def test_wrong_appdb_version(namespace: str, custom_version: Optional[str]):
+    om = om_resource(namespace)
+    om["spec"]["applicationDatabase"]["version"] = "3.6.12"
+    om.set_version(custom_version)
+    with pytest.raises(
+        ApiException, match=r"the version of Application Database must be .* 4.0",
+    ):
+        om.create()
 
 
 @pytest.mark.e2e_om_appdb_validation
