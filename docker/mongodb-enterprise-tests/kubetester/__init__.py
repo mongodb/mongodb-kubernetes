@@ -7,8 +7,13 @@ from typing import Dict, Optional
 from kubernetes import client
 from kubernetes.client.rest import ApiException
 
+# Re-exports
 from .kubetester import fixture as find_fixture
 from .mongodb import MongoDB
+from .security_context import (
+    assert_pod_container_security_context,
+    assert_pod_security_context,
+)
 
 
 def create_secret(

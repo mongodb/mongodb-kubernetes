@@ -12,7 +12,11 @@ from kubetester.kubetester import (
 from kubetester.mongodb import Phase
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.opsmanager import MongoDBOpsManager
-from pytest import mark, fixture
+from kubetester import (
+    assert_pod_container_security_context,
+    assert_pod_security_context,
+)
+from pytest import mark, fixture, skip
 from tests.opsmanager.conftest import ensure_ent_version
 
 HEAD_PATH = "/head/"
@@ -287,6 +291,26 @@ class TestOpsManagerCreation:
         om_tester.assert_oplog_stores([])
         om_tester.assert_s3_stores([])
 
+    def test_security_contexts_appdb(
+        self,
+        ops_manager: MongoDBOpsManager,
+        operator_installation_config: Dict[str, str],
+    ):
+        managed = operator_installation_config["managedSecurityContext"] == "true"
+        for pod in ops_manager.read_appdb_pods():
+            assert_pod_security_context(pod, managed)
+            assert_pod_container_security_context(pod.spec.containers[0], managed)
+
+    def test_security_contexts_om(
+        self,
+        ops_manager: MongoDBOpsManager,
+        operator_installation_config: Dict[str, str],
+    ):
+        managed = operator_installation_config["managedSecurityContext"] == "true"
+        for pod in ops_manager.read_om_pods():
+            assert_pod_security_context(pod, managed)
+            assert_pod_container_security_context(pod.spec.containers[0], managed)
+
 
 @mark.e2e_om_ops_manager_backup
 class TestBackupDatabasesAdded:
@@ -369,6 +393,16 @@ class TestBackupDatabasesAdded:
         om_tester.assert_s3_stores(
             [new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)]
         )
+
+    def test_security_contexts_backup(
+        self,
+        ops_manager: MongoDBOpsManager,
+        operator_installation_config: Dict[str, str],
+    ):
+        managed = operator_installation_config["managedSecurityContext"] == "true"
+        pod = ops_manager.read_backup_pod()
+        assert_pod_security_context(pod, managed)
+        assert_pod_container_security_context(pod.spec.containers[0], managed)
 
 
 @mark.e2e_om_ops_manager_backup

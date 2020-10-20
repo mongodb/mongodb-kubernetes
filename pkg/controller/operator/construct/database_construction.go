@@ -79,17 +79,11 @@ func buildDatabaseStatefulSetConfigurationFunction(mdbBuilder DatabaseBuilder, p
 
 	managedSecurityContext, _ := envutil.ReadBool(util.ManagedSecurityContextEnv)
 
+	configureContainerSecurityContext := container.NOOP()
 	configurePodSpecSecurityContext := podtemplatespec.NOOP()
 	if !managedSecurityContext {
-		configurePodSpecSecurityContext = podtemplatespec.WithSecurityContext(corev1.PodSecurityContext{FSGroup: util.Int64Ref(util.FsGroup)})
-	}
-
-	configureContainerSecurityContext := container.NOOP()
-	if !managedSecurityContext {
-		configureContainerSecurityContext = container.WithSecurityContext(corev1.SecurityContext{
-			RunAsUser:    util.Int64Ref(util.RunAsUser),
-			RunAsNonRoot: util.BooleanRef(true),
-		})
+		configurePodSpecSecurityContext = podtemplatespec.WithSecurityContext(defaultPodSecurityContext())
+		configureContainerSecurityContext = container.WithSecurityContext(defaultSecurityContext())
 	}
 
 	configureImagePullSecrets := podtemplatespec.NOOP()
@@ -302,15 +296,12 @@ func sharedDatabaseConfiguration(mdbBuilder DatabaseBuilder) podtemplatespec.Mod
 
 	configurePodSpecSecurityContext := podtemplatespec.NOOP()
 	if !managedSecurityContext {
-		configurePodSpecSecurityContext = podtemplatespec.WithSecurityContext(corev1.PodSecurityContext{FSGroup: util.Int64Ref(util.FsGroup)})
+		configurePodSpecSecurityContext = podtemplatespec.WithSecurityContext(defaultPodSecurityContext())
 	}
 
 	configureContainerSecurityContext := container.NOOP()
 	if !managedSecurityContext {
-		configureContainerSecurityContext = container.WithSecurityContext(corev1.SecurityContext{
-			RunAsUser:    util.Int64Ref(util.RunAsUser),
-			RunAsNonRoot: util.BooleanRef(true),
-		})
+		configureContainerSecurityContext = container.WithSecurityContext(defaultSecurityContext())
 	}
 
 	pullSecretsConfigurationFunc := podtemplatespec.NOOP()
@@ -474,6 +465,19 @@ func defaultPodAnnotations(certHash string) map[string]string {
 		// if the certificate secret is out of date. This happens if
 		// existing certificates have been replaced/rotated/renewed.
 		"certHash": certHash,
+	}
+}
+
+func defaultPodSecurityContext() corev1.PodSecurityContext {
+	return corev1.PodSecurityContext{
+		FSGroup: util.Int64Ref(util.FsGroup),
+	}
+}
+
+func defaultSecurityContext() corev1.SecurityContext {
+	return corev1.SecurityContext{
+		RunAsNonRoot: util.BooleanRef(true),
+		RunAsUser:    util.Int64Ref(util.RunAsUser),
 	}
 }
 

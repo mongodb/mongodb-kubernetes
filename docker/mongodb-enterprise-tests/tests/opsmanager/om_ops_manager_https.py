@@ -117,9 +117,7 @@ def test_appdb_enable_tls(
 
 @mark.e2e_om_ops_manager_https_enabled
 def test_appdb_running_over_tls(ops_manager: MongoDBOpsManager, ca_path: str):
-    ops_manager.get_appdb_tester(
-        ssl=True, ca_path=ca_path
-    ).assert_connectivity()
+    ops_manager.get_appdb_tester(ssl=True, ca_path=ca_path).assert_connectivity()
 
 
 @mark.e2e_om_ops_manager_https_enabled

@@ -72,10 +72,14 @@ func opsManagerStatefulSetFunc(omBuilder OpsManagerBuilder) statefulset.Modifica
 func backupAndOpsManagerSharedConfiguration(omBuilder OpsManagerBuilder) statefulset.Modification {
 	managedSecurityContext, _ := envutil.ReadBool(util.ManagedSecurityContextEnv)
 	omImageURL := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.OpsManagerImageUrl), omBuilder.GetVersion())
+
 	configurePodSpecSecurityContext := podtemplatespec.NOOP()
+	configureContainerSecurityContext := container.NOOP()
 	if !managedSecurityContext {
-		configurePodSpecSecurityContext = podtemplatespec.WithSecurityContext(corev1.PodSecurityContext{FSGroup: util.Int64Ref(util.FsGroup)})
+		configurePodSpecSecurityContext = podtemplatespec.WithSecurityContext(defaultPodSecurityContext())
+		configureContainerSecurityContext = container.WithSecurityContext(defaultSecurityContext())
 	}
+
 	pullSecretsConfigurationFunc := podtemplatespec.NOOP()
 	if pullSecrets, ok := envutil.Read(util.ImagePullSecrets); ok {
 		pullSecretsConfigurationFunc = podtemplatespec.WithImagePullSecrets(pullSecrets)
@@ -151,6 +155,7 @@ func backupAndOpsManagerSharedConfiguration(omBuilder OpsManagerBuilder) statefu
 						container.WithEnvs(getOpsManagerHTTPSEnvVars(omBuilder.GetHTTPSCertSecretName())...),
 						container.WithCommand([]string{"/opt/scripts/docker-entry-point.sh"}),
 						container.WithVolumeMounts(omVolumeMounts),
+						configureContainerSecurityContext,
 					),
 				),
 			),

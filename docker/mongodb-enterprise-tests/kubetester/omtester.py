@@ -16,6 +16,8 @@ from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import build_auth
 from kubetester.mongotester import BackgroundHealthChecker
 
+from kubernetes import client
+
 from .kubetester import get_env_var_or_fail
 
 
