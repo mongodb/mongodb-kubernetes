@@ -40,20 +40,6 @@ func init() {
 	os.Setenv(util.AppDBReadinessWaitEnv, "0")
 }
 
-func TestOpsManagerReconciler_performValidation(t *testing.T) {
-	assert.NoError(t, performValidation(omWithAppDBVersion("4.0.0")))
-	assert.NoError(t, performValidation(omWithAppDBVersion("4.0.7")))
-	assert.NoError(t, performValidation(omWithAppDBVersion("4.2.12")))
-	assert.NoError(t, performValidation(omWithAppDBVersion("6.0.0")))
-	assert.NoError(t, performValidation(omWithAppDBVersion("4.2.0-rc1")))
-	assert.NoError(t, performValidation(omWithAppDBVersion("4.5.0-ent")))
-
-	assert.Error(t, performValidation(omWithAppDBVersion("3.6.12")))
-	assert.Error(t, performValidation(omWithAppDBVersion("3.4.0")))
-	assert.Error(t, performValidation(omWithAppDBVersion("3.4.0.0.1.2")))
-	assert.Error(t, performValidation(omWithAppDBVersion("foo")))
-}
-
 func TestOpsManagerReconciler_watchedResources(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().Build()
 	otherTestOm := DefaultOpsManagerBuilder().Build()
@@ -449,10 +435,6 @@ func defaultTestOmReconciler(t *testing.T, opsManager omv1.MongoDBOpsManager) (*
 	admin := api.NewMockedAdmin()
 	return newOpsManagerReconciler(manager, om.NewEmptyMockedOmConnection, initializer, api.NewMockedAdminProvider, relativeVersionManifestFixturePath),
 		manager.Client, initializer, admin
-}
-
-func omWithAppDBVersion(version string) omv1.MongoDBOpsManager {
-	return DefaultOpsManagerBuilder().SetAppDbVersion(version).Build()
 }
 
 func DefaultOpsManagerBuilder() *omv1.OpsManagerBuilder {

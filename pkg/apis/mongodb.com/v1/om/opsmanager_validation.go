@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/blang/semver"
+
 	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
@@ -57,6 +59,23 @@ func validOmVersion(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	if err != nil {
 		return v1.ValidationError("'%s' is an invalid value for spec.version: %s", os.Version, err)
 	}
+	return v1.ValidationSuccess()
+}
+
+func validAppDBVersion(os MongoDBOpsManagerSpec) v1.ValidationResult {
+	version := os.AppDB.GetVersion()
+	if version == "" {
+		return v1.ValidationSuccess()
+	}
+	v, err := semver.Make(version)
+	if err != nil {
+		return v1.ValidationError("'%s' is an invalid value for spec.applicationDatabase.version: %s", version, err)
+	}
+	fourZero, _ := semver.Make("4.0.0")
+	if v.LT(fourZero) {
+		return v1.ValidationError("the version of Application Database must be >= 4.0")
+	}
+
 	return v1.ValidationSuccess()
 }
 
@@ -185,6 +204,7 @@ func usesShortcutResource(os MongoDBOpsManagerSpec) v1.ValidationResult {
 func (om MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 	validators := []func(m MongoDBOpsManagerSpec) v1.ValidationResult{
 		validOmVersion,
+		validAppDBVersion,
 		connectivityIsNotConfigurable,
 		projectNameIsNotConfigurable,
 		cloudManagerConfigIsNotConfigurable,

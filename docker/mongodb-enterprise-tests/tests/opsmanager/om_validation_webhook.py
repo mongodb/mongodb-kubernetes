@@ -91,6 +91,24 @@ def test_opsmanager_version(namespace: str):
         om.create()
 
 
+@mark.e2e_om_validation_webhook
+def test_appdb_version(namespace: str):
+    om = om_validation(namespace)
+    om["spec"]["applicationDatabase"]["version"] = "4.4.10.10"
+
+    # this exception is raised by CRD regexp validation for the version, not our internal one
+    with pytest.raises(
+        ApiException, match=r"spec.applicationDatabase.version in body should match"
+    ):
+        om.create()
+
+    om["spec"]["applicationDatabase"]["version"] = "3.6.12"
+    with pytest.raises(
+        ApiException, match=r"the version of Application Database must be \\u003e= 4.0"
+    ):
+        om.create()
+
+
 @fixture(scope="module")
 def ops_manager(
     namespace: str, custom_version: Optional[str], custom_appdb_version: str

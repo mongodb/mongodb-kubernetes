@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base32"
-	"errors"
 	"fmt"
 	"math/rand"
 	"time"
@@ -95,11 +94,6 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 	r.watchMongoDBResourcesReferencedByBackup(*opsManager)
 
 	if err := opsManager.ProcessValidationsOnReconcile(); err != nil {
-		return r.updateStatus(opsManager, workflow.Invalid(err.Error()), log, opsManagerExtraStatusParams)
-	}
-
-	// TODO move to validation web hook
-	if err := performValidation(*opsManager); err != nil {
 		return r.updateStatus(opsManager, workflow.Invalid(err.Error()), log, opsManagerExtraStatusParams)
 	}
 
@@ -1042,23 +1036,6 @@ func validateConfig(opsManager omv1.MongoDBOpsManager, mongodb mdbv1.MongoDB, us
 		return workflow.Failed("The %s with SCRAM-SHA enabled must have version less than 4.0.0", description)
 	}
 	return workflow.OK()
-}
-
-// performValidation makes some validation of Ops Manager spec. So far this validation mostly follows the restrictions
-// for the app db in ops manager, see MongoConnectionConfigurationCheck
-// Ideally it must be done in an admission web hook
-func performValidation(opsManager omv1.MongoDBOpsManager) error {
-	version := opsManager.Spec.AppDB.GetVersion()
-	v, err := semver.Make(version)
-	if err != nil {
-		return fmt.Errorf("version %s has wrong format!", version)
-	}
-	fourZero, _ := semver.Make("4.0.0")
-	if v.LT(fourZero) {
-		return errors.New("the version of Application Database must be >= 4.0")
-	}
-
-	return nil
 }
 
 func newUserFromSecret(data map[string]string) (*api.User, error) {

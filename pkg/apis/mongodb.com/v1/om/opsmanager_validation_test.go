@@ -124,6 +124,20 @@ func TestOpsManager_RunValidations_InvalidVersion(t *testing.T) {
 	assert.Equal(t, errors.New("'4.4' is an invalid value for spec.version: Ops Manager Status spec.version 4.4 is invalid"), om.ProcessValidationsOnReconcile())
 }
 
+func TestOpsManager_RunValidations_InvalidAppDBVersion(t *testing.T) {
+	om := NewOpsManagerBuilderDefault().SetAppDbVersion("4.0.0").Build()
+	assert.NoError(t, om.ProcessValidationsOnReconcile())
+	om = NewOpsManagerBuilderDefault().SetAppDbVersion("4.2.0-rc1").Build()
+	assert.NoError(t, om.ProcessValidationsOnReconcile())
+	om = NewOpsManagerBuilderDefault().SetAppDbVersion("4.5.0-ent").Build()
+	assert.NoError(t, om.ProcessValidationsOnReconcile())
+
+	om = NewOpsManagerBuilderDefault().SetAppDbVersion("3.6.12").Build()
+	assert.Equal(t, errors.New("the version of Application Database must be >= 4.0"), om.ProcessValidationsOnReconcile())
+	om = NewOpsManagerBuilderDefault().SetAppDbVersion("foo").Build()
+	assert.Equal(t, errors.New("'foo' is an invalid value for spec.applicationDatabase.version: No Major.Minor.Patch elements found"), om.ProcessValidationsOnReconcile())
+}
+
 func TestOpsManager_RunValidations_InvalidPrerelease(t *testing.T) {
 	om := NewOpsManagerBuilder().SetVersion("3.5.0-1193-x86_64").Build()
 	version, err := versionutil.StringToSemverVersion(om.Spec.Version)
