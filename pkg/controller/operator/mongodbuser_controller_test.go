@@ -195,7 +195,7 @@ func TestX509User_DoesntRequirePassword(t *testing.T) {
 	// initialize resources required for x590 tests
 	createMongoDBForUserWithAuth(client, *user, util.X509)
 
-	createX509UserControllerConfigMap(client)
+	createUserControllerConfigMap(client)
 	approveAgentCSRs(client, 1) // pre-approved agent CSRs for x509 authentication
 
 	// No password has been created
@@ -341,7 +341,7 @@ func BuildAuthenticationEnabledReplicaSet(t *testing.T, automationConfigOption s
 	err := client.Update(context.TODO(), builder.Build())
 	assert.NoError(t, err)
 	approveAgentCSRs(client, numAgents)
-	createX509UserControllerConfigMap(client)
+	createUserControllerConfigMap(client)
 	_, err = reconciler.Reconcile(reconcile.Request{NamespacedName: objectKey(user.Namespace, user.Name)})
 	assert.NoError(t, err)
 
@@ -359,18 +359,6 @@ func createUserControllerConfigMap(client *mock.MockedClient) {
 			util.OmBaseUrl:     om.TestURL,
 			util.OmProjectName: om.TestGroupName,
 			util.OmCredentials: mock.TestCredentialsSecretName,
-		},
-	})
-}
-
-func createX509UserControllerConfigMap(client *mock.MockedClient) {
-	_ = client.Update(context.TODO(), &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: om.TestGroupName, Namespace: mock.TestNamespace},
-		Data: map[string]string{
-			util.OmBaseUrl:     om.TestURL,
-			util.OmProjectName: om.TestGroupName,
-			util.OmCredentials: mock.TestCredentialsSecretName,
-			util.OmAuthMode:    util.X509,
 		},
 	})
 }

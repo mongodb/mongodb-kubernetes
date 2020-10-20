@@ -247,8 +247,6 @@ type ProjectConfig struct {
 	// +optional
 	Credentials string
 	// +optional
-	AuthMode string
-	// +optional
 	UseCustomCA bool
 	// +optional
 	SSLProjectConfig

@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 	"k8s.io/apimachinery/pkg/types"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
@@ -266,11 +267,13 @@ func TestPodAntiaffinity_MongodsInsideShardAreSpread(t *testing.T) {
 func TestShardedCluster_WithTLSEnabled_AndX509Enabled_Succeeds(t *testing.T) {
 	sc := DefaultClusterBuilder().
 		EnableTLS().
+		EnableX509().
 		Build()
 
 	reconciler, client := defaultClusterReconciler(sc)
 
-	cMap := x509ConfigMap()
+	cMap := configMap()
+	createAgentCSRs(1, client, certsv1.CertificateApproved)
 	client.GetMapForObject(&corev1.ConfigMap{})[objectKey("", om.TestGroupName)] = &cMap
 
 	// create the secret the agent certs will exist in
@@ -930,6 +933,12 @@ func (b *ClusterBuilder) EnableX509() *ClusterBuilder {
 	return b
 }
 
+func (b *ClusterBuilder) EnableSCRAM() *ClusterBuilder {
+	b.Spec.Security.Authentication.Enabled = true
+	b.Spec.Security.Authentication.Modes = append(b.Spec.Security.Authentication.Modes, util.SCRAM)
+	return b
+}
+
 func (b *ClusterBuilder) SetClusterAuth(auth string) *ClusterBuilder {
 	b.Spec.Security.ClusterAuthMode = auth
 	return b
@@ -984,4 +993,13 @@ func (b *ClusterBuilder) Build() *mdbv1.MongoDB {
 	b.Spec.ResourceType = mdbv1.ShardedCluster
 	b.InitDefaults()
 	return b.MongoDB
+}
+
+func configMap() corev1.ConfigMap {
+	return configmap.Builder().
+		SetName(om.TestGroupName).
+		SetNamespace(mock.TestNamespace).
+		SetField(util.OmBaseUrl, om.TestURL).
+		SetField(util.OmProjectName, om.TestGroupName).
+		Build()
 }

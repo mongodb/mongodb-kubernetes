@@ -601,6 +601,18 @@ func (b *ReplicaSetBuilder) EnableX509() *ReplicaSetBuilder {
 	return b
 }
 
+func (b *ReplicaSetBuilder) EnableSCRAM() *ReplicaSetBuilder {
+	b.Spec.Security.Authentication.Enabled = true
+	b.Spec.Security.Authentication.Modes = append(b.Spec.Security.Authentication.Modes, util.SCRAM)
+	return b
+}
+
+func (b *ReplicaSetBuilder) EnableLDAP() *ReplicaSetBuilder {
+	b.Spec.Security.Authentication.Enabled = true
+	b.Spec.Security.Authentication.Modes = append(b.Spec.Security.Authentication.Modes, util.LDAP)
+	return b
+}
+
 func (b *ReplicaSetBuilder) SetPodSpecTemplate(spec corev1.PodTemplateSpec) *ReplicaSetBuilder {
 	if b.Spec.PodSpec == nil {
 		b.Spec.PodSpec = &mdbv1.MongoDbPodSpec{}

@@ -16,7 +16,6 @@ import (
 	"time"
 
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
@@ -35,22 +34,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func configureX509(client kubernetesClient.Client, condition certsv1.RequestConditionType) {
-	cMap := x509ConfigMap()
-
-	_ = client.CreateConfigMap(cMap)
-	createAgentCSRs(1, client, condition)
-}
-
 func TestX509CannotBeEnabled_IfAgentCertsAreNotApproved(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().EnableTLS().EnableX509().Build()
 	manager := mock.NewManager(rs)
 
+	createConfigMap(t, manager.Client)
+	createAgentCSRs(1, manager.Client, certsv1.CertificateDenied)
 	addKubernetesTlsResources(manager.Client, rs)
 	approveCSRs(manager.Client, rs)
-
-	// agent certs have not been approved yet
-	configureX509(manager.Client, certsv1.CertificateDenied)
 
 	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
 	expectedError := fmt.Sprintf("Agent certs have not yet been approved")
@@ -60,9 +51,10 @@ func TestX509CannotBeEnabled_IfAgentCertsAreNotApproved(t *testing.T) {
 func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ReplicaSet(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().EnableTLS().EnableX509().Build()
 	manager := mock.NewManager(rs)
+	createConfigMap(t, manager.Client)
+	createAgentCSRs(1, manager.Client, certsv1.CertificateApproved)
 	addKubernetesTlsResources(manager.Client, rs)
 	approveCSRs(manager.Client, rs)
-	configureX509(manager.Client, certsv1.CertificateApproved)
 
 	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
 	checkReconcileSuccessful(t, reconciler, rs, manager.Client)
@@ -73,8 +65,9 @@ func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_Re
 	manager := mock.NewManager(rs)
 	addKubernetesTlsResources(manager.Client, rs)
 	approveCSRs(manager.Client, rs)
-	configureX509(manager.Client, certsv1.CertificateApproved)
 
+	createConfigMap(t, manager.Client)
+	createAgentCSRs(1, manager.Client, certsv1.CertificateApproved)
 	// enable internal cluster authentication mode
 	rs.Spec.Security.ClusterAuthMode = util.X509
 
@@ -87,8 +80,7 @@ func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_Sh
 
 	reconciler, client := defaultClusterReconciler(scWithTls)
 	addKubernetesTlsResources(client, scWithTls)
-
-	configureX509(client, certsv1.CertificateApproved)
+	createAgentCSRs(1, client, certsv1.CertificateApproved)
 
 	// enable internal cluster authentication mode
 	scWithTls.Spec.Security.ClusterAuthMode = util.X509
@@ -99,9 +91,8 @@ func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ShardedCluster(t *testi
 	scWithTls := DefaultClusterBuilder().EnableTLS().EnableX509().SetName("sc-with-tls").Build()
 
 	reconciler, client := defaultClusterReconciler(scWithTls)
+	createAgentCSRs(1, client, certsv1.CertificateApproved)
 	addKubernetesTlsResources(client, scWithTls)
-
-	configureX509(client, certsv1.CertificateApproved)
 
 	checkReconcileSuccessful(t, reconciler, scWithTls, client)
 }
@@ -226,9 +217,9 @@ func TestCanConfigureAuthenticationDisabled_WithNoModes(t *testing.T) {
 func TestUpdateOmAuthentication_EnableX509_FromEmptyDeployment(t *testing.T) {
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 
-	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().EnableAuth().SetAuthModes([]string{"X509"}).Build()
+	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().EnableAuth().EnableX509().Build()
 	r := newReplicaSetReconciler(mock.NewManager(rs), om.NewEmptyMockedOmConnection)
-	configureX509(r.client, certsv1.CertificateApproved)
+	createAgentCSRs(1, r.client, certsv1.CertificateApproved)
 	status, isMultiStageReconciliation := r.updateOmAuthentication(conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, zap.S())
 
 	assert.True(t, status.IsOK(), "configuring x509 and tls when there are no processes should not result in a failed status")
@@ -236,7 +227,7 @@ func TestUpdateOmAuthentication_EnableX509_FromEmptyDeployment(t *testing.T) {
 }
 
 func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
-	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().EnableAuth().SetAuthModes([]string{"X509"}).Build()
+	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().EnableAuth().EnableX509().Build()
 	x509User := DefaultMongoDBUserBuilder().SetDatabase(authentication.ExternalDB).SetMongoDBResourceName("my-rs").Build()
 
 	manager := mock.NewManager(rs)
@@ -266,7 +257,7 @@ func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
 }
 
 func TestScramAgentUserIsCorrectlyConfigured(t *testing.T) {
-	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableAuth().SetAuthModes([]string{"SCRAM"}).Build()
+	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableAuth().EnableSCRAM().Build()
 	x509User := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
 
 	manager := mock.NewManager(rs)
@@ -291,7 +282,7 @@ func TestScramAgentUserIsCorrectlyConfigured(t *testing.T) {
 }
 
 func TestScramAgentUser_IsNotOverridden(t *testing.T) {
-	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableAuth().SetAuthModes([]string{"SCRAM"}).Build()
+	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableAuth().EnableSCRAM().Build()
 	manager := mock.NewManager(rs)
 	manager.Client.AddDefaultMdbConfigResources()
 	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
@@ -313,13 +304,14 @@ func TestX509InternalClusterAuthentication_CanBeEnabledWithScram_ReplicaSet(t *t
 	rs := DefaultReplicaSetBuilder().SetName("my-rs").
 		SetMembers(3).
 		EnableAuth().
-		SetAuthModes([]string{"SCRAM"}).
+		EnableSCRAM().
 		EnableX509InternalClusterAuth().
 		Build()
 
 	manager := mock.NewManager(rs)
 	r := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
-	configureX509(r.client, certsv1.CertificateApproved)
+	createConfigMap(t, r.client)
+	createAgentCSRs(1, r.client, certsv1.CertificateApproved)
 	addKubernetesTlsResources(r.client, rs)
 
 	checkReconcileSuccessful(t, r, rs, manager.Client)
@@ -334,14 +326,14 @@ func TestX509InternalClusterAuthentication_CanBeEnabledWithScram_ReplicaSet(t *t
 func TestX509InternalClusterAuthentication_CanBeEnabledWithScram_ShardedCluster(t *testing.T) {
 	sc := DefaultClusterBuilder().SetName("my-sc").
 		EnableAuth().
-		SetAuthModes([]string{"SCRAM"}).
+		EnableSCRAM().
 		EnableX509InternalClusterAuth().
 		Build()
 
 	r, manager := newShardedClusterReconcilerFromResource(*sc, om.NewEmptyMockedOmConnection)
-	configureX509(r.client, certsv1.CertificateApproved)
 	addKubernetesTlsResources(r.client, sc)
-
+	createConfigMap(t, manager.Client)
+	createAgentCSRs(1, manager.Client, certsv1.CertificateApproved)
 	checkReconcileSuccessful(t, r, sc, manager.Client)
 
 	currConn := om.CurrMockedConnection
@@ -358,7 +350,8 @@ func TestConfigureLdapDeploymentAuthentication_WithScramAgentAuthentication(t *t
 		SetVersion("4.0.0-ent").
 		EnableAuth().
 		AgentAuthMode("SCRAM").
-		SetAuthModes([]string{"LDAP", "SCRAM"}).
+		EnableSCRAM().
+		EnableLDAP().
 		LDAP(
 			mdbv1.Ldap{
 				BindQueryUser: "bindQueryUser",
@@ -408,7 +401,8 @@ func TestConfigureLdapDeploymentAuthentication_WithCustomRole(t *testing.T) {
 		SetVersion("4.0.0-ent").
 		EnableAuth().
 		AgentAuthMode("SCRAM").
-		SetAuthModes([]string{"LDAP", "SCRAM"}).
+		EnableSCRAM().
+		EnableLDAP().
 		LDAP(
 			mdbv1.Ldap{
 				BindQueryUser: "bindQueryUser",
@@ -460,7 +454,8 @@ func TestConfigureLdapDeploymentAuthentication_WithAuthzQueryTemplate_AndUserToD
 		SetVersion("4.0.0-ent").
 		EnableAuth().
 		AgentAuthMode("SCRAM").
-		SetAuthModes([]string{"LDAP", "SCRAM"}).
+		EnableSCRAM().
+		EnableLDAP().
 		LDAP(
 			mdbv1.Ldap{
 				BindQueryUser: "bindQueryUser",
@@ -860,13 +855,8 @@ func approveCSRs(client *mock.MockedClient, mdb *mdbv1.MongoDB) {
 	}
 }
 
-// x509ConfigMap returns a ConfigMap with x509 enabled
-func x509ConfigMap() corev1.ConfigMap {
-	return configmap.Builder().
-		SetName(om.TestGroupName).
-		SetNamespace(mock.TestNamespace).
-		SetField(util.OmBaseUrl, om.TestURL).
-		SetField(util.OmProjectName, om.TestGroupName).
-		SetField(util.OmAuthMode, util.X509).
-		Build()
+func createConfigMap(t *testing.T, client kubernetesClient.Client) {
+
+	err := client.CreateConfigMap(configMap())
+	assert.NoError(t, err)
 }

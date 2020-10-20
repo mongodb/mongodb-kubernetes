@@ -28,7 +28,6 @@ const (
 	OmPublicApiKey = "publicApiKey"
 	OmAgentApiKey  = "agentApiKey"
 	OmCredentials  = "credentials"
-	OmAuthMode     = "authenticationMode"
 
 	// SSLRequireValidMMSServerCertificates points at the string name of the
 	// same name variable in OM configuration passed in the "Project" config
@@ -121,10 +120,6 @@ const (
 	SCRAM                             = "SCRAM"
 	LDAP                              = "LDAP"
 	MinimumScramSha256MdbVersion      = "4.0.0"
-
-	// uses a lowercase 'x' and will take precedence over the value specified in
-	// the MongoDB resource
-	LegacyX509InConfigMapValue = "x509"
 
 	// these were historically used and constituted a security issue—if set they should be changed
 	InvalidKeyFileContents         = "DUMMYFILE"

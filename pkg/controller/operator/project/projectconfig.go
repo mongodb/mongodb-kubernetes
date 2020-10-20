@@ -84,7 +84,6 @@ func ReadProjectConfig(cmGetter configmap.Getter, projectConfigMap client.Object
 			SSLMMSCAConfigMapContents: caFile,
 		},
 
-		AuthMode:    data[util.OmAuthMode],
 		Credentials: data[util.OmCredentials],
 
 		UseCustomCA: useCustomCA,
