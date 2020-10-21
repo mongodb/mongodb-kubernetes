@@ -110,27 +110,6 @@ functions:
 
         binary: scripts/evergreen/build_operator.sh
 
-  "build_database":
-    - command: subprocess.exec
-      type: setup
-      params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
-        add_to_path:
-        - *go_bin
-        env:
-          <<: *go_options
-        command: "make -C docker/mongodb-enterprise-database prepare-build IMAGE_TYPE=${image_type}"
-
-    - command: s3.put
-      params:
-        aws_key: ${mms_build_s3_aws_access_key}
-        aws_secret: ${mms_build_s3_aws_secret}
-        local_file: src/github.com/10gen/ops-manager-kubernetes/docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator
-        remote_file: ops-manager-operator/${revision}/mongodb-enterprise-operator
-        bucket: ops-manager-kubernetes-build
-        permissions: public-read
-        content_type: application/octet-stream
-
   # push_versioned_binaries will build the operator and readinessprobe binaries,
   # put them into a tar.gz file and upload them to S3, indicating the release version.
   # this is for customers or any other third party consumers to be able to build
