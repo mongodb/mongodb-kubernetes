@@ -117,6 +117,7 @@ func buildAppdbInitContainer() container.Modification {
 	return container.Apply(
 		container.WithName(initAppDbContainerName),
 		container.WithImage(initContainerImageURL),
+		container.WithSecurityContext(defaultSecurityContext()),
 		withVolumeMounts([]corev1.VolumeMount{
 			appDbScriptsVolumeMount(false),
 		}),

@@ -13,22 +13,22 @@ import (
 func init() {
 	logger, _ := zap.NewDevelopment()
 	zap.ReplaceGlobals(logger)
-	_ = os.Setenv(util.InitDatabaseImageUrlEnv, "quay.io/mongodb/mongodb-enterprise-init-database")
+	_ = os.Setenv(util.InitAppdbImageUrl, "quay.io/mongodb/mongodb-enterprise-init-appdb")
 }
 
-func Test_buildDatabaseInitContainer(t *testing.T) {
-	modification := buildDatabaseInitContainer()
+func Test_buildAppdbInitContainer(t *testing.T) {
+	modification := buildAppdbInitContainer()
 	container := &corev1.Container{}
 	modification(container)
 	expectedVolumeMounts := []corev1.VolumeMount{{
-		Name:      PvcNameDatabaseScripts,
-		MountPath: PvcMountPathScripts,
+		Name:      "appdb-scripts",
+		MountPath: "/opt/scripts",
 		ReadOnly:  false,
 	}}
 	expectedSecurityContext := defaultSecurityContext()
 	expectedContainer := &corev1.Container{
-		Name:            initDatabaseContainerName,
-		Image:           "quay.io/mongodb/mongodb-enterprise-init-database:latest",
+		Name:            initAppDbContainerName,
+		Image:           "quay.io/mongodb/mongodb-enterprise-init-appdb:latest",
 		VolumeMounts:    expectedVolumeMounts,
 		SecurityContext: &expectedSecurityContext,
 	}

@@ -374,6 +374,7 @@ func buildDatabaseInitContainer() container.Modification {
 	return container.Apply(
 		container.WithName(initDatabaseContainerName),
 		container.WithImage(initContainerImageURL),
+		container.WithSecurityContext(defaultSecurityContext()),
 		withVolumeMounts([]corev1.VolumeMount{
 			databaseScriptsVolumeMount(false),
 		}),

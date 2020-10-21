@@ -199,6 +199,7 @@ func buildOpsManagerAndBackupInitContainer() container.Modification {
 	return container.Apply(
 		container.WithName(util.InitOpsManagerContainerName),
 		container.WithImage(initContainerImageURL),
+		container.WithSecurityContext(defaultSecurityContext()),
 		withVolumeMounts([]corev1.VolumeMount{buildOmScriptsVolumeMount(false)}),
 	)
 }
