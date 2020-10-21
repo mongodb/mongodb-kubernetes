@@ -196,10 +196,17 @@ func opsManagerReadinessProbe(scheme corev1.URIScheme) probes.Modification {
 func buildOpsManagerAndBackupInitContainer() container.Modification {
 	version := envutil.ReadOrDefault(util.InitOpsManagerVersion, "latest")
 	initContainerImageURL := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.InitOpsManagerImageUrl), version)
+
+	managedSecurityContext, _ := envutil.ReadBool(util.ManagedSecurityContextEnv)
+
+	configureContainerSecurityContext := container.NOOP()
+	if !managedSecurityContext {
+		configureContainerSecurityContext = container.WithSecurityContext(defaultSecurityContext())
+	}
 	return container.Apply(
 		container.WithName(util.InitOpsManagerContainerName),
 		container.WithImage(initContainerImageURL),
-		container.WithSecurityContext(defaultSecurityContext()),
+		configureContainerSecurityContext,
 		withVolumeMounts([]corev1.VolumeMount{buildOmScriptsVolumeMount(false)}),
 	)
 }

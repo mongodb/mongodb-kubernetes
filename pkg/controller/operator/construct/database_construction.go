@@ -371,10 +371,17 @@ func databaseScriptsVolumeMount(readOnly bool) corev1.VolumeMount {
 func buildDatabaseInitContainer() container.Modification {
 	version := envutil.ReadOrDefault(initDatabaseVersionEnv, "latest")
 	initContainerImageURL := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.InitDatabaseImageUrlEnv), version)
+
+	managedSecurityContext, _ := envutil.ReadBool(util.ManagedSecurityContextEnv)
+
+	configureContainerSecurityContext := container.NOOP()
+	if !managedSecurityContext {
+		configureContainerSecurityContext = container.WithSecurityContext(defaultSecurityContext())
+	}
 	return container.Apply(
 		container.WithName(initDatabaseContainerName),
 		container.WithImage(initContainerImageURL),
-		container.WithSecurityContext(defaultSecurityContext()),
+		configureContainerSecurityContext,
 		withVolumeMounts([]corev1.VolumeMount{
 			databaseScriptsVolumeMount(false),
 		}),

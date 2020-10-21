@@ -114,10 +114,18 @@ func appDbScriptsVolumeMount(readOnly bool) corev1.VolumeMount {
 func buildAppdbInitContainer() container.Modification {
 	version := envutil.ReadOrDefault(initAppdbVersionEnv, "latest")
 	initContainerImageURL := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.InitAppdbImageUrl), version)
+
+	managedSecurityContext, _ := envutil.ReadBool(util.ManagedSecurityContextEnv)
+
+	configureContainerSecurityContext := container.NOOP()
+	if !managedSecurityContext {
+		configureContainerSecurityContext = container.WithSecurityContext(defaultSecurityContext())
+	}
+
 	return container.Apply(
 		container.WithName(initAppDbContainerName),
 		container.WithImage(initContainerImageURL),
-		container.WithSecurityContext(defaultSecurityContext()),
+		configureContainerSecurityContext,
 		withVolumeMounts([]corev1.VolumeMount{
 			appDbScriptsVolumeMount(false),
 		}),
