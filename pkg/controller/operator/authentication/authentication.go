@@ -94,6 +94,15 @@ func Configure(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 		return fmt.Errorf("error waiting for ready state: %s", err)
 	}
 
+	// we make sure that the AuthoritativeSet options in the AC is correct
+	if err := ensureAuthorativeSetIsConfigured(conn, opts.AuthoritativeSet, log); err != nil {
+		return fmt.Errorf("error ensuring that authoritative set is configured: %s", err)
+	}
+
+	if err := om.WaitForReadyState(conn, opts.ProcessNames, log); err != nil {
+		return fmt.Errorf("error waiting for ready state: %s", err)
+	}
+
 	// once we have made sure that the deployment authentication mechanism array contains the desired auth mechanism
 	// we can then configure the agent authentication.
 	if err := enableAgentAuthentication(conn, opts, log); err != nil {
@@ -371,6 +380,26 @@ func enableAgentAuthentication(conn om.Connection, opts Options, log *zap.Sugare
 	}
 
 	return nil
+}
+
+// ensureAuthorativeSetIsConfigured makes sure that the authoritativeSet options is correctly configured
+// in Ops Manager
+func ensureAuthorativeSetIsConfigured(conn om.Connection, authoritativeSet bool, log *zap.SugaredLogger) error {
+	ac, err := conn.ReadAutomationConfig()
+
+	if err != nil {
+		return fmt.Errorf("error reading automation config: %s", err)
+	}
+
+	if ac.Auth.AuthoritativeSet == authoritativeSet {
+		log.Debugf("Authoritative set %t is already configured", authoritativeSet)
+	}
+
+	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		ac.Auth.AuthoritativeSet = authoritativeSet
+		return nil
+	}, log)
+
 }
 
 // ensureDeploymentsMechanismsExist makes sure that the corresponding deployment mechanisms which are required
