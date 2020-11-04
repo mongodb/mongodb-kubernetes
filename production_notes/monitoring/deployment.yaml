@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus-core
+  namespace: monitoring
+  labels:
+    app: prometheus
+    component: core
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      name: prometheus-main
+      labels:
+        app: prometheus
+        component: core
+    spec:
+      serviceAccountName: prometheus
+      containers:
+      - name: prometheus
+        image: prom/prometheus:v1.7.0
+        args:
+          - '-storage.local.retention=17h'
+          - '-storage.local.memory-chunks=500000'
+          - '-config.file=/etc/prometheus/prometheus.yaml'
+        ports:
+        - name: webui
+          containerPort: 9090
+        resources:
+          requests:
+            cpu: 500m
+            memory: 500M
+          limits:
+            cpu: 500m
+            memory: 500M
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/prometheus
+        - name: data
+          mountPath: /prometheus
+        # needed when we add prometheus alerting/recording rules
+        # - name: rules-volume
+        #   mountPath: /etc/prometheus-rules
+      volumes:
+      - name: config-volume
+        configMap:
+          name: prometheus-configmap
+      - name: data
+        persistentVolumeClaim:
+          claimName: prometheus-pvc   
+    #   - name: rules-volume
+    #     configMap:
+    #       name: prometheus-rules
