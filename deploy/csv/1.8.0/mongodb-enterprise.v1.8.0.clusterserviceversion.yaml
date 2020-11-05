@@ -111,7 +111,7 @@ metadata:
       MongoDB into Kubernetes clusters, using our management, monitoring and backup
       platforms, Ops Manager and Cloud Manager.
     repository: https://github.com/mongodb/mongodb-enterprise-kubernetes
-    support: MongoDB Community Support
+    support: MongoDB Enterprise Support https://support.mongodb.com/welcome
   name: mongodb-enterprise.v1.8.0
   namespace: placeholder
 spec:
