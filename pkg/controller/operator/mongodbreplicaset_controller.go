@@ -63,7 +63,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 	log.Infow("ReplicaSet.Spec", "spec", rs.Spec, "desiredReplicas", scale.ReplicasThisReconciliation(rs), "isScaling", scale.IsStillScaling(rs))
 	log.Infow("ReplicaSet.Status", "status", rs.Status)
 
-	if err := rs.ProcessValidationsOnReconcile(); err != nil {
+	if err := rs.ProcessValidationsOnReconcile(nil); err != nil {
 		return r.updateStatus(rs, workflow.Invalid(err.Error()), log)
 	}
 

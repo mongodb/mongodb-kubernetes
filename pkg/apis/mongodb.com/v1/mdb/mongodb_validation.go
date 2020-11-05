@@ -24,11 +24,11 @@ Use spec.podSpec.podTemplate.spec.containers[].resources instead.`
 // ValidateCreate and ValidateUpdate should be the same if we intend to do this
 // on every reconciliation as well
 func (mdb *MongoDB) ValidateCreate() error {
-	return mdb.ProcessValidationsOnReconcile()
+	return mdb.ProcessValidationsOnReconcile(nil)
 }
 
 func (mdb *MongoDB) ValidateUpdate(old runtime.Object) error {
-	return mdb.ProcessValidationsOnReconcile()
+	return mdb.ProcessValidationsOnReconcile(old.(*MongoDB))
 }
 
 // ValidateDelete does nothing as we assume validation on deletion is
@@ -149,12 +149,19 @@ func usesShortcutResource(ms MongoDbSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
+func resourceTypeImmutable(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	if newObj.ResourceType != oldObj.ResourceType {
+		return v1.ValidationError("'resourceType' cannot be changed once created")
+	}
+	return v1.ValidationSuccess()
+}
+
 func UsesDeprecatedResourceFields(podSpec MongoDbPodSpec) bool {
 	return podSpec.Cpu != "" || podSpec.CpuRequests != "" ||
 		podSpec.Memory != "" || podSpec.MemoryRequests != ""
 }
 
-func (m MongoDB) RunValidations() []v1.ValidationResult {
+func (m MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 	validators := []func(ms MongoDbSpec) v1.ValidationResult{
 		replicaSetHorizonsRequireTLS,
 		horizonsMustEqualMembers,
@@ -168,6 +175,9 @@ func (m MongoDB) RunValidations() []v1.ValidationResult {
 		ldapGroupDnIsSetIfLdapAuthzIsEnabledAndAgentsAreExternal,
 		usesShortcutResource,
 	}
+	updateValidators := []func(newObj MongoDbSpec, oldObj MongoDbSpec) v1.ValidationResult{
+		resourceTypeImmutable,
+	}
 
 	var validationResults []v1.ValidationResult
 
@@ -177,11 +187,21 @@ func (m MongoDB) RunValidations() []v1.ValidationResult {
 			validationResults = append(validationResults, res)
 		}
 	}
+
+	if old == nil {
+		return validationResults
+	}
+	for _, validator := range updateValidators {
+		res := validator(m.Spec, old.Spec)
+		if res.Level > 0 {
+			validationResults = append(validationResults, res)
+		}
+	}
 	return validationResults
 }
 
-func (m *MongoDB) ProcessValidationsOnReconcile() error {
-	for _, res := range m.RunValidations() {
+func (m *MongoDB) ProcessValidationsOnReconcile(old *MongoDB) error {
+	for _, res := range m.RunValidations(old) {
 		if res.Level == v1.ErrorLevel {
 			return errors.New(res.Msg)
 		}

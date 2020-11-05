@@ -104,6 +104,10 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		return *reconcileResult, err
 	}
 
+	if err := s.ProcessValidationsOnReconcile(nil); err != nil {
+		return r.updateStatus(s, workflow.Invalid(err.Error()), log)
+	}
+
 	log.Info("-> Standalone.Reconcile")
 	log.Infow("Standalone.Spec", "spec", s.Spec)
 	log.Infow("Standalone.Status", "status", s.Status)

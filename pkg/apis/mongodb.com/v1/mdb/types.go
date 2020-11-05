@@ -115,7 +115,6 @@ type MongoDbStatus struct {
 	Members                         int              `json:"members,omitempty"`
 	Version                         string           `json:"version"`
 	Link                            string           `json:"link,omitempty"`
-	ResourceType                    ResourceType     `json:"type"`
 	Warnings                        []status.Warning `json:"warnings,omitempty"`
 }
 
@@ -622,7 +621,6 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 	if phase == status.PhaseRunning {
 		m.Status.Version = m.Spec.Version
 		m.Status.Message = ""
-		m.Status.ResourceType = m.Spec.ResourceType
 
 		switch m.Spec.ResourceType {
 		case ShardedCluster:

@@ -1,60 +1,44 @@
 import pytest
+from kubetester import MongoDB
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.mongodb import Phase
+from pytest import fixture
 
-from kubetester.kubetester import KubernetesTester
 
+@fixture(scope="module")
+def standalone(namespace: str, custom_mdb_version: str) -> MongoDB:
+    resource = MongoDB.from_yaml(
+        yaml_fixture("standalone.yaml"), "my-standalone", namespace
+    )
+    resource.set_version(custom_mdb_version)
+    resource.create()
 
-@pytest.mark.e2e_standalone_type_change_recovery
-class TestStandaloneTypeChangeRecovery(KubernetesTester):
-    """
-    name: Standalone Type Change Recovery
-    tags: standalone, creation
-    description: |
-      Creates a standalone, applies a valid ReplicaSet configuration attempting to change type,
-      changes back and is in a successful state.
-    create:
-      file: standalone.yaml
-      wait_until: in_running_state
-    """
-
-    def test_created_ok(self):
-        assert True
+    return resource
 
 
 @pytest.mark.e2e_standalone_type_change_recovery
-class TestChangingStandaloneToReplicaSetFails(KubernetesTester):
-    """
-    name: Standalone Type Change Recovery
-    tags: standalone, creation
-    description: |
-      Tries to change standalone to valid ReplicaSet configuration, this should fail.
-    update:
-      file: standalone.yaml
-      patch: '[{"op":"add","path":"/spec/members","value":1}, {"op":"replace","path":"/spec/type","value":"ReplicaSet"}]'
-      wait_until: in_error_state
-    """
-
-    def test_type_change_invalid(self):
-        res = KubernetesTester.get_resource()
-        assert (
-            res["status"]["message"]
-            == "Changing type is not currently supported, please change the resource back to a Standalone"
-        )
-        assert res["status"]["type"] == "Standalone"  # we haven't changed type
+def test_standalone_created(standalone: MongoDB):
+    standalone.assert_reaches_phase(phase=Phase.Running)
 
 
 @pytest.mark.e2e_standalone_type_change_recovery
-class TestChangingBackToStandaloneWorks(KubernetesTester):
-    """
-    name: Standalone Type Change Recovery
-    tags: standalone, creation
-    description: |
-      Changes back to a standalone
-    update:
-      file: standalone.yaml
-      patch: '[{"op":"replace","path":"/spec/type","value":"Standalone"}]'
-      wait_until: in_running_state
-    """
+def test_break_standalone(standalone: MongoDB):
+    """ Changes persistence configuration - this is not allowed by StatefulSet """
+    standalone.load()
+    # Unfortunately even breaking the podtemplate won't get the resource into Failed state as it will just hang in Pending
+    # standalone["spec"]["podSpec"] = {"podTemplate": {"spec": {"containers": [{"image": "broken", "name": "mongodb-enterprise-database"}]}}}
+    standalone["spec"]["persistent"] = True
+    standalone.update()
+    standalone.assert_reaches_phase(
+        phase=Phase.Failed,
+        msg_regexp=".*Forbidden: updates to statefulset spec for fields other than.*",
+        timeout=60,
+    )
 
-    def test_change_back_successful(self):
-        res = KubernetesTester.get_resource()
-        assert res["status"]["type"] == "Standalone"
+
+@pytest.mark.e2e_standalone_type_change_recovery
+def test_fix_standalone(standalone: MongoDB):
+    standalone.load()
+    standalone["spec"]["persistent"] = False
+    standalone.update()
+    standalone.assert_reaches_phase(phase=Phase.Running)

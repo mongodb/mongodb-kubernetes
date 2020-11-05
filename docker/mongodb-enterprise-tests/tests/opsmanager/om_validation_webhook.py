@@ -1,18 +1,15 @@
 """
 Ensures that validation warnings for ops manager reflect its current state
 """
-import time
 from typing import Optional
 
+import pytest
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-
-from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
-from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.operator import Operator
-
-import pytest
+from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 
 APPDB_SHARD_COUNT_WARNING = "ShardCount field is not configurable for application databases as it is for sharded clusters and appdbs are replica sets"

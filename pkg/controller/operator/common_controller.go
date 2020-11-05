@@ -60,7 +60,6 @@ type patchValue struct {
 
 // ReconcileCommonController is the "parent" controller that is included into each specific controller and allows
 // to reuse the common functionality
-// TODO the 'omConnectionFactory' needs to be moved out as Ops Manager controller for example doesn't need it
 type ReconcileCommonController struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
@@ -236,18 +235,6 @@ func (c *ReconcileCommonController) prepareResourceForReconciliation(
 	request reconcile.Request, resource v1.CustomResourceReadWriter, log *zap.SugaredLogger) (*reconcile.Result, error) {
 	if result, err := c.getResource(request, resource, log); result != nil {
 		return result, err
-	}
-	// this is a temporary measure to prevent changing type and getting the resource into a bad state
-	// this should be removed once we have the functionality in place to convert between resource types
-	// todo needs to be moved to a webhook or we should use the K8s OpenAPI immutability for the fields once its ready
-	switch res := resource.(type) {
-	case *mdbv1.MongoDB:
-		spec := res.Spec
-		status := res.Status
-		if spec.ResourceType != status.ResourceType && status.ResourceType != "" {
-			c.updateStatus(res, workflow.Failed("Changing type is not currently supported, please change the resource back to a %s", status.ResourceType), log)
-			return &reconcile.Result{}, nil
-		}
 	}
 
 	result, err := c.updateStatus(resource, workflow.Reconciling(), log)

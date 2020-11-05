@@ -1,5 +1,15 @@
+import time
+
 import pytest
+from kubernetes.client import ApiException
+from kubetester import MongoDB
 from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.mongodb import Phase
+
+
+def mdb_resource(namespace: str) -> MongoDB:
+    return MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), namespace=namespace)
 
 
 @pytest.mark.e2e_replica_set_schema_validation
@@ -15,7 +25,9 @@ class TestReplicaSetMembersMissing(KubernetesTester):
       exception: 'Unprocessable Entity'
     """
 
-    @pytest.mark.skip
+    @pytest.mark.skip(
+        reason="TODO: validation for members must be done in webhook depending on the resource type"
+    )
     def test_validation_ok(self):
         assert True
 
@@ -166,3 +178,17 @@ class TestReplicaSetInvalidWithCloudAndOpsManagerAndProject(KubernetesTester):
 
     def test_validation_ok(self):
         assert True
+
+
+@pytest.mark.e2e_replica_set_schema_validation
+def test_resource_type_immutable(namespace: str):
+    mdb = mdb_resource(namespace).create()
+    # no need to wait for the resource get to Running state - we can update right away
+    time.sleep(5)
+    mdb = mdb_resource(namespace).load()
+
+    with pytest.raises(
+        ApiException, match=r"'resourceType' cannot be changed once created",
+    ):
+        mdb["spec"]["type"] = "ShardedCluster"
+        mdb.update()

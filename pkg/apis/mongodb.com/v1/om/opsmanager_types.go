@@ -368,7 +368,6 @@ func (m *MongoDBOpsManager) updateStatusAppDb(phase status.Phase, statusOptions 
 		spec := m.Spec.AppDB
 		m.Status.AppDbStatus.Version = spec.GetVersion()
 		m.Status.AppDbStatus.Message = ""
-		m.Status.AppDbStatus.ResourceType = spec.ResourceType
 	}
 }
 

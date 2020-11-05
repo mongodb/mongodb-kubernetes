@@ -50,21 +50,9 @@ func PredicatesForMongoDB(resourceType mdbv1.ResourceType) predicate.Funcs {
 			oldResource := e.ObjectOld.(*mdbv1.MongoDB)
 			newResource := e.ObjectNew.(*mdbv1.MongoDB)
 
-			// we don't support type change so if the status has been assigned a Resource type
-			// we want the corresponding controller to handle the Resource.
-			if newResource.Status.ResourceType == resourceType {
-				return reflect.DeepEqual(oldResource.GetStatus(), newResource.GetStatus())
-			}
-
-			// ignore events that aren't related to our target Resource
-			if oldResource.Spec.ResourceType != resourceType {
-				return false
-			}
-			// if the status/spec Resource type is different from the old spec, we are changing back
-			// from an invalid state. Remove after implementing type change functionality
-			if newResource.Status.ResourceType != resourceType && newResource.Spec.ResourceType != resourceType {
-				return false
-			}
-			return reflect.DeepEqual(oldResource.GetStatus(), newResource.GetStatus())
+			// ignore events that aren't related to our target Resource and any changes done to the status
+			// (it's the controller that has made those changes, not user)
+			return newResource.Spec.ResourceType == resourceType &&
+				reflect.DeepEqual(oldResource.GetStatus(), newResource.GetStatus())
 		}}
 }
