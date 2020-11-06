@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/10gen/ops-manager-kubernetes/production_notes/provisioner"
+	"github.com/10gen/ops-manager-kubernetes/production_notes/pkg/provisioner"
 	flag "github.com/spf13/pflag"
 )
 
