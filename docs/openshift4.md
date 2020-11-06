@@ -171,3 +171,21 @@ accessible, then the following instructions might help you:
 ```
 
 * Run `openshift-install destroy cluster` and hope for the best :)
+
+
+## Cleaning Residuals from Old Tests
+
+Residuals can accumulate from time to time from old tests, and the Openshift
+cluster might have issues with resources and impact the reliability of the tests
+we run in there.
+
+* Login to Openshift using `oc`
+
+1. Go to: https://console-openshift-console.apps.openshift.mongokubernetes.com/
+2. Click on "Copy Login Command" (top right)
+3. Run `oc login` command as instructed
+4. Run the `scripts/openshift-cleaner.sh` script.
+
+* Other problems found on Openshift
+
+More context in [here](https://jira.mongodb.org/browse/CLOUDP-76497).
