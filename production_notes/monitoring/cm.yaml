@@ -40,3 +40,28 @@ data:
         target_label: __scheme__
         regex: https
         replacement: http
+    - job_name: 'kubernetes-pods'
+      scheme: http
+      kubernetes_sd_configs:
+      - role: pod
+
+      relabel_configs:
+      # only scrape metrics from pods which have the annotation "loadtest.io/should_be_scraped=true"
+      - source_labels: [__meta_kubernetes_pod_annotation_loadtest_io_should_be_scraped]
+        action: keep
+        regex: true
+      # specify the target port at which prometheus should scrape for pod metrics
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_loadtest_io_scrape_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+      - action: labelmap
+        regex: __meta_kubernetes_pod_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        action: replace
+        target_label: kubernetes_namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        action: replace
+        target_label: kubernetes_pod_name
+
