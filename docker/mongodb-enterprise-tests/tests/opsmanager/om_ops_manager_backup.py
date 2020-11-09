@@ -275,12 +275,11 @@ class TestOpsManagerCreation:
             "gp2",
         )
 
-    def test_no_daemon_service_created(self, namespace):
-        """ Backup daemon serves no incoming traffic so no service must be created """
+    def test_backup_daemon_services_created(self, namespace):
+        """ Backup creates two additional services for queryable backup """
         services = client.CoreV1Api().list_namespaced_service(namespace).items
 
-        # 1 for AppDB, 1 for Ops Manager statefulset, 1 for validation webhook
-        assert len(services) == 3
+        assert len(services) == 5
 
     @skip_if_local
     def test_om(self, ops_manager: MongoDBOpsManager):

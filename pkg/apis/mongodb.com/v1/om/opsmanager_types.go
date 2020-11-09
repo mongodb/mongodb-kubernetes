@@ -3,6 +3,7 @@ package om
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/scale"
@@ -23,6 +24,11 @@ import (
 func init() {
 	v1.SchemeBuilder.Register(&MongoDBOpsManager{}, &MongoDBOpsManagerList{})
 }
+
+const (
+	queryableBackupConfigPath  string = "brs.queryable.proxyPort"
+	queryableBackupDefaultPort int32  = 25999
+)
 
 // The MongoDBOpsManager resource allows you to deploy Ops Manager within your Kubernetes cluster
 
@@ -321,6 +327,17 @@ func (m *MongoDBOpsManager) AppDBMongoConnectionStringSecretName() string {
 
 func (m *MongoDBOpsManager) BackupSvcName() string {
 	return m.BackupStatefulSetName() + "-svc"
+}
+
+func (ms *MongoDBOpsManagerSpec) BackupSvcPort() (int32, error) {
+	if port, ok := ms.Configuration[queryableBackupConfigPath]; ok {
+		val, err := strconv.Atoi(port)
+		if err != nil {
+			return -1, err
+		}
+		return int32(val), nil
+	}
+	return queryableBackupDefaultPort, nil
 }
 
 func (m *MongoDBOpsManager) AddConfigIfDoesntExist(key, value string) bool {

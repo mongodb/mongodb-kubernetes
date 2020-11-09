@@ -3,12 +3,12 @@ package operator
 import (
 	"fmt"
 	"net/url"
+	"reflect"
 	"strings"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
@@ -46,7 +46,9 @@ func NewKubeHelper(client client.Client) KubeHelper {
 type AuthMode string
 
 const (
-	NumAgents = 3
+	NumAgents                    = 3
+	externalConnectivityPortName = "externalConnectivityPort"
+	backupPortName               = "backupPort"
 )
 
 // StatefulSetHelperCommon is the basic struct the same for all Statefulset helpers (MongoDB, OpsManager)
@@ -378,7 +380,8 @@ func (k *KubeHelper) NewBackupStatefulSetHelper(opsManager omv1.MongoDBOpsManage
 	}
 	helper.Name = opsManager.BackupStatefulSetName()
 	helper.ContainerName = util.BackupDaemonContainerName
-	helper.Service = ""
+	helper.Service = opsManager.BackupSvcName()
+	helper.ServicePort = 8443
 	helper.Replicas = 1
 	// unset the default that was configured with Ops Manager
 	helper.StatefulSetConfiguration = nil
@@ -586,6 +589,29 @@ func (s *OpsManagerStatefulSetHelper) SetAppDBConnectionStringHash(hash string) 
 	return s
 }
 
+func (s OpsManagerStatefulSetHelper) SetBackupService(externalService corev1.Service, serviceName string) error {
+
+	backupSvcPort, err := s.Spec.BackupSvcPort()
+	if err != nil {
+		return fmt.Errorf("can't parse queryable backup port: %s", err)
+	}
+
+	// If external connectivity is already configured, add a port to externalService
+	if s.Spec.MongoDBOpsManagerExternalConnectivity != nil {
+		externalService.Spec.Ports[0].Name = externalConnectivityPortName
+		externalService.Spec.Ports = append(externalService.Spec.Ports, corev1.ServicePort{
+			Name: backupPortName,
+			Port: backupSvcPort,
+		})
+		return s.Helper.createOrUpdateService(externalService, s.Logger)
+	}
+	// Otherwise create a new service
+	namespacedName := objectKey(s.Namespace, serviceName+"-backup")
+	backupService := buildService(namespacedName, s.Owner, "ops-manager-backup", backupSvcPort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeLoadBalancer})
+	return s.Helper.createOrUpdateService(backupService, s.Logger)
+
+}
+
 func (s OpsManagerStatefulSetHelper) CreateOrUpdateInKubernetes() error {
 	sts, err := s.BuildStatefulSet()
 	if err != nil {
@@ -608,10 +634,19 @@ func (s OpsManagerStatefulSetHelper) CreateOrUpdateInKubernetes() error {
 		return err
 	}
 
+	externalService := corev1.Service{}
 	if s.Spec.MongoDBOpsManagerExternalConnectivity != nil {
 		namespacedName := objectKey(s.Namespace, set.Spec.ServiceName+"-ext")
-		externalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, *s.Spec.MongoDBOpsManagerExternalConnectivity)
+		externalService = buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, *s.Spec.MongoDBOpsManagerExternalConnectivity)
 		err = s.Helper.createOrUpdateService(externalService, s.Logger)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Need to create queryable backup service
+	if s.Spec.Backup.Enabled {
+		return s.SetBackupService(externalService, set.Spec.ServiceName)
 	}
 
 	return err
@@ -623,16 +658,27 @@ func (s BackupStatefulSetHelper) CreateOrUpdateInKubernetes() error {
 		return fmt.Errorf("error building stateful set: %v", err)
 	}
 
+	// We need to save the ServiceName field as
+	// it won't be available after the call to
+	// createOrUpdateStatefulset (see comment inside the function)
+	svcName := sts.Spec.ServiceName
+
 	_, err = s.Helper.createOrUpdateStatefulset(
 		s.Namespace,
 		s.Logger,
 		&sts,
 	)
+
+	if err != nil {
+		return err
+	}
+	namespacedName := objectKey(s.Namespace, svcName)
+	internalService := buildService(namespacedName, s.Owner, svcName, s.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	err = s.Helper.createOrUpdateService(internalService, s.Logger)
 	if err != nil {
 		return err
 	}
 
-	// We don't create a service for backup as it doesn't expose any endpoints
 	return nil
 }
 
@@ -771,7 +817,7 @@ func (k *KubeHelper) createOrUpdateStatefulset(ns string, log *zap.SugaredLogger
 		} else {
 			return nil, err
 		}
-		log.Debugf("Created StatefulSet")
+		log.Debug("Created StatefulSet")
 		return statefulSetToCreate, nil
 	}
 
@@ -780,6 +826,22 @@ func (k *KubeHelper) createOrUpdateStatefulset(ns string, log *zap.SugaredLogger
 	newCertHash := statefulSetToCreate.Spec.Template.Annotations["certHash"]
 	if existingCertHash != "" && newCertHash == "" {
 		statefulSetToCreate.Spec.Template.Annotations["certHash"] = existingCertHash
+	}
+
+	// If upgrading operator, it might happen that the spec.selector field
+	// and spec.ServiceName have changed. This is not allowed and for now
+	// We remove immutable fields from the update.
+	// A decision on how to more gracefully handle this will be
+	// taken in CLOUDP-76513
+	areSelectorsEqual := reflect.DeepEqual(statefulSetToCreate.Spec.Selector, existingStatefulSet.Spec.Selector)
+	areServiceNamesEqual := reflect.DeepEqual(statefulSetToCreate.Spec.ServiceName, existingStatefulSet.Spec.ServiceName)
+	if !areSelectorsEqual || !areServiceNamesEqual {
+		log.Warn("At least one immutable field in the StatefulSet has changed. Keeping the old one.")
+		statefulSetToCreate.Spec.Selector = existingStatefulSet.Spec.Selector
+		statefulSetToCreate.Spec.ServiceName = existingStatefulSet.Spec.ServiceName
+
+		// This one is not immutable, but needs to match the matchlabels in the spec.selector
+		statefulSetToCreate.Spec.Template.Labels = existingStatefulSet.Spec.Template.Labels
 	}
 
 	updatedSts, err := k.client.UpdateStatefulSet(*statefulSetToCreate)
