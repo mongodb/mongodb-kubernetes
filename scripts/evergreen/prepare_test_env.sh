@@ -73,7 +73,10 @@ echo "Deploying cluster-cleaner"
 deploy_cluster_cleaner "${ops_manager_namespace}"
 
 echo "Installing/Upgrading all CRDs"
-kubectl replace -f public/helm_chart/crds
+# Both replace and apply are required. If there are no CRDs on this cluster
+# (cluster is empty or fresh install), the `kubectl replace` command will fail,
+# so we apply the CRDs. The next run the `kubectl replace` will succeed.
+kubectl replace -f public/helm_chart/crds || kubectl apply -f public/helm_chart/crds
 
 if [[ "${OM_EXTERNALLY_CONFIGURED:-}" != "true" ]] && [[ -n "${ops_manager_namespace}" ]]; then
     ensure_ops_manager_k8s "${ops_manager_namespace}" "${ops_manager_version}" "${node_port}"
