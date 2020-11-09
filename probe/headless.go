@@ -2,16 +2,12 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
+
+	"github.com/10gen/ops-manager-kubernetes/probe/config"
 	"github.com/10gen/ops-manager-kubernetes/probe/pod"
-	"os"
-
 	"github.com/spf13/cast"
+	"k8s.io/client-go/kubernetes"
 )
-
-func hostname() string {
-	return os.Getenv("HOSTNAME")
-}
 
 // performCheckHeadlessMode validates if the Agent has reached the correct goal state
 // The state is fetched from K8s automation config Secret directly to avoid flakiness of mounting process
@@ -19,15 +15,15 @@ func hostname() string {
 // /var/run/secrets/kubernetes.io/serviceaccount/namespace file (see
 // https://kubernetes.io/docs/tasks/access-application-cluster/access-cluster/#accessing-the-api-from-a-pod)
 // though passing the namespace as an environment variable makes the code simpler for testing and saves an IO operation
-func performCheckHeadlessMode(podNamespace string, health healthStatus, secretReader SecretReader, patcher pod.Patcher) (bool, error) {
-	targetVersion, err := readAutomationConfigVersionFromSecret(podNamespace, secretReader)
+func PerformCheckHeadlessMode(health healthStatus, conf config.Config) (bool, error) {
+	targetVersion, err := readAutomationConfigVersionFromSecret(conf.Namespace, conf.ClientSet, conf.AutomationConfigSecretName)
 	if err != nil {
 		return false, err
 	}
 
 	currentAgentVersion := readCurrentAgentInfo(health, targetVersion)
 
-	if err = pod.PatchPodAnnotation(podNamespace, currentAgentVersion, hostname(), patcher); err != nil {
+	if err = pod.PatchPodAnnotation(conf.Namespace, currentAgentVersion, conf.Hostname, conf.ClientSet); err != nil {
 		return false, err
 	}
 
@@ -57,18 +53,14 @@ func readCurrentAgentInfo(health healthStatus, targetVersion int64) int64 {
 	return targetVersion
 }
 
-func readAutomationConfigVersionFromSecret(namespace string, secretReader SecretReader) (int64, error) {
-	automationConfigMap := os.Getenv(automationConfigMapEnv)
-	if automationConfigMap == "" {
-		return -1, fmt.Errorf("the '%s' environment variable must be set", automationConfigMapEnv)
-	}
-
-	secret, err := secretReader.readSecret(namespace, automationConfigMap)
+func readAutomationConfigVersionFromSecret(namespace string, clientSet kubernetes.Interface, automationConfigMap string) (int64, error) {
+	secretReader := newKubernetesSecretReader(clientSet)
+	theSecret, err := secretReader.readSecret(namespace, automationConfigMap)
 	if err != nil {
 		return -1, err
 	}
 	var existingDeployment map[string]interface{}
-	if err := json.Unmarshal(secret.Data[appDBAutomationConfigKey], &existingDeployment); err != nil {
+	if err := json.Unmarshal(theSecret.Data[appDBAutomationConfigKey], &existingDeployment); err != nil {
 		return -1, err
 	}
 

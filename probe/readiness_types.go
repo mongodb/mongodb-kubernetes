@@ -10,12 +10,6 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-// SecretReader is an interface which allows to read the secret
-// Needed mainly for unit testing as it seems there is no easy way to mock out 'kubernetes.Clientset'
-type SecretReader interface {
-	readSecret(namespace, secretName string) (*corev1.Secret, error)
-}
-
 type healthStatus struct {
 	Healthiness  map[string]processHealth     `json:"statuses"`
 	ProcessPlans map[string]mmsDirectorStatus `json:"mmsStatus"`
@@ -60,8 +54,8 @@ type kubernetesSecretReader struct {
 	clientset kubernetes.Interface
 }
 
-func newKubernetesSecretReader() *kubernetesSecretReader {
-	return &kubernetesSecretReader{clientset: kubernetesClientset()}
+func newKubernetesSecretReader(clientSet kubernetes.Interface) *kubernetesSecretReader {
+	return &kubernetesSecretReader{clientset: clientSet}
 }
 
 func (r *kubernetesSecretReader) readSecret(namespace, secretName string) (*corev1.Secret, error) {

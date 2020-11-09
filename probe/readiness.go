@@ -2,12 +2,12 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
-	"github.com/10gen/ops-manager-kubernetes/probe/pod"
 	"io/ioutil"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/10gen/ops-manager-kubernetes/probe/config"
 
 	"go.uber.org/zap"
 )
@@ -16,8 +16,6 @@ const (
 	defaultAgentHealthStatusFilePath = "/var/log/mongodb-mms-automation/agent-health-status.json"
 	defaultLogPath                   = "/var/log/mongodb-mms-automation/readiness.log"
 	appDBAutomationConfigKey         = "cluster-config.json"
-	podNamespaceEnv                  = "POD_NAMESPACE"
-	automationConfigMapEnv           = "AUTOMATION_CONFIG_MAP"
 	headlessAgent                    = "HEADLESS_AGENT"
 	agentHealthStatusFilePathEnv     = "AGENT_STATUS_FILEPATH"
 	logPathEnv                       = "LOG_FILE_PATH"
@@ -45,8 +43,8 @@ func init() {
 // - if AppDB: the 'mmsStatus[0].lastGoalVersionAchieved' field is compared with the one from mounted automation config
 // Additionally if the previous check hasn't returned 'true' the "deadlock" case is checked to make sure the Agent is
 // not waiting for the other members.
-func isPodReady(healStatusPath string, secretReader SecretReader, patcher pod.Patcher) bool {
-	fd, err := os.Open(healStatusPath)
+func isPodReady(conf config.Config) bool {
+	fd, err := os.Open(conf.HealthStatusFilePath)
 	if err != nil {
 		logger.Warn("No health status file exists, assuming the Automation agent is old")
 		return true
@@ -67,7 +65,7 @@ func isPodReady(healStatusPath string, secretReader SecretReader, patcher pod.Pa
 	}
 
 	// If the agent has reached the goal state - returning true
-	ok, err := isInGoalState(health, secretReader, patcher)
+	ok, err := isInGoalState(health, conf)
 
 	if err != nil {
 		logger.Errorf("There was problem checking the health status: %s", err)
@@ -163,13 +161,9 @@ func isDeadlocked(status *stepStatus) bool {
 	return false
 }
 
-func isInGoalState(health healthStatus, secretReader SecretReader, patcher pod.Patcher) (bool, error) {
+func isInGoalState(health healthStatus, conf config.Config) (bool, error) {
 	if isHeadlessMode() {
-		namespace, ok := os.LookupEnv(podNamespaceEnv)
-		if !ok {
-			return false, fmt.Errorf("the '%s' environment variable must be set", podNamespaceEnv)
-		}
-		return performCheckHeadlessMode(namespace, health, secretReader, patcher)
+		return PerformCheckHeadlessMode(health, conf)
 	}
 	return performCheckOMMode(health), nil
 }
@@ -215,20 +209,22 @@ func getLogFilePath() string {
 	return getEnvOrDefault(logPathEnv, defaultLogPath)
 }
 
-// Main entry point to the readiness script. All configurations are specific to production environment so
-// the method should not be directly called from unit tests
 func main() {
+	config, err := config.BuildFromEnvVariables(kubernetesClientset(), isHeadlessMode())
+	if err != nil {
+		panic(err)
+	}
 	cfg := zap.NewDevelopmentConfig()
 	// In "production" we log to the file
 	cfg.OutputPaths = []string{
-		getLogFilePath(),
+		config.LogFilePath,
 	}
 	log, err := cfg.Build()
 	if err != nil {
 		panic(err)
 	}
 	logger = log.Sugar()
-	if !isPodReady(getHealthStatusFilePath(), newKubernetesSecretReader(), pod.NewKubernetesPodPatcher(kubernetesClientset())) {
+	if !isPodReady(config) {
 		os.Exit(1)
 	}
 }
