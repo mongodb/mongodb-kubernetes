@@ -48,9 +48,8 @@ LABEL name="MongoDB Enterprise Init Database" \
       vendor="MongoDB" \
       maintainer="support@mongodb.com"
 
-
-COPY --from=builder /build/readinessprobe /probes/
 COPY --from=tools-provider /tools/ /tools/
+COPY --from=builder /build/readinessprobe /probes/
 COPY ./docker/mongodb-enterprise-init-database/content/probe.sh /probes/
 
 COPY ./docker/mongodb-enterprise-init-database/content/agent-launcher-lib.sh /scripts/

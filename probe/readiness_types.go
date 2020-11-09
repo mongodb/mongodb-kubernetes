@@ -57,10 +57,18 @@ type stepStatus struct {
 
 // Default production implementation for SecretReader which reads from API server
 type kubernetesSecretReader struct {
-	clientset *kubernetes.Clientset
+	clientset kubernetes.Interface
 }
 
 func newKubernetesSecretReader() *kubernetesSecretReader {
+	return &kubernetesSecretReader{clientset: kubernetesClientset()}
+}
+
+func (r *kubernetesSecretReader) readSecret(namespace, secretName string) (*corev1.Secret, error) {
+	return r.clientset.CoreV1().Secrets(namespace).Get(secretName, metav1.GetOptions{})
+}
+
+func kubernetesClientset() kubernetes.Interface {
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		panic(err.Error())
@@ -70,9 +78,5 @@ func newKubernetesSecretReader() *kubernetesSecretReader {
 	if err != nil {
 		panic(err.Error())
 	}
-	return &kubernetesSecretReader{clientset: clientset}
-}
-
-func (r *kubernetesSecretReader) readSecret(namespace, secretName string) (*corev1.Secret, error) {
-	return r.clientset.CoreV1().Secrets(namespace).Get(secretName, metav1.GetOptions{})
+	return clientset
 }

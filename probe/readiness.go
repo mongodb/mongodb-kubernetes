@@ -2,14 +2,13 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
+	"github.com/10gen/ops-manager-kubernetes/probe/pod"
 	"io/ioutil"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/spf13/cast"
 	"go.uber.org/zap"
 )
 
@@ -46,7 +45,7 @@ func init() {
 // - if AppDB: the 'mmsStatus[0].lastGoalVersionAchieved' field is compared with the one from mounted automation config
 // Additionally if the previous check hasn't returned 'true' the "deadlock" case is checked to make sure the Agent is
 // not waiting for the other members.
-func isPodReady(healStatusPath string, secretReader SecretReader) bool {
+func isPodReady(healStatusPath string, secretReader SecretReader, patcher pod.Patcher) bool {
 	fd, err := os.Open(healStatusPath)
 	if err != nil {
 		logger.Warn("No health status file exists, assuming the Automation agent is old")
@@ -61,18 +60,20 @@ func isPodReady(healStatusPath string, secretReader SecretReader) bool {
 		panic("Failed to read agent health status file: %s")
 	}
 
-	if len(health.Healthiness) == 0 {
+	// The 'statuses' file can be empty only for OM Agents
+	if len(health.Healthiness) == 0 && !isHeadlessMode() {
 		logger.Info("'statuses' is empty. We assume there is no automation config for the agent yet.")
 		return true
 	}
 
 	// If the agent has reached the goal state - returning true
-	ok, err := isInGoalState(health, secretReader)
+	ok, err := isInGoalState(health, secretReader, patcher)
 
 	if err != nil {
 		logger.Errorf("There was problem checking the health status: %s", err)
 		panic(err)
 	}
+
 	if ok {
 		return true
 	}
@@ -162,63 +163,27 @@ func isDeadlocked(status *stepStatus) bool {
 	return false
 }
 
-func isInGoalState(health healthStatus, secretReader SecretReader) (bool, error) {
+func isInGoalState(health healthStatus, secretReader SecretReader, patcher pod.Patcher) (bool, error) {
 	if isHeadlessMode() {
-		return performCheckHeadlessMode(health, secretReader)
+		namespace, ok := os.LookupEnv(podNamespaceEnv)
+		if !ok {
+			return false, fmt.Errorf("the '%s' environment variable must be set", podNamespaceEnv)
+		}
+		return performCheckHeadlessMode(namespace, health, secretReader, patcher)
 	}
-	return performCheckOMMode(health)
-
+	return performCheckOMMode(health), nil
 }
 
 // performCheckOMMode does a general check if the Agent has reached the goal state - must be called when Agent is in
 // "OM mode"
-func performCheckOMMode(health healthStatus) (bool, error) {
+func performCheckOMMode(health healthStatus) bool {
 	for _, v := range health.Healthiness {
 		logger.Debug(v)
 		if v.IsInGoalState {
-			return true, nil
+			return true
 		}
 	}
-	return false, nil
-}
-
-// performCheckHeadlessMode validates if the Agent has reached the correct goal state
-// The state is fetched from K8s automation config map directly to avoid flakiness of mounting process
-// Dev note: there is an alternative way to get current namespace: to read from
-// /var/run/secrets/kubernetes.io/serviceaccount/namespace file (see
-// https://kubernetes.io/docs/tasks/access-application-cluster/access-cluster/#accessing-the-api-from-a-pod)
-// though passing the namespace as an environment variable makes the code simpler for testing and saves an IO operation
-func performCheckHeadlessMode(health healthStatus, secretReader SecretReader) (bool, error) {
-	namespace := os.Getenv(podNamespaceEnv)
-	if namespace == "" {
-		return false, fmt.Errorf("the '%s' environment variable must be set", podNamespaceEnv)
-	}
-	automationConfigMap := os.Getenv(automationConfigMapEnv)
-	if automationConfigMap == "" {
-		return false, fmt.Errorf("the '%s' environment variable must be set", automationConfigMapEnv)
-	}
-
-	configMap, err := secretReader.readSecret(namespace, automationConfigMap)
-	if err != nil {
-		return false, err
-	}
-	var existingDeployment map[string]interface{}
-	if err := json.Unmarshal(configMap.Data[appDBAutomationConfigKey], &existingDeployment); err != nil {
-		return false, err
-	}
-
-	version, ok := existingDeployment["version"]
-	if !ok {
-		return false, err
-	}
-	expectedVersion := cast.ToInt64(version)
-
-	for _, v := range health.ProcessPlans {
-		logger.Debugf("Automation Config version: %d, Agent last version: %d", expectedVersion, v.LastGoalStateClusterConfigVersion)
-		return v.LastGoalStateClusterConfigVersion == expectedVersion, nil
-	}
-
-	return false, errors.New("health file doesn't have information about process status")
+	return false
 }
 
 func isHeadlessMode() bool {
@@ -263,7 +228,7 @@ func main() {
 		panic(err)
 	}
 	logger = log.Sugar()
-	if !isPodReady(getHealthStatusFilePath(), newKubernetesSecretReader()) {
+	if !isPodReady(getHealthStatusFilePath(), newKubernetesSecretReader(), pod.NewKubernetesPodPatcher(kubernetesClientset())) {
 		os.Exit(1)
 	}
 }
