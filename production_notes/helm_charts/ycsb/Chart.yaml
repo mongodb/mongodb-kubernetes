@@ -1,0 +1,4 @@
+apiVersion: v2
+name: ycsb
+description: YCSB helm chart
+version: 0.0.1

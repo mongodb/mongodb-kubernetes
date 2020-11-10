@@ -1,0 +1,166 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-operator
+  namespace: {{ .Release.Namespace }}
+{{- if .Values.registry.imagePullSecrets}}
+imagePullSecrets:
+  - name: {{ .Values.registry.imagePullSecrets }}
+{{- end }}
+
+
+---
+kind: {{ if eq (.Values.watchNamespace | default "") "*" }} ClusterRole {{ else }} Role {{ end }}
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ .Values.name }}
+  {{- if not (eq (.Values.watchNamespace | default "*") "*") }}
+  namespace: {{ .Values.watchNamespace }}
+  {{- else }}
+  namespace: {{ .Release.Namespace }}
+  {{- end }}
+
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - secrets
+  - services
+  verbs:
+  - get
+  - list
+  - create
+  - update
+  - delete
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+  - delete
+  - update
+  {{- if eq (.Values.watchNamespace | default "") "*" }}
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - list
+  - watch
+  {{- end}}
+- apiGroups:
+  - mongodb.com
+  resources:
+  - mongodb
+  - mongodb/finalizers
+  - mongodbusers
+  - opsmanagers
+  - opsmanagers/finalizers
+{{- if .Values.subresourceEnabled }}
+  - mongodb/status
+  - mongodbusers/status
+  - opsmanagers/status
+{{- end }}
+  verbs:
+  - "*"
+
+---
+kind: {{ if eq (.Values.watchNamespace | default "") "*" }} ClusterRoleBinding {{ else }} RoleBinding {{ end }}
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ .Values.name }}
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: {{ if eq (.Values.watchNamespace | default "") "*" }} ClusterRole {{ else }} Role {{ end }}
+  name: {{ .Values.name }}
+subjects:
+- kind: ServiceAccount
+  name: {{ .Release.Name }}-operator
+  {{- if .Release.Namespace }}
+  namespace: {{ .Release.Namespace }}
+  {{- end }}
+
+
+{{ if .Values.deployValidationWebhooks }}
+# This ClusterRoleBinding is necessary in order to use validating
+# webhooks—these will prevent you from applying a variety of invalid resource
+# definitions. The validating webhooks are optional so this can be removed if
+# necessary.
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ .Release.Name }}-{{ .Release.Namespace }}-webhook-binding
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mongodb-enterprise-operator-mongodb-webhook
+subjects:
+- kind: ServiceAccount
+  name: {{ .Release.Name }}-operator
+  namespace: {{ .Release.Namespace }}
+
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ .Release.Name }}-{{ .Release.Namespace }}-webhook
+rules:
+  - apiGroups:
+      - "admissionregistration.k8s.io"
+    resources:
+      - validatingwebhookconfigurations
+    verbs:
+      - get
+      - create
+      - update
+      - delete
+
+{{ end }}
+
+# This ClusterRole is needed if the user wants to use the Kubernetes CA
+# infrastructure to generate certificates.
+{{- if .Values.needsCAInfrastructure }}
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ .Release.Name }}-{{ .Release.Namespace }}-certs
+rules:
+- apiGroups:
+  - certificates.k8s.io
+  resources:
+  - certificatesigningrequests
+  verbs:
+  - get
+  - create
+  - list
+  - watch
+
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ .Release.Name }}-{{ .Release.Namespace }}-certs-binding
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-{{ .Release.Namespace }}-certs
+subjects:
+- kind: ServiceAccount
+  name: {{ .Release.Name }}-operator
+  namespace: {{ .Release.Namespace }}
+
+{{- end }}
+
+

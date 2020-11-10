@@ -1,0 +1,15 @@
+{{- range .Values.users }}
+ {{ if eq .username "ycsb" }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $.Release.Name }}-binding
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    product: {{ $.Chart.Name }}
+stringData:
+  uri: 'mongodb+srv://{{ $.Release.Name }}.{{ $.Release.Namespace }}.svc.{{ $.Values.clusterName }}/test?ssl=false'
+  username: {{ .username }}
+  password: {{ .password }}
+ {{- end }}
+{{- end }}

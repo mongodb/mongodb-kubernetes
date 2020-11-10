@@ -1,0 +1,95 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-operator
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+      matchLabels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/name: {{ .Release.Name }}-operator
+        app.kubernetes.io/instance:  {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/name: {{ .Release.Name }}-operator
+        app.kubernetes.io/instance:  {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-operator
+{{- if not .Values.managedSecurityContext }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 2000
+{{- end }}
+{{- if .Values.registry.imagePullSecrets }}
+      imagePullSecrets:
+      - name: {{ .Values.registry.imagePullSecrets | quote }}
+{{- end }}
+      containers:
+      - name: mongodb-enterprise-operator
+        image: {{ .Values.registry.operator.Image }}:{{ .Values.registry.operator.Tag | default "latest" }}
+        imagePullPolicy: {{ .Values.registry.pullPolicy }}
+        {{- if or .Values.watchOpsManagers .Values.watchDatabase }}
+        args:
+          {{- if .Values.watchOpsManager   }}
+          - "-watch-resource=opsmanagers"
+          {{- end }}
+          {{- if .Values.watchDatabase }}
+          - "-watch-resource=mongodb"
+          - "-watch-resource=mongodbusers"
+          {{- end }}
+        command:
+          - "/usr/local/bin/mongodb-enterprise-operator"
+        {{- end }}
+        env:
+        - name: OPERATOR_ENV
+          value: {{ .Values.env }}
+        - name: WATCH_NAMESPACE
+{{- if .Values.watchNamespace }}
+          value: "{{ .Values.watchNamespace }}"
+{{- else }}
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+{{- end }}
+        - name: CURRENT_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+{{- if eq .Values.managedSecurityContext true }}
+        - name: MANAGED_SECURITY_CONTEXT
+          value: 'true'
+{{- end }}
+        - name: IMAGE_PULL_POLICY
+          value: {{ .Values.registry.pullPolicy }}
+        - name: MONGODB_ENTERPRISE_DATABASE_IMAGE
+          value: {{ .Values.registry.database.Image }}
+        - name: DATABASE_VERSION
+          value: {{ .Values.registry.database.Tag }}
+        - name: INIT_DATABASE_IMAGE_REPOSITORY
+          value: {{ .Values.registry.databaseInit.Image }}
+        - name: INIT_DATABASE_VERSION
+          value: {{ .Values.registry.databaseInit.Tag }}
+        - name: OPS_MANAGER_IMAGE_REPOSITORY
+          value: {{ .Values.registry.opsManager.Image }}
+        - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
+          value: {{ .Values.registry.initOpsManager.Image }}
+        - name: INIT_OPS_MANAGER_VERSION
+          value: {{ .Values.registry.initOpsManager.Tag }}
+        - name: INIT_APPDB_IMAGE_REPOSITORY
+          value: {{ .Values.registry.initAppDb.Image }}
+        - name: INIT_APPDB_VERSION
+          value: {{ .Values.registry.initAppDb.Tag }}
+        - name: OPS_MANAGER_IMAGE_PULL_POLICY
+          value: {{ .Values.registry.pullPolicy }}
+        - name: APPDB_IMAGE_REPOSITORY
+          value: {{ .Values.registry.appDb.Image }}
+        - name: IMAGE_PULL_POLICY
+          value: {{ .Values.registry.pullPolicy }}
+{{- if .Values.registry.imagePullSecrets }}
+        - name: IMAGE_PULL_SECRETS
+          value: {{ .Values.registry.imagePullSecrets }}
+{{- end }}

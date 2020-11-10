@@ -1,0 +1,71 @@
+## Operator
+
+# Set this to true if your cluster is managing SecurityContext for you.
+# If running OpenShift (Cloud, Minishift, etc.), set this to true.
+managedSecurityContext: false
+
+# Section to describe components that needs to be installed
+deployValidationWebhooks: true  # Optional configuration.
+
+clusterName: cluster.local
+
+# Execution environment for the operator, dev or prod. Use dev for more verbose logging
+env: prod
+
+# Name that will be assigned to most of internal Kubernetes objects like Deployment, ServiceAccount, Role etc.
+name: mongodb-enterprise-operator
+
+# Name of the deployment of the operator pod
+deployment_name: mongodb-enterprise-operator
+
+# Version of mongodb-enterprise-operator and mongodb-enterprise-database images
+version: 1.8.0
+
+# The Custom Resources that will be watched by the Operator.
+# Needs to be changed if only some of the CRDs are installed
+watchOpsManager: true
+watchDatabase: true
+
+
+# When Operator is deployed globally add a list of namespaces to watch
+watchNamespace: []
+# - mongodb
+
+registry:
+
+  operator:
+    Image: quay.io/mongodb/mongodb-enterprise-operator
+    Tag: 1.8.0
+
+  database:
+    Image: quay.io/mongodb/mongodb-enterprise-database
+    Tag: 2.0.0
+
+  databaseInit:
+    Image: quay.io/mongodb/mongodb-enterprise-init-database
+    Tag: 1.0.0
+
+  opsManager:
+    Image: quay.io/mongodb/mongodb-enterprise-ops-manager
+
+  initOpsManager:
+    Image: quay.io/mongodb/mongodb-enterprise-init-ops-manager
+    Tag: 1.0.2
+
+  appDb:
+    Image: quay.io/mongodb/mongodb-enterprise-appdb
+
+  initAppDb:
+    Image: quay.io/mongodb/mongodb-enterprise-init-appdb
+    Tag: 1.0.4
+
+  pullPolicy: Always
+
+debugPort:
+# Set this to true if the operator will require Kubernetes CA
+# infrastructure to generate TLS certificates.
+needsCAInfrastructure: true
+
+# Set this to false to disable subresource utilization
+# It might be required on some versions of Openshift
+subresourceEnabled: true
