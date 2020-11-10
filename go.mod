@@ -15,6 +15,8 @@ require (
 	github.com/mailru/easyjson v0.7.1 // indirect
 	github.com/mongodb/mongodb-kubernetes-operator v0.2.2-prerelease-3
 	github.com/pkg/errors v0.9.1
+	github.com/prometheus/client_golang v1.5.1
+	github.com/prometheus/common v0.9.1
 	github.com/spf13/cast v1.3.1
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.4.0

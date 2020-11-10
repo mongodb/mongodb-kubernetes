@@ -614,16 +614,8 @@ github.com/modern-go/reflect2 v0.0.0-20180320133207-05fbef0ca5da/go.mod h1:bx2lN
 github.com/modern-go/reflect2 v0.0.0-20180701023420-4b7aa43c6742/go.mod h1:bx2lNnkwVCuqBIxFjflWJWanXIb3RllmbCylyMrvgv0=
 github.com/modern-go/reflect2 v1.0.1 h1:9f412s+6RmYXLWZSEzVVgPGK7C2PphHj5RJrvfx9AWI=
 github.com/modern-go/reflect2 v1.0.1/go.mod h1:bx2lNnkwVCuqBIxFjflWJWanXIb3RllmbCylyMrvgv0=
-github.com/mongodb/mongodb-kubernetes-operator v0.0.8-prerelease-2 h1:wU5hjBn8zErvdKuETqO3WBQVIqVf2Y1TSNV0vXcelcE=
-github.com/mongodb/mongodb-kubernetes-operator v0.0.8-prerelease-2/go.mod h1:okVjhgDwgzgmUQhoHfz+wPtfyEWt1EKnPv8ZcCO+UD0=
-github.com/mongodb/mongodb-kubernetes-operator v0.1.0-prerelease h1:gKiFvE0Syj4e4KzalgaIYJye7uRXMtOhBIz3vVIrX9Y=
-github.com/mongodb/mongodb-kubernetes-operator v0.1.0-prerelease/go.mod h1:Zx9jUfX47O1PtdDSLRXT3z3chf9jUWT5IKkRY+RwwDQ=
-github.com/mongodb/mongodb-kubernetes-operator v0.2.2-prerelease h1:tkeuf9V8xlLQ7aJOCdlwccw5vuayLuTWxTz/hCrYdDA=
-github.com/mongodb/mongodb-kubernetes-operator v0.2.2-prerelease/go.mod h1:XjbJHv4lniq4SnrtjDgNg5DtMmzP1SvCC1/EnAWc4vg=
 github.com/mongodb/mongodb-kubernetes-operator v0.2.2-prerelease-3 h1:HVET8s9+eLJddnxVmjtLh4AsE9mm0383IUB3s9MdL7Y=
 github.com/mongodb/mongodb-kubernetes-operator v0.2.2-prerelease-3/go.mod h1:XjbJHv4lniq4SnrtjDgNg5DtMmzP1SvCC1/EnAWc4vg=
-github.com/mongodb/mongodb-kubernetes-operator v0.2.2-prerelease2 h1:Vu5UyUMWViCRBYXXyqJBFnuYbxYD05qwCitzwHgEpyc=
-github.com/mongodb/mongodb-kubernetes-operator v0.2.2-prerelease2/go.mod h1:XjbJHv4lniq4SnrtjDgNg5DtMmzP1SvCC1/EnAWc4vg=
 github.com/montanaflynn/stats v0.0.0-20171201202039-1bf9dbcd8cbe/go.mod h1:wL8QJuTMNUDYhXwkmfOly8iTdp5TEcJFWZD2D7SIkUc=
 github.com/morikuni/aec v0.0.0-20170113033406-39771216ff4c/go.mod h1:BbKIizmSmc5MMPqRYbxO4ZU0S0+P200+tUnFx7PXmsc=
 github.com/morikuni/aec v1.0.0/go.mod h1:BbKIizmSmc5MMPqRYbxO4ZU0S0+P200+tUnFx7PXmsc=
@@ -1324,6 +1316,7 @@ k8s.io/kube-state-metrics v1.7.2/go.mod h1:U2Y6DRi07sS85rmVPmBFlmv+2peBcL8IWGjM+
 k8s.io/kubectl v0.17.2/go.mod h1:y4rfLV0n6aPmvbRCqZQjvOp3ezxsFgpqL+zF5jH/lxk=
 k8s.io/kubectl v0.17.3/go.mod h1:NUn4IBY7f7yCMwSop2HCXlw/MVYP4HJBiUmOR3n9w28=
 k8s.io/kubectl v0.17.4/go.mod h1:im5QWmh6fvtmJkkNm4HToLe8z9aM3jihYK5X/wOybcY=
+k8s.io/kubernetes v1.13.0 h1:qTfB+u5M92k2fCCCVP2iuhgwwSOv1EkAkvQY1tQODD8=
 k8s.io/kubernetes v1.13.0/go.mod h1:ocZa8+6APFNC2tX1DZASIbocyYT5jHzqFVsY5aoB7Jk=
 k8s.io/metrics v0.17.2/go.mod h1:3TkNHET4ROd+NfzNxkjoVfQ0Ob4iZnaHmSEA4vYpwLw=
 k8s.io/metrics v0.17.3/go.mod h1:HEJGy1fhHOjHggW9rMDBJBD3YuGroH3Y1pnIRw9FFaI=
