@@ -10,7 +10,6 @@ spec:
     enabled: true
     headDB:
       storage: 500M
-      storageClass: gp2
     oplogStores:
       - name: oplog1
         mongodbResourceRef:

@@ -4,6 +4,7 @@ from kubetester.kubetester import (
     fixture as yaml_fixture,
     KubernetesTester,
 )
+from kubetester import get_default_storage_class
 from kubetester.mongodb import Phase, MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
@@ -13,8 +14,6 @@ from pytest import fixture, mark
 def ops_manager(
     namespace: str, custom_version: Optional[str], custom_appdb_version: str
 ) -> MongoDBOpsManager:
-    KubernetesTester.make_default_gp2_storage_class()
-
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_localmode-multiple-pv.yaml"), namespace=namespace
     )
@@ -28,7 +27,8 @@ def replica_set(
     ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str
 ) -> MongoDB:
     resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set-for-om.yaml"), namespace=namespace,
+        yaml_fixture("replica-set-for-om.yaml"),
+        namespace=namespace,
     ).configure(ops_manager, "my-replica-set")
     resource["spec"]["version"] = custom_mdb_version
     resource["spec"]["members"] = 2
@@ -50,6 +50,7 @@ class TestOpsManagerCreation:
         )
 
     def test_pvcs(self, ops_manager: MongoDBOpsManager):
+
         for pod in ops_manager.read_om_pods():
             claims = [
                 volume
@@ -64,7 +65,7 @@ class TestOpsManagerCreation:
                 expected_name="mongodb-versions",
                 expected_claim_name="mongodb-versions-{}".format(pod.metadata.name),
                 expected_size="20G",
-                storage_class="gp2",
+                storage_class=get_default_storage_class(),
             )
 
     def test_replica_set_reaches_failed_phase(self, replica_set: MongoDB):

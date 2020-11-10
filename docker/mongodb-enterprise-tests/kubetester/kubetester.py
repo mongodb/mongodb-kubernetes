@@ -232,7 +232,10 @@ class KubernetesTester(object):
         cls.clients("corev1").create_namespaced_service(body=body, namespace=namespace)
 
     @classmethod
-    def create_pvc(cls, namespace: str, body: Dict):
+    def create_pvc(cls, namespace: str, body: Dict, storage_class_name: str = "gp2"):
+        if storage_class_name is not None:
+            body["spec"]["storageClassName"] = storage_class_name
+
         cls.clients("corev1").create_namespaced_persistent_volume_claim(
             body=body, namespace=namespace
         )
@@ -657,8 +660,8 @@ class KubernetesTester(object):
 
     @staticmethod
     def in_running_state():
-        """ Returns true if the resource in Running state, fails fast if got into Failed error.
-         This allows to fail fast in case of cascade failures """
+        """Returns true if the resource in Running state, fails fast if got into Failed error.
+        This allows to fail fast in case of cascade failures"""
         resource = KubernetesTester.get_resource()
         if "status" not in resource:
             return False
@@ -1130,7 +1133,7 @@ class KubernetesTester(object):
     @staticmethod
     def random_om_project_name() -> str:
         """Generates the name for the projects with our common namespace (and project) convention so that
-        GC process could remove it if it's left for some reasons. Always has a whitespace. """
+        GC process could remove it if it's left for some reasons. Always has a whitespace."""
         current_seconds_epoch = int(time.time())
         prefix = f"a-{current_seconds_epoch}-"
 
@@ -1654,8 +1657,8 @@ def validation_reason_from_exception(exception_msg):
 
 
 def create_testing_namespace(evergreen_task_id: str, name: str) -> str:
-    """ creates the namespace that is used by the test. Marks it with necessary labels and annotations so that
-    it would be handled by configuration scripts correctly (cluster cleaner, dumping the diagnostics information) """
+    """creates the namespace that is used by the test. Marks it with necessary labels and annotations so that
+    it would be handled by configuration scripts correctly (cluster cleaner, dumping the diagnostics information)"""
     test_ns = client.V1Namespace(
         metadata=V1ObjectMeta(
             name=name,

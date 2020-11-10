@@ -2,20 +2,21 @@ from operator import attrgetter
 from typing import Optional, Dict
 
 from kubernetes import client
-from kubetester import MongoDB
+from kubetester import get_default_storage_class
 from kubetester.awss3client import AwsS3Client, s3_endpoint
 from kubetester.kubetester import (
     skip_if_local,
     fixture as yaml_fixture,
     KubernetesTester,
 )
-from kubetester.mongodb import Phase
+from kubetester.mongodb import Phase, MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester import (
     assert_pod_container_security_context,
     assert_pod_security_context,
 )
+
 from pytest import mark, fixture, skip
 from tests.opsmanager.conftest import ensure_ent_version
 
@@ -112,6 +113,8 @@ def ops_manager(
     )
 
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
+    resource["spec"]["backup"]["headDB"]["storageClass"] = get_default_storage_class()
+
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
 
@@ -158,7 +161,9 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
 @fixture(scope="module")
 def s3_replica_set(ops_manager, namespace) -> MongoDB:
     resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set-for-om.yaml"), namespace=namespace, name=S3_RS_NAME,
+        yaml_fixture("replica-set-for-om.yaml"),
+        namespace=namespace,
+        name=S3_RS_NAME,
     ).configure(ops_manager, "s3metadata")
 
     yield resource.create()
@@ -193,7 +198,9 @@ def blockstore_user(namespace, blockstore_replica_set: MongoDB) -> MongoDBUser:
     KubernetesTester.create_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),
-        {"password": USER_PASSWORD,},
+        {
+            "password": USER_PASSWORD,
+        },
     )
 
     yield resource.create()
@@ -217,7 +224,9 @@ def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
     KubernetesTester.create_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),
-        {"password": USER_PASSWORD,},
+        {
+            "password": USER_PASSWORD,
+        },
     )
 
     yield resource.create()
@@ -266,13 +275,14 @@ class TestOpsManagerCreation:
         assert len(claims) == 1
         claims.sort(key=attrgetter("name"))
 
+        default_sc = get_default_storage_class()
         KubernetesTester.check_single_pvc(
             namespace,
             claims[0],
             "head",
             "head-{}-0".format(ops_manager.backup_daemon_name()),
             "500M",
-            "gp2",
+            default_sc,
         )
 
     def test_backup_daemon_services_created(self, namespace):
@@ -318,7 +328,7 @@ class TestOpsManagerCreation:
 
 @mark.e2e_om_ops_manager_backup
 class TestBackupDatabasesAdded:
-    """ name: Creates three mongodb resources for oplog, s3 and blockstore and waits until OM resource gets to
+    """name: Creates three mongodb resources for oplog, s3 and blockstore and waits until OM resource gets to
     running state"""
 
     def test_backup_mdbs_created(
@@ -359,7 +369,9 @@ class TestBackupDatabasesAdded:
         ops_manager.update()
 
         ops_manager.backup_status().assert_reaches_phase(
-            Phase.Running, timeout=200, ignore_errors=True,
+            Phase.Running,
+            timeout=200,
+            ignore_errors=True,
         )
 
         assert ops_manager.backup_status().get_message() is None
@@ -421,8 +433,8 @@ class TestOpsManagerWatchesBlockStoreUpdates:
         ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=40)
 
     def test_scramsha_enabled_for_blockstore(self, blockstore_replica_set: MongoDB):
-        """ Enables SCRAM for the blockstore replica set. Note that until CLOUDP-67736 is fixed
-         the order of operations (scram first, MongoDBUser - next) is important"""
+        """Enables SCRAM for the blockstore replica set. Note that until CLOUDP-67736 is fixed
+        the order of operations (scram first, MongoDBUser - next) is important"""
         blockstore_replica_set["spec"]["security"] = {
             "authentication": {"enabled": True, "modes": ["SCRAM"]}
         }
@@ -446,7 +458,9 @@ class TestOpsManagerWatchesBlockStoreUpdates:
         }
         ops_manager.update()
         ops_manager.backup_status().assert_reaches_phase(
-            Phase.Running, timeout=200, ignore_errors=True,
+            Phase.Running,
+            timeout=200,
+            ignore_errors=True,
         )
         assert ops_manager.backup_status().get_message() is None
 
@@ -497,8 +511,8 @@ class TestOpsManagerWatchesBlockStoreUpdates:
 
 @mark.e2e_om_ops_manager_backup
 class TestBackupForMongodb:
-    """ This part ensures that backup for the client works correctly and the snapshot is created.
-    Both latest and the one before the latest are tested (as the backup process for them may differ significantly) """
+    """This part ensures that backup for the client works correctly and the snapshot is created.
+    Both latest and the one before the latest are tested (as the backup process for them may differ significantly)"""
 
     @fixture(scope="class")
     def mdb_latest(
@@ -656,7 +670,8 @@ class TestBackupConfigurationAdditionDeletion:
         )
 
     def test_error_on_s3store_removal(
-        self, ops_manager: MongoDBOpsManager,
+        self,
+        ops_manager: MongoDBOpsManager,
     ):
         """ Removing the s3 store when there are backups running is an error """
         ops_manager.reload()

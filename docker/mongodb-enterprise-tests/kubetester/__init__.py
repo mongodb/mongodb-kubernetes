@@ -69,5 +69,18 @@ def get_pod_when_ready(namespace: str, label_selector: str) -> client.V1Pod:
                 raise
 
 
+def get_default_storage_class() -> str:
+    default_class_annotations = (
+        "storageclass.kubernetes.io/is-default-class",  # storage.k8s.io/v1
+        "storageclass.beta.kubernetes.io/is-default-class",  # storage.k8s.io/v1beta1
+    )
+    sc: client.V1StorageClass
+    for sc in client.StorageV1Api().list_storage_class().items:
+        if any(
+            sc.metadata.annotations.get(a) == "true" for a in default_class_annotations
+        ):
+            return sc.metadata.name
+
+
 def decode_secret(data: Dict[str, str]) -> Dict[str, str]:
     return {k: b64decode(v).decode("utf-8") for (k, v) in data.items()}

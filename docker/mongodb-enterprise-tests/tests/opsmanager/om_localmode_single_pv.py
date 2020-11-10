@@ -6,6 +6,7 @@ from kubetester.kubetester import (
     skip_if_local,
     KubernetesTester,
 )
+from kubetester import get_default_storage_class
 from kubetester.mongodb import Phase, MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
@@ -21,11 +22,12 @@ VERSION_NOT_IN_OPS_MANAGER = "4.2.1"
 def ops_manager(
     namespace: str, custom_version: Optional[str], custom_appdb_version: str
 ) -> MongoDBOpsManager:
-    KubernetesTester.make_default_gp2_storage_class()
-
     with open(yaml_fixture("mongodb_versions_claim.yaml"), "r") as f:
         pvc_body = yaml.safe_load(f.read())
-    KubernetesTester.create_pvc(namespace, body=pvc_body)
+
+    KubernetesTester.create_pvc(
+        namespace, body=pvc_body, storage_class_name=get_default_storage_class()
+    )
 
     """ The fixture for Ops Manager to be created."""
     om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
@@ -41,7 +43,8 @@ def ops_manager(
 @fixture(scope="module")
 def replica_set(ops_manager: MongoDBOpsManager, namespace: str) -> MongoDB:
     resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set-for-om.yaml"), namespace=namespace,
+        yaml_fixture("replica-set-for-om.yaml"),
+        namespace=namespace,
     ).configure(ops_manager, "my-replica-set")
     resource["spec"]["version"] = VERSION_IN_OPS_MANAGER
     yield resource.create()

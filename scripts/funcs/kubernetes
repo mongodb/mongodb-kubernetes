@@ -248,27 +248,14 @@ create_kops_cluster() {
     kops update cluster "${cluster_name}" --yes
 
     echo "Waiting until kops cluster gets ready..."
-
-    local cmd
-    cmd="while ! kops validate cluster ${cluster_name} &>/dev/null ; do printf .; sleep 5; done"
-    timeout "20m" bash -c "${cmd}"
+    kops validate cluster "${cluster_name}" --wait 10m
 
     title "Kops cluster ${cluster_name} is ready! Note, that you need to use 'admin' user if you want to ssh to the nodes"
 
-    # see https://codeandunicorns.com/kubernetes-dashboard-kops/
-    # also keep an eye on https://github.com/kubernetes/dashboard/releases - we should use 2.0.0 once it goes to GA
     title "Adding support for Kubernetes dashboard"
-    kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v1.10.1/src/deploy/recommended/kubernetes-dashboard.yaml
+    kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0/aio/deploy/recommended.yaml
 
-    #To create a service account with access to default namespace
-    kubectl create serviceaccount dashboard -n default
-
-    #To create a cluster role bind. Connecting service account and cluster level access
-    kubectl create clusterrolebinding dashboard-admin -n default \
-     --clusterrole=cluster-admin \
-     --serviceaccount=default:dashboard
-
-    title "Kubernetes dashboard is installed, use \"make dashboard\" to open it"
+    title 'Kubernetes dashboard is installed, use "make dashboard" to open it'
 }
 
 # Makes sure the ECR repository exists.

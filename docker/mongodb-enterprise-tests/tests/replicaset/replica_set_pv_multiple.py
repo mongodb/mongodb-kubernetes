@@ -1,5 +1,6 @@
 import pytest
 
+from kubetester import get_default_storage_class
 from kubetester.kubetester import KubernetesTester
 
 from operator import attrgetter
@@ -61,13 +62,14 @@ class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
 
         claims.sort(key=attrgetter("name"))
 
+        default_sc = get_default_storage_class()
         KubernetesTester.check_single_pvc(
             self.namespace,
             claims[0],
             "data",
             "data-{}-{}".format(self.RESOURCE_NAME, idx),
             "2Gi",
-            "gp2",
+            default_sc,
         )
 
         # Note that PVC gets the default storage class for cluster even if it wasn't requested initially
@@ -77,7 +79,7 @@ class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
             "journal",
             f"journal-{self.RESOURCE_NAME}-{idx}",
             "1Gi",
-            "gp2",
+            default_sc,
         )
         KubernetesTester.check_single_pvc(
             self.namespace,
@@ -85,7 +87,7 @@ class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
             "logs",
             f"logs-{self.RESOURCE_NAME}-{idx}",
             "1G",
-            "gp2",
+            default_sc,
         )
 
 
