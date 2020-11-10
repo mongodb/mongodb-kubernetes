@@ -18,14 +18,14 @@ import (
 
 var (
 	count          int
-	wait           time.Duration
+	waitTime       time.Duration
 	prometheusURL  string
 	deployOperator bool
 )
 
 func parseFlags() {
 	flag.IntVar(&count, "mongodb-rs-count", 1, "count of mongodb replicaset to deploy")
-	flag.DurationVar(&wait, "time-to-wait", 2*time.Minute, "time to wait for the test to finish in minutes")
+	flag.DurationVar(&waitTime, "time-to-wait", 2*time.Minute, "time to wait for the test to finish in minutes")
 	flag.StringVar(&prometheusURL, "prometheus-url", "", "URL of prometheus server to be scrapped")
 	flag.BoolVar(&deployOperator, "deploy-operator", false, "should deploy the operator")
 	flag.Parse()
@@ -85,15 +85,14 @@ func createKubernetesClient(m *monitor.Monitor) error {
 func setup() (*monitor.Monitor, error) {
 	monitor := &monitor.Monitor{}
 
-	err := createPrometheusClient(monitor)
-	if err != nil {
+	if err := createPrometheusClient(monitor); err != nil {
 		return nil, err
 	}
 
-	err = createKubernetesClient(monitor)
-	if err != nil {
+	if err := createKubernetesClient(monitor); err != nil {
 		return nil, err
 	}
+
 	return monitor, nil
 }
 
@@ -104,14 +103,13 @@ func main() {
 	if err != nil {
 		log.Fatalf(err.Error())
 	}
-	monitor.Timeout = wait
+	monitor.Timeout = waitTime
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	if deployOperator {
-		err = deployMongoDBOperator(ctx)
-		if err != nil {
+		if err := deployMongoDBOperator(ctx); err != nil {
 			log.Fatalf(err.Error())
 		}
 	}
@@ -150,7 +148,7 @@ func main() {
 		monitor.MonitorOperatorReconcileTime(ctx)
 		monitor.MonitorOperatorResourceUsage(ctx)
 		log.Printf("loadtesting completed...")
-	case <-time.After(wait):
+	case <-time.After(waitTime):
 		log.Printf("timedout waiting for response...")
 	}
 }
