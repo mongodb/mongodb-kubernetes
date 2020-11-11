@@ -52,6 +52,7 @@ func (InternetProvider) GetVersion() (*Manifest, error) {
 	}
 
 	body, err := ioutil.ReadAll(resp.Body)
+	resp.Body.Close()
 	if err != nil {
 		return nil, err
 	}

@@ -166,6 +166,8 @@ type OMContext struct {
 // HTTPOmConnection
 type HTTPOmConnection struct {
 	context *OMContext
+
+	client *api.Client
 }
 
 func (oc *HTTPOmConnection) GetAgentAuthMode() (string, error) {
@@ -184,7 +186,9 @@ var _ Connection = &HTTPOmConnection{}
 // NewOpsManagerConnection stores OpsManger api endpoint and authentication credentials.
 // It makes it easy to call the API without having to explicitly provide connection details.
 func NewOpsManagerConnection(context *OMContext) Connection {
-	return &HTTPOmConnection{context: context}
+	return &HTTPOmConnection{
+		context: context,
+	}
 }
 
 func (oc *HTTPOmConnection) ConfigureProject(project *Project) {
@@ -795,7 +799,12 @@ func (oc *HTTPOmConnection) httpVerb(method, path string, v interface{}) ([]byte
 	return response, err
 }
 
+// getHTTPClient gets a new or an already existing client.
 func (oc *HTTPOmConnection) getHTTPClient() (*api.Client, error) {
+	if oc.client != nil {
+		return oc.client, nil
+	}
+
 	opts := api.NewHTTPOptions()
 
 	if oc.context.CACertificate != "" {
@@ -810,5 +819,11 @@ func (oc *HTTPOmConnection) getHTTPClient() (*api.Client, error) {
 
 	opts = append(opts, api.OptionDigestAuth(oc.User(), oc.PublicAPIKey()))
 
-	return api.NewHTTPClient(opts...)
+	client, err := api.NewHTTPClient(opts...)
+	if err != nil {
+		return nil, err
+	}
+	oc.client = client
+
+	return oc.client, nil
 }

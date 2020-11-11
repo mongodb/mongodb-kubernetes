@@ -8,10 +8,8 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"net"
 	"net/http"
 	"net/http/httputil"
-	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/apierror"
 
@@ -43,15 +41,7 @@ func NewHTTPClient(options ...func(*Client) error) (*Client, error) {
 }
 
 func newDefaultHTTPClient() *http.Client {
-	return &http.Client{
-		Transport: &http.Transport{
-			ResponseHeaderTimeout: 10 * time.Minute,
-			TLSHandshakeTimeout:   10 * time.Second,
-			DialContext: (&net.Dialer{
-				Timeout: 10 * time.Second,
-			}).DialContext,
-		},
-	}
+	return &http.Client{Transport: http.DefaultTransport}
 }
 
 func applyOptions(client *Client, options ...func(*Client) error) (*Client, error) {
@@ -129,7 +119,6 @@ func (client Client) Request(method, hostname, path string, v interface{}) ([]by
 		return nil, nil, apierror.New(err)
 	}
 
-	var body []byte
 	req, _ := createHTTPRequest(method, url, buffer)
 	if client.username != "" && client.password != "" {
 		// Only add Digest auth when needed.
@@ -151,12 +140,12 @@ func (client Client) Request(method, hostname, path string, v interface{}) ([]by
 		return nil, nil, apierror.New(fmt.Errorf("Error sending %s request to %s: %v", method, url, err))
 	}
 
-	if resp.Body != nil {
-		defer resp.Body.Close()
-		body, err = ioutil.ReadAll(resp.Body)
-		if err != nil {
-			return nil, nil, apierror.New(fmt.Errorf("Error reading response body from %s to %v status=%v", method, url, resp.StatusCode))
-		}
+	// It is required for the body to be read completely for the connection to be reused.
+	// https://stackoverflow.com/a/17953506/75928
+	body, err := ioutil.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return nil, nil, apierror.New(fmt.Errorf("Error reading response body from %s to %v status=%v", method, url, resp.StatusCode))
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {

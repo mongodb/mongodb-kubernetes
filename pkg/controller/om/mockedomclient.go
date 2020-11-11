@@ -155,7 +155,9 @@ func NewEmptyMockedOmConnectionNoGroup(ctx *OMContext) Connection {
 		connection.OrganizationsWithGroups = make(map[*Organization][]*Project)
 	}
 
-	connection.HTTPOmConnection = HTTPOmConnection{ctx}
+	connection.HTTPOmConnection = HTTPOmConnection{
+		context: ctx,
+	}
 	CurrMockedConnection = connection
 
 	return connection
