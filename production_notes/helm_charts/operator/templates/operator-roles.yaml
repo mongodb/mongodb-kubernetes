@@ -162,5 +162,18 @@ subjects:
   namespace: {{ .Release.Namespace }}
 
 {{- end }}
-
-
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mongodb-enterprise-database-pods
+  {{- if not (eq (.Values.watchNamespace | default "*") "*") }}
+  namespace: {{ .Values.watchNamespace }}
+  {{- else }}
+  namespace: {{ .Values.namespace }}
+  {{- end }}
+{{- if .Values.registry.imagePullSecrets}}
+imagePullSecrets:
+  - name: {{ .Values.registry.imagePullSecrets }}
+{{- end }}
+---

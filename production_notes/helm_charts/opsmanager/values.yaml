@@ -4,26 +4,9 @@ replicas: 1
 version: "4.4.4"
 
 
-# Set this to true if your cluster is managing SecurityContext for you.
-# If running OpenShift (Cloud, Minishift, etc.), set this to true.
-managedSecurityContext: false
-
 # Kubernetes internal DNS
 clusterName: cluster.local
 
-# Section to describe components that needs to be installed
-# mongodb-enterprise-operator.enabled: will deploy operator in the same namespace.
-# This should be set to false if operator is already managing namespace
-# deployValidationWebhooks: will deploy optional CRD validation webhooks.
-# Validation webhooks ensure that CRD is valid before applying it to a cluster with kubectl.
-# Without webhooks Operator will perform validation and logs would need to be checked
-
-mongodb-enterprise-operator.enabled: true
-deployValidationWebhooks: true  # Optional configuration.
-
-# MongoDB Ops Manager configuration parameters
-
-versionSource: "mongodb"  # [ mongodb| local| remote ]
 
 # Ops Manager Global Admin user name and password.
 # Ensure it complies with OpsManager password format
@@ -35,7 +18,6 @@ globalAdminLastName: "Last Name"
 # enable Access Lists for Ops Manager
 publicApi:
   whitelistEnabled: false
-
 
 
 # Required: SMTP Mail server set up for password recovery

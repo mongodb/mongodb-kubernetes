@@ -4,13 +4,7 @@
 # If running OpenShift (Cloud, Minishift, etc.), set this to true.
 managedSecurityContext: false
 
-# Section to describe components that needs to be installed
-deployValidationWebhooks: true  # Optional configuration.
-
 clusterName: cluster.local
-
-# Execution environment for the operator, dev or prod. Use dev for more verbose logging
-env: prod
 
 # Name that will be assigned to most of internal Kubernetes objects like Deployment, ServiceAccount, Role etc.
 name: mongodb-enterprise-operator

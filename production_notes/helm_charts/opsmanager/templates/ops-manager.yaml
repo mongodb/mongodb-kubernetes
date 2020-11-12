@@ -20,7 +20,6 @@ spec:
     # this requires to set some mandatory configuration properties, see
     # https://docs.opsmanager.mongodb.com/current/reference/configuration/index.html#mms.ignoreInitialUiSetup
     mms.ignoreInitialUiSetup: "true"
-    automation.versions.source: {{ .Values.versionSource | quote }}
     mms.adminEmailAddr: {{ .Values.mail.adminEmailAddr | quote }}
     mms.fromEmailAddr: {{ .Values.mail.adminEmailAddr | quote }}
     mms.replyToEmailAddr: {{ .Values.mail.adminEmailAddr | quote }}

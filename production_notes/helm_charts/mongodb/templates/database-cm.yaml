@@ -7,11 +7,11 @@ metadata:
   namespace: {{ .Release.Namespace }}
 data:
   projectName: {{ .Values.name }}
-  baseUrl: {{ .Values.opsManager.URL }}
+  baseUrl: http://{{ .Values.opsManagerReleaseName }}-ops-manager-svc.mongodb.svc.cluster.local:8080
 
   # Optional parameters
 
-  # If orgId is omitted a new organization will be created, with the same name as the Project. 
+  # If orgId is omitted a new organization will be created, with the same name as the Project.
   # Also API Key used must have global admin permissions
   {{- if .Values.opsManager.orgid }}
   orgId: {{ .Values.opsManager.orgid | quote }}

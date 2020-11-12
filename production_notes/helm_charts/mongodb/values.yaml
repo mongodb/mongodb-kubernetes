@@ -4,13 +4,10 @@
 # If running OpenShift (Cloud, Minishift, etc.), set this to true.
 managedSecurityContext: false
 
-# Section to describe components that needs to be installed
-mongodb-enterprise-operator:
-  enabled: true
-
-
 # Optional configuration.
 deployValidationWebhooks: true
+
+opsManagerReleaseName:
 
 name: mdbreplset
 type: ReplicaSet
@@ -18,8 +15,6 @@ members: 3
 opsManager:
   # Ops Manager connection need to be configured with Values and This HELM chart will create
   # necessary Secret and Config Map.
-  URL:
-  orgid:
   APIKey:
   APISecret:
 
@@ -27,7 +22,7 @@ security:
   authentication:
     modes: ["SCRAM"]  # Valid authentication modes are "SCRAM", "LDAP" and "X509"
   tls:
-    enabled: true
+    enabled: false
 
 clusterName: cluster.local
 

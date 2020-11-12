@@ -1,0 +1,6 @@
+dependencies:
+- name: operator
+  repository: file://../operator
+  version: 0.0.1
+digest: sha256:c4dea5011ee011224454bcac3bc94fab6a1bd4d71c6ecafbc2b578f02fc82504
+generated: "2020-11-11T16:29:32.182713Z"
