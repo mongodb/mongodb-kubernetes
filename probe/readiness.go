@@ -7,18 +7,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/probe/headless"
+	"github.com/10gen/ops-manager-kubernetes/probe/health"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+
 	"github.com/10gen/ops-manager-kubernetes/probe/config"
 
 	"go.uber.org/zap"
 )
 
 const (
-	defaultAgentHealthStatusFilePath = "/var/log/mongodb-mms-automation/agent-health-status.json"
-	defaultLogPath                   = "/var/log/mongodb-mms-automation/readiness.log"
-	appDBAutomationConfigKey         = "cluster-config.json"
-	headlessAgent                    = "HEADLESS_AGENT"
-	agentHealthStatusFilePathEnv     = "AGENT_STATUS_FILEPATH"
-	logPathEnv                       = "LOG_FILE_PATH"
+	headlessAgent = "HEADLESS_AGENT"
 )
 
 var riskySteps []string
@@ -84,8 +84,8 @@ func isPodReady(conf config.Config) bool {
 	return false
 }
 
-func readAgentHealthStatus(file *os.File) (healthStatus, error) {
-	var health healthStatus
+func readAgentHealthStatus(file *os.File) (health.Status, error) {
+	var health health.Status
 
 	data, err := ioutil.ReadAll(file)
 	if err != nil {
@@ -97,7 +97,7 @@ func readAgentHealthStatus(file *os.File) (healthStatus, error) {
 }
 
 // hasDeadlockedSteps returns true if the agent is stuck on waiting for the other agents
-func hasDeadlockedSteps(health healthStatus) bool {
+func hasDeadlockedSteps(health health.Status) bool {
 	currentStep := findCurrentStep(health.ProcessPlans)
 	if currentStep != nil {
 		return isDeadlocked(currentStep)
@@ -111,8 +111,8 @@ func hasDeadlockedSteps(health healthStatus) bool {
 // (indeed this is not the perfect logic as sometimes the agent doesn't update the 'Started' as well - see
 // 'health-status-ok.json', but seems it works for finding deadlocks still
 //noinspection GoNilness
-func findCurrentStep(processStatuses map[string]mmsDirectorStatus) *stepStatus {
-	var currentPlan *planStatus
+func findCurrentStep(processStatuses map[string]health.MmsDirectorStatus) *health.StepStatus {
+	var currentPlan *health.PlanStatus
 	if len(processStatuses) == 0 {
 		// Seems shouldn't happen but let's check anyway - may be needs to be changed to Info if this happens
 		logger.Warnf("There is no information about Agent process plans")
@@ -137,7 +137,7 @@ func findCurrentStep(processStatuses map[string]mmsDirectorStatus) *stepStatus {
 		return nil
 	}
 
-	var lastStartedStep *stepStatus
+	var lastStartedStep *health.StepStatus
 	for _, m := range currentPlan.Moves {
 		for _, s := range m.Steps {
 			if s.Started != nil {
@@ -149,7 +149,7 @@ func findCurrentStep(processStatuses map[string]mmsDirectorStatus) *stepStatus {
 	return lastStartedStep
 }
 
-func isDeadlocked(status *stepStatus) bool {
+func isDeadlocked(status *health.StepStatus) bool {
 	// Some logic behind 15 seconds: the health status file is dumped each 10 seconds so we are sure that if the agent
 	// has been in the the step for 10 seconds - this means it is waiting for the other hosts and they are not available
 	fifteenSecondsAgo := time.Now().Add(time.Duration(-15) * time.Second)
@@ -161,16 +161,16 @@ func isDeadlocked(status *stepStatus) bool {
 	return false
 }
 
-func isInGoalState(health healthStatus, conf config.Config) (bool, error) {
+func isInGoalState(health health.Status, conf config.Config) (bool, error) {
 	if isHeadlessMode() {
-		return PerformCheckHeadlessMode(health, conf)
+		return headless.PerformCheckHeadlessMode(health, conf)
 	}
 	return performCheckOMMode(health), nil
 }
 
 // performCheckOMMode does a general check if the Agent has reached the goal state - must be called when Agent is in
 // "OM mode"
-func performCheckOMMode(health healthStatus) bool {
+func performCheckOMMode(health health.Status) bool {
 	for _, v := range health.Healthiness {
 		logger.Debug(v)
 		if v.IsInGoalState {
@@ -201,14 +201,18 @@ func getEnvOrDefault(envVar, defaultValue string) string {
 	return value
 }
 
-func getHealthStatusFilePath() string {
-	return getEnvOrDefault(agentHealthStatusFilePathEnv, defaultAgentHealthStatusFilePath)
+func kubernetesClientset() kubernetes.Interface {
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		panic(err.Error())
+	}
+	// creates the clientset
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		panic(err.Error())
+	}
+	return clientset
 }
-
-func getLogFilePath() string {
-	return getEnvOrDefault(logPathEnv, defaultLogPath)
-}
-
 func main() {
 	config, err := config.BuildFromEnvVariables(kubernetesClientset(), isHeadlessMode())
 	if err != nil {
