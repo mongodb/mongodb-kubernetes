@@ -10,7 +10,8 @@ import (
 	api "github.com/prometheus/client_golang/api"
 	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/common/model"
-	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 )
@@ -34,7 +35,12 @@ func max(t1, t2 time.Time) time.Time {
 func isStatefulSetReady(c kubernetes.Clientset, stsName, namespace string) wait.ConditionFunc {
 	return func() (bool, error) {
 		log.Printf("waiting for statefulset %s to be in ready state...\n", stsName)
-		sts, err := c.AppsV1().StatefulSets(namespace).Get(stsName, meta_v1.GetOptions{})
+
+		sts, err := c.AppsV1().StatefulSets(namespace).Get(stsName, metav1.GetOptions{})
+		// wait for the operator to create sts
+		if err != nil && errors.IsNotFound(err) {
+			return false, nil
+		}
 		if err != nil {
 			return false, err
 		}
@@ -67,7 +73,7 @@ func (m *Monitor) MonitorReplicaSets(ctx context.Context, replicasetName string)
 // by controller-runtime duration is the time duration over which we would like to measure the metrics,
 // it's the minimum of the mongodbReplicaset becoming "ready" and the "wait" time.
 func (m *Monitor) MonitorOperatorReconcileTime(ctx context.Context) {
-	// Currently it only measures average, the following needs to be converted into
+	// Currently it only measures p50(median), the following needs to be converted into
 	// a function as we measure p90, p95 etc
 	queryString := "histogram_quantile(0.5, rate(controller_runtime_reconcile_time_seconds_bucket{controller=\"mongodbreplicaset-controller\"}[5m]))"
 
@@ -75,7 +81,7 @@ func (m *Monitor) MonitorOperatorReconcileTime(ctx context.Context) {
 	if err != nil {
 		log.Print(err.Error())
 	} else {
-		log.Printf("Operator Reconcile time metrics: %v", result)
+		log.Printf("operator Reconcile time metrics p50: %v", result)
 	}
 }
 
@@ -85,21 +91,21 @@ func (m *Monitor) MonitorOperatorReconcileTime(ctx context.Context) {
 func (m *Monitor) MonitorOperatorResourceUsage(ctx context.Context) {
 
 	// specify pod name since we will be having only one pod corresponsing to the operator
-	CPUQueryString := "sum(rate(container_cpu_usage_seconds_total{namespace=\"mongodb\", pod=~\"mongodb-kubernetes-operator-.*\"}[2m])) by (pod) * 1000"
+	CPUQueryString := "sum(rate(container_cpu_usage_seconds_total{namespace=\"mongodb\", pod=~\"om-operator-.*\"}[2m])) by (pod) * 1000"
 
 	CPUResults, err := performQuery(ctx, m.PromClient, CPUQueryString, m.StartTime, m.EndTime)
 	if err != nil {
 		log.Print(err.Error())
 	} else {
-		log.Printf("CPU Resource metrics: %v", CPUResults)
+		log.Printf("cpu resource metrics: %v", CPUResults)
 	}
 
-	MemoryQueryString := "sum(container_memory_usage_bytes{namespace=\"mongodb\", pod=~\"mongodb-kubernetes-operator-.*\"}) by (pod)"
+	MemoryQueryString := "sum(container_memory_usage_bytes{namespace=\"mongodb\", pod=~\"om-operator-.*\"}) by (pod) / 1000000 "
 	MemoryResults, err := performQuery(ctx, m.PromClient, MemoryQueryString, m.StartTime, m.EndTime)
 	if err != nil {
 		log.Print(err.Error())
 	} else {
-		log.Printf("Memory Resource metrics: %v", MemoryResults)
+		log.Printf("memory Resource metrics: %v", MemoryResults)
 	}
 }
 

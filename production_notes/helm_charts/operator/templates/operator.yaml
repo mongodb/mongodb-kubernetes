@@ -17,6 +17,10 @@ spec:
         app.kubernetes.io/component: controller
         app.kubernetes.io/name: {{ .Release.Name }}-operator
         app.kubernetes.io/instance:  {{ .Release.Name }}
+      annotations:
+        # lets promethues know to scrape the operator pod and where to scrape them
+        loadtest.io/scrape_port: "8080"
+        loadtest.io/should_be_scraped: "true"
     spec:
       serviceAccountName: {{ .Release.Name }}-operator
 {{- if not .Values.managedSecurityContext }}
