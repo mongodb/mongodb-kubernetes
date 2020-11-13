@@ -659,7 +659,7 @@ tasks:
   commands:
     - func: clone
     - func: guard_git_repo_is_clean
-    - func: setup_jq
+    - func: download_kube_tools
     - func: configure_docker_auth
 
     - func: release_docker_image_to_registry
@@ -674,7 +674,8 @@ tasks:
 - name: release_init_rh_connect
   commands:
     - func: clone
-    - func: setup_jq
+    - func: guard_git_repo_is_clean
+    - func: download_kube_tools
     - func: configure_docker_auth
 
     - func: release_docker_image_to_registry
@@ -707,7 +708,8 @@ tasks:
 - name: release_operator_quay
   commands:
     - func: clone
-    - func: setup_jq
+    - func: guard_git_repo_is_clean
+    - func: download_kube_tools
     - func: configure_docker_auth
 
     - func: release_docker_image_to_registry
@@ -723,7 +725,8 @@ tasks:
 - name: release_init_quay
   commands:
     - func: clone
-    - func: setup_jq
+    - func: guard_git_repo_is_clean
+    - func: download_kube_tools
     - func: configure_docker_auth
 
     - func: release_docker_image_to_registry
@@ -783,7 +786,7 @@ tasks:
 - name: prerelease_master_images
   commands:
     - func: clone
-    - func: setup_jq
+    - func: download_kube_tools
     - func: configure_docker_auth
 
     - func: release_docker_image_to_registry
