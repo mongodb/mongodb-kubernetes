@@ -110,22 +110,6 @@ functions:
 
         binary: scripts/evergreen/build_operator.sh
 
-  # push_versioned_binaries will build the operator and readinessprobe binaries,
-  # put them into a tar.gz file and upload them to S3, indicating the release version.
-  # this is for customers or any other third party consumers to be able to build
-  # their own Docker images.
-  push_versioned_binaries:
-    - command: subprocess.exec
-      params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
-        add_to_path:
-        - ${workdir}/bin
-        include_expansions_in_env:
-        - private_gpg_key
-        - private_gpg_passphrase
-        - private_gpg_id
-        binary: scripts/evergreen/push_versioned_binaries.sh
-
     - command: s3.put
       params:
         aws_key: ${mms_build_s3_aws_access_key}
@@ -861,7 +845,6 @@ tasks:
   - func: build_operator
     vars:
       image_type: ubi
-  - func: push_versioned_binaries
   - func: upload_e2e_build_context
     vars:
       image_type: ubi
