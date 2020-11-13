@@ -47,8 +47,8 @@ type AuthMode string
 
 const (
 	NumAgents                    = 3
-	externalConnectivityPortName = "externalConnectivityPort"
-	backupPortName               = "backupPort"
+	externalConnectivityPortName = "external-connectivity-port"
+	backupPortName               = "backup-port"
 )
 
 // StatefulSetHelperCommon is the basic struct the same for all Statefulset helpers (MongoDB, OpsManager)
