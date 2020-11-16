@@ -37,4 +37,7 @@ spec:
     {{- if .Values.security.tls.enabled }}
     tls:
       enabled: {{ .Values.security.tls.enabled }}
+      ca: {{ .Values.security.tls.ca }}
+      secretRef:
+        name: {{ .Values.security.tls.secretRef.name }}
     {{- end }}

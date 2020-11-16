@@ -14,6 +14,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/production_notes/pkg/ycsb"
 	"github.com/prometheus/client_golang/api"
 	flag "github.com/spf13/pflag"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
@@ -27,6 +28,7 @@ var (
 	deployOperatorAndOpsManager bool
 	deployYCSB                  bool
 	opsManagerReleaseName       string
+	tlsEnabled                  bool
 )
 
 func parseFlags() {
@@ -35,29 +37,91 @@ func parseFlags() {
 	flag.StringVar(&prometheusURL, "prometheus-url", "", "URL of prometheus server to be scrapped")
 	flag.BoolVar(&deployOperatorAndOpsManager, "deploy-operator-opsmanager", false, "should deploy the operator and ops-manager")
 	flag.BoolVar(&deployYCSB, "deploy-YCSB", false, "should deploy YCSB")
+	flag.BoolVar(&tlsEnabled, "tls", false, "enables TLS for MongoDB")
 	flag.StringVar(&opsManagerReleaseName, "ops-manager-release-name", "", "ops/operator manager release name")
 	flag.Parse()
 }
 
 // deployMongoDB deploys an instance of mongoDB replicaset
-func deployMongoDB(ctx context.Context, name string) error {
+func deployMongoDB(ctx context.Context, name string, certsName string, opsManagerCredentials map[string]string) error {
 	rsName := fmt.Sprintf("name=%s", name)
 	opsManagerHelmReleaseName := fmt.Sprintf("opsManagerReleaseName=%s", opsManagerReleaseName)
+	apikey := fmt.Sprintf("opsManager.APIKey=%s", opsManagerCredentials["user"])
+	apisecret := fmt.Sprintf("opsManager.APISecret=%s", opsManagerCredentials["publicApiKey"])
+	tlsSecretRef := fmt.Sprintf("security.tls.secretRef.name=%s", certsName)
+	tlsEnabled := fmt.Sprintf("security.tls.enabled=%t", tlsEnabled)
 
-	cmd := exec.Command("helm", "install", "--set", rsName, "--set", opsManagerHelmReleaseName, name, "../../helm_charts/mongodb/")
+	cmd := exec.Command("helm", "install", "-f", "../../helm_charts/mongodb/values.yaml", "--set", rsName, "--set", opsManagerHelmReleaseName, "--set", apikey, "--set", apisecret, "--set", tlsSecretRef, "--set", tlsEnabled, name, "../../helm_charts/mongodb/replicaSet")
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return err
+		return fmt.Errorf("%s", output)
 	}
 
 	log.Printf("deployed mongoDB replicaset %s: %s", name, string(output))
 	return nil
 }
 
+func getSecretStringData(c kubernetes.Clientset, secretName string) (map[string]string, error) {
+	stringData := map[string]string{}
+	secret, err := c.CoreV1().Secrets("mongodb").Get(secretName, metav1.GetOptions{})
+	if err != nil {
+		return stringData, fmt.Errorf("can't get secret %s: %s", secretName, err)
+	}
+	for key, value := range secret.Data {
+		stringData[key] = string(value)
+	}
+	return stringData, nil
+}
+
+// createTLSCerts prepares the TLS certs for the MongoDB Deployment
+func createTLSCerts(c kubernetes.Clientset, replicaSetName string, releaseName string) error {
+	rsName := fmt.Sprintf("name=%s", replicaSetName)
+
+	cmd := exec.Command("helm", "install", "-f", "../../helm_charts/mongodb/values.yaml", "--set", rsName, releaseName, "../../helm_charts/mongodb/certs")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s", output)
+	}
+
+	log.Printf("Created tls certs for replica set %s under release name %s: %s", replicaSetName, releaseName, string(output))
+
+	secretNames := make([]string, 3)
+	for i := 0; i < 3; i++ {
+		secretNames[i] = fmt.Sprintf("%s-%d-abcd", replicaSetName, i)
+	}
+
+	err = wait.PollImmediate(time.Second, time.Minute, areSecretsCreated(c, "mongodb", secretNames...))
+	if err != nil {
+		return fmt.Errorf("secrets weren't created within 1 minute: %s", err)
+	}
+
+	// Need to read the secrets one by one and create a new one which contains
+	// the concatenation of the generated key and crt
+	data := map[string]string{}
+	for i := 0; i < 3; i++ {
+		secretStringData, err := getSecretStringData(c, secretNames[i])
+		if err != nil {
+			return fmt.Errorf("can't read secret data: %s", err)
+		}
+		data[fmt.Sprintf("%s-%d-pem", replicaSetName, i)] = secretStringData["tls.key"] + secretStringData["tls.crt"]
+	}
+
+	_, err = c.CoreV1().Secrets("mongodb").Create(&corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      releaseName,
+			Namespace: "mongodb",
+		},
+		StringData: data})
+	if err != nil {
+		return fmt.Errorf("can't create secret: %s", err)
+	}
+	return nil
+}
+
 func isOperatorReady(c kubernetes.Clientset, deploymentName, namespace string) wait.ConditionFunc {
 	return func() (bool, error) {
-		log.Printf("waiting for opertor deployment %s to be in ready state...", deploymentName)
+		log.Printf("waiting for operator deployment %s to be in ready state...", deploymentName)
 		dep, err := c.AppsV1().Deployments(namespace).Get(deploymentName, metav1.GetOptions{})
 		if err != nil {
 			return false, err
@@ -66,18 +130,31 @@ func isOperatorReady(c kubernetes.Clientset, deploymentName, namespace string) w
 	}
 }
 
+func areSecretsCreated(c kubernetes.Clientset, namespace string, names ...string) wait.ConditionFunc {
+	return func() (bool, error) {
+		log.Printf("waiting for all secrets %v to be created...", names)
+		for _, name := range names {
+			_, err := c.CoreV1().Secrets(namespace).Get(name, metav1.GetOptions{})
+			if err != nil {
+				return false, nil
+			}
+		}
+		return true, nil
+	}
+}
+
 // deployOperator deploys mongodb operator instance
 func deployMongoDBOperatorAndOpsManager(c kubernetes.Clientset, ctx context.Context) error {
 	cmd := exec.Command("helm", "install", "om", "../../helm_charts/opsmanager/")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return err
+		return fmt.Errorf("%s", output)
 	}
 	log.Printf("deploying operator and ops-manager: %s", string(output))
 
-	err = wait.PollImmediate(time.Second, 2*time.Minute, isOperatorReady(c, "mongodb-operator", "mongodb"))
+	err = wait.PollImmediate(time.Second, 2*time.Minute, isOperatorReady(c, "om-operator", "mongodb"))
 	if err != nil {
-		return fmt.Errorf("operator deployment couldn't reach ready state in 2 minutes")
+		return fmt.Errorf("operator deployment couldn't reach ready state in 2 minutes: %s", err)
 	}
 	log.Printf("deployed operator successfully...")
 	return nil
@@ -97,7 +174,9 @@ func hasYCSBJobCompleted(c kubernetes.Clientset, jobName, namespace string) wait
 // DeployYCSB deploys ycsb as a job to loadtest mongoDB
 func deployYCSBJob(ctx context.Context, c kubernetes.Clientset, mongoDBName string) error {
 	binding := fmt.Sprintf("binding=%s-binding", mongoDBName)
-	cmd := exec.Command("helm", "install", "ycsb", "--set", binding, "../../helm_charts/ycsb/")
+	tlsEnabled := fmt.Sprintf("tls=%t", tlsEnabled)
+
+	cmd := exec.Command("helm", "install", "ycsb", "--set", binding, "--set", tlsEnabled, "../../helm_charts/ycsb/")
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -188,8 +267,28 @@ func main() {
 		log.Print("skipping deploying operator and ops-manager")
 	}
 
+	err = wait.PollImmediate(30*time.Second, 10*time.Minute, areSecretsCreated(*monitor.KubeClient, "mongodb", "om-ops-manager-admin-key"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	// Read user and password for ops manager
+	omAdminKey, err := getSecretStringData(*monitor.KubeClient, "om-ops-manager-admin-key")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if tlsEnabled {
+		for i := 0; i < count; i++ {
+			err = createTLSCerts(*monitor.KubeClient, fmt.Sprintf("mongo-%d", i), fmt.Sprintf("certs-%d", i))
+			if err != nil {
+				// we don't want to proceed if we had errors creating TLS certs
+				log.Fatalf(err.Error())
+			}
+		}
+	}
+
 	for i := 0; i < count; i++ {
-		err = deployMongoDB(ctx, fmt.Sprintf("mongo-%d", i))
+		err = deployMongoDB(ctx, fmt.Sprintf("mongo-%d", i), fmt.Sprintf("certs-%d", i), omAdminKey)
 		if err != nil {
 			// we don't want to proceed if we had errors deploying any of the mongodb replicasets
 			log.Fatalf(err.Error())

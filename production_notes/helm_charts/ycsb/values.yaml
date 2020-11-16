@@ -1,10 +1,12 @@
 db: "mongodb"    # Or "mongodb-async", no other values supported!
 action: "load"   # Or "run"
-binding:  
+binding:
+
+tls: false
 
 parallelism: 1
 
-workloadDefaults: |+ 
+workloadDefaults: |+
   recordcount=100000
   operationcount=100000
   workload=site.ycsb.workloads.CoreWorkload

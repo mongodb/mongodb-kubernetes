@@ -12,7 +12,7 @@ spec:
   username: {{ .username }}
   db: {{ .db }}
   mongodbResourceRef:
-    name: {{ $.Release.Name }} # The name of the MongoDB resource this user will be added to
+    name: {{ $.Values.name }} # The name of the MongoDB resource this user will be added to
   roles:
     {{- toYaml .roles | nindent 6 }}
 {{- end }}

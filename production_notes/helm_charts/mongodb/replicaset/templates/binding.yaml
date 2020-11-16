@@ -8,7 +8,7 @@ metadata:
   labels:
     product: {{ $.Chart.Name }}
 stringData:
-  uri: 'mongodb+srv://{{ $.Release.Name }}.{{ $.Release.Namespace }}.svc.{{ $.Values.clusterName }}/test?ssl=false'
+  uri: 'mongodb+srv://{{ $.Release.Name }}.{{ $.Release.Namespace }}.svc.{{ $.Values.clusterName }}/test?ssl={{ $.Values.security.tls.enabled }}'
   username: {{ .username }}
   password: {{ .password }}
  {{- end }}

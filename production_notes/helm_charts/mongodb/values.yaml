@@ -9,7 +9,7 @@ deployValidationWebhooks: true
 
 opsManagerReleaseName:
 
-name: mdbreplset
+name:
 type: ReplicaSet
 members: 3
 opsManager:
@@ -22,7 +22,10 @@ security:
   authentication:
     modes: ["SCRAM"]  # Valid authentication modes are "SCRAM", "LDAP" and "X509"
   tls:
-    enabled: false
+    enabled: true
+    ca: issuer-ca
+    secretRef:
+      name: certs
 
 clusterName: cluster.local
 

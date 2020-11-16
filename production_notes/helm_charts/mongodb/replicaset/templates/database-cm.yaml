@@ -7,7 +7,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
 data:
   projectName: {{ .Values.name }}
-  baseUrl: http://{{ .Values.opsManagerReleaseName }}-ops-manager-svc.mongodb.svc.cluster.local:8080
+  baseUrl: http://{{ .Values.opsManagerReleaseName }}-ops-manager-svc.{{ .Release.Namespace }}.svc.cluster.local:8080
 
   # Optional parameters
 

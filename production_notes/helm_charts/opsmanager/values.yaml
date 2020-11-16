@@ -27,3 +27,7 @@ mail:
   port: "465"
   ssl: "true"
   transport: "smtp"
+
+
+cert-manager:
+  installCRDs: true
