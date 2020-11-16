@@ -701,7 +701,7 @@ tasks:
         tag_source: ${version_id}
         tag_dest: '$(jq --raw-output ".initDatabaseVersion" < release.json)'
         image_source: ${ecr_registry}/dev/ubi/mongodb-enterprise-init-database
-        image_target: scan.connect.redhat.com/ospid-51ba77b6-1737-427b-93cb-fdef720d4b44/mongodb-enterprise-init-database
+        image_target: scan.connect.redhat.com/ospid-cf1063a9-6391-4dd7-b995-a4614483e6a1/mongodb-enterprise-init-database
         docker_username: unused
         docker_password: ${rhc_init_database_pid}
 
