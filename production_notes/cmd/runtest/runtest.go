@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/production_notes/pkg/monitor"
+	"github.com/10gen/ops-manager-kubernetes/production_notes/pkg/ycsb"
 	"github.com/prometheus/client_golang/api"
 	flag "github.com/spf13/pflag"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -79,6 +80,36 @@ func deployMongoDBOperatorAndOpsManager(c kubernetes.Clientset, ctx context.Cont
 		return fmt.Errorf("operator deployment couldn't reach ready state in 2 minutes")
 	}
 	log.Printf("deployed operator successfully...")
+	return nil
+}
+
+func hasYCSBJobCompleted(c kubernetes.Clientset, jobName, namespace string) wait.ConditionFunc {
+	return func() (bool, error) {
+		log.Printf("waiting for ycsb job %s to complete...", jobName)
+		job, err := c.BatchV1().Jobs(namespace).Get(jobName, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		return job.Status.Succeeded == 1, nil
+	}
+}
+
+// DeployYCSB deploys ycsb as a job to loadtest mongoDB
+func deployYCSBJob(ctx context.Context, c kubernetes.Clientset, mongoDBName string) error {
+	binding := fmt.Sprintf("binding=%s-binding", mongoDBName)
+	cmd := exec.Command("helm", "install", "ycsb", "--set", binding, "../../helm_charts/ycsb/")
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s", output)
+	}
+
+	log.Printf("deploying ycsb: %s", string(output))
+
+	err = wait.PollImmediate(time.Second, 2*time.Minute, hasYCSBJobCompleted(c, "ycsb-ycsb-job", "mongodb"))
+	if err != nil {
+		return fmt.Errorf("ycsb job not completed successfully")
+	}
 	return nil
 }
 
@@ -186,13 +217,29 @@ func main() {
 
 	select {
 	case <-waitCh:
-		// get required metrics from the operator over the timeframe needed by mongoDB replicasets
-		// to get in "ready" state.
+		// get required metrics from the operator over the timeframe needed by mongoDB replicasets to get in "ready" state.
 		// TODO: make this configurable for multiple replicasets
 		log.Printf("time taken by mongoDB replicaset to reach ready state: %.2f", getTimeDifferenceInSeconds(monitor.StartTime, monitor.EndTime))
 
 		monitor.MonitorOperatorReconcileTime(ctx)
 		monitor.MonitorOperatorResourceUsage(ctx)
+
+		// we only want to run YCSB job when we are loadtesting agains one mongoDB replicaset as per spec
+		if count == 1 && deployYCSB {
+			// Added some sleep for ycsb to run sucessfully: https://jira.mongodb.org/browse/CLOUDP-76932
+			time.Sleep(20 * time.Second)
+
+			err := deployYCSBJob(ctx, *monitor.KubeClient, "mongo-0")
+			if err != nil {
+				log.Printf("error deploying/running ycsb: %v", err)
+			} else {
+				err = ycsb.ParseAndUploadYCSBPodLogs(ctx, *monitor.KubeClient, "mongodb", "ycsb-ycsb-job")
+				if err != nil {
+					log.Printf("error getting results from ycsb pod: %v", err)
+				}
+			}
+		}
+
 		log.Printf("loadtesting completed...")
 	case <-time.After(waitTime):
 		log.Printf("timedout waiting for response...")
