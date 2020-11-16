@@ -11,14 +11,17 @@ The images released are:
 - appdb
 
 The Operator and the Database image follow a simple versioning schema (1.2.0, 1.2.1...).
-The Ops Manager and AppDB images use a composite versioning schema <OM_version>-operator<Operator_version>
-Each release publishes a new set of all supported Ops Manager + AppDB images.
 
 The release process is documented below:
 
 ## Update Jira to reflect the patches in the release (Tuesday)
 
-Update any finished tickets in [kube-enterprise-next](https://jira.mongodb.org/issues/?jql=project%20%3D%20CLOUDP%20AND%20component%20%3D%20%22Kubernetes%20Enterprise%22%20%20AND%20status%20in%20(Resolved%2C%20Closed)%20and%20fixVersion%3D%20kube-enterprise-next%20%20ORDER%20BY%20resolved) to have the version of the release you're doing (kube-x.y)
+Update any finished tickets in [kube-enterprise-next](https://jira.mongodb.org/issues/?jql=project%20%3D%20CLOUDP%20AND%20component%20%3D%20%22Kubernetes%20Enterprise%22%20%20AND%20status%20in%20(Resolved%2C%20Closed)%20and%20fixVersion%3D%20kube-enterprise-next%20%20ORDER%20BY%20resolved) to have the version of the release you're doing (kube-x.y):
+* Click `tools` -> `bulk change` in the top right corner
+* Select all tickets and click `Next`
+* Choose `Edit issues`
+* Choose `Change Fix Version/s` -> `Replace all with` and select the released version, `Next`
+
 
 ## Prepare Release Notes (Tuesday)
 
@@ -64,6 +67,7 @@ Note, that Operator is always released but "init" images are released only if th
 since the last release. The script will check this and will ask for new versions if necessary.
 
 ```bash
+git fetch
 ./scripts/evergreen/release/update_release_version.py
 ```
 
@@ -91,9 +95,11 @@ git push origin $(jq --raw-output .mongodbOperator < release.json)
 
 The following images are expected to get released by the end of this procedure:
 * Operator
-* Database
-* Ops Manager (all supported versions)
-* AppDB (all supported versions)
+* Init Database
+* Init Ops Manager
+* Init AppDB
+
+*(Database, AppDB and Ops Manager images are released manually)*
 
 To perform release it's necessary to manually override dependencies in the tasks in the following
 Evergreen build variants (after the release branch was merged):
@@ -110,18 +116,17 @@ eventually.
 
 Finally publish the images manually:
 * https://connect.redhat.com/project/850021/images (Operator)
-* https://connect.redhat.com/project/851701/images (Database)
 * https://connect.redhat.com/project/5718431/images (Init Database)
-* https://connect.redhat.com/project/2207181/images (Ops Manager)
 * https://connect.redhat.com/project/4276491/images (Init Ops Manager)
-* https://connect.redhat.com/project/2207271/images (AppDB)
 * https://connect.redhat.com/project/4276451/images (Init AppDB)
 
-(note, that the last published image gets the tag "latest" so you should make sure that you publish Ops Manager
- and AppDB images in the ascending order of versions (e.g. `4.2.3` before `4.2.4`))
+The RedHat projects have been configured to auto-publish the images but this does not work, so after uploading you need 
+to go to the webpage and publish the new version of the image in the web UI.
 
-The RedHat projects have been configured to auto-publish the images but this does not work, so after uploading you need to go to the webpage and publish the new version of the image in the web UI.
-
+The following images won't be published by release process, shown here just for reference:
+* https://connect.redhat.com/project/851701/images (Database)
+* https://connect.redhat.com/project/2207181/images (Ops Manager)
+* https://connect.redhat.com/project/2207271/images (AppDB)
 
 ## Publish public repo
 
