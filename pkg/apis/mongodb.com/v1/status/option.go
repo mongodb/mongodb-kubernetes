@@ -79,6 +79,25 @@ func (o ResourcesNotReadyOption) Value() interface{} {
 	return o.ResourcesNotReady
 }
 
+type BackupStatusOption struct {
+	result BackupStatusOptionResult
+}
+
+func NewBackupStatusOption(result BackupStatusOptionResult) BackupStatusOption {
+	return BackupStatusOption{
+		result: result,
+	}
+}
+
+type BackupStatusOptionResult struct {
+	EncryptionEnabled bool
+	Mode              string
+}
+
+func (o BackupStatusOption) Value() interface{} {
+	return o.result
+}
+
 func GetOption(statusOptions []Option, targetOption Option) (Option, bool) {
 	for _, s := range statusOptions {
 		if reflect.TypeOf(s) == reflect.TypeOf(targetOption) {

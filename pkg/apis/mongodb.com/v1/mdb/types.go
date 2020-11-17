@@ -112,10 +112,19 @@ type MongoDBConnectivity struct {
 type MongoDbStatus struct {
 	status.Common                   `json:",inline"`
 	MongodbShardedClusterSizeConfig `json:",inline"`
+	Backup                          BackupStatus     `json:"backup"`
 	Members                         int              `json:"members,omitempty"`
 	Version                         string           `json:"version"`
 	Link                            string           `json:"link,omitempty"`
 	Warnings                        []status.Warning `json:"warnings,omitempty"`
+}
+
+type BackupMode string
+
+type BackupStatus struct {
+	EncryptionEnabled bool `json:"encryptionEnabled"`
+	// +kubebuilder:validation:Enum=enabled;disabled;terminated
+	Mode BackupMode `json:"mode"`
 }
 
 type MongoDbSpec struct {
@@ -137,6 +146,9 @@ type MongoDbSpec struct {
 	ConnectionSpec `json:",inline"`
 	Persistent     *bool        `json:"persistent,omitempty"`
 	ResourceType   ResourceType `json:"type,omitempty"`
+
+	Backup *Backup `json:"backup"`
+
 	// sharded clusters
 
 	// TODO: uncomment once we remove podSpec and support the various statefulSet specs
@@ -166,6 +178,18 @@ type MongoDbSpec struct {
 	// configuration file:
 	// https://docs.mongodb.com/manual/reference/configuration-options/
 	AdditionalMongodConfig AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
+}
+
+// Backup contains configuration options for configuring
+// backup for this MongoDB resource
+type Backup struct {
+	EncryptionEnabled  bool     `json:"encryptionEnabled"`
+	ExcludedNamespaces []string `json:"excludedNamespaces"`
+	IncludedNamespaces []string `json:"includedNamespaces"`
+
+	// +kubebuilder:validation:Enum=enabled;disabled;terminated
+	Mode       BackupMode `json:"mode"`
+	SyncSource string     `json:"syncSource"`
 }
 
 type AgentConfig struct {
@@ -594,6 +618,12 @@ func (m MongoDB) IsLDAPEnabled() bool {
 
 func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {
 	m.Status.UpdateCommonFields(phase, m.GetGeneration(), statusOptions...)
+
+	if option, exists := status.GetOption(statusOptions, status.BackupStatusOption{}); exists {
+		result := option.(status.BackupStatusOption).Value().(status.BackupStatusOptionResult)
+		m.Status.Backup.EncryptionEnabled = result.EncryptionEnabled
+		m.Status.Backup.Mode = BackupMode(result.Mode)
+	}
 
 	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
 		m.Status.Warnings = append(m.Status.Warnings, option.(status.WarningsOption).Warnings...)
