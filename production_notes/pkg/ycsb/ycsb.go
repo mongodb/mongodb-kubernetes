@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/production_notes/pkg/s3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
@@ -56,8 +57,19 @@ func ParseAndUploadYCSBPodLogs(ctx context.Context, c kubernetes.Clientset, name
 	}
 
 	results := from(string(output), "[OVERALL]")
-	// TOOO: Upload this to S3
 	log.Printf("ycsb results: %s", results)
 
+	// Upload ycsb the data to S3
+	s, err := s3.NewS3Session()
+	if err != nil {
+		return fmt.Errorf("error while creating s3 session: %v", err)
+	}
+
+	err = s3.UploadFile(ctx, s, results, "ycsb")
+	if err != nil {
+		return fmt.Errorf("error while uploading to s3: %v", err)
+	}
+
+	log.Printf("successfully uploaded ycsb results to s3")
 	return nil
 }
