@@ -29,6 +29,7 @@ var (
 	deployYCSB                  bool
 	opsManagerReleaseName       string
 	tlsEnabled                  bool
+	cleanupResources            bool
 )
 
 func parseFlags() {
@@ -39,6 +40,7 @@ func parseFlags() {
 	flag.BoolVar(&deployYCSB, "deploy-YCSB", false, "should deploy YCSB")
 	flag.BoolVar(&tlsEnabled, "tls", false, "enables TLS for MongoDB")
 	flag.StringVar(&opsManagerReleaseName, "ops-manager-release-name", "", "ops/operator manager release name")
+	flag.BoolVar(&cleanupResources, "cleanup", true, "cleanup installed resources on successful completion")
 	flag.Parse()
 }
 
@@ -111,6 +113,7 @@ func createTLSCerts(c kubernetes.Clientset, replicaSetName string, releaseName s
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      releaseName,
 			Namespace: "mongodb",
+			Labels:    map[string]string{"app.kubernetes.io/managed-by": "runtest"},
 		},
 		StringData: data})
 	if err != nil {
@@ -246,6 +249,71 @@ func getTimeDifferenceInSeconds(t1, t2 time.Time) float64 {
 	return t2.Sub(t1).Seconds()
 }
 
+// cleanupTLSSecrets ensures that all old secrets from previous runs with TLS enabled are deleted
+func cleanupTLSSecrets(c kubernetes.Clientset) error {
+	// Delete all the certs-x
+	err := c.CoreV1().Secrets("mongodb").DeleteCollection(&metav1.DeleteOptions{}, metav1.ListOptions{
+		LabelSelector: "app.kubernetes.io/managed-by=runtest",
+	})
+	if err != nil {
+		return err
+	}
+
+	// Delete all the automatically generated secrets:
+	return c.CoreV1().Secrets("mongodb").DeleteCollection(&metav1.DeleteOptions{}, metav1.ListOptions{
+		FieldSelector: "type=kubernetes.io/tls",
+		// This is a bit more robust than deleting by name, as we don't have to worry if
+		// in the future we change the templated name. And we do not have any other
+		// secret in our testing with this type
+	})
+
+}
+
+func cleanMongoDBResource(c kubernetes.Clientset, mongoReleaseName string) error {
+	err := helmUninstall(mongoReleaseName)
+	if err != nil {
+		return err
+	}
+	return c.CoreV1().PersistentVolumeClaims("mongodb").DeleteCollection(&metav1.DeleteOptions{}, metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("app=%s", mongoReleaseName),
+	})
+}
+
+func helmUninstall(releaseName string) error {
+	cmd := exec.Command("helm", "uninstall", releaseName)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s", output)
+	}
+	return nil
+}
+
+func cleanup(c kubernetes.Clientset) error {
+	log.Printf("Cleaning up resources")
+	for i := 0; i < count; i++ {
+		if tlsEnabled {
+			err := helmUninstall(fmt.Sprintf("certs-%d", i))
+			if err != nil {
+				return err
+			}
+		}
+		cleanMongoDBResource(c, fmt.Sprintf("mongo-%d", i))
+	}
+
+	if tlsEnabled {
+		err := cleanupTLSSecrets(c)
+		if err != nil {
+			return err
+		}
+	}
+
+	if deployYCSB && count == 1 {
+		return helmUninstall("ycsb")
+	}
+
+	return nil
+}
+
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	parseFlags()
@@ -342,5 +410,12 @@ func main() {
 		log.Printf("loadtesting completed...")
 	case <-time.After(waitTime):
 		log.Printf("timedout waiting for response...")
+	}
+
+	if cleanupResources {
+		err := cleanup(*monitor.KubeClient)
+		if err != nil {
+			log.Fatalf("cleaning up resources: %s", err)
+		}
 	}
 }

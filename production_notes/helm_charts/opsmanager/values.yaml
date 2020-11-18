@@ -31,3 +31,4 @@ mail:
 
 cert-manager:
   installCRDs: true
+  fullnameOverride: "cert-manager"
