@@ -355,6 +355,9 @@ func main() {
 		}
 	}
 
+	// record the start time for deploying mongoDB replicasets
+	monitor.StartTime = time.Now()
+
 	for i := 0; i < count; i++ {
 		err = deployMongoDB(ctx, fmt.Sprintf("mongo-%d", i), fmt.Sprintf("certs-%d", i), omAdminKey)
 		if err != nil {
@@ -366,8 +369,6 @@ func main() {
 	var wg sync.WaitGroup
 	waitCh := make(chan struct{})
 
-	// record the start time for deploying mongoDB replicasets
-	monitor.StartTime = time.Now()
 	// start monitoring of each MongoDB replicasets in it's own go-routine
 	for i := 0; i < count; i++ {
 		wg.Add(1)
