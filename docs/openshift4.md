@@ -173,6 +173,8 @@ accessible, then the following instructions might help you:
 * Run `openshift-install destroy cluster` and hope for the best :)
 
 
+# Maintenance
+
 ## Cleaning Residuals from Old Tests
 
 Residuals can accumulate from time to time from old tests, and the Openshift
@@ -189,3 +191,25 @@ we run in there.
 * Other problems found on Openshift
 
 More context in [here](https://jira.mongodb.org/browse/CLOUDP-76497).
+
+## Broken Nodes
+
+We have observed broken Nodes after a few months of activity. It might be Amazon
+VMs that just broke or are for any reason not behaving correctly.
+
+The Nodes don't have public IPs so connecting to them is not straightforward.
+However the errors I've seen so far will be fixed by restarting the Node VMs
+from the AWS UI.
+
+First, find the problematic Nodes in the [Openshift
+UI](https://console-openshift-console.apps.openshift.mongokubernetes.com/k8s/cluster/nodes).
+They will be flaged as `Not Ready`. Copy the name of the Node and find the EC2
+instance with the same name in the [list of EC2 Running
+instances](https://console.aws.amazon.com/ec2/v2/home?region=us-east-1#Instances:instanceState=running).
+When you find it, click on the "Instance ID". At the far right you'll see a
+dropdown menu "Instance State", click on it and then on "Restart Instance".
+
+After a few minutes go back to Openshift UI and you'll find that the Node will
+change to `Ready` (instead of `Not Ready`). Give it a few minutes and then you
+can click into this particular Node and in the "Actions" dropdown, click on
+"Mark as Schedulable". The Node should be fully operational now.
