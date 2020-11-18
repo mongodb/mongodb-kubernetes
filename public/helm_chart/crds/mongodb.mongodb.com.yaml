@@ -102,23 +102,9 @@ spec:
             backup:
               type: object
               properties:
-                encryptionEnabled:
-                  type: boolean
-                excludedNamespaces:
-                  type: array
-                  items:
-                    type: string
-                includedNamespaces:
-                  type: array
-                  items:
-                    type: string
                 mode:
                   type: string
-                  enum: [ "enabled", "disabled", "terminated" ]
-                syncSource:
-                  type: string
-                  enum: [ "primary", "secondary" ]
-
+                  enum: ["enabled", "disabled", "terminated"]
             # Generic PodSpec configuration
             podSpec:
               type: object

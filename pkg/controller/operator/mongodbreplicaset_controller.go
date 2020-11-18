@@ -152,6 +152,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 
 			log.Info("Updated StatefulSet for replica set")
 			return workflow.OK()
+
 		})
 
 	if !status.IsOK() {
@@ -275,6 +276,10 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 	hostsAfter := getAllHostsRs(set, rs.Spec.GetClusterDomain(), scale.ReplicasThisReconciliation(rs))
 	if err := calculateDiffAndStopMonitoringHosts(conn, hostsBefore, hostsAfter, log); err != nil {
 		return workflow.Failed(err.Error())
+	}
+
+	if status := r.ensureBackupConfigurationAndUpdateStatus(conn, rs, log); !status.IsOK() {
+		return status
 	}
 
 	log.Info("Updated Ops Manager for replica set")

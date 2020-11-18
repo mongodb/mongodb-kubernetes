@@ -80,22 +80,17 @@ func (o ResourcesNotReadyOption) Value() interface{} {
 }
 
 type BackupStatusOption struct {
-	result BackupStatusOptionResult
+	statusName string
 }
 
-func NewBackupStatusOption(result BackupStatusOptionResult) BackupStatusOption {
+func NewBackupStatusOption(statusName string) BackupStatusOption {
 	return BackupStatusOption{
-		result: result,
+		statusName: statusName,
 	}
 }
 
-type BackupStatusOptionResult struct {
-	EncryptionEnabled bool
-	Mode              string
-}
-
 func (o BackupStatusOption) Value() interface{} {
-	return o.result
+	return o.statusName
 }
 
 func GetOption(statusOptions []Option, targetOption Option) (Option, bool) {

@@ -6,6 +6,8 @@ import (
 	"os"
 	"reflect"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/backup"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/project"
 
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
@@ -439,6 +441,17 @@ func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(mdb *
 
 	successful := !certsNeedApproval
 	return successful, nil
+}
+
+// ensureBackupConfigurationAndUpdateStatus configures backup in Ops Manager based on the MongoDB resources spec
+func (r *ReconcileCommonController) ensureBackupConfigurationAndUpdateStatus(conn om.Connection, mdb *mdbv1.MongoDB, log *zap.SugaredLogger) workflow.Status {
+	statusOpt, opts := backup.EnsureBackupConfigurationInOpsManager(mdb.Spec.Backup, conn.GroupID(), conn, log)
+	if len(opts) > 0 {
+		if _, err := r.updateStatus(mdb, statusOpt, log, opts...); err != nil {
+			return workflow.Failed(err.Error())
+		}
+	}
+	return statusOpt
 }
 
 // validateMongoDBResource performs validation on the MongoDBResource

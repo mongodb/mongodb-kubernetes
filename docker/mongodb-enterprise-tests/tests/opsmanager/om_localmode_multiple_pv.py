@@ -27,8 +27,7 @@ def replica_set(
     ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str
 ) -> MongoDB:
     resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set-for-om.yaml"),
-        namespace=namespace,
+        yaml_fixture("replica-set-for-om.yaml"), namespace=namespace,
     ).configure(ops_manager, "my-replica-set")
     resource["spec"]["version"] = custom_mdb_version
     resource["spec"]["members"] = 2

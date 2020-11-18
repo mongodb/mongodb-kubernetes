@@ -43,8 +43,7 @@ def ops_manager(
 @fixture(scope="module")
 def replica_set(ops_manager: MongoDBOpsManager, namespace: str) -> MongoDB:
     resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set-for-om.yaml"),
-        namespace=namespace,
+        yaml_fixture("replica-set-for-om.yaml"), namespace=namespace,
     ).configure(ops_manager, "my-replica-set")
     resource["spec"]["version"] = VERSION_IN_OPS_MANAGER
     yield resource.create()

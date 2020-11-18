@@ -1,3 +1,4 @@
+from __future__ import annotations
 import re
 from enum import Enum
 import urllib.parse
@@ -167,6 +168,13 @@ class MongoDB(CustomObject, MongoDBCommon):
         # Note that if the MongoDB object is created in a different namespace than the Operator
         # then the secret needs to be copied there manually
         self["spec"]["credentials"] = om.api_key_secret()
+        return self
+
+    def configure_backup(self, mode: str = "enabled") -> MongoDB:
+        if "backup" not in self["spec"]:
+            self["spec"]["backup"] = {}
+
+        self["spec"]["backup"]["mode"] = mode
         return self
 
     def configure_custom_tls(

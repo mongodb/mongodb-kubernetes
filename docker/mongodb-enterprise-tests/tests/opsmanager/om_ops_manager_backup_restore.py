@@ -67,7 +67,7 @@ def mdb_latest(ops_manager: MongoDBOpsManager, namespace, custom_mdb_version: st
     ).configure(ops_manager, "mdbLatestProject")
     # MongoD versions greater than 4.2.0 must be enterprise build to enable backup
     resource["spec"]["version"] = ensure_ent_version(custom_mdb_version)
-
+    resource.configure_backup(mode="enabled")
     return resource.create()
 
 
@@ -79,7 +79,7 @@ def mdb_prev(ops_manager: MongoDBOpsManager, namespace, custom_mdb_prev_version:
         name="mdb-previous",
     ).configure(ops_manager, "mdbPreviousProject")
     resource["spec"]["version"] = ensure_ent_version(custom_mdb_prev_version)
-
+    resource.configure_backup(mode="enabled")
     return resource.create()
 
 
@@ -148,9 +148,6 @@ class TestBackupForMongodb:
     def test_mdbs_backed_up(
         self, mdb_prev_project: OMTester, mdb_latest_project: OMTester
     ):
-        mdb_prev_project.enable_backup()
-        mdb_latest_project.enable_backup()
-
         # wait until a first snapshot is ready for both
         mdb_prev_project.wait_until_backup_snapshots_are_ready(expected_count=1)
         mdb_latest_project.wait_until_backup_snapshots_are_ready(expected_count=1)

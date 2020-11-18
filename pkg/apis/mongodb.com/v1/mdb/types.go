@@ -111,8 +111,8 @@ type MongoDBConnectivity struct {
 
 type MongoDbStatus struct {
 	status.Common                   `json:",inline"`
+	BackupStatus                    BackupStatus `json:"backup"`
 	MongodbShardedClusterSizeConfig `json:",inline"`
-	Backup                          BackupStatus     `json:"backup"`
 	Members                         int              `json:"members,omitempty"`
 	Version                         string           `json:"version"`
 	Link                            string           `json:"link,omitempty"`
@@ -122,9 +122,7 @@ type MongoDbStatus struct {
 type BackupMode string
 
 type BackupStatus struct {
-	EncryptionEnabled bool `json:"encryptionEnabled"`
-	// +kubebuilder:validation:Enum=enabled;disabled;terminated
-	Mode BackupMode `json:"mode"`
+	StatusName string `json:"statusName"`
 }
 
 type MongoDbSpec struct {
@@ -147,7 +145,7 @@ type MongoDbSpec struct {
 	Persistent     *bool        `json:"persistent,omitempty"`
 	ResourceType   ResourceType `json:"type,omitempty"`
 
-	Backup *Backup `json:"backup"`
+	Backup *Backup `json:"backup,omitempty"`
 
 	// sharded clusters
 
@@ -183,13 +181,9 @@ type MongoDbSpec struct {
 // Backup contains configuration options for configuring
 // backup for this MongoDB resource
 type Backup struct {
-	EncryptionEnabled  bool     `json:"encryptionEnabled"`
-	ExcludedNamespaces []string `json:"excludedNamespaces"`
-	IncludedNamespaces []string `json:"includedNamespaces"`
 
 	// +kubebuilder:validation:Enum=enabled;disabled;terminated
-	Mode       BackupMode `json:"mode"`
-	SyncSource string     `json:"syncSource"`
+	Mode BackupMode `json:"mode"`
 }
 
 type AgentConfig struct {
@@ -620,9 +614,8 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 	m.Status.UpdateCommonFields(phase, m.GetGeneration(), statusOptions...)
 
 	if option, exists := status.GetOption(statusOptions, status.BackupStatusOption{}); exists {
-		result := option.(status.BackupStatusOption).Value().(status.BackupStatusOptionResult)
-		m.Status.Backup.EncryptionEnabled = result.EncryptionEnabled
-		m.Status.Backup.Mode = BackupMode(result.Mode)
+		result := option.(status.BackupStatusOption).Value().(string)
+		m.Status.BackupStatus.StatusName = result
 	}
 
 	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {

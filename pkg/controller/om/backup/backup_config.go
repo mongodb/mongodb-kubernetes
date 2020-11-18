@@ -3,10 +3,11 @@ package backup
 type Status string
 
 const (
-	Inactive    Status = "INACTIVE"
-	Started     Status = "STARTED"
-	Stopped     Status = "STOPPED"
-	Terminating Status = "TERMINATING"
+	Inactive                Status = "INACTIVE"
+	Started                 Status = "STARTED"
+	Stopped                 Status = "STOPPED"
+	Terminating             Status = "TERMINATING"
+	wiredTigerStorageEngine string = "WIRED_TIGER"
 )
 
 type ConfigReader interface {
@@ -48,16 +49,13 @@ type ConfigsResponse struct {
 }
 
 type Config struct {
-	ClusterId               string   `json:"clusterId"`
-	EncryptionEnabled       bool     `json:"encryptionEnabled"`
-	ExcludedNamespaces      []string `json:"excludedNamespaces"`
-	IncludedNamespaces      []string `json:"includedNamespaces"`
-	Password                string   `json:"password"`
-	Provisioned             bool     `json:"provisioned"`
-	TlsEnabled              bool     `json:"sslEnabled"`
-	Status                  Status   `json:"statusName"`
-	StorageEngineName       string   `json:"storageEngineName"`
-	SyncSource              string   `json:"syncSource"`
-	ProjectId               string   `json:"groupId"`
-	AuthenticationMechanism string   `json:"authMechanismName"`
+	ClusterId          string   `json:"clusterId"`
+	EncryptionEnabled  bool     `json:"encryptionEnabled"`
+	ExcludedNamespaces []string `json:"excludedNamespaces"`
+	IncludedNamespaces []string `json:"includedNamespaces"`
+	Provisioned        bool     `json:"provisioned"`
+	Status             Status   `json:"statusName"`
+	StorageEngineName  string   `json:"storageEngineName"`
+	SyncSource         string   `json:"syncSource"`
+	ProjectId          string   `json:"groupId"`
 }

@@ -139,7 +139,7 @@ class TestBackupForMongodb:
         ).configure(ops_manager, "firstProject")
         # MongoD versions greater than 4.2.0 must be enterprise build to enable backup
         resource["spec"]["version"] = ensure_ent_version(custom_mdb_version)
-
+        resource.configure_backup(mode="enabled")
         return resource.create()
 
     @fixture(scope="class")
@@ -152,7 +152,7 @@ class TestBackupForMongodb:
             name="mdb-four-zero",
         ).configure(ops_manager, "secondProject")
         resource["spec"]["version"] = ensure_ent_version(custom_mdb_prev_version)
-
+        resource.configure_backup(mode="enabled")
         return resource.create()
 
     def test_mdbs_created(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
@@ -161,10 +161,7 @@ class TestBackupForMongodb:
 
     def test_mdbs_backed_up(self, ops_manager: MongoDBOpsManager):
         om_tester_first = ops_manager.get_om_tester(project_name="firstProject")
-        om_tester_first.enable_backup()
-
         om_tester_second = ops_manager.get_om_tester(project_name="secondProject")
-        om_tester_second.enable_backup()
 
         # wait until a first snapshot is ready for both
         om_tester_first.wait_until_backup_snapshots_are_ready(expected_count=1)

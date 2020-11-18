@@ -627,6 +627,11 @@ func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn o
 	if err = calculateDiffAndStopMonitoringHosts(conn, currentHosts, wantedHosts, log); err != nil {
 		return workflow.Failed(err.Error())
 	}
+
+	if status := r.ensureBackupConfigurationAndUpdateStatus(conn, sc, log); !status.IsOK() {
+		return status
+	}
+
 	log.Info("Updated Ops Manager for sharded cluster")
 	return workflow.OK()
 }

@@ -85,14 +85,6 @@ class OMTester(object):
         if self.context.project_id is None:
             self.context.project_id = self.find_group_id()
 
-    def enable_backup(self):
-        configs = self.api_read_backup_configs()
-        # our project must have only a single resource so we expect only one config that we can use
-        assert len(configs) == 1
-
-        self.api_patch_backup(configs[0]["clusterId"], BackupStatus.STARTED)
-        print(f"\nEnabled backup for mdb resource (project: {self.context.group_name})")
-
     def create_restore_job_snapshot(self, snapshot_id: Optional[str] = None) -> str:
         """ restores the mongodb cluster to some version using the snapshot. If 'snapshot_id' omitted then the
         latest snapshot will be used. """
@@ -415,20 +407,6 @@ class OMTester(object):
             "get",
             f"/groups/{self.context.project_id}/agents/{agent_type}?pageNum={page_num}",
         ).json()["results"]
-
-    def api_patch_backup(self, cluster_id: str, status: BackupStatus):
-        """Changes the backup config to the specified status. E.g. passing 'STARTED' will result in continuous backup
-        activated """
-        data = {
-            "statusName": status,
-            "syncSource": "PRIMARY",
-            "storageEngineName": "WIRED_TIGER",
-        }
-        return self.om_request(
-            "patch",
-            f"/groups/{self.context.project_id}/backupConfigs/{cluster_id}",
-            json_object=data,
-        )
 
     def api_get_snapshots(self, cluster_id: str) -> List:
         return self.om_request(
