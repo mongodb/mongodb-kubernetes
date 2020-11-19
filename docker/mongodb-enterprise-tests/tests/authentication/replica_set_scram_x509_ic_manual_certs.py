@@ -1,7 +1,7 @@
 import collections
 
 from kubetester.certs import (
-    create_tls_certs,
+    create_mongodb_tls_certs,
     SetProperties,
 )
 from kubetester.mongodb import MongoDB, Phase
@@ -28,7 +28,7 @@ def all_certs(issuer, namespace) -> None:
     }
 
     server_set = SERVER_SET
-    create_tls_certs(
+    create_mongodb_tls_certs(
         issuer,
         namespace,
         server_set.name,
@@ -37,7 +37,7 @@ def all_certs(issuer, namespace) -> None:
         server_set.service,
         spec_server,
     )
-    create_tls_certs(
+    create_mongodb_tls_certs(
         issuer,
         namespace,
         server_set.name,

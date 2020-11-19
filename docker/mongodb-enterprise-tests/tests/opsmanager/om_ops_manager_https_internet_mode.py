@@ -2,7 +2,7 @@ import time
 from typing import Optional
 
 from kubetester.certs import Certificate
-from kubetester.certs import create_tls_certs
+from kubetester.certs import create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester, fixture as _fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.opsmanager import MongoDBOpsManager
@@ -16,7 +16,9 @@ def domain(namespace: str):
 
 @fixture(scope="module")
 def appdb_certs(namespace: str, issuer: str):
-    return create_tls_certs(issuer, namespace, "om-with-https-db", "certs-for-appdb")
+    return create_mongodb_tls_certs(
+        issuer, namespace, "om-with-https-db", "certs-for-appdb"
+    )
 
 
 @fixture(scope="module")

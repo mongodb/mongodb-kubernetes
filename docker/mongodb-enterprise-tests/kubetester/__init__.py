@@ -2,7 +2,7 @@ import random
 import string
 import time
 from base64 import b64decode
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 
 from kubernetes import client
 from kubernetes.client.rest import ApiException
@@ -26,6 +26,56 @@ def create_secret(
     client.CoreV1Api().create_namespaced_secret(namespace, secret)
 
     return name
+
+
+def create_configmap(namespace: str, name: str, data: Dict[str, str]):
+    configmap = client.V1ConfigMap(metadata=client.V1ObjectMeta(name=name), data=data)
+    client.CoreV1Api().create_namespaced_config_map(namespace, configmap)
+
+
+def create_service(
+    namespace: str,
+    name: str,
+    cluster_ip: Optional[str] = None,
+    ports: Optional[List[client.V1ServicePort]] = None,
+):
+    if ports is None:
+        ports = []
+
+    service = client.V1Service(
+        metadata=client.V1ObjectMeta(name=name, namespace=namespace),
+        spec=client.V1ServiceSpec(ports=ports, cluster_ip=cluster_ip),
+    )
+    client.CoreV1Api().create_namespaced_service(namespace, service)
+
+
+def create_statefulset(
+    namespace: str,
+    name: str,
+    service_name: str,
+    labels: Dict[str, str],
+    replicas: int = 1,
+    containers: Optional[List[client.V1Container]] = None,
+    volumes: Optional[List[client.V1Volume]] = None,
+):
+    if containers is None:
+        containers = []
+    if volumes is None:
+        volumes = []
+
+    sts = client.V1StatefulSet(
+        metadata=client.V1ObjectMeta(name=name, namespace=namespace),
+        spec=client.V1StatefulSetSpec(
+            selector=client.V1LabelSelector(match_labels=labels),
+            replicas=replicas,
+            service_name=service_name,
+            template=client.V1PodTemplateSpec(
+                metadata=client.V1ObjectMeta(labels=labels),
+                spec=client.V1PodSpec(containers=containers, volumes=volumes),
+            ),
+        ),
+    )
+    client.AppsV1Api().create_namespaced_stateful_set(namespace, body=sts)
 
 
 def read_secret(namespace: str, name: str) -> Dict[str, str]:

@@ -1,6 +1,6 @@
 import pytest
 from kubetester import MongoDB
-from kubetester.certs import create_tls_certs
+from kubetester.certs import create_mongodb_tls_certs
 from kubetester.mongodb import Phase
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.operator import Operator
@@ -13,7 +13,7 @@ USER_PASSWORD = "/qwerty@!#:"
 
 @fixture(scope="module")
 def rs_certs_secret(namespace: str, issuer: str):
-    return create_tls_certs(issuer, namespace, RS_NAME, "certs-for-replicaset")
+    return create_mongodb_tls_certs(issuer, namespace, RS_NAME, "certs-for-replicaset")
 
 
 @fixture(scope="module")

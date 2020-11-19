@@ -12,7 +12,7 @@ from tests.opsmanager.om_ops_manager_backup import (
     BLOCKSTORE_RS_NAME,
     new_om_data_store,
 )
-from tests.opsmanager.om_ops_manager_https import create_tls_certs
+from tests.opsmanager.om_ops_manager_https import create_mongodb_tls_certs
 
 """
 This test checks the work with TLS-enabled backing databases (oplog & blockstore)
@@ -21,17 +21,19 @@ This test checks the work with TLS-enabled backing databases (oplog & blockstore
 
 @fixture(scope="module")
 def appdb_certs_secret(namespace: str, issuer: str):
-    return create_tls_certs(issuer, namespace, "om-backup-tls-db", "certs-for-appdb")
+    return create_mongodb_tls_certs(
+        issuer, namespace, "om-backup-tls-db", "certs-for-appdb"
+    )
 
 
 @fixture(scope="module")
 def oplog_certs_secret(namespace: str, issuer: str):
-    return create_tls_certs(issuer, namespace, OPLOG_RS_NAME, "certs-for-oplog")
+    return create_mongodb_tls_certs(issuer, namespace, OPLOG_RS_NAME, "certs-for-oplog")
 
 
 @fixture(scope="module")
 def blockstore_certs_secret(namespace: str, issuer: str):
-    return create_tls_certs(
+    return create_mongodb_tls_certs(
         issuer, namespace, BLOCKSTORE_RS_NAME, "certs-for-blockstore"
     )
 

@@ -4,7 +4,7 @@ from pytest import mark, fixture
 
 from kubetester import find_fixture, create_secret
 
-from kubetester.certs import create_tls_certs
+from kubetester.certs import create_mongodb_tls_certs
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_user import MongoDBUser, generic_user, Role
 from kubetester.ldap import OpenLDAP, LDAPUser, LDAP_AUTHENTICATION_MECHANISM
@@ -18,7 +18,9 @@ MDB_RESOURCE = "ldap-replica-set"
 
 @fixture(scope="module")
 def server_certs(namespace: str, issuer: str):
-    return create_tls_certs(issuer, namespace, "ldap-replica-set", "server-certs")
+    return create_mongodb_tls_certs(
+        issuer, namespace, "ldap-replica-set", "server-certs"
+    )
 
 
 @fixture(scope="module")

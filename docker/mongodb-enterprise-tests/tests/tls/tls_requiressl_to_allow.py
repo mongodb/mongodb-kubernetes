@@ -2,7 +2,7 @@ import pytest
 from pytest import fixture
 
 from kubetester import MongoDB
-from kubetester.certs import create_tls_certs
+from kubetester.certs import create_mongodb_tls_certs
 from kubetester.kubetester import skip_if_local, fixture as yaml_fixture
 from kubetester.mongodb import Phase
 
@@ -11,7 +11,9 @@ MDB_RESOURCE = "test-tls-base-rs-require-ssl"
 
 @fixture("module")
 def rs_certs_secret(namespace: str, issuer: str):
-    return create_tls_certs(issuer, namespace, MDB_RESOURCE, "certs-for-replicaset")
+    return create_mongodb_tls_certs(
+        issuer, namespace, MDB_RESOURCE, "certs-for-replicaset"
+    )
 
 
 @fixture(scope="module")

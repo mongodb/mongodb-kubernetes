@@ -1,4 +1,4 @@
-from kubetester.certs import create_tls_certs, SetProperties
+from kubetester.certs import create_mongodb_tls_certs, SetProperties
 from kubetester.mongodb import MongoDB, Phase
 
 
@@ -29,7 +29,7 @@ def all_certs(issuer, namespace) -> None:
     }
 
     for server_set in SERVER_SETS:
-        create_tls_certs(
+        create_mongodb_tls_certs(
             issuer,
             namespace,
             server_set.name,
@@ -38,7 +38,7 @@ def all_certs(issuer, namespace) -> None:
             server_set.service,
             spec_server,
         )
-        create_tls_certs(
+        create_mongodb_tls_certs(
             issuer,
             namespace,
             server_set.name,

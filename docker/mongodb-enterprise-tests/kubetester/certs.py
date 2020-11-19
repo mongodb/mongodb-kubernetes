@@ -86,11 +86,10 @@ def create_tls_certs(
     issuer: str,
     namespace: str,
     resource_name: str,
-    bundle_secret_name: str,
     replicas: int = 3,
     service_name: str = None,
     spec: Optional[Dict] = None,
-) -> str:
+) -> Dict[str, str]:
     if service_name is None:
         service_name = resource_name + "-svc"
 
@@ -103,11 +102,29 @@ def create_tls_certs(
         namespace=namespace,
         index="{}",
     )
-    data = {}
+    secret_and_pod_names = {}
     for idx in range(replicas):
         pod_dns = pod_fqdn_fstring.format(idx)
         pod_name = f"{resource_name}-{idx}"
         cert_secret_name = generate_cert(namespace, pod_name, pod_dns, issuer, spec)
+        secret_and_pod_names[pod_name] = cert_secret_name
+    return secret_and_pod_names
+
+
+def create_mongodb_tls_certs(
+    issuer: str,
+    namespace: str,
+    resource_name: str,
+    bundle_secret_name: str,
+    replicas: int = 3,
+    service_name: str = None,
+    spec: Optional[Dict] = None,
+) -> str:
+    cert_and_pod_names = create_tls_certs(
+        issuer, namespace, resource_name, replicas, service_name, spec
+    )
+    data = {}
+    for pod_name, cert_secret_name in cert_and_pod_names.items():
         secret = read_secret(namespace, cert_secret_name)
         data[pod_name + "-pem"] = secret["tls.key"] + secret["tls.crt"]
 

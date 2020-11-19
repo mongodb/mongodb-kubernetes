@@ -10,14 +10,14 @@ from kubetester.mongodb import MongoDB, Phase
 from kubetester.omtester import get_rs_cert_names
 from kubetester.kubetester import KubernetesTester
 
-from tests.opsmanager.om_ops_manager_https import create_tls_certs
+from tests.opsmanager.om_ops_manager_https import create_mongodb_tls_certs
 from datetime import datetime, timezone
 import time
 
 
 @fixture(scope="module")
 def certs_secret(namespace: str, issuer: str):
-    return create_tls_certs(issuer, namespace, "test-tls-base-rs", "certs")
+    return create_mongodb_tls_certs(issuer, namespace, "test-tls-base-rs", "certs")
 
 
 @fixture(scope="module")

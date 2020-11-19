@@ -1,6 +1,6 @@
 import os
 from kubetester.certs import Certificate
-from kubetester.certs import create_tls_certs
+from kubetester.certs import create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester, fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
@@ -40,7 +40,9 @@ def ops_manager_cert(domain: str, namespace: str, issuer: str):
 
 @fixture(scope="module")
 def appdb_certs(namespace: str, issuer: str):
-    return create_tls_certs(issuer, namespace, f"{OM_NAME}-db", "certs-for-appdb")
+    return create_mongodb_tls_certs(
+        issuer, namespace, f"{OM_NAME}-db", "certs-for-appdb"
+    )
 
 
 @fixture(scope="module")
