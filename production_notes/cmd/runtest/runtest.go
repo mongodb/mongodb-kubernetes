@@ -40,7 +40,7 @@ func parseFlags() {
 	flag.BoolVar(&deployYCSB, "deploy-YCSB", false, "should deploy YCSB")
 	flag.BoolVar(&tlsEnabled, "tls", false, "enables TLS for MongoDB")
 	flag.StringVar(&opsManagerReleaseName, "ops-manager-release-name", "", "ops/operator manager release name")
-	flag.BoolVar(&cleanupResources, "cleanup", true, "cleanup installed resources on successful completion")
+	flag.BoolVar(&cleanupResources, "cleanup", false, "cleanup installed resources on successful completion")
 	flag.Parse()
 }
 
@@ -324,6 +324,14 @@ func main() {
 	}
 	monitor.Timeout = waitTime
 
+	if cleanupResources {
+		err := cleanup(*monitor.KubeClient)
+		if err != nil {
+			log.Fatalf("cleaning up resources: %s", err)
+		}
+		return
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -411,12 +419,5 @@ func main() {
 		log.Printf("loadtesting completed...")
 	case <-time.After(waitTime):
 		log.Printf("timedout waiting for response...")
-	}
-
-	if cleanupResources {
-		err := cleanup(*monitor.KubeClient)
-		if err != nil {
-			log.Fatalf("cleaning up resources: %s", err)
-		}
 	}
 }
