@@ -7,6 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/backup"
+	"github.com/google/uuid"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
@@ -449,6 +452,74 @@ func TestReplicaSet_ConfigMapAndSecretWatched(t *testing.T) {
 	}
 
 	assert.Equal(t, reconciler.WatchedResources, expected)
+}
+
+func TestBackupConfiguration_ReplicaSet(t *testing.T) {
+	rs := mdbv1.NewReplicaSetBuilder().
+		SetNamespace(mock.TestNamespace).
+		SetConnectionSpec(testConnectionSpec()).
+		SetBackup(mdbv1.Backup{
+			Mode:       "enabled",
+		}).
+		Build()
+
+	reconciler, client := defaultReplicaSetReconciler(rs)
+
+	uuidStr := uuid.New().String()
+	// configure backup for this project in Ops Manager in the mocked connection
+	om.CurrMockedConnection = om.NewMockedOmConnection(om.NewDeployment())
+	om.CurrMockedConnection.UpdateBackupConfig(&backup.Config{
+		ClusterId: uuidStr,
+		Status:    backup.Inactive,
+	})
+
+	t.Run("Backup can be started", func(t *testing.T) {
+		checkReconcileSuccessful(t, reconciler, rs, client)
+
+		configResponse, _ := om.CurrMockedConnection.ReadBackupConfigs()
+		assert.Len(t, configResponse.Configs, 1)
+
+		config := configResponse.Configs[0]
+
+		assert.Equal(t, backup.Started, config.Status)
+		assert.Equal(t, uuidStr, config.ClusterId)
+		assert.Equal(t, "PRIMARY", config.SyncSource)
+	})
+
+	t.Run("Backup can be stopped", func(t *testing.T) {
+		rs.Spec.Backup.Mode = "disabled"
+		err := client.Update(context.TODO(), rs)
+		assert.NoError(t, err)
+
+		checkReconcileSuccessful(t, reconciler, rs, client)
+
+		configResponse, _ := om.CurrMockedConnection.ReadBackupConfigs()
+		assert.Len(t, configResponse.Configs, 1)
+
+		config := configResponse.Configs[0]
+
+		assert.Equal(t, backup.Stopped, config.Status)
+		assert.Equal(t, uuidStr, config.ClusterId)
+		assert.Equal(t, "PRIMARY", config.SyncSource)
+	})
+
+	t.Run("Backup can be terminated", func(t *testing.T) {
+		rs.Spec.Backup.Mode = "terminated"
+		err := client.Update(context.TODO(), rs)
+		assert.NoError(t, err)
+
+		checkReconcileSuccessful(t, reconciler, rs, client)
+
+		configResponse, _ := om.CurrMockedConnection.ReadBackupConfigs()
+		assert.Len(t, configResponse.Configs, 1)
+
+		config := configResponse.Configs[0]
+
+		assert.Equal(t, backup.Terminating, config.Status)
+		assert.Equal(t, uuidStr, config.ClusterId)
+		assert.Equal(t, "PRIMARY", config.SyncSource)
+	})
+
 }
 
 // assertCorrectNumberOfMembersAndProcesses ensures that both the mongodb resource and the Ops Manager deployment

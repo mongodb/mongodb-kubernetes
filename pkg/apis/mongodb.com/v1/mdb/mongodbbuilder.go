@@ -140,6 +140,14 @@ func (b *MongoDBBuilder) SetAdditionalOptions(config AdditionalMongodConfig) *Mo
 	return b
 }
 
+func (b *MongoDBBuilder) SetBackup(backupSpec Backup) *MongoDBBuilder {
+	if b.mdb.Spec.ResourceType == Standalone {
+		panic("Backup is only supported for ReplicaSets and ShardedClusters")
+	}
+	b.mdb.Spec.Backup = &backupSpec
+	return b
+}
+
 func (b *MongoDBBuilder) SetConnectionSpec(spec ConnectionSpec) *MongoDBBuilder {
 	b.mdb.Spec.ConnectionSpec = spec
 	return b

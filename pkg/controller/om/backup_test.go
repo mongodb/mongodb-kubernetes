@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/backup"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -19,7 +21,7 @@ func TestBackupWaitsForTermination(t *testing.T) {
 	os.Setenv(util.BackupDisableWaitRetriesEnv, "3")
 
 	connection := NewMockedOmConnection(NewDeployment())
-	connection.EnableBackup("test", backup.ReplicaSetType)
+	connection.EnableBackup("test", backup.ReplicaSetType, uuid.New().String())
 	connection.UpdateBackupStatusFunc = func(clusterId string, status backup.Status) error {
 		go func() {
 			// adding slight delay for each update

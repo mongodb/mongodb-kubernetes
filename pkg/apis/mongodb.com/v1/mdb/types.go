@@ -614,8 +614,7 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 	m.Status.UpdateCommonFields(phase, m.GetGeneration(), statusOptions...)
 
 	if option, exists := status.GetOption(statusOptions, status.BackupStatusOption{}); exists {
-		result := option.(status.BackupStatusOption).Value().(string)
-		m.Status.BackupStatus.StatusName = result
+		m.Status.BackupStatus.StatusName = option.(status.BackupStatusOption).Value().(string)
 	}
 
 	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
