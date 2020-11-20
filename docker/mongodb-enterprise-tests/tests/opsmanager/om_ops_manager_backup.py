@@ -1,5 +1,5 @@
 from operator import attrgetter
-from typing import Optional, Dict
+from typing import Optional, Dict, Callable
 
 from kubernetes import client
 from kubetester import get_default_storage_class
@@ -541,6 +541,36 @@ class TestBackupForMongodb:
         # wait until a first snapshot is ready for both
         om_tester_first.wait_until_backup_snapshots_are_ready(expected_count=1)
         om_tester_second.wait_until_backup_snapshots_are_ready(expected_count=1)
+
+    def test_can_transition_from_started_to_stopped(
+        self, mdb_latest: MongoDB, mdb_prev: MongoDB
+    ):
+        # a direction transition from enabled to disabled is a single
+        # step for the operator
+        mdb_prev.wait_for(reaches_backup_status("STARTED"), timeout=100)
+        mdb_prev.configure_backup(mode="disabled")
+        mdb_prev.update()
+        mdb_prev.wait_for(reaches_backup_status("STOPPED"), timeout=600)
+
+    def test_can_transition_from_started_to_terminated_0(
+        self, mdb_latest: MongoDB, mdb_prev: MongoDB
+    ):
+        # a direct transition from enabled to terminated is not possible
+        # the operator should handle the transition from STARTED -> STOPPED -> TERMINATING
+        mdb_latest.wait_for(reaches_backup_status("STARTED"), timeout=100)
+        mdb_latest.configure_backup(mode="terminated")
+        mdb_latest.update()
+        mdb_latest.wait_for(reaches_backup_status("TERMINATING"), timeout=600)
+
+
+def reaches_backup_status(expected_status: str) -> Callable[[MongoDB], bool]:
+    def _fn(mdb: MongoDB):
+        try:
+            return mdb["status"]["backup"]["statusName"] == expected_status
+        except KeyError:
+            return False
+
+    return _fn
 
 
 @mark.e2e_om_ops_manager_backup

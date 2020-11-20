@@ -33,6 +33,15 @@ func EnsureBackupConfigurationInOpsManager(backupSpec *mdbv1.Backup, projectId s
 	currentConfig := projectConfigs[0]
 	desiredConfig.ClusterId = currentConfig.ClusterId
 
+	okResult := workflow.OK()
+
+	desiredStatus := getDesiredStatus(desiredConfig, currentConfig)
+
+	needToRequeue := desiredStatus != desiredConfig.Status
+	if needToRequeue {
+		okResult.Requeue()
+	}
+
 	if desiredConfig.Status == currentConfig.Status {
 		log.Debug("Config is already in the desired state, not updating configuration")
 		// we are already in the desired state, nothing to change
@@ -42,7 +51,7 @@ func EnsureBackupConfigurationInOpsManager(backupSpec *mdbv1.Backup, projectId s
 		if err != nil {
 			return workflow.Failed(err.Error()), nil
 		}
-		return workflow.OK(), statusOpts
+		return okResult, statusOpts
 	}
 
 	updatedConfig, err := configReadUpdater.UpdateBackupConfig(desiredConfig)
@@ -64,7 +73,7 @@ func EnsureBackupConfigurationInOpsManager(backupSpec *mdbv1.Backup, projectId s
 	if err != nil {
 		return workflow.Failed(err.Error()), nil
 	}
-	return workflow.OK(), statusOpts
+	return okResult, statusOpts
 }
 
 // getCurrentBackupStatusOption fetches the latest information from the backup config
@@ -113,4 +122,25 @@ func getStatusMappings() map[string]Status {
 		"disabled":   Stopped,
 		"terminated": Terminating,
 	}
+}
+
+// getDesiredStatus takes the desired config and the current config and returns the Status
+// that the operator should try to configure for this reconciliation
+func getDesiredStatus(desiredConfig, currentConfig *Config) Status {
+	if currentConfig == nil {
+		return desiredConfig.Status
+	}
+	// valid transitions can be found here https://github.com/10gen/mms/blob/7487cf31e775a38703ca6ef247b31b4d10c78c41/server/src/main/com/xgen/svc/mms/api/res/ApiBackupConfigsResource.java#L186
+	// transitioning from Started to Terminating is not a valid transition
+	// we need to first go to Stopped.
+	if desiredConfig.Status == Terminating && currentConfig.Status == Started {
+		return Stopped
+	}
+
+	// transitioning from Stopped to Terminating is not possible, it is only possible through
+	// Stopped -> Started -> Terminating
+	if desiredConfig.Status == Stopped && currentConfig.Status == Terminating {
+		return Started
+	}
+	return desiredConfig.Status
 }
