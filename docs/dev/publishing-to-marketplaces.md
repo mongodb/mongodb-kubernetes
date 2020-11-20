@@ -27,23 +27,17 @@ cd ..
 ```
 
 Check the following sections in the clusterserviceversion file.
+You may need to look into https://github.com/mongodb/mongodb-enterprise-kubernetes/blob/master/mongodb-enterprise-openshift.yaml 
+as the sourcer of relevant information.
 
 ### Metadata
 
-* `metadata.name`: The name should include the latest version
-* `metadata.containerImage`: Should point to the last version (**not 'latest'**) in quay.io repository.
 * `metadata.createdAt`: `$(date +%Y-%m-%dT%H:%M:%SZ)`
-
-### Spec
-
-* `spec.version`: Add your new version with 3 parts (x.y.z)
-* `spec.replaces`: Indicate the last version that is replaced by this one
 
 ### Operator
 
-* `install.spec.deployments` - update the versions of Database and Operator images
 * Check if anything has changed for the Operator deployment spec that needs to be
-reflected in `install.spec.deployments` (environment variables etc)
+reflected in `install.spec.deployments` (environment variables, init images versions etc)
 
 ### Permissions
 

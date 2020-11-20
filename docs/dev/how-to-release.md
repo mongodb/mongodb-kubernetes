@@ -103,7 +103,8 @@ The following images are expected to get released by the end of this procedure:
 
 To perform release it's necessary to manually override dependencies in the tasks in the following
 Evergreen build variants (after the release branch was merged):
-* release_quay (will deploy all images to quay.io)
+* release_quay_ubi (will deploy all images to quay.io based on UBI)
+* release_quay_ubuntu (will deploy all images to quay.io based on Ubuntu)
 * release_rh_connect (will deploy all images to Red Hat Connect)
 
 **Caution (quay.io)**: quay.io doesn't allow to block tags from overwriting, the
@@ -114,14 +115,12 @@ the same tag as any old images.
 site manually specifying the new version (increase the patch part, e.g. `0.7.1`) and hopefully the build will succeed
 eventually.
 
-Finally publish the images manually:
+You need to publish the following images (click on the ">" sign to the left from the image to expand the section,
+ select "mark with latest tag" checkbox):
 * https://connect.redhat.com/project/850021/images (Operator)
 * https://connect.redhat.com/project/5718431/images (Init Database)
 * https://connect.redhat.com/project/4276491/images (Init Ops Manager)
 * https://connect.redhat.com/project/4276451/images (Init AppDB)
-
-The RedHat projects have been configured to auto-publish the images but this does not work, so after uploading you need 
-to go to the webpage and publish the new version of the image in the web UI.
 
 The following images won't be published by release process, shown here just for reference:
 * https://connect.redhat.com/project/851701/images (Database)
