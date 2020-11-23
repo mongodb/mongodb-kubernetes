@@ -1,12 +1,18 @@
 package operator
 
 import (
+	"context"
 	"crypto/sha1"
 	"crypto/sha256"
 	"fmt"
 	"hash"
 	"reflect"
+	"strings"
 	"time"
+
+	"github.com/blang/semver"
+
+	"github.com/spf13/cast"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/agents"
 
@@ -32,8 +38,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
-
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 
@@ -44,7 +48,14 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-const DefaultWaitForReadinessSeconds = 13
+const (
+	// PodAnnotationAgentVersion is the Pod Annotation key which contains the current version of the Automation Config
+	// the Agent on the Pod is on now
+	PodAnnotationAgentVersion = "agent.mongodb.com/version"
+	// This is the version of init appdb image which had a different agents reporting mechanism and didn't modify
+	// annotations
+	InitAppDBVersionBeforeBreakingChange = "1.0.4"
+)
 
 // ReconcileAppDbReplicaSet reconciles a MongoDB with a type of ReplicaSet
 type ReconcileAppDbReplicaSet struct {
@@ -109,7 +120,7 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 	// TODO: configure once StatefulSetConfiguration is supported for appDb
 	//SetStatefulSetConfiguration(opsManager.Spec.AppDB.StatefulSetConfiguration)
 
-	if workflowStatus := r.doReconcile(opsManager, replicaBuilder, opsManagerUserPassword, log); !workflowStatus.IsOK() {
+	if workflowStatus := r.doReconcile(*opsManager, replicaBuilder, opsManagerUserPassword, log); !workflowStatus.IsOK() {
 		return r.updateStatus(opsManager, workflowStatus, log, appDbStatusOption)
 	}
 
@@ -132,7 +143,7 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 
 // doReconcile performs the reconciliation for the AppDB: update the AutomationConfig Secret if necessary and
 // update the StatefulSet. It does it in the necessary order depending on the changes to the spec
-func (r *ReconcileAppDbReplicaSet) doReconcile(opsManager *omv1.MongoDBOpsManager, replicaBuilder StatefulSetHelper, opsManagerUserPassword string, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileAppDbReplicaSet) doReconcile(opsManager omv1.MongoDBOpsManager, replicaBuilder StatefulSetHelper, opsManagerUserPassword string, log *zap.SugaredLogger) workflow.Status {
 	rs := opsManager.Spec.AppDB
 	appDbSts, err := replicaBuilder.BuildAppDbStatefulSet()
 	if err != nil {
@@ -146,20 +157,7 @@ func (r *ReconcileAppDbReplicaSet) doReconcile(opsManager *omv1.MongoDBOpsManage
 	}
 	return runInGivenOrder(automationConfigFirst,
 		func() workflow.Status {
-			workflowStatus, wasPublished := r.deployAutomationConfig(opsManager, rs, opsManagerUserPassword, appDbSts, log)
-			if !workflowStatus.IsOK() {
-				return workflowStatus
-			}
-
-			// Note that the only case when we need to wait for readiness probe to go from 'true' to 'false' is when we publish
-			// the new config map - in this case we need to wait for some time to make sure the readiness probe has updated
-			// the state (usually takes up to 5 seconds).
-			if wasPublished {
-				waitTimeout := envutil.ReadIntOrDefault(util.AppDBReadinessWaitEnv, DefaultWaitForReadinessSeconds)
-				log.Debugf("Waiting for %d seconds to make sure readiness status is up-to-date", waitTimeout)
-				time.Sleep(time.Duration(waitTimeout) * time.Second)
-			}
-			return workflow.OK()
+			return r.deployAutomationConfig(opsManager, rs, opsManagerUserPassword, appDbSts, log)
 		},
 		func() workflow.Status {
 			return r.deployStatefulSet(opsManager, replicaBuilder)
@@ -226,59 +224,77 @@ func ensureConsistentAgentAuthenticationCredentials(newAutomationConfig *om.Auto
 
 // publishAutomationConfig publishes the automation config to the Secret if necessary. Note that it's done only
 // if the automation config has changed - the version is incremented in this case.
-// Method returns 'bool' to indicate if the config was published.
+// Method returns the version of the automation config.
 // No optimistic concurrency control is done - there cannot be a concurrent reconciliation for the same Ops Manager
 // object and the probability that the user will edit the config map manually in the same time is extremely low
+// returns the version of AutomationConfig just published
 func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(rs omv1.AppDB,
-	opsManager omv1.MongoDBOpsManager, automationConfig *om.AutomationConfig, log *zap.SugaredLogger) (bool, error) {
-	wasPublished := false
-	if err := r.kubeHelper.computeSecret(objectKey(opsManager.Namespace, rs.AutomationConfigSecretName()),
-		func(existingSecret *corev1.Secret) bool {
-			if len(existingSecret.Data) == 0 {
-				log.Debugf("ConfigMap for the Automation Config doesn't exist, it will be created")
-			} else if existingAutomationConfig, err := om.BuildAutomationConfigFromBytes([]byte(existingSecret.Data[util.AppDBAutomationConfigKey])); err != nil {
-				// in case of any problems deserializing the existing AutomationConfig - just ignore the error and update
-				log.Warnf("There were problems deserializing existing automation config - it will be overwritten (%s)", err.Error())
-			} else {
-				// Otherwise there is an existing automation config and we need to compare it with the Operator version
+	opsManager omv1.MongoDBOpsManager, automationConfig *om.AutomationConfig, log *zap.SugaredLogger) (int64, error) {
 
-				// Aligning the versions to make deep comparison correct
-				automationConfig.SetVersion(existingAutomationConfig.Deployment.Version())
-
-				log.Debug("Ensuring authentication credentials")
-				if err := ensureConsistentAgentAuthenticationCredentials(automationConfig, existingAutomationConfig, log); err != nil {
-					log.Warnf("error ensuring consistent authentication credentials: %s", err)
-					return false
-				}
-
-				// If the deployments are the same - we shouldn't perform the update
-				// We cannot compare the deployments directly as the "operator" version contains some struct members
-				// So we need to turn them into maps
-				if reflect.DeepEqual(existingAutomationConfig.Deployment, automationConfig.Deployment.ToCanonicalForm()) {
-					log.Debugf("Automation Config hasn't changed - not updating ConfigMap")
-					return false
-				}
-
-				// Otherwise we increase the version
-				automationConfig.SetVersion(existingAutomationConfig.Deployment.Version() + 1)
-				log.Debugf("The Automation Config change detected, increasing the version %d -> %d", existingAutomationConfig.Deployment.Version(), existingAutomationConfig.Deployment.Version()+1)
-			}
-
-			// By this time we have the AutomationConfig we want to push
-			bytes, err := automationConfig.Serialize()
-			if err != nil {
-				// this definitely cannot happen and means the dev error - simply panicking to make sure the resource gets
-				// to error state
-				panic(err)
-			}
-			existingSecret.Data = map[string][]byte{util.AppDBAutomationConfigKey: bytes}
-			wasPublished = true
-
-			return true
-		}, &opsManager); err != nil {
-		return false, err
+	automationConfigUpdateCallback := func(s *corev1.Secret) bool {
+		return changeAutomationConfigDataIfNecessary(s, automationConfig, log)
 	}
-	return wasPublished, nil
+	// Perform computation of the automation config and possibly creation/update of the existing Secret
+	computedSecret, err := r.kubeHelper.computeSecret(kube.ObjectKey(opsManager.Namespace, rs.AutomationConfigSecretName()),
+		automationConfigUpdateCallback, &opsManager)
+
+	if err != nil {
+		return -1, err
+	}
+	// Return the final automation config version
+	var updatedAutomationConfig *om.AutomationConfig
+	if updatedAutomationConfig, err = om.BuildAutomationConfigFromBytes(computedSecret.Data[util.AppDBAutomationConfigKey]); err != nil {
+		return -1, err
+	}
+	return updatedAutomationConfig.Deployment.Version(), err
+}
+
+// changeAutomationConfigDataIfNecessary is a function that optionally changes the existing Automation Config Secret in
+// case if its content is different from the desired Automation Config.
+// Returns true if the data was changed.
+func changeAutomationConfigDataIfNecessary(existingSecret *corev1.Secret, targetAutomationConfig *om.AutomationConfig, log *zap.SugaredLogger) bool {
+	if len(existingSecret.Data) == 0 {
+		log.Debugf("ConfigMap for the Automation Config doesn't exist, it will be created")
+	} else {
+		if existingAutomationConfig, err := om.BuildAutomationConfigFromBytes(existingSecret.Data[util.AppDBAutomationConfigKey]); err != nil {
+			// in case of any problems deserializing the existing AutomationConfig - just ignore the error and update
+			log.Warnf("There were problems deserializing existing automation config - it will be overwritten (%s)", err.Error())
+		} else {
+			// Otherwise there is an existing automation config and we need to compare it with the Operator version
+
+			// Aligning the versions to make deep comparison correct
+			targetAutomationConfig.SetVersion(existingAutomationConfig.Deployment.Version())
+
+			log.Debug("Ensuring authentication credentials")
+			if err := ensureConsistentAgentAuthenticationCredentials(targetAutomationConfig, existingAutomationConfig, log); err != nil {
+				log.Warnf("error ensuring consistent authentication credentials: %s", err)
+				return false
+			}
+
+			// If the deployments are the same - we shouldn't perform the update
+			// We cannot compare the deployments directly as the "operator" version contains some struct members
+			// So we need to turn them into maps
+			if reflect.DeepEqual(existingAutomationConfig.Deployment, targetAutomationConfig.Deployment.ToCanonicalForm()) {
+				log.Debugf("Automation Config hasn't changed - not updating ConfigMap")
+				return false
+			}
+
+			// Otherwise we increase the version
+			targetAutomationConfig.SetVersion(existingAutomationConfig.Deployment.Version() + 1)
+			log.Debugf("Automation Config change detected, increasing version: %d -> %d", existingAutomationConfig.Deployment.Version(), existingAutomationConfig.Deployment.Version()+1)
+		}
+	}
+
+	// By this time we have the AutomationConfig we want to push
+	bytes, err := targetAutomationConfig.Serialize()
+	if err != nil {
+		// this definitely cannot happen and means the dev error
+		log.Errorf("Failed to serialize automation config! %s", err)
+		return false
+	}
+	existingSecret.Data = map[string][]byte{util.AppDBAutomationConfigKey: bytes}
+
+	return true
 }
 
 func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(rs omv1.AppDB, opsManager omv1.MongoDBOpsManager, opsManagerUserPassword string, set appsv1.StatefulSet, log *zap.SugaredLogger) (*om.AutomationConfig, error) {
@@ -531,37 +547,112 @@ func (r *ReconcileAppDbReplicaSet) readExistingPodVars(om omv1.MongoDBOpsManager
 
 // deployAutomationConfig updates the Automation Config secret if necessary and waits for the pods to fall to "not ready"
 // In this case the next StatefulSet update will be safe as the rolling upgrade will wait for the pods to get ready
-func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(opsManager *omv1.MongoDBOpsManager, rs omv1.AppDB, opsManagerUserPassword string, appDbSts appsv1.StatefulSet, log *zap.SugaredLogger) (workflow.Status, bool) {
-	config, err := r.buildAppDbAutomationConfig(rs, *opsManager, opsManagerUserPassword, appDbSts, log)
+func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(opsManager omv1.MongoDBOpsManager, rs omv1.AppDB, opsManagerUserPassword string, appDbSts appsv1.StatefulSet, log *zap.SugaredLogger) workflow.Status {
+	config, err := r.buildAppDbAutomationConfig(rs, opsManager, opsManagerUserPassword, appDbSts, log)
 	if err != nil {
-		return workflow.Failed(err.Error()), false
+		return workflow.Failed(err.Error())
 	}
 
 	// TODO remove in some later Operator releases
 	_ = ensureLegacyConfigMapRemoved(r.client, rs)
 
-	var wasPublished bool
-	if wasPublished, err = r.publishAutomationConfig(rs, *opsManager, config, log); err != nil {
-		return workflow.Failed(err.Error()), false
+	var configVersion int64
+	if configVersion, err = r.publishAutomationConfig(rs, opsManager, config, log); err != nil {
+		return workflow.Failed(err.Error())
 	}
 
-	_, err = r.client.GetStatefulSet(kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.Name()))
-	if err != nil && apiErrors.IsNotFound(err) {
-		// This seems to be the new resource and StatefulSet doesn't exist yet so no further actions needed, also
-		// we don't need to wait
-		return workflow.OK(), false
-	}
-
-	return workflow.OK(), wasPublished
+	return r.allAgentsReachedGoalState(opsManager, configVersion, log)
 }
 
 // deployStatefulSet updates the StatefulSet spec and returns its status (if it's ready or not)
-func (r *ReconcileAppDbReplicaSet) deployStatefulSet(opsManager *omv1.MongoDBOpsManager, replicaBuilder StatefulSetHelper) workflow.Status {
+func (r *ReconcileAppDbReplicaSet) deployStatefulSet(opsManager omv1.MongoDBOpsManager, replicaBuilder StatefulSetHelper) workflow.Status {
 	if err := replicaBuilder.CreateOrUpdateAppDBInKubernetes(); err != nil {
 		return workflow.Failed(err.Error())
 	}
 
 	return r.getStatefulSetStatus(opsManager.Namespace, opsManager.Spec.AppDB.Name())
+}
+
+// allAgentsReachedGoalState checks if all the AppDB Agents have reached the goal state.
+func (r *ReconcileAppDbReplicaSet) allAgentsReachedGoalState(manager omv1.MongoDBOpsManager, targetConfigVersion int64, log *zap.SugaredLogger) workflow.Status {
+	appdbSize := manager.Spec.AppDB.Members
+	upgradeFromOldInitImage := false
+	// We need to read the current StatefulSet to find the real number of pods - we cannot rely on OpsManager resource
+	set, err := r.client.GetStatefulSet(manager.AppDBStatefulSetObjectKey())
+	if err == nil {
+		appdbSize = int(set.Status.Replicas)
+		if len(set.Spec.Template.Spec.InitContainers) > 0 {
+			upgradeFromOldInitImage = isOldInitAppDBImageForAgentsCheck(set.Spec.Template.Spec.InitContainers[0].Image, log)
+			if upgradeFromOldInitImage {
+				return workflow.OK()
+			}
+		}
+	} else if !apiErrors.IsNotFound(err) {
+		return workflow.Failed(err.Error())
+	}
+	var podsNotFound []string
+	for _, podName := range manager.AppDBMemberNames(appdbSize) {
+		pod := &corev1.Pod{}
+		if err := r.client.Get(context.TODO(), kube.ObjectKey(manager.Namespace, podName), pod); err != nil {
+			if apiErrors.IsNotFound(err) {
+				// If the Pod is not found yet - this could mean one of:
+				// 1. The StatefulSet just doesn't exist
+				// 2. The StatefulSet exists but the Pod doesn't exist (terminated/failed and will be rescheduled?)
+				podsNotFound = append(podsNotFound, podName)
+				continue
+			}
+			return workflow.Failed(err.Error())
+		}
+		if agentReachedGoalState := agentReachedGoalState(pod, targetConfigVersion, log); !agentReachedGoalState {
+			return workflow.Pending("Application Database Agents haven't reached Running state yet")
+		}
+	}
+
+	if len(podsNotFound) == manager.Spec.AppDB.Members {
+		// No Pod existing means that the StatefulSet hasn't been created yet - will be done during the next step
+		return workflow.OK()
+	}
+	if len(podsNotFound) > 0 {
+		log.Infof("The following Pods don't exist: %v. Assuming they will be rescheduled by Kubernetes soon", podsNotFound)
+		return workflow.Pending("Application Database Agents haven't reached Running state yet")
+	}
+	log.Infof("All %d Application Database Agents have reached Running state", manager.Spec.AppDB.Members)
+	return workflow.OK()
+}
+
+// isOldInitAppDBImageForAgentsCheck returns true if the currently deployed Init Containers don't support annotations yet.
+// In this case we shouldn't perform the logic to wait for annotations at all
+// (note, that this is a very temporary state that may happen only once the Operator upgrade to 1.8.1 happened and the
+// existing resources are reconciled - the StatefulSet reconciliation will upgrade the appdb init images soon)
+func isOldInitAppDBImageForAgentsCheck(initAppDBImage string, log *zap.SugaredLogger) bool {
+	initAppDBImageAndVersion := strings.Split(initAppDBImage, ":")
+	// This is highly unprobable as default Operator configuration always specifies the version but let's be save
+	if len(initAppDBImageAndVersion) == 1 {
+		log.Warnf("The Init AppDB image url doesn't contain the tag! %s", initAppDBImage)
+		return false
+	}
+	version, err := semver.Parse(initAppDBImageAndVersion[1])
+	if err != nil {
+		log.Warnf("Failed to parse the existing version of Init AppDB image: %s", err)
+		return false
+	}
+	breakingVersion := semver.MustParse(InitAppDBVersionBeforeBreakingChange)
+	return version.LTE(breakingVersion)
+}
+
+// agentReachedGoalState checks if a single AppDB Agent has reached the goal state. To do this it reads the Pod annotation
+// to find out the current version the Agent is on.
+func agentReachedGoalState(pod *corev1.Pod, targetConfigVersion int64, log *zap.SugaredLogger) bool {
+	currentAgentVersion, ok := pod.Annotations[PodAnnotationAgentVersion]
+	if !ok {
+		log.Debugf("The Pod '%s' doesn't have annotation '%s' yet", pod.Name, PodAnnotationAgentVersion)
+		return false
+	}
+	if cast.ToInt64(currentAgentVersion) != targetConfigVersion {
+		log.Debugf("The Agent in the Pod '%s' hasn't reached the goal state yet (goal: %d, agent: %s)", pod.Name, targetConfigVersion, currentAgentVersion)
+		return false
+	}
+	return true
 }
 
 // markAppDBAsBackingProject will configure the AppDB project to be read only. Errors are ignored

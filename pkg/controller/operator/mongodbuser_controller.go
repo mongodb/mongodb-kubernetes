@@ -200,7 +200,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(user *userv1.MongoDBUser, con
 			user.Spec.PasswordSecretKeyRef.Name,
 			user.Namespace,
 			watch.Secret,
-			kube.ObjectKey(user.Namespace, user.Name),
+			kube.ObjectKeyFromApiObject(user),
 		)
 	}
 

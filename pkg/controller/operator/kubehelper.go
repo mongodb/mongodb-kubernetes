@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"reflect"
@@ -894,66 +895,40 @@ func (k KubeHelper) readSecret(nsName client.ObjectKey) (map[string]string, erro
 	return secretStringData, nil
 }
 
-// computeSecret fetches the existing config map and applies the computation function to it and pushes changes back
-// The computation function is expected to update the data in config map or return false if no update/create is needed
+// computeSecret fetches the existing Secret and applies the computation function to it and pushes changes back.
+// The computation function is expected to update the data in Secret or return false if no update/create is needed
+// Returns the final Secret (could be the initial one or the one after the update)
 // (Name for the function is chosen as an analogy to Map.compute() function in Java)
-func (k *KubeHelper) computeSecret(nsName client.ObjectKey, callback func(*corev1.Secret) bool, owner v1.CustomResourceReadWriter) error {
+func (k *KubeHelper) computeSecret(nsName client.ObjectKey, callback func(*corev1.Secret) bool, owner v1.CustomResourceReadWriter) (corev1.Secret, error) {
 	existingSecret, err := k.client.GetSecret(nsName)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
-			existingSecret = secret.Builder().
+			newSecret := secret.Builder().
 				SetName(nsName.Name).
 				SetNamespace(nsName.Namespace).
 				SetOwnerReferences(baseOwnerReference(owner)).
 				Build()
 
-			if !callback(&existingSecret) {
-				return nil
+			if !callback(&newSecret) {
+				return corev1.Secret{}, nil
 			}
-			if err := k.client.CreateSecret(existingSecret); err != nil {
-				return err
+
+			if err := k.client.Create(context.TODO(), &newSecret); err != nil {
+				return corev1.Secret{}, err
 			}
-		} else {
-			return err
+			return newSecret, nil
 		}
-	} else {
-		if !callback(&existingSecret) {
-			return nil
-		}
-		if err := k.client.UpdateSecret(existingSecret); err != nil {
-			return err
-		}
+		return corev1.Secret{}, err
 	}
-	return nil
+	// We are updating the existing Secret
+	if !callback(&existingSecret) {
+		return existingSecret, nil
+	}
+	if err := k.client.Update(context.TODO(), &existingSecret); err != nil {
+		return existingSecret, err
+	}
+	return existingSecret, nil
 }
-
-// TODO: leave this because the OM controller might end up using this:
-// https://github.com/10gen/ops-manager-kubernetes/pull/469/files#r340725250
-//func (k *KubeHelper) createOrUpdateConfigMap(nsName client.ObjectKey, data map[string]string, owner CustomResourceReadWriter) error {
-//existingConfigMap := &corev1.ConfigMap{}
-//newConfigMap := &corev1.ConfigMap{
-//Data: data,
-//ObjectMeta: metav1.ObjectMeta{
-//Name:            nsName.Name,
-//Namespace:       nsName.Namespace,
-//OwnerReferences: baseOwnerReference(owner),
-//}}
-
-//if err := k.client.Get(context.TODO(), nsName, existingConfigMap); err != nil {
-//if apiErrors.IsNotFound(err) {
-//if err = k.client.Create(context.TODO(), newConfigMap); err != nil {
-//return err
-//}
-//} else {
-//return err
-//}
-//} else {
-//if err = k.client.Update(context.TODO(), newConfigMap); err != nil {
-//return err
-//}
-//}
-//return nil
-//}
 
 // CreateOrUpdateSecret will create (if it does not exist) or update (if it does) a secret.
 func (k *KubeHelper) createOrUpdateSecret(name, namespace string, pemFiles *pemCollection, labels map[string]string) error {

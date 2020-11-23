@@ -26,6 +26,7 @@ func (s StatefulSetState) GetResourcesNotReadyStatus() []status.ResourceNotReady
 	if s.IsReady() {
 		return []status.ResourceNotReady{}
 	}
+	zap.S().Debugf("StatefulSet %s (total: %d, ready: %d, updated: %d, generation: %d, observedGeneration: %d)", s.statefulSetKey.Name, s.total, s.ready, s.updated, s.generation, s.observedGeneration)
 	msg := fmt.Sprintf("Not all the Pods are ready (total: %d, updated: %d, ready: %d)", s.total, s.updated, s.ready)
 	return []status.ResourceNotReady{{
 		Kind:    status.StatefulsetKind,
@@ -43,7 +44,6 @@ func (s StatefulSetState) GetMessage() string {
 }
 
 func (s StatefulSetState) IsReady() bool {
-	zap.S().Debugf("StatefulSet %s (total: %d, ready: %d, updated: %d, generation: %d, observedGeneration: %d)", s.statefulSetKey.Name, s.total, s.ready, s.updated, s.generation, s.observedGeneration)
 	return s.updated == s.ready && s.ready == s.total && s.observedGeneration == s.generation
 }
 

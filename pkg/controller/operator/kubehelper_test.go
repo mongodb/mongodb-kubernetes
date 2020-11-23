@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
@@ -168,11 +170,11 @@ func TestComputeSecret_CreateNew(t *testing.T) {
 	client := mock.NewClient()
 	helper := NewKubeHelper(client)
 	owner := mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "test"}}
-	key := objectKey("ns", "cfm")
+	key := kube.ObjectKey("ns", "cfm")
 	testData := map[string][]byte{"foo": []byte("bar")}
 
 	// Successful creation
-	err := helper.computeSecret(key, func(secret *corev1.Secret) bool {
+	createdSecret, err := helper.computeSecret(key, func(secret *corev1.Secret) bool {
 		secret.Data = testData
 		return true
 	}, &owner)
@@ -182,17 +184,19 @@ func TestComputeSecret_CreateNew(t *testing.T) {
 	s := &corev1.Secret{}
 	err = client.Get(context.TODO(), key, s)
 	assert.NoError(t, err)
+	assert.Equal(t, createdSecret, *s)
 	assert.Equal(t, key.Name, s.Name)
 	assert.Equal(t, key.Namespace, s.Namespace)
 	assert.Equal(t, "test", s.OwnerReferences[0].Name)
 	assert.Equal(t, testData, s.Data)
 
 	// Creation skipped
-	key2 := objectKey("ns", "cfm2")
-	_ = helper.computeSecret(key2, func(s *corev1.Secret) bool {
+	key2 := kube.ObjectKey("ns", "cfm2")
+	_, err = helper.computeSecret(key2, func(s *corev1.Secret) bool {
 		return false
 	}, &owner)
 
+	assert.NoError(t, err)
 	err = client.Get(context.TODO(), key2, s)
 	assert.True(t, apiErrors.IsNotFound(err))
 }
@@ -216,7 +220,7 @@ func TestComputeSecret_UpdateExisting(t *testing.T) {
 	key := objectKey(mock.TestNamespace, "secret-name")
 
 	// Successful update (data is appended)
-	err = helper.computeSecret(key, func(s *corev1.Secret) bool {
+	_, err = helper.computeSecret(key, func(s *corev1.Secret) bool {
 		s.Data["foo"] = []byte("bla")
 		return true
 	}, &owner)
@@ -234,7 +238,7 @@ func TestComputeSecret_UpdateExisting(t *testing.T) {
 	currentSize := len(s.Data)
 
 	// Update skipped
-	err = helper.computeSecret(key, func(s *corev1.Secret) bool {
+	_, err = helper.computeSecret(key, func(s *corev1.Secret) bool {
 		return false
 	}, &owner)
 

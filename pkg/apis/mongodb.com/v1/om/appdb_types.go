@@ -65,6 +65,7 @@ func (m *AppDB) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// Name returns the name of the StatefulSet for the AppDB
 func (m AppDB) Name() string {
 	return m.OpsManagerName + "-db"
 }

@@ -7,6 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 
@@ -115,9 +118,9 @@ func TestPublishAutomationConfig_Create(t *testing.T) {
 	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
 	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
 	assert.NoError(t, err)
-	published, err := reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S())
+	version, err := reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S())
 	assert.NoError(t, err)
-	assert.True(t, published)
+	assert.Equal(t, 1, int(version))
 
 	// verify the configmap was created
 	configMap := readAutomationConfigMap(t, kubeManager, opsManager)
@@ -135,22 +138,22 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
 	assert.NoError(t, err)
 	// create
-	published, err := reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S())
+	version, err := reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S())
 	assert.NoError(t, err)
-	assert.True(t, published)
+	assert.Equal(t, 1, int(version))
 	kubeManager.Client.ClearHistory()
 
 	// publishing the config without updates should not result in API call
-	published, err = reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S())
+	version, err = reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S())
 	assert.NoError(t, err)
-	assert.False(t, published)
+	assert.Equal(t, 1, int(version))
 	kubeManager.Client.CheckOperationsDidntHappen(t, mock.HItem(reflect.ValueOf(kubeManager.Client.Update), &corev1.Secret{}))
 
 	// publishing changed config will result in update
 	automationConfig.Deployment.AddMonitoringAndBackup(zap.S(), appdb.GetTLSConfig().IsEnabled())
-	published, err = reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S())
+	version, err = reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S())
 	assert.NoError(t, err)
-	assert.True(t, published)
+	assert.Equal(t, 2, int(version))
 	kubeManager.Client.CheckOrderOfOperations(t, mock.HItem(reflect.ValueOf(kubeManager.Client.Update), &corev1.Secret{}))
 
 	// verify the configmap was updated (the version must get incremented)
@@ -167,9 +170,9 @@ func TestPublishAutomationConfig_ScramShaConfigured(t *testing.T) {
 	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
 	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
 	assert.NoError(t, err)
-	published, err := reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S())
+	version, err := reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S())
 	assert.NoError(t, err)
-	assert.True(t, published)
+	assert.Equal(t, 1, int(version))
 
 	configMap := readAutomationConfigMap(t, kubeManager, opsManager)
 
@@ -562,6 +565,10 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 		SetName(opsManager.Spec.AppDB.Name()).
 		SetNamespace(opsManager.Namespace).
 		SetReplicas(util.Int32Ref(int32(startingMembers))).
+		SetPodTemplateSpec(
+			podtemplatespec.New(
+				podtemplatespec.WithInitContainer("mongodb-enterprise-init-appdb",
+					container.WithImage("quay.io/mongodb/mongodb-enterprise-init-appdb:1.0.4")))).
 		Build()
 
 	assert.NoError(t, err)
@@ -607,6 +614,28 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 	assert.NoError(t, err)
 
 	assert.Equal(t, finalMembers, opsManager.Status.AppDbStatus.Members)
+}
+
+func TestIsOldInitAppDBImageForAgentsCheck(t *testing.T) {
+	assert.True(t, isOldInitAppDBImageForAgentsCheck("quay.io/mongodb/mongodb-enterprise-init-appdb:1.0.4", zap.S()))
+	assert.True(t, isOldInitAppDBImageForAgentsCheck("quay.io/mongodb/mongodb-enterprise-init-appdb:1.0.0", zap.S()))
+	assert.False(t, isOldInitAppDBImageForAgentsCheck("quay.io/mongodb/mongodb-enterprise-init-appdb", zap.S()))
+	assert.False(t, isOldInitAppDBImageForAgentsCheck("quay.io/mongodb/mongodb-enterprise-init-appdb:latest", zap.S()))
+	assert.False(t, isOldInitAppDBImageForAgentsCheck("quay.io/mongodb/mongodb-enterprise-init-appdb:1.0.5", zap.S()))
+}
+
+func TestAgentReachedGoalState(t *testing.T) {
+	pod := &corev1.Pod{}
+	assert.False(t, agentReachedGoalState(pod, int64(10), zap.S()))
+
+	pod.Annotations = map[string]string{"foo": "bar"}
+	assert.False(t, agentReachedGoalState(pod, int64(10), zap.S()))
+
+	pod.Annotations[PodAnnotationAgentVersion] = "9"
+	assert.False(t, agentReachedGoalState(pod, int64(10), zap.S()))
+
+	pod.Annotations[PodAnnotationAgentVersion] = "10"
+	assert.True(t, agentReachedGoalState(pod, int64(10), zap.S()))
 }
 
 // ***************** Helper methods *******************************

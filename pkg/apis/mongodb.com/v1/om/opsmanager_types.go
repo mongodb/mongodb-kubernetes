@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/scale"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
@@ -138,6 +140,10 @@ func (ms MongoDBOpsManagerSpec) GetOpsManagerCA() string {
 		return ms.Security.TLS.CA
 	}
 	return ""
+}
+
+func (m MongoDBOpsManager) AppDBStatefulSetObjectKey() client.ObjectKey {
+	return kube.ObjectKey(m.Namespace, m.Spec.AppDB.Name())
 }
 
 // MongoDBOpsManagerServiceDefinition struct that defines the mechanism by which this Ops Manager resource
@@ -456,6 +462,17 @@ func (m *MongoDBOpsManager) DesiredReplicaSetMembers() int {
 
 func (m *MongoDBOpsManager) CurrentReplicaSetMembers() int {
 	return m.Status.AppDbStatus.Members
+}
+
+// MemberNames returns the *current* names of Application Database members
+// Note, that it's wrong to rely on the status/spec here as the state in StatefulSet maybe different
+func (m MongoDBOpsManager) AppDBMemberNames(currentMembersCount int) []string {
+	names := make([]string, currentMembersCount)
+
+	for i := 0; i < currentMembersCount; i++ {
+		names[i] = fmt.Sprintf("%s-%d", m.Spec.AppDB.Name(), i)
+	}
+	return names
 }
 
 func (m MongoDBOpsManager) BackupDaemonHostName() string {

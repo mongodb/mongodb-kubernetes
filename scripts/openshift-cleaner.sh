@@ -7,7 +7,7 @@
 # Run `oc` command as instructed
 # Run this script
 #
-
+set -Eeou pipefail
 set -o xtrace
 
 
@@ -20,7 +20,7 @@ do
 
     namespace_dt=$(echo "${namespace}" | cut -d"-" -f 2)
 
-    if (($namespace_dt > $three_hours_ago)); then
+    if ((namespace_dt > three_hours_ago)); then
         echo "Skipping"
         continue
     fi

@@ -190,6 +190,6 @@ func buildAppDbReadinessProbe() probes.Modification {
 		probes.WithPeriodSeconds(5),
 		probes.WithExecCommand([]string{appDbReadinessProbeCommand}),
 		probes.WithInitialDelaySeconds(5),
-		probes.WithFailureThreshold(1),
+		probes.WithFailureThreshold(60),
 	)
 }
