@@ -75,11 +75,9 @@ or clone this repo, make any edits you need, and apply it from your machine.
 
 ### Installation using Helm Chart
 
-If you have installed the Helm client locally then you can run (note that `helm install` is a less preferred way as makes upgrades more complicated.
-`kubectl apply` is a much clearer way of installing/upgrading):
+If you have installed the Helm client locally then you can run:
 
-    helm template helm_chart > operator.yaml
-    kubectl apply -f operator.yaml
+    helm install mongodb-enterprise-operator helm_chart --values helm_chart/values.yaml
 
 You can customize installation by simple overriding of helm variables, for example use `--set operator.env="dev"` to run the Operator in development mode
 (this will turn logging level to `Debug` and will make logging output as non-json)
