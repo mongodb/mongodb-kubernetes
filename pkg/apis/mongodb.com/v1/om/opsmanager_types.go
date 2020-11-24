@@ -188,14 +188,14 @@ type MongoDBOpsManagerStatus struct {
 	OpsManagerStatus OpsManagerStatus `json:"opsManager,omitempty"`
 	AppDbStatus      AppDbStatus      `json:"applicationDatabase,omitempty"`
 	BackupStatus     BackupStatus     `json:"backup,omitempty"`
-	Warnings         []status.Warning `json:"warnings,omitempty"`
 }
 
 type OpsManagerStatus struct {
 	status.Common `json:",inline"`
-	Replicas      int    `json:"replicas,omitempty"`
-	Version       string `json:"version,omitempty"`
-	Url           string `json:"url,omitempty"`
+	Replicas      int              `json:"replicas,omitempty"`
+	Version       string           `json:"version,omitempty"`
+	Url           string           `json:"url,omitempty"`
+	Warnings      []status.Warning `json:"warnings,omitempty"`
 }
 
 type AppDbStatus struct {
@@ -204,7 +204,8 @@ type AppDbStatus struct {
 
 type BackupStatus struct {
 	status.Common `json:",inline"`
-	Version       string `json:"version,omitempty"`
+	Version       string           `json:"version,omitempty"`
+	Warnings      []status.Warning `json:"warnings,omitempty"`
 }
 
 // DataStoreConfig is the description of the config used to reference to database. Reused by Oplog and Block stores
@@ -371,13 +372,6 @@ func (m *MongoDBOpsManager) UpdateStatus(phase status.Phase, statusOptions ...st
 	case status.Backup:
 		m.updateStatusBackup(phase, statusOptions...)
 	}
-
-	// It may make sense to keep separate warnings per status part - this needs some refactoring for
-	// validation layer though (the one shared with validation webhook)
-	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
-		m.Status.Warnings = append(m.Status.Warnings, option.(status.WarningsOption).Warnings...)
-	}
-
 }
 
 func (m *MongoDBOpsManager) updateStatusAppDb(phase status.Phase, statusOptions ...status.Option) {
@@ -385,6 +379,10 @@ func (m *MongoDBOpsManager) updateStatusAppDb(phase status.Phase, statusOptions 
 
 	if option, exists := status.GetOption(statusOptions, scale.ReplicaSetMembersOption{}); exists {
 		m.Status.AppDbStatus.Members = option.(scale.ReplicaSetMembersOption).Members
+	}
+
+	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
+		m.Status.AppDbStatus.Warnings = append(m.Status.AppDbStatus.Warnings, option.(status.WarningsOption).Warnings...)
 	}
 
 	if phase == status.PhaseRunning {
@@ -401,6 +399,10 @@ func (m *MongoDBOpsManager) updateStatusOpsManager(phase status.Phase, statusOpt
 		m.Status.OpsManagerStatus.Url = option.(status.BaseUrlOption).BaseUrl
 	}
 
+	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
+		m.Status.OpsManagerStatus.Warnings = append(m.Status.OpsManagerStatus.Warnings, option.(status.WarningsOption).Warnings...)
+	}
+
 	if phase == status.PhaseRunning {
 		m.Status.OpsManagerStatus.Replicas = m.Spec.Replicas
 		m.Status.OpsManagerStatus.Version = m.Spec.Version
@@ -411,26 +413,69 @@ func (m *MongoDBOpsManager) updateStatusOpsManager(phase status.Phase, statusOpt
 func (m *MongoDBOpsManager) updateStatusBackup(phase status.Phase, statusOptions ...status.Option) {
 	m.Status.BackupStatus.UpdateCommonFields(phase, m.GetGeneration(), statusOptions...)
 
+	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
+		m.Status.BackupStatus.Warnings = append(m.Status.BackupStatus.Warnings, option.(status.WarningsOption).Warnings...)
+	}
 	if phase == status.PhaseRunning {
 		m.Status.BackupStatus.Message = ""
 		m.Status.BackupStatus.Version = m.Spec.Version
 	}
 }
 
-func (m *MongoDBOpsManager) SetWarnings(warnings []status.Warning) {
-	m.Status.Warnings = warnings
+func (m *MongoDBOpsManager) SetWarnings(warnings []status.Warning, options ...status.Option) {
+	for _, part := range getPartsFromStatusOptions(options...) {
+		switch part {
+		case status.OpsManager:
+			m.Status.OpsManagerStatus.Warnings = warnings
+		case status.Backup:
+			m.Status.BackupStatus.Warnings = warnings
+		case status.AppDb:
+			m.Status.AppDbStatus.Warnings = warnings
+		}
+	}
 }
 
-func (m *MongoDBOpsManager) AddWarningIfNotExists(warning status.Warning) {
-	m.Status.Warnings = status.Warnings(m.Status.Warnings).AddIfNotExists(warning)
+func (m *MongoDBOpsManager) AddOpsManagerWarningIfNotExists(warning status.Warning) {
+	m.Status.OpsManagerStatus.Warnings = status.Warnings(m.Status.OpsManagerStatus.Warnings).AddIfNotExists(warning)
+}
+func (m *MongoDBOpsManager) AddAppDBWarningIfNotExists(warning status.Warning) {
+	m.Status.AppDbStatus.Warnings = status.Warnings(m.Status.AppDbStatus.Warnings).AddIfNotExists(warning)
+}
+func (m *MongoDBOpsManager) AddBackupWarningIfNotExists(warning status.Warning) {
+	m.Status.BackupStatus.Warnings = status.Warnings(m.Status.BackupStatus.Warnings).AddIfNotExists(warning)
 }
 
 func (m MongoDBOpsManager) GetPlural() string {
 	return "opsmanagers"
 }
 
-func (m *MongoDBOpsManager) GetStatus() interface{} {
+func (m *MongoDBOpsManager) GetStatus(options ...status.Option) interface{} {
+	if part, exists := status.GetOption(options, status.OMPartOption{}); exists {
+		switch part.Value().(status.Part) {
+		case status.OpsManager:
+			return m.Status.OpsManagerStatus
+		case status.AppDb:
+			return m.Status.AppDbStatus
+		case status.Backup:
+			return m.Status.BackupStatus
+		}
+	}
 	return m.Status
+}
+
+func (m MongoDBOpsManager) GetStatusPath(options ...status.Option) string {
+	if part, exists := status.GetOption(options, status.OMPartOption{}); exists {
+		switch part.Value().(status.Part) {
+		case status.OpsManager:
+			return "/status/opsManager"
+		case status.AppDb:
+			return "/status/applicationDatabase"
+		case status.Backup:
+			return "/status/backup"
+		}
+	}
+	// we should never actually reach this
+	return "/status"
 }
 
 func (m *MongoDBOpsManager) APIKeySecretName() string {
@@ -502,4 +547,15 @@ func SchemePortFromAnnotation(annotation string) (corev1.URIScheme, int) {
 	}
 
 	return scheme, port
+}
+
+func getPartsFromStatusOptions(options ...status.Option) []status.Part {
+	var parts []status.Part
+	for _, part := range options {
+		if omPart, ok := part.(status.OMPartOption); ok {
+			statusPart := omPart.Value().(status.Part)
+			parts = append(parts, statusPart)
+		}
+	}
+	return parts
 }

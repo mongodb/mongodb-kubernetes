@@ -140,9 +140,8 @@ func (c *ReconcileCommonController) updateStatus(reconciledResource v1.CustomRes
 	status.Log(log)
 
 	mergedOptions := append(statusOptions, status.StatusOptions()...)
-
 	reconciledResource.UpdateStatus(status.Phase(), mergedOptions...)
-	if err := c.patchUpdateStatus(reconciledResource); err != nil {
+	if err := c.patchUpdateStatus(reconciledResource, statusOptions...); err != nil {
 		log.Errorf("Error updating status to %s: %s", status.Phase(), err)
 		return reconcile.Result{}, err
 	}
@@ -153,13 +152,15 @@ func (c *ReconcileCommonController) updateStatus(reconciledResource v1.CustomRes
 // Note, that this method enforces update ONLY to the status, so the reconciliation events happening because of this
 // can be filtered out by 'controller.shouldReconcile'
 // The "jsonPatch" merge allows to update only status field
-func (c *ReconcileCommonController) patchUpdateStatus(resource v1.CustomResourceReadWriter) error {
-
+func (c *ReconcileCommonController) patchUpdateStatus(resource v1.CustomResourceReadWriter, options ...status.Option) error {
 	payload := []patchValue{{
-		Op:    "replace",
-		Path:  "/status",
-		Value: resource.GetStatus(),
+		Op:   "replace",
+		Path: resource.GetStatusPath(options...),
+		// in most cases this will be "/status", but for each of the different Ops Manager components
+		// this will be different
+		Value: resource.GetStatus(options...),
 	}}
+
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -167,6 +168,15 @@ func (c *ReconcileCommonController) patchUpdateStatus(resource v1.CustomResource
 
 	patch := client.ConstantPatch(types.JSONPatchType, data)
 	err = c.client.Status().Patch(context.TODO(), resource, patch)
+
+	if err != nil && apiErrors.IsInvalid(err) {
+		zap.S().Debug("The Status subresource might not exist yet, creating empty subresource")
+		if err := c.ensureStatusSubresourceExists(resource, options...); err != nil {
+			return err
+		}
+		err = c.client.Status().Patch(context.TODO(), resource, patch)
+	}
+
 	if err != nil {
 		if apiErrors.IsNotFound(err) || apiErrors.IsForbidden(err) {
 			zap.S().Debugf("Patching the status subresource is not supported - will patch the whole object (error: %s)", err)
@@ -175,6 +185,40 @@ func (c *ReconcileCommonController) patchUpdateStatus(resource v1.CustomResource
 		return err
 	}
 
+	return nil
+}
+
+type emptyPayload struct{}
+
+// ensureStatusSubresourceExists ensures that the status subresource section we are trying to write to exists.
+// if we just try and patch the full path directly, the subresource sections are not recursively created, so
+// we need to ensure that the actual object we're trying to write to exists, otherwise we will get errors.
+func (c *ReconcileCommonController) ensureStatusSubresourceExists(resource v1.CustomResourceReadWriter, options ...status.Option) error {
+	fullPath := resource.GetStatusPath(options...)
+	parts := strings.Split(fullPath, "/")
+
+	if strings.HasPrefix(fullPath, "/") {
+		parts = parts[1:]
+	}
+
+	var path []string
+	for _, part := range parts {
+		pathStr := "/" + strings.Join(path, "/")
+		path = append(path, part)
+		emptyPatchPayload := []patchValue{{
+			Op:    "add",
+			Path:  pathStr,
+			Value: emptyPayload{},
+		}}
+		data, err := json.Marshal(emptyPatchPayload)
+		if err != nil {
+			return err
+		}
+		patch := client.ConstantPatch(types.JSONPatchType, data)
+		if err := c.client.Status().Patch(context.TODO(), resource, patch); err != nil && !apiErrors.IsInvalid(err) {
+			return err
+		}
+	}
 	return nil
 }
 

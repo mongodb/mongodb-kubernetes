@@ -9,12 +9,19 @@ type Writer interface {
 	// UpdateStatus updates the status of the object
 	UpdateStatus(phase Phase, statusOptions ...Option)
 
-	// SetWarnings sets the warnings for the object
-	SetWarnings([]Warning)
+	// SetWarnings sets the warnings for the object, the list of Options
+	// provided indicate which Status subresource should be updated in the case
+	// of AppDB, OpsManager and Backup
+	SetWarnings([]Warning, ...Option)
+
+	// GetStatusPath should return the path that should be used
+	// to patch the Status object
+	GetStatusPath(options ...Option) string
 }
 type Reader interface {
-	// GetStatus returns the status of the object
-	GetStatus() interface{}
+	// GetStatus returns the status of the object. The list of Options
+	// provided indicates which subresource will be returned. AppDB, OM or Backup
+	GetStatus(options ...Option) interface{}
 }
 
 // Common is the struct shared by all statuses in existing Custom Resources.

@@ -126,9 +126,9 @@ class TestOpsManagerValidationWarnings:
 
     def test_create_om_failed_with_message(self, ops_manager: MongoDBOpsManager):
         """ Sending the incorrect specification will move the OM resource to Failed state """
-        ops_manager.om_status().assert_reaches_phase(Phase.Failed, timeout=300)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Failed, timeout=300)
 
-        assert APPDB_SHARD_COUNT_WARNING == ops_manager.om_status().get_message()
+        assert APPDB_SHARD_COUNT_WARNING == ops_manager.appdb_status().get_message()
 
         # Warnings are not created here!
         assert "warnings" not in ops_manager.get_status()
@@ -145,5 +145,5 @@ class TestOpsManagerValidationWarnings:
             ops_manager.name,
             ops_manager.backing_obj,
         )
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=700)
-        assert "message" not in ops_manager.get_status()
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=700)
+        assert ops_manager.appdb_status().get_message() is None

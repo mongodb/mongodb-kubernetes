@@ -127,7 +127,7 @@ func (u *MongoDBUser) UpdateStatus(phase status.Phase, statusOptions ...status.O
 	}
 }
 
-func (m *MongoDBUser) SetWarnings(warnings []status.Warning) {
+func (m *MongoDBUser) SetWarnings(warnings []status.Warning, _ ...status.Option) {
 	m.Status.Warnings = warnings
 }
 
@@ -135,6 +135,10 @@ func (m MongoDBUser) GetPlural() string {
 	return "mongodbusers"
 }
 
-func (u *MongoDBUser) GetStatus() interface{} {
+func (u *MongoDBUser) GetStatus(...status.Option) interface{} {
 	return u.Status
+}
+
+func (u MongoDBUser) GetStatusPath(...status.Option) string {
+	return "/status"
 }

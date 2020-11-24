@@ -7,4 +7,5 @@ const (
 	AppDb Part = iota
 	OpsManager
 	Backup
+	None
 )

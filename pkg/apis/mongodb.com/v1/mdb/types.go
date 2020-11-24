@@ -144,8 +144,7 @@ type MongoDbSpec struct {
 	ConnectionSpec `json:",inline"`
 	Persistent     *bool        `json:"persistent,omitempty"`
 	ResourceType   ResourceType `json:"type,omitempty"`
-
-	Backup *Backup `json:"backup,omitempty"`
+	Backup         *Backup      `json:"backup,omitempty"`
 
 	// sharded clusters
 
@@ -651,7 +650,7 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 	}
 }
 
-func (m *MongoDB) SetWarnings(warnings []status.Warning) {
+func (m *MongoDB) SetWarnings(warnings []status.Warning, _ ...status.Option) {
 	m.Status.Warnings = warnings
 }
 
@@ -663,8 +662,12 @@ func (m MongoDB) GetPlural() string {
 	return "mongodb"
 }
 
-func (m *MongoDB) GetStatus() interface{} {
+func (m *MongoDB) GetStatus(...status.Option) interface{} {
 	return m.Status
+}
+
+func (m MongoDB) GetStatusPath(...status.Option) string {
+	return "/status"
 }
 
 // GetProject returns the name of the ConfigMap containing the information about connection to OM/CM

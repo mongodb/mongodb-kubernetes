@@ -93,8 +93,8 @@ func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconci
 	// register backup
 	r.watchMongoDBResourcesReferencedByBackup(*opsManager)
 
-	if err := opsManager.ProcessValidationsOnReconcile(); err != nil {
-		return r.updateStatus(opsManager, workflow.Invalid(err.Error()), log, opsManagerExtraStatusParams)
+	if err, part := opsManager.ProcessValidationsOnReconcile(); err != nil {
+		return r.updateStatus(opsManager, workflow.Invalid(err.Error()), log, mdbstatus.NewOMPartOption(part))
 	}
 
 	opsManagerUserPassword, err := r.getAppDBPassword(*opsManager, log)
@@ -222,7 +222,7 @@ func (r *OpsManagerReconciler) readOpsManagerResource(request reconcile.Request,
 		return result, err
 	}
 	// Reset warnings so that they are not stale, will populate accurate warnings in reconciliation
-	ref.SetWarnings([]mdbstatus.Warning{})
+	ref.SetWarnings([]mdbstatus.Warning{}, mdbstatus.NewOMPartOption(mdbstatus.OpsManager), mdbstatus.NewOMPartOption(mdbstatus.AppDb), mdbstatus.NewOMPartOption(mdbstatus.Backup))
 	return nil, nil
 }
 
