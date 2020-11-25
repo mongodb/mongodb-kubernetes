@@ -1,6 +1,12 @@
 <!-- Next release -->
 # MongoDB Enterprise Kubernetes Operator 1.8.3
 
+## Kubernetes Operator
+
+* Bug fixes
+ * Fixes an issue where connections were not closed leading to too many file
+   descriptors open.
+
 ## MongoDBOpsManager Resource
 
 * Changes

@@ -170,10 +170,17 @@ func (client *Client) authorizeRequest(method, hostname, path string, request *h
 	if err != nil {
 		return err
 	}
+	defer resp.Body.Close()
+
+	_, err = ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
 	if resp.StatusCode != http.StatusUnauthorized {
 		return apierror.New(
 			fmt.Errorf(
-				"Recieved status code '%v' (%v) but expected the '%d', requested url: %v",
+				"Received status code '%v' (%v) but expected the '%d', requested url: %v",
 				resp.StatusCode,
 				resp.Status,
 				http.StatusUnauthorized,
