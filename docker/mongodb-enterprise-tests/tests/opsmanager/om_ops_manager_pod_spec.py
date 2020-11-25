@@ -29,18 +29,16 @@ def ops_manager(
 
 @mark.e2e_om_ops_manager_pod_spec
 class TestOpsManagerCreation:
-    def test_appdb_0_sts_not_ready(self, ops_manager: MongoDBOpsManager):
+    def test_appdb_0_sts_agents_havent_reached_running_state(
+        self, ops_manager: MongoDBOpsManager
+    ):
         ops_manager.appdb_status().assert_reaches_phase(
-            Phase.Pending, msg_regexp="StatefulSet not ready", timeout=100
+            Phase.Pending,
+            msg_regexp="Application Database Agents haven't reached Running state yet",
+            timeout=100,
         )
 
-    def test_appdb_1_pods_not_ready(self, ops_manager: MongoDBOpsManager):
-        ops_manager.appdb_status().assert_status_resource_not_ready(
-            ops_manager.app_db_name(),
-            msg_regexp="Not all the Pods are ready \(total: 3.*\)",
-        )
-
-    def test_appdb_2_reaches_running_phase_1(self, ops_manager: MongoDBOpsManager):
+    def test_appdb_1_reaches_running_phase_1(self, ops_manager: MongoDBOpsManager):
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=500)
         ops_manager.appdb_status().assert_empty_status_resources_not_ready()
 
