@@ -449,7 +449,7 @@ func DefaultOpsManagerBuilder() *omv1.OpsManagerBuilder {
 
 func BuildTestStatefulSet(opsManager omv1.MongoDBOpsManager) (appsv1.StatefulSet, error) {
 	rs := opsManager.Spec.AppDB
-	return (&KubeHelper{}).NewStatefulSetHelper(&opsManager).
+	return NewStatefulSetHelper(&opsManager).
 		SetName(rs.Name()).
 		SetService(rs.ServiceName()).
 		SetPodSpec(NewDefaultPodSpecWrapper(*rs.PodSpec)).

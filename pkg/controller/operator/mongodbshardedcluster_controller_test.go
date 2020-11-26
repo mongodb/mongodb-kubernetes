@@ -331,14 +331,14 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 	assert.Nil(t, err)
 
 	kubeState := reconciler.buildKubeObjectsForShardedCluster(sc, defaultPodVars(), mdbv1.ProjectConfig{}, "", zap.S())
-	assert.False(t, anyStatefulSetHelperNeedsToPublishState(kubeState, zap.S()))
+	assert.False(t, anyStatefulSetHelperNeedsToPublishState(client, kubeState, zap.S()))
 
 	// attempting to set tls to false
 	sc.Spec.Security.TLSConfig.Enabled = false
 
 	// Ops Manager state needs to be published first as we want to reach goal state before unmounting certificates
 	kubeState = reconciler.buildKubeObjectsForShardedCluster(sc, defaultPodVars(), mdbv1.ProjectConfig{}, "", zap.S())
-	assert.True(t, anyStatefulSetHelperNeedsToPublishState(kubeState, zap.S()))
+	assert.True(t, anyStatefulSetHelperNeedsToPublishState(client, kubeState, zap.S()))
 }
 
 func TestShardedCustomPodSpecTemplate(t *testing.T) {

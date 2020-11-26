@@ -1,10 +1,12 @@
 package operator
 
 import (
-	"context"
+	"fmt"
 	"os"
 	"path"
 	"testing"
+
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
 
@@ -125,7 +127,19 @@ func TestBuildAppDbStatefulSetDefault(t *testing.T) {
 	assert.Equal(t, "mongodb-enterprise-appdb", podSpecTemplate.Containers[0].Name, "Database container should always be first")
 }
 
+type mockSecretGetter struct {
+	secret *corev1.Secret
+}
+
+func (m mockSecretGetter) GetSecret(_ client.ObjectKey) (corev1.Secret, error) {
+	if m.secret == nil {
+		return corev1.Secret{}, fmt.Errorf("not found")
+	}
+	return *m.secret, nil
+}
+
 func TestReadPemHashFromSecret(t *testing.T) {
+
 	stsHelper := baseSetHelper()
 
 	secret := &corev1.Secret{
@@ -133,9 +147,8 @@ func TestReadPemHashFromSecret(t *testing.T) {
 		Data:       map[string][]byte{"hello": []byte("world")},
 	}
 
-	assert.Empty(t, stsHelper.readPemHashFromSecret(), "secret does not exist so pem hash should be empty")
-	stsHelper.Helper.client.Update(context.TODO(), secret)
-	assert.NotEmpty(t, stsHelper.readPemHashFromSecret(), "pem hash should be read from the secret")
+	assert.Empty(t, stsHelper.readPemHashFromSecret(mockSecretGetter{}), "secret does not exist so pem hash should be empty")
+	assert.NotEmpty(t, stsHelper.readPemHashFromSecret(mockSecretGetter{secret: secret}), "pem hash should be read from the secret")
 }
 
 func TestBasePodSpec_Affinity(t *testing.T) {
@@ -763,9 +776,7 @@ func TestAppDBAgentFlags(t *testing.T) {
 
 func baseSetHelper() *StatefulSetHelper {
 	st := DefaultStandaloneBuilder().Build()
-	mockedClient := mock.NewClient().WithResource(st)
-	helper := NewKubeHelper(mockedClient)
-	return helper.NewStatefulSetHelper(st)
+	return NewStatefulSetHelper(st)
 }
 
 func defaultSetHelper() *StatefulSetHelper {
@@ -785,9 +796,7 @@ func defaultSetHelper() *StatefulSetHelper {
 // defaultAppDbSetHelper builds the default statefulset helper for appdb from Ops Manager resource
 func defaultAppDbSetHelper() *StatefulSetHelper {
 	om := DefaultOpsManagerBuilder().Build()
-	mockedClient := mock.NewClient().WithResource(&om)
-	helper := NewKubeHelper(mockedClient)
-	return helper.NewStatefulSetHelper(&om).SetPodVars(&PodEnvVars{})
+	return NewStatefulSetHelper(&om).SetPodVars(&PodEnvVars{})
 }
 
 func omSetHelperFromResource(om omv1.MongoDBOpsManager) OpsManagerStatefulSetHelper {

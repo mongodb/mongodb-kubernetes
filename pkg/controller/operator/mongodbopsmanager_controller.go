@@ -276,7 +276,7 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulset(opsManager omv1.Mongo
 	if opsManager.Annotations != nil {
 		helper.SetAnnotations(opsManager.Annotations)
 	}
-	if err := helper.CreateOrUpdateInKubernetes(); err != nil {
+	if err := helper.CreateOrUpdateInKubernetes(r.client, r.client); err != nil {
 		return workflow.Failed(err.Error())
 	}
 
@@ -355,7 +355,7 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(opsManager omv1.Mon
 	backupHelper.OpsManagerStatefulSetHelper.SetAppDBConnectionStringHash(hashConnectionString(connectionString))
 	backupHelper.SetLogger(log)
 
-	if err := backupHelper.CreateOrUpdateInKubernetes(); err != nil {
+	if err := backupHelper.CreateOrUpdateInKubernetes(r.client, r.client); err != nil {
 		return workflow.Failed(err.Error())
 	}
 	// Note, that this will return true quite soon as we don't have daemon readiness so far

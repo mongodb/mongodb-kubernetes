@@ -28,7 +28,8 @@ func TestStatefulsetCreationSuccessful(t *testing.T) {
 	start := time.Now()
 	helper := defaultSetHelper()
 
-	err := helper.CreateOrUpdateInKubernetes()
+	client := mock.NewClient()
+	err := helper.CreateOrUpdateInKubernetes(client, client)
 	assert.NoError(t, err)
 	assert.True(t, time.Now().Sub(start) < time.Second*4) // we waited only a little (considering 2 seconds of wait as well)
 }
@@ -155,13 +156,13 @@ func TestSSLOptionsArePassedCorrectly_UseCustomCAConfigMap(t *testing.T) {
 
 func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
 	defer InitDefaultEnvVariables()
-
+	client := mock.NewClient()
 	os.Setenv(util.AutomationAgentImage, "")
-	assert.Panics(t, func() { defaultSetHelper().CreateOrUpdateInKubernetes() })
+	assert.Panics(t, func() { defaultSetHelper().CreateOrUpdateInKubernetes(client, client) })
 	InitDefaultEnvVariables()
 
 	os.Setenv(util.AutomationAgentImagePullPolicy, "")
-	assert.Panics(t, func() { defaultSetHelper().CreateOrUpdateInKubernetes() })
+	assert.Panics(t, func() { defaultSetHelper().CreateOrUpdateInKubernetes(client, client) })
 }
 
 // TestComputeSecret_CreateNew checks the "create" features of 'computeSecret' function when the secret is created

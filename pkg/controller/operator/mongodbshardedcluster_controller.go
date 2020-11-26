@@ -3,6 +3,8 @@ package operator
 import (
 	"fmt"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/connection"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
@@ -178,7 +180,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return nil, status
 	}
 
-	status := runInGivenOrder(anyStatefulSetHelperNeedsToPublishState(kubeState, log),
+	status := runInGivenOrder(anyStatefulSetHelperNeedsToPublishState(r.client, kubeState, log),
 		func() workflow.Status {
 			return r.updateOmDeploymentShardedCluster(conn, sc, kubeState, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
@@ -195,10 +197,10 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 
 // anyStatefulSetHelperNeedsToPublishState checks to see if any stateful set helper part
 // of the given sharded cluster needs to publish state to Ops Manager before updating Kubernetes resources
-func anyStatefulSetHelperNeedsToPublishState(kubeState ShardedClusterKubeState, log *zap.SugaredLogger) bool {
+func anyStatefulSetHelperNeedsToPublishState(stsGetter statefulset.Getter, kubeState ShardedClusterKubeState, log *zap.SugaredLogger) bool {
 	allHelpers := getAllStatefulSetHelpers(kubeState)
 	for _, stsHelper := range allHelpers {
-		if stsHelper.needToPublishStateFirst(log) {
+		if stsHelper.needToPublishStateFirst(stsGetter, log) {
 			return true
 		}
 	}
@@ -288,7 +290,7 @@ func (r *ReconcileMongoDbShardedCluster) ensureSSLCertificates(s *mdbv1.MongoDB,
 // ready yet
 // Note, that it doesn't remove any existing shards - this will be done later
 func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger) workflow.Status {
-	err := state.configSrvSetHelper.CreateOrUpdateInKubernetes()
+	err := state.configSrvSetHelper.CreateOrUpdateInKubernetes(r.client, r.client)
 	if err != nil {
 		return workflow.Failed("Failed to create Config Server Stateful Set: %s", err)
 	}
@@ -303,7 +305,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 
 	for i, helper := range state.shardsSetsHelpers {
 		shardsNames[i] = helper.Name
-		err = helper.CreateOrUpdateInKubernetes()
+		err = helper.CreateOrUpdateInKubernetes(r.client, r.client)
 		if err != nil {
 			return workflow.Failed("Failed to create Stateful Set for shard %s: %s", helper.Name, err)
 		}
@@ -315,7 +317,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 
 	log.Infow("Created/updated Stateful Sets for shards in Kubernetes", "shards", shardsNames)
 
-	err = state.mongosSetHelper.CreateOrUpdateInKubernetes()
+	err = state.mongosSetHelper.CreateOrUpdateInKubernetes(r.client, r.client)
 	if err != nil {
 		return workflow.Failed("Failed to create Mongos Stateful Set: %s", err)
 	}
@@ -337,7 +339,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 		mongosStartupParameters = s.Spec.MongosSpec.Agent.StartupParameters
 	}
 	// 1. Create the mongos StatefulSet
-	mongosBuilder := r.kubeHelper.NewStatefulSetHelper(s).
+	mongosBuilder := NewStatefulSetHelper(s).
 		SetName(s.MongosRsName()).
 		SetService(s.ServiceName()).
 		SetServicePort(s.Spec.MongosSpec.GetAdditionalMongodConfig().GetPortOrDefault()).
@@ -354,7 +356,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 		SetStatefulSetConfiguration(nil) // TODO: configure once supported
 	//SetStatefulSetConfiguration(s.Spec.MongosStatefulSetConfiguration)
 
-	mongosBuilder.SetCertificateHash(mongosBuilder.readPemHashFromSecret())
+	mongosBuilder.SetCertificateHash(mongosBuilder.readPemHashFromSecret(r.client))
 
 	// 2. Create a Config Server StatefulSet
 	podSpec := NewDefaultPodSpecWrapper(*s.Spec.ConfigSrvPodSpec)
@@ -364,7 +366,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 	if s.Spec.ConfigSrvSpec != nil {
 		configStartupParameters = s.Spec.ConfigSrvSpec.Agent.StartupParameters
 	}
-	configBuilder := r.kubeHelper.NewStatefulSetHelper(s).
+	configBuilder := NewStatefulSetHelper(s).
 		SetName(s.ConfigRsName()).
 		SetService(s.ConfigSrvServiceName()).
 		SetServicePort(s.Spec.ConfigSrvSpec.GetAdditionalMongodConfig().GetPortOrDefault()).
@@ -380,7 +382,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 		SetStatefulSetConfiguration(nil) // TODO: configure once supported
 	//SetStatefulSetConfiguration(s.Spec.ConfigSrvStatefulSetConfiguration)
 
-	configBuilder.SetCertificateHash(configBuilder.readPemHashFromSecret())
+	configBuilder.SetCertificateHash(configBuilder.readPemHashFromSecret(r.client))
 	// 3. Creates a StatefulSet for each shard in the cluster
 	shardStartupParameters := mdbv1.StartupParameters{}
 	if s.Spec.ShardSpec != nil {
@@ -388,7 +390,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 	}
 	shardsSetHelpers := make([]*StatefulSetHelper, s.Spec.ShardCount)
 	for i := 0; i < s.Spec.ShardCount; i++ {
-		shardsSetHelpers[i] = r.kubeHelper.NewStatefulSetHelper(s).
+		shardsSetHelpers[i] = NewStatefulSetHelper(s).
 			SetName(s.ShardRsName(i)).
 			SetService(s.ShardServiceName()).
 			SetServicePort(s.Spec.ShardSpec.GetAdditionalMongodConfig().GetPortOrDefault()).
@@ -403,7 +405,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 			SetCurrentAgentAuthMechanism(currentAgentAuthMechanism).
 			SetStatefulSetConfiguration(nil) // TODO: configure once supported
 		//SetStatefulSetConfiguration(s.Spec.ShardStatefulSetConfiguration)
-		shardsSetHelpers[i].SetCertificateHash(shardsSetHelpers[i].readPemHashFromSecret())
+		shardsSetHelpers[i].SetCertificateHash(shardsSetHelpers[i].readPemHashFromSecret(r.client))
 	}
 
 	return ShardedClusterKubeState{

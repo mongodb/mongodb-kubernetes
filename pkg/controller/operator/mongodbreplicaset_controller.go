@@ -88,7 +88,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		return r.updateStatus(rs, workflow.Failed(err.Error()), log)
 	}
 
-	replicaBuilder := r.kubeHelper.NewStatefulSetHelper(rs).
+	replicaBuilder := NewStatefulSetHelper(rs).
 		SetReplicas(scale.ReplicasThisReconciliation(rs)).
 		SetService(rs.ServiceName()).
 		SetServicePort(rs.Spec.AdditionalMongodConfig.GetPortOrDefault()).
@@ -103,7 +103,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		SetStatefulSetConfiguration(nil) // TODO: configure once supported
 	//SetStatefulSetConfiguration(rs.Spec.StatefulSetConfiguration)
 
-	replicaBuilder.SetCertificateHash(replicaBuilder.readPemHashFromSecret())
+	replicaBuilder.SetCertificateHash(replicaBuilder.readPemHashFromSecret(r.client))
 
 	if status := validateMongoDBResource(rs, conn); !status.IsOK() {
 		return r.updateStatus(rs, status, log)
@@ -136,12 +136,12 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		}
 	}
 
-	status := runInGivenOrder(replicaBuilder.needToPublishStateFirst(log),
+	status := runInGivenOrder(replicaBuilder.needToPublishStateFirst(r.client, log),
 		func() workflow.Status {
 			return r.updateOmDeploymentRs(conn, rs.Status.Members, rs, replicaSetObject, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
-			if err := replicaBuilder.CreateOrUpdateInKubernetes(); err != nil {
+			if err := replicaBuilder.CreateOrUpdateInKubernetes(r.client, r.client); err != nil {
 				return workflow.Failed("Failed to create/update (Kubernetes reconciliation phase): %s", err.Error())
 			}
 

@@ -103,7 +103,7 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 	appdbPodSpec.Default.MemoryRequests = util.DefaultMemoryAppDB
 
 	// It's ok to pass 'opsManager' instance to statefulset constructor as it will be the owner for the appdb statefulset
-	replicaBuilder := *r.kubeHelper.NewStatefulSetHelper(opsManager).
+	replicaBuilder := *NewStatefulSetHelper(opsManager).
 		SetReplicas(scale.ReplicasThisReconciliation(opsManager)).
 		SetName(rs.Name()).
 		SetService(rs.ServiceName()).
@@ -566,7 +566,7 @@ func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(opsManager omv1.MongoD
 
 // deployStatefulSet updates the StatefulSet spec and returns its status (if it's ready or not)
 func (r *ReconcileAppDbReplicaSet) deployStatefulSet(opsManager omv1.MongoDBOpsManager, replicaBuilder StatefulSetHelper) workflow.Status {
-	if err := replicaBuilder.CreateOrUpdateAppDBInKubernetes(); err != nil {
+	if err := replicaBuilder.CreateOrUpdateAppDBInKubernetes(r.client, r.client); err != nil {
 		return workflow.Failed(err.Error())
 	}
 
