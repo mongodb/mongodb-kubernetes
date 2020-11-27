@@ -25,11 +25,11 @@ do
         continue
     fi
 
-    service=$(kubectl -n "$namespace" get services -o name)
-    if [[ $service != "" ]]; then
+    services=$(kubectl -n "$namespace" get services -o name)
+    for service in ${services}; do
         echo " > Removing finalizer from service: ${service}"
-        kubectl -n "$namespace" patch "$service" --type=json -p '[{"op": "remove", "path": "/metadata/finalizers"}]'
-    fi
+        kubectl -n "$namespace" patch "$service" --type=json -p '[{"op": "remove", "path": "/metadata/finalizers"}]' || true
+    done
 
     operator_pod=$(kubectl -n "$namespace" get pods -l app=mongodb-enterprise-operator -o name)
     if [[ $operator_pod != "" ]]; then
