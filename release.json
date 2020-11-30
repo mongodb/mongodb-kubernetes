@@ -2,7 +2,7 @@
   "appDbBundle": {
     "mongodbVersion": "4.2.2-ent",
     "baseUrl": "https://downloads.mongodb.com/linux/",
-    "ubiBinaryName": "mongodb-linux-x86_64-enterprise-rhel70-4.2.2.tgz",
+    "ubiBinaryName": "mongodb-linux-x86_64-enterprise-rhel80-4.2.2.tgz",
     "ubuntuBinaryName": "mongodb-linux-x86_64-enterprise-ubuntu1604-4.2.2.tgz"
   },
   "mongodbToolsBundle": {
