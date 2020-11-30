@@ -1,11 +1,10 @@
 {% extends "Dockerfile.template" %}
 
 {% block packages %}
-COPY licenses /licenses
 RUN yum update -y && rm -rf /var/cache/yum
 
 # these are the packages needed for the agent
-RUN yum install --disableplugin=subscription-manager \
+RUN yum install -y --disableplugin=subscription-manager \
         hostname \
         nss_wrapper \
         procps
@@ -13,7 +12,7 @@ RUN yum install --disableplugin=subscription-manager \
 
 # these are the packages needed for MongoDB
 # (https://docs.mongodb.com/manual/tutorial/install-mongodb-enterprise-on-red-hat-tarball/ "RHEL/CentOS 8" tab)
-RUN yum install --disableplugin=subscription-manager \
+RUN yum install -y --disableplugin=subscription-manager \
         cyrus-sasl \
         cyrus-sasl-gssapi \
         cyrus-sasl-plain \

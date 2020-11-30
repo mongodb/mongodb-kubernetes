@@ -58,7 +58,6 @@ repo_name="$(echo "${base_url}" | cut -d "/" -f2-)" # cutting the domain part
     for version in "${aa_version}" "${aa_version}-${build_id}" "latest"
     do
         docker push "${base_url}:${version}"
+        title "AppDB image successfully built and pushed to ${base_url}:${version}"
     done
 )
-
-title "AppDB image successfully built and pushed to ${REPO_URL} registry"

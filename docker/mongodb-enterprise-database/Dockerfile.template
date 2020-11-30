@@ -52,8 +52,8 @@ RUN curl --fail --retry 3 -L -o "${BINARY_NAME}" "${MDB_URL}${BINARY_NAME}" \
     && chmod -R 0775 "${MDB_DIR}"
 
 # Download the latest Automation Agent binary
-
-RUN curl --fail --retry 3 -L -o automation-agent.tar.gz "${AA_DOWNLOAD_URL}"  \
+RUN mkdir -p ${MMS_HOME}/files/ \
+    && curl --fail --retry 3 -L -o automation-agent.tar.gz "${AA_DOWNLOAD_URL}"  \
     && tar -xzf automation-agent.tar.gz \
     && mv mongodb-mms-automation-agent-*/mongodb-mms-automation-agent "${MMS_HOME}/files/" \
     && chmod +x "${MMS_HOME}/files/mongodb-mms-automation-agent" \
