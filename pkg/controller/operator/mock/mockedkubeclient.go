@@ -6,6 +6,9 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/hashicorp/go-multierror"
+	"k8s.io/apimachinery/pkg/util/validation"
+
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
@@ -248,7 +251,13 @@ func NewClient() *MockedClient {
 }
 
 func (m *MockedClient) WithResource(object apiruntime.Object) *MockedClient {
-	m.Create(context.TODO(), object.DeepCopyObject())
+	err := m.Create(context.TODO(), object.DeepCopyObject())
+	if err != nil {
+		// panicking here instead of adding to return type as this function
+		// is used to initialize the mocked client, with this we can ensure we never
+		// start in a situation with a resource that has a naming violation.
+		panic(err)
+	}
 	return m
 }
 
@@ -261,15 +270,22 @@ func (m *MockedClient) AddProjectConfigMap(projectName, organizationId string) *
 		SetField(util.OmOrgId, organizationId).
 		Build()
 
-	m.Create(context.TODO(), &cm)
+	err := m.Create(context.TODO(), &cm)
+	if err != nil {
+		panic(err)
+	}
 	return m
 }
 
+// AddCredentialsSecret creates the Secret that stores Ops Manager credentials for the test environment.
 func (m *MockedClient) AddCredentialsSecret(omUser, omPublicKey string) *MockedClient {
 	credentials := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: TestCredentialsSecretName, Namespace: TestNamespace},
 		StringData: map[string]string{util.OmUser: omUser, util.OmPublicApiKey: omPublicKey}}
-	m.Create(context.TODO(), credentials)
+	err := m.Create(context.TODO(), credentials)
+	if err != nil {
+		panic(err)
+	}
 	return m
 }
 
@@ -325,6 +341,11 @@ func (k *MockedClient) Create(ctx context.Context, obj apiruntime.Object, opts .
 	obj = obj.DeepCopyObject()
 	key := ObjectKeyFromApiObject(obj)
 	resMap := k.GetMapForObject(obj)
+
+	if err := validateDNS1123Subdomain(obj); err != nil {
+		return err
+	}
+
 	k.addToHistory(reflect.ValueOf(k.Create), obj)
 
 	if err := k.Get(ctx, key, obj); err == nil {
@@ -359,6 +380,9 @@ func (k *MockedClient) Create(ctx context.Context, obj apiruntime.Object, opts .
 // Update updates the given obj in the Kubernetes cluster. obj must be a
 // struct pointer so that obj can be updated with the content returned by the Server.
 func (k *MockedClient) Update(ctx context.Context, obj apiruntime.Object, opts ...client.UpdateOption) error {
+	if err := validateDNS1123Subdomain(obj); err != nil {
+		return err
+	}
 	obj = obj.DeepCopyObject()
 	k.addToHistory(reflect.ValueOf(k.Update), obj)
 	if k.UpdateFunc != nil {
@@ -653,4 +677,20 @@ func ObjectKeyFromApiObject(obj interface{}) client.ObjectKey {
 	name := reflect.ValueOf(obj).Elem().FieldByName("Name").String()
 
 	return types.NamespacedName{Name: name, Namespace: ns}
+}
+
+// validateDNS1123Subdomain ensures that the given Kubernetes object has a name which adheres
+// to DNS1123.
+func validateDNS1123Subdomain(obj apiruntime.Object) error {
+	objName := reflect.ValueOf(obj).Elem().FieldByName("Name").String()
+	validationErrs := validation.IsDNS1123Subdomain(objName)
+	var errs error
+	if len(validationErrs) > 0 {
+		errs = multierror.Append(errs, fmt.Errorf("resource name: [%s] failed validation of type %s", objName, reflect.TypeOf(obj)))
+		for _, err := range validationErrs {
+			errs = multierror.Append(errs, fmt.Errorf(err))
+		}
+		return errs
+	}
+	return nil
 }

@@ -302,18 +302,18 @@ func TestOpsManagerConnectionString_IsPassedAsSecretRef(t *testing.T) {
 
 // TODO move this test to 'opsmanager_types_test.go' when the builder is moved to 'apis' package
 func TestOpsManagerCentralUrl(t *testing.T) {
-	assert.Equal(t, "http://testOM-svc.my-namespace.svc.cluster.local:8080",
+	assert.Equal(t, "http://test-om-svc.my-namespace.svc.cluster.local:8080",
 		DefaultOpsManagerBuilder().Build().CentralURL())
-	assert.Equal(t, "http://testOM-svc.my-namespace.svc.some.domain:8080",
+	assert.Equal(t, "http://test-om-svc.my-namespace.svc.some.domain:8080",
 		DefaultOpsManagerBuilder().SetClusterDomain("some.domain").Build().CentralURL())
 }
 
 // TODO move this test to 'opsmanager_types_test.go' when the builder is moved to 'apis' package
 func TestOpsManagerBackupDaemonHostName(t *testing.T) {
-	assert.Equal(t, "testOM-backup-daemon-0",
+	assert.Equal(t, "test-om-backup-daemon-0",
 		DefaultOpsManagerBuilder().Build().BackupDaemonHostName())
 	// The host name doesn't depend on cluster domain
-	assert.Equal(t, "testOM-backup-daemon-0",
+	assert.Equal(t, "test-om-backup-daemon-0",
 		DefaultOpsManagerBuilder().SetClusterDomain("some.domain").Build().BackupDaemonHostName())
 }
 
@@ -443,7 +443,7 @@ func DefaultOpsManagerBuilder() *omv1.OpsManagerBuilder {
 		AppDB:       *omv1.DefaultAppDbBuilder().Build(),
 		AdminSecret: "om-admin",
 	}
-	resource := omv1.MongoDBOpsManager{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "testOM", Namespace: mock.TestNamespace}}
+	resource := omv1.MongoDBOpsManager{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "test-om", Namespace: mock.TestNamespace}}
 	return omv1.NewOpsManagerBuilderFromResource(resource)
 }
 

@@ -128,7 +128,7 @@ func NewMockedOmConnection(d Deployment) *MockedOmConnection {
 	// By default we don't wait for agents to reach goal
 	connection.AgentsDelayCount = 0
 	// We use a simplified version of context as this is the only thing needed to get lock for the update
-	connection.context = &OMContext{GroupName: TestGroupName, OrgID: TestOrgID}
+	connection.context = &OMContext{GroupName: TestGroupName, OrgID: TestOrgID, GroupID: TestGroupID}
 	return &connection
 }
 

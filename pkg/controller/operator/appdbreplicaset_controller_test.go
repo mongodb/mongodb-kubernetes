@@ -51,33 +51,33 @@ func init() {
 func TestMongoDB_ConnectionURL_DefaultCluster_AppDB(t *testing.T) {
 	opsManager := DefaultOpsManagerBuilder().Build()
 	appdb := &opsManager.Spec.AppDB
-	assert.Equal(t, "mongodb://user:passwd@testOM-db-0.testOM-db-svc.my-namespace.svc.cluster.local:27017,"+
-		"testOM-db-1.testOM-db-svc.my-namespace.svc.cluster.local:27017,testOM-db-2.testOM-db-svc.my-namespace.svc.cluster.local:27017/"+
-		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=testOM-db&serverSelectionTimeoutMS=20000", appdb.ConnectionURL("user", "passwd", nil))
+	assert.Equal(t, "mongodb://user:passwd@test-om-db-0.test-om-db-svc.my-namespace.svc.cluster.local:27017,"+
+		"test-om-db-1.test-om-db-svc.my-namespace.svc.cluster.local:27017,test-om-db-2.test-om-db-svc.my-namespace.svc.cluster.local:27017/"+
+		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=test-om-db&serverSelectionTimeoutMS=20000", appdb.ConnectionURL("user", "passwd", nil))
 
 	// Special symbols in the url
-	assert.Equal(t, "mongodb://special%2Fuser%23:%40passw%21@testOM-db-0.testOM-db-svc.my-namespace.svc.cluster.local:27017,"+
-		"testOM-db-1.testOM-db-svc.my-namespace.svc.cluster.local:27017,testOM-db-2.testOM-db-svc.my-namespace.svc.cluster.local:27017/"+
-		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=testOM-db&serverSelectionTimeoutMS=20000", appdb.ConnectionURL("special/user#", "@passw!", nil))
+	assert.Equal(t, "mongodb://special%2Fuser%23:%40passw%21@test-om-db-0.test-om-db-svc.my-namespace.svc.cluster.local:27017,"+
+		"test-om-db-1.test-om-db-svc.my-namespace.svc.cluster.local:27017,test-om-db-2.test-om-db-svc.my-namespace.svc.cluster.local:27017/"+
+		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=test-om-db&serverSelectionTimeoutMS=20000", appdb.ConnectionURL("special/user#", "@passw!", nil))
 
 	// Connection parameters. The default one is overridden
-	assert.Equal(t, "mongodb://user:passwd@testOM-db-0.testOM-db-svc.my-namespace.svc.cluster.local:27017,"+
-		"testOM-db-1.testOM-db-svc.my-namespace.svc.cluster.local:27017,testOM-db-2.testOM-db-svc.my-namespace.svc.cluster.local:27017/"+
-		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=30000&readPreference=secondary&replicaSet=testOM-db&serverSelectionTimeoutMS=20000",
+	assert.Equal(t, "mongodb://user:passwd@test-om-db-0.test-om-db-svc.my-namespace.svc.cluster.local:27017,"+
+		"test-om-db-1.test-om-db-svc.my-namespace.svc.cluster.local:27017,test-om-db-2.test-om-db-svc.my-namespace.svc.cluster.local:27017/"+
+		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=30000&readPreference=secondary&replicaSet=test-om-db&serverSelectionTimeoutMS=20000",
 		appdb.ConnectionURL("user", "passwd", map[string]string{"connectTimeoutMS": "30000", "readPreference": "secondary"}))
 }
 
 func TestMongoDB_ConnectionURL_OtherCluster_AppDB(t *testing.T) {
 	opsManager := DefaultOpsManagerBuilder().SetClusterDomain("my-cluster").Build()
 	appdb := &opsManager.Spec.AppDB
-	assert.Equal(t, "mongodb://user:passwd@testOM-db-0.testOM-db-svc.my-namespace.svc.my-cluster:27017,"+
-		"testOM-db-1.testOM-db-svc.my-namespace.svc.my-cluster:27017,testOM-db-2.testOM-db-svc.my-namespace.svc.my-cluster:27017/"+
-		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=testOM-db&serverSelectionTimeoutMS=20000", appdb.ConnectionURL("user", "passwd", nil))
+	assert.Equal(t, "mongodb://user:passwd@test-om-db-0.test-om-db-svc.my-namespace.svc.my-cluster:27017,"+
+		"test-om-db-1.test-om-db-svc.my-namespace.svc.my-cluster:27017,test-om-db-2.test-om-db-svc.my-namespace.svc.my-cluster:27017/"+
+		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=test-om-db&serverSelectionTimeoutMS=20000", appdb.ConnectionURL("user", "passwd", nil))
 
 	// Connection parameters. The default one is overridden
-	assert.Equal(t, "mongodb://user:passwd@testOM-db-0.testOM-db-svc.my-namespace.svc.my-cluster:27017,"+
-		"testOM-db-1.testOM-db-svc.my-namespace.svc.my-cluster:27017,testOM-db-2.testOM-db-svc.my-namespace.svc.my-cluster:27017/"+
-		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=30000&readPreference=secondary&replicaSet=testOM-db&serverSelectionTimeoutMS=20000",
+	assert.Equal(t, "mongodb://user:passwd@test-om-db-0.test-om-db-svc.my-namespace.svc.my-cluster:27017,"+
+		"test-om-db-1.test-om-db-svc.my-namespace.svc.my-cluster:27017,test-om-db-2.test-om-db-svc.my-namespace.svc.my-cluster:27017/"+
+		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=30000&readPreference=secondary&replicaSet=test-om-db&serverSelectionTimeoutMS=20000",
 		appdb.ConnectionURL("user", "passwd", map[string]string{"connectTimeoutMS": "30000", "readPreference": "secondary"}))
 }
 
@@ -205,10 +205,10 @@ func TestBuildAppDbAutomationConfig(t *testing.T) {
 	// processes
 	assert.Len(t, deployment.ProcessesCopy(), 2)
 	assert.Equal(t, "4.2.2-ent", deployment.ProcessesCopy()[0].Version())
-	assert.Equal(t, "testOM-db-0.testOM-db-svc.my-namespace.svc.cluster.local", deployment.ProcessesCopy()[0].HostName())
+	assert.Equal(t, "test-om-db-0.test-om-db-svc.my-namespace.svc.cluster.local", deployment.ProcessesCopy()[0].HostName())
 	assert.Equal(t, "4.0", deployment.ProcessesCopy()[0].FeatureCompatibilityVersion())
 	assert.Equal(t, "4.2.2-ent", deployment.ProcessesCopy()[1].Version())
-	assert.Equal(t, "testOM-db-1.testOM-db-svc.my-namespace.svc.cluster.local", deployment.ProcessesCopy()[1].HostName())
+	assert.Equal(t, "test-om-db-1.test-om-db-svc.my-namespace.svc.cluster.local", deployment.ProcessesCopy()[1].HostName())
 	assert.Equal(t, "4.0", deployment.ProcessesCopy()[1].FeatureCompatibilityVersion())
 
 	// replicasets
@@ -564,6 +564,7 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 	appDbSts, err := statefulset.NewBuilder().
 		SetName(opsManager.Spec.AppDB.Name()).
 		SetNamespace(opsManager.Namespace).
+		SetServiceName(opsManager.Spec.AppDB.Name() + "-svc").
 		SetReplicas(util.Int32Ref(int32(startingMembers))).
 		SetPodTemplateSpec(
 			podtemplatespec.New(

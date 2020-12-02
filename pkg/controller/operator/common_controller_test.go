@@ -81,7 +81,7 @@ func TestPrepareOmConnection_FindExistingGroup(t *testing.T) {
 
 	controller := newReconcileCommonController(manager)
 	mockOm, _ := prepareConnection(controller, omConnGroupInOrganizationWithDifferentName(), t)
-	assert.Equal(t, "existingGroupId", mockOm.GroupID())
+	assert.Equal(t, "existing-group-id", mockOm.GroupID())
 	// No new group was created
 	assert.Len(t, mockOm.OrganizationsWithGroups, 1)
 
@@ -319,7 +319,7 @@ func omConnGroupInOrganizationWithDifferentName() om.ConnectionFactory {
 		if len(c.OrganizationsWithGroups) == 0 {
 			// Important: the organization for the group has a different name ("foo") then group (om.TestGroupName).
 			// So it won't work for cases when the group "was created before" by Operator
-			c.OrganizationsWithGroups = map[*om.Organization][]*om.Project{{ID: om.TestOrgID, Name: "foo"}: {{Name: om.TestGroupName, ID: "existingGroupId", OrgID: om.TestOrgID}}}
+			c.OrganizationsWithGroups = map[*om.Organization][]*om.Project{{ID: om.TestOrgID, Name: "foo"}: {{Name: om.TestGroupName, ID: "existing-group-id", OrgID: om.TestOrgID}}}
 		}
 
 		return c

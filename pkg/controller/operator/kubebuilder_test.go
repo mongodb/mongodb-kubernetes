@@ -578,7 +578,7 @@ func TestOpsManagerPodTemplate_MergePodTemplate(t *testing.T) {
 func Test_buildOpsManagerStatefulSet(t *testing.T) {
 	sts, err := buildOpsManagerStatefulSet(testDefaultOMSetHelper())
 	assert.NoError(t, err)
-	assert.Equal(t, "testOM", sts.ObjectMeta.Name)
+	assert.Equal(t, "test-om", sts.ObjectMeta.Name)
 	assert.Equal(t, util.OpsManagerContainerName, sts.Spec.Template.Spec.Containers[0].Name)
 	assert.Equal(t, []string{"/opt/scripts/docker-entry-point.sh"},
 		sts.Spec.Template.Spec.Containers[0].Command)
@@ -587,7 +587,7 @@ func Test_buildOpsManagerStatefulSet(t *testing.T) {
 func Test_buildBackupDaemonStatefulSet(t *testing.T) {
 	sts, err := buildBackupDaemonStatefulSet(testDefaultBackupSetHelper())
 	assert.NoError(t, err)
-	assert.Equal(t, "testOM-backup-daemon", sts.ObjectMeta.Name)
+	assert.Equal(t, "test-om-backup-daemon", sts.ObjectMeta.Name)
 	assert.Equal(t, util.BackupDaemonContainerName, sts.Spec.Template.Spec.Containers[0].Name)
 	assert.Nil(t, sts.Spec.Template.Spec.Containers[0].ReadinessProbe)
 }
