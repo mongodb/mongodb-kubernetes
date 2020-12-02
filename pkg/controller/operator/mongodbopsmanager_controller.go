@@ -355,8 +355,12 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(opsManager omv1.Mon
 	backupHelper.OpsManagerStatefulSetHelper.SetAppDBConnectionStringHash(hashConnectionString(connectionString))
 	backupHelper.SetLogger(log)
 
-	if err := backupHelper.CreateOrUpdateInKubernetes(r.client, r.client); err != nil {
+	needToRequeue, err := backupHelper.CreateOrUpdateInKubernetes(r.client, r.client)
+	if err != nil {
 		return workflow.Failed(err.Error())
+	}
+	if needToRequeue {
+		return workflow.OK().Requeue()
 	}
 	// Note, that this will return true quite soon as we don't have daemon readiness so far
 	if status := r.getStatefulSetStatus(opsManager.Namespace, opsManager.BackupStatefulSetName()); !status.IsOK() {

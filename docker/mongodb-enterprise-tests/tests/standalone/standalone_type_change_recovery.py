@@ -31,7 +31,7 @@ def test_break_standalone(standalone: MongoDB):
     standalone.update()
     standalone.assert_reaches_phase(
         phase=Phase.Failed,
-        msg_regexp=".*Forbidden: updates to statefulset spec for fields other than.*",
+        msg_regexp=".*can't execute update on forbidden fields.*",
         timeout=60,
     )
 

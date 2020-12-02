@@ -7,8 +7,77 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 )
+
+// isVolumeClaimUpdatableTo takes two sts' PVC and returns wether we are allowed to update the first one to the second one.
+func isVolumeClaimUpdatableTo(existing, desired corev1.PersistentVolumeClaim) bool {
+
+	oldSpec := existing.Spec
+	newSpec := desired.Spec
+
+	if !reflect.DeepEqual(oldSpec.AccessModes, newSpec.AccessModes) {
+		return false
+	}
+
+	if newSpec.Selector != nil && !reflect.DeepEqual(oldSpec.Selector, newSpec.Selector) {
+		return false
+	}
+
+	if !reflect.DeepEqual(oldSpec.Resources, newSpec.Resources) {
+		return false
+	}
+
+	if newSpec.VolumeName != "" && newSpec.VolumeName != oldSpec.VolumeName {
+		return false
+	}
+
+	if newSpec.StorageClassName != nil && !reflect.DeepEqual(oldSpec.StorageClassName, newSpec.StorageClassName) {
+		return false
+
+	}
+
+	if newSpec.VolumeMode != nil && !reflect.DeepEqual(newSpec.VolumeMode, oldSpec.VolumeMode) {
+		return false
+	}
+
+	if newSpec.DataSource != nil && !reflect.DeepEqual(newSpec.DataSource, oldSpec.DataSource) {
+		return false
+	}
+
+	return true
+}
+
+// isStatefulSetUpdatableTo takes two statefulsts and returns wether we are allowed to update the first one to the second one.
+func isStatefulSetUpdatableTo(existing, desired appsv1.StatefulSet) bool {
+	selectorsEqual := desired.Spec.Selector == nil || reflect.DeepEqual(existing.Spec.Selector, desired.Spec.Selector)
+	serviceNamesEqual := existing.Spec.ServiceName == desired.Spec.ServiceName
+	podMgmtEqual := desired.Spec.PodManagementPolicy == "" || desired.Spec.PodManagementPolicy == existing.Spec.PodManagementPolicy
+	revHistoryLimitEqual := desired.Spec.RevisionHistoryLimit == nil || reflect.DeepEqual(desired.Spec.RevisionHistoryLimit, existing.Spec.RevisionHistoryLimit)
+
+	if len(existing.Spec.VolumeClaimTemplates) != len(desired.Spec.VolumeClaimTemplates) {
+		return false
+	}
+
+	// VolumeClaimTemplates must be checked one-by-one, to deal with empty string, nil pointers
+	for index, existingClaim := range existing.Spec.VolumeClaimTemplates {
+		if !isVolumeClaimUpdatableTo(existingClaim, desired.Spec.VolumeClaimTemplates[index]) {
+			return false
+		}
+	}
+
+	return selectorsEqual && serviceNamesEqual && podMgmtEqual && revHistoryLimitEqual
+}
+
+// StatefulSetCantBeUpdatedError is returned when we are trying to update immutable fields on a sts.
+type StatefulSetCantBeUpdatedError struct {
+	msg string
+}
+
+func (s StatefulSetCantBeUpdatedError) Error() string {
+	return s.msg
+}
 
 // CreateOrUpdateStatefulset will create or update a StatefulSet in Kubernetes.
 //
@@ -40,20 +109,12 @@ func CreateOrUpdateStatefulset(getUpdateCreator statefulset.GetUpdateCreator, ns
 		statefulSetToCreate.Spec.Template.Annotations["certHash"] = existingCertHash
 	}
 
-	// If upgrading operator, it might happen that the spec.selector field
-	// and spec.ServiceName have changed. This is not allowed and for now
-	// We remove immutable fields from the update.
-	// A decision on how to more gracefully handle this will be
-	// taken in CLOUDP-76513
-	areSelectorsEqual := reflect.DeepEqual(statefulSetToCreate.Spec.Selector, existingStatefulSet.Spec.Selector)
-	areServiceNamesEqual := reflect.DeepEqual(statefulSetToCreate.Spec.ServiceName, existingStatefulSet.Spec.ServiceName)
-	if !areSelectorsEqual || !areServiceNamesEqual {
-		log.Warn("At least one immutable field in the StatefulSet has changed. Keeping the old one.")
-		statefulSetToCreate.Spec.Selector = existingStatefulSet.Spec.Selector
-		statefulSetToCreate.Spec.ServiceName = existingStatefulSet.Spec.ServiceName
-
-		// This one is not immutable, but needs to match the matchlabels in the spec.selector
-		statefulSetToCreate.Spec.Template.Labels = existingStatefulSet.Spec.Template.Labels
+	log.Debug("Checking if we can update the current statefulset")
+	if !isStatefulSetUpdatableTo(existingStatefulSet, *statefulSetToCreate) {
+		log.Debug("Can't update the stateful set")
+		return nil, StatefulSetCantBeUpdatedError{
+			msg: "can't execute update on forbidden fields",
+		}
 	}
 
 	updatedSts, err := getUpdateCreator.UpdateStatefulSet(*statefulSetToCreate)

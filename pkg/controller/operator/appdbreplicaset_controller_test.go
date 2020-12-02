@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/manifest"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 
@@ -531,6 +533,28 @@ func TestAppDbPortIsConfigurable_WithAdditionalMongoConfig(t *testing.T) {
 	assert.Equal(t, int32(30000), appdbSvc.Spec.Ports[0].Port)
 }
 
+// appDBStatefulSetLabelsAndServiceName returns extra fields that we have to manually set to the AppDB statefulset
+// since we manually create it. Otherwise the tests will fail as we try to update parts of the sts that we are not
+// allowed to change
+func appDBStatefulSetLabelsAndServiceName(omResourceName string) (map[string]string, string) {
+	appDbName := fmt.Sprintf("%s-db", omResourceName)
+	serviceName := fmt.Sprintf("%s-svc", appDbName)
+	labels := map[string]string{"app": serviceName, "controller": "mongodb-enterprise-operator", "pod-anti-affinity": appDbName}
+	return labels, serviceName
+}
+
+func appDBStatefulSetVolumeClaimtemplates() []corev1.PersistentVolumeClaim {
+
+	res, _ := resource.ParseQuantity("16G")
+	return []corev1.PersistentVolumeClaim{{
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{"ReadWriteOnce"},
+			Resources: corev1.ResourceRequirements{
+				Requests: map[corev1.ResourceName]resource.Quantity{"storage": res},
+			},
+		}}}
+}
+
 func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 	builder := DefaultOpsManagerBuilder().SetAppDbMembers(startingMembers)
 	opsManager := builder.Build()
@@ -560,11 +584,14 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 	err = client.Create(context.TODO(), &opsManager)
 	assert.NoError(t, err)
 
+	matchLabels, serviceName := appDBStatefulSetLabelsAndServiceName(opsManager.Name)
 	// app db sts should exist before monitoring is configured
 	appDbSts, err := statefulset.NewBuilder().
 		SetName(opsManager.Spec.AppDB.Name()).
 		SetNamespace(opsManager.Namespace).
-		SetServiceName(opsManager.Spec.AppDB.Name() + "-svc").
+		SetMatchLabels(matchLabels).
+		SetServiceName(serviceName).
+		AddVolumeClaimTemplates(appDBStatefulSetVolumeClaimtemplates()).
 		SetReplicas(util.Int32Ref(int32(startingMembers))).
 		SetPodTemplateSpec(
 			podtemplatespec.New(

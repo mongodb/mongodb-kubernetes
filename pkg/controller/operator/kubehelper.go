@@ -657,34 +657,42 @@ func (s OpsManagerStatefulSetHelper) CreateOrUpdateInKubernetes(stsGetUpdateCrea
 	return err
 }
 
-func (s BackupStatefulSetHelper) CreateOrUpdateInKubernetes(stsGetUpdateCreator statefulset.GetUpdateCreator, serviceGetUpdateCreator service.GetUpdateCreator) error {
+func (s BackupStatefulSetHelper) CreateOrUpdateInKubernetes(stsGetUpdateCreator statefulset.GetUpdateCreator, serviceGetUpdateCreator service.GetUpdateCreator) (bool, error) {
 	sts, err := s.BuildStatefulSet()
 	if err != nil {
-		return fmt.Errorf("error building stateful set: %v", err)
+		return false, fmt.Errorf("error building stateful set: %v", err)
 	}
 
-	// We need to save the ServiceName field as
-	// it won't be available after the call to
-	// createOrUpdateStatefulset (see comment inside the function)
-	svcName := sts.Spec.ServiceName
-
-	_, err = enterprisests.CreateOrUpdateStatefulset(stsGetUpdateCreator,
+	set, err := enterprisests.CreateOrUpdateStatefulset(
+		stsGetUpdateCreator,
 		s.Namespace,
 		s.Logger,
 		&sts,
 	)
 
 	if err != nil {
-		return err
+		// Check if it is a k8s error or a custom one
+		if _, ok := err.(enterprisests.StatefulSetCantBeUpdatedError); !ok {
+			return false, err
+		}
+		// In this case, we delete the old Statefulset
+		s.Logger.Debug("Deleting the old backup stateful set and creating a new one")
+		stsNamespacedName := kube.ObjectKey(s.Namespace, s.Name)
+		err = s.Helper.client.DeleteStatefulSet(stsNamespacedName)
+		if err != nil {
+			return false, fmt.Errorf("failed while trying to delete previous backup daemon statefulset: %s", err)
+		}
+		return true, nil
 	}
-	namespacedName := objectKey(s.Namespace, svcName)
-	internalService := buildService(namespacedName, s.Owner, svcName, s.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	namespacedName := objectKey(s.Namespace, set.Spec.ServiceName)
+	internalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
 	err = enterprisesvc.CreateOrUpdateService(serviceGetUpdateCreator, internalService, s.Logger)
+
 	if err != nil {
-		return err
+		return false, err
 	}
 
-	return nil
+	return false, nil
 }
 
 // CreateOrUpdateAppDBInKubernetes creates the StatefulSet specific for AppDB.
