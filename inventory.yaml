@@ -1,0 +1,81 @@
+vars:
+  registry: <container-registry>
+  quay_registry: quay.io/mongodb
+
+images:
+  - name: operator
+    vars:
+      context: .
+      template_context: docker/mongodb-enterprise-operator
+
+    inputs:
+    - version_manifest_url
+    - mdb_version
+    - release_version
+    - log_automation_config_diff
+
+    stages:
+    - name: operator-context-dockerfile
+      task_type: docker_build
+
+      dockerfile: docker/mongodb-enterprise-operator/Dockerfile.builder
+      buildargs:
+        version_manifest_url: $(inputs.params.version_manifest_url)
+        mdb_version: $(inputs.params.mdb_version)
+        release_version: $(inputs.params.release_version)
+        log_automation_config_diff: $(inputs.params.log_automation_config_diff)
+
+      output:
+      - registry: $(inputs.params.registry)/operator-context
+        tag: $(inputs.params.version_id)
+
+    - name: operator-template-ubi
+      task_type: dockerfile_template
+      tags: ["ubi"]
+      distro: ubi
+
+      inputs:
+      - release_version
+
+      output:
+      - dockerfile: docker/mongodb-enterprise-operator/Dockerfile.ubi-$(inputs.params.version_id)
+
+    - name: operator-template-ubuntu
+      task_type: dockerfile_template
+      tags: ["ubuntu"]
+      distro: ubuntu
+
+      inputs:
+      - release_version
+
+      output:
+      - dockerfile: docker/mongodb-enterprise-operator/Dockerfile.ubuntu-$(inputs.params.version_id)
+
+    - name: operator-ubuntu-build
+      task_type: docker_build
+      tags: ["ubuntu"]
+
+      dockerfile: docker/mongodb-enterprise-operator/Dockerfile.ubuntu-$(inputs.params.version_id)
+      buildargs:
+        imagebase: $(inputs.params.registry)/operator-context:$(inputs.params.version_id)
+
+      output:
+      - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-operator
+        tag: $(inputs.params.version_id)
+
+      - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-operator
+        tag: latest
+
+    - name: operator-ubi-build
+      task_type: docker_build
+      tags: ["ubi"]
+
+      dockerfile: docker/mongodb-enterprise-operator/Dockerfile.ubi-$(inputs.params.version_id)
+      buildargs:
+        imagebase: $(inputs.params.registry)/operator-context:$(inputs.params.version_id)
+
+      output:
+      - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-operator
+        tag: $(inputs.params.version_id)
+      - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-operator
+        tag: latest

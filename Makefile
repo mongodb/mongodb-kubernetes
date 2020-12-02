@@ -156,7 +156,7 @@ aws_login:
  	  scripts/dev/configure_docker_auth.sh
 
 build-and-push-operator-image: aws_login
-	@ scripts/dev/build_push_operator_image.sh $(debug)
+	@ ./pipeline.py --include operator-quick
 
 build-and-push-database-image: aws_login
 	@ scripts/dev/build_push_database_image

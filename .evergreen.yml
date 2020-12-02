@@ -121,6 +121,35 @@ functions:
         permissions: public-read
         content_type: application/octet-stream
 
+  pipeline:
+  - command: subprocess.exec
+    type: setup
+    params:
+      command: virtualenv --python /opt/python/3.7/bin/python3 ./venv
+
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      command: ${workdir}/venv/bin/python -m pip install -r requirements.txt --quiet --no-warn-script-location
+
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      env:
+        AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
+        AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
+        AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
+      include_expansions_in_env:
+      - version_id
+      - registry
+      - distro
+      add_to_path:
+      - ${workdir}/bin
+      command: "${workdir}/venv/bin/python pipeline.py --include ${image_name}"
+
+
   # upload_e2e_logs has the responsibility of dumping as much information as
   # posible into the S3 bucket that corresponds to this ${version}. The
   # Kubernetes cluster where the test finished running, should still be
@@ -217,6 +246,11 @@ functions:
         - workdir
         - kube_environment_name
       binary: scripts/evergreen/setup_minikube.sh
+
+  # Configures docker authentication to ECR and RH registries.
+  setup_building_host:
+  - *setup_aws
+  - *configure_docker_auth
 
   # the task configures the set of tools necessary for any task working with K8 cluster:
   # installs kubectl, jq, kind (if necessary), configures docker authentication
@@ -842,56 +876,22 @@ tasks:
   priority: 60
   commands:
   - func: clone
-  - func: download_kube_tools
+  - func: setup_building_host
+  - func: pipeline
     vars:
-      <<: *kubernetes_environment_kind
-  - func: build_operator
-    vars:
-      image_type: ubi
-  - func: upload_e2e_build_context
-    vars:
-      image_type: ubi
-      context: operator
-  - func: setup_kubernetes_environment
-    vars:
-      <<: *kubernetes_environment_kind
-  - func: kaniko_build
-    vars:
-      destination: ${ecr_registry}/dev/ubi/mongodb-enterprise-operator:${version_id}
-      context: s3://ops-manager-kubernetes-build/ops-manager-operator/${version_id}:ubi/contexts/operator-context.tar.gz
-      cache_repo: ${ecr_registry}/cache/mongodb-enterprise-operator
-      label: rhel-operator-${version_id}
-  - func: kaniko_wait
-    vars:
-      labels: 'rhel-operator-${version_id}'
+      distro: ubi
+      image_name: operator
 
 - name: build_operator_ubuntu
   priority: 60
   exec_timeout_secs: 600
   commands:
   - func: clone
-  - func: download_kube_tools
+  - func: setup_building_host
+  - func: pipeline
     vars:
-      <<: *kubernetes_environment_kind
-  - func: build_operator
-    vars:
-      image_type: ubuntu
-  - func: upload_e2e_build_context
-    vars:
-      image_type: ubuntu
-      context: operator
-  - func: setup_kubernetes_environment
-    vars:
-      <<: *kubernetes_environment_kind
-  - func: kaniko_build
-    vars:
-      destination: ${ecr_registry}/dev/ubuntu/mongodb-enterprise-operator:${version_id}
-      context: s3://ops-manager-kubernetes-build/ops-manager-operator/${version_id}:ubuntu/contexts/operator-context.tar.gz
-      cache_repo: ${ecr_registry}/cache/mongodb-enterprise-operator
-      label: ubuntu-operator-${version_id}
-  - func: kaniko_wait
-    vars:
-      labels: 'ubuntu-operator-${version_id}'
+      distro: ubuntu
+      image_name: operator
 
 - name: build_init_om_images_ubi
   priority: 60
@@ -2630,6 +2630,8 @@ buildvariants:
     - name: prepare_cluster_vanilla
     - name: prepare_cluster_vanilla_om
     - name: prepare_aws
+  expansions:
+    registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
 
   # Runs on master patches. This will populate the mongodb/mongodb-enterprise-*-prerelease
   # registries with the images that were pushed to master

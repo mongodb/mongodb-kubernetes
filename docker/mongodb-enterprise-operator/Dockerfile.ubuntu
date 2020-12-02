@@ -1,5 +1,7 @@
 {% extends "Dockerfile.template" %}
 
+{% set base_image = "ubuntu:16.04" %}
+
 {% block packages %}
 # Adds up-to-date CA certificates.
 RUN apt-get -qq update && \

@@ -2,17 +2,16 @@
 # Base Template Dockerfile for Operator Image.
 #
 
-{% if is_debug -%}
-FROM golang
-{% else %}
+ARG imagebase
+FROM ${imagebase} as base
+
 FROM {{ base_image }}
-{% endif %}
 
 {% block labels %}
 LABEL name="MongoDB Enterprise Operator" \
       maintainer="support@mongodb.com" \
       vendor="MongoDB" \
-      version="{{ version }}" \
+      version="{{ release_version }}" \
       release="1" \
       summary="MongoDB Enterprise Operator Image" \
       description="MongoDB Enterprise Operator Image"
@@ -21,30 +20,18 @@ LABEL name="MongoDB Enterprise Operator" \
 {% block packages -%}
 {% endblock -%}
 
-COPY licenses/ /licenses
 {% block static %}
 {% endblock %}
 
-{% block install_operator %}
-ARG MANIFEST_VERSION
-RUN mkdir -p /var/lib/mongodb-enterprise-operator \
-    && chmod -R +r /var/lib/mongodb-enterprise-operator \
-    && curl --fail --retry 3 -o /var/lib/mongodb-enterprise-operator/version_manifest.json "https://opsmanager.mongodb.com/static/version_manifest/${MANIFEST_VERSION}.json"
 
-ADD content/mongodb-enterprise-operator /usr/local/bin/
-{% endblock %}
-
-{% if is_debug -%}
-
-RUN go get -u github.com/derekparker/delve/cmd/dlv
-ENTRYPOINT ["dlv", "--listen=0.0.0.0:40000", "--headless=true", "--api-version=2", "exec", "/usr/local/bin/mongodb-enterprise-operator"]
-
-{% else %}
+COPY --from=base /data/mongodb-enterprise-operator /usr/local/bin/mongodb-enterprise-operator
+COPY --from=base /data/version_manifest.json /var/lib/mongodb-enterprise-operator/version_manifest.json
+COPY --from=base /data/licenses /licenses/
+RUN chmod a+r /var/lib/mongodb-enterprise-operator/version_manifest.json
 
 USER 2000
-ENTRYPOINT exec /usr/local/bin/mongodb-enterprise-operator
 
-{% endif %}
+ENTRYPOINT exec /usr/local/bin/mongodb-enterprise-operator
 
 {% block healthcheck %}
 {% endblock %}

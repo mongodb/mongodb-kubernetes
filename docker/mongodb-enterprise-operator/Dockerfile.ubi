@@ -1,7 +1,3 @@
 {% extends "Dockerfile.template" %}
 
-# Packages is empty because there's nothing to install on RHEL.
-
-{% block static %}
-COPY LICENSE /licenses/mongodb-enterprise-operator
-{% endblock %}
+{% set base_image = "registry.access.redhat.com/ubi8/ubi" %}
