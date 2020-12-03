@@ -1,6 +1,51 @@
 # Openshift Marketplace
 
-* **Goal**: Publish our newest version to [Openshift Marketplace](https://www.openshift.com/).
+## Abstract
+
+RedHat supports many different distribution channels and it's sometimes hard to distinguish them. The mechanisms of working
+with them change often and it important to understand base principle.
+
+The following are the main places of distribution:
+
+### (public) OperatorHub (https://operatorhub.io/). 
+The mechanism of adding new Operator versions there is by forking the
+GitHub repo and creating a PR. This relates to the `upstream-community-operators` directory in the GitHub repo (described [below](#community))
+Some other redhat [documentation](https://redhat-connect.gitbook.io/certified-operator-guide/troubleshooting-and-resources/submitting-a-community-operator-to-operatorhub.io#submission-process-overview) describing the process
+
+### (embedded) OperatorHub. 
+
+What the docs [says](https://redhat-connect.gitbook.io/partner-guide-for-red-hat-openshift-and-container/certify-your-operator/certify-your-operator-bundle-image):
+
+> Certified operators are listed in and consumed by customers through the embedded OpenShift OperatorHub, providing them 
+> the ability to easily deploy and run your solution. Additionally, your product and operator image will be listed in 
+> the Red Hat Container Catalog using the listing information you provide.‌
+
+It seems that this OperatorHub is the one embedded into the Openshift cluster and can be accessed either using UI or CLI.
+
+There are two different (and contradicting) documentation articles from RedHat describing the way to update the embedded OperatorHub:
+1. The PR for a forked repository: https://redhat-connect.gitbook.io/certified-operator-guide/troubleshooting-and-resources/submitting-a-community-operator-to-openshift-operatorhub
+(This seems to relate to `community-operators` folder in the GutHub Repo (unlike the public OperatorHub mentioned above))
+2. The process of pushing special Operator bundles containing CRD, CSV etc:
+
+[How to build the bundle docker image](https://redhat-connect.gitbook.io/certified-operator-guide/ocp-deployment/operator-metadata/creating-the-metadata-bundle)
+
+[How to upload the bundle image](https://redhat-connect.gitbook.io/partner-guide-for-red-hat-openshift-and-container/certify-your-operator/certify-your-operator-bundle-image/uploading-your-operator-bundle-image)
+
+
+### RedHat Marketplace (https://marketplace.redhat.com/en-us). 
+This is a platform allowing to install certified Operators into 
+the Openshift cluster using a special Marketplace Operator. It seems to be similar to OperatorHub from the functional point of view
+but it provides billing and licensing support. The way for us to publish is described 
+in the [next section](#marketplace) (note, that the part describing using zip files is not relevant anymore)
+
+
+These are the other terms that may be met in different places:
+* [Red Hat Container Catalog](https://catalog.redhat.com/): This seems to be a catalog providing the short information 
+about different Operators - the specific deployment instructions lead to the "embedded OperatorHub". 
+
+## <a name="marketplace"></a> Publishing to [Openshift Marketplace](https://marketplace.redhat.com/en-us).
+
+**TODO** This path seems to be out-of-date as Operator bundles should be used instead of zip files, this is being confirmed with RedHat now!
 
 We need to produce a zip file with all the versions of the operator: this involves copying the directory and modifying the clusterserviceversion file.
 
@@ -74,14 +119,19 @@ Finally, the zip file needs to be uploaded to the [Operator
 Metadata](https://connect.redhat.com/project/850021/operator-metadata)
 section in RedHat connect.
 
-The process of verification can take between 30 minutes and 2 hours. If after one retry it still fails, contact RedHat through 
-https://connect.redhat.com/support/technology-partner/, the previous support email was connect-tech@redhat.com.
-Also there is a possibility to start a more formal support case following these [instructions](https://access.redhat.com/start/how-to-engage-red-hat-support)
+The process of verification can take between 30 minutes and 2 hours. **Note, that you need to refresh the page 
+periodically as UI may get stuck in "scanning" that may not be true** 
 
+If after one retry it still fails:
+* ask for some help in the "coreos" slack channel (it's a separate organization coreos.slack.com) - you may need to ask for an invitation
+* contact RedHat through 
+https://connect.redhat.com/support/technology-partner/, the previous support email was connect-tech@redhat.com. In the body please mention **your** email as 
+the account is on Jason Mimick and it looks like he will receive the answers
+* also there is a possibility to start a more formal support case following these [instructions](https://access.redhat.com/start/how-to-engage-red-hat-support)
 
-We keep the zip file checked into our repository so that we can send it to RedHat for Operator certification.
+After the zip file was successfully scanned and published push it to the current repository so that we can send it to RedHat for Operator certification.
 
-# RedHat Community Operators
+# <a name="community"></a> RedHat Community Operators
 
 * **Goal**: Publish our newest version to [operatorhub](https://operatorhub.io).
 
