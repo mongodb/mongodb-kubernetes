@@ -95,10 +95,11 @@ def dcar() -> Dict[str, Union[str, List[str]]]:
     # dependencies
     return {
         # base image is hardened ubi8 provided by dsop
-        "base_image": "nexus-docker.52.61.140.4.nip.io/dsop/ubi8",
+        "base_image": "registry.access.redhat.com/ubi8/ubi",
         "distro": "dcar",
         "local_repo": "nexus.52.61.140.4.nip.io/repository",
-        "version": get_version(),
+        "version": "1.5.3",  # TODO: don't hard code
+        "is_dcar": True,
     }
 
 

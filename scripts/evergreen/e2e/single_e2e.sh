@@ -30,6 +30,17 @@ prepare_operator_config_map() {
 
     kubectl delete configmap operator-installation-config --ignore-not-found
 
+    local operator_version="${version_id:-latest}"
+    local database_registry=${DATABASE_REGISTRY}
+    local database_name=${DATABASE_NAME}
+    if [[ ${IMAGE_TYPE} == "usaf" ]]; then
+      operator_version="${usaf_operator_version}"
+      # in 1.7.1, the MONGODB_ENTERPRISE_DATABASE_IMAGE is the registry and tag
+      # and is created from ${DATABASE_REGISTRY}/${DATABASE_NAME}
+      database_registry="${ecr_registry}/dev/usaf"
+      database_name="mongodb-enterprise-database:${usaf_database_version}"
+    fi
+
     kubectl create configmap operator-installation-config -n "${PROJECT_NAMESPACE}" \
       --from-literal managedSecurityContext="${MANAGED_SECURITY_CONTEXT:-false}" \
       --from-literal registry.operator="${REGISTRY}" \
@@ -39,11 +50,11 @@ prepare_operator_config_map() {
       --from-literal registry.initDatabase="${INIT_DATABASE_REGISTRY}" \
       --from-literal registry.opsManager="${OPS_MANAGER_REGISTRY}" \
       --from-literal registry.appDb="${APPDB_REGISTRY}" \
-      --from-literal registry.database="${DATABASE_REGISTRY}" \
+      --from-literal registry.database="${database_registry}" \
       --from-literal opsManager.name="${OPS_MANAGER_NAME:=mongodb-enterprise-ops-manager}" \
       --from-literal appDb.name="${APPDB_NAME:=mongodb-enterprise-appdb}" \
-      --from-literal database.name="${DATABASE_NAME:=mongodb-enterprise-database}" \
-      --from-literal operator.version="${version_id:-latest}" \
+      --from-literal database.name="${database_name:=mongodb-enterprise-database}" \
+      --from-literal operator.version="${operator_version}" \
       --from-literal initOpsManager.version="${version_id:-latest}" \
       --from-literal initAppDb.version="${version_id:-latest}" \
       --from-literal initDatabase.version="${version_id:-$latest}"

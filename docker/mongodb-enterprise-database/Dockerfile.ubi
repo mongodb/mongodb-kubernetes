@@ -22,17 +22,8 @@ RUN yum install -y --disableplugin=subscription-manager \
         net-snmp \
         net-snmp-agent-libs \
         openldap \
-        openssl
-
-
-# epel repo needs to be enabled, as it is required to install jq
-COPY content/epel.repo /etc/yum.repos.d/epel.repo
-COPY content/RPM-GPG-KEY-EPEL-7 /etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-7
-
-# yum can fail with http/https Error 404 when the new repo has been added.
-# https://access.redhat.com/articles/1320623
-RUN rm -fr /var/cache/yum/* && yum clean all
-RUN yum install --disableplugin=subscription-manager -y jq
+        openssl \
+        jq
 
 # mongodb enterprise expects this library /usr/lib64/libsasl2.so.2 but
 # cyrus-sasl creates it in /usr/lib64/libsasl2.so.3 instead

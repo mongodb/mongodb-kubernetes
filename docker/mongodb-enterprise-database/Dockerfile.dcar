@@ -1,20 +1,18 @@
 {% extends "Dockerfile.ubi" %}
 
-{% block extra_dcar_packages %}
-
-RUN yum update -y && yum install \
-        libpcap \
-        rpm-libs \
-        tcp_wrappers-libs \
-        nss_wrapper
-
-{% endblock %}
-
-
 {% block healthcheck %}
 {%- if is_appdb %}
 HEALTHCHECK --timeout=30s CMD ls /mongodb-automation/files/agent-launcher.sh || exit 1
 {%- else %}
 HEALTHCHECK --timeout=30s CMD ls "${MMS_HOME}"/files/probe.sh || exit 1
 {%- endif %}
+{% endblock %}
+
+{% block dcar_copy_scripts %}
+# Copy all the required scripts from the official database image
+COPY --from=official "${MMS_HOME}" ${MMS_HOME}/
+{% endblock %}
+
+{% block entrypoint %}
+ENTRYPOINT ["/mongodb-automation/files/agent-launcher.sh"]
 {% endblock %}

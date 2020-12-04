@@ -15,9 +15,11 @@ variables:
     ops_manager_version: "4.4.1.101.20200805T0050Z-1"
     ops_manager_namespace: "operator-testing-44-current"
     node_port: 30044
-
   - &cloud_manager_qa
     ops_manager_version: "cloud_qa"
+  - &usaf
+    usaf_operator_version: "1.7.1"
+    usaf_database_version: "1.5.3"
 
     # These are OM/MDB versions used in OM e2e tests (build variants for 4.2/4.4 OM) - change them occasionally
   - &ops_manager_44_latest 4.4.5
@@ -548,6 +550,8 @@ functions:
           - install_operator_in_python
           - task_id
           - RED_HAT_TOKEN
+          - usaf_operator_version
+          - usaf_database_version
         env:
           REGISTRY: ${ecr_registry}/dev/${image_type}
           OPS_MANAGER_REGISTRY: ${ops_manager_registry|quay.io/mongodb}
@@ -2333,6 +2337,27 @@ buildvariants:
     <<: *kubernetes_environment_kind
     custom_mdb_version: *mdb_44_latest
     image_type: ubuntu
+  tasks:
+    - name: e2e_mdb_kind_ubuntu_cloudqa_task_group
+
+# Run with evergreen patch -p ops-manager-kubernetes -v e2e_mdb_kind_usaf_cloudqa -t all -f -y -u -d "Usaf CloudQA Run"
+- name: e2e_mdb_kind_usaf_cloudqa
+  display_name: e2e_mdb_kind_usaf_cloudqa
+  run_on:
+    - ubuntu1604-build
+  depends_on:
+    # Note: no images are built, they are expected to be there already
+    # we should have
+    # * 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/usaf/mongodb-enterprise-operator:${usaf_operator_version}
+    # * 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/usaf/mongodb-enterprise-database:${usaf_database_version}
+    - name: build_test_image
+      variant: init_test_run
+  expansions:
+    <<: *cloud_manager_qa
+    <<: *kubernetes_environment_kind
+    <<: *usaf
+    custom_mdb_version: *mdb_44_latest
+    image_type: usaf
   tasks:
     - name: e2e_mdb_kind_ubuntu_cloudqa_task_group
 
