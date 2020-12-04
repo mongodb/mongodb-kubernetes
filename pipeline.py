@@ -32,27 +32,37 @@ class OperatorBuildConfiguration:
     namespace: str
 
     include_tags: Optional[List[str]]
+    skip_tags: Optional[List[str]]
 
     builder: str = "docker"
     parallel: bool = False
 
     pipeline: bool = True
 
-    def skip_tags(self) -> List[str]:
-        """Returns the list of tags (image_types) this build won't care about."""
-        return list(skippable_tags - {self.image_type})
-
     def build_args(self, args: Optional[Dict[str, str]] = None) -> Dict[str, str]:
         if args is None:
             args = {}
         args = args.copy()
 
-        args["skip_tags"] = self.skip_tags()
-        args["include_tags"] = self.include_tags
+        args["skip_tags"] = make_list_of_str(self.skip_tags)
+        args["include_tags"] = make_list_of_str(self.include_tags)
+
+        print("skip_tags:", args["skip_tags"])
+        print("include_tags:", args["include_tags"])
 
         args["registry"] = self.base_repository
 
         return args
+
+
+def make_list_of_str(value: Union[None, str, List[str]]) -> List[str]:
+    if value is None:
+        return []
+
+    if isinstance(value, str):
+        return [e.strip() for e in value.split(",")]
+
+    return value
 
 
 def build_configuration_from_context_file(filename: str) -> Dict[str, str]:
@@ -67,6 +77,12 @@ def build_configuration_from_context_file(filename: str) -> Dict[str, str]:
             value = value.strip().replace('"', "")
             config[key] = value
 
+    # calculates skip_tags from image_type in local mode
+    config["skip_tags"] = list(skippable_tags - {config["image_type"]})
+
+    # explicitely skipping release tags locally
+    config["skip_tags"].append("release")
+
     return config
 
 
@@ -74,7 +90,8 @@ def build_configuration_from_env() -> Dict[str, str]:
     return {
         "image_type": os.environ.get("distro"),
         "base_repo_url": os.environ["registry"],
-        "include_tags": os.environ.get("include_tags", []),
+        "include_tags": os.environ.get("include_tags"),
+        "skip_tags": os.environ.get("skip_tags"),
     }
 
 
@@ -95,7 +112,8 @@ def operator_build_configuration(
         image_type=context.get("image_type", DEFAULT_IMAGE_TYPE),
         base_repository=context.get("base_repo_url", ""),
         namespace=context.get("namespace", DEFAULT_NAMESPACE),
-        include_tags=context.get("include_tags", []),
+        skip_tags=context.get("skip_tags"),
+        include_tags=context.get("include_tags"),
         builder=builder,
         parallel=parallel,
     )
@@ -152,12 +170,17 @@ def build_operator_image(build_configuration: OperatorBuildConfiguration):
         "https://opsmanager.mongodb.com/static/version_manifest/{}.json".format(version)
     )
 
+    # In evergreen we can pass test_suffix env to publish the operator to a quay
+    # repostory with a given suffix.
+    test_suffix = os.environ.get("test_suffix", "")
+
     log_automation_config_diff = os.environ.get("LOG_AUTOMATION_CONFIG_DIFF", "false")
     args = dict(
         version_manifest_url=version_manifest_url,
         mdb_version=appdb_version,
         release_version=get_git_release_tag(),
         log_automation_config_diff=log_automation_config_diff,
+        test_suffix=test_suffix,
     )
 
     sonar_build_image(image_name, build_configuration, args)

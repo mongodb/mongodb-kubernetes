@@ -1,6 +1,7 @@
 vars:
   registry: <container-registry>
   quay_registry: quay.io/mongodb
+  test_suffix: ""
 
 images:
   - name: operator
@@ -79,3 +80,48 @@ images:
         tag: $(inputs.params.version_id)
       - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-operator
         tag: latest
+
+    - name: operator-ubuntu-release
+      task_type: tag_image
+      tags: ["release", "ubuntu"]
+
+      source:
+        registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-operator
+        tag: $(inputs.params.version_id)
+
+      inputs:
+      - test_suffix
+
+      destination:
+      - registry: $(inputs.params.quay_registry)/mongodb-enterprise-operator$(inputs.params.test_suffix)
+        tag: $(inputs.params.release_version)
+
+    - name: operator-ubi-release
+      task_type: tag_image
+      tags: ["release", "ubi"]
+
+      inputs:
+      - test_suffix
+
+      source:
+        registry: $(inputs.params.registry)/ubi/mongodb-enterprise-operator
+        tag: $(inputs.params.version_id)
+
+      destination:
+      - registry: $(inputs.params.quay_registry)/mongodb-enterprise-operator-ubi$(inputs.params.test_suffix)
+        tag: $(inputs.params.release_version)
+
+    - name: operator-context-release
+      task_type: tag_image
+      tags: ["release"]
+
+      inputs:
+      - test_suffix
+
+      source:
+        registry: $(inputs.params.registry)/operator-context
+        tag: $(inputs.params.version_id)
+
+      destination:
+      - registry: $(inputs.params.quay_registry)/mongodb-enterprise-operator$(inputs.params.test_suffix)
+        tag: $(inputs.params.release_version)-context

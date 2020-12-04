@@ -147,10 +147,12 @@ functions:
       - version_id
       - registry
       - distro
+      - include_tags
+      - skip_tags
+      - test_suffix
       add_to_path:
       - ${workdir}/bin
       command: "${workdir}/venv/bin/python pipeline.py --include ${image_name}"
-
 
   # upload_e2e_logs has the responsibility of dumping as much information as
   # posible into the S3 bucket that corresponds to this ${version}. The
@@ -179,11 +181,11 @@ functions:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
       command: "rm -rf logs/"
 
-  docker_login:
+  quay_login:
   - command: subprocess.exec
     type: setup
     params:
-      command: "docker login ${docker_registry} -u ${docker_username} -p ${docker_password}"
+      command: "docker login quay.io -u ${quay_prod_username} -p ${quay_prod_robot_token}"
 
   # Logs into all used registries
   configure_docker_auth: &configure_docker_auth
@@ -745,19 +747,13 @@ tasks:
 
 - name: release_operator_quay
   commands:
-    - func: clone
-    - func: guard_git_repo_is_clean
-    - func: download_kube_tools
-    - func: configure_docker_auth
-
-    - func: release_docker_image_to_registry
-      vars:
-        tag_source: ${version_id}
-        tag_dest: '$(git describe)'
-        image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-operator
-        image_target: quay.io/mongodb/mongodb-enterprise-operator${suffix}
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
+  - func: clone
+  - func: guard_git_repo_is_clean
+  - func: setup_building_host
+  - func: quay_login
+  - func: pipeline
+    vars:
+      image_name: operator
 
 # Releases init images to Quay
 - name: release_init_quay
@@ -883,6 +879,7 @@ tasks:
   - func: setup_building_host
   - func: pipeline
     vars:
+      skip_tags: ubuntu,release
       distro: ubi
       image_name: operator
 
@@ -894,6 +891,7 @@ tasks:
   - func: setup_building_host
   - func: pipeline
     vars:
+      skip_tags: ubi,release
       distro: ubuntu
       image_name: operator
 
@@ -1845,12 +1843,7 @@ tasks:
     - func: setup_kubernetes_environment
       vars:
         <<: *kubernetes_environment_vanilla
-    - func: docker_login
-      vars:
-        docker_registry: quay.io
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
-
+    - func: quay_login
     - func: build_and_push_opsmanager_image_generic
       vars:
         IMAGE_TYPE: "ubuntu"
@@ -1864,12 +1857,7 @@ tasks:
     - func: setup_kubernetes_environment
       vars:
         <<: *kubernetes_environment_vanilla
-    - func: docker_login
-      vars:
-        docker_registry: quay.io
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
-
+    - func: quay_login
     - func: build_and_push_opsmanager_image_generic
       vars:
         IMAGE_TYPE: "ubi"
@@ -2624,9 +2612,16 @@ buildvariants:
   depends_on:
     - name: release_blocker
       variant: release_blocker
+    - name: build_operator_ubuntu
+      variant: init_test_run
   run_on:
     - ubuntu1604-test
   expansions:
+    skip_tags: ubi
+    include_tags: release
+    registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
+
+    # old_expansions needed for release_init_quay
     distro: ubuntu
     suffix: ""
   tasks:
@@ -2638,14 +2633,36 @@ buildvariants:
   depends_on:
     - name: release_blocker
       variant: release_blocker
+    - name: build_operator_ubuntu
+      variant: init_test_run
   run_on:
     - ubuntu1604-test
   expansions:
+    skip_tags: ubuntu
+    include_tags: release
+    registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
+
+    # old_expansions needed for release_init_quay
     distro: ubi
     suffix: -ubi
   tasks:
     - name: release_operator_quay
     - name: release_init_quay
+
+- name: release_quay_ubuntu_test
+  display_name: release_quay_ubuntu_test
+  depends_on:
+    - name: build_operator_ubuntu
+      variant: init_test_run
+  run_on:
+    - ubuntu1604-test
+  expansions:
+    skip_tags: ubi
+    include_tags: release
+    registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
+    test_suffix: -test
+  tasks:
+    - name: release_operator_quay
 
 - name: release_blocker
   display_name: release_blocker
