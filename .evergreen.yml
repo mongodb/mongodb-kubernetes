@@ -1723,6 +1723,12 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_om_ops_manager_enable_local_mode_running_om
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
 - name: e2e_om_remotemode
   tags: ["patch-run"]
   exec_timeout_secs: 2800
@@ -2224,6 +2230,7 @@ task_groups:
     - e2e_om_external_connectivity
     - e2e_om_jvm_params
     - e2e_om_localmode
+    - e2e_om_ops_manager_enable_local_mode_running_om
     - e2e_om_localmode_multiple_pv
     - e2e_om_weak_password
     - e2e_om_ops_manager_backup_light
@@ -2282,6 +2289,7 @@ task_groups:
     - e2e_om_external_connectivity
     - e2e_om_jvm_params
     - e2e_om_localmode
+    - e2e_om_ops_manager_enable_local_mode_running_om
     - e2e_om_localmode_multiple_pv
     - e2e_om_weak_password
     - e2e_om_ops_manager_backup

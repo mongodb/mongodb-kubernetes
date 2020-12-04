@@ -88,6 +88,16 @@ def delete_secret(namespace: str, name: str):
     client.CoreV1Api().delete_namespaced_secret(name, namespace)
 
 
+def delete_pod(namespace: str, name: str):
+    client.CoreV1Api().delete_namespaced_pod(name, namespace)
+
+
+def delete_statefulset(namespace: str, name: str, propagation_policy: str = "Orphan"):
+    client.AppsV1Api().delete_namespaced_stateful_set(
+        name, namespace, propagation_policy=propagation_policy
+    )
+
+
 def random_k8s_name(prefix=""):
     return prefix + "".join(random.choice(string.ascii_lowercase) for _ in range(10))
 
@@ -107,6 +117,10 @@ def get_pod_when_ready(namespace: str, label_selector: str) -> client.V1Pod:
             try:
                 pod = pods.items[0]
             except IndexError:
+                continue
+
+            # This might happen when the pod is still pending
+            if pod.status.conditions is None:
                 continue
 
             for condition in pod.status.conditions:
