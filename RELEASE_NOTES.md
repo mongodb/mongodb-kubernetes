@@ -1,19 +1,22 @@
+*(Please use the [release template](docs/dev/release-notes-template.md) as the template for this document)* 
 <!-- Next release -->
 # MongoDB Enterprise Kubernetes Operator 1.8.3
 
 ## Kubernetes Operator
 
 * Bug fixes
- * Fixes an issue where connections were not closed leading to too many file
+  * Fixes an issue where connections were not closed leading to too many file
    descriptors open.
 
 ## MongoDBOpsManager Resource
 
 * Changes
- * A StatefulSet resource that holds the Ops Manager Backup Daemon will be
+  * A StatefulSet resource that holds the Ops Manager Backup Daemon will be
    deleted and recreated in order to change the `matchLabels` attribute,
    required for a new `Service` to allow for Queryable Backups feature to work.
    This is a safe operation.
+  * Changed the way the Operator collects statuses of MongoDB Agents running in 
+  Application Database Pods.
 
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.8.2
@@ -21,7 +24,7 @@
 ## MongoDBOpsManager Resource
 
 * Bug Fixes
- * Fixes an issue when `MongoDBOpsManager` resource gets to `Failing` state when
+  * Fixes an issue when `MongoDBOpsManager` resource gets to `Failing` state when
    both external connectivity and backups are enabled.
 
 ## New Images
