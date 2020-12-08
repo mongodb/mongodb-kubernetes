@@ -1,12 +1,16 @@
 *(Please use the [release template](docs/dev/release-notes-template.md) as the template for this document)* 
 <!-- Next release -->
-# MongoDB Enterprise Kubernetes Operator 1.8.3
+# MongoDB Enterprise Kubernetes Operator 1.9.0
 
 ## Kubernetes Operator
 
 * Bug fixes
   * Fixes an issue where connections were not closed leading to too many file
    descriptors open.
+
+## MongoDB Resource
+* Changes
+  * Continuous backups can now be configured with the MongoDB CRD. Set `spec.backup.enabled` to `true`. *Note*: You must have an Ops Manager resource already configured with backup. See [the docs](https://docs.mongodb.com/kubernetes-operator/master/tutorial/deploy-om-container/#id6) for more information.
 
 ## MongoDBOpsManager Resource
 

@@ -111,7 +111,7 @@ type MongoDBConnectivity struct {
 
 type MongoDbStatus struct {
 	status.Common                   `json:",inline"`
-	BackupStatus                    BackupStatus `json:"backup"`
+	BackupStatus                    *BackupStatus `json:"backup,omitempty"`
 	MongodbShardedClusterSizeConfig `json:",inline"`
 	Members                         int              `json:"members,omitempty"`
 	Version                         string           `json:"version"`
@@ -613,6 +613,9 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 	m.Status.UpdateCommonFields(phase, m.GetGeneration(), statusOptions...)
 
 	if option, exists := status.GetOption(statusOptions, status.BackupStatusOption{}); exists {
+		if m.Status.BackupStatus == nil {
+			m.Status.BackupStatus = &BackupStatus{}
+		}
 		m.Status.BackupStatus.StatusName = option.(status.BackupStatusOption).Value().(string)
 	}
 
