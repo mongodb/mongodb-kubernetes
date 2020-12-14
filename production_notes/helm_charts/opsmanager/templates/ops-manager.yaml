@@ -19,6 +19,7 @@ spec:
     # passing mms.ignoreInitialUiSetup=true allows to avoid the setup wizard in Ops Manager. Note, that
     # this requires to set some mandatory configuration properties, see
     # https://docs.opsmanager.mongodb.com/current/reference/configuration/index.html#mms.ignoreInitialUiSetup
+    # automation.versions.source: local
     mms.ignoreInitialUiSetup: "true"
     mms.adminEmailAddr: {{ .Values.mail.adminEmailAddr | quote }}
     mms.fromEmailAddr: {{ .Values.mail.adminEmailAddr | quote }}
@@ -39,12 +40,26 @@ spec:
 
   statefulSet:
     spec:
+      # volumeClaimTemplates:
+        # - metadata:
+            # name: mongodb-versions
+          # spec:
+            # accessModes: [ "ReadWriteOnce" ]
+            # resources:
+              # requests:
+                # storage: 10Gi
       template:
         spec:
           containers:
             - name: mongodb-ops-manager
+              # volumeMounts:
+                # - name: mongodb-versions
+                  #  this is the directory in each Pod where all MongoDB
+                  #  archives must be put
+                  # mountPath: /mongodb-ops-manager/mongodb-releases
               resources:
                 requests:
                   memory: 15G
                 limits:
                   memory: 15G
+
