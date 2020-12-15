@@ -51,9 +51,9 @@ We need to produce a zip file with all the versions of the operator: this involv
 
 ``` bash
 
-release_before_last="1.7.0"
-prev_release="1.7.1"
-current_release="1.8.0"
+release_before_last="1.8.1"
+prev_release="1.8.2"
+current_release="1.9.0"
 
 cd deploy/csv
 sed -i '' "s/${prev_release}/${current_release}/g" mongodb-enterprise.package.yaml
