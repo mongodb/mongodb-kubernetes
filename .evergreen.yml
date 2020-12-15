@@ -2330,6 +2330,7 @@ buildvariants:
 
 # Run with evergreen patch -p ops-manager-kubernetes -v e2e_mdb_kind_usaf_cloudqa -t all -f -y -u -d "Usaf CloudQA Run"
 - name: e2e_mdb_kind_usaf_cloudqa
+  patch_only: true
   display_name: e2e_mdb_kind_usaf_cloudqa
   run_on:
     - ubuntu1604-build
