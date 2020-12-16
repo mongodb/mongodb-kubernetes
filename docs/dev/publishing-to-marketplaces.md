@@ -7,17 +7,17 @@ with them change often and it important to understand base principle.
 
 The following are the main places of distribution:
 
-### (public) OperatorHub (https://operatorhub.io/). 
+### (public) OperatorHub (https://operatorhub.io/).
 The mechanism of adding new Operator versions there is by forking the
 GitHub repo and creating a PR. This relates to the `upstream-community-operators` directory in the GitHub repo (described [below](#community))
 Some other redhat [documentation](https://redhat-connect.gitbook.io/certified-operator-guide/troubleshooting-and-resources/submitting-a-community-operator-to-operatorhub.io#submission-process-overview) describing the process
 
-### (embedded) OperatorHub. 
+### (embedded) OperatorHub.
 
 What the docs [says](https://redhat-connect.gitbook.io/partner-guide-for-red-hat-openshift-and-container/certify-your-operator/certify-your-operator-bundle-image):
 
-> Certified operators are listed in and consumed by customers through the embedded OpenShift OperatorHub, providing them 
-> the ability to easily deploy and run your solution. Additionally, your product and operator image will be listed in 
+> Certified operators are listed in and consumed by customers through the embedded OpenShift OperatorHub, providing them
+> the ability to easily deploy and run your solution. Additionally, your product and operator image will be listed in
 > the Red Hat Container Catalog using the listing information you provide.‌
 
 It seems that this OperatorHub is the one embedded into the Openshift cluster and can be accessed either using UI or CLI.
@@ -32,22 +32,18 @@ There are two different (and contradicting) documentation articles from RedHat d
 [How to upload the bundle image](https://redhat-connect.gitbook.io/partner-guide-for-red-hat-openshift-and-container/certify-your-operator/certify-your-operator-bundle-image/uploading-your-operator-bundle-image)
 
 
-### RedHat Marketplace (https://marketplace.redhat.com/en-us). 
-This is a platform allowing to install certified Operators into 
+### RedHat Marketplace (https://marketplace.redhat.com/en-us).
+This is a platform allowing to install certified Operators into
 the Openshift cluster using a special Marketplace Operator. It seems to be similar to OperatorHub from the functional point of view
-but it provides billing and licensing support. The way for us to publish is described 
-in the [next section](#marketplace) (note, that the part describing using zip files is not relevant anymore)
+but it provides billing and licensing support. The way for us to publish is described
+in the [next section](#marketplace)
 
 
 These are the other terms that may be met in different places:
-* [Red Hat Container Catalog](https://catalog.redhat.com/): This seems to be a catalog providing the short information 
-about different Operators - the specific deployment instructions lead to the "embedded OperatorHub". 
+* [Red Hat Container Catalog](https://catalog.redhat.com/): This seems to be a catalog providing the short information
+about different Operators - the specific deployment instructions lead to the "embedded OperatorHub".
 
 ## <a name="marketplace"></a> Publishing to [Openshift Marketplace](https://marketplace.redhat.com/en-us).
-
-**TODO** This path seems to be out-of-date as Operator bundles should be used instead of zip files, this is being confirmed with RedHat now!
-
-We need to produce a zip file with all the versions of the operator: this involves copying the directory and modifying the clusterserviceversion file.
 
 ``` bash
 
@@ -55,9 +51,10 @@ release_before_last="1.8.1"
 prev_release="1.8.2"
 current_release="1.9.0"
 
-cd deploy/csv
+cd bundle
 sed -i '' "s/${prev_release}/${current_release}/g" mongodb-enterprise.package.yaml
-cp -r ${prev_release} ${current_release}
+mkdir ${current_release}
+ls ${prev_release}/*.yaml | xargs -n1 -I{file} cp {file} ${current_release}
 cd ${current_release}
 mv mongodb-enterprise.v${prev_release}.clusterserviceversion.yaml mongodb-enterprise.v${current_release}.clusterserviceversion.yaml
 # update all references to the new version
@@ -65,14 +62,14 @@ sed -i '' "s/${prev_release}/${current_release}/g" mongodb-enterprise.v${current
 # update reference to the previous version
 sed -i '' "s/${release_before_last}/${prev_release}/g" mongodb-enterprise.v${current_release}.clusterserviceversion.yaml
 # update the CRDs
-cp ../../../public/helm_chart/crds/mongodb.mongodb.com.yaml mongodb.mongodb.com.crd.yaml
-cp ../../../public/helm_chart/crds/mongodbusers.mongodb.com.yaml mongodbusers.mongodb.com.crd.yaml
-cp ../../../public/helm_chart/crds/opsmanagers.mongodb.com.yaml opsmanagers.mongodb.com.crd.yaml
+cp ../../public/helm_chart/crds/mongodb.mongodb.com.yaml mongodb.mongodb.com.crd.yaml
+cp ../../public/helm_chart/crds/mongodbusers.mongodb.com.yaml mongodbusers.mongodb.com.crd.yaml
+cp ../../public/helm_chart/crds/opsmanagers.mongodb.com.yaml opsmanagers.mongodb.com.crd.yaml
 cd ..
 ```
 
 Check the following sections in the clusterserviceversion file.
-You may need to look into https://github.com/mongodb/mongodb-enterprise-kubernetes/blob/master/mongodb-enterprise-openshift.yaml 
+You may need to look into https://github.com/mongodb/mongodb-enterprise-kubernetes/blob/master/mongodb-enterprise-openshift.yaml
 as the sourcer of relevant information.
 
 ### Metadata
@@ -88,48 +85,60 @@ reflected in `install.spec.deployments` (environment variables, init images vers
 
 Copy the `rules` from roles in `roles.yaml` to the `permissions.rules` element to make sure the permissions are up-to-date
 
-## Compress and Upload
+## Upload
+The new way of uploading our operator to RedHat is by using the new `bundle` format.
+A RedHat-provided guide can be found [here](https://redhat-connect.gitbook.io/certified-operator-guide/appendix/bundle-maintenance-after-migration), but this guide will
+cover the steps needed:
 
-After the new file has been updated, it needs to be compressed as a zip
-file alone with everything else in in the mongodb-enterprise directory:
+### Prerequisites
+You need to have [opm](https://docs.openshift.com/container-platform/4.5/operators/admin/olm-managing-custom-catalogs.html#olm-installing-opm_olm-managing-custom-catalogs).
+The guide linked here uses podman, but the same can be easily achieved with `docker`:
 
-    cd deploy/csv
-    zip -r ../redhat_connect_zip_files/mongodb-enterprise.vX.Y.Z.zip .
-    git add ../redhat_connect_zip_files/mongodb-enterprise.vX.Y.Z.zip
-
-it should be in the following format
+1. Move to an empty directory:
 ```bash
-.
-|-- ... all of the previous versions
-├── 1.5.2
-│   ├── mongodb-enterprise.v1.5.2.clusterserviceversion.yaml
-│   ├── mongodb.mongodb.com.crd.yaml
-│   ├── mongodbusers.mongodb.com.crd.yaml
-│   └── opsmanagers.mongodb.com.crd.yaml
-├── 1.5.3
-│   ├── mongodb-enterprise.v1.5.3.clusterserviceversion.yaml
-│   ├── mongodb.mongodb.com.crd.yaml
-│   ├── mongodbusers.mongodb.com.crd.yaml
-│   └── opsmanagers.mongodb.com.crd.yaml
-└── mongodb-enterprise.package.yaml
+    mdkir tmp
+    cd tmp
+```
+2. ` docker login https://registry.redhat.io -u mongodb-inc` (You should have the password for this account. If you don't, ask your teammates)
+3. Obtain `opm`
+   - If you have [oc](https://docs.openshift.com/container-platform/4.6/cli_reference/openshift_cli/getting-started-cli.html) installed, then you can run this command:
+   ```bash
+   oc image extract registry.redhat.io/openshift4/ose-operator-registry:v4.6 --filter-by-os amd64 \
+    --path /usr/bin/darwin-amd64-opm:.
+   ```
+   Note: if you don't have a `macOs amd64` machine, you will need to use different arguments.
+
+   Note: make sure to be in an *empty* directory when running this command, otherwise it will fail (or, if ran with `--confirm`, it will overwrite the directory)
+   - If you don't have `oc` installed, you should be able to obtain the same result with:
+   ```
+   container_id=`docker create registry.redhat.io/openshift4/ose-operator-registry:v4.6`
+   docker cp $container_id:/usr/bin/darwin-amd64-opm .
+   docker rm $container_id
+   ```
+4. (Optional) move the `opm` binary somewhere in your `PATH`
+
+## Steps
+1. Let `opm` rearrange files and generate the Dockerfile:
+```bash
+cd bundle
+opm alpha bundle generate -d ./${current_release} -u ./${current_release}
+```
+This will generate a `Dockerfile` called `bundle.Dockerfile`.
+
+2. Add the following `LABEL`s to the Dockerfile:
+```bash
+LABEL com.redhat.openshift.versions="v4.5,v4.6"
+LABEL com.redhat.delivery.backport=true
+LABEL com.redhat.delivery.operator.bundle=true
 ```
 
+3. Build this image and tag it as explained [here](https://connect.redhat.com/project/5894371/images/upload-image)
+Note: the guide uses podman but the exact same results can be obtained with `docker`
 
-Finally, the zip file needs to be uploaded to the [Operator
-Metadata](https://connect.redhat.com/project/850021/operator-metadata)
-section in RedHat connect.
+4. After the image has been pushed, you should be able to see it [here](https://connect.redhat.com/project/5894371/images).
+NOTE: It usually takes some minutes for it to appear.
 
-The process of verification can take between 30 minutes and 2 hours. **Note, that you need to refresh the page 
-periodically as UI may get stuck in "scanning" that may not be true** 
-
-If after one retry it still fails:
-* ask for some help in the "coreos" slack channel (it's a separate organization coreos.slack.com) - you may need to ask for an invitation
-* contact RedHat through 
-https://connect.redhat.com/support/technology-partner/, the previous support email was connect-tech@redhat.com. In the body please mention **your** email as 
-the account is on Jason Mimick and it looks like he will receive the answers
-* also there is a possibility to start a more formal support case following these [instructions](https://access.redhat.com/start/how-to-engage-red-hat-support)
-
-After the zip file was successfully scanned and published push it to the current repository so that we can send it to RedHat for Operator certification.
+5. When the image passes the `Certification Test`, you can finally publish it!
 
 # <a name="community"></a> RedHat Community Operators
 

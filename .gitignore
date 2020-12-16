@@ -35,5 +35,9 @@ docker/mongodb-enterprise-init-ops-manager/Dockerfile
 docker/mongodb-enterprise-tests/helm_chart/
 .shellcheckrc
 
+bundle/bundle*Dockerfile
+bundle/*/manifests
+bundle/*/metadata
+
 # loadtesting binary
 production_notes/cmd/runtest/runtest

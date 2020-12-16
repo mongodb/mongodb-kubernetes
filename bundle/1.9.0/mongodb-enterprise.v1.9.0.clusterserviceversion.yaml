@@ -20,7 +20,7 @@ metadata:
               }
             },
             "type": "ReplicaSet",
-            "version": "4.4.1-ent",
+            "version": "4.4.0-ent",
             "persistent": true
           },
           "status": {
@@ -35,7 +35,7 @@ metadata:
             "name": "sample-sharded-cluster"
           },
           "spec": {
-            "version": "4.4.1-ent",
+            "version": "4.4.0-ent",
             "type": "ShardedCluster",
             "configServerCount": 3,
             "credentials": "my-credentials",
@@ -84,7 +84,7 @@ metadata:
             "name": "ops-manager"
           },
           "spec": {
-            "version": "4.4.4",
+            "version": "4.4.1",
             "adminCredentials": "ops-manager-admin",
             "configuration": {
               "mms.fromEmailAddr": "admin@thecompany.com"
@@ -94,7 +94,10 @@ metadata:
             },
             "applicationDatabase": {
               "members": 3,
-              "persistent": true
+              "persistent": true,
+              "podSpec": {
+                "cpu": "1"
+              }
             }
           }
         }
@@ -102,14 +105,14 @@ metadata:
     capabilities: Deep Insights
     categories: Database
     certified: 'true'
-    containerImage: registry.connect.redhat.com/mongodb/enterprise-operator:1.8.2
-    createdAt: 2020-11-17T12:39:31Z
+    containerImage: registry.connect.redhat.com/mongodb/enterprise-operator:1.9.0
+    createdAt: 2020-09-02T15:33:27Z
     description: The MongoDB Enterprise Kubernetes Operator enables easy deploys of
       MongoDB into Kubernetes clusters, using our management, monitoring and backup
       platforms, Ops Manager and Cloud Manager.
     repository: https://github.com/mongodb/mongodb-enterprise-kubernetes
-    support: MongoDB Enterprise Support https://support.mongodb.com/welcome
-  name: mongodb-enterprise.v1.8.2
+    support: MongoDB Community Support
+  name: mongodb-enterprise.v1.9.0
   namespace: placeholder
 spec:
   customresourcedefinitions:
@@ -318,31 +321,29 @@ spec:
             - 'urn:alm:descriptor:com.tectonic.ui:booleanSwitch'
             - 'urn:alm:descriptor:com.tectonic.ui:fieldGroup:BackupInfrastructure'
   description: |
-    The MongoDB Enterprise Kubernetes Operator enables easy deploy of the following applications into Kubernetes clusters:
+    The MongoDB Enterprise Kubernetes Operator enables easy deploys of MongoDB
+    into Kubernetes clusters, using our management, monitoring and backup
+    platforms, Ops Manager and Cloud Manager.
 
-    * **MongoDB** - Replica Sets, Sharded Clusters and Standalones, with authentication, TLS and many more options.
-    * **Ops Manager** - our enterprise management, monitoring and backup platform for MongoDB. The Operator can install and manage Ops Manager in Kubernetes for you.
+    ## Before You Start
 
-    ## MongoDB Resource
-    ### Before You Start
+    To start using the operator you''ll need an account in MongoDB Cloud Manager or
+    a MongoDB Ops Manager deployment.
 
-    To create a MongoDB resource you'll need an account in [MongoDB Cloud Manager](https://cloud.mongodb.com/) or
-    a MongoDB Ops Manager application.
+    * [Create a Secret with your OpsManager API key](https://docs.mongodb.com/kubernetes-operator/stable/tutorial/create-operator-credentials/#procedure)
 
-    * [Create a Secret with your Ops Manager/Cloud Manager API key](https://docs.mongodb.com/kubernetes-operator/stable/tutorial/create-operator-credentials/#procedure)
-
-    * [Create a ConfigMap with your Ops Manager/Cloud Manager project ID and URL](https://docs.mongodb.com/kubernetes-operator/stable/tutorial/create-project-using-configmap/)
+    * [Create a ConfigMap with your OpsManager project ID and URL](https://docs.mongodb.com/kubernetes-operator/stable/tutorial/create-project-using-configmap/)
 
     By installing this integration, you will be able to deploy MongoDB instances
     with a single simple command.
 
-    ### Required Parameters
+    ## Required Parameters
 
     * `opsManager` or `cloudManager` - Enter the name of the ConfigMap containing project information
     * `credentials` - Enter the name of the Secret containing your OpsManager credentials
     * `type` - Enter MongoDB Deployment Types ("Standalone", "ReplicaSet", "ShardedCluster"
 
-    ### Supported MongoDB Deployment Types
+    ## Supported MongoDB Deployment Types ##
 
     * Standalone: An instance of mongod that is running as a single server and
     not as part of a replica set, this is, it does not do any kind of
@@ -361,29 +362,16 @@ spec:
     data by key ranges and distributes the data among two or more database
     instances. Sharding enables horizontal scaling.
 
-    ### Security
+    ## Security ##
 
     The operator can enable TLS for all traffic between servers and also between
     clients and servers. Before enabling `security.tls.enabled` to `true` you
-    should create your certificates or you can leave the Operator to create all
-    the certificates for you. The Operator ability to create certs has been
-    depricated due to Kuberentes API changes.
-
+    should create your certificates.  or you can leave the operator to create all
+    the certificates for you. The operator ability to create certs is been
+    depricted due to Kuberentes API changes.
 
     For more information, please read the official MongoDB
-    Kubernetes Operator  [docs](https://docs.mongodb.com/kubernetes-operator/stable/mdb-resources/).
-
-    ## MongoDBOpsManager Resource
-
-    ### Before You Start
-    Before creating an Ops Manager resource you need to prepare credentials for the admin user which will be
-    automatically created in Ops Manager. Create a Secret following [instructions (starting from 4)](https://docs.mongodb.com/kubernetes-operator/stable/tutorial/plan-om-resource/#prerequisites)
-
-    ### Deploy the Resource
-    Follow [instructions](https://docs.mongodb.com/kubernetes-operator/stable/tutorial/deploy-om-container/) to deploy the `MongoDBOpsManager` resource
-
-    For more information please read the official [docs](https://docs.mongodb.com/kubernetes-operator/stable/om-resources/)
-
+    Kubernetes Operator  [docs](https://docs.mongodb.com/kubernetes-operator/stable/).
 
   displayName: MongoDB
   icon:
@@ -424,19 +412,8 @@ spec:
               labels:
                 k8s-app: mongodb-enterprise-operator
             spec:
-              serviceAccountName: mongodb-enterprise-operator
               containers:
-              - name: mongodb-enterprise-operator
-                image: registry.connect.redhat.com/mongodb/enterprise-operator:1.8.2
-                imagePullPolicy: Always
-                resources:
-                  limits:
-                    cpu: 300m
-                    memory: 1Gi
-                  requests:
-                    cpu: 200m
-                    memory: 200Mi
-                env:
+              - env:
                 - name: CURRENT_NAMESPACE
                   valueFrom:
                     fieldRef:
@@ -449,34 +426,41 @@ spec:
                   value: 'true'
                 - name: OPERATOR_ENV
                   value: prod
-                - name: IMAGE_PULL_POLICY
-                  value: Always
-                # Database
                 - name: MONGODB_ENTERPRISE_DATABASE_IMAGE
                   value: registry.connect.redhat.com/mongodb/enterprise-database
                 - name: INIT_DATABASE_IMAGE_REPOSITORY
                   value: registry.connect.redhat.com/mongodb/mongodb-enterprise-init-database
                 - name: INIT_DATABASE_VERSION
-                  value: 1.0.1
+                  version: 1.0.0
                 - name: DATABASE_VERSION
                   value: 2.0.0
-                # Ops Manager
+                - name: IMAGE_PULL_POLICY
+                  value: Always
                 - name: OPS_MANAGER_IMAGE_REPOSITORY
                   value: registry.connect.redhat.com/mongodb/mongodb-enterprise-ops-manager
+                - name: OPS_MANAGER_IMAGE_PULL_POLICY
+                  value: Always
+                - name: APPDB_IMAGE_REPOSITORY
+                  value: registry.connect.redhat.com/mongodb/mongodb-enterprise-appdb
                 - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
                   value: registry.connect.redhat.com/mongodb/mongodb-enterprise-init-ops-manager
                 - name: INIT_OPS_MANAGER_VERSION
-                  value: 1.0.3
-                - name: OPS_MANAGER_IMAGE_PULL_POLICY
-                  value: Always
-                # AppDB
-                - name: APPDB_IMAGE_REPOSITORY
-                  value: registry.connect.redhat.com/mongodb/mongodb-enterprise-appdb
+                  value: 1.0.2
                 - name: INIT_APPDB_IMAGE_REPOSITORY
                   value: registry.connect.redhat.com/mongodb/mongodb-enterprise-init-appdb
                 - name: INIT_APPDB_VERSION
-                  value: 1.0.5
-
+                  value: 1.0.4
+                image: registry.connect.redhat.com/mongodb/enterprise-operator:1.9.0
+                imagePullPolicy: Always
+                name: mongodb-enterprise-operator
+                resources:
+                  limits:
+                    cpu: 200m
+                    memory: 100Mi
+                  requests:
+                    cpu: 100m
+                    memory: 50Mi
+              serviceAccountName: mongodb-enterprise-operator
       permissions:
       - rules:
         - apiGroups:
@@ -519,17 +503,11 @@ spec:
         serviceAccountName: mongodb-enterprise-operator
       - rules:
         - apiGroups:
-            - ""
+          - ""
           resources:
-            - secrets
+          - secrets
           verbs:
-            - get
-        - apiGroups:
-            - ""
-          resources:
-            - pods
-          verbs:
-            - patch
+          - get
         serviceAccountName: mongodb-enterprise-appdb
       - rules: []
         serviceAccountName: mongodb-enterprise-database-pods
@@ -559,5 +537,5 @@ spec:
   minKubeVersion: 1.13.0
   provider:
     name: MongoDB, Inc
-  replaces: mongodb-enterprise.v1.8.0
-  version: 1.8.2
+  replaces: mongodb-enterprise.v1.7.1
+  version: 1.9.0
