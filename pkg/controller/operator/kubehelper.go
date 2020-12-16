@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/certs"
+
 	enterprisesvc "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
@@ -936,13 +938,13 @@ func (ss *StatefulSetHelper) ensureOperatorManagedSSLCertsForStatefulSet(k *Kube
 		pemFiles := newPemCollection()
 
 		for idx, host := range fqdns {
-			csr, err := k.readCSR(podnames[idx], ss.Namespace)
+			csr, err := certs.ReadCSR(k.client, podnames[idx], ss.Namespace)
 			additionalCertDomains := ss.getAdditionalCertDomainsForMember(idx)
 			if err != nil {
 				certsNeedApproval = true
 				hostnames := []string{host, podnames[idx]}
 				hostnames = append(hostnames, additionalCertDomains...)
-				key, err := k.createTlsCsr(podnames[idx], ss.Namespace, clusterDomainOrDefault(ss.ClusterDomain), hostnames, host)
+				key, err := certs.CreateTlsCSR(k.client, podnames[idx], ss.Namespace, clusterDomainOrDefault(ss.ClusterDomain), hostnames, host)
 				if err != nil {
 					return workflow.Failed("Failed to create CSR, %s", err)
 				}
@@ -951,14 +953,14 @@ func (ss *StatefulSetHelper) ensureOperatorManagedSSLCertsForStatefulSet(k *Kube
 				log.Warn("The Operator is generating TLS certificates for server authentication. " + TLSGenerationDeprecationWarning)
 
 				pemFiles.addPrivateKey(podnames[idx], string(key))
-			} else if !checkCSRHasRequiredDomains(csr, additionalCertDomains) {
+			} else if !certs.CSRHasRequiredDomains(csr, additionalCertDomains) {
 				log.Infow(
 					"Certificate request does not have all required domains",
 					"requiredDomains", additionalCertDomains,
 					"host", host,
 				)
 				return workflow.Pending("Certificate request for " + host + " doesn't have all required domains. Please manually remove the CSR in order to proceed.")
-			} else if checkCSRWasApproved(csr.Status.Conditions) {
+			} else if certs.CSRWasApproved(csr) {
 				log.Infof("Certificate for Pod %s -> Approved", host)
 				pemFiles.addCertificate(podnames[idx], string(csr.Status.Certificate))
 			} else {

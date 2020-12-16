@@ -6,6 +6,8 @@ import (
 	"os"
 	"reflect"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/certs"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/backup"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/project"
@@ -383,10 +385,10 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHe
 
 			for idx, host := range fqdns {
 				csrName := toInternalClusterAuthName(podnames[idx])
-				csr, err := k.readCSR(csrName, ss.Namespace)
+				csr, err := certs.ReadCSR(k.client, csrName, ss.Namespace)
 				if err != nil {
 					certsNeedApproval = true
-					key, err := k.createInternalClusterAuthCSR(csrName, ss.Namespace, clusterDomainOrDefault(ss.ClusterDomain), []string{host, podnames[idx]}, podnames[idx])
+					key, err := certs.CreateInternalClusterAuthCSR(k.client, csrName, ss.Namespace, clusterDomainOrDefault(ss.ClusterDomain), []string{host, podnames[idx]}, podnames[idx])
 					if err != nil {
 						return false, fmt.Errorf("Failed to create CSR, %s", err)
 					}
@@ -396,7 +398,7 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHe
 
 					pemFiles.addPrivateKey(podnames[idx], string(key))
 				} else {
-					if checkCSRWasApproved(csr.Status.Conditions) {
+					if certs.CSRWasApproved(csr) {
 						log.Infof("Certificate for Pod %s -> Approved", host)
 						pemFiles.addCertificate(podnames[idx], string(csr.Status.Certificate))
 					} else {
@@ -442,13 +444,13 @@ func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(mdb *
 
 		for _, agent := range agents {
 			agentName := fmt.Sprintf("mms-%s-agent", agent)
-			csr, err := k.readCSR(agentName, namespace)
+			csr, err := certs.ReadCSR(k.client, agentName, namespace)
 			if err != nil {
 				certsNeedApproval = true
 
 				// the agentName name will be the same on each host, but we want to ensure there's
 				// a unique name for the CSR created.
-				key, err := k.createAgentCSR(agentName, namespace, mdb.Spec.GetClusterDomain())
+				key, err := certs.CreateAgentCSR(r.client, agentName, namespace, mdb.Spec.GetClusterDomain())
 				if err != nil {
 					return false, fmt.Errorf("failed to create CSR, %s", err)
 				}
@@ -458,7 +460,7 @@ func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(mdb *
 
 				pemFiles.addPrivateKey(agentName, string(key))
 			} else {
-				if checkCSRWasApproved(csr.Status.Conditions) {
+				if certs.CSRWasApproved(csr) {
 					pemFiles.addCertificate(agentName, string(csr.Status.Certificate))
 				} else {
 					certsNeedApproval = true
