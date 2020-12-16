@@ -660,7 +660,8 @@ func TestBuildJvmParamsEnvVars_FromDefaultPodSpec(t *testing.T) {
 
 	template := getOpsManagerTemplateSpec(helper)
 
-	envVar, _ := buildJvmParamsEnvVars(om.Spec, template)
+	envVar, err := construct.BuildJvmParamsEnvVars(om.Spec, template)
+	assert.NoError(t, err)
 	// xmx and xms based calculated from  default container memory, requests.mem=limits.mem=5GB
 	assert.Equal(t, "CUSTOM_JAVA_MMS_UI_OPTS", envVar[0].Name)
 	assert.Equal(t, "-Xmx4291m -Xms4291m", envVar[0].Value)
@@ -683,16 +684,20 @@ func TestBuildJvmParamsEnvVars_FromCustomContainerResource(t *testing.T) {
 
 	template.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory] = *resource.NewQuantity(268435456, resource.BinarySI)
 	template.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory] = unsetQuantity
-	envVarLimitsOnly, _ := buildJvmParamsEnvVars(om.Spec, template)
+	envVarLimitsOnly, err := construct.BuildJvmParamsEnvVars(om.Spec, template)
+	assert.NoError(t, err)
 
 	template.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory] = *resource.NewQuantity(218435456, resource.BinarySI)
-	envVarLimitsAndReqs, _ := buildJvmParamsEnvVars(om.Spec, template)
+	envVarLimitsAndReqs, err := construct.BuildJvmParamsEnvVars(om.Spec, template)
+	assert.NoError(t, err)
 
 	template.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory] = unsetQuantity
-	envVarReqsOnly, _ := buildJvmParamsEnvVars(om.Spec, template)
+	envVarReqsOnly, err := construct.BuildJvmParamsEnvVars(om.Spec, template)
+	assert.NoError(t, err)
 
 	template.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory] = unsetQuantity
-	envVarsNoLimitsOrReqs, _ := buildJvmParamsEnvVars(om.Spec, template)
+	envVarsNoLimitsOrReqs, err := construct.BuildJvmParamsEnvVars(om.Spec, template)
+	assert.NoError(t, err)
 
 	// if only memory requests are configured, xms and xmx should be 90% of mem request
 	assert.Equal(t, "-DFakeOptionEnabled -Xmx187m -Xms187m", envVarReqsOnly[0].Value)
