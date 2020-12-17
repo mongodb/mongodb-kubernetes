@@ -3,6 +3,7 @@ package operator
 import (
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/pem"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
@@ -357,8 +358,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 		SetCurrentAgentAuthMechanism(currentAgentAuthMechanism).
 		SetStatefulSetConfiguration(nil) // TODO: configure once supported
 	//SetStatefulSetConfiguration(s.Spec.MongosStatefulSetConfiguration)
-
-	mongosBuilder.SetCertificateHash(mongosBuilder.readPemHashFromSecret(r.client))
+	mongosBuilder.SetCertificateHash(pem.ReadHashFromSecret(r.client, s.Namespace, s.MongosRsName(), log))
 
 	// 2. Create a Config Server StatefulSet
 	podSpec := NewDefaultPodSpecWrapper(*s.Spec.ConfigSrvPodSpec)
@@ -383,8 +383,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 		SetCurrentAgentAuthMechanism(currentAgentAuthMechanism).
 		SetStatefulSetConfiguration(nil) // TODO: configure once supported
 	//SetStatefulSetConfiguration(s.Spec.ConfigSrvStatefulSetConfiguration)
-
-	configBuilder.SetCertificateHash(configBuilder.readPemHashFromSecret(r.client))
+	configBuilder.SetCertificateHash(pem.ReadHashFromSecret(r.client, s.Namespace, s.ConfigSrvServiceName(), log))
 	// 3. Creates a StatefulSet for each shard in the cluster
 	shardStartupParameters := mdbv1.StartupParameters{}
 	if s.Spec.ShardSpec != nil {
@@ -407,7 +406,7 @@ func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *md
 			SetCurrentAgentAuthMechanism(currentAgentAuthMechanism).
 			SetStatefulSetConfiguration(nil) // TODO: configure once supported
 		//SetStatefulSetConfiguration(s.Spec.ShardStatefulSetConfiguration)
-		shardsSetHelpers[i].SetCertificateHash(shardsSetHelpers[i].readPemHashFromSecret(r.client))
+		shardsSetHelpers[i].SetCertificateHash(pem.ReadHashFromSecret(r.client, s.Namespace, s.ShardRsName(i), log))
 	}
 
 	return ShardedClusterKubeState{

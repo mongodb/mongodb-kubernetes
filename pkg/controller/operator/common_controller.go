@@ -7,6 +7,7 @@ import (
 	"reflect"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/certs"
+	enterprisepem "github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/pem"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/backup"
 
@@ -389,7 +390,7 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHe
 			// reconciliation, then certs are obtained from the CA). If this happens we need to
 			// store the keys in the final secret, that will be updated with the certs, once they
 			// are issued by the CA.
-			pemFiles := newPemCollection()
+			pemFiles := enterprisepem.NewCollection()
 
 			for idx, host := range fqdns {
 				csrName := toInternalClusterAuthName(podnames[idx])
@@ -404,11 +405,11 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHe
 					// This note was added on Release 1.5.1 of the Operator.
 					log.Warn("The Operator is generating TLS x509 certificates for internal cluster authentication. " + TLSGenerationDeprecationWarning)
 
-					pemFiles.addPrivateKey(podnames[idx], string(key))
+					pemFiles.AddPrivateKey(podnames[idx], string(key))
 				} else {
 					if certs.CSRWasApproved(csr) {
 						log.Infof("Certificate for Pod %s -> Approved", host)
-						pemFiles.addCertificate(podnames[idx], string(csr.Status.Certificate))
+						pemFiles.AddCertificate(podnames[idx], string(csr.Status.Certificate))
 					} else {
 						log.Infof("Certificate for Pod %s -> Waiting for Approval", host)
 						certsNeedApproval = true
@@ -422,7 +423,7 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHe
 			labels["mongodb/secure"] = "certs"
 			labels["mongodb/operator"] = "certs." + secretName
 
-			err := k.createOrUpdateSecret(secretName, ss.Namespace, pemFiles, labels)
+			err := enterprisepem.CreateOrUpdateSecret(r.client, secretName, ss.Namespace, pemFiles)
 			if err != nil {
 				// If we have an error creating or updating the secret, we might lose
 				// the keys, in which case we return an error, to make it clear what
@@ -447,7 +448,7 @@ func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(mdb *
 			return false, fmt.Errorf("The %s Secret file does not contain the necessary Agent certificates. Missing %d certificates", util.AgentSecretName, missing)
 		}
 
-		pemFiles := newPemCollection()
+		pemFiles := enterprisepem.NewCollection()
 		agents := []string{"automation", "monitoring", "backup"}
 
 		for _, agent := range agents {
@@ -466,10 +467,10 @@ func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(mdb *
 				// This note was added on Release 1.5.1 of the Operator.
 				log.Warn("The Operator is generating TLS x509 certificates for agent authentication. " + TLSGenerationDeprecationWarning)
 
-				pemFiles.addPrivateKey(agentName, string(key))
+				pemFiles.AddPrivateKey(agentName, string(key))
 			} else {
 				if certs.CSRWasApproved(csr) {
-					pemFiles.addCertificate(agentName, string(csr.Status.Certificate))
+					pemFiles.AddCertificate(agentName, string(csr.Status.Certificate))
 				} else {
 					certsNeedApproval = true
 				}
@@ -482,7 +483,7 @@ func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(mdb *
 		labels["mongodb/secure"] = "certs"
 		labels["mongodb/operator"] = "certs." + util.AgentSecretName
 
-		err := k.createOrUpdateSecret(util.AgentSecretName, namespace, pemFiles, labels)
+		err := enterprisepem.CreateOrUpdateSecret(r.client, util.AgentSecretName, namespace, pemFiles)
 		if err != nil {
 			// If we have an error creating or updating the secret, we might lose
 			// the keys, in which case we return an error, to make it clear what

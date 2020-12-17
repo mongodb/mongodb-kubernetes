@@ -6,7 +6,9 @@ import (
 	"path"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/pem"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+	"go.uber.org/zap"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -142,15 +144,14 @@ func (m mockSecretGetter) GetSecret(_ client.ObjectKey) (corev1.Secret, error) {
 
 func TestReadPemHashFromSecret(t *testing.T) {
 
-	stsHelper := baseSetHelper()
-
+	name := "res-name"
 	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: stsHelper.Name + "-cert", Namespace: mock.TestNamespace},
+		ObjectMeta: metav1.ObjectMeta{Name: name + "-cert", Namespace: mock.TestNamespace},
 		Data:       map[string][]byte{"hello": []byte("world")},
 	}
 
-	assert.Empty(t, stsHelper.readPemHashFromSecret(mockSecretGetter{}), "secret does not exist so pem hash should be empty")
-	assert.NotEmpty(t, stsHelper.readPemHashFromSecret(mockSecretGetter{secret: secret}), "pem hash should be read from the secret")
+	assert.Empty(t, pem.ReadHashFromSecret(mockSecretGetter{}, mock.TestNamespace, name, zap.S()), "secret does not exist so pem hash should be empty")
+	assert.NotEmpty(t, pem.ReadHashFromSecret(mockSecretGetter{secret: secret}, mock.TestNamespace, name, zap.S()), "pem hash should be read from the secret")
 }
 
 func TestBasePodSpec_Affinity(t *testing.T) {

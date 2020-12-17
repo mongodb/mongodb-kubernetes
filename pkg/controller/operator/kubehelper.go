@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/certs"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/pem"
 	enterprisesvc "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
@@ -845,32 +846,6 @@ func ensureAutomationConfigSecret(secretGetUpdateCreator secret.GetUpdateCreator
 	return existingSecret, nil
 }
 
-// CreateOrUpdateSecret will create (if it does not exist) or update (if it does) a secret.
-func (k *KubeHelper) createOrUpdateSecret(name, namespace string, pemFiles *pemCollection, labels map[string]string) error {
-	secretToCreate, err := k.client.GetSecret(kube.ObjectKey(namespace, name))
-	if err != nil {
-		if apiErrors.IsNotFound(err) {
-			pemFilesSecret := secret.Builder().
-				SetName(name).
-				SetNamespace(namespace).
-				SetStringData(pemFiles.merge()).
-				Build()
-			// assume the secret was not found, need to create it
-			// leave a nil owner reference as we haven't decided yet if we need to remove certificates
-			return k.client.CreateSecret(pemFilesSecret)
-		}
-		return err
-	}
-
-	// if the secret already exists, it might contain entries that we want merged:
-	// for each Pod we'll have the key and the certificate, but we might also have the
-	// certificate added in several stages. If a certificate/key exists, and this
-
-	pemData := pemFiles.mergeWith(secretToCreate.Data)
-	secretToCreate.StringData = pemData
-	return k.client.UpdateSecret(secretToCreate)
-}
-
 // validateSelfManagedSSLCertsForStatefulSet ensures that a stateful set using
 // user-provided certificates has all of the relevant certificates in place.
 func (ss *StatefulSetHelper) validateSelfManagedSSLCertsForStatefulSet(k *KubeHelper, secretName string) workflow.Status {
@@ -918,7 +893,7 @@ func (ss *StatefulSetHelper) ensureOperatorManagedSSLCertsForStatefulSet(k *Kube
 		// reconciliation, then certs are obtained from the CA). If this happens we need to
 		// store the keys in the final secret, that will be updated with the certs, once they
 		// are issued by the CA.
-		pemFiles := newPemCollection()
+		pemFiles := pem.NewCollection()
 
 		for idx, host := range fqdns {
 			csr, err := certs.ReadCSR(k.client, podnames[idx], ss.Namespace)
@@ -935,7 +910,7 @@ func (ss *StatefulSetHelper) ensureOperatorManagedSSLCertsForStatefulSet(k *Kube
 				// This note was added on Release 1.5.1 of the Operator.
 				log.Warn("The Operator is generating TLS certificates for server authentication. " + TLSGenerationDeprecationWarning)
 
-				pemFiles.addPrivateKey(podnames[idx], string(key))
+				pemFiles.AddPrivateKey(podnames[idx], string(key))
 			} else if !certs.CSRHasRequiredDomains(csr, additionalCertDomains) {
 				log.Infow(
 					"Certificate request does not have all required domains",
@@ -945,7 +920,7 @@ func (ss *StatefulSetHelper) ensureOperatorManagedSSLCertsForStatefulSet(k *Kube
 				return workflow.Pending("Certificate request for " + host + " doesn't have all required domains. Please manually remove the CSR in order to proceed.")
 			} else if certs.CSRWasApproved(csr) {
 				log.Infof("Certificate for Pod %s -> Approved", host)
-				pemFiles.addCertificate(podnames[idx], string(csr.Status.Certificate))
+				pemFiles.AddCertificate(podnames[idx], string(csr.Status.Certificate))
 			} else {
 				log.Infof("Certificate for Pod %s -> Waiting for Approval", host)
 				certsNeedApproval = true
@@ -960,7 +935,9 @@ func (ss *StatefulSetHelper) ensureOperatorManagedSSLCertsForStatefulSet(k *Kube
 
 		// note that createOrUpdateSecret modifies pemFiles in place by merging
 		// in the existing values in the secret
-		err := k.createOrUpdateSecret(secretName, ss.Namespace, pemFiles, labels)
+
+		// TODO: client should not come from KubeHelper
+		err := pem.CreateOrUpdateSecret(k.client, secretName, ss.Namespace, pemFiles)
 		if err != nil {
 			// If we have an error creating or updating the secret, we might lose
 			// the keys, in which case we return an error, to make it clear what
@@ -969,7 +946,7 @@ func (ss *StatefulSetHelper) ensureOperatorManagedSSLCertsForStatefulSet(k *Kube
 			return workflow.Failed("Failed to create or update the secret: %s", err)
 		}
 
-		certsHash, err := pemFiles.getHash()
+		certsHash, err := pemFiles.GetHash()
 		if err != nil {
 			log.Errorw("Could not hash PEM files", "err", err)
 			return workflow.Failed(err.Error())
@@ -981,27 +958,6 @@ func (ss *StatefulSetHelper) ensureOperatorManagedSSLCertsForStatefulSet(k *Kube
 		return workflow.Pending("Not all certificates have been approved by Kubernetes CA for %s", ss.Name)
 	}
 	return workflow.OK()
-}
-
-// readPemHashFromSecret reads the existing Pem from
-// the secret that stores this StatefulSet's Pem collection.
-func (s *StatefulSetHelper) readPemHashFromSecret(secretGetter secret.Getter) string {
-	secretName := s.Name + "-cert"
-	secretData, err := secret.ReadStringData(secretGetter, kube.ObjectKey(s.Namespace, secretName))
-	if err != nil {
-		s.Logger.Infof("secret %s doesn't exist yet", secretName)
-		return ""
-	}
-	pemCollection := newPemCollection()
-	for k, v := range secretData {
-		pemCollection.mergeEntry(k, newPemFileFrom(v))
-	}
-	pemHash, err := pemCollection.getHash()
-	if err != nil {
-		s.Logger.Errorf("error computing pem hash: %s", err)
-		return ""
-	}
-	return pemHash
 }
 
 // ensureSSLCertsForStatefulSet contains logic to ensure that all of the
@@ -1028,8 +984,8 @@ func (k *KubeHelper) validateCertificates(name, namespace string) error {
 	if err == nil {
 		// Validate that the secret contains the keys, if it contains the certs.
 		for _, value := range byteData {
-			pemFile := newPemFileFromData(value)
-			if !pemFile.isValid() {
+			pemFile := pem.NewFileFromData(value)
+			if !pemFile.IsValid() {
 				return fmt.Errorf("The Secret %s containing certificates is not valid. "+
 					"Entries must contain a certificate and a private key.", name)
 			}
@@ -1062,12 +1018,12 @@ func isValidPemSecret(secret *corev1.Secret, key string, additionalDomains []str
 		return false
 	}
 
-	pemFile := newPemFileFromData(data)
-	if !pemFile.isComplete() {
+	pemFile := pem.NewFileFromData(data)
+	if !pemFile.IsComplete() {
 		return false
 	}
 
-	cert, err := pemFile.parseCertificate()
+	cert, err := pemFile.ParseCertificate()
 	if err != nil {
 		return false
 	}

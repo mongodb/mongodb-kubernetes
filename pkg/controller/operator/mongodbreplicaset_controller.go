@@ -3,6 +3,8 @@ package operator
 import (
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/pem"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/connection"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
 
@@ -103,7 +105,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		SetStatefulSetConfiguration(nil) // TODO: configure once supported
 	//SetStatefulSetConfiguration(rs.Spec.StatefulSetConfiguration)
 
-	replicaBuilder.SetCertificateHash(replicaBuilder.readPemHashFromSecret(r.client))
+	replicaBuilder.SetCertificateHash(pem.ReadHashFromSecret(r.client, rs.Namespace, rs.Name, log))
 
 	if status := validateMongoDBResource(rs, conn); !status.IsOK() {
 		return r.updateStatus(rs, status, log)

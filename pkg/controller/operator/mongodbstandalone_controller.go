@@ -3,6 +3,8 @@ package operator
 import (
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/pem"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/connection"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
 
@@ -156,7 +158,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		SetSecurity(s.Spec.Security).
 		SetCurrentAgentAuthMechanism(currentAgentAuthMode).
 		SetStatefulSetConfiguration(nil) // TODO: configure once supported
-	standaloneBuilder.SetCertificateHash(standaloneBuilder.readPemHashFromSecret(r.client))
+	standaloneBuilder.SetCertificateHash(pem.ReadHashFromSecret(r.client, s.Namespace, s.Name, log))
 
 	if status := validateMongoDBResource(s, conn); !status.IsOK() {
 		return r.updateStatus(s, status, log)

@@ -10,17 +10,13 @@ def create_custom_sa(namespace: str) -> str:
 
 
 @fixture(scope="module")
-def replica_set(namespace: str, custom_mdb_version: str, create_custom_sa: str) -> MongoDB:
-    resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set.yaml"), namespace=namespace
-    )
+def replica_set(
+    namespace: str, custom_mdb_version: str, create_custom_sa: str
+) -> MongoDB:
+    resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), namespace=namespace)
 
     resource["spec"]["podSpec"] = {
-        "podTemplate": {
-            "spec": {
-                "serviceAccountName": "test-sa"
-            }
-        }
+        "podTemplate": {"spec": {"serviceAccountName": "test-sa"}}
     }
 
     resource.set_version(custom_mdb_version)

@@ -1,4 +1,4 @@
-package operator
+package pem
 
 import (
 	"crypto/sha256"
@@ -10,17 +10,17 @@ import (
 	"strings"
 )
 
-type pemCollection struct {
-	pemFiles map[string]pemFile
+type Collection struct {
+	PemFiles map[string]File
 }
 
-// getHash returns a cryptographically hashed representation of the collection
+// GetHash returns a cryptographically hashed representation of the collection
 // of PEM files.
-func (p pemCollection) getHash() (string, error) {
+func (p Collection) GetHash() (string, error) {
 	// this relies on the implementation detail that json.Marshal sorts the keys
 	// in a map when performing the serialisation, thus resulting in a
 	// deterministic representation of the struct
-	jsonBytes, err := json.Marshal(p.pemFiles)
+	jsonBytes, err := json.Marshal(p.PemFiles)
 	if err != nil {
 		// this should never happen
 		return "", fmt.Errorf("could not marshal PEM files to JSON: %w", err)
@@ -33,89 +33,86 @@ func (p pemCollection) getHash() (string, error) {
 	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(hashBytes[:]), nil
 }
 
-func newPemCollection() *pemCollection {
-	return &pemCollection{
-		pemFiles: make(map[string]pemFile),
+// NewCollection creates a new Pem Collection with an initialized empty map.
+func NewCollection() *Collection {
+	return &Collection{
+		PemFiles: make(map[string]File),
 	}
 }
 
-func (p pemCollection) addPrivateKey(hostname, key string) {
+// AddPrivateKey ensures a Pem File exists for the given hostname and key.
+func (p Collection) AddPrivateKey(hostname, key string) {
 	if key == "" {
 		return
 	}
-	pem, ok := p.pemFiles[hostname]
+	pem, ok := p.PemFiles[hostname]
 	if !ok {
-		pem = pemFile{PrivateKey: key}
+		pem = File{PrivateKey: key}
 	} else {
 		pem.PrivateKey = key
 	}
-	p.pemFiles[hostname] = pem
+	p.PemFiles[hostname] = pem
 }
 
-func (p pemCollection) addCertificate(hostname, cert string) {
+// AddCertificate ensures a Pem File is added for the given hostname and cert.
+func (p Collection) AddCertificate(hostname, cert string) {
 	if cert == "" {
 		return
 	}
-	pem, ok := p.pemFiles[hostname]
+	pem, ok := p.PemFiles[hostname]
 	if !ok {
-		pem = pemFile{Certificate: cert}
+		pem = File{Certificate: cert}
 	} else {
 		pem.Certificate = cert
 	}
-	p.pemFiles[hostname] = pem
+	p.PemFiles[hostname] = pem
 }
 
-// mergeEntry merges a given PEM file into the collection of PEM files. If a
+// MergeEntry merges a given PEM file into the collection of PEM files. If a
 // file with the same hostname exists in the collection, then existing
 // components will not be overridden.
-func (p pemCollection) mergeEntry(hostname string, pem pemFile) {
-	existingPem := p.pemFiles[hostname]
+func (p Collection) MergeEntry(hostname string, pem File) {
+	existingPem := p.PemFiles[hostname]
 	if existingPem.PrivateKey == "" {
-		p.addPrivateKey(hostname, pem.PrivateKey)
+		p.AddPrivateKey(hostname, pem.PrivateKey)
 	}
 	if existingPem.Certificate == "" {
-		p.addCertificate(hostname, pem.Certificate)
+		p.AddCertificate(hostname, pem.Certificate)
 	}
 }
 
-func (p *pemCollection) merge() map[string]string {
+// Merge combines all Pem Files into a map[string]string.
+func (p *Collection) Merge() map[string]string {
 	result := make(map[string]string)
 
-	for k, v := range p.pemFiles {
+	for k, v := range p.PemFiles {
 		result[k+"-pem"] = v.String()
 	}
 
 	return result
 }
 
-func (p *pemCollection) mergeWith(data map[string][]byte) map[string]string {
+// MergeWith merges the provided entry into this Collection.
+func (p *Collection) MergeWith(data map[string][]byte) map[string]string {
 	for k, v := range data {
-		hostname := removeSuffixFromHostname(k, "-pem")
-		p.mergeEntry(hostname, newPemFileFrom(string(v)))
+		hostname := strings.TrimSuffix(k, "-pem")
+		p.MergeEntry(hostname, NewFileFrom(string(v)))
 	}
 
-	return p.merge()
+	return p.Merge()
 }
 
-func removeSuffixFromHostname(hostname, suffix string) string {
-	if !strings.HasSuffix(hostname, suffix) {
-		return hostname
-	}
-
-	return hostname[:len(hostname)-len(suffix)]
-}
-
-func (pf pemFile) parseCertificate() (*x509.Certificate, error) {
+func (pf File) ParseCertificate() (*x509.Certificate, error) {
 	block, _ := pem.Decode([]byte(pf.Certificate))
 	return x509.ParseCertificate(block.Bytes)
 }
 
-type pemFile struct {
+type File struct {
 	PrivateKey  string `json:"privateKey"`
 	Certificate string `json:"certificate"`
 }
 
-func newPemFileFrom(data string) pemFile {
+func NewFileFrom(data string) File {
 	parts := separatePemFile(data)
 	privateKey := ""
 	certificate := ""
@@ -128,25 +125,25 @@ func newPemFileFrom(data string) pemFile {
 		}
 	}
 
-	return pemFile{
+	return File{
 		PrivateKey:  privateKey,
 		Certificate: certificate,
 	}
 }
 
-func newPemFileFromData(data []byte) pemFile {
-	return newPemFileFrom(string(data))
+func NewFileFromData(data []byte) File {
+	return NewFileFrom(string(data))
 }
 
-func (p *pemFile) isValid() bool {
+func (p *File) IsValid() bool {
 	return p.PrivateKey != ""
 }
 
-func (p *pemFile) isComplete() bool {
-	return p.isValid() && p.Certificate != ""
+func (p *File) IsComplete() bool {
+	return p.IsValid() && p.Certificate != ""
 }
 
-func (p *pemFile) String() string {
+func (p *File) String() string {
 	return p.Certificate + p.PrivateKey
 }
 
