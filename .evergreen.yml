@@ -1536,6 +1536,11 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_replica_set_update_roles_no_privileges
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_replica_set_ldap_group_dn
   tags: ["patch-run"]
   commands:
@@ -1969,6 +1974,7 @@ task_groups:
     - e2e_replica_set_ldap_agent_auth
     - e2e_replica_set_ldap_agent_client_certs
     - e2e_replica_set_custom_roles
+    - e2e_replica_set_update_roles_no_privileges
     - e2e_replica_set_ldap_group_dn
     - e2e_replica_set_ldap_group_dn_with_x509_agent
     # e2e_scram_sha_task_group_with_manually_generated_certs
@@ -2164,6 +2170,7 @@ task_groups:
     - e2e_replica_set_ldap_agent_auth
     - e2e_replica_set_ldap_agent_client_certs
     - e2e_replica_set_custom_roles
+    - e2e_replica_set_update_roles_no_privileges
     - e2e_replica_set_ldap_group_dn
     - e2e_replica_set_ldap_group_dn_with_x509_agent
     # e2e_auth_transitions_task_group

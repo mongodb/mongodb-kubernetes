@@ -1,9 +1,15 @@
-*(Please use the [release template](docs/dev/release-notes-template.md) as the template for this document)* 
+*(Please use the [release template](docs/dev/release-notes-template.md) as the template for this document)*
 <!-- Next release -->
 # MongoDB Enterprise Kubernetes Operator 1.9.1
 ## Kubernetes Operator
 * Bug fixes
   * Fixes an issue where the service-account-name could not be specified in the StatefulSet podSpec override.
+
+## MongoDB Resource
+* Bug fixes
+  * Fixes an issue where updating a role in `spec.security.authentication.roles` by removing the `privileges` array would cause the resource to enter a bad state
+
+<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.9.0
 
 ## Kubernetes Operator
@@ -23,10 +29,9 @@
    deleted and recreated in order to change the `matchLabels` attribute,
    required for a new `Service` to allow for Queryable Backups feature to work.
    This is a safe operation.
-  * Changed the way the Operator collects statuses of MongoDB Agents running in 
+  * Changed the way the Operator collects statuses of MongoDB Agents running in
   Application Database Pods.
 
-<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.8.2
 
 ## MongoDBOpsManager Resource

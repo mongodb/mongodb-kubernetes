@@ -7,6 +7,8 @@ from typing import Dict, Optional, List
 from kubernetes import client
 from kubernetes.client.rest import ApiException
 
+from kubetester.kubetester import run_periodically
+
 # Re-exports
 from .kubetester import fixture as find_fixture
 from .mongodb import MongoDB
@@ -30,25 +32,20 @@ def create_secret(
 
 def create_service_account(namespace: str, name: str) -> str:
     """Creates a service account with `name` in `namespace`"""
-    sa = client.V1ServiceAccount(
-        metadata=client.V1ObjectMeta(name=name)
-    )
+    sa = client.V1ServiceAccount(metadata=client.V1ObjectMeta(name=name))
     client.CoreV1Api().create_namespaced_service_account(namespace=namespace, body=sa)
     return name
 
 
 def delete_service_account(namespace: str, name: str) -> str:
     """Deletes a service account with `name` in `namespace`"""
-    sa = client.V1ServiceAccount(
-        metadata=client.V1ObjectMeta(name=name)
-    )
+    sa = client.V1ServiceAccount(metadata=client.V1ObjectMeta(name=name))
     client.CoreV1Api().delete_namespaced_service_account(namespace=namespace, name=name)
     return name
 
 
 def create_configmap(namespace: str, name: str, data: Dict[str, str]):
-    configmap = client.V1ConfigMap(
-        metadata=client.V1ObjectMeta(name=name), data=data)
+    configmap = client.V1ConfigMap(metadata=client.V1ObjectMeta(name=name), data=data)
     client.CoreV1Api().create_namespaced_config_map(namespace, configmap)
 
 
@@ -167,3 +164,13 @@ def get_default_storage_class() -> str:
 
 def decode_secret(data: Dict[str, str]) -> Dict[str, str]:
     return {k: b64decode(v).decode("utf-8") for (k, v) in data.items()}
+
+
+def wait_until(cls, action, timeout=0, **kwargs):
+    func = None
+    # if passed a function directly, we can use it
+    if callable(action):
+        func = action
+    else:  # otherwise find a function of that name
+        func = getattr(cls, action)
+    return run_periodically(func, timeout=timeout, **kwargs)

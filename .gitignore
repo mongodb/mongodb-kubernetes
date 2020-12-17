@@ -33,6 +33,7 @@ docker/mongodb-enterprise-database/Dockerfile
 docker/mongodb-enterprise-ops-manager/Dockerfile
 docker/mongodb-enterprise-init-database/Dockerfile
 docker/mongodb-enterprise-init-ops-manager/Dockerfile
+docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator.tar
 docker/mongodb-enterprise-tests/helm_chart/
 .shellcheckrc
 

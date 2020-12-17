@@ -46,10 +46,7 @@ def helm_install_from_chart(
     release: str,
     chart: str,
     version: str = "",
-    custom_repo: Tuple[str, str] = (
-        "stable",
-        "https://kubernetes-charts.storage.googleapis.com",
-    ),
+    custom_repo: Tuple[str, str] = ("stable", "https://charts.helm.sh/stable"),
     helm_args: Optional[Dict[str, str]] = None,
 ):
     """Installs a helm chart from a repo. It can accept a new custom_repo to add before the

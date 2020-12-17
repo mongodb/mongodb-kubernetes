@@ -101,6 +101,14 @@ func ensureRoles(roles []mdbv1.MongoDbRole, conn om.Connection, log *zap.Sugared
 	if reflect.DeepEqual(dRoles, roles) {
 		return workflow.OK()
 	}
+	// HELP-20798: the agent deals correctly with a null value for
+	// privileges only when creating a role, not when updating
+	// we work around it by explicitly passing empty array
+	for i, role := range roles {
+		if role.Privileges == nil {
+			roles[i].Privileges = []mdbv1.Privilege{}
+		}
+	}
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			d.SetRoles(roles)

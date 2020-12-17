@@ -449,7 +449,7 @@ type MongoDbRole struct {
 	Role                       string                      `json:"role"`
 	AuthenticationRestrictions []AuthenticationRestriction `json:"authenticationRestrictions,omitempty"`
 	Db                         string                      `json:"db"`
-	Privileges                 []Privilege                 `json:"privileges,omitempty"`
+	Privileges                 []Privilege                 `json:"privileges"`
 	Roles                      []InheritedRole             `json:"roles,omitempty"`
 }
 

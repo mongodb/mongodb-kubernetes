@@ -120,11 +120,17 @@ class AutomationConfigTester:
             current = current[k]
         assert current[keys[-1]] == value
 
+    def get_role_at_index(self, index: int) -> Dict:
+        roles = self.automation_config["roles"]
+        assert roles is not None
+        assert len(roles) > index
+        return roles[index]
+
     def assert_has_expected_number_of_roles(self, expected_roles: int):
         roles = self.automation_config["roles"]
         assert len(roles) == expected_roles
 
-    def assert_expected_role(self, role_index: int, expected_value: dict):
+    def assert_expected_role(self, role_index: int, expected_value: Dict):
         role = self.automation_config["roles"][role_index]
         assert role == expected_value
 

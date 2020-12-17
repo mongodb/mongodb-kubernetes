@@ -261,6 +261,30 @@ func TestReadSubjectNoCertificate(t *testing.T) {
 	assertSubjectFromFileFails(t, "testdata/certificates/just_key")
 }
 
+func TestDontSendNilPrivileges(t *testing.T) {
+	customRole := mdbv1.MongoDbRole{
+		Role:                       "foo",
+		AuthenticationRestrictions: []mdbv1.AuthenticationRestriction{},
+		Db:                         "admin",
+		Roles: []mdbv1.InheritedRole{{
+			Db:   "admin",
+			Role: "readWriteAnyDatabase",
+		}},
+	}
+	assert.Nil(t, customRole.Privileges)
+	rs := DefaultReplicaSetBuilder().SetRoles([]mdbv1.MongoDbRole{customRole}).Build()
+	manager := mock.NewManager(rs)
+	manager.Client.AddDefaultMdbConfigResources()
+	controller := newReconcileCommonController(manager)
+	mockOm, _ := prepareConnection(controller, om.NewEmptyMockedOmConnection, t)
+	ensureRoles(rs.Spec.Security.Roles, mockOm, &zap.SugaredLogger{})
+	ac, err := mockOm.ReadAutomationConfig()
+	assert.NoError(t, err)
+	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDbRole)
+	assert.True(t, ok)
+	assert.NotNil(t, roles[0].Privileges)
+}
+
 func assertSubjectFromFileFails(t *testing.T, filePath string) {
 	assertSubjectFromFile(t, "", filePath, false)
 }

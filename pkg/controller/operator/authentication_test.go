@@ -390,9 +390,10 @@ func TestConfigureLdapDeploymentAuthentication_WithScramAgentAuthentication(t *t
 func TestConfigureLdapDeploymentAuthentication_WithCustomRole(t *testing.T) {
 
 	customRoles := []mdbv1.MongoDbRole{{
-		Db:    "admin",
-		Role:  "customRole",
-		Roles: []mdbv1.InheritedRole{{Db: "Admin", Role: "inheritedrole"}}},
+		Db:         "admin",
+		Role:       "customRole",
+		Roles:      []mdbv1.InheritedRole{{Db: "Admin", Role: "inheritedrole"}},
+		Privileges: []mdbv1.Privilege{}},
 	}
 
 	rs := DefaultReplicaSetBuilder().
