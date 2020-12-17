@@ -2,8 +2,9 @@ package backup
 
 import (
 	"fmt"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/apierror"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/pkg/errors"
@@ -134,8 +135,8 @@ func disableBackup(readUpdater ConfigReadUpdater, backupConfig *Config, log *zap
 }
 
 func waitUntilBackupReachesStatus(configReader ConfigReader, backupConfig *Config, status Status, log *zap.SugaredLogger) bool {
-	waitSeconds := envutil.ReadIntOrPanic(util.BackupDisableWaitSecondsEnv)
-	retries := envutil.ReadIntOrPanic(util.BackupDisableWaitRetriesEnv)
+	waitSeconds := env.ReadIntOrPanic(util.BackupDisableWaitSecondsEnv)
+	retries := env.ReadIntOrPanic(util.BackupDisableWaitRetriesEnv)
 
 	backupStatusFunc := func() (string, bool) {
 		config, err := configReader.ReadBackupConfig(backupConfig.ClusterId)

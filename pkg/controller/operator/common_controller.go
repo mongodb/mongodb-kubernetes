@@ -29,7 +29,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/authentication"
@@ -550,7 +550,7 @@ func getWatchedNamespace() string {
 	// if the watch namespace is not specified - we assume the Operator is watching the current namespace
 	if !nsSpecified {
 		// the current namespace is expected to be always specified as main.go performs the hard check of this
-		namespace = envutil.ReadOrDefault(util.CurrentNamespace, "")
+		namespace = env.ReadOrDefault(util.CurrentNamespace, "")
 	}
 	return namespace
 }
@@ -837,12 +837,12 @@ func readProjectConfigAndCredentials(client kubernetesClient.Client, mdb mdbv1.M
 
 // newPodVars initializes a PodEnvVars instance based on the values of the provided Ops Manager connection, project config
 // and connection spec
-func newPodVars(conn om.Connection, projectConfig mdbv1.ProjectConfig, spec mdbv1.ConnectionSpec) *PodEnvVars {
-	podVars := &PodEnvVars{}
+func newPodVars(conn om.Connection, projectConfig mdbv1.ProjectConfig, spec mdbv1.ConnectionSpec) *env.PodEnvVars {
+	podVars := &env.PodEnvVars{}
 	podVars.BaseURL = conn.BaseURL()
 	podVars.ProjectID = conn.GroupID()
 	podVars.User = conn.User()
-	podVars.LogLevel = spec.LogLevel
+	podVars.LogLevel = string(spec.LogLevel)
 	podVars.SSLProjectConfig = projectConfig.SSLProjectConfig
 	return podVars
 }

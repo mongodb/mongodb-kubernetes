@@ -6,9 +6,12 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/scale"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/persistentvolumeclaim"
@@ -63,6 +66,97 @@ type DatabaseBuilder interface {
 	GetStartupParameters() mdbv1.StartupParameters
 }
 
+// DatabaseStatefulSetOptions contains all of the different values that are variable between
+// StatefulSets. Depending on which StatefulSet is being built, a number of these will be pre-set,
+// while the remainder will be configurable via configuration functions which modify this type.
+type DatabaseStatefulSetOptions struct {
+	Replicas             int
+	Name                 string
+	ServiceName          string
+	PodSpec              *mdbv1.PodSpecWrapper
+	PodVars              *env.PodEnvVars
+	CurrentAgentAuthMode string
+	CertificateHash      string
+	ServicePort          int32
+	Persistent           *bool
+	OwnerReference       []metav1.OwnerReference
+	AgentConfig          mdbv1.AgentConfig
+}
+
+// StandaloneOptions returns a set of options which will configure a Standalone StatefulSet
+func StandaloneOptions(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+	return DatabaseStatefulSetOptions{
+		Replicas:       1,
+		Name:           mdb.Name,
+		ServiceName:    mdb.ServiceName(),
+		PodSpec:        newDefaultPodSpecWrapper(*mdb.Spec.PodSpec),
+		ServicePort:    mdb.Spec.AdditionalMongodConfig.GetPortOrDefault(),
+		Persistent:     mdb.Spec.Persistent,
+		OwnerReference: kube.BaseOwnerReference(&mdb),
+		AgentConfig:    mdb.Spec.Agent,
+	}
+}
+
+// ReplicaSetOptions returns a set of options which will configure a ReplicaSet StatefulSet
+func ReplicaSetOptions(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+	return DatabaseStatefulSetOptions{
+		Replicas:       scale.ReplicasThisReconciliation(&mdb),
+		Name:           mdb.Name,
+		ServiceName:    mdb.ServiceName(),
+		PodSpec:        newDefaultPodSpecWrapper(*mdb.Spec.PodSpec),
+		ServicePort:    mdb.Spec.AdditionalMongodConfig.GetPortOrDefault(),
+		Persistent:     mdb.Spec.Persistent,
+		OwnerReference: kube.BaseOwnerReference(&mdb),
+		AgentConfig:    mdb.Spec.Agent,
+	}
+}
+
+// ShardOptions returns a set of options which will configure single Shard StatefulSet
+func ShardOptions(mdb mdbv1.MongoDB, shardNum int) DatabaseStatefulSetOptions {
+	return DatabaseStatefulSetOptions{
+		Name:           mdb.ShardRsName(shardNum),
+		ServiceName:    mdb.ShardServiceName(),
+		PodSpec:        newDefaultPodSpecWrapper(*mdb.Spec.ShardPodSpec),
+		ServicePort:    mdb.Spec.ShardSpec.GetAdditionalMongodConfig().GetPortOrDefault(),
+		OwnerReference: kube.BaseOwnerReference(&mdb),
+		AgentConfig:    mdb.Spec.ShardSpec.GetAgentConfig(),
+		Persistent:     mdb.Spec.Persistent,
+	}
+}
+
+// ConfigServerOptions returns a set of options which will configure a Config Server StatefulSet
+func ConfigServerOptions(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+	podSpecWrapper := newDefaultPodSpecWrapper(*mdb.Spec.ConfigSrvPodSpec)
+	podSpecWrapper.Default.Persistence.SingleConfig.Storage = util.DefaultConfigSrvStorageSize
+	return DatabaseStatefulSetOptions{
+		Name:           mdb.ConfigRsName(),
+		ServiceName:    mdb.ConfigSrvServiceName(),
+		PodSpec:        podSpecWrapper,
+		ServicePort:    mdb.Spec.ConfigSrvSpec.GetAdditionalMongodConfig().GetPortOrDefault(),
+		Persistent:     mdb.Spec.Persistent,
+		OwnerReference: kube.BaseOwnerReference(&mdb),
+		AgentConfig:    mdb.Spec.ConfigSrvSpec.GetAgentConfig(),
+	}
+}
+
+// MongosOptions returns a set of options which will configure a Mongos StatefulSet
+func MongosOptions(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+	return DatabaseStatefulSetOptions{
+		Name:           mdb.MongosRsName(),
+		ServiceName:    mdb.ServiceName(),
+		PodSpec:        newDefaultPodSpecWrapper(*mdb.Spec.MongosPodSpec),
+		ServicePort:    mdb.Spec.MongosSpec.GetAdditionalMongodConfig().GetPortOrDefault(),
+		Persistent:     util.BooleanRef(false),
+		OwnerReference: kube.BaseOwnerReference(&mdb),
+		AgentConfig:    mdb.Spec.MongosSpec.GetAgentConfig(),
+	}
+}
+
+// TODO: rename to DatabaseStatefulSet when refactor happens
+func DatabaseStatefulSetNew(options DatabaseStatefulSetOptions, additionalOpts ...func(options *DatabaseStatefulSetOptions)) (appsv1.StatefulSet, error) {
+	return appsv1.StatefulSet{}, nil
+}
+
 // DatabaseStatefulSet fully constructs the database StatefulSet
 func DatabaseStatefulSet(mdbBuilder DatabaseBuilder) appsv1.StatefulSet {
 	templateFunc := buildMongoDBPodTemplateSpec(mdbBuilder)
@@ -77,7 +171,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdbBuilder DatabaseBuilder, p
 		podAntiAffinityLabelKey: mdbBuilder.GetName(),
 	}
 
-	managedSecurityContext, _ := envutil.ReadBool(util.ManagedSecurityContextEnv)
+	managedSecurityContext, _ := env.ReadBool(util.ManagedSecurityContextEnv)
 
 	configureContainerSecurityContext := container.NOOP()
 	configurePodSpecSecurityContext := podtemplatespec.NOOP()
@@ -87,7 +181,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdbBuilder DatabaseBuilder, p
 	}
 
 	configureImagePullSecrets := podtemplatespec.NOOP()
-	name, found := envutil.Read(util.ImagePullSecrets)
+	name, found := env.Read(util.ImagePullSecrets)
 	if found {
 		configureImagePullSecrets = withImagePullSecrets(name)
 	}
@@ -179,8 +273,8 @@ func sharedDatabaseContainerFunc(podSpecWrapper mdbv1.PodSpecWrapper, volumeMoun
 	return container.Apply(
 		container.WithResourceRequirements(buildRequirementsFromPodSpec(podSpecWrapper)),
 		container.WithPorts([]corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort}}),
-		container.WithImagePullPolicy(corev1.PullPolicy(envutil.ReadOrPanic(util.AutomationAgentImagePullPolicy))),
-		container.WithImage(envutil.ReadOrPanic(util.AutomationAgentImage)),
+		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))),
+		container.WithImage(env.ReadOrPanic(util.AutomationAgentImage)),
 		withVolumeMounts(volumeMounts),
 		container.WithLivenessProbe(databaseLivenessProbe()),
 		container.WithReadinessProbe(databaseReadinessProbe()),
@@ -261,8 +355,8 @@ func getVolumesAndVolumeMounts(mdbBuilder DatabaseBuilder) ([]corev1.Volume, []c
 // buildMongoDBPodTemplateSpec constructs the podTemplateSpec for the MongoDB resource
 func buildMongoDBPodTemplateSpec(mdbBuilder DatabaseBuilder) podtemplatespec.Modification {
 	// Database image version, should be a specific version to avoid using stale 'non-empty' versions (before versioning)
-	databaseImageVersion := envutil.ReadOrDefault(databaseVersionEnv, "latest")
-	databaseImageUrl := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.AutomationAgentImage), databaseImageVersion)
+	databaseImageVersion := env.ReadOrDefault(databaseVersionEnv, "latest")
+	databaseImageUrl := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.AutomationAgentImage), databaseImageVersion)
 	// scripts volume is shared by the init container and the AppDB so the startup
 	// script can be copied over
 	scriptsVolume := statefulset.CreateVolumeFromEmptyDir("database-scripts")
@@ -308,7 +402,7 @@ func getServiceAccountName(mdbBuilder DatabaseBuilder) string {
 // sharedDatabaseConfiguration is a function which applies all the shared configuration
 // between the appDb and MongoDB resources
 func sharedDatabaseConfiguration(mdbBuilder DatabaseBuilder) podtemplatespec.Modification {
-	managedSecurityContext, _ := envutil.ReadBool(util.ManagedSecurityContextEnv)
+	managedSecurityContext, _ := env.ReadBool(util.ManagedSecurityContextEnv)
 
 	configurePodSpecSecurityContext := podtemplatespec.NOOP()
 	if !managedSecurityContext {
@@ -321,7 +415,7 @@ func sharedDatabaseConfiguration(mdbBuilder DatabaseBuilder) podtemplatespec.Mod
 	}
 
 	pullSecretsConfigurationFunc := podtemplatespec.NOOP()
-	if pullSecrets, ok := envutil.Read(util.ImagePullSecrets); ok {
+	if pullSecrets, ok := env.Read(util.ImagePullSecrets); ok {
 		pullSecretsConfigurationFunc = withImagePullSecrets(pullSecrets)
 	}
 
@@ -338,7 +432,7 @@ func sharedDatabaseConfiguration(mdbBuilder DatabaseBuilder) podtemplatespec.Mod
 			container.Apply(
 				container.WithResourceRequirements(buildRequirementsFromPodSpec(*mdbBuilder.GetPodSpec())),
 				container.WithPorts([]corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort}}),
-				container.WithImagePullPolicy(corev1.PullPolicy(envutil.ReadOrPanic(util.AutomationAgentImagePullPolicy))),
+				container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))),
 				container.WithLivenessProbe(databaseLivenessProbe()),
 				container.WithEnvs(startupParametersToAgentFlag(mdbBuilder.GetStartupParameters())),
 				configureContainerSecurityContext,
@@ -385,10 +479,10 @@ func databaseScriptsVolumeMount(readOnly bool) corev1.VolumeMount {
 
 // buildDatabaseInitContainer builds the container specification for mongodb-enterprise-init-database image
 func buildDatabaseInitContainer() container.Modification {
-	version := envutil.ReadOrDefault(initDatabaseVersionEnv, "latest")
-	initContainerImageURL := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.InitDatabaseImageUrlEnv), version)
+	version := env.ReadOrDefault(initDatabaseVersionEnv, "latest")
+	initContainerImageURL := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.InitDatabaseImageUrlEnv), version)
 
-	managedSecurityContext, _ := envutil.ReadBool(util.ManagedSecurityContextEnv)
+	managedSecurityContext, _ := env.ReadBool(util.ManagedSecurityContextEnv)
 
 	configureContainerSecurityContext := container.NOOP()
 	if !managedSecurityContext {
@@ -515,4 +609,24 @@ func agentApiKeySecretName(project string) string {
 // it into the name of the secret which will hold the internal clusterFile
 func toInternalClusterAuthName(name string) string {
 	return fmt.Sprintf("%s-%s", name, util.ClusterFileName)
+}
+
+// TODO: temprorary duplication to avoid circular imports
+func newDefaultPodSpecWrapper(podSpec mdbv1.MongoDbPodSpec) *mdbv1.PodSpecWrapper {
+	return &mdbv1.PodSpecWrapper{
+		MongoDbPodSpec: podSpec,
+		Default:        newDefaultPodSpec(),
+	}
+}
+
+func newDefaultPodSpec() mdbv1.MongoDbPodSpec {
+	podSpecWrapper := mdbv1.NewEmptyPodSpecWrapperBuilder().
+		SetPodAntiAffinityTopologyKey(util.DefaultAntiAffinityTopologyKey).
+		SetSinglePersistence(mdbv1.NewPersistenceBuilder(util.DefaultMongodStorageSize)).
+		SetMultiplePersistence(mdbv1.NewPersistenceBuilder(util.DefaultMongodStorageSize),
+			mdbv1.NewPersistenceBuilder(util.DefaultJournalStorageSize),
+			mdbv1.NewPersistenceBuilder(util.DefaultLogsStorageSize)).
+		Build()
+
+	return podSpecWrapper.MongoDbPodSpec
 }

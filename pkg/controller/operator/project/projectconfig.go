@@ -3,6 +3,8 @@ package project
 import (
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
@@ -65,7 +67,7 @@ func ReadProjectConfig(cmGetter configmap.Getter, projectConfigMap client.Object
 		OrgID:       orgID,
 
 		// Options related with SSL on OM side.
-		SSLProjectConfig: mdbv1.SSLProjectConfig{
+		SSLProjectConfig: env.SSLProjectConfig{
 			// Relevant to
 			// + operator (via golang http configuration)
 			// + curl (via command line argument [--insecure])

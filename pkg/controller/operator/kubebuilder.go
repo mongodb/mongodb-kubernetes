@@ -6,11 +6,12 @@ import (
 	"path"
 	"strconv"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+
 	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
 	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -37,19 +38,6 @@ const (
 	// CaCertName is the name of the volume with the CA Cert
 	CaCertName = "ca-cert-volume"
 )
-
-// PodEnvVars is a convenience struct to pass environment variables to Pods as needed.
-// They are used by the automation agent to connect to Ops/Cloud Manager.
-type PodEnvVars struct {
-	BaseURL     string
-	ProjectID   string
-	User        string
-	AgentAPIKey string
-	LogLevel    mdbv1.LogLevel
-
-	// Related to MMS SSL configuration
-	mdbv1.SSLProjectConfig
-}
 
 // buildStatefulSet builds the StatefulSet of pods containing agent containers. It's a general function used by
 // all the types of mongodb deployment resources.
@@ -169,7 +157,7 @@ func baseOwnerReference(owner v1.CustomResourceReadWriter) []metav1.OwnerReferen
 }
 
 // TODO: delete this and move unit tests into construction_test.go
-func databaseEnvVars(podVars *PodEnvVars) []corev1.EnvVar {
+func databaseEnvVars(podVars *env.PodEnvVars) []corev1.EnvVar {
 	vars := []corev1.EnvVar{
 		{
 			Name:  util.ENV_VAR_BASE_URL,

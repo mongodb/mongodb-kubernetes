@@ -11,7 +11,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/pkg/errors"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
@@ -114,8 +114,8 @@ func waitForRsAgentsToRegister(set appsv1.StatefulSet, clusterName string, omCon
 func waitUntilAgentsHaveRegistered(omConnection om.Connection, log *zap.SugaredLogger, agentHostnames ...string) bool {
 	log.Infow("Waiting for agents to register with OM", "agent hosts", agentHostnames)
 	// environment variables are used only for tests
-	waitSeconds := envutil.ReadIntOrDefault(util.PodWaitSecondsEnv, 3)
-	retrials := envutil.ReadIntOrDefault(util.PodWaitRetriesEnv, 5)
+	waitSeconds := env.ReadIntOrDefault(util.PodWaitSecondsEnv, 3)
+	retrials := env.ReadIntOrDefault(util.PodWaitRetriesEnv, 5)
 
 	agentsCheckFunc := func() (string, bool) {
 		registeredCount := 0
@@ -286,7 +286,7 @@ func toInternalClusterAuthName(name string) string {
 
 // operatorNamespace returns the current namespace where the Operator is deployed
 func operatorNamespace() string {
-	return envutil.ReadOrPanic(util.CurrentNamespace)
+	return env.ReadOrPanic(util.CurrentNamespace)
 }
 
 // runInGivenOrder will execute N functions, passed as varargs as `funcs`. The order of execution will depend on the result

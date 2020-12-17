@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/scale"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/ldap"
@@ -238,19 +240,6 @@ func (m MongoDbSpec) MinimumMajorVersion() uint64 {
 	return semverVersion.Major
 }
 
-// SSLProjectConfig contains the configuration options that are relevant for MMS SSL configuraiton
-type SSLProjectConfig struct {
-	// This is set to true if baseUrl is HTTPS
-	SSLRequireValidMMSServerCertificates bool
-
-	// Name of a configmap containing a `mms-ca.crt` entry that will be mounted
-	// on every Pod.
-	SSLMMSCAConfigMap string
-
-	// SSLMMSCAConfigMap will contain the CA cert, used to push multiple
-	SSLMMSCAConfigMapContents string
-}
-
 // ProjectConfig contains the configuration expected from the `project` (ConfigMap) attribute in
 // `.spec.project`.
 type ProjectConfig struct {
@@ -265,7 +254,7 @@ type ProjectConfig struct {
 	// +optional
 	UseCustomCA bool
 	// +optional
-	SSLProjectConfig
+	env.SSLProjectConfig
 }
 
 // Credentials contains the configuration expected from the `credentials` (Secret)` attribute in

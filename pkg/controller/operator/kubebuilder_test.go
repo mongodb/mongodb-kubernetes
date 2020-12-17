@@ -6,6 +6,8 @@ import (
 	"path"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
@@ -801,7 +803,7 @@ func defaultSetHelper() *StatefulSetHelper {
 // defaultAppDbSetHelper builds the default statefulset helper for appdb from Ops Manager resource
 func defaultAppDbSetHelper() *StatefulSetHelper {
 	om := DefaultOpsManagerBuilder().Build()
-	return NewStatefulSetHelper(&om).SetPodVars(&PodEnvVars{})
+	return NewStatefulSetHelper(&om).SetPodVars(&env.PodEnvVars{})
 }
 
 func omSetHelperFromResource(om omv1.MongoDBOpsManager) OpsManagerStatefulSetHelper {
@@ -825,8 +827,8 @@ func testDefaultBackupSetHelper() BackupStatefulSetHelper {
 	return backupSetHelperFromResource(om)
 }
 
-func defaultPodVars() *PodEnvVars {
-	return &PodEnvVars{BaseURL: "http://localhost:8080", ProjectID: "myProject", User: "user@some.com"}
+func defaultPodVars() *env.PodEnvVars {
+	return &env.PodEnvVars{BaseURL: "http://localhost:8080", ProjectID: "myProject", User: "user@some.com"}
 }
 
 func defaultNodeAffinity() corev1.NodeAffinity {

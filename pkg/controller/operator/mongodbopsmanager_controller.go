@@ -19,7 +19,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/project"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/generate"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/identifiable"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
@@ -607,7 +607,7 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 
 			// Each "read-after-write" operation needs some timeout after write unfortunately :(
 			// https://github.com/kubernetes-sigs/controller-runtime/issues/343#issuecomment-468402446
-			time.Sleep(time.Duration(envutil.ReadIntOrDefault(util.K8sCacheRefreshEnv, util.DefaultK8sCacheRefreshTimeSeconds)) * time.Second)
+			time.Sleep(time.Duration(env.ReadIntOrDefault(util.K8sCacheRefreshEnv, util.DefaultK8sCacheRefreshTimeSeconds)) * time.Second)
 		}
 	}
 

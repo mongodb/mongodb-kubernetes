@@ -3,6 +3,8 @@ package operator
 import (
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/connection"
@@ -332,7 +334,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 	return workflow.OK()
 }
 
-func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mdbv1.MongoDB, podVars *PodEnvVars, projectConfig mdbv1.ProjectConfig, currentAgentAuthMechanism string, log *zap.SugaredLogger) ShardedClusterKubeState {
+func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mdbv1.MongoDB, podVars *env.PodEnvVars, projectConfig mdbv1.ProjectConfig, currentAgentAuthMechanism string, log *zap.SugaredLogger) ShardedClusterKubeState {
 
 	mongosStartupParameters := mdbv1.StartupParameters{}
 	if s.Spec.MongosSpec != nil {

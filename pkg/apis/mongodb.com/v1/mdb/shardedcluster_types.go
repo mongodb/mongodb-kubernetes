@@ -24,6 +24,15 @@ func (s *ShardedClusterComponentSpec) GetAdditionalMongodConfig() AdditionalMong
 	return s.AdditionalMongodConfig
 }
 
+func (s *ShardedClusterComponentSpec) GetAgentConfig() AgentConfig {
+	if s == nil {
+		return AgentConfig{
+			StartupParameters: StartupParameters{},
+		}
+	}
+	return s.Agent
+}
+
 // MongodbShardedClusterSizeConfig describes the numbers and sizes of replica sets inside
 // sharded cluster
 type MongodbShardedClusterSizeConfig struct {

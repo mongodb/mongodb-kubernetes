@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/connection"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/project"
 
@@ -279,7 +281,7 @@ func assertSubjectFromFile(t *testing.T, expectedSubject, filePath string, passe
 	assert.Equal(t, expectedSubject, subject)
 }
 
-func prepareConnection(controller *ReconcileCommonController, omConnectionFunc om.ConnectionFactory, t *testing.T) (*om.MockedOmConnection, *PodEnvVars) {
+func prepareConnection(controller *ReconcileCommonController, omConnectionFunc om.ConnectionFactory, t *testing.T) (*om.MockedOmConnection, *env.PodEnvVars) {
 
 	projectConfig, err := project.ReadProjectConfig(controller.client, objectKey(mock.TestNamespace, mock.TestProjectConfigMapName), "mdb-name")
 	assert.NoError(t, err)

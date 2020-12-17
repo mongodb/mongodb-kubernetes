@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/apierror"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
@@ -453,7 +455,7 @@ func BuildTestStatefulSet(opsManager omv1.MongoDBOpsManager) (appsv1.StatefulSet
 		SetName(rs.Name()).
 		SetService(rs.ServiceName()).
 		SetPodSpec(NewDefaultPodSpecWrapper(*rs.PodSpec)).
-		SetPodVars(&PodEnvVars{}). // TODO remove
+		SetPodVars(&env.PodEnvVars{}). // TODO remove
 		SetClusterName(opsManager.ClusterName).
 		SetVersion(opsManager.Spec.Version).
 		SetContainerName(util.DatabaseContainerName).

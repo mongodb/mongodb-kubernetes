@@ -4,9 +4,9 @@ import (
 	"fmt"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/certs"
-
 	enterprisesvc "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 
 	"net/url"
@@ -86,7 +86,7 @@ type StatefulSetHelper struct {
 	StatefulSetHelperCommon
 
 	Persistent *bool
-	PodVars    *PodEnvVars
+	PodVars    *env.PodEnvVars
 
 	StartupOptions mdbv1.StartupParameters
 
@@ -430,7 +430,7 @@ func (s *StatefulSetHelper) SetPodSpec(podSpec *mdbv1.PodSpecWrapper) *StatefulS
 	return s
 }
 
-func (s *StatefulSetHelper) SetPodVars(podVars *PodEnvVars) *StatefulSetHelper {
+func (s *StatefulSetHelper) SetPodVars(podVars *env.PodEnvVars) *StatefulSetHelper {
 	s.PodVars = podVars
 	return s
 }

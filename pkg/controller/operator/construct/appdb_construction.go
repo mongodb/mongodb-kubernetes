@@ -4,8 +4,12 @@ import (
 	"fmt"
 	"path"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/scale"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/probes"
@@ -33,6 +37,33 @@ const (
 	agentApiKeyEnv                 = "AGENT_API_KEY"
 )
 
+// AppDbStatefulSet fully constructs the AppDb StatefulSet that is ready to be sent to the Kubernetes API server.
+// A list of optional configuration options can be provided to make any modifications that are required.
+// TODO: this will be AppDbStatefulSet in the next PR
+func AppDbStatefulSetNew(opsManager om.MongoDBOpsManager, opts ...func(options *DatabaseStatefulSetOptions)) (appsv1.StatefulSet, error) {
+	appDb := opsManager.Spec.AppDB
+
+	// Providing the default size of pod as otherwise sometimes the agents in pod complain about not enough memory
+	// on mongodb download: "write /tmp/mms-automation/test/versions/mongodb-linux-x86_64-4.0.0/bin/mongo: cannot
+	// allocate memory"
+	appdbPodSpec := newDefaultPodSpecWrapper(*appDb.PodSpec)
+	appdbPodSpec.Default.MemoryRequests = util.DefaultMemoryAppDB
+
+	_ = DatabaseStatefulSetOptions{
+		Replicas:       scale.ReplicasThisReconciliation(&opsManager),
+		Name:           appDb.Name(),
+		ServiceName:    appDb.ServiceName(),
+		PodSpec:        appdbPodSpec,
+		ServicePort:    appDb.AdditionalMongodConfig.GetPortOrDefault(),
+		Persistent:     appDb.Persistent,
+		OwnerReference: kube.BaseOwnerReference(&opsManager),
+		AgentConfig:    appDb.MongoDbSpec.Agent,
+	}
+
+	// TODO: future PR
+	return appsv1.StatefulSet{}, nil
+}
+
 // AppDbStatefulSet fully constructs the AppDB StatefulSet
 func AppDbStatefulSet(mdbBuilder DatabaseBuilder) appsv1.StatefulSet {
 	templateFunc := buildAppDBPodTemplateSpecFunc(mdbBuilder)
@@ -42,8 +73,8 @@ func AppDbStatefulSet(mdbBuilder DatabaseBuilder) appsv1.StatefulSet {
 // buildAppDBPodTemplateSpecFunc constructs the appDb podTemplateSpec modification function
 func buildAppDBPodTemplateSpecFunc(mdbBuilder DatabaseBuilder) podtemplatespec.Modification {
 	// AppDB only uses the automation agent in headless mode, let's use the latest version
-	appdbImageURL := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.AppDBImageUrl),
-		envutil.ReadOrDefault(appDBAutomationAgentVersionEnv, "latest"))
+	appdbImageURL := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.AppDBImageUrl),
+		env.ReadOrDefault(appDBAutomationAgentVersionEnv, "latest"))
 
 	var volumeMounts []corev1.VolumeMount
 	var volumes []corev1.Volume
@@ -112,10 +143,10 @@ func appDbScriptsVolumeMount(readOnly bool) corev1.VolumeMount {
 }
 
 func buildAppdbInitContainer() container.Modification {
-	version := envutil.ReadOrDefault(initAppdbVersionEnv, "latest")
-	initContainerImageURL := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.InitAppdbImageUrl), version)
+	version := env.ReadOrDefault(initAppdbVersionEnv, "latest")
+	initContainerImageURL := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.InitAppdbImageUrl), version)
 
-	managedSecurityContext, _ := envutil.ReadBool(util.ManagedSecurityContextEnv)
+	managedSecurityContext, _ := env.ReadBool(util.ManagedSecurityContextEnv)
 
 	configureContainerSecurityContext := container.NOOP()
 	if !managedSecurityContext {

@@ -7,7 +7,7 @@ import (
 
 	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/envutil"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/lifecycle"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
@@ -70,8 +70,8 @@ func opsManagerStatefulSetFunc(omBuilder OpsManagerBuilder) statefulset.Modifica
 // backupAndOpsManagerSharedConfiguration returns a function which configures all of the shared
 // options between the backup and Ops Manager StatefulSet
 func backupAndOpsManagerSharedConfiguration(omBuilder OpsManagerBuilder) statefulset.Modification {
-	managedSecurityContext, _ := envutil.ReadBool(util.ManagedSecurityContextEnv)
-	omImageURL := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.OpsManagerImageUrl), omBuilder.GetVersion())
+	managedSecurityContext, _ := env.ReadBool(util.ManagedSecurityContextEnv)
+	omImageURL := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.OpsManagerImageUrl), omBuilder.GetVersion())
 
 	configurePodSpecSecurityContext := podtemplatespec.NOOP()
 	configureContainerSecurityContext := container.NOOP()
@@ -81,7 +81,7 @@ func backupAndOpsManagerSharedConfiguration(omBuilder OpsManagerBuilder) statefu
 	}
 
 	pullSecretsConfigurationFunc := podtemplatespec.NOOP()
-	if pullSecrets, ok := envutil.Read(util.ImagePullSecrets); ok {
+	if pullSecrets, ok := env.Read(util.ImagePullSecrets); ok {
 		pullSecretsConfigurationFunc = podtemplatespec.WithImagePullSecrets(pullSecrets)
 	}
 	var omVolumeMounts []corev1.VolumeMount
@@ -149,7 +149,7 @@ func backupAndOpsManagerSharedConfiguration(omBuilder OpsManagerBuilder) statefu
 					container.Apply(
 						container.WithResourceRequirements(defaultOpsManagerResourceRequirements()),
 						container.WithPorts(buildOpsManagerContainerPorts(omBuilder.GetHTTPSCertSecretName())),
-						container.WithImagePullPolicy(corev1.PullPolicy(envutil.ReadOrPanic(util.OpsManagerPullPolicy))),
+						container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.OpsManagerPullPolicy))),
 						container.WithImage(omImageURL),
 						container.WithEnvs(omBuilder.GetEnvVars()...),
 						container.WithEnvs(getOpsManagerHTTPSEnvVars(omBuilder.GetHTTPSCertSecretName())...),
@@ -194,10 +194,10 @@ func opsManagerReadinessProbe(scheme corev1.URIScheme) probes.Modification {
 // buildOpsManagerAndBackupInitContainer creates the init container which
 // copies the entry point script in the OM/Backup container
 func buildOpsManagerAndBackupInitContainer() container.Modification {
-	version := envutil.ReadOrDefault(util.InitOpsManagerVersion, "latest")
-	initContainerImageURL := fmt.Sprintf("%s:%s", envutil.ReadOrPanic(util.InitOpsManagerImageUrl), version)
+	version := env.ReadOrDefault(util.InitOpsManagerVersion, "latest")
+	initContainerImageURL := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.InitOpsManagerImageUrl), version)
 
-	managedSecurityContext, _ := envutil.ReadBool(util.ManagedSecurityContextEnv)
+	managedSecurityContext, _ := env.ReadBool(util.ManagedSecurityContextEnv)
 
 	configureContainerSecurityContext := container.NOOP()
 	if !managedSecurityContext {

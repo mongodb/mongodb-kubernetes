@@ -1,4 +1,4 @@
-package envutil
+package env
 
 import (
 	"fmt"
@@ -81,4 +81,30 @@ func ReadIntOrDefault(key string, dflt int) int {
 		return dflt
 	}
 	return i
+}
+
+// PodEnvVars is a convenience struct to pass environment variables to Pods as needed.
+// They are used by the automation agent to connect to Ops/Cloud Manager.
+type PodEnvVars struct {
+	BaseURL     string
+	ProjectID   string
+	User        string
+	AgentAPIKey string
+	LogLevel    string
+
+	// Related to MMS SSL configuration
+	SSLProjectConfig
+}
+
+// SSLProjectConfig contains the configuration options that are relevant for MMS SSL configuraiton
+type SSLProjectConfig struct {
+	// This is set to true if baseUrl is HTTPS
+	SSLRequireValidMMSServerCertificates bool
+
+	// Name of a configmap containing a `mms-ca.crt` entry that will be mounted
+	// on every Pod.
+	SSLMMSCAConfigMap string
+
+	// SSLMMSCAConfigMap will contain the CA cert, used to push multiple
+	SSLMMSCAConfigMapContents string
 }
