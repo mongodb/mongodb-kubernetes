@@ -2337,26 +2337,26 @@ buildvariants:
     - name: e2e_mdb_kind_ubuntu_cloudqa_task_group
 
 # Run with evergreen patch -p ops-manager-kubernetes -v e2e_mdb_kind_usaf_cloudqa -t all -f -y -u -d "Usaf CloudQA Run"
-- name: e2e_mdb_kind_usaf_cloudqa
-  patch_only: true
-  display_name: e2e_mdb_kind_usaf_cloudqa
-  run_on:
-    - ubuntu1604-build
-  depends_on:
-    # Note: no images are built, they are expected to be there already
-    # we should have
-    # * 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/usaf/mongodb-enterprise-operator:${usaf_operator_version}
-    # * 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/usaf/mongodb-enterprise-database:${usaf_database_version}
-    - name: build_test_image
-      variant: init_test_run
-  expansions:
-    <<: *cloud_manager_qa
-    <<: *kubernetes_environment_kind
-    <<: *usaf
-    custom_mdb_version: *mdb_44_latest
-    image_type: usaf
-  tasks:
-    - name: e2e_mdb_kind_ubuntu_cloudqa_task_group
+#- name: e2e_mdb_kind_usaf_cloudqa
+#  patch_only: true
+#  display_name: e2e_mdb_kind_usaf_cloudqa
+#  run_on:
+#    - ubuntu1604-build
+#  depends_on:
+#    # Note: no images are built, they are expected to be there already
+#    # we should have
+#    # * 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/usaf/mongodb-enterprise-operator:${usaf_operator_version}
+#    # * 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/usaf/mongodb-enterprise-database:${usaf_database_version}
+#    - name: build_test_image
+#      variant: init_test_run
+#  expansions:
+#    <<: *cloud_manager_qa
+#    <<: *kubernetes_environment_kind
+#    <<: *usaf
+#    custom_mdb_version: *mdb_44_latest
+#    image_type: usaf
+#  tasks:
+#    - name: e2e_mdb_kind_ubuntu_cloudqa_task_group
 
 - name: e2e_mdb_vanilla_ubuntu_om40
   display_name: "e2e_mdb_vanilla_ubuntu_om40"
