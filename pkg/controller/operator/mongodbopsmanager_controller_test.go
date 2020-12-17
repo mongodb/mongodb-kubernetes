@@ -94,7 +94,7 @@ func TestOpsManagerReconciler_prepareOpsManager(t *testing.T) {
 	// One secret was created by the user, another one - by the Operator for the user public key
 	assert.Len(t, client.GetMapForObject(&corev1.Secret{}), 2)
 	expectedSecretData := map[string]string{"user": "jane.doe@g.com", "publicApiKey": "jane.doe@g.com-key"}
-	existingSecretData, _ := NewKubeHelper(client).readSecret(objectKey(OperatorNamespace, testOm.APIKeySecretName()))
+	existingSecretData, _ := secret.ReadStringData(client, kube.ObjectKey(OperatorNamespace, testOm.APIKeySecretName()))
 	assert.Equal(t, expectedSecretData, existingSecretData)
 }
 
@@ -120,7 +120,7 @@ func TestOpsManagerReconciler_prepareOpsManagerTwoCalls(t *testing.T) {
 	assert.Equal(t, "jane.doe@g.com", initializer.currentUsers[0].Username)
 
 	assert.Len(t, client.GetMapForObject(&corev1.Secret{}), 2)
-	data, _ := NewKubeHelper(client).readSecret(objectKey(OperatorNamespace, testOm.APIKeySecretName()))
+	data, _ := secret.ReadStringData(client, kube.ObjectKey(OperatorNamespace, testOm.APIKeySecretName()))
 	assert.Equal(t, "jane.doe@g.com", data["user"])
 }
 

@@ -724,7 +724,7 @@ func (r *ReconcileCommonController) configureAgentSubjects(namespace string, sec
 
 func (r *ReconcileCommonController) readAgentSubjectsFromSecret(namespace string, secretKeySelector corev1.SecretKeySelector, log *zap.SugaredLogger) (authentication.UserOptions, error) {
 	userOpts := authentication.UserOptions{}
-	agentCerts, err := r.kubeHelper.readSecret(objectKey(namespace, secretKeySelector.Name))
+	agentCerts, err := secret.ReadStringData(r.client, kube.ObjectKey(namespace, secretKeySelector.Name))
 	if err != nil {
 		return userOpts, err
 	}

@@ -1,7 +1,6 @@
 package operator
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/certs"
@@ -11,7 +10,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 
 	"net/url"
-	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
@@ -813,26 +811,11 @@ func volumeMountWithNameExists(mounts []corev1.VolumeMount, volumeName string) b
 	return false
 }
 
-func (k KubeHelper) readSecret(nsName client.ObjectKey) (map[string]string, error) {
-	s, err := k.client.GetSecret(nsName)
-	if err != nil {
-		return nil, err
-	}
-
-	// TODO: can we delete this?
-	secretStringData := make(map[string]string)
-	for k, v := range s.Data {
-		secretStringData[k] = strings.TrimSuffix(string(v[:]), "\n")
-	}
-	return secretStringData, nil
-}
-
-// computeSecret fetches the existing Secret and applies the computation function to it and pushes changes back.
-// The computation function is expected to update the data in Secret or return false if no update/create is needed
+// ensureAutomationConfigSecret fetches the existing Secret and applies the callback to it and pushes changes back.
+// The callback is expected to update the data in Secret or return false if no update/create is needed
 // Returns the final Secret (could be the initial one or the one after the update)
-// (Name for the function is chosen as an analogy to Map.compute() function in Java)
-func (k *KubeHelper) computeSecret(nsName client.ObjectKey, callback func(*corev1.Secret) bool, owner v1.CustomResourceReadWriter) (corev1.Secret, error) {
-	existingSecret, err := k.client.GetSecret(nsName)
+func ensureAutomationConfigSecret(secretGetUpdateCreator secret.GetUpdateCreator, nsName client.ObjectKey, callback func(*corev1.Secret) bool, owner v1.CustomResourceReadWriter) (corev1.Secret, error) {
+	existingSecret, err := secretGetUpdateCreator.GetSecret(nsName)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			newSecret := secret.Builder().
@@ -845,7 +828,7 @@ func (k *KubeHelper) computeSecret(nsName client.ObjectKey, callback func(*corev
 				return corev1.Secret{}, nil
 			}
 
-			if err := k.client.Create(context.TODO(), &newSecret); err != nil {
+			if err := secretGetUpdateCreator.CreateSecret(newSecret); err != nil {
 				return corev1.Secret{}, err
 			}
 			return newSecret, nil
@@ -856,7 +839,7 @@ func (k *KubeHelper) computeSecret(nsName client.ObjectKey, callback func(*corev
 	if !callback(&existingSecret) {
 		return existingSecret, nil
 	}
-	if err := k.client.Update(context.TODO(), &existingSecret); err != nil {
+	if err := secretGetUpdateCreator.UpdateSecret(existingSecret); err != nil {
 		return existingSecret, err
 	}
 	return existingSecret, nil

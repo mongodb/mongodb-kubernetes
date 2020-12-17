@@ -235,7 +235,7 @@ func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(rs omv1.AppDB,
 		return changeAutomationConfigDataIfNecessary(s, automationConfig, log)
 	}
 	// Perform computation of the automation config and possibly creation/update of the existing Secret
-	computedSecret, err := r.kubeHelper.computeSecret(kube.ObjectKey(opsManager.Namespace, rs.AutomationConfigSecretName()),
+	computedSecret, err := ensureAutomationConfigSecret(r.client, kube.ObjectKey(opsManager.Namespace, rs.AutomationConfigSecretName()),
 		automationConfigUpdateCallback, &opsManager)
 
 	if err != nil {

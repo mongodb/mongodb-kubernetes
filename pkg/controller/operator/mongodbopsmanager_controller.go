@@ -543,7 +543,7 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 	adminObjectKey := objectKey(opsManager.Namespace, opsManager.Spec.AdminSecret)
 
 	// 1. Read the admin secret
-	userData, err := r.kubeHelper.readSecret(adminObjectKey)
+	userData, err := secret.ReadStringData(r.client, adminObjectKey)
 
 	if apiErrors.IsNotFound(err) {
 		// This requires user actions - let's wait a bit longer than 10 seconds
@@ -567,7 +567,7 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 	// This is because of the weird Ops Manager /unauth endpoint logic: it allows to create any number of users though only
 	// the first one will have GLOBAL_ADMIN permission. So we should avoid the situation when the admin changes the
 	// user secret and reconciles OM resource and the new user (non admin one) is created overriding the previous API secret
-	_, err = r.kubeHelper.readSecret(adminKeySecretName)
+	_, err = secret.ReadStringData(r.client, adminKeySecretName)
 
 	if apiErrors.IsNotFound(err) {
 		apiKey, err := r.omInitializer.TryCreateUser(opsManager.CentralURL(), user)
@@ -614,7 +614,7 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 	// 3. Final validation of current state - this could be the retry after failing to create the secret during
 	// previous reconciliation (and the apiKey is empty as "the first user already exists") - the only fix is
 	// to create the secret manually
-	_, err = r.kubeHelper.readSecret(adminKeySecretName)
+	_, err = secret.ReadStringData(r.client, adminKeySecretName)
 	if err != nil {
 		return workflow.Failed("admin API key secret for Ops Manager doesn't exit - was it removed accidentally? %s. The error : %s",
 			detailedMsg, err).WithRetry(30), nil
@@ -849,7 +849,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager omv1
 // readS3Credentials reads the access and secret keys from the awsCredentials secret specified
 // in the resource
 func (r *OpsManagerReconciler) readS3Credentials(s3SecretName, namespace string) (*backup.S3Credentials, error) {
-	s3SecretData, err := r.kubeHelper.readSecret(objectKey(namespace, s3SecretName))
+	s3SecretData, err := secret.ReadStringData(r.client, kube.ObjectKey(namespace, s3SecretName))
 	if err != nil {
 		return nil, err
 	}

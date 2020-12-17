@@ -165,17 +165,16 @@ func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
 	assert.Panics(t, func() { defaultSetHelper().CreateOrUpdateInKubernetes(client, client) })
 }
 
-// TestComputeSecret_CreateNew checks the "create" features of 'computeSecret' function when the secret is created
+// TestComputeSecret_CreateNew checks the "create" features of 'ensureAutomationConfigSecret' function when the secret is created
 // if it doesn't exist (or the creation is skipped totally)
-func TestComputeSecret_CreateNew(t *testing.T) {
+func TestEnsureAutomationConfigSecret_CreateNew(t *testing.T) {
 	client := mock.NewClient()
-	helper := NewKubeHelper(client)
 	owner := mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "test"}}
 	key := kube.ObjectKey("ns", "cfm")
 	testData := map[string][]byte{"foo": []byte("bar")}
 
 	// Successful creation
-	createdSecret, err := helper.computeSecret(key, func(secret *corev1.Secret) bool {
+	createdSecret, err := ensureAutomationConfigSecret(client, key, func(secret *corev1.Secret) bool {
 		secret.Data = testData
 		return true
 	}, &owner)
@@ -193,7 +192,7 @@ func TestComputeSecret_CreateNew(t *testing.T) {
 
 	// Creation skipped
 	key2 := kube.ObjectKey("ns", "cfm2")
-	_, err = helper.computeSecret(key2, func(s *corev1.Secret) bool {
+	_, err = ensureAutomationConfigSecret(client, key2, func(s *corev1.Secret) bool {
 		return false
 	}, &owner)
 
@@ -202,7 +201,7 @@ func TestComputeSecret_CreateNew(t *testing.T) {
 	assert.True(t, apiErrors.IsNotFound(err))
 }
 
-func TestComputeSecret_UpdateExisting(t *testing.T) {
+func TestEnsureAutomationConfig_UpdateExisting(t *testing.T) {
 	client := mock.NewClient()
 	err := client.CreateSecret(secret.Builder().
 		SetNamespace(mock.TestNamespace).
@@ -214,14 +213,12 @@ func TestComputeSecret_UpdateExisting(t *testing.T) {
 	)
 	assert.NoError(t, err)
 
-	//client.AddProjectConfigMap(om.TestGroupName, "")
-	helper := NewKubeHelper(client)
 	owner := mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "test"}}
 
 	key := objectKey(mock.TestNamespace, "secret-name")
 
 	// Successful update (data is appended)
-	_, err = helper.computeSecret(key, func(s *corev1.Secret) bool {
+	_, err = ensureAutomationConfigSecret(client, key, func(s *corev1.Secret) bool {
 		s.Data["foo"] = []byte("bla")
 		return true
 	}, &owner)
@@ -239,7 +236,7 @@ func TestComputeSecret_UpdateExisting(t *testing.T) {
 	currentSize := len(s.Data)
 
 	// Update skipped
-	_, err = helper.computeSecret(key, func(s *corev1.Secret) bool {
+	_, err = ensureAutomationConfigSecret(client, key, func(s *corev1.Secret) bool {
 		return false
 	}, &owner)
 
