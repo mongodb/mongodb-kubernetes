@@ -28,8 +28,27 @@ def create_secret(
     return name
 
 
+def create_service_account(namespace: str, name: str) -> str:
+    """Creates a service account with `name` in `namespace`"""
+    sa = client.V1ServiceAccount(
+        metadata=client.V1ObjectMeta(name=name)
+    )
+    client.CoreV1Api().create_namespaced_service_account(namespace=namespace, body=sa)
+    return name
+
+
+def delete_service_account(namespace: str, name: str) -> str:
+    """Deletes a service account with `name` in `namespace`"""
+    sa = client.V1ServiceAccount(
+        metadata=client.V1ObjectMeta(name=name)
+    )
+    client.CoreV1Api().delete_namespaced_service_account(namespace=namespace, name=name)
+    return name
+
+
 def create_configmap(namespace: str, name: str, data: Dict[str, str]):
-    configmap = client.V1ConfigMap(metadata=client.V1ObjectMeta(name=name), data=data)
+    configmap = client.V1ConfigMap(
+        metadata=client.V1ObjectMeta(name=name), data=data)
     client.CoreV1Api().create_namespaced_config_map(namespace, configmap)
 
 

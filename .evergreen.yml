@@ -1278,6 +1278,12 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_replica_set_custom_sa
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_replica_set_project_whitespaces
   tags: ["patch-run"]
   exec_timeout_secs: 300
@@ -1911,6 +1917,7 @@ task_groups:
     - e2e_replica_set_8_members
     - e2e_replica_set_ent
     - e2e_replica_set_custom_podspec
+    - e2e_replica_set_custom_sa
     - e2e_replica_set_recovery
     - e2e_replica_set_upgrade_downgrade
     - e2e_replica_set_agent_flags
@@ -2055,6 +2062,7 @@ task_groups:
     - e2e_replica_set_8_members
     - e2e_replica_set_ent
     - e2e_replica_set_custom_podspec
+    - e2e_replica_set_custom_sa
     - e2e_replica_set_recovery
     - e2e_replica_set_upgrade_downgrade
     - e2e_replica_set_agent_flags

@@ -1,5 +1,9 @@
 *(Please use the [release template](docs/dev/release-notes-template.md) as the template for this document)* 
 <!-- Next release -->
+# MongoDB Enterprise Kubernetes Operator 1.9.1
+## Kubernetes Operator
+* Bug fixes
+  * Fixes an issue where the service-account-name could not be specified in the StatefulSet podSpec override.
 # MongoDB Enterprise Kubernetes Operator 1.9.0
 
 ## Kubernetes Operator

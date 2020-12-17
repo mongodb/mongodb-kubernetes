@@ -139,7 +139,6 @@ func buildDatabaseStatefulSetConfigurationFunction(mdbBuilder DatabaseBuilder, p
 			podtemplatespec.WithAffinity(mdbBuilder.GetName(), podAntiAffinityLabelKey, 100),
 			podtemplatespec.WithTerminationGracePeriodSeconds(util.DefaultPodTerminationPeriodSeconds),
 			podtemplatespec.WithPodLabels(podLabels),
-			podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
 			podtemplatespec.WithNodeAffinity(mdbBuilder.GetPodSpec().NodeAffinity),
 			podtemplatespec.WithPodAffinity(mdbBuilder.GetPodSpec().PodAffinity),
 			podtemplatespec.WithContainerByIndex(0, sharedDatabaseContainerFunc(*mdbBuilder.GetPodSpec(), volumeMounts, configureContainerSecurityContext)),
@@ -269,10 +268,12 @@ func buildMongoDBPodTemplateSpec(mdbBuilder DatabaseBuilder) podtemplatespec.Mod
 	scriptsVolume := statefulset.CreateVolumeFromEmptyDir("database-scripts")
 	databaseScriptsVolumeMount := databaseScriptsVolumeMount(true)
 
+	serviceAccountName := getServiceAccountName(mdbBuilder)
+
 	return podtemplatespec.Apply(
 		sharedDatabaseConfiguration(mdbBuilder),
 		podtemplatespec.WithAnnotations(defaultPodAnnotations(mdbBuilder.GetCertificateHash())),
-		podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
+		podtemplatespec.WithServiceAccount(serviceAccountName),
 		podtemplatespec.WithVolume(scriptsVolume),
 		podtemplatespec.WithInitContainerByIndex(0,
 			buildDatabaseInitContainer(),
@@ -287,6 +288,21 @@ func buildMongoDBPodTemplateSpec(mdbBuilder DatabaseBuilder) podtemplatespec.Mod
 			),
 		),
 	)
+}
+
+// getServiceAccountName returns the serviceAccount to be used by the mongoDB pod,
+// it uses the "serviceAccountName" specified in the podSpec of CR, if it's not specified returns
+// the default serviceAccount name
+func getServiceAccountName(mdbBuilder DatabaseBuilder) string {
+	podSpec := mdbBuilder.GetPodSpec()
+
+	if podSpec != nil && podSpec.PodTemplate != nil {
+		if podSpec.PodTemplate.Spec.ServiceAccountName != "" {
+			return podSpec.PodTemplate.Spec.ServiceAccountName
+		}
+	}
+
+	return util.MongoDBServiceAccount
 }
 
 // sharedDatabaseConfiguration is a function which applies all the shared configuration
