@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/probe/headless"
@@ -73,6 +72,7 @@ func isPodReady(conf config.Config) bool {
 	}
 
 	if ok {
+		logger.Info("Agent has reached goal state")
 		return true
 	}
 
@@ -191,14 +191,6 @@ func containsString(slice []string, s string) bool {
 		}
 	}
 	return false
-}
-
-func getEnvOrDefault(envVar, defaultValue string) string {
-	value := strings.TrimSpace(os.Getenv(envVar))
-	if value == "" {
-		return defaultValue
-	}
-	return value
 }
 
 func kubernetesClientset() kubernetes.Interface {
