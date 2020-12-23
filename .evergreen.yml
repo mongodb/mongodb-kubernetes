@@ -676,6 +676,19 @@ functions:
         command: docker/mongodb-enterprise-ops-manager/batch_om_images.sh
         working_dir: src/github.com/10gen/ops-manager-kubernetes
 
+  publish_dockerfiles_for_version:
+  - command: s3.put
+    params:
+      aws_key: ${mms_build_s3_aws_access_key}
+      aws_secret: ${mms_build_s3_aws_secret}
+      local_files_include_filter:
+      # Copy any file of type `Dockerfile.<distro>-<version>`
+      - "src/github.com/10gen/ops-manager-kubernetes/docker/mongodb-enterprise-operator/Dockerfile.*-?.?.?"
+      remote_file: dockerfiles/mongodb-enterprise-operator/
+      bucket: enterprise-operator-dockerfiles
+      permissions: public-read
+      content_type: text/plain
+
 tasks:
 - name: unit_tests
   tags: ["unit_tests"]
@@ -882,6 +895,7 @@ tasks:
       skip_tags: ubuntu,release
       distro: ubi
       image_name: operator
+  - func: publish_dockerfiles_for_version
 
 - name: build_operator_ubuntu
   priority: 60
@@ -894,6 +908,7 @@ tasks:
       skip_tags: ubi,release
       distro: ubuntu
       image_name: operator
+  - func: publish_dockerfiles_for_version
 
 - name: build_init_om_images_ubi
   priority: 60
@@ -2643,6 +2658,21 @@ buildvariants:
   tasks:
     - name: release_operator_quay
     - name: release_init_quay
+
+- name: release_quay_ubuntu_test
+  display_name: release_quay_ubuntu_test
+  depends_on:
+    - name: build_operator_ubuntu
+      variant: init_test_run
+  run_on:
+    - ubuntu1604-test
+  expansions:
+    skip_tags: ubi
+    include_tags: release
+    registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
+    test_suffix: -test
+  tasks:
+    - name: release_operator_quay
 
 - name: release_quay_ubi
   display_name: release_quay_ubi
