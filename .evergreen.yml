@@ -2659,21 +2659,6 @@ buildvariants:
     - name: release_operator_quay
     - name: release_init_quay
 
-- name: release_quay_ubuntu_test
-  display_name: release_quay_ubuntu_test
-  depends_on:
-    - name: build_operator_ubuntu
-      variant: init_test_run
-  run_on:
-    - ubuntu1604-test
-  expansions:
-    skip_tags: ubi
-    include_tags: release
-    registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
-    test_suffix: -test
-  tasks:
-    - name: release_operator_quay
-
 - name: release_quay_ubi
   display_name: release_quay_ubi
   depends_on:
@@ -2694,21 +2679,6 @@ buildvariants:
   tasks:
     - name: release_operator_quay
     - name: release_init_quay
-
-- name: release_quay_ubuntu_test
-  display_name: release_quay_ubuntu_test
-  depends_on:
-    - name: build_operator_ubuntu
-      variant: init_test_run
-  run_on:
-    - ubuntu1604-test
-  expansions:
-    skip_tags: ubi
-    include_tags: release
-    registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
-    test_suffix: -test
-  tasks:
-    - name: release_operator_quay
 
 - name: release_blocker
   display_name: release_blocker
