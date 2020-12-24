@@ -202,7 +202,13 @@ def build_operator_image_patch(build_configuration: OperatorBuildConfiguration):
     repo_tag = image_repo + ":" + image_tag
 
     print("Pulling image:", repo_tag)
-    image = client.images.get(repo_tag)
+    try:
+        image = client.images.get(repo_tag)
+    except docker.errors.ImageNotFound:
+        print("Operator image does not exist locally. Building it now")
+        build_operator_image(build_configuration)
+        return
+
     print("Done")
     too_old = datetime.now() - timedelta(hours=3)
     image_timestamp = datetime.fromtimestamp(
