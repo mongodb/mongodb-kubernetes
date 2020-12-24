@@ -386,6 +386,22 @@ func buildOpsManagerUser(scramSha1Creds, scramSha256Creds *om.ScramShaCreds) om.
 				Role:     "clusterMonitor",
 				Database: "admin",
 			},
+			// Enables backup and restoration roles
+			// https://docs.mongodb.com/manual/reference/built-in-roles/#backup-and-restoration-roles
+			{
+				Role:     "backup",
+				Database: "admin",
+			},
+			{
+				Role:     "restore",
+				Database: "admin",
+			},
+			// Allows user to do db.fsyncLock required by CLOUDP-78890
+			// https://docs.mongodb.com/manual/reference/built-in-roles/#hostManager
+			{
+				Role:     "hostManager",
+				Database: "admin",
+			},
 		},
 	}
 }

@@ -20,6 +20,9 @@ EXPECTED_OM_USER_ROLES = {
     ("admin", "readWriteAnyDatabase"),
     ("admin", "dbAdminAnyDatabase"),
     ("admin", "clusterMonitor"),
+    ("admin", "hostManager"),
+    ("admin", "backup"),
+    ("admin", "restore"),
 }
 
 
@@ -39,8 +42,8 @@ def ops_manager(
 @pytest.mark.e2e_om_appdb_scram
 class TestOpsManagerCreation:
     """
-      Creates an Ops Manager instance with AppDB of size 3. This test waits until Ops Manager
-      is ready to avoid changing password before Ops Manager has reached ready state
+    Creates an Ops Manager instance with AppDB of size 3. This test waits until Ops Manager
+    is ready to avoid changing password before Ops Manager has reached ready state
     """
 
     def test_appdb(self, ops_manager: MongoDBOpsManager, custom_appdb_version: str):
@@ -92,8 +95,8 @@ class TestOpsManagerCreation:
 @pytest.mark.e2e_om_appdb_scram
 class TestChangeOpsManagerUserPassword:
     """
-      Creates a secret with a new password that the Ops Manager user should use and ensures that
-      SCRAM is configured correctly with the new password
+    Creates a secret with a new password that the Ops Manager user should use and ensures that
+    SCRAM is configured correctly with the new password
     """
 
     def test_upgrade_om(self, ops_manager: MongoDBOpsManager):
@@ -152,13 +155,15 @@ class TestChangeOpsManagerUserPassword:
 @pytest.mark.e2e_om_appdb_scram
 class TestChangeOpsManagerExistingUserPassword:
     """
-      Updating the secret should trigger another reconciliation because the
-      Operator should be watching the user created secret.
+    Updating the secret should trigger another reconciliation because the
+    Operator should be watching the user created secret.
     """
 
     def test_user_update_password(self, namespace: str):
         KubernetesTester.update_secret(
-            namespace, "my-password", {"new-key": UPDATED_USER_DEFINED_PASSWORD},
+            namespace,
+            "my-password",
+            {"new-key": UPDATED_USER_DEFINED_PASSWORD},
         )
 
     def test_om_reconciled(self, ops_manager: MongoDBOpsManager):

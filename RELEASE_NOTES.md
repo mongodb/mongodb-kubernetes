@@ -9,6 +9,10 @@
 * Bug fixes
   * Fixes an issue where updating a role in `spec.security.authentication.roles` by removing the `privileges` array would cause the resource to enter a bad state
 
+## MongoDBOpsManager Resource
+* Changes
+  * Ops Manager user now has "backup", "restore" and "hostManager" roles, allowing for bakups/restores on the AppDB.
+
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.9.0
 

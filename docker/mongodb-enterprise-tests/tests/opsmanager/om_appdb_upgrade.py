@@ -28,7 +28,7 @@ def ops_manager(namespace: str, custom_version: Optional[str]) -> MongoDBOpsMana
 @pytest.mark.e2e_om_appdb_upgrade
 class TestOpsManagerCreation:
     """
-      Creates an Ops Manager instance with AppDB of size 3. The test waits until the AppDB is ready, not the OM resource
+    Creates an Ops Manager instance with AppDB of size 3. The test waits until the AppDB is ready, not the OM resource
     """
 
     def test_appdb(self, ops_manager: MongoDBOpsManager):
@@ -55,6 +55,9 @@ class TestOpsManagerCreation:
             ("admin", "readWriteAnyDatabase"),
             ("admin", "dbAdminAnyDatabase"),
             ("admin", "clusterMonitor"),
+            ("admin", "hostManager"),
+            ("admin", "backup"),
+            ("admin", "restore"),
         }
 
         # only user should be the Ops Manager user
@@ -100,7 +103,7 @@ class TestOpsManagerCreation:
 @pytest.mark.e2e_om_appdb_upgrade
 class TestOpsManagerAppDbUpgrade:
     """
-      Upgrades appdb to the bundled version. The test waits until the AppDB is ready, not the OM resource
+    Upgrades appdb to the bundled version. The test waits until the AppDB is ready, not the OM resource
     """
 
     def test_appdb_bundled_version(self, ops_manager: MongoDBOpsManager):
@@ -131,7 +134,7 @@ class TestOpsManagerAppDbUpgrade:
 @pytest.mark.e2e_om_appdb_upgrade
 class TestOpsManagerAppDbUpdateMemory:
     """
-      Changes memory limits requirements for the AppDB
+    Changes memory limits requirements for the AppDB
     """
 
     def test_appdb_updated(self, ops_manager: MongoDBOpsManager):
@@ -160,7 +163,7 @@ class TestOpsManagerAppDbUpdateMemory:
 @pytest.mark.e2e_om_appdb_upgrade
 class TestOpsManagerMixed:
     """
-      Performs changes to both AppDB and Ops Manager spec
+    Performs changes to both AppDB and Ops Manager spec
     """
 
     def test_appdb_and_om_updated(

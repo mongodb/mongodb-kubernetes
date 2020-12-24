@@ -128,6 +128,19 @@ func TestPublishAutomationConfig_Create(t *testing.T) {
 	configMap := readAutomationConfigMap(t, kubeManager, opsManager)
 	checkDeploymentEqualToPublished(t, automationConfig.Deployment, configMap)
 	assert.Len(t, kubeManager.Client.GetMapForObject(&corev1.Secret{}), 1)
+
+	// verifies Users and Roles are created
+	assert.Len(t, automationConfig.Auth.Users, 1)
+
+	expectedRoles := []string{"readWriteAnyDatabase", "dbAdminAnyDatabase", "clusterMonitor", "backup", "restore", "hostManager"}
+	assert.Len(t, automationConfig.Auth.Users[0].Roles, len(expectedRoles))
+	for idx, role := range expectedRoles {
+		assert.Equal(t, automationConfig.Auth.Users[0].Roles[idx],
+			&om.Role{
+				Role:     role,
+				Database: "admin",
+			})
+	}
 }
 
 // TestPublishAutomationConfig_Update verifies that the automation config map is updated if it has changed
