@@ -10,7 +10,7 @@ from kubetester.mongodb import Phase, MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 
-BUNDLED_APP_DB_VERSION = "4.2.2-ent"
+BUNDLED_APP_DB_VERSION = "4.2.11-ent"
 VERSION_NOT_IN_WEB_SERVER = "4.2.1"
 
 
@@ -32,7 +32,8 @@ def ops_manager(namespace: str, custom_version: Optional[str]) -> MongoDBOpsMana
 
     """ The fixture for Ops Manager to be created."""
     om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
-        yaml_fixture("remote_fixtures/om_remotemode.yaml"), namespace=namespace,
+        yaml_fixture("remote_fixtures/om_remotemode.yaml"),
+        namespace=namespace,
     )
     om["spec"]["configuration"]["automation.versions.source"] = "remote"
     om["spec"]["configuration"][
@@ -52,7 +53,8 @@ def replica_set(
     ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str
 ) -> MongoDB:
     resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set-for-om.yaml"), namespace=namespace,
+        yaml_fixture("replica-set-for-om.yaml"),
+        namespace=namespace,
     ).configure(ops_manager, "my-replica-set")
     resource["spec"]["version"] = custom_mdb_version
     yield resource.create()

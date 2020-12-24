@@ -47,7 +47,7 @@ const firstMdbVersionInTestManifest = "3.6.0"
 const numberOfBuildsInFirstVersion = 2
 
 func init() {
-	util.BundledAppDbMongoDBVersion = "4.2.2-ent"
+	util.BundledAppDbMongoDBVersion = "4.2.11-ent"
 }
 
 func TestMongoDB_ConnectionURL_DefaultCluster_AppDB(t *testing.T) {
@@ -210,7 +210,7 @@ func TestPublishAutomationConfig_ScramShaConfigured(t *testing.T) {
 func TestBuildAppDbAutomationConfig(t *testing.T) {
 	builder := DefaultOpsManagerBuilder().
 		SetAppDbMembers(2).
-		SetAppDbVersion("4.2.2-ent").
+		SetAppDbVersion("4.2.11-ent").
 		SetAppDbFeatureCompatibility("4.0")
 	builder.Build()
 	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
@@ -219,10 +219,10 @@ func TestBuildAppDbAutomationConfig(t *testing.T) {
 
 	// processes
 	assert.Len(t, deployment.ProcessesCopy(), 2)
-	assert.Equal(t, "4.2.2-ent", deployment.ProcessesCopy()[0].Version())
+	assert.Equal(t, "4.2.11-ent", deployment.ProcessesCopy()[0].Version())
 	assert.Equal(t, "test-om-db-0.test-om-db-svc.my-namespace.svc.cluster.local", deployment.ProcessesCopy()[0].HostName())
 	assert.Equal(t, "4.0", deployment.ProcessesCopy()[0].FeatureCompatibilityVersion())
-	assert.Equal(t, "4.2.2-ent", deployment.ProcessesCopy()[1].Version())
+	assert.Equal(t, "4.2.11-ent", deployment.ProcessesCopy()[1].Version())
 	assert.Equal(t, "test-om-db-1.test-om-db-svc.my-namespace.svc.cluster.local", deployment.ProcessesCopy()[1].HostName())
 	assert.Equal(t, "4.0", deployment.ProcessesCopy()[1].FeatureCompatibilityVersion())
 

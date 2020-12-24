@@ -163,7 +163,7 @@ def build_operator_image(build_configuration: OperatorBuildConfiguration):
     """Calculates arguments required to build the operator image, and starts the build process."""
     image_name = "operator"
 
-    appdb_version = get_release()["appDbBundle"]["mongodbVersion"]  # 4.2.2-ent
+    appdb_version = get_release()["appDbBundle"]["mongodbVersion"]  # 4.2.11-ent
 
     version = ".".join(appdb_version.split(".")[0:2])
     version_manifest_url = (

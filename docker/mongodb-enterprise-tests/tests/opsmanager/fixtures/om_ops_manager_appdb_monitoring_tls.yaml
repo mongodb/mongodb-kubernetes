@@ -15,7 +15,7 @@ spec:
     enabled: false
   applicationDatabase:
     members: 3
-    version: 4.2.2-ent
+    version: 4.2.11-ent
     security:
       tls:
         ca: issuer-ca
