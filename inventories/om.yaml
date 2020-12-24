@@ -1,0 +1,74 @@
+vars:
+  quay_registry: quay.io/mongodb
+
+images:
+- name: ops-manager
+  vars:
+    context: docker/mongodb-enterprise-ops-manager
+
+  stages:
+  - name: ops-manager-template
+    task_type: dockerfile_template
+    distro: ubuntu
+    tags: ["ubuntu"]
+
+    inputs:
+    - om_download_url
+    - om_version
+
+    output:
+    - dockerfile: docker/mongodb-enterprise-ops-manager/Dockerfile.ubuntu-$(inputs.params.version_id)
+
+  - name: ops-manager-build
+    task_type: docker_build
+    dockerfile: Dockerfile.ubuntu-$(inputs.params.version_id)
+    tags: ["ubuntu"]
+
+    output:
+    - registry: $(inputs.params.registry)/images/ubuntu/mongodb-enterprise-ops-manager
+      tag: $(inputs.params.om_version)
+
+  - name: ops-manager-template
+    task_type: dockerfile_template
+    distro: ubi
+    tags: ["ubi"]
+
+    inputs:
+    - om_download_url
+    - om_version
+
+    output:
+    - dockerfile: docker/mongodb-enterprise-ops-manager/Dockerfile.ubi-$(inputs.params.version_id)
+
+  - name: ops-manager-build
+    task_type: docker_build
+    dockerfile: Dockerfile.ubi-$(inputs.params.version_id)
+    tags: ["ubi"]
+
+    output:
+    - registry: $(inputs.params.registry)/images/ubi/mongodb-enterprise-ops-manager
+      tag: $(inputs.params.om_version)
+
+  - name: ops-manager-release-ubuntu
+    task_type: tag_image
+    tags: ["release"]
+
+    source:
+      registry: $(inputs.params.registry)/images/ubuntu/mongodb-enterprise-ops-manager
+      tag: $(inputs.params.om_version)
+
+    destination:
+    - registry: $(inputs.params.quay_registry)/mongodb-enterprise-ops-manager
+      tag: $(inputs.params.om_version)
+
+  - name: ops-manager-release-ubi
+    task_type: tag_image
+    tags: ["release"]
+
+    source:
+      registry: $(inputs.params.registry)/images/ubi/mongodb-enterprise-ops-manager
+      tag: $(inputs.params.om_version)
+
+    destination:
+    - registry: $(inputs.params.quay_registry)/mongodb-enterprise-ops-manager-ubi
+      tag: $(inputs.params.om_version)

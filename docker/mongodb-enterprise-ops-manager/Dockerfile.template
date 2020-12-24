@@ -1,21 +1,14 @@
-#
-# Base Template Dockerfile for Ops Manager Image.
-#
-
 FROM {{ base_image  }}
 
 {% block labels %}
-# FIXME: pass build_id as release version
 LABEL name="MongoDB Enterprise Ops Manager" \
       maintainer="support@mongodb.com" \
       vendor="MongoDB" \
-      version="operator-{{ version }}" \
+      version="{{ om_version }}" \
       release="1" \
       summary="MongoDB Enterprise Ops Manager Image" \
       description="MongoDB Enterprise Ops Manager"
 {% endblock %}
-
-ARG OM_DOWNLOAD_LINK
 
 ENV MMS_HOME /mongodb-ops-manager
 ENV MMS_PROP_FILE ${MMS_HOME}/conf/conf-mms.properties
@@ -33,7 +26,7 @@ EXPOSE 8080
 {% endblock %}
 
 {% block static %}
-RUN curl --fail -L -o ops_manager.tar.gz "${OM_DOWNLOAD_LINK}" \
+RUN curl --fail -L -o ops_manager.tar.gz {{ om_download_url }} \
     && tar -xzf ops_manager.tar.gz \
     && rm ops_manager.tar.gz \
     && mv mongodb-mms-* "${MMS_HOME}"

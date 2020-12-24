@@ -22,8 +22,8 @@ variables:
     usaf_database_version: "1.5.3"
 
     # These are OM/MDB versions used in OM e2e tests (build variants for 4.2/4.4 OM) - change them occasionally
-  - &ops_manager_44_latest 4.4.5
-  - &ops_manager_42_latest 4.2.21
+  - &ops_manager_44_latest 4.4.6
+  - &ops_manager_42_latest 4.2.22
   - &mdb_44_latest 4.4.0
   - &mdb_42_latest 4.2.8
   - &mdb_40_latest 4.0.20
@@ -53,6 +53,16 @@ variables:
     GO111MODULE: "on"
     GOFLAGS: "-mod=vendor"
     GOROOT: "/opt/golang/go1.13"
+
+parameters:
+- key: om_version
+  value: 4.4.6
+  description: Set Ops Manager version to publish
+
+- key: registry
+  value: 268558157000.dkr.ecr.us-east-1.amazonaws.com
+  description: Development ECR registry
+
 
 functions:
   "golint":
@@ -150,6 +160,7 @@ functions:
       - include_tags
       - skip_tags
       - test_suffix
+      - om_version
       add_to_path:
       - ${workdir}/bin
       command: "${workdir}/venv/bin/python pipeline.py --include ${image_name}"
@@ -1861,33 +1872,36 @@ tasks:
         docker_username: unused
         docker_password: ${rhc_database_pid}
 
-- name: build_and_push_ops_manager_ubuntu
+- name: build_ops_manager_ubuntu
   patch_only: true
   commands:
-    - func: clone
-    - func: download_kube_tools
-    - func: setup_kubernetes_environment
-      vars:
-        <<: *kubernetes_environment_vanilla
-    - func: quay_login
-    - func: build_and_push_opsmanager_image_generic
-      vars:
-        IMAGE_TYPE: "ubuntu"
-        PUBLISH_TO: quay.io/mongodb/mongodb-enterprise-ops-manager
+  - func: clone
+  - func: setup_building_host
+  - func: pipeline
+    vars:
+      image_name: ops-manager
+      skip_tags: ubi,release
 
-- name: build_and_push_ops_manager_ubi
+- name: build_ops_manager_ubi
   patch_only: true
   commands:
-    - func: clone
-    - func: download_kube_tools
-    - func: setup_kubernetes_environment
-      vars:
-        <<: *kubernetes_environment_vanilla
-    - func: quay_login
-    - func: build_and_push_opsmanager_image_generic
-      vars:
-        IMAGE_TYPE: "ubi"
-        PUBLISH_TO: quay.io/mongodb/mongodb-enterprise-ops-manager-ubi
+  - func: clone
+  - func: setup_building_host
+  - func: pipeline
+    vars:
+      image_name: ops-manager
+      skip_tags: ubuntu,release
+
+- name: publish_ops_manager
+  patch_only: true
+  commands:
+  - func: clone
+  - func: setup_building_host
+  - func: quay_login
+  - func: pipeline
+    vars:
+      image_name: ops-manager
+      include_tags: release
 
 task_groups:
 - name: unit_task_group
@@ -2505,7 +2519,7 @@ buildvariants:
   run_on:
   - ubuntu1604-build
   depends_on:
-  - name: build_operator_ubi
+  - name: build_operator_ubuntu
     variant: init_test_run
   - name: build_test_image
     variant: init_test_run
@@ -2520,6 +2534,7 @@ buildvariants:
     custom_om_version: *ops_manager_42_latest
     custom_mdb_version: *mdb_42_latest
     custom_mdb_prev_version: *mdb_40_latest
+    ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
   tasks:
   - name: e2e_ops_manager_kind_only_task_group
 
@@ -2703,8 +2718,6 @@ buildvariants:
     - name: prepare_cluster_vanilla
     - name: prepare_cluster_vanilla_om
     - name: prepare_aws
-  expansions:
-    registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
 
   # Runs on master patches. This will populate the mongodb/mongodb-enterprise-*-prerelease
   # registries with the images that were pushed to master
@@ -2754,20 +2767,24 @@ buildvariants:
     - name: build_and_push_appdb_ubuntu
     - name: build_and_push_appdb_ubi
 
-# build OpsManager: to be launched independently of the operator build process (evergreen patch)
-# This will rebuild every OM image on VERSIONS. A new static "build" (b-DATE) will be tagged and
-# pushed, and the corresponding rolling tag will be pointed at this "build" one. To perform the
-# build, you can use the following `evergreen` command:
+# build OpsManager: to be launched independently of the operator build process (evergreen patch).
+# To perform the build, you can use the following `evergreen` command:
 #
-#     evergreen patch -v build_and_push_ops_manager_images -t all -y -f -d "Building all version of OM"
+#     evergreen patch -v build_ops_manager_images -t all \
+#         --param om_version=4.6.7 \
+#         -y -f -d "Building Ops Manager"
 #
-- name: build_and_push_ops_manager_images
-  display_name: build_and_push_ops_manager_images
+- name: build_ops_manager_images
+  display_name: build_ops_manager_images
   run_on:
-  - ubuntu1604-build
+  - ubuntu1604-test
   tasks:
-    - name: build_and_push_ops_manager_ubuntu
-    - name: build_and_push_ops_manager_ubi
-  expansions:
-    # removing deprecated versions as per https://www.mongodb.com/subscription/downloads/archived
-    VERSIONS: "4.2.0 4.2.1 4.2.3 4.2.4 4.2.6 4.2.7 4.2.8 4.2.10 4.2.12 4.2.13 4.2.18 4.2.20 4.4.1 4.4.2 4.4.2 4.4.4"
+  - name: build_ops_manager_ubuntu
+  - name: build_ops_manager_ubi
+
+- name: publish_ops_manager_images
+  display_name: publish_ops_manager_images
+  run_on:
+  - ubuntu1604-test
+  tasks:
+  - name: publish_ops_manager

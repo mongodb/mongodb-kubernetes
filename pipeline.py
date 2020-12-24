@@ -14,6 +14,7 @@ import sys
 import tarfile
 
 import docker
+import requests
 from sonar.sonar import process_image
 
 from dataclasses import dataclass, field
@@ -44,15 +45,15 @@ class OperatorBuildConfiguration:
             args = {}
         args = args.copy()
 
-        args["skip_tags"] = make_list_of_str(self.skip_tags)
-        args["include_tags"] = make_list_of_str(self.include_tags)
-
-        print("skip_tags:", args["skip_tags"])
-        print("include_tags:", args["include_tags"])
-
         args["registry"] = self.base_repository
 
         return args
+
+    def get_skip_tags(self) -> Optional[Dict[str, str]]:
+        return make_list_of_str(self.skip_tags)
+
+    def get_include_tags(self) -> Optional[Dict[str, str]]:
+        return make_list_of_str(self.include_tags)
 
 
 def make_list_of_str(value: Union[None, str, List[str]]) -> List[str]:
@@ -150,12 +151,16 @@ def sonar_build_image(
     image_name: str,
     build_configuration: OperatorBuildConfiguration,
     args: Dict[str, str] = None,
+    inventory="inventory.yaml",
 ):
     """Calls sonar to build `image_name` with arguments defined in `args`."""
     process_image(
         image_name,
-        build_configuration.pipeline,
-        build_configuration.build_args(args),
+        skip_tags=build_configuration.get_skip_tags(),
+        include_tags=build_configuration.get_include_tags(),
+        pipeline=build_configuration.pipeline,
+        build_args=build_configuration.build_args(args),
+        inventory=inventory,
     )
 
 
@@ -255,13 +260,65 @@ def build_operator_image_patch(build_configuration: OperatorBuildConfiguration):
     )
 
 
-def get_builder_function_for_image_name():
-    """Returns a dictionary of image names that can be built.
+def find_om_in_releases(om_version: str, releases: Dict[str, str]) -> Optional[str]:
+    """There are a few alternatives out there that allow for json-path or xpath-type
+    traversal of Json objects in Python, I don't have time to look for one of
+    them now but I have to do at some point.
+    """
+    for release in releases:
+        if release["version"] == om_version:
+            for platform in release["platform"]:
+                if platform["package_format"] == "deb" and platform["arch"] == "x86_64":
+                    for package in platform["packages"]["links"]:
+                        if package["name"] == "tar.gz":
+                            return package["download_link"]
 
-    Each one of these functions returns a"""
+
+def get_om_releases() -> Dict[str, str]:
+    """Returns a dictionary representation of the Json document holdin all the OM
+    releases.
+    """
+    ops_manager_release_archive = "https://info-mongodb-com.s3.amazonaws.com/com-download-center/ops_manager_release_archive.json"
+
+    return requests.get(ops_manager_release_archive).json()
+
+
+def find_om_url(om_version: str) -> str:
+    """Gets a download URL for a given version of OM."""
+    releases = get_om_releases()
+
+    current_release = find_om_in_releases(om_version, releases["currentReleases"])
+    if current_release is None:
+        current_release = find_om_in_releases(om_version, releases["oldReleases"])
+
+    if current_release is None:
+        raise ValueError("Ops Manager version {} could not be found".format(om_version))
+
+    return current_release
+
+
+def build_om_image(build_configuration: OperatorBuildConfiguration):
+    image_name = "ops-manager"
+
+    # Make this a parameter for the Evergreen build
+    # https://github.com/evergreen-ci/evergreen/wiki/Parameterized-Builds
+    om_version = os.environ.get("om_version", "4.4.6")
+    om_download_url = find_om_url(om_version)
+    args = dict(
+        om_version=om_version,
+        om_download_url=om_download_url,
+    )
+
+    sonar_build_image(image_name, build_configuration, args, "inventories/om.yaml")
+
+
+def get_builder_function_for_image_name():
+    """Returns a dictionary of image names that can be built."""
+
     return {
         "operator": build_operator_image,
         "operator-quick": build_operator_image_patch,
+        "ops-manager": build_om_image,
     }
 
 
