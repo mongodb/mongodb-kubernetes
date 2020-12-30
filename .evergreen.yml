@@ -841,6 +841,15 @@ tasks:
         docker_username: ${quay_prod_username}
         docker_password: ${quay_prod_robot_token}
 
+- name: periodic_build_operator
+  commands:
+  - func: clone
+  - func: setup_building_host
+  - func: quay_login
+  - func: pipeline
+    vars:
+      image_name: operator-daily
+
 - name: prerelease_master_images
   commands:
     - func: clone
@@ -2744,6 +2753,15 @@ buildvariants:
   stepback: false
   tasks:
     - name: "unit_task_group"
+
+### Periodic Builds
+- name: periodic_build_operator
+  display_name: periodic_build_operator
+  run_on:
+  - ubuntu1604-build
+  tasks:
+  - name: periodic_build_operator
+
 
 ### Build variants for manual patch only
 

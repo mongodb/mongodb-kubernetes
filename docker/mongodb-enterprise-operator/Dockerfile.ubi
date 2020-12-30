@@ -1,3 +1,11 @@
 {% extends "Dockerfile.template" %}
 
 {% set base_image = "registry.access.redhat.com/ubi8/ubi" %}
+
+{% block packages -%}
+# Building an UBI-based image: https://red.ht/3n6b9y0
+RUN yum update \
+    --disableplugin=subscription-manager \
+    --disablerepo=* --enablerepo=ubi-8-appstream --enablerepo=ubi-8-baseos -y \
+    && rm -rf /var/cache/yum
+{% endblock -%}

@@ -7,6 +7,7 @@ to produce the final images."""
 import argparse
 from datetime import datetime, timedelta
 import json
+import logging
 from typing import Dict, List, Union, Tuple, Optional
 import os
 import subprocess
@@ -19,6 +20,9 @@ from sonar.sonar import process_image
 
 from dataclasses import dataclass, field
 
+
+LOGLEVEL = os.environ.get("LOGLEVEL", "WARNING").upper()
+logging.basicConfig(level=LOGLEVEL)
 
 skippable_tags = frozenset(["ubi", "ubuntu"])
 
@@ -260,6 +264,39 @@ def build_operator_image_patch(build_configuration: OperatorBuildConfiguration):
     )
 
 
+def get_operator_supported_releases() -> List[Dict[str, str]]:
+    """
+    Returns a list of supported releases for the Operator image.
+    """
+    supported_versions = (
+        "https://webhooks.mongodb-realm.com/api/client/v2.0/app/"
+        "kubernetes-release-support-vqqrb/service/"
+        "supported-operator-versions/incoming_webhook/list"
+    )
+
+    return requests.get(supported_versions).json()
+
+
+def build_operator_daily(build_configuration: OperatorBuildConfiguration):
+    """
+    Finds all the supported Operator versions and rebuilds them.
+    """
+    image_name = "operator-daily-build"
+    build_id = datetime.now().strftime("%Y%m%d%H%M%S")
+
+    supported_releases = get_operator_supported_releases()
+    logging.info("Supported releases: {}".format(supported_releases))
+    for releases in supported_releases:
+        logging.info("Rebuilding {}".format(releases["version"]))
+
+        args = dict(build_id=build_id, release_version=releases["version"])
+        try:
+            sonar_build_image(image_name, build_configuration, args)
+        except Exception as e:
+            # Log error and continue
+            logging.error(e)
+
+
 def find_om_in_releases(om_version: str, releases: Dict[str, str]) -> Optional[str]:
     """There are a few alternatives out there that allow for json-path or xpath-type
     traversal of Json objects in Python, I don't have time to look for one of
@@ -318,6 +355,7 @@ def get_builder_function_for_image_name():
     return {
         "operator": build_operator_image,
         "operator-quick": build_operator_image_patch,
+        "operator-daily": build_operator_daily,
         "ops-manager": build_om_image,
     }
 
