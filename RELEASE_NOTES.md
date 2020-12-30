@@ -4,6 +4,7 @@
 ## Kubernetes Operator
 * Bug fixes
   * Fixes an issue where the service-account-name could not be specified in the StatefulSet podSpec override.
+  * Removed unnecessary `delete service` permission from operator role.
 
 ## MongoDB Resource
 * Bug fixes
