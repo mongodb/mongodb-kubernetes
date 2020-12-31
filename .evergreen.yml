@@ -842,6 +842,7 @@ tasks:
         docker_password: ${quay_prod_robot_token}
 
 - name: periodic_build_operator
+  patch_only: true
   commands:
   - func: clone
   - func: setup_building_host
@@ -2674,7 +2675,6 @@ buildvariants:
   expansions:
     skip_tags: ubi
     include_tags: release
-    registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
 
     # old_expansions needed for release_init_quay
     distro: ubuntu
@@ -2695,7 +2695,6 @@ buildvariants:
   expansions:
     skip_tags: ubuntu
     include_tags: release
-    registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
 
     # old_expansions needed for release_init_quay
     distro: ubi
