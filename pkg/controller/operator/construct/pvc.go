@@ -44,13 +44,13 @@ func createClaimsAndMountsMultiModeFunc(persistence *mdbv1.Persistence, defaultC
 	}, mounts
 }
 
-func createClaimsAndMountsSingleModeFunc(config *mdbv1.PersistenceConfig, databaseBuilder DatabaseBuilder) (map[string]persistentvolumeclaim.Modification, []corev1.VolumeMount) {
+func createClaimsAndMountsSingleModeFunc(config *mdbv1.PersistenceConfig, opts DatabaseStatefulSetOptions) (map[string]persistentvolumeclaim.Modification, []corev1.VolumeMount) {
 	mounts := []corev1.VolumeMount{
 		statefulset.CreateVolumeMount(util.PvcNameData, util.PvcMountPathData, statefulset.WithSubPath(util.PvcNameData)),
 		statefulset.CreateVolumeMount(util.PvcNameData, util.PvcMountPathJournal, statefulset.WithSubPath(util.PvcNameJournal)),
 		statefulset.CreateVolumeMount(util.PvcNameData, util.PvcMountPathLogs, statefulset.WithSubPath(util.PvcNameLogs)),
 	}
 	return map[string]persistentvolumeclaim.Modification{
-		util.PvcNameData: pvcFunc(util.PvcNameData, config, *databaseBuilder.GetPodSpec().Default.Persistence.SingleConfig),
+		util.PvcNameData: pvcFunc(util.PvcNameData, config, *opts.PodSpec.Default.Persistence.SingleConfig),
 	}, mounts
 }

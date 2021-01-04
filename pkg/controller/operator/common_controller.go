@@ -268,15 +268,15 @@ func (c *ReconcileCommonController) patchStatusLegacy(resource v1.CustomResource
 }
 
 // getResource populates the provided runtime.Object with some additional error handling
-// Note the logic: any reconcile result different from nil should be considered as "terminal" and will stop reconciliation
+// Note the logic: any reconcileAppDB result different from nil should be considered as "terminal" and will stop reconciliation
 // right away (the pointer will be empty). Otherwise the pointer 'resource' will always reference the existing resource
 func (c *ReconcileCommonController) getResource(request reconcile.Request, resource runtime.Object, log *zap.SugaredLogger) (*reconcile.Result, error) {
 	err := c.client.Get(context.TODO(), request.NamespacedName, resource)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
-			// Request object not found, could have been deleted after reconcile request.
+			// Request object not found, could have been deleted after reconcileAppDB request.
 			// Return and don't requeue
-			log.Debugf("Object %s doesn't exist, was it deleted after reconcile request?", request.NamespacedName)
+			log.Debugf("Object %s doesn't exist, was it deleted after reconcileAppDB request?", request.NamespacedName)
 			return &reconcile.Result{}, nil
 		}
 		// Error reading the object - requeue the request.
@@ -286,8 +286,8 @@ func (c *ReconcileCommonController) getResource(request reconcile.Request, resou
 	return nil, nil
 }
 
-// prepareResourceForReconciliation finds the object being reconciled. Returns pointer to 'reconcile.Status' and error
-// If the 'reconcile.Status' pointer is not nil - the client is expected to finish processing
+// prepareResourceForReconciliation finds the object being reconciled. Returns pointer to 'reconcileAppDB.Status' and error
+// If the 'reconcileAppDB.Status' pointer is not nil - the client is expected to finish processing
 func (c *ReconcileCommonController) prepareResourceForReconciliation(
 	request reconcile.Request, resource v1.CustomResourceReadWriter, log *zap.SugaredLogger) (*reconcile.Result, error) {
 	if result, err := c.getResource(request, resource, log); result != nil {

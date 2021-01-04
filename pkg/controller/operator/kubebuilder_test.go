@@ -39,16 +39,22 @@ import (
 )
 
 func TestBuildStatefulSet_PersistentFlag(t *testing.T) {
-	set, _ := defaultSetHelper().SetPersistence(nil).BuildStatefulSet()
+	mdb := DefaultReplicaSetBuilder().SetPersistent(nil).Build()
+	set, err := construct.DatabaseStatefulSet(*mdb, construct.ReplicaSetOptions())
+	assert.NoError(t, err)
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
 	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 4)
 
-	set, _ = defaultSetHelper().SetPersistence(util.BooleanRef(true)).BuildStatefulSet()
+	mdb = DefaultReplicaSetBuilder().SetPersistent(util.BooleanRef(true)).Build()
+	set, err = construct.DatabaseStatefulSet(*mdb, construct.ReplicaSetOptions())
+	assert.NoError(t, err)
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
 	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 4)
 
 	// If no persistence is set then we still mount init scripts
-	set, _ = defaultSetHelper().SetPersistence(util.BooleanRef(false)).BuildStatefulSet()
+	mdb = DefaultReplicaSetBuilder().SetPersistent(util.BooleanRef(false)).Build()
+	set, err = construct.DatabaseStatefulSet(*mdb, construct.ReplicaSetOptions())
+	assert.NoError(t, err)
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 0)
 	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 1)
 }
@@ -58,8 +64,11 @@ func TestBuildStatefulSet_PersistentFlag(t *testing.T) {
 func TestBuildStatefulSet_PersistentVolumeClaimSingle(t *testing.T) {
 	labels := map[string]string{"app": "foo"}
 	persistence := mdbv1.NewPersistenceBuilder("40G").SetStorageClass("fast").SetLabelSelector(labels)
-	podSpec := mdbv1.NewPodSpecWrapperBuilder().SetSinglePersistence(persistence).Build()
-	set, _ := defaultSetHelper().SetPodSpec(podSpec).BuildStatefulSet()
+	podSpec := mdbv1.NewPodSpecWrapperBuilder().SetSinglePersistence(persistence).Build().MongoDbPodSpec
+	rs := DefaultReplicaSetBuilder().SetPersistent(nil).SetPodSpec(&podSpec).Build()
+	set, err := construct.DatabaseStatefulSet(*rs, construct.ReplicaSetOptions())
+
+	assert.NoError(t, err)
 
 	checkPvClaims(t, set, []corev1.PersistentVolumeClaim{pvClaim(util.PvcNameData, "40G", stringutil.Ref("fast"), labels)})
 
@@ -81,7 +90,10 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultiple(t *testing.T) {
 		mdbv1.NewPersistenceBuilder("3G").SetStorageClass("slow").SetLabelSelector(labels1),
 		mdbv1.NewPersistenceBuilder("500M").SetStorageClass("fast").SetLabelSelector(labels2),
 	).Build()
-	set, _ := defaultSetHelper().SetPodSpec(podSpec).BuildStatefulSet()
+
+	mdb := DefaultReplicaSetBuilder().SetPersistent(nil).SetPodSpec(&podSpec.MongoDbPodSpec).Build()
+	set, err := construct.DatabaseStatefulSet(*mdb, construct.ReplicaSetOptions())
+	assert.NoError(t, err)
 
 	checkPvClaims(t, set, []corev1.PersistentVolumeClaim{
 		pvClaim(util.PvcNameData, "40G", stringutil.Ref("fast"), nil),
@@ -105,7 +117,9 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultipleDefaults(t *testing.T) {
 		nil,
 		nil).
 		Build()
-	set, _ := defaultSetHelper().SetPodSpec(podSpec).BuildStatefulSet()
+	mdb := DefaultReplicaSetBuilder().SetPersistent(nil).SetPodSpec(&podSpec.MongoDbPodSpec).Build()
+	set, err := construct.DatabaseStatefulSet(*mdb, construct.ReplicaSetOptions())
+	assert.NoError(t, err)
 
 	checkPvClaims(t, set, []corev1.PersistentVolumeClaim{
 		pvClaim(util.PvcNameData, "40G", stringutil.Ref("fast"), nil),
@@ -122,7 +136,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultipleDefaults(t *testing.T) {
 }
 
 func TestBuildAppDbStatefulSetDefault(t *testing.T) {
-	appDbSts, err := defaultAppDbSetHelper().BuildAppDbStatefulSet()
+	appDbSts, err := construct.AppDbStatefulSet(DefaultOpsManagerBuilder().Build())
 	assert.NoError(t, err)
 	podSpecTemplate := appDbSts.Spec.Template.Spec
 	assert.Len(t, podSpecTemplate.InitContainers, 1)
@@ -163,10 +177,16 @@ func TestBasePodSpec_Affinity(t *testing.T) {
 		SetPodAffinity(podAffinity).
 		SetPodAntiAffinityTopologyKey("nodeId").
 		Build()
-	setHelper := defaultSetHelper().SetName("s").SetPodSpec(podSpec)
+	mdb := DefaultReplicaSetBuilder().
+		SetName("s").
+		SetPodSpec(&podSpec.MongoDbPodSpec).
+		Build()
+	sts, err := construct.DatabaseStatefulSet(
+		*mdb, construct.ReplicaSetOptions(),
+	)
+	assert.NoError(t, err)
 
-	template := getMongoDBTemplateSpec(*setHelper)
-	spec := template.Spec
+	spec := sts.Spec.Template.Spec
 	assert.Equal(t, nodeAffinity, *spec.Affinity.NodeAffinity)
 	assert.Equal(t, podAffinity, *spec.Affinity.PodAffinity)
 	assert.Len(t, spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution, 1)
@@ -175,19 +195,18 @@ func TestBasePodSpec_Affinity(t *testing.T) {
 	assert.Equal(t, int32(100), term.Weight)
 	assert.Equal(t, map[string]string{PodAntiAffinityLabelKey: "s"}, term.PodAffinityTerm.LabelSelector.MatchLabels)
 	assert.Equal(t, "nodeId", term.PodAffinityTerm.TopologyKey)
-	//assert.Equal(t, "testAccount", spec.ServiceAccountName)
 }
 
 // TestBasePodSpec_AntiAffinityDefaultTopology checks that the default topology key is created if the topology key is
 // not specified
 func TestBasePodSpec_AntiAffinityDefaultTopology(t *testing.T) {
-	helper := defaultSetHelper().SetPodSpec(mdbv1.NewPodSpecWrapperBuilder().Build())
+	sts, err := construct.DatabaseStatefulSet(*DefaultStandaloneBuilder().SetName("my-standalone").Build(), construct.StandaloneOptions())
+	assert.NoError(t, err)
 
-	template := getMongoDBTemplateSpec(*helper)
-	spec := template.Spec
+	spec := sts.Spec.Template.Spec
 	term := spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0]
 	assert.Equal(t, int32(100), term.Weight)
-	assert.Equal(t, map[string]string{PodAntiAffinityLabelKey: "default-sts-name"}, term.PodAffinityTerm.LabelSelector.MatchLabels)
+	assert.Equal(t, map[string]string{PodAntiAffinityLabelKey: "my-standalone"}, term.PodAffinityTerm.LabelSelector.MatchLabels)
 	assert.Equal(t, util.DefaultAntiAffinityTopologyKey, term.PodAffinityTerm.TopologyKey)
 }
 
@@ -197,20 +216,27 @@ func TestBasePodSpec_ImagePullSecrets(t *testing.T) {
 	// Cleaning the state (there is no tear down in go test :( )
 	defer InitDefaultEnvVariables()
 
-	template := getMongoDBTemplateSpec(*defaultSetHelper())
+	sts, err := construct.DatabaseStatefulSet(*DefaultStandaloneBuilder().Build(), construct.StandaloneOptions())
+	assert.NoError(t, err)
+
+	template := sts.Spec.Template
 	assert.Nil(t, template.Spec.ImagePullSecrets)
 
 	_ = os.Setenv(util.ImagePullSecrets, "foo")
 
-	template = getMongoDBTemplateSpec(*defaultSetHelper())
+	sts, err = construct.DatabaseStatefulSet(*DefaultStandaloneBuilder().Build(), construct.StandaloneOptions())
+	assert.NoError(t, err)
+
+	template = sts.Spec.Template
 	assert.Equal(t, []corev1.LocalObjectReference{{Name: "foo"}}, template.Spec.ImagePullSecrets)
 
 }
 
 // TestBasePodSpec_TerminationGracePeriodSeconds verifies that the TerminationGracePeriodSeconds is set to 600 seconds
 func TestBasePodSpec_TerminationGracePeriodSeconds(t *testing.T) {
-	template := getMongoDBTemplateSpec(*defaultSetHelper())
-	assert.Equal(t, util.Int64Ref(600), template.Spec.TerminationGracePeriodSeconds)
+	sts, err := construct.DatabaseStatefulSet(*DefaultReplicaSetBuilder().Build(), construct.ReplicaSetOptions())
+	assert.NoError(t, err)
+	assert.Equal(t, util.Int64Ref(600), sts.Spec.Template.Spec.TerminationGracePeriodSeconds)
 }
 
 func checkPvClaims(t *testing.T, set appsv1.StatefulSet, expectedClaims []corev1.PersistentVolumeClaim) {
@@ -250,18 +276,20 @@ func pvClaim(pvName, size string, storageClass *string, labels map[string]string
 func TestDefaultPodSpec_FsGroup(t *testing.T) {
 	defer InitDefaultEnvVariables()
 
-	podSpecTemplate := getMongoDBTemplateSpec(*defaultSetHelper())
-	spec := podSpecTemplate.Spec
+	sts, err := construct.DatabaseStatefulSet(*DefaultStandaloneBuilder().Build(), construct.StandaloneOptions())
+	assert.NoError(t, err)
+
+	spec := sts.Spec.Template.Spec
 	assert.Len(t, spec.InitContainers, 1)
 	require.NotNil(t, spec.SecurityContext)
 	assert.Equal(t, util.Int64Ref(util.FsGroup), spec.SecurityContext.FSGroup)
 
 	_ = os.Setenv(util.ManagedSecurityContextEnv, "true")
 
-	podSpecTemplate = getMongoDBTemplateSpec(*defaultSetHelper())
-	assert.Nil(t, podSpecTemplate.Spec.SecurityContext)
+	sts, err = construct.DatabaseStatefulSet(*DefaultStandaloneBuilder().Build(), construct.StandaloneOptions())
+	assert.NoError(t, err)
+	assert.Nil(t, sts.Spec.Template.Spec.SecurityContext)
 	// TODO: assert the container security context
-
 }
 
 func TestPodSpec_Requirements(t *testing.T) {
@@ -272,10 +300,10 @@ func TestPodSpec_Requirements(t *testing.T) {
 		SetMemory("1012M").
 		Build()
 
-	setHelper := defaultSetHelper().SetPodSpec(podSpec)
+	sts, err := construct.DatabaseStatefulSet(*DefaultReplicaSetBuilder().SetPodSpec(&podSpec.MongoDbPodSpec).Build(), construct.ReplicaSetOptions())
+	assert.NoError(t, err)
 
-	podSpecTemplate := getMongoDBTemplateSpec(*setHelper)
-
+	podSpecTemplate := sts.Spec.Template
 	container := podSpecTemplate.Spec.Containers[0]
 	expectedLimits := corev1.ResourceList{corev1.ResourceCPU: construct.ParseQuantityOrZero("0.3"), corev1.ResourceMemory: construct.ParseQuantityOrZero("1012M")}
 	expectedRequests := corev1.ResourceList{corev1.ResourceCPU: construct.ParseQuantityOrZero("0.1"), corev1.ResourceMemory: construct.ParseQuantityOrZero("512M")}
@@ -758,9 +786,10 @@ func TestAgentFlags(t *testing.T) {
 		"Key2": "Value2",
 	}
 
-	stsHelper := defaultSetHelper().SetStartupParameters(agentStartupParameters)
-	envVars := construct.DatabaseStatefulSet(stsHelper)
-	variablesMap := envVariablesAsMap(envVars.Spec.Template.Spec.Containers[0].Env...)
+	mdb := mdbv1.NewReplicaSetBuilder().SetAgentConfig(mdbv1.AgentConfig{StartupParameters: agentStartupParameters}).Build()
+	sts, err := construct.DatabaseStatefulSet(*mdb, construct.ReplicaSetOptions())
+	assert.NoError(t, err)
+	variablesMap := envVariablesAsMap(sts.Spec.Template.Spec.Containers[0].Env...)
 	val, ok := variablesMap["AGENT_FLAGS"]
 	assert.True(t, ok)
 	assert.Contains(t, val, "-Key1,Value1", "-Key2,Value2")
@@ -772,9 +801,13 @@ func TestAppDBAgentFlags(t *testing.T) {
 		"Key1": "Value1",
 		"Key2": "Value2",
 	}
-	stsHelper := defaultAppDbSetHelper().SetStartupParameters(agentStartupParameters)
-	envVars := construct.AppDbStatefulSet(stsHelper)
-	variablesMap := envVariablesAsMap(envVars.Spec.Template.Spec.Containers[0].Env...)
+
+	om := DefaultOpsManagerBuilder().Build()
+	om.Spec.AppDB.MongoDbSpec.Agent.StartupParameters = agentStartupParameters
+	sts, err := construct.AppDbStatefulSet(om)
+	assert.NoError(t, err)
+
+	variablesMap := envVariablesAsMap(sts.Spec.Template.Spec.Containers[0].Env...)
 	val, ok := variablesMap["AGENT_FLAGS"]
 	assert.True(t, ok)
 	assert.Contains(t, val, "-Key1,Value1", "-Key2,Value2")
@@ -799,12 +832,6 @@ func defaultSetHelper() *StatefulSetHelper {
 				Modes: []string{},
 			},
 		})
-}
-
-// defaultAppDbSetHelper builds the default statefulset helper for appdb from Ops Manager resource
-func defaultAppDbSetHelper() *StatefulSetHelper {
-	om := DefaultOpsManagerBuilder().Build()
-	return NewStatefulSetHelper(&om).SetPodVars(&env.PodEnvVars{})
 }
 
 func omSetHelperFromResource(om omv1.MongoDBOpsManager) OpsManagerStatefulSetHelper {
@@ -871,10 +898,6 @@ func buildSafeResourceList(cpu, memory string) corev1.ResourceList {
 
 func getOpsManagerTemplateSpec(helper OpsManagerStatefulSetHelper) corev1.PodTemplateSpec {
 	return construct.OpsManagerStatefulSet(helper).Spec.Template
-}
-
-func getMongoDBTemplateSpec(helper StatefulSetHelper) corev1.PodTemplateSpec {
-	return construct.DatabaseStatefulSet(helper).Spec.Template
 }
 
 func envVariablesAsMap(vars ...corev1.EnvVar) map[string]string {

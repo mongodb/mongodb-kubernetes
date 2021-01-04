@@ -3,6 +3,7 @@ package operator
 import (
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/pem"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/connection"
@@ -146,11 +147,12 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		return r.updateStatus(s, workflow.Failed(err.Error()), log)
 	}
 
+	podVars := newPodVars(conn, projectConfig, s.Spec.ConnectionSpec)
 	standaloneBuilder := NewStatefulSetHelper(s).
 		SetReplicas(1).
 		SetService(s.ServiceName()).
 		SetServicePort(s.Spec.AdditionalMongodConfig.GetPortOrDefault()).
-		SetPodVars(newPodVars(conn, projectConfig, s.Spec.ConnectionSpec)).
+		SetPodVars(podVars).
 		SetStartupParameters(s.Spec.Agent.StartupParameters).
 		SetLogger(log).
 		SetTLS(s.Spec.GetTLSConfig()).
@@ -176,16 +178,22 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		return r.updateStatus(s, status, log)
 	}
 
+	sts, err := construct.DatabaseStatefulSet(*s,
+		construct.StandaloneOptions(),
+		CertificateHash(pem.ReadHashFromSecret(r.client, s.Namespace, s.Name, log)),
+		CurrentAgentAuthMechanism(currentAgentAuthMode),
+		PodEnvVars(podVars),
+	)
+	if err != nil {
+		return r.updateStatus(s, workflow.Failed("Failed to create/update (Ops Manager reconciliation phase): %s", err.Error()), log)
+	}
+
 	status := runInGivenOrder(standaloneBuilder.needToPublishStateFirst(r.client, log),
 		func() workflow.Status {
-			sts, err := standaloneBuilder.BuildStatefulSet()
-			if err != nil {
-				return workflow.Failed("Failed to create/update (Ops Manager reconciliation phase): %s", err.Error())
-			}
 			return r.updateOmDeployment(conn, s, sts, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
-			if err = standaloneBuilder.CreateOrUpdateInKubernetes(r.client, r.client); err != nil {
+			if err = standaloneBuilder.CreateOrUpdateInKubernetes(r.client, r.client, sts); err != nil {
 				return workflow.Failed("Failed to create/update (Kubernetes reconciliation phase): %s", err.Error())
 			}
 

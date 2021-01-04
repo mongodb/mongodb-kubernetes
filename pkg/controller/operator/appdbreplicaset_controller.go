@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 
 	"github.com/blang/semver"
@@ -121,7 +122,15 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 	// TODO: configure once StatefulSetConfiguration is supported for appDb
 	//SetStatefulSetConfiguration(opsManager.Spec.AppDB.StatefulSetConfiguration)
 
-	if workflowStatus := r.doReconcile(*opsManager, replicaBuilder, opsManagerUserPassword, log); !workflowStatus.IsOK() {
+	appDbSts, err := construct.AppDbStatefulSet(*opsManager,
+		PodEnvVars(&podVars),
+	)
+
+	if err != nil {
+		return r.updateStatus(opsManager, workflow.Failed(err.Error()), log, appDbStatusOption)
+	}
+
+	if workflowStatus := r.reconcileAppDB(*opsManager, replicaBuilder, opsManagerUserPassword, appDbSts, log); !workflowStatus.IsOK() {
 		return r.updateStatus(opsManager, workflowStatus, log, appDbStatusOption)
 	}
 
@@ -142,17 +151,13 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 	return r.updateStatus(opsManager, workflow.OK(), log, appDbStatusOption, scale.MembersOption(opsManager))
 }
 
-// doReconcile performs the reconciliation for the AppDB: update the AutomationConfig Secret if necessary and
+// reconcileAppDB performs the reconciliation for the AppDB: update the AutomationConfig Secret if necessary and
 // update the StatefulSet. It does it in the necessary order depending on the changes to the spec
-func (r *ReconcileAppDbReplicaSet) doReconcile(opsManager omv1.MongoDBOpsManager, replicaBuilder StatefulSetHelper, opsManagerUserPassword string, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsManager, replicaBuilder StatefulSetHelper, opsManagerUserPassword string, appDbSts appsv1.StatefulSet, log *zap.SugaredLogger) workflow.Status {
 	rs := opsManager.Spec.AppDB
-	appDbSts, err := replicaBuilder.BuildAppDbStatefulSet()
-	if err != nil {
-		return workflow.Failed(err.Error())
-	}
 	automationConfigFirst := true
 	// The only case when we push the StatefulSet first is when we are ensuring TLS for the already existing AppDB
-	_, err = r.client.GetStatefulSet(kube.ObjectKey(replicaBuilder.GetNamespace(), replicaBuilder.GetName()))
+	_, err := r.client.GetStatefulSet(kube.ObjectKey(replicaBuilder.GetNamespace(), replicaBuilder.GetName()))
 	if err == nil && opsManager.Spec.AppDB.GetSecurity().TLSConfig.IsEnabled() {
 		automationConfigFirst = false
 	}
@@ -161,7 +166,7 @@ func (r *ReconcileAppDbReplicaSet) doReconcile(opsManager omv1.MongoDBOpsManager
 			return r.deployAutomationConfig(opsManager, rs, opsManagerUserPassword, appDbSts, log)
 		},
 		func() workflow.Status {
-			return r.deployStatefulSet(opsManager, replicaBuilder)
+			return r.deployStatefulSet(opsManager, replicaBuilder, appDbSts)
 		})
 }
 
@@ -582,8 +587,8 @@ func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(opsManager omv1.MongoD
 }
 
 // deployStatefulSet updates the StatefulSet spec and returns its status (if it's ready or not)
-func (r *ReconcileAppDbReplicaSet) deployStatefulSet(opsManager omv1.MongoDBOpsManager, replicaBuilder StatefulSetHelper) workflow.Status {
-	if err := replicaBuilder.CreateOrUpdateAppDBInKubernetes(r.client, r.client); err != nil {
+func (r *ReconcileAppDbReplicaSet) deployStatefulSet(opsManager omv1.MongoDBOpsManager, replicaBuilder StatefulSetHelper, appDbSts appsv1.StatefulSet) workflow.Status {
+	if err := replicaBuilder.CreateOrUpdateAppDBInKubernetes(r.client, r.client, appDbSts); err != nil {
 		return workflow.Failed(err.Error())
 	}
 

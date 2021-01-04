@@ -5,6 +5,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 	appsv1 "k8s.io/api/apps/v1"
@@ -66,9 +68,7 @@ func InitDefaultEnvVariables() {
 
 func TestCreateProcessesWiredTigerCache(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().SetVersion("4.0.0").Build()
-
-	setHelper := defaultSetHelper().SetReplicas(3)
-	set, _ := setHelper.BuildStatefulSet()
+	set, _ := construct.DatabaseStatefulSet(*rs, construct.ReplicaSetOptions())
 	processes := createMongodProcesses(set, rs)
 
 	assert.Len(t, processes, 3)
@@ -77,9 +77,9 @@ func TestCreateProcessesWiredTigerCache(t *testing.T) {
 		assert.Nil(t, p.WiredTigerCache())
 	}
 
-	setHelper.SetPodSpec(mdbv1.NewPodSpecWrapperBuilder().SetMemory("3G").Build())
+	rs.Spec.PodSpec = &mdbv1.NewPodSpecWrapperBuilder().SetMemory("3G").Build().MongoDbPodSpec
 
-	set, _ = setHelper.BuildStatefulSet()
+	set, _ = construct.DatabaseStatefulSet(*rs, construct.ReplicaSetOptions())
 	processes = createMongodProcesses(set, rs)
 
 	assert.Len(t, processes, 3)
@@ -90,36 +90,49 @@ func TestCreateProcessesWiredTigerCache(t *testing.T) {
 }
 
 func TestWiredTigerCacheConversion(t *testing.T) {
-	set, _ := defaultSetHelper().SetPodSpec(mdbv1.NewPodSpecWrapperBuilder().SetMemory("1800M").Build()).BuildStatefulSet()
+
+	set, err := construct.DatabaseStatefulSet(*DefaultReplicaSetBuilder().SetPodSpec(&mdbv1.NewPodSpecWrapperBuilder().SetMemory("1800M").Build().MongoDbPodSpec).Build(), construct.ReplicaSetOptions())
+	assert.NoError(t, err)
 	assert.Equal(t, float32(0.4), *calculateWiredTigerCache(set, "4.0.0"))
 
-	set, _ = defaultSetHelper().SetPodSpec(mdbv1.NewPodSpecWrapperBuilder().SetMemory("2900M").Build()).BuildStatefulSet()
+	set, err = construct.DatabaseStatefulSet(*DefaultReplicaSetBuilder().SetPodSpec(&mdbv1.NewPodSpecWrapperBuilder().SetMemory("2900M").Build().MongoDbPodSpec).Build(), construct.ReplicaSetOptions())
+	assert.NoError(t, err)
 	assert.Equal(t, float32(0.95), *calculateWiredTigerCache(set, "4.0.4"))
 
-	set, _ = defaultSetHelper().SetPodSpec(mdbv1.NewPodSpecWrapperBuilder().SetMemory("32G").Build()).BuildStatefulSet()
+	set, err = construct.DatabaseStatefulSet(*DefaultReplicaSetBuilder().SetPodSpec(&mdbv1.NewPodSpecWrapperBuilder().SetMemory("32G").Build().MongoDbPodSpec).Build(), construct.ReplicaSetOptions())
+	assert.NoError(t, err)
 	assert.Equal(t, float32(15.5), *calculateWiredTigerCache(set, "3.6.5"))
 
-	set, _ = defaultSetHelper().SetPodSpec(mdbv1.NewPodSpecWrapperBuilder().SetMemory("55.832G").Build()).BuildStatefulSet()
+	set, err = construct.DatabaseStatefulSet(*DefaultReplicaSetBuilder().SetPodSpec(&mdbv1.NewPodSpecWrapperBuilder().SetMemory("55.832G").Build().MongoDbPodSpec).Build(), construct.ReplicaSetOptions())
+	assert.NoError(t, err)
 	assert.Equal(t, float32(27.416), *calculateWiredTigerCache(set, "3.6.12"))
 
-	set, _ = defaultSetHelper().SetPodSpec(mdbv1.NewPodSpecWrapperBuilder().SetMemory("181G").Build()).BuildStatefulSet()
+	set, err = construct.DatabaseStatefulSet(*DefaultReplicaSetBuilder().SetPodSpec(&mdbv1.NewPodSpecWrapperBuilder().SetMemory("181G").Build().MongoDbPodSpec).Build(), construct.ReplicaSetOptions())
+	assert.NoError(t, err)
 	assert.Equal(t, float32(90.0), *calculateWiredTigerCache(set, "3.4.10"))
 
 	// We round fractional part to two digits, here 256M were rounded to 0.26G
-	set, _ = defaultSetHelper().SetPodSpec(mdbv1.NewPodSpecWrapperBuilder().SetMemory("300.65Mi").Build()).BuildStatefulSet()
+
+	set, err = construct.DatabaseStatefulSet(*DefaultReplicaSetBuilder().SetPodSpec(&mdbv1.NewPodSpecWrapperBuilder().SetMemory("300.65Mi").Build().MongoDbPodSpec).Build(), construct.ReplicaSetOptions())
+	assert.NoError(t, err)
 	assert.Equal(t, float32(0.256), *calculateWiredTigerCache(set, "4.0.8"))
 
-	set, _ = defaultSetHelper().SetPodSpec(mdbv1.NewPodSpecWrapperBuilder().SetMemory("0G").Build()).BuildStatefulSet()
+	set, err = construct.DatabaseStatefulSet(*DefaultReplicaSetBuilder().SetPodSpec(&mdbv1.NewPodSpecWrapperBuilder().SetMemory("0G").Build().MongoDbPodSpec).Build(), construct.ReplicaSetOptions())
+	assert.NoError(t, err)
 	assert.Nil(t, calculateWiredTigerCache(set, "4.0.0"))
 
 	// We don't calculate wired tiger cache for latest versions of mongodb
-	set, _ = defaultSetHelper().SetPodSpec(mdbv1.NewPodSpecWrapperBuilder().SetMemory("32G").Build()).BuildStatefulSet()
+
+	set, err = construct.DatabaseStatefulSet(*DefaultReplicaSetBuilder().SetPodSpec(&mdbv1.NewPodSpecWrapperBuilder().SetMemory("32G").Build().MongoDbPodSpec).Build(), construct.ReplicaSetOptions())
+	assert.NoError(t, err)
 	assert.Nil(t, calculateWiredTigerCache(set, "4.2.0"))
 
-	set, _ = defaultSetHelper().SetPodSpec(mdbv1.NewPodSpecWrapperBuilder().SetMemory("32G").Build()).BuildStatefulSet()
+	set, err = construct.DatabaseStatefulSet(*DefaultReplicaSetBuilder().SetPodSpec(&mdbv1.NewPodSpecWrapperBuilder().SetMemory("32G").Build().MongoDbPodSpec).Build(), construct.ReplicaSetOptions())
+	assert.NoError(t, err)
 	assert.Nil(t, calculateWiredTigerCache(set, "4.0.9"))
 
-	set, _ = defaultSetHelper().SetPodSpec(mdbv1.NewPodSpecWrapperBuilder().SetMemory("32G").Build()).BuildStatefulSet()
+	set, err = construct.DatabaseStatefulSet(*DefaultReplicaSetBuilder().SetPodSpec(&mdbv1.NewPodSpecWrapperBuilder().SetMemory("32G").Build().MongoDbPodSpec).Build(), construct.ReplicaSetOptions())
+	assert.NoError(t, err)
 	assert.Nil(t, calculateWiredTigerCache(set, "3.6.13"))
 }
 

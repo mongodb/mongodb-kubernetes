@@ -530,7 +530,7 @@ func TestX509CannotBeEnabled_WhenThereAreBothTlsAndNonTlsDeployments_ReplicaSet(
 	projectController := newProjectReconciler(manager, connectionFunc)
 	projectResult, projectErr := projectController.Reconcile(requestFromObject(cMap))
 
-	expected := reconcile.Result{RequeueAfter: time.Second * 10}
+	expected := reconcileAppDB.Result{RequeueAfter: time.Second * 10}
 	assert.Nil(t, projectErr, "it should not be possible to enable x509 at the project level when not all deployments are tls enabled")
 	assert.Equal(t, expectedResult, projectResult, "the request should have been requeued")
 
@@ -566,7 +566,7 @@ func TestX509CannotBeEnabled_WhenThereAreBothTlsAndNonTlsDeployments_ShardedClus
 	projectController := newProjectReconciler(manager, connectionFunc)
 	projectResult, projectErr := projectController.Reconcile(requestFromObject(cMap))
 
-	expected := reconcile.Result{RequeueAfter: time.Second * 10}
+	expected := reconcileAppDB.Result{RequeueAfter: time.Second * 10}
 	assert.Nil(t, projectErr, "it should not be possible to enable x509 at the project level when not all deployments are tls enabled")
 	assert.Equal(t, expectedResult, projectResult, "the request should have been requeued")
 

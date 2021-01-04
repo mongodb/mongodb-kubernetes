@@ -39,29 +39,6 @@ const (
 	CaCertName = "ca-cert-volume"
 )
 
-// buildStatefulSet builds the StatefulSet of pods containing agent containers. It's a general function used by
-// all the types of mongodb deployment resources.
-// This is a convenience method to pass all attributes inside a "parameters" object which is easier to
-// build in client code and avoid passing too many different parameters to `buildStatefulSet`.
-func buildStatefulSet(p StatefulSetHelper) (appsv1.StatefulSet, error) {
-	sts := construct.DatabaseStatefulSet(p)
-	if p.PodSpec != nil && p.PodSpec.PodTemplate != nil {
-		return enterprisests.MergeSpec(sts, &appsv1.StatefulSetSpec{Template: *p.PodSpec.PodTemplate})
-	}
-	return sts, nil
-}
-
-// buildAppDbStatefulSet builds the StatefulSet for AppDB.
-// It's mostly the same as the normal MongoDB one but has slightly different container and an additional mounting volume
-func buildAppDbStatefulSet(p StatefulSetHelper) (appsv1.StatefulSet, error) {
-	sts := construct.AppDbStatefulSet(p)
-	// This merge should be included in the above function call
-	if p.PodSpec != nil && p.PodSpec.PodTemplate != nil {
-		return enterprisests.MergeSpec(sts, &appsv1.StatefulSetSpec{Template: *p.PodSpec.PodTemplate})
-	}
-	return sts, nil
-}
-
 // buildOpsManagerStatefulSet builds the StatefulSet for Ops Manager
 func buildOpsManagerStatefulSet(p OpsManagerStatefulSetHelper) (appsv1.StatefulSet, error) {
 	sts := construct.OpsManagerStatefulSet(p)

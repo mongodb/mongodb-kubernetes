@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
@@ -26,10 +28,9 @@ import (
 
 func TestStatefulsetCreationSuccessful(t *testing.T) {
 	start := time.Now()
-	helper := defaultSetHelper()
+	mdb := DefaultReplicaSetBuilder().Build()
 
-	client := mock.NewClient()
-	err := helper.CreateOrUpdateInKubernetes(client, client)
+	_, err := construct.DatabaseStatefulSet(*mdb, construct.ReplicaSetOptions())
 	assert.NoError(t, err)
 	assert.True(t, time.Now().Sub(start) < time.Second*4) // we waited only a little (considering 2 seconds of wait as well)
 }
@@ -155,14 +156,29 @@ func TestSSLOptionsArePassedCorrectly_UseCustomCAConfigMap(t *testing.T) {
 }
 
 func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
-	defer InitDefaultEnvVariables()
-	client := mock.NewClient()
-	os.Setenv(util.AutomationAgentImage, "")
-	assert.Panics(t, func() { defaultSetHelper().CreateOrUpdateInKubernetes(client, client) })
-	InitDefaultEnvVariables()
+	t.Run("Empty Agent Image", func(t *testing.T) {
+		defer InitDefaultEnvVariables()
+		os.Setenv(util.AutomationAgentImage, "")
+		rs := DefaultReplicaSetBuilder().Build()
+		assert.Panics(t, func() {
+			construct.DatabaseStatefulSet(*rs, construct.ReplicaSetOptions())
+		})
+	})
 
-	os.Setenv(util.AutomationAgentImagePullPolicy, "")
-	assert.Panics(t, func() { defaultSetHelper().CreateOrUpdateInKubernetes(client, client) })
+	t.Run("Empty Image Pull Policy", func(t *testing.T) {
+		defer InitDefaultEnvVariables()
+		os.Setenv(util.AutomationAgentImagePullPolicy, "")
+		sc := DefaultClusterBuilder().Build()
+		assert.Panics(t, func() {
+			construct.DatabaseStatefulSet(*sc, construct.ShardOptions(0))
+		})
+		assert.Panics(t, func() {
+			construct.DatabaseStatefulSet(*sc, construct.ConfigServerOptions())
+		})
+		assert.Panics(t, func() {
+			construct.DatabaseStatefulSet(*sc, construct.MongosOptions())
+		})
+	})
 }
 
 // TestComputeSecret_CreateNew checks the "create" features of 'ensureAutomationConfigSecret' function when the secret is created

@@ -153,6 +153,11 @@ func (b *MongoDBBuilder) SetConnectionSpec(spec ConnectionSpec) *MongoDBBuilder 
 	return b
 }
 
+func (b *MongoDBBuilder) SetAgentConfig(agentOptions AgentConfig) *MongoDBBuilder {
+	b.mdb.Spec.Agent = agentOptions
+	return b
+}
+
 func (b *MongoDBBuilder) Build() *MongoDB {
 	b.mdb.InitDefaults()
 	return b.mdb.DeepCopy()

@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/watch"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -23,11 +25,12 @@ import (
 )
 
 func TestCreateOmProcess(t *testing.T) {
-	sts, _ := defaultSetHelper().SetName("dublin").BuildStatefulSet()
+	sts, err := construct.DatabaseStatefulSet(*DefaultReplicaSetBuilder().SetName("dublin").Build(), construct.StandaloneOptions())
+	assert.NoError(t, err)
 	process := createProcess(sts, DefaultStandaloneBuilder().Build())
 	// Note, that for standalone the name of process is the name of statefulset - not the pod inside it.
 	assert.Equal(t, "dublin", process.Name())
-	assert.Equal(t, "dublin-0.test-service.my-namespace.svc.cluster.local", process.HostName())
+	assert.Equal(t, "dublin-0.dublin-svc.my-namespace.svc.cluster.local", process.HostName())
 	assert.Equal(t, "4.0.0", process.Version())
 }
 
@@ -197,7 +200,7 @@ func TestStandalone_ConfigMapAndSecretWatched(t *testing.T) {
 
 // defaultStandaloneReconciler is the standalone reconciler used in unit test. It "adds" necessary
 // additional K8s objects (st, connection config map and secrets) necessary for reconciliation
-// so it's possible to call 'reconcile()' on it right away
+// so it's possible to call 'reconcileAppDB()' on it right away
 func defaultStandaloneReconciler(rs *mdbv1.MongoDB) (*ReconcileMongoDbStandalone, *mock.MockedClient) {
 	manager := mock.NewManager(rs)
 	manager.Client.AddDefaultMdbConfigResources()
@@ -267,17 +270,11 @@ func (b *StandaloneBuilder) Build() *mdbv1.MongoDB {
 }
 
 func createDeploymentFromStandalone(st *mdbv1.MongoDB) om.Deployment {
-	helper := createStatefulHelperFromStandalone(st)
-
 	d := om.NewDeployment()
-	sts, _ := helper.BuildStatefulSet()
+	sts, _ := construct.DatabaseStatefulSet(*st, construct.StandaloneOptions())
 	hostnames, _ := util.GetDnsForStatefulSet(sts, st.Spec.GetClusterDomain())
 	process := om.NewMongodProcess(st.Name, hostnames[0], st.Spec.AdditionalMongodConfig, st)
 	d.MergeStandalone(process, nil)
 	d.AddMonitoringAndBackup(zap.S(), st.Spec.GetTLSConfig().IsEnabled())
 	return d
-}
-
-func createStatefulHelperFromStandalone(sh *mdbv1.MongoDB) *StatefulSetHelper {
-	return defaultSetHelper().SetName(sh.Name).SetService(sh.ServiceName()).SetReplicas(1)
 }

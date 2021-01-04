@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/backup"
 	"github.com/google/uuid"
 
@@ -459,7 +461,7 @@ func TestBackupConfiguration_ReplicaSet(t *testing.T) {
 		SetNamespace(mock.TestNamespace).
 		SetConnectionSpec(testConnectionSpec()).
 		SetBackup(mdbv1.Backup{
-			Mode:       "enabled",
+			Mode: "enabled",
 		}).
 		Build()
 
@@ -535,7 +537,7 @@ func assertCorrectNumberOfMembersAndProcesses(t *testing.T, expected int, mdb *m
 
 // defaultReplicaSetReconciler is the replica set reconciler used in unit test. It "adds" necessary
 // additional K8s objects (rs, connection config map and secrets) necessary for reconciliation
-// so it's possible to call 'reconcile()' on it right away
+// so it's possible to call 'reconcileAppDB()' on it right away
 func defaultReplicaSetReconciler(rs *mdbv1.MongoDB) (*ReconcileMongoDbReplicaSet, *mock.MockedClient) {
 	return replicaSetReconcilerWithConnection(rs, om.NewEmptyMockedOmConnection)
 }
@@ -592,6 +594,12 @@ func (b *ReplicaSetBuilder) SetPersistent(p *bool) *ReplicaSetBuilder {
 	b.Spec.Persistent = p
 	return b
 }
+
+func (b *ReplicaSetBuilder) SetPodSpec(podSpec *mdbv1.MongoDbPodSpec) *ReplicaSetBuilder {
+	b.Spec.PodSpec = podSpec
+	return b
+}
+
 func (b *ReplicaSetBuilder) SetMembers(m int) *ReplicaSetBuilder {
 	b.Spec.Members = m
 	return b
@@ -698,9 +706,7 @@ func (b *ReplicaSetBuilder) Build() *mdbv1.MongoDB {
 }
 
 func createDeploymentFromReplicaSet(rs *mdbv1.MongoDB) om.Deployment {
-	helper := createStatefulHelperFromReplicaSet(rs)
-
-	sts, _ := helper.BuildStatefulSet()
+	sts, _ := construct.DatabaseStatefulSet(*rs, construct.ReplicaSetOptions())
 	d := om.NewDeployment()
 	d.MergeReplicaSet(
 		buildReplicaSetFromStatefulSet(sts, rs),
@@ -709,12 +715,4 @@ func createDeploymentFromReplicaSet(rs *mdbv1.MongoDB) om.Deployment {
 	d.AddMonitoringAndBackup(zap.S(), rs.Spec.GetTLSConfig().IsEnabled())
 	d.ConfigureTLS(rs.Spec.GetTLSConfig())
 	return d
-}
-
-func createStatefulHelperFromReplicaSet(sh *mdbv1.MongoDB) *StatefulSetHelper {
-	return defaultSetHelper().
-		SetName(sh.Name).
-		SetService(sh.ServiceName()).
-		SetReplicas(sh.Spec.Members).
-		SetSecurity(sh.Spec.Security)
 }

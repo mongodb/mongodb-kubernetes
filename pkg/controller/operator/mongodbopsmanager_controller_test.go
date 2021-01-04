@@ -6,8 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/apierror"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
@@ -447,19 +445,6 @@ func DefaultOpsManagerBuilder() *omv1.OpsManagerBuilder {
 	}
 	resource := omv1.MongoDBOpsManager{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "test-om", Namespace: mock.TestNamespace}}
 	return omv1.NewOpsManagerBuilderFromResource(resource)
-}
-
-func BuildTestStatefulSet(opsManager omv1.MongoDBOpsManager) (appsv1.StatefulSet, error) {
-	rs := opsManager.Spec.AppDB
-	return NewStatefulSetHelper(&opsManager).
-		SetName(rs.Name()).
-		SetService(rs.ServiceName()).
-		SetPodSpec(NewDefaultPodSpecWrapper(*rs.PodSpec)).
-		SetPodVars(&env.PodEnvVars{}). // TODO remove
-		SetClusterName(opsManager.ClusterName).
-		SetVersion(opsManager.Spec.Version).
-		SetContainerName(util.DatabaseContainerName).
-		BuildStatefulSet()
 }
 
 type MockedInitializer struct {

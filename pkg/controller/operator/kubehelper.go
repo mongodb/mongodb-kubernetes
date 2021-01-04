@@ -498,31 +498,9 @@ func (s *StatefulSetHelper) SetStatefulSetConfiguration(stsConfiguration *mdbv1.
 	return s
 }
 
-func (s StatefulSetHelper) BuildStatefulSet() (appsv1.StatefulSet, error) {
-	sts, err := buildStatefulSet(s)
-
-	if err != nil {
-		return appsv1.StatefulSet{}, fmt.Errorf("error building %s StatefulSet: %v", s.Name, err)
-	}
-	return sts, nil
-}
-
-func (s StatefulSetHelper) BuildAppDbStatefulSet() (appsv1.StatefulSet, error) {
-	sts, err := buildAppDbStatefulSet(s)
-	if err != nil {
-		return appsv1.StatefulSet{}, fmt.Errorf("error building %s StatefulSet: %v", s.Name, err)
-	}
-	return sts, nil
-}
-
 // CreateOrUpdateInKubernetes creates (updates if it exists) the StatefulSet with its Service.
 // It returns any errors coming from Kubernetes API.
-func (s StatefulSetHelper) CreateOrUpdateInKubernetes(stsGetUpdateCreator statefulset.GetUpdateCreator, serviceGetUpdateCreator service.GetUpdateCreator) error {
-	sts, err := s.BuildStatefulSet()
-	if err != nil {
-		return fmt.Errorf("error building stateful set: %v", err)
-	}
-
+func (s StatefulSetHelper) CreateOrUpdateInKubernetes(stsGetUpdateCreator statefulset.GetUpdateCreator, serviceGetUpdateCreator service.GetUpdateCreator, sts appsv1.StatefulSet) error {
 	set, err := enterprisests.CreateOrUpdateStatefulset(stsGetUpdateCreator,
 		s.Namespace,
 		s.Logger,
@@ -697,12 +675,7 @@ func (s BackupStatefulSetHelper) CreateOrUpdateInKubernetes(stsGetUpdateCreator 
 }
 
 // CreateOrUpdateAppDBInKubernetes creates the StatefulSet specific for AppDB.
-func (s *StatefulSetHelper) CreateOrUpdateAppDBInKubernetes(stsGetUpdateCreator statefulset.GetUpdateCreator, serviceGetUpdateCreator service.GetUpdateCreator) error {
-	appDbSts, err := s.BuildAppDbStatefulSet()
-	if err != nil {
-		return fmt.Errorf("error building stateful set: %v", err)
-	}
-
+func (s *StatefulSetHelper) CreateOrUpdateAppDBInKubernetes(stsGetUpdateCreator statefulset.GetUpdateCreator, serviceGetUpdateCreator service.GetUpdateCreator, appDbSts appsv1.StatefulSet) error {
 	set, err := enterprisests.CreateOrUpdateStatefulset(stsGetUpdateCreator,
 		s.Namespace,
 		s.Logger,

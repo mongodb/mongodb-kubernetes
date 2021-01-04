@@ -6,7 +6,11 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/scale"
+
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
+	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
@@ -39,8 +43,7 @@ const (
 
 // AppDbStatefulSet fully constructs the AppDb StatefulSet that is ready to be sent to the Kubernetes API server.
 // A list of optional configuration options can be provided to make any modifications that are required.
-// TODO: this will be AppDbStatefulSet in the next PR
-func AppDbStatefulSetNew(opsManager om.MongoDBOpsManager, opts ...func(options *DatabaseStatefulSetOptions)) (appsv1.StatefulSet, error) {
+func AppDbStatefulSet(opsManager om.MongoDBOpsManager, opts ...func(options *DatabaseStatefulSetOptions)) (appsv1.StatefulSet, error) {
 	appDb := opsManager.Spec.AppDB
 
 	// Providing the default size of pod as otherwise sometimes the agents in pod complain about not enough memory
@@ -49,7 +52,7 @@ func AppDbStatefulSetNew(opsManager om.MongoDBOpsManager, opts ...func(options *
 	appdbPodSpec := newDefaultPodSpecWrapper(*appDb.PodSpec)
 	appdbPodSpec.Default.MemoryRequests = util.DefaultMemoryAppDB
 
-	_ = DatabaseStatefulSetOptions{
+	stsOpts := DatabaseStatefulSetOptions{
 		Replicas:       scale.ReplicasThisReconciliation(&opsManager),
 		Name:           appDb.Name(),
 		ServiceName:    appDb.ServiceName(),
@@ -60,18 +63,33 @@ func AppDbStatefulSetNew(opsManager om.MongoDBOpsManager, opts ...func(options *
 		AgentConfig:    appDb.MongoDbSpec.Agent,
 	}
 
-	// TODO: future PR
-	return appsv1.StatefulSet{}, nil
+	// TODO: temporary way of using the same function to build both appdb and databaes
+	// this will be cleaned up in a future PR
+	mdb := mdbv1.MongoDB{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      appDb.Name(),
+			Namespace: appDb.Namespace,
+		},
+		Spec: appDb.MongoDbSpec,
+	}
+
+	dbSts := appDbDatabaseStatefulSet(mdb, &stsOpts, opts...)
+	if mdb.Spec.PodSpec != nil && mdb.Spec.PodSpec.PodTemplate != nil {
+		return enterprisests.MergeSpec(dbSts, &appsv1.StatefulSetSpec{Template: *mdb.Spec.PodSpec.PodTemplate})
+	}
+	return dbSts, nil
 }
 
-// AppDbStatefulSet fully constructs the AppDB StatefulSet
-func AppDbStatefulSet(mdbBuilder DatabaseBuilder) appsv1.StatefulSet {
-	templateFunc := buildAppDBPodTemplateSpecFunc(mdbBuilder)
-	return statefulset.New(buildDatabaseStatefulSetConfigurationFunction(mdbBuilder, templateFunc))
+func appDbDatabaseStatefulSet(mdb mdbv1.MongoDB, stsOpts *DatabaseStatefulSetOptions, opts ...func(options *DatabaseStatefulSetOptions)) appsv1.StatefulSet {
+	for _, opt := range opts {
+		opt(stsOpts)
+	}
+	templateFunc := buildAppDBPodTemplateSpecFunc(*stsOpts)
+	return statefulset.New(buildDatabaseStatefulSetConfigurationFunction(mdb, templateFunc, *stsOpts))
 }
 
 // buildAppDBPodTemplateSpecFunc constructs the appDb podTemplateSpec modification function
-func buildAppDBPodTemplateSpecFunc(mdbBuilder DatabaseBuilder) podtemplatespec.Modification {
+func buildAppDBPodTemplateSpecFunc(opts DatabaseStatefulSetOptions) podtemplatespec.Modification {
 	// AppDB only uses the automation agent in headless mode, let's use the latest version
 	appdbImageURL := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.AppDBImageUrl),
 		env.ReadOrDefault(appDBAutomationAgentVersionEnv, "latest"))
@@ -79,7 +97,7 @@ func buildAppDBPodTemplateSpecFunc(mdbBuilder DatabaseBuilder) podtemplatespec.M
 	var volumeMounts []corev1.VolumeMount
 	var volumes []corev1.Volume
 
-	automationConfigVolume := statefulset.CreateVolumeFromSecret(clusterConfigVolumeName, mdbBuilder.GetName()+"-config")
+	automationConfigVolume := statefulset.CreateVolumeFromSecret(clusterConfigVolumeName, opts.Name+"-config")
 	// automationConfigVolume is only required by the AppDB database container
 	volumes = append(volumes, automationConfigVolume)
 	volumeMounts = append(volumeMounts, corev1.VolumeMount{
@@ -94,8 +112,8 @@ func buildAppDBPodTemplateSpecFunc(mdbBuilder DatabaseBuilder) podtemplatespec.M
 	volumes = append(volumes, scriptsVolume)
 	volumeMounts = append(volumeMounts, appDbScriptsVolumeMount(true))
 
-	if mdbBuilder.GetSSLMMSCAConfigMap() != "" {
-		caCertVolume := statefulset.CreateVolumeFromConfigMap(caCertName, mdbBuilder.GetSSLMMSCAConfigMap())
+	if opts.PodVars != nil && opts.PodVars.SSLMMSCAConfigMap != "" {
+		caCertVolume := statefulset.CreateVolumeFromConfigMap(caCertName, opts.PodVars.SSLMMSCAConfigMap)
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			MountPath: caCertMountPath,
 			Name:      caCertVolume.Name,
@@ -111,7 +129,7 @@ func buildAppDBPodTemplateSpecFunc(mdbBuilder DatabaseBuilder) podtemplatespec.M
 	}
 
 	return podtemplatespec.Apply(
-		sharedDatabaseConfiguration(mdbBuilder),
+		sharedDatabaseConfiguration(opts),
 		podtemplatespec.WithAnnotations(map[string]string{}),
 		podtemplatespec.WithServiceAccount(appDBServiceAccount),
 		addVolumes,
@@ -122,7 +140,7 @@ func buildAppDBPodTemplateSpecFunc(mdbBuilder DatabaseBuilder) podtemplatespec.M
 			container.Apply(
 				container.WithName(util.AppDbContainerName),
 				container.WithImage(appdbImageURL),
-				container.WithEnvs(appdbContainerEnv(mdbBuilder)...),
+				container.WithEnvs(appdbContainerEnv(opts)...),
 				container.WithReadinessProbe(buildAppDbReadinessProbe()),
 				container.WithLivenessProbe(buildAppDbLivenessProbe()),
 				container.WithCommand([]string{"/opt/scripts/agent-launcher.sh"}),
@@ -163,16 +181,15 @@ func buildAppdbInitContainer() container.Modification {
 	)
 }
 
-func appdbContainerEnv(mdbBuilder DatabaseBuilder) []corev1.EnvVar {
+func appdbContainerEnv(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 	envVars := []corev1.EnvVar{
 		{
 			Name:      podNamespaceEnv,
 			ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"}},
 		},
 		{
-			Name: automationConfigMapEnv,
-			// not critical but would be nice to reuse `AppDB.AutomationConfigSecretName`
-			Value: mdbBuilder.GetName() + "-config",
+			Name:  automationConfigMapEnv,
+			Value: opts.Name + "-config",
 		},
 		{
 			Name:  headlessAgentEnv,
@@ -180,19 +197,20 @@ func appdbContainerEnv(mdbBuilder DatabaseBuilder) []corev1.EnvVar {
 		},
 	}
 
+	podVars := opts.PodVars
 	// These env vars are required to configure Monitoring of the AppDB
-	if mdbBuilder.GetProjectID() != "" {
-		envVars = append(envVars, envVarFromSecret(agentApiKeyEnv, agentApiKeySecretName(mdbBuilder.GetProjectID()), util.OmAgentApiKey))
+	if podVars != nil && podVars.ProjectID != "" {
+		envVars = append(envVars, envVarFromSecret(agentApiKeyEnv, agentApiKeySecretName(podVars.ProjectID), util.OmAgentApiKey))
 		envVars = append(envVars, corev1.EnvVar{
 			Name:  util.ENV_VAR_PROJECT_ID,
-			Value: mdbBuilder.GetProjectID(),
+			Value: podVars.ProjectID,
 		})
 		envVars = append(envVars, corev1.EnvVar{
 			Name:  util.ENV_VAR_USER,
-			Value: mdbBuilder.GetUser(),
+			Value: podVars.User,
 		})
 
-		if mdbBuilder.GetSSLMMSCAConfigMap() != "" {
+		if podVars.SSLMMSCAConfigMap != "" {
 			// A custom CA has been provided, point the trusted CA to the location of custom CAs
 			trustedCACertLocation := path.Join(caCertMountPath, util.CaCertMMS)
 			envVars = append(envVars,

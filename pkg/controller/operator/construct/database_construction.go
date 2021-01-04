@@ -6,7 +6,10 @@ import (
 	"sort"
 	"strconv"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/scale"
+	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
@@ -20,7 +23,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
@@ -46,129 +48,156 @@ const (
 	databaseVersionEnv     = "DATABASE_VERSION"
 )
 
-type DatabaseBuilder interface {
-	GetOwnerRefs() []metav1.OwnerReference
-	GetName() string
-	GetService() string
-	GetNamespace() string
-	GetReplicas() int
-	GetCertificateHash() string
-	GetPodSpec() *mdbv1.PodSpecWrapper
-	GetSecurity() *mdbv1.Security
-	IsPersistent() *bool
-	GetCurrentAgentAuthMechanism() string
-	GetBaseUrl() string
-	GetProjectID() string
-	GetUser() string
-	SSLRequireValidMMSServerCertificates() bool
-	GetSSLMMSCAConfigMap() string
-	GetLogLevel() string
-	GetStartupParameters() mdbv1.StartupParameters
-}
-
 // DatabaseStatefulSetOptions contains all of the different values that are variable between
 // StatefulSets. Depending on which StatefulSet is being built, a number of these will be pre-set,
 // while the remainder will be configurable via configuration functions which modify this type.
 type DatabaseStatefulSetOptions struct {
-	Replicas             int
-	Name                 string
-	ServiceName          string
-	PodSpec              *mdbv1.PodSpecWrapper
-	PodVars              *env.PodEnvVars
-	CurrentAgentAuthMode string
-	CertificateHash      string
-	ServicePort          int32
-	Persistent           *bool
-	OwnerReference       []metav1.OwnerReference
-	AgentConfig          mdbv1.AgentConfig
+	Replicas                int
+	Name                    string
+	ServiceName             string
+	PodSpec                 *mdbv1.PodSpecWrapper
+	PodVars                 *env.PodEnvVars
+	CurrentAgentAuthMode    string
+	CertificateHash         string
+	ServicePort             int32
+	Persistent              *bool
+	OwnerReference          []metav1.OwnerReference
+	AgentConfig             mdbv1.AgentConfig
+	StatefulSetSpecOverride *appsv1.StatefulSetSpec
 }
 
 // StandaloneOptions returns a set of options which will configure a Standalone StatefulSet
-func StandaloneOptions(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
-	return DatabaseStatefulSetOptions{
-		Replicas:       1,
-		Name:           mdb.Name,
-		ServiceName:    mdb.ServiceName(),
-		PodSpec:        newDefaultPodSpecWrapper(*mdb.Spec.PodSpec),
-		ServicePort:    mdb.Spec.AdditionalMongodConfig.GetPortOrDefault(),
-		Persistent:     mdb.Spec.Persistent,
-		OwnerReference: kube.BaseOwnerReference(&mdb),
-		AgentConfig:    mdb.Spec.Agent,
+func StandaloneOptions() func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+	return func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+		var stsSpec *appsv1.StatefulSetSpec = nil
+		if mdb.Spec.PodSpec.PodTemplate != nil {
+			stsSpec = &appsv1.StatefulSetSpec{Template: *mdb.Spec.PodSpec.PodTemplate}
+		}
+
+		return DatabaseStatefulSetOptions{
+			Replicas:                1,
+			Name:                    mdb.Name,
+			ServiceName:             mdb.ServiceName(),
+			PodSpec:                 newDefaultPodSpecWrapper(*mdb.Spec.PodSpec),
+			ServicePort:             mdb.Spec.AdditionalMongodConfig.GetPortOrDefault(),
+			Persistent:              mdb.Spec.Persistent,
+			OwnerReference:          kube.BaseOwnerReference(&mdb),
+			AgentConfig:             mdb.Spec.Agent,
+			StatefulSetSpecOverride: stsSpec,
+		}
 	}
 }
 
 // ReplicaSetOptions returns a set of options which will configure a ReplicaSet StatefulSet
-func ReplicaSetOptions(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
-	return DatabaseStatefulSetOptions{
-		Replicas:       scale.ReplicasThisReconciliation(&mdb),
-		Name:           mdb.Name,
-		ServiceName:    mdb.ServiceName(),
-		PodSpec:        newDefaultPodSpecWrapper(*mdb.Spec.PodSpec),
-		ServicePort:    mdb.Spec.AdditionalMongodConfig.GetPortOrDefault(),
-		Persistent:     mdb.Spec.Persistent,
-		OwnerReference: kube.BaseOwnerReference(&mdb),
-		AgentConfig:    mdb.Spec.Agent,
+func ReplicaSetOptions() func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+	return func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+		var stsSpec *appsv1.StatefulSetSpec = nil
+		if mdb.Spec.PodSpec.PodTemplate != nil {
+			stsSpec = &appsv1.StatefulSetSpec{Template: *mdb.Spec.PodSpec.PodTemplate}
+		}
+
+		return DatabaseStatefulSetOptions{
+			Replicas:                scale.ReplicasThisReconciliation(&mdb),
+			Name:                    mdb.Name,
+			ServiceName:             mdb.ServiceName(),
+			PodSpec:                 newDefaultPodSpecWrapper(*mdb.Spec.PodSpec),
+			ServicePort:             mdb.Spec.AdditionalMongodConfig.GetPortOrDefault(),
+			Persistent:              mdb.Spec.Persistent,
+			OwnerReference:          kube.BaseOwnerReference(&mdb),
+			AgentConfig:             mdb.Spec.Agent,
+			StatefulSetSpecOverride: stsSpec,
+		}
 	}
 }
 
 // ShardOptions returns a set of options which will configure single Shard StatefulSet
-func ShardOptions(mdb mdbv1.MongoDB, shardNum int) DatabaseStatefulSetOptions {
-	return DatabaseStatefulSetOptions{
-		Name:           mdb.ShardRsName(shardNum),
-		ServiceName:    mdb.ShardServiceName(),
-		PodSpec:        newDefaultPodSpecWrapper(*mdb.Spec.ShardPodSpec),
-		ServicePort:    mdb.Spec.ShardSpec.GetAdditionalMongodConfig().GetPortOrDefault(),
-		OwnerReference: kube.BaseOwnerReference(&mdb),
-		AgentConfig:    mdb.Spec.ShardSpec.GetAgentConfig(),
-		Persistent:     mdb.Spec.Persistent,
+func ShardOptions(shardNum int) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+	return func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+		var stsSpec *appsv1.StatefulSetSpec = nil
+		if mdb.Spec.ShardPodSpec.PodTemplate != nil {
+			stsSpec = &appsv1.StatefulSetSpec{Template: *mdb.Spec.ShardPodSpec.PodTemplate}
+		}
+
+		return DatabaseStatefulSetOptions{
+			Name:                    mdb.ShardRsName(shardNum),
+			ServiceName:             mdb.ShardServiceName(),
+			PodSpec:                 newDefaultPodSpecWrapper(*mdb.Spec.ShardPodSpec),
+			ServicePort:             mdb.Spec.ShardSpec.GetAdditionalMongodConfig().GetPortOrDefault(),
+			OwnerReference:          kube.BaseOwnerReference(&mdb),
+			AgentConfig:             mdb.Spec.ShardSpec.GetAgentConfig(),
+			Persistent:              mdb.Spec.Persistent,
+			StatefulSetSpecOverride: stsSpec,
+		}
 	}
 }
 
 // ConfigServerOptions returns a set of options which will configure a Config Server StatefulSet
-func ConfigServerOptions(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
-	podSpecWrapper := newDefaultPodSpecWrapper(*mdb.Spec.ConfigSrvPodSpec)
-	podSpecWrapper.Default.Persistence.SingleConfig.Storage = util.DefaultConfigSrvStorageSize
-	return DatabaseStatefulSetOptions{
-		Name:           mdb.ConfigRsName(),
-		ServiceName:    mdb.ConfigSrvServiceName(),
-		PodSpec:        podSpecWrapper,
-		ServicePort:    mdb.Spec.ConfigSrvSpec.GetAdditionalMongodConfig().GetPortOrDefault(),
-		Persistent:     mdb.Spec.Persistent,
-		OwnerReference: kube.BaseOwnerReference(&mdb),
-		AgentConfig:    mdb.Spec.ConfigSrvSpec.GetAgentConfig(),
+func ConfigServerOptions() func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+	return func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+		var stsSpec *appsv1.StatefulSetSpec = nil
+		if mdb.Spec.ConfigSrvPodSpec.PodTemplate != nil {
+			stsSpec = &appsv1.StatefulSetSpec{Template: *mdb.Spec.ConfigSrvPodSpec.PodTemplate}
+		}
+
+		podSpecWrapper := newDefaultPodSpecWrapper(*mdb.Spec.ConfigSrvPodSpec)
+		podSpecWrapper.Default.Persistence.SingleConfig.Storage = util.DefaultConfigSrvStorageSize
+		return DatabaseStatefulSetOptions{
+			Name:                    mdb.ConfigRsName(),
+			ServiceName:             mdb.ConfigSrvServiceName(),
+			PodSpec:                 podSpecWrapper,
+			ServicePort:             mdb.Spec.ConfigSrvSpec.GetAdditionalMongodConfig().GetPortOrDefault(),
+			Persistent:              mdb.Spec.Persistent,
+			OwnerReference:          kube.BaseOwnerReference(&mdb),
+			AgentConfig:             mdb.Spec.ConfigSrvSpec.GetAgentConfig(),
+			StatefulSetSpecOverride: stsSpec,
+		}
 	}
 }
 
 // MongosOptions returns a set of options which will configure a Mongos StatefulSet
-func MongosOptions(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
-	return DatabaseStatefulSetOptions{
-		Name:           mdb.MongosRsName(),
-		ServiceName:    mdb.ServiceName(),
-		PodSpec:        newDefaultPodSpecWrapper(*mdb.Spec.MongosPodSpec),
-		ServicePort:    mdb.Spec.MongosSpec.GetAdditionalMongodConfig().GetPortOrDefault(),
-		Persistent:     util.BooleanRef(false),
-		OwnerReference: kube.BaseOwnerReference(&mdb),
-		AgentConfig:    mdb.Spec.MongosSpec.GetAgentConfig(),
+func MongosOptions() func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+	return func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+		var stsSpec *appsv1.StatefulSetSpec = nil
+		if mdb.Spec.MongosPodSpec.PodTemplate != nil {
+			stsSpec = &appsv1.StatefulSetSpec{Template: *mdb.Spec.MongosPodSpec.PodTemplate}
+		}
+
+		return DatabaseStatefulSetOptions{
+			Name:                    mdb.MongosRsName(),
+			ServiceName:             mdb.ServiceName(),
+			PodSpec:                 newDefaultPodSpecWrapper(*mdb.Spec.MongosPodSpec),
+			ServicePort:             mdb.Spec.MongosSpec.GetAdditionalMongodConfig().GetPortOrDefault(),
+			Persistent:              util.BooleanRef(false),
+			OwnerReference:          kube.BaseOwnerReference(&mdb),
+			AgentConfig:             mdb.Spec.MongosSpec.GetAgentConfig(),
+			StatefulSetSpecOverride: stsSpec,
+		}
 	}
 }
 
-// TODO: rename to DatabaseStatefulSet when refactor happens
-func DatabaseStatefulSetNew(options DatabaseStatefulSetOptions, additionalOpts ...func(options *DatabaseStatefulSetOptions)) (appsv1.StatefulSet, error) {
-	return appsv1.StatefulSet{}, nil
+func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions, additionalOpts ...func(options *DatabaseStatefulSetOptions)) (appsv1.StatefulSet, error) {
+	stsOptions := stsOptFunc(mdb)
+	dbSts := databaseStatefulSet(mdb, &stsOptions, additionalOpts...)
+	if stsOptions.StatefulSetSpecOverride != nil {
+		return enterprisests.MergeSpec(dbSts, stsOptions.StatefulSetSpecOverride)
+	}
+	return dbSts, nil
 }
 
-// DatabaseStatefulSet fully constructs the database StatefulSet
-func DatabaseStatefulSet(mdbBuilder DatabaseBuilder) appsv1.StatefulSet {
-	templateFunc := buildMongoDBPodTemplateSpec(mdbBuilder)
-	return statefulset.New(buildDatabaseStatefulSetConfigurationFunction(mdbBuilder, templateFunc))
+func databaseStatefulSet(mdb mdbv1.MongoDB, stsOpts *DatabaseStatefulSetOptions, opts ...func(options *DatabaseStatefulSetOptions)) appsv1.StatefulSet {
+	for _, opt := range opts {
+		opt(stsOpts)
+	}
+	templateFunc := buildMongoDBPodTemplateSpec(*stsOpts)
+	return statefulset.New(buildDatabaseStatefulSetConfigurationFunction(mdb, templateFunc, *stsOpts))
 }
 
 // buildDatabaseStatefulSetConfigurationFunction returns the function that will modify the StatefulSet
-func buildDatabaseStatefulSetConfigurationFunction(mdbBuilder DatabaseBuilder, podTemplateSpecFunc podtemplatespec.Modification) statefulset.Modification {
+func buildDatabaseStatefulSetConfigurationFunction(mdb mdbv1.MongoDB, podTemplateSpecFunc podtemplatespec.Modification, opts DatabaseStatefulSetOptions) statefulset.Modification {
 	podLabels := map[string]string{
-		appLabelKey:             mdbBuilder.GetService(),
+		appLabelKey:             opts.ServiceName,
 		ControllerLabelName:     util.OperatorName,
-		podAntiAffinityLabelKey: mdbBuilder.GetName(),
+		podAntiAffinityLabelKey: opts.Name,
 	}
 
 	managedSecurityContext, _ := env.ReadBool(util.ManagedSecurityContextEnv)
@@ -186,12 +215,12 @@ func buildDatabaseStatefulSetConfigurationFunction(mdbBuilder DatabaseBuilder, p
 		configureImagePullSecrets = withImagePullSecrets(name)
 	}
 
-	volumes, volumeMounts := getVolumesAndVolumeMounts(mdbBuilder)
+	volumes, volumeMounts := getVolumesAndVolumeMounts(mdb, opts)
 
 	var mounts []corev1.VolumeMount
 	var pvcFuncs map[string]persistentvolumeclaim.Modification
-	if mdbBuilder.IsPersistent() == nil || *mdbBuilder.IsPersistent() {
-		pvcFuncs, mounts = buildPersistentVolumeClaimsFuncs(mdbBuilder)
+	if opts.Persistent == nil || *opts.Persistent {
+		pvcFuncs, mounts = buildPersistentVolumeClaimsFuncs(opts)
 		volumeMounts = append(volumeMounts, mounts...)
 	}
 
@@ -216,26 +245,26 @@ func buildDatabaseStatefulSetConfigurationFunction(mdbBuilder DatabaseBuilder, p
 	}
 
 	ssLabels := map[string]string{
-		appLabelKey: mdbBuilder.GetService(),
+		appLabelKey: opts.ServiceName,
 	}
 
 	return statefulset.Apply(
 		statefulset.WithLabels(ssLabels),
-		statefulset.WithName(mdbBuilder.GetName()),
-		statefulset.WithNamespace(mdbBuilder.GetNamespace()),
+		statefulset.WithName(opts.Name),
+		statefulset.WithNamespace(mdb.GetNamespace()),
 		statefulset.WithMatchLabels(podLabels),
-		statefulset.WithServiceName(mdbBuilder.GetService()),
-		statefulset.WithReplicas(mdbBuilder.GetReplicas()),
-		statefulset.WithOwnerReference(mdbBuilder.GetOwnerRefs()),
+		statefulset.WithServiceName(opts.ServiceName),
+		statefulset.WithReplicas(opts.Replicas),
+		statefulset.WithOwnerReference(opts.OwnerReference),
 		volumeClaimFuncs,
 		statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
-			podtemplatespec.WithAnnotations(defaultPodAnnotations(mdbBuilder.GetCertificateHash())),
-			podtemplatespec.WithAffinity(mdbBuilder.GetName(), podAntiAffinityLabelKey, 100),
+			podtemplatespec.WithAnnotations(defaultPodAnnotations(opts.CertificateHash)),
+			podtemplatespec.WithAffinity(mdb.GetName(), podAntiAffinityLabelKey, 100),
 			podtemplatespec.WithTerminationGracePeriodSeconds(util.DefaultPodTerminationPeriodSeconds),
 			podtemplatespec.WithPodLabels(podLabels),
-			podtemplatespec.WithNodeAffinity(mdbBuilder.GetPodSpec().NodeAffinity),
-			podtemplatespec.WithPodAffinity(mdbBuilder.GetPodSpec().PodAffinity),
-			podtemplatespec.WithContainerByIndex(0, sharedDatabaseContainerFunc(*mdbBuilder.GetPodSpec(), volumeMounts, configureContainerSecurityContext)),
+			podtemplatespec.WithNodeAffinity(opts.PodSpec.NodeAffinity),
+			podtemplatespec.WithPodAffinity(opts.PodSpec.PodAffinity),
+			podtemplatespec.WithContainerByIndex(0, sharedDatabaseContainerFunc(*opts.PodSpec, volumeMounts, configureContainerSecurityContext)),
 			volumesFunc,
 			configurePodSpecSecurityContext,
 			configureImagePullSecrets,
@@ -244,11 +273,11 @@ func buildDatabaseStatefulSetConfigurationFunction(mdbBuilder DatabaseBuilder, p
 	)
 }
 
-func buildPersistentVolumeClaimsFuncs(mdbBuilder DatabaseBuilder) (map[string]persistentvolumeclaim.Modification, []corev1.VolumeMount) {
+func buildPersistentVolumeClaimsFuncs(opts DatabaseStatefulSetOptions) (map[string]persistentvolumeclaim.Modification, []corev1.VolumeMount) {
 	var claims map[string]persistentvolumeclaim.Modification
 	var mounts []corev1.VolumeMount
 
-	podSpec := mdbBuilder.GetPodSpec()
+	podSpec := opts.PodSpec
 	// if persistence not set or if single one is set
 	if podSpec.Persistence == nil ||
 		(podSpec.Persistence.SingleConfig == nil && podSpec.Persistence.MultipleConfig == nil) ||
@@ -259,12 +288,12 @@ func buildPersistentVolumeClaimsFuncs(mdbBuilder DatabaseBuilder) (map[string]pe
 		}
 		// Single claim, multiple mounts using this claim. Note, that we use "subpaths" in the volume to mount to different
 		// physical folders
-		claims, mounts = createClaimsAndMountsSingleModeFunc(config, mdbBuilder)
+		claims, mounts = createClaimsAndMountsSingleModeFunc(config, opts)
 	} else if podSpec.Persistence.MultipleConfig != nil {
 		defaultConfig := *podSpec.Default.Persistence.MultipleConfig
 
 		// Multiple claims, multiple mounts. No subpaths are used and everything is mounted to the root of directory
-		claims, mounts = createClaimsAndMountsMultiModeFunc(mdbBuilder.GetPodSpec().Persistence, defaultConfig)
+		claims, mounts = createClaimsAndMountsMultiModeFunc(opts.PodSpec.Persistence, defaultConfig)
 	}
 	return claims, mounts
 }
@@ -282,19 +311,19 @@ func sharedDatabaseContainerFunc(podSpecWrapper mdbv1.PodSpecWrapper, volumeMoun
 	)
 }
 
-func getVolumesAndVolumeMounts(mdbBuilder DatabaseBuilder) ([]corev1.Volume, []corev1.VolumeMount) {
+func getVolumesAndVolumeMounts(mdb mdbv1.MongoDB, databaseOpts DatabaseStatefulSetOptions) ([]corev1.Volume, []corev1.VolumeMount) {
 	var volumesToAdd []corev1.Volume
 	var volumeMounts []corev1.VolumeMount
-	if mdbBuilder.GetSecurity() != nil {
-		tlsConfig := mdbBuilder.GetSecurity().TLSConfig
-		if mdbBuilder.GetSecurity().TLSConfig.IsEnabled() {
+	if mdb.Spec.Security != nil {
+		tlsConfig := mdb.Spec.Security.TLSConfig
+		if mdb.Spec.Security.TLSConfig.IsEnabled() {
 			var secretName string
 			if tlsConfig.SecretRef.Name != "" {
 				// From this location, the certificates will be used inplace
 				secretName = tlsConfig.SecretRef.Name
 			} else {
 				// In this location the certificates will be linked -s into server.pem
-				secretName = fmt.Sprintf("%s-cert", mdbBuilder.GetName())
+				secretName = fmt.Sprintf("%s-cert", databaseOpts.Name)
 			}
 			secretVolume := statefulset.CreateVolumeFromSecret(util.SecretVolumeName, secretName)
 			volumeMounts = append(volumeMounts, corev1.VolumeMount{
@@ -315,9 +344,8 @@ func getVolumesAndVolumeMounts(mdbBuilder DatabaseBuilder) ([]corev1.Volume, []c
 			volumesToAdd = append(volumesToAdd, caVolume)
 		}
 	}
-
-	if mdbBuilder.GetSSLMMSCAConfigMap() != "" {
-		caCertVolume := statefulset.CreateVolumeFromConfigMap(caCertName, mdbBuilder.GetSSLMMSCAConfigMap())
+	if databaseOpts.PodVars != nil && databaseOpts.PodVars.SSLMMSCAConfigMap != "" {
+		caCertVolume := statefulset.CreateVolumeFromConfigMap(caCertName, databaseOpts.PodVars.SSLMMSCAConfigMap)
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			MountPath: caCertMountPath,
 			Name:      caCertVolume.Name,
@@ -326,9 +354,9 @@ func getVolumesAndVolumeMounts(mdbBuilder DatabaseBuilder) ([]corev1.Volume, []c
 		volumesToAdd = append(volumesToAdd, caCertVolume)
 	}
 
-	if mdbBuilder.GetSecurity() != nil {
-		if mdbBuilder.GetSecurity().ShouldUseX509(mdbBuilder.GetCurrentAgentAuthMechanism()) || mdbBuilder.GetSecurity().ShouldUseClientCertificates() {
-			agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, mdbBuilder.GetSecurity().AgentClientCertificateSecretName().Name)
+	if mdb.Spec.Security != nil {
+		if mdb.Spec.Security.ShouldUseX509(databaseOpts.CurrentAgentAuthMode) || mdb.Spec.Security.ShouldUseClientCertificates() {
+			agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, mdb.Spec.Security.AgentClientCertificateSecretName().Name)
 			volumeMounts = append(volumeMounts, corev1.VolumeMount{
 				MountPath: agentCertMountPath,
 				Name:      agentSecretVolume.Name,
@@ -339,8 +367,8 @@ func getVolumesAndVolumeMounts(mdbBuilder DatabaseBuilder) ([]corev1.Volume, []c
 	}
 
 	// add volume for x509 cert used in internal cluster authentication
-	if mdbBuilder.GetSecurity().GetInternalClusterAuthenticationMode() == util.X509 {
-		internalClusterAuthVolume := statefulset.CreateVolumeFromSecret(util.ClusterFileName, toInternalClusterAuthName(mdbBuilder.GetName()))
+	if mdb.Spec.Security.GetInternalClusterAuthenticationMode() == util.X509 {
+		internalClusterAuthVolume := statefulset.CreateVolumeFromSecret(util.ClusterFileName, toInternalClusterAuthName(databaseOpts.Name))
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			MountPath: util.InternalClusterAuthMountPath,
 			Name:      internalClusterAuthVolume.Name,
@@ -353,7 +381,7 @@ func getVolumesAndVolumeMounts(mdbBuilder DatabaseBuilder) ([]corev1.Volume, []c
 }
 
 // buildMongoDBPodTemplateSpec constructs the podTemplateSpec for the MongoDB resource
-func buildMongoDBPodTemplateSpec(mdbBuilder DatabaseBuilder) podtemplatespec.Modification {
+func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions) podtemplatespec.Modification {
 	// Database image version, should be a specific version to avoid using stale 'non-empty' versions (before versioning)
 	databaseImageVersion := env.ReadOrDefault(databaseVersionEnv, "latest")
 	databaseImageUrl := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.AutomationAgentImage), databaseImageVersion)
@@ -362,11 +390,12 @@ func buildMongoDBPodTemplateSpec(mdbBuilder DatabaseBuilder) podtemplatespec.Mod
 	scriptsVolume := statefulset.CreateVolumeFromEmptyDir("database-scripts")
 	databaseScriptsVolumeMount := databaseScriptsVolumeMount(true)
 
-	serviceAccountName := getServiceAccountName(mdbBuilder)
+	serviceAccountName := getServiceAccountName(opts)
 
 	return podtemplatespec.Apply(
-		sharedDatabaseConfiguration(mdbBuilder),
-		podtemplatespec.WithAnnotations(defaultPodAnnotations(mdbBuilder.GetCertificateHash())),
+		sharedDatabaseConfiguration(opts),
+		podtemplatespec.WithAnnotations(defaultPodAnnotations(opts.CertificateHash)),
+		podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
 		podtemplatespec.WithServiceAccount(serviceAccountName),
 		podtemplatespec.WithVolume(scriptsVolume),
 		podtemplatespec.WithInitContainerByIndex(0,
@@ -376,7 +405,7 @@ func buildMongoDBPodTemplateSpec(mdbBuilder DatabaseBuilder) podtemplatespec.Mod
 			container.Apply(
 				container.WithName(util.DatabaseContainerName),
 				container.WithImage(databaseImageUrl),
-				container.WithEnvs(databaseEnvVars(mdbBuilder)...),
+				container.WithEnvs(databaseEnvVars(opts)...),
 				container.WithCommand([]string{"/opt/scripts/agent-launcher.sh"}),
 				container.WithVolumeMounts([]corev1.VolumeMount{databaseScriptsVolumeMount}),
 			),
@@ -387,8 +416,8 @@ func buildMongoDBPodTemplateSpec(mdbBuilder DatabaseBuilder) podtemplatespec.Mod
 // getServiceAccountName returns the serviceAccount to be used by the mongoDB pod,
 // it uses the "serviceAccountName" specified in the podSpec of CR, if it's not specified returns
 // the default serviceAccount name
-func getServiceAccountName(mdbBuilder DatabaseBuilder) string {
-	podSpec := mdbBuilder.GetPodSpec()
+func getServiceAccountName(opts DatabaseStatefulSetOptions) string {
+	podSpec := opts.PodSpec
 
 	if podSpec != nil && podSpec.PodTemplate != nil {
 		if podSpec.PodTemplate.Spec.ServiceAccountName != "" {
@@ -401,7 +430,7 @@ func getServiceAccountName(mdbBuilder DatabaseBuilder) string {
 
 // sharedDatabaseConfiguration is a function which applies all the shared configuration
 // between the appDb and MongoDB resources
-func sharedDatabaseConfiguration(mdbBuilder DatabaseBuilder) podtemplatespec.Modification {
+func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions) podtemplatespec.Modification {
 	managedSecurityContext, _ := env.ReadBool(util.ManagedSecurityContextEnv)
 
 	configurePodSpecSecurityContext := podtemplatespec.NOOP()
@@ -420,21 +449,21 @@ func sharedDatabaseConfiguration(mdbBuilder DatabaseBuilder) podtemplatespec.Mod
 	}
 
 	return podtemplatespec.Apply(
-		podtemplatespec.WithPodLabels(defaultPodLabels(mdbBuilder.GetService(), mdbBuilder.GetName())),
+		podtemplatespec.WithPodLabels(defaultPodLabels(opts.ServiceName, opts.Name)),
 		podtemplatespec.WithTerminationGracePeriodSeconds(util.DefaultPodTerminationPeriodSeconds),
 		pullSecretsConfigurationFunc,
 		configurePodSpecSecurityContext,
-		podtemplatespec.WithAffinity(mdbBuilder.GetName(), podAntiAffinityLabelKey, 100),
-		podtemplatespec.WithNodeAffinity(mdbBuilder.GetPodSpec().NodeAffinity),
-		podtemplatespec.WithPodAffinity(mdbBuilder.GetPodSpec().PodAffinity),
-		podtemplatespec.WithTopologyKey(mdbBuilder.GetPodSpec().GetTopologyKeyOrDefault(), 0),
+		podtemplatespec.WithAffinity(opts.Name, podAntiAffinityLabelKey, 100),
+		podtemplatespec.WithNodeAffinity(opts.PodSpec.NodeAffinity),
+		podtemplatespec.WithPodAffinity(opts.PodSpec.PodAffinity),
+		podtemplatespec.WithTopologyKey(opts.PodSpec.GetTopologyKeyOrDefault(), 0),
 		podtemplatespec.WithContainerByIndex(0,
 			container.Apply(
-				container.WithResourceRequirements(buildRequirementsFromPodSpec(*mdbBuilder.GetPodSpec())),
+				container.WithResourceRequirements(buildRequirementsFromPodSpec(*opts.PodSpec)),
 				container.WithPorts([]corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort}}),
 				container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))),
 				container.WithLivenessProbe(databaseLivenessProbe()),
-				container.WithEnvs(startupParametersToAgentFlag(mdbBuilder.GetStartupParameters())),
+				container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
 				configureContainerSecurityContext,
 			),
 		),
@@ -498,37 +527,41 @@ func buildDatabaseInitContainer() container.Modification {
 	)
 }
 
-func databaseEnvVars(databaseBuilder DatabaseBuilder) []corev1.EnvVar {
+func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
+	podVars := opts.PodVars
+	if podVars == nil {
+		return []corev1.EnvVar{}
+	}
 	vars := []corev1.EnvVar{
 		{
 			Name:  util.ENV_VAR_BASE_URL,
-			Value: databaseBuilder.GetBaseUrl(),
+			Value: podVars.BaseURL,
 		},
 		{
 			Name:  util.ENV_VAR_PROJECT_ID,
-			Value: databaseBuilder.GetProjectID(),
+			Value: podVars.ProjectID,
 		},
 		{
 			Name:  util.ENV_VAR_USER,
-			Value: databaseBuilder.GetUser(),
+			Value: podVars.User,
 		},
-		envVarFromSecret(agentApiKeyEnv, agentApiKeySecretName(databaseBuilder.GetProjectID()), util.OmAgentApiKey),
+		envVarFromSecret(agentApiKeyEnv, agentApiKeySecretName(podVars.ProjectID), util.OmAgentApiKey),
 		{
 			Name:  util.ENV_VAR_LOG_LEVEL,
-			Value: databaseBuilder.GetLogLevel(),
+			Value: string(podVars.LogLevel),
 		},
 	}
 
-	if databaseBuilder.SSLRequireValidMMSServerCertificates() {
+	if opts.PodVars.SSLRequireValidMMSServerCertificates {
 		vars = append(vars,
 			corev1.EnvVar{
 				Name:  util.EnvVarSSLRequireValidMMSCertificates,
-				Value: strconv.FormatBool(databaseBuilder.SSLRequireValidMMSServerCertificates()),
+				Value: strconv.FormatBool(opts.PodVars.SSLRequireValidMMSServerCertificates),
 			},
 		)
 	}
 
-	if databaseBuilder.GetSSLMMSCAConfigMap() != "" {
+	if opts.PodVars.SSLMMSCAConfigMap != "" {
 		// A custom CA has been provided, point the trusted CA to the location of custom CAs
 		trustedCACertLocation := path.Join(caCertMountPath, util.CaCertMMS)
 		vars = append(vars,

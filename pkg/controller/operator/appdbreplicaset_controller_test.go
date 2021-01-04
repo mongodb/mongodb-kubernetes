@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
+
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
 
@@ -386,7 +388,8 @@ func TestRegisterAppDBHostsWithProject(t *testing.T) {
 	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 
-	appDbSts, err := buildAppDbStatefulSet(*defaultAppDbSetHelper().SetName(opsManager.Spec.AppDB.Name()).SetReplicas(3))
+	appDbSts, err := construct.AppDbStatefulSet(opsManager)
+	assert.NoError(t, err)
 
 	t.Run("Ensure all hosts are added", func(t *testing.T) {
 		assert.NoError(t, err)
@@ -447,7 +450,8 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 	assert.Empty(t, podVars.ProjectID)
 	assert.Empty(t, podVars.User)
 
-	appDbSts, err := buildAppDbStatefulSet(*defaultAppDbSetHelper().SetName(opsManager.Spec.AppDB.Name()).SetReplicas(5))
+	appDbSts, err := construct.AppDbStatefulSet(opsManager, Replicas(5))
+
 	assert.NoError(t, err)
 	_ = client.Update(context.TODO(), &appDbSts)
 
@@ -479,7 +483,9 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 
 func TestBuildReplicaSetFromStatefulSetAppDb(t *testing.T) {
 	for i := 0; i < 10; i++ {
-		appDbSts, err := defaultAppDbSetHelper().SetReplicas(i).BuildAppDbStatefulSet()
+		appDbSts, err := construct.AppDbStatefulSet(DefaultOpsManagerBuilder().Build(),
+			Replicas(i),
+		)
 		assert.NoError(t, err)
 		omRs := buildReplicaSetFromStatefulSetAppDb(appDbSts, omv1.AppDB{})
 		assert.Len(t, omRs.Processes, i)
@@ -693,7 +699,7 @@ func buildAutomationConfigForAppDb(builder *omv1.OpsManagerBuilder, internetMani
 	}
 
 	reconciler := newAppDbReconciler(kubeManager, internetManifestProvider)
-	sts, _ := BuildTestStatefulSet(opsManager)
+	sts, _ := construct.AppDbStatefulSet(opsManager)
 	return reconciler.buildAppDbAutomationConfig(opsManager.Spec.AppDB, opsManager, "my-pass", sts, zap.S())
 }
 

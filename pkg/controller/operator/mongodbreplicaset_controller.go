@@ -3,9 +3,10 @@ package operator
 import (
 	"fmt"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/pem"
+	enterprisepem "github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/pem"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/connection"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/scale"
@@ -105,7 +106,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		SetStatefulSetConfiguration(nil) // TODO: configure once supported
 	//SetStatefulSetConfiguration(rs.Spec.StatefulSetConfiguration)
 
-	replicaBuilder.SetCertificateHash(pem.ReadHashFromSecret(r.client, rs.Namespace, rs.Name, log))
+	replicaBuilder.SetCertificateHash(enterprisepem.ReadHashFromSecret(r.client, rs.Namespace, rs.Name, log))
 
 	if status := validateMongoDBResource(rs, conn); !status.IsOK() {
 		return r.updateStatus(rs, status, log)
@@ -123,7 +124,13 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		return r.updateStatus(rs, status, log)
 	}
 
-	replicaSetObject, err := replicaBuilder.BuildStatefulSet()
+	sts, err := construct.DatabaseStatefulSet(*rs,
+		construct.ReplicaSetOptions(),
+		PodEnvVars(newPodVars(conn, projectConfig, rs.Spec.ConnectionSpec)),
+		CurrentAgentAuthMechanism(currentAgentAuthMode),
+		CertificateHash(enterprisepem.ReadHashFromSecret(r.client, rs.Namespace, rs.Name, log)), // TODO: remove this method from StatefulSetHelper
+	)
+
 	if err != nil {
 		return r.updateStatus(rs, workflow.Failed(err.Error()), log)
 	}
@@ -133,17 +140,17 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 	}
 
 	if scale.ReplicasThisReconciliation(rs) < rs.Status.Members {
-		if err := prepareScaleDownReplicaSet(conn, replicaSetObject, rs, log); err != nil {
+		if err := prepareScaleDownReplicaSet(conn, sts, rs, log); err != nil {
 			return r.updateStatus(rs, workflow.Failed("Failed to prepare Replica Set for scaling down using Ops Manager: %s", err), log)
 		}
 	}
 
 	status := runInGivenOrder(replicaBuilder.needToPublishStateFirst(r.client, log),
 		func() workflow.Status {
-			return r.updateOmDeploymentRs(conn, rs.Status.Members, rs, replicaSetObject, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+			return r.updateOmDeploymentRs(conn, rs.Status.Members, rs, sts, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
-			if err := replicaBuilder.CreateOrUpdateInKubernetes(r.client, r.client); err != nil {
+			if err := replicaBuilder.CreateOrUpdateInKubernetes(r.client, r.client, sts); err != nil {
 				return workflow.Failed("Failed to create/update (Kubernetes reconciliation phase): %s", err.Error())
 			}
 
