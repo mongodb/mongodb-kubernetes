@@ -16,7 +16,7 @@ if [[ ! -f "${context_file}" ]]; then
 	fatal "Cannot switch context: File ${context_file} does not exist."
 fi
 
-ln -s "${HOME}/.operator-dev/contexts/${context}" "${HOME}/.operator-dev/context"
+ln -sf "${HOME}/.operator-dev/contexts/${context}" "${HOME}/.operator-dev/context"
 
 # Reading environment variables for the context - this is where we get "CLUSTER_NAME" var from
 source scripts/dev/read_context.sh
