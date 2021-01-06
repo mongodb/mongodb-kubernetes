@@ -133,18 +133,22 @@ functions:
         permissions: public-read
         content_type: application/octet-stream
 
-  pipeline:
-  - command: subprocess.exec
+  python_venv: &python_venv
+    command: subprocess.exec
     type: setup
     params:
       command: virtualenv --python /opt/python/3.7/bin/python3 ./venv
 
-  - command: subprocess.exec
+  python_requirements: &python_requirements
+    command: subprocess.exec
     type: setup
     params:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
       command: ${workdir}/venv/bin/python -m pip install -r requirements.txt --quiet --no-warn-script-location
 
+  pipeline:
+  - *python_venv
+  - *python_requirements
   - command: subprocess.exec
     type: setup
     params:
@@ -164,6 +168,21 @@ functions:
       add_to_path:
       - ${workdir}/bin
       command: "${workdir}/venv/bin/python pipeline.py --include ${image_name}"
+
+  operator_add_release_version:
+  - *python_venv
+  - *python_requirements
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      include_expansions_in_env:
+      - atlas_connection_string
+      - atlas_password
+      - atlas_database
+      add_to_path:
+      - ${workdir}/bin
+      command: "${workdir}/venv/bin/python scripts/operator_add_release_version.py"
 
   # upload_e2e_logs has the responsibility of dumping as much information as
   # posible into the S3 bucket that corresponds to this ${version}. The
@@ -778,6 +797,7 @@ tasks:
   - func: pipeline
     vars:
       image_name: operator
+  - func: operator_add_release_version
 
 # Releases init images to Quay
 - name: release_init_quay
