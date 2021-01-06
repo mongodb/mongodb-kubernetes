@@ -17,8 +17,6 @@ title "Building AppDB image..."
 mdb_url=$(jq --raw-output .appDbBundle.baseUrl < release.json)
 binary_name=$(jq --raw-output ".appDbBundle.${IMAGE_TYPE}BinaryName" < release.json)
 
-aa_download_url="https://cloud.mongodb.com/download/agent/automation/mongodb-mms-automation-agent-latest.linux_x86_64.tar.gz"
-
 echo "Data used for building the image: bundled_mdb_url=${mdb_url}, binary_name=${binary_name}"
 
 # 2. Building the image - either to local repo or to the remote one (ECR)
@@ -29,10 +27,10 @@ ensure_ecr_repository "${REPO_URL}/mongodb-enterprise-appdb"
 # final_aa_download_url="$(curl --silent --show-error --fail --retry 3 -I ${aa_download_url} | grep -sE '^location: ' | cut -d' ' -f2 | tr -d '\r')"
 # aa_version="$(echo -n "${final_aa_download_url}" | cut -d'/' -f7 | sed -e 's/^mongodb-mms-automation-agent-//' -e 's/.linux_x86_64.tar.gz$//')"
 
-# ugly but latest automation agent requires mongoDbTools field that we currently don't pass and is not supported in OpsManager 4.2 anyways
-aa_version="10.2.15.5958-1"
+mdb_version=$(jq --raw-output .appDbBundle.mongodbVersion < release.json)
+aa_version=$(jq --raw-output .appDBImageAgentVersion < release.json)
 aa_download_url="https://s3.amazonaws.com/mciuploads/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod/mongodb-mms-automation-agent-${aa_version}.linux_x86_64.tar.gz"
-
+tag_name="${aa_version}_${mdb_version}"
 
 
 base_url="${REPO_URL}/mongodb-enterprise-appdb"
@@ -47,15 +45,14 @@ repo_name="$(echo "${base_url}" | cut -d "/" -f2-)" # cutting the domain part
     build_id="b$(date -u +%Y%m%d%H%M)"
     docker build \
         -t "${repo_name}" \
-        -t "${base_url}:${aa_version}" \
-        -t "${base_url}:${aa_version}-${build_id}" \
-        -t "${base_url}:latest" \
+        -t "${base_url}:${tag_name}" \
+        -t "${base_url}:${tag_name}-${build_id}" \
         --build-arg AA_VERSION="${aa_version}" \
         --build-arg AA_DOWNLOAD_URL="${aa_download_url}" \
         --build-arg MDB_URL="${mdb_url}" \
         --build-arg BINARY_NAME="${binary_name}" .
 
-    for version in "${aa_version}" "${aa_version}-${build_id}" "latest"
+    for version in "${tag_name}" "${tag_name}-${build_id}"
     do
         docker push "${base_url}:${version}"
         title "AppDB image successfully built and pushed to ${base_url}:${version}"

@@ -2777,6 +2777,7 @@ buildvariants:
     database_version: 2.0.0
 
 # build AppDB: to be launched independently of the operator build process (evergreen patch)
+# evergreen patch --project ops-manager-kubernetes -v build_and_push_appdb_images -d "AppDB release" --finalize
 - name: build_and_push_appdb_images
   display_name: build_and_push_appdb_images
   run_on:
