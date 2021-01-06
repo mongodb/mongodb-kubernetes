@@ -1,1 +1,8 @@
 {% extends "Dockerfile.template" %}
+
+{% set base_image = "busybox" %}
+
+
+{% block mongodb_tools %}
+COPY --from=base /data/mongodb_tools_ubuntu.tgz /tools/mongodb_tools.tgz
+{% endblock %}

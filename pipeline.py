@@ -31,7 +31,7 @@ DEFAULT_NAMESPACE = "default"
 
 
 @dataclass
-class OperatorBuildConfiguration:
+class BuildConfiguration:
     image_type: str
     base_repository: str
     namespace: str
@@ -92,17 +92,21 @@ def build_configuration_from_context_file(filename: str) -> Dict[str, str]:
 
 
 def build_configuration_from_env() -> Dict[str, str]:
+    """Builds a running configuration by reading values from environment.
+    This is to be used in Evergreen environment.
+    """
+
+    # The `base_repo_url` is suffixed with `/dev` because in Evergreen that would
+    # replace the `username` we use locally.
     return {
         "image_type": os.environ.get("distro"),
-        "base_repo_url": os.environ["registry"],
+        "base_repo_url": os.environ["registry"] + "/dev",
         "include_tags": os.environ.get("include_tags"),
         "skip_tags": os.environ.get("skip_tags"),
     }
 
 
-def operator_build_configuration(
-    builder: str, parallel: bool
-) -> OperatorBuildConfiguration:
+def operator_build_configuration(builder: str, parallel: bool) -> BuildConfiguration:
     default_config_location = os.path.expanduser("~/.operator-dev/context")
     context_file = os.environ.get(
         "OPERATOR_BUILD_CONFIGURATION", default_config_location
@@ -113,7 +117,7 @@ def operator_build_configuration(
     else:
         context = build_configuration_from_env()
 
-    return OperatorBuildConfiguration(
+    return BuildConfiguration(
         image_type=context.get("image_type", DEFAULT_IMAGE_TYPE),
         base_repository=context.get("base_repo_url", ""),
         namespace=context.get("namespace", DEFAULT_NAMESPACE),
@@ -153,7 +157,7 @@ def copy_into_container(client, src, dst):
 
 def sonar_build_image(
     image_name: str,
-    build_configuration: OperatorBuildConfiguration,
+    build_configuration: BuildConfiguration,
     args: Dict[str, str] = None,
     inventory="inventory.yaml",
 ):
@@ -168,7 +172,7 @@ def sonar_build_image(
     )
 
 
-def build_operator_image(build_configuration: OperatorBuildConfiguration):
+def build_operator_image(build_configuration: BuildConfiguration):
     """Calculates arguments required to build the operator image, and starts the build process."""
     image_name = "operator"
 
@@ -195,7 +199,7 @@ def build_operator_image(build_configuration: OperatorBuildConfiguration):
     sonar_build_image(image_name, build_configuration, args)
 
 
-def build_operator_image_patch(build_configuration: OperatorBuildConfiguration):
+def build_operator_image_patch(build_configuration: BuildConfiguration):
     """This function builds the operator locally and pushed into an existing
     Docker image. This is the fastest way I could image we can do this."""
 
@@ -277,7 +281,7 @@ def get_operator_supported_releases() -> List[Dict[str, str]]:
     return requests.get(supported_versions).json()
 
 
-def build_operator_daily(build_configuration: OperatorBuildConfiguration):
+def build_operator_daily(build_configuration: BuildConfiguration):
     """
     Finds all the supported Operator versions and rebuilds them.
     """
@@ -334,7 +338,7 @@ def find_om_url(om_version: str) -> str:
     return current_release
 
 
-def build_om_image(build_configuration: OperatorBuildConfiguration):
+def build_om_image(build_configuration: BuildConfiguration):
     image_name = "ops-manager"
 
     # Make this a parameter for the Evergreen build
@@ -349,6 +353,37 @@ def build_om_image(build_configuration: OperatorBuildConfiguration):
     sonar_build_image(image_name, build_configuration, args, "inventories/om.yaml")
 
 
+def build_init_appdb(build_configuration: BuildConfiguration):
+    # this image_name corresponds to Sonar's inventory
+    image_name = "init-appdb"
+
+    release = get_release()
+
+    version = release["initAppDbVersion"]  # comes from release.json
+    base_url = "https://fastdl.mongodb.org/tools/db/"
+
+    mongodb_tools_url_ubi = "{}{}".format(
+        base_url, release["mongodbToolsBundle"]["ubi"]
+    )
+    mongodb_tools_url_ubuntu = "{}{}".format(
+        base_url, release["mongodbToolsBundle"]["ubuntu"]
+    )
+
+    args = dict(
+        version=version,
+        mongodb_tools_url_ubuntu=mongodb_tools_url_ubuntu,
+        mongodb_tools_url_ubi=mongodb_tools_url_ubi,
+        is_appdb=True,
+    )
+
+    sonar_build_image(
+        image_name,
+        build_configuration,
+        args,
+        "inventories/init_appdb.yaml",
+    )
+
+
 def get_builder_function_for_image_name():
     """Returns a dictionary of image names that can be built."""
 
@@ -356,11 +391,45 @@ def get_builder_function_for_image_name():
         "operator": build_operator_image,
         "operator-quick": build_operator_image_patch,
         "operator-daily": build_operator_daily,
+        "init-appdb": build_init_appdb,
+        "init-database": build_init_database,
         "ops-manager": build_om_image,
     }
 
 
-def build_image(image_name: str, build_configuration: OperatorBuildConfiguration):
+def build_init_database(build_configuration: BuildConfiguration):
+    image_name = "init-database"
+
+    release = get_release()
+    version = release["initDatabaseVersion"]  # comes from release.json
+
+    base_url = "https://fastdl.mongodb.org/tools/db/"
+
+    # TODO: Make sure this is required (or not) in the init-database image
+    # if not required, remove!
+    mongodb_tools_url_ubi = "{}{}".format(
+        base_url, release["mongodbToolsBundle"]["ubi"]
+    )
+    mongodb_tools_url_ubuntu = "{}{}".format(
+        base_url, release["mongodbToolsBundle"]["ubuntu"]
+    )
+
+    args = dict(
+        version=version,
+        mongodb_tools_url_ubuntu=mongodb_tools_url_ubuntu,
+        mongodb_tools_url_ubi=mongodb_tools_url_ubi,
+        is_appdb=False,
+    )
+
+    sonar_build_image(
+        image_name,
+        build_configuration,
+        args,
+        "inventories/init_database.yaml",
+    )
+
+
+def build_image(image_name: str, build_configuration: BuildConfiguration):
     """Builds one of the supported images by its name."""
     get_builder_function_for_image_name()[image_name](build_configuration)
 

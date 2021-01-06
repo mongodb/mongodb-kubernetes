@@ -1,0 +1,70 @@
+images:
+  - name: init-database
+    vars:
+      context: .
+      template_context: docker/mongodb-enterprise-init-database
+
+    stages:
+      - name: init-database-build-context
+        task_type: docker_build
+
+        dockerfile: docker/mongodb-enterprise-init-database/Dockerfile.builder
+
+        buildargs:
+          mongodb_tools_url_ubi: $(inputs.params.mongodb_tools_url_ubi)
+          mongodb_tools_url_ubuntu: $(inputs.params.mongodb_tools_url_ubuntu)
+
+        output:
+          - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-database-context
+            tag: $(inputs.params.version_id)
+
+      - name: init-database-template-ubuntu
+        task_type: dockerfile_template
+        tags: ["ubuntu"]
+        distro: busybox
+
+        inputs:
+          - is_appdb
+        output:
+          - dockerfile: docker/mongodb-enterprise-init-database/Dockerfile.ubuntu-$(inputs.params.version_id)
+
+      - name: init-database-build-ubuntu
+        task_type: docker_build
+        tags: ["ubuntu"]
+
+        buildargs:
+          version: $(inputs.params.version)
+          imagebase: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-database-context:$(inputs.params.version_id)
+
+        dockerfile: docker/mongodb-enterprise-init-database/Dockerfile.ubuntu-$(inputs.params.version_id)
+        inputs:
+          - is_appdb
+        output:
+          - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-database
+            tag: $(inputs.params.version_id)
+
+      - name: init-database-template-ubi
+        task_type: dockerfile_template
+        distro: ubi_minimal
+        tags: ["ubi"]
+
+        inputs:
+          - is_appdb
+        output:
+          - dockerfile: docker/mongodb-enterprise-init-database/Dockerfile.ubi-$(inputs.params.version_id)
+
+      - name: init-database-build-ubi
+        task_type: docker_build
+        tags: ["ubi"]
+
+        buildargs:
+          version: $(inputs.params.version)
+          imagebase: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-database-context:$(inputs.params.version_id)
+
+        dockerfile: docker/mongodb-enterprise-init-database/Dockerfile.ubi-$(inputs.params.version_id)
+        inputs:
+          - is_appdb
+
+        output:
+          - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-init-database
+            tag: $(inputs.params.version_id)

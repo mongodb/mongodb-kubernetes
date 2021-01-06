@@ -443,31 +443,6 @@ functions:
 
         command: scripts/dev/batch_init_om_appdb_images.sh
 
-  build_and_push_init_test_images_for_database:
-    - command: subprocess.exec
-      type: setup
-      params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
-        include_expansions_in_env:
-        - version_id
-        - RED_HAT_TOKEN
-        add_to_path:
-        - *go_bin
-        - ${workdir}/bin
-        env:
-          <<: *go_options
-
-          AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
-          AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
-          AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
-          KUBECONFIG: ${workdir}/${kube_environment_name}_config
-
-          IN_MEMORY_CONTEXT: "true"
-          BASE_REPO_URL: ${ecr_registry}/dev
-          IMAGE_TYPE: ${image_type}
-
-        command: scripts/dev/build_push_init_database_image.sh
-
   setup_cloud_qa:
   - command: subprocess.exec
     type: setup
@@ -962,26 +937,41 @@ tasks:
     vars:
       image_type: "ubuntu"
 
-- name: build_init_database_image_ubi
+- name: build_init_appdb_images_ubuntu
   commands:
   - func: clone
-  - func: setup_aws
-  - func: setup_jq
-  - func: configure_docker_auth
-  - func: build_and_push_init_test_images_for_database
+  - func: setup_building_host
+  - func: pipeline
     vars:
-      image_type: "ubi"
+      image_name: init-appdb
+      skip_tags: ubi
+
+- name: build_init_appdb_images_ubi
+  commands:
+  - func: clone
+  - func: setup_building_host
+  - func: pipeline
+    vars:
+      image_name: init-appdb
+      skip_tags: ubuntu
 
 - name: build_init_database_image_ubuntu
   commands:
   - func: clone
-  - func: setup_aws
-  - func: setup_jq
-  - func: configure_docker_auth
-  - func: build_and_push_init_test_images_for_database
+  - func: setup_building_host
+  - func: pipeline
     vars:
-      image_type: "ubuntu"
+      image_name: init-database
+      skip_tags: ubi
 
+- name: build_init_database_image_ubi
+  commands:
+  - func: clone
+  - func: setup_building_host
+  - func: pipeline
+    vars:
+      image_name: init-database
+      skip_tags: ubuntu
 
 - name: prepare_cluster_vanilla
   exec_timeout_secs: 1200
@@ -2491,6 +2481,8 @@ buildvariants:
       variant: init_test_run
     - name: build_init_database_image_ubuntu
       variant: init_test_run
+    - name: build_init_appdb_images_ubuntu
+      variant: init_test_run
     - name: prepare_cluster_vanilla_om
       variant: init_test_run
   run_on:
@@ -2518,6 +2510,8 @@ buildvariants:
     - name: build_init_om_images_ubi
       variant: init_test_run
     - name: build_init_database_image_ubi
+      variant: init_test_run
+    - name: build_init_appdb_images_ubi
       variant: init_test_run
   run_on:
     - ubuntu1604-test
@@ -2547,6 +2541,8 @@ buildvariants:
     variant: init_test_run
   - name: build_init_database_image_ubuntu
     variant: init_test_run
+  - name: build_init_appdb_images_ubuntu
+    variant: init_test_run
   expansions:
     <<: *kubernetes_environment_kind
     image_type: ubuntu
@@ -2571,6 +2567,8 @@ buildvariants:
   - name: build_init_om_images_ubuntu
     variant: init_test_run
   - name: build_init_database_image_ubuntu
+    variant: init_test_run
+  - name: build_init_appdb_images_ubuntu
     variant: init_test_run
   expansions:
     <<: *kubernetes_environment_kind
@@ -2597,6 +2595,8 @@ buildvariants:
   - name: build_init_om_images_ubi
     variant: init_test_run
   - name: build_init_database_image_ubi
+    variant: init_test_run
+  - name: build_init_appdb_images_ubi
     variant: init_test_run
   expansions:
     # The ubi checks also run on kind because of memory problems on Openshift!
@@ -2729,6 +2729,12 @@ buildvariants:
     - name: build_operator_ubi
     - name: build_operator_ubuntu
     - name: build_test_image
+
+    # Init AppDB images
+    - name: build_init_appdb_images_ubuntu
+    - name: build_init_appdb_images_ubi
+
+    # does not build init appdb anymore
     - name: build_init_om_images_ubuntu
     - name: build_init_om_images_ubi
     - name: build_init_database_image_ubuntu
