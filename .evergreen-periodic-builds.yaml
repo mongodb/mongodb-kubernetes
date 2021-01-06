@@ -1,0 +1,95 @@
+parameters:
+- key: registry
+  value: 268558157000.dkr.ecr.us-east-1.amazonaws.com
+  description: Development ECR registry
+
+
+### All the functions in this file are copies of what is in
+### .evergreen.yml. If there's any modification on these, it should be also
+### modified in there.
+functions:
+  clone:
+  - command: subprocess.exec
+    type: setup
+    params:
+      command: "mkdir -p src/github.com/10gen"
+  - command: git.get_project
+    type: setup
+    params:
+      directory: src/github.com/10gen/ops-manager-kubernetes
+
+  configure_docker_auth:
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      include_expansions_in_env:
+      - workdir
+      binary: scripts/evergreen/setup_aws.sh
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+      - ${workdir}/bin
+      include_expansions_in_env:
+      - workdir
+      - RED_HAT_TOKEN
+      env:
+        AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
+        AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
+        AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
+      binary: scripts/dev/configure_docker_auth.sh
+  - command: subprocess.exec
+    type: setup
+    params:
+      command: "docker login quay.io -u ${quay_prod_username} -p ${quay_prod_robot_token}"
+
+  pipeline:
+  - command: subprocess.exec
+    type: setup
+    params:
+      command: virtualenv --python /opt/python/3.7/bin/python3 ./venv
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      command: ${workdir}/venv/bin/python -m pip install -r requirements.txt --quiet --no-warn-script-location
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      env:
+        AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
+        AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
+        AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
+      include_expansions_in_env:
+      - version_id
+      - registry
+      - distro
+      - include_tags
+      - skip_tags
+      - test_suffix
+      - om_version
+      add_to_path:
+      - ${workdir}/bin
+      command: "${workdir}/venv/bin/python pipeline.py --include ${image_name}"
+
+tasks:
+- name: periodic_build_operator
+  commands:
+  - func: clone
+  - func: configure_docker_auth
+  - func: pipeline
+    vars:
+      image_name: operator-daily
+
+buildvariants:
+- name: periodic_build_operator
+  display_name: periodic_build_operator
+  run_on:
+  - ubuntu1604-build
+  tasks:
+  - name: periodic_build_operator
