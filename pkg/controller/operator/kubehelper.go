@@ -10,8 +10,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 
-	"net/url"
-
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -20,8 +18,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
-
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
@@ -193,30 +189,6 @@ func (ss StatefulSetHelper) GetCurrentAgentAuthMechanism() string {
 
 func (ss StatefulSetHelper) GetStartupParameters() mdbv1.StartupParameters {
 	return ss.StartupOptions
-}
-
-func (ss StatefulSetHelper) hasHorizons() bool {
-	return len(ss.ReplicaSetHorizons) > 0
-}
-
-// getAdditionalCertDomainsForMember gets any additional domains that the
-// certificate for the given member of the stateful set should be signed for.
-func (ss StatefulSetHelper) getAdditionalCertDomainsForMember(member int) (hostnames []string) {
-	_, podnames := ss.getDNSNames()
-	for _, certDomain := range ss.Security.TLSConfig.AdditionalCertificateDomains {
-		hostnames = append(hostnames, podnames[member]+"."+certDomain)
-	}
-	if ss.hasHorizons() {
-		// at this point len(ss.ReplicaSetHorizons) should be equal to the number
-		// of members in the replica set
-		for _, externalHost := range ss.ReplicaSetHorizons[member] {
-			// need to use the URL struct directly instead of url.Parse as
-			// Parse expects the URL to have a scheme.
-			hostURL := url.URL{Host: externalHost}
-			hostnames = append(hostnames, hostURL.Hostname())
-		}
-	}
-	return hostnames
 }
 
 type OpsManagerStatefulSetHelper struct {
@@ -691,21 +663,6 @@ func (s *StatefulSetHelper) CreateOrUpdateAppDBInKubernetes(stsGetUpdateCreator 
 	return err
 }
 
-// getDNSNamesForStatefulSet Returns a list of hostnames and names for the N Pods that are part of this StatefulSet
-// The `fqdns` refer to the FQDN names of the Pods, that makes them reachable and distinguishable at cluster level.
-// The `names` array refers to the hostname of each Pod.
-func (s *StatefulSetHelper) getDNSNames() ([]string, []string) {
-	var members int
-
-	if s.ResourceType == mdbv1.Standalone {
-		members = 1
-	} else {
-		members = s.Replicas
-	}
-
-	return util.GetDNSNames(s.Name, s.Service, s.Namespace, s.ClusterDomain, members)
-}
-
 func (s *StatefulSetHelper) SetCertificateHash(certHash string) *StatefulSetHelper {
 	s.CertificateHash = certHash
 	return s
@@ -821,21 +778,21 @@ func ensureAutomationConfigSecret(secretGetUpdateCreator secret.GetUpdateCreator
 
 // validateSelfManagedSSLCertsForStatefulSet ensures that a stateful set using
 // user-provided certificates has all of the relevant certificates in place.
-func (ss *StatefulSetHelper) validateSelfManagedSSLCertsForStatefulSet(k *KubeHelper, secretName string) workflow.Status {
+func validateSelfManagedSSLCertsForStatefulSet(k *KubeHelper, secretName string, opts certs.Options) workflow.Status {
 	// A "Certs" attribute has been provided
 	// This means that the customer has provided with a secret name they have
 	// already populated with the certs and keys for this deployment.
 	// Because of the async nature of Kubernetes, this object might not be ready yet,
 	// in which case, we'll keep reconciling until the object is created and is correct.
-	if notReadyCerts := k.verifyCertificatesForStatefulSet(ss, secretName); notReadyCerts > 0 {
+	if notReadyCerts := certs.VerifyCertificatesForStatefulSet(k.client, secretName, opts); notReadyCerts > 0 {
 		return workflow.Failed("The secret object '%s' does not contain all the certificates needed."+
 			"Required: %d, contains: %d", secretName,
-			ss.Replicas,
-			ss.Replicas-notReadyCerts,
+			opts.Replicas,
+			opts.Replicas-notReadyCerts,
 		)
 	}
 
-	if err := k.validateCertificates(secretName, ss.Namespace); err != nil {
+	if err := certs.ValidateCertificates(k.client, secretName, opts.Namespace); err != nil {
 		return workflow.Failed(err.Error())
 	}
 
@@ -845,21 +802,21 @@ func (ss *StatefulSetHelper) validateSelfManagedSSLCertsForStatefulSet(k *KubeHe
 // ensureOperatorManagedSSLCertsForStatefulSet ensures that a stateful set
 // using operator-managed certificates has all of the relevant certificates in
 // place.
-func (ss *StatefulSetHelper) ensureOperatorManagedSSLCertsForStatefulSet(k *KubeHelper, secretName string, log *zap.SugaredLogger) workflow.Status {
+func ensureOperatorManagedSSLCertsForStatefulSet(k *KubeHelper, secretName string, opts certs.Options, log *zap.SugaredLogger) workflow.Status {
 	certsNeedApproval := false
 
-	if err := k.validateCertificates(secretName, ss.Namespace); err != nil {
+	if err := certs.ValidateCertificates(k.client, secretName, opts.Namespace); err != nil {
 		return workflow.Failed(err.Error())
 	}
 
-	if notReadyCerts := k.verifyCertificatesForStatefulSet(ss, secretName); notReadyCerts > 0 {
+	if notReadyCerts := certs.VerifyCertificatesForStatefulSet(k.client, secretName, opts); notReadyCerts > 0 {
 		// If the Kube CA and the operator are responsible for the certificates to be
 		// ready and correctly stored in the secret object, and this secret is not "complete"
 		// we'll go through the process of creating the CSR, wait for certs approval and then
 		// creating a correct secret with the certificates and keys.
 
 		// For replica set we need to create rs.Spec.Replicas certificates, one per each Pod
-		fqdns, podnames := ss.getDNSNames()
+		fqdns, podnames := certs.GetDNSNames(opts)
 
 		// pemFiles will store every key (during the CSR creation phase) and certificate
 		// both can happen on different reconciliation stages (CSR and keys are created, then
@@ -869,13 +826,13 @@ func (ss *StatefulSetHelper) ensureOperatorManagedSSLCertsForStatefulSet(k *Kube
 		pemFiles := pem.NewCollection()
 
 		for idx, host := range fqdns {
-			csr, err := certs.ReadCSR(k.client, podnames[idx], ss.Namespace)
-			additionalCertDomains := ss.getAdditionalCertDomainsForMember(idx)
+			csr, err := certs.ReadCSR(k.client, podnames[idx], opts.Namespace)
+			additionalCertDomains := certs.GetAdditionalCertDomainsForMember(opts, idx)
 			if err != nil {
 				certsNeedApproval = true
 				hostnames := []string{host, podnames[idx]}
 				hostnames = append(hostnames, additionalCertDomains...)
-				key, err := certs.CreateTlsCSR(k.client, podnames[idx], ss.Namespace, clusterDomainOrDefault(ss.ClusterDomain), hostnames, host)
+				key, err := certs.CreateTlsCSR(k.client, podnames[idx], opts.Namespace, clusterDomainOrDefault(opts.ClusterDomain), hostnames, host)
 				if err != nil {
 					return workflow.Failed("Failed to create CSR, %s", err)
 				}
@@ -910,7 +867,7 @@ func (ss *StatefulSetHelper) ensureOperatorManagedSSLCertsForStatefulSet(k *Kube
 		// in the existing values in the secret
 
 		// TODO: client should not come from KubeHelper
-		err := pem.CreateOrUpdateSecret(k.client, secretName, ss.Namespace, pemFiles)
+		err := pem.CreateOrUpdateSecret(k.client, secretName, opts.Namespace, pemFiles)
 		if err != nil {
 			// If we have an error creating or updating the secret, we might lose
 			// the keys, in which case we return an error, to make it clear what
@@ -918,118 +875,30 @@ func (ss *StatefulSetHelper) ensureOperatorManagedSSLCertsForStatefulSet(k *Kube
 			// message.
 			return workflow.Failed("Failed to create or update the secret: %s", err)
 		}
-
-		certsHash, err := pemFiles.GetHash()
-		if err != nil {
-			log.Errorw("Could not hash PEM files", "err", err)
-			return workflow.Failed(err.Error())
-		}
-		ss.SetCertificateHash(certsHash)
 	}
 
 	if certsNeedApproval {
-		return workflow.Pending("Not all certificates have been approved by Kubernetes CA for %s", ss.Name)
+		return workflow.Pending("Not all certificates have been approved by Kubernetes CA for %s", opts.Name)
 	}
 	return workflow.OK()
 }
 
 // ensureSSLCertsForStatefulSet contains logic to ensure that all of the
 // required SSL certs for a StatefulSet object exist.
-func (k *KubeHelper) ensureSSLCertsForStatefulSet(ss *StatefulSetHelper, log *zap.SugaredLogger) workflow.Status {
-	if !ss.IsTLSEnabled() {
+func (k *KubeHelper) ensureSSLCertsForStatefulSet(mdb mdbv1.MongoDB, opts certs.Options, log *zap.SugaredLogger) workflow.Status {
+	if !mdb.Spec.IsTLSEnabled() {
 		// if there's no SSL certs to generate, return
 		return workflow.OK()
 	}
 
-	secretName := ss.Name + "-cert"
-	if ss.Security.TLSConfig.IsSelfManaged() {
-		if ss.Security.TLSConfig.SecretRef.Name != "" {
-			secretName = ss.Security.TLSConfig.SecretRef.Name
+	secretName := opts.Name + "-cert"
+	if mdb.Spec.Security.TLSConfig.IsSelfManaged() {
+		if mdb.Spec.Security.TLSConfig.SecretRef.Name != "" {
+			secretName = mdb.Spec.Security.TLSConfig.SecretRef.Name
 		}
-		return ss.validateSelfManagedSSLCertsForStatefulSet(k, secretName)
+		return validateSelfManagedSSLCertsForStatefulSet(k, secretName, opts)
 	}
-	return ss.ensureOperatorManagedSSLCertsForStatefulSet(k, secretName, log)
-}
-
-// validateCertificate verifies the Secret containing the certificates and the keys is valid.
-func (k *KubeHelper) validateCertificates(name, namespace string) error {
-	byteData, err := secret.ReadByteData(k.client, kube.ObjectKey(namespace, name))
-	if err == nil {
-		// Validate that the secret contains the keys, if it contains the certs.
-		for _, value := range byteData {
-			pemFile := pem.NewFileFromData(value)
-			if !pemFile.IsValid() {
-				return fmt.Errorf("The Secret %s containing certificates is not valid. "+
-					"Entries must contain a certificate and a private key.", name)
-			}
-		}
-	}
-
-	return nil
-}
-
-func (k *KubeHelper) verifyClientCertificatesForAgents(name, namespace string) int {
-	s, err := k.client.GetSecret(kube.ObjectKey(namespace, name))
-	if err != nil {
-		return NumAgents
-	}
-
-	certsNotReady := 0
-	for _, agentSecretKey := range []string{util.AutomationAgentPemSecretKey, util.MonitoringAgentPemSecretKey, util.BackupAgentPemSecretKey} {
-		additionalDomains := []string{} // agents have no additional domains
-		if !isValidPemSecret(&s, agentSecretKey, additionalDomains) {
-			certsNotReady++
-		}
-	}
-
-	return certsNotReady
-}
-
-func isValidPemSecret(secret *corev1.Secret, key string, additionalDomains []string) bool {
-	data, ok := secret.Data[key]
-	if !ok {
-		return false
-	}
-
-	pemFile := pem.NewFileFromData(data)
-	if !pemFile.IsComplete() {
-		return false
-	}
-
-	cert, err := pemFile.ParseCertificate()
-	if err != nil {
-		return false
-	}
-
-	for _, domain := range additionalDomains {
-		if !stringutil.Contains(cert.DNSNames, domain) {
-			return false
-		}
-	}
-	return true
-}
-
-// verifyCertificatesForStatefulSet will return the number of certificates which are
-// not ready (approved and issued) yet, if all the certificates and keys required for
-// the StatefulSet `ss` exist in the secret with name `secretName`
-func (k *KubeHelper) verifyCertificatesForStatefulSet(ss *StatefulSetHelper, secretName string) int {
-	s, err := k.client.GetSecret(kube.ObjectKey(ss.Namespace, secretName))
-	if err != nil {
-		return ss.Replicas
-	}
-
-	_, podnames := ss.getDNSNames()
-	certsNotReady := 0
-
-	for i, pod := range podnames {
-		pem := fmt.Sprintf("%s-pem", pod)
-		additionalDomains := ss.getAdditionalCertDomainsForMember(i)
-		if !isValidPemSecret(&s, pem, additionalDomains) {
-			certsNotReady++
-		}
-	}
-
-	return certsNotReady
+	return ensureOperatorManagedSSLCertsForStatefulSet(k, secretName, opts, log)
 }
 
 // EnvVars returns a list of corev1.EnvVar which should be passed

@@ -345,45 +345,46 @@ func (r *ReconcileCommonController) doAgentX509CertsExist(namespace string) bool
 
 // ensureInternalClusterCerts ensures that all the x509 internal cluster certs exist.
 // TODO: this is almost the same as kubeHelper::ensureSSLCertsForStatefulSet, we should centralize the functionality
-func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHelper, log *zap.SugaredLogger) (bool, error) {
+func (r *ReconcileCommonController) ensureInternalClusterCerts(mdb mdbv1.MongoDB, opts certs.Options, log *zap.SugaredLogger) (bool, error) {
 	k := r.kubeHelper
+	// TODO: move this logic into the certs package
 	// Flag that's set to false if any of the certificates have not been approved yet.
 	certsNeedApproval := false
-	secretName := toInternalClusterAuthName(ss.Name) // my-replica-set-clusterfile
+	secretName := toInternalClusterAuthName(opts.Name) // my-replica-set-clusterfile
 
-	if ss.Security.TLSConfig.CA != "" {
+	if mdb.Spec.Security.TLSConfig.CA != "" {
 		// A "Certs" attribute has been provided
 		// This means that the customer has provided with a secret name they have
 		// already populated with the certs and keys for this deployment.
 		// Because of the async nature of Kubernetes, this object might not be ready yet,
 		// in which case, we'll keep reconciling until the object is created and is correct.
-		if notReadyCerts := k.verifyCertificatesForStatefulSet(ss, secretName); notReadyCerts > 0 {
+		if notReadyCerts := certs.VerifyCertificatesForStatefulSet(r.client, secretName, opts); notReadyCerts > 0 {
 			return false, fmt.Errorf("The secret object '%s' does not contain all the certificates needed."+
 				"Required: %d, contains: %d", secretName,
-				ss.Replicas,
-				ss.Replicas-notReadyCerts,
+				opts.Replicas,
+				opts.Replicas-notReadyCerts,
 			)
 		}
 
 		// Validates that the secret is valid
-		if err := k.validateCertificates(secretName, ss.Namespace); err != nil {
+		if err := certs.ValidateCertificates(r.client, secretName, opts.Namespace); err != nil {
 			return false, err
 		}
 	} else {
 
 		// Validates that the secret is valid
-		if err := k.validateCertificates(secretName, ss.Namespace); err != nil {
+		if err := certs.ValidateCertificates(r.client, secretName, opts.Namespace); err != nil {
 			return false, err
 		}
 
-		if notReadyCerts := k.verifyCertificatesForStatefulSet(ss, secretName); notReadyCerts > 0 {
+		if notReadyCerts := certs.VerifyCertificatesForStatefulSet(r.client, secretName, opts); notReadyCerts > 0 {
 			// If the Kube CA and the operator are responsible for the certificates to be
 			// ready and correctly stored in the secret object, and this secret is not "complete"
 			// we'll go through the process of creating the CSR, wait for certs approval and then
 			// creating a correct secret with the certificates and keys.
 
 			// For replica set we need to create rs.Spec.Replicas certificates, one per each Pod
-			fqdns, podnames := ss.getDNSNames()
+			fqdns, podnames := certs.GetDNSNames(opts)
 
 			// pemFiles will store every key (during the CSR creation phase) and certificate
 			// both can happen on different reconciliation stages (CSR and keys are created, then
@@ -394,10 +395,10 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHe
 
 			for idx, host := range fqdns {
 				csrName := toInternalClusterAuthName(podnames[idx])
-				csr, err := certs.ReadCSR(k.client, csrName, ss.Namespace)
+				csr, err := certs.ReadCSR(k.client, csrName, opts.Namespace)
 				if err != nil {
 					certsNeedApproval = true
-					key, err := certs.CreateInternalClusterAuthCSR(k.client, csrName, ss.Namespace, clusterDomainOrDefault(ss.ClusterDomain), []string{host, podnames[idx]}, podnames[idx])
+					key, err := certs.CreateInternalClusterAuthCSR(k.client, csrName, opts.Namespace, clusterDomainOrDefault(opts.ClusterDomain), []string{host, podnames[idx]}, podnames[idx])
 					if err != nil {
 						return false, fmt.Errorf("Failed to create CSR, %s", err)
 					}
@@ -423,7 +424,7 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(ss *StatefulSetHe
 			labels["mongodb/secure"] = "certs"
 			labels["mongodb/operator"] = "certs." + secretName
 
-			err := enterprisepem.CreateOrUpdateSecret(r.client, secretName, ss.Namespace, pemFiles)
+			err := enterprisepem.CreateOrUpdateSecret(r.client, secretName, opts.Namespace, pemFiles)
 			if err != nil {
 				// If we have an error creating or updating the secret, we might lose
 				// the keys, in which case we return an error, to make it clear what
@@ -443,7 +444,7 @@ func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(mdb *
 	k := r.kubeHelper
 
 	certsNeedApproval := false
-	if missing := k.verifyClientCertificatesForAgents(util.AgentSecretName, namespace); missing > 0 {
+	if missing := certs.VerifyClientCertificatesForAgents(r.client, namespace); missing > 0 {
 		if useCustomCA {
 			return false, fmt.Errorf("The %s Secret file does not contain the necessary Agent certificates. Missing %d certificates", util.AgentSecretName, missing)
 		}

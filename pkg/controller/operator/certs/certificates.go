@@ -9,6 +9,13 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
+	"net/url"
+
+	enterprisepem "github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/pem"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
@@ -21,15 +28,16 @@ var keyUsages = []certsv1.KeyUsage{"digital signature", "key encipherment", "ser
 var clientKeyUsages = []certsv1.KeyUsage{"digital signature", "key encipherment", "client auth"}
 
 const (
-	PrivateKeySize          = 4096
-	CertificateNameCountry  = "US"
-	CertificateNameState    = "NY"
-	CertificateNameLocation = "NY"
+	numAgents               = 3
+	privateKeySize          = 4096
+	certificateNameCountry  = "US"
+	certificateNameState    = "NY"
+	certificateNameLocation = "NY"
 )
 
 // CreateCSR creates a CertificateSigningRequest object and posting it into Kubernetes API.
 func CreateCSR(client kubernetesClient.Client, hosts []string, subject pkix.Name, keyUsages []certsv1.KeyUsage, name, namespace string) ([]byte, error) {
-	priv, err := rsa.GenerateKey(rand.Reader, PrivateKeySize)
+	priv, err := rsa.GenerateKey(rand.Reader, privateKeySize)
 	if err != nil {
 		return nil, err
 	}
@@ -91,9 +99,9 @@ func CreateTlsCSR(client kubernetesClient.Client, name, namespace, clusterDomain
 		CommonName:         commonName,
 		Organization:       []string{clusterDomain + "-server"},
 		OrganizationalUnit: []string{namespace},
-		Country:            []string{CertificateNameCountry},
-		Province:           []string{CertificateNameState},
-		Locality:           []string{CertificateNameLocation},
+		Country:            []string{certificateNameCountry},
+		Province:           []string{certificateNameState},
+		Locality:           []string{certificateNameLocation},
 	}
 	return CreateCSR(client, hosts, subject, keyUsages, name, namespace)
 }
@@ -105,10 +113,10 @@ func CreateTlsCSR(client kubernetesClient.Client, name, namespace, clusterDomain
 func CreateInternalClusterAuthCSR(client kubernetesClient.Client, name, namespace, clusterDomain string, hosts []string, commonName string) ([]byte, error) {
 	subject := pkix.Name{
 		CommonName:         commonName,
-		Locality:           []string{CertificateNameLocation},
+		Locality:           []string{certificateNameLocation},
 		Organization:       []string{clusterDomain + "-server"},
-		Country:            []string{CertificateNameCountry},
-		Province:           []string{CertificateNameState},
+		Country:            []string{certificateNameCountry},
+		Province:           []string{certificateNameState},
 		OrganizationalUnit: []string{namespace},
 	}
 	return CreateCSR(client, hosts, subject, clientKeyUsages, name, namespace)
@@ -121,9 +129,9 @@ func CreateAgentCSR(client kubernetesClient.Client, name, namespace, clusterDoma
 	subject := pkix.Name{
 		CommonName:         name,
 		Organization:       []string{clusterDomain + "-agent"},
-		Locality:           []string{CertificateNameLocation},
-		Country:            []string{CertificateNameCountry},
-		Province:           []string{CertificateNameState},
+		Locality:           []string{certificateNameLocation},
+		Country:            []string{certificateNameCountry},
+		Province:           []string{certificateNameState},
 		OrganizationalUnit: []string{namespace},
 	}
 	return CreateCSR(client, []string{name}, subject, clientKeyUsages, name, namespace)
@@ -158,4 +166,113 @@ func CSRHasRequiredDomains(csr *certsv1.CertificateSigningRequest, domains []str
 		}
 	}
 	return true
+}
+
+// VerifyCertificatesForStatefulSet returns the number of certificates created by the operator which are not ready (approved and issued).
+// If all the certificates and keys required for the MongoDB resource exist in the secret with name `secretName`.
+// Note: the generation of certificates by the operator is now a deprecated feature to be used in test environments only.
+func VerifyCertificatesForStatefulSet(secretGetter secret.Getter, secretName string, opts Options) int {
+	s, err := secretGetter.GetSecret(kube.ObjectKey(opts.Namespace, secretName))
+	if err != nil {
+		return opts.Replicas
+	}
+
+	certsNotReady := 0
+	for i, pod := range getPodNames(opts) {
+		pem := fmt.Sprintf("%s-pem", pod)
+		additionalDomains := GetAdditionalCertDomainsForMember(opts, i)
+		if !isValidPemSecret(s, pem, additionalDomains) {
+			certsNotReady++
+		}
+	}
+
+	return certsNotReady
+}
+
+// getPodNames returns the pod names based on the Cert Options provided.
+func getPodNames(opts Options) []string {
+	_, podnames := util.GetDNSNames(opts.Name, opts.ServiceName, opts.Namespace, opts.ClusterDomain, opts.Replicas)
+	return podnames
+}
+
+func GetDNSNames(opts Options) (hostnames, podnames []string) {
+	return util.GetDNSNames(opts.Name, opts.ServiceName, opts.Namespace, opts.ClusterDomain, opts.Replicas)
+}
+
+// GetAdditionalCertDomainsForMember gets any additional domains that the
+// certificate for the given member of the stateful set should be signed for.
+func GetAdditionalCertDomainsForMember(opts Options, member int) (hostnames []string) {
+	_, podnames := GetDNSNames(opts)
+	for _, certDomain := range opts.additionalCertificateDomains {
+		hostnames = append(hostnames, podnames[member]+"."+certDomain)
+	}
+	if len(opts.horizons) > 0 {
+		//at this point len(ss.ReplicaSetHorizons) should be equal to the number
+		//of members in the replica set
+		for _, externalHost := range opts.horizons[member] {
+			//need to use the URL struct directly instead of url.Parse as
+			//Parse expects the URL to have a scheme.
+			hostURL := url.URL{Host: externalHost}
+			hostnames = append(hostnames, hostURL.Hostname())
+		}
+	}
+	return hostnames
+}
+
+// isValidPemSecret returns true if the given Secret contains a parsable certificate and contains all required domains.
+func isValidPemSecret(secret corev1.Secret, key string, additionalDomains []string) bool {
+	data, ok := secret.Data[key]
+	if !ok {
+		return false
+	}
+
+	pemFile := enterprisepem.NewFileFromData(data)
+	if !pemFile.IsComplete() {
+		return false
+	}
+
+	cert, err := pemFile.ParseCertificate()
+	if err != nil {
+		return false
+	}
+
+	for _, domain := range additionalDomains {
+		if !stringutil.Contains(cert.DNSNames, domain) {
+			return false
+		}
+	}
+	return true
+}
+
+// ValidateCertificates verifies the Secret containing the certificates and the keys is valid.
+func ValidateCertificates(secretGetter secret.Getter, name, namespace string) error {
+	byteData, err := secret.ReadByteData(secretGetter, kube.ObjectKey(namespace, name))
+	if err == nil {
+		// Validate that the secret contains the keys, if it contains the certs.
+		for _, value := range byteData {
+			pemFile := enterprisepem.NewFileFromData(value)
+			if !pemFile.IsValid() {
+				return fmt.Errorf(fmt.Sprintf("The Secret %s containing certificates is not valid. Entries must contain a certificate and a private key.", name))
+			}
+		}
+	}
+	return nil
+}
+
+// VerifyClientCertificatesForAgents returns the number of agent certs that are not yet ready.
+func VerifyClientCertificatesForAgents(secretGetter secret.Getter, namespace string) int {
+	s, err := secretGetter.GetSecret(kube.ObjectKey(namespace, util.AgentSecretName))
+	if err != nil {
+		return numAgents
+	}
+
+	certsNotReady := 0
+	for _, agentSecretKey := range []string{util.AutomationAgentPemSecretKey, util.MonitoringAgentPemSecretKey, util.BackupAgentPemSecretKey} {
+		additionalDomains := []string{} // agents have no additional domains
+		if !isValidPemSecret(s, agentSecretKey, additionalDomains) {
+			certsNotReady++
+		}
+	}
+
+	return certsNotReady
 }

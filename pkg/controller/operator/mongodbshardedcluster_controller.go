@@ -3,6 +3,8 @@ package operator
 import (
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/certs"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
 	enterprisepem "github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/pem"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
@@ -185,7 +187,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return nil, status
 	}
 
-	status := runInGivenOrder(anyStatefulSetHelperNeedsToPublishState(r.client, kubeState, log),
+	status := runInGivenOrder(r.anyStatefulSetHelperNeedsToPublishState(*sc, r.client, kubeState, log),
 		func() workflow.Status {
 			return r.updateOmDeploymentShardedCluster(conn, sc, kubeState, podEnvVars, currentAgentAuthMode, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
@@ -202,8 +204,8 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 
 // anyStatefulSetHelperNeedsToPublishState checks to see if any stateful set helper part
 // of the given sharded cluster needs to publish state to Ops Manager before updating Kubernetes resources
-func anyStatefulSetHelperNeedsToPublishState(stsGetter statefulset.Getter, kubeState ShardedClusterKubeState, log *zap.SugaredLogger) bool {
-	allHelpers := getAllStatefulSetHelpers(kubeState)
+func (r *ReconcileMongoDbShardedCluster) anyStatefulSetHelperNeedsToPublishState(sc mdbv1.MongoDB, stsGetter statefulset.Getter, kubeState ShardedClusterKubeState, log *zap.SugaredLogger) bool {
+	allHelpers, _ := r.getAllStatefulSetHelpers(sc, kubeState)
 	for _, stsHelper := range allHelpers {
 		if stsHelper.needToPublishStateFirst(stsGetter, log) {
 			return true
@@ -237,8 +239,10 @@ func (r *ReconcileMongoDbShardedCluster) ensureX509InKubernetes(sc *mdbv1.MongoD
 	if sc.Spec.Security.GetInternalClusterAuthenticationMode() == util.X509 {
 		errors := make([]error, 0)
 		allSuccessful := true
-		for _, helper := range getAllStatefulSetHelpers(kubeState) {
-			if success, err := r.ensureInternalClusterCerts(helper, log); err != nil {
+
+		allHelpers, stsConfigs := r.getAllStatefulSetHelpers(*sc, kubeState)
+		for _, helper := range allHelpers {
+			if success, err := r.ensureInternalClusterCerts(*sc, stsConfigs[helper], log); err != nil {
 				errors = append(errors, err)
 			} else if !success {
 				allSuccessful = false
@@ -280,11 +284,11 @@ func (r *ReconcileMongoDbShardedCluster) ensureSSLCertificates(s *mdbv1.MongoDB,
 
 	var status workflow.Status
 	status = workflow.OK()
-	status = status.Merge(r.kubeHelper.ensureSSLCertsForStatefulSet(state.mongosSetHelper, log))
-	status = status.Merge(r.kubeHelper.ensureSSLCertsForStatefulSet(state.configSrvSetHelper, log))
+	status = status.Merge(r.kubeHelper.ensureSSLCertsForStatefulSet(*s, certs.MongosConfig(*s, r.mongosScaler), log))
+	status = status.Merge(r.kubeHelper.ensureSSLCertsForStatefulSet(*s, certs.ConfigSrvConfig(*s, r.configSrvScaler), log))
 
-	for _, helper := range state.shardsSetsHelpers {
-		status = status.Merge(r.kubeHelper.ensureSSLCertsForStatefulSet(helper, log))
+	for i := range state.shardsSetsHelpers {
+		status = status.Merge(r.kubeHelper.ensureSSLCertsForStatefulSet(*s, certs.ShardConfig(*s, i, r.mongodsPerShardScaler), log))
 	}
 
 	return status
@@ -816,12 +820,22 @@ func getAllHosts(c *mdbv1.MongoDB, sizeConfig mdbv1.MongodbShardedClusterSizeCon
 
 // getAllStatefulSetHelpers returns a list of all StatefulSetHelpers that
 // make up a Sharded Cluster
-func getAllStatefulSetHelpers(kubeState ShardedClusterKubeState) []*StatefulSetHelper {
+func (r *ReconcileMongoDbShardedCluster) getAllStatefulSetHelpers(sc mdbv1.MongoDB, kubeState ShardedClusterKubeState) ([]*StatefulSetHelper, map[*StatefulSetHelper]certs.Options) {
 	stsHelpers := make([]*StatefulSetHelper, 0)
-	stsHelpers = append(stsHelpers, kubeState.shardsSetsHelpers...)
+	stsToCertsMap := make(map[*StatefulSetHelper]certs.Options)
+
+	for i, stsHelper := range kubeState.shardsSetsHelpers {
+		stsHelpers = append(stsHelpers, stsHelper)
+		stsToCertsMap[stsHelper] = certs.ShardConfig(sc, i, r.mongodsPerShardScaler)
+	}
+
 	stsHelpers = append(stsHelpers, kubeState.mongosSetHelper)
+	stsToCertsMap[kubeState.mongosSetHelper] = certs.MongosConfig(sc, r.mongosScaler)
+
 	stsHelpers = append(stsHelpers, kubeState.configSrvSetHelper)
-	return stsHelpers
+	stsToCertsMap[kubeState.configSrvSetHelper] = certs.ConfigSrvConfig(sc, r.configSrvScaler)
+
+	return stsHelpers, stsToCertsMap
 }
 
 func createMongosProcesses(set appsv1.StatefulSet, mdb *mdbv1.MongoDB) []om.Process {

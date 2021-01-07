@@ -3,6 +3,8 @@ package operator
 import (
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/certs"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/pem"
 
@@ -166,7 +168,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		return r.updateStatus(s, status, log)
 	}
 
-	if status := r.kubeHelper.ensureSSLCertsForStatefulSet(standaloneBuilder, log); !status.IsOK() {
+	if status := r.kubeHelper.ensureSSLCertsForStatefulSet(*s, certs.StandaloneConfig(*s), log); !status.IsOK() {
 		return r.updateStatus(s, status, log)
 	}
 

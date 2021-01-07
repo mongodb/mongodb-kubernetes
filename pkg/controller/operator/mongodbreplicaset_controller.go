@@ -3,6 +3,8 @@ package operator
 import (
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/certs"
+
 	enterprisepem "github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/pem"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/connection"
@@ -112,7 +114,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		return r.updateStatus(rs, status, log)
 	}
 
-	if status := r.kubeHelper.ensureSSLCertsForStatefulSet(replicaBuilder, log); !status.IsOK() {
+	if status := r.kubeHelper.ensureSSLCertsForStatefulSet(*rs, certs.ReplicaSetConfig(*rs), log); !status.IsOK() {
 		return r.updateStatus(rs, status, log)
 	}
 
@@ -368,7 +370,7 @@ func (r *ReconcileCommonController) ensureX509InKubernetes(mdb *mdbv1.MongoDB, h
 	}
 
 	if mdb.Spec.Security.GetInternalClusterAuthenticationMode() == util.X509 {
-		if success, err := r.ensureInternalClusterCerts(helper, log); err != nil {
+		if success, err := r.ensureInternalClusterCerts(*mdb, certs.ReplicaSetConfig(*mdb), log); err != nil {
 			return workflow.Failed("Failed ensuring internal cluster authentication certs %s", err)
 		} else if !success {
 			return workflow.Pending("Not all internal cluster authentication certs have been approved by Kubernetes CA")
