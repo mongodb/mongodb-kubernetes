@@ -172,10 +172,10 @@ build-and-push-images: build-and-push-operator-image appdb-init-image om-init-im
 	@ $(MAKE) database-init-image
 
 database-init-image:
-	@ scripts/dev/build_push_init_database_image.sh
+	@ ./pipeline.py --include init-database
 
 appdb-init-image:
-	@ scripts/dev/build_push_init_appdb_image.sh
+	@ ./pipeline.py --include init-appdb
 
 om-init-image:
 	@ scripts/dev/build_push_init_opsmanager_image.sh
