@@ -2,19 +2,34 @@
 
 When we need to release a new OM image version `X.Y.Z`, these are the steps to follow:
 
-## Modify and execute evergreen patch
-In the [evergreen file](../../.evergreen.yml) go to the task `build_and_push_ops_manager_images` and change the `VERSIONS` expansion to contain only the string `X.Y.Z`
+## Build new version
 
-Manually run the patch like this:
+To build a new version of Ops Manager we'll use a parameterized Evergreen build:
+
+```bash
+version="4.4.6"
+evergreen patch -v build_ops_manager_images -t all \
+         --param om_version=${version} \
+         -y -f -d "Building Ops Manager ${version}"
 ```
-evergreen patch -v build_and_push_ops_manager_images -t all -y -f -d "Building OM" -u --browse
+
+## Publish new version
+
+Currently, it is only possible to run the e2e tests on the newly built image if it is
+pushed to Quay. In order to do this, we have to use another Evergreen task:
+
+```bash
+version="4.4.6"
+evergreen patch -v publish_ops_manager_images -t all \
+         --param om_version=${version} \
+         -y -f -d "Releasing Ops Manager ${version}"
 ```
 
 ## Create a PR
 If the evergreen patch is successful, create a PR with the following changes:
 
-1. Make sure to **ADD** (and not replace) `X.Y.Z` to the `VERSIONS` expansion in the [evergreen file](../../.evergreen.yml)
-1. Change the variable `ops_manager_44_latest` or `ops_manager_42_latest` (whatever you are releasing) to `X.Y.Z`
+1. Change the variable `ops_manager_44_latest` or `ops_manager_42_latest`
+   (whatever you are releasing) to `X.Y.Z` in `.evergreen.yml` file.
 
 ### Ops Manager 4.4 Release Only
 
@@ -32,8 +47,8 @@ or
 
     evergreen patch -a patch-run-om-44 -y -f -d "Running tests on OM4.4" -u
 
+## Publish Release to RH Connect
 
-## Wait for tests to finish and complete the release
 1. When the tests that use the new `custom_om_version` are all green, go to step 2
    * If the tests fail, delete the image from quay and investigate
 1. Pull the image from ECR
@@ -50,9 +65,3 @@ or
 1. Wait for the container certification test to pass by checking [here](https://connect.redhat.com/project/2207181/images)
 1. Publish the image
 1. Merge the PR
-
-### Notes
-The ideal way would be to directly add the `X.Y.Z` to the `VERSIONS` expansion and run the patch manually.
-However, this is currently not possible since the evergreen task would fail as there will be too many `kaniko` jobs and the pods will run out of resources.
-
-Since the releasing of images will be completely changed soon, we will work around as described here for now.
