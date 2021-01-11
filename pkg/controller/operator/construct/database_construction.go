@@ -67,14 +67,14 @@ type DatabaseStatefulSetOptions struct {
 }
 
 // StandaloneOptions returns a set of options which will configure a Standalone StatefulSet
-func StandaloneOptions() func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+func StandaloneOptions(additionalOpts ...func(options *DatabaseStatefulSetOptions)) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 	return func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 		var stsSpec *appsv1.StatefulSetSpec = nil
 		if mdb.Spec.PodSpec.PodTemplate != nil {
 			stsSpec = &appsv1.StatefulSetSpec{Template: *mdb.Spec.PodSpec.PodTemplate}
 		}
 
-		return DatabaseStatefulSetOptions{
+		opts := DatabaseStatefulSetOptions{
 			Replicas:                1,
 			Name:                    mdb.Name,
 			ServiceName:             mdb.ServiceName(),
@@ -85,18 +85,24 @@ func StandaloneOptions() func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 			AgentConfig:             mdb.Spec.Agent,
 			StatefulSetSpecOverride: stsSpec,
 		}
+
+		for _, opt := range additionalOpts {
+			opt(&opts)
+		}
+
+		return opts
 	}
 }
 
 // ReplicaSetOptions returns a set of options which will configure a ReplicaSet StatefulSet
-func ReplicaSetOptions() func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+func ReplicaSetOptions(additionalOpts ...func(options *DatabaseStatefulSetOptions)) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 	return func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 		var stsSpec *appsv1.StatefulSetSpec = nil
 		if mdb.Spec.PodSpec.PodTemplate != nil {
 			stsSpec = &appsv1.StatefulSetSpec{Template: *mdb.Spec.PodSpec.PodTemplate}
 		}
 
-		return DatabaseStatefulSetOptions{
+		opts := DatabaseStatefulSetOptions{
 			Replicas:                scale.ReplicasThisReconciliation(&mdb),
 			Name:                    mdb.Name,
 			ServiceName:             mdb.ServiceName(),
@@ -107,18 +113,23 @@ func ReplicaSetOptions() func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 			AgentConfig:             mdb.Spec.Agent,
 			StatefulSetSpecOverride: stsSpec,
 		}
+		for _, opt := range additionalOpts {
+			opt(&opts)
+		}
+
+		return opts
 	}
 }
 
 // ShardOptions returns a set of options which will configure single Shard StatefulSet
-func ShardOptions(shardNum int) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+func ShardOptions(shardNum int, additionalOpts ...func(options *DatabaseStatefulSetOptions)) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 	return func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 		var stsSpec *appsv1.StatefulSetSpec = nil
 		if mdb.Spec.ShardPodSpec.PodTemplate != nil {
 			stsSpec = &appsv1.StatefulSetSpec{Template: *mdb.Spec.ShardPodSpec.PodTemplate}
 		}
 
-		return DatabaseStatefulSetOptions{
+		opts := DatabaseStatefulSetOptions{
 			Name:                    mdb.ShardRsName(shardNum),
 			ServiceName:             mdb.ShardServiceName(),
 			PodSpec:                 newDefaultPodSpecWrapper(*mdb.Spec.ShardPodSpec),
@@ -128,11 +139,16 @@ func ShardOptions(shardNum int) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptio
 			Persistent:              mdb.Spec.Persistent,
 			StatefulSetSpecOverride: stsSpec,
 		}
+		for _, opt := range additionalOpts {
+			opt(&opts)
+		}
+
+		return opts
 	}
 }
 
 // ConfigServerOptions returns a set of options which will configure a Config Server StatefulSet
-func ConfigServerOptions() func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+func ConfigServerOptions(additionalOpts ...func(options *DatabaseStatefulSetOptions)) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 	return func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 		var stsSpec *appsv1.StatefulSetSpec = nil
 		if mdb.Spec.ConfigSrvPodSpec.PodTemplate != nil {
@@ -141,7 +157,7 @@ func ConfigServerOptions() func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 
 		podSpecWrapper := newDefaultPodSpecWrapper(*mdb.Spec.ConfigSrvPodSpec)
 		podSpecWrapper.Default.Persistence.SingleConfig.Storage = util.DefaultConfigSrvStorageSize
-		return DatabaseStatefulSetOptions{
+		opts := DatabaseStatefulSetOptions{
 			Name:                    mdb.ConfigRsName(),
 			ServiceName:             mdb.ConfigSrvServiceName(),
 			PodSpec:                 podSpecWrapper,
@@ -151,18 +167,23 @@ func ConfigServerOptions() func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 			AgentConfig:             mdb.Spec.ConfigSrvSpec.GetAgentConfig(),
 			StatefulSetSpecOverride: stsSpec,
 		}
+		for _, opt := range additionalOpts {
+			opt(&opts)
+		}
+
+		return opts
 	}
 }
 
 // MongosOptions returns a set of options which will configure a Mongos StatefulSet
-func MongosOptions() func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+func MongosOptions(additionalOpts ...func(options *DatabaseStatefulSetOptions)) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 	return func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 		var stsSpec *appsv1.StatefulSetSpec = nil
 		if mdb.Spec.MongosPodSpec.PodTemplate != nil {
 			stsSpec = &appsv1.StatefulSetSpec{Template: *mdb.Spec.MongosPodSpec.PodTemplate}
 		}
 
-		return DatabaseStatefulSetOptions{
+		opts := DatabaseStatefulSetOptions{
 			Name:                    mdb.MongosRsName(),
 			ServiceName:             mdb.ServiceName(),
 			PodSpec:                 newDefaultPodSpecWrapper(*mdb.Spec.MongosPodSpec),
@@ -172,22 +193,24 @@ func MongosOptions() func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 			AgentConfig:             mdb.Spec.MongosSpec.GetAgentConfig(),
 			StatefulSetSpecOverride: stsSpec,
 		}
+		for _, opt := range additionalOpts {
+			opt(&opts)
+		}
+
+		return opts
 	}
 }
 
-func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions, additionalOpts ...func(options *DatabaseStatefulSetOptions)) (appsv1.StatefulSet, error) {
+func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions) (appsv1.StatefulSet, error) {
 	stsOptions := stsOptFunc(mdb)
-	dbSts := databaseStatefulSet(mdb, &stsOptions, additionalOpts...)
+	dbSts := databaseStatefulSet(mdb, &stsOptions)
 	if stsOptions.StatefulSetSpecOverride != nil {
 		return enterprisests.MergeSpec(dbSts, stsOptions.StatefulSetSpecOverride)
 	}
 	return dbSts, nil
 }
 
-func databaseStatefulSet(mdb mdbv1.MongoDB, stsOpts *DatabaseStatefulSetOptions, opts ...func(options *DatabaseStatefulSetOptions)) appsv1.StatefulSet {
-	for _, opt := range opts {
-		opt(stsOpts)
-	}
+func databaseStatefulSet(mdb mdbv1.MongoDB, stsOpts *DatabaseStatefulSetOptions) appsv1.StatefulSet {
 	templateFunc := buildMongoDBPodTemplateSpec(*stsOpts)
 	return statefulset.New(buildDatabaseStatefulSetConfigurationFunction(mdb, templateFunc, *stsOpts))
 }

@@ -3,6 +3,8 @@ package operator
 import (
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/certs"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/pem"
 	enterprisesvc "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
@@ -498,6 +500,35 @@ func (s StatefulSetHelper) CreateOrUpdateInKubernetes(stsGetUpdateCreator statef
 	return err
 }
 
+// createOrUpdateInKubernetes creates (updates if it exists) the StatefulSet with its Service.
+// It returns any errors coming from Kubernetes API.
+func createOrUpdateDatabaseInKubernetes(client kubernetesClient.Client, mdb mdbv1.MongoDB, sts appsv1.StatefulSet, config func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) error {
+	opts := config(mdb)
+	set, err := enterprisests.CreateOrUpdateStatefulset(client,
+		mdb.Namespace,
+		log,
+		&sts,
+	)
+	if err != nil {
+		return err
+	}
+
+	namespacedName := kube.ObjectKey(mdb.Namespace, set.Spec.ServiceName)
+	internalService := buildService(namespacedName, &mdb, set.Spec.ServiceName, opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	err = enterprisesvc.CreateOrUpdateService(client, internalService, log)
+	if err != nil {
+		return err
+	}
+
+	if mdb.Spec.ExposedExternally {
+		namespacedName := objectKey(mdb.Namespace, set.Spec.ServiceName+"-external")
+		externalService := buildService(namespacedName, &mdb, set.Spec.ServiceName, opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeNodePort})
+		return enterprisesvc.CreateOrUpdateService(client, externalService, log)
+	}
+
+	return nil
+}
+
 func (s *OpsManagerStatefulSetHelper) SetService(service string) *OpsManagerStatefulSetHelper {
 	s.Service = service
 	return s
@@ -700,6 +731,56 @@ func (s *StatefulSetHelper) needToPublishStateFirst(stsGetter statefulset.Getter
 	}
 
 	if int32(s.Replicas) < *currentSts.Spec.Replicas {
+		log.Debug("Scaling down operation. automationConfig needs to be updated first")
+		return true
+	}
+
+	return false
+}
+
+// needToPublishStateFirst will check if the Published State of the StatfulSet backed MongoDB Deployments
+// needs to be updated first. In the case of unmounting certs, for instance, the certs should be not
+// required anymore before we unmount them, or the automation-agent and readiness probe will never
+// reach goal state.
+func needToPublishStateFirst(stsGetter statefulset.Getter, mdb mdbv1.MongoDB, configFunc func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) bool {
+	opts := configFunc(mdb)
+	namespacedName := objectKey(mdb.Namespace, opts.Name)
+	currentSts, err := stsGetter.GetStatefulSet(namespacedName)
+	if err != nil {
+		if apiErrors.IsNotFound(err) {
+			// No need to publish state as this is a new StatefulSet
+			log.Debugf("New StatefulSet %s", namespacedName)
+			return false
+		}
+
+		log.Debugw(fmt.Sprintf("Error getting StatefulSet %s", namespacedName), "error", err)
+		return false
+	}
+
+	volumeMounts := currentSts.Spec.Template.Spec.Containers[0].VolumeMounts
+	if mdb.Spec.Security != nil {
+		if !mdb.Spec.Security.TLSConfig.Enabled && volumeMountWithNameExists(volumeMounts, util.SecretVolumeName) {
+			log.Debug("About to set `security.tls.enabled` to false. automationConfig needs to be updated first")
+			return true
+		}
+
+		if mdb.Spec.Security.TLSConfig.CA == "" && volumeMountWithNameExists(volumeMounts, ConfigMapVolumeCAName) {
+			log.Debug("About to set `security.tls.CA` to empty. automationConfig needs to be updated first")
+			return true
+		}
+	}
+
+	if opts.PodVars.SSLMMSCAConfigMap == "" && volumeMountWithNameExists(volumeMounts, CaCertName) {
+		log.Debug("About to set `SSLMMSCAConfigMap` to empty. automationConfig needs to be updated first")
+		return true
+	}
+
+	if mdb.Spec.Security.GetAgentMechanism(opts.CurrentAgentAuthMode) != util.X509 && volumeMountWithNameExists(volumeMounts, util.AgentSecretName) {
+		log.Debug("About to set `project.AuthMode` to empty. automationConfig needs to be updated first")
+		return true
+	}
+
+	if int32(opts.Replicas) < *currentSts.Spec.Replicas {
 		log.Debug("Scaling down operation. automationConfig needs to be updated first")
 		return true
 	}

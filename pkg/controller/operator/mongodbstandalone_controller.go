@@ -150,19 +150,6 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 	}
 
 	podVars := newPodVars(conn, projectConfig, s.Spec.ConnectionSpec)
-	standaloneBuilder := NewStatefulSetHelper(s).
-		SetReplicas(1).
-		SetService(s.ServiceName()).
-		SetServicePort(s.Spec.AdditionalMongodConfig.GetPortOrDefault()).
-		SetPodVars(podVars).
-		SetStartupParameters(s.Spec.Agent.StartupParameters).
-		SetLogger(log).
-		SetTLS(s.Spec.GetTLSConfig()).
-		SetProjectConfig(projectConfig).
-		SetSecurity(s.Spec.Security).
-		SetCurrentAgentAuthMechanism(currentAgentAuthMode).
-		SetStatefulSetConfiguration(nil) // TODO: configure once supported
-	standaloneBuilder.SetCertificateHash(pem.ReadHashFromSecret(r.client, s.Namespace, s.Name, log))
 
 	if status := validateMongoDBResource(s, conn); !status.IsOK() {
 		return r.updateStatus(s, status, log)
@@ -172,7 +159,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		return r.updateStatus(s, status, log)
 	}
 
-	if status := r.ensureX509InKubernetes(s, standaloneBuilder, log); !status.IsOK() {
+	if status := r.ensureX509InKubernetes(s, currentAgentAuthMode, log); !status.IsOK() {
 		return r.updateStatus(s, status, log)
 	}
 
@@ -180,26 +167,27 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		return r.updateStatus(s, status, log)
 	}
 
-	sts, err := construct.DatabaseStatefulSet(*s,
-		construct.StandaloneOptions(),
+	standaloneOpts := construct.StandaloneOptions(
 		CertificateHash(pem.ReadHashFromSecret(r.client, s.Namespace, s.Name, log)),
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
 		PodEnvVars(podVars),
 	)
+
+	sts, err := construct.DatabaseStatefulSet(*s, standaloneOpts)
 	if err != nil {
 		return r.updateStatus(s, workflow.Failed("Failed to create/update (Ops Manager reconciliation phase): %s", err.Error()), log)
 	}
 
-	status := runInGivenOrder(standaloneBuilder.needToPublishStateFirst(r.client, log),
+	status := runInGivenOrder(needToPublishStateFirst(r.client, *s, standaloneOpts, log),
 		func() workflow.Status {
 			return r.updateOmDeployment(conn, s, sts, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
-			if err = standaloneBuilder.CreateOrUpdateInKubernetes(r.client, r.client, sts); err != nil {
+			if err = createOrUpdateDatabaseInKubernetes(r.client, *s, sts, standaloneOpts, log); err != nil {
 				return workflow.Failed("Failed to create/update (Kubernetes reconciliation phase): %s", err.Error())
 			}
 
-			if status := r.getStatefulSetStatus(standaloneBuilder.Namespace, standaloneBuilder.Name); !status.IsOK() {
+			if status := r.getStatefulSetStatus(sts.Namespace, sts.Name); !status.IsOK() {
 				return status
 			}
 			_, _ = r.updateStatus(s, workflow.Reconciling().WithResourcesNotReady([]mdbstatus.ResourceNotReady{}).WithNoMessage(), log)

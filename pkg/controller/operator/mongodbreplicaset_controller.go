@@ -88,28 +88,6 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		return r.updateStatus(rs, reconcileResult, log)
 	}
 
-	currentAgentAuthMode, err := conn.GetAgentAuthMode()
-	if err != nil {
-		return r.updateStatus(rs, workflow.Failed(err.Error()), log)
-	}
-
-	replicaBuilder := NewStatefulSetHelper(rs).
-		SetReplicas(scale.ReplicasThisReconciliation(rs)).
-		SetService(rs.ServiceName()).
-		SetServicePort(rs.Spec.AdditionalMongodConfig.GetPortOrDefault()).
-		SetPodVars(newPodVars(conn, projectConfig, rs.Spec.ConnectionSpec)).
-		SetStartupParameters(rs.Spec.Agent.StartupParameters).
-		SetLogger(log).
-		SetTLS(rs.Spec.GetTLSConfig()).
-		SetProjectConfig(projectConfig).
-		SetSecurity(rs.Spec.Security).
-		SetReplicaSetHorizons(rs.Spec.Connectivity.ReplicaSetHorizons).
-		SetCurrentAgentAuthMechanism(currentAgentAuthMode).
-		SetStatefulSetConfiguration(nil) // TODO: configure once supported
-	//SetStatefulSetConfiguration(rs.Spec.StatefulSetConfiguration)
-
-	replicaBuilder.SetCertificateHash(enterprisepem.ReadHashFromSecret(r.client, rs.Namespace, rs.Name, log))
-
 	if status := validateMongoDBResource(rs, conn); !status.IsOK() {
 		return r.updateStatus(rs, status, log)
 	}
@@ -122,16 +100,22 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		return r.updateStatus(rs, status, log)
 	}
 
-	if status := r.ensureX509InKubernetes(rs, replicaBuilder, log); !status.IsOK() {
+	currentAgentAuthMode, err := conn.GetAgentAuthMode()
+	if err != nil {
+		return r.updateStatus(rs, workflow.Failed(err.Error()), log)
+	}
+
+	if status := r.ensureX509InKubernetes(rs, currentAgentAuthMode, log); !status.IsOK() {
 		return r.updateStatus(rs, status, log)
 	}
 
-	sts, err := construct.DatabaseStatefulSet(*rs,
-		construct.ReplicaSetOptions(),
+	rsConfig := construct.ReplicaSetOptions(
 		PodEnvVars(newPodVars(conn, projectConfig, rs.Spec.ConnectionSpec)),
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
-		CertificateHash(enterprisepem.ReadHashFromSecret(r.client, rs.Namespace, rs.Name, log)), // TODO: remove this method from StatefulSetHelper
+		CertificateHash(enterprisepem.ReadHashFromSecret(r.client, rs.Namespace, rs.Name, log)),
 	)
+
+	sts, err := construct.DatabaseStatefulSet(*rs, rsConfig)
 
 	if err != nil {
 		return r.updateStatus(rs, workflow.Failed(err.Error()), log)
@@ -147,12 +131,12 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		}
 	}
 
-	status := runInGivenOrder(replicaBuilder.needToPublishStateFirst(r.client, log),
+	status := runInGivenOrder(needToPublishStateFirst(r.client, *rs, rsConfig, log),
 		func() workflow.Status {
 			return r.updateOmDeploymentRs(conn, rs.Status.Members, rs, sts, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
-			if err := replicaBuilder.CreateOrUpdateInKubernetes(r.client, r.client, sts); err != nil {
+			if err := createOrUpdateDatabaseInKubernetes(r.client, *rs, sts, construct.ReplicaSetOptions(), log); err != nil {
 				return workflow.Failed("Failed to create/update (Kubernetes reconciliation phase): %s", err.Error())
 			}
 
@@ -347,13 +331,13 @@ func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLog
 	return nil
 }
 
-func (r *ReconcileCommonController) ensureX509InKubernetes(mdb *mdbv1.MongoDB, helper *StatefulSetHelper, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileCommonController) ensureX509InKubernetes(mdb *mdbv1.MongoDB, currentAuthMechanism string, log *zap.SugaredLogger) workflow.Status {
 	authSpec := mdb.Spec.Security.Authentication
 	if authSpec == nil || !mdb.Spec.Security.Authentication.Enabled {
 		return workflow.OK()
 	}
 	useCustomCA := mdb.Spec.GetTLSConfig().CA != ""
-	if mdb.Spec.Security.ShouldUseX509(helper.CurrentAgentAuthMechanism) {
+	if mdb.Spec.Security.ShouldUseX509(currentAuthMechanism) {
 		successful, err := r.ensureX509AgentCertsForMongoDBResource(mdb, useCustomCA, mdb.Namespace, log)
 		if err != nil {
 			return workflow.Failed(err.Error())
