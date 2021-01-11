@@ -26,7 +26,6 @@ usage:
 	@ echo "  full:                       ('make' is an alias for this command) ensures K8s cluster is up, cleans Kubernetes"
 	@ echo "                              resources, build-push-deploy operator, push-deploy database, create secrets, "
 	@ echo "                              config map, resources etc"
-	@ echo "  om-batch                    builds both Init Ops Manager and AppDB images."
 	@ echo "  appdb:                      build and push AppDB image. Specify 'om_version' in format '4.2.1' to provide the already released Ops Manager"
 	@ echo "                              version which will be used to find the matching tag and find the Automation Agent version. Add 'om_branch' "
 	@ echo "                              if Ops Manager is not released yet and you want to have some git branch as the source "
@@ -89,9 +88,6 @@ database: aws_login
 full: ensure-k8s-and-reset build-and-push-images
 	@ $(MAKE) deploy-and-configure-operator
 	@ scripts/dev/apply_resources
-
-om-batch: aws_login
-	@ scripts/dev/batch_init_om_appdb_images.sh
 
 # build-push appdb image
 appdb: aws_login
@@ -178,7 +174,7 @@ appdb-init-image:
 	@ ./pipeline.py --include init-appdb
 
 om-init-image:
-	@ scripts/dev/build_push_init_opsmanager_image.sh
+	@ ./pipeline.py --include init-ops-manager
 
 deploy-operator:
 	@ scripts/dev/deploy_operator.sh $(debug)

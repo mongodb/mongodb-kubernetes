@@ -10,12 +10,11 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=386 go build -a -i -o ./output/mmsconfigurat
 
 FROM {{ base_image|default("busybox") }}
 
-ARG VERSION
 
 LABEL name="MongoDB Enterprise Ops Manager Init" \
       maintainer="support@mongodb.com" \
       vendor="MongoDB" \
-      version="mongodb-enterprise-init-ops-manager-${VERSION}" \
+      version="mongodb-enterprise-init-ops-manager-{{version}}" \
       release="1" \
       summary="MongoDB Enterprise Ops Manager Init Image" \
       description="Startup Scripts for MongoDB Enterprise Ops Manager"

@@ -416,33 +416,6 @@ functions:
 
         command: scripts/dev/build_push_tests_image
 
-  build_and_push_init_test_images_for_om_and_appdb:
-    - command: subprocess.exec
-      type: setup
-      params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
-        include_expansions_in_env:
-        - version_id
-        - RED_HAT_TOKEN
-        add_to_path:
-        - *go_bin
-        - ${workdir}/bin
-        env:
-          <<: *go_options
-
-          AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
-          AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
-          AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
-          KUBECONFIG: ${workdir}/${kube_environment_name}_config
-
-          IN_MEMORY_CONTEXT: "true"
-          BASE_REPO_URL: ${ecr_registry}/dev
-          INIT_OPS_MANAGER_REGISTRY: ${ecr_registry}/dev/${image_type}
-          INIT_APPDB_REGISTRY: ${ecr_registry}/dev/${image_type}
-          IMAGE_TYPE: ${image_type}
-
-        command: scripts/dev/batch_init_om_appdb_images.sh
-
   setup_cloud_qa:
   - command: subprocess.exec
     type: setup
@@ -921,21 +894,21 @@ tasks:
   commands:
   - func: clone
   - func: setup_aws
-  - func: setup_jq
   - func: configure_docker_auth
-  - func: build_and_push_init_test_images_for_om_and_appdb
+  - func: pipeline
     vars:
-      image_type: "ubi"
+      image_name: init-ops-manager
+      skip_tags: "ubuntu"
 
 - name: build_init_om_images_ubuntu
   commands:
   - func: clone
   - func: setup_aws
-  - func: setup_jq
   - func: configure_docker_auth
-  - func: build_and_push_init_test_images_for_om_and_appdb
+  - func: pipeline
     vars:
-      image_type: "ubuntu"
+      image_name: init-ops-manager
+      skip_tags: "ubi"
 
 - name: build_init_appdb_images_ubuntu
   commands:

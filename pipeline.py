@@ -338,6 +338,17 @@ def find_om_url(om_version: str) -> str:
     return current_release
 
 
+def build_init_om_image(build_configuration: BuildConfiguration):
+    image_name = "init-ops-manager"
+
+    release = get_release()
+    init_om_version = release["initOpsManagerVersion"]
+
+    args = dict(version=init_om_version)
+
+    sonar_build_image(image_name, build_configuration, args, "inventories/init_om.yaml")
+
+
 def build_om_image(build_configuration: BuildConfiguration):
     image_name = "ops-manager"
 
@@ -393,6 +404,7 @@ def get_builder_function_for_image_name():
         "operator-daily": build_operator_daily,
         "init-appdb": build_init_appdb,
         "init-database": build_init_database,
+        "init-ops-manager": build_init_om_image,
         "ops-manager": build_om_image,
     }
 

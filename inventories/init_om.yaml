@@ -1,0 +1,46 @@
+images:
+- name: init-ops-manager
+  vars:
+    context: docker/mongodb-enterprise-init-ops-manager
+  
+  stages:
+  - name: init-ops-manager-template-ubuntu
+    task_type: dockerfile_template
+    distro: busybox
+    tags: ["ubuntu"]
+
+    inputs:
+    - version
+
+    output:
+    - dockerfile: docker/mongodb-enterprise-init-ops-manager/Dockerfile.ubuntu-$(inputs.params.version_id)
+
+  - name: init-ops-manager-build-ubuntu
+    task_type: docker_build
+    dockerfile: Dockerfile.ubuntu-$(inputs.params.version_id)
+    tags: ["ubuntu"]
+
+    output:
+    - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-ops-manager
+      tag: $(inputs.params.version_id)
+  
+  - name: init-ops-manager-template-ubi
+    task_type: dockerfile_template
+    distro: ubi_minimal
+    tags: ["ubi"]
+
+    inputs:
+    - version
+
+    output:
+    - dockerfile: docker/mongodb-enterprise-init-ops-manager/Dockerfile.ubi-$(inputs.params.version_id)
+  
+  - name: init-ops-manager-build-ubi
+    task_type: docker_build
+    dockerfile: Dockerfile.ubi-$(inputs.params.version_id)
+    tags: ["ubi"]
+
+    output:
+    - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-init-ops-manager
+      tag: $(inputs.params.version_id)
+
