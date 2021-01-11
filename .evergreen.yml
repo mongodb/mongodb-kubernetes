@@ -654,18 +654,18 @@ functions:
         command: docker/mongodb-enterprise-ops-manager/batch_om_images.sh
         working_dir: src/github.com/10gen/ops-manager-kubernetes
 
-  publish_dockerfiles_for_version:
+  publish_dockerfiles_for_operator_version:
   - command: s3.put
     params:
-      aws_key: ${mms_build_s3_aws_access_key}
-      aws_secret: ${mms_build_s3_aws_secret}
+      aws_key: ${enterprise_aws_access_key_id}
+      aws_secret: ${enterprise_aws_secret_access_key}
       local_files_include_filter:
-      # Copy any file of type `Dockerfile.<distro>-<version>`
       - "src/github.com/10gen/ops-manager-kubernetes/docker/mongodb-enterprise-operator/Dockerfile.*-?.?.?"
       remote_file: dockerfiles/mongodb-enterprise-operator/
       bucket: enterprise-operator-dockerfiles
       permissions: public-read
       content_type: text/plain
+
 
 tasks:
 - name: unit_tests
@@ -739,7 +739,6 @@ tasks:
 - name: release_operator_quay
   commands:
   - func: clone
-  - func: guard_git_repo_is_clean
   - func: setup_building_host
   - func: quay_login
   - func: pipeline
@@ -750,64 +749,23 @@ tasks:
 # Releases init images to Quay
 - name: release_init_quay
   commands:
-    - func: clone
-    - func: guard_git_repo_is_clean
-    - func: download_kube_tools
-    - func: configure_docker_auth
+  - func: clone
+  - func: setup_building_host
+  - func: quay_login
+  - func: pipeline
+    vars:
+      image_name: init-appdb
 
-    - func: release_docker_image_to_registry
-      vars:
-        tag_source: ${version_id}
-        tag_dest: '$(echo "$(jq --raw-output ".initOpsManagerVersion" < release.json)")'
-        image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-init-ops-manager
-        image_target: quay.io/mongodb/mongodb-enterprise-init-ops-manager${suffix}
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
+  - func: pipeline
+    vars:
+      image_name: init-database
 
-    - func: release_docker_image_to_registry
-      vars:
-        tag_source: ${version_id}
-        tag_dest: '$(echo "$(jq --raw-output ".initOpsManagerVersion" < release.json)-b$(date +%Y%m%d%H%M)")'
-        image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-init-ops-manager
-        image_target: quay.io/mongodb/mongodb-enterprise-init-ops-manager${suffix}
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
+  # TODO: Add this with CLOUDP-79689
+  # - func: pipeline
+  #   vars:
+  #     image_name: init-om-daily
+  #     include_tags: release
 
-    - func: release_docker_image_to_registry
-      vars:
-        tag_source: ${version_id}
-        tag_dest: '$(echo "$(jq --raw-output ".initAppDbVersion" < release.json)")'
-        image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-init-appdb
-        image_target: quay.io/mongodb/mongodb-enterprise-init-appdb${suffix}
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
-
-    - func: release_docker_image_to_registry
-      vars:
-        tag_source: ${version_id}
-        tag_dest: '$(echo "$(jq --raw-output ".initAppDbVersion" < release.json)-b$(date +%Y%m%d%H%M)")'
-        image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-init-appdb
-        image_target: quay.io/mongodb/mongodb-enterprise-init-appdb${suffix}
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
-
-    - func: release_docker_image_to_registry
-      vars:
-        tag_source: ${version_id}
-        tag_dest: '$(echo "$(jq --raw-output ".initDatabaseVersion" < release.json)")'
-        image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-init-database
-        image_target: quay.io/mongodb/mongodb-enterprise-init-database${suffix}
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
-
-    - func: release_docker_image_to_registry
-      vars:
-        tag_source: ${version_id}
-        tag_dest: '$(echo "$(jq --raw-output ".initDatabaseVersion" < release.json)-b$(date +%Y%m%d%H%M)")'
-        image_source: ${ecr_registry}/dev/${distro}/mongodb-enterprise-init-database
-        image_target: quay.io/mongodb/mongodb-enterprise-init-database${suffix}
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
 
 - name: prerelease_master_images
   commands:
@@ -874,7 +832,7 @@ tasks:
       skip_tags: ubuntu,release
       distro: ubi
       image_name: operator
-  - func: publish_dockerfiles_for_version
+  - func: publish_dockerfiles_for_operator_version
 
 - name: build_operator_ubuntu
   priority: 60
@@ -887,7 +845,7 @@ tasks:
       skip_tags: ubi,release
       distro: ubuntu
       image_name: operator
-  - func: publish_dockerfiles_for_version
+  - func: publish_dockerfiles_for_operator_version
 
 - name: build_init_om_images_ubi
   priority: 60
@@ -917,7 +875,7 @@ tasks:
   - func: pipeline
     vars:
       image_name: init-appdb
-      skip_tags: ubi
+      skip_tags: ubi,release
 
 - name: build_init_appdb_images_ubi
   commands:
@@ -926,7 +884,7 @@ tasks:
   - func: pipeline
     vars:
       image_name: init-appdb
-      skip_tags: ubuntu
+      skip_tags: ubuntu,release
 
 - name: build_init_database_image_ubuntu
   commands:
@@ -935,7 +893,7 @@ tasks:
   - func: pipeline
     vars:
       image_name: init-database
-      skip_tags: ubi
+      skip_tags: ubi,release
 
 - name: build_init_database_image_ubi
   commands:
@@ -944,7 +902,7 @@ tasks:
   - func: pipeline
     vars:
       image_name: init-database
-      skip_tags: ubuntu
+      skip_tags: ubuntu,release
 
 - name: prepare_cluster_vanilla
   exec_timeout_secs: 1200
@@ -2646,42 +2604,28 @@ buildvariants:
     - name: release_operator_rh_connect
     - name: release_init_rh_connect
 
-- name: release_quay_ubuntu
-  display_name: release_quay_ubuntu
+# Releases both ubi and ubuntu images to Quay.
+- name: release_quay
+  display_name: release_quay
   depends_on:
     - name: release_blocker
       variant: release_blocker
     - name: build_operator_ubuntu
       variant: init_test_run
-  run_on:
-    - ubuntu1604-test
-  expansions:
-    skip_tags: ubi
-    include_tags: release
-
-    # old_expansions needed for release_init_quay
-    distro: ubuntu
-    suffix: ""
-  tasks:
-    - name: release_operator_quay
-    - name: release_init_quay
-
-- name: release_quay_ubi
-  display_name: release_quay_ubi
-  depends_on:
-    - name: release_blocker
-      variant: release_blocker
-    - name: build_operator_ubuntu
+    - name: build_operator_ubi
+      variant: init_test_run
+    - name: build_init_appdb_images_ubuntu
+      variant: init_test_run
+    - name: build_init_appdb_images_ubi
+      variant: init_test_run
+    - name: build_init_database_image_ubuntu
+      variant: init_test_run
+    - name: build_init_database_image_ubi
       variant: init_test_run
   run_on:
     - ubuntu1604-test
   expansions:
-    skip_tags: ubuntu
     include_tags: release
-
-    # old_expansions needed for release_init_quay
-    distro: ubi
-    suffix: -ubi
   tasks:
     - name: release_operator_quay
     - name: release_init_quay

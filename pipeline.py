@@ -268,14 +268,11 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
     )
 
 
-def get_operator_supported_releases() -> List[Dict[str, str]]:
-    """
-    Returns a list of supported releases for the Operator image.
-    """
+def get_supported_version_for_image(image: str) -> List[Dict[str, str]]:
     supported_versions = (
         "https://webhooks.mongodb-realm.com/api/client/v2.0/app/"
-        "kubernetes-release-support-vqqrb/service/"
-        "supported-operator-versions/incoming_webhook/list"
+        "kubernetes-release-support-kpvbh/service/"
+        "{}/incoming_webhook/list".format(image)
     )
 
     return requests.get(supported_versions).json()
@@ -288,14 +285,54 @@ def build_operator_daily(build_configuration: BuildConfiguration):
     image_name = "operator-daily-build"
     build_id = datetime.now().strftime("%Y%m%d%H%M%S")
 
-    supported_releases = get_operator_supported_releases()
-    logging.info("Supported releases: {}".format(supported_releases))
-    for releases in supported_releases:
+    supported_versions = get_supported_version_for_image("operator")
+    logging.info("Operator Supported Versions: {}".format(supported_versions))
+    for releases in supported_versions:
         logging.info("Rebuilding {}".format(releases["version"]))
 
         args = dict(build_id=build_id, release_version=releases["version"])
         try:
             sonar_build_image(image_name, build_configuration, args)
+        except Exception as e:
+            # Log error and continue
+            logging.error(e)
+
+
+def build_init_appdb_daily(build_configuration: BuildConfiguration):
+    image_name = "init-appdb-daily"
+    build_id = datetime.now().strftime("%Y%m%d%H%M%S")
+
+    supported_versions = get_supported_version_for_image("init-appdb")
+    logging.info("Init-AppDB Supported Versions: {}".format(supported_versions))
+
+    for release in supported_versions:
+        logging.info("Rebuilding {}".format(release["version"]))
+
+        args = dict(build_id=build_id, release_version=release["version"])
+        try:
+            sonar_build_image(
+                image_name, build_configuration, args, "inventories/init_appdb.yaml"
+            )
+        except Exception as e:
+            # Log error and continue
+            logging.error(e)
+
+
+def build_init_database_daily(build_configuration: BuildConfiguration):
+    image_name = "init-database-daily"
+    build_id = datetime.now().strftime("%Y%m%d%H%M%S")
+
+    supported_versions = get_supported_version_for_image("init-database")
+    logging.info("Init-Database Supported Versions: {}".format(supported_versions))
+
+    for release in supported_versions:
+        logging.info("Rebuilding {}".format(release["version"]))
+
+        args = dict(build_id=build_id, release_version=release["version"])
+        try:
+            sonar_build_image(
+                image_name, build_configuration, args, "inventories/init_appdb.yaml"
+            )
         except Exception as e:
             # Log error and continue
             logging.error(e)
@@ -365,12 +402,11 @@ def build_om_image(build_configuration: BuildConfiguration):
 
 
 def build_init_appdb(build_configuration: BuildConfiguration):
-    # this image_name corresponds to Sonar's inventory
     image_name = "init-appdb"
 
     release = get_release()
 
-    version = release["initAppDbVersion"]  # comes from release.json
+    version = release["initAppDbVersion"]
     base_url = "https://fastdl.mongodb.org/tools/db/"
 
     mongodb_tools_url_ubi = "{}{}".format(
@@ -401,11 +437,14 @@ def get_builder_function_for_image_name():
     return {
         "operator": build_operator_image,
         "operator-quick": build_operator_image_patch,
-        "operator-daily": build_operator_daily,
         "init-appdb": build_init_appdb,
         "init-database": build_init_database,
         "init-ops-manager": build_init_om_image,
         "ops-manager": build_om_image,
+        # Daily builds
+        "operator-daily": build_operator_daily,
+        "init-appdb-daily": build_init_appdb_daily,
+        "init-database-daily": build_init_database_daily,
     }
 
 

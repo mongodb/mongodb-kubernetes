@@ -1,3 +1,9 @@
+vars:
+  quay_registry: quay.io/mongodb/mongodb-enterprise-init-database
+  s3_bucket_http: https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles/mongodb-enterprise-init-database
+  s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-enterprise-init-database
+
+
 images:
   - name: init-database
     vars:
@@ -7,7 +13,6 @@ images:
     stages:
       - name: init-database-build-context
         task_type: docker_build
-
         dockerfile: docker/mongodb-enterprise-init-database/Dockerfile.builder
 
         buildargs:
@@ -25,8 +30,10 @@ images:
 
         inputs:
           - is_appdb
+
         output:
-          - dockerfile: docker/mongodb-enterprise-init-database/Dockerfile.ubuntu-$(inputs.params.version_id)
+        - dockerfile: docker/mongodb-enterprise-init-database/Dockerfile.ubuntu-$(inputs.params.version_id)
+        - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubuntu-$(inputs.params.version)
 
       - name: init-database-build-ubuntu
         task_type: docker_build
@@ -49,18 +56,19 @@ images:
         tags: ["ubi"]
 
         inputs:
-          - is_appdb
+        - is_appdb
         output:
-          - dockerfile: docker/mongodb-enterprise-init-database/Dockerfile.ubi-$(inputs.params.version_id)
+        - dockerfile: docker/mongodb-enterprise-init-database/Dockerfile.ubi-$(inputs.params.version_id)
+        - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubi-$(inputs.params.version)
 
       - name: init-database-build-ubi
         task_type: docker_build
         tags: ["ubi"]
 
         buildargs:
-          version: $(inputs.params.version)
           imagebase: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-database-context:$(inputs.params.version_id)
 
+          version: $(inputs.params.version)
         dockerfile: docker/mongodb-enterprise-init-database/Dockerfile.ubi-$(inputs.params.version_id)
         inputs:
           - is_appdb
@@ -68,3 +76,74 @@ images:
         output:
           - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-init-database
             tag: $(inputs.params.version_id)
+
+      - name: init-database-release-context
+        task_type: tag_image
+        tags: ["release"]
+
+        source:
+          registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-database-context
+          tag: $(inputs.params.version_id)
+
+        destination:
+        - registry: $(inputs.params.quay_registry)
+          tag: $(inputs.params.version)-context
+
+
+      - name: init-database-template-ubi
+        task_type: dockerfile_template
+        distro: ubi_minimal
+        tags: ["release"]
+
+        inputs:
+        - is_appdb
+        output:
+        - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubi-$(inputs.params.version)
+
+      - name: init-database-template-ubuntu
+        task_type: dockerfile_template
+        tags: ["release"]
+        distro: busybox
+
+        inputs:
+          - is_appdb
+
+        output:
+        - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubuntu-$(inputs.params.version)
+
+  - name: init-database-daily
+    vars:
+      context: .
+
+    stages:
+    - name: build-ubuntu
+      task_type: docker_build
+
+      inputs:
+      - build_id
+
+      dockerfile: $(inputs.params.s3_bucket_http)/Dockerfile.ubuntu-$(inputs.params.release_version)
+      buildargs:
+        imagebase: $(inputs.params.quay_registry):$(inputs.params.release_version)-context
+
+      output:
+      - registry: $(inputs.params.quay_registry)
+        tag: $(inputs.params.release_version)
+      - registry: $(inputs.params.quay_registry)
+        tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
+
+    - name: build-ubi
+      task_type: docker_build
+
+      inputs:
+      - build_id
+
+      dockerfile: $(inputs.params.s3_bucket_http)/Dockerfile.ubi-$(inputs.params.release_version)
+      buildargs:
+        imagebase: $(inputs.params.quay_registry):$(inputs.params.release_version)-context
+
+      output:
+      - registry: $(inputs.params.quay_registry)-ubi
+        tag: $(inputs.params.release_version)
+      - registry: $(inputs.params.quay_registry)-ubi
+        tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
