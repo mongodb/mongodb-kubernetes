@@ -332,7 +332,7 @@ func (m *MongoDBOpsManager) AppDBMongoConnectionStringSecretName() string {
 	return m.Spec.AppDB.Name() + "-connection-string"
 }
 
-func (m *MongoDBOpsManager) BackupSvcName() string {
+func (m *MongoDBOpsManager) BackupServiceName() string {
 	return m.BackupStatefulSetName() + "-svc"
 }
 

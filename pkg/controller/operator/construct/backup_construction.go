@@ -2,6 +2,8 @@ package construct
 
 import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
+	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
+	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/lifecycle"
@@ -15,23 +17,60 @@ const (
 	backupDaemonEnv = "BACKUP_DAEMON"
 )
 
-type BackupBuilder interface {
-	OpsManagerBuilder
-	GetHeadDbPersistenceConfig() *mdbv1.PersistenceConfig
+// BackupDaemonStatefulSet fully constructs the Backup StatefulSet.
+func BackupDaemonStatefulSet(opsManager omv1.MongoDBOpsManager, additionalOpts ...func(*OpsManagerStatefulSetOptions)) (appsv1.StatefulSet, error) {
+	opts := backupOptions(additionalOpts...)(opsManager)
+	backupSts := statefulset.New(backupDaemonStatefulSetFunc(opts))
+	var err error
+	if opts.StatefulSetSpecOverride != nil {
+		backupSts, err = enterprisests.MergeSpec(backupSts, opts.StatefulSetSpecOverride)
+		if err != nil {
+			return appsv1.StatefulSet{}, nil
+		}
+	}
+
+	// the JVM env args must be determined after any potential stateful set override
+	// has taken place.
+	if err = setJvmArgsEnvVars(opsManager.Spec, &backupSts); err != nil {
+		return appsv1.StatefulSet{}, err
+	}
+	return backupSts, nil
 }
 
-// BackupStatefulSet fully constructs the Backup StatefulSet
-func BackupStatefulSet(backupBuilder BackupBuilder) appsv1.StatefulSet {
-	return statefulset.New(backupDaemonStatefulSetFunc(backupBuilder))
+// backupOptions returns a function which returns the OpsManagerStatefulSetOptions to create the BackupDaemon StatefulSet.
+func backupOptions(additionalOpts ...func(opts *OpsManagerStatefulSetOptions)) func(opsManager omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
+	return func(opsManager omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
+		opts := getSharedOpsManagerOptions(opsManager)
+
+		opts.ServicePort = 8443
+		opts.ServiceName = opsManager.BackupServiceName()
+		opts.Name = opsManager.BackupStatefulSetName()
+		opts.Replicas = 1
+
+		if opsManager.Spec.Backup != nil {
+			if opsManager.Spec.Backup.StatefulSetConfiguration != nil {
+				opts.StatefulSetSpecOverride = &opsManager.Spec.Backup.StatefulSetConfiguration.Spec
+			}
+			if opsManager.Spec.Backup.HeadDB != nil {
+				opts.HeadDbPersistenceConfig = opsManager.Spec.Backup.HeadDB
+			}
+		}
+
+		for _, additionalOpt := range additionalOpts {
+			additionalOpt(&opts)
+		}
+
+		return opts
+	}
 }
 
-// buildBackupDaemonPodTemplateSpec constructs the Backup Daemon podTemplateSpec modification function
-func backupDaemonStatefulSetFunc(backupBuilder BackupBuilder) statefulset.Modification {
+// buildBackupDaemonPodTemplateSpec constructs the Backup Daemon podTemplateSpec modification function.
+func backupDaemonStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.Modification {
 	defaultConfig := mdbv1.PersistenceConfig{Storage: util.DefaultHeadDbStorageSize}
-	pvc := pvcFunc(util.PvcNameHeadDb, backupBuilder.GetHeadDbPersistenceConfig(), defaultConfig)
+	pvc := pvcFunc(util.PvcNameHeadDb, opts.HeadDbPersistenceConfig, defaultConfig)
 	headDbMount := statefulset.CreateVolumeMount(util.PvcNameHeadDb, util.PvcMountPathHeadDb)
 	return statefulset.Apply(
-		backupAndOpsManagerSharedConfiguration(backupBuilder),
+		backupAndOpsManagerSharedConfiguration(opts),
 		statefulset.WithVolumeClaim(util.PvcNameHeadDb, pvc),
 		statefulset.WithPodSpecTemplate(
 			podtemplatespec.Apply(

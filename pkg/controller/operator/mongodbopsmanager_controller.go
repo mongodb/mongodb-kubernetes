@@ -8,6 +8,8 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/apierror"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
@@ -276,7 +278,16 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulset(opsManager omv1.Mongo
 	if opsManager.Annotations != nil {
 		helper.SetAnnotations(opsManager.Annotations)
 	}
-	if err := helper.CreateOrUpdateInKubernetes(r.client, r.client); err != nil {
+
+	sts, err := construct.OpsManagerStatefulSet(opsManager,
+		construct.WithConnectionStringHash(hashConnectionString(connectionString)),
+	)
+
+	if err != nil {
+		return workflow.Failed(fmt.Errorf("error building OpsManager stateful set: %v", err).Error())
+	}
+
+	if err := helper.CreateOrUpdateInKubernetes(r.client, sts); err != nil {
 		return workflow.Failed(err.Error())
 	}
 
@@ -355,7 +366,12 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(opsManager omv1.Mon
 	backupHelper.OpsManagerStatefulSetHelper.SetAppDBConnectionStringHash(hashConnectionString(connectionString))
 	backupHelper.SetLogger(log)
 
-	needToRequeue, err := backupHelper.CreateOrUpdateInKubernetes(r.client, r.client)
+	sts, err := construct.BackupDaemonStatefulSet(opsManager, construct.WithConnectionStringHash(hashConnectionString(connectionString)))
+	if err != nil {
+		return workflow.Failed(fmt.Sprintf("error building stateful set: %v", err))
+	}
+
+	needToRequeue, err := backupHelper.CreateOrUpdateInKubernetes(r.client, sts)
 	if err != nil {
 		return workflow.Failed(err.Error())
 	}

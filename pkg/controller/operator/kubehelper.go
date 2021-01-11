@@ -357,7 +357,7 @@ func (k *KubeHelper) NewBackupStatefulSetHelper(opsManager omv1.MongoDBOpsManage
 	}
 	helper.Name = opsManager.BackupStatefulSetName()
 	helper.ContainerName = util.BackupDaemonContainerName
-	helper.Service = opsManager.BackupSvcName()
+	helper.Service = opsManager.BackupServiceName()
 	helper.ServicePort = 8443
 	helper.Replicas = 1
 	// unset the default that was configured with Ops Manager
@@ -498,17 +498,6 @@ func (s StatefulSetHelper) CreateOrUpdateInKubernetes(stsGetUpdateCreator statef
 	return err
 }
 
-// BuildStatefulSet builds the StatefulSet for the Ops Manager resource.
-// TODO: currently only the spec.statefulSet.spec.template is merged. Other in the custom
-// spec are not used.
-func (s OpsManagerStatefulSetHelper) BuildStatefulSet() (appsv1.StatefulSet, error) {
-	return buildOpsManagerStatefulSet(s)
-}
-
-func (s BackupStatefulSetHelper) BuildStatefulSet() (appsv1.StatefulSet, error) {
-	return buildBackupDaemonStatefulSet(s)
-}
-
 func (s *OpsManagerStatefulSetHelper) SetService(service string) *OpsManagerStatefulSetHelper {
 	s.Service = service
 	return s
@@ -568,13 +557,8 @@ func (s OpsManagerStatefulSetHelper) SetBackupService(serviceGetUpdateCreator se
 
 }
 
-func (s OpsManagerStatefulSetHelper) CreateOrUpdateInKubernetes(stsGetUpdateCreator statefulset.GetUpdateCreator, serviceGetUpdateCreator service.GetUpdateCreator) error {
-	sts, err := s.BuildStatefulSet()
-	if err != nil {
-		return fmt.Errorf("error building OpsManager stateful set: %v", err)
-	}
-
-	set, err := enterprisests.CreateOrUpdateStatefulset(stsGetUpdateCreator,
+func (s OpsManagerStatefulSetHelper) CreateOrUpdateInKubernetes(client kubernetesClient.Client, sts appsv1.StatefulSet) error {
+	set, err := enterprisests.CreateOrUpdateStatefulset(client,
 		s.Namespace,
 		s.Logger,
 		&sts,
@@ -585,7 +569,7 @@ func (s OpsManagerStatefulSetHelper) CreateOrUpdateInKubernetes(stsGetUpdateCrea
 
 	namespacedName := objectKey(s.Namespace, set.Spec.ServiceName)
 	internalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
-	err = enterprisesvc.CreateOrUpdateService(serviceGetUpdateCreator, internalService, s.Logger)
+	err = enterprisesvc.CreateOrUpdateService(client, internalService, s.Logger)
 	if err != nil {
 		return err
 	}
@@ -594,7 +578,7 @@ func (s OpsManagerStatefulSetHelper) CreateOrUpdateInKubernetes(stsGetUpdateCrea
 	if s.Spec.MongoDBOpsManagerExternalConnectivity != nil {
 		namespacedName := objectKey(s.Namespace, set.Spec.ServiceName+"-ext")
 		externalService = buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, *s.Spec.MongoDBOpsManagerExternalConnectivity)
-		err = enterprisesvc.CreateOrUpdateService(serviceGetUpdateCreator, externalService, s.Logger)
+		err = enterprisesvc.CreateOrUpdateService(client, externalService, s.Logger)
 		if err != nil {
 			return err
 		}
@@ -602,20 +586,16 @@ func (s OpsManagerStatefulSetHelper) CreateOrUpdateInKubernetes(stsGetUpdateCrea
 
 	// Need to create queryable backup service
 	if s.Spec.Backup.Enabled {
-		return s.SetBackupService(serviceGetUpdateCreator, externalService, set.Spec.ServiceName)
+		return s.SetBackupService(client, externalService, set.Spec.ServiceName)
 	}
 
 	return err
 }
 
-func (s BackupStatefulSetHelper) CreateOrUpdateInKubernetes(stsGetUpdateCreator statefulset.GetUpdateCreator, serviceGetUpdateCreator service.GetUpdateCreator) (bool, error) {
-	sts, err := s.BuildStatefulSet()
-	if err != nil {
-		return false, fmt.Errorf("error building stateful set: %v", err)
-	}
+func (s BackupStatefulSetHelper) CreateOrUpdateInKubernetes(client kubernetesClient.Client, sts appsv1.StatefulSet) (bool, error) {
 
 	set, err := enterprisests.CreateOrUpdateStatefulset(
-		stsGetUpdateCreator,
+		client,
 		s.Namespace,
 		s.Logger,
 		&sts,
@@ -637,13 +617,8 @@ func (s BackupStatefulSetHelper) CreateOrUpdateInKubernetes(stsGetUpdateCreator 
 	}
 	namespacedName := objectKey(s.Namespace, set.Spec.ServiceName)
 	internalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
-	err = enterprisesvc.CreateOrUpdateService(serviceGetUpdateCreator, internalService, s.Logger)
-
-	if err != nil {
-		return false, err
-	}
-
-	return false, nil
+	err = enterprisesvc.CreateOrUpdateService(client, internalService, s.Logger)
+	return false, err
 }
 
 // CreateOrUpdateAppDBInKubernetes creates the StatefulSet specific for AppDB.
@@ -901,8 +876,7 @@ func (k *KubeHelper) ensureSSLCertsForStatefulSet(mdb mdbv1.MongoDB, opts certs.
 	return ensureOperatorManagedSSLCertsForStatefulSet(k, secretName, opts, log)
 }
 
-// EnvVars returns a list of corev1.EnvVar which should be passed
-// to the container running Ops Manager
+// TODO: duplicate function, will be removed once OpsManagerStatefulSetHelper is removed
 func opsManagerConfigurationToEnvVars(m omv1.MongoDBOpsManager) []corev1.EnvVar {
 	var envVars []corev1.EnvVar
 	for name, value := range m.Spec.Configuration {

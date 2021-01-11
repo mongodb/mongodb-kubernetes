@@ -3,6 +3,9 @@ package construct
 import (
 	"fmt"
 
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
+	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	appsv1 "k8s.io/api/apps/v1"
 
 	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
@@ -24,33 +27,102 @@ const (
 	podAntiAffinityLabelKey = "pod-anti-affinity"
 )
 
-// OpsManagerBuilder is an interface with the methods to construct OpsManager
-type OpsManagerBuilder interface {
-	GetOwnerRefs() []metav1.OwnerReference
-	GetHTTPSCertSecretName() string
-	GetAppDBTlsCAConfigMapName() string
-	GetAppDBConnectionStringHash() string
-	GetEnvVars() []corev1.EnvVar
-	GetVersion() string
-	GetName() string
-	GetService() string
-	GetNamespace() string
-	GetReplicas() int
-	GetOwnerName() string
+// OpsManagerStatefulSetOptions contains all of the different values that are variable between
+// StatefulSets. Depending on which StatefulSet is being built, a number of these will be pre-set,
+// while the remainder will be configurable via configuration functions which modify this type.
+type OpsManagerStatefulSetOptions struct {
+	OwnerReference            []metav1.OwnerReference
+	HTTPSCertSecretName       string
+	AppDBTlsCAConfigMapName   string
+	AppDBConnectionStringHash string
+	EnvVars                   []corev1.EnvVar
+	Version                   string
+	Name                      string
+	Replicas                  int
+	ServiceName               string
+	Namespace                 string
+	OwnerName                 string
+	ServicePort               int
+	StatefulSetSpecOverride   *appsv1.StatefulSetSpec
+
+	// backup daemon only
+	HeadDbPersistenceConfig *mdbv1.PersistenceConfig
+}
+
+func WithConnectionStringHash(hash string) func(opts *OpsManagerStatefulSetOptions) {
+	return func(opts *OpsManagerStatefulSetOptions) {
+		opts.AppDBConnectionStringHash = hash
+	}
 }
 
 // OpsManagerStatefulSet is the base method for building StatefulSet shared by Ops Manager and Backup Daemon.
 // Shouldn't be called by end users directly
-// Dev note: it's ok to move the different parts to parameters (pod spec could be an example) as the functionality
-// evolves
-func OpsManagerStatefulSet(omBuilder OpsManagerBuilder) appsv1.StatefulSet {
-	return statefulset.New(opsManagerStatefulSetFunc(omBuilder))
+func OpsManagerStatefulSet(opsManager omv1.MongoDBOpsManager, additionalOpts ...func(*OpsManagerStatefulSetOptions)) (appsv1.StatefulSet, error) {
+	opts := opsManagerOptions(additionalOpts...)(opsManager)
+	omSts := statefulset.New(opsManagerStatefulSetFunc(opts))
+	var err error
+	if opts.StatefulSetSpecOverride != nil {
+		omSts, err = enterprisests.MergeSpec(omSts, opts.StatefulSetSpecOverride)
+		if err != nil {
+			return appsv1.StatefulSet{}, nil
+		}
+	}
+
+	// the JVM env args must be determined after any potential stateful set override
+	// has taken place.
+	if err = setJvmArgsEnvVars(opsManager.Spec, &omSts); err != nil {
+		return appsv1.StatefulSet{}, err
+	}
+	return omSts, nil
+
+}
+
+// getSharedOpsManagerOptions returns the options that are shared between both the OpsManager
+// and BackupDaemon StatefulSets
+func getSharedOpsManagerOptions(opsManager omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
+	tlsSecret := ""
+	if opsManager.Spec.Security != nil {
+		tlsSecret = opsManager.Spec.Security.TLS.SecretRef.Name
+	}
+	return OpsManagerStatefulSetOptions{
+		OwnerReference:          kube.BaseOwnerReference(&opsManager),
+		OwnerName:               opsManager.Name,
+		HTTPSCertSecretName:     tlsSecret,
+		AppDBTlsCAConfigMapName: opsManager.Spec.AppDB.GetCAConfigMapName(),
+		EnvVars:                 opsManagerConfigurationToEnvVars(opsManager),
+		Version:                 opsManager.Spec.Version,
+		Namespace:               opsManager.Namespace,
+	}
+}
+
+// opsManagerOptions returns a function which returns the OpsManagerStatefulSetOptions to create the OpsManager StatefulSet
+func opsManagerOptions(additionalOpts ...func(opts *OpsManagerStatefulSetOptions)) func(opsManager omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
+	return func(opsManager omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
+		var stsSpec *appsv1.StatefulSetSpec = nil
+		if opsManager.Spec.StatefulSetConfiguration != nil {
+			stsSpec = &opsManager.Spec.StatefulSetConfiguration.Spec
+		}
+
+		_, port := opsManager.GetSchemePort()
+
+		opts := getSharedOpsManagerOptions(opsManager)
+		opts.ServicePort = port
+		opts.ServiceName = opsManager.SvcName()
+		opts.Replicas = opsManager.Spec.Replicas
+		opts.Name = opsManager.Name
+		opts.StatefulSetSpecOverride = stsSpec
+
+		for _, additionalOpt := range additionalOpts {
+			additionalOpt(&opts)
+		}
+		return opts
+	}
 }
 
 // opsManagerStatefulSetFunc constructs the default Ops Manager StatefulSet modification function
-func opsManagerStatefulSetFunc(omBuilder OpsManagerBuilder) statefulset.Modification {
+func opsManagerStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.Modification {
 	return statefulset.Apply(
-		backupAndOpsManagerSharedConfiguration(omBuilder),
+		backupAndOpsManagerSharedConfiguration(opts),
 		statefulset.WithPodSpecTemplate(
 			podtemplatespec.Apply(
 				// 5 minutes for Ops Manager just in case (its internal timeout is 20 seconds anyway)
@@ -59,7 +131,7 @@ func opsManagerStatefulSetFunc(omBuilder OpsManagerBuilder) statefulset.Modifica
 					container.Apply(
 						container.WithCommand([]string{"/opt/scripts/docker-entry-point.sh"}),
 						container.WithName(util.OpsManagerContainerName),
-						container.WithReadinessProbe(opsManagerReadinessProbe(getURIScheme(omBuilder.GetHTTPSCertSecretName()))),
+						container.WithReadinessProbe(opsManagerReadinessProbe(getURIScheme(opts.HTTPSCertSecretName))),
 						container.WithLifecycle(buildOpsManagerLifecycle()),
 					),
 				),
@@ -69,9 +141,9 @@ func opsManagerStatefulSetFunc(omBuilder OpsManagerBuilder) statefulset.Modifica
 
 // backupAndOpsManagerSharedConfiguration returns a function which configures all of the shared
 // options between the backup and Ops Manager StatefulSet
-func backupAndOpsManagerSharedConfiguration(omBuilder OpsManagerBuilder) statefulset.Modification {
+func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) statefulset.Modification {
 	managedSecurityContext, _ := env.ReadBool(util.ManagedSecurityContextEnv)
-	omImageURL := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.OpsManagerImageUrl), omBuilder.GetVersion())
+	omImageURL := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.OpsManagerImageUrl), opts.Version)
 
 	configurePodSpecSecurityContext := podtemplatespec.NOOP()
 	configureContainerSecurityContext := container.NOOP()
@@ -90,7 +162,7 @@ func backupAndOpsManagerSharedConfiguration(omBuilder OpsManagerBuilder) statefu
 	omScriptsVolumeMount := buildOmScriptsVolumeMount(true)
 	omVolumeMounts = append(omVolumeMounts, omScriptsVolumeMount)
 
-	genKeyVolume := statefulset.CreateVolumeFromSecret("gen-key", omBuilder.GetOwnerName()+"-gen-key")
+	genKeyVolume := statefulset.CreateVolumeFromSecret("gen-key", fmt.Sprintf("%s-gen-key", opts.OwnerName))
 	genKeyVolumeMount := corev1.VolumeMount{
 		Name:      "gen-key",
 		ReadOnly:  true,
@@ -99,8 +171,8 @@ func backupAndOpsManagerSharedConfiguration(omBuilder OpsManagerBuilder) statefu
 	omVolumeMounts = append(omVolumeMounts, genKeyVolumeMount)
 
 	omHTTPSVolumeFunc := podtemplatespec.NOOP()
-	if omBuilder.GetHTTPSCertSecretName() != "" {
-		omHTTPSCertificateVolume := statefulset.CreateVolumeFromSecret("om-https-certificate", omBuilder.GetHTTPSCertSecretName())
+	if opts.HTTPSCertSecretName != "" {
+		omHTTPSCertificateVolume := statefulset.CreateVolumeFromSecret("om-https-certificate", opts.HTTPSCertSecretName)
 		omHTTPSVolumeFunc = podtemplatespec.WithVolume(omHTTPSCertificateVolume)
 		omVolumeMounts = append(omVolumeMounts, corev1.VolumeMount{
 			Name:      omHTTPSCertificateVolume.Name,
@@ -109,8 +181,8 @@ func backupAndOpsManagerSharedConfiguration(omBuilder OpsManagerBuilder) statefu
 	}
 
 	appDbTLSConfigMapVolumeFunc := podtemplatespec.NOOP()
-	if omBuilder.GetAppDBTlsCAConfigMapName() != "" {
-		appDbTLSVolume := statefulset.CreateVolumeFromConfigMap("appdb-ca-certificate", omBuilder.GetAppDBTlsCAConfigMapName())
+	if opts.AppDBTlsCAConfigMapName != "" {
+		appDbTLSVolume := statefulset.CreateVolumeFromConfigMap("appdb-ca-certificate", opts.AppDBTlsCAConfigMapName)
 		appDbTLSConfigMapVolumeFunc = podtemplatespec.WithVolume(appDbTLSVolume)
 		omVolumeMounts = append(omVolumeMounts, corev1.VolumeMount{
 			Name:      appDbTLSVolume.Name,
@@ -118,15 +190,15 @@ func backupAndOpsManagerSharedConfiguration(omBuilder OpsManagerBuilder) statefu
 		})
 	}
 
-	labels := defaultPodLabels(omBuilder.GetService(), omBuilder.GetName())
+	labels := defaultPodLabels(opts.ServiceName, opts.Name)
 	return statefulset.Apply(
 		statefulset.WithLabels(labels),
 		statefulset.WithMatchLabels(labels),
-		statefulset.WithName(omBuilder.GetName()),
-		statefulset.WithNamespace(omBuilder.GetNamespace()),
-		statefulset.WithOwnerReference(omBuilder.GetOwnerRefs()),
-		statefulset.WithReplicas(omBuilder.GetReplicas()),
-		statefulset.WithServiceName(omBuilder.GetService()),
+		statefulset.WithName(opts.Name),
+		statefulset.WithNamespace(opts.Namespace),
+		statefulset.WithOwnerReference(opts.OwnerReference),
+		statefulset.WithReplicas(opts.Replicas),
+		statefulset.WithServiceName(opts.ServiceName),
 		statefulset.WithPodSpecTemplate(
 			podtemplatespec.Apply(
 				omHTTPSVolumeFunc,
@@ -134,13 +206,13 @@ func backupAndOpsManagerSharedConfiguration(omBuilder OpsManagerBuilder) statefu
 				podtemplatespec.WithVolume(omScriptsVolume),
 				podtemplatespec.WithVolume(genKeyVolume),
 				podtemplatespec.WithAnnotations(map[string]string{
-					"connectionStringHash": omBuilder.GetAppDBConnectionStringHash(),
+					"connectionStringHash": opts.AppDBConnectionStringHash,
 				}),
-				podtemplatespec.WithPodLabels(defaultPodLabels(omBuilder.GetService(), omBuilder.GetName())),
+				podtemplatespec.WithPodLabels(defaultPodLabels(opts.ServiceName, opts.Name)),
 				configurePodSpecSecurityContext,
 				pullSecretsConfigurationFunc,
 				podtemplatespec.WithServiceAccount(util.OpsManagerServiceAccount),
-				podtemplatespec.WithAffinity(omBuilder.GetName(), podAntiAffinityLabelKey, 100),
+				podtemplatespec.WithAffinity(opts.Name, podAntiAffinityLabelKey, 100),
 				podtemplatespec.WithTopologyKey(util.DefaultAntiAffinityTopologyKey, 0),
 				podtemplatespec.WithInitContainerByIndex(0,
 					buildOpsManagerAndBackupInitContainer(),
@@ -148,11 +220,11 @@ func backupAndOpsManagerSharedConfiguration(omBuilder OpsManagerBuilder) statefu
 				podtemplatespec.WithContainerByIndex(0,
 					container.Apply(
 						container.WithResourceRequirements(defaultOpsManagerResourceRequirements()),
-						container.WithPorts(buildOpsManagerContainerPorts(omBuilder.GetHTTPSCertSecretName())),
+						container.WithPorts(buildOpsManagerContainerPorts(opts.HTTPSCertSecretName)),
 						container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.OpsManagerPullPolicy))),
 						container.WithImage(omImageURL),
-						container.WithEnvs(omBuilder.GetEnvVars()...),
-						container.WithEnvs(getOpsManagerHTTPSEnvVars(omBuilder.GetHTTPSCertSecretName())...),
+						container.WithEnvs(opts.EnvVars...),
+						container.WithEnvs(getOpsManagerHTTPSEnvVars(opts.HTTPSCertSecretName)...),
 						container.WithCommand([]string{"/opt/scripts/docker-entry-point.sh"}),
 						container.WithVolumeMounts(omVolumeMounts),
 						configureContainerSecurityContext,
@@ -265,4 +337,18 @@ func getOpsManagerContainerPort(httpsSecretName string) int {
 		_, port = omv1.SchemePortFromAnnotation("https")
 	}
 	return port
+}
+
+// opsManagerConfigurationToEnvVars returns a list of corev1.EnvVar which should be passed
+// to the container running Ops Manager
+func opsManagerConfigurationToEnvVars(m omv1.MongoDBOpsManager) []corev1.EnvVar {
+	var envVars []corev1.EnvVar
+	for name, value := range m.Spec.Configuration {
+		envVars = append(envVars, corev1.EnvVar{
+			Name: omv1.ConvertNameToEnvVarFormat(name), Value: value,
+		})
+	}
+	// Configure the AppDB Connection String property from a secret
+	envVars = append(envVars, envVarFromSecret(omv1.ConvertNameToEnvVarFormat(util.MmsMongoUri), m.AppDBMongoConnectionStringSecretName(), util.AppDbConnectionStringKey))
+	return envVars
 }

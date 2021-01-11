@@ -13,9 +13,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
 
 	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
-	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -38,43 +36,6 @@ const (
 	// CaCertName is the name of the volume with the CA Cert
 	CaCertName = "ca-cert-volume"
 )
-
-// buildOpsManagerStatefulSet builds the StatefulSet for Ops Manager
-func buildOpsManagerStatefulSet(p OpsManagerStatefulSetHelper) (appsv1.StatefulSet, error) {
-	sts := construct.OpsManagerStatefulSet(p)
-	var err error
-	if p.StatefulSetConfiguration != nil {
-		sts, err = enterprisests.MergeSpec(sts, &p.StatefulSetConfiguration.Spec)
-		if err != nil {
-			return appsv1.StatefulSet{}, nil
-		}
-	}
-	if err = construct.SetJvmArgsEnvVars(p.Spec, &sts); err != nil {
-		return appsv1.StatefulSet{}, err
-	}
-
-	return sts, nil
-}
-
-// buildBackupDaemonStatefulSet builds the StatefulSet for backup daemon. It shares most of the configuration with
-// OpsManager StatefulSet adding something on top of it
-func buildBackupDaemonStatefulSet(p BackupStatefulSetHelper) (appsv1.StatefulSet, error) {
-	sts := construct.BackupStatefulSet(p)
-	var err error
-	if p.StatefulSetConfiguration != nil {
-		sts, err = enterprisests.MergeSpec(sts, &p.StatefulSetConfiguration.Spec)
-		if err != nil {
-			return appsv1.StatefulSet{}, nil
-		}
-	}
-	// We need to calculate JVM memory parameters after the StatefulSet is merged
-	// One idea for future: we can use the functional approach instead of Builder for Statefulset
-	// and jvm mutation callbacks to the builder
-	if err := construct.SetJvmArgsEnvVars(p.Spec, &sts); err != nil {
-		return appsv1.StatefulSet{}, err
-	}
-	return sts, nil
-}
 
 // buildService creates the Kube Service. If it should be seen externally it makes it of type NodePort that will assign
 // some random port in the range 30000-32767

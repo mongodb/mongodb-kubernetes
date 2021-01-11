@@ -19,8 +19,7 @@ const (
 // setJvmArgsEnvVars sets the correct environment variables for JVM size parameters.
 // This method must be invoked on the final version of the StatefulSet (after user statefulSet spec
 // was merged)
-// TODO: unexport once StatefulSet construction is refactored
-func SetJvmArgsEnvVars(om omv1.MongoDBOpsManagerSpec, sts *appsv1.StatefulSet) error {
+func setJvmArgsEnvVars(om omv1.MongoDBOpsManagerSpec, sts *appsv1.StatefulSet) error {
 	jvmParamsEnvVars, err := BuildJvmParamsEnvVars(om, sts.Spec.Template)
 	if err != nil {
 		return err
