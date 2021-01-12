@@ -1,9 +1,11 @@
 package pod
 
 import (
+	"context"
 	"encoding/json"
 
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 )
@@ -27,5 +29,5 @@ func (p Patcher) patchPod(namespace, podName string, payload []patchValue) (*v1.
 	if err != nil {
 		return nil, err
 	}
-	return p.clientset.CoreV1().Pods(namespace).Patch(podName, types.JSONPatchType, data)
+	return p.clientset.CoreV1().Pods(namespace).Patch(context.TODO(), podName, types.JSONPatchType, data, metav1.PatchOptions{})
 }

@@ -1,6 +1,7 @@
 package headless
 
 import (
+	"context"
 	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/probe/health"
@@ -27,7 +28,7 @@ func TestPerformCheckHeadlessMode(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, achieved)
 
-	thePod, _ := c.ClientSet.CoreV1().Pods(c.Namespace).Get(c.Hostname, metav1.GetOptions{})
+	thePod, _ := c.ClientSet.CoreV1().Pods(c.Namespace).Get(context.TODO(), c.Hostname, metav1.GetOptions{})
 	assert.Equal(t, map[string]string{"agent.mongodb.com/version": "10"}, thePod.Annotations)
 }
 

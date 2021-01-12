@@ -1,6 +1,7 @@
 package pod
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,17 +20,17 @@ func TestPatchPodAnnotation(t *testing.T) {
 		},
 	})
 
-	pod, _ := clientset.CoreV1().Pods("test-ns").Get("my-replica-set-0", metav1.GetOptions{})
+	pod, _ := clientset.CoreV1().Pods("test-ns").Get(context.TODO(), "my-replica-set-0", metav1.GetOptions{})
 	assert.Empty(t, pod.Annotations)
 
 	// adding the annotations
 	assert.NoError(t, PatchPodAnnotation("test-ns", 1, "my-replica-set-0", clientset))
-	pod, _ = clientset.CoreV1().Pods("test-ns").Get("my-replica-set-0", metav1.GetOptions{})
+	pod, _ = clientset.CoreV1().Pods("test-ns").Get(context.TODO(), "my-replica-set-0", metav1.GetOptions{})
 	assert.Equal(t, map[string]string{"agent.mongodb.com/version": "1"}, pod.Annotations)
 
 	// changing the annotations - no new annotations were added
 	assert.NoError(t, PatchPodAnnotation("test-ns", 2, "my-replica-set-0", clientset))
-	pod, _ = clientset.CoreV1().Pods("test-ns").Get("my-replica-set-0", metav1.GetOptions{})
+	pod, _ = clientset.CoreV1().Pods("test-ns").Get(context.TODO(), "my-replica-set-0", metav1.GetOptions{})
 	assert.Equal(t, map[string]string{"agent.mongodb.com/version": "2"}, pod.Annotations)
 }
 

@@ -19,7 +19,7 @@ func getPodNameForJob(ctx context.Context, c kubernetes.Clientset, jobName, name
 		LabelSelector: labelSelector,
 	}
 
-	pod, err := c.CoreV1().Pods(namespace).List(ops)
+	pod, err := c.CoreV1().Pods(namespace).List(context.TODO(), ops)
 	if err != nil {
 		return "", err
 	}

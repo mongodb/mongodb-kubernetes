@@ -66,7 +66,7 @@ func deployMongoDB(ctx context.Context, name string, certsName string, opsManage
 
 func getSecretStringData(c kubernetes.Clientset, secretName string) (map[string]string, error) {
 	stringData := map[string]string{}
-	secret, err := c.CoreV1().Secrets("mongodb").Get(secretName, metav1.GetOptions{})
+	secret, err := c.CoreV1().Secrets("mongodb").Get(context.TODO(), secretName, metav1.GetOptions{})
 	if err != nil {
 		return stringData, fmt.Errorf("can't get secret %s: %s", secretName, err)
 	}
@@ -109,13 +109,13 @@ func createTLSCerts(c kubernetes.Clientset, replicaSetName string, releaseName s
 		data[fmt.Sprintf("%s-%d-pem", replicaSetName, i)] = secretStringData["tls.key"] + secretStringData["tls.crt"]
 	}
 
-	_, err = c.CoreV1().Secrets("mongodb").Create(&corev1.Secret{
+	_, err = c.CoreV1().Secrets("mongodb").Create(context.TODO(), &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      releaseName,
 			Namespace: "mongodb",
 			Labels:    map[string]string{"app.kubernetes.io/managed-by": "runtest"},
 		},
-		StringData: data})
+		StringData: data}, metav1.CreateOptions{})
 	if err != nil {
 		return fmt.Errorf("can't create secret: %s", err)
 	}
@@ -125,7 +125,7 @@ func createTLSCerts(c kubernetes.Clientset, replicaSetName string, releaseName s
 func isOperatorReady(c kubernetes.Clientset, deploymentName, namespace string) wait.ConditionFunc {
 	return func() (bool, error) {
 		log.Printf("waiting for operator deployment %s to be in ready state...", deploymentName)
-		dep, err := c.AppsV1().Deployments(namespace).Get(deploymentName, metav1.GetOptions{})
+		dep, err := c.AppsV1().Deployments(namespace).Get(context.TODO(), deploymentName, metav1.GetOptions{})
 		if err != nil {
 			return false, err
 		}
@@ -137,7 +137,7 @@ func areSecretsCreated(c kubernetes.Clientset, namespace string, names ...string
 	return func() (bool, error) {
 		log.Printf("waiting for all secrets %v to be created...", names)
 		for _, name := range names {
-			_, err := c.CoreV1().Secrets(namespace).Get(name, metav1.GetOptions{})
+			_, err := c.CoreV1().Secrets(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 			if err != nil {
 				return false, nil
 			}
@@ -166,7 +166,7 @@ func deployMongoDBOperatorAndOpsManager(c kubernetes.Clientset, ctx context.Cont
 func hasYCSBJobCompleted(c kubernetes.Clientset, jobName, namespace string) wait.ConditionFunc {
 	return func() (bool, error) {
 		log.Printf("waiting for ycsb job %s to complete...", jobName)
-		job, err := c.BatchV1().Jobs(namespace).Get(jobName, metav1.GetOptions{})
+		job, err := c.BatchV1().Jobs(namespace).Get(context.TODO(), jobName, metav1.GetOptions{})
 		if err != nil {
 			return false, err
 		}
@@ -252,7 +252,7 @@ func getTimeDifferenceInSeconds(t1, t2 time.Time) float64 {
 // cleanupTLSSecrets ensures that all old secrets from previous runs with TLS enabled are deleted
 func cleanupTLSSecrets(c kubernetes.Clientset) error {
 	// Delete all the certs-x
-	err := c.CoreV1().Secrets("mongodb").DeleteCollection(&metav1.DeleteOptions{}, metav1.ListOptions{
+	err := c.CoreV1().Secrets("mongodb").DeleteCollection(context.TODO(), metav1.DeleteOptions{}, metav1.ListOptions{
 		LabelSelector: "app.kubernetes.io/managed-by=runtest",
 	})
 	if err != nil {
@@ -260,7 +260,7 @@ func cleanupTLSSecrets(c kubernetes.Clientset) error {
 	}
 
 	// Delete all the automatically generated secrets:
-	return c.CoreV1().Secrets("mongodb").DeleteCollection(&metav1.DeleteOptions{}, metav1.ListOptions{
+	return c.CoreV1().Secrets("mongodb").DeleteCollection(context.TODO(), metav1.DeleteOptions{}, metav1.ListOptions{
 		FieldSelector: "type=kubernetes.io/tls",
 		// This is a bit more robust than deleting by name, as we don't have to worry if
 		// in the future we change the templated name. And we do not have any other
@@ -274,7 +274,7 @@ func cleanMongoDBResource(c kubernetes.Clientset, mongoReleaseName string) error
 	if err != nil {
 		return err
 	}
-	return c.CoreV1().PersistentVolumeClaims("mongodb").DeleteCollection(&metav1.DeleteOptions{}, metav1.ListOptions{
+	return c.CoreV1().PersistentVolumeClaims("mongodb").DeleteCollection(context.TODO(), metav1.DeleteOptions{}, metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("app=%s", mongoReleaseName),
 	})
 }

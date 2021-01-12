@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"testing"
 	"time"
@@ -98,7 +99,7 @@ func TestHeadlessAgentHasntReachedGoal(t *testing.T) {
 	c := testConfig("testdata/health-status-ok.json")
 	c.ClientSet = fake.NewSimpleClientset(testdata.TestPod(c.Namespace, c.Hostname), testdata.TestSecret(c.Namespace, c.AutomationConfigSecretName, 6))
 	assert.False(t, isPodReady(c))
-	thePod, _ := c.ClientSet.CoreV1().Pods(c.Namespace).Get(c.Hostname, metav1.GetOptions{})
+	thePod, _ := c.ClientSet.CoreV1().Pods(c.Namespace).Get(context.TODO(), c.Hostname, metav1.GetOptions{})
 	assert.Equal(t, map[string]string{"agent.mongodb.com/version": "5"}, thePod.Annotations)
 }
 
@@ -109,7 +110,7 @@ func TestHeadlessAgentReachedGoal(t *testing.T) {
 	c := testConfig("testdata/health-status-ok.json")
 	c.ClientSet = fake.NewSimpleClientset(testdata.TestPod(c.Namespace, c.Hostname), testdata.TestSecret(c.Namespace, c.AutomationConfigSecretName, 5))
 	assert.True(t, isPodReady(c))
-	thePod, _ := c.ClientSet.CoreV1().Pods(c.Namespace).Get(c.Hostname, metav1.GetOptions{})
+	thePod, _ := c.ClientSet.CoreV1().Pods(c.Namespace).Get(context.TODO(), c.Hostname, metav1.GetOptions{})
 	assert.Equal(t, map[string]string{"agent.mongodb.com/version": "5"}, thePod.Annotations)
 }
 

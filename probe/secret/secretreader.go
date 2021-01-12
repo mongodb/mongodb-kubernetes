@@ -1,6 +1,8 @@
 package secret
 
 import (
+	"context"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -15,5 +17,5 @@ func newKubernetesSecretReader(clientSet kubernetes.Interface) *reader {
 }
 
 func (r *reader) ReadSecret(namespace, secretName string) (*corev1.Secret, error) {
-	return r.clientset.CoreV1().Secrets(namespace).Get(secretName, metav1.GetOptions{})
+	return r.clientset.CoreV1().Secrets(namespace).Get(context.TODO(), secretName, metav1.GetOptions{})
 }

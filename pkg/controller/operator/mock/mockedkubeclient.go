@@ -3,9 +3,11 @@ package mock
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"runtime"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/hashicorp/go-multierror"
 	"k8s.io/apimachinery/pkg/util/validation"
 
@@ -669,6 +671,18 @@ func (m *MockedManager) GetRESTMapper() meta.RESTMapper {
 }
 
 func (m *MockedManager) GetWebhookServer() *webhook.Server {
+	return nil
+}
+
+func (m *MockedManager) AddMetricsExtraHandler(path string, handler http.Handler) error {
+	return nil
+}
+
+func (m *MockedManager) Elected() <-chan struct{} {
+	return nil
+}
+
+func (m *MockedManager) GetLogger() logr.Logger {
 	return nil
 }
 

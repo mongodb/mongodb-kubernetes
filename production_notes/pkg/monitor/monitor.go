@@ -36,7 +36,7 @@ func isStatefulSetReady(c kubernetes.Clientset, stsName, namespace string) wait.
 	return func() (bool, error) {
 		log.Printf("waiting for statefulset %s to be in ready state...\n", stsName)
 
-		sts, err := c.AppsV1().StatefulSets(namespace).Get(stsName, metav1.GetOptions{})
+		sts, err := c.AppsV1().StatefulSets(namespace).Get(context.TODO(), stsName, metav1.GetOptions{})
 		// wait for the operator to create sts
 		if err != nil && errors.IsNotFound(err) {
 			return false, nil
