@@ -14,7 +14,8 @@ import (
 )
 
 const (
-	backupDaemonEnv = "BACKUP_DAEMON"
+	BackupDaemonServicePort = 8443
+	backupDaemonEnv         = "BACKUP_DAEMON"
 )
 
 // BackupDaemonStatefulSet fully constructs the Backup StatefulSet.
@@ -42,7 +43,7 @@ func backupOptions(additionalOpts ...func(opts *OpsManagerStatefulSetOptions)) f
 	return func(opsManager omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
 		opts := getSharedOpsManagerOptions(opsManager)
 
-		opts.ServicePort = 8443
+		opts.ServicePort = BackupDaemonServicePort
 		opts.ServiceName = opsManager.BackupServiceName()
 		opts.Name = opsManager.BackupStatefulSetName()
 		opts.Replicas = 1

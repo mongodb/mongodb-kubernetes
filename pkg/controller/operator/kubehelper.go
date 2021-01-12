@@ -3,10 +3,11 @@ package operator
 import (
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/pem"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/certs"
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/pem"
 	enterprisesvc "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
@@ -262,16 +263,6 @@ func (s OpsManagerStatefulSetHelper) GetService() string {
 	return s.Service
 }
 
-type BackupStatefulSetHelper struct {
-	OpsManagerStatefulSetHelper
-
-	HeadDbPersistenceConfig *mdbv1.PersistenceConfig
-}
-
-func (s BackupStatefulSetHelper) GetHeadDbPersistenceConfig() *mdbv1.PersistenceConfig {
-	return s.HeadDbPersistenceConfig
-}
-
 // ShardedClusterKubeState holds the Kubernetes configuration for the set of StatefulSets composing
 // our ShardedCluster:
 // 1 StatefulSet holding Mongos (TODO: this might need to be changed to Deployments or Kubernetes ReplicaSets)
@@ -351,27 +342,6 @@ func (k *KubeHelper) NewOpsManagerStatefulSetHelper(opsManager omv1.MongoDBOpsMa
 		HTTPSCertSecretName:     tlsSecret,
 		AppDBTlsCAConfigMapName: opsManager.Spec.AppDB.GetCAConfigMapName(),
 	}
-}
-
-func (k *KubeHelper) NewBackupStatefulSetHelper(opsManager omv1.MongoDBOpsManager) *BackupStatefulSetHelper {
-	helper := BackupStatefulSetHelper{
-		OpsManagerStatefulSetHelper: *k.NewOpsManagerStatefulSetHelper(opsManager),
-	}
-	helper.Name = opsManager.BackupStatefulSetName()
-	helper.ContainerName = util.BackupDaemonContainerName
-	helper.Service = opsManager.BackupServiceName()
-	helper.ServicePort = 8443
-	helper.Replicas = 1
-	// unset the default that was configured with Ops Manager
-	helper.StatefulSetConfiguration = nil
-
-	if opsManager.Spec.Backup != nil {
-		helper.StatefulSetConfiguration = opsManager.Spec.Backup.StatefulSetConfiguration
-	}
-	if opsManager.Spec.Backup.HeadDB != nil {
-		helper.HeadDbPersistenceConfig = opsManager.Spec.Backup.HeadDB
-	}
-	return &helper
 }
 
 // SetName can override the value of `StatefulSetHelper.Name` which is set to
@@ -544,11 +514,6 @@ func (s *OpsManagerStatefulSetHelper) SetAnnotations(annotations map[string]stri
 	return s
 }
 
-func (s *BackupStatefulSetHelper) SetHeadDbStorageRequirements(persistenceConfig *mdbv1.PersistenceConfig) *BackupStatefulSetHelper {
-	s.HeadDbPersistenceConfig = persistenceConfig
-	return s
-}
-
 func (s *OpsManagerStatefulSetHelper) SetLogger(log *zap.SugaredLogger) *OpsManagerStatefulSetHelper {
 	s.Logger = log
 	return s
@@ -623,12 +588,11 @@ func (s OpsManagerStatefulSetHelper) CreateOrUpdateInKubernetes(client kubernete
 	return err
 }
 
-func (s BackupStatefulSetHelper) CreateOrUpdateInKubernetes(client kubernetesClient.Client, sts appsv1.StatefulSet) (bool, error) {
-
+func createOrUpdateBackupDaemonInKubernetes(client kubernetesClient.Client, opsManager omv1.MongoDBOpsManager, sts appsv1.StatefulSet, log *zap.SugaredLogger) (bool, error) {
 	set, err := enterprisests.CreateOrUpdateStatefulset(
 		client,
-		s.Namespace,
-		s.Logger,
+		opsManager.Namespace,
+		log,
 		&sts,
 	)
 
@@ -638,17 +602,17 @@ func (s BackupStatefulSetHelper) CreateOrUpdateInKubernetes(client kubernetesCli
 			return false, err
 		}
 		// In this case, we delete the old Statefulset
-		s.Logger.Debug("Deleting the old backup stateful set and creating a new one")
-		stsNamespacedName := kube.ObjectKey(s.Namespace, s.Name)
-		err = s.Helper.client.DeleteStatefulSet(stsNamespacedName)
+		log.Debug("Deleting the old backup stateful set and creating a new one")
+		stsNamespacedName := kube.ObjectKey(opsManager.Namespace, opsManager.BackupStatefulSetName())
+		err = client.DeleteStatefulSet(stsNamespacedName)
 		if err != nil {
 			return false, fmt.Errorf("failed while trying to delete previous backup daemon statefulset: %s", err)
 		}
 		return true, nil
 	}
-	namespacedName := objectKey(s.Namespace, set.Spec.ServiceName)
-	internalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
-	err = enterprisesvc.CreateOrUpdateService(client, internalService, s.Logger)
+	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
+	internalService := buildService(namespacedName, &opsManager, set.Spec.ServiceName, construct.BackupDaemonServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	err = enterprisesvc.CreateOrUpdateService(client, internalService, log)
 	return false, err
 }
 

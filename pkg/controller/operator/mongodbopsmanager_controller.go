@@ -362,16 +362,12 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(opsManager omv1.Mon
 
 	r.ensureConfiguration(&opsManager, log)
 
-	backupHelper := r.kubeHelper.NewBackupStatefulSetHelper(opsManager)
-	backupHelper.OpsManagerStatefulSetHelper.SetAppDBConnectionStringHash(hashConnectionString(connectionString))
-	backupHelper.SetLogger(log)
-
 	sts, err := construct.BackupDaemonStatefulSet(opsManager, construct.WithConnectionStringHash(hashConnectionString(connectionString)))
 	if err != nil {
 		return workflow.Failed(fmt.Sprintf("error building stateful set: %v", err))
 	}
 
-	needToRequeue, err := backupHelper.CreateOrUpdateInKubernetes(r.client, sts)
+	needToRequeue, err := createOrUpdateBackupDaemonInKubernetes(r.client, opsManager, sts, log)
 	if err != nil {
 		return workflow.Failed(err.Error())
 	}
