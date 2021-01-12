@@ -80,16 +80,38 @@ functions:
 tasks:
 - name: periodic_build_operator
   commands:
-  - func: clone
-  - func: configure_docker_auth
   - func: pipeline
     vars:
       image_name: operator-daily
 
+- name: periodic_build_init_appdb
+  commands:
+  - func: pipeline
+    vars:
+      image_name: init-appdb-daily
+
+- name: periodic_build_init_database
+  commands:
+  - func: pipeline
+    vars:
+      image_name: init-database-daily
+
+
+task_groups:
+- name: periodic_build_all
+  setup_group:
+  - func: clone
+  - func: configure_docker_auth
+
+  tasks:
+  - periodic_build_operator
+  - periodic_build_init_appdb
+  - periodic_build_init_database
+
 buildvariants:
-- name: periodic_build_operator
-  display_name: periodic_build_operator
+- name: periodic_build
+  display_name: periodic_build
   run_on:
   - ubuntu1604-build
   tasks:
-  - name: periodic_build_operator
+  - name: periodic_build_all

@@ -169,7 +169,7 @@ functions:
       - ${workdir}/bin
       command: "${workdir}/venv/bin/python pipeline.py --include ${image_name}"
 
-  operator_add_release_version:
+  add_supported_release:
   - *python_venv
   - *python_requirements
   - command: subprocess.exec
@@ -182,7 +182,7 @@ functions:
       - atlas_database
       add_to_path:
       - ${workdir}/bin
-      command: "${workdir}/venv/bin/python scripts/operator_add_release_version.py"
+      command: "${workdir}/venv/bin/python scripts/add_supported_release.py --image ${image_name}"
 
   # upload_e2e_logs has the responsibility of dumping as much information as
   # posible into the S3 bucket that corresponds to this ${version}. The
@@ -744,7 +744,9 @@ tasks:
   - func: pipeline
     vars:
       image_name: operator
-  - func: operator_add_release_version
+  - func: add_supported_release
+    vars:
+      image_name: operator
 
 # Releases init images to Quay
 - name: release_init_quay
@@ -755,16 +757,25 @@ tasks:
   - func: pipeline
     vars:
       image_name: init-appdb
+  - func: add_supported_release
+    vars:
+      image_name: init-appdb
 
   - func: pipeline
+    vars:
+      image_name: init-database
+  - func: add_supported_release
     vars:
       image_name: init-database
 
   # TODO: Add this with CLOUDP-79689
   # - func: pipeline
   #   vars:
-  #     image_name: init-om-daily
+  #     image_name: init-om
   #     include_tags: release
+  # - func: add_supported_release
+  #   vars:
+  #     image_name: init-om
 
 
 - name: prerelease_master_images

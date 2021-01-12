@@ -272,7 +272,7 @@ def get_supported_version_for_image(image: str) -> List[Dict[str, str]]:
     supported_versions = (
         "https://webhooks.mongodb-realm.com/api/client/v2.0/app/"
         "kubernetes-release-support-kpvbh/service/"
-        "{}/incoming_webhook/list".format(image)
+        "supported-{}-versions/incoming_webhook/list".format(image)
     )
 
     return requests.get(supported_versions).json()

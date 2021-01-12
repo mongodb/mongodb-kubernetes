@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 
+import argparse
+
 import datetime
 import json
 import logging
 import os
 import subprocess
 import sys
+from typing import Dict
 
 import pymongo
 
@@ -19,9 +22,9 @@ def get_repo_root():
     return output.decode("utf-8").strip()
 
 
-def get_release_version() -> str:
+def get_release() -> Dict[str, str]:
     release_file = os.path.join(get_repo_root(), "release.json")
-    return json.load(open(release_file))["mongodbOperator"]
+    return json.load(open(release_file))
 
 
 def get_atlas_connection_string() -> str:
@@ -36,11 +39,11 @@ def mongo_client() -> pymongo.MongoClient:
     return pymongo.MongoClient(cnx_str)
 
 
-def add_release_version(version: str):
+def add_release_version(image: str, version: str):
     client = mongo_client()
 
     database = os.environ["atlas_database"]
-    collection = client[database]["operator"]
+    collection = client[database][image]
 
     year_from_now = datetime.datetime.now() + datetime.timedelta(days=365)
 
@@ -59,11 +62,34 @@ def add_release_version(version: str):
     )
 
 
-def main():
-    version = get_release_version()
-    logging.info("Adding new release: {}".format(version))
+def get_latest_version_for_image(image: str) -> str:
+    image_to_release = {
+        "operator": "mongodbOperator",
+        #
+        # init images
+        "init-appdb": "initAppDbVersion",
+        "init-database": "initDatabaseVersion",
+        "init-om": "initOpsManagerVersion",
+        #
+        # non-init-images
+        "appdb": "appDBImageAgentVersion",
+        "database": "databaseVersion",  # does not exists in release.json yet.
+    }
+    return get_release()[image_to_release[image]]
 
-    add_release_version(version)
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--image", help="image to add a new supported version", type=str
+    )
+    args = parser.parse_args()
+
+    version = get_latest_version_for_image(args.image)
+
+    logging.info("Adding new release: {} {}".format(args.image, version))
+
+    add_release_version(args.image, version)
 
     return 0
 
