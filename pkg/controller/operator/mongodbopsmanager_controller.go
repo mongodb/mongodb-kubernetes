@@ -274,11 +274,6 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulset(opsManager omv1.Mongo
 
 	r.ensureConfiguration(&opsManager, log)
 
-	helper := r.kubeHelper.NewOpsManagerStatefulSetHelper(opsManager).SetLogger(log).SetAppDBConnectionStringHash(hashConnectionString(connectionString))
-	if opsManager.Annotations != nil {
-		helper.SetAnnotations(opsManager.Annotations)
-	}
-
 	sts, err := construct.OpsManagerStatefulSet(opsManager,
 		construct.WithConnectionStringHash(hashConnectionString(connectionString)),
 	)
@@ -287,7 +282,7 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulset(opsManager omv1.Mongo
 		return workflow.Failed(fmt.Errorf("error building OpsManager stateful set: %v", err).Error())
 	}
 
-	if err := helper.CreateOrUpdateInKubernetes(r.client, sts); err != nil {
+	if err := createOrUpdateOpsManagerInKubernetes(r.client, opsManager, sts, log); err != nil {
 		return workflow.Failed(err.Error())
 	}
 

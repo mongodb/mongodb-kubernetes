@@ -194,75 +194,6 @@ func (ss StatefulSetHelper) GetStartupParameters() mdbv1.StartupParameters {
 	return ss.StartupOptions
 }
 
-type OpsManagerStatefulSetHelper struct {
-	StatefulSetHelperCommon
-
-	// MongoDBOpsManagerSpec reference to the actual Spec received.
-	Spec omv1.MongoDBOpsManagerSpec
-
-	// Annotations passed to the Ops Manager resource
-	Annotations map[string]string
-
-	// Name of the secret containing the secret to mount.
-	HTTPSCertSecretName string
-
-	// Name of the ConfigMap with a CA that verifies the AppDB TLS certs
-	AppDBTlsCAConfigMapName string
-
-	EnvVars []corev1.EnvVar
-
-	// AppDBConnectionStringHash is the hash of the contents of the AppDB Connection String
-	// if this changes in the secret, a rolling restart must be triggered.
-	AppDBConnectionStringHash string
-}
-
-func (s OpsManagerStatefulSetHelper) GetOwnerRefs() []metav1.OwnerReference {
-	return baseOwnerReference(s.Owner)
-}
-
-func (s OpsManagerStatefulSetHelper) GetNamespace() string {
-	return s.Namespace
-}
-
-func (s OpsManagerStatefulSetHelper) GetReplicas() int {
-	return s.Replicas
-}
-
-func (s OpsManagerStatefulSetHelper) GetOwnerName() string {
-	if s.Owner == nil {
-		return ""
-	}
-	return s.Owner.GetName()
-}
-
-func (s OpsManagerStatefulSetHelper) GetHTTPSCertSecretName() string {
-	return s.HTTPSCertSecretName
-}
-
-func (s OpsManagerStatefulSetHelper) GetAppDBTlsCAConfigMapName() string {
-	return s.AppDBTlsCAConfigMapName
-}
-
-func (s OpsManagerStatefulSetHelper) GetAppDBConnectionStringHash() string {
-	return s.AppDBConnectionStringHash
-}
-
-func (s OpsManagerStatefulSetHelper) GetEnvVars() []corev1.EnvVar {
-	return s.EnvVars
-}
-
-func (s OpsManagerStatefulSetHelper) GetVersion() string {
-	return s.Version
-}
-
-func (s OpsManagerStatefulSetHelper) GetName() string {
-	return s.Name
-}
-
-func (s OpsManagerStatefulSetHelper) GetService() string {
-	return s.Service
-}
-
 // ShardedClusterKubeState holds the Kubernetes configuration for the set of StatefulSets composing
 // our ShardedCluster:
 // 1 StatefulSet holding Mongos (TODO: this might need to be changed to Deployments or Kubernetes ReplicaSets)
@@ -314,33 +245,6 @@ func NewStatefulSetHelper(obj v1.CustomResourceReadWriter) *StatefulSetHelper {
 		},
 		Persistent:        mongodbSpec.Persistent,
 		ExposedExternally: mongodbSpec.ExposedExternally,
-	}
-}
-
-func (k *KubeHelper) NewOpsManagerStatefulSetHelper(opsManager omv1.MongoDBOpsManager) *OpsManagerStatefulSetHelper {
-	_, port := opsManager.GetSchemePort()
-	tlsSecret := ""
-	if opsManager.Spec.Security != nil {
-		tlsSecret = opsManager.Spec.Security.TLS.SecretRef.Name
-	}
-
-	return &OpsManagerStatefulSetHelper{
-		StatefulSetHelperCommon: StatefulSetHelperCommon{
-			Owner:                    &opsManager,
-			Name:                     opsManager.GetName(),
-			Namespace:                opsManager.GetNamespace(),
-			ContainerName:            util.OpsManagerContainerName,
-			Replicas:                 opsManager.Spec.Replicas,
-			Helper:                   k,
-			ServicePort:              int32(port),
-			Version:                  opsManager.Spec.Version,
-			Service:                  opsManager.SvcName(),
-			StatefulSetConfiguration: opsManager.Spec.StatefulSetConfiguration,
-		},
-		Spec:                    opsManager.Spec,
-		EnvVars:                 opsManagerConfigurationToEnvVars(opsManager),
-		HTTPSCertSecretName:     tlsSecret,
-		AppDBTlsCAConfigMapName: opsManager.Spec.AppDB.GetCAConfigMapName(),
 	}
 }
 
@@ -499,90 +403,65 @@ func createOrUpdateDatabaseInKubernetes(client kubernetesClient.Client, mdb mdbv
 	return nil
 }
 
-func (s *OpsManagerStatefulSetHelper) SetService(service string) *OpsManagerStatefulSetHelper {
-	s.Service = service
-	return s
-}
-
-func (s *OpsManagerStatefulSetHelper) SetName(name string) *OpsManagerStatefulSetHelper {
-	s.Name = name
-	return s
-}
-
-func (s *OpsManagerStatefulSetHelper) SetAnnotations(annotations map[string]string) *OpsManagerStatefulSetHelper {
-	s.Annotations = annotations
-	return s
-}
-
-func (s *OpsManagerStatefulSetHelper) SetLogger(log *zap.SugaredLogger) *OpsManagerStatefulSetHelper {
-	s.Logger = log
-	return s
-}
-
-func (s *OpsManagerStatefulSetHelper) SetVersion(version string) *OpsManagerStatefulSetHelper {
-	s.Version = version
-	return s
-}
-
-func (s *OpsManagerStatefulSetHelper) SetAppDBConnectionStringHash(hash string) *OpsManagerStatefulSetHelper {
-	s.AppDBConnectionStringHash = hash
-	return s
-}
-
-func (s OpsManagerStatefulSetHelper) SetBackupService(serviceGetUpdateCreator service.GetUpdateCreator, externalService corev1.Service, serviceName string) error {
-
-	backupSvcPort, err := s.Spec.BackupSvcPort()
+// ensureQueryableAbleBackupService will make sure the queryable backup service exists. It will either update the existing external service
+// if it exists, or create a new one if it does not.
+func ensureQueryableAbleBackupService(serviceGetUpdateCreator service.GetUpdateCreator, opsManager omv1.MongoDBOpsManager, externalService corev1.Service, serviceName string, log *zap.SugaredLogger) error {
+	backupSvcPort, err := opsManager.Spec.BackupSvcPort()
 	if err != nil {
 		return fmt.Errorf("can't parse queryable backup port: %s", err)
 	}
 
 	// If external connectivity is already configured, add a port to externalService
-	if s.Spec.MongoDBOpsManagerExternalConnectivity != nil {
+	if opsManager.Spec.MongoDBOpsManagerExternalConnectivity != nil {
 		externalService.Spec.Ports[0].Name = externalConnectivityPortName
 		externalService.Spec.Ports = append(externalService.Spec.Ports, corev1.ServicePort{
 			Name: backupPortName,
 			Port: backupSvcPort,
 		})
-		return enterprisesvc.CreateOrUpdateService(serviceGetUpdateCreator, externalService, s.Logger)
+		return enterprisesvc.CreateOrUpdateService(serviceGetUpdateCreator, externalService, log)
 	}
 	// Otherwise create a new service
-	namespacedName := objectKey(s.Namespace, serviceName+"-backup")
-	backupService := buildService(namespacedName, s.Owner, "ops-manager-backup", backupSvcPort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeLoadBalancer})
+	namespacedName := kube.ObjectKey(opsManager.Namespace, serviceName+"-backup")
+	backupService := buildService(namespacedName, &opsManager, "ops-manager-backup", backupSvcPort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeLoadBalancer})
 
-	return enterprisesvc.CreateOrUpdateService(serviceGetUpdateCreator, backupService, s.Logger)
+	return enterprisesvc.CreateOrUpdateService(serviceGetUpdateCreator, backupService, log)
 
 }
 
-func (s OpsManagerStatefulSetHelper) CreateOrUpdateInKubernetes(client kubernetesClient.Client, sts appsv1.StatefulSet) error {
+// createOrUpdateOpsManagerInKubernetes creates all of the required Kubernetes resources for Ops Manager.
+// It creates the StatefulSet and all required services.
+func createOrUpdateOpsManagerInKubernetes(client kubernetesClient.Client, opsManager omv1.MongoDBOpsManager, sts appsv1.StatefulSet, log *zap.SugaredLogger) error {
 	set, err := enterprisests.CreateOrUpdateStatefulset(client,
-		s.Namespace,
-		s.Logger,
+		opsManager.Namespace,
+		log,
 		&sts,
 	)
 	if err != nil {
 		return err
 	}
 
-	namespacedName := objectKey(s.Namespace, set.Spec.ServiceName)
-	internalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
-	err = enterprisesvc.CreateOrUpdateService(client, internalService, s.Logger)
+	_, port := opsManager.GetSchemePort()
+
+	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
+	internalService := buildService(namespacedName, &opsManager, set.Spec.ServiceName, int32(port), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	err = enterprisesvc.CreateOrUpdateService(client, internalService, log)
 	if err != nil {
 		return err
 	}
 
 	externalService := corev1.Service{}
-	if s.Spec.MongoDBOpsManagerExternalConnectivity != nil {
-		namespacedName := objectKey(s.Namespace, set.Spec.ServiceName+"-ext")
-		externalService = buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, *s.Spec.MongoDBOpsManagerExternalConnectivity)
-		err = enterprisesvc.CreateOrUpdateService(client, externalService, s.Logger)
+	if opsManager.Spec.MongoDBOpsManagerExternalConnectivity != nil {
+		namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName+"-ext")
+		externalService = buildService(namespacedName, &opsManager, set.Spec.ServiceName, int32(port), *opsManager.Spec.MongoDBOpsManagerExternalConnectivity)
+		err = enterprisesvc.CreateOrUpdateService(client, externalService, log)
 		if err != nil {
 			return err
 		}
 	}
 
 	// Need to create queryable backup service
-	if s.Spec.Backup.Enabled {
-		return s.SetBackupService(client, externalService, set.Spec.ServiceName)
+	if opsManager.Spec.Backup.Enabled {
+		return ensureQueryableAbleBackupService(client, opsManager, externalService, set.Spec.ServiceName, log)
 	}
 
 	return err
@@ -919,19 +798,6 @@ func (k *KubeHelper) ensureSSLCertsForStatefulSet(mdb mdbv1.MongoDB, opts certs.
 		return validateSelfManagedSSLCertsForStatefulSet(k, secretName, opts)
 	}
 	return ensureOperatorManagedSSLCertsForStatefulSet(k, secretName, opts, log)
-}
-
-// TODO: duplicate function, will be removed once OpsManagerStatefulSetHelper is removed
-func opsManagerConfigurationToEnvVars(m omv1.MongoDBOpsManager) []corev1.EnvVar {
-	var envVars []corev1.EnvVar
-	for name, value := range m.Spec.Configuration {
-		envVars = append(envVars, corev1.EnvVar{
-			Name: omv1.ConvertNameToEnvVarFormat(name), Value: value,
-		})
-	}
-	// Configure the AppDB Connection String property from a secret
-	envVars = append(envVars, envVarFromSecret(omv1.ConvertNameToEnvVarFormat(util.MmsMongoUri), m.AppDBMongoConnectionStringSecretName(), util.AppDbConnectionStringKey))
-	return envVars
 }
 
 // envVarFromSecret returns a corev1.EnvVar that is a reference to a secret with the field
