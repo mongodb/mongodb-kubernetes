@@ -768,15 +768,13 @@ tasks:
     vars:
       image_name: init-database
 
-  # TODO: Add this with CLOUDP-79689
-  # - func: pipeline
-  #   vars:
-  #     image_name: init-om
-  #     include_tags: release
-  # - func: add_supported_release
-  #   vars:
-  #     image_name: init-om
-
+  - func: pipeline
+    vars:
+      image_name: init-ops-manager
+      include_tags: release
+  - func: add_supported_release
+    vars:
+      image_name: init-ops-manager
 
 - name: prerelease_master_images
   commands:
@@ -867,7 +865,7 @@ tasks:
   - func: pipeline
     vars:
       image_name: init-ops-manager
-      skip_tags: "ubuntu"
+      skip_tags: ubuntu,release
 
 - name: build_init_om_images_ubuntu
   commands:
@@ -877,7 +875,7 @@ tasks:
   - func: pipeline
     vars:
       image_name: init-ops-manager
-      skip_tags: "ubi"
+      skip_tags: ubi,release
 
 - name: build_init_appdb_images_ubuntu
   commands:
@@ -2624,6 +2622,10 @@ buildvariants:
     - name: build_operator_ubuntu
       variant: init_test_run
     - name: build_operator_ubi
+      variant: init_test_run
+    - name: build_init_om_images_ubi
+      variant: init_test_run
+    - name: build_init_om_images_ubuntu
       variant: init_test_run
     - name: build_init_appdb_images_ubuntu
       variant: init_test_run

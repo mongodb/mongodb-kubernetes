@@ -96,6 +96,12 @@ tasks:
     vars:
       image_name: init-database-daily
 
+- name: periodic_build_init_opsmanager
+  commands:
+  - func: pipeline
+    vars:
+      image_name: init-ops-manager-daily
+
 
 task_groups:
 - name: periodic_build_all
@@ -107,6 +113,7 @@ task_groups:
   - periodic_build_operator
   - periodic_build_init_appdb
   - periodic_build_init_database
+  - periodic_build_init_opsmanager
 
 buildvariants:
 - name: periodic_build

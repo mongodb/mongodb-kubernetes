@@ -1,9 +1,22 @@
+vars:
+  quay_registry: quay.io/mongodb/mongodb-enterprise-init-ops-manager
+  s3_bucket_http: https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles/mongodb-enterprise-init-ops-manager
+  s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-enterprise-init-ops-manager
+
 images:
 - name: init-ops-manager
   vars:
     context: docker/mongodb-enterprise-init-ops-manager
   
   stages:
+  - name: init-ops-manager-build-context
+    task_type: docker_build
+    dockerfile: Dockerfile.builder
+
+    output:
+    - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-ops-manager-context
+      tag: $(inputs.params.version_id)
+
   - name: init-ops-manager-template-ubuntu
     task_type: dockerfile_template
     distro: busybox
@@ -19,6 +32,9 @@ images:
     task_type: docker_build
     dockerfile: Dockerfile.ubuntu-$(inputs.params.version_id)
     tags: ["ubuntu"]
+
+    buildargs:
+      imagebase: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-ops-manager-context:$(inputs.params.version_id)
 
     output:
     - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-ops-manager
@@ -40,7 +56,83 @@ images:
     dockerfile: Dockerfile.ubi-$(inputs.params.version_id)
     tags: ["ubi"]
 
+    buildargs:
+      imagebase: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-ops-manager-context:$(inputs.params.version_id)
+
     output:
     - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-init-ops-manager
       tag: $(inputs.params.version_id)
 
+  - name: init-ops-manager-release-context
+    task_type: tag_image
+    tags: ["release"]
+
+    source:
+      registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-ops-manager-context
+      tag: $(inputs.params.version_id)
+
+    destination:
+    - registry: $(inputs.params.quay_registry)
+      tag: $(inputs.params.version)-context
+
+  - name: init-ops-manager-template-ubi
+    task_type: dockerfile_template
+    distro: ubi_minimal
+    tags: ["release"]
+
+    inputs:
+    - version
+
+    output:
+    - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubi-$(inputs.params.version)
+
+  - name: init-ops-manager-template-ubuntu
+    task_type: dockerfile_template
+    distro: busybox
+    tags: ["release"]
+
+    inputs:
+    - version
+
+    output:
+    - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubuntu-$(inputs.params.version)
+
+
+# This is exactly the same as the other "daily" builds. Maybe we could make one task that
+# behaves generically enough to support all image types.
+- name: init-ops-manager-daily
+  vars:
+    context: .
+
+  stages:
+  - name: build-ubuntu
+    task_type: docker_build
+
+    inputs:
+    - build_id
+
+    dockerfile: $(inputs.params.s3_bucket_http)/Dockerfile.ubuntu-$(inputs.params.release_version)
+    buildargs:
+      imagebase: $(inputs.params.quay_registry):$(inputs.params.release_version)-context
+
+    output:
+    - registry: $(inputs.params.quay_registry)
+      tag: $(inputs.params.release_version)
+    - registry: $(inputs.params.quay_registry)
+      tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
+
+  - name: build-ubi
+    task_type: docker_build
+
+    inputs:
+    - build_id
+
+    dockerfile: $(inputs.params.s3_bucket_http)/Dockerfile.ubi-$(inputs.params.release_version)
+    buildargs:
+      imagebase: $(inputs.params.quay_registry):$(inputs.params.release_version)-context
+
+    output:
+    - registry: $(inputs.params.quay_registry)-ubi
+      tag: $(inputs.params.release_version)
+    - registry: $(inputs.params.quay_registry)-ubi
+      tag: $(inputs.params.release_version)-b$(inputs.params.build_id)

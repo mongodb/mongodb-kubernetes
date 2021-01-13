@@ -1,15 +1,7 @@
-#
-# Dockerfile for Init Ops Manager Image.
-#
+ARG imagebase
+FROM ${imagebase} as base
 
-FROM golang:1.13-alpine as builder
-RUN mkdir /build
-ADD . /build/
-WORKDIR /build
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=386 go build -a -i -o ./output/mmsconfiguration ./mmsconfiguration
-
-FROM {{ base_image|default("busybox") }}
-
+FROM {{ base_image }}
 
 LABEL name="MongoDB Enterprise Ops Manager Init" \
       maintainer="support@mongodb.com" \
@@ -20,10 +12,8 @@ LABEL name="MongoDB Enterprise Ops Manager Init" \
       description="Startup Scripts for MongoDB Enterprise Ops Manager"
 
 
-COPY --from=builder /build/output/mmsconfiguration /scripts/
-COPY scripts/docker-entry-point.sh /scripts/
-
-COPY LICENSE /licenses/mongodb-enterprise-ops-manager
+COPY --from=base /data/scripts /scripts
+COPY --from=base /data/licenses /licenses
 
 USER 2000
 ENTRYPOINT [ "/bin/cp", "-f", "/scripts/docker-entry-point.sh", "/scripts/mmsconfiguration", "/opt/scripts/" ]

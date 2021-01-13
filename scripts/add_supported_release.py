@@ -69,7 +69,7 @@ def get_latest_version_for_image(image: str) -> str:
         # init images
         "init-appdb": "initAppDbVersion",
         "init-database": "initDatabaseVersion",
-        "init-om": "initOpsManagerVersion",
+        "init-ops-manager": "initOpsManagerVersion",
         #
         # non-init-images
         "appdb": "appDBImageAgentVersion",

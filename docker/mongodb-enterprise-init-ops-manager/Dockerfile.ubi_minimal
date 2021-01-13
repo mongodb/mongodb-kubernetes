@@ -1,1 +1,3 @@
 {% extends "Dockerfile.template" %}
+
+{% set base_image = "registry.access.redhat.com/ubi8/ubi-minimal" %}

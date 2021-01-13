@@ -338,6 +338,26 @@ def build_init_database_daily(build_configuration: BuildConfiguration):
             logging.error(e)
 
 
+def build_init_ops_manager_daily(build_configuration: BuildConfiguration):
+    image_name = "init-ops-manager-daily"
+    build_id = datetime.now().strftime("%Y%m%d%H%M%S")
+
+    supported_versions = get_supported_version_for_image("init-ops-manager")
+    logging.info("Init-Ops-Manager Supported Versions: {}".format(supported_versions))
+
+    for release in supported_versions:
+        logging.info("Rebuilding {}".format(release["version"]))
+
+        args = dict(build_id=build_id, release_version=release["version"])
+        try:
+            sonar_build_image(
+                image_name, build_configuration, args, "inventories/init_om.yaml"
+            )
+        except Exception as e:
+            # Log error and continue
+            logging.error(e)
+
+
 def find_om_in_releases(om_version: str, releases: Dict[str, str]) -> Optional[str]:
     """There are a few alternatives out there that allow for json-path or xpath-type
     traversal of Json objects in Python, I don't have time to look for one of
@@ -437,14 +457,21 @@ def get_builder_function_for_image_name():
     return {
         "operator": build_operator_image,
         "operator-quick": build_operator_image_patch,
+        #
+        # Init images
         "init-appdb": build_init_appdb,
         "init-database": build_init_database,
         "init-ops-manager": build_init_om_image,
-        "ops-manager": build_om_image,
+        #
         # Daily builds
         "operator-daily": build_operator_daily,
         "init-appdb-daily": build_init_appdb_daily,
         "init-database-daily": build_init_database_daily,
+        "init-database-daily": build_init_database_daily,
+        "init-ops-manager-daily": build_init_ops_manager_daily,
+        #
+        # Ops Manager image
+        "ops-manager": build_om_image,
     }
 
 
