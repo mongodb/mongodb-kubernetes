@@ -27,13 +27,13 @@ func PrepareOpsManagerConnection(client kubernetesClient.Client, projectConfig m
 	}
 
 	// adds the namespace as a tag to the Ops Manager project
-	if err = ensureTagAdded(conn, omProject, namespace, log); err != nil {
+	if err = EnsureTagAdded(conn, omProject, namespace, log); err != nil {
 		return nil, err
 	}
 
 	// adds the externally_managed tag if feature controls is not available.
 	if !controlledfeature.ShouldUseFeatureControls(conn.OpsManagerVersion()) {
-		if err = ensureTagAdded(conn, omProject, util.OmGroupExternallyManagedTag, log); err != nil {
+		if err = EnsureTagAdded(conn, omProject, util.OmGroupExternallyManagedTag, log); err != nil {
 			return nil, err
 		}
 	}
@@ -46,8 +46,8 @@ func PrepareOpsManagerConnection(client kubernetesClient.Client, projectConfig m
 	return conn, nil
 }
 
-// ensureTagAdded makes sure that the given project has the provided tag
-func ensureTagAdded(conn om.Connection, project *om.Project, tag string, log *zap.SugaredLogger) error {
+// EnsureTagAdded makes sure that the given project has the provided tag
+func EnsureTagAdded(conn om.Connection, project *om.Project, tag string, log *zap.SugaredLogger) error {
 	// must truncate the tag to at most 32 characters and capitalise as
 	// these are Ops Manager requirements
 

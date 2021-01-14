@@ -123,28 +123,6 @@ func ensureRoles(roles []mdbv1.MongoDbRole, conn om.Connection, log *zap.Sugared
 	return workflow.OK()
 }
 
-func ensureTagAdded(conn om.Connection, project *om.Project, tag string, log *zap.SugaredLogger) error {
-	// must truncate the tag to at most 32 characters and capitalise as
-	// these are Ops Manager requirements
-
-	sanitisedTag := strings.ToUpper(fmt.Sprintf("%.32s", tag))
-	alreadyHasTag := stringutil.Contains(project.Tags, sanitisedTag)
-	if alreadyHasTag {
-		return nil
-	}
-
-	project.Tags = append(project.Tags, sanitisedTag)
-
-	log.Infow("Updating group tags", "newTags", project.Tags)
-	_, err := conn.UpdateProject(project)
-	if err != nil {
-		log.Warnf("Failed to update tags for project: %s", err)
-	} else {
-		log.Info("Project tags are fixed")
-	}
-	return err
-}
-
 // updateStatus updates the status for the CR using patch operation. Note, that the resource status is mutated and
 // it's important to pass resource by pointer to all methods which invoke current 'updateStatus'.
 func (c *ReconcileCommonController) updateStatus(reconciledResource v1.CustomResourceReadWriter, status workflow.Status, log *zap.SugaredLogger, statusOptions ...status.Option) (reconcile.Result, error) {

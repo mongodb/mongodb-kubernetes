@@ -41,49 +41,56 @@ const (
 	agentApiKeyEnv                 = "AGENT_API_KEY"
 )
 
+func AppDbOptions(opts ...func(options *DatabaseStatefulSetOptions)) func(opsManager om.MongoDBOpsManager) DatabaseStatefulSetOptions {
+	return func(opsManager om.MongoDBOpsManager) DatabaseStatefulSetOptions {
+		appDb := opsManager.Spec.AppDB
+
+		// Providing the default size of pod as otherwise sometimes the agents in pod complain about not enough memory
+		// on mongodb download: "write /tmp/mms-automation/test/versions/mongodb-linux-x86_64-4.0.0/bin/mongo: cannot
+		// allocate memory"
+		appdbPodSpec := newDefaultPodSpecWrapper(*appDb.PodSpec)
+		appdbPodSpec.Default.MemoryRequests = util.DefaultMemoryAppDB
+
+		stsOpts := DatabaseStatefulSetOptions{
+			Replicas:       scale.ReplicasThisReconciliation(&opsManager),
+			Name:           appDb.Name(),
+			ServiceName:    appDb.ServiceName(),
+			PodSpec:        appdbPodSpec,
+			ServicePort:    appDb.AdditionalMongodConfig.GetPortOrDefault(),
+			Persistent:     appDb.Persistent,
+			OwnerReference: kube.BaseOwnerReference(&opsManager),
+			AgentConfig:    appDb.MongoDbSpec.Agent,
+		}
+
+		for _, opt := range opts {
+			opt(&stsOpts)
+		}
+		return stsOpts
+	}
+}
+
 // AppDbStatefulSet fully constructs the AppDb StatefulSet that is ready to be sent to the Kubernetes API server.
 // A list of optional configuration options can be provided to make any modifications that are required.
 func AppDbStatefulSet(opsManager om.MongoDBOpsManager, opts ...func(options *DatabaseStatefulSetOptions)) (appsv1.StatefulSet, error) {
-	appDb := opsManager.Spec.AppDB
-
-	// Providing the default size of pod as otherwise sometimes the agents in pod complain about not enough memory
-	// on mongodb download: "write /tmp/mms-automation/test/versions/mongodb-linux-x86_64-4.0.0/bin/mongo: cannot
-	// allocate memory"
-	appdbPodSpec := newDefaultPodSpecWrapper(*appDb.PodSpec)
-	appdbPodSpec.Default.MemoryRequests = util.DefaultMemoryAppDB
-
-	stsOpts := DatabaseStatefulSetOptions{
-		Replicas:       scale.ReplicasThisReconciliation(&opsManager),
-		Name:           appDb.Name(),
-		ServiceName:    appDb.ServiceName(),
-		PodSpec:        appdbPodSpec,
-		ServicePort:    appDb.AdditionalMongodConfig.GetPortOrDefault(),
-		Persistent:     appDb.Persistent,
-		OwnerReference: kube.BaseOwnerReference(&opsManager),
-		AgentConfig:    appDb.MongoDbSpec.Agent,
-	}
-
+	stsOpts := AppDbOptions(opts...)(opsManager)
 	// TODO: temporary way of using the same function to build both appdb and databaes
 	// this will be cleaned up in a future PR
 	mdb := mdbv1.MongoDB{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      appDb.Name(),
-			Namespace: appDb.Namespace,
+			Name:      opsManager.Spec.AppDB.Name(),
+			Namespace: opsManager.Namespace,
 		},
-		Spec: appDb.MongoDbSpec,
+		Spec: opsManager.Spec.AppDB.MongoDbSpec,
 	}
 
-	dbSts := appDbDatabaseStatefulSet(mdb, &stsOpts, opts...)
+	dbSts := appDbDatabaseStatefulSet(mdb, &stsOpts)
 	if mdb.Spec.PodSpec != nil && mdb.Spec.PodSpec.PodTemplate != nil {
 		return enterprisests.MergeSpec(dbSts, &appsv1.StatefulSetSpec{Template: *mdb.Spec.PodSpec.PodTemplate})
 	}
 	return dbSts, nil
 }
 
-func appDbDatabaseStatefulSet(mdb mdbv1.MongoDB, stsOpts *DatabaseStatefulSetOptions, opts ...func(options *DatabaseStatefulSetOptions)) appsv1.StatefulSet {
-	for _, opt := range opts {
-		opt(stsOpts)
-	}
+func appDbDatabaseStatefulSet(mdb mdbv1.MongoDB, stsOpts *DatabaseStatefulSetOptions) appsv1.StatefulSet {
 	templateFunc := buildAppDBPodTemplateSpecFunc(*stsOpts)
 	return statefulset.New(buildDatabaseStatefulSetConfigurationFunction(mdb, templateFunc, *stsOpts))
 }

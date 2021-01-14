@@ -98,30 +98,7 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 		log.Errorf("Unable to configure monitoring of AppDB: %s, configuration will be attempted next reconciliation.", err)
 	}
 
-	// Providing the default size of pod as otherwise sometimes the agents in pod complain about not enough memory
-	// on mongodb download: "write /tmp/mms-automation/test/versions/mongodb-linux-x86_64-4.0.0/bin/mongo: cannot
-	// allocate memory"
-	appdbPodSpec := NewDefaultPodSpecWrapper(*rs.PodSpec)
-	appdbPodSpec.Default.MemoryRequests = util.DefaultMemoryAppDB
-
-	// It's ok to pass 'opsManager' instance to statefulset constructor as it will be the owner for the appdb statefulset
-	replicaBuilder := *NewStatefulSetHelper(opsManager).
-		SetReplicas(scale.ReplicasThisReconciliation(opsManager)).
-		SetName(rs.Name()).
-		SetService(rs.ServiceName()).
-		SetServicePort(rs.MongoDbSpec.AdditionalMongodConfig.GetPortOrDefault()).
-		SetPodVars(&podVars).
-		SetStartupParameters(rs.Agent.StartupParameters).
-		SetLogger(log).
-		SetPodSpec(appdbPodSpec).
-		SetClusterName(opsManager.ClusterName).
-		SetSecurity(rs.Security).
-		//TODO Remove?
-		SetVersion(opsManager.Spec.Version). // the version of the appdb image must match the OM image one
-		SetContainerName(util.AppDbContainerName)
-	// TODO: configure once StatefulSetConfiguration is supported for appDb
-	//SetStatefulSetConfiguration(opsManager.Spec.AppDB.StatefulSetConfiguration)
-
+	appDbOpts := construct.AppDbOptions(PodEnvVars(&podVars))
 	appDbSts, err := construct.AppDbStatefulSet(*opsManager,
 		PodEnvVars(&podVars),
 	)
@@ -130,7 +107,7 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 		return r.updateStatus(opsManager, workflow.Failed(err.Error()), log, appDbStatusOption)
 	}
 
-	if workflowStatus := r.reconcileAppDB(*opsManager, replicaBuilder, opsManagerUserPassword, appDbSts, log); !workflowStatus.IsOK() {
+	if workflowStatus := r.reconcileAppDB(*opsManager, opsManagerUserPassword, appDbSts, appDbOpts, log); !workflowStatus.IsOK() {
 		return r.updateStatus(opsManager, workflowStatus, log, appDbStatusOption)
 	}
 
@@ -153,11 +130,11 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 
 // reconcileAppDB performs the reconciliation for the AppDB: update the AutomationConfig Secret if necessary and
 // update the StatefulSet. It does it in the necessary order depending on the changes to the spec
-func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsManager, replicaBuilder StatefulSetHelper, opsManagerUserPassword string, appDbSts appsv1.StatefulSet, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsManager, opsManagerUserPassword string, appDbSts appsv1.StatefulSet, config func(om omv1.MongoDBOpsManager) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) workflow.Status {
 	rs := opsManager.Spec.AppDB
 	automationConfigFirst := true
 	// The only case when we push the StatefulSet first is when we are ensuring TLS for the already existing AppDB
-	_, err := r.client.GetStatefulSet(kube.ObjectKey(replicaBuilder.GetNamespace(), replicaBuilder.GetName()))
+	_, err := r.client.GetStatefulSet(kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.Name()))
 	if err == nil && opsManager.Spec.AppDB.GetSecurity().TLSConfig.IsEnabled() {
 		automationConfigFirst = false
 	}
@@ -166,7 +143,7 @@ func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsMana
 			return r.deployAutomationConfig(opsManager, rs, opsManagerUserPassword, appDbSts, log)
 		},
 		func() workflow.Status {
-			return r.deployStatefulSet(opsManager, replicaBuilder, appDbSts)
+			return r.deployStatefulSet(opsManager, appDbSts, config, log)
 		})
 }
 
@@ -587,8 +564,8 @@ func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(opsManager omv1.MongoD
 }
 
 // deployStatefulSet updates the StatefulSet spec and returns its status (if it's ready or not)
-func (r *ReconcileAppDbReplicaSet) deployStatefulSet(opsManager omv1.MongoDBOpsManager, replicaBuilder StatefulSetHelper, appDbSts appsv1.StatefulSet) workflow.Status {
-	if err := replicaBuilder.CreateOrUpdateAppDBInKubernetes(r.client, r.client, appDbSts); err != nil {
+func (r *ReconcileAppDbReplicaSet) deployStatefulSet(opsManager omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, config func(om omv1.MongoDBOpsManager) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) workflow.Status {
+	if err := createOrUpdateAppDBInKubernetes(r.client, opsManager, appDbSts, config, log); err != nil {
 		return workflow.Failed(err.Error())
 	}
 

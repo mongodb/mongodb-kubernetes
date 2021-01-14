@@ -10,13 +10,10 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/certs"
 	enterprisesvc "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
 
@@ -55,324 +52,6 @@ const (
 	externalConnectivityPortName = "external-connectivity-port"
 	backupPortName               = "backup-port"
 )
-
-// StatefulSetHelperCommon is the basic struct the same for all Statefulset helpers (MongoDB, OpsManager)
-type StatefulSetHelperCommon struct {
-	// Attributes that are part of StatefulSet
-	Owner     v1.CustomResourceReadWriter
-	Name      string
-	Service   string
-	Namespace string
-
-	// ClusterDomain is the cluster name that's usually 'cluster.local' but it
-	// can be changed by the customer.
-	ClusterDomain            string
-	Replicas                 int
-	ServicePort              int32
-	Version                  string
-	ContainerName            string
-	PodSpec                  *mdbv1.PodSpecWrapper
-	StatefulSetConfiguration *mdbv1.StatefulSetConfiguration
-
-	// Not part of StatefulSet object
-	Helper *KubeHelper
-	Logger *zap.SugaredLogger
-}
-
-// StatefulSetHelper is a struct that holds different attributes needed to build
-// a StatefulSet for MongoDB CR. It is used as a convenient way of passing many different parameters in one
-// struct, instead of multiple parameters.
-type StatefulSetHelper struct {
-	StatefulSetHelperCommon
-
-	Persistent *bool
-	PodVars    *env.PodEnvVars
-
-	StartupOptions mdbv1.StartupParameters
-
-	ResourceType mdbv1.ResourceType
-
-	// The following attributes are not part of StatefulSet object
-
-	// ExposedExternally sets this StatefulSetHelper to receive a `Service` that will allow it to be
-	// visible from outside the Kubernetes cluster.
-	ExposedExternally bool
-
-	Project                   mdbv1.ProjectConfig
-	Security                  *mdbv1.Security
-	ReplicaSetHorizons        []mdbv1.MongoDBHorizonConfig
-	CertificateHash           string
-	CurrentAgentAuthMechanism string
-}
-
-func (ss StatefulSetHelper) GetOwnerRefs() []metav1.OwnerReference {
-	return baseOwnerReference(ss.Owner)
-}
-
-func (ss StatefulSetHelper) GetName() string {
-	return ss.Name
-}
-
-func (ss StatefulSetHelper) GetService() string {
-	return ss.Service
-}
-
-func (ss StatefulSetHelper) GetNamespace() string {
-	return ss.Namespace
-}
-
-func (ss StatefulSetHelper) GetReplicas() int {
-	return ss.Replicas
-}
-
-func (ss StatefulSetHelper) GetBaseUrl() string {
-	if ss.PodVars == nil {
-		return ""
-	}
-	return ss.PodVars.BaseURL
-}
-
-func (ss StatefulSetHelper) GetProjectID() string {
-	if ss.PodVars == nil {
-		return ""
-	}
-	return ss.PodVars.ProjectID
-}
-
-func (ss StatefulSetHelper) GetUser() string {
-	if ss.PodVars == nil {
-		return ""
-	}
-	return ss.PodVars.User
-}
-
-func (ss StatefulSetHelper) GetLogLevel() string {
-	if ss.PodVars == nil {
-		return ""
-	}
-	return string(ss.PodVars.LogLevel)
-}
-
-func (ss StatefulSetHelper) SSLRequireValidMMSServerCertificates() bool {
-	if ss.PodVars == nil {
-		return false
-	}
-	return ss.PodVars.SSLRequireValidMMSServerCertificates
-}
-
-func (ss StatefulSetHelper) GetSSLMMSCAConfigMap() string {
-	if ss.PodVars == nil {
-		return ""
-	}
-	return ss.PodVars.SSLMMSCAConfigMap
-}
-
-func (ss StatefulSetHelper) GetCertificateHash() string {
-	if ss.PodVars == nil {
-		return ""
-	}
-	return ss.CertificateHash
-}
-
-func (ss StatefulSetHelper) GetPodSpec() *mdbv1.PodSpecWrapper {
-	return ss.PodSpec
-}
-
-func (ss StatefulSetHelper) GetSecurity() *mdbv1.Security {
-	return ss.Security
-}
-
-func (ss StatefulSetHelper) IsPersistent() *bool {
-	return ss.Persistent
-}
-
-func (ss StatefulSetHelper) GetCurrentAgentAuthMechanism() string {
-	return ss.CurrentAgentAuthMechanism
-}
-
-func (ss StatefulSetHelper) GetStartupParameters() mdbv1.StartupParameters {
-	return ss.StartupOptions
-}
-
-// ShardedClusterKubeState holds the Kubernetes configuration for the set of StatefulSets composing
-// our ShardedCluster:
-// 1 StatefulSet holding Mongos (TODO: this might need to be changed to Deployments or Kubernetes ReplicaSets)
-// 1 StatefulSet holding ConfigServers
-// N StatefulSets holding each a different shard
-type ShardedClusterKubeState struct {
-	mongosSetHelper    *StatefulSetHelper
-	configSrvSetHelper *StatefulSetHelper
-	shardsSetsHelpers  []*StatefulSetHelper
-}
-
-// NewStatefulSetHelper returns a default `StatefulSetHelper` for the database statefulset. The defaults are as follows:
-//
-// * Name: Same as the Name of the owner
-// * Namespace: Same as the Namespace of the owner
-// * Replicas: 1
-// * ExposedExternally: false
-// * ServicePort: `MongoDbDefaultPort` (27017)
-//
-// Note, that it's the same for both MongodbResource Statefulset and AppDB Statefulset. So the object passed
-// can be either 'MongoDB' or 'MongoDBOpsManager' - in the latter case the configuration for AppDB is used.
-// We pass the 'MongoDBOpsManager' instead of 'AppDB' as the former is the owner of the object - no AppDB CR exists
-func NewStatefulSetHelper(obj v1.CustomResourceReadWriter) *StatefulSetHelper {
-	var containerName string
-	var mongodbSpec mdbv1.MongoDbSpec
-	switch v := obj.(type) {
-	case *mdbv1.MongoDB:
-		containerName = util.DatabaseContainerName
-		mongodbSpec = v.Spec
-	case *omv1.MongoDBOpsManager:
-		containerName = util.AppDbContainerName
-		mongodbSpec = v.Spec.AppDB.MongoDbSpec
-	default:
-		panic("Wrong type provided, only MongoDB or AppDB are expected!")
-	}
-
-	return &StatefulSetHelper{
-		StatefulSetHelperCommon: StatefulSetHelperCommon{
-			ContainerName: containerName,
-			Owner:         obj,
-			Name:          obj.GetName(),
-			Namespace:     obj.GetNamespace(),
-			Replicas:      mongodbSpec.Members,
-			ServicePort:   util.MongoDbDefaultPort,
-			Version:       mongodbSpec.GetVersion(),
-			ClusterDomain: mongodbSpec.GetClusterDomain(),
-			Logger:        zap.S(),                                        // by default, must be overridden by clients
-			PodSpec:       NewDefaultPodSpecWrapper(*mongodbSpec.PodSpec), // by default, may be overridden by clients
-		},
-		Persistent:        mongodbSpec.Persistent,
-		ExposedExternally: mongodbSpec.ExposedExternally,
-	}
-}
-
-// SetName can override the value of `StatefulSetHelper.Name` which is set to
-// `owner.GetName()` initially.
-func (s *StatefulSetHelper) SetName(name string) *StatefulSetHelper {
-	s.Name = name
-	return s
-}
-func (s *StatefulSetHelper) SetOwner(obj v1.CustomResourceReadWriter) *StatefulSetHelper {
-	s.Owner = obj
-	return s
-}
-
-func (s *StatefulSetHelper) SetService(service string) *StatefulSetHelper {
-	s.Service = service
-	return s
-}
-
-func (s *StatefulSetHelper) SetReplicas(replicas int) *StatefulSetHelper {
-	s.Replicas = replicas
-	return s
-}
-
-func (s *StatefulSetHelper) SetPersistence(persistent *bool) *StatefulSetHelper {
-	s.Persistent = persistent
-	return s
-}
-
-func (s *StatefulSetHelper) SetPodSpec(podSpec *mdbv1.PodSpecWrapper) *StatefulSetHelper {
-	s.PodSpec = podSpec
-	return s
-}
-
-func (s *StatefulSetHelper) SetPodVars(podVars *env.PodEnvVars) *StatefulSetHelper {
-	s.PodVars = podVars
-	return s
-}
-
-func (s *StatefulSetHelper) SetStartupParameters(parameters mdbv1.StartupParameters) *StatefulSetHelper {
-	s.StartupOptions = parameters
-	return s
-}
-
-func (s *StatefulSetHelper) SetExposedExternally(exposedExternally bool) *StatefulSetHelper {
-	s.ExposedExternally = exposedExternally
-	return s
-}
-
-func (s *StatefulSetHelper) SetProjectConfig(project mdbv1.ProjectConfig) *StatefulSetHelper {
-	s.Project = project
-	return s
-}
-
-func (s *StatefulSetHelper) SetServicePort(port int32) *StatefulSetHelper {
-	s.ServicePort = port
-	return s
-}
-
-func (s *StatefulSetHelper) SetLogger(log *zap.SugaredLogger) *StatefulSetHelper {
-	s.Logger = log
-	return s
-}
-
-func (s *StatefulSetHelper) SetTLS(tlsConfig *mdbv1.TLSConfig) *StatefulSetHelper {
-	if s.Security == nil {
-		s.Security = &mdbv1.Security{}
-	}
-	s.Security.TLSConfig = tlsConfig
-	return s
-}
-
-func (s *StatefulSetHelper) SetClusterName(name string) *StatefulSetHelper {
-	if name == "" {
-		s.ClusterDomain = "cluster.local"
-	} else {
-		s.ClusterDomain = name
-	}
-
-	return s
-}
-
-func (s StatefulSetHelper) IsTLSEnabled() bool {
-	return s.Security != nil && s.Security.TLSConfig != nil && s.Security.TLSConfig.Enabled
-}
-
-func (s *StatefulSetHelper) SetVersion(version string) *StatefulSetHelper {
-	s.Version = version
-	return s
-}
-
-func (s *StatefulSetHelper) SetContainerName(containerName string) *StatefulSetHelper {
-	s.ContainerName = containerName
-	return s
-}
-
-func (s *StatefulSetHelper) SetStatefulSetConfiguration(stsConfiguration *mdbv1.StatefulSetConfiguration) *StatefulSetHelper {
-	s.StatefulSetConfiguration = stsConfiguration
-	return s
-}
-
-// CreateOrUpdateInKubernetes creates (updates if it exists) the StatefulSet with its Service.
-// It returns any errors coming from Kubernetes API.
-func (s StatefulSetHelper) CreateOrUpdateInKubernetes(stsGetUpdateCreator statefulset.GetUpdateCreator, serviceGetUpdateCreator service.GetUpdateCreator, sts appsv1.StatefulSet) error {
-	set, err := enterprisests.CreateOrUpdateStatefulset(stsGetUpdateCreator,
-		s.Namespace,
-		s.Logger,
-		&sts,
-	)
-	if err != nil {
-		return err
-	}
-
-	namespacedName := objectKey(s.Namespace, set.Spec.ServiceName)
-	internalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
-	err = enterprisesvc.CreateOrUpdateService(serviceGetUpdateCreator, internalService, s.Logger)
-	if err != nil {
-		return err
-	}
-
-	if s.ExposedExternally {
-		namespacedName := objectKey(s.Namespace, set.Spec.ServiceName+"-external")
-		externalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeNodePort})
-		err = enterprisesvc.CreateOrUpdateService(serviceGetUpdateCreator, externalService, s.Logger)
-	}
-
-	return err
-}
 
 // createOrUpdateInKubernetes creates (updates if it exists) the StatefulSet with its Service.
 // It returns any errors coming from Kubernetes API.
@@ -495,41 +174,20 @@ func createOrUpdateBackupDaemonInKubernetes(client kubernetesClient.Client, opsM
 	return false, err
 }
 
-// CreateOrUpdateAppDBInKubernetes creates the StatefulSet specific for AppDB.
-func (s *StatefulSetHelper) CreateOrUpdateAppDBInKubernetes(stsGetUpdateCreator statefulset.GetUpdateCreator, serviceGetUpdateCreator service.GetUpdateCreator, appDbSts appsv1.StatefulSet) error {
-	set, err := enterprisests.CreateOrUpdateStatefulset(stsGetUpdateCreator,
-		s.Namespace,
-		s.Logger,
-		&appDbSts,
+func createOrUpdateAppDBInKubernetes(client kubernetesClient.Client, opsManager omv1.MongoDBOpsManager, sts appsv1.StatefulSet, config func(om omv1.MongoDBOpsManager) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) error {
+	opts := config(opsManager)
+	set, err := enterprisests.CreateOrUpdateStatefulset(client,
+		opsManager.Namespace,
+		log,
+		&sts,
 	)
 	if err != nil {
 		return err
 	}
 
-	namespacedName := objectKey(s.Namespace, set.Spec.ServiceName)
-	internalService := buildService(namespacedName, s.Owner, set.Spec.ServiceName, s.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
-	err = enterprisesvc.CreateOrUpdateService(serviceGetUpdateCreator, internalService, s.Logger)
-	return err
-}
-
-func (s *StatefulSetHelper) SetCertificateHash(certHash string) *StatefulSetHelper {
-	s.CertificateHash = certHash
-	return s
-}
-
-func (s *StatefulSetHelper) SetCurrentAgentAuthMechanism(agentAuth string) *StatefulSetHelper {
-	s.CurrentAgentAuthMechanism = agentAuth
-	return s
-}
-
-func (s *StatefulSetHelper) SetReplicaSetHorizons(replicaSetHorizons []mdbv1.MongoDBHorizonConfig) *StatefulSetHelper {
-	s.ReplicaSetHorizons = replicaSetHorizons
-	return s
-}
-
-func (s *StatefulSetHelper) SetSecurity(security *mdbv1.Security) *StatefulSetHelper {
-	s.Security = security
-	return s
+	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
+	internalService := buildService(namespacedName, &opsManager, set.Spec.ServiceName, opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	return enterprisesvc.CreateOrUpdateService(client, internalService, log)
 }
 
 // needToPublishStateFirst will check if the Published State of the StatfulSet backed MongoDB Deployments

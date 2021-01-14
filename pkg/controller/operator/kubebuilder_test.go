@@ -814,25 +814,6 @@ func TestAppDBAgentFlags(t *testing.T) {
 
 // ******************************** Helper methods *******************************************
 
-func baseSetHelper() *StatefulSetHelper {
-	st := DefaultStandaloneBuilder().Build()
-	return NewStatefulSetHelper(st)
-}
-
-func defaultSetHelper() *StatefulSetHelper {
-	return baseSetHelper().
-		SetName("default-sts-name").
-		SetPodSpec(mdbv1.NewEmptyPodSpecWrapperBuilder().Build()).
-		SetPodVars(defaultPodVars()).
-		SetService("test-service").
-		SetSecurity(&mdbv1.Security{
-			TLSConfig: &mdbv1.TLSConfig{},
-			Authentication: &mdbv1.Authentication{
-				Modes: []string{},
-			},
-		})
-}
-
 func defaultPodVars() *env.PodEnvVars {
 	return &env.PodEnvVars{BaseURL: "http://localhost:8080", ProjectID: "myProject", User: "user@some.com"}
 }

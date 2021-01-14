@@ -868,15 +868,13 @@ func assertPodSpecTemplate(t *testing.T, nodeName, hostName string, restartPolic
 func createDeploymentFromShardedCluster(updatable v1.CustomResourceReadWriter) om.Deployment {
 	sh := updatable.(*mdbv1.MongoDB)
 
-	state := createStateFromResourceStatus(sh)
-
 	mongosSts, _ := construct.DatabaseStatefulSet(*sh, construct.MongosOptions(Replicas(sh.Spec.MongosCount)))
 	mongosProcesses := createMongosProcesses(mongosSts, sh)
 	configSvrSts, _ := construct.DatabaseStatefulSet(*sh, construct.ConfigServerOptions(Replicas(sh.Spec.ConfigServerCount)))
 
 	configRs := buildReplicaSetFromProcesses(configSvrSts.Name, createConfigSrvProcesses(configSvrSts, sh), sh)
-	shards := make([]om.ReplicaSetWithProcesses, len(state.shardsSetsHelpers))
-	for i := range state.shardsSetsHelpers {
+	shards := make([]om.ReplicaSetWithProcesses, sh.Spec.ShardCount)
+	for i := 0; i < sh.Spec.ShardCount; i++ {
 		shardSts, _ := construct.DatabaseStatefulSet(*sh, construct.ShardOptions(i, Replicas(sh.Spec.MongodsPerShardCount)))
 		shards[i] = buildReplicaSetFromProcesses(shardSts.Name, createShardProcesses(shardSts, sh), sh)
 	}
@@ -885,20 +883,6 @@ func createDeploymentFromShardedCluster(updatable v1.CustomResourceReadWriter) o
 	d.MergeShardedCluster(sh.Name, mongosProcesses, configRs, shards, false)
 	d.AddMonitoringAndBackup(zap.S(), sh.Spec.GetTLSConfig().IsEnabled())
 	return d
-}
-
-// createStateFromResource creates the kube state for the sharded cluster. Note, that it uses the `Status` of cluster
-// instead of `Spec` as it tries to reflect the CURRENT state
-func createStateFromResourceStatus(updatable v1.CustomResourceReadWriter) ShardedClusterKubeState {
-	sh := updatable.(*mdbv1.MongoDB)
-	shardHelpers := make([]*StatefulSetHelper, sh.Status.ShardCount)
-	for i := 0; i < sh.Status.ShardCount; i++ {
-		shardHelpers[i] = defaultSetHelper().SetName(sh.ShardRsName(i)).SetService(sh.ShardServiceName()).SetReplicas(sh.Status.MongodsPerShardCount)
-	}
-	return ShardedClusterKubeState{
-		mongosSetHelper:    defaultSetHelper().SetName(sh.MongosRsName()).SetService(sh.ServiceName()).SetReplicas(sh.Status.MongosCount),
-		configSrvSetHelper: defaultSetHelper().SetName(sh.ConfigRsName()).SetService(sh.ConfigSrvServiceName()).SetReplicas(sh.Status.ConfigServerCount),
-		shardsSetsHelpers:  shardHelpers}
 }
 
 // defaultClusterReconciler is the sharded cluster reconciler used in unit test. It "adds" necessary

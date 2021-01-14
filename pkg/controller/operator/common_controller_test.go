@@ -47,11 +47,11 @@ func TestEnsureTagAdded(t *testing.T) {
 	mockOm, _ := prepareConnection(controller, om.NewEmptyMockedOmConnection, t)
 
 	// normal tag
-	err := ensureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "myTag", zap.S())
+	err := connection.EnsureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "myTag", zap.S())
 	assert.NoError(t, err)
 
 	// long tag
-	err = ensureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "LOOKATTHISTRINGTHATISTOOLONGFORTHEFIELD", zap.S())
+	err = connection.EnsureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "LOOKATTHISTRINGTHATISTOOLONGFORTHEFIELD", zap.S())
 	assert.NoError(t, err)
 
 	expected := []string{"EXTERNALLY_MANAGED_BY_KUBERNETES", "MY-NAMESPACE", "MYTAG", "LOOKATTHISTRINGTHATISTOOLONGFORT"}
@@ -64,11 +64,11 @@ func TestEnsureTagAddedDuplicates(t *testing.T) {
 	opsManagerController := newReconcileCommonController(manager)
 
 	mockOm, _ := prepareConnection(opsManagerController, om.NewEmptyMockedOmConnection, t)
-	err := ensureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "MYTAG", zap.S())
+	err := connection.EnsureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "MYTAG", zap.S())
 	assert.NoError(t, err)
-	err = ensureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "MYTAG", zap.S())
+	err = connection.EnsureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "MYTAG", zap.S())
 	assert.NoError(t, err)
-	err = ensureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "MYOTHERTAG", zap.S())
+	err = connection.EnsureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "MYOTHERTAG", zap.S())
 	assert.NoError(t, err)
 	expected := []string{"EXTERNALLY_MANAGED_BY_KUBERNETES", "MY-NAMESPACE", "MYTAG", "MYOTHERTAG"}
 	assert.Equal(t, expected, mockOm.FindGroup(om.TestGroupName).Tags)
