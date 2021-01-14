@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 
 	"github.com/google/uuid"
@@ -27,7 +28,6 @@ import (
 	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/controlledfeature"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -138,7 +138,6 @@ func TestPrepareScaleDownShardedCluster_ConfigMongodsUp(t *testing.T) {
 		Build()
 
 	r, _ := newShardedClusterReconcilerFromResource(*scBeforeScale, om.NewEmptyMockedOmConnection)
-	newState := createStateFromResourceAccountForScaling(scBeforeScale, r)
 
 	oldDeployment := createDeploymentFromShardedCluster(scBeforeScale)
 	mockedOmConnection := om.NewMockedOmConnection(oldDeployment)
@@ -152,7 +151,7 @@ func TestPrepareScaleDownShardedCluster_ConfigMongodsUp(t *testing.T) {
 
 	r.initCountsForThisReconciliation(*scAfterScale)
 
-	assert.NoError(t, r.prepareScaleDownShardedCluster(mockedOmConnection, newState, scBeforeScale, &env.PodEnvVars{}, "", zap.S()))
+	assert.NoError(t, r.prepareScaleDownShardedCluster(mockedOmConnection, scBeforeScale, &env.PodEnvVars{}, "", zap.S()))
 
 	// create the expected deployment from the sharded cluster that has not yet scaled
 	// expected change of state: rs members are marked unvoted
@@ -182,7 +181,6 @@ func TestPrepareScaleDownShardedCluster_ShardsUpMongodsDown(t *testing.T) {
 		Build()
 
 	r, _ := newShardedClusterReconcilerFromResource(*scBeforeScale, om.NewEmptyMockedOmConnection)
-	newState := createStateFromResourceAccountForScaling(scBeforeScale, r)
 
 	oldDeployment := createDeploymentFromShardedCluster(scBeforeScale)
 	mockedOmConnection := om.NewMockedOmConnection(oldDeployment)
@@ -196,7 +194,7 @@ func TestPrepareScaleDownShardedCluster_ShardsUpMongodsDown(t *testing.T) {
 
 	r.initCountsForThisReconciliation(*scAfterScale)
 
-	assert.NoError(t, r.prepareScaleDownShardedCluster(mockedOmConnection, newState, scBeforeScale, &env.PodEnvVars{}, "", zap.S()))
+	assert.NoError(t, r.prepareScaleDownShardedCluster(mockedOmConnection, scBeforeScale, &env.PodEnvVars{}, "", zap.S()))
 
 	// expected change of state: rs members are marked unvoted only for two shards (old state)
 	expectedDeployment := createDeploymentFromShardedCluster(scBeforeScale)
@@ -230,12 +228,10 @@ func TestPrepareScaleDownShardedCluster_OnlyMongos(t *testing.T) {
 	sc := DefaultClusterBuilder().SetMongosCountStatus(4).SetMongosCountSpec(2).Build()
 	r, _ := newShardedClusterReconcilerFromResource(*sc, om.NewEmptyMockedOmConnection)
 
-	newState := createStateFromResourceAccountForScaling(sc, r)
-
 	oldDeployment := createDeploymentFromShardedCluster(sc)
 	mockedOmConnection := om.NewMockedOmConnection(oldDeployment)
 
-	assert.NoError(t, r.prepareScaleDownShardedCluster(mockedOmConnection, newState, sc, &env.PodEnvVars{}, "", zap.S()))
+	assert.NoError(t, r.prepareScaleDownShardedCluster(mockedOmConnection, sc, &env.PodEnvVars{}, "", zap.S()))
 
 	mockedOmConnection.CheckNumberOfUpdateRequests(t, 0)
 	mockedOmConnection.CheckDeployment(t, createDeploymentFromShardedCluster(sc))
@@ -267,8 +263,6 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 
 	r.initCountsForThisReconciliation(*sc)
 
-	newState := createStateFromResourceAccountForScaling(sc, r)
-
 	// updateOmDeploymentShardedCluster checks an element from ac.Auth.DeploymentAuthMechanisms
 	// so we need to ensure it has a non-nil value. An empty list implies no authentication
 	_ = mockOm.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
@@ -276,7 +270,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 		return nil
 	}, nil)
 
-	assert.Equal(t, workflow.OK(), r.updateOmDeploymentShardedCluster(mockOm, sc, newState, &env.PodEnvVars{}, "", zap.S()))
+	assert.Equal(t, workflow.OK(), r.updateOmDeploymentShardedCluster(mockOm, sc, &env.PodEnvVars{}, "", zap.S()))
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadUpdateDeployment), reflect.ValueOf(mockOm.RemoveHost))
 
@@ -293,13 +287,6 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 // CLOUDP-32765: checks that pod anti affinity rule spreads mongods inside one shard, not inside all shards
 func TestPodAntiaffinity_MongodsInsideShardAreSpread(t *testing.T) {
 	sc := DefaultClusterBuilder().Build()
-
-	reconciler, _ := newShardedClusterReconcilerFromResource(*sc, om.NewEmptyMockedOmConnection)
-	state := reconciler.buildKubeObjectsForShardedCluster(sc, defaultPodVars(), mdbv1.ProjectConfig{}, "", zap.S())
-
-	shardHelpers := state.shardsSetsHelpers
-
-	assert.Len(t, shardHelpers, 2)
 
 	firstShardSet, err := construct.DatabaseStatefulSet(*sc, construct.ShardOptions(0))
 	assert.NoError(t, err)
@@ -378,15 +365,16 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 	assert.Equal(t, expectedResult, actualResult)
 	assert.Nil(t, err)
 
-	kubeState := reconciler.buildKubeObjectsForShardedCluster(sc, defaultPodVars(), mdbv1.ProjectConfig{}, "", zap.S())
-	assert.False(t, reconciler.anyStatefulSetHelperNeedsToPublishState(*sc, client, kubeState, zap.S()))
+	allConfigs := reconciler.getAllConfigs(*sc, &env.PodEnvVars{}, "", zap.S())
+
+	assert.False(t, anyStatefulSetNeedsToPublishState(*sc, client, allConfigs, zap.S()))
 
 	// attempting to set tls to false
 	sc.Spec.Security.TLSConfig.Enabled = false
 
 	// Ops Manager state needs to be published first as we want to reach goal state before unmounting certificates
-	kubeState = reconciler.buildKubeObjectsForShardedCluster(sc, defaultPodVars(), mdbv1.ProjectConfig{}, "", zap.S())
-	assert.True(t, reconciler.anyStatefulSetHelperNeedsToPublishState(*sc, client, kubeState, zap.S()))
+	allConfigs = reconciler.getAllConfigs(*sc, &env.PodEnvVars{}, "", zap.S())
+	assert.True(t, anyStatefulSetNeedsToPublishState(*sc, client, allConfigs, zap.S()))
 }
 
 func TestShardedCustomPodSpecTemplate(t *testing.T) {
@@ -910,20 +898,6 @@ func createStateFromResourceStatus(updatable v1.CustomResourceReadWriter) Sharde
 	return ShardedClusterKubeState{
 		mongosSetHelper:    defaultSetHelper().SetName(sh.MongosRsName()).SetService(sh.ServiceName()).SetReplicas(sh.Status.MongosCount),
 		configSrvSetHelper: defaultSetHelper().SetName(sh.ConfigRsName()).SetService(sh.ConfigSrvServiceName()).SetReplicas(sh.Status.ConfigServerCount),
-		shardsSetsHelpers:  shardHelpers}
-}
-
-// createStateFromResourceAccountForScaling creates the kube state for the sharded cluster. Note, that is takes into consideration
-// the fact that the reconciler will scale values once per reconciliation
-func createStateFromResourceAccountForScaling(updatable v1.CustomResourceReadWriter, r *ReconcileMongoDbShardedCluster) ShardedClusterKubeState {
-	sh := updatable.(*mdbv1.MongoDB)
-	shardHelpers := make([]*StatefulSetHelper, sh.Spec.ShardCount)
-	for i := 0; i < sh.Spec.ShardCount; i++ {
-		shardHelpers[i] = defaultSetHelper().SetName(sh.ShardRsName(i)).SetService(sh.ShardServiceName()).SetReplicas(r.getMongodsPerShardCountThisReconciliation())
-	}
-	return ShardedClusterKubeState{
-		mongosSetHelper:    defaultSetHelper().SetName(sh.MongosRsName()).SetService(sh.ServiceName()).SetReplicas(r.getMongosCountThisReconciliation()),
-		configSrvSetHelper: defaultSetHelper().SetName(sh.ConfigRsName()).SetService(sh.ConfigSrvServiceName()).SetReplicas(r.getConfigSrvCountThisReconciliation()),
 		shardsSetsHelpers:  shardHelpers}
 }
 

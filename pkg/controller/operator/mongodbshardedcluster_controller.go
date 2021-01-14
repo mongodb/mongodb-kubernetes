@@ -161,9 +161,8 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 	}
 
 	podEnvVars := newPodVars(conn, projectConfig, sc.Spec.ConnectionSpec)
-	kubeState := r.buildKubeObjectsForShardedCluster(sc, podEnvVars, projectConfig, currentAgentAuthMode, log)
 
-	if err = r.prepareScaleDownShardedCluster(conn, kubeState, sc, podEnvVars, currentAgentAuthMode, log); err != nil {
+	if err = r.prepareScaleDownShardedCluster(conn, sc, podEnvVars, currentAgentAuthMode, log); err != nil {
 		return nil, workflow.Failed("failed to perform scale down preliminary actions: %s", err)
 	}
 
@@ -171,7 +170,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return nil, status
 	}
 
-	if status := r.ensureSSLCertificates(sc, kubeState, log); !status.IsOK() {
+	if status := r.ensureSSLCertificates(sc, log); !status.IsOK() {
 		return nil, status
 	}
 
@@ -179,7 +178,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return nil, status
 	}
 
-	if status := r.ensureX509InKubernetes(sc, kubeState, log); !status.IsOK() {
+	if status := r.ensureX509InKubernetes(sc, currentAgentAuthMode, log); !status.IsOK() {
 		return nil, status
 	}
 
@@ -187,41 +186,52 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return nil, status
 	}
 
-	status := runInGivenOrder(r.anyStatefulSetHelperNeedsToPublishState(*sc, r.client, kubeState, log),
+	allConfigs := r.getAllConfigs(*sc, podEnvVars, currentAgentAuthMode, log)
+	status := runInGivenOrder(anyStatefulSetNeedsToPublishState(*sc, r.client, allConfigs, log),
 		func() workflow.Status {
-			return r.updateOmDeploymentShardedCluster(conn, sc, kubeState, podEnvVars, currentAgentAuthMode, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+			return r.updateOmDeploymentShardedCluster(conn, sc, podEnvVars, currentAgentAuthMode, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
-			return r.createKubernetesResources(sc, kubeState, podEnvVars, currentAgentAuthMode, log).OnErrorPrepend("Failed to create/update (Kubernetes reconciliation phase):")
+			return r.createKubernetesResources(sc, podEnvVars, currentAgentAuthMode, log).OnErrorPrepend("Failed to create/update (Kubernetes reconciliation phase):")
 		})
 
 	if !status.IsOK() {
 		return nil, status
 	}
 	return conn, reconcileResult
-
 }
 
-// anyStatefulSetHelperNeedsToPublishState checks to see if any stateful set helper part
+// anyStatefulSetNeedsToPublishState checks to see if any stateful set
 // of the given sharded cluster needs to publish state to Ops Manager before updating Kubernetes resources
-func (r *ReconcileMongoDbShardedCluster) anyStatefulSetHelperNeedsToPublishState(sc mdbv1.MongoDB, stsGetter statefulset.Getter, kubeState ShardedClusterKubeState, log *zap.SugaredLogger) bool {
-	allHelpers, _ := r.getAllStatefulSetHelpers(sc, kubeState)
-	for _, stsHelper := range allHelpers {
-		if stsHelper.needToPublishStateFirst(stsGetter, log) {
+func anyStatefulSetNeedsToPublishState(sc mdbv1.MongoDB, stsGetter statefulset.Getter, configs []func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) bool {
+	for _, cf := range configs {
+		if needToPublishStateFirst(stsGetter, sc, cf, log) {
 			return true
 		}
 	}
 	return false
 }
 
-func (r *ReconcileMongoDbShardedCluster) ensureX509InKubernetes(sc *mdbv1.MongoDB, kubeState ShardedClusterKubeState, log *zap.SugaredLogger) workflow.Status {
+// getAllConfigs returns a list of all the configuration functions associated with the Sharded Cluster.
+// This includes the Mongos, the Config Server and all Shards
+func (r ReconcileMongoDbShardedCluster) getAllConfigs(sc mdbv1.MongoDB, podVars *env.PodEnvVars, currentAgentAuthMechanism string, log *zap.SugaredLogger) []func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
+	allConfigs := make([]func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, 0)
+	for i := 0; i < sc.Spec.ShardCount; i++ {
+		allConfigs = append(allConfigs, r.getShardOptions(sc, i, podVars, currentAgentAuthMechanism, log))
+	}
+	allConfigs = append(allConfigs, r.getConfigServerOptions(sc, podVars, currentAgentAuthMechanism, log))
+	allConfigs = append(allConfigs, r.getMongosOptions(sc, podVars, currentAgentAuthMechanism, log))
+	return allConfigs
+}
+
+func (r *ReconcileMongoDbShardedCluster) ensureX509InKubernetes(sc *mdbv1.MongoDB, currentAgentAuthMechanism string, log *zap.SugaredLogger) workflow.Status {
 	security := sc.Spec.Security
 	if security.Authentication != nil && !security.Authentication.Enabled {
 		return workflow.OK()
 	}
 	useCustomCA := sc.Spec.GetTLSConfig().CA != ""
 
-	if sc.Spec.Security.ShouldUseX509(kubeState.shardsSetsHelpers[0].CurrentAgentAuthMechanism) {
+	if sc.Spec.Security.ShouldUseX509(currentAgentAuthMechanism) {
 		successful, err := r.ensureX509AgentCertsForMongoDBResource(sc, useCustomCA, sc.Namespace, log)
 		if err != nil {
 			return workflow.Failed(err.Error())
@@ -239,10 +249,9 @@ func (r *ReconcileMongoDbShardedCluster) ensureX509InKubernetes(sc *mdbv1.MongoD
 	if sc.Spec.Security.GetInternalClusterAuthenticationMode() == util.X509 {
 		errors := make([]error, 0)
 		allSuccessful := true
-
-		allHelpers, stsConfigs := r.getAllStatefulSetHelpers(*sc, kubeState)
-		for _, helper := range allHelpers {
-			if success, err := r.ensureInternalClusterCerts(*sc, stsConfigs[helper], log); err != nil {
+		allCertOptions := r.getAllCertOptions(*sc)
+		for _, certOption := range allCertOptions {
+			if success, err := r.ensureInternalClusterCerts(*sc, certOption, log); err != nil {
 				errors = append(errors, err)
 			} else if !success {
 				allSuccessful = false
@@ -275,7 +284,7 @@ func (r *ReconcileMongoDbShardedCluster) removeUnusedStatefulsets(sc *mdbv1.Mong
 	}
 }
 
-func (r *ReconcileMongoDbShardedCluster) ensureSSLCertificates(s *mdbv1.MongoDB, state ShardedClusterKubeState, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileMongoDbShardedCluster) ensureSSLCertificates(s *mdbv1.MongoDB, log *zap.SugaredLogger) workflow.Status {
 	tlsConfig := s.Spec.GetTLSConfig()
 
 	if tlsConfig == nil || !s.Spec.GetTLSConfig().Enabled {
@@ -287,7 +296,7 @@ func (r *ReconcileMongoDbShardedCluster) ensureSSLCertificates(s *mdbv1.MongoDB,
 	status = status.Merge(r.kubeHelper.ensureSSLCertsForStatefulSet(*s, certs.MongosConfig(*s, r.mongosScaler), log))
 	status = status.Merge(r.kubeHelper.ensureSSLCertsForStatefulSet(*s, certs.ConfigSrvConfig(*s, r.configSrvScaler), log))
 
-	for i := range state.shardsSetsHelpers {
+	for i := 0; i < s.Spec.ShardCount; i++ {
 		status = status.Merge(r.kubeHelper.ensureSSLCertsForStatefulSet(*s, certs.ShardConfig(*s, i, r.mongodsPerShardScaler), log))
 	}
 
@@ -298,47 +307,39 @@ func (r *ReconcileMongoDbShardedCluster) ensureSSLCertificates(s *mdbv1.MongoDB,
 // This function returns errorStatus if any errors occured or pendingStatus if the statefulsets are not
 // ready yet
 // Note, that it doesn't remove any existing shards - this will be done later
-func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.MongoDB, state ShardedClusterKubeState, podVars *env.PodEnvVars, currentAgentAuthMechanism string, log *zap.SugaredLogger) workflow.Status {
-
-	configSrvSts, err := construct.DatabaseStatefulSet(*s, construct.ConfigServerOptions(
-		Replicas(r.getConfigSrvCountThisReconciliation()),
-		PodEnvVars(podVars),
-		CertificateHash(enterprisepem.ReadHashFromSecret(r.client, s.Namespace, s.ConfigRsName(), log))),
-	)
+func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.MongoDB, podVars *env.PodEnvVars, currentAgentAuthMechanism string, log *zap.SugaredLogger) workflow.Status {
+	configSrvOpts := r.getConfigServerOptions(*s, podVars, currentAgentAuthMechanism, log)
+	configSrvSts, err := construct.DatabaseStatefulSet(*s, configSrvOpts)
 	if err != nil {
 		return workflow.Failed(err.Error())
 	}
-	err = state.configSrvSetHelper.CreateOrUpdateInKubernetes(r.client, r.client, configSrvSts)
+	err = createOrUpdateDatabaseInKubernetes(r.client, *s, configSrvSts, configSrvOpts, log)
 	if err != nil {
 		return workflow.Failed("Failed to create Config Server Stateful Set: %s", err)
 	}
-	if status := r.getStatefulSetStatus(state.configSrvSetHelper.Namespace, state.configSrvSetHelper.Name); !status.IsOK() {
+	if status := r.getStatefulSetStatus(s.Namespace, s.ConfigRsName()); !status.IsOK() {
 		return status
 	}
 	_, _ = r.updateStatus(s, workflow.Reconciling().WithResourcesNotReady([]mdbstatus.ResourceNotReady{}).WithNoMessage(), log)
 
-	log.Infow("Created/updated StatefulSet for config servers", "name", state.configSrvSetHelper.Name, "servers count", state.configSrvSetHelper.Replicas)
+	log.Infow("Created/updated StatefulSet for config servers", "name", s.ConfigRsName(), "servers count", configSrvSts.Spec.Replicas)
 
 	shardsNames := make([]string, s.Spec.ShardCount)
 
-	for i, helper := range state.shardsSetsHelpers {
-		shardsNames[i] = helper.Name
-		shardSts, err := construct.DatabaseStatefulSet(*s, construct.ShardOptions(i,
-			Replicas(r.getMongodsPerShardCountThisReconciliation()),
-			PodEnvVars(podVars),
-			CurrentAgentAuthMechanism(currentAgentAuthMechanism),
-		),
-		)
+	for i := 0; i < s.Spec.ShardCount; i++ {
+		shardsNames[i] = s.ShardRsName(i)
+		shardOpts := r.getShardOptions(*s, i, podVars, currentAgentAuthMechanism, log)
+		shardSts, err := construct.DatabaseStatefulSet(*s, shardOpts)
 
 		if err != nil {
-			return workflow.Failed("Failed to build Stateful Set struct for shard %s: %s", helper.Name, err)
+			return workflow.Failed("Failed to build Stateful Set struct for shard %s: %s", shardsNames[i], err)
 		}
 
-		err = helper.CreateOrUpdateInKubernetes(r.client, r.client, shardSts)
+		err = createOrUpdateDatabaseInKubernetes(r.client, *s, shardSts, shardOpts, log)
 		if err != nil {
-			return workflow.Failed("Failed to create Stateful Set for shard %s: %s", helper.Name, err)
+			return workflow.Failed("Failed to create Stateful Set for shard %s: %s", shardsNames[i], err)
 		}
-		if status := r.getStatefulSetStatus(helper.Namespace, helper.Name); !status.IsOK() {
+		if status := r.getStatefulSetStatus(s.Namespace, shardsNames[i]); !status.IsOK() {
 			return status
 		}
 		_, _ = r.updateStatus(s, workflow.Reconciling().WithResourcesNotReady([]mdbstatus.ResourceNotReady{}).WithNoMessage(), log)
@@ -346,113 +347,26 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 
 	log.Infow("Created/updated Stateful Sets for shards in Kubernetes", "shards", shardsNames)
 
-	mongosSts, err := construct.DatabaseStatefulSet(*s, construct.MongosOptions(
-		Replicas(r.getMongosCountThisReconciliation()),
-		PodEnvVars(podVars),
-		CurrentAgentAuthMechanism(currentAgentAuthMechanism),
-		CertificateHash(enterprisepem.ReadHashFromSecret(r.client, s.Namespace, s.MongosRsName(), log)),
-	),
-	)
+	mongosOpts := r.getMongosOptions(*s, podVars, currentAgentAuthMechanism, log)
+	mongosSts, err := construct.DatabaseStatefulSet(*s, mongosOpts)
 
 	if err != nil {
-		return workflow.Failed("Failed to build Stateful Set struct for mongos %s: %s", state.mongosSetHelper.Name, err)
+		return workflow.Failed("Failed to build Stateful Set struct for mongos %s: %s", s.MongosRsName(), err)
 	}
 
-	err = state.mongosSetHelper.CreateOrUpdateInKubernetes(r.client, r.client, mongosSts)
+	err = createOrUpdateDatabaseInKubernetes(r.client, *s, mongosSts, mongosOpts, log)
 	if err != nil {
 		return workflow.Failed("Failed to create Mongos Stateful Set: %s", err)
 	}
 
-	if status := r.getStatefulSetStatus(state.mongosSetHelper.Namespace, state.mongosSetHelper.Name); !status.IsOK() {
+	if status := r.getStatefulSetStatus(s.Namespace, s.MongosRsName()); !status.IsOK() {
 		return status
 	}
 	_, _ = r.updateStatus(s, workflow.Reconciling().WithResourcesNotReady([]mdbstatus.ResourceNotReady{}).WithNoMessage(), log)
 
-	log.Infow("Created/updated StatefulSet for mongos servers", "name", state.mongosSetHelper.Name, "servers count", state.mongosSetHelper.Replicas)
+	log.Infow("Created/updated StatefulSet for mongos servers", "name", s.MongosRsName(), "servers count", mongosSts.Spec.Replicas)
 
 	return workflow.OK()
-}
-
-func (r *ReconcileMongoDbShardedCluster) buildKubeObjectsForShardedCluster(s *mdbv1.MongoDB, podVars *env.PodEnvVars, projectConfig mdbv1.ProjectConfig, currentAgentAuthMechanism string, log *zap.SugaredLogger) ShardedClusterKubeState {
-
-	mongosStartupParameters := mdbv1.StartupParameters{}
-	if s.Spec.MongosSpec != nil {
-		mongosStartupParameters = s.Spec.MongosSpec.Agent.StartupParameters
-	}
-	// 1. Create the mongos StatefulSet
-	mongosBuilder := NewStatefulSetHelper(s).
-		SetName(s.MongosRsName()).
-		SetService(s.ServiceName()).
-		SetServicePort(s.Spec.MongosSpec.GetAdditionalMongodConfig().GetPortOrDefault()).
-		SetReplicas(r.getMongosCountThisReconciliation()).
-		SetPodSpec(NewDefaultPodSpecWrapper(*s.Spec.MongosPodSpec)).
-		SetPodVars(podVars).
-		SetStartupParameters(mongosStartupParameters).
-		SetLogger(log).
-		SetPersistence(util.BooleanRef(false)).
-		SetTLS(s.Spec.GetTLSConfig()).
-		SetProjectConfig(projectConfig).
-		SetSecurity(s.Spec.Security).
-		SetCurrentAgentAuthMechanism(currentAgentAuthMechanism).
-		SetStatefulSetConfiguration(nil) // TODO: configure once supported
-	//SetStatefulSetConfiguration(s.Spec.MongosStatefulSetConfiguration)
-	mongosBuilder.SetCertificateHash(enterprisepem.ReadHashFromSecret(r.client, s.Namespace, s.MongosRsName(), log))
-
-	// 2. Create a Config Server StatefulSet
-	podSpec := NewDefaultPodSpecWrapper(*s.Spec.ConfigSrvPodSpec)
-	// We override the default persistence value for Config Server
-	podSpec.Default.Persistence.SingleConfig.Storage = util.DefaultConfigSrvStorageSize
-	configStartupParameters := mdbv1.StartupParameters{}
-	if s.Spec.ConfigSrvSpec != nil {
-		configStartupParameters = s.Spec.ConfigSrvSpec.Agent.StartupParameters
-	}
-	configBuilder := NewStatefulSetHelper(s).
-		SetName(s.ConfigRsName()).
-		SetService(s.ConfigSrvServiceName()).
-		SetServicePort(s.Spec.ConfigSrvSpec.GetAdditionalMongodConfig().GetPortOrDefault()).
-		SetReplicas(r.getConfigSrvCountThisReconciliation()).
-		SetPodSpec(podSpec).
-		SetPodVars(podVars).
-		SetStartupParameters(configStartupParameters).
-		SetLogger(log).
-		SetTLS(s.Spec.GetTLSConfig()).
-		SetProjectConfig(projectConfig).
-		SetSecurity(s.Spec.Security).
-		SetCurrentAgentAuthMechanism(currentAgentAuthMechanism).
-		SetStatefulSetConfiguration(nil) // TODO: configure once supported
-	//SetStatefulSetConfiguration(s.Spec.ConfigSrvStatefulSetConfiguration)
-	configBuilder.SetCertificateHash(enterprisepem.ReadHashFromSecret(r.client, s.Namespace, s.ConfigRsName(), log))
-	// 3. Creates a StatefulSet for each shard in the cluster
-	shardStartupParameters := mdbv1.StartupParameters{}
-	if s.Spec.ShardSpec != nil {
-		shardStartupParameters = s.Spec.ShardSpec.Agent.StartupParameters
-	}
-	shardsSetHelpers := make([]*StatefulSetHelper, s.Spec.ShardCount)
-	for i := 0; i < s.Spec.ShardCount; i++ {
-		shardsSetHelpers[i] = NewStatefulSetHelper(s).
-			SetName(s.ShardRsName(i)).
-			SetService(s.ShardServiceName()).
-			SetServicePort(s.Spec.ShardSpec.GetAdditionalMongodConfig().GetPortOrDefault()).
-			SetReplicas(r.getMongodsPerShardCountThisReconciliation()).
-			SetPodSpec(NewDefaultPodSpecWrapper(*s.Spec.ShardPodSpec)).
-			SetPodVars(podVars).
-			SetStartupParameters(shardStartupParameters).
-			SetLogger(log).
-			SetTLS(s.Spec.GetTLSConfig()).
-			SetProjectConfig(projectConfig).
-			SetSecurity(s.Spec.Security).
-			SetCurrentAgentAuthMechanism(currentAgentAuthMechanism).
-			SetStatefulSetConfiguration(nil) // TODO: configure once supported
-		//SetStatefulSetConfiguration(s.Spec.ShardStatefulSetConfiguration)
-		shardsSetHelpers[i].SetCertificateHash(enterprisepem.ReadHashFromSecret(r.client, s.Namespace, s.ShardRsName(i), log))
-	}
-
-	return ShardedClusterKubeState{
-		mongosSetHelper:    mongosBuilder,
-		configSrvSetHelper: configBuilder,
-		shardsSetsHelpers:  shardsSetHelpers,
-	}
-
 }
 
 // delete tries to complete a Deletion reconciliation event
@@ -560,29 +474,29 @@ func AddShardedClusterController(mgr manager.Manager) error {
 	return nil
 }
 
-func (r *ReconcileMongoDbShardedCluster) prepareScaleDownShardedCluster(omClient om.Connection, state ShardedClusterKubeState, sc *mdbv1.MongoDB, podEnvVars *env.PodEnvVars, currentAgentAuthMechanism string, log *zap.SugaredLogger) error {
+func (r *ReconcileMongoDbShardedCluster) prepareScaleDownShardedCluster(omClient om.Connection, sc *mdbv1.MongoDB, podEnvVars *env.PodEnvVars, currentAgentAuthMechanism string, log *zap.SugaredLogger) error {
 	membersToScaleDown := make(map[string][]string)
 	clusterName := sc.Spec.GetClusterDomain()
 
 	// Scaledown amount of replicas in ConfigServer
 	if r.isConfigServerScaleDown() {
-		sts, err := r.buildConfigServerStatefulSet(*sc, podEnvVars, enterprisepem.ReadHashFromSecret(r.client, sc.Namespace, sc.ConfigRsName(), log))
+		sts, err := construct.DatabaseStatefulSet(*sc, r.getConfigServerOptions(*sc, podEnvVars, currentAgentAuthMechanism, log))
 		if err != nil {
 			return err
 		}
 		_, podNames := util.GetDnsForStatefulSetReplicasSpecified(sts, clusterName, sc.Status.ConfigServerCount)
-		membersToScaleDown[state.configSrvSetHelper.Name] = podNames[r.getConfigSrvCountThisReconciliation():sc.Status.ConfigServerCount]
+		membersToScaleDown[sc.ConfigRsName()] = podNames[r.getConfigSrvCountThisReconciliation():sc.Status.ConfigServerCount]
 	}
 
 	// Scaledown size of each shard
 	if r.isShardsSizeScaleDown() {
-		for i, s := range state.shardsSetsHelpers[:sc.Spec.ShardCount] {
-			sts, err := r.buildShardStatefulSet(*sc, i, podEnvVars, currentAgentAuthMechanism)
+		for i := 0; i < sc.Spec.ShardCount; i++ {
+			sts, err := construct.DatabaseStatefulSet(*sc, r.getShardOptions(*sc, i, podEnvVars, currentAgentAuthMechanism, log))
 			if err != nil {
 				return err
 			}
 			_, podNames := util.GetDnsForStatefulSetReplicasSpecified(sts, clusterName, sc.Status.MongodsPerShardCount)
-			membersToScaleDown[s.Name] = podNames[r.getMongodsPerShardCountThisReconciliation():sc.Status.MongodsPerShardCount]
+			membersToScaleDown[sc.ShardRsName(i)] = podNames[r.getMongodsPerShardCountThisReconciliation():sc.Status.MongodsPerShardCount]
 		}
 	}
 
@@ -610,8 +524,8 @@ func (r *ReconcileMongoDbShardedCluster) isShardsSizeScaleDown() bool {
 // phase 2: remove the "junk" replica sets and their processes, wait for agents to reach the goal.
 // The logic is designed to be idempotent: if the reconciliation is retried the controller will never skip the phase 1
 // until the agents have performed draining
-func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn om.Connection, sc *mdbv1.MongoDB, state ShardedClusterKubeState, podEnvVars *env.PodEnvVars, currentAgentAuthMechanism string, log *zap.SugaredLogger) workflow.Status {
-	err := r.waitForAgentsToRegister(sc, state, conn, podEnvVars, currentAgentAuthMechanism, log)
+func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn om.Connection, sc *mdbv1.MongoDB, podEnvVars *env.PodEnvVars, currentAgentAuthMechanism string, log *zap.SugaredLogger) workflow.Status {
+	err := r.waitForAgentsToRegister(sc, conn, podEnvVars, currentAgentAuthMechanism, log)
 	if err != nil {
 		return workflow.Failed(err.Error())
 	}
@@ -623,7 +537,7 @@ func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn o
 
 	processNames := dep.GetProcessNames(om.ShardedCluster{}, sc.Name)
 
-	status, shardsRemoving := r.publishDeployment(conn, sc, state, podEnvVars, currentAgentAuthMechanism, log, &processNames, false)
+	status, shardsRemoving := r.publishDeployment(conn, sc, podEnvVars, currentAgentAuthMechanism, log, &processNames, false)
 
 	if !status.IsOK() {
 		return status
@@ -638,7 +552,7 @@ func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn o
 
 	if shardsRemoving {
 		log.Infof("Some shards were removed from the sharded cluster, we need to remove them from the deployment completely")
-		status, _ = r.publishDeployment(conn, sc, state, podEnvVars, currentAgentAuthMechanism, log, &processNames, true)
+		status, _ = r.publishDeployment(conn, sc, podEnvVars, currentAgentAuthMechanism, log, &processNames, true)
 		if !status.IsOK() {
 			return status
 		}
@@ -677,11 +591,11 @@ func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn o
 	return workflow.OK()
 }
 
-func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, sc *mdbv1.MongoDB, state ShardedClusterKubeState, podEnvVars *env.PodEnvVars, currentAgentAuthMode string, log *zap.SugaredLogger,
+func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, sc *mdbv1.MongoDB, podEnvVars *env.PodEnvVars, currentAgentAuthMode string, log *zap.SugaredLogger,
 	processNames *[]string, finalizing bool) (workflow.Status, bool) {
 
 	// mongos
-	sts, err := r.buildMongosStatefulSet(*sc, podEnvVars, enterprisepem.ReadHashFromSecret(r.client, sc.Namespace, sc.MongosRsName(), log), currentAgentAuthMode)
+	sts, err := construct.DatabaseStatefulSet(*sc, r.getMongosOptions(*sc, podEnvVars, currentAgentAuthMode, log))
 	if err != nil {
 		return workflow.Failed(err.Error()), false
 	}
@@ -689,16 +603,17 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 	mongosProcesses := createMongosProcesses(sts, sc)
 
 	// config server
-	configSvrSts, err := r.buildConfigServerStatefulSet(*sc, podEnvVars, enterprisepem.ReadHashFromSecret(r.client, sc.Namespace, sc.ConfigRsName(), log))
+	configSvrSts, err := construct.DatabaseStatefulSet(*sc, r.getConfigServerOptions(*sc, podEnvVars, currentAgentAuthMode, log))
 	if err != nil {
 		return workflow.Failed(err.Error()), false
 	}
 	configRs := buildReplicaSetFromProcesses(configSvrSts.Name, createConfigSrvProcesses(configSvrSts, sc), sc)
 
 	// shards
-	shards := make([]om.ReplicaSetWithProcesses, len(state.shardsSetsHelpers))
-	for i := range state.shardsSetsHelpers {
-		shardSts, err := r.buildShardStatefulSet(*sc, i, podEnvVars, currentAgentAuthMode)
+	shards := make([]om.ReplicaSetWithProcesses, sc.Spec.ShardCount)
+	for i := 0; i < sc.Spec.ShardCount; i++ {
+
+		shardSts, err := construct.DatabaseStatefulSet(*sc, r.getShardOptions(*sc, i, podEnvVars, currentAgentAuthMode, log))
 		if err != nil {
 			return workflow.Failed(err.Error()), false
 		}
@@ -761,33 +676,33 @@ func getAllProcesses(shards []om.ReplicaSetWithProcesses, configRs om.ReplicaSet
 	return allProcesses
 }
 
-func (r *ReconcileMongoDbShardedCluster) waitForAgentsToRegister(cluster *mdbv1.MongoDB, state ShardedClusterKubeState, conn om.Connection, podEnvVars *env.PodEnvVars, currentAgentAuthMode string,
+func (r *ReconcileMongoDbShardedCluster) waitForAgentsToRegister(sc *mdbv1.MongoDB, conn om.Connection, podEnvVars *env.PodEnvVars, currentAgentAuthMode string,
 	log *zap.SugaredLogger) error {
-	mongosStatefulSet, err := r.buildMongosStatefulSet(*cluster, podEnvVars, enterprisepem.ReadHashFromSecret(r.client, cluster.Namespace, cluster.MongosRsName(), log), currentAgentAuthMode)
+	mongosStatefulSet, err := construct.DatabaseStatefulSet(*sc, r.getMongosOptions(*sc, podEnvVars, currentAgentAuthMode, log))
 	if err != nil {
 		return err
 	}
 
-	if err := waitForRsAgentsToRegister(mongosStatefulSet, cluster.Spec.GetClusterDomain(), conn, log); err != nil {
+	if err := waitForRsAgentsToRegister(mongosStatefulSet, sc.Spec.GetClusterDomain(), conn, log); err != nil {
 		return err
 	}
 
-	configSrvStatefulSet, err := r.buildConfigServerStatefulSet(*cluster, podEnvVars, enterprisepem.ReadHashFromSecret(r.client, cluster.Namespace, cluster.ConfigRsName(), log))
+	configSrvStatefulSet, err := construct.DatabaseStatefulSet(*sc, r.getConfigServerOptions(*sc, podEnvVars, currentAgentAuthMode, log))
 	if err != nil {
 		return err
 	}
 
-	if err := waitForRsAgentsToRegister(configSrvStatefulSet, cluster.Spec.GetClusterDomain(), conn, log); err != nil {
+	if err := waitForRsAgentsToRegister(configSrvStatefulSet, sc.Spec.GetClusterDomain(), conn, log); err != nil {
 		return err
 	}
 
-	for i := range state.shardsSetsHelpers {
-		shardStatefulSet, err := r.buildShardStatefulSet(*cluster, i, podEnvVars, currentAgentAuthMode)
+	for i := 0; i < sc.Spec.ShardCount; i++ {
+		shardStatefulSet, err := construct.DatabaseStatefulSet(*sc, r.getShardOptions(*sc, i, podEnvVars, currentAgentAuthMode, log))
 		if err != nil {
 			return err
 		}
 
-		if err := waitForRsAgentsToRegister(shardStatefulSet, cluster.Spec.GetClusterDomain(), conn, log); err != nil {
+		if err := waitForRsAgentsToRegister(shardStatefulSet, sc.Spec.GetClusterDomain(), conn, log); err != nil {
 			return err
 		}
 	}
@@ -820,24 +735,15 @@ func getAllHosts(c *mdbv1.MongoDB, sizeConfig mdbv1.MongodbShardedClusterSizeCon
 	return ans
 }
 
-// getAllStatefulSetHelpers returns a list of all StatefulSetHelpers that
-// make up a Sharded Cluster
-func (r *ReconcileMongoDbShardedCluster) getAllStatefulSetHelpers(sc mdbv1.MongoDB, kubeState ShardedClusterKubeState) ([]*StatefulSetHelper, map[*StatefulSetHelper]certs.Options) {
-	stsHelpers := make([]*StatefulSetHelper, 0)
-	stsToCertsMap := make(map[*StatefulSetHelper]certs.Options)
+func (r *ReconcileMongoDbShardedCluster) getAllCertOptions(sc mdbv1.MongoDB) []certs.Options {
+	certOptions := make([]certs.Options, 0)
 
-	for i, stsHelper := range kubeState.shardsSetsHelpers {
-		stsHelpers = append(stsHelpers, stsHelper)
-		stsToCertsMap[stsHelper] = certs.ShardConfig(sc, i, r.mongodsPerShardScaler)
+	for i := 0; i < sc.Spec.ShardCount; i++ {
+		certOptions = append(certOptions, certs.ShardConfig(sc, i, r.mongodsPerShardScaler))
 	}
-
-	stsHelpers = append(stsHelpers, kubeState.mongosSetHelper)
-	stsToCertsMap[kubeState.mongosSetHelper] = certs.MongosConfig(sc, r.mongosScaler)
-
-	stsHelpers = append(stsHelpers, kubeState.configSrvSetHelper)
-	stsToCertsMap[kubeState.configSrvSetHelper] = certs.ConfigSrvConfig(sc, r.configSrvScaler)
-
-	return stsHelpers, stsToCertsMap
+	certOptions = append(certOptions, certs.MongosConfig(sc, r.mongosScaler))
+	certOptions = append(certOptions, certs.ConfigSrvConfig(sc, r.configSrvScaler))
+	return certOptions
 }
 
 func createMongosProcesses(set appsv1.StatefulSet, mdb *mdbv1.MongoDB) []om.Process {
@@ -905,30 +811,30 @@ func (r shardedClusterScaler) CurrentReplicaSetMembers() int {
 	return r.CurrentMembers
 }
 
-func (r *ReconcileMongoDbShardedCluster) buildConfigServerStatefulSet(sc mdbv1.MongoDB, podVars *env.PodEnvVars, pemHash string) (appsv1.StatefulSet, error) {
-	return construct.DatabaseStatefulSet(sc, construct.ConfigServerOptions(
+// getConfigServerOptions returns the Options needed to build the StatefulSet for the config server.
+func (r *ReconcileMongoDbShardedCluster) getConfigServerOptions(sc mdbv1.MongoDB, podVars *env.PodEnvVars, currentAgentAuthMechanism string, log *zap.SugaredLogger) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
+	return construct.ConfigServerOptions(
 		Replicas(r.getConfigSrvCountThisReconciliation()),
 		PodEnvVars(podVars),
-		CertificateHash(pemHash),
-	),
+		CurrentAgentAuthMechanism(currentAgentAuthMechanism),
+		CertificateHash(enterprisepem.ReadHashFromSecret(r.client, sc.Namespace, sc.ConfigRsName(), log)),
 	)
 }
 
-func (r *ReconcileMongoDbShardedCluster) buildMongosStatefulSet(sc mdbv1.MongoDB, podVars *env.PodEnvVars, pemHash, currentAgentAuthMechanism string) (appsv1.StatefulSet, error) {
-	return construct.DatabaseStatefulSet(sc, construct.MongosOptions(
+// getMongosOptions returns the Options needed to build the StatefulSet for the mongos.
+func (r *ReconcileMongoDbShardedCluster) getMongosOptions(sc mdbv1.MongoDB, podVars *env.PodEnvVars, currentAgentAuthMechanism string, log *zap.SugaredLogger) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
+	return construct.MongosOptions(
 		Replicas(r.getMongosCountThisReconciliation()),
 		PodEnvVars(podVars),
 		CurrentAgentAuthMechanism(currentAgentAuthMechanism),
-		CertificateHash(pemHash),
-	),
-	)
+		CertificateHash(enterprisepem.ReadHashFromSecret(r.client, sc.Namespace, sc.MongosRsName(), log)))
 }
 
-func (r *ReconcileMongoDbShardedCluster) buildShardStatefulSet(sc mdbv1.MongoDB, shardNum int, podVars *env.PodEnvVars, currentAgentAuthMechanism string) (appsv1.StatefulSet, error) {
-	return construct.DatabaseStatefulSet(sc, construct.ShardOptions(shardNum,
+// getShardOptions returns the Options needed to build the StatefulSet for a given shard.
+func (r *ReconcileMongoDbShardedCluster) getShardOptions(sc mdbv1.MongoDB, shardNum int, podVars *env.PodEnvVars, currentAgentAuthMechanism string, log *zap.SugaredLogger) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
+	return construct.ShardOptions(shardNum,
 		Replicas(r.getMongodsPerShardCountThisReconciliation()),
 		PodEnvVars(podVars),
 		CurrentAgentAuthMechanism(currentAgentAuthMechanism),
-	),
-	)
+		CertificateHash(enterprisepem.ReadHashFromSecret(r.client, sc.Namespace, sc.ShardRsName(shardNum), log)))
 }

@@ -536,55 +536,6 @@ func (s *StatefulSetHelper) SetSecurity(security *mdbv1.Security) *StatefulSetHe
 // needs to be updated first. In the case of unmounting certs, for instance, the certs should be not
 // required anymore before we unmount them, or the automation-agent and readiness probe will never
 // reach goal state.
-func (s *StatefulSetHelper) needToPublishStateFirst(stsGetter statefulset.Getter, log *zap.SugaredLogger) bool {
-	namespacedName := objectKey(s.Namespace, s.Name)
-	currentSts, err := stsGetter.GetStatefulSet(namespacedName)
-	if err != nil {
-		if apiErrors.IsNotFound(err) {
-			// No need to publish state as this is a new StatefulSet
-			log.Debugf("New StatefulSet %s", namespacedName)
-			return false
-		}
-
-		log.Debugw(fmt.Sprintf("Error getting StatefulSet %s", namespacedName), "error", err)
-		return false
-	}
-
-	volumeMounts := currentSts.Spec.Template.Spec.Containers[0].VolumeMounts
-	if s.Security != nil {
-		if !s.Security.TLSConfig.Enabled && volumeMountWithNameExists(volumeMounts, util.SecretVolumeName) {
-			log.Debug("About to set `security.tls.enabled` to false. automationConfig needs to be updated first")
-			return true
-		}
-
-		if s.Security.TLSConfig.CA == "" && volumeMountWithNameExists(volumeMounts, ConfigMapVolumeCAName) {
-			log.Debug("About to set `security.tls.CA` to empty. automationConfig needs to be updated first")
-			return true
-		}
-	}
-
-	if s.PodVars.SSLMMSCAConfigMap == "" && volumeMountWithNameExists(volumeMounts, CaCertName) {
-		log.Debug("About to set `SSLMMSCAConfigMap` to empty. automationConfig needs to be updated first")
-		return true
-	}
-
-	if s.Security.GetAgentMechanism(s.CurrentAgentAuthMechanism) != util.X509 && volumeMountWithNameExists(volumeMounts, util.AgentSecretName) {
-		log.Debug("About to set `project.AuthMode` to empty. automationConfig needs to be updated first")
-		return true
-	}
-
-	if int32(s.Replicas) < *currentSts.Spec.Replicas {
-		log.Debug("Scaling down operation. automationConfig needs to be updated first")
-		return true
-	}
-
-	return false
-}
-
-// needToPublishStateFirst will check if the Published State of the StatfulSet backed MongoDB Deployments
-// needs to be updated first. In the case of unmounting certs, for instance, the certs should be not
-// required anymore before we unmount them, or the automation-agent and readiness probe will never
-// reach goal state.
 func needToPublishStateFirst(stsGetter statefulset.Getter, mdb mdbv1.MongoDB, configFunc func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) bool {
 	opts := configFunc(mdb)
 	namespacedName := objectKey(mdb.Namespace, opts.Name)
