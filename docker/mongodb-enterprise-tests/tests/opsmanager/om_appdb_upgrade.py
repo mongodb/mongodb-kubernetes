@@ -12,7 +12,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 
 gen_key_resource_version = None
 admin_key_resource_version = None
-INITIAL_APPDB_VERSION = "4.0.0"
+INITIAL_APPDB_VERSION = "4.0.20"
 
 
 @fixture(scope="module")
