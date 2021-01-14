@@ -1,4 +1,4 @@
-*(Please use the [release template](docs/dev/release-notes-template.md) as the template for this document)*
+*(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next release -->
 # MongoDB Enterprise Kubernetes Operator 1.9.1
 ## Kubernetes Operator
@@ -11,8 +11,14 @@
   * Fixes an issue where updating a role in `spec.security.authentication.roles` by removing the `privileges` array would cause the resource to enter a bad state
 
 ## MongoDBOpsManager Resource
+* Breaking Changes
+  * The new Application Database image `mongodb-enterprise-appdb:10.2.15.5958-1_4.2.11-ent` was released. The image needs
+  to be downloaded to the local repositories otherwise MongoDBOpsManager resource won't start. The image contains a new bundled MongoDB
+  `4.2.11-ent` instead of `4.2.2-ent`.
 * Changes
-  * Ops Manager user now has "backup", "restore" and "hostManager" roles, allowing for bakups/restores on the AppDB.
+  * Ops Manager user now has "backup", "restore" and "hostManager" roles, allowing for backups/restores on the AppDB.
+  * If `spec.applicationDatabase.version` is omitted the Operator will use `4.2.11-ent` as a default MongoDB.
+
 
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.9.0
@@ -26,7 +32,6 @@
 ## MongoDB Resource
 * Changes
   * Continuous backups can now be configured with the MongoDB CRD. Set `spec.backup.enabled` to `true`. *Note*: You must have an Ops Manager resource already configured with backup. See [the docs](https://docs.mongodb.com/kubernetes-operator/master/tutorial/deploy-om-container/#id6) for more information.
-
 ## MongoDBOpsManager Resource
 
 * Changes

@@ -46,6 +46,7 @@ initOpsManager:
 ## Application Database
 appDb:
   name: mongodb-enterprise-appdb
+  version: 10.2.15.5958-1_4.2.11-ent
 
 initAppDb:
   name: mongodb-enterprise-init-appdb

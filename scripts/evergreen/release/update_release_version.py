@@ -20,6 +20,7 @@ from release_json_handler import (
     read_release_from_file,
     update_release_json,
     ReleaseObject,
+    read_value_from_file,
 )
 
 INIT_DATABASE_PATHS = [
@@ -52,6 +53,12 @@ def handle_operator_version():
     update_operator_version_chart(new_version)
 
 
+def handle_appdb_version():
+    appdb_version = read_release_from_file(ReleaseObject.appdb)
+    bundled_mongodb_version = read_value_from_file(["appDbBundle", "mongodbVersion"])
+    update_all_helm_values_files("appDb", f"{appdb_version}_{bundled_mongodb_version}")
+
+
 def handle_init_image(
     release_object: ReleaseObject,
     paths_to_check: List[str],
@@ -74,6 +81,7 @@ def handle_init_image(
 def main():
     current_operator_version = read_release_from_file(ReleaseObject.mongodb_operator)
     handle_operator_version()
+    handle_appdb_version()
     handle_init_image(
         ReleaseObject.init_database,
         INIT_DATABASE_PATHS,

@@ -107,6 +107,8 @@ Evergreen build variants (after the release branch was merged):
 * release_quay_ubuntu (will deploy all images to quay.io based on Ubuntu)
 * release_rh_connect (will deploy all images to Red Hat Connect)
 
+**Note** that `appdb` release tasks should be run only if the new version of appdb image has been released
+
 **Caution (quay.io)**: quay.io doesn't allow to block tags from overwriting, the
 current tagged images will be overwritten by `evergreen` if they have
 the same tag as any old images.

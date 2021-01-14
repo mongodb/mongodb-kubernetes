@@ -11,7 +11,6 @@ from kubetester.mongodb import Phase, MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 
-BUNDLED_APP_DB_VERSION = "4.2.11-ent"
 # we can use the custom_mdb_version fixture when we release mongodb-enterprise-init-mongod-rhel and
 # mongodb-enterprise-init-mongod-ubuntu1604 for 4.4+ versions, so far let's use the constant
 VERSION_IN_OPS_MANAGER = "4.2.8-ent"
@@ -43,8 +42,7 @@ def ops_manager(
 @fixture(scope="module")
 def replica_set(ops_manager: MongoDBOpsManager, namespace: str) -> MongoDB:
     resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set-for-om.yaml"),
-        namespace=namespace,
+        yaml_fixture("replica-set-for-om.yaml"), namespace=namespace,
     ).configure(ops_manager, "my-replica-set")
     resource["spec"]["version"] = VERSION_IN_OPS_MANAGER
     yield resource.create()

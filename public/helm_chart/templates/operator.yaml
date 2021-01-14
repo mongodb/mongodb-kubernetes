@@ -89,6 +89,8 @@ spec:
         # AppDB
         - name: APPDB_IMAGE_REPOSITORY
           value: {{ .Values.registry.appDb }}/{{ .Values.appDb.name }}
+        - name: APPDB_AGENT_VERSION
+          value: {{ .Values.appDb.version }}
         - name: INIT_APPDB_IMAGE_REPOSITORY
           value: {{ .Values.registry.initAppDb }}/{{ .Values.initAppDb.name }}
         - name: INIT_APPDB_VERSION

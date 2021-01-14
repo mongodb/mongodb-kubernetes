@@ -33,8 +33,8 @@ If the evergreen patch is successful, create a PR with the following changes:
 
 ### Ops Manager 4.4 Release Only
 
-1. Change the `ops-manager` samples to use the new version ([ops-manager.yaml](../../deploy/crds/samples/ops-manager.yaml) and the files in [this directory](../../public/samples/ops-manager))
-1. Change the default version for the fixture `custom_version` in [conftest.py](../../docker/mongodb-enterprise-tests/tests/conftest.py). This will allow developers to run by local tests using the same OM version.
+1. Change the `ops-manager` samples to use the new version ([ops-manager.yaml](../../../deploy/crds/samples/ops-manager.yaml) and the files in [this directory](../../../public/samples/ops-manager))
+1. Change the default version for the fixture `custom_version` in [conftest.py](../../../docker/mongodb-enterprise-tests/tests/conftest.py). This will allow developers to run by local tests using the same OM version.
 
 ## Run specific patches for your version of OM
 

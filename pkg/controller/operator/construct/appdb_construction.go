@@ -33,7 +33,7 @@ const (
 	appDbReadinessProbeCommand = "/opt/scripts/readinessprobe"
 	appDbLivenessProbeCommand  = "/opt/scripts/probe.sh"
 	// AppDB environment variable names
-	appDBAutomationAgentVersionEnv = "APPDB_AUTOMATION_AGENT_VERSION"
+	appDBAutomationAgentVersionEnv = "APPDB_AGENT_VERSION"
 	initAppdbVersionEnv            = "INIT_APPDB_VERSION"
 	podNamespaceEnv                = "POD_NAMESPACE"
 	automationConfigMapEnv         = "AUTOMATION_CONFIG_MAP"
@@ -90,7 +90,7 @@ func appDbDatabaseStatefulSet(mdb mdbv1.MongoDB, stsOpts *DatabaseStatefulSetOpt
 
 // buildAppDBPodTemplateSpecFunc constructs the appDb podTemplateSpec modification function
 func buildAppDBPodTemplateSpecFunc(opts DatabaseStatefulSetOptions) podtemplatespec.Modification {
-	// AppDB only uses the automation agent in headless mode, let's use the latest version
+	// AppDB only uses the automation agent in headless mode
 	appdbImageURL := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.AppDBImageUrl),
 		env.ReadOrDefault(appDBAutomationAgentVersionEnv, "latest"))
 
