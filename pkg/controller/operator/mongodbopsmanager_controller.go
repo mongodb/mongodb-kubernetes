@@ -8,6 +8,8 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/create"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/apierror"
@@ -282,7 +284,7 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulset(opsManager omv1.Mongo
 		return workflow.Failed(fmt.Errorf("error building OpsManager stateful set: %v", err).Error())
 	}
 
-	if err := createOrUpdateOpsManagerInKubernetes(r.client, opsManager, sts, log); err != nil {
+	if err := create.OpsManagerInKubernetes(r.client, opsManager, sts, log); err != nil {
 		return workflow.Failed(err.Error())
 	}
 
@@ -362,7 +364,7 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(opsManager omv1.Mon
 		return workflow.Failed(fmt.Sprintf("error building stateful set: %v", err))
 	}
 
-	needToRequeue, err := createOrUpdateBackupDaemonInKubernetes(r.client, opsManager, sts, log)
+	needToRequeue, err := create.BackupDaemonInKubernetes(r.client, opsManager, sts, log)
 	if err != nil {
 		return workflow.Failed(err.Error())
 	}

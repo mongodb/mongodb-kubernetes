@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/create"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 
@@ -565,7 +567,7 @@ func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(opsManager omv1.MongoD
 
 // deployStatefulSet updates the StatefulSet spec and returns its status (if it's ready or not)
 func (r *ReconcileAppDbReplicaSet) deployStatefulSet(opsManager omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, config func(om omv1.MongoDBOpsManager) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) workflow.Status {
-	if err := createOrUpdateAppDBInKubernetes(r.client, opsManager, appDbSts, config, log); err != nil {
+	if err := create.AppDBInKubernetes(r.client, opsManager, appDbSts, config, log); err != nil {
 		return workflow.Failed(err.Error())
 	}
 

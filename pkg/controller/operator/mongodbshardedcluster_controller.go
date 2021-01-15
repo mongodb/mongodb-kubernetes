@@ -3,6 +3,8 @@ package operator
 import (
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/create"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/certs"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
@@ -313,7 +315,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 	if err != nil {
 		return workflow.Failed(err.Error())
 	}
-	err = createOrUpdateDatabaseInKubernetes(r.client, *s, configSrvSts, configSrvOpts, log)
+	err = create.DatabaseInKubernetes(r.client, *s, configSrvSts, configSrvOpts, log)
 	if err != nil {
 		return workflow.Failed("Failed to create Config Server Stateful Set: %s", err)
 	}
@@ -335,7 +337,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 			return workflow.Failed("Failed to build Stateful Set struct for shard %s: %s", shardsNames[i], err)
 		}
 
-		err = createOrUpdateDatabaseInKubernetes(r.client, *s, shardSts, shardOpts, log)
+		err = create.DatabaseInKubernetes(r.client, *s, shardSts, shardOpts, log)
 		if err != nil {
 			return workflow.Failed("Failed to create Stateful Set for shard %s: %s", shardsNames[i], err)
 		}
@@ -354,7 +356,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 		return workflow.Failed("Failed to build Stateful Set struct for mongos %s: %s", s.MongosRsName(), err)
 	}
 
-	err = createOrUpdateDatabaseInKubernetes(r.client, *s, mongosSts, mongosOpts, log)
+	err = create.DatabaseInKubernetes(r.client, *s, mongosSts, mongosOpts, log)
 	if err != nil {
 		return workflow.Failed("Failed to create Mongos Stateful Set: %s", err)
 	}

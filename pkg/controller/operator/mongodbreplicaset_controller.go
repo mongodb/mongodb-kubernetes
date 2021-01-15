@@ -3,6 +3,8 @@ package operator
 import (
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/create"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/certs"
 
 	enterprisepem "github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/pem"
@@ -136,7 +138,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 			return r.updateOmDeploymentRs(conn, rs.Status.Members, rs, sts, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
-			if err := createOrUpdateDatabaseInKubernetes(r.client, *rs, sts, construct.ReplicaSetOptions(), log); err != nil {
+			if err := create.DatabaseInKubernetes(r.client, *rs, sts, construct.ReplicaSetOptions(), log); err != nil {
 				return workflow.Failed("Failed to create/update (Kubernetes reconciliation phase): %s", err.Error())
 			}
 

@@ -8,26 +8,19 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/certs"
-	enterprisesvc "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
-	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
-	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -38,143 +31,6 @@ const (
 	externalConnectivityPortName = "external-connectivity-port"
 	backupPortName               = "backup-port"
 )
-
-// createOrUpdateInKubernetes creates (updates if it exists) the StatefulSet with its Service.
-// It returns any errors coming from Kubernetes API.
-func createOrUpdateDatabaseInKubernetes(client kubernetesClient.Client, mdb mdbv1.MongoDB, sts appsv1.StatefulSet, config func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) error {
-	opts := config(mdb)
-	set, err := enterprisests.CreateOrUpdateStatefulset(client,
-		mdb.Namespace,
-		log,
-		&sts,
-	)
-	if err != nil {
-		return err
-	}
-
-	namespacedName := kube.ObjectKey(mdb.Namespace, set.Spec.ServiceName)
-	internalService := buildService(namespacedName, &mdb, set.Spec.ServiceName, opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
-	err = enterprisesvc.CreateOrUpdateService(client, internalService, log)
-	if err != nil {
-		return err
-	}
-
-	if mdb.Spec.ExposedExternally {
-		namespacedName := objectKey(mdb.Namespace, set.Spec.ServiceName+"-external")
-		externalService := buildService(namespacedName, &mdb, set.Spec.ServiceName, opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeNodePort})
-		return enterprisesvc.CreateOrUpdateService(client, externalService, log)
-	}
-
-	return nil
-}
-
-// ensureQueryableAbleBackupService will make sure the queryable backup service exists. It will either update the existing external service
-// if it exists, or create a new one if it does not.
-func ensureQueryableAbleBackupService(serviceGetUpdateCreator service.GetUpdateCreator, opsManager omv1.MongoDBOpsManager, externalService corev1.Service, serviceName string, log *zap.SugaredLogger) error {
-	backupSvcPort, err := opsManager.Spec.BackupSvcPort()
-	if err != nil {
-		return fmt.Errorf("can't parse queryable backup port: %s", err)
-	}
-
-	// If external connectivity is already configured, add a port to externalService
-	if opsManager.Spec.MongoDBOpsManagerExternalConnectivity != nil {
-		externalService.Spec.Ports[0].Name = externalConnectivityPortName
-		externalService.Spec.Ports = append(externalService.Spec.Ports, corev1.ServicePort{
-			Name: backupPortName,
-			Port: backupSvcPort,
-		})
-		return enterprisesvc.CreateOrUpdateService(serviceGetUpdateCreator, externalService, log)
-	}
-	// Otherwise create a new service
-	namespacedName := kube.ObjectKey(opsManager.Namespace, serviceName+"-backup")
-	backupService := buildService(namespacedName, &opsManager, "ops-manager-backup", backupSvcPort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeLoadBalancer})
-
-	return enterprisesvc.CreateOrUpdateService(serviceGetUpdateCreator, backupService, log)
-
-}
-
-// createOrUpdateOpsManagerInKubernetes creates all of the required Kubernetes resources for Ops Manager.
-// It creates the StatefulSet and all required services.
-func createOrUpdateOpsManagerInKubernetes(client kubernetesClient.Client, opsManager omv1.MongoDBOpsManager, sts appsv1.StatefulSet, log *zap.SugaredLogger) error {
-	set, err := enterprisests.CreateOrUpdateStatefulset(client,
-		opsManager.Namespace,
-		log,
-		&sts,
-	)
-	if err != nil {
-		return err
-	}
-
-	_, port := opsManager.GetSchemePort()
-
-	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
-	internalService := buildService(namespacedName, &opsManager, set.Spec.ServiceName, int32(port), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
-	err = enterprisesvc.CreateOrUpdateService(client, internalService, log)
-	if err != nil {
-		return err
-	}
-
-	externalService := corev1.Service{}
-	if opsManager.Spec.MongoDBOpsManagerExternalConnectivity != nil {
-		namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName+"-ext")
-		externalService = buildService(namespacedName, &opsManager, set.Spec.ServiceName, int32(port), *opsManager.Spec.MongoDBOpsManagerExternalConnectivity)
-		err = enterprisesvc.CreateOrUpdateService(client, externalService, log)
-		if err != nil {
-			return err
-		}
-	}
-
-	// Need to create queryable backup service
-	if opsManager.Spec.Backup.Enabled {
-		return ensureQueryableAbleBackupService(client, opsManager, externalService, set.Spec.ServiceName, log)
-	}
-
-	return err
-}
-
-func createOrUpdateBackupDaemonInKubernetes(client kubernetesClient.Client, opsManager omv1.MongoDBOpsManager, sts appsv1.StatefulSet, log *zap.SugaredLogger) (bool, error) {
-	set, err := enterprisests.CreateOrUpdateStatefulset(
-		client,
-		opsManager.Namespace,
-		log,
-		&sts,
-	)
-
-	if err != nil {
-		// Check if it is a k8s error or a custom one
-		if _, ok := err.(enterprisests.StatefulSetCantBeUpdatedError); !ok {
-			return false, err
-		}
-		// In this case, we delete the old Statefulset
-		log.Debug("Deleting the old backup stateful set and creating a new one")
-		stsNamespacedName := kube.ObjectKey(opsManager.Namespace, opsManager.BackupStatefulSetName())
-		err = client.DeleteStatefulSet(stsNamespacedName)
-		if err != nil {
-			return false, fmt.Errorf("failed while trying to delete previous backup daemon statefulset: %s", err)
-		}
-		return true, nil
-	}
-	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
-	internalService := buildService(namespacedName, &opsManager, set.Spec.ServiceName, construct.BackupDaemonServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
-	err = enterprisesvc.CreateOrUpdateService(client, internalService, log)
-	return false, err
-}
-
-func createOrUpdateAppDBInKubernetes(client kubernetesClient.Client, opsManager omv1.MongoDBOpsManager, sts appsv1.StatefulSet, config func(om omv1.MongoDBOpsManager) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) error {
-	opts := config(opsManager)
-	set, err := enterprisests.CreateOrUpdateStatefulset(client,
-		opsManager.Namespace,
-		log,
-		&sts,
-	)
-	if err != nil {
-		return err
-	}
-
-	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
-	internalService := buildService(namespacedName, &opsManager, set.Spec.ServiceName, opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
-	return enterprisesvc.CreateOrUpdateService(client, internalService, log)
-}
 
 // needToPublishStateFirst will check if the Published State of the StatfulSet backed MongoDB Deployments
 // needs to be updated first. In the case of unmounting certs, for instance, the certs should be not
