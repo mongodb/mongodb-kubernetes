@@ -1,7 +1,8 @@
 vars:
   registry: <container-registry>
   quay_registry: quay.io/mongodb
-  s3_bucket: https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles/mongodb-enterprise-operator
+  s3_bucket_http: https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles/mongodb-enterprise-operator
+  s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-enterprise-operator
 
 images:
   - name: operator
@@ -95,6 +96,28 @@ images:
       - registry: $(inputs.params.quay_registry)/mongodb-enterprise-operator
         tag: $(inputs.params.release_version)-context
 
+    - name: operator-template-ubi
+      task_type: dockerfile_template
+      tags: ["release"]
+      distro: ubi
+
+      inputs:
+      - release_version
+
+      output:
+      - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubi-$(inputs.params.release_version)
+
+    - name: operator-template-ubuntu
+      task_type: dockerfile_template
+      tags: ["release"]
+      distro: ubuntu
+
+      inputs:
+      - release_version
+
+      output:
+      - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubuntu-$(inputs.params.release_version)
+
 
   - name: operator-daily-build
     vars:
@@ -107,7 +130,7 @@ images:
       inputs:
       - build_id
 
-      dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubuntu-$(inputs.params.release_version)
+      dockerfile: $(inputs.params.s3_bucket_http)/Dockerfile.ubuntu-$(inputs.params.release_version)
       buildargs:
         imagebase: $(inputs.params.quay_registry)/mongodb-enterprise-operator:$(inputs.params.release_version)-context
 
@@ -123,7 +146,7 @@ images:
       inputs:
       - build_id
 
-      dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubi-$(inputs.params.release_version)
+      dockerfile: $(inputs.params.s3_bucket_http)/Dockerfile.ubi-$(inputs.params.release_version)
       buildargs:
         imagebase: $(inputs.params.quay_registry)/mongodb-enterprise-operator:$(inputs.params.release_version)-context
 
