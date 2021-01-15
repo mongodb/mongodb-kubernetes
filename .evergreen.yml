@@ -673,8 +673,8 @@ tasks:
   - func: clone
   - func: release_blocker
 
-# release_operator_rh_connect Releases the Operator and Database image to RH Connect.
-- name: release_operator_rh_connect
+# release_rh_operator Releases the Operator and Database image to RH Connect.
+- name: release_rh_operator
   commands:
     - func: clone
     - func: guard_git_repo_is_clean
@@ -690,13 +690,11 @@ tasks:
         docker_username: unused
         docker_password: ${rhc_operator_pid}
 
-- name: release_init_rh_connect
+- name: release_rh_init_ops_manager
   commands:
     - func: clone
-    - func: guard_git_repo_is_clean
     - func: download_kube_tools
     - func: configure_docker_auth
-
     - func: release_docker_image_to_registry
       vars:
         tag_source: ${version_id}
@@ -706,6 +704,11 @@ tasks:
         docker_username: unused
         docker_password: ${rhc_init_om_pid}
 
+- name: release_rh_init_appdb
+  commands:
+    - func: clone
+    - func: download_kube_tools
+    - func: configure_docker_auth
     - func: release_docker_image_to_registry
       vars:
         tag_source: ${version_id}
@@ -715,6 +718,11 @@ tasks:
         docker_username: unused
         docker_password: ${rhc_init_appdb_pid}
 
+- name: release_rh_init_database
+  commands:
+    - func: clone
+    - func: download_kube_tools
+    - func: configure_docker_auth
     - func: release_docker_image_to_registry
       vars:
         tag_source: ${version_id}
@@ -724,7 +732,7 @@ tasks:
         docker_username: unused
         docker_password: ${rhc_init_database_pid}
 
-- name: release_operator_quay
+- name: release_quay_operator
   commands:
   - func: clone
   - func: setup_building_host
@@ -737,7 +745,7 @@ tasks:
       image_name: operator
 
 # Releases init images to Quay
-- name: release_init_quay
+- name: release_quay_init_appdb
   commands:
   - func: clone
   - func: setup_building_host
@@ -749,6 +757,11 @@ tasks:
     vars:
       image_name: init-appdb
 
+- name: release_quay_init_database
+  commands:
+  - func: clone
+  - func: setup_building_host
+  - func: quay_login
   - func: pipeline
     vars:
       image_name: init-database
@@ -756,6 +769,11 @@ tasks:
     vars:
       image_name: init-database
 
+- name: release_quay_init_ops_manager
+  commands:
+  - func: clone
+  - func: setup_building_host
+  - func: quay_login
   - func: pipeline
     vars:
       image_name: init-ops-manager
@@ -763,6 +781,8 @@ tasks:
   - func: add_supported_release
     vars:
       image_name: init-ops-manager
+
+
 - name: prerelease_master_images
   commands:
     - func: clone
@@ -2219,7 +2239,7 @@ task_groups:
     - func: teardown_cloud_qa
 
 - name: e2e_ops_manager_kind_4_4_only_task_group
-  max_hosts: 10
+  max_hosts: 3
   setup_group:
     - func: clone
     - func: download_kube_tools
@@ -2594,8 +2614,8 @@ buildvariants:
 
 ### Release build variants
 
-- name: release_rh_connect
-  display_name: release_rh_connect
+- name: release_rh
+  display_name: release_rh
   depends_on:
     - name: release_blocker
       variant: release_blocker
@@ -2606,8 +2626,10 @@ buildvariants:
   run_on:
     - ubuntu1604-test
   tasks:
-    - name: release_operator_rh_connect
-    - name: release_init_rh_connect
+    - name: release_rh_operator
+    - name: release_rh_init_ops_manager
+    - name: release_rh_init_appdb
+    - name: release_rh_init_database
 
 # Releases both ubi and ubuntu images to Quay.
 - name: release_quay
@@ -2636,8 +2658,11 @@ buildvariants:
   expansions:
     include_tags: release
   tasks:
-    - name: release_operator_quay
-    - name: release_init_quay
+    - name: release_quay_operator
+    - name: release_quay_init_appdb
+    - name: release_quay_init_database
+    - name: release_quay_init_ops_manager
+
 
 - name: release_blocker
   display_name: release_blocker
@@ -2660,7 +2685,6 @@ buildvariants:
     - name: build_init_appdb_images_ubuntu
     - name: build_init_appdb_images_ubi
 
-    # does not build init appdb anymore
     - name: build_init_om_images_ubuntu
     - name: build_init_om_images_ubi
     - name: build_init_database_image_ubuntu

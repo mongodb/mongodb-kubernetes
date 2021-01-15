@@ -331,7 +331,7 @@ def build_init_database_daily(build_configuration: BuildConfiguration):
         args = dict(build_id=build_id, release_version=release["version"])
         try:
             sonar_build_image(
-                image_name, build_configuration, args, "inventories/init_appdb.yaml"
+                image_name, build_configuration, args, "inventories/init_database.yaml"
             )
         except Exception as e:
             # Log error and continue
@@ -466,7 +466,6 @@ def get_builder_function_for_image_name():
         # Daily builds
         "operator-daily": build_operator_daily,
         "init-appdb-daily": build_init_appdb_daily,
-        "init-database-daily": build_init_database_daily,
         "init-database-daily": build_init_database_daily,
         "init-ops-manager-daily": build_init_ops_manager_daily,
         #
