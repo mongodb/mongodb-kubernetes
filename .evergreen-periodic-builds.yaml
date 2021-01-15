@@ -77,43 +77,42 @@ functions:
       - ${workdir}/bin
       command: "${workdir}/venv/bin/python pipeline.py --include ${image_name}"
 
+
+# Periodic builds can't use task_groups.
+# Fix is planned in EVG-13702.
 tasks:
 - name: periodic_build_operator
   commands:
+  - func: clone
+  - func: configure_docker_auth
   - func: pipeline
     vars:
       image_name: operator-daily
 
 - name: periodic_build_init_appdb
   commands:
+  - func: clone
+  - func: configure_docker_auth
   - func: pipeline
     vars:
       image_name: init-appdb-daily
 
 - name: periodic_build_init_database
   commands:
+  - func: clone
+  - func: configure_docker_auth
   - func: pipeline
     vars:
       image_name: init-database-daily
 
 - name: periodic_build_init_opsmanager
   commands:
+  - func: clone
+  - func: configure_docker_auth
   - func: pipeline
     vars:
       image_name: init-ops-manager-daily
 
-
-task_groups:
-- name: periodic_build_all
-  setup_group:
-  - func: clone
-  - func: configure_docker_auth
-
-  tasks:
-  - periodic_build_operator
-  - periodic_build_init_appdb
-  - periodic_build_init_database
-  - periodic_build_init_opsmanager
 
 buildvariants:
 - name: periodic_build
@@ -121,4 +120,7 @@ buildvariants:
   run_on:
   - ubuntu1604-build
   tasks:
-  - name: periodic_build_all
+  - periodic_build_operator
+  - periodic_build_init_appdb
+  - periodic_build_init_database
+  - periodic_build_init_opsmanager
