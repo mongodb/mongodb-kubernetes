@@ -96,7 +96,7 @@ type ReconcileMongoDbStandalone struct {
 }
 
 func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
-	agents.UpgradeAllIfNeeded(r.kubeHelper.client, r.omConnectionFactory, getWatchedNamespace())
+	agents.UpgradeAllIfNeeded(r.client, r.omConnectionFactory, getWatchedNamespace())
 
 	log := zap.S().With("Standalone", request.NamespacedName)
 	s := &mdbv1.MongoDB{}
@@ -117,12 +117,12 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 	log.Infow("Standalone.Spec", "spec", s.Spec)
 	log.Infow("Standalone.Status", "status", s.Status)
 
-	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.kubeHelper.client, *s)
+	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.client, *s)
 	if err != nil {
 		return r.updateStatus(s, workflow.Failed(err.Error()), log)
 	}
 
-	conn, err := connection.PrepareOpsManagerConnection(r.kubeHelper.client, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, log)
+	conn, err := connection.PrepareOpsManagerConnection(r.client, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, log)
 	if err != nil {
 		return r.updateStatus(s, workflow.Failed("Failed to prepare Ops Manager connection: %s", err), log)
 	}
@@ -155,7 +155,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		return r.updateStatus(s, status, log)
 	}
 
-	if status := r.kubeHelper.ensureSSLCertsForStatefulSet(*s, certs.StandaloneConfig(*s), log); !status.IsOK() {
+	if status := ensureSSLCertsForStatefulSet(r.client, *s, certs.StandaloneConfig(*s), log); !status.IsOK() {
 		return r.updateStatus(s, status, log)
 	}
 
@@ -253,12 +253,12 @@ func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLog
 
 	log.Infow("Removing standalone from Ops Manager", "config", s.Spec)
 
-	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.kubeHelper.client, *s)
+	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.client, *s)
 	if err != nil {
 		return err
 	}
 
-	conn, err := connection.PrepareOpsManagerConnection(r.kubeHelper.client, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, log)
+	conn, err := connection.PrepareOpsManagerConnection(r.client, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, log)
 	if err != nil {
 		return err
 	}

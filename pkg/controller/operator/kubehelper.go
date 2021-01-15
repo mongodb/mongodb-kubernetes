@@ -31,20 +31,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-// KubeHelper is the helper for dealing with Kubernetes. If any Kubernetes logic requires more than some trivial operation
-// - it should be put here
-type KubeHelper struct {
-	client kubernetesClient.Client
-}
-
-// NewKubeHelper constructs an instance of KubeHelper with all clients initialized
-// using the same instance of client
-func NewKubeHelper(client client.Client) KubeHelper {
-	return KubeHelper{
-		client: kubernetesClient.NewClient(client),
-	}
-}
-
 type AuthMode string
 
 const (
@@ -286,13 +272,13 @@ func ensureAutomationConfigSecret(secretGetUpdateCreator secret.GetUpdateCreator
 
 // validateSelfManagedSSLCertsForStatefulSet ensures that a stateful set using
 // user-provided certificates has all of the relevant certificates in place.
-func validateSelfManagedSSLCertsForStatefulSet(k *KubeHelper, secretName string, opts certs.Options) workflow.Status {
+func validateSelfManagedSSLCertsForStatefulSet(client kubernetesClient.Client, secretName string, opts certs.Options) workflow.Status {
 	// A "Certs" attribute has been provided
 	// This means that the customer has provided with a secret name they have
 	// already populated with the certs and keys for this deployment.
 	// Because of the async nature of Kubernetes, this object might not be ready yet,
 	// in which case, we'll keep reconciling until the object is created and is correct.
-	if notReadyCerts := certs.VerifyCertificatesForStatefulSet(k.client, secretName, opts); notReadyCerts > 0 {
+	if notReadyCerts := certs.VerifyCertificatesForStatefulSet(client, secretName, opts); notReadyCerts > 0 {
 		return workflow.Failed("The secret object '%s' does not contain all the certificates needed."+
 			"Required: %d, contains: %d", secretName,
 			opts.Replicas,
@@ -300,7 +286,7 @@ func validateSelfManagedSSLCertsForStatefulSet(k *KubeHelper, secretName string,
 		)
 	}
 
-	if err := certs.ValidateCertificates(k.client, secretName, opts.Namespace); err != nil {
+	if err := certs.ValidateCertificates(client, secretName, opts.Namespace); err != nil {
 		return workflow.Failed(err.Error())
 	}
 
@@ -310,14 +296,14 @@ func validateSelfManagedSSLCertsForStatefulSet(k *KubeHelper, secretName string,
 // ensureOperatorManagedSSLCertsForStatefulSet ensures that a stateful set
 // using operator-managed certificates has all of the relevant certificates in
 // place.
-func ensureOperatorManagedSSLCertsForStatefulSet(k *KubeHelper, secretName string, opts certs.Options, log *zap.SugaredLogger) workflow.Status {
+func ensureOperatorManagedSSLCertsForStatefulSet(client kubernetesClient.Client, secretName string, opts certs.Options, log *zap.SugaredLogger) workflow.Status {
 	certsNeedApproval := false
 
-	if err := certs.ValidateCertificates(k.client, secretName, opts.Namespace); err != nil {
+	if err := certs.ValidateCertificates(client, secretName, opts.Namespace); err != nil {
 		return workflow.Failed(err.Error())
 	}
 
-	if notReadyCerts := certs.VerifyCertificatesForStatefulSet(k.client, secretName, opts); notReadyCerts > 0 {
+	if notReadyCerts := certs.VerifyCertificatesForStatefulSet(client, secretName, opts); notReadyCerts > 0 {
 		// If the Kube CA and the operator are responsible for the certificates to be
 		// ready and correctly stored in the secret object, and this secret is not "complete"
 		// we'll go through the process of creating the CSR, wait for certs approval and then
@@ -334,13 +320,13 @@ func ensureOperatorManagedSSLCertsForStatefulSet(k *KubeHelper, secretName strin
 		pemFiles := pem.NewCollection()
 
 		for idx, host := range fqdns {
-			csr, err := certs.ReadCSR(k.client, podnames[idx], opts.Namespace)
+			csr, err := certs.ReadCSR(client, podnames[idx], opts.Namespace)
 			additionalCertDomains := certs.GetAdditionalCertDomainsForMember(opts, idx)
 			if err != nil {
 				certsNeedApproval = true
 				hostnames := []string{host, podnames[idx]}
 				hostnames = append(hostnames, additionalCertDomains...)
-				key, err := certs.CreateTlsCSR(k.client, podnames[idx], opts.Namespace, clusterDomainOrDefault(opts.ClusterDomain), hostnames, host)
+				key, err := certs.CreateTlsCSR(client, podnames[idx], opts.Namespace, clusterDomainOrDefault(opts.ClusterDomain), hostnames, host)
 				if err != nil {
 					return workflow.Failed("Failed to create CSR, %s", err)
 				}
@@ -375,7 +361,7 @@ func ensureOperatorManagedSSLCertsForStatefulSet(k *KubeHelper, secretName strin
 		// in the existing values in the secret
 
 		// TODO: client should not come from KubeHelper
-		err := pem.CreateOrUpdateSecret(k.client, secretName, opts.Namespace, pemFiles)
+		err := pem.CreateOrUpdateSecret(client, secretName, opts.Namespace, pemFiles)
 		if err != nil {
 			// If we have an error creating or updating the secret, we might lose
 			// the keys, in which case we return an error, to make it clear what
@@ -393,7 +379,7 @@ func ensureOperatorManagedSSLCertsForStatefulSet(k *KubeHelper, secretName strin
 
 // ensureSSLCertsForStatefulSet contains logic to ensure that all of the
 // required SSL certs for a StatefulSet object exist.
-func (k *KubeHelper) ensureSSLCertsForStatefulSet(mdb mdbv1.MongoDB, opts certs.Options, log *zap.SugaredLogger) workflow.Status {
+func ensureSSLCertsForStatefulSet(client kubernetesClient.Client, mdb mdbv1.MongoDB, opts certs.Options, log *zap.SugaredLogger) workflow.Status {
 	if !mdb.Spec.IsTLSEnabled() {
 		// if there's no SSL certs to generate, return
 		return workflow.OK()
@@ -404,9 +390,9 @@ func (k *KubeHelper) ensureSSLCertsForStatefulSet(mdb mdbv1.MongoDB, opts certs.
 		if mdb.Spec.Security.TLSConfig.SecretRef.Name != "" {
 			secretName = mdb.Spec.Security.TLSConfig.SecretRef.Name
 		}
-		return validateSelfManagedSSLCertsForStatefulSet(k, secretName, opts)
+		return validateSelfManagedSSLCertsForStatefulSet(client, secretName, opts)
 	}
-	return ensureOperatorManagedSSLCertsForStatefulSet(k, secretName, opts, log)
+	return ensureOperatorManagedSSLCertsForStatefulSet(client, secretName, opts, log)
 }
 
 // envVarFromSecret returns a corev1.EnvVar that is a reference to a secret with the field

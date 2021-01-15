@@ -54,7 +54,7 @@ func newShardedClusterReconciler(mgr manager.Manager, omFunc om.ConnectionFactor
 }
 
 func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
-	agents.UpgradeAllIfNeeded(r.kubeHelper.client, r.omConnectionFactory, getWatchedNamespace())
+	agents.UpgradeAllIfNeeded(r.client, r.omConnectionFactory, getWatchedNamespace())
 
 	log := zap.S().With("ShardedCluster", request.NamespacedName)
 	sc := &mdbv1.MongoDB{}
@@ -133,12 +133,12 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 	log.Info("ShardedCluster.doShardedClusterProcessing")
 	sc := obj.(*mdbv1.MongoDB)
 
-	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.kubeHelper.client, *sc)
+	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.client, *sc)
 	if err != nil {
 		return nil, workflow.Failed(err.Error())
 	}
 
-	conn, err := connection.PrepareOpsManagerConnection(r.kubeHelper.client, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, log)
+	conn, err := connection.PrepareOpsManagerConnection(r.client, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, log)
 	if err != nil {
 		return nil, workflow.Failed(err.Error())
 	}
@@ -274,7 +274,7 @@ func (r *ReconcileMongoDbShardedCluster) removeUnusedStatefulsets(sc *mdbv1.Mong
 	// we iterate over last 'statefulsetsToRemove' shards if any
 	for i := shardsCount - statefulsetsToRemove; i < shardsCount; i++ {
 		key := objectKey(sc.Namespace, sc.ShardRsName(i))
-		err := r.kubeHelper.client.DeleteStatefulSet(key)
+		err := r.client.DeleteStatefulSet(key)
 		if err != nil {
 			// Most of all the error won't be recoverable, also our sharded cluster is in good shape - we can just warn
 			// the error and leave the cleanup work for the admins
@@ -293,11 +293,11 @@ func (r *ReconcileMongoDbShardedCluster) ensureSSLCertificates(s *mdbv1.MongoDB,
 
 	var status workflow.Status
 	status = workflow.OK()
-	status = status.Merge(r.kubeHelper.ensureSSLCertsForStatefulSet(*s, certs.MongosConfig(*s, r.mongosScaler), log))
-	status = status.Merge(r.kubeHelper.ensureSSLCertsForStatefulSet(*s, certs.ConfigSrvConfig(*s, r.configSrvScaler), log))
+	status = status.Merge(ensureSSLCertsForStatefulSet(r.client, *s, certs.MongosConfig(*s, r.mongosScaler), log))
+	status = status.Merge(ensureSSLCertsForStatefulSet(r.client, *s, certs.ConfigSrvConfig(*s, r.configSrvScaler), log))
 
 	for i := 0; i < s.Spec.ShardCount; i++ {
-		status = status.Merge(r.kubeHelper.ensureSSLCertsForStatefulSet(*s, certs.ShardConfig(*s, i, r.mongodsPerShardScaler), log))
+		status = status.Merge(ensureSSLCertsForStatefulSet(r.client, *s, certs.ShardConfig(*s, i, r.mongodsPerShardScaler), log))
 	}
 
 	return status
@@ -373,12 +373,12 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 func (r *ReconcileMongoDbShardedCluster) delete(obj interface{}, log *zap.SugaredLogger) error {
 	sc := obj.(*mdbv1.MongoDB)
 
-	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.kubeHelper.client, *sc)
+	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.client, *sc)
 	if err != nil {
 		return err
 	}
 
-	conn, err := connection.PrepareOpsManagerConnection(r.kubeHelper.client, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, log)
+	conn, err := connection.PrepareOpsManagerConnection(r.client, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, log)
 	if err != nil {
 		return err
 	}

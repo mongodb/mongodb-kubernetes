@@ -57,7 +57,7 @@ func (r *MongoDBUserReconciler) getUser(request reconcile.Request, log *zap.Suga
 func (r *MongoDBUserReconciler) getMongoDB(user userv1.MongoDBUser) (mdbv1.MongoDB, error) {
 	mdb := mdbv1.MongoDB{}
 	name := objectKey(user.Namespace, user.Spec.MongoDBResourceRef.Name)
-	if err := r.kubeHelper.client.Get(context.TODO(), name, &mdb); err != nil {
+	if err := r.client.Get(context.TODO(), name, &mdb); err != nil {
 		return mdb, err
 	}
 
@@ -93,12 +93,12 @@ func (r *MongoDBUserReconciler) Reconcile(request reconcile.Request) (res reconc
 		return reconcile.Result{}, nil
 	}
 
-	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.kubeHelper.client, mdb)
+	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.client, mdb)
 	if err != nil {
 		return r.updateStatus(user, workflow.Failed(err.Error()), log)
 	}
 
-	conn, err := connection.PrepareOpsManagerConnection(r.kubeHelper.client, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, log)
+	conn, err := connection.PrepareOpsManagerConnection(r.client, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, log)
 
 	if err != nil {
 		return r.updateStatus(user, workflow.Failed("Failed to prepare Ops Manager connection: %s", err), log)
@@ -119,12 +119,12 @@ func (r *MongoDBUserReconciler) delete(obj interface{}, log *zap.SugaredLogger) 
 		return err
 	}
 
-	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.kubeHelper.client, mdb)
+	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.client, mdb)
 	if err != nil {
 		return err
 	}
 
-	conn, err := connection.PrepareOpsManagerConnection(r.kubeHelper.client, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, log)
+	conn, err := connection.PrepareOpsManagerConnection(r.client, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, log)
 	if err != nil {
 		log.Errorf("Failed to prepare Ops Manager connection: %s", err)
 		return err
@@ -212,7 +212,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(user *userv1.MongoDBUser, con
 			return fmt.Errorf("scram Sha has not yet been configured")
 		}
 
-		password, err := user.GetPassword(r.kubeHelper.client)
+		password, err := user.GetPassword(r.client)
 		if err != nil {
 			return err
 		}

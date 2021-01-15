@@ -427,7 +427,7 @@ func TestEnsureAppDbAgentApiKey(t *testing.T) {
 	assert.NoError(t, err)
 
 	secretName := agentApiKeySecretName(conn.GroupID())
-	apiKey, err := secret.ReadKey(reconciler.kubeHelper.client, util.OmAgentApiKey, kube.ObjectKey(opsManager.Namespace, secretName))
+	apiKey, err := secret.ReadKey(reconciler.client, util.OmAgentApiKey, kube.ObjectKey(opsManager.Namespace, secretName))
 	assert.NoError(t, err)
 	assert.Equal(t, "my-api-key", apiKey)
 }
@@ -467,7 +467,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 		SetStringData(data).
 		Build()
 
-	err = reconciler.kubeHelper.client.CreateSecret(apiKeySecret)
+	err = reconciler.client.CreateSecret(apiKeySecret)
 	assert.NoError(t, err)
 
 	// once the secret exists, monitoring should be fully configured
@@ -593,7 +593,7 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 		SetStringData(data).
 		Build()
 
-	err := reconciler.kubeHelper.client.CreateSecret(apiKeySecret)
+	err := reconciler.client.CreateSecret(apiKeySecret)
 	assert.NoError(t, err)
 
 	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {

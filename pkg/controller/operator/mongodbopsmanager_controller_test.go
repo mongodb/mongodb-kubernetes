@@ -196,7 +196,7 @@ func TestBackupStatefulSetIsNotRemoved_WhenDisabled(t *testing.T) {
 		}).SetOwnerReferences(baseOwnerReference(&testOm)).
 		Build()
 
-	err := reconciler.kubeHelper.client.CreateSecret(s)
+	err := reconciler.client.CreateSecret(s)
 	assert.NoError(t, err)
 
 	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
@@ -232,12 +232,12 @@ func TestOpsManagerPodTemplateSpec_IsAnnotatedWithHash(t *testing.T) {
 			"password": []byte("password"),
 		}).Build()
 
-	err := reconciler.kubeHelper.client.CreateSecret(s)
+	err := reconciler.client.CreateSecret(s)
 	assert.NoError(t, err)
 
 	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
 
-	connectionString, err := secret.ReadKey(reconciler.kubeHelper.client, util.AppDbConnectionStringKey, kube.ObjectKey(testOm.Namespace, testOm.AppDBMongoConnectionStringSecretName()))
+	connectionString, err := secret.ReadKey(reconciler.client, util.AppDbConnectionStringKey, kube.ObjectKey(testOm.Namespace, testOm.AppDBMongoConnectionStringSecretName()))
 	assert.NoError(t, err)
 	assert.NotEmpty(t, connectionString)
 
@@ -274,7 +274,7 @@ func TestOpsManagerConnectionString_IsPassedAsSecretRef(t *testing.T) {
 		}).SetOwnerReferences(baseOwnerReference(&testOm)).
 		Build()
 
-	err := reconciler.kubeHelper.client.CreateSecret(s)
+	err := reconciler.client.CreateSecret(s)
 	assert.NoError(t, err)
 
 	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
@@ -426,14 +426,13 @@ func defaultTestOmReconciler(t *testing.T, opsManager omv1.MongoDBOpsManager) (*
 		SetOwnerReferences(baseOwnerReference(&opsManager)).
 		Build()
 
-	err := NewKubeHelper(manager.Client).client.CreateSecret(s)
-	assert.NoError(t, err)
-
 	initializer := &MockedInitializer{expectedOmURL: opsManager.CentralURL(), t: t}
 
 	// It's important to clean the om state as soon as the reconciler is built!
 	admin := api.NewMockedAdmin()
-	return newOpsManagerReconciler(manager, om.NewEmptyMockedOmConnection, initializer, api.NewMockedAdminProvider, relativeVersionManifestFixturePath),
+	reconciler := newOpsManagerReconciler(manager, om.NewEmptyMockedOmConnection, initializer, api.NewMockedAdminProvider, relativeVersionManifestFixturePath)
+	reconciler.client.CreateSecret(s)
+	return reconciler,
 		manager.Client, initializer, admin
 }
 

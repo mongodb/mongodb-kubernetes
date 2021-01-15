@@ -68,9 +68,8 @@ type patchValue struct {
 type ReconcileCommonController struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
-	client     kubernetesClient.Client
-	scheme     *runtime.Scheme
-	kubeHelper KubeHelper
+	client kubernetesClient.Client
+	scheme *runtime.Scheme
 	// this map keeps the locks for the resources the current controller is responsible for
 	// This allows to serialize processing logic (edit and removal) and necessary because
 	// we don't use reconciliation queue for removal operations
@@ -82,7 +81,6 @@ func newReconcileCommonController(mgr manager.Manager) *ReconcileCommonControlle
 	return &ReconcileCommonController{
 		client:         newClient,
 		scheme:         mgr.GetScheme(),
-		kubeHelper:     NewKubeHelper(mgr.GetClient()),
 		reconcileLocks: sync.Map{},
 	}
 }
@@ -314,7 +312,7 @@ func checkIfHasExcessProcesses(conn om.Connection, resource *mdbv1.MongoDB, log 
 
 // doAgentX509CertsExist looks for the secret "agent-certs" to determine if we can continue with mounting the x509 volumes
 func (r *ReconcileCommonController) doAgentX509CertsExist(namespace string) bool {
-	_, err := r.kubeHelper.client.GetSecret(kube.ObjectKey(namespace, util.AgentSecretName))
+	_, err := r.client.GetSecret(kube.ObjectKey(namespace, util.AgentSecretName))
 	if err != nil {
 		return false
 	}
@@ -324,7 +322,6 @@ func (r *ReconcileCommonController) doAgentX509CertsExist(namespace string) bool
 // ensureInternalClusterCerts ensures that all the x509 internal cluster certs exist.
 // TODO: this is almost the same as kubeHelper::ensureSSLCertsForStatefulSet, we should centralize the functionality
 func (r *ReconcileCommonController) ensureInternalClusterCerts(mdb mdbv1.MongoDB, opts certs.Options, log *zap.SugaredLogger) (bool, error) {
-	k := r.kubeHelper
 	// TODO: move this logic into the certs package
 	// Flag that's set to false if any of the certificates have not been approved yet.
 	certsNeedApproval := false
@@ -373,10 +370,10 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(mdb mdbv1.MongoDB
 
 			for idx, host := range fqdns {
 				csrName := toInternalClusterAuthName(podnames[idx])
-				csr, err := certs.ReadCSR(k.client, csrName, opts.Namespace)
+				csr, err := certs.ReadCSR(r.client, csrName, opts.Namespace)
 				if err != nil {
 					certsNeedApproval = true
-					key, err := certs.CreateInternalClusterAuthCSR(k.client, csrName, opts.Namespace, clusterDomainOrDefault(opts.ClusterDomain), []string{host, podnames[idx]}, podnames[idx])
+					key, err := certs.CreateInternalClusterAuthCSR(r.client, csrName, opts.Namespace, clusterDomainOrDefault(opts.ClusterDomain), []string{host, podnames[idx]}, podnames[idx])
 					if err != nil {
 						return false, fmt.Errorf("Failed to create CSR, %s", err)
 					}
@@ -419,8 +416,6 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(mdb mdbv1.MongoDB
 
 //ensureX509AgentCertsForMongoDBResource will generate all the CSRs for the agents
 func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(mdb *mdbv1.MongoDB, useCustomCA bool, namespace string, log *zap.SugaredLogger) (bool, error) {
-	k := r.kubeHelper
-
 	certsNeedApproval := false
 	if missing := certs.VerifyClientCertificatesForAgents(r.client, namespace); missing > 0 {
 		if useCustomCA {
@@ -432,7 +427,7 @@ func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(mdb *
 
 		for _, agent := range agents {
 			agentName := fmt.Sprintf("mms-%s-agent", agent)
-			csr, err := certs.ReadCSR(k.client, agentName, namespace)
+			csr, err := certs.ReadCSR(r.client, agentName, namespace)
 			if err != nil {
 				certsNeedApproval = true
 

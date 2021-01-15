@@ -51,7 +51,7 @@ func newReplicaSetReconciler(mgr manager.Manager, omFunc om.ConnectionFactory) *
 // Reconcile reads that state of the cluster for a MongoDbReplicaSet object and makes changes based on the state read
 // and what is in the MongoDbReplicaSet.Spec
 func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
-	agents.UpgradeAllIfNeeded(r.kubeHelper.client, r.omConnectionFactory, getWatchedNamespace())
+	agents.UpgradeAllIfNeeded(r.client, r.omConnectionFactory, getWatchedNamespace())
 
 	log := zap.S().With("ReplicaSet", request.NamespacedName)
 	rs := &mdbv1.MongoDB{}
@@ -72,12 +72,12 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		return r.updateStatus(rs, workflow.Invalid(err.Error()), log)
 	}
 
-	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.kubeHelper.client, *rs)
+	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.client, *rs)
 	if err != nil {
 		return r.updateStatus(rs, workflow.Failed(err.Error()), log)
 	}
 
-	conn, err := connection.PrepareOpsManagerConnection(r.kubeHelper.client, projectConfig, credsConfig, r.omConnectionFactory, rs.Namespace, log)
+	conn, err := connection.PrepareOpsManagerConnection(r.client, projectConfig, credsConfig, r.omConnectionFactory, rs.Namespace, log)
 	if err != nil {
 		return r.updateStatus(rs, workflow.Failed("Failed to prepare Ops Manager connection: %s", err), log)
 	}
@@ -92,7 +92,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		return r.updateStatus(rs, status, log)
 	}
 
-	if status := r.kubeHelper.ensureSSLCertsForStatefulSet(*rs, certs.ReplicaSetConfig(*rs), log); !status.IsOK() {
+	if status := ensureSSLCertsForStatefulSet(r.client, *rs, certs.ReplicaSetConfig(*rs), log); !status.IsOK() {
 		return r.updateStatus(rs, status, log)
 	}
 
@@ -284,13 +284,13 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLogger) error {
 	rs := obj.(*mdbv1.MongoDB)
 
-	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.kubeHelper.client, *rs)
+	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.client, *rs)
 	if err != nil {
 		return err
 	}
 
 	log.Infow("Removing replica set from Ops Manager", "config", rs.Spec)
-	conn, err := connection.PrepareOpsManagerConnection(r.kubeHelper.client, projectConfig, credsConfig, r.omConnectionFactory, rs.Namespace, log)
+	conn, err := connection.PrepareOpsManagerConnection(r.client, projectConfig, credsConfig, r.omConnectionFactory, rs.Namespace, log)
 	if err != nil {
 		return err
 	}
