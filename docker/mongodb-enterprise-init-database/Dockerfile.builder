@@ -22,4 +22,4 @@ COPY ./docker/mongodb-enterprise-init-database/content/probe.sh /data/probe.sh
 COPY ./docker/mongodb-enterprise-init-database/content/agent-launcher-lib.sh /data/scripts/
 COPY ./docker/mongodb-enterprise-init-database/content/agent-launcher.sh /data/scripts/
 
-COPY ./docker/mongodb-enterprise-init-database/content/LICENSE /data/mongodb-enterprise-appdb
+COPY ./docker/mongodb-enterprise-init-database/content/LICENSE /data/licenses/

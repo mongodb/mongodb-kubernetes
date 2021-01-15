@@ -2613,6 +2613,10 @@ buildvariants:
   depends_on:
     - name: release_blocker
       variant: release_blocker
+    - name: build_init_database_image_ubi
+      variant: init_test_run
+    - name: build_init_appdb_images_ubi
+      variant: init_test_run
   run_on:
     - ubuntu1604-test
   tasks:

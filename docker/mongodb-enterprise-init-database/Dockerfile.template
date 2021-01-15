@@ -23,6 +23,7 @@ LABEL name="MongoDB Enterprise Init Database" \
 COPY --from=base /data/readinessprobe /probes/readinessprobe
 COPY --from=base /data/probe.sh /probes/probe.sh
 COPY --from=base /data/scripts/ /scripts/
+COPY --from=base /data/licenses /licenses/
 
 {% block mongodb_tools %}
 {% endblock %}
