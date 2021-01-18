@@ -1,5 +1,0 @@
-channels:
-- currentCSV: mongodb-enterprise.v1.9.1
-  name: stable
-defaultChannel: stable
-packageName: mongodb-enterprise
