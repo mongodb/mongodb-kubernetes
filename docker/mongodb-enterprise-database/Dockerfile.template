@@ -1,78 +1,43 @@
-#
-# Base Template Dockerfile for Database Image.
-#
-
-{%- if is_dcar %}
-{%- if not is_appdb %}
-FROM quay.io/mongodb/mongodb-enterprise-database:{{version}} as official
-{%- endif %}
-{%- endif %}
+ARG imagebase
+FROM ${imagebase} as base
 
 FROM {{ base_image }}
 
-{% block variables %}
-ENV MMS_HOME /mongodb-automation
-ENV MMS_LOG_DIR /var/log/mongodb-mms-automation
+{% block labels %}
+{% if is_appdb %}
 
-{% if is_appdb -%}
-ENV MDB_DIR /var/lib/mongodb-mms-automation/downloads
-
-ARG MDB_URL
-ARG BINARY_NAME
-ARG AA_DOWNLOAD_URL
-ARG AA_VERSION
-{% endif %}
-
-{% endblock %}
-
-{%- if is_appdb %}
 LABEL name="MongoDB Enterprise AppDB" \
-      version="${AA_VERSION}" \
+      version="{{ version }}" \
       summary="MongoDB Enterprise AppDB" \
       description="MongoDB Enterprise AppDB" \
-  {%- else %}
-LABEL name="MongoDB Enterprise Database" \
-      version="{{ version }}" \
-      summary="MongoDB Enterprise Database Image" \
-      description="MongoDB Enterprise Database Image" \
-{%- endif %}
       vendor="MongoDB" \
       release="1" \
       maintainer="support@mongodb.com"
 
-COPY LICENSE /licenses/mongodb-enterprise-database
+{% else %}
+
+LABEL name="MongoDB Enterprise Database" \
+      version="{{ version }}" \
+      summary="MongoDB Enterprise Database Image" \
+      description="MongoDB Enterprise Database Image" \
+      vendor="MongoDB" \
+      release="1" \
+      maintainer="support@mongodb.com"
+
+{% endif %}
+{% endblock %}
+
+
+{% block variables %}
+ENV MMS_HOME /mongodb-automation
+ENV MMS_LOG_DIR /var/log/mongodb-mms-automation
+{% endblock %}
+
+{% block appdb_bundled %}
+{% endblock %}
 
 {% block packages %}
 {% endblock %}
-
-{% if is_appdb -%}
-
-# Download and extract the MongoDB archive and put it where the automation agent expects to find it.
-# So an AppDB agent will download MongoDB from the internet only if the version does not match the version we have put inside the container.
-RUN curl --fail --retry 3 -L -o "${BINARY_NAME}" "${MDB_URL}${BINARY_NAME}" \
-    && mkdir -p "${MDB_DIR}" \
-    && tar -xzf "${BINARY_NAME}" \
-    && rm "${BINARY_NAME}" \
-    # We need to strip the binary name from its tgz extension
-    && mv "${BINARY_NAME%.*}" "${MDB_DIR}" \
-    && chmod -R 0775 "${MDB_DIR}"
-
-# Download the latest Automation Agent binary
-RUN mkdir -p ${MMS_HOME}/files/ \
-    && curl --fail --retry 3 -L -o automation-agent.tar.gz "${AA_DOWNLOAD_URL}"  \
-    && tar -xzf automation-agent.tar.gz \
-    && mv mongodb-mms-automation-agent-*/mongodb-mms-automation-agent "${MMS_HOME}/files/" \
-    && chmod +x "${MMS_HOME}/files/mongodb-mms-automation-agent" \
-    && rm -rf automation-agent.tar.gz "mongodb-mms-automation-agent-*/"
-
-    # would prefer to have specific versions instead of *
-    # && mv "./mongodb-mms-automation-agent-${AA_VERSION}.linux_x86_64/mongodb-mms-automation-agent" "${MMS_HOME}/files/" \
-    # && rm -rf automation-agent.tar.gz "mongodb-mms-automation-agent-${AA_VERSION}.linux_x86_64/"
-
-# Remove when we move to init appdb
-RUN echo "${AA_VERSION}" > "${MMS_HOME}/files/agent-version"
-
-{% endif %}
 
 # Set the required perms
 RUN    mkdir -p "${MMS_LOG_DIR}" \
@@ -101,6 +66,8 @@ USER 2000
 # to override the COMMAND
 ENTRYPOINT ["sleep infinity"]
 {% endblock %}
+
+COPY --from=base /data/licenses/mongodb-enterprise-database /licenses/mongodb-enterprise-database
 
 {% block healthcheck %}
 {% endblock %}

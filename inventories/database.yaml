@@ -1,0 +1,107 @@
+vars:
+  quay_registry: quay.io/mongodb/mongodb-enterprise-database
+  s3_bucket_http: https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles/mongodb-enterprise-database
+  s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-enterprise-database
+
+images:
+- name: database
+  vars:
+    context: docker/mongodb-enterprise-database
+
+  stages:
+  - name: database-build-context
+    task_type: docker_build
+    dockerfile: Dockerfile.builder
+
+    buildargs:
+      mongodb_server_ubi: $(inputs.params.mongodb_server_ubi)
+      mongodb_server_ubuntu: $(inputs.params.mongodb_server_ubuntu)
+      mongodb_agent_linux: $(inputs.params.mongodb_agent_linux)
+
+    output:
+    - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-database-context
+      tag: $(inputs.params.version_id)
+  
+  - name: init-appdb-template-ubuntu
+    task_type: dockerfile_template
+    distro: ubuntu
+    tags: ["ubuntu"]
+
+    inputs:
+    - version
+    - is_appdb
+
+    output:
+    - dockerfile: docker/mongodb-enterprise-database/Dockerfile.ubuntu-$(inputs.params.version_id)
+
+  - name: database-build-ubuntu
+    task_type: docker_build
+    dockerfile: Dockerfile.ubuntu-$(inputs.params.version_id)
+    tags: ["ubuntu"]
+
+    buildargs:
+      imagebase: $(inputs.params.registry)/ubuntu/mongodb-enterprise-database-context:$(inputs.params.version_id)
+
+    output:
+    - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-database
+      tag: $(inputs.params.version_id)
+
+  - name: init-appdb-template-ubi
+    task_type: dockerfile_template
+    distro: ubi
+    tags: ["ubi"]
+
+    inputs:
+    - version
+    - is_appdb
+
+    output:
+    - dockerfile: docker/mongodb-enterprise-database/Dockerfile.ubi-$(inputs.params.version_id)
+
+  - name: database-build-ubi
+    task_type: docker_build
+    dockerfile: Dockerfile.ubi-$(inputs.params.version_id)
+    tags: ["ubi"]
+
+    buildargs:
+      imagebase: $(inputs.params.registry)/ubuntu/mongodb-enterprise-database-context:$(inputs.params.version_id)
+
+    output:
+    - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-database
+      tag: $(inputs.params.version_id)
+
+  - name: database-release-context
+    task_type: tag_image
+    tags: ["release"]
+
+    source:
+      registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-database-context
+      tag: $(inputs.params.version_id)
+
+    destination:
+    - registry: $(inputs.params.quay_registry)
+      tag: $(inputs.params.version)-context
+
+  - name: database-template-ubi
+    task_type: dockerfile_template
+    distro: ubi
+    tags: ["release"]
+
+    inputs:
+    - version
+    - is_appdb
+
+    output:
+    - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubi-$(inputs.params.version)
+
+  - name: database-template-ubuntu
+    task_type: dockerfile_template
+    distro: ubuntu
+    tags: ["release"]
+
+    inputs:
+    - version
+    - is_appdb
+
+    output:
+    - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubuntu-$(inputs.params.version)

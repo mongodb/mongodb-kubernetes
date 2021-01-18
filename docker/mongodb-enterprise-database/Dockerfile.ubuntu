@@ -1,4 +1,7 @@
-{% extends "Dockerfile.template" %}
+{% extends "Dockerfile.appdb" %}
+
+{% set base_image = "ubuntu:16.04" %}
+{% set distro = "ubuntu" %}
 
 {% block packages %}
 RUN apt-get -qq update \

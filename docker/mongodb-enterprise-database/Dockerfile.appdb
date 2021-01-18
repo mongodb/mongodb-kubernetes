@@ -1,0 +1,36 @@
+{% extends "Dockerfile.template" %}
+
+{#
+This appdb intermediate file holds everything needed to build the appdb and
+everything should be part of the following `if is_appdb` block. Unfortunatelly
+the {% is_appdb %} block should be added to each individual block in here,
+and can't be set globally for the whole file.
+#}
+
+
+{% block appdb_bundled %}
+{% if is_appdb %}
+
+{% set mdb_dir = "/var/lib/mongodb-mms-automation/downloads" %}
+
+# Download and extract the MongoDB archive and put it where the automation agent
+# expects to find it. The Mongodb agent will download MongoDB from the Internet
+# only if the version does not match the version we have put inside the image.
+
+COPY --from=base /data/mongodb_server_{{ distro }}.tgz /tmp
+RUN mkdir -p {{ mdb_dir }} \
+    && tar -xzf "/tmp/mongodb_server_{{ distro }}.tgz" --directory "{{ mdb_dir }}" \
+    && rm "/tmp/mongodb_server_{{ distro }}.tgz" \
+    && chmod -R 0775 "{{ mdb_dir }}"
+
+COPY --from=base /data/mongodb_agent_linux.tgz /tmp
+RUN mkdir -p ${MMS_HOME}/files/ \
+    && tar -xzf /tmp/mongodb_agent_linux.tgz --directory / \
+    && mv /mongodb-mms-automation-agent-*/mongodb-mms-automation-agent "${MMS_HOME}/files/" \
+    && chmod +x "${MMS_HOME}/files/mongodb-mms-automation-agent" \
+    && rm -rf /tmp/mongodb_agent_linux.tgz "/mongodb-mms-automation-agent-*/"
+
+RUN echo "{{ agent_version }}" > ${MMS_HOME}/files/agent-version
+
+{% endif %}
+{% endblock appdb_bundled %}

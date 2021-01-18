@@ -81,7 +81,7 @@ operator: configure-operator build-and-push-operator-image
 
 # build-push, (todo) restart database
 database: aws_login
-	@ scripts/dev/build_push_database_image
+	@ ./pipeline.py --include database
 
 # ensures cluster is up, cleans Kubernetes + OM, build-push-deploy operator,
 # push-deploy database, create secrets, config map, resources etc
@@ -91,7 +91,7 @@ full: ensure-k8s-and-reset build-and-push-images
 
 # build-push appdb image
 appdb: aws_login
-	@ om_version=$(om_version) scripts/dev/build_push_appdb_image.sh
+	@ ./pipeline.py --include appdb
 
 # install OM in Evergreen
 om-evg:

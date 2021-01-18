@@ -63,6 +63,13 @@ parameters:
   value: 268558157000.dkr.ecr.us-east-1.amazonaws.com
   description: Development ECR registry
 
+- key: appdb_registry
+  value: quay.io/mongodb
+  description: registry where appdb images are stored for this run
+
+- key: database_registry
+  value: quay.io/mongodb
+  description: registry where database images are stored for this run
 
 functions:
   "golint":
@@ -1741,91 +1748,31 @@ tasks:
   commands:
     - func: e2e_test
 
-- name: build_and_push_appdb_ubuntu
+- name: release_appdb
   patch_only: true
   commands:
-    - func: clone
-    - func: setup_jq
-    - func: setup_aws
-    - func: configure_docker_auth
-    - func: build_and_push_appdb_image_generic
-      vars:
-        IMAGE_TYPE: "ubuntu"
+  - func: clone
+  - func: setup_building_host
+  - func: quay_login
+  - func: pipeline
+    vars:
+      image_name: appdb
+  - func: add_supported_release
+    vars:
+      image_name: appdb
 
-- name: build_and_push_appdb_ubi
+- name: release_database
   patch_only: true
   commands:
-    - func: clone
-    - func: setup_jq
-    - func: setup_aws
-    - func: configure_docker_auth
-      vars:
-        <<: *kubernetes_environment_vanilla
-    - func: build_and_push_appdb_image_generic
-      vars:
-        IMAGE_TYPE: "ubi"
-
-- name: build_and_push_database_ubuntu
-  patch_only: true
-  commands:
-    - func: clone
-    - func: setup_jq
-    - func: setup_aws
-    - func: configure_docker_auth
-    - func: build_and_push_database_image_generic
-      vars:
-        IMAGE_TYPE: "ubuntu"
-    - func: release_docker_image_to_registry
-      vars:
-        tag_source: ${database_version}
-        tag_dest: ${database_version}
-        image_source: ${ecr_registry}/images/ubuntu/mongodb-enterprise-database
-        image_target: quay.io/mongodb/mongodb-enterprise-database
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
-    - func: release_docker_image_to_registry
-      vars:
-        tag_source: ${database_version}
-        tag_dest: '$(echo ${database_version}-b$(date +%Y%m%d%H%M))'
-        image_source: ${ecr_registry}/images/ubuntu/mongodb-enterprise-database
-        image_target: quay.io/mongodb/mongodb-enterprise-database
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
-
-- name: build_and_push_database_ubi
-  patch_only: true
-  commands:
-    - func: clone
-    - func: setup_jq
-    - func: setup_aws
-    - func: configure_docker_auth
-    - func: build_and_push_database_image_generic
-      vars:
-        IMAGE_TYPE: "ubi"
-    - func: release_docker_image_to_registry
-      vars:
-        tag_source: ${database_version}
-        tag_dest: ${database_version}
-        image_source: ${ecr_registry}/images/ubi/mongodb-enterprise-database
-        image_target: quay.io/mongodb/mongodb-enterprise-database-ubi
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
-    - func: release_docker_image_to_registry
-      vars:
-        tag_source: ${database_version}
-        tag_dest: '$(echo ${database_version}-b$(date +%Y%m%d%H%M))'
-        image_source: ${ecr_registry}/images/ubi/mongodb-enterprise-database
-        image_target: quay.io/mongodb/mongodb-enterprise-database-ubi
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
-    - func: release_docker_image_to_registry
-      vars:
-        tag_source: ${database_version}
-        tag_dest: ${database_version}
-        image_source: ${ecr_registry}/images/ubi/mongodb-enterprise-database
-        image_target: scan.connect.redhat.com/ospid-239de277-d8bb-44b4-8593-73753752317f/mongodb-enterprise-database
-        docker_username: unused
-        docker_password: ${rhc_database_pid}
+  - func: clone
+  - func: setup_building_host
+  - func: quay_login
+  - func: pipeline
+    vars:
+      image_name: database
+  - func: add_supported_release
+    vars:
+      image_name: database
 
 - name: build_ops_manager_ubuntu
   patch_only: true
@@ -2727,10 +2674,7 @@ buildvariants:
   run_on:
   - ubuntu1604-build
   tasks:
-    - name: build_and_push_database_ubuntu
-    - name: build_and_push_database_ubi
-  expansions:
-    database_version: 2.0.0
+  - name: release_database
 
 # build AppDB: to be launched independently of the operator build process (evergreen patch)
 # evergreen patch --project ops-manager-kubernetes -v build_and_push_appdb_images -d "AppDB release" --finalize
@@ -2739,8 +2683,7 @@ buildvariants:
   run_on:
   - ubuntu1604-build
   tasks:
-    - name: build_and_push_appdb_ubuntu
-    - name: build_and_push_appdb_ubi
+  - name: release_appdb
 
 # build OpsManager: to be launched independently of the operator build process (evergreen patch).
 # To perform the build, you can use the following `evergreen` command:

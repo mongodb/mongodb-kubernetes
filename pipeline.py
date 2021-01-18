@@ -199,6 +199,63 @@ def build_operator_image(build_configuration: BuildConfiguration):
     sonar_build_image(image_name, build_configuration, args)
 
 
+def build_database_image(build_configuration: BuildConfiguration):
+    """
+    Builds a new database image.
+    """
+    image_name = "database"
+    release = get_release()
+    base_url = release["appDbBundle"]["baseUrl"]
+
+    mongodb_server_ubi = "{}/{}".format(base_url, release["appDbBundle"]["ubi"])
+    mongodb_server_ubuntu = "{}/{}".format(base_url, release["appDbBundle"]["ubuntu"])
+
+    agent_version = release["appDbBundle"]["agent_version"]
+    agent_url = release["appDbBundle"]["agent_url"]
+    mongodb_agent_linux = agent_url.format(agent_version=agent_version)
+    version = release["databaseImageVersion"]
+
+    args = dict(
+        mongodb_server_ubi=mongodb_server_ubi,
+        mongodb_server_ubuntu=mongodb_server_ubuntu,
+        mongodb_agent_linux=mongodb_agent_linux,
+        version=version,
+        is_appdb=False,
+    )
+
+    sonar_build_image(
+        image_name, build_configuration, args, "inventories/database.yaml"
+    )
+
+
+def build_appdb_image(build_configuration: BuildConfiguration):
+    """
+    Builds a new appdb image.
+    """
+    image_name = "appdb"
+    release = get_release()
+    base_url = release["appDbBundle"]["baseUrl"]
+
+    mongodb_server_ubi = "{}/{}".format(base_url, release["appDbBundle"]["ubi"])
+    mongodb_server_ubuntu = "{}/{}".format(base_url, release["appDbBundle"]["ubuntu"])
+
+    agent_version = release["appDbBundle"]["agent_version"]
+    agent_url = release["appDbBundle"]["agent_url"]
+    mongodb_agent_linux = agent_url.format(agent_version=agent_version)
+    version = release["appDbImageVersion"]
+
+    args = dict(
+        mongodb_server_ubi=mongodb_server_ubi,
+        mongodb_server_ubuntu=mongodb_server_ubuntu,
+        mongodb_agent_linux=mongodb_agent_linux,
+        agent_version=agent_version,
+        version=version,
+        is_appdb=True,
+    )
+
+    sonar_build_image(image_name, build_configuration, args, "inventories/appdb.yaml")
+
+
 def build_operator_image_patch(build_configuration: BuildConfiguration):
     """This function builds the operator locally and pushed into an existing
     Docker image. This is the fastest way I could image we can do this."""
@@ -312,6 +369,46 @@ def build_init_appdb_daily(build_configuration: BuildConfiguration):
         try:
             sonar_build_image(
                 image_name, build_configuration, args, "inventories/init_appdb.yaml"
+            )
+        except Exception as e:
+            # Log error and continue
+            logging.error(e)
+
+
+def build_appdb_daily(build_configuration: BuildConfiguration):
+    image_name = "appdb-daily"
+    build_id = datetime.now().strftime("%Y%m%d%H%M%S")
+
+    supported_versions = get_supported_version_for_image("appdb")
+    logging.info("AppDB Supported Versions: {}".format(supported_versions))
+
+    for release in supported_versions:
+        logging.info("Rebuilding {}".format(release["version"]))
+
+        args = dict(build_id=build_id, release_version=release["version"])
+        try:
+            sonar_build_image(
+                image_name, build_configuration, args, "inventories/appdb.yaml"
+            )
+        except Exception as e:
+            # Log error and continue
+            logging.error(e)
+
+
+def build_database_daily(build_configuration: BuildConfiguration):
+    image_name = "database-daily"
+    build_id = datetime.now().strftime("%Y%m%d%H%M%S")
+
+    supported_versions = get_supported_version_for_image("database")
+    logging.info("Database Supported Versions: {}".format(supported_versions))
+
+    for release in supported_versions:
+        logging.info("Rebuilding {}".format(release["version"]))
+
+        args = dict(build_id=build_id, release_version=release["version"])
+        try:
+            sonar_build_image(
+                image_name, build_configuration, args, "inventories/database.yaml"
             )
         except Exception as e:
             # Log error and continue
@@ -457,6 +554,8 @@ def get_builder_function_for_image_name():
     return {
         "operator": build_operator_image,
         "operator-quick": build_operator_image_patch,
+        "database": build_database_image,
+        "appdb": build_appdb_image,
         #
         # Init images
         "init-appdb": build_init_appdb,

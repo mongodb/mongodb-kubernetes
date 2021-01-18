@@ -72,8 +72,8 @@ def get_latest_version_for_image(image: str) -> str:
         "init-ops-manager": "initOpsManagerVersion",
         #
         # non-init-images
-        "appdb": "appDBImageAgentVersion",
-        "database": "databaseVersion",  # does not exists in release.json yet.
+        "appdb": "appDbImageVersion",
+        "database": "databaseImageVersion",
     }
     return get_release()[image_to_release[image]]
 
