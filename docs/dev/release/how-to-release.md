@@ -1,8 +1,8 @@
 # Operator Release
 
-The release procedure means building all necessary images and pushing them to image repositories.
-Also all relevant places are upgraded (Openshift Marketplace, public Github repository) and
-release notes are published.
+The release procedure means building all necessary images and pushing them to
+image repositories. Also all relevant places are upgraded (Openshift
+Marketplace, public Github repository) and release notes are published.
 
 The images released are:
 - operator
@@ -10,23 +10,22 @@ The images released are:
 - ops manager
 - appdb
 
-The Operator and the Database image follow a simple versioning schema (1.2.0, 1.2.1...).
+## 1. Update Jira to reflect the patches in the release
 
-The release process is documented below:
+Update any finished tickets in
+[kube-enterprise-next](https://tinyurl.com/kube-next-resolved) to have the
+version of the release you're doing (kube-x.y):
 
-## Update Jira to reflect the patches in the release (Tuesday)
-
-Update any finished tickets in [kube-enterprise-next](https://jira.mongodb.org/issues/?jql=project%20%3D%20CLOUDP%20AND%20component%20%3D%20%22Kubernetes%20Enterprise%22%20%20AND%20status%20in%20(Resolved%2C%20Closed)%20and%20fixVersion%3D%20kube-enterprise-next%20%20ORDER%20BY%20resolved) to have the version of the release you're doing (kube-x.y):
 * Click `tools` -> `bulk change` in the top right corner
 * Select all tickets and click `Next`
 * Choose `Edit issues`
-* Choose `Change Fix Version/s` -> `Replace all with` and select the released version, `Next`
+* Choose `Change Fix Version/s` -> `Replace all with` and select the released
+  version, `Next`
 
-
-## Prepare Release Notes (Tuesday)
+## 2. Prepare Release Notes
 
 Draft the release notes describing the tickets in the current
-[fixVersion](https://jira.mongodb.org/issues/?jql=project%20%3D%20CLOUDP%20AND%20component%20%3D%20Kubernetes%20AND%20status%20in%20(Resolved%2C%20Closed)%20and%20fixVersion%3D%20kube-enterprise-next%20).
+[fixVersion](https://tinyurl.com/kube-next).
 
 Submit the proposed release notes in the team Slack channel
 ([#k8s-operator-devs](https://mongodb.slack.com/messages/CGLP6R2PQ)) for peer
@@ -34,7 +33,8 @@ review. Once people have had a chance to look at them, create a DOCSP ticket to
 publish the release notes. If the DOCSP ticket has not been assigned by
 Wednesday, ask about it in the #docs channel.
 
-Ensure there is a link to our quay.io tags, and if there are any Medium or higher CVEs **include a section in the release notes**.
+Ensure there is a link to our quay.io tags, and if there are any Medium or
+higher CVEs **include a section in the release notes**.
 
 ```
 A list of the packages installed, and any security vulnerabilities detected in our build process, are outlined here
@@ -46,25 +46,28 @@ And for the MongoDB Enterprise Database
 https://quay.io/repository/mongodb/mongodb-enterprise-database?tab=tags
 ```
 
-If this is a major-version release, include the EOL date in the Release Notes so that the docs team update our [Support Lifecycle page](https://docs.mongodb.com/kubernetes-operator/master/reference/support-lifecycle/#k8s-support-lifecycle)
+If this is a major-version release, include the EOL date in the Release Notes so
+that the docs team update our [Support Lifecycle
+page](https://docs.mongodb.com/kubernetes-operator/master/reference/support-lifecycle/#k8s-support-lifecycle)
 
 
-## Release ticket, branch and PR
+## 3. Release ticket, branch and PR
 
 * Create a branch named after release ticket.
 * Check that all samples and `README` in `public` folder are up-to-date -
   otherwise fix them and push changes.
 
-## Increase release versions in relevant files
+## 4. Increase release versions in relevant files
 
 Ensure the required dependencies are installed
 ```bash
 pip3 install -r scripts/evergreen/requirements.txt
 ```
 
-Run the script in an interactive mode and fill the details for the versions of the images to be released.
-Note, that Operator is always released but "init" images are released only if there were changes in the content
-since the last release. The script will check this and will ask for new versions if necessary.
+Run the script in an interactive mode and fill the details for the versions of
+the images to be released. Note, that Operator is always released but "init"
+images are released only if there were changes in the content since the last
+release. The script will check this and will ask for new versions if necessary.
 
 ```bash
 git fetch
@@ -73,16 +76,15 @@ git fetch
 
 Push the PR changes
 
-## Get the release PR approved and merge the branch to Master
+## 5. Get the release PR approved and merge the branch to Master
 
-Ask someone from the team to approve the PR.
+Ask someone from the team to approve the PR and then merge the release branch to
+master.
 
-Merge the release branch to master
+## 6. Tag the commit for release
 
-## Tag the commit for release
-
-Checkout the latest master and pull changes
-Create a signed and annotated tag for this particular release. Set the message contents to the release notes.
+1. Checkout the latest master and pull changes
+2. Create a signed and annotated tag for this particular release. Set the message contents to the release notes.
 
 ```bash
 git checkout master
@@ -91,7 +93,7 @@ git tag --annotate --sign $(jq --raw-output .mongodbOperator < release.json)
 git push origin $(jq --raw-output .mongodbOperator < release.json)
 ```
 
-## Build and push images
+## 7. Build and push images
 
 The following images are expected to get released by the end of this procedure:
 * Operator
@@ -103,9 +105,8 @@ The following images are expected to get released by the end of this procedure:
 
 To perform release it's necessary to manually override dependencies in the tasks in the following
 Evergreen build variants (after the release branch was merged):
-* release_quay_ubi (will deploy all images to quay.io based on UBI)
-* release_quay_ubuntu (will deploy all images to quay.io based on Ubuntu)
-* release_rh_connect (will deploy all images to Red Hat Connect)
+* `release_quay` (will deploy all images to quay.io based on UBI and Ubuntu)
+* `release_rh` (will deploy all images to Red Hat Connect)
 
 **Note** that `appdb` release tasks should be run only if the new version of appdb image has been released
 
@@ -129,6 +130,24 @@ The following images won't be published by release process, shown here just for 
 * https://connect.redhat.com/project/2207181/images (Ops Manager)
 * https://connect.redhat.com/project/2207271/images (AppDB)
 
+## 8. Operator Daily Builds
+
+The outcome of the execution of the `release_quay`
+task *will not be new Images published but instead*:
+
+1. A Dockerfile corresponding to this version & distro will be uploaded to S3 ([example Dockerfile for 1.9.0/ubuntu](https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles/mongodb-enterprise-operator/Dockerfile.ubuntu-1.9.0) & [example Dockerfile for 1.9.0/ubi](https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles/mongodb-enterprise-operator/Dockerfile.ubi-1.9.0)).
+2. A context container image, containing all the container context to build this image from scratch ([example Container image](https://quay.io/mongodb/mongodb-enterprise-operator:1.9.0-context))
+
+These 2 artifacts will be used daily to produce new builds of the image in
+question. The task that's responsible for this is the Evergreen alias:
+`periodic-builds` which *will be executed daily*. This periodic build is
+executed everyday at midnight, thus, the first published image of this version
+of the operator will be available at that time and not before.
+
+The results of the periodic builds will appear as notifications in the
+[#k8s-operator-daily-builds](https://mongodb.slack.com/archives/C01HYH2KUJ1)
+Slack channel.
+
 ## Publish public repo
 
 First make sure that the `/public` directory is up to date with the public
@@ -139,8 +158,10 @@ Then run
 
     scripts/evergreen/update_public_repo.sh <path_to_public_repo_root>
 
-This will copy the contents of the `public` directory in the `10gen/ops-manager-kubernetes` into
-the root of the `mongodb/mongodb-enterprise-kubernetes`, the public repo and will commit changes (not push!)
+This will copy the contents of the `public` directory in the
+`10gen/ops-manager-kubernetes` into the root of the
+`mongodb/mongodb-enterprise-kubernetes`, the public repo and will commit changes
+(not push!)
 
 This script will also generate YAML files that can be used to install
 the operator in clusters with no Helm installed. These yaml files will
