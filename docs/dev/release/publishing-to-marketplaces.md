@@ -198,7 +198,7 @@ mongodb-enterprise.package.yaml
 Copy the directory generated in the enterprise repo:
 
 ``` bash
-cp -r ${GOPATH}/src/github.com/10gen/ops-manager-kubernetes/deploy/csv/X.Y.Z .
+cp -r ${GOPATH}/src/github.com/10gen/ops-manager-kubernetes/bundle/csv/X.Y.Z .
 ```
 
 
