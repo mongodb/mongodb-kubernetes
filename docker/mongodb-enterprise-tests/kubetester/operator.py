@@ -11,6 +11,8 @@ from kubernetes.client.rest import ApiException
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
 from kubetester.helm import helm_install, helm_upgrade, helm_template, helm_uninstall
 
+import requests
+
 OPERATOR_CRDS = (
     "mongodb.mongodb.com",
     "mongodbusers.mongodb.com",
@@ -20,7 +22,7 @@ OPERATOR_CRDS = (
 
 class Operator(object):
     """Operator is an abstraction over some Operator and relevant  resources. It allows to create and delete
-    the Operator deployment and K8s resources. """
+    the Operator deployment and K8s resources."""
 
     def __init__(
         self,
@@ -43,13 +45,14 @@ class Operator(object):
         self.name = name
 
     def install_from_template(self):
-        """ Uses helm to generate yaml specification and then uses python K8s client to apply them to the cluster
-        This is equal to helm template...| kubectl apply - """
+        """Uses helm to generate yaml specification and then uses python K8s client to apply them to the cluster
+        This is equal to helm template...| kubectl apply -"""
         yaml_file = helm_template(
             self.helm_arguments, helm_chart_path=self.helm_chart_path
         )
         create_or_replace_from_yaml(client.api_client.ApiClient(), yaml_file)
         self._wait_for_operator_ready()
+        self._wait_operator_webhook_is_ready()
 
         return self
 
@@ -62,6 +65,7 @@ class Operator(object):
             helm_options=self.helm_options,
         )
         self._wait_for_operator_ready()
+        self._wait_operator_webhook_is_ready()
 
         return self
 
@@ -75,6 +79,7 @@ class Operator(object):
             helm_options=self.helm_options,
         )
         self._wait_for_operator_ready()
+        self._wait_operator_webhook_is_ready()
 
         return self
 
@@ -100,8 +105,8 @@ class Operator(object):
         return client.AppsV1Api().read_namespaced_deployment(self.name, self.namespace)
 
     def assert_is_running(self):
-        """ Makes 3 checks that the Operator is running with 1 second interval. One check is not enough as the Operator may get
-        to Running state for short and fail later """
+        """Makes 3 checks that the Operator is running with 1 second interval. One check is not enough as the Operator may get
+        to Running state for short and fail later"""
         for _ in range(0, 3):
             pods = self.list_operator_pods()
             assert len(pods) == 1
@@ -134,6 +139,38 @@ class Operator(object):
 
         raise Exception(
             f"Operator hasn't started in specified time after {retries} retries."
+        )
+
+    def _wait_operator_webhook_is_ready(self, retries: int = 10):
+        logging.debug("_wait_operator_webhook_is_ready")
+        webhook_endpoint = "https://operator-webhook/validate-mongodb-com-v1-mongodb"
+        headers = {"Content-Type": "application/json"}
+
+        retry_count = retries + 1
+        while retry_count > 0:
+            retry_count -= 1
+
+            logging.debug("Waiting for operator/webhook to be functional")
+            try:
+                response = requests.post(
+                    webhook_endpoint, headers=headers, verify=False, timeout=2
+                )
+            except Exception as e:
+                logging.debug(e)
+                time.sleep(1)
+                continue
+
+            try:
+                # Let's assume that if we get a json response, then the webhook
+                # is already in place.
+                response.json()
+            except Exception:
+                logging.debug("Didn't get a json response from webhook")
+            else:
+                return
+
+        raise Exception(
+            "Operator webhook didn't start after {} retries".format(retries)
         )
 
     def print_diagnostics(self):
