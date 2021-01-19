@@ -1935,7 +1935,7 @@ task_groups:
 # This is the task group that contains all the tests run in the e2e_mdb_openshift_ubi_cloudqa build variant
 - name: e2e_mdb_openshift_ubi_cloudqa_task_group
   # OM tests are also run on the same Openshift cluster so we shouldn't go too high
-  max_hosts: 8
+  max_hosts: 4
   setup_group:
     - func: clone
     - func: download_kube_tools
@@ -2205,11 +2205,11 @@ task_groups:
     - func: teardown_kubernetes_environment
 
 # This task is identical to e2e_ops_manager_kind_only_task_group, with the exception that
-# it will run 2 hosts at a time, not more. In shared cluster (Kops/Openshift) this means
+# it will run 1 host at a time, not more. In shared cluster (Kops/Openshift) this means
 # that the Ops Manager tests will not overload the cluster if run in parallel builds.
 # Operator upgrade tests must not be included here!
 - name: e2e_ops_manager_task_group_safe
-  max_hosts: 2
+  max_hosts: 1
   setup_group:
     - func: clone
     - func: download_kube_tools
