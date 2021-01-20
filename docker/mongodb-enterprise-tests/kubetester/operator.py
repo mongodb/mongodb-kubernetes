@@ -143,7 +143,10 @@ class Operator(object):
 
     def _wait_operator_webhook_is_ready(self, retries: int = 10):
         logging.debug("_wait_operator_webhook_is_ready")
-        webhook_endpoint = "https://operator-webhook/validate-mongodb-com-v1-mongodb"
+        validation_endpoint = "validate-mongodb-com-v1-mongodb"
+        webhook_endpoint = "https://operator-webhook.{}.svc.cluster.local/{}".format(
+            self.namespace, validation_endpoint
+        )
         headers = {"Content-Type": "application/json"}
 
         retry_count = retries + 1
@@ -157,7 +160,7 @@ class Operator(object):
                 )
             except Exception as e:
                 logging.debug(e)
-                time.sleep(1)
+                time.sleep(2)
                 continue
 
             try:
@@ -168,6 +171,8 @@ class Operator(object):
                 logging.debug("Didn't get a json response from webhook")
             else:
                 return
+
+            time.sleep(2)
 
         raise Exception(
             "Operator webhook didn't start after {} retries".format(retries)

@@ -69,7 +69,7 @@ TEST_RESULTS=0
 timeout --foreground "${timeout_sec}" scripts/evergreen/e2e/single_e2e.sh || TEST_RESULTS=$?
 
 # Dump all the information we can from this namespace
-dump_all
+dump_all || true
 
 if [[ "${TEST_RESULTS}" -ne 0 ]]; then
     # Mark namespace as failed to be cleaned later
@@ -78,11 +78,11 @@ if [[ "${TEST_RESULTS}" -ne 0 ]]; then
     if [ "${always_remove_testing_namespace-}" = "true" ]; then
         # Failed namespaces might cascade into more failures if the namespaces
         # are not being removed soon enough.
-        scripts/evergreen/e2e/teardown.sh
+        scripts/evergreen/e2e/teardown.sh || true
     fi
 else
     # If the test pass, then the namespace is removed
-    scripts/evergreen/e2e/teardown.sh
+    scripts/evergreen/e2e/teardown.sh || true
 fi
 
 # We exit with the test result to surface status to Evergreen.
