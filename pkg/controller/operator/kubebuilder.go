@@ -9,15 +9,10 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
-
-	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 const (
@@ -36,50 +31,6 @@ const (
 	// CaCertName is the name of the volume with the CA Cert
 	CaCertName = "ca-cert-volume"
 )
-
-// buildService creates the Kube Service. If it should be seen externally it makes it of type NodePort that will assign
-// some random port in the range 30000-32767
-// Note that itself service has no dedicated IP by default ("clusterIP: None") as all mongo entities should be directly
-// addressable.
-// This function will update a Service object if passed, or return a new one if passed nil, this is to be able to update
-// Services and to not change any attribute they might already have that needs to be maintained.
-func buildService(namespacedName types.NamespacedName, owner v1.CustomResourceReadWriter, label string, port int32, mongoServiceDefinition omv1.MongoDBOpsManagerServiceDefinition) corev1.Service {
-	labels := map[string]string{
-		AppLabelKey:                   label,
-		construct.ControllerLabelName: util.OperatorName,
-	}
-	svcBuilder := service.Builder().
-		SetNamespace(namespacedName.Namespace).
-		SetName(namespacedName.Name).
-		SetPort(port).
-		SetOwnerReferences(baseOwnerReference(owner)).
-		SetLabels(labels).
-		SetSelector(labels).
-		SetServiceType(mongoServiceDefinition.Type)
-
-	serviceType := mongoServiceDefinition.Type
-	if serviceType == corev1.ServiceTypeNodePort || serviceType == corev1.ServiceTypeLoadBalancer {
-		svcBuilder.SetClusterIP("").SetNodePort(mongoServiceDefinition.Port)
-	}
-
-	if serviceType == corev1.ServiceTypeClusterIP {
-		svcBuilder.SetPublishNotReadyAddresses(true).SetClusterIP("None").SetPortName("mongodb")
-	}
-
-	if mongoServiceDefinition.Annotations != nil {
-		svcBuilder.SetAnnotations(mongoServiceDefinition.Annotations)
-	}
-
-	if mongoServiceDefinition.LoadBalancerIP != "" {
-		svcBuilder.SetLoadBalancerIP(mongoServiceDefinition.LoadBalancerIP)
-	}
-
-	if mongoServiceDefinition.ExternalTrafficPolicy != "" {
-		svcBuilder.SetExternalTrafficPolicy(mongoServiceDefinition.ExternalTrafficPolicy)
-	}
-
-	return svcBuilder.Build()
-}
 
 func baseOwnerReference(owner v1.CustomResourceReadWriter) []metav1.OwnerReference {
 	if owner == nil {
@@ -109,7 +60,7 @@ func databaseEnvVars(podVars *env.PodEnvVars) []corev1.EnvVar {
 			Name:  util.ENV_VAR_USER,
 			Value: podVars.User,
 		},
-		envVarFromSecret(util.ENV_VAR_AGENT_API_KEY, agentApiKeySecretName(podVars.ProjectID), util.OmAgentApiKey),
+		env.FromSecret(util.ENV_VAR_AGENT_API_KEY, agentApiKeySecretName(podVars.ProjectID), util.OmAgentApiKey),
 		{
 			Name:  util.ENV_VAR_LOG_LEVEL,
 			Value: string(podVars.LogLevel),

@@ -13,10 +13,11 @@ import (
 func init() {
 	logger, _ := zap.NewDevelopment()
 	zap.ReplaceGlobals(logger)
-	_ = os.Setenv(util.InitOpsManagerImageUrl, "quay.io/mongodb/mongodb-enterprise-init-opsmanager")
 }
 
 func Test_buildOpsManagerandBackupInitContainer(t *testing.T) {
+	_ = os.Setenv(util.InitOpsManagerImageUrl, "test-registry")
+
 	modification := buildOpsManagerAndBackupInitContainer()
 	container := &corev1.Container{}
 	modification(container)
@@ -28,7 +29,7 @@ func Test_buildOpsManagerandBackupInitContainer(t *testing.T) {
 	expectedSecurityContext := defaultSecurityContext()
 	expectedContainer := &corev1.Container{
 		Name:            util.InitOpsManagerContainerName,
-		Image:           "quay.io/mongodb/mongodb-enterprise-init-opsmanager:latest",
+		Image:           "test-registry:latest",
 		VolumeMounts:    expectedVolumeMounts,
 		SecurityContext: &expectedSecurityContext,
 	}

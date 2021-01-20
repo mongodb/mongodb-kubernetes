@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
+
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
 )
@@ -107,4 +109,20 @@ type SSLProjectConfig struct {
 
 	// SSLMMSCAConfigMap will contain the CA cert, used to push multiple
 	SSLMMSCAConfigMapContents string
+}
+
+// FromSecret returns a corev1.EnvVar that is a reference to a secret with the field
+// "secretKey" being used
+func FromSecret(envVarName, secretName, secretKey string) corev1.EnvVar {
+	return corev1.EnvVar{
+		Name: envVarName,
+		ValueFrom: &corev1.EnvVarSource{
+			SecretKeyRef: &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: secretName,
+				},
+				Key: secretKey,
+			},
+		},
+	}
 }

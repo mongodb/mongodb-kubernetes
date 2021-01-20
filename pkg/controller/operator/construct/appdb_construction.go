@@ -207,7 +207,7 @@ func appdbContainerEnv(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 	podVars := opts.PodVars
 	// These env vars are required to configure Monitoring of the AppDB
 	if podVars != nil && podVars.ProjectID != "" {
-		envVars = append(envVars, envVarFromSecret(agentApiKeyEnv, agentApiKeySecretName(podVars.ProjectID), util.OmAgentApiKey))
+		envVars = append(envVars, env.FromSecret(agentApiKeyEnv, agentApiKeySecretName(podVars.ProjectID), util.OmAgentApiKey))
 		envVars = append(envVars, corev1.EnvVar{
 			Name:  util.ENV_VAR_PROJECT_ID,
 			Value: podVars.ProjectID,

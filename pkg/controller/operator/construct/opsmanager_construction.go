@@ -349,6 +349,6 @@ func opsManagerConfigurationToEnvVars(m omv1.MongoDBOpsManager) []corev1.EnvVar 
 		})
 	}
 	// Configure the AppDB Connection String property from a secret
-	envVars = append(envVars, envVarFromSecret(omv1.ConvertNameToEnvVarFormat(util.MmsMongoUri), m.AppDBMongoConnectionStringSecretName(), util.AppDbConnectionStringKey))
+	envVars = append(envVars, env.FromSecret(omv1.ConvertNameToEnvVarFormat(util.MmsMongoUri), m.AppDBMongoConnectionStringSecretName(), util.AppDbConnectionStringKey))
 	return envVars
 }

@@ -568,7 +568,7 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 			Name:  util.ENV_VAR_USER,
 			Value: podVars.User,
 		},
-		envVarFromSecret(agentApiKeyEnv, agentApiKeySecretName(podVars.ProjectID), util.OmAgentApiKey),
+		env.FromSecret(agentApiKeyEnv, agentApiKeySecretName(podVars.ProjectID), util.OmAgentApiKey),
 		{
 			Name:  util.ENV_VAR_LOG_LEVEL,
 			Value: string(podVars.LogLevel),
@@ -596,22 +596,6 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 	}
 
 	return vars
-}
-
-// envVarFromSecret returns a corev1.EnvVar that is a reference to a secret with the field
-// "secretKey" being used
-func envVarFromSecret(envVarName, secretName, secretKey string) corev1.EnvVar {
-	return corev1.EnvVar{
-		Name: envVarName,
-		ValueFrom: &corev1.EnvVarSource{
-			SecretKeyRef: &corev1.SecretKeySelector{
-				LocalObjectReference: corev1.LocalObjectReference{
-					Name: secretName,
-				},
-				Key: secretKey,
-			},
-		},
-	}
 }
 
 func databaseLivenessProbe() probes.Modification {

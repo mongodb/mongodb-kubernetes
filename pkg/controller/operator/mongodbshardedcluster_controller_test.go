@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 
@@ -862,7 +864,7 @@ func assertPodSpecTemplate(t *testing.T, nodeName, hostName string, restartPolic
 	assert.Equal(t, restartPolicy, podSpecTemplate.RestartPolicy)
 
 	assert.Equal(t, util.DatabaseContainerName, podSpecTemplate.Containers[0].Name, "Database container should always be first")
-	assert.True(t, volumeMountWithNameExists(podSpecTemplate.Containers[0].VolumeMounts, construct.PvcNameDatabaseScripts))
+	assert.True(t, enterprisests.VolumeMountWithNameExists(podSpecTemplate.Containers[0].VolumeMounts, construct.PvcNameDatabaseScripts))
 }
 
 func createDeploymentFromShardedCluster(updatable v1.CustomResourceReadWriter) om.Deployment {

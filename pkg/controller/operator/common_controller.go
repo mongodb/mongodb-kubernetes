@@ -6,6 +6,10 @@ import (
 	"os"
 	"reflect"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
+	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/certs"
 	enterprisepem "github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/pem"
 
@@ -320,7 +324,7 @@ func (r *ReconcileCommonController) doAgentX509CertsExist(namespace string) bool
 }
 
 // ensureInternalClusterCerts ensures that all the x509 internal cluster certs exist.
-// TODO: this is almost the same as kubeHelper::ensureSSLCertsForStatefulSet, we should centralize the functionality
+// TODO: this is almost the same as certs.EnsureSSLCertsForStatefulSet, we should centralize the functionality
 func (r *ReconcileCommonController) ensureInternalClusterCerts(mdb mdbv1.MongoDB, opts certs.Options, log *zap.SugaredLogger) (bool, error) {
 	// TODO: move this logic into the certs package
 	// Flag that's set to false if any of the certificates have not been approved yet.
@@ -713,7 +717,7 @@ func (r *ReconcileCommonController) readAgentSubjectsFromSecret(namespace string
 	}
 
 	numAgentCerts := len(agentCerts)
-	if numAgentCerts != NumAgents && numAgentCerts != 1 {
+	if numAgentCerts != certs.NumAgents && numAgentCerts != 1 {
 		return userOpts, fmt.Errorf("must provided either 1 or 3 agent certificates found %d", numAgentCerts)
 	}
 
@@ -735,7 +739,7 @@ func (r *ReconcileCommonController) readAgentSubjectsFromSecret(namespace string
 	monitoringAgentSubject = automationAgentSubject
 	backupAgentSubject = automationAgentSubject
 
-	if numAgentCerts == NumAgents {
+	if numAgentCerts == certs.NumAgents {
 		monitoringAgentSubject, err = getSubjectFromCertificate(agentCerts[util.MonitoringAgentPemSecretKey])
 		if err != nil {
 			return userOpts, fmt.Errorf("error extracting monitoring agent subject from agent-certs %e", err)
@@ -828,4 +832,54 @@ func newPodVars(conn om.Connection, projectConfig mdbv1.ProjectConfig, spec mdbv
 	podVars.LogLevel = string(spec.LogLevel)
 	podVars.SSLProjectConfig = projectConfig.SSLProjectConfig
 	return podVars
+}
+
+// needToPublishStateFirst will check if the Published State of the StatfulSet backed MongoDB Deployments
+// needs to be updated first. In the case of unmounting certs, for instance, the certs should be not
+// required anymore before we unmount them, or the automation-agent and readiness probe will never
+// reach goal state.
+func needToPublishStateFirst(stsGetter statefulset.Getter, mdb mdbv1.MongoDB, configFunc func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) bool {
+	opts := configFunc(mdb)
+	namespacedName := objectKey(mdb.Namespace, opts.Name)
+	currentSts, err := stsGetter.GetStatefulSet(namespacedName)
+	if err != nil {
+		if apiErrors.IsNotFound(err) {
+			// No need to publish state as this is a new StatefulSet
+			log.Debugf("New StatefulSet %s", namespacedName)
+			return false
+		}
+
+		log.Debugw(fmt.Sprintf("Error getting StatefulSet %s", namespacedName), "error", err)
+		return false
+	}
+
+	volumeMounts := currentSts.Spec.Template.Spec.Containers[0].VolumeMounts
+	if mdb.Spec.Security != nil {
+		if !mdb.Spec.Security.TLSConfig.Enabled && enterprisests.VolumeMountWithNameExists(volumeMounts, util.SecretVolumeName) {
+			log.Debug("About to set `security.tls.enabled` to false. automationConfig needs to be updated first")
+			return true
+		}
+
+		if mdb.Spec.Security.TLSConfig.CA == "" && enterprisests.VolumeMountWithNameExists(volumeMounts, ConfigMapVolumeCAName) {
+			log.Debug("About to set `security.tls.CA` to empty. automationConfig needs to be updated first")
+			return true
+		}
+	}
+
+	if opts.PodVars.SSLMMSCAConfigMap == "" && enterprisests.VolumeMountWithNameExists(volumeMounts, CaCertName) {
+		log.Debug("About to set `SSLMMSCAConfigMap` to empty. automationConfig needs to be updated first")
+		return true
+	}
+
+	if mdb.Spec.Security.GetAgentMechanism(opts.CurrentAgentAuthMode) != util.X509 && enterprisests.VolumeMountWithNameExists(volumeMounts, util.AgentSecretName) {
+		log.Debug("About to set `project.AuthMode` to empty. automationConfig needs to be updated first")
+		return true
+	}
+
+	if int32(opts.Replicas) < *currentSts.Spec.Replicas {
+		log.Debug("Scaling down operation. automationConfig needs to be updated first")
+		return true
+	}
+
+	return false
 }

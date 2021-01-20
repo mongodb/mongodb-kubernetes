@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/automationconfig"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/create"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
@@ -228,7 +229,7 @@ func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(rs omv1.AppDB,
 		return changeAutomationConfigDataIfNecessary(s, automationConfig, log)
 	}
 	// Perform computation of the automation config and possibly creation/update of the existing Secret
-	computedSecret, err := ensureAutomationConfigSecret(r.client, kube.ObjectKey(opsManager.Namespace, rs.AutomationConfigSecretName()),
+	computedSecret, err := automationconfig.EnsureSecret(r.client, kube.ObjectKey(opsManager.Namespace, rs.AutomationConfigSecretName()),
 		automationConfigUpdateCallback, &opsManager)
 
 	if err != nil {

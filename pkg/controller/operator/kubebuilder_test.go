@@ -641,7 +641,7 @@ func TestBuildOpsManagerStatefulSet(t *testing.T) {
 		expectedVars := []corev1.EnvVar{
 			{Name: "OM_PROP_mms_adminEmailAddr", Value: "cloud-manager-support@mongodb.com"},
 			{Name: "OM_PROP_mms_centralUrl", Value: "http://om-svc"},
-			envVarFromSecret("OM_PROP_mongo_mongoUri", om.AppDBMongoConnectionStringSecretName(), "connectionString"),
+			env.FromSecret("OM_PROP_mongo_mongoUri", om.AppDBMongoConnectionStringSecretName(), "connectionString"),
 			{Name: "CUSTOM_JAVA_MMS_UI_OPTS", Value: "-Xmx4291m -Xms4291m"},
 			{Name: "CUSTOM_JAVA_DAEMON_OPTS", Value: "-Xmx4291m -Xms4291m"},
 		}
@@ -674,7 +674,7 @@ func TestBuildOpsManagerStatefulSet(t *testing.T) {
 		sts, err := construct.OpsManagerStatefulSet(om)
 		assert.NoError(t, err)
 		expectedVars := []corev1.EnvVar{
-			envVarFromSecret("OM_PROP_mongo_mongoUri", om.AppDBMongoConnectionStringSecretName(), "connectionString"),
+			env.FromSecret("OM_PROP_mongo_mongoUri", om.AppDBMongoConnectionStringSecretName(), "connectionString"),
 			{Name: "CUSTOM_JAVA_MMS_UI_OPTS", Value: "-Xmx5149m -Xms343m"},
 			{Name: "CUSTOM_JAVA_DAEMON_OPTS", Value: "-Xmx5149m -Xms343m"},
 		}

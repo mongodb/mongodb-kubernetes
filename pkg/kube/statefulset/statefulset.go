@@ -113,3 +113,12 @@ func MergeSpec(defaultStsSpec appsv1.StatefulSet, overrideSpec *appsv1.StatefulS
 	defaultStsSpec.Spec = mergedSpec
 	return defaultStsSpec, nil
 }
+
+func VolumeMountWithNameExists(mounts []corev1.VolumeMount, volumeName string) bool {
+	for _, mount := range mounts {
+		if mount.Name == volumeName {
+			return true
+		}
+	}
+	return false
+}

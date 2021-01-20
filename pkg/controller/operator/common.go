@@ -23,8 +23,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 )
 
-// This is a collection of some common methods that may be shared by operator code
-
 // NewDefaultPodSpec creates pod spec with default values,sets only the topology key and persistence sizes,
 // seems we shouldn't set CPU and Memory if they are not provided by user
 func NewDefaultPodSpec() mdbv1.MongoDbPodSpec {
