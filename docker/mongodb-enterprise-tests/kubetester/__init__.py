@@ -4,7 +4,7 @@ import time
 from base64 import b64decode
 from typing import Dict, Optional, List
 
-from kubernetes import client
+from kubernetes import client, utils
 from kubernetes.client.rest import ApiException
 
 from kubetester.kubetester import run_periodically
@@ -42,6 +42,11 @@ def delete_service_account(namespace: str, name: str) -> str:
     sa = client.V1ServiceAccount(metadata=client.V1ObjectMeta(name=name))
     client.CoreV1Api().delete_namespaced_service_account(namespace=namespace, name=name)
     return name
+
+
+def create_object_from_dict(data, namespace: str) -> List:
+    k8s_client = client.ApiClient()
+    return utils.create_from_dict(k8s_client=k8s_client, data=data, namespace=namespace)
 
 
 def create_configmap(namespace: str, name: str, data: Dict[str, str]):

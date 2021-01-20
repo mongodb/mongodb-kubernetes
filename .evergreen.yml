@@ -1654,6 +1654,12 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_om_multiple
+  tags: ["patch-run"]
+  exec_timeout_secs: 2000
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_om_ops_manager_backup
   tags: ["patch-run"]
   exec_timeout_secs: 3000
@@ -2180,6 +2186,7 @@ task_groups:
     - e2e_om_ops_manager_upgrade
     - e2e_om_validation_webhook
     - e2e_om_ops_manager_secure_config
+    - e2e_om_multiple
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment

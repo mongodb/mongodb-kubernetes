@@ -84,6 +84,8 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 	log := zap.S().With("ReplicaSet (AppDB)", objectKey(opsManager.Namespace, rs.Name()))
 
 	appDbStatusOption := status.NewOMPartOption(status.AppDb)
+	omStatusOption := status.NewOMPartOption(status.OpsManager)
+
 	result, err := r.updateStatus(opsManager, workflow.Reconciling(), log, appDbStatusOption)
 	if err != nil {
 		return result, err
@@ -98,6 +100,12 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 	// in Ops Manager. This is not a blocker to continue with the reset of the reconciliation.
 	if err != nil {
 		log.Errorf("Unable to configure monitoring of AppDB: %s, configuration will be attempted next reconciliation.", err)
+		// errors returned from "tryConfigureMonitoringInOpsManager" could be either transient or persistent. Transient errors could be when the ops-manager pods
+		// are not ready and trying to connect to the ops-manager service timesout, a persistent error is when the "ops-manager-admin-key" is corrputed, in this case
+		// any API call to ops-manager will fail(including the confguration of AppDB monitoring), this error should be reflected to the user in the "OPSMANAGER" status.
+		if strings.Contains(err.Error(), "401 (Unauthorized)") {
+			return r.updateStatus(opsManager, workflow.Failed(fmt.Sprintf("The admin-key secret might be corrupted: %s", err)), log, omStatusOption)
+		}
 	}
 
 	appDbOpts := construct.AppDbOptions(PodEnvVars(&podVars))

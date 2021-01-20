@@ -28,9 +28,19 @@ def namespace() -> str:
 
 @fixture(scope="module")
 def operator_installation_config(namespace: str) -> Dict[str, str]:
-    """ Returns the ConfigMap containing configuration data for the Operator to be created.
-    Created in the single_e2e.sh """
+    """Returns the ConfigMap containing configuration data for the Operator to be created.
+    Created in the single_e2e.sh"""
     return KubernetesTester.read_configmap(namespace, "operator-installation-config")
+
+
+@fixture(scope="module")
+def operator_clusterwide(
+    namespace: str,
+    operator_installation_config: Dict[str, str],
+) -> Operator:
+    helm_args = operator_installation_config.copy()
+    helm_args["operator.watchNamespace"] = "*"
+    return Operator(namespace=namespace, helm_args=helm_args).install()
 
 
 @fixture(scope="module")
@@ -75,7 +85,8 @@ def cert_manager(namespace: str) -> str:
     # waits until the cert-manager webhook and controller are Ready, otherwise creating
     # Certificate Custom Resources will fail.
     get_pod_when_ready(
-        name, f"app.kubernetes.io/instance={name},app.kubernetes.io/component=webhook",
+        name,
+        f"app.kubernetes.io/instance={name},app.kubernetes.io/component=webhook",
     )
     get_pod_when_ready(
         name,
@@ -173,13 +184,15 @@ def custom_version() -> str:
 
 @fixture(scope="module")
 def default_operator(
-    namespace: str, operator_installation_config: Dict[str, str],
+    namespace: str,
+    operator_installation_config: Dict[str, str],
 ) -> Operator:
-    """ Installs/upgrades a default Operator used by any test not interested in some custom Operator setting.
+    """Installs/upgrades a default Operator used by any test not interested in some custom Operator setting.
     TODO we use the helm template | kubectl apply -f process so far as Helm install/upgrade needs more refactoring in
     the shared environment"""
     return Operator(
-        namespace=namespace, helm_args=operator_installation_config,
+        namespace=namespace,
+        helm_args=operator_installation_config,
     ).upgrade(install=True)
 
 
@@ -190,9 +203,9 @@ def official_operator(
     operator_installation_config: Dict[str, str],
     custom_operator_release_version: Optional[str],
 ) -> Operator:
-    """ Installs the Operator from the official GitHub repository. The version of the Operator is either passed to the
+    """Installs the Operator from the official GitHub repository. The version of the Operator is either passed to the
     function or the latest version is fetched from the repository.
-    The configuration properties are not overridden - this can be added to the fixture parameters if necessary. """
+    The configuration properties are not overridden - this can be added to the fixture parameters if necessary."""
     temp_dir = tempfile.mkdtemp()
     if custom_operator_release_version is None:
         custom_operator_release_version = fetch_latest_released_operator_version()

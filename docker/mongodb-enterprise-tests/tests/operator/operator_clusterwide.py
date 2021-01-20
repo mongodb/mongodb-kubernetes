@@ -24,15 +24,6 @@ See https://docs.mongodb.com/kubernetes-operator/stable/tutorial/plan-k8s-operat
 
 
 @fixture(scope="module")
-def operator_clusterwide(
-    namespace: str, operator_installation_config: Dict[str, str],
-) -> Operator:
-    helm_args = operator_installation_config.copy()
-    helm_args["operator.watchNamespace"] = "*"
-    return Operator(namespace=namespace, helm_args=helm_args).install()
-
-
-@fixture(scope="module")
 def ops_manager_namespace(evergreen_task_id: str) -> str:
     # Note, that it's safe to create the namespace with constant name as the test must be run in isolated environment
     # and no collisions may happen
