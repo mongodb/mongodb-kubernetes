@@ -32,7 +32,6 @@ images:
 
     output:
     - dockerfile: docker/mongodb-enterprise-init-database/Dockerfile.ubuntu-$(inputs.params.version)
-    - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubuntu-$(inputs.params.version)
 
   - name: init-appdb-build-ubuntu
     task_type: docker_build
@@ -58,7 +57,6 @@ images:
 
     output:
     - dockerfile: docker/mongodb-enterprise-init-database/Dockerfile.ubi-$(inputs.params.version)
-    - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubi-$(inputs.params.version)
 
   - name: init-appdb-build-ubi
     task_type: docker_build
