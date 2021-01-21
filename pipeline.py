@@ -415,6 +415,26 @@ def build_database_daily(build_configuration: BuildConfiguration):
             logging.error(e)
 
 
+def build_ops_manager_daily(build_configuration: BuildConfiguration):
+    image_name = "ops-manager-daily"
+    build_id = datetime.now().strftime("%Y%m%d%H%M%S")
+
+    supported_versions = get_supported_version_for_image("ops-manager")
+    logging.info("Ops Manager Supported Versions: {}".format(supported_versions))
+
+    for release in supported_versions:
+        logging.info("Rebuilding {}".format(release["version"]))
+
+        args = dict(build_id=build_id, release_version=release["version"])
+        try:
+            sonar_build_image(
+                image_name, build_configuration, args, "inventories/om.yaml"
+            )
+        except Exception as e:
+            # Log error and continue
+            logging.error(e)
+
+
 def build_init_database_daily(build_configuration: BuildConfiguration):
     image_name = "init-database-daily"
     build_id = datetime.now().strftime("%Y%m%d%H%M%S")
@@ -567,6 +587,7 @@ def get_builder_function_for_image_name():
         "init-appdb-daily": build_init_appdb_daily,
         "init-database-daily": build_init_database_daily,
         "init-ops-manager-daily": build_init_ops_manager_daily,
+        "ops-manager-daily": build_ops_manager_daily,
         #
         # Ops Manager image
         "ops-manager": build_om_image,

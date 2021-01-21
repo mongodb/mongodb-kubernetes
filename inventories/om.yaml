@@ -1,5 +1,8 @@
 vars:
-  quay_registry: quay.io/mongodb
+  quay_registry: quay.io/mongodb/mongodb-enterprise-ops-manager
+  s3_bucket_http: https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles/mongodb-enterprise-ops-manager
+  s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-enterprise-ops-manager
+  om_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com
 
 images:
 - name: ops-manager
@@ -7,6 +10,15 @@ images:
     context: docker/mongodb-enterprise-ops-manager
 
   stages:
+  - name: ops-manager-context
+    task_type: docker_build
+
+    dockerfile: Dockerfile.builder
+
+    output:
+    - registry: $(inputs.params.registry)/ops-manager-context
+      tag: $(inputs.params.version_id)
+
   - name: ops-manager-template
     task_type: dockerfile_template
     distro: ubuntu
@@ -24,8 +36,11 @@ images:
     dockerfile: Dockerfile.ubuntu-$(inputs.params.version_id)
     tags: ["ubuntu"]
 
+    buildargs:
+      imagebase: $(inputs.params.registry)/ops-manager-context:$(inputs.params.version_id)
+
     output:
-    - registry: $(inputs.params.registry)/images/ubuntu/mongodb-enterprise-ops-manager
+    - registry: $(inputs.params.om_registry)/images/ubuntu/mongodb-enterprise-ops-manager
       tag: $(inputs.params.om_version)
 
   - name: ops-manager-template
@@ -37,6 +52,9 @@ images:
     - om_download_url
     - om_version
 
+    buildargs:
+      imagebase: $(inputs.params.registry)/ops-manager-context:$(inputs.params.version_id)
+
     output:
     - dockerfile: docker/mongodb-enterprise-ops-manager/Dockerfile.ubi-$(inputs.params.version_id)
 
@@ -45,30 +63,81 @@ images:
     dockerfile: Dockerfile.ubi-$(inputs.params.version_id)
     tags: ["ubi"]
 
+    buildargs:
+      imagebase: $(inputs.params.registry)/ops-manager-context:$(inputs.params.version_id)
+
     output:
-    - registry: $(inputs.params.registry)/images/ubi/mongodb-enterprise-ops-manager
+    - registry: $(inputs.params.om_registry)/images/ubi/mongodb-enterprise-ops-manager
       tag: $(inputs.params.om_version)
 
-  - name: ops-manager-release-ubuntu
+
+  ## Release tasks
+  - name: ops-manager-template
+    task_type: dockerfile_template
+    distro: ubuntu
+    tags: ["ubuntu", "release"]
+
+    inputs:
+    - om_download_url
+    - om_version
+
+    output:
+    - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubuntu-$(inputs.params.om_version)
+
+  - name: ops-manager-template
+    task_type: dockerfile_template
+    distro: ubi
+    tags: ["ubi", "release"]
+
+    inputs:
+    - om_download_url
+    - om_version
+
+    output:
+    - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubi-$(inputs.params.om_version)
+
+  - name: ops-manager-context-release
     task_type: tag_image
     tags: ["release"]
 
     source:
-      registry: $(inputs.params.registry)/images/ubuntu/mongodb-enterprise-ops-manager
-      tag: $(inputs.params.om_version)
+      registry: $(inputs.params.registry)/ops-manager-context
+      tag: $(inputs.params.version_id)
 
     destination:
-    - registry: $(inputs.params.quay_registry)/mongodb-enterprise-ops-manager
-      tag: $(inputs.params.om_version)
+    - registry: $(inputs.params.quay_registry)
+      tag: $(inputs.params.release_version)-context
 
-  - name: ops-manager-release-ubi
-    task_type: tag_image
-    tags: ["release"]
+- name: ops-manager-daily
+  vars:
+  vars:
+    context: docker/mongodb-enterprise-ops-manager
 
-    source:
-      registry: $(inputs.params.registry)/images/ubi/mongodb-enterprise-ops-manager
-      tag: $(inputs.params.om_version)
+  stages:
+  - name: build-ubuntu
+    task_type: docker_build
 
-    destination:
-    - registry: $(inputs.params.quay_registry)/mongodb-enterprise-ops-manager-ubi
-      tag: $(inputs.params.om_version)
+    inputs:
+    - build_id
+
+    dockerfile: $(inputs.params.s3_bucket_http)/Dockerfile.ubuntu-$(inputs.params.release_version)
+
+    output:
+    - registry: $(inputs.params.quay_registry)
+      tag: $(inputs.params.release_version)
+    - registry: $(inputs.params.quay_registry)
+      tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
+
+  - name: build-ubi
+    task_type: docker_build
+
+    inputs:
+    - build_id
+
+    dockerfile: $(inputs.params.s3_bucket_http)/Dockerfile.ubi-$(inputs.params.release_version)
+
+    output:
+    - registry: $(inputs.params.quay_registry)-ubi
+      tag: $(inputs.params.release_version)
+    - registry: $(inputs.params.quay_registry)-ubi
+      tag: $(inputs.params.release_version)-b$(inputs.params.build_id)

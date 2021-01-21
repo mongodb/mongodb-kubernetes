@@ -1,3 +1,6 @@
+ARG imagebase
+FROM ${imagebase} as base
+
 FROM {{ base_image  }}
 
 {% block labels %}
@@ -22,8 +25,8 @@ EXPOSE 8080
 {% block packages %}
 {% endblock %}
 
-{% block licenses %}
-{% endblock %}
+COPY --from=base /data/licenses /licenses/
+
 
 {% block static %}
 RUN curl --fail -L -o ops_manager.tar.gz {{ om_download_url }} \

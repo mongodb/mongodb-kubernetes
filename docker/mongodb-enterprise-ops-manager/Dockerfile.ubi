@@ -2,12 +2,6 @@
 
 {% set base_image = "registry.access.redhat.com/ubi8/ubi" %}
 
-{% block licenses %}
-# Licenses is required to pass Redhat verification process
-# TODO: Add a proper license
-COPY LICENSE /licenses/mongodb-enterprise-ops-manager
-{% endblock %}
-
 {% block packages %}
 RUN yum install --disableplugin=subscription-manager -y \
   cyrus-sasl \

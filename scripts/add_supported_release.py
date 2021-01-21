@@ -63,6 +63,14 @@ def add_release_version(image: str, version: str):
 
 
 def get_latest_version_for_image(image: str) -> str:
+    """
+    Returns a version for an image to add support to.
+
+    The version can exist on the "release.json" file or
+    be found as an environment variable.
+    """
+
+    # image_to_release describes images with versions set in release.json
     image_to_release = {
         "operator": "mongodbOperator",
         #
@@ -75,7 +83,16 @@ def get_latest_version_for_image(image: str) -> str:
         "appdb": "appDbImageVersion",
         "database": "databaseImageVersion",
     }
-    return get_release()[image_to_release[image]]
+    # image_to_env describe versions that need to be fetched from an
+    # environment variable.
+    image_to_env = {"ops-manager": "om_version"}
+
+    if image in image_to_release:
+        return get_release()[image_to_release[image]]
+    if image in image_to_env:
+        return os.environ[image_to_env[image]]
+
+    raise ValueError("Image {} not supported".format(image))
 
 
 def main():

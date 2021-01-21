@@ -22,7 +22,7 @@ variables:
     usaf_database_version: "1.5.3"
 
     # These are OM/MDB versions used in OM e2e tests (build variants for 4.2/4.4 OM) - change them occasionally
-  - &ops_manager_44_latest 4.4.6
+  - &ops_manager_44_latest 4.4.7
   - &ops_manager_42_latest 4.2.22
   - &mdb_44_latest 4.4.0
   - &mdb_42_latest 4.2.8
@@ -187,6 +187,7 @@ functions:
       - atlas_connection_string
       - atlas_password
       - atlas_database
+      - om_version
       add_to_path:
       - ${workdir}/bin
       command: "${workdir}/venv/bin/python scripts/add_supported_release.py --image ${image_name}"
@@ -1810,6 +1811,9 @@ tasks:
     vars:
       image_name: ops-manager
       include_tags: release
+  - func: add_supported_release
+    vars:
+      image_name: ops-manager
 
 task_groups:
 - name: unit_task_group
