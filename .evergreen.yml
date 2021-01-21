@@ -28,8 +28,6 @@ variables:
   - &mdb_42_latest 4.2.8
   - &mdb_40_latest 4.0.20
 
-
-
     # Openshift v4 Testing Environment
   - &kubernetes_environment_openshift_4
     kube_environment_name: openshift_4
@@ -350,57 +348,6 @@ functions:
       params:
         files: ["*.suite", "src/**/*.suite"]
 
-  # Uploads the Docker build context to S3 in order for Kaniko to be able to build the images.
-  upload_e2e_build_context:
-  - command: subprocess.exec
-    params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
-      include_expansions_in_env:
-      - context
-      binary: scripts/evergreen/upload_e2e_build_context.sh
-  - command: s3.put
-    params:
-      aws_key: ${mms_build_s3_aws_access_key}
-      aws_secret: ${mms_build_s3_aws_secret}
-      local_files_include_filter:
-        - src/github.com/10gen/ops-manager-kubernetes/*-context.tar.gz
-      remote_file: ops-manager-operator/${version_id}:${image_type}/contexts/
-      bucket: ops-manager-kubernetes-build
-      permissions: public-read
-      content_type: application/octet-stream
-
-  kaniko_build:
-  - command: subprocess.exec
-    type: setup
-    params:
-      env:
-        AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
-        AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
-        AWS_REGION: ${mms_eng_test_aws_region}
-        KUBECONFIG: ${workdir}/${kube_environment_name}_config
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
-      include_expansions_in_env:
-      - context
-      - destination
-      - cache_repo
-      - label
-      add_to_path:
-      - ${workdir}/bin
-      binary: scripts/evergreen/build_docker_image.sh
-
-  kaniko_wait:
-  - command: subprocess.exec
-    type: setup
-    params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
-      include_expansions_in_env:
-      - labels
-      add_to_path:
-      - ${workdir}/bin
-      env:
-        KUBECONFIG: ${workdir}/${kube_environment_name}_config
-      binary: scripts/evergreen/wait_docker_image.sh
-
   build_and_push_test_image:
     - command: subprocess.exec
       type: setup
@@ -600,67 +547,6 @@ functions:
           AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
 
         command: scripts/evergreen/prepare_aws.sh
-
-  build_and_push_appdb_image_generic:
-    - command: subprocess.exec
-      params:
-        env:
-          AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
-          AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
-          AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
-          IN_MEMORY_CONTEXT: "true"
-          KUBECONFIG: ${workdir}/${kube_environment_name}_config
-          BASE_REPO_URL: ${ecr_registry}/images
-        include_expansions_in_env:
-        - IMAGE_TYPE
-        - ecr_registry
-        - RED_HAT_TOKEN
-        add_to_path:
-        - ${workdir}/bin
-        command: docker/mongodb-enterprise-database/build_push_appdb_image.sh
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
-
-  build_and_push_database_image_generic:
-    - command: subprocess.exec
-      params:
-        env:
-          AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
-          AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
-          AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
-          IN_MEMORY_CONTEXT: "true"
-          KUBECONFIG: ${workdir}/${kube_environment_name}_config
-          BASE_REPO_URL: ${ecr_registry}/images
-        include_expansions_in_env:
-        - IMAGE_TYPE
-        - PUBLISH_TO
-        - database_version
-        - RED_HAT_TOKEN
-        add_to_path:
-        - ${workdir}/bin
-        command: docker/mongodb-enterprise-database/build_push_database_image.sh
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
-
-  build_and_push_opsmanager_image_generic:
-    - command: subprocess.exec
-      params:
-        env:
-          AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
-          AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
-          AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
-          IN_MEMORY_CONTEXT: "true"
-          KUBECONFIG: ${workdir}/${kube_environment_name}_config
-          BASE_REPO_URL: ${ecr_registry}/images
-        include_expansions_in_env:
-        - PUBLISH_TO
-        - IMAGE_TYPE
-        - ecr_registry
-        - version_id
-        - VERSIONS
-        - RED_HAT_TOKEN
-        add_to_path:
-        - ${workdir}/bin
-        command: docker/mongodb-enterprise-ops-manager/batch_om_images.sh
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
 
 
 tasks:
