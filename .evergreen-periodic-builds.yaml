@@ -47,6 +47,13 @@ functions:
     params:
       command: "docker login quay.io -u ${quay_prod_username} -p ${quay_prod_robot_token}"
 
+  configure_rh_docker_auth:
+  - command: subprocess.exec
+    type: setup
+    params:
+      command: "docker login scan.connect.redhat.com -u unused -p ${project_id}"
+
+
   pipeline:
   - command: subprocess.exec
     type: setup
@@ -85,6 +92,9 @@ tasks:
   commands:
   - func: clone
   - func: configure_docker_auth
+  - func: configure_rh_docker_auth
+    vars:
+      project_id: ${rhc_operator_pid}
   - func: pipeline
     vars:
       image_name: operator-daily
@@ -93,6 +103,9 @@ tasks:
   commands:
   - func: clone
   - func: configure_docker_auth
+  - func: configure_rh_docker_auth
+    vars:
+      project_id: ${rhc_init_appdb_pid}
   - func: pipeline
     vars:
       image_name: init-appdb-daily
@@ -101,6 +114,9 @@ tasks:
   commands:
   - func: clone
   - func: configure_docker_auth
+  - func: configure_rh_docker_auth
+    vars:
+      project_id: ${rhc_init_database_pid}
   - func: pipeline
     vars:
       image_name: init-database-daily
@@ -109,24 +125,42 @@ tasks:
   commands:
   - func: clone
   - func: configure_docker_auth
+  - func: configure_rh_docker_auth
+    vars:
+      project_id: ${rhc_init_om_pid}
   - func: pipeline
     vars:
       image_name: init-ops-manager-daily
 
 - name: periodic_build_appdb
   commands:
+  - func: clone
+  - func: configure_docker_auth
+  - func: configure_rh_docker_auth
+    vars:
+      project_id: ${rhc_appdb_pid}
   - func: pipeline
     vars:
       image_name: appdb-daily
 
 - name: periodic_build_database
   commands:
+  - func: clone
+  - func: configure_docker_auth
+  - func: configure_rh_docker_auth
+    vars:
+      project_id: ${rhc_database_pid}
   - func: pipeline
     vars:
       image_name: database-daily
 
 - name: periodic_build_ops_manager
   commands:
+  - func: clone
+  - func: configure_docker_auth
+  - func: configure_rh_docker_auth
+    vars:
+      project_id: ${rhc_om_pid}
   - func: pipeline
     vars:
       image_name: ops-manager-daily
@@ -142,3 +176,5 @@ buildvariants:
   - periodic_build_init_database
   - periodic_build_init_opsmanager
   - periodic_build_ops_manager
+  - periodic_build_appdb
+  - periodic_build_database

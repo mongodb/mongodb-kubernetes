@@ -584,6 +584,8 @@ def get_builder_function_for_image_name():
         #
         # Daily builds
         "operator-daily": build_operator_daily,
+        "appdb-daily": build_appdb_daily,
+        "database-daily": build_database_daily,
         "init-appdb-daily": build_init_appdb_daily,
         "init-database-daily": build_init_database_daily,
         "init-ops-manager-daily": build_init_ops_manager_daily,

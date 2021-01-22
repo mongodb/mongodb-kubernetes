@@ -1,5 +1,6 @@
 vars:
   quay_registry: quay.io/mongodb/mongodb-enterprise-init-ops-manager
+  rh_registry: scan.connect.redhat.com/ospid-7da92b80-396f-4298-9de5-909165ba0c9e/mongodb-enterprise-init-ops-manager
   s3_bucket_http: https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles/mongodb-enterprise-init-ops-manager
   s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-enterprise-init-ops-manager
 
@@ -135,4 +136,6 @@ images:
     - registry: $(inputs.params.quay_registry)-ubi
       tag: $(inputs.params.release_version)
     - registry: $(inputs.params.quay_registry)-ubi
+      tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
+    - registry: $(inputs.params.rh_registry)-ubi
       tag: $(inputs.params.release_version)-b$(inputs.params.build_id)

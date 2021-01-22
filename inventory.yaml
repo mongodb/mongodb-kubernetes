@@ -1,6 +1,7 @@
 vars:
   registry: <container-registry>
-  quay_registry: quay.io/mongodb
+  quay_registry: quay.io/mongodb/mongodb-enterprise-operator
+  rh_registry: scan.connect.redhat.com/ospid-5558a531-617e-46d7-9320-e84d3458768a/mongodb-enterprise-operator
   s3_bucket_http: https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles/mongodb-enterprise-operator
   s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-enterprise-operator
 
@@ -93,7 +94,7 @@ images:
         tag: $(inputs.params.version_id)
 
       destination:
-      - registry: $(inputs.params.quay_registry)/mongodb-enterprise-operator
+      - registry: $(inputs.params.quay_registry)
         tag: $(inputs.params.release_version)-context
 
     - name: operator-template-ubi
@@ -132,12 +133,12 @@ images:
 
       dockerfile: $(inputs.params.s3_bucket_http)/Dockerfile.ubuntu-$(inputs.params.release_version)
       buildargs:
-        imagebase: $(inputs.params.quay_registry)/mongodb-enterprise-operator:$(inputs.params.release_version)-context
+        imagebase: $(inputs.params.quay_registry):$(inputs.params.release_version)-context
 
       output:
-      - registry: $(inputs.params.quay_registry)/mongodb-enterprise-operator
+      - registry: $(inputs.params.quay_registry)
         tag: $(inputs.params.release_version)
-      - registry: $(inputs.params.quay_registry)/mongodb-enterprise-operator
+      - registry: $(inputs.params.quay_registry)
         tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
 
     - name: build-ubi
@@ -148,10 +149,12 @@ images:
 
       dockerfile: $(inputs.params.s3_bucket_http)/Dockerfile.ubi-$(inputs.params.release_version)
       buildargs:
-        imagebase: $(inputs.params.quay_registry)/mongodb-enterprise-operator:$(inputs.params.release_version)-context
+        imagebase: $(inputs.params.quay_registry):$(inputs.params.release_version)-context
 
       output:
-      - registry: $(inputs.params.quay_registry)/mongodb-enterprise-operator-ubi
+      - registry: $(inputs.params.quay_registry)-ubi
         tag: $(inputs.params.release_version)
-      - registry: $(inputs.params.quay_registry)/mongodb-enterprise-operator-ubi
+      - registry: $(inputs.params.quay_registry)-ubi
+        tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
+      - registry: $(inputs.params.rh_registry)
         tag: $(inputs.params.release_version)-b$(inputs.params.build_id)

@@ -1,5 +1,6 @@
 vars:
   quay_registry: quay.io/mongodb/mongodb-enterprise-appdb
+  rh_registry: scan.connect.redhat.com/ospid-31c2f102-af15-4e15-87b9-30710586d9ad/mongodb-enterprise-appdb
   s3_bucket_http: https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles/mongodb-enterprise-appdb
   s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-enterprise-appdb
 
@@ -146,4 +147,6 @@ images:
     - registry: $(inputs.params.quay_registry)-ubi
       tag: $(inputs.params.release_version)
     - registry: $(inputs.params.quay_registry)-ubi
+      tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
+    - registry: $(inputs.params.rh_registry)
       tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
