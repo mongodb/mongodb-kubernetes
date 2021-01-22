@@ -31,9 +31,9 @@ const (
 	PvcMountPathScripts    = "/opt/scripts"
 
 	caCertMountPath       = "/mongodb-automation/certs"
-	configMapVolumeCAName = "secret-ca"
-	// caCertName is the name of the volume with the CA Cert
-	caCertName = "ca-cert-volume"
+	ConfigMapVolumeCAName = "secret-ca"
+	// CaCertName is the name of the volume with the CA Cert
+	CaCertName = "ca-cert-volume"
 	// AgentCertMountPath defines where in the Pod the ca cert will be mounted.
 	agentCertMountPath = "/mongodb-automation/" + util.AgentSecretName
 
@@ -46,6 +46,11 @@ const (
 	// Database environment variable names
 	initDatabaseVersionEnv = "INIT_DATABASE_VERSION"
 	databaseVersionEnv     = "DATABASE_VERSION"
+
+	// PodAntiAffinityLabelKey defines the anti affinity rule label. The main rule is to spread entities inside one statefulset
+	// (aka replicaset) to different locations, so pods having the same label shouldn't coexist on the node that has
+	// the same topology key
+	PodAntiAffinityLabelKey = "pod-anti-affinity"
 )
 
 // DatabaseStatefulSetOptions contains all of the different values that are variable between
@@ -220,7 +225,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb mdbv1.MongoDB, podTemplat
 	podLabels := map[string]string{
 		appLabelKey:             opts.ServiceName,
 		ControllerLabelName:     util.OperatorName,
-		podAntiAffinityLabelKey: opts.Name,
+		PodAntiAffinityLabelKey: opts.Name,
 	}
 
 	managedSecurityContext, _ := env.ReadBool(util.ManagedSecurityContextEnv)
@@ -282,7 +287,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb mdbv1.MongoDB, podTemplat
 		volumeClaimFuncs,
 		statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
 			podtemplatespec.WithAnnotations(defaultPodAnnotations(opts.CertificateHash)),
-			podtemplatespec.WithAffinity(mdb.GetName(), podAntiAffinityLabelKey, 100),
+			podtemplatespec.WithAffinity(mdb.GetName(), PodAntiAffinityLabelKey, 100),
 			podtemplatespec.WithTerminationGracePeriodSeconds(util.DefaultPodTerminationPeriodSeconds),
 			podtemplatespec.WithPodLabels(podLabels),
 			podtemplatespec.WithNodeAffinity(opts.PodSpec.NodeAffinity),
@@ -358,7 +363,7 @@ func getVolumesAndVolumeMounts(mdb mdbv1.MongoDB, databaseOpts DatabaseStatefulS
 		}
 
 		if tlsConfig.CA != "" {
-			caVolume := statefulset.CreateVolumeFromConfigMap(configMapVolumeCAName, tlsConfig.CA)
+			caVolume := statefulset.CreateVolumeFromConfigMap(ConfigMapVolumeCAName, tlsConfig.CA)
 			volumeMounts = append(volumeMounts, corev1.VolumeMount{
 				MountPath: util.ConfigMapVolumeCAMountPath,
 				Name:      caVolume.Name,
@@ -368,7 +373,7 @@ func getVolumesAndVolumeMounts(mdb mdbv1.MongoDB, databaseOpts DatabaseStatefulS
 		}
 	}
 	if databaseOpts.PodVars != nil && databaseOpts.PodVars.SSLMMSCAConfigMap != "" {
-		caCertVolume := statefulset.CreateVolumeFromConfigMap(caCertName, databaseOpts.PodVars.SSLMMSCAConfigMap)
+		caCertVolume := statefulset.CreateVolumeFromConfigMap(CaCertName, databaseOpts.PodVars.SSLMMSCAConfigMap)
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			MountPath: caCertMountPath,
 			Name:      caCertVolume.Name,
@@ -476,7 +481,7 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions) podtemplatespe
 		podtemplatespec.WithTerminationGracePeriodSeconds(util.DefaultPodTerminationPeriodSeconds),
 		pullSecretsConfigurationFunc,
 		configurePodSpecSecurityContext,
-		podtemplatespec.WithAffinity(opts.Name, podAntiAffinityLabelKey, 100),
+		podtemplatespec.WithAffinity(opts.Name, PodAntiAffinityLabelKey, 100),
 		podtemplatespec.WithNodeAffinity(opts.PodSpec.NodeAffinity),
 		podtemplatespec.WithPodAffinity(opts.PodSpec.PodAffinity),
 		podtemplatespec.WithTopologyKey(opts.PodSpec.GetTopologyKeyOrDefault(), 0),

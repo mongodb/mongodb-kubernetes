@@ -1,7 +1,14 @@
 package operator
 
 import (
+	"fmt"
 	"testing"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
+	"go.uber.org/zap"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/pem"
 
@@ -99,4 +106,27 @@ func TestMergeEntryPreservesOldSecret(t *testing.T) {
 	assert.Equal(t, "oldcert", p.PemFiles["myhostname"].Certificate)
 	assert.Equal(t, "mykey", p.PemFiles["myexistinghostname"].PrivateKey)
 	assert.Equal(t, "mycert", p.PemFiles["myexistinghostname"].Certificate)
+}
+
+type mockSecretGetter struct {
+	secret *corev1.Secret
+}
+
+func (m mockSecretGetter) GetSecret(_ client.ObjectKey) (corev1.Secret, error) {
+	if m.secret == nil {
+		return corev1.Secret{}, fmt.Errorf("not found")
+	}
+	return *m.secret, nil
+}
+
+func TestReadPemHashFromSecret(t *testing.T) {
+
+	name := "res-name"
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: name + "-cert", Namespace: mock.TestNamespace},
+		Data:       map[string][]byte{"hello": []byte("world")},
+	}
+
+	assert.Empty(t, pem.ReadHashFromSecret(mockSecretGetter{}, mock.TestNamespace, name, zap.S()), "secret does not exist so pem hash should be empty")
+	assert.NotEmpty(t, pem.ReadHashFromSecret(mockSecretGetter{secret: secret}, mock.TestNamespace, name, zap.S()), "pem hash should be read from the secret")
 }

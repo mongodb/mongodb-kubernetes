@@ -522,7 +522,7 @@ func (r OpsManagerReconciler) getAppDBPassword(opsManager omv1.MongoDBOpsManager
 			SetName(secretObjectKey.Name).
 			SetNamespace(secretObjectKey.Namespace).
 			SetStringData(passwordData).
-			SetOwnerReferences(baseOwnerReference(&opsManager)).
+			SetOwnerReferences(kube.BaseOwnerReference(&opsManager)).
 			Build()
 
 		if err := r.client.CreateSecret(appDbPasswordSecret); err != nil {
@@ -603,7 +603,7 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 				SetNamespace(adminKeySecretName.Namespace).
 				SetName(adminKeySecretName.Name).
 				SetStringData(secretData).
-				SetOwnerReferences(baseOwnerReference(&opsManager)).
+				SetOwnerReferences(kube.BaseOwnerReference(&opsManager)).
 				SetLabels(map[string]string{}).
 				Build()
 

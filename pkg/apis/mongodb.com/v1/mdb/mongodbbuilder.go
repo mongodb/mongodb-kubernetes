@@ -158,6 +158,16 @@ func (b *MongoDBBuilder) SetAgentConfig(agentOptions AgentConfig) *MongoDBBuilde
 	return b
 }
 
+func (b *MongoDBBuilder) SetPersistent(p *bool) *MongoDBBuilder {
+	b.mdb.Spec.Persistent = p
+	return b
+}
+
+func (b *MongoDBBuilder) SetPodSpec(podSpec *MongoDbPodSpec) *MongoDBBuilder {
+	b.mdb.Spec.PodSpec = podSpec
+	return b
+}
+
 func (b *MongoDBBuilder) Build() *MongoDB {
 	b.mdb.InitDefaults()
 	return b.mdb.DeepCopy()

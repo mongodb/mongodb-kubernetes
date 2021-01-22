@@ -20,7 +20,7 @@ const (
 // This method must be invoked on the final version of the StatefulSet (after user statefulSet spec
 // was merged)
 func setJvmArgsEnvVars(om omv1.MongoDBOpsManagerSpec, sts *appsv1.StatefulSet) error {
-	jvmParamsEnvVars, err := BuildJvmParamsEnvVars(om, sts.Spec.Template)
+	jvmParamsEnvVars, err := buildJvmParamsEnvVars(om, sts.Spec.Template)
 	if err != nil {
 		return err
 	}
@@ -34,8 +34,7 @@ func setJvmArgsEnvVars(om omv1.MongoDBOpsManagerSpec, sts *appsv1.StatefulSet) e
 
 // buildJvmParamsEnvVars returns a slice of corev1.EnvVars that should be added to the Backup Daemon
 // or Ops Manager containers.
-// TODO: unexport
-func BuildJvmParamsEnvVars(m omv1.MongoDBOpsManagerSpec, template corev1.PodTemplateSpec) ([]corev1.EnvVar, error) {
+func buildJvmParamsEnvVars(m omv1.MongoDBOpsManagerSpec, template corev1.PodTemplateSpec) ([]corev1.EnvVar, error) {
 	mmsJvmEnvVar := corev1.EnvVar{Name: util.MmsJvmParamEnvVar}
 	backupJvmEnvVar := corev1.EnvVar{Name: util.BackupDaemonJvmParamEnvVar}
 

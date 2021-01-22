@@ -126,3 +126,13 @@ func FromSecret(envVarName, secretName, secretKey string) corev1.EnvVar {
 		},
 	}
 }
+
+// ToMap accepts a variable number of EnvVars and returns them as a map
+// with the name as the key.
+func ToMap(vars ...corev1.EnvVar) map[string]string {
+	variablesMap := map[string]string{}
+	for _, envVar := range vars {
+		variablesMap[envVar.Name] = envVar.Value
+	}
+	return variablesMap
+}

@@ -860,13 +860,13 @@ func needToPublishStateFirst(stsGetter statefulset.Getter, mdb mdbv1.MongoDB, co
 			return true
 		}
 
-		if mdb.Spec.Security.TLSConfig.CA == "" && enterprisests.VolumeMountWithNameExists(volumeMounts, ConfigMapVolumeCAName) {
+		if mdb.Spec.Security.TLSConfig.CA == "" && enterprisests.VolumeMountWithNameExists(volumeMounts, construct.ConfigMapVolumeCAName) {
 			log.Debug("About to set `security.tls.CA` to empty. automationConfig needs to be updated first")
 			return true
 		}
 	}
 
-	if opts.PodVars.SSLMMSCAConfigMap == "" && enterprisests.VolumeMountWithNameExists(volumeMounts, CaCertName) {
+	if opts.PodVars.SSLMMSCAConfigMap == "" && enterprisests.VolumeMountWithNameExists(volumeMounts, construct.CaCertName) {
 		log.Debug("About to set `SSLMMSCAConfigMap` to empty. automationConfig needs to be updated first")
 		return true
 	}

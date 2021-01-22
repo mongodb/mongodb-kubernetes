@@ -193,7 +193,7 @@ func TestBackupStatefulSetIsNotRemoved_WhenDisabled(t *testing.T) {
 		SetNamespace(testOm.Namespace).
 		SetByteData(map[string][]byte{
 			"password": []byte("password"),
-		}).SetOwnerReferences(baseOwnerReference(&testOm)).
+		}).SetOwnerReferences(kube.BaseOwnerReference(&testOm)).
 		Build()
 
 	err := reconciler.client.CreateSecret(s)
@@ -227,7 +227,7 @@ func TestOpsManagerPodTemplateSpec_IsAnnotatedWithHash(t *testing.T) {
 	s := secret.Builder().
 		SetName(testOm.Spec.AppDB.PasswordSecretKeyRef.Name).
 		SetNamespace(testOm.Namespace).
-		SetOwnerReferences(baseOwnerReference(&testOm)).
+		SetOwnerReferences(kube.BaseOwnerReference(&testOm)).
 		SetByteData(map[string][]byte{
 			"password": []byte("password"),
 		}).Build()
@@ -271,7 +271,7 @@ func TestOpsManagerConnectionString_IsPassedAsSecretRef(t *testing.T) {
 		SetNamespace(testOm.Namespace).
 		SetByteData(map[string][]byte{
 			"password": []byte("password"),
-		}).SetOwnerReferences(baseOwnerReference(&testOm)).
+		}).SetOwnerReferences(kube.BaseOwnerReference(&testOm)).
 		Build()
 
 	err := reconciler.client.CreateSecret(s)
@@ -423,7 +423,7 @@ func defaultTestOmReconciler(t *testing.T, opsManager omv1.MongoDBOpsManager) (*
 		SetNamespace(opsManager.Namespace).
 		SetStringData(data).
 		SetLabels(map[string]string{}).
-		SetOwnerReferences(baseOwnerReference(&opsManager)).
+		SetOwnerReferences(kube.BaseOwnerReference(&opsManager)).
 		Build()
 
 	initializer := &MockedInitializer{expectedOmURL: opsManager.CentralURL(), t: t}

@@ -120,7 +120,7 @@ func buildAppDBPodTemplateSpecFunc(opts DatabaseStatefulSetOptions) podtemplates
 	volumeMounts = append(volumeMounts, appDbScriptsVolumeMount(true))
 
 	if opts.PodVars != nil && opts.PodVars.SSLMMSCAConfigMap != "" {
-		caCertVolume := statefulset.CreateVolumeFromConfigMap(caCertName, opts.PodVars.SSLMMSCAConfigMap)
+		caCertVolume := statefulset.CreateVolumeFromConfigMap(CaCertName, opts.PodVars.SSLMMSCAConfigMap)
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			MountPath: caCertMountPath,
 			Name:      caCertVolume.Name,
