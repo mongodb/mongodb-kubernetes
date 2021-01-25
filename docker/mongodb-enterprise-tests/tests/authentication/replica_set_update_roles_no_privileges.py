@@ -2,7 +2,6 @@ from pytest import mark, fixture
 import time
 
 from kubetester import create_secret, find_fixture, wait_until
-from kubetester.operator import Operator
 
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_user import MongoDBUser, generic_user, Role

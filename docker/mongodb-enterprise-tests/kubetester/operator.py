@@ -21,8 +21,12 @@ OPERATOR_CRDS = (
 
 
 class Operator(object):
-    """Operator is an abstraction over some Operator and relevant  resources. It allows to create and delete
-    the Operator deployment and K8s resources."""
+    """Operator is an abstraction over some Operator and relevant resources. It
+    allows to create and delete the Operator deployment and K8s resources.
+
+    * `helm_args` corresponds to the --set values passed to helm installation.
+    * `helm_options` refers to the options passed to the helm command.
+    """
 
     def __init__(
         self,

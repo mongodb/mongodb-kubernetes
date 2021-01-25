@@ -128,6 +128,23 @@ def operator_build_configuration(builder: str, parallel: bool) -> BuildConfigura
     )
 
 
+def build_id() -> str:
+    """Returns the current UTC time in ISO8601 format.
+
+    If running in Evergreen and `created_at` expansion is defined, use the
+    datetime defined in that variable instead.
+
+    """
+    date = datetime.utcnow()
+    try:
+        created_at = os.environ["created_at"]
+        date = datetime.strptime(created_at, "%y_%m_%d_%H_%M_%S")
+    except KeyError:
+        pass
+
+    return date.strftime("%Y%m%dT%H%M%SZ")
+
+
 def get_release() -> Dict[str, str]:
     return json.load(open("release.json"))
 
@@ -340,14 +357,13 @@ def build_operator_daily(build_configuration: BuildConfiguration):
     Finds all the supported Operator versions and rebuilds them.
     """
     image_name = "operator-daily-build"
-    build_id = datetime.now().strftime("%Y%m%d%H%M%S")
 
     supported_versions = get_supported_version_for_image("operator")
     logging.info("Operator Supported Versions: {}".format(supported_versions))
     for releases in supported_versions:
         logging.info("Rebuilding {}".format(releases["version"]))
 
-        args = dict(build_id=build_id, release_version=releases["version"])
+        args = dict(build_id=build_id(), release_version=releases["version"])
         try:
             sonar_build_image(image_name, build_configuration, args)
         except Exception as e:
@@ -357,7 +373,6 @@ def build_operator_daily(build_configuration: BuildConfiguration):
 
 def build_init_appdb_daily(build_configuration: BuildConfiguration):
     image_name = "init-appdb-daily"
-    build_id = datetime.now().strftime("%Y%m%d%H%M%S")
 
     supported_versions = get_supported_version_for_image("init-appdb")
     logging.info("Init-AppDB Supported Versions: {}".format(supported_versions))
@@ -365,7 +380,7 @@ def build_init_appdb_daily(build_configuration: BuildConfiguration):
     for release in supported_versions:
         logging.info("Rebuilding {}".format(release["version"]))
 
-        args = dict(build_id=build_id, release_version=release["version"])
+        args = dict(build_id=build_id(), release_version=release["version"])
         try:
             sonar_build_image(
                 image_name, build_configuration, args, "inventories/init_appdb.yaml"
@@ -377,7 +392,6 @@ def build_init_appdb_daily(build_configuration: BuildConfiguration):
 
 def build_appdb_daily(build_configuration: BuildConfiguration):
     image_name = "appdb-daily"
-    build_id = datetime.now().strftime("%Y%m%d%H%M%S")
 
     supported_versions = get_supported_version_for_image("appdb")
     logging.info("AppDB Supported Versions: {}".format(supported_versions))
@@ -385,7 +399,7 @@ def build_appdb_daily(build_configuration: BuildConfiguration):
     for release in supported_versions:
         logging.info("Rebuilding {}".format(release["version"]))
 
-        args = dict(build_id=build_id, release_version=release["version"])
+        args = dict(build_id=build_id(), release_version=release["version"])
         try:
             sonar_build_image(
                 image_name, build_configuration, args, "inventories/appdb.yaml"
@@ -397,7 +411,6 @@ def build_appdb_daily(build_configuration: BuildConfiguration):
 
 def build_database_daily(build_configuration: BuildConfiguration):
     image_name = "database-daily"
-    build_id = datetime.now().strftime("%Y%m%d%H%M%S")
 
     supported_versions = get_supported_version_for_image("database")
     logging.info("Database Supported Versions: {}".format(supported_versions))
@@ -405,7 +418,7 @@ def build_database_daily(build_configuration: BuildConfiguration):
     for release in supported_versions:
         logging.info("Rebuilding {}".format(release["version"]))
 
-        args = dict(build_id=build_id, release_version=release["version"])
+        args = dict(build_id=build_id(), release_version=release["version"])
         try:
             sonar_build_image(
                 image_name, build_configuration, args, "inventories/database.yaml"
@@ -417,7 +430,6 @@ def build_database_daily(build_configuration: BuildConfiguration):
 
 def build_ops_manager_daily(build_configuration: BuildConfiguration):
     image_name = "ops-manager-daily"
-    build_id = datetime.now().strftime("%Y%m%d%H%M%S")
 
     supported_versions = get_supported_version_for_image("ops-manager")
     logging.info("Ops Manager Supported Versions: {}".format(supported_versions))
@@ -425,7 +437,7 @@ def build_ops_manager_daily(build_configuration: BuildConfiguration):
     for release in supported_versions:
         logging.info("Rebuilding {}".format(release["version"]))
 
-        args = dict(build_id=build_id, release_version=release["version"])
+        args = dict(build_id=build_id(), release_version=release["version"])
         try:
             sonar_build_image(
                 image_name, build_configuration, args, "inventories/om.yaml"
@@ -437,7 +449,6 @@ def build_ops_manager_daily(build_configuration: BuildConfiguration):
 
 def build_init_database_daily(build_configuration: BuildConfiguration):
     image_name = "init-database-daily"
-    build_id = datetime.now().strftime("%Y%m%d%H%M%S")
 
     supported_versions = get_supported_version_for_image("init-database")
     logging.info("Init-Database Supported Versions: {}".format(supported_versions))
@@ -445,7 +456,7 @@ def build_init_database_daily(build_configuration: BuildConfiguration):
     for release in supported_versions:
         logging.info("Rebuilding {}".format(release["version"]))
 
-        args = dict(build_id=build_id, release_version=release["version"])
+        args = dict(build_id=build_id(), release_version=release["version"])
         try:
             sonar_build_image(
                 image_name, build_configuration, args, "inventories/init_database.yaml"
@@ -457,7 +468,6 @@ def build_init_database_daily(build_configuration: BuildConfiguration):
 
 def build_init_ops_manager_daily(build_configuration: BuildConfiguration):
     image_name = "init-ops-manager-daily"
-    build_id = datetime.now().strftime("%Y%m%d%H%M%S")
 
     supported_versions = get_supported_version_for_image("init-ops-manager")
     logging.info("Init-Ops-Manager Supported Versions: {}".format(supported_versions))
@@ -465,7 +475,7 @@ def build_init_ops_manager_daily(build_configuration: BuildConfiguration):
     for release in supported_versions:
         logging.info("Rebuilding {}".format(release["version"]))
 
-        args = dict(build_id=build_id, release_version=release["version"])
+        args = dict(build_id=build_id(), release_version=release["version"])
         try:
             sonar_build_image(
                 image_name, build_configuration, args, "inventories/init_om.yaml"

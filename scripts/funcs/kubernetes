@@ -175,6 +175,8 @@ _is_ops_manager_down() {
 }
 
 delete_operator() {
+    [[ "${USE_RUNNING_OPERATOR:-}" == "true" ]] && return
+
     local ns="$1"
     local name=${OPERATOR_NAME:=mongodb-enterprise-operator}
 

@@ -80,6 +80,7 @@ functions:
       - skip_tags
       - test_suffix
       - om_version
+      - created_at
       add_to_path:
       - ${workdir}/bin
       command: "${workdir}/venv/bin/python pipeline.py --include ${image_name}"

@@ -10,8 +10,8 @@ def helm_template(
     templates: Optional[str] = None,
     helm_options: Optional[List[str]] = None,
 ) -> str:
-    """ generates yaml file using Helm and returns its name. Provide 'templates' if you need to run
-     a specific template from the helm chart """
+    """generates yaml file using Helm and returns its name. Provide 'templates' if you need to run
+    a specific template from the helm chart"""
     command_args = _create_helm_args(helm_args, helm_options)
 
     if templates is not None:
@@ -114,6 +114,10 @@ def _create_helm_args(helm_args, helm_options: Optional[List[str]] = None) -> Li
     for (key, value) in helm_args.items():
         command_args.append("--set")
         command_args.append("{}={}".format(key, value))
+
+    if "useRunningOperator" in helm_args:
+        logging.info("Operator will not be installed this time, passing --dry-run")
+        command_args.append("--dry-run")
 
     command_args.append("--create-namespace")
 

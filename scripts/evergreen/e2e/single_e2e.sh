@@ -29,8 +29,9 @@ prepare_operator_config_map() {
     title "Preparing the ConfigMap with Operator installation configuration"
 
     kubectl delete configmap operator-installation-config --ignore-not-found
+    local version_id=${version_id:=latest}
 
-    local operator_version="${version_id:-latest}"
+    local operator_version="${version_id}"
     local database_registry=${DATABASE_REGISTRY}
     local database_name=${DATABASE_NAME}
     if [[ ${IMAGE_TYPE} == "usaf" ]]; then
@@ -41,24 +42,30 @@ prepare_operator_config_map() {
       database_name="mongodb-enterprise-database:${usaf_database_version}"
     fi
 
-    kubectl create configmap operator-installation-config -n "${PROJECT_NAMESPACE}" \
-      --from-literal managedSecurityContext="${MANAGED_SECURITY_CONTEXT:-false}" \
-      --from-literal registry.operator="${REGISTRY}" \
-      --from-literal registry.imagePullSecrets="image-registries-secret" \
-      --from-literal registry.initOpsManager="${INIT_OPS_MANAGER_REGISTRY}" \
-      --from-literal registry.initAppDb="${INIT_APPDB_REGISTRY}" \
-      --from-literal registry.initDatabase="${INIT_DATABASE_REGISTRY}" \
-      --from-literal registry.opsManager="${OPS_MANAGER_REGISTRY}" \
-      --from-literal registry.appDb="${APPDB_REGISTRY}" \
-      --from-literal registry.database="${database_registry}" \
-      --from-literal opsManager.name="${OPS_MANAGER_NAME:=mongodb-enterprise-ops-manager}" \
-      --from-literal appDb.name="${APPDB_NAME:=mongodb-enterprise-appdb}" \
-      --from-literal database.name="${database_name:=mongodb-enterprise-database}" \
-      --from-literal operator.version="${operator_version}" \
-      --from-literal initOpsManager.version="${version_id:-latest}" \
-      --from-literal initAppDb.version="${version_id:-latest}" \
-      --from-literal initDatabase.version="${version_id:-$latest}"
+    config=(
+      "--from-literal" "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"
+      "--from-literal" "registry.operator=${REGISTRY}"
+      "--from-literal" "registry.imagePullSecrets=image-registries-secret"
+      "--from-literal" "registry.initOpsManager=${INIT_OPS_MANAGER_REGISTRY}"
+      "--from-literal" "registry.initAppDb=${INIT_APPDB_REGISTRY}"
+      "--from-literal" "registry.initDatabase=${INIT_DATABASE_REGISTRY}"
+      "--from-literal" "registry.opsManager=${OPS_MANAGER_REGISTRY}"
+      "--from-literal" "registry.appDb=${APPDB_REGISTRY}"
+      "--from-literal" "registry.database=${database_registry}"
+      "--from-literal" "opsManager.name=${OPS_MANAGER_NAME:=mongodb-enterprise-ops-manager}"
+      "--from-literal" "appDb.name=${APPDB_NAME:=mongodb-enterprise-appdb}"
+      "--from-literal" "database.name=${database_name:=mongodb-enterprise-database}"
+      "--from-literal" "operator.version=${operator_version}"
+      "--from-literal" "initOpsManager.version=${version_id}"
+      "--from-literal" "initAppDb.version=${version_id}"
+      "--from-literal" "initDatabase.version=${version_id}"
+    )
 
+    if [[ "${USE_RUNNING_OPERATOR:-}" == "true" ]]; then
+      config+=("--from-literal useRunningOperator=true")
+    fi
+
+    kubectl create configmap operator-installation-config -n "${PROJECT_NAMESPACE}" ${config[*]}
     # for some reasons the previous 'create' command doesn't return >0 in case of failures...
     ! kubectl get configmap operator-installation-config -n "${PROJECT_NAMESPACE}" && \
           fatal "Failed to create ConfigMap operator-installation-config"
