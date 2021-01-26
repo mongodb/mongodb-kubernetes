@@ -348,29 +348,6 @@ functions:
       params:
         files: ["*.suite", "src/**/*.suite"]
 
-  build_and_push_test_image:
-    - command: subprocess.exec
-      type: setup
-      params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
-        add_to_path:
-          - *go_bin
-          - ${workdir}/bin
-        add_expansions_to_env: true
-        env:
-          <<: *go_options
-
-          AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
-          AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
-          AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
-
-          IN_MEMORY_CONTEXT: "true"
-          BASE_REPO_URL: ${ecr_registry}/dev
-          # test app doesn't use different base images, adding this just to pass a general validation
-          IMAGE_TYPE: ubuntu
-
-        command: scripts/dev/build_push_tests_image
-
   setup_cloud_qa:
   - command: subprocess.exec
     type: setup
@@ -727,9 +704,10 @@ tasks:
   priority: 60
   commands:
   - func: clone
-  - func: setup_aws
-  - func: configure_docker_auth
-  - func: build_and_push_test_image
+  - func: setup_building_host
+  - func: pipeline
+    vars:
+      image_name: test
 
 - name: build_operator_ubi
   exec_timeout_secs: 600

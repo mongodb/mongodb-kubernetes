@@ -6,10 +6,12 @@ to produce the final images."""
 
 import argparse
 from datetime import datetime, timedelta
+from distutils.dir_util import copy_tree
 import json
 import logging
 from typing import Dict, List, Union, Tuple, Optional
 import os
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -187,6 +189,22 @@ def sonar_build_image(
         build_args=build_configuration.build_args(args),
         inventory=inventory,
     )
+
+
+def build_tests_image(build_configuration: BuildConfiguration):
+    """
+    Builds image used to run tests.
+    """
+    image_name = "test"
+
+    # helm directory needs to be copied over to the tests docker context.
+    helm_src = "public/helm_chart"
+    helm_dest = "docker/mongodb-enterprise-tests/helm_chart"
+
+    shutil.rmtree(helm_dest, ignore_errors=True)
+    copy_tree(helm_src, helm_dest)
+
+    sonar_build_image(image_name, build_configuration, {}, "inventories/test.yaml")
 
 
 def build_operator_image(build_configuration: BuildConfiguration):
@@ -582,6 +600,7 @@ def get_builder_function_for_image_name():
     """Returns a dictionary of image names that can be built."""
 
     return {
+        "test": build_tests_image,
         "operator": build_operator_image,
         "operator-quick": build_operator_image_patch,
         "database": build_database_image,

@@ -159,7 +159,7 @@ build-and-push-database-image: aws_login
 
 build-and-push-test-image: aws_login
 	@ if [[ -z "$(local)" ]]; then \
-		scripts/dev/build_push_tests_image; \
+		./pipeline.py --include test; \
 	fi
 
 # builds all app images in parallel
