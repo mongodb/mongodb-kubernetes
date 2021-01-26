@@ -68,9 +68,9 @@ cp ../../public/helm_chart/crds/opsmanagers.mongodb.com.yaml opsmanagers.mongodb
 cd ..
 ```
 
-Check the following sections in the clusterserviceversion file.
-You may need to look into https://github.com/mongodb/mongodb-enterprise-kubernetes/blob/master/mongodb-enterprise-openshift.yaml
-as the sourcer of relevant information.
+### Check for Changes
+
+Check for any [new changes](./csv-changes.md) that have been introduced since the last release.
 
 ### Metadata
 

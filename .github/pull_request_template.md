@@ -11,3 +11,8 @@
 ## If this PR touches existing functions whose docstrings need modifications
 * [ ] Make sure to correct the docstring as per [The Go Blog](https://blog.golang.org/godoc).
 * [ ] Ensure there are no stale comments.
+
+## If this PR includes anything that will require modifying the CSVs.
+E.g. changes to env vars, images or operator permissions.
+
+* [ ] Make sure you have updated [csv changes](../docs/dev/release/csv-changes.md)
