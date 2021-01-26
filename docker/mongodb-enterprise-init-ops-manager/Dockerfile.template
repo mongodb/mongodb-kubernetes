@@ -15,6 +15,9 @@ LABEL name="MongoDB Enterprise Ops Manager Init" \
 COPY --from=base /data/scripts /scripts
 COPY --from=base /data/licenses /licenses
 
+{% block packages %}
+{% endblock %}
+
 USER 2000
 ENTRYPOINT [ "/bin/cp", "-f", "/scripts/docker-entry-point.sh", "/scripts/mmsconfiguration", "/opt/scripts/" ]
 

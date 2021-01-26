@@ -3,6 +3,9 @@
 {% set base_image = "registry.access.redhat.com/ubi8/ubi-minimal" %}
 
 {% block mongodb_tools %}
-RUN microdnf -y install --nodocs tar gzip && microdnf clean all
+RUN microdnf update --nodocs \
+    && microdnf -y install --nodocs tar gzip \
+    && microdnf clean all
+
 COPY --from=base /data/mongodb_tools_ubi.tgz    /tools/mongodb_tools.tgz
 {% endblock %}
