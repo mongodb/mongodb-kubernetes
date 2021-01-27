@@ -718,7 +718,7 @@ def main():
     parser.add_argument("--include", action="append")
     parser.add_argument("--exclude", action="append")
     parser.add_argument("--builder", default="docker", type=str)
-    parser.add_argument("--list-images")
+    parser.add_argument("--list-images", action="store_true")
     parser.add_argument("--parallel", action="store_true", default=False)
     args = parser.parse_args()
 
