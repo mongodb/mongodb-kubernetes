@@ -111,7 +111,6 @@ images:
 
 - name: ops-manager-daily
   vars:
-  vars:
     context: docker/mongodb-enterprise-ops-manager
 
   stages:
