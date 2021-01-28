@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"path"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/scale"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
-	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -29,7 +30,7 @@ const (
 	// clusterConfigVolumeName is the name of the volume resource.
 	clusterConfigVolumeName    = "cluster-config"
 	appDBServiceAccount        = "mongodb-enterprise-appdb"
-	initAppDbContainerName     = "mongodb-enterprise-init-appdb"
+	InitAppDbContainerName     = "mongodb-enterprise-init-appdb"
 	appDbReadinessProbeCommand = "/opt/scripts/readinessprobe"
 	appDbLivenessProbeCommand  = "/opt/scripts/probe.sh"
 	// AppDB environment variable names
@@ -71,7 +72,7 @@ func AppDbOptions(opts ...func(options *DatabaseStatefulSetOptions)) func(opsMan
 
 // AppDbStatefulSet fully constructs the AppDb StatefulSet that is ready to be sent to the Kubernetes API server.
 // A list of optional configuration options can be provided to make any modifications that are required.
-func AppDbStatefulSet(opsManager om.MongoDBOpsManager, opts ...func(options *DatabaseStatefulSetOptions)) (appsv1.StatefulSet, error) {
+func AppDbStatefulSet(opsManager om.MongoDBOpsManager, opts ...func(options *DatabaseStatefulSetOptions)) appsv1.StatefulSet {
 	stsOpts := AppDbOptions(opts...)(opsManager)
 	// TODO: temporary way of using the same function to build both appdb and databaes
 	// this will be cleaned up in a future PR
@@ -85,9 +86,9 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, opts ...func(options *Dat
 
 	dbSts := appDbDatabaseStatefulSet(mdb, &stsOpts)
 	if mdb.Spec.PodSpec != nil && mdb.Spec.PodSpec.PodTemplate != nil {
-		return enterprisests.MergeSpec(dbSts, &appsv1.StatefulSetSpec{Template: *mdb.Spec.PodSpec.PodTemplate})
+		dbSts.Spec = merge.StatefulSetSpecs(dbSts.Spec, appsv1.StatefulSetSpec{Template: *mdb.Spec.PodSpec.PodTemplate})
 	}
-	return dbSts, nil
+	return dbSts
 }
 
 func appDbDatabaseStatefulSet(mdb mdbv1.MongoDB, stsOpts *DatabaseStatefulSetOptions) appsv1.StatefulSet {
@@ -151,7 +152,7 @@ func buildAppDBPodTemplateSpecFunc(opts DatabaseStatefulSetOptions) podtemplates
 				container.WithReadinessProbe(buildAppDbReadinessProbe()),
 				container.WithLivenessProbe(buildAppDbLivenessProbe()),
 				container.WithCommand([]string{"/opt/scripts/agent-launcher.sh"}),
-				withVolumeMounts(volumeMounts),
+				container.WithVolumeMounts(volumeMounts),
 			),
 		),
 	)
@@ -179,10 +180,10 @@ func buildAppdbInitContainer() container.Modification {
 	}
 
 	return container.Apply(
-		container.WithName(initAppDbContainerName),
+		container.WithName(InitAppDbContainerName),
 		container.WithImage(initContainerImageURL),
 		configureContainerSecurityContext,
-		withVolumeMounts([]corev1.VolumeMount{
+		container.WithVolumeMounts([]corev1.VolumeMount{
 			appDbScriptsVolumeMount(false),
 		}),
 	)

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
@@ -290,10 +290,8 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 func TestPodAntiaffinity_MongodsInsideShardAreSpread(t *testing.T) {
 	sc := DefaultClusterBuilder().Build()
 
-	firstShardSet, err := construct.DatabaseStatefulSet(*sc, construct.ShardOptions(0))
-	assert.NoError(t, err)
-	secondShardSet, err := construct.DatabaseStatefulSet(*sc, construct.ShardOptions(1))
-	assert.NoError(t, err)
+	firstShardSet := construct.DatabaseStatefulSet(*sc, construct.ShardOptions(0))
+	secondShardSet := construct.DatabaseStatefulSet(*sc, construct.ShardOptions(1))
 
 	assert.Equal(t, sc.ShardRsName(0), firstShardSet.Spec.Selector.MatchLabels[construct.PodAntiAffinityLabelKey])
 	assert.Equal(t, sc.ShardRsName(1), secondShardSet.Spec.Selector.MatchLabels[construct.PodAntiAffinityLabelKey])
@@ -864,20 +862,20 @@ func assertPodSpecTemplate(t *testing.T, nodeName, hostName string, restartPolic
 	assert.Equal(t, restartPolicy, podSpecTemplate.RestartPolicy)
 
 	assert.Equal(t, util.DatabaseContainerName, podSpecTemplate.Containers[0].Name, "Database container should always be first")
-	assert.True(t, enterprisests.VolumeMountWithNameExists(podSpecTemplate.Containers[0].VolumeMounts, construct.PvcNameDatabaseScripts))
+	assert.True(t, statefulset.VolumeMountWithNameExists(podSpecTemplate.Containers[0].VolumeMounts, construct.PvcNameDatabaseScripts))
 }
 
 func createDeploymentFromShardedCluster(updatable v1.CustomResourceReadWriter) om.Deployment {
 	sh := updatable.(*mdbv1.MongoDB)
 
-	mongosSts, _ := construct.DatabaseStatefulSet(*sh, construct.MongosOptions(Replicas(sh.Spec.MongosCount)))
+	mongosSts := construct.DatabaseStatefulSet(*sh, construct.MongosOptions(Replicas(sh.Spec.MongosCount)))
 	mongosProcesses := createMongosProcesses(mongosSts, sh)
-	configSvrSts, _ := construct.DatabaseStatefulSet(*sh, construct.ConfigServerOptions(Replicas(sh.Spec.ConfigServerCount)))
+	configSvrSts := construct.DatabaseStatefulSet(*sh, construct.ConfigServerOptions(Replicas(sh.Spec.ConfigServerCount)))
 
 	configRs := buildReplicaSetFromProcesses(configSvrSts.Name, createConfigSrvProcesses(configSvrSts, sh), sh)
 	shards := make([]om.ReplicaSetWithProcesses, sh.Spec.ShardCount)
 	for i := 0; i < sh.Spec.ShardCount; i++ {
-		shardSts, _ := construct.DatabaseStatefulSet(*sh, construct.ShardOptions(i, Replicas(sh.Spec.MongodsPerShardCount)))
+		shardSts := construct.DatabaseStatefulSet(*sh, construct.ShardOptions(i, Replicas(sh.Spec.MongodsPerShardCount)))
 		shards[i] = buildReplicaSetFromProcesses(shardSts.Name, createShardProcesses(shardSts, sh), sh)
 	}
 

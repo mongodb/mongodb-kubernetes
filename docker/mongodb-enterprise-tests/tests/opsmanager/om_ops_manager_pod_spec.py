@@ -86,15 +86,15 @@ class TestOpsManagerCreation:
             == "mongodb-enterprise-appdb"
         )
 
-        appdb_container = appdb_sts.spec.template.spec.containers[0]
+        appdb_container = appdb_sts.spec.template.spec.containers[1]
         assert appdb_container.name == "mongodb-enterprise-appdb"
         assert appdb_container.resources.limits["cpu"] == "250m"
         assert appdb_container.resources.limits["memory"] == "350M"
 
-        assert appdb_sts.spec.template.spec.containers[1].name == "appdb-sidecar"
-        assert appdb_sts.spec.template.spec.containers[1].image == "busybox"
-        assert appdb_sts.spec.template.spec.containers[1].command == ["sleep"]
-        assert appdb_sts.spec.template.spec.containers[1].args == ["infinity"]
+        assert appdb_sts.spec.template.spec.containers[0].name == "appdb-sidecar"
+        assert appdb_sts.spec.template.spec.containers[0].image == "busybox"
+        assert appdb_sts.spec.template.spec.containers[0].command == ["sleep"]
+        assert appdb_sts.spec.template.spec.containers[0].args == ["infinity"]
 
     def test_appdb_persistence(self, ops_manager: MongoDBOpsManager, namespace: str):
         # appdb pod volume claim template
@@ -296,7 +296,7 @@ class TestOpsManagerUpdate:
         appdb_sts = ops_manager.read_appdb_statefulset()
         assert len(appdb_sts.spec.template.spec.containers) == 2
 
-        appdb_container = appdb_sts.spec.template.spec.containers[0]
+        appdb_container = appdb_sts.spec.template.spec.containers[1]
         assert appdb_container.name == "mongodb-enterprise-appdb"
 
         assert appdb_sts.spec.template.metadata.annotations == {"annotation1": "val"}

@@ -3,8 +3,9 @@ package construct
 import (
 	"fmt"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
-	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	appsv1 "k8s.io/api/apps/v1"
 
@@ -62,15 +63,12 @@ func OpsManagerStatefulSet(opsManager omv1.MongoDBOpsManager, additionalOpts ...
 	omSts := statefulset.New(opsManagerStatefulSetFunc(opts))
 	var err error
 	if opts.StatefulSetSpecOverride != nil {
-		omSts, err = enterprisests.MergeSpec(omSts, opts.StatefulSetSpecOverride)
-		if err != nil {
-			return appsv1.StatefulSet{}, nil
-		}
+		omSts.Spec = merge.StatefulSetSpecs(omSts.Spec, *opts.StatefulSetSpecOverride)
 	}
 
 	// the JVM env args must be determined after any potential stateful set override
 	// has taken place.
-	if err = setJvmArgsEnvVars(opsManager.Spec, &omSts); err != nil {
+	if err = setJvmArgsEnvVars(opsManager.Spec, util.OpsManagerContainerName, &omSts); err != nil {
 		return appsv1.StatefulSet{}, err
 	}
 	return omSts, nil
@@ -253,7 +251,7 @@ func opsManagerReadinessProbe(scheme corev1.URIScheme) probes.Modification {
 	}
 	return probes.Apply(
 		probes.WithInitialDelaySeconds(60),
-		withTimeoutSeconds(5),
+		probes.WithTimeoutSeconds(5),
 		probes.WithPeriodSeconds(5),
 		probes.WithSuccessThreshold(1),
 		probes.WithFailureThreshold(12),
@@ -279,7 +277,7 @@ func buildOpsManagerAndBackupInitContainer() container.Modification {
 		container.WithName(util.InitOpsManagerContainerName),
 		container.WithImage(initContainerImageURL),
 		configureContainerSecurityContext,
-		withVolumeMounts([]corev1.VolumeMount{buildOmScriptsVolumeMount(false)}),
+		container.WithVolumeMounts([]corev1.VolumeMount{buildOmScriptsVolumeMount(false)}),
 	)
 }
 

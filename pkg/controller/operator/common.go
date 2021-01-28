@@ -5,6 +5,8 @@ import (
 	"math"
 	"sync"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/host"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
@@ -50,7 +52,7 @@ func DeploymentLink(url, groupId string) string {
 }
 
 func buildReplicaSetFromStatefulSet(set appsv1.StatefulSet, mdb *mdbv1.MongoDB) om.ReplicaSetWithProcesses {
-	members := createMongodProcesses(set, mdb)
+	members := createMongodProcesses(set, util.DatabaseContainerName, mdb)
 	replicaSet := om.NewReplicaSet(set.Name, mdb.Spec.GetVersion())
 	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members)
 	rsWithProcesses.SetHorizons(mdb.Spec.Connectivity.ReplicaSetHorizons)
@@ -60,10 +62,10 @@ func buildReplicaSetFromStatefulSet(set appsv1.StatefulSet, mdb *mdbv1.MongoDB) 
 // createMongodProcesses builds the slice of processes based on 'StatefulSet' and 'MongoDB' spec.
 // Note, that it's not applicable for sharded cluster processes as each of them may have their own mongod
 // options configuration, also mongos process is different
-func createMongodProcesses(set appsv1.StatefulSet, mdb *mdbv1.MongoDB) []om.Process {
+func createMongodProcesses(set appsv1.StatefulSet, containerName string, mdb *mdbv1.MongoDB) []om.Process {
 	hostnames, names := util.GetDnsForStatefulSet(set, mdb.Spec.GetClusterDomain())
 	processes := make([]om.Process, len(hostnames))
-	wiredTigerCache := calculateWiredTigerCache(set, mdb.Spec.GetVersion())
+	wiredTigerCache := calculateWiredTigerCache(set, containerName, mdb.Spec.GetVersion())
 
 	for idx, hostname := range hostnames {
 		processes[idx] = om.NewMongodProcess(names[idx], hostname, mdb.Spec.AdditionalMongodConfig, mdb)
@@ -77,12 +79,12 @@ func createMongodProcesses(set appsv1.StatefulSet, mdb *mdbv1.MongoDB) []om.Proc
 
 // calculateWiredTigerCache returns the cache that needs to be dedicated to mongodb engine.
 // This was fixed in SERVER-16571 so we don't need to enable this for some latest version of mongodb (see the ticket)
-func calculateWiredTigerCache(set appsv1.StatefulSet, version string) *float32 {
+func calculateWiredTigerCache(set appsv1.StatefulSet, containerName, version string) *float32 {
 	shouldCalculate, err := util.VersionMatchesRange(version, ">=4.0.0 <4.0.9 || <3.6.13")
 
 	if err != nil || shouldCalculate {
 		// Note, that if the limit is 0 then it's not specified in fact (unbounded)
-		if memory := set.Spec.Template.Spec.Containers[0].Resources.Limits.Memory(); memory != nil && (*memory).Value() != 0 {
+		if memory := container.GetByName(containerName, set.Spec.Template.Spec.Containers).Resources.Limits.Memory(); memory != nil && (*memory).Value() != 0 {
 			// Value() returns size in bytes so we need to transform to Gigabytes
 			wt := cast.ToFloat64((*memory).Value()) / 1000000000
 			// https://docs.mongodb.com/manual/core/wiredtiger/#memory-use

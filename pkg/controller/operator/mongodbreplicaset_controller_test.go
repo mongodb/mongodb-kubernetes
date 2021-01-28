@@ -706,7 +706,7 @@ func (b *ReplicaSetBuilder) Build() *mdbv1.MongoDB {
 }
 
 func createDeploymentFromReplicaSet(rs *mdbv1.MongoDB) om.Deployment {
-	sts, _ := construct.DatabaseStatefulSet(*rs, construct.ReplicaSetOptions())
+	sts := construct.DatabaseStatefulSet(*rs, construct.ReplicaSetOptions())
 	d := om.NewDeployment()
 	d.MergeReplicaSet(
 		buildReplicaSetFromStatefulSet(sts, rs),

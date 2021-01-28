@@ -175,10 +175,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 		PodEnvVars(podVars),
 	)
 
-	sts, err := construct.DatabaseStatefulSet(*s, standaloneOpts)
-	if err != nil {
-		return r.updateStatus(s, workflow.Failed("Failed to create/update (Ops Manager reconciliation phase): %s", err.Error()), log)
-	}
+	sts := construct.DatabaseStatefulSet(*s, standaloneOpts)
 
 	status := runInGivenOrder(needToPublishStateFirst(r.client, *s, standaloneOpts, log),
 		func() workflow.Status {
@@ -218,7 +215,7 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(conn om.Connection, s *m
 		return status
 	}
 
-	standaloneOmObject := createProcess(set, s)
+	standaloneOmObject := createProcess(set, util.DatabaseContainerName, s)
 	err := conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			excessProcesses := d.GetNumberOfExcessProcesses(s.Name)
@@ -298,9 +295,9 @@ func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLog
 	return nil
 }
 
-func createProcess(set appsv1.StatefulSet, s *mdbv1.MongoDB) om.Process {
+func createProcess(set appsv1.StatefulSet, containerName string, s *mdbv1.MongoDB) om.Process {
 	hostnames, _ := util.GetDnsForStatefulSet(set, s.Spec.GetClusterDomain())
-	wiredTigerCache := calculateWiredTigerCache(set, s.Spec.GetVersion())
+	wiredTigerCache := calculateWiredTigerCache(set, containerName, s.Spec.GetVersion())
 
 	process := om.NewMongodProcess(s.Name, hostnames[0], s.Spec.AdditionalMongodConfig, s)
 	if wiredTigerCache != nil {

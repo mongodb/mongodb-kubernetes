@@ -4,7 +4,8 @@ import (
 	"os"
 	"testing"
 
-	enterprisestatefulset "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
@@ -61,19 +62,19 @@ func TestBuildJvmParamsEnvVars_FromCustomContainerResource(t *testing.T) {
 
 	template.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory] = *resource.NewQuantity(268435456, resource.BinarySI)
 	template.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory] = unsetQuantity
-	envVarLimitsOnly, err := buildJvmParamsEnvVars(om.Spec, template)
+	envVarLimitsOnly, err := buildJvmParamsEnvVars(om.Spec, util.OpsManagerContainerName, template)
 	assert.NoError(t, err)
 
 	template.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory] = *resource.NewQuantity(218435456, resource.BinarySI)
-	envVarLimitsAndReqs, err := buildJvmParamsEnvVars(om.Spec, template)
+	envVarLimitsAndReqs, err := buildJvmParamsEnvVars(om.Spec, util.OpsManagerContainerName, template)
 	assert.NoError(t, err)
 
 	template.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory] = unsetQuantity
-	envVarReqsOnly, err := buildJvmParamsEnvVars(om.Spec, template)
+	envVarReqsOnly, err := buildJvmParamsEnvVars(om.Spec, util.OpsManagerContainerName, template)
 	assert.NoError(t, err)
 
 	template.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory] = unsetQuantity
-	envVarsNoLimitsOrReqs, err := buildJvmParamsEnvVars(om.Spec, template)
+	envVarsNoLimitsOrReqs, err := buildJvmParamsEnvVars(om.Spec, util.OpsManagerContainerName, template)
 	assert.NoError(t, err)
 
 	// if only memory requests are configured, xms and xmx should be 90% of mem request
@@ -96,7 +97,7 @@ func TestBuildJvmParamsEnvVars_FromDefaultPodSpec(t *testing.T) {
 	assert.NoError(t, err)
 	template := omSts.Spec.Template
 
-	envVar, err := buildJvmParamsEnvVars(om.Spec, template)
+	envVar, err := buildJvmParamsEnvVars(om.Spec, util.OpsManagerContainerName, template)
 	assert.NoError(t, err)
 	// xmx and xms based calculated from  default container memory, requests.mem=limits.mem=5GB
 	assert.Equal(t, "CUSTOM_JAVA_MMS_UI_OPTS", envVar[0].Name)
@@ -207,11 +208,11 @@ func TestOpsManagerPodTemplate_MergePodTemplate(t *testing.T) {
 		},
 	}
 
-	mergedSts, err := enterprisestatefulset.MergeSpec(operatorSts, &appsv1.StatefulSetSpec{
+	mergedSpec := merge.StatefulSetSpecs(operatorSts.Spec, appsv1.StatefulSetSpec{
 		Template: podTemplateSpec,
 	})
-	assert.NoError(t, err)
-	template = mergedSts.Spec.Template
+
+	template = mergedSpec.Template
 	// Service account gets overriden by custom pod template
 	assert.Equal(t, "test-account", template.Spec.ServiceAccountName)
 	assert.Equal(t, expectedAnnotations, template.Annotations)
@@ -253,10 +254,10 @@ func TestOpsManagerPodTemplate_PodSpec(t *testing.T) {
 			),
 		),
 	}
-	mergedSts, err := enterprisestatefulset.MergeSpec(omSts, &stsSpecOverride)
+	mergedSpec := merge.StatefulSetSpecs(omSts.Spec, stsSpecOverride)
 	assert.NoError(t, err)
 
-	spec := mergedSts.Spec.Template.Spec
+	spec := mergedSpec.Template.Spec
 	assert.Equal(t, defaultNodeAffinity(), *spec.Affinity.NodeAffinity)
 	assert.Equal(t, defaultPodAffinity(), *spec.Affinity.PodAffinity)
 	assert.Len(t, spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution, 1)

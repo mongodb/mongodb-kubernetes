@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/automationconfig"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/create"
 
@@ -110,13 +112,9 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 	}
 
 	appDbOpts := construct.AppDbOptions(PodEnvVars(&podVars))
-	appDbSts, err := construct.AppDbStatefulSet(*opsManager,
+	appDbSts := construct.AppDbStatefulSet(*opsManager,
 		PodEnvVars(&podVars),
 	)
-
-	if err != nil {
-		return r.updateStatus(opsManager, workflow.Failed(err.Error()), log, appDbStatusOption)
-	}
 
 	if workflowStatus := r.reconcileAppDB(*opsManager, opsManagerUserPassword, appDbSts, appDbOpts, log); !workflowStatus.IsOK() {
 		return r.updateStatus(opsManager, workflowStatus, log, appDbStatusOption)
@@ -592,7 +590,8 @@ func (r *ReconcileAppDbReplicaSet) allAgentsReachedGoalState(manager omv1.MongoD
 	if err == nil {
 		appdbSize = int(set.Status.Replicas)
 		if len(set.Spec.Template.Spec.InitContainers) > 0 {
-			upgradeFromOldInitImage = isOldInitAppDBImageForAgentsCheck(set.Spec.Template.Spec.InitContainers[0].Image, log)
+			appDbInitContainer := container.GetByName(construct.InitAppDbContainerName, set.Spec.Template.Spec.InitContainers)
+			upgradeFromOldInitImage = isOldInitAppDBImageForAgentsCheck(appDbInitContainer.Image, log)
 			if upgradeFromOldInitImage {
 				return workflow.OK()
 			}
@@ -699,7 +698,7 @@ func createProcessesAppDb(set appsv1.StatefulSet, mongoType om.MongoType,
 
 	hostnames, names := util.GetDnsForStatefulSet(set, mdb.GetClusterDomain())
 	processes := make([]om.Process, len(hostnames))
-	wiredTigerCache := calculateWiredTigerCache(set, mdb.GetVersion())
+	wiredTigerCache := calculateWiredTigerCache(set, util.AppDbContainerName, mdb.GetVersion())
 
 	for idx, hostname := range hostnames {
 		switch mongoType {

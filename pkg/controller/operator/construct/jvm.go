@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
+
 	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	appsv1 "k8s.io/api/apps/v1"
@@ -19,34 +21,35 @@ const (
 // setJvmArgsEnvVars sets the correct environment variables for JVM size parameters.
 // This method must be invoked on the final version of the StatefulSet (after user statefulSet spec
 // was merged)
-func setJvmArgsEnvVars(om omv1.MongoDBOpsManagerSpec, sts *appsv1.StatefulSet) error {
-	jvmParamsEnvVars, err := buildJvmParamsEnvVars(om, sts.Spec.Template)
+func setJvmArgsEnvVars(om omv1.MongoDBOpsManagerSpec, containerName string, sts *appsv1.StatefulSet) error {
+	jvmParamsEnvVars, err := buildJvmParamsEnvVars(om, containerName, sts.Spec.Template)
 	if err != nil {
 		return err
 	}
 	// pass Xmx java parameter to container (note, that we don't need to sort the env variables again
 	// as the jvm params order is consistent)
 	for _, envVar := range jvmParamsEnvVars {
-		sts.Spec.Template.Spec.Containers[0].Env = append(sts.Spec.Template.Spec.Containers[0].Env, envVar)
+		omContainer := container.GetByName(containerName, sts.Spec.Template.Spec.Containers)
+		omContainer.Env = append(omContainer.Env, envVar)
 	}
 	return nil
 }
 
 // buildJvmParamsEnvVars returns a slice of corev1.EnvVars that should be added to the Backup Daemon
 // or Ops Manager containers.
-func buildJvmParamsEnvVars(m omv1.MongoDBOpsManagerSpec, template corev1.PodTemplateSpec) ([]corev1.EnvVar, error) {
+func buildJvmParamsEnvVars(m omv1.MongoDBOpsManagerSpec, containerName string, template corev1.PodTemplateSpec) ([]corev1.EnvVar, error) {
 	mmsJvmEnvVar := corev1.EnvVar{Name: util.MmsJvmParamEnvVar}
 	backupJvmEnvVar := corev1.EnvVar{Name: util.BackupDaemonJvmParamEnvVar}
-
+	omContainer := container.GetByName(containerName, template.Spec.Containers)
 	// calculate xmx from container's memory limit
-	memLimits := template.Spec.Containers[0].Resources.Limits.Memory()
+	memLimits := omContainer.Resources.Limits.Memory()
 	maxPodMem, err := getPercentOfQuantityAsInt(*memLimits, opsManagerPodMemPercentage)
 	if err != nil {
 		return []corev1.EnvVar{}, fmt.Errorf("error calculating xmx from pod mem: %e", err)
 	}
 
 	// calculate xms from container's memory request if it is set, otherwise xms=xmx
-	memRequests := template.Spec.Containers[0].Resources.Requests.Memory()
+	memRequests := omContainer.Resources.Requests.Memory()
 	minPodMem, err := getPercentOfQuantityAsInt(*memRequests, opsManagerPodMemPercentage)
 	if err != nil {
 		return []corev1.EnvVar{}, fmt.Errorf("error calculating xms from pod mem: %e", err)

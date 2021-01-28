@@ -6,8 +6,9 @@ import (
 	"os"
 	"reflect"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
-	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/certs"
@@ -853,25 +854,26 @@ func needToPublishStateFirst(stsGetter statefulset.Getter, mdb mdbv1.MongoDB, co
 		return false
 	}
 
-	volumeMounts := currentSts.Spec.Template.Spec.Containers[0].VolumeMounts
+	databaseContainer := container.GetByName(util.DatabaseContainerName, currentSts.Spec.Template.Spec.Containers)
+	volumeMounts := databaseContainer.VolumeMounts
 	if mdb.Spec.Security != nil {
-		if !mdb.Spec.Security.TLSConfig.Enabled && enterprisests.VolumeMountWithNameExists(volumeMounts, util.SecretVolumeName) {
+		if !mdb.Spec.Security.TLSConfig.Enabled && statefulset.VolumeMountWithNameExists(volumeMounts, util.SecretVolumeName) {
 			log.Debug("About to set `security.tls.enabled` to false. automationConfig needs to be updated first")
 			return true
 		}
 
-		if mdb.Spec.Security.TLSConfig.CA == "" && enterprisests.VolumeMountWithNameExists(volumeMounts, construct.ConfigMapVolumeCAName) {
+		if mdb.Spec.Security.TLSConfig.CA == "" && statefulset.VolumeMountWithNameExists(volumeMounts, construct.ConfigMapVolumeCAName) {
 			log.Debug("About to set `security.tls.CA` to empty. automationConfig needs to be updated first")
 			return true
 		}
 	}
 
-	if opts.PodVars.SSLMMSCAConfigMap == "" && enterprisests.VolumeMountWithNameExists(volumeMounts, construct.CaCertName) {
+	if opts.PodVars.SSLMMSCAConfigMap == "" && statefulset.VolumeMountWithNameExists(volumeMounts, construct.CaCertName) {
 		log.Debug("About to set `SSLMMSCAConfigMap` to empty. automationConfig needs to be updated first")
 		return true
 	}
 
-	if mdb.Spec.Security.GetAgentMechanism(opts.CurrentAgentAuthMode) != util.X509 && enterprisests.VolumeMountWithNameExists(volumeMounts, util.AgentSecretName) {
+	if mdb.Spec.Security.GetAgentMechanism(opts.CurrentAgentAuthMode) != util.X509 && statefulset.VolumeMountWithNameExists(volumeMounts, util.AgentSecretName) {
 		log.Debug("About to set `project.AuthMode` to empty. automationConfig needs to be updated first")
 		return true
 	}

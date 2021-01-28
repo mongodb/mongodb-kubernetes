@@ -3,12 +3,12 @@ package construct
 import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
-	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/lifecycle"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 )
@@ -24,15 +24,12 @@ func BackupDaemonStatefulSet(opsManager omv1.MongoDBOpsManager, additionalOpts .
 	backupSts := statefulset.New(backupDaemonStatefulSetFunc(opts))
 	var err error
 	if opts.StatefulSetSpecOverride != nil {
-		backupSts, err = enterprisests.MergeSpec(backupSts, opts.StatefulSetSpecOverride)
-		if err != nil {
-			return appsv1.StatefulSet{}, nil
-		}
+		backupSts.Spec = merge.StatefulSetSpecs(backupSts.Spec, *opts.StatefulSetSpecOverride)
 	}
 
 	// the JVM env args must be determined after any potential stateful set override
 	// has taken place.
-	if err = setJvmArgsEnvVars(opsManager.Spec, &backupSts); err != nil {
+	if err = setJvmArgsEnvVars(opsManager.Spec, util.BackupDaemonContainerName, &backupSts); err != nil {
 		return appsv1.StatefulSet{}, err
 	}
 	return backupSts, nil
@@ -82,7 +79,7 @@ func backupDaemonStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.
 						container.WithName(util.BackupDaemonContainerName),
 						container.WithEnvs(backupDaemonEnvVars()...),
 						container.WithLifecycle(buildBackupDaemonLifecycle()),
-						withVolumeMounts([]corev1.VolumeMount{headDbMount}),
+						container.WithVolumeMounts([]corev1.VolumeMount{headDbMount}),
 					),
 				)),
 		),

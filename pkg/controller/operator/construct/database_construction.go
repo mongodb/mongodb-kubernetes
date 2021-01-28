@@ -6,10 +6,11 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/scale"
-	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
@@ -206,13 +207,13 @@ func MongosOptions(additionalOpts ...func(options *DatabaseStatefulSetOptions)) 
 	}
 }
 
-func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions) (appsv1.StatefulSet, error) {
+func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions) appsv1.StatefulSet {
 	stsOptions := stsOptFunc(mdb)
 	dbSts := databaseStatefulSet(mdb, &stsOptions)
 	if stsOptions.StatefulSetSpecOverride != nil {
-		return enterprisests.MergeSpec(dbSts, stsOptions.StatefulSetSpecOverride)
+		dbSts.Spec = merge.StatefulSetSpecs(dbSts.Spec, *stsOptions.StatefulSetSpecOverride)
 	}
-	return dbSts, nil
+	return dbSts
 }
 
 func databaseStatefulSet(mdb mdbv1.MongoDB, stsOpts *DatabaseStatefulSetOptions) appsv1.StatefulSet {
@@ -240,7 +241,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb mdbv1.MongoDB, podTemplat
 	configureImagePullSecrets := podtemplatespec.NOOP()
 	name, found := env.Read(util.ImagePullSecrets)
 	if found {
-		configureImagePullSecrets = withImagePullSecrets(name)
+		configureImagePullSecrets = podtemplatespec.WithImagePullSecrets(name)
 	}
 
 	volumes, volumeMounts := getVolumesAndVolumeMounts(mdb, opts)
@@ -332,7 +333,7 @@ func sharedDatabaseContainerFunc(podSpecWrapper mdbv1.PodSpecWrapper, volumeMoun
 		container.WithPorts([]corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort}}),
 		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))),
 		container.WithImage(env.ReadOrPanic(util.AutomationAgentImage)),
-		withVolumeMounts(volumeMounts),
+		container.WithVolumeMounts(volumeMounts),
 		container.WithLivenessProbe(databaseLivenessProbe()),
 		container.WithReadinessProbe(databaseReadinessProbe()),
 		configureContainerSecurityContext,
@@ -473,7 +474,7 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions) podtemplatespe
 
 	pullSecretsConfigurationFunc := podtemplatespec.NOOP()
 	if pullSecrets, ok := env.Read(util.ImagePullSecrets); ok {
-		pullSecretsConfigurationFunc = withImagePullSecrets(pullSecrets)
+		pullSecretsConfigurationFunc = podtemplatespec.WithImagePullSecrets(pullSecrets)
 	}
 
 	return podtemplatespec.Apply(
@@ -549,7 +550,7 @@ func buildDatabaseInitContainer() container.Modification {
 		container.WithName(initDatabaseContainerName),
 		container.WithImage(initContainerImageURL),
 		configureContainerSecurityContext,
-		withVolumeMounts([]corev1.VolumeMount{
+		container.WithVolumeMounts([]corev1.VolumeMount{
 			databaseScriptsVolumeMount(false),
 		}),
 	)
@@ -607,7 +608,7 @@ func databaseLivenessProbe() probes.Modification {
 	return probes.Apply(
 		probes.WithExecCommand([]string{databaseLivenessProbeCommand}),
 		probes.WithInitialDelaySeconds(60),
-		withTimeoutSeconds(30),
+		probes.WithTimeoutSeconds(30),
 		probes.WithPeriodSeconds(30),
 		probes.WithSuccessThreshold(1),
 		probes.WithFailureThreshold(6),

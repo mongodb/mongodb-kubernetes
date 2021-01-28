@@ -12,9 +12,9 @@ import (
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 
 	"k8s.io/apimachinery/pkg/types"
 
@@ -388,15 +388,13 @@ func TestRegisterAppDBHostsWithProject(t *testing.T) {
 	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 
-	appDbSts, err := construct.AppDbStatefulSet(opsManager)
-	assert.NoError(t, err)
+	appDbSts := construct.AppDbStatefulSet(opsManager)
 
 	t.Run("Ensure all hosts are added", func(t *testing.T) {
-		assert.NoError(t, err)
 
 		_ = client.Update(context.TODO(), &appDbSts)
 
-		err = reconciler.registerAppDBHostsWithProject(&opsManager, conn, "password", zap.S())
+		err := reconciler.registerAppDBHostsWithProject(&opsManager, conn, "password", zap.S())
 		assert.NoError(t, err)
 
 		hosts, _ := conn.GetHosts()
@@ -407,7 +405,7 @@ func TestRegisterAppDBHostsWithProject(t *testing.T) {
 		appDbSts.Spec.Replicas = util.Int32Ref(5)
 		_ = client.Update(context.TODO(), &appDbSts)
 
-		err = reconciler.registerAppDBHostsWithProject(&opsManager, conn, "password", zap.S())
+		err := reconciler.registerAppDBHostsWithProject(&opsManager, conn, "password", zap.S())
 		assert.NoError(t, err)
 
 		hosts, _ := conn.GetHosts()
@@ -450,9 +448,8 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 	assert.Empty(t, podVars.ProjectID)
 	assert.Empty(t, podVars.User)
 
-	appDbSts, err := construct.AppDbStatefulSet(opsManager, Replicas(5))
+	appDbSts := construct.AppDbStatefulSet(opsManager, Replicas(5))
 
-	assert.NoError(t, err)
 	_ = client.Update(context.TODO(), &appDbSts)
 
 	// create the apiKey and OM user
@@ -483,10 +480,9 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 
 func TestBuildReplicaSetFromStatefulSetAppDb(t *testing.T) {
 	for i := 0; i < 10; i++ {
-		appDbSts, err := construct.AppDbStatefulSet(DefaultOpsManagerBuilder().Build(),
+		appDbSts := construct.AppDbStatefulSet(DefaultOpsManagerBuilder().Build(),
 			Replicas(i),
 		)
-		assert.NoError(t, err)
 		omRs := buildReplicaSetFromStatefulSetAppDb(appDbSts, omv1.AppDB{})
 		assert.Len(t, omRs.Processes, i)
 	}
@@ -611,7 +607,7 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 		SetMatchLabels(matchLabels).
 		SetServiceName(serviceName).
 		AddVolumeClaimTemplates(appDBStatefulSetVolumeClaimtemplates()).
-		SetReplicas(util.Int32Ref(int32(startingMembers))).
+		SetReplicas(startingMembers).
 		SetPodTemplateSpec(
 			podtemplatespec.New(
 				podtemplatespec.WithInitContainer("mongodb-enterprise-init-appdb",
@@ -699,7 +695,7 @@ func buildAutomationConfigForAppDb(builder *omv1.OpsManagerBuilder, internetMani
 	}
 
 	reconciler := newAppDbReconciler(kubeManager, internetManifestProvider)
-	sts, _ := construct.AppDbStatefulSet(opsManager)
+	sts := construct.AppDbStatefulSet(opsManager)
 	return reconciler.buildAppDbAutomationConfig(opsManager.Spec.AppDB, opsManager, "my-pass", sts, zap.S())
 }
 

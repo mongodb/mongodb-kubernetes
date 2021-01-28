@@ -2,8 +2,11 @@ package statefulset
 
 import (
 	"fmt"
-	"reflect"
 	"testing"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 
 	"github.com/stretchr/testify/assert"
 	appsv1 "k8s.io/api/apps/v1"
@@ -34,39 +37,39 @@ func TestGetContainerIndexByName(t *testing.T) {
 	}
 
 	stsBuilder := defaultStatefulSetBuilder().SetPodTemplateSpec(podTemplateWithContainers(containers))
-	idx, err := stsBuilder.getContainerIndexByName("container-0")
+	idx, err := stsBuilder.GetContainerIndexByName("container-0")
 
 	assert.NoError(t, err)
 	assert.NotEqual(t, -1, idx)
 	assert.Equal(t, 0, idx)
 
-	idx, err = stsBuilder.getContainerIndexByName("container-1")
+	idx, err = stsBuilder.GetContainerIndexByName("container-1")
 
 	assert.NoError(t, err)
 	assert.NotEqual(t, -1, idx)
 	assert.Equal(t, 1, idx)
 
-	idx, err = stsBuilder.getContainerIndexByName("container-2")
+	idx, err = stsBuilder.GetContainerIndexByName("container-2")
 
 	assert.NoError(t, err)
 	assert.NotEqual(t, -1, idx)
 	assert.Equal(t, 2, idx)
 
-	idx, err = stsBuilder.getContainerIndexByName("doesnt-exist")
+	idx, err = stsBuilder.GetContainerIndexByName("doesnt-exist")
 
 	assert.Error(t, err)
 	assert.Equal(t, -1, idx)
 }
 
 func TestAddVolumeAndMount(t *testing.T) {
-	var stsBuilder *Builder
+	var stsBuilder *statefulset.Builder
 	var sts appsv1.StatefulSet
 	var err error
-	vmd := VolumeMountData{
+	vmd := statefulset.VolumeMountData{
 		MountPath: "mount-path",
 		Name:      "mount-name",
 		ReadOnly:  true,
-		Volume:    CreateVolumeFromConfigMap("mount-name", "config-map"),
+		Volume:    statefulset.CreateVolumeFromConfigMap("mount-name", "config-map"),
 	}
 
 	stsBuilder = defaultStatefulSetBuilder().SetPodTemplateSpec(podTemplateWithContainers([]corev1.Container{{Name: "container-name"}})).AddVolumeAndMount(vmd, "container-name")
@@ -89,11 +92,11 @@ func TestAddVolumeAndMount(t *testing.T) {
 
 	assert.NoError(t, err, "volume should successfully mount when the container exists")
 
-	secretVmd := VolumeMountData{
+	secretVmd := statefulset.VolumeMountData{
 		MountPath: "mount-path-secret",
 		Name:      "mount-name-secret",
 		ReadOnly:  true,
-		Volume:    CreateVolumeFromSecret("mount-name-secret", "secret"),
+		Volume:    statefulset.CreateVolumeFromSecret("mount-name-secret", "secret"),
 	}
 
 	// add a 2nd container to previously defined stsBuilder
@@ -131,9 +134,7 @@ func TestAddVolumeClaimTemplates(t *testing.T) {
 
 func TestBuildStructImmutable(t *testing.T) {
 	labels := map[string]string{"label_1": "a", "label_2": "b"}
-	replicas := new(int32)
-	*replicas = 2
-	stsBuilder := defaultStatefulSetBuilder().SetLabels(labels).SetReplicas(replicas)
+	stsBuilder := defaultStatefulSetBuilder().SetLabels(labels).SetReplicas(2)
 	var sts appsv1.StatefulSet
 	var err error
 	sts, err = stsBuilder.Build()
@@ -142,18 +143,17 @@ func TestBuildStructImmutable(t *testing.T) {
 	assert.Equal(t, *sts.Spec.Replicas, int32(2))
 
 	delete(labels, "label_2")
-	*replicas = 1
 	// checks that modifying the underlying object did not change the built statefulset
 	assert.Len(t, sts.ObjectMeta.Labels, 2)
 	assert.Equal(t, *sts.Spec.Replicas, int32(2))
 	sts, err = stsBuilder.Build()
 	assert.NoError(t, err)
 	assert.Len(t, sts.ObjectMeta.Labels, 1)
-	assert.Equal(t, *sts.Spec.Replicas, int32(1))
+	assert.Equal(t, *sts.Spec.Replicas, int32(2))
 }
 
-func defaultStatefulSetBuilder() *Builder {
-	return NewBuilder().
+func defaultStatefulSetBuilder() *statefulset.Builder {
+	return statefulset.NewBuilder().
 		SetName(TestName).
 		SetNamespace(TestNamespace).
 		SetServiceName(fmt.Sprintf("%s-svc", TestName)).
@@ -208,76 +208,6 @@ func getCustomContainer() corev1.Container {
 		Name:  "container-1",
 		Image: "image-1",
 	}
-}
-
-func TestCreateContainerMap(t *testing.T) {
-	defaultContainer := getDefaultContainer()
-	customContainer := getCustomContainer()
-	result := createContainerMap([]corev1.Container{defaultContainer, customContainer})
-	assert.Len(t, result, 2)
-	assert.Equal(t, defaultContainer, result["container-0"])
-	assert.Equal(t, customContainer, result["container-1"])
-}
-
-func TestMergeVolumeMounts(t *testing.T) {
-	vol0 := corev1.VolumeMount{Name: "container-0.volume-mount-0"}
-	vol1 := corev1.VolumeMount{Name: "another-mount"}
-	volumeMounts := []corev1.VolumeMount{vol0, vol1}
-	var mergedVolumeMounts []corev1.VolumeMount
-	var err error
-
-	mergedVolumeMounts, err = mergeVolumeMounts(nil, volumeMounts)
-	assert.NoError(t, err)
-	assert.Equal(t, []corev1.VolumeMount{vol0, vol1}, mergedVolumeMounts)
-
-	vol2 := vol1
-	vol2.MountPath = "/somewhere"
-	mergedVolumeMounts, err = mergeVolumeMounts([]corev1.VolumeMount{vol2}, []corev1.VolumeMount{vol0, vol1})
-	assert.NoError(t, err)
-	assert.Equal(t, []corev1.VolumeMount{vol0, vol2}, mergedVolumeMounts)
-}
-
-func TestMergeContainer(t *testing.T) {
-	vol0 := corev1.VolumeMount{Name: "container-0.volume-mount-0"}
-	sideCarVol := corev1.VolumeMount{Name: "container-1.volume-mount-0"}
-
-	anotherVol := corev1.VolumeMount{Name: "another-mount"}
-
-	overrideDefaultContainer := corev1.Container{Name: "container-0"}
-	overrideDefaultContainer.Image = "overridden"
-	overrideDefaultContainer.ReadinessProbe = &corev1.Probe{PeriodSeconds: 20}
-
-	otherDefaultContainer := getDefaultContainer()
-	otherDefaultContainer.Name = "default-side-car"
-	otherDefaultContainer.VolumeMounts = []corev1.VolumeMount{sideCarVol}
-
-	overrideOtherDefaultContainer := otherDefaultContainer
-	overrideOtherDefaultContainer.Env = []corev1.EnvVar{{Name: "env_var", Value: "xxx"}}
-	overrideOtherDefaultContainer.VolumeMounts = []corev1.VolumeMount{anotherVol}
-
-	mergedContainers, err := mergeContainers(
-		[]corev1.Container{getCustomContainer(), overrideDefaultContainer, overrideOtherDefaultContainer},
-		[]corev1.Container{getDefaultContainer(), otherDefaultContainer},
-	)
-	assert.NoError(t, err)
-	assert.Len(t, mergedContainers, 3)
-
-	assert.Equal(t, getCustomContainer(), mergedContainers[2])
-
-	mergedDefaultContainer := mergedContainers[0]
-	assert.Equal(t, "container-0", mergedDefaultContainer.Name)
-	assert.Equal(t, []corev1.VolumeMount{vol0}, mergedDefaultContainer.VolumeMounts)
-	assert.Equal(t, "overridden", mergedDefaultContainer.Image)
-	// only "periodSeconds" was overwritten - other fields stayed untouched
-	assert.Equal(t, corev1.Handler{HTTPGet: &corev1.HTTPGetAction{Path: "/foo"}}, mergedDefaultContainer.ReadinessProbe.Handler)
-	assert.Equal(t, int32(20), mergedDefaultContainer.ReadinessProbe.PeriodSeconds)
-
-	mergedOtherContainer := mergedContainers[1]
-	assert.Equal(t, "default-side-car", mergedOtherContainer.Name)
-	assert.Equal(t, []corev1.VolumeMount{sideCarVol, anotherVol}, mergedOtherContainer.VolumeMounts)
-	assert.Len(t, mergedOtherContainer.Env, 1)
-	assert.Equal(t, "env_var", mergedOtherContainer.Env[0].Name)
-	assert.Equal(t, "xxx", mergedOtherContainer.Env[0].Value)
 }
 
 func getDefaultPodSpec() corev1.PodTemplateSpec {
@@ -349,9 +279,7 @@ func TestMergePodSpecsEmptyCustom(t *testing.T) {
 	defaultPodSpec := getDefaultPodSpec()
 	customPodSpecTemplate := corev1.PodTemplateSpec{}
 
-	mergedPodTemplateSpec, err := MergePodSpecs(customPodSpecTemplate, defaultPodSpec)
-
-	assert.NoError(t, err)
+	mergedPodTemplateSpec := merge.PodTemplateSpecs(defaultPodSpec, customPodSpecTemplate)
 	assert.Equal(t, "my-default-service-account", mergedPodTemplateSpec.Spec.ServiceAccountName)
 	assert.Equal(t, int64Ref(12), mergedPodTemplateSpec.Spec.TerminationGracePeriodSeconds)
 
@@ -374,9 +302,8 @@ func TestMergePodSpecsEmptyDefault(t *testing.T) {
 	defaultPodSpec := corev1.PodTemplateSpec{}
 	customPodSpecTemplate := getCustomPodSpec()
 
-	mergedPodTemplateSpec, err := MergePodSpecs(customPodSpecTemplate, defaultPodSpec)
+	mergedPodTemplateSpec := merge.PodTemplateSpecs(customPodSpecTemplate, defaultPodSpec)
 
-	assert.NoError(t, err)
 	assert.Equal(t, "my-service-account-override", mergedPodTemplateSpec.Spec.ServiceAccountName)
 	assert.Equal(t, int64Ref(11), mergedPodTemplateSpec.Spec.TerminationGracePeriodSeconds)
 	assert.Equal(t, "my-node-name", mergedPodTemplateSpec.Spec.NodeName)
@@ -396,13 +323,10 @@ func TestMergePodSpecsBoth(t *testing.T) {
 	customPodSpecTemplate := getCustomPodSpec()
 
 	var mergedPodTemplateSpec corev1.PodTemplateSpec
-	var err error
 
 	// multiple merges must give the same result
 	for i := 0; i < 3; i++ {
-		mergedPodTemplateSpec, err = MergePodSpecs(customPodSpecTemplate, defaultPodSpec)
-
-		assert.NoError(t, err)
+		mergedPodTemplateSpec = merge.PodTemplateSpecs(defaultPodSpec, customPodSpecTemplate)
 		// ensure values that were specified in the custom pod spec template remain unchanged
 		assert.Equal(t, "my-service-account-override", mergedPodTemplateSpec.Spec.ServiceAccountName)
 		assert.Equal(t, int64Ref(11), mergedPodTemplateSpec.Spec.TerminationGracePeriodSeconds)
@@ -424,8 +348,8 @@ func TestMergePodSpecsBoth(t *testing.T) {
 		assert.Equal(t, "container-1", mergedPodTemplateSpec.Spec.Containers[1].Name)
 		assert.Equal(t, "image-1", mergedPodTemplateSpec.Spec.Containers[1].Image)
 		assert.Len(t, mergedPodTemplateSpec.Spec.InitContainers, 2)
-		assert.Equal(t, "init-container-default", mergedPodTemplateSpec.Spec.InitContainers[0].Name)
-		assert.Equal(t, "init-container-custom", mergedPodTemplateSpec.Spec.InitContainers[1].Name)
+		assert.Equal(t, "init-container-custom", mergedPodTemplateSpec.Spec.InitContainers[0].Name)
+		assert.Equal(t, "init-container-default", mergedPodTemplateSpec.Spec.InitContainers[1].Name)
 
 		// ensure labels were appended
 		assert.Len(t, mergedPodTemplateSpec.Labels, 2)
@@ -447,9 +371,8 @@ func TestMergeSpec(t *testing.T) {
 		customSts, err := defaultStatefulSetBuilder().SetPodTemplateSpec(podTemplateWithContainers([]corev1.Container{{Name: "container-0"}})).Build()
 		assert.NoError(t, err)
 
-		mergedSts, err := MergeSpec(sts, &customSts.Spec)
-		assert.NoError(t, err)
-		assert.Contains(t, mergedSts.Spec.Template.Spec.Containers, corev1.Container{Name: "container-0"})
+		mergedSpec := merge.StatefulSetSpecs(sts.Spec, customSts.Spec)
+		assert.Contains(t, mergedSpec.Template.Spec.Containers, corev1.Container{Name: "container-0"})
 	})
 	t.Run("Change terminationGracePeriodSeconds", func(t *testing.T) {
 		sts, err := defaultStatefulSetBuilder().Build()
@@ -459,10 +382,9 @@ func TestMergeSpec(t *testing.T) {
 		sts.Spec.Template.Spec.TerminationGracePeriodSeconds = int64Ref(600)
 		assert.NoError(t, err)
 
-		mergedSts, err := MergeSpec(sts, &customSts.Spec)
-		assert.NoError(t, err)
-		assert.Contains(t, mergedSts.Spec.Template.Spec.Containers, corev1.Container{Name: "container-0"})
-		assert.Equal(t, mergedSts.Spec.Template.Spec.TerminationGracePeriodSeconds, int64Ref(600))
+		mergedSpec := merge.StatefulSetSpecs(sts.Spec, customSts.Spec)
+		assert.Contains(t, mergedSpec.Template.Spec.Containers, corev1.Container{Name: "container-0"})
+		assert.Equal(t, mergedSpec.Template.Spec.TerminationGracePeriodSeconds, int64Ref(600))
 	})
 	t.Run("Containers are added to existing list", func(t *testing.T) {
 		sts, err := defaultStatefulSetBuilder().SetPodTemplateSpec(podTemplateWithContainers([]corev1.Container{{Name: "container-0"}})).Build()
@@ -470,11 +392,10 @@ func TestMergeSpec(t *testing.T) {
 		customSts, err := defaultStatefulSetBuilder().SetPodTemplateSpec(podTemplateWithContainers([]corev1.Container{{Name: "container-1"}})).Build()
 		assert.NoError(t, err)
 
-		mergedSts, err := MergeSpec(sts, &customSts.Spec)
-		assert.NoError(t, err)
-		assert.Len(t, mergedSts.Spec.Template.Spec.Containers, 2)
-		assert.Contains(t, mergedSts.Spec.Template.Spec.Containers, corev1.Container{Name: "container-0"})
-		assert.Contains(t, mergedSts.Spec.Template.Spec.Containers, corev1.Container{Name: "container-1"})
+		mergedSpec := merge.StatefulSetSpecs(sts.Spec, customSts.Spec)
+		assert.Len(t, mergedSpec.Template.Spec.Containers, 2)
+		assert.Contains(t, mergedSpec.Template.Spec.Containers, corev1.Container{Name: "container-0"})
+		assert.Contains(t, mergedSpec.Template.Spec.Containers, corev1.Container{Name: "container-1"})
 	})
 	t.Run("Cannot change fields in the StatefulSet outside of the spec", func(t *testing.T) {
 		sts, err := defaultStatefulSetBuilder().Build()
@@ -484,8 +405,7 @@ func TestMergeSpec(t *testing.T) {
 		customSts.Annotations = map[string]string{
 			"some-annotation": "some-value",
 		}
-		mergedSts, err := MergeSpec(sts, &customSts.Spec)
-		assert.NoError(t, err)
+		mergedSts := merge.StatefulSets(sts, customSts)
 		assert.NotContains(t, mergedSts.Annotations, "some-annotation")
 	})
 	t.Run("change fields in the StatefulSet the Operator doesn't touch", func(t *testing.T) {
@@ -498,10 +418,9 @@ func TestMergeSpec(t *testing.T) {
 		}}).Build()
 		assert.NoError(t, err)
 
-		mergedSts, err := MergeSpec(sts, &customSts.Spec)
-		assert.NoError(t, err)
-		assert.Len(t, mergedSts.Spec.VolumeClaimTemplates, 1)
-		assert.Equal(t, "my-volume-claim", mergedSts.Spec.VolumeClaimTemplates[0].Name)
+		mergedSpec := merge.StatefulSetSpecs(sts.Spec, customSts.Spec)
+		assert.Len(t, mergedSpec.VolumeClaimTemplates, 1)
+		assert.Equal(t, "my-volume-claim", mergedSpec.VolumeClaimTemplates[0].Name)
 	})
 	t.Run("Volume Claim Templates are added to existing StatefulSet", func(t *testing.T) {
 		sts, err := defaultStatefulSetBuilder().AddVolumeClaimTemplates([]corev1.PersistentVolumeClaim{{
@@ -518,11 +437,10 @@ func TestMergeSpec(t *testing.T) {
 		}}).Build()
 		assert.NoError(t, err)
 
-		mergedSts, err := MergeSpec(sts, &customSts.Spec)
-		assert.NoError(t, err)
-		assert.Len(t, mergedSts.Spec.VolumeClaimTemplates, 2)
-		assert.Equal(t, "my-volume-claim-0", mergedSts.Spec.VolumeClaimTemplates[0].Name)
-		assert.Equal(t, "my-volume-claim-1", mergedSts.Spec.VolumeClaimTemplates[1].Name)
+		mergedSpec := merge.StatefulSetSpecs(sts.Spec, customSts.Spec)
+		assert.Len(t, mergedSpec.VolumeClaimTemplates, 2)
+		assert.Equal(t, "my-volume-claim-0", mergedSpec.VolumeClaimTemplates[0].Name)
+		assert.Equal(t, "my-volume-claim-1", mergedSpec.VolumeClaimTemplates[1].Name)
 	})
 
 	t.Run("Volume Claim Templates are changed by name", func(t *testing.T) {
@@ -542,17 +460,16 @@ func TestMergeSpec(t *testing.T) {
 		}}).Build()
 		assert.NoError(t, err)
 
-		mergedSts, err := MergeSpec(sts, &customSts.Spec)
-		assert.NoError(t, err)
-		assert.Len(t, mergedSts.Spec.VolumeClaimTemplates, 1)
-		assert.Equal(t, "my-volume-claim-0", mergedSts.Spec.VolumeClaimTemplates[0].Name)
-		assert.Equal(t, "new-ns", mergedSts.Spec.VolumeClaimTemplates[0].Namespace)
+		mergedSpec := merge.StatefulSetSpecs(sts.Spec, customSts.Spec)
+		assert.Len(t, mergedSpec.VolumeClaimTemplates, 1)
+		assert.Equal(t, "my-volume-claim-0", mergedSpec.VolumeClaimTemplates[0].Name)
+		assert.Equal(t, "new-ns", mergedSpec.VolumeClaimTemplates[0].Namespace)
 	})
 
 	t.Run("Volume Claims are added", func(t *testing.T) {
 		sts, err := defaultStatefulSetBuilder().
 			SetPodTemplateSpec(getDefaultPodSpec()).
-			AddVolumeAndMount(VolumeMountData{
+			AddVolumeAndMount(statefulset.VolumeMountData{
 				MountPath: "path",
 				Name:      "vol-0",
 				ReadOnly:  false,
@@ -563,16 +480,16 @@ func TestMergeSpec(t *testing.T) {
 		assert.NoError(t, err)
 		customSts, err := defaultStatefulSetBuilder().
 			SetPodTemplateSpec(getDefaultPodSpec()).
-			AddVolumeAndMount(VolumeMountData{
-				MountPath: "path",
+			AddVolumeAndMount(statefulset.VolumeMountData{
+				MountPath: "path-1",
 				Name:      "vol-1",
 				ReadOnly:  false,
 				Volume: corev1.Volume{
 					Name: "vol-1",
 				},
 			}, "container-0").
-			AddVolumeAndMount(VolumeMountData{
-				MountPath: "path",
+			AddVolumeAndMount(statefulset.VolumeMountData{
+				MountPath: "path-2",
 				Name:      "vol-2",
 				ReadOnly:  false,
 				Volume: corev1.Volume{
@@ -581,11 +498,10 @@ func TestMergeSpec(t *testing.T) {
 			}, "container-0").Build()
 		assert.NoError(t, err)
 
-		mergedSts, err := MergeSpec(sts, &customSts.Spec)
-		assert.NoError(t, err)
+		mergedSpec := merge.StatefulSetSpecs(sts.Spec, customSts.Spec)
 
-		assert.Len(t, mergedSts.Spec.Template.Spec.Volumes, 3)
-		for i, vol := range mergedSts.Spec.Template.Spec.Volumes {
+		assert.Len(t, mergedSpec.Template.Spec.Volumes, 3)
+		for i, vol := range mergedSpec.Template.Spec.Volumes {
 			assert.Equal(t, fmt.Sprintf("vol-%d", i), vol.Name)
 		}
 	})
@@ -595,65 +511,73 @@ func TestMergeSpec(t *testing.T) {
 		assert.NoError(t, err)
 		customSts, err := defaultStatefulSetBuilder().SetServiceName("").Build()
 		assert.NoError(t, err)
-		mergedSts, err := MergeSpec(sts, &customSts.Spec)
-		assert.NoError(t, err)
-		assert.Equal(t, mergedSts.Spec.ServiceName, "service-name")
+		mergedSpec := merge.StatefulSetSpecs(sts.Spec, customSts.Spec)
+		assert.Equal(t, mergedSpec.ServiceName, "service-name")
 	})
 }
 
-func TestGetMergedDefaultPodSpecTemplate(t *testing.T) {
-	var err error
-
-	dbPodSpecTemplate := getDefaultPodSpec()
-	var mergedPodSpecTemplate corev1.PodTemplateSpec
-
-	// nothing to merge
-	mergedPodSpecTemplate, err = getMergedDefaultPodSpecTemplate(dbPodSpecTemplate, &corev1.PodTemplateSpec{})
-	assert.NoError(t, err)
-	assert.Equal(t, mergedPodSpecTemplate, dbPodSpecTemplate)
-	assert.Len(t, mergedPodSpecTemplate.Spec.Containers, 1)
-	assertContainersEqualBarResources(t, mergedPodSpecTemplate.Spec.Containers[0], dbPodSpecTemplate.Spec.Containers[0])
-
-	extraContainer := corev1.Container{
-		Name:  "extra-container",
-		Image: "container-image",
-	}
-
-	newPodSpecTemplate := corev1.PodTemplateSpec{
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{extraContainer},
+func TestMergingVolumeMounts(t *testing.T) {
+	container0 := corev1.Container{
+		Name: "container-0",
+		VolumeMounts: []corev1.VolumeMount{
+			{
+				Name:      "database-scripts",
+				MountPath: "/opt/scripts",
+				SubPath:   "",
+			},
+			{
+				Name:      "data",
+				MountPath: "/data",
+				SubPath:   "data",
+			},
+			{
+				Name:      "data",
+				MountPath: "/journal",
+				SubPath:   "journal",
+			},
+			{
+				Name:      "data",
+				MountPath: "/var/log/mongodb-mms-automation",
+				SubPath:   "logs",
+			},
 		},
 	}
 
-	// with a side car container
-	mergedPodSpecTemplate, err = getMergedDefaultPodSpecTemplate(dbPodSpecTemplate, &newPodSpecTemplate)
-	assert.NoError(t, err)
-	assert.Len(t, mergedPodSpecTemplate.Spec.Containers, 2)
-	assertContainersEqualBarResources(t, mergedPodSpecTemplate.Spec.Containers[0], dbPodSpecTemplate.Spec.Containers[0])
-	assertContainersEqualBarResources(t, mergedPodSpecTemplate.Spec.Containers[1], extraContainer)
-}
+	container1 := corev1.Container{
+		Name: "container-0",
+		VolumeMounts: []corev1.VolumeMount{
+			{
+				Name:      "test-volume",
+				MountPath: "/somewhere",
+				SubPath:   "",
+			},
+		},
+	}
 
-func assertContainersEqualBarResources(t *testing.T, self corev1.Container, other corev1.Container) {
-	// Copied fields from k8s.io/api/core/v1/types.go
-	assert.Equal(t, self.Name, other.Name)
-	assert.Equal(t, self.Image, other.Image)
-	assert.True(t, reflect.DeepEqual(self.Command, other.Command))
-	assert.True(t, reflect.DeepEqual(self.Args, other.Args))
-	assert.Equal(t, self.WorkingDir, other.WorkingDir)
-	assert.True(t, reflect.DeepEqual(self.Ports, other.Ports))
-	assert.True(t, reflect.DeepEqual(self.EnvFrom, other.EnvFrom))
-	assert.True(t, reflect.DeepEqual(self.Env, other.Env))
-	assert.True(t, reflect.DeepEqual(self.Resources, other.Resources))
-	assert.True(t, reflect.DeepEqual(self.VolumeMounts, other.VolumeMounts))
-	assert.True(t, reflect.DeepEqual(self.VolumeDevices, other.VolumeDevices))
-	assert.Equal(t, self.LivenessProbe, other.LivenessProbe)
-	assert.Equal(t, self.ReadinessProbe, other.ReadinessProbe)
-	assert.Equal(t, self.Lifecycle, other.Lifecycle)
-	assert.Equal(t, self.TerminationMessagePath, other.TerminationMessagePath)
-	assert.Equal(t, self.TerminationMessagePolicy, other.TerminationMessagePolicy)
-	assert.Equal(t, self.ImagePullPolicy, other.ImagePullPolicy)
-	assert.Equal(t, self.SecurityContext, other.SecurityContext)
-	assert.Equal(t, self.Stdin, other.Stdin)
-	assert.Equal(t, self.StdinOnce, other.StdinOnce)
-	assert.Equal(t, self.TTY, other.TTY)
+	podSpec0 := corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				container0,
+			},
+		},
+	}
+
+	podSpec1 := corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				container1,
+			},
+		},
+	}
+
+	merged := merge.PodTemplateSpecs(podSpec0, podSpec1)
+
+	assert.Len(t, merged.Spec.Containers, 1)
+	mounts := merged.Spec.Containers[0].VolumeMounts
+
+	assert.Equal(t, container0.VolumeMounts[1], mounts[0])
+	assert.Equal(t, container0.VolumeMounts[2], mounts[1])
+	assert.Equal(t, container0.VolumeMounts[3], mounts[2])
+	assert.Equal(t, container0.VolumeMounts[0], mounts[3])
+	assert.Equal(t, container1.VolumeMounts[0], mounts[4])
 }

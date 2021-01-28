@@ -33,7 +33,7 @@ func Test_buildAppdbInitContainer(t *testing.T) {
 	}}
 	expectedSecurityContext := defaultSecurityContext()
 	expectedContainer := &corev1.Container{
-		Name:            initAppDbContainerName,
+		Name:            InitAppDbContainerName,
 		Image:           "quay.io/mongodb/mongodb-enterprise-init-appdb:latest",
 		VolumeMounts:    expectedVolumeMounts,
 		SecurityContext: &expectedSecurityContext,
@@ -50,8 +50,7 @@ func TestAppDBAgentFlags(t *testing.T) {
 
 	om := defaultOpsManagerBuilder().Build()
 	om.Spec.AppDB.MongoDbSpec.Agent.StartupParameters = agentStartupParameters
-	sts, err := AppDbStatefulSet(om)
-	assert.NoError(t, err)
+	sts := AppDbStatefulSet(om)
 
 	variablesMap := env.ToMap(sts.Spec.Template.Spec.Containers[0].Env...)
 	val, ok := variablesMap["AGENT_FLAGS"]

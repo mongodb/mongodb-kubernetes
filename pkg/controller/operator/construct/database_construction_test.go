@@ -94,8 +94,7 @@ func TestStatefulsetCreationSuccessful(t *testing.T) {
 	start := time.Now()
 	rs := mdbv1.NewReplicaSetBuilder().Build()
 
-	_, err := DatabaseStatefulSet(*rs, ReplicaSetOptions())
-	assert.NoError(t, err)
+	_ = DatabaseStatefulSet(*rs, ReplicaSetOptions())
 	assert.True(t, time.Now().Sub(start) < time.Second*4) // we waited only a little (considering 2 seconds of wait as well)
 }
 
@@ -150,8 +149,7 @@ func TestAgentFlags(t *testing.T) {
 	}
 
 	mdb := mdbv1.NewReplicaSetBuilder().SetAgentConfig(mdbv1.AgentConfig{StartupParameters: agentStartupParameters}).Build()
-	sts, err := DatabaseStatefulSet(*mdb, ReplicaSetOptions())
-	assert.NoError(t, err)
+	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions())
 	variablesMap := env.ToMap(sts.Spec.Template.Spec.Containers[0].Env...)
 	val, ok := variablesMap["AGENT_FLAGS"]
 	assert.True(t, ok)

@@ -117,11 +117,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(request reconcile.Request) (res r
 		CertificateHash(enterprisepem.ReadHashFromSecret(r.client, rs.Namespace, rs.Name, log)),
 	)
 
-	sts, err := construct.DatabaseStatefulSet(*rs, rsConfig)
-
-	if err != nil {
-		return r.updateStatus(rs, workflow.Failed(err.Error()), log)
-	}
+	sts := construct.DatabaseStatefulSet(*rs, rsConfig)
 
 	if status := ensureRoles(rs.Spec.GetSecurity().Roles, conn, log); !status.IsOK() {
 		return r.updateStatus(rs, status, log)
