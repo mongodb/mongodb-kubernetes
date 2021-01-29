@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/replicaset"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/automationconfig"
@@ -84,7 +85,7 @@ func newAppDBReplicaSetReconciler(commonController *ReconcileCommonController, o
 // Reconcile deploys the "headless" agent, and wait until it reaches the goal state
 func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager, opsManagerUserPassword string) (res reconcile.Result, e error) {
 	rs := opsManager.Spec.AppDB
-	log := zap.S().With("ReplicaSet (AppDB)", objectKey(opsManager.Namespace, rs.Name()))
+	log := zap.S().With("ReplicaSet (AppDB)", kube.ObjectKey(opsManager.Namespace, rs.Name()))
 
 	appDbStatusOption := status.NewOMPartOption(status.AppDb)
 	omStatusOption := status.NewOMPartOption(status.OpsManager)
@@ -147,7 +148,7 @@ func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsMana
 	if err == nil && opsManager.Spec.AppDB.GetSecurity().TLSConfig.IsEnabled() {
 		automationConfigFirst = false
 	}
-	return runInGivenOrder(automationConfigFirst,
+	return workflow.RunInGivenOrder(automationConfigFirst,
 		func() workflow.Status {
 			return r.deployAutomationConfig(opsManager, rs, opsManagerUserPassword, appDbSts, log)
 		},
@@ -292,7 +293,7 @@ func changeAutomationConfigDataIfNecessary(existingSecret *corev1.Secret, target
 func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(rs omv1.AppDB, opsManager omv1.MongoDBOpsManager, opsManagerUserPassword string, set appsv1.StatefulSet, log *zap.SugaredLogger) (*om.AutomationConfig, error) {
 	d := om.NewDeployment()
 
-	replicaSet := buildReplicaSetFromStatefulSetAppDb(set, rs)
+	replicaSet := replicaset.BuildAppDBFromStatefulSet(set, rs)
 
 	d.MergeReplicaSet(replicaSet, nil)
 
@@ -456,10 +457,10 @@ func (r *ReconcileAppDbReplicaSet) registerAppDBHostsWithProject(opsManager *omv
 
 // ensureAppDbAgentApiKey makes sure there is an agent API key for the AppDB automation agent
 func (r *ReconcileAppDbReplicaSet) ensureAppDbAgentApiKey(opsManager *omv1.MongoDBOpsManager, conn om.Connection, log *zap.SugaredLogger) error {
-	agentKeyFromSecret, err := secret.ReadKey(r.client, util.OmAgentApiKey, kube.ObjectKey(opsManager.Namespace, agentApiKeySecretName(conn.GroupID())))
+	agentKeyFromSecret, err := secret.ReadKey(r.client, util.OmAgentApiKey, kube.ObjectKey(opsManager.Namespace, agents.ApiKeySecretName(conn.GroupID())))
 	err = client.IgnoreNotFound(err)
 	if err != nil {
-		return fmt.Errorf("error reading secret %s: %s", objectKey(opsManager.Namespace, agentApiKeySecretName(conn.GroupID())), err)
+		return fmt.Errorf("error reading secret %s: %s", kube.ObjectKey(opsManager.Namespace, agents.ApiKeySecretName(conn.GroupID())), err)
 	}
 
 	if err := agents.EnsureAgentKeySecretExists(r.client, conn, opsManager.Namespace, agentKeyFromSecret, conn.GroupID(), log); err != nil {
@@ -530,7 +531,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager
 // before hand. This is required as with empty PodVars this would trigger an unintentional
 // rolling restart of the AppDB.
 func (r *ReconcileAppDbReplicaSet) readExistingPodVars(om omv1.MongoDBOpsManager) (env.PodEnvVars, error) {
-	cm, err := r.client.GetConfigMap(objectKey(om.Namespace, om.Spec.AppDB.ProjectIDConfigMapName()))
+	cm, err := r.client.GetConfigMap(kube.ObjectKey(om.Namespace, om.Spec.AppDB.ProjectIDConfigMapName()))
 	if err != nil {
 		return env.PodEnvVars{}, err
 	}
@@ -539,7 +540,7 @@ func (r *ReconcileAppDbReplicaSet) readExistingPodVars(om omv1.MongoDBOpsManager
 		return env.PodEnvVars{}, fmt.Errorf("ConfigMap %s did not have the key %s", om.Spec.AppDB.ProjectIDConfigMapName(), util.AppDbProjectIdKey)
 	}
 
-	cred, err := project.ReadCredentials(r.client, objectKey(operatorNamespace(), om.APIKeySecretName()))
+	cred, err := project.ReadCredentials(r.client, kube.ObjectKey(operatorNamespace(), om.APIKeySecretName()))
 	if err != nil {
 		return env.PodEnvVars{}, fmt.Errorf("error reading credentials: %s", err)
 	}
@@ -684,33 +685,4 @@ func markAppDBAsBackingProject(conn om.Connection, log *zap.SugaredLogger) error
 		return err
 	}
 	return nil
-}
-
-func buildReplicaSetFromStatefulSetAppDb(set appsv1.StatefulSet, mdb omv1.AppDB) om.ReplicaSetWithProcesses {
-	members := createProcessesAppDb(set, om.ProcessTypeMongod, mdb)
-	replicaSet := om.NewReplicaSet(set.Name, mdb.GetVersion())
-	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members)
-	return rsWithProcesses
-}
-
-func createProcessesAppDb(set appsv1.StatefulSet, mongoType om.MongoType,
-	mdb omv1.AppDB) []om.Process {
-
-	hostnames, names := util.GetDnsForStatefulSet(set, mdb.GetClusterDomain())
-	processes := make([]om.Process, len(hostnames))
-	wiredTigerCache := calculateWiredTigerCache(set, util.AppDbContainerName, mdb.GetVersion())
-
-	for idx, hostname := range hostnames {
-		switch mongoType {
-		case om.ProcessTypeMongod:
-			processes[idx] = om.NewMongodProcessAppDB(names[idx], hostname, mdb)
-			if wiredTigerCache != nil {
-				processes[idx].SetWiredTigerCache(*wiredTigerCache)
-			}
-		default:
-			panic("Dev error: Wrong process type passed!")
-		}
-	}
-
-	return processes
 }

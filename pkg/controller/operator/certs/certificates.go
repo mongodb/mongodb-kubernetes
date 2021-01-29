@@ -413,3 +413,9 @@ func clusterDomainOrDefault(domain string) string {
 
 	return domain
 }
+
+// ToInternalClusterAuthName takes a hostname e.g. my-replica-set and converts
+// it into the name of the secret which will hold the internal clusterFile
+func ToInternalClusterAuthName(hostname string) string {
+	return fmt.Sprintf("%s-%s", hostname, util.ClusterFileName)
+}

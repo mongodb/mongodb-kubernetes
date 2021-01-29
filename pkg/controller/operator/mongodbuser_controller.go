@@ -56,7 +56,7 @@ func (r *MongoDBUserReconciler) getUser(request reconcile.Request, log *zap.Suga
 
 func (r *MongoDBUserReconciler) getMongoDB(user userv1.MongoDBUser) (mdbv1.MongoDB, error) {
 	mdb := mdbv1.MongoDB{}
-	name := objectKey(user.Namespace, user.Spec.MongoDBResourceRef.Name)
+	name := kube.ObjectKey(user.Namespace, user.Spec.MongoDBResourceRef.Name)
 	if err := r.client.Get(context.TODO(), name, &mdb); err != nil {
 		return mdb, err
 	}

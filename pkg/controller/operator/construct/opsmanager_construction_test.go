@@ -4,6 +4,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
+
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
@@ -284,7 +286,7 @@ func TestOpsManagerPodTemplate_PodSpec(t *testing.T) {
 // in OpsManager/BackupDaemon podTemplate. It's not built if 'MANAGED_SECURITY_CONTEXT' env var
 // is set to 'true'
 func TestOpsManagerPodTemplate_SecurityContext(t *testing.T) {
-	defer InitDefaultEnvVariables()
+	defer mock.InitDefaultEnvVariables()
 
 	omSts, err := OpsManagerStatefulSet(defaultOpsManagerBuilder().Build())
 	assert.NoError(t, err)
@@ -312,7 +314,7 @@ func TestOpsManagerPodTemplate_TerminationTimeout(t *testing.T) {
 }
 
 func TestOpsManagerPodTemplate_ImagePullPolicy(t *testing.T) {
-	defer InitDefaultEnvVariables()
+	defer mock.InitDefaultEnvVariables()
 
 	omSts, err := OpsManagerStatefulSet(defaultOpsManagerBuilder().Build())
 	assert.NoError(t, err)

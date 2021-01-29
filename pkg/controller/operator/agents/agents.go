@@ -1,14 +1,17 @@
 package agents
 
 import (
+	"errors"
 	"fmt"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 	"go.uber.org/zap"
+	appsv1 "k8s.io/api/apps/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -50,6 +53,68 @@ func EnsureAgentKeySecretExists(secretGetCreator SecretGetCreator, agentKeyGener
 	}
 
 	return nil
+}
+
+// ApiKeySecretName for a given ProjectID (`project`) returns the name of
+// the secret associated with it.
+func ApiKeySecretName(project string) string {
+	return fmt.Sprintf("%s-group-secret", project)
+}
+
+// WaitForRsAgentsToRegister waits until all the agents associated with the given StatefulSet have registered with Ops Manager.
+func WaitForRsAgentsToRegister(set appsv1.StatefulSet, clusterName string, omConnection om.Connection, log *zap.SugaredLogger) error {
+	hostnames, _ := util.GetDnsForStatefulSet(set, clusterName)
+	log = log.With("statefulset", set.Name)
+
+	if !waitUntilRegistered(omConnection, log, hostnames...) {
+		return errors.New("Some agents failed to register or the Operator is using the wrong host names for the pods. " +
+			"Make sure the 'spec.clusterDomain' is set if it's different from the default Kubernetes cluster " +
+			"name ('cluster.local') ")
+	}
+	return nil
+}
+
+// waitUntilRegistered waits until all agents with 'agentHostnames' are registered in OM. Note, that wait
+// happens after retrial - this allows to skip waiting in case agents are already registered
+func waitUntilRegistered(omConnection om.Connection, log *zap.SugaredLogger, agentHostnames ...string) bool {
+	log.Infow("Waiting for agents to register with OM", "agent hosts", agentHostnames)
+	// environment variables are used only for tests
+	waitSeconds := env.ReadIntOrDefault(util.PodWaitSecondsEnv, 3)
+	retrials := env.ReadIntOrDefault(util.PodWaitRetriesEnv, 5)
+
+	agentsCheckFunc := func() (string, bool) {
+		registeredCount := 0
+		found, err := om.TraversePages(
+			omConnection.ReadAutomationAgents,
+			func(aa interface{}) bool {
+				automationAgent := aa.(om.AgentStatus)
+
+				for _, hostname := range agentHostnames {
+					if automationAgent.IsRegistered(hostname, log) {
+						registeredCount++
+						if registeredCount == len(agentHostnames) {
+							return true
+						}
+					}
+				}
+				return false
+			},
+		)
+
+		if err != nil {
+			log.Errorw("Received error when reading automation agent pages", "err", err)
+		}
+
+		var msg string
+		if registeredCount == 0 {
+			msg = fmt.Sprintf("None of %d agents has registered with OM", len(agentHostnames))
+		} else {
+			msg = fmt.Sprintf("Only %d of %d agents have registered with OM", registeredCount, len(agentHostnames))
+		}
+		return msg, found
+	}
+
+	return util.DoAndRetry(agentsCheckFunc, log, retrials, waitSeconds)
 }
 
 func createAgentKeySecret(secretCreator secret.Creator, objectKey client.ObjectKey, agentKey string, owner v1.CustomResourceReadWriter) error {

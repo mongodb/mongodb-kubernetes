@@ -33,6 +33,11 @@ func (b *OpsManagerBuilder) SetAppDbVersion(version string) *OpsManagerBuilder {
 	return b
 }
 
+func (b *OpsManagerBuilder) SetAppDbPodSpec(podSpec mdbv1.MongoDbPodSpec) *OpsManagerBuilder {
+	b.om.Spec.AppDB.PodSpec = &podSpec
+	return b
+}
+
 func (b *OpsManagerBuilder) SetAppDBTLSConfig(config mdbv1.TLSConfig) *OpsManagerBuilder {
 	if b.om.Spec.AppDB.Security == nil {
 		b.om.Spec.AppDB.Security = &mdbv1.Security{}

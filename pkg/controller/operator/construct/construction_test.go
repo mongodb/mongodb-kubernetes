@@ -4,6 +4,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
@@ -159,7 +161,7 @@ func TestBasePodSpec_AntiAffinityDefaultTopology(t *testing.T) {
 // IMAGE_PULL_SECRETS is initialized
 func TestBasePodSpec_ImagePullSecrets(t *testing.T) {
 	// Cleaning the state (there is no tear down in go test :( )
-	defer InitDefaultEnvVariables()
+	defer mock.InitDefaultEnvVariables()
 
 	sts := DatabaseStatefulSet(*mdbv1.NewStandaloneBuilder().Build(), StandaloneOptions())
 
@@ -216,7 +218,7 @@ func pvClaim(pvName, size string, storageClass *string, labels map[string]string
 }
 
 func TestDefaultPodSpec_FsGroup(t *testing.T) {
-	defer InitDefaultEnvVariables()
+	defer mock.InitDefaultEnvVariables()
 
 	sts := DatabaseStatefulSet(*mdbv1.NewStandaloneBuilder().Build(), StandaloneOptions())
 

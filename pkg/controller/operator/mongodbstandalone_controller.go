@@ -3,6 +3,10 @@ package operator
 import (
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/deployment"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/wiredtiger"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/create"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/certs"
@@ -177,7 +181,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 
 	sts := construct.DatabaseStatefulSet(*s, standaloneOpts)
 
-	status := runInGivenOrder(needToPublishStateFirst(r.client, *s, standaloneOpts, log),
+	status := workflow.RunInGivenOrder(needToPublishStateFirst(r.client, *s, standaloneOpts, log),
 		func() workflow.Status {
 			return r.updateOmDeployment(conn, s, sts, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
@@ -201,12 +205,12 @@ func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res r
 
 	log.Infof("Finished reconciliation for MongoDbStandalone! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 
-	return r.updateStatus(s, status, log, mdbstatus.NewBaseUrlOption(DeploymentLink(conn.BaseURL(), conn.GroupID())))
+	return r.updateStatus(s, status, log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())))
 }
 
 func (r *ReconcileMongoDbStandalone) updateOmDeployment(conn om.Connection, s *mdbv1.MongoDB,
 	set appsv1.StatefulSet, log *zap.SugaredLogger) workflow.Status {
-	if err := waitForRsAgentsToRegister(set, s.Spec.GetClusterDomain(), conn, log); err != nil {
+	if err := agents.WaitForRsAgentsToRegister(set, s.Spec.GetClusterDomain(), conn, log); err != nil {
 		return workflow.Failed(err.Error())
 	}
 
@@ -297,8 +301,7 @@ func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLog
 
 func createProcess(set appsv1.StatefulSet, containerName string, s *mdbv1.MongoDB) om.Process {
 	hostnames, _ := util.GetDnsForStatefulSet(set, s.Spec.GetClusterDomain())
-	wiredTigerCache := calculateWiredTigerCache(set, containerName, s.Spec.GetVersion())
-
+	wiredTigerCache := wiredtiger.CalculateCache(set, containerName, s.Spec.GetVersion())
 	process := om.NewMongodProcess(s.Name, hostnames[0], s.Spec.AdditionalMongodConfig, s)
 	if wiredTigerCache != nil {
 		process.SetWiredTigerCache(*wiredTigerCache)

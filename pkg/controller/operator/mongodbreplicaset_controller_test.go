@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/deployment"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/backup"
 	"github.com/google/uuid"
@@ -50,7 +50,7 @@ func TestCreateReplicaSet(t *testing.T) {
 	assert.Len(t, client.GetMapForObject(&corev1.Secret{}), 2)
 
 	connection := om.CurrMockedConnection
-	connection.CheckDeployment(t, createDeploymentFromReplicaSet(rs), "auth", "ssl")
+	connection.CheckDeployment(t, deployment.CreateFromReplicaSet(rs), "auth", "ssl")
 	connection.CheckNumberOfUpdateRequests(t, 1)
 }
 
@@ -108,7 +108,7 @@ func TestScaleUpReplicaSet(t *testing.T) {
 	assert.Equal(t, set.Spec, updatedSet.Spec)
 
 	connection := om.CurrMockedConnection
-	connection.CheckDeployment(t, createDeploymentFromReplicaSet(rs), "auth", "ssl")
+	connection.CheckDeployment(t, deployment.CreateFromReplicaSet(rs), "auth", "ssl")
 	connection.CheckNumberOfUpdateRequests(t, 2)
 }
 
@@ -218,9 +218,10 @@ func TestReplicaSetCustomPodSpecTemplate(t *testing.T) {
 	checkReconcileSuccessful(t, reconciler, rs, client)
 
 	// read the stateful set that was created by the operator
-	statefulSet := getStatefulSet(client, mock.ObjectKeyFromApiObject(rs))
+	statefulSet, err := client.GetStatefulSet(mock.ObjectKeyFromApiObject(rs))
+	assert.NoError(t, err)
 
-	assertPodSpecSts(t, statefulSet)
+	assertPodSpecSts(t, &statefulSet)
 
 	podSpecTemplate := statefulSet.Spec.Template.Spec
 	assert.Len(t, podSpecTemplate.Containers, 2, "Should have 2 containers now")
@@ -549,9 +550,23 @@ func replicaSetReconcilerWithConnection(rs *mdbv1.MongoDB, connectionFunc func(c
 	return newReplicaSetReconciler(manager, connectionFunc), manager.Client
 }
 
+// newDefaultPodSpec creates pod spec with default values,sets only the topology key and persistence sizes,
+// seems we shouldn't set CPU and Memory if they are not provided by user
+func newDefaultPodSpec() mdbv1.MongoDbPodSpec {
+	podSpecWrapper := mdbv1.NewEmptyPodSpecWrapperBuilder().
+		SetPodAntiAffinityTopologyKey(util.DefaultAntiAffinityTopologyKey).
+		SetSinglePersistence(mdbv1.NewPersistenceBuilder(util.DefaultMongodStorageSize)).
+		SetMultiplePersistence(mdbv1.NewPersistenceBuilder(util.DefaultMongodStorageSize),
+			mdbv1.NewPersistenceBuilder(util.DefaultJournalStorageSize),
+			mdbv1.NewPersistenceBuilder(util.DefaultLogsStorageSize)).
+		Build()
+
+	return podSpecWrapper.MongoDbPodSpec
+}
+
 // TODO remove in favor of '/api/mongodbbuilder.go'
 func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
-	podSpec := NewDefaultPodSpec()
+	podSpec := newDefaultPodSpec()
 	spec := mdbv1.MongoDbSpec{
 		Version:    "4.0.0",
 		Persistent: util.BooleanRef(false),
@@ -703,16 +718,4 @@ func (b *ReplicaSetBuilder) SetPodSpecTemplate(spec corev1.PodTemplateSpec) *Rep
 func (b *ReplicaSetBuilder) Build() *mdbv1.MongoDB {
 	b.InitDefaults()
 	return b.MongoDB.DeepCopy()
-}
-
-func createDeploymentFromReplicaSet(rs *mdbv1.MongoDB) om.Deployment {
-	sts := construct.DatabaseStatefulSet(*rs, construct.ReplicaSetOptions())
-	d := om.NewDeployment()
-	d.MergeReplicaSet(
-		buildReplicaSetFromStatefulSet(sts, rs),
-		nil,
-	)
-	d.AddMonitoringAndBackup(zap.S(), rs.Spec.GetTLSConfig().IsEnabled())
-	d.ConfigureTLS(rs.Spec.GetTLSConfig())
-	return d
 }

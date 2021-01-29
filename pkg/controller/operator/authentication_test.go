@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/deployment"
+
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 
@@ -114,7 +116,7 @@ func TestUpdateOmAuthentication_NoAuthenticationEnabled(t *testing.T) {
 func TestUpdateOmAuthentication_EnableX509_TlsNotEnabled(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).Build()
 	// deployment with existing non-tls non-x509 replica set
-	conn := om.NewMockedOmConnection(createDeploymentFromReplicaSet(rs))
+	conn := om.NewMockedOmConnection(deployment.CreateFromReplicaSet(rs))
 
 	// configure X509 authentication & tls
 	rs.Spec.Security.Authentication.Modes = []string{"X509"}
@@ -130,7 +132,7 @@ func TestUpdateOmAuthentication_EnableX509_TlsNotEnabled(t *testing.T) {
 
 func TestUpdateOmAuthentication_EnableX509_WithTlsAlreadyEnabled(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().Build()
-	conn := om.NewMockedOmConnection(createDeploymentFromReplicaSet(rs))
+	conn := om.NewMockedOmConnection(deployment.CreateFromReplicaSet(rs))
 	r := newReplicaSetReconciler(mock.NewManager(rs), om.NewEmptyMockedOmConnection)
 	status, isMultiStageReconciliation := r.updateOmAuthentication(conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, zap.S())
 
@@ -143,7 +145,7 @@ func TestUpdateOmAuthentication_AuthenticationIsNotConfigured_IfAuthIsNotSet(t *
 
 	rs.Spec.Security.Authentication = nil
 
-	conn := om.NewMockedOmConnection(createDeploymentFromReplicaSet(rs))
+	conn := om.NewMockedOmConnection(deployment.CreateFromReplicaSet(rs))
 	r := newReplicaSetReconciler(mock.NewManager(rs), func(context *om.OMContext) om.Connection {
 		return conn
 	})

@@ -10,6 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/agents"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/om/deployment"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/connection"
@@ -166,7 +170,7 @@ func TestPrepareOmConnection_PrepareAgentKeys(t *testing.T) {
 	controller := newReconcileCommonController(manager)
 
 	prepareConnection(controller, om.NewEmptyMockedOmConnection, t)
-	key, e := readAgentApiKeyForProject(controller.client, mock.TestNamespace, agentApiKeySecretName(om.TestGroupID))
+	key, e := readAgentApiKeyForProject(controller.client, mock.TestNamespace, agents.ApiKeySecretName(om.TestGroupID))
 
 	assert.NoError(t, e)
 	// Unfortunately the key read is not equal to om.TestAgentKey - it's just some set of bytes.
@@ -307,7 +311,7 @@ func assertSubjectFromFile(t *testing.T, expectedSubject, filePath string, passe
 
 func prepareConnection(controller *ReconcileCommonController, omConnectionFunc om.ConnectionFactory, t *testing.T) (*om.MockedOmConnection, *env.PodEnvVars) {
 
-	projectConfig, err := project.ReadProjectConfig(controller.client, objectKey(mock.TestNamespace, mock.TestProjectConfigMapName), "mdb-name")
+	projectConfig, err := project.ReadProjectConfig(controller.client, kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName), "mdb-name")
 	assert.NoError(t, err)
 	credsConfig, err := project.ReadCredentials(controller.client, kube.ObjectKey(mock.TestNamespace, mock.TestCredentialsSecretName))
 	assert.NoError(t, err)
@@ -376,7 +380,7 @@ func checkReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, obj
 	assert.NoError(t, client.Get(context.TODO(), mock.ObjectKeyFromApiObject(object), object))
 	assert.Equal(t, status.PhaseRunning, object.Status.Phase)
 
-	expectedLink := DeploymentLink(om.TestURL, om.TestGroupID)
+	expectedLink := deployment.Link(om.TestURL, om.TestGroupID)
 
 	// fields common to all resource types
 	assert.Equal(t, object.Spec.Version, object.Status.Version)

@@ -2,6 +2,9 @@ package host
 
 import (
 	"errors"
+	"fmt"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 
 	"go.uber.org/zap"
 )
@@ -44,4 +47,23 @@ func StopMonitoring(getRemover GetRemover, hostnames []string, log *zap.SugaredL
 		return errors.New("Failed to remove some hosts from monitoring in Ops manager")
 	}
 	return nil
+}
+
+// stopMonitoringHosts removes monitoring for this list of hosts from Ops Manager.
+func stopMonitoringHosts(getRemover GetRemover, hosts []string, log *zap.SugaredLogger) error {
+	if len(hosts) == 0 {
+		return nil
+	}
+
+	if err := StopMonitoring(getRemover, hosts, log); err != nil {
+		return fmt.Errorf("Failed to stop monitoring on hosts %s: %s", hosts, err)
+	}
+
+	return nil
+}
+
+// CalculateDiffAndStopMonitoringHosts checks hosts that are present in hostsBefore but not hostsAfter, and removes
+// monitoring from them.
+func CalculateDiffAndStopMonitoring(getRemover GetRemover, hostsBefore, hostsAfter []string, log *zap.SugaredLogger) error {
+	return stopMonitoringHosts(getRemover, util.FindLeftDifference(hostsBefore, hostsAfter), log)
 }

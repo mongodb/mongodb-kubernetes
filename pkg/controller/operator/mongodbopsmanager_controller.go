@@ -236,7 +236,7 @@ func (r *OpsManagerReconciler) ensureAppDBConnectionString(opsManager omv1.Mongo
 
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
-			log.Debugf("AppDB connection string secret was not found, creating %s now", objectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()))
+			log.Debugf("AppDB connection string secret was not found, creating %s now", kube.ObjectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()))
 			// assume the secret was not found, need to create it
 
 			connectionStringSecret = secret.Builder().
@@ -253,7 +253,7 @@ func (r *OpsManagerReconciler) ensureAppDBConnectionString(opsManager omv1.Mongo
 	connectionStringSecret.StringData = map[string]string{
 		util.AppDbConnectionStringKey: computedConnectionString,
 	}
-	log.Debugf("Connection string secret already exists, updating %s", objectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()))
+	log.Debugf("Connection string secret already exists, updating %s", kube.ObjectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()))
 	return r.client.UpdateSecret(connectionStringSecret)
 }
 
@@ -445,7 +445,7 @@ func setConfigProperty(opsManager *omv1.MongoDBOpsManager, key, value string, lo
 
 // ensureGenKey
 func (r OpsManagerReconciler) ensureGenKey(om omv1.MongoDBOpsManager, log *zap.SugaredLogger) error {
-	objectKey := objectKey(om.Namespace, om.Name+"-gen-key")
+	objectKey := kube.ObjectKey(om.Namespace, om.Name+"-gen-key")
 	_, err := r.client.GetSecret(objectKey)
 
 	if apiErrors.IsNotFound(err) {
@@ -549,7 +549,7 @@ func (r OpsManagerReconciler) getAppDBPassword(opsManager omv1.MongoDBOpsManager
 // allow the db to get recreated but seems this is a quite radical operation.
 func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManager, log *zap.SugaredLogger) (workflow.Status, api.Admin) {
 	// We won't support cross-namespace secrets until CLOUDP-46636 is resolved
-	adminObjectKey := objectKey(opsManager.Namespace, opsManager.Spec.AdminSecret)
+	adminObjectKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AdminSecret)
 
 	// 1. Read the admin secret
 	userData, err := secret.ReadStringData(r.client, adminObjectKey)
@@ -566,7 +566,7 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 		return workflow.Failed("failed to read user data from the secret %s: %s", adminObjectKey, err), nil
 	}
 
-	adminKeySecretName := objectKey(operatorNamespace(), opsManager.APIKeySecretName())
+	adminKeySecretName := kube.ObjectKey(operatorNamespace(), opsManager.APIKeySecretName())
 	detailedMsg := fmt.Sprintf("This is a fatal error, as the"+
 		" Operator requires public API key for the admin user to exist. Please create the GLOBAL_ADMIN user in "+
 		"Ops Manager manually and create a secret '%s' with fields '%s' and '%s'", adminKeySecretName, util.OmPublicApiKey,
@@ -629,7 +629,7 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 			detailedMsg, err).WithRetry(30), nil
 	}
 	// Ops Manager api key Secret has the same structure as the MongoDB credentials secret
-	cred, err := project.ReadCredentials(r.client, objectKey(operatorNamespace(), opsManager.APIKeySecretName()))
+	cred, err := project.ReadCredentials(r.client, kube.ObjectKey(operatorNamespace(), opsManager.APIKeySecretName()))
 	if err != nil {
 		return workflow.Failed(err.Error()), nil
 	}

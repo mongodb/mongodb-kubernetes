@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/agents"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
@@ -50,6 +52,7 @@ const numberOfBuildsInFirstVersion = 2
 
 func init() {
 	util.BundledAppDbMongoDBVersion = "4.2.11-ent"
+	mock.InitDefaultEnvVariables()
 }
 
 func TestMongoDB_ConnectionURL_DefaultCluster_AppDB(t *testing.T) {
@@ -424,7 +427,7 @@ func TestEnsureAppDbAgentApiKey(t *testing.T) {
 	err := reconciler.ensureAppDbAgentApiKey(&opsManager, conn, zap.S())
 	assert.NoError(t, err)
 
-	secretName := agentApiKeySecretName(conn.GroupID())
+	secretName := agents.ApiKeySecretName(conn.GroupID())
 	apiKey, err := secret.ReadKey(reconciler.client, util.OmAgentApiKey, kube.ObjectKey(opsManager.Namespace, secretName))
 	assert.NoError(t, err)
 	assert.Equal(t, "my-api-key", apiKey)
@@ -476,16 +479,6 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 
 	hosts, _ := om.CurrMockedConnection.GetHosts()
 	assert.Len(t, hosts.Results, 5, "the AppDB hosts should have been added")
-}
-
-func TestBuildReplicaSetFromStatefulSetAppDb(t *testing.T) {
-	for i := 0; i < 10; i++ {
-		appDbSts := construct.AppDbStatefulSet(DefaultOpsManagerBuilder().Build(),
-			Replicas(i),
-		)
-		omRs := buildReplicaSetFromStatefulSetAppDb(appDbSts, omv1.AppDB{})
-		assert.Len(t, omRs.Processes, i)
-	}
 }
 
 func TestAppDBScaleUp_HappensIncrementally(t *testing.T) {
@@ -688,7 +681,7 @@ func buildAutomationConfigForAppDb(builder *omv1.OpsManagerBuilder, internetMani
 	kubeManager := mock.NewManager(&opsManager)
 
 	// ensure the password exists for the Ops Manager User. The Ops Manager controller will have ensured this
-	kubeManager.Client.GetMapForObject(&corev1.Secret{})[objectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetSecretName())] = &corev1.Secret{
+	kubeManager.Client.GetMapForObject(&corev1.Secret{})[kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetSecretName())] = &corev1.Secret{
 		StringData: map[string]string{
 			util.OpsManagerPasswordKey: "my-password",
 		},

@@ -330,7 +330,7 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(mdb mdbv1.MongoDB
 	// TODO: move this logic into the certs package
 	// Flag that's set to false if any of the certificates have not been approved yet.
 	certsNeedApproval := false
-	secretName := toInternalClusterAuthName(opts.Name) // my-replica-set-clusterfile
+	secretName := certs.ToInternalClusterAuthName(opts.Name) // my-replica-set-clusterfile
 
 	if mdb.Spec.Security.TLSConfig.CA != "" {
 		// A "Certs" attribute has been provided
@@ -374,7 +374,7 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(mdb mdbv1.MongoDB
 			pemFiles := enterprisepem.NewCollection()
 
 			for idx, host := range fqdns {
-				csrName := toInternalClusterAuthName(podnames[idx])
+				csrName := certs.ToInternalClusterAuthName(podnames[idx])
 				csr, err := certs.ReadCSR(r.client, csrName, opts.Namespace)
 				if err != nil {
 					certsNeedApproval = true
@@ -812,7 +812,7 @@ func clusterDomainOrDefault(clusterDomain string) string {
 }
 
 func readProjectConfigAndCredentials(client kubernetesClient.Client, mdb mdbv1.MongoDB) (mdbv1.ProjectConfig, mdbv1.Credentials, error) {
-	projectConfig, err := project.ReadProjectConfig(client, objectKey(mdb.Namespace, mdb.Spec.GetProject()), mdb.Name)
+	projectConfig, err := project.ReadProjectConfig(client, kube.ObjectKey(mdb.Namespace, mdb.Spec.GetProject()), mdb.Name)
 	if err != nil {
 		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, fmt.Errorf("error reading project %s", err)
 	}
@@ -841,7 +841,7 @@ func newPodVars(conn om.Connection, projectConfig mdbv1.ProjectConfig, spec mdbv
 // reach goal state.
 func needToPublishStateFirst(stsGetter statefulset.Getter, mdb mdbv1.MongoDB, configFunc func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) bool {
 	opts := configFunc(mdb)
-	namespacedName := objectKey(mdb.Namespace, opts.Name)
+	namespacedName := kube.ObjectKey(mdb.Namespace, opts.Name)
 	currentSts, err := stsGetter.GetStatefulSet(namespacedName)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
@@ -884,4 +884,9 @@ func needToPublishStateFirst(stsGetter statefulset.Getter, mdb mdbv1.MongoDB, co
 	}
 
 	return false
+}
+
+// completionMessage is just a general message printed in the logs after mongodb resource is created/updated
+func completionMessage(url, projectID string) string {
+	return fmt.Sprintf("Please check the link %s/v2/%s to see the status of the deployment", url, projectID)
 }

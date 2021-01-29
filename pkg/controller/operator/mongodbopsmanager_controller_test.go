@@ -107,7 +107,7 @@ func TestOpsManagerReconciler_prepareOpsManagerTwoCalls(t *testing.T) {
 	reconciler.prepareOpsManager(testOm, zap.S())
 
 	// let's "update" the user admin secret - this must not affect anything
-	client.GetMapForObject(&corev1.Secret{})[objectKey(OperatorNamespace, testOm.APIKeySecretName())].(*corev1.Secret).Data["Username"] = []byte("this-is-not-expected@g.com")
+	client.GetMapForObject(&corev1.Secret{})[kube.ObjectKey(OperatorNamespace, testOm.APIKeySecretName())].(*corev1.Secret).Data["Username"] = []byte("this-is-not-expected@g.com")
 
 	// second call is ok - we just don't create the admin user in OM and don't add new secrets
 	reconcileStatus, _ := reconciler.prepareOpsManager(testOm, zap.S())
@@ -154,7 +154,7 @@ func TestOpsManagerReconciler_prepareOpsManagerDuplicatedUser(t *testing.T) {
 
 	// api secret wasn't created
 	assert.Len(t, client.GetMapForObject(&corev1.Secret{}), 1)
-	assert.NotContains(t, client.GetMapForObject(&corev1.Secret{}), objectKey(OperatorNamespace, testOm.APIKeySecretName()))
+	assert.NotContains(t, client.GetMapForObject(&corev1.Secret{}), kube.ObjectKey(OperatorNamespace, testOm.APIKeySecretName()))
 }
 
 func TestOpsManagerGeneratesAppDBPassword_IfNotProvided(t *testing.T) {
@@ -170,7 +170,7 @@ func TestOpsManagerUsersPassword_SpecifiedInSpec(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").Build()
 	reconciler, client, _, _ := defaultTestOmReconciler(t, testOm)
 
-	client.GetMapForObject(&corev1.Secret{})[objectKey(testOm.Namespace, testOm.Spec.AppDB.PasswordSecretKeyRef.Name)] = &corev1.Secret{
+	client.GetMapForObject(&corev1.Secret{})[kube.ObjectKey(testOm.Namespace, testOm.Spec.AppDB.PasswordSecretKeyRef.Name)] = &corev1.Secret{
 		Data: map[string][]byte{
 			testOm.Spec.AppDB.PasswordSecretKeyRef.Key: []byte("my-password"), // create the secret with the password
 		},
@@ -202,7 +202,7 @@ func TestBackupStatefulSetIsNotRemoved_WhenDisabled(t *testing.T) {
 	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
 
 	backupSts := appsv1.StatefulSet{}
-	err = client.Get(context.TODO(), objectKey(testOm.Namespace, testOm.BackupStatefulSetName()), &backupSts)
+	err = client.Get(context.TODO(), kube.ObjectKey(testOm.Namespace, testOm.BackupStatefulSetName()), &backupSts)
 	assert.NoError(t, err, "Backup StatefulSet should have been created when backup is enabled")
 
 	testOm.Spec.Backup.Enabled = false
@@ -214,7 +214,7 @@ func TestBackupStatefulSetIsNotRemoved_WhenDisabled(t *testing.T) {
 	assert.NoError(t, err)
 
 	backupSts = appsv1.StatefulSet{}
-	err = client.Get(context.TODO(), objectKey(testOm.Namespace, testOm.BackupStatefulSetName()), &backupSts)
+	err = client.Get(context.TODO(), kube.ObjectKey(testOm.Namespace, testOm.BackupStatefulSetName()), &backupSts)
 	assert.NoError(t, err, "Backup StatefulSet should not be removed when backup is disabled")
 }
 
@@ -242,7 +242,7 @@ func TestOpsManagerPodTemplateSpec_IsAnnotatedWithHash(t *testing.T) {
 	assert.NotEmpty(t, connectionString)
 
 	sts := appsv1.StatefulSet{}
-	err = client.Get(context.TODO(), objectKey(testOm.Namespace, testOm.Name), &sts)
+	err = client.Get(context.TODO(), kube.ObjectKey(testOm.Namespace, testOm.Name), &sts)
 	assert.NoError(t, err)
 
 	podTemplate := sts.Spec.Template
@@ -280,7 +280,7 @@ func TestOpsManagerConnectionString_IsPassedAsSecretRef(t *testing.T) {
 	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
 
 	sts := appsv1.StatefulSet{}
-	err = client.Get(context.TODO(), objectKey(testOm.Namespace, testOm.Name), &sts)
+	err = client.Get(context.TODO(), kube.ObjectKey(testOm.Namespace, testOm.Name), &sts)
 	assert.NoError(t, err)
 
 	envs := sts.Spec.Template.Spec.Containers[0].Env

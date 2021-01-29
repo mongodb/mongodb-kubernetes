@@ -59,10 +59,10 @@ func TestReconcileCreateShardedCluster(t *testing.T) {
 	assert.Len(t, client.GetMapForObject(&corev1.Secret{}), 2)
 	assert.Len(t, client.GetMapForObject(&corev1.Service{}), 3)
 	assert.Len(t, client.GetMapForObject(&appsv1.StatefulSet{}), 4)
-	assert.Equal(t, *client.GetSet(objectKey(sc.Namespace, sc.ConfigRsName())).Spec.Replicas, int32(sc.Spec.ConfigServerCount))
-	assert.Equal(t, *client.GetSet(objectKey(sc.Namespace, sc.MongosRsName())).Spec.Replicas, int32(sc.Spec.MongosCount))
-	assert.Equal(t, *client.GetSet(objectKey(sc.Namespace, sc.ShardRsName(0))).Spec.Replicas, int32(sc.Spec.MongodsPerShardCount))
-	assert.Equal(t, *client.GetSet(objectKey(sc.Namespace, sc.ShardRsName(1))).Spec.Replicas, int32(sc.Spec.MongodsPerShardCount))
+	assert.Equal(t, *client.GetSet(kube.ObjectKey(sc.Namespace, sc.ConfigRsName())).Spec.Replicas, int32(sc.Spec.ConfigServerCount))
+	assert.Equal(t, *client.GetSet(kube.ObjectKey(sc.Namespace, sc.MongosRsName())).Spec.Replicas, int32(sc.Spec.MongosCount))
+	assert.Equal(t, *client.GetSet(kube.ObjectKey(sc.Namespace, sc.ShardRsName(0))).Spec.Replicas, int32(sc.Spec.MongodsPerShardCount))
+	assert.Equal(t, *client.GetSet(kube.ObjectKey(sc.Namespace, sc.ShardRsName(1))).Spec.Replicas, int32(sc.Spec.MongodsPerShardCount))
 
 	connection := om.CurrMockedConnection
 	connection.CheckDeployment(t, createDeploymentFromShardedCluster(sc), "auth", "ssl")
@@ -313,10 +313,10 @@ func TestShardedCluster_WithTLSEnabled_AndX509Enabled_Succeeds(t *testing.T) {
 
 	cMap := configMap()
 	createAgentCSRs(1, client, certsv1.CertificateApproved)
-	client.GetMapForObject(&corev1.ConfigMap{})[objectKey("", om.TestGroupName)] = &cMap
+	client.GetMapForObject(&corev1.ConfigMap{})[kube.ObjectKey("", om.TestGroupName)] = &cMap
 
 	// create the secret the agent certs will exist in
-	client.GetMapForObject(&corev1.Secret{})[objectKey("", util.AgentSecretName)] = &corev1.Secret{}
+	client.GetMapForObject(&corev1.Secret{})[kube.ObjectKey("", util.AgentSecretName)] = &corev1.Secret{}
 
 	// create pre-approved TLS csrs for the sharded cluster
 	addCsrs(client,
@@ -427,14 +427,19 @@ func TestShardedCustomPodSpecTemplate(t *testing.T) {
 	checkReconcileSuccessful(t, reconciler, sc, client)
 
 	// read the stateful sets that were created by the operator
-	statefulSetSc0 := getStatefulSet(client, objectKey(mock.TestNamespace, "pod-spec-sc-0"))
-	statefulSetSc1 := getStatefulSet(client, objectKey(mock.TestNamespace, "pod-spec-sc-1"))
-	statefulSetScConfig := getStatefulSet(client, objectKey(mock.TestNamespace, "pod-spec-sc-config"))
-	statefulSetMongoS := getStatefulSet(client, objectKey(mock.TestNamespace, "pod-spec-sc-mongos"))
-	assertPodSpecSts(t, statefulSetSc0)
-	assertPodSpecSts(t, statefulSetSc1)
-	assertMongosSts(t, statefulSetMongoS)
-	assertConfigSvrSts(t, statefulSetScConfig)
+	statefulSetSc0, err := client.GetStatefulSet(kube.ObjectKey(mock.TestNamespace, "pod-spec-sc-0"))
+	assert.NoError(t, err)
+	statefulSetSc1, err := client.GetStatefulSet(kube.ObjectKey(mock.TestNamespace, "pod-spec-sc-1"))
+	assert.NoError(t, err)
+	statefulSetScConfig, err := client.GetStatefulSet(kube.ObjectKey(mock.TestNamespace, "pod-spec-sc-config"))
+	assert.NoError(t, err)
+	statefulSetMongoS, err := client.GetStatefulSet(kube.ObjectKey(mock.TestNamespace, "pod-spec-sc-mongos"))
+	assert.NoError(t, err)
+
+	assertPodSpecSts(t, &statefulSetSc0)
+	assertPodSpecSts(t, &statefulSetSc1)
+	assertMongosSts(t, &statefulSetMongoS)
+	assertConfigSvrSts(t, &statefulSetScConfig)
 
 	podSpecTemplateSc0 := statefulSetSc0.Spec.Template.Spec
 	assert.Len(t, podSpecTemplateSc0.Containers, 2, "Should have 2 containers now")

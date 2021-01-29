@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	"go.uber.org/zap"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -16,7 +17,7 @@ type MongoDBUserEventHandler struct {
 
 func (eh *MongoDBUserEventHandler) Delete(e event.DeleteEvent, _ workqueue.RateLimitingInterface) {
 	zap.S().Infow("Cleaning up MongoDBUser resource", "resource", e.Object)
-	logger := zap.S().With("resource", objectKey(e.Meta.GetNamespace(), e.Meta.GetName()))
+	logger := zap.S().With("resource", kube.ObjectKey(e.Meta.GetNamespace(), e.Meta.GetName()))
 	if err := eh.reconciler.delete(e.Object, logger); err != nil {
 		logger.Errorf("MongoDBUser resource removed from Kubernetes, but failed to clean some state in Ops Manager: %s", err)
 		return
