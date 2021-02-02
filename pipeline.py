@@ -131,7 +131,11 @@ def operator_build_configuration(builder: str, parallel: bool) -> BuildConfigura
 
 
 def build_id() -> str:
-    """Returns the current UTC time in ISO8601 format.
+    """Returns the current UTC time in ISO8601 date format.
+
+    Only the date is included, not the time, to make sure this particular
+    build is discoverable: each day has its build, no matter at what time
+    it was produced.
 
     If running in Evergreen and `created_at` expansion is defined, use the
     datetime defined in that variable instead.
@@ -144,7 +148,7 @@ def build_id() -> str:
     except KeyError:
         pass
 
-    return date.strftime("%Y%m%dT%H%M%SZ")
+    return date.strftime("%Y%m%d")
 
 
 def get_release() -> Dict[str, str]:

@@ -11,26 +11,26 @@ build_id. For instance, the 21st of January of 2021, the following "vertical"
 was built:
 
 * Operator
-  * 1.9.0: quay.io/mongodb/mongodb-enterprise-operator:1.9.1-b20210121110057
-  * 1.9.1: quay.io/mongodb/mongodb-enterprise-operator:1.9.1-b20210121110057
+  * 1.9.0: quay.io/mongodb/mongodb-enterprise-operator:1.9.1-b20210202
+  * 1.9.1: quay.io/mongodb/mongodb-enterprise-operator:1.9.1-b20210202
   
 * Init database:
-  * 1.0.2: quay.io/mongodb/mongodb-enterprise-init-database:1.0.2-b20210121110057
+  * 1.0.2: quay.io/mongodb/mongodb-enterprise-init-database:1.0.2-b20210202
 
 * Database:
-  * 2.0.0: quay.io/mongodb/mongodb-enterprise-database:2.0.0-b20210121110057
+  * 2.0.0: quay.io/mongodb/mongodb-enterprise-database:2.0.0-b20210202
 
 * Init appdb:
-  * 1.0.6: quay.io/mongodb/mongodb-enterprise-init-appdb:1.0.6-b20210121110057
+  * 1.0.6: quay.io/mongodb/mongodb-enterprise-init-appdb:1.0.6-b20210202
   
 * Appdb:
-  * 10.2.15.5958-1\_4.2.11-ent: quay.io/mongodb/mongodb-enterprise-appdb:10.2.15.5958-1\_4.2.11-ent-b20210121110057
+  * 10.2.15.5958-1\_4.2.11-ent: quay.io/mongodb/mongodb-enterprise-appdb:10.2.15.5958-1\_4.2.11-ent-b20210202
   
 * Init ops manager:
-  * 1.0.3: quay.io/mongodb/mongodb-enterprise-init-ops-manager:1.0.3-b20210121110057
+  * 1.0.3: quay.io/mongodb/mongodb-enterprise-init-ops-manager:1.0.3-b20210202
 
 
-The build in this case is `-b20210121110057`, and each image (and image version)
+The build in this case is `-b20210202`, and each image (and image version)
 will have a tag with this build as its suffix.
 
 ## Install a specific build
@@ -40,10 +40,10 @@ To install a specific build we will use `helm` with a command like:
     helm install mongodb-enterprise-operator public/helm_chart \
          --values public/helm_chart/values.yaml \
          --set namespace=default \
-         --set build=-b20210121110057
+         --set build=-b20210202
 
 In this case we are installing a version of the Operator that will use the build
-`-b20210121110057` for every image
+`-b20210202` for every image
 
 ## Running E2E test
 
@@ -57,4 +57,4 @@ build that we installed in the previous run, in order to do this, pass the
 To see which version of the Operator you can use:
 
     $ kubectl get deploy/mongodb-enterprise-operator -o jsonpath='{.spec.template.spec.containers[0].image}'
-    quay.io/mongodb/mongodb-enterprise-operator:1.9.1-b20210121110057%
+    quay.io/mongodb/mongodb-enterprise-operator:1.9.1-b20210202%
