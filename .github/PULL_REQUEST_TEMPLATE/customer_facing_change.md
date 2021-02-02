@@ -1,7 +1,16 @@
-## If this PR introduces a customer-facing change
+# Summary
 
-* [ ] You should also add an entry to [release notes](.../RELEASE_NOTES.md).
+*Enter your issue summary here.*
+
+## Documentation changes
+
+* [ ] Add an entry to [release notes](.../RELEASE_NOTES.md).
 * [ ] When needed, make sure you create a new [DOCSP ticket](https://jira.mongodb.org/projects/DOCSP) that documents your change.
+
+## Changes to CRDs
+
+* [ ] Add `@jamesbroadhead` (James) and `@theburi` (Andrey) as reviewers.
+* [ ] Make sure any changes are reflected on `/public/samples` directory.
 
 ## If this PR introduces any change to the Kubernetes or Ops Manager APIs or core reconciliation logic.
 
@@ -16,3 +25,4 @@
 E.g. changes to env vars, images or operator permissions.
 
 * [ ] Make sure you have updated [csv changes](../docs/dev/release/csv-changes.md)
+
