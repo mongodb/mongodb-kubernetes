@@ -110,3 +110,13 @@ func (a AppDB) GetTlsCertificatesSecretName() string {
 func (m AppDB) ConnectionURL(userName, password string, connectionParams map[string]string) string {
 	return mdbv1.BuildConnectionUrl(m.Name(), m.ServiceName(), m.Namespace, userName, password, m.MongoDbSpec, connectionParams)
 }
+
+func (m *AppDB) GetSpec() mdbv1.MongoDbSpec {
+	return m.MongoDbSpec
+}
+func (m *AppDB) GetName() string {
+	return m.Name()
+}
+func (m *AppDB) GetNamespace() string {
+	return m.Namespace
+}

@@ -16,7 +16,7 @@ func NewOpsManagerBuilder() *OpsManagerBuilder {
 }
 
 func NewOpsManagerBuilderDefault() *OpsManagerBuilder {
-	return NewOpsManagerBuilder().SetVersion("4.4.1").SetAppDbMembers(3)
+	return NewOpsManagerBuilder().SetVersion("4.4.1").SetAppDbMembers(3).SetAppDbPodSpec(*DefaultAppDbBuilder().Build().PodSpec)
 }
 
 func NewOpsManagerBuilderFromResource(resource MongoDBOpsManager) *OpsManagerBuilder {
@@ -85,6 +85,11 @@ func (b *OpsManagerBuilder) AddOplogStoreConfig(oplogStoreName, userName string,
 
 func (b *OpsManagerBuilder) SetClusterDomain(clusterDomain string) *OpsManagerBuilder {
 	b.om.Spec.ClusterDomain = clusterDomain
+	return b
+}
+
+func (b *OpsManagerBuilder) SetName(name string) *OpsManagerBuilder {
+	b.om.Name = name
 	return b
 }
 

@@ -4,6 +4,8 @@ import (
 	"os"
 	"testing"
 
+	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
@@ -109,7 +111,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultipleDefaults(t *testing.T) {
 }
 
 func TestBuildAppDbStatefulSetDefault(t *testing.T) {
-	appDbSts := AppDbStatefulSet(defaultOpsManagerBuilder().Build())
+	appDbSts := AppDbStatefulSet(omv1.NewOpsManagerBuilderDefault().Build())
 	podSpecTemplate := appDbSts.Spec.Template.Spec
 	assert.Len(t, podSpecTemplate.InitContainers, 1)
 	assert.Equal(t, podSpecTemplate.InitContainers[0].Name, "mongodb-enterprise-init-appdb")

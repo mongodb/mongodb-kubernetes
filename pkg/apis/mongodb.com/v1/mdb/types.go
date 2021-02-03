@@ -201,6 +201,10 @@ func (m *MongoDB) CurrentReplicaSetMembers() int {
 	return m.Status.Members
 }
 
+func (m *MongoDB) GetSpec() MongoDbSpec {
+	return m.Spec
+}
+
 // StatefulSetConfiguration holds the optional custom StatefulSet
 // that should be merged into the operator created one.
 type StatefulSetConfiguration struct {

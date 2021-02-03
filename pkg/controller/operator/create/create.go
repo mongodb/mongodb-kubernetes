@@ -55,7 +55,7 @@ func DatabaseInKubernetes(client kubernetesClient.Client, mdb mdbv1.MongoDB, sts
 }
 
 // AppDBInKubernetes creates or updates the StatefulSet and Service required for the AppDB.
-func AppDBInKubernetes(client kubernetesClient.Client, opsManager omv1.MongoDBOpsManager, sts appsv1.StatefulSet, config func(om omv1.MongoDBOpsManager) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) error {
+func AppDBInKubernetes(client kubernetesClient.Client, opsManager omv1.MongoDBOpsManager, sts appsv1.StatefulSet, config construct.AppDBConfiguration, log *zap.SugaredLogger) error {
 	opts := config(opsManager)
 	set, err := enterprisests.CreateOrUpdateStatefulset(client,
 		opsManager.Namespace,

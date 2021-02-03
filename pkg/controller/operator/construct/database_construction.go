@@ -72,6 +72,14 @@ type DatabaseStatefulSetOptions struct {
 	StatefulSetSpecOverride *appsv1.StatefulSetSpec
 }
 
+// databaseStatefulSetSource is an interface which provides all the required fields to fully construct
+// a database StatefulSet.
+type databaseStatefulSetSource interface {
+	GetName() string
+	GetNamespace() string
+	GetSpec() mdbv1.MongoDbSpec
+}
+
 // StandaloneOptions returns a set of options which will configure a Standalone StatefulSet
 func StandaloneOptions(additionalOpts ...func(options *DatabaseStatefulSetOptions)) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 	return func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
@@ -209,20 +217,20 @@ func MongosOptions(additionalOpts ...func(options *DatabaseStatefulSetOptions)) 
 
 func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions) appsv1.StatefulSet {
 	stsOptions := stsOptFunc(mdb)
-	dbSts := databaseStatefulSet(mdb, &stsOptions)
+	dbSts := databaseStatefulSet(&mdb, &stsOptions)
 	if stsOptions.StatefulSetSpecOverride != nil {
 		dbSts.Spec = merge.StatefulSetSpecs(dbSts.Spec, *stsOptions.StatefulSetSpecOverride)
 	}
 	return dbSts
 }
 
-func databaseStatefulSet(mdb mdbv1.MongoDB, stsOpts *DatabaseStatefulSetOptions) appsv1.StatefulSet {
+func databaseStatefulSet(mdb databaseStatefulSetSource, stsOpts *DatabaseStatefulSetOptions) appsv1.StatefulSet {
 	templateFunc := buildMongoDBPodTemplateSpec(*stsOpts)
 	return statefulset.New(buildDatabaseStatefulSetConfigurationFunction(mdb, templateFunc, *stsOpts))
 }
 
 // buildDatabaseStatefulSetConfigurationFunction returns the function that will modify the StatefulSet
-func buildDatabaseStatefulSetConfigurationFunction(mdb mdbv1.MongoDB, podTemplateSpecFunc podtemplatespec.Modification, opts DatabaseStatefulSetOptions) statefulset.Modification {
+func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource, podTemplateSpecFunc podtemplatespec.Modification, opts DatabaseStatefulSetOptions) statefulset.Modification {
 	podLabels := map[string]string{
 		appLabelKey:             opts.ServiceName,
 		ControllerLabelName:     util.OperatorName,
@@ -340,12 +348,12 @@ func sharedDatabaseContainerFunc(podSpecWrapper mdbv1.PodSpecWrapper, volumeMoun
 	)
 }
 
-func getVolumesAndVolumeMounts(mdb mdbv1.MongoDB, databaseOpts DatabaseStatefulSetOptions) ([]corev1.Volume, []corev1.VolumeMount) {
+func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts DatabaseStatefulSetOptions) ([]corev1.Volume, []corev1.VolumeMount) {
 	var volumesToAdd []corev1.Volume
 	var volumeMounts []corev1.VolumeMount
-	if mdb.Spec.Security != nil {
-		tlsConfig := mdb.Spec.Security.TLSConfig
-		if mdb.Spec.Security.TLSConfig.IsEnabled() {
+	if mdb.GetSpec().Security != nil {
+		tlsConfig := mdb.GetSpec().Security.TLSConfig
+		if mdb.GetSpec().Security.TLSConfig.IsEnabled() {
 			var secretName string
 			if tlsConfig.SecretRef.Name != "" {
 				// From this location, the certificates will be used inplace
@@ -383,9 +391,9 @@ func getVolumesAndVolumeMounts(mdb mdbv1.MongoDB, databaseOpts DatabaseStatefulS
 		volumesToAdd = append(volumesToAdd, caCertVolume)
 	}
 
-	if mdb.Spec.Security != nil {
-		if mdb.Spec.Security.ShouldUseX509(databaseOpts.CurrentAgentAuthMode) || mdb.Spec.Security.ShouldUseClientCertificates() {
-			agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, mdb.Spec.Security.AgentClientCertificateSecretName().Name)
+	if mdb.GetSpec().Security != nil {
+		if mdb.GetSpec().Security.ShouldUseX509(databaseOpts.CurrentAgentAuthMode) || mdb.GetSpec().Security.ShouldUseClientCertificates() {
+			agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, mdb.GetSpec().Security.AgentClientCertificateSecretName().Name)
 			volumeMounts = append(volumeMounts, corev1.VolumeMount{
 				MountPath: agentCertMountPath,
 				Name:      agentSecretVolume.Name,
@@ -396,7 +404,7 @@ func getVolumesAndVolumeMounts(mdb mdbv1.MongoDB, databaseOpts DatabaseStatefulS
 	}
 
 	// add volume for x509 cert used in internal cluster authentication
-	if mdb.Spec.Security.GetInternalClusterAuthenticationMode() == util.X509 {
+	if mdb.GetSpec().Security.GetInternalClusterAuthenticationMode() == util.X509 {
 		internalClusterAuthVolume := statefulset.CreateVolumeFromSecret(util.ClusterFileName, toInternalClusterAuthName(databaseOpts.Name))
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			MountPath: util.InternalClusterAuthMountPath,

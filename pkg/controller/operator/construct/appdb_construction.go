@@ -9,12 +9,9 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/scale"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/probes"
@@ -42,7 +39,11 @@ const (
 	agentApiKeyEnv                 = "AGENT_API_KEY"
 )
 
-func AppDbOptions(opts ...func(options *DatabaseStatefulSetOptions)) func(opsManager om.MongoDBOpsManager) DatabaseStatefulSetOptions {
+// AppDBConfiguration is a type alias for a function which accepts an Ops Manager instance
+// and returns the concrete DatabaseStatefulSetOptions which are used to build the AppDB StatefulSet.
+type AppDBConfiguration func(om om.MongoDBOpsManager) DatabaseStatefulSetOptions
+
+func AppDbOptions(opts ...func(options *DatabaseStatefulSetOptions)) AppDBConfiguration {
 	return func(opsManager om.MongoDBOpsManager) DatabaseStatefulSetOptions {
 		appDb := opsManager.Spec.AppDB
 
@@ -74,24 +75,16 @@ func AppDbOptions(opts ...func(options *DatabaseStatefulSetOptions)) func(opsMan
 // A list of optional configuration options can be provided to make any modifications that are required.
 func AppDbStatefulSet(opsManager om.MongoDBOpsManager, opts ...func(options *DatabaseStatefulSetOptions)) appsv1.StatefulSet {
 	stsOpts := AppDbOptions(opts...)(opsManager)
-	// TODO: temporary way of using the same function to build both appdb and databaes
-	// this will be cleaned up in a future PR
-	mdb := mdbv1.MongoDB{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      opsManager.Spec.AppDB.Name(),
-			Namespace: opsManager.Namespace,
-		},
-		Spec: opsManager.Spec.AppDB.MongoDbSpec,
-	}
+	appDb := &opsManager.Spec.AppDB
 
-	dbSts := appDbDatabaseStatefulSet(mdb, &stsOpts)
-	if mdb.Spec.PodSpec != nil && mdb.Spec.PodSpec.PodTemplate != nil {
-		dbSts.Spec = merge.StatefulSetSpecs(dbSts.Spec, appsv1.StatefulSetSpec{Template: *mdb.Spec.PodSpec.PodTemplate})
+	dbSts := appDbDatabaseStatefulSet(appDb, &stsOpts)
+	if appDb.GetSpec().PodSpec != nil && appDb.GetSpec().PodSpec.PodTemplate != nil {
+		dbSts.Spec = merge.StatefulSetSpecs(dbSts.Spec, appsv1.StatefulSetSpec{Template: *appDb.GetSpec().PodSpec.PodTemplate})
 	}
 	return dbSts
 }
 
-func appDbDatabaseStatefulSet(mdb mdbv1.MongoDB, stsOpts *DatabaseStatefulSetOptions) appsv1.StatefulSet {
+func appDbDatabaseStatefulSet(mdb databaseStatefulSetSource, stsOpts *DatabaseStatefulSetOptions) appsv1.StatefulSet {
 	templateFunc := buildAppDBPodTemplateSpecFunc(*stsOpts)
 	return statefulset.New(buildDatabaseStatefulSetConfigurationFunction(mdb, templateFunc, *stsOpts))
 }

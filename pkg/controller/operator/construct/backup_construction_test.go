@@ -3,12 +3,14 @@ package construct
 import (
 	"testing"
 
+	omv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/om"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
 )
 
 func Test_buildBackupDaemonStatefulSet(t *testing.T) {
-	sts, err := BackupDaemonStatefulSet(defaultOpsManagerBuilder().Build())
+	sts, err := BackupDaemonStatefulSet(omv1.NewOpsManagerBuilderDefault().SetName("test-om").Build())
 	assert.NoError(t, err)
 	assert.Equal(t, "test-om-backup-daemon", sts.ObjectMeta.Name)
 	assert.Equal(t, util.BackupDaemonContainerName, sts.Spec.Template.Spec.Containers[0].Name)
@@ -16,14 +18,14 @@ func Test_buildBackupDaemonStatefulSet(t *testing.T) {
 }
 
 func TestBackupPodTemplate_TerminationTimeout(t *testing.T) {
-	set, err := BackupDaemonStatefulSet(defaultOpsManagerBuilder().Build())
+	set, err := BackupDaemonStatefulSet(omv1.NewOpsManagerBuilderDefault().SetName("test-om").Build())
 	assert.NoError(t, err)
 	podSpecTemplate := set.Spec.Template
 	assert.Equal(t, int64(4200), *podSpecTemplate.Spec.TerminationGracePeriodSeconds)
 }
 
 func TestBuildBackupDaemonContainer(t *testing.T) {
-	sts, err := BackupDaemonStatefulSet(defaultOpsManagerBuilder().Build())
+	sts, err := BackupDaemonStatefulSet(omv1.NewOpsManagerBuilderDefault().SetVersion("4.2.0").Build())
 	assert.NoError(t, err)
 	template := sts.Spec.Template
 	container := template.Spec.Containers[0]

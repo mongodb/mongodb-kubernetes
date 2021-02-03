@@ -34,15 +34,14 @@ func CreateAppDBProcesses(set appsv1.StatefulSet, mongoType om.MongoType,
 	processes := make([]om.Process, len(hostnames))
 	wiredTigerCache := wiredtiger.CalculateCache(set, util.AppDbContainerName, mdb.GetVersion())
 
+	if mongoType != om.ProcessTypeMongod {
+		panic("Dev error: Wrong process type passed!")
+	}
+
 	for idx, hostname := range hostnames {
-		switch mongoType {
-		case om.ProcessTypeMongod:
-			processes[idx] = om.NewMongodProcessAppDB(names[idx], hostname, mdb)
-			if wiredTigerCache != nil {
-				processes[idx].SetWiredTigerCache(*wiredTigerCache)
-			}
-		default:
-			panic("Dev error: Wrong process type passed!")
+		processes[idx] = om.NewMongodProcessAppDB(names[idx], hostname, mdb)
+		if wiredTigerCache != nil {
+			processes[idx].SetWiredTigerCache(*wiredTigerCache)
 		}
 	}
 

@@ -140,7 +140,7 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 
 // reconcileAppDB performs the reconciliation for the AppDB: update the AutomationConfig Secret if necessary and
 // update the StatefulSet. It does it in the necessary order depending on the changes to the spec
-func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsManager, opsManagerUserPassword string, appDbSts appsv1.StatefulSet, config func(om omv1.MongoDBOpsManager) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsManager, opsManagerUserPassword string, appDbSts appsv1.StatefulSet, config construct.AppDBConfiguration, log *zap.SugaredLogger) workflow.Status {
 	rs := opsManager.Spec.AppDB
 	automationConfigFirst := true
 	// The only case when we push the StatefulSet first is when we are ensuring TLS for the already existing AppDB
