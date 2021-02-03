@@ -41,6 +41,10 @@
 * Issue 1
 * Issue 2
 
+## Miscellaneous
+* miscellaneous item 1
+* miscellaneous item 2
+
 ## Updated Image Tags
 * mongodb-enterprise-operator: 1.8.2
 * mongodb-enterprise-init-database: 1.0.1

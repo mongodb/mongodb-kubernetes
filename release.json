@@ -11,7 +11,7 @@
     "ubi": "mongodb-database-tools-rhel80-x86_64-100.1.1.tgz",
     "ubuntu": "mongodb-database-tools-ubuntu1604-x86_64-100.1.1.tgz"
   },
-  "mongodbOperator": "1.9.1",
+  "mongodbOperator": "1.9.2",
   "appDbImageVersion": "10.2.15.5958-1_4.2.11-ent",
   "initDatabaseVersion": "1.0.2",
   "initOpsManagerVersion": "1.0.3",

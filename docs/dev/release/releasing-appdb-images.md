@@ -1,5 +1,5 @@
 ## Release new AppDB image to ECR
-1. Update `release.json`: change `appDBImageAgentVersion` if new Agent binary should be included into the image,
+1. Update `release.json`: change `appDbImageAgentVersion` if new Agent binary should be included into the image,
 change `appDbBundle` fields to use a new version of bundled MongoDB.
 1. Invoke the manual Evergreen patch to release the image to ECR:
 ```bash

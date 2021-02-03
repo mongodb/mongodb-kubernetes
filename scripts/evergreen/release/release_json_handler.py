@@ -13,7 +13,7 @@ RELEASE_JSON = "release.json"
 
 class ReleaseObject(Enum):
     mongodb_operator = "mongodbOperator"
-    appdb = "appDBImageAgentVersion"
+    appdb = "appDbImageVersion"
     init_appdb = "initAppDbVersion"
     init_database = "initDatabaseVersion"
     init_om = "initOpsManagerVersion"

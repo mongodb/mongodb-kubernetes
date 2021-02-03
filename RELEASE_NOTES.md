@@ -1,5 +1,12 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next release -->
+# MongoDB Enterprise Kubernetes Operator 1.9.2
+
+## Miscellaneous
+* Fix errors with CSV
+
+<!-- Past Releases -->
+
 # MongoDB Enterprise Kubernetes Operator 1.9.1
 ## Kubernetes Operator
 * Bug fixes
@@ -19,8 +26,6 @@
   * Ops Manager user now has "backup", "restore" and "hostManager" roles, allowing for backups/restores on the AppDB.
   * If `spec.applicationDatabase.version` is omitted the Operator will use `4.2.11-ent` as a default MongoDB.
 
-
-<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.9.0
 
 ## Kubernetes Operator

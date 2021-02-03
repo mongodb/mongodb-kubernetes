@@ -35,11 +35,15 @@ INIT_OPS_MANAGER_PATHS = ["docker/mongodb-enterprise-init-ops-manager/"]
 def read_version_from_user(release_object: ReleaseObject) -> str:
     current_release = read_release_from_file(release_object)
     new_version = input(
-        f"Please enter a new {release_object.value} version (current one: {current_release}):\n"
+        f"Please enter a new {release_object.value} version [{current_release}]:\n"
     )
-    if semver.compare(current_release, new_version) >= 0:
+
+    if not new_version:
+        new_version = current_release
+
+    if semver.compare(current_release, new_version) > 0:
         raise Exception(
-            "New release version ({}) must be bigger than the current one ({})!".format(
+            "New release version ({}) must be greater than or equal to than the current one ({})!".format(
                 new_version, current_release
             )
         )
@@ -54,9 +58,8 @@ def handle_operator_version():
 
 
 def handle_appdb_version():
-    appdb_version = read_release_from_file(ReleaseObject.appdb)
-    bundled_mongodb_version = read_value_from_file(["appDbBundle", "mongodbVersion"])
-    update_all_helm_values_files("appDb", f"{appdb_version}_{bundled_mongodb_version}")
+    appdb_agent_version = read_release_from_file(ReleaseObject.appdb)
+    update_all_helm_values_files("appDb", f"{appdb_agent_version}")
 
 
 def handle_init_image(
