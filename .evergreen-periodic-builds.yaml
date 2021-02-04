@@ -3,6 +3,9 @@ parameters:
   value: 268558157000.dkr.ecr.us-east-1.amazonaws.com
   description: Development ECR registry
 
+- key: pin_tag_at
+  value: 00:00
+  description: Pin tags at this time of the day. Midnight by default.
 
 ### All the functions in this file are copies of what is in
 ### .evergreen.yml. If there's any modification on these, it should be also
@@ -81,6 +84,7 @@ functions:
       - test_suffix
       - om_version
       - created_at
+      - pin_tag_at
       add_to_path:
       - ${workdir}/bin
       command: "${workdir}/venv/bin/python pipeline.py --include ${image_name}"

@@ -130,17 +130,32 @@ def operator_build_configuration(builder: str, parallel: bool) -> BuildConfigura
     )
 
 
+def should_pin_at() -> Optional[Tuple[int, int]]:
+    """Gets the value of the pin_tag_at to tag the images with.
+
+    Returns its value splited on :.
+    """
+    # We need to return something so `partition` does not raise
+    # AttributeError
+    pinned = os.environ.get("pin_tag_at", "-")
+    hour, _, minute = pinned.partition(":")
+
+    return hour, minute
+
+
 def build_id() -> str:
     """Returns the current UTC time in ISO8601 date format.
-
-    Only the date is included, not the time, to make sure this particular
-    build is discoverable: each day has its build, no matter at what time
-    it was produced.
 
     If running in Evergreen and `created_at` expansion is defined, use the
     datetime defined in that variable instead.
 
+    It is possible to pin this time at midnight (00:00) for periodic builds. If
+    running a manual build, then the Evergreen `pin_tag_at` variable needs to be
+    set to the empty string, in which case, the image tag suffix will correspond
+    to the current timestamp.
+
     """
+
     date = datetime.utcnow()
     try:
         created_at = os.environ["created_at"]
@@ -148,7 +163,11 @@ def build_id() -> str:
     except KeyError:
         pass
 
-    return date.strftime("%Y%m%d")
+    hour, minute = should_pin_at()
+    if hour and minute:
+        date = date.replace(hour=int(hour), minute=int(minute), second=0)
+
+    return date.strftime("%Y%m%dT%H%M%SZ")
 
 
 def get_release() -> Dict[str, str]:
