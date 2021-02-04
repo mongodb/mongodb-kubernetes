@@ -144,9 +144,18 @@ func (b *OpsManagerBuilder) SetOMStatusVersion(version string) *OpsManagerBuilde
 	return b
 }
 
+func (b *OpsManagerBuilder) SetExternalConnectivity(externalConnectivity MongoDBOpsManagerServiceDefinition) *OpsManagerBuilder {
+	b.om.Spec.MongoDBOpsManagerExternalConnectivity = &externalConnectivity
+	return b
+}
 func (b *OpsManagerBuilder) Build() MongoDBOpsManager {
 	b.om.InitDefaultFields()
 	return *b.om.DeepCopy()
+}
+
+func (b *OpsManagerBuilder) SetName(name string) *OpsManagerBuilder {
+	b.om.Name = name
+	return b
 }
 
 // ************************* Private methods ************************************
