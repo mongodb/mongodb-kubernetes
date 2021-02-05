@@ -153,9 +153,4 @@ func (b *OpsManagerBuilder) Build() MongoDBOpsManager {
 	return *b.om.DeepCopy()
 }
 
-func (b *OpsManagerBuilder) SetName(name string) *OpsManagerBuilder {
-	b.om.Name = name
-	return b
-}
-
 // ************************* Private methods ************************************
