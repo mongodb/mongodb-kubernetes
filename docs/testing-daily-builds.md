@@ -7,34 +7,34 @@ and pushed to the Quay registry.
 
 Each day the periodic-build process will build a "vertical" for each image and
 version supported. A "vertical" is a collection of images sharing the same
-build_id. For instance, the 21st of January of 2021, the following "vertical"
+build_id. For instance, the 5th of February of 2021, the following "vertical"
 was built:
 
 * Operator
-  * 1.9.0: quay.io/mongodb/mongodb-enterprise-operator:1.9.1-b20210203T100000Z
-  * 1.9.1: quay.io/mongodb/mongodb-enterprise-operator:1.9.1-b20210203T100000Z
+  * 1.9.0: quay.io/mongodb/mongodb-enterprise-operator:1.9.1-b20210205T000000Z
+  * 1.9.1: quay.io/mongodb/mongodb-enterprise-operator:1.9.1-b20210205T000000Z
   
 * Init database:
-  * 1.0.2: quay.io/mongodb/mongodb-enterprise-init-database:1.0.2-b20210203T100000Z
+  * 1.0.2: quay.io/mongodb/mongodb-enterprise-init-database:1.0.2-b20210205T000000Z
 
 * Database:
-  * 2.0.0: quay.io/mongodb/mongodb-enterprise-database:2.0.0-b20210203T100000Z
+  * 2.0.0: quay.io/mongodb/mongodb-enterprise-database:2.0.0-b20210205T000000Z
 
 * Init appdb:
-  * 1.0.6: quay.io/mongodb/mongodb-enterprise-init-appdb:1.0.6-b20210203T100000Z
+  * 1.0.6: quay.io/mongodb/mongodb-enterprise-init-appdb:1.0.6-b20210205T000000Z
   
 * Appdb:
-  * 10.2.15.5958-1\_4.2.11-ent: quay.io/mongodb/mongodb-enterprise-appdb:10.2.15.5958-1\_4.2.11-ent-b20210203T100000Z
+  * 10.2.15.5958-1\_4.2.11-ent: quay.io/mongodb/mongodb-enterprise-appdb:10.2.15.5958-1\_4.2.11-ent-b20210205T000000Z
   
 * Init ops manager:
-  * 1.0.3: quay.io/mongodb/mongodb-enterprise-init-ops-manager:1.0.3-b20210203T100000Z
+  * 1.0.3: quay.io/mongodb/mongodb-enterprise-init-ops-manager:1.0.3-b20210205T000000Z
 
 
-The build in this case is `-b20210203T100000Z`, and each image (and image
+The build in this case is `-b20210205T000000Z`, and each image (and image
 version) will have a tag with this build as its suffix. The images are built
-daily at the same time, 10am UTC, and tagged as such:
+daily at the same time, 00:00 UTC, and tagged as such:
 
-    -bYYYYMMDDT100000Z
+    -bYYYYMMDDT000000Z
                \-----/
                   ^-----this section is always identical
 
@@ -45,10 +45,10 @@ To install a specific build we will use `helm` with a command like:
     helm install mongodb-enterprise-operator public/helm_chart \
          --values public/helm_chart/values.yaml \
          --set namespace=default \
-         --set build=-b20210203T100000Z
+         --set build=-b20210205T000000Z
 
 In this case we are installing a version of the Operator that will use the build
-`-b20210203T100000Z` for every image
+`-b20210205T000000Z` for every image
 
 ## Running E2E test
 
@@ -62,4 +62,4 @@ build that we installed in the previous run, in order to do this, pass the
 To see which version of the Operator you can use:
 
     $ kubectl get deploy/mongodb-enterprise-operator -o jsonpath='{.spec.template.spec.containers[0].image}'
-    quay.io/mongodb/mongodb-enterprise-operator:1.9.1-b20210203T100000Z
+    quay.io/mongodb/mongodb-enterprise-operator:1.9.1-b20210205T000000Z
