@@ -148,6 +148,17 @@ The results of the periodic builds will appear as notifications in the
 [#k8s-operator-daily-builds](https://mongodb.slack.com/archives/C01HYH2KUJ1)
 Slack channel.
 
+## Publishing newly released Containerimages
+
+To complete the update of the public repo, you need to add any new images
+produced by the release process. Remember that these are the same images,
+stored in S3 to build the images daily.
+
+    scripts/update_supported_dockerfiles.py
+
+All of the supported files will be downloaded and staged into your repo, before
+moving on, make sure you commit these changes locally.
+
 ## Publish public repo
 
 First make sure that the `/public` directory is up to date with the public

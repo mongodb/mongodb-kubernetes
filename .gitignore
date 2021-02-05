@@ -37,6 +37,8 @@ docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator.tar
 docker/mongodb-enterprise-tests/helm_chart/
 .shellcheckrc
 
+.DS_Store
+
 # loadtesting binary
 production_notes/cmd/runtest/runtest
 production_notes/helm_charts/opsmanager/charts/
