@@ -39,6 +39,7 @@ images:
 
       inputs:
       - release_version
+      - debug
 
       output:
       - dockerfile: docker/mongodb-enterprise-operator/Dockerfile.ubi-$(inputs.params.version_id)
@@ -51,6 +52,7 @@ images:
 
       inputs:
       - release_version
+      - debug
 
       output:
       - dockerfile: docker/mongodb-enterprise-operator/Dockerfile.ubuntu-$(inputs.params.version_id)

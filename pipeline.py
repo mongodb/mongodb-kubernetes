@@ -45,6 +45,7 @@ class BuildConfiguration:
     parallel: bool = False
 
     pipeline: bool = True
+    debug: bool = True
 
     def build_args(self, args: Optional[Dict[str, str]] = None) -> Dict[str, str]:
         if args is None:
@@ -108,7 +109,9 @@ def build_configuration_from_env() -> Dict[str, str]:
     }
 
 
-def operator_build_configuration(builder: str, parallel: bool) -> BuildConfiguration:
+def operator_build_configuration(
+    builder: str, parallel: bool, debug: bool
+) -> BuildConfiguration:
     default_config_location = os.path.expanduser("~/.operator-dev/context")
     context_file = os.environ.get(
         "OPERATOR_BUILD_CONFIGURATION", default_config_location
@@ -127,6 +130,7 @@ def operator_build_configuration(builder: str, parallel: bool) -> BuildConfigura
         include_tags=context.get("include_tags"),
         builder=builder,
         parallel=parallel,
+        debug=debug,
     )
 
 
@@ -252,6 +256,7 @@ def build_operator_image(build_configuration: BuildConfiguration):
         release_version=get_git_release_tag(),
         log_automation_config_diff=log_automation_config_diff,
         test_suffix=test_suffix,
+        debug=build_configuration.debug,
     )
 
     sonar_build_image(image_name, build_configuration, args)
@@ -354,7 +359,7 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
         repo_tag, name=container_name, entrypoint="sh", detach=True
     )
 
-    print("Building operator")
+    print("Building operator with debugging symbols")
     output = subprocess.run(
         "scripts/build/build_operator.sh", check=True, stdout=subprocess.PIPE
     )
@@ -376,7 +381,7 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
     container.stop()
     container.remove()
 
-    print("Pushing operator")
+    print("Pushing operator to {}:{}".format(image_repo, image_tag))
     client.images.push(
         repository=image_repo,
         tag=image_tag,
@@ -685,9 +690,11 @@ def build_image(image_name: str, build_configuration: BuildConfiguration):
     get_builder_function_for_image_name()[image_name](build_configuration)
 
 
-def build_all_images(images: List[str], builder: str, parallel: bool = False):
+def build_all_images(
+    images: List[str], builder: str, debug: bool = False, parallel: bool = False
+):
     """Builds all the images in the `images` list."""
-    build_configuration = operator_build_configuration(builder, parallel)
+    build_configuration = operator_build_configuration(builder, parallel, debug)
 
     if parallel:
         raise NotImplemented(
@@ -743,6 +750,7 @@ def main():
     parser.add_argument("--builder", default="docker", type=str)
     parser.add_argument("--list-images", action="store_true")
     parser.add_argument("--parallel", action="store_true", default=False)
+    parser.add_argument("--debug", action="store_true", default=False)
     args = parser.parse_args()
 
     if args.list_images:
@@ -753,7 +761,9 @@ def main():
         get_builder_function_for_image_name().keys(), args.include, args.exclude
     )
 
-    build_all_images(images_to_build, args.builder, parallel=args.parallel)
+    build_all_images(
+        images_to_build, args.builder, debug=args.debug, parallel=args.parallel
+    )
 
 
 if __name__ == "__main__":

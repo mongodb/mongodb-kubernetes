@@ -25,10 +25,12 @@ RUN mkdir /build && go build -i -o /build/mongodb-enterprise-operator \
         -X github.com/10gen/ops-manager-kubernetes/pkg/util.LogAutomationConfigDiff=${log_automation_config_diff} \
         -X github.com/10gen/ops-manager-kubernetes/pkg/util.BundledAppDbMongoDBVersion=${mdb_version}"
 
+RUN go get -u github.com/go-delve/delve/cmd/dlv
 
 FROM scratch
 ARG version_manifest_url
 
+COPY --from=builder /go/bin/dlv /data/dlv
 COPY --from=builder /build/mongodb-enterprise-operator /data/
 
 ADD ${version_manifest_url} /data/version_manifest.json

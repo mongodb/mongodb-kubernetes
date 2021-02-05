@@ -10,30 +10,21 @@ RELEASE_VERSION=$(git describe)
 # deploying OM resource)
 [[ -n "${LOCAL_RUN-}" ]] && RELEASE_VERSION=""
 
-# build stripped binary for linux with appropriate release version set
-if [[ "$(uname)" != 'Linux' ]]; then
-    export GOOS='linux'
-fi
-
+export GOOS=linux
 export GO111MODULE=on
 export GOFLAGS="-mod=vendor"
-
-if [[ -z ${LOG_AUTOMATION_CONFIG_DIFF-} ]]; then
-    LOG_AUTOMATION_CONFIG_DIFF="false"
-fi
 
 mdb_version="$(jq --raw-output .appDbBundle.mongodbVersion < release.json)"
 echo "Using MongoDB version ${mdb_version} for the AppDB"
 
-if [[ ${DEBUG-} = "true" ]]; then
-    echo "Building Operator binary in 'debug' mode..."
-    go build -gcflags "-N -l" -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator \
-      -ldflags="-X github.com/10gen/ops-manager-kubernetes/pkg/util.OperatorVersion=${RELEASE_VERSION} -X github.com/10gen/ops-manager-kubernetes/pkg/util.LogAutomationConfigDiff=${LOG_AUTOMATION_CONFIG_DIFF} -X github.com/10gen/ops-manager-kubernetes/pkg/util.BundledAppDbMongoDBVersion=${mdb_version}"
-else
-    echo "Building Operator binary..."
-    go build -i -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator \
-        -ldflags="-s -w -X github.com/10gen/ops-manager-kubernetes/pkg/util.OperatorVersion=${RELEASE_VERSION} -X github.com/10gen/ops-manager-kubernetes/pkg/util.LogAutomationConfigDiff=${LOG_AUTOMATION_CONFIG_DIFF} -X github.com/10gen/ops-manager-kubernetes/pkg/util.BundledAppDbMongoDBVersion=${mdb_version}"
-
-fi
+ldflags=(
+    "-X github.com/10gen/ops-manager-kubernetes/pkg/util.OperatorVersion=${RELEASE_VERSION}"
+    "-X github.com/10gen/ops-manager-kubernetes/pkg/util.LogAutomationConfigDiff=${LOG_AUTOMATION_CONFIG_DIFF:-false}"
+    "-X github.com/10gen/ops-manager-kubernetes/pkg/util.BundledAppDbMongoDBVersion=${mdb_version}"
+)
+# Local operator is always built with debugging symbols enabled.
+echo "Building Operator"
+go build -gcflags "all=-N -l" -ldflags="${ldflags[*]}" \
+    -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator
 
 echo "Operator successfully built (version ${RELEASE_VERSION})"
