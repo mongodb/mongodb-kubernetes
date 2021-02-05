@@ -84,7 +84,8 @@ master.
 ## 6. Tag the commit for release
 
 1. Checkout the latest master and pull changes
-2. Create a signed and annotated tag for this particular release. Set the message contents to the release notes.
+2. Create a signed and annotated tag for this particular release. Set the
+   message contents to the release notes.
 
 ```bash
 git checkout master
@@ -101,31 +102,28 @@ The following images are expected to get released by the end of this procedure:
 * Init Ops Manager
 * Init AppDB
 
+The `release` variant tasks need to be *unblocked* by "Overriding dependencies".
+This will make the new versions to be added to the list of supported images,
+effectively making the *periodic-build* process to produce new versions of them.
+Remember that the new images will be produced at midnight, and no new images
+will be pushed to public repositories after the *release* taks have been
+executed.
+
 *(Database, AppDB and Ops Manager images are released manually)*
+**Note** that `appdb` release tasks should be run only if the new version of
+appdb image has been released
 
-To perform release it's necessary to manually override dependencies in the tasks in the following
-Evergreen build variants (after the release branch was merged):
-* `release_quay` (will deploy all images to quay.io based on UBI and Ubuntu)
-* `release_rh` (will deploy all images to Red Hat Connect)
+You need to publish the following images (click on the ">" sign to the left from
+ the image to expand the section, select "mark with latest tag" checkbox):
 
-**Note** that `appdb` release tasks should be run only if the new version of appdb image has been released
-
-**Caution (quay.io)**: quay.io doesn't allow to block tags from overwriting, the
-current tagged images will be overwritten by `evergreen` if they have
-the same tag as any old images.
-
-**Caution (Red Hat Connect)**: so far the build service is not reliable and some checks may fail - you need to trigger new builds on the
-site manually specifying the new version (increase the patch part, e.g. `0.7.1`) and hopefully the build will succeed
-eventually.
-
-You need to publish the following images (click on the ">" sign to the left from the image to expand the section,
- select "mark with latest tag" checkbox):
 * https://connect.redhat.com/project/850021/images (Operator)
 * https://connect.redhat.com/project/5718431/images (Init Database)
 * https://connect.redhat.com/project/4276491/images (Init Ops Manager)
 * https://connect.redhat.com/project/4276451/images (Init AppDB)
 
-The following images won't be published by release process, shown here just for reference:
+The following images won't be published by release process, shown here just for
+reference:
+
 * https://connect.redhat.com/project/851701/images (Database)
 * https://connect.redhat.com/project/2207181/images (Ops Manager)
 * https://connect.redhat.com/project/2207271/images (AppDB)

@@ -544,66 +544,7 @@ tasks:
   - func: clone
   - func: release_blocker
 
-# release_rh_operator Releases the Operator and Database image to RH Connect.
-- name: release_rh_operator
-  commands:
-    - func: clone
-    - func: guard_git_repo_is_clean
-    - func: download_kube_tools
-    - func: configure_docker_auth
-
-    - func: release_docker_image_to_registry
-      vars:
-        tag_source: ${version_id}
-        tag_dest: '$(git describe)'
-        image_source: ${ecr_registry}/dev/ubi/mongodb-enterprise-operator
-        image_target: scan.connect.redhat.com/ospid-5558a531-617e-46d7-9320-e84d3458768a/mongodb-enterprise-operator
-        docker_username: unused
-        docker_password: ${rhc_operator_pid}
-
-- name: release_rh_init_ops_manager
-  commands:
-    - func: clone
-    - func: download_kube_tools
-    - func: configure_docker_auth
-    - func: release_docker_image_to_registry
-      vars:
-        tag_source: ${version_id}
-        tag_dest: '$(jq --raw-output ".initOpsManagerVersion" < release.json)'
-        image_source: ${ecr_registry}/dev/ubi/mongodb-enterprise-init-ops-manager
-        image_target: scan.connect.redhat.com/ospid-7da92b80-396f-4298-9de5-909165ba0c9e/mongodb-enterprise-init-ops-manager
-        docker_username: unused
-        docker_password: ${rhc_init_om_pid}
-
-- name: release_rh_init_appdb
-  commands:
-    - func: clone
-    - func: download_kube_tools
-    - func: configure_docker_auth
-    - func: release_docker_image_to_registry
-      vars:
-        tag_source: ${version_id}
-        tag_dest: '$(jq --raw-output ".initAppDbVersion" < release.json)'
-        image_source: ${ecr_registry}/dev/ubi/mongodb-enterprise-init-appdb
-        image_target: scan.connect.redhat.com/ospid-053baed4-c625-44bb-a9bf-a3a5585a17e8/mongodb-enterprise-init-appdb
-        docker_username: unused
-        docker_password: ${rhc_init_appdb_pid}
-
-- name: release_rh_init_database
-  commands:
-    - func: clone
-    - func: download_kube_tools
-    - func: configure_docker_auth
-    - func: release_docker_image_to_registry
-      vars:
-        tag_source: ${version_id}
-        tag_dest: '$(jq --raw-output ".initDatabaseVersion" < release.json)'
-        image_source: ${ecr_registry}/dev/ubi/mongodb-enterprise-init-database
-        image_target: scan.connect.redhat.com/ospid-cf1063a9-6391-4dd7-b995-a4614483e6a1/mongodb-enterprise-init-database
-        docker_username: unused
-        docker_password: ${rhc_init_database_pid}
-
-- name: release_quay_operator
+- name: release_operator
   commands:
   - func: clone
   - func: setup_building_host
@@ -616,7 +557,7 @@ tasks:
       image_name: operator
 
 # Releases init images to Quay
-- name: release_quay_init_appdb
+- name: release_init_appdb
   commands:
   - func: clone
   - func: setup_building_host
@@ -628,7 +569,7 @@ tasks:
     vars:
       image_name: init-appdb
 
-- name: release_quay_init_database
+- name: release_init_database
   commands:
   - func: clone
   - func: setup_building_host
@@ -640,7 +581,7 @@ tasks:
     vars:
       image_name: init-database
 
-- name: release_quay_init_ops_manager
+- name: release_init_ops_manager
   commands:
   - func: clone
   - func: setup_building_host
@@ -2436,26 +2377,11 @@ buildvariants:
 
 ### Release build variants
 
-- name: release_rh
-  display_name: release_rh
-  depends_on:
-    - name: release_blocker
-      variant: release_blocker
-    - name: build_init_database_image_ubi
-      variant: init_test_run
-    - name: build_init_appdb_images_ubi
-      variant: init_test_run
-  run_on:
-    - ubuntu1604-test
-  tasks:
-    - name: release_rh_operator
-    - name: release_rh_init_ops_manager
-    - name: release_rh_init_appdb
-    - name: release_rh_init_database
-
-# Releases both ubi and ubuntu images to Quay.
-- name: release_quay
-  display_name: release_quay
+## Adds versions as supported in the supported versions Database.
+## The reponsibility of actually building this image/version and pushing them
+## to public Docker repositories is of the periodic-build task.
+- name: release
+  display_name: release
   depends_on:
     - name: release_blocker
       variant: release_blocker
@@ -2480,10 +2406,10 @@ buildvariants:
   expansions:
     include_tags: release
   tasks:
-    - name: release_quay_operator
-    - name: release_quay_init_appdb
-    - name: release_quay_init_database
-    - name: release_quay_init_ops_manager
+    - name: release_operator
+    - name: release_init_appdb
+    - name: release_init_database
+    - name: release_init_ops_manager
 
 
 - name: release_blocker
