@@ -3,6 +3,8 @@ package workflow
 import (
 	"time"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/apierrors"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
@@ -60,6 +62,9 @@ func (f failedStatus) StatusOptions() []status.Option {
 }
 
 func (f failedStatus) Phase() status.Phase {
+	if apierrors.IsTransientMessage(f.msg) {
+		return status.PhasePending
+	}
 	return status.PhaseFailed
 }
 

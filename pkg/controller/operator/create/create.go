@@ -121,46 +121,66 @@ func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager omv1.Mong
 		return err
 	}
 
-	externalService := corev1.Service{}
+	var externalService *corev1.Service = nil
 	if opsManager.Spec.MongoDBOpsManagerExternalConnectivity != nil {
 		namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName+"-ext")
-		externalService = buildService(namespacedName, &opsManager, set.Spec.ServiceName, int32(port), *opsManager.Spec.MongoDBOpsManagerExternalConnectivity)
-		err = enterprisesvc.CreateOrUpdateService(client, externalService, log)
-		if err != nil {
+		svc := buildService(namespacedName, &opsManager, set.Spec.ServiceName, int32(port), *opsManager.Spec.MongoDBOpsManagerExternalConnectivity)
+		externalService = &svc
+	}
+
+	// Need to create queryable backup service
+	var backupService *corev1.Service = nil
+	if opsManager.Spec.Backup.Enabled {
+		if opsManager.Spec.MongoDBOpsManagerExternalConnectivity != nil {
+			if err := addQueryableBackupPortToExternalService(opsManager, externalService); err != nil {
+				return err
+			}
+		} else if backupService, err = buildBackupService(opsManager, set.Spec.ServiceName+"-backup"); err != nil {
 			return err
 		}
 	}
 
-	// Need to create queryable backup service
-	if opsManager.Spec.Backup.Enabled {
-		return ensureQueryableAbleBackupService(client, opsManager, externalService, set.Spec.ServiceName, log)
+	if externalService != nil {
+		if err := enterprisesvc.CreateOrUpdateService(client, *externalService, log); err != nil {
+			return err
+		}
 	}
 
-	return err
+	if backupService != nil {
+		if err := enterprisesvc.CreateOrUpdateService(client, *backupService, log); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
-// ensureQueryableAbleBackupService will make sure the queryable backup service exists. It will either update the existing external service
-// if it exists, or create a new one if it does not.
-func ensureQueryableAbleBackupService(serviceGetUpdateCreator service.GetUpdateCreator, opsManager omv1.MongoDBOpsManager, externalService corev1.Service, serviceName string, log *zap.SugaredLogger) error {
+// addQueryableBackupPortToExternalService adds the backup port to the existing external Ops Manager service.
+// this function assumes externalService is not nil.
+func addQueryableBackupPortToExternalService(opsManager omv1.MongoDBOpsManager, externalService *corev1.Service) error {
 	backupSvcPort, err := opsManager.Spec.BackupSvcPort()
 	if err != nil {
 		return fmt.Errorf("can't parse queryable backup port: %s", err)
 	}
+	externalService.Spec.Ports[0].Name = externalConnectivityPortName
+	externalService.Spec.Ports = append(externalService.Spec.Ports, corev1.ServicePort{
+		Name: backupPortName,
+		Port: backupSvcPort,
+	})
+	return nil
+}
 
-	// If external connectivity is already configured, add a port to externalService
-	if opsManager.Spec.MongoDBOpsManagerExternalConnectivity != nil {
-		externalService.Spec.Ports[0].Name = externalConnectivityPortName
-		externalService.Spec.Ports = append(externalService.Spec.Ports, corev1.ServicePort{
-			Name: backupPortName,
-			Port: backupSvcPort,
-		})
-		return enterprisesvc.CreateOrUpdateService(serviceGetUpdateCreator, externalService, log)
+// buildBackupService returns the service needed for queryable backup.
+func buildBackupService(opsManager omv1.MongoDBOpsManager, serviceName string) (*corev1.Service, error) {
+	backupSvcPort, err := opsManager.Spec.BackupSvcPort()
+	if err != nil {
+		return nil, fmt.Errorf("can't parse queryable backup port: %s", err)
 	}
-	// Otherwise create a new service
-	namespacedName := kube.ObjectKey(opsManager.Namespace, serviceName+"-backup")
-	backupService := buildService(namespacedName, &opsManager, "ops-manager-backup", backupSvcPort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeLoadBalancer})
 
-	return enterprisesvc.CreateOrUpdateService(serviceGetUpdateCreator, backupService, log)
+	// Otherwise create a new service
+	namespacedName := kube.ObjectKey(opsManager.Namespace, serviceName)
+	svc := buildService(namespacedName, &opsManager, "ops-manager-backup", backupSvcPort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeLoadBalancer})
+	return &svc, nil
 }
 
 // buildService creates the Kube Service. If it should be seen externally it makes it of type NodePort that will assign

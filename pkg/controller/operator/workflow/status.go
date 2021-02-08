@@ -3,6 +3,8 @@ package workflow
 import (
 	"fmt"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/apierrors"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/status"
 	"go.uber.org/zap"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -50,8 +52,13 @@ func (c *commonStatus) prependMsg(msg string) {
 }
 
 func (c commonStatus) statusOptions() []status.Option {
+	// don't display any message on the MongoDB resource if the error is transient.
+	msg := c.msg
+	if apierrors.IsTransientMessage(msg) {
+		msg = ""
+	}
 	return []status.Option{
-		status.NewMessageOption(c.msg),
+		status.NewMessageOption(msg),
 		status.NewWarningsOption(c.warnings),
 		status.NewResourcesNotReadyOption(c.resourcesNotReady),
 	}
