@@ -104,7 +104,4 @@ def test_create_image_pull_secret_om2(
 
 @mark.e2e_om_multiple
 def test_multiple_om_created_2(om2: MongoDBOpsManager):
-    """This test should fail now since multiple om with same name in different ns, after the next PR
-    which will fix this issue the test should pass
-    """
-    om2.om_status().assert_reaches_phase(Phase.Failed, timeout=1100)
+    om2.om_status().assert_reaches_phase(Phase.Running, timeout=1100)

@@ -1,7 +1,9 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next release -->
 # MongoDB Enterprise Kubernetes Operator 1.9.2
-
+## Kubernetes Operator
+* Bug fixes
+  * Fixes an issue which made it not possible do have multiple ops-manager resources with the same name in different namespaces
 ## Miscellaneous
 * Fix errors with CSV
 

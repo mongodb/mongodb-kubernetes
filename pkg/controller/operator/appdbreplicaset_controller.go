@@ -473,7 +473,12 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbAgentApiKey(opsManager *omv1.Mongo
 // tryConfigureMonitoringInOpsManager attempts to configure monitoring in Ops Manager. This might not be possible if Ops Manager
 // has not been created yet, if that is the case, an empty PodVars will be returned.
 func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager *omv1.MongoDBOpsManager, opsManagerUserPassword string, log *zap.SugaredLogger) (env.PodEnvVars, error) {
-	cred, err := project.ReadCredentials(r.client, kube.ObjectKey(operatorNamespace(), opsManager.APIKeySecretName()))
+	APIKeySecretName, err := opsManager.APIKeySecretName(r.client)
+	if err != nil {
+		return env.PodEnvVars{}, fmt.Errorf("error getting opsManager secret name: %s", err)
+	}
+
+	cred, err := project.ReadCredentials(r.client, kube.ObjectKey(operatorNamespace(), APIKeySecretName))
 	if err != nil {
 		log.Debugf("Ops Manager has not yet been created, not configuring monitoring: %s", err)
 		return env.PodEnvVars{}, nil
@@ -485,7 +490,11 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager
 		return env.PodEnvVars{}, fmt.Errorf("error reading existing podVars: %s", err)
 	}
 
-	projectConfig := opsManager.GetAppDBProjectConfig()
+	projectConfig, err := opsManager.GetAppDBProjectConfig(r.client)
+	if err != nil {
+		return existingPodVars, fmt.Errorf("error getting existing project config: %s", err)
+	}
+
 	_, conn, err := project.ReadOrCreateProject(projectConfig, cred, r.omConnectionFactory, log)
 	if err != nil {
 		return existingPodVars, fmt.Errorf("error reading/creating project: %s", err)
@@ -540,7 +549,12 @@ func (r *ReconcileAppDbReplicaSet) readExistingPodVars(om omv1.MongoDBOpsManager
 		return env.PodEnvVars{}, fmt.Errorf("ConfigMap %s did not have the key %s", om.Spec.AppDB.ProjectIDConfigMapName(), util.AppDbProjectIdKey)
 	}
 
-	cred, err := project.ReadCredentials(r.client, kube.ObjectKey(operatorNamespace(), om.APIKeySecretName()))
+	APISecretName, err := om.APIKeySecretName(r.client)
+	if err != nil {
+		return env.PodEnvVars{}, fmt.Errorf("error getting ops-manager API secret name: %s", err)
+	}
+
+	cred, err := project.ReadCredentials(r.client, kube.ObjectKey(operatorNamespace(), APISecretName))
 	if err != nil {
 		return env.PodEnvVars{}, fmt.Errorf("error reading credentials: %s", err)
 	}

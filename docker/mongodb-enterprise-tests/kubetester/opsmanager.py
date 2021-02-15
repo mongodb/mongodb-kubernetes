@@ -166,13 +166,13 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         )
 
     def read_api_key_secret(self, namespace=None) -> client.V1Secret:
-        """ Reads the API key secret for the global admin created by the Operator. Note, that the secret is
+        """Reads the API key secret for the global admin created by the Operator. Note, that the secret is
         located in the Operator namespace - not Ops Manager one, so the 'namespace' parameter must be passed
-        if the Ops Manager is installed in a separate namespace """
+        if the Ops Manager is installed in a separate namespace"""
         if namespace is None:
             namespace = self.namespace
         return client.CoreV1Api().read_namespaced_secret(
-            self.api_key_secret(), namespace
+            self.api_key_secret(namespace), namespace
         )
 
     def read_appdb_generated_password_secret(self) -> client.V1Secret:
@@ -222,7 +222,9 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             namespace = self.namespace
         try:
             KubernetesTester.create_configmap(
-                namespace, config_map_name, data,
+                namespace,
+                config_map_name,
+                data,
             )
         except ApiException as e:
             if e.status != 409:
@@ -237,7 +239,8 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def get_om_tester(self, project_name: Optional[str] = None) -> OMTester:
         """ Returns the instance of OMTester helping to check the state of Ops Manager deployed in Kubernetes. """
         api_key_secret = KubernetesTester.read_secret(
-            KubernetesTester.get_namespace(), self.api_key_secret()
+            KubernetesTester.get_namespace(),
+            self.api_key_secret(KubernetesTester.get_namespace()),
         )
         om_context = OMContext(
             self.om_status().get_url(),
@@ -295,8 +298,17 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             return None
         return self["status"]
 
-    def api_key_secret(self) -> str:
-        return self.name + "-admin-key"
+    def api_key_secret(self, namespace=None) -> str:
+        old_secret_name = self.name + "-admin-key"
+
+        # try to read the old secret, if it's is present return it, else return the new secret name
+        try:
+            client.CoreV1Api().read_namespaced_secret(old_secret_name, namespace)
+        except ApiException as e:
+            if e.status == 404:
+                return "{}-{}-admin-key".format(self.namespace, self.name)
+
+        return old_secret_name
 
     def app_db_name(self) -> str:
         return self.name + "-db"
@@ -339,7 +351,11 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
     class StatusCommon:
         def assert_reaches_phase(
-            self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False,
+            self,
+            phase: Phase,
+            msg_regexp=None,
+            timeout=None,
+            ignore_errors=False,
         ):
             self.ops_manager.wait_for(
                 lambda s: in_desired_state(
@@ -403,7 +419,11 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                 return None
 
         def assert_reaches_phase(
-            self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False,
+            self,
+            phase: Phase,
+            msg_regexp=None,
+            timeout=None,
+            ignore_errors=False,
         ):
             super().assert_reaches_phase(
                 phase,

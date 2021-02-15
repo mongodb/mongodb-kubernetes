@@ -48,8 +48,10 @@ def ops_manager(ops_manager_namespace) -> MongoDBOpsManager:
 @fixture(scope="module")
 def mdb(ops_manager: MongoDBOpsManager, mdb_namespace: str, namespace: str):
     # we need to copy credentials secret - as the global api key secret exists in Operator namespace only
-    data = read_secret(namespace, ops_manager.api_key_secret())
-    create_secret(mdb_namespace, ops_manager.api_key_secret(), data)
+    data = read_secret(namespace, ops_manager.api_key_secret(namespace))
+    # we are now copying the secret from operator to mdb_namespace and the api_key_secret should therefore check for mdb_namespace, later
+    # mongodb.configure will reference this new secret
+    create_secret(mdb_namespace, ops_manager.api_key_secret(mdb_namespace), data)
 
     return (
         MongoDB.from_yaml(

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/scale"
 
@@ -17,8 +18,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	corev1 "k8s.io/api/core/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -56,12 +61,17 @@ func (om MongoDBOpsManager) AddValidationToManager(m manager.Manager) error {
 	return ctrl.NewWebhookManagedBy(m).For(&om).Complete()
 }
 
-func (om MongoDBOpsManager) GetAppDBProjectConfig() mdbv1.ProjectConfig {
+func (om MongoDBOpsManager) GetAppDBProjectConfig(client kubernetesClient.Client) (mdbv1.ProjectConfig, error) {
+	secretName, err := om.APIKeySecretName(client)
+	if err != nil {
+		return mdbv1.ProjectConfig{}, err
+	}
+
 	return mdbv1.ProjectConfig{
 		BaseURL:     om.CentralURL(),
 		ProjectName: om.Spec.AppDB.Name(),
-		Credentials: om.APIKeySecretName(),
-	}
+		Credentials: secretName,
+	}, nil
 }
 
 // +k8s:deepcopy-gen=true
@@ -478,8 +488,24 @@ func (m MongoDBOpsManager) GetStatusPath(options ...status.Option) string {
 	return "/status"
 }
 
-func (m *MongoDBOpsManager) APIKeySecretName() string {
-	return m.Name + "-admin-key"
+// APIKeySecretName returns the secret object name to store the API key to communicate to ops-manager.
+// To ensure backward compatibility it checks if a secret key is present with the old format name({$ops-manager-name}-admin-key),
+// if not it returns the new name format ({$ops-manager-namespace}-${ops-manager-name}-admin-key), to have multiple om deployments
+// with the same name.
+func (m *MongoDBOpsManager) APIKeySecretName(client secret.Getter) (string, error) {
+	oldAPISecretName := fmt.Sprintf("%s-admin-key", m.Name)
+	operatorNamespace := env.ReadOrPanic(util.CurrentNamespace)
+	oldAPIKeySecretNamespacedName := types.NamespacedName{Name: oldAPISecretName, Namespace: operatorNamespace}
+
+	_, err := secret.ReadStringData(client, oldAPIKeySecretNamespacedName)
+	if err != nil {
+		if apiErrors.IsNotFound(err) {
+			return fmt.Sprintf("%s-%s-admin-key", m.Namespace, m.Name), nil
+		}
+
+		return "", err
+	}
+	return oldAPISecretName, nil
 }
 
 func (m *MongoDBOpsManager) BackupStatefulSetName() string {

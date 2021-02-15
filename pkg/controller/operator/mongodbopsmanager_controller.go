@@ -565,8 +565,13 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 	if err != nil {
 		return workflow.Failed("failed to read user data from the secret %s: %s", adminObjectKey, err), nil
 	}
+	APISecretName, err := opsManager.APIKeySecretName(r.client)
+	if err != nil {
+		return workflow.Failed("failed to get ops-manager API key secret name: %s", err).WithRetry(10), nil
+	}
 
-	adminKeySecretName := kube.ObjectKey(operatorNamespace(), opsManager.APIKeySecretName())
+	adminKeySecretName := kube.ObjectKey(operatorNamespace(), APISecretName)
+
 	detailedMsg := fmt.Sprintf("This is a fatal error, as the"+
 		" Operator requires public API key for the admin user to exist. Please create the GLOBAL_ADMIN user in "+
 		"Ops Manager manually and create a secret '%s' with fields '%s' and '%s'", adminKeySecretName, util.OmPublicApiKey,
@@ -629,7 +634,12 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 			detailedMsg, err).WithRetry(30), nil
 	}
 	// Ops Manager api key Secret has the same structure as the MongoDB credentials secret
-	cred, err := project.ReadCredentials(r.client, kube.ObjectKey(operatorNamespace(), opsManager.APIKeySecretName()))
+	APIKeySecretName, err := opsManager.APIKeySecretName(r.client)
+	if err != nil {
+		return workflow.Failed(err.Error()), nil
+	}
+
+	cred, err := project.ReadCredentials(r.client, kube.ObjectKey(operatorNamespace(), APIKeySecretName))
 	if err != nil {
 		return workflow.Failed(err.Error()), nil
 	}

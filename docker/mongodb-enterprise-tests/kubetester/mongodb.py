@@ -167,7 +167,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         )
         # Note that if the MongoDB object is created in a different namespace than the Operator
         # then the secret needs to be copied there manually
-        self["spec"]["credentials"] = om.api_key_secret()
+        self["spec"]["credentials"] = om.api_key_secret(self.namespace)
         return self
 
     def configure_backup(self, mode: str = "enabled") -> MongoDB:
@@ -362,8 +362,8 @@ def in_desired_state(
     intermediate_events: Tuple = (),
 ) -> bool:
 
-    """ Returns true if the current_state is equal to desired state, fails fast if got into Failed error.
-     Optionally checks if the message matches the specified regexp expression"""
+    """Returns true if the current_state is equal to desired state, fails fast if got into Failed error.
+    Optionally checks if the message matches the specified regexp expression"""
     if current_state is None:
         return False
 

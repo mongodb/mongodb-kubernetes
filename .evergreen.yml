@@ -2340,6 +2340,8 @@ buildvariants:
     variant: init_test_run
   - name: build_test_image
     variant: init_test_run
+  - name: build_init_appdb_images_ubuntu
+    variant: init_test_run
   expansions:
     <<: *cloud_manager_qa
     <<: *kubernetes_environment_kind

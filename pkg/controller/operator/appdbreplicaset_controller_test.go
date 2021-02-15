@@ -460,10 +460,12 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 		util.OmPublicApiKey: "apiKey",
 		util.OmUser:         "omUser",
 	}
+	APIKeySecretName, err := opsManager.APIKeySecretName(client)
+	assert.NoError(t, err)
 
 	apiKeySecret := secret.Builder().
 		SetNamespace(operatorNamespace()).
-		SetName(opsManager.APIKeySecretName()).
+		SetName(APIKeySecretName).
 		SetStringData(data).
 		Build()
 
@@ -576,13 +578,16 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 		util.OmUser:         "omUser",
 	}
 
+	APIKeySecretName, err := opsManager.APIKeySecretName(client)
+	assert.NoError(t, err)
+
 	apiKeySecret := secret.Builder().
 		SetNamespace(operatorNamespace()).
-		SetName(opsManager.APIKeySecretName()).
+		SetName(APIKeySecretName).
 		SetStringData(data).
 		Build()
 
-	err := reconciler.client.CreateSecret(apiKeySecret)
+	err = reconciler.client.CreateSecret(apiKeySecret)
 	assert.NoError(t, err)
 
 	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
