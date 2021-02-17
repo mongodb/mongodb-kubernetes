@@ -4,6 +4,7 @@
 ## Kubernetes Operator
 * Bug fixes
   * Fixes an issue which made it not possible do have multiple ops-manager resources with the same name in different namespaces
+  * Fixes an issue which made new MongoDB resources created with `spec.backup.mode=disabled` fail
 ## Miscellaneous
 * Fix errors with CSV
 

@@ -161,7 +161,9 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
 @fixture(scope="module")
 def s3_replica_set(ops_manager, namespace) -> MongoDB:
     resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set-for-om.yaml"), namespace=namespace, name=S3_RS_NAME,
+        yaml_fixture("replica-set-for-om.yaml"),
+        namespace=namespace,
+        name=S3_RS_NAME,
     ).configure(ops_manager, "s3metadata")
 
     yield resource.create()
@@ -196,7 +198,9 @@ def blockstore_user(namespace, blockstore_replica_set: MongoDB) -> MongoDBUser:
     KubernetesTester.create_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),
-        {"password": USER_PASSWORD,},
+        {
+            "password": USER_PASSWORD,
+        },
     )
 
     yield resource.create()
@@ -220,7 +224,9 @@ def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
     KubernetesTester.create_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),
-        {"password": USER_PASSWORD,},
+        {
+            "password": USER_PASSWORD,
+        },
     )
 
     yield resource.create()
@@ -363,7 +369,9 @@ class TestBackupDatabasesAdded:
         ops_manager.update()
 
         ops_manager.backup_status().assert_reaches_phase(
-            Phase.Running, timeout=200, ignore_errors=True,
+            Phase.Running,
+            timeout=200,
+            ignore_errors=True,
         )
 
         assert ops_manager.backup_status().get_message() is None
@@ -450,7 +458,9 @@ class TestOpsManagerWatchesBlockStoreUpdates:
         }
         ops_manager.update()
         ops_manager.backup_status().assert_reaches_phase(
-            Phase.Running, timeout=200, ignore_errors=True,
+            Phase.Running,
+            timeout=200,
+            ignore_errors=True,
         )
         assert ops_manager.backup_status().get_message() is None
 
@@ -514,7 +524,7 @@ class TestBackupForMongodb:
             name="mdb-four-two",
         ).configure(ops_manager, "firstProject")
         resource["spec"]["version"] = ensure_ent_version(custom_mdb_version)
-        resource.configure_backup(mode="enabled")
+        resource.configure_backup(mode="disabled")
         return resource.create()
 
     @fixture(scope="class")
@@ -527,12 +537,22 @@ class TestBackupForMongodb:
             name="mdb-four-zero",
         ).configure(ops_manager, "secondProject")
         resource["spec"]["version"] = ensure_ent_version(custom_mdb_prev_version)
-        resource.configure_backup(mode="enabled")
+        resource.configure_backup(mode="disabled")
         return resource.create()
 
     def test_mdbs_created(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
         mdb_latest.assert_reaches_phase(Phase.Running)
         mdb_prev.assert_reaches_phase(Phase.Running)
+
+    def test_mdbs_enable_backup(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
+        mdb_latest.load()
+        mdb_latest.configure_backup(mode="enabled")
+        mdb_latest.update()
+        mdb_prev.load()
+        mdb_prev.configure_backup(mode="enabled")
+        mdb_prev.update()
+        mdb_prev.assert_reaches_phase(Phase.Running)
+        mdb_latest.assert_reaches_phase(Phase.Running)
 
     def test_mdbs_backuped(self, ops_manager: MongoDBOpsManager):
         om_tester_first = ops_manager.get_om_tester(project_name="firstProject")
@@ -687,7 +707,8 @@ class TestBackupConfigurationAdditionDeletion:
         )
 
     def test_error_on_s3store_removal(
-        self, ops_manager: MongoDBOpsManager,
+        self,
+        ops_manager: MongoDBOpsManager,
     ):
         """ Removing the s3 store when there are backups running is an error """
         ops_manager.reload()

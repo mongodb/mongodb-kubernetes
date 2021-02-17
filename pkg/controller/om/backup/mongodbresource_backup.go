@@ -42,6 +42,13 @@ func EnsureBackupConfigurationInOpsManager(backupSpec *mdbv1.Backup, projectId s
 		okResult.Requeue()
 	}
 
+	// If backup was never enabled and the deployment has `spec.backup.mode=disabled` specified
+	// we don't send this state to OM or we will get
+	// CANNOT_STOP_BACKUP_INVALID_STATE, Detail: Cannot stop backup unless the cluster is in the STARTED state.'
+	if desiredConfig.Status == Stopped && currentConfig.Status == Inactive {
+		return workflow.OK(), nil
+	}
+
 	if desiredConfig.Status == currentConfig.Status {
 		log.Debug("Config is already in the desired state, not updating configuration")
 		// we are already in the desired state, nothing to change
