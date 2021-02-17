@@ -5,9 +5,9 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/construct"
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller/operator/mock"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 )

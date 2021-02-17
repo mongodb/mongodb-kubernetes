@@ -15,10 +15,8 @@ COPY go.sum go.mod /go/src/github.com/10gen/ops-manager-kubernetes/
 WORKDIR /go/src/github.com/10gen/ops-manager-kubernetes
 RUN go mod download
 
-COPY . /go/src/github.com/10gen/ops-manager-kubernetes
 
-RUN go mod vendor
-RUN ./scripts/build/codegen.sh
+COPY . /go/src/github.com/10gen/ops-manager-kubernetes
 
 RUN mkdir /build && go build -i -o /build/mongodb-enterprise-operator \
         -ldflags="-s -w -X github.com/10gen/ops-manager-kubernetes/pkg/util.OperatorVersion=${release_version} \

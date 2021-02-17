@@ -17,7 +17,7 @@ This defaults to creating the crds in `deploy/crds/`
 Generating the CSV file can be done with the following command
 
 ```bash
-operator-sdk generate csv --operator-name mongodb-enterprise --csv-version 1.5.4 --apis-dir pkg/apis/mongodb.com --from-version 1.5.3
+operator-sdk generate csv --operator-name mongodb-enterprise --csv-version 1.5.4 --apis-dir api --from-version 1.5.3
 ```
 
 The default directory the CR examples comes from is `deploy/crds`, but it can be specified

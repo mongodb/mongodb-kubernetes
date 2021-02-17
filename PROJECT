@@ -1,0 +1,21 @@
+domain: mongodb.com
+layout: go.kubebuilder.io/v3
+projectName: ops-manager-kubernetes
+repo: github.com/10gen/ops-manager-kubernetes
+resources:
+- crdVersion: v1
+  group: mdb
+  kind: MongoDB
+  version: v1
+- crdVersion: v1
+  group: om
+  kind: MongoDBOpsManager
+  version: v1
+- crdVersion: v1
+  group: mdbuser
+  kind: MongoDBUser
+  version: v1
+version: 3-alpha
+plugins:
+  manifests.sdk.operatorframework.io/v2: {}
+  scorecard.sdk.operatorframework.io/v2: {}

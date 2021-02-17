@@ -49,7 +49,6 @@ variables:
 
   - &go_options
     GO111MODULE: "on"
-    GOFLAGS: "-mod=vendor"
     GOROOT: "/opt/golang/go1.13"
 
 parameters:
@@ -93,7 +92,7 @@ functions:
       params:
         directory: src/github.com/10gen/ops-manager-kubernetes
 
-  "test_operator":
+  test_operator:
     - command: subprocess.exec
       type: test
       params:
@@ -105,38 +104,7 @@ functions:
         - workdir
         env:
           <<: *go_options
-
-          CONTINUE: "true"
-        binary: scripts/evergreen/build_operator.sh
-
-  "build_operator":
-    - command: subprocess.exec
-      type: setup
-      params:
-        add_to_path:
-        - *go_bin
-        - ${workdir}/bin
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
-        include_expansions_in_env:
-        - workdir
-        - image_type
-        env:
-          SKIP_TESTING: "true"
-
-          <<: *go_options
-
-        binary: scripts/evergreen/build_operator.sh
-
-    - command: s3.put
-      params:
-        aws_key: ${mms_build_s3_aws_access_key}
-        aws_secret: ${mms_build_s3_aws_secret}
-        local_files_include_filter:
-          - src/github.com/10gen/ops-manager-kubernetes/releases/*
-        remote_file: releases/
-        bucket: ops-manager-kubernetes-build
-        permissions: public-read
-        content_type: application/octet-stream
+        command: make test
 
   python_venv: &python_venv
     command: subprocess.exec
@@ -342,12 +310,6 @@ functions:
       - ${workdir}/bin
       binary: scripts/evergreen/setup_kubernetes_environment.sh
 
-  gotest_parse_files:
-    - command: gotest.parse_files
-      type: test
-      params:
-        files: ["*.suite", "src/**/*.suite"]
-
   setup_cloud_qa:
   - command: subprocess.exec
     type: setup
@@ -530,9 +492,7 @@ tasks:
 - name: unit_tests
   tags: ["unit_tests"]
   commands:
-    - func: "setup_jq"
     - func: "test_operator"
-    - func: "gotest_parse_files"
 
 - name: unit_tests_lint
   tags: ["unit_tests"]

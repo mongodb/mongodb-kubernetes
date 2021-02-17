@@ -10,8 +10,8 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/pkg/apis/mongodb.com/v1"
-	"github.com/10gen/ops-manager-kubernetes/pkg/controller"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1"
+	"github.com/10gen/ops-manager-kubernetes/controllers"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/webhook"
 	"go.uber.org/zap"
@@ -102,7 +102,7 @@ func main() {
 
 	// Setup all Controllers
 	var registeredCRDs []string
-	if registeredCRDs, err = controller.AddToManager(mgr, getCrdsToWatchStr()); err != nil {
+	if registeredCRDs, err = controllers.AddToManager(mgr, getCrdsToWatchStr()); err != nil {
 		log.Fatal(err)
 	}
 

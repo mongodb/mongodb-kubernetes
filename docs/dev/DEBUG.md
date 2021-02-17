@@ -68,8 +68,8 @@ You can build the operator again this time with no `--debug` mode with pipeline.
 
 ## Notes
 
-* When calling `scripts/build/build_operator.sh` the binary is *always built with
-debugging symbols enabled.* This is the default when running the operator locally.
+* When calling `make` the binary is *always built with debugging symbols
+enabled.* This is the default when running the operator locally.
 
 * When building the operator using the multi-stage builds, the operator is
   *always built in release mode.* This is the default used in Evergreen.

@@ -360,9 +360,7 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
     )
 
     print("Building operator with debugging symbols")
-    output = subprocess.run(
-        "scripts/build/build_operator.sh", check=True, stdout=subprocess.PIPE
-    )
+    subprocess.run(["make", "manager"], check=True, stdout=subprocess.PIPE)
     print("Done building the operator")
 
     copy_into_container(

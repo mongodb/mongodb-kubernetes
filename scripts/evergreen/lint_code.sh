@@ -13,7 +13,7 @@ if ! [[ -x "$(command -v staticcheck)" ]]; then
 fi
 
 # check for dead code
-PATH=$GOPATH/bin:$PATH staticcheck -checks U1000,SA4006,ST1019,S1005,S1019 ./pkg/controller/...
+PATH=$GOPATH/bin:$PATH staticcheck -checks U1000,SA4006,ST1019,S1005,S1019 ./controllers/...
 
 # some directories are excluded from vetting as they are auto-generated
 vet_exclusions="github.com/10gen/ops-manager-kubernetes/pkg/client/clientset/versioned"

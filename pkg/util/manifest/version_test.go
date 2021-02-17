@@ -7,7 +7,7 @@ import (
 )
 
 func TestVersionManifest_CutLegacyVersions(t *testing.T) {
-	provider := FileProvider{FilePath: "../../controller/operator/testdata/version_manifest.json"}
+	provider := FileProvider{FilePath: "../../../controllers/operator/testdata/version_manifest.json"}
 	manifest, err := provider.GetVersion()
 	assert.NoError(t, err)
 	var versions []string

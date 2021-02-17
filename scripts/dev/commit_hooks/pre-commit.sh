@@ -58,7 +58,7 @@ if ! [[ -x "$(command -v staticcheck)" ]]; then
 fi
 
 # check for dead code
-staticcheck -checks U1000,SA4006,ST1019,S1005,S1019 ./pkg/controller/...
+staticcheck -checks U1000,SA4006,ST1019,S1005,S1019 ./controllers/...
 
 if ! command -v "shellcheck" > /dev/null; then
     echo "Please install shellcheck"
