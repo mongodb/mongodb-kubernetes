@@ -1,14 +1,18 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next release -->
-# MongoDB Enterprise Kubernetes Operator 1.9.2
+# MongoDB Enterprise Kubernetes Operator 1.9.3
 ## Kubernetes Operator
 * Bug fixes
   * Fixes an issue which made it not possible do have multiple ops-manager resources with the same name in different namespaces
   * Fixes an issue which made new MongoDB resources created with `spec.backup.mode=disabled` fail
+
+
+<!-- Past Releases -->
+# MongoDB Enterprise Kubernetes Operator 1.9.2
 ## Miscellaneous
 * Fix errors with CSV
 
-<!-- Past Releases -->
+
 
 # MongoDB Enterprise Kubernetes Operator 1.9.1
 ## Kubernetes Operator

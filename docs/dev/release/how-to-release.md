@@ -12,6 +12,9 @@ The images released are:
 
 ## 1. Update Jira to reflect the patches in the release
 
+**NOTE: this is being phased out. We are starting to remove the usage of `kube-enterprise-next`
+and directly label our tickets with the next expected release version.**
+
 Update any finished tickets in
 [kube-enterprise-next](https://tinyurl.com/kube-next-resolved) to have the
 version of the release you're doing (kube-x.y):
@@ -24,27 +27,11 @@ version of the release you're doing (kube-x.y):
 
 ## 2. Prepare Release Notes
 
-Draft the release notes describing the tickets in the current
-[fixVersion](https://tinyurl.com/kube-next).
+Check the [release notes](../../../RELEASE_NOTES.md) document and make sure that
+they conform to the [release notes template](./release-notes-template.md)
 
-Submit the proposed release notes in the team Slack channel
-([#k8s-operator-devs](https://mongodb.slack.com/messages/CGLP6R2PQ)) for peer
-review. Once people have had a chance to look at them, create a DOCSP ticket to
-publish the release notes. If the DOCSP ticket has not been assigned by
+Create a DOCSP ticket to publish the release notes. If the DOCSP ticket has not been assigned by
 Wednesday, ask about it in the #docs channel.
-
-Ensure there is a link to our quay.io tags, and if there are any Medium or
-higher CVEs **include a section in the release notes**.
-
-```
-A list of the packages installed, and any security vulnerabilities detected in our build process, are outlined here
-
-For the MongoDB Enterprise Operator
-https://quay.io/repository/mongodb/mongodb-enterprise-operator?tab=tags
-
-And for the MongoDB Enterprise Database
-https://quay.io/repository/mongodb/mongodb-enterprise-database?tab=tags
-```
 
 If this is a major-version release, include the EOL date in the Release Notes so
 that the docs team update our [Support Lifecycle
@@ -83,6 +70,12 @@ master.
 
 ## 6. Tag the commit for release
 
+If this is your first time doing a release, make sure your **Github username** is
+on the list of those that can trigger evg versions with git tags:
+
+Go to [the evg project](https://evergreen.mongodb.com/projects##ops-manager-kubernetes) and
+check the list of names under `Github Users/Teams Authorized To Create Versions With Git Tags`
+
 1. Checkout the latest master and pull changes
 2. Create a signed and annotated tag for this particular release. Set the
    message contents to the release notes.
@@ -93,6 +86,11 @@ git pull
 git tag --annotate --sign $(jq --raw-output .mongodbOperator < release.json)
 git push origin $(jq --raw-output .mongodbOperator < release.json)
 ```
+
+Note: there will be two runs on evergreen waterfall: the one triggered by the merge
+and the one triggered by the git tag.
+The one triggered by the git tag will have title `Triggered From Git Tag 'X.Y.Z':` and is
+the correct one to use, as it will ensure that the operator will be built with the correct tag.
 
 ## 7. Build and push images
 

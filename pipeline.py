@@ -179,6 +179,11 @@ def get_release() -> Dict[str, str]:
 
 
 def get_git_release_tag() -> str:
+    release_env_var = os.getenv("triggered_by_git_tag")
+
+    if release_env_var is not None:
+        return release_env_var
+
     output = subprocess.check_output(
         ["git", "describe"],
     )

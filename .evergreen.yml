@@ -138,6 +138,7 @@ functions:
       - skip_tags
       - test_suffix
       - om_version
+      - triggered_by_git_tag
       add_to_path:
       - ${workdir}/bin
       command: "${workdir}/venv/bin/python pipeline.py --include ${image_name}"
@@ -500,11 +501,13 @@ tasks:
     - func: "golint"
 
 - name: release_blocker
+  git_tag_only: true
   commands:
   - func: clone
   - func: release_blocker
 
 - name: release_operator
+  git_tag_only: true
   commands:
   - func: clone
   - func: setup_building_host
@@ -518,6 +521,7 @@ tasks:
 
 # Releases init images to Quay
 - name: release_init_appdb
+  git_tag_only: true
   commands:
   - func: clone
   - func: setup_building_host
@@ -530,6 +534,7 @@ tasks:
       image_name: init-appdb
 
 - name: release_init_database
+  git_tag_only: true
   commands:
   - func: clone
   - func: setup_building_host
@@ -542,6 +547,7 @@ tasks:
       image_name: init-database
 
 - name: release_init_ops_manager
+  git_tag_only: true
   commands:
   - func: clone
   - func: setup_building_host
