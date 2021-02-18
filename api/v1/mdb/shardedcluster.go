@@ -19,8 +19,13 @@ type ShardedClusterComponentSpec struct {
 
 func (s *ShardedClusterComponentSpec) GetAdditionalMongodConfig() AdditionalMongodConfig {
 	if s == nil {
-		return nil
+		return AdditionalMongodConfig{Object: nil}
 	}
+
+	if s.AdditionalMongodConfig.Object == nil {
+		return AdditionalMongodConfig{Object: nil}
+	}
+
 	return s.AdditionalMongodConfig
 }
 

@@ -1,6 +1,7 @@
 package mdb
 
 import (
+	"encoding/json"
 	"sort"
 	"strings"
 
@@ -9,11 +10,31 @@ import (
 	"go.uber.org/zap"
 )
 
-type AdditionalMongodConfig map[string]interface{}
+// The CRD generator does not support map[string]interface{}
+// on the top level and hence we need to work around this with
+// a wrapping struct.
+type AdditionalMongodConfig struct {
+	Object map[string]interface{} `json:"-"`
+}
+
+// Note: The MarshalJSON and UnmarshalJSON need to be explicitly implemented in this case as our wrapper type itself cannot be marshalled/unmarshalled by default. Without this custom logic the values provided in the resource definition will not be set in the struct created.
+// MarshalJSON defers JSON encoding to the wrapped map
+func (m *AdditionalMongodConfig) MarshalJSON() ([]byte, error) {
+	return json.Marshal(m.Object)
+}
+
+// UnmarshalJSON will decode the data into the wrapped map
+func (m *AdditionalMongodConfig) UnmarshalJSON(data []byte) error {
+	if m.Object == nil {
+		m.Object = map[string]interface{}{}
+	}
+	return json.Unmarshal(data, &m.Object)
+}
 
 func NewEmptyAdditionalMongodConfig() AdditionalMongodConfig {
-	return make(map[string]interface{}, 0)
+	return AdditionalMongodConfig{Object: make(map[string]interface{}, 0)}
 }
+
 func NewAdditionalMongodConfig(key string, value interface{}) AdditionalMongodConfig {
 	config := NewEmptyAdditionalMongodConfig()
 	config.AddOption(key, value)
@@ -22,7 +43,7 @@ func NewAdditionalMongodConfig(key string, value interface{}) AdditionalMongodCo
 
 func (c AdditionalMongodConfig) AddOption(key string, value interface{}) AdditionalMongodConfig {
 	keys := strings.Split(key, ".")
-	maputil.SetMapValue(c, value, keys...)
+	maputil.SetMapValue(c.Object, value, keys...)
 	return c
 }
 
@@ -38,7 +59,7 @@ func (c AdditionalMongodConfig) ToFlatList() []string {
 // if no port is specified in the additional mongo args, the default
 // port of 27017 will be used
 func (c AdditionalMongodConfig) GetPortOrDefault() int32 {
-	if c == nil {
+	if c.Object == nil {
 		return util.MongoDbDefaultPort
 	}
 
@@ -48,7 +69,7 @@ func (c AdditionalMongodConfig) GetPortOrDefault() int32 {
 	// works, this value is returned as an int. That's why we read the
 	// port as Int which uses the `cast` library to cast both float32 and int
 	// types into Int.
-	port := maputil.ReadMapValueAsInt(c, "net", "port")
+	port := maputil.ReadMapValueAsInt(c.Object, "net", "port")
 	if port == 0 {
 		return util.MongoDbDefaultPort
 	}
@@ -67,19 +88,19 @@ func (in *AdditionalMongodConfig) DeepCopy() *AdditionalMongodConfig {
 }
 
 func (in *AdditionalMongodConfig) DeepCopyInto(out *AdditionalMongodConfig) {
-	cp, err := util.MapDeepCopy(*in)
+	cp, err := util.MapDeepCopy(in.Object)
 	if err != nil {
 		zap.S().Errorf("Failed to copy the map: %s", err)
 		return
 	}
-	config := AdditionalMongodConfig(cp)
+	config := AdditionalMongodConfig{Object: cp}
 	*out = config
 }
 
 // ToMap creates a copy of the config as a map (Go is quite restrictive to types and sometimes we need to
 // explicitly declare the type as map :( )
 func (c AdditionalMongodConfig) ToMap() map[string]interface{} {
-	cp, err := util.MapDeepCopy(c)
+	cp, err := util.MapDeepCopy(c.Object)
 	if err != nil {
 		zap.S().Errorf("Failed to copy the map: %s", err)
 		return nil

@@ -176,6 +176,7 @@ type MongoDbSpec struct {
 	// each data-bearing mongod at runtime. Uses the same structure as the mongod
 	// configuration file:
 	// https://docs.mongodb.com/manual/reference/configuration-options/
+	// +optional
 	AdditionalMongodConfig AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
 }
 
@@ -894,10 +895,10 @@ func (spec MongoDbSpec) GetTLSMode() SSLMode {
 	}
 
 	// spec.Security.TLSConfig.IsEnabled() is true -> requireSSLMode
-	if spec.AdditionalMongodConfig == nil {
+	if spec.AdditionalMongodConfig.Object == nil {
 		return RequireSSLMode
 	}
-	mode := maputil.ReadMapValueAsString(spec.AdditionalMongodConfig, "net", "ssl", "mode")
+	mode := maputil.ReadMapValueAsString(spec.AdditionalMongodConfig.Object, "net", "ssl", "mode")
 	if mode == "" {
 		return RequireSSLMode
 	}
