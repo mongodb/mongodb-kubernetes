@@ -5,11 +5,15 @@ from pytest import mark, fixture
 
 
 @fixture(scope="module")
-def ops_manager(namespace: str) -> MongoDBOpsManager:
+def ops_manager(
+    namespace: str, custom_version: str, custom_appdb_version: str
+) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(
         find_fixture("om_ops_manager_basic.yaml"), namespace=namespace
     )
 
+    resource.set_version(custom_version)
+    resource.set_appdb_version(custom_appdb_version)
     return resource.create()
 
 
@@ -20,10 +24,10 @@ def test_appdb(ops_manager: MongoDBOpsManager):
 
 @mark.e2e_om_appdb_multi_change
 def test_change_appdb(ops_manager: MongoDBOpsManager):
-    """ This change affects both the StatefulSet spec (agent flags) and the AutomationConfig (mongod config).
+    """This change affects both the StatefulSet spec (agent flags) and the AutomationConfig (mongod config).
     Appdb controller is expected to perform wait after the automation config push so that all the pods got to not ready
     status and the next StatefulSet spec change didn't result in the immediate rolling upgrade.
-     See CLOUDP-73296 for more details. """
+     See CLOUDP-73296 for more details."""
     ops_manager.load()
     ops_manager["spec"]["applicationDatabase"]["agent"] = {
         "startupOptions": {"maxLogFiles": "30"}

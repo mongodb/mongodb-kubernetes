@@ -2,28 +2,21 @@
 
 When we need to release a new OM image version `X.Y.Z`, these are the steps to follow:
 
-## Build new version
-
-To build a new version of Ops Manager we'll use a parameterized Evergreen build:
-
-```bash
-version="4.4.6"
-evergreen patch -v build_ops_manager_images -t all \
-         --param om_version=${version} \
-         -y -f -d "Building Ops Manager ${version}"
-```
-
 ## Publish new version
 
-Currently, it is only possible to run the e2e tests on the newly built image if it is
-pushed to Quay. In order to do this, we have to use another Evergreen task:
+In order to run the e2e tests our images need to be pushed to quay.
+This patch will build and publish the new version of OM.
 
 ```bash
-version="4.4.6"
+version="X.Y.Z"
 evergreen patch -v publish_ops_manager_images -t all \
          --param om_version=${version} \
          -y -f -d "Releasing Ops Manager ${version}"
 ```
+
+This will add version `X.Y.Z` to the list of releases to be published with daily rebuilds, so the image itself will not be present on quay.
+
+We can either wait for the next day, or manually trigger periodic rebuilds ad explained [here](../../running-manual-periodic-builds.md), replacing `-t all` with `-t periodic_build_ops_manager`
 
 ## Create a PR
 If the evergreen patch is successful, create a PR with the following changes:

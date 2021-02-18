@@ -107,7 +107,7 @@ images:
 
     destination:
     - registry: $(inputs.params.quay_registry)
-      tag: $(inputs.params.release_version)-context
+      tag: $(inputs.params.om_version)-context
 
 - name: ops-manager-daily
   vars:
@@ -121,6 +121,8 @@ images:
     - build_id
 
     dockerfile: $(inputs.params.s3_bucket_http)/Dockerfile.ubuntu-$(inputs.params.release_version)
+    buildargs:
+      imagebase: $(inputs.params.quay_registry):$(inputs.params.release_version)-context
 
     output:
     - registry: $(inputs.params.quay_registry)
@@ -135,6 +137,8 @@ images:
     - build_id
 
     dockerfile: $(inputs.params.s3_bucket_http)/Dockerfile.ubi-$(inputs.params.release_version)
+    buildargs:
+      imagebase: $(inputs.params.quay_registry):$(inputs.params.release_version)-context
 
     output:
     - registry: $(inputs.params.quay_registry)-ubi

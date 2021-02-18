@@ -122,20 +122,6 @@ def ops_manager(
 
 
 @fixture(scope="module")
-def s3_bucket_2(aws_s3_client: AwsS3Client) -> str:
-    """ creates a s3 bucket and a s3 config"""
-
-    bucket_name = KubernetesTester.random_k8s_name("test-bucket-")
-    aws_s3_client.create_s3_bucket(bucket_name)
-    print(f"\nCreated S3 bucket {bucket_name}")
-
-    yield bucket_name
-
-    print(f"\nRemoving S3 bucket {bucket_name}")
-    aws_s3_client.delete_s3_bucket(bucket_name)
-
-
-@fixture(scope="module")
 def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
@@ -629,43 +615,10 @@ class TestBackupConfigurationAdditionDeletion:
             [new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)]
         )
 
-    def test_s3_store_is_updated(
-        self,
-        ops_manager: MongoDBOpsManager,
-        s3_bucket_2: str,
-        aws_s3_client: AwsS3Client,
-        oplog_replica_set: MongoDB,
-        s3_replica_set: MongoDB,
-        oplog_user: MongoDBUser,
-    ):
-        ops_manager.reload()
-        existing_s3_store = ops_manager["spec"]["backup"]["s3Stores"][0]
-        existing_s3_store["s3BucketName"] = s3_bucket_2
-
-        ops_manager.update()
-        ops_manager.backup_status().assert_reaches_phase(Phase.Reconciling, timeout=60)
-        ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=600)
-        om_tester = ops_manager.get_om_tester()
-
-        om_tester.assert_oplog_stores(
-            [
-                new_om_data_store(
-                    oplog_replica_set,
-                    "oplog1",
-                    user_name=oplog_user.get_user_name(),
-                    password=USER_PASSWORD,
-                ),
-                new_om_data_store(s3_replica_set, "oplog2"),
-            ]
-        )
-        om_tester.assert_s3_stores(
-            [new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket_2, aws_s3_client)]
-        )
-
     def test_oplog_store_is_deleted_correctly(
         self,
         ops_manager: MongoDBOpsManager,
-        s3_bucket_2: str,
+        s3_bucket: str,
         aws_s3_client: AwsS3Client,
         oplog_replica_set: MongoDB,
         s3_replica_set: MongoDB,
@@ -693,7 +646,7 @@ class TestBackupConfigurationAdditionDeletion:
             ]
         )
         om_tester.assert_s3_stores(
-            [new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket_2, aws_s3_client)]
+            [new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)]
         )
         om_tester.assert_block_stores(
             [

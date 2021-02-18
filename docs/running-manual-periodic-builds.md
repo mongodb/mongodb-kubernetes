@@ -8,7 +8,7 @@ how to run a `patch` using a custom file. This could be resolved in
 can force Evergreen to use our file.
 
 ```
-cp .evergreen-periodic-builds.yaml .evergreen.yaml
+cp .evergreen-periodic-builds.yaml .evergreen.yml
 evergreen patch -p ops-manager-kubernetes -v periodic_build -t all -y -f -d "Running Periodic Builds" -u --browse
 cp .evergreen.yml .evergreen-periodic-builds.yaml
 
